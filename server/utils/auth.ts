@@ -10,5 +10,21 @@ export const auth = betterAuth({
   }),
   emailAndPassword: {
     enabled: true
+  },
+  user: {
+    additionalFields: {
+      balance: {
+        type: 'string',
+        required: false,
+        defaultValue: '0',
+        input: false,
+      },
+      gems: {
+        type: 'number',
+        required: false,
+        defaultValue: 0,
+        input: false,
+      },
+    }
   }
 })

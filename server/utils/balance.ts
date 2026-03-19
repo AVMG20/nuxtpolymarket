@@ -1,0 +1,37 @@
+import { eq, sql, desc } from 'drizzle-orm'
+import { db } from '../database'
+import { user, transactions } from '../database/schema'
+
+export async function credit(userId: string, amount: string, type = 'deposit') {
+  await db.transaction(async (tx) => {
+    await tx.insert(transactions).values({ userId, amount, type })
+    await tx.update(user)
+      .set({ balance: sql`${user.balance} + ${amount}::numeric` })
+      .where(eq(user.id, userId))
+  })
+}
+
+export async function debit(userId: string, amount: string, type = 'withdrawal') {
+  await db.transaction(async (tx) => {
+    await tx.insert(transactions).values({ userId, amount: `-${amount}`, type })
+    await tx.update(user)
+      .set({ balance: sql`${user.balance} - ${amount}::numeric` })
+      .where(eq(user.id, userId))
+  })
+}
+
+export async function getBalance(userId: string) {
+  const result = await db.query.user.findFirst({
+    where: eq(user.id, userId),
+    columns: { balance: true },
+  })
+  return result?.balance ?? '0'
+}
+
+export async function getHistory(userId: string, limit = 50) {
+  return db.query.transactions.findMany({
+    where: eq(transactions.userId, userId),
+    orderBy: desc(transactions.createdAt),
+    limit,
+  })
+}

@@ -162,15 +162,15 @@ function setNeutral(color: string) {
           class="flex items-center justify-between px-1 transition-opacity duration-200"
           :class="isCollapsed ? 'opacity-0 h-0 overflow-hidden' : 'opacity-100'"
         >
-          <UTooltip :text="formatNumber(14675.987, false)">
+          <UTooltip :text="session?.user?.balance ?? '0'">
             <div class="flex items-center gap-1.5">
               <UIcon name="i-lucide-coins" class="size-4 text-yellow-400 shrink-0" />
-              <span class="text-sm font-semibold" >{{ formatNumber(14675.987) }}</span>
+              <span class="text-sm font-semibold">{{ formatNumber(parseFloat(session?.user?.balance ?? '0')) }}</span>
             </div>
           </UTooltip>
           <div class="flex items-center gap-1.5">
             <UIcon name="i-lucide-gem" class="size-4 text-cyan-400 shrink-0" />
-            <span class="text-sm font-semibold">{{ formatNumber(5363) }}</span>
+            <span class="text-sm font-semibold">{{ formatNumber(session?.user?.gems ?? 0) }}</span>
           </div>
         </div>
         <!-- Balance: icons only when collapsed -->
