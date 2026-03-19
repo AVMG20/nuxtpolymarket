@@ -24,24 +24,24 @@ async function signOut() {
 
 const platformItems: NavigationMenuItem[] = [
   { label: 'Games', class: 'mb-1', icon: 'i-lucide-house', to: '/' },
-  { label: 'Leaderboard', class: 'mb-1', icon: 'i-lucide-trophy', to: '/leaderboard' },
-  { label: 'Miner', class: 'mb-1', icon: 'i-lucide-pickaxe', to: '/miner' },
-  { label: 'Xeno', class: 'mb-1', icon: 'i-lucide-biohazard', to: '/xeno' },
-  { label: 'Betting', class: 'mb-1', icon: 'i-lucide-dollar-sign', to: '/betting' },
+  { label: 'Leaderboard', class: 'mb-1', icon: 'i-lucide-trophy', to: '/login' },
+  { label: 'Miner', class: 'mb-1', icon: 'i-lucide-pickaxe', to: '/login' },
+  { label: 'Xeno', class: 'mb-1', icon: 'i-lucide-biohazard', to: '/login' },
+  { label: 'Betting', class: 'mb-1', icon: 'i-lucide-dollar-sign', to: '/login' },
 ]
 
 const gameItems: NavigationMenuItem[] = [
-  { label: 'Tower', class: 'mb-1', icon: 'i-lucide-layout-grid', to: '/games/tower' },
-  { label: 'Snako', class: 'mb-1', icon: 'i-lucide-gamepad-2', to: '/games/snako' },
-  { label: 'Slots', class: 'mb-1', icon: 'i-lucide-coins', to: '/games/slots' },
-  { label: 'Blackjack', class: 'mb-1', icon: 'i-lucide-diamond', to: '/games/blackjack' },
-  { label: 'Blast', class: 'mb-1', icon: 'i-lucide-circle-dot', to: '/games/blast' },
-  { label: 'Harvest', class: 'mb-1', icon: 'i-lucide-shopping-basket', to: '/games/harvest' },
-  { label: 'Neon', class: 'mb-1', icon: 'i-lucide-heart', to: '/games/neon' },
-  { label: 'Jars', class: 'mb-1', icon: 'i-lucide-archive', to: '/games/jars' },
-  { label: 'Lightning', class: 'mb-1', icon: 'i-lucide-zap', to: '/games/lightning' },
-  { label: 'Titans', class: 'mb-1', icon: 'i-lucide-cpu', to: '/games/titans' },
-  { label: 'Cyber', class: 'mb-1', icon: 'i-lucide-skull', to: '/games/cyber' },
+  { label: 'Tower', class: 'mb-1', icon: 'i-lucide-layout-grid', to: '/login'},
+  { label: 'Snako', class: 'mb-1', icon: 'i-lucide-gamepad-2', to: '/login'},
+  { label: 'Slots', class: 'mb-1', icon: 'i-lucide-coins', to: '/login'},
+  { label: 'Blackjack', class: 'mb-1', icon: 'i-lucide-diamond', to: '/login'},
+  { label: 'Blast', class: 'mb-1', icon: 'i-lucide-circle-dot', to: '/login'},
+  { label: 'Harvest', class: 'mb-1', icon: 'i-lucide-shopping-basket', to: '/login'},
+  { label: 'Neon', class: 'mb-1', icon: 'i-lucide-heart', to: '/login'},
+  { label: 'Jars', class: 'mb-1', icon: 'i-lucide-archive', to: '/login'},
+  { label: 'Lightning', class: 'mb-1', icon: 'i-lucide-zap', to: '/login'},
+  { label: 'Titans', class: 'mb-1', icon: 'i-lucide-cpu', to: '/login'},
+  { label: 'Cyber', class: 'mb-1', icon: 'i-lucide-skull', to: '/login'},
 ]
 
 const primaryColors = [
@@ -60,22 +60,24 @@ const colorHex: Record<string, string> = {
   neutral: '#737373', stone: '#78716c',
 }
 
+const themePrimary = useCookie('theme-primary', { default: () => 'primary' })
+const themeNeutral = useCookie('theme-neutral', { default: () => 'neutral' })
+
+// Apply on mount (and SSR will already have the cookie value)
+watchEffect(() => {
+  if (themePrimary.value) appConfig.ui.colors.primary = themePrimary.value
+  if (themeNeutral.value) appConfig.ui.colors.neutral = themeNeutral.value
+})
+
 function setPrimary(color: string) {
+  themePrimary.value = color
   appConfig.ui.colors.primary = color
-  localStorage.setItem('theme-primary', color)
 }
 
 function setNeutral(color: string) {
+  themeNeutral.value = color
   appConfig.ui.colors.neutral = color
-  localStorage.setItem('theme-neutral', color)
 }
-
-onMounted(() => {
-  const primary = localStorage.getItem('theme-primary')
-  const neutral = localStorage.getItem('theme-neutral')
-  if (primary) appConfig.ui.colors.primary = primary
-  if (neutral) appConfig.ui.colors.neutral = neutral
-})
 </script>
 
 <template>
