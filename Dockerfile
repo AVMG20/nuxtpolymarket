@@ -9,6 +9,19 @@ COPY . .
 RUN bun run build
 
 # ---
+FROM oven/bun:1.3.10-alpine AS migrator
+
+WORKDIR /app
+
+COPY package.json bun.lock* ./
+RUN bun install --frozen-lockfile
+
+COPY drizzle.config.ts ./
+COPY server/database ./server/database
+
+CMD ["bunx", "drizzle-kit", "push", "--force"]
+
+# ---
 
 FROM oven/bun:1.3.10-alpine
 
