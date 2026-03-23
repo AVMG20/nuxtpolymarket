@@ -1,6 +1,7 @@
 <script setup lang="ts">
 definePageMeta({ layout: 'auth', auth: false })
 const { signUp: authSignUp } = useAuth()
+const router = useRouter()
 
 const name = ref('')
 const email = ref('')
@@ -18,6 +19,7 @@ async function signUp() {
     callbackURL: '/'
   })
   if (err) error.value = err.message ?? 'Registration failed'
+  if (!err) await router.push('/')
   loading.value = false
 }
 </script>
