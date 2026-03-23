@@ -1,5 +1,8 @@
 <script setup lang="ts">
+import { authClient } from '~/utils/auth-client'
+
 const { data: state, refresh } = await useFetch('/api/miner/state')
+const { refetch: refetchSession } = authClient.useSession()
 const toast = useToast()
 
 const buying = ref<string | null>(null)
@@ -49,7 +52,7 @@ async function purchase(item: typeof shopItems[number]) {
   try {
     await $fetch(item.endpoint, { method: 'POST' })
     toast.add({ title: `${item.label} purchased!`, color: 'success' })
-    await refresh()
+    await Promise.all([refresh(), refetchSession()])
   } catch (e: any) {
     toast.add({ title: e.data?.message ?? 'Purchase failed', color: 'error' })
   } finally {
