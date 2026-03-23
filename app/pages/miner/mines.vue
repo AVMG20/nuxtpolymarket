@@ -158,6 +158,38 @@ function tileValueColor(value: number) {
             {{ playsRemaining > 0 ? `${playsRemaining} play${playsRemaining !== 1 ? 's' : ''} remaining today` : 'All plays used — come back tomorrow' }}
           </p>
         </UCard>
+
+
+        <!-- Filler -->
+        <div></div>
+
+        <!-- Extra Play -->
+        <UCard>
+          <template #header>
+            <div class="flex items-center gap-2.5">
+              <div class="size-8 rounded-lg bg-secondary/15 flex items-center justify-center">
+                <UIcon name="i-lucide-plus-circle" class="size-4 text-secondary" />
+              </div>
+              <div>
+                <p class="font-semibold text-sm">Extra Play</p>
+                <p class="text-xs text-muted">Restore 1 used play — costs 1 gem.</p>
+              </div>
+            </div>
+          </template>
+          <UButton
+              label="Buy Extra Play"
+              icon="i-lucide-plus-circle"
+              block
+              color="secondary"
+              :loading="buyingExtraPlay"
+              :disabled="(user?.gems ?? 0) < 1 || playsRemaining >= (state?.minesCount ?? 0)"
+              @click="buyExtraPlay"
+          >
+            <template #trailing>
+              <span class="text-xs opacity-70">Cost: 1 gem</span>
+            </template>
+          </UButton>
+        </UCard>
       </div>
 
       <!-- Single game — full width -->
@@ -218,40 +250,12 @@ function tileValueColor(value: number) {
         <UButton
             :label="!gameResult ? 'Game active — click any tile' : playsRemaining <= 0 ? 'No plays remaining today' : 'Play Again'"
             :icon="gameResult && playsRemaining > 0 ? 'i-lucide-refresh-cw' : undefined"
-            color="neutral"
-            variant="soft"
+            :color="gameResult && playsRemaining > 0 ? 'primary' : 'neutral'"
+            :variant="gameResult && playsRemaining > 0 ? 'solid' : 'soft'"
             block
             :disabled="!gameResult || playsRemaining <= 0"
             @click="gameResult && playsRemaining > 0 && playAgain()"
         />
-      </UCard>
-
-      <!-- Extra Play -->
-      <UCard>
-        <template #header>
-          <div class="flex items-center gap-2.5">
-            <div class="size-8 rounded-lg bg-warning/15 flex items-center justify-center">
-              <UIcon name="i-lucide-plus-circle" class="size-4 text-warning" />
-            </div>
-            <div>
-              <p class="font-semibold text-sm">Extra Play</p>
-              <p class="text-xs text-muted">Restore 1 used play — costs 1 gem.</p>
-            </div>
-          </div>
-        </template>
-        <UButton
-            label="Buy Extra Play"
-            icon="i-lucide-plus-circle"
-            block
-            color="warning"
-            :loading="buyingExtraPlay"
-            :disabled="(user?.gems ?? 0) < 1 || playsRemaining >= (state?.minesCount ?? 0)"
-            @click="buyExtraPlay"
-        >
-          <template #trailing>
-            <span class="text-xs opacity-70">Cost: 1 gem</span>
-          </template>
-        </UButton>
       </UCard>
 
     </template>

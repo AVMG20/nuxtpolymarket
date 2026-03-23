@@ -4,7 +4,6 @@ const gems = computed(() => user.value?.gems ?? 0)
 const { data: state, refresh } = await useFetch('/api/miner/state')
 
 const toast = useToast()
-
 const buying = ref<string | null>(null)
 
 const shopItems = [
@@ -13,7 +12,7 @@ const shopItems = [
     label: 'Instant Fill',
     description: 'Max out your Money Miner storage instantly.',
     icon: 'i-lucide-zap',
-    color: 'warning' as const,
+    color: 'secondary' as const,
     cost: 5,
     endpoint: '/api/miner/shop/instant-fill',
   },
@@ -22,7 +21,7 @@ const shopItems = [
     label: 'Double Win',
     description: '2x earnings on your next game win (capped at 1500).',
     icon: 'i-lucide-sparkles',
-    color: 'success' as const,
+    color: 'primary' as const,
     cost: 5,
     endpoint: null,
   },
@@ -40,7 +39,7 @@ const shopItems = [
     label: 'Quick Cash',
     description: 'Convert 1 Gem into 200,- instantly.',
     icon: 'i-lucide-coins',
-    color: 'success' as const,
+    color: 'primary' as const,
     cost: 1,
     endpoint: '/api/miner/shop/quick-cash',
   },
