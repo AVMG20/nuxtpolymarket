@@ -63,7 +63,6 @@ async function purchase(item: typeof shopItems[number]) {
 
 <template>
   <UContainer class="space-y-6">
-    <UButton @click="() => {fetchSession(); console.log(1)}">123</UButton>
     <!-- Header -->
     <div class="flex items-center justify-between">
       <div>

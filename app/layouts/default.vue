@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import type { NavigationMenuItem } from '@nuxt/ui'
-const { user, signOut: authSignOut } = useAuth()
+
+const { user, signOut: authSignOut, fetchSession } = useAuth()
+await fetchSession()
 const appConfig = useAppConfig()
 const collapsed = ref(false)
 const mobileOpen = ref(false)
 const menuOpen = ref(false)
-
-console.log(user)
 
 // Only collapse nav on desktop — on mobile always show full content
 const isDesktop = ref(true)

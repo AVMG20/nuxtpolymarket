@@ -1,5 +1,5 @@
 <script setup lang="ts">
-const { fetchSession } = useAuth()
+const { fetchSession, user } = useAuth()
 const { data: state, refresh } = await useFetch('/api/miner/state')
 
 // Real-time accumulation: interpolate locally since last fetch
@@ -74,6 +74,7 @@ async function upgradeVault() {
 
 <template>
   <UContainer class="space-y-6">
+
     <!-- Header -->
     <div class="flex items-center justify-between">
       <div>
