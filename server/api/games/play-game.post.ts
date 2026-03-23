@@ -1,5 +1,5 @@
-import { auth } from '../../utils/auth'
-import { debit, credit, getBalance } from '../../utils/balance'
+import { auth } from '#server/utils/auth'
+import { debit, credit, getBalance } from '#server/utils/balance'
 import { GAMES_REGISTRY, isValidGame } from '#shared/utils/games-registry'
 
 export default defineEventHandler(async (event) => {

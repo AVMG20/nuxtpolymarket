@@ -1,5 +1,6 @@
 <script setup lang="ts">
-const { fetchSession } = useAuth()
+const { fetchSession, user } = useAuth()
+const balance = computed(() => parseFloat(user.value?.balance ?? '0'))
 const { data: state, refresh } = await useFetch('/api/miner/state')
 
 const fetchedAt = ref(Date.now())
@@ -145,7 +146,7 @@ async function upgradeFactory() {
           block
           color="primary"
           :loading="upgrading"
-          :disabled="state.factoryLevel >= state.factoryMaxLevel"
+          :disabled="state.factoryLevel >= state.factoryMaxLevel || balance < state.factoryUpgradeCost"
           @click="upgradeFactory"
         >
           <template #trailing>

@@ -13,7 +13,33 @@
 Always use Nuxt UI semantic color tokens instead of arbitrary hex or raw Tailwind palette values when possible. Prefer:
 - `text-primary`, `bg-primary`, `border-primary`, etc. for the theme accent
 - `text-muted`, `bg-elevated`, `bg-background`, `border-default` for surfaces and subtle text
-- Named palette colors (`text-yellow-400`, `text-cyan-400`, …) only when the color has a fixed semantic meaning (e.g. coins = yellow, gems = cyan) and a dynamic theme token doesn't make sense
+
+## Client-side auth — `app/composables/auth.ts`
+
+Auto-imported composable. Provides session state and auth actions.
+
+```ts
+const { user, fetchSession, signOut } = useAuth()
+
+// user is a reactive ref — access fields directly:
+user.value?.name
+user.value?.email
+user.value?.balance  // numeric string, e.g. "1234.5000"
+user.value?.gems     // integer
+
+// Parse balance for comparisons/display:
+const balance = computed(() => parseFloat(user.value?.balance ?? '0'))
+
+// Refresh session after server-side changes (e.g. after a purchase):
+await fetchSession()
+```
+
+Always call `fetchSession()` after any action that mutates the user's balance or gems so the UI stays in sync.
+
+To disable a purchase button when the user can't afford it:
+```vue
+:disabled="balance < cost"
+```
 
 ## Utilities
 
@@ -31,16 +57,16 @@ Always use this when displaying balance or gem amounts in the UI.
 
 ## Server-side balance — `server/utils/balance.ts`
 
-Import from `~/server/utils/balance`. All functions run inside a Drizzle transaction and record a corresponding row in the `transactions` table.
+All functions run inside a Drizzle transaction and record a corresponding row in the `transactions` table. `debit` throws a `400` if the user has insufficient balance — no need to check manually.
 
 ```ts
-import { credit, debit, getBalance, getHistory } from '~/server/utils/balance'
+import { credit, debit, getBalance, getHistory } from '#server/utils/balance'
 
 // Add money to a user
 await credit(userId, '100.00', 'category?')   // amount is a numeric string
 
-// Remove money from a user
-await debit(userId, '25.50', 'category?')     // amount is a numeric string
+// Remove money from a user (throws 400 if insufficient)
+await debit(userId, '25.50', 'category?')
 
 // Read current balance (returns numeric string)
 const balance = await getBalance(userId)
@@ -65,4 +91,10 @@ const history = await getHistory(userId, 50)
   const session = await auth.api.getSession({ headers: event.headers })
   if (!session?.user?.id) throw createError({ statusCode: 401, statusMessage: 'Unauthorized' })
   ```
-- Import `db` from `~/server/database` and schema tables from `~/server/database/schema`
+- Use `#server/` path aliases for all server-side imports:
+  ```ts
+  import { db } from '#server/database'
+  import { user, minerState } from '#server/database/schema'
+  import { auth } from '#server/utils/auth'
+  import { credit, debit } from '#server/utils/balance'
+  ```

@@ -1,7 +1,7 @@
 import { sql, eq, gte, and, desc } from 'drizzle-orm'
-import { db } from '../../database'
-import { transactions } from '../../database/schema'
-import { auth } from '../../utils/auth'
+import { db } from '#server/database'
+import { transactions } from '#server/database/schema'
+import { auth } from '#server/utils/auth'
 
 export default defineEventHandler(async (event) => {
   const session = await auth.api.getSession({ headers: event.headers })

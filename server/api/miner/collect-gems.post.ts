@@ -1,7 +1,7 @@
 import { eq, sql } from 'drizzle-orm'
-import { db } from '../../database'
-import { minerState, user } from '../../database/schema'
-import { auth } from '../../utils/auth'
+import { db } from '#server/database'
+import { minerState, user } from '#server/database/schema'
+import { auth } from '#server/utils/auth'
 import { factoryRate, factoryCap, computePending } from './_config'
 
 export default defineEventHandler(async (event) => {

@@ -1,9 +1,9 @@
 import { eq } from 'drizzle-orm'
-import { db } from '../../database'
-import { minerState, user } from '../../database/schema'
-import { auth } from '../../utils/auth'
+import { db } from '#server/database'
+import { minerState, user } from '#server/database/schema'
+import { auth } from '#server/utils/auth'
 import { rigIncome, vaultCap, rigUpgradeCost, computePending, RIG_MAX_LEVEL } from './_config'
-import { credit, debit, getBalance } from '../../utils/balance'
+import { credit, debit, getBalance } from '#server/utils/balance'
 
 export default defineEventHandler(async (event) => {
   const session = await auth.api.getSession({ headers: event.headers })

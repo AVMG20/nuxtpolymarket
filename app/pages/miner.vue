@@ -14,13 +14,13 @@ const activeTab = computed(() => route.path)
 <template>
   <div class="flex flex-col min-h-full">
     <!-- Tab bar -->
-    <div class="border-b pt-3.5 border-default px-6 pb-0 shrink-0">
+    <div class="border-b border-default px-6 pb-0 shrink-0">
       <div class="flex items-center gap-1">
         <NuxtLink
           v-for="tab in tabs"
           :key="tab.to"
           :to="tab.to"
-          class="flex items-center gap-2 px-4 py-2.5 text-sm font-medium rounded-t-lg border border-transparent border-b-0 transition-colors"
+          class="flex items-center gap-2 px-4 py-2.5 text-sm font-medium rounded-t-lg  transition-colors"
           :class="activeTab === tab.to
             ? 'bg-background border-default text-highlighted -mb-px'
             : 'text-muted hover:text-default'"

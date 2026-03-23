@@ -13,6 +13,9 @@ export async function credit(userId: string, amount: string, category?: string) 
 
 export async function debit(userId: string, amount: string, category?: string) {
   await db.transaction(async (tx) => {
+    const current = await tx.query.user.findFirst({ where: eq(user.id, userId), columns: { balance: true } })
+    if (!current || parseFloat(current.balance) < parseFloat(amount))
+      throw createError({ statusCode: 400, statusMessage: 'Insufficient balance' })
     await tx.insert(transactions).values({ userId, amount, type: 'debit', category })
     await tx.update(user)
       .set({ balance: sql`${user.balance} - ${amount}::numeric` })

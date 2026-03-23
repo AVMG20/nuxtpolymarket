@@ -1,5 +1,6 @@
 <script setup lang="ts">
 const { fetchSession, user } = useAuth()
+const balance = computed(() => parseFloat(user.value?.balance ?? '0'))
 const { data: state, refresh } = await useFetch('/api/miner/state')
 
 // Real-time accumulation: interpolate locally since last fetch
@@ -159,7 +160,7 @@ async function upgradeVault() {
             icon="i-lucide-arrow-up"
             block
             :loading="upgradingRig"
-            :disabled="state.rigLevel >= state.rigMaxLevel"
+            :disabled="state.rigLevel >= state.rigMaxLevel || balance < state.rigUpgradeCost"
             @click="upgradeRig"
           >
             <template #trailing>
@@ -198,7 +199,7 @@ async function upgradeVault() {
             color="secondary"
             block
             :loading="upgradingVault"
-            :disabled="state.vaultLevel >= state.vaultMaxLevel"
+            :disabled="state.vaultLevel >= state.vaultMaxLevel || balance < state.vaultUpgradeCost"
             @click="upgradeVault"
           >
             <template #trailing>

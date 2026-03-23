@@ -1,11 +1,12 @@
 import { eq } from 'drizzle-orm'
-import { db } from '../../database'
-import { minerState, user } from '../../database/schema'
-import { auth } from '../../utils/auth'
+import { db } from '#server/database'
+import { minerState, user } from '#server/database/schema'
+import { auth } from '#server/utils/auth'
 import {
   rigIncome, vaultCap, rigUpgradeCost, vaultUpgradeCost,
   factoryRate, factoryCap, factoryUpgradeCost, computePending,
   RIG_MAX_LEVEL, VAULT_MAX_LEVEL, FACTORY_MAX_LEVEL,
+  minesPurchaseCost, MINES_MAX_COUNT,
 } from './_config'
 
 export default defineEventHandler(async (event) => {
@@ -49,5 +50,13 @@ export default defineEventHandler(async (event) => {
     pendingGems,
     factoryLastCollectedAt: s.factoryLastCollectedAt,
     gems: currentUser?.gems ?? 0,
+    minesCount: s.minesCount,
+    minesMaxCount: MINES_MAX_COUNT,
+    minesNextCost: minesPurchaseCost(s.minesCount),
+    minesPlaysRemaining: (() => {
+      const today = new Date().toISOString().slice(0, 10)
+      const used = s.minesPlaysDate === today ? s.minesTodayPlays : 0
+      return Math.max(0, s.minesCount - used)
+    })(),
   }
 })

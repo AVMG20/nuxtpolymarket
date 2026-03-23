@@ -47,9 +47,9 @@ const colorHex: Record<string, string> = {
   neutral: '#737373', stone: '#78716c',
 }
 
-const themePrimary = useCookie('theme-primary', { default: () => 'primary' })
-const themeSecondary = useCookie('theme-secondary', { default: () => 'secondary' })
-const themeNeutral = useCookie('theme-neutral', { default: () => 'neutral' })
+const themePrimary = useCookie('theme-primary', { default: () => appConfig.ui.colors.primary ?? 'green' })
+const themeSecondary = useCookie('theme-secondary', { default: () => appConfig.ui.colors.secondary ?? 'green' })
+const themeNeutral = useCookie('theme-neutral', { default: () => appConfig.ui.colors.neutral ?? 'zinc' })
 
 // Apply on mount (and SSR will already have the cookie value)
 watchEffect(() => {
@@ -156,16 +156,18 @@ function setNeutral(color: string) {
           class="flex items-center justify-between px-1 transition-opacity duration-200"
           :class="isCollapsed ? 'opacity-0 h-0 overflow-hidden' : 'opacity-100'"
         >
-          <UTooltip :text="user?.balance ?? '0'">
-            <div class="flex items-center gap-1.5">
-              <UIcon name="i-lucide-coins" class="size-4 text-yellow-400 shrink-0" />
+          <UTooltip :text="formatNumber(parseFloat(user?.balance ?? '0'),false)">
+            <div class="flex items-center cursor-default gap-1.5">
+              <UIcon name="i-lucide-coins" class="size-4 text-yellow-400 shrink-0"/>
               <span class="text-sm font-semibold">{{ formatNumber(parseFloat(user?.balance ?? '0')) }}</span>
             </div>
           </UTooltip>
-          <div class="flex items-center gap-1.5">
-            <UIcon name="i-lucide-gem" class="size-4 text-cyan-400 shrink-0" />
-            <span class="text-sm font-semibold">{{ formatNumber(user?.gems ?? 0) }}</span>
-          </div>
+          <UTooltip :text="formatNumber(user?.gems ?? 0,false)">
+            <div class="flex items-center cursor-default gap-1.5">
+              <UIcon name="i-lucide-gem" class="size-4 text-cyan-400 shrink-0"/>
+              <span class="text-sm font-semibold">{{ formatNumber(user?.gems ?? 0) }}</span>
+            </div>
+          </UTooltip>
         </div>
         <!-- Balance: icons only when collapsed -->
         <div
