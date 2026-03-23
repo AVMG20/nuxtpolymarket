@@ -3,25 +3,14 @@ FROM oven/bun:1.3.10-alpine AS builder
 WORKDIR /app
 
 COPY package.json bun.lock* ./
+COPY drizzle.config.ts ./
+COPY server/database ./server/database
 RUN bun install --frozen-lockfile
+RUN bunx drizzle-kit push --force
 
 COPY . .
 RUN bun run build
 
-# ---
-FROM oven/bun:1.3.10-alpine AS migrator
-
-WORKDIR /app
-
-COPY package.json bun.lock* ./
-RUN bun install --frozen-lockfile
-
-COPY drizzle.config.ts ./
-COPY server/database ./server/database
-
-CMD ["bunx", "drizzle-kit", "push", "--force"]
-
-# ---
 
 FROM oven/bun:1.3.10-alpine
 
