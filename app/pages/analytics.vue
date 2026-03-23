@@ -130,7 +130,7 @@ const xPerfTicks = (i: number) => {
   return format(lineChartData.value[i]!.date, 'HH:mm')
 }
 
-const perfTooltip = (d: PerfPoint) => `${format(d.date, 'HH:mm')} — ${formatNumber(d.value)}`
+const perfTooltip = (d: PerfPoint) => formatNumber(d.value)
 
 const mounted = ref(false)
 onMounted(() => setTimeout(() => { mounted.value = true }, 50))
