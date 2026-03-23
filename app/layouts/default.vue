@@ -49,18 +49,24 @@ const colorHex: Record<string, string> = {
 }
 
 const themePrimary = useCookie('theme-primary', { default: () => 'primary' })
+const themeSecondary = useCookie('theme-secondary', { default: () => 'secondary' })
 const themeNeutral = useCookie('theme-neutral', { default: () => 'neutral' })
 
 // Apply on mount (and SSR will already have the cookie value)
 watchEffect(() => {
   if (themePrimary.value) appConfig.ui.colors.primary = themePrimary.value
+  if (themeSecondary.value) appConfig.ui.colors.secondary = themeSecondary.value
   if (themeNeutral.value) appConfig.ui.colors.neutral = themeNeutral.value
 })
-
 
 function setPrimary(color: string) {
   themePrimary.value = color
   appConfig.ui.colors.primary = color
+}
+
+function setSecondary(color: string) {
+  themeSecondary.value = color
+  appConfig.ui.colors.secondary = color
 }
 
 function setNeutral(color: string) {
@@ -215,6 +221,20 @@ function setNeutral(color: string) {
                       :style="{ backgroundColor: colorHex[color] }"
                       :title="color"
                       @click="setPrimary(color)"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <p class="text-xs font-medium text-muted mb-1.5">Secondary</p>
+                  <div class="flex flex-wrap gap-1">
+                    <button
+                      v-for="color in primaryColors"
+                      :key="color"
+                      class="size-4 rounded-full transition-transform hover:scale-110"
+                      :class="appConfig.ui.colors.secondary === color ? 'ring-2 ring-offset-1 ring-offset-background ring-white/80' : ''"
+                      :style="{ backgroundColor: colorHex[color] }"
+                      :title="color"
+                      @click="setSecondary(color)"
                     />
                   </div>
                 </div>
