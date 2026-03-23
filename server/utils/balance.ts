@@ -2,18 +2,18 @@ import { eq, sql, desc } from 'drizzle-orm'
 import { db } from '../database'
 import { user, transactions } from '../database/schema'
 
-export async function credit(userId: string, amount: string, type = 'deposit') {
+export async function credit(userId: string, amount: string, category?: string) {
   await db.transaction(async (tx) => {
-    await tx.insert(transactions).values({ userId, amount, type })
+    await tx.insert(transactions).values({ userId, amount, type: 'credit', category })
     await tx.update(user)
       .set({ balance: sql`${user.balance} + ${amount}::numeric` })
       .where(eq(user.id, userId))
   })
 }
 
-export async function debit(userId: string, amount: string, type = 'withdrawal') {
+export async function debit(userId: string, amount: string, category?: string) {
   await db.transaction(async (tx) => {
-    await tx.insert(transactions).values({ userId, amount: `-${amount}`, type })
+    await tx.insert(transactions).values({ userId, amount, type: 'debit', category })
     await tx.update(user)
       .set({ balance: sql`${user.balance} - ${amount}::numeric` })
       .where(eq(user.id, userId))

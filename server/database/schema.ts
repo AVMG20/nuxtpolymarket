@@ -25,6 +25,7 @@ export const transactions = pgTable(
       .references(() => user.id, { onDelete: "cascade" }),
     amount: numeric("amount", { precision: 19, scale: 4 }).notNull(),
     type: text("type").notNull(),
+    category: text("category"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
   (table) => [index("transactions_userId_idx").on(table.userId)],

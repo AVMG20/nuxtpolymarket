@@ -25,23 +25,10 @@ async function signOut() {
 const platformItems: NavigationMenuItem[] = [
   { label: 'Games', class: 'mb-1', icon: 'i-lucide-house', to: '/' },
   { label: 'Leaderboard', class: 'mb-1', icon: 'i-lucide-trophy', to: '/login' },
-  { label: 'Miner', class: 'mb-1', icon: 'i-lucide-pickaxe', to: '/login' },
-  { label: 'Xeno', class: 'mb-1', icon: 'i-lucide-biohazard', to: '/login' },
-  { label: 'Betting', class: 'mb-1', icon: 'i-lucide-dollar-sign', to: '/login' },
 ]
 
 const gameItems: NavigationMenuItem[] = [
-  { label: 'Tower', class: 'mb-1', icon: 'i-lucide-layout-grid', to: '/login'},
-  { label: 'Snako', class: 'mb-1', icon: 'i-lucide-gamepad-2', to: '/login'},
-  { label: 'Slots', class: 'mb-1', icon: 'i-lucide-coins', to: '/login'},
-  { label: 'Blackjack', class: 'mb-1', icon: 'i-lucide-diamond', to: '/login'},
-  { label: 'Blast', class: 'mb-1', icon: 'i-lucide-circle-dot', to: '/login'},
-  { label: 'Harvest', class: 'mb-1', icon: 'i-lucide-shopping-basket', to: '/login'},
-  { label: 'Neon', class: 'mb-1', icon: 'i-lucide-heart', to: '/login'},
-  { label: 'Jars', class: 'mb-1', icon: 'i-lucide-archive', to: '/login'},
-  { label: 'Lightning', class: 'mb-1', icon: 'i-lucide-zap', to: '/login'},
-  { label: 'Titans', class: 'mb-1', icon: 'i-lucide-cpu', to: '/login'},
-  { label: 'Cyber', class: 'mb-1', icon: 'i-lucide-skull', to: '/login'},
+  { label: 'Cyber', class: 'mb-1', icon: 'i-lucide-skull', to: '/games/cyber'},
 ]
 
 const primaryColors = [
@@ -100,7 +87,7 @@ function setNeutral(color: string) {
 
     <!-- Sidebar -->
     <aside
-      class="fixed lg:relative inset-y-0 left-0 z-50 flex flex-col h-screen border-r border-default transition-all duration-300 ease-in-out w-64"
+      class="fixed lg:sticky lg:top-0 inset-y-0 left-0 z-50 flex flex-col h-screen border-r border-default transition-all duration-300 ease-in-out w-64"
       :class="[
         mobileOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0',
         isCollapsed ? 'lg:w-16' : 'lg:w-60',
@@ -248,6 +235,16 @@ function setNeutral(color: string) {
               <USeparator class="my-1" />
 
               <div class="px-1 py-0.5">
+                <UButton
+                  label="Analytics"
+                  icon="i-lucide-bar-chart-3"
+                  color="neutral"
+                  variant="ghost"
+                  block
+                  to="/analytics"
+                  class="justify-start"
+                  @click="menuOpen = false"
+                />
                 <UButton
                   label="Profile"
                   icon="i-lucide-user-round"
