@@ -1,5 +1,6 @@
 <script setup lang="ts">
-const { fetchSession } = useAuth()
+const { fetchSession, user } = useAuth()
+const gems = computed(() => user.value?.gems ?? 0)
 const { data: state, refresh } = await useFetch('/api/miner/state')
 
 const toast = useToast()
@@ -69,10 +70,10 @@ async function purchase(item: typeof shopItems[number]) {
         <h1 class="text-2xl font-bold">Gem Shop</h1>
         <p class="text-sm text-muted mt-0.5">Exchange rare gems for game-breaking advantages.</p>
       </div>
-      <div v-if="state" class="flex items-center gap-2 px-4 py-2 rounded-lg bg-elevated border border-default">
+      <div class="flex items-center gap-2 px-4 py-2 rounded-lg bg-elevated border border-default">
         <UIcon name="i-lucide-gem" class="size-5 text-cyan-400" />
-        <UTooltip :text="formatNumber(state.gems, false)">
-          <span class="text-xl font-bold">{{ formatNumber(state.gems) }}</span>
+        <UTooltip :text="formatNumber(gems, false)">
+          <span class="text-xl font-bold">{{ formatNumber(gems) }}</span>
         </UTooltip>
         <span class="text-sm text-muted">Gems</span>
       </div>
@@ -108,7 +109,7 @@ async function purchase(item: typeof shopItems[number]) {
               size="sm"
               :color="item.color"
               :loading="buying === item.id"
-              :disabled="!item.endpoint || (state.gems ?? 0) < item.cost"
+              :disabled="!item.endpoint || gems < item.cost"
               @click="purchase(item)"
             />
             <UBadge v-if="!item.endpoint" label="Coming Soon" color="neutral" variant="subtle" class="ml-2" />
