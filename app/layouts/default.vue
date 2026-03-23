@@ -24,7 +24,8 @@ async function signOut() {
 
 const platformItems: NavigationMenuItem[] = [
   { label: 'Games', class: 'mb-1', icon: 'i-lucide-house', to: '/' },
-  { label: 'Leaderboard', class: 'mb-1', icon: 'i-lucide-trophy', to: '/login' },
+  { label: 'Miner', class: 'mb-1', icon: 'i-lucide-pickaxe', to: '/miner' },
+  { label: 'Leaderboard', class: 'mb-1', icon: 'i-lucide-trophy', to: '/leaderboard' },
 ]
 
 const gameItems: NavigationMenuItem[] = [
@@ -55,6 +56,7 @@ watchEffect(() => {
   if (themePrimary.value) appConfig.ui.colors.primary = themePrimary.value
   if (themeNeutral.value) appConfig.ui.colors.neutral = themeNeutral.value
 })
+
 
 function setPrimary(color: string) {
   themePrimary.value = color

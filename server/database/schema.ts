@@ -90,14 +90,29 @@ export const verification = pgTable(
   (table) => [index("verification_identifier_idx").on(table.identifier)],
 );
 
+export const minerState = pgTable('miner_state', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().unique().references(() => user.id, { onDelete: 'cascade' }),
+  rigLevel: integer('rig_level').notNull().default(1),
+  vaultLevel: integer('vault_level').notNull().default(1),
+  lastCollectedAt: timestamp('last_collected_at').defaultNow().notNull(),
+  factoryLevel: integer('factory_level').notNull().default(1),
+  factoryLastCollectedAt: timestamp('factory_last_collected_at').defaultNow().notNull(),
+})
+
 export const transactionsRelations = relations(transactions, ({ one }) => ({
   user: one(user, { fields: [transactions.userId], references: [user.id] }),
 }));
 
-export const userRelations = relations(user, ({ many }) => ({
+export const userRelations = relations(user, ({ many, one }) => ({
   sessions: many(session),
   accounts: many(account),
   transactions: many(transactions),
+  minerState: one(minerState),
+}));
+
+export const minerStateRelations = relations(minerState, ({ one }) => ({
+  user: one(user, { fields: [minerState.userId], references: [user.id] }),
 }));
 
 export const sessionRelations = relations(session, ({ one }) => ({
