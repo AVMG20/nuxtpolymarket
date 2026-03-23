@@ -17,6 +17,7 @@ watch(
 
 const playing = ref(false)
 const buying = ref(false)
+const buyingExtraPlay = ref(false)
 
 async function playTile(tileIndex: number) {
   if (playing.value || playsRemaining.value <= 0) return
@@ -40,6 +41,20 @@ async function playTile(tileIndex: number) {
 
 function playAgain() {
   gameResult.value = null
+}
+
+async function buyExtraPlay() {
+  buyingExtraPlay.value = true
+  try {
+    const res = await $fetch('/api/miner/shop/extra-play', { method: 'POST' })
+    playsRemaining.value += 1
+    toast.add({ title: 'Extra play granted!', color: 'success', icon: 'i-lucide-plus-circle' })
+    await fetchSession()
+  } catch (e: any) {
+    toast.add({ title: e.data?.message ?? 'Purchase failed', color: 'error' })
+  } finally {
+    buyingExtraPlay.value = false
+  }
 }
 
 async function buyMine() {
@@ -201,19 +216,44 @@ function tileValueColor(value: number) {
         </div>
 
         <UButton
-          v-if="gameResult"
-          label="Play Again"
-          icon="i-lucide-refresh-cw"
-          color="neutral"
-          variant="soft"
-          block
-          :disabled="playsRemaining <= 0"
-          @click="playAgain"
+            :label="!gameResult ? 'Game active — click any tile' : playsRemaining <= 0 ? 'No plays remaining today' : 'Play Again'"
+            :icon="gameResult && playsRemaining > 0 ? 'i-lucide-refresh-cw' : undefined"
+            color="neutral"
+            variant="soft"
+            block
+            :disabled="!gameResult || playsRemaining <= 0"
+            @click="gameResult && playsRemaining > 0 && playAgain()"
         />
-        <p v-else-if="playsRemaining <= 0" class="text-sm text-muted text-center py-1">
-          No plays remaining today.
-        </p>
       </UCard>
+
+      <!-- Extra Play -->
+      <UCard>
+        <template #header>
+          <div class="flex items-center gap-2.5">
+            <div class="size-8 rounded-lg bg-warning/15 flex items-center justify-center">
+              <UIcon name="i-lucide-plus-circle" class="size-4 text-warning" />
+            </div>
+            <div>
+              <p class="font-semibold text-sm">Extra Play</p>
+              <p class="text-xs text-muted">Restore 1 used play — costs 1 gem.</p>
+            </div>
+          </div>
+        </template>
+        <UButton
+            label="Buy Extra Play"
+            icon="i-lucide-plus-circle"
+            block
+            color="warning"
+            :loading="buyingExtraPlay"
+            :disabled="(user?.gems ?? 0) < 1 || playsRemaining >= (state?.minesCount ?? 0)"
+            @click="buyExtraPlay"
+        >
+          <template #trailing>
+            <span class="text-xs opacity-70">Cost: 1 gem</span>
+          </template>
+        </UButton>
+      </UCard>
+
     </template>
   </UContainer>
 </template>

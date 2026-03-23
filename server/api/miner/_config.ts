@@ -22,11 +22,11 @@ export const FACTORY_BASE_UPGRADE_COST = 750
 export const FACTORY_UPGRADE_COST_INCREMENT = 750
 
 // ─── Gem Shop ─────────────────────────────────────────────────────────────────
-export const SHOP_INSTANT_FILL_COST = 7        // gems — fills vault to cap
+export const SHOP_INSTANT_FILL_COST = 5        // gems — fills vault to cap
 export const SHOP_DOUBLE_WIN_COST = 5          // gems — 2x next win (capped at 1500, not yet implemented)
 export const SHOP_EXTRA_PLAY_COST = 1          // gems — extra play (not yet implemented)
 export const SHOP_QUICK_CASH_COST = 1          // gems
-export const SHOP_QUICK_CASH_AMOUNT = 100      // $ credited instantly
+export const SHOP_QUICK_CASH_AMOUNT = 200      // $ credited instantly
 
 // ─── Mines Game ───────────────────────────────────────────────────────────────
 export const MINES_MAX_COUNT = 10

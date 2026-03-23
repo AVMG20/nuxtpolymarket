@@ -18,7 +18,7 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 400, statusMessage: 'Maximum mines reached' })
 
   const cost = minesPurchaseCost(s.minesCount)
-  await debit(userId, cost.toFixed(4), 'mines-game')
+  await debit(userId, cost.toFixed(4), 'mines')
 
   const [updated] = await db
     .update(minerState)

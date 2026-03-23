@@ -14,7 +14,7 @@ const shopItems = [
     description: 'Max out your Money Miner storage instantly.',
     icon: 'i-lucide-zap',
     color: 'warning' as const,
-    cost: 7,
+    cost: 5,
     endpoint: '/api/miner/shop/instant-fill',
   },
   {
@@ -29,22 +29,31 @@ const shopItems = [
   {
     id: 'extra-play',
     label: 'Extra Play',
-    description: 'Play a game first to enable refill.',
+    description: 'Restore 1 used Mines play today.',
     icon: 'i-lucide-gamepad-2',
     color: 'primary' as const,
     cost: 1,
-    endpoint: null,
+    endpoint: '/api/miner/shop/extra-play',
   },
   {
     id: 'quick-cash',
     label: 'Quick Cash',
-    description: 'Convert 1 Gem into $100 instantly.',
+    description: 'Convert 1 Gem into 200,- instantly.',
     icon: 'i-lucide-coins',
     color: 'success' as const,
     cost: 1,
     endpoint: '/api/miner/shop/quick-cash',
   },
 ]
+
+function isItemDisabled(item: typeof shopItems[number]) {
+  if (gems.value < item.cost) return true
+  if (item.id === 'extra-play') {
+    const s = state.value
+    return !s || s.minesPlaysRemaining >= s.minesCount
+  }
+  return !item.endpoint
+}
 
 async function purchase(item: typeof shopItems[number]) {
   if (!item.endpoint) return
@@ -109,7 +118,7 @@ async function purchase(item: typeof shopItems[number]) {
               size="sm"
               :color="item.color"
               :loading="buying === item.id"
-              :disabled="!item.endpoint || gems < item.cost"
+              :disabled="isItemDisabled(item)"
               @click="purchase(item)"
             />
             <UBadge v-if="!item.endpoint" label="Coming Soon" color="neutral" variant="subtle" class="ml-2" />

@@ -40,7 +40,7 @@ export default defineEventHandler(async (event) => {
     .where(eq(minerState.userId, userId))
 
   if (!isBomb) {
-    await credit(userId, reward.toFixed(4), 'mines-game')
+    await credit(userId, reward.toFixed(4), 'mines')
   }
 
   return { tiles, revealed: tileIndex, reward, isBomb, playsRemaining: s.minesCount - playsToday - 1 }

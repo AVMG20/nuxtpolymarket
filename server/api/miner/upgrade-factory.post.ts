@@ -27,7 +27,7 @@ export default defineEventHandler(async (event) => {
   const collectedGems = Math.floor(pending)
 
   await db.update(minerState).set({ factoryLevel: s.factoryLevel + 1, factoryLastCollectedAt: new Date() }).where(eq(minerState.userId, userId))
-  await debit(userId, cost.toFixed(4), 'miner')
+  await debit(userId, cost.toFixed(4), 'gems')
   if (collectedGems >= 1) {
     await db.update(user).set({ gems: sql`${user.gems} + ${collectedGems}` }).where(eq(user.id, userId))
   }
