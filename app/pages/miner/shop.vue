@@ -1,8 +1,7 @@
 <script setup lang="ts">
-import { authClient } from '~/utils/auth-client'
-
+const { fetchSession } = useAuth()
 const { data: state, refresh } = await useFetch('/api/miner/state')
-const { refetch: refetchSession } = authClient.useSession()
+
 const toast = useToast()
 
 const buying = ref<string | null>(null)
@@ -52,8 +51,9 @@ async function purchase(item: typeof shopItems[number]) {
   try {
     await $fetch(item.endpoint, { method: 'POST' })
     toast.add({ title: `${item.label} purchased!`, color: 'success' })
-    await Promise.all([refresh(), refetchSession()])
+    await Promise.all([refresh(), fetchSession()])
   } catch (e: any) {
+    console.error(e)
     toast.add({ title: e.data?.message ?? 'Purchase failed', color: 'error' })
   } finally {
     buying.value = null
@@ -63,6 +63,7 @@ async function purchase(item: typeof shopItems[number]) {
 
 <template>
   <UContainer class="space-y-6">
+    <UButton @click="() => {fetchSession(); console.log(1)}">123</UButton>
     <!-- Header -->
     <div class="flex items-center justify-between">
       <div>

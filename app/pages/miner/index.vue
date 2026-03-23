@@ -1,8 +1,6 @@
 <script setup lang="ts">
-import { authClient } from '~/utils/auth-client'
-
+const { fetchSession } = useAuth()
 const { data: state, refresh } = await useFetch('/api/miner/state')
-const { refetch: refetchSession } = authClient.useSession()
 
 // Real-time accumulation: interpolate locally since last fetch
 const fetchedAt = ref(Date.now())
@@ -39,7 +37,7 @@ async function collect() {
   try {
     const res = await $fetch('/api/miner/collect', { method: 'POST' })
     toast.add({ title: `Collected $${formatNumber(res.collected, false)}`, color: 'success' })
-    await Promise.all([refresh(), refetchSession()])
+    await Promise.all([refresh(), fetchSession()])
   } catch (e: any) {
     toast.add({ title: e.data?.message ?? 'Failed to collect', color: 'error' })
   } finally {
@@ -52,7 +50,7 @@ async function upgradeRig() {
   try {
     const res = await $fetch('/api/miner/upgrade-rig', { method: 'POST' })
     toast.add({ title: `Rig upgraded to level ${res.newLevel}`, color: 'success' })
-    await Promise.all([refresh(), refetchSession()])
+    await Promise.all([refresh(), fetchSession()])
   } catch (e: any) {
     toast.add({ title: e.data?.message ?? 'Upgrade failed', color: 'error' })
   } finally {
@@ -65,7 +63,7 @@ async function upgradeVault() {
   try {
     const res = await $fetch('/api/miner/upgrade-vault', { method: 'POST' })
     toast.add({ title: `Vault expanded to level ${res.newLevel}`, color: 'success' })
-    await Promise.all([refresh(), refetchSession()])
+    await Promise.all([refresh(), fetchSession()])
   } catch (e: any) {
     toast.add({ title: e.data?.message ?? 'Upgrade failed', color: 'error' })
   } finally {

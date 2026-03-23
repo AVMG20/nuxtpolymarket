@@ -1,8 +1,6 @@
 <script setup lang="ts">
-import { authClient } from '~/utils/auth-client'
-
+const { fetchSession } = useAuth()
 const { data: state, refresh } = await useFetch('/api/miner/state')
-const { refetch: refetchSession } = authClient.useSession()
 
 const fetchedAt = ref(Date.now())
 const now = ref(Date.now())
@@ -39,7 +37,7 @@ async function collectGems() {
   try {
     const res = await $fetch('/api/miner/collect-gems', { method: 'POST' })
     toast.add({ title: `Collected ${res.collected} gem${res.collected !== 1 ? 's' : ''}`, color: 'success', icon: 'i-lucide-gem' })
-    await Promise.all([refresh(), refetchSession()])
+    await Promise.all([refresh(), fetchSession()])
   } catch (e: any) {
     toast.add({ title: e.data?.message ?? 'Failed to collect', color: 'error' })
   } finally {
@@ -52,7 +50,7 @@ async function upgradeFactory() {
   try {
     const res = await $fetch('/api/miner/upgrade-factory', { method: 'POST' })
     toast.add({ title: `Factory upgraded to level ${res.newLevel}`, color: 'success' })
-    await Promise.all([refresh(), refetchSession()])
+    await Promise.all([refresh(), fetchSession()])
   } catch (e: any) {
     toast.add({ title: e.data?.message ?? 'Upgrade failed', color: 'error' })
   } finally {

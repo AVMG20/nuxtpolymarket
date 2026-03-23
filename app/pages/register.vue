@@ -1,7 +1,6 @@
 <script setup lang="ts">
-import { authClient } from '~/utils/auth-client'
-
 definePageMeta({ layout: 'auth', auth: false })
+const { signUp: authSignUp } = useAuth()
 
 const name = ref('')
 const email = ref('')
@@ -12,7 +11,7 @@ const loading = ref(false)
 async function signUp() {
   error.value = ''
   loading.value = true
-  const { error: err } = await authClient.signUp.email({
+  const { error: err } = await authSignUp.email({
     name: name.value,
     email: email.value,
     password: password.value,

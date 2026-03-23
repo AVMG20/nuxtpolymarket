@@ -1,12 +1,10 @@
 <script setup lang="ts">
 import type { GridCell, GameFrame } from '#shared/utils/gamelogic/cyber-cascade'
 import { GRID_SIZE, GRID_WIDTH, GRID_HEIGHT, playGame } from '#shared/utils/gamelogic/cyber-cascade'
-import { authClient } from '~/utils/auth-client'
-
-const { data: session } = await authClient.useSession(useFetch)
+const { user } = useAuth()
 
 // --- State ---
-const balance = ref(parseFloat(session.value?.user?.balance ?? '0'))
+const balance = ref(parseFloat(user.value?.balance ?? '0'))
 const bet = ref(10)
 const grid = ref<GridCell[]>(getEmptyGrid())
 const trails = ref<number[]>(Array(GRID_SIZE).fill(0))
@@ -44,7 +42,7 @@ function getEmptyGrid(): GridCell[] {
   }))
 }
 
-watch(() => session.value?.user?.balance, (val) => {
+watch(() => user.value?.balance, (val) => {
   if (val !== undefined) balance.value = parseFloat(val ?? '0')
 })
 

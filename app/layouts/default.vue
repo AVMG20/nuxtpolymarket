@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import type { NavigationMenuItem } from '@nuxt/ui'
-import { authClient } from '~/utils/auth-client'
-
-const { data: session } = await authClient.useSession(useFetch)
+const { user, signOut: authSignOut } = useAuth()
 const appConfig = useAppConfig()
 const collapsed = ref(false)
 const mobileOpen = ref(false)
 const menuOpen = ref(false)
+
+console.log(user)
 
 // Only collapse nav on desktop — on mobile always show full content
 const isDesktop = ref(true)
@@ -18,8 +18,7 @@ onMounted(() => {
 const isCollapsed = computed(() => isDesktop.value && collapsed.value)
 
 async function signOut() {
-  await authClient.signOut()
-  navigateTo('/login')
+  await authSignOut({ redirectTo: '/login' })
 }
 
 const platformItems: NavigationMenuItem[] = [
@@ -157,15 +156,15 @@ function setNeutral(color: string) {
           class="flex items-center justify-between px-1 transition-opacity duration-200"
           :class="isCollapsed ? 'opacity-0 h-0 overflow-hidden' : 'opacity-100'"
         >
-          <UTooltip :text="session?.user?.balance ?? '0'">
+          <UTooltip :text="user?.balance ?? '0'">
             <div class="flex items-center gap-1.5">
               <UIcon name="i-lucide-coins" class="size-4 text-yellow-400 shrink-0" />
-              <span class="text-sm font-semibold">{{ formatNumber(parseFloat(session?.user?.balance ?? '0')) }}</span>
+              <span class="text-sm font-semibold">{{ formatNumber(parseFloat(user?.balance ?? '0')) }}</span>
             </div>
           </UTooltip>
           <div class="flex items-center gap-1.5">
             <UIcon name="i-lucide-gem" class="size-4 text-cyan-400 shrink-0" />
-            <span class="text-sm font-semibold">{{ formatNumber(session?.user?.gems ?? 0) }}</span>
+            <span class="text-sm font-semibold">{{ formatNumber(user?.gems ?? 0) }}</span>
           </div>
         </div>
         <!-- Balance: icons only when collapsed -->
@@ -184,7 +183,7 @@ function setNeutral(color: string) {
           class="w-full"
         >
           <UButton
-            :label="isCollapsed ? undefined : (session?.user?.name ?? 'Account')"
+            :label="isCollapsed ? undefined : (user?.name ?? 'Account')"
             icon="i-lucide-user"
             color="neutral"
             variant="ghost"
@@ -198,12 +197,12 @@ function setNeutral(color: string) {
               <div class="flex items-center gap-3 px-3 py-2">
                 <div class="size-8 rounded-full bg-primary/20 flex items-center justify-center shrink-0">
                   <span class="text-sm font-semibold text-primary">
-                    {{ (session?.user?.name ?? 'A')[0].toUpperCase() }}
+                    {{ (user?.name ?? 'A')[0].toUpperCase() }}
                   </span>
                 </div>
                 <div class="min-w-0">
-                  <p class="text-sm font-semibold truncate">{{ session?.user?.name ?? 'Account' }}</p>
-                  <p class="text-xs text-muted truncate">{{ session?.user?.email }}</p>
+                  <p class="text-sm font-semibold truncate">{{ user?.name ?? 'Account' }}</p>
+                  <p class="text-xs text-muted truncate">{{ user?.email }}</p>
                 </div>
               </div>
 

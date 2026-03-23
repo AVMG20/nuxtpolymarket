@@ -1,7 +1,6 @@
 <script setup lang="ts">
-import { authClient } from '~/utils/auth-client'
-
 definePageMeta({ layout: 'auth', auth: false })
+const { signIn: authSignIn } = useAuth()
 
 const email = ref('')
 const password = ref('')
@@ -11,7 +10,7 @@ const loading = ref(false)
 async function signIn() {
   error.value = ''
   loading.value = true
-  const { error: err } = await authClient.signIn.email({
+  const { error: err } = await authSignIn.email({
     email: email.value,
     password: password.value,
     callbackURL: '/'
