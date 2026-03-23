@@ -20,7 +20,7 @@ export default defineEventHandler(async (event) => {
   if (amount < 0.01) throw createError({ statusCode: 400, statusMessage: 'Nothing to collect yet' })
 
   await db.update(minerState).set({ lastCollectedAt: new Date() }).where(eq(minerState.userId, userId))
-  await credit(userId, amount.toFixed(4), 'miner:collect')
+  await credit(userId, amount.toFixed(4), 'miner')
 
   return { collected: amount }
 })

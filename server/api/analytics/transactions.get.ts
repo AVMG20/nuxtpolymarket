@@ -28,7 +28,6 @@ export default defineEventHandler(async (event) => {
     }),
     db.select({
       date: sql<string>`DATE(${transactions.createdAt})`.as('date'),
-      category: transactions.category,
       type: transactions.type,
       total: sql<string>`SUM(${transactions.amount}::numeric)`.as('total'),
     })
@@ -37,7 +36,7 @@ export default defineEventHandler(async (event) => {
         eq(transactions.userId, userId),
         gte(transactions.createdAt, threeDaysAgo)
       ))
-      .groupBy(sql`DATE(${transactions.createdAt})`, transactions.category, transactions.type)
+      .groupBy(sql`DATE(${transactions.createdAt})`, transactions.type)
       .orderBy(sql`DATE(${transactions.createdAt})`),
   ])
 

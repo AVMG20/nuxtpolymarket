@@ -18,7 +18,7 @@ export default defineEventHandler(async (event) => {
   }
 
   await db.update(user).set({ gems: sql`${user.gems} - ${SHOP_QUICK_CASH_COST}` }).where(eq(user.id, userId))
-  await credit(userId, SHOP_QUICK_CASH_AMOUNT.toFixed(4), 'miner:shop:quick-cash')
+  await credit(userId, SHOP_QUICK_CASH_AMOUNT.toFixed(4), 'miner')
 
   return { credited: SHOP_QUICK_CASH_AMOUNT, gemsSpent: SHOP_QUICK_CASH_COST }
 })

@@ -33,29 +33,23 @@ function dayLabel(dateStr: string) {
   return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
 }
 
-const categories = computed(() => {
-  if (!data.value?.dailyStats?.length) return []
-  return [...new Set(data.value.dailyStats.map(d => d.category ?? 'unknown'))] as string[]
-})
-
 const chartDays = computed(() =>
   last3DayStrs.value.map(date => {
-    const catData: Record<string, { credits: number, debits: number }> = {}
-    for (const cat of categories.value) {
-      const cr = data.value?.dailyStats.find(d => d.date === date && d.category === cat && d.type === 'credit')
-      const dr = data.value?.dailyStats.find(d => d.date === date && d.category === cat && d.type === 'debit')
-      catData[cat] = { credits: parseFloat(cr?.total ?? '0'), debits: parseFloat(dr?.total ?? '0') }
+    const cr = data.value?.dailyStats.find(d => d.date === date && d.type === 'credit')
+    const dr = data.value?.dailyStats.find(d => d.date === date && d.type === 'debit')
+    return {
+      date,
+      label: dayLabel(date),
+      credits: parseFloat(cr?.total ?? '0'),
+      debits: parseFloat(dr?.total ?? '0'),
     }
-    return { date, label: dayLabel(date), catData }
   })
 )
 
 const maxBarValue = computed(() => {
   let max = 0
   for (const day of chartDays.value) {
-    for (const cat of categories.value) {
-      max = Math.max(max, day.catData[cat]?.credits ?? 0, day.catData[cat]?.debits ?? 0)
-    }
+    max = Math.max(max, day.credits, day.debits)
   }
   return max || 100
 })
@@ -63,13 +57,6 @@ const maxBarValue = computed(() => {
 function barHeight(value: number) {
   return `${Math.max(2, (value / maxBarValue.value) * CHART_HEIGHT)}px`
 }
-
-// Per-category colors using NuxtUI CSS vars
-const CAT_COLORS = [
-  { credit: 'var(--ui-success)', debit: 'var(--ui-error)' },
-  { credit: 'var(--ui-primary)', debit: 'var(--ui-warning)' },
-  { credit: 'var(--ui-info)', debit: 'var(--ui-secondary)' },
-]
 
 function mix(cssVar: string, opacity: number) {
   return `color-mix(in srgb, ${cssVar} ${Math.round(opacity * 100)}%, transparent)`
@@ -91,9 +78,6 @@ const todayCatStats = computed(() => {
     .sort((a, b) => Math.abs(b.net) - Math.abs(a.net))
 })
 
-const maxAbsNet = computed(() =>
-  Math.max(...todayCatStats.value.map(s => Math.abs(s.net)), 1)
-)
 
 // ---- Today's running balance (Unovis line chart) ----
 type PerfPoint = { date: Date, value: number }
@@ -241,7 +225,7 @@ onMounted(() => setTimeout(() => { mounted.value = true }, 50))
           <USkeleton class="h-48 rounded-lg" />
         </div>
         <div
-          v-else-if="!categories.length"
+          v-else-if="!data?.dailyStats?.length"
           class="h-48 flex flex-col items-center justify-center gap-2 text-muted"
         >
           <UIcon name="i-lucide-bar-chart-3" class="size-10 opacity-20" />
@@ -249,46 +233,33 @@ onMounted(() => setTimeout(() => { mounted.value = true }, 50))
         </div>
         <div v-else class="flex gap-2 items-end px-2" :style="{ height: `${CHART_HEIGHT + 48}px` }">
           <div v-for="day in chartDays" :key="day.date" class="flex-1 flex flex-col items-center">
-            <div class="flex items-end gap-1 mb-2" :style="{ height: `${CHART_HEIGHT}px` }">
-              <div v-for="(cat, catIdx) in categories" :key="cat" class="flex items-end gap-0.5">
-                <div
-                  class="w-7 rounded-t-md transition-all duration-700 ease-out relative group cursor-default"
-                  :style="{
-                    height: mounted ? barHeight(day.catData[cat]?.credits ?? 0) : '2px',
-                    backgroundColor: mix(CAT_COLORS[catIdx % CAT_COLORS.length]!.credit, 0.73),
-                    minHeight: '2px',
-                  }"
-                >
-                  <div class="absolute -top-8 left-1/2 -translate-x-1/2 whitespace-nowrap bg-elevated border border-default text-xs px-1.5 py-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity z-10 pointer-events-none">
-                    +{{ formatNumber(day.catData[cat]?.credits ?? 0) }}
-                  </div>
+            <div class="flex items-end gap-1.5 mb-2" :style="{ height: `${CHART_HEIGHT}px` }">
+              <div
+                class="w-7 rounded-t-md transition-all duration-700 ease-out relative group cursor-default"
+                :style="{
+                  height: mounted ? barHeight(day.credits) : '2px',
+                  backgroundColor: mix('var(--ui-success)', 0.73),
+                  minHeight: '2px',
+                }"
+              >
+                <div class="absolute -top-8 left-1/2 -translate-x-1/2 whitespace-nowrap bg-elevated border border-default text-xs px-1.5 py-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity z-10 pointer-events-none">
+                  +{{ formatNumber(day.credits) }}
                 </div>
-                <div
-                  class="w-7 rounded-t-md transition-all duration-700 ease-out relative group cursor-default"
-                  :style="{
-                    height: mounted ? barHeight(day.catData[cat]?.debits ?? 0) : '2px',
-                    backgroundColor: mix(CAT_COLORS[catIdx % CAT_COLORS.length]!.debit, 0.73),
-                    minHeight: '2px',
-                  }"
-                >
-                  <div class="absolute -top-8 left-1/2 -translate-x-1/2 whitespace-nowrap bg-elevated border border-default text-xs px-1.5 py-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity z-10 pointer-events-none">
-                    -{{ formatNumber(day.catData[cat]?.debits ?? 0) }}
-                  </div>
+              </div>
+              <div
+                class="w-7 rounded-t-md transition-all duration-700 ease-out relative group cursor-default"
+                :style="{
+                  height: mounted ? barHeight(day.debits) : '2px',
+                  backgroundColor: mix('var(--ui-error)', 0.73),
+                  minHeight: '2px',
+                }"
+              >
+                <div class="absolute -top-8 left-1/2 -translate-x-1/2 whitespace-nowrap bg-elevated border border-default text-xs px-1.5 py-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity z-10 pointer-events-none">
+                  -{{ formatNumber(day.debits) }}
                 </div>
               </div>
             </div>
             <div class="text-xs text-muted font-medium">{{ day.label }}</div>
-            <div v-if="categories.length > 1" class="flex gap-1 mt-1 flex-wrap justify-center">
-              <span
-                v-for="(cat, catIdx) in categories"
-                :key="cat"
-                class="text-xs px-1.5 py-0.5 rounded-full capitalize"
-                :style="{
-                  backgroundColor: mix(CAT_COLORS[catIdx % CAT_COLORS.length]!.credit, 0.13),
-                  color: CAT_COLORS[catIdx % CAT_COLORS.length]!.credit,
-                }"
-              >{{ cat }}</span>
-            </div>
           </div>
         </div>
       </UCard>
@@ -309,46 +280,15 @@ onMounted(() => setTimeout(() => { mounted.value = true }, 50))
           <UIcon name="i-lucide-layers" class="size-10 opacity-20" />
           <p class="text-sm">No data today</p>
         </div>
-        <div v-else class="space-y-4">
-          <div v-for="stat in todayCatStats" :key="stat.cat">
-            <div class="flex items-center justify-between mb-1.5">
-              <span class="text-sm font-medium capitalize">{{ stat.cat }}</span>
-              <span
-                class="text-sm font-semibold tabular-nums"
-                :class="stat.net >= 0 ? 'text-success' : 'text-error'"
-              >
-                {{ stat.net >= 0 ? '+' : '' }}{{ formatNumber(stat.net) }}
-              </span>
-            </div>
-            <div class="flex items-center gap-1 h-5">
-              <div class="flex-1 flex justify-end">
-                <div
-                  class="h-full rounded-l-full transition-all duration-700 ease-out"
-                  :style="{
-                    width: mounted && stat.net < 0
-                      ? `${(Math.abs(stat.net) / maxAbsNet) * 100}%`
-                      : '0%',
-                    backgroundColor: mix('var(--ui-error)', 0.8),
-                  }"
-                />
-              </div>
-              <div class="w-px h-5 bg-default shrink-0" />
-              <div class="flex-1">
-                <div
-                  class="h-full rounded-r-full transition-all duration-700 ease-out"
-                  :style="{
-                    width: mounted && stat.net > 0
-                      ? `${(stat.net / maxAbsNet) * 100}%`
-                      : '0%',
-                    backgroundColor: mix('var(--ui-success)', 0.8),
-                  }"
-                />
-              </div>
-            </div>
-            <div class="flex justify-between text-xs text-muted mt-1">
-              <span>-{{ formatNumber(stat.debits) }}</span>
-              <span>+{{ formatNumber(stat.credits) }}</span>
-            </div>
+        <div v-else class="space-y-2">
+          <div v-for="stat in todayCatStats" :key="stat.cat" class="flex items-center justify-between">
+            <span class="text-sm font-medium capitalize">{{ stat.cat }}</span>
+            <span
+              class="text-sm font-semibold tabular-nums"
+              :class="stat.net >= 0 ? 'text-success' : 'text-error'"
+            >
+              {{ stat.net >= 0 ? '+' : '' }}{{ formatNumber(stat.net) }}
+            </span>
           </div>
         </div>
       </UCard>

@@ -26,7 +26,7 @@ export default defineEventHandler(async (event) => {
 
   await db.update(user).set({ gems: sql`${user.gems} - ${SHOP_INSTANT_FILL_COST}` }).where(eq(user.id, userId))
   await db.update(minerState).set({ lastCollectedAt: new Date() }).where(eq(minerState.userId, userId))
-  await credit(userId, amount.toFixed(4), 'miner:shop:instant-fill')
+  await credit(userId, amount.toFixed(4), 'miner')
 
   return { credited: amount, gemsSpent: SHOP_INSTANT_FILL_COST }
 })

@@ -27,8 +27,8 @@ export default defineEventHandler(async (event) => {
   const collected = Math.floor(pending * 100) / 100
 
   await db.update(minerState).set({ vaultLevel: s.vaultLevel + 1, lastCollectedAt: new Date() }).where(eq(minerState.userId, userId))
-  await debit(userId, cost.toFixed(4), 'miner:upgrade-vault')
-  if (collected >= 0.01) await credit(userId, collected.toFixed(4), 'miner:collect')
+  await debit(userId, cost.toFixed(4), 'miner')
+  if (collected >= 0.01) await credit(userId, collected.toFixed(4), 'miner')
 
   return { newLevel: s.vaultLevel + 1, collected }
 })
