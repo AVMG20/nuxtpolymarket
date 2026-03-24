@@ -114,6 +114,8 @@ const tradeCost = computed(() => livePrice.value * amount.value)
 const canBuy = computed(() => balance.value >= tradeCost.value && amount.value >= 1)
 const canSell = computed(() => userGems.value >= amount.value && amount.value >= 1)
 
+const portfolioValue = computed(() => userGems.value * livePrice.value)
+
 async function executeTrade() {
   if (loading.value) return
   loading.value = true
@@ -234,11 +236,12 @@ function actionBg(action: string) {
       <UCard>
         <div class="flex items-start justify-between">
           <div>
-            <p class="text-xs text-muted font-medium uppercase tracking-wide">Your Gems</p>
-            <p class="text-xl font-bold mt-1 tabular-nums">{{ formatNumber(userGems) }}</p>
+            <p class="text-xs text-muted font-medium uppercase tracking-wide">Portfolio Value</p>
+            <p class="text-xl font-bold mt-1 tabular-nums text-cyan-400">${{ formatNumber(portfolioValue, false) }}</p>
+            <p class="text-xs text-muted mt-0.5 tabular-nums">{{ formatNumber(userGems) }} gems</p>
           </div>
           <div class="size-9 rounded-lg bg-cyan-500/15 flex items-center justify-center shrink-0">
-            <UIcon name="i-lucide-gem" class="size-4 text-cyan-400" />
+            <UIcon name="i-lucide-wallet" class="size-4 text-cyan-400" />
           </div>
         </div>
       </UCard>
