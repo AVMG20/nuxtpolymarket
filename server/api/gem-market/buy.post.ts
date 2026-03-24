@@ -2,7 +2,7 @@ import { eq, sql } from 'drizzle-orm'
 import { db } from '#server/database'
 import { gemMarketState, gemPriceHistory, user, transactions } from '#server/database/schema'
 import { auth } from '#server/utils/auth'
-import { MAX_GEMS_PER_TRADE, computeLivePrice, applyBuyImpact } from './_config'
+import { GEM_MAX_GEMS_PER_TRADE, gemComputeLivePrice, gemApplyBuyImpact } from '#shared/utils/gem-market'
 
 export default defineEventHandler(async (event) => {
   const session = await auth.api.getSession({ headers: event.headers })
@@ -10,8 +10,8 @@ export default defineEventHandler(async (event) => {
 
   const body = await readBody(event)
   const gems = parseInt(body?.gems)
-  if (!gems || gems < 1 || gems > MAX_GEMS_PER_TRADE) {
-    throw createError({ statusCode: 400, statusMessage: `Buy between 1 and ${MAX_GEMS_PER_TRADE} gems` })
+  if (!gems || gems < 1 || gems > GEM_MAX_GEMS_PER_TRADE) {
+    throw createError({ statusCode: 400, statusMessage: `Buy between 1 and ${GEM_MAX_GEMS_PER_TRADE} gems` })
   }
 
   const userId = session.user.id
@@ -20,9 +20,9 @@ export default defineEventHandler(async (event) => {
     const state = await tx.query.gemMarketState.findFirst()
     if (!state) throw createError({ statusCode: 500, statusMessage: 'Market not initialized' })
 
-    const livePrice = computeLivePrice(parseFloat(state.price), state.lastUpdatedAt)
+    const livePrice = gemComputeLivePrice(parseFloat(state.price), state.lastUpdatedAt)
     const cost = livePrice * gems
-    const newPrice = applyBuyImpact(livePrice, gems)
+    const newPrice = gemApplyBuyImpact(livePrice, gems)
 
     // Check and debit balance inline (avoids nested transaction deadlock)
     const currentUser = await tx.query.user.findFirst({ where: eq(user.id, userId), columns: { balance: true } })

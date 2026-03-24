@@ -2,6 +2,7 @@
 import { useIntervalFn, useElementSize } from '@vueuse/core'
 import { VisXYContainer, VisLine, VisArea, VisAxis, VisCrosshair, VisTooltip } from '@unovis/vue'
 import { format } from 'date-fns'
+import { gemStepPrice } from '#shared/utils/gem-market'
 
 const { data, refresh } = await useFetch('/api/gem-market/state')
 const { user, fetchSession } = useAuth()
@@ -13,16 +14,13 @@ useIntervalFn(() => refresh(), 30_000)
 const now = ref(Date.now())
 useIntervalFn(() => { now.value = Date.now() }, 1_000)
 
-const REVERSION_CAP = 2.5
-
-// Live price computed client-side between API refreshes
+// Live price computed client-side between API refreshes.
+// Uses gemStepPrice (auto-imported from shared/utils/gem-market) so the
+// formula is identical to the server — same hourly stepping, same reversion cap.
 const livePrice = computed(() => {
   if (!data.value) return 0
-  const { storedPrice, lastUpdatedAt, hourlyGrowthRate, initialPrice } = data.value
-  const hoursElapsed = (now.value - new Date(lastUpdatedAt).getTime()) / 3_600_000
-  const reversionMult = Math.min(Math.sqrt(initialPrice / storedPrice), REVERSION_CAP)
-  const growthRate = hourlyGrowthRate * reversionMult
-  return Math.min(Math.max(storedPrice * Math.pow(1 + growthRate, hoursElapsed), 0.01), 1_000_000)
+  const hoursElapsed = (now.value - new Date(data.value.lastUpdatedAt).getTime()) / 3_600_000
+  return gemStepPrice(data.value.storedPrice, hoursElapsed)
 })
 
 // ---- 24h change ----
@@ -48,9 +46,6 @@ const chartData = computed((): PricePoint[] => {
   const history = data.value?.history
   if (!history?.length) return [{ date: new Date(), price: livePrice.value }]
 
-  const growthRate = data.value!.hourlyGrowthRate
-  const initialPrice = data.value!.initialPrice
-
   // History is newest-first; reverse to get chronological order
   const events: PricePoint[] = [...history]
     .reverse()
@@ -71,10 +66,8 @@ const chartData = computed((): PricePoint[] => {
     for (let s = 0; s <= STEPS; s++) {
       const t = from.date.getTime() + (spanMs * s / STEPS)
       const hoursElapsed = (t - from.date.getTime()) / 3_600_000
-      const revMult = Math.min(Math.sqrt(initialPrice / from.price), REVERSION_CAP)
-      const effectiveRate = growthRate * revMult
-      const price = from.price * Math.pow(1 + effectiveRate, hoursElapsed)
-      points.push({ date: new Date(t), price: Math.min(Math.max(price, 0.01), 1_000_000) })
+      // gemStepPrice matches server exactly: hourly stepping + reversion cap
+      points.push({ date: new Date(t), price: gemStepPrice(from.price, hoursElapsed) })
     }
 
     // Insert the post-trade price to show the buy/sell jump
@@ -363,12 +356,12 @@ function actionBg(action: string) {
           <!-- Impact hint -->
           <p class="text-xs text-muted">
             <template v-if="tradeMode === 'buy'">
-              Buying will <span class="text-success font-medium">raise the price</span> —
-              impact is stronger when price is low.
+              Buying will <span class="text-success font-medium">raise the price</span>.
+              The market naturally recovers toward the base price over time.
             </template>
             <template v-else>
-              Selling will <span class="text-error font-medium">lower the price</span> —
-              impact is stronger when price is high.
+              Selling will <span class="text-error font-medium">lower the price</span>.
+              The market naturally recovers toward the base price over time.
             </template>
           </p>
 
