@@ -102,7 +102,6 @@ onUnmounted(() => {
           <div class="bg-background rounded-xl p-3 border border-default">
             <div class="flex justify-between items-center mb-2">
               <span class="text-muted text-xs font-bold uppercase tracking-wider">Bet Amount</span>
-              <span class="text-muted text-xs font-mono">${{ formatNumber(balance, false) }}</span>
             </div>
             <div class="flex items-center gap-2">
               <UInput v-model.number="bet" type="number" min="1" :disabled="isRolling" class="flex-1 font-mono" size="lg" />
@@ -154,8 +153,13 @@ onUnmounted(() => {
           <!-- Error -->
           <Transition name="fade-up">
             <UAlert v-if="errorMsg" color="error" variant="soft" :description="errorMsg"
-              :close-button="{ icon: 'i-lucide-x', color: 'neutral', variant: 'ghost' }" @close="errorMsg = ''" class="mt-auto" />
+              :close-button="{ icon: 'i-lucide-x', color: 'neutral', variant: 'ghost' }" @close="errorMsg = ''" />
           </Transition>
+
+          <div class="mt-auto bg-background rounded-xl p-3 border border-default flex justify-between items-center">
+            <span class="text-muted text-xs font-bold uppercase tracking-wider">Balance</span>
+            <span class="font-mono font-bold text-primary">${{ formatNumber(balance, false) }}</span>
+          </div>
 
         </div>
 
