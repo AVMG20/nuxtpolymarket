@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useIntervalFn, useElementSize } from '@vueuse/core'
 import { VisXYContainer, VisLine, VisArea, VisAxis, VisCrosshair, VisTooltip } from '@unovis/vue'
-import { format } from 'date-fns'
+import { format, formatDistanceToNow } from 'date-fns'
 import { gemStepPrice } from '#shared/utils/gem-market'
 
 const { data, refresh } = await useFetch('/api/gem-market/state')
@@ -423,7 +423,10 @@ function actionBg(action: string) {
                 />
               </div>
               <p class="text-xs text-muted mt-0.5">
-                {{ new Date(entry.createdAt).toLocaleString() }}
+                {{ formatDistanceToNow(new Date(entry.createdAt), { addSuffix: true }) }}
+              </p>
+              <p class="text-xs text-muted/60">
+                {{ format(new Date(entry.createdAt), 'MMM d, yyyy · HH:mm:ss') }}
               </p>
             </div>
 
