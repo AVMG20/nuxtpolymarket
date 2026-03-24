@@ -119,7 +119,7 @@ onUnmounted(() => {
             </div>
             <div class="flex gap-1.5 mt-2 flex-wrap">
               <UButton
-                v-for="t in [1.5, 2, 3, 5, 10, 100]"
+                v-for="t in [1.5, 2, 3, 5, 10, 100, 500, 1000, 5000, 10_000]"
                 :key="t"
                 variant="outline" color="neutral" size="xs"
                 :disabled="isRolling"
