@@ -2,7 +2,7 @@
 import { useIntervalFn, useElementSize } from '@vueuse/core'
 import { VisXYContainer, VisLine, VisArea, VisAxis, VisCrosshair, VisTooltip } from '@unovis/vue'
 import { format, formatDistanceToNow } from 'date-fns'
-import { gemStepPrice } from '#shared/utils/gem-market'
+import { gemBuyGems, gemSellGems, GEM_MAX_GEMS_PER_TRADE, gemStepPrice } from '#shared/utils/gem-market'
 
 const { data, refresh } = await useFetch('/api/gem-market/state')
 const { user, fetchSession } = useAuth()
@@ -15,8 +15,7 @@ const now = ref(Date.now())
 useIntervalFn(() => { now.value = Date.now() }, 1_000)
 
 // Live price computed client-side between API refreshes.
-// Uses gemStepPrice (auto-imported from shared/utils/gem-market) so the
-// formula is identical to the server — same hourly stepping, same reversion cap.
+// Uses gemStepPrice so the formula is identical to the server.
 const livePrice = computed(() => {
   if (!data.value) return 0
   const hoursElapsed = (now.value - new Date(data.value.lastUpdatedAt).getTime()) / 3_600_000
@@ -27,10 +26,9 @@ const livePrice = computed(() => {
 const change24h = computed(() => {
   const history = data.value?.history
   if (!history?.length) return null
-  // history is newest-first; find the last entry that's >= 24h old
   const cutoff = Date.now() - 24 * 3_600_000
   const refEntry = history.find(h => new Date(h.createdAt).getTime() <= cutoff)
-    ?? history[history.length - 1]!
+      ?? history[history.length - 1]!
   const ref = parseFloat(refEntry.price)
   if (!ref) return null
   return ((livePrice.value - ref) / ref) * 100
@@ -46,16 +44,14 @@ const chartData = computed((): PricePoint[] => {
   const history = data.value?.history
   if (!history?.length) return [{ date: new Date(), price: livePrice.value }]
 
-  // History is newest-first; reverse to get chronological order
   const events: PricePoint[] = [...history]
-    .reverse()
-    .map(h => ({ date: new Date(h.createdAt), price: parseFloat(h.price) }))
+      .reverse()
+      .map(h => ({ date: new Date(h.createdAt), price: parseFloat(h.price) }))
 
-  // Append current live price as the final point
   events.push({ date: new Date(now.value), price: livePrice.value })
 
   const points: PricePoint[] = []
-  const STEPS = 24 // interpolation steps per segment
+  const STEPS = 24
 
   for (let i = 0; i < events.length - 1; i++) {
     const from = events[i]!
@@ -66,17 +62,14 @@ const chartData = computed((): PricePoint[] => {
     for (let s = 0; s <= STEPS; s++) {
       const t = from.date.getTime() + (spanMs * s / STEPS)
       const hoursElapsed = (t - from.date.getTime()) / 3_600_000
-      // gemStepPrice matches server exactly: hourly stepping + reversion cap
       points.push({ date: new Date(t), price: gemStepPrice(from.price, hoursElapsed) })
     }
 
-    // Insert the post-trade price to show the buy/sell jump
     if (i < events.length - 2) {
       points.push({ date: to.date, price: to.price })
     }
   }
 
-  // Always end with the current live price
   points.push({ date: new Date(now.value), price: livePrice.value })
 
   return points
@@ -88,7 +81,6 @@ const yFn = (d: PricePoint) => d.price
 const xTickFmt = (i: number) => {
   const len = chartData.value.length
   if (len < 2) return ''
-  // Show ~5 evenly spaced time labels
   const step = Math.floor(len / 5)
   if (step < 1 || i % step !== 0) return ''
   const pt = chartData.value[i]
@@ -96,7 +88,7 @@ const xTickFmt = (i: number) => {
 }
 
 const tooltipFmt = (d: PricePoint) =>
-  `$${formatNumber(d.price, false)}  |  ${format(d.date, 'HH:mm:ss')}`
+    `$${formatNumber(d.price, false)}  |  ${format(d.date, 'HH:mm:ss')}`
 
 const priceUp = computed(() => (change24h.value ?? 0) >= 0)
 const lineColor = computed(() => priceUp.value ? 'var(--ui-success)' : 'var(--ui-error)')
@@ -110,11 +102,32 @@ const toast = useToast()
 const balance = computed(() => parseFloat(user.value?.balance ?? '0'))
 const userGems = computed(() => user.value?.gems ?? 0)
 
-const tradeCost = computed(() => livePrice.value * amount.value)
-const canBuy = computed(() => balance.value >= tradeCost.value && amount.value >= 1)
+// Actual cost/revenue using the exponential curve + fee
+const tradeResult = computed(() => {
+  const a = Math.max(1, Math.min(amount.value || 1, GEM_MAX_GEMS_PER_TRADE))
+  if (tradeMode.value === 'buy') {
+    const { cost, newPrice } = gemBuyGems(livePrice.value, a)
+    return { total: cost, newPrice }
+  }
+  const { revenue, newPrice } = gemSellGems(livePrice.value, a)
+  return { total: revenue, newPrice }
+})
+
+const canBuy = computed(() => balance.value >= tradeResult.value.total && amount.value >= 1)
 const canSell = computed(() => userGems.value >= amount.value && amount.value >= 1)
 
-const portfolioValue = computed(() => userGems.value * livePrice.value)
+// Portfolio = what you'd actually receive selling all gems
+const portfolioValue = computed(() => {
+  if (userGems.value <= 0) return 0
+  return gemSellGems(livePrice.value, userGems.value).revenue
+})
+
+// Price impact preview
+const priceImpactPct = computed(() => {
+  const cur = livePrice.value
+  if (!cur) return 0
+  return ((tradeResult.value.newPrice - cur) / cur) * 100
+})
 
 async function executeTrade() {
   if (loading.value) return
@@ -122,14 +135,14 @@ async function executeTrade() {
   try {
     const endpoint = tradeMode.value === 'buy' ? '/api/gem-market/buy' : '/api/gem-market/sell'
     const tradeAmount = amount.value
-    const tradeValue = tradeCost.value
+    const tradeValue = tradeResult.value.total
     await $fetch(endpoint, { method: 'POST', body: { gems: tradeAmount } })
     await Promise.all([refresh(), fetchSession()])
     const isBuy = tradeMode.value === 'buy'
     const gemLabel = `${tradeAmount} gem${tradeAmount !== 1 ? 's' : ''}`
     const title = isBuy
-      ? `Bought ${gemLabel}`
-      : `Sold ${gemLabel} for $${formatNumber(tradeValue, false)}`
+        ? `Bought ${gemLabel} for $${formatNumber(tradeValue, false)}`
+        : `Sold ${gemLabel} for $${formatNumber(tradeValue, false)}`
     toast.add({ title, color: 'success' })
   } catch (e: any) {
     toast.add({ title: e?.data?.message ?? 'Trade failed', color: 'error' })
@@ -180,9 +193,9 @@ function actionBg(action: string) {
           </p>
         </div>
         <div
-          v-if="change24h !== null"
-          class="px-3 py-1.5 rounded-lg text-sm font-semibold tabular-nums"
-          :class="priceUp ? 'bg-success/15 text-success' : 'bg-error/15 text-error'"
+            v-if="change24h !== null"
+            class="px-3 py-1.5 rounded-lg text-sm font-semibold tabular-nums"
+            :class="priceUp ? 'bg-success/15 text-success' : 'bg-error/15 text-error'"
         >
           {{ priceUp ? '+' : '' }}{{ change24h.toFixed(2) }}%
           <span class="text-xs font-normal opacity-70 ml-1">24h</span>
@@ -209,8 +222,8 @@ function actionBg(action: string) {
           <div>
             <p class="text-xs text-muted font-medium uppercase tracking-wide">24h Change</p>
             <p
-              class="text-xl font-bold mt-1 tabular-nums"
-              :class="priceUp ? 'text-success' : 'text-error'"
+                class="text-xl font-bold mt-1 tabular-nums"
+                :class="priceUp ? 'text-success' : 'text-error'"
             >
               {{ change24h !== null ? `${change24h >= 0 ? '+' : ''}${change24h.toFixed(2)}%` : '—' }}
             </p>
@@ -260,26 +273,26 @@ function actionBg(action: string) {
               </p>
             </div>
             <UBadge
-              :label="`${data?.history.length ?? 0} trade events`"
-              color="neutral"
-              variant="subtle"
+                :label="`${data?.history.length ?? 0} trade events`"
+                color="neutral"
+                variant="subtle"
             />
           </div>
         </template>
 
         <div
-          v-if="!data || chartData.length < 2"
-          class="h-52 flex flex-col items-center justify-center gap-2 text-muted"
+            v-if="!data || chartData.length < 2"
+            class="h-52 flex flex-col items-center justify-center gap-2 text-muted"
         >
           <UIcon name="i-lucide-line-chart" class="size-10 opacity-20" />
           <p class="text-sm">Waiting for trade data…</p>
         </div>
         <VisXYContainer
-          v-else
-          :data="chartData"
-          :padding="{ top: 32, left: 8, right: 8 }"
-          class="h-52"
-          :width="chartWidth"
+            v-else
+            :data="chartData"
+            :padding="{ top: 32, left: 8, right: 8 }"
+            class="h-52"
+            :width="chartWidth"
         >
           <VisArea :x="xFn" :y="yFn" :color="lineColor" :opacity="0.08" />
           <VisLine :x="xFn" :y="yFn" :color="lineColor" />
@@ -298,16 +311,16 @@ function actionBg(action: string) {
         <!-- Buy / Sell toggle -->
         <div class="flex rounded-lg overflow-hidden border border-default mb-5">
           <button
-            class="flex-1 py-2 text-sm font-semibold transition-colors"
-            :class="tradeMode === 'buy' ? 'bg-success text-white' : 'hover:bg-elevated text-muted'"
-            @click="tradeMode = 'buy'"
+              class="flex-1 py-2 text-sm font-semibold transition-colors"
+              :class="tradeMode === 'buy' ? 'bg-success text-white' : 'hover:bg-elevated text-muted'"
+              @click="tradeMode = 'buy'"
           >
             Buy
           </button>
           <button
-            class="flex-1 py-2 text-sm font-semibold transition-colors"
-            :class="tradeMode === 'sell' ? 'bg-error text-white' : 'hover:bg-elevated text-muted'"
-            @click="tradeMode = 'sell'"
+              class="flex-1 py-2 text-sm font-semibold transition-colors"
+              :class="tradeMode === 'sell' ? 'bg-error text-white' : 'hover:bg-elevated text-muted'"
+              @click="tradeMode = 'sell'"
           >
             Sell
           </button>
@@ -320,29 +333,35 @@ function actionBg(action: string) {
               Amount (gems)
             </label>
             <UInput
-              v-model="amount"
-              type="number"
-              min="1"
-              max="50"
-              placeholder="1"
-              class="w-full"
+                v-model="amount"
+                type="number"
+                min="1"
+                :max="GEM_MAX_GEMS_PER_TRADE"
+                placeholder="1"
+                class="w-full"
             />
-            <p class="text-xs text-muted mt-1">Max 50 per trade</p>
+            <p class="text-xs text-muted mt-1">Max {{ GEM_MAX_GEMS_PER_TRADE }} per trade</p>
           </div>
 
           <!-- Cost / Revenue preview -->
           <div class="rounded-lg bg-elevated border border-default p-3 space-y-2">
             <div class="flex items-center justify-between text-sm">
-              <span class="text-muted">Price per gem</span>
+              <span class="text-muted">Spot price</span>
               <span class="font-medium tabular-nums">${{ formatNumber(livePrice, false) }}</span>
             </div>
             <div class="flex items-center justify-between text-sm">
               <span class="text-muted">{{ tradeMode === 'buy' ? 'Total cost' : 'You receive' }}</span>
               <span
-                class="font-bold tabular-nums"
-                :class="tradeMode === 'buy' ? 'text-error' : 'text-success'"
+                  class="font-bold tabular-nums"
+                  :class="tradeMode === 'buy' ? 'text-error' : 'text-success'"
               >
-                {{ tradeMode === 'buy' ? '-' : '+' }}${{ formatNumber(tradeCost, false) }}
+                {{ tradeMode === 'buy' ? '-' : '+' }}${{ formatNumber(tradeResult.total, false) }}
+              </span>
+            </div>
+            <div class="flex items-center justify-between text-xs text-muted">
+              <span>Price impact</span>
+              <span class="tabular-nums" :class="priceImpactPct >= 0 ? 'text-success' : 'text-error'">
+                {{ priceImpactPct >= 0 ? '+' : '' }}{{ priceImpactPct.toFixed(2) }}%
               </span>
             </div>
             <USeparator />
@@ -358,23 +377,16 @@ function actionBg(action: string) {
 
           <!-- Impact hint -->
           <p class="text-xs text-muted">
-            <template v-if="tradeMode === 'buy'">
-              Buying will <span class="text-success font-medium">raise the price</span>.
-              The market also drifts up ~1% per hour — faster when below base price, slower when above.
-            </template>
-            <template v-else>
-              Selling will <span class="text-error font-medium">lower the price</span>.
-              The market still drifts up ~1% per hour, so prices recover over time.
-            </template>
+            Includes 0.5% fee. Larger trades move the price more — the cost/revenue accounts for the price shifting during the trade.
           </p>
 
           <UButton
-            block
-            :color="tradeMode === 'buy' ? 'success' : 'error'"
-            :label="tradeMode === 'buy' ? `Buy ${amount} gem${amount !== 1 ? 's' : ''}` : `Sell ${amount} gem${amount !== 1 ? 's' : ''}`"
-            :loading="loading"
-            :disabled="tradeMode === 'buy' ? !canBuy : !canSell"
-            @click="executeTrade"
+              block
+              :color="tradeMode === 'buy' ? 'success' : 'error'"
+              :label="tradeMode === 'buy' ? `Buy ${amount} gem${amount !== 1 ? 's' : ''}` : `Sell ${amount} gem${amount !== 1 ? 's' : ''}`"
+              :loading="loading"
+              :disabled="tradeMode === 'buy' ? !canBuy : !canSell"
+              @click="executeTrade"
           />
         </div>
       </UCard>
@@ -390,8 +402,8 @@ function actionBg(action: string) {
       </template>
 
       <div
-        v-if="!data?.history.length"
-        class="py-12 flex flex-col items-center gap-2 text-muted"
+          v-if="!data?.history.length"
+          class="py-12 flex flex-col items-center gap-2 text-muted"
       >
         <UIcon name="i-lucide-activity" class="size-10 opacity-20" />
         <p class="text-sm">No trades yet — be the first!</p>
@@ -400,9 +412,9 @@ function actionBg(action: string) {
       <UScrollArea v-else class="max-h-80 -mx-4 -mb-4">
         <div class="divide-y divide-default">
           <div
-            v-for="(entry, i) in data.history"
-            :key="i"
-            class="flex items-center gap-3 px-4 py-3 hover:bg-elevated/50 transition-colors"
+              v-for="(entry, i) in data.history"
+              :key="i"
+              class="flex items-center gap-3 px-4 py-3 hover:bg-elevated/50 transition-colors"
           >
             <div class="size-8 rounded-full flex items-center justify-center shrink-0" :class="actionBg(entry.action)">
               <UIcon :name="actionIcon(entry.action)" class="size-4" :class="actionColor(entry.action)" />
@@ -412,17 +424,17 @@ function actionBg(action: string) {
               <div class="flex items-center gap-2 flex-wrap">
                 <span class="text-sm font-semibold">{{ entry.userName ?? 'System' }}</span>
                 <UBadge
-                  :label="entry.action"
-                  :color="entry.action === 'buy' ? 'success' : entry.action === 'sell' ? 'error' : 'neutral'"
-                  variant="subtle"
-                  size="sm"
+                    :label="entry.action"
+                    :color="entry.action === 'buy' ? 'success' : entry.action === 'sell' ? 'error' : 'neutral'"
+                    variant="subtle"
+                    size="sm"
                 />
                 <UBadge
-                  v-if="entry.gems > 0"
-                  :label="`${entry.gems} gem${entry.gems !== 1 ? 's' : ''}`"
-                  color="neutral"
-                  variant="outline"
-                  size="sm"
+                    v-if="entry.gems > 0"
+                    :label="`${entry.gems} gem${entry.gems !== 1 ? 's' : ''}`"
+                    color="neutral"
+                    variant="outline"
+                    size="sm"
                 />
               </div>
               <p class="text-xs text-muted mt-0.5">
@@ -435,9 +447,9 @@ function actionBg(action: string) {
 
             <div class="text-right">
               <p
-                v-if="parseFloat(entry.totalAmount) > 0"
-                class="text-sm font-bold tabular-nums"
-                :class="entry.action === 'buy' ? 'text-error' : 'text-success'"
+                  v-if="parseFloat(entry.totalAmount) > 0"
+                  class="text-sm font-bold tabular-nums"
+                  :class="entry.action === 'buy' ? 'text-error' : 'text-success'"
               >
                 {{ entry.action === 'buy' ? '-' : '+' }}${{ formatNumber(parseFloat(entry.totalAmount), false) }}
               </p>
