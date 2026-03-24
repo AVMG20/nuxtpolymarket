@@ -24,6 +24,7 @@ async function signOut() {
 const platformItems: NavigationMenuItem[] = [
   { label: 'Games', class: 'mb-1', icon: 'i-lucide-house', to: '/' },
   { label: 'Miner', class: 'mb-1', icon: 'i-lucide-pickaxe', to: '/miner' },
+  { label: 'Gem Market', class: 'mb-1', icon: 'i-lucide-gem', to: '/gem-market' },
   { label: 'Leaderboard', class: 'mb-1', icon: 'i-lucide-trophy', to: '/leaderboard' },
 ]
 

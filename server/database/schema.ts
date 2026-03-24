@@ -1,6 +1,7 @@
 import { relations } from "drizzle-orm";
 import { pgTable, text, timestamp, boolean, index, numeric, integer } from "drizzle-orm/pg-core";
 
+
 export const user = pgTable("user", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
@@ -103,6 +104,23 @@ export const minerState = pgTable('miner_state', {
   minesPlaysDate: text('mines_plays_date').notNull().default(''),
 })
 
+export const gemMarketState = pgTable('gem_market_state', {
+    id: text('id').primaryKey(), // always 'market'
+    price: numeric('price', { precision: 19, scale: 8 }).notNull(),
+    lastUpdatedAt: timestamp('last_updated_at').defaultNow().notNull(),
+})
+
+export const gemPriceHistory = pgTable('gem_price_history', {
+    id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+    price: numeric('price', { precision: 19, scale: 8 }).notNull(),
+    action: text('action').notNull(), // 'buy' | 'sell' | 'init'
+    userId: text('user_id').references(() => user.id, { onDelete: 'set null' }),
+    gems: integer('gems').notNull().default(0),
+    totalAmount: numeric('total_amount', { precision: 19, scale: 4 }).notNull().default('0'),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (t) => [index('gem_price_history_created_at_idx').on(t.createdAt)])
+
+
 export const transactionsRelations = relations(transactions, ({ one }) => ({
   user: one(user, { fields: [transactions.userId], references: [user.id] }),
 }));
@@ -116,6 +134,10 @@ export const userRelations = relations(user, ({ many, one }) => ({
 
 export const minerStateRelations = relations(minerState, ({ one }) => ({
   user: one(user, { fields: [minerState.userId], references: [user.id] }),
+}))
+
+export const gemPriceHistoryRelations = relations(gemPriceHistory, ({ one }) => ({
+  user: one(user, { fields: [gemPriceHistory.userId], references: [user.id] }),
 }));
 
 export const sessionRelations = relations(session, ({ one }) => ({
