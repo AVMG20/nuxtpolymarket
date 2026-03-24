@@ -15,6 +15,13 @@ watch(
   { immediate: true },
 )
 
+const bottomButtonLabel = computed(() => {
+  if (!gameResult.value && playsRemaining.value <= 0) return 'No plays remaining today'
+  if (!gameResult.value) return 'Game active — click any tile'
+  if (playsRemaining.value <= 0) return 'No plays remaining today'
+  return 'Play Again'
+})
+
 const playing = ref(false)
 const buying = ref(false)
 const buyingExtraPlay = ref(false)
@@ -248,7 +255,7 @@ function tileValueColor(value: number) {
         </div>
 
         <UButton
-            :label="!gameResult ? 'Game active — click any tile' : playsRemaining <= 0 ? 'No plays remaining today' : 'Play Again'"
+            :label="bottomButtonLabel"
             :icon="gameResult && playsRemaining > 0 ? 'i-lucide-refresh-cw' : undefined"
             :color="gameResult && playsRemaining > 0 ? 'primary' : 'neutral'"
             :variant="gameResult && playsRemaining > 0 ? 'solid' : 'soft'"
