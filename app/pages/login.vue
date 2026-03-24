@@ -1,12 +1,15 @@
 <script setup lang="ts">
 definePageMeta({ layout: 'auth', auth: false })
-const { signIn: authSignIn } = useAuth()
+const { signIn: authSignIn, client } = useAuth()
 
 const email = ref('')
 const password = ref('')
 const error = ref('')
 const loading = ref(false)
 
+async function signInDiscord() {
+  await client.signIn.social({ provider: 'discord', callbackURL: '/' })
+}
 async function signIn() {
   error.value = ''
   loading.value = true
@@ -36,6 +39,10 @@ async function signIn() {
         <UAlert v-if="error" color="error" :description="error" />
         <UButton type="submit" class="w-full justify-center" :loading="loading">
           Sign in
+        </UButton>
+        <USeparator label="or" />
+        <UButton class="w-full justify-center" color="neutral" variant="outline" icon="i-simple-icons-discord" @click="signInDiscord">
+          Sign in with Discord
         </UButton>
       </UForm>
 

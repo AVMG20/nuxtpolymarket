@@ -11,6 +11,12 @@ export const auth = betterAuth({
     emailAndPassword: {
         enabled: true
     },
+    socialProviders: {
+        discord: {
+            clientId: process.env.BETTER_AUTH_DISCORD_CLIENT_ID as string,
+            clientSecret: process.env.BETTER_AUTH_DISCORD_CLIENT_SECRET as string,
+        }
+    },
     rateLimit: {
         window: 10, // default is 60
         max: 100, // default is 100
