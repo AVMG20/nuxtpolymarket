@@ -2,22 +2,22 @@
 export const RIG_MAX_LEVEL = 30
 export const RIG_BASE_INCOME = 75              // $/day at level 1
 export const RIG_INCOME_INCREMENT = 75         // additional $/day per level
-export const RIG_BASE_UPGRADE_COST = 250       // base upgrade cost
+export const RIG_BASE_UPGRADE_COST = 500       // base upgrade cost
 export const RIG_UPGRADE_COST_INCREMENT = 250  // additional cost per current level
 
 // ─── Vault ────────────────────────────────────────────────────────────────────
 export const VAULT_MAX_LEVEL = 30
 export const VAULT_BASE_CAP = 75               // $ cap at level 1
 export const VAULT_CAP_INCREMENT = 75          // additional $ cap per level
-export const VAULT_BASE_UPGRADE_COST = 25
-export const VAULT_UPGRADE_COST_INCREMENT = 150
+export const VAULT_BASE_UPGRADE_COST = 350
+export const VAULT_UPGRADE_COST_INCREMENT = 75
 
 // ─── Gem Factory ──────────────────────────────────────────────────────────────
 export const FACTORY_MAX_LEVEL = 10
-export const FACTORY_BASE_RATE = 0.4           // gems/day at level 1
+export const FACTORY_BASE_RATE = 1          // gems/day at level 1
 export const FACTORY_RATE_INCREMENT = 0.5      // additional gems/day per level
-export const FACTORY_BASE_CAP = 2              // gem cap at level 1
-export const FACTORY_CAP_INCREMENT = 6         // additional gem cap per level
+export const FACTORY_BASE_CAP = 10              // gem cap at level 1
+export const FACTORY_CAP_INCREMENT = 1         // additional gem cap per level
 export const FACTORY_BASE_UPGRADE_COST = 750
 export const FACTORY_UPGRADE_COST_INCREMENT = 750
 
