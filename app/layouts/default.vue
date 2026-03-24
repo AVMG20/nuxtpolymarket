@@ -33,6 +33,7 @@ const slotItems: NavigationMenuItem[] = [
 
 const casinoItems: NavigationMenuItem[] = [
   { label: 'Dice', class: 'mb-1', icon: 'i-lucide-dices', to: '/games/dice' },
+  { label: 'Limbo', class: 'mb-1', icon: 'i-lucide-trending-up', to: '/games/limbo' },
 ]
 
 const primaryColors = [

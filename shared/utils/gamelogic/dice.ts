@@ -14,10 +14,13 @@ export function playDice(bet: number, options?: Record<string, unknown>): DiceRe
     throw createError({ statusCode: 400, message: 'Win chance must be between 2 and 96' })
   }
 
-  const roll = Math.floor(Math.random() * 10000) / 100  // 0.00–99.99
+  const arr = new Uint32Array(1)
+  crypto.getRandomValues(arr)
+  const roll = Math.floor((arr[0]! / 0xFFFFFFFF) * 10000) / 100  // 0.00–99.99
+
   const multiplier = 98 / winChance
   const won = roll < winChance
   const payout = won ? bet * multiplier : 0
 
-  return { roll, won, multiplier, payout, winChance}
+  return { roll, won, multiplier, payout, winChance }
 }
