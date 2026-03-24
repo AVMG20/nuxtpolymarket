@@ -21,6 +21,14 @@ const casinoGames = [
     gradient: 'from-emerald-950 to-slate-900',
     iconColor: 'text-emerald-400',
   },
+  {
+    name: 'Limbo',
+    description: 'Bet on a multiplier and watch the rocket fly',
+    icon: 'i-lucide-trending-up',
+    to: '/games/limbo',
+    gradient: 'from-sky-950 to-slate-900',
+    iconColor: 'text-sky-400',
+  },
 ]
 
 const filteredSlots = computed(() =>
