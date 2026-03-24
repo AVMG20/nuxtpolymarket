@@ -357,11 +357,11 @@ function actionBg(action: string) {
           <p class="text-xs text-muted">
             <template v-if="tradeMode === 'buy'">
               Buying will <span class="text-success font-medium">raise the price</span>.
-              The market naturally recovers toward the base price over time.
+              The market also drifts up ~1% per hour — faster when below base price, slower when above.
             </template>
             <template v-else>
               Selling will <span class="text-error font-medium">lower the price</span>.
-              The market naturally recovers toward the base price over time.
+              The market still drifts up ~1% per hour, so prices recover over time.
             </template>
           </p>
 
