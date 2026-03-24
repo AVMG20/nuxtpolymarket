@@ -84,7 +84,7 @@ onUnmounted(() => {
     <!-- Header -->
     <div>
       <h1 class="text-2xl font-bold flex items-center gap-2">
-        <UIcon name="i-lucide-dice-5" class="size-6 text-primary" />
+        <UIcon name="i-lucide-dices" class="size-6 text-primary" />
         Dice
       </h1>
       <p class="text-sm text-muted mt-0.5">98% RTP</p>
@@ -172,7 +172,7 @@ onUnmounted(() => {
         <!-- Game display -->
         <UCard :ui="{ body: 'relative overflow-hidden min-h-[360px] flex flex-col p-6' }">
           <!-- History pills -->
-          <div class="absolute top-0 right-0 p-4 flex gap-1.5 flex-wrap justify-end max-w-[60%] z-10">
+          <div class="flex gap-1.5 flex-wrap mb-3 min-h-[26px]">
             <TransitionGroup name="pill-slide">
               <span
                 v-for="(h, i) in history"
@@ -199,17 +199,11 @@ onUnmounted(() => {
               <span v-else>{{ displayRoll !== null ? displayRoll.toFixed(2) : '50.00' }}</span>
             </div>
 
-            <Transition name="fade-up">
-              <div v-if="!isRolling && lastResult?.won" class="absolute top-1/2 left-1/2 -translate-x-1/2 translate-y-16 md:translate-y-20 text-success font-black text-3xl md:text-4xl z-20 whitespace-nowrap pointer-events-none">
-                +${{ formatNumber(lastResult.payout - lastBet, false) }}
-              </div>
-            </Transition>
-
             <!-- Result bar -->
             <div class="w-full">
               <div class="relative h-4 md:h-6 rounded-full overflow-hidden flex">
                 <div
-                  class="h-full transition-[width] duration-150 transition-colors duration-300"
+                  class="h-full transition-colors duration-300"
                   :class="!isRolling && lastResult?.won ? 'bg-success' : 'bg-success/30'"
                   :style="{ width: `${winChance}%` }"
                 />
@@ -222,7 +216,7 @@ onUnmounted(() => {
               <div class="relative h-0" v-if="displayRoll !== null">
                 <div
                   class="absolute -top-6 md:-top-8 w-1 h-8 md:h-10 rounded-full pointer-events-none transition-colors duration-300"
-                  :class="isRolling ? 'bg-primary' : lastResult?.won ? 'bg-success' : 'bg-error'"
+                  :class="isRolling ? 'bg-inverted' : lastResult?.won ? 'bg-success' : 'bg-error'"
                   :style="{ left: `clamp(2px, ${displayRoll}%, calc(100% - 4px))` }"
                 />
               </div>
@@ -234,6 +228,13 @@ onUnmounted(() => {
 
             <div class="text-muted font-mono bg-elevated/50 px-4 py-2 rounded-full border border-default text-sm">
               Target: <span class="font-bold">&lt; {{ winChance.toFixed(2) }}</span>
+            </div>
+
+            <div
+              class="text-success font-black text-2xl md:text-3xl whitespace-nowrap"
+              :class="!isRolling && lastResult?.won ? 'opacity-100 transition-opacity duration-200' : 'opacity-0'"
+            >
+              +${{ formatNumber((lastResult?.payout ?? 0) - lastBet, false) }}
             </div>
           </div>
 

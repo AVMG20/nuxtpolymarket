@@ -170,7 +170,7 @@ onUnmounted(() => {
         <!-- Game display -->
         <UCard :ui="{ body: 'relative overflow-hidden min-h-[360px] flex flex-col p-6' }">
           <!-- History pills -->
-          <div class="absolute top-0 right-0 p-4 flex gap-1.5 flex-wrap justify-end max-w-[60%] z-10">
+          <div class="flex gap-1.5 flex-wrap mb-3 min-h-[26px]">
             <TransitionGroup name="pill-slide">
               <span
                 v-for="(h, i) in history"
@@ -204,11 +204,12 @@ onUnmounted(() => {
               Target: <span class="font-bold">{{ target.toFixed(2) }}×</span>
             </div>
 
-            <Transition name="fade-up">
-              <div v-if="!isRolling && lastResult?.won" class="absolute top-1/2 left-1/2 -translate-x-1/2 translate-y-24 md:translate-y-32 text-success font-black text-3xl md:text-4xl z-20 whitespace-nowrap pointer-events-none">
-                +${{ formatNumber(lastResult.payout - lastBet, false) }}
-              </div>
-            </Transition>
+            <div
+              class="text-success font-black text-2xl md:text-3xl whitespace-nowrap mt-4"
+              :class="!isRolling && lastResult?.won ? 'opacity-100 transition-opacity duration-200' : 'opacity-0'"
+            >
+              +${{ formatNumber((lastResult?.payout ?? 0) - lastBet, false) }}
+            </div>
           </div>
 
           <!-- Rolling pulse overlay -->
