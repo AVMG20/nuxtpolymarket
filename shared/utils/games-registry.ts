@@ -1,17 +1,21 @@
 import { playGame as playCyberCascade } from './gamelogic/cyber-cascade'
+import { playDice } from './gamelogic/dice'
 
 export interface GameResult {
-  totalSessionWin: number
+  payout: number
   [key: string]: unknown
 }
 
 export interface GameDefinition {
-  play: (bet: number) => GameResult
+  play: (bet: number, options?: Record<string, unknown>) => GameResult
 }
 
 export const GAMES_REGISTRY: Record<string, GameDefinition> = {
   'cyber-cascade': {
     play: playCyberCascade
+  },
+  'dice': {
+    play: playDice
   }
 }
 

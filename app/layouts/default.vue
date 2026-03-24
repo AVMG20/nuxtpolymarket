@@ -27,8 +27,12 @@ const platformItems: NavigationMenuItem[] = [
   { label: 'Leaderboard', class: 'mb-1', icon: 'i-lucide-trophy', to: '/leaderboard' },
 ]
 
-const gameItems: NavigationMenuItem[] = [
-  { label: 'Cyber', class: 'mb-1', icon: 'i-lucide-skull', to: '/games/cyber'},
+const slotItems: NavigationMenuItem[] = [
+  { label: 'Cyber Cascade', class: 'mb-1', icon: 'i-lucide-skull', to: '/games/cyber' },
+]
+
+const casinoItems: NavigationMenuItem[] = [
+  { label: 'Dice', class: 'mb-1', icon: 'i-lucide-dices', to: '/games/dice' },
 ]
 
 const primaryColors = [
@@ -140,13 +144,28 @@ function setNeutral(color: string) {
           class="text-xs font-semibold text-muted uppercase tracking-wider px-2 mb-1 transition-opacity duration-200"
           :class="isCollapsed ? 'opacity-0 h-0 overflow-hidden mb-0' : 'opacity-100'"
         >
-          Games Library
+          Casino
         </p>
         <UNavigationMenu
           :collapsed="isCollapsed"
-          :items="gameItems"
+          :items="casinoItems"
           orientation="vertical"
         />
+
+        <USeparator class="my-3" />
+
+        <p
+          class="text-xs font-semibold text-muted uppercase tracking-wider px-2 mb-1 transition-opacity duration-200"
+          :class="isCollapsed ? 'opacity-0 h-0 overflow-hidden mb-0' : 'opacity-100'"
+        >
+          Slots
+        </p>
+        <UNavigationMenu
+          :collapsed="isCollapsed"
+          :items="slotItems"
+          orientation="vertical"
+        />
+
       </div>
 
       <!-- Footer -->

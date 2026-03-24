@@ -160,14 +160,14 @@ async function runRound() {
       }
 
       status.value = `BONUS COMPLETE — WIN: $${runningBonusTotal.toFixed(2)}`
-      currentWin.value = gameData.totalSessionWin
+      currentWin.value = gameData.payout
       bonusActive.value = false
       bonusTotalWin.value = 0
       freeSpinsLeft.value = 0
       isAutoSpinning.value = false
     } else {
-      currentWin.value = gameData.totalSessionWin
-      status.value = gameData.totalSessionWin > 0 ? `WIN: $${gameData.totalSessionWin.toFixed(2)}` : 'SYSTEM READY'
+      currentWin.value = gameData.payout
+      status.value = gameData.payout > 0 ? `WIN: $${gameData.payout.toFixed(2)}` : 'SYSTEM READY'
     }
 
     balance.value = result.balance

@@ -292,10 +292,10 @@ export const simulateRound = (
 export function playGame(bet: number): {
   baseRound: RoundResult
   freeSpins?: RoundResult[]
-  totalSessionWin: number
+  payout: number
 } {
   const baseRound = simulateRound(bet, null, Array(GRID_SIZE).fill(0), false)
-  let totalSessionWin = baseRound.totalWin
+  let payout = baseRound.totalWin
   let freeSpins: RoundResult[] | undefined
 
   if (baseRound.isBonusTriggered) {
@@ -305,11 +305,11 @@ export function playGame(bet: number): {
     for (let i = 0; i < FREE_SPINS_COUNT; i++) {
       const freeSpinResult = simulateRound(bet, currentGrid, currentTrails, true)
       freeSpins.push(freeSpinResult)
-      totalSessionWin += freeSpinResult.totalWin
+      payout += freeSpinResult.totalWin
       currentGrid = freeSpinResult.finalGrid
       currentTrails = freeSpinResult.finalTrails
     }
   }
 
-  return { baseRound, freeSpins, totalSessionWin }
+  return { baseRound, freeSpins,  payout }
 }

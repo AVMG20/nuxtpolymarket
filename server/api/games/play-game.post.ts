@@ -8,7 +8,7 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 401, statusMessage: 'Unauthorized' })
   }
 
-  const { bet: rawBet, game } = await readBody<{ bet: number; game: string }>(event)
+  const { bet: rawBet, game, options } = await readBody<{ bet: number; game: string; options?: Record<string, unknown> }>(event)
   const bet = Number(rawBet)
 
   if (!isValidGame(game)) {
@@ -28,9 +28,9 @@ export default defineEventHandler(async (event) => {
   }
 
   if (!GAMES_REGISTRY[game]) throw new Error('Invalid GAMES_REGISTRY')
-  const gameData = GAMES_REGISTRY[game].play(bet)
+  const gameData = GAMES_REGISTRY[game].play(bet, options)
 
-  const net = gameData.totalSessionWin - bet
+  const net = gameData.payout - bet
 
   if (net > 0) {
     await credit(session.user.id, net.toFixed(4), game)
