@@ -159,7 +159,9 @@ onUnmounted(() => {
           <!-- Balance -->
           <div class="rounded-lg bg-elevated border border-default p-3 flex justify-between items-center">
             <span class="text-xs text-muted uppercase tracking-wide font-medium">Balance</span>
-            <span class="font-bold tabular-nums text-primary">${{ formatNumber(balance, false) }}</span>
+            <span class="font-bold text-sm">
+              <CoinBalance :value="balance" :compact="false" />
+            </span>
           </div>
         </div>
       </UCard>

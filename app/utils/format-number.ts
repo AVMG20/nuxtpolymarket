@@ -1,7 +1,7 @@
-export default function(value:number | bigint |  Intl.StringNumericLiteral, compact:boolean = true) {
+export default function(value:number | bigint |  Intl.StringNumericLiteral, compact:boolean = true, minimumFractionDigits:number = 2) {
   const { format: formatNumber }  = Intl.NumberFormat('nl-NL', {
     notation: compact ? 'compact' : 'standard',
-      minimumFractionDigits: 2,
+      minimumFractionDigits,
       maximumFractionDigits: 2,
   })
 

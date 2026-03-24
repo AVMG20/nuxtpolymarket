@@ -345,11 +345,11 @@ function actionBg(action: string) {
             <USeparator />
             <div class="flex items-center justify-between text-xs text-muted">
               <span>Your balance</span>
-              <span class="tabular-nums">${{ formatNumber(balance, false) }}</span>
+              <span class="tabular-nums"><CoinBalance :compact="false" :value="balance"/></span>
             </div>
             <div class="flex items-center justify-between text-xs text-muted">
               <span>Your gems</span>
-              <span class="tabular-nums">{{ formatNumber(userGems) }}</span>
+              <span class="tabular-nums"><GemBalance :value="userGems"/></span>
             </div>
           </div>
 
