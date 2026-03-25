@@ -227,12 +227,12 @@ function runSimulation() {
       const end = Math.min(count + chunkSize, simIterations.value)
       for (; count < end; count++) {
         const session = playGame(bet.value)
-        totalWin += session.totalSessionWin
+        totalWin += session.payout
         if (session.freeSpins) bonusCount++
-        if (session.totalSessionWin > 0) {
-          const entry = { rank: 0, amount: session.totalSessionWin, multiple: session.totalSessionWin / bet.value, type: session.freeSpins ? 'BONUS' : 'BASE' }
+        if (session.payout > 0) {
+          const entry = { rank: 0, amount: session.payout, multiple: session.payout / bet.value, type: session.freeSpins ? 'BONUS' : 'BASE' }
           if (topWins.length < 20) { topWins.push(entry); topWins.sort((a, b) => b.amount - a.amount) }
-          else if (session.totalSessionWin > topWins[topWins.length - 1].amount) { topWins.pop(); topWins.push(entry); topWins.sort((a, b) => b.amount - a.amount) }
+          else if (session.payout > topWins[topWins.length - 1].amount) { topWins.pop(); topWins.push(entry); topWins.sort((a, b) => b.amount - a.amount) }
         }
       }
       simProgress.value = count / simIterations.value
@@ -300,7 +300,7 @@ const displayWin = computed(() => bonusActive.value ? bonusTotalWin.value + curr
         />
         <div class="relative bg-black border border-white/10 p-1 rounded-sm shadow-2xl">
           <div class="grid gap-1 w-[300px] md:w-[540px]" :style="`grid-template-columns: repeat(${GRID_WIDTH}, 1fr); aspect-ratio: ${GRID_WIDTH}/${GRID_HEIGHT};`">
-            <CyberCascadeGridItem
+            <GamesCyberCascadeGridItem
               v-for="(cell, index) in grid"
               :key="cell.id"
               :cell="cell"
@@ -461,7 +461,7 @@ const displayWin = computed(() => bonusActive.value ? bonusTotalWin.value + curr
             <h2 class="text-cyan-500 font-bold uppercase tracking-widest">System Database</h2>
             <button @click="showPaytable = false"><UIcon name="i-lucide-x" class="size-5 text-slate-400 hover:text-white" /></button>
           </div>
-          <CyberCascadePaytable :bet="bet" />
+          <GamesCyberCascadePaytable :bet="bet" />
         </div>
       </div>
     </Transition>

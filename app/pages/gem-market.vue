@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useIntervalFn, useElementSize } from '@vueuse/core'
 import { format, formatDistanceToNow } from 'date-fns'
-import { gemBuyGems, gemSellGems, GEM_MAX_GEMS_PER_TRADE, gemStepPrice } from '#shared/utils/gem-market'
+import { gemBuyGems, gemSellGems, GEM_MAX_GEMS_PER_TRADE, gemStepPrice } from '#shared/utils/gamelogic/gem-market'
 
 const { data, refresh } = await useFetch('/api/gem-market/state')
 const { user, fetchSession } = useAuth()
@@ -279,7 +279,7 @@ function actionBg(action: string) {
           </div>
         </template>
 
-        <ChartLine
+        <ChartsChartLine
             v-if="data && chartData.length >= 2"
             :data="chartData"
             height="h-52"

@@ -317,7 +317,7 @@ onMounted(() => setTimeout(() => { mounted.value = true }, 50))
         <UIcon name="i-lucide-line-chart" class="size-10 opacity-20" />
         <p class="text-sm">No transactions today</p>
       </div>
-      <ChartLine
+      <ChartsChartLine
           v-else
           :data="lineChartData"
           :x="xPerf"

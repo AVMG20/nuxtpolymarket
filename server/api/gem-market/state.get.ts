@@ -8,7 +8,7 @@ import {
   GEM_HISTORY_DAYS,
   GEM_HISTORY_LIMIT,
   gemComputeLivePrice,
-} from '#shared/utils/gem-market'
+} from '#shared/utils/gamelogic/gem-market'
 
 export default defineEventHandler(async (event) => {
   const session = await auth.api.getSession({ headers: event.headers })
@@ -17,10 +17,7 @@ export default defineEventHandler(async (event) => {
   let state = await db.query.gemMarketState.findFirst()
 
   if (!state) {
-    const initialPrice = GEM_INITIAL_PRICE.toFixed(8)
-    await db.insert(gemMarketState).values({ id: 'market', price: initialPrice, lastUpdatedAt: new Date() })
-    await db.insert(gemPriceHistory).values({ price: initialPrice, action: 'init', gems: 0 })
-    state = { id: 'market', price: initialPrice, lastUpdatedAt: new Date() }
+    state = await initMarketState();
   }
 
   const storedPrice = parseFloat(state.price)
@@ -54,3 +51,11 @@ export default defineEventHandler(async (event) => {
     userGems: session?.user?.gems ?? null,
   }
 })
+
+
+async function initMarketState() {
+  const initialPrice = GEM_INITIAL_PRICE.toFixed(8)
+  await db.insert(gemMarketState).values({id: 'market', price: initialPrice, lastUpdatedAt: new Date()})
+  await db.insert(gemPriceHistory).values({price: initialPrice, action: 'init', gems: 0})
+  return {id: 'market', price: initialPrice, lastUpdatedAt: new Date()}
+}

@@ -2,7 +2,7 @@ import { eq, sql } from 'drizzle-orm'
 import { db } from '#server/database'
 import { gemMarketState, gemPriceHistory, user } from '#server/database/schema'
 import { auth } from '#server/utils/auth'
-import { GEM_MAX_GEMS_PER_TRADE, gemBuyGems, gemComputeLivePrice } from '#shared/utils/gem-market'
+import { GEM_MAX_GEMS_PER_TRADE, gemBuyGems, gemComputeLivePrice } from '#shared/utils/gamelogic/gem-market'
 import { debit } from '#server/utils/balance'
 
 export default defineEventHandler(async (event) => {
