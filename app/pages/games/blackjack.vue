@@ -462,7 +462,7 @@ function newGame() {
         <!-- Action Buttons -->
         <UCard>
           <!-- Betting phase -->
-          <div v-if="!isPlaying || phase === 'resolved'" class="flex items-center gap-4">
+          <div v-if="!isPlaying || showResults" class="flex items-center gap-4">
             <UButton
               block
               :loading="isFetching"
@@ -470,9 +470,9 @@ function newGame() {
               color="primary"
               size="xl"
               class="flex-1 h-16 text-lg font-black uppercase tracking-widest transition-transform active:scale-[0.98]"
-              @click="phase === 'resolved' ? newGame() : startGame()"
+              @click="showResults ? newGame() : startGame()"
             >
-              {{ phase === 'resolved' ? 'New Game' : 'Deal' }}
+              {{ showResults ? 'New Game' : 'Deal' }}
             </UButton>
           </div>
 
