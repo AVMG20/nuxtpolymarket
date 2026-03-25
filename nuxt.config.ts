@@ -19,11 +19,6 @@ export default defineNuxtConfig({
 
     nitro: {
         preset: 'bun',
-        // Force these modules into the server bundle so they're
-        // available at runtime in production
-        externals: {
-            inline: [/^@emotion/, /^@unovis/]
-        }
     },
 
     eslint: {

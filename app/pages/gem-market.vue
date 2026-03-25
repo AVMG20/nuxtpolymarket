@@ -287,19 +287,21 @@ function actionBg(action: string) {
           <UIcon name="i-lucide-line-chart" class="size-10 opacity-20" />
           <p class="text-sm">Waiting for trade data…</p>
         </div>
-        <VisXYContainer
-            v-else
-            :data="chartData"
-            :padding="{ top: 32, left: 8, right: 8 }"
-            class="h-52"
-            :width="chartWidth"
-        >
-          <VisArea :x="xFn" :y="yFn" :color="lineColor" :opacity="0.08" />
-          <VisLine :x="xFn" :y="yFn" :color="lineColor" />
-          <VisAxis type="x" :x="xFn" :tick-format="xTickFmt" />
-          <VisCrosshair :color="lineColor" :template="tooltipFmt" />
-          <VisTooltip />
-        </VisXYContainer>
+        <ClientOnly>
+          <VisXYContainer
+              v-else
+              :data="chartData"
+              :padding="{ top: 32, left: 8, right: 8 }"
+              class="h-52"
+              :width="chartWidth"
+          >
+            <VisArea :x="xFn" :y="yFn" :color="lineColor" :opacity="0.08" />
+            <VisLine :x="xFn" :y="yFn" :color="lineColor" />
+            <VisAxis type="x" :x="xFn" :tick-format="xTickFmt" />
+            <VisCrosshair :color="lineColor" :template="tooltipFmt" />
+            <VisTooltip />
+          </VisXYContainer>
+        </ClientOnly>
       </UCard>
 
       <!-- Trade panel -->
