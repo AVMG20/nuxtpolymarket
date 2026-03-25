@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { useIntervalFn, useElementSize } from '@vueuse/core'
-import { VisXYContainer, VisLine, VisArea, VisAxis, VisCrosshair, VisTooltip } from '@unovis/vue'
 import { format, formatDistanceToNow } from 'date-fns'
 import { gemBuyGems, gemSellGems, GEM_MAX_GEMS_PER_TRADE, gemStepPrice } from '#shared/utils/gem-market'
 
@@ -280,32 +279,21 @@ function actionBg(action: string) {
           </div>
         </template>
 
-        <ClientOnly>
-          <div
-              v-if="!data || chartData.length < 2"
-              class="h-52 flex flex-col items-center justify-center gap-2 text-muted"
-          >
-            <UIcon name="i-lucide-line-chart" class="size-10 opacity-20" />
-            <p class="text-sm">Waiting for trade data…</p>
-          </div>
-          <VisXYContainer
-              v-else
-              :data="chartData"
-              :padding="{ top: 32, left: 8, right: 8 }"
-              class="h-52"
-              :width="chartWidth"
-          >
-            <VisArea :x="xFn" :y="yFn" :color="lineColor" :opacity="0.08" />
-            <VisLine :x="xFn" :y="yFn" :color="lineColor" />
-            <VisAxis type="x" :x="xFn" :tick-format="xTickFmt" />
-            <VisCrosshair :color="lineColor" :template="tooltipFmt" />
-            <VisTooltip />
-          </VisXYContainer>
+        <ChartLine
+            v-if="data && chartData.length >= 2"
+            :data="chartData"
+            :x="xFn"
+            :y="yFn"
+            :color="lineColor"
+            :width="chartWidth"
+            :tick-format="xTickFmt"
+            :tooltip-template="tooltipFmt"
+        />
+        <div v-else class="h-52 flex flex-col items-center justify-center gap-2 text-muted">
+          <UIcon name="i-lucide-line-chart" class="size-10 opacity-20" />
+          <p class="text-sm">Waiting for trade data…</p>
+        </div>
 
-          <template #fallback>
-            <USkeleton class="h-52 rounded-lg" />
-          </template>
-        </ClientOnly>
       </UCard>
 
       <!-- Trade panel -->
