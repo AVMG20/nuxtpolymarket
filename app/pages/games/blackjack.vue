@@ -229,15 +229,6 @@ function newGame() {
               </label>
               <USwitch v-model="showHint" size="sm" />
             </div>
-            <Transition name="fade">
-              <div v-if="showHint && hintAction" class="rounded-lg bg-primary/10 border border-primary/20 p-3 flex items-center gap-2">
-                <UIcon name="i-lucide-brain" class="size-5 text-primary shrink-0" />
-                <div>
-                  <span class="text-sm font-bold text-primary">{{ hintLabel }}</span>
-                  <span class="text-xs text-muted ml-1">— Basic strategy</span>
-                </div>
-              </div>
-            </Transition>
           </div>
 
           <!-- Game Info -->
