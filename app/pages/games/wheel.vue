@@ -237,9 +237,10 @@ async function spin() {
 // ─── Helpers ───────────────────────────────────────────────────────────────
 function pillClass(m: number): string {
   if (m === 0)   return 'bg-red-500/20 text-red-400'     // red
-  if (m < 2)     return 'bg-blue-500/20 text-blue-400'   // blue (1.4, 1.5)
-  if (m < 3)     return 'bg-amber-500/20 text-amber-400' // yellow (2, 2.5)
-  return 'bg-green-500/20 text-green-400'                 // green (3.84, etc)
+  if (m < 1.8)   return 'bg-blue-500/20 text-blue-400'   // blue (1.4, 1.8 on easy)
+  if (m < 3)     return 'bg-green-500/20 text-green-400'  // green (1.8, 2)
+  if (m < 5)     return 'bg-amber-500/20 text-amber-400'  // yellow (3, 5)
+  return 'bg-amber-500/20 text-amber-400'                 // yellow (5)
 }
 
 const totalSegments = computed(() =>

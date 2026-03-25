@@ -17,30 +17,27 @@ export interface WheelResult {
   [key: string]: unknown
 }
 
-// All wheels: 8 segments, RTP = 98% (target sum = 8 × 0.98 = 7.84)
 export const WHEEL_CONFIGS: Record<WheelDifficulty, WheelSegment[]> = {
+  // 10 segs — 60% win — max 2×
   easy: [
-    // 1×0 + 4×1.5 + 2×1.2 + 1×0.44 = 0+6+2.4+0.44 = 8.84 ❌
-    // Ugh, let me try target = 7.84 again
-    // 2×0 + 4×1.5 + 1×1.5 + 1×0.34 = 0+6+1.5+0.34 = 7.84 ✓ but 0.34 is weird
-    // 2×0 + 5×1.4 + 1×0.84 = 0+7+0.84 = 7.84 ✓ — 8 total, 0.84 is "get most back"
-    { multiplier: 0,    color: 'red',    count: 2 },
-    { multiplier: 0.84, color: 'blue',   count: 1 },
-    { multiplier: 1.4,  color: 'blue',   count: 5 },
+    { multiplier: 0,   color: 'red',    count: 4 },
+    { multiplier: 1.4, color: 'blue',   count: 3 },
+    { multiplier: 1.8, color: 'green', count: 2 },
+    { multiplier: 2,   color: 'yellow',  count: 1 },
   ],
+  // 10 segs — 50% win — max 3×
   medium: [
-    // 3×0 + 3×1.5 + 1×2 + 1×1.34 = 0+4.5+2+1.34 = 7.84 ✓
-    { multiplier: 0,    color: 'red',    count: 3 },
-    { multiplier: 1.34, color: 'blue',  count: 1 },
-    { multiplier: 1.5,  color: 'green',   count: 3 },
-    { multiplier: 2,    color: 'yellow', count: 1 },
+    { multiplier: 0,   color: 'red',    count: 5 },
+    { multiplier: 1.4, color: 'blue',   count: 2 },
+    { multiplier: 2,   color: 'green', count: 2 },
+    { multiplier: 3,   color: 'yellow',  count: 1 },
   ],
+  // 10 segs — 30% win — max 5×
   hard: [
-    // 5×0 + 1×1.5 + 1×2.5 + 1×3.84 = 0+1.5+2.5+3.84 = 7.84 ✓
-    { multiplier: 0,    color: 'red',    count: 5 },
-    { multiplier: 1.5,  color: 'blue',   count: 1 },
-    { multiplier: 2.5,  color: 'green',  count: 1 },
-    { multiplier: 3.84, color: 'yellow',  count: 1 },
+    { multiplier: 0,   color: 'red',    count: 7 },
+    { multiplier: 1.8, color: 'blue',   count: 1 },
+    { multiplier: 3,   color: 'green', count: 1 },
+    { multiplier: 5,   color: 'yellow',  count: 1 },
   ],
 }
 
