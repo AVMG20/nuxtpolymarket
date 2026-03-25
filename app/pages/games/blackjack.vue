@@ -328,12 +328,17 @@ function newGame() {
                 <span class="text-xs text-muted uppercase tracking-wide font-medium">Dealer</span>
                 <span class="font-bold tabular-nums text-sm">{{ gameState.dealerScore }}</span>
               </div>
-              <div class="flex gap-3 flex-wrap">
+              <div class="flex justify-center">
                 <TransitionGroup name="deal-pop">
                   <div
                     v-for="(card, ci) in gameState.dealerHand.cards"
                     :key="`dealer-${ci}-${card.rank}-${card.suit}`"
-                    class="card-container"
+                    class="card-container transition-all duration-500"
+                    :style="{
+                      marginLeft: ci > 0 ? '-3rem' : '0',
+                      zIndex: ci,
+                      transitionDelay: ci === 0 ? '150ms' : (ci === 1 ? '450ms' : '0ms')
+                    }"
                   >
                     <div
                       class="card-inner"
@@ -399,13 +404,17 @@ function newGame() {
                   </span>
                 </Transition>
               </div>
-              <div class="flex gap-3 flex-wrap">
+              <div class="flex justify-center mt-2">
                 <TransitionGroup name="deal-pop">
                   <div
                     v-for="(card, ci) in hand.cards"
                     :key="`hand-${hi}-${ci}-${card.rank}-${card.suit}`"
-                    class="card-container"
-                    :style="{ animationDelay: `${ci * 120}ms` }"
+                    class="card-container transition-all duration-500"
+                    :style="{
+                      marginLeft: ci > 0 ? '-3rem' : '0',
+                      zIndex: ci,
+                      transitionDelay: ci === 0 ? '0ms' : (ci === 1 ? '300ms' : '0ms')
+                    }"
                   >
                     <div class="card-inner">
                       <div
@@ -439,36 +448,39 @@ function newGame() {
 
               <!-- Per-hand result banner -->
               <Transition name="result-slide">
-                <div v-if="hand.status !== 'playing' && hand.status !== 'stood' && phase === 'resolved'" class="mt-3 flex items-center gap-3">
-                  <div
-                    class="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold animate-bounce-short"
-                    :class="{
-                      'bg-success/15 text-success border border-success/25': hand.status === 'won' || hand.status === 'blackjack',
-                      'bg-error/15 text-error border border-error/25': hand.status === 'lost' || hand.status === 'busted' || hand.status === 'surrendered',
-                      'bg-warning/15 text-warning border border-warning/25': hand.status === 'push',
-                    }"
-                  >
-                    <span>{{ statusLabel(hand.status) }}</span>
-                    <span v-if="hand.status === 'won'" class="flex items-center gap-1">
-                      <UIcon name="i-lucide-coins" class="size-4" />
-                      +{{ hand.bet * 2 }}
-                    </span>
-                    <span v-else-if="hand.status === 'blackjack'" class="flex items-center gap-1">
-                      <UIcon name="i-lucide-coins" class="size-4" />
-                      +{{ hand.bet * 2.5 }}
-                    </span>
-                    <span v-else-if="hand.status === 'push'" class="flex items-center gap-1">
-                      <UIcon name="i-lucide-coins" class="size-4" />
-                      +{{ hand.bet }}
-                    </span>
-                    <span v-else-if="hand.status === 'surrendered'" class="flex items-center gap-1">
-                      <UIcon name="i-lucide-coins" class="size-4" />
-                      -{{ Math.floor(hand.bet / 2) }}
-                    </span>
-                    <span v-else class="flex items-center gap-1">
-                      <UIcon name="i-lucide-coins" class="size-4" />
-                      -{{ hand.bet }}
-                    </span>
+                <div v-if="hand.status !== 'playing' && hand.status !== 'stood' && phase === 'resolved'" class="mt-4 flex flex-col items-center">
+                  <div class="font-black uppercase tracking-widest text-lg animate-bounce-short drop-shadow-md" :class="statusColor(hand.status)">
+                    {{ hand.status === 'blackjack' ? 'BLACKJACK!' : statusLabel(hand.status) }}
+                  </div>
+
+                  <div v-if="hand.status === 'won'" class="text-success font-bold flex items-center gap-1 text-xl mt-1 bg-success/15 px-3 py-1 rounded-full border border-success/20">
+                    <span class="text-xs text-success/70 font-medium uppercase tracking-wider mr-1">Won</span>
+                    <UIcon name="i-lucide-coins" class="size-5" />
+                    +{{ hand.bet * 2 }}
+                  </div>
+
+                  <div v-else-if="hand.status === 'blackjack'" class="text-success font-bold flex items-center gap-1 text-xl mt-1 bg-success/15 px-3 py-1 rounded-full border border-success/20">
+                    <span class="text-xs text-success/70 font-medium uppercase tracking-wider mr-1">Pays 3:2</span>
+                    <UIcon name="i-lucide-coins" class="size-5" />
+                    +{{ hand.bet * 2.5 }}
+                  </div>
+
+                  <div v-else-if="hand.status === 'push'" class="text-warning font-bold flex items-center gap-1 text-lg mt-1 bg-warning/15 px-3 py-1 rounded-full border border-warning/20">
+                    <span class="text-xs text-warning/70 font-medium uppercase tracking-wider mr-1">Push</span>
+                    <UIcon name="i-lucide-coins" class="size-4" />
+                    +{{ hand.bet }}
+                  </div>
+
+                  <div v-else-if="hand.status === 'surrendered'" class="text-error font-bold flex items-center gap-1 text-lg mt-1 bg-error/15 px-3 py-1 rounded-full border border-error/20">
+                    <span class="text-xs text-error/70 font-medium uppercase tracking-wider mr-1">Surrendered</span>
+                    <UIcon name="i-lucide-coins" class="size-4" />
+                    -{{ Math.floor(hand.bet / 2) }}
+                  </div>
+
+                  <div v-else class="text-error font-bold flex items-center gap-1 text-lg mt-1 bg-error/15 px-3 py-1 rounded-full border border-error/20">
+                    <span class="text-xs text-error/70 font-medium uppercase tracking-wider mr-1">Lost</span>
+                    <UIcon name="i-lucide-coins" class="size-4" />
+                    -{{ hand.bet }}
                   </div>
                 </div>
               </Transition>
@@ -671,7 +683,21 @@ function newGame() {
 }
 
 /* Deal animation */
-.deal-pop-enter-active {
+.deal-smooth-enter-active,
+.deal-smooth-leave-active {
+  transition: all 0.5s ease-out;
+}
+.deal-smooth-enter-from {
+  opacity: 0;
+  transform: translateY(-150px) scale(0.8);
+}
+.deal-smooth-leave-to {
+  opacity: 0;
+  transform: translateY(100px) scale(0.8);
+}
+
+.deal-pop-enter-active,
+.deal-pop-leave-active {
   transition: all 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 .deal-pop-leave-active {
@@ -679,11 +705,11 @@ function newGame() {
 }
 .deal-pop-enter-from {
   opacity: 0;
-  transform: translateY(-80px) translateX(40px) scale(0.6) rotate(15deg);
+  transform: translateY(-100px) translateX(50px) scale(0.8) rotate(15deg);
 }
 .deal-pop-leave-to {
   opacity: 0;
-  transform: translateY(60px) scale(0.8);
+  transform: translateY(100px) scale(0.8);
 }
 
 /* Result flash overlay */
