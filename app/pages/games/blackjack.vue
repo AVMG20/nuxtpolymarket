@@ -61,6 +61,19 @@ function cardValue(card: Card): number {
   return parseInt(card.rank)
 }
 
+function scoreDisplay(cards: Card[]): string {
+  const visible = cards.filter(c => !c.isHidden)
+  let hard = 0
+  let hasAce = false
+  for (const card of visible) {
+    if (card.rank === 'A') { hard += 1; hasAce = true }
+    else if (['J', 'Q', 'K'].includes(card.rank)) hard += 10
+    else hard += parseInt(card.rank)
+  }
+  const soft = hasAce && hard + 10 <= 21 ? hard + 10 : null
+  return soft !== null ? `${hard}/${soft}` : `${hard}`
+}
+
 function suitSymbol(suit: string): string {
   switch (suit) {
     case 'hearts': return '♥'
@@ -240,12 +253,12 @@ function newGame() {
             <USeparator />
             <div class="flex items-center justify-between text-sm">
               <span class="text-muted">Dealer Score</span>
-              <span class="font-bold tabular-nums">{{ gameState.dealerScore }}</span>
+              <span class="font-bold tabular-nums">{{ scoreDisplay(gameState.dealerHand.cards) }}</span>
             </div>
             <USeparator />
             <div v-for="(hand, i) in gameState.playerHands" :key="hand.id" class="flex items-center justify-between text-sm">
               <span class="text-muted">Hand {{ i + 1 }} <span v-if="i === gameState.currentHandIndex && phase === 'playing'" class="text-primary">●</span></span>
-              <span class="font-bold tabular-nums">{{ gameState.playerScores[i] }}
+              <span class="font-bold tabular-nums">{{ scoreDisplay(hand.cards) }}
                 <span v-if="hand.status !== 'playing' && hand.status !== 'stood'" :class="statusColor(hand.status)" class="text-xs ml-1">{{ statusLabel(hand.status) }}</span>
               </span>
             </div>
@@ -300,7 +313,7 @@ function newGame() {
             <!-- Dealer hand -->
             <div>
               <div class="flex justify-center items-center gap-2 mb-3">
-                <span class="font-bold tabular-nums text-sm">{{ gameState.dealerScore }}</span>
+                <span class="font-bold tabular-nums text-sm">{{ scoreDisplay(gameState.dealerHand.cards) }}</span>
               </div>
               <div class="flex justify-center">
                 <TransitionGroup name="deal-pop">
@@ -388,7 +401,7 @@ function newGame() {
             <div v-for="(hand, hi) in gameState.playerHands" :key="hand.id" class="player-hand-area transition-all duration-300" :class="{ 'player-hand-active': hi === gameState.currentHandIndex && phase === 'playing' }">
               <div class="flex justify-center items-center gap-2 mb-3">
                 <span v-if="hi === gameState.currentHandIndex && phase === 'playing'" class="w-2 h-2 rounded-full bg-primary animate-pulse" />
-                <span class="font-bold tabular-nums text-sm">{{ gameState.playerScores[hi] }}</span>
+                <span class="font-bold tabular-nums text-sm">{{ scoreDisplay(hand.cards) }}</span>
 
                 <!-- Bet chip -->
                 <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold bg-warning/15 text-warning border border-warning/20">
