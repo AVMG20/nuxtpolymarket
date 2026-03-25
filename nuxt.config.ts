@@ -22,13 +22,7 @@ export default defineNuxtConfig({
         // Force these modules into the server bundle so they're
         // available at runtime in production
         externals: {
-            inline: [
-                '@emotion/cache',
-                '@emotion/css',
-                '@emotion/serialize',
-                '@emotion/sheet',
-                '@emotion/utils'
-            ]
+            inline: [/^@emotion/, /^@unovis/]
         }
     },
 
