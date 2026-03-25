@@ -184,17 +184,17 @@ async function animateDealerTurn(finalState: BlackjackClientState) {
 
   if (extraCards.length > 0) {
     // Pause after reveal, then draw each extra card
-    await sleep(700)
+    await sleep(1000)
     for (let i = 0; i < extraCards.length; i++) {
       gameState.value = {
         ...finalState,
         dealerHand: { ...finalState.dealerHand, cards: finalCards.slice(0, 3 + i) },
       }
-      await sleep(600)
+      await sleep(900)
     }
   } else {
     // No extra draws needed — short pause then finish
-    await sleep(600)
+    await sleep(800)
   }
 
   gameState.value = finalState
@@ -338,7 +338,7 @@ function newGame() {
                 <TransitionGroup name="deal-pop">
                   <div
                     v-for="(card, ci) in gameState.dealerHand.cards"
-                    :key="`dealer-${ci}-${card.rank}-${card.suit}`"
+                    :key="`dealer-${ci}`"
                     class="card-container transition-all duration-500"
                     :style="{
                       marginLeft: ci > 0 ? '-3rem' : '0',
