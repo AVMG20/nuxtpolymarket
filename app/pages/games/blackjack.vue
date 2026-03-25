@@ -15,7 +15,7 @@ const gameState = ref<BlackjackClientState | null>(null)
 const history = ref<{ won: boolean; payout: number; bet: number }[]>([])
 const showHint = ref(false)
 const resumeChecked = ref(false)
-const resultFlash = ref<'win' | 'lose' | 'push' | null>(null)
+const showResults = ref(false)
 
 const phase = computed(() => gameState.value?.phase ?? 'betting')
 const currentHand = computed(() => {
@@ -177,14 +177,14 @@ function finishGame() {
   history.value.unshift({ won, payout: 0, bet: totalBet })
   if (history.value.length > 8) history.value.pop()
   gameToken.value = null
-  resultFlash.value = won ? 'win' : pushed ? 'push' : 'lose'
-  setTimeout(() => { resultFlash.value = null }, 2500)
+  setTimeout(() => { showResults.value = true }, 1500)
 }
 
 function newGame() {
   gameState.value = null
   gameToken.value = null
   isPlaying.value = false
+  showResults.value = false
 }
 </script>
 
@@ -241,7 +241,7 @@ function newGame() {
           </div>
 
           <!-- Strategy Hint -->
-          <div v-if="phase === 'playing'" class="space-y-2">
+          <div class="space-y-2">
             <button
               class="w-full text-left text-xs text-muted uppercase tracking-wide font-medium flex items-center gap-1.5 hover:text-primary transition-colors"
               @click="showHint = !showHint"
@@ -281,22 +281,6 @@ function newGame() {
 
         <!-- Table -->
         <UCard :ui="{ body: 'relative overflow-hidden min-h-[460px] flex flex-col p-6' }" class="game-table">
-          <!-- Result flash overlay -->
-          <Transition name="result-flash">
-            <div v-if="resultFlash" class="absolute inset-0 z-30 pointer-events-none flex items-center justify-center">
-              <div
-                class="result-banner px-8 py-4 rounded-2xl text-2xl sm:text-3xl font-black uppercase tracking-widest shadow-2xl"
-                :class="{
-                  'bg-success/20 text-success border-2 border-success/30': resultFlash === 'win',
-                  'bg-error/20 text-error border-2 border-error/30': resultFlash === 'lose',
-                  'bg-warning/20 text-warning border-2 border-warning/30': resultFlash === 'push',
-                }"
-              >
-                {{ resultFlash === 'win' ? '🎉 You Win!' : resultFlash === 'push' ? '🤝 Push' : '💔 You Lose' }}
-              </div>
-            </div>
-          </Transition>
-
           <!-- History pills -->
           <div class="flex gap-1.5 flex-wrap mb-3 min-h-[26px]">
             <TransitionGroup name="pill-slide">
@@ -324,8 +308,7 @@ function newGame() {
           <div v-else class="flex-1 flex flex-col gap-6">
             <!-- Dealer hand -->
             <div>
-              <div class="flex items-center gap-2 mb-3">
-                <span class="text-xs text-muted uppercase tracking-wide font-medium">Dealer</span>
+              <div class="flex justify-center items-center gap-2 mb-3">
                 <span class="font-bold tabular-nums text-sm">{{ gameState.dealerScore }}</span>
               </div>
               <div class="flex justify-center">
@@ -385,10 +368,7 @@ function newGame() {
 
             <!-- Player hands -->
             <div v-for="(hand, hi) in gameState.playerHands" :key="hand.id" class="player-hand-area transition-all duration-300" :class="{ 'player-hand-active': hi === gameState.currentHandIndex && phase === 'playing' }">
-              <div class="flex items-center gap-2 mb-3">
-                <span class="text-xs text-muted uppercase tracking-wide font-medium">
-                  {{ gameState.playerHands.length > 1 ? `Hand ${hi + 1}` : 'Your Hand' }}
-                </span>
+              <div class="flex justify-center items-center gap-2 mb-3">
                 <span v-if="hi === gameState.currentHandIndex && phase === 'playing'" class="w-2 h-2 rounded-full bg-primary animate-pulse" />
                 <span class="font-bold tabular-nums text-sm">{{ gameState.playerScores[hi] }}</span>
 
@@ -397,12 +377,6 @@ function newGame() {
                   <UIcon name="i-lucide-coins" class="size-3" />
                   {{ hand.bet }}
                 </span>
-
-                <Transition name="status-pop">
-                  <span v-if="hand.status !== 'playing' && hand.status !== 'stood'" :class="statusColor(hand.status)" class="text-xs font-bold">
-                    {{ statusLabel(hand.status) }}
-                  </span>
-                </Transition>
               </div>
               <div class="flex justify-center mt-2">
                 <TransitionGroup name="deal-pop">
@@ -448,7 +422,7 @@ function newGame() {
 
               <!-- Per-hand result banner -->
               <Transition name="result-slide">
-                <div v-if="hand.status !== 'playing' && hand.status !== 'stood' && phase === 'resolved'" class="mt-4 flex flex-col items-center">
+                <div v-if="hand.status !== 'playing' && hand.status !== 'stood' && showResults" class="mt-4 flex flex-col items-center">
                   <div class="font-black uppercase tracking-widest text-lg animate-bounce-short drop-shadow-md" :class="statusColor(hand.status)">
                     {{ hand.status === 'blackjack' ? 'BLACKJACK!' : statusLabel(hand.status) }}
                   </div>
@@ -490,7 +464,7 @@ function newGame() {
             <Transition name="fade" mode="out-in">
               <div :key="gameState.message" class="text-center mt-auto pt-4">
                 <p class="font-medium text-sm inline-block px-5 py-2.5 rounded-full border transition-all duration-300"
-                  :class="phase === 'resolved'
+                  :class="showResults
                     ? (gameState.playerHands.some(h => h.status === 'won' || h.status === 'blackjack')
                       ? 'bg-success/10 border-success/20 text-success'
                       : gameState.playerHands.every(h => h.status === 'push')
@@ -710,30 +684,6 @@ function newGame() {
 .deal-pop-leave-to {
   opacity: 0;
   transform: translateY(100px) scale(0.8);
-}
-
-/* Result flash overlay */
-.result-flash-enter-active {
-  transition: all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
-}
-.result-flash-leave-active {
-  transition: all 0.6s ease-out;
-}
-.result-flash-enter-from {
-  opacity: 0;
-  transform: scale(0.5);
-}
-.result-flash-leave-to {
-  opacity: 0;
-  transform: scale(1.1);
-}
-.result-banner {
-  backdrop-filter: blur(8px);
-  animation: banner-pulse 1s ease-in-out infinite alternate;
-}
-@keyframes banner-pulse {
-  from { box-shadow: 0 0 20px rgba(255,255,255,0.05); }
-  to { box-shadow: 0 0 40px rgba(255,255,255,0.1); }
 }
 
 /* Result slide per hand */
