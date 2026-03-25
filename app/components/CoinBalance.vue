@@ -1,7 +1,7 @@
 <template>
   <UTooltip :text="formatNumber(parsed, false)">
     <div class="flex items-center cursor-default gap-1.5">
-      <UIcon name="i-lucide-coins" class="size-4 text-yellow-400 shrink-0" />
+      <UIcon v-if="showIcon" name="i-lucide-coins" class="size-4 text-yellow-400 shrink-0" />
       <span>{{ formatNumber(parsed, compact) }}</span>
     </div>
   </UTooltip>
@@ -11,7 +11,8 @@
 const props = withDefaults(defineProps<{
   value: string | number | null | undefined
   compact?: boolean
-}>(), { compact: true })
+  showIcon?: boolean
+}>(), { compact: true, showIcon: true })
 
 const parsed = computed(() => parseFloat(String(props.value ?? '0')))
 </script>
