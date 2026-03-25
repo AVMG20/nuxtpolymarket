@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { BlackjackClientState, BlackjackAction, Card } from '#shared/utils/gamelogic/blackjack'
 import { getHint } from '#shared/utils/gamelogic/blackjack'
+import BlackjackCard from "~/components/games/blackjack/BlackjackCard.vue";
 
 const { user, setBalance } = useAuth()
 const balance = ref(parseFloat(user.value?.balance ?? '0'))
@@ -74,19 +75,6 @@ function scoreDisplay(cards: Card[]): string {
   return soft !== null ? `${hard}/${soft}` : `${hard}`
 }
 
-function suitSymbol(suit: string): string {
-  switch (suit) {
-    case 'hearts': return '♥'
-    case 'diamonds': return '♦'
-    case 'clubs': return '♣'
-    case 'spades': return '♠'
-    default: return ''
-  }
-}
-
-function isRed(suit: string): boolean {
-  return suit === 'hearts' || suit === 'diamonds'
-}
 
 function statusLabel(status: string): string {
   switch (status) {
@@ -327,37 +315,7 @@ function newGame() {
                       transitionDelay: ci === 0 ? '150ms' : (ci === 1 ? '450ms' : '0ms')
                     }"
                   >
-                    <div
-                      class="card-inner"
-                      :class="{ 'card-flipped': card.isHidden }"
-                    >
-                      <!-- Front -->
-                      <div
-                        class="card-face card-front"
-                        :class="isRed(card.suit) ? 'text-danger-600' : 'text-gray-900'"
-                      >
-                        <div class="flex flex-col items-center leading-none self-start">
-                          <span class="text-lg sm:text-xl font-bold">{{ card.rank }}</span>
-                          <span class="text-sm sm:text-base">{{ suitSymbol(card.suit) }}</span>
-                        </div>
-                        <div class="absolute inset-0 flex items-center justify-center opacity-10 pointer-events-none">
-                          <span class="text-6xl sm:text-8xl">{{ suitSymbol(card.suit) }}</span>
-                        </div>
-                        <div class="flex flex-col items-center leading-none self-end rotate-180">
-                          <span class="text-lg sm:text-xl font-bold">{{ card.rank }}</span>
-                          <span class="text-sm sm:text-base">{{ suitSymbol(card.suit) }}</span>
-                        </div>
-                      </div>
-                      <!-- Back -->
-                      <div class="card-face card-back">
-                        <div class="w-full h-full bg-primary-700 flex items-center justify-center relative">
-                          <div class="absolute inset-0 opacity-30" style="background-image: radial-gradient(#ffffff 1.5px, transparent 1.5px); background-size: 10px 10px;" />
-                          <div class="w-10 h-10 sm:w-12 sm:h-12 rounded-full border-4 border-white/50 flex items-center justify-center z-10 shadow-lg">
-                            <div class="w-4 h-4 sm:w-5 sm:h-5 bg-white/50 rotate-45" />
-                          </div>
-                        </div>
-                      </div>
-                    </div>
+                    <BlackjackCard :card="card" />
                   </div>
                 </TransitionGroup>
               </div>
@@ -421,32 +379,7 @@ function newGame() {
                       transitionDelay: ci === 0 ? '0ms' : (ci === 1 ? '300ms' : '0ms')
                     }"
                   >
-                    <div class="card-inner">
-                      <div
-                        class="card-face card-front"
-                        :class="isRed(card.suit) ? 'text-danger-600' : 'text-gray-900'"
-                      >
-                        <div class="flex flex-col items-center leading-none self-start">
-                          <span class="text-lg sm:text-xl font-bold">{{ card.rank }}</span>
-                          <span class="text-sm sm:text-base">{{ suitSymbol(card.suit) }}</span>
-                        </div>
-                        <div class="absolute inset-0 flex items-center justify-center opacity-10 pointer-events-none">
-                          <span class="text-6xl sm:text-8xl">{{ suitSymbol(card.suit) }}</span>
-                        </div>
-                        <div class="flex flex-col items-center leading-none self-end rotate-180">
-                          <span class="text-lg sm:text-xl font-bold">{{ card.rank }}</span>
-                          <span class="text-sm sm:text-base">{{ suitSymbol(card.suit) }}</span>
-                        </div>
-                      </div>
-                      <div class="card-face card-back">
-                        <div class="w-full h-full bg-primary-700 flex items-center justify-center relative">
-                          <div class="absolute inset-0 opacity-30" style="background-image: radial-gradient(#ffffff 1.5px, transparent 1.5px); background-size: 10px 10px;" />
-                          <div class="w-10 h-10 sm:w-12 sm:h-12 rounded-full border-4 border-white/50 flex items-center justify-center z-10 shadow-lg">
-                            <div class="w-4 h-4 sm:w-5 sm:h-5 bg-white/50 rotate-45" />
-                          </div>
-                        </div>
-                      </div>
-                    </div>
+                    <BlackjackCard :card="card" />
                   </div>
                 </TransitionGroup>
               </div>
@@ -589,7 +522,7 @@ function newGame() {
 </template>
 
 <style scoped>
-/* Card component styles */
+/* Card wrapper */
 .card-container {
   position: relative;
   width: 5rem;
@@ -601,43 +534,6 @@ function newGame() {
     width: 6rem;
     height: 9rem;
   }
-}
-.card-inner {
-  width: 100%;
-  height: 100%;
-  transition: transform 0.5s ease;
-  transform-style: preserve-3d;
-  border-radius: 0.75rem;
-  box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
-}
-.card-flipped {
-  transform: rotateY(180deg);
-}
-.card-face {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  backface-visibility: hidden;
-  border-radius: 0.75rem;
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  overflow: hidden;
-}
-.card-front {
-  background: white;
-  border: 1px solid #e5e7eb;
-  padding: 0.5rem;
-}
-.card-back {
-  transform: rotateY(180deg);
-  border: 2px solid rgba(255, 255, 255, 0.2);
-}
-
-/* Game table felt effect */
-.game-table :deep(.card) {
-  position: relative;
 }
 
 /* Active hand glow */
