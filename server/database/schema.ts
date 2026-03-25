@@ -1,5 +1,5 @@
 import { relations } from "drizzle-orm";
-import { pgTable, text, timestamp, boolean, index, numeric, integer } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, boolean, index, numeric, integer, jsonb } from "drizzle-orm/pg-core";
 
 
 export const user = pgTable("user", {
@@ -120,6 +120,16 @@ export const gemPriceHistory = pgTable('gem_price_history', {
     createdAt: timestamp('created_at').defaultNow().notNull(),
 }, (t) => [index('gem_price_history_created_at_idx').on(t.createdAt)])
 
+
+export const blackjackSessions = pgTable('blackjack_sessions', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().unique().references(() => user.id, { onDelete: 'cascade' }),
+  state: jsonb('state').notNull(),
+  bet: numeric('bet', { precision: 19, scale: 4 }).notNull(),
+  token: text('token').notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().$onUpdate(() => new Date()).notNull(),
+})
 
 export const transactionsRelations = relations(transactions, ({ one }) => ({
   user: one(user, { fields: [transactions.userId], references: [user.id] }),
