@@ -154,13 +154,18 @@ async function doAction(action: BlackjackAction) {
       body: { token: gameToken.value, action },
     }) as { clientState: BlackjackClientState; token: string | null; balance: number; finished: boolean }
 
-    gameState.value = data.clientState
     gameToken.value = data.token
     balance.value = data.balance
     setBalance(data.balance)
 
     if (data.finished) {
+      // Show player's resolved hand but keep dealer hole card hidden during the pause
+      gameState.value = { ...data.clientState, dealerHand: gameState.value!.dealerHand }
+      isFetching.value = false
+      await sleep(800)
       await animateDealerTurn(data.clientState)
+    } else {
+      gameState.value = data.clientState
     }
   } catch (e: unknown) {
     errorMsg.value = e instanceof Error ? e.message : 'Something went wrong'
@@ -209,7 +214,7 @@ function finishGame() {
   history.value.unshift({ won, payout: 0, bet: totalBet })
   if (history.value.length > 8) history.value.pop()
   gameToken.value = null
-  setTimeout(() => { showResults.value = true }, 800)
+  setTimeout(() => { showResults.value = true }, 600)
 }
 
 function newGame() {
