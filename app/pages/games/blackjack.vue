@@ -360,7 +360,7 @@ function newGame() {
             </div>
 
             <!-- Separator -->
-            <div class="table-divider relative flex items-center gap-3 my-2">
+            <div class="table-divider relative flex items-center gap-3 my-2 h-10">
               <div class="flex-1 h-px bg-gradient-to-r from-transparent via-white/10 to-transparent" />
 
                 <div v-if="showResults" class="flex items-center gap-2">
