@@ -79,7 +79,7 @@ async function buyMine() {
 
 function tileValueColor(value: number) {
   if (value === 0) return 'error'
-  if (value === 1000) return 'primary'
+  if (value === 1000) return 'success'
   if (value >= 450) return 'secondary'
   return 'neutral'
 }

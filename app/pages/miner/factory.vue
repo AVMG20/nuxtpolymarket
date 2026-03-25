@@ -82,8 +82,8 @@ async function upgradeFactory() {
         <template #header>
           <div class="flex items-center justify-between">
             <div class="flex items-center gap-2.5">
-              <div class="size-8 rounded-lg bg-secondary/15 flex items-center justify-center">
-                <UIcon name="i-lucide-gem" class="size-4 text-secondary" />
+              <div class="size-8 rounded-lg bg-cyan-400/15 flex items-center justify-center">
+                <UIcon name="i-lucide-gem" class="size-4 text-cyan-400" />
               </div>
               <div>
                 <p class="font-semibold text-sm">Gem Synthesizer</p>
@@ -91,7 +91,7 @@ async function upgradeFactory() {
               </div>
             </div>
             <div class="text-right">
-              <span class="text-2xl font-bold text-secondary">{{ collectableGems }}</span>
+              <span class="text-2xl font-bold text-cyan-400">{{ collectableGems }}</span>
               <span class="text-muted"> / {{ state.gemCap }}</span>
             </div>
           </div>
@@ -99,7 +99,7 @@ async function upgradeFactory() {
 
         <div class="flex items-center gap-4">
           <div class="flex-1 h-2 rounded-full bg-elevated overflow-hidden">
-            <div class="h-full bg-secondary rounded-full" :style="{ width: `${fillPercent}%` }" />
+            <div class="h-full bg-cyan-400 rounded-full" :style="{ width: `${fillPercent}%` }" />
           </div>
           <UButton
             :label="collectableGems >= 1 ? `Collect ${collectableGems} Gem${collectableGems !== 1 ? 's' : ''}` : 'Not enough yet'"
@@ -116,8 +116,8 @@ async function upgradeFactory() {
       <UCard class="flex flex-col">
         <template #header>
           <div class="flex items-center gap-2.5">
-            <div class="size-8 rounded-lg bg-primary/15 flex items-center justify-center">
-              <UIcon name="i-lucide-factory" class="size-4 text-primary" />
+            <div class="size-8 rounded-lg bg-secondary/15 flex items-center justify-center">
+              <UIcon name="i-lucide-factory" class="size-4 text-secondary" />
             </div>
             <div>
               <p class="font-semibold text-sm">Factory Upgrade</p>
@@ -144,7 +144,7 @@ async function upgradeFactory() {
           label="Upgrade Factory"
           icon="i-lucide-arrow-up"
           block
-          color="primary"
+          color="secondary"
           :loading="upgrading"
           :disabled="state.factoryLevel >= state.factoryMaxLevel || balance < state.factoryUpgradeCost"
           @click="upgradeFactory"

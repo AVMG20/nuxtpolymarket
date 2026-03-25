@@ -99,8 +99,8 @@ async function upgradeVault() {
         <template #header>
           <div class="flex items-center justify-between">
             <div class="flex items-center gap-2.5">
-              <div class="size-8 rounded-lg bg-primary/15 flex items-center justify-center">
-                <UIcon name="i-lucide-warehouse" class="size-4 text-primary" />
+              <div class="size-8 rounded-lg bg-yellow-400/15 flex items-center justify-center">
+                <UIcon name="i-lucide-warehouse" class="size-4 text-yellow-400" />
               </div>
               <div>
                 <p class="font-semibold text-sm">Storage Unit</p>
@@ -108,7 +108,7 @@ async function upgradeVault() {
               </div>
             </div>
             <div class="text-right">
-              <span class="text-2xl font-bold text-primary">${{ formatNumber(displayCash, false) }}</span>
+              <span class="text-2xl font-bold text-yellow-400">${{ formatNumber(displayCash, false) }}</span>
               <span class="text-muted"> / ${{ formatNumber(state.cap, false) }}</span>
             </div>
           </div>
@@ -116,12 +116,11 @@ async function upgradeVault() {
 
         <div class="flex items-center gap-4">
           <div class="flex-1 h-2 rounded-full bg-elevated overflow-hidden">
-            <div class="h-full bg-primary rounded-full" :style="{ width: `${fillPercent}%` }" />
+            <div class="h-full bg-yellow-400 rounded-full" :style="{ width: `${fillPercent}%` }" />
           </div>
           <UButton
             label="Collect Cash"
             icon="i-lucide-coins"
-            color="primary"
             :loading="collecting"
             :disabled="displayCash < 0.01"
             @click="collect"
@@ -173,8 +172,8 @@ async function upgradeVault() {
         <UCard class="flex flex-col">
           <template #header>
             <div class="flex items-center gap-2.5">
-              <div class="size-8 rounded-lg bg-secondary/15 flex items-center justify-center">
-                <UIcon name="i-lucide-vault" class="size-4 text-secondary" />
+              <div class="size-8 rounded-lg bg-primary/15 flex items-center justify-center">
+                <UIcon name="i-lucide-vault" class="size-4 text-primary" />
               </div>
               <div>
                 <p class="font-semibold text-sm">Vault Size</p>
@@ -196,7 +195,6 @@ async function upgradeVault() {
           <UButton
             label="Expand Vault"
             icon="i-lucide-arrow-up"
-            color="secondary"
             block
             :loading="upgradingVault"
             :disabled="state.vaultLevel >= state.vaultMaxLevel || balance < state.vaultUpgradeCost"
