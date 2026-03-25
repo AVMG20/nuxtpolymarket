@@ -184,13 +184,13 @@ async function animateDealerTurn(finalState: BlackjackClientState) {
 
   if (extraCards.length > 0) {
     // Pause after reveal, then draw each extra card
-    await sleep(1000)
+    await sleep(800)
     for (let i = 0; i < extraCards.length; i++) {
       gameState.value = {
         ...finalState,
         dealerHand: { ...finalState.dealerHand, cards: finalCards.slice(0, 3 + i) },
       }
-      await sleep(900)
+      await sleep(800)
     }
   } else {
     // No extra draws needed — short pause then finish
@@ -209,7 +209,7 @@ function finishGame() {
   history.value.unshift({ won, payout: 0, bet: totalBet })
   if (history.value.length > 8) history.value.pop()
   gameToken.value = null
-  setTimeout(() => { showResults.value = true }, 1000)
+  setTimeout(() => { showResults.value = true }, 800)
 }
 
 function newGame() {
