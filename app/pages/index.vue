@@ -29,6 +29,14 @@ const casinoGames = [
     gradient: 'from-sky-950 to-slate-900',
     iconColor: 'text-sky-400',
   },
+  {
+    name: 'Wheel',
+    description: 'Spin the wheel and win big prizes',
+    icon: 'i-lucide-loader-pinwheel',
+    to: '/games/wheel',
+    gradient: 'from-amber-950 to-slate-900',
+    iconColor: 'text-amber-400',
+  },
 ]
 
 const filteredSlots = computed(() =>

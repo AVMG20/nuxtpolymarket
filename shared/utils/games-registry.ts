@@ -1,6 +1,7 @@
 import { playGame as playCyberCascade } from './gamelogic/cyber-cascade'
 import { playDice } from './gamelogic/dice'
 import { playLimbo } from './gamelogic/limbo'
+import {playWheel} from "#shared/utils/gamelogic/wheel";
 
 export interface GameResult {
   payout: number
@@ -20,6 +21,9 @@ export const GAMES_REGISTRY: Record<string, GameDefinition> = {
   },
   'limbo': {
     play: playLimbo
+  },
+  'wheel': {
+    play: playWheel
   }
 }
 
