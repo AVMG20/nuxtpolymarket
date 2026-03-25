@@ -214,7 +214,7 @@ function finishGame() {
   history.value.unshift({ won, payout: 0, bet: totalBet })
   if (history.value.length > 8) history.value.pop()
   gameToken.value = null
-  setTimeout(() => { showResults.value = true }, 600)
+  setTimeout(() => { showResults.value = true }, 200)
 }
 
 function newGame() {
