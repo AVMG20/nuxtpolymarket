@@ -280,14 +280,14 @@ function actionBg(action: string) {
           </div>
         </template>
 
-        <div
-            v-if="!data || chartData.length < 2"
-            class="h-52 flex flex-col items-center justify-center gap-2 text-muted"
-        >
-          <UIcon name="i-lucide-line-chart" class="size-10 opacity-20" />
-          <p class="text-sm">Waiting for trade data…</p>
-        </div>
         <ClientOnly>
+          <div
+              v-if="!data || chartData.length < 2"
+              class="h-52 flex flex-col items-center justify-center gap-2 text-muted"
+          >
+            <UIcon name="i-lucide-line-chart" class="size-10 opacity-20" />
+            <p class="text-sm">Waiting for trade data…</p>
+          </div>
           <VisXYContainer
               v-else
               :data="chartData"
@@ -301,6 +301,10 @@ function actionBg(action: string) {
             <VisCrosshair :color="lineColor" :template="tooltipFmt" />
             <VisTooltip />
           </VisXYContainer>
+
+          <template #fallback>
+            <USkeleton class="h-52 rounded-lg" />
+          </template>
         </ClientOnly>
       </UCard>
 
