@@ -220,6 +220,26 @@ function newGame() {
             </div>
           </div>
 
+          <!-- Strategy Hint -->
+          <div class="space-y-2">
+            <div class="flex items-center justify-between">
+              <label class="text-xs text-muted uppercase tracking-wide font-medium flex items-center gap-1.5 cursor-pointer" @click="showHint = !showHint">
+                <UIcon name="i-lucide-lightbulb" class="size-3.5" />
+                Strategy Hint
+              </label>
+              <USwitch v-model="showHint" size="sm" />
+            </div>
+            <Transition name="fade">
+              <div v-if="showHint && hintAction" class="rounded-lg bg-primary/10 border border-primary/20 p-3 flex items-center gap-2">
+                <UIcon name="i-lucide-brain" class="size-5 text-primary shrink-0" />
+                <div>
+                  <span class="text-sm font-bold text-primary">{{ hintLabel }}</span>
+                  <span class="text-xs text-muted ml-1">— Basic strategy</span>
+                </div>
+              </div>
+            </Transition>
+          </div>
+
           <!-- Game Info -->
           <div v-if="gameState" class="rounded-lg bg-elevated border border-default p-3 space-y-2">
             <div class="flex items-center justify-between text-sm">
@@ -238,26 +258,6 @@ function newGame() {
                 <span v-if="hand.status !== 'playing' && hand.status !== 'stood'" :class="statusColor(hand.status)" class="text-xs ml-1">{{ statusLabel(hand.status) }}</span>
               </span>
             </div>
-          </div>
-
-          <!-- Strategy Hint -->
-          <div class="space-y-2">
-            <button
-              class="w-full text-left text-xs text-muted uppercase tracking-wide font-medium flex items-center gap-1.5 hover:text-primary transition-colors"
-              @click="showHint = !showHint"
-            >
-              <UIcon :name="showHint ? 'i-lucide-eye-off' : 'i-lucide-lightbulb'" class="size-3.5" />
-              {{ showHint ? 'Hide Hint' : 'Strategy Hint' }}
-            </button>
-            <Transition name="fade">
-              <div v-if="showHint && hintAction" class="rounded-lg bg-primary/10 border border-primary/20 p-3 flex items-center gap-2">
-                <UIcon name="i-lucide-brain" class="size-5 text-primary shrink-0" />
-                <div>
-                  <span class="text-sm font-bold text-primary">{{ hintLabel }}</span>
-                  <span class="text-xs text-muted ml-1">— Basic strategy</span>
-                </div>
-              </div>
-            </Transition>
           </div>
 
           <!-- Error -->
