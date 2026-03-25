@@ -38,6 +38,7 @@ const casinoItems: NavigationMenuItem[] = [
   {label: 'Dice', class: 'mb-1', icon: 'i-lucide-dices', to: '/games/dice'},
   {label: 'Limbo', class: 'mb-1', icon: 'i-lucide-trending-up', to: '/games/limbo'},
   {label: 'Wheel', class: 'mb-1', icon: 'i-lucide-loader-pinwheel', to: '/games/wheel'},
+  {label: 'Blackjack', class: 'mb-1', icon: 'i-lucide-spade', to: '/games/blackjack'},
 ]
 
 const primaryColors = [

@@ -37,6 +37,14 @@ const casinoGames = [
     gradient: 'from-amber-950 to-slate-900',
     iconColor: 'text-amber-400',
   },
+  {
+    name: 'Blackjack',
+    description: 'Classic 21 — beat the dealer with a 6-deck shoe',
+    icon: 'i-lucide-spade',
+    to: '/games/blackjack',
+    gradient: 'from-rose-950 to-slate-900',
+    iconColor: 'text-rose-400',
+  },
 ]
 
 const filteredSlots = computed(() =>
