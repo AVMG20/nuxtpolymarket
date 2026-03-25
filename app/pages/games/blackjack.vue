@@ -14,7 +14,7 @@ const errorMsg = ref('')
 const gameToken = ref<string | null>(null)
 const gameState = ref<BlackjackClientState | null>(null)
 const history = ref<{ won: boolean; payout: number; bet: number }[]>([])
-const showHint = ref(false)
+const showHint = useCookie<boolean>('bj-show-hint', { default: () => false })
 const resumeChecked = ref(false)
 const showResults = ref(false)
 
