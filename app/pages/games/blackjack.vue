@@ -133,7 +133,7 @@ async function startGame() {
     setBalance(data.balance)
 
     if (data.finished) {
-      finishGame()
+      await animateDealerTurn(data.clientState)
     }
   } catch (e: unknown) {
     errorMsg.value = e instanceof Error ? e.message : 'Something went wrong'
@@ -160,7 +160,7 @@ async function doAction(action: BlackjackAction) {
     setBalance(data.balance)
 
     if (data.finished) {
-      finishGame()
+      await animateDealerTurn(data.clientState)
     }
   } catch (e: unknown) {
     errorMsg.value = e instanceof Error ? e.message : 'Something went wrong'
@@ -169,12 +169,43 @@ async function doAction(action: BlackjackAction) {
   }
 }
 
+const sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms))
+
+async function animateDealerTurn(finalState: BlackjackClientState) {
+  const finalCards = finalState.dealerHand.cards
+
+  // Step 1: reveal hole card (show only the 2 initial cards, all visible)
+  gameState.value = {
+    ...finalState,
+    dealerHand: { ...finalState.dealerHand, cards: finalCards.slice(0, 2) },
+  }
+
+  const extraCards = finalCards.slice(2)
+
+  if (extraCards.length > 0) {
+    // Pause after reveal, then draw each extra card
+    await sleep(700)
+    for (let i = 0; i < extraCards.length; i++) {
+      gameState.value = {
+        ...finalState,
+        dealerHand: { ...finalState.dealerHand, cards: finalCards.slice(0, 3 + i) },
+      }
+      await sleep(600)
+    }
+  } else {
+    // No extra draws needed — short pause then finish
+    await sleep(600)
+  }
+
+  gameState.value = finalState
+  finishGame()
+}
+
 function finishGame() {
   if (!gameState.value) return
   const gs = gameState.value
   const totalBet = gs.playerHands.reduce((s, h) => s + h.bet, 0)
   const won = gs.playerHands.some(h => h.status === 'won' || h.status === 'blackjack')
-  const pushed = !won && gs.playerHands.every(h => h.status === 'push')
   history.value.unshift({ won, payout: 0, bet: totalBet })
   if (history.value.length > 8) history.value.pop()
   gameToken.value = null
