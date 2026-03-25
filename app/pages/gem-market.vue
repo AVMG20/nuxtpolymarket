@@ -282,6 +282,7 @@ function actionBg(action: string) {
         <ChartLine
             v-if="data && chartData.length >= 2"
             :data="chartData"
+            height="h-72"
             :x="xFn"
             :y="yFn"
             :color="lineColor"

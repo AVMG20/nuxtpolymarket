@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { format } from 'date-fns'
 import { useElementSize } from '@vueuse/core'
-import { VisXYContainer, VisLine, VisArea, VisAxis, VisCrosshair, VisTooltip } from '@unovis/vue'
 
 const { data, pending } = await useFetch('/api/analytics/transactions')
 
@@ -318,19 +317,17 @@ onMounted(() => setTimeout(() => { mounted.value = true }, 50))
         <UIcon name="i-lucide-line-chart" class="size-10 opacity-20" />
         <p class="text-sm">No transactions today</p>
       </div>
-      <VisXYContainer
-        v-else
-        :data="lineChartData"
-        :padding="{ top: 40 }"
-        class="h-48"
-        :width="perfCardWidth"
-      >
-        <VisLine :x="xPerf" :y="yPerf" :color="lineColor" />
-        <VisArea :x="xPerf" :y="yPerf" :color="lineColor" :opacity="0.1" />
-        <VisAxis type="x" :x="xPerf" :tick-format="xPerfTicks" />
-        <VisCrosshair :color="lineColor" :template="perfTooltip" />
-        <VisTooltip />
-      </VisXYContainer>
+      <ChartLine
+          v-else
+          :data="lineChartData"
+          :x="xPerf"
+          :y="yPerf"
+          :color="lineColor"
+          :width="perfCardWidth"
+          :tick-format="xPerfTicks"
+          :tooltip-template="perfTooltip"
+          :padding="{ top: 40 }"
+      />
     </UCard>
 
     <!-- Today's transactions -->
