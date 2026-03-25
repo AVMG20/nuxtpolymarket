@@ -177,7 +177,7 @@ function finishGame() {
   history.value.unshift({ won, payout: 0, bet: totalBet })
   if (history.value.length > 8) history.value.pop()
   gameToken.value = null
-  setTimeout(() => { showResults.value = true }, 1500)
+  setTimeout(() => { showResults.value = true }, 1000)
 }
 
 function newGame() {
@@ -362,7 +362,34 @@ function newGame() {
             <!-- Separator -->
             <div class="table-divider relative flex items-center gap-3 my-2">
               <div class="flex-1 h-px bg-gradient-to-r from-transparent via-white/10 to-transparent" />
-              <span class="text-[10px] text-muted/50 uppercase tracking-widest">vs</span>
+
+                <div v-if="showResults" class="flex items-center gap-2">
+                  <template v-for="hand in gameState.playerHands" :key="hand.id">
+                    <div v-if="hand.status === 'won'" class="text-success font-bold flex items-center gap-1 text-base bg-success/15 px-3 py-1 rounded-full border border-success/20">
+                      <UIcon name="i-lucide-coins" class="size-4" />
+                      +{{ hand.bet * 2 }}
+                    </div>
+                    <div v-else-if="hand.status === 'blackjack'" class="text-success font-bold flex items-center gap-1 text-base bg-success/15 px-3 py-1 rounded-full border border-success/20">
+                      <span class="text-xs text-success/70 font-medium uppercase tracking-wider mr-1">BJ</span>
+                      <UIcon name="i-lucide-coins" class="size-4" />
+                      +{{ hand.bet * 2.5 }}
+                    </div>
+                    <div v-else-if="hand.status === 'push'" class="text-warning font-bold flex items-center gap-1 text-base bg-warning/15 px-3 py-1 rounded-full border border-warning/20">
+                      <UIcon name="i-lucide-coins" class="size-4" />
+                      +{{ hand.bet }}
+                    </div>
+                    <div v-else-if="hand.status === 'surrendered'" class="text-error font-bold flex items-center gap-1 text-base bg-error/15 px-3 py-1 rounded-full border border-error/20">
+                      <UIcon name="i-lucide-coins" class="size-4" />
+                      -{{ Math.floor(hand.bet / 2) }}
+                    </div>
+                    <div v-else class="text-error font-bold flex items-center gap-1 text-base bg-error/15 px-3 py-1 rounded-full border border-error/20">
+                      <UIcon name="i-lucide-coins" class="size-4" />
+                      -{{ hand.bet }}
+                    </div>
+                  </template>
+                </div>
+                <span v-else class="text-[10px] text-muted/50 uppercase tracking-widest">vs</span>
+
               <div class="flex-1 h-px bg-gradient-to-r from-transparent via-white/10 to-transparent" />
             </div>
 
@@ -420,44 +447,6 @@ function newGame() {
                 </TransitionGroup>
               </div>
 
-              <!-- Per-hand result banner -->
-              <Transition name="result-slide">
-                <div v-if="hand.status !== 'playing' && hand.status !== 'stood' && showResults" class="mt-4 flex flex-col items-center">
-                  <div class="font-black uppercase tracking-widest text-lg animate-bounce-short drop-shadow-md" :class="statusColor(hand.status)">
-                    {{ hand.status === 'blackjack' ? 'BLACKJACK!' : statusLabel(hand.status) }}
-                  </div>
-
-                  <div v-if="hand.status === 'won'" class="text-success font-bold flex items-center gap-1 text-xl mt-1 bg-success/15 px-3 py-1 rounded-full border border-success/20">
-                    <span class="text-xs text-success/70 font-medium uppercase tracking-wider mr-1">Won</span>
-                    <UIcon name="i-lucide-coins" class="size-5" />
-                    +{{ hand.bet * 2 }}
-                  </div>
-
-                  <div v-else-if="hand.status === 'blackjack'" class="text-success font-bold flex items-center gap-1 text-xl mt-1 bg-success/15 px-3 py-1 rounded-full border border-success/20">
-                    <span class="text-xs text-success/70 font-medium uppercase tracking-wider mr-1">Pays 3:2</span>
-                    <UIcon name="i-lucide-coins" class="size-5" />
-                    +{{ hand.bet * 2.5 }}
-                  </div>
-
-                  <div v-else-if="hand.status === 'push'" class="text-warning font-bold flex items-center gap-1 text-lg mt-1 bg-warning/15 px-3 py-1 rounded-full border border-warning/20">
-                    <span class="text-xs text-warning/70 font-medium uppercase tracking-wider mr-1">Push</span>
-                    <UIcon name="i-lucide-coins" class="size-4" />
-                    +{{ hand.bet }}
-                  </div>
-
-                  <div v-else-if="hand.status === 'surrendered'" class="text-error font-bold flex items-center gap-1 text-lg mt-1 bg-error/15 px-3 py-1 rounded-full border border-error/20">
-                    <span class="text-xs text-error/70 font-medium uppercase tracking-wider mr-1">Surrendered</span>
-                    <UIcon name="i-lucide-coins" class="size-4" />
-                    -{{ Math.floor(hand.bet / 2) }}
-                  </div>
-
-                  <div v-else class="text-error font-bold flex items-center gap-1 text-lg mt-1 bg-error/15 px-3 py-1 rounded-full border border-error/20">
-                    <span class="text-xs text-error/70 font-medium uppercase tracking-wider mr-1">Lost</span>
-                    <UIcon name="i-lucide-coins" class="size-4" />
-                    -{{ hand.bet }}
-                  </div>
-                </div>
-              </Transition>
             </div>
 
             <!-- Message -->
