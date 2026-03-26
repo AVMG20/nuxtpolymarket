@@ -130,7 +130,7 @@ onUnmounted(() => {
             </div>
             <div class="grid grid-cols-5 gap-1.5 mt-2">
               <UButton
-                v-for="t in [1.5, 2, 3, 5, 10, 50, 500, 5000, 50000, 500000, 100, 1000, 10000, 100000, 1000000]"
+                v-for="t in [1.5, 2, 3, 5, 10, 50, 100, 500, 1000, 5000, 10000, 50000, 100000, 500000, 1000000]"
                 :key="t"
                 variant="ghost" color="neutral" size="xs"
                 :disabled="isRolling"
