@@ -1,5 +1,5 @@
 // ─── Base price ───────────────────────────────────────────────────────────────
-export const GEM_INITIAL_PRICE = 350        // $ per gem on first launch
+export const GEM_INITIAL_PRICE = 300        // $ per gem on first launch
 
 // ─── Time-based growth ────────────────────────────────────────────────────────
 export const GEM_HOURLY_GROWTH_RATE = 0.005    // base +0.5% per hour
