@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useIntervalFn, useElementSize } from '@vueuse/core'
 import { format, formatDistanceToNow } from 'date-fns'
-import { gemBuyGems, gemSellGems, GEM_MAX_GEMS_PER_TRADE, gemStepPrice } from '#shared/utils/gamelogic/gem-market'
+import { gemBuyGems, gemSellGems, GEM_MAX_GEMS_PER_TRADE, GEM_INITIAL_PRICE, gemStepPrice } from '#shared/utils/gamelogic/gem-market'
 
 const { data, refresh } = await useFetch('/api/gem-market/state')
 const { user, fetchSession } = useAuth()
@@ -19,6 +19,12 @@ const livePrice = computed(() => {
   if (!data.value) return 0
   const hoursElapsed = (now.value - new Date(data.value.lastUpdatedAt).getTime()) / 3_600_000
   return gemStepPrice(data.value.storedPrice, hoursElapsed)
+})
+
+// ---- Change vs base price (all-time) ----
+const changeFromBase = computed(() => {
+  if (!livePrice.value) return null
+  return ((livePrice.value - GEM_INITIAL_PRICE) / GEM_INITIAL_PRICE) * 100
 })
 
 // ---- 24h change ----
@@ -39,15 +45,25 @@ type PricePoint = { date: Date; price: number }
 const chartRef = useTemplateRef<HTMLElement>('chartRef')
 const { width: chartWidth } = useElementSize(chartRef)
 
+const chartView = ref<'7d' | '30d'>('30d')
+
 const chartData = computed((): PricePoint[] => {
   const history = data.value?.history
-  if (!history?.length) return [{ date: new Date(), price: livePrice.value }]
+  const windowMs = chartView.value === '7d' ? 7 * 24 * 3_600_000 : 30 * 24 * 3_600_000
+  const cutoff = Date.now() - windowMs
 
-  const events: PricePoint[] = [...history]
+  if (!history?.length) return [{ date: new Date(cutoff), price: livePrice.value }, { date: new Date(now.value), price: livePrice.value }]
+
+  const allEvents: PricePoint[] = [...history]
       .reverse()
       .map(h => ({ date: new Date(h.createdAt), price: parseFloat(h.price) }))
 
-  events.push({ date: new Date(now.value), price: livePrice.value })
+  allEvents.push({ date: new Date(now.value), price: livePrice.value })
+
+  // Find start anchor: last event before the cutoff, or first event
+  const firstInWindow = allEvents.findIndex(e => e.date.getTime() >= cutoff)
+  const startIdx = firstInWindow > 0 ? firstInWindow - 1 : 0
+  const events = allEvents.slice(startIdx)
 
   const points: PricePoint[] = []
   const STEPS = 24
@@ -78,18 +94,23 @@ const xFn = (_: PricePoint, i: number) => i
 const yFn = (d: PricePoint) => d.price
 
 const xTickFmt = (i: number) => {
-  const len = chartData.value.length
+  const pts = chartData.value
+  const len = pts.length
   if (len < 2) return ''
+  // unovis may pass fractional tick positions — round to nearest data index
+  const idx = Math.round(i)
   const step = Math.floor(len / 5)
-  if (step < 1 || i % step !== 0) return ''
-  const pt = chartData.value[i]
-  return pt ? format(pt.date, 'HH:mm') : ''
+  if (step < 1 || idx % step !== 0) return ''
+  const pt = pts[idx]
+  if (!pt) return ''
+  // 7d/30d views always span multiple days — show date
+  return format(pt.date, 'MMM d')
 }
 
 const tooltipFmt = (d: PricePoint) =>
     `$${formatNumber(d.price, false)}  |  ${format(d.date, 'HH:mm:ss')}`
 
-const priceUp = computed(() => (change24h.value ?? 0) >= 0)
+const priceUp = computed(() => (changeFromBase.value ?? 0) >= 0)
 const lineColor = computed(() => priceUp.value ? 'var(--ui-success)' : 'var(--ui-error)')
 
 // ---- Trade panel ----
@@ -192,12 +213,12 @@ function actionBg(action: string) {
           </p>
         </div>
         <div
-            v-if="change24h !== null"
+            v-if="changeFromBase !== null"
             class="px-3 py-1.5 rounded-lg text-sm font-semibold tabular-nums"
             :class="priceUp ? 'bg-success/15 text-success' : 'bg-error/15 text-error'"
         >
-          {{ priceUp ? '+' : '' }}{{ change24h.toFixed(2) }}%
-          <span class="text-xs font-normal opacity-70 ml-1">24h</span>
+          {{ priceUp ? '+' : '' }}{{ changeFromBase.toFixed(2) }}%
+          <span class="text-xs font-normal opacity-70 ml-1">vs base</span>
         </div>
       </div>
     </div>
@@ -271,11 +292,25 @@ function actionBg(action: string) {
                 ${{ formatNumber(livePrice, false) }}
               </p>
             </div>
-            <UBadge
-                :label="`${data?.history.length ?? 0} trade events`"
-                color="neutral"
-                variant="subtle"
-            />
+            <div class="flex items-center gap-2">
+              <div class="flex rounded-md overflow-hidden border border-default text-xs font-semibold">
+                <button
+                    class="px-2.5 py-1 transition-colors"
+                    :class="chartView === '7d' ? 'bg-primary text-white' : 'hover:bg-elevated text-muted'"
+                    @click="chartView = '7d'"
+                >7d</button>
+                <button
+                    class="px-2.5 py-1 transition-colors"
+                    :class="chartView === '30d' ? 'bg-primary text-white' : 'hover:bg-elevated text-muted'"
+                    @click="chartView = '30d'"
+                >30d</button>
+              </div>
+              <UBadge
+                  :label="`${data?.history.length ?? 0} trade events`"
+                  color="neutral"
+                  variant="subtle"
+              />
+            </div>
           </div>
         </template>
 
