@@ -14,6 +14,7 @@ const lastBet = ref(0)
 const animResult = ref<number | null>(null)
 const history = ref<{ result: number; won: boolean; payout: number; target: number; bet: number }[]>([])
 const errorMsg = ref('')
+const showHelp = ref(false)
 
 const winChance = computed(() => Math.min(98 / target.value, 98))
 const totalPayout = computed(() => bet.value * target.value)
@@ -95,7 +96,10 @@ onUnmounted(() => {
       <!-- Controls -->
       <UCard>
         <template #header>
-          <h2 class="font-semibold">Controls</h2>
+          <div class="flex items-center justify-between">
+            <h2 class="font-semibold">Controls</h2>
+            <UButton icon="i-lucide-circle-help" color="neutral" variant="ghost" size="xs" @click="showHelp = true" />
+          </div>
         </template>
 
         <div class="space-y-4">
@@ -243,6 +247,17 @@ onUnmounted(() => {
 
       </div>
     </div>
+
+    <UModal v-model:open="showHelp" title="How Limbo works" :ui="{ width: 'max-w-sm' }">
+      <template #body>
+        <ul class="text-sm text-muted space-y-2 list-disc list-inside">
+          <li>Set a target multiplier (e.g. 2×).</li>
+          <li>A random number is rolled. If it's <strong class="text-default">≥ your target</strong>, you win.</li>
+          <li>Higher target → bigger payout, lower win chance.</li>
+          <li>Payout = bet × target multiplier.</li>
+        </ul>
+      </template>
+    </UModal>
   </div>
 </template>
 

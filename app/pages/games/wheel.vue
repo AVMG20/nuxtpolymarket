@@ -13,6 +13,7 @@ const isFetching = ref(false)
 const lastResult = ref<WheelResult | null>(null)
 const lastBet = ref(0)
 const errorMsg = ref('')
+const showHelp = ref(false)
 const history = ref<{ multiplier: number; won: boolean; payout: number; bet: number }[]>([])
 
 const canvasRef = ref<HTMLCanvasElement | null>(null)
@@ -277,7 +278,12 @@ watch(difficulty, () => { rotationOffset.value = 0; lastResult.value = null; nex
 
       <!-- Controls -->
       <UCard>
-        <template #header><h2 class="font-semibold">Controls</h2></template>
+        <template #header>
+          <div class="flex items-center justify-between">
+            <h2 class="font-semibold">Controls</h2>
+            <UButton icon="i-lucide-circle-help" color="neutral" variant="ghost" size="xs" @click="showHelp = true" />
+          </div>
+        </template>
         <div class="space-y-4">
 
           <!-- Bet -->
@@ -413,6 +419,17 @@ watch(difficulty, () => { rotationOffset.value = 0; lastResult.value = null; nex
         </UCard>
       </div>
     </div>
+
+    <UModal v-model:open="showHelp" title="How Wheel works" :ui="{ width: 'max-w-sm' }">
+      <template #body>
+        <ul class="text-sm text-muted space-y-2 list-disc list-inside">
+          <li>Spin the wheel and win the multiplier of the segment it lands on.</li>
+          <li>A 0× segment means you lose your bet.</li>
+          <li><strong class="text-default">Difficulty</strong> controls how many losing segments are on the wheel.</li>
+          <li>Payout = bet × segment multiplier.</li>
+        </ul>
+      </template>
+    </UModal>
   </div>
 </template>
 

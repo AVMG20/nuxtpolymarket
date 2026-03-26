@@ -11,6 +11,7 @@ const bet = ref(10)
 const isPlaying = ref(false)
 const isFetching = ref(false)
 const errorMsg = ref('')
+const showHelp = ref(false)
 const gameToken = ref<string | null>(null)
 const gameState = ref<BlackjackClientState | null>(null)
 const history = ref<{ won: boolean; payout: number; bet: number }[]>([])
@@ -246,7 +247,10 @@ function newGame() {
       <!-- Controls -->
       <UCard>
         <template #header>
-          <h2 class="font-semibold">Controls</h2>
+          <div class="flex items-center justify-between">
+            <h2 class="font-semibold">Controls</h2>
+            <UButton icon="i-lucide-circle-help" color="neutral" variant="ghost" size="xs" @click="showHelp = true" />
+          </div>
         </template>
 
         <div class="space-y-4">
@@ -581,6 +585,20 @@ function newGame() {
 
       </div>
     </div>
+
+    <UModal v-model:open="showHelp" title="How Blackjack works" :ui="{ width: 'max-w-sm' }">
+      <template #body>
+        <ul class="text-sm text-muted space-y-2 list-disc list-inside">
+          <li>Beat the dealer's hand without going over 21.</li>
+          <li>Face cards = 10. Aces = 1 or 11.</li>
+          <li><strong class="text-default">Blackjack</strong> (Ace + 10-value on deal) pays 2.5×.</li>
+          <li><strong class="text-default">Double</strong>: double your bet and take exactly one more card.</li>
+          <li><strong class="text-default">Split</strong>: split a pair into two separate hands.</li>
+          <li><strong class="text-default">Surrender</strong>: fold and recover half your bet.</li>
+          <li>Dealer must hit until 17 or more.</li>
+        </ul>
+      </template>
+    </UModal>
   </div>
 </template>
 

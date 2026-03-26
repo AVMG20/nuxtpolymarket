@@ -14,6 +14,7 @@ const lastBet = ref(0)
 const animRoll = ref<number | null>(null)
 const history = ref<{ roll: number; won: boolean; payout: number; multiplier: number; bet: number }[]>([])
 const errorMsg = ref('')
+const showHelp = ref(false)
 
 const multiplier = computed(() => 98 / winChance.value)
 const totalPayout = computed(() => bet.value * multiplier.value)
@@ -95,7 +96,10 @@ onUnmounted(() => {
       <!-- Controls -->
       <UCard>
         <template #header>
-          <h2 class="font-semibold">Controls</h2>
+          <div class="flex items-center justify-between">
+            <h2 class="font-semibold">Controls</h2>
+            <UButton icon="i-lucide-circle-help" color="neutral" variant="ghost" size="xs" @click="showHelp = true" />
+          </div>
         </template>
 
         <div class="space-y-4">
@@ -269,6 +273,17 @@ onUnmounted(() => {
 
       </div>
     </div>
+
+    <UModal v-model:open="showHelp" title="How Dice works" :ui="{ width: 'max-w-sm' }">
+      <template #body>
+        <ul class="text-sm text-muted space-y-2 list-disc list-inside">
+          <li>A random number between 0 and 100 is rolled.</li>
+          <li>You win if the result is <strong class="text-default">below your win chance</strong>.</li>
+          <li>Lower win chance → higher multiplier.</li>
+          <li>Multiplier = 98 ÷ win chance.</li>
+        </ul>
+      </template>
+    </UModal>
   </div>
 </template>
 
