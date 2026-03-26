@@ -6,14 +6,25 @@ const { data: state, refresh } = await useFetch('/api/miner/state')
 const toast = useToast()
 const buying = ref<string | null>(null)
 
+const instantFillCap = computed(() => {
+  if (!state.value) return 0
+  const level = state.value.vaultLevel
+  return 150 + (level - 1) * 150
+})
+
 //TODO: this should come from _config.ts, and this miner config should become a shared util to be shared between client and server.
 const instantFillCost = computed(() => {
   if (!state.value) return 1
   const level = state.value.vaultLevel
-  const cap = 150 + (level - 1) * 150
+  const cap = instantFillCap.value
   const t = (level - 1) / (100 - 1)
   const ratio = 300 + t * (2000 - 300)
   return Math.max(1, Math.floor(cap / ratio))
+})
+
+const instantFillValuePerGem = computed(() => {
+  if (!instantFillCost.value) return 0
+  return Math.floor(instantFillCap.value / instantFillCost.value)
 })
 
 const shopItems = computed(() => [
@@ -21,24 +32,17 @@ const shopItems = computed(() => [
     id: 'instant-fill',
     label: 'Instant Fill',
     description: 'Max out your Money Miner storage instantly.',
+    valuePerGem: instantFillValuePerGem.value,
     icon: 'i-lucide-zap',
     color: 'secondary' as const,
     cost: instantFillCost.value,
     endpoint: '/api/miner/shop/instant-fill',
   },
   {
-    id: 'double-win',
-    label: 'Double Win',
-    description: '2x earnings on your next game win (capped at 1500).',
-    icon: 'i-lucide-sparkles',
-    color: 'primary' as const,
-    cost: 5,
-    endpoint: null,
-  },
-  {
     id: 'extra-play',
     label: 'Extra Play',
     description: 'Restore 1 used Mines play today.',
+    valuePerGem: 350,
     icon: 'i-lucide-gamepad-2',
     color: 'primary' as const,
     cost: 1,
@@ -48,6 +52,7 @@ const shopItems = computed(() => [
     id: 'quick-cash',
     label: 'Quick Cash',
     description: 'Convert 1 Gem into 200,- instantly.',
+    valuePerGem: 200,
     icon: 'i-lucide-coins',
     color: 'primary' as const,
     cost: 1,
@@ -121,7 +126,12 @@ async function purchase(item: typeof shopItems[number]) {
                 <span class="font-bold">{{ item.cost }}</span>
               </div>
             </div>
-            <p class="text-sm text-muted mb-4">{{ item.description }}</p>
+            <div class="text-sm text-muted mb-4">
+              <span v-html="item.description"></span>
+              <div v-if="item.valuePerGem !== undefined" class="mt-1 flex items-center gap-1 opacity-75">
+                (~ <CoinBalance :value="item.valuePerGem" :compact="false" /> / Gem)
+              </div>
+            </div>
             <UButton
               label="Purchase"
               size="sm"
