@@ -32,6 +32,12 @@ export const auth = betterAuth({
                 defaultValue: '0',
                 input: false,
             },
+            rake: {
+                type: 'string',
+                required: false,
+                defaultValue: '0',
+                input: false,
+            },
             gems: {
                 type: 'number',
                 required: false,

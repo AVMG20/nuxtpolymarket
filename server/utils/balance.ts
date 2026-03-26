@@ -1,6 +1,7 @@
 import { eq, sql, desc } from 'drizzle-orm'
 import { db } from '../database'
 import { user, transactions } from '../database/schema'
+import { RAKEBACK_RATE } from '../../shared/utils/profile'
 
 export async function credit(userId: string, amount: string, category?: string) {
   await db.transaction(async (tx) => {
@@ -14,11 +15,20 @@ export async function credit(userId: string, amount: string, category?: string) 
 export async function debit(userId: string, amount: string, category?: string) {
   await db.transaction(async (tx) => {
     const current = await tx.query.user.findFirst({ where: eq(user.id, userId), columns: { balance: true } })
-    if (!current || parseFloat(current.balance) < parseFloat(amount))
-      throw createError({ statusCode: 400, statusMessage: 'Insufficient balance' })
+    if (!current || parseFloat(current.balance) < parseFloat(amount)) throw createError({ statusCode: 400, statusMessage: 'Insufficient balance' })
+
+      //calc the rake back
+    const rake = (parseFloat(amount) * RAKEBACK_RATE).toFixed(4)
+
+      // insert transaction
     await tx.insert(transactions).values({ userId, amount, type: 'debit', category })
+
+      //update user balance and rake
     await tx.update(user)
-      .set({ balance: sql`${user.balance} - ${amount}::numeric` })
+      .set({
+        balance: sql`${user.balance} - ${amount}::numeric`,
+        rake: sql`${user.rake} + ${rake}::numeric`,
+      })
       .where(eq(user.id, userId))
   })
 }

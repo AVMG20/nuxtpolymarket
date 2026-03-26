@@ -1,5 +1,38 @@
 <script setup lang="ts">
+import { RAKEBACK_RATE, RAKEBACK_MIN_RATIO, RAKEBACK_MAX_RATIO, RAKEBACK_SCALE_CAP, rakebackClaimCost } from '#shared/utils/profile'
+
 const { user, client, fetchSession, signOut: authSignOut } = useAuth()
+
+const rake = computed(() => parseFloat(user.value?.rake ?? '0'))
+const gemCost = computed(() => rakebackClaimCost(rake.value))
+const valuePerGem = computed(() => (gemCost.value > 0 ? rake.value / gemCost.value : 0))
+const gems = computed(() => user.value?.gems ?? 0)
+
+const rakeInfoOpen = ref(false)
+
+const rakeExamples = computed(() => {
+  const steps = [1000, 5000, 10000, RAKEBACK_SCALE_CAP]
+  return steps.map(balance => {
+    const cost = rakebackClaimCost(balance)
+    return { balance, cost, perGem: Math.floor(balance / cost) }
+  })
+})
+
+const claimModalOpen = ref(false)
+const claimLoading = ref(false)
+async function claimRake() {
+  claimLoading.value = true
+  try {
+    await $fetch('/api/user/claim-rake', { method: 'POST' })
+    await fetchSession()
+    claimModalOpen.value = false
+    toast.add({ title: 'Rakeback claimed!', color: 'success', icon: 'i-lucide-check' })
+  } catch (e: any) {
+    toast.add({ title: e?.data?.statusMessage ?? 'Claim failed', color: 'error' })
+  } finally {
+    claimLoading.value = false
+  }
+}
 const toast = useToast()
 
 type Account = { providerId: string, accountId: string }
@@ -7,6 +40,7 @@ const accounts = ref<Account[]>([])
 const accountsLoaded = ref(false)
 
 onMounted(async () => {
+  fetchSession();
   const { data } = await client.listAccounts()
   accounts.value = (data as Account[]) ?? []
   accountsLoaded.value = true
@@ -116,18 +150,125 @@ async function handleSignOut() {
       </div>
     </div>
 
-    <!-- Avatar card -->
-    <UCard>
-      <div class="flex items-center gap-5">
-        <div class="size-16 rounded-full bg-primary/20 flex items-center justify-center shrink-0">
-          <span class="text-2xl font-bold text-primary">{{ (user?.name ?? 'A')[0].toUpperCase() }}</span>
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <!-- Avatar card -->
+      <UCard>
+        <div class="flex items-center gap-5">
+          <div class="size-16 rounded-full bg-primary/20 flex items-center justify-center shrink-0">
+            <span class="text-2xl font-bold text-primary">{{ (user?.name ?? 'A')[0].toUpperCase() }}</span>
+          </div>
+          <div class="min-w-0">
+            <p class="font-semibold text-xl truncate">{{ user?.name }}</p>
+            <p class="text-sm text-muted truncate mt-0.5">{{ user?.email }}</p>
+          </div>
         </div>
-        <div class="min-w-0">
-          <p class="font-semibold text-xl truncate">{{ user?.name }}</p>
-          <p class="text-sm text-muted truncate mt-0.5">{{ user?.email }}</p>
+      </UCard>
+
+      <!-- Rakeback -->
+      <UCard>
+        <template #header>
+          <div class="flex items-start justify-between gap-2">
+            <div>
+              <h2 class="font-semibold">Rakeback</h2>
+              <p class="text-xs text-muted mt-0.5">{{ RAKEBACK_RATE * 100 }}% of every wager accumulates as locked balance</p>
+            </div>
+            <UButton icon="i-lucide-circle-help" color="neutral" variant="ghost" size="xs" @click="rakeInfoOpen = true" />
+          </div>
+        </template>
+        <div class="flex items-start justify-between gap-4">
+          <div class="flex gap-8">
+            <div class="space-y-1">
+              <p class="text-xs text-muted">Locked balance</p>
+              <CoinBalance class="font-semibold text-highlighted" :value="rake" :compact="false" />
+            </div>
+            <div class="space-y-1">
+              <p class="text-xs text-muted">Cost to claim</p>
+              <div v-if="valuePerGem > 0" class="flex items-center gap-1 text-xs text-muted">
+                <GemBalance class="font-semibold text-highlighted" :value="gemCost" />
+                ~&nbsp;<CoinBalance class="font-semibold" :value="valuePerGem" />&nbsp;/ Gem
+              </div>
+            </div>
+          </div>
+          <UButton
+            label="Claim"
+            icon="i-lucide-gift"
+            :disabled="rake <= 0 || gems < gemCost"
+            @click="claimModalOpen = true"
+          />
         </div>
-      </div>
-    </UCard>
+      </UCard>
+    </div>
+
+    <!-- Claim rakeback modal -->
+    <UModal v-model:open="claimModalOpen" title="Claim Rakeback">
+      <template #body>
+        <div class="flex flex-col gap-4">
+          <CoinBalance :value="rake" :compact="false" :show-icon="true" class="font-semibold text-highlighted text-lg" />
+          <p class="text-sm text-muted">
+            You are about to spend
+            <GemBalance :value="gemCost" :compact="false" class="inline-block space-x-1 mx-1 font-semibold text-highlighted" />
+            to unlock your rakeback back to your balance
+          </p>
+        </div>
+      </template>
+      <template #footer>
+        <div class="flex justify-end gap-2">
+          <UButton label="Cancel" color="neutral" variant="outline" @click="claimModalOpen = false" />
+          <UButton label="Claim" icon="i-lucide-gift" :loading="claimLoading" @click="claimRake" />
+        </div>
+      </template>
+    </UModal>
+
+    <!-- Rakeback info modal -->
+    <UModal v-model:open="rakeInfoOpen" title="How Rakeback Works">
+      <template #body>
+        <div class="space-y-4 text-sm">
+          <p class="text-muted">
+            Every time you place a wager, <span class="font-semibold text-default">{{ RAKEBACK_RATE * 100 }}%</span> of the amount is added to your locked rakeback balance. You can claim it at any time by spending gems.
+          </p>
+
+          <div class="space-y-1">
+            <p class="font-semibold">Claim cost scaling</p>
+            <p class="text-muted">
+              The value you get per gem increases as your locked balance grows — from
+              <span class="font-semibold text-default"><CoinBalance class="inline-block space-x-1 mx-1" :value="RAKEBACK_MIN_RATIO" :compact="false"/>/ Gem</span>
+              at small balances up to
+              <span class="font-semibold text-default"><CoinBalance class="inline-block space-x-1 mx-1" :value="RAKEBACK_MAX_RATIO" :compact="false"/>/ Gem</span>
+              once your balance reaches
+              <span class="font-semibold text-default"><CoinBalance class="inline-block space-x-1 mx-1" :value="RAKEBACK_SCALE_CAP" :compact="false" /></span>.
+            </p>
+          </div>
+
+          <div class="rounded-lg border border-default overflow-hidden">
+            <table class="w-full text-xs">
+              <thead>
+                <tr class="bg-elevated">
+                  <th class="text-left px-3 py-2 text-muted font-medium">Locked balance</th>
+                  <th class="text-right px-3 py-2 text-muted font-medium">Gems needed</th>
+                  <th class="text-right px-3 py-2 text-muted font-medium">Value / Gem</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-default">
+                <tr v-for="row in rakeExamples" :key="row.balance">
+                  <td class="px-3 py-2"><CoinBalance :value="row.balance" :compact="false" /></td>
+                  <td class="px-3 py-2 text-right">
+                    <div class="flex items-center justify-end gap-1">
+                      <GemBalance class="font-semibold" :value="row.cost" />
+                    </div>
+                  </td>
+                  <td class="px-3 py-2 text-right"><CoinBalance :value="row.perGem" :compact="false" /></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </template>
+      <template #footer>
+        <div class="flex justify-end">
+          <UButton label="Got it" @click="rakeInfoOpen = false" />
+        </div>
+      </template>
+    </UModal>
 
     <!-- Linked accounts -->
     <UCard>

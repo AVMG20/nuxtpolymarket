@@ -9,6 +9,7 @@ export const user = pgTable("user", {
   emailVerified: boolean("email_verified").default(false).notNull(),
   image: text("image"),
   balance: numeric("balance", { precision: 19, scale: 4 }).notNull().default("0"),
+  rake: numeric("rake", { precision: 19, scale: 4 }).notNull().default("0"),
   gems: integer("gems").notNull().default(0),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at")
