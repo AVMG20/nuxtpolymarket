@@ -7,6 +7,7 @@ import {
   factoryRate, factoryCap, factoryUpgradeCost, computePending,
   RIG_MAX_LEVEL, VAULT_MAX_LEVEL, FACTORY_MAX_LEVEL,
   minesPurchaseCost, MINES_MAX_COUNT,
+  minesUpgradeCost, MINES_UPGRADE_MAX_LEVEL, minesValueMultiplier,
 } from './_config'
 
 export default defineEventHandler(async (event) => {
@@ -53,6 +54,10 @@ export default defineEventHandler(async (event) => {
     minesCount: s.minesCount,
     minesMaxCount: MINES_MAX_COUNT,
     minesNextCost: minesPurchaseCost(s.minesCount),
+    minesLevel: s.minesLevel,
+    minesMaxLevel: MINES_UPGRADE_MAX_LEVEL,
+    minesNextUpgradeCost: minesUpgradeCost(s.minesLevel),
+    minesValueMultiplier: minesValueMultiplier(s.minesLevel),
     minesPlaysRemaining: (() => {
       const today = new Date().toISOString().slice(0, 10)
       const used = s.minesPlaysDate === today ? s.minesTodayPlays : 0

@@ -24,6 +24,7 @@ const bottomButtonLabel = computed(() => {
 
 const playing = ref(false)
 const buying = ref(false)
+const buyingUpgrade = ref(false)
 const buyingExtraPlay = ref(false)
 
 async function playTile(tileIndex: number) {
@@ -74,6 +75,19 @@ async function buyMine() {
     toast.add({ title: e.data?.message ?? 'Purchase failed', color: 'error' })
   } finally {
     buying.value = false
+  }
+}
+
+async function upgradeMine() {
+  buyingUpgrade.value = true
+  try {
+    const res = await $fetch('/api/miner/mines/upgrade', { method: 'POST' })
+    toast.add({ title: `Mine upgraded to level ${res.newLevel}!`, color: 'success', icon: 'i-lucide-arrow-up' })
+    await Promise.all([refresh(), fetchSession()])
+  } catch (e: any) {
+    toast.add({ title: e.data?.message ?? 'Upgrade failed', color: 'error' })
+  } finally {
+    buyingUpgrade.value = false
   }
 }
 
@@ -142,8 +156,8 @@ function tileValueColor(value: number) {
           <template #header>
             <div class="flex items-center justify-between">
               <div class="flex items-center gap-2.5">
-                <div class="size-8 rounded-lg bg-secondary/15 flex items-center justify-center">
-                  <UIcon name="i-lucide-calendar-days" class="size-4 text-secondary" />
+                <div class="size-8 rounded-lg bg-primary/15 flex items-center justify-center">
+                  <UIcon name="i-lucide-calendar-days" class="size-4 text-primary" />
                 </div>
                 <div>
                   <p class="font-semibold text-sm">Daily Plays</p>
@@ -167,8 +181,41 @@ function tileValueColor(value: number) {
         </UCard>
 
 
-        <!-- Filler -->
-        <div></div>
+        <!-- Mine Level -->
+        <UCard>
+          <template #header>
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-2.5">
+                <div class="size-8 rounded-lg bg-primary/15 flex items-center justify-center">
+                  <UIcon name="i-lucide-arrow-up" class="size-4 text-primary" />
+                </div>
+                <div>
+                  <p class="font-semibold text-sm">Mine Level</p>
+                  <p class="text-xs text-muted">Values +10% per level</p>
+                </div>
+              </div>
+              <span class="text-2xl font-bold">{{ state.minesLevel }}<span class="text-muted text-base font-normal">/{{ state.minesMaxLevel }}</span></span>
+            </div>
+          </template>
+          <div class="mb-4">
+            <p class="text-sm text-muted">Current Bonus: <span class="font-bold text-success">+{{ Math.round((state.minesValueMultiplier - 1) * 100) }}%</span></p>
+          </div>
+          <UButton
+            label="Upgrade Mine"
+            icon="i-lucide-arrow-up"
+            block
+            color="primary"
+            :loading="buyingUpgrade"
+            :disabled="state.minesLevel >= state.minesMaxLevel || balance < state.minesNextUpgradeCost"
+            @click="upgradeMine"
+          >
+            <template #trailing>
+              <span class="text-xs opacity-70">
+                {{ state.minesLevel >= state.minesMaxLevel ? 'Max reached' : `Cost: $${formatNumber(state.minesNextUpgradeCost, false)}` }}
+              </span>
+            </template>
+          </UButton>
+        </UCard>
 
         <!-- Extra Play -->
         <UCard>

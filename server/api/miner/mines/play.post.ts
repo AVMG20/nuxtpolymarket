@@ -4,7 +4,7 @@ import { db } from '#server/database'
 import { minerState } from '#server/database/schema'
 import { auth } from '#server/utils/auth'
 import { credit } from '#server/utils/balance'
-import { MINES_TILE_VALUES } from '../_config'
+import { MINES_TILE_VALUES, minesValueMultiplier } from '../_config'
 
 export default defineEventHandler(async (event) => {
   const session = await auth.api.getSession({ headers: event.headers })
@@ -25,7 +25,8 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 400, statusMessage: 'No plays remaining today' })
 
   // Shuffle tile values server-side for fairness
-  const tiles = [...MINES_TILE_VALUES] as number[]
+  const multiplier = minesValueMultiplier(s.minesLevel)
+  const tiles = MINES_TILE_VALUES.map(v => v * multiplier) as number[]
   for (let i = tiles.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1))
     ;[tiles[i], tiles[j]] = [tiles[j]!, tiles[i]!]

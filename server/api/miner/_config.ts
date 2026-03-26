@@ -36,9 +36,23 @@ export const MINES_BASE_PURCHASE_COST = 1000
 export const MINES_PURCHASE_COST_INCREMENT = 750
 export const MINES_TILE_VALUES = [1000, 600, 450, 350, 300, 200, 150, 100, 0] as const
 
+export const MINES_UPGRADE_MAX_LEVEL = 10
+export const MINES_UPGRADE_BASE_COST = 1000
+export const MINES_UPGRADE_COST_INCREMENT = 750
+
 /** Cost to buy the next mine (pass current count before purchase) */
 export function minesPurchaseCost(currentCount: number) {
   return MINES_BASE_PURCHASE_COST + (currentCount - 1) * MINES_PURCHASE_COST_INCREMENT
+}
+
+/** Cost to upgrade mines to the next level */
+export function minesUpgradeCost(currentLevel: number) {
+  return MINES_UPGRADE_BASE_COST + (currentLevel - 1) * MINES_UPGRADE_COST_INCREMENT
+}
+
+/** Multiplier for mine rewards and extra play value */
+export function minesValueMultiplier(level: number) {
+  return 1 + (level - 1) * 0.1
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────

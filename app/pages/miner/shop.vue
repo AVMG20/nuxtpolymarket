@@ -42,7 +42,7 @@ const shopItems = computed(() => [
     id: 'extra-play',
     label: 'Extra Play',
     description: 'Restore 1 used Mines play today.',
-    valuePerGem: 350,
+    valuePerGem: 350 * (state.value?.minesValueMultiplier ?? 1),
     icon: 'i-lucide-gamepad-2',
     color: 'primary' as const,
     cost: 1,
