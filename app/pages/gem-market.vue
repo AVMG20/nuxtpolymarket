@@ -108,7 +108,8 @@ const xTickFmt = (i: number) => {
 }
 
 const tooltipFmt = (d: PricePoint) =>
-    `$${formatNumber(d.price, false)}  |  ${format(d.date, 'HH:mm:ss')}`
+    `<div style="font-weight:700;font-size:1rem">$${formatNumber(d.price, false)}</div>` +
+    `<div style="font-size:0.7rem;opacity:0.6;margin-top:2px">${format(d.date, 'MMM d, HH:mm:ss')}</div>`
 
 const priceUp = computed(() => (changeFromBase.value ?? 0) >= 0)
 const lineColor = computed(() => priceUp.value ? 'var(--ui-success)' : 'var(--ui-error)')
