@@ -3,6 +3,11 @@ import { format } from 'date-fns'
 import { useElementSize } from '@vueuse/core'
 
 const { data, pending } = await useFetch('/api/analytics/transactions')
+const { signOut: authSignOut } = useAuth()
+
+async function signOut() {
+  await authSignOut({ redirectTo: '/login' })
+}
 
 const CHART_HEIGHT = 160
 
@@ -122,9 +127,27 @@ onMounted(() => setTimeout(() => { mounted.value = true }, 50))
 <template>
   <div class="p-6 max-w-6xl mx-auto space-y-6">
     <!-- Header -->
-    <div>
-      <h1 class="text-2xl font-bold">Analytics</h1>
-      <p class="text-sm text-muted mt-0.5">{{ todayLabel }}</p>
+    <div class="flex items-start justify-between gap-4">
+      <div>
+        <h1 class="text-2xl font-bold">Analytics</h1>
+        <p class="text-sm text-muted mt-0.5">{{ todayLabel }}</p>
+      </div>
+      <div class="flex items-center gap-2 shrink-0">
+        <UButton
+          to="/profile"
+          color="neutral"
+          variant="outline"
+          icon="i-lucide-user-round"
+          label="Profile"
+        />
+        <UButton
+          color="error"
+          variant="soft"
+          icon="i-lucide-log-out"
+          label="Sign out"
+          @click="signOut"
+        />
+      </div>
     </div>
 
     <!-- Stats cards -->

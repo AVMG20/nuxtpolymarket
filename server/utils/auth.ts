@@ -22,6 +22,9 @@ export const auth = betterAuth({
         max: 100, // default is 100
     },
     user: {
+        changeEmail: {
+            enabled: true,
+        },
         additionalFields: {
             balance: {
                 type: 'string',
