@@ -19,7 +19,7 @@ const instantFillCost = computed(() => {
   const cap = instantFillCap.value
   const t = (level - 1) / (100 - 1)
   const ratio = 300 + t * (2000 - 300)
-  return Math.max(1, Math.floor(cap / ratio))
+  return Math.max(1, Math.ceil(cap / ratio))
 })
 
 const instantFillValuePerGem = computed(() => {

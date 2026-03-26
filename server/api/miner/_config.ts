@@ -73,7 +73,7 @@ export function factoryUpgradeCost(level: number) {
 export function instantFillCost(vaultLevel: number) {
   const t = (vaultLevel - 1) / (VAULT_MAX_LEVEL - 1) // 0 at L1, 1 at L100
   const ratio = SHOP_INSTANT_FILL_MIN_RATIO + t * (SHOP_INSTANT_FILL_MAX_RATIO - SHOP_INSTANT_FILL_MIN_RATIO)
-  return Math.max(SHOP_INSTANT_FILL_MIN_COST, Math.floor(vaultCap(vaultLevel) / ratio))
+  return Math.max(SHOP_INSTANT_FILL_MIN_COST, Math.ceil(vaultCap(vaultLevel) / ratio))
 }
 
 /** ms elapsed → fractional days */

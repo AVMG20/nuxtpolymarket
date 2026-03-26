@@ -177,7 +177,8 @@ async function upgradeVault() {
               </div>
               <div>
                 <p class="font-semibold text-sm">Vault Size</p>
-                <p class="text-xs text-muted">Expand capacity to store more offline earnings</p>
+                <p class="text-xs text-muted">Expand capacity to store more offline earnings <br/> This increases gem value for install fill perk
+                </p>
               </div>
             </div>
           </template>
