@@ -1,5 +1,6 @@
 <script setup lang="ts">
 const { user, client, fetchSession, signOut: authSignOut } = useAuth()
+const toast = useToast()
 
 type Account = { providerId: string, accountId: string }
 const accounts = ref<Account[]>([])
@@ -20,18 +21,16 @@ const name = ref('')
 watch(() => user.value?.name, v => { name.value = v ?? '' }, { immediate: true })
 const nameLoading = ref(false)
 const nameError = ref('')
-const nameSuccess = ref(false)
 
 async function saveName() {
   nameError.value = ''
-  nameSuccess.value = false
   const trimmed = name.value.trim()
   if (!trimmed) { nameError.value = 'Name is required'; return }
   if (trimmed.length > 30) { nameError.value = 'Max 30 characters'; return }
   nameLoading.value = true
   const { error } = await client.updateUser({ name: trimmed })
   if (error) nameError.value = error.message ?? 'Failed to update'
-  else { nameSuccess.value = true; await fetchSession() }
+  else { await fetchSession(); toast.add({ title: 'Name updated', color: 'success', icon: 'i-lucide-check' }) }
   nameLoading.value = false
 }
 
@@ -40,15 +39,13 @@ const email = ref('')
 watch(() => user.value?.email, v => { email.value = v ?? '' }, { immediate: true })
 const emailLoading = ref(false)
 const emailError = ref('')
-const emailSuccess = ref(false)
 
 async function saveEmail() {
   emailError.value = ''
-  emailSuccess.value = false
   emailLoading.value = true
   const { error } = await client.changeEmail({ newEmail: email.value.trim() })
   if (error) emailError.value = error.message ?? 'Failed to update email'
-  else { emailSuccess.value = true; await fetchSession() }
+  else { await fetchSession(); toast.add({ title: 'Email updated', color: 'success', icon: 'i-lucide-check' }) }
   emailLoading.value = false
 }
 
@@ -58,11 +55,9 @@ const newPw = ref('')
 const confirmPw = ref('')
 const pwLoading = ref(false)
 const pwError = ref('')
-const pwSuccess = ref(false)
 
 async function savePassword() {
   pwError.value = ''
-  pwSuccess.value = false
   if (newPw.value.length < 8) { pwError.value = 'At least 8 characters required'; return }
   if (newPw.value !== confirmPw.value) { pwError.value = 'Passwords do not match'; return }
   pwLoading.value = true
@@ -70,19 +65,19 @@ async function savePassword() {
     const { error } = await client.changePassword({ currentPassword: currentPw.value, newPassword: newPw.value })
     if (error) pwError.value = error.message ?? 'Failed to change password'
     else {
-      pwSuccess.value = true
       currentPw.value = ''
       newPw.value = ''
       confirmPw.value = ''
+      toast.add({ title: 'Password changed', color: 'success', icon: 'i-lucide-check' })
     }
   } else {
     try {
       await $fetch('/api/user/set-password', { method: 'POST', body: { password: newPw.value } })
-      pwSuccess.value = true
       newPw.value = ''
       confirmPw.value = ''
       const { data } = await client.listAccounts()
       accounts.value = (data as Account[]) ?? []
+      toast.add({ title: 'Password set', color: 'success', icon: 'i-lucide-check' })
     } catch (e: any) {
       pwError.value = e?.data?.statusMessage ?? e?.data?.message ?? 'Failed to set password'
     }
@@ -134,6 +129,40 @@ async function handleSignOut() {
       </div>
     </UCard>
 
+    <!-- Linked accounts -->
+    <UCard>
+      <template #header>
+        <h2 class="font-semibold">Linked Accounts</h2>
+      </template>
+      <div v-if="!accountsLoaded" class="space-y-3">
+        <USkeleton v-for="i in 2" :key="i" class="h-12 rounded-lg" />
+      </div>
+      <div v-else class="divide-y divide-default -my-1">
+        <div
+          v-for="account in accounts"
+          :key="account.providerId"
+          class="flex items-center gap-3 py-3"
+        >
+          <div class="size-9 rounded-lg bg-elevated flex items-center justify-center shrink-0">
+            <UIcon
+              :name="account.providerId === 'discord' ? 'i-simple-icons-discord' : 'i-lucide-key-round'"
+              class="size-4"
+              :class="account.providerId === 'discord' ? 'text-[#5865F2]' : 'text-primary'"
+            />
+          </div>
+          <div class="min-w-0">
+            <p class="text-sm font-medium capitalize">
+              {{ account.providerId === 'credential' ? 'Email & Password' : account.providerId }}
+            </p>
+            <p class="text-xs text-muted truncate">
+              {{ account.providerId === 'credential' ? user?.email : `Connected as ${user?.name}` }}
+            </p>
+          </div>
+          <UBadge color="success" variant="subtle" label="Active" class="ml-auto shrink-0" />
+        </div>
+      </div>
+    </UCard>
+
     <!-- Name + Password side by side on large screens -->
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
       <!-- Name -->
@@ -149,7 +178,6 @@ async function handleSignOut() {
             <UInput v-model="name" placeholder="Your name" class="w-full" maxlength="31" />
           </UFormField>
           <UAlert v-if="nameError" color="error" variant="soft" :description="nameError" />
-          <UAlert v-if="nameSuccess" color="success" variant="soft" description="Name updated successfully" />
           <UButton type="submit" :loading="nameLoading" :disabled="!name.trim() || name.length > 30">
             Save
           </UButton>
@@ -177,12 +205,6 @@ async function handleSignOut() {
             <UInput v-model="confirmPw" type="password" placeholder="••••••••" class="w-full" />
           </UFormField>
           <UAlert v-if="pwError" color="error" variant="soft" :description="pwError" />
-          <UAlert
-            v-if="pwSuccess"
-            color="success"
-            variant="soft"
-            :description="hasCredentialAccount ? 'Password changed successfully' : 'Password set successfully'"
-          />
           <UButton type="submit" :loading="pwLoading">
             {{ hasCredentialAccount ? 'Change Password' : 'Set Password' }}
           </UButton>
@@ -201,7 +223,6 @@ async function handleSignOut() {
           <UInput v-model="email" type="email" placeholder="you@example.com" class="w-full" />
         </UFormField>
         <UAlert v-if="emailError" color="error" variant="soft" :description="emailError" />
-        <UAlert v-if="emailSuccess" color="success" variant="soft" description="Email updated successfully" />
         <UButton type="submit" :loading="emailLoading" :disabled="!email.trim()">
           Save
         </UButton>

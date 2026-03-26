@@ -125,7 +125,7 @@ onMounted(() => setTimeout(() => { mounted.value = true }, 50))
 </script>
 
 <template>
-  <div class="p-6 max-w-6xl mx-auto space-y-6">
+  <UContainer class="py-8 space-y-6">
     <!-- Header -->
     <div class="flex items-start justify-between gap-4">
       <div>
@@ -424,7 +424,7 @@ onMounted(() => setTimeout(() => { mounted.value = true }, 50))
         </div>
       </UScrollArea>
     </UCard>
-  </div>
+  </UContainer>
 </template>
 
 <style scoped>
