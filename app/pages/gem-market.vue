@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useIntervalFn, useElementSize } from '@vueuse/core'
 import { format, formatDistanceToNow } from 'date-fns'
-import { gemBuyGems, gemSellGems, GEM_MAX_GEMS_PER_TRADE, GEM_INITIAL_PRICE, gemStepPrice } from '#shared/utils/gamelogic/gem-market'
+import { gemBuyGems, gemSellGems, GEM_MAX_GEMS_PER_TRADE, GEM_INITIAL_PRICE, gemStepPrice, gemEffectiveGrowthRate } from '#shared/utils/gamelogic/gem-market'
 
 const { data, refresh } = await useFetch('/api/gem-market/state')
 const { user, fetchSession } = useAuth()
@@ -25,6 +25,12 @@ const livePrice = computed(() => {
 const changeFromBase = computed(() => {
   if (!livePrice.value) return null
   return ((livePrice.value - GEM_INITIAL_PRICE) / GEM_INITIAL_PRICE) * 100
+})
+
+// ---- Current growth rate ----
+const currentGrowthRate = computed(() => {
+  if (!livePrice.value) return 0
+  return gemEffectiveGrowthRate(livePrice.value) * 100
 })
 
 // ---- 24h change ----
@@ -231,6 +237,11 @@ function actionBg(action: string) {
           <div>
             <p class="text-xs text-muted font-medium uppercase tracking-wide">Live Price</p>
             <p class="text-xl font-bold text-cyan-400 mt-1 tabular-nums">${{ formatNumber(livePrice, false) }}</p>
+            <UTooltip :delay-duration="120" text="The higher the price is above base price the slower the growth is and the lower the faster">
+              <p class="text-xs text-muted mt-0.5 tabular-nums cursor-help inline-block border-b border-dashed border-muted/50">
+                +{{ currentGrowthRate.toFixed(3) }}%/hr
+              </p>
+            </UTooltip>
           </div>
           <div class="size-9 rounded-lg bg-cyan-500/15 flex items-center justify-center shrink-0">
             <UIcon name="i-lucide-gem" class="size-4 text-cyan-400" />
