@@ -9,8 +9,8 @@ export const RIG_UPGRADE_COST_INCREMENT = 300  // additional cost per current le
 export const VAULT_MAX_LEVEL = 100
 export const VAULT_BASE_CAP = 150
 export const VAULT_CAP_INCREMENT = 150
-export const VAULT_BASE_UPGRADE_COST = 400
-export const VAULT_UPGRADE_COST_INCREMENT = 100
+export const VAULT_BASE_UPGRADE_COST = 500
+export const VAULT_UPGRADE_COST_INCREMENT = 250
 
 // ─── Gem Factory ──────────────────────────────────────────────────────────────
 export const FACTORY_MAX_LEVEL = 10
