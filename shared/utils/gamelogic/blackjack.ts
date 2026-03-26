@@ -354,7 +354,9 @@ function resolveGame(s: BlackjackState): BlackjackResult {
   }
 
   s.phase = 'resolved'
-  s.message = 'Game Over. Place a new bet to play again.'
+  const anyWon = s.playerHands.some(h => h.status === 'won' || h.status === 'blackjack')
+  const allPush = s.playerHands.every(h => h.status === 'push')
+  s.message = (anyWon ? 'You Won.' : allPush ? 'Push.' : 'You Lost.') + ' Place a new bet to play again.'
 
   // Calculate total bet across all hands
   const totalBet = s.playerHands.reduce((sum, h) => sum + h.bet, 0)

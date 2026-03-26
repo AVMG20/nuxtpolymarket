@@ -439,7 +439,7 @@ function newGame() {
                         : 'bg-error/10 border-error/20 text-error')
                     : 'bg-elevated/50 border-default text-muted'"
                 >
-                  {{ isDealerAnimating ? 'Waiting for dealer...' : (showResults ? 'Game Over. Place a new bet to play again.' : gameState.message) }}
+                  {{ isDealerAnimating ? 'Waiting for dealer...' : gameState.message }}
                 </p>
               </div>
             </Transition>
