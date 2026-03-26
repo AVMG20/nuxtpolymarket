@@ -118,7 +118,7 @@ onUnmounted(() => {
               <input
                 v-model.number="target"
                 :disabled="isRolling"
-                type="number" min="1.01" max="10000" step="0.01"
+                type="number" min="1.10" max="10000" step="1"
                 class="w-full bg-elevated border border-default rounded-lg px-3 py-2 font-bold font-mono text-lg focus:outline-none focus:border-primary/60 [appearance:textfield] disabled:opacity-40 transition-colors"
                 @change="target = clampTarget(Number(target))"
               />
@@ -210,7 +210,7 @@ onUnmounted(() => {
               class="text-success font-black text-2xl md:text-3xl whitespace-nowrap mt-4"
               :class="!isRolling && lastResult?.won ? 'opacity-100 transition-opacity duration-200' : 'opacity-0'"
             >
-              +${{ formatNumber((lastResult?.payout ?? 0) - lastBet, false) }}
+              +${{ formatNumber((lastResult?.payout ?? 0), false) }}
             </div>
           </div>
 

@@ -236,7 +236,7 @@ onUnmounted(() => {
               class="text-success font-black text-2xl md:text-3xl whitespace-nowrap"
               :class="!isRolling && lastResult?.won ? 'opacity-100 transition-opacity duration-200' : 'opacity-0'"
             >
-              +${{ formatNumber((lastResult?.payout ?? 0) - lastBet, false) }}
+              +${{ formatNumber((lastResult?.payout ?? 0), false) }}
             </div>
           </div>
 
