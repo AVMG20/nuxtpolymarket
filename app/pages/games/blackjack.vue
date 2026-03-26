@@ -313,7 +313,7 @@ function newGame() {
       <div class="lg:col-span-2 flex flex-col gap-4">
 
         <!-- Table -->
-        <UCard :ui="{ body: 'relative overflow-hidden min-h-[460px] flex flex-col p-6' }" class="game-table">
+        <UCard :ui="{ body: 'relative overflow-hidden flex flex-col p-6' }" class="game-table">
           <!-- History pills -->
           <div class="flex gap-1.5 flex-wrap mb-3 min-h-[26px]">
             <TransitionGroup name="pill-slide">
@@ -326,39 +326,40 @@ function newGame() {
             </TransitionGroup>
           </div>
 
-          <!-- Loading state -->
-          <div v-if="!resumeChecked" class="flex-1 flex items-center justify-center">
-            <span class="text-muted animate-pulse">Loading...</span>
-          </div>
-
-          <!-- Betting state -->
-          <div v-else-if="!gameState" class="flex-1 flex flex-col items-center justify-center gap-6">
-            <div class="text-6xl select-none opacity-20 animate-bounce-short">🃏</div>
-            <p class="text-muted text-lg">Place your bet to start</p>
-          </div>
-
-          <!-- Active game -->
-          <div v-else class="flex-1 flex flex-col gap-6">
+          <!-- Game frame (betting placeholder + active game share the same layout) -->
+          <div class="flex-1 flex flex-col gap-6">
             <!-- Dealer hand -->
             <div>
               <div class="flex justify-center items-center gap-2 mb-3">
-                <span class="font-bold tabular-nums text-sm">{{ scoreDisplay(gameState.dealerHand.cards) }}</span>
+                <span class="font-bold tabular-nums text-sm" :class="gameState ? '' : 'opacity-30'">
+                  {{ gameState ? scoreDisplay(gameState.dealerHand.cards) : '?' }}
+                </span>
               </div>
               <div class="flex justify-center">
-                <TransitionGroup name="deal-pop">
-                  <div
-                    v-for="(card, ci) in gameState.dealerHand.cards"
-                    :key="`dealer-${ci}`"
-                    class="card-container transition-all duration-500"
-                    :style="{
-                      marginLeft: ci > 0 ? '-3rem' : '0',
-                      zIndex: ci,
-                      transitionDelay: ci === 0 ? '150ms' : (ci === 1 ? '450ms' : '0ms')
-                    }"
-                  >
-                    <BlackjackCard :card="card" />
+                <template v-if="gameState">
+                  <TransitionGroup name="deal-pop">
+                    <div
+                      v-for="(card, ci) in gameState.dealerHand.cards"
+                      :key="`dealer-${ci}`"
+                      class="card-container transition-all duration-500"
+                      :style="{
+                        marginLeft: ci > 0 ? '-3rem' : '0',
+                        zIndex: ci,
+                        transitionDelay: ci === 0 ? '150ms' : (ci === 1 ? '450ms' : '0ms')
+                      }"
+                    >
+                      <BlackjackCard :card="card" />
+                    </div>
+                  </TransitionGroup>
+                </template>
+                <template v-else>
+                  <div class="card-container opacity-20" style="z-index: 0">
+                    <BlackjackCard :card="{ rank: 'A', suit: 'spades', isHidden: true }" />
                   </div>
-                </TransitionGroup>
+                  <div class="card-container opacity-20" style="z-index: 1; margin-left: -3rem">
+                    <BlackjackCard :card="{ rank: 'A', suit: 'spades', isHidden: true }" />
+                  </div>
+                </template>
               </div>
             </div>
 
@@ -366,7 +367,7 @@ function newGame() {
             <div class="table-divider relative flex items-center gap-3 my-2 h-10">
               <div class="flex-1 h-px bg-gradient-to-r from-transparent via-white/10 to-transparent" />
 
-                <div v-if="showResults" class="flex items-center gap-2">
+                <div v-if="showResults && gameState" class="flex items-center gap-2">
                   <template v-for="hand in gameState.playerHands" :key="hand.id">
                     <div v-if="hand.status === 'won'" class="text-success font-bold flex items-center gap-1 text-base bg-success/15 px-3 py-1 rounded-full border border-success/20">
                       <UIcon name="i-lucide-coins" class="size-4" />
@@ -397,49 +398,70 @@ function newGame() {
             </div>
 
             <!-- Player hands -->
-            <div v-for="(hand, hi) in gameState.playerHands" :key="hand.id" class="player-hand-area transition-all duration-300" :class="{ 'player-hand-active': hi === gameState.currentHandIndex && phase === 'playing' }">
-              <div class="flex justify-center items-center gap-2 mb-3">
-                <span v-if="hi === gameState.currentHandIndex && phase === 'playing'" class="w-2 h-2 rounded-full bg-primary animate-pulse" />
-                <span class="font-bold tabular-nums text-sm">{{ scoreDisplay(hand.cards) }}</span>
+            <template v-if="gameState">
+              <div v-for="(hand, hi) in gameState.playerHands" :key="hand.id" class="player-hand-area transition-all duration-300" :class="{ 'player-hand-active': hi === gameState.currentHandIndex && phase === 'playing' }">
+                <div class="flex justify-center items-center gap-2 mb-3">
+                  <span v-if="hi === gameState.currentHandIndex && phase === 'playing'" class="w-2 h-2 rounded-full bg-primary animate-pulse" />
+                  <span class="font-bold tabular-nums text-sm">{{ scoreDisplay(hand.cards) }}</span>
 
-                <!-- Bet chip -->
-                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold bg-warning/15 text-warning border border-warning/20">
+                  <!-- Bet chip -->
+                  <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold bg-warning/15 text-warning border border-warning/20">
+                    <UIcon name="i-lucide-coins" class="size-3" />
+                    {{ hand.bet }}
+                  </span>
+                </div>
+                <div class="flex justify-center mt-2">
+                  <TransitionGroup name="deal-pop">
+                    <div
+                      v-for="(card, ci) in hand.cards"
+                      :key="`hand-${hi}-${ci}-${card.rank}-${card.suit}`"
+                      class="card-container transition-all duration-500"
+                      :style="{
+                        marginLeft: ci > 0 ? '-3rem' : '0',
+                        zIndex: ci,
+                        transitionDelay: ci === 0 ? '0ms' : (ci === 1 ? '300ms' : '0ms')
+                      }"
+                    >
+                      <BlackjackCard :card="card" />
+                    </div>
+                  </TransitionGroup>
+                </div>
+              </div>
+            </template>
+            <!-- Placeholder player hand when no game -->
+            <div v-else class="player-hand-area">
+              <div class="flex justify-center items-center gap-2 mb-3">
+                <span class="font-bold tabular-nums text-sm opacity-30">?</span>
+                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold bg-warning/10 text-warning/30 border border-warning/10">
                   <UIcon name="i-lucide-coins" class="size-3" />
-                  {{ hand.bet }}
+                  {{ bet }}
                 </span>
               </div>
               <div class="flex justify-center mt-2">
-                <TransitionGroup name="deal-pop">
-                  <div
-                    v-for="(card, ci) in hand.cards"
-                    :key="`hand-${hi}-${ci}-${card.rank}-${card.suit}`"
-                    class="card-container transition-all duration-500"
-                    :style="{
-                      marginLeft: ci > 0 ? '-3rem' : '0',
-                      zIndex: ci,
-                      transitionDelay: ci === 0 ? '0ms' : (ci === 1 ? '300ms' : '0ms')
-                    }"
-                  >
-                    <BlackjackCard :card="card" />
-                  </div>
-                </TransitionGroup>
+                <div class="card-container opacity-20" style="z-index: 0">
+                  <BlackjackCard :card="{ rank: 'A', suit: 'spades', isHidden: true }" />
+                </div>
+                <div class="card-container opacity-20" style="z-index: 1; margin-left: -3rem">
+                  <BlackjackCard :card="{ rank: 'A', suit: 'spades', isHidden: true }" />
+                </div>
               </div>
-
             </div>
 
             <!-- Message -->
             <Transition name="fade" mode="out-in">
-              <div :key="isDealerAnimating ? 'dealer' : (showResults ? 'results' : gameState.message)" class="text-center mt-auto pt-4">
+              <div :key="gameState ? (isDealerAnimating ? 'dealer' : (showResults ? 'results' : gameState.message)) : 'idle'" class="text-center mt-auto pt-4">
                 <p class="font-medium text-sm inline-block px-5 py-2.5 rounded-full border transition-all duration-300"
-                  :class="showResults
-                    ? (gameState.playerHands.some(h => h.status === 'won' || h.status === 'blackjack')
-                      ? 'bg-success/10 border-success/20 text-success'
-                      : gameState.playerHands.every(h => h.status === 'push')
-                        ? 'bg-warning/10 border-warning/20 text-warning'
-                        : 'bg-error/10 border-error/20 text-error')
-                    : 'bg-elevated/50 border-default text-muted'"
+                  :class="!gameState
+                    ? 'bg-elevated/50 border-default text-muted'
+                    : showResults
+                      ? (gameState.playerHands.some(h => h.status === 'won' || h.status === 'blackjack')
+                        ? 'bg-success/10 border-success/20 text-success'
+                        : gameState.playerHands.every(h => h.status === 'push')
+                          ? 'bg-warning/10 border-warning/20 text-warning'
+                          : 'bg-error/10 border-error/20 text-error')
+                      : 'bg-elevated/50 border-default text-muted'"
                 >
-                  {{ isDealerAnimating ? 'Waiting for dealer...' : gameState.message }}
+                  {{ !gameState ? 'Place your bet to start' : isDealerAnimating ? 'Waiting for dealer...' : gameState.message }}
                 </p>
               </div>
             </Transition>
