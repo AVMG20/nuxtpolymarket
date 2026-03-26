@@ -6,14 +6,24 @@ const { data: state, refresh } = await useFetch('/api/miner/state')
 const toast = useToast()
 const buying = ref<string | null>(null)
 
-const shopItems = [
+//TODO: this should come from _config.ts, and this miner config should become a shared util to be shared between client and server.
+const instantFillCost = computed(() => {
+  if (!state.value) return 1
+  const level = state.value.vaultLevel
+  const cap = 150 + (level - 1) * 150
+  const t = (level - 1) / (100 - 1)
+  const ratio = 300 + t * (2000 - 300)
+  return Math.max(1, Math.floor(cap / ratio))
+})
+
+const shopItems = computed(() => [
   {
     id: 'instant-fill',
     label: 'Instant Fill',
     description: 'Max out your Money Miner storage instantly.',
     icon: 'i-lucide-zap',
     color: 'secondary' as const,
-    cost: 5,
+    cost: instantFillCost.value,
     endpoint: '/api/miner/shop/instant-fill',
   },
   {
@@ -43,7 +53,7 @@ const shopItems = [
     cost: 1,
     endpoint: '/api/miner/shop/quick-cash',
   },
-]
+])
 
 function isItemDisabled(item: typeof shopItems[number]) {
   if (gems.value < item.cost) return true

@@ -22,7 +22,9 @@ export const FACTORY_BASE_UPGRADE_COST = 1000
 export const FACTORY_UPGRADE_COST_INCREMENT = 1000
 
 // ─── Gem Shop ─────────────────────────────────────────────────────────────────
-export const SHOP_INSTANT_FILL_COST = 5        // gems — fills vault to cap
+export const SHOP_INSTANT_FILL_MIN_RATIO = 300   // $/gem at level 1
+export const SHOP_INSTANT_FILL_MAX_RATIO = 2000  // $/gem at max vault
+export const SHOP_INSTANT_FILL_MIN_COST = 1
 export const SHOP_DOUBLE_WIN_COST = 5          // gems — 2x next win (capped at 1500, not yet implemented)
 export const SHOP_EXTRA_PLAY_COST = 1          // gems — extra play
 export const SHOP_QUICK_CASH_COST = 1          // gems
@@ -66,6 +68,12 @@ export function factoryCap(level: number) {
 
 export function factoryUpgradeCost(level: number) {
   return FACTORY_BASE_UPGRADE_COST + level * FACTORY_UPGRADE_COST_INCREMENT
+}
+
+export function instantFillCost(vaultLevel: number) {
+  const t = (vaultLevel - 1) / (VAULT_MAX_LEVEL - 1) // 0 at L1, 1 at L100
+  const ratio = SHOP_INSTANT_FILL_MIN_RATIO + t * (SHOP_INSTANT_FILL_MAX_RATIO - SHOP_INSTANT_FILL_MIN_RATIO)
+  return Math.max(SHOP_INSTANT_FILL_MIN_COST, Math.floor(vaultCap(vaultLevel) / ratio))
 }
 
 /** ms elapsed → fractional days */

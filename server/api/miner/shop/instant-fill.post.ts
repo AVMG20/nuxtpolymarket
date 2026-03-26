@@ -2,7 +2,7 @@ import { eq, sql } from 'drizzle-orm'
 import { db } from '#server/database'
 import { minerState, user } from '#server/database/schema'
 import { auth } from '#server/utils/auth'
-import { vaultCap, rigIncome, SHOP_INSTANT_FILL_COST } from '../_config'
+import { vaultCap, rigIncome, instantFillCost } from '../_config'
 
 export default defineEventHandler(async (event) => {
   const session = await auth.api.getSession({ headers: event.headers })
@@ -16,8 +16,12 @@ export default defineEventHandler(async (event) => {
   ])
 
   if (!s) throw createError({ statusCode: 404, statusMessage: 'Miner not initialized' })
-  if ((currentUser?.gems ?? 0) < SHOP_INSTANT_FILL_COST) {
-    throw createError({ statusCode: 400, statusMessage: `Need ${SHOP_INSTANT_FILL_COST} gems` })
+
+  // Calculate gem cost
+  const cost = instantFillCost(s.vaultLevel)
+
+  if ((currentUser?.gems ?? 0) < cost) {
+    throw createError({ statusCode: 400, statusMessage: `Need ${cost} gems` })
   }
 
   const cap = vaultCap(s.vaultLevel)
@@ -25,8 +29,8 @@ export default defineEventHandler(async (event) => {
   // Set lastCollectedAt far enough in the past that computePending returns cap
   const lastCollectedAt = new Date(Date.now() - (cap / income) * 86_400_000)
 
-  await db.update(user).set({ gems: sql`${user.gems} - ${SHOP_INSTANT_FILL_COST}` }).where(eq(user.id, userId))
+  await db.update(user).set({ gems: sql`${user.gems} - ${cost}` }).where(eq(user.id, userId))
   await db.update(minerState).set({ lastCollectedAt }).where(eq(minerState.userId, userId))
 
-  return { gemsSpent: SHOP_INSTANT_FILL_COST }
+  return { gemsSpent: cost }
 })
