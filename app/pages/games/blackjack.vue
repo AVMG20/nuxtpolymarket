@@ -452,10 +452,11 @@ function newGame() {
             </div>
 
             <!-- Message -->
-            <Transition name="fade" mode="out-in">
-              <div :key="gameState ? (isDealerAnimating ? 'dealer' : (showResults ? 'results' : gameState.message)) : 'idle'" class="text-center mt-auto pt-4">
-                <p class="font-medium text-sm inline-block px-5 py-2.5 rounded-full border transition-all duration-300"
-                  :class="!gameState
+            <div>
+              <Transition name="fade" mode="out-in">
+                <div :key="gameState ? (isDealerAnimating ? 'dealer' : (showResults ? 'results' : gameState.message)) : 'idle'" class="text-center mt-auto pt-4">
+                  <p class="font-medium text-sm inline-block px-5 py-2.5 rounded-full border transition-all duration-300"
+                     :class="!gameState
                     ? 'bg-elevated/50 border-default text-muted'
                     : showResults
                       ? (gameState.playerHands.some(h => h.status === 'won' || h.status === 'blackjack')
@@ -464,11 +465,12 @@ function newGame() {
                           ? 'bg-warning/10 border-warning/20 text-warning'
                           : 'bg-error/10 border-error/20 text-error')
                       : 'bg-elevated/50 border-default text-muted'"
-                >
-                  {{ !gameState ? 'Place your bet to start' : isDealerAnimating ? 'Waiting for dealer...' : gameState.message }}
-                </p>
-              </div>
-            </Transition>
+                  >
+                    {{ !gameState ? 'Place your bet to start' : isDealerAnimating ? 'Waiting for dealer...' : gameState.message }}
+                  </p>
+                </div>
+              </Transition>
+            </div>
           </div>
         </UCard>
 
