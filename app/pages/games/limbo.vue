@@ -20,7 +20,7 @@ const totalPayout = computed(() => bet.value * target.value)
 const displayResult = computed(() => animResult.value ?? lastResult.value?.result ?? null)
 
 function clampTarget(v: number) {
-  return Math.round(Math.min(10000, Math.max(1.01, v)) * 100) / 100
+  return Math.round(Math.min(1000000, Math.max(1.01, v)) * 100) / 100
 }
 
 let animTimer: ReturnType<typeof setTimeout> | null = null
@@ -118,7 +118,7 @@ onUnmounted(() => {
               <input
                 v-model.number="target"
                 :disabled="isRolling"
-                type="number" min="1.10" max="10000" step="1"
+                type="number" min="1.10" max="1000000" step="1"
                 class="w-full bg-elevated border border-default rounded-lg px-3 py-2 font-bold font-mono text-lg focus:outline-none focus:border-primary/60 [appearance:textfield] disabled:opacity-40 transition-colors"
                 @change="target = clampTarget(Number(target))"
               />
@@ -126,14 +126,14 @@ onUnmounted(() => {
             </div>
             <div class="grid grid-cols-5 gap-1.5 mt-2">
               <UButton
-                v-for="t in [1.5, 2, 3, 5, 10, 100, 500, 1000, 5000, 10000]"
+                v-for="t in [1.5, 2, 3, 5, 10, 50, 500, 5000, 50000, 500000, 100, 1000, 10000, 100000, 1000000]"
                 :key="t"
                 variant="ghost" color="neutral" size="xs"
                 :disabled="isRolling"
                 class="justify-center font-mono text-xs"
                 :class="target === t ? 'bg-primary/20 text-primary hover:bg-primary/30' : 'bg-elevated hover:bg-default'"
                 @click="target = t"
-              >{{ t >= 1000 ? (t/1000) + 'k' : t }}×</UButton>
+              >{{ t >= 1000000 ? '1M' : t >= 1000 ? (t/1000) + 'k' : t }}×</UButton>
             </div>
           </div>
 
@@ -141,7 +141,7 @@ onUnmounted(() => {
           <div class="rounded-lg bg-elevated border border-default p-3 space-y-2">
             <div class="flex items-center justify-between text-sm">
               <span class="text-muted">Win Chance</span>
-              <span class="font-bold tabular-nums">{{ winChance.toFixed(2) }}%</span>
+              <span class="font-bold tabular-nums">{{ winChance.toFixed(4) }}%</span>
             </div>
             <USeparator />
             <div class="flex items-center justify-between text-sm">

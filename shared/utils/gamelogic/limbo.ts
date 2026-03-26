@@ -10,8 +10,8 @@ export interface LimboResult {
 export function playLimbo(bet: number, options?: Record<string, unknown>): LimboResult {
   const target = Number(options?.target ?? 2)
 
-  if (!Number.isFinite(target) || target < 1.10 || target > 10000) {
-    throw createError({ statusCode: 400, message: 'Target must be between 1.01 and 10000' })
+  if (!Number.isFinite(target) || target < 1.10 || target > 1_000_000) {
+    throw createError({ statusCode: 400, message: 'Target must be between 1.01 and 1000000' })
   }
 
   const arr = new Uint32Array(1)
