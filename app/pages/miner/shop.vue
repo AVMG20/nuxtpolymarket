@@ -90,8 +90,8 @@ async function purchase(item: typeof shopItems[number]) {
       </div>
       <div class="flex items-center gap-2 px-4 py-2 rounded-lg bg-elevated border border-default">
         <UIcon name="i-lucide-gem" class="size-5 text-cyan-400" />
-        <UTooltip :text="formatNumber(gems, false)">
-          <span class="text-xl font-bold">{{ formatNumber(gems) }}</span>
+        <UTooltip :text="formatNumber(gems, false, 0)">
+          <span class="text-xl font-bold">{{ formatNumber(gems, true, 0) }}</span>
         </UTooltip>
         <span class="text-sm text-muted">Gems</span>
       </div>
