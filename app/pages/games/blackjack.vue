@@ -17,6 +17,7 @@ const history = ref<{ won: boolean; payout: number; bet: number }[]>([])
 const showHint = useCookie<boolean>('bj-show-hint', { default: () => false })
 const resumeChecked = ref(false)
 const showResults = ref(false)
+const isDealerAnimating = ref(false)
 
 const phase = computed(() => gameState.value?.phase ?? 'betting')
 const currentHand = computed(() => {
@@ -127,6 +128,7 @@ async function startGame() {
       body: { bet: bet.value },
     }) as { clientState: BlackjackClientState; token: string | null; balance: number; finished: boolean }
 
+    if (data.finished) isDealerAnimating.value = true
     gameState.value = data.clientState
     gameToken.value = data.token
     balance.value = data.balance
@@ -160,6 +162,7 @@ async function doAction(action: BlackjackAction) {
 
     if (data.finished) {
       // Show player's resolved hand but keep dealer hole card hidden during the pause
+      isDealerAnimating.value = true
       gameState.value = { ...data.clientState, dealerHand: gameState.value!.dealerHand }
       isFetching.value = false
       await sleep(800)
@@ -203,6 +206,7 @@ async function animateDealerTurn(finalState: BlackjackClientState) {
   }
 
   gameState.value = finalState
+  isDealerAnimating.value = false
   finishGame()
 }
 
@@ -222,6 +226,7 @@ function newGame() {
   gameToken.value = null
   isPlaying.value = false
   showResults.value = false
+  isDealerAnimating.value = false
 }
 </script>
 
@@ -283,7 +288,7 @@ function newGame() {
             <div v-for="(hand, i) in gameState.playerHands" :key="hand.id" class="flex items-center justify-between text-sm">
               <span class="text-muted">Hand {{ i + 1 }} <span v-if="i === gameState.currentHandIndex && phase === 'playing'" class="text-primary">●</span></span>
               <span class="font-bold tabular-nums">{{ scoreDisplay(hand.cards) }}
-                <span v-if="hand.status !== 'playing' && hand.status !== 'stood'" :class="statusColor(hand.status)" class="text-xs ml-1">{{ statusLabel(hand.status) }}</span>
+                <span v-if="hand.status !== 'playing' && hand.status !== 'stood' && (showResults || !['won', 'lost', 'push'].includes(hand.status))" :class="statusColor(hand.status)" class="text-xs ml-1">{{ statusLabel(hand.status) }}</span>
               </span>
             </div>
           </div>
@@ -424,7 +429,7 @@ function newGame() {
 
             <!-- Message -->
             <Transition name="fade" mode="out-in">
-              <div :key="gameState.message" class="text-center mt-auto pt-4">
+              <div :key="isDealerAnimating ? 'dealer' : (showResults ? 'results' : gameState.message)" class="text-center mt-auto pt-4">
                 <p class="font-medium text-sm inline-block px-5 py-2.5 rounded-full border transition-all duration-300"
                   :class="showResults
                     ? (gameState.playerHands.some(h => h.status === 'won' || h.status === 'blackjack')
@@ -434,7 +439,7 @@ function newGame() {
                         : 'bg-error/10 border-error/20 text-error')
                     : 'bg-elevated/50 border-default text-muted'"
                 >
-                  {{ gameState.message }}
+                  {{ isDealerAnimating ? 'Waiting for dealer...' : (showResults ? 'Game Over. Place a new bet to play again.' : gameState.message) }}
                 </p>
               </div>
             </Transition>
