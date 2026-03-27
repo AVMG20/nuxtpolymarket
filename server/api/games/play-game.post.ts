@@ -1,5 +1,5 @@
 import { auth } from '#server/utils/auth'
-import { debit, credit, getBalance } from '#server/utils/balance'
+import { debit, credit, getBalance, accumulateRake } from '#server/utils/balance'
 import { GAMES_REGISTRY, isValidGame } from '#shared/utils/games-registry'
 
 export default defineEventHandler(async (event) => {
@@ -37,6 +37,8 @@ export default defineEventHandler(async (event) => {
   } else if (net < 0) {
     await debit(session.user.id, Math.abs(net).toFixed(4), game)
   }
+
+  await accumulateRake(session.user.id, bet)
 
   return {
     gameData,

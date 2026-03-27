@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm'
 import { auth } from '#server/utils/auth'
-import { debit, credit, getBalance } from '#server/utils/balance'
+import { debit, credit, getBalance, accumulateRake } from '#server/utils/balance'
 import { signGameState, verifyGameState } from '#server/utils/game-token'
 import { performAction, toClientState } from '#shared/utils/gamelogic/blackjack'
 import type { BlackjackState, BlackjackAction } from '#shared/utils/gamelogic/blackjack'
@@ -39,6 +39,7 @@ export default defineEventHandler(async (event) => {
       throw createError({ statusCode: 400, statusMessage: 'Insufficient balance to double down' })
     }
     await debit(session.user.id, hand.bet.toFixed(4), 'blackjack')
+    await accumulateRake(session.user.id, hand.bet)
   }
 
   if (action === 'split' && hand) {
@@ -47,6 +48,7 @@ export default defineEventHandler(async (event) => {
       throw createError({ statusCode: 400, statusMessage: 'Insufficient balance to split' })
     }
     await debit(session.user.id, hand.bet.toFixed(4), 'blackjack')
+    await accumulateRake(session.user.id, hand.bet)
   }
 
   if (action === 'insurance' && hand) {
@@ -56,6 +58,7 @@ export default defineEventHandler(async (event) => {
       throw createError({ statusCode: 400, statusMessage: 'Insufficient balance for insurance' })
     }
     await debit(session.user.id, cost.toFixed(4), 'blackjack')
+    await accumulateRake(session.user.id, cost)
   }
 
   const result = performAction(payload.state, action, payload.bet)
