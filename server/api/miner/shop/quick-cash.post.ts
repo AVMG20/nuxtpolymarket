@@ -2,7 +2,7 @@ import { eq, sql } from 'drizzle-orm'
 import { db } from '#server/database'
 import { user } from '#server/database/schema'
 import { auth } from '#server/utils/auth'
-import { SHOP_QUICK_CASH_COST, SHOP_QUICK_CASH_AMOUNT } from '../_config'
+import { SHOP_QUICK_CASH_COST, SHOP_QUICK_CASH_AMOUNT } from '~/shared/utils/miner-config'
 import { credit } from '#server/utils/balance'
 
 export default defineEventHandler(async (event) => {

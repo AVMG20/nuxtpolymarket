@@ -2,7 +2,7 @@ import { eq, sql } from 'drizzle-orm'
 import { db } from '#server/database'
 import { minerState, user } from '#server/database/schema'
 import { auth } from '#server/utils/auth'
-import { SHOP_EXTRA_PLAY_COST } from '../_config'
+import { SHOP_EXTRA_PLAY_COST } from '~/shared/utils/miner-config'
 
 export default defineEventHandler(async (event) => {
   const session = await auth.api.getSession({ headers: event.headers })

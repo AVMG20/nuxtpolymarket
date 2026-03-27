@@ -8,7 +8,8 @@ import {
   RIG_MAX_LEVEL, VAULT_MAX_LEVEL, FACTORY_MAX_LEVEL,
   minesPurchaseCost, MINES_MAX_COUNT,
   minesUpgradeCost, MINES_UPGRADE_MAX_LEVEL, minesValueMultiplier,
-} from './_config'
+  instantFillCost, SHOP_QUICK_CASH_AMOUNT,
+} from '~/shared/utils/miner-config'
 
 export default defineEventHandler(async (event) => {
   const session = await auth.api.getSession({ headers: event.headers })
@@ -58,6 +59,8 @@ export default defineEventHandler(async (event) => {
     minesMaxLevel: MINES_UPGRADE_MAX_LEVEL,
     minesNextUpgradeCost: minesUpgradeCost(s.minesLevel),
     minesValueMultiplier: minesValueMultiplier(s.minesLevel),
+    instantFillCost: instantFillCost(s.vaultLevel),
+    quickCashAmount: SHOP_QUICK_CASH_AMOUNT,
     minesPlaysRemaining: (() => {
       const today = new Date().toISOString().slice(0, 10)
       const used = s.minesPlaysDate === today ? s.minesTodayPlays : 0
