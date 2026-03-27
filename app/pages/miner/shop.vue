@@ -7,8 +7,9 @@ const toast = useToast()
 const buying = ref<string | null>(null)
 
 const instantFillValuePerGem = computed(() => {
-  if (!state.value?.instantFillCost) return 0
-  return Math.floor(state.value.cap / state.value.instantFillCost)
+  if (!state.value) return 0
+  const cost = instantFillCost(state.value.vaultLevel)
+  return Math.floor(state.value.cap / cost)
 })
 
 const shopItems = computed(() => [
@@ -19,7 +20,7 @@ const shopItems = computed(() => [
     valuePerGem: instantFillValuePerGem.value,
     icon: 'i-lucide-zap',
     color: 'secondary' as const,
-    cost: state.value?.instantFillCost ?? 1,
+    cost: state.value ? instantFillCost(state.value.vaultLevel) : 1,
     endpoint: '/api/miner/shop/instant-fill',
   },
   {
@@ -35,8 +36,8 @@ const shopItems = computed(() => [
   {
     id: 'quick-cash',
     label: 'Quick Cash',
-    description: `Convert 1 Gem into ${formatNumber(state.value?.quickCashAmount ?? 200, false)},- instantly.`,
-    valuePerGem: state.value?.quickCashAmount ?? 200,
+    description: `Convert 1 Gem into ${formatNumber(SHOP_QUICK_CASH_AMOUNT, false)},- instantly.`,
+    valuePerGem: SHOP_QUICK_CASH_AMOUNT,
     icon: 'i-lucide-coins',
     color: 'primary' as const,
     cost: 1,
