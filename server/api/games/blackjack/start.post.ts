@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm'
 import { auth } from '#server/utils/auth'
-import { debit, credit, getBalance } from '#server/utils/balance'
+import { debit, credit, getBalance, accumulateRake } from '#server/utils/balance'
 import { signGameState } from '#server/utils/game-token'
 import { startGame, toClientState } from '#shared/utils/gamelogic/blackjack'
 import { db } from '#server/database'
@@ -32,6 +32,7 @@ export default defineEventHandler(async (event) => {
 
   // Debit the bet upfront
   await debit(session.user.id, bet.toFixed(4), 'blackjack')
+  await accumulateRake(session.user.id, bet)
 
   const result = startGame(bet)
 

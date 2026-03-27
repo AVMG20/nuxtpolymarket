@@ -17,20 +17,19 @@ export async function debit(userId: string, amount: string, category?: string) {
     const current = await tx.query.user.findFirst({ where: eq(user.id, userId), columns: { balance: true } })
     if (!current || parseFloat(current.balance) < parseFloat(amount)) throw createError({ statusCode: 400, statusMessage: 'Insufficient balance' })
 
-      //calc the rake back
-    const rake = (parseFloat(amount) * RAKEBACK_RATE).toFixed(4)
-
-      // insert transaction
     await tx.insert(transactions).values({ userId, amount, type: 'debit', category })
 
-      //update user balance and rake
     await tx.update(user)
-      .set({
-        balance: sql`${user.balance} - ${amount}::numeric`,
-        rake: sql`${user.rake} + ${rake}::numeric`,
-      })
+      .set({ balance: sql`${user.balance} - ${amount}::numeric` })
       .where(eq(user.id, userId))
   })
+}
+
+export async function accumulateRake(userId: string, wagerAmount: number) {
+  const rake = (wagerAmount * RAKEBACK_RATE).toFixed(4)
+  await db.update(user)
+    .set({ rake: sql`${user.rake} + ${rake}::numeric` })
+    .where(eq(user.id, userId))
 }
 
 export async function getBalance(userId: string) {
