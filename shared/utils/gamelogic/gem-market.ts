@@ -45,7 +45,7 @@ function clampGemPrice(p: number): number {
  * Capped at ±GEM_REVERSION_CAP so it never explodes.
  */
 export function gemEffectiveGrowthRate(currentPrice: number): number {
-    const mult = Math.sqrt(GEM_INITIAL_PRICE / currentPrice)
+    const mult = Math.pow(GEM_INITIAL_PRICE / currentPrice, 1.5)
     const capped = Math.min(Math.max(mult, 1 / GEM_REVERSION_CAP), GEM_REVERSION_CAP)
     return GEM_HOURLY_GROWTH_RATE * capped
 }
