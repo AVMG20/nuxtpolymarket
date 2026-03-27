@@ -15,7 +15,7 @@ export default defineEventHandler(async (event) => {
   const rows = await db.select().from(blackjackSessions).where(eq(blackjackSessions.userId, session.user.id)).limit(1)
 
   if (rows.length === 0) {
-    return { active: false, clientState: null, token: null, balance: parseFloat(await getBalance(session.user.id)) }
+    return { active: false, clientState: null, balance: parseFloat(await getBalance(session.user.id)) }
   }
 
   const row = rows[0]!
@@ -24,7 +24,6 @@ export default defineEventHandler(async (event) => {
   return {
     active: true,
     clientState: toClientState(state),
-    token: row.token,
     balance: parseFloat(await getBalance(session.user.id)),
   }
 })

@@ -128,7 +128,6 @@ export const blackjackSessions = pgTable('blackjack_sessions', {
   userId: text('user_id').notNull().unique().references(() => user.id, { onDelete: 'cascade' }),
   state: jsonb('state').notNull(),
   bet: numeric('bet', { precision: 19, scale: 4 }).notNull(),
-  token: text('token').notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().$onUpdate(() => new Date()).notNull(),
 })

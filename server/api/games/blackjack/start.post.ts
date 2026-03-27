@@ -1,7 +1,6 @@
 import { eq } from 'drizzle-orm'
 import { auth } from '#server/utils/auth'
 import { debit, credit, getBalance, accumulateRake } from '#server/utils/balance'
-import { signGameState } from '#server/utils/game-token'
 import { startGame, toClientState } from '#shared/utils/gamelogic/blackjack'
 import { db } from '#server/database'
 import { blackjackSessions } from '#server/database/schema'
@@ -44,22 +43,19 @@ export default defineEventHandler(async (event) => {
     await credit(session.user.id, bet.toFixed(4), 'blackjack')
   }
 
-  const newBalance = parseFloat(await getBalance(session.user.id))
-  const token = result.finished ? null : signGameState({ state: result.state, bet, userId: session.user.id })
-
   // Persist active game to DB
-  if (!result.finished && token) {
+  if (!result.finished) {
     await db.insert(blackjackSessions).values({
       userId: session.user.id,
       state: result.state,
       bet: bet.toFixed(4),
-      token,
     })
   }
 
+  const newBalance = parseFloat(await getBalance(session.user.id))
+
   return {
     clientState: toClientState(result.state),
-    token,
     balance: newBalance,
     finished: result.finished,
   }
