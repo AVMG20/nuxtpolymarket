@@ -2,7 +2,7 @@ import { eq, sql } from 'drizzle-orm'
 import { db } from '#server/database'
 import { minerState, user } from '#server/database/schema'
 import { auth } from '#server/utils/auth'
-import { factoryRate, factoryCap, factoryUpgradeCost, computePending, FACTORY_MAX_LEVEL } from '~/shared/utils/miner-config'
+import { factoryRate, factoryCap, factoryUpgradeCost, computePending, FACTORY_MAX_LEVEL } from '#shared/utils/miner-config'
 import { debit, getBalance } from '#server/utils/balance'
 
 export default defineEventHandler(async (event) => {

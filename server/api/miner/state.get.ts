@@ -8,7 +8,7 @@ import {
   RIG_MAX_LEVEL, VAULT_MAX_LEVEL, FACTORY_MAX_LEVEL,
   minesPurchaseCost, MINES_MAX_COUNT,
   minesUpgradeCost, MINES_UPGRADE_MAX_LEVEL, minesValueMultiplier,
-} from '~/shared/utils/miner-config'
+} from '#shared/utils/miner-config'
 
 export default defineEventHandler(async (event) => {
   const session = await auth.api.getSession({ headers: event.headers })
