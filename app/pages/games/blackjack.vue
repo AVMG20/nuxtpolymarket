@@ -19,6 +19,7 @@ const showHint = useCookie<boolean>('bj-show-hint', { default: () => false })
 const resumeChecked = ref(false)
 const showResults = ref(false)
 const isDealerAnimating = ref(false)
+const pendingBalance = ref<number | null>(null)
 
 const phase = computed(() => gameState.value?.phase ?? 'betting')
 const currentHand = computed(() => {
@@ -129,11 +130,15 @@ async function startGame() {
       body: { bet: bet.value },
     }) as { clientState: BlackjackClientState; token: string | null; balance: number; finished: boolean }
 
-    if (data.finished) isDealerAnimating.value = true
+    if (data.finished) {
+      isDealerAnimating.value = true
+      pendingBalance.value = data.balance
+    } else {
+      balance.value = data.balance
+      setBalance(data.balance)
+    }
     gameState.value = data.clientState
     gameToken.value = data.token
-    balance.value = data.balance
-    setBalance(data.balance)
 
     if (data.finished) {
       await animateDealerTurn(data.clientState)
@@ -158,17 +163,18 @@ async function doAction(action: BlackjackAction) {
     }) as { clientState: BlackjackClientState; token: string | null; balance: number; finished: boolean }
 
     gameToken.value = data.token
-    balance.value = data.balance
-    setBalance(data.balance)
 
     if (data.finished) {
-      // Show player's resolved hand but keep dealer hole card hidden during the pause
+      // Defer balance update until animations complete to avoid spoiling the result
+      pendingBalance.value = data.balance
       isDealerAnimating.value = true
       gameState.value = { ...data.clientState, dealerHand: gameState.value!.dealerHand }
       isFetching.value = false
       await sleep(800)
       await animateDealerTurn(data.clientState)
     } else {
+      balance.value = data.balance
+      setBalance(data.balance)
       gameState.value = data.clientState
     }
   } catch (e: unknown) {
@@ -213,6 +219,11 @@ async function animateDealerTurn(finalState: BlackjackClientState) {
 
 function finishGame() {
   if (!gameState.value) return
+  if (pendingBalance.value !== null) {
+    balance.value = pendingBalance.value
+    setBalance(pendingBalance.value)
+    pendingBalance.value = null
+  }
   const gs = gameState.value
   const totalBet = gs.playerHands.reduce((s, h) => s + h.bet, 0)
   const won = gs.playerHands.some(h => h.status === 'won' || h.status === 'blackjack')
