@@ -93,6 +93,8 @@ function statusColor(status: string): string {
 
 // ── Helpers ──
 
+const DEALER_CARD_DELAY = 800
+
 const sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms))
 
 function applyBalance(bal: number) {
@@ -116,7 +118,7 @@ async function handleGameResponse(data: GameResponse, opts?: { preserveDealerHan
     // Optionally keep the current dealer hand (hole card hidden) during the pre-animation pause
     if (opts?.preserveDealerHand && gameState.value) {
       gameState.value = { ...data.clientState, dealerHand: gameState.value.dealerHand }
-      await sleep(800)
+      await sleep(DEALER_CARD_DELAY)
     }
 
     await animateDealerTurn(data.clientState)
@@ -195,7 +197,7 @@ async function animateDealerTurn(finalState: BlackjackClientState) {
     ...finalState,
     dealerHand: { ...finalState.dealerHand, cards: finalCards.slice(0, 2) },
   }
-  await sleep(800)
+  await sleep(DEALER_CARD_DELAY)
 
   // Draw each extra card one by one
   for (let i = 2; i < finalCards.length; i++) {
@@ -203,7 +205,7 @@ async function animateDealerTurn(finalState: BlackjackClientState) {
       ...finalState,
       dealerHand: { ...finalState.dealerHand, cards: finalCards.slice(0, i + 1) },
     }
-    await sleep(800)
+    await sleep(DEALER_CARD_DELAY)
   }
 
   gameState.value = finalState
