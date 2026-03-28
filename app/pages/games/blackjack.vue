@@ -12,7 +12,6 @@ const isPlaying = ref(false)
 const isFetching = ref(false)
 const errorMsg = ref('')
 const showHelp = ref(false)
-const gameToken = ref<string | null>(null)
 const gameState = ref<BlackjackClientState | null>(null)
 const history = ref<{ won: boolean; payout: number; bet: number }[]>([])
 const showHint = useCookie<boolean>('bj-show-hint', { default: () => false })
@@ -103,15 +102,12 @@ function applyBalance(bal: number) {
 
 type GameResponse = {
   clientState: BlackjackClientState
-  token: string | null
   balance: number
   finished: boolean
 }
 
 /** Shared handler for start / action API responses */
 async function handleGameResponse(data: GameResponse, opts?: { preserveDealerHand: boolean }) {
-  gameToken.value = data.token
-
   if (data.finished) {
     // Defer balance update until animations finish so the outcome isn't spoiled
     pendingBalance.value = data.balance
@@ -135,12 +131,11 @@ async function handleGameResponse(data: GameResponse, opts?: { preserveDealerHan
 onMounted(async () => {
   try {
     const data = await $fetch('/api/games/blackjack/resume') as {
-      active: boolean; clientState: BlackjackClientState | null; token: string | null; balance: number
+      active: boolean; clientState: BlackjackClientState | null; balance: number
     }
     applyBalance(data.balance)
-    if (data.active && data.clientState && data.token) {
+    if (data.active && data.clientState) {
       gameState.value = data.clientState
-      gameToken.value = data.token
       isPlaying.value = true
     }
   } catch { /* ignore */ }
@@ -172,14 +167,14 @@ async function startGame() {
 }
 
 async function doAction(action: BlackjackAction) {
-  if (isFetching.value || !gameToken.value) return
+  if (isFetching.value || !isPlaying.value) return
   isFetching.value = true
   errorMsg.value = ''
 
   try {
     const data = await $fetch('/api/games/blackjack/action', {
       method: 'POST',
-      body: { token: gameToken.value, action },
+      body: { action },
     }) as GameResponse
 
     await handleGameResponse(data, { preserveDealerHand: true })
@@ -230,13 +225,11 @@ function finishGame() {
   const won = gs.playerHands.some(h => h.status === 'won' || h.status === 'blackjack')
   history.value.unshift({ won, payout: 0, bet: totalBet })
   if (history.value.length > 8) history.value.pop()
-  gameToken.value = null
   setTimeout(() => { showResults.value = true }, 200)
 }
 
 function newGame() {
   gameState.value = null
-  gameToken.value = null
   isPlaying.value = false
   showResults.value = false
   isDealerAnimating.value = false

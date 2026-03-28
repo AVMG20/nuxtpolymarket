@@ -1,17 +1,10 @@
 import { eq } from 'drizzle-orm'
 import { auth } from '#server/utils/auth'
 import { debit, credit, getBalance, accumulateRake } from '#server/utils/balance'
-import { signGameState, verifyGameState } from '#server/utils/game-token'
 import { performAction, toClientState } from '#shared/utils/gamelogic/blackjack'
 import type { BlackjackState, BlackjackAction } from '#shared/utils/gamelogic/blackjack'
 import { db } from '#server/database'
 import { blackjackSessions } from '#server/database/schema'
-
-interface TokenPayload {
-  state: BlackjackState
-  bet: number
-  userId: string
-}
 
 export default defineEventHandler(async (event) => {
   const session = await auth.api.getSession({ headers: event.headers })
@@ -19,20 +12,24 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 401, statusMessage: 'Unauthorized' })
   }
 
-  const { token, action } = await readBody<{ token: string; action: BlackjackAction }>(event)
+  const { action } = await readBody<{ action: BlackjackAction }>(event)
 
-  if (!token || !action) {
-    throw createError({ statusCode: 400, statusMessage: 'Missing token or action' })
+  if (!action) {
+    throw createError({ statusCode: 400, statusMessage: 'Missing action' })
   }
 
-  const payload = verifyGameState<TokenPayload>(token)
-
-  if (payload.userId !== session.user.id) {
-    throw createError({ statusCode: 403, statusMessage: 'Token does not belong to this user' })
+  // Load game state from DB
+  const rows = await db.select().from(blackjackSessions).where(eq(blackjackSessions.userId, session.user.id)).limit(1)
+  if (rows.length === 0) {
+    throw createError({ statusCode: 400, statusMessage: 'No active blackjack game' })
   }
+
+  const gameSession = rows[0]!
+  const state = gameSession.state as BlackjackState
+  const bet = parseFloat(gameSession.bet)
 
   // Handle extra costs for double and split (need to debit additional bet)
-  const hand = payload.state.playerHands[payload.state.currentHandIndex]
+  const hand = state.playerHands[state.currentHandIndex]
   if (action === 'double' && hand) {
     const balance = await getBalance(session.user.id)
     if (parseFloat(balance) < hand.bet) {
@@ -52,7 +49,7 @@ export default defineEventHandler(async (event) => {
   }
 
   if (action === 'insurance' && hand) {
-    const cost = payload.state.playerHands[0]!.bet / 2
+    const cost = state.playerHands[0]!.bet / 2
     const balance = await getBalance(session.user.id)
     if (parseFloat(balance) < cost) {
       throw createError({ statusCode: 400, statusMessage: 'Insufficient balance for insurance' })
@@ -61,7 +58,7 @@ export default defineEventHandler(async (event) => {
     await accumulateRake(session.user.id, cost)
   }
 
-  const result = performAction(payload.state, action, payload.bet)
+  const result = performAction(state, action, bet)
 
   // If game finished, settle balance and remove DB session
   if (result.finished) {
@@ -70,29 +67,17 @@ export default defineEventHandler(async (event) => {
     if (totalPayout > 0) {
       await credit(session.user.id, totalPayout.toFixed(4), 'blackjack')
     }
-    // Remove active session from DB
     await db.delete(blackjackSessions).where(eq(blackjackSessions.userId, session.user.id))
   } else {
-    // Update DB session with new state and token
-    const newToken = signGameState({ state: result.state, bet: payload.bet, userId: session.user.id })
     await db.update(blackjackSessions)
-      .set({ state: result.state, token: newToken })
+      .set({ state: result.state })
       .where(eq(blackjackSessions.userId, session.user.id))
-
-    const newBalance = parseFloat(await getBalance(session.user.id))
-    return {
-      clientState: toClientState(result.state),
-      token: newToken,
-      balance: newBalance,
-      finished: false,
-    }
   }
 
   const newBalance = parseFloat(await getBalance(session.user.id))
 
   return {
     clientState: toClientState(result.state),
-    token: null,
     balance: newBalance,
     finished: result.finished,
   }
