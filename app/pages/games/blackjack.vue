@@ -12,13 +12,12 @@ const isPlaying = ref(false)
 const isFetching = ref(false)
 const errorMsg = ref('')
 const showHelp = ref(false)
-const gameToken = ref<string | null>(null)
 const gameState = ref<BlackjackClientState | null>(null)
 const history = ref<{ won: boolean; payout: number; bet: number }[]>([])
 const showHint = useCookie<boolean>('bj-show-hint', { default: () => false })
-const resumeChecked = ref(false)
 const showResults = ref(false)
 const isDealerAnimating = ref(false)
+const pendingBalance = ref<number | null>(null)
 
 const phase = computed(() => gameState.value?.phase ?? 'betting')
 const currentHand = computed(() => {
@@ -52,12 +51,6 @@ const hintAction = computed<BlackjackAction | null>(() => {
   return getHint(currentHand.value, dealerUpcard, canDouble.value, canSurrender.value, canSplit.value)
 })
 
-const hintLabel = computed(() => {
-  if (!hintAction.value) return ''
-  const labels: Record<string, string> = { hit: 'Hit', stand: 'Stand', double: 'Double', split: 'Split', surrender: 'Surrender' }
-  return labels[hintAction.value] ?? hintAction.value
-})
-
 function cardValue(card: Card): number {
   if (['J', 'Q', 'K'].includes(card.rank)) return 10
   if (card.rank === 'A') return 11
@@ -76,7 +69,6 @@ function scoreDisplay(cards: Card[]): string {
   const soft = hasAce && hard + 10 <= 21 ? hard + 10 : null
   return soft !== null ? `${hard}/${soft}` : `${hard}`
 }
-
 
 function statusLabel(status: string): string {
   switch (status) {
@@ -99,22 +91,59 @@ function statusColor(status: string): string {
   }
 }
 
-// Resume active game on page load
+// ── Helpers ──
+
+const DEALER_CARD_DELAY = 800
+
+const sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms))
+
+function applyBalance(bal: number) {
+  balance.value = bal
+  setBalance(bal)
+}
+
+type GameResponse = {
+  clientState: BlackjackClientState
+  balance: number
+  finished: boolean
+}
+
+/** Shared handler for start / action API responses */
+async function handleGameResponse(data: GameResponse, opts?: { preserveDealerHand: boolean }) {
+  if (data.finished) {
+    // Defer balance update until animations finish so the outcome isn't spoiled
+    pendingBalance.value = data.balance
+    isDealerAnimating.value = true
+
+    // Optionally keep the current dealer hand (hole card hidden) during the pre-animation pause
+    if (opts?.preserveDealerHand && gameState.value) {
+      gameState.value = { ...data.clientState, dealerHand: gameState.value.dealerHand }
+      await sleep(DEALER_CARD_DELAY)
+    }
+
+    await animateDealerTurn(data.clientState)
+  } else {
+    applyBalance(data.balance)
+    gameState.value = data.clientState
+  }
+}
+
+// ── Lifecycle ──
+
 onMounted(async () => {
   try {
     const data = await $fetch('/api/games/blackjack/resume') as {
-      active: boolean; clientState: BlackjackClientState | null; token: string | null; balance: number
+      active: boolean; clientState: BlackjackClientState | null; balance: number
     }
-    balance.value = data.balance
-    setBalance(data.balance)
-    if (data.active && data.clientState && data.token) {
+    applyBalance(data.balance)
+    if (data.active && data.clientState) {
       gameState.value = data.clientState
-      gameToken.value = data.token
       isPlaying.value = true
     }
   } catch { /* ignore */ }
-  resumeChecked.value = true
 })
+
+// ── Game actions ──
 
 async function startGame() {
   if (isFetching.value || balance.value < bet.value) return
@@ -127,17 +156,10 @@ async function startGame() {
     const data = await $fetch('/api/games/blackjack/start', {
       method: 'POST',
       body: { bet: bet.value },
-    }) as { clientState: BlackjackClientState; token: string | null; balance: number; finished: boolean }
+    }) as GameResponse
 
-    if (data.finished) isDealerAnimating.value = true
     gameState.value = data.clientState
-    gameToken.value = data.token
-    balance.value = data.balance
-    setBalance(data.balance)
-
-    if (data.finished) {
-      await animateDealerTurn(data.clientState)
-    }
+    await handleGameResponse(data)
   } catch (e: unknown) {
     errorMsg.value = e instanceof Error ? e.message : 'Something went wrong'
     isPlaying.value = false
@@ -147,30 +169,17 @@ async function startGame() {
 }
 
 async function doAction(action: BlackjackAction) {
-  if (isFetching.value || !gameToken.value) return
+  if (isFetching.value || !isPlaying.value) return
   isFetching.value = true
   errorMsg.value = ''
 
   try {
     const data = await $fetch('/api/games/blackjack/action', {
       method: 'POST',
-      body: { token: gameToken.value, action },
-    }) as { clientState: BlackjackClientState; token: string | null; balance: number; finished: boolean }
+      body: { action },
+    }) as GameResponse
 
-    gameToken.value = data.token
-    balance.value = data.balance
-    setBalance(data.balance)
-
-    if (data.finished) {
-      // Show player's resolved hand but keep dealer hole card hidden during the pause
-      isDealerAnimating.value = true
-      gameState.value = { ...data.clientState, dealerHand: gameState.value!.dealerHand }
-      isFetching.value = false
-      await sleep(800)
-      await animateDealerTurn(data.clientState)
-    } else {
-      gameState.value = data.clientState
-    }
+    await handleGameResponse(data, { preserveDealerHand: true })
   } catch (e: unknown) {
     errorMsg.value = e instanceof Error ? e.message : 'Something went wrong'
   } finally {
@@ -178,32 +187,25 @@ async function doAction(action: BlackjackAction) {
   }
 }
 
-const sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms))
+// ── Dealer animation ──
 
 async function animateDealerTurn(finalState: BlackjackClientState) {
   const finalCards = finalState.dealerHand.cards
 
-  // Step 1: reveal hole card (show only the 2 initial cards, all visible)
+  // Reveal hole card (show the 2 initial cards, all face-up)
   gameState.value = {
     ...finalState,
     dealerHand: { ...finalState.dealerHand, cards: finalCards.slice(0, 2) },
   }
+  await sleep(DEALER_CARD_DELAY)
 
-  const extraCards = finalCards.slice(2)
-
-  if (extraCards.length > 0) {
-    // Pause after reveal, then draw each extra card
-    await sleep(800)
-    for (let i = 0; i < extraCards.length; i++) {
-      gameState.value = {
-        ...finalState,
-        dealerHand: { ...finalState.dealerHand, cards: finalCards.slice(0, 3 + i) },
-      }
-      await sleep(800)
+  // Draw each extra card one by one
+  for (let i = 2; i < finalCards.length; i++) {
+    gameState.value = {
+      ...finalState,
+      dealerHand: { ...finalState.dealerHand, cards: finalCards.slice(0, i + 1) },
     }
-  } else {
-    // No extra draws needed — short pause then finish
-    await sleep(800)
+    await sleep(DEALER_CARD_DELAY)
   }
 
   gameState.value = finalState
@@ -213,21 +215,27 @@ async function animateDealerTurn(finalState: BlackjackClientState) {
 
 function finishGame() {
   if (!gameState.value) return
+
+  // Apply the deferred balance now that animations are done
+  if (pendingBalance.value !== null) {
+    applyBalance(pendingBalance.value)
+    pendingBalance.value = null
+  }
+
   const gs = gameState.value
   const totalBet = gs.playerHands.reduce((s, h) => s + h.bet, 0)
   const won = gs.playerHands.some(h => h.status === 'won' || h.status === 'blackjack')
   history.value.unshift({ won, payout: 0, bet: totalBet })
   if (history.value.length > 8) history.value.pop()
-  gameToken.value = null
   setTimeout(() => { showResults.value = true }, 200)
 }
 
 function newGame() {
   gameState.value = null
-  gameToken.value = null
   isPlaying.value = false
   showResults.value = false
   isDealerAnimating.value = false
+  pendingBalance.value = null
 }
 </script>
 
@@ -628,20 +636,6 @@ function newGame() {
   border: 1px solid rgba(var(--color-primary-500), 0.1);
 }
 
-/* Deal animation */
-.deal-smooth-enter-active,
-.deal-smooth-leave-active {
-  transition: all 0.5s ease-out;
-}
-.deal-smooth-enter-from {
-  opacity: 0;
-  transform: translateY(-150px) scale(0.8);
-}
-.deal-smooth-leave-to {
-  opacity: 0;
-  transform: translateY(100px) scale(0.8);
-}
-
 .deal-pop-enter-active,
 .deal-pop-leave-active {
   transition: all 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
@@ -658,38 +652,6 @@ function newGame() {
   transform: translateY(100px) scale(0.8);
 }
 
-/* Result slide per hand */
-.result-slide-enter-active {
-  transition: all 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
-}
-.result-slide-leave-active {
-  transition: all 0.3s ease;
-}
-.result-slide-enter-from {
-  opacity: 0;
-  transform: translateY(-10px) scale(0.9);
-}
-.result-slide-leave-to {
-  opacity: 0;
-  transform: translateY(10px) scale(0.9);
-}
-
-/* Status pop */
-.status-pop-enter-active {
-  transition: all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
-}
-.status-pop-leave-active {
-  transition: all 0.2s ease;
-}
-.status-pop-enter-from {
-  opacity: 0;
-  transform: scale(0);
-}
-.status-pop-leave-to {
-  opacity: 0;
-  transform: scale(0);
-}
-
 /* Fade transition */
 .fade-enter-active,
 .fade-leave-active {
@@ -699,15 +661,6 @@ function newGame() {
 .fade-leave-to {
   opacity: 0;
   transform: scale(0.9);
-}
-
-/* Bounce animation */
-@keyframes bounce-short {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-10px); }
-}
-.animate-bounce-short {
-  animation: bounce-short 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) 1;
 }
 
 /* General transitions */
