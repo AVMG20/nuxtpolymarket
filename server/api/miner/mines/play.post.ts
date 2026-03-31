@@ -4,7 +4,7 @@ import { db } from '#server/database'
 import { minerState } from '#server/database/schema'
 import { auth } from '#server/utils/auth'
 import { credit } from '#server/utils/balance'
-import { MINES_TILE_VALUES, minesValueMultiplier } from '../_config'
+import { MINES_TILE_VALUES, minesValueMultiplier } from '#shared/utils/miner-config'
 
 export default defineEventHandler(async (event) => {
   const session = await auth.api.getSession({ headers: event.headers })

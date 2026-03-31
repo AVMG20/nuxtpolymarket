@@ -2,7 +2,7 @@ import { eq } from 'drizzle-orm'
 import { db } from '#server/database'
 import { minerState } from '#server/database/schema'
 import { auth } from '#server/utils/auth'
-import { rigIncome, vaultCap, vaultUpgradeCost, computePending, VAULT_MAX_LEVEL } from './_config'
+import { rigIncome, vaultCap, vaultUpgradeCost, computePending, VAULT_MAX_LEVEL } from '#shared/utils/miner-config'
 import { credit, debit, getBalance } from '#server/utils/balance'
 
 export default defineEventHandler(async (event) => {

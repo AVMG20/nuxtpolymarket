@@ -6,25 +6,10 @@ const { data: state, refresh } = await useFetch('/api/miner/state')
 const toast = useToast()
 const buying = ref<string | null>(null)
 
-const instantFillCap = computed(() => {
-  if (!state.value) return 0
-  const level = state.value.vaultLevel
-  return 150 + (level - 1) * 150
-})
-
-//TODO: this should come from _config.ts, and this miner config should become a shared util to be shared between client and server.
-const instantFillCost = computed(() => {
-  if (!state.value) return 1
-  const level = state.value.vaultLevel
-  const cap = instantFillCap.value
-  const t = (level - 1) / (100 - 1)
-  const ratio = 300 + t * (2000 - 300)
-  return Math.max(1, Math.ceil(cap / ratio))
-})
-
 const instantFillValuePerGem = computed(() => {
-  if (!instantFillCost.value) return 0
-  return Math.floor(instantFillCap.value / instantFillCost.value)
+  if (!state.value) return 0
+  const cost = instantFillCost(state.value.vaultLevel)
+  return Math.floor(state.value.cap / cost)
 })
 
 const shopItems = computed(() => [
@@ -35,7 +20,7 @@ const shopItems = computed(() => [
     valuePerGem: instantFillValuePerGem.value,
     icon: 'i-lucide-zap',
     color: 'secondary' as const,
-    cost: instantFillCost.value,
+    cost: state.value ? instantFillCost(state.value.vaultLevel) : 1,
     endpoint: '/api/miner/shop/instant-fill',
   },
   {
@@ -51,8 +36,8 @@ const shopItems = computed(() => [
   {
     id: 'quick-cash',
     label: 'Quick Cash',
-    description: 'Convert 1 Gem into 200,- instantly.',
-    valuePerGem: 200,
+    description: `Convert 1 Gem into ${formatNumber(SHOP_QUICK_CASH_AMOUNT, false)},- instantly.`,
+    valuePerGem: SHOP_QUICK_CASH_AMOUNT,
     icon: 'i-lucide-coins',
     color: 'primary' as const,
     cost: 1,

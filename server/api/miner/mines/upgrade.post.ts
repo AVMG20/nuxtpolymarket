@@ -3,7 +3,7 @@ import { db } from '#server/database'
 import { minerState } from '#server/database/schema'
 import { auth } from '#server/utils/auth'
 import { debit } from '#server/utils/balance'
-import { minesUpgradeCost, MINES_UPGRADE_MAX_LEVEL } from '../_config'
+import { minesUpgradeCost, MINES_UPGRADE_MAX_LEVEL } from '#shared/utils/miner-config'
 
 export default defineEventHandler(async (event) => {
   const session = await auth.api.getSession({ headers: event.headers })
