@@ -1,0 +1,29 @@
+import { eq } from 'drizzle-orm'
+import { db } from '#server/database'
+import { xenoGridSlots, xenoBreederSlots } from '#server/database/schema'
+import { auth } from '#server/utils/auth'
+import { addPlants } from '#server/utils/xeno'
+import { PLANT_TYPES, XENO_STARTING_PLANT_QTY } from '#shared/utils/xeno'
+
+export default defineEventHandler(async (event) => {
+  const session = await auth.api.getSession({ headers: event.headers })
+  if (!session?.user?.id) throw createError({ statusCode: 401, statusMessage: 'Unauthorized' })
+
+  const userId = session.user.id
+
+  const existing = await db.query.xenoGridSlots.findFirst({ where: eq(xenoGridSlots.userId, userId) })
+  if (existing) return { ok: true }
+
+  const starters = PLANT_TYPES.filter(p => p.isStarter)
+
+  await Promise.all([
+    // Unlock first 6 grid slots
+    ...Array.from({ length: 6 }, (_, i) => db.insert(xenoGridSlots).values({ userId, slotIndex: i })),
+    // Unlock first breeder slot
+    db.insert(xenoBreederSlots).values({ userId, slotIndex: 0 }),
+    // Give starter plants with their config base speed/yield
+    ...starters.map(p => addPlants(userId, p.id, p.speed, p.yield, XENO_STARTING_PLANT_QTY)),
+  ])
+
+  return { ok: true }
+})

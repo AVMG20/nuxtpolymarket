@@ -13,7 +13,7 @@
   "dependencies": {
     "@iconify-json/lucide": "^1.2.98",
     "@iconify-json/simple-icons": "^1.2.74",
-    "@nuxt/ui": "^4.5.1",
+    "@nuxt/ui": "^4.8.2",
     "@unovis/vue": "^1.6.4",
     "better-auth": "^1.5.5",
     "date-fns": "^4.1.0",

@@ -1,5 +1,5 @@
 import { relations } from "drizzle-orm";
-import { pgTable, text, timestamp, boolean, index, numeric, integer, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, boolean, index, numeric, integer, unique, jsonb } from "drizzle-orm/pg-core";
 
 
 export const user = pgTable("user", {
@@ -131,6 +131,70 @@ export const blackjackSessions = pgTable('blackjack_sessions', {
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().$onUpdate(() => new Date()).notNull(),
 })
+
+// ─── Xeno ──────────────────────────────────────────────────────────────────
+
+/**
+ * One row = one plant instance. typeId links to PLANT_TYPES config for
+ * name/emoji/tier/baseTime/value. speed/yield are per-instance and can
+ * differ from config defaults after breeding. Inventory groups by (typeId, speed, yield).
+ */
+// eslint-disable-next-line @typescript-eslint/no-use-before-define
+export const xenoPlants = pgTable('xeno_plants', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  typeId: text('type_id').notNull(),
+  speed: integer('speed').notNull(),
+  yield: integer('yield').notNull(),
+}, (t) => [index('xeno_plants_userId_idx').on(t.userId)])
+
+/** Artifact instances: each row is one artifact with its remaining charges */
+export const xenoArtifacts = pgTable('xeno_artifacts', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  typeId: text('type_id').notNull(),
+  chargesRemaining: integer('charges_remaining').notNull(),
+}, (t) => [index('xeno_artifacts_userId_idx').on(t.userId)])
+
+/** Grid slots: plantId references the specific plant instance growing. */
+export const xenoGridSlots = pgTable('xeno_grid_slots', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  slotIndex: integer('slot_index').notNull(),
+  plantId: text('plant_id').references(() => xenoPlants.id, { onDelete: 'set null' }),
+  startedAt: timestamp('started_at'),
+  artifactId: text('artifact_id').references(() => xenoArtifacts.id, { onDelete: 'set null' }),
+}, (t) => [
+  index('xeno_grid_userId_idx').on(t.userId),
+  unique('xeno_grid_slot_unique').on(t.userId, t.slotIndex),
+])
+
+/**
+ * Breeder slots. Parents are consumed (deleted from xenoPlants) when breeding starts;
+ * their type/speed/yield stored here for display. Result stats stored for deterministic collect.
+ */
+export const xenoBreederSlots = pgTable('xeno_breeder_slots', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  slotIndex: integer('slot_index').notNull(),
+  plant1TypeId: text('plant1_type_id'),
+  plant1Speed: integer('plant1_speed'),
+  plant1Yield: integer('plant1_yield'),
+  plant2TypeId: text('plant2_type_id'),
+  plant2Speed: integer('plant2_speed'),
+  plant2Yield: integer('plant2_yield'),
+  startedAt: timestamp('started_at'),
+  artifactId: text('artifact_id').references(() => xenoArtifacts.id, { onDelete: 'set null' }),
+  resultTypeId: text('result_type_id'),
+  resultSpeed: integer('result_speed'),
+  resultYield: integer('result_yield'),
+  resultQuantity: integer('result_quantity'),
+  wasMutation: boolean('was_mutation'),
+  collected: boolean('collected').notNull().default(false),
+}, (t) => [
+  index('xeno_breeder_userId_idx').on(t.userId),
+  unique('xeno_breeder_slot_unique').on(t.userId, t.slotIndex),
+])
 
 export const transactionsRelations = relations(transactions, ({ one }) => ({
   user: one(user, { fields: [transactions.userId], references: [user.id] }),
