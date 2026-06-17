@@ -131,6 +131,8 @@ function growTime(item: any) {
           { label: 'T3', value: 3 },
           { label: 'T4', value: 4 },
           { label: 'T5', value: 5 },
+          { label: 'T6', value: 6 },
+          { label: 'T7', value: 7 },
         ]"
         size="sm"
         class="w-28"

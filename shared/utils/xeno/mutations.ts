@@ -50,13 +50,31 @@ export const MUTATIONS: Mutation[] = [
   // T4 × T4 → T4
   { parent1: 'deepfrond',    parent2: 'swiftcane',    offspring: 'abyssform',    chance: 0.03 },
 
-  // T4 × T4 → T5 (very low, needs strong artifact boost)
-  { parent1: 'deepfrond',    parent2: 'crystalmoss',  offspring: 'starweave',    chance: 0.02 },
-  { parent1: 'swiftcane',    parent2: 'voidfern',     offspring: 'voidpulse',    chance: 0.02 },
-  { parent1: 'abyssform',    parent2: 'crystalmoss',  offspring: 'cosmosbloom',  chance: 0.02 },
+  // T4 × T4 → T5 (requires a mutation artifact — base chance 0)
+  { parent1: 'deepfrond',    parent2: 'crystalmoss',  offspring: 'starweave',    chance: 0 },
+  { parent1: 'swiftcane',    parent2: 'voidfern',     offspring: 'voidpulse',    chance: 0 },
+  { parent1: 'abyssform',    parent2: 'crystalmoss',  offspring: 'cosmosbloom',  chance: 0 },
 
-  // T5 × T5 → T5 (requires massive artifact stack)
-  { parent1: 'starweave',    parent2: 'voidpulse',    offspring: 'etherform',    chance: 0.01 },
+  // T5 × T5 → T5 (requires a mutation artifact — base chance 0)
+  { parent1: 'starweave',    parent2: 'voidpulse',    offspring: 'etherform',    chance: 0 },
+
+  // T5 × T5 → T6 (requires a mutation artifact — base chance 0)
+  { parent1: 'etherform',    parent2: 'starweave',    offspring: 'dawnrift',     chance: 0 },
+  { parent1: 'starweave',    parent2: 'cosmosbloom',  offspring: 'voidlattice',  chance: 0 },
+  { parent1: 'voidpulse',    parent2: 'etherform',    offspring: 'nexusbloom',   chance: 0 },
+  { parent1: 'cosmosbloom',  parent2: 'etherform',    offspring: 'stellarfrond', chance: 0 },
+
+  // T6 × T6 → T6 (negative base — Prism Lens or better required for any chance)
+  { parent1: 'dawnrift',     parent2: 'voidlattice',  offspring: 'aetherix',     chance: -0.10 },
+
+  // T6 × T6 → T7 (negative base — Prism Lens or better required for any chance)
+  { parent1: 'dawnrift',     parent2: 'aetherix',     offspring: 'tempest-spike', chance: -0.10 },
+  { parent1: 'voidlattice',  parent2: 'nexusbloom',   offspring: 'abyssal-frond', chance: -0.10 },
+  { parent1: 'nexusbloom',   parent2: 'stellarfrond', offspring: 'quantum-bloom', chance: -0.10 },
+  { parent1: 'stellarfrond', parent2: 'aetherix',     offspring: 'starcore',      chance: -0.10 },
+
+  // T7 × T7 → T7 (deeply negative — only Prism Lens II gives any chance at all)
+  { parent1: 'tempest-spike', parent2: 'abyssal-frond', offspring: 'singularity', chance: -0.25 },
 ]
 
 /** Returns the first mutation for a plant pair (used for UI preview). */

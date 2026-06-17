@@ -34,9 +34,11 @@ const TIER_LABELS: Record<number, string> = {
   3: 'Advanced Tier',
   4: 'Elite Tier',
   5: 'Cosmic Tier',
+  6: 'Ethereal Tier',
+  7: 'Singularity Tier',
 }
 
-const tiers = computed(() => [1, 2, 3, 4, 5].map(t => ({
+const tiers = computed(() => [1, 2, 3, 4, 5, 6, 7].map(t => ({
   tier: t,
   label: TIER_LABELS[t],
   plants: PLANT_TYPES.filter(p => p.tier === t),
@@ -199,13 +201,16 @@ function tierMutations(tier: number) {
                           <span>+</span>
                           <span>{{ getPlantById(m.parent2)?.emoji }}</span>
                           <span class="text-muted/60">→</span>
-                          <span class="font-semibold text-default">{{ (m.chance * 100).toFixed(0) }}%</span>
+                          <span class="font-semibold text-default">{{ (m.chance * 100).toFixed(1) }}%</span>
                         </div>
                       </div>
                     </template>
                     <template v-else>
-                      <p class="text-xs text-muted">No known mutation recipe.</p>
+                      <p class="text-xs text-muted">No known recipe.</p>
                     </template>
+                    <p v-if="plant.voidPlant" class="text-xs text-secondary mt-1.5 font-semibold">
+                      🌑 Requires a tier II or higher artifact to grow on the grid.
+                    </p>
                   </div>
 
                   <!-- What it can produce -->
@@ -237,7 +242,8 @@ function tierMutations(tier: number) {
                         <p class="font-bold text-sm text-default/50">{{ plant.name }}</p>
                         <span class="text-xs font-bold uppercase tracking-wider text-muted/40">
                           {{ tierLabel(plant.tier) }}
-                          <span v-if="mutationOffspring.has(plant.id)"> · Mutation</span>
+                          <span v-if="plant.voidPlant"> · Void</span>
+                          <span v-else-if="mutationOffspring.has(plant.id)"> · Mutation</span>
                           <span v-else-if="plant.isStarter"> · Starter</span>
                         </span>
                       </div>
@@ -293,13 +299,16 @@ function tierMutations(tier: number) {
                           <span>+</span>
                           <span>{{ getPlantById(m.parent2)?.emoji }}</span>
                           <span class="text-muted/60">→</span>
-                          <span class="font-semibold text-default">{{ (m.chance * 100).toFixed(0) }}%</span>
+                          <span class="font-semibold text-default">{{ (m.chance * 100).toFixed(1) }}%</span>
                         </div>
                       </div>
                     </template>
                     <template v-else>
-                      <p class="text-xs text-muted">No known mutation recipe.</p>
+                      <p class="text-xs text-muted">No known recipe.</p>
                     </template>
+                    <p v-if="plant.voidPlant" class="text-xs text-secondary/60 mt-1.5 font-semibold">
+                      🌑 Void plant — requires a tier II or higher artifact to grow.
+                    </p>
                   </div>
 
                   <p v-if="plant.description" class="text-xs text-muted/40 italic">{{ plant.description }}</p>
@@ -319,7 +328,8 @@ function tierMutations(tier: number) {
                   :tier="plant.tier"
                   :class="!discoveredIds.has(plant.id) && 'opacity-30'"
                 />
-                <span v-if="mutationOffspring.has(plant.id) && discoveredIds.has(plant.id)" class="text-xs leading-none">✨</span>
+                <span v-if="plant.voidPlant && discoveredIds.has(plant.id)" class="text-xs leading-none">🌑</span>
+                <span v-else-if="mutationOffspring.has(plant.id) && discoveredIds.has(plant.id)" class="text-xs leading-none">✨</span>
                 <UIcon v-else-if="!discoveredIds.has(plant.id)" name="i-lucide-lock" class="size-3 text-muted/25" />
               </div>
 

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ARTIFACT_TYPES, getPlant, SPEED_REDUCTION_PER_LEVEL } from '#shared/utils/xeno'
+import { ARTIFACT_TYPES, getPlant, ARTIFACT_SPEED_PER_LEVEL } from '#shared/utils/xeno'
 
 const { inventory, freeArtifacts, buyArtifact } = useXeno()
 
@@ -26,7 +26,7 @@ async function doBuy(typeId: string) {
 
 const MUTATION_PER_LEVEL = 0.05
 
-function toSpeedLevel(pct: number) { return Math.round(Math.round(pct * 1000) / Math.round(SPEED_REDUCTION_PER_LEVEL * 1000)) }
+function toSpeedLevel(pct: number) { return Math.round(Math.round(pct * 1000) / Math.round(ARTIFACT_SPEED_PER_LEVEL * 1000)) }
 function toMutLevel(pct: number) { return Math.ceil(Math.round(pct * 1000) / Math.round(MUTATION_PER_LEVEL * 1000)) }
 
 const MAX_CHARGES       = Math.max(...ARTIFACT_TYPES.map(a => a.maxCharges))
@@ -45,8 +45,8 @@ function specRows(art: typeof ARTIFACT_TYPES[0]) {
 
   if (art.effects.some(e => e.type.startsWith('grid_'))) {
     return [
-      { label: 'Speed', lvl: speedE ? toSpeedLevel(speedE.value) : 0, max: MAX_SPEED_LVL,   color: 'bg-warning' },
-      { label: 'Yield', lvl: yieldE ? yieldE.value : 0,                max: MAX_YIELD_LVL,   color: 'bg-info' },
+      { label: 'Speed', lvl: speedE ? toSpeedLevel(speedE.value) : 0, max: MAX_SPEED_LVL, color: 'bg-warning' },
+      { label: 'Yield', lvl: yieldE ? yieldE.value : 0,               max: MAX_YIELD_LVL, color: 'bg-info' },
     ]
   }
   return [
@@ -87,63 +87,64 @@ function specRows(art: typeof ARTIFACT_TYPES[0]) {
     </div>
 
     <!-- Cards -->
-    <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+    <div class="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
       <div
         v-for="art in activeTab === 'grid' ? gridArtifacts : breederArtifacts"
         :key="art.id"
         class="rounded-xl border border-default bg-elevated flex flex-col"
       >
         <!-- Header -->
-        <div class="flex items-start justify-between p-4 pb-3">
-          <div class="flex items-center gap-3">
-            <span class="text-2xl leading-none">{{ art.emoji }}</span>
-            <div>
-              <div class="flex items-center gap-2">
-                <p class="font-semibold">{{ art.name }}</p>
-                <span
-                  v-if="art.effects.length > 1"
-                  class="text-xs font-bold px-1.5 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20"
-                >Hybrid</span>
-              </div>
-              <p class="text-xs text-muted mt-0.5">{{ art.maxCharges }} charges each</p>
+        <div class="flex items-center gap-2.5 px-3.5 pt-3.5 pb-0">
+          <span class="text-lg leading-none shrink-0">{{ art.emoji }}</span>
+          <div class="flex-1 min-w-0">
+            <div class="flex items-center gap-1.5 flex-wrap">
+              <p class="font-semibold text-sm leading-snug">{{ art.name }}</p>
+              <span
+                v-if="art.effects.filter(e => e.type.startsWith(activeTab + '_')).length > 1"
+                class="text-[10px] font-bold px-1 py-0.5 rounded bg-primary/10 text-primary border border-primary/20 leading-none"
+              >Hybrid</span>
             </div>
           </div>
+          <span class="text-xs font-bold text-muted tabular-nums shrink-0">×{{ art.maxCharges }}</span>
         </div>
 
-        <!-- Spec table -->
-        <div class="mx-4 mb-4 rounded-lg bg-background/50 border border-default/40 divide-y divide-default/30">
-          <div v-for="row in specRows(art)" :key="row.label" class="px-3 py-2.5">
-            <XenoStatLevel :label="row.label" :level="row.lvl" :max="row.max" :color="row.color" />
-          </div>
-          <div class="px-3 py-2.5">
-            <XenoStatLevel label="Charges" :level="art.maxCharges" :max="MAX_CHARGES" color="bg-primary" />
-          </div>
+        <!-- Stats (only non-zero) -->
+        <div class="px-3.5 pt-2.5 pb-2 space-y-1.5">
+          <XenoStatLevel
+            v-for="row in specRows(art).filter(r => r.lvl > 0)"
+            :key="row.label"
+            :label="row.label"
+            :level="row.lvl"
+            :max="row.max"
+            :color="row.color"
+          />
         </div>
 
         <!-- Cost -->
-        <div class="px-4 pb-3 flex-1">
-          <p class="text-xs font-bold uppercase tracking-wider text-muted mb-2">Cost</p>
-          <div class="flex flex-wrap gap-2">
+        <div class="px-3.5 pb-2.5 flex-1">
+          <p class="text-[10px] font-bold uppercase tracking-widest text-muted mb-1.5">Cost</p>
+          <div class="flex flex-wrap gap-1">
             <div
               v-for="c in art.cost"
               :key="c.plantTypeId"
-              class="flex items-center gap-1.5 text-sm px-2.5 py-1 rounded-lg border font-medium transition-colors"
+              class="flex items-center gap-1 text-xs px-1.5 py-0.5 rounded border font-medium"
               :class="ownedCount(c.plantTypeId) >= c.quantity
-                ? 'border-success/40 bg-success/10 text-success'
-                : 'border-default bg-elevated/60 text-default'"
+                ? 'border-success/30 bg-success/10 text-success'
+                : 'border-default/50 text-muted'"
             >
               <span>{{ getPlant(c.plantTypeId)?.emoji }}</span>
-              <span>{{ c.quantity }}× {{ getPlant(c.plantTypeId)?.name }}</span>
-              <span class="text-muted text-xs">({{ ownedCount(c.plantTypeId) }})</span>
+              <span>{{ c.quantity }}×</span>
+              <span class="opacity-60">({{ ownedCount(c.plantTypeId) }})</span>
             </div>
           </div>
         </div>
 
         <!-- Craft -->
-        <div class="px-4 pb-4">
+        <div class="px-3.5 pb-3.5">
           <UButton
             label="Craft"
             icon="i-lucide-hammer"
+            size="sm"
             :loading="buying[art.id]"
             :disabled="!canAfford(art.cost)"
             block

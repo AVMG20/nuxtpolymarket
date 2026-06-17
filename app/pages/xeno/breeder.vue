@@ -115,6 +115,12 @@ function slotMutationBoost(slot: any): number {
   return art ? getEffectValue(art, 'breeder_mutation_boost') : 0
 }
 
+function effectiveMutationChance(slot: any, p1: any, p2: any): number {
+  const m = mutationForParents(p1, p2)
+  if (!m) return 0
+  return Math.max(0, Math.min(1, m.chance + slotMutationBoost(slot)))
+}
+
 function slotExtraYield(slot: any): number {
   if (!slot.artifact) return 0
   const art = getArtifact(slot.artifact.typeId)
@@ -351,21 +357,30 @@ async function doCollect(slotId: string) {
                   <!-- Mutation preview -->
                   <div
                     v-if="mutationForParents(getParent(slot.id, 1), getParent(slot.id, 2))"
-                    class="rounded-xl border border-warning/30 bg-warning/5 p-3 space-y-2"
+                    class="rounded-xl border p-3 space-y-2"
+                    :class="effectiveMutationChance(slot, getParent(slot.id, 1), getParent(slot.id, 2)) > 0
+                      ? 'border-warning/30 bg-warning/5'
+                      : 'border-error/30 bg-error/5'"
                   >
                     <div class="flex items-center justify-between">
-                      <p class="text-xs font-bold text-warning uppercase tracking-wider">Possible Mutation</p>
-                      <!-- Chance with artifact boost -->
+                      <p
+                        class="text-xs font-bold uppercase tracking-wider"
+                        :class="effectiveMutationChance(slot, getParent(slot.id, 1), getParent(slot.id, 2)) > 0 ? 'text-warning' : 'text-error'"
+                      >Possible Mutation</p>
+                      <!-- Effective chance (clamped to 0) -->
                       <div class="flex items-center gap-1.5">
-                        <span v-if="slotMutationBoost(slot) > 0" class="text-xs text-muted line-through tabular-nums">
-                          {{ (mutationForParents(getParent(slot.id, 1), getParent(slot.id, 2))!.chance * 100).toFixed(0) }}%
-                        </span>
-                        <span class="text-xs font-black text-warning tabular-nums">
-                          {{ Math.min(100, Math.round((mutationForParents(getParent(slot.id, 1), getParent(slot.id, 2))!.chance + slotMutationBoost(slot)) * 100)) }}%
-                        </span>
-                        <span v-if="slotMutationBoost(slot) > 0" class="text-[10px] font-bold text-primary">
-                          +{{ Math.round(slotMutationBoost(slot) * 100) }}% 🧬
-                        </span>
+                        <span
+                          v-if="effectiveMutationChance(slot, getParent(slot.id, 1), getParent(slot.id, 2)) === 0"
+                          class="text-xs font-black text-error tabular-nums"
+                        >0% — artifact required</span>
+                        <template v-else>
+                          <span class="text-xs font-black text-warning tabular-nums">
+                            {{ Math.round(effectiveMutationChance(slot, getParent(slot.id, 1), getParent(slot.id, 2)) * 100) }}%
+                          </span>
+                          <span v-if="slotMutationBoost(slot) > 0" class="text-[10px] font-bold text-primary">
+                            +{{ Math.round(slotMutationBoost(slot) * 100) }}% 🧬
+                          </span>
+                        </template>
                       </div>
                     </div>
                     <div class="flex items-center gap-3">

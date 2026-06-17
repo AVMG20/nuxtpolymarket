@@ -3,7 +3,7 @@ import { db } from '#server/database'
 import { xenoGridSlots, xenoPlants, xenoArtifacts } from '#server/database/schema'
 import { auth } from '#server/utils/auth'
 import { computeGridDuration } from '#server/utils/xeno'
-import { getPlantOrThrow } from '#shared/utils/xeno'
+import { getPlantOrThrow, getArtifact } from '#shared/utils/xeno'
 
 export default defineEventHandler(async (event) => {
   const body = await readBody<{ slotId: string; typeId: string; speed: number; yield: number }>(event)
@@ -13,13 +13,23 @@ export default defineEventHandler(async (event) => {
   const userId = session.user.id
   if (!body.typeId) throw createError({ statusCode: 400, statusMessage: 'Provide typeId' })
 
-  getPlantOrThrow(body.typeId)
+  const plantType = getPlantOrThrow(body.typeId)
 
   const slot = await db.query.xenoGridSlots.findFirst({
     where: and(eq(xenoGridSlots.id, body.slotId), eq(xenoGridSlots.userId, userId)),
   })
   if (!slot) throw createError({ statusCode: 404, statusMessage: 'Slot not found' })
   if (slot.startedAt) throw createError({ statusCode: 400, statusMessage: 'Slot already has a plant' })
+
+  if (plantType.voidPlant) {
+    const artRecord = slot.artifactId
+      ? await db.query.xenoArtifacts.findFirst({ where: eq(xenoArtifacts.id, slot.artifactId) })
+      : null
+    const artType = artRecord ? getArtifact(artRecord.typeId) : null
+    if (!artType || artType.level < 2) {
+      throw createError({ statusCode: 400, statusMessage: 'Void plants require a tier II or higher artifact in this slot.' })
+    }
+  }
 
   const allOfStack = await db.query.xenoPlants.findMany({
     where: and(

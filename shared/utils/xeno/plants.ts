@@ -17,6 +17,8 @@ export interface PlantType {
   value: number
   description: string
   isStarter?: boolean
+  /** Void plants require a Void-Touched artifact in the grid slot to grow */
+  voidPlant?: boolean
 }
 
 // ─── T1 — Starter tier ──────────────────────────────────────────────────────
@@ -232,11 +234,108 @@ export const T5_PLANTS: PlantType[] = [
   },
   {
     id: 'etherform',
-    name: 'Etherform',
+    name: 'Voidweave',
     tier: 5, emoji: '✨', color: 'cyan',
     baseTime: 36000, // 10h, speed 5 → 18000s effective
     speed: 5, yield: 5, value: 1500,
-    description: 'The rarest plant. Max stats. Only obtainable via mutation.',
+    description: 'Void plant. Max T5 stats. Requires a tier II or higher artifact to grow.',
+    voidPlant: true,
+  },
+]
+
+// ─── T6 — Ethereal tier ─────────────────────────────────────────────────────
+// Max speed: 6 | Max yield: 6
+// Grow 16h–36h. Far beyond T5 — astronomically rare.
+
+export const T6_PLANTS: PlantType[] = [
+  {
+    id: 'dawnrift',
+    name: 'Dawnrift',
+    tier: 6, emoji: '☄️', color: 'amber',
+    baseTime: 57600,  // 16h, speed 6 → 23040s (6.4h) effective
+    speed: 6, yield: 1, value: 3200,
+    description: 'Blazing T6 organism. Fastest in its tier. Prime artifact material.',
+  },
+  {
+    id: 'voidlattice',
+    name: 'Voidlattice',
+    tier: 6, emoji: '🪸', color: 'teal',
+    baseTime: 129600, // 36h, speed 0 → 36h effective
+    speed: 0, yield: 6, value: 2800,
+    description: 'Crystalline void structure. Massive yield, glacial growth.',
+  },
+  {
+    id: 'nexusbloom',
+    name: 'Nexusbloom',
+    tier: 6, emoji: '🌊', color: 'sky',
+    baseTime: 86400,  // 24h, speed 3 → 60480s (16.8h) effective
+    speed: 3, yield: 3, value: 4200,
+    description: 'Balanced T6. Key ingredient for upper-tier mutations.',
+  },
+  {
+    id: 'stellarfrond',
+    name: 'Stellarfrond',
+    tier: 6, emoji: '💫', color: 'pink',
+    baseTime: 86400,  // 24h, speed 5 → 43200s (12h) effective
+    speed: 5, yield: 4, value: 6500,
+    description: 'Fast T6 with strong yield. Essential for high-tier artifact crafting.',
+  },
+  {
+    id: 'aetherix',
+    name: 'Voidrix',
+    tier: 6, emoji: '🧿', color: 'fuchsia',
+    baseTime: 108000, // 30h, speed 6 → 43200s (12h) effective
+    speed: 6, yield: 6, value: 12000,
+    description: 'Void plant. Max T6 stats. Requires a tier II or higher artifact to grow.',
+    voidPlant: true,
+  },
+]
+
+// ─── T7 — Singularity tier ──────────────────────────────────────────────────
+// Max speed: 7 | Max yield: 7
+// Grow 36h–72h. The absolute apex of xenoflora.
+
+export const T7_PLANTS: PlantType[] = [
+  {
+    id: 'tempest-spike',
+    name: 'Tempest Spike',
+    tier: 7, emoji: '🌪️', color: 'cyan',
+    baseTime: 129600, // 36h, speed 7 → 38880s (10.8h) effective
+    speed: 7, yield: 1, value: 14000,
+    description: 'Fastest T7 organism. Hypercharged artifact machine.',
+  },
+  {
+    id: 'abyssal-frond',
+    name: 'Abyssal Frond',
+    tier: 7, emoji: '🔱', color: 'indigo',
+    baseTime: 259200, // 72h, speed 0 → 72h effective
+    speed: 0, yield: 7, value: 11000,
+    description: 'Extreme yield over a punishing 3-day cycle. Max T7 yield.',
+  },
+  {
+    id: 'quantum-bloom',
+    name: 'Quantum Bloom',
+    tier: 7, emoji: '❄️', color: 'blue',
+    baseTime: 172800, // 48h, speed 4 → 103680s (28.8h) effective
+    speed: 4, yield: 4, value: 20000,
+    description: 'Balanced T7. Rare from T6 crossing.',
+  },
+  {
+    id: 'starcore',
+    name: 'Starcore',
+    tier: 7, emoji: '🌠', color: 'violet',
+    baseTime: 216000, // 60h, speed 6 → 86400s (24h) effective
+    speed: 6, yield: 5, value: 35000,
+    description: 'Near-max T7 stats. Requires crossing max T6 plants.',
+  },
+  {
+    id: 'singularity',
+    name: 'Void Apex',
+    tier: 7, emoji: '💥', color: 'orange',
+    baseTime: 172800, // 48h, speed 7 → 51840s (14.4h) effective
+    speed: 7, yield: 7, value: 50000,
+    description: 'Void plant. Max T7 stats. The rarest organism in existence.',
+    voidPlant: true,
   },
 ]
 
@@ -246,6 +345,8 @@ export const PLANT_TYPES: PlantType[] = [
   ...T3_PLANTS,
   ...T4_PLANTS,
   ...T5_PLANTS,
+  ...T6_PLANTS,
+  ...T7_PLANTS,
 ]
 
 export function getPlant(id: string): PlantType | undefined {

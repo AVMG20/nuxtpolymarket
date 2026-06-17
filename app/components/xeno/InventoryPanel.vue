@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import {
   plantCardBg, plantRing, plantColor, levelTextColor,
-  ARTIFACT_TYPES, getArtifact, getPlant, SPEED_REDUCTION_PER_LEVEL,
+  ARTIFACT_TYPES, getArtifact, getPlant, ARTIFACT_SPEED_PER_LEVEL,
   type ArtifactType,
 } from '#shared/utils/xeno'
 
@@ -81,7 +81,7 @@ function getArtifactDef(typeId: string) {
 }
 
 const MUTATION_PER_LEVEL = 0.05
-function toSpeedLevel(pct: number) { return Math.round(Math.round(pct * 1000) / Math.round(SPEED_REDUCTION_PER_LEVEL * 1000)) }
+function toSpeedLevel(pct: number) { return Math.round(Math.round(pct * 1000) / Math.round(ARTIFACT_SPEED_PER_LEVEL * 1000)) }
 function toMutLevel(pct: number) { return Math.ceil(Math.round(pct * 1000) / Math.round(MUTATION_PER_LEVEL * 1000)) }
 
 const MAX_CHARGES     = Math.max(...ARTIFACT_TYPES.map(a => a.maxCharges))
@@ -100,8 +100,8 @@ function specRows(art: ArtifactType | undefined) {
   const bSpeedE = art.effects.find(e => e.type === 'breeder_speed_boost')
   if (art.effects.some(e => e.type.startsWith('grid_'))) {
     return [
-      { label: 'Speed',    lvl: speedE ? toSpeedLevel(speedE.value) : 0, max: MAX_SPEED_LVL,   color: 'bg-warning' },
-      { label: 'Yield',    lvl: yieldE ? yieldE.value : 0,               max: MAX_YIELD_LVL,   color: 'bg-info' },
+      { label: 'Speed', lvl: speedE ? toSpeedLevel(speedE.value) : 0, max: MAX_SPEED_LVL, color: 'bg-warning' },
+      { label: 'Yield', lvl: yieldE ? yieldE.value : 0,               max: MAX_YIELD_LVL, color: 'bg-info' },
     ]
   }
   return [

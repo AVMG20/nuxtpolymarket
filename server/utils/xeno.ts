@@ -77,7 +77,7 @@ export function computeBreedResult(
   // Try each possible mutation in table order; stop at the first that fires
   const possibleMutations = getMutationPair(p1.typeId, p2.typeId)
   for (const mutation of possibleMutations) {
-    const effectiveChance = Math.min(1, mutation.chance + options.mutationBoost)
+    const effectiveChance = Math.max(0, Math.min(1, mutation.chance + options.mutationBoost))
     if (Math.random() < effectiveChance) {
       const offspring = getPlant(mutation.offspring)!
       resultTypeId = mutation.offspring
