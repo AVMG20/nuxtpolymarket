@@ -13,11 +13,13 @@ const tierFilter = ref(0)
 
 const filteredInventory = computed(() => {
   const q = searchQuery.value.toLowerCase()
-  return (inventory.value || []).filter((item: any) => {
-    if (tierFilter.value !== 0 && item.tier !== tierFilter.value) return false
-    if (q && !item.name.toLowerCase().includes(q)) return false
-    return true
-  })
+  return (inventory.value || [])
+    .filter((item: any) => {
+      if (tierFilter.value !== 0 && item.tier !== tierFilter.value) return false
+      if (q && !item.name.toLowerCase().includes(q)) return false
+      return true
+    })
+    .sort((a: any, b: any) => b.value - a.value)
 })
 
 function buyPrice(plant: { value: number; yield: number; speed: number }): number {
@@ -188,7 +190,7 @@ function growTime(item: any) {
 
           <!-- Price per unit -->
           <div class="text-right shrink-0 hidden sm:block">
-            <p class="text-xs text-muted tabular-nums">${{ formatNumber(item.value, false) }} ea</p>
+            <p class="text-xs text-muted tabular-nums flex items-center gap-1"><CoinBalance :value="item.value" :compact="false" /> ea</p>
           </div>
 
           <!-- Sell buttons -->
@@ -261,7 +263,7 @@ function growTime(item: any) {
 
           <!-- Price per unit -->
           <div class="text-right shrink-0 hidden sm:block">
-            <p class="text-xs text-muted tabular-nums">${{ formatNumber(plant.buyPrice, false) }} ea</p>
+            <p class="text-xs text-muted tabular-nums flex items-center gap-1"><CoinBalance :value="plant.buyPrice" :compact="false" /> ea</p>
           </div>
 
           <!-- Buy buttons -->
@@ -277,7 +279,7 @@ function growTime(item: any) {
               @click="doBuy(plant.id, qty)"
             >
               <span class="tabular-nums font-semibold">×{{ qty }}</span>
-              <span class="text-xs text-muted ml-1 tabular-nums">${{ formatNumber(plant.buyPrice * qty, false) }}</span>
+              <CoinBalance :value="plant.buyPrice * qty" :compact="false" class="text-xs text-muted ml-1" />
             </UButton>
           </div>
         </div>
@@ -298,9 +300,10 @@ function growTime(item: any) {
           {{ confirmSell.item.name }}</span> (S{{ confirmSell.item.speed }} Y{{ confirmSell.item.yield }}).
           This will leave you with <span class="font-bold text-error">0</span> of this stack.
         </p>
-        <p class="text-sm font-semibold">
-          Total: ${{ formatNumber(confirmSell.item.value * confirmSell.item.quantity, false) }}
-        </p>
+        <div class="flex items-center gap-1.5 text-sm font-semibold">
+          <span>Total:</span>
+          <CoinBalance :value="confirmSell.item.value * confirmSell.item.quantity" :compact="false" />
+        </div>
         <div class="flex gap-2 justify-end">
           <UButton variant="ghost" color="neutral" label="Cancel" @click="confirmSell = null" />
           <UButton

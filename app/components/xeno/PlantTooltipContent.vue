@@ -50,11 +50,11 @@ const avgValue = computed(() => props.value * (1 + props.yield / 2))
       </div>
       <div class="flex justify-between text-xs">
         <span class="text-muted uppercase tracking-wider font-semibold">Value</span>
-        <span class="font-mono">${{ formatNumber(value, false) }}</span>
+        <CoinBalance :showIcon="false" :value="value" :compact="false" />
       </div>
       <div class="flex justify-between text-xs">
         <span class="text-muted uppercase tracking-wider font-semibold">Avg value</span>
-        <span class="font-mono">${{ formatNumber(avgValue, false) }}</span>
+        <CoinBalance :showIcon="false" :value="avgValue" :compact="false" />
       </div>
     </div>
 

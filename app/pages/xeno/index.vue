@@ -418,7 +418,7 @@ function artifactLevel(typeId: string): string {
                 class="size-4 text-muted"
                 :class="unlocking ? 'animate-spin' : ''"
               />
-              <p class="text-xs text-muted/70">${{ formatNumber(cell.cost, false) }}</p>
+              <CoinBalance :value="cell.cost" :compact="false" class="text-xs text-muted/70" />
             </div>
 
             <!-- LOCKED — future -->

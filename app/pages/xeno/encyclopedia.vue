@@ -174,8 +174,8 @@ function tierMutations(tier: number) {
                     </div>
                     <div class="flex justify-between text-xs">
                       <span class="text-muted uppercase tracking-wider font-semibold">Value</span>
-                      <span class="font-mono">
-                        ${{ formatNumber(plant.value, false) }}–${{ formatNumber(plant.value * (1 + plant.yield), false) }}
+                      <span class="font-mono flex items-center gap-0.5">
+                        <CoinBalance :value="plant.value" :compact="false" :show-icon="false" />–<CoinBalance :value="plant.value * (1 + plant.yield)" :compact="false" :show-icon="false" />
                       </span>
                     </div>
                   </div>
@@ -269,7 +269,9 @@ function tierMutations(tier: number) {
                     </div>
                     <div class="flex justify-between text-xs">
                       <span class="text-muted uppercase tracking-wider font-semibold">Value</span>
-                      <span class="font-mono">${{ formatNumber(plant.value, false) }}–${{ formatNumber(plant.value * (1 + plant.yield), false) }}</span>
+                      <span class="font-mono flex items-center gap-0.5">
+                        <CoinBalance :value="plant.value" :compact="false" :show-icon="false" />–<CoinBalance :value="plant.value * (1 + plant.yield)" :compact="false" :show-icon="false" />
+                      </span>
                     </div>
                   </div>
 
