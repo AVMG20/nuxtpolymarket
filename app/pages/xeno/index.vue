@@ -329,8 +329,7 @@ function slotYieldBonus(slot: any): number {
               <div class="shrink-0 mt-1">
                 <div class="h-1 rounded-full bg-white/10 overflow-hidden">
                   <div
-                    class="h-full rounded-full"
-                    :class="isDone(cell.slot.plant.completesAt) ? 'bg-white' : 'bg-success'"
+                    class="h-full rounded-full bg-primary"
                     :style="{ width: `${progressPct(cell.slot.plant.startedAt, cell.slot.plant.completesAt, now)}%` }"
                   />
                 </div>

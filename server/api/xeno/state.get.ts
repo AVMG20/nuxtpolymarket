@@ -110,6 +110,7 @@ export default defineEventHandler(async (event) => {
   return {
     initialized,
     inventory,
+    unlockedTypeIds: [...new Set(plants.map(p => p.typeId))],
     freeArtifacts: freeArtifacts.map(a => ({
       id: a.id, typeId: a.typeId, chargesRemaining: a.chargesRemaining,
     })),

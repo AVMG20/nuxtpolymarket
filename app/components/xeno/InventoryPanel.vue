@@ -1,11 +1,9 @@
 <script setup lang="ts">
 import {
-  tierColor, plantColor, plantCardBg, plantRing, levelTextColor,
+  plantCardBg, plantRing, plantColor, levelTextColor,
   ARTIFACT_TYPES, getArtifact, getPlant,
-  effectiveGrowTime,
   type ArtifactType,
 } from '#shared/utils/xeno'
-import { formatDuration } from '~/utils/xeno-format'
 
 const props = defineProps<{
   inventory: any[]
@@ -20,7 +18,6 @@ const emit = defineEmits<{
 }>()
 
 const activeTab = ref<'seeds' | 'artifacts'>('seeds')
-const { virtualEl: cursorEl, track: trackCursor } = useTooltipCursor()
 
 function onSelectPlant(item: any) {
   const key = `${item.typeId}:${item.speed}:${item.yield}`
@@ -132,56 +129,26 @@ function getArtifactDef(typeId: string) {
         v-for="item in sortedInventory"
         :key="`${item.typeId}:${item.speed}:${item.yield}`"
         :delay-duration="300"
-        :reference="cursorEl"
-        :content="{ side: 'bottom', sideOffset: 12 }"
+        :content="{ side: 'left', sideOffset: 8 }"
       >
         <template #content>
-          <div class="w-56 p-3 space-y-3 bg-elevated border border-default rounded-xl shadow-xl">
-            <div class="flex items-start justify-between gap-2">
-              <div>
-                <p class="font-bold text-sm">{{ item.name }}</p>
-                <p class="text-xs font-bold uppercase tracking-wider mt-0.5" :class="plantColor(item.color)">
-                  {{ item.quantity }} remaining
-                </p>
-              </div>
-              <XenoTierLabel :tier="item.tier" class="bg-elevated border border-default rounded-full px-2 py-0.5 shrink-0" />
-            </div>
-
-            <USeparator />
-
-            <div class="space-y-1.5">
-              <XenoStatLevel label="Speed" :level="item.speed" color="bg-warning" />
-              <XenoStatLevel label="Yield" :level="item.yield" color="bg-info" />
-            </div>
-
-            <USeparator />
-
-            <div class="space-y-1">
-              <div class="flex justify-between text-xs">
-                <span class="text-muted uppercase tracking-wider font-semibold">Growth</span>
-                <span class="font-mono">{{ formatDuration(effectiveGrowTime({ baseTime: item.baseTime, speed: item.speed })) }}</span>
-              </div>
-              <div class="flex justify-between text-xs">
-                <span class="text-muted uppercase tracking-wider font-semibold">Yield</span>
-                <span class="font-mono">1–{{ 1 + item.yield }} units</span>
-              </div>
-              <div class="flex justify-between text-xs">
-                <span class="text-muted uppercase tracking-wider font-semibold">Value</span>
-                <span class="font-mono">
-                  ${{ formatNumber(item.value, false) }}–${{ formatNumber(item.value * (1 + item.yield), false) }}
-                </span>
-              </div>
-            </div>
-
-            <p v-if="item.description" class="text-xs text-muted/70 italic">{{ item.description }}</p>
-          </div>
+          <XenoPlantTooltipContent
+            :name="item.name"
+            :tier="item.tier"
+            :color="item.color"
+            :speed="item.speed"
+            :yield="item.yield"
+            :base-time="item.baseTime"
+            :value="item.value"
+            :description="item.description"
+            :quantity="item.quantity"
+          />
         </template>
 
         <button
           class="relative flex flex-col rounded-xl border border-default aspect-square w-full overflow-hidden transition-all duration-100"
           :class="[plantCardBg(item.color), selectedPlantKey === `${item.typeId}:${item.speed}:${item.yield}` ? plantRing(item.color) : '']"
           @click="onSelectPlant(item)"
-          @mousemove.passive="trackCursor"
         >
           <!-- Tier + qty header -->
           <div class="flex items-center justify-between px-1.5 pt-1.5 shrink-0">

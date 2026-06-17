@@ -28,6 +28,7 @@ export const useXeno = () => {
   )
 
   const freeArtifacts = computed(() => state.value?.freeArtifacts ?? [])
+  const unlockedTypeIds = computed<string[]>(() => state.value?.unlockedTypeIds ?? [])
 
   async function call(url: string, body: Record<string, any>, successMsg: string): Promise<any> {
     try {
@@ -114,6 +115,13 @@ export const useXeno = () => {
     return call('/api/xeno/artifacts/buy', { artifactTypeId }, 'Artifact crafted!')
   }
 
+  async function buyPlants(typeId: string, quantity: number) {
+    const res = await call('/api/xeno/market/buy', { typeId, quantity }, '')
+    if (res) toast.add({ title: `Bought ${res.bought} plant(s) for $${formatNumber(res.total, false)}`, color: 'success' })
+    await fetchSession()
+    return res
+  }
+
   return {
     state,
     refresh,
@@ -124,6 +132,7 @@ export const useXeno = () => {
     breederSlots,
     inventory,
     freeArtifacts,
+    unlockedTypeIds,
     initGame,
     unlockGridSlot,
     plantInSlot,
@@ -138,6 +147,7 @@ export const useXeno = () => {
     attachBreederArtifact,
     removeBreederArtifact,
     sellPlants,
+    buyPlants,
     buyArtifact,
   }
 }
