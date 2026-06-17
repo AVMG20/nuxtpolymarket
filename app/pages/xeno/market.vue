@@ -1,8 +1,20 @@
 <script setup lang="ts">
-import { tierLabel, tierColor, plantBgOnly, getPlant, effectiveGrowTime } from '#shared/utils/xeno'
+import { tierLabel, tierColor, plantColor, plantBgOnly, getPlant, effectiveGrowTime } from '#shared/utils/xeno'
 import { formatDuration } from '~/utils/xeno-format'
 
 const { inventory, sellPlants } = useXeno()
+
+const searchQuery = ref('')
+const tierFilter = ref(0)
+
+const filteredInventory = computed(() => {
+  const q = searchQuery.value.toLowerCase()
+  return (inventory.value || []).filter((item: any) => {
+    if (tierFilter.value !== 0 && item.tier !== tierFilter.value) return false
+    if (q && !item.name.toLowerCase().includes(q)) return false
+    return true
+  })
+})
 
 const selling = ref<Record<string, boolean>>({})
 
@@ -30,22 +42,46 @@ function growTime(item: any) {
       <p class="text-sm text-muted mt-0.5">Sell your xenoflora for cash.</p>
     </div>
 
+    <!-- Filters -->
+    <div class="flex gap-2 mb-4">
+      <UInput
+        v-model="searchQuery"
+        placeholder="Search plants…"
+        icon="i-lucide-search"
+        size="sm"
+        class="flex-1"
+      />
+      <USelect
+        v-model="tierFilter"
+        :items="[
+          { label: 'All tiers', value: 0 },
+          { label: 'T1', value: 1 },
+          { label: 'T2', value: 2 },
+          { label: 'T3', value: 3 },
+          { label: 'T4', value: 4 },
+          { label: 'T5', value: 5 },
+        ]"
+        size="sm"
+        class="w-28"
+      />
+    </div>
+
     <div v-if="!inventory" class="space-y-2">
       <USkeleton v-for="i in 4" :key="i" class="h-20 rounded-xl" />
     </div>
 
     <div v-else class="space-y-2">
-      <div v-if="!inventory.length" class="text-sm text-muted py-12 text-center">
-        No plants in inventory.
+      <div v-if="!filteredInventory.length" class="text-sm text-muted py-12 text-center">
+        {{ inventory.length ? 'No plants match your filter.' : 'No plants in inventory.' }}
       </div>
 
       <div
-        v-for="item in inventory"
+        v-for="item in filteredInventory"
         :key="stackKey(item)"
         class="rounded-xl border border-default px-4 py-3 flex items-center gap-4"
         :class="plantBgOnly(item.color)"
       >
-        <!-- Emoji + qty (fixed position) -->
+        <!-- Emoji + qty -->
         <div class="shrink-0 flex flex-col items-center gap-1.5 w-10">
           <span class="text-2xl leading-none">{{ item.emoji }}</span>
           <span class="text-xs font-black text-success tabular-nums leading-none">×{{ item.quantity }}</span>
@@ -54,8 +90,8 @@ function growTime(item: any) {
         <!-- Plant info -->
         <div class="flex-1 min-w-0">
           <div class="flex items-center gap-1.5">
-            <p class="font-bold text-sm" :class="tierColor(item.tier)">{{ item.name }}</p>
-            <span class="text-xs font-bold" :class="tierColor(item.tier)">{{ tierLabel(item.tier) }}</span>
+            <p class="font-bold text-sm" :class="plantColor(item.color)">{{ item.name }}</p>
+            <XenoTierLabel :tier="item.tier" />
           </div>
           <div class="flex items-center gap-1.5 mt-0.5">
             <XenoLevelBadge prefix="S" :level="item.speed" />
@@ -69,7 +105,7 @@ function growTime(item: any) {
           <p class="text-xs text-muted tabular-nums">${{ formatNumber(item.value, false) }} ea</p>
         </div>
 
-        <!-- Sell buttons — always show all three, disabled when insufficient qty -->
+        <!-- Sell buttons -->
         <div class="flex flex-col gap-1 shrink-0">
           <div class="flex gap-1">
             <UButton
@@ -77,7 +113,7 @@ function growTime(item: any) {
               :key="qty"
               size="xs"
               variant="soft"
-              color="neutral"
+              color="success"
               :disabled="qty > item.quantity"
               :loading="selling[`${stackKey(item)}-${qty}`]"
               @click="doSell(item, qty)"
@@ -88,7 +124,7 @@ function growTime(item: any) {
           </div>
           <UButton
             size="xs"
-            color="error"
+            color="success"
             variant="soft"
             block
             :loading="selling[`${stackKey(item)}-${item.quantity}`]"

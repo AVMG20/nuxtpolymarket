@@ -25,7 +25,7 @@ export default defineEventHandler(async (event) => {
   if (slot.artifactId) throw createError({ statusCode: 400, statusMessage: 'Slot already has an artifact' })
 
   const artType = getArtifactOrThrow(artifact.typeId)
-  if (!artType.effect.type.startsWith('grid_')) {
+  if (!artType.effects.some(e => e.type.startsWith('grid_'))) {
     throw createError({ statusCode: 400, statusMessage: 'This artifact can only be used in a breeder slot' })
   }
 

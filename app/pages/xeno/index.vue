@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {
-  gridSlotUnlockCost, tierLabel, getArtifact, getPlant,
+  gridSlotUnlockCost, getArtifact, getEffectValue, getPlant,
   plantColor, plantBgOnly,
 } from '#shared/utils/xeno'
 import { formatCountdown, progressPct, isDone } from '~/utils/xeno-format'
@@ -208,7 +208,7 @@ function isArtifactTargetable(cell: any): boolean {
 function slotYieldBonus(slot: any): number {
   if (!slot?.artifact) return 0
   const art = getArtifact(slot.artifact.typeId)
-  return art?.effect.type === 'grid_yield_bonus' ? art.effect.value : 0
+  return art ? getEffectValue(art, 'grid_yield_bonus') : 0
 }
 </script>
 
@@ -245,7 +245,7 @@ function slotYieldBonus(slot: any): number {
               icon="i-lucide-package-2"
               label="Harvest All"
               variant="soft"
-              color="success"
+              color="primary"
               size="sm"
               :loading="harvestingAll"
               @click="doHarvestAll"
@@ -429,7 +429,7 @@ function slotYieldBonus(slot: any): number {
             <span class="text-xl leading-none">{{ selectedPlant.emoji }}</span>
             <div class="flex items-center gap-2 min-w-0">
               <p class="text-sm font-semibold truncate">{{ selectedPlant.name }}</p>
-              <span class="text-xs font-bold shrink-0" :class="plantColor(selectedPlant.color)">{{ tierLabel(selectedPlant.tier) }}</span>
+              <XenoTierLabel :tier="selectedPlant.tier" class="shrink-0" />
               <span class="text-xs text-muted shrink-0 hidden sm:inline">S{{ selectedPlant.speed }} · Y{{ selectedPlant.yield }}</span>
             </div>
             <div class="ml-auto flex items-center gap-3 shrink-0">

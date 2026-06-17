@@ -2,7 +2,7 @@ import { eq, and } from 'drizzle-orm'
 import { db } from '#server/database'
 import { xenoBreederSlots, xenoArtifacts } from '#server/database/schema'
 import { auth } from '#server/utils/auth'
-import { getArtifactOrThrow } from '#shared/utils/xeno'
+import { getArtifactOrThrow, hasEffect } from '#shared/utils/xeno'
 
 export default defineEventHandler(async (event) => {
   const body = await readBody<{ slotId: string; artifactId: string }>(event)
@@ -28,7 +28,7 @@ export default defineEventHandler(async (event) => {
   }
 
   const artType = getArtifactOrThrow(artifact.typeId)
-  if (!artType.effect.type.startsWith('breeder_')) {
+  if (!artType.effects.some(e => e.type.startsWith('breeder_'))) {
     throw createError({ statusCode: 400, statusMessage: 'This artifact can only be used in a grid slot' })
   }
 

@@ -10,9 +10,11 @@ import {
   levelTextColor,
   effectiveGrowTime,
 } from '#shared/utils/xeno'
+
 import { formatDuration } from '~/utils/xeno-format'
 
 const { inventory, gridSlots } = useXeno()
+const { virtualEl: cursorEl, track: trackCursor } = useTooltipCursor()
 
 // ── Discovery logic ──────────────────────────────────────────────────────────
 // A plant type is "discovered" if the user currently has any in inventory or planted in grid.
@@ -95,7 +97,7 @@ function tierMutations(tier: number) {
           >
             TIER {{ tier }}
           </span>
-          <p class="text-sm font-semibold text-muted">{{ label }}</p>
+          <p class="text-sm font-semibold" :class="tierColor(tier)">{{ label }}</p>
           <div class="flex-1 h-px bg-default/40" />
           <p class="text-xs text-muted">
             {{ plants.filter(p => discoveredIds.has(p.id)).length }}/{{ plants.length }}
@@ -128,36 +130,26 @@ function tierMutations(tier: number) {
             v-for="plant in plants"
             :key="plant.id"
             :delay-duration="200"
+            :reference="cursorEl"
+            :content="{ side: 'bottom', sideOffset: 12 }"
           >
             <template #content>
               <div class="w-64 p-3 space-y-3 bg-elevated border border-default rounded-xl shadow-xl">
                 <!-- Tooltip header -->
-                <div class="flex items-start justify-between gap-2">
-                  <div class="flex items-center gap-2">
-                    <span class="text-2xl leading-none">
-                      {{ discoveredIds.has(plant.id) ? plant.emoji : '?' }}
-                    </span>
-                    <div>
-                      <p class="font-bold text-sm">{{ plant.name }}</p>
-                      <span
-                        class="text-xs font-bold uppercase tracking-wider"
-                        :class="discoveredIds.has(plant.id) ? tierColor(plant.tier) : 'text-muted'"
-                      >
-                        {{ tierLabel(plant.tier) }}
-                        <span v-if="plant.isMutation"> · Mutation</span>
-                        <span v-else-if="plant.isStarter"> · Starter</span>
-                      </span>
+                <template v-if="discoveredIds.has(plant.id)">
+                  <div class="flex items-start justify-between gap-2">
+                    <div class="flex items-center gap-2">
+                      <span class="text-2xl leading-none">{{ plant.emoji }}</span>
+                      <div>
+                        <p class="font-bold text-sm">{{ plant.name }}</p>
+                        <XenoTierLabel :tier="plant.tier" />
+                      </div>
                     </div>
                   </div>
-                  <div v-if="!discoveredIds.has(plant.id)" class="shrink-0">
-                    <UIcon name="i-lucide-lock" class="size-4 text-muted" />
-                  </div>
-                </div>
 
-                <USeparator />
+                  <USeparator />
 
-                <!-- Stats (discovered only) -->
-                <template v-if="discoveredIds.has(plant.id)">
+                  <!-- Stats (discovered only) -->
                   <div class="space-y-1.5">
                     <XenoStatLevel label="Speed" :level="plant.speed" color="bg-warning" />
                     <XenoStatLevel label="Yield" :level="plant.yield" color="bg-info" />
@@ -180,7 +172,7 @@ function tierMutations(tier: number) {
                     </div>
                     <div class="flex justify-between text-xs">
                       <span class="text-muted uppercase tracking-wider font-semibold">Value</span>
-                      <span class="font-mono" :class="plantColor(plant.color)">
+                      <span class="font-mono">
                         ${{ formatNumber(plant.value, false) }}–${{ formatNumber(plant.value * (1 + plant.yield), false) }}
                       </span>
                     </div>
@@ -235,82 +227,131 @@ function tierMutations(tier: number) {
 
                 <!-- Undiscovered state -->
                 <template v-else>
-                  <div class="space-y-1.5 opacity-40">
-                    <XenoStatLevel label="Speed" :level="0" color="bg-warning" />
-                    <XenoStatLevel label="Yield" :level="0" color="bg-info" />
-                  </div>
-                  <USeparator />
-                  <p class="text-xs text-muted text-center py-1">Not yet discovered</p>
-                  <div v-if="parentsOf(plant.id).length">
-                    <p class="text-xs font-bold uppercase tracking-wider text-muted mb-1">Hint: How to get</p>
-                    <div class="space-y-1">
-                      <div
-                        v-for="m in parentsOf(plant.id)"
-                        :key="`${m.parent1}-${m.parent2}`"
-                        class="text-xs text-muted flex items-center gap-1"
-                      >
-                        <span>{{ getPlantById(m.parent1)?.emoji }}</span>
-                        <span>+</span>
-                        <span>{{ getPlantById(m.parent2)?.emoji }}</span>
-                        <span class="text-muted/60">→</span>
-                        <span class="font-semibold">{{ (m.chance * 100).toFixed(0) }}%</span>
+                  <!-- Header: emoji + name + lock -->
+                  <div class="flex items-start justify-between gap-2">
+                    <div class="flex items-center gap-2">
+                      <span class="text-2xl leading-none grayscale opacity-50">{{ plant.emoji }}</span>
+                      <div>
+                        <p class="font-bold text-sm text-default/50">{{ plant.name }}</p>
+                        <span class="text-xs font-bold uppercase tracking-wider text-muted/40">
+                          {{ tierLabel(plant.tier) }}
+                          <span v-if="plant.isMutation"> · Mutation</span>
+                          <span v-else-if="plant.isStarter"> · Starter</span>
+                        </span>
                       </div>
                     </div>
+                    <UIcon name="i-lucide-lock" class="size-4 text-muted/40 shrink-0 mt-0.5" />
                   </div>
-                  <template v-else-if="plant.isStarter">
-                    <p class="text-xs text-muted">Starter plant.</p>
-                  </template>
+
+                  <USeparator />
+
+                  <div class="space-y-1.5 opacity-40">
+                    <XenoStatLevel label="Speed" :level="plant.speed" color="bg-warning" />
+                    <XenoStatLevel label="Yield" :level="plant.yield" color="bg-info" />
+                  </div>
+
+                  <USeparator />
+
+                  <div class="space-y-1 opacity-40">
+                    <div class="flex justify-between text-xs">
+                      <span class="text-muted uppercase tracking-wider font-semibold">Base Time</span>
+                      <span class="font-mono">{{ formatDuration(plant.baseTime) }}</span>
+                    </div>
+                    <div class="flex justify-between text-xs">
+                      <span class="text-muted uppercase tracking-wider font-semibold">Effective</span>
+                      <span class="font-mono">{{ formatDuration(effectiveGrowTime(plant)) }}</span>
+                    </div>
+                    <div class="flex justify-between text-xs">
+                      <span class="text-muted uppercase tracking-wider font-semibold">Yield</span>
+                      <span class="font-mono">1–{{ 1 + plant.yield }} units</span>
+                    </div>
+                    <div class="flex justify-between text-xs">
+                      <span class="text-muted uppercase tracking-wider font-semibold">Value</span>
+                      <span class="font-mono">${{ formatNumber(plant.value, false) }}–${{ formatNumber(plant.value * (1 + plant.yield), false) }}</span>
+                    </div>
+                  </div>
+
+                  <USeparator />
+
+                  <div>
+                    <p class="text-xs font-bold uppercase tracking-wider text-muted mb-1.5">How to unlock</p>
+                    <template v-if="plant.isStarter">
+                      <p class="text-xs text-muted">Starter plant — available from the beginning.</p>
+                    </template>
+                    <template v-else-if="parentsOf(plant.id).length">
+                      <div class="space-y-1">
+                        <div
+                          v-for="m in parentsOf(plant.id)"
+                          :key="`${m.parent1}-${m.parent2}`"
+                          class="text-xs text-muted flex items-center gap-1"
+                        >
+                          <span>{{ getPlantById(m.parent1)?.emoji }}</span>
+                          <span>+</span>
+                          <span>{{ getPlantById(m.parent2)?.emoji }}</span>
+                          <span class="text-muted/60">→</span>
+                          <span class="font-semibold text-default">{{ (m.chance * 100).toFixed(0) }}%</span>
+                        </div>
+                      </div>
+                    </template>
+                    <template v-else>
+                      <p class="text-xs text-muted">No known mutation recipe.</p>
+                    </template>
+                  </div>
+
+                  <p v-if="plant.description" class="text-xs text-muted/40 italic">{{ plant.description }}</p>
                 </template>
               </div>
             </template>
 
-            <!-- Card — game-style layout (matches inventory panel) -->
+            <!-- Card — same layout for all plants; undiscovered shown grayed -->
             <div
               class="rounded-xl border border-default aspect-square flex flex-col overflow-hidden cursor-default transition-all relative"
-              :class="discoveredIds.has(plant.id)
-                ? plantCardBg(plant.color)
-                : 'opacity-40'"
+              :class="discoveredIds.has(plant.id) ? plantCardBg(plant.color) : 'bg-elevated/20'"
+              @mousemove.passive="trackCursor"
             >
-              <!-- Undiscovered -->
-              <template v-if="!discoveredIds.has(plant.id)">
-                <div class="flex-1 flex flex-col items-center justify-center gap-1">
-                  <UIcon name="i-lucide-lock" class="size-5 text-muted/50" />
-                </div>
-                <p class="text-xs font-semibold text-muted text-center px-1.5 pb-2 leading-tight">{{ plant.name }}</p>
-              </template>
+              <!-- Tier + mutation badge header -->
+              <div class="flex items-center justify-between px-2 pt-2 shrink-0">
+                <XenoTierLabel
+                  :tier="plant.tier"
+                  :class="!discoveredIds.has(plant.id) && 'opacity-30'"
+                />
+                <span v-if="plant.isMutation && discoveredIds.has(plant.id)" class="text-xs leading-none">✨</span>
+                <UIcon v-else-if="!discoveredIds.has(plant.id)" name="i-lucide-lock" class="size-3 text-muted/25" />
+              </div>
 
-              <!-- Discovered -->
-              <template v-else>
-                <!-- Tier + mutation badge header -->
-                <div class="flex items-center justify-between px-2 pt-2 shrink-0">
-                  <span
-                    class="text-xs font-bold leading-none"
-                    :class="plantColor(plant.color)"
-                  >{{ tierLabel(plant.tier) }}</span>
-                  <span v-if="plant.isMutation" class="text-xs leading-none">✨</span>
-                </div>
+              <!-- Emoji -->
+              <div class="flex-1 flex items-center justify-center">
+                <span
+                  class="text-5xl leading-none select-none transition-all"
+                  :class="!discoveredIds.has(plant.id) && 'grayscale opacity-20'"
+                >{{ plant.emoji }}</span>
+              </div>
 
-                <!-- Emoji -->
-                <div class="flex-1 flex items-center justify-center">
-                  <span class="text-5xl leading-none select-none">{{ plant.emoji }}</span>
-                </div>
+              <!-- Name -->
+              <p
+                class="text-xs font-bold text-center px-1.5 mb-1.5 truncate"
+                :class="discoveredIds.has(plant.id) ? plantColor(plant.color) : 'text-muted/30'"
+              >{{ plant.name }}</p>
 
-                <!-- Name -->
-                <p class="text-xs font-bold text-center px-1.5 mb-1.5 truncate">{{ plant.name }}</p>
-
-                <!-- Stat strip -->
-                <div class="flex divide-x border-t bg-black/15 dark:bg-black/35"
-                     style="border-color: rgba(0,0,0,0.12)">
-                  <div class="flex-1 flex items-center justify-center gap-1 py-1.5">
-                    <UIcon name="i-lucide-zap" class="size-3 shrink-0" :class="levelTextColor(plant.speed)" />
-                    <span class="text-xs font-black tabular-nums" :class="levelTextColor(plant.speed)">{{ plant.speed }}</span>
-                  </div>
-                  <div class="flex-1 flex items-center justify-center gap-1 py-1.5">
-                    <UIcon name="i-lucide-gem" class="size-3 shrink-0" :class="levelTextColor(plant.yield)" />
-                    <span class="text-xs font-black tabular-nums" :class="levelTextColor(plant.yield)">{{ plant.yield }}</span>
-                  </div>
+              <!-- Stat strip -->
+              <div
+                class="flex divide-x border-t bg-black/15 dark:bg-black/35"
+                :class="!discoveredIds.has(plant.id) && 'opacity-20'"
+                style="border-color: rgba(0,0,0,0.12)"
+              >
+                <div class="flex-1 flex items-center justify-center gap-1 py-1.5">
+                  <UIcon name="i-lucide-zap" class="size-3 shrink-0" :class="discoveredIds.has(plant.id) ? levelTextColor(plant.speed) : 'text-muted'" />
+                  <span class="text-xs font-black tabular-nums" :class="discoveredIds.has(plant.id) ? levelTextColor(plant.speed) : 'text-muted'">
+                    {{ discoveredIds.has(plant.id) ? plant.speed : '?' }}
+                  </span>
                 </div>
-              </template>
+                <div class="flex-1 flex items-center justify-center gap-1 py-1.5">
+                  <UIcon name="i-lucide-gem" class="size-3 shrink-0" :class="discoveredIds.has(plant.id) ? levelTextColor(plant.yield) : 'text-muted'" />
+                  <span class="text-xs font-black tabular-nums" :class="discoveredIds.has(plant.id) ? levelTextColor(plant.yield) : 'text-muted'">
+                    {{ discoveredIds.has(plant.id) ? plant.yield : '?' }}
+                  </span>
+                </div>
+              </div>
             </div>
           </UTooltip>
         </div>

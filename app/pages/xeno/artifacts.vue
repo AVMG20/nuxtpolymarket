@@ -6,8 +6,8 @@ const { inventory, freeArtifacts, buyArtifact } = useXeno()
 const activeTab = ref<'grid' | 'breeder'>('grid')
 const buying = ref<Record<string, boolean>>({})
 
-const gridArtifacts = ARTIFACT_TYPES.filter(a => a.effect.type.startsWith('grid_'))
-const breederArtifacts = ARTIFACT_TYPES.filter(a => a.effect.type.startsWith('breeder_'))
+const gridArtifacts = ARTIFACT_TYPES.filter(a => a.effects.some(e => e.type.startsWith('grid_')))
+const breederArtifacts = ARTIFACT_TYPES.filter(a => a.effects.some(e => e.type.startsWith('breeder_')))
 
 function ownedCount(plantTypeId: string): number {
   return inventory.value
@@ -24,8 +24,6 @@ async function doBuy(typeId: string) {
   try { await buyArtifact(typeId) } finally { delete buying.value[typeId] }
 }
 
-// 1 speed level = 10% grow time reduction (SPEED_REDUCTION_PER_LEVEL = 0.10)
-// Multiply before dividing to avoid floating-point errors (0.35/0.10 = 3.4999...)
 const MUTATION_PER_LEVEL = 0.05
 
 function toSpeedLevel(pct: number) { return Math.round(Math.round(pct * 1000) / Math.round(SPEED_REDUCTION_PER_LEVEL * 1000)) }
@@ -33,23 +31,26 @@ function toMutLevel(pct: number) { return Math.ceil(Math.round(pct * 1000) / Mat
 
 const MAX_CHARGES = Math.max(...ARTIFACT_TYPES.map(a => a.maxCharges))
 
-// Computed caps from actual artifact data so they stay in sync automatically
-const MAX_SPEED_LVL = Math.max(...ARTIFACT_TYPES.filter(a => a.effect.type === 'grid_speed_boost').map(a => toSpeedLevel(a.effect.value)))
-const MAX_YIELD_LVL = Math.max(...ARTIFACT_TYPES.filter(a => a.effect.type === 'grid_yield_bonus').map(a => a.effect.value))
-const MAX_EXTRA_LVL = Math.max(...ARTIFACT_TYPES.filter(a => a.effect.type === 'breeder_extra_yield').map(a => a.effect.value))
-const MAX_MUT_LVL   = Math.max(...ARTIFACT_TYPES.filter(a => a.effect.type === 'breeder_mutation_boost').map(a => toMutLevel(a.effect.value)))
+const MAX_SPEED_LVL = Math.max(...ARTIFACT_TYPES.flatMap(a => a.effects.filter(e => e.type === 'grid_speed_boost').map(e => toSpeedLevel(e.value))), 1)
+const MAX_YIELD_LVL = Math.max(...ARTIFACT_TYPES.flatMap(a => a.effects.filter(e => e.type === 'grid_yield_bonus').map(e => e.value)), 1)
+const MAX_EXTRA_LVL = Math.max(...ARTIFACT_TYPES.flatMap(a => a.effects.filter(e => e.type === 'breeder_extra_yield').map(e => e.value)), 1)
+const MAX_MUT_LVL   = Math.max(...ARTIFACT_TYPES.flatMap(a => a.effects.filter(e => e.type === 'breeder_mutation_boost').map(e => toMutLevel(e.value))), 1)
 
 function specRows(art: typeof ARTIFACT_TYPES[0]) {
-  const e = art.effect
-  if (e.type.startsWith('grid_')) {
+  const speedE = art.effects.find(e => e.type === 'grid_speed_boost')
+  const yieldE = art.effects.find(e => e.type === 'grid_yield_bonus')
+  const extraE = art.effects.find(e => e.type === 'breeder_extra_yield')
+  const mutE   = art.effects.find(e => e.type === 'breeder_mutation_boost')
+
+  if (art.effects.some(e => e.type.startsWith('grid_'))) {
     return [
-      { label: 'Speed', lvl: e.type === 'grid_speed_boost' ? toSpeedLevel(e.value) : 0, max: MAX_SPEED_LVL, color: 'bg-warning' },
-      { label: 'Yield', lvl: e.type === 'grid_yield_bonus' ? e.value : 0, max: MAX_YIELD_LVL, color: 'bg-info' },
+      { label: 'Speed', lvl: speedE ? toSpeedLevel(speedE.value) : 0, max: MAX_SPEED_LVL, color: 'bg-warning' },
+      { label: 'Yield', lvl: yieldE ? yieldE.value : 0, max: MAX_YIELD_LVL, color: 'bg-info' },
     ]
   }
   return [
-    { label: 'Extra yield', lvl: e.type === 'breeder_extra_yield' ? e.value : 0, max: MAX_EXTRA_LVL, color: 'bg-info' },
-    { label: 'Mutation', lvl: e.type === 'breeder_mutation_boost' ? toMutLevel(e.value) : 0, max: MAX_MUT_LVL, color: 'bg-secondary' },
+    { label: 'Extra yield', lvl: extraE ? extraE.value : 0, max: MAX_EXTRA_LVL, color: 'bg-info' },
+    { label: 'Mutation',    lvl: mutE   ? toMutLevel(mutE.value) : 0, max: MAX_MUT_LVL, color: 'bg-secondary' },
   ]
 }
 </script>
@@ -95,7 +96,13 @@ function specRows(art: typeof ARTIFACT_TYPES[0]) {
           <div class="flex items-center gap-3">
             <span class="text-2xl leading-none">{{ art.emoji }}</span>
             <div>
-              <p class="font-semibold">{{ art.name }}</p>
+              <div class="flex items-center gap-2">
+                <p class="font-semibold">{{ art.name }}</p>
+                <span
+                  v-if="art.effects.length > 1"
+                  class="text-xs font-bold px-1.5 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20"
+                >Hybrid</span>
+              </div>
               <p class="text-xs text-muted mt-0.5">{{ art.maxCharges }} charges each</p>
             </div>
           </div>

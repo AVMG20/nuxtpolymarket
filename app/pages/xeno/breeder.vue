@@ -37,6 +37,8 @@ const activePickerNum = ref<1 | 2>(1)
 function openPicker(slotId: string, num: 1 | 2) {
   activePickerSlotId.value = slotId
   activePickerNum.value = num
+  plantSearchQuery.value = ''
+  plantTierFilter.value = 0
   plantPickerOpen.value = true
 }
 
@@ -69,8 +71,24 @@ function breedTimeForParents(p1: any, p2: any): string {
 
 // Artifact picker
 const breederArtifacts = computed(() =>
-  freeArtifacts.value.filter((a: any) => getArtifact(a.typeId)?.effect.type.startsWith('breeder_')),
+  freeArtifacts.value.filter((a: any) => {
+    const art = getArtifact(a.typeId)
+    return art?.effects.some(e => e.type.startsWith('breeder_'))
+  }),
 )
+
+// Plant picker filters (0 = all tiers)
+const plantSearchQuery = ref('')
+const plantTierFilter = ref(0)
+
+const filteredInventory = computed(() => {
+  const query = plantSearchQuery.value.toLowerCase()
+  return (inventory.value as any[]).filter(item => {
+    if (plantTierFilter.value !== 0 && item.tier !== plantTierFilter.value) return false
+    if (query && !item.name.toLowerCase().includes(query)) return false
+    return true
+  })
+})
 const artifactPickerSlotId = ref<string | null>(null)
 const artifactPickerOpen = computed({
   get: () => !!artifactPickerSlotId.value,
@@ -111,6 +129,7 @@ async function doCollect(slotId: string) {
 
 const { user } = useAuth()
 const balance = computed(() => parseFloat(user.value?.balance ?? '0'))
+const { virtualEl: cursorEl, track: trackCursor } = useTooltipCursor()
 </script>
 
 <template>
@@ -311,6 +330,8 @@ const balance = computed(() => parseFloat(user.value?.balance ?? '0'))
               <UTooltip
                 v-if="mutationForParents(getParent(slot.id, 1), getParent(slot.id, 2))"
                 :delay-duration="200"
+                :reference="cursorEl"
+                :content="{ side: 'bottom', sideOffset: 12 }"
               >
                 <template #content>
                   <div class="w-56 p-3 space-y-3 bg-elevated border border-default rounded-xl shadow-xl">
@@ -340,7 +361,7 @@ const balance = computed(() => parseFloat(user.value?.balance ?? '0'))
                       </div>
                       <div class="flex justify-between text-xs">
                         <span class="text-muted uppercase tracking-wider font-semibold">Value</span>
-                        <span class="font-mono" :class="plantColor(mutationPlantFor(getParent(slot.id, 1), getParent(slot.id, 2))?.color ?? '')">
+                        <span class="font-mono">
                           ${{ formatNumber(mutationPlantFor(getParent(slot.id, 1), getParent(slot.id, 2))?.value ?? 0, false) }}
                         </span>
                       </div>
@@ -351,7 +372,7 @@ const balance = computed(() => parseFloat(user.value?.balance ?? '0'))
                   </div>
                 </template>
 
-                <div class="rounded-xl border border-warning/30 bg-warning/5 p-3 space-y-2 cursor-help">
+                <div class="rounded-xl border border-warning/30 bg-warning/5 p-3 space-y-2 cursor-help" @mousemove.passive="trackCursor">
                   <div class="flex items-center justify-between">
                     <p class="text-xs font-bold text-warning uppercase tracking-wider">Possible Mutation</p>
                     <span class="text-xs font-bold text-warning">
@@ -440,10 +461,33 @@ const balance = computed(() => parseFloat(user.value?.balance ?? '0'))
   <!-- Plant picker modal -->
   <UModal v-model:open="plantPickerOpen" title="Select Parent Plant">
     <template #body>
-      <div class="space-y-1.5 max-h-96 overflow-y-auto p-1">
-        <p v-if="!inventory.length" class="text-sm text-muted py-4 text-center">No plants available.</p>
+      <!-- Filters -->
+      <div class="flex gap-2 mb-3">
+        <UInput
+          v-model="plantSearchQuery"
+          placeholder="Search plants…"
+          icon="i-lucide-search"
+          size="sm"
+          class="flex-1"
+        />
+        <USelect
+          v-model="plantTierFilter"
+          :items="[
+            { label: 'All tiers', value: 0 },
+            { label: 'T1', value: 1 },
+            { label: 'T2', value: 2 },
+            { label: 'T3', value: 3 },
+            { label: 'T4', value: 4 },
+            { label: 'T5', value: 5 },
+          ]"
+          size="sm"
+          class="w-28"
+        />
+      </div>
+      <div class="space-y-1.5 max-h-80 overflow-y-auto">
+        <p v-if="!filteredInventory.length" class="text-sm text-muted py-4 text-center">No plants match.</p>
         <button
-          v-for="item in inventory"
+          v-for="item in filteredInventory"
           :key="`${item.typeId}:${item.speed}:${item.yield}`"
           class="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl border border-default transition-all text-left overflow-hidden"
           :class="plantCardBg(item.color)"
@@ -452,7 +496,7 @@ const balance = computed(() => parseFloat(user.value?.balance ?? '0'))
           <span class="text-3xl leading-none shrink-0">{{ item.emoji }}</span>
           <div class="flex-1 min-w-0">
             <p class="font-bold text-sm truncate">{{ item.name }}</p>
-            <span class="text-xs font-bold" :class="tierColor(item.tier)">{{ tierLabel(item.tier) }}</span>
+            <XenoTierLabel :tier="item.tier" />
           </div>
           <div class="flex items-center gap-3 shrink-0">
             <div class="flex items-center gap-1">

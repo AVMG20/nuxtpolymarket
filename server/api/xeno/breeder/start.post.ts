@@ -3,7 +3,7 @@ import { db } from '#server/database'
 import { xenoBreederSlots, xenoArtifacts } from '#server/database/schema'
 import { auth } from '#server/utils/auth'
 import { computeBreedResult, consumePlantsByStack } from '#server/utils/xeno'
-import { getPlantOrThrow, getArtifact } from '#shared/utils/xeno'
+import { getPlantOrThrow, getArtifact, getEffectValue } from '#shared/utils/xeno'
 
 export default defineEventHandler(async (event) => {
   const body = await readBody<{
@@ -38,8 +38,10 @@ export default defineEventHandler(async (event) => {
     const art = await db.query.xenoArtifacts.findFirst({ where: eq(xenoArtifacts.id, slot.artifactId) })
     if (art) {
       const artType = getArtifact(art.typeId)
-      if (artType?.effect.type === 'breeder_mutation_boost') mutationBoost = artType.effect.value
-      if (artType?.effect.type === 'breeder_extra_yield') extraYield = artType.effect.value
+      if (artType) {
+        mutationBoost = getEffectValue(artType, 'breeder_mutation_boost')
+        extraYield = getEffectValue(artType, 'breeder_extra_yield')
+      }
     }
   }
 

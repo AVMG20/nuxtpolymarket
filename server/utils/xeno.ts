@@ -2,7 +2,7 @@ import { eq, and } from 'drizzle-orm'
 import { db } from '#server/database'
 import { xenoPlants, xenoArtifacts, xenoGridSlots, xenoBreederSlots } from '#server/database/schema'
 import {
-  getArtifact, getPlant, effectiveGrowTime, breedDuration, getMutation,
+  getArtifact, getEffectValue, getPlant, effectiveGrowTime, breedDuration, getMutation,
   PLANT_TYPES, TIER_MAX_SPEED, TIER_MAX_YIELD,
 } from '#shared/utils/xeno'
 
@@ -21,8 +21,9 @@ export function computeGridDuration(
   let secs = effectiveGrowTime({ baseTime: base.baseTime, speed: plant.speed })
   if (artifactTypeId) {
     const art = getArtifact(artifactTypeId)
-    if (art?.effect.type === 'grid_speed_boost') {
-      secs = Math.round(secs * (1 - art.effect.value))
+    if (art) {
+      const speedBoost = getEffectValue(art, 'grid_speed_boost')
+      if (speedBoost > 0) secs = Math.round(secs * (1 - speedBoost))
     }
   }
   return xenoDuration(secs)

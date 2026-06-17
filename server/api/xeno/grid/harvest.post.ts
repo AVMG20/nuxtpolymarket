@@ -3,7 +3,7 @@ import { db } from '#server/database'
 import { xenoGridSlots, xenoPlants, xenoArtifacts } from '#server/database/schema'
 import { auth } from '#server/utils/auth'
 import { addPlants, computeGridDuration, consumeArtifactCharge } from '#server/utils/xeno'
-import { getPlantOrThrow, getArtifact, rollYield } from '#shared/utils/xeno'
+import { getPlantOrThrow, getArtifact, getEffectValue, rollYield } from '#shared/utils/xeno'
 
 export default defineEventHandler(async (event) => {
   const body = await readBody<{ slotId: string }>(event)
@@ -37,7 +37,7 @@ export default defineEventHandler(async (event) => {
   let artifactYieldBonus = 0
   if (attachedArt) {
     const artType = getArtifact(attachedArt.typeId)
-    if (artType?.effect.type === 'grid_yield_bonus') artifactYieldBonus = artType.effect.value
+    if (artType) artifactYieldBonus = getEffectValue(artType, 'grid_yield_bonus')
   }
 
   const harvested = rollYield(plantInstance.yield) + artifactYieldBonus
