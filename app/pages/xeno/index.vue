@@ -302,7 +302,7 @@ function artifactLevel(typeId: string): string {
               class="group relative rounded-xl border aspect-square flex flex-col p-2 overflow-hidden select-none transition-all duration-100"
               :class="[
                 isDone(cell.slot.plant.completesAt)
-                  ? 'bg-success/15 border-success/40 hover:bg-success/20 hover:border-success/60'
+                  ? 'bg-primary/15 border-primary/40 hover:bg-primary/20 hover:border-primary/60'
                   : [plantBgOnly(cell.slot.plant.color ?? ''), 'border-default/40', isArtifactTargetable(cell) ? 'ring-1 ring-primary/50 hover:ring-primary' : ''],
                 cellCursor(cell),
                 (harvesting.has(cell.slot.id) || removing.has(cell.slot.id) || attachingSlot === cell.slot.id) ? 'opacity-50 pointer-events-none' : '',
@@ -339,7 +339,7 @@ function artifactLevel(typeId: string): string {
                 <p class="text-xs font-medium opacity-60 truncate w-full text-center mt-0.5">{{ cell.slot.plant.name }}</p>
                 <div
                   v-if="isDone(cell.slot.plant.completesAt)"
-                  class="text-xs font-black text-success mt-0.5"
+                  class="text-xs font-black text-primary mt-0.5"
                 >
                   ×1–{{ 1 + cell.slot.plant.yield + slotYieldBonus(cell.slot) }}
                 </div>
@@ -356,7 +356,7 @@ function artifactLevel(typeId: string): string {
                 <div class="flex items-center justify-center gap-1 mt-0.5">
                   <p
                     class="text-xs font-medium"
-                    :class="isDone(cell.slot.plant.completesAt) ? 'text-success font-bold' : 'text-white/40'"
+                    :class="isDone(cell.slot.plant.completesAt) ? 'text-primary font-bold' : 'text-muted'"
                   >
                     {{ formatCountdown(cell.slot.plant.completesAt, now) }}
                   </p>

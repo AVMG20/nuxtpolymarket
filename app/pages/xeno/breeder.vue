@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {
-  tierLabel, tierColor, getPlant, getArtifact, getEffectValue,
+  tierLabel, tierColor, plantColor, levelTextColor, getPlant, getArtifact, getEffectValue,
   getMutation, breedDuration,
 } from '#shared/utils/xeno'
 import { formatCountdown, progressPct, isDone, formatDuration } from '~/utils/xeno-format'
@@ -115,6 +115,14 @@ function slotMutationBoost(slot: any): number {
   return art ? getEffectValue(art, 'breeder_mutation_boost') : 0
 }
 
+function breedDurationSecs(slot: any): number {
+  if (!slot.completesAt || !slot.startedAt) return 0
+  const end = Number(slot.completesAt)
+  const start = Number(new Date(slot.startedAt))
+  const secs = Math.round((end - start) / 1000)
+  return Number.isFinite(secs) && secs > 0 ? secs : 0
+}
+
 function effectiveMutationChance(slot: any, p1: any, p2: any): number {
   const m = mutationForParents(p1, p2)
   if (!m) return 0
@@ -199,51 +207,54 @@ async function doCollect(slotId: string) {
               <!-- ── Result reveal ── -->
               <template v-if="slot.completesAt && isDone(slot.completesAt) && slot.resultTypeId">
                 <div
-                  class="flex flex-col flex-1 relative overflow-hidden rounded-xl"
-                  :class="slot.wasMutation
-                    ? 'ring-2 ring-warning/60 bg-gradient-to-b from-warning/10 to-transparent'
-                    : 'ring-2 ring-success/40 bg-gradient-to-b from-success/5 to-transparent'"
+                  class="flex flex-col flex-1 overflow-hidden rounded-xl"
+                  :class="slot.wasMutation ? 'ring-2 ring-warning/50' : 'ring-1 ring-primary/30'"
                 >
-                  <div v-if="slot.wasMutation" class="flex items-center justify-center gap-1.5 py-2 bg-warning/20 border-b border-warning/30">
-                    <span class="text-sm animate-bounce">✨</span>
-                    <p class="text-xs font-black text-warning uppercase tracking-widest">Mutation!</p>
-                    <span class="text-sm animate-bounce">✨</span>
+                  <!-- Mutation banner -->
+                  <div v-if="slot.wasMutation" class="flex items-center justify-center gap-1.5 py-2 bg-warning/15 border-b border-warning/20">
+                    <span class="text-xs animate-bounce">✨</span>
+                    <p class="text-[10px] font-black text-warning uppercase tracking-widest">Mutation!</p>
+                    <span class="text-xs animate-bounce">✨</span>
                   </div>
 
-                  <div class="flex flex-col items-center justify-center gap-3 p-6 flex-1">
-                    <div class="text-8xl leading-none select-none" :class="slot.wasMutation ? 'animate-pulse' : ''">
+                  <!-- Content -->
+                  <div class="flex flex-col items-center gap-3 px-4 pt-5 pb-4 flex-1">
+                    <div class="text-7xl leading-none select-none">
                       {{ getPlant(slot.resultTypeId)?.emoji }}
                     </div>
-                    <div class="text-center space-y-1">
-                      <p class="text-xl font-black tracking-tight">{{ getPlant(slot.resultTypeId)?.name }}</p>
-                      <span class="inline-block text-xs font-bold" :class="tierColor(getPlant(slot.resultTypeId)?.tier ?? 1)">
+
+                    <div class="text-center leading-tight">
+                      <p
+                        class="text-lg font-black tracking-tight"
+                        :class="plantColor(getPlant(slot.resultTypeId)?.color ?? '')"
+                      >{{ getPlant(slot.resultTypeId)?.name }}<sup class="text-xs font-semibold ml-0.5 opacity-70">×{{ slot.resultQuantity }}</sup></p>
+                      <span class="text-xs font-bold" :class="tierColor(getPlant(slot.resultTypeId)?.tier ?? 1)">
                         {{ tierLabel(getPlant(slot.resultTypeId)?.tier ?? 1) }}
                       </span>
                     </div>
-                    <div class="flex items-center gap-2">
-                      <div class="flex flex-col items-center rounded-lg bg-black/20 px-3 py-2 min-w-[52px]">
-                        <p class="text-xs text-muted uppercase tracking-wider font-semibold">Speed</p>
-                        <p class="text-lg font-black leading-tight">{{ slot.resultSpeed }}</p>
+
+                    <!-- Speed + Yield with level colors -->
+                    <div class="flex items-center gap-5">
+                      <div class="flex flex-col items-center gap-0.5">
+                        <p class="text-[10px] font-bold uppercase tracking-widest text-muted">Speed</p>
+                        <p class="text-2xl font-black leading-none" :class="levelTextColor(slot.resultSpeed ?? 0)">{{ slot.resultSpeed }}</p>
                       </div>
-                      <div class="flex flex-col items-center rounded-lg bg-black/20 px-3 py-2 min-w-[52px]">
-                        <p class="text-xs text-muted uppercase tracking-wider font-semibold">Yield</p>
-                        <p class="text-lg font-black leading-tight">{{ slot.resultYield }}</p>
-                      </div>
-                      <div
-                        class="flex flex-col items-center rounded-lg px-3 py-2 min-w-[52px]"
-                        :class="slot.wasMutation ? 'bg-warning/20' : 'bg-black/20'"
-                      >
-                        <p class="text-xs text-muted uppercase tracking-wider font-semibold">Qty</p>
-                        <p class="text-lg font-black leading-tight" :class="slot.wasMutation ? 'text-warning' : ''">×{{ slot.resultQuantity }}</p>
+                      <div class="h-8 border-r border-default" />
+                      <div class="flex flex-col items-center gap-0.5">
+                        <p class="text-[10px] font-bold uppercase tracking-widest text-muted">Yield</p>
+                        <p class="text-2xl font-black leading-none" :class="levelTextColor(slot.resultYield ?? 0)">{{ slot.resultYield }}</p>
                       </div>
                     </div>
+
+                    <!-- Breed duration -->
+                    <p v-if="breedDurationSecs(slot) > 0" class="text-xs text-muted">Took {{ formatDuration(breedDurationSecs(slot)) }}</p>
                   </div>
 
                   <div class="px-4 pb-4">
                     <UButton
-                      :label="slot.wasMutation ? '✨ Collect Mutation!' : 'Collect'"
+                      :label="slot.wasMutation ? '✨ Collect Mutation' : 'Collect'"
                       block
-                      :color="slot.wasMutation ? 'warning' : 'success'"
+                      :color="slot.wasMutation ? 'warning' : 'primary'"
                       :loading="collecting.has(slot.id)"
                       @click="doCollect(slot.id)"
                     />

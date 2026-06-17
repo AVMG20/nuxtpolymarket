@@ -3,7 +3,6 @@ import { db } from '#server/database'
 import { xenoPlants, xenoArtifacts, xenoGridSlots, xenoBreederSlots } from '#server/database/schema'
 import {
   getArtifact, getEffectValue, getPlant, effectiveGrowTime, breedDuration, getMutationPair,
-  MUTATION_OFFSPRING, PLANT_TYPES, TIER_MAX_SPEED, TIER_MAX_YIELD,
 } from '#shared/utils/xeno'
 
 /** When XENO_DEV=true, all grow/breed durations are capped to 1 second for testing */
@@ -67,14 +66,12 @@ export function computeBreedResult(
   resultQuantity: number
   wasMutation: boolean
 } {
-  const t1 = getPlant(p1.typeId)!
-  const t2 = getPlant(p2.typeId)!
   let resultTypeId: string
   let resultSpeed: number
   let resultYield: number
   let wasMutation = false
 
-  // Try each possible mutation in table order; stop at the first that fires
+  // Check for mutation first — mutation produces the new plant at its base stats.
   const possibleMutations = getMutationPair(p1.typeId, p2.typeId)
   for (const mutation of possibleMutations) {
     const effectiveChance = Math.max(0, Math.min(1, mutation.chance + options.mutationBoost))
@@ -89,18 +86,10 @@ export function computeBreedResult(
   }
 
   if (!wasMutation) {
-    const tier = Math.max(t1.tier, t2.tier)
-    const speed = Math.random() < 0.5 ? p1.speed : p2.speed
-    const yld = Math.random() < 0.5 ? p1.yield : p2.yield
-    resultSpeed = Math.min(speed, TIER_MAX_SPEED[tier] ?? speed)
-    resultYield = Math.min(yld, TIER_MAX_YIELD[tier] ?? yld)
-
-    // Find a non-mutation named plant matching the bred stats exactly
-    const exactMatch = PLANT_TYPES.find(
-      p => p.tier === tier && p.speed === resultSpeed && p.yield === resultYield && !MUTATION_OFFSPRING.has(p.id),
-    )
-    // Fallback: use the higher-tier parent's type with the bred stats
-    resultTypeId = exactMatch?.id ?? (t1.tier >= t2.tier ? p1.typeId : p2.typeId)
+    // No mutation: type, speed, and yield are each independently random from either parent.
+    resultTypeId = Math.random() < 0.5 ? p1.typeId : p2.typeId
+    resultSpeed = Math.random() < 0.5 ? p1.speed : p2.speed
+    resultYield = Math.random() < 0.5 ? p1.yield : p2.yield
   }
 
   return {
