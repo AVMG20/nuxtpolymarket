@@ -84,6 +84,7 @@ export default defineEventHandler(async (event) => {
       const durationSecs = computeBreedDuration(
         { typeId: slot.plant1TypeId, speed: slot.plant1Speed },
         { typeId: slot.plant2TypeId, speed: slot.plant2Speed },
+        attachedArt?.typeId ?? null,
       )
       completesAt = new Date(slot.startedAt.getTime() + durationSecs * 1000).toISOString()
     }

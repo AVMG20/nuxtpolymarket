@@ -29,28 +29,30 @@ const MUTATION_PER_LEVEL = 0.05
 function toSpeedLevel(pct: number) { return Math.round(Math.round(pct * 1000) / Math.round(SPEED_REDUCTION_PER_LEVEL * 1000)) }
 function toMutLevel(pct: number) { return Math.ceil(Math.round(pct * 1000) / Math.round(MUTATION_PER_LEVEL * 1000)) }
 
-const MAX_CHARGES = Math.max(...ARTIFACT_TYPES.map(a => a.maxCharges))
-
-const MAX_SPEED_LVL = Math.max(...ARTIFACT_TYPES.flatMap(a => a.effects.filter(e => e.type === 'grid_speed_boost').map(e => toSpeedLevel(e.value))), 1)
-const MAX_YIELD_LVL = Math.max(...ARTIFACT_TYPES.flatMap(a => a.effects.filter(e => e.type === 'grid_yield_bonus').map(e => e.value)), 1)
-const MAX_EXTRA_LVL = Math.max(...ARTIFACT_TYPES.flatMap(a => a.effects.filter(e => e.type === 'breeder_extra_yield').map(e => e.value)), 1)
-const MAX_MUT_LVL   = Math.max(...ARTIFACT_TYPES.flatMap(a => a.effects.filter(e => e.type === 'breeder_mutation_boost').map(e => toMutLevel(e.value))), 1)
+const MAX_CHARGES       = Math.max(...ARTIFACT_TYPES.map(a => a.maxCharges))
+const MAX_SPEED_LVL     = Math.max(...ARTIFACT_TYPES.flatMap(a => a.effects.filter(e => e.type === 'grid_speed_boost').map(e => toSpeedLevel(e.value))), 1)
+const MAX_YIELD_LVL     = Math.max(...ARTIFACT_TYPES.flatMap(a => a.effects.filter(e => e.type === 'grid_yield_bonus').map(e => e.value)), 1)
+const MAX_EXTRA_LVL     = Math.max(...ARTIFACT_TYPES.flatMap(a => a.effects.filter(e => e.type === 'breeder_extra_yield').map(e => e.value)), 1)
+const MAX_MUT_LVL       = Math.max(...ARTIFACT_TYPES.flatMap(a => a.effects.filter(e => e.type === 'breeder_mutation_boost').map(e => toMutLevel(e.value))), 1)
+const MAX_B_SPEED_LVL   = Math.max(...ARTIFACT_TYPES.flatMap(a => a.effects.filter(e => e.type === 'breeder_speed_boost').map(e => toSpeedLevel(e.value))), 1)
 
 function specRows(art: typeof ARTIFACT_TYPES[0]) {
-  const speedE = art.effects.find(e => e.type === 'grid_speed_boost')
-  const yieldE = art.effects.find(e => e.type === 'grid_yield_bonus')
-  const extraE = art.effects.find(e => e.type === 'breeder_extra_yield')
-  const mutE   = art.effects.find(e => e.type === 'breeder_mutation_boost')
+  const speedE  = art.effects.find(e => e.type === 'grid_speed_boost')
+  const yieldE  = art.effects.find(e => e.type === 'grid_yield_bonus')
+  const extraE  = art.effects.find(e => e.type === 'breeder_extra_yield')
+  const mutE    = art.effects.find(e => e.type === 'breeder_mutation_boost')
+  const bSpeedE = art.effects.find(e => e.type === 'breeder_speed_boost')
 
   if (art.effects.some(e => e.type.startsWith('grid_'))) {
     return [
-      { label: 'Speed', lvl: speedE ? toSpeedLevel(speedE.value) : 0, max: MAX_SPEED_LVL, color: 'bg-warning' },
-      { label: 'Yield', lvl: yieldE ? yieldE.value : 0, max: MAX_YIELD_LVL, color: 'bg-info' },
+      { label: 'Speed', lvl: speedE ? toSpeedLevel(speedE.value) : 0, max: MAX_SPEED_LVL,   color: 'bg-warning' },
+      { label: 'Yield', lvl: yieldE ? yieldE.value : 0,                max: MAX_YIELD_LVL,   color: 'bg-info' },
     ]
   }
   return [
-    { label: 'Extra yield', lvl: extraE ? extraE.value : 0, max: MAX_EXTRA_LVL, color: 'bg-info' },
-    { label: 'Mutation',    lvl: mutE   ? toMutLevel(mutE.value) : 0, max: MAX_MUT_LVL, color: 'bg-secondary' },
+    { label: 'Speed',    lvl: bSpeedE ? toSpeedLevel(bSpeedE.value) : 0, max: MAX_B_SPEED_LVL, color: 'bg-warning' },
+    { label: 'Yield',    lvl: extraE  ? extraE.value : 0,                 max: MAX_EXTRA_LVL,   color: 'bg-info' },
+    { label: 'Mutation', lvl: mutE    ? toMutLevel(mutE.value) : 0,       max: MAX_MUT_LVL,     color: 'bg-secondary' },
   ]
 }
 </script>

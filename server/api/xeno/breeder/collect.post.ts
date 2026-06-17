@@ -21,24 +21,27 @@ export default defineEventHandler(async (event) => {
   }
   if (slot.collected) throw createError({ statusCode: 400, statusMessage: 'Already collected' })
 
+  let extraYield = 0
+  let artifactTypeId: string | null = null
+  if (slot.artifactId) {
+    const art = await db.query.xenoArtifacts.findFirst({ where: eq(xenoArtifacts.id, slot.artifactId) })
+    if (art) {
+      artifactTypeId = art.typeId
+      const artType = getArtifact(art.typeId)
+      if (artType) extraYield = getEffectValue(artType, 'breeder_extra_yield')
+    }
+  }
+
   const durationSecs = computeBreedDuration(
     { typeId: slot.plant1TypeId, speed: slot.plant1Speed ?? 1 },
     { typeId: slot.plant2TypeId, speed: slot.plant2Speed ?? 1 },
+    artifactTypeId,
   )
   const completesAt = slot.startedAt.getTime() + durationSecs * 1000
   if (Date.now() < completesAt) throw createError({ statusCode: 400, statusMessage: 'Breeding not complete yet' })
 
   if (!slot.resultTypeId || slot.resultSpeed == null || slot.resultYield == null) {
     throw createError({ statusCode: 500, statusMessage: 'No result recorded' })
-  }
-
-  let extraYield = 0
-  if (slot.artifactId) {
-    const art = await db.query.xenoArtifacts.findFirst({ where: eq(xenoArtifacts.id, slot.artifactId) })
-    if (art) {
-      const artType = getArtifact(art.typeId)
-      if (artType) extraYield = getEffectValue(artType, 'breeder_extra_yield')
-    }
   }
 
   const totalQty = (slot.resultQuantity ?? 1) + extraYield

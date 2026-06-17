@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import {
   plantCardBg, plantRing, plantColor, levelTextColor,
-  ARTIFACT_TYPES, getArtifact, getPlant,
+  ARTIFACT_TYPES, getArtifact, getPlant, SPEED_REDUCTION_PER_LEVEL,
   type ArtifactType,
 } from '#shared/utils/xeno'
 
@@ -71,19 +71,6 @@ const sortedInventory = computed(() =>
   }),
 )
 
-function effectLabel(art: ArtifactType | undefined): string {
-  if (!art) return ''
-  return art.effects.map(e => {
-    switch (e.type) {
-      case 'grid_speed_boost': return `−${Math.round(e.value * 100)}% grow time`
-      case 'grid_yield_bonus': return `+${e.value} yield/harvest`
-      case 'breeder_extra_yield': return `+${e.value} extra plant`
-      case 'breeder_mutation_boost': return `+${Math.round(e.value * 100)}% mutation`
-      default: return ''
-    }
-  }).filter(Boolean).join(' & ')
-}
-
 function effectTarget(art: ArtifactType | undefined): string {
   if (!art) return ''
   return art.effects.some(e => e.type.startsWith('grid_')) ? 'Grid' : 'Breeder'
@@ -91,6 +78,37 @@ function effectTarget(art: ArtifactType | undefined): string {
 
 function getArtifactDef(typeId: string) {
   return ARTIFACT_TYPES.find(a => a.id === typeId)
+}
+
+const MUTATION_PER_LEVEL = 0.05
+function toSpeedLevel(pct: number) { return Math.round(Math.round(pct * 1000) / Math.round(SPEED_REDUCTION_PER_LEVEL * 1000)) }
+function toMutLevel(pct: number) { return Math.ceil(Math.round(pct * 1000) / Math.round(MUTATION_PER_LEVEL * 1000)) }
+
+const MAX_CHARGES     = Math.max(...ARTIFACT_TYPES.map(a => a.maxCharges))
+const MAX_SPEED_LVL   = Math.max(...ARTIFACT_TYPES.flatMap(a => a.effects.filter(e => e.type === 'grid_speed_boost').map(e => toSpeedLevel(e.value))), 1)
+const MAX_YIELD_LVL   = Math.max(...ARTIFACT_TYPES.flatMap(a => a.effects.filter(e => e.type === 'grid_yield_bonus').map(e => e.value)), 1)
+const MAX_EXTRA_LVL   = Math.max(...ARTIFACT_TYPES.flatMap(a => a.effects.filter(e => e.type === 'breeder_extra_yield').map(e => e.value)), 1)
+const MAX_MUT_LVL     = Math.max(...ARTIFACT_TYPES.flatMap(a => a.effects.filter(e => e.type === 'breeder_mutation_boost').map(e => toMutLevel(e.value))), 1)
+const MAX_B_SPEED_LVL = Math.max(...ARTIFACT_TYPES.flatMap(a => a.effects.filter(e => e.type === 'breeder_speed_boost').map(e => toSpeedLevel(e.value))), 1)
+
+function specRows(art: ArtifactType | undefined) {
+  if (!art) return []
+  const speedE  = art.effects.find(e => e.type === 'grid_speed_boost')
+  const yieldE  = art.effects.find(e => e.type === 'grid_yield_bonus')
+  const extraE  = art.effects.find(e => e.type === 'breeder_extra_yield')
+  const mutE    = art.effects.find(e => e.type === 'breeder_mutation_boost')
+  const bSpeedE = art.effects.find(e => e.type === 'breeder_speed_boost')
+  if (art.effects.some(e => e.type.startsWith('grid_'))) {
+    return [
+      { label: 'Speed',    lvl: speedE ? toSpeedLevel(speedE.value) : 0, max: MAX_SPEED_LVL,   color: 'bg-warning' },
+      { label: 'Yield',    lvl: yieldE ? yieldE.value : 0,               max: MAX_YIELD_LVL,   color: 'bg-info' },
+    ]
+  }
+  return [
+    { label: 'Speed',    lvl: bSpeedE ? toSpeedLevel(bSpeedE.value) : 0, max: MAX_B_SPEED_LVL, color: 'bg-warning' },
+    { label: 'Yield',    lvl: extraE  ? extraE.value : 0,                 max: MAX_EXTRA_LVL,   color: 'bg-info' },
+    { label: 'Mutation', lvl: mutE    ? toMutLevel(mutE.value) : 0,       max: MAX_MUT_LVL,     color: 'bg-secondary' },
+  ]
 }
 </script>
 
@@ -211,58 +229,20 @@ function getArtifactDef(typeId: string) {
           </div>
           <p class="text-xs text-muted">{{ effectTarget(getArtifact(stack.typeId)) }}</p>
         </div>
-        <!-- Stack count + charges -->
-        <div class="text-right shrink-0">
-          <p class="text-xs font-bold" :class="stack.chargesRemaining <= 2 ? 'text-error' : 'text-default'">
-            {{ stack.chargesRemaining }}/{{ getArtifactDef(stack.typeId)?.maxCharges }}
-          </p>
-          <p class="text-xs text-muted">{{ stack.count > 1 ? `×${stack.count} · ` : '' }}uses</p>
-        </div>
+        <!-- Qty -->
+        <span class="text-sm font-black text-primary leading-none shrink-0">×{{ stack.count }}</span>
       </div>
 
       <!-- Spec list -->
-      <div class="mx-3 mb-2 rounded-lg bg-background/40 border border-default/40 overflow-hidden">
-        <div class="flex items-center justify-between px-2.5 py-1.5 border-b border-default/30">
-          <span class="text-xs text-muted uppercase tracking-wider font-semibold">Effect</span>
-          <span class="text-xs font-bold text-primary text-right">
-            {{ effectLabel(getArtifact(stack.typeId)) }}
-          </span>
+      <div class="mx-3 mb-2 rounded-lg bg-background/40 border border-default/40 overflow-hidden divide-y divide-default/30">
+        <div v-for="row in specRows(getArtifact(stack.typeId))" :key="row.label" class="px-2.5 py-2">
+          <XenoStatLevel :label="row.label" :level="row.lvl" :max="row.max" :color="row.color" />
         </div>
-        <div class="flex items-center justify-between px-2.5 py-1.5">
-          <span class="text-xs text-muted uppercase tracking-wider font-semibold">Charges left</span>
-          <div class="flex items-center gap-0.5">
-            <div
-              v-for="n in (getArtifactDef(stack.typeId)?.maxCharges ?? 1)"
-              :key="n"
-              class="size-2 rounded-full"
-              :class="n <= stack.chargesRemaining ? 'bg-primary' : 'bg-elevated border border-default/40'"
-            />
-          </div>
+        <div class="px-2.5 py-2">
+          <XenoStatLevel label="Charges" :level="stack.chargesRemaining" :max="MAX_CHARGES" color="bg-primary" />
         </div>
       </div>
 
-      <!-- Re-craft cost tracking -->
-      <div v-if="getArtifactDef(stack.typeId)?.cost.length" class="mx-3 mb-3">
-        <p class="text-xs text-muted uppercase tracking-wider font-semibold mb-1.5">Re-craft needs</p>
-        <div class="space-y-1">
-          <div
-            v-for="c in getArtifactDef(stack.typeId)?.cost"
-            :key="c.plantTypeId"
-            class="flex items-center justify-between"
-          >
-            <div class="flex items-center gap-1.5">
-              <span class="text-sm leading-none">{{ getPlant(c.plantTypeId)?.emoji }}</span>
-              <span class="text-xs text-muted truncate">{{ getPlant(c.plantTypeId)?.name }}</span>
-            </div>
-            <span
-              class="text-xs font-bold tabular-nums"
-              :class="ownedQty(c.plantTypeId) >= c.quantity ? 'text-success' : 'text-error'"
-            >
-              {{ ownedQty(c.plantTypeId) }}/{{ c.quantity }}
-            </span>
-          </div>
-        </div>
-      </div>
     </div>
   </div>
 </template>

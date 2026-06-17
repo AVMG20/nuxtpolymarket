@@ -59,7 +59,7 @@ export const MUTATIONS: Mutation[] = [
   { parent1: 'starweave',    parent2: 'voidpulse',    offspring: 'etherform',    chance: 0.01 },
 ]
 
-/** Returns the mutation outcome for a plant pair, or null if no mutation exists. */
+/** Returns the first mutation for a plant pair (used for UI preview). */
 export function getMutation(
   p1Id: string,
   p2Id: string,
@@ -69,6 +69,17 @@ export function getMutation(
       || (m.parent1 === p2Id && m.parent2 === p1Id),
   )
   return m ? { offspring: m.offspring, chance: m.chance } : null
+}
+
+/** Returns ALL possible mutations for a plant pair in table order. */
+export function getMutationPair(
+  p1Id: string,
+  p2Id: string,
+): { offspring: string; chance: number }[] {
+  return MUTATIONS
+    .filter(m => (m.parent1 === p1Id && m.parent2 === p2Id)
+      || (m.parent1 === p2Id && m.parent2 === p1Id))
+    .map(m => ({ offspring: m.offspring, chance: m.chance }))
 }
 
 /** Returns all possible mutations involving a given plant. */

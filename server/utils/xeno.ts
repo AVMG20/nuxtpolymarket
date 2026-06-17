@@ -2,7 +2,7 @@ import { eq, and } from 'drizzle-orm'
 import { db } from '#server/database'
 import { xenoPlants, xenoArtifacts, xenoGridSlots, xenoBreederSlots } from '#server/database/schema'
 import {
-  getArtifact, getEffectValue, getPlant, effectiveGrowTime, breedDuration, getMutation,
+  getArtifact, getEffectValue, getPlant, effectiveGrowTime, breedDuration, getMutationPair,
   PLANT_TYPES, TIER_MAX_SPEED, TIER_MAX_YIELD,
 } from '#shared/utils/xeno'
 
@@ -29,18 +29,27 @@ export function computeGridDuration(
   return xenoDuration(secs)
 }
 
-/** Breed duration from stored parent stats */
+/** Breed duration from stored parent stats, optionally reduced by a breeder speed artifact */
 export function computeBreedDuration(
   p1: { typeId: string; speed: number },
   p2: { typeId: string; speed: number },
+  artifactTypeId?: string | null,
 ): number {
   const t1 = getPlant(p1.typeId)
   const t2 = getPlant(p2.typeId)
   if (!t1 || !t2) return xenoDuration(3600)
-  return xenoDuration(breedDuration(
+  let secs = xenoDuration(breedDuration(
     { baseTime: t1.baseTime, speed: p1.speed },
     { baseTime: t2.baseTime, speed: p2.speed },
   ))
+  if (artifactTypeId) {
+    const art = getArtifact(artifactTypeId)
+    if (art) {
+      const speedBoost = getEffectValue(art, 'breeder_speed_boost')
+      if (speedBoost > 0) secs = Math.round(secs * (1 - speedBoost))
+    }
+  }
+  return secs
 }
 
 /**
@@ -65,9 +74,9 @@ export function computeBreedResult(
   let resultYield: number
   let wasMutation = false
 
-  // Check for named mutation
-  const mutation = getMutation(p1.typeId, p2.typeId)
-  if (mutation) {
+  // Try each possible mutation in table order; stop at the first that fires
+  const possibleMutations = getMutationPair(p1.typeId, p2.typeId)
+  for (const mutation of possibleMutations) {
     const effectiveChance = Math.min(1, mutation.chance + options.mutationBoost)
     if (Math.random() < effectiveChance) {
       const offspring = getPlant(mutation.offspring)!
@@ -75,6 +84,7 @@ export function computeBreedResult(
       resultSpeed = offspring.speed
       resultYield = offspring.yield
       wasMutation = true
+      break
     }
   }
 
@@ -85,11 +95,11 @@ export function computeBreedResult(
     resultSpeed = Math.min(speed, TIER_MAX_SPEED[tier] ?? speed)
     resultYield = Math.min(yld, TIER_MAX_YIELD[tier] ?? yld)
 
-    // Try to find a named type matching the bred stats exactly
+    // Find a non-mutation named plant matching the bred stats exactly
     const exactMatch = PLANT_TYPES.find(
-      p => p.tier === tier && p.speed === resultSpeed && p.yield === resultYield,
+      p => p.tier === tier && p.speed === resultSpeed && p.yield === resultYield && !p.isMutation,
     )
-    // Fallback: produce the higher-tier parent type with bred stats
+    // Fallback: use the higher-tier parent's type with the bred stats
     resultTypeId = exactMatch?.id ?? (t1.tier >= t2.tier ? p1.typeId : p2.typeId)
   }
 

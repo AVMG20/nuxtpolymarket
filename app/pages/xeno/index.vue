@@ -46,8 +46,16 @@ watch(inventory, (inv) => {
   const found = (inv as any[]).find(i => i.typeId === typeId && i.speed === speed && i.yield === yld)
   if (!found) selectedPlant.value = null
 })
+// Only grid artifacts are relevant in the garden panel
+const gridFreeArtifacts = computed(() =>
+  (freeArtifacts.value as any[]).filter(a => {
+    const art = getArtifact(a.typeId)
+    return art?.effects.some(e => e.type.startsWith('grid_'))
+  }),
+)
+
 // Deselect artifact if it gets used up / attached
-watch(freeArtifacts, (arts) => {
+watch(gridFreeArtifacts, (arts) => {
   if (!selectedArtifact.value) return
   if (!(arts as any[]).find(a => a.id === selectedArtifact.value?.id)) selectedArtifact.value = null
 })
@@ -210,6 +218,18 @@ function slotYieldBonus(slot: any): number {
   const art = getArtifact(slot.artifact.typeId)
   return art ? getEffectValue(art, 'grid_yield_bonus') : 0
 }
+
+function slotSpeedBoost(slot: any): number {
+  if (!slot?.artifact) return 0
+  const art = getArtifact(slot.artifact.typeId)
+  return art ? getEffectValue(art, 'grid_speed_boost') : 0
+}
+
+function artifactLevel(typeId: string): string {
+  if (typeId.endsWith('-iii')) return 'III'
+  if (typeId.endsWith('-ii')) return 'II'
+  return 'I'
+}
 </script>
 
 <template>
@@ -304,6 +324,7 @@ function slotYieldBonus(slot: any): number {
                 class="absolute top-1.5 left-1.5 flex items-center gap-0.5 bg-black/50 rounded-full px-1.5 py-0.5 z-10"
               >
                 <span class="text-xs leading-none">{{ getArtifact(cell.slot.artifact.typeId)?.emoji }}</span>
+                <span class="text-[9px] font-bold text-white/50 leading-none">{{ artifactLevel(cell.slot.artifact.typeId) }}</span>
                 <span class="text-xs font-bold text-white/80">{{ cell.slot.artifact.chargesRemaining }}</span>
               </div>
 
@@ -333,12 +354,18 @@ function slotYieldBonus(slot: any): number {
                     :style="{ width: `${progressPct(cell.slot.plant.startedAt, cell.slot.plant.completesAt, now)}%` }"
                   />
                 </div>
-                <p
-                  class="text-xs text-center mt-0.5 font-medium"
-                  :class="isDone(cell.slot.plant.completesAt) ? 'text-success font-bold' : 'text-white/40'"
-                >
-                  {{ formatCountdown(cell.slot.plant.completesAt, now) }}
-                </p>
+                <div class="flex items-center justify-center gap-1 mt-0.5">
+                  <p
+                    class="text-xs font-medium"
+                    :class="isDone(cell.slot.plant.completesAt) ? 'text-success font-bold' : 'text-white/40'"
+                  >
+                    {{ formatCountdown(cell.slot.plant.completesAt, now) }}
+                  </p>
+                  <span
+                    v-if="!isDone(cell.slot.plant.completesAt) && slotSpeedBoost(cell.slot) > 0"
+                    class="text-[9px] font-bold text-primary leading-none"
+                  >⚡−{{ Math.round(slotSpeedBoost(cell.slot) * 100) }}%</span>
+                </div>
               </div>
             </div>
 
@@ -462,7 +489,7 @@ function slotYieldBonus(slot: any): number {
       <div class="flex flex-col h-full overflow-hidden">
         <XenoInventoryPanel
           :inventory="inventory"
-          :free-artifacts="freeArtifacts"
+          :free-artifacts="gridFreeArtifacts"
           :selected-plant-key="selectedPlant ? `${selectedPlant.typeId}:${selectedPlant.speed}:${selectedPlant.yield}` : null"
           :selected-artifact-id="selectedArtifact?.id ?? null"
           @select-plant="onInventorySelectPlant"
@@ -478,7 +505,7 @@ function slotYieldBonus(slot: any): number {
       <div class="flex flex-col h-full overflow-hidden">
         <XenoInventoryPanel
           :inventory="inventory"
-          :free-artifacts="freeArtifacts"
+          :free-artifacts="gridFreeArtifacts"
           :selected-plant-key="selectedPlant ? `${selectedPlant.typeId}:${selectedPlant.speed}:${selectedPlant.yield}` : null"
           :selected-artifact-id="selectedArtifact?.id ?? null"
           @select-plant="onInventorySelectPlant"
