@@ -17,7 +17,6 @@ export interface PlantType {
   value: number
   description: string
   isStarter?: boolean
-  isMutation?: boolean
 }
 
 // ─── T1 — Starter tier ──────────────────────────────────────────────────────
@@ -48,9 +47,8 @@ export const T1_PLANTS: PlantType[] = [
     name: 'Dustbloom',
     tier: 1, emoji: '🌻', color: 'yellow',
     baseTime: 180,   // 3 min — ultra-fast filler
-    speed: 0, yield: 0, value: 3,
+    speed: 0, yield: 1, value: 3,
     description: 'Ultra-fast filler. Grows in 3 min. Perfect artifact material.',
-    isStarter: true,
   },
   {
     id: 'glowshroom',
@@ -59,7 +57,6 @@ export const T1_PLANTS: PlantType[] = [
     baseTime: 330,   // 5.5 min base, speed 1 → 297s (≈5 min) effective
     speed: 1, yield: 1, value: 14,
     description: 'Bioluminescent mutation. Max T1 stats — rare from T1 breeding.',
-    isMutation: true,
   },
 ]
 
@@ -81,8 +78,8 @@ export const T2_PLANTS: PlantType[] = [
     name: 'Creeper',
     tier: 2, emoji: '🍃', color: 'teal',
     baseTime: 1200,  // 20 min base, speed 2 → 960s (16 min) effective
-    speed: 2, yield: 0, value: 26,
-    description: 'Fast-spreading T2 organism. Low yield, high speed.',
+    speed: 2, yield: 1, value: 26,
+    description: 'Fast-spreading T2 organism. High speed, low yield.',
   },
   {
     id: 'fernite',
@@ -96,9 +93,9 @@ export const T2_PLANTS: PlantType[] = [
     id: 'ashvine',
     name: 'Ashvine',
     tier: 2, emoji: '🍀', color: 'cyan',
-    baseTime: 720,   // 12 min, speed 1 → 648s effective
-    speed: 1, yield: 0, value: 18,
-    description: 'Fast T2 plant. Low value but great for stacking artifact costs.',
+    baseTime: 720,   // 12 min, speed 1 → 648s effewe ctive
+    speed: 1, yield: 1, value: 18,
+    description: 'Fast T2 plant. Good for stacking artifact costs.',
   },
   {
     id: 'crystal-bud',
@@ -107,7 +104,6 @@ export const T2_PLANTS: PlantType[] = [
     baseTime: 1500,  // 25 min base, speed 2 → 1200s (20 min) effective
     speed: 2, yield: 2, value: 52,
     description: 'Rare crystalline mutation. Max T2 speed and yield.',
-    isMutation: true,
   },
 ]
 
@@ -129,8 +125,8 @@ export const T3_PLANTS: PlantType[] = [
     name: 'Phantom Leaf',
     tier: 3, emoji: '🌙', color: 'indigo',
     baseTime: 4200,  // 70 min base, speed 3 → 2940s (49 min) effective
-    speed: 3, yield: 0, value: 60,
-    description: 'Quantum-shifted organism. Fastest T3 grow time, no yield bonus.',
+    speed: 3, yield: 1, value: 60,
+    description: 'Quantum-shifted organism. Fastest T3 grow time, minimal yield.',
   },
   {
     id: 'voidbloom',
@@ -155,7 +151,6 @@ export const T3_PLANTS: PlantType[] = [
     baseTime: 5400,  // 1.5h base, speed 3 → 3780s (63 min) effective
     speed: 3, yield: 3, value: 108,
     description: 'Alien organism of unknown origin. Max T3 stats. Extremely rare.',
-    isMutation: true,
   },
 ]
 
@@ -177,7 +172,7 @@ export const T4_PLANTS: PlantType[] = [
     name: 'Swiftcane',
     tier: 4, emoji: '🎋', color: 'lime',
     baseTime: 5400,  // 1.5h, speed 4 → 3240s effective
-    speed: 4, yield: 0, value: 155,
+    speed: 4, yield: 1, value: 155,
     description: 'Max T4 speed. Great for grid artifact material.',
   },
   {
@@ -203,7 +198,6 @@ export const T4_PLANTS: PlantType[] = [
     baseTime: 14400, // 4h, speed 4 → 8640s effective
     speed: 4, yield: 4, value: 420,
     description: 'Max T4. Rare mutation. Required for Cosmosbloom.',
-    isMutation: true,
   },
 ]
 
@@ -225,7 +219,7 @@ export const T5_PLANTS: PlantType[] = [
     name: 'Voidpulse',
     tier: 5, emoji: '🌌', color: 'indigo',
     baseTime: 18000, // 5h, speed 5 → 9000s effective
-    speed: 5, yield: 0, value: 520,
+    speed: 5, yield: 1, value: 520,
     description: 'Max T5 speed. Fastest plant in the game. Artifact machine.',
   },
   {
@@ -243,7 +237,6 @@ export const T5_PLANTS: PlantType[] = [
     baseTime: 36000, // 10h, speed 5 → 18000s effective
     speed: 5, yield: 5, value: 1500,
     description: 'The rarest plant. Max stats. Only obtainable via mutation.',
-    isMutation: true,
   },
 ]
 

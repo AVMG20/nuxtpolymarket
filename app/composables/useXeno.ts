@@ -53,7 +53,7 @@ export const useXeno = () => {
 
   /** Plant a specific stack (typeId + speed + yield) in a slot */
   async function plantInSlot(slotId: string, typeId: string, speed: number, yield_: number) {
-    return call('/api/xeno/grid/plant', { slotId, typeId, speed, yield: yield_ }, 'Plant placed!')
+    return call('/api/xeno/grid/plant', { slotId, typeId, speed, yield: yield_ }, '')
   }
 
   async function harvestSlot(slotId: string) {

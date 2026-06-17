@@ -2,6 +2,7 @@
 import {
   PLANT_TYPES,
   MUTATIONS,
+  MUTATION_OFFSPRING,
   tierLabel,
   tierColor,
   tierBg,
@@ -13,6 +14,7 @@ import {
 
 import { formatDuration } from '~/utils/xeno-format'
 
+const mutationOffspring = MUTATION_OFFSPRING
 const { inventory, gridSlots } = useXeno()
 const { virtualEl: cursorEl, track: trackCursor } = useTooltipCursor()
 
@@ -235,7 +237,7 @@ function tierMutations(tier: number) {
                         <p class="font-bold text-sm text-default/50">{{ plant.name }}</p>
                         <span class="text-xs font-bold uppercase tracking-wider text-muted/40">
                           {{ tierLabel(plant.tier) }}
-                          <span v-if="plant.isMutation"> · Mutation</span>
+                          <span v-if="mutationOffspring.has(plant.id)"> · Mutation</span>
                           <span v-else-if="plant.isStarter"> · Starter</span>
                         </span>
                       </div>
@@ -315,7 +317,7 @@ function tierMutations(tier: number) {
                   :tier="plant.tier"
                   :class="!discoveredIds.has(plant.id) && 'opacity-30'"
                 />
-                <span v-if="plant.isMutation && discoveredIds.has(plant.id)" class="text-xs leading-none">✨</span>
+                <span v-if="mutationOffspring.has(plant.id) && discoveredIds.has(plant.id)" class="text-xs leading-none">✨</span>
                 <UIcon v-else-if="!discoveredIds.has(plant.id)" name="i-lucide-lock" class="size-3 text-muted/25" />
               </div>
 

@@ -3,7 +3,7 @@ import { db } from '#server/database'
 import { xenoPlants, xenoArtifacts, xenoGridSlots, xenoBreederSlots } from '#server/database/schema'
 import {
   getArtifact, getEffectValue, getPlant, effectiveGrowTime, breedDuration, getMutationPair,
-  PLANT_TYPES, TIER_MAX_SPEED, TIER_MAX_YIELD,
+  MUTATION_OFFSPRING, PLANT_TYPES, TIER_MAX_SPEED, TIER_MAX_YIELD,
 } from '#shared/utils/xeno'
 
 /** When XENO_DEV=true, all grow/breed durations are capped to 1 second for testing */
@@ -97,7 +97,7 @@ export function computeBreedResult(
 
     // Find a non-mutation named plant matching the bred stats exactly
     const exactMatch = PLANT_TYPES.find(
-      p => p.tier === tier && p.speed === resultSpeed && p.yield === resultYield && !p.isMutation,
+      p => p.tier === tier && p.speed === resultSpeed && p.yield === resultYield && !MUTATION_OFFSPRING.has(p.id),
     )
     // Fallback: use the higher-tier parent's type with the bred stats
     resultTypeId = exactMatch?.id ?? (t1.tier >= t2.tier ? p1.typeId : p2.typeId)

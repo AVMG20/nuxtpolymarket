@@ -15,19 +15,15 @@ const props = defineProps<{
 }>()
 
 const growTime = computed(() => formatDuration(effectiveGrowTime({ baseTime: props.baseTime, speed: props.speed })))
-const maxValue = computed(() => props.value * (1 + props.yield))
+const avgValue = computed(() => props.value * (1 + props.yield / 2))
 </script>
 
 <template>
   <div class="w-56 p-3 space-y-3 bg-elevated border border-default rounded-xl shadow-xl">
     <div class="flex items-start justify-between gap-2">
       <div>
-        <p class="font-bold text-sm">{{ name }}</p>
-        <p
-          v-if="quantity !== undefined"
-          class="text-xs font-bold uppercase tracking-wider mt-0.5"
-          :class="plantColor(color)"
-        >
+        <p class="font-bold text-sm" :class="plantColor(color)">{{ name }}</p>
+        <p v-if="quantity !== undefined" class="text-xs font-semibold mt-0.5">
           {{ quantity }} remaining
         </p>
       </div>
@@ -50,11 +46,15 @@ const maxValue = computed(() => props.value * (1 + props.yield))
       </div>
       <div class="flex justify-between text-xs">
         <span class="text-muted uppercase tracking-wider font-semibold">Yield</span>
-        <span class="font-mono">1–{{ 1 + yield }} units</span>
+        <span class="font-mono">1–{{ 1 + yield }}</span>
       </div>
       <div class="flex justify-between text-xs">
         <span class="text-muted uppercase tracking-wider font-semibold">Value</span>
-        <span class="font-mono">${{ formatNumber(value, false) }}–${{ formatNumber(maxValue, false) }}</span>
+        <span class="font-mono">${{ formatNumber(value, false) }}</span>
+      </div>
+      <div class="flex justify-between text-xs">
+        <span class="text-muted uppercase tracking-wider font-semibold">Avg value</span>
+        <span class="font-mono">${{ formatNumber(avgValue, false) }}</span>
       </div>
     </div>
 

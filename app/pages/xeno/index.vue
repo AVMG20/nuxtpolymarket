@@ -182,17 +182,16 @@ async function doHarvestAll() {
     const readySlots = (gridSlots.value as any[]).filter(s => s.plant && isDone(s.plant.completesAt))
     await Promise.all(readySlots.map(async (slot: any) => {
       const plantType = getPlant(slot.plant.typeId)
+      // Capture rect before harvesting — element is removed after state refresh
+      const el = document.querySelector(`[data-slot="${slot.id}"]`)
+      const rect = el?.getBoundingClientRect()
       const res = await harvestSlot(slot.id)
-      if (res && plantType) {
-        const el = document.querySelector(`[data-slot="${slot.id}"]`)
-        if (el) {
-          const rect = el.getBoundingClientRect()
-          spawnFloat(
-            { clientX: rect.left + rect.width / 2, clientY: rect.top + rect.height / 2 } as MouseEvent,
-            `+${res.harvested} ${plantType.emoji}`,
-            plantColor(plantType.color),
-          )
-        }
+      if (res && plantType && rect) {
+        spawnFloat(
+          { clientX: rect.left + rect.width / 2, clientY: rect.top + rect.height / 2 } as MouseEvent,
+          `+${res.harvested} ${plantType.emoji}`,
+          plantColor(plantType.color),
+        )
       }
     }))
   } finally { harvestingAll.value = false }

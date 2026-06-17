@@ -38,14 +38,29 @@ const buyablePlants = computed(() => {
     .sort((a, b) => b.tier !== a.tier ? b.tier - a.tier : b.value - a.value)
 })
 
+const totalInventoryValue = computed(() =>
+  (inventory.value || []).reduce((sum: number, item: any) => sum + item.value * item.quantity, 0),
+)
+
 const selling = ref<Record<string, boolean>>({})
 const buying = ref<Record<string, boolean>>({})
+
+const confirmSell = ref<{ item: any; qty: number } | null>(null)
 
 function stackKey(item: any) {
   return `${item.typeId}:${item.speed}:${item.yield}`
 }
 
+function requestSell(item: any, qty: number) {
+  if (qty >= item.quantity) {
+    confirmSell.value = { item, qty }
+  } else {
+    doSell(item, qty)
+  }
+}
+
 async function doSell(item: any, qty: number) {
+  confirmSell.value = null
   const key = `${stackKey(item)}-${qty}`
   selling.value[key] = true
   try { await sellPlants(item.typeId, item.speed, item.yield, qty) }
@@ -67,9 +82,15 @@ function growTime(item: any) {
 
 <template>
   <UContainer>
-    <div class="mb-6">
-      <h1 class="text-2xl font-bold flex items-center gap-2"><span>🏪</span> Market</h1>
-      <p class="text-sm text-muted mt-0.5">Buy and sell xenoflora.</p>
+    <div class="mb-6 flex items-start justify-between gap-4">
+      <div>
+        <h1 class="text-2xl font-bold flex items-center gap-2"><span>🏪</span> Market</h1>
+        <p class="text-sm text-muted mt-0.5">Buy and sell xenoflora.</p>
+      </div>
+      <div class="text-right shrink-0">
+        <p class="text-xs text-muted uppercase tracking-wider font-semibold">Portfolio value</p>
+        <CoinBalance :value="totalInventoryValue" :compact="false" class="text-lg font-black" />
+      </div>
     </div>
 
     <!-- Tabs -->
@@ -171,32 +192,18 @@ function growTime(item: any) {
           </div>
 
           <!-- Sell buttons -->
-          <div class="flex flex-col gap-1 shrink-0">
-            <div class="flex gap-1">
-              <UButton
-                v-for="qty in [1, 10, 50]"
-                :key="qty"
-                size="xs"
-                variant="soft"
-                color="primary"
-                :disabled="qty > item.quantity"
-                :loading="selling[`${stackKey(item)}-${qty}`]"
-                @click="doSell(item, qty)"
-              >
-                <span class="tabular-nums font-semibold">×{{ qty }}</span>
-                <span class="text-xs text-muted ml-1 tabular-nums">${{ formatNumber(item.value * qty, false) }}</span>
-              </UButton>
-            </div>
+          <div class="flex gap-1 shrink-0">
             <UButton
+              v-for="qty in [1, 10, 50]"
+              :key="qty"
               size="xs"
-              color="primary"
               variant="soft"
-              block
-              :loading="selling[`${stackKey(item)}-${item.quantity}`]"
-              @click="doSell(item, item.quantity)"
+              color="error"
+              :disabled="item.quantity === 0"
+              :loading="selling[`${stackKey(item)}-${Math.min(qty, item.quantity)}`]"
+              @click="requestSell(item, Math.min(qty, item.quantity))"
             >
-              <span class="font-semibold">Sell All</span>
-              <span class="text-xs ml-1 tabular-nums">${{ formatNumber(item.value * item.quantity, false) }}</span>
+              <span class="tabular-nums font-semibold">×{{ qty }}</span>
             </UButton>
           </div>
         </div>
@@ -264,7 +271,7 @@ function growTime(item: any) {
               :key="qty"
               size="xs"
               variant="soft"
-              color="primary"
+              color="success"
               :disabled="balance < plant.buyPrice * qty"
               :loading="buying[`${plant.id}-${qty}`]"
               @click="doBuy(plant.id, qty)"
@@ -277,4 +284,33 @@ function growTime(item: any) {
       </div>
     </div>
   </UContainer>
+
+  <!-- Confirm sell-all modal -->
+  <UModal
+    :open="!!confirmSell"
+    title="Sell all of this stack?"
+    @update:open="(v) => { if (!v) confirmSell = null }"
+  >
+    <template #body>
+      <div v-if="confirmSell" class="space-y-4">
+        <p class="text-sm text-muted">
+          You're about to sell all <span class="font-bold text-default">{{ confirmSell.item.quantity }}×
+          {{ confirmSell.item.name }}</span> (S{{ confirmSell.item.speed }} Y{{ confirmSell.item.yield }}).
+          This will leave you with <span class="font-bold text-error">0</span> of this stack.
+        </p>
+        <p class="text-sm font-semibold">
+          Total: ${{ formatNumber(confirmSell.item.value * confirmSell.item.quantity, false) }}
+        </p>
+        <div class="flex gap-2 justify-end">
+          <UButton variant="ghost" color="neutral" label="Cancel" @click="confirmSell = null" />
+          <UButton
+            color="error"
+            label="Sell All"
+            :loading="selling[`${stackKey(confirmSell.item)}-${confirmSell.item.quantity}`]"
+            @click="doSell(confirmSell.item, confirmSell.item.quantity)"
+          />
+        </div>
+      </div>
+    </template>
+  </UModal>
 </template>

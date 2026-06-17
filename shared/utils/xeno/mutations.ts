@@ -71,6 +71,9 @@ export function getMutation(
   return m ? { offspring: m.offspring, chance: m.chance } : null
 }
 
+/** Set of plant IDs that are exclusively obtainable via mutation (never from normal breeding). */
+export const MUTATION_OFFSPRING = new Set(MUTATIONS.map(m => m.offspring))
+
 /** Returns ALL possible mutations for a plant pair in table order. */
 export function getMutationPair(
   p1Id: string,
