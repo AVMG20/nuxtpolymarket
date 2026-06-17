@@ -279,7 +279,6 @@ function growTime(item: any) {
               @click="doBuy(plant.id, qty)"
             >
               <span class="tabular-nums font-semibold">×{{ qty }}</span>
-              <CoinBalance :value="plant.buyPrice * qty" :compact="false" class="text-xs text-muted ml-1" />
             </UButton>
           </div>
         </div>
