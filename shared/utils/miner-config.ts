@@ -40,7 +40,7 @@ export const MINES_TILE_VALUES = [1000, 600, 450, 350, 300, 200, 150, 100, 0] as
 export const MINES_UPGRADE_MAX_LEVEL = 10
 export const MINES_UPGRADE_BASE_COST = 1000
 export const MINES_UPGRADE_GROWTH = 1.6
-export const MINES_VALUE_GROWTH = 1.4          // reward multiplier per level → ~20x at L10
+export const MINES_VALUE_GROWTH = 0.10         // +10% per level (linear) → 1.9x at L10
 
 /** Cost to buy the next mine (pass current count before purchase) */
 export function minesPurchaseCost(currentCount: number) {
@@ -52,9 +52,9 @@ export function minesUpgradeCost(currentLevel: number) {
     return Math.round(MINES_UPGRADE_BASE_COST * Math.pow(MINES_UPGRADE_GROWTH, currentLevel - 1))
 }
 
-/** Exponential multiplier applied to mine tile rewards and extra play value */
+/** Linear multiplier applied to mine tile rewards and extra play value (+10% per level) */
 export function minesValueMultiplier(level: number) {
-    return Math.pow(MINES_VALUE_GROWTH, level - 1)
+    return 1 + MINES_VALUE_GROWTH * (level - 1)
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
