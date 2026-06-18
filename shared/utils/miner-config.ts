@@ -1,25 +1,26 @@
+// All miner upgrade prices AND rewards scale EXPONENTIALLY (geometric per level),
 // ─── Mining Rig ───────────────────────────────────────────────────────────────
 export const RIG_MAX_LEVEL = 100
 export const RIG_BASE_INCOME = 150
-export const RIG_INCOME_INCREMENT = 150
-export const RIG_BASE_UPGRADE_COST = 600
-export const RIG_UPGRADE_COST_INCREMENT = 300  // additional cost per current level
+export const RIG_INCOME_GROWTH = 1.11        // +11% income per level  → ~4.6M/day at L100; ~11mo to max
+export const RIG_BASE_UPGRADE_COST = 250
+export const RIG_UPGRADE_GROWTH = 1.125      // +12.5% cost per level
 
 // ─── Vault ────────────────────────────────────────────────────────────────────
 export const VAULT_MAX_LEVEL = 100
-export const VAULT_BASE_CAP = 150
-export const VAULT_CAP_INCREMENT = 150
-export const VAULT_BASE_UPGRADE_COST = 500
-export const VAULT_UPGRADE_COST_INCREMENT = 250
+export const VAULT_BASE_CAP = 300            // ~2 days of same-level rig income of headroom
+export const VAULT_CAP_GROWTH = 1.11
+export const VAULT_BASE_UPGRADE_COST = 200
+export const VAULT_UPGRADE_GROWTH = 1.125
 
 // ─── Gem Factory ──────────────────────────────────────────────────────────────
 export const FACTORY_MAX_LEVEL = 10
 export const FACTORY_BASE_RATE = 1
-export const FACTORY_RATE_INCREMENT = 0.5
+export const FACTORY_RATE_GROWTH = 1.35      // ~16 gems/day at L10
 export const FACTORY_BASE_CAP = 10
-export const FACTORY_CAP_INCREMENT = 1
-export const FACTORY_BASE_UPGRADE_COST = 1000
-export const FACTORY_UPGRADE_COST_INCREMENT = 1000
+export const FACTORY_CAP_GROWTH = 1.35
+export const FACTORY_BASE_UPGRADE_COST = 1500
+export const FACTORY_UPGRADE_GROWTH = 1.7    // gems are premium → steep cash sink
 
 // ─── Gem Shop ─────────────────────────────────────────────────────────────────
 export const SHOP_INSTANT_FILL_MIN_RATIO = 200   // $/gem at level 1
@@ -33,66 +34,67 @@ export const SHOP_QUICK_CASH_AMOUNT = 200      // $ credited instantly
 // ─── Mines Game ───────────────────────────────────────────────────────────────
 export const MINES_MAX_COUNT = 10
 export const MINES_BASE_PURCHASE_COST = 1000
-export const MINES_PURCHASE_COST_INCREMENT = 750
+export const MINES_PURCHASE_GROWTH = 1.6
 export const MINES_TILE_VALUES = [1000, 600, 450, 350, 300, 200, 150, 100, 0] as const
 
 export const MINES_UPGRADE_MAX_LEVEL = 10
 export const MINES_UPGRADE_BASE_COST = 1000
-export const MINES_UPGRADE_COST_INCREMENT = 750
+export const MINES_UPGRADE_GROWTH = 1.6
+export const MINES_VALUE_GROWTH = 1.4          // reward multiplier per level → ~20x at L10
 
 /** Cost to buy the next mine (pass current count before purchase) */
 export function minesPurchaseCost(currentCount: number) {
-  return MINES_BASE_PURCHASE_COST + (currentCount - 1) * MINES_PURCHASE_COST_INCREMENT
+    return Math.round(MINES_BASE_PURCHASE_COST * Math.pow(MINES_PURCHASE_GROWTH, currentCount - 1))
 }
 
-/** Cost to upgrade mines to the next level */
+/** Cost to upgrade mines to the next level (pass current level) */
 export function minesUpgradeCost(currentLevel: number) {
-  return MINES_UPGRADE_BASE_COST + (currentLevel - 1) * MINES_UPGRADE_COST_INCREMENT
+    return Math.round(MINES_UPGRADE_BASE_COST * Math.pow(MINES_UPGRADE_GROWTH, currentLevel - 1))
 }
 
-/** Multiplier for mine rewards and extra play value */
+/** Exponential multiplier applied to mine tile rewards and extra play value */
 export function minesValueMultiplier(level: number) {
-  return 1 + (level - 1) * 0.1
+    return Math.pow(MINES_VALUE_GROWTH, level - 1)
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 export function rigIncome(level: number) {
-  return RIG_BASE_INCOME + (level - 1) * RIG_INCOME_INCREMENT
+    return Math.round(RIG_BASE_INCOME * Math.pow(RIG_INCOME_GROWTH, level - 1))
 }
 
 export function vaultCap(level: number) {
-  return VAULT_BASE_CAP + (level - 1) * VAULT_CAP_INCREMENT
+    return Math.round(VAULT_BASE_CAP * Math.pow(VAULT_CAP_GROWTH, level - 1))
 }
 
 export function rigUpgradeCost(level: number) {
-  return RIG_BASE_UPGRADE_COST + level * RIG_UPGRADE_COST_INCREMENT
+    return Math.round(RIG_BASE_UPGRADE_COST * Math.pow(RIG_UPGRADE_GROWTH, level - 1))
 }
 
 export function vaultUpgradeCost(level: number) {
-  return VAULT_BASE_UPGRADE_COST + level * VAULT_UPGRADE_COST_INCREMENT
+    return Math.round(VAULT_BASE_UPGRADE_COST * Math.pow(VAULT_UPGRADE_GROWTH, level - 1))
 }
 
 export function factoryRate(level: number) {
-  return FACTORY_BASE_RATE + (level - 1) * FACTORY_RATE_INCREMENT
+    return FACTORY_BASE_RATE * Math.pow(FACTORY_RATE_GROWTH, level - 1)
 }
 
 export function factoryCap(level: number) {
-  return FACTORY_BASE_CAP + (level - 1) * FACTORY_CAP_INCREMENT
+    return Math.round(FACTORY_BASE_CAP * Math.pow(FACTORY_CAP_GROWTH, level - 1))
 }
 
 export function factoryUpgradeCost(level: number) {
-  return FACTORY_BASE_UPGRADE_COST + level * FACTORY_UPGRADE_COST_INCREMENT
+    return Math.round(FACTORY_BASE_UPGRADE_COST * Math.pow(FACTORY_UPGRADE_GROWTH, level - 1))
 }
 
 export function instantFillCost(vaultLevel: number) {
-  const t = (vaultLevel - 1) / (VAULT_MAX_LEVEL - 1) // 0 at L1, 1 at L100
-  const ratio = SHOP_INSTANT_FILL_MIN_RATIO + t * (SHOP_INSTANT_FILL_MAX_RATIO - SHOP_INSTANT_FILL_MIN_RATIO)
-  return Math.max(SHOP_INSTANT_FILL_MIN_COST, Math.ceil(vaultCap(vaultLevel) / ratio))
+    const t = (vaultLevel - 1) / (VAULT_MAX_LEVEL - 1) // 0 at L1, 1 at L100
+    const ratio = SHOP_INSTANT_FILL_MIN_RATIO + t * (SHOP_INSTANT_FILL_MAX_RATIO - SHOP_INSTANT_FILL_MIN_RATIO)
+    return Math.max(SHOP_INSTANT_FILL_MIN_COST, Math.ceil(vaultCap(vaultLevel) / ratio))
 }
 
 /** ms elapsed → fractional days */
 export function elapsedDays(since: Date) {
-  return (Date.now() - since.getTime()) / 86_400_000
+    return (Date.now() - since.getTime()) / 86_400_000
 }
 
 /**
@@ -100,5 +102,5 @@ export function elapsedDays(since: Date) {
  * No stored value — everything is derived from time × rate.
  */
 export function computePending(ratePerDay: number, lastAt: Date, cap: number) {
-  return Math.min(ratePerDay * elapsedDays(lastAt), cap)
+    return Math.min(ratePerDay * elapsedDays(lastAt), cap)
 }
