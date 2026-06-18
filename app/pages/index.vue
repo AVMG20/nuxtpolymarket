@@ -1,15 +1,14 @@
 <script setup lang="ts">
 const search = ref('')
 
-const slotGames = [
-  {
-    name: 'Cyber Cascade',
-    description: 'Cyber grid with walking wilds and sticky trails',
-    icon: 'i-lucide-skull',
-    to: '/games/cyber',
-    gradient: 'from-violet-950 to-slate-900',
-    iconColor: 'text-violet-400',
-  },
+const slotGames: {
+  name: string;
+  description: string;
+  icon: string;
+  to: string;
+  gradient: string;
+  iconColor: string
+}[] = [
 ]
 
 const casinoGames = [

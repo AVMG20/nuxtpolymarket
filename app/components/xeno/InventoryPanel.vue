@@ -217,30 +217,32 @@ function specRows(art: ArtifactType | undefined) {
       @click="onSelectStack(stack)"
     >
       <!-- Artifact header -->
-      <div class="flex items-center gap-2.5 px-3 pt-3 pb-2">
-        <span class="text-xl leading-none">{{ getArtifact(stack.typeId)?.emoji }}</span>
+      <div class="flex items-center gap-2 px-3 pt-2.5 pb-0">
+        <span class="text-lg leading-none shrink-0">{{ getArtifact(stack.typeId)?.emoji }}</span>
         <div class="flex-1 min-w-0">
           <div class="flex items-center gap-1.5">
             <p class="text-xs font-semibold truncate">{{ getArtifact(stack.typeId)?.name }}</p>
             <span
               v-if="(getArtifact(stack.typeId)?.effects.length ?? 0) > 1"
-              class="text-xs font-bold px-1 py-0.5 rounded bg-primary/10 text-primary leading-none shrink-0"
+              class="text-[10px] font-bold px-1 py-0.5 rounded bg-primary/10 text-primary border border-primary/20 leading-none shrink-0"
             >Hybrid</span>
           </div>
-          <p class="text-xs text-muted">{{ effectTarget(getArtifact(stack.typeId)) }}</p>
+          <p class="text-[11px] text-muted leading-none mt-0.5">{{ effectTarget(getArtifact(stack.typeId)) }}</p>
         </div>
-        <!-- Qty -->
         <span class="text-sm font-black text-primary leading-none shrink-0">×{{ stack.count }}</span>
       </div>
 
-      <!-- Spec list -->
-      <div class="mx-3 mb-2 rounded-lg bg-background/40 border border-default/40 overflow-hidden divide-y divide-default/30">
-        <div v-for="row in specRows(getArtifact(stack.typeId))" :key="row.label" class="px-2.5 py-2">
-          <XenoStatLevel :label="row.label" :level="row.lvl" :max="row.max" :color="row.color" />
-        </div>
-        <div class="px-2.5 py-2">
-          <XenoStatLevel label="Charges" :level="stack.chargesRemaining" :max="MAX_CHARGES" color="bg-primary" />
-        </div>
+      <!-- Spec rows -->
+      <div class="px-3 pt-2 pb-2.5 space-y-1.5">
+        <XenoStatLevel
+          v-for="row in specRows(getArtifact(stack.typeId)).filter(r => r.lvl > 0)"
+          :key="row.label"
+          :label="row.label"
+          :level="row.lvl"
+          :max="row.max"
+          :color="row.color"
+        />
+        <XenoStatLevel label="Charges" :level="stack.chargesRemaining" :max="MAX_CHARGES" color="bg-primary" />
       </div>
 
     </div>

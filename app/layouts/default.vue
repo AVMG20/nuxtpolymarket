@@ -32,7 +32,7 @@ const platformItems: NavigationMenuItem[] = [
 ]
 
 const slotItems: NavigationMenuItem[] = [
-  {label: 'Cyber Cascade', class: 'mb-1', icon: 'i-lucide-skull', to: '/games/cyber'},
+  // {label: 'Cyber Cascade', class: 'mb-1', icon: 'i-lucide-skull', to: '/games/cyber'},
 ]
 
 const casinoItems: NavigationMenuItem[] = [

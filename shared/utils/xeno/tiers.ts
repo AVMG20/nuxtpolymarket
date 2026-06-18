@@ -1,16 +1,6 @@
 /** Global display maximum for any stat level (speed, yield, charges, etc.) */
 export const XENO_MAX_STAT_LEVEL = 10
 
-/** Max speed level achievable per tier (through breeding/mutations) */
-export const TIER_MAX_SPEED: Record<number, number> = {
-  1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6, 7: 7, 8: 8,
-}
-
-/** Max yield level achievable per tier */
-export const TIER_MAX_YIELD: Record<number, number> = {
-  1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6, 7: 7, 8: 8,
-}
-
 /** % time reduced per speed level (10% off base time per point) */
 export const SPEED_REDUCTION_PER_LEVEL = 0.10
 
@@ -45,48 +35,6 @@ export function tierBg(tier: number): string {
   return map[tier] ?? 'bg-elevated border-default'
 }
 
-export function tierProgressColor(tier: number): string {
-  const map: Record<number, string> = {
-    1: 'bg-green-500 dark:bg-green-400',
-    2: 'bg-blue-500 dark:bg-blue-400',
-    3: 'bg-purple-500 dark:bg-purple-400',
-    4: 'bg-orange-500 dark:bg-orange-400',
-    5: 'bg-red-500 dark:bg-red-400',
-    6: 'bg-pink-500 dark:bg-pink-400',
-    7: 'bg-yellow-500 dark:bg-yellow-400',
-    8: 'bg-cyan-500 dark:bg-cyan-400',
-  }
-  return map[tier] ?? 'bg-primary'
-}
-
-export function tierCard(tier: number): string {
-  const map: Record<number, string> = {
-    1: 'bg-green-100 border-green-300 hover:bg-green-200 dark:bg-green-400/10 dark:border-green-400/50 dark:hover:bg-green-400/15',
-    2: 'bg-blue-100 border-blue-300 hover:bg-blue-200 dark:bg-blue-400/10 dark:border-blue-400/50 dark:hover:bg-blue-400/15',
-    3: 'bg-purple-100 border-purple-300 hover:bg-purple-200 dark:bg-purple-400/10 dark:border-purple-400/50 dark:hover:bg-purple-400/15',
-    4: 'bg-orange-100 border-orange-300 hover:bg-orange-200 dark:bg-orange-400/10 dark:border-orange-400/50 dark:hover:bg-orange-400/15',
-    5: 'bg-red-100 border-red-300 hover:bg-red-200 dark:bg-red-400/10 dark:border-red-400/50 dark:hover:bg-red-400/15',
-    6: 'bg-pink-100 border-pink-300 hover:bg-pink-200 dark:bg-pink-400/10 dark:border-pink-400/50 dark:hover:bg-pink-400/15',
-    7: 'bg-yellow-100 border-yellow-300 hover:bg-yellow-200 dark:bg-yellow-400/10 dark:border-yellow-400/50 dark:hover:bg-yellow-400/15',
-    8: 'bg-cyan-100 border-cyan-300 hover:bg-cyan-200 dark:bg-cyan-400/10 dark:border-cyan-400/50 dark:hover:bg-cyan-400/15',
-  }
-  return map[tier] ?? 'bg-elevated border-default hover:bg-elevated/80'
-}
-
-export function tierRing(tier: number): string {
-  const map: Record<number, string> = {
-    1: 'ring-2 ring-green-600 dark:ring-green-400',
-    2: 'ring-2 ring-blue-600 dark:ring-blue-400',
-    3: 'ring-2 ring-purple-600 dark:ring-purple-400',
-    4: 'ring-2 ring-orange-500 dark:ring-orange-400',
-    5: 'ring-2 ring-red-600 dark:ring-red-400',
-    6: 'ring-2 ring-pink-600 dark:ring-pink-400',
-    7: 'ring-2 ring-yellow-600 dark:ring-yellow-400',
-    8: 'ring-2 ring-cyan-600 dark:ring-cyan-400',
-  }
-  return map[tier] ?? 'ring-2 ring-primary'
-}
-
 export function tierLabel(tier: number): string {
   return `T${tier}`
 }
@@ -107,7 +55,7 @@ interface PlantColorClasses {
 
 const PLANT_COLOR_MAP: Record<string, PlantColorClasses> = {
   lime:    { text: 'text-lime-600 dark:text-lime-400',       bgOnly: 'bg-lime-100 dark:bg-lime-400/10',       bg: 'bg-lime-100 border-lime-200 dark:bg-lime-400/10 dark:border-lime-400/20',          cardBg: 'bg-lime-100 hover:bg-lime-200 dark:bg-lime-400/10 dark:hover:bg-lime-400/15',          card: 'bg-lime-100 border-lime-300 hover:bg-lime-200 dark:bg-lime-400/10 dark:border-lime-400/50 dark:hover:bg-lime-400/15',          ring: 'ring-2 ring-lime-500 dark:ring-lime-400',       progress: 'bg-lime-500 dark:bg-lime-400' },
-  green:   { text: 'text-green-600 dark:text-green-400',     bgOnly: 'bg-green-100 dark:bg-green-400/10',     bg: 'bg-green-100 border-green-200 dark:bg-green-400/10 dark:border-green-400/20',        cardBg: 'bg-green-100 hover:bg-green-200 dark:bg-green-400/10 dark:hover:bg-green-400/15',      bg: 'bg-green-100 border-green-200 dark:bg-green-400/10 dark:border-green-400/20',        card: 'bg-green-100 border-green-300 hover:bg-green-200 dark:bg-green-400/10 dark:border-green-400/50 dark:hover:bg-green-400/15',      ring: 'ring-2 ring-green-500 dark:ring-green-400',     progress: 'bg-green-500 dark:bg-green-400' },
+  green:   { text: 'text-green-600 dark:text-green-400',     bgOnly: 'bg-green-100 dark:bg-green-400/10',     bg: 'bg-green-100 border-green-200 dark:bg-green-400/10 dark:border-green-400/20',        cardBg: 'bg-green-100 hover:bg-green-200 dark:bg-green-400/10 dark:hover:bg-green-400/15',      card: 'bg-green-100 border-green-300 hover:bg-green-200 dark:bg-green-400/10 dark:border-green-400/50 dark:hover:bg-green-400/15',      ring: 'ring-2 ring-green-500 dark:ring-green-400',     progress: 'bg-green-500 dark:bg-green-400' },
   amber:   { text: 'text-amber-600 dark:text-amber-400',     bgOnly: 'bg-amber-100 dark:bg-amber-400/10',     bg: 'bg-amber-100 border-amber-200 dark:bg-amber-400/10 dark:border-amber-400/20',        cardBg: 'bg-amber-100 hover:bg-amber-200 dark:bg-amber-400/10 dark:hover:bg-amber-400/15',      card: 'bg-amber-100 border-amber-300 hover:bg-amber-200 dark:bg-amber-400/10 dark:border-amber-400/50 dark:hover:bg-amber-400/15',      ring: 'ring-2 ring-amber-500 dark:ring-amber-400',     progress: 'bg-amber-500 dark:bg-amber-400' },
   rose:    { text: 'text-rose-600 dark:text-rose-400',       bgOnly: 'bg-rose-100 dark:bg-rose-400/10',       bg: 'bg-rose-100 border-rose-200 dark:bg-rose-400/10 dark:border-rose-400/20',            cardBg: 'bg-rose-100 hover:bg-rose-200 dark:bg-rose-400/10 dark:hover:bg-rose-400/15',          card: 'bg-rose-100 border-rose-300 hover:bg-rose-200 dark:bg-rose-400/10 dark:border-rose-400/50 dark:hover:bg-rose-400/15',            ring: 'ring-2 ring-rose-500 dark:ring-rose-400',       progress: 'bg-rose-500 dark:bg-rose-400' },
   teal:    { text: 'text-teal-600 dark:text-teal-400',       bgOnly: 'bg-teal-100 dark:bg-teal-400/10',       bg: 'bg-teal-100 border-teal-200 dark:bg-teal-400/10 dark:border-teal-400/20',            cardBg: 'bg-teal-100 hover:bg-teal-200 dark:bg-teal-400/10 dark:hover:bg-teal-400/15',          card: 'bg-teal-100 border-teal-300 hover:bg-teal-200 dark:bg-teal-400/10 dark:border-teal-400/50 dark:hover:bg-teal-400/15',            ring: 'ring-2 ring-teal-500 dark:ring-teal-400',       progress: 'bg-teal-500 dark:bg-teal-400' },
@@ -127,7 +75,7 @@ const PLANT_COLOR_MAP: Record<string, PlantColorClasses> = {
 }
 
 const FALLBACK_PLANT_COLORS: PlantColorClasses = {
-  text: 'text-muted', bg: 'bg-elevated border-default', card: 'bg-elevated border-default hover:bg-elevated/80', ring: 'ring-2 ring-primary', progress: 'bg-primary',
+  text: 'text-muted', bgOnly: 'bg-elevated', bg: 'bg-elevated border-default', cardBg: 'bg-elevated hover:bg-elevated/80', card: 'bg-elevated border-default hover:bg-elevated/80', ring: 'ring-2 ring-primary', progress: 'bg-primary',
 }
 
 function pc(colorKey: string): PlantColorClasses {
@@ -153,9 +101,6 @@ export function levelTextColor(level: number): string {
 }
 
 export function plantColor(colorKey: string): string    { return pc(colorKey).text }
-export function plantBg(colorKey: string): string      { return pc(colorKey).bg }
 export function plantBgOnly(colorKey: string): string  { return pc(colorKey).bgOnly }
-export function plantCard(colorKey: string): string    { return pc(colorKey).card }
 export function plantCardBg(colorKey: string): string  { return pc(colorKey).cardBg }
 export function plantRing(colorKey: string): string    { return pc(colorKey).ring }
-export function plantProgress(colorKey: string): string { return pc(colorKey).progress }

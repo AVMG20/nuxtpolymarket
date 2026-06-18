@@ -224,11 +224,6 @@ function slotSpeedBoost(slot: any): number {
   return art ? getEffectValue(art, 'grid_speed_boost') : 0
 }
 
-function artifactLevel(typeId: string): string {
-  if (typeId.endsWith('-iii')) return 'III'
-  if (typeId.endsWith('-ii')) return 'II'
-  return 'I'
-}
 </script>
 
 <template>
@@ -317,15 +312,8 @@ function artifactLevel(typeId: string): string {
                 <UIcon name="i-lucide-x" class="size-3" />
               </button>
 
-              <!-- Artifact badge (top-left, read-only — artifacts stay until consumed) -->
-              <div
-                v-if="cell.slot.artifact"
-                class="absolute top-1.5 left-1.5 flex items-center gap-0.5 bg-black/50 rounded-full px-1.5 py-0.5 z-10"
-              >
-                <span class="text-xs leading-none">{{ getArtifact(cell.slot.artifact.typeId)?.emoji }}</span>
-                <span class="text-[9px] font-bold text-white/50 leading-none">{{ artifactLevel(cell.slot.artifact.typeId) }}</span>
-                <span class="text-xs font-bold text-white/80">{{ cell.slot.artifact.chargesRemaining }}</span>
-              </div>
+              <!-- Top-left: artifact badge + effect dots -->
+              <XenoGridArtifactBadge :slot="cell.slot" />
 
               <!-- S# Y# badges -->
               <div class="absolute top-1.5 right-7 flex flex-col gap-0.5 z-10">
@@ -371,7 +359,7 @@ function artifactLevel(typeId: string): string {
             <!-- UNLOCKED — empty -->
             <div
               v-else-if="cell.unlocked"
-              class="rounded-xl border aspect-square flex flex-col items-center justify-center gap-1 select-none transition-all duration-100"
+              class="relative rounded-xl border aspect-square flex flex-col items-center justify-center gap-1 select-none transition-all duration-100"
               :class="[
                 cellCursor(cell),
                 selectedArtifact && !cell.slot?.artifact
@@ -385,9 +373,7 @@ function artifactLevel(typeId: string): string {
             >
               <!-- Slot already has artifact attached (no plant yet) -->
               <template v-if="cell.slot?.artifact">
-                <span class="text-xl leading-none">{{ getArtifact(cell.slot.artifact.typeId)?.emoji }}</span>
-                <p class="text-xs text-muted/60 font-medium text-center px-1 truncate leading-tight">{{ getArtifact(cell.slot.artifact.typeId)?.name }}</p>
-                <span class="text-xs font-bold text-white/60 mt-0.5">{{ cell.slot.artifact.chargesRemaining }}×</span>
+                <XenoGridArtifactBadge :slot="cell.slot" />
                 <p v-if="selectedPlant" class="text-xs text-primary/70 font-medium">Plant here</p>
               </template>
               <!-- No artifact: show preview or empty state -->
