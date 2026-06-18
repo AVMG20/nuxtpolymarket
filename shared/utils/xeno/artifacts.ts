@@ -166,7 +166,7 @@ export const ARTIFACT_TYPES: ArtifactType[] = [
     name: 'Growth Catalyst',
     emoji: '⚗️',
     description: 'Breeder: +3 yield, −10% breed time. Best yield & speed at tier I.',
-    level: 1, maxCharges: 6,
+    level: 1, maxCharges: 3,
     effects: [
       { type: 'breeder_speed_boost', value: 0.10 },
       { type: 'breeder_extra_yield', value: 3 },
@@ -178,7 +178,7 @@ export const ARTIFACT_TYPES: ArtifactType[] = [
     name: 'Growth Catalyst II',
     emoji: '⚗️',
     description: 'Breeder: +5 yield, −20% breed time. Best yield & speed at tier II.',
-    level: 2, maxCharges: 7,
+    level: 2, maxCharges: 4,
     effects: [
       { type: 'breeder_speed_boost', value: 0.20 },
       { type: 'breeder_extra_yield', value: 5 },
@@ -190,7 +190,7 @@ export const ARTIFACT_TYPES: ArtifactType[] = [
     name: 'Growth Catalyst III',
     emoji: '⚗️',
     description: 'Breeder: +6 yield, −30% breed time. Strong yield & speed. Excellent for farming.',
-    level: 3, maxCharges: 8,
+    level: 3, maxCharges: 5,
     effects: [
       { type: 'breeder_speed_boost', value: 0.30 },
       { type: 'breeder_extra_yield', value: 6 },
@@ -202,7 +202,7 @@ export const ARTIFACT_TYPES: ArtifactType[] = [
     name: 'Growth Catalyst IV',
     emoji: '⚗️',
     description: 'Breeder: +8 yield, −50% breed time. Maximum yield & speed. Unrivalled for farming.',
-    level: 4, maxCharges: 10,
+    level: 4, maxCharges: 6,
     effects: [
       { type: 'breeder_speed_boost', value: 0.50 },
       { type: 'breeder_extra_yield', value: 8 },
@@ -216,7 +216,7 @@ export const ARTIFACT_TYPES: ArtifactType[] = [
     name: 'Mutation Booster',
     emoji: '🧬',
     description: 'Breeder: +5% mutation, −5% breed time. Good for T1–T2 void hunting.',
-    level: 1, maxCharges: 6,
+    level: 1, maxCharges: 3,
     effects: [
       { type: 'breeder_speed_boost', value: 0.05 },
       { type: 'breeder_mutation_boost', value: 0.05 },
@@ -228,7 +228,7 @@ export const ARTIFACT_TYPES: ArtifactType[] = [
     name: 'Mutation Booster II',
     emoji: '🧬',
     description: 'Breeder: +10% mutation, −10% breed time. Reliable for T3–T4 void hunting.',
-    level: 2, maxCharges: 7,
+    level: 2, maxCharges: 4,
     effects: [
       { type: 'breeder_speed_boost', value: 0.10 },
       { type: 'breeder_mutation_boost', value: 0.10 },
@@ -240,7 +240,7 @@ export const ARTIFACT_TYPES: ArtifactType[] = [
     name: 'Prism Lens',
     emoji: '🧬',
     description: 'Breeder: +20% mutation, −15% breed time. Highest mutation chance. Essential for Void plants.',
-    level: 3, maxCharges: 8,
+    level: 3, maxCharges: 5,
     effects: [
       { type: 'breeder_speed_boost', value: 0.15 },
       { type: 'breeder_mutation_boost', value: 0.20 },
@@ -252,7 +252,7 @@ export const ARTIFACT_TYPES: ArtifactType[] = [
     name: 'Prism Lens II',
     emoji: '🧬',
     description: 'Breeder: +30% mutation, −25% breed time. Unmatched void hunting. Essential for T6–T7 Void plants.',
-    level: 4, maxCharges: 10,
+    level: 4, maxCharges: 6,
     effects: [
       { type: 'breeder_speed_boost', value: 0.25 },
       { type: 'breeder_mutation_boost', value: 0.30 },
@@ -266,7 +266,7 @@ export const ARTIFACT_TYPES: ArtifactType[] = [
     name: 'Xenoculture Flask',
     emoji: '🫧',
     description: 'Breeder: +2 yield, +5% mutation, −5% breed time. Balanced early hybrid.',
-    level: 1, maxCharges: 6,
+    level: 1, maxCharges: 3,
     effects: [
       { type: 'breeder_speed_boost', value: 0.05 },
       { type: 'breeder_extra_yield', value: 2 },
@@ -279,7 +279,7 @@ export const ARTIFACT_TYPES: ArtifactType[] = [
     name: 'Xenoculture Flask II',
     emoji: '🫧',
     description: 'Breeder: +3 yield, +10% mutation, −10% breed time. Balanced T3 hybrid.',
-    level: 2, maxCharges: 7,
+    level: 2, maxCharges: 4,
     effects: [
       { type: 'breeder_speed_boost', value: 0.10 },
       { type: 'breeder_extra_yield', value: 3 },
@@ -292,7 +292,7 @@ export const ARTIFACT_TYPES: ArtifactType[] = [
     name: 'Xenoculture Flask III',
     emoji: '🫧',
     description: 'Breeder: +4 yield, +15% mutation, −15% breed time. Premium T4 all-rounder.',
-    level: 3, maxCharges: 8,
+    level: 3, maxCharges: 5,
     effects: [
       { type: 'breeder_speed_boost', value: 0.15 },
       { type: 'breeder_extra_yield', value: 4 },
@@ -305,7 +305,7 @@ export const ARTIFACT_TYPES: ArtifactType[] = [
     name: 'Xenoculture Flask IV',
     emoji: '🫧',
     description: 'Breeder: +5 yield, +25% mutation, −25% breed time. Legendary T7 all-rounder.',
-    level: 4, maxCharges: 10,
+    level: 4, maxCharges: 6,
     effects: [
       { type: 'breeder_speed_boost', value: 0.25 },
       { type: 'breeder_extra_yield', value: 5 },

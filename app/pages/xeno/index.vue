@@ -54,10 +54,13 @@ const gridFreeArtifacts = computed(() =>
   }),
 )
 
-// Deselect artifact if it gets used up / attached
+// Keep artifact selected after placing — switch to next of same type, clear only if none left
 watch(gridFreeArtifacts, (arts) => {
   if (!selectedArtifact.value) return
-  if (!(arts as any[]).find(a => a.id === selectedArtifact.value?.id)) selectedArtifact.value = null
+  if (!(arts as any[]).find(a => a.id === selectedArtifact.value?.id)) {
+    const next = (arts as any[]).find(a => a.typeId === selectedArtifact.value?.typeId)
+    selectedArtifact.value = next ? { id: next.id, typeId: next.typeId, chargesRemaining: next.chargesRemaining } : null
+  }
 })
 
 // ── Inventory panel callbacks ─────────────────────────────────────

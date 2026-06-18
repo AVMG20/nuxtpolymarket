@@ -45,10 +45,13 @@ watch(inventory, (inv) => {
   if (!(inv as any[]).find(i => i.typeId === typeId && i.speed === speed && i.yield === yld))
     selectedPlant.value = null
 })
+// Keep artifact selected after placing — switch to next of same type, clear only if none left
 watch(breederFreeArtifacts, (arts) => {
   if (!selectedArtifact.value) return
-  if (!(arts as any[]).find(a => a.id === selectedArtifact.value?.id))
-    selectedArtifact.value = null
+  if (!(arts as any[]).find(a => a.id === selectedArtifact.value?.id)) {
+    const next = (arts as any[]).find(a => a.typeId === selectedArtifact.value?.typeId)
+    selectedArtifact.value = next ? { id: next.id, typeId: next.typeId, chargesRemaining: next.chargesRemaining } : null
+  }
 })
 
 function onSelectPlant(p: any) { selectedPlant.value = p; if (p) selectedArtifact.value = null }
@@ -82,7 +85,7 @@ async function handleArtifactSlotClick(slotId: string) {
   if (!selectedArtifact.value || attachingSlot.value) return
   attachingSlot.value = slotId
   try { await attachBreederArtifact(slotId, selectedArtifact.value.id) }
-  finally { attachingSlot.value = null; selectedArtifact.value = null }
+  finally { attachingSlot.value = null }
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
