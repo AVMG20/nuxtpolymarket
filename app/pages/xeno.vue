@@ -7,6 +7,7 @@ const tabs = [
   { label: 'Market', to: '/xeno/market', icon: 'i-lucide-store' },
   { label: 'Artifacts', to: '/xeno/artifacts', icon: 'i-lucide-gem' },
   { label: 'Xenopedia', to: '/xeno/encyclopedia', icon: 'i-lucide-book-open' },
+  { label: 'Leaderboard', to: '/xeno/leaderboard', icon: 'i-lucide-trophy' },
 ]
 
 const activeTab = computed(() => route.path)

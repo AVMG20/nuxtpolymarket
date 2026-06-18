@@ -302,8 +302,8 @@ async function doCollect(slotId: string) {
                       />
                     </div>
                     <div class="flex items-center gap-1.5">
-                      <p class="text-xs text-muted">{{ slot.completesAt ? formatCountdown(slot.completesAt, now) : '…' }}</p>
                       <span v-if="slotBreederSpeedBoost(slot) > 0" class="text-[10px] font-bold text-primary leading-none">⚡−{{ Math.round(slotBreederSpeedBoost(slot) * 100) }}%</span>
+                      <p class="text-xs text-muted">{{ slot.completesAt ? formatCountdown(slot.completesAt, now) : '…' }}</p>
                     </div>
                   </div>
 
