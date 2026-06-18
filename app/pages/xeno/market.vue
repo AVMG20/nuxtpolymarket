@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { tierColor, plantColor, plantBgOnly, getPlant, effectiveGrowTime, PLANT_TYPES } from '#shared/utils/xeno'
+import { tierColor, tierNameColor, plantBgOnly, getPlant, effectiveGrowTime, PLANT_TYPES } from '#shared/utils/xeno'
 import { formatDuration } from '~/utils/xeno-format'
 
 const { user } = useAuth()
@@ -180,7 +180,7 @@ function growTime(item: any) {
           <!-- Plant info -->
           <div class="flex-1 min-w-0">
             <div class="flex items-center gap-1.5">
-              <p class="font-bold text-sm" :class="plantColor(item.color)">{{ item.name }}</p>
+              <p class="font-bold text-sm" :class="tierNameColor(item.tier)">{{ item.name }}</p>
               <XenoTierLabel :tier="item.tier" />
             </div>
             <div class="flex items-center gap-1.5 mt-0.5">
@@ -253,7 +253,7 @@ function growTime(item: any) {
           <!-- Plant info -->
           <div class="flex-1 min-w-0">
             <div class="flex items-center gap-1.5">
-              <p class="font-bold text-sm" :class="plantColor(plant.color)">{{ plant.name }}</p>
+              <p class="font-bold text-sm" :class="tierNameColor(plant.tier)">{{ plant.name }}</p>
               <XenoTierLabel :tier="plant.tier" />
             </div>
             <div class="flex items-center gap-1.5 mt-0.5">

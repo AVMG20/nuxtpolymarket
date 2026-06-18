@@ -29,7 +29,7 @@ export const T1_PLANTS: PlantType[] = [
   {
     id: 'sprout',
     name: 'Sprout',
-    tier: 1, emoji: '🌱', color: 'lime',
+    tier: 1, emoji: '🌱', color: 'slate',
     baseTime: 360,   // 6 min, no speed bonus → 6 min effective
     speed: 0, yield: 1, value: 5,
     description: 'The most basic xenoflora. Reliable starter plant.',
@@ -38,7 +38,7 @@ export const T1_PLANTS: PlantType[] = [
   {
     id: 'tendril',
     name: 'Tendril',
-    tier: 1, emoji: '🌿', color: 'green',
+    tier: 1, emoji: '🌿', color: 'slate',
     baseTime: 300,   // 5 min base, speed 1 → 270s (4.5 min) effective
     speed: 1, yield: 1, value: 6,
     description: 'A fast-growing vine. Faster than Sprout, same yield.',
@@ -47,7 +47,7 @@ export const T1_PLANTS: PlantType[] = [
   {
     id: 'dustbloom',
     name: 'Dustbloom',
-    tier: 1, emoji: '🌻', color: 'yellow',
+    tier: 1, emoji: '🌻', color: 'slate',
     baseTime: 180,   // 3 min — ultra-fast filler
     speed: 0, yield: 1, value: 3,
     description: 'Ultra-fast filler. Grows in 3 min. Perfect artifact material.',
@@ -55,7 +55,7 @@ export const T1_PLANTS: PlantType[] = [
   {
     id: 'glowshroom',
     name: 'Glowshroom',
-    tier: 1, emoji: '🍄', color: 'amber',
+    tier: 1, emoji: '🍄', color: 'slate',
     baseTime: 330,   // 5.5 min base, speed 1 → 297s (≈5 min) effective
     speed: 1, yield: 1, value: 14,
     description: 'Bioluminescent mutation. Max T1 stats — rare from T1 breeding.',
@@ -70,7 +70,7 @@ export const T2_PLANTS: PlantType[] = [
   {
     id: 'bloom',
     name: 'Bloom',
-    tier: 2, emoji: '🌸', color: 'rose',
+    tier: 2, emoji: '🌸', color: 'sky',
     baseTime: 1800,  // 30 min, speed 0 → 30 min effective
     speed: 0, yield: 2, value: 22,
     description: 'High-yield xenoflower. Slow but produces up to 3 per harvest.',
@@ -78,7 +78,7 @@ export const T2_PLANTS: PlantType[] = [
   {
     id: 'creeper',
     name: 'Creeper',
-    tier: 2, emoji: '🍃', color: 'teal',
+    tier: 2, emoji: '🍃', color: 'sky',
     baseTime: 1200,  // 20 min base, speed 2 → 960s (16 min) effective
     speed: 2, yield: 1, value: 26,
     description: 'Fast-spreading T2 organism. High speed, low yield.',
@@ -86,7 +86,7 @@ export const T2_PLANTS: PlantType[] = [
   {
     id: 'fernite',
     name: 'Fernite',
-    tier: 2, emoji: '🌾', color: 'emerald',
+    tier: 2, emoji: '🌾', color: 'sky',
     baseTime: 2700,  // 45 min base, speed 1 → 2430s (40.5 min) effective
     speed: 1, yield: 1, value: 42,
     description: 'Balanced T2 plant with high sell value. Slower cycle.',
@@ -94,8 +94,8 @@ export const T2_PLANTS: PlantType[] = [
   {
     id: 'ashvine',
     name: 'Ashvine',
-    tier: 2, emoji: '🍀', color: 'cyan',
-    baseTime: 720,   // 12 min, speed 1 → 648s effewe ctive
+    tier: 2, emoji: '🍀', color: 'sky',
+    baseTime: 720,   // 12 min, speed 1 → 648s effective
     speed: 1, yield: 1, value: 18,
     description: 'Fast T2 plant. Good for stacking artifact costs.',
   },
@@ -125,7 +125,7 @@ export const T3_PLANTS: PlantType[] = [
   {
     id: 'phantom-leaf',
     name: 'Phantom Leaf',
-    tier: 3, emoji: '🌙', color: 'indigo',
+    tier: 3, emoji: '🌙', color: 'violet',
     baseTime: 4200,  // 70 min base, speed 3 → 2940s (49 min) effective
     speed: 3, yield: 1, value: 60,
     description: 'Quantum-shifted organism. Fastest T3 grow time, minimal yield.',
@@ -133,7 +133,7 @@ export const T3_PLANTS: PlantType[] = [
   {
     id: 'voidbloom',
     name: 'Voidbloom',
-    tier: 3, emoji: '🌑', color: 'slate',
+    tier: 3, emoji: '🌑', color: 'violet',
     baseTime: 9000,  // 2.5h base, speed 0 → 9000s (2.5h) effective
     speed: 0, yield: 2, value: 88,
     description: 'High-value T3 plant. Slow cycle, good yield, premium price.',
@@ -141,7 +141,7 @@ export const T3_PLANTS: PlantType[] = [
   {
     id: 'emberfern',
     name: 'Emberfern',
-    tier: 3, emoji: '🌺', color: 'orange',
+    tier: 3, emoji: '🌺', color: 'violet',
     baseTime: 5400,  // 1.5h, speed 2 → 4320s effective
     speed: 2, yield: 1, value: 72,
     description: 'Balanced T3. Needed for T4 mutation recipes.',
@@ -149,7 +149,7 @@ export const T3_PLANTS: PlantType[] = [
   {
     id: 'xenoform',
     name: 'Xenoform',
-    tier: 3, emoji: '🌀', color: 'fuchsia',
+    tier: 3, emoji: '🌀', color: 'violet',
     baseTime: 5400,  // 1.5h base, speed 3 → 3780s (63 min) effective
     speed: 3, yield: 3, value: 108,
     description: 'Alien organism of unknown origin. Max T3 stats. Extremely rare.',
@@ -164,7 +164,7 @@ export const T4_PLANTS: PlantType[] = [
   {
     id: 'deepfrond',
     name: 'Deepfrond',
-    tier: 4, emoji: '🌴', color: 'emerald',
+    tier: 4, emoji: '🌴', color: 'orange',
     baseTime: 18000, // 5h
     speed: 0, yield: 4, value: 260,
     description: 'Extreme yield, very slow. Key ingredient for T5 mutations.',
@@ -172,7 +172,7 @@ export const T4_PLANTS: PlantType[] = [
   {
     id: 'swiftcane',
     name: 'Swiftcane',
-    tier: 4, emoji: '🎋', color: 'lime',
+    tier: 4, emoji: '🎋', color: 'orange',
     baseTime: 5400,  // 1.5h, speed 4 → 3240s effective
     speed: 4, yield: 1, value: 155,
     description: 'Max T4 speed. Great for grid artifact material.',
@@ -180,7 +180,7 @@ export const T4_PLANTS: PlantType[] = [
   {
     id: 'crystalmoss',
     name: 'Crystalmoss',
-    tier: 4, emoji: '🪴', color: 'blue',
+    tier: 4, emoji: '🪴', color: 'orange',
     baseTime: 10800, // 3h, speed 2 → 8640s effective
     speed: 2, yield: 2, value: 210,
     description: 'Balanced T4. Reliable income, used in top artifacts.',
@@ -188,7 +188,7 @@ export const T4_PLANTS: PlantType[] = [
   {
     id: 'voidfern',
     name: 'Voidfern',
-    tier: 4, emoji: '🌵', color: 'stone',
+    tier: 4, emoji: '🌵', color: 'orange',
     baseTime: 14400, // 4h, speed 1 → 12960s effective
     speed: 1, yield: 3, value: 240,
     description: 'High yield T4. Slow but valuable. Filler for T5 recipes.',
@@ -196,7 +196,7 @@ export const T4_PLANTS: PlantType[] = [
   {
     id: 'abyssform',
     name: 'Abyssform',
-    tier: 4, emoji: '🌲', color: 'purple',
+    tier: 4, emoji: '🌲', color: 'orange',
     baseTime: 14400, // 4h, speed 4 → 8640s effective
     speed: 4, yield: 4, value: 420,
     description: 'Max T4. Rare mutation. Required for Cosmosbloom.',
@@ -211,7 +211,7 @@ export const T5_PLANTS: PlantType[] = [
   {
     id: 'starweave',
     name: 'Starweave',
-    tier: 5, emoji: '⭐', color: 'amber',
+    tier: 5, emoji: '⭐', color: 'rose',
     baseTime: 28800, // 8h, speed 2 → 23040s effective
     speed: 2, yield: 5, value: 650,
     description: 'Extreme yield T5. Slow but the best passive income plant.',
@@ -219,7 +219,7 @@ export const T5_PLANTS: PlantType[] = [
   {
     id: 'voidpulse',
     name: 'Voidpulse',
-    tier: 5, emoji: '🌌', color: 'indigo',
+    tier: 5, emoji: '🌌', color: 'rose',
     baseTime: 18000, // 5h, speed 5 → 9000s effective
     speed: 5, yield: 1, value: 520,
     description: 'Max T5 speed. Fastest plant in the game. Artifact machine.',
@@ -227,7 +227,7 @@ export const T5_PLANTS: PlantType[] = [
   {
     id: 'cosmosbloom',
     name: 'Cosmosbloom',
-    tier: 5, emoji: '🌟', color: 'pink',
+    tier: 5, emoji: '🌟', color: 'rose',
     baseTime: 43200, // 12h, speed 3 → 30240s effective
     speed: 3, yield: 3, value: 850,
     description: 'Premium balanced T5. Expensive to grow, high returns.',
@@ -235,7 +235,7 @@ export const T5_PLANTS: PlantType[] = [
   {
     id: 'etherform',
     name: 'Voidweave',
-    tier: 5, emoji: '✨', color: 'cyan',
+    tier: 5, emoji: '✨', color: 'rose',
     baseTime: 36000, // 10h, speed 5 → 18000s effective
     speed: 5, yield: 5, value: 1500,
     description: 'Void plant. Max T5 stats. Requires a tier II or higher artifact to grow.',
@@ -251,7 +251,7 @@ export const T6_PLANTS: PlantType[] = [
   {
     id: 'dawnrift',
     name: 'Dawnrift',
-    tier: 6, emoji: '☄️', color: 'amber',
+    tier: 6, emoji: '☄️', color: 'fuchsia',
     baseTime: 57600,  // 16h, speed 6 → 23040s (6.4h) effective
     speed: 6, yield: 1, value: 3200,
     description: 'Blazing T6 organism. Fastest in its tier. Prime artifact material.',
@@ -259,7 +259,7 @@ export const T6_PLANTS: PlantType[] = [
   {
     id: 'voidlattice',
     name: 'Voidlattice',
-    tier: 6, emoji: '🪸', color: 'teal',
+    tier: 6, emoji: '🪸', color: 'fuchsia',
     baseTime: 129600, // 36h, speed 0 → 36h effective
     speed: 0, yield: 6, value: 2800,
     description: 'Crystalline void structure. Massive yield, glacial growth.',
@@ -267,7 +267,7 @@ export const T6_PLANTS: PlantType[] = [
   {
     id: 'nexusbloom',
     name: 'Nexusbloom',
-    tier: 6, emoji: '🌊', color: 'sky',
+    tier: 6, emoji: '🌊', color: 'fuchsia',
     baseTime: 86400,  // 24h, speed 3 → 60480s (16.8h) effective
     speed: 3, yield: 3, value: 4200,
     description: 'Balanced T6. Key ingredient for upper-tier mutations.',
@@ -275,7 +275,7 @@ export const T6_PLANTS: PlantType[] = [
   {
     id: 'stellarfrond',
     name: 'Stellarfrond',
-    tier: 6, emoji: '💫', color: 'pink',
+    tier: 6, emoji: '💫', color: 'fuchsia',
     baseTime: 86400,  // 24h, speed 5 → 43200s (12h) effective
     speed: 5, yield: 4, value: 6500,
     description: 'Fast T6 with strong yield. Essential for high-tier artifact crafting.',
@@ -299,7 +299,7 @@ export const T7_PLANTS: PlantType[] = [
   {
     id: 'tempest-spike',
     name: 'Tempest Spike',
-    tier: 7, emoji: '🌪️', color: 'cyan',
+    tier: 7, emoji: '🌪️', color: 'amber',
     baseTime: 129600, // 36h, speed 7 → 38880s (10.8h) effective
     speed: 7, yield: 1, value: 14000,
     description: 'Fastest T7 organism. Hypercharged artifact machine.',
@@ -307,7 +307,7 @@ export const T7_PLANTS: PlantType[] = [
   {
     id: 'abyssal-frond',
     name: 'Abyssal Frond',
-    tier: 7, emoji: '🔱', color: 'indigo',
+    tier: 7, emoji: '🔱', color: 'amber',
     baseTime: 259200, // 72h, speed 0 → 72h effective
     speed: 0, yield: 7, value: 11000,
     description: 'Extreme yield over a punishing 3-day cycle. Max T7 yield.',
@@ -315,7 +315,7 @@ export const T7_PLANTS: PlantType[] = [
   {
     id: 'quantum-bloom',
     name: 'Quantum Bloom',
-    tier: 7, emoji: '❄️', color: 'blue',
+    tier: 7, emoji: '❄️', color: 'amber',
     baseTime: 172800, // 48h, speed 4 → 103680s (28.8h) effective
     speed: 4, yield: 4, value: 20000,
     description: 'Balanced T7. Rare from T6 crossing.',
@@ -323,7 +323,7 @@ export const T7_PLANTS: PlantType[] = [
   {
     id: 'starcore',
     name: 'Starcore',
-    tier: 7, emoji: '🌠', color: 'violet',
+    tier: 7, emoji: '🌠', color: 'amber',
     baseTime: 216000, // 60h, speed 6 → 86400s (24h) effective
     speed: 6, yield: 5, value: 35000,
     description: 'Near-max T7 stats. Requires crossing max T6 plants.',
@@ -331,7 +331,7 @@ export const T7_PLANTS: PlantType[] = [
   {
     id: 'singularity',
     name: 'Void Apex',
-    tier: 7, emoji: '💥', color: 'orange',
+    tier: 7, emoji: '💥', color: 'amber',
     baseTime: 172800, // 48h, speed 7 → 51840s (14.4h) effective
     speed: 7, yield: 7, value: 50000,
     description: 'Void plant. Max T7 stats. The rarest organism in existence.',

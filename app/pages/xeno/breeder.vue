@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {
-  tierLabel, tierColor, plantColor, levelTextColor, getPlant, getArtifact, getEffectValue,
+  tierLabel, tierColor, tierNameColor, levelTextColor, getPlant, getArtifact, getEffectValue,
   getMutation, breedDuration,
 } from '#shared/utils/xeno'
 import { formatCountdown, progressPct, isDone, formatDuration } from '~/utils/xeno-format'
@@ -229,7 +229,7 @@ async function doCollect(slotId: string) {
                     <div class="text-center leading-tight">
                       <p
                         class="text-lg font-black tracking-tight"
-                        :class="plantColor(getPlant(slot.resultTypeId)?.color ?? '')"
+                        :class="tierNameColor(getPlant(slot.resultTypeId)?.tier ?? 1)"
                       >{{ getPlant(slot.resultTypeId)?.name }}<sup class="text-xs font-semibold ml-0.5 opacity-70">×{{ slot.resultQuantity }}</sup></p>
                       <span class="text-xs font-bold" :class="tierColor(getPlant(slot.resultTypeId)?.tier ?? 1)">
                         {{ tierLabel(getPlant(slot.resultTypeId)?.tier ?? 1) }}
@@ -267,10 +267,8 @@ async function doCollect(slotId: string) {
 
               <!-- ── In progress ── -->
               <template v-else>
-                <div class="p-4 flex flex-col gap-4 flex-1">
-                  <div class="flex items-center justify-between">
-                    <p class="text-xs font-bold text-muted uppercase tracking-wider">Breeding in progress</p>
-                  </div>
+                <div class="p-4 flex flex-col gap-3 flex-1">
+                  <p class="text-xs font-bold text-muted uppercase tracking-wider">Breeding in progress</p>
 
                   <!-- Parents -->
                   <div class="flex items-center gap-3">
@@ -294,36 +292,20 @@ async function doCollect(slotId: string) {
                   </div>
 
                   <!-- Progress -->
-                  <div class="space-y-1.5">
+                  <div class="space-y-1.5 mt-auto">
                     <div class="h-1.5 rounded-full bg-black/20 overflow-hidden">
                       <div
                         class="h-full bg-primary rounded-full"
                         :style="{ width: `${slot.completesAt ? progressPct(slot.startedAt!, slot.completesAt, now) : 0}%` }"
                       />
                     </div>
-                    <div class="flex items-center gap-1.5">
-                      <span v-if="slotBreederSpeedBoost(slot) > 0" class="text-[10px] font-bold text-primary leading-none">⚡−{{ Math.round(slotBreederSpeedBoost(slot) * 100) }}%</span>
-                      <p class="text-xs text-muted">{{ slot.completesAt ? formatCountdown(slot.completesAt, now) : '…' }}</p>
-                    </div>
-                  </div>
-
-                  <!-- Artifact (in progress, read-only) -->
-                  <div v-if="slot.artifact" class="rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 flex items-center gap-2">
-                    <span class="text-base leading-none shrink-0">{{ getArtifact(slot.artifact.typeId)?.emoji }}</span>
-                    <div class="flex-1 min-w-0">
-                      <p class="text-xs font-semibold truncate">{{ getArtifact(slot.artifact.typeId)?.name }}</p>
-                      <div class="flex items-center gap-1 mt-0.5 flex-wrap">
-                        <span v-if="slotBreederSpeedBoost(slot) > 0" class="text-[10px] font-bold text-primary bg-primary/10 px-1 py-0.5 rounded leading-none">⚡ −{{ Math.round(slotBreederSpeedBoost(slot) * 100) }}%</span>
-                        <span v-if="slotMutationBoost(slot) > 0" class="text-[10px] font-bold text-primary bg-primary/10 px-1 py-0.5 rounded leading-none">🧬 +{{ Math.round(slotMutationBoost(slot) * 100) }}%</span>
-                        <span v-if="slotExtraYield(slot) > 0" class="text-[10px] font-bold text-success bg-success/10 px-1 py-0.5 rounded leading-none">⚗️ +{{ slotExtraYield(slot) }}</span>
+                    <div class="flex items-center justify-between">
+                      <div class="flex items-center gap-1.5">
+                        <span v-if="slotBreederSpeedBoost(slot) > 0" class="text-[10px] font-bold text-primary leading-none">⚡−{{ Math.round(slotBreederSpeedBoost(slot) * 100) }}%</span>
+                        <p class="text-xs text-muted">{{ slot.completesAt ? formatCountdown(slot.completesAt, now) : '…' }}</p>
                       </div>
+                      <UButton label="Cancel" size="xs" variant="ghost" color="neutral" :loading="cancelling.has(slot.id)" @click="doCancel(slot.id)" />
                     </div>
-                    <span class="text-[10px] text-muted shrink-0">{{ slot.artifact.chargesRemaining }}×</span>
-                  </div>
-
-                  <div class="flex items-center justify-between mt-auto">
-                    <p class="text-xs text-muted">Ready when timer hits zero</p>
-                    <UButton label="Cancel" size="xs" variant="ghost" color="neutral" :loading="cancelling.has(slot.id)" @click="doCancel(slot.id)" />
                   </div>
                 </div>
               </template>

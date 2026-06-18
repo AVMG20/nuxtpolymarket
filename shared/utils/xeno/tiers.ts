@@ -39,6 +39,20 @@ export function tierLabel(tier: number): string {
   return `T${tier}`
 }
 
+/** Vibrant per-tier color for plant name text */
+export function tierNameColor(tier: number): string {
+  const map: Record<number, string> = {
+    1: 'text-white',
+    2: 'text-sky-400',
+    3: 'text-violet-400',
+    4: 'text-orange-400',
+    5: 'text-rose-400',
+    6: 'text-fuchsia-400',
+    7: 'text-amber-300',
+  }
+  return map[tier] ?? 'text-muted'
+}
+
 // ─── Per-plant color utilities ──────────────────────────────────────────────
 // Each plant has a unique color key (e.g. 'lime', 'amber') set in plants.ts.
 // These functions convert that key to Tailwind class strings for display.

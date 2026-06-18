@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {
-  plantCardBg, plantRing, plantColor, levelTextColor,
+  plantCardBg, plantRing, tierNameColor, levelTextColor,
   ARTIFACT_TYPES, getArtifact, getPlant, ARTIFACT_SPEED_PER_LEVEL,
   type ArtifactType,
 } from '#shared/utils/xeno'
@@ -180,7 +180,7 @@ function specRows(art: ArtifactType | undefined) {
           </div>
 
           <!-- Name -->
-          <p class="text-xs font-bold text-center px-1 mb-1 truncate" :class="plantColor(item.color)">{{ item.name }}</p>
+          <p class="text-xs font-bold text-center px-1 mb-1 truncate" :class="tierNameColor(item.tier)">{{ item.name }}</p>
 
           <!-- Stat strip -->
           <div class="flex divide-x border-t bg-black/15 dark:bg-black/35"

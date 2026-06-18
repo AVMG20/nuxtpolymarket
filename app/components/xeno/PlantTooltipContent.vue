@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { plantColor, effectiveGrowTime } from '#shared/utils/xeno'
+import { tierNameColor, effectiveGrowTime } from '#shared/utils/xeno'
 import { formatDuration } from '~/utils/xeno-format'
 
 const props = defineProps<{
@@ -22,7 +22,7 @@ const avgValue = computed(() => props.value * (1 + props.yield / 2))
   <div class="w-56 p-3 space-y-3 bg-elevated border border-default rounded-xl shadow-xl">
     <div class="flex items-start justify-between gap-2">
       <div>
-        <p class="font-bold text-sm" :class="plantColor(color)">{{ name }}</p>
+        <p class="font-bold text-sm" :class="tierNameColor(tier)">{{ name }}</p>
         <p v-if="quantity !== undefined" class="text-xs font-semibold mt-0.5">
           {{ quantity }} remaining
         </p>

@@ -6,7 +6,7 @@ import {
   tierLabel,
   tierColor,
   tierBg,
-  plantColor,
+  tierNameColor,
   plantCardBg,
   levelTextColor,
   effectiveGrowTime,
@@ -319,7 +319,7 @@ function tierMutations(tier: number) {
               <!-- Name -->
               <p
                 class="text-xs font-bold text-center px-1.5 mb-1.5 truncate"
-                :class="discoveredIds.has(plant.id) ? plantColor(plant.color) : 'text-muted/30'"
+                :class="discoveredIds.has(plant.id) ? tierNameColor(plant.tier) : 'text-muted/30'"
               >{{ plant.name }}</p>
 
               <!-- Stat strip -->
