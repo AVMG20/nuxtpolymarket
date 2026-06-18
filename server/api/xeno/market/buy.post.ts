@@ -27,7 +27,7 @@ export default defineEventHandler(async (event) => {
   const unitPrice = Math.round(plant.value * 2 * (1 + plant.yield) * (1 + plant.speed * 0.05))
   const total = unitPrice * qty
 
-  await debit(userId, total.toFixed(4), 'xeno:market:buy')
+  await debit(userId, total.toFixed(4), 'xeno')
   await addPlants(userId, plant.id, plant.speed, plant.yield, qty)
 
   return { bought: qty, total, unitPrice }

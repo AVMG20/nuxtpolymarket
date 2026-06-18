@@ -19,7 +19,7 @@ export default defineEventHandler(async (event) => {
 
   const cost = gridSlotUnlockCost(nextIndex)
   if (cost > 0) {
-    await debit(userId, cost.toFixed(4), 'xeno:grid-unlock')
+    await debit(userId, cost.toFixed(4), 'xeno')
   }
 
   await db.insert(xenoGridSlots).values({ userId, slotIndex: nextIndex })

@@ -19,7 +19,7 @@ export default defineEventHandler(async (event) => {
 
   const cost = breederSlotUnlockCost(nextIndex)
   if (cost > 0) {
-    await debit(userId, cost.toFixed(4), 'xeno:breeder-unlock')
+    await debit(userId, cost.toFixed(4), 'xeno')
   }
 
   await db.insert(xenoBreederSlots).values({ userId, slotIndex: nextIndex })
