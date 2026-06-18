@@ -56,6 +56,13 @@ function getPlantById(id: string) {
   return PLANT_TYPES.find(p => p.id === id)
 }
 
+// Base mutation chance for display. Bases <= 0 are only reachable with a mutation
+// artifact, so show a lock hint instead of a confusing 0%/negative number.
+function formatChance(chance: number, decimals = 0): string {
+  if (chance <= 0) return '🔒 artifact'
+  return `${(chance * 100).toFixed(decimals)}%`
+}
+
 // ── Mutation recipes per tier ────────────────────────────────────────────────
 // Recipes where the offspring belongs to this tier (or crosses into it from below)
 function tierMutations(tier: number) {
@@ -117,7 +124,7 @@ function tierMutations(tier: number) {
               <span class="text-base leading-none">{{ getPlantById(m.parent2)?.emoji }}</span>
               <span class="text-muted">→</span>
               <span class="text-base leading-none">{{ getPlantById(m.offspring)?.emoji }}</span>
-              <span class="text-muted font-semibold">{{ (m.chance * 100).toFixed(0) }}%</span>
+              <span class="text-muted font-semibold">{{ formatChance(m.chance) }}</span>
             </div>
           </div>
         </div>
@@ -193,7 +200,7 @@ function tierMutations(tier: number) {
                           <span>+</span>
                           <span>{{ getPlantById(m.parent2)?.emoji }}</span>
                           <span class="text-muted/60">→</span>
-                          <span class="font-semibold text-default">{{ (m.chance * 100).toFixed(1) }}%</span>
+                          <span class="font-semibold text-default">{{ formatChance(m.chance, 1) }}</span>
                         </div>
                       </div>
                     </template>
@@ -274,7 +281,7 @@ function tierMutations(tier: number) {
                           <span>+</span>
                           <span>{{ getPlantById(m.parent2)?.emoji }}</span>
                           <span class="text-muted/60">→</span>
-                          <span class="font-semibold text-default">{{ (m.chance * 100).toFixed(1) }}%</span>
+                          <span class="font-semibold text-default">{{ formatChance(m.chance, 1) }}</span>
                         </div>
                       </div>
                     </template>
