@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import {
   gridSlotUnlockCost, getArtifact, getEffectValue, getPlant,
-  plantColor, plantBgOnly,
 } from '#shared/utils/xeno'
 import { formatCountdown, progressPct, isDone } from '~/utils/xeno-format'
 
@@ -131,7 +130,7 @@ async function handleCellClick(cell: any, e: MouseEvent) {
     try {
       const res = await harvestSlot(slot.id)
       if (res && plantType) {
-        spawnFloat(e, `+${res.harvested} ${plantType.emoji}`, plantColor(plantType.color))
+        spawnFloat(e, `+${res.harvested} ${plantType.emoji}`, 'text-primary')
       }
     } finally { harvesting.value.delete(slot.id) }
     return
@@ -193,7 +192,7 @@ async function doHarvestAll() {
         spawnFloat(
           { clientX: rect.left + rect.width / 2, clientY: rect.top + rect.height / 2 } as MouseEvent,
           `+${res.harvested} ${plantType.emoji}`,
-          plantColor(plantType.color),
+          'text-primary',
         )
       }
     }))
@@ -301,7 +300,7 @@ function slotSpeedBoost(slot: any): number {
               :class="[
                 isDone(cell.slot.plant.completesAt)
                   ? 'bg-primary/15 border-primary/40 hover:bg-primary/20 hover:border-primary/60'
-                  : [plantBgOnly(cell.slot.plant.color ?? ''), 'border-default/40', isArtifactTargetable(cell) ? 'ring-1 ring-primary/50 hover:ring-primary' : ''],
+                  : ['bg-elevated/50', 'border-default/40', isArtifactTargetable(cell) ? 'ring-1 ring-primary/50 hover:ring-primary' : ''],
                 cellCursor(cell),
                 (harvesting.has(cell.slot.id) || removing.has(cell.slot.id) || attachingSlot === cell.slot.id) ? 'opacity-50 pointer-events-none' : '',
               ]"

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {
-  plantCardBg, plantRing, tierNameColor, levelTextColor,
+  tierNameColor, tierBg, levelTextColor,
   ARTIFACT_TYPES, getArtifact, getPlant, ARTIFACT_SPEED_PER_LEVEL,
   type ArtifactType,
 } from '#shared/utils/xeno'
@@ -106,7 +106,7 @@ function specRows(art: ArtifactType | undefined) {
   return [
     { label: 'Speed',    lvl: bSpeedE ? toSpeedLevel(bSpeedE.value) : 0, max: MAX_B_SPEED_LVL, color: 'bg-warning' },
     { label: 'Yield',    lvl: extraE  ? extraE.value : 0,                 max: MAX_EXTRA_LVL,   color: 'bg-info' },
-    { label: 'Mutation', lvl: mutE    ? toMutLevel(mutE.value) : 0,       max: MAX_MUT_LVL,     color: 'bg-secondary' },
+    { label: 'Mutation', lvl: mutE    ? toMutLevel(mutE.value) : 0,       max: MAX_MUT_LVL,     color: 'bg-primary' },
   ]
 }
 </script>
@@ -164,7 +164,7 @@ function specRows(art: ArtifactType | undefined) {
 
         <button
           class="relative flex flex-col rounded-xl border border-default aspect-square w-full overflow-hidden transition-all duration-100"
-          :class="[plantCardBg(item.color), selectedPlantKey === `${item.typeId}:${item.speed}:${item.yield}` ? plantRing(item.color) : '']"
+          :class="[tierBg(item.tier), selectedPlantKey === `${item.typeId}:${item.speed}:${item.yield}` ? 'ring-2 ring-primary' : '']"
           @click="onSelectPlant(item)"
         >
           <!-- Tier + qty header -->
