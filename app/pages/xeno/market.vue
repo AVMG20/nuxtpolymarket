@@ -11,6 +11,13 @@ const activeTab = ref<'sell' | 'buy'>('sell')
 const searchQuery = ref('')
 const tierFilter = ref(0)
 
+// ── Keep setting (cookie-persisted) ─────────────────────────────────────────
+const keepAmount = useCookie<number>('xeno_market_keep', { default: () => 20 })
+const keepInput = computed({
+  get: () => keepAmount.value,
+  set: (v) => { keepAmount.value = Math.max(0, Math.floor(Number(v) || 0)) },
+})
+
 const filteredInventory = computed(() => {
   const q = searchQuery.value.toLowerCase()
   return (inventory.value || [])
@@ -21,6 +28,18 @@ const filteredInventory = computed(() => {
     })
     .sort((a: any, b: any) => b.value - a.value)
 })
+
+function keepSellQty(item: any): number {
+  return Math.max(0, item.quantity - keepAmount.value)
+}
+
+const keepSellableItems = computed(() =>
+  filteredInventory.value.filter((item: any) => keepSellQty(item) > 0),
+)
+
+const keepSellTotalValue = computed(() =>
+  keepSellableItems.value.reduce((sum: number, item: any) => sum + item.value * keepSellQty(item), 0),
+)
 
 function buyPrice(plant: { value: number; yield: number; speed: number }): number {
   return Math.round(plant.value * 2 * (1 + plant.yield) * (1 + plant.speed * 0.05))
@@ -46,8 +65,10 @@ const totalInventoryValue = computed(() =>
 
 const selling = ref<Record<string, boolean>>({})
 const buying = ref<Record<string, boolean>>({})
+const sellingKeepAll = ref(false)
 
 const confirmSell = ref<{ item: any; qty: number } | null>(null)
+const confirmKeepSellAll = ref(false)
 
 function stackKey(item: any) {
   return `${item.typeId}:${item.speed}:${item.yield}`
@@ -67,6 +88,29 @@ async function doSell(item: any, qty: number) {
   selling.value[key] = true
   try { await sellPlants(item.typeId, item.speed, item.yield, qty) }
   finally { delete selling.value[key] }
+}
+
+async function doSellKeep(item: any) {
+  const qty = keepSellQty(item)
+  if (qty <= 0) return
+  const key = `keep-${stackKey(item)}`
+  selling.value[key] = true
+  try { await sellPlants(item.typeId, item.speed, item.yield, qty) }
+  finally { delete selling.value[key] }
+}
+
+async function doSellKeepAll() {
+  confirmKeepSellAll.value = false
+  sellingKeepAll.value = true
+  try {
+    await Promise.all(
+      keepSellableItems.value.map((item: any) =>
+        sellPlants(item.typeId, item.speed, item.yield, keepSellQty(item)),
+      ),
+    )
+  } finally {
+    sellingKeepAll.value = false
+  }
 }
 
 async function doBuy(typeId: string, qty: number) {
@@ -141,6 +185,34 @@ function growTime(item: any) {
 
     <!-- ── SELL TAB ── -->
     <div v-if="activeTab === 'sell'">
+
+      <!-- Sell settings bar -->
+      <div class="flex items-center gap-3 mb-4 px-4 py-2.5 rounded-xl border border-default bg-elevated/50">
+        <UIcon name="i-lucide-settings-2" class="size-3.5 text-muted shrink-0" />
+        <span class="text-xs text-muted font-medium shrink-0">Keep per stack</span>
+        <UInput
+          v-model="keepInput"
+          type="number"
+          min="0"
+          size="xs"
+          class="w-20"
+        />
+        <div class="flex-1" />
+        <div v-if="keepSellTotalValue > 0" class="flex items-center gap-1 text-xs text-muted shrink-0">
+          <CoinBalance :value="keepSellTotalValue" :compact="false" />
+        </div>
+        <UButton
+          size="xs"
+          color="error"
+          variant="soft"
+          icon="i-lucide-trending-down"
+          :label="`Sell All — keep ${keepAmount}`"
+          :disabled="keepSellableItems.length === 0 || sellingKeepAll"
+          :loading="sellingKeepAll"
+          @click="confirmKeepSellAll = true"
+        />
+      </div>
+
       <div v-if="!inventory" class="space-y-2">
         <USkeleton v-for="i in 4" :key="i" class="h-20 rounded-xl" />
       </div>
@@ -209,6 +281,15 @@ function growTime(item: any) {
             >
               <span class="tabular-nums font-semibold">×{{ qty }}</span>
             </UButton>
+            <UButton
+              size="xs"
+              variant="soft"
+              color="error"
+              :disabled="keepSellQty(item) === 0"
+              :loading="selling[`keep-${stackKey(item)}`]"
+              :label="`−${keepAmount}`"
+              @click="doSellKeep(item)"
+            />
           </div>
         </div>
       </div>
@@ -288,7 +369,7 @@ function growTime(item: any) {
     </div>
   </UContainer>
 
-  <!-- Confirm sell-all modal -->
+  <!-- Confirm sell-all stack modal -->
   <UModal
     :open="!!confirmSell"
     title="Sell all of this stack?"
@@ -312,6 +393,35 @@ function growTime(item: any) {
             label="Sell All"
             :loading="selling[`${stackKey(confirmSell.item)}-${confirmSell.item.quantity}`]"
             @click="doSell(confirmSell.item, confirmSell.item.quantity)"
+          />
+        </div>
+      </div>
+    </template>
+  </UModal>
+
+  <!-- Confirm sell-all keep N modal -->
+  <UModal
+    :open="confirmKeepSellAll"
+    :title="`Sell all — keep ${keepAmount} per stack?`"
+    @update:open="(v) => { if (!v) confirmKeepSellAll = false }"
+  >
+    <template #body>
+      <div class="space-y-4">
+        <p class="text-sm text-muted">
+          Selling surplus from <span class="font-bold text-default">{{ keepSellableItems.length }} stack{{ keepSellableItems.length === 1 ? '' : 's' }}</span>,
+          keeping up to <span class="font-bold text-default">{{ keepAmount }}</span> of each.
+        </p>
+        <div class="flex items-center gap-1.5 text-sm font-semibold">
+          <span>You'll receive:</span>
+          <CoinBalance :value="keepSellTotalValue" :compact="false" />
+        </div>
+        <div class="flex gap-2 justify-end">
+          <UButton variant="ghost" color="neutral" label="Cancel" @click="confirmKeepSellAll = false" />
+          <UButton
+            color="error"
+            icon="i-lucide-trending-down"
+            :label="`Sell — keep ${keepAmount}`"
+            @click="doSellKeepAll"
           />
         </div>
       </div>
