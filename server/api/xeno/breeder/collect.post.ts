@@ -3,7 +3,7 @@ import { db } from '#server/database'
 import { xenoBreederSlots, xenoArtifacts } from '#server/database/schema'
 import { auth } from '#server/utils/auth'
 import { addPlants, consumeArtifactCharge, computeBreedDuration } from '#server/utils/xeno'
-import { getArtifact, getEffectValue, getPlantOrThrow } from '#shared/utils/xeno'
+import { getPlantOrThrow } from '#shared/utils/xeno'
 
 export default defineEventHandler(async (event) => {
   const body = await readBody<{ slotId: string }>(event)
@@ -21,15 +21,10 @@ export default defineEventHandler(async (event) => {
   }
   if (slot.collected) throw createError({ statusCode: 400, statusMessage: 'Already collected' })
 
-  let extraYield = 0
   let artifactTypeId: string | null = null
   if (slot.artifactId) {
     const art = await db.query.xenoArtifacts.findFirst({ where: eq(xenoArtifacts.id, slot.artifactId) })
-    if (art) {
-      artifactTypeId = art.typeId
-      const artType = getArtifact(art.typeId)
-      if (artType) extraYield = getEffectValue(artType, 'breeder_extra_yield')
-    }
+    if (art) artifactTypeId = art.typeId
   }
 
   const durationSecs = computeBreedDuration(
@@ -44,7 +39,8 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 500, statusMessage: 'No result recorded' })
   }
 
-  const totalQty = (slot.resultQuantity ?? 1) + extraYield
+  // resultQuantity already includes extraYield (set by computeBreedResult at breed start)
+  const totalQty = slot.resultQuantity ?? 1
   const plantType = getPlantOrThrow(slot.resultTypeId)
 
   await addPlants(userId, slot.resultTypeId, slot.resultSpeed, slot.resultYield, totalQty)
