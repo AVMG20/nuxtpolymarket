@@ -169,9 +169,8 @@ function specRows(art: ArtifactType | undefined) {
           @click="onSelectPlant(item)"
         >
           <!-- Tier + qty header -->
-          <div class="flex items-center justify-between px-1.5 pt-1.5 shrink-0">
-            <XenoTierLabel :tier="item.tier" />
-            <span class="text-xs font-black text-success leading-none">×{{ item.quantity }}</span>
+          <div class="flex items-center justify-end px-1.5 pt-1.5 shrink-0">
+            <span class="text-xs font-black text-primary leading-none">{{ item.quantity }}</span>
           </div>
 
           <!-- Emoji -->
@@ -183,8 +182,7 @@ function specRows(art: ArtifactType | undefined) {
           <p class="text-xs font-bold text-center px-1 mb-1 truncate" :class="tierNameColor(item.tier)">{{ item.name }}</p>
 
           <!-- Stat strip -->
-          <div class="flex divide-x border-t bg-black/15 dark:bg-black/35"
-               style="border-color: rgba(0,0,0,0.12)">
+          <div class="flex divide-x divide-default border-t border-default">
             <div class="flex-1 flex items-center justify-center gap-0.5 py-1">
               <UIcon name="i-lucide-zap" class="size-2.5 shrink-0" :class="levelTextColor(item.speed)" />
               <span class="text-xs font-black tabular-nums" :class="levelTextColor(item.speed)">{{ item.speed }}</span>
