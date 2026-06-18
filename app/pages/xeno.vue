@@ -15,15 +15,15 @@ const activeTab = computed(() => route.path)
 
 <template>
   <div class="flex flex-col min-h-full">
-    <div class="border-b border-default px-6 shrink-0">
-      <div class="flex items-center gap-1">
+    <div class="border-b border-default px-3 pt-1.75 pb-2 shrink-0">
+      <div class="flex items-center gap-0.5">
         <NuxtLink
           v-for="tab in tabs"
           :key="tab.to"
           :to="tab.to"
-          class="flex items-center gap-2 px-4 py-2.5 text-sm font-medium rounded-t-lg transition-colors"
+          class="flex items-center gap-2 px-3 py-2.5 text-sm font-medium rounded-t-lg transition-colors"
           :class="activeTab === tab.to
-            ? 'bg-background border border-b-background border-default text-highlighted -mb-px'
+            ? 'text-highlighted -mb-px'
             : 'text-muted hover:text-default'"
         >
           <UIcon :name="tab.icon" class="size-4" />
