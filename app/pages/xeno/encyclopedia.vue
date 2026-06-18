@@ -324,7 +324,7 @@ function tierMutations(tier: number) {
 
               <!-- Stat strip -->
               <div
-                class="flex divide-x border-t bg-black/15 dark:bg-black/35"
+                class="flex divide-x divide-default border-t border-default"
                 :class="!discoveredIds.has(plant.id) && 'opacity-20'"
                 style="border-color: rgba(0,0,0,0.12)"
               >
