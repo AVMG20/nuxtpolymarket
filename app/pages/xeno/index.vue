@@ -345,16 +345,16 @@ function slotSpeedBoost(slot: any): number {
                   />
                 </div>
                 <div class="flex items-center justify-center gap-1 mt-0.5">
-                  <span
-                    v-if="!isDone(cell.slot.plant.completesAt) && slotSpeedBoost(cell.slot) > 0"
-                    class="text-[9px] font-bold text-primary leading-none"
-                  >⚡−{{ Math.round(slotSpeedBoost(cell.slot) * 100) }}%</span>
                   <p
                     class="text-xs font-medium"
                     :class="isDone(cell.slot.plant.completesAt) ? 'text-primary font-bold' : 'text-muted'"
                   >
                     {{ formatCountdown(cell.slot.plant.completesAt, now) }}
                   </p>
+                  <span
+                    v-if="!isDone(cell.slot.plant.completesAt) && slotSpeedBoost(cell.slot) > 0"
+                    class="text-[9px] font-bold text-primary leading-none"
+                  >⚡−{{ Math.round(slotSpeedBoost(cell.slot) * 100) }}%</span>
                 </div>
               </div>
             </div>

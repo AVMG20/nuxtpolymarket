@@ -13,26 +13,26 @@ export function progressPct(startedAt: string | Date, completesAt: string | Date
   return Math.min(100, Math.max(0, ((now - start) / total) * 100))
 }
 
-/** Compact countdown: "1h 14m", "2m 3s", "45s", "Ready!" */
+function formatParts(totalSecs: number): string {
+  const days = Math.floor(totalSecs / 86400)
+  const h = Math.floor((totalSecs % 86400) / 3600)
+  const m = Math.floor((totalSecs % 3600) / 60)
+  const s = totalSecs % 60
+  if (days > 0) return `${days}d ${h}h`
+  if (h > 0) return `${h}h ${m}m`
+  if (m > 0) return `${m}m ${s}s`
+  return `${s}s`
+}
+
+/** Compact countdown: always 2 units when possible — "1h 4m", "2m 3s", "45s", "Ready!" */
 export function formatCountdown(completesAt: string | Date, now: number): string {
   const d = typeof completesAt === 'string' ? new Date(completesAt) : completesAt
   const ms = d.getTime() - now
   if (ms <= 0) return 'Ready!'
-  const totalSecs = Math.ceil(ms / 1000)
-  const h = Math.floor(totalSecs / 3600)
-  const m = Math.floor((totalSecs % 3600) / 60)
-  const s = totalSecs % 60
-  if (h > 0) return m > 0 ? `${h}h ${m}m` : `${h}h`
-  if (m > 0) return s > 0 ? `${m}m ${s}s` : `${m}m`
-  return `${s}s`
+  return formatParts(Math.ceil(ms / 1000))
 }
 
-/** Format a raw duration in seconds: "1h 14m", "2m 3s", "45s" */
+/** Format a raw duration in seconds — always 2 units when possible */
 export function formatDuration(secs: number): string {
-  const h = Math.floor(secs / 3600)
-  const m = Math.floor((secs % 3600) / 60)
-  const s = secs % 60
-  if (h > 0) return m > 0 ? `${h}h ${m}m` : `${h}h`
-  if (m > 0) return s > 0 ? `${m}m ${s}s` : `${m}m`
-  return `${s}s`
+  return formatParts(Math.max(0, Math.floor(secs)))
 }
