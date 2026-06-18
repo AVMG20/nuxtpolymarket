@@ -94,7 +94,7 @@ async function upgradeMine() {
 function tileValueColor(value: number) {
   if (value === 0) return 'error'
   if (value === 1000) return 'success'
-  if (value >= 450) return 'secondary'
+  if (value >= 450) return 'primary'
   return 'neutral'
 }
 </script>
@@ -221,8 +221,8 @@ function tileValueColor(value: number) {
         <UCard>
           <template #header>
             <div class="flex items-center gap-2.5">
-              <div class="size-8 rounded-lg bg-secondary/15 flex items-center justify-center">
-                <UIcon name="i-lucide-plus-circle" class="size-4 text-secondary" />
+              <div class="size-8 rounded-lg bg-primary/15 flex items-center justify-center">
+                <UIcon name="i-lucide-plus-circle" class="size-4 text-primary" />
               </div>
               <div>
                 <p class="font-semibold text-sm">Extra Play</p>
@@ -234,7 +234,7 @@ function tileValueColor(value: number) {
               label="Buy Extra Play"
               icon="i-lucide-plus-circle"
               block
-              color="secondary"
+              color="primary"
               :loading="buyingExtraPlay"
               :disabled="(user?.gems ?? 0) < 1 || playsRemaining >= (state?.minesCount ?? 0)"
               @click="buyExtraPlay"

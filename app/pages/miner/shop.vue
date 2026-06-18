@@ -19,7 +19,7 @@ const shopItems = computed(() => [
     description: 'Max out your Money Miner storage instantly.',
     valuePerGem: instantFillValuePerGem.value,
     icon: 'i-lucide-zap',
-    color: 'secondary' as const,
+    color: 'primary' as const,
     cost: state.value ? instantFillCost(state.value.vaultLevel) : 1,
     endpoint: '/api/miner/shop/instant-fill',
   },

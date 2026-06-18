@@ -104,7 +104,7 @@ async function upgradeFactory() {
           <UButton
             :label="collectableGems >= 1 ? `Collect ${collectableGems} Gem${collectableGems !== 1 ? 's' : ''}` : 'Not enough yet'"
             icon="i-lucide-gem"
-            color="secondary"
+            color="primary"
             :loading="collecting"
             :disabled="collectableGems < 1"
             @click="collectGems"
@@ -116,8 +116,8 @@ async function upgradeFactory() {
       <UCard class="flex flex-col">
         <template #header>
           <div class="flex items-center gap-2.5">
-            <div class="size-8 rounded-lg bg-secondary/15 flex items-center justify-center">
-              <UIcon name="i-lucide-factory" class="size-4 text-secondary" />
+            <div class="size-8 rounded-lg bg-primary/15 flex items-center justify-center">
+              <UIcon name="i-lucide-factory" class="size-4 text-primary" />
             </div>
             <div>
               <p class="font-semibold text-sm">Factory Upgrade</p>
@@ -144,7 +144,7 @@ async function upgradeFactory() {
           label="Upgrade Factory"
           icon="i-lucide-arrow-up"
           block
-          color="secondary"
+          color="primary"
           :loading="upgrading"
           :disabled="state.factoryLevel >= state.factoryMaxLevel || balance < state.factoryUpgradeCost"
           @click="upgradeFactory"
