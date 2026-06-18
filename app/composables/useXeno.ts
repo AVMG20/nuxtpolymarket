@@ -30,6 +30,8 @@ export const useXeno = () => {
   const freeArtifacts = computed(() => state.value?.freeArtifacts ?? [])
   const unlockedTypeIds = computed<string[]>(() => state.value?.unlockedTypeIds ?? [])
 
+  const { fetchSession } = useAuth()
+
   async function call(url: string, body: Record<string, any>, successMsg: string): Promise<any> {
     try {
       const res = await $fetch(url, { method: 'POST', body })
@@ -48,7 +50,9 @@ export const useXeno = () => {
   }
 
   async function unlockGridSlot() {
-    return call('/api/xeno/grid/unlock', {}, 'Grid slot unlocked!')
+    const res = await call('/api/xeno/grid/unlock', {}, 'Grid slot unlocked!')
+    await fetchSession()
+    return res
   }
 
   /** Plant a specific stack (typeId + speed + yield) in a slot */
@@ -73,7 +77,9 @@ export const useXeno = () => {
   }
 
   async function unlockBreederSlot() {
-    return call('/api/xeno/breeder/unlock', {}, 'Breeder slot unlocked!')
+    const res = await call('/api/xeno/breeder/unlock', {}, 'Breeder slot unlocked!')
+    await fetchSession()
+    return res
   }
 
   async function startBreed(
@@ -102,8 +108,6 @@ export const useXeno = () => {
     return call('/api/xeno/breeder/remove-artifact', { slotId }, 'Artifact removed')
   }
 
-  const { fetchSession } = useAuth()
-
   async function sellPlants(typeId: string, speed: number, yield_: number, quantity: number) {
     const res = await call('/api/xeno/market/sell', { typeId, speed, yield: yield_, quantity }, '')
     if (res) toast.add({ title: `Sold ${res.sold} plants for $${formatNumber(res.total, false)}`, color: 'success' })
@@ -112,7 +116,9 @@ export const useXeno = () => {
   }
 
   async function buyArtifact(artifactTypeId: string) {
-    return call('/api/xeno/artifacts/buy', { artifactTypeId }, 'Artifact crafted!')
+    const res = await call('/api/xeno/artifacts/buy', { artifactTypeId }, 'Artifact crafted!')
+    await fetchSession()
+    return res
   }
 
   async function buyPlants(typeId: string, quantity: number) {
