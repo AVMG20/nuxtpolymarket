@@ -52,12 +52,6 @@ function parentsOf(plantId: string) {
   return MUTATIONS.filter(m => m.offspring === plantId)
 }
 
-function offspringOf(plantId: string) {
-  return MUTATIONS.filter(m => m.parent1 === plantId || m.parent2 === plantId)
-    .map(m => PLANT_TYPES.find(p => p.id === m.offspring))
-    .filter(Boolean)
-}
-
 function getPlantById(id: string) {
   return PLANT_TYPES.find(p => p.id === id)
 }
@@ -163,22 +157,20 @@ function tierMutations(tier: number) {
 
                   <div class="space-y-1">
                     <div class="flex justify-between text-xs">
-                      <span class="text-muted uppercase tracking-wider font-semibold">Base Time</span>
-                      <span class="font-mono">{{ formatDuration(plant.baseTime) }}</span>
-                    </div>
-                    <div class="flex justify-between text-xs">
-                      <span class="text-muted uppercase tracking-wider font-semibold">Effective</span>
+                      <span class="text-muted uppercase tracking-wider font-semibold">Growth</span>
                       <span class="font-mono">{{ formatDuration(effectiveGrowTime(plant)) }}</span>
                     </div>
                     <div class="flex justify-between text-xs">
+                      <span class="text-muted uppercase tracking-wider font-semibold">Breed time</span>
+                      <span class="font-mono">{{ formatDuration(effectiveGrowTime(plant) * 2) }}</span>
+                    </div>
+                    <div class="flex justify-between text-xs">
                       <span class="text-muted uppercase tracking-wider font-semibold">Yield</span>
-                      <span class="font-mono">1–{{ 1 + plant.yield }} units</span>
+                      <span class="font-mono">1–{{ 1 + plant.yield }}</span>
                     </div>
                     <div class="flex justify-between text-xs">
                       <span class="text-muted uppercase tracking-wider font-semibold">Value</span>
-                      <span class="font-mono flex items-center gap-0.5">
-                        <CoinBalance :value="plant.value" :compact="false" :show-icon="false" />–<CoinBalance :value="plant.value * (1 + plant.yield)" :compact="false" :show-icon="false" />
-                      </span>
+                      <CoinBalance :value="plant.value" />
                     </div>
                   </div>
 
@@ -211,21 +203,6 @@ function tierMutations(tier: number) {
                     <p v-if="plant.voidPlant" class="text-xs text-secondary mt-1.5 font-semibold">
                       🌑 Requires a tier II or higher artifact to grow on the grid.
                     </p>
-                  </div>
-
-                  <!-- What it can produce -->
-                  <div v-if="offspringOf(plant.id).length">
-                    <p class="text-xs font-bold uppercase tracking-wider text-muted mb-1.5">Can produce</p>
-                    <div class="flex flex-wrap gap-1">
-                      <span
-                        v-for="offspring in offspringOf(plant.id)"
-                        :key="offspring!.id"
-                        class="text-xs flex items-center gap-0.5 px-1.5 py-0.5 rounded border border-default bg-background/50"
-                      >
-                        <span>{{ offspring!.emoji }}</span>
-                        <span :class="tierColor(offspring!.tier)">{{ offspring!.name }}</span>
-                      </span>
-                    </div>
                   </div>
 
                   <!-- Description -->
@@ -262,22 +239,20 @@ function tierMutations(tier: number) {
 
                   <div class="space-y-1 opacity-40">
                     <div class="flex justify-between text-xs">
-                      <span class="text-muted uppercase tracking-wider font-semibold">Base Time</span>
-                      <span class="font-mono">{{ formatDuration(plant.baseTime) }}</span>
-                    </div>
-                    <div class="flex justify-between text-xs">
-                      <span class="text-muted uppercase tracking-wider font-semibold">Effective</span>
+                      <span class="text-muted uppercase tracking-wider font-semibold">Growth</span>
                       <span class="font-mono">{{ formatDuration(effectiveGrowTime(plant)) }}</span>
                     </div>
                     <div class="flex justify-between text-xs">
+                      <span class="text-muted uppercase tracking-wider font-semibold">Breed time</span>
+                      <span class="font-mono">{{ formatDuration(effectiveGrowTime(plant) * 2) }}</span>
+                    </div>
+                    <div class="flex justify-between text-xs">
                       <span class="text-muted uppercase tracking-wider font-semibold">Yield</span>
-                      <span class="font-mono">1–{{ 1 + plant.yield }} units</span>
+                      <span class="font-mono">1–{{ 1 + plant.yield }}</span>
                     </div>
                     <div class="flex justify-between text-xs">
                       <span class="text-muted uppercase tracking-wider font-semibold">Value</span>
-                      <span class="font-mono flex items-center gap-0.5">
-                        <CoinBalance :value="plant.value" :compact="false" :show-icon="false" />–<CoinBalance :value="plant.value * (1 + plant.yield)" :compact="false" :show-icon="false" />
-                      </span>
+                      <CoinBalance :value="plant.value" />
                     </div>
                   </div>
 
