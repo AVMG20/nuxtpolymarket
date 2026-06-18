@@ -16,11 +16,11 @@ export const VAULT_UPGRADE_GROWTH = 1.125
 // ─── Gem Factory ──────────────────────────────────────────────────────────────
 export const FACTORY_MAX_LEVEL = 10
 export const FACTORY_BASE_RATE = 1
-export const FACTORY_RATE_GROWTH = 1.35      // ~16 gems/day at L10
+export const FACTORY_RATE_STEP = 0.5         // +0.5 gem/day per level → 5.5 gems/day at L10
 export const FACTORY_BASE_CAP = 10
-export const FACTORY_CAP_GROWTH = 1.35
+export const FACTORY_CAP_STEP = 2            // +2 storage per level → 28 cap at L10
 export const FACTORY_BASE_UPGRADE_COST = 1500
-export const FACTORY_UPGRADE_GROWTH = 1.7    // gems are premium → steep cash sink
+export const FACTORY_UPGRADE_GROWTH = 1.4   // reward is linear now, so cost only scales gently
 
 // ─── Gem Shop ─────────────────────────────────────────────────────────────────
 export const SHOP_INSTANT_FILL_MIN_RATIO = 200   // $/gem at level 1
@@ -75,11 +75,11 @@ export function vaultUpgradeCost(level: number) {
 }
 
 export function factoryRate(level: number) {
-    return FACTORY_BASE_RATE * Math.pow(FACTORY_RATE_GROWTH, level - 1)
+    return FACTORY_BASE_RATE + FACTORY_RATE_STEP * (level - 1)
 }
 
 export function factoryCap(level: number) {
-    return Math.round(FACTORY_BASE_CAP * Math.pow(FACTORY_CAP_GROWTH, level - 1))
+    return FACTORY_BASE_CAP + FACTORY_CAP_STEP * (level - 1)
 }
 
 export function factoryUpgradeCost(level: number) {
