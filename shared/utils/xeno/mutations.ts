@@ -27,9 +27,20 @@ export interface Mutation {
 //   • T4→T5 (own T4):             Prism Lens / Flask III                → +15–20%
 //   • T5→T6 (own T5):             Prism Lens                            → +20%
 //   • T6→T7 (own T6/T7):          Prism Lens II                         → +30%
-// Bases below are tuned so the effective chance with the best realistically-owned
-// artifact sits around ~8–15% and trends downward each tier — rewarding but never
-// trivial. T5+ bases are negative, so a mutation artifact is mandatory to advance.
+// Bases below are tuned so the effective chance with the best artifact you can
+// realistically own *while climbing that tier* lands on a deliberately tightening
+// ladder — rewarding but never trivial, and harder every step:
+//   T3 ~13%  →  T4 ~11%  →  T5 8%  →  T6 6%  →  T7 4%  →  singularity 2%.
+// T5+ bases are negative, so a mutation artifact is mandatory to advance.
+//
+// Important gating detail: Prism Lens II (+30%) is the strongest mutation artifact,
+// but it can only be crafted from T6/T7 plants (2 aetherix + 1 tempest-spike). When
+// you first break into T5/T6/T7 you only have Prism Lens (+20%), so the headline
+// targets above are anchored to +20% — and the first aetherix/tempest-spike MUST
+// stay breedable at +20% or the game softlocks. Singularity is the lone exception:
+// it needs two T7 parents, by which point you always own Prism Lens II, so it is
+// anchored to +30% to land on 2%. (Once you grind out Prism Lens II, re-breeding
+// earlier tiers gets easier — the intended reward for mastering a tier's artifacts.)
 
 export const MUTATIONS: Mutation[] = [
   // T1 × T1 → T1  (early game — left generous on purpose)
@@ -49,51 +60,51 @@ export const MUTATIONS: Mutation[] = [
   { parent1: 'bloom',        parent2: 'creeper',      offspring: 'crystal-bud',  chance: 0.10 },
   { parent1: 'creeper',      parent2: 'fernite',      offspring: 'crystal-bud',  chance: 0.08 },
 
-  // T2-mutation × T2 → T3  (difficulty ramp begins; best realistic boost +5% → ~12–15% effective)
-  { parent1: 'crystal-bud',  parent2: 'bloom',        offspring: 'crystal-vine', chance: 0.10 },
-  { parent1: 'crystal-bud',  parent2: 'creeper',      offspring: 'phantom-leaf', chance: 0.08 },
-  { parent1: 'crystal-bud',  parent2: 'fernite',      offspring: 'voidbloom',    chance: 0.07 },
-  { parent1: 'crystal-bud',  parent2: 'ashvine',      offspring: 'emberfern',    chance: 0.07 },
+  // T2-mutation × T2 → T3  (difficulty ramp begins; best realistic boost +5% → ~10–13% effective)
+  { parent1: 'crystal-bud',  parent2: 'bloom',        offspring: 'crystal-vine', chance: 0.08 },
+  { parent1: 'crystal-bud',  parent2: 'creeper',      offspring: 'phantom-leaf', chance: 0.06 },
+  { parent1: 'crystal-bud',  parent2: 'fernite',      offspring: 'voidbloom',    chance: 0.05 },
+  { parent1: 'crystal-bud',  parent2: 'ashvine',      offspring: 'emberfern',    chance: 0.05 },
 
-  // T3 × T3 → T3  (best realistic boost +10% → ~13–14% effective)
-  { parent1: 'crystal-vine', parent2: 'phantom-leaf', offspring: 'xenoform',     chance: 0.04 },
-  { parent1: 'crystal-vine', parent2: 'voidbloom',    offspring: 'xenoform',     chance: 0.03 },
-  { parent1: 'phantom-leaf', parent2: 'voidbloom',    offspring: 'xenoform',     chance: 0.03 },
+  // T3 × T3 → T3  (best realistic boost +10% → ~11–12% effective)
+  { parent1: 'crystal-vine', parent2: 'phantom-leaf', offspring: 'xenoform',     chance: 0.02 },
+  { parent1: 'crystal-vine', parent2: 'voidbloom',    offspring: 'xenoform',     chance: 0.015 },
+  { parent1: 'phantom-leaf', parent2: 'voidbloom',    offspring: 'xenoform',     chance: 0.015 },
 
-  // T3 × T3 → T4  (best realistic boost +10% → ~11–12% effective; Prism Lens not craftable yet)
-  { parent1: 'crystal-vine', parent2: 'voidbloom',    offspring: 'deepfrond',    chance: 0.02 },
-  { parent1: 'xenoform',     parent2: 'phantom-leaf', offspring: 'swiftcane',    chance: 0.02 },
-  { parent1: 'emberfern',    parent2: 'voidbloom',    offspring: 'crystalmoss',  chance: 0.02 },
-  { parent1: 'xenoform',     parent2: 'crystal-vine', offspring: 'voidfern',     chance: 0.015 },
+  // T3 × T3 → T4  (best realistic boost +10% → ~10–11% effective; Prism Lens not craftable yet)
+  { parent1: 'crystal-vine', parent2: 'voidbloom',    offspring: 'deepfrond',    chance: 0.01 },
+  { parent1: 'xenoform',     parent2: 'phantom-leaf', offspring: 'swiftcane',    chance: 0.01 },
+  { parent1: 'emberfern',    parent2: 'voidbloom',    offspring: 'crystalmoss',  chance: 0.01 },
+  { parent1: 'xenoform',     parent2: 'crystal-vine', offspring: 'voidfern',     chance: 0.005 },
 
-  // T4 × T4 → T4  (+10% for the first abyssform, ~11.5% effective; Prism Lens makes repeats easier)
-  { parent1: 'deepfrond',    parent2: 'swiftcane',    offspring: 'abyssform',    chance: 0.015 },
+  // T4 × T4 → T4  (+10% for the first abyssform, ~10% effective; Prism Lens makes repeats easier)
+  { parent1: 'deepfrond',    parent2: 'swiftcane',    offspring: 'abyssform',    chance: 0.005 },
 
-  // T4 × T4 → T5 (negative base — a mutation artifact is mandatory; Prism Lens +20% → ~12% effective)
-  { parent1: 'deepfrond',    parent2: 'crystalmoss',  offspring: 'starweave',    chance: -0.08 },
-  { parent1: 'swiftcane',    parent2: 'voidfern',     offspring: 'voidpulse',    chance: -0.08 },
-  { parent1: 'abyssform',    parent2: 'crystalmoss',  offspring: 'cosmosbloom',  chance: -0.08 },
+  // T4 × T4 → T5 (negative base — mutation artifact mandatory; Prism Lens +20% → 8% effective)
+  { parent1: 'deepfrond',    parent2: 'crystalmoss',  offspring: 'starweave',    chance: -0.12 },
+  { parent1: 'swiftcane',    parent2: 'voidfern',     offspring: 'voidpulse',    chance: -0.12 },
+  { parent1: 'abyssform',    parent2: 'crystalmoss',  offspring: 'cosmosbloom',  chance: -0.12 },
 
-  // T5 × T5 → T5 (Prism Lens +20% → ~12% effective)
-  { parent1: 'starweave',    parent2: 'voidpulse',    offspring: 'etherform',    chance: -0.08 },
+  // T5 × T5 → T5 (Prism Lens +20% → 8% effective)
+  { parent1: 'starweave',    parent2: 'voidpulse',    offspring: 'etherform',    chance: -0.12 },
 
-  // T5 × T5 → T6 (Prism Lens +20% → ~10% effective; Prism Lens II later eases repeats)
-  { parent1: 'etherform',    parent2: 'starweave',    offspring: 'dawnrift',     chance: -0.10 },
-  { parent1: 'starweave',    parent2: 'cosmosbloom',  offspring: 'voidlattice',  chance: -0.10 },
-  { parent1: 'voidpulse',    parent2: 'etherform',    offspring: 'nexusbloom',   chance: -0.10 },
-  { parent1: 'cosmosbloom',  parent2: 'etherform',    offspring: 'stellarfrond', chance: -0.10 },
+  // T5 × T5 → T6 (Prism Lens +20% → 6% effective; Prism Lens II later eases repeats)
+  { parent1: 'etherform',    parent2: 'starweave',    offspring: 'dawnrift',     chance: -0.14 },
+  { parent1: 'starweave',    parent2: 'cosmosbloom',  offspring: 'voidlattice',  chance: -0.14 },
+  { parent1: 'voidpulse',    parent2: 'etherform',    offspring: 'nexusbloom',   chance: -0.14 },
+  { parent1: 'cosmosbloom',  parent2: 'etherform',    offspring: 'stellarfrond', chance: -0.14 },
 
-  // T6 × T6 → T6 (first aetherix: Prism Lens +20% → ~8% effective; gates Prism Lens II & all of T7)
-  { parent1: 'dawnrift',     parent2: 'voidlattice',  offspring: 'aetherix',     chance: -0.12 },
+  // T6 × T6 → T6 (first aetherix: Prism Lens +20% → 6% effective; gates Prism Lens II & all of T7)
+  { parent1: 'dawnrift',     parent2: 'voidlattice',  offspring: 'aetherix',     chance: -0.14 },
 
-  // T6 × T6 → T7 (Prism Lens +20% → ~7%; Prism Lens II +30% → ~17% once unlocked)
-  { parent1: 'dawnrift',     parent2: 'aetherix',     offspring: 'tempest-spike', chance: -0.13 },
-  { parent1: 'voidlattice',  parent2: 'nexusbloom',   offspring: 'abyssal-frond', chance: -0.13 },
-  { parent1: 'nexusbloom',   parent2: 'stellarfrond', offspring: 'quantum-bloom', chance: -0.13 },
-  { parent1: 'stellarfrond', parent2: 'aetherix',     offspring: 'starcore',      chance: -0.13 },
+  // T6 × T6 → T7 (Prism Lens +20% → 4% effective; Prism Lens II +30% → 14% once unlocked)
+  { parent1: 'dawnrift',     parent2: 'aetherix',     offspring: 'tempest-spike', chance: -0.16 },
+  { parent1: 'voidlattice',  parent2: 'nexusbloom',   offspring: 'abyssal-frond', chance: -0.16 },
+  { parent1: 'nexusbloom',   parent2: 'stellarfrond', offspring: 'quantum-bloom', chance: -0.16 },
+  { parent1: 'stellarfrond', parent2: 'aetherix',     offspring: 'starcore',      chance: -0.16 },
 
-  // T7 × T7 → T7 (deeply negative — only Prism Lens II +30% gives any chance, ~5%: the endgame grind)
-  { parent1: 'tempest-spike', parent2: 'abyssal-frond', offspring: 'singularity', chance: -0.25 },
+  // T7 × T7 → T7 (the ultimate plant — only Prism Lens II +30% gives any chance, 2%: the endgame grind)
+  { parent1: 'tempest-spike', parent2: 'abyssal-frond', offspring: 'singularity', chance: -0.28 },
 ]
 
 /** Returns the first mutation for a plant pair (used for UI preview). */
