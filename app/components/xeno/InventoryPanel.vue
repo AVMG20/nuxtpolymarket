@@ -66,8 +66,7 @@ function ownedQty(plantTypeId: string): number {
 const sortedInventory = computed(() =>
   [...props.inventory].sort((a, b) => {
     if (b.tier !== a.tier) return b.tier - a.tier
-    if (b.yield !== a.yield) return b.yield - a.yield
-    return b.speed - a.speed
+    return a.name.localeCompare(b.name)
   }),
 )
 
