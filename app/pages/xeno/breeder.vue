@@ -278,8 +278,8 @@ async function doCollect(slotId: string) {
                       <span class="text-3xl leading-none">{{ slot.parent1 ? getPlant(slot.parent1.typeId)?.emoji : '?' }}</span>
                       <p class="text-sm font-semibold mt-1">{{ slot.parent1 ? getPlant(slot.parent1.typeId)?.name : '?' }}</p>
                       <div v-if="slot.parent1" class="flex items-center gap-1">
-                        <XenoLevelBadge prefix="S" :level="slot.parent1.speed" />
-                        <XenoLevelBadge prefix="Y" :level="slot.parent1.yield" />
+                        <XenoLevelBadge prefix="S" :level="slot.parent1.speed ?? 0" />
+                        <XenoLevelBadge prefix="Y" :level="slot.parent1.yield ?? 0" />
                       </div>
                     </div>
                     <UIcon name="i-lucide-plus" class="size-4 text-muted shrink-0" />
@@ -287,8 +287,8 @@ async function doCollect(slotId: string) {
                       <span class="text-3xl leading-none">{{ slot.parent2 ? getPlant(slot.parent2.typeId)?.emoji : '?' }}</span>
                       <p class="text-sm font-semibold mt-1">{{ slot.parent2 ? getPlant(slot.parent2.typeId)?.name : '?' }}</p>
                       <div v-if="slot.parent2" class="flex items-center gap-1">
-                        <XenoLevelBadge prefix="S" :level="slot.parent2.speed" />
-                        <XenoLevelBadge prefix="Y" :level="slot.parent2.yield" />
+                        <XenoLevelBadge prefix="S" :level="slot.parent2.speed ?? 0" />
+                        <XenoLevelBadge prefix="Y" :level="slot.parent2.yield ?? 0" />
                       </div>
                     </div>
                   </div>
@@ -301,17 +301,24 @@ async function doCollect(slotId: string) {
                         :style="{ width: `${slot.completesAt ? progressPct(slot.startedAt!, slot.completesAt, now) : 0}%` }"
                       />
                     </div>
-                    <p class="text-xs text-muted">{{ slot.completesAt ? formatCountdown(slot.completesAt, now) : '…' }}</p>
+                    <div class="flex items-center gap-1.5">
+                      <p class="text-xs text-muted">{{ slot.completesAt ? formatCountdown(slot.completesAt, now) : '…' }}</p>
+                      <span v-if="slotBreederSpeedBoost(slot) > 0" class="text-[10px] font-bold text-primary leading-none">⚡−{{ Math.round(slotBreederSpeedBoost(slot) * 100) }}%</span>
+                    </div>
                   </div>
 
                   <!-- Artifact (in progress, read-only) -->
-                  <div v-if="slot.artifact" class="rounded-lg border border-default/40 bg-background/30 px-3 py-2 flex items-center gap-2">
-                    <span class="text-base leading-none">{{ getArtifact(slot.artifact.typeId)?.emoji }}</span>
+                  <div v-if="slot.artifact" class="rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 flex items-center gap-2">
+                    <span class="text-base leading-none shrink-0">{{ getArtifact(slot.artifact.typeId)?.emoji }}</span>
                     <div class="flex-1 min-w-0">
                       <p class="text-xs font-semibold truncate">{{ getArtifact(slot.artifact.typeId)?.name }}</p>
-                      <p class="text-xs text-muted">{{ slot.artifact.chargesRemaining }}× charges left</p>
+                      <div class="flex items-center gap-1 mt-0.5 flex-wrap">
+                        <span v-if="slotBreederSpeedBoost(slot) > 0" class="text-[10px] font-bold text-primary bg-primary/10 px-1 py-0.5 rounded leading-none">⚡ −{{ Math.round(slotBreederSpeedBoost(slot) * 100) }}%</span>
+                        <span v-if="slotMutationBoost(slot) > 0" class="text-[10px] font-bold text-warning bg-warning/10 px-1 py-0.5 rounded leading-none">🧬 +{{ Math.round(slotMutationBoost(slot) * 100) }}%</span>
+                        <span v-if="slotExtraYield(slot) > 0" class="text-[10px] font-bold text-success bg-success/10 px-1 py-0.5 rounded leading-none">⚗️ +{{ slotExtraYield(slot) }}</span>
+                      </div>
                     </div>
-                    <button class="text-muted hover:text-default text-xs shrink-0" @click="removeBreederArtifact(slot.id)">✕</button>
+                    <span class="text-[10px] text-muted shrink-0">{{ slot.artifact.chargesRemaining }}×</span>
                   </div>
 
                   <div class="flex items-center justify-between mt-auto">
@@ -388,11 +395,15 @@ async function doCollect(slotId: string) {
                           class="text-xs font-black text-error tabular-nums"
                         >0% — artifact required</span>
                         <template v-else>
+                          <span
+                            v-if="slotMutationBoost(slot) > 0"
+                            class="text-xs font-bold text-muted/60 line-through tabular-nums"
+                          >{{ Math.round(mutationForParents(getParent(slot.id, 1), getParent(slot.id, 2))!.chance * 100) }}%</span>
                           <span class="text-xs font-black text-warning tabular-nums">
                             {{ Math.round(effectiveMutationChance(slot, getParent(slot.id, 1), getParent(slot.id, 2)) * 100) }}%
                           </span>
-                          <span v-if="slotMutationBoost(slot) > 0" class="text-[10px] font-bold text-primary">
-                            +{{ Math.round(slotMutationBoost(slot) * 100) }}% 🧬
+                          <span v-if="slotMutationBoost(slot) > 0" class="text-[10px] font-bold text-primary bg-primary/10 px-1 py-0.5 rounded leading-none">
+                            🧬 +{{ Math.round(slotMutationBoost(slot) * 100) }}%
                           </span>
                         </template>
                       </div>
@@ -430,7 +441,7 @@ async function doCollect(slotId: string) {
                       <div class="flex items-center gap-1.5 font-mono font-semibold">
                         <span v-if="slotExtraYield(slot) > 0" class="text-muted line-through">×1</span>
                         <span>×{{ 1 + slotExtraYield(slot) }}</span>
-                        <span v-if="slotExtraYield(slot) > 0" class="text-[10px] font-bold text-primary">+{{ slotExtraYield(slot) }} ⚗️</span>
+                        <span v-if="slotExtraYield(slot) > 0" class="text-[10px] font-bold text-primary">+{{ slotExtraYield(slot) }}</span>
                       </div>
                     </div>
                   </div>
