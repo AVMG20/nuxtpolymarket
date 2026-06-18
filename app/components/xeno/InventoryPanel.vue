@@ -128,7 +128,7 @@ function specRows(art: ArtifactType | undefined) {
       @click="activeTab = 'artifacts'"
     >
       Artifacts
-      <span v-if="freeArtifacts.length" class="absolute top-1.5 right-3 size-4 flex items-center justify-center rounded-full bg-primary text-xs font-bold text-white">
+      <span v-if="freeArtifacts.length" class="absolute top-1.5 right-3 size-5 flex items-center justify-center rounded-full bg-primary text-xs font-bold text-inverted">
         {{ freeArtifacts.length }}
       </span>
     </button>

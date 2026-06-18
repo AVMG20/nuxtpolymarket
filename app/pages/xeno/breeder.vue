@@ -211,12 +211,12 @@ async function doCollect(slotId: string) {
               <template v-if="slot.completesAt && isDone(slot.completesAt) && slot.resultTypeId">
                 <div
                   class="flex flex-col flex-1 overflow-hidden rounded-xl"
-                  :class="slot.wasMutation ? 'ring-2 ring-warning/50' : 'ring-1 ring-primary/30'"
+                  :class="slot.wasMutation ? 'ring-2 ring-primary/50' : 'ring-1 ring-primary/30'"
                 >
                   <!-- Mutation banner -->
-                  <div v-if="slot.wasMutation" class="flex items-center justify-center gap-1.5 py-2 bg-warning/15 border-b border-warning/20">
+                  <div v-if="slot.wasMutation" class="flex items-center justify-center gap-1.5 py-2 bg-primary/15 border-b border-primary/20">
                     <span class="text-xs animate-bounce">✨</span>
-                    <p class="text-[10px] font-black text-warning uppercase tracking-widest">Mutation!</p>
+                    <p class="text-[10px] font-black text-primary uppercase tracking-widest">Mutation!</p>
                     <span class="text-xs animate-bounce">✨</span>
                   </div>
 
@@ -257,7 +257,7 @@ async function doCollect(slotId: string) {
                     <UButton
                       :label="slot.wasMutation ? '✨ Collect Mutation' : 'Collect'"
                       block
-                      :color="slot.wasMutation ? 'warning' : 'primary'"
+                      :color="slot.wasMutation ? 'primary' : 'primary'"
                       :loading="collecting.has(slot.id)"
                       @click="doCollect(slot.id)"
                     />
@@ -314,7 +314,7 @@ async function doCollect(slotId: string) {
                       <p class="text-xs font-semibold truncate">{{ getArtifact(slot.artifact.typeId)?.name }}</p>
                       <div class="flex items-center gap-1 mt-0.5 flex-wrap">
                         <span v-if="slotBreederSpeedBoost(slot) > 0" class="text-[10px] font-bold text-primary bg-primary/10 px-1 py-0.5 rounded leading-none">⚡ −{{ Math.round(slotBreederSpeedBoost(slot) * 100) }}%</span>
-                        <span v-if="slotMutationBoost(slot) > 0" class="text-[10px] font-bold text-warning bg-warning/10 px-1 py-0.5 rounded leading-none">🧬 +{{ Math.round(slotMutationBoost(slot) * 100) }}%</span>
+                        <span v-if="slotMutationBoost(slot) > 0" class="text-[10px] font-bold text-primary bg-primary/10 px-1 py-0.5 rounded leading-none">🧬 +{{ Math.round(slotMutationBoost(slot) * 100) }}%</span>
                         <span v-if="slotExtraYield(slot) > 0" class="text-[10px] font-bold text-success bg-success/10 px-1 py-0.5 rounded leading-none">⚗️ +{{ slotExtraYield(slot) }}</span>
                       </div>
                     </div>
@@ -380,13 +380,13 @@ async function doCollect(slotId: string) {
                     v-if="mutationForParents(getParent(slot.id, 1), getParent(slot.id, 2))"
                     class="rounded-xl border p-3 space-y-2"
                     :class="effectiveMutationChance(slot, getParent(slot.id, 1), getParent(slot.id, 2)) > 0
-                      ? 'border-warning/30 bg-warning/5'
+                      ? 'border-primary/30 bg-primary/5'
                       : 'border-error/30 bg-error/5'"
                   >
                     <div class="flex items-center justify-between">
                       <p
                         class="text-xs font-bold uppercase tracking-wider"
-                        :class="effectiveMutationChance(slot, getParent(slot.id, 1), getParent(slot.id, 2)) > 0 ? 'text-warning' : 'text-error'"
+                        :class="effectiveMutationChance(slot, getParent(slot.id, 1), getParent(slot.id, 2)) > 0 ? 'text-primary' : 'text-error'"
                       >Possible Mutation</p>
                       <!-- Effective chance (clamped to 0) -->
                       <div class="flex items-center gap-1.5">
@@ -399,7 +399,7 @@ async function doCollect(slotId: string) {
                             v-if="slotMutationBoost(slot) > 0"
                             class="text-xs font-bold text-muted/60 line-through tabular-nums"
                           >{{ Math.round(mutationForParents(getParent(slot.id, 1), getParent(slot.id, 2))!.chance * 100) }}%</span>
-                          <span class="text-xs font-black text-warning tabular-nums">
+                          <span class="text-xs font-black text-primary tabular-nums">
                             {{ Math.round(effectiveMutationChance(slot, getParent(slot.id, 1), getParent(slot.id, 2)) * 100) }}%
                           </span>
                           <span v-if="slotMutationBoost(slot) > 0" class="text-[10px] font-bold text-primary bg-primary/10 px-1 py-0.5 rounded leading-none">
