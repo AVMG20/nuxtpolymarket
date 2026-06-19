@@ -46,7 +46,10 @@ const spinSeconds = computed(() => fastSpin.value ? SPIN_BASE_SECONDS * 0.2 : SP
 const revealDelayMs = computed(() => spinSeconds.value * 1000 + 200)
 
 const viewport = ref<HTMLElement | null>(null)
-const reel = ref<LootboxReward[]>(Array.from({ length: REEL_LEN }, () => lootboxRoll()))
+// Generated once on the server and reused on the client (via the payload) so the
+// random reel hydrates identically — otherwise the server/client reels diverge and
+// Vue mismatches cell colors against cell values.
+const reel = useState<LootboxReward[]>('lootbox-reel', () => Array.from({ length: REEL_LEN }, () => lootboxRoll()))
 const offset = ref(0)
 const transitionOn = ref(false)
 const spinning = ref(false)
