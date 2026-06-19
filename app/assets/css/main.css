@@ -19,3 +19,12 @@
   --color-green-900: #0A5331;
   --color-green-950: #052E16;
 }
+
+/* Make disabled UButtons clearly gray instead of dimmed-primary */
+button[data-slot="base"]:disabled,
+button[data-slot="base"][aria-disabled="true"],
+a[data-slot="base"][aria-disabled="true"] {
+    background-color: var(--ui-bg-accented) !important;
+    color: var(--ui-text-dimmed) !important;
+    opacity: 1 !important; /* drop the 75% dimming; the gray now carries the meaning */
+}
