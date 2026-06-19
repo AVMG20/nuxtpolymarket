@@ -627,13 +627,11 @@ function newGame() {
   }
 }
 
-/* Active hand glow */
+/* Active hand */
 .player-hand-active {
   padding: 0.75rem;
   margin: -0.75rem;
   border-radius: 1rem;
-  background: linear-gradient(135deg, rgba(var(--color-primary-500), 0.05), transparent);
-  border: 1px solid rgba(var(--color-primary-500), 0.1);
 }
 
 .deal-pop-enter-active,
