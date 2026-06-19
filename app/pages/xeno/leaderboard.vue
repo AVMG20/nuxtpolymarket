@@ -16,7 +16,7 @@ const rankBg = [
 </script>
 
 <template>
-  <UContainer>
+  <UContainer class="pt-6">
     <div class="mb-6">
       <h1 class="text-2xl font-bold flex items-center gap-2">
         <UIcon name="i-lucide-trophy" class="size-6 text-yellow-400" />

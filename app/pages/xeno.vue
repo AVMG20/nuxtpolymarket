@@ -32,7 +32,7 @@ const activeTab = computed(() => route.path)
       </div>
     </div>
 
-    <div class="py-6 pb-12">
+    <div class="pb-12">
       <NuxtPage />
     </div>
   </div>

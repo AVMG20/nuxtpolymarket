@@ -38,8 +38,8 @@ export function computeBreedDuration(
   const t2 = getPlant(p2.typeId)
   if (!t1 || !t2) return xenoDuration(3600)
   let secs = xenoDuration(breedDuration(
-    { baseTime: t1.baseTime, speed: p1.speed },
-    { baseTime: t2.baseTime, speed: p2.speed },
+    { baseTime: t1.baseTime },
+    { baseTime: t2.baseTime},
   ))
   if (artifactTypeId) {
     const art = getArtifact(artifactTypeId)

@@ -127,7 +127,7 @@ function growTime(item: any) {
 </script>
 
 <template>
-  <UContainer>
+  <UContainer class="pt-6">
     <div class="mb-6 flex items-start justify-between gap-4">
       <div>
         <h1 class="text-2xl font-bold flex items-center gap-2"><span>🏪</span> Market</h1>

@@ -103,7 +103,7 @@ function baseBreedSecs(p1: any, p2: any): number {
   const t1 = getPlant(p1.typeId)
   const t2 = getPlant(p2.typeId)
   if (!t1 || !t2) return 0
-  return breedDuration({ baseTime: t1.baseTime, speed: p1.speed }, { baseTime: t2.baseTime, speed: p2.speed })
+  return breedDuration({ baseTime: t1.baseTime }, { baseTime: t2.baseTime })
 }
 
 function slotBreederSpeedBoost(slot: any): number {

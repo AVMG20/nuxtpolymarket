@@ -64,7 +64,7 @@ function tierMutations(tier: number) {
 </script>
 
 <template>
-  <UContainer>
+  <UContainer class="pt-6">
     <!-- Header -->
     <div class="flex items-start justify-between mb-8">
       <div>

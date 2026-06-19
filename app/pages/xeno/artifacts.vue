@@ -58,7 +58,7 @@ function specRows(art: typeof ARTIFACT_TYPES[0]) {
 </script>
 
 <template>
-  <UContainer>
+  <UContainer class="pt-6">
     <div class="mb-6">
       <h1 class="text-2xl font-bold flex items-center gap-2">
         <UIcon name="i-lucide-gem" class="text-primary" /> Artifacts
