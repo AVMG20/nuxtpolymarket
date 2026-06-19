@@ -1,14 +1,14 @@
 import { eq } from 'drizzle-orm'
 import { db } from '#server/database'
-import { minerState, user } from '#server/database/schema'
+import { minerState, user, gemMarketState } from '#server/database/schema'
 import { auth } from '#server/utils/auth'
 import {
   rigIncome, vaultCap, rigUpgradeCost, vaultUpgradeCost,
   factoryRate, factoryCap, factoryUpgradeCost, computePending,
   RIG_MAX_LEVEL, VAULT_MAX_LEVEL, FACTORY_MAX_LEVEL,
-  minesPurchaseCost, MINES_MAX_COUNT,
-  minesUpgradeCost, MINES_UPGRADE_MAX_LEVEL, minesValueMultiplier,
+  lootboxSlotCost, LOOTBOX_MAX_SLOTS, lootboxExpectedValue, lootboxOpenPrice,
 } from '#shared/utils/miner-config'
+import { gemComputeLivePrice, GEM_INITIAL_PRICE } from '#shared/utils/gamelogic/gem-market'
 
 export default defineEventHandler(async (event) => {
   const session = await auth.api.getSession({ headers: event.headers })
@@ -16,9 +16,10 @@ export default defineEventHandler(async (event) => {
 
   const userId = session.user.id
 
-  const [currentUser, state] = await Promise.all([
+  const [currentUser, state, market] = await Promise.all([
     db.query.user.findFirst({ where: eq(user.id, userId), columns: { gems: true } }),
     db.query.minerState.findFirst({ where: eq(minerState.userId, userId) }),
+    db.query.gemMarketState.findFirst(),
   ])
 
   // Auto-create state on first visit
@@ -31,6 +32,12 @@ export default defineEventHandler(async (event) => {
 
   const pendingCash = computePending(income, s.lastCollectedAt, cap)
   const pendingGems = computePending(rate, s.factoryLastCollectedAt, gemCap)
+
+  const gemPrice = market
+    ? gemComputeLivePrice(parseFloat(market.price), market.lastUpdatedAt)
+    : GEM_INITIAL_PRICE
+  const today = new Date().toISOString().slice(0, 10)
+  const lootboxOpensToday = s.lootboxOpensDate === today ? s.lootboxTodayOpens : 0
 
   return {
     rigLevel: s.rigLevel,
@@ -51,17 +58,12 @@ export default defineEventHandler(async (event) => {
     pendingGems,
     factoryLastCollectedAt: s.factoryLastCollectedAt,
     gems: currentUser?.gems ?? 0,
-    minesCount: s.minesCount,
-    minesMaxCount: MINES_MAX_COUNT,
-    minesNextCost: minesPurchaseCost(s.minesCount),
-    minesLevel: s.minesLevel,
-    minesMaxLevel: MINES_UPGRADE_MAX_LEVEL,
-    minesNextUpgradeCost: minesUpgradeCost(s.minesLevel),
-    minesValueMultiplier: minesValueMultiplier(s.minesLevel),
-    minesPlaysRemaining: (() => {
-      const today = new Date().toISOString().slice(0, 10)
-      const used = s.minesPlaysDate === today ? s.minesTodayPlays : 0
-      return Math.max(0, s.minesCount - used)
-    })(),
+    gemPrice,
+    lootboxSlots: s.lootboxSlots,
+    lootboxMaxSlots: LOOTBOX_MAX_SLOTS,
+    lootboxNextSlotCost: lootboxSlotCost(s.lootboxSlots),
+    lootboxFreeOpensRemaining: Math.max(0, s.lootboxSlots - lootboxOpensToday),
+    lootboxAvgValue: lootboxExpectedValue(cap, gemPrice),
+    lootboxOpenPrice: lootboxOpenPrice(cap, gemPrice),
   }
 })

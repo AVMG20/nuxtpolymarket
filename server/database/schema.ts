@@ -100,10 +100,9 @@ export const minerState = pgTable('miner_state', {
   lastCollectedAt: timestamp('last_collected_at').defaultNow().notNull(),
   factoryLevel: integer('factory_level').notNull().default(1),
   factoryLastCollectedAt: timestamp('factory_last_collected_at').defaultNow().notNull(),
-  minesCount: integer('mines_count').notNull().default(1),
-  minesLevel: integer('mines_level').notNull().default(1),
-  minesTodayPlays: integer('mines_today_plays').notNull().default(0),
-  minesPlaysDate: text('mines_plays_date').notNull().default(''),
+  lootboxSlots: integer('lootbox_slots').notNull().default(1),
+  lootboxTodayOpens: integer('lootbox_today_opens').notNull().default(0),
+  lootboxOpensDate: text('lootbox_opens_date').notNull().default(''),
 })
 
 export const gemMarketState = pgTable('gem_market_state', {

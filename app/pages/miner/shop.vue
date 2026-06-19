@@ -32,16 +32,6 @@ const shopItems = computed(() => [
     endpoint: '/api/miner/shop/instant-fill',
   },
   {
-    id: 'extra-play',
-    label: 'Extra Play',
-    description: 'Restore 1 used Mines play today.',
-    valuePerGem: 350 * (state.value?.minesValueMultiplier ?? 1),
-    icon: 'i-lucide-gamepad-2',
-    color: 'primary' as const,
-    cost: 1,
-    endpoint: '/api/miner/shop/extra-play',
-  },
-  {
     id: 'quick-cash',
     label: 'Quick Cash',
     description: `Convert 1 Gem into ${formatNumber(quickCashValue.value, true)},- instantly.`,
@@ -55,10 +45,6 @@ const shopItems = computed(() => [
 
 function isItemDisabled(item: typeof shopItems.value[number]) {
   if (gems.value < item.cost) return true
-  if (item.id === 'extra-play') {
-    const s = state.value
-    return !s || s.minesPlaysRemaining >= s.minesCount
-  }
   return !item.endpoint
 }
 

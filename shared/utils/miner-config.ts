@@ -1,3 +1,5 @@
+import { GEM_INITIAL_PRICE } from './gamelogic/gem-market'
+
 // All miner upgrade prices AND rewards scale EXPONENTIALLY (geometric per level),
 // ─── Mining Rig ───────────────────────────────────────────────────────────────
 export const RIG_MAX_LEVEL = 100
@@ -24,34 +26,108 @@ export const FACTORY_UPGRADE_GROWTH = 2.47   // reward is linear now, so cost on
 
 // ─── Gem Shop ─────────────────────────────────────────────────────────────────
 export const SHOP_DOUBLE_WIN_COST = 5          // gems — 2x next win (capped at 1500, not yet implemented)
-export const SHOP_EXTRA_PLAY_COST = 1          // gems — extra play
 export const SHOP_QUICK_CASH_COST = 1          // gems
 export const SHOP_QUICK_CASH_AMOUNT = 200      // $ base at factory L1; scales ×factoryLevel
 
-// ─── Mines Game ───────────────────────────────────────────────────────────────
-export const MINES_MAX_COUNT = 10
-export const MINES_BASE_PURCHASE_COST = 1000
-export const MINES_PURCHASE_GROWTH = 1.6
-export const MINES_TILE_VALUES = [1000, 600, 450, 350, 300, 200, 150, 100, 0] as const
+// ─── Lootboxes ──────────────────────────────────────────────────────────────
+// You own a number of lootbox SLOTS — each grants one free open per day.
+// There is no "upgrade": cash rewards are a percentage of your vault storage
+// (`cap`), so reward value scales automatically as you level the vault, and gem
+// rewards are valued live against the gem market. Buying more slots scales hard.
+export const LOOTBOX_MAX_SLOTS = 10
+export const LOOTBOX_BASE_SLOT_COST = 1500
+export const LOOTBOX_SLOT_GROWTH = 1.65
 
-export const MINES_UPGRADE_MAX_LEVEL = 10
-export const MINES_UPGRADE_BASE_COST = 1000
-export const MINES_UPGRADE_GROWTH = 1.6
-export const MINES_VALUE_GROWTH = 0.10         // +10% per level (linear) → 1.9x at L10
+// House edge applied to a paid (cash-bought) open. Price = EV / (1 - edge), so
+// the player loses this fraction on average. 0.02 → 2% expected loss.
+export const LOOTBOX_HOUSE_EDGE = 0.02
 
-/** Cost to buy the next mine (pass current count before purchase) */
-export function minesPurchaseCost(currentCount: number) {
-    return Math.round(MINES_BASE_PURCHASE_COST * Math.pow(MINES_PURCHASE_GROWTH, currentCount - 1))
+export type LootboxRarity = 'common' | 'uncommon' | 'rare' | 'epic' | 'legendary'
+
+export interface LootboxReward {
+    id: string
+    kind: 'cash' | 'gems'
+    /**
+     * cash → fraction of vault `cap`.
+     * gems → nominal gem count *at the base gem price*. The count actually
+     * awarded scales inversely with the live market price (see lootboxGemCount),
+     * so a gem reward is worth roughly the same in cash whatever the price.
+     */
+    amount: number
+    weight: number
+    rarity: LootboxRarity
 }
 
-/** Cost to upgrade mines to the next level (pass current level) */
-export function minesUpgradeCost(currentLevel: number) {
-    return Math.round(MINES_UPGRADE_BASE_COST * Math.pow(MINES_UPGRADE_GROWTH, currentLevel - 1))
+/**
+ * The full prize pool. Cash amounts are fractions of vault `cap`; gem amounts
+ * are nominal counts at the base price. Gems are intentionally rarer than cash.
+ */
+export const LOOTBOX_REWARDS: LootboxReward[] = [
+    // Cash — fraction of vault storage value (the common, bread-and-butter rewards)
+    { id: 'cash-10',  kind: 'cash', amount: 0.10, weight: 22,  rarity: 'common' },
+    { id: 'cash-25',  kind: 'cash', amount: 0.25, weight: 16,  rarity: 'common' },
+    { id: 'cash-50',  kind: 'cash', amount: 0.50, weight: 11,  rarity: 'uncommon' },
+    { id: 'cash-100', kind: 'cash', amount: 1.00, weight: 6,   rarity: 'rare' },
+    { id: 'cash-200', kind: 'cash', amount: 2.00, weight: 2.5, rarity: 'epic' },
+    { id: 'cash-300', kind: 'cash', amount: 3.00, weight: 1.2, rarity: 'epic' },
+    { id: 'cash-500', kind: 'cash', amount: 5.00, weight: 0.6, rarity: 'legendary' },
+    // Gems — rarer than cash; awarded count scales with the live gem price
+    { id: 'gems-1',   kind: 'gems', amount: 1,    weight: 8,    rarity: 'common' },
+    { id: 'gems-5',   kind: 'gems', amount: 5,    weight: 4,    rarity: 'uncommon' },
+    { id: 'gems-10',  kind: 'gems', amount: 10,   weight: 2.5,  rarity: 'rare' },
+    { id: 'gems-25',  kind: 'gems', amount: 25,   weight: 1.2,  rarity: 'epic' },
+    { id: 'gems-50',  kind: 'gems', amount: 50,   weight: 0.5,  rarity: 'epic' },
+    { id: 'gems-100', kind: 'gems', amount: 100,  weight: 0.2,  rarity: 'legendary' },
+]
+
+/** Cost to buy the next lootbox slot (pass current slot count before purchase). */
+export function lootboxSlotCost(currentSlots: number) {
+    return Math.round(LOOTBOX_BASE_SLOT_COST * Math.pow(LOOTBOX_SLOT_GROWTH, currentSlots - 1))
 }
 
-/** Linear multiplier applied to mine tile rewards and extra play value (+10% per level) */
-export function minesValueMultiplier(level: number) {
-    return 1 + MINES_VALUE_GROWTH * (level - 1)
+/**
+ * Actual gem count awarded for a gem reward at the live market price.
+ * The nominal `amount` is calibrated to the base price, so the count scales
+ * inversely: pricey gems → fewer awarded, cheap gems → more awarded. Min 1.
+ */
+export function lootboxGemCount(reward: LootboxReward, gemPrice: number) {
+    if (reward.kind !== 'gems') return 0
+    if (gemPrice <= 0) return reward.amount
+    return Math.max(1, Math.round(reward.amount * GEM_INITIAL_PRICE / gemPrice))
+}
+
+/** Cash value of a single reward given the live vault cap and gem price. */
+export function lootboxRewardValue(reward: LootboxReward, storageValue: number, gemPrice: number) {
+    return reward.kind === 'cash'
+        ? reward.amount * storageValue
+        : lootboxGemCount(reward, gemPrice) * gemPrice
+}
+
+/** Probability-weighted average value of one open (in cash terms). */
+export function lootboxExpectedValue(storageValue: number, gemPrice: number) {
+    let totalWeight = 0
+    let ev = 0
+    for (const r of LOOTBOX_REWARDS) {
+        totalWeight += r.weight
+        ev += r.weight * lootboxRewardValue(r, storageValue, gemPrice)
+    }
+    return totalWeight > 0 ? ev / totalWeight : 0
+}
+
+/** Cash price of a paid open — EV plus the house edge. */
+export function lootboxOpenPrice(storageValue: number, gemPrice: number) {
+    return lootboxExpectedValue(storageValue, gemPrice) / (1 - LOOTBOX_HOUSE_EDGE)
+}
+
+/** Pick a reward by weight. Returns the chosen reward (server-authoritative). */
+export function lootboxRoll(): LootboxReward {
+    const totalWeight = LOOTBOX_REWARDS.reduce((sum, r) => sum + r.weight, 0)
+    let roll = Math.random() * totalWeight
+    for (const r of LOOTBOX_REWARDS) {
+        roll -= r.weight
+        if (roll <= 0) return r
+    }
+    return LOOTBOX_REWARDS[LOOTBOX_REWARDS.length - 1]!
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────

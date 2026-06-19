@@ -5,7 +5,7 @@ const tabs = [
   { label: 'Miner', to: '/miner', icon: 'i-lucide-pickaxe' },
   { label: 'Factory', to: '/miner/factory', icon: 'i-lucide-factory' },
   { label: 'Shop', to: '/miner/shop', icon: 'i-lucide-store' },
-  { label: 'Mines', to: '/miner/mines', icon: 'i-lucide-mountain' },
+  { label: 'Lootboxes', to: '/miner/lootbox', icon: 'i-lucide-gift' },
 ]
 
 const activeTab = computed(() => route.path)
