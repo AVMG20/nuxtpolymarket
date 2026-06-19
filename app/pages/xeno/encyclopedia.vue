@@ -293,7 +293,7 @@ function tierMutations(tier: number) {
             <!-- Card — same layout for all plants; undiscovered shown grayed -->
             <div
               class="rounded-xl border border-default aspect-square flex flex-col overflow-hidden cursor-default transition-all relative"
-              :class="discoveredIds.has(plant.id) ? 'bg-elevated' : 'bg-elevated/20'"
+              :class="discoveredIds.has(plant.id) ? tierBg(plant.tier) : 'bg-elevated/20'"
               @mousemove.passive="trackCursor"
             >
               <!-- Tier + mutation badge header -->
