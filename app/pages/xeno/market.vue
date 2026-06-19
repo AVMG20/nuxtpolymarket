@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { tierColor, tierNameColor, getPlant, effectiveGrowTime, PLANT_TYPES } from '#shared/utils/xeno'
+import { tierColor, tierNameColor, tierBg, getPlant, effectiveGrowTime, PLANT_TYPES } from '#shared/utils/xeno'
 import { formatDuration } from '~/utils/xeno-format'
 
 const { user } = useAuth()
@@ -226,6 +226,7 @@ function growTime(item: any) {
           v-for="item in filteredInventory"
           :key="stackKey(item)"
           class="rounded-xl border border-default px-4 py-3 flex items-center gap-4"
+          :class="tierBg(item.tier)"
         >
           <!-- Emoji + qty -->
           <div class="shrink-0 flex flex-col items-center gap-1.5 w-10">
@@ -309,6 +310,7 @@ function growTime(item: any) {
           v-for="plant in buyablePlants"
           :key="plant.id"
           class="rounded-xl border border-default px-4 py-3 flex items-center gap-4"
+          :class="tierBg(plant.tier)"
         >
           <!-- Emoji -->
           <div class="shrink-0 flex flex-col items-center gap-1.5 w-10">

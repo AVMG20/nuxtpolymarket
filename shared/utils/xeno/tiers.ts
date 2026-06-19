@@ -24,14 +24,14 @@ export function tierColor(tier: number): string {
 
 export function tierBg(tier: number): string {
   const map: Record<number, string> = {
-    1: 'bg-green-100 border-green-200 dark:bg-green-400/10 dark:border-green-400/20',
-    2: 'bg-blue-100 border-blue-200 dark:bg-blue-400/10 dark:border-blue-400/20',
-    3: 'bg-yellow-100 border-yellow-200 dark:bg-yellow-400/10 dark:border-yellow-400/20',
-    4: 'bg-purple-100 border-purple-200 dark:bg-purple-400/10 dark:border-purple-400/20',
-    5: 'bg-orange-100 border-orange-200 dark:bg-orange-400/10 dark:border-orange-400/20',
-    6: 'bg-red-100 border-red-200 dark:bg-red-400/10 dark:border-red-400/20',
-    7: 'bg-pink-100 border-pink-200 dark:bg-pink-400/10 dark:border-pink-400/20',
-    8: 'bg-cyan-100 border-cyan-200 dark:bg-cyan-400/10 dark:border-cyan-400/20',
+    1: 'bg-green-50 border-green-200 dark:bg-green-400/5 dark:border-green-400/15',
+    2: 'bg-blue-50 border-blue-200 dark:bg-blue-400/5 dark:border-blue-400/15',
+    3: 'bg-yellow-50 border-yellow-200 dark:bg-yellow-400/5 dark:border-yellow-400/15',
+    4: 'bg-purple-50 border-purple-200 dark:bg-purple-400/5 dark:border-purple-400/15',
+    5: 'bg-orange-50 border-orange-200 dark:bg-orange-400/5 dark:border-orange-400/15',
+    6: 'bg-red-50 border-red-200 dark:bg-red-400/5 dark:border-red-400/15',
+    7: 'bg-pink-50 border-pink-200 dark:bg-pink-400/5 dark:border-pink-400/15',
+    8: 'bg-cyan-50 border-cyan-200 dark:bg-cyan-400/5 dark:border-cyan-400/15',
   }
   return map[tier] ?? 'bg-elevated border-default'
 }
