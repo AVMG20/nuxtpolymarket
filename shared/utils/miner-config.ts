@@ -20,7 +20,7 @@ export const FACTORY_RATE_STEP = 0.5         // +0.5 gem/day per level → 5.5 g
 export const FACTORY_BASE_CAP = 10
 export const FACTORY_CAP_STEP = 2            // +2 storage per level → 28 cap at L10
 export const FACTORY_BASE_UPGRADE_COST = 1500
-export const FACTORY_UPGRADE_GROWTH = 1.4   // reward is linear now, so cost only scales gently
+export const FACTORY_UPGRADE_GROWTH = 2.47   // reward is linear now, so cost only scales gently
 
 // ─── Gem Shop ─────────────────────────────────────────────────────────────────
 export const SHOP_INSTANT_FILL_MIN_RATIO = 200   // $/gem at level 1
