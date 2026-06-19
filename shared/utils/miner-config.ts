@@ -35,8 +35,8 @@ export const SHOP_QUICK_CASH_AMOUNT = 200      // $ base at factory L1; scales Ã
 // (`cap`), so reward value scales automatically as you level the vault, and gem
 // rewards are valued live against the gem market. Buying more slots scales hard.
 export const LOOTBOX_MAX_SLOTS = 10
-export const LOOTBOX_BASE_SLOT_COST = 1500
-export const LOOTBOX_SLOT_GROWTH = 1.65
+export const LOOTBOX_BASE_SLOT_COST = 2000
+export const LOOTBOX_SLOT_GROWTH = 3.1
 
 // House edge applied to a paid (cash-bought) open. Price = EV / (1 - edge), so
 // the player loses this fraction on average. 0.02 â†’ 2% expected loss.
