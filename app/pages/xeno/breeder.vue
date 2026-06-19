@@ -69,6 +69,10 @@ function getParent(slotId: string, num: 1 | 2) {
   return getSlotParents(slotId)[num === 1 ? 'p1' : 'p2']
 }
 
+function bothPicked(slotId: string) {
+  return !!getParent(slotId, 1) && !!getParent(slotId, 2)
+}
+
 function clearParent(slotId: string, num: 1 | 2) {
   getSlotParents(slotId)[num === 1 ? 'p1' : 'p2'] = null
 }
@@ -198,7 +202,7 @@ async function doCollect(slotId: string) {
         </div>
 
         <div v-else class="grid grid-cols-1 sm:grid-cols-2 gap-4 items-start">
-          <!-- ── Breeder slots ── -->
+          <!-- ═══════════ Breeder slots ═══════════ -->
           <div
             v-for="slot in breederSlots"
             :key="slot.id"
@@ -209,23 +213,26 @@ async function doCollect(slotId: string) {
 
               <!-- ──── Result reveal ──── -->
               <template v-if="slot.completesAt && isDone(slot.completesAt) && slot.resultTypeId">
-                <!-- Status banner (fixed height) -->
                 <div
                   class="flex items-center justify-center gap-1.5 h-9 shrink-0"
-                  :class="slot.wasMutation ? 'bg-primary/15 border-b border-primary/20' : 'bg-elevated border-b border-default'"
+                  :class="slot.wasMutation ? 'bg-primary/20 border-b border-primary/30' : 'bg-elevated border-b border-default'"
                 >
                   <template v-if="slot.wasMutation">
                     <span class="text-xs animate-bounce">✨</span>
-                    <p class="text-[10px] font-black text-primary uppercase tracking-[0.25em]">Mutation</p>
+                    <p class="text-[10px] font-black text-primary uppercase tracking-[0.25em]">Mutation!</p>
                     <span class="text-xs animate-bounce">✨</span>
                   </template>
-                  <p v-else class="text-[10px] font-black text-muted uppercase tracking-[0.25em]">Harvest ready</p>
+                  <p v-else class="text-[10px] font-black text-muted uppercase tracking-[0.25em]">New variety</p>
                 </div>
 
-                <!-- Reveal body -->
-                <div class="flex-1 flex flex-col items-center justify-center gap-3 px-4 text-center min-h-0">
-                  <span class="text-6xl leading-none select-none">{{ getPlant(slot.resultTypeId)?.emoji }}</span>
-                  <div class="leading-tight">
+                <div class="relative flex-1 flex flex-col items-center justify-center gap-3 px-4 text-center min-h-0 overflow-hidden">
+                  <!-- glow -->
+                  <div
+                    class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-[60%] size-44 rounded-full blur-3xl pointer-events-none"
+                    :class="slot.wasMutation ? 'bg-primary/25' : 'bg-primary/10'"
+                  />
+                  <span class="relative text-7xl leading-none select-none drop-shadow-lg">{{ getPlant(slot.resultTypeId)?.emoji }}</span>
+                  <div class="relative leading-tight">
                     <p class="text-lg font-black tracking-tight" :class="tierNameColor(getPlant(slot.resultTypeId)?.tier ?? 1)">
                       {{ getPlant(slot.resultTypeId)?.name }}<sup class="text-xs font-semibold ml-0.5 opacity-70">×{{ slot.resultQuantity }}</sup>
                     </p>
@@ -233,25 +240,23 @@ async function doCollect(slotId: string) {
                       {{ tierLabel(getPlant(slot.resultTypeId)?.tier ?? 1) }}
                     </span>
                   </div>
-                  <div class="flex items-stretch gap-4">
-                    <div class="flex flex-col items-center gap-0.5">
-                      <p class="text-[10px] font-bold uppercase tracking-widest text-muted">Speed</p>
-                      <p class="text-2xl font-black leading-none" :class="levelTextColor(slot.resultSpeed ?? 0)">{{ slot.resultSpeed }}</p>
+                  <div class="relative flex items-stretch gap-3">
+                    <div class="flex flex-col items-center gap-0.5 rounded-lg bg-background/50 border border-default/50 px-4 py-1.5">
+                      <p class="text-[9px] font-bold uppercase tracking-widest text-muted">Speed</p>
+                      <p class="text-xl font-black leading-none" :class="levelTextColor(slot.resultSpeed ?? 0)">{{ slot.resultSpeed }}</p>
                     </div>
-                    <div class="border-r border-default" />
-                    <div class="flex flex-col items-center gap-0.5">
-                      <p class="text-[10px] font-bold uppercase tracking-widest text-muted">Yield</p>
-                      <p class="text-2xl font-black leading-none" :class="levelTextColor(slot.resultYield ?? 0)">{{ slot.resultYield }}</p>
+                    <div class="flex flex-col items-center gap-0.5 rounded-lg bg-background/50 border border-default/50 px-4 py-1.5">
+                      <p class="text-[9px] font-bold uppercase tracking-widest text-muted">Yield</p>
+                      <p class="text-xl font-black leading-none" :class="levelTextColor(slot.resultYield ?? 0)">{{ slot.resultYield }}</p>
                     </div>
                   </div>
-                  <p v-if="breedDurationSecs(slot) > 0" class="text-xs text-muted">Took {{ formatDuration(breedDurationSecs(slot)) }}</p>
                 </div>
 
-                <!-- Footer -->
                 <div class="p-4 shrink-0">
                   <UButton
-                    :label="slot.wasMutation ? '✨ Collect Mutation' : 'Collect'"
+                    :label="slot.wasMutation ? '✨ Collect Mutation' : 'Collect Harvest'"
                     block
+                    size="lg"
                     color="primary"
                     :loading="collecting.has(slot.id)"
                     @click="doCollect(slot.id)"
@@ -261,7 +266,6 @@ async function doCollect(slotId: string) {
 
               <!-- ──── In progress ──── -->
               <template v-else>
-                <!-- Status header (fixed height) -->
                 <div class="flex items-center justify-between h-9 px-4 shrink-0 border-b border-default/60">
                   <div class="flex items-center gap-2">
                     <span class="relative flex size-2">
@@ -271,47 +275,43 @@ async function doCollect(slotId: string) {
                     <p class="text-[10px] font-black text-muted uppercase tracking-[0.2em]">Breeding</p>
                   </div>
                   <span v-if="slotBreederSpeedBoost(slot) > 0" class="text-[10px] font-bold text-primary bg-primary/10 px-1.5 py-0.5 rounded leading-none">
-                    ⚡ −{{ Math.round(slotBreederSpeedBoost(slot) * 100) }}%
+                    ⚡ −{{ Math.round(slotBreederSpeedBoost(slot) * 100) }}% speed
                   </span>
                 </div>
 
-                <!-- Body -->
-                <div class="flex-1 flex flex-col justify-center gap-5 p-4 min-h-0">
+                <div class="flex-1 flex flex-col p-4 min-h-0">
                   <!-- Parents -->
                   <div class="flex items-center gap-2">
-                    <div
-                      v-for="(parent, i) in [slot.parent1, slot.parent2]"
-                      :key="i"
-                      class="flex-1 flex flex-col items-center gap-1.5 rounded-xl bg-background/40 border border-default/50 h-28 justify-center"
-                    >
-                      <span class="text-3xl leading-none">{{ parent ? getPlant(parent.typeId)?.emoji : '?' }}</span>
-                      <p class="text-xs font-bold leading-tight text-center px-1">{{ parent ? getPlant(parent.typeId)?.name : '?' }}</p>
-                      <div v-if="parent" class="flex items-center gap-1">
-                        <XenoLevelBadge prefix="S" :level="parent.speed ?? 0" />
-                        <XenoLevelBadge prefix="Y" :level="parent.yield ?? 0" />
-                      </div>
+                    <div class="flex-1 flex flex-col items-center gap-1 rounded-xl bg-background/50 border border-default/50 py-2.5">
+                      <span class="text-2xl leading-none">{{ slot.parent1 ? getPlant(slot.parent1.typeId)?.emoji : '?' }}</span>
+                      <p class="text-[11px] font-bold leading-tight text-center px-1 truncate max-w-full">{{ slot.parent1 ? getPlant(slot.parent1.typeId)?.name : '?' }}</p>
                     </div>
+                    <UIcon name="i-lucide-plus" class="size-4 text-muted shrink-0" />
+                    <div class="flex-1 flex flex-col items-center gap-1 rounded-xl bg-background/50 border border-default/50 py-2.5">
+                      <span class="text-2xl leading-none">{{ slot.parent2 ? getPlant(slot.parent2.typeId)?.emoji : '?' }}</span>
+                      <p class="text-[11px] font-bold leading-tight text-center px-1 truncate max-w-full">{{ slot.parent2 ? getPlant(slot.parent2.typeId)?.name : '?' }}</p>
+                    </div>
+                  </div>
+
+                  <!-- Mystery + countdown -->
+                  <div class="flex-1 flex flex-col items-center justify-center gap-2 min-h-0">
+                    <div class="text-4xl leading-none select-none animate-pulse">🧬</div>
+                    <p class="text-3xl font-black tabular-nums leading-none">{{ slot.completesAt ? formatCountdown(slot.completesAt, now) : '…' }}</p>
+                    <p class="text-[11px] text-muted uppercase tracking-wider">until ready</p>
                   </div>
 
                   <!-- Progress -->
-                  <div class="space-y-2">
-                    <div class="flex items-center justify-between text-xs">
-                      <span class="font-semibold tabular-nums">{{ slot.completesAt ? formatCountdown(slot.completesAt, now) : '…' }}</span>
-                      <span class="text-muted tabular-nums">{{ slot.completesAt ? Math.round(progressPct(slot.startedAt!, slot.completesAt, now)) : 0 }}%</span>
-                    </div>
-                    <div class="h-2 rounded-full bg-black/20 overflow-hidden">
-                      <div
-                        class="h-full bg-primary rounded-full transition-[width] duration-1000 ease-linear"
-                        :style="{ width: `${slot.completesAt ? progressPct(slot.startedAt!, slot.completesAt, now) : 0}%` }"
-                      />
-                    </div>
+                  <div class="h-2 rounded-full bg-black/25 overflow-hidden">
+                    <div
+                      class="h-full bg-primary rounded-full transition-[width] duration-1000 ease-linear"
+                      :style="{ width: `${slot.completesAt ? progressPct(slot.startedAt!, slot.completesAt, now) : 0}%` }"
+                    />
                   </div>
                 </div>
 
-                <!-- Footer -->
-                <div class="p-4 shrink-0">
+                <div class="p-4 pt-3 shrink-0">
                   <UButton
-                    label="Cancel"
+                    label="Cancel breed"
                     block
                     variant="soft"
                     color="neutral"
@@ -325,130 +325,153 @@ async function doCollect(slotId: string) {
 
             <!-- ════════ Setup ════════ -->
             <template v-else>
-              <!-- Header (fixed height) -->
               <div class="flex items-center h-9 px-4 shrink-0 border-b border-default/60">
                 <p class="text-[10px] font-black text-muted uppercase tracking-[0.2em]">Breed Setup</p>
               </div>
 
-              <!-- Body -->
               <div class="flex-1 flex flex-col gap-3 p-4 min-h-0">
-                <!-- Parent pickers -->
-                <div class="flex items-stretch gap-2">
-                  <div
-                    v-for="num in [1, 2] as const"
-                    :key="num"
-                    class="relative flex-1 h-28 rounded-xl border flex flex-col items-center justify-center gap-1.5 text-center transition-colors"
-                    :class="[
-                      getParent(slot.id, num)
-                        ? 'border-default bg-background/50'
-                        : selectedPlant
-                          ? 'border-dashed border-primary/60 bg-primary/5 hover:bg-primary/10 cursor-pointer'
-                          : 'border-dashed border-default/50',
-                    ]"
-                    @click="handleParentSlotClick(slot.id, num)"
-                  >
-                    <template v-if="getParent(slot.id, num)">
-                      <button
-                        class="absolute top-1.5 right-1.5 size-5 flex items-center justify-center rounded-md bg-black/30 hover:bg-black/60 z-10 text-white/60 hover:text-white transition-colors"
-                        @click.stop="clearParent(slot.id, num)"
-                      >
-                        <UIcon name="i-lucide-x" class="size-3" />
-                      </button>
-                      <span class="text-3xl leading-none">{{ getParent(slot.id, num).emoji }}</span>
-                      <p class="text-xs font-bold leading-tight px-1">{{ getParent(slot.id, num).name }}</p>
-                      <div class="flex items-center gap-1">
-                        <XenoLevelBadge prefix="S" :level="getParent(slot.id, num).speed" />
-                        <XenoLevelBadge prefix="Y" :level="getParent(slot.id, num).yield" />
+                <!-- Parents — fill the card when empty, compact when picked -->
+                <div class="flex items-stretch gap-2" :class="bothPicked(slot.id) ? '' : 'flex-1'">
+                  <template v-for="num in [1, 2] as const" :key="num">
+                    <div v-if="num === 2" class="flex items-center shrink-0">
+                      <div class="size-7 rounded-full bg-elevated border border-default flex items-center justify-center">
+                        <UIcon name="i-lucide-plus" class="size-3.5 text-muted" />
                       </div>
-                    </template>
-                    <template v-else>
-                      <UIcon name="i-lucide-plus" class="size-5" :class="selectedPlant ? 'text-primary/70' : 'text-muted/40'" />
-                      <p class="text-xs" :class="selectedPlant ? 'text-primary/80' : 'text-muted/50'">
-                        {{ selectedPlant ? 'Assign here' : `Plant ${num}` }}
-                      </p>
-                    </template>
-                  </div>
-                </div>
-
-                <!-- Outcome panel — always present so the card never resizes -->
-                <div class="flex-1 min-h-0 rounded-xl border border-default/50 bg-background/30 px-3 py-3 flex flex-col justify-center">
-                  <template v-if="getParent(slot.id, 1) && getParent(slot.id, 2)">
-                    <!-- Mutation -->
-                    <template v-if="mutationForParents(getParent(slot.id, 1), getParent(slot.id, 2))">
-                      <div class="flex items-center justify-between gap-2">
-                        <div class="flex items-center gap-2.5 min-w-0">
-                          <span class="text-3xl leading-none shrink-0">{{ mutationPlantFor(getParent(slot.id, 1), getParent(slot.id, 2))?.emoji }}</span>
-                          <div class="min-w-0">
-                            <div class="flex items-center gap-1.5">
-                              <p class="font-bold text-sm truncate">{{ mutationPlantFor(getParent(slot.id, 1), getParent(slot.id, 2))?.name }}</p>
-                              <span class="text-[9px] font-black uppercase tracking-wider px-1 py-0.5 rounded leading-none shrink-0 bg-primary/10 text-primary">Mutation</span>
-                            </div>
-                            <span class="text-xs font-bold" :class="tierColor(mutationPlantFor(getParent(slot.id, 1), getParent(slot.id, 2))?.tier ?? 1)">
-                              {{ tierLabel(mutationPlantFor(getParent(slot.id, 1), getParent(slot.id, 2))?.tier ?? 1) }}
-                            </span>
-                          </div>
-                        </div>
-                        <!-- Chance -->
-                        <div class="text-right shrink-0">
-                          <template v-if="effectiveMutationChance(slot, getParent(slot.id, 1), getParent(slot.id, 2)) === 0">
-                            <p class="text-sm font-black text-error leading-none">0%</p>
-                            <p class="text-[10px] text-error/80 mt-0.5">needs artifact</p>
-                          </template>
-                          <template v-else>
-                            <div class="flex items-baseline gap-1 justify-end">
-                              <span
-                                v-if="slotMutationBoost(slot) > 0"
-                                class="text-[10px] font-bold text-muted/60 line-through tabular-nums"
-                              >{{ Math.round(mutationForParents(getParent(slot.id, 1), getParent(slot.id, 2))!.chance * 100) }}%</span>
-                              <span class="text-lg font-black text-primary tabular-nums leading-none">
-                                {{ Math.round(effectiveMutationChance(slot, getParent(slot.id, 1), getParent(slot.id, 2)) * 100) }}%
-                              </span>
-                            </div>
-                            <p v-if="slotMutationBoost(slot) > 0" class="text-[10px] font-bold text-primary mt-0.5">🧬 +{{ Math.round(slotMutationBoost(slot) * 100) }}%</p>
-                          </template>
-                        </div>
-                      </div>
-                    </template>
-
-                    <!-- Standard cross -->
-                    <div v-else class="flex items-center gap-2.5">
-                      <UIcon name="i-lucide-sparkles" class="size-5 text-muted/50 shrink-0" />
-                      <p class="text-xs text-muted">Standard cross — offspring inherits a 50/50 mix of parent stats.</p>
                     </div>
 
-                    <!-- Breed time + yield -->
-                    <div class="border-t border-default/50 mt-3 pt-3 grid grid-cols-2 gap-2">
-                      <div>
-                        <p class="text-[10px] font-bold uppercase tracking-wider text-muted mb-1">Breed time</p>
-                        <div class="flex items-baseline gap-1.5">
-                          <span class="text-sm font-semibold tabular-nums">{{ formatDuration(Math.round(baseBreedSecs(getParent(slot.id, 1), getParent(slot.id, 2)) * (1 - slotBreederSpeedBoost(slot)))) }}</span>
-                          <span v-if="slotBreederSpeedBoost(slot) > 0" class="text-[10px] text-muted/60 line-through tabular-nums">
-                            {{ formatDuration(baseBreedSecs(getParent(slot.id, 1), getParent(slot.id, 2))) }}
-                          </span>
+                    <div
+                      class="relative flex-1 min-h-[6.5rem] rounded-xl border flex flex-col items-center justify-center gap-1.5 text-center transition-all"
+                      :class="[
+                        getParent(slot.id, num)
+                          ? 'border-default bg-background/50'
+                          : selectedPlant
+                            ? 'border-dashed border-primary/60 bg-primary/5 hover:bg-primary/10 hover:scale-[1.02] cursor-pointer'
+                            : 'border-dashed border-default/50',
+                      ]"
+                      @click="handleParentSlotClick(slot.id, num)"
+                    >
+                      <template v-if="getParent(slot.id, num)">
+                        <button
+                          class="absolute top-1.5 right-1.5 size-5 flex items-center justify-center rounded-md bg-black/30 hover:bg-black/60 z-10 text-white/60 hover:text-white transition-colors"
+                          @click.stop="clearParent(slot.id, num)"
+                        >
+                          <UIcon name="i-lucide-x" class="size-3" />
+                        </button>
+                        <span class="text-4xl leading-none">{{ getParent(slot.id, num).emoji }}</span>
+                        <p class="text-xs font-bold leading-tight px-1 truncate max-w-full">{{ getParent(slot.id, num).name }}</p>
+                        <div class="flex items-center gap-1">
+                          <XenoLevelBadge prefix="S" :level="getParent(slot.id, num).speed" />
+                          <XenoLevelBadge prefix="Y" :level="getParent(slot.id, num).yield" />
                         </div>
-                      </div>
-                      <div>
-                        <p class="text-[10px] font-bold uppercase tracking-wider text-muted mb-1">Result qty</p>
-                        <div class="flex items-baseline gap-1.5">
-                          <span class="text-sm font-semibold tabular-nums">×{{ 1 + slotExtraYield(slot) }}</span>
-                          <span v-if="slotExtraYield(slot) > 0" class="text-[10px] font-bold text-primary">+{{ slotExtraYield(slot) }}</span>
-                        </div>
-                      </div>
+                      </template>
+                      <template v-else>
+                        <UIcon name="i-lucide-plus" class="size-6" :class="selectedPlant ? 'text-primary/70' : 'text-muted/40'" />
+                        <p class="text-xs font-medium" :class="selectedPlant ? 'text-primary/80' : 'text-muted/50'">
+                          {{ selectedPlant ? 'Assign here' : `Plant ${num}` }}
+                        </p>
+                      </template>
                     </div>
                   </template>
-
-                  <!-- Empty hint -->
-                  <div v-else class="text-center">
-                    <UIcon name="i-lucide-flask-conical" class="size-6 text-muted/25 mx-auto mb-1.5" />
-                    <p class="text-xs text-muted/60">Pick two plants to preview the outcome.</p>
-                  </div>
                 </div>
 
-                <!-- Artifact row (fixed height) -->
-                <div class="shrink-0">
+                <!-- ═══ Expected offspring (focal hero) ═══ -->
+                <template v-if="bothPicked(slot.id)">
+                  <!-- Mutation -->
+                  <div
+                    v-if="mutationForParents(getParent(slot.id, 1), getParent(slot.id, 2))"
+                    class="relative rounded-xl border overflow-hidden px-3.5 py-3"
+                    :class="effectiveMutationChance(slot, getParent(slot.id, 1), getParent(slot.id, 2)) > 0
+                      ? 'border-primary/40 bg-gradient-to-br from-primary/12 to-primary/[0.02]'
+                      : 'border-error/40 bg-error/[0.06]'"
+                  >
+                    <div
+                      v-if="effectiveMutationChance(slot, getParent(slot.id, 1), getParent(slot.id, 2)) > 0"
+                      class="absolute -top-10 -right-8 size-28 rounded-full bg-primary/20 blur-2xl pointer-events-none"
+                    />
+                    <div class="relative flex items-center justify-between gap-2">
+                      <div class="flex items-center gap-3 min-w-0">
+                        <span class="text-4xl leading-none shrink-0 drop-shadow">{{ mutationPlantFor(getParent(slot.id, 1), getParent(slot.id, 2))?.emoji }}</span>
+                        <div class="min-w-0">
+                          <div class="flex items-center gap-1.5">
+                            <p class="font-black text-base truncate" :class="tierNameColor(mutationPlantFor(getParent(slot.id, 1), getParent(slot.id, 2))?.tier ?? 1)">{{ mutationPlantFor(getParent(slot.id, 1), getParent(slot.id, 2))?.name }}</p>
+                            <span class="text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded bg-primary text-inverted leading-none shrink-0">Mutation</span>
+                          </div>
+                          <p class="text-xs font-bold mt-0.5" :class="tierColor(mutationPlantFor(getParent(slot.id, 1), getParent(slot.id, 2))?.tier ?? 1)">
+                            {{ tierLabel(mutationPlantFor(getParent(slot.id, 1), getParent(slot.id, 2))?.tier ?? 1) }}
+                          </p>
+                        </div>
+                      </div>
+                      <!-- Chance pill -->
+                      <div
+                        class="text-center shrink-0 rounded-lg border px-2.5 py-1.5"
+                        :class="effectiveMutationChance(slot, getParent(slot.id, 1), getParent(slot.id, 2)) > 0
+                          ? 'bg-primary/15 border-primary/30'
+                          : 'bg-error/10 border-error/30'"
+                      >
+                        <div class="flex items-baseline gap-1 justify-center">
+                          <span
+                            v-if="slotMutationBoost(slot) > 0 && effectiveMutationChance(slot, getParent(slot.id, 1), getParent(slot.id, 2)) > 0"
+                            class="text-[10px] font-bold text-muted/60 line-through tabular-nums"
+                          >{{ Math.round(mutationForParents(getParent(slot.id, 1), getParent(slot.id, 2))!.chance * 100) }}%</span>
+                          <span
+                            class="text-xl font-black tabular-nums leading-none"
+                            :class="effectiveMutationChance(slot, getParent(slot.id, 1), getParent(slot.id, 2)) > 0 ? 'text-primary' : 'text-error'"
+                          >{{ Math.round(effectiveMutationChance(slot, getParent(slot.id, 1), getParent(slot.id, 2)) * 100) }}%</span>
+                        </div>
+                        <p
+                          class="text-[9px] font-bold uppercase tracking-wider mt-0.5"
+                          :class="effectiveMutationChance(slot, getParent(slot.id, 1), getParent(slot.id, 2)) > 0 ? 'text-primary/70' : 'text-error/80'"
+                        >{{ effectiveMutationChance(slot, getParent(slot.id, 1), getParent(slot.id, 2)) > 0 ? 'chance' : 'needs flask' }}</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Standard cross -->
+                  <div v-else class="rounded-xl border border-default/60 bg-background/40 px-3.5 py-3">
+                    <div class="flex items-center justify-between gap-2">
+                      <div class="flex items-center gap-3 min-w-0">
+                        <div class="size-11 rounded-lg bg-background border border-default/60 flex items-center justify-center shrink-0">
+                          <UIcon name="i-lucide-sparkles" class="size-5 text-muted/60" />
+                        </div>
+                        <div class="min-w-0">
+                          <p class="text-sm font-bold">Standard cross</p>
+                          <p class="text-[11px] text-muted mt-0.5">Inherits a 50/50 parent stat mix</p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- ═══ Breed-time bar (shows artifact speed-up) ═══ -->
+                  <div>
+                    <div class="flex items-center justify-between mb-1.5">
+                      <span class="text-[10px] font-bold uppercase tracking-wider text-muted flex items-center gap-1.5">
+                        <UIcon name="i-lucide-clock" class="size-3.5" /> Breed time
+                      </span>
+                      <div class="flex items-baseline gap-1.5">
+                        <span class="text-sm font-bold tabular-nums">{{ formatDuration(Math.round(baseBreedSecs(getParent(slot.id, 1), getParent(slot.id, 2)) * (1 - slotBreederSpeedBoost(slot)))) }}</span>
+                        <span v-if="slotBreederSpeedBoost(slot) > 0" class="text-[10px] text-muted/50 line-through tabular-nums">{{ formatDuration(baseBreedSecs(getParent(slot.id, 1), getParent(slot.id, 2))) }}</span>
+                      </div>
+                    </div>
+                    <div class="h-2 rounded-full bg-black/25 overflow-hidden flex">
+                      <div class="h-full bg-primary transition-[width] duration-300" :style="{ width: `${(1 - slotBreederSpeedBoost(slot)) * 100}%` }" />
+                      <div v-if="slotBreederSpeedBoost(slot) > 0" class="h-full bg-primary/25 transition-[width] duration-300" :style="{ width: `${slotBreederSpeedBoost(slot) * 100}%` }" />
+                    </div>
+                    <div class="flex justify-between">
+                      <p class="text-sm font-semibold text-muted">
+                        +{{ 1 + slotExtraYield(slot) }}
+                      </p>
+                      <p v-if="slotBreederSpeedBoost(slot) > 0" class="text-[10px] font-bold text-primary text-right mt-1">
+                        ⚡ saves {{ formatDuration(Math.round(baseBreedSecs(getParent(slot.id, 1), getParent(slot.id, 2)) * slotBreederSpeedBoost(slot))) }}
+                      </p>
+                    </div>
+                  </div>
+                </template>
+
+                <!-- ═══ Artifact slot (docked to bottom) ═══ -->
+                <div class="mt-auto">
                   <div
                     v-if="slot.artifact"
-                    class="flex items-center gap-2 h-11 rounded-xl border border-default/50 bg-background/40 px-3"
+                    class="flex items-center gap-2 h-11 rounded-xl border border-primary/30 bg-primary/5 px-3"
                   >
                     <span class="text-base leading-none shrink-0">{{ getArtifact(slot.artifact.typeId)?.emoji }}</span>
                     <div class="flex-1 min-w-0">
@@ -474,19 +497,19 @@ async function doCollect(slotId: string) {
                       :class="selectedArtifact ? 'text-primary' : 'text-muted/40'"
                     />
                     <span class="text-xs" :class="selectedArtifact ? 'text-primary/80 font-medium' : 'text-muted/50'">
-                      {{ selectedArtifact ? 'Attach artifact here' : 'No artifact' }}
+                      {{ selectedArtifact ? 'Attach artifact here' : 'Add artifact (optional)' }}
                     </span>
                   </div>
                 </div>
               </div>
 
-              <!-- Footer -->
               <div class="p-4 pt-0 shrink-0">
                 <UButton
                   label="Start Breeding"
                   icon="i-lucide-dna"
                   block
-                  :disabled="!getParent(slot.id, 1) || !getParent(slot.id, 2)"
+                  size="lg"
+                  :disabled="!bothPicked(slot.id)"
                   :loading="starting.has(slot.id)"
                   @click="doStart(slot)"
                 />
