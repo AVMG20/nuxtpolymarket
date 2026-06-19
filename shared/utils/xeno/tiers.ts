@@ -1,5 +1,5 @@
 /** Global display maximum for any stat level (speed, yield, charges, etc.) */
-export const XENO_MAX_STAT_LEVEL = 10
+export const XENO_MAX_STAT_LEVEL = 7
 
 /** % time reduced per speed level (10% off base time per point) */
 export const SPEED_REDUCTION_PER_LEVEL = 0.10
