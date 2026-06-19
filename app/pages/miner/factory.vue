@@ -150,7 +150,7 @@ async function upgradeFactory() {
           @click="upgradeFactory"
         >
           <template #trailing>
-            <span class="text-xs opacity-70">Cost: ${{ formatNumber(state.factoryUpgradeCost, false) }}</span>
+            <span class="text-xs opacity-70">Cost: ${{ formatNumber(state.factoryUpgradeCost, true) }}</span>
           </template>
         </UButton>
       </UCard>

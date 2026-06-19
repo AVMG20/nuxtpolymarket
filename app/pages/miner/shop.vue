@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import {quickCashAmount} from "#shared/utils/miner-config";
+
 const { fetchSession, user } = useAuth()
 const gems = computed(() => user.value?.gems ?? 0)
 const { data: state, refresh } = await useFetch('/api/miner/state')
@@ -6,11 +8,17 @@ const { data: state, refresh } = await useFetch('/api/miner/state')
 const toast = useToast()
 const buying = ref<string | null>(null)
 
+const instantFillCostGems = computed(() =>
+  state.value ? instantFillCost(state.value.vaultLevel) : 1
+)
 const instantFillValuePerGem = computed(() => {
   if (!state.value) return 0
-  const cost = instantFillCost(state.value.vaultLevel)
-  return Math.floor(state.value.cap / cost)
+  return Math.floor(state.value.cap / instantFillCostGems.value)
 })
+
+const quickCashValue = computed(() =>
+  state.value ? quickCashAmount(state.value.factoryLevel) : SHOP_QUICK_CASH_AMOUNT
+)
 
 const shopItems = computed(() => [
   {
@@ -20,7 +28,7 @@ const shopItems = computed(() => [
     valuePerGem: instantFillValuePerGem.value,
     icon: 'i-lucide-zap',
     color: 'primary' as const,
-    cost: state.value ? instantFillCost(state.value.vaultLevel) : 1,
+    cost: instantFillCostGems.value,
     endpoint: '/api/miner/shop/instant-fill',
   },
   {
@@ -36,8 +44,8 @@ const shopItems = computed(() => [
   {
     id: 'quick-cash',
     label: 'Quick Cash',
-    description: `Convert 1 Gem into ${formatNumber(SHOP_QUICK_CASH_AMOUNT, false)},- instantly.`,
-    valuePerGem: SHOP_QUICK_CASH_AMOUNT,
+    description: `Convert 1 Gem into ${formatNumber(quickCashValue.value, true)},- instantly.`,
+    valuePerGem: quickCashValue.value,
     icon: 'i-lucide-coins',
     color: 'primary' as const,
     cost: 1,
@@ -45,7 +53,7 @@ const shopItems = computed(() => [
   },
 ])
 
-function isItemDisabled(item: typeof shopItems[number]) {
+function isItemDisabled(item: typeof shopItems.value[number]) {
   if (gems.value < item.cost) return true
   if (item.id === 'extra-play') {
     const s = state.value
@@ -54,7 +62,7 @@ function isItemDisabled(item: typeof shopItems[number]) {
   return !item.endpoint
 }
 
-async function purchase(item: typeof shopItems[number]) {
+async function purchase(item: typeof shopItems.value[number]) {
   if (!item.endpoint) return
   buying.value = item.id
   try {
@@ -80,7 +88,7 @@ async function purchase(item: typeof shopItems[number]) {
       </div>
       <div class="flex items-center gap-2 px-4 py-2 rounded-lg bg-elevated border border-default">
         <UIcon name="i-lucide-gem" class="size-5 text-cyan-400" />
-        <UTooltip :text="formatNumber(gems, false, 0)">
+        <UTooltip :text="formatNumber(gems, true, 0)">
           <span class="text-xl font-bold">{{ formatNumber(gems, true, 0) }}</span>
         </UTooltip>
         <span class="text-sm text-muted">Gems</span>

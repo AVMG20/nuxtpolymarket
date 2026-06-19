@@ -37,7 +37,7 @@ async function collect() {
   collecting.value = true
   try {
     const res = await $fetch('/api/miner/collect', { method: 'POST' })
-    toast.add({ title: `Collected $${formatNumber(res.collected, false)}`, color: 'success' })
+    toast.add({ title: `Collected $${formatNumber(res.collected, true)}`, color: 'success' })
     await Promise.all([refresh(), fetchSession()])
   } catch (e: any) {
     toast.add({ title: e.data?.message ?? 'Failed to collect', color: 'error' })
@@ -108,7 +108,7 @@ async function upgradeVault() {
               </div>
             </div>
             <div class="text-right">
-              <span class="text-2xl font-bold text-yellow-400">${{ formatNumber(displayCash, false) }}</span>
+              <span class="text-2xl font-bold text-yellow-400">${{ formatNumber(displayCash, true) }}</span>
               <span class="text-muted"> / ${{ formatNumber(state.cap, false) }}</span>
             </div>
           </div>
@@ -151,7 +151,10 @@ async function upgradeVault() {
             </div>
             <div>
               <p class="text-xs text-muted uppercase tracking-wide font-medium mb-1">Income</p>
-              <p class="text-2xl font-bold">${{ formatNumber(state.income, false) }}<span class="text-muted text-base font-normal">/d</span></p>
+              <p class="text-2xl font-bold">${{ formatNumber(state.income, true) }}<span class="text-muted text-base font-normal">/d</span></p>
+              <p v-if="state.rigLevel < state.rigMaxLevel" class="text-xs text-muted mt-1">
+                → ${{ formatNumber(rigIncome(state.rigLevel + 1), false) }}/d after upgrade
+              </p>
             </div>
           </div>
           <UButton
@@ -163,7 +166,7 @@ async function upgradeVault() {
             @click="upgradeRig"
           >
             <template #trailing>
-              <span class="text-xs opacity-70">Cost: ${{ formatNumber(state.rigUpgradeCost, false) }}</span>
+              <span class="text-xs opacity-70">Cost: ${{ formatNumber(state.rigUpgradeCost, true) }}</span>
             </template>
           </UButton>
         </UCard>
@@ -190,7 +193,10 @@ async function upgradeVault() {
             </div>
             <div>
               <p class="text-xs text-muted uppercase tracking-wide font-medium mb-1">Cap</p>
-              <p class="text-2xl font-bold">${{ formatNumber(state.cap, false) }}</p>
+              <p class="text-2xl font-bold">${{ formatNumber(state.cap, true) }}</p>
+              <p v-if="state.vaultLevel < state.vaultMaxLevel" class="text-xs text-muted mt-1">
+                → ${{ formatNumber(vaultCap(state.vaultLevel + 1), true) }} after upgrade
+              </p>
             </div>
           </div>
           <UButton
@@ -202,7 +208,7 @@ async function upgradeVault() {
             @click="upgradeVault"
           >
             <template #trailing>
-              <span class="text-xs opacity-70">Cost: ${{ formatNumber(state.vaultUpgradeCost, false) }}</span>
+              <span class="text-xs opacity-70">Cost: ${{ formatNumber(state.vaultUpgradeCost, true) }}</span>
             </template>
           </UButton>
         </UCard>

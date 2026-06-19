@@ -37,7 +37,7 @@ async function playTile(tileIndex: number) {
     if (res.isBomb) {
       toast.add({ title: 'You hit the bomb! No reward.', color: 'error', icon: 'i-lucide-bomb' })
     } else {
-      toast.add({ title: `+$${formatNumber(res.reward, false)} collected!`, color: 'success', icon: 'i-lucide-coins' })
+      toast.add({ title: `+$${formatNumber(res.reward, true)} collected!`, color: 'success', icon: 'i-lucide-coins' })
       await fetchSession()
     }
   } catch (e: any) {
@@ -145,7 +145,7 @@ function tileValueColor(value: number) {
           >
             <template #trailing>
               <span class="text-xs opacity-70">
-                {{ state.minesCount >= state.minesMaxCount ? 'Max reached' : `Cost: $${formatNumber(state.minesNextCost, false)}` }}
+                {{ state.minesCount >= state.minesMaxCount ? 'Max reached' : `Cost: $${formatNumber(state.minesNextCost, true)}` }}
               </span>
             </template>
           </UButton>
@@ -211,7 +211,7 @@ function tileValueColor(value: number) {
           >
             <template #trailing>
               <span class="text-xs opacity-70">
-                {{ state.minesLevel >= state.minesMaxLevel ? 'Max reached' : `Cost: $${formatNumber(state.minesNextUpgradeCost, false)}` }}
+                {{ state.minesLevel >= state.minesMaxLevel ? 'Max reached' : `Cost: $${formatNumber(state.minesNextUpgradeCost, true)}` }}
               </span>
             </template>
           </UButton>
@@ -256,7 +256,7 @@ function tileValueColor(value: number) {
             </div>
             <UBadge
               v-if="gameResult"
-              :label="gameResult.isBomb ? 'Bomb!' : `+$${formatNumber(gameResult.reward, false)}`"
+              :label="gameResult.isBomb ? 'Bomb!' : `+$${formatNumber(gameResult.reward, true)}`"
               :color="gameResult.isBomb ? 'error' : 'success'"
               variant="subtle"
             />
@@ -295,7 +295,7 @@ function tileValueColor(value: number) {
               </template>
               <template v-else>
                 <UIcon name="i-lucide-coins" class="size-5" />
-                <span class="text-xs font-semibold leading-none">${{ formatNumber(gameResult.tiles[tileIndex - 1]!, false) }}</span>
+                <span class="text-xs font-semibold leading-none">${{ formatNumber(gameResult.tiles[tileIndex - 1]!, true) }}</span>
               </template>
             </UButton>
           </template>

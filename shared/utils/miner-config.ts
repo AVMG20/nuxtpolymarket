@@ -23,13 +23,10 @@ export const FACTORY_BASE_UPGRADE_COST = 1500
 export const FACTORY_UPGRADE_GROWTH = 2.47   // reward is linear now, so cost only scales gently
 
 // ─── Gem Shop ─────────────────────────────────────────────────────────────────
-export const SHOP_INSTANT_FILL_MIN_RATIO = 200   // $/gem at level 1
-export const SHOP_INSTANT_FILL_MAX_RATIO = 1200  // $/gem at max vault
-export const SHOP_INSTANT_FILL_MIN_COST = 1
 export const SHOP_DOUBLE_WIN_COST = 5          // gems — 2x next win (capped at 1500, not yet implemented)
 export const SHOP_EXTRA_PLAY_COST = 1          // gems — extra play
 export const SHOP_QUICK_CASH_COST = 1          // gems
-export const SHOP_QUICK_CASH_AMOUNT = 200      // $ credited instantly
+export const SHOP_QUICK_CASH_AMOUNT = 200      // $ base at factory L1; scales ×factoryLevel
 
 // ─── Mines Game ───────────────────────────────────────────────────────────────
 export const MINES_MAX_COUNT = 10
@@ -86,10 +83,14 @@ export function factoryUpgradeCost(level: number) {
     return Math.round(FACTORY_BASE_UPGRADE_COST * Math.pow(FACTORY_UPGRADE_GROWTH, level - 1))
 }
 
+/** 1 gem base + 1 gem per 5 vault levels: L1=1, L5=2, L10=3, L100=21 */
 export function instantFillCost(vaultLevel: number) {
-    const t = (vaultLevel - 1) / (VAULT_MAX_LEVEL - 1) // 0 at L1, 1 at L100
-    const ratio = SHOP_INSTANT_FILL_MIN_RATIO + t * (SHOP_INSTANT_FILL_MAX_RATIO - SHOP_INSTANT_FILL_MIN_RATIO)
-    return Math.max(SHOP_INSTANT_FILL_MIN_COST, Math.ceil(vaultCap(vaultLevel) / ratio))
+    return 1 + Math.floor(vaultLevel / 5)
+}
+
+/** Base $200 at factory L1, scales ×factoryLevel: L1=$200, L5=$1000, L10=$2000 */
+export function quickCashAmount(factoryLevel: number) {
+    return SHOP_QUICK_CASH_AMOUNT * factoryLevel
 }
 
 /** ms elapsed → fractional days */
