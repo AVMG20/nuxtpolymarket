@@ -2,7 +2,7 @@
 @import "@nuxt/ui";
 
 /* Ensure Tailwind scans the shared utilities directory for dynamic class names */
-@source "../../shared";
+@source "../../../shared";
 
 @theme static {
   --font-sans: 'Public Sans', sans-serif;
