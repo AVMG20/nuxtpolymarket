@@ -370,12 +370,12 @@ export function rollYield(plantYield: number): number {
   return 1 + Math.floor(Math.random() * (plantYield + 1))
 }
 
-/** Breed duration = max(effectiveTime(p1), effectiveTime(p2)) × 2 */
+/** Breed duration = max(baseTime(p1), baseTime(p2)) × 2 — speed does not affect breeding */
 export function breedDuration(
-  p1: { baseTime: number; speed: number },
-  p2: { baseTime: number; speed: number },
+  p1: { baseTime: number },
+  p2: { baseTime: number },
 ): number {
-  return Math.max(effectiveGrowTime(p1), effectiveGrowTime(p2)) * 2
+  return Math.max(p1.baseTime, p2.baseTime) * 2
 }
 
 /** Average sell value per cycle (accounting for yield) — used for market sorting */

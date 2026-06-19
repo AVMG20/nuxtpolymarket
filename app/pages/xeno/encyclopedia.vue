@@ -8,7 +8,6 @@ import {
   tierBg,
   tierNameColor,
   levelTextColor,
-  effectiveGrowTime,
 } from '#shared/utils/xeno'
 
 import { formatDuration } from '~/utils/xeno-format'
@@ -158,11 +157,11 @@ function tierMutations(tier: number) {
                   <div class="space-y-1">
                     <div class="flex justify-between text-xs">
                       <span class="text-muted uppercase tracking-wider font-semibold">Growth</span>
-                      <span class="font-mono">{{ formatDuration(effectiveGrowTime(plant)) }}</span>
+                      <span class="font-mono">{{ formatDuration(plant.baseTime) }}</span>
                     </div>
                     <div class="flex justify-between text-xs">
                       <span class="text-muted uppercase tracking-wider font-semibold">Breed time</span>
-                      <span class="font-mono">{{ formatDuration(effectiveGrowTime(plant) * 2) }}</span>
+                      <span class="font-mono">{{ formatDuration(plant.baseTime * 2) }}</span>
                     </div>
                     <div class="flex justify-between text-xs">
                       <span class="text-muted uppercase tracking-wider font-semibold">Yield</span>
@@ -240,11 +239,11 @@ function tierMutations(tier: number) {
                   <div class="space-y-1 opacity-40">
                     <div class="flex justify-between text-xs">
                       <span class="text-muted uppercase tracking-wider font-semibold">Growth</span>
-                      <span class="font-mono">{{ formatDuration(effectiveGrowTime(plant)) }}</span>
+                      <span class="font-mono">{{ formatDuration(plant.baseTime) }}</span>
                     </div>
                     <div class="flex justify-between text-xs">
                       <span class="text-muted uppercase tracking-wider font-semibold">Breed time</span>
-                      <span class="font-mono">{{ formatDuration(effectiveGrowTime(plant) * 2) }}</span>
+                      <span class="font-mono">{{ formatDuration(plant.baseTime * 2) }}</span>
                     </div>
                     <div class="flex justify-between text-xs">
                       <span class="text-muted uppercase tracking-wider font-semibold">Yield</span>
