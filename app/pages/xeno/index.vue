@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {
-  gridSlotUnlockCost, getArtifact, getEffectValue, getPlant,
+  gridSlotUnlockCost, getArtifact, getEffectValue, getPlantDisplay,
 } from '#shared/utils/xeno'
 import { formatCountdown, progressPct, isDone } from '~/utils/xeno-format'
 
@@ -112,6 +112,21 @@ function spawnFloat(e: MouseEvent, text: string, colorClass: string) {
   }, 1500)
 }
 
+/** Spawn one floating number per harvest drop (resources + the regrown hybrid), stacked. */
+function spawnDrops(x: number, y: number, drops: Array<{ emoji: string; count: number; isHybrid?: boolean }>) {
+  drops.forEach((d, i) => {
+    const id = ++floatSeq
+    harvestFloats.value.push({
+      id, x, y: y - 10 - i * 22,
+      text: `+${d.count} ${d.emoji}`,
+      colorClass: d.isHybrid ? 'text-sky-300' : 'text-primary',
+    })
+    setTimeout(() => {
+      harvestFloats.value = harvestFloats.value.filter(f => f.id !== id)
+    }, 1500)
+  })
+}
+
 async function handleCellClick(cell: any, e: MouseEvent) {
   if (!cell.unlocked) {
     if (cell.isNextUnlock && balance.value >= cell.cost && !unlocking.value) {
@@ -125,11 +140,13 @@ async function handleCellClick(cell: any, e: MouseEvent) {
 
   // Harvest done plants — always takes priority
   if (slot.plant && isDone(slot.plant.completesAt) && !harvesting.value.has(slot.id)) {
-    const plantType = getPlant(slot.plant.typeId)
+    const plantType = getPlantDisplay(slot.plant.typeId)
     harvesting.value.add(slot.id)
     try {
       const res = await harvestSlot(slot.id)
-      if (res && plantType) {
+      if (res?.drops?.length) {
+        spawnDrops(e.clientX, e.clientY, res.drops)
+      } else if (res && plantType) {
         spawnFloat(e, `+${res.harvested} ${plantType.emoji}`, 'text-primary')
       }
     } finally { harvesting.value.delete(slot.id) }
@@ -183,12 +200,14 @@ async function doHarvestAll() {
   try {
     const readySlots = (gridSlots.value as any[]).filter(s => s.plant && isDone(s.plant.completesAt))
     await Promise.all(readySlots.map(async (slot: any) => {
-      const plantType = getPlant(slot.plant.typeId)
+      const plantType = getPlantDisplay(slot.plant.typeId)
       // Capture rect before harvesting — element is removed after state refresh
       const el = document.querySelector(`[data-slot="${slot.id}"]`)
       const rect = el?.getBoundingClientRect()
       const res = await harvestSlot(slot.id)
-      if (res && plantType && rect) {
+      if (rect && res?.drops?.length) {
+        spawnDrops(rect.left + rect.width / 2, rect.top + rect.height / 2, res.drops)
+      } else if (res && plantType && rect) {
         spawnFloat(
           { clientX: rect.left + rect.width / 2, clientY: rect.top + rect.height / 2 } as MouseEvent,
           `+${res.harvested} ${plantType.emoji}`,
@@ -317,18 +336,24 @@ function slotSpeedBoost(slot: any): number {
               <!-- Top-left: artifact badge + effect dots -->
               <XenoGridArtifactBadge :slot="cell.slot" />
 
-              <!-- S# Y# badges -->
+              <!-- S# Y# badges (normal) / hybrid marker -->
               <div class="absolute top-1.5 right-7 flex flex-col gap-0.5 z-10">
-                <XenoLevelBadge prefix="S" :level="cell.slot.plant.speed" />
-                <XenoLevelBadge prefix="Y" :level="cell.slot.plant.yield" />
+                <template v-if="!cell.slot.plant.isHybrid">
+                  <XenoLevelBadge prefix="S" :level="cell.slot.plant.speed" />
+                  <XenoLevelBadge prefix="Y" :level="cell.slot.plant.yield" />
+                </template>
+                <span v-else class="text-[8px] font-black uppercase tracking-wider px-1 py-0.5 rounded bg-primary/20 text-primary leading-none">🧬</span>
               </div>
 
               <!-- Center: emoji + name -->
               <div class="flex-1 flex flex-col items-center justify-center gap-0.5 mt-2">
                 <span class="text-2xl md:text-3xl leading-none">{{ cell.slot.plant.emoji }}</span>
                 <p class="text-xs font-medium opacity-60 truncate w-full text-center mt-0.5">{{ cell.slot.plant.name }}</p>
+                <div v-if="cell.slot.plant.isHybrid" class="flex items-center gap-0.5 leading-none">
+                  <span v-for="(r, i) in cell.slot.plant.resources" :key="i" class="text-[10px]">{{ r.emoji }}</span>
+                </div>
                 <div
-                  v-if="isDone(cell.slot.plant.completesAt)"
+                  v-else-if="isDone(cell.slot.plant.completesAt)"
                   class="text-xs font-black text-primary mt-0.5"
                 >
                   ×1–{{ 1 + cell.slot.plant.yield + slotYieldBonus(cell.slot) }}

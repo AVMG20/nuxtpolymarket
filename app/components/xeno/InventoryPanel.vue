@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import {
   tierNameColor, tierBg, levelTextColor,
-  ARTIFACT_TYPES, getArtifact, getPlant, ARTIFACT_SPEED_PER_LEVEL,
+  ARTIFACT_TYPES, getArtifact, ARTIFACT_SPEED_PER_LEVEL,
   type ArtifactType,
 } from '#shared/utils/xeno'
 
@@ -55,6 +55,10 @@ function onSelectStack(stack: { typeId: string; chargesRemaining: number; ids: s
 
 function isStackSelected(stack: { ids: string[] }): boolean {
   return props.selectedArtifactId != null && stack.ids.includes(props.selectedArtifactId)
+}
+
+function resourceEmojis(item: any): string[] {
+  return (item.resources ?? []).map((r: any) => r.emoji ?? '❓')
 }
 
 function ownedQty(plantTypeId: string): number {
@@ -159,29 +163,49 @@ function specRows(art: ArtifactType | undefined) {
             :value="item.value"
             :description="item.description"
             :quantity="item.quantity"
+            :is-hybrid="item.isHybrid"
+            :resources="item.resources"
           />
         </template>
 
         <button
-          class="relative flex flex-col rounded-xl border border-default aspect-square w-full overflow-hidden transition-all duration-100"
-          :class="[tierBg(item.tier), selectedPlantKey === `${item.typeId}:${item.speed}:${item.yield}` ? 'ring-2 ring-primary' : '']"
+          class="relative flex flex-col rounded-xl border aspect-square w-full overflow-hidden transition-all duration-100"
+          :class="[
+            tierBg(item.tier),
+            item.isHybrid ? 'border-primary/50 ring-1 ring-primary/30' : 'border-default',
+            selectedPlantKey === `${item.typeId}:${item.speed}:${item.yield}` ? 'ring-2 ring-primary' : '',
+          ]"
           @click="onSelectPlant(item)"
         >
           <!-- Tier + qty header -->
-          <div class="flex items-center justify-end px-1.5 pt-1.5 shrink-0">
+          <div class="flex items-center px-1.5 pt-1.5 shrink-0" :class="item.isHybrid ? 'justify-between' : 'justify-end'">
+            <span
+              v-if="item.isHybrid"
+              class="text-[8px] font-black uppercase tracking-wider px-1 py-0.5 rounded bg-primary/20 text-primary leading-none"
+            >🧬</span>
             <span class="text-xs font-black text-primary leading-none">{{ item.quantity }}</span>
           </div>
 
           <!-- Emoji -->
-          <div class="flex-1 flex items-center justify-center">
+          <div class="flex-1 flex flex-col items-center justify-center gap-0.5 min-h-0">
             <span class="text-3xl leading-none select-none">{{ item.emoji }}</span>
+            <div v-if="item.isHybrid" class="flex items-center gap-0.5 leading-none">
+              <span v-for="(e, i) in resourceEmojis(item)" :key="i" class="text-[10px]">{{ e }}</span>
+            </div>
           </div>
 
           <!-- Name -->
           <p class="text-xs font-bold text-center px-1 mb-1 truncate" :class="tierNameColor(item.tier)">{{ item.name }}</p>
 
-          <!-- Stat strip -->
-          <div class="flex divide-x divide-default border-t border-default">
+          <!-- Stat strip — per-resource stats live in the tooltip for hybrids -->
+          <div
+            v-if="item.isHybrid"
+            class="flex items-center justify-center gap-1 py-1 border-t border-default text-primary"
+          >
+            <UIcon name="i-lucide-layers" class="size-2.5 shrink-0" />
+            <span class="text-[10px] font-black tabular-nums">{{ item.resources.length }} plant{{ item.resources.length === 1 ? '' : 's' }}</span>
+          </div>
+          <div v-else class="flex divide-x divide-default border-t border-default">
             <div class="flex-1 flex items-center justify-center gap-0.5 py-1">
               <UIcon name="i-lucide-zap" class="size-2.5 shrink-0" :class="levelTextColor(item.speed)" />
               <span class="text-xs font-black tabular-nums" :class="levelTextColor(item.speed)">{{ item.speed }}</span>

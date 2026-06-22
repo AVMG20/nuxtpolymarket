@@ -1,4 +1,4 @@
-import { PLANT_TYPES, ARTIFACT_TYPES, getPlant } from '#shared/utils/xeno'
+import { PLANT_TYPES, ARTIFACT_TYPES, getPlantDisplay } from '#shared/utils/xeno'
 
 export const useXeno = () => {
   const toast = useToast()
@@ -21,7 +21,7 @@ export const useXeno = () => {
   const inventory = computed(() =>
     (state.value?.inventory ?? [])
       .map((row: { typeId: string; speed: number; yield: number; quantity: number }) => {
-        const type = getPlant(row.typeId)
+        const type = getPlantDisplay(row.typeId)
         return type ? { ...row, ...type, speed: row.speed, yield: row.yield } : null
       })
       .filter((x): x is NonNullable<typeof x> => x !== null),
@@ -29,6 +29,8 @@ export const useXeno = () => {
 
   const freeArtifacts = computed(() => state.value?.freeArtifacts ?? [])
   const unlockedTypeIds = computed<string[]>(() => state.value?.unlockedTypeIds ?? [])
+  const highestTier = computed<number>(() => state.value?.highestTier ?? 0)
+  const hybrids = computed(() => state.value?.hybrids ?? { unlocked: false, unlockTier: 4, tier: 0, costGems: 0, nextTier: 4, nextTierProgress: null })
 
   const { fetchSession } = useAuth()
 
@@ -128,6 +130,18 @@ export const useXeno = () => {
     return res
   }
 
+  async function rollHybrid() {
+    try {
+      const res = await $fetch('/api/xeno/market/roll-hybrid', { method: 'POST' })
+      await refresh()
+      await fetchSession()
+      return res
+    } catch (e: any) {
+      toast.add({ title: e?.data?.message ?? 'Something went wrong', color: 'error' })
+      throw e
+    }
+  }
+
   return {
     state,
     refresh,
@@ -139,6 +153,8 @@ export const useXeno = () => {
     inventory,
     freeArtifacts,
     unlockedTypeIds,
+    highestTier,
+    hybrids,
     initGame,
     unlockGridSlot,
     plantInSlot,
@@ -154,6 +170,7 @@ export const useXeno = () => {
     removeBreederArtifact,
     sellPlants,
     buyPlants,
+    rollHybrid,
     buyArtifact,
   }
 }

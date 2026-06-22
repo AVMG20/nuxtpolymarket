@@ -1,6 +1,6 @@
 import { db } from '#server/database'
 import { user, xenoPlants, xenoArtifacts, xenoGridSlots, xenoBreederSlots } from '#server/database/schema'
-import { getPlant } from '#shared/utils/xeno'
+import { getPlantDisplay } from '#shared/utils/xeno'
 
 export default defineEventHandler(async () => {
   const [users, allPlants, allArtifacts, allGridSlots, allBreederSlots] = await Promise.all([
@@ -37,7 +37,7 @@ export default defineEventHandler(async () => {
     .map(u => {
       const plants = plantsByUser.get(u.id) ?? []
       const speciesSet = new Set(plants.map(p => p.typeId))
-      const portfolioValue = plants.reduce((sum, p) => sum + (getPlant(p.typeId)?.value ?? 0), 0)
+      const portfolioValue = plants.reduce((sum, p) => sum + (getPlantDisplay(p.typeId)?.value ?? 0), 0)
       return {
         id: u.id,
         name: u.name,

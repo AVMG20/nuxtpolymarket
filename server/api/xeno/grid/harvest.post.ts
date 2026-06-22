@@ -3,7 +3,10 @@ import { db } from '#server/database'
 import { xenoGridSlots, xenoPlants, xenoArtifacts } from '#server/database/schema'
 import { auth } from '#server/utils/auth'
 import { addPlants, computeGridDuration, consumeArtifactCharge } from '#server/utils/xeno'
-import { getPlantOrThrow, getArtifact, getEffectValue, rollYield } from '#shared/utils/xeno'
+import {
+  getArtifact, getEffectValue, rollYield,
+  isHybrid, parseHybridResources, getPlant, getPlantDisplay,
+} from '#shared/utils/xeno'
 
 export default defineEventHandler(async (event) => {
   const body = await readBody<{ slotId: string }>(event)
@@ -32,7 +35,8 @@ export default defineEventHandler(async (event) => {
   const completesAt = new Date(slot.startedAt.getTime() + durationSecs * 1000)
   if (Date.now() < completesAt.getTime()) throw createError({ statusCode: 400, statusMessage: 'Plant is still growing' })
 
-  const plantType = getPlantOrThrow(plantInstance.typeId)
+  const display = getPlantDisplay(plantInstance.typeId)
+  if (!display) throw createError({ statusCode: 400, statusMessage: 'Unknown plant type' })
 
   let artifactYieldBonus = 0
   if (attachedArt) {
@@ -40,9 +44,34 @@ export default defineEventHandler(async (event) => {
     if (artType) artifactYieldBonus = getEffectValue(artType, 'grid_yield_bonus')
   }
 
-  const harvested = rollYield(plantInstance.yield) + artifactYieldBonus
+  // Consume the planted instance, then produce the harvest.
   await db.delete(xenoPlants).where(eq(xenoPlants.id, plantInstance.id))
-  await addPlants(userId, plantInstance.typeId, plantInstance.speed, plantInstance.yield, harvested)
+
+  const drops: { emoji: string; name: string; count: number; isHybrid?: boolean }[] = []
+  let harvested: number
+  if (isHybrid(plantInstance.typeId)) {
+    // A hybrid produces every resource at its OWN speed/yield, each in
+    // rollYield(resourceYield) quantity, then regrows itself to match the
+    // SINGLE BIGGEST resource harvest (not the sum) so the farm scales steadily.
+    harvested = 0
+    let regrow = 0
+    for (const r of parseHybridResources(plantInstance.typeId)) {
+      const base = getPlant(r.id)
+      if (!base) continue
+      const qty = rollYield(r.yield) + artifactYieldBonus
+      await addPlants(userId, base.id, r.speed, r.yield, qty)
+      drops.push({ emoji: base.emoji, name: base.name, count: qty })
+      harvested += qty
+      if (qty > regrow) regrow = qty
+    }
+    // Regrow the hybrid (same composition/stats) to match the largest resource yield.
+    await addPlants(userId, plantInstance.typeId, plantInstance.speed, plantInstance.yield, regrow)
+    drops.push({ emoji: '🧬', name: 'Hybrid', count: regrow, isHybrid: true })
+  } else {
+    harvested = rollYield(plantInstance.yield) + artifactYieldBonus
+    await addPlants(userId, plantInstance.typeId, plantInstance.speed, plantInstance.yield, harvested)
+    drops.push({ emoji: display.emoji, name: display.name, count: harvested })
+  }
 
   if (slot.artifactId) await consumeArtifactCharge(slot.artifactId, 'grid', slot.id)
 
@@ -50,5 +79,5 @@ export default defineEventHandler(async (event) => {
     .set({ plantId: null, startedAt: null })
     .where(eq(xenoGridSlots.id, slot.id))
 
-  return { harvested, plantName: plantType.name }
+  return { harvested, plantName: display.name, drops }
 })

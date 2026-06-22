@@ -383,3 +383,8 @@ export function avgYield(plant: PlantType): number {
   const avgHarvest = 1 + plant.yield / 2
   return plant.value * avgHarvest
 }
+
+/** Marketplace buy price for a plant (≈ 2× value, scaled by yield and speed). */
+export function plantBuyPrice(plant: { value: number; yield: number; speed: number }): number {
+  return Math.round(plant.value * 2 * (1 + plant.yield) * (1 + plant.speed * 0.05))
+}

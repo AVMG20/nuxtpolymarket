@@ -2,8 +2,7 @@ import { eq, and } from 'drizzle-orm'
 import { db } from '#server/database'
 import { xenoGridSlots, xenoPlants, xenoArtifacts } from '#server/database/schema'
 import { auth } from '#server/utils/auth'
-import { computeGridDuration } from '#server/utils/xeno'
-import { getPlantOrThrow, getArtifact } from '#shared/utils/xeno'
+import { getPlant, getArtifact, isHybrid } from '#shared/utils/xeno'
 
 export default defineEventHandler(async (event) => {
   const body = await readBody<{ slotId: string; typeId: string; speed: number; yield: number }>(event)
@@ -13,7 +12,9 @@ export default defineEventHandler(async (event) => {
   const userId = session.user.id
   if (!body.typeId) throw createError({ statusCode: 400, statusMessage: 'Provide typeId' })
 
-  const plantType = getPlantOrThrow(body.typeId)
+  const hybrid = isHybrid(body.typeId)
+  const plantType = hybrid ? null : getPlant(body.typeId)
+  if (!hybrid && !plantType) throw createError({ statusCode: 400, statusMessage: `Unknown plant type: ${body.typeId}` })
 
   const slot = await db.query.xenoGridSlots.findFirst({
     where: and(eq(xenoGridSlots.id, body.slotId), eq(xenoGridSlots.userId, userId)),
@@ -21,7 +22,7 @@ export default defineEventHandler(async (event) => {
   if (!slot) throw createError({ statusCode: 404, statusMessage: 'Slot not found' })
   if (slot.startedAt) throw createError({ statusCode: 400, statusMessage: 'Slot already has a plant' })
 
-  if (plantType.voidPlant) {
+  if (plantType?.voidPlant) {
     const artRecord = slot.artifactId
       ? await db.query.xenoArtifacts.findFirst({ where: eq(xenoArtifacts.id, slot.artifactId) })
       : null

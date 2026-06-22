@@ -1,8 +1,9 @@
-import { eq, and } from 'drizzle-orm'
+import { eq, and, sql } from 'drizzle-orm'
 import { db } from '#server/database'
-import { xenoPlants, xenoArtifacts, xenoGridSlots, xenoBreederSlots } from '#server/database/schema'
+import { xenoPlants, xenoArtifacts, xenoGridSlots, xenoBreederSlots, user } from '#server/database/schema'
 import {
-  getArtifact, getEffectValue, getPlant, effectiveGrowTime, breedDuration, getMutationPair,
+  getArtifact, getEffectValue, getPlant, getPlantDisplay,
+  effectiveGrowTime, breedDuration, getMutationPair,
 } from '#shared/utils/xeno'
 
 /** When XENO_DEV=true, all grow/breed durations are capped to 1 second for testing */
@@ -15,7 +16,7 @@ export function computeGridDuration(
   plant: { typeId: string; speed: number },
   artifactTypeId: string | null | undefined,
 ): number {
-  const base = getPlant(plant.typeId)
+  const base = getPlantDisplay(plant.typeId)
   if (!base) throw createError({ statusCode: 400, statusMessage: `Unknown plant type: ${plant.typeId}` })
   let secs = effectiveGrowTime({ baseTime: base.baseTime, speed: plant.speed })
   if (artifactTypeId) {
@@ -174,6 +175,16 @@ export async function consumePlantsByStack(
   for (const id of toDelete) {
     await db.delete(xenoPlants).where(eq(xenoPlants.id, id))
   }
+}
+
+/** Atomically spend gems. Throws 400 if the user doesn't have enough. */
+export async function debitGems(userId: string, amount: number, tx: Pick<typeof db, 'update'> = db) {
+  if (amount < 0) throw createError({ statusCode: 400, statusMessage: 'Invalid gem amount' })
+  const res = await tx.update(user)
+    .set({ gems: sql`${user.gems} - ${amount}` })
+    .where(and(eq(user.id, userId), sql`${user.gems} >= ${amount}`))
+    .returning({ id: user.id })
+  if (res.length === 0) throw createError({ statusCode: 400, statusMessage: 'Not enough gems' })
 }
 
 /** Decrement artifact charge; delete artifact and clear slot reference if exhausted */

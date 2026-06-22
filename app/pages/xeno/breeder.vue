@@ -20,6 +20,9 @@ onMounted(() => {
 const { user } = useAuth()
 const balance = computed(() => parseFloat(user.value?.balance ?? '0'))
 
+// Hybrids can't be bred — hide them from breeder parent selection.
+const breedableInventory = computed(() => (inventory.value as any[]).filter(i => !i.isHybrid))
+
 // ── Breeder-only artifacts for the panel ─────────────────────────────────────
 const breederFreeArtifacts = computed(() =>
   (freeArtifacts.value as any[]).filter(a => {
@@ -552,7 +555,7 @@ async function doCollect(slotId: string) {
     >
       <div class="flex flex-col h-full overflow-hidden">
         <XenoInventoryPanel
-          :inventory="inventory"
+          :inventory="breedableInventory"
           :free-artifacts="breederFreeArtifacts"
           :selected-plant-key="selectedPlant ? `${selectedPlant.typeId}:${selectedPlant.speed}:${selectedPlant.yield}` : null"
           :selected-artifact-id="selectedArtifact?.id ?? null"
@@ -568,7 +571,7 @@ async function doCollect(slotId: string) {
     <template #body>
       <div class="flex flex-col h-full overflow-hidden">
         <XenoInventoryPanel
-          :inventory="inventory"
+          :inventory="breedableInventory"
           :free-artifacts="breederFreeArtifacts"
           :selected-plant-key="selectedPlant ? `${selectedPlant.typeId}:${selectedPlant.speed}:${selectedPlant.yield}` : null"
           :selected-artifact-id="selectedArtifact?.id ?? null"

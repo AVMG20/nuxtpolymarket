@@ -1,9 +1,14 @@
 import { eq } from 'drizzle-orm'
 import { db } from '#server/database'
-import { xenoPlants, xenoArtifacts, xenoGridSlots, xenoBreederSlots } from '#server/database/schema'
+import { xenoPlants, xenoArtifacts, xenoGridSlots, xenoBreederSlots, gemMarketState } from '#server/database/schema'
 import { auth } from '#server/utils/auth'
 import { computeGridDuration, computeBreedDuration } from '#server/utils/xeno'
-import { getPlant, gridSlotUnlockCost, breederSlotUnlockCost, XENO_MAX_GRID_SLOTS, XENO_MAX_BREEDER_SLOTS } from '#shared/utils/xeno'
+import {
+  getPlant, getPlantDisplay, isHybrid, hybridPriceCurrency, currencyToGems,
+  hybridTierFromUnlocked, tierUnlockProgress, HYBRID_UNLOCK_TIER, XENO_MAX_TIER,
+  gridSlotUnlockCost, breederSlotUnlockCost, XENO_MAX_GRID_SLOTS, XENO_MAX_BREEDER_SLOTS,
+} from '#shared/utils/xeno'
+import { gemComputeLivePrice, GEM_INITIAL_PRICE } from '#shared/utils/gamelogic/gem-market'
 
 export default defineEventHandler(async (event) => {
   const session = await auth.api.getSession({ headers: event.headers })
@@ -43,7 +48,7 @@ export default defineEventHandler(async (event) => {
   const enrichedGrid = gridSlots.sort((a, b) => a.slotIndex - b.slotIndex).map(slot => {
     const attachedArt = slot.artifactId ? artifactById.get(slot.artifactId) : null
     const plantInstance = slot.plantId ? plantById.get(slot.plantId) : null
-    const plantType = plantInstance ? getPlant(plantInstance.typeId) : null
+    const plantType = plantInstance ? getPlantDisplay(plantInstance.typeId) : null
 
     let plant = null
     if (plantInstance && plantType && slot.startedAt) {
@@ -61,6 +66,8 @@ export default defineEventHandler(async (event) => {
         tier: plantType.tier,
         color: plantType.color,
         value: plantType.value,
+        isHybrid: plantType.isHybrid,
+        resources: plantType.resources,
         startedAt: slot.startedAt.toISOString(),
         completesAt: new Date(slot.startedAt.getTime() + durationSecs * 1000).toISOString(),
       }
@@ -108,9 +115,39 @@ export default defineEventHandler(async (event) => {
     }
   })
 
+  // ── Hybrid vendor ──────────────────────────────────────────────────────────
+  // Hybrid tier = highest tier where the player has unlocked EVERY plant.
+  const realTypeIds = [...new Set(plants.map(p => p.typeId).filter(id => !isHybrid(id)))]
+  const highestTier = realTypeIds.reduce((max, id) => Math.max(max, getPlant(id)?.tier ?? 0), 0)
+  const hybridTier = hybridTierFromUnlocked(realTypeIds)
+  const hybridUnlocked = hybridTier >= HYBRID_UNLOCK_TIER
+  let hybridCostGems = 0
+  if (hybridUnlocked) {
+    const market = await db.query.gemMarketState.findFirst({ where: eq(gemMarketState.id, 'market') })
+    const livePrice = market
+      ? gemComputeLivePrice(parseFloat(market.price), market.lastUpdatedAt)
+      : GEM_INITIAL_PRICE
+    hybridCostGems = currencyToGems(hybridPriceCurrency(hybridTier, realTypeIds), livePrice)
+  }
+  // Next tier to fully unlock: the gate tier when locked, or the tier above the
+  // current hybrid tier when unlocked (null once maxed out).
+  const nextTier = hybridUnlocked
+    ? (hybridTier < XENO_MAX_TIER ? hybridTier + 1 : null)
+    : HYBRID_UNLOCK_TIER
+  const nextTierProgress = nextTier != null ? tierUnlockProgress(nextTier, realTypeIds) : null
+
   return {
     initialized,
     inventory,
+    highestTier,
+    hybrids: {
+      unlocked: hybridUnlocked,
+      unlockTier: HYBRID_UNLOCK_TIER,
+      tier: hybridTier,
+      costGems: hybridCostGems,
+      nextTier,
+      nextTierProgress,
+    },
     unlockedTypeIds: [...new Set(plants.map(p => p.typeId))],
     freeArtifacts: freeArtifacts.map(a => ({
       id: a.id, typeId: a.typeId, chargesRemaining: a.chargesRemaining,

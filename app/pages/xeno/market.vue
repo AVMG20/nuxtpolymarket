@@ -1,13 +1,33 @@
 <script setup lang="ts">
-import { tierColor, tierNameColor, tierBg, getPlant, effectiveGrowTime, PLANT_TYPES } from '#shared/utils/xeno'
+import { tierNameColor, tierBg, getPlantDisplay, effectiveGrowTime, plantBuyPrice, PLANT_TYPES } from '#shared/utils/xeno'
 import { formatDuration } from '~/utils/xeno-format'
 
 const { user } = useAuth()
 const balance = computed(() => parseFloat(user.value?.balance ?? '0'))
+const gems = computed(() => user.value?.gems ?? 0)
 
-const { inventory, sellPlants, unlockedTypeIds, buyPlants } = useXeno()
+const { inventory, sellPlants, unlockedTypeIds, buyPlants, hybrids, rollHybrid } = useXeno()
 
-const activeTab = ref<'sell' | 'buy'>('sell')
+const activeTab = ref<'sell' | 'buy' | 'hybrids'>('sell')
+
+// ── Hybrid gamble state ──────────────────────────────────────────────────────
+const rolling = ref(false)
+const lastRoll = ref<any>(null)
+const recentRolls = ref<any[]>([])
+
+async function doRollHybrid() {
+  if (rolling.value || gems.value < hybrids.value.costGems) return
+  rolling.value = true
+  try {
+    const res: any = await rollHybrid()
+    if (res?.result) {
+      lastRoll.value = res.result
+      recentRolls.value = [res.result, ...recentRolls.value].slice(0, 12)
+    }
+  } finally {
+    rolling.value = false
+  }
+}
 const searchQuery = ref('')
 const tierFilter = ref(0)
 
@@ -42,7 +62,7 @@ const keepSellTotalValue = computed(() =>
 )
 
 function buyPrice(plant: { value: number; yield: number; speed: number }): number {
-  return Math.round(plant.value * 2 * (1 + plant.yield) * (1 + plant.speed * 0.05))
+  return plantBuyPrice(plant)
 }
 
 const buyablePlants = computed(() => {
@@ -121,8 +141,12 @@ async function doBuy(typeId: string, qty: number) {
 }
 
 function growTime(item: any) {
-  const base = getPlant(item.typeId ?? item.id)
+  const base = getPlantDisplay(item.typeId ?? item.id)
   return base ? formatDuration(effectiveGrowTime({ baseTime: base.baseTime, speed: item.speed })) : '?'
+}
+
+function resourceEmojis(item: any): string[] {
+  return (item.resources ?? []).map((r: any) => r.emoji ?? '❓')
 }
 </script>
 
@@ -155,10 +179,18 @@ function growTime(item: any) {
       >
         Buy
       </button>
+      <button
+        class="px-5 py-2.5 text-sm font-semibold transition-all duration-100 flex items-center gap-1.5"
+        :class="activeTab === 'hybrids' ? 'text-primary border-b-2 border-primary' : 'text-muted hover:text-default'"
+        @click="activeTab = 'hybrids'"
+      >
+        <span>🧬</span> Hybrids
+        <UIcon v-if="!hybrids.unlocked" name="i-lucide-lock" class="size-3" />
+      </button>
     </div>
 
     <!-- Filters -->
-    <div class="flex gap-2 mb-4">
+    <div v-if="activeTab !== 'hybrids'" class="flex gap-2 mb-4">
       <UInput
         v-model="searchQuery"
         placeholder="Search plants…"
@@ -242,6 +274,8 @@ function growTime(item: any) {
                   :value="item.value"
                   :description="item.description"
                   :quantity="item.quantity"
+                  :is-hybrid="item.isHybrid"
+                  :resources="item.resources"
                 />
               </template>
               <span class="text-2xl leading-none cursor-default">{{ item.emoji }}</span>
@@ -253,19 +287,34 @@ function growTime(item: any) {
           <div class="flex-1 min-w-0">
             <div class="flex items-center gap-1.5">
               <p class="font-bold text-sm" :class="tierNameColor(item.tier)">{{ item.name }}</p>
+              <span
+                v-if="item.isHybrid"
+                class="text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded bg-primary/15 text-primary border border-primary/30 leading-none shrink-0"
+              >Hybrid</span>
               <XenoTierLabel :tier="item.tier" />
+              <span v-if="item.isHybrid" class="flex items-center gap-0.5 text-sm">
+                <span v-for="(e, i) in resourceEmojis(item)" :key="i" class="leading-none">{{ e }}</span>
+              </span>
             </div>
             <div class="flex items-center gap-1.5 mt-0.5">
-              <XenoLevelBadge prefix="S" :level="item.speed" />
-              <XenoLevelBadge prefix="Y" :level="item.yield" />
+              <template v-if="!item.isHybrid">
+                <XenoLevelBadge prefix="S" :level="item.speed" />
+                <XenoLevelBadge prefix="Y" :level="item.yield" />
+              </template>
               <span class="text-xs text-muted">~{{ growTime(item) }}</span>
             </div>
           </div>
 
           <!-- Total + price per unit -->
           <div class="text-right shrink-0 hidden sm:flex flex-col items-end gap-0.5">
-            <p class="text-sm font-bold tabular-nums flex items-center gap-1"><CoinBalance :value="item.value * item.quantity" :compact="false" /></p>
-            <p class="text-xs text-muted tabular-nums flex items-center gap-1"><CoinBalance :value="item.value" :compact="false" /> ea</p>
+            <template v-if="item.isHybrid">
+              <p class="text-xs text-muted italic">vessel</p>
+              <p class="text-[10px] text-muted/60">no sell value</p>
+            </template>
+            <template v-else>
+              <p class="text-sm font-bold tabular-nums flex items-center gap-1"><CoinBalance :value="item.value * item.quantity" :compact="false" /></p>
+              <p class="text-xs text-muted tabular-nums flex items-center gap-1"><CoinBalance :value="item.value" :compact="false" /> ea</p>
+            </template>
           </div>
 
           <!-- Sell buttons -->
@@ -297,7 +346,7 @@ function growTime(item: any) {
     </div>
 
     <!-- ── BUY TAB ── -->
-    <div v-else>
+    <div v-else-if="activeTab === 'buy'">
       <div v-if="!unlockedTypeIds.length" class="text-sm text-muted py-12 text-center">
         Harvest plants from the grid first to unlock them for purchase.
       </div>
@@ -364,6 +413,147 @@ function growTime(item: any) {
             >
               <span class="tabular-nums font-semibold">×{{ qty }}</span>
             </UButton>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── HYBRIDS TAB ── -->
+    <div v-else>
+      <!-- Locked -->
+      <div v-if="!hybrids.unlocked" class="flex flex-col items-center justify-center py-16 gap-4 text-center">
+        <div class="text-5xl opacity-60">🧬</div>
+        <h2 class="text-lg font-bold">Hybrid vendor locked</h2>
+        <p class="text-sm text-muted max-w-sm">
+          Unlock <span class="font-bold text-primary">every T{{ hybrids.unlockTier }} plant</span> to access gambled
+          hybrids — a single plant that harvests into up to 4 different resources at once.
+        </p>
+        <div v-if="hybrids.nextTierProgress" class="rounded-xl border border-default bg-elevated/40 p-4 text-left w-full max-w-md">
+          <div class="flex items-center justify-between mb-2">
+            <p class="text-xs font-bold uppercase tracking-wider text-muted">Unlock all T{{ hybrids.nextTierProgress.tier }} plants</p>
+            <span class="text-xs font-black tabular-nums">{{ hybrids.nextTierProgress.unlocked }}/{{ hybrids.nextTierProgress.total }}</span>
+          </div>
+          <div class="h-1.5 rounded-full bg-white/10 overflow-hidden mb-2.5">
+            <div class="h-full rounded-full bg-primary transition-all" :style="{ width: `${(hybrids.nextTierProgress.unlocked / hybrids.nextTierProgress.total) * 100}%` }" />
+          </div>
+          <div v-if="hybrids.nextTierProgress.missing.length" class="flex flex-wrap items-center gap-1.5">
+            <span class="text-[10px] text-muted uppercase tracking-wider font-semibold">Still need</span>
+            <span
+              v-for="m in hybrids.nextTierProgress.missing"
+              :key="m.id"
+              class="inline-flex items-center gap-1 text-xs rounded-md border border-default bg-background/50 px-1.5 py-0.5"
+            >
+              <span class="leading-none">{{ m.emoji }}</span><span class="text-muted">{{ m.name }}</span>
+            </span>
+          </div>
+        </div>
+        <p class="text-xs text-muted/70 max-w-sm">
+          Tip: harvest a plant at least once to unlock it. Unlock all of T5 later and hybrids will roll up to T5.
+        </p>
+      </div>
+
+      <!-- Gamble panel -->
+      <div v-else class="space-y-5">
+        <div class="rounded-2xl border border-primary/30 bg-gradient-to-br from-primary/10 to-primary/[0.02] p-6 text-center">
+          <div class="text-5xl mb-2">🧬</div>
+          <h2 class="text-lg font-black">Roll a T{{ hybrids.tier }} Hybrid</h2>
+          <p class="text-sm text-muted mt-1 max-w-md mx-auto">
+            Produces 1–4 random resources (≈5% for all 4) — any plant up to <span class="font-semibold text-default">T{{ hybrids.tier }}</span> —
+            with random speed &amp; yield up to {{ hybrids.tier }}. Hybrids can't be bred, but you can farm and sell them.
+          </p>
+
+          <!-- Reveal -->
+          <Transition
+            enter-from-class="opacity-0 scale-90"
+            enter-active-class="transition-all duration-300 ease-out"
+          >
+            <div
+              v-if="lastRoll"
+              :key="`${lastRoll.typeId}-${recentRolls.length}`"
+              class="mt-5 mx-auto max-w-sm rounded-xl border border-default bg-background/60 p-4"
+              :class="tierBg(!lastRoll.isHybrid ? lastRoll.resources[0].tier : lastRoll.resources.length >= 4 ? 7 : lastRoll.resources.length)"
+            >
+              <div class="flex items-center justify-center gap-1.5 mb-3">
+                <span class="text-[10px] font-black uppercase tracking-[0.2em]" :class="lastRoll.isHybrid && lastRoll.resources.length >= 4 ? 'text-primary' : 'text-muted'">
+                  {{ !lastRoll.isHybrid ? 'Plant' : lastRoll.resources.length === 4 ? '✨ Quad ✨' : `${lastRoll.resources.length}-resource Hybrid` }}
+                </span>
+              </div>
+
+              <!-- Per-resource breakdown -->
+              <div class="space-y-1.5">
+                <div
+                  v-for="r in lastRoll.resources"
+                  :key="r.id"
+                  class="flex items-center gap-2 rounded-lg bg-background/50 border border-default/50 px-2.5 py-1.5"
+                >
+                  <span class="text-xl leading-none">{{ r.emoji }}</span>
+                  <span class="text-sm font-semibold flex-1 text-left truncate" :class="tierNameColor(r.tier)">{{ r.name }}</span>
+                  <XenoLevelBadge prefix="S" :level="r.speed" />
+                  <XenoLevelBadge prefix="Y" :level="r.yield" />
+                </div>
+              </div>
+
+              <p v-if="lastRoll.isHybrid" class="text-[11px] text-muted mt-2.5">
+                Vessel — harvest yields all {{ lastRoll.resources.length }} plants and regrows the hybrid.
+              </p>
+              <p v-else class="text-[11px] text-muted mt-2.5">Added to inventory.</p>
+            </div>
+          </Transition>
+
+          <UButton
+            class="mt-5"
+            size="lg"
+            color="primary"
+            :loading="rolling"
+            :disabled="gems < hybrids.costGems"
+            @click="doRollHybrid"
+          >
+            <span class="flex items-center gap-2">
+              <UIcon name="i-lucide-dices" class="size-5" />
+              Roll — {{ formatNumber(hybrids.costGems, false) }} 💎
+            </span>
+          </UButton>
+          <p v-if="gems < hybrids.costGems" class="text-xs text-error mt-2">
+            Not enough gems (you have {{ formatNumber(gems, false) }} 💎)
+          </p>
+        </div>
+
+        <!-- Upgrade to next tier -->
+        <div v-if="hybrids.nextTierProgress" class="rounded-xl border border-default bg-elevated/40 p-4">
+          <div class="flex items-center justify-between mb-2">
+            <p class="text-xs font-bold uppercase tracking-wider text-muted">
+              Unlock all T{{ hybrids.nextTierProgress.tier }} plants → roll up to T{{ hybrids.nextTierProgress.tier }}
+            </p>
+            <span class="text-xs font-black tabular-nums">{{ hybrids.nextTierProgress.unlocked }}/{{ hybrids.nextTierProgress.total }}</span>
+          </div>
+          <div class="h-1.5 rounded-full bg-white/10 overflow-hidden mb-2.5">
+            <div class="h-full rounded-full bg-primary transition-all" :style="{ width: `${(hybrids.nextTierProgress.unlocked / hybrids.nextTierProgress.total) * 100}%` }" />
+          </div>
+          <div v-if="hybrids.nextTierProgress.missing.length" class="flex flex-wrap items-center gap-1.5">
+            <span class="text-[10px] text-muted uppercase tracking-wider font-semibold">Still need</span>
+            <span
+              v-for="m in hybrids.nextTierProgress.missing"
+              :key="m.id"
+              class="inline-flex items-center gap-1 text-xs rounded-md border border-default bg-background/50 px-1.5 py-0.5"
+            >
+              <span class="leading-none">{{ m.emoji }}</span><span class="text-muted">{{ m.name }}</span>
+            </span>
+          </div>
+        </div>
+
+        <!-- Recent rolls -->
+        <div v-if="recentRolls.length">
+          <p class="text-xs text-muted uppercase tracking-wider font-semibold mb-2">Recent rolls</p>
+          <div class="flex flex-wrap gap-2">
+            <div
+              v-for="(roll, i) in recentRolls"
+              :key="i"
+              class="rounded-lg border border-default bg-elevated/50 px-2.5 py-1.5 flex items-center gap-1"
+              :class="roll.isHybrid && roll.resources.length >= 4 ? 'ring-1 ring-primary/50' : ''"
+            >
+              <span v-if="roll.isHybrid" class="text-[10px] mr-0.5">🧬</span>
+              <span v-for="r in roll.resources" :key="r.id" class="text-base" :title="`${r.name} · S${r.speed} Y${r.yield}`">{{ r.emoji }}</span>
+            </div>
           </div>
         </div>
       </div>

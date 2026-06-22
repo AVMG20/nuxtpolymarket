@@ -4,7 +4,7 @@ import { xenoPlants } from '#server/database/schema'
 import { auth } from '#server/utils/auth'
 import { addPlants } from '#server/utils/xeno'
 import { debit } from '#server/utils/balance'
-import { getPlantOrThrow } from '#shared/utils/xeno'
+import { getPlantOrThrow, plantBuyPrice } from '#shared/utils/xeno'
 
 export default defineEventHandler(async (event) => {
   const body = await readBody<{ typeId: string; quantity: number }>(event)
@@ -24,7 +24,7 @@ export default defineEventHandler(async (event) => {
   })
   if (!owned) throw createError({ statusCode: 403, statusMessage: 'Plant type not unlocked' })
 
-  const unitPrice = Math.round(plant.value * 2 * (1 + plant.yield) * (1 + plant.speed * 0.05))
+  const unitPrice = plantBuyPrice(plant)
   const total = unitPrice * qty
 
   await debit(userId, total.toFixed(4), 'xeno')

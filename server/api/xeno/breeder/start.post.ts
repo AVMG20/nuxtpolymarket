@@ -3,7 +3,7 @@ import { db } from '#server/database'
 import { xenoBreederSlots, xenoArtifacts } from '#server/database/schema'
 import { auth } from '#server/utils/auth'
 import { computeBreedResult, consumePlantsByStack } from '#server/utils/xeno'
-import { getPlantOrThrow, getArtifact, getEffectValue } from '#shared/utils/xeno'
+import { getPlantOrThrow, getArtifact, getEffectValue, isHybrid } from '#shared/utils/xeno'
 
 export default defineEventHandler(async (event) => {
   const body = await readBody<{
@@ -18,6 +18,9 @@ export default defineEventHandler(async (event) => {
   const userId = session.user.id
   if (!body.plant1TypeId || !body.plant2TypeId) {
     throw createError({ statusCode: 400, statusMessage: 'Provide both plant types' })
+  }
+  if (isHybrid(body.plant1TypeId) || isHybrid(body.plant2TypeId)) {
+    throw createError({ statusCode: 400, statusMessage: 'Hybrids cannot be bred' })
   }
 
   const slot = await db.query.xenoBreederSlots.findFirst({
