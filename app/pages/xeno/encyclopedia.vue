@@ -330,13 +330,13 @@ function tierMutations(tier: number) {
                 <div class="flex-1 flex items-center justify-center gap-1 py-1.5">
                   <UIcon name="i-lucide-zap" class="size-3 shrink-0" :class="discoveredIds.has(plant.id) ? levelTextColor(plant.speed) : 'text-muted'" />
                   <span class="text-xs font-black tabular-nums" :class="discoveredIds.has(plant.id) ? levelTextColor(plant.speed) : 'text-muted'">
-                    {{ discoveredIds.has(plant.id) ? plant.speed : '?' }}
+                    {{ plant.speed }}
                   </span>
                 </div>
                 <div class="flex-1 flex items-center justify-center gap-1 py-1.5">
                   <UIcon name="i-lucide-gem" class="size-3 shrink-0" :class="discoveredIds.has(plant.id) ? levelTextColor(plant.yield) : 'text-muted'" />
                   <span class="text-xs font-black tabular-nums" :class="discoveredIds.has(plant.id) ? levelTextColor(plant.yield) : 'text-muted'">
-                    {{ discoveredIds.has(plant.id) ? plant.yield : '?' }}
+                    {{ plant.yield }}
                   </span>
                 </div>
               </div>

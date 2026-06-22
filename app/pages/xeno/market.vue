@@ -225,11 +225,11 @@ function growTime(item: any) {
         <div
           v-for="item in filteredInventory"
           :key="stackKey(item)"
-          class="rounded-xl border border-default px-4 py-3 flex items-center gap-4"
+          class="rounded-xl border border-default px-4 py-3 flex items-center gap-4 transition-colors hover:border-primary/60 hover:bg-primary/5"
           :class="tierBg(item.tier)"
         >
           <!-- Emoji + qty -->
-          <div class="shrink-0 flex flex-col items-center gap-1.5 w-10">
+          <div class="shrink-0 flex items-center gap-2">
             <UTooltip :delay-duration="300" :content="{ side: 'right', sideOffset: 8 }">
               <template #content>
                 <XenoPlantTooltipContent
@@ -246,7 +246,7 @@ function growTime(item: any) {
               </template>
               <span class="text-2xl leading-none cursor-default">{{ item.emoji }}</span>
             </UTooltip>
-            <span class="text-xs font-black text-primary tabular-nums leading-none">×{{ item.quantity }}</span>
+            <span class="text-sm font-black text-primary tabular-nums leading-none">×{{ item.quantity }}</span>
           </div>
 
           <!-- Plant info -->
@@ -262,8 +262,9 @@ function growTime(item: any) {
             </div>
           </div>
 
-          <!-- Price per unit -->
-          <div class="text-right shrink-0 hidden sm:block">
+          <!-- Total + price per unit -->
+          <div class="text-right shrink-0 hidden sm:flex flex-col items-end gap-0.5">
+            <p class="text-sm font-bold tabular-nums flex items-center gap-1"><CoinBalance :value="item.value * item.quantity" :compact="false" /></p>
             <p class="text-xs text-muted tabular-nums flex items-center gap-1"><CoinBalance :value="item.value" :compact="false" /> ea</p>
           </div>
 
