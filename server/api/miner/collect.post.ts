@@ -2,7 +2,7 @@ import { eq } from 'drizzle-orm'
 import { db } from '#server/database'
 import { minerState } from '#server/database/schema'
 import { auth } from '#server/utils/auth'
-import { rigIncome, vaultCap, computePending } from '#shared/utils/miner-config'
+import { effectiveRigIncome, vaultCap, computePending } from '#shared/utils/miner-config'
 import { credit } from '#server/utils/balance'
 
 export default defineEventHandler(async (event) => {
@@ -14,7 +14,7 @@ export default defineEventHandler(async (event) => {
   const s = await db.query.minerState.findFirst({ where: eq(minerState.userId, userId) })
   if (!s) throw createError({ statusCode: 404, statusMessage: 'Miner not initialized' })
 
-  const pending = computePending(rigIncome(s.rigLevel), s.lastCollectedAt, vaultCap(s.vaultLevel))
+  const pending = computePending(effectiveRigIncome(s.rigLevel, s.overclockLevel), s.lastCollectedAt, vaultCap(s.vaultLevel))
   const amount = Math.floor(pending * 100) / 100
 
   if (amount < 0.01) throw createError({ statusCode: 400, statusMessage: 'Nothing to collect yet' })

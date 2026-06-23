@@ -2,7 +2,7 @@ import { eq } from 'drizzle-orm'
 import { db } from '#server/database'
 import { minerState } from '#server/database/schema'
 import { auth } from '#server/utils/auth'
-import { rigIncome, vaultCap, vaultUpgradeCost, computePending, VAULT_MAX_LEVEL } from '#shared/utils/miner-config'
+import { effectiveRigIncome, vaultCap, vaultUpgradeCost, computePending, VAULT_MAX_LEVEL } from '#shared/utils/miner-config'
 import { credit, debit, getBalance } from '#server/utils/balance'
 
 export default defineEventHandler(async (event) => {
@@ -23,7 +23,7 @@ export default defineEventHandler(async (event) => {
   if (parseFloat(balance) < cost) throw createError({ statusCode: 400, statusMessage: 'Insufficient balance' })
 
   // Collect pending before expanding so the new cap isn't applied retroactively
-  const pending = computePending(rigIncome(s.rigLevel), s.lastCollectedAt, vaultCap(s.vaultLevel))
+  const pending = computePending(effectiveRigIncome(s.rigLevel, s.overclockLevel), s.lastCollectedAt, vaultCap(s.vaultLevel))
   const collected = Math.floor(pending * 100) / 100
 
   await db.update(minerState).set({ vaultLevel: s.vaultLevel + 1, lastCollectedAt: new Date() }).where(eq(minerState.userId, userId))

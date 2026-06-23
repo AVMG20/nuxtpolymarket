@@ -3,13 +3,14 @@ import { readBody } from 'h3'
 import { db } from '#server/database'
 import { minerState, user, gemMarketState } from '#server/database/schema'
 import { auth } from '#server/utils/auth'
-import { credit, debit } from '#server/utils/balance'
+import { credit } from '#server/utils/balance'
 import {
   vaultCap,
   lootboxRoll,
   lootboxRewardValue,
   lootboxGemCount,
-  lootboxOpenPrice,
+  lootboxOpenGemCost,
+  overclockMultiplier,
 } from '#shared/utils/miner-config'
 import { gemComputeLivePrice, GEM_INITIAL_PRICE } from '#shared/utils/gamelogic/gem-market'
 
@@ -20,9 +21,10 @@ export default defineEventHandler(async (event) => {
   const { mode } = await readBody<{ mode?: 'free' | 'paid' }>(event) ?? {}
   const userId = session.user.id
 
-  const [s, market] = await Promise.all([
+  const [s, market, currentUser] = await Promise.all([
     db.query.minerState.findFirst({ where: eq(minerState.userId, userId) }),
     db.query.gemMarketState.findFirst(),
+    db.query.user.findFirst({ where: eq(user.id, userId), columns: { gems: true } }),
   ])
   if (!s) throw createError({ statusCode: 404, statusMessage: 'Miner not initialized' })
 
@@ -41,8 +43,10 @@ export default defineEventHandler(async (event) => {
 
   // Charge / consume up-front so a roll is never granted for free.
   if (paid) {
-    const price = lootboxOpenPrice(cap, gemPrice)
-    await debit(userId, price.toFixed(4), 'lootbox') // throws 400 if insufficient
+    const gemCost = lootboxOpenGemCost(s.vaultLevel)
+    if ((currentUser?.gems ?? 0) < gemCost)
+      throw createError({ statusCode: 400, statusMessage: `Need ${gemCost} gems` })
+    await db.update(user).set({ gems: sql`${user.gems} - ${gemCost}` }).where(eq(user.id, userId))
   } else {
     await db
       .update(minerState)
@@ -50,9 +54,11 @@ export default defineEventHandler(async (event) => {
       .where(eq(minerState.userId, userId))
   }
 
-  // Roll and pay out
+  // Roll and pay out. Rig Overclock boosts cash rewards (not gem rewards).
   const reward = lootboxRoll()
-  const cashValue = lootboxRewardValue(reward, cap, gemPrice)
+  const cashValue = reward.kind === 'cash'
+    ? lootboxRewardValue(reward, cap, gemPrice) * overclockMultiplier(s.overclockLevel)
+    : lootboxRewardValue(reward, cap, gemPrice)
   const gemsWon = lootboxGemCount(reward, gemPrice)
 
   if (reward.kind === 'cash') {

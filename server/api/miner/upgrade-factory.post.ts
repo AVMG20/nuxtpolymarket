@@ -2,7 +2,7 @@ import { eq, sql } from 'drizzle-orm'
 import { db } from '#server/database'
 import { minerState, user } from '#server/database/schema'
 import { auth } from '#server/utils/auth'
-import { factoryRate, factoryCap, factoryUpgradeCost, computePending, FACTORY_MAX_LEVEL } from '#shared/utils/miner-config'
+import { effectiveFactoryRate, factoryCap, factoryUpgradeCost, computePending, FACTORY_MAX_LEVEL } from '#shared/utils/miner-config'
 import { debit, getBalance } from '#server/utils/balance'
 
 export default defineEventHandler(async (event) => {
@@ -23,7 +23,7 @@ export default defineEventHandler(async (event) => {
   if (parseFloat(balance) < cost) throw createError({ statusCode: 400, statusMessage: 'Insufficient balance' })
 
   // Collect whole gems pending before upgrading, reset timer
-  const pending = computePending(factoryRate(s.factoryLevel), s.factoryLastCollectedAt, factoryCap(s.factoryLevel))
+  const pending = computePending(effectiveFactoryRate(s.factoryLevel, s.catalystLevel), s.factoryLastCollectedAt, factoryCap(s.factoryLevel))
   const collectedGems = Math.floor(pending)
 
   await db.update(minerState).set({ factoryLevel: s.factoryLevel + 1, factoryLastCollectedAt: new Date() }).where(eq(minerState.userId, userId))

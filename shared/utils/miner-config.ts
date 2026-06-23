@@ -16,18 +16,32 @@ export const VAULT_BASE_UPGRADE_COST = 200
 export const VAULT_UPGRADE_GROWTH = 1.125
 
 // ─── Gem Factory ──────────────────────────────────────────────────────────────
-export const FACTORY_MAX_LEVEL = 10
+export const FACTORY_MAX_LEVEL = 20
 export const FACTORY_BASE_RATE = 1
-export const FACTORY_RATE_STEP = 0.5         // +0.5 gem/day per level → 5.5 gems/day at L10
+export const FACTORY_RATE_STEP = 0.5         // +0.5 gem/day per level → 10.5 gems/day at L20
 export const FACTORY_BASE_CAP = 10
-export const FACTORY_CAP_STEP = 2            // +2 storage per level → 28 cap at L10
+export const FACTORY_CAP_STEP = 2            // +2 storage per level → 48 cap at L20
 export const FACTORY_BASE_UPGRADE_COST = 1500
-export const FACTORY_UPGRADE_GROWTH = 2.47   // reward is linear now, so cost only scales gently
+export const FACTORY_UPGRADE_GROWTH = 1.97   // last upgrade (L19→L20) ≈ $300M
 
-// ─── Gem Shop ─────────────────────────────────────────────────────────────────
-export const SHOP_DOUBLE_WIN_COST = 5          // gems — 2x next win (capped at 1500, not yet implemented)
-export const SHOP_QUICK_CASH_COST = 1          // gems
-export const SHOP_QUICK_CASH_AMOUNT = 200      // $ base at factory L1; scales ×factoryLevel
+// ─── Gem Shop — permanent, leveled upgrades bought with GEMS ───────────────────
+// These deliver pure progression value (never a direct cash payout), so they
+// can't be arbitraged against the swinging gem→cash market price. Prices scale
+// geometrically and every effect is hard-capped.
+
+// Rig Overclock — permanent income multiplier applied to BOTH miner (rig)
+// income and lootbox CASH rewards. Caps at +20%.
+export const OVERCLOCK_MAX_LEVEL = 10
+export const OVERCLOCK_BONUS_PER_LEVEL = 0.02    // +2% income per level → +20% at L10
+export const OVERCLOCK_BASE_COST = 4             // gems for the first tier
+export const OVERCLOCK_COST_GROWTH = 1.52        // ~500 gems to fully max
+
+// Factory Catalyst — permanent multiplier on gem production RATE only (never
+// storage). Caps at +80% (e.g. a 5.5/day factory → ~9.9/day).
+export const CATALYST_MAX_LEVEL = 10
+export const CATALYST_BONUS_PER_LEVEL = 0.08     // +8% rate per level → +80% at L10
+export const CATALYST_BASE_COST = 5              // gems for the first tier
+export const CATALYST_COST_GROWTH = 1.48         // ~500 gems to fully max
 
 // ─── Lootboxes ──────────────────────────────────────────────────────────────
 // You own a number of lootbox SLOTS — each grants one free open per day.
@@ -38,9 +52,9 @@ export const LOOTBOX_MAX_SLOTS = 10
 export const LOOTBOX_BASE_SLOT_COST = 2000
 export const LOOTBOX_SLOT_GROWTH = 3.1
 
-// House edge applied to a paid (cash-bought) open. Price = EV / (1 - edge), so
-// the player loses this fraction on average. 0.02 → 2% expected loss.
-export const LOOTBOX_HOUSE_EDGE = 0.02
+// A paid open is bought with GEMS, not cash. Base 1 gem + 1 gem per 10 vault
+// (storage) levels: L1=1, L10=2, L20=3, … L100=11.
+export const LOOTBOX_OPEN_BASE_GEM_COST = 1
 
 export type LootboxRarity = 'common' | 'uncommon' | 'rare' | 'epic' | 'legendary'
 
@@ -114,9 +128,9 @@ export function lootboxExpectedValue(storageValue: number, gemPrice: number) {
     return totalWeight > 0 ? ev / totalWeight : 0
 }
 
-/** Cash price of a paid open — EV plus the house edge. */
-export function lootboxOpenPrice(storageValue: number, gemPrice: number) {
-    return lootboxExpectedValue(storageValue, gemPrice) / (1 - LOOTBOX_HOUSE_EDGE)
+/** Gem cost of a paid open: 1 gem + 1 per 10 vault (storage) levels. */
+export function lootboxOpenGemCost(vaultLevel: number) {
+    return LOOTBOX_OPEN_BASE_GEM_COST + Math.floor(vaultLevel / 10)
 }
 
 /** Pick a reward by weight. Returns the chosen reward (server-authoritative). */
@@ -159,14 +173,38 @@ export function factoryUpgradeCost(level: number) {
     return Math.round(FACTORY_BASE_UPGRADE_COST * Math.pow(FACTORY_UPGRADE_GROWTH, level - 1))
 }
 
-/** 1 gem base + 1 gem per 5 vault levels: L1=1, L5=2, L10=3, L100=21 */
-export function instantFillCost(vaultLevel: number) {
-    return 1 + Math.floor(vaultLevel / 5)
+// ─── Rig Overclock ──────────────────────────────────────────────────────────
+/** Permanent income multiplier (applies to rig income AND lootbox cash). */
+export function overclockMultiplier(level: number) {
+    return 1 + OVERCLOCK_BONUS_PER_LEVEL * Math.min(level, OVERCLOCK_MAX_LEVEL)
 }
 
-/** Base $200 at factory L1, scales ×factoryLevel: L1=$200, L5=$1000, L10=$2000 */
-export function quickCashAmount(factoryLevel: number) {
-    return SHOP_QUICK_CASH_AMOUNT * factoryLevel
+/** Gem cost of the next Overclock tier (pass the current level). null if maxed. */
+export function overclockUpgradeCost(level: number) {
+    if (level >= OVERCLOCK_MAX_LEVEL) return null
+    return Math.round(OVERCLOCK_BASE_COST * Math.pow(OVERCLOCK_COST_GROWTH, level))
+}
+
+/** Rig income after the Overclock multiplier. */
+export function effectiveRigIncome(rigLevel: number, overclockLevel: number) {
+    return Math.round(rigIncome(rigLevel) * overclockMultiplier(overclockLevel))
+}
+
+// ─── Factory Catalyst ─────────────────────────────────────────────────────────
+/** Permanent gem-production-rate multiplier (rate only, never storage). */
+export function catalystMultiplier(level: number) {
+    return 1 + CATALYST_BONUS_PER_LEVEL * Math.min(level, CATALYST_MAX_LEVEL)
+}
+
+/** Gem cost of the next Catalyst tier (pass the current level). null if maxed. */
+export function catalystUpgradeCost(level: number) {
+    if (level >= CATALYST_MAX_LEVEL) return null
+    return Math.round(CATALYST_BASE_COST * Math.pow(CATALYST_COST_GROWTH, level))
+}
+
+/** Gem production rate after the Catalyst multiplier. */
+export function effectiveFactoryRate(factoryLevel: number, catalystLevel: number) {
+    return factoryRate(factoryLevel) * catalystMultiplier(catalystLevel)
 }
 
 /** ms elapsed → fractional days */

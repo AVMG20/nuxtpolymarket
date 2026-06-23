@@ -10,6 +10,7 @@ export const user = pgTable("user", {
   image: text("image"),
   balance: numeric("balance", { precision: 19, scale: 4 }).notNull().default("0"),
   rake: numeric("rake", { precision: 19, scale: 4 }).notNull().default("0"),
+  rakebackUnlocked: boolean("rakeback_unlocked").notNull().default(false),
   gems: integer("gems").notNull().default(0),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at")
@@ -103,6 +104,8 @@ export const minerState = pgTable('miner_state', {
   lootboxSlots: integer('lootbox_slots').notNull().default(1),
   lootboxTodayOpens: integer('lootbox_today_opens').notNull().default(0),
   lootboxOpensDate: text('lootbox_opens_date').notNull().default(''),
+  overclockLevel: integer('overclock_level').notNull().default(0),
+  catalystLevel: integer('catalyst_level').notNull().default(0),
 })
 
 export const gemMarketState = pgTable('gem_market_state', {

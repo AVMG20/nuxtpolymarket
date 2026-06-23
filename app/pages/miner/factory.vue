@@ -97,18 +97,32 @@ async function upgradeFactory() {
           </div>
         </template>
 
-        <div class="flex items-center gap-4">
-          <div class="flex-1 h-2 rounded-full bg-elevated overflow-hidden">
-            <div class="h-full bg-cyan-400 rounded-full" :style="{ width: `${fillPercent}%` }" />
+        <div class="space-y-3">
+          <div class="flex items-center justify-between gap-2 text-sm">
+            <span class="text-muted">Production rate</span>
+            <span class="flex items-center gap-2">
+              <span class="font-semibold text-cyan-400">{{ state.rate.toFixed(1) }} gems/day</span>
+              <UBadge
+                v-if="state.catalystLevel > 0"
+                color="primary"
+                variant="subtle"
+                :label="`+${Math.round((state.gemRateMultiplier - 1) * 100)}% Catalyst`"
+              />
+            </span>
           </div>
-          <UButton
-            :label="collectableGems >= 1 ? `Collect ${collectableGems} Gem${collectableGems !== 1 ? 's' : ''}` : 'Not enough yet'"
-            icon="i-lucide-gem"
-            color="primary"
-            :loading="collecting"
-            :disabled="collectableGems < 1"
-            @click="collectGems"
-          />
+          <div class="flex items-center gap-4">
+            <div class="flex-1 h-2 rounded-full bg-elevated overflow-hidden">
+              <div class="h-full bg-cyan-400 rounded-full" :style="{ width: `${fillPercent}%` }" />
+            </div>
+            <UButton
+              :label="collectableGems >= 1 ? `Collect ${collectableGems} Gem${collectableGems !== 1 ? 's' : ''}` : 'Not enough yet'"
+              icon="i-lucide-gem"
+              color="primary"
+              :loading="collecting"
+              :disabled="collectableGems < 1"
+              @click="collectGems"
+            />
+          </div>
         </div>
       </UCard>
 
@@ -134,6 +148,9 @@ async function upgradeFactory() {
           <div>
             <p class="text-xs text-muted uppercase tracking-wide font-medium mb-1">Rate</p>
             <p class="text-2xl font-bold">{{ state.rate.toFixed(1) }}<span class="text-muted text-base font-normal">/d</span></p>
+            <p v-if="state.catalystLevel > 0" class="text-xs text-primary font-medium mt-1">
+              {{ factoryRate(state.factoryLevel).toFixed(1) }} base +{{ Math.round((state.gemRateMultiplier - 1) * 100) }}%
+            </p>
           </div>
           <div>
             <p class="text-xs text-muted uppercase tracking-wide font-medium mb-1">Cap</p>

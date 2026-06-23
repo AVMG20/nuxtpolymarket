@@ -44,6 +44,12 @@ export const auth = betterAuth({
                 defaultValue: 0,
                 input: false,
             },
+            rakebackUnlocked: {
+                type: 'boolean',
+                required: false,
+                defaultValue: false,
+                input: false,
+            },
         }
     }
 })

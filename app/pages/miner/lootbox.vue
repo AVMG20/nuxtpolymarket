@@ -19,11 +19,15 @@ const RARITY_CLASSES: Record<LootboxRarity, { border: string, borderSoft: string
 
 const { fetchSession, user } = useAuth()
 const balance = computed(() => parseFloat(user.value?.balance ?? '0'))
+const gems = computed(() => user.value?.gems ?? 0)
 const { data: state, refresh } = await useFetch('/api/miner/state')
 const toast = useToast()
 
 const cap = computed(() => state.value?.cap ?? 0)
 const gemPrice = computed(() => state.value?.gemPrice ?? 0)
+// Rig Overclock boosts lootbox cash payouts (not gem payouts).
+const incomeMult = computed(() => state.value?.incomeMultiplier ?? 1)
+const cashValueOf = (r: LootboxReward) => lootboxRewardValue(r, cap.value, gemPrice.value) * incomeMult.value
 const freeRemaining = ref(0)
 watch(
   () => state.value?.lootboxFreeOpensRemaining,
@@ -60,7 +64,7 @@ function cellPrimary(r: LootboxReward) {
   return r.kind === 'cash' ? `+${Math.round(r.amount * 100)}%` : `${lootboxGemCount(r, gemPrice.value)}`
 }
 function cellSecondary(r: LootboxReward) {
-  return r.kind === 'cash' ? `$${formatNumber(lootboxRewardValue(r, cap.value, gemPrice.value), true)}` : 'gems'
+  return r.kind === 'cash' ? `$${formatNumber(cashValueOf(r), true)}` : 'gems'
 }
 
 const buyingSlot = ref(false)
@@ -299,14 +303,21 @@ const gemPrizes = computed(() =>
             @click="open('free')"
           />
           <UButton
-            :label="`Buy Open · $${formatNumber(state.lootboxOpenPrice, true)}`"
+            label="Buy Open"
             icon="i-lucide-shopping-cart"
             block
             color="primary"
             size="lg"
-            :disabled="spinning || balance < state.lootboxOpenPrice"
+            :disabled="spinning || gems < state.lootboxOpenGemCost"
             @click="open('paid')"
-          />
+          >
+            <template #trailing>
+              <span class="flex items-center gap-1 text-sm opacity-80">
+                · {{ state.lootboxOpenGemCost }}
+                <UIcon name="i-lucide-gem" class="size-4 text-cyan-400" />
+              </span>
+            </template>
+          </UButton>
         </div>
       </UCard>
 
@@ -330,7 +341,7 @@ const gemPrizes = computed(() =>
               >
                 <div class="flex items-center gap-2 min-w-0">
                   <UIcon name="i-lucide-coins" class="size-4 shrink-0" :class="RARITY_CLASSES[r.rarity].text" />
-                  <span class="text-sm font-semibold truncate">${{ formatNumber(lootboxRewardValue(r, cap, gemPrice), true) }}</span>
+                  <span class="text-sm font-semibold truncate">${{ formatNumber(cashValueOf(r), true) }}</span>
                 </div>
                 <span class="text-xs text-muted shrink-0">{{ r.chance < 1 ? r.chance.toFixed(1) : Math.round(r.chance) }}%</span>
               </div>

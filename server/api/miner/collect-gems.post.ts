@@ -2,7 +2,7 @@ import { eq, sql } from 'drizzle-orm'
 import { db } from '#server/database'
 import { minerState, user } from '#server/database/schema'
 import { auth } from '#server/utils/auth'
-import { factoryRate, factoryCap, computePending } from '#shared/utils/miner-config'
+import { effectiveFactoryRate, factoryCap, computePending } from '#shared/utils/miner-config'
 
 export default defineEventHandler(async (event) => {
   const session = await auth.api.getSession({ headers: event.headers })
@@ -13,7 +13,7 @@ export default defineEventHandler(async (event) => {
   const s = await db.query.minerState.findFirst({ where: eq(minerState.userId, userId) })
   if (!s) throw createError({ statusCode: 404, statusMessage: 'Miner not initialized' })
 
-  const pending = computePending(factoryRate(s.factoryLevel), s.factoryLastCollectedAt, factoryCap(s.factoryLevel))
+  const pending = computePending(effectiveFactoryRate(s.factoryLevel, s.catalystLevel), s.factoryLastCollectedAt, factoryCap(s.factoryLevel))
   const collected = Math.floor(pending) // whole gems only
 
   if (collected < 1) throw createError({ statusCode: 400, statusMessage: 'Not enough gems to collect yet' })

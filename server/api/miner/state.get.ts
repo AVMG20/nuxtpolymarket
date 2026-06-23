@@ -3,10 +3,12 @@ import { db } from '#server/database'
 import { minerState, user, gemMarketState } from '#server/database/schema'
 import { auth } from '#server/utils/auth'
 import {
-  rigIncome, vaultCap, rigUpgradeCost, vaultUpgradeCost,
-  factoryRate, factoryCap, factoryUpgradeCost, computePending,
+  vaultCap, rigUpgradeCost, vaultUpgradeCost,
+  factoryCap, factoryUpgradeCost, computePending,
   RIG_MAX_LEVEL, VAULT_MAX_LEVEL, FACTORY_MAX_LEVEL,
-  lootboxSlotCost, LOOTBOX_MAX_SLOTS, lootboxExpectedValue, lootboxOpenPrice,
+  lootboxSlotCost, LOOTBOX_MAX_SLOTS, lootboxExpectedValue, lootboxOpenGemCost,
+  effectiveRigIncome, effectiveFactoryRate, overclockMultiplier, catalystMultiplier,
+  overclockUpgradeCost, catalystUpgradeCost, OVERCLOCK_MAX_LEVEL, CATALYST_MAX_LEVEL,
 } from '#shared/utils/miner-config'
 import { gemComputeLivePrice, GEM_INITIAL_PRICE } from '#shared/utils/gamelogic/gem-market'
 
@@ -25,9 +27,9 @@ export default defineEventHandler(async (event) => {
   // Auto-create state on first visit
   const s = state ?? (await db.insert(minerState).values({ userId }).returning())[0]!
 
-  const income = rigIncome(s.rigLevel)
+  const income = effectiveRigIncome(s.rigLevel, s.overclockLevel)
   const cap = vaultCap(s.vaultLevel)
-  const rate = factoryRate(s.factoryLevel)
+  const rate = effectiveFactoryRate(s.factoryLevel, s.catalystLevel)
   const gemCap = factoryCap(s.factoryLevel)
 
   const pendingCash = computePending(income, s.lastCollectedAt, cap)
@@ -64,6 +66,15 @@ export default defineEventHandler(async (event) => {
     lootboxNextSlotCost: lootboxSlotCost(s.lootboxSlots),
     lootboxFreeOpensRemaining: Math.max(0, s.lootboxSlots - lootboxOpensToday),
     lootboxAvgValue: lootboxExpectedValue(cap, gemPrice),
-    lootboxOpenPrice: lootboxOpenPrice(cap, gemPrice),
+    lootboxOpenGemCost: lootboxOpenGemCost(s.vaultLevel),
+    // Gem-shop upgrades
+    overclockLevel: s.overclockLevel,
+    overclockMaxLevel: OVERCLOCK_MAX_LEVEL,
+    incomeMultiplier: overclockMultiplier(s.overclockLevel),
+    overclockNextCost: overclockUpgradeCost(s.overclockLevel),
+    catalystLevel: s.catalystLevel,
+    catalystMaxLevel: CATALYST_MAX_LEVEL,
+    gemRateMultiplier: catalystMultiplier(s.catalystLevel),
+    catalystNextCost: catalystUpgradeCost(s.catalystLevel),
   }
 })

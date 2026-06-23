@@ -114,17 +114,31 @@ async function upgradeVault() {
           </div>
         </template>
 
-        <div class="flex items-center gap-4">
-          <div class="flex-1 h-2 rounded-full bg-elevated overflow-hidden">
-            <div class="h-full bg-yellow-400 rounded-full" :style="{ width: `${fillPercent}%` }" />
+        <div class="space-y-3">
+          <div class="flex items-center justify-between gap-2 text-sm">
+            <span class="text-muted">Production rate</span>
+            <span class="flex items-center gap-2">
+              <span class="font-semibold text-yellow-400">${{ formatNumber(state.income, true) }}/day</span>
+              <UBadge
+                v-if="state.overclockLevel > 0"
+                color="primary"
+                variant="subtle"
+                :label="`+${Math.round((state.incomeMultiplier - 1) * 100)}% Overclock`"
+              />
+            </span>
           </div>
-          <UButton
-            label="Collect Cash"
-            icon="i-lucide-coins"
-            :loading="collecting"
-            :disabled="displayCash < 0.01"
-            @click="collect"
-          />
+          <div class="flex items-center gap-4">
+            <div class="flex-1 h-2 rounded-full bg-elevated overflow-hidden">
+              <div class="h-full bg-yellow-400 rounded-full" :style="{ width: `${fillPercent}%` }" />
+            </div>
+            <UButton
+              label="Collect Cash"
+              icon="i-lucide-coins"
+              :loading="collecting"
+              :disabled="displayCash < 0.01"
+              @click="collect"
+            />
+          </div>
         </div>
       </UCard>
 
@@ -152,8 +166,11 @@ async function upgradeVault() {
             <div>
               <p class="text-xs text-muted uppercase tracking-wide font-medium mb-1">Income</p>
               <p class="text-2xl font-bold">${{ formatNumber(state.income, true) }}<span class="text-muted text-base font-normal">/d</span></p>
+              <p v-if="state.overclockLevel > 0" class="text-xs text-primary font-medium mt-1">
+                ${{ formatNumber(rigIncome(state.rigLevel), true) }} base +{{ Math.round((state.incomeMultiplier - 1) * 100) }}% Overclock
+              </p>
               <p v-if="state.rigLevel < state.rigMaxLevel" class="text-xs text-muted mt-1">
-                → ${{ formatNumber(rigIncome(state.rigLevel + 1), false) }}/d after upgrade
+                → ${{ formatNumber(rigIncome(state.rigLevel + 1) * state.incomeMultiplier, false) }}/d after upgrade
               </p>
             </div>
           </div>

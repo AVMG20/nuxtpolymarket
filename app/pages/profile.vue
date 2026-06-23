@@ -1,22 +1,29 @@
 <script setup lang="ts">
-import { RAKEBACK_RATE, RAKEBACK_MIN_RATIO, RAKEBACK_MAX_RATIO, RAKEBACK_SCALE_CAP, rakebackClaimCost } from '#shared/utils/profile'
+import { RAKEBACK_RATE, RAKEBACK_UNLOCK_COST } from '#shared/utils/profile'
 
 const { user, client, fetchSession, signOut: authSignOut } = useAuth()
 
 const rake = computed(() => parseFloat(user.value?.rake ?? '0'))
-const gemCost = computed(() => rakebackClaimCost(rake.value))
-const valuePerGem = computed(() => (gemCost.value > 0 ? rake.value / gemCost.value : 0))
 const gems = computed(() => user.value?.gems ?? 0)
+const rakebackUnlocked = computed(() => !!user.value?.rakebackUnlocked)
 
 const rakeInfoOpen = ref(false)
 
-const rakeExamples = computed(() => {
-  const steps = [1000, 5000, 10000, RAKEBACK_SCALE_CAP]
-  return steps.map(balance => {
-    const cost = rakebackClaimCost(balance)
-    return { balance, cost, perGem: Math.floor(balance / cost) }
-  })
-})
+const unlockModalOpen = ref(false)
+const unlockLoading = ref(false)
+async function unlockRakeback() {
+  unlockLoading.value = true
+  try {
+    await $fetch('/api/user/unlock-rakeback', { method: 'POST' })
+    await fetchSession()
+    unlockModalOpen.value = false
+    toast.add({ title: 'Rakeback unlocked!', color: 'success', icon: 'i-lucide-check' })
+  } catch (e: any) {
+    toast.add({ title: e?.data?.statusMessage ?? 'Unlock failed', color: 'error' })
+  } finally {
+    unlockLoading.value = false
+  }
+}
 
 const claimModalOpen = ref(false)
 const claimLoading = ref(false)
@@ -182,22 +189,56 @@ async function handleSignOut() {
               <CoinBalance class="font-semibold text-highlighted" :value="rake" :compact="false" />
             </div>
             <div class="space-y-1">
-              <p class="text-xs text-muted">Cost to claim</p>
-              <div v-if="valuePerGem > 0" class="flex items-center gap-1 text-xs text-muted">
-                <GemBalance class="font-semibold text-highlighted" :value="gemCost" />
-                ~&nbsp;<CoinBalance class="font-semibold" :value="valuePerGem" />&nbsp;/ Gem
-              </div>
+              <p class="text-xs text-muted">Status</p>
+              <UBadge
+                :color="rakebackUnlocked ? 'success' : 'neutral'"
+                variant="subtle"
+                :label="rakebackUnlocked ? 'Unlocked' : 'Locked'"
+                :icon="rakebackUnlocked ? 'i-lucide-lock-open' : 'i-lucide-lock'"
+              />
             </div>
           </div>
           <UButton
+            v-if="rakebackUnlocked"
             label="Claim"
             icon="i-lucide-gift"
-            :disabled="rake <= 0 || gems < gemCost"
+            :disabled="rake <= 0"
             @click="claimModalOpen = true"
           />
+          <UButton
+            v-else
+            label="Unlock"
+            icon="i-lucide-lock-open"
+            :disabled="gems < RAKEBACK_UNLOCK_COST"
+            @click="unlockModalOpen = true"
+          >
+            <template #trailing>
+              <span class="flex items-center gap-1 text-xs opacity-80">
+                {{ RAKEBACK_UNLOCK_COST }}
+                <UIcon name="i-lucide-gem" class="size-3.5 text-cyan-400" />
+              </span>
+            </template>
+          </UButton>
         </div>
       </UCard>
     </div>
+
+    <!-- Unlock rakeback modal -->
+    <UModal v-model:open="unlockModalOpen" title="Unlock Rakeback">
+      <template #body>
+        <p class="text-sm text-muted">
+          Spend
+          <GemBalance :value="RAKEBACK_UNLOCK_COST" :compact="false" class="inline-block space-x-1 mx-1 font-semibold text-highlighted" />
+          once to permanently unlock rakeback claiming. After that, you can claim your locked balance back to your wallet any time — for free.
+        </p>
+      </template>
+      <template #footer>
+        <div class="flex justify-end gap-2">
+          <UButton label="Cancel" color="neutral" variant="outline" @click="unlockModalOpen = false" />
+          <UButton label="Unlock" icon="i-lucide-lock-open" :loading="unlockLoading" @click="unlockRakeback" />
+        </div>
+      </template>
+    </UModal>
 
     <!-- Claim rakeback modal -->
     <UModal v-model:open="claimModalOpen" title="Claim Rakeback">
@@ -205,9 +246,7 @@ async function handleSignOut() {
         <div class="flex flex-col gap-4">
           <CoinBalance :value="rake" :compact="false" :show-icon="true" class="font-semibold text-highlighted text-lg" />
           <p class="text-sm text-muted">
-            You are about to spend
-            <GemBalance :value="gemCost" :compact="false" class="inline-block space-x-1 mx-1 font-semibold text-highlighted" />
-            to unlock your rakeback back to your balance
+            Claim your locked rakeback balance back to your wallet.
           </p>
         </div>
       </template>
@@ -224,42 +263,15 @@ async function handleSignOut() {
       <template #body>
         <div class="space-y-4 text-sm">
           <p class="text-muted">
-            Every time you place a wager, <span class="font-semibold text-default">{{ RAKEBACK_RATE * 100 }}%</span> of the amount is added to your locked rakeback balance. You can claim it at any time by spending gems.
+            Every time you place a wager, <span class="font-semibold text-default">{{ RAKEBACK_RATE * 100 }}%</span> of the amount is added to your locked rakeback balance.
           </p>
-
           <div class="space-y-1">
-            <p class="font-semibold">Claim cost scaling</p>
+            <p class="font-semibold">Unlocking</p>
             <p class="text-muted">
-              The value you get per gem increases as your locked balance grows — from
-              <span class="font-semibold text-default"><CoinBalance class="inline-block space-x-1 mx-1" :value="RAKEBACK_MIN_RATIO" :compact="false"/>/ Gem</span>
-              at small balances up to
-              <span class="font-semibold text-default"><CoinBalance class="inline-block space-x-1 mx-1" :value="RAKEBACK_MAX_RATIO" :compact="false"/>/ Gem</span>
-              once your balance reaches
-              <span class="font-semibold text-default"><CoinBalance class="inline-block space-x-1 mx-1" :value="RAKEBACK_SCALE_CAP" :compact="false" /></span>.
+              Claiming is gated behind a one-time
+              <span class="font-semibold text-default"><GemBalance class="inline-block space-x-1 mx-1" :value="RAKEBACK_UNLOCK_COST" /></span>
+              purchase. Once unlocked, you can claim your full locked balance back to your wallet at any time, for free — there is no per-claim cost.
             </p>
-          </div>
-
-          <div class="rounded-lg border border-default overflow-hidden">
-            <table class="w-full text-xs">
-              <thead>
-                <tr class="bg-elevated">
-                  <th class="text-left px-3 py-2 text-muted font-medium">Locked balance</th>
-                  <th class="text-right px-3 py-2 text-muted font-medium">Gems needed</th>
-                  <th class="text-right px-3 py-2 text-muted font-medium">Value / Gem</th>
-                </tr>
-              </thead>
-              <tbody class="divide-y divide-default">
-                <tr v-for="row in rakeExamples" :key="row.balance">
-                  <td class="px-3 py-2"><CoinBalance :value="row.balance" :compact="false" /></td>
-                  <td class="px-3 py-2 text-right">
-                    <div class="flex items-center justify-end gap-1">
-                      <GemBalance class="font-semibold" :value="row.cost" />
-                    </div>
-                  </td>
-                  <td class="px-3 py-2 text-right"><CoinBalance :value="row.perGem" :compact="false" /></td>
-                </tr>
-              </tbody>
-            </table>
           </div>
         </div>
       </template>

@@ -1,9 +1,8 @@
-import { eq, sql } from 'drizzle-orm'
+import { eq } from 'drizzle-orm'
 import { db } from '#server/database'
 import { user } from '#server/database/schema'
 import { auth } from '#server/utils/auth'
 import { credit } from '#server/utils/balance'
-import { rakebackClaimCost } from '../../../shared/utils/profile'
 
 export default defineEventHandler(async (event) => {
   const session = await auth.api.getSession({ headers: event.headers })
@@ -13,22 +12,18 @@ export default defineEventHandler(async (event) => {
 
   const current = await db.query.user.findFirst({
     where: eq(user.id, userId),
-    columns: { gems: true, rake: true },
+    columns: { rake: true, rakebackUnlocked: true },
   })
+
+  if (!current?.rakebackUnlocked) {
+    throw createError({ statusCode: 403, statusMessage: 'Unlock rakeback claiming first' })
+  }
 
   const rake = parseFloat(current?.rake ?? '0')
   if (rake <= 0) throw createError({ statusCode: 400, statusMessage: 'No rakeback to claim' })
 
-  const cost = rakebackClaimCost(rake)
-  if ((current?.gems ?? 0) < cost) {
-    throw createError({ statusCode: 400, statusMessage: `Need ${cost} gem${cost !== 1 ? 's' : ''} to claim` })
-  }
-
-  await db.update(user)
-    .set({ gems: sql`${user.gems} - ${cost}`, rake: '0' })
-    .where(eq(user.id, userId))
-
+  await db.update(user).set({ rake: '0' }).where(eq(user.id, userId))
   await credit(userId, rake.toFixed(4), 'rakeback')
 
-  return { credited: rake, gemsSpent: cost }
+  return { credited: rake }
 })
