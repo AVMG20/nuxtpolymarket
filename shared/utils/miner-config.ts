@@ -33,15 +33,15 @@ export const FACTORY_UPGRADE_GROWTH = 1.97   // last upgrade (L19→L20) ≈ $30
 // income and lootbox CASH rewards. Caps at +20%.
 export const OVERCLOCK_MAX_LEVEL = 10
 export const OVERCLOCK_BONUS_PER_LEVEL = 0.02    // +2% income per level → +20% at L10
-export const OVERCLOCK_BASE_COST = 4             // gems for the first tier
-export const OVERCLOCK_COST_GROWTH = 1.52        // ~500 gems to fully max
+export const OVERCLOCK_BASE_COST = 5.6           // gems for the first tier
+export const OVERCLOCK_COST_GROWTH = 1.52        // ~700 gems to fully max
 
 // Factory Catalyst — permanent multiplier on gem production RATE only (never
 // storage). Caps at +80% (e.g. a 5.5/day factory → ~9.9/day).
 export const CATALYST_MAX_LEVEL = 10
 export const CATALYST_BONUS_PER_LEVEL = 0.08     // +8% rate per level → +80% at L10
-export const CATALYST_BASE_COST = 5              // gems for the first tier
-export const CATALYST_COST_GROWTH = 1.48         // ~500 gems to fully max
+export const CATALYST_BASE_COST = 6.8            // gems for the first tier
+export const CATALYST_COST_GROWTH = 1.48         // ~700 gems to fully max
 
 // ─── Lootboxes ──────────────────────────────────────────────────────────────
 // You own a number of lootbox SLOTS — each grants one free open per day.
