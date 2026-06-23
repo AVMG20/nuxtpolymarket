@@ -99,15 +99,26 @@ export function lootboxSlotCost(currentSlots: number) {
     return Math.round(LOOTBOX_BASE_SLOT_COST * Math.pow(LOOTBOX_SLOT_GROWTH, currentSlots - 1))
 }
 
+/** Floor on the gem count awarded, by rarity — so high gem prices can't shrink a reward below this. */
+export const LOOTBOX_GEM_MIN_BY_RARITY: Record<LootboxRarity, number> = {
+    common: 1,
+    uncommon: 2,
+    rare: 3,
+    epic: 5,
+    legendary: 10,
+}
+
 /**
  * Actual gem count awarded for a gem reward at the live market price.
  * The nominal `amount` is calibrated to the base price, so the count scales
- * inversely: pricey gems → fewer awarded, cheap gems → more awarded. Min 1.
+ * inversely: pricey gems → fewer awarded, cheap gems → more awarded. The count
+ * never drops below the per-rarity minimum.
  */
 export function lootboxGemCount(reward: LootboxReward, gemPrice: number) {
     if (reward.kind !== 'gems') return 0
-    if (gemPrice <= 0) return reward.amount
-    return Math.max(1, Math.round(reward.amount * GEM_INITIAL_PRICE / gemPrice))
+    const min = LOOTBOX_GEM_MIN_BY_RARITY[reward.rarity]
+    if (gemPrice <= 0) return Math.max(min, reward.amount)
+    return Math.max(min, Math.round(reward.amount * GEM_INITIAL_PRICE / gemPrice))
 }
 
 /** Cash value of a single reward given the live vault cap and gem price. */
