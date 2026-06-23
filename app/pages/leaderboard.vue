@@ -13,6 +13,8 @@ const upgradeColors = {
   miner: 'text-yellow-400',
   vault: 'text-green-400',
   factory: 'text-cyan-400',
+  overclock: 'text-orange-400',
+  catalyst: 'text-violet-400',
 }
 </script>
 
@@ -77,6 +79,20 @@ const upgradeColors = {
             </div>
             <span class="text-[10px] text-muted">Factory</span>
           </div>
+          <div v-if="u.overclockPct > 0" class="flex flex-col items-center gap-0.5">
+            <div class="flex items-center gap-1">
+              <UIcon name="i-lucide-gauge" class="size-3.5" :class="upgradeColors.overclock" />
+              <span class="text-xs font-semibold" :class="upgradeColors.overclock">+{{ u.overclockPct }}%</span>
+            </div>
+            <span class="text-[10px] text-muted">Overclock</span>
+          </div>
+          <div v-if="u.catalystPct > 0" class="flex flex-col items-center gap-0.5">
+            <div class="flex items-center gap-1">
+              <UIcon name="i-lucide-flask-conical" class="size-3.5" :class="upgradeColors.catalyst" />
+              <span class="text-xs font-semibold" :class="upgradeColors.catalyst">+{{ u.catalystPct }}%</span>
+            </div>
+            <span class="text-[10px] text-muted">Catalyst</span>
+          </div>
         </div>
 
         <!-- Gems + estimated value -->
@@ -130,6 +146,14 @@ const upgradeColors = {
             <div class="flex items-center gap-1">
               <UIcon name="i-lucide-factory" class="size-3" :class="upgradeColors.factory" />
               <span class="text-xs" :class="upgradeColors.factory">{{ u.factoryLevel }}</span>
+            </div>
+            <div v-if="u.overclockPct > 0" class="flex items-center gap-1">
+              <UIcon name="i-lucide-gauge" class="size-3" :class="upgradeColors.overclock" />
+              <span class="text-xs" :class="upgradeColors.overclock">+{{ u.overclockPct }}%</span>
+            </div>
+            <div v-if="u.catalystPct > 0" class="flex items-center gap-1">
+              <UIcon name="i-lucide-flask-conical" class="size-3" :class="upgradeColors.catalyst" />
+              <span class="text-xs" :class="upgradeColors.catalyst">+{{ u.catalystPct }}%</span>
             </div>
           </div>
 

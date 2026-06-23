@@ -2,6 +2,7 @@ import { eq } from 'drizzle-orm'
 import { db } from '#server/database'
 import { user, minerState, gemMarketState } from '#server/database/schema'
 import { gemComputeLivePrice, gemSellGems, GEM_INITIAL_PRICE } from '#shared/utils/gamelogic/gem-market'
+import { overclockMultiplier, catalystMultiplier } from '#shared/utils/miner-config'
 
 export default defineEventHandler(async () => {
   const [users, market] = await Promise.all([
@@ -14,6 +15,8 @@ export default defineEventHandler(async () => {
         rigLevel: minerState.rigLevel,
         vaultLevel: minerState.vaultLevel,
         factoryLevel: minerState.factoryLevel,
+        overclockLevel: minerState.overclockLevel,
+        catalystLevel: minerState.catalystLevel,
       })
       .from(user)
       .leftJoin(minerState, eq(minerState.userId, user.id)),
@@ -40,6 +43,8 @@ export default defineEventHandler(async () => {
         rigLevel: u.rigLevel ?? 1,
         vaultLevel: u.vaultLevel ?? 1,
         factoryLevel: u.factoryLevel ?? 1,
+        overclockPct: Math.round((overclockMultiplier(u.overclockLevel ?? 0) - 1) * 100),
+        catalystPct: Math.round((catalystMultiplier(u.catalystLevel ?? 0) - 1) * 100),
         totalLevels,
         totalWealth,
       }
