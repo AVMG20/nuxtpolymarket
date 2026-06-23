@@ -74,7 +74,7 @@ export interface LootboxReward {
 
 /**
  * The full prize pool. Cash amounts are fractions of vault `cap`; gem amounts
- * are nominal counts at the base price. Gems are intentionally rarer than cash.
+ * are nominal counts at the base price. Gems are slightly more common than cash.
  */
 export const LOOTBOX_REWARDS: LootboxReward[] = [
     // Cash — fraction of vault storage value (the common, bread-and-butter rewards)
@@ -85,13 +85,13 @@ export const LOOTBOX_REWARDS: LootboxReward[] = [
     { id: 'cash-200', kind: 'cash', amount: 2.00, weight: 2.5, rarity: 'epic' },
     { id: 'cash-300', kind: 'cash', amount: 3.00, weight: 1.2, rarity: 'epic' },
     { id: 'cash-500', kind: 'cash', amount: 5.00, weight: 0.6, rarity: 'legendary' },
-    // Gems — rarer than cash; awarded count scales with the live gem price
-    { id: 'gems-1',   kind: 'gems', amount: 1,    weight: 8,    rarity: 'common' },
-    { id: 'gems-5',   kind: 'gems', amount: 5,    weight: 4,    rarity: 'uncommon' },
-    { id: 'gems-10',  kind: 'gems', amount: 10,   weight: 2.5,  rarity: 'rare' },
-    { id: 'gems-25',  kind: 'gems', amount: 25,   weight: 1.2,  rarity: 'epic' },
-    { id: 'gems-50',  kind: 'gems', amount: 50,   weight: 0.5,  rarity: 'epic' },
-    { id: 'gems-100', kind: 'gems', amount: 100,  weight: 0.2,  rarity: 'legendary' },
+    // Gems — as common as cash; awarded count scales with the live gem price
+    { id: 'gems-1',   kind: 'gems', amount: 1,    weight: 30,   rarity: 'common' },
+    { id: 'gems-5',   kind: 'gems', amount: 5,    weight: 15,   rarity: 'uncommon' },
+    { id: 'gems-10',  kind: 'gems', amount: 10,   weight: 10,   rarity: 'rare' },
+    { id: 'gems-25',  kind: 'gems', amount: 25,   weight: 5,    rarity: 'epic' },
+    { id: 'gems-50',  kind: 'gems', amount: 50,   weight: 2.5,  rarity: 'epic' },
+    { id: 'gems-100', kind: 'gems', amount: 100,  weight: 1.5,  rarity: 'legendary' },
 ]
 
 /** Cost to buy the next lootbox slot (pass current slot count before purchase). */
