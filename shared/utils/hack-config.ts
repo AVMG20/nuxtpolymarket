@@ -61,6 +61,11 @@ export const RARITY_ORDER: HackRarity[] = ['ghost', 'operative', 'specialist', '
 export type NuxtColor = 'neutral' | 'success' | 'info' | 'warning' | 'error' | 'primary'
 export const RARITY_LABEL: Record<HackRarity, string> = { ghost: 'Ghost', operative: 'Operative', specialist: 'Specialist', elite: 'Elite', phantom: 'Phantom' }
 export const RARITY_COLOR: Record<HackRarity, NuxtColor> = { ghost: 'neutral', operative: 'success', specialist: 'info', elite: 'warning', phantom: 'error' }
+// Solid accent for rarity strips/dots. Static palette strings (Nuxt UI has no solid
+// `bg-neutral`), mirroring the semantic intent so every rarity renders a visible bar.
+export const RARITY_ACCENT: Record<HackRarity, string> = {
+  ghost: 'bg-zinc-400', operative: 'bg-green-500', specialist: 'bg-sky-500', elite: 'bg-amber-500', phantom: 'bg-rose-500',
+}
 
 export const CLASS_LABEL: Record<AgentClass, string> = { infiltrator: 'Infiltrator', cryptographer: 'Cryptographer', social_engineer: 'Social Engineer', bruteforce: 'Bruteforce' }
 export const CLASS_ICON: Record<AgentClass, string> = { infiltrator: 'i-lucide-ghost', cryptographer: 'i-lucide-key', social_engineer: 'i-lucide-message-circle', bruteforce: 'i-lucide-zap' }
@@ -69,6 +74,27 @@ export const CLASS_PASSIVE: Record<AgentClass, { type: ModType; value: number; l
   cryptographer:   { type: 'loot_percent',   value: 0.15, label: '+15% cash loot' },
   social_engineer: { type: 'gem_chance',     value: 0.01, label: '+1% gem chance' },
   bruteforce:      { type: 'power_flat',     value: 15,   label: '+15 power rating' },
+}
+
+// ─── Class (spec) accent colors ───────────────────────────────────────────────
+// Each agent class gets a distinct accent so specs are instantly recognizable at a
+// glance — rarity stays on the badge, the spec owns the color. Full static class
+// strings (not interpolated) so Tailwind's JIT always emits them.
+export interface ClassColor { text: string; bg: string; border: string; ring: string; dot: string }
+export const CLASS_COLOR: Record<AgentClass, ClassColor> = {
+  infiltrator:     { text: 'text-sky-400',    bg: 'bg-sky-500/10',    border: 'border-sky-500/30',    ring: 'ring-sky-500/30',    dot: 'bg-sky-400' },
+  cryptographer:   { text: 'text-amber-400',  bg: 'bg-amber-500/10',  border: 'border-amber-500/30',  ring: 'ring-amber-500/30',  dot: 'bg-amber-400' },
+  social_engineer: { text: 'text-fuchsia-400', bg: 'bg-fuchsia-500/10', border: 'border-fuchsia-500/30', ring: 'ring-fuchsia-500/30', dot: 'bg-fuchsia-400' },
+  bruteforce:      { text: 'text-rose-400',   bg: 'bg-rose-500/10',   border: 'border-rose-500/30',   ring: 'ring-rose-500/30',   dot: 'bg-rose-400' },
+}
+
+// ─── Item slot presentation (shared across pages) ─────────────────────────────
+export const SLOT_LABEL: Record<ItemSlot, string> = { tool: 'Tool', software: 'Software', hardware: 'Hardware' }
+export const SLOT_ICON: Record<ItemSlot, string> = { tool: 'i-lucide-usb', software: 'i-lucide-terminal', hardware: 'i-lucide-cpu' }
+export const SLOT_COLOR: Record<ItemSlot, ClassColor> = {
+  tool:     { text: 'text-emerald-400', bg: 'bg-emerald-500/10', border: 'border-emerald-500/30', ring: 'ring-emerald-500/30', dot: 'bg-emerald-400' },
+  software: { text: 'text-indigo-400',  bg: 'bg-indigo-500/10',  border: 'border-indigo-500/30',  ring: 'ring-indigo-500/30',  dot: 'bg-indigo-400' },
+  hardware: { text: 'text-orange-400',  bg: 'bg-orange-500/10',  border: 'border-orange-500/30',  ring: 'ring-orange-500/30',  dot: 'bg-orange-400' },
 }
 
 export function xpToNextLevel(level: number): number { return 100 * level }

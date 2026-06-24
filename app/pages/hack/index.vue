@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {
-  RARITY_COLOR, RARITY_LABEL, CLASS_LABEL, CLASS_ICON, CLASS_PASSIVE,
+  RARITY_COLOR, RARITY_LABEL, CLASS_LABEL, CLASS_ICON, CLASS_COLOR, CLASS_PASSIVE,
   AGENT_TRAIT_LABEL, formatTraitValue,
   effectiveDurationMs, collectBonuses, effectiveCashRange, effectiveGemChance, opSuccessChance, MIN_DEPLOY_SUCCESS,
   type HackRarity, type AgentClass, type AgentTrait, type AgentTraitType, type ItemMod,
@@ -466,10 +466,10 @@ function deployBlockedReason(t: any): string | null {
               ]"
               @click="!busyAgentIds.has(agent.id) && toggleAgent(agent.id, selectedTemplate)"
             >
-              <div class="size-8 rounded-lg flex items-center justify-center shrink-0"
-                :class="`bg-${RARITY_COLOR[agent.rarity as HackRarity]}/15`">
+              <div class="size-8 rounded-lg flex items-center justify-center shrink-0 ring-1"
+                :class="[CLASS_COLOR[agent.class as AgentClass].bg, CLASS_COLOR[agent.class as AgentClass].ring]">
                 <UIcon :name="CLASS_ICON[agent.class as AgentClass]" class="size-4"
-                  :class="`text-${RARITY_COLOR[agent.rarity as HackRarity]}`" />
+                  :class="CLASS_COLOR[agent.class as AgentClass].text" />
               </div>
               <div class="flex-1 min-w-0">
                 <div class="flex items-center gap-2">
@@ -477,7 +477,10 @@ function deployBlockedReason(t: any): string | null {
                   <UBadge size="sm" :color="RARITY_COLOR[agent.rarity as HackRarity]" variant="subtle" :label="RARITY_LABEL[agent.rarity as HackRarity]" />
                   <UBadge v-if="busyAgentIds.has(agent.id)" size="sm" color="neutral" variant="subtle" label="On Op" />
                 </div>
-                <p class="text-sm text-muted">{{ CLASS_LABEL[agent.class as AgentClass] }} · Lv {{ agent.level }} · {{ agent.power }} power</p>
+                <p class="text-sm text-muted">
+                  <span class="font-medium" :class="CLASS_COLOR[agent.class as AgentClass].text">{{ CLASS_LABEL[agent.class as AgentClass] }}</span>
+                  · Lv {{ agent.level }} · {{ agent.power }} power
+                </p>
                 <!-- XP progress -->
                 <div class="mt-1.5 flex items-center gap-2">
                   <div class="flex-1 h-1 rounded-full bg-elevated overflow-hidden">

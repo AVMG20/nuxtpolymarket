@@ -2,7 +2,8 @@
 import {
   RARITY_COLOR, RARITY_LABEL, formatModValue, MOD_LABEL,
   itemSellPrice, RARITY_ORDER, MOD_RANGES, RARITY_MOD_COUNT,
-  type HackRarity, type AgentClass, type ItemSlot, type ItemMod, type ModType,
+  SLOT_ICON, SLOT_LABEL, SLOT_COLOR,
+  type HackRarity, type ItemSlot, type ItemMod, type ModType,
 } from '#shared/utils/hack-config'
 
 // Roll quality: what % of max value does this mod roll represent
@@ -84,10 +85,6 @@ async function sellItem(itemId: string, rarity: HackRarity, itemLevel: number) {
     toast.add({ title: e.data?.statusMessage ?? 'Sell failed', color: 'error' })
   } finally { selling.value = null }
 }
-
-const SLOT_ICON: Record<ItemSlot, string> = {
-  tool: 'i-lucide-usb', software: 'i-lucide-terminal', hardware: 'i-lucide-cpu',
-}
 </script>
 
 <template>
@@ -117,17 +114,18 @@ const SLOT_ICON: Record<ItemSlot, string> = {
       <UCard v-if="lastPull" class="ring-1 ring-primary/40">
         <div class="flex items-start justify-between gap-3 mb-3">
           <div class="flex items-start gap-3">
-            <div class="size-12 rounded-xl flex items-center justify-center shrink-0"
-              :class="`bg-${RARITY_COLOR[lastPull.rarity as HackRarity]}/15`">
+            <div class="size-12 rounded-xl flex items-center justify-center shrink-0 ring-1"
+              :class="[SLOT_COLOR[lastPull.slot as ItemSlot].bg, SLOT_COLOR[lastPull.slot as ItemSlot].ring]">
               <UIcon :name="SLOT_ICON[lastPull.slot as ItemSlot]" class="size-6"
-                :class="`text-${RARITY_COLOR[lastPull.rarity as HackRarity]}`" />
+                :class="SLOT_COLOR[lastPull.slot as ItemSlot].text" />
             </div>
             <div>
               <div class="flex items-center gap-2 mb-1">
                 <UBadge :color="RARITY_COLOR[lastPull.rarity as HackRarity]" variant="subtle" :label="lastPull.rarityLabel" />
-                <div class="flex items-center gap-1 px-2 py-0.5 rounded-md bg-elevated border border-default text-sm text-muted">
+                <div class="flex items-center gap-1 px-2 py-0.5 rounded-md border text-sm font-medium"
+                  :class="[SLOT_COLOR[lastPull.slot as ItemSlot].bg, SLOT_COLOR[lastPull.slot as ItemSlot].border, SLOT_COLOR[lastPull.slot as ItemSlot].text]">
                   <UIcon :name="SLOT_ICON[lastPull.slot as ItemSlot]" class="size-3.5" />
-                  <span class="capitalize">{{ lastPull.slot }}</span>
+                  <span>{{ SLOT_LABEL[lastPull.slot as ItemSlot] }}</span>
                 </div>
                 <span class="text-sm text-muted">Lv {{ lastPull.itemLevel }}</span>
               </div>
@@ -233,7 +231,7 @@ const SLOT_ICON: Record<ItemSlot, string> = {
               <UButton v-for="agent in state.agents" :key="agent.id" block size="sm" variant="outline" color="primary"
                 :loading="equipping" @click="equipTo(item.id, agent.id)">
                 {{ agent.name }}
-                <template #trailing><span class="text-sm opacity-60">{{ item.slot }}</span></template>
+                <template #trailing><span class="text-sm opacity-60">{{ SLOT_LABEL[item.slot] }}</span></template>
               </UButton>
               <UButton v-if="item.equippedBy" block size="sm" color="neutral" variant="outline"
                 icon="i-lucide-link-slash" label="Unequip" :loading="equipping"

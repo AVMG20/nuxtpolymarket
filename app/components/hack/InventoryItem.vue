@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {
-  RARITY_COLOR, RARITY_LABEL, MOD_LABEL, formatModValue,
+  RARITY_COLOR, RARITY_ACCENT, RARITY_LABEL, MOD_LABEL, formatModValue, SLOT_ICON, SLOT_LABEL, SLOT_COLOR,
   type HackRarity, type ItemSlot, type ItemMod,
 } from '#shared/utils/hack-config'
 
@@ -20,18 +20,17 @@ defineProps<{
 }>()
 
 defineEmits<{ select: [] }>()
-
-const SLOT_ICON: Record<ItemSlot, string> = {
-  tool: 'i-lucide-usb', software: 'i-lucide-terminal', hardware: 'i-lucide-cpu',
-}
 </script>
 
 <template>
   <div
-    class="rounded-lg border p-3 cursor-pointer transition-colors"
+    class="relative overflow-hidden rounded-lg border pl-3.5 pr-3 py-3 cursor-pointer transition-colors"
     :class="selected ? 'border-primary bg-primary/5' : 'border-default hover:border-primary/40'"
     @click="$emit('select')"
   >
+    <!-- Rarity accent strip -->
+    <span class="absolute inset-y-0 left-0 w-1" :class="RARITY_ACCENT[item.rarity]" />
+
     <!-- Name + rarity -->
     <div class="flex items-start justify-between gap-2 mb-1.5">
       <span class="font-medium text-sm leading-snug">{{ item.name }}</span>
@@ -40,11 +39,13 @@ const SLOT_ICON: Record<ItemSlot, string> = {
 
     <!-- Slot + level chips -->
     <div class="flex items-center gap-1.5 mb-2">
-      <div class="flex items-center gap-1 px-2 py-0.5 rounded-md bg-elevated border border-default text-sm text-muted">
+      <div class="flex items-center gap-1 px-2 py-0.5 rounded-md border text-sm font-medium"
+        :class="[SLOT_COLOR[item.slot].bg, SLOT_COLOR[item.slot].border, SLOT_COLOR[item.slot].text]">
         <UIcon :name="SLOT_ICON[item.slot]" class="size-3.5" />
-        <span class="capitalize font-medium">{{ item.slot }}</span>
+        <span>{{ SLOT_LABEL[item.slot] }}</span>
       </div>
       <span class="text-sm text-muted">Lv {{ item.itemLevel }}</span>
+      <UBadge v-if="showStatus && item.equippedBy" size="xs" color="primary" variant="subtle" label="Equipped" class="ml-auto" />
     </div>
 
     <!-- Mods -->
@@ -54,8 +55,6 @@ const SLOT_ICON: Record<ItemSlot, string> = {
         <span class="font-semibold text-primary">{{ formatModValue(m.type, m.value) }}</span>
       </div>
     </div>
-
-    <p v-if="showStatus" class="text-sm text-muted mt-1.5">{{ item.equippedBy ? 'Equipped' : 'Not equipped' }}</p>
 
     <!-- Per-page actions, revealed when selected -->
     <div v-if="selected && $slots.actions" class="space-y-1.5 pt-2 mt-2 border-t border-default" @click.stop>

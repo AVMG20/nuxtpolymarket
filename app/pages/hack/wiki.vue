@@ -2,7 +2,7 @@
 import {
   RARITY_COLOR, RARITY_LABEL, RARITY_MOD_COUNT, AGENT_TRAIT_COUNT,
   AGENT_TRAIT_LABEL, AGENT_TRAIT_RANGES, MOD_LABEL, MOD_RANGES, CLASS_LABEL, CLASS_PASSIVE,
-  RARITY_ORDER,
+  CLASS_COLOR, CLASS_ICON, RARITY_ORDER,
   type HackRarity, type AgentTraitType, type ModType, type AgentClass,
 } from '#shared/utils/hack-config'
 
@@ -131,9 +131,15 @@ function fmtRange(type: AgentTraitType | ModType, min: number, max: number): str
         <p class="text-sm text-muted mb-3">Class is fixed at recruitment. It determines the agent's passive bonus (on top of random traits).</p>
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
           <div v-for="cls in (['infiltrator','cryptographer','social_engineer','bruteforce'] as AgentClass[])" :key="cls"
-            class="p-3 rounded-lg bg-elevated text-sm">
-            <p class="font-semibold">{{ CLASS_LABEL[cls] }}</p>
-            <p class="text-primary font-medium mt-0.5">{{ CLASS_PASSIVE[cls].label }}</p>
+            class="flex items-center gap-3 p-3 rounded-lg border text-sm"
+            :class="[CLASS_COLOR[cls].bg, CLASS_COLOR[cls].border]">
+            <div class="size-9 rounded-lg flex items-center justify-center shrink-0 bg-default/40">
+              <UIcon :name="CLASS_ICON[cls]" class="size-5" :class="CLASS_COLOR[cls].text" />
+            </div>
+            <div>
+              <p class="font-semibold" :class="CLASS_COLOR[cls].text">{{ CLASS_LABEL[cls] }}</p>
+              <p class="text-muted font-medium mt-0.5">{{ CLASS_PASSIVE[cls].label }}</p>
+            </div>
           </div>
         </div>
       </UCard>
