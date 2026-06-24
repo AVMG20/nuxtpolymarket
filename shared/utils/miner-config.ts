@@ -52,9 +52,9 @@ export const LOOTBOX_MAX_SLOTS = 10
 export const LOOTBOX_BASE_SLOT_COST = 2000
 export const LOOTBOX_SLOT_GROWTH = 3.1
 
-// A paid open is bought with GEMS, not cash. Base 1 gem + 1 gem per 10 vault
-// (storage) levels: L1=1, L10=2, L20=3, … L100=11.
-export const LOOTBOX_OPEN_BASE_GEM_COST = 1
+// A paid open costs cash. Price = EV / (1 - HOUSE_EDGE), so the house takes a
+// small cut above expected value. At 2% the player pays ~1.02× the average payout.
+export const LOOTBOX_HOUSE_EDGE = 0.02
 
 export type LootboxRarity = 'common' | 'uncommon' | 'rare' | 'epic' | 'legendary'
 
@@ -139,9 +139,9 @@ export function lootboxExpectedValue(storageValue: number, gemPrice: number) {
     return totalWeight > 0 ? ev / totalWeight : 0
 }
 
-/** Gem cost of a paid open: 1 gem + 1 per 10 vault (storage) levels. */
-export function lootboxOpenGemCost(vaultLevel: number) {
-    return LOOTBOX_OPEN_BASE_GEM_COST + Math.floor(vaultLevel / 10)
+/** Cash price of a paid open — EV plus the house edge. */
+export function lootboxOpenPrice(storageValue: number, gemPrice: number) {
+    return lootboxExpectedValue(storageValue, gemPrice) / (1 - LOOTBOX_HOUSE_EDGE)
 }
 
 /** Pick a reward by weight. Returns the chosen reward (server-authoritative). */

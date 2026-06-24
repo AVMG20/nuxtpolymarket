@@ -19,7 +19,6 @@ const RARITY_CLASSES: Record<LootboxRarity, { border: string, borderSoft: string
 
 const { fetchSession, user } = useAuth()
 const balance = computed(() => parseFloat(user.value?.balance ?? '0'))
-const gems = computed(() => user.value?.gems ?? 0)
 const { data: state, refresh } = await useFetch('/api/miner/state')
 const toast = useToast()
 
@@ -308,14 +307,11 @@ const gemPrizes = computed(() =>
             block
             color="primary"
             size="lg"
-            :disabled="spinning || gems < state.lootboxOpenGemCost"
+            :disabled="spinning || balance < state.lootboxOpenPrice"
             @click="open('paid')"
           >
             <template #trailing>
-              <span class="flex items-center gap-1 text-sm opacity-80">
-                · {{ state.lootboxOpenGemCost }}
-                <UIcon name="i-lucide-gem" class="size-4 text-cyan-400" />
-              </span>
+              <span class="text-sm opacity-80">· ${{ formatNumber(state.lootboxOpenPrice, true) }}</span>
             </template>
           </UButton>
         </div>

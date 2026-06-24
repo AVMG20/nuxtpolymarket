@@ -3,13 +3,13 @@ import { readBody } from 'h3'
 import { db } from '#server/database'
 import { minerState, user, gemMarketState } from '#server/database/schema'
 import { auth } from '#server/utils/auth'
-import { credit } from '#server/utils/balance'
+import { credit, debit } from '#server/utils/balance'
 import {
   vaultCap,
   lootboxRoll,
   lootboxRewardValue,
   lootboxGemCount,
-  lootboxOpenGemCost,
+  lootboxOpenPrice,
   overclockMultiplier,
 } from '#shared/utils/miner-config'
 import { gemComputeLivePrice, GEM_INITIAL_PRICE } from '#shared/utils/gamelogic/gem-market'
@@ -21,10 +21,9 @@ export default defineEventHandler(async (event) => {
   const { mode } = await readBody<{ mode?: 'free' | 'paid' }>(event) ?? {}
   const userId = session.user.id
 
-  const [s, market, currentUser] = await Promise.all([
+  const [s, market] = await Promise.all([
     db.query.minerState.findFirst({ where: eq(minerState.userId, userId) }),
     db.query.gemMarketState.findFirst(),
-    db.query.user.findFirst({ where: eq(user.id, userId), columns: { gems: true } }),
   ])
   if (!s) throw createError({ statusCode: 404, statusMessage: 'Miner not initialized' })
 
@@ -43,10 +42,9 @@ export default defineEventHandler(async (event) => {
 
   // Charge / consume up-front so a roll is never granted for free.
   if (paid) {
-    const gemCost = lootboxOpenGemCost(s.vaultLevel)
-    if ((currentUser?.gems ?? 0) < gemCost)
-      throw createError({ statusCode: 400, statusMessage: `Need ${gemCost} gems` })
-    await db.update(user).set({ gems: sql`${user.gems} - ${gemCost}` }).where(eq(user.id, userId))
+    const price = lootboxOpenPrice(cap, gemPrice)
+    // debit throws 400 if the user can't afford it
+    await debit(userId, price.toFixed(4), 'lootbox:open')
   } else {
     await db
       .update(minerState)

@@ -6,7 +6,7 @@ import {
   vaultCap, rigUpgradeCost, vaultUpgradeCost,
   factoryCap, factoryUpgradeCost, computePending,
   RIG_MAX_LEVEL, VAULT_MAX_LEVEL, FACTORY_MAX_LEVEL,
-  lootboxSlotCost, LOOTBOX_MAX_SLOTS, lootboxExpectedValue, lootboxOpenGemCost,
+  lootboxSlotCost, LOOTBOX_MAX_SLOTS, lootboxExpectedValue, lootboxOpenPrice,
   effectiveRigIncome, effectiveFactoryRate, overclockMultiplier, catalystMultiplier,
   overclockUpgradeCost, catalystUpgradeCost, OVERCLOCK_MAX_LEVEL, CATALYST_MAX_LEVEL,
 } from '#shared/utils/miner-config'
@@ -66,7 +66,7 @@ export default defineEventHandler(async (event) => {
     lootboxNextSlotCost: lootboxSlotCost(s.lootboxSlots),
     lootboxFreeOpensRemaining: Math.max(0, s.lootboxSlots - lootboxOpensToday),
     lootboxAvgValue: lootboxExpectedValue(cap, gemPrice),
-    lootboxOpenGemCost: lootboxOpenGemCost(s.vaultLevel),
+    lootboxOpenPrice: lootboxOpenPrice(cap, gemPrice),
     // Gem-shop upgrades
     overclockLevel: s.overclockLevel,
     overclockMaxLevel: OVERCLOCK_MAX_LEVEL,
