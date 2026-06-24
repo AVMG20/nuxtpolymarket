@@ -6,9 +6,9 @@ import {
   effectiveGrowTime, breedDuration, getMutationPair,
 } from '#shared/utils/xeno'
 
-/** When XENO_DEV=true, all grow/breed durations are capped to 1 second for testing */
+/** When DEV_MODE=true, all grow/breed durations are capped to 1 second for testing */
 export function xenoDuration(rawSecs: number): number {
-  return process.env.XENO_DEV === 'true' ? 1 : rawSecs
+  return process.env.DEV_MODE === 'true' ? 1 : rawSecs
 }
 
 /** Effective grow time for a plant instance including artifact speed boost and dev mode */

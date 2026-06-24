@@ -1,0 +1,191 @@
+<script setup lang="ts">
+import {
+  RARITY_COLOR, RARITY_LABEL, RARITY_MOD_COUNT, AGENT_TRAIT_COUNT,
+  AGENT_TRAIT_LABEL, AGENT_TRAIT_RANGES, MOD_LABEL, MOD_RANGES, CLASS_LABEL, CLASS_PASSIVE,
+  RARITY_ORDER,
+  type HackRarity, type AgentTraitType, type ModType, type AgentClass,
+} from '#shared/utils/hack-config'
+
+function fmtRange(type: AgentTraitType | ModType, min: number, max: number): string {
+  if (type === 'gem_chance') return `+${(min * 100).toFixed(1)}% – +${(max * 100).toFixed(1)}%`
+  if (type === 'xp_flat' || type === 'power_flat') return `+${min} – +${max}`
+  return `+${min}% – +${max}%`
+}
+</script>
+
+<template>
+  <UContainer class="py-6 pb-12 space-y-10 max-w-3xl">
+    <div>
+      <h1 class="text-3xl font-bold">Hack Ops — Wiki</h1>
+      <p class="text-muted mt-1">Everything you need to know about power, traits, and gear.</p>
+    </div>
+
+    <!-- Power Level -->
+    <section class="space-y-3">
+      <h2 class="text-xl font-bold flex items-center gap-2">
+        <UIcon name="i-lucide-zap" class="size-5 text-primary" /> Power Level
+      </h2>
+      <UCard>
+        <p class="text-sm mb-3">Your <strong>Power Level</strong> is the sum of every agent's individual power. It determines which operations you can attempt.</p>
+        <div class="space-y-2 text-sm">
+          <div class="p-3 rounded-lg bg-elevated">
+            <p class="font-semibold mb-1">Agent power formula:</p>
+            <code class="text-primary">(level × 10 + class_bonus + item_levels × 2 + power_mods + flat_power_trait) × (1 + power%_trait)</code>
+          </div>
+          <ul class="list-disc list-inside space-y-1 text-muted pl-2">
+            <li>Leveling an agent from 1→20 adds 190 base power</li>
+            <li>A level-10 item adds 20 power (before mod bonuses)</li>
+            <li>Bruteforce class adds +15 power passively</li>
+            <li>Flat Power adds up to +60; Power % multiplies the whole total by up to +30%</li>
+            <li><strong>A single agent caps at 611 power</strong> (level 20, perfect gear &amp; traits) — so a 4-agent squad maxes at <strong>2,444</strong>, exactly what the final op demands</li>
+          </ul>
+        </div>
+        <div class="mt-4 p-3 rounded-lg bg-primary/10 border border-primary/20 text-sm">
+          <p class="font-semibold text-primary mb-1">Every op is visible</p>
+          <p class="text-muted">All operations are always listed and openable. You can deploy any op as long as your selected team's success chance is at least 1% — so you can attempt the next tier early and just expect to fail often until you outpower it.</p>
+        </div>
+      </UCard>
+    </section>
+
+    <!-- Success Chance -->
+    <section class="space-y-3">
+      <h2 class="text-xl font-bold flex items-center gap-2">
+        <UIcon name="i-lucide-target" class="size-5 text-primary" /> Success Chance
+      </h2>
+      <UCard>
+        <p class="text-sm mb-3">Success is rolled when you collect a completed op. Agents still gain 30% XP on failure. You need at least <strong>1%</strong> (roughly 11% of the op's power) just to deploy.</p>
+        <div class="p-3 rounded-lg bg-elevated text-sm mb-3">
+          <code class="text-primary">chance = clamp(0%, 100%, (teamPower / power - 0.1) / 1.3)</code>
+        </div>
+        <div class="grid grid-cols-2 gap-2 text-sm">
+          <div class="p-2 rounded bg-elevated">
+            <p class="text-muted">At 50% of power</p><p class="font-bold text-error">~31%</p>
+          </div>
+          <div class="p-2 rounded bg-elevated">
+            <p class="text-muted">At full power</p><p class="font-bold text-warning">~69%</p>
+          </div>
+          <div class="p-2 rounded bg-elevated">
+            <p class="text-muted">At 1.2× power</p><p class="font-bold text-success">~85%</p>
+          </div>
+          <div class="p-2 rounded bg-elevated">
+            <p class="text-muted">At 1.4× power</p><p class="font-bold text-success">100%</p>
+          </div>
+        </div>
+        <p class="text-sm text-muted mt-3">Raise it purely with <strong>power</strong>: higher agent levels, <strong>Power</strong> &amp; <strong>Power %</strong> traits, and power gear. There's no flat success bonus.</p>
+      </UCard>
+    </section>
+
+    <!-- Rarity System -->
+    <section class="space-y-3">
+      <h2 class="text-xl font-bold flex items-center gap-2">
+        <UIcon name="i-lucide-gem" class="size-5 text-primary" /> Rarity System
+      </h2>
+      <UCard>
+        <p class="text-sm text-muted mb-3">Both agents and items share the same 5-tier rarity. Higher rarity = more stats.</p>
+        <div class="space-y-2">
+          <div v-for="r in RARITY_ORDER" :key="r" class="flex items-center gap-3 p-3 rounded-lg bg-elevated">
+            <UBadge :color="RARITY_COLOR[r]" variant="subtle" :label="RARITY_LABEL[r]" class="w-24 justify-center shrink-0" />
+            <div class="flex-1 grid grid-cols-2 gap-x-4 text-sm">
+              <span class="text-muted">Agent traits: <strong>{{ AGENT_TRAIT_COUNT[r] }}</strong></span>
+              <span class="text-muted">Item mods: <strong>{{ RARITY_MOD_COUNT[r] }}</strong></span>
+            </div>
+          </div>
+        </div>
+      </UCard>
+    </section>
+
+    <!-- Agent Traits -->
+    <section class="space-y-3">
+      <h2 class="text-xl font-bold flex items-center gap-2">
+        <UIcon name="i-lucide-user-check" class="size-5 text-primary" /> Agent Traits
+      </h2>
+      <UCard>
+        <p class="text-sm text-muted mb-4">Each agent rolls a random set of traits on recruitment — one per rarity tier (Ghost 1 → Phantom 5), and each trait type appears at most once per agent. Traits are permanent, so fire &amp; re-recruit to reroll. All of an op team's traits are pooled together when the op resolves.</p>
+        <div class="space-y-2">
+          <div v-for="(range, type) in AGENT_TRAIT_RANGES" :key="type"
+            class="flex items-start justify-between gap-3 p-3 rounded-lg bg-elevated text-sm">
+            <div>
+              <p class="font-semibold">{{ AGENT_TRAIT_LABEL[type as AgentTraitType] }}</p>
+              <p class="text-muted text-sm mt-0.5">
+                <template v-if="type === 'speed_percent'">Shortens how long this op takes. Stacks with item Speed mods and the Infiltrator class, capped at 75% total reduction.</template>
+                <template v-else-if="type === 'loot_percent'">Increases the cash payout of a successful op. Adds together with item Loot mods and the Cryptographer class bonus.</template>
+                <template v-else-if="type === 'gem_chance'">Adds a flat percentage to the chance an op drops gems. Only matters on ops that can drop gems in the first place.</template>
+                <template v-else-if="type === 'xp_boost'">This agent earns more XP from every op, so it levels up (and gains power) faster.</template>
+                <template v-else-if="type === 'power_flat'">Adds a flat amount to this agent's power — raises success chance and helps unlock tougher ops. Best on low-level agents.</template>
+                <template v-else-if="type === 'power_percent'">Multiplies this agent's whole power (level + gear + flat power) by a percentage. The more invested the agent, the bigger the gain — best on high-level, well-geared agents.</template>
+                <template v-else-if="type === 'group_loot'">Extra cash, but only on ops run with 2+ agents — it does nothing on a solo op. Stacks with item Group Loot mods.</template>
+              </p>
+            </div>
+            <span class="font-medium text-primary shrink-0">{{ fmtRange(type as AgentTraitType, range.min, range.max) }}</span>
+          </div>
+        </div>
+      </UCard>
+    </section>
+
+    <!-- Agent Classes -->
+    <section class="space-y-3">
+      <h2 class="text-xl font-bold flex items-center gap-2">
+        <UIcon name="i-lucide-users" class="size-5 text-primary" /> Agent Classes
+      </h2>
+      <UCard>
+        <p class="text-sm text-muted mb-3">Class is fixed at recruitment. It determines the agent's passive bonus (on top of random traits).</p>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          <div v-for="cls in (['infiltrator','cryptographer','social_engineer','bruteforce'] as AgentClass[])" :key="cls"
+            class="p-3 rounded-lg bg-elevated text-sm">
+            <p class="font-semibold">{{ CLASS_LABEL[cls] }}</p>
+            <p class="text-primary font-medium mt-0.5">{{ CLASS_PASSIVE[cls].label }}</p>
+          </div>
+        </div>
+      </UCard>
+    </section>
+
+    <!-- Item Mods -->
+    <section class="space-y-3">
+      <h2 class="text-xl font-bold flex items-center gap-2">
+        <UIcon name="i-lucide-cpu" class="size-5 text-primary" /> Item Mods
+      </h2>
+      <UCard>
+        <p class="text-sm text-muted mb-4">Items drop from ops or are bought via pulls. Each mod is rolled randomly within its range. Roll quality is shown as a progress bar (green = near max).</p>
+        <div class="space-y-2">
+          <div v-for="(range, type) in MOD_RANGES" :key="type"
+            class="flex items-start justify-between gap-3 p-3 rounded-lg bg-elevated text-sm">
+            <div>
+              <p class="font-semibold">{{ MOD_LABEL[type as ModType] }}</p>
+              <p class="text-muted text-sm mt-0.5">
+                <template v-if="type === 'speed_percent'">Reduces op duration. Stacks with agent speed traits. Max 75% total reduction.</template>
+                <template v-else-if="type === 'loot_percent'">Multiplies cash rewards from the op.</template>
+                <template v-else-if="type === 'gem_chance'">Adds flat % to gem drop chance on any op.</template>
+                <template v-else-if="type === 'xp_flat'">Flat XP added per op completion for the equipped agent.</template>
+                <template v-else-if="type === 'power_flat'">Increases the equipped agent's power rating directly.</template>
+                <template v-else-if="type === 'group_loot_percent'">Loot bonus only active when 2+ agents are on the op.</template>
+              </p>
+            </div>
+            <span class="font-medium text-primary shrink-0">{{ fmtRange(type as ModType, range.min, range.max) }}</span>
+          </div>
+        </div>
+      </UCard>
+    </section>
+
+    <!-- Pricing & Progression -->
+    <section class="space-y-3">
+      <h2 class="text-xl font-bold flex items-center gap-2">
+        <UIcon name="i-lucide-trending-up" class="size-5 text-primary" /> Pricing &amp; Progression
+      </h2>
+      <UCard>
+        <p class="text-sm mb-3">
+          Every agent and item pull has a <strong>fixed price</strong> per tier — it never changes based on your power, gear or inventory, so costs are always predictable.
+        </p>
+        <div class="space-y-2 text-sm">
+          <div class="p-3 rounded-lg bg-elevated">
+            <p class="font-semibold mb-1">Where the difficulty curve lives:</p>
+            <ul class="list-disc list-inside space-y-1 text-muted">
+              <li><strong>The op ladder</strong> — each op pays roughly 1.6× the one before, from a few hundred up to ~5M on the final op, while durations stretch from 1h to 48h.</li>
+              <li><strong>Roster slots</strong> — each extra agent slot multiplies how many ops you run at once, so its cost scales hard (150k → 60M).</li>
+            </ul>
+          </div>
+          <p class="text-muted">Roster (6) and inventory (15) caps keep cheap late-game pulls in check: pull, equip your best roll, and sell the rest. Selling an item only frees a slot and refunds cash — it no longer affects any prices.</p>
+        </div>
+      </UCard>
+    </section>
+  </UContainer>
+</template>

@@ -198,6 +198,56 @@ export const xenoBreederSlots = pgTable('xeno_breeder_slots', {
   unique('xeno_breeder_slot_unique').on(t.userId, t.slotIndex),
 ])
 
+// ─── Hack Ops ─────────────────────────────────────────────────────────────────
+
+export const hackState = pgTable('hack_state', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().unique().references(() => user.id, { onDelete: 'cascade' }),
+  rosterSlots: integer('roster_slots').notNull().default(2),
+  totalOpsCompleted: integer('total_ops_completed').notNull().default(0),
+  totalRecruits: integer('total_recruits').notNull().default(0),
+  shopItems: jsonb('shop_items').notNull().default([]),
+  shopRefreshAt: timestamp('shop_refresh_at').notNull().defaultNow(),
+})
+
+export const hackAgents = pgTable('hack_agents', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  class: text('class').notNull(),
+  rarity: text('rarity').notNull(),
+  level: integer('level').notNull().default(1),
+  xp: integer('xp').notNull().default(0),
+  equippedTool: text('equipped_tool'),
+  equippedSoftware: text('equipped_software'),
+  equippedHardware: text('equipped_hardware'),
+  traits: jsonb('traits').notNull().default([]),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (t) => [index('hack_agents_userId_idx').on(t.userId)])
+
+export const hackItems = pgTable('hack_items', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  slot: text('slot').notNull(),
+  itemLevel: integer('item_level').notNull(),
+  rarity: text('rarity').notNull(),
+  mods: jsonb('mods').notNull().default([]),
+  equippedBy: text('equipped_by'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (t) => [index('hack_items_userId_idx').on(t.userId)])
+
+export const hackOps = pgTable('hack_ops', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  templateId: text('template_id').notNull(),
+  agentIds: jsonb('agent_ids').notNull().default([]),
+  startedAt: timestamp('started_at').defaultNow().notNull(),
+  completesAt: timestamp('completes_at').notNull(),
+  collected: boolean('collected').notNull().default(false),
+  reward: jsonb('reward'),
+}, (t) => [index('hack_ops_userId_idx').on(t.userId)])
+
 export const transactionsRelations = relations(transactions, ({ one }) => ({
   user: one(user, { fields: [transactions.userId], references: [user.id] }),
 }));
