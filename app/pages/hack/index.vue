@@ -188,6 +188,36 @@ function powerColorClass(status: string) {
   if (status === 'locked') return 'text-error'
   return 'text-muted'
 }
+
+// ── List view ────────────────────────────────────────────────────────────────
+// Operations sorted by money value (highest first) so the best-paying op you can
+// run is easy to find.
+const sortedTemplates = computed(() => {
+  if (!state.value) return []
+  return [...state.value.opTemplates].sort(
+    (a, b) => (b.baseCash[0] + b.baseCash[1]) - (a.baseCash[0] + a.baseCash[1]),
+  )
+})
+
+const expandedId = ref<string | null>(null)
+function toggleExpand(id: string) {
+  expandedId.value = expandedId.value === id ? null : id
+}
+
+// Deploy is impossible when there aren't enough free agents, or when even your best
+// possible team can't reach the minimum success chance — block it in those cases.
+function canDeploy(t: any) {
+  return t.status !== 'no_agents' && t.effectiveSuccessChance >= MIN_DEPLOY_SUCCESS
+}
+function deployBlockedReason(t: any): string | null {
+  if (t.status === 'no_agents') {
+    return `Need ${t.minAgents} free agent${t.minAgents > 1 ? 's' : ''}`
+  }
+  if (t.effectiveSuccessChance < MIN_DEPLOY_SUCCESS) {
+    return `Power too low — best ${t.bestPower} / ${t.minPower}`
+  }
+  return null
+}
 </script>
 
 <template>
@@ -269,7 +299,7 @@ function powerColorClass(status: string) {
         </UCard>
       </div>
 
-      <!-- Op Templates — sorted available first -->
+      <!-- Op Templates — compact list, sorted by money value -->
       <div class="space-y-3">
         <h2 class="text-sm font-semibold text-muted uppercase tracking-wide">Available Operations</h2>
 
@@ -277,107 +307,138 @@ function powerColorClass(status: string) {
           All agents are deployed. Collect your ops or recruit more agents.
         </div>
 
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-          <UCard
-            v-for="template in [...state.opTemplates].sort((a, b) => {
-              const order = { available: 0, close: 1, locked: 2, no_agents: 3 }
-              return (order[a.status as keyof typeof order] ?? 3) - (order[b.status as keyof typeof order] ?? 3)
-            })"
-            :key="template.id"
-            class="flex flex-col"
-          >
-            <!-- Header -->
-            <div class="flex items-start gap-3 mb-3">
-              <div class="size-10 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
-                <UIcon :name="template.icon" class="size-5 text-primary" />
-              </div>
-              <div class="flex-1 min-w-0">
-                <div class="flex items-center gap-2 flex-wrap">
-                  <p class="font-semibold text-base leading-tight">{{ template.name }}</p>
-                  <UBadge size="sm" :color="statusColor(template.status)" variant="subtle" :label="statusLabel(template.status, template)" />
-                </div>
-                <p class="text-xs text-muted mt-0.5 line-clamp-2">{{ template.description }}</p>
-              </div>
-            </div>
+        <div class="rounded-xl border border-default overflow-hidden bg-default">
+          <!-- Column header (desktop) -->
+          <div class="hidden sm:flex items-center gap-3 px-4 py-2 bg-elevated/60 border-b border-default text-[11px] font-medium uppercase tracking-wide text-muted">
+            <span class="size-9 shrink-0" />
+            <span class="flex-1">Operation</span>
+            <span class="w-28 text-right">Payout</span>
+            <span class="w-16 text-right">Gems</span>
+            <span class="w-20 text-right">Power</span>
+            <span class="w-14 text-right">Time</span>
+            <span class="size-4 shrink-0" />
+          </div>
 
-            <!-- Rewards -->
-            <div class="rounded-lg bg-elevated border border-default px-3 py-2.5 mb-3 space-y-1.5">
-              <div class="flex items-center justify-between">
-                <span class="text-xs text-muted">Cash</span>
-                <span class="text-sm font-bold flex items-center gap-0.5">
+          <div class="divide-y divide-default">
+            <div v-for="template in sortedTemplates" :key="template.id">
+              <!-- Row -->
+              <button
+                type="button"
+                class="w-full text-left px-3 sm:px-4 py-2.5 flex items-center gap-3 hover:bg-elevated/40 transition-colors"
+                :class="expandedId === template.id && 'bg-elevated/40'"
+                @click="toggleExpand(template.id)"
+              >
+                <div class="size-9 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+                  <UIcon :name="template.icon" class="size-4.5 text-primary" />
+                </div>
+
+                <!-- Name + status -->
+                <div class="min-w-0 flex-1">
+                  <div class="flex items-center gap-2">
+                    <span class="font-semibold text-sm truncate">{{ template.name }}</span>
+                    <UBadge
+                      size="sm" variant="subtle" class="shrink-0 hidden sm:inline-flex"
+                      :color="statusColor(template.status)"
+                      :label="statusLabel(template.status, template)"
+                    />
+                  </div>
+                  <!-- Mobile inline stats -->
+                  <div class="flex items-center gap-3 mt-1 text-xs sm:hidden">
+                    <span class="font-semibold text-yellow-400 flex items-center">
+                      <CoinBalance :value="template.baseCash[0]" />–<CoinBalance :value="template.baseCash[1]" :show-icon="false" />
+                    </span>
+                    <span class="text-muted flex items-center gap-1">
+                      <UIcon name="i-lucide-clock" class="size-3" />{{ formatDuration(template.durationMs) }}
+                    </span>
+                    <span class="flex items-center gap-1" :class="powerColorClass(template.status)">
+                      <UIcon name="i-lucide-zap" class="size-3" />{{ template.minPower || 'Any' }}
+                    </span>
+                  </div>
+                </div>
+
+                <!-- Desktop stat columns -->
+                <span class="hidden sm:flex w-28 justify-end items-center font-semibold text-sm text-yellow-400 tabular-nums">
                   <CoinBalance :value="template.baseCash[0]" />–<CoinBalance :value="template.baseCash[1]" :show-icon="false" />
                 </span>
-              </div>
-              <div class="flex items-center justify-between">
-                <span class="text-xs text-muted">Gems</span>
-                <span v-if="template.baseGemChance > 0" class="text-sm font-bold text-cyan-400 flex items-center gap-1">
-                  <GemBalance :value="template.baseGemCount[0]" />–<GemBalance :value="template.baseGemCount[1]" :show-icon="false" />
-                  <span class="text-xs text-muted font-normal">({{ Math.round(template.baseGemChance * 100) }}%)</span>
+                <span class="hidden sm:flex w-16 justify-end items-center text-sm tabular-nums">
+                  <span v-if="template.baseGemChance > 0" class="text-cyan-400 flex items-center gap-1">
+                    <GemBalance :value="template.baseGemCount[1]" />
+                  </span>
+                  <span v-else class="text-muted">—</span>
                 </span>
-                <span v-else class="text-xs text-muted">—</span>
-              </div>
-            </div>
+                <span class="hidden sm:flex w-20 justify-end items-center text-sm font-semibold tabular-nums" :class="powerColorClass(template.status)">
+                  {{ template.minPower > 0 ? (template.status !== 'available' && template.status !== 'no_agents' ? `${template.bestPower}/${template.minPower}` : template.minPower) : 'Any' }}
+                </span>
+                <span class="hidden sm:flex w-14 justify-end items-center text-sm text-muted tabular-nums">
+                  {{ formatDuration(template.durationMs) }}
+                </span>
 
-            <!-- Stat chips -->
-            <div class="grid grid-cols-2 gap-2 mb-3">
-              <!-- Duration -->
-              <div class="flex items-center gap-2 px-2.5 py-2 rounded-lg bg-elevated border border-default">
-                <UIcon name="i-lucide-clock" class="size-3.5 text-muted shrink-0" />
-                <div class="min-w-0">
-                  <p class="text-[10px] text-muted leading-none mb-0.5">Duration</p>
-                  <p class="text-sm font-semibold">{{ formatDuration(template.durationMs) }}</p>
+                <UIcon
+                  name="i-lucide-chevron-down"
+                  class="size-4 text-muted shrink-0 transition-transform"
+                  :class="expandedId === template.id && 'rotate-180'"
+                />
+              </button>
+
+              <!-- Expanded detail -->
+              <div v-if="expandedId === template.id" class="px-3 sm:px-4 pb-3.5 pt-1 bg-elevated/40">
+                <p class="text-xs text-muted">{{ template.description }}</p>
+                <p class="text-xs text-muted/80 italic mt-0.5">"{{ template.flavor }}"</p>
+
+                <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-3">
+                  <div class="flex items-center gap-2 px-2.5 py-2 rounded-lg bg-default border border-default">
+                    <UIcon name="i-lucide-users" class="size-3.5 text-blue-400 shrink-0" />
+                    <div class="min-w-0">
+                      <p class="text-[10px] text-muted leading-none mb-0.5">Agents</p>
+                      <p class="text-sm font-semibold text-blue-400">
+                        {{ template.minAgents === template.maxAgents ? template.minAgents : `${template.minAgents}–${template.maxAgents}` }}
+                      </p>
+                    </div>
+                  </div>
+                  <div class="flex items-center gap-2 px-2.5 py-2 rounded-lg bg-default border border-default">
+                    <UIcon name="i-lucide-sparkles" class="size-3.5 text-violet-400 shrink-0" />
+                    <div class="min-w-0">
+                      <p class="text-[10px] text-muted leading-none mb-0.5">XP / agent</p>
+                      <p class="text-sm font-semibold text-violet-400">+{{ template.baseXP }}</p>
+                    </div>
+                  </div>
+                  <div class="flex items-center gap-2 px-2.5 py-2 rounded-lg bg-default border border-default">
+                    <UIcon name="i-lucide-package" class="size-3.5 text-muted shrink-0" />
+                    <div class="min-w-0">
+                      <p class="text-[10px] text-muted leading-none mb-0.5">Item drop</p>
+                      <p class="text-sm font-semibold flex items-center gap-1.5">
+                        {{ Math.round(template.itemDropChance * 100) }}%
+                        <UBadge size="xs" variant="subtle" :color="RARITY_COLOR[template.itemDropRarity as HackRarity]" :label="RARITY_LABEL[template.itemDropRarity as HackRarity]" />
+                      </p>
+                    </div>
+                  </div>
+                  <div v-if="template.baseGemChance > 0" class="flex items-center gap-2 px-2.5 py-2 rounded-lg bg-default border border-default">
+                    <UIcon name="i-lucide-gem" class="size-3.5 text-cyan-400 shrink-0" />
+                    <div class="min-w-0">
+                      <p class="text-[10px] text-muted leading-none mb-0.5">Gems</p>
+                      <p class="text-sm font-semibold text-cyan-400">
+                        {{ template.baseGemCount[0] }}–{{ template.baseGemCount[1] }}
+                        <span class="text-muted font-normal text-xs">({{ Math.round(template.baseGemChance * 100) }}%)</span>
+                      </p>
+                    </div>
+                  </div>
                 </div>
-              </div>
-              <!-- Agents -->
-              <div class="flex items-center gap-2 px-2.5 py-2 rounded-lg bg-elevated border border-default">
-                <UIcon name="i-lucide-users" class="size-3.5 text-blue-400 shrink-0" />
-                <div class="min-w-0">
-                  <p class="text-[10px] text-muted leading-none mb-0.5">Agents</p>
-                  <p class="text-sm font-semibold text-blue-400">
-                    {{ template.minAgents === template.maxAgents ? template.minAgents : `${template.minAgents}–${template.maxAgents}` }}
+
+                <div class="flex items-center gap-3 mt-3">
+                  <UButton
+                    size="sm"
+                    icon="i-lucide-send"
+                    label="Deploy"
+                    :disabled="!canDeploy(template)"
+                    @click="openDispatch(template)"
+                  />
+                  <p v-if="deployBlockedReason(template)" class="text-xs text-error">
+                    {{ deployBlockedReason(template) }}
                   </p>
                 </div>
               </div>
-              <!-- XP -->
-              <div class="flex items-center gap-2 px-2.5 py-2 rounded-lg bg-elevated border border-default">
-                <UIcon name="i-lucide-sparkles" class="size-3.5 text-violet-400 shrink-0" />
-                <div class="min-w-0">
-                  <p class="text-[10px] text-muted leading-none mb-0.5">XP / agent</p>
-                  <p class="text-sm font-semibold text-violet-400">+{{ template.baseXP }}</p>
-                </div>
-              </div>
-              <!-- Power -->
-              <div class="flex items-center gap-2 px-2.5 py-2 rounded-lg bg-elevated border border-default">
-                <UIcon name="i-lucide-zap" class="size-3.5 shrink-0" :class="powerColorClass(template.status)" />
-                <div class="min-w-0">
-                  <p class="text-[10px] text-muted leading-none mb-0.5">Power req.</p>
-                  <p class="text-sm font-semibold" :class="powerColorClass(template.status)">
-                    {{ template.minPower > 0 ? (template.status !== 'available' ? `${template.bestPower} / ${template.minPower}` : template.minPower) : 'Any' }}
-                  </p>
-                </div>
-              </div>
             </div>
-
-            <!-- Item drop -->
-            <div class="flex items-center justify-between mb-4">
-              <span class="text-xs text-muted flex items-center gap-1">
-                <UIcon name="i-lucide-package" class="size-3.5" /> Item drop
-              </span>
-              <span class="flex items-center gap-1.5">
-                <span class="text-xs font-medium">{{ Math.round(template.itemDropChance * 100) }}%</span>
-                <UBadge size="xs" :color="RARITY_COLOR[template.itemDropRarity as HackRarity]" variant="subtle" :label="`${RARITY_LABEL[template.itemDropRarity as HackRarity]} item`" />
-              </span>
-            </div>
-
-            <UButton
-              block
-              size="sm"
-              class="mt-auto"
-              @click="openDispatch(template)"
-              label="Deploy"
-              icon="i-lucide-send"
-            />
-          </UCard>
+          </div>
         </div>
       </div>
     </template>
