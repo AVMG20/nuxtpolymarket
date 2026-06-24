@@ -78,20 +78,20 @@ export interface LootboxReward {
  */
 export const LOOTBOX_REWARDS: LootboxReward[] = [
     // Cash — fraction of vault storage value (the common, bread-and-butter rewards)
-    { id: 'cash-10',  kind: 'cash', amount: 0.10, weight: 24,  rarity: 'common' },
-    { id: 'cash-25',  kind: 'cash', amount: 0.25, weight: 17,  rarity: 'common' },
-    { id: 'cash-50',  kind: 'cash', amount: 0.50, weight: 12,  rarity: 'uncommon' },
-    { id: 'cash-100', kind: 'cash', amount: 1.00, weight: 7,   rarity: 'rare' },
+    { id: 'cash-10',  kind: 'cash', amount: 0.10, weight: 22,  rarity: 'common' },
+    { id: 'cash-25',  kind: 'cash', amount: 0.25, weight: 16,  rarity: 'common' },
+    { id: 'cash-50',  kind: 'cash', amount: 0.50, weight: 11,  rarity: 'uncommon' },
+    { id: 'cash-100', kind: 'cash', amount: 1.00, weight: 6,   rarity: 'rare' },
     { id: 'cash-200', kind: 'cash', amount: 2.00, weight: 2.5, rarity: 'epic' },
     { id: 'cash-300', kind: 'cash', amount: 3.00, weight: 1.2, rarity: 'epic' },
     { id: 'cash-500', kind: 'cash', amount: 5.00, weight: 0.6, rarity: 'legendary' },
-    // Gems — slightly less common than cash; awarded count scales with the live gem price
-    { id: 'gems-1',   kind: 'gems', amount: 1,    weight: 28,  rarity: 'common' },
-    { id: 'gems-5',   kind: 'gems', amount: 5,    weight: 14,  rarity: 'uncommon' },
-    { id: 'gems-10',  kind: 'gems', amount: 10,   weight: 9,   rarity: 'rare' },
-    { id: 'gems-25',  kind: 'gems', amount: 25,   weight: 5,   rarity: 'epic' },
-    { id: 'gems-50',  kind: 'gems', amount: 50,   weight: 2,   rarity: 'epic' },
-    { id: 'gems-100', kind: 'gems', amount: 100,  weight: 1,   rarity: 'legendary' },
+    // Gems — rarer than cash; awarded count scales with the live gem price
+    { id: 'gems-1',   kind: 'gems', amount: 1,    weight: 8.8,    rarity: 'common' },
+    { id: 'gems-5',   kind: 'gems', amount: 5,    weight: 4.4,    rarity: 'uncommon' },
+    { id: 'gems-10',  kind: 'gems', amount: 10,   weight: 2.75,  rarity: 'rare' },
+    { id: 'gems-25',  kind: 'gems', amount: 25,   weight: 1.32,  rarity: 'epic' },
+    { id: 'gems-50',  kind: 'gems', amount: 50,   weight: 0.6,  rarity: 'epic' },
+    { id: 'gems-100', kind: 'gems', amount: 100,  weight: 0.3,  rarity: 'legendary' },
 ]
 
 /** Cost to buy the next lootbox slot (pass current slot count before purchase). */
