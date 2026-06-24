@@ -25,7 +25,7 @@ function agentCombinedStats(agent: any) {
     if (t.type === 'xp_boost')       add('xp',      'XP Gain',      t.value, v => `+${Math.round(v)}%`)
     if (t.type === 'power_flat')     add('power',   'Power',        t.value, v => `+${Math.round(v)}`)
     if (t.type === 'power_percent')  add('powerpct','Power %',       t.value, v => `+${Math.round(v)}%`)
-    if (t.type === 'group_loot')     add('group',   'Group Loot',   t.value, v => `+${Math.round(v)}%`)
+    if (t.type === 'gem_bonus')      add('gembonus','Bonus Gems',    t.value, v => `+${Math.round(v)} gems`)
   }
 
   for (const slot of ['tool', 'software', 'hardware'] as ItemSlot[]) {
@@ -37,7 +37,6 @@ function agentCombinedStats(agent: any) {
       if (m.type === 'gem_chance')         add('gem',    'Gem Chance',  m.value, v => `+${(v * 100).toFixed(1)}%`)
       if (m.type === 'xp_flat')            add('xpflat', 'XP per Op',  m.value, v => `+${Math.round(v)} XP`)
       if (m.type === 'power_flat')         add('power',  'Power',       m.value, v => `+${Math.round(v)}`)
-      if (m.type === 'group_loot_percent') add('group',  'Group Loot',  m.value, v => `+${Math.round(v)}%`)
     }
   }
 
@@ -47,6 +46,7 @@ function agentCombinedStats(agent: any) {
 function formatTraitRange(type: AgentTraitType): string {
   const r = AGENT_TRAIT_RANGES[type]
   if (type === 'gem_chance') return `+${(r.min * 100).toFixed(1)}–${(r.max * 100).toFixed(1)}%`
+  if (type === 'gem_bonus') return `+${r.min}–${r.max} gems`
   if (type === 'power_flat') return `+${r.min}–${r.max}`
   return `+${r.min}–${r.max}%`
 }

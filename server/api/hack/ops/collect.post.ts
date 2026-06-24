@@ -36,23 +36,22 @@ export default defineEventHandler(async (event) => {
   const equippedItems = currentItems.filter(i => equippedItemIds.includes(i.id))
   const inventoryFull = currentItems.filter(i => !i.equippedBy).length >= MAX_INVENTORY_SLOTS
 
-  // Recalculate power at collect time (items may have changed — use what they had at op start is impossible to track, so use current)
-  const totalPower = agents.reduce((sum, agent) => {
+  // Per-agent loadouts (items may have changed since dispatch — recompute from
+  // current gear). Each agent keeps its own items so loot is capped per agent.
+  const rewardAgents = agents.map(agent => {
     const agentItemIds = ([agent.equippedTool, agent.equippedSoftware, agent.equippedHardware] as Array<string | null>)
       .filter((x): x is string => x !== null)
-    const agentItems = equippedItems
-      .filter(i => agentItemIds.includes(i.id))
-      .map(i => ({ itemLevel: i.itemLevel, mods: i.mods as ItemMod[] }))
-    return sum + agentPower({ level: agent.level, class: agent.class as AgentClass }, agentItems, (agent.traits ?? []) as AgentTrait[])
-  }, 0)
+    return {
+      level: agent.level,
+      class: agent.class as AgentClass,
+      traits: (agent.traits ?? []) as AgentTrait[],
+      items: equippedItems.filter(i => agentItemIds.includes(i.id)).map(i => ({ itemLevel: i.itemLevel, mods: i.mods as ItemMod[] })),
+    }
+  })
+  const totalPower = rewardAgents.reduce((sum, a) =>
+    sum + agentPower({ level: a.level, class: a.class }, a.items, a.traits), 0)
 
-  const reward = rollOpReward(
-    template,
-    agents.map(a => ({ level: a.level, class: a.class as AgentClass, rarity: a.rarity, traits: (a.traits ?? []) as AgentTrait[] })),
-    equippedItems.map(i => ({ itemLevel: i.itemLevel, mods: i.mods as ItemMod[], rarity: i.rarity })),
-    totalPower,
-    inventoryFull,
-  )
+  const reward = rollOpReward(template, rewardAgents, totalPower, inventoryFull)
 
   // Apply XP to each agent (full on success, 30% on fail — already baked into reward.xpPerAgent)
   const levelUps: Array<{ agentId: string; newLevel: number }> = []

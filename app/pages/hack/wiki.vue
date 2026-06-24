@@ -8,6 +8,7 @@ import {
 
 function fmtRange(type: AgentTraitType | ModType, min: number, max: number): string {
   if (type === 'gem_chance') return `+${(min * 100).toFixed(1)}% – +${(max * 100).toFixed(1)}%`
+  if (type === 'gem_bonus') return `+${min} – +${max} gems`
   if (type === 'xp_flat' || type === 'power_flat') return `+${min} – +${max}`
   return `+${min}% – +${max}%`
 }
@@ -108,12 +109,12 @@ function fmtRange(type: AgentTraitType | ModType, min: number, max: number): str
               <p class="font-semibold">{{ AGENT_TRAIT_LABEL[type as AgentTraitType] }}</p>
               <p class="text-muted text-sm mt-0.5">
                 <template v-if="type === 'speed_percent'">Shortens how long this op takes. Combines with this agent's item Speed mods and the Infiltrator class — a perfect agent tops out around 50%. On multi-agent ops each agent's speed is applied one after another on the remaining time (it does not stack into one big number), and an op can never drop below 35% of its base duration.</template>
-                <template v-else-if="type === 'loot_percent'">Increases the cash payout of a successful op. Adds together with item Loot mods and the Cryptographer class bonus.</template>
+                <template v-else-if="type === 'loot_percent'">Increases the cash payout of a successful op. Combines with this agent's item Loot mods and the Cryptographer class — each agent's loot is capped at 30%, then summed across the squad.</template>
                 <template v-else-if="type === 'gem_chance'">Adds a flat percentage to the chance an op drops gems. Only matters on ops that can drop gems in the first place.</template>
+                <template v-else-if="type === 'gem_bonus'">Adds flat extra gems to a raid — but only on ops that already award gems, and only when the gem chance roll succeeds. It can never create gems on an op that has none.</template>
                 <template v-else-if="type === 'xp_boost'">This agent earns more XP from every op, so it levels up (and gains power) faster.</template>
                 <template v-else-if="type === 'power_flat'">Adds a flat amount to this agent's power — raises success chance and helps unlock tougher ops. Best on low-level agents.</template>
                 <template v-else-if="type === 'power_percent'">Multiplies this agent's whole power (level + gear + flat power) by a percentage. The more invested the agent, the bigger the gain — best on high-level, well-geared agents.</template>
-                <template v-else-if="type === 'group_loot'">Extra cash, but only on ops run with 2+ agents — it does nothing on a solo op. Stacks with item Group Loot mods.</template>
               </p>
             </div>
             <span class="font-medium text-primary shrink-0">{{ fmtRange(type as AgentTraitType, range.min, range.max) }}</span>
@@ -159,11 +160,10 @@ function fmtRange(type: AgentTraitType | ModType, min: number, max: number): str
               <p class="font-semibold">{{ MOD_LABEL[type as ModType] }}</p>
               <p class="text-muted text-sm mt-0.5">
                 <template v-if="type === 'speed_percent'">Reduces op duration. Combines with the equipped agent's speed traits and class (a single agent tops out around 50%). Multiple agents apply one after another on the remaining time rather than summing.</template>
-                <template v-else-if="type === 'loot_percent'">Multiplies cash rewards from the op.</template>
+                <template v-else-if="type === 'loot_percent'">Multiplies cash rewards from the op. Counts toward the equipped agent's 30% loot cap.</template>
                 <template v-else-if="type === 'gem_chance'">Adds flat % to gem drop chance on any op.</template>
                 <template v-else-if="type === 'xp_flat'">Flat XP added per op completion for the equipped agent.</template>
                 <template v-else-if="type === 'power_flat'">Increases the equipped agent's power rating directly.</template>
-                <template v-else-if="type === 'group_loot_percent'">Loot bonus only active when 2+ agents are on the op.</template>
               </p>
             </div>
             <span class="font-medium text-primary shrink-0">{{ fmtRange(type as ModType, range.min, range.max) }}</span>

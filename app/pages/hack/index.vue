@@ -127,37 +127,23 @@ const modalStats = computed(() => {
   const agents = selectedAgentIds.value
     .map(id => state.value!.agents.find(a => a.id === id))
     .filter(Boolean) as NonNullable<typeof state.value>['agents']
-  const allItems = agents.flatMap(a =>
-    ([a.gear?.tool, a.gear?.software, a.gear?.hardware] as any[]).filter(Boolean)
-  )
   const power = agents.reduce((s, a) => s + a.power, 0)
   const successChance = opSuccessChance(power, template.minPower)
-  const bonuses = collectBonuses(
-    agents.map(a => ({ level: a.level, class: a.class as AgentClass })),
-    allItems.map((i: any) => ({ mods: i.mods as ItemMod[] })),
-    agents.length,
-  )
-  // Fold in agent trait bonuses so the preview matches the actual reward roll.
-  const allTraits = agents.flatMap(a => (a.traits ?? []) as AgentTrait[])
-  const sumTrait = (t: AgentTraitType) => allTraits.filter(x => x.type === t).reduce((s, x) => s + x.value, 0)
-  const extBonuses = {
-    ...bonuses,
-    lootPct: bonuses.lootPct + sumTrait('loot_percent') / 100,
-    groupPct: bonuses.groupPct + (agents.length >= 2 ? sumTrait('group_loot') / 100 : 0),
-    gemChance: bonuses.gemChance + sumTrait('gem_chance'),
-  }
-  const cashRange = effectiveCashRange(template, extBonuses)
-  const gemChance = effectiveGemChance(template, extBonuses)
-  const durationMs = effectiveDurationMs(
-    template,
-    agents.map(a => ({
-      class: a.class as AgentClass,
-      traits: (a.traits ?? []) as AgentTrait[],
-      items: ([a.gear?.tool, a.gear?.software, a.gear?.hardware] as any[])
-        .filter(Boolean)
-        .map((i: any) => ({ mods: i.mods as ItemMod[] })),
-    })),
-  )
+  // Per-agent loadouts — collectBonuses / effectiveDurationMs fold in each agent's
+  // gear, class and traits (loot capped per agent, speed compounded per agent), so
+  // the preview matches the real reward roll.
+  const rewardAgents = agents.map(a => ({
+    level: a.level,
+    class: a.class as AgentClass,
+    traits: (a.traits ?? []) as AgentTrait[],
+    items: ([a.gear?.tool, a.gear?.software, a.gear?.hardware] as any[])
+      .filter(Boolean)
+      .map((i: any) => ({ mods: i.mods as ItemMod[] })),
+  }))
+  const bonuses = collectBonuses(rewardAgents)
+  const cashRange = effectiveCashRange(template, bonuses)
+  const gemChance = effectiveGemChance(template, bonuses)
+  const durationMs = effectiveDurationMs(template, rewardAgents)
   // Combine class passives + traits across all agents, summed by modifier type
   const modTotals: Record<string, number> = {}
   for (const agent of agents) {
