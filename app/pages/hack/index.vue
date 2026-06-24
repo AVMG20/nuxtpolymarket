@@ -182,6 +182,12 @@ function statusLabel(status: string, template: any) {
   if (status === 'close') return `${template.bestPower} / ${template.minPower} power`
   return `Need ${template.minPower} power`
 }
+function powerColorClass(status: string) {
+  if (status === 'available') return 'text-success'
+  if (status === 'close') return 'text-warning'
+  if (status === 'locked') return 'text-error'
+  return 'text-muted'
+}
 </script>
 
 <template>
@@ -280,61 +286,87 @@ function statusLabel(status: string, template: any) {
             :key="template.id"
             class="flex flex-col"
           >
-            <!-- Header row -->
+            <!-- Header -->
             <div class="flex items-start gap-3 mb-3">
               <div class="size-10 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
                 <UIcon :name="template.icon" class="size-5 text-primary" />
               </div>
               <div class="flex-1 min-w-0">
                 <div class="flex items-center gap-2 flex-wrap">
-                  <p class="font-semibold text-base">{{ template.name }}</p>
+                  <p class="font-semibold text-base leading-tight">{{ template.name }}</p>
                   <UBadge size="sm" :color="statusColor(template.status)" variant="subtle" :label="statusLabel(template.status, template)" />
                 </div>
-                <p class="text-sm text-muted mt-0.5">{{ template.description }}</p>
+                <p class="text-xs text-muted mt-0.5 line-clamp-2">{{ template.description }}</p>
               </div>
             </div>
 
-            <!-- Stats grid -->
-            <div class="grid grid-cols-2 gap-x-4 gap-y-2 text-sm mb-4">
-              <div class="flex justify-between col-span-2">
-                <span class="text-muted">Cash reward</span>
-                <span class="font-semibold flex items-center gap-1">
+            <!-- Rewards -->
+            <div class="rounded-lg bg-elevated border border-default px-3 py-2.5 mb-3 space-y-1.5">
+              <div class="flex items-center justify-between">
+                <span class="text-xs text-muted">Cash</span>
+                <span class="text-sm font-bold flex items-center gap-0.5">
                   <CoinBalance :value="template.baseCash[0]" />–<CoinBalance :value="template.baseCash[1]" :show-icon="false" />
                 </span>
               </div>
-              <div class="flex justify-between col-span-2">
-                <span class="text-muted">Gem reward</span>
-                <span v-if="template.baseGemChance > 0" class="font-semibold flex items-center gap-1">
+              <div class="flex items-center justify-between">
+                <span class="text-xs text-muted">Gems</span>
+                <span v-if="template.baseGemChance > 0" class="text-sm font-bold text-cyan-400 flex items-center gap-1">
                   <GemBalance :value="template.baseGemCount[0]" />–<GemBalance :value="template.baseGemCount[1]" :show-icon="false" />
-                  <span class="text-muted font-normal">({{ Math.round(template.baseGemChance * 100) }}%)</span>
+                  <span class="text-xs text-muted font-normal">({{ Math.round(template.baseGemChance * 100) }}%)</span>
                 </span>
-                <span v-else class="text-muted">—</span>
+                <span v-else class="text-xs text-muted">—</span>
               </div>
-              <div class="flex justify-between">
-                <span class="text-muted">Duration</span>
-                <span class="font-medium">{{ formatDuration(template.durationMs) }}</span>
+            </div>
+
+            <!-- Stat chips -->
+            <div class="grid grid-cols-2 gap-2 mb-3">
+              <!-- Duration -->
+              <div class="flex items-center gap-2 px-2.5 py-2 rounded-lg bg-elevated border border-default">
+                <UIcon name="i-lucide-clock" class="size-3.5 text-muted shrink-0" />
+                <div class="min-w-0">
+                  <p class="text-[10px] text-muted leading-none mb-0.5">Duration</p>
+                  <p class="text-sm font-semibold">{{ formatDuration(template.durationMs) }}</p>
+                </div>
               </div>
-              <div class="flex justify-between">
-                <span class="text-muted">Agents</span>
-                <span class="font-medium">
-                  {{ template.minAgents === template.maxAgents ? template.minAgents : `${template.minAgents}–${template.maxAgents}` }}
-                </span>
+              <!-- Agents -->
+              <div class="flex items-center gap-2 px-2.5 py-2 rounded-lg bg-elevated border border-default">
+                <UIcon name="i-lucide-users" class="size-3.5 text-blue-400 shrink-0" />
+                <div class="min-w-0">
+                  <p class="text-[10px] text-muted leading-none mb-0.5">Agents</p>
+                  <p class="text-sm font-semibold text-blue-400">
+                    {{ template.minAgents === template.maxAgents ? template.minAgents : `${template.minAgents}–${template.maxAgents}` }}
+                  </p>
+                </div>
               </div>
-              <div class="flex justify-between">
-                <span class="text-muted">XP / agent</span>
-                <span class="font-medium">+{{ template.baseXP }}</span>
+              <!-- XP -->
+              <div class="flex items-center gap-2 px-2.5 py-2 rounded-lg bg-elevated border border-default">
+                <UIcon name="i-lucide-sparkles" class="size-3.5 text-violet-400 shrink-0" />
+                <div class="min-w-0">
+                  <p class="text-[10px] text-muted leading-none mb-0.5">XP / agent</p>
+                  <p class="text-sm font-semibold text-violet-400">+{{ template.baseXP }}</p>
+                </div>
               </div>
-              <div class="flex justify-between">
-                <span class="text-muted">Power</span>
-                <span class="font-medium">{{ template.minPower }}</span>
+              <!-- Power -->
+              <div class="flex items-center gap-2 px-2.5 py-2 rounded-lg bg-elevated border border-default">
+                <UIcon name="i-lucide-zap" class="size-3.5 shrink-0" :class="powerColorClass(template.status)" />
+                <div class="min-w-0">
+                  <p class="text-[10px] text-muted leading-none mb-0.5">Power req.</p>
+                  <p class="text-sm font-semibold" :class="powerColorClass(template.status)">
+                    {{ template.minPower > 0 ? (template.status !== 'available' ? `${template.bestPower} / ${template.minPower}` : template.minPower) : 'Any' }}
+                  </p>
+                </div>
               </div>
-              <div class="flex justify-between col-span-2">
-                <span class="text-muted">Item drop</span>
-                <span class="font-medium flex items-center gap-1.5">
-                  {{ Math.round(template.itemDropChance * 100) }}%
-                  <UBadge size="xs" :color="RARITY_COLOR[template.itemDropRarity as HackRarity]" variant="subtle" :label="`${RARITY_LABEL[template.itemDropRarity as HackRarity]} item`" />
-                </span>
-              </div>
+            </div>
+
+            <!-- Item drop -->
+            <div class="flex items-center justify-between mb-4">
+              <span class="text-xs text-muted flex items-center gap-1">
+                <UIcon name="i-lucide-package" class="size-3.5" /> Item drop
+              </span>
+              <span class="flex items-center gap-1.5">
+                <span class="text-xs font-medium">{{ Math.round(template.itemDropChance * 100) }}%</span>
+                <UBadge size="xs" :color="RARITY_COLOR[template.itemDropRarity as HackRarity]" variant="subtle" :label="`${RARITY_LABEL[template.itemDropRarity as HackRarity]} item`" />
+              </span>
             </div>
 
             <UButton
@@ -402,40 +434,58 @@ function statusLabel(status: string, template: any) {
 
           <div v-if="selectedAgentIds.length > 0 && modalStats" class="space-y-3 text-sm">
             <!-- Stats grid -->
-            <div class="grid grid-cols-2 gap-3 p-3 rounded-lg bg-elevated">
-              <div>
-                <p class="text-muted text-xs mb-0.5">Power</p>
-                <p class="font-bold" :class="modalStats.power >= selectedTemplate.minPower ? 'text-success' : 'text-warning'">
-                  {{ modalStats.power }} / {{ selectedTemplate.minPower || '—' }}
-                </p>
+            <div class="grid grid-cols-2 gap-2">
+              <div class="flex items-center gap-2 p-2.5 rounded-lg bg-elevated border border-default">
+                <UIcon name="i-lucide-zap" class="size-3.5 shrink-0" :class="modalStats.power >= selectedTemplate.minPower ? 'text-success' : 'text-warning'" />
+                <div>
+                  <p class="text-[10px] text-muted leading-none mb-0.5">Power</p>
+                  <p class="font-bold text-sm" :class="modalStats.power >= selectedTemplate.minPower ? 'text-success' : 'text-warning'">
+                    {{ modalStats.power }} / {{ selectedTemplate.minPower || '—' }}
+                  </p>
+                </div>
               </div>
-              <div>
-                <p class="text-muted text-xs mb-0.5">Est. time</p>
-                <p class="font-bold">{{ formatMs(modalStats.durationMs) }}</p>
+              <div class="flex items-center gap-2 p-2.5 rounded-lg bg-elevated border border-default">
+                <UIcon name="i-lucide-clock" class="size-3.5 text-muted shrink-0" />
+                <div>
+                  <p class="text-[10px] text-muted leading-none mb-0.5">Est. time</p>
+                  <p class="font-bold text-sm">{{ formatMs(modalStats.durationMs) }}</p>
+                </div>
               </div>
-              <div>
-                <p class="text-muted text-xs mb-0.5">Cash</p>
-                <p class="font-semibold flex items-center gap-1">
-                  <CoinBalance :value="modalStats.cashRange[0]" />–<CoinBalance :value="modalStats.cashRange[1]" :show-icon="false" />
-                </p>
+              <div class="flex items-center gap-2 p-2.5 rounded-lg bg-elevated border border-default">
+<!--                <UIcon name="i-lucide-coins" class="size-3.5 text-yellow-400 shrink-0" />-->
+                <div>
+                  <p class="text-[10px] text-muted leading-none mb-0.5">Cash</p>
+                  <p class="font-semibold text-sm text-yellow-400 flex items-center gap-0.5">
+                    <CoinBalance :value="modalStats.cashRange[0]" />–<CoinBalance :value="modalStats.cashRange[1]" :show-icon="false" />
+                  </p>
+                </div>
               </div>
-              <div v-if="selectedTemplate.baseGemChance > 0">
-                <p class="text-muted text-xs mb-0.5">Gems</p>
-                <p class="font-semibold flex items-center gap-1">
-                  <GemBalance :value="selectedTemplate.baseGemCount[0]" />–<GemBalance :value="selectedTemplate.baseGemCount[1]" :show-icon="false" />
-                  <span class="text-muted font-normal">({{ Math.round(modalStats.gemChance * 100) }}%)</span>
-                </p>
+              <div v-if="selectedTemplate.baseGemChance > 0" class="flex items-center gap-2 p-2.5 rounded-lg bg-elevated border border-default">
+                <UIcon name="i-lucide-gem" class="size-3.5 text-cyan-400 shrink-0" />
+                <div>
+                  <p class="text-[10px] text-muted leading-none mb-0.5">Gems</p>
+                  <p class="font-semibold text-sm text-cyan-400 flex items-center gap-1">
+                    {{ selectedTemplate.baseGemCount[0] }}–{{ selectedTemplate.baseGemCount[1] }}
+                    <span class="text-muted font-normal text-xs">({{ Math.round(modalStats.gemChance * 100) }}%)</span>
+                  </p>
+                </div>
               </div>
-              <div>
-                <p class="text-muted text-xs mb-0.5">XP / agent</p>
-                <p class="font-semibold">+{{ selectedTemplate.baseXP }}</p>
+              <div class="flex items-center gap-2 p-2.5 rounded-lg bg-elevated border border-default">
+                <UIcon name="i-lucide-sparkles" class="size-3.5 text-violet-400 shrink-0" />
+                <div>
+                  <p class="text-[10px] text-muted leading-none mb-0.5">XP / agent</p>
+                  <p class="font-semibold text-sm text-violet-400">+{{ selectedTemplate.baseXP }}</p>
+                </div>
               </div>
-              <div>
-                <p class="text-muted text-xs mb-0.5">Item drop</p>
-                <p class="font-semibold flex items-center gap-1.5">
+              <div class="flex items-center gap-2 p-2.5 rounded-lg bg-elevated border border-default">
+                <UIcon name="i-lucide-package" class="size-3.5 text-muted shrink-0" />
+                <div>
+                  <p class="text-[10px] text-muted leading-none mb-0.5">Item drop</p>
+                  <p class="font-semibold text-sm flex items-center gap-1.5">
                   {{ Math.round(selectedTemplate.itemDropChance * 100) }}%
                   <UBadge size="xs" :color="RARITY_COLOR[selectedTemplate.itemDropRarity as HackRarity]" variant="subtle" :label="RARITY_LABEL[selectedTemplate.itemDropRarity as HackRarity]" />
-                </p>
+                  </p>
+                </div>
               </div>
             </div>
 
