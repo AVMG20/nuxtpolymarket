@@ -45,20 +45,23 @@ export default defineEventHandler(async (event) => {
       })
     : []
 
-  // Per-agent power calculation
-  const agentDefs = agents.map(a => ({ level: a.level, class: a.class as AgentClass }))
-  const totalPower = agents.reduce((sum, agent) => {
+  // Per-agent loadouts — each agent keeps its own gear so power and op speed are
+  // computed per agent (speed compounds across agents rather than stacking).
+  const agentLoadouts = agents.map(agent => {
     const agentItemIds = ([agent.equippedTool, agent.equippedSoftware, agent.equippedHardware] as Array<string | null>)
       .filter((x): x is string => x !== null)
-    const agentItems = items
-      .filter(i => agentItemIds.includes(i.id))
-      .map(i => ({ itemLevel: i.itemLevel, mods: i.mods as ItemMod[] }))
-    return sum + agentPower({ level: agent.level, class: agent.class as AgentClass }, agentItems, (agent.traits ?? []) as AgentTrait[])
-  }, 0)
+    return {
+      class: agent.class as AgentClass,
+      traits: (agent.traits ?? []) as AgentTrait[],
+      items: items.filter(i => agentItemIds.includes(i.id)).map(i => ({ itemLevel: i.itemLevel, mods: i.mods as ItemMod[] })),
+    }
+  })
+  const totalPower = agents.reduce((sum, agent, i) =>
+    sum + agentPower({ level: agent.level, class: agent.class as AgentClass }, agentLoadouts[i]!.items, (agent.traits ?? []) as AgentTrait[]), 0)
 
   const durationMs = process.env.DEV_MODE === 'true'
     ? 1000
-    : effectiveDurationMs(template, agentDefs, items.map(i => ({ mods: i.mods as ItemMod[] })))
+    : effectiveDurationMs(template, agentLoadouts)
   const successChance = opSuccessChance(totalPower, template.minPower)
   if (successChance < MIN_DEPLOY_SUCCESS)
     throw createError({ statusCode: 400, statusMessage: 'Success chance too low — bring more power' })

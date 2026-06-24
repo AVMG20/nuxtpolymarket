@@ -150,8 +150,13 @@ const modalStats = computed(() => {
   const gemChance = effectiveGemChance(template, extBonuses)
   const durationMs = effectiveDurationMs(
     template,
-    agents.map(a => ({ class: a.class as AgentClass, traits: (a.traits ?? []) as AgentTrait[] })),
-    allItems.map((i: any) => ({ mods: i.mods as ItemMod[] })),
+    agents.map(a => ({
+      class: a.class as AgentClass,
+      traits: (a.traits ?? []) as AgentTrait[],
+      items: ([a.gear?.tool, a.gear?.software, a.gear?.hardware] as any[])
+        .filter(Boolean)
+        .map((i: any) => ({ mods: i.mods as ItemMod[] })),
+    })),
   )
   // Combine class passives + traits across all agents, summed by modifier type
   const modTotals: Record<string, number> = {}

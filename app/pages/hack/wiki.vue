@@ -107,7 +107,7 @@ function fmtRange(type: AgentTraitType | ModType, min: number, max: number): str
             <div>
               <p class="font-semibold">{{ AGENT_TRAIT_LABEL[type as AgentTraitType] }}</p>
               <p class="text-muted text-sm mt-0.5">
-                <template v-if="type === 'speed_percent'">Shortens how long this op takes. Stacks with item Speed mods and the Infiltrator class, capped at 75% total reduction.</template>
+                <template v-if="type === 'speed_percent'">Shortens how long this op takes. Combines with this agent's item Speed mods and the Infiltrator class — a perfect agent tops out around 50%. On multi-agent ops each agent's speed is applied one after another on the remaining time (it does not stack into one big number), and an op can never drop below 35% of its base duration.</template>
                 <template v-else-if="type === 'loot_percent'">Increases the cash payout of a successful op. Adds together with item Loot mods and the Cryptographer class bonus.</template>
                 <template v-else-if="type === 'gem_chance'">Adds a flat percentage to the chance an op drops gems. Only matters on ops that can drop gems in the first place.</template>
                 <template v-else-if="type === 'xp_boost'">This agent earns more XP from every op, so it levels up (and gains power) faster.</template>
@@ -158,7 +158,7 @@ function fmtRange(type: AgentTraitType | ModType, min: number, max: number): str
             <div>
               <p class="font-semibold">{{ MOD_LABEL[type as ModType] }}</p>
               <p class="text-muted text-sm mt-0.5">
-                <template v-if="type === 'speed_percent'">Reduces op duration. Stacks with agent speed traits. Max 75% total reduction.</template>
+                <template v-if="type === 'speed_percent'">Reduces op duration. Combines with the equipped agent's speed traits and class (a single agent tops out around 50%). Multiple agents apply one after another on the remaining time rather than summing.</template>
                 <template v-else-if="type === 'loot_percent'">Multiplies cash rewards from the op.</template>
                 <template v-else-if="type === 'gem_chance'">Adds flat % to gem drop chance on any op.</template>
                 <template v-else-if="type === 'xp_flat'">Flat XP added per op completion for the equipped agent.</template>

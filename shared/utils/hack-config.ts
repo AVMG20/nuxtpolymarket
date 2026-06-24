@@ -70,7 +70,7 @@ export const RARITY_ACCENT: Record<HackRarity, string> = {
 export const CLASS_LABEL: Record<AgentClass, string> = { infiltrator: 'Infiltrator', cryptographer: 'Cryptographer', social_engineer: 'Social Engineer', bruteforce: 'Bruteforce' }
 export const CLASS_ICON: Record<AgentClass, string> = { infiltrator: 'i-lucide-ghost', cryptographer: 'i-lucide-key', social_engineer: 'i-lucide-message-circle', bruteforce: 'i-lucide-zap' }
 export const CLASS_PASSIVE: Record<AgentClass, { type: ModType; value: number; label: string }> = {
-  infiltrator:     { type: 'speed_percent',  value: 0.15, label: '+15% op speed' },
+  infiltrator:     { type: 'speed_percent',  value: 0.10, label: '+10% op speed' },
   cryptographer:   { type: 'loot_percent',   value: 0.15, label: '+15% cash loot' },
   social_engineer: { type: 'gem_chance',     value: 0.01, label: '+1% gem chance' },
   bruteforce:      { type: 'power_flat',     value: 15,   label: '+15 power rating' },
@@ -114,7 +114,7 @@ export interface AgentTrait { type: AgentTraitType; value: number }
 
 export const AGENT_TRAIT_RANGES: Record<AgentTraitType, { min: number; max: number; decimals: number }> = {
   gem_chance:    { min: 0.005, max: 0.05,  decimals: 3 },
-  speed_percent: { min: 5,     max: 35,    decimals: 0 },
+  speed_percent: { min: 3,     max: 10,    decimals: 0 },
   loot_percent:  { min: 5,     max: 35,    decimals: 0 },
   xp_boost:      { min: 10,    max: 60,    decimals: 0 },
   power_flat:    { min: 10,    max: 60,    decimals: 0 },
@@ -163,7 +163,7 @@ function generateAgentTraits(rarity: HackRarity): AgentTrait[] {
 
 export const MOD_RANGES: Record<ModType, { min: number; max: number; decimals: number }> = {
   loot_percent:       { min: 5,     max: 30,    decimals: 0 },
-  speed_percent:      { min: 5,     max: 30,    decimals: 0 },
+  speed_percent:      { min: 3,     max: 10,    decimals: 0 },
   xp_flat:            { min: 1,     max: 5,     decimals: 0 },
   gem_chance:         { min: 0.002, max: 0.015, decimals: 3 },
   group_loot_percent: { min: 5,     max: 20,    decimals: 0 },
@@ -310,17 +310,39 @@ export function agentPower(
   return Math.round((base + itemPower + traitFlat) * (1 + traitPct))
 }
 
-export function effectiveDurationMs(
-  template: OpTemplate,
-  agents: Array<{ class: AgentClass; traits?: AgentTrait[] }>,
-  items: Array<{ mods: ItemMod[] }>,
-): number {
-  const allMods = items.flatMap(i => i.mods)
-  const itemSpeed = allMods.filter(m => m.type === 'speed_percent').reduce((s, m) => s + m.value, 0) / 100
-  const classSpeed = agents.reduce((s, a) => s + (CLASS_PASSIVE[a.class].type === 'speed_percent' ? CLASS_PASSIVE[a.class].value : 0), 0)
-  const traitSpeed = agents.reduce((s, a) =>
-    s + (a.traits ?? []).filter(t => t.type === 'speed_percent').reduce((x, t) => x + t.value, 0), 0) / 100
-  return Math.round(template.durationMs * (1 - Math.min(itemSpeed + classSpeed + traitSpeed, 0.75)))
+// ─── Op speed ─────────────────────────────────────────────────────────────────
+// There is no hard cap on a single agent's speed — instead the sources are tuned so
+// ~50% is the natural ceiling a perfect agent can reach: a maxed infiltrator with
+// three 10% speed items (30%) + the 10% class passive + a 10% speed trait = 50%.
+// Squad-wide floor on the remaining time: even a perfect 4-agent team can't drop an
+// op below (1 - this) of its base duration, keeping long endgame ops meaningful.
+export const MAX_TOTAL_SPEED = 0.65
+
+export interface AgentLoadout {
+  class: AgentClass
+  traits?: AgentTrait[]
+  items: Array<{ mods: ItemMod[] }>
+}
+
+/** This agent's own speed reduction (gear + class passive + traits). */
+export function agentSpeedPercent(agent: AgentLoadout): number {
+  const itemSpeed = agent.items.flatMap(i => i.mods)
+    .filter(m => m.type === 'speed_percent').reduce((s, m) => s + m.value, 0) / 100
+  const classSpeed = CLASS_PASSIVE[agent.class].type === 'speed_percent' ? CLASS_PASSIVE[agent.class].value : 0
+  const traitSpeed = (agent.traits ?? [])
+    .filter(t => t.type === 'speed_percent').reduce((s, t) => s + t.value, 0) / 100
+  return itemSpeed + classSpeed + traitSpeed
+}
+
+export function effectiveDurationMs(template: OpTemplate, agents: AgentLoadout[]): number {
+  // Speed is NOT summed across agents into one big number. Each agent's speed is
+  // applied one after another on the *remaining* time: agent 1 shaves its % off the
+  // base, agent 2 shaves its % off what's left, and so on. This gives diminishing
+  // returns, so stacking agents can't trivialise long ops.
+  let factor = 1
+  for (const agent of agents) factor *= (1 - agentSpeedPercent(agent))
+  // Never go below 35% of the base duration, no matter how stacked the squad is.
+  return Math.round(template.durationMs * Math.max(factor, 1 - MAX_TOTAL_SPEED))
 }
 
 export function opSuccessChance(totalPower: number, minPower: number): number {
