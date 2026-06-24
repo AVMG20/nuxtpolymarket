@@ -159,7 +159,6 @@ function slotItem(agent: { gear?: { tool: any; software: any; hardware: any } },
 
     <!-- ── Main area ──────────────────────────────────────────────── -->
     <div class="flex-1 min-w-0 overflow-y-auto p-6 space-y-8 pb-12">
-
       <!-- Header -->
       <div class="flex items-center justify-between flex-wrap gap-3">
         <div>

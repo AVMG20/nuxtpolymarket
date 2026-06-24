@@ -5,6 +5,7 @@ const tabs = [
   { label: 'Ops', to: '/hack', icon: 'i-lucide-terminal' },
   { label: 'Agents', to: '/hack/agents', icon: 'i-lucide-users' },
   { label: 'Items', to: '/hack/items', icon: 'i-lucide-cpu' },
+  { label: 'Leaderboard', to: '/hack/leaderboard', icon: 'i-lucide-trophy' },
   { label: 'Wiki', to: '/hack/wiki', icon: 'i-lucide-book-open' },
 ]
 
