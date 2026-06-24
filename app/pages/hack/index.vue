@@ -190,12 +190,12 @@ function powerColorClass(status: string) {
 }
 
 // ── List view ────────────────────────────────────────────────────────────────
-// Operations sorted by money value (highest first) so the best-paying op you can
-// run is easy to find.
+// Operations sorted by money value (lowest first) so cheaper, reachable ops sit at
+// the top and the ladder climbs as you scroll.
 const sortedTemplates = computed(() => {
   if (!state.value) return []
   return [...state.value.opTemplates].sort(
-    (a, b) => (b.baseCash[0] + b.baseCash[1]) - (a.baseCash[0] + a.baseCash[1]),
+    (a, b) => (a.baseCash[0] + a.baseCash[1]) - (b.baseCash[0] + b.baseCash[1]),
   )
 })
 
@@ -315,6 +315,7 @@ function deployBlockedReason(t: any): string | null {
             <span class="w-28 text-right">Payout</span>
             <span class="w-16 text-right">Gems</span>
             <span class="w-20 text-right">Power</span>
+            <span class="w-16 text-right">Agents</span>
             <span class="w-14 text-right">Time</span>
             <span class="size-4 shrink-0" />
           </div>
@@ -353,6 +354,9 @@ function deployBlockedReason(t: any): string | null {
                     <span class="flex items-center gap-1" :class="powerColorClass(template.status)">
                       <UIcon name="i-lucide-zap" class="size-3" />{{ template.minPower || 'Any' }}
                     </span>
+                    <span class="text-blue-400 flex items-center gap-1">
+                      <UIcon name="i-lucide-users" class="size-3" />{{ template.minAgents === template.maxAgents ? template.minAgents : `${template.minAgents}–${template.maxAgents}` }}
+                    </span>
                   </div>
                 </div>
 
@@ -368,6 +372,10 @@ function deployBlockedReason(t: any): string | null {
                 </span>
                 <span class="hidden sm:flex w-20 justify-end items-center text-sm font-semibold tabular-nums" :class="powerColorClass(template.status)">
                   {{ template.minPower > 0 ? (template.status !== 'available' && template.status !== 'no_agents' ? `${template.bestPower}/${template.minPower}` : template.minPower) : 'Any' }}
+                </span>
+                <span class="hidden sm:flex w-16 justify-end items-center gap-1 text-sm text-blue-400 font-semibold tabular-nums">
+                  <UIcon name="i-lucide-users" class="size-3.5" />
+                  {{ template.minAgents === template.maxAgents ? template.minAgents : `${template.minAgents}–${template.maxAgents}` }}
                 </span>
                 <span class="hidden sm:flex w-14 justify-end items-center text-sm text-muted tabular-nums">
                   {{ formatDuration(template.durationMs) }}
@@ -385,16 +393,7 @@ function deployBlockedReason(t: any): string | null {
                 <p class="text-xs text-muted">{{ template.description }}</p>
                 <p class="text-xs text-muted/80 italic mt-0.5">"{{ template.flavor }}"</p>
 
-                <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-3">
-                  <div class="flex items-center gap-2 px-2.5 py-2 rounded-lg bg-default border border-default">
-                    <UIcon name="i-lucide-users" class="size-3.5 text-blue-400 shrink-0" />
-                    <div class="min-w-0">
-                      <p class="text-[10px] text-muted leading-none mb-0.5">Agents</p>
-                      <p class="text-sm font-semibold text-blue-400">
-                        {{ template.minAgents === template.maxAgents ? template.minAgents : `${template.minAgents}–${template.maxAgents}` }}
-                      </p>
-                    </div>
-                  </div>
+                <div class="grid grid-cols-2 sm:grid-cols-3 gap-2 mt-3">
                   <div class="flex items-center gap-2 px-2.5 py-2 rounded-lg bg-default border border-default">
                     <UIcon name="i-lucide-sparkles" class="size-3.5 text-violet-400 shrink-0" />
                     <div class="min-w-0">
