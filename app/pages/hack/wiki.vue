@@ -7,7 +7,7 @@ import {
 } from '#shared/utils/hack-config'
 
 function fmtRange(type: AgentTraitType | ModType, min: number, max: number): string {
-  if (type === 'gem_chance') return `+${(min * 100).toFixed(1)}% – +${(max * 100).toFixed(1)}%`
+  if (type === 'gem_chance' || type === 'item_chance') return `+${(min * 100).toFixed(1)}% – +${(max * 100).toFixed(1)}%`
   if (type === 'gem_bonus') return `+${min} – +${max} gems`
   if (type === 'xp_flat' || type === 'power_flat') return `+${min} – +${max}`
   return `+${min}% – +${max}%`
@@ -164,6 +164,8 @@ function fmtRange(type: AgentTraitType | ModType, min: number, max: number): str
                 <template v-else-if="type === 'gem_chance'">Adds flat % to gem drop chance on any op.</template>
                 <template v-else-if="type === 'xp_flat'">Flat XP added per op completion for the equipped agent.</template>
                 <template v-else-if="type === 'power_flat'">Increases the equipped agent's power rating directly.</template>
+                <template v-else-if="type === 'item_chance'">Raises the op's item-drop chance. Stacks across the squad's gear on top of the op's base drop rate (capped at 90%).</template>
+                <template v-else-if="type === 'gem_bonus'">Adds flat extra gems to a raid — but only on ops that already award gems, and only when the gem chance roll succeeds. Stacks with agent Bonus Gems traits.</template>
               </p>
             </div>
             <span class="font-medium text-primary shrink-0">{{ fmtRange(type as ModType, range.min, range.max) }}</span>

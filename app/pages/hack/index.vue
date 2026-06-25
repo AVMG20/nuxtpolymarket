@@ -2,7 +2,7 @@
 import {
   RARITY_COLOR, RARITY_LABEL, CLASS_LABEL, CLASS_ICON, CLASS_COLOR, CLASS_PASSIVE,
   AGENT_TRAIT_LABEL, formatTraitValue,
-  effectiveDurationMs, collectBonuses, effectiveCashRange, effectiveGemChance, opSuccessChance, MIN_DEPLOY_SUCCESS,
+  effectiveDurationMs, collectBonuses, effectiveCashRange, effectiveGemChance, effectiveItemDropChance, opSuccessChance, MIN_DEPLOY_SUCCESS,
   type HackRarity, type AgentClass, type AgentTrait, type AgentTraitType, type ItemMod,
 } from '#shared/utils/hack-config'
 
@@ -143,6 +143,8 @@ const modalStats = computed(() => {
   const bonuses = collectBonuses(rewardAgents)
   const cashRange = effectiveCashRange(template, bonuses)
   const gemChance = effectiveGemChance(template, bonuses)
+  const gemBonus = bonuses.gemBonus
+  const itemDropChance = effectiveItemDropChance(template, bonuses)
   const durationMs = effectiveDurationMs(template, rewardAgents)
   // Combine class passives + traits across all agents, summed by modifier type
   const modTotals: Record<string, number> = {}
@@ -159,7 +161,7 @@ const modalStats = computed(() => {
   const combinedMods = (Object.entries(modTotals) as [AgentTraitType, number][])
     .filter(([, v]) => v > 0)
     .map(([type, total]) => ({ label: AGENT_TRAIT_LABEL[type], value: formatTraitValue(type, total) }))
-  return { power, successChance, cashRange, gemChance, durationMs, combinedMods }
+  return { power, successChance, cashRange, gemChance, gemBonus, itemDropChance, durationMs, combinedMods }
 })
 
 function statusColor(status: string) {
@@ -519,7 +521,8 @@ function deployBlockedReason(t: any): string | null {
                 <div>
                   <p class="text-[10px] text-muted leading-none mb-0.5">Gems</p>
                   <p class="font-semibold text-sm text-cyan-400 flex items-center gap-1">
-                    {{ selectedTemplate.baseGemCount[0] }}–{{ selectedTemplate.baseGemCount[1] }}
+                    {{ selectedTemplate.baseGemCount[0] + modalStats.gemBonus }}–{{ selectedTemplate.baseGemCount[1] + modalStats.gemBonus }}
+                    <span v-if="modalStats.gemBonus > 0" class="text-emerald-400 font-normal text-xs">(+{{ modalStats.gemBonus }})</span>
                     <span class="text-muted font-normal text-xs">({{ Math.round(modalStats.gemChance * 100) }}%)</span>
                   </p>
                 </div>
@@ -536,7 +539,10 @@ function deployBlockedReason(t: any): string | null {
                 <div>
                   <p class="text-[10px] text-muted leading-none mb-0.5">Item drop</p>
                   <p class="font-semibold text-sm flex items-center gap-1.5">
-                  {{ Math.round(selectedTemplate.itemDropChance * 100) }}%
+                  {{ Math.round(modalStats.itemDropChance * 100) }}%
+                  <span v-if="modalStats.itemDropChance > selectedTemplate.itemDropChance" class="text-emerald-400 font-normal text-xs">
+                    (+{{ Math.round((modalStats.itemDropChance - selectedTemplate.itemDropChance) * 100) }}%)
+                  </span>
                   <UBadge size="xs" :color="RARITY_COLOR[selectedTemplate.itemDropRarity as HackRarity]" variant="subtle" :label="RARITY_LABEL[selectedTemplate.itemDropRarity as HackRarity]" />
                   </p>
                 </div>

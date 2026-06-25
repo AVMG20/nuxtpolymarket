@@ -2,7 +2,7 @@
 import {
   RARITY_COLOR, RARITY_LABEL, CLASS_LABEL, CLASS_ICON, CLASS_COLOR,
   SLOT_ICON, SLOT_LABEL, SLOT_COLOR,
-  RARITY_ORDER, xpToNextLevel, AGENT_MAX_LEVEL, MOD_LABEL, formatModValue, itemSellPrice,
+  RARITY_ORDER, xpToNextLevel, AGENT_MAX_LEVEL, MOD_LABEL, formatModValue, formatPct, itemSellPrice,
   AGENT_TRAIT_LABEL, AGENT_TRAIT_COUNT, AGENT_TRAIT_RANGES,
   type HackRarity, type AgentClass, type ItemSlot, type ItemMod, type AgentTrait, type AgentTraitType,
 } from '#shared/utils/hack-config'
@@ -19,8 +19,8 @@ function agentCombinedStats(agent: any) {
   }
 
   for (const t of (agent.traits ?? []) as AgentTrait[]) {
-    if (t.type === 'speed_percent')  add('speed',   'Op Speed',     t.value, v => `+${Math.round(v)}%`)
-    if (t.type === 'loot_percent')   add('loot',    'Loot',         t.value, v => `+${Math.round(v)}%`)
+    if (t.type === 'speed_percent')  add('speed',   'Op Speed',     t.value, v => `+${formatPct(v)}%`)
+    if (t.type === 'loot_percent')   add('loot',    'Loot',         t.value, v => `+${formatPct(v)}%`)
     if (t.type === 'gem_chance')     add('gem',     'Gem Chance',   t.value, v => `+${(v * 100).toFixed(1)}%`)
     if (t.type === 'xp_boost')       add('xp',      'XP Gain',      t.value, v => `+${Math.round(v)}%`)
     if (t.type === 'power_flat')     add('power',   'Power',        t.value, v => `+${Math.round(v)}`)
@@ -32,11 +32,13 @@ function agentCombinedStats(agent: any) {
     const item = agent.gear?.[slot]
     if (!item) continue
     for (const m of (item.mods ?? []) as ItemMod[]) {
-      if (m.type === 'speed_percent')      add('speed',  'Op Speed',    m.value, v => `+${Math.round(v)}%`)
-      if (m.type === 'loot_percent')       add('loot',   'Loot',        m.value, v => `+${Math.round(v)}%`)
+      if (m.type === 'speed_percent')      add('speed',  'Op Speed',    m.value, v => `+${formatPct(v)}%`)
+      if (m.type === 'loot_percent')       add('loot',   'Loot',        m.value, v => `+${formatPct(v)}%`)
       if (m.type === 'gem_chance')         add('gem',    'Gem Chance',  m.value, v => `+${(v * 100).toFixed(1)}%`)
       if (m.type === 'xp_flat')            add('xpflat', 'XP per Op',  m.value, v => `+${Math.round(v)} XP`)
       if (m.type === 'power_flat')         add('power',  'Power',       m.value, v => `+${Math.round(v)}`)
+      if (m.type === 'item_chance')        add('itemfind','Item Find',  m.value, v => `+${(v * 100).toFixed(1)}%`)
+      if (m.type === 'gem_bonus')          add('gembonus','Bonus Gems', m.value, v => `+${Math.round(v)} gems`)
     }
   }
 

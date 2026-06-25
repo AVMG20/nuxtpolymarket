@@ -1,7 +1,7 @@
 export type HackRarity = 'ghost' | 'operative' | 'specialist' | 'elite' | 'phantom'
 export type AgentClass = 'infiltrator' | 'cryptographer' | 'social_engineer' | 'bruteforce'
 export type ItemSlot = 'tool' | 'software' | 'hardware'
-export type ModType = 'loot_percent' | 'speed_percent' | 'xp_flat' | 'gem_chance' | 'power_flat'
+export type ModType = 'loot_percent' | 'speed_percent' | 'xp_flat' | 'gem_chance' | 'power_flat' | 'item_chance' | 'gem_bonus'
 
 export interface ItemMod { type: ModType; value: number }
 
@@ -31,30 +31,33 @@ export interface OpTemplate {
 // just need ≥1% success (see MIN_DEPLOY_SUCCESS) to deploy. Reward is the op base ×
 // a modest level/loot bonus — no hidden multipliers, so the listed range is honest.
 export const OP_TEMPLATES: OpTemplate[] = [
+  // itemDropChance is intentionally modest (~×0.8 of the old values) — the Item Find gear
+  // mod is now the main way to push drop rates up. Likewise baseGemCount maxes are trimmed
+  // (−1 on any op that gave >1) so the Bonus Gems mod drives most gem income.
   // ── Tier 1: Beginner ──────────────────────────────────────────────────────────
-  { id: 'port_scan',        name: 'Port Scan',              description: 'Quick recon against a local network.', flavor: 'Probe a small business subnet for open ports.', icon: 'i-lucide-scan',            minAgents: 1, maxAgents: 1, durationMs:  2 * 60 * 60 * 1000, minPower: 0,     baseCash: [500,       1_200],     baseXP: 15,  baseGemChance: 0,    baseGemCount: [0, 0],   itemDropChance: 0.10, itemDropRarity: 'ghost' },
-  { id: 'wifi_crack',       name: 'Wi-Fi Crack',            description: 'Break WPA2 on a local network for access.', flavor: 'Crack the router password at a coffee chain.', icon: 'i-lucide-wifi',            minAgents: 1, maxAgents: 1, durationMs:  2 * 60 * 60 * 1000, minPower: 8,     baseCash: [800,       1_900],     baseXP: 15,  baseGemChance: 0,    baseGemCount: [0, 0],   itemDropChance: 0.12, itemDropRarity: 'ghost' },
-  { id: 'phishing_run',     name: 'Phishing Run',           description: 'Send a targeted email campaign to harvest creds.', flavor: 'Spear-phish 50 employees at a logistics firm.', icon: 'i-lucide-mail',            minAgents: 1, maxAgents: 1, durationMs:  3 * 60 * 60 * 1000, minPower: 12,    baseCash: [1_300,     3_000],     baseXP: 18,  baseGemChance: 0,    baseGemCount: [0, 0],   itemDropChance: 0.13, itemDropRarity: 'ghost' },
-  { id: 'corp_breach',      name: 'Corporate Breach',       description: 'Infiltrate a mid-tier corporate network.', flavor: 'Extract HR database credentials from a Fortune 500.', icon: 'i-lucide-building-2',     minAgents: 1, maxAgents: 1, durationMs:  4 * 60 * 60 * 1000, minPower: 18,    baseCash: [2_000,     4_800],     baseXP: 22,  baseGemChance: 0,    baseGemCount: [0, 0],   itemDropChance: 0.15, itemDropRarity: 'ghost' },
+  { id: 'port_scan',        name: 'Port Scan',              description: 'Quick recon against a local network.', flavor: 'Probe a small business subnet for open ports.', icon: 'i-lucide-scan',            minAgents: 1, maxAgents: 1, durationMs:  2 * 60 * 60 * 1000, minPower: 0,     baseCash: [500,       1_200],     baseXP: 15,  baseGemChance: 0,    baseGemCount: [0, 0],   itemDropChance: 0.08, itemDropRarity: 'ghost' },
+  { id: 'wifi_crack',       name: 'Wi-Fi Crack',            description: 'Break WPA2 on a local network for access.', flavor: 'Crack the router password at a coffee chain.', icon: 'i-lucide-wifi',            minAgents: 1, maxAgents: 1, durationMs:  2 * 60 * 60 * 1000, minPower: 8,     baseCash: [800,       1_900],     baseXP: 15,  baseGemChance: 0,    baseGemCount: [0, 0],   itemDropChance: 0.10, itemDropRarity: 'ghost' },
+  { id: 'phishing_run',     name: 'Phishing Run',           description: 'Send a targeted email campaign to harvest creds.', flavor: 'Spear-phish 50 employees at a logistics firm.', icon: 'i-lucide-mail',            minAgents: 1, maxAgents: 1, durationMs:  3 * 60 * 60 * 1000, minPower: 12,    baseCash: [1_300,     3_000],     baseXP: 18,  baseGemChance: 0,    baseGemCount: [0, 0],   itemDropChance: 0.10, itemDropRarity: 'ghost' },
+  { id: 'corp_breach',      name: 'Corporate Breach',       description: 'Infiltrate a mid-tier corporate network.', flavor: 'Extract HR database credentials from a Fortune 500.', icon: 'i-lucide-building-2',     minAgents: 1, maxAgents: 1, durationMs:  4 * 60 * 60 * 1000, minPower: 18,    baseCash: [2_000,     4_800],     baseXP: 22,  baseGemChance: 0,    baseGemCount: [0, 0],   itemDropChance: 0.12, itemDropRarity: 'ghost' },
   // ── Tier 2: Early mid (-10%) ────────────────────────────────────────────────────
-  { id: 'bank_skim',        name: 'Bank Skim',              description: 'Intercept transaction data from a financial institution.', flavor: 'Tap into interbank wire traffic.', icon: 'i-lucide-landmark',        minAgents: 1, maxAgents: 2, durationMs:  5 * 60 * 60 * 1000, minPower: 25,    baseCash: [3_000,     6_800],     baseXP: 28,  baseGemChance: 0.02, baseGemCount: [1, 1],   itemDropChance: 0.18, itemDropRarity: 'ghost' },
-  { id: 'ransomware_drop',  name: 'Ransomware Drop',        description: 'Deploy ransomware and collect the payout.', flavor: 'Infect a regional hospital network and negotiate.', icon: 'i-lucide-virus',           minAgents: 1, maxAgents: 2, durationMs:  5 * 60 * 60 * 1000, minPower: 35,    baseCash: [4_700,     10_800],    baseXP: 30,  baseGemChance: 0.02, baseGemCount: [1, 1],   itemDropChance: 0.18, itemDropRarity: 'ghost' },
-  { id: 'dark_web',         name: 'Dark Web Contract',      description: 'Anonymous contract from the underground market.', flavor: 'Deliver compromised creds to a Tor dead drop.', icon: 'i-lucide-shield-alert',    minAgents: 1, maxAgents: 2, durationMs:  7 * 60 * 60 * 1000, minPower: 50,    baseCash: [7_400,     17_000],    baseXP: 35,  baseGemChance: 0.05, baseGemCount: [1, 1],   itemDropChance: 0.22, itemDropRarity: 'operative' },
-  { id: 'crypto_heist',     name: 'Crypto Heist',           description: 'Drain a hot wallet from an unprotected exchange.', flavor: 'Exploit a race condition in a DEX smart contract.', icon: 'i-lucide-bitcoin',         minAgents: 1, maxAgents: 2, durationMs:  7 * 60 * 60 * 1000, minPower: 70,    baseCash: [11_700,    27_000],    baseXP: 36,  baseGemChance: 0.04, baseGemCount: [1, 1],   itemDropChance: 0.20, itemDropRarity: 'operative' },
+  { id: 'bank_skim',        name: 'Bank Skim',              description: 'Intercept transaction data from a financial institution.', flavor: 'Tap into interbank wire traffic.', icon: 'i-lucide-landmark',        minAgents: 1, maxAgents: 2, durationMs:  5 * 60 * 60 * 1000, minPower: 25,    baseCash: [3_000,     6_800],     baseXP: 28,  baseGemChance: 0.02, baseGemCount: [1, 1],   itemDropChance: 0.14, itemDropRarity: 'ghost' },
+  { id: 'ransomware_drop',  name: 'Ransomware Drop',        description: 'Deploy ransomware and collect the payout.', flavor: 'Infect a regional hospital network and negotiate.', icon: 'i-lucide-virus',           minAgents: 1, maxAgents: 2, durationMs:  5 * 60 * 60 * 1000, minPower: 35,    baseCash: [4_700,     10_800],    baseXP: 30,  baseGemChance: 0.02, baseGemCount: [1, 1],   itemDropChance: 0.14, itemDropRarity: 'ghost' },
+  { id: 'dark_web',         name: 'Dark Web Contract',      description: 'Anonymous contract from the underground market.', flavor: 'Deliver compromised creds to a Tor dead drop.', icon: 'i-lucide-shield-alert',    minAgents: 1, maxAgents: 2, durationMs:  7 * 60 * 60 * 1000, minPower: 50,    baseCash: [7_400,     17_000],    baseXP: 35,  baseGemChance: 0.05, baseGemCount: [1, 1],   itemDropChance: 0.18, itemDropRarity: 'operative' },
+  { id: 'crypto_heist',     name: 'Crypto Heist',           description: 'Drain a hot wallet from an unprotected exchange.', flavor: 'Exploit a race condition in a DEX smart contract.', icon: 'i-lucide-bitcoin',         minAgents: 1, maxAgents: 2, durationMs:  7 * 60 * 60 * 1000, minPower: 70,    baseCash: [11_700,    27_000],    baseXP: 36,  baseGemChance: 0.04, baseGemCount: [1, 1],   itemDropChance: 0.16, itemDropRarity: 'operative' },
   // ── Tier 3: Mid (-20%) ────────────────────────────────────────────────────────
-  { id: 'telecom_tap',      name: 'Telecom Tap',            description: "Tap a national carrier's backbone for intel.", flavor: 'Splice into fibre routing between two major exchanges.', icon: 'i-lucide-radio-tower',     minAgents: 2, maxAgents: 2, durationMs:  9 * 60 * 60 * 1000, minPower: 95,    baseCash: [17_000,    39_000],    baseXP: 42,  baseGemChance: 0.08, baseGemCount: [1, 2],   itemDropChance: 0.26, itemDropRarity: 'operative' },
-  { id: 'supply_chain',     name: 'Supply Chain Inject',    description: 'Inject a backdoor into a popular software package.', flavor: 'Compromise the CI/CD pipeline of a major npm package.', icon: 'i-lucide-package-2',       minAgents: 2, maxAgents: 2, durationMs: 10 * 60 * 60 * 1000, minPower: 130,   baseCash: [26_000,    62_000],    baseXP: 44,  baseGemChance: 0.10, baseGemCount: [1, 2],   itemDropChance: 0.26, itemDropRarity: 'operative' },
-  { id: 'mil_intel',        name: 'Military Intel Leak',    description: 'Exfiltrate classified comms from a military contractor.', flavor: 'Extract procurement docs from a defense subcontractor.', icon: 'i-lucide-crosshair',       minAgents: 2, maxAgents: 3, durationMs: 11 * 60 * 60 * 1000, minPower: 180,   baseCash: [42_000,    98_000],    baseXP: 47,  baseGemChance: 0.12, baseGemCount: [1, 2],   itemDropChance: 0.28, itemDropRarity: 'operative' },
-  { id: 'gov_heist',        name: 'Government Heist',       description: 'High-risk exfiltration from a classified federal network.', flavor: 'Exfiltrate documents from a government server farm.', icon: 'i-lucide-shield',          minAgents: 2, maxAgents: 3, durationMs: 12 * 60 * 60 * 1000, minPower: 250,   baseCash: [67_000,    157_000],   baseXP: 50,  baseGemChance: 0.15, baseGemCount: [1, 2],   itemDropChance: 0.30, itemDropRarity: 'operative' },
+  { id: 'telecom_tap',      name: 'Telecom Tap',            description: "Tap a national carrier's backbone for intel.", flavor: 'Splice into fibre routing between two major exchanges.', icon: 'i-lucide-radio-tower',     minAgents: 2, maxAgents: 2, durationMs:  9 * 60 * 60 * 1000, minPower: 95,    baseCash: [17_000,    39_000],    baseXP: 42,  baseGemChance: 0.08, baseGemCount: [1, 1],   itemDropChance: 0.20, itemDropRarity: 'operative' },
+  { id: 'supply_chain',     name: 'Supply Chain Inject',    description: 'Inject a backdoor into a popular software package.', flavor: 'Compromise the CI/CD pipeline of a major npm package.', icon: 'i-lucide-package-2',       minAgents: 2, maxAgents: 2, durationMs: 10 * 60 * 60 * 1000, minPower: 130,   baseCash: [26_000,    62_000],    baseXP: 44,  baseGemChance: 0.10, baseGemCount: [1, 1],   itemDropChance: 0.20, itemDropRarity: 'operative' },
+  { id: 'mil_intel',        name: 'Military Intel Leak',    description: 'Exfiltrate classified comms from a military contractor.', flavor: 'Extract procurement docs from a defense subcontractor.', icon: 'i-lucide-crosshair',       minAgents: 2, maxAgents: 3, durationMs: 11 * 60 * 60 * 1000, minPower: 180,   baseCash: [42_000,    98_000],    baseXP: 47,  baseGemChance: 0.12, baseGemCount: [1, 1],   itemDropChance: 0.22, itemDropRarity: 'operative' },
+  { id: 'gov_heist',        name: 'Government Heist',       description: 'High-risk exfiltration from a classified federal network.', flavor: 'Exfiltrate documents from a government server farm.', icon: 'i-lucide-shield',          minAgents: 2, maxAgents: 3, durationMs: 12 * 60 * 60 * 1000, minPower: 250,   baseCash: [67_000,    157_000],   baseXP: 50,  baseGemChance: 0.15, baseGemCount: [1, 1],   itemDropChance: 0.24, itemDropRarity: 'operative' },
   // ── Tier 4: Late mid (-30%) ─────────────────────────────────────────────────────
-  { id: 'ai_theft',         name: 'AI Model Theft',         description: 'Steal proprietary model weights from a tech giant.', flavor: 'Exfiltrate 200GB of trained weights from a cloud storage bucket.', icon: 'i-lucide-brain',           minAgents: 2, maxAgents: 3, durationMs: 14 * 60 * 60 * 1000, minPower: 340,   baseCash: [93_000,    218_000],   baseXP: 56,  baseGemChance: 0.18, baseGemCount: [1, 3],   itemDropChance: 0.32, itemDropRarity: 'specialist' },
-  { id: 'central_bank',     name: 'Central Bank Tap',       description: 'Intercept SWIFT messages from a central bank.', flavor: 'Eavesdrop on interbank settlements for 10 hours.', icon: 'i-lucide-coins',           minAgents: 2, maxAgents: 3, durationMs: 15 * 60 * 60 * 1000, minPower: 470,   baseCash: [148_000,   346_000],   baseXP: 58,  baseGemChance: 0.20, baseGemCount: [1, 3],   itemDropChance: 0.32, itemDropRarity: 'specialist' },
-  { id: 'black_site',       name: 'Black Site Raid',        description: 'Breach an off-books intelligence facility.', flavor: 'Exfiltrate AI research from a black-site data center.', icon: 'i-lucide-skull',           minAgents: 2, maxAgents: 4, durationMs: 18 * 60 * 60 * 1000, minPower: 650,   baseCash: [236_000,   550_000],   baseXP: 65,  baseGemChance: 0.25, baseGemCount: [2, 3],   itemDropChance: 0.35, itemDropRarity: 'specialist' },
+  { id: 'ai_theft',         name: 'AI Model Theft',         description: 'Steal proprietary model weights from a tech giant.', flavor: 'Exfiltrate 200GB of trained weights from a cloud storage bucket.', icon: 'i-lucide-brain',           minAgents: 2, maxAgents: 3, durationMs: 14 * 60 * 60 * 1000, minPower: 340,   baseCash: [93_000,    218_000],   baseXP: 56,  baseGemChance: 0.18, baseGemCount: [1, 2],   itemDropChance: 0.26, itemDropRarity: 'specialist' },
+  { id: 'central_bank',     name: 'Central Bank Tap',       description: 'Intercept SWIFT messages from a central bank.', flavor: 'Eavesdrop on interbank settlements for 10 hours.', icon: 'i-lucide-coins',           minAgents: 2, maxAgents: 3, durationMs: 15 * 60 * 60 * 1000, minPower: 470,   baseCash: [148_000,   346_000],   baseXP: 58,  baseGemChance: 0.20, baseGemCount: [1, 2],   itemDropChance: 0.26, itemDropRarity: 'specialist' },
+  { id: 'black_site',       name: 'Black Site Raid',        description: 'Breach an off-books intelligence facility.', flavor: 'Exfiltrate AI research from a black-site data center.', icon: 'i-lucide-skull',           minAgents: 2, maxAgents: 4, durationMs: 18 * 60 * 60 * 1000, minPower: 650,   baseCash: [236_000,   550_000],   baseXP: 65,  baseGemChance: 0.25, baseGemCount: [2, 2],   itemDropChance: 0.28, itemDropRarity: 'specialist' },
   // ── Tier 5: Endgame (-45%) ──────────────────────────────────────────────────────
-  { id: 'nsa_breach',       name: 'NSA Breach',             description: 'Penetrate the most defended network on the planet.', flavor: 'Access a signals intelligence feed from Fort Meade.', icon: 'i-lucide-satellite',       minAgents: 3, maxAgents: 4, durationMs: 22 * 60 * 60 * 1000, minPower: 900,   baseCash: [295_000,   690_000],   baseXP: 72,  baseGemChance: 0.32, baseGemCount: [2, 4],   itemDropChance: 0.38, itemDropRarity: 'specialist' },
-  { id: 'ghost_protocol',   name: 'Ghost Protocol',         description: 'The most dangerous op in existence.', flavor: 'Infiltrate and extract from a sovereign-level cyber fortress.', icon: 'i-lucide-ghost',           minAgents: 3, maxAgents: 4, durationMs: 30 * 60 * 60 * 1000, minPower: 1_250, baseCash: [470_000,   1_100_000], baseXP: 80,  baseGemChance: 0.40, baseGemCount: [2, 4],  itemDropChance: 0.45, itemDropRarity: 'specialist' },
-  { id: 'quantum_heist',    name: 'Quantum Heist',          description: 'Exploit a quantum computing lab for unbreakable access.', flavor: 'Crack post-quantum encryption using a hijacked QPU.', icon: 'i-lucide-cpu',             minAgents: 3, maxAgents: 4, durationMs: 40 * 60 * 60 * 1000, minPower: 1_750, baseCash: [750_000,   1_750_000], baseXP: 90,  baseGemChance: 0.55, baseGemCount: [2, 5],  itemDropChance: 0.50, itemDropRarity: 'elite' },
-  { id: 'project_zero',     name: 'Project Zero',           description: 'Mythic-tier op. Requires full squad of 4.', flavor: 'Achieve zero-day persistent access to a nation-state AI system.', icon: 'i-lucide-target',          minAgents: 4, maxAgents: 4, durationMs: 56 * 60 * 60 * 1000, minPower: 2_444, baseCash: [1_200_000, 2_750_000], baseXP: 100, baseGemChance: 0.70, baseGemCount: [3, 6],  itemDropChance: 0.55, itemDropRarity: 'elite' },
+  { id: 'nsa_breach',       name: 'NSA Breach',             description: 'Penetrate the most defended network on the planet.', flavor: 'Access a signals intelligence feed from Fort Meade.', icon: 'i-lucide-satellite',       minAgents: 3, maxAgents: 4, durationMs: 22 * 60 * 60 * 1000, minPower: 900,   baseCash: [295_000,   690_000],   baseXP: 72,  baseGemChance: 0.32, baseGemCount: [2, 3],   itemDropChance: 0.30, itemDropRarity: 'specialist' },
+  { id: 'ghost_protocol',   name: 'Ghost Protocol',         description: 'The most dangerous op in existence.', flavor: 'Infiltrate and extract from a sovereign-level cyber fortress.', icon: 'i-lucide-ghost',           minAgents: 3, maxAgents: 4, durationMs: 30 * 60 * 60 * 1000, minPower: 1_250, baseCash: [470_000,   1_100_000], baseXP: 80,  baseGemChance: 0.40, baseGemCount: [2, 3],  itemDropChance: 0.36, itemDropRarity: 'specialist' },
+  { id: 'quantum_heist',    name: 'Quantum Heist',          description: 'Exploit a quantum computing lab for unbreakable access.', flavor: 'Crack post-quantum encryption using a hijacked QPU.', icon: 'i-lucide-cpu',             minAgents: 3, maxAgents: 4, durationMs: 40 * 60 * 60 * 1000, minPower: 1_750, baseCash: [750_000,   1_750_000], baseXP: 90,  baseGemChance: 0.55, baseGemCount: [2, 4],  itemDropChance: 0.40, itemDropRarity: 'elite' },
+  { id: 'project_zero',     name: 'Project Zero',           description: 'Mythic-tier op. Requires full squad of 4.', flavor: 'Achieve zero-day persistent access to a nation-state AI system.', icon: 'i-lucide-target',          minAgents: 4, maxAgents: 4, durationMs: 56 * 60 * 60 * 1000, minPower: 2_444, baseCash: [1_200_000, 2_750_000], baseXP: 100, baseGemChance: 0.70, baseGemCount: [3, 5],  itemDropChance: 0.44, itemDropRarity: 'elite' },
 ]
 
 export const RARITY_ORDER: HackRarity[] = ['ghost', 'operative', 'specialist', 'elite', 'phantom']
@@ -114,8 +117,8 @@ export interface AgentTrait { type: AgentTraitType; value: number }
 
 export const AGENT_TRAIT_RANGES: Record<AgentTraitType, { min: number; max: number; decimals: number }> = {
   gem_chance:    { min: 0.005, max: 0.05,  decimals: 3 },
-  speed_percent: { min: 3,     max: 10,    decimals: 0 },
-  loot_percent:  { min: 3,     max: 6,     decimals: 0 },
+  speed_percent: { min: 3,     max: 10,    decimals: 1 },
+  loot_percent:  { min: 3,     max: 6,     decimals: 1 },
   xp_boost:      { min: 5,     max: 50,    decimals: 0 },
   power_flat:    { min: 10,    max: 60,    decimals: 0 },
   power_percent: { min: 5,     max: 30,    decimals: 0 },
@@ -144,7 +147,7 @@ export function formatTraitValue(type: AgentTraitType, value: number): string {
   if (type === 'power_flat') return `+${Math.round(value)} power`
   if (type === 'power_percent') return `+${Math.round(value)}% power`
   if (type === 'xp_boost') return `+${Math.round(value)}% XP`
-  return `+${Math.round(value)}%`
+  return `+${formatPct(value)}%`
 }
 
 function generateAgentTraits(rarity: HackRarity): AgentTrait[] {
@@ -162,28 +165,41 @@ function generateAgentTraits(rarity: HackRarity): AgentTrait[] {
   return traits
 }
 
+// These are the FULL-POTENTIAL ranges — only the top crate (Ghost Cache) rolls the whole
+// band. Cheaper crates roll inside a fraction of it (see ItemPullTier.rollQuality). The
+// tier bands overlap heavily and floors stay low, so a roll is never guaranteed: a Junk
+// Cache can roll 1% loot, a Ghost Cache reaches 12% — but even Ghost can roll modestly.
+// The min is the absolute worst possible roll; the max is the Ghost Cache ceiling.
 export const MOD_RANGES: Record<ModType, { min: number; max: number; decimals: number }> = {
-  loot_percent:       { min: 3,     max: 6,     decimals: 0 },
-  speed_percent:      { min: 3,     max: 10,    decimals: 0 },
-  xp_flat:            { min: 1,     max: 5,     decimals: 0 },
-  gem_chance:         { min: 0.002, max: 0.015, decimals: 3 },
-  power_flat:         { min: 5,     max: 25,    decimals: 0 },
+  loot_percent:       { min: 1,     max: 12,    decimals: 1 },
+  speed_percent:      { min: 1,     max: 12,    decimals: 1 },
+  xp_flat:            { min: 1,     max: 7,     decimals: 0 },
+  gem_chance:         { min: 0.001, max: 0.02,  decimals: 3 },
+  power_flat:         { min: 4,     max: 28,    decimals: 0 },
+  item_chance:        { min: 0.01,  max: 0.10,  decimals: 3 },
+  gem_bonus:          { min: 1,     max: 3,     decimals: 0 },
 }
 export const MOD_LABEL: Record<ModType, string> = {
   loot_percent: 'Loot', speed_percent: 'Speed', xp_flat: 'XP',
   gem_chance: 'Gem Chance', power_flat: 'Power',
+  item_chance: 'Item Find', gem_bonus: 'Bonus Gems',
 }
+// Loot & Speed roll to one decimal (e.g. 6.2%), so format up to 1 decimal but trim a
+// trailing ".0" so whole values stay clean (6% not 6.0%).
+export function formatPct(value: number): string { return `${parseFloat(value.toFixed(1))}` }
+
 export function formatModValue(type: ModType, value: number): string {
-  if (type === 'gem_chance') return `+${(value * 100).toFixed(1)}%`
+  if (type === 'gem_chance' || type === 'item_chance') return `+${(value * 100).toFixed(1)}%`
   if (type === 'xp_flat') return `+${value} XP`
+  if (type === 'gem_bonus') return `+${Math.round(value)} gems`
   if (type === 'power_flat') return `+${Math.round(value)}`
-  return `+${Math.round(value)}%`
+  return `+${formatPct(value)}%`
 }
 
 export const RARITY_MOD_COUNT: Record<HackRarity, number> = { ghost: 1, operative: 2, specialist: 3, elite: 4, phantom: 5 }
 
 const ITEM_SLOTS: ItemSlot[] = ['tool', 'software', 'hardware']
-const ALL_MOD_TYPES: ModType[] = ['loot_percent', 'speed_percent', 'xp_flat', 'gem_chance', 'power_flat']
+const ALL_MOD_TYPES: ModType[] = ['loot_percent', 'speed_percent', 'xp_flat', 'gem_chance', 'power_flat', 'item_chance', 'gem_bonus']
 const TOOL_NAMES = ['USB Infiltrator', 'Signal Probe', 'Ghost Tap', 'Neural Sniffer', 'Quantum Spike', 'Black Tap', 'Phantom Drive', 'Cipher Key']
 const SOFTWARE_NAMES = ['Zero Day Exploit', 'Polymorphic Shell', 'Ghost Suite', 'Darknet Relay', 'Neural Bypass', 'Stealth Daemon', 'AI Decryptor', 'Recursive Worm']
 const HARDWARE_NAMES = ['Black Ice Rig', 'Signal Scrambler', 'Neural Implant', 'Optical Jammer', 'Dark Server', 'Void Terminal', 'Quantum Node', 'Stealth Array']
@@ -196,7 +212,42 @@ function generateItemName(slot: ItemSlot, rarity: HackRarity): string {
   return RARITY_PREFIX[rarity] + pickRandom(pool)
 }
 
-export function generateItem(rarity: HackRarity, itemLevel: number, slot?: ItemSlot): HackItemDef {
+// A fraction band [min, max] (each 0..1) of a mod's full MOD_RANGES span. A crate's
+// rollQuality decides where inside the full range its mods land — cheap crates use a
+// low band (low floor, low ceiling), expensive crates a high one. The width of the
+// band is the "luck gap": even the best crate can roll near its floor.
+export interface RollQuality { min: number; max: number }
+const FULL_QUALITY: RollQuality = { min: 0, max: 1 }
+
+// Bonus Gems is a tiny integer count (1–3): every crate should still be able to roll the
+// low end, with only the ceiling rising per tier. So it anchors its floor at the range
+// min and lets the tier scale only the ceiling, instead of shifting the whole band up
+// (which would force expensive crates to always roll high). Ghost Cache → full 1–3.
+function modQuality(type: ModType, tierQuality: RollQuality): RollQuality {
+  if (type === 'gem_bonus') return { min: 0, max: tierQuality.max }
+  return tierQuality
+}
+
+/** Roll a single mod's value within a quality band of its full range. */
+export function rollMod(type: ModType, quality: RollQuality = FULL_QUALITY): ItemMod {
+  const q = modQuality(type, quality)
+  const range = MOD_RANGES[type]
+  const t = q.min + Math.random() * (q.max - q.min)
+  const raw = range.min + t * (range.max - range.min)
+  const factor = Math.pow(10, range.decimals)
+  return { type, value: Math.round(raw * factor) / factor }
+}
+
+/** The effective min–max a given quality band can roll for a mod type (for display). */
+export function tierModRange(type: ModType, quality: RollQuality): { min: number; max: number } {
+  const q = modQuality(type, quality)
+  const range = MOD_RANGES[type]
+  const factor = Math.pow(10, range.decimals)
+  const at = (v: number) => Math.round((range.min + v * (range.max - range.min)) * factor) / factor
+  return { min: at(q.min), max: at(q.max) }
+}
+
+export function generateItem(rarity: HackRarity, itemLevel: number, slot?: ItemSlot, quality: RollQuality = FULL_QUALITY): HackItemDef {
   const s = slot ?? pickRandom(ITEM_SLOTS)
   const modCount = RARITY_MOD_COUNT[rarity]
   const available = [...ALL_MOD_TYPES]
@@ -204,12 +255,39 @@ export function generateItem(rarity: HackRarity, itemLevel: number, slot?: ItemS
   for (let i = 0; i < modCount && available.length > 0; i++) {
     const idx = Math.floor(Math.random() * available.length)
     const type = available.splice(idx, 1)[0]!
-    const range = MOD_RANGES[type]
-    const raw = range.min + Math.random() * (range.max - range.min)
-    const factor = Math.pow(10, range.decimals)
-    mods.push({ type, value: Math.round(raw * factor) / factor })
+    mods.push(rollMod(type, quality))
   }
   return { name: generateItemName(s, rarity), slot: s, itemLevel, rarity, mods }
+}
+
+// ─── Item re-rolling ────────────────────────────────────────────────────────────
+// Re-roll gem cost: 1 gem per mod on the item, plus an escalating surcharge per
+// locked mod — 1 locked = +1, 2 = +3, 3 = +5, … (i.e. 2·locked − 1). Locking more
+// specs you want to keep gets steeply pricier.
+export function rerollCost(modCount: number, lockedCount: number): number {
+  const lockSurcharge = lockedCount <= 0 ? 0 : 2 * lockedCount - 1
+  return modCount + lockSurcharge
+}
+
+/**
+ * Re-roll an item's mods. Locked mod types keep their exact value; every other slot is
+ * replaced by a fresh random mod (new type + value, rolled across the FULL range). New
+ * types are drawn so the item keeps unique mod types, but a re-rolled slot can come back
+ * as the same type it had before — there's no guaranteed improvement. Original slot order
+ * is preserved so the UI stays stable.
+ */
+export function rerollItemMods(mods: ItemMod[], lockedTypes: ModType[]): ItemMod[] {
+  const lockedSet = new Set(mods.filter(m => lockedTypes.includes(m.type)).map(m => m.type))
+  const pool = ALL_MOD_TYPES.filter(t => !lockedSet.has(t))
+  const rerollCount = mods.length - lockedSet.size
+  const rolled: ItemMod[] = []
+  for (let i = 0; i < rerollCount && pool.length > 0; i++) {
+    const idx = Math.floor(Math.random() * pool.length)
+    const type = pool.splice(idx, 1)[0]!
+    rolled.push(rollMod(type))
+  }
+  let r = 0
+  return mods.map(m => (lockedSet.has(m.type) ? m : rolled[r++]!))
 }
 
 export const AGENT_CODENAMES = [
@@ -265,13 +343,17 @@ export interface ItemPullTier {
   cost: number
   weights: Record<HackRarity, number>
   minItemLevel: number; maxItemLevel: number
+  // Fraction of the full MOD_RANGES span this crate's mods roll within. Cheaper crates
+  // sit low (worse floor AND ceiling); pricier crates shift up, so the more you pay the
+  // stronger the guaranteed mods — while the band width keeps room for lucky rolls.
+  rollQuality: RollQuality
 }
 
 export const ITEM_PULL_TIERS: ItemPullTier[] = [
-  { id: 'junk',        name: 'Junk Cache',     description: 'Salvaged trash. Sometimes useful.',        cost: 5_000,     weights: { ghost: 65, operative: 30, specialist: 5, elite: 0, phantom: 0 }, minItemLevel: 1, maxItemLevel: 4 },
-  { id: 'standard',    name: 'Standard Crate', description: 'Reliable mid-tier equipment.',             cost: 40_000,    weights: { ghost: 20, operative: 45, specialist: 30, elite: 4, phantom: 1 }, minItemLevel: 3, maxItemLevel: 8 },
-  { id: 'premium',     name: 'Premium Stash',  description: 'High-end gear. Rare mods possible.',       cost: 300_000,   weights: { ghost: 0, operative: 18, specialist: 45, elite: 32, phantom: 5 }, minItemLevel: 6, maxItemLevel: 14 },
-  { id: 'ghost_cache', name: 'Ghost Cache',    description: 'Ultra-rare haul. Elite or Phantom only.',  cost: 2_000_000, weights: { ghost: 0, operative: 0, specialist: 20, elite: 50, phantom: 30 }, minItemLevel: 12, maxItemLevel: 20 },
+  { id: 'junk',        name: 'Junk Cache',     description: 'Salvaged trash. Sometimes useful.',        cost: 5_000,     weights: { ghost: 65, operative: 30, specialist: 5, elite: 0, phantom: 0 }, minItemLevel: 1, maxItemLevel: 4,  rollQuality: { min: 0.00, max: 0.36 } },
+  { id: 'standard',    name: 'Standard Crate', description: 'Reliable mid-tier equipment.',             cost: 40_000,    weights: { ghost: 20, operative: 45, specialist: 30, elite: 4, phantom: 1 }, minItemLevel: 3, maxItemLevel: 8,  rollQuality: { min: 0.10, max: 0.55 } },
+  { id: 'premium',     name: 'Premium Stash',  description: 'High-end gear. Better odds, higher ceiling.', cost: 300_000, weights: { ghost: 0, operative: 18, specialist: 45, elite: 32, phantom: 5 }, minItemLevel: 6, maxItemLevel: 14, rollQuality: { min: 0.18, max: 0.73 } },
+  { id: 'ghost_cache', name: 'Ghost Cache',    description: 'Ultra-rare haul. Elite or Phantom, top-end mods.', cost: 2_000_000, weights: { ghost: 0, operative: 0, specialist: 20, elite: 50, phantom: 30 }, minItemLevel: 12, maxItemLevel: 20, rollQuality: { min: 0.27, max: 1.00 } },
 ]
 
 export function rollItemFromTier(tier: ItemPullTier, avgAgentLevel: number): HackItemDef {
@@ -279,7 +361,7 @@ export function rollItemFromTier(tier: ItemPullTier, avgAgentLevel: number): Hac
   const levelBonus = Math.floor(avgAgentLevel / 5)
   const rawLevel = tier.minItemLevel + Math.floor(Math.random() * (tier.maxItemLevel - tier.minItemLevel + 1))
   const itemLevel = Math.min(20, rawLevel + levelBonus)
-  return generateItem(rarity, itemLevel)
+  return generateItem(rarity, itemLevel, undefined, tier.rollQuality)
 }
 
 // ─── Roster expansion ─────────────────────────────────────────────────────────
@@ -315,8 +397,8 @@ export function agentPower(
 
 // ─── Op speed ─────────────────────────────────────────────────────────────────
 // There is no hard cap on a single agent's speed — instead the sources are tuned so
-// ~50% is the natural ceiling a perfect agent can reach: a maxed infiltrator with
-// three 10% speed items (30%) + the 10% class passive + a 10% speed trait = 50%.
+// ~56% is the natural ceiling a perfect agent can reach: a maxed infiltrator with
+// three 12% speed items (36%) + the 10% class passive + a 10% speed trait = 56%.
 // Squad-wide floor on the remaining time: even a perfect 4-agent team can't drop an
 // op below (1 - this) of its base duration, keeping long endgame ops meaningful.
 export const MAX_TOTAL_SPEED = 0.65
@@ -362,8 +444,8 @@ export interface OpReward { success: boolean; cash: number; gems: number; item: 
 // ─── Loot ─────────────────────────────────────────────────────────────────────
 // Loot is computed per agent (own gear loot mods + class passive + loot traits) and
 // summed across the squad. There is no hard cap — the sources are tuned so ~30% is
-// the natural ceiling a single agent can reach: three 6% loot items (18%) + the 6%
-// cryptographer class passive + a 6% loot trait = 30%. A full 4-agent squad therefore
+// the natural ceiling a single agent can reach: three 12% loot items (36%) + the 6%
+// cryptographer class passive + a 6% loot trait = 48%. A full 4-agent squad therefore
 // tops out around 4× that rather than the old uncapped multiplier that exploded.
 export interface RewardAgent {
   level: number
@@ -408,8 +490,12 @@ export function collectBonuses(agents: RewardAgent[]) {
     gemChance: allItemMods.filter(m => m.type === 'gem_chance').reduce((s, m) => s + m.value, 0)
              + allTraits.filter(t => t.type === 'gem_chance').reduce((s, t) => s + t.value, 0)
              + agents.reduce((s, a) => s + (CLASS_PASSIVE[a.class].type === 'gem_chance' ? CLASS_PASSIVE[a.class].value : 0), 0),
-    // Flat extra gems from the Bonus Gems trait — only paid out when the op rolls gems.
-    gemBonus:  allTraits.filter(t => t.type === 'gem_bonus').reduce((s, t) => s + t.value, 0),
+    // Flat extra gems from the Bonus Gems trait + Bonus Gems gear mod — only paid out
+    // when the op rolls gems (never creates gems on a gem-less op).
+    gemBonus:  allTraits.filter(t => t.type === 'gem_bonus').reduce((s, t) => s + t.value, 0)
+             + allItemMods.filter(m => m.type === 'gem_bonus').reduce((s, m) => s + m.value, 0),
+    // Extra item-drop chance from Item Find gear mods, added on top of the op's base.
+    itemChance: allItemMods.filter(m => m.type === 'item_chance').reduce((s, m) => s + m.value, 0),
     // Modest reward bonus for leveling agents — endgame full squad ≈ +32%.
     levelBonus: agents.reduce((s, a) => s + a.level, 0) * 0.004,
   }
@@ -430,6 +516,10 @@ export function effectiveCashRange(
 
 export function effectiveGemChance(template: OpTemplate, bonuses: ReturnType<typeof collectBonuses>): number {
   return Math.min(0.95, template.baseGemChance + bonuses.gemChance)
+}
+
+export function effectiveItemDropChance(template: OpTemplate, bonuses: ReturnType<typeof collectBonuses>): number {
+  return Math.min(0.9, template.itemDropChance + bonuses.itemChance)
 }
 
 export function rollOpReward(
@@ -458,9 +548,13 @@ export function rollOpReward(
     const [gMin, gMax] = template.baseGemCount
     gems = gMin + Math.floor(Math.random() * (gMax - gMin + 1)) + bonuses.gemBonus
   }
-  const wouldDropItem = Math.random() < template.itemDropChance
+  // Item Find gear mods raise the op's base drop chance (capped so it can't be a guarantee).
+  const itemDropChance = Math.min(0.9, template.itemDropChance + bonuses.itemChance)
+  const wouldDropItem = Math.random() < itemDropChance
+  // Op drops are a free bonus, so they roll a modest mid band rather than the full range
+  // the top crate reaches — buying a Premium/Ghost Cache should still beat farming drops.
   const item = wouldDropItem && !inventoryFull
-    ? generateItem(template.itemDropRarity, Math.max(1, Math.round(agents.reduce((s, a) => s + a.level, 0) / agents.length)))
+    ? generateItem(template.itemDropRarity, Math.max(1, Math.round(agents.reduce((s, a) => s + a.level, 0) / agents.length)), undefined, { min: 0, max: 0.6 })
     : null
   return { success: true, cash, gems, item, inventoryFull: wouldDropItem && inventoryFull }
 }
