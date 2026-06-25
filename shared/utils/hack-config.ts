@@ -71,7 +71,7 @@ export const CLASS_LABEL: Record<AgentClass, string> = { infiltrator: 'Infiltrat
 export const CLASS_ICON: Record<AgentClass, string> = { infiltrator: 'i-lucide-ghost', cryptographer: 'i-lucide-key', social_engineer: 'i-lucide-message-circle', bruteforce: 'i-lucide-zap' }
 export const CLASS_PASSIVE: Record<AgentClass, { type: ModType; value: number; label: string }> = {
   infiltrator:     { type: 'speed_percent',  value: 0.10, label: '+10% op speed' },
-  cryptographer:   { type: 'loot_percent',   value: 0.06, label: '+6% cash loot' },
+  cryptographer:   { type: 'loot_percent',   value: 0.06, label: '+6% loot' },
   social_engineer: { type: 'gem_chance',     value: 0.01, label: '+1% gem chance' },
   bruteforce:      { type: 'power_flat',     value: 15,   label: '+15 power rating' },
 }
