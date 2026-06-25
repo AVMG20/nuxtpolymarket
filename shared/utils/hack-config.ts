@@ -476,7 +476,9 @@ export function agentXpGain(
   agent: { traits?: AgentTrait[]; items: Array<{ mods: ItemMod[] }> },
   success: boolean,
 ): number {
-  if (!success) return Math.floor(template.baseXP * 0.3)
+  // Failed ops still grant some XP, but at half the success-floor rate (15% of base)
+  // so dispatching deliberately over-difficult ops can't be used to farm XP.
+  if (!success) return Math.floor(template.baseXP * 0.15)
   const xpBoost = (agent.traits ?? []).filter(t => t.type === 'xp_boost').reduce((s, t) => s + t.value, 0) / 100
   const xpFlat = agent.items.flatMap(i => i.mods).filter(m => m.type === 'xp_flat').reduce((s, m) => s + m.value, 0)
   return Math.round(template.baseXP * (1 + xpBoost) + xpFlat)

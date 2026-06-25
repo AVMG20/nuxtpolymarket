@@ -55,7 +55,7 @@ export default defineEventHandler(async (event) => {
   const reward = rollOpReward(template, rewardAgents, totalPower, inventoryFull)
 
   // Apply XP per agent — each agent earns from its OWN xp_boost trait and xp_flat
-  // gear (never pooled). On failure every agent gets the same flat 30% of base XP.
+  // gear (never pooled). On failure every agent gets the same flat 15% of base XP.
   const levelUps: Array<{ agentId: string; newLevel: number }> = []
   let reportXp = 0
   for (let i = 0; i < agents.length; i++) {
