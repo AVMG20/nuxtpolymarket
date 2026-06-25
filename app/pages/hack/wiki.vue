@@ -112,7 +112,7 @@ function fmtRange(type: AgentTraitType | ModType, min: number, max: number): str
                 <template v-else-if="type === 'loot_percent'">Increases the cash payout of a successful op. Combines with this agent's item Loot mods and the Cryptographer class — a single agent tops out around 30%, then each agent's loot is summed across the squad.</template>
                 <template v-else-if="type === 'gem_chance'">Adds a flat percentage to the chance an op drops gems. Only matters on ops that can drop gems in the first place.</template>
                 <template v-else-if="type === 'gem_bonus'">Adds flat extra gems to a raid — but only on ops that already award gems, and only when the gem chance roll succeeds. It can never create gems on an op that has none.</template>
-                <template v-else-if="type === 'xp_boost'">This agent earns more XP from every op (up to +100% on a single agent), so it levels up faster. XP is per agent — it's never pooled, so this only ever boosts the agent that carries it.</template>
+                <template v-else-if="type === 'xp_boost'">This agent earns more XP from every op (up to +50% on a single agent), so it levels up faster. XP is per agent — it's never pooled, so this only ever boosts the agent that carries it.</template>
                 <template v-else-if="type === 'power_flat'">Adds a flat amount to this agent's power — raises success chance and helps unlock tougher ops. Best on low-level agents.</template>
                 <template v-else-if="type === 'power_percent'">Multiplies this agent's whole power (level + gear + flat power) by a percentage. The more invested the agent, the bigger the gain — best on high-level, well-geared agents.</template>
               </p>

@@ -116,7 +116,7 @@ export const AGENT_TRAIT_RANGES: Record<AgentTraitType, { min: number; max: numb
   gem_chance:    { min: 0.005, max: 0.05,  decimals: 3 },
   speed_percent: { min: 3,     max: 10,    decimals: 0 },
   loot_percent:  { min: 3,     max: 6,     decimals: 0 },
-  xp_boost:      { min: 20,    max: 100,   decimals: 0 },
+  xp_boost:      { min: 5,     max: 50,    decimals: 0 },
   power_flat:    { min: 10,    max: 60,    decimals: 0 },
   power_percent: { min: 5,     max: 30,    decimals: 0 },
   gem_bonus:     { min: 1,     max: 3,     decimals: 0 },
@@ -381,7 +381,7 @@ export function agentLootPercent(agent: { class: AgentClass; traits?: AgentTrait
 
 /**
  * XP earned by a single agent from an op. XP is never pooled across the squad — each
- * agent levels from its OWN xp_boost trait (capped at +100% by the trait range) and
+ * agent levels from its OWN xp_boost trait (capped at +50% by the trait range) and
  * its OWN equipped xp_flat gear. A failed op still grants a flat 30% of base XP.
  */
 export function agentXpGain(
