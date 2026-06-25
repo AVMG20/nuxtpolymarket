@@ -1,6 +1,6 @@
 import { eq, and, inArray, sql } from 'drizzle-orm'
 import { db } from '#server/database'
-import { hackAgents, hackItems, hackOps, user } from '#server/database/schema'
+import { hackAgents, hackItems, hackOps, hackHistory, hackState, user } from '#server/database/schema'
 import { auth } from '#server/utils/auth'
 import { credit } from '#server/utils/balance'
 import {
@@ -94,6 +94,25 @@ export default defineEventHandler(async (event) => {
   }
 
   await db.update(hackOps).set({ collected: true, reward }).where(eq(hackOps.id, opId))
+
+  // Log the outcome and bump the lifetime ops-done counter (used by the leaderboard).
+  const durationMs = op.completesAt.getTime() - op.startedAt.getTime()
+  await Promise.all([
+    db.insert(hackHistory).values({
+      userId,
+      templateId: op.templateId,
+      success: reward.success,
+      cash: (reward.success ? reward.cash : 0).toFixed(4),
+      gems: reward.success ? reward.gems : 0,
+      itemName: droppedItem?.name ?? null,
+      itemRarity: droppedItem?.rarity ?? null,
+      agentCount: agentIds.length,
+      durationMs,
+    }),
+    db.update(hackState)
+      .set({ totalOpsCompleted: sql`${hackState.totalOpsCompleted} + 1` })
+      .where(eq(hackState.userId, userId)),
+  ])
 
   return {
     success: reward.success,

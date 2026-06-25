@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import {
   RARITY_COLOR, RARITY_LABEL, CLASS_LABEL, CLASS_ICON, CLASS_COLOR, CLASS_PASSIVE,
-  AGENT_TRAIT_LABEL, formatTraitValue,
+  AGENT_TRAIT_LABEL, formatTraitValue, SLOT_ICON, SLOT_LABEL, SLOT_COLOR, MOD_LABEL, formatModValue,
   effectiveDurationMs, collectBonuses, effectiveCashRange, effectiveGemChance, effectiveItemDropChance, opSuccessChance, MIN_DEPLOY_SUCCESS,
-  type HackRarity, type AgentClass, type AgentTrait, type AgentTraitType, type ItemMod,
+  type HackRarity, type AgentClass, type AgentTrait, type AgentTraitType, type ItemMod, type ItemSlot,
 } from '#shared/utils/hack-config'
 
 const { fetchSession } = useAuth()
@@ -85,22 +85,34 @@ async function dispatch() {
   }
 }
 
-// Collect
+// Collect — outcome is shown in a result modal instead of a plain toast.
 const collecting = ref<string | null>(null)
-async function collect(opId: string) {
-  collecting.value = opId
+const collectResult = ref<{
+  success: boolean
+  cash: number
+  gems: number
+  xpPerAgent: number
+  item: { name: string; slot: ItemSlot; itemLevel: number; rarity: HackRarity; mods: ItemMod[] } | null
+  inventoryFull: boolean
+  levelUps: Array<{ agentId: string; newLevel: number }>
+  templateName: string
+  icon: string
+} | null>(null)
+const collectModalOpen = computed({
+  get: () => !!collectResult.value,
+  set: (v) => { if (!v) collectResult.value = null },
+})
+
+async function collect(op: { id: string; templateId: string }) {
+  collecting.value = op.id
   try {
-    const res = await $fetch('/api/hack/ops/collect', { method: 'POST', body: { opId } })
-    if (!res.success) {
-      const desc = `Op failed. Agents gained ${res.xpPerAgent} XP each.`
-      toast.add({ title: 'Mission Failed', description: desc, color: 'error' })
-    } else {
-      let desc = `+$${formatNumber(res.cash, true)}`
-      if (res.gems > 0) desc += ` · +${res.gems} 💎`
-      if (res.item) desc += ` · Gear: ${res.item.name}`
-      if (res.levelUps?.length) desc += ` · ${res.levelUps.length} level up${res.levelUps.length > 1 ? 's' : ''}!`
-      if (res.inventoryFull) desc += ' · Inventory full, item lost'
-      toast.add({ title: 'Op complete', description: desc, color: 'success' })
+    const res = await $fetch('/api/hack/ops/collect', { method: 'POST', body: { opId: op.id } })
+    const template = state.value?.opTemplates.find(t => t.id === op.templateId)
+    collectResult.value = {
+      ...res,
+      item: res.item as any,
+      templateName: template?.name ?? 'Operation',
+      icon: template?.icon ?? 'i-lucide-terminal',
     }
     await Promise.all([refresh(), fetchSession()])
   } catch (e: any) {
@@ -108,6 +120,10 @@ async function collect(opId: string) {
   } finally {
     collecting.value = null
   }
+}
+
+function levelUpAgentName(agentId: string) {
+  return agentById(agentId)?.name ?? 'Agent'
 }
 
 // Helpers
@@ -120,6 +136,38 @@ function agentById(id: string) {
 function freeAgents() {
   return state.value?.agents.filter(a => !busyAgentIds.value.has(a.id)) ?? []
 }
+
+// Reward preview for a running op — what its assigned squad might pull in, plus the
+// success chance. Mirrors the dispatch modal's math (collectBonuses folds in each
+// agent's gear/class/traits). Keyed by op id so it only recomputes when state changes.
+const activeOpsPreview = computed(() =>
+  (state.value?.activeOps ?? []).map((op) => {
+    const template = state.value!.opTemplates.find(t => t.id === op.templateId)
+    if (!template) return { op, template: null, preview: null }
+    const agents = op.agentIds.map(id => agentById(id)).filter(Boolean) as NonNullable<typeof state.value>['agents']
+    const power = agents.reduce((s, a) => s + a.power, 0)
+    const rewardAgents = agents.map(a => ({
+      level: a.level,
+      class: a.class as AgentClass,
+      traits: (a.traits ?? []) as AgentTrait[],
+      items: ([a.gear?.tool, a.gear?.software, a.gear?.hardware] as any[])
+        .filter(Boolean)
+        .map((i: any) => ({ mods: i.mods as ItemMod[] })),
+    }))
+    const bonuses = collectBonuses(rewardAgents)
+    return {
+      op,
+      template,
+      preview: {
+        successChance: opSuccessChance(power, template.minPower),
+        cashRange: effectiveCashRange(template, bonuses),
+        gemChance: effectiveGemChance(template, bonuses),
+        gemBonus: bonuses.gemBonus,
+        itemDropChance: effectiveItemDropChance(template, bonuses),
+      },
+    }
+  })
+)
 
 const modalStats = computed(() => {
   if (!selectedTemplate.value || !state.value || selectedAgentIds.value.length === 0) return null
@@ -248,14 +296,14 @@ function deployBlockedReason(t: any): string | null {
       <!-- Active Ops -->
       <div v-if="state.activeOps.length" class="space-y-3">
         <h2 class="text-sm font-semibold text-muted uppercase tracking-wide">Active Operations</h2>
-        <UCard v-for="op in state.activeOps" :key="op.id">
+        <UCard v-for="{ op, template, preview } in activeOpsPreview" :key="op.id">
           <div class="flex items-start justify-between gap-4">
             <div class="flex items-start gap-3 min-w-0">
               <div class="size-10 rounded-lg bg-primary/15 flex items-center justify-center shrink-0 mt-0.5">
-                <UIcon :name="state.opTemplates.find(t => t.id === op.templateId)?.icon ?? 'i-lucide-terminal'" class="size-5 text-primary" />
+                <UIcon :name="template?.icon ?? 'i-lucide-terminal'" class="size-5 text-primary" />
               </div>
               <div class="min-w-0">
-                <p class="font-semibold">{{ state.opTemplates.find(t => t.id === op.templateId)?.name }}</p>
+                <p class="font-semibold">{{ template?.name }}</p>
                 <div class="flex flex-wrap gap-1.5 mt-1">
                   <UBadge
                     v-for="aid in op.agentIds" :key="aid"
@@ -276,18 +324,46 @@ function deployBlockedReason(t: any): string | null {
                 size="sm"
                 color="success"
                 :loading="collecting === op.id"
-                @click="collect(op.id)"
+                @click="collect(op)"
                 label="Collect"
                 icon="i-lucide-download"
               />
             </div>
           </div>
-          <div class="mt-3 h-1.5 rounded-full bg-elevated overflow-hidden">
-            <div
-              class="h-full rounded-full transition-all duration-1000"
-              :class="op.done ? 'bg-success' : 'bg-primary'"
-              :style="{ width: `${progressPct(op)}%` }"
-            />
+
+          <!-- Potential rewards + success chance -->
+          <div v-if="preview" class="flex flex-wrap items-center gap-x-4 gap-y-1.5 mt-3 text-sm">
+            <span class="flex items-center gap-1 font-semibold text-yellow-400 tabular-nums">
+              <CoinBalance :value="preview.cashRange[0]" />–<CoinBalance :value="preview.cashRange[1]" :show-icon="false" />
+            </span>
+            <span v-if="preview.gemChance > 0 && template" class="flex items-center gap-1 text-cyan-400 tabular-nums">
+              <GemBalance :value="template.baseGemCount[1] + preview.gemBonus" />
+              <span class="text-muted font-normal text-xs">({{ Math.round(preview.gemChance * 100) }}%)</span>
+            </span>
+            <span v-if="template" class="flex items-center gap-1.5 tabular-nums">
+              <UIcon name="i-lucide-package" class="size-3.5 text-muted" />
+              <span class="font-medium">{{ Math.round(preview.itemDropChance * 100) }}%</span>
+              <UBadge size="xs" variant="subtle" :color="RARITY_COLOR[template.itemDropRarity as HackRarity]" :label="RARITY_LABEL[template.itemDropRarity as HackRarity]" />
+            </span>
+            <span class="flex items-center gap-1 ml-auto tabular-nums" :class="preview.successChance < 0.25 ? 'text-error' : 'text-success'">
+              <UIcon name="i-lucide-target" class="size-3.5" />
+              <span class="font-semibold">{{ Math.round(preview.successChance * 100) }}%</span>
+              <span class="text-muted font-normal text-xs">success</span>
+            </span>
+          </div>
+
+          <!-- Progress -->
+          <div class="mt-3 flex items-center gap-3">
+            <div class="flex-1 h-1.5 rounded-full bg-elevated overflow-hidden">
+              <div
+                class="h-full rounded-full transition-all duration-1000"
+                :class="op.done ? 'bg-success' : 'bg-primary'"
+                :style="{ width: `${progressPct(op)}%` }"
+              />
+            </div>
+            <span class="text-xs font-semibold tabular-nums w-9 text-right" :class="op.done ? 'text-success' : 'text-muted'">
+              {{ op.done ? '100%' : `${progressPct(op)}%` }}
+            </span>
           </div>
         </UCard>
       </div>
@@ -597,6 +673,109 @@ function deployBlockedReason(t: any): string | null {
             class="flex-1"
           />
         </div>
+      </template>
+    </UModal>
+
+    <!-- Collect Outcome Modal -->
+    <UModal
+      v-model:open="collectModalOpen"
+      :title="collectResult?.success ? 'Mission Success' : 'Mission Failed'"
+      :description="collectResult?.templateName"
+    >
+      <template v-if="collectResult" #body>
+        <div class="space-y-4">
+          <!-- Outcome header -->
+          <div class="flex items-center gap-3">
+            <div class="size-12 rounded-xl flex items-center justify-center shrink-0 ring-1"
+              :class="collectResult.success ? 'bg-success/15 ring-success/30' : 'bg-error/15 ring-error/30'">
+              <UIcon :name="collectResult.success ? 'i-lucide-party-popper' : 'i-lucide-skull'"
+                class="size-6" :class="collectResult.success ? 'text-success' : 'text-error'" />
+            </div>
+            <div class="min-w-0">
+              <div class="flex items-center gap-2">
+                <UIcon :name="collectResult.icon" class="size-4 text-primary shrink-0" />
+                <p class="font-bold text-lg truncate">{{ collectResult.templateName }}</p>
+              </div>
+              <p class="text-sm" :class="collectResult.success ? 'text-success' : 'text-error'">
+                {{ collectResult.success ? 'Operation successful — loot recovered.' : 'The op went sideways — no loot.' }}
+              </p>
+            </div>
+          </div>
+
+          <!-- Rewards (success) -->
+          <div v-if="collectResult.success" class="grid grid-cols-2 gap-2">
+            <div class="flex items-center gap-2 p-2.5 rounded-lg bg-elevated border border-default">
+              <UIcon name="i-lucide-banknote" class="size-4 text-yellow-400 shrink-0" />
+              <div class="min-w-0">
+                <p class="text-[10px] text-muted leading-none mb-0.5">Cash</p>
+                <p class="font-bold text-sm text-yellow-400">+${{ formatNumber(collectResult.cash, true) }}</p>
+              </div>
+            </div>
+            <div v-if="collectResult.gems > 0" class="flex items-center gap-2 p-2.5 rounded-lg bg-elevated border border-default">
+              <UIcon name="i-lucide-gem" class="size-4 text-cyan-400 shrink-0" />
+              <div class="min-w-0">
+                <p class="text-[10px] text-muted leading-none mb-0.5">Gems</p>
+                <p class="font-bold text-sm text-cyan-400">+{{ collectResult.gems }}</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Dropped item -->
+          <div v-if="collectResult.success && collectResult.item" class="p-3 rounded-lg border border-default">
+            <div class="flex items-start gap-3">
+              <div class="size-9 rounded-lg flex items-center justify-center shrink-0 ring-1"
+                :class="[SLOT_COLOR[collectResult.item.slot].bg, SLOT_COLOR[collectResult.item.slot].ring]">
+                <UIcon :name="SLOT_ICON[collectResult.item.slot]" class="size-5" :class="SLOT_COLOR[collectResult.item.slot].text" />
+              </div>
+              <div class="flex-1 min-w-0">
+                <div class="flex items-center gap-2 flex-wrap mb-1">
+                  <span class="font-semibold text-sm">{{ collectResult.item.name }}</span>
+                  <UBadge size="xs" :color="RARITY_COLOR[collectResult.item.rarity]" variant="subtle" :label="RARITY_LABEL[collectResult.item.rarity]" />
+                  <span class="text-xs text-muted">{{ SLOT_LABEL[collectResult.item.slot] }} · Lv {{ collectResult.item.itemLevel }}</span>
+                </div>
+                <div class="flex flex-wrap gap-x-3">
+                  <span v-for="m in collectResult.item.mods" :key="m.type" class="text-sm font-medium text-primary">
+                    {{ MOD_LABEL[m.type] }} {{ formatModValue(m.type, m.value) }}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Failure note -->
+          <div v-if="!collectResult.success" class="p-3 rounded-lg bg-elevated border border-default text-sm text-muted">
+            No cash, gems or gear recovered — but your agents still earned XP from the attempt.
+          </div>
+
+          <!-- XP earned -->
+          <div class="flex items-center justify-between p-2.5 rounded-lg bg-elevated border border-default">
+            <span class="text-sm text-muted flex items-center gap-2">
+              <UIcon name="i-lucide-sparkles" class="size-4 text-violet-400" /> XP per agent
+            </span>
+            <span class="font-semibold text-sm text-violet-400">+{{ collectResult.xpPerAgent }}</span>
+          </div>
+
+          <!-- Level ups -->
+          <div v-if="collectResult.levelUps.length" class="p-3 rounded-lg bg-success/10 border border-success/30 space-y-1">
+            <p class="text-sm font-semibold text-success flex items-center gap-2">
+              <UIcon name="i-lucide-trending-up" class="size-4" />
+              {{ collectResult.levelUps.length }} level up{{ collectResult.levelUps.length > 1 ? 's' : '' }}!
+            </p>
+            <p v-for="lu in collectResult.levelUps" :key="lu.agentId" class="text-sm text-muted">
+              {{ levelUpAgentName(lu.agentId) }} reached <span class="font-medium text-default">Lv {{ lu.newLevel }}</span>
+            </p>
+          </div>
+
+          <!-- Inventory full warning -->
+          <p v-if="collectResult.inventoryFull" class="text-sm text-warning flex items-center gap-2">
+            <UIcon name="i-lucide-triangle-alert" class="size-4 shrink-0" />
+            Inventory was full — the dropped item was lost. Clear space before your next op.
+          </p>
+        </div>
+      </template>
+
+      <template #footer>
+        <UButton block label="Continue" color="primary" @click="collectResult = null" />
       </template>
     </UModal>
   </UContainer>

@@ -68,6 +68,29 @@ function selectItem(id: string) {
   selectedItemId.value = selectedItemId.value === id ? null : id
 }
 
+// Inventory sorting
+const sortOptions = [
+  { value: 'value', label: 'Value' },
+  { value: 'rarity', label: 'Rarity' },
+  { value: 'type', label: 'Type' },
+] as const
+const sortBy = ref<'value' | 'rarity' | 'type'>('rarity')
+const sortDir = ref<'desc' | 'asc'>('desc')
+
+const sortedItems = computed(() => {
+  const items = [...(state.value?.items ?? [])]
+  const dir = sortDir.value === 'asc' ? 1 : -1
+  items.sort((a, b) => {
+    let cmp = 0
+    if (sortBy.value === 'value') cmp = itemSellPrice(a.rarity, a.itemLevel) - itemSellPrice(b.rarity, b.itemLevel)
+    else if (sortBy.value === 'rarity') cmp = RARITY_ORDER.indexOf(a.rarity) - RARITY_ORDER.indexOf(b.rarity)
+    else cmp = a.slot.localeCompare(b.slot)
+    if (cmp === 0) cmp = itemSellPrice(a.rarity, a.itemLevel) - itemSellPrice(b.rarity, b.itemLevel)
+    return cmp * dir
+  })
+  return items
+})
+
 const equipping = ref(false)
 async function equipTo(itemId: string, agentId: string | null) {
   equipping.value = true
@@ -450,11 +473,29 @@ function slotItem(agent: { gear?: { tool: any; software: any; hardware: any } },
     </div>
 
     <!-- ── Inventory sidebar (desktop) ───────────────────────────── -->
-    <div class="hidden lg:flex flex-col w-72 shrink-0 border-l border-default overflow-y-auto">
+    <div class="hidden lg:flex flex-col w-80 shrink-0 border-l border-default overflow-y-auto">
       <div class="p-4 space-y-3 pb-12">
         <div class="flex items-center justify-between">
           <h2 class="font-semibold text-base">Inventory</h2>
-          <span class="text-sm text-muted">{{ state?.inventoryCount ?? 0 }}/{{ state?.maxInventorySlots ?? 15 }}</span>
+          <span class="text-sm text-muted">{{ state?.inventoryCount ?? 0 }}/{{ state?.maxInventorySlots ?? 30 }}</span>
+        </div>
+
+        <!-- Sort controls -->
+        <div v-if="state?.items.length" class="flex items-center gap-1">
+          <UButtonGroup size="xs" class="flex-1">
+            <UButton
+              v-for="opt in sortOptions" :key="opt.value"
+              :color="sortBy === opt.value ? 'primary' : 'neutral'"
+              :variant="sortBy === opt.value ? 'solid' : 'outline'"
+              class="flex-1 justify-center" :label="opt.label"
+              @click="sortBy = opt.value"
+            />
+          </UButtonGroup>
+          <UButton
+            size="xs" color="neutral" variant="outline"
+            :icon="sortDir === 'desc' ? 'i-lucide-arrow-down-wide-narrow' : 'i-lucide-arrow-up-narrow-wide'"
+            @click="sortDir = sortDir === 'desc' ? 'asc' : 'desc'"
+          />
         </div>
 
         <div v-if="!state" class="space-y-2">
@@ -466,7 +507,7 @@ function slotItem(agent: { gear?: { tool: any; software: any; hardware: any } },
         </div>
         <div v-else class="space-y-2">
           <HackInventoryItem
-            v-for="item in state.items" :key="item.id"
+            v-for="item in sortedItems" :key="item.id"
             :item="item" :selected="selectedItemId === item.id"
             @select="selectItem(item.id)"
           >
@@ -489,7 +530,7 @@ function slotItem(agent: { gear?: { tool: any; software: any; hardware: any } },
       <div class="p-4 space-y-2 overflow-y-auto h-full">
         <div v-if="!state?.items.length" class="text-sm text-muted text-center py-8">No items yet.</div>
         <HackInventoryItem
-          v-else v-for="item in state!.items" :key="item.id"
+          v-else v-for="item in sortedItems" :key="item.id"
           :item="item" :selected="selectedItemId === item.id"
           @select="selectItem(item.id)"
         >

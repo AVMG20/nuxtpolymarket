@@ -252,6 +252,22 @@ export const hackOps = pgTable('hack_ops', {
   reward: jsonb('reward'),
 }, (t) => [index('hack_ops_userId_idx').on(t.userId)])
 
+// One row per collected op — a lightweight log of the outcome (success, loot, time
+// taken) used by the player's history page and the leaderboard's ops-done count.
+export const hackHistory = pgTable('hack_history', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  templateId: text('template_id').notNull(),
+  success: boolean('success').notNull(),
+  cash: numeric('cash', { precision: 19, scale: 4 }).notNull().default('0'),
+  gems: integer('gems').notNull().default(0),
+  itemName: text('item_name'),
+  itemRarity: text('item_rarity'),
+  agentCount: integer('agent_count').notNull().default(0),
+  durationMs: integer('duration_ms').notNull().default(0),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (t) => [index('hack_history_userId_idx').on(t.userId)])
+
 export const transactionsRelations = relations(transactions, ({ one }) => ({
   user: one(user, { fields: [transactions.userId], references: [user.id] }),
 }));
