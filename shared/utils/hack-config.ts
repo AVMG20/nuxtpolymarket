@@ -100,7 +100,9 @@ export const SLOT_COLOR: Record<ItemSlot, ClassColor> = {
   hardware: { text: 'text-orange-400',  bg: 'bg-orange-500/10',  border: 'border-orange-500/30',  ring: 'ring-orange-500/30',  dot: 'bg-orange-400' },
 }
 
-export function xpToNextLevel(level: number): number { return 100 * level }
+// Exponential curve — early levels are quick, each tier costs ~17.8% more than the
+// last, reaching ~1900 XP for the final level (matches the old level*100 cap at Lv20).
+export function xpToNextLevel(level: number): number { return Math.round(100 * Math.pow(1.1777, level - 1)) }
 export const AGENT_MAX_LEVEL = 20
 
 // ─── Agent traits (randomized per agent, like item mods) ──────────────────────
