@@ -71,7 +71,7 @@ export const CLASS_LABEL: Record<AgentClass, string> = { infiltrator: 'Infiltrat
 export const CLASS_ICON: Record<AgentClass, string> = { infiltrator: 'i-lucide-ghost', cryptographer: 'i-lucide-key', social_engineer: 'i-lucide-message-circle', bruteforce: 'i-lucide-zap' }
 export const CLASS_PASSIVE: Record<AgentClass, { type: ModType; value: number; label: string }> = {
   infiltrator:     { type: 'speed_percent',  value: 0.10, label: '+10% op speed' },
-  cryptographer:   { type: 'loot_percent',   value: 0.10, label: '+10% cash loot' },
+  cryptographer:   { type: 'loot_percent',   value: 0.06, label: '+6% cash loot' },
   social_engineer: { type: 'gem_chance',     value: 0.01, label: '+1% gem chance' },
   bruteforce:      { type: 'power_flat',     value: 15,   label: '+15 power rating' },
 }
@@ -115,8 +115,8 @@ export interface AgentTrait { type: AgentTraitType; value: number }
 export const AGENT_TRAIT_RANGES: Record<AgentTraitType, { min: number; max: number; decimals: number }> = {
   gem_chance:    { min: 0.005, max: 0.05,  decimals: 3 },
   speed_percent: { min: 3,     max: 10,    decimals: 0 },
-  loot_percent:  { min: 5,     max: 15,    decimals: 0 },
-  xp_boost:      { min: 10,    max: 60,    decimals: 0 },
+  loot_percent:  { min: 3,     max: 6,     decimals: 0 },
+  xp_boost:      { min: 20,    max: 100,   decimals: 0 },
   power_flat:    { min: 10,    max: 60,    decimals: 0 },
   power_percent: { min: 5,     max: 30,    decimals: 0 },
   gem_bonus:     { min: 1,     max: 3,     decimals: 0 },
@@ -163,7 +163,7 @@ function generateAgentTraits(rarity: HackRarity): AgentTrait[] {
 }
 
 export const MOD_RANGES: Record<ModType, { min: number; max: number; decimals: number }> = {
-  loot_percent:       { min: 5,     max: 15,    decimals: 0 },
+  loot_percent:       { min: 3,     max: 6,     decimals: 0 },
   speed_percent:      { min: 3,     max: 10,    decimals: 0 },
   xp_flat:            { min: 1,     max: 5,     decimals: 0 },
   gem_chance:         { min: 0.002, max: 0.015, decimals: 3 },
@@ -354,16 +354,14 @@ export function opSuccessChance(totalPower: number, minPower: number): number {
 /** Ops below this success chance can't be deployed (but are still shown). */
 export const MIN_DEPLOY_SUCCESS = 0.01
 
-export interface OpReward { success: boolean; cash: number; gems: number; xpPerAgent: number; item: HackItemDef | null; inventoryFull: boolean }
+export interface OpReward { success: boolean; cash: number; gems: number; item: HackItemDef | null; inventoryFull: boolean }
 
 // ─── Loot ─────────────────────────────────────────────────────────────────────
 // Loot is computed per agent (own gear loot mods + class passive + loot traits) and
-// hard-capped per agent, then summed across the squad. Stacking three loot items +
-// the cryptographer class + a loot trait on one agent can't run away — that agent
-// still contributes at most MAX_AGENT_LOOT, so a full 4-agent squad tops out at 4×
-// that instead of the old uncapped multiplier that exploded on big teams.
-export const MAX_AGENT_LOOT = 0.30
-
+// summed across the squad. There is no hard cap — the sources are tuned so ~30% is
+// the natural ceiling a single agent can reach: three 6% loot items (18%) + the 6%
+// cryptographer class passive + a 6% loot trait = 30%. A full 4-agent squad therefore
+// tops out around 4× that rather than the old uncapped multiplier that exploded.
 export interface RewardAgent {
   level: number
   class: AgentClass
@@ -371,21 +369,37 @@ export interface RewardAgent {
   items: Array<{ mods: ItemMod[] }>
 }
 
-/** This agent's own loot bonus (gear + class passive + traits), capped. */
+/** This agent's own loot bonus (gear + class passive + traits). */
 export function agentLootPercent(agent: { class: AgentClass; traits?: AgentTrait[]; items: Array<{ mods: ItemMod[] }> }): number {
   const itemLoot = agent.items.flatMap(i => i.mods)
     .filter(m => m.type === 'loot_percent').reduce((s, m) => s + m.value, 0) / 100
   const classLoot = CLASS_PASSIVE[agent.class].type === 'loot_percent' ? CLASS_PASSIVE[agent.class].value : 0
   const traitLoot = (agent.traits ?? [])
     .filter(t => t.type === 'loot_percent').reduce((s, t) => s + t.value, 0) / 100
-  return Math.min(itemLoot + classLoot + traitLoot, MAX_AGENT_LOOT)
+  return itemLoot + classLoot + traitLoot
+}
+
+/**
+ * XP earned by a single agent from an op. XP is never pooled across the squad — each
+ * agent levels from its OWN xp_boost trait (capped at +100% by the trait range) and
+ * its OWN equipped xp_flat gear. A failed op still grants a flat 30% of base XP.
+ */
+export function agentXpGain(
+  template: OpTemplate,
+  agent: { traits?: AgentTrait[]; items: Array<{ mods: ItemMod[] }> },
+  success: boolean,
+): number {
+  if (!success) return Math.floor(template.baseXP * 0.3)
+  const xpBoost = (agent.traits ?? []).filter(t => t.type === 'xp_boost').reduce((s, t) => s + t.value, 0) / 100
+  const xpFlat = agent.items.flatMap(i => i.mods).filter(m => m.type === 'xp_flat').reduce((s, m) => s + m.value, 0)
+  return Math.round(template.baseXP * (1 + xpBoost) + xpFlat)
 }
 
 export function collectBonuses(agents: RewardAgent[]) {
   const allItemMods = agents.flatMap(a => a.items.flatMap(i => i.mods))
   const allTraits = agents.flatMap(a => a.traits ?? [])
   return {
-    // Per-agent capped loot, summed across the squad.
+    // Per-agent loot (each agent tops out ~30% by source design), summed across the squad.
     lootPct:   agents.reduce((s, a) => s + agentLootPercent(a), 0),
     // Gem drop chance: item mods + traits + the social-engineer class passive.
     gemChance: allItemMods.filter(m => m.type === 'gem_chance').reduce((s, m) => s + m.value, 0)
@@ -393,8 +407,6 @@ export function collectBonuses(agents: RewardAgent[]) {
              + agents.reduce((s, a) => s + (CLASS_PASSIVE[a.class].type === 'gem_chance' ? CLASS_PASSIVE[a.class].value : 0), 0),
     // Flat extra gems from the Bonus Gems trait — only paid out when the op rolls gems.
     gemBonus:  allTraits.filter(t => t.type === 'gem_bonus').reduce((s, t) => s + t.value, 0),
-    xpFlat:    allItemMods.filter(m => m.type === 'xp_flat').reduce((s, m) => s + m.value, 0),
-    xpBoost:   allTraits.filter(t => t.type === 'xp_boost').reduce((s, t) => s + t.value, 0) / 100,
     // Modest reward bonus for leveling agents — endgame full squad ≈ +32%.
     levelBonus: agents.reduce((s, a) => s + a.level, 0) * 0.004,
   }
@@ -402,8 +414,8 @@ export function collectBonuses(agents: RewardAgent[]) {
 
 /**
  * Effective cash range shown in UI. The op's baseCash ladder is the reward; per-agent
- * capped loot and agent levels apply a modest multiplier on top. No hidden
- * progression multiplier — the listed range is what you actually earn.
+ * loot and agent levels apply a modest multiplier on top. No hidden progression
+ * multiplier — the listed range is what you actually earn.
  */
 export function effectiveCashRange(
   template: OpTemplate,
@@ -430,7 +442,7 @@ export function rollOpReward(
   const bonuses = collectBonuses(agents)
 
   if (!success) {
-    return { success: false, cash: 0, gems: 0, xpPerAgent: Math.floor((template.baseXP) * 0.3), item: null, inventoryFull: false }
+    return { success: false, cash: 0, gems: 0, item: null, inventoryFull: false }
   }
   const [minCash, maxCash] = effectiveCashRange(template, bonuses)
   const cash = Math.round(minCash + Math.random() * (maxCash - minCash))
@@ -443,12 +455,11 @@ export function rollOpReward(
     const [gMin, gMax] = template.baseGemCount
     gems = gMin + Math.floor(Math.random() * (gMax - gMin + 1)) + bonuses.gemBonus
   }
-  const xpPerAgent = Math.round(template.baseXP * (1 + bonuses.xpBoost) + bonuses.xpFlat)
   const wouldDropItem = Math.random() < template.itemDropChance
   const item = wouldDropItem && !inventoryFull
     ? generateItem(template.itemDropRarity, Math.max(1, Math.round(agents.reduce((s, a) => s + a.level, 0) / agents.length)))
     : null
-  return { success: true, cash, gems, xpPerAgent, item, inventoryFull: wouldDropItem && inventoryFull }
+  return { success: true, cash, gems, item, inventoryFull: wouldDropItem && inventoryFull }
 }
 
 export function rollRarity(weights: Record<HackRarity, number>): HackRarity {

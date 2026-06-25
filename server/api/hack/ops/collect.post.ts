@@ -4,7 +4,7 @@ import { hackAgents, hackItems, hackOps, user } from '#server/database/schema'
 import { auth } from '#server/utils/auth'
 import { credit } from '#server/utils/balance'
 import {
-  OP_TEMPLATES, rollOpReward, agentPower, xpToNextLevel, AGENT_MAX_LEVEL, MAX_INVENTORY_SLOTS,
+  OP_TEMPLATES, rollOpReward, agentXpGain, agentPower, xpToNextLevel, AGENT_MAX_LEVEL, MAX_INVENTORY_SLOTS,
   type AgentClass, type ItemMod, type AgentTrait,
 } from '#shared/utils/hack-config'
 
@@ -37,7 +37,8 @@ export default defineEventHandler(async (event) => {
   const inventoryFull = currentItems.filter(i => !i.equippedBy).length >= MAX_INVENTORY_SLOTS
 
   // Per-agent loadouts (items may have changed since dispatch — recompute from
-  // current gear). Each agent keeps its own items so loot is capped per agent.
+  // current gear). Each agent keeps its own items so loot and XP are computed per
+  // agent rather than pooled across the squad.
   const rewardAgents = agents.map(agent => {
     const agentItemIds = ([agent.equippedTool, agent.equippedSoftware, agent.equippedHardware] as Array<string | null>)
       .filter((x): x is string => x !== null)
@@ -53,11 +54,16 @@ export default defineEventHandler(async (event) => {
 
   const reward = rollOpReward(template, rewardAgents, totalPower, inventoryFull)
 
-  // Apply XP to each agent (full on success, 30% on fail — already baked into reward.xpPerAgent)
+  // Apply XP per agent — each agent earns from its OWN xp_boost trait and xp_flat
+  // gear (never pooled). On failure every agent gets the same flat 30% of base XP.
   const levelUps: Array<{ agentId: string; newLevel: number }> = []
-  for (const agent of agents) {
+  let reportXp = 0
+  for (let i = 0; i < agents.length; i++) {
+    const agent = agents[i]!
+    const gain = agentXpGain(template, rewardAgents[i]!, reward.success)
+    reportXp = gain
     if (agent.level >= AGENT_MAX_LEVEL) continue
-    let newXp = agent.xp + reward.xpPerAgent
+    let newXp = agent.xp + gain
     let newLevel = agent.level
     while (newLevel < AGENT_MAX_LEVEL && newXp >= xpToNextLevel(newLevel)) {
       newXp -= xpToNextLevel(newLevel)
@@ -93,7 +99,7 @@ export default defineEventHandler(async (event) => {
     success: reward.success,
     cash: reward.cash,
     gems: reward.gems,
-    xpPerAgent: reward.xpPerAgent,
+    xpPerAgent: reportXp,
     item: droppedItem ?? null,
     inventoryFull: reward.inventoryFull,
     levelUps,
