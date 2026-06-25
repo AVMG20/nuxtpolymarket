@@ -114,12 +114,57 @@ async function recruit(tierId: string) {
   lastRecruit.value = null
   try {
     const res = await $fetch('/api/hack/recruit', { method: 'POST', body: { tierId } })
-    lastRecruit.value = { name: res.agent!.name, rarity: res.rarity, rarityLabel: res.rarityLabel }
-    toast.add({ title: `${res.rarityLabel} recruited!`, description: `${res.agent!.name} joined your crew.`, color: 'success' })
     await Promise.all([refresh(), fetchSession()])
+    if (res.pending) {
+      // Roster full — the popup (driven off state.pendingAgent) lets the user
+      // replace an existing agent or discard the newcomer.
+      replaceTargetId.value = null
+      pendingModalOpen.value = true
+      toast.add({ title: `${res.rarityLabel} recruited!`, description: 'Roster full — choose who to replace, or discard.', color: 'warning' })
+    } else {
+      lastRecruit.value = { name: res.agent!.name, rarity: res.rarity, rarityLabel: res.rarityLabel }
+      toast.add({ title: `${res.rarityLabel} recruited!`, description: `${res.agent!.name} joined your crew.`, color: 'success' })
+    }
   } catch (e: any) {
     toast.add({ title: e.data?.statusMessage ?? 'Recruit failed', color: 'error' })
   } finally { recruiting.value = null }
+}
+
+// ── Pending overflow recruit (roster full) ──────────────────────────
+const pendingModalOpen = ref(false)
+const replaceTargetId = ref<string | null>(null)
+const resolving = ref(false)
+const pendingAgent = computed(() => state.value?.pendingAgent ?? null)
+const hasFreeSlot = computed(() =>
+  !!state.value && state.value.agents.length < state.value.rosterSlots
+)
+
+// Surface the popup whenever an unresolved overflow recruit exists (incl. on reload)
+watch(pendingAgent, (p) => { if (p) pendingModalOpen.value = true }, { immediate: true })
+
+async function resolveRecruit(action: 'discard' | 'replace' | 'keep') {
+  const newcomer = pendingAgent.value
+  if (!newcomer) return
+  if (action === 'replace' && !replaceTargetId.value) {
+    toast.add({ title: 'Select an agent to replace', color: 'error' })
+    return
+  }
+  resolving.value = true
+  try {
+    await $fetch('/api/hack/recruit/resolve', {
+      method: 'POST',
+      body: { agentId: newcomer.id, action, replaceId: replaceTargetId.value },
+    })
+    toast.add({
+      title: action === 'discard' ? `${newcomer.name} discarded` : `${newcomer.name} joined your crew`,
+      color: action === 'discard' ? 'neutral' : 'success',
+    })
+    pendingModalOpen.value = false
+    replaceTargetId.value = null
+    await Promise.all([refresh(), fetchSession()])
+  } catch (e: any) {
+    toast.add({ title: e.data?.statusMessage ?? 'Failed to resolve recruit', color: 'error' })
+  } finally { resolving.value = false }
 }
 
 const expanding = ref(false)
@@ -339,7 +384,7 @@ function slotItem(agent: { gear?: { tool: any; software: any; hardware: any } },
               </div>
 
               <UButton block :loading="recruiting === tier.id"
-                :disabled="state.agents.length >= state.rosterSlots || !canAfford(tier)"
+                :disabled="!canAfford(tier) || !!state.pendingAgent"
                 @click="recruit(tier.id)">
                 Pull
                 <template #trailing>
@@ -415,4 +460,100 @@ function slotItem(agent: { gear?: { tool: any; software: any; hardware: any } },
       </div>
     </template>
   </USlideover>
+
+  <!-- Overflow recruit — replace or discard -->
+  <UModal
+    v-model:open="pendingModalOpen"
+    :dismissible="false"
+    :close="false"
+    title="Roster full — new recruit"
+    :description="hasFreeSlot ? 'A slot has opened up — add the recruit, or discard.' : 'Replace one of your agents with the newcomer, or discard the recruit.'"
+  >
+    <template v-if="pendingAgent" #body>
+      <div class="space-y-5">
+        <!-- The newcomer -->
+        <div class="p-4 rounded-xl border border-primary bg-primary/5">
+          <div class="flex items-start gap-3">
+            <div class="size-12 rounded-xl flex items-center justify-center shrink-0 ring-1"
+              :class="[CLASS_COLOR[pendingAgent.class as AgentClass].bg, CLASS_COLOR[pendingAgent.class as AgentClass].ring]">
+              <UIcon :name="CLASS_ICON[pendingAgent.class as AgentClass]" class="size-6"
+                :class="CLASS_COLOR[pendingAgent.class as AgentClass].text" />
+            </div>
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center gap-2 flex-wrap">
+                <span class="font-bold text-lg">{{ pendingAgent.name }}</span>
+                <UBadge :color="RARITY_COLOR[pendingAgent.rarity as HackRarity]" variant="subtle" :label="RARITY_LABEL[pendingAgent.rarity as HackRarity]" />
+                <UBadge color="primary" variant="solid" label="New" />
+              </div>
+              <span class="inline-flex items-center gap-1.5 mt-1 px-2 py-0.5 rounded-md border text-xs font-medium"
+                :class="[CLASS_COLOR[pendingAgent.class as AgentClass].bg, CLASS_COLOR[pendingAgent.class as AgentClass].border, CLASS_COLOR[pendingAgent.class as AgentClass].text]">
+                <UIcon :name="CLASS_ICON[pendingAgent.class as AgentClass]" class="size-3" />
+                {{ CLASS_LABEL[pendingAgent.class as AgentClass] }}
+              </span>
+            </div>
+            <div class="text-right shrink-0">
+              <p class="text-sm text-muted">Power</p>
+              <p class="text-2xl font-bold text-primary">{{ pendingAgent.power }}</p>
+            </div>
+          </div>
+          <div v-if="agentCombinedStats(pendingAgent).length" class="mt-3 flex flex-wrap gap-x-4 gap-y-1">
+            <span v-for="s in agentCombinedStats(pendingAgent)" :key="s.label" class="text-sm">
+              <span class="text-muted">{{ s.label }}</span>
+              <span class="font-bold text-primary ml-1">{{ s.fmt(s.value) }}</span>
+            </span>
+          </div>
+          <p v-else class="mt-2 text-sm text-muted italic">No traits.</p>
+        </div>
+
+        <!-- Replace picker -->
+        <div>
+          <p class="text-sm font-semibold text-muted uppercase tracking-wide mb-2">Replace which agent?</p>
+          <div class="space-y-2 max-h-64 overflow-y-auto pr-1">
+            <div
+              v-for="agent in state?.agents"
+              :key="agent.id"
+              class="flex items-center gap-3 p-3 rounded-lg border transition-colors"
+              :class="[
+                busyAgentIds.has(agent.id) ? 'opacity-40 cursor-not-allowed border-default' :
+                replaceTargetId === agent.id ? 'border-primary bg-primary/10 cursor-pointer' : 'border-default hover:border-primary/50 cursor-pointer'
+              ]"
+              @click="!busyAgentIds.has(agent.id) && (replaceTargetId = agent.id)"
+            >
+              <div class="size-9 rounded-lg flex items-center justify-center shrink-0 ring-1"
+                :class="[CLASS_COLOR[agent.class as AgentClass].bg, CLASS_COLOR[agent.class as AgentClass].ring]">
+                <UIcon :name="CLASS_ICON[agent.class as AgentClass]" class="size-5" :class="CLASS_COLOR[agent.class as AgentClass].text" />
+              </div>
+              <div class="flex-1 min-w-0">
+                <div class="flex items-center gap-2 flex-wrap">
+                  <span class="font-medium">{{ agent.name }}</span>
+                  <UBadge size="xs" :color="RARITY_COLOR[agent.rarity as HackRarity]" variant="subtle" :label="RARITY_LABEL[agent.rarity as HackRarity]" />
+                  <UBadge v-if="busyAgentIds.has(agent.id)" size="xs" color="primary" variant="subtle" label="On Op" />
+                </div>
+                <span class="text-xs text-muted">Lv {{ agent.level }} · {{ CLASS_LABEL[agent.class as AgentClass] }}</span>
+              </div>
+              <div class="text-right shrink-0">
+                <p class="text-xs text-muted">Power</p>
+                <p class="font-bold text-primary">{{ agent.power }}</p>
+              </div>
+              <UIcon v-if="replaceTargetId === agent.id" name="i-lucide-circle-check-big" class="size-5 text-primary shrink-0" />
+            </div>
+          </div>
+          <p class="text-xs text-muted mt-2">The replaced agent is fired and their gear returns to your inventory. Agents on an op can't be replaced.</p>
+        </div>
+      </div>
+    </template>
+
+    <template #footer>
+      <div class="flex items-center justify-between gap-3 w-full">
+        <UButton color="error" variant="ghost" icon="i-lucide-trash-2" label="Discard"
+          :loading="resolving" @click="resolveRecruit('discard')" />
+        <div class="flex items-center gap-2">
+          <UButton v-if="hasFreeSlot" color="primary" variant="soft" icon="i-lucide-user-plus" label="Add to roster"
+            :loading="resolving" @click="resolveRecruit('keep')" />
+          <UButton color="primary" icon="i-lucide-user-check" label="Replace selected"
+            :loading="resolving" :disabled="!replaceTargetId" @click="resolveRecruit('replace')" />
+        </div>
+      </div>
+    </template>
+  </UModal>
 </template>

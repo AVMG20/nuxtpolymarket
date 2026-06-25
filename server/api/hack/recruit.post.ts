@@ -24,8 +24,16 @@ export default defineEventHandler(async (event) => {
   ])
 
   if (!state) throw createError({ statusCode: 400, statusMessage: 'Hack ops not initialized' })
-  if (currentAgents.length >= state.rosterSlots)
-    throw createError({ statusCode: 400, statusMessage: `Roster full (${state.rosterSlots} slots). Expand your roster first.` })
+
+  // Only one unresolved overflow recruit at a time — the user must replace or
+  // discard the pending agent before pulling another.
+  if (currentAgents.some(a => a.pending))
+    throw createError({ statusCode: 400, statusMessage: 'Resolve your pending recruit first.' })
+
+  const rosterAgents = currentAgents.filter(a => !a.pending)
+  // When the roster is full the new agent is recruited as "pending": the client
+  // shows a popup to replace an existing agent or discard the newcomer.
+  const pending = rosterAgents.length >= state.rosterSlots
 
   const cost = tier.cost
 
@@ -45,6 +53,6 @@ export default defineEventHandler(async (event) => {
     .set({ totalRecruits: sql`${hackState.totalRecruits} + 1` })
     .where(eq(hackState.userId, userId))
 
-  const [agent] = await db.insert(hackAgents).values({ userId, ...def }).returning()
-  return { agent, rarity, rarityLabel: RARITY_LABEL[rarity] }
+  const [agent] = await db.insert(hackAgents).values({ userId, ...def, pending }).returning()
+  return { agent, rarity, rarityLabel: RARITY_LABEL[rarity], pending }
 })

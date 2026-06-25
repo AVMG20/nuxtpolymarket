@@ -49,7 +49,7 @@ export default defineEventHandler(async (event) => {
     )
     return {
       id: a.id, name: a.name, class: a.class, rarity: a.rarity,
-      level: a.level, xp: a.xp,
+      level: a.level, xp: a.xp, pending: a.pending,
       xpToNext: a.level < AGENT_MAX_LEVEL ? xpToNextLevel(a.level) : null,
       power, traits,
       // Full item objects embedded — equipped items do NOT appear in the inventory list
@@ -64,12 +64,17 @@ export default defineEventHandler(async (event) => {
     }
   })
 
+  // A pending agent is an overflow recruit awaiting replace-or-discard. It is
+  // excluded from the roster, power totals and op planning until resolved.
+  const pendingAgent = agentsOut.find(a => a.pending) ?? null
+  const rosterAgents = agentsOut.filter(a => !a.pending)
+
   // Per-op accessibility + effective reward preview
-  const agentsByPower = [...agentsOut].sort((a, b) => b.power - a.power)
+  const agentsByPower = [...rosterAgents].sort((a, b) => b.power - a.power)
   const freeAgents = agentsByPower.filter(a => !a.onOp)
 
-  // Total power = sum of ALL agents (user's combined power level displayed in UI)
-  const totalUserPower = agentsOut.reduce((s, a) => s + a.power, 0)
+  // Total power = sum of ALL roster agents (user's combined power level displayed in UI)
+  const totalUserPower = rosterAgents.reduce((s, a) => s + a.power, 0)
 
   const opTemplatesOut = OP_TEMPLATES.map(template => {
     const bestTeam = agentsByPower.filter(a => !a.onOp).slice(0, template.maxAgents)
@@ -106,7 +111,8 @@ export default defineEventHandler(async (event) => {
   const unequippedItems = items.filter(i => !i.equippedBy)
 
   return {
-    agents: agentsOut,
+    agents: rosterAgents,
+    pendingAgent,
     items: unequippedItems.map(i => ({
       id: i.id, name: i.name, slot: i.slot as ItemSlot, itemLevel: i.itemLevel,
       rarity: i.rarity as HackRarity, mods: i.mods as ItemMod[], equippedBy: i.equippedBy,
