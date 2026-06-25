@@ -4,7 +4,7 @@ import { hackState, hackAgents, hackItems, hackOps } from '#server/database/sche
 import { auth } from '#server/utils/auth'
 import {
   OP_TEMPLATES, AGENT_PULL_TIERS, ITEM_PULL_TIERS, ROSTER_EXPAND_COSTS, MAX_ROSTER_SLOTS,
-  MAX_INVENTORY_SLOTS, agentPower, generateAgentDef,
+  MAX_INVENTORY_SLOTS, MAX_AGENTS, agentPower, generateAgentDef,
   xpToNextLevel, AGENT_MAX_LEVEL,
   opSuccessChance,
   type AgentClass, type HackRarity, type ItemMod, type ItemSlot, type AgentTrait,
@@ -49,7 +49,7 @@ export default defineEventHandler(async (event) => {
     )
     return {
       id: a.id, name: a.name, class: a.class, rarity: a.rarity,
-      level: a.level, xp: a.xp, pending: a.pending,
+      level: a.level, xp: a.xp, active: a.active,
       xpToNext: a.level < AGENT_MAX_LEVEL ? xpToNextLevel(a.level) : null,
       power, traits,
       // Full item objects embedded — equipped items do NOT appear in the inventory list
@@ -64,17 +64,17 @@ export default defineEventHandler(async (event) => {
     }
   })
 
-  // A pending agent is an overflow recruit awaiting replace-or-discard. It is
-  // excluded from the roster, power totals and op planning until resolved.
-  const pendingAgent = agentsOut.find(a => a.pending) ?? null
-  const rosterAgents = agentsOut.filter(a => !a.pending)
+  // Only active agents count toward power and can be deployed. Inactive agents
+  // sit in storage until activated.
+  const activeAgents = agentsOut.filter(a => a.active)
+  const storedAgents = agentsOut.filter(a => !a.active)
 
   // Per-op accessibility + effective reward preview
-  const agentsByPower = [...rosterAgents].sort((a, b) => b.power - a.power)
+  const agentsByPower = [...activeAgents].sort((a, b) => b.power - a.power)
   const freeAgents = agentsByPower.filter(a => !a.onOp)
 
-  // Total power = sum of ALL roster agents (user's combined power level displayed in UI)
-  const totalUserPower = rosterAgents.reduce((s, a) => s + a.power, 0)
+  // Total power = sum of ACTIVE agents (user's combined power level displayed in UI)
+  const totalUserPower = activeAgents.reduce((s, a) => s + a.power, 0)
 
   const opTemplatesOut = OP_TEMPLATES.map(template => {
     const bestTeam = agentsByPower.filter(a => !a.onOp).slice(0, template.maxAgents)
@@ -111,8 +111,10 @@ export default defineEventHandler(async (event) => {
   const unequippedItems = items.filter(i => !i.equippedBy)
 
   return {
-    agents: rosterAgents,
-    pendingAgent,
+    agents: activeAgents,
+    storedAgents,
+    totalAgents: agentsOut.length,
+    maxAgents: MAX_AGENTS,
     items: unequippedItems.map(i => ({
       id: i.id, name: i.name, slot: i.slot as ItemSlot, itemLevel: i.itemLevel,
       rarity: i.rarity as HackRarity, mods: i.mods as ItemMod[], equippedBy: i.equippedBy,

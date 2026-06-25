@@ -222,9 +222,10 @@ export const hackAgents = pgTable('hack_agents', {
   equippedSoftware: text('equipped_software'),
   equippedHardware: text('equipped_hardware'),
   traits: jsonb('traits').notNull().default([]),
-  // A freshly recruited agent that overflowed a full roster. Inert (excluded from
-  // roster, ops and power) until the user replaces an existing agent or discards it.
-  pending: boolean('pending').notNull().default(false),
+  // Active agents count toward power and can be deployed on ops. Inactive agents
+  // sit in storage (the roster holds up to `rosterSlots` active agents; storage
+  // holds the rest up to MAX_AGENTS total).
+  active: boolean('active').notNull().default(true),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 }, (t) => [index('hack_agents_userId_idx').on(t.userId)])
 

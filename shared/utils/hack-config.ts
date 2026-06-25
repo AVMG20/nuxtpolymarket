@@ -290,6 +290,9 @@ export function rollItemFromTier(tier: ItemPullTier, avgAgentLevel: number): Hac
 export const ROSTER_EXPAND_COSTS = [150_000, 1_200_000, 10_000_000, 60_000_000]
 export const MAX_ROSTER_SLOTS = 6
 export const MAX_INVENTORY_SLOTS = 15
+// Total agents a player can own (active roster + storage combined). Only up to
+// `rosterSlots` of them may be active at once.
+export const MAX_AGENTS = 15
 
 // ─── Power calculation ────────────────────────────────────────────────────────
 export function agentPower(

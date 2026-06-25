@@ -5,7 +5,7 @@ import { auth } from '#server/utils/auth'
 import { debit } from '#server/utils/balance'
 import {
   AGENT_PULL_TIERS, rollRarity, generateAgentDef,
-  RARITY_LABEL,
+  RARITY_LABEL, MAX_AGENTS,
 } from '#shared/utils/hack-config'
 
 export default defineEventHandler(async (event) => {
@@ -24,16 +24,13 @@ export default defineEventHandler(async (event) => {
   ])
 
   if (!state) throw createError({ statusCode: 400, statusMessage: 'Hack ops not initialized' })
+  if (currentAgents.length >= MAX_AGENTS)
+    throw createError({ statusCode: 400, statusMessage: `Storage full (${MAX_AGENTS} agents). Fire someone first.` })
 
-  // Only one unresolved overflow recruit at a time — the user must replace or
-  // discard the pending agent before pulling another.
-  if (currentAgents.some(a => a.pending))
-    throw createError({ statusCode: 400, statusMessage: 'Resolve your pending recruit first.' })
-
-  const rosterAgents = currentAgents.filter(a => !a.pending)
-  // When the roster is full the new agent is recruited as "pending": the client
-  // shows a popup to replace an existing agent or discard the newcomer.
-  const pending = rosterAgents.length >= state.rosterSlots
+  // New agents join the active roster if there's a free active slot, otherwise
+  // they land in storage (inactive) and can be activated later.
+  const activeCount = currentAgents.filter(a => a.active).length
+  const active = activeCount < state.rosterSlots
 
   const cost = tier.cost
 
@@ -53,6 +50,6 @@ export default defineEventHandler(async (event) => {
     .set({ totalRecruits: sql`${hackState.totalRecruits} + 1` })
     .where(eq(hackState.userId, userId))
 
-  const [agent] = await db.insert(hackAgents).values({ userId, ...def, pending }).returning()
-  return { agent, rarity, rarityLabel: RARITY_LABEL[rarity], pending }
+  const [agent] = await db.insert(hackAgents).values({ userId, ...def, active }).returning()
+  return { agent, rarity, rarityLabel: RARITY_LABEL[rarity], active }
 })

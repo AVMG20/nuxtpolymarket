@@ -86,6 +86,7 @@ async function fireAgent(agentId: string, name: string) {
   try {
     await $fetch('/api/hack/agents/fire', { method: 'POST', body: { agentId } })
     toast.add({ title: `${name} dismissed`, color: 'neutral' })
+    if (storageAgentId.value === agentId) storageAgentId.value = null
     await Promise.all([refresh(), fetchSession()])
   } catch (e: any) {
     toast.add({ title: e.data?.statusMessage ?? 'Cannot fire agent', color: 'error' })
@@ -114,58 +115,47 @@ async function recruit(tierId: string) {
   lastRecruit.value = null
   try {
     const res = await $fetch('/api/hack/recruit', { method: 'POST', body: { tierId } })
+    lastRecruit.value = { name: res.agent!.name, rarity: res.rarity, rarityLabel: res.rarityLabel }
+    toast.add({
+      title: `${res.rarityLabel} recruited!`,
+      description: res.active
+        ? `${res.agent!.name} joined your active roster.`
+        : `${res.agent!.name} was sent to storage — activate them when a slot frees up.`,
+      color: 'success',
+    })
     await Promise.all([refresh(), fetchSession()])
-    if (res.pending) {
-      // Roster full — the popup (driven off state.pendingAgent) lets the user
-      // replace an existing agent or discard the newcomer.
-      replaceTargetId.value = null
-      pendingModalOpen.value = true
-      toast.add({ title: `${res.rarityLabel} recruited!`, description: 'Roster full — choose who to replace, or discard.', color: 'warning' })
-    } else {
-      lastRecruit.value = { name: res.agent!.name, rarity: res.rarity, rarityLabel: res.rarityLabel }
-      toast.add({ title: `${res.rarityLabel} recruited!`, description: `${res.agent!.name} joined your crew.`, color: 'success' })
-    }
   } catch (e: any) {
     toast.add({ title: e.data?.statusMessage ?? 'Recruit failed', color: 'error' })
   } finally { recruiting.value = null }
 }
 
-// ── Pending overflow recruit (roster full) ──────────────────────────
-const pendingModalOpen = ref(false)
-const replaceTargetId = ref<string | null>(null)
-const resolving = ref(false)
-const pendingAgent = computed(() => state.value?.pendingAgent ?? null)
-const hasFreeSlot = computed(() =>
-  !!state.value && state.value.agents.length < state.value.rosterSlots
+// ── Activate / store agents ─────────────────────────────────────────
+const togglingActive = ref<string | null>(null)
+const activeFull = computed(() =>
+  !!state.value && state.value.agents.length >= state.value.rosterSlots
 )
 
-// Surface the popup whenever an unresolved overflow recruit exists (incl. on reload)
-watch(pendingAgent, (p) => { if (p) pendingModalOpen.value = true }, { immediate: true })
-
-async function resolveRecruit(action: 'discard' | 'replace' | 'keep') {
-  const newcomer = pendingAgent.value
-  if (!newcomer) return
-  if (action === 'replace' && !replaceTargetId.value) {
-    toast.add({ title: 'Select an agent to replace', color: 'error' })
-    return
-  }
-  resolving.value = true
+async function setActive(agentId: string, active: boolean) {
+  togglingActive.value = agentId
   try {
-    await $fetch('/api/hack/recruit/resolve', {
-      method: 'POST',
-      body: { agentId: newcomer.id, action, replaceId: replaceTargetId.value },
-    })
-    toast.add({
-      title: action === 'discard' ? `${newcomer.name} discarded` : `${newcomer.name} joined your crew`,
-      color: action === 'discard' ? 'neutral' : 'success',
-    })
-    pendingModalOpen.value = false
-    replaceTargetId.value = null
-    await Promise.all([refresh(), fetchSession()])
+    await $fetch('/api/hack/agents/active', { method: 'POST', body: { agentId, active } })
+    toast.add({ title: active ? 'Agent activated' : 'Agent moved to storage', color: active ? 'success' : 'neutral' })
+    storageAgentId.value = null
+    await refresh()
   } catch (e: any) {
-    toast.add({ title: e.data?.statusMessage ?? 'Failed to resolve recruit', color: 'error' })
-  } finally { resolving.value = false }
+    toast.add({ title: e.data?.statusMessage ?? 'Failed', color: 'error' })
+  } finally { togglingActive.value = null }
 }
+
+// Storage detail modal — clicking a stored agent opens its card
+const storageAgentId = ref<string | null>(null)
+const storageAgent = computed(() =>
+  state.value?.storedAgents.find(a => a.id === storageAgentId.value) ?? null
+)
+const storageModalOpen = computed({
+  get: () => storageAgentId.value !== null,
+  set: (v: boolean) => { if (!v) storageAgentId.value = null },
+})
 
 const expanding = ref(false)
 async function expandRoster() {
@@ -208,8 +198,10 @@ function slotItem(agent: { gear?: { tool: any; software: any; hardware: any } },
           <p class="text-sm text-muted mt-0.5">Manage your crew. Select an item from the sidebar to equip it.</p>
         </div>
         <div class="flex items-center gap-2 flex-wrap">
-          <div v-if="state" class="px-3 py-2 rounded-lg bg-elevated border border-default text-sm font-medium">
-            {{ state.agents.length }}/{{ state.rosterSlots }} agents
+          <div v-if="state" class="px-3 py-2 rounded-lg bg-elevated border border-default text-sm font-medium flex items-center gap-2">
+            <span>{{ state.agents.length }}/{{ state.rosterSlots }} active</span>
+            <span class="text-muted">·</span>
+            <span class="text-muted">{{ state.totalAgents }}/{{ state.maxAgents }} owned</span>
           </div>
           <UButton
             v-if="state && state.rosterSlots < state.maxRosterSlots"
@@ -259,12 +251,20 @@ function slotItem(agent: { gear?: { tool: any; software: any; hardware: any } },
                   <p class="text-sm text-muted">Power</p>
                   <p class="text-2xl font-bold text-primary">{{ agent.power }}</p>
                 </div>
-                <UButton
-                  size="xs" color="error" variant="ghost" icon="i-lucide-user-x"
-                  label="Fire" :loading="firing === agent.id"
-                  :disabled="busyAgentIds.has(agent.id)"
-                  @click="fireAgent(agent.id, agent.name)"
-                />
+                <div class="flex items-center gap-1">
+                  <UButton
+                    size="xs" color="neutral" variant="ghost" icon="i-lucide-archive"
+                    label="Store" :loading="togglingActive === agent.id"
+                    :disabled="busyAgentIds.has(agent.id)"
+                    @click="setActive(agent.id, false)"
+                  />
+                  <UButton
+                    size="xs" color="error" variant="ghost" icon="i-lucide-user-x"
+                    label="Fire" :loading="firing === agent.id"
+                    :disabled="busyAgentIds.has(agent.id)"
+                    @click="fireAgent(agent.id, agent.name)"
+                  />
+                </div>
               </div>
             </div>
 
@@ -335,19 +335,61 @@ function slotItem(agent: { gear?: { tool: any; software: any; hardware: any } },
             </div>
           </UCard>
 
-          <!-- Empty roster slots -->
+          <!-- Empty active slots -->
           <div v-for="i in (state.rosterSlots - state.agents.length)" :key="`empty-${i}`"
             class="rounded-xl border-2 border-dashed border-default flex flex-col items-center justify-center h-36 gap-1 text-muted">
             <UIcon name="i-lucide-user-plus" class="size-6 opacity-30" />
-            <span class="text-sm">Empty slot — recruit below</span>
+            <span class="text-sm">{{ state.storedAgents.length ? 'Empty active slot — activate from storage' : 'Empty active slot — recruit below' }}</span>
           </div>
+        </div>
+
+        <!-- Storage -->
+        <div v-if="state.storedAgents.length" class="space-y-3">
+          <div class="flex items-center justify-between">
+            <h2 class="font-semibold text-base text-muted uppercase tracking-wide flex items-center gap-2">
+              <UIcon name="i-lucide-archive" class="size-4" /> Storage
+            </h2>
+            <p class="text-sm text-muted">Inactive agents — don't count toward power. Click for details.</p>
+          </div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <div
+              v-for="agent in state.storedAgents" :key="agent.id"
+              class="flex items-center gap-3 p-3 rounded-lg border border-default hover:border-primary/50 cursor-pointer transition-colors"
+              @click="storageAgentId = agent.id"
+            >
+              <div class="size-9 rounded-lg flex items-center justify-center shrink-0 ring-1"
+                :class="[CLASS_COLOR[agent.class as AgentClass].bg, CLASS_COLOR[agent.class as AgentClass].ring]">
+                <UIcon :name="CLASS_ICON[agent.class as AgentClass]" class="size-5" :class="CLASS_COLOR[agent.class as AgentClass].text" />
+              </div>
+              <div class="flex-1 min-w-0">
+                <div class="flex items-center gap-2 flex-wrap">
+                  <span class="font-medium truncate">{{ agent.name }}</span>
+                  <UBadge size="xs" :color="RARITY_COLOR[agent.rarity as HackRarity]" variant="subtle" :label="RARITY_LABEL[agent.rarity as HackRarity]" />
+                </div>
+                <span class="text-xs text-muted">Lv {{ agent.level }} · {{ CLASS_LABEL[agent.class as AgentClass] }}</span>
+              </div>
+              <div class="text-right shrink-0">
+                <p class="text-xs text-muted">Power</p>
+                <p class="font-bold text-primary leading-none">{{ agent.power }}</p>
+              </div>
+              <UButton
+                size="xs" color="primary" variant="soft" icon="i-lucide-arrow-up-circle"
+                label="Activate" :loading="togglingActive === agent.id" :disabled="activeFull"
+                @click.stop="setActive(agent.id, true)"
+              />
+            </div>
+          </div>
+          <p v-if="activeFull" class="text-xs text-muted">Active roster is full — store or fire an active agent (or add a slot) to activate more.</p>
         </div>
 
         <!-- Recruit -->
         <div class="space-y-3">
           <div class="flex items-center justify-between">
             <h2 class="font-semibold text-base text-muted uppercase tracking-wide">Recruit</h2>
-            <p class="text-sm text-muted">Fixed price per tier · higher tiers, better odds</p>
+            <p class="text-sm text-muted">
+              <template v-if="state.totalAgents >= state.maxAgents" class="text-warning">Storage full ({{ state.maxAgents }}) — fire an agent to recruit</template>
+              <template v-else>Fixed price per tier · higher tiers, better odds</template>
+            </p>
           </div>
           <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
             <UCard v-for="tier in state.agentPullTiers" :key="tier.id" class="flex flex-col">
@@ -384,7 +426,7 @@ function slotItem(agent: { gear?: { tool: any; software: any; hardware: any } },
               </div>
 
               <UButton block :loading="recruiting === tier.id"
-                :disabled="!canAfford(tier) || !!state.pendingAgent"
+                :disabled="!canAfford(tier) || state.totalAgents >= state.maxAgents"
                 @click="recruit(tier.id)">
                 Pull
                 <template #trailing>
@@ -461,98 +503,96 @@ function slotItem(agent: { gear?: { tool: any; software: any; hardware: any } },
     </template>
   </USlideover>
 
-  <!-- Overflow recruit — replace or discard -->
-  <UModal
-    v-model:open="pendingModalOpen"
-    :dismissible="false"
-    :close="false"
-    title="Roster full — new recruit"
-    :description="hasFreeSlot ? 'A slot has opened up — add the recruit, or discard.' : 'Replace one of your agents with the newcomer, or discard the recruit.'"
-  >
-    <template v-if="pendingAgent" #body>
-      <div class="space-y-5">
-        <!-- The newcomer -->
-        <div class="p-4 rounded-xl border border-primary bg-primary/5">
-          <div class="flex items-start gap-3">
-            <div class="size-12 rounded-xl flex items-center justify-center shrink-0 ring-1"
-              :class="[CLASS_COLOR[pendingAgent.class as AgentClass].bg, CLASS_COLOR[pendingAgent.class as AgentClass].ring]">
-              <UIcon :name="CLASS_ICON[pendingAgent.class as AgentClass]" class="size-6"
-                :class="CLASS_COLOR[pendingAgent.class as AgentClass].text" />
-            </div>
-            <div class="flex-1 min-w-0">
-              <div class="flex items-center gap-2 flex-wrap">
-                <span class="font-bold text-lg">{{ pendingAgent.name }}</span>
-                <UBadge :color="RARITY_COLOR[pendingAgent.rarity as HackRarity]" variant="subtle" :label="RARITY_LABEL[pendingAgent.rarity as HackRarity]" />
-                <UBadge color="primary" variant="solid" label="New" />
-              </div>
-              <span class="inline-flex items-center gap-1.5 mt-1 px-2 py-0.5 rounded-md border text-xs font-medium"
-                :class="[CLASS_COLOR[pendingAgent.class as AgentClass].bg, CLASS_COLOR[pendingAgent.class as AgentClass].border, CLASS_COLOR[pendingAgent.class as AgentClass].text]">
-                <UIcon :name="CLASS_ICON[pendingAgent.class as AgentClass]" class="size-3" />
-                {{ CLASS_LABEL[pendingAgent.class as AgentClass] }}
-              </span>
-            </div>
-            <div class="text-right shrink-0">
-              <p class="text-sm text-muted">Power</p>
-              <p class="text-2xl font-bold text-primary">{{ pendingAgent.power }}</p>
-            </div>
+  <!-- Stored agent detail -->
+  <UModal v-model:open="storageModalOpen" :title="storageAgent?.name ?? 'Agent'" description="Stored agent — activate to add them to your roster.">
+    <template v-if="storageAgent" #body>
+      <div class="space-y-4">
+        <!-- Header -->
+        <div class="flex items-start gap-3">
+          <div class="size-12 rounded-xl flex items-center justify-center shrink-0 ring-1"
+            :class="[CLASS_COLOR[storageAgent.class as AgentClass].bg, CLASS_COLOR[storageAgent.class as AgentClass].ring]">
+            <UIcon :name="CLASS_ICON[storageAgent.class as AgentClass]" class="size-6" :class="CLASS_COLOR[storageAgent.class as AgentClass].text" />
           </div>
-          <div v-if="agentCombinedStats(pendingAgent).length" class="mt-3 flex flex-wrap gap-x-4 gap-y-1">
-            <span v-for="s in agentCombinedStats(pendingAgent)" :key="s.label" class="text-sm">
-              <span class="text-muted">{{ s.label }}</span>
-              <span class="font-bold text-primary ml-1">{{ s.fmt(s.value) }}</span>
+          <div class="flex-1 min-w-0">
+            <div class="flex items-center gap-2 flex-wrap">
+              <span class="font-bold text-lg">{{ storageAgent.name }}</span>
+              <UBadge :color="RARITY_COLOR[storageAgent.rarity as HackRarity]" variant="subtle" :label="RARITY_LABEL[storageAgent.rarity as HackRarity]" />
+            </div>
+            <span class="inline-flex items-center gap-1.5 mt-1 px-2 py-0.5 rounded-md border text-xs font-medium"
+              :class="[CLASS_COLOR[storageAgent.class as AgentClass].bg, CLASS_COLOR[storageAgent.class as AgentClass].border, CLASS_COLOR[storageAgent.class as AgentClass].text]">
+              <UIcon :name="CLASS_ICON[storageAgent.class as AgentClass]" class="size-3" />
+              {{ CLASS_LABEL[storageAgent.class as AgentClass] }}
             </span>
           </div>
-          <p v-else class="mt-2 text-sm text-muted italic">No traits.</p>
+          <div class="text-right shrink-0">
+            <p class="text-sm text-muted">Power</p>
+            <p class="text-2xl font-bold text-primary">{{ storageAgent.power }}</p>
+          </div>
         </div>
 
-        <!-- Replace picker -->
+        <!-- XP bar -->
         <div>
-          <p class="text-sm font-semibold text-muted uppercase tracking-wide mb-2">Replace which agent?</p>
-          <div class="space-y-2 max-h-64 overflow-y-auto pr-1">
-            <div
-              v-for="agent in state?.agents"
-              :key="agent.id"
-              class="flex items-center gap-3 p-3 rounded-lg border transition-colors"
-              :class="[
-                busyAgentIds.has(agent.id) ? 'opacity-40 cursor-not-allowed border-default' :
-                replaceTargetId === agent.id ? 'border-primary bg-primary/10 cursor-pointer' : 'border-default hover:border-primary/50 cursor-pointer'
-              ]"
-              @click="!busyAgentIds.has(agent.id) && (replaceTargetId = agent.id)"
-            >
-              <div class="size-9 rounded-lg flex items-center justify-center shrink-0 ring-1"
-                :class="[CLASS_COLOR[agent.class as AgentClass].bg, CLASS_COLOR[agent.class as AgentClass].ring]">
-                <UIcon :name="CLASS_ICON[agent.class as AgentClass]" class="size-5" :class="CLASS_COLOR[agent.class as AgentClass].text" />
+          <div class="flex justify-between text-sm mb-1.5">
+            <span class="font-medium">Lv {{ storageAgent.level }}<span v-if="storageAgent.level < AGENT_MAX_LEVEL" class="text-muted"> / {{ AGENT_MAX_LEVEL }}</span></span>
+            <span v-if="storageAgent.level < AGENT_MAX_LEVEL" class="text-muted">{{ storageAgent.xp }} / {{ xpToNextLevel(storageAgent.level) }} XP</span>
+            <span v-else class="text-success font-semibold">Max Level</span>
+          </div>
+          <div class="h-2 rounded-full bg-elevated overflow-hidden">
+            <div class="h-full rounded-full bg-primary transition-all duration-500" :style="{ width: `${xpPercent(storageAgent)}%` }" />
+          </div>
+        </div>
+
+        <!-- Total bonuses -->
+        <div class="p-3 rounded-lg bg-elevated space-y-1.5">
+          <p class="text-sm font-semibold text-muted uppercase tracking-wide mb-2">Total Bonuses</p>
+          <template v-if="agentCombinedStats(storageAgent).length">
+            <div v-for="s in agentCombinedStats(storageAgent)" :key="s.label" class="flex items-center justify-between text-sm">
+              <span class="text-muted">{{ s.label }}</span>
+              <span class="font-bold text-primary">{{ s.fmt(s.value) }}</span>
+            </div>
+          </template>
+          <p v-else class="text-sm text-muted italic">No traits.</p>
+        </div>
+
+        <!-- Equipped gear (read-only) -->
+        <div class="space-y-2">
+          <div v-for="slot in (['tool', 'software', 'hardware'] as ItemSlot[])" :key="slot">
+            <div v-if="slotItem(storageAgent, slot)" class="flex items-start gap-3 p-3 rounded-lg border border-default">
+              <div class="size-7 rounded-md flex items-center justify-center shrink-0 mt-0.5"
+                :class="[SLOT_COLOR[slot].bg, SLOT_COLOR[slot].text]">
+                <UIcon :name="SLOT_ICON[slot]" class="size-4" />
               </div>
               <div class="flex-1 min-w-0">
-                <div class="flex items-center gap-2 flex-wrap">
-                  <span class="font-medium">{{ agent.name }}</span>
-                  <UBadge size="xs" :color="RARITY_COLOR[agent.rarity as HackRarity]" variant="subtle" :label="RARITY_LABEL[agent.rarity as HackRarity]" />
-                  <UBadge v-if="busyAgentIds.has(agent.id)" size="xs" color="primary" variant="subtle" label="On Op" />
+                <div class="flex items-center gap-1.5 flex-wrap mb-1">
+                  <span class="font-medium text-sm">{{ slotItem(storageAgent, slot)!.name }}</span>
+                  <UBadge size="xs" :color="RARITY_COLOR[slotItem(storageAgent, slot)!.rarity as HackRarity]" variant="subtle"
+                    :label="RARITY_LABEL[slotItem(storageAgent, slot)!.rarity as HackRarity]" />
                 </div>
-                <span class="text-xs text-muted">Lv {{ agent.level }} · {{ CLASS_LABEL[agent.class as AgentClass] }}</span>
+                <div class="flex flex-wrap gap-x-3">
+                  <span v-for="m in (slotItem(storageAgent, slot)!.mods as ItemMod[])" :key="m.type" class="text-sm font-medium text-primary">
+                    {{ MOD_LABEL[m.type] }} {{ formatModValue(m.type, m.value) }}
+                  </span>
+                </div>
               </div>
-              <div class="text-right shrink-0">
-                <p class="text-xs text-muted">Power</p>
-                <p class="font-bold text-primary">{{ agent.power }}</p>
-              </div>
-              <UIcon v-if="replaceTargetId === agent.id" name="i-lucide-circle-check-big" class="size-5 text-primary shrink-0" />
+              <UButton size="xs" color="neutral" variant="outline" icon="i-lucide-link-slash"
+                label="Unequip" :loading="equipping" @click="equipTo(slotItem(storageAgent, slot)!.id, null)" />
+            </div>
+            <div v-else class="flex items-center gap-3 p-3 rounded-lg border border-dashed border-default">
+              <UIcon :name="SLOT_ICON[slot]" class="size-4 shrink-0" :class="SLOT_COLOR[slot].text + ' opacity-60'" />
+              <span class="text-sm text-muted">{{ SLOT_LABEL[slot] }} — empty</span>
             </div>
           </div>
-          <p class="text-xs text-muted mt-2">The replaced agent is fired and their gear returns to your inventory. Agents on an op can't be replaced.</p>
         </div>
       </div>
     </template>
 
     <template #footer>
       <div class="flex items-center justify-between gap-3 w-full">
-        <UButton color="error" variant="ghost" icon="i-lucide-trash-2" label="Discard"
-          :loading="resolving" @click="resolveRecruit('discard')" />
-        <div class="flex items-center gap-2">
-          <UButton v-if="hasFreeSlot" color="primary" variant="soft" icon="i-lucide-user-plus" label="Add to roster"
-            :loading="resolving" @click="resolveRecruit('keep')" />
-          <UButton color="primary" icon="i-lucide-user-check" label="Replace selected"
-            :loading="resolving" :disabled="!replaceTargetId" @click="resolveRecruit('replace')" />
-        </div>
+        <UButton color="error" variant="ghost" icon="i-lucide-user-x" label="Fire"
+          :loading="firing === storageAgent?.id" @click="storageAgent && fireAgent(storageAgent.id, storageAgent.name)" />
+        <UButton color="primary" icon="i-lucide-arrow-up-circle" label="Activate"
+          :loading="togglingActive === storageAgent?.id" :disabled="activeFull"
+          @click="storageAgent && setActive(storageAgent.id, true)" />
       </div>
     </template>
   </UModal>
