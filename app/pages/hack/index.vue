@@ -43,6 +43,12 @@ function progressPct(op: { startedAt: string; completesAt: string }) {
   const elapsed = now.value - new Date(op.startedAt).getTime()
   return Math.min(100, Math.round((elapsed / total) * 100))
 }
+// Done is derived from the live ticker, not just the server flag (which is only
+// fetched on load / after actions) — so the Collect button appears the instant the
+// timer runs out, without a manual page refresh.
+function isDone(op: { done?: boolean; completesAt: string }) {
+  return !!op.done || msLeft(op.completesAt) <= 0
+}
 
 // Dispatch
 const dispatching = ref(false)
@@ -304,11 +310,11 @@ function deployBlockedReason(t: any): string | null {
               </div>
             </div>
             <div class="text-right shrink-0">
-              <p class="text-lg font-bold" :class="op.done ? 'text-success' : 'text-primary'">
+              <p class="text-lg font-bold" :class="isDone(op) ? 'hidden' : 'text-primary'">
                 {{ formatMs(msLeft(op.completesAt)) }}
               </p>
               <UButton
-                v-if="op.done"
+                v-if="isDone(op)"
                 size="sm"
                 color="success"
                 :loading="collecting === op.id"
@@ -345,12 +351,12 @@ function deployBlockedReason(t: any): string | null {
             <div class="flex-1 h-1.5 rounded-full bg-elevated overflow-hidden">
               <div
                 class="h-full rounded-full transition-all duration-1000"
-                :class="op.done ? 'bg-success' : 'bg-primary'"
+                :class="isDone(op) ? 'bg-success' : 'bg-primary'"
                 :style="{ width: `${progressPct(op)}%` }"
               />
             </div>
-            <span class="text-xs font-semibold tabular-nums w-9 text-right" :class="op.done ? 'text-success' : 'text-muted'">
-              {{ op.done ? '100%' : `${progressPct(op)}%` }}
+            <span class="text-xs font-semibold tabular-nums w-9 text-right" :class="isDone(op) ? 'text-success' : 'text-muted'">
+              {{ isDone(op) ? '100%' : `${progressPct(op)}%` }}
             </span>
           </div>
         </UCard>
