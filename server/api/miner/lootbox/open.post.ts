@@ -44,7 +44,7 @@ export default defineEventHandler(async (event) => {
   if (paid) {
     const price = lootboxOpenPrice(cap, gemPrice)
     // debit throws 400 if the user can't afford it
-    await debit(userId, price.toFixed(4), 'lootbox:open')
+    await debit(userId, price.toFixed(4), 'lootbox')
   } else {
     await db
       .update(minerState)
