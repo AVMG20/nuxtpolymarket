@@ -26,7 +26,7 @@ export default defineEventHandler(async (event) => {
   if (unequippedCount >= MAX_INVENTORY_SLOTS)
     throw createError({ statusCode: 400, statusMessage: 'Inventory full — sell some unequipped items first' })
 
-  await debit(userId, tier.cost.toFixed(4), 'hack:item_pull')
+  await debit(userId, tier.cost.toFixed(4), 'HackOps')
 
   const avgAgentLevel = agents.length > 0
     ? Math.round(agents.reduce((s, a) => s + a.level, 0) / agents.length)

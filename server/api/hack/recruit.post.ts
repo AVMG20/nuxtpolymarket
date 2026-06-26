@@ -35,7 +35,7 @@ export default defineEventHandler(async (event) => {
   const cost = tier.cost
 
   if (tier.currency === 'cash') {
-    await debit(userId, cost.toFixed(4), 'hack:recruit')
+    await debit(userId, cost.toFixed(4), 'HackOps')
   } else {
     if ((currentUser?.gems ?? 0) < cost)
       throw createError({ statusCode: 400, statusMessage: 'Not enough gems' })

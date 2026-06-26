@@ -74,7 +74,7 @@ export default defineEventHandler(async (event) => {
   }
 
   if (reward.success) {
-    await credit(userId, reward.cash.toFixed(4), 'hack:op')
+    await credit(userId, reward.cash.toFixed(4), 'HackOps')
     if (reward.gems > 0) {
       await db.update(user).set({ gems: sql`${user.gems} + ${reward.gems}` }).where(eq(user.id, userId))
     }

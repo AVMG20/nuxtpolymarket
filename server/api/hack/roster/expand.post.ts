@@ -18,7 +18,7 @@ export default defineEventHandler(async (event) => {
   const cost = ROSTER_EXPAND_COSTS[state.rosterSlots - 2]
   if (cost === undefined) throw createError({ statusCode: 400, statusMessage: 'Cannot expand further' })
 
-  await debit(userId, cost.toFixed(4), 'hack:roster')
+  await debit(userId, cost.toFixed(4), 'HackOps')
   const [updated] = await db.update(hackState).set({ rosterSlots: state.rosterSlots + 1 }).where(eq(hackState.userId, userId)).returning()
 
   return { rosterSlots: updated!.rosterSlots }

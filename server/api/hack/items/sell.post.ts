@@ -23,7 +23,7 @@ export default defineEventHandler(async (event) => {
 
   const price = itemSellPrice(item.rarity as HackRarity, item.itemLevel)
   await db.delete(hackItems).where(eq(hackItems.id, itemId))
-  await credit(userId, price.toFixed(4), 'hack:sell')
+  await credit(userId, price.toFixed(4), 'HackOps')
 
   return { sold: true, price }
 })
