@@ -57,10 +57,6 @@ function isStackSelected(stack: { ids: string[] }): boolean {
   return props.selectedArtifactId != null && stack.ids.includes(props.selectedArtifactId)
 }
 
-function resourceEmojis(item: any): string[] {
-  return (item.resources ?? []).map((r: any) => r.emoji ?? '❓')
-}
-
 function ownedQty(plantTypeId: string): number {
   return props.inventory
     .filter(i => i.typeId === plantTypeId)
@@ -188,9 +184,9 @@ function specRows(art: ArtifactType | undefined) {
 
           <!-- Emoji -->
           <div class="flex-1 flex flex-col items-center justify-center gap-0.5 min-h-0">
-            <span class="text-3xl leading-none select-none">{{ item.emoji }}</span>
+            <XenoPlantIcon :id="item.typeId" :size="40" />
             <div v-if="item.isHybrid" class="flex items-center gap-0.5 leading-none">
-              <span v-for="(e, i) in resourceEmojis(item)" :key="i" class="text-[10px]">{{ e }}</span>
+              <XenoPlantIcon v-for="(r, i) in item.resources" :key="i" :id="r.id" :size="14" />
             </div>
           </div>
 

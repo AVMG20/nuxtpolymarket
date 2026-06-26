@@ -50,10 +50,6 @@ function parentsOf(plantId: string) {
   return MUTATIONS.filter(m => m.offspring === plantId)
 }
 
-function getPlantById(id: string) {
-  return PLANT_TYPES.find(p => p.id === id)
-}
-
 
 // ── Mutation recipes per tier ────────────────────────────────────────────────
 // Recipes where the offspring belongs to this tier (or crosses into it from below)
@@ -111,11 +107,11 @@ function tierMutations(tier: number) {
               class="bg-elevated border border-default rounded-lg px-2.5 py-1.5 flex items-center gap-1.5 text-xs transition-opacity"
               :class="discoveredIds.has(m.offspring) ? '' : 'opacity-50'"
             >
-              <span class="text-base leading-none">{{ getPlantById(m.parent1)?.emoji }}</span>
+              <XenoPlantIcon :id="m.parent1" :size="18" />
               <span class="text-muted">+</span>
-              <span class="text-base leading-none">{{ getPlantById(m.parent2)?.emoji }}</span>
+              <XenoPlantIcon :id="m.parent2" :size="18" />
               <span class="text-muted">→</span>
-              <span class="text-base leading-none">{{ getPlantById(m.offspring)?.emoji }}</span>
+              <XenoPlantIcon :id="m.offspring" :size="18" />
               <span class="text-muted font-semibold">{{ (m.chance * 100).toFixed(0) }}%</span>
             </div>
           </div>
@@ -136,7 +132,7 @@ function tierMutations(tier: number) {
                 <template v-if="discoveredIds.has(plant.id)">
                   <div class="flex items-start justify-between gap-2">
                     <div class="flex items-center gap-2">
-                      <span class="text-2xl leading-none">{{ plant.emoji }}</span>
+                      <XenoPlantIcon :id="plant.id" :size="28" />
                       <div>
                         <p class="font-bold text-sm">{{ plant.name }}</p>
                         <XenoTierLabel :tier="plant.tier" />
@@ -188,9 +184,9 @@ function tierMutations(tier: number) {
                           :key="`${m.parent1}-${m.parent2}`"
                           class="text-xs text-muted flex items-center gap-1"
                         >
-                          <span>{{ getPlantById(m.parent1)?.emoji }}</span>
+                          <XenoPlantIcon :id="m.parent1" :size="16" />
                           <span>+</span>
-                          <span>{{ getPlantById(m.parent2)?.emoji }}</span>
+                          <XenoPlantIcon :id="m.parent2" :size="16" />
                           <span class="text-muted/60">→</span>
                           <span class="font-semibold text-default">{{ (m.chance * 100).toFixed(1) }}%</span>
                         </div>
@@ -213,7 +209,7 @@ function tierMutations(tier: number) {
                   <!-- Header: emoji + name + lock -->
                   <div class="flex items-start justify-between gap-2">
                     <div class="flex items-center gap-2">
-                      <span class="text-2xl leading-none grayscale opacity-50">{{ plant.emoji }}</span>
+                      <XenoPlantIcon :id="plant.id" :size="28" class="grayscale opacity-50" />
                       <div>
                         <p class="font-bold text-sm text-default/50">{{ plant.name }}</p>
                         <span class="text-xs font-bold uppercase tracking-wider text-muted/40">
@@ -269,9 +265,9 @@ function tierMutations(tier: number) {
                           :key="`${m.parent1}-${m.parent2}`"
                           class="text-xs text-muted flex items-center gap-1"
                         >
-                          <span>{{ getPlantById(m.parent1)?.emoji }}</span>
+                          <XenoPlantIcon :id="m.parent1" :size="16" />
                           <span>+</span>
-                          <span>{{ getPlantById(m.parent2)?.emoji }}</span>
+                          <XenoPlantIcon :id="m.parent2" :size="16" />
                           <span class="text-muted/60">→</span>
                           <span class="font-semibold text-default">{{ (m.chance * 100).toFixed(1) }}%</span>
                         </div>
@@ -309,10 +305,12 @@ function tierMutations(tier: number) {
 
               <!-- Emoji -->
               <div class="flex-1 flex items-center justify-center">
-                <span
-                  class="text-5xl leading-none select-none transition-all"
+                <XenoPlantIcon
+                  :id="plant.id"
+                  :size="64"
+                  class="transition-all"
                   :class="!discoveredIds.has(plant.id) && 'grayscale opacity-20'"
-                >{{ plant.emoji }}</span>
+                />
               </div>
 
               <!-- Name -->

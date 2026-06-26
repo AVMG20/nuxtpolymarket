@@ -234,7 +234,7 @@ async function doCollect(slotId: string) {
                     class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-[60%] size-44 rounded-full blur-3xl pointer-events-none"
                     :class="slot.wasMutation ? 'bg-primary/25' : 'bg-primary/10'"
                   />
-                  <span class="relative text-7xl leading-none select-none drop-shadow-lg">{{ getPlant(slot.resultTypeId)?.emoji }}</span>
+                  <XenoPlantIcon :id="slot.resultTypeId" :size="80" class="relative select-none drop-shadow-lg" />
                   <div class="relative leading-tight">
                     <p class="text-lg font-black tracking-tight" :class="tierNameColor(getPlant(slot.resultTypeId)?.tier ?? 1)">
                       {{ getPlant(slot.resultTypeId)?.name }}<sup class="text-xs font-semibold ml-0.5 opacity-70">×{{ slot.resultQuantity }}</sup>
@@ -286,12 +286,14 @@ async function doCollect(slotId: string) {
                   <!-- Parents -->
                   <div class="flex items-center gap-2">
                     <div class="flex-1 flex flex-col items-center gap-1 rounded-xl bg-background/50 border border-default/50 py-2.5">
-                      <span class="text-2xl leading-none">{{ slot.parent1 ? getPlant(slot.parent1.typeId)?.emoji : '?' }}</span>
+                      <XenoPlantIcon v-if="slot.parent1" :id="slot.parent1.typeId" :size="28" />
+                      <span v-else class="text-2xl leading-none">?</span>
                       <p class="text-[11px] font-bold leading-tight text-center px-1 truncate max-w-full">{{ slot.parent1 ? getPlant(slot.parent1.typeId)?.name : '?' }}</p>
                     </div>
                     <UIcon name="i-lucide-plus" class="size-4 text-muted shrink-0" />
                     <div class="flex-1 flex flex-col items-center gap-1 rounded-xl bg-background/50 border border-default/50 py-2.5">
-                      <span class="text-2xl leading-none">{{ slot.parent2 ? getPlant(slot.parent2.typeId)?.emoji : '?' }}</span>
+                      <XenoPlantIcon v-if="slot.parent2" :id="slot.parent2.typeId" :size="28" />
+                      <span v-else class="text-2xl leading-none">?</span>
                       <p class="text-[11px] font-bold leading-tight text-center px-1 truncate max-w-full">{{ slot.parent2 ? getPlant(slot.parent2.typeId)?.name : '?' }}</p>
                     </div>
                   </div>
@@ -360,7 +362,7 @@ async function doCollect(slotId: string) {
                         >
                           <UIcon name="i-lucide-x" class="size-3" />
                         </button>
-                        <span class="text-4xl leading-none">{{ getParent(slot.id, num).emoji }}</span>
+                        <XenoPlantIcon :id="getParent(slot.id, num).typeId" :size="44" />
                         <p class="text-xs font-bold leading-tight px-1 truncate max-w-full">{{ getParent(slot.id, num).name }}</p>
                         <div class="flex items-center gap-1">
                           <XenoLevelBadge prefix="S" :level="getParent(slot.id, num).speed" />
@@ -393,7 +395,7 @@ async function doCollect(slotId: string) {
                     />
                     <div class="relative flex items-center justify-between gap-2">
                       <div class="flex items-center gap-3 min-w-0">
-                        <span class="text-4xl leading-none shrink-0 drop-shadow">{{ mutationPlantFor(getParent(slot.id, 1), getParent(slot.id, 2))?.emoji }}</span>
+                        <XenoPlantIcon :id="mutationPlantFor(getParent(slot.id, 1), getParent(slot.id, 2))?.id" :size="44" class="shrink-0 drop-shadow" />
                         <div class="min-w-0">
                           <div class="flex items-center gap-1.5">
                             <p class="font-black text-base truncate" :class="tierNameColor(mutationPlantFor(getParent(slot.id, 1), getParent(slot.id, 2))?.tier ?? 1)">{{ mutationPlantFor(getParent(slot.id, 1), getParent(slot.id, 2))?.name }}</p>

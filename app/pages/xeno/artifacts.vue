@@ -132,7 +132,7 @@ function specRows(art: typeof ARTIFACT_TYPES[0]) {
                 ? 'border-success/30 bg-success/10 text-success'
                 : 'border-default/50 text-muted'"
             >
-              <span>{{ getPlant(c.plantTypeId)?.emoji }}</span>
+              <XenoPlantIcon :id="c.plantTypeId" :size="16" />
               <span>{{ c.quantity }}×</span>
               <span class="opacity-60">({{ ownedCount(c.plantTypeId) }})</span>
             </div>

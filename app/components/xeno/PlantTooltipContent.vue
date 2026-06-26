@@ -45,7 +45,7 @@ const avgValue = computed(() => props.value * (1 + props.yield / 2))
         <p class="text-xs text-muted uppercase tracking-wider font-semibold">Produces per harvest</p>
         <div class="space-y-1">
           <div v-for="r in resources" :key="r.id" class="flex items-center gap-1.5 text-xs">
-            <span class="leading-none">{{ r.emoji }}</span>
+            <XenoPlantIcon :id="r.id" :size="16" />
             <span class="font-medium flex-1 truncate" :class="tierNameColor(r.tier)">{{ r.name }}</span>
             <XenoLevelBadge prefix="S" :level="r.speed" />
             <XenoLevelBadge prefix="Y" :level="r.yield" />

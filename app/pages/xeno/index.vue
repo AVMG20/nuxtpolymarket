@@ -347,10 +347,10 @@ function slotSpeedBoost(slot: any): number {
 
               <!-- Center: emoji + name -->
               <div class="flex-1 flex flex-col items-center justify-center gap-0.5 mt-2">
-                <span class="text-2xl md:text-3xl leading-none">{{ cell.slot.plant.emoji }}</span>
+                <XenoPlantIcon :id="cell.slot.plant.id" :size="44" />
                 <p class="text-xs font-medium opacity-60 truncate w-full text-center mt-0.5">{{ cell.slot.plant.name }}</p>
                 <div v-if="cell.slot.plant.isHybrid" class="flex items-center gap-0.5 leading-none">
-                  <span v-for="(r, i) in cell.slot.plant.resources" :key="i" class="text-[10px]">{{ r.emoji }}</span>
+                  <XenoPlantIcon v-for="(r, i) in cell.slot.plant.resources" :key="i" :id="r.id" :size="14" />
                 </div>
                 <div
                   v-else-if="isDone(cell.slot.plant.completesAt)"
@@ -464,7 +464,7 @@ function slotSpeedBoost(slot: any): number {
         >
           <!-- Plant selected -->
           <template v-if="selectedPlant">
-            <span class="text-xl leading-none">{{ selectedPlant.emoji }}</span>
+            <XenoPlantIcon :id="selectedPlant.typeId" :size="28" />
             <div class="flex items-center gap-2 min-w-0">
               <p class="text-sm font-semibold truncate">{{ selectedPlant.name }}</p>
               <XenoTierLabel :tier="selectedPlant.tier" class="shrink-0" />

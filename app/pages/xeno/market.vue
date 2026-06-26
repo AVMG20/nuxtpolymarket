@@ -145,9 +145,6 @@ function growTime(item: any) {
   return base ? formatDuration(effectiveGrowTime({ baseTime: base.baseTime, speed: item.speed })) : '?'
 }
 
-function resourceEmojis(item: any): string[] {
-  return (item.resources ?? []).map((r: any) => r.emoji ?? '❓')
-}
 </script>
 
 <template>
@@ -278,7 +275,7 @@ function resourceEmojis(item: any): string[] {
                   :resources="item.resources"
                 />
               </template>
-              <span class="text-2xl leading-none cursor-default">{{ item.emoji }}</span>
+              <XenoPlantIcon :id="item.typeId ?? item.id" :size="30" class="cursor-default" />
             </UTooltip>
             <span class="text-sm font-black text-primary tabular-nums leading-none">×{{ item.quantity }}</span>
           </div>
@@ -293,7 +290,7 @@ function resourceEmojis(item: any): string[] {
               >Hybrid</span>
               <XenoTierLabel :tier="item.tier" />
               <span v-if="item.isHybrid" class="flex items-center gap-0.5 text-sm">
-                <span v-for="(e, i) in resourceEmojis(item)" :key="i" class="leading-none">{{ e }}</span>
+                <XenoPlantIcon v-for="(r, i) in item.resources" :key="i" :id="r.id" :size="16" />
               </span>
             </div>
             <div class="flex items-center gap-1.5 mt-0.5">
@@ -377,7 +374,7 @@ function resourceEmojis(item: any): string[] {
                   :description="plant.description"
                 />
               </template>
-              <span class="text-2xl leading-none cursor-default">{{ plant.emoji }}</span>
+              <XenoPlantIcon :id="plant.id" :size="30" class="cursor-default" />
             </UTooltip>
           </div>
 
@@ -443,7 +440,7 @@ function resourceEmojis(item: any): string[] {
               :key="m.id"
               class="inline-flex items-center gap-1 text-xs rounded-md border border-default bg-background/50 px-1.5 py-0.5"
             >
-              <span class="leading-none">{{ m.emoji }}</span><span class="text-muted">{{ m.name }}</span>
+              <XenoPlantIcon :id="m.id" :size="14" /><span class="text-muted">{{ m.name }}</span>
             </span>
           </div>
         </div>
@@ -486,7 +483,7 @@ function resourceEmojis(item: any): string[] {
                   :key="r.id"
                   class="flex items-center gap-2 rounded-lg bg-background/50 border border-default/50 px-2.5 py-1.5"
                 >
-                  <span class="text-xl leading-none">{{ r.emoji }}</span>
+                  <XenoPlantIcon :id="r.id" :size="22" />
                   <span class="text-sm font-semibold flex-1 text-left truncate" :class="tierNameColor(r.tier)">{{ r.name }}</span>
                   <XenoLevelBadge prefix="S" :level="r.speed" />
                   <XenoLevelBadge prefix="Y" :level="r.yield" />
@@ -536,7 +533,7 @@ function resourceEmojis(item: any): string[] {
               :key="m.id"
               class="inline-flex items-center gap-1 text-xs rounded-md border border-default bg-background/50 px-1.5 py-0.5"
             >
-              <span class="leading-none">{{ m.emoji }}</span><span class="text-muted">{{ m.name }}</span>
+              <XenoPlantIcon :id="m.id" :size="14" /><span class="text-muted">{{ m.name }}</span>
             </span>
           </div>
         </div>
@@ -552,7 +549,7 @@ function resourceEmojis(item: any): string[] {
               :class="roll.isHybrid && roll.resources.length >= 4 ? 'ring-1 ring-primary/50' : ''"
             >
               <span v-if="roll.isHybrid" class="text-[10px] mr-0.5">🧬</span>
-              <span v-for="r in roll.resources" :key="r.id" class="text-base" :title="`${r.name} · S${r.speed} Y${r.yield}`">{{ r.emoji }}</span>
+              <XenoPlantIcon v-for="r in roll.resources" :key="r.id" :id="r.id" :size="18" :title="`${r.name} · S${r.speed} Y${r.yield}`" />
             </div>
           </div>
         </div>
