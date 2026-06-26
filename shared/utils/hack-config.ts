@@ -212,6 +212,67 @@ export function formatModValue(type: ModType, value: number): string {
   return `+${formatPct(value)}%`
 }
 
+/**
+ * The complete set of bonuses an agent (or squad) provides, summed by display category
+ * across class passives + traits + equipped gear. This is the single source of truth
+ * behind both the agent card's "Total Bonuses" and the dispatch modal's "Agent
+ * Modifiers", so the two always agree (and agree with the reward engine).
+ *
+ * Note on scale: speed/loot class passives are stored as fractions (0.10) while the
+ * matching traits and gear mods are whole percents (10), so passives are normalized
+ * ×100. Gem-chance and power-flat use the same scale across all three sources.
+ */
+export function agentBonusStats(
+  agents: Array<{
+    class: AgentClass
+    traits?: AgentTrait[]
+    gear?: Partial<Record<ItemSlot, { mods: ItemMod[] } | null>>
+  }>,
+): Array<{ label: string; value: number; fmt: (v: number) => string }> {
+  type Stat = { label: string; value: number; fmt: (v: number) => string }
+  const map = new Map<string, Stat>()
+  const add = (key: string, label: string, value: number, fmt: (v: number) => string) => {
+    const s = map.get(key)
+    if (s) s.value += value
+    else map.set(key, { label, value, fmt })
+  }
+
+  for (const agent of agents) {
+    // Class passive — a real, always-on bonus.
+    const passive = CLASS_PASSIVE[agent.class]
+    if (passive.type === 'speed_percent') add('speed', 'Op Speed',   passive.value * 100, v => `+${formatPct(v)}%`)
+    if (passive.type === 'loot_percent')  add('loot',  'Loot',       passive.value * 100, v => `+${formatPct(v)}%`)
+    if (passive.type === 'gem_chance')    add('gem',   'Gem Chance', passive.value,       v => `+${(v * 100).toFixed(1)}%`)
+    if (passive.type === 'power_flat')    add('power', 'Power',      passive.value,       v => `+${Math.round(v)}`)
+
+    for (const t of (agent.traits ?? [])) {
+      if (t.type === 'speed_percent')  add('speed',   'Op Speed',    t.value, v => `+${formatPct(v)}%`)
+      if (t.type === 'loot_percent')   add('loot',    'Loot',        t.value, v => `+${formatPct(v)}%`)
+      if (t.type === 'gem_chance')     add('gem',     'Gem Chance',  t.value, v => `+${(v * 100).toFixed(1)}%`)
+      if (t.type === 'xp_boost')       add('xp',      'XP Gain',     t.value, v => `+${Math.round(v)}%`)
+      if (t.type === 'power_flat')     add('power',   'Power',       t.value, v => `+${Math.round(v)}`)
+      if (t.type === 'power_percent')  add('powerpct','Power %',     t.value, v => `+${Math.round(v)}%`)
+      if (t.type === 'gem_bonus')      add('gembonus','Bonus Gems',  t.value, v => `+${Math.round(v)} gems`)
+    }
+
+    for (const slot of ITEM_SLOTS) {
+      const item = agent.gear?.[slot]
+      if (!item) continue
+      for (const m of (item.mods ?? [])) {
+        if (m.type === 'speed_percent')  add('speed',   'Op Speed',   m.value, v => `+${formatPct(v)}%`)
+        if (m.type === 'loot_percent')   add('loot',    'Loot',       m.value, v => `+${formatPct(v)}%`)
+        if (m.type === 'gem_chance')     add('gem',     'Gem Chance', m.value, v => `+${(v * 100).toFixed(1)}%`)
+        if (m.type === 'xp_flat')        add('xpflat',  'XP per Op',  m.value, v => `+${Math.round(v)} XP`)
+        if (m.type === 'power_flat')     add('power',   'Power',      m.value, v => `+${Math.round(v)}`)
+        if (m.type === 'item_chance')    add('itemfind','Item Find',  m.value, v => `+${(v * 100).toFixed(1)}%`)
+        if (m.type === 'gem_bonus')      add('gembonus','Bonus Gems', m.value, v => `+${Math.round(v)} gems`)
+      }
+    }
+  }
+
+  return Array.from(map.values()).filter(s => s.value > 0)
+}
+
 export const RARITY_MOD_COUNT: Record<HackRarity, number> = { ghost: 1, operative: 2, specialist: 3, elite: 4, phantom: 5 }
 
 const ITEM_SLOTS: ItemSlot[] = ['tool', 'software', 'hardware']

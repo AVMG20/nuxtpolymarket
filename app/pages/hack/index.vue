@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import {
-  RARITY_COLOR, RARITY_LABEL, RARITY_STYLE, CLASS_LABEL, CLASS_ICON, CLASS_PASSIVE,
-  AGENT_TRAIT_LABEL, formatTraitValue, SLOT_ICON, SLOT_LABEL, MOD_LABEL, formatModValue,
+  RARITY_COLOR, RARITY_LABEL, RARITY_STYLE, CLASS_LABEL, CLASS_ICON,
+  SLOT_ICON, SLOT_LABEL, MOD_LABEL, formatModValue, agentBonusStats,
   effectiveDurationMs, collectBonuses, effectiveCashRange, effectiveGemChance, effectiveItemDropChance, opSuccessChance, MIN_DEPLOY_SUCCESS,
-  type HackRarity, type AgentClass, type AgentTrait, type AgentTraitType, type ItemMod, type ItemSlot,
+  type HackRarity, type AgentClass, type AgentTrait, type ItemMod, type ItemSlot,
 } from '#shared/utils/hack-config'
 
 const { fetchSession } = useAuth()
@@ -194,21 +194,9 @@ const modalStats = computed(() => {
   const gemBonus = bonuses.gemBonus
   const itemDropChance = effectiveItemDropChance(template, bonuses)
   const durationMs = effectiveDurationMs(template, rewardAgents)
-  // Combine class passives + traits across all agents, summed by modifier type
-  const modTotals: Record<string, number> = {}
-  for (const agent of agents) {
-    const passive = CLASS_PASSIVE[agent.class as AgentClass]
-    // speed_percent and loot_percent passives are fractions (0.15), traits are integers (15) — normalize to same scale
-    const normalizedPassive = (passive.type === 'speed_percent' || passive.type === 'loot_percent')
-      ? passive.value * 100 : passive.value
-    modTotals[passive.type] = (modTotals[passive.type] ?? 0) + normalizedPassive
-    for (const trait of (agent.traits ?? []) as AgentTrait[]) {
-      modTotals[trait.type] = (modTotals[trait.type] ?? 0) + trait.value
-    }
-  }
-  const combinedMods = (Object.entries(modTotals) as [AgentTraitType, number][])
-    .filter(([, v]) => v > 0)
-    .map(([type, total]) => ({ label: AGENT_TRAIT_LABEL[type], value: formatTraitValue(type, total) }))
+  // Full squad bonuses (class passives + traits + gear), summed by category — same
+  // source of truth as the agent card's Total Bonuses, so the two always agree.
+  const combinedMods = agentBonusStats(agents).map(s => ({ label: s.label, value: s.fmt(s.value) }))
   return { power, successChance, cashRange, gemChance, gemBonus, itemDropChance, durationMs, combinedMods }
 })
 

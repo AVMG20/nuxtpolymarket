@@ -2,48 +2,14 @@
 import {
   RARITY_COLOR, RARITY_LABEL, RARITY_STYLE, CLASS_LABEL, CLASS_ICON, CLASS_PASSIVE,
   SLOT_ICON, SLOT_LABEL,
-  RARITY_ORDER, xpToNextLevel, AGENT_MAX_LEVEL, MOD_LABEL, formatModValue, formatPct, itemSellPrice,
+  RARITY_ORDER, xpToNextLevel, AGENT_MAX_LEVEL, MOD_LABEL, formatModValue, itemSellPrice,
+  agentBonusStats,
   AGENT_TRAIT_LABEL, AGENT_TRAIT_COUNT, AGENT_TRAIT_RANGES,
-  type HackRarity, type AgentClass, type ItemSlot, type ItemMod, type AgentTrait, type AgentTraitType,
+  type HackRarity, type AgentClass, type ItemSlot, type ItemMod, type AgentTraitType,
 } from '#shared/utils/hack-config'
 
-// Combined stats: traits + equipped item mods, summed by display category
-function agentCombinedStats(agent: any) {
-  type Stat = { label: string; value: number; fmt: (v: number) => string }
-  const map = new Map<string, Stat>()
-
-  function add(key: string, label: string, value: number, fmt: (v: number) => string) {
-    const s = map.get(key)
-    if (s) s.value += value
-    else map.set(key, { label, value, fmt })
-  }
-
-  for (const t of (agent.traits ?? []) as AgentTrait[]) {
-    if (t.type === 'speed_percent')  add('speed',   'Op Speed',     t.value, v => `+${formatPct(v)}%`)
-    if (t.type === 'loot_percent')   add('loot',    'Loot',         t.value, v => `+${formatPct(v)}%`)
-    if (t.type === 'gem_chance')     add('gem',     'Gem Chance',   t.value, v => `+${(v * 100).toFixed(1)}%`)
-    if (t.type === 'xp_boost')       add('xp',      'XP Gain',      t.value, v => `+${Math.round(v)}%`)
-    if (t.type === 'power_flat')     add('power',   'Power',        t.value, v => `+${Math.round(v)}`)
-    if (t.type === 'power_percent')  add('powerpct','Power %',       t.value, v => `+${Math.round(v)}%`)
-    if (t.type === 'gem_bonus')      add('gembonus','Bonus Gems',    t.value, v => `+${Math.round(v)} gems`)
-  }
-
-  for (const slot of ['tool', 'software', 'hardware'] as ItemSlot[]) {
-    const item = agent.gear?.[slot]
-    if (!item) continue
-    for (const m of (item.mods ?? []) as ItemMod[]) {
-      if (m.type === 'speed_percent')      add('speed',  'Op Speed',    m.value, v => `+${formatPct(v)}%`)
-      if (m.type === 'loot_percent')       add('loot',   'Loot',        m.value, v => `+${formatPct(v)}%`)
-      if (m.type === 'gem_chance')         add('gem',    'Gem Chance',  m.value, v => `+${(v * 100).toFixed(1)}%`)
-      if (m.type === 'xp_flat')            add('xpflat', 'XP per Op',  m.value, v => `+${Math.round(v)} XP`)
-      if (m.type === 'power_flat')         add('power',  'Power',       m.value, v => `+${Math.round(v)}`)
-      if (m.type === 'item_chance')        add('itemfind','Item Find',  m.value, v => `+${(v * 100).toFixed(1)}%`)
-      if (m.type === 'gem_bonus')          add('gembonus','Bonus Gems', m.value, v => `+${Math.round(v)} gems`)
-    }
-  }
-
-  return Array.from(map.values()).filter(s => s.value > 0)
-}
+// Total bonuses for a single agent (class passive + traits + gear), summed by category.
+const agentCombinedStats = (agent: any) => agentBonusStats([agent])
 
 function formatTraitRange(type: AgentTraitType): string {
   const r = AGENT_TRAIT_RANGES[type]
