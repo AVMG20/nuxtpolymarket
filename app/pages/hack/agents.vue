@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import {
-  RARITY_COLOR, RARITY_LABEL, CLASS_LABEL, CLASS_ICON, CLASS_COLOR,
-  SLOT_ICON, SLOT_LABEL, SLOT_COLOR,
+  RARITY_COLOR, RARITY_LABEL, RARITY_STYLE, CLASS_LABEL, CLASS_ICON, CLASS_PASSIVE,
+  SLOT_ICON, SLOT_LABEL,
   RARITY_ORDER, xpToNextLevel, AGENT_MAX_LEVEL, MOD_LABEL, formatModValue, formatPct, itemSellPrice,
   AGENT_TRAIT_LABEL, AGENT_TRAIT_COUNT, AGENT_TRAIT_RANGES,
   type HackRarity, type AgentClass, type ItemSlot, type ItemMod, type AgentTrait, type AgentTraitType,
@@ -282,10 +282,10 @@ function slotItem(agent: { gear?: { tool: any; software: any; hardware: any } },
           <UCard v-for="agent in state.agents" :key="agent.id">
             <!-- Agent header -->
             <div class="flex items-start gap-3 mb-4">
+              <!-- Avatar: rarity-tinted frame holding the class icon -->
               <div class="size-12 rounded-xl flex items-center justify-center shrink-0 ring-1"
-                :class="[CLASS_COLOR[agent.class as AgentClass].bg, CLASS_COLOR[agent.class as AgentClass].ring]">
-                <UIcon :name="CLASS_ICON[agent.class as AgentClass]" class="size-6"
-                  :class="CLASS_COLOR[agent.class as AgentClass].text" />
+                :class="[RARITY_STYLE[agent.rarity as HackRarity].bg, RARITY_STYLE[agent.rarity as HackRarity].ring, RARITY_STYLE[agent.rarity as HackRarity].text]">
+                <UIcon :name="CLASS_ICON[agent.class as AgentClass]" class="size-6" />
               </div>
               <div class="flex-1 min-w-0">
                 <div class="flex items-center gap-2 flex-wrap">
@@ -293,12 +293,12 @@ function slotItem(agent: { gear?: { tool: any; software: any; hardware: any } },
                   <UBadge :color="RARITY_COLOR[agent.rarity as HackRarity]" variant="subtle" :label="RARITY_LABEL[agent.rarity as HackRarity]" />
                   <UBadge v-if="busyAgentIds.has(agent.id)" color="primary" variant="subtle" label="On Op" />
                 </div>
-                <!-- Spec chip — distinct color per class -->
-                <span class="inline-flex items-center gap-1.5 mt-1 px-2 py-0.5 rounded-md border text-xs font-medium"
-                  :class="[CLASS_COLOR[agent.class as AgentClass].bg, CLASS_COLOR[agent.class as AgentClass].border, CLASS_COLOR[agent.class as AgentClass].text]">
-                  <UIcon :name="CLASS_ICON[agent.class as AgentClass]" class="size-3" />
-                  {{ CLASS_LABEL[agent.class as AgentClass] }}
-                </span>
+                <!-- Spec — icon-led + neutral, with the class passive spelled out -->
+                <div class="flex items-center gap-1.5 mt-1 text-xs">
+                  <UIcon :name="CLASS_ICON[agent.class as AgentClass]" class="size-3.5 text-muted" />
+                  <span class="font-medium">{{ CLASS_LABEL[agent.class as AgentClass] }}</span>
+                  <span class="text-muted">· {{ CLASS_PASSIVE[agent.class as AgentClass].label }}</span>
+                </div>
               </div>
               <div class="flex flex-col items-end gap-2 shrink-0">
                 <div class="text-right">
@@ -353,8 +353,7 @@ function slotItem(agent: { gear?: { tool: any; software: any; hardware: any } },
             <div class="space-y-2">
               <div v-for="slot in (['tool', 'software', 'hardware'] as ItemSlot[])" :key="slot">
                 <div v-if="slotItem(agent, slot)" class="flex items-start gap-3 p-3 rounded-lg border border-default">
-                  <div class="size-7 rounded-md flex items-center justify-center shrink-0 mt-0.5"
-                    :class="[SLOT_COLOR[slot].bg, SLOT_COLOR[slot].text]">
+                  <div class="size-7 rounded-md flex items-center justify-center shrink-0 mt-0.5 bg-elevated text-muted">
                     <UIcon :name="SLOT_ICON[slot]" class="size-4" />
                   </div>
                   <div class="flex-1 min-w-0">
@@ -381,7 +380,7 @@ function slotItem(agent: { gear?: { tool: any; software: any; hardware: any } },
                     : 'border-dashed border-default'"
                   @click="selectedItem?.slot === slot && equipTo(selectedItem.id, agent.id)"
                 >
-                  <UIcon :name="SLOT_ICON[slot]" class="size-4 shrink-0" :class="selectedItem?.slot === slot ? 'text-primary' : SLOT_COLOR[slot].text + ' opacity-60'" />
+                  <UIcon :name="SLOT_ICON[slot]" class="size-4 shrink-0" :class="selectedItem?.slot === slot ? 'text-primary' : 'text-muted opacity-60'" />
                   <span v-if="selectedItem?.slot === slot" class="text-sm text-primary font-medium">
                     Equip {{ selectedItem.name }} here
                   </span>
@@ -414,15 +413,18 @@ function slotItem(agent: { gear?: { tool: any; software: any; hardware: any } },
               @click="detailAgentId = agent.id"
             >
               <div class="size-9 rounded-lg flex items-center justify-center shrink-0 ring-1"
-                :class="[CLASS_COLOR[agent.class as AgentClass].bg, CLASS_COLOR[agent.class as AgentClass].ring]">
-                <UIcon :name="CLASS_ICON[agent.class as AgentClass]" class="size-5" :class="CLASS_COLOR[agent.class as AgentClass].text" />
+                :class="[RARITY_STYLE[agent.rarity as HackRarity].bg, RARITY_STYLE[agent.rarity as HackRarity].ring, RARITY_STYLE[agent.rarity as HackRarity].text]">
+                <UIcon :name="CLASS_ICON[agent.class as AgentClass]" class="size-5" />
               </div>
               <div class="flex-1 min-w-0">
                 <div class="flex items-center gap-2 flex-wrap">
                   <span class="font-medium truncate">{{ agent.name }}</span>
                   <UBadge size="xs" :color="RARITY_COLOR[agent.rarity as HackRarity]" variant="subtle" :label="RARITY_LABEL[agent.rarity as HackRarity]" />
                 </div>
-                <span class="text-xs text-muted">Lv {{ agent.level }} · {{ CLASS_LABEL[agent.class as AgentClass] }}</span>
+                <span class="text-xs text-muted flex items-center gap-1">
+                  <UIcon :name="CLASS_ICON[agent.class as AgentClass]" class="size-3" />
+                  Lv {{ agent.level }} · {{ CLASS_LABEL[agent.class as AgentClass] }}
+                </span>
               </div>
               <div class="text-right shrink-0">
                 <p class="text-xs text-muted">Power</p>
@@ -582,19 +584,19 @@ function slotItem(agent: { gear?: { tool: any; software: any; hardware: any } },
         <!-- Header -->
         <div class="flex items-start gap-3">
           <div class="size-12 rounded-xl flex items-center justify-center shrink-0 ring-1"
-            :class="[CLASS_COLOR[detailAgent.class as AgentClass].bg, CLASS_COLOR[detailAgent.class as AgentClass].ring]">
-            <UIcon :name="CLASS_ICON[detailAgent.class as AgentClass]" class="size-6" :class="CLASS_COLOR[detailAgent.class as AgentClass].text" />
+            :class="[RARITY_STYLE[detailAgent.rarity as HackRarity].bg, RARITY_STYLE[detailAgent.rarity as HackRarity].ring, RARITY_STYLE[detailAgent.rarity as HackRarity].text]">
+            <UIcon :name="CLASS_ICON[detailAgent.class as AgentClass]" class="size-6" />
           </div>
           <div class="flex-1 min-w-0">
             <div class="flex items-center gap-2 flex-wrap">
               <span class="font-bold text-lg">{{ detailAgent.name }}</span>
               <UBadge :color="RARITY_COLOR[detailAgent.rarity as HackRarity]" variant="subtle" :label="RARITY_LABEL[detailAgent.rarity as HackRarity]" />
             </div>
-            <span class="inline-flex items-center gap-1.5 mt-1 px-2 py-0.5 rounded-md border text-xs font-medium"
-              :class="[CLASS_COLOR[detailAgent.class as AgentClass].bg, CLASS_COLOR[detailAgent.class as AgentClass].border, CLASS_COLOR[detailAgent.class as AgentClass].text]">
-              <UIcon :name="CLASS_ICON[detailAgent.class as AgentClass]" class="size-3" />
-              {{ CLASS_LABEL[detailAgent.class as AgentClass] }}
-            </span>
+            <div class="flex items-center gap-1.5 mt-1 text-xs">
+              <UIcon :name="CLASS_ICON[detailAgent.class as AgentClass]" class="size-3.5 text-muted" />
+              <span class="font-medium">{{ CLASS_LABEL[detailAgent.class as AgentClass] }}</span>
+              <span class="text-muted">· {{ CLASS_PASSIVE[detailAgent.class as AgentClass].label }}</span>
+            </div>
           </div>
           <div class="text-right shrink-0">
             <p class="text-sm text-muted">Power</p>
@@ -630,8 +632,7 @@ function slotItem(agent: { gear?: { tool: any; software: any; hardware: any } },
         <div class="space-y-2">
           <div v-for="slot in (['tool', 'software', 'hardware'] as ItemSlot[])" :key="slot">
             <div v-if="slotItem(detailAgent, slot)" class="flex items-start gap-3 p-3 rounded-lg border border-default">
-              <div class="size-7 rounded-md flex items-center justify-center shrink-0 mt-0.5"
-                :class="[SLOT_COLOR[slot].bg, SLOT_COLOR[slot].text]">
+              <div class="size-7 rounded-md flex items-center justify-center shrink-0 mt-0.5 bg-elevated text-muted">
                 <UIcon :name="SLOT_ICON[slot]" class="size-4" />
               </div>
               <div class="flex-1 min-w-0">
@@ -650,7 +651,7 @@ function slotItem(agent: { gear?: { tool: any; software: any; hardware: any } },
                 label="Unequip" :loading="equipping" @click="equipTo(slotItem(detailAgent, slot)!.id, null)" />
             </div>
             <div v-else class="flex items-center gap-3 p-3 rounded-lg border border-dashed border-default">
-              <UIcon :name="SLOT_ICON[slot]" class="size-4 shrink-0" :class="SLOT_COLOR[slot].text + ' opacity-60'" />
+              <UIcon :name="SLOT_ICON[slot]" class="size-4 shrink-0 text-muted opacity-60" />
               <span class="text-sm text-muted">{{ SLOT_LABEL[slot] }} — empty</span>
             </div>
           </div>

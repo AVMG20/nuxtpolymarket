@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import {
-  RARITY_COLOR, RARITY_LABEL, CLASS_LABEL, CLASS_ICON, CLASS_COLOR, CLASS_PASSIVE,
-  AGENT_TRAIT_LABEL, formatTraitValue, SLOT_ICON, SLOT_LABEL, SLOT_COLOR, MOD_LABEL, formatModValue,
+  RARITY_COLOR, RARITY_LABEL, RARITY_STYLE, CLASS_LABEL, CLASS_ICON, CLASS_PASSIVE,
+  AGENT_TRAIT_LABEL, formatTraitValue, SLOT_ICON, SLOT_LABEL, MOD_LABEL, formatModValue,
   effectiveDurationMs, collectBonuses, effectiveCashRange, effectiveGemChance, effectiveItemDropChance, opSuccessChance, MIN_DEPLOY_SUCCESS,
   type HackRarity, type AgentClass, type AgentTrait, type AgentTraitType, type ItemMod, type ItemSlot,
 } from '#shared/utils/hack-config'
@@ -535,9 +535,8 @@ function deployBlockedReason(t: any): string | null {
               @click="!busyAgentIds.has(agent.id) && toggleAgent(agent.id, selectedTemplate)"
             >
               <div class="size-8 rounded-lg flex items-center justify-center shrink-0 ring-1"
-                :class="[CLASS_COLOR[agent.class as AgentClass].bg, CLASS_COLOR[agent.class as AgentClass].ring]">
-                <UIcon :name="CLASS_ICON[agent.class as AgentClass]" class="size-4"
-                  :class="CLASS_COLOR[agent.class as AgentClass].text" />
+                :class="[RARITY_STYLE[agent.rarity as HackRarity].bg, RARITY_STYLE[agent.rarity as HackRarity].ring, RARITY_STYLE[agent.rarity as HackRarity].text]">
+                <UIcon :name="CLASS_ICON[agent.class as AgentClass]" class="size-4" />
               </div>
               <div class="flex-1 min-w-0">
                 <div class="flex items-center gap-2">
@@ -546,7 +545,7 @@ function deployBlockedReason(t: any): string | null {
                   <UBadge v-if="busyAgentIds.has(agent.id)" size="sm" color="neutral" variant="subtle" label="On Op" />
                 </div>
                 <p class="text-sm text-muted">
-                  <span class="font-medium" :class="CLASS_COLOR[agent.class as AgentClass].text">{{ CLASS_LABEL[agent.class as AgentClass] }}</span>
+                  <span class="font-medium text-default">{{ CLASS_LABEL[agent.class as AgentClass] }}</span>
                   · Lv {{ agent.level }} · {{ agent.power }} power
                 </p>
                 <!-- XP progress -->
@@ -724,8 +723,8 @@ function deployBlockedReason(t: any): string | null {
           <div v-if="collectResult.success && collectResult.item" class="p-3 rounded-lg border border-default">
             <div class="flex items-start gap-3">
               <div class="size-9 rounded-lg flex items-center justify-center shrink-0 ring-1"
-                :class="[SLOT_COLOR[collectResult.item.slot].bg, SLOT_COLOR[collectResult.item.slot].ring]">
-                <UIcon :name="SLOT_ICON[collectResult.item.slot]" class="size-5" :class="SLOT_COLOR[collectResult.item.slot].text" />
+                :class="[RARITY_STYLE[collectResult.item.rarity].bg, RARITY_STYLE[collectResult.item.rarity].ring, RARITY_STYLE[collectResult.item.rarity].text]">
+                <UIcon :name="SLOT_ICON[collectResult.item.slot]" class="size-5" />
               </div>
               <div class="flex-1 min-w-0">
                 <div class="flex items-center gap-2 flex-wrap mb-1">

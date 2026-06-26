@@ -195,11 +195,11 @@ async function doReroll() {
       </p>
 
       <!-- Re-roll station — permanent. Select an item in the inventory, then drop it here. -->
-      <UCard class="ring-1 ring-cyan-500/40">
+      <UCard class="ring-1 ring-primary/40">
         <div class="flex items-start justify-between gap-3 mb-3">
           <div class="flex items-start gap-2.5">
-            <div class="size-9 rounded-lg bg-cyan-500/10 flex items-center justify-center shrink-0">
-              <UIcon name="i-lucide-dices" class="size-5 text-cyan-400" />
+            <div class="size-9 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+              <UIcon name="i-lucide-dices" class="size-5 text-primary" />
             </div>
             <div>
               <p class="font-bold text-base leading-tight">Re-roll Station</p>
@@ -222,13 +222,13 @@ async function doReroll() {
               v-for="m in rerollItem.mods" :key="m.type" type="button"
               class="w-full flex items-center justify-between gap-3 p-2 rounded-lg border transition-colors text-left"
               :class="rerollLocked.includes(m.type)
-                ? 'border-cyan-500/50 bg-cyan-500/10'
-                : 'border-default bg-elevated hover:border-cyan-500/30'"
+                ? 'border-primary/50 bg-primary/10'
+                : 'border-default bg-elevated hover:border-primary/40'"
               @click="toggleLock(m.type)"
             >
               <div class="flex items-center gap-2 shrink-0">
                 <UIcon :name="rerollLocked.includes(m.type) ? 'i-lucide-lock' : 'i-lucide-lock-open'"
-                  class="size-4" :class="rerollLocked.includes(m.type) ? 'text-cyan-400' : 'text-muted'" />
+                  class="size-4" :class="rerollLocked.includes(m.type) ? 'text-primary' : 'text-muted'" />
                 <span class="text-sm text-muted">{{ MOD_LABEL[m.type] }}</span>
               </div>
               <div class="flex items-center gap-2">
@@ -264,13 +264,13 @@ async function doReroll() {
           v-else type="button" :disabled="!selectedItem"
           class="w-full flex flex-col items-center justify-center gap-2 py-8 rounded-lg border-2 border-dashed transition-colors"
           :class="selectedItem
-            ? 'border-cyan-500/60 bg-cyan-500/5 hover:bg-cyan-500/10 cursor-pointer'
+            ? 'border-primary/60 bg-primary/5 hover:bg-primary/10 cursor-pointer'
             : 'border-default cursor-default'"
           @click="selectedItem && loadReroll(selectedItem.id)"
         >
           <UIcon :name="selectedItem ? 'i-lucide-arrow-down-to-line' : 'i-lucide-dices'"
-            class="size-7" :class="selectedItem ? 'text-cyan-400' : 'text-muted opacity-40'" />
-          <span v-if="selectedItem" class="text-sm font-medium text-cyan-400">Place {{ selectedItem.name }} here</span>
+            class="size-7" :class="selectedItem ? 'text-primary' : 'text-muted opacity-40'" />
+          <span v-if="selectedItem" class="text-sm font-medium text-primary">Place {{ selectedItem.name }} here</span>
           <span v-else class="text-sm text-muted">Select an item from your inventory to re-roll its mods.</span>
         </button>
       </UCard>
@@ -371,7 +371,7 @@ async function doReroll() {
             @select="selectItem(item.id)"
           >
             <template #actions>
-              <p class="text-sm text-muted">Click the <span class="text-cyan-400 font-medium">Re-roll Station</span> to drop this item in.</p>
+              <p class="text-sm text-muted">Click the <span class="text-primary font-medium">Re-roll Station</span> to drop this item in.</p>
               <UButton block size="sm" icon="i-lucide-dollar-sign"
                 :color="sellConfirmId === item.id ? 'error' : 'neutral'"
                 :variant="sellConfirmId === item.id ? 'solid' : 'subtle'"
@@ -396,7 +396,7 @@ async function doReroll() {
           @select="selectItem(item.id)"
         >
           <template #actions>
-            <UButton block size="sm" color="info" variant="soft"
+            <UButton block size="sm" color="primary" variant="soft"
               icon="i-lucide-arrow-down-to-line" label="Send to re-roll station"
               @click="loadReroll(item.id)" />
             <UButton block size="sm"

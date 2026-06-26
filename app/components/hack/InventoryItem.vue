@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {
-  RARITY_COLOR, RARITY_ACCENT, RARITY_LABEL, MOD_LABEL, formatModValue, SLOT_ICON, SLOT_LABEL, SLOT_COLOR,
+  RARITY_COLOR, RARITY_ACCENT, RARITY_LABEL, MOD_LABEL, formatModValue, SLOT_ICON, SLOT_LABEL,
   type HackRarity, type ItemSlot, type ItemMod,
 } from '#shared/utils/hack-config'
 
@@ -37,10 +37,9 @@ defineEmits<{ select: [] }>()
       <UBadge size="xs" :color="RARITY_COLOR[item.rarity]" variant="subtle" :label="RARITY_LABEL[item.rarity]" class="shrink-0" />
     </div>
 
-    <!-- Slot + level chips -->
+    <!-- Slot + level chips — type is icon-led + neutral; rarity owns the color -->
     <div class="flex items-center gap-1.5 mb-2">
-      <div class="flex items-center gap-1 px-2 py-0.5 rounded-md border text-sm font-medium"
-        :class="[SLOT_COLOR[item.slot].bg, SLOT_COLOR[item.slot].border, SLOT_COLOR[item.slot].text]">
+      <div class="flex items-center gap-1 px-2 py-0.5 rounded-md border border-default bg-elevated text-muted text-sm font-medium">
         <UIcon :name="SLOT_ICON[item.slot]" class="size-3.5" />
         <span>{{ SLOT_LABEL[item.slot] }}</span>
       </div>

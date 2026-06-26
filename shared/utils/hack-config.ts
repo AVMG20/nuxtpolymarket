@@ -70,6 +70,20 @@ export const RARITY_ACCENT: Record<HackRarity, string> = {
   ghost: 'bg-zinc-400', operative: 'bg-green-500', specialist: 'bg-sky-500', elite: 'bg-amber-500', phantom: 'bg-rose-500',
 }
 
+// ─── Unified rarity tint ──────────────────────────────────────────────────────
+// Rarity is the ONE color language across the hack UI: avatars, item icons and frames
+// are tinted by rarity, while agent class and item type are conveyed by ICON only (and
+// a neutral label) so the palette stays calm. Full static strings so Tailwind's JIT
+// emits them (shared/ is registered as a @source).
+export interface RarityStyle { text: string; bg: string; border: string; ring: string }
+export const RARITY_STYLE: Record<HackRarity, RarityStyle> = {
+  ghost:      { text: 'text-zinc-300',  bg: 'bg-zinc-500/10',  border: 'border-zinc-500/30',  ring: 'ring-zinc-400/40'  },
+  operative:  { text: 'text-green-400', bg: 'bg-green-500/10', border: 'border-green-500/30', ring: 'ring-green-500/40' },
+  specialist: { text: 'text-sky-400',   bg: 'bg-sky-500/10',   border: 'border-sky-500/30',   ring: 'ring-sky-500/40'   },
+  elite:      { text: 'text-amber-400', bg: 'bg-amber-500/10', border: 'border-amber-500/30', ring: 'ring-amber-500/40' },
+  phantom:    { text: 'text-rose-400',  bg: 'bg-rose-500/10',  border: 'border-rose-500/30',  ring: 'ring-rose-500/40'  },
+}
+
 export const CLASS_LABEL: Record<AgentClass, string> = { infiltrator: 'Infiltrator', cryptographer: 'Cryptographer', social_engineer: 'Social Engineer', bruteforce: 'Bruteforce' }
 export const CLASS_ICON: Record<AgentClass, string> = { infiltrator: 'i-lucide-ghost', cryptographer: 'i-lucide-key', social_engineer: 'i-lucide-message-circle', bruteforce: 'i-lucide-zap' }
 export const CLASS_PASSIVE: Record<AgentClass, { type: ModType; value: number; label: string }> = {

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import {
-  RARITY_COLOR, RARITY_ACCENT, MOD_LABEL, formatModValue, MOD_RANGES,
-  SLOT_ICON, SLOT_LABEL, SLOT_COLOR,
+  RARITY_COLOR, RARITY_ACCENT, RARITY_STYLE, MOD_LABEL, formatModValue, MOD_RANGES,
+  SLOT_ICON, SLOT_LABEL,
   type HackRarity, type ItemSlot, type ItemMod, type ModType,
 } from '#shared/utils/hack-config'
 
@@ -52,14 +52,13 @@ function formatRangeValue(type: ModType, val: number): string {
 
           <div class="flex items-start gap-3 pl-1.5">
             <div class="size-14 rounded-xl flex items-center justify-center shrink-0 ring-1"
-              :class="[SLOT_COLOR[item.slot].bg, SLOT_COLOR[item.slot].ring]">
-              <UIcon :name="SLOT_ICON[item.slot]" class="size-7" :class="SLOT_COLOR[item.slot].text" />
+              :class="[RARITY_STYLE[item.rarity].bg, RARITY_STYLE[item.rarity].ring, RARITY_STYLE[item.rarity].text]">
+              <UIcon :name="SLOT_ICON[item.slot]" class="size-7" />
             </div>
             <div class="flex-1 min-w-0">
               <p class="font-bold text-xl leading-tight">{{ item.name }}</p>
               <div class="flex items-center gap-1.5 mt-1.5">
-                <div class="flex items-center gap-1 px-2 py-0.5 rounded-md border text-sm font-medium"
-                  :class="[SLOT_COLOR[item.slot].bg, SLOT_COLOR[item.slot].border, SLOT_COLOR[item.slot].text]">
+                <div class="flex items-center gap-1 px-2 py-0.5 rounded-md border border-default bg-elevated text-muted text-sm font-medium">
                   <UIcon :name="SLOT_ICON[item.slot]" class="size-3.5" />
                   <span>{{ SLOT_LABEL[item.slot] }}</span>
                 </div>
