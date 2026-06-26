@@ -347,7 +347,7 @@ function slotSpeedBoost(slot: any): number {
 
               <!-- Center: emoji + name -->
               <div class="flex-1 flex flex-col items-center justify-center gap-0.5 mt-2">
-                <XenoPlantIcon :id="cell.slot.plant.id" :size="44" />
+                <XenoPlantIcon :id="cell.slot.plant.typeId" :size="52" />
                 <p class="text-xs font-medium opacity-60 truncate w-full text-center mt-0.5">{{ cell.slot.plant.name }}</p>
                 <div v-if="cell.slot.plant.isHybrid" class="flex items-center gap-0.5 leading-none">
                   <XenoPlantIcon v-for="(r, i) in cell.slot.plant.resources" :key="i" :id="r.id" :size="14" />
