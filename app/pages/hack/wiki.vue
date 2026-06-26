@@ -15,7 +15,7 @@ function fmtRange(type: AgentTraitType | ModType, min: number, max: number): str
 </script>
 
 <template>
-  <UContainer class="py-6 pb-12 space-y-10 max-w-3xl">
+  <UContainer class="py-6 pb-12 space-y-10">
     <div>
       <h1 class="text-3xl font-bold">Hack Ops — Wiki</h1>
       <p class="text-muted mt-1">Everything you need to know about power, traits, and gear.</p>

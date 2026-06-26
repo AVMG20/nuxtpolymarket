@@ -35,7 +35,7 @@ const successRate = computed(() => {
 
 <template>
   <div class="flex-1 min-h-0 overflow-y-auto">
-    <div class="p-6 max-w-4xl mx-auto space-y-6 pb-12">
+    <UContainer class="py-6 space-y-6 pb-12">
     <div>
       <h1 class="text-2xl font-bold flex items-center gap-2">
         <UIcon name="i-lucide-history" class="size-6 text-primary" />
@@ -139,6 +139,6 @@ const successRate = computed(() => {
         icon="i-lucide-history"
         description="No operations collected yet — deploy a crew on the Ops tab."
       />
-    </div>
+    </UContainer>
   </div>
 </template>

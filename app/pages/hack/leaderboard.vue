@@ -11,7 +11,7 @@ const rankBg = [
 </script>
 
 <template>
-  <div class="p-6 max-w-4xl mx-auto">
+  <UContainer class="py-6">
     <div class="mb-8">
       <h1 class="text-2xl font-bold flex items-center gap-2">
         <UIcon name="i-lucide-trophy" class="size-6 text-yellow-400" />
@@ -147,5 +147,5 @@ const rankBg = [
       description="No players found"
       icon="i-lucide-users"
     />
-  </div>
+  </UContainer>
 </template>
