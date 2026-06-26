@@ -2,7 +2,7 @@
 import {
   RARITY_COLOR, RARITY_LABEL, formatModValue, MOD_LABEL,
   itemSellPrice, RARITY_ORDER, MOD_RANGES, RARITY_MOD_COUNT,
-  SLOT_ICON, SLOT_LABEL, SLOT_COLOR, tierModRange, rerollCost,
+  tierModRange, rerollCost,
   type HackRarity, type ItemSlot, type ItemMod, type ModType,
 } from '#shared/utils/hack-config'
 
@@ -39,10 +39,15 @@ const mobileOpen = ref(false)
 
 // Item pulls
 const pulling = ref<string | null>(null)
+// Last pull drives the reveal modal — shows what you got instead of hiding it in the sidebar.
 const lastPull = ref<{
-  name: string; rarity: string; rarityLabel: string
-  slot: string; itemLevel: number; mods: ItemMod[]
+  name: string; rarity: HackRarity; rarityLabel: string
+  slot: ItemSlot; itemLevel: number; mods: ItemMod[]
 } | null>(null)
+const revealOpen = computed({
+  get: () => lastPull.value !== null,
+  set: (v: boolean) => { if (!v) lastPull.value = null },
+})
 
 async function pullItem(tierId: string) {
   pulling.value = tierId
@@ -51,8 +56,8 @@ async function pullItem(tierId: string) {
     const res = await $fetch('/api/hack/items/pull', { method: 'POST', body: { tierId } })
     const item = res.item!
     lastPull.value = {
-      name: item.name, rarity: res.rarity, rarityLabel: res.rarityLabel,
-      slot: item.slot, itemLevel: item.itemLevel, mods: item.mods as ItemMod[],
+      name: item.name, rarity: res.rarity as HackRarity, rarityLabel: res.rarityLabel,
+      slot: item.slot as ItemSlot, itemLevel: item.itemLevel, mods: item.mods as ItemMod[],
     }
     await Promise.all([refresh(), fetchSession()])
   } catch (e: any) {
@@ -90,7 +95,23 @@ const sortedItems = computed<InvItem[]>(() => {
   return items
 })
 
+// Selling arms a confirm on the first click; a second click within the window
+// actually sells. `sellConfirmId` tracks which item is armed.
 const selling = ref<string | null>(null)
+const sellConfirmId = ref<string | null>(null)
+let sellConfirmTimer: ReturnType<typeof setTimeout> | null = null
+
+function requestSell(itemId: string, rarity: HackRarity, itemLevel: number) {
+  if (sellConfirmTimer) clearTimeout(sellConfirmTimer)
+  if (sellConfirmId.value === itemId) {
+    sellConfirmId.value = null
+    sellItem(itemId, rarity, itemLevel)
+    return
+  }
+  sellConfirmId.value = itemId
+  sellConfirmTimer = setTimeout(() => { sellConfirmId.value = null }, 3000)
+}
+
 async function sellItem(itemId: string, rarity: HackRarity, itemLevel: number) {
   selling.value = itemId
   try {
@@ -254,50 +275,8 @@ async function doReroll() {
         </button>
       </UCard>
 
-      <!-- Pull result reveal card — shown on top right after a pull -->
-      <UCard v-if="lastPull" class="ring-1 ring-primary/40">
-        <div class="flex items-start justify-between gap-3 mb-3">
-          <div class="flex items-start gap-3">
-            <div class="size-12 rounded-xl flex items-center justify-center shrink-0 ring-1"
-              :class="[SLOT_COLOR[lastPull.slot as ItemSlot].bg, SLOT_COLOR[lastPull.slot as ItemSlot].ring]">
-              <UIcon :name="SLOT_ICON[lastPull.slot as ItemSlot]" class="size-6"
-                :class="SLOT_COLOR[lastPull.slot as ItemSlot].text" />
-            </div>
-            <div>
-              <div class="flex items-center gap-2 mb-1">
-                <UBadge :color="RARITY_COLOR[lastPull.rarity as HackRarity]" variant="subtle" :label="lastPull.rarityLabel" />
-                <div class="flex items-center gap-1 px-2 py-0.5 rounded-md border text-sm font-medium"
-                  :class="[SLOT_COLOR[lastPull.slot as ItemSlot].bg, SLOT_COLOR[lastPull.slot as ItemSlot].border, SLOT_COLOR[lastPull.slot as ItemSlot].text]">
-                  <UIcon :name="SLOT_ICON[lastPull.slot as ItemSlot]" class="size-3.5" />
-                  <span>{{ SLOT_LABEL[lastPull.slot as ItemSlot] }}</span>
-                </div>
-                <span class="text-sm text-muted">Lv {{ lastPull.itemLevel }}</span>
-              </div>
-              <p class="font-bold text-xl">{{ lastPull.name }}</p>
-            </div>
-          </div>
-          <UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-x" @click="lastPull = null" />
-        </div>
-        <div class="space-y-1.5">
-          <div v-for="m in lastPull.mods" :key="m.type"
-            class="flex items-center justify-between p-2 rounded-lg bg-elevated">
-            <span class="text-sm text-muted">{{ MOD_LABEL[m.type] }}</span>
-            <div class="flex items-center gap-2">
-              <span class="text-sm text-muted">
-                max {{ formatRangeValue(m.type, MOD_RANGES[m.type].max) }}
-              </span>
-              <span class="font-bold text-base" :class="rollQualityColor(rollQuality(m.type, m.value))">
-                {{ formatModValue(m.type, m.value) }}
-              </span>
-              <div class="w-16 h-1.5 rounded-full bg-elevated-2 overflow-hidden">
-                <div class="h-full rounded-full transition-all"
-                  :class="rollQualityColor(rollQuality(m.type, m.value)).replace('text-', 'bg-')"
-                  :style="{ width: `${rollQuality(m.type, m.value)}%` }" />
-              </div>
-            </div>
-          </div>
-        </div>
-      </UCard>
+      <!-- Pull result reveal — modal so you see what you got right away -->
+      <HackItemReveal v-model:open="revealOpen" :item="lastPull" :rarity-label="lastPull?.rarityLabel ?? ''" />
 
       <div v-if="!state" class="grid grid-cols-1 md:grid-cols-2 gap-4">
         <USkeleton v-for="i in 4" :key="i" class="h-52 rounded-xl" />
@@ -393,11 +372,12 @@ async function doReroll() {
           >
             <template #actions>
               <p class="text-sm text-muted">Click the <span class="text-cyan-400 font-medium">Re-roll Station</span> to drop this item in.</p>
-              <UButton block size="sm" color="neutral" variant="subtle"
-                icon="i-lucide-dollar-sign"
-                :label="`Sell $${formatNumber(itemSellPrice(item.rarity, item.itemLevel), true)}`"
+              <UButton block size="sm" icon="i-lucide-dollar-sign"
+                :color="sellConfirmId === item.id ? 'error' : 'neutral'"
+                :variant="sellConfirmId === item.id ? 'solid' : 'subtle'"
+                :label="sellConfirmId === item.id ? 'Confirm sell?' : `Sell $${formatNumber(itemSellPrice(item.rarity, item.itemLevel), true)}`"
                 :loading="selling === item.id"
-                @click="sellItem(item.id, item.rarity, item.itemLevel)" />
+                @click="requestSell(item.id, item.rarity, item.itemLevel)" />
             </template>
           </HackInventoryItem>
         </div>
@@ -419,9 +399,11 @@ async function doReroll() {
             <UButton block size="sm" color="info" variant="soft"
               icon="i-lucide-arrow-down-to-line" label="Send to re-roll station"
               @click="loadReroll(item.id)" />
-            <UButton block size="sm" color="neutral" variant="subtle"
-              :label="`Sell $${formatNumber(itemSellPrice(item.rarity, item.itemLevel), true)}`"
-              :loading="selling === item.id" @click="sellItem(item.id, item.rarity, item.itemLevel)" />
+            <UButton block size="sm"
+              :color="sellConfirmId === item.id ? 'error' : 'neutral'"
+              :variant="sellConfirmId === item.id ? 'solid' : 'subtle'"
+              :label="sellConfirmId === item.id ? 'Confirm sell?' : `Sell $${formatNumber(itemSellPrice(item.rarity, item.itemLevel), true)}`"
+              :loading="selling === item.id" @click="requestSell(item.id, item.rarity, item.itemLevel)" />
           </template>
         </HackInventoryItem>
       </div>

@@ -104,21 +104,52 @@ async function equipTo(itemId: string, agentId: string | null) {
   } finally { equipping.value = false }
 }
 
-// Fire agent
+// Fire agent — the button arms a confirm first; a second click within the
+// window actually fires. `fireConfirmId` tracks which agent is armed.
 const firing = ref<string | null>(null)
+const fireConfirmId = ref<string | null>(null)
+let fireConfirmTimer: ReturnType<typeof setTimeout> | null = null
+
+function requestFire(agentId: string, name: string) {
+  if (fireConfirmTimer) clearTimeout(fireConfirmTimer)
+  if (fireConfirmId.value === agentId) {
+    fireConfirmId.value = null
+    fireAgent(agentId, name)
+    return
+  }
+  fireConfirmId.value = agentId
+  fireConfirmTimer = setTimeout(() => { fireConfirmId.value = null }, 3000)
+}
+
 async function fireAgent(agentId: string, name: string) {
   firing.value = agentId
   try {
     await $fetch('/api/hack/agents/fire', { method: 'POST', body: { agentId } })
     toast.add({ title: `${name} dismissed`, color: 'neutral' })
-    if (storageAgentId.value === agentId) storageAgentId.value = null
+    if (detailAgentId.value === agentId) detailAgentId.value = null
     await Promise.all([refresh(), fetchSession()])
   } catch (e: any) {
     toast.add({ title: e.data?.statusMessage ?? 'Cannot fire agent', color: 'error' })
   } finally { firing.value = null }
 }
 
+// Selling arms a confirm on the first click; a second click within the window
+// actually sells. `sellConfirmId` tracks which item is armed.
 const selling = ref<string | null>(null)
+const sellConfirmId = ref<string | null>(null)
+let sellConfirmTimer: ReturnType<typeof setTimeout> | null = null
+
+function requestSell(itemId: string) {
+  if (sellConfirmTimer) clearTimeout(sellConfirmTimer)
+  if (sellConfirmId.value === itemId) {
+    sellConfirmId.value = null
+    sellItem(itemId)
+    return
+  }
+  sellConfirmId.value = itemId
+  sellConfirmTimer = setTimeout(() => { sellConfirmId.value = null }, 3000)
+}
+
 async function sellItem(itemId: string) {
   selling.value = itemId
   try {
@@ -133,22 +164,14 @@ async function sellItem(itemId: string) {
 
 // ── Recruit ────────────────────────────────────────────────────────
 const recruiting = ref<string | null>(null)
-const lastRecruit = ref<{ name: string; rarity: string; rarityLabel: string } | null>(null)
 
 async function recruit(tierId: string) {
   recruiting.value = tierId
-  lastRecruit.value = null
   try {
     const res = await $fetch('/api/hack/recruit', { method: 'POST', body: { tierId } })
-    lastRecruit.value = { name: res.agent!.name, rarity: res.rarity, rarityLabel: res.rarityLabel }
-    toast.add({
-      title: `${res.rarityLabel} recruited!`,
-      description: res.active
-        ? `${res.agent!.name} joined your active roster.`
-        : `${res.agent!.name} was sent to storage — activate them when a slot frees up.`,
-      color: 'success',
-    })
     await Promise.all([refresh(), fetchSession()])
+    // Reveal what you pulled in the shared agent detail modal.
+    detailAgentId.value = res.agent!.id
   } catch (e: any) {
     toast.add({ title: e.data?.statusMessage ?? 'Recruit failed', color: 'error' })
   } finally { recruiting.value = null }
@@ -165,21 +188,27 @@ async function setActive(agentId: string, active: boolean) {
   try {
     await $fetch('/api/hack/agents/active', { method: 'POST', body: { agentId, active } })
     toast.add({ title: active ? 'Agent activated' : 'Agent moved to storage', color: active ? 'success' : 'neutral' })
-    storageAgentId.value = null
+    detailAgentId.value = null
     await refresh()
   } catch (e: any) {
     toast.add({ title: e.data?.statusMessage ?? 'Failed', color: 'error' })
   } finally { togglingActive.value = null }
 }
 
-// Storage detail modal — clicking a stored agent opens its card
-const storageAgentId = ref<string | null>(null)
-const storageAgent = computed(() =>
-  state.value?.storedAgents.find(a => a.id === storageAgentId.value) ?? null
+// Agent detail modal — shared by storage (click a stored agent) and recruit
+// (reveal what you just pulled). Looks the agent up in either roster by id.
+const detailAgentId = ref<string | null>(null)
+const detailAgent = computed(() =>
+  state.value?.agents.find(a => a.id === detailAgentId.value)
+  ?? state.value?.storedAgents.find(a => a.id === detailAgentId.value)
+  ?? null
 )
-const storageModalOpen = computed({
-  get: () => storageAgentId.value !== null,
-  set: (v: boolean) => { if (!v) storageAgentId.value = null },
+const detailAgentActive = computed(() =>
+  !!detailAgent.value && !!state.value?.agents.some(a => a.id === detailAgentId.value)
+)
+const detailModalOpen = computed({
+  get: () => detailAgentId.value !== null,
+  set: (v: boolean) => { if (!v) detailAgentId.value = null },
 })
 
 const expanding = ref(false)
@@ -284,10 +313,12 @@ function slotItem(agent: { gear?: { tool: any; software: any; hardware: any } },
                     @click="setActive(agent.id, false)"
                   />
                   <UButton
-                    size="xs" color="error" variant="ghost" icon="i-lucide-user-x"
-                    label="Fire" :loading="firing === agent.id"
+                    size="xs" color="error" icon="i-lucide-user-x"
+                    :variant="fireConfirmId === agent.id ? 'soft' : 'ghost'"
+                    :label="fireConfirmId === agent.id ? 'Sure?' : 'Fire'"
+                    :loading="firing === agent.id"
                     :disabled="busyAgentIds.has(agent.id)"
-                    @click="fireAgent(agent.id, agent.name)"
+                    @click="requestFire(agent.id, agent.name)"
                   />
                 </div>
               </div>
@@ -380,7 +411,7 @@ function slotItem(agent: { gear?: { tool: any; software: any; hardware: any } },
             <div
               v-for="agent in state.storedAgents" :key="agent.id"
               class="flex items-center gap-3 p-3 rounded-lg border border-default hover:border-primary/50 cursor-pointer transition-colors"
-              @click="storageAgentId = agent.id"
+              @click="detailAgentId = agent.id"
             >
               <div class="size-9 rounded-lg flex items-center justify-center shrink-0 ring-1"
                 :class="[CLASS_COLOR[agent.class as AgentClass].bg, CLASS_COLOR[agent.class as AgentClass].ring]">
@@ -464,11 +495,6 @@ function slotItem(agent: { gear?: { tool: any; software: any; hardware: any } },
             </UCard>
           </div>
         </div>
-
-        <UAlert v-if="lastRecruit" :color="RARITY_COLOR[lastRecruit.rarity as HackRarity]" variant="subtle"
-          :title="`${lastRecruit.rarityLabel} agent recruited`" :description="`${lastRecruit.name} joined your crew.`"
-          icon="i-lucide-user-check"
-          :close-button="{ icon: 'i-lucide-x', color: 'neutral', variant: 'ghost', onClick: () => lastRecruit = null }" />
       </template>
     </div>
 
@@ -513,10 +539,12 @@ function slotItem(agent: { gear?: { tool: any; software: any; hardware: any } },
           >
             <template #actions>
               <p class="text-sm text-muted">Click an empty <span class="capitalize">{{ item.slot }}</span> slot on an agent to equip.</p>
-              <UButton block size="sm" color="neutral" variant="subtle"
-                icon="i-lucide-dollar-sign" :loading="selling === item.id"
-                :label="`Sell $${formatNumber(itemSellPrice(item.rarity, item.itemLevel), true)}`"
-                @click="sellItem(item.id)" />
+              <UButton block size="sm" icon="i-lucide-dollar-sign"
+                :color="sellConfirmId === item.id ? 'error' : 'neutral'"
+                :variant="sellConfirmId === item.id ? 'solid' : 'subtle'"
+                :loading="selling === item.id"
+                :label="sellConfirmId === item.id ? 'Confirm sell?' : `Sell $${formatNumber(itemSellPrice(item.rarity, item.itemLevel), true)}`"
+                @click="requestSell(item.id)" />
             </template>
           </HackInventoryItem>
         </div>
@@ -546,50 +574,51 @@ function slotItem(agent: { gear?: { tool: any; software: any; hardware: any } },
     </template>
   </USlideover>
 
-  <!-- Stored agent detail -->
-  <UModal v-model:open="storageModalOpen" :title="storageAgent?.name ?? 'Agent'" description="Stored agent — activate to add them to your roster.">
-    <template v-if="storageAgent" #body>
+  <!-- Agent detail — shared by storage browsing and recruit reveals -->
+  <UModal v-model:open="detailModalOpen" :title="detailAgent?.name ?? 'Agent'"
+    :description="detailAgentActive ? 'Active on your roster.' : 'In storage — activate to add them to your roster.'">
+    <template v-if="detailAgent" #body>
       <div class="space-y-4">
         <!-- Header -->
         <div class="flex items-start gap-3">
           <div class="size-12 rounded-xl flex items-center justify-center shrink-0 ring-1"
-            :class="[CLASS_COLOR[storageAgent.class as AgentClass].bg, CLASS_COLOR[storageAgent.class as AgentClass].ring]">
-            <UIcon :name="CLASS_ICON[storageAgent.class as AgentClass]" class="size-6" :class="CLASS_COLOR[storageAgent.class as AgentClass].text" />
+            :class="[CLASS_COLOR[detailAgent.class as AgentClass].bg, CLASS_COLOR[detailAgent.class as AgentClass].ring]">
+            <UIcon :name="CLASS_ICON[detailAgent.class as AgentClass]" class="size-6" :class="CLASS_COLOR[detailAgent.class as AgentClass].text" />
           </div>
           <div class="flex-1 min-w-0">
             <div class="flex items-center gap-2 flex-wrap">
-              <span class="font-bold text-lg">{{ storageAgent.name }}</span>
-              <UBadge :color="RARITY_COLOR[storageAgent.rarity as HackRarity]" variant="subtle" :label="RARITY_LABEL[storageAgent.rarity as HackRarity]" />
+              <span class="font-bold text-lg">{{ detailAgent.name }}</span>
+              <UBadge :color="RARITY_COLOR[detailAgent.rarity as HackRarity]" variant="subtle" :label="RARITY_LABEL[detailAgent.rarity as HackRarity]" />
             </div>
             <span class="inline-flex items-center gap-1.5 mt-1 px-2 py-0.5 rounded-md border text-xs font-medium"
-              :class="[CLASS_COLOR[storageAgent.class as AgentClass].bg, CLASS_COLOR[storageAgent.class as AgentClass].border, CLASS_COLOR[storageAgent.class as AgentClass].text]">
-              <UIcon :name="CLASS_ICON[storageAgent.class as AgentClass]" class="size-3" />
-              {{ CLASS_LABEL[storageAgent.class as AgentClass] }}
+              :class="[CLASS_COLOR[detailAgent.class as AgentClass].bg, CLASS_COLOR[detailAgent.class as AgentClass].border, CLASS_COLOR[detailAgent.class as AgentClass].text]">
+              <UIcon :name="CLASS_ICON[detailAgent.class as AgentClass]" class="size-3" />
+              {{ CLASS_LABEL[detailAgent.class as AgentClass] }}
             </span>
           </div>
           <div class="text-right shrink-0">
             <p class="text-sm text-muted">Power</p>
-            <p class="text-2xl font-bold text-primary">{{ storageAgent.power }}</p>
+            <p class="text-2xl font-bold text-primary">{{ detailAgent.power }}</p>
           </div>
         </div>
 
         <!-- XP bar -->
         <div>
           <div class="flex justify-between text-sm mb-1.5">
-            <span class="font-medium">Lv {{ storageAgent.level }}<span v-if="storageAgent.level < AGENT_MAX_LEVEL" class="text-muted"> / {{ AGENT_MAX_LEVEL }}</span></span>
-            <span v-if="storageAgent.level < AGENT_MAX_LEVEL" class="text-muted">{{ storageAgent.xp }} / {{ xpToNextLevel(storageAgent.level) }} XP</span>
+            <span class="font-medium">Lv {{ detailAgent.level }}<span v-if="detailAgent.level < AGENT_MAX_LEVEL" class="text-muted"> / {{ AGENT_MAX_LEVEL }}</span></span>
+            <span v-if="detailAgent.level < AGENT_MAX_LEVEL" class="text-muted">{{ detailAgent.xp }} / {{ xpToNextLevel(detailAgent.level) }} XP</span>
             <span v-else class="text-success font-semibold">Max Level</span>
           </div>
           <div class="h-2 rounded-full bg-elevated overflow-hidden">
-            <div class="h-full rounded-full bg-primary transition-all duration-500" :style="{ width: `${xpPercent(storageAgent)}%` }" />
+            <div class="h-full rounded-full bg-primary transition-all duration-500" :style="{ width: `${xpPercent(detailAgent)}%` }" />
           </div>
         </div>
 
         <!-- Total bonuses -->
         <div class="p-3 rounded-lg bg-elevated space-y-1.5">
           <p class="text-sm font-semibold text-muted uppercase tracking-wide mb-2">Total Bonuses</p>
-          <template v-if="agentCombinedStats(storageAgent).length">
-            <div v-for="s in agentCombinedStats(storageAgent)" :key="s.label" class="flex items-center justify-between text-sm">
+          <template v-if="agentCombinedStats(detailAgent).length">
+            <div v-for="s in agentCombinedStats(detailAgent)" :key="s.label" class="flex items-center justify-between text-sm">
               <span class="text-muted">{{ s.label }}</span>
               <span class="font-bold text-primary">{{ s.fmt(s.value) }}</span>
             </div>
@@ -600,25 +629,25 @@ function slotItem(agent: { gear?: { tool: any; software: any; hardware: any } },
         <!-- Equipped gear (read-only) -->
         <div class="space-y-2">
           <div v-for="slot in (['tool', 'software', 'hardware'] as ItemSlot[])" :key="slot">
-            <div v-if="slotItem(storageAgent, slot)" class="flex items-start gap-3 p-3 rounded-lg border border-default">
+            <div v-if="slotItem(detailAgent, slot)" class="flex items-start gap-3 p-3 rounded-lg border border-default">
               <div class="size-7 rounded-md flex items-center justify-center shrink-0 mt-0.5"
                 :class="[SLOT_COLOR[slot].bg, SLOT_COLOR[slot].text]">
                 <UIcon :name="SLOT_ICON[slot]" class="size-4" />
               </div>
               <div class="flex-1 min-w-0">
                 <div class="flex items-center gap-1.5 flex-wrap mb-1">
-                  <span class="font-medium text-sm">{{ slotItem(storageAgent, slot)!.name }}</span>
-                  <UBadge size="xs" :color="RARITY_COLOR[slotItem(storageAgent, slot)!.rarity as HackRarity]" variant="subtle"
-                    :label="RARITY_LABEL[slotItem(storageAgent, slot)!.rarity as HackRarity]" />
+                  <span class="font-medium text-sm">{{ slotItem(detailAgent, slot)!.name }}</span>
+                  <UBadge size="xs" :color="RARITY_COLOR[slotItem(detailAgent, slot)!.rarity as HackRarity]" variant="subtle"
+                    :label="RARITY_LABEL[slotItem(detailAgent, slot)!.rarity as HackRarity]" />
                 </div>
                 <div class="flex flex-wrap gap-x-3">
-                  <span v-for="m in (slotItem(storageAgent, slot)!.mods as ItemMod[])" :key="m.type" class="text-sm font-medium text-primary">
+                  <span v-for="m in (slotItem(detailAgent, slot)!.mods as ItemMod[])" :key="m.type" class="text-sm font-medium text-primary">
                     {{ MOD_LABEL[m.type] }} {{ formatModValue(m.type, m.value) }}
                   </span>
                 </div>
               </div>
               <UButton size="xs" color="neutral" variant="outline" icon="i-lucide-link-slash"
-                label="Unequip" :loading="equipping" @click="equipTo(slotItem(storageAgent, slot)!.id, null)" />
+                label="Unequip" :loading="equipping" @click="equipTo(slotItem(detailAgent, slot)!.id, null)" />
             </div>
             <div v-else class="flex items-center gap-3 p-3 rounded-lg border border-dashed border-default">
               <UIcon :name="SLOT_ICON[slot]" class="size-4 shrink-0" :class="SLOT_COLOR[slot].text + ' opacity-60'" />
@@ -631,11 +660,19 @@ function slotItem(agent: { gear?: { tool: any; software: any; hardware: any } },
 
     <template #footer>
       <div class="flex items-center justify-between gap-3 w-full">
-        <UButton color="error" variant="ghost" icon="i-lucide-user-x" label="Fire"
-          :loading="firing === storageAgent?.id" @click="storageAgent && fireAgent(storageAgent.id, storageAgent.name)" />
-        <UButton color="primary" icon="i-lucide-arrow-up-circle" label="Activate"
-          :loading="togglingActive === storageAgent?.id" :disabled="activeFull"
-          @click="storageAgent && setActive(storageAgent.id, true)" />
+        <UButton color="error" icon="i-lucide-user-x"
+          :variant="fireConfirmId === detailAgent?.id ? 'soft' : 'ghost'"
+          :label="fireConfirmId === detailAgent?.id ? 'Sure?' : 'Fire'"
+          :loading="firing === detailAgent?.id"
+          :disabled="!!detailAgent && busyAgentIds.has(detailAgent.id)"
+          @click="detailAgent && requestFire(detailAgent.id, detailAgent.name)" />
+        <UButton v-if="detailAgentActive" color="neutral" variant="soft" icon="i-lucide-archive" label="Store"
+          :loading="togglingActive === detailAgent?.id"
+          :disabled="!!detailAgent && busyAgentIds.has(detailAgent.id)"
+          @click="detailAgent && setActive(detailAgent.id, false)" />
+        <UButton v-else color="primary" icon="i-lucide-arrow-up-circle" label="Activate"
+          :loading="togglingActive === detailAgent?.id" :disabled="activeFull"
+          @click="detailAgent && setActive(detailAgent.id, true)" />
       </div>
     </template>
   </UModal>
