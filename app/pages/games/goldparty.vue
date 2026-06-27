@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { GoldPartyResult, ColumnRoll } from '#shared/utils/gamelogic/goldparty'
+import type { GoldPartyResult, TopBarPass, PassSlot } from '#shared/utils/gamelogic/goldparty'
 import { GOLD_PARTY_MAX_HANDS, GOLD_PARTY_MULTIPLIERS } from '#shared/utils/gamelogic/goldparty'
 
 const { user, setBalance } = useAuth()
@@ -14,14 +14,21 @@ const TILES = COLS * ROWS
 const MAX_HANDS = GOLD_PARTY_MAX_HANDS
 const tiles = Array.from({ length: TILES }, (_, i) => i)
 
-// Multiplier rarity tiers — value → colour + label.
-const TIERS: Record<number, { name: string, tile: string, top: string }> = {
-  2: { name: 'Common', tile: 'bg-zinc-500/15 border-zinc-400 text-zinc-200', top: 'bg-zinc-500/15 border-zinc-400 text-zinc-200' },
-  5: { name: 'Uncommon', tile: 'bg-emerald-500/15 border-emerald-400 text-emerald-300', top: 'bg-emerald-500/15 border-emerald-400 text-emerald-300' },
-  10: { name: 'Rare', tile: 'bg-sky-500/15 border-sky-400 text-sky-300', top: 'bg-sky-500/15 border-sky-400 text-sky-300' },
-  15: { name: 'Epic', tile: 'bg-violet-500/15 border-violet-400 text-violet-300', top: 'bg-violet-500/15 border-violet-400 text-violet-300' },
-  25: { name: 'Legendary', tile: 'bg-fuchsia-500/15 border-fuchsia-400 text-fuchsia-300', top: 'bg-fuchsia-500/15 border-fuchsia-400 text-fuchsia-300' },
-  50: { name: 'Mythic', tile: 'bg-amber-500/20 border-amber-400 text-amber-300 shadow-[0_0_16px_-3px_var(--ui-warning)]', top: 'bg-amber-500/20 border-amber-400 text-amber-300' }
+// Reel geometry for the slot-machine top bar.
+const TOP_CELL = 56
+const REEL_LEN = 28
+const FINAL_INDEX = 24
+const SPIN_MS = 850
+const STAGGER = 110
+
+// Multiplier colour by magnitude (covers stacked values too).
+function tierClass(v: number): string {
+  if (v >= 100) return 'bg-amber-500/20 border-amber-400 text-amber-300 shadow-[0_0_16px_-3px_var(--ui-warning)]'
+  if (v >= 25) return 'bg-fuchsia-500/15 border-fuchsia-400 text-fuchsia-300'
+  if (v >= 15) return 'bg-violet-500/15 border-violet-400 text-violet-300'
+  if (v >= 10) return 'bg-sky-500/15 border-sky-400 text-sky-300'
+  if (v >= 5) return 'bg-emerald-500/15 border-emerald-400 text-emerald-300'
+  return 'bg-zinc-500/15 border-zinc-400 text-zinc-200'
 }
 
 // --- bet config -------------------------------------------------------------
@@ -31,10 +38,21 @@ const placedSet = computed(() => new Set(placements.value))
 const totalStake = computed(() => placements.value.length * handValue.value)
 
 // --- round state ------------------------------------------------------------
-type ColDisplay = 'pending' | 'rolling' | 'reroll' | ColumnRoll
-const phase = ref<'idle' | 'fetching' | 'columns' | 'applying' | 'winners' | 'done'>('idle')
-const columnStates = ref<ColDisplay[]>(Array(COLS).fill('pending'))
-const revealedMult = ref<Set<number>>(new Set())
+type ReelSym = { kind: 'pending' | 'nothing' | 'reroll' | 'mult', value?: number }
+type Reel = { items: ReelSym[], offset: number, transition: boolean }
+
+function placeholderReels(): Reel[] {
+  return Array.from({ length: COLS }, () => ({ items: [{ kind: 'pending' }], offset: 0, transition: false }))
+}
+
+const phase = ref<'idle' | 'fetching' | 'topbar' | 'winners' | 'done'>('idle')
+const subPhase = ref<'' | 'spinning' | 'applying' | 'reroll'>('')
+const topReels = ref<Reel[]>(placeholderReels())
+const topLocked = ref<(PassSlot | null)[]>(Array(COLS).fill(null))
+const activeApplyCol = ref(-1)
+const passLabel = ref('')
+const tileMult = ref<Record<number, number>>({})
+const stampedTile = ref<number | null>(null)
 const revealedWinners = ref<Set<number>>(new Set())
 const result = ref<GoldPartyResult | null>(null)
 const showPayout = ref(false)
@@ -43,7 +61,7 @@ const errorMsg = ref('')
 
 const history = ref<{ won: boolean, payout: number, stake: number, net: number }[]>([])
 
-const isBusy = computed(() => ['fetching', 'columns', 'applying', 'winners'].includes(phase.value))
+const isBusy = computed(() => ['fetching', 'topbar', 'winners'].includes(phase.value))
 const canEdit = computed(() => phase.value === 'idle' || phase.value === 'done')
 const canPlay = computed(() =>
   canEdit.value
@@ -74,10 +92,7 @@ function shuffle<T>(arr: T[]): T[] {
 }
 
 function multValue(i: number): number | undefined {
-  return revealedMult.value.has(i) ? result.value?.multiplierTiles[i] : undefined
-}
-function colValue(col: number): number | null {
-  return result.value?.columns[col]?.value ?? null
+  return tileMult.value[i]
 }
 
 function tileClass(i: number): string {
@@ -87,8 +102,8 @@ function tileClass(i: number): string {
   const done = phase.value === 'done'
 
   if (mv !== undefined) {
-    const base = TIERS[mv]?.tile ?? 'bg-elevated border-default text-muted'
-    return isWin ? `${base} ring-2 ring-success scale-[1.05] z-10` : base
+    const base = tierClass(mv)
+    return isWin ? `${base} ring-2 ring-success scale-[1.06] z-10` : base
   }
   if (isWin) {
     return placed
@@ -107,13 +122,40 @@ function handMarkerClass(i: number): string {
   return 'bg-primary text-inverted'
 }
 
+function topCellClass(c: number): string {
+  if (activeApplyCol.value === c) return 'border-primary ring-2 ring-primary/50'
+  const slot = topLocked.value[c]
+  if (!slot) return 'border-default'
+  if (slot.type === 'multiplier') return tierClass(slot.value ?? 0)
+  if (slot.type === 'reroll') return 'bg-info/15 border-info text-info'
+  if (slot.type === 'nothing') return 'border-default text-muted'
+  return 'border-default'
+}
+
+function randomSym(): ReelSym {
+  const r = Math.random()
+  if (r < 0.30) return { kind: 'nothing' }
+  if (r < 0.40) return { kind: 'reroll' }
+  return { kind: 'mult', value: GOLD_PARTY_MULTIPLIERS[Math.floor(Math.random() * GOLD_PARTY_MULTIPLIERS.length)] }
+}
+function symFor(slot: PassSlot): ReelSym {
+  if (slot.type === 'multiplier') return { kind: 'mult', value: slot.value ?? 0 }
+  if (slot.type === 'reroll') return { kind: 'reroll' }
+  return { kind: 'nothing' }
+}
+
 function resetBoard() {
   clearTimers()
-  columnStates.value = Array(COLS).fill('pending')
-  revealedMult.value = new Set()
+  topReels.value = placeholderReels()
+  topLocked.value = Array(COLS).fill(null)
+  activeApplyCol.value = -1
+  passLabel.value = ''
+  tileMult.value = {}
+  stampedTile.value = null
   revealedWinners.value = new Set()
   result.value = null
   showPayout.value = false
+  subPhase.value = ''
   phase.value = 'idle'
 }
 
@@ -127,8 +169,6 @@ function toggleTile(i: number) {
     placements.value.splice(idx, 1)
   } else if (placements.value.length < MAX_HANDS) {
     placements.value.push(i)
-  } else {
-    errorMsg.value = `Max ${MAX_HANDS} hands`
   }
 }
 
@@ -178,42 +218,67 @@ async function play() {
   }
 }
 
+async function spinTopBar(pass: TopBarPass) {
+  subPhase.value = 'spinning'
+  topLocked.value = Array(COLS).fill(null)
+  // Build a fresh reel per column with the real result fixed at FINAL_INDEX.
+  topReels.value = pass.slots.map((slot) => {
+    const items = Array.from({ length: REEL_LEN }, (_, i) => (i === FINAL_INDEX ? symFor(slot) : randomSym()))
+    return { items, offset: 0, transition: false }
+  })
+  await nextTick()
+  await sleep(40)
+  for (let c = 0; c < COLS; c++) {
+    topReels.value[c]!.transition = true
+    topReels.value[c]!.offset = -(FINAL_INDEX * TOP_CELL)
+  }
+  await sleep(SPIN_MS + STAGGER * (COLS - 1) + 220)
+  topLocked.value = pass.slots.map(s => s)
+}
+
+async function applyPass(pass: TopBarPass) {
+  subPhase.value = 'applying'
+  for (let c = 0; c < COLS; c++) {
+    activeApplyCol.value = c
+    const slot = pass.slots[c]!
+    await sleep(150)
+    if (slot.type === 'multiplier') {
+      for (const tile of slot.tiles) {
+        const cur = tileMult.value[tile] ?? 1
+        tileMult.value = { ...tileMult.value, [tile]: Math.min(cur * (slot.value ?? 1), result.value!.tileCap) }
+        stampedTile.value = tile
+        await sleep(230)
+      }
+    } else if (slot.type === 'reroll') {
+      await sleep(160)
+    }
+    await sleep(90)
+  }
+  activeApplyCol.value = -1
+  stampedTile.value = null
+}
+
 async function runReveal(data: { gameData: GoldPartyResult, balance: number }) {
   const res = data.gameData
 
-  // 1. Reveal the whole top bar first, left to right — no board changes yet.
-  phase.value = 'columns'
-  await sleep(300)
-  for (let col = 0; col < COLS; col++) {
-    const colRes = res.columns[col]!
-    columnStates.value[col] = 'rolling'
-    await sleep(430)
-
-    if (colRes.rolls[0] === 'reroll') {
-      columnStates.value[col] = 'reroll'
-      await sleep(620)
-      columnStates.value[col] = 'rolling'
-      await sleep(360)
+  // 1. Top bar — spin, process, and re-spin on each reroll pass.
+  phase.value = 'topbar'
+  await sleep(250)
+  for (let p = 0; p < res.passes.length; p++) {
+    const pass = res.passes[p]!
+    passLabel.value = res.passes.length > 1 ? `Spin ${p + 1}` : ''
+    await spinTopBar(pass)
+    await sleep(250)
+    await applyPass(pass)
+    if (pass.hasReroll && p < res.passes.length - 1) {
+      subPhase.value = 'reroll'
+      await sleep(950)
     }
-
-    columnStates.value[col] = colRes.type
-    await sleep(260)
   }
+  passLabel.value = ''
+  subPhase.value = ''
 
-  // 2. Now stamp the multipliers onto the board, column by column, tile by tile.
-  phase.value = 'applying'
-  await sleep(400)
-  for (let col = 0; col < COLS; col++) {
-    const colRes = res.columns[col]!
-    if (colRes.type !== 'multiplier') continue
-    for (const tile of colRes.tiles) {
-      revealedMult.value.add(tile)
-      await sleep(240)
-    }
-    await sleep(120)
-  }
-
-  // 3. Reveal the winning tiles one by one — save the player's hits for the climax.
+  // 2. Reveal the winning tiles one by one — save the player's hits for the climax.
   phase.value = 'winners'
   await sleep(450)
   const placed = new Set(res.placements)
@@ -229,7 +294,7 @@ async function runReveal(data: { gameData: GoldPartyResult, balance: number }) {
     await sleep(380)
   }
 
-  // 4. Settle.
+  // 3. Settle.
   await sleep(500)
   phase.value = 'done'
   balance.value = data.balance
@@ -246,11 +311,9 @@ async function runReveal(data: { gameData: GoldPartyResult, balance: number }) {
 
 // --- payout summary ---------------------------------------------------------
 const winningHands = computed(() => result.value?.wins ?? [])
-const bestHand = computed(() => {
-  const base = result.value?.base ?? 2
-  const m = winningHands.value.reduce((mx, w) => Math.max(mx, w.multiplier), 0)
-  return m > 0 ? base * m : 0
-})
+const bestHand = computed(() =>
+  winningHands.value.reduce((mx, w) => Math.max(mx, w.multiplier), 0)
+)
 const profit = computed(() => (result.value ? result.value.payout - result.value.totalStake : 0))
 
 function onKeydown(e: KeyboardEvent) {
@@ -278,7 +341,7 @@ onUnmounted(() => {
         Gold Party
       </h1>
       <p class="text-sm text-muted mt-0.5">
-        98% RTP · place hands, chase the gold multipliers
+        98% RTP · place hands, chase stacking gold multipliers
       </p>
     </div>
 
@@ -381,14 +444,14 @@ onUnmounted(() => {
           <!-- Multiplier legend -->
           <div class="rounded-lg bg-elevated border border-default p-3">
             <p class="text-xs text-muted uppercase tracking-wide font-medium mb-2">
-              Multipliers
+              Multipliers · stack &amp; cap 2500×
             </p>
-            <div class="grid grid-cols-3 gap-1.5">
+            <div class="grid grid-cols-4 gap-1.5">
               <span
                 v-for="m in GOLD_PARTY_MULTIPLIERS"
                 :key="m"
                 class="text-center text-xs font-bold font-mono rounded border py-1"
-                :class="TIERS[m]?.tile"
+                :class="tierClass(m)"
               >{{ m }}×</span>
             </div>
           </div>
@@ -422,45 +485,68 @@ onUnmounted(() => {
       <div class="lg:col-span-2 flex flex-col gap-4">
         <UCard :ui="{ body: 'relative overflow-hidden flex flex-col p-4 sm:p-6' }">
           <div class="w-full max-w-md mx-auto">
-            <!-- Top bar -->
-            <div class="grid grid-cols-5 gap-2 mb-3">
-              <div
-                v-for="col in COLS"
-                :key="`top-${col}`"
-                class="aspect-square rounded-lg flex items-center justify-center transition-all duration-300 border font-black font-mono"
-                :class="[
-                  columnStates[col - 1] === 'multiplier' ? (TIERS[colValue(col - 1) ?? 0]?.top ?? 'bg-warning/15 border-warning text-warning')
-                  : columnStates[col - 1] === 'reroll' ? 'bg-info/15 border-info text-info'
-                    : columnStates[col - 1] === 'nothing' ? 'bg-elevated border-default text-muted'
-                      : columnStates[col - 1] === 'rolling' ? 'bg-elevated border-primary/50 text-primary'
-                        : 'bg-elevated/40 border-default text-muted/40'
-                ]"
-              >
-                <UIcon
-                  v-if="columnStates[col - 1] === 'rolling'"
-                  name="i-lucide-loader-2"
-                  class="size-5 sm:size-6 animate-spin"
-                />
-                <UIcon
-                  v-else-if="columnStates[col - 1] === 'reroll'"
-                  name="i-lucide-refresh-cw"
-                  class="size-5 sm:size-6 animate-spin"
-                />
-                <span
-                  v-else-if="columnStates[col - 1] === 'multiplier'"
-                  class="text-sm sm:text-lg"
-                >{{ colValue(col - 1) }}×</span>
-                <UIcon
-                  v-else-if="columnStates[col - 1] === 'nothing'"
-                  name="i-lucide-minus"
-                  class="size-5 sm:size-6"
-                />
-                <UIcon
-                  v-else
-                  name="i-lucide-circle-help"
-                  class="size-4 sm:size-5"
-                />
+            <!-- Top bar (slot-machine reels) -->
+            <div class="relative">
+              <div class="grid grid-cols-5 gap-2 mb-3">
+                <div
+                  v-for="(reel, c) in topReels"
+                  :key="c"
+                  class="relative rounded-lg border overflow-hidden transition-all duration-200 font-black font-mono"
+                  :style="{ height: `${TOP_CELL}px` }"
+                  :class="topCellClass(c)"
+                >
+                  <div
+                    class="flex flex-col"
+                    :style="{
+                      transform: `translateY(${reel.offset}px)`,
+                      transition: reel.transition ? `transform ${SPIN_MS}ms cubic-bezier(0.12, 0.8, 0.12, 1) ${c * STAGGER}ms` : 'none'
+                    }"
+                  >
+                    <div
+                      v-for="(sym, si) in reel.items"
+                      :key="si"
+                      class="shrink-0 flex items-center justify-center"
+                      :style="{ height: `${TOP_CELL}px` }"
+                      :class="sym.kind === 'mult' ? tierClass(sym.value ?? 0).split(' ').filter(x => x.startsWith('text-')).join(' ') : ''"
+                    >
+                      <UIcon
+                        v-if="sym.kind === 'pending'"
+                        name="i-lucide-circle-help"
+                        class="size-5 text-muted/40"
+                      />
+                      <UIcon
+                        v-else-if="sym.kind === 'reroll'"
+                        name="i-lucide-refresh-cw"
+                        class="size-5 text-info"
+                      />
+                      <UIcon
+                        v-else-if="sym.kind === 'nothing'"
+                        name="i-lucide-minus"
+                        class="size-5 text-muted"
+                      />
+                      <span
+                        v-else
+                        class="text-sm sm:text-base"
+                      >{{ sym.value }}×</span>
+                    </div>
+                  </div>
+                </div>
               </div>
+
+              <!-- Reroll flash -->
+              <Transition name="pop">
+                <div
+                  v-if="subPhase === 'reroll'"
+                  class="absolute inset-0 flex items-center justify-center pointer-events-none"
+                >
+                  <span class="px-4 py-1.5 rounded-full bg-info text-inverted font-black text-sm uppercase tracking-wider shadow-lg animate-pulse">
+                    <UIcon
+                      name="i-lucide-refresh-cw"
+                      class="size-4 -mt-0.5 mr-1 inline animate-spin"
+                    />Reroll — spin again!
+                  </span>
+                </div>
+              </Transition>
             </div>
 
             <!-- Grid -->
@@ -471,18 +557,15 @@ onUnmounted(() => {
                 type="button"
                 :disabled="!canEdit"
                 class="relative aspect-square rounded-lg border flex items-center justify-center transition-all duration-200 select-none"
-                :class="[tileClass(i), canEdit ? 'cursor-pointer hover:border-primary/60' : 'cursor-default']"
+                :class="[tileClass(i), canEdit ? 'cursor-pointer hover:border-primary/60' : 'cursor-default', stampedTile === i ? 'animate-pulse' : '']"
                 @click="toggleTile(i)"
               >
                 <!-- multiplier value -->
-                <Transition name="pop">
-                  <span
-                    v-if="multValue(i) !== undefined"
-                    class="font-black text-base sm:text-xl tabular-nums leading-none"
-                  >
-                    {{ multValue(i) }}×
-                  </span>
-                </Transition>
+                <span
+                  v-if="multValue(i) !== undefined"
+                  :key="`m-${i}-${multValue(i)}`"
+                  class="font-black text-xs sm:text-base tabular-nums leading-none pop-in"
+                >{{ multValue(i) }}×</span>
 
                 <!-- winner coin (winner tile, no multiplier) -->
                 <Transition name="pop">
@@ -521,13 +604,17 @@ onUnmounted(() => {
                 class="text-muted animate-pulse"
               >Dealing…</span>
               <span
-                v-else-if="phase === 'columns'"
+                v-else-if="phase === 'topbar' && subPhase === 'spinning'"
                 class="text-primary"
-              >Revealing the top row…</span>
+              >Spinning the top bar… {{ passLabel }}</span>
               <span
-                v-else-if="phase === 'applying'"
+                v-else-if="phase === 'topbar' && subPhase === 'applying'"
                 class="text-warning"
-              >Dropping multipliers…</span>
+              >Stamping multipliers…</span>
+              <span
+                v-else-if="phase === 'topbar' && subPhase === 'reroll'"
+                class="text-info"
+              >Reroll! Another top bar incoming…</span>
               <span
                 v-else-if="phase === 'winners'"
                 class="text-success"
@@ -638,11 +725,11 @@ onUnmounted(() => {
             </div>
             <div class="rounded-lg bg-elevated border border-default p-2">
               <p class="text-muted text-xs">
-                Best hand
+                Best tile
               </p>
               <p
                 class="font-bold tabular-nums"
-                :class="bestHand > 2 ? 'text-warning' : ''"
+                :class="bestHand > 1 ? 'text-warning' : ''"
               >
                 {{ bestHand > 0 ? `${bestHand}×` : '—' }}
               </p>
@@ -670,12 +757,12 @@ onUnmounted(() => {
     >
       <template #body>
         <ul class="text-sm text-muted space-y-2 list-disc list-inside">
-          <li>Pick a <strong class="text-default">hand value</strong> (bet per hand) and click tiles to place up to {{ MAX_HANDS }} <strong class="text-default">hands</strong>. Cost = hands × value.</li>
-          <li>On Play the 5-cell <strong class="text-default">top row</strong> reveals first: each column shows nothing, a <strong class="text-warning">multiplier</strong> value, or a <strong class="text-info">reroll</strong>.</li>
-          <li>Each multiplier column then stamps its value onto <strong class="text-default">1–4 tiles</strong> in that column.</li>
-          <li>Then <strong class="text-success">2–8 tiles</strong> are revealed as winners.</li>
-          <li>Every hand on a winning tile pays <strong class="text-default">hand value × 2 × tile multiplier</strong> (so a plain win is 2×, a 25× tile pays 50×).</li>
-          <li>Big wins come from landing several multiplier tiles among your picks. Max win 2500× total stake.</li>
+          <li>Pick a <strong class="text-default">hand value</strong> and click tiles to place hands (up to the whole board). Cost = hands × value.</li>
+          <li>On Play the <strong class="text-default">top bar</strong> spins like a slot. Each of the 5 slots lands on nothing, a <strong class="text-warning">multiplier</strong>, or a <strong class="text-info">reroll</strong>.</li>
+          <li>Each multiplier stamps its value onto <strong class="text-default">1–4 tiles</strong> in that column.</li>
+          <li>A <strong class="text-info">reroll</strong> spins a whole new top bar after the current one finishes. Multipliers landing on the same tile <strong class="text-default">stack</strong> (e.g. 50× then 10× = 500×) — capped at 2500× per tile.</li>
+          <li>Then <strong class="text-success">2–8 tiles</strong> are revealed as winners. A hand on a winning tile pays <strong class="text-default">hand value × that tile's multiplier</strong> (a plain winner returns your 1×).</li>
+          <li>Max win 2500× total stake — and the odds are identical no matter how many hands you place.</li>
         </ul>
       </template>
     </UModal>
@@ -691,6 +778,12 @@ onUnmounted(() => {
 
 .pop-enter-active { transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1); }
 .pop-enter-from { opacity: 0; transform: scale(0.3); }
+
+.pop-in { animation: pop-in 0.32s cubic-bezier(0.34, 1.56, 0.64, 1); }
+@keyframes pop-in {
+  0% { opacity: 0; transform: scale(0.3); }
+  100% { opacity: 1; transform: scale(1); }
+}
 
 input[type=number]::-webkit-inner-spin-button,
 input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; }
