@@ -1,6 +1,7 @@
 import { playDice } from './gamelogic/dice'
 import { playLimbo } from './gamelogic/limbo'
-import {playWheel} from "#shared/utils/gamelogic/wheel";
+import { playWheel } from '#shared/utils/gamelogic/wheel'
+import { playGoldParty } from './gamelogic/goldparty'
 
 export interface GameResult {
   payout: number
@@ -12,14 +13,17 @@ export interface GameDefinition {
 }
 
 export const GAMES_REGISTRY: Record<string, GameDefinition> = {
-  'dice': {
+  dice: {
     play: playDice
   },
-  'limbo': {
+  limbo: {
     play: playLimbo
   },
-  'wheel': {
+  wheel: {
     play: playWheel
+  },
+  goldparty: {
+    play: playGoldParty
   }
 }
 

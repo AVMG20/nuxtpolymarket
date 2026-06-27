@@ -37,6 +37,14 @@ const casinoGames = [
     iconColor: 'text-amber-400',
   },
   {
+    name: 'Gold Party',
+    description: 'Place your hands and chase gold multipliers on the grid',
+    icon: 'i-lucide-party-popper',
+    to: '/games/goldparty',
+    gradient: 'from-yellow-950 to-slate-900',
+    iconColor: 'text-yellow-400',
+  },
+  {
     name: 'Blackjack',
     description: 'Classic 21 — beat the dealer with a 6-deck shoe',
     icon: 'i-lucide-spade',
