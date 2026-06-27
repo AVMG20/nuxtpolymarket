@@ -7,21 +7,25 @@
 //
 // Round flow (all pre-computed on the server, the client just animates it):
 //   1. Each of the 5 columns rolls a top-bar result:
-//        - "nothing"    (~65%)  no effect
-//        - "multiplier" (~25%)  1-3 random tiles in that column get a multiplier
-//        - "reroll"     (~10%)  re-rolls that column once (nothing / multiplier only)
-//   2. After all columns resolve, a number of random tiles are revealed as winners.
-//   3. Any placed hand on a winning tile pays: handValue × tile multiplier (default 1×).
+//        - "nothing"     no effect
+//        - "multiplier"  the column rolls ONE value (2/5/10/15/25/50×) and stamps it
+//                        onto 1-4 random tiles in that column (all the same value)
+//        - "reroll"      re-rolls that column once (nothing / multiplier only)
+//   2. After all columns resolve, 2-8 random tiles are revealed as winners.
+//   3. Any placed hand on a winning tile pays: handValue × BASE × tile multiplier,
+//      where BASE = 2 and the tile multiplier defaults to 1 (so a plain winning hand
+//      pays 2×, a 25× tile pays 50×, …).
 //
 // RTP tuning (target 98%):
-//   Every tile is statistically identical, so the placement of hands does not change
-//   the odds. The expected return per staked hand is:
-//       RTP = P(tile is winner) × E[tile multiplier]
-//   With the multiplier frequencies below, E[tile multiplier] ≈ 1.40, and drawing the
-//   winner count uniformly from [24, 32] (mean 28) gives:
-//       RTP = (28 / 40) × 1.40 ≈ 0.981 ≈ 98%   (verified ≈ 98.1% by Monte Carlo)
-//   The winner count is the documented tuning knob — a base 1× payout with few winners
-//   cannot reach 98% RTP, so winners are intentionally dense.
+//   Every tile is statistically identical, so where hands are placed does not change
+//   the odds. Expected return per staked hand:
+//       RTP = P(tile is winner) × BASE × E[tile multiplier]
+//   Winners are few (2-8, mean 5 → P ≈ 0.125), so the multiplier mix has to carry most
+//   of the return. With BASE = 2 and the weights below, E[tile multiplier] ≈ 3.93 and:
+//       RTP ≈ 0.125 × 2 × 3.93 ≈ 0.983   (verified ≈ 98.3% by Monte Carlo)
+//   You win roughly one round in six — the big wins come from landing several multiplier
+//   tiles among your picks. The few-winner constraint forces a fairly flat multiplier
+//   distribution; the values are still tiered by colour client-side.
 //
 // Max win is capped at 2500× the total stake.
 
@@ -30,48 +34,49 @@ const ROWS = 8
 const TILES = COLS * ROWS // 40
 const MAX_WIN_MULTIPLIER = 2500
 
-export const GOLD_PARTY_MAX_HANDS = 10
+export const GOLD_PARTY_MAX_HANDS = 20
+export const GOLD_PARTY_BASE_MULTIPLIER = 2
 
 // Multiplier values and their relative weights (must sum to ~1).
-const MULTIPLIER_VALUES = [2, 5, 10, 15, 25] as const
-const MULTIPLIER_WEIGHTS = [0.40, 0.28, 0.17, 0.10, 0.05] as const
+export const GOLD_PARTY_MULTIPLIERS = [2, 5, 10, 15, 25, 50] as const
+const MULTIPLIER_WEIGHTS = [0.18, 0.16, 0.15, 0.15, 0.20, 0.16] as const
 
-// Per-column first-roll probabilities.
-const P_NOTHING = 0.65
-const P_MULTIPLIER = 0.25
-// remaining 0.10 is reroll
+// Per-column first-roll probabilities (remaining 0.10 is a reroll).
+const P_NOTHING = 0.40
+const P_MULTIPLIER = 0.50
 
-// Winner count is drawn uniformly from [WINNER_MIN, WINNER_MAX] inclusive (mean 28).
-const WINNER_MIN = 24
-const WINNER_MAX = 32
+// A multiplier column stamps its value onto a random 1-4 tiles.
+const TILES_PER_MULTIPLIER_MIN = 1
+const TILES_PER_MULTIPLIER_MAX = 4
+
+// Winner tiles per round.
+const WINNER_MIN = 2
+const WINNER_MAX = 8
 
 export type ColumnRoll = 'nothing' | 'multiplier' | 'reroll'
-
-export interface MultiplierAssignment {
-  tile: number // global tile index 0..39
-  value: number // multiplier value (2, 5, 10, 15 or 25)
-}
 
 export interface ColumnResult {
   col: number
   rolls: ColumnRoll[] // 1 entry normally, 2 if the first roll was a reroll
   type: 'nothing' | 'multiplier' // effective final result for the column
-  multipliers: MultiplierAssignment[]
+  value: number | null // the column's multiplier value, or null
+  tiles: number[] // tiles in this column stamped with `value`
 }
 
 export interface HandWin {
   tile: number
   multiplier: number // the tile multiplier that was applied (>= 1)
-  amount: number // handValue × multiplier
+  amount: number // handValue × BASE × multiplier
 }
 
 export interface GoldPartyResult {
   handCount: number
   handValue: number
   totalStake: number
+  base: number
   placements: number[] // tile indices that hold a hand
   columns: ColumnResult[] // length 5, left to right
-  multiplierTiles: Record<number, number> // tile -> multiplier value (aggregated)
+  multiplierTiles: Record<number, number> // tile -> multiplier value
   winnerTiles: number[] // tiles revealed as winners
   wins: HandWin[] // placed hands sitting on a winning tile
   payout: number
@@ -95,20 +100,21 @@ function randInt(minInclusive: number, maxInclusive: number): number {
 function pickMultiplierValue(): number {
   const r = rand()
   let acc = 0
-  for (let i = 0; i < MULTIPLIER_VALUES.length; i++) {
+  for (let i = 0; i < GOLD_PARTY_MULTIPLIERS.length; i++) {
     acc += MULTIPLIER_WEIGHTS[i]!
-    if (r < acc) return MULTIPLIER_VALUES[i]!
+    if (r < acc) return GOLD_PARTY_MULTIPLIERS[i]!
   }
-  return MULTIPLIER_VALUES[MULTIPLIER_VALUES.length - 1]!
+  return GOLD_PARTY_MULTIPLIERS[GOLD_PARTY_MULTIPLIERS.length - 1]!
 }
 
-// Roll a single column result. `allowReroll` is false on the second roll so reroll
-// columns resolve in at most two steps.
+// Roll a single column result. On the second roll (`allowReroll` false) the reroll
+// slot is renormalised across nothing / multiplier so columns resolve in two steps.
 function rollColumn(allowReroll: boolean): ColumnRoll {
   const r = rand()
   if (r < P_NOTHING) return 'nothing'
   if (r < P_NOTHING + P_MULTIPLIER) return 'multiplier'
-  return allowReroll ? 'reroll' : 'multiplier'
+  if (allowReroll) return 'reroll'
+  return rand() < P_NOTHING / (P_NOTHING + P_MULTIPLIER) ? 'nothing' : 'multiplier'
 }
 
 // Tiles belonging to a given column, top to bottom.
@@ -133,14 +139,14 @@ function pickDistinct(pool: number[], count: number): number[] {
 // --- main entry -------------------------------------------------------------
 
 export function playGoldParty(bet: number, options?: Record<string, unknown>): GoldPartyResult {
-  const handCount = Math.trunc(Number(options?.handCount ?? 0))
   const handValue = Number(options?.handValue ?? 0)
   const placements = Array.isArray(options?.placements)
     ? (options!.placements as unknown[]).map(v => Math.trunc(Number(v)))
     : []
+  const handCount = placements.length
 
-  if (!Number.isFinite(handCount) || handCount < 1 || handCount > GOLD_PARTY_MAX_HANDS) {
-    throw createError({ statusCode: 400, message: `Hand count must be between 1 and ${GOLD_PARTY_MAX_HANDS}` })
+  if (handCount < 1 || handCount > GOLD_PARTY_MAX_HANDS) {
+    throw createError({ statusCode: 400, message: `Place between 1 and ${GOLD_PARTY_MAX_HANDS} hands` })
   }
   if (!Number.isFinite(handValue) || handValue <= 0) {
     throw createError({ statusCode: 400, message: 'Hand value must be greater than 0' })
@@ -151,10 +157,10 @@ export function playGoldParty(bet: number, options?: Record<string, unknown>): G
     throw createError({ statusCode: 400, message: 'Bet must equal hand count × hand value' })
   }
 
-  // Validate placements: exactly handCount distinct, in-range tiles.
+  // Validate placements: distinct, in-range tiles.
   const unique = new Set(placements)
-  if (placements.length !== handCount || unique.size !== handCount) {
-    throw createError({ statusCode: 400, message: `You must place exactly ${handCount} hand(s)` })
+  if (unique.size !== handCount) {
+    throw createError({ statusCode: 400, message: 'Duplicate hand placement' })
   }
   for (const tile of placements) {
     if (!Number.isInteger(tile) || tile < 0 || tile >= TILES) {
@@ -168,28 +174,22 @@ export function playGoldParty(bet: number, options?: Record<string, unknown>): G
 
   for (let col = 0; col < COLS; col++) {
     const rolls: ColumnRoll[] = []
-    let first = rollColumn(true)
-    rolls.push(first)
-    if (first === 'reroll') {
-      first = rollColumn(false)
-      rolls.push(first)
+    let roll = rollColumn(true)
+    rolls.push(roll)
+    if (roll === 'reroll') {
+      roll = rollColumn(false)
+      rolls.push(roll)
     }
 
-    const type: 'nothing' | 'multiplier' = first === 'multiplier' ? 'multiplier' : 'nothing'
-    const multipliers: MultiplierAssignment[] = []
-
-    if (type === 'multiplier') {
-      const count = randInt(1, 3)
-      const tiles = pickDistinct(tilesInColumn(col), count)
-      for (const tile of tiles) {
-        const value = pickMultiplierValue()
-        multipliers.push({ tile, value })
-        // A tile lives in exactly one column, so no clobbering across columns.
-        multiplierTiles[tile] = value
-      }
+    if (roll === 'multiplier') {
+      const value = pickMultiplierValue()
+      const count = randInt(TILES_PER_MULTIPLIER_MIN, TILES_PER_MULTIPLIER_MAX)
+      const tiles = pickDistinct(tilesInColumn(col), count).sort((a, b) => a - b)
+      for (const tile of tiles) multiplierTiles[tile] = value
+      columns.push({ col, rolls, type: 'multiplier', value, tiles })
+    } else {
+      columns.push({ col, rolls, type: 'nothing', value: null, tiles: [] })
     }
-
-    columns.push({ col, rolls, type, multipliers })
   }
 
   // 2. Reveal winner tiles.
@@ -199,12 +199,13 @@ export function playGoldParty(bet: number, options?: Record<string, unknown>): G
   const winnerSet = new Set(winnerTiles)
 
   // 3. Compute payout from placed hands on winning tiles.
+  const base = GOLD_PARTY_BASE_MULTIPLIER
   const wins: HandWin[] = []
   let payout = 0
   for (const tile of placements) {
     if (winnerSet.has(tile)) {
       const multiplier = multiplierTiles[tile] ?? 1
-      const amount = handValue * multiplier
+      const amount = handValue * base * multiplier
       wins.push({ tile, multiplier, amount })
       payout += amount
     }
@@ -218,6 +219,7 @@ export function playGoldParty(bet: number, options?: Record<string, unknown>): G
     handCount,
     handValue,
     totalStake,
+    base,
     placements,
     columns,
     multiplierTiles,

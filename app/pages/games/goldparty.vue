@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { GoldPartyResult, ColumnRoll } from '#shared/utils/gamelogic/goldparty'
+import { GOLD_PARTY_MAX_HANDS, GOLD_PARTY_MULTIPLIERS } from '#shared/utils/gamelogic/goldparty'
 
 const { user, setBalance } = useAuth()
 const balance = ref(parseFloat(user.value?.balance ?? '0'))
@@ -10,27 +11,28 @@ watch(() => user.value?.balance, (v) => {
 const COLS = 5
 const ROWS = 8
 const TILES = COLS * ROWS
-const MAX_HANDS = 10
+const MAX_HANDS = GOLD_PARTY_MAX_HANDS
 const tiles = Array.from({ length: TILES }, (_, i) => i)
 
-// --- bet config -------------------------------------------------------------
-const handCount = ref(5)
-const handValue = ref(5)
-const totalStake = computed(() => handCount.value * handValue.value)
+// Multiplier rarity tiers — value → colour + label.
+const TIERS: Record<number, { name: string, tile: string, top: string }> = {
+  2: { name: 'Common', tile: 'bg-zinc-500/15 border-zinc-400 text-zinc-200', top: 'bg-zinc-500/15 border-zinc-400 text-zinc-200' },
+  5: { name: 'Uncommon', tile: 'bg-emerald-500/15 border-emerald-400 text-emerald-300', top: 'bg-emerald-500/15 border-emerald-400 text-emerald-300' },
+  10: { name: 'Rare', tile: 'bg-sky-500/15 border-sky-400 text-sky-300', top: 'bg-sky-500/15 border-sky-400 text-sky-300' },
+  15: { name: 'Epic', tile: 'bg-violet-500/15 border-violet-400 text-violet-300', top: 'bg-violet-500/15 border-violet-400 text-violet-300' },
+  25: { name: 'Legendary', tile: 'bg-fuchsia-500/15 border-fuchsia-400 text-fuchsia-300', top: 'bg-fuchsia-500/15 border-fuchsia-400 text-fuchsia-300' },
+  50: { name: 'Mythic', tile: 'bg-amber-500/20 border-amber-400 text-amber-300 shadow-[0_0_16px_-3px_var(--ui-warning)]', top: 'bg-amber-500/20 border-amber-400 text-amber-300' }
+}
 
-// --- placement --------------------------------------------------------------
+// --- bet config -------------------------------------------------------------
+const handValue = ref(5)
 const placements = ref<number[]>([])
 const placedSet = computed(() => new Set(placements.value))
-const handsLeft = computed(() => handCount.value - placements.value.length)
-
-// Trim placements if the hand count drops below what's already placed.
-watch(handCount, (n) => {
-  if (placements.value.length > n) placements.value = placements.value.slice(0, n)
-})
+const totalStake = computed(() => placements.value.length * handValue.value)
 
 // --- round state ------------------------------------------------------------
 type ColDisplay = 'pending' | 'rolling' | 'reroll' | ColumnRoll
-const phase = ref<'idle' | 'fetching' | 'columns' | 'winners' | 'done'>('idle')
+const phase = ref<'idle' | 'fetching' | 'columns' | 'applying' | 'winners' | 'done'>('idle')
 const columnStates = ref<ColDisplay[]>(Array(COLS).fill('pending'))
 const revealedMult = ref<Set<number>>(new Set())
 const revealedWinners = ref<Set<number>>(new Set())
@@ -41,22 +43,22 @@ const errorMsg = ref('')
 
 const history = ref<{ won: boolean, payout: number, stake: number, net: number }[]>([])
 
-const isBusy = computed(() => phase.value === 'fetching' || phase.value === 'columns' || phase.value === 'winners')
+const isBusy = computed(() => ['fetching', 'columns', 'applying', 'winners'].includes(phase.value))
 const canEdit = computed(() => phase.value === 'idle' || phase.value === 'done')
 const canPlay = computed(() =>
   canEdit.value
-  && placements.value.length === handCount.value
+  && placements.value.length >= 1
   && balance.value >= totalStake.value
   && totalStake.value > 0
 )
 
 // --- helpers ----------------------------------------------------------------
+let timers: ReturnType<typeof setTimeout>[] = []
 function sleep(ms: number) {
   return new Promise<void>((r) => {
     timers.push(setTimeout(r, ms))
   })
 }
-let timers: ReturnType<typeof setTimeout>[] = []
 function clearTimers() {
   timers.forEach(clearTimeout)
   timers = []
@@ -74,6 +76,36 @@ function shuffle<T>(arr: T[]): T[] {
 function multValue(i: number): number | undefined {
   return revealedMult.value.has(i) ? result.value?.multiplierTiles[i] : undefined
 }
+function colValue(col: number): number | null {
+  return result.value?.columns[col]?.value ?? null
+}
+
+function tileClass(i: number): string {
+  const mv = multValue(i)
+  const isWin = revealedWinners.value.has(i)
+  const placed = placedSet.value.has(i)
+  const done = phase.value === 'done'
+
+  if (mv !== undefined) {
+    const base = TIERS[mv]?.tile ?? 'bg-elevated border-default text-muted'
+    return isWin ? `${base} ring-2 ring-success scale-[1.05] z-10` : base
+  }
+  if (isWin) {
+    return placed
+      ? 'bg-success/25 border-success text-success shadow-[0_0_16px_-3px_var(--ui-success)] scale-[1.04] z-10'
+      : 'bg-success/10 border-success/40 text-success/80'
+  }
+  if (placed && done) return 'bg-error/10 border-error/40 text-error/60'
+  if (placed) return 'bg-primary/15 border-primary text-primary'
+  return 'bg-elevated border-default text-muted'
+}
+
+function handMarkerClass(i: number): string {
+  if (phase.value === 'done') {
+    return revealedWinners.value.has(i) ? 'bg-success text-inverted' : 'bg-error/70 text-inverted'
+  }
+  return 'bg-primary text-inverted'
+}
 
 function resetBoard() {
   clearTimers()
@@ -89,11 +121,14 @@ function resetBoard() {
 function toggleTile(i: number) {
   if (!canEdit.value) return
   if (phase.value === 'done') resetBoard()
+  errorMsg.value = ''
   const idx = placements.value.indexOf(i)
   if (idx >= 0) {
     placements.value.splice(idx, 1)
-  } else if (placements.value.length < handCount.value) {
+  } else if (placements.value.length < MAX_HANDS) {
     placements.value.push(i)
+  } else {
+    errorMsg.value = `Max ${MAX_HANDS} hands`
   }
 }
 
@@ -106,15 +141,13 @@ function clearPlacements() {
 function autoPlace() {
   if (!canEdit.value) return
   if (phase.value === 'done') resetBoard()
-  placements.value = shuffle(tiles).slice(0, handCount.value)
+  placements.value = shuffle(tiles).slice(0, 10)
 }
 
 // --- round flow -------------------------------------------------------------
 async function play() {
   if (!canPlay.value) {
-    if (placements.value.length !== handCount.value) {
-      errorMsg.value = `Place exactly ${handCount.value} hand${handCount.value > 1 ? 's' : ''} before playing`
-    }
+    if (placements.value.length === 0) errorMsg.value = 'Place at least one hand before playing'
     return
   }
 
@@ -130,7 +163,6 @@ async function play() {
         bet: stake,
         game: 'goldparty',
         options: {
-          handCount: handCount.value,
           handValue: handValue.value,
           placements: [...placements.value]
         }
@@ -149,36 +181,39 @@ async function play() {
 async function runReveal(data: { gameData: GoldPartyResult, balance: number }) {
   const res = data.gameData
 
-  // 1. Top bar — reveal one column at a time, left to right.
+  // 1. Reveal the whole top bar first, left to right — no board changes yet.
   phase.value = 'columns'
   await sleep(300)
   for (let col = 0; col < COLS; col++) {
     const colRes = res.columns[col]!
     columnStates.value[col] = 'rolling'
-    await sleep(450)
+    await sleep(430)
 
-    // Reroll columns flash the reroll state then spin again.
     if (colRes.rolls[0] === 'reroll') {
       columnStates.value[col] = 'reroll'
-      await sleep(650)
+      await sleep(620)
       columnStates.value[col] = 'rolling'
-      await sleep(400)
+      await sleep(360)
     }
 
     columnStates.value[col] = colRes.type
-    await sleep(280)
-
-    // Pop multiplier tiles one by one.
-    if (colRes.type === 'multiplier') {
-      for (const m of colRes.multipliers) {
-        revealedMult.value.add(m.tile)
-        await sleep(300)
-      }
-    }
-    await sleep(160)
+    await sleep(260)
   }
 
-  // 2. Reveal winning tiles one by one — save the player's hits for the climax.
+  // 2. Now stamp the multipliers onto the board, column by column, tile by tile.
+  phase.value = 'applying'
+  await sleep(400)
+  for (let col = 0; col < COLS; col++) {
+    const colRes = res.columns[col]!
+    if (colRes.type !== 'multiplier') continue
+    for (const tile of colRes.tiles) {
+      revealedMult.value.add(tile)
+      await sleep(240)
+    }
+    await sleep(120)
+  }
+
+  // 3. Reveal the winning tiles one by one — save the player's hits for the climax.
   phase.value = 'winners'
   await sleep(450)
   const placed = new Set(res.placements)
@@ -186,15 +221,15 @@ async function runReveal(data: { gameData: GoldPartyResult, balance: number }) {
   const hits = res.winnerTiles.filter(t => placed.has(t))
   for (const t of blanks) {
     revealedWinners.value.add(t)
-    await sleep(70)
+    await sleep(160)
   }
   await sleep(250)
   for (const t of hits) {
     revealedWinners.value.add(t)
-    await sleep(320)
+    await sleep(380)
   }
 
-  // 3. Settle.
+  // 4. Settle.
   await sleep(500)
   phase.value = 'done'
   balance.value = data.balance
@@ -211,9 +246,11 @@ async function runReveal(data: { gameData: GoldPartyResult, balance: number }) {
 
 // --- payout summary ---------------------------------------------------------
 const winningHands = computed(() => result.value?.wins ?? [])
-const bestMultiplier = computed(() =>
-  winningHands.value.reduce((m, w) => Math.max(m, w.multiplier), 0)
-)
+const bestHand = computed(() => {
+  const base = result.value?.base ?? 2
+  const m = winningHands.value.reduce((mx, w) => Math.max(mx, w.multiplier), 0)
+  return m > 0 ? base * m : 0
+})
 const profit = computed(() => (result.value ? result.value.payout - result.value.totalStake : 0))
 
 function onKeydown(e: KeyboardEvent) {
@@ -241,7 +278,7 @@ onUnmounted(() => {
         Gold Party
       </h1>
       <p class="text-sm text-muted mt-0.5">
-        98% RTP · place your hands and chase the gold
+        98% RTP · place hands, chase the gold multipliers
       </p>
     </div>
 
@@ -297,26 +334,6 @@ onUnmounted(() => {
             </div>
           </div>
 
-          <!-- Hand count -->
-          <div>
-            <div class="flex justify-between items-center mb-1.5">
-              <label class="text-xs text-muted uppercase tracking-wide font-medium">Hand Count</label>
-              <span class="font-bold font-mono text-sm">{{ handCount }}</span>
-            </div>
-            <input
-              v-model.number="handCount"
-              :disabled="isBusy"
-              type="range"
-              min="1"
-              :max="MAX_HANDS"
-              step="1"
-              class="w-full accent-primary disabled:opacity-40"
-            >
-            <div class="flex justify-between text-xs text-muted font-mono mt-1">
-              <span>1</span><span>{{ MAX_HANDS }}</span>
-            </div>
-          </div>
-
           <!-- Placement controls -->
           <div class="grid grid-cols-2 gap-1.5">
             <UButton
@@ -328,7 +345,7 @@ onUnmounted(() => {
               class="justify-center"
               @click="autoPlace"
             >
-              Auto place
+              Auto 10
             </UButton>
             <UButton
               color="neutral"
@@ -349,15 +366,30 @@ onUnmounted(() => {
               <span class="text-muted">Hands placed</span>
               <span
                 class="font-bold tabular-nums"
-                :class="placements.length === handCount ? 'text-success' : 'text-warning'"
+                :class="placements.length > 0 ? 'text-primary' : 'text-muted'"
               >
-                {{ placements.length }} / {{ handCount }}
+                {{ placements.length }} / {{ MAX_HANDS }}
               </span>
             </div>
             <USeparator />
             <div class="flex items-center justify-between text-sm">
-              <span class="text-muted">Total stake</span>
+              <span class="text-muted">Total cost</span>
               <span class="font-bold tabular-nums">${{ formatNumber(totalStake, false) }}</span>
+            </div>
+          </div>
+
+          <!-- Multiplier legend -->
+          <div class="rounded-lg bg-elevated border border-default p-3">
+            <p class="text-xs text-muted uppercase tracking-wide font-medium mb-2">
+              Multipliers
+            </p>
+            <div class="grid grid-cols-3 gap-1.5">
+              <span
+                v-for="m in GOLD_PARTY_MULTIPLIERS"
+                :key="m"
+                class="text-center text-xs font-bold font-mono rounded border py-1"
+                :class="TIERS[m]?.tile"
+              >{{ m }}×</span>
             </div>
           </div>
 
@@ -395,9 +427,9 @@ onUnmounted(() => {
               <div
                 v-for="col in COLS"
                 :key="`top-${col}`"
-                class="aspect-square rounded-lg flex items-center justify-center transition-all duration-300 border"
+                class="aspect-square rounded-lg flex items-center justify-center transition-all duration-300 border font-black font-mono"
                 :class="[
-                  columnStates[col - 1] === 'multiplier' ? 'bg-warning/15 border-warning text-warning shadow-[0_0_20px_-4px_var(--ui-warning)]'
+                  columnStates[col - 1] === 'multiplier' ? (TIERS[colValue(col - 1) ?? 0]?.top ?? 'bg-warning/15 border-warning text-warning')
                   : columnStates[col - 1] === 'reroll' ? 'bg-info/15 border-info text-info'
                     : columnStates[col - 1] === 'nothing' ? 'bg-elevated border-default text-muted'
                       : columnStates[col - 1] === 'rolling' ? 'bg-elevated border-primary/50 text-primary'
@@ -414,11 +446,10 @@ onUnmounted(() => {
                   name="i-lucide-refresh-cw"
                   class="size-5 sm:size-6 animate-spin"
                 />
-                <UIcon
+                <span
                   v-else-if="columnStates[col - 1] === 'multiplier'"
-                  name="i-lucide-sparkles"
-                  class="size-5 sm:size-6"
-                />
+                  class="text-sm sm:text-lg"
+                >{{ colValue(col - 1) }}×</span>
                 <UIcon
                   v-else-if="columnStates[col - 1] === 'nothing'"
                   name="i-lucide-minus"
@@ -440,21 +471,7 @@ onUnmounted(() => {
                 type="button"
                 :disabled="!canEdit"
                 class="relative aspect-square rounded-lg border flex items-center justify-center transition-all duration-200 select-none"
-                :class="[
-                  // winner + placed hand = jackpot tile
-                  revealedWinners.has(i) && placedSet.has(i) ? 'bg-success/25 border-success text-success shadow-[0_0_18px_-2px_var(--ui-success)] scale-[1.04] z-10'
-                  // winner tile (no hand)
-                  : revealedWinners.has(i) ? (multValue(i) !== undefined ? 'bg-warning/15 border-warning/70 text-warning' : 'bg-success/10 border-success/40 text-success/80')
-                    // multiplier revealed (not yet a winner)
-                    : multValue(i) !== undefined ? 'bg-warning/15 border-warning text-warning shadow-[0_0_14px_-4px_var(--ui-warning)]'
-                      // placed hand, round over and it lost
-                      : placedSet.has(i) && phase === 'done' ? 'bg-error/10 border-error/40 text-error/60'
-                        // placed hand, idle / playing
-                        : placedSet.has(i) ? 'bg-primary/15 border-primary text-primary'
-                          // empty
-                          : 'bg-elevated border-default text-muted',
-                  canEdit ? 'cursor-pointer hover:border-primary/60' : 'cursor-default'
-                ]"
+                :class="[tileClass(i), canEdit ? 'cursor-pointer hover:border-primary/60' : 'cursor-default']"
                 @click="toggleTile(i)"
               >
                 <!-- multiplier value -->
@@ -467,7 +484,7 @@ onUnmounted(() => {
                   </span>
                 </Transition>
 
-                <!-- winner coin (winner tile with no multiplier) -->
+                <!-- winner coin (winner tile, no multiplier) -->
                 <Transition name="pop">
                   <UIcon
                     v-if="revealedWinners.has(i) && multValue(i) === undefined"
@@ -480,9 +497,7 @@ onUnmounted(() => {
                 <div
                   v-if="placedSet.has(i)"
                   class="absolute top-0.5 right-0.5 rounded-full p-0.5"
-                  :class="revealedWinners.has(i) && phase === 'done' ? 'bg-success text-inverted'
-                    : placedSet.has(i) && phase === 'done' ? 'bg-error/70 text-inverted'
-                      : 'bg-primary text-inverted'"
+                  :class="handMarkerClass(i)"
                 >
                   <UIcon
                     name="i-lucide-hand"
@@ -498,8 +513,8 @@ onUnmounted(() => {
                 v-if="phase === 'idle'"
                 class="text-muted"
               >
-                <template v-if="handsLeft > 0">Place {{ handsLeft }} more hand{{ handsLeft > 1 ? 's' : '' }}</template>
-                <template v-else>Ready — press Play</template>
+                <template v-if="placements.length === 0">Click tiles to place your hands</template>
+                <template v-else>{{ placements.length }} hand{{ placements.length > 1 ? 's' : '' }} · ${{ formatNumber(totalStake, false) }} — press Play</template>
               </span>
               <span
                 v-else-if="phase === 'fetching'"
@@ -508,10 +523,14 @@ onUnmounted(() => {
               <span
                 v-else-if="phase === 'columns'"
                 class="text-primary"
-              >Revealing columns…</span>
+              >Revealing the top row…</span>
+              <span
+                v-else-if="phase === 'applying'"
+                class="text-warning"
+              >Dropping multipliers…</span>
               <span
                 v-else-if="phase === 'winners'"
-                class="text-warning"
+                class="text-success"
               >Picking winning tiles…</span>
               <span
                 v-else-if="phase === 'done' && result"
@@ -619,13 +638,13 @@ onUnmounted(() => {
             </div>
             <div class="rounded-lg bg-elevated border border-default p-2">
               <p class="text-muted text-xs">
-                Best multiplier
+                Best hand
               </p>
               <p
                 class="font-bold tabular-nums"
-                :class="bestMultiplier > 1 ? 'text-warning' : ''"
+                :class="bestHand > 2 ? 'text-warning' : ''"
               >
-                {{ bestMultiplier > 0 ? `${bestMultiplier}×` : '—' }}
+                {{ bestHand > 0 ? `${bestHand}×` : '—' }}
               </p>
             </div>
           </div>
@@ -651,12 +670,12 @@ onUnmounted(() => {
     >
       <template #body>
         <ul class="text-sm text-muted space-y-2 list-disc list-inside">
-          <li>Pick a <strong class="text-default">hand value</strong> (bet per hand) and a <strong class="text-default">hand count</strong> (1–10). Total stake = count × value.</li>
-          <li>Click tiles on the 5×8 grid to place exactly that many <strong class="text-default">hands</strong>.</li>
-          <li>On Play, each of the 5 columns reveals a result: nothing, a <strong class="text-warning">multiplier</strong> (lands on 1–3 tiles in that column), or a <strong class="text-info">reroll</strong>.</li>
-          <li>Then random tiles are revealed as <strong class="text-success">winners</strong>.</li>
-          <li>Every hand on a winning tile pays <strong class="text-default">hand value × tile multiplier</strong> (1× by default).</li>
-          <li>Max win is 2500× your total stake.</li>
+          <li>Pick a <strong class="text-default">hand value</strong> (bet per hand) and click tiles to place up to {{ MAX_HANDS }} <strong class="text-default">hands</strong>. Cost = hands × value.</li>
+          <li>On Play the 5-cell <strong class="text-default">top row</strong> reveals first: each column shows nothing, a <strong class="text-warning">multiplier</strong> value, or a <strong class="text-info">reroll</strong>.</li>
+          <li>Each multiplier column then stamps its value onto <strong class="text-default">1–4 tiles</strong> in that column.</li>
+          <li>Then <strong class="text-success">2–8 tiles</strong> are revealed as winners.</li>
+          <li>Every hand on a winning tile pays <strong class="text-default">hand value × 2 × tile multiplier</strong> (so a plain win is 2×, a 25× tile pays 50×).</li>
+          <li>Big wins come from landing several multiplier tiles among your picks. Max win 2500× total stake.</li>
         </ul>
       </template>
     </UModal>
