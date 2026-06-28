@@ -1,6 +1,6 @@
 <script setup lang="ts">
 const props = defineProps<{
-  items: Array<{ id: number; x: number; y: number; text: string; colorClass: string }>
+  items: Array<{ id: number; x: number; y: number; count: number; colorClass: string; plantId?: string; emoji?: string }>
 }>()
 </script>
 
@@ -9,11 +9,13 @@ const props = defineProps<{
     <div
       v-for="f in items"
       :key="f.id"
-      class="pointer-events-none fixed z-[9999] select-none font-black text-sm drop-shadow-lg animate-harvest-float"
+      class="pointer-events-none fixed z-[9999] flex select-none items-center gap-1 font-black text-sm drop-shadow-lg animate-harvest-float"
       :style="{ left: `${f.x}px`, top: `${f.y}px`, transform: 'translateX(-50%)' }"
       :class="f.colorClass"
     >
-      {{ f.text }}
+      <span>+{{ f.count }}</span>
+      <XenoPlantIcon v-if="f.plantId" :id="f.plantId" :size="18" />
+      <span v-else>{{ f.emoji }}</span>
     </div>
   </Teleport>
 </template>

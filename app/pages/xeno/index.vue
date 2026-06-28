@@ -102,23 +102,26 @@ const hasReadySlots = computed(() =>
 
 // ── Floating harvest numbers ──────────────────────────────────────
 let floatSeq = 0
-const harvestFloats = ref<Array<{ id: number; x: number; y: number; text: string; colorClass: string }>>([])
+const harvestFloats = ref<Array<{ id: number; x: number; y: number; count: number; colorClass: string; plantId?: string; emoji?: string }>>([])
 
-function spawnFloat(e: MouseEvent, text: string, colorClass: string) {
+function spawnFloat(e: { clientX: number; clientY: number }, count: number, opts: { plantId?: string; emoji?: string; colorClass: string }) {
   const id = ++floatSeq
-  harvestFloats.value.push({ id, x: e.clientX, y: e.clientY - 10, text, colorClass })
+  harvestFloats.value.push({ id, x: e.clientX, y: e.clientY - 10, count, ...opts })
   setTimeout(() => {
     harvestFloats.value = harvestFloats.value.filter(f => f.id !== id)
   }, 1500)
 }
 
 /** Spawn one floating number per harvest drop (resources + the regrown hybrid), stacked. */
-function spawnDrops(x: number, y: number, drops: Array<{ emoji: string; count: number; isHybrid?: boolean }>) {
+function spawnDrops(x: number, y: number, drops: Array<{ id?: string; emoji: string; count: number; isHybrid?: boolean }>) {
   drops.forEach((d, i) => {
     const id = ++floatSeq
     harvestFloats.value.push({
       id, x, y: y - 10 - i * 22,
-      text: `+${d.count} ${d.emoji}`,
+      count: d.count,
+      // Hybrids keep the 🧬 emoji; resource drops render their plant sprite.
+      plantId: d.isHybrid ? undefined : d.id,
+      emoji: d.emoji,
       colorClass: d.isHybrid ? 'text-sky-300' : 'text-primary',
     })
     setTimeout(() => {
@@ -147,7 +150,7 @@ async function handleCellClick(cell: any, e: MouseEvent) {
       if (res?.drops?.length) {
         spawnDrops(e.clientX, e.clientY, res.drops)
       } else if (res && plantType) {
-        spawnFloat(e, `+${res.harvested} ${plantType.emoji}`, 'text-primary')
+        spawnFloat(e, res.harvested, { plantId: slot.plant.typeId, colorClass: 'text-primary' })
       }
     } finally { harvesting.value.delete(slot.id) }
     return
@@ -209,9 +212,9 @@ async function doHarvestAll() {
         spawnDrops(rect.left + rect.width / 2, rect.top + rect.height / 2, res.drops)
       } else if (res && plantType && rect) {
         spawnFloat(
-          { clientX: rect.left + rect.width / 2, clientY: rect.top + rect.height / 2 } as MouseEvent,
-          `+${res.harvested} ${plantType.emoji}`,
-          'text-primary',
+          { clientX: rect.left + rect.width / 2, clientY: rect.top + rect.height / 2 },
+          res.harvested,
+          { plantId: slot.plant.typeId, colorClass: 'text-primary' },
         )
       }
     }))
