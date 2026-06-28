@@ -95,38 +95,27 @@ function multValue(i: number): number | undefined {
   return tileMult.value[i]
 }
 
+// Tile background reflects the board only (multipliers / winners) — never placement.
+// Placement state is carried entirely by the hand icon's colour.
 function tileClass(i: number): string {
   const mv = multValue(i)
   const isWin = revealedWinners.value.has(i)
-  const placed = placedSet.value.has(i)
-  const done = phase.value === 'done'
 
-  // Your winning hand — the only bright, celebratory state.
-  if (isWin && placed) {
-    return mv !== undefined
-      ? `${tierClass(mv)} ring-2 ring-success scale-[1.08] z-10 shadow-[0_0_20px_-2px_var(--ui-success)]`
-      : 'bg-success/25 border-success text-success ring-2 ring-success shadow-[0_0_16px_-3px_var(--ui-success)] scale-[1.05] z-10'
+  if (mv !== undefined) {
+    return isWin
+      ? `${tierClass(mv)} ring-2 ring-success scale-[1.05] z-10 shadow-[0_0_18px_-2px_var(--ui-success)]`
+      : tierClass(mv)
   }
-  // A winning tile you had NO hand on — revealed, but dimmed so it's clearly not your win.
-  if (isWin) {
-    return mv !== undefined
-      ? `${tierClass(mv)} opacity-50`
-      : 'bg-success/5 border-success/20 text-success/40'
-  }
-  // A multiplier tile that didn't win.
-  if (mv !== undefined) return placed && done ? `${tierClass(mv)} opacity-60` : tierClass(mv)
-  // Your hand that lost.
-  if (placed && done) return 'bg-error/10 border-error/40 text-error/60'
-  // Your hand while placing / playing.
-  if (placed) return 'bg-primary/15 border-primary text-primary'
+  if (isWin) return 'bg-success/10 border-success/40 text-success/80'
   return 'bg-elevated border-default text-muted'
 }
 
-function handMarkerClass(i: number): string {
-  if (phase.value === 'done') {
-    return revealedWinners.value.has(i) ? 'bg-success text-inverted' : 'bg-error/70 text-inverted'
-  }
-  return 'bg-primary text-inverted'
+// Hand icon colour: primary when placed, success once its tile is a revealed winner,
+// danger once the round is over and it lost.
+function handColor(i: number): string {
+  if (revealedWinners.value.has(i)) return 'text-success'
+  if (phase.value === 'done') return 'text-error'
+  return 'text-primary'
 }
 
 function topCellClass(c: number): string {
@@ -584,16 +573,12 @@ onUnmounted(() => {
                 </Transition>
 
                 <!-- hand marker -->
-                <div
+                <UIcon
                   v-if="placedSet.has(i)"
-                  class="absolute top-0.5 right-0.5 rounded-full p-0.5"
-                  :class="handMarkerClass(i)"
-                >
-                  <UIcon
-                    name="i-lucide-hand"
-                    class="size-3 sm:size-3.5"
-                  />
-                </div>
+                  name="i-lucide-hand"
+                  class="absolute top-0.5 right-0.5 size-4 sm:size-5 transition-colors duration-200"
+                  :class="handColor(i)"
+                />
               </button>
             </div>
 
