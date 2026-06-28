@@ -330,7 +330,9 @@ const bestHand = computed(() =>
 const profit = computed(() => (result.value ? result.value.payout - result.value.totalStake : 0))
 
 function onKeydown(e: KeyboardEvent) {
-  if (e.code === 'Space' && e.target === document.body) {
+  if (e.target !== document.body) return
+  // Space or Enter spins / re-spins (Enter is handy for a quick replay once a round is over).
+  if (e.code === 'Space' || e.code === 'Enter') {
     e.preventDefault()
     play()
   }
@@ -757,7 +759,7 @@ onUnmounted(() => {
               {{ isBusy ? 'Playing…' : `Play · $${formatNumber(totalStake, false)}` }}
             </UButton>
             <div class="hidden sm:flex flex-col items-end px-4 text-sm font-mono text-muted whitespace-nowrap">
-              <span>Press <kbd class="px-2 py-1 bg-elevated rounded text-xs font-sans font-bold border border-default">SPACE</kbd></span>
+              <span>Press <kbd class="px-2 py-1 bg-elevated rounded text-xs font-sans font-bold border border-default">SPACE</kbd> or <kbd class="px-2 py-1 bg-elevated rounded text-xs font-sans font-bold border border-default">ENTER</kbd></span>
             </div>
           </div>
         </UCard>
