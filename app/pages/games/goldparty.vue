@@ -101,16 +101,23 @@ function tileClass(i: number): string {
   const placed = placedSet.value.has(i)
   const done = phase.value === 'done'
 
-  if (mv !== undefined) {
-    const base = tierClass(mv)
-    return isWin ? `${base} ring-2 ring-success scale-[1.06] z-10` : base
+  // Your winning hand — the only bright, celebratory state.
+  if (isWin && placed) {
+    return mv !== undefined
+      ? `${tierClass(mv)} ring-2 ring-success scale-[1.08] z-10 shadow-[0_0_20px_-2px_var(--ui-success)]`
+      : 'bg-success/25 border-success text-success ring-2 ring-success shadow-[0_0_16px_-3px_var(--ui-success)] scale-[1.05] z-10'
   }
+  // A winning tile you had NO hand on — revealed, but dimmed so it's clearly not your win.
   if (isWin) {
-    return placed
-      ? 'bg-success/25 border-success text-success shadow-[0_0_16px_-3px_var(--ui-success)] scale-[1.04] z-10'
-      : 'bg-success/10 border-success/40 text-success/80'
+    return mv !== undefined
+      ? `${tierClass(mv)} opacity-50`
+      : 'bg-success/5 border-success/20 text-success/40'
   }
+  // A multiplier tile that didn't win.
+  if (mv !== undefined) return placed && done ? `${tierClass(mv)} opacity-60` : tierClass(mv)
+  // Your hand that lost.
   if (placed && done) return 'bg-error/10 border-error/40 text-error/60'
+  // Your hand while placing / playing.
   if (placed) return 'bg-primary/15 border-primary text-primary'
   return 'bg-elevated border-default text-muted'
 }
@@ -725,7 +732,7 @@ onUnmounted(() => {
             </div>
             <div class="rounded-lg bg-elevated border border-default p-2">
               <p class="text-muted text-xs">
-                Best tile
+                Best winning hand
               </p>
               <p
                 class="font-bold tabular-nums"
