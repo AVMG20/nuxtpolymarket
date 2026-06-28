@@ -634,6 +634,83 @@ onUnmounted(() => {
               </span>
             </div>
           </div>
+
+          <!-- Result overlay — sits over the board, click anywhere outside (or Play) to dismiss -->
+          <Transition name="result-pop">
+            <div
+              v-if="showPayout && result"
+              class="absolute inset-0 z-30 flex items-center justify-center p-4 bg-default/85 backdrop-blur-sm cursor-pointer"
+              @click="showPayout = false"
+            >
+              <div
+                class="w-full max-w-xs rounded-2xl border border-default bg-elevated shadow-2xl p-5 text-center space-y-3 cursor-default"
+                @click.stop
+              >
+                <div
+                  class="mx-auto size-14 rounded-full flex items-center justify-center"
+                  :class="result.won ? 'bg-success/15 text-success' : 'bg-default text-muted'"
+                >
+                  <UIcon
+                    :name="result.won ? 'i-lucide-party-popper' : 'i-lucide-circle-slash'"
+                    class="size-7"
+                  />
+                </div>
+
+                <div>
+                  <p class="text-xs text-muted uppercase tracking-widest font-medium">
+                    {{ result.won ? 'You won' : 'Round over' }}
+                  </p>
+                  <p
+                    class="text-3xl font-black tabular-nums mt-1"
+                    :class="result.won ? 'text-success' : 'text-highlighted'"
+                  >
+                    ${{ formatNumber(result.payout, false) }}
+                  </p>
+                  <p
+                    class="text-sm font-mono mt-1"
+                    :class="profit >= 0 ? 'text-success' : 'text-error'"
+                  >
+                    {{ profit >= 0 ? '+' : '' }}{{ formatNumber(profit, false) }} net
+                  </p>
+                </div>
+
+                <div class="grid grid-cols-2 gap-2 text-sm">
+                  <div class="rounded-lg bg-default border border-default p-2">
+                    <p class="text-muted text-xs">
+                      Winning hands
+                    </p>
+                    <p class="font-bold tabular-nums">
+                      {{ winningHands.length }} / {{ result.handCount }}
+                    </p>
+                  </div>
+                  <div class="rounded-lg bg-default border border-default p-2">
+                    <p class="text-muted text-xs">
+                      Best winning hand
+                    </p>
+                    <p
+                      class="font-bold tabular-nums"
+                      :class="bestHand > 1 ? 'text-warning' : ''"
+                    >
+                      {{ bestHand > 0 ? `${bestHand}×` : '—' }}
+                    </p>
+                  </div>
+                </div>
+
+                <UButton
+                  block
+                  color="primary"
+                  size="lg"
+                  class="font-bold"
+                  @click="showPayout = false"
+                >
+                  Continue
+                </UButton>
+                <p class="text-xs text-muted/70">
+                  Click outside or press Play
+                </p>
+              </div>
+            </div>
+          </Transition>
         </UCard>
 
         <!-- History strip -->
@@ -685,77 +762,6 @@ onUnmounted(() => {
       </div>
     </div>
 
-    <!-- Payout popup -->
-    <UModal
-      v-model:open="showPayout"
-      :ui="{ content: 'max-w-sm' }"
-    >
-      <template #content>
-        <div class="p-6 text-center space-y-4">
-          <div
-            class="mx-auto size-16 rounded-full flex items-center justify-center"
-            :class="result?.won ? 'bg-success/15 text-success' : 'bg-elevated text-muted'"
-          >
-            <UIcon
-              :name="result?.won ? 'i-lucide-party-popper' : 'i-lucide-circle-slash'"
-              class="size-8"
-            />
-          </div>
-
-          <div>
-            <p class="text-xs text-muted uppercase tracking-widest font-medium">
-              {{ result?.won ? 'You won' : 'Round over' }}
-            </p>
-            <p
-              class="text-4xl font-black tabular-nums mt-1"
-              :class="result?.won ? 'text-success' : 'text-highlighted'"
-            >
-              ${{ formatNumber(result?.payout ?? 0, false) }}
-            </p>
-            <p
-              v-if="result"
-              class="text-sm font-mono mt-1"
-              :class="profit >= 0 ? 'text-success' : 'text-error'"
-            >
-              {{ profit >= 0 ? '+' : '' }}{{ formatNumber(profit, false) }} net
-            </p>
-          </div>
-
-          <div class="grid grid-cols-2 gap-2 text-sm">
-            <div class="rounded-lg bg-elevated border border-default p-2">
-              <p class="text-muted text-xs">
-                Winning hands
-              </p>
-              <p class="font-bold tabular-nums">
-                {{ winningHands.length }} / {{ result?.handCount ?? 0 }}
-              </p>
-            </div>
-            <div class="rounded-lg bg-elevated border border-default p-2">
-              <p class="text-muted text-xs">
-                Best winning hand
-              </p>
-              <p
-                class="font-bold tabular-nums"
-                :class="bestHand > 1 ? 'text-warning' : ''"
-              >
-                {{ bestHand > 0 ? `${bestHand}×` : '—' }}
-              </p>
-            </div>
-          </div>
-
-          <UButton
-            block
-            color="primary"
-            size="lg"
-            class="font-bold"
-            @click="showPayout = false"
-          >
-            Continue
-          </UButton>
-        </div>
-      </template>
-    </UModal>
-
     <!-- Help -->
     <UModal
       v-model:open="showHelp"
@@ -785,6 +791,11 @@ onUnmounted(() => {
 
 .pop-enter-active { transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1); }
 .pop-enter-from { opacity: 0; transform: scale(0.3); }
+
+.result-pop-enter-active, .result-pop-leave-active { transition: opacity 0.2s ease; }
+.result-pop-enter-from, .result-pop-leave-to { opacity: 0; }
+.result-pop-enter-active > div, .result-pop-leave-active > div { transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1); }
+.result-pop-enter-from > div, .result-pop-leave-to > div { transform: scale(0.85); }
 
 .pop-in { animation: pop-in 0.32s cubic-bezier(0.34, 1.56, 0.64, 1); }
 @keyframes pop-in {
