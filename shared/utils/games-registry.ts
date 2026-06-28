@@ -22,8 +22,8 @@ export const GAMES_REGISTRY: Record<string, GameDefinition> = {
   wheel: {
     play: playWheel
   },
-  goldparty: {
-    play: playGoldParty
+  magichands: {
+    play: playMagicHands
   }
 }
 
