@@ -25,13 +25,17 @@ const STAGGER = 110
 // avoids green (win) and red (loss). Covers stacked values too.
 //   2,5 → common (slate) · 10,15 → uncommon (blue) · 25 → rare (purple)
 //   50 → epic (pink) · 100+ → legendary (gold) · 500+ → mythic (bright gold glow)
+function tierColors(v: number): { bg: string, border: string, text: string, glow: string } {
+  if (v >= 500) return { bg: 'bg-amber-400/25', border: 'border-amber-300', text: 'text-amber-200', glow: 'shadow-[0_0_24px_-2px_var(--ui-warning)]' }
+  if (v >= 100) return { bg: 'bg-amber-500/20', border: 'border-amber-400', text: 'text-amber-300', glow: 'shadow-[0_0_16px_-3px_var(--ui-warning)]' }
+  if (v >= 50) return { bg: 'bg-fuchsia-500/15', border: 'border-fuchsia-400', text: 'text-fuchsia-300', glow: '' }
+  if (v >= 25) return { bg: 'bg-violet-500/15', border: 'border-violet-400', text: 'text-violet-300', glow: '' }
+  if (v >= 10) return { bg: 'bg-sky-500/15', border: 'border-sky-400', text: 'text-sky-300', glow: '' }
+  return { bg: 'bg-slate-500/15', border: 'border-slate-400', text: 'text-slate-300', glow: '' }
+}
 function tierClass(v: number): string {
-  if (v >= 500) return 'bg-amber-400/25 border-amber-300 text-amber-200 shadow-[0_0_24px_-2px_var(--ui-warning)]'
-  if (v >= 100) return 'bg-amber-500/20 border-amber-400 text-amber-300 shadow-[0_0_16px_-3px_var(--ui-warning)]'
-  if (v >= 50) return 'bg-fuchsia-500/15 border-fuchsia-400 text-fuchsia-300'
-  if (v >= 25) return 'bg-violet-500/15 border-violet-400 text-violet-300'
-  if (v >= 10) return 'bg-sky-500/15 border-sky-400 text-sky-300'
-  return 'bg-slate-500/15 border-slate-400 text-slate-300'
+  const t = tierColors(v)
+  return `${t.bg} ${t.border} ${t.text} ${t.glow}`.trim()
 }
 
 // --- bet config -------------------------------------------------------------
@@ -98,18 +102,28 @@ function multValue(i: number): number | undefined {
   return tileMult.value[i]
 }
 
-// Tile background reflects the board only (multipliers / winners) — never placement.
-// Placement state is carried entirely by the hand icon's colour.
+// Tile background reflects the board (multipliers / winners). The bright green
+// celebration is reserved for the player's OWN winning hand; other winning tiles
+// just get a muted green border so they read as "a winner, not your win".
 function tileClass(i: number): string {
   const mv = multValue(i)
   const isWin = revealedWinners.value.has(i)
+  const placed = placedSet.value.has(i)
 
-  if (mv !== undefined) {
-    return isWin
-      ? `${tierClass(mv)} ring-2 ring-success scale-[1.05] z-10 shadow-[0_0_18px_-2px_var(--ui-success)]`
-      : tierClass(mv)
+  // Your own winning hand — the only bright, celebratory state.
+  if (isWin && placed) {
+    return mv !== undefined
+      ? `${tierColors(mv).bg} ${tierColors(mv).text} border-success ring-2 ring-success scale-[1.05] z-10 shadow-[0_0_18px_-2px_var(--ui-success)]`
+      : 'bg-success/25 border-success text-success ring-2 ring-success scale-[1.05] z-10 shadow-[0_0_16px_-3px_var(--ui-success)]'
   }
-  if (isWin) return 'bg-success/10 border-success/40 text-success/80'
+  // A winning tile you have no hand on — keep its fill but use a muted green border.
+  if (isWin) {
+    return mv !== undefined
+      ? `${tierColors(mv).bg} ${tierColors(mv).text} border-success/40`
+      : 'bg-success/5 border-success/40 text-success/60'
+  }
+  // A multiplier tile that didn't win.
+  if (mv !== undefined) return tierClass(mv)
   return 'bg-elevated border-default text-muted'
 }
 
