@@ -21,14 +21,17 @@ const FINAL_INDEX = 24
 const SPIN_MS = 850
 const STAGGER = 110
 
-// Multiplier colour by magnitude (covers stacked values too).
+// Multiplier colour by magnitude — a game-style rarity ladder that deliberately
+// avoids green (win) and red (loss). Covers stacked values too.
+//   2,5 → common (slate) · 10,15 → uncommon (blue) · 25 → rare (purple)
+//   50 → epic (pink) · 100+ → legendary (gold) · 500+ → mythic (bright gold glow)
 function tierClass(v: number): string {
+  if (v >= 500) return 'bg-amber-400/25 border-amber-300 text-amber-200 shadow-[0_0_24px_-2px_var(--ui-warning)]'
   if (v >= 100) return 'bg-amber-500/20 border-amber-400 text-amber-300 shadow-[0_0_16px_-3px_var(--ui-warning)]'
-  if (v >= 25) return 'bg-fuchsia-500/15 border-fuchsia-400 text-fuchsia-300'
-  if (v >= 15) return 'bg-violet-500/15 border-violet-400 text-violet-300'
+  if (v >= 50) return 'bg-fuchsia-500/15 border-fuchsia-400 text-fuchsia-300'
+  if (v >= 25) return 'bg-violet-500/15 border-violet-400 text-violet-300'
   if (v >= 10) return 'bg-sky-500/15 border-sky-400 text-sky-300'
-  if (v >= 5) return 'bg-emerald-500/15 border-emerald-400 text-emerald-300'
-  return 'bg-zinc-500/15 border-zinc-400 text-zinc-200'
+  return 'bg-slate-500/15 border-slate-400 text-slate-300'
 }
 
 // --- bet config -------------------------------------------------------------
