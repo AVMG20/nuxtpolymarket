@@ -1,7 +1,7 @@
 import { playDice } from './gamelogic/dice'
 import { playLimbo } from './gamelogic/limbo'
 import { playWheel } from '#shared/utils/gamelogic/wheel'
-import { playGoldParty } from './gamelogic/goldparty'
+import { playMagicHands } from './gamelogic/magichands'
 
 export interface GameResult {
   payout: number

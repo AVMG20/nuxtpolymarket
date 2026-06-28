@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import type { GoldPartyResult, TopBarPass, PassSlot } from '#shared/utils/gamelogic/goldparty'
-import { GOLD_PARTY_MAX_HANDS, GOLD_PARTY_MULTIPLIERS } from '#shared/utils/gamelogic/goldparty'
+import type { MagicHandsResult, TopBarPass, PassSlot } from '#shared/utils/gamelogic/magichands'
+import { MAGIC_HANDS_MAX_HANDS, MAGIC_HANDS_MULTIPLIERS } from '#shared/utils/gamelogic/magichands'
 
 const { user, setBalance } = useAuth()
 const balance = ref(parseFloat(user.value?.balance ?? '0'))
@@ -11,7 +11,7 @@ watch(() => user.value?.balance, (v) => {
 const COLS = 5
 const ROWS = 8
 const TILES = COLS * ROWS
-const MAX_HANDS = GOLD_PARTY_MAX_HANDS
+const MAX_HANDS = MAGIC_HANDS_MAX_HANDS
 const tiles = Array.from({ length: TILES }, (_, i) => i)
 
 // Reel geometry for the slot-machine top bar.
@@ -61,7 +61,7 @@ const passLabel = ref('')
 const tileMult = ref<Record<number, number>>({})
 const stampedTile = ref<number | null>(null)
 const revealedWinners = ref<Set<number>>(new Set())
-const result = ref<GoldPartyResult | null>(null)
+const result = ref<MagicHandsResult | null>(null)
 const showPayout = ref(false)
 const showHelp = ref(false)
 const errorMsg = ref('')
@@ -149,7 +149,7 @@ function randomSym(): ReelSym {
   const r = Math.random()
   if (r < 0.30) return { kind: 'nothing' }
   if (r < 0.40) return { kind: 'reroll' }
-  return { kind: 'mult', value: GOLD_PARTY_MULTIPLIERS[Math.floor(Math.random() * GOLD_PARTY_MULTIPLIERS.length)] }
+  return { kind: 'mult', value: MAGIC_HANDS_MULTIPLIERS[Math.floor(Math.random() * MAGIC_HANDS_MULTIPLIERS.length)] }
 }
 function symFor(slot: PassSlot): ReelSym {
   if (slot.type === 'multiplier') return { kind: 'mult', value: slot.value ?? 0 }
@@ -214,13 +214,13 @@ async function play() {
       method: 'POST',
       body: {
         bet: stake,
-        game: 'goldparty',
+        game: 'magichands',
         options: {
           handValue: handValue.value,
           placements: [...placements.value]
         }
       }
-    }) as { gameData: GoldPartyResult, balance: number }
+    }) as { gameData: MagicHandsResult, balance: number }
 
     result.value = data.gameData
     await runReveal(data)
@@ -271,7 +271,7 @@ async function applyPass(pass: TopBarPass) {
   stampedTile.value = null
 }
 
-async function runReveal(data: { gameData: GoldPartyResult, balance: number }) {
+async function runReveal(data: { gameData: MagicHandsResult, balance: number }) {
   const res = data.gameData
 
   // 1. Top bar — spin, process, and re-spin on each reroll pass.
@@ -348,10 +348,10 @@ onUnmounted(() => {
     <div>
       <h1 class="text-2xl font-bold flex items-center gap-2">
         <UIcon
-          name="i-lucide-party-popper"
+          name="i-lucide-hand"
           class="size-6 text-warning"
         />
-        Gold Party
+        Magic Hands
       </h1>
       <p class="text-sm text-muted mt-0.5">
         98% RTP · place hands, chase stacking gold multipliers
@@ -459,9 +459,9 @@ onUnmounted(() => {
             <p class="text-xs text-muted uppercase tracking-wide font-medium mb-2">
               Multipliers · stack &amp; cap 2500×
             </p>
-            <div class="grid grid-cols-4 gap-1.5">
+            <div class="grid grid-cols-5 gap-1.5">
               <span
-                v-for="m in GOLD_PARTY_MULTIPLIERS"
+                v-for="m in MAGIC_HANDS_MULTIPLIERS"
                 :key="m"
                 class="text-center text-xs font-bold font-mono rounded border py-1"
                 :class="tierClass(m)"
@@ -767,7 +767,7 @@ onUnmounted(() => {
     <!-- Help -->
     <UModal
       v-model:open="showHelp"
-      title="How Gold Party works"
+      title="How Magic Hands works"
       :ui="{ content: 'max-w-md' }"
     >
       <template #body>

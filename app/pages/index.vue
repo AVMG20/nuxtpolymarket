@@ -37,10 +37,10 @@ const casinoGames = [
     iconColor: 'text-amber-400',
   },
   {
-    name: 'Gold Party',
+    name: 'Magic Hands',
     description: 'Place your hands and chase gold multipliers on the grid',
-    icon: 'i-lucide-party-popper',
-    to: '/games/goldparty',
+    icon: 'i-lucide-hand',
+    to: '/games/magichands',
     gradient: 'from-yellow-950 to-slate-900',
     iconColor: 'text-yellow-400',
   },
