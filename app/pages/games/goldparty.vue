@@ -459,7 +459,7 @@ onUnmounted(() => {
             <p class="text-xs text-muted uppercase tracking-wide font-medium mb-2">
               Multipliers · stack &amp; cap 2500×
             </p>
-            <div class="grid grid-cols-4 gap-1.5">
+            <div class="grid grid-cols-5 gap-1.5">
               <span
                 v-for="m in GOLD_PARTY_MULTIPLIERS"
                 :key="m"

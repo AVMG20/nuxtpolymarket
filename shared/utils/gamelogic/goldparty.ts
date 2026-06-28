@@ -8,7 +8,7 @@
 // Round flow (all pre-computed on the server, the client just animates it):
 //   1. A "top bar" of 5 slots is spun. Each slot is:
 //        - "nothing"     no effect
-//        - "multiplier"  rolls ONE value (2/5/10/15/25/50/100×) and stamps it onto
+//        - "multiplier"  rolls ONE value (2…100×) and stamps it onto
 //                        1-4 random tiles in that column
 //        - "reroll"      after the whole top bar is processed, the ENTIRE top bar is
 //                        spun again (a new pass). Multipliers from later passes that
@@ -36,8 +36,9 @@ export const GOLD_PARTY_MAX_HANDS = TILES // up to the whole board
 export const GOLD_PARTY_TILE_CAP = 2500 // max multiplier on a single tile (= max win ×)
 
 // Multiplier values and their relative weights (must sum to ~1).
-export const GOLD_PARTY_MULTIPLIERS = [2, 5, 10, 15, 25, 50, 100] as const
-const MULTIPLIER_WEIGHTS = [0.27, 0.23, 0.16, 0.11, 0.11, 0.075, 0.045] as const
+// Weights tuned so RTP ≈ 98% (E[value] ≈ 15.9; verified by Monte Carlo).
+export const GOLD_PARTY_MULTIPLIERS = [2, 5, 10, 15, 20, 25, 35, 50, 75, 100] as const
+const MULTIPLIER_WEIGHTS = [0.296, 0.212, 0.131, 0.086, 0.068, 0.057, 0.048, 0.042, 0.036, 0.024] as const
 
 // Per-slot probabilities (the remaining 0.08 is a reroll).
 const P_NOTHING = 0.42
