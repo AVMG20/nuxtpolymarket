@@ -1,6 +1,6 @@
-// shared/utils/gamelogic/goldparty.ts
+// shared/utils/gamelogic/magichands.ts
 //
-// "Gold Party" — a live grid reveal game.
+// "Magic Hands" — a live grid reveal game.
 //
 // Grid: 5 columns × 8 rows = 40 tiles. Tile indices are row-major:
 //   index = row * COLS + col   →   col = index % COLS, row = floor(index / COLS)
@@ -32,12 +32,12 @@ const COLS = 5
 const ROWS = 8
 const TILES = COLS * ROWS // 40
 
-export const GOLD_PARTY_MAX_HANDS = TILES // up to the whole board
-export const GOLD_PARTY_TILE_CAP = 2500 // max multiplier on a single tile (= max win ×)
+export const MAGIC_HANDS_MAX_HANDS = TILES // up to the whole board
+export const MAGIC_HANDS_TILE_CAP = 2500 // max multiplier on a single tile (= max win ×)
 
 // Multiplier values and their relative weights (must sum to ~1).
 // Weights tuned so RTP ≈ 98% (E[value] ≈ 15.9; verified by Monte Carlo).
-export const GOLD_PARTY_MULTIPLIERS = [2, 5, 10, 15, 20, 25, 35, 50, 75, 100] as const
+export const MAGIC_HANDS_MULTIPLIERS = [2, 5, 10, 15, 20, 25, 35, 50, 75, 100] as const
 const MULTIPLIER_WEIGHTS = [0.296, 0.212, 0.131, 0.086, 0.068, 0.057, 0.048, 0.042, 0.036, 0.024] as const
 
 // Per-slot probabilities (the remaining 0.08 is a reroll).
@@ -76,7 +76,7 @@ export interface HandWin {
   amount: number // handValue × multiplier
 }
 
-export interface GoldPartyResult {
+export interface MagicHandsResult {
   handCount: number
   handValue: number
   totalStake: number
@@ -107,11 +107,11 @@ function randInt(minInclusive: number, maxInclusive: number): number {
 function pickMultiplierValue(): number {
   const r = rand()
   let acc = 0
-  for (let i = 0; i < GOLD_PARTY_MULTIPLIERS.length; i++) {
+  for (let i = 0; i < MAGIC_HANDS_MULTIPLIERS.length; i++) {
     acc += MULTIPLIER_WEIGHTS[i]!
-    if (r < acc) return GOLD_PARTY_MULTIPLIERS[i]!
+    if (r < acc) return MAGIC_HANDS_MULTIPLIERS[i]!
   }
-  return GOLD_PARTY_MULTIPLIERS[GOLD_PARTY_MULTIPLIERS.length - 1]!
+  return MAGIC_HANDS_MULTIPLIERS[MAGIC_HANDS_MULTIPLIERS.length - 1]!
 }
 
 function rollSlot(): SlotType {
@@ -142,15 +142,15 @@ function pickDistinct(pool: number[], count: number): number[] {
 
 // --- main entry -------------------------------------------------------------
 
-export function playGoldParty(bet: number, options?: Record<string, unknown>): GoldPartyResult {
+export function playMagicHands(bet: number, options?: Record<string, unknown>): MagicHandsResult {
   const handValue = Number(options?.handValue ?? 0)
   const placements = Array.isArray(options?.placements)
     ? (options!.placements as unknown[]).map(v => Math.trunc(Number(v)))
     : []
   const handCount = placements.length
 
-  if (handCount < 1 || handCount > GOLD_PARTY_MAX_HANDS) {
-    throw createError({ statusCode: 400, message: `Place between 1 and ${GOLD_PARTY_MAX_HANDS} hands` })
+  if (handCount < 1 || handCount > MAGIC_HANDS_MAX_HANDS) {
+    throw createError({ statusCode: 400, message: `Place between 1 and ${MAGIC_HANDS_MAX_HANDS} hands` })
   }
   if (!Number.isFinite(handValue) || handValue <= 0) {
     throw createError({ statusCode: 400, message: 'Hand value must be greater than 0' })
@@ -191,7 +191,7 @@ export function playGoldParty(bet: number, options?: Record<string, unknown>): G
         const count = randInt(TILES_PER_MULTIPLIER_MIN, TILES_PER_MULTIPLIER_MAX)
         const tiles = pickDistinct(tilesInColumn(col), count).sort((a, b) => a - b)
         for (const tile of tiles) {
-          multiplierTiles[tile] = Math.min((multiplierTiles[tile] ?? 1) * value, GOLD_PARTY_TILE_CAP)
+          multiplierTiles[tile] = Math.min((multiplierTiles[tile] ?? 1) * value, MAGIC_HANDS_TILE_CAP)
         }
         slots.push({ col, type, value, tiles })
       } else {
@@ -236,7 +236,7 @@ export function playGoldParty(bet: number, options?: Record<string, unknown>): G
     wins,
     payout,
     won: payout > totalStake,
-    maxWin: totalStake * GOLD_PARTY_TILE_CAP,
-    tileCap: GOLD_PARTY_TILE_CAP
+    maxWin: totalStake * MAGIC_HANDS_TILE_CAP,
+    tileCap: MAGIC_HANDS_TILE_CAP
   }
 }
