@@ -71,19 +71,27 @@ const B_H = 3 * (B_CELL + B_GAP) - B_GAP
 
 const wait = (ms: number) => new Promise<void>(r => setTimeout(r, ms))
 
-// Base-symbol appearance. Low values are classic card ranks; the high tiers are
-// themed xeno glyphs (these are the ones we'll later swap for plant art).
+// Symbol tiers follow an RPG item-quality ramp so value is immediately readable:
+//   common (gray) → uncommon (green) → rare (blue) → epic (purple) → legendary (gold) → wild (red)
+//   bonus is its own fuchsia category (trigger, not a pay symbol).
 const VISUALS: Record<SlotSymbol, { bg: number, border: number, fg: number, label: string, size?: number }> = {
-  ten: { bg: 0x1e293b, border: 0x475569, fg: 0xcbd5e1, label: '10', size: 38 },
-  jack: { bg: 0x1e293b, border: 0x64748b, fg: 0xe2e8f0, label: 'J', size: 46 },
-  queen: { bg: 0x241b33, border: 0x8b5cf6, fg: 0xddd6fe, label: 'Q', size: 46 },
-  king: { bg: 0x0c2340, border: 0x3b82f6, fg: 0xbfdbfe, label: 'K', size: 46 },
-  ace: { bg: 0x05231f, border: 0x14b8a6, fg: 0x99f6e4, label: 'A', size: 46 },
-  bell: { bg: 0x07261a, border: 0x22c55e, fg: 0xbbf7d0, label: '🍀', size: 50 },
-  seven: { bg: 0x2a0a2e, border: 0xa855f7, fg: 0xe9d5ff, label: '🌺', size: 52 },
-  diamond: { bg: 0x10233a, border: 0x06b6d4, fg: 0xa5f3fc, label: '🔮', size: 52 },
-  wild: { bg: 0x3a1a05, border: 0xfacc15, fg: 0xfef08a, label: 'W', size: 54 },
-  bonus: { bg: 0x3a0a3e, border: 0xe879f9, fg: 0xf5d0fe, label: '🪐', size: 52 }
+  // ── Common (gray) ──────────────────────────────────────────────────────────
+  ten:     { bg: 0x18181b, border: 0x52525b, fg: 0xa1a1aa, label: '10',  size: 38 },
+  jack:    { bg: 0x1c1c1f, border: 0x71717a, fg: 0xd4d4d8, label: 'J',   size: 46 },
+  // ── Uncommon (green) ───────────────────────────────────────────────────────
+  queen:   { bg: 0x061a0e, border: 0x16a34a, fg: 0x86efac, label: 'Q',   size: 46 },
+  king:    { bg: 0x072b12, border: 0x22c55e, fg: 0xbbf7d0, label: 'K',   size: 46 },
+  // ── Rare (blue) ────────────────────────────────────────────────────────────
+  ace:     { bg: 0x0b1533, border: 0x3b82f6, fg: 0x93c5fd, label: 'A',   size: 46 },
+  bell:    { bg: 0x051a22, border: 0x06b6d4, fg: 0x67e8f9, label: '🌱',  size: 50 },
+  // ── Epic (purple) ──────────────────────────────────────────────────────────
+  seven:   { bg: 0x150929, border: 0x9333ea, fg: 0xd8b4fe, label: '🌿',  size: 52 },
+  // ── Legendary (gold) ───────────────────────────────────────────────────────
+  diamond: { bg: 0x1a1200, border: 0xf59e0b, fg: 0xfde68a, label: '🍀',  size: 52 },
+  // ── Wild (red — highest pay) ───────────────────────────────────────────────
+  wild:    { bg: 0x250404, border: 0xef4444, fg: 0xfecaca, label: '🍄‍',  size: 54 },
+  // ── Bonus (fuchsia — trigger only, not a pay symbol) ──────────────────────
+  bonus:   { bg: 0x1e0528, border: 0xe879f9, fg: 0xf5d0fe, label: '🃏',  size: 52 }
 }
 
 // Paytable rows for the help modal, high → low (× line bet for 3/4/5 of a kind).
@@ -690,7 +698,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
         Xeno Slot
       </h1>
       <p class="text-sm text-muted mt-0.5">
-        5×3 line-pay slot · 3 🪐 trigger the Hold &amp; Win bonus · ~98% RTP
+        5×3 line slot · ~98% RTP
       </p>
     </div>
 
@@ -754,9 +762,6 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
                   name="i-lucide-zap"
                   class="size-4 text-warning"
                 /> Turbo spin
-              </p>
-              <p class="text-xs text-muted mt-0.5">
-                Faster base spins · the bonus always plays in full
               </p>
             </div>
             <USwitch v-model="turbo" />
@@ -928,19 +933,28 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
       title="How Xeno Slot works"
     >
       <template #body>
-        <div class="space-y-4">
-          <ul class="text-sm text-muted space-y-2 list-disc list-inside">
-            <li>Spin the 5×3 reels. Wins pay left-to-right on <strong class="text-default">{{ XENOSLOT_LINES }} fixed paylines</strong>.</li>
-            <li>Land <strong class="text-default">{{ BONUS_TRIGGER_COUNT }}+ of a kind</strong> from the leftmost reel to win. <strong class="text-default">WILD</strong> substitutes for everything except the bonus.</li>
-            <li>Land <strong class="text-default">{{ BONUS_TRIGGER_COUNT }}+ 🪐 bonus</strong> symbols anywhere to trigger the <strong class="text-default">Hold &amp; Win</strong> feature — on average <strong class="text-default">about 1 in {{ formatNumber(bonusOdds, true, 0) }} spins</strong>.</li>
+        <div class="space-y-4 text-sm text-muted">
+          <!-- Quick rules -->
+          <ul class="space-y-1.5 list-disc list-inside">
+            <li>Match <strong class="text-default">3, 4 or 5</strong> of the same symbol left-to-right on any of the <strong class="text-default">{{ XENOSLOT_LINES }} paylines</strong>. 🍄‍ WILD substitutes for any symbol.</li>
+            <li>Land <strong class="text-default">3+ 🃏</strong> anywhere to trigger <strong class="text-default">Hold &amp; Win</strong> (~1 in {{ formatNumber(bonusOdds, true, 0) }} spins).</li>
           </ul>
 
           <!-- Paytable -->
           <div>
             <p class="text-xs uppercase tracking-wide text-muted font-medium mb-2">
-              Symbol pays <span class="normal-case">(× line bet — for 3 / 4 / 5 of a kind)</span>
+              Pays × line bet
             </p>
             <div class="rounded-lg border border-default overflow-hidden">
+              <!-- Header -->
+              <div class="grid grid-cols-[auto_1fr] text-xs text-muted bg-elevated/60 border-b border-default">
+                <div class="px-3 py-1" />
+                <div class="px-3 py-1 flex justify-end gap-3 font-medium">
+                  <span class="w-10 text-right">3×</span>
+                  <span class="w-10 text-right">4×</span>
+                  <span class="w-10 text-right text-default">5×</span>
+                </div>
+              </div>
               <div class="grid grid-cols-[auto_1fr] items-center text-sm">
                 <template
                   v-for="(row, i) in paytableRows"
@@ -956,9 +970,9 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
                     class="px-3 py-1.5 font-mono tabular-nums flex justify-end gap-3"
                     :class="i % 2 ? 'bg-elevated/40' : ''"
                   >
-                    <span class="text-muted">{{ row.pays[0] }}×</span>
-                    <span class="text-muted">{{ row.pays[1] }}×</span>
-                    <span class="text-default font-bold">{{ row.pays[2] }}×</span>
+                    <span class="w-10 text-right text-muted">{{ row.pays[0] }}×</span>
+                    <span class="w-10 text-right text-muted">{{ row.pays[1] }}×</span>
+                    <span class="w-10 text-right font-bold text-default">{{ row.pays[2] }}×</span>
                   </div>
                 </template>
               </div>
@@ -970,11 +984,10 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
             <p class="text-xs uppercase tracking-wide text-muted font-medium mb-2">
               Hold &amp; Win bonus
             </p>
-            <ul class="text-sm text-muted space-y-2 list-disc list-inside">
-              <li>You get <strong class="text-default">{{ BONUS_FREE_SPINS }} free spins</strong>. <strong class="text-default">Coins</strong> stick to the grid with a cash value and pile up — bigger values glow brighter (bronze → silver → gold → platinum).</li>
-              <li><strong class="text-default">Glovers</strong> (<span class="text-success font-bold">×2</span> / <span class="text-success font-bold">×5</span> / <span class="text-success font-bold">×10</span>) multiply every coin in the 8 surrounding cells, then vanish.</li>
-              <li><strong class="text-default">🧺 Baskets</strong> pull in the value of every coin on the grid, then wipe the board clean — freeing it up for more.</li>
-              <li><strong class="text-default">Only collected money counts</strong> — if no basket lands, the bonus pays nothing. Max win {{ formatNumber(XENOSLOT_MAX_WIN_MULT, false ,0) }}× your bet.</li>
+            <ul class="space-y-1.5 list-disc list-inside">
+              <li><strong class="text-default">{{ BONUS_FREE_SPINS }} spins.</strong> Coins stick to the board with a cash value — bigger coins glow brighter.</li>
+              <li><strong class="text-default">🍀 Glovers</strong> (<span class="text-success font-bold">×2</span> / <span class="text-success font-bold">×5</span> / <span class="text-success font-bold">×10</span>) multiply all adjacent coins, then vanish.</li>
+              <li><strong class="text-default">🧺 Baskets</strong> collect every coin on the board and wipe it clean. <strong class="text-default">Only collected coins pay out</strong> — max {{ formatNumber(XENOSLOT_MAX_WIN_MULT, false, 0) }}× bet.</li>
             </ul>
           </div>
         </div>
