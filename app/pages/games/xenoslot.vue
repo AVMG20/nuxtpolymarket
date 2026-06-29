@@ -94,9 +94,14 @@ const VISUALS: Record<SlotSymbol, { bg: number, border: number, fg: number, labe
   bonus:   { bg: 0x1e0528, border: 0xe879f9, fg: 0xf5d0fe, label: '🃏',  size: 52 }
 }
 
-// Paytable rows for the help modal, high → low (× line bet for 3/4/5 of a kind).
+// Paytable rows for the help modal, high → low.
+// Divide by XENOSLOT_LINES so the values are × total bet (what the player actually feels).
 const PAY_ORDER: Exclude<SlotSymbol, 'bonus'>[] = ['wild', 'diamond', 'seven', 'bell', 'ace', 'king', 'queen', 'jack', 'ten']
-const paytableRows = PAY_ORDER.map(sym => ({ sym, label: VISUALS[sym].label, pays: PAYTABLE[sym] }))
+const paytableRows = PAY_ORDER.map(sym => ({
+  sym,
+  label: VISUALS[sym].label,
+  pays: PAYTABLE[sym].map(p => Math.round((p / XENOSLOT_LINES) * 10) / 10) as [number, number, number]
+}))
 
 // Coin metal tiers, picked from a coin's bet-multiplier so colour is stable
 // regardless of stake. face = disc, rim = edge, shine = gloss, ring = inner
@@ -770,13 +775,8 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
           <!-- Stats -->
           <div class="rounded-lg bg-elevated border border-default p-3 space-y-2">
             <div class="flex items-center justify-between text-sm">
-              <span class="text-muted">Lines</span>
+              <span class="text-muted">Paylines</span>
               <span class="font-bold tabular-nums">{{ XENOSLOT_LINES }}</span>
-            </div>
-            <USeparator />
-            <div class="flex items-center justify-between text-sm">
-              <span class="text-muted">Bet / line</span>
-              <span class="font-bold tabular-nums">${{ formatNumber(lineBet, false) }}</span>
             </div>
             <USeparator />
             <div class="flex items-center justify-between text-sm">
@@ -943,7 +943,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
           <!-- Paytable -->
           <div>
             <p class="text-xs uppercase tracking-wide text-muted font-medium mb-2">
-              Pays × line bet
+              Pays × your bet
             </p>
             <div class="rounded-lg border border-default overflow-hidden">
               <!-- Header -->
