@@ -213,7 +213,7 @@ function makeSymbolClasses() {
 
     setValue(amount: number, mult?: number) {
       if (mult !== undefined) { this._tier = tierFor(mult); this._drawCoin() }
-      this.label.text = formatNumber(amount, true)
+      this.label.text = formatNumber(amount, true, 0)
     }
 
     onActivate() { this.view.alpha = 1; this._drawCoin(); if (!this.label.text) this.label.text = '' }
