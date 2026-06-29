@@ -31,6 +31,9 @@ function formatMs(ms: number) {
   if (m > 0) return `${m}m ${s % 60}s`
   return `${s}s`
 }
+function formatEndTime(completesAt: string | Date) {
+  return new Date(completesAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+}
 function formatDuration(ms: number) {
   const h = Math.round(ms / 3_600_000)
   if (h < 24) return `${h}h`
@@ -310,9 +313,12 @@ function deployBlockedReason(t: any): string | null {
               </div>
             </div>
             <div class="text-right shrink-0">
-              <p class="text-lg font-bold" :class="isDone(op) ? 'hidden' : 'text-primary'">
-                {{ formatMs(msLeft(op.completesAt)) }}
-              </p>
+              <template v-if="!isDone(op)">
+                <p class="text-lg font-bold text-primary">
+                  {{ formatMs(msLeft(op.completesAt)) }}
+                </p>
+                <p class="text-xs text-muted tabular-nums">{{ formatEndTime(op.completesAt) }}</p>
+              </template>
               <UButton
                 v-if="isDone(op)"
                 size="sm"
