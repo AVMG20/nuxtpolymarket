@@ -150,6 +150,23 @@ export const xenoPlants = pgTable('xeno_plants', {
   yield: integer('yield').notNull(),
 }, (t) => [index('xeno_plants_userId_idx').on(t.userId)])
 
+/**
+ * Permanent record of every plant type a user has ever obtained. Unlocks are
+ * never removed, so selling or breeding away every instance of a plant does not
+ * soft-lock the player out of buying it again or seeing it in the encyclopedia.
+ * Written via addPlants whenever plants are acquired.
+ */
+// eslint-disable-next-line @typescript-eslint/no-use-before-define
+export const xenoPlantsUnlocked = pgTable('xeno_plants_unlocked', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  typeId: text('type_id').notNull(),
+  unlockedAt: timestamp('unlocked_at').defaultNow().notNull(),
+}, (t) => [
+  index('xeno_plants_unlocked_userId_idx').on(t.userId),
+  unique('xeno_plants_unlocked_unique').on(t.userId, t.typeId),
+])
+
 /** Artifact instances: each row is one artifact with its remaining charges */
 export const xenoArtifacts = pgTable('xeno_artifacts', {
   id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),

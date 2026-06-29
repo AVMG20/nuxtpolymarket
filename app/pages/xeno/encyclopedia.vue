@@ -13,17 +13,13 @@ import {
 import { formatDuration } from '~/utils/xeno-format'
 
 const mutationOffspring = MUTATION_OFFSPRING
-const { inventory, gridSlots } = useXeno()
+const { unlockedTypeIds } = useXeno()
 const { virtualEl: cursorEl, track: trackCursor } = useTooltipCursor()
 
 // ── Discovery logic ──────────────────────────────────────────────────────────
-// A plant type is "discovered" if the user currently has any in inventory or planted in grid.
-const discoveredIds = computed(() => {
-  const ids = new Set<string>()
-  inventory.value.forEach((i: any) => ids.add(i.typeId))
-  gridSlots.value.forEach((s: any) => { if (s.plant) ids.add(s.plant.typeId) })
-  return ids
-})
+// A plant type is "discovered" once it has ever been unlocked — permanent, so
+// selling or breeding away every instance never hides a plant again.
+const discoveredIds = computed(() => new Set(unlockedTypeIds.value))
 
 // ── Tier groupings ───────────────────────────────────────────────────────────
 const TIER_LABELS: Record<number, string> = {

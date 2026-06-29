@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm'
 import { db } from '#server/database'
-import { xenoPlants, xenoArtifacts, xenoGridSlots, xenoBreederSlots, gemMarketState } from '#server/database/schema'
+import { xenoPlants, xenoPlantsUnlocked, xenoArtifacts, xenoGridSlots, xenoBreederSlots, gemMarketState } from '#server/database/schema'
 import { auth } from '#server/utils/auth'
 import { computeGridDuration, computeBreedDuration } from '#server/utils/xeno'
 import {
@@ -16,12 +16,17 @@ export default defineEventHandler(async (event) => {
 
   const userId = session.user.id
 
-  const [plants, artifacts, gridSlots, breederSlots] = await Promise.all([
+  const [plants, artifacts, gridSlots, breederSlots, unlockedRows] = await Promise.all([
     db.query.xenoPlants.findMany({ where: eq(xenoPlants.userId, userId) }),
     db.query.xenoArtifacts.findMany({ where: eq(xenoArtifacts.userId, userId) }),
     db.query.xenoGridSlots.findMany({ where: eq(xenoGridSlots.userId, userId) }),
     db.query.xenoBreederSlots.findMany({ where: eq(xenoBreederSlots.userId, userId) }),
+    db.query.xenoPlantsUnlocked.findMany({ where: eq(xenoPlantsUnlocked.userId, userId) }),
   ])
+
+  // Permanent unlock set — drives the market, encyclopedia and hybrid vendor so
+  // selling/breeding away every instance never re-locks a discovered plant.
+  const unlockedTypeIds = [...new Set(unlockedRows.map(r => r.typeId))]
 
   const initialized = gridSlots.length > 0
 
@@ -117,7 +122,7 @@ export default defineEventHandler(async (event) => {
 
   // ── Hybrid vendor ──────────────────────────────────────────────────────────
   // Hybrid tier = highest tier where the player has unlocked EVERY plant.
-  const realTypeIds = [...new Set(plants.map(p => p.typeId).filter(id => !isHybrid(id)))]
+  const realTypeIds = unlockedTypeIds.filter(id => !isHybrid(id))
   const highestTier = realTypeIds.reduce((max, id) => Math.max(max, getPlant(id)?.tier ?? 0), 0)
   const hybridTier = hybridTierFromUnlocked(realTypeIds)
   const hybridUnlocked = hybridTier >= HYBRID_UNLOCK_TIER
@@ -148,7 +153,7 @@ export default defineEventHandler(async (event) => {
       nextTier,
       nextTierProgress,
     },
-    unlockedTypeIds: [...new Set(plants.map(p => p.typeId))],
+    unlockedTypeIds,
     freeArtifacts: freeArtifacts.map(a => ({
       id: a.id, typeId: a.typeId, chargesRemaining: a.chargesRemaining,
     })),

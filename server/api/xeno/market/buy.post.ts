@@ -1,6 +1,6 @@
 import { and, eq } from 'drizzle-orm'
 import { db } from '#server/database'
-import { xenoPlants } from '#server/database/schema'
+import { xenoPlantsUnlocked } from '#server/database/schema'
 import { auth } from '#server/utils/auth'
 import { addPlants } from '#server/utils/xeno'
 import { debit } from '#server/utils/balance'
@@ -19,10 +19,10 @@ export default defineEventHandler(async (event) => {
 
   const plant = getPlantOrThrow(body.typeId)
 
-  const owned = await db.query.xenoPlants.findFirst({
-    where: and(eq(xenoPlants.userId, userId), eq(xenoPlants.typeId, body.typeId)),
+  const unlocked = await db.query.xenoPlantsUnlocked.findFirst({
+    where: and(eq(xenoPlantsUnlocked.userId, userId), eq(xenoPlantsUnlocked.typeId, body.typeId)),
   })
-  if (!owned) throw createError({ statusCode: 403, statusMessage: 'Plant type not unlocked' })
+  if (!unlocked) throw createError({ statusCode: 403, statusMessage: 'Plant type not unlocked' })
 
   const unitPrice = plantBuyPrice(plant)
   const total = unitPrice * qty

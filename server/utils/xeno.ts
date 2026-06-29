@@ -1,6 +1,6 @@
 import { eq, and, sql } from 'drizzle-orm'
 import { db } from '#server/database'
-import { xenoPlants, xenoArtifacts, xenoGridSlots, xenoBreederSlots, user } from '#server/database/schema'
+import { xenoPlants, xenoPlantsUnlocked, xenoArtifacts, xenoGridSlots, xenoBreederSlots, user } from '#server/database/schema'
 import {
   getArtifact, getEffectValue, getPlant, getPlantDisplay,
   effectiveGrowTime, breedDuration, getMutationPair,
@@ -114,6 +114,10 @@ export async function addPlants(
   await db.insert(xenoPlants).values(
     Array.from({ length: quantity }, () => ({ userId, typeId, speed, yield: yield_ })),
   )
+  // Permanently mark this plant type as unlocked for the user (idempotent).
+  await db.insert(xenoPlantsUnlocked)
+    .values({ userId, typeId })
+    .onConflictDoNothing()
 }
 
 /**
