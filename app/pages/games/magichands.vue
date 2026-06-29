@@ -319,7 +319,6 @@ async function runReveal(data: { gameData: MagicHandsResult, balance: number }) 
     net: res.payout - res.totalStake
   })
   if (history.value.length > 10) history.value.pop()
-  showPayout.value = true
 }
 
 // --- payout summary ---------------------------------------------------------
@@ -600,7 +599,7 @@ onUnmounted(() => {
             </div>
 
             <!-- Status line -->
-            <div class="mt-4 text-center text-sm font-mono h-6">
+            <div class="mt-4 text-center text-sm font-mono h-9 flex items-center justify-center">
               <span
                 v-if="phase === 'idle'"
                 class="text-muted"
@@ -630,9 +629,22 @@ onUnmounted(() => {
               >Picking winning tiles…</span>
               <span
                 v-else-if="phase === 'done' && result"
-                :class="result.won ? 'text-success font-bold' : 'text-muted'"
+                class="inline-flex items-center gap-1.5"
               >
-                {{ result.won ? `You won $${formatNumber(result.payout, false)}!` : `Paid $${formatNumber(result.payout, false)}` }}
+                <span
+                  class="text-lg font-bold tabular-nums"
+                  :class="result.won ? 'text-success' : 'text-muted'"
+                >
+                  ${{ formatNumber(result.payout, false) }}
+                </span>
+                <UButton
+                  icon="i-lucide-circle-help"
+                  color="neutral"
+                  variant="ghost"
+                  size="xs"
+                  aria-label="Round details"
+                  @click="showPayout = true"
+                />
               </span>
             </div>
           </div>
