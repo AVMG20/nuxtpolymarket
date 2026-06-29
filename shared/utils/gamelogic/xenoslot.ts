@@ -48,15 +48,15 @@ export type SlotSymbol
     | 'wild' | 'bonus'
 
 // Reel strip weights (same for every reel). Higher = more frequent.
-const SYMBOL_WEIGHTS: Record<SlotSymbol, number> = {
+export const SYMBOL_WEIGHTS: Record<SlotSymbol, number> = {
   ten: 30, jack: 28, queen: 24, king: 20, ace: 16,
   bell: 12, seven: 7, diamond: 4,
-  wild: 4, bonus: 50
+  wild: 4, bonus: 5
 }
 
 // Paytable: payout multiplier of the LINE bet for [3, 4, 5] of a kind.
 // BONUS never pays on a line (it only triggers the feature).
-const PAYTABLE: Record<Exclude<SlotSymbol, 'bonus'>, [number, number, number]> = {
+export const PAYTABLE: Record<Exclude<SlotSymbol, 'bonus'>, [number, number, number]> = {
   ten: [5, 10, 25],
   jack: [5, 10, 25],
   queen: [8, 15, 40],
@@ -78,20 +78,28 @@ const PAYLINES: number[][] = [
 ]
 export const XENOSLOT_LINES = PAYLINES.length
 
-const BONUS_TRIGGER_COUNT = 3 // BONUS symbols needed to start the feature
+export const BONUS_TRIGGER_COUNT = 3 // BONUS symbols needed to start the feature
+export const XENOSLOT_CELLS = XENOSLOT_COLS * XENOSLOT_ROWS
 
 // --- bonus feature tuning ---------------------------------------------------
 
 export const BONUS_FREE_SPINS = 10 // fixed number of bonus spins
 
-// Per free cell, per spin: chance to land a coin / a collector.
+// Per free cell, per spin: chance to land a coin / a collector / a glover.
 // (Only collectors pay out, so they land fairly often.)
-const P_COIN = 0.15
+const P_COIN = 0.12
 const P_COLLECTOR = 0.055
+const P_GLOVER = 0.011
 
 // Coin face values (× bet) and their relative weights. Heavily low-skewed.
 const COIN_VALUES = [0.2, 0.5, 1, 2, 5, 10, 25, 50] as const
 const COIN_WEIGHTS = [0.34, 0.26, 0.18, 0.1, 0.06, 0.035, 0.02, 0.005] as const
+
+// Glover (multiplier) — when one lands it multiplies the value of every coin in
+// the 8 neighbouring cells by its multiplier, then vanishes (it never occupies
+// a cell). Higher multipliers are rare.
+const GLOVER_MULTS = [2, 5, 10] as const
+const GLOVER_WEIGHTS = [0.7, 0.24, 0.06] as const
 
 // --- crypto RNG helpers -----------------------------------------------------
 
@@ -122,6 +130,24 @@ function pickCoinValue(): number {
   return weightedPick(COIN_VALUES, COIN_WEIGHTS)
 }
 
+function pickGloverMult(): number {
+  return weightedPick(GLOVER_MULTS, GLOVER_WEIGHTS)
+}
+
+// The (up to) 8 cells surrounding a cell, clamped to the grid.
+function neighbors(c: Cell): Cell[] {
+  const out: Cell[] = []
+  for (let dc = -1; dc <= 1; dc++) {
+    for (let dr = -1; dr <= 1; dr++) {
+      if (dc === 0 && dr === 0) continue
+      const col = c.col + dc
+      const row = c.row + dr
+      if (col >= 0 && col < XENOSLOT_COLS && row >= 0 && row < XENOSLOT_ROWS) out.push({ col, row })
+    }
+  }
+  return out
+}
+
 // --- result shapes ----------------------------------------------------------
 
 export interface Cell { col: number, row: number }
@@ -144,10 +170,23 @@ export interface BonusCollector {
   collected: number // summed coin value harvested (× bet)
 }
 
+export interface GloverUpgrade {
+  cell: Cell // the neighbouring coin that was boosted
+  from: number // value before (× bet)
+  to: number // value after (× bet)
+}
+
+export interface BonusGlover {
+  cell: Cell
+  mult: number // 2, 5 or 10
+  upgrades: GloverUpgrade[] // neighbour coins it multiplied (empty if none adjacent)
+}
+
 export interface BonusWave {
   round: number
   spinning: Cell[] // free cells that spun this wave
   coins: BonusCoin[] // coins that locked this wave
+  glovers: BonusGlover[] // glovers that landed this wave (multiply neighbours, then vanish)
   collectors: BonusCollector[] // collectors that landed this wave
   collectedCoins: BonusCoin[] // every coin harvested this wave (flies into the collector)
   collectedAmount: number // currency pulled in this wave (× bet)
@@ -269,6 +308,7 @@ function runBonus(bet: number, seedCells: Cell[]): BonusResult {
     const freeCells = allCells.filter(c => !board.has(key(c)))
     const coins: BonusCoin[] = []
     const collectors: BonusCollector[] = []
+    const glovers: BonusGlover[] = []
 
     for (const cell of freeCells) {
       const r = rand()
@@ -278,6 +318,22 @@ function runBonus(bet: number, seedCells: Cell[]): BonusResult {
         board.set(key(cell), coin)
       } else if (r < P_COIN + P_COLLECTOR) {
         collectors.push({ cell, collected: 0 })
+      } else if (r < P_COIN + P_COLLECTOR + P_GLOVER) {
+        glovers.push({ cell, mult: pickGloverMult(), upgrades: [] })
+      }
+    }
+
+    // Glovers resolve after coins have locked: each multiplies the value of
+    // every coin in its 8 neighbouring cells, then disappears (never occupies a
+    // cell). Stacking is allowed — a coin next to two glovers is boosted twice.
+    for (const glover of glovers) {
+      for (const nc of neighbors(glover.cell)) {
+        const coin = board.get(key(nc))
+        if (coin) {
+          const from = coin.value
+          coin.value = from * glover.mult
+          glover.upgrades.push({ cell: nc, from, to: coin.value })
+        }
       }
     }
 
@@ -298,12 +354,13 @@ function runBonus(bet: number, seedCells: Cell[]): BonusResult {
       cleared = true
     }
 
-    const hit = coins.length > 0 || collectors.length > 0
+    const hit = coins.length > 0 || collectors.length > 0 || glovers.length > 0
 
     waves.push({
       round,
       spinning: freeCells,
       coins,
+      glovers,
       collectors,
       collectedCoins,
       collectedAmount,

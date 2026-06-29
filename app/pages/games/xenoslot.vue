@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { XenoSlotResult, BonusWave, Cell, SlotSymbol } from '#shared/utils/gamelogic/xenoslot'
-import { XENOSLOT_LINES, XENOSLOT_MAX_WIN_MULT, BONUS_FREE_SPINS } from '#shared/utils/gamelogic/xenoslot'
+import { XENOSLOT_LINES, XENOSLOT_MAX_WIN_MULT, BONUS_FREE_SPINS, BONUS_TRIGGER_COUNT, XENOSLOT_CELLS, PAYTABLE, SYMBOL_WEIGHTS } from '#shared/utils/gamelogic/xenoslot'
 
 const { user, setBalance } = useAuth()
 const balance = ref(parseFloat(user.value?.balance ?? '0'))
@@ -8,6 +8,7 @@ watch(() => user.value?.balance, (v) => { if (v !== undefined) balance.value = p
 
 // --- bet / round state ------------------------------------------------------
 const bet = ref(10)
+const turbo = ref(false)
 const isSpinning = ref(false)
 const errorMsg = ref('')
 const showHelp = ref(false)
@@ -28,6 +29,23 @@ const history = ref<{ payout: number, bet: number, bonus: boolean }[]>([])
 
 const lineBet = computed(() => bet.value / XENOSLOT_LINES)
 
+// Approx odds of triggering the bonus (3+ bonus symbols across the 15 cells),
+// expressed as "1 in N". Binomial, p = bonus weight / total weight per cell.
+const bonusOdds = computed(() => {
+  const total = Object.values(SYMBOL_WEIGHTS).reduce((a, b) => a + b, 0)
+  const p = SYMBOL_WEIGHTS.bonus / total
+  const q = 1 - p
+  const choose = (n: number, k: number) => {
+    let r = 1
+    for (let i = 0; i < k; i++) r = r * (n - i) / (i + 1)
+    return r
+  }
+  let pLess = 0
+  for (let k = 0; k < BONUS_TRIGGER_COUNT; k++) pLess += choose(XENOSLOT_CELLS, k) * p ** k * q ** (XENOSLOT_CELLS - k)
+  const pTrigger = 1 - pLess
+  return pTrigger > 0 ? Math.round(1 / pTrigger) : 0
+})
+
 // --- pixi (non-reactive on purpose; Vue proxies break PixiJS objects) -------
 const canvasWrap = ref<HTMLDivElement>()
 let app: any = null
@@ -37,6 +55,7 @@ let PIXI: any = null
 let GSAP: any = null
 let CoinSymbolClass: any = null
 let CollectorSymbolClass: any = null
+let GloverSymbolClass: any = null
 let destroyed = false
 
 const APP_W = 600
@@ -67,6 +86,10 @@ const VISUALS: Record<SlotSymbol, { bg: number, border: number, fg: number, labe
   bonus: { bg: 0x3a0a3e, border: 0xe879f9, fg: 0xf5d0fe, label: '🪐', size: 52 }
 }
 
+// Paytable rows for the help modal, high → low (× line bet for 3/4/5 of a kind).
+const PAY_ORDER: Exclude<SlotSymbol, 'bonus'>[] = ['wild', 'diamond', 'seven', 'bell', 'ace', 'king', 'queen', 'jack', 'ten']
+const paytableRows = PAY_ORDER.map(sym => ({ sym, label: VISUALS[sym].label, pays: PAYTABLE[sym] }))
+
 // Coin metal tiers, picked from a coin's bet-multiplier so colour is stable
 // regardless of stake. face = disc, rim = edge, shine = gloss, ring = inner
 // hairline, text = value colour.
@@ -82,6 +105,17 @@ function tierFor(mult: number): CoinTier {
   if (mult >= 5) return COIN_TIERS.gold
   if (mult >= 1) return COIN_TIERS.silver
   return COIN_TIERS.bronze
+}
+
+// Glover (multiplier orb) look per multiplier — ×2 purple, ×5 fuchsia, ×10 gold.
+type GloverLook = { face: number, ring: number, glow: number, text: number }
+const GLOVER_LOOKS: Record<number, GloverLook> = {
+  2: { face: 0x7e22ce, ring: 0xe9d5ff, glow: 0xa855f7, text: 0xffffff },
+  5: { face: 0xc026d3, ring: 0xfae8ff, glow: 0xe879f9, text: 0xffffff },
+  10: { face: 0xca8a04, ring: 0xfef9c3, glow: 0xf59e0b, text: 0x422006 }
+}
+function gloverLook(mult: number): GloverLook {
+  return GLOVER_LOOKS[mult] ?? GLOVER_LOOKS[2]!
 }
 
 // --- build the symbol classes once Pixi is loaded ---------------------------
@@ -169,7 +203,7 @@ function makeSymbolClasses() {
       this.label.text = formatNumber(amount, true)
     }
 
-    onActivate() { this._drawCoin(); if (!this.label.text) this.label.text = '' }
+    onActivate() { this.view.alpha = 1; this._drawCoin(); if (!this.label.text) this.label.text = '' }
     onDeactivate() { this._kill(); this.label.text = '' }
     resize(w: number, h: number) { this.w = w; this.h = h; this._drawCoin() }
     stopAnimation() { this._kill(); this.view.scale.set(1, 1) }
@@ -233,7 +267,60 @@ function makeSymbolClasses() {
       this.label.text = `+${formatNumber(amount, true)}`
     }
 
-    onActivate() { this.label.text = ''; this._draw() }
+    onActivate() { this.view.alpha = 1; this.label.text = ''; this._draw() }
+    onDeactivate() { this._kill() }
+    resize(w: number, h: number) { this.w = w; this.h = h; this._draw() }
+    stopAnimation() { this._kill(); this.view.scale.set(1, 1) }
+    _kill() { if (this._tween) { this._tween.kill(); this._tween = null } this.view.scale.set(1, 1) }
+    playWin() {
+      this._kill()
+      return new Promise<void>((res) => {
+        this._tween = GSAP.to(this.view.scale, { x: 0.9, y: 0.9, duration: 0.12, yoyo: true, repeat: 1, ease: 'sine.inOut', onComplete: res })
+      })
+    }
+  }
+
+  // A glover (multiplier orb). It lands showing ×N, boosts the coins around it,
+  // then vanishes — it never stays on the board.
+  class GloverSymbol extends Base {
+    bg = new Graphics()
+    label: any
+    w = B_CELL
+    h = B_CELL
+    _tween: any = null
+    _look: GloverLook = GLOVER_LOOKS[2]!
+
+    constructor() {
+      super()
+      this.label = new Text({ text: '', style: { fontFamily: 'system-ui, sans-serif', fontSize: 30, fontWeight: '900', fill: 0xffffff, align: 'center' } })
+      this.label.anchor.set(0.5)
+      this.view.addChild(this.bg)
+      this.view.addChild(this.label)
+    }
+
+    _draw() {
+      const cx = this.w / 2
+      const cy = this.h / 2
+      const rad = Math.min(this.w, this.h) / 2 - 13
+      const L = this._look
+      this.bg.clear()
+      // soft glow → orb → inner hairline → top-left gloss
+      this.bg.circle(cx, cy, rad + 7).fill({ color: L.glow, alpha: 0.22 })
+      this.bg.circle(cx, cy, rad).fill({ color: L.face }).stroke({ color: L.ring, width: 3 })
+      this.bg.circle(cx, cy, rad - 7).stroke({ color: L.ring, width: 1.5, alpha: 0.55 })
+      this.bg.ellipse(cx - rad * 0.3, cy - rad * 0.4, rad * 0.4, rad * 0.24).fill({ color: 0xffffff, alpha: 0.3 })
+      this.label.style.fill = L.text
+      this.label.x = cx
+      this.label.y = cy
+    }
+
+    setMult(mult: number) {
+      this._look = gloverLook(mult)
+      this.label.text = `×${mult}`
+      this._draw()
+    }
+
+    onActivate() { this.view.alpha = 1; this.label.text = ''; this._draw() }
     onDeactivate() { this._kill() }
     resize(w: number, h: number) { this.w = w; this.h = h; this._draw() }
     stopAnimation() { this._kill(); this.view.scale.set(1, 1) }
@@ -248,6 +335,7 @@ function makeSymbolClasses() {
 
   CoinSymbolClass = CoinSymbol
   CollectorSymbolClass = CollectorSymbol
+  GloverSymbolClass = GloverSymbol
   return GraphicsSymbol
 }
 
@@ -322,7 +410,9 @@ async function spin() {
   const result = data.gameData
 
   try {
-    // 1. Spin the base reels onto the server grid.
+    // 1. Spin the base reels onto the server grid (turbo only affects the base
+    // spin; the bonus board below always plays at its own pace).
+    reelSet.setSpeed?.(turbo.value ? 'turbo' : 'normal')
     const spinPromise = reelSet.spin()
     reelSet.setResult(result.grid.map((col: SlotSymbol[]) => ({ visible: col })))
     await spinPromise
@@ -373,9 +463,10 @@ async function runBonus(result: XenoSlotResult) {
     .grid(5, 3).cellSize(B_CELL, { gap: B_GAP })
     .symbols((r: any) => {
       r.register('coin', CoinSymbolClass, {})
+      r.register('glover', GloverSymbolClass, {})
       r.register('collector', CollectorSymbolClass, {})
     })
-    .weights({ coin: 3, collector: 1, empty: 9 })
+    .weights({ coin: 3, collector: 1, glover: 1, empty: 9 })
     .respins(99) // we drive the loop from server waves, not the board's counter
     .cellChrome((g: any, size: number) => {
       g.roundRect(0, 0, size, size, 14).fill({ color: 0x0b1220, alpha: 0.55 }).stroke({ color: 0x1e293b, width: 2 })
@@ -389,6 +480,8 @@ async function runBonus(result: XenoSlotResult) {
     if (coin.id === 'coin') {
       const mult = coin.data?.value ?? 0
       board.symbolAt(coin.cell)?.setValue?.(mult * result.bet, mult)
+    } else if (coin.id === 'glover') {
+      board.symbolAt(coin.cell)?.setMult?.(coin.data?.mult ?? 2)
     }
   })
 
@@ -409,9 +502,18 @@ async function runBonus(result: XenoSlotResult) {
       bonusSpinsLeft.value = BONUS_FREE_SPINS - wave.round
       const hits = [
         ...wave.coins.map(c => ({ cell: c.cell, id: 'coin', data: { value: c.value } })),
+        ...wave.glovers.map(g => ({ cell: g.cell, id: 'glover', data: { mult: g.mult } })),
         ...wave.collectors.map(c => ({ cell: c.cell, id: 'collector', data: { collected: c.collected } }))
       ]
       await board.respin(hits)
+
+      // Glovers resolve first: each boosts its neighbouring coins, then vanishes.
+      if (wave.glovers.length) {
+        await wait(160)
+        await applyGlovers(board, wave, result.bet)
+        board.release(wave.glovers.map(g => g.cell))
+        await wait(120)
+      }
 
       // A collector pulls every coin in, ticking the total up coin by coin,
       // then the whole board is wiped clean.
@@ -492,6 +594,38 @@ function flyValue(board: any, fromCell: Cell, toCell: Cell, amount: number, mult
   })
 }
 
+// A small "×N" label that floats up from a cell and fades — used when a glover
+// boosts a neighbouring coin.
+function floatText(board: any, cell: Cell, text: string, mult: number) {
+  const { Text } = PIXI
+  const p = absCenter(board, cell)
+  const look = gloverLook(mult)
+  const t = new Text({ text, style: { fontFamily: 'system-ui, sans-serif', fontSize: 22, fontWeight: '900', fill: look.glow, stroke: { color: 0x1a0033, width: 3 } } })
+  t.anchor.set(0.5)
+  t.position.set(p.x, p.y - 6)
+  app.stage.addChild(t)
+  GSAP.to(t, { y: p.y - 40, alpha: 0, duration: 0.7, ease: 'power1.out', onComplete: () => t.destroy() })
+}
+
+// Replay each glover this wave: pulse the orb, raise the value (and recolour the
+// tier) of every neighbouring coin it boosted, then fade the orb away.
+async function applyGlovers(board: any, wave: BonusWave, bet: number) {
+  bonusStatus.value = 'Multiplier!'
+  for (const glover of wave.glovers) {
+    const orb = board.symbolAt(glover.cell)
+    await orb?.playWin?.()
+    await wait(110)
+    for (const up of glover.upgrades) {
+      const coin = board.symbolAt(up.cell)
+      coin?.setValue?.(up.to * bet, up.to)
+      coin?.playWin?.()
+      floatText(board, up.cell, `×${glover.mult}`, glover.mult)
+    }
+    await wait(glover.upgrades.length ? 320 : 140)
+    if (orb?.view) await new Promise<void>(res => GSAP.to(orb.view, { alpha: 0, duration: 0.22, ease: 'power1.in', onComplete: () => res() }))
+  }
+}
+
 // Each collector pulls in EVERY coin on the board, one collector at a time.
 // A clone of each coin's value flies into the orb along an arc and the orb's
 // running total ticks up on every arrival. Coins stay put until all collectors
@@ -537,10 +671,15 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
     <!-- Header -->
     <div>
       <h1 class="text-2xl font-bold flex items-center gap-2">
-        <UIcon name="i-lucide-cherry" class="size-6 text-primary" />
+        <UIcon
+          name="i-lucide-cherry"
+          class="size-6 text-primary"
+        />
         Xeno Slot
       </h1>
-      <p class="text-sm text-muted mt-0.5">5×3 line-pay slot · 3 🪐 trigger the Hold &amp; Win bonus · ~95% RTP</p>
+      <p class="text-sm text-muted mt-0.5">
+        5×3 line-pay slot · 3 🪐 trigger the Hold &amp; Win bonus · ~98% RTP
+      </p>
     </div>
 
     <div class="grid lg:grid-cols-3 gap-6">
@@ -548,8 +687,16 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
       <UCard>
         <template #header>
           <div class="flex items-center justify-between">
-            <h2 class="font-semibold">Controls</h2>
-            <UButton icon="i-lucide-circle-help" color="neutral" variant="ghost" size="xs" @click="showHelp = true" />
+            <h2 class="font-semibold">
+              Controls
+            </h2>
+            <UButton
+              icon="i-lucide-circle-help"
+              color="neutral"
+              variant="ghost"
+              size="xs"
+              @click="showHelp = true"
+            />
           </div>
         </template>
 
@@ -558,12 +705,49 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
           <div>
             <label class="text-xs text-muted uppercase tracking-wide font-medium block mb-1.5">Bet Amount</label>
             <div class="flex items-center gap-2">
-              <UInput v-model.number="bet" type="number" min="1" :disabled="isSpinning" class="flex-1 font-mono" size="lg" />
+              <UInput
+                v-model.number="bet"
+                type="number"
+                min="1"
+                :disabled="isSpinning"
+                class="flex-1 font-mono"
+                size="lg"
+              />
               <div class="flex gap-1">
-                <UButton color="neutral" variant="soft" :disabled="isSpinning" @click="bet = Math.max(1, Math.floor(bet / 2))">½</UButton>
-                <UButton color="neutral" variant="soft" :disabled="isSpinning" @click="bet = bet * 2">2×</UButton>
+                <UButton
+                  color="neutral"
+                  variant="soft"
+                  :disabled="isSpinning"
+                  @click="bet = Math.max(1, Math.floor(bet / 2))"
+                >
+                  ½
+                </UButton>
+                <UButton
+                  color="neutral"
+                  variant="soft"
+                  :disabled="isSpinning"
+                  @click="bet = bet * 2"
+                >
+                  2×
+                </UButton>
               </div>
             </div>
+          </div>
+
+          <!-- Turbo -->
+          <div class="flex items-center justify-between rounded-lg bg-elevated border border-default p-3">
+            <div class="min-w-0">
+              <p class="text-sm font-medium flex items-center gap-1.5">
+                <UIcon
+                  name="i-lucide-zap"
+                  class="size-4 text-warning"
+                /> Turbo spin
+              </p>
+              <p class="text-xs text-muted mt-0.5">
+                Faster base spins · the bonus always plays in full
+              </p>
+            </div>
+            <USwitch v-model="turbo" />
           </div>
 
           <!-- Stats -->
@@ -586,24 +770,45 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 
           <!-- Error -->
           <Transition name="fade-up">
-            <UAlert v-if="errorMsg" color="error" variant="soft" :description="errorMsg"
-              :close-button="{ icon: 'i-lucide-x', color: 'neutral', variant: 'ghost' }" @close="errorMsg = ''" />
+            <UAlert
+              v-if="errorMsg"
+              color="error"
+              variant="soft"
+              :description="errorMsg"
+              :close-button="{ icon: 'i-lucide-x', color: 'neutral', variant: 'ghost' }"
+              @close="errorMsg = ''"
+            />
           </Transition>
 
           <!-- Balance -->
           <div class="rounded-lg bg-elevated border border-default p-3 flex justify-between items-center">
             <span class="text-xs text-muted uppercase tracking-wide font-medium">Balance</span>
-            <span class="font-bold text-sm"><CoinBalance :value="balance" :compact="false" /></span>
+            <span class="font-bold text-sm"><CoinBalance
+              :value="balance"
+              :compact="false"
+            /></span>
           </div>
 
           <!-- Recent -->
-          <div v-if="history.length" class="space-y-1.5">
-            <p class="text-xs text-muted uppercase tracking-wide font-medium">Recent</p>
+          <div
+            v-if="history.length"
+            class="space-y-1.5"
+          >
+            <p class="text-xs text-muted uppercase tracking-wide font-medium">
+              Recent
+            </p>
             <div class="flex gap-1.5 flex-wrap">
-              <span v-for="(h, i) in history" :key="i"
+              <span
+                v-for="(h, i) in history"
+                :key="i"
                 class="inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-mono font-bold"
-                :class="h.payout > h.bet ? 'bg-success/20 text-success' : 'bg-elevated text-muted'">
-                <UIcon v-if="h.bonus" name="i-lucide-gift" class="size-3" />
+                :class="h.payout > h.bet ? 'bg-success/20 text-success' : 'bg-elevated text-muted'"
+              >
+                <UIcon
+                  v-if="h.bonus"
+                  name="i-lucide-gift"
+                  class="size-3"
+                />
                 {{ h.payout > 0 ? formatNumber(h.payout) : '—' }}
               </span>
             </div>
@@ -616,36 +821,68 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
         <UCard :ui="{ body: 'relative overflow-hidden p-4' }">
           <!-- Bonus banner -->
           <Transition name="pop">
-            <div v-if="bonusBanner" class="absolute inset-0 z-30 flex items-center justify-center pointer-events-none">
+            <div
+              v-if="bonusBanner"
+              class="absolute inset-0 z-30 flex items-center justify-center pointer-events-none"
+            >
               <div class="bg-linear-to-br from-fuchsia-600 to-purple-700 px-8 py-5 rounded-2xl shadow-2xl shadow-fuchsia-500/30 text-center -rotate-3">
-                <p class="text-3xl font-black text-white tracking-tight">HOLD &amp; WIN</p>
-                <p class="text-sm text-fuchsia-100 font-bold">{{ BONUS_FREE_SPINS }} free spins!</p>
+                <p class="text-3xl font-black text-white tracking-tight">
+                  HOLD &amp; WIN
+                </p>
+                <p class="text-sm text-fuchsia-100 font-bold">
+                  {{ BONUS_FREE_SPINS }} free spins!
+                </p>
               </div>
             </div>
           </Transition>
 
           <!-- Pixi canvas -->
           <div class="relative flex items-center justify-center min-h-75">
-            <div ref="canvasWrap" class="w-full max-w-150 [&>canvas]:w-full [&>canvas]:h-auto [&>canvas]:block" />
-            <div v-if="!ready && !errorMsg" class="absolute inset-0 flex items-center justify-center">
-              <UIcon name="i-lucide-loader-circle" class="size-8 text-muted animate-spin" />
+            <div
+              ref="canvasWrap"
+              class="w-full max-w-150 [&>canvas]:w-full [&>canvas]:h-auto [&>canvas]:block"
+            />
+            <div
+              v-if="!ready && !errorMsg"
+              class="absolute inset-0 flex items-center justify-center"
+            >
+              <UIcon
+                name="i-lucide-loader-circle"
+                class="size-8 text-muted animate-spin"
+              />
             </div>
           </div>
 
           <!-- Below-grid readout -->
           <div class="mt-3 min-h-12 flex items-center justify-center">
             <!-- Bonus: collected total counts up, with spins remaining -->
-            <div v-if="inBonus" class="flex items-center justify-center gap-5">
+            <div
+              v-if="inBonus"
+              class="flex items-center justify-center gap-5"
+            >
               <div class="text-center">
-                <p class="text-[10px] uppercase tracking-wide text-muted leading-none mb-0.5">{{ bonusStatus }}</p>
-                <p class="text-3xl font-black tabular-nums text-success leading-none">${{ formatNumber(bonusTotal, false) }}</p>
+                <p class="text-[10px] uppercase tracking-wide text-muted leading-none mb-0.5">
+                  {{ bonusStatus }}
+                </p>
+                <p class="text-3xl font-black tabular-nums text-success leading-none">
+                  ${{ formatNumber(bonusTotal, false) }}
+                </p>
               </div>
             </div>
             <!-- Base game win flash -->
-            <Transition v-else name="pop">
-              <span v-if="winFlash && lastWin > 0" class="text-success font-black text-2xl">
+            <Transition
+              v-else
+              name="pop"
+            >
+              <span
+                v-if="winFlash && lastWin > 0"
+                class="text-success font-black text-2xl"
+              >
                 +${{ formatNumber(lastWin, false) }}
-                <span v-if="lastLines" class="text-muted text-sm font-medium">· {{ lastLines }} line{{ lastLines > 1 ? 's' : '' }}</span>
+                <span
+                  v-if="lastLines"
+                  class="text-muted text-sm font-medium"
+                >· {{ lastLines }} line{{ lastLines > 1 ? 's' : '' }}</span>
               </span>
             </Transition>
           </div>
@@ -674,16 +911,61 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
     </div>
 
     <!-- Help -->
-    <UModal v-model:open="showHelp" title="How Xeno Slot works">
+    <UModal
+      v-model:open="showHelp"
+      title="How Xeno Slot works"
+    >
       <template #body>
-        <ul class="text-sm text-muted space-y-2 list-disc list-inside">
-          <li>Spin the 5×3 reels. Wins pay left-to-right on <strong class="text-default">{{ XENOSLOT_LINES }} fixed paylines</strong>.</li>
-          <li>Land <strong class="text-default">3+ of a kind</strong> from the leftmost reel to win. <strong class="text-default">WILD</strong> substitutes for everything except the bonus.</li>
-          <li>Land <strong class="text-default">3+ 🪐 bonus</strong> symbols anywhere to trigger the <strong class="text-default">Hold &amp; Win</strong> feature.</li>
-          <li>You get <strong class="text-default">{{ BONUS_FREE_SPINS }} free spins</strong>. <strong class="text-default">🪙 Coins</strong> stick to the grid with a value and pile up.</li>
-          <li><strong class="text-default">🧺 Collectors</strong> pull in the value of every coin on the grid, then wipe the board clean — freeing it up for more.</li>
-          <li><strong class="text-default">Only collected money counts</strong> — if no collector lands, the bonus pays nothing. Max win {{ formatNumber(XENOSLOT_MAX_WIN_MULT) }}× your bet.</li>
-        </ul>
+        <div class="space-y-4">
+          <ul class="text-sm text-muted space-y-2 list-disc list-inside">
+            <li>Spin the 5×3 reels. Wins pay left-to-right on <strong class="text-default">{{ XENOSLOT_LINES }} fixed paylines</strong>.</li>
+            <li>Land <strong class="text-default">{{ BONUS_TRIGGER_COUNT }}+ of a kind</strong> from the leftmost reel to win. <strong class="text-default">WILD</strong> substitutes for everything except the bonus.</li>
+            <li>Land <strong class="text-default">{{ BONUS_TRIGGER_COUNT }}+ 🪐 bonus</strong> symbols anywhere to trigger the <strong class="text-default">Hold &amp; Win</strong> feature — on average <strong class="text-default">about 1 in {{ formatNumber(bonusOdds, true, 0) }} spins</strong>.</li>
+          </ul>
+
+          <!-- Paytable -->
+          <div>
+            <p class="text-xs uppercase tracking-wide text-muted font-medium mb-2">
+              Symbol pays <span class="normal-case">(× line bet — for 3 / 4 / 5 of a kind)</span>
+            </p>
+            <div class="rounded-lg border border-default overflow-hidden">
+              <div class="grid grid-cols-[auto_1fr] items-center text-sm">
+                <template
+                  v-for="(row, i) in paytableRows"
+                  :key="row.sym"
+                >
+                  <div
+                    class="px-3 py-1.5 font-black text-center text-base"
+                    :class="i % 2 ? 'bg-elevated/40' : ''"
+                  >
+                    {{ row.label }}
+                  </div>
+                  <div
+                    class="px-3 py-1.5 font-mono tabular-nums flex justify-end gap-3"
+                    :class="i % 2 ? 'bg-elevated/40' : ''"
+                  >
+                    <span class="text-muted">{{ row.pays[0] }}×</span>
+                    <span class="text-muted">{{ row.pays[1] }}×</span>
+                    <span class="text-default font-bold">{{ row.pays[2] }}×</span>
+                  </div>
+                </template>
+              </div>
+            </div>
+          </div>
+
+          <!-- Bonus mechanics -->
+          <div>
+            <p class="text-xs uppercase tracking-wide text-muted font-medium mb-2">
+              Hold &amp; Win bonus
+            </p>
+            <ul class="text-sm text-muted space-y-2 list-disc list-inside">
+              <li>You get <strong class="text-default">{{ BONUS_FREE_SPINS }} free spins</strong>. <strong class="text-default">Coins</strong> stick to the grid with a cash value and pile up — bigger values glow brighter (bronze → silver → gold → platinum).</li>
+              <li><strong class="text-default">Glovers</strong> (<span class="text-warning font-bold">×2</span> / <span class="text-warning font-bold">×5</span> / <span class="text-warning font-bold">×10</span>) multiply every coin in the 8 surrounding cells, then vanish.</li>
+              <li><strong class="text-default">🧺 Baskets</strong> pull in the value of every coin on the grid, then wipe the board clean — freeing it up for more.</li>
+              <li><strong class="text-default">Only collected money counts</strong> — if no basket lands, the bonus pays nothing. Max win {{ formatNumber(XENOSLOT_MAX_WIN_MULT) }}× your bet.</li>
+            </ul>
+          </div>
+        </div>
       </template>
     </UModal>
   </div>
