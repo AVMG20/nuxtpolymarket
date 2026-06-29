@@ -781,7 +781,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
             <USeparator />
             <div class="flex items-center justify-between text-sm">
               <span class="text-muted">Max win</span>
-              <span class="font-bold tabular-nums text-warning">{{ formatNumber(XENOSLOT_MAX_WIN_MULT) }}×</span>
+              <span class="font-bold tabular-nums text-warning">{{ formatNumber(XENOSLOT_MAX_WIN_MULT * bet, true, 0) }}</span>
             </div>
           </div>
 
