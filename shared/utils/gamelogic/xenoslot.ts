@@ -294,7 +294,8 @@ function runBonus(bet: number, seedCells: Cell[]): BonusResult {
   const board = new Map<string, BonusCoin>()
 
   const seed: BonusCoin[] = seedCells.map(cell => ({ cell, value: pickCoinValue() }))
-  for (const coin of seed) board.set(key(coin.cell), coin)
+  // Board entries are separate objects so future glover mutations don't corrupt the seed records.
+  for (const coin of seed) board.set(key(coin.cell), { cell: coin.cell, value: coin.value })
 
   const allCells: Cell[] = []
   for (let col = 0; col < XENOSLOT_COLS; col++) {
@@ -313,9 +314,9 @@ function runBonus(bet: number, seedCells: Cell[]): BonusResult {
     for (const cell of freeCells) {
       const r = rand()
       if (r < P_COIN) {
-        const coin: BonusCoin = { cell, value: pickCoinValue() }
-        coins.push(coin)
-        board.set(key(cell), coin)
+        const value = pickCoinValue()
+        coins.push({ cell, value })            // snapshot — not shared with board
+        board.set(key(cell), { cell, value })  // live entry — glovers may mutate this
       } else if (r < P_COIN + P_COLLECTOR) {
         collectors.push({ cell, collected: 0 })
       } else if (r < P_COIN + P_COLLECTOR + P_GLOVER) {
