@@ -107,12 +107,12 @@ function tierFor(mult: number): CoinTier {
   return COIN_TIERS.bronze
 }
 
-// Glover (multiplier orb) look per multiplier — ×2 purple, ×5 fuchsia, ×10 gold.
+// Glover (multiplier starburst) look per multiplier — progressively brighter green tiers.
 type GloverLook = { face: number, ring: number, glow: number, text: number }
 const GLOVER_LOOKS: Record<number, GloverLook> = {
-  2: { face: 0x7e22ce, ring: 0xe9d5ff, glow: 0xa855f7, text: 0xffffff },
-  5: { face: 0xc026d3, ring: 0xfae8ff, glow: 0xe879f9, text: 0xffffff },
-  10: { face: 0xca8a04, ring: 0xfef9c3, glow: 0xf59e0b, text: 0x422006 }
+  2: { face: 0x166534, ring: 0xbbf7d0, glow: 0x16a34a, text: 0xffffff },
+  5: { face: 0x14532d, ring: 0x86efac, glow: 0x22c55e, text: 0xffffff },
+  10: { face: 0x052e16, ring: 0x4ade80, glow: 0x4ade80, text: 0xecfdf5 }
 }
 function gloverLook(mult: number): GloverLook {
   return GLOVER_LOOKS[mult] ?? GLOVER_LOOKS[2]!
@@ -280,10 +280,11 @@ function makeSymbolClasses() {
     }
   }
 
-  // A glover (multiplier orb). It lands showing ×N, boosts the coins around it,
+  // A glover (multiplier clover). It lands showing 🍀 + ×N, boosts the coins around it,
   // then vanishes — it never stays on the board.
   class GloverSymbol extends Base {
     bg = new Graphics()
+    icon: any
     label: any
     w = B_CELL
     h = B_CELL
@@ -292,26 +293,26 @@ function makeSymbolClasses() {
 
     constructor() {
       super()
-      this.label = new Text({ text: '', style: { fontFamily: 'system-ui, sans-serif', fontSize: 30, fontWeight: '900', fill: 0xffffff, align: 'center' } })
+      this.icon = new Text({ text: '🍀', style: { fontFamily: 'system-ui, sans-serif', fontSize: 36, align: 'center' } })
+      this.icon.anchor.set(0.5)
+      this.label = new Text({ text: '', style: { fontFamily: 'system-ui, sans-serif', fontSize: 20, fontWeight: '900', fill: 0xffffff, align: 'center' } })
       this.label.anchor.set(0.5)
       this.view.addChild(this.bg)
+      this.view.addChild(this.icon)
       this.view.addChild(this.label)
     }
 
     _draw() {
-      const cx = this.w / 2
-      const cy = this.h / 2
-      const rad = Math.min(this.w, this.h) / 2 - 13
+      const pad = 5
+      const r = 16
       const L = this._look
       this.bg.clear()
-      // soft glow → orb → inner hairline → top-left gloss
-      this.bg.circle(cx, cy, rad + 7).fill({ color: L.glow, alpha: 0.22 })
-      this.bg.circle(cx, cy, rad).fill({ color: L.face }).stroke({ color: L.ring, width: 3 })
-      this.bg.circle(cx, cy, rad - 7).stroke({ color: L.ring, width: 1.5, alpha: 0.55 })
-      this.bg.ellipse(cx - rad * 0.3, cy - rad * 0.4, rad * 0.4, rad * 0.24).fill({ color: 0xffffff, alpha: 0.3 })
+      this.bg.roundRect(pad, pad, this.w - 2 * pad, this.h - 2 * pad, r).fill({ color: L.face }).stroke({ color: L.ring, width: 3 })
+      this.icon.x = this.w / 2
+      this.icon.y = this.h / 2 - 12
       this.label.style.fill = L.text
-      this.label.x = cx
-      this.label.y = cy
+      this.label.x = this.w / 2
+      this.label.y = this.h / 2 + 20
     }
 
     setMult(mult: number) {
@@ -500,8 +501,19 @@ async function runBonus(result: XenoSlotResult) {
     for (const wave of bonus.waves) {
       bonusStatus.value = `Spin ${wave.round} / ${BONUS_FREE_SPINS}`
       bonusSpinsLeft.value = BONUS_FREE_SPINS - wave.round
+      // Coins that land the same wave as a glover neighbour them already have
+      // their post-boost value in wave.coins (the server mutates in place).
+      // Capture the pre-boost value from glover.upgrades so the coin spawns at
+      // its original value and the upgrade animation has something to animate.
+      const preGloverMap = new Map<string, number>()
+      for (const g of wave.glovers) {
+        for (const up of g.upgrades) {
+          const k = `${up.cell.col}:${up.cell.row}`
+          if (!preGloverMap.has(k)) preGloverMap.set(k, up.from)
+        }
+      }
       const hits = [
-        ...wave.coins.map(c => ({ cell: c.cell, id: 'coin', data: { value: c.value } })),
+        ...wave.coins.map(c => ({ cell: c.cell, id: 'coin', data: { value: preGloverMap.get(`${c.cell.col}:${c.cell.row}`) ?? c.value } })),
         ...wave.glovers.map(g => ({ cell: g.cell, id: 'glover', data: { mult: g.mult } })),
         ...wave.collectors.map(c => ({ cell: c.cell, id: 'collector', data: { collected: c.collected } }))
       ]
@@ -600,7 +612,7 @@ function floatText(board: any, cell: Cell, text: string, mult: number) {
   const { Text } = PIXI
   const p = absCenter(board, cell)
   const look = gloverLook(mult)
-  const t = new Text({ text, style: { fontFamily: 'system-ui, sans-serif', fontSize: 22, fontWeight: '900', fill: look.glow, stroke: { color: 0x1a0033, width: 3 } } })
+  const t = new Text({ text, style: { fontFamily: 'system-ui, sans-serif', fontSize: 22, fontWeight: '900', fill: look.glow, stroke: { color: 0x052e16, width: 3 } } })
   t.anchor.set(0.5)
   t.position.set(p.x, p.y - 6)
   app.stage.addChild(t)
@@ -960,9 +972,9 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
             </p>
             <ul class="text-sm text-muted space-y-2 list-disc list-inside">
               <li>You get <strong class="text-default">{{ BONUS_FREE_SPINS }} free spins</strong>. <strong class="text-default">Coins</strong> stick to the grid with a cash value and pile up — bigger values glow brighter (bronze → silver → gold → platinum).</li>
-              <li><strong class="text-default">Glovers</strong> (<span class="text-warning font-bold">×2</span> / <span class="text-warning font-bold">×5</span> / <span class="text-warning font-bold">×10</span>) multiply every coin in the 8 surrounding cells, then vanish.</li>
+              <li><strong class="text-default">Glovers</strong> (<span class="text-success font-bold">×2</span> / <span class="text-success font-bold">×5</span> / <span class="text-success font-bold">×10</span>) multiply every coin in the 8 surrounding cells, then vanish.</li>
               <li><strong class="text-default">🧺 Baskets</strong> pull in the value of every coin on the grid, then wipe the board clean — freeing it up for more.</li>
-              <li><strong class="text-default">Only collected money counts</strong> — if no basket lands, the bonus pays nothing. Max win {{ formatNumber(XENOSLOT_MAX_WIN_MULT) }}× your bet.</li>
+              <li><strong class="text-default">Only collected money counts</strong> — if no basket lands, the bonus pays nothing. Max win {{ formatNumber(XENOSLOT_MAX_WIN_MULT, false ,0) }}× your bet.</li>
             </ul>
           </div>
         </div>
