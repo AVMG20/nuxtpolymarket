@@ -17,6 +17,14 @@ const slotGames: {
     gradient: 'from-fuchsia-950 to-slate-900',
     iconColor: 'text-fuchsia-400',
   },
+  {
+    name: 'Candy Madness',
+    description: '6×5 cluster-pays cascade with stacking multipliers & free spins',
+    icon: 'i-lucide-candy',
+    to: '/games/candymadness',
+    gradient: 'from-pink-950 to-slate-900',
+    iconColor: 'text-pink-400',
+  },
 ]
 
 const casinoGames = [

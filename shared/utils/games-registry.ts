@@ -3,6 +3,7 @@ import { playLimbo } from './gamelogic/limbo'
 import { playWheel } from '#shared/utils/gamelogic/wheel'
 import { playMagicHands } from './gamelogic/magichands'
 import { playXenoSlot } from './gamelogic/xenoslot'
+import { playCandyMadness } from './gamelogic/candymadness'
 
 export interface GameResult {
   payout: number
@@ -28,6 +29,9 @@ export const GAMES_REGISTRY: Record<string, GameDefinition> = {
   },
   xenoslot: {
     play: playXenoSlot
+  },
+  candymadness: {
+    play: playCandyMadness
   }
 }
 
