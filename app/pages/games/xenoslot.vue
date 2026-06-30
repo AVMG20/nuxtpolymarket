@@ -27,6 +27,39 @@ const bonusStatus = ref('')
 
 const history = ref<{ payout: number, bet: number, bonus: boolean }[]>([])
 
+// --- auto-spin state -------------------------------------------------------
+const autoSpinEnabled = ref(false)
+const autoSpinsLeft = ref(0)
+const autoSpinPaused = ref(false)
+const showAutoSpinModal = ref(false)
+const AUTO_SPIN_OPTIONS = [25, 50, 100, 250, 500]
+
+let _resumeAutoSpin: (() => void) | null = null
+
+function startAutoSpin(count: number) {
+  autoSpinsLeft.value = count
+  autoSpinEnabled.value = true
+  autoSpinPaused.value = false
+  showAutoSpinModal.value = false
+  if (!isSpinning.value) spin()
+}
+
+function stopAutoSpin() {
+  autoSpinEnabled.value = false
+  autoSpinsLeft.value = 0
+  autoSpinPaused.value = false
+  _resumeAutoSpin?.()
+  _resumeAutoSpin = null
+}
+
+function onCanvasClick() {
+  if (autoSpinPaused.value) {
+    autoSpinPaused.value = false
+    _resumeAutoSpin?.()
+    _resumeAutoSpin = null
+  }
+}
+
 const lineBet = computed(() => bet.value / XENOSLOT_LINES)
 
 // Approx odds of triggering the bonus (3+ bonus symbols across the 15 cells),
@@ -418,6 +451,7 @@ async function spin() {
   } catch (e: unknown) {
     errorMsg.value = e instanceof Error ? e.message : 'Something went wrong'
     isSpinning.value = false
+    stopAutoSpin()
     return
   }
 
@@ -441,6 +475,10 @@ async function spin() {
     // 3. Bonus feature.
     if (result.bonusTriggered && result.bonus) {
       await reelSet.spotlight.show(result.bonusCells.map(c => ({ reelIndex: c.col, rowIndex: c.row })), { displayDuration: 600 } as any)
+      if (autoSpinEnabled.value) {
+        autoSpinPaused.value = true
+        await new Promise<void>(res => { _resumeAutoSpin = res })
+      }
       await runBonus(result)
     }
 
@@ -455,8 +493,22 @@ async function spin() {
     errorMsg.value = e instanceof Error ? e.message : 'Animation error'
     balance.value = data.balance
     setBalance(data.balance)
+    stopAutoSpin()
   } finally {
     isSpinning.value = false
+    if (autoSpinEnabled.value) {
+      if (autoSpinPaused.value) {
+        await new Promise<void>(res => { _resumeAutoSpin = res })
+      }
+      if (autoSpinEnabled.value) {
+        autoSpinsLeft.value--
+        if (autoSpinsLeft.value > 0 && balance.value >= bet.value) {
+          spin()
+        } else {
+          stopAutoSpin()
+        }
+      }
+    }
   }
 }
 
@@ -685,7 +737,7 @@ async function collectIntoOrb(board: any, wave: BonusWave, bet: number) {
 }
 
 function onKeydown(e: KeyboardEvent) {
-  if (e.code === 'Space' && e.target === document.body) { e.preventDefault(); spin() }
+  if (e.code === 'Space' && e.target === document.body) { e.preventDefault(); if (!autoSpinEnabled.value) spin() }
 }
 onMounted(() => window.addEventListener('keydown', onKeydown))
 onUnmounted(() => window.removeEventListener('keydown', onKeydown))
@@ -854,7 +906,10 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
           </Transition>
 
           <!-- Pixi canvas -->
-          <div class="relative flex items-center justify-center min-h-75">
+          <div
+            class="relative flex items-center justify-center min-h-75"
+            @click="onCanvasClick"
+          >
             <div
               ref="canvasWrap"
               class="w-full max-w-150 [&>canvas]:w-full [&>canvas]:h-auto [&>canvas]:block"
@@ -868,6 +923,22 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
                 class="size-8 text-muted animate-spin"
               />
             </div>
+            <!-- Auto-spin pause overlay -->
+            <Transition name="pop">
+              <div
+                v-if="autoSpinPaused"
+                class="absolute inset-0 z-10 flex items-center justify-center bg-background/70 backdrop-blur-sm cursor-pointer"
+              >
+                <div class="text-center px-6 py-4 rounded-xl bg-elevated border border-default shadow-xl">
+                  <p class="font-black text-default text-base">
+                    🃏 Bonus! Tap to play
+                  </p>
+                  <p class="text-xs text-muted mt-1">
+                    {{ autoSpinsLeft }} spin{{ autoSpinsLeft !== 1 ? 's' : '' }} remaining
+                  </p>
+                </div>
+              </div>
+            </Transition>
           </div>
 
           <!-- Below-grid readout -->
@@ -907,11 +978,11 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 
         <!-- Play button -->
         <UCard>
-          <div class="flex items-center gap-4">
+          <div class="flex items-center gap-3">
             <UButton
               block
               :loading="isSpinning"
-              :disabled="!ready || balance < bet"
+              :disabled="!ready || balance < bet || autoSpinEnabled"
               color="primary"
               size="xl"
               class="flex-1 h-16 text-lg font-black uppercase tracking-widest transition-transform active:scale-[0.98]"
@@ -919,13 +990,63 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
             >
               {{ isSpinning ? 'Spinning…' : 'Spin' }}
             </UButton>
-            <div class="hidden sm:flex flex-col items-end px-4 text-sm font-mono text-muted whitespace-nowrap">
+            <!-- Auto-spin stop button when active -->
+            <template v-if="autoSpinEnabled">
+              <div class="flex flex-col items-center justify-center gap-1 w-16 shrink-0">
+                <span class="text-xs font-black tabular-nums text-primary">{{ autoSpinsLeft }}×</span>
+                <UButton
+                  icon="i-lucide-square"
+                  color="error"
+                  variant="soft"
+                  size="sm"
+                  @click="stopAutoSpin"
+                />
+              </div>
+            </template>
+            <!-- Auto-spin launch button when idle -->
+            <UButton
+              v-else
+              icon="i-lucide-repeat"
+              color="neutral"
+              variant="soft"
+              class="h-16 w-16 shrink-0 flex items-center justify-center"
+              :disabled="!ready || balance < bet || isSpinning"
+              @click="showAutoSpinModal = true"
+            />
+            <div class="hidden sm:flex flex-col items-end px-2 text-sm font-mono text-muted whitespace-nowrap">
               <span>Press <kbd class="px-2 py-1 bg-elevated rounded text-xs font-sans font-bold border border-default">SPACE</kbd></span>
             </div>
           </div>
         </UCard>
       </div>
     </div>
+
+    <!-- Auto-spin -->
+    <UModal
+      v-model:open="showAutoSpinModal"
+      title="Auto Spin"
+    >
+      <template #body>
+        <div class="space-y-4">
+          <p class="text-sm text-muted">
+            Select number of spins. Auto-spin pauses after a bonus round so you can watch — tap the board to resume.
+          </p>
+          <div class="grid grid-cols-5 gap-2">
+            <UButton
+              v-for="count in AUTO_SPIN_OPTIONS"
+              :key="count"
+              block
+              color="neutral"
+              variant="soft"
+              class="font-bold"
+              @click="startAutoSpin(count)"
+            >
+              {{ count }}
+            </UButton>
+          </div>
+        </div>
+      </template>
+    </UModal>
 
     <!-- Help -->
     <UModal
