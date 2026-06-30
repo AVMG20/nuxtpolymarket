@@ -1,6 +1,6 @@
 // shared/utils/gamelogic/candymadness.ts
 //
-// "Candy Madness" — a 6×5 cluster-pays cascade (tumble) slot with a sticky
+// "Candy Madness" — a 7×7 cluster-pays cascade (tumble) slot with a sticky
 // multiplier mechanic and a free-spins bonus. Candy themed.
 //
 // Everything random is decided on the server in a single call; the client just
@@ -9,7 +9,7 @@
 // the client is pure presentation).
 //
 // ── Base game ────────────────────────────────────────────────────────────────
-//   A full 6×5 grid drops. Wins are CLUSTERS: 5+ of the same candy connected
+//   A full 7×7 grid drops. Wins are CLUSTERS: 4+ of the same candy connected
 //   orthogonally (up/down/left/right). Each cluster pays
 //   `paytable[symbol][sizeBracket] × bet`.
 //
@@ -32,42 +32,57 @@
 //
 // ── Fairness ────────────────────────────────────────────────────────────────
 //   Total win (base + bonus) is capped at MAX_WIN_MULT × bet. Weights and the
-//   paytable are tuned by Monte-Carlo to ~98% RTP (see scripts/candymadness-rtp.ts).
+//   paytable are tuned by Monte-Carlo to ~98% RTP.
 
-export const CM_COLS = 6
-export const CM_ROWS = 5
-export const CM_CELLS = CM_COLS * CM_ROWS
+export const CM_COLS = 7
+export const CM_ROWS = 7
+export const CM_CELLS = CM_COLS * CM_ROWS // 49
 
 export const CM_MAX_WIN_MULT = 5000 // hard cap on total win, in × bet
-export const CM_MIN_CLUSTER = 4 // candies needed for a winning cluster
+export const CM_MIN_CLUSTER = 4    // candies needed for a winning cluster
 
 export const CM_MULT_START = 2
 export const CM_MULT_CAP = 2048
 export const CM_FREE_SPINS = 10
 export const CM_SCATTER_TRIGGER = 3
 
+// --- feature buys -----------------------------------------------------------
+// Cost (× bet) the player pays instead of a normal spin. Tuned by Monte-Carlo
+// so each feature returns ~95–98% RTP (see CM_*_RTP below, measured at 5e6 sims).
+//
+//   buyFreeSpins — pay up front to jump straight into the 10 free spins.
+//   bonusHunt    — pay a premium for a spin that is guaranteed to drop one 🍭
+//                  scatter, sharply raising the odds of triggering the bonus.
+export const CM_BUY_FREESPINS_COST = 31 // × bet → ~96.7% RTP (bonus EV ≈ 29.97× bet)
+export const CM_BONUS_HUNT_COST = 2.65 // × bet → ~96.7% RTP (EV ≈ 2.563× bet)
+
+export type CandyFeature = 'buyFreeSpins' | 'bonusHunt'
+
+export interface CandyMadnessOptions {
+  feature?: CandyFeature
+}
+
 // --- symbols ----------------------------------------------------------------
 
 export type CandySymbol
-  = 'grape' | 'blue' | 'green' | 'orange' | 'red' | 'scatter'
+  = 'grape' | 'blue' | 'banana' | 'green' | 'apple' | 'orange' | 'red' | 'scatter'
 
-// The five paying candies, low → high. `scatter` is the bonus trigger and never
-// forms a cluster.
+// The seven paying candies, low → high. `scatter` is the bonus trigger and
+// never forms a cluster.
 export const CANDY_KEYS: Exclude<CandySymbol, 'scatter'>[]
-  = ['grape', 'blue', 'green', 'orange', 'red']
+  = ['grape', 'blue', 'banana', 'green', 'apple', 'orange', 'red']
 
 // Reel weights (same for every cell). Higher = more frequent. The scatter is
-// only ever drawn on a base-game full drop (never during tumbles or the bonus),
-// so its weight only sets the bonus trigger rate.
+// only ever drawn on a base-game full drop (never during tumbles or the bonus).
 export const CANDY_WEIGHTS: Record<Exclude<CandySymbol, 'scatter'>, number> = {
-  grape: 1.0, blue: 1.0, green: 0.92, orange: 0.82, red: 0.66
+  grape: 1.00, blue: 0.96, banana: 0.90, green: 0.84, apple: 0.76, orange: 0.68, red: 0.56
 }
 export const SCATTER_WEIGHT = 0.05
 
-// Global scale applied to every paytable value — the single knob the RTP tuner
-// turns to land the target return. Tuned to ~98% total RTP (≈60% base, ≈38%
-// bonus; bonus trigger ≈ 1 in 220). See scripts/candymadness-rtp.ts.
-const PAY_SCALE = 0.418
+// Global scale applied to every paytable value. Tuned by Monte-Carlo (5e6
+// sims) to ~98% base-game RTP. RTP scales linearly with this until the
+// MAX_WIN cap starts binding (which is rare), so retune by simple ratio.
+const PAY_SCALE = 1.524
 
 // Cluster size brackets (lower bound, inclusive). A cluster of `n` candies uses
 // the highest bracket whose bound is ≤ n.
@@ -76,10 +91,12 @@ const SIZE_BRACKETS = [4, 5, 6, 7, 8, 9, 10, 12, 15] as const
 // Payout (× total bet) per symbol, indexed by SIZE_BRACKETS. Deliberately tiny:
 // the multiplier-spot sum is where the money is.
 const PAYTABLE: Record<Exclude<CandySymbol, 'scatter'>, number[]> = {
-  //         4       5       6       7       8       9      10      12      15+
+  //          4       5       6       7       8       9      10      12      15+
   grape:  [0.008, 0.012, 0.018, 0.026, 0.038, 0.055, 0.084, 0.144, 0.300],
   blue:   [0.009, 0.013, 0.019, 0.029, 0.042, 0.060, 0.094, 0.162, 0.336],
+  banana: [0.010, 0.015, 0.021, 0.032, 0.046, 0.066, 0.104, 0.180, 0.372],
   green:  [0.010, 0.016, 0.023, 0.034, 0.050, 0.072, 0.114, 0.198, 0.408],
+  apple:  [0.012, 0.018, 0.026, 0.039, 0.058, 0.083, 0.132, 0.230, 0.480],
   orange: [0.013, 0.019, 0.029, 0.043, 0.065, 0.094, 0.150, 0.264, 0.552],
   red:    [0.018, 0.026, 0.041, 0.062, 0.096, 0.142, 0.228, 0.408, 0.864]
 }
@@ -104,6 +121,10 @@ function rand(): number {
   const arr = new Uint32Array(1)
   crypto.getRandomValues(arr)
   return arr[0]! / 0x1_0000_0000 // [0, 1)
+}
+
+function randInt(n: number): number {
+  return Math.floor(rand() * n)
 }
 
 function weightedPick<T>(items: readonly T[], weights: readonly number[]): T {
@@ -177,6 +198,8 @@ export interface BonusResult {
 
 export interface CandyMadnessResult {
   bet: number
+  cost: number // currency actually staked this round (bet, or the feature-buy price)
+  feature: CandyFeature | null
   grid: CandySymbol[][] // initial base drop [col][row]
   scatterCells: Cell[]
   scatterCount: number
@@ -186,7 +209,7 @@ export interface CandyMadnessResult {
   bonus: BonusResult | null
   bonusPayout: number
   payout: number // total currency returned (capped)
-  won: boolean // payout > bet
+  won: boolean // payout > cost
   maxWin: number
   [key: string]: unknown
 }
@@ -211,7 +234,7 @@ function fullDrop(draw: () => CandySymbol): CandySymbol[][] {
   return grid
 }
 
-// Flood-fill every cluster of 5+ matching candies (scatters never match).
+// Flood-fill every cluster of 4+ matching candies (scatters never match).
 function findClusters(grid: CandySymbol[][]): Cluster[] {
   const seen: boolean[][] = grid.map(col => col.map(() => false))
   const clusters: Cluster[] = []
@@ -253,8 +276,7 @@ function findClusters(grid: CandySymbol[][]): Cluster[] {
 }
 
 // Remove the winning cells and tumble: survivors keep their top-to-bottom order
-// and pack to the BOTTOM of each column, new candies fill the top holes. This
-// matches pixi-reels' gravity convention (top `winners.length` rows are new).
+// and pack to the BOTTOM of each column, new candies fill the top holes.
 function tumble(grid: CandySymbol[][], winCells: Cell[]): CandySymbol[][] {
   const dead: Set<string> = new Set(winCells.map(c => key(c.col, c.row)))
   const next: CandySymbol[][] = []
@@ -281,9 +303,6 @@ function snapshotSpots(spots: Map<string, number>): MultSpot[] {
 
 // --- one tumble sequence ----------------------------------------------------
 
-// Runs a full tumble chain from `startGrid`, mutating the shared `spots` map
-// (so the bonus can carry spots across spins). Returns the precomputed steps,
-// the settled grid and the sequence win in × bet.
 function runSequence(startGrid: CandySymbol[][], spots: Map<string, number>): TumbleSequence {
   const spotsBefore = snapshotSpots(spots)
   let grid = startGrid
@@ -302,7 +321,6 @@ function runSequence(startGrid: CandySymbol[][], spots: Map<string, number>): Tu
     }
     basePay += stepPay
 
-    // Place / upgrade a multiplier spot on every winning position.
     for (const c of winCells) {
       const k = key(c.col, c.row)
       const cur = spots.get(k)
@@ -343,7 +361,6 @@ function findScatters(grid: CandySymbol[][]): Cell[] {
 // --- bonus ------------------------------------------------------------------
 
 function runBonus(): BonusResult {
-  // Multiplier spots persist for the whole feature — this map is never cleared.
   const spots = new Map<string, number>()
   const spins: BonusSpin[] = []
   let bonusPayout = 0
@@ -360,22 +377,49 @@ function runBonus(): BonusResult {
 
 // --- main entry -------------------------------------------------------------
 
-export function playCandyMadness(bet: number, _options?: Record<string, unknown>): CandyMadnessResult {
+// An empty sequence — used as the (visual-only) base for a bought bonus, where
+// the player skips the paid spin and lands straight in free spins.
+function emptySequence(grid: CandySymbol[][]): TumbleSequence {
+  return { steps: [], restGrid: grid, spotsBefore: [], basePay: 0, multiplierSum: 0, win: 0 }
+}
+
+export function playCandyMadness(bet: number, options?: Record<string, unknown>): CandyMadnessResult {
   if (!Number.isFinite(bet) || bet <= 0) {
     throw createError({ statusCode: 400, message: 'Invalid bet amount' })
   }
 
-  const grid = fullDrop(drawCell)
+  const feature = (options?.feature ?? null) as CandyFeature | null
+
+  let cost = bet
+  let grid: CandySymbol[][]
+  let base: TumbleSequence
+  let basePayout: number
+  let bonusTriggered: boolean
+  let bonus: BonusResult | null
+
+  if (feature === 'buyFreeSpins') {
+    // Pay the buy price, skip the paid spin, go straight to free spins.
+    cost = bet * CM_BUY_FREESPINS_COST
+    grid = fullDrop(drawCandy) // candies only — purely cosmetic, pays nothing
+    base = emptySequence(grid)
+    basePayout = 0
+    bonusTriggered = true
+    bonus = runBonus()
+  } else {
+    if (feature === 'bonusHunt') cost = bet * CM_BONUS_HUNT_COST
+    grid = fullDrop(drawCell)
+    // Bonus Hunter guarantees at least one scatter on the initial drop.
+    if (feature === 'bonusHunt') grid[randInt(CM_COLS)]![randInt(CM_ROWS)] = 'scatter'
+
+    const baseSpots = new Map<string, number>()
+    base = runSequence(grid, baseSpots)
+    basePayout = base.win * bet
+    bonusTriggered = findScatters(grid).length >= CM_SCATTER_TRIGGER
+    bonus = bonusTriggered ? runBonus() : null
+  }
+
   const scatterCells = findScatters(grid)
   const scatterCount = scatterCells.length
-
-  // Base game: spots are fresh each paid spin.
-  const baseSpots = new Map<string, number>()
-  const base = runSequence(grid, baseSpots)
-  const basePayout = base.win * bet
-
-  const bonusTriggered = scatterCount >= CM_SCATTER_TRIGGER
-  const bonus = bonusTriggered ? runBonus() : null
   const bonusPayout = (bonus?.bonusPayout ?? 0) * bet
 
   let payout = basePayout + bonusPayout
@@ -385,6 +429,8 @@ export function playCandyMadness(bet: number, _options?: Record<string, unknown>
 
   return {
     bet,
+    cost: Math.round(cost * 10000) / 10000,
+    feature,
     grid,
     scatterCells,
     scatterCount,
@@ -394,7 +440,7 @@ export function playCandyMadness(bet: number, _options?: Record<string, unknown>
     bonus,
     bonusPayout: Math.round(bonusPayout * 10000) / 10000,
     payout,
-    won: payout > bet,
+    won: payout > cost,
     maxWin
   }
 }

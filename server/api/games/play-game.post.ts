@@ -23,14 +23,22 @@ export default defineEventHandler(async (event) => {
   }
 
   const balance = await getBalance(session.user.id)
-  if (parseFloat(balance) < bet) {
+  const balanceNum = parseFloat(balance)
+  if (balanceNum < bet) {
     throw createError({ statusCode: 400, statusMessage: 'Insufficient balance' })
   }
 
   if (!GAMES_REGISTRY[game]) throw new Error('Invalid GAMES_REGISTRY')
   const gameData = GAMES_REGISTRY[game].play(bet, options)
 
-  const net = gameData.payout - bet
+  // The game may stake more than the raw bet (e.g. a feature buy reports its
+  // own `cost`). No balance moves before this check, so it's exploit-safe.
+  const cost = typeof gameData.cost === 'number' && gameData.cost > 0 ? gameData.cost : bet
+  if (balanceNum < cost) {
+    throw createError({ statusCode: 400, statusMessage: 'Insufficient balance' })
+  }
+
+  const net = gameData.payout - cost
 
   if (net > 0) {
     await credit(session.user.id, net.toFixed(4), game)
@@ -38,7 +46,7 @@ export default defineEventHandler(async (event) => {
     await debit(session.user.id, Math.abs(net).toFixed(4), game)
   }
 
-  await accumulateRake(session.user.id, bet)
+  await accumulateRake(session.user.id, cost)
 
   return {
     gameData,
