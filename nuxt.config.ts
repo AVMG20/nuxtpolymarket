@@ -12,7 +12,8 @@ export default defineNuxtConfig({
 
     runtimeConfig: {
         authSecret: process.env.BETTER_AUTH_SECRET,
-        databaseUrl: process.env.DATABASE_URL
+        databaseUrl: process.env.DATABASE_URL,
+        devMode: false,
     },
 
     compatibilityDate: '2025-01-15',

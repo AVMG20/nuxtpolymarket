@@ -59,7 +59,7 @@ export default defineEventHandler(async (event) => {
   const totalPower = agents.reduce((sum, agent, i) =>
     sum + agentPower({ level: agent.level, class: agent.class as AgentClass }, agentLoadouts[i]!.items, (agent.traits ?? []) as AgentTrait[]), 0)
 
-  const durationMs = process.env.DEV_MODE === 'true'
+  const durationMs = useRuntimeConfig(event).devMode
     ? 1000
     : effectiveDurationMs(template, agentLoadouts)
   const successChance = opSuccessChance(totalPower, template.minPower)

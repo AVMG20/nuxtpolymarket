@@ -8,7 +8,7 @@ import {
 
 /** When DEV_MODE=true, all grow/breed durations are capped to 1 second for testing */
 export function xenoDuration(rawSecs: number): number {
-  return process.env.DEV_MODE === 'true' ? 1 : rawSecs
+  return useRuntimeConfig().devMode ? 1 : rawSecs
 }
 
 /** Effective grow time for a plant instance including artifact speed boost and dev mode */
