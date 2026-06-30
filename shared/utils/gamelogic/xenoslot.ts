@@ -93,12 +93,14 @@ export const BONUS_FREE_SPINS = 10 // fixed number of bonus spins
 // (see scripts/xenoslot-rtp.ts).
 const P_COIN = 0.20
 const P_COLLECTOR = 0.028
-const P_GLOVER = 0.011
+const P_GLOVER = 0.028
 
-// Coin face values (× bet) and their relative weights. Low-skewed, but weighted
-// a touch heavier toward the bigger faces so the rarer collectors still pay out.
+// Coin face values (× bet) and their relative weights. Heavily low-skewed:
+// individual coins are small, but glovers land often (see P_GLOVER) and multiply
+// neighbours, so most of the bonus payout comes from boosted coins rather than
+// big base faces.
 const COIN_VALUES = [0.2, 0.5, 1, 2, 5, 10, 25, 50] as const
-const COIN_WEIGHTS = [0.328, 0.25, 0.17, 0.1, 0.06, 0.042, 0.035, 0.015] as const
+const COIN_WEIGHTS = [0.355, 0.25, 0.17, 0.1, 0.06, 0.038, 0.024, 0.005] as const
 
 // Glover (multiplier) — when one lands it multiplies the value of every coin in
 // the 8 neighbouring cells by its multiplier, then vanishes (it never occupies

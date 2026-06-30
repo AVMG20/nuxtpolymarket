@@ -218,7 +218,10 @@ function makeSymbolClasses() {
     w = B_CELL
     h = B_CELL
     _tween: any = null
-    _tier: CoinTier = COIN_TIERS.gold
+    // Default bronze: coins fall bronze while spinning, then setValue() re-tiers
+    // them on landing so they appear to upgrade to gold/silver/platinum (or stay
+    // bronze for low values).
+    _tier: CoinTier = COIN_TIERS.bronze
 
     constructor() {
       super()
