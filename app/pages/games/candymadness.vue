@@ -859,10 +859,25 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
     <div class="page-bg"/>
     <div class="page-vignette"/>
 
-    <!-- Game + feature buys -->
-    <div class="game-layout flex flex-col lg:flex-row items-center lg:items-stretch justify-center gap-3 sm:gap-4 w-full max-w-[800px]">
-      <!-- ── Feature buy cards ── -->
-      <div class="order-2 lg:order-1 w-full lg:w-auto flex flex-row lg:flex-col gap-3">
+    <!-- ── Title (centered over the board) ── -->
+    <div class="cm-title relative z-[1] mb-4 sm:mb-5 text-center">
+      <h1 class="cm-title__text">
+        <span class="cm-title__emoji">🍭</span>
+        Candy Madness
+        <span class="cm-title__emoji">🍬</span>
+      </h1>
+      <div class="mt-2.5 flex flex-wrap items-center justify-center gap-1.5 sm:gap-2">
+        <span class="cm-badge cm-badge--rtp">98% RTP</span>
+        <span class="cm-badge cm-badge--vol">Low Volatility</span>
+        <span class="cm-badge cm-badge--cascade">Cascade</span>
+      </div>
+    </div>
+
+    <!-- Game + feature buys. The board stays centered on the page; the buy
+         cards float to its left on desktop so they don't push it off-centre. -->
+    <div class="game-layout relative w-full max-w-[600px] flex flex-col">
+      <!-- ── Feature buy cards: below the board on mobile, floated left on desktop ── -->
+      <div class="order-2 mt-3 lg:mt-0 lg:absolute lg:top-0 lg:right-full lg:mr-4 w-full lg:w-auto flex flex-row lg:flex-col gap-3">
         <!-- BUY FREE SPINS -->
         <button
             :disabled="!ready  || autoSpinEnabled || balance < buyFreeSpinsCost"
@@ -923,7 +938,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
       </div>
 
       <!-- Slot machine -->
-      <div class="machine order-1 lg:order-2 w-full max-w-[600px] flex flex-col">
+      <div class="machine order-1 w-full flex flex-col">
         <!-- ── Reel area: purple gradient ── -->
         <div
             class="reel-area relative select-none"
@@ -1345,6 +1360,66 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 .page-root > div:not(.page-bg):not(.page-vignette):not(.game-layout) {
   position: relative;
   z-index: 1;
+}
+
+/* ── Title ──────────────────────────────────────────────────────────────── */
+.cm-title__text {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: clamp(30px, 6vw, 46px);
+  font-weight: 900;
+  letter-spacing: 0.5px;
+  line-height: 1;
+  /* glossy candy gradient poured top-to-bottom over the letters */
+  background: linear-gradient(180deg, #ffffff 0%, #ffe3f4 26%, #ff86d3 58%, #b06bff 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+  /* candy-shell drop + soft fuchsia glow */
+  filter: drop-shadow(0 2px 0 rgba(122, 18, 150, 0.55))
+  drop-shadow(0 6px 16px rgba(217, 70, 239, 0.5));
+}
+
+/* emojis keep their own colour (not clipped by the gradient fill) */
+.cm-title__emoji {
+  -webkit-text-fill-color: initial;
+  filter: drop-shadow(0 3px 5px rgba(0, 0, 0, 0.45));
+}
+
+.cm-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 11px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: #fff;
+  background: rgba(10, 4, 26, 0.45);
+  border: 1px solid rgba(232, 121, 249, 0.3);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  backdrop-filter: blur(2px);
+}
+
+.cm-badge--rtp {
+  color: #bbf7d0;
+  border-color: rgba(52, 211, 153, 0.5);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 0 12px rgba(52, 211, 153, 0.28);
+}
+
+.cm-badge--vol {
+  color: #bae6fd;
+  border-color: rgba(56, 189, 248, 0.5);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 0 12px rgba(56, 189, 248, 0.28);
+}
+
+.cm-badge--cascade {
+  color: #fbcfe8;
+  border-color: rgba(244, 114, 182, 0.55);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 0 12px rgba(244, 114, 182, 0.3);
 }
 
 /* ── Machine shell ──────────────────────────────────────────────────────── */
