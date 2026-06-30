@@ -401,6 +401,17 @@ export function playCandyMadness(bet: number, options?: Record<string, unknown>)
     // Pay the buy price, skip the paid spin, go straight to free spins.
     cost = bet * CM_BUY_FREESPINS_COST
     grid = fullDrop(drawCandy) // candies only — purely cosmetic, pays nothing
+    // Scatter in the trigger symbols so the initial drop reads as a real bonus
+    // trigger. Purely visual: the base is an empty (non-paying) sequence.
+    const placed = new Set<string>()
+    while (placed.size < CM_SCATTER_TRIGGER) {
+      const col = randInt(CM_COLS)
+      const row = randInt(CM_ROWS)
+      const k = key(col, row)
+      if (placed.has(k)) continue
+      placed.add(k)
+      grid[col]![row] = 'scatter'
+    }
     base = emptySequence(grid)
     basePayout = 0
     bonusTriggered = true

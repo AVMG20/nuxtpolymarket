@@ -721,7 +721,7 @@ async function spin(forceFeature?: CandyFeature) {
     lastWin.value = baseWin * result.bet
 
     if (result.bonusTriggered && result.bonus) {
-      // Bought bonuses have no scatters to spotlight; only highlight natural triggers.
+      // Highlight the trigger scatters (bought bonuses now also drop 3 for show).
       if (result.scatterCells.length) {
         await reelSet.spotlight.show(result.scatterCells.map((c: Cell) => (
             {reelIndex: c.col, rowIndex: c.row}
