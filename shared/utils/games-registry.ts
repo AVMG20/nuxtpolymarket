@@ -2,6 +2,7 @@ import { playDice } from './gamelogic/dice'
 import { playLimbo } from './gamelogic/limbo'
 import { playWheel } from '#shared/utils/gamelogic/wheel'
 import { playMagicHands } from './gamelogic/magichands'
+import { playXenoSlot } from './gamelogic/xenoslot'
 
 export interface GameResult {
   payout: number
@@ -24,6 +25,9 @@ export const GAMES_REGISTRY: Record<string, GameDefinition> = {
   },
   magichands: {
     play: playMagicHands
+  },
+  xenoslot: {
+    play: playXenoSlot
   }
 }
 

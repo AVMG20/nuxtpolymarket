@@ -9,6 +9,14 @@ const slotGames: {
   gradient: string;
   iconColor: string
 }[] = [
+  {
+    name: 'Xeno Slot',
+    description: '5×3 line-pay reels with a Hold & Win collector bonus',
+    icon: 'i-lucide-cherry',
+    to: '/games/xenoslot',
+    gradient: 'from-fuchsia-950 to-slate-900',
+    iconColor: 'text-fuchsia-400',
+  },
 ]
 
 const casinoGames = [
