@@ -34,7 +34,7 @@ const platformItems: NavigationMenuItem[] = [
 
 const slotItems: NavigationMenuItem[] = [
   {label: 'Xeno Slot', class: 'mb-1', icon: 'i-lucide-cherry', to: '/games/xenoslot'},
-  {label: 'Candy Madness', class: 'mb-1', icon: 'i-lucide-lollipop ', to: '/games/candymadness'},
+  {label: 'Candy Madness', class: 'mb-1', icon: 'i-lucide-lollipop', to: '/games/candymadness'},
 ]
 
 const casinoItems: NavigationMenuItem[] = [
