@@ -30,17 +30,38 @@ watch(() => user.value?.balance, (v) => {
   if (v !== undefined) balance.value = parseFloat(v ?? '0')
 })
 
-// --- bet levels (casino-style navigation)
-const BET_LEVELS = [1, 2, 5, 10, 25, 50, 100, 250, 500, 1000] as const
-const betIdx = ref(3) // default: 10
-const bet = computed(() => BET_LEVELS[betIdx.value]!)
+// --- bet control (half / double / free typing — no upper ladder cap)
+const MIN_BET = 1
+const MAX_BET = 1_000_000 // matches the server-side cap in play-game.post.ts
+const bet = ref(10)
+const betInput = ref('10')
+
+function clampBet(v: number): number {
+  if (!Number.isFinite(v) || v < MIN_BET) return MIN_BET
+  return Math.min(MAX_BET, Math.floor(v))
+}
+
+function setBet(v: number) {
+  if (isSpinning.value || autoSpinEnabled.value) return
+  bet.value = clampBet(v)
+}
+
+// Keep the editable field mirrored when bet changes via the ½ / 2× buttons.
+watch(bet, (v) => {
+  betInput.value = String(v)
+}, {immediate: true})
+
+function commitBetInput() {
+  setBet(parseInt(betInput.value.replace(/[^\d]/g, ''), 10) || MIN_BET)
+  betInput.value = String(bet.value)
+}
 
 function betDown() {
-  if (!isSpinning.value) betIdx.value = Math.max(0, betIdx.value - 1)
+  setBet(Math.floor(bet.value / 2))
 }
 
 function betUp() {
-  if (!isSpinning.value) betIdx.value = Math.min(BET_LEVELS.length - 1, betIdx.value + 1)
+  setBet(bet.value * 2)
 }
 
 // --- feature buys
@@ -201,6 +222,19 @@ const MULT_RAMP: Record<number, number> = {
 
 function multColor(v: number): number {
   return MULT_RAMP[v] ?? MULT_RAMP[2048]!
+}
+
+// Render an emoji to a texture so it can be used as a reel symbol.
+function makeEmojiTexture(emoji: string) {
+  const size = 256
+  const canvas = document.createElement('canvas')
+  canvas.width = canvas.height = size
+  const ctx = canvas.getContext('2d')!
+  ctx.font = `${Math.floor(size * 0.82)}px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",serif`
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  ctx.fillText(emoji, size / 2, size / 2 + size * 0.04)
+  return PIXI.Texture.from(canvas)
 }
 
 // --- candy symbol class
@@ -467,6 +501,10 @@ onMounted(async () => {
     canvasWrap.value?.appendChild(app.canvas)
 
     await Promise.all(SYMBOL_IDS.map(async (id) => {
+      if (id === 'scatter') {
+        TEX[id] = makeEmojiTexture(GLYPH.scatter)
+        return
+      }
       TEX[id] = await PIXI.Assets.load(`/slots/candyblast/${id}.png`)
     }))
     if (destroyed) {
@@ -739,7 +777,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
       <div class="order-2 lg:order-1 w-full lg:w-auto flex flex-row lg:flex-col gap-3">
         <!-- BUY FREE SPINS -->
         <button
-            :disabled="!ready || isSpinning || autoSpinEnabled || balance < buyFreeSpinsCost"
+            :disabled="!ready  || autoSpinEnabled || balance < buyFreeSpinsCost"
             class="group relative w-50 shrink-0 overflow-hidden flex flex-col gap-2 rounded-2xl p-3 text-left text-white cursor-pointer transition bg-gradient-to-b from-pink-500/25 to-[#0a041a]/60 border border-pink-500/45 shadow-[0_10px_30px_rgba(0,0,0,0.55)] hover:-translate-y-0.5 hover:brightness-110 active:translate-y-0 disabled:opacity-40 disabled:cursor-default disabled:saturate-[0.6] disabled:translate-y-0"
             @click="buyFreeSpins"
         >
@@ -764,7 +802,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
         <!-- BONUS HUNTER (toggle) -->
         <button
             :class="huntMode ? 'border-sky-400/70 shadow-[0_0_22px_rgba(56,189,248,0.45)]' : 'border-violet-500/35 shadow-[0_10px_30px_rgba(0,0,0,0.55)]'"
-            :disabled="!ready || isSpinning || autoSpinEnabled"
+            :disabled="!ready || autoSpinEnabled"
             class="group relative w-50 shrink-0 overflow-hidden flex flex-col gap-2 rounded-2xl p-3 text-left text-white cursor-pointer transition bg-gradient-to-b from-violet-500/20 to-[#0a041a]/60 border hover:-translate-y-0.5 hover:brightness-110 active:translate-y-0 disabled:opacity-40 disabled:cursor-default disabled:saturate-[0.6] disabled:translate-y-0"
             @click="toggleHunt"
         >
@@ -791,7 +829,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 
           <span class="relative mt-auto inline-flex items-center gap-1.5 self-start rounded-lg px-2.5 py-1 font-mono text-sm font-extrabold bg-black/30 ring-1 ring-inset ring-violet-500/20">
             <CoinBalance :compact="false" :value="bonusHuntCost"/>
-            <span class="text-[9px] font-bold uppercase tracking-wider text-violet-300/50">/ spin</span>
+            <span class="text-[9px] font-bold uppercase tracking-wider text-violet-300/50">+/ spin</span>
           </span>
         </button>
       </div>
@@ -906,7 +944,15 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
               </div>
               <div class="readout w-full justify-between">
                 <span class="ctrl-label">Bet</span>
-                <span class="ctrl-value tabular-nums">{{ formatNumber(bet, false, 0) }}</span>
+                <input
+                    v-model="betInput"
+                    :disabled="isSpinning || autoSpinEnabled"
+                    aria-label="Bet amount"
+                    class="bet-input ctrl-value tabular-nums"
+                    inputmode="numeric"
+                    @blur="commitBetInput"
+                    @keydown.enter="($event.target as HTMLInputElement).blur()"
+                >
               </div>
             </div>
           </div>
@@ -950,17 +996,14 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 
           <!-- RIGHT: − SPIN + / AUTO -->
           <div class="flex items-center gap-2 sm:gap-2.5 flex-1 justify-end">
-            <!-- Bet down -->
+            <!-- Halve bet -->
             <button
-                :disabled="isSpinning || betIdx === 0"
+                :disabled="isSpinning || autoSpinEnabled || bet <= MIN_BET"
                 class="adj-btn"
-                title="Lower bet"
+                title="Halve bet"
                 @click="betDown"
             >
-              <UIcon
-                  class="size-4"
-                  name="i-lucide-minus"
-              />
+              <span class="text-sm font-black leading-none">½</span>
             </button>
 
             <!-- SPIN + AUTO stacked -->
@@ -1006,17 +1049,14 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
               </button>
             </div>
 
-            <!-- Bet up -->
+            <!-- Double bet -->
             <button
-                :disabled="isSpinning || betIdx === BET_LEVELS.length - 1"
+                :disabled="isSpinning || autoSpinEnabled || bet >= MAX_BET"
                 class="adj-btn"
-                title="Raise bet"
+                title="Double bet"
                 @click="betUp"
             >
-              <UIcon
-                  class="size-4"
-                  name="i-lucide-plus"
-              />
+              <span class="text-xs font-black leading-none">2×</span>
             </button>
           </div>
         </div>
@@ -1042,10 +1082,11 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
     </div>
 
     <!-- History -->
-    <div
-        v-if="history.length"
-        class="flex gap-1.5 flex-wrap justify-center mt-3"
-    >
+    <div class="min-h-8">
+      <div
+          v-if="history.length"
+          class="flex gap-1.5 flex-wrap justify-center mt-3"
+      >
       <span
           v-for="(h, i) in history"
           :key="i"
@@ -1060,6 +1101,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
         />
         {{ h.payout > 0 ? formatNumber(h.payout) : '—' }}
       </span>
+      </div>
     </div>
 
     <!-- Auto-spin modal -->
@@ -1145,9 +1187,13 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
                 >
                   <div
                       :class="i % 2 ? 'bg-elevated/40' : ''"
-                      class="px-3 py-1.5 text-center text-xl"
+                      class="px-3 py-1.5 flex items-center justify-center"
                   >
-                    {{ row.glyph }}
+                    <img
+                        :alt="row.sym"
+                        :src="`/slots/candyblast/${row.sym}.png`"
+                        class="h-7 w-7 object-contain"
+                    >
                   </div>
                   <div
                       :class="i % 2 ? 'bg-elevated/40' : ''"
@@ -1284,6 +1330,33 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
   font-weight: 700;
   color: #fff;
   letter-spacing: 0.01em;
+}
+
+/* Editable bet field — looks like the readout value, free typing for any stake */
+.bet-input {
+  min-width: 0;
+  flex: 1;
+  text-align: right;
+  background: transparent;
+  border: none;
+  outline: none;
+  padding: 0;
+  appearance: textfield;
+}
+
+.bet-input:focus {
+  color: #fde047;
+}
+
+.bet-input:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.bet-input::-webkit-inner-spin-button,
+.bet-input::-webkit-outer-spin-button {
+  appearance: none;
+  margin: 0;
 }
 
 /* Win amount */
