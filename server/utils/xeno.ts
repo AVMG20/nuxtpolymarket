@@ -2,7 +2,7 @@ import { eq, and, sql } from 'drizzle-orm'
 import { db } from '#server/database'
 import { xenoPlants, xenoPlantsUnlocked, xenoArtifacts, xenoGridSlots, xenoBreederSlots, user } from '#server/database/schema'
 import {
-  getArtifact, getEffectValue, getPlant, getPlantDisplay,
+  getArtifact, getEffectValueFor, getPlant, getPlantDisplay,
   effectiveGrowTime, breedDuration, getMutationPair,
 } from '#shared/utils/xeno'
 
@@ -15,6 +15,7 @@ export function xenoDuration(rawSecs: number): number {
 export function computeGridDuration(
   plant: { typeId: string; speed: number },
   artifactTypeId: string | null | undefined,
+  gemCrafted = false,
 ): number {
   const base = getPlantDisplay(plant.typeId)
   if (!base) throw createError({ statusCode: 400, statusMessage: `Unknown plant type: ${plant.typeId}` })
@@ -22,7 +23,7 @@ export function computeGridDuration(
   if (artifactTypeId) {
     const art = getArtifact(artifactTypeId)
     if (art) {
-      const speedBoost = getEffectValue(art, 'grid_speed_boost')
+      const speedBoost = getEffectValueFor(art, 'grid_speed_boost', gemCrafted)
       if (speedBoost > 0) secs = Math.round(secs * (1 - speedBoost))
     }
   }
@@ -34,6 +35,7 @@ export function computeBreedDuration(
   p1: { typeId: string; speed: number },
   p2: { typeId: string; speed: number },
   artifactTypeId?: string | null,
+  gemCrafted = false,
 ): number {
   const t1 = getPlant(p1.typeId)
   const t2 = getPlant(p2.typeId)
@@ -45,7 +47,7 @@ export function computeBreedDuration(
   if (artifactTypeId) {
     const art = getArtifact(artifactTypeId)
     if (art) {
-      const speedBoost = getEffectValue(art, 'breeder_speed_boost')
+      const speedBoost = getEffectValueFor(art, 'breeder_speed_boost', gemCrafted)
       if (speedBoost > 0) secs = Math.round(secs * (1 - speedBoost))
     }
   }

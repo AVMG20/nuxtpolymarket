@@ -22,15 +22,20 @@ export default defineEventHandler(async (event) => {
   if (slot.collected) throw createError({ statusCode: 400, statusMessage: 'Already collected' })
 
   let artifactTypeId: string | null = null
+  let artifactGemCrafted = false
   if (slot.artifactId) {
     const art = await db.query.xenoArtifacts.findFirst({ where: eq(xenoArtifacts.id, slot.artifactId) })
-    if (art) artifactTypeId = art.typeId
+    if (art) {
+      artifactTypeId = art.typeId
+      artifactGemCrafted = art.gemCrafted
+    }
   }
 
   const durationSecs = computeBreedDuration(
     { typeId: slot.plant1TypeId, speed: slot.plant1Speed ?? 1 },
     { typeId: slot.plant2TypeId, speed: slot.plant2Speed ?? 1 },
     artifactTypeId,
+    artifactGemCrafted,
   )
   const completesAt = slot.startedAt.getTime() + durationSecs * 1000
   if (Date.now() < completesAt) throw createError({ statusCode: 400, statusMessage: 'Breeding not complete yet' })

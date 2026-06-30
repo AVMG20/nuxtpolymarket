@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import {
   tierNameColor, tierBg, levelTextColor,
-  ARTIFACT_TYPES, getArtifact, ARTIFACT_SPEED_PER_LEVEL,
+  ARTIFACT_TYPES, getArtifact, artifactStatRows,
   type ArtifactType,
 } from '#shared/utils/xeno'
 
@@ -14,7 +14,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   selectPlant: [payload: { typeId: string; speed: number; yield: number; name: string; emoji: string; tier: number } | null]
-  selectArtifact: [payload: { id: string; typeId: string; chargesRemaining: number } | null]
+  selectArtifact: [payload: { id: string; typeId: string; chargesRemaining: number; gemCrafted: boolean } | null]
 }>()
 
 const activeTab = ref<'seeds' | 'artifacts'>('seeds')
@@ -31,25 +31,25 @@ function onSelectPlant(item: any) {
 // ── Artifact stacking ──────────────────────────────────────────────────────
 // Group free artifacts by (typeId + chargesRemaining). Same charges = same stack.
 const stackedArtifacts = computed(() => {
-  const groups = new Map<string, { typeId: string; chargesRemaining: number; ids: string[]; count: number }>()
+  const groups = new Map<string, { typeId: string; chargesRemaining: number; gemCrafted: boolean; ids: string[]; count: number }>()
   for (const a of props.freeArtifacts) {
-    const key = `${a.typeId}:${a.chargesRemaining}`
+    const key = `${a.typeId}:${a.chargesRemaining}:${a.gemCrafted ? 1 : 0}`
     const group = groups.get(key)
     if (group) {
       group.ids.push(a.id)
       group.count++
     } else {
-      groups.set(key, { typeId: a.typeId, chargesRemaining: a.chargesRemaining, ids: [a.id], count: 1 })
+      groups.set(key, { typeId: a.typeId, chargesRemaining: a.chargesRemaining, gemCrafted: !!a.gemCrafted, ids: [a.id], count: 1 })
     }
   }
   return [...groups.values()]
 })
 
-function onSelectStack(stack: { typeId: string; chargesRemaining: number; ids: string[] }) {
+function onSelectStack(stack: { typeId: string; chargesRemaining: number; gemCrafted: boolean; ids: string[] }) {
   if (props.selectedArtifactId != null && stack.ids.includes(props.selectedArtifactId)) {
     emit('selectArtifact', null)
   } else {
-    emit('selectArtifact', { id: stack.ids[0]!, typeId: stack.typeId, chargesRemaining: stack.chargesRemaining })
+    emit('selectArtifact', { id: stack.ids[0]!, typeId: stack.typeId, chargesRemaining: stack.chargesRemaining, gemCrafted: stack.gemCrafted })
   }
 }
 
@@ -79,35 +79,10 @@ function getArtifactDef(typeId: string) {
   return ARTIFACT_TYPES.find(a => a.id === typeId)
 }
 
-const MUTATION_PER_LEVEL = 0.05
-function toSpeedLevel(pct: number) { return Math.round(Math.round(pct * 1000) / Math.round(ARTIFACT_SPEED_PER_LEVEL * 1000)) }
-function toMutLevel(pct: number) { return Math.ceil(Math.round(pct * 1000) / Math.round(MUTATION_PER_LEVEL * 1000)) }
+const MAX_CHARGES = Math.max(...ARTIFACT_TYPES.map(a => a.maxCharges))
 
-const MAX_CHARGES     = Math.max(...ARTIFACT_TYPES.map(a => a.maxCharges))
-const MAX_SPEED_LVL   = Math.max(...ARTIFACT_TYPES.flatMap(a => a.effects.filter(e => e.type === 'grid_speed_boost').map(e => toSpeedLevel(e.value))), 1)
-const MAX_YIELD_LVL   = Math.max(...ARTIFACT_TYPES.flatMap(a => a.effects.filter(e => e.type === 'grid_yield_bonus').map(e => e.value)), 1)
-const MAX_EXTRA_LVL   = Math.max(...ARTIFACT_TYPES.flatMap(a => a.effects.filter(e => e.type === 'breeder_extra_yield').map(e => e.value)), 1)
-const MAX_MUT_LVL     = Math.max(...ARTIFACT_TYPES.flatMap(a => a.effects.filter(e => e.type === 'breeder_mutation_boost').map(e => toMutLevel(e.value))), 1)
-const MAX_B_SPEED_LVL = Math.max(...ARTIFACT_TYPES.flatMap(a => a.effects.filter(e => e.type === 'breeder_speed_boost').map(e => toSpeedLevel(e.value))), 1)
-
-function specRows(art: ArtifactType | undefined) {
-  if (!art) return []
-  const speedE  = art.effects.find(e => e.type === 'grid_speed_boost')
-  const yieldE  = art.effects.find(e => e.type === 'grid_yield_bonus')
-  const extraE  = art.effects.find(e => e.type === 'breeder_extra_yield')
-  const mutE    = art.effects.find(e => e.type === 'breeder_mutation_boost')
-  const bSpeedE = art.effects.find(e => e.type === 'breeder_speed_boost')
-  if (art.effects.some(e => e.type.startsWith('grid_'))) {
-    return [
-      { label: 'Speed', lvl: speedE ? toSpeedLevel(speedE.value) : 0, max: MAX_SPEED_LVL, color: 'bg-warning' },
-      { label: 'Yield', lvl: yieldE ? yieldE.value : 0,               max: MAX_YIELD_LVL, color: 'bg-info' },
-    ]
-  }
-  return [
-    { label: 'Speed',    lvl: bSpeedE ? toSpeedLevel(bSpeedE.value) : 0, max: MAX_B_SPEED_LVL, color: 'bg-warning' },
-    { label: 'Yield',    lvl: extraE  ? extraE.value : 0,                 max: MAX_EXTRA_LVL,   color: 'bg-info' },
-    { label: 'Mutation', lvl: mutE    ? toMutLevel(mutE.value) : 0,       max: MAX_MUT_LVL,     color: 'bg-primary' },
-  ]
+function specRows(art: ArtifactType | undefined, gemCrafted = false) {
+  return art ? artifactStatRows(art, gemCrafted) : []
 }
 </script>
 
@@ -226,11 +201,13 @@ function specRows(art: ArtifactType | undefined) {
 
     <div
       v-for="stack in stackedArtifacts"
-      :key="`${stack.typeId}:${stack.chargesRemaining}`"
+      :key="`${stack.typeId}:${stack.chargesRemaining}:${stack.gemCrafted ? 1 : 0}`"
       class="rounded-xl border cursor-pointer transition-all duration-100 overflow-hidden"
       :class="isStackSelected(stack)
         ? 'border-primary bg-primary/5 ring-1 ring-primary'
-        : 'border-default bg-elevated hover:border-default/80 hover:bg-elevated/80'"
+        : stack.gemCrafted
+          ? 'border-primary/40 bg-primary/5 ring-1 ring-primary/20 hover:border-primary/60'
+          : 'border-default bg-elevated hover:border-default/80 hover:bg-elevated/80'"
       @click="onSelectStack(stack)"
     >
       <!-- Artifact header -->
@@ -243,6 +220,10 @@ function specRows(art: ArtifactType | undefined) {
               v-if="(getArtifact(stack.typeId)?.effects.length ?? 0) > 1"
               class="text-[10px] font-bold px-1 py-0.5 rounded bg-primary/10 text-primary border border-primary/20 leading-none shrink-0"
             >Hybrid</span>
+            <span
+              v-if="stack.gemCrafted"
+              class="text-[10px] font-bold px-1 py-0.5 rounded bg-primary/15 text-primary border border-primary/30 leading-none shrink-0 flex items-center gap-0.5"
+            ><UIcon name="i-lucide-sparkles" class="size-2.5" /> +1</span>
           </div>
           <p class="text-[11px] text-muted leading-none mt-0.5">{{ effectTarget(getArtifact(stack.typeId)) }}</p>
         </div>
@@ -252,10 +233,10 @@ function specRows(art: ArtifactType | undefined) {
       <!-- Spec rows -->
       <div class="px-3 pt-2 pb-2.5 space-y-1.5">
         <XenoStatLevel
-          v-for="row in specRows(getArtifact(stack.typeId)).filter(r => r.lvl > 0)"
+          v-for="row in specRows(getArtifact(stack.typeId), stack.gemCrafted).filter(r => r.level > 0)"
           :key="row.label"
           :label="row.label"
-          :level="row.lvl"
+          :level="row.level"
           :max="row.max"
           :color="row.color"
         />

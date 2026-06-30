@@ -8,6 +8,9 @@ export type ArtifactEffectType =
 /** % speed reduction per display level for artifacts (5% per level, max level 10 = 50%) */
 export const ARTIFACT_SPEED_PER_LEVEL = 0.05
 
+/** % mutation boost per display level for breeder artifacts (5% per level) */
+export const ARTIFACT_MUTATION_PER_LEVEL = 0.05
+
 export interface ArtifactEffect {
   type: ArtifactEffectType
   value: number
@@ -31,6 +34,99 @@ export function getEffectValue(art: ArtifactType, type: ArtifactEffectType): num
 
 export function hasEffect(art: ArtifactType, type: ArtifactEffectType): boolean {
   return art.effects.some(e => e.type === type)
+}
+
+// ─── Gem crafting ────────────────────────────────────────────────────────────
+// An artifact can be crafted with gems to gain +1 display level on EVERY effect
+// it already has (absent effects are never granted). This maps each effect type
+// to the raw value that "+1 level" represents.
+export const ARTIFACT_GEM_LEVEL_INCREMENT: Record<ArtifactEffectType, number> = {
+  grid_speed_boost: ARTIFACT_SPEED_PER_LEVEL,
+  grid_yield_bonus: 1,
+  breeder_speed_boost: ARTIFACT_SPEED_PER_LEVEL,
+  breeder_extra_yield: 1,
+  breeder_mutation_boost: ARTIFACT_MUTATION_PER_LEVEL,
+}
+
+/** Gem cost to gem-craft an artifact = its tier level (e.g. Mutation Booster II → 2 gems). */
+export function gemCraftCost(art: ArtifactType): number {
+  return art.level
+}
+
+/**
+ * Effective value of one effect, accounting for a gem-crafted +1 level.
+ * Effects the artifact doesn't have (base 0) are never granted by gem crafting.
+ */
+export function getEffectValueFor(art: ArtifactType, type: ArtifactEffectType, gemCrafted = false): number {
+  const base = getEffectValue(art, type)
+  if (!gemCrafted || base === 0) return base
+  return base + ARTIFACT_GEM_LEVEL_INCREMENT[type]
+}
+
+/** The artifact's effects with the gem-craft +1 level applied to each present effect. */
+export function effectiveEffects(art: ArtifactType, gemCrafted = false): ArtifactEffect[] {
+  if (!gemCrafted) return art.effects
+  return art.effects.map(e => ({ type: e.type, value: e.value + ARTIFACT_GEM_LEVEL_INCREMENT[e.type] }))
+}
+
+// ─── Display stats ─────────────────────────────────────────────────────────────
+// A single source of truth for the level/dot-bar rows shown on every artifact card
+// (shop, inventory). Speed & mutation are stored as percentages; these convert them
+// to whole "display levels" (5% per level) and provide the max dot count + colour.
+
+/** Display level for a speed/mutation percentage value (5% = 1 level). */
+function toDisplayLevel(pct: number, per: number) { return Math.round(Math.round(pct * 1000) / Math.round(per * 1000)) }
+const toSpeedLevel = (pct: number) => toDisplayLevel(pct, ARTIFACT_SPEED_PER_LEVEL)
+const toMutLevel   = (pct: number) => Math.ceil(Math.round(pct * 1000) / Math.round(ARTIFACT_MUTATION_PER_LEVEL * 1000))
+
+const _max = (type: ArtifactEffectType, toLevel: (v: number) => number) =>
+  Math.max(...ARTIFACT_TYPES.flatMap(a => a.effects.filter(e => e.type === type).map(e => toLevel(e.value))), 1)
+
+// Lazily memoised — ARTIFACT_TYPES is declared further down this module, so these
+// can't be computed eagerly at module-init time (temporal dead zone).
+let _maxLevels: Record<ArtifactEffectType, number> | null = null
+function maxLevels(): Record<ArtifactEffectType, number> {
+  return _maxLevels ??= {
+    grid_speed_boost: _max('grid_speed_boost', toSpeedLevel),
+    grid_yield_bonus: _max('grid_yield_bonus', v => v),
+    breeder_speed_boost: _max('breeder_speed_boost', toSpeedLevel),
+    breeder_extra_yield: _max('breeder_extra_yield', v => v),
+    breeder_mutation_boost: _max('breeder_mutation_boost', toMutLevel),
+  }
+}
+
+export interface ArtifactStatRow {
+  label: 'Speed' | 'Yield' | 'Mutation'
+  /** Display level (0 = effect absent, row should be hidden). */
+  level: number
+  /** Number of dots in the bar. */
+  max: number
+  /** Tailwind bg-* class for filled dots. */
+  color: string
+}
+
+/**
+ * The level/dot-bar rows to render for an artifact card, accounting for gem crafting
+ * (which adds +1 level to every present effect, and one extra dot to the bar).
+ * Rows with level 0 are kept so callers can filter — the artifact simply lacks that effect.
+ */
+export function artifactStatRows(art: ArtifactType, gemCrafted = false): ArtifactStatRow[] {
+  const effects = effectiveEffects(art, gemCrafted)
+  const val = (type: ArtifactEffectType) => effects.find(e => e.type === type)?.value ?? 0
+  const bump = gemCrafted ? 1 : 0
+  const max = maxLevels()
+
+  if (art.effects.some(e => e.type.startsWith('grid_'))) {
+    return [
+      { label: 'Speed', level: toSpeedLevel(val('grid_speed_boost')), max: max.grid_speed_boost + bump, color: 'bg-warning' },
+      { label: 'Yield', level: val('grid_yield_bonus'),               max: max.grid_yield_bonus + bump, color: 'bg-info' },
+    ]
+  }
+  return [
+    { label: 'Speed',    level: toSpeedLevel(val('breeder_speed_boost')), max: max.breeder_speed_boost + bump, color: 'bg-warning' },
+    { label: 'Yield',    level: val('breeder_extra_yield'),               max: max.breeder_extra_yield + bump, color: 'bg-info' },
+    { label: 'Mutation', level: toMutLevel(val('breeder_mutation_boost')), max: max.breeder_mutation_boost + bump,  color: 'bg-secondary' },
+  ]
 }
 
 export const ARTIFACT_TYPES: ArtifactType[] = [

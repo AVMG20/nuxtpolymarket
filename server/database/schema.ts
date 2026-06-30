@@ -173,6 +173,8 @@ export const xenoArtifacts = pgTable('xeno_artifacts', {
   userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
   typeId: text('type_id').notNull(),
   chargesRemaining: integer('charges_remaining').notNull(),
+  /** Crafted with gems for +1 level on every one of its effects. */
+  gemCrafted: boolean('gem_crafted').notNull().default(false),
 }, (t) => [index('xeno_artifacts_userId_idx').on(t.userId)])
 
 /** Grid slots: plantId references the specific plant instance growing. */

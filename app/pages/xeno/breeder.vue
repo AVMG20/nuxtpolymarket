@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {
-  tierLabel, tierColor, tierNameColor, levelTextColor, getPlant, getArtifact, getEffectValue,
+  tierLabel, tierColor, tierNameColor, levelTextColor, getPlant, getArtifact, getEffectValueFor,
   getMutation, breedDuration,
 } from '#shared/utils/xeno'
 import { formatCountdown, progressPct, isDone, formatDuration } from '~/utils/xeno-format'
@@ -116,13 +116,13 @@ function baseBreedSecs(p1: any, p2: any): number {
 function slotBreederSpeedBoost(slot: any): number {
   if (!slot.artifact) return 0
   const art = getArtifact(slot.artifact.typeId)
-  return art ? getEffectValue(art, 'breeder_speed_boost') : 0
+  return art ? getEffectValueFor(art, 'breeder_speed_boost', slot.artifact.gemCrafted) : 0
 }
 
 function slotMutationBoost(slot: any): number {
   if (!slot.artifact) return 0
   const art = getArtifact(slot.artifact.typeId)
-  return art ? getEffectValue(art, 'breeder_mutation_boost') : 0
+  return art ? getEffectValueFor(art, 'breeder_mutation_boost', slot.artifact.gemCrafted) : 0
 }
 
 function breedDurationSecs(slot: any): number {
@@ -142,7 +142,7 @@ function effectiveMutationChance(slot: any, p1: any, p2: any): number {
 function slotExtraYield(slot: any): number {
   if (!slot.artifact) return 0
   const art = getArtifact(slot.artifact.typeId)
-  return art ? getEffectValue(art, 'breeder_extra_yield') : 0
+  return art ? getEffectValueFor(art, 'breeder_extra_yield', slot.artifact.gemCrafted) : 0
 }
 
 // ── Actions ───────────────────────────────────────────────────────────────────

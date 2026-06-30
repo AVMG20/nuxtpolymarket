@@ -1,9 +1,13 @@
 <script setup lang="ts">
-import { ARTIFACT_TYPES, getPlant, ARTIFACT_SPEED_PER_LEVEL } from '#shared/utils/xeno'
+import { ARTIFACT_TYPES, artifactStatRows, gemCraftCost } from '#shared/utils/xeno'
 
-const { inventory, freeArtifacts, buyArtifact } = useXeno()
+const { inventory, buyArtifact } = useXeno()
+const { user } = useAuth()
+
+const gems = computed(() => user.value?.gems ?? 0)
 
 const activeTab = ref<'grid' | 'breeder'>('grid')
+const gemCraft = ref(false)
 const buying = ref<Record<string, boolean>>({})
 
 const gridArtifacts = ARTIFACT_TYPES.filter(a => a.effects.some(e => e.type.startsWith('grid_')))
@@ -19,51 +23,38 @@ function canAfford(cost: { plantTypeId: string; quantity: number }[]): boolean {
   return cost.every(c => ownedCount(c.plantTypeId) >= c.quantity)
 }
 
-async function doBuy(typeId: string) {
-  buying.value[typeId] = true
-  try { await buyArtifact(typeId) } finally { delete buying.value[typeId] }
+function canAffordGems(art: typeof ARTIFACT_TYPES[0]): boolean {
+  return !gemCraft.value || gems.value >= gemCraftCost(art)
 }
 
-const MUTATION_PER_LEVEL = 0.05
-
-function toSpeedLevel(pct: number) { return Math.round(Math.round(pct * 1000) / Math.round(ARTIFACT_SPEED_PER_LEVEL * 1000)) }
-function toMutLevel(pct: number) { return Math.ceil(Math.round(pct * 1000) / Math.round(MUTATION_PER_LEVEL * 1000)) }
-
-const MAX_CHARGES       = Math.max(...ARTIFACT_TYPES.map(a => a.maxCharges))
-const MAX_SPEED_LVL     = Math.max(...ARTIFACT_TYPES.flatMap(a => a.effects.filter(e => e.type === 'grid_speed_boost').map(e => toSpeedLevel(e.value))), 1)
-const MAX_YIELD_LVL     = Math.max(...ARTIFACT_TYPES.flatMap(a => a.effects.filter(e => e.type === 'grid_yield_bonus').map(e => e.value)), 1)
-const MAX_EXTRA_LVL     = Math.max(...ARTIFACT_TYPES.flatMap(a => a.effects.filter(e => e.type === 'breeder_extra_yield').map(e => e.value)), 1)
-const MAX_MUT_LVL       = Math.max(...ARTIFACT_TYPES.flatMap(a => a.effects.filter(e => e.type === 'breeder_mutation_boost').map(e => toMutLevel(e.value))), 1)
-const MAX_B_SPEED_LVL   = Math.max(...ARTIFACT_TYPES.flatMap(a => a.effects.filter(e => e.type === 'breeder_speed_boost').map(e => toSpeedLevel(e.value))), 1)
-
-function specRows(art: typeof ARTIFACT_TYPES[0]) {
-  const speedE  = art.effects.find(e => e.type === 'grid_speed_boost')
-  const yieldE  = art.effects.find(e => e.type === 'grid_yield_bonus')
-  const extraE  = art.effects.find(e => e.type === 'breeder_extra_yield')
-  const mutE    = art.effects.find(e => e.type === 'breeder_mutation_boost')
-  const bSpeedE = art.effects.find(e => e.type === 'breeder_speed_boost')
-
-  if (art.effects.some(e => e.type.startsWith('grid_'))) {
-    return [
-      { label: 'Speed', lvl: speedE ? toSpeedLevel(speedE.value) : 0, max: MAX_SPEED_LVL, color: 'bg-warning' },
-      { label: 'Yield', lvl: yieldE ? yieldE.value : 0,               max: MAX_YIELD_LVL, color: 'bg-info' },
-    ]
-  }
-  return [
-    { label: 'Speed',    lvl: bSpeedE ? toSpeedLevel(bSpeedE.value) : 0, max: MAX_B_SPEED_LVL, color: 'bg-warning' },
-    { label: 'Yield',    lvl: extraE  ? extraE.value : 0,                 max: MAX_EXTRA_LVL,   color: 'bg-info' },
-    { label: 'Mutation', lvl: mutE    ? toMutLevel(mutE.value) : 0,       max: MAX_MUT_LVL,     color: 'bg-secondary' },
-  ]
+async function doBuy(art: typeof ARTIFACT_TYPES[0]) {
+  buying.value[art.id] = true
+  try { await buyArtifact(art.id, gemCraft.value) } finally { delete buying.value[art.id] }
 }
 </script>
 
 <template>
   <UContainer class="pt-6">
-    <div class="mb-6">
-      <h1 class="text-2xl font-bold flex items-center gap-2">
-        <UIcon name="i-lucide-gem" class="text-primary" /> Artifacts
-      </h1>
-      <p class="text-sm text-muted mt-0.5">Craft powerful artifacts using plants. Each artifact degrades after use.</p>
+    <div class="mb-6 flex items-start justify-between gap-4">
+      <div>
+        <h1 class="text-2xl font-bold flex items-center gap-2">
+          <UIcon name="i-lucide-gem" class="text-primary" /> Artifacts
+        </h1>
+        <p class="text-sm text-muted mt-0.5">Craft powerful artifacts using plants. Each artifact degrades after use.</p>
+      </div>
+
+      <!-- Gem crafting toggle -->
+      <div
+        class="flex items-center gap-2.5 rounded-xl border px-3 py-2 shrink-0 transition-colors"
+        :class="gemCraft ? 'border-primary/40 bg-primary/5' : 'border-default bg-elevated'"
+      >
+        <UIcon name="i-lucide-sparkles" class="size-4" :class="gemCraft ? 'text-primary' : 'text-muted'" />
+        <div class="leading-tight">
+          <p class="text-xs font-semibold">Gem Crafting</p>
+          <p class="text-[10px] text-muted">+1 to all levels</p>
+        </div>
+        <USwitch v-model="gemCraft" />
+      </div>
     </div>
 
     <!-- Tabs -->
@@ -111,10 +102,10 @@ function specRows(art: typeof ARTIFACT_TYPES[0]) {
         <!-- Stats (only non-zero) -->
         <div class="px-3.5 pt-2.5 pb-2 space-y-1.5">
           <XenoStatLevel
-            v-for="row in specRows(art).filter(r => r.lvl > 0)"
+            v-for="row in artifactStatRows(art, gemCraft).filter(r => r.level > 0)"
             :key="row.label"
             :label="row.label"
-            :level="row.lvl"
+            :level="row.level"
             :max="row.max"
             :color="row.color"
           />
@@ -136,19 +127,31 @@ function specRows(art: typeof ARTIFACT_TYPES[0]) {
               <span>{{ c.quantity }}×</span>
               <span class="opacity-60">({{ ownedCount(c.plantTypeId) }})</span>
             </div>
+            <!-- Gem cost when gem crafting -->
+            <div
+              v-if="gemCraft"
+              class="flex items-center gap-1 text-xs px-1.5 py-0.5 rounded border font-medium"
+              :class="canAffordGems(art)
+                ? 'border-primary/40 bg-primary/10 text-primary'
+                : 'border-error/40 bg-error/10 text-error'"
+            >
+              <UIcon name="i-lucide-gem" class="size-3.5" />
+              <span>{{ gemCraftCost(art) }}×</span>
+              <span class="opacity-60">({{ gems }})</span>
+            </div>
           </div>
         </div>
 
         <!-- Craft -->
         <div class="px-3.5 pb-3.5">
           <UButton
-            label="Craft"
-            icon="i-lucide-hammer"
+            :label="gemCraft ? 'Gem Craft' : 'Craft'"
+            :icon="gemCraft ? 'i-lucide-sparkles' : 'i-lucide-hammer'"
             size="sm"
             :loading="buying[art.id]"
-            :disabled="!canAfford(art.cost)"
+            :disabled="!canAfford(art.cost) || !canAffordGems(art)"
             block
-            @click="doBuy(art.id)"
+            @click="doBuy(art)"
           />
         </div>
       </div>

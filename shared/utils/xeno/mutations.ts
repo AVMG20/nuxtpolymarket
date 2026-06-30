@@ -33,6 +33,15 @@ export interface Mutation {
 //   T3 ~13%  →  T4 ~11%  →  T5 8%  →  T6 6%  →  T7 4%  →  singularity 2%.
 // T5+ bases are negative, so a mutation artifact is mandatory to advance.
 //
+// ─── Gem crafting (T5+ rebalance) ──────────────────────────────────────────────
+// Mutation artifacts can be gem-crafted for +1 level (+5% mutation). To make this a
+// meaningful (and at the top, mandatory) investment, T5/T6/T7 bases are 3% LOWER than
+// the targets above. With the best plain artifact you now land 3% under the old ladder
+// (T5 5%, T6 3%, T7 1%, singularity 0% — i.e. plain-crafting can no longer reach
+// singularity at all); gem-crafting that same artifact adds +5%, landing 2% ABOVE the
+// old ladder (T5 10%, T6 8%, T7 6%, singularity 4%). Net: gem crafting is the new way to
+// keep the climb rewarding, and is required outright for singularity.
+//
 // Important gating detail: Prism Lens II (+30%) is the strongest mutation artifact,
 // but it can only be crafted from T6/T7 plants (2 aetherix + 1 tempest-spike). When
 // you first break into T5/T6/T7 you only have Prism Lens (+20%), so the headline
@@ -80,31 +89,31 @@ export const MUTATIONS: Mutation[] = [
   // T4 × T4 → T4  (+10% for the first abyssform, ~10% effective; Prism Lens makes repeats easier)
   { parent1: 'deepfrond',    parent2: 'swiftcane',    offspring: 'abyssform',    chance: 0.005 },
 
-  // T4 × T4 → T5 (negative base — mutation artifact mandatory; Prism Lens +20% → 8% effective)
-  { parent1: 'deepfrond',    parent2: 'crystalmoss',  offspring: 'starweave',    chance: -0.12 },
-  { parent1: 'swiftcane',    parent2: 'voidfern',     offspring: 'voidpulse',    chance: -0.12 },
-  { parent1: 'abyssform',    parent2: 'crystalmoss',  offspring: 'cosmosbloom',  chance: -0.12 },
+  // T4 × T4 → T5 (negative base — mutation artifact mandatory; Prism Lens +20% → 5%, gem-crafted +25% → 10%)
+  { parent1: 'deepfrond',    parent2: 'crystalmoss',  offspring: 'starweave',    chance: -0.15 },
+  { parent1: 'swiftcane',    parent2: 'voidfern',     offspring: 'voidpulse',    chance: -0.15 },
+  { parent1: 'abyssform',    parent2: 'crystalmoss',  offspring: 'cosmosbloom',  chance: -0.15 },
 
-  // T5 × T5 → T5 (Prism Lens +20% → 8% effective)
-  { parent1: 'starweave',    parent2: 'voidpulse',    offspring: 'etherform',    chance: -0.12 },
+  // T5 × T5 → T5 (Prism Lens +20% → 5%, gem-crafted +25% → 10% effective)
+  { parent1: 'starweave',    parent2: 'voidpulse',    offspring: 'etherform',    chance: -0.15 },
 
-  // T5 × T5 → T6 (Prism Lens +20% → 6% effective; Prism Lens II later eases repeats)
-  { parent1: 'etherform',    parent2: 'starweave',    offspring: 'dawnrift',     chance: -0.14 },
-  { parent1: 'starweave',    parent2: 'cosmosbloom',  offspring: 'voidlattice',  chance: -0.14 },
-  { parent1: 'voidpulse',    parent2: 'etherform',    offspring: 'nexusbloom',   chance: -0.14 },
-  { parent1: 'cosmosbloom',  parent2: 'etherform',    offspring: 'stellarfrond', chance: -0.14 },
+  // T5 × T5 → T6 (Prism Lens +20% → 3%, gem-crafted +25% → 8% effective)
+  { parent1: 'etherform',    parent2: 'starweave',    offspring: 'dawnrift',     chance: -0.17 },
+  { parent1: 'starweave',    parent2: 'cosmosbloom',  offspring: 'voidlattice',  chance: -0.17 },
+  { parent1: 'voidpulse',    parent2: 'etherform',    offspring: 'nexusbloom',   chance: -0.17 },
+  { parent1: 'cosmosbloom',  parent2: 'etherform',    offspring: 'stellarfrond', chance: -0.17 },
 
-  // T6 × T6 → T6 (first aetherix: Prism Lens +20% → 6% effective; gates Prism Lens II & all of T7)
-  { parent1: 'dawnrift',     parent2: 'voidlattice',  offspring: 'aetherix',     chance: -0.14 },
+  // T6 × T6 → T6 (first aetherix: Prism Lens +20% → 3%, gem-crafted +25% → 8%; gates Prism Lens II & all of T7)
+  { parent1: 'dawnrift',     parent2: 'voidlattice',  offspring: 'aetherix',     chance: -0.17 },
 
-  // T6 × T6 → T7 (Prism Lens +20% → 4% effective; Prism Lens II +30% → 14% once unlocked)
-  { parent1: 'dawnrift',     parent2: 'aetherix',     offspring: 'tempest-spike', chance: -0.16 },
-  { parent1: 'voidlattice',  parent2: 'nexusbloom',   offspring: 'abyssal-frond', chance: -0.16 },
-  { parent1: 'nexusbloom',   parent2: 'stellarfrond', offspring: 'quantum-bloom', chance: -0.16 },
-  { parent1: 'stellarfrond', parent2: 'aetherix',     offspring: 'starcore',      chance: -0.16 },
+  // T6 × T6 → T7 (Prism Lens +20% → 1%, gem-crafted +25% → 6%; Prism Lens II +30% → 11% once unlocked)
+  { parent1: 'dawnrift',     parent2: 'aetherix',     offspring: 'tempest-spike', chance: -0.19 },
+  { parent1: 'voidlattice',  parent2: 'nexusbloom',   offspring: 'abyssal-frond', chance: -0.19 },
+  { parent1: 'nexusbloom',   parent2: 'stellarfrond', offspring: 'quantum-bloom', chance: -0.19 },
+  { parent1: 'stellarfrond', parent2: 'aetherix',     offspring: 'starcore',      chance: -0.19 },
 
-  // T7 × T7 → T7 (the ultimate plant — only Prism Lens II +30% gives any chance, 2%: the endgame grind)
-  { parent1: 'tempest-spike', parent2: 'abyssal-frond', offspring: 'singularity', chance: -0.28 },
+  // T7 × T7 → T7 (the ultimate plant — gem-crafted Prism Lens II +35% gives 4%: the endgame grind, gem crafting mandatory)
+  { parent1: 'tempest-spike', parent2: 'abyssal-frond', offspring: 'singularity', chance: -0.31 },
 ]
 
 /** Returns the first mutation for a plant pair (used for UI preview). */

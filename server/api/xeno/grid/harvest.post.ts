@@ -4,7 +4,7 @@ import { xenoGridSlots, xenoPlants, xenoArtifacts } from '#server/database/schem
 import { auth } from '#server/utils/auth'
 import { addPlants, computeGridDuration, consumeArtifactCharge } from '#server/utils/xeno'
 import {
-  getArtifact, getEffectValue, rollYield,
+  getArtifact, getEffectValueFor, rollYield,
   isHybrid, parseHybridResources, getPlant, getPlantDisplay,
 } from '#shared/utils/xeno'
 
@@ -31,6 +31,7 @@ export default defineEventHandler(async (event) => {
   const durationSecs = computeGridDuration(
     { typeId: plantInstance.typeId, speed: plantInstance.speed },
     attachedArt?.typeId ?? null,
+    attachedArt?.gemCrafted ?? false,
   )
   const completesAt = new Date(slot.startedAt.getTime() + durationSecs * 1000)
   if (Date.now() < completesAt.getTime()) throw createError({ statusCode: 400, statusMessage: 'Plant is still growing' })
@@ -41,7 +42,7 @@ export default defineEventHandler(async (event) => {
   let artifactYieldBonus = 0
   if (attachedArt) {
     const artType = getArtifact(attachedArt.typeId)
-    if (artType) artifactYieldBonus = getEffectValue(artType, 'grid_yield_bonus')
+    if (artType) artifactYieldBonus = getEffectValueFor(artType, 'grid_yield_bonus', attachedArt.gemCrafted)
   }
 
   // Consume the planted instance, then produce the harvest.

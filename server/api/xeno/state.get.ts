@@ -60,6 +60,7 @@ export default defineEventHandler(async (event) => {
       const durationSecs = computeGridDuration(
         { typeId: plantInstance.typeId, speed: plantInstance.speed },
         attachedArt?.typeId ?? null,
+        attachedArt?.gemCrafted ?? false,
       )
       plant = {
         id: plantInstance.id,
@@ -83,7 +84,7 @@ export default defineEventHandler(async (event) => {
       slotIndex: slot.slotIndex,
       plant,
       artifact: attachedArt
-        ? { id: attachedArt.id, typeId: attachedArt.typeId, chargesRemaining: attachedArt.chargesRemaining }
+        ? { id: attachedArt.id, typeId: attachedArt.typeId, chargesRemaining: attachedArt.chargesRemaining, gemCrafted: attachedArt.gemCrafted }
         : null,
     }
   })
@@ -97,6 +98,7 @@ export default defineEventHandler(async (event) => {
         { typeId: slot.plant1TypeId, speed: slot.plant1Speed },
         { typeId: slot.plant2TypeId, speed: slot.plant2Speed },
         attachedArt?.typeId ?? null,
+        attachedArt?.gemCrafted ?? false,
       )
       completesAt = new Date(slot.startedAt.getTime() + durationSecs * 1000).toISOString()
     }
@@ -109,7 +111,7 @@ export default defineEventHandler(async (event) => {
       startedAt: slot.startedAt?.toISOString() ?? null,
       completesAt,
       artifact: attachedArt
-        ? { id: attachedArt.id, typeId: attachedArt.typeId, chargesRemaining: attachedArt.chargesRemaining }
+        ? { id: attachedArt.id, typeId: attachedArt.typeId, chargesRemaining: attachedArt.chargesRemaining, gemCrafted: attachedArt.gemCrafted }
         : null,
       resultTypeId: slot.resultTypeId ?? null,
       resultSpeed: slot.resultSpeed ?? null,
@@ -155,7 +157,7 @@ export default defineEventHandler(async (event) => {
     },
     unlockedTypeIds,
     freeArtifacts: freeArtifacts.map(a => ({
-      id: a.id, typeId: a.typeId, chargesRemaining: a.chargesRemaining,
+      id: a.id, typeId: a.typeId, chargesRemaining: a.chargesRemaining, gemCrafted: a.gemCrafted,
     })),
     grid: {
       slots: enrichedGrid,
