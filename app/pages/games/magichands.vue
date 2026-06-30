@@ -342,7 +342,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="p-6 max-w-6xl mx-auto space-y-6">
+  <div class="p-6 pb-24 max-w-6xl mx-auto space-y-6 lg:pb-6">
     <!-- Header -->
     <div>
       <h1 class="text-2xl font-bold flex items-center gap-2">
@@ -754,8 +754,8 @@ onUnmounted(() => {
           </div>
         </UCard>
 
-        <!-- Play Button -->
-        <UCard>
+        <!-- Play Button — hidden on mobile, replaced by sticky bar below -->
+        <UCard class="hidden lg:block">
           <div class="flex items-center gap-4">
             <UButton
               block
@@ -773,6 +773,26 @@ onUnmounted(() => {
             </div>
           </div>
         </UCard>
+      </div>
+    </div>
+
+    <!-- Mobile sticky play bar -->
+    <div
+      class="fixed bottom-0 inset-x-0 z-50 lg:hidden border-t border-default bg-default/95 backdrop-blur-sm"
+      style="padding-bottom: max(0.75rem, env(safe-area-inset-bottom))"
+    >
+      <div class="p-3 max-w-6xl mx-auto">
+        <UButton
+          block
+          :loading="isBusy"
+          :disabled="!canPlay && !isBusy"
+          color="primary"
+          size="xl"
+          class="h-14 text-base font-black uppercase tracking-widest"
+          @click="play"
+        >
+          {{ isBusy ? 'Playing…' : `Play · $${formatNumber(totalStake, false)}` }}
+        </UButton>
       </div>
     </div>
 

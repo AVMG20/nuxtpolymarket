@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {
-  gridSlotUnlockCost, getArtifact, getEffectValue, getPlantDisplay,
+  gridSlotUnlockCost, getArtifact, getEffectValueFor, getPlantDisplay,
 } from '#shared/utils/xeno'
 import { formatCountdown, progressPct, isDone } from '~/utils/xeno-format'
 
@@ -239,13 +239,13 @@ function isArtifactTargetable(cell: any): boolean {
 function slotYieldBonus(slot: any): number {
   if (!slot?.artifact) return 0
   const art = getArtifact(slot.artifact.typeId)
-  return art ? getEffectValue(art, 'grid_yield_bonus') : 0
+  return art ? getEffectValueFor(art, 'grid_yield_bonus', slot.artifact.gemCrafted) : 0
 }
 
 function slotSpeedBoost(slot: any): number {
   if (!slot?.artifact) return 0
   const art = getArtifact(slot.artifact.typeId)
-  return art ? getEffectValue(art, 'grid_speed_boost') : 0
+  return art ? getEffectValueFor(art, 'grid_speed_boost', slot.artifact.gemCrafted) : 0
 }
 
 </script>
