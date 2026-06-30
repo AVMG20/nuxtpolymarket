@@ -243,6 +243,10 @@ let floatLayer: any = null
 // Currency multiplier for the sequence currently being replayed (× bet), so
 // cascade pop-ups can show real money values.
 let activeBet = 1
+// The sequence's final multiplier (Σ of all multiplier spots, applied to the
+// whole sequence at the end). Each cluster's true contribution to the win is
+// cl.pay × this, so the cascade pop-ups must include it or they undercount.
+let activeMult = 1
 const TEX: Record<string, any> = {}
 let destroyed = false
 
@@ -418,7 +422,7 @@ function spawnWinText(step: TumbleStep) {
   if (!floatLayer || !step.clusters.length) return
   const {Text} = PIXI
   for (const cl of step.clusters) {
-    const money = cl.pay * activeBet
+    const money = cl.pay * activeBet * activeMult
     if (money <= 0) continue
 
     // centroid of the cluster's cells
@@ -762,6 +766,9 @@ async function spin(forceFeature?: CandyFeature) {
 }
 
 async function spinAndCascade(seq: TumbleSequence): Promise<number> {
+  // The multiplier applies to the whole sequence at the end; surface it on the
+  // per-cluster pop-ups so they reflect the real (multiplied) win, not base pay.
+  activeMult = Math.max(1, seq.multiplierSum)
   reelSet.setSpeed?.(turbo.value ? 'turbo' : 'normal')
   const first = seq.steps[0]?.grid ?? seq.restGrid
   const spinPromise = reelSet.spin({mode: 'cascade'})
