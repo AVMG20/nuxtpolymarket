@@ -86,14 +86,19 @@ export const XENOSLOT_CELLS = XENOSLOT_COLS * XENOSLOT_ROWS
 export const BONUS_FREE_SPINS = 10 // fixed number of bonus spins
 
 // Per free cell, per spin: chance to land a coin / a collector / a glover.
-// (Only collectors pay out, so they land fairly often.)
-const P_COIN = 0.12
-const P_COLLECTOR = 0.055
+// Collectors are deliberately uncommon so harvesting one stays a highlight —
+// coins land often and accumulate, then a (rarer) collector sweeps the whole
+// board. Coins fill faster (higher P_COIN) to keep each collection rich, which
+// offsets the RTP otherwise lost by collecting less often. Tuned to ~98% RTP
+// (see scripts/xenoslot-rtp.ts).
+const P_COIN = 0.20
+const P_COLLECTOR = 0.028
 const P_GLOVER = 0.011
 
-// Coin face values (× bet) and their relative weights. Heavily low-skewed.
+// Coin face values (× bet) and their relative weights. Low-skewed, but weighted
+// a touch heavier toward the bigger faces so the rarer collectors still pay out.
 const COIN_VALUES = [0.2, 0.5, 1, 2, 5, 10, 25, 50] as const
-const COIN_WEIGHTS = [0.34, 0.26, 0.18, 0.1, 0.06, 0.035, 0.02, 0.005] as const
+const COIN_WEIGHTS = [0.328, 0.25, 0.17, 0.1, 0.06, 0.042, 0.035, 0.015] as const
 
 // Glover (multiplier) — when one lands it multiplies the value of every coin in
 // the 8 neighbouring cells by its multiplier, then vanishes (it never occupies
