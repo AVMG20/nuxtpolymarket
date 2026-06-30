@@ -158,6 +158,78 @@ const bonusOdds = computed(() => {
   return pTrigger > 0 ? Math.round(1 / pTrigger) : 0
 })
 
+// --- sound effects (synthesized with the Web Audio API — no asset files)
+const muted = ref(false)
+let audioCtx: AudioContext | null = null
+
+function toggleMute() {
+  muted.value = !muted.value
+  if (import.meta.client) localStorage.setItem('cm_muted', muted.value ? '1' : '0')
+  if (!muted.value) blip(660, 0.06, 'sine', 0.1) // little "sound on" tick
+}
+
+// The context can only be created after a user gesture; spin/space both qualify.
+function ensureAudio(): AudioContext | null {
+  if (muted.value || !import.meta.client) return null
+  if (!audioCtx) {
+    const Ctx = window.AudioContext ?? (
+        window as any
+    ).webkitAudioContext
+    if (!Ctx) return null
+    audioCtx = new Ctx()
+  }
+  if (audioCtx.state === 'suspended') audioCtx.resume().catch(() => {})
+  return audioCtx
+}
+
+// A short percussive blip at a fixed pitch.
+function blip(freq: number, dur = 0.12, type: OscillatorType = 'sine', gain = 0.16) {
+  const ctx = ensureAudio()
+  if (!ctx) return
+  const t = ctx.currentTime
+  const osc = ctx.createOscillator()
+  const g = ctx.createGain()
+  osc.type = type
+  osc.frequency.setValueAtTime(freq, t)
+  g.gain.setValueAtTime(0.0001, t)
+  g.gain.exponentialRampToValueAtTime(gain, t + 0.01)
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur)
+  osc.connect(g).connect(ctx.destination)
+  osc.start(t)
+  osc.stop(t + dur + 0.02)
+}
+
+// A pitch sweep, used for the spin whoosh and win flourish.
+function sweep(from: number, to: number, dur = 0.18, type: OscillatorType = 'triangle', gain = 0.18) {
+  const ctx = ensureAudio()
+  if (!ctx) return
+  const t = ctx.currentTime
+  const osc = ctx.createOscillator()
+  const g = ctx.createGain()
+  osc.type = type
+  osc.frequency.setValueAtTime(from, t)
+  osc.frequency.exponentialRampToValueAtTime(to, t + dur)
+  g.gain.setValueAtTime(0.0001, t)
+  g.gain.exponentialRampToValueAtTime(gain, t + 0.02)
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur)
+  osc.connect(g).connect(ctx.destination)
+  osc.start(t)
+  osc.stop(t + dur + 0.02)
+}
+
+// Named cues, kept light and candy-ish.
+const sfx = {
+  spin: () => sweep(220, 460, 0.16, 'sawtooth', 0.1),
+  pop: (chain = 1) => blip(420 + Math.min(chain, 12) * 60, 0.11, 'triangle', 0.15),
+  mult: () => blip(720, 0.1, 'square', 0.1),
+  win: () => sweep(480, 920, 0.24, 'triangle', 0.18),
+  bonus: () => [523, 659, 784, 1047].forEach((f, i) => setTimeout(() => blip(f, 0.2, 'triangle', 0.2), i * 110))
+}
+
+onMounted(() => {
+  if (import.meta.client && localStorage.getItem('cm_muted') === '1') muted.value = true
+})
+
 // --- pixi (non-reactive on purpose; Vue proxies break PixiJS objects)
 const canvasWrap = ref<HTMLDivElement>()
 let app: any = null
@@ -618,6 +690,7 @@ async function spin(forceFeature?: CandyFeature) {
   const cost = costFor(feature)
   if (!ready.value || isSpinning.value || balance.value < cost) return
   isSpinning.value = true
+  sfx.spin()
   errorMsg.value = ''
   lastWin.value = 0
   winFlash.value = false
@@ -661,6 +734,7 @@ async function spin(forceFeature?: CandyFeature) {
 
     lastWin.value = result.payout
     winFlash.value = result.payout > 0
+    if (result.payout > 0) sfx.win()
     balance.value = data.balance
     setBalance(data.balance)
     history.value.unshift({payout: result.payout, bet: result.cost, bonus: result.bonusTriggered})
@@ -705,20 +779,22 @@ async function spinAndCascade(seq: TumbleSequence): Promise<number> {
         (
             seq.steps[lvl + 1]?.grid ?? seq.restGrid
         ) as unknown as string[][],
-    onCascade: ({chain}: { chain: number }) => onTumble(seq.steps[chain - 1]),
+    onCascade: ({chain}: { chain: number }) => onTumble(seq.steps[chain - 1], chain),
     pauseAfterDestroyMs: turbo.value ? 130 : 300,
     maxChain: 64
   })
 
   if (seq.basePay > 0 && seq.multiplierSum > 1 && badges.size) {
     pulseBadges()
+    sfx.mult()
     await wait(turbo.value ? 250 : 550)
   }
   return seq.win
 }
 
-function onTumble(step: TumbleStep | undefined) {
+function onTumble(step: TumbleStep | undefined, chain = 1) {
   if (!step) return
+  if (step.winCells.length) sfx.pop(chain)
   spawnPops(step)
   spawnWinText(step)
   syncBadges(step.spotsAfter)
@@ -731,6 +807,7 @@ async function runBonus(result: CandyMadnessResult) {
   bonusTotal.value = 0
   bonusSpinsLeft.value = CM_FREE_SPINS
   bonusStatus.value = 'Free Spins!'
+  sfx.bonus()
   clearBadges()
   await wait(1200)
   bonusBanner.value = false
@@ -928,6 +1005,16 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
                 <UIcon
                     class="size-3.5"
                     name="i-lucide-zap"
+                />
+              </button>
+              <button
+                  class="icon-btn"
+                  :title="muted ? 'Unmute' : 'Mute'"
+                  @click="toggleMute"
+              >
+                <UIcon
+                    class="size-3.5"
+                    :name="muted ? 'i-lucide-volume-x' : 'i-lucide-volume-2'"
                 />
               </button>
             </div>
