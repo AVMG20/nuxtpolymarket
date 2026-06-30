@@ -725,7 +725,11 @@ async function spin(forceFeature?: CandyFeature) {
       if (result.scatterCells.length) {
         await reelSet.spotlight.show(result.scatterCells.map((c: Cell) => (
             {reelIndex: c.col, rowIndex: c.row}
-        )), {displayDuration: 700} as any)
+        )))
+        await wait(700)
+        // show() dims the whole board and never restores it on its own; hide()
+        // removes the dim overlay so the bonus doesn't play out darkened.
+        reelSet.spotlight.hide()
       }
       if (autoSpinEnabled.value) {
         autoSpinPaused.value = true
