@@ -1,0 +1,1941 @@
+<script setup lang="ts">
+/* eslint-disable @typescript-eslint/no-explicit-any */
+import type {
+  AetherBonusTier,
+  AetherFeature,
+  AetherGatesResult,
+  AetherPaySymbol,
+  AetherSequence,
+  AetherStep,
+  AetherSymbol,
+  Cell,
+  MultDrop
+} from '#shared/utils/gamelogic/aethergates'
+import {
+  AETHER_MULT_VALUES_BASE,
+  AETHER_MULT_VALUES_BONUS,
+  AETHER_MULTIPLIER_WEIGHT,
+  AETHER_PAY_SYMBOLS,
+  AETHER_SCATTER_WEIGHT,
+  AETHER_SYMBOL_WEIGHTS,
+  AG_BONUS_CHANCE_COST,
+  AG_BUY_FREESPINS_COST,
+  AG_BUY_SUPERBONUS_COST,
+  AG_CELLS,
+  AG_COLS,
+  AG_FREE_SPINS,
+  AG_FREE_SPINS_SUPER,
+  AG_MAX_WIN_MULT,
+  AG_MIN_MATCH,
+  AG_RETRIGGER_SPINS,
+  AG_ROWS,
+  AG_SCATTER_TRIGGER,
+  AG_SCATTER_TRIGGER_SUPER,
+  aetherPayMult
+} from '#shared/utils/gamelogic/aethergates'
+
+const { user, setBalance, fetchSession } = useAuth()
+const balance = ref(parseFloat(user.value?.balance ?? '0'))
+watch(() => user.value?.balance, (v) => {
+  if (v !== undefined) balance.value = parseFloat(v ?? '0')
+})
+
+// --- bet control
+const MIN_BET = 1
+const MAX_BET = 1_000_000
+const bet = ref(10)
+const betInput = ref('10')
+watch(bet, (v) => {
+  betInput.value = String(v)
+}, { immediate: true })
+
+function clampBet(v: number): number {
+  if (!Number.isFinite(v) || v < MIN_BET) return MIN_BET
+  return Math.min(MAX_BET, Math.floor(v))
+}
+
+function setBet(v: number) {
+  if (isSpinning.value || autoSpinEnabled.value) return
+  bet.value = clampBet(v)
+}
+
+function commitBetInput() {
+  setBet(parseInt(betInput.value.replace(/[^\d]/g, ''), 10) || MIN_BET)
+  betInput.value = String(bet.value)
+}
+
+function betDown() {
+  setBet(Math.floor(bet.value / 2))
+}
+
+function betUp() {
+  setBet(bet.value * 2)
+}
+
+// --- feature buys
+const bonusChanceMode = ref(false)
+const buyFreeSpinsCost = computed(() => bet.value * AG_BUY_FREESPINS_COST)
+const superBonusCost = computed(() => bet.value * AG_BUY_SUPERBONUS_COST)
+const bonusChanceCost = computed(() => bet.value * AG_BONUS_CHANCE_COST)
+
+function costFor(feature?: AetherFeature): number {
+  if (feature === 'buyFreeSpins') return buyFreeSpinsCost.value
+  if (feature === 'superBonus') return superBonusCost.value
+  if (feature === 'bonusChance') return bonusChanceCost.value
+  return bet.value
+}
+
+const spinCost = computed(() => costFor(bonusChanceMode.value ? 'bonusChance' : undefined))
+
+function toggleBonusChance() {
+  if (isSpinning.value || autoSpinEnabled.value) return
+  bonusChanceMode.value = !bonusChanceMode.value
+}
+
+function buyFreeSpins() {
+  if (!ready.value || isSpinning.value || autoSpinEnabled.value || balance.value < buyFreeSpinsCost.value) return
+  spin('buyFreeSpins')
+}
+
+function buySuperBonus() {
+  if (!ready.value || isSpinning.value || autoSpinEnabled.value || balance.value < superBonusCost.value) return
+  spin('superBonus')
+}
+
+// --- round state
+const turbo = ref(false)
+const isSpinning = ref(false)
+const errorMsg = ref('')
+const showHelp = ref(false)
+const ready = ref(false)
+
+const lastWin = ref(0)
+const winFlash = ref(false)
+const winPulse = ref(false)
+const meter = ref(0)
+const meterFlash = ref(false)
+
+const bonusBanner = ref(false)
+const bonusBannerTier = ref<AetherBonusTier>('normal')
+const retriggerBanner = ref(false)
+const inBonus = ref(false)
+const bonusSpinLabel = ref('')
+
+const history = ref<{ payout: number, bet: number, bonus: boolean, mult: number }[]>([])
+const flying = ref<{ id: number, value: number, style: Record<string, string> }[]>([])
+let flyId = 0
+
+// --- auto-spin state
+const autoSpinEnabled = ref(false)
+const autoSpinsLeft = ref(0)
+const autoSpinPaused = ref(false)
+const showAutoSpinModal = ref(false)
+const AUTO_SPIN_OPTIONS = [25, 50, 100, 250, 500]
+
+let _resumeAutoSpin: (() => void) | null = null
+
+function startAutoSpin(count: number) {
+  autoSpinsLeft.value = count
+  autoSpinEnabled.value = true
+  autoSpinPaused.value = false
+  showAutoSpinModal.value = false
+  if (!isSpinning.value) spin()
+}
+
+function stopAutoSpin() {
+  autoSpinEnabled.value = false
+  autoSpinsLeft.value = 0
+  autoSpinPaused.value = false
+  _resumeAutoSpin?.()
+  _resumeAutoSpin = null
+}
+
+function onCanvasClick() {
+  if (autoSpinPaused.value) {
+    autoSpinPaused.value = false
+    _resumeAutoSpin?.()
+    _resumeAutoSpin = null
+  }
+}
+
+const bonusOdds = computed(() => {
+  const total = Object.values(AETHER_SYMBOL_WEIGHTS).reduce((a, b) => a + b, 0) + AETHER_SCATTER_WEIGHT + AETHER_MULTIPLIER_WEIGHT
+  const p = AETHER_SCATTER_WEIGHT / total
+  const q = 1 - p
+  const choose = (n: number, k: number) => {
+    let r = 1
+    for (let i = 0; i < k; i++) r = r * (n - i) / (i + 1)
+    return r
+  }
+  let pLess = 0
+  for (let k = 0; k < AG_SCATTER_TRIGGER; k++) pLess += choose(AG_CELLS, k) * p ** k * q ** (AG_CELLS - k)
+  const pTrigger = 1 - pLess
+  return pTrigger > 0 ? Math.round(1 / pTrigger) : 0
+})
+
+// --- sound effects (synthesized with the Web Audio API — no asset files)
+const muted = ref(false)
+let audioCtx: AudioContext | null = null
+
+function toggleMute() {
+  muted.value = !muted.value
+  if (import.meta.client) localStorage.setItem('ag_muted', muted.value ? '1' : '0')
+  if (!muted.value) blip(660, 0.06, 'sine', 0.1)
+}
+
+function ensureAudio(): AudioContext | null {
+  if (muted.value || !import.meta.client) return null
+  if (!audioCtx) {
+    const Ctx = window.AudioContext ?? (window as any).webkitAudioContext
+    if (!Ctx) return null
+    audioCtx = new Ctx()
+  }
+  if (audioCtx.state === 'suspended') audioCtx.resume().catch(() => {})
+  return audioCtx
+}
+
+function blip(freq: number, dur = 0.12, type: OscillatorType = 'sine', gain = 0.16) {
+  const ctx = ensureAudio()
+  if (!ctx) return
+  const t = ctx.currentTime
+  const osc = ctx.createOscillator()
+  const g = ctx.createGain()
+  osc.type = type
+  osc.frequency.setValueAtTime(freq, t)
+  g.gain.setValueAtTime(0.0001, t)
+  g.gain.exponentialRampToValueAtTime(gain, t + 0.01)
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur)
+  osc.connect(g).connect(ctx.destination)
+  osc.start(t)
+  osc.stop(t + dur + 0.02)
+}
+
+function sweep(from: number, to: number, dur = 0.18, type: OscillatorType = 'triangle', gain = 0.18) {
+  const ctx = ensureAudio()
+  if (!ctx) return
+  const t = ctx.currentTime
+  const osc = ctx.createOscillator()
+  const g = ctx.createGain()
+  osc.type = type
+  osc.frequency.setValueAtTime(from, t)
+  osc.frequency.exponentialRampToValueAtTime(to, t + dur)
+  g.gain.setValueAtTime(0.0001, t)
+  g.gain.exponentialRampToValueAtTime(gain, t + 0.02)
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur)
+  osc.connect(g).connect(ctx.destination)
+  osc.start(t)
+  osc.stop(t + dur + 0.02)
+}
+
+const sfx = {
+  spin: () => sweep(200, 420, 0.16, 'sawtooth', 0.1),
+  pop: (chain = 1) => blip(500 + Math.min(chain, 12) * 55, 0.1, 'triangle', 0.14),
+  mult: () => blip(880, 0.12, 'square', 0.12),
+  win: () => sweep(440, 980, 0.26, 'triangle', 0.18),
+  bonus: () => [392, 523, 659, 880].forEach((f, i) => setTimeout(() => blip(f, 0.22, 'triangle', 0.2), i * 110)),
+  retrigger: () => [659, 880, 1108].forEach((f, i) => setTimeout(() => blip(f, 0.16, 'square', 0.16), i * 90))
+}
+
+onMounted(() => {
+  if (import.meta.client && localStorage.getItem('ag_muted') === '1') muted.value = true
+})
+
+const symbolMeta: Record<AetherSymbol, { name: string, src: string }> = {
+  coin: { name: 'Aurex Coin', src: '/slots/aethergates/coin.svg' },
+  ring: { name: 'Sky Ring', src: '/slots/aethergates/ring.svg' },
+  chalice: { name: 'Dawn Chalice', src: '/slots/aethergates/chalice.svg' },
+  laurel: { name: 'Verdant Laurel', src: '/slots/aethergates/laurel.svg' },
+  lyre: { name: 'Echo Lyre', src: '/slots/aethergates/lyre.svg' },
+  helm: { name: 'Aegis Helm', src: '/slots/aethergates/helm.svg' },
+  sun: { name: 'Solar Seal', src: '/slots/aethergates/sun.svg' },
+  star: { name: 'Aether Star', src: '/slots/aethergates/star.svg' },
+  scatter: { name: 'Gate Scatter', src: '/slots/aethergates/scatter.svg' },
+  multiplier: { name: 'Aether Relic', src: '/slots/aethergates/multiplier.svg' }
+}
+
+const paytableRows = [...AETHER_PAY_SYMBOLS].reverse().map(sym => ({
+  sym,
+  pays: [8, 10, 12, 15, 20].map(count => Math.round(aetherPayMult(sym, count) * 1000) / 1000)
+}))
+
+function wait(ms: number) {
+  return new Promise<void>(resolve => setTimeout(resolve, ms))
+}
+
+function stepDelay(ms: number) {
+  return wait(turbo.value ? Math.round(ms * 0.45) : ms)
+}
+
+function cellKey(cell: Cell): string {
+  return `${cell.col}:${cell.row}`
+}
+
+function randomGrid(): AetherSymbol[][] {
+  const grid: AetherSymbol[][] = []
+  for (let col = 0; col < AG_COLS; col++) {
+    const column: AetherSymbol[] = []
+    for (let row = 0; row < AG_ROWS; row++) {
+      column.push(AETHER_PAY_SYMBOLS[Math.floor(Math.random() * AETHER_PAY_SYMBOLS.length)]!)
+    }
+    grid.push(column)
+  }
+  return grid
+}
+
+function tickNumber(target: Ref<number>, to: number, duration = 480) {
+  const from = target.value
+  const start = performance.now()
+  const d = turbo.value ? Math.round(duration * 0.45) : duration
+  const frame = (now: number) => {
+    const t = Math.min(1, (now - start) / d)
+    const eased = 1 - (1 - t) ** 3
+    target.value = from + (to - from) * eased
+    if (t < 1) requestAnimationFrame(frame)
+    else target.value = to
+  }
+  requestAnimationFrame(frame)
+}
+
+// Pixi / pixi-reels state. Kept outside Vue reactivity because Pixi objects do
+// not enjoy being proxied.
+const canvasWrap = ref<HTMLDivElement>()
+const meterRef = ref<HTMLElement>()
+let app: any = null
+let reelSet: any = null
+let overlayLayer: any = null
+let particleLayer: any = null
+let floatLayer: any = null
+let PIXI: any = null
+let REELS: any = null
+let GSAP: any = null
+let destroyed = false
+
+const TEX: Record<string, any> = {}
+const multOverlays = new Map<string, any>()
+
+const CELL = 88
+const GAP = 7
+const REEL_W = AG_COLS * CELL + (AG_COLS - 1) * GAP
+const REEL_H = AG_ROWS * CELL + (AG_ROWS - 1) * GAP
+const APP_W = REEL_W + 26
+const APP_H = REEL_H + 26
+const OFFSET_X = (APP_W - REEL_W) / 2
+const OFFSET_Y = (APP_H - REEL_H) / 2
+
+const POP_COLOR: Record<AetherSymbol, number> = {
+  coin: 0xf5c518, ring: 0xfacc15, chalice: 0xd97706, laurel: 0x22c55e,
+  lyre: 0xe879f9, helm: 0x94a3b8, sun: 0xf97316, star: 0x38bdf8,
+  scatter: 0x22d3ee, multiplier: 0x06b6d4
+}
+
+function cellLocal(col: number, row: number): { x: number, y: number } {
+  return {
+    x: OFFSET_X + col * (CELL + GAP) + CELL / 2,
+    y: OFFSET_Y + row * (CELL + GAP) + CELL / 2
+  }
+}
+
+function cellScreen(cell: Cell): { x: number, y: number } | null {
+  const canvas = app?.canvas as HTMLCanvasElement | undefined
+  if (!canvas) return null
+  const rect = canvas.getBoundingClientRect()
+  const p = cellLocal(cell.col, cell.row)
+  return {
+    x: rect.left + (p.x / APP_W) * rect.width,
+    y: rect.top + (p.y / APP_H) * rect.height
+  }
+}
+
+function toTargets(grid: AetherSymbol[][]) {
+  return grid.map(col => ({ visible: col }))
+}
+
+function makeSymbolClass() {
+  const { Container, Graphics, Sprite } = PIXI
+  const Base = REELS.ReelSymbol
+
+  class AetherTile extends Base {
+    frame = new Graphics()
+    sprite = new Sprite()
+    shine = new Graphics()
+    viewBox = new Container()
+    w = CELL
+    h = CELL
+    _tween: any = null
+
+    constructor() {
+      super()
+      this.sprite.anchor.set(0.5)
+      this.viewBox.addChild(this.frame)
+      this.viewBox.addChild(this.shine)
+      this.viewBox.addChild(this.sprite)
+      this.view.addChild(this.viewBox)
+    }
+
+    _render(id: string) {
+      const tex = TEX[id]
+      if (!tex) return
+      const isScatter = id === 'scatter'
+      const isRelic = id === 'multiplier'
+      const isPremium = id === 'sun' || id === 'star'
+      const border = isScatter ? 0xf9a8d4 : isRelic ? 0x67e8f9 : isPremium ? 0xfde68a : 0x7dd3fc
+      const fill = isScatter ? 0x2a0f3d : isRelic ? 0x0b3a4a : isPremium ? 0x312e81 : 0x0f172a
+      const max = Math.min(this.w, this.h) * (isScatter || isRelic ? 0.88 : 0.78)
+      const s = Math.min(max / tex.width, max / tex.height)
+
+      this.frame.clear()
+      this.frame.roundRect(4, 4, this.w - 8, this.h - 8, 12)
+        .fill({ color: fill, alpha: 0.88 })
+        .stroke({ color: border, width: (isScatter || isRelic) ? 3 : 2, alpha: (isScatter || isRelic) ? 0.9 : 0.35 })
+      this.shine.clear()
+      this.shine.roundRect(9, 9, this.w - 18, Math.max(18, this.h * 0.28), 9)
+        .fill({ color: 0xffffff, alpha: 0.08 })
+      this.sprite.texture = tex
+      this.sprite.scale.set(s)
+      this.sprite.position.set(this.w / 2, this.h / 2)
+    }
+
+    onActivate(id: string) {
+      this.view.alpha = 1
+      this._render(id)
+    }
+
+    onDeactivate() {
+      this._kill()
+    }
+
+    resize(w: number, h: number) {
+      this.w = w
+      this.h = h
+      if (this.symbolId) this._render(this.symbolId)
+    }
+
+    stopAnimation() {
+      this._kill()
+      this.view.scale.set(1)
+    }
+
+    _kill() {
+      if (this._tween) {
+        this._tween.kill()
+        this._tween = null
+      }
+      this.view.scale.set(1)
+    }
+
+    playWin() {
+      this._kill()
+      return new Promise<void>((resolve) => {
+        this._tween = GSAP.to(this.view.scale, {
+          x: 1.09,
+          y: 1.09,
+          duration: 0.12,
+          yoyo: true,
+          repeat: 1,
+          ease: 'sine.inOut',
+          onComplete: resolve
+        })
+      })
+    }
+  }
+
+  return AetherTile
+}
+
+// --- relic burst particles (mirrors the Candy Madness "pop" effect)
+function spawnPops(step: AetherStep) {
+  if (!particleLayer) return
+  const { Graphics } = PIXI
+  const count = turbo.value ? 4 : 7
+  for (const wc of step.winCells) {
+    const sym = step.grid[wc.col]?.[wc.row] as AetherSymbol | undefined
+    const color = sym ? (POP_COLOR[sym] ?? 0xffffff) : 0xffffff
+    const p = cellLocal(wc.col, wc.row)
+    for (let k = 0; k < count; k++) {
+      const g = new Graphics()
+      g.circle(0, 0, 2.5 + Math.random() * 4).fill({ color })
+      g.position.set(p.x, p.y)
+      particleLayer.addChild(g)
+      const ang = Math.random() * Math.PI * 2
+      const dist = 18 + Math.random() * 34
+      const dur = 0.42 + Math.random() * 0.26
+      GSAP.to(g, { x: p.x + Math.cos(ang) * dist, y: p.y + Math.sin(ang) * dist - 10, duration: dur, ease: 'power2.out' })
+      GSAP.to(g.scale, { x: 0.1, y: 0.1, duration: dur, ease: 'power1.in' })
+      GSAP.to(g, {
+        alpha: 0,
+        duration: dur,
+        ease: 'power1.in',
+        onComplete: () => {
+          try {
+            g.destroy()
+          } catch { /* ignore */ }
+        }
+      })
+    }
+  }
+}
+
+function clearMultiplierOverlays() {
+  for (const view of multOverlays.values()) {
+    try {
+      view.destroy({ children: true })
+    } catch { /* ignore */ }
+  }
+  multOverlays.clear()
+}
+
+function drawMultiplierOverlays(drops: MultDrop[]) {
+  if (!PIXI || !overlayLayer) return
+  clearMultiplierOverlays()
+  const { Container, Graphics, Sprite, Text } = PIXI
+  for (const drop of drops) {
+    const view = new Container()
+    const bg = new Graphics()
+    const sprite = new Sprite(TEX.multiplier)
+    const label = new Text({
+      text: `x${drop.value}`,
+      style: {
+        fontFamily: 'system-ui, sans-serif',
+        fontSize: 18,
+        fontWeight: '900',
+        fill: 0xffffff,
+        align: 'center',
+        stroke: { color: 0x082f49, width: 4, join: 'round' }
+      }
+    })
+    const p = cellLocal(drop.col, drop.row)
+    view.position.set(p.x, p.y)
+    bg.circle(0, 0, 31).fill({ color: 0x0891b2, alpha: 0.34 }).stroke({ color: 0xecfeff, width: 2, alpha: 0.7 })
+    sprite.anchor.set(0.5)
+    sprite.scale.set(Math.min(44 / TEX.multiplier.width, 44 / TEX.multiplier.height))
+    label.anchor.set(0.5)
+    label.y = 23
+    view.addChild(bg)
+    view.addChild(sprite)
+    view.addChild(label)
+    overlayLayer.addChild(view)
+    multOverlays.set(cellKey(drop), view)
+    GSAP.fromTo(view.scale, { x: 0, y: 0 }, { x: 1, y: 1, duration: 0.26, ease: 'back.out(2.4)' })
+  }
+}
+
+function spawnWinText(step: AetherStep, sequence: AetherSequence, resultBet: number) {
+  if (!PIXI || !GSAP || !floatLayer || step.stepPayMult <= 0) return
+  const { Text } = PIXI
+  const cells = step.winCells
+  const meterMult = Math.max(1, sequence.meterAfter)
+  const amount = step.stepPayMult * meterMult * resultBet
+  const cx = cells.reduce((sum, c) => sum + cellLocal(c.col, c.row).x, 0) / cells.length
+  const cy = cells.reduce((sum, c) => sum + cellLocal(c.col, c.row).y, 0) / cells.length
+  const text = new Text({
+    text: `+${formatNumber(amount, false)}`,
+    style: {
+      fontFamily: 'system-ui, sans-serif',
+      fontSize: 24,
+      fontWeight: '900',
+      fill: 0xfef3c7,
+      align: 'center',
+      stroke: { color: 0x082f49, width: 5, join: 'round' },
+      dropShadow: { color: 0x000000, blur: 4, distance: 2, alpha: 0.45, angle: Math.PI / 2 }
+    }
+  })
+  text.anchor.set(0.5)
+  text.position.set(cx, cy)
+  floatLayer.addChild(text)
+  const dur = turbo.value ? 0.85 : 1.25
+  GSAP.fromTo(text.scale, { x: 0.4, y: 0.4 }, { x: 1, y: 1, duration: 0.25, ease: 'back.out(2.6)' })
+  GSAP.to(text, { y: cy - 42, duration: dur, ease: 'power1.out' })
+  GSAP.to(text, {
+    alpha: 0,
+    duration: dur * 0.38,
+    delay: dur * 0.62,
+    ease: 'power1.in',
+    onComplete: () => {
+      try {
+        text.destroy()
+      } catch { /* ignore */ }
+    }
+  })
+}
+
+async function flyMultiplier(drop: MultDrop, toValue: number) {
+  const from = cellScreen(drop)
+  const toEl = meterRef.value
+  if (!from || !toEl || !import.meta.client) {
+    meter.value = toValue
+    return
+  }
+
+  const overlay = multOverlays.get(cellKey(drop))
+  if (overlay) {
+    GSAP.to(overlay, { alpha: 0, duration: turbo.value ? 0.12 : 0.2 })
+  }
+
+  const to = toEl.getBoundingClientRect()
+  const endX = to.left + to.width / 2
+  const endY = to.top + to.height / 2
+  const midX = (from.x + endX) / 2 + (endX > from.x ? 36 : -36)
+  const midY = Math.min(from.y, endY) - 95
+  const id = ++flyId
+  flying.value.push({
+    id,
+    value: drop.value,
+    style: {
+      left: `${from.x}px`,
+      top: `${from.y}px`
+    }
+  })
+
+  await nextTick()
+  const el = document.querySelector(`[data-fly="${id}"]`) as HTMLElement | null
+  if (!el) {
+    meter.value = toValue
+    return
+  }
+
+  await el.animate([
+    { transform: 'translate(-50%, -50%) scale(1)', offset: 0, opacity: 1 },
+    { transform: `translate(${midX - from.x}px, ${midY - from.y}px) scale(0.76)`, offset: 0.52, opacity: 1 },
+    { transform: `translate(${endX - from.x}px, ${endY - from.y}px) scale(0.24)`, offset: 1, opacity: 0.2 }
+  ], {
+    duration: turbo.value ? 360 : 760,
+    easing: 'cubic-bezier(.18,.8,.2,1)',
+    fill: 'forwards'
+  }).finished.catch(() => {})
+
+  flying.value = flying.value.filter(f => f.id !== id)
+  if (overlay) {
+    try {
+      overlay.destroy({ children: true })
+    } catch { /* ignore */ }
+    multOverlays.delete(cellKey(drop))
+  }
+  meterFlash.value = true
+  tickNumber(meter, toValue, 320)
+  setTimeout(() => {
+    meterFlash.value = false
+  }, 260)
+}
+
+async function collectMultipliers(step: AetherStep) {
+  if (!step.multipliers.length) return
+  drawMultiplierOverlays(step.multipliers)
+  await stepDelay(180)
+  sfx.mult()
+  const flights = step.multipliers.map((drop, index) =>
+    wait(index * (turbo.value ? 45 : 105)).then(() => {
+      const previous = step.meterBefore + step.multipliers.slice(0, index).reduce((sum, d) => sum + d.value, 0)
+      return flyMultiplier(drop, previous + drop.value)
+    })
+  )
+  await Promise.all(flights)
+  clearMultiplierOverlays()
+}
+
+function addStepWin(step: AetherStep, sequence: AetherSequence, resultBet: number) {
+  if (step.stepPayMult <= 0) return
+  const meterMult = Math.max(1, sequence.meterAfter)
+  const amount = step.stepPayMult * meterMult * resultBet
+  tickNumber(lastWin, lastWin.value + amount, 420)
+  winFlash.value = true
+  winPulse.value = true
+  setTimeout(() => {
+    winPulse.value = false
+  }, 320)
+  spawnWinText(step, sequence, resultBet)
+}
+
+async function playSequence(sequence: AetherSequence, resultBet: number): Promise<number> {
+  if (!reelSet) return 0
+  meter.value = sequence.meterBefore
+  clearMultiplierOverlays()
+
+  reelSet.setSpeed?.(turbo.value ? 'turbo' : 'normal')
+  const first = sequence.steps[0]?.grid ?? sequence.restGrid
+  const spinPromise = reelSet.spin({ mode: 'cascade' })
+  reelSet.setResult(toTargets(first))
+  await spinPromise
+
+  const winningSteps = sequence.steps.filter(step => step.winCells.length > 0)
+  if (winningSteps.length) {
+    await reelSet.runCascade({
+      detectWinners: (_grid: string[][], level: number) =>
+        (winningSteps[level]?.winCells ?? []).map((c: Cell) => ({ reel: c.col, row: c.row })),
+      nextGrid: (_grid: string[][], _winners: any, level: number) =>
+        (winningSteps[level + 1]?.grid ?? sequence.restGrid) as unknown as string[][],
+      onCascade: async ({ chain }: { chain: number }) => {
+        const step = winningSteps[chain - 1]
+        if (!step) return
+        if (step.winCells.length) sfx.pop(chain)
+        spawnPops(step)
+        await collectMultipliers(step)
+        addStepWin(step, sequence, resultBet)
+      },
+      pauseAfterDestroyMs: turbo.value ? 100 : 240,
+      maxChain: 64
+    })
+  }
+
+  for (const step of sequence.steps.filter(step => !step.winCells.length && step.multipliers.length)) {
+    await collectMultipliers(step)
+  }
+
+  reelSet.setResult(toTargets(sequence.restGrid))
+  meter.value = sequence.meterAfter
+  return sequence.winMult * resultBet
+}
+
+async function runBonus(result: AetherGatesResult) {
+  if (!result.bonus || !reelSet) return
+  const totalRounds = result.bonus.spins.length
+  bonusBannerTier.value = result.bonusTier ?? 'normal'
+  bonusBanner.value = true
+  inBonus.value = true
+  bonusSpinLabel.value = `${totalRounds} free spins`
+  sfx.bonus()
+
+  if (result.scatterCells.length) {
+    await reelSet.spotlight.show(result.scatterCells.map(c => ({ reelIndex: c.col, rowIndex: c.row })))
+    await stepDelay(700)
+    reelSet.spotlight.hide()
+  }
+
+  await stepDelay(900)
+  bonusBanner.value = false
+
+  const startWin = lastWin.value
+  let bonusWin = 0
+  for (const fs of result.bonus.spins) {
+    bonusSpinLabel.value = `Free spin ${fs.round} / ${totalRounds}`
+    await playSequence(fs.sequence, result.bet)
+    bonusWin += fs.spinWinMult * result.bet
+    lastWin.value = startWin + bonusWin
+
+    if (fs.retriggered) {
+      retriggerBanner.value = true
+      sfx.retrigger()
+      await stepDelay(950)
+      retriggerBanner.value = false
+    }
+    await stepDelay(220)
+  }
+  lastWin.value = startWin + bonusWin
+  bonusSpinLabel.value = 'Feature complete'
+  await stepDelay(850)
+  inBonus.value = false
+}
+
+async function spin(forceFeature?: AetherFeature) {
+  const feature: AetherFeature | undefined = forceFeature ?? (bonusChanceMode.value ? 'bonusChance' : undefined)
+  const cost = costFor(feature)
+
+  if (!ready.value || isSpinning.value || balance.value < cost) return
+  isSpinning.value = true
+  sfx.spin()
+  errorMsg.value = ''
+  lastWin.value = 0
+  winFlash.value = false
+  meter.value = 0
+  clearMultiplierOverlays()
+
+  const balanceBeforeSpin = balance.value
+  balance.value = balanceBeforeSpin - cost
+  setBalance(balance.value)
+
+  let data: { gameData: AetherGatesResult, balance: number }
+  try {
+    data = await $fetch('/api/games/play-game', {
+      method: 'POST',
+      body: { bet: bet.value, game: 'aethergates', options: feature ? { feature } : undefined }
+    }) as { gameData: AetherGatesResult, balance: number }
+  } catch (e: unknown) {
+    errorMsg.value = e instanceof Error ? e.message : 'Something went wrong'
+    balance.value = balanceBeforeSpin
+    setBalance(balanceBeforeSpin)
+    isSpinning.value = false
+    stopAutoSpin()
+    return
+  }
+
+  const result = data.gameData
+  try {
+    await playSequence(result.base, result.bet)
+
+    if (result.bonusTriggered) {
+      if (autoSpinEnabled.value) {
+        autoSpinPaused.value = true
+        await new Promise<void>((res) => {
+          _resumeAutoSpin = res
+        })
+      }
+      await runBonus(result)
+    }
+
+    lastWin.value = result.payout
+    winFlash.value = result.payout > 0
+    winPulse.value = result.payout > 0
+    if (result.payout > 0) sfx.win()
+    meter.value = result.bonus?.finalMeter ?? result.base.meterAfter
+    history.value.unshift({ payout: result.payout, bet: result.cost, bonus: result.bonusTriggered, mult: result.totalWinMult })
+    if (history.value.length > 10) history.value.pop()
+    balance.value = data.balance
+    setBalance(data.balance)
+    await fetchSession()
+  } catch (e) {
+    errorMsg.value = e instanceof Error ? e.message : 'Animation error'
+    balance.value = data.balance
+    setBalance(data.balance)
+    stopAutoSpin()
+  } finally {
+    setTimeout(() => {
+      winPulse.value = false
+    }, 420)
+    isSpinning.value = false
+    if (autoSpinEnabled.value) {
+      if (autoSpinPaused.value) {
+        await new Promise<void>((res) => {
+          _resumeAutoSpin = res
+        })
+      }
+      if (autoSpinEnabled.value) {
+        autoSpinsLeft.value--
+        if (autoSpinsLeft.value > 0 && balance.value >= spinCost.value) spin()
+        else stopAutoSpin()
+      }
+    }
+  }
+}
+
+function onKeydown(e: KeyboardEvent) {
+  if (e.code === 'Space' && e.target === document.body) {
+    e.preventDefault()
+    if (!autoSpinEnabled.value) spin()
+  }
+}
+
+onMounted(async () => {
+  window.addEventListener('keydown', onKeydown)
+
+  try {
+    const [pixi, reels, gsapMod] = await Promise.all([
+      import('pixi.js'),
+      import('pixi-reels'),
+      import('gsap')
+    ])
+    if (destroyed) return
+
+    PIXI = pixi
+    REELS = reels
+    GSAP = gsapMod.gsap ?? gsapMod.default
+
+    app = new PIXI.Application()
+    await app.init({
+      width: APP_W,
+      height: APP_H,
+      backgroundAlpha: 0,
+      antialias: true,
+      autoDensity: true,
+      resolution: Math.min(2, window.devicePixelRatio || 1)
+    })
+    if (destroyed) {
+      app.destroy(true)
+      return
+    }
+    canvasWrap.value?.appendChild(app.canvas)
+
+    await Promise.all(Object.entries(symbolMeta).map(async ([id, meta]) => {
+      TEX[id] = await PIXI.Assets.load(meta.src)
+    }))
+    if (destroyed) return
+
+    const AetherTile = makeSymbolClass()
+    const weights: Record<string, number> = {}
+    for (const symbol of AETHER_PAY_SYMBOLS) weights[symbol] = AETHER_SYMBOL_WEIGHTS[symbol]
+    weights.scatter = AETHER_SCATTER_WEIGHT
+    weights.multiplier = AETHER_MULTIPLIER_WEIGHT
+
+    reelSet = new REELS.ReelSetBuilder()
+      .reels(AG_COLS)
+      .visibleRows(AG_ROWS)
+      .symbolSize(CELL, CELL)
+      .symbolGap(GAP, GAP)
+      .symbols((registry: any) => {
+        for (const id of Object.keys(symbolMeta)) registry.register(id, AetherTile, {})
+      })
+      .weights(weights)
+      .tumble({
+        fall: { duration: 220, ease: 'sine.in', rowStagger: 0 },
+        dropIn: { duration: 390, ease: 'back.out(1.35)', rowStagger: 36, distance: 'perHole' }
+      })
+      .speed('normal', REELS.SpeedPresets.NORMAL)
+      .speed('turbo', REELS.SpeedPresets.TURBO)
+      .ticker(app.ticker)
+      .build()
+
+    reelSet.x = OFFSET_X
+    reelSet.y = OFFSET_Y
+    app.stage.addChild(reelSet)
+
+    overlayLayer = new PIXI.Container()
+    overlayLayer.eventMode = 'none'
+    app.stage.addChild(overlayLayer)
+
+    particleLayer = new PIXI.Container()
+    particleLayer.eventMode = 'none'
+    app.stage.addChild(particleLayer)
+
+    floatLayer = new PIXI.Container()
+    floatLayer.eventMode = 'none'
+    app.stage.addChild(floatLayer)
+
+    reelSet.setResult(toTargets(randomGrid()))
+    ready.value = true
+  } catch (e) {
+    errorMsg.value = e instanceof Error ? e.message : 'Failed to load the Pixi reel engine'
+  }
+})
+
+onUnmounted(() => {
+  destroyed = true
+  window.removeEventListener('keydown', onKeydown)
+  try {
+    clearMultiplierOverlays()
+  } catch { /* ignore */ }
+  try {
+    overlayLayer?.destroy?.({ children: true })
+  } catch { /* ignore */ }
+  try {
+    particleLayer?.destroy?.({ children: true })
+  } catch { /* ignore */ }
+  try {
+    floatLayer?.destroy?.({ children: true })
+  } catch { /* ignore */ }
+  try {
+    reelSet?.destroy?.()
+  } catch { /* ignore */ }
+  try {
+    app?.destroy?.(true)
+  } catch { /* ignore */ }
+})
+</script>
+
+<template>
+  <div class="ag-root min-h-full overflow-hidden px-3 py-6">
+    <div class="ag-bg" />
+    <div class="ag-vignette" />
+    <div class="relative z-[1] mx-auto flex w-full max-w-7xl flex-col gap-4 xl:grid xl:grid-cols-[270px_minmax(0,640px)_270px] xl:items-start xl:justify-center">
+      <section class="ag-side ag-side-left order-2 xl:order-1">
+        <div class="ag-rail">
+          <button
+            class="ag-feature-btn ag-feature-btn-buy"
+            :disabled="!ready || isSpinning || autoSpinEnabled || balance < buyFreeSpinsCost"
+            @click="buyFreeSpins"
+          >
+            <span>Buy Free Spins</span>
+            <strong><CoinBalance
+              :compact="false"
+              :value="buyFreeSpinsCost"
+            /></strong>
+            <small>{{ AG_SCATTER_TRIGGER }} gates guaranteed · {{ AG_FREE_SPINS }} spins</small>
+          </button>
+
+          <button
+            class="ag-feature-btn ag-feature-btn-super"
+            :disabled="!ready || isSpinning || autoSpinEnabled || balance < superBonusCost"
+            @click="buySuperBonus"
+          >
+            <span>Buy Super Bonus</span>
+            <strong><CoinBalance
+              :compact="false"
+              :value="superBonusCost"
+            /></strong>
+            <small>{{ AG_SCATTER_TRIGGER_SUPER }} gates guaranteed · {{ AG_FREE_SPINS_SUPER }} spins</small>
+          </button>
+
+          <div class="ag-bet-card">
+            <span>Bet</span>
+            <strong><CoinBalance
+              :compact="false"
+              :value="bet"
+            /></strong>
+          </div>
+
+          <button
+            class="ag-feature-btn"
+            :class="{ 'ag-feature-btn-active': bonusChanceMode }"
+            :disabled="isSpinning || autoSpinEnabled"
+            @click="toggleBonusChance"
+          >
+            <span>Bonus Chance</span>
+            <strong>{{ bonusChanceMode ? 'ON' : 'OFF' }}</strong>
+            <small>Spin cost {{ formatNumber(bonusChanceCost, false) }} · ~2× gate odds</small>
+          </button>
+
+          <div class="ag-rail-foot">
+            <img
+              src="/slots/aethergates/logo.svg"
+              alt=""
+            >
+            <p>{{ AG_MAX_WIN_MULT }}x max win</p>
+          </div>
+        </div>
+      </section>
+
+      <main class="order-1 xl:order-2">
+        <div class="ag-title mb-3 text-center">
+          <h1>Aether Gates</h1>
+          <div class="mt-2 flex flex-wrap justify-center gap-2">
+            <span class="ag-pill">96–98% RTP</span>
+            <span class="ag-pill">Pay Anywhere</span>
+            <span class="ag-pill">Relic Meter</span>
+          </div>
+        </div>
+
+        <div class="ag-machine">
+          <div class="ag-meter-wrap">
+            <div
+              ref="meterRef"
+              class="ag-meter"
+              :class="{ 'ag-meter-flash': meterFlash }"
+            >
+              <p class="ag-meter-label">
+                Multiplier meter
+              </p>
+              <p class="ag-meter-value">
+                ×{{ formatNumber(Math.max(1, meter), false) }}
+              </p>
+            </div>
+          </div>
+
+          <div
+            class="ag-reel-area"
+            @click="onCanvasClick"
+          >
+            <div class="ag-reel-sheen" />
+            <div
+              ref="canvasWrap"
+              class="relative z-[1] w-full [&>canvas]:!block [&>canvas]:!h-auto [&>canvas]:!w-full"
+            />
+
+            <Transition name="pop">
+              <div
+                v-if="bonusBanner"
+                class="ag-bonus-banner"
+              >
+                <p>{{ bonusBannerTier === 'super' ? 'Super Bonus!' : 'Free Spins!' }}</p>
+                <span>Multiplier meter stays alive the whole feature</span>
+              </div>
+            </Transition>
+
+            <Transition name="pop">
+              <div
+                v-if="retriggerBanner"
+                class="ag-retrigger-banner"
+              >
+                <p>+{{ AG_RETRIGGER_SPINS }} Free Spins!</p>
+                <span>3+ gates landed again</span>
+              </div>
+            </Transition>
+
+            <Transition name="pop">
+              <div
+                v-if="autoSpinPaused"
+                class="ag-pause-overlay"
+              >
+                <div class="ag-pause-card">
+                  <p>Bonus! Tap to play</p>
+                  <span>{{ autoSpinsLeft }} spin{{ autoSpinsLeft !== 1 ? 's' : '' }} remaining</span>
+                </div>
+              </div>
+            </Transition>
+
+            <div
+              v-if="!ready && !errorMsg"
+              class="absolute inset-0 z-10 flex items-center justify-center"
+            >
+              <UIcon
+                name="i-lucide-loader-circle"
+                class="size-10 animate-spin text-primary"
+              />
+            </div>
+          </div>
+
+          <div class="ag-controls">
+            <div class="ag-readouts">
+              <div>
+                <span>Balance</span>
+                <strong><CoinBalance
+                  :compact="false"
+                  :value="balance"
+                /></strong>
+              </div>
+              <div>
+                <span>Bet</span>
+                <input
+                  v-model="betInput"
+                  :disabled="isSpinning || autoSpinEnabled"
+                  inputmode="numeric"
+                  aria-label="Bet amount"
+                  @blur="commitBetInput"
+                  @keydown.enter="($event.target as HTMLInputElement).blur()"
+                >
+              </div>
+            </div>
+
+            <div
+              class="ag-win"
+              :class="{ 'ag-win-pulse': winPulse }"
+            >
+              <span>{{ inBonus ? bonusSpinLabel : 'Win' }}</span>
+              <Transition
+                mode="out-in"
+                name="pop"
+              >
+                <strong
+                  v-if="!inBonus && winFlash && lastWin > 0"
+                  key="win"
+                >{{ formatNumber(lastWin, false) }}</strong>
+                <strong
+                  v-else-if="inBonus"
+                  key="bonus"
+                >{{ formatNumber(lastWin, false) }}</strong>
+                <strong
+                  v-else
+                  key="idle"
+                  class="ag-win-idle"
+                >0.00</strong>
+              </Transition>
+            </div>
+
+            <div class="ag-actions">
+              <UTooltip text="Halve bet">
+                <button
+                  class="ag-icon-btn"
+                  :disabled="isSpinning || autoSpinEnabled || bet <= MIN_BET"
+                  @click="betDown"
+                >
+                  1/2
+                </button>
+              </UTooltip>
+
+              <div class="ag-spin-stack">
+                <button
+                  class="ag-spin"
+                  :disabled="!ready || isSpinning || balance < spinCost"
+                  @click="autoSpinEnabled ? stopAutoSpin() : spin()"
+                >
+                  <UIcon
+                    v-if="isSpinning"
+                    name="i-lucide-loader-circle"
+                    class="size-5 animate-spin"
+                  />
+                  <span
+                    v-else-if="autoSpinEnabled"
+                    class="ag-spin-auto"
+                  >
+                    <span class="ag-spin-auto-count">{{ autoSpinsLeft }}×</span>
+                    <span>STOP</span>
+                  </span>
+                  <span v-else>SPIN</span>
+                </button>
+                <button
+                  v-if="!autoSpinEnabled"
+                  class="ag-auto-btn"
+                  :disabled="!ready || isSpinning || balance < spinCost"
+                  @click="showAutoSpinModal = true"
+                >
+                  AUTO
+                </button>
+                <button
+                  v-else
+                  class="ag-auto-btn ag-auto-btn-stop"
+                  @click="stopAutoSpin"
+                >
+                  STOP
+                </button>
+              </div>
+
+              <UTooltip text="Double bet">
+                <button
+                  class="ag-icon-btn"
+                  :disabled="isSpinning || autoSpinEnabled || bet >= MAX_BET"
+                  @click="betUp"
+                >
+                  2x
+                </button>
+              </UTooltip>
+            </div>
+          </div>
+
+          <div class="ag-footer">
+            <div class="flex gap-2">
+              <UTooltip text="Game rules">
+                <button
+                  class="ag-mini-btn"
+                  @click="showHelp = true"
+                >
+                  <UIcon
+                    name="i-lucide-info"
+                    class="size-4"
+                  />
+                </button>
+              </UTooltip>
+              <UTooltip text="Turbo">
+                <button
+                  class="ag-mini-btn"
+                  :class="{ 'ag-mini-btn-active': turbo }"
+                  @click="turbo = !turbo"
+                >
+                  <UIcon
+                    name="i-lucide-zap"
+                    class="size-4"
+                  />
+                </button>
+              </UTooltip>
+              <UTooltip :text="muted ? 'Unmute' : 'Mute'">
+                <button
+                  class="ag-mini-btn"
+                  @click="toggleMute"
+                >
+                  <UIcon
+                    :name="muted ? 'i-lucide-volume-x' : 'i-lucide-volume-2'"
+                    class="size-4"
+                  />
+                </button>
+              </UTooltip>
+            </div>
+            <p
+              v-if="errorMsg"
+              class="text-xs text-error"
+            >
+              {{ errorMsg }}
+            </p>
+            <p
+              v-else
+              class="text-xs text-muted"
+            >
+              Relics carry a value — any win sweeps them into the meter.
+            </p>
+          </div>
+        </div>
+      </main>
+
+      <aside class="ag-side order-3">
+        <div class="ag-panel p-4">
+          <p class="mb-3 text-xs font-black uppercase tracking-wide text-muted">
+            Recent spins
+          </p>
+          <div
+            v-if="history.length"
+            class="space-y-2"
+          >
+            <div
+              v-for="(h, i) in history"
+              :key="i"
+              class="ag-history-row"
+              :class="h.payout > h.bet ? 'text-primary' : 'text-muted'"
+            >
+              <span>{{ h.bonus ? 'Free spins' : 'Base spin' }}</span>
+              <strong>{{ h.payout > 0 ? `${formatNumber(h.mult, false)}x` : '0x' }}</strong>
+            </div>
+          </div>
+          <UEmpty
+            v-else
+            icon="i-lucide-sparkles"
+            description="No spins yet"
+          />
+        </div>
+      </aside>
+    </div>
+
+    <div
+      v-for="item in flying"
+      :key="item.id"
+      :data-fly="item.id"
+      class="ag-fly"
+      :style="item.style"
+    >
+      x{{ item.value }}
+    </div>
+
+    <!-- Auto-spin modal -->
+    <UModal
+      v-model:open="showAutoSpinModal"
+      title="Auto Spin"
+    >
+      <template #body>
+        <div class="space-y-4">
+          <p class="text-sm text-muted">
+            Select number of spins. Auto-spin pauses before a bonus round so you can watch — tap the board to resume.
+          </p>
+          <div class="grid grid-cols-5 gap-2">
+            <UButton
+              v-for="count in AUTO_SPIN_OPTIONS"
+              :key="count"
+              block
+              class="font-bold"
+              color="neutral"
+              variant="soft"
+              @click="startAutoSpin(count)"
+            >
+              {{ count }}
+            </UButton>
+          </div>
+        </div>
+      </template>
+    </UModal>
+
+    <UModal
+      v-model:open="showHelp"
+      title="How Aether Gates works"
+    >
+      <template #body>
+        <div class="space-y-4 text-sm text-muted">
+          <ul class="list-inside list-disc space-y-1.5">
+            <li>Land <strong class="text-default">{{ AG_MIN_MATCH }}+</strong> matching symbols anywhere on the 6×5 board to win — no paylines, no adjacency needed.</li>
+            <li>Winning symbols tumble away and new ones drop in, so one spin can chain many wins.</li>
+            <li>
+              <strong class="text-primary">Relic</strong> tiles carry a multiplier value ({{ AETHER_MULT_VALUES_BASE.join('×, ') }}× in the base game, up to {{ Math.max(...AETHER_MULT_VALUES_BONUS) }}× in free spins). The instant
+              any win lands, every relic on the board — wherever it sits — flies into the meter above the reels and is swept away.
+            </li>
+            <li>When the tumble sequence ends, the meter multiplies the whole spin's win. It resets every paid base spin.</li>
+            <li>
+              Land <strong class="text-default">{{ AG_SCATTER_TRIGGER }}</strong> gates for <strong class="text-default">{{ AG_FREE_SPINS }}</strong> free spins, or
+              <strong class="text-default">{{ AG_SCATTER_TRIGGER_SUPER }}+</strong> gates for the richer <strong class="text-default">{{ AG_FREE_SPINS_SUPER }}</strong>-spin Super Bonus.
+            </li>
+            <li>During free spins the meter <strong class="text-default">never resets</strong>, relics land more often, and landing {{ AG_SCATTER_TRIGGER }}+ gates again <strong class="text-default">retriggers +{{ AG_RETRIGGER_SPINS }} spins</strong>.</li>
+            <li>Total win is capped at <strong class="text-default">{{ AG_MAX_WIN_MULT }}x</strong> bet.</li>
+          </ul>
+          <p class="text-xs text-muted">
+            Approx natural bonus trigger: 1 in {{ formatNumber(bonusOdds, true, 0) }} base spins.
+          </p>
+          <div class="overflow-hidden rounded-lg border border-default">
+            <div class="grid grid-cols-[auto_1fr] border-b border-default bg-elevated/60 text-xs text-muted">
+              <div class="px-3 py-1" />
+              <div class="flex justify-end gap-3 px-3 py-1 font-medium">
+                <span class="w-11 text-right">8</span>
+                <span class="w-11 text-right">10</span>
+                <span class="w-11 text-right">12</span>
+                <span class="w-11 text-right">15</span>
+                <span class="w-11 text-right">20+</span>
+              </div>
+            </div>
+            <div class="grid grid-cols-[auto_1fr] items-center text-sm">
+              <template
+                v-for="(row, i) in paytableRows"
+                :key="row.sym"
+              >
+                <div
+                  :class="i % 2 ? 'bg-elevated/40' : ''"
+                  class="flex items-center justify-center px-3 py-1.5"
+                >
+                  <img
+                    :src="symbolMeta[row.sym as AetherPaySymbol].src"
+                    :alt="symbolMeta[row.sym as AetherPaySymbol].name"
+                    class="size-7"
+                  >
+                </div>
+                <div
+                  :class="i % 2 ? 'bg-elevated/40' : ''"
+                  class="flex justify-end gap-3 px-3 py-1.5 font-mono tabular-nums"
+                >
+                  <span
+                    v-for="pay in row.pays"
+                    :key="pay"
+                    class="w-11 text-right"
+                  >{{ pay }}x</span>
+                </div>
+              </template>
+            </div>
+          </div>
+        </div>
+      </template>
+    </UModal>
+  </div>
+</template>
+
+<style scoped>
+.ag-root {
+  position: relative;
+  min-height: 100%;
+}
+
+.ag-bg {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background: url('/slots/aethergates/aether_gates_bg.svg') center / cover no-repeat;
+}
+
+.ag-vignette {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background: radial-gradient(ellipse 70% 60% at 50% 40%, rgba(4, 9, 20, 0.35) 0%, rgba(4, 9, 20, 0.72) 68%, rgba(2, 5, 10, 0.92) 100%);
+}
+
+.ag-title h1 {
+  font-size: 44px;
+  line-height: 1;
+  font-weight: 950;
+  background: linear-gradient(180deg, #ffffff 0%, #fef3c7 30%, #facc15 62%, #0891b2 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+  filter: drop-shadow(0 3px 0 rgba(8, 47, 73, 0.6)) drop-shadow(0 0 26px rgba(56, 189, 248, 0.45));
+}
+
+.ag-pill {
+  display: inline-flex;
+  border: 1px solid color-mix(in oklab, var(--ui-primary) 45%, transparent);
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--ui-bg-elevated) 66%, transparent);
+  color: var(--ui-text-muted);
+  padding: 5px 10px;
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.ag-machine,
+.ag-panel {
+  border: 1px solid color-mix(in oklab, var(--ui-primary) 34%, var(--ui-border));
+  background: linear-gradient(180deg, color-mix(in oklab, var(--ui-bg-elevated) 74%, transparent), rgba(2, 6, 23, 0.78));
+  box-shadow: 0 30px 90px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.09), 0 0 60px rgba(56, 189, 248, 0.12);
+  backdrop-filter: blur(10px);
+}
+
+.ag-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border: 1px solid color-mix(in oklab, var(--ui-primary) 34%, var(--ui-border));
+  border-radius: 8px;
+  background: linear-gradient(180deg, rgba(125, 211, 252, 0.16), rgba(2, 6, 23, 0.78));
+  padding: 10px;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.44), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(10px);
+}
+
+.ag-feature-btn,
+.ag-bet-card {
+  display: flex;
+  min-height: 78px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(125, 211, 252, 0.28);
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.68);
+  color: white;
+  text-align: center;
+  cursor: pointer;
+  transition: transform 140ms ease, border-color 140ms ease, box-shadow 140ms ease, opacity 140ms ease;
+}
+
+.ag-bet-card {
+  cursor: default;
+}
+
+.ag-feature-btn span,
+.ag-bet-card span {
+  color: var(--ui-text-muted);
+  font-size: 12px;
+  font-weight: 950;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.ag-feature-btn strong,
+.ag-bet-card strong {
+  margin-top: 4px;
+  color: var(--ui-primary);
+  font-size: 20px;
+  font-weight: 950;
+  line-height: 1;
+}
+
+.ag-feature-btn small {
+  margin-top: 5px;
+  color: var(--ui-text-muted);
+  font-size: 10.5px;
+  font-weight: 800;
+  padding: 0 6px;
+}
+
+.ag-feature-btn-buy {
+  background: linear-gradient(180deg, rgba(34, 211, 238, 0.24), rgba(15, 23, 42, 0.72));
+}
+
+.ag-feature-btn-super {
+  background: linear-gradient(180deg, rgba(250, 204, 21, 0.28), rgba(15, 23, 42, 0.72));
+  border-color: rgba(250, 204, 21, 0.4);
+}
+
+.ag-feature-btn-super strong {
+  color: #fde047;
+}
+
+.ag-feature-btn-active {
+  border-color: var(--ui-primary);
+  box-shadow: 0 0 24px color-mix(in oklab, var(--ui-primary) 30%, transparent);
+}
+
+.ag-feature-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.ag-feature-btn:not(:disabled):hover {
+  transform: translateY(-1px);
+}
+
+.ag-rail-foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-radius: 8px;
+  background: rgba(2, 6, 23, 0.42);
+  padding: 8px;
+}
+
+.ag-rail-foot img {
+  width: 76px;
+  height: 42px;
+  object-fit: contain;
+}
+
+.ag-rail-foot p {
+  color: var(--ui-text-muted);
+  font-size: 12px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.ag-machine {
+  position: relative;
+  overflow: hidden;
+  border-radius: 8px;
+  padding: 10px;
+}
+
+.ag-panel {
+  border-radius: 8px;
+}
+
+.ag-meter-wrap {
+  display: flex;
+  justify-content: center;
+  padding: 6px 0 10px;
+}
+
+.ag-meter {
+  display: flex;
+  min-width: min(100%, 320px);
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  border: 1px solid color-mix(in oklab, var(--ui-primary) 44%, transparent);
+  border-radius: 999px;
+  background: radial-gradient(ellipse 100% 140% at 50% -20%, rgba(56, 189, 248, 0.22), rgba(8, 47, 73, 0.66) 70%);
+  padding: 10px 24px;
+  transition: transform 180ms ease, box-shadow 180ms ease;
+}
+
+.ag-meter-flash {
+  transform: scale(1.045);
+  box-shadow: 0 0 32px rgba(250, 204, 21, 0.55);
+}
+
+.ag-meter-label {
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ui-text-muted);
+}
+
+.ag-meter-value {
+  font-size: 28px;
+  line-height: 1.2;
+  font-weight: 950;
+  color: #fde047;
+  text-shadow: 0 0 20px rgba(250, 204, 21, 0.5);
+}
+
+.ag-reel-area {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid rgba(125, 211, 252, 0.24);
+  border-radius: 8px;
+  background:
+    linear-gradient(180deg, rgba(14, 116, 144, 0.24), rgba(15, 23, 42, 0.65)),
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.04) 0 1px, transparent 1px 80px);
+  cursor: default;
+}
+
+.ag-reel-sheen {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse 70% 50% at 50% 105%, rgba(0, 0, 0, 0.32), transparent 62%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.06), transparent 22%);
+}
+
+.ag-bonus-banner,
+.ag-retrigger-banner {
+  position: absolute;
+  inset: 50px 18px;
+  z-index: 8;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  text-align: center;
+  backdrop-filter: blur(4px);
+}
+
+.ag-bonus-banner {
+  border: 1px solid rgba(236, 254, 255, 0.55);
+  background: rgba(8, 47, 73, 0.84);
+}
+
+.ag-bonus-banner p {
+  font-size: 44px;
+  line-height: 1;
+  font-weight: 950;
+  color: white;
+}
+
+.ag-bonus-banner span {
+  margin-top: 8px;
+  color: var(--ui-primary);
+  font-weight: 900;
+}
+
+.ag-retrigger-banner {
+  inset: 90px 40px;
+  border: 1px solid rgba(253, 224, 71, 0.6);
+  background: rgba(30, 20, 3, 0.86);
+}
+
+.ag-retrigger-banner p {
+  font-size: 32px;
+  line-height: 1;
+  font-weight: 950;
+  color: #fde047;
+  text-shadow: 0 0 20px rgba(250, 204, 21, 0.6);
+}
+
+.ag-retrigger-banner span {
+  margin-top: 8px;
+  color: rgba(253, 224, 71, 0.75);
+  font-weight: 800;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.ag-pause-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  background: rgba(4, 9, 20, 0.78);
+  backdrop-filter: blur(3px);
+}
+
+.ag-pause-card {
+  border-radius: 14px;
+  background: rgba(8, 20, 38, 0.95);
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+  padding: 16px 24px;
+  text-align: center;
+}
+
+.ag-pause-card p {
+  font-weight: 950;
+  color: white;
+  font-size: 16px;
+}
+
+.ag-pause-card span {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  color: rgba(186, 230, 253, 0.65);
+}
+
+.ag-controls {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 12px;
+  border-radius: 0 0 8px 8px;
+  background: rgba(2, 6, 23, 0.72);
+  padding: 12px 4px 4px;
+}
+
+.ag-readouts {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ag-readouts div {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.62);
+  padding: 6px 9px;
+}
+
+.ag-readouts span,
+.ag-win span {
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ui-text-muted);
+}
+
+.ag-readouts strong,
+.ag-readouts input {
+  min-width: 0;
+  color: white;
+  font-size: 14px;
+  font-weight: 900;
+  text-align: right;
+}
+
+.ag-readouts input {
+  width: 96px;
+  border: 0;
+  background: transparent;
+  outline: none;
+}
+
+.ag-win {
+  min-width: 126px;
+  text-align: center;
+  transition: transform 180ms ease;
+}
+
+.ag-win-pulse {
+  transform: scale(1.08);
+}
+
+.ag-win strong {
+  display: block;
+  margin-top: 2px;
+  color: var(--ui-primary);
+  font-size: 26px;
+  font-weight: 950;
+  line-height: 1;
+}
+
+.ag-win-idle {
+  color: rgba(186, 230, 253, 0.22) !important;
+}
+
+.ag-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.ag-spin-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.ag-spin,
+.ag-icon-btn,
+.ag-mini-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(125, 211, 252, 0.28);
+  background: rgba(15, 23, 42, 0.72);
+  color: white;
+  font-weight: 950;
+  transition: transform 140ms ease, border-color 140ms ease, background 140ms ease, opacity 140ms ease;
+}
+
+.ag-spin {
+  width: 82px;
+  height: 58px;
+  border-color: color-mix(in oklab, var(--ui-primary) 58%, transparent);
+  border-radius: 999px;
+  background: linear-gradient(180deg, color-mix(in oklab, var(--ui-primary) 72%, white 4%), color-mix(in oklab, var(--ui-primary) 46%, black 20%));
+  box-shadow: 0 12px 22px rgba(0, 0, 0, 0.3), 0 0 24px color-mix(in oklab, var(--ui-primary) 34%, transparent);
+}
+
+.ag-spin-auto {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1;
+  gap: 2px;
+}
+
+.ag-spin-auto-count {
+  font-size: 10px;
+  opacity: 0.85;
+}
+
+.ag-auto-btn {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.22em;
+  font-weight: 800;
+  color: rgba(186, 230, 253, 0.55);
+  background: none;
+  border: none;
+  cursor: pointer;
+  transition: color 0.15s;
+  padding: 0;
+}
+
+.ag-auto-btn:hover:not(:disabled) {
+  color: #e0f2fe;
+}
+
+.ag-auto-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.ag-auto-btn-stop {
+  color: rgba(248, 113, 113, 0.75);
+}
+
+.ag-auto-btn-stop:hover {
+  color: #f87171;
+}
+
+.ag-icon-btn {
+  width: 38px;
+  height: 38px;
+  border-radius: 8px;
+}
+
+.ag-mini-btn {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+}
+
+.ag-mini-btn-active {
+  border-color: var(--ui-primary);
+  background: color-mix(in oklab, var(--ui-primary) 24%, transparent);
+}
+
+.ag-spin:disabled,
+.ag-icon-btn:disabled {
+  opacity: 0.45;
+}
+
+.ag-spin:not(:disabled):hover,
+.ag-icon-btn:not(:disabled):hover,
+.ag-mini-btn:hover {
+  transform: translateY(-1px);
+}
+
+.ag-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 4px 2px;
+}
+
+.ag-history-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.48);
+  padding: 8px 10px;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.ag-fly {
+  position: fixed;
+  z-index: 80;
+  pointer-events: none;
+  border: 1px solid rgba(236, 254, 255, 0.7);
+  border-radius: 999px;
+  background: radial-gradient(circle at 32% 24%, white, #67e8f9 34%, #0891b2 72%);
+  color: rgb(8, 47, 73);
+  padding: 6px 10px;
+  font-size: 20px;
+  font-weight: 950;
+  line-height: 1;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.45);
+  box-shadow: 0 0 18px rgba(34, 211, 238, 0.48);
+}
+
+.pop-enter-active,
+.pop-leave-active {
+  transition: transform 220ms ease, opacity 220ms ease;
+}
+
+.pop-enter-from,
+.pop-leave-to {
+  opacity: 0;
+  transform: scale(0.92);
+}
+
+@media (max-width: 720px) {
+  .ag-root {
+    padding-inline: 8px;
+  }
+
+  .ag-title h1 {
+    font-size: 34px;
+  }
+
+  .ag-machine {
+    padding: 7px;
+  }
+
+  .ag-controls {
+    grid-template-columns: 1fr;
+  }
+
+  .ag-actions {
+    order: 3;
+    justify-content: center;
+  }
+
+  .ag-readouts {
+    order: 2;
+  }
+
+  .ag-win {
+    order: 1;
+  }
+
+  .ag-bonus-banner p {
+    font-size: 32px;
+  }
+}
+</style>

@@ -4,6 +4,7 @@ import { playWheel } from '#shared/utils/gamelogic/wheel'
 import { playMagicHands } from './gamelogic/magichands'
 import { playXenoSlot } from './gamelogic/xenoslot'
 import { playCandyMadness } from './gamelogic/candymadness'
+import { playAetherGates } from './gamelogic/aethergates'
 
 export interface GameResult {
   payout: number
@@ -32,6 +33,9 @@ export const GAMES_REGISTRY: Record<string, GameDefinition> = {
   },
   candymadness: {
     play: playCandyMadness
+  },
+  aethergates: {
+    play: playAetherGates
   }
 }
 
