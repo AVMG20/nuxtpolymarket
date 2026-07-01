@@ -1055,16 +1055,16 @@ onUnmounted(() => {
     <div class="ag-bg absolute inset-0 z-0" />
     <div class="ag-vignette absolute inset-0 z-0" />
     <div class="relative z-[1] mx-auto w-full max-w-7xl">
-      <div class="ag-title mb-4 text-center">
+      <div class="ag-title relative text-center">
         <h1 class="text-[34px] leading-none font-black sm:text-[44px]">
           Aether Gates
         </h1>
       </div>
 
-      <div class="order-1 flex justify-center xl:order-none xl:col-start-2 xl:row-start-1">
+      <div class="flex flex-col justify-center items-center">
         <div
             ref="meterRef"
-            class="relative w-full max-w-[500px] bg-[url('/slots/aethergates/multi_meter_banner.png')] bg-center bg-no-repeat bg-[length:100%_100%] [aspect-ratio:1536/564] transition-transform duration-200 drop-shadow-[0_10px_22px_rgba(0,0,0,0.5)]"
+            class="relative top-5 left-0 w-full max-w-125 bg-[url('/slots/aethergates/multi_meter_banner.png')] bg-center bg-no-repeat bg-size-[100%_100%] aspect-1536/564 transition-transform duration-200 drop-shadow-[0_10px_22px_rgba(0,0,0,0.5)]"
             :class="meterFlash ? 'scale-[1.045] drop-shadow-[0_0_26px_rgba(250,204,21,0.65)]' : ''"
         >
           <span class="sr-only">Multiplier meter</span>
@@ -1075,7 +1075,7 @@ onUnmounted(() => {
       </div>
 
       <div class="flex w-full flex-col gap-4 xl:grid xl:grid-cols-[260px_minmax(0,640px)_260px] xl:items-start xl:justify-center">
-        <section class="order-3 xl:order-none xl:col-start-1 xl:row-start-2">
+        <section class="order-3 xl:order-0 xl:col-start-1 xl:row-start-2">
           <div class="ag-rail">
             <button
               class="ag-feature-btn ag-feature-btn-buy"
@@ -1116,7 +1116,7 @@ onUnmounted(() => {
 
             <div class="flex flex-wrap gap-1.5">
               <span
-                v-for="tag in ['96–98% RTP', 'Pay Anywhere', 'Relic Meter']"
+                v-for="tag in ['96–98% RTP', 'High Volatile']"
                 :key="tag"
                 class="inline-flex rounded-full border border-[rgba(250,204,21,0.32)] bg-[rgba(2,6,16,0.55)] px-2 py-1 text-[10.5px] font-extrabold uppercase text-muted"
               >{{ tag }}</span>
@@ -1131,8 +1131,7 @@ onUnmounted(() => {
             </div>
           </div>
         </section>
-
-        <main class="order-2 xl:order-none xl:col-start-2 xl:row-start-2">
+        <main class="order-2 xl:order-0 xl:col-start-2 xl:row-start-2">
           <div class="ag-console relative overflow-hidden rounded-[10px] border border-[rgba(250,204,21,0.24)] backdrop-blur-[10px]">
             <div
               class="ag-reel-area relative cursor-default overflow-hidden p-1.5 sm:p-2"
@@ -1355,8 +1354,7 @@ onUnmounted(() => {
             </div>
           </div>
         </main>
-
-        <aside class="order-4 xl:order-none xl:col-start-3 xl:row-start-2">
+        <aside class="order-4 xl:order-0 xl:col-start-3 xl:row-start-2">
           <div class="ag-panel rounded-lg border border-[rgba(250,204,21,0.24)] p-4 backdrop-blur-[10px]">
             <p class="mb-3 text-xs font-black uppercase tracking-wide text-muted">
               Recent spins
@@ -1440,7 +1438,7 @@ onUnmounted(() => {
               Land <strong class="text-default">{{ AG_SCATTER_TRIGGER }}</strong> gates for <strong class="text-default">{{ AG_FREE_SPINS }}</strong> free spins, or
               <strong class="text-default">{{ AG_SCATTER_TRIGGER_SUPER }}+</strong> gates for the richer <strong class="text-default">{{ AG_FREE_SPINS_SUPER }}</strong>-spin Super Bonus.
             </li>
-            <li>During free spins the meter <strong class="text-default">never resets</strong>, relics land more often, and landing {{ AG_SCATTER_TRIGGER }}+ gates again <strong class="text-default">retriggers +{{ AG_RETRIGGER_SPINS }} spins</strong>.</li>
+            <li>During free spins the meter <strong class="text-default">never resets</strong> and relics land more often. Landing {{ AG_SCATTER_TRIGGER }}+ gates again grants <strong class="text-default">+{{ AG_RETRIGGER_SPINS }} spins</strong> — a one-time bonus that can only happen once per feature, after which gates stop appearing.</li>
             <li>Total win is capped at <strong class="text-default">{{ AG_MAX_WIN_MULT }}x</strong> bet.</li>
           </ul>
           <p class="text-xs text-muted">

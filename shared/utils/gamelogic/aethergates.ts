@@ -30,10 +30,12 @@
 // ── Bonus (free spins) ───────────────────────────────────────────────────────
 //   3 🌀 scatters anywhere in the initial drop award FREE_SPINS free spins;
 //   4+ scatters award the richer FREE_SPINS_SUPER free spins instead. During
-//   the bonus, relics appear more often and can roll bigger values, the meter
-//   NEVER resets between spins (it keeps growing for the whole feature), and
-//   scatters can still land — 3+ scatters in a single free spin retriggers
-//   RETRIGGER_SPINS extra spins.
+//   the bonus, relics appear more often and can roll bigger values, and the
+//   meter NEVER resets between spins (it keeps growing for the whole
+//   feature). Scatters can still land during the bonus, but only matter
+//   once: the first time a spin lands AG_SCATTER_TRIGGER+ of them, the
+//   feature gets +RETRIGGER_SPINS extra spins and scatters stop spawning
+//   for the rest of the bonus — a single one-time bonus-within-a-bonus.
 //
 // ── Fairness ────────────────────────────────────────────────────────────────
 //   Total win (base + bonus) is capped at MAX_WIN_MULT × bet. Weights, the
@@ -49,9 +51,12 @@ export const AG_SCATTER_TRIGGER = 3
 export const AG_SCATTER_TRIGGER_SUPER = 4
 export const AG_FREE_SPINS = 10
 export const AG_FREE_SPINS_SUPER = 12
-export const AG_RETRIGGER_SPINS = 5
+// Landing AG_SCATTER_TRIGGER+ gates during the bonus adds this many spins —
+// but only once per bonus (see runBonus): after it fires, gates stop
+// spawning for the rest of the feature.
+export const AG_RETRIGGER_SPINS = 8
 // Hard ceiling on how many free-spin rounds a single bonus can chain through
-// retriggers — astronomically unlikely to bind, just a safety rail.
+// the one-time retrigger — astronomically unlikely to bind, just a safety rail.
 export const AG_MAX_FREE_SPIN_ROUNDS = 120
 
 export const AG_MAX_WIN_MULT = 10000 // hard cap on total win, in × bet
@@ -65,9 +70,9 @@ export const AG_MAX_WIN_MULT = 10000 // hard cap on total win, in × bet
 //                  spins (the 4-scatter tier).
 //   bonusChance  — ante toggle: every spin costs more but scatter odds are
 //                  roughly doubled, raising the odds of a natural trigger.
-export const AG_BUY_FREESPINS_COST = 61 // × bet → ~97.5% RTP (measured, scripts/aethergates-rtp.ts 3e6 sims)
-export const AG_BUY_SUPERBONUS_COST = 73 // × bet → ~97.8% RTP (measured, 4e4 sims)
-export const AG_BONUS_CHANCE_COST = 2.2 // × bet → ~95.9% RTP (measured, scripts/aethergates-rtp.ts 1.5e5 sims)
+export const AG_BUY_FREESPINS_COST = 43 // × bet → ~97.5% RTP (measured, scripts/aethergates-rtp.ts 3e6 sims)
+export const AG_BUY_SUPERBONUS_COST = 58.5 // × bet → ~97.5% RTP (measured, scripts/aethergates-rtp.ts 1e6 sims)
+export const AG_BONUS_CHANCE_COST = 3.54 // × bet → ~97.5% RTP (measured, scripts/aethergates-rtp.ts 1e6 sims)
 
 export type AetherFeature = 'buyFreeSpins' | 'superBonus' | 'bonusChance'
 export type AetherBonusTier = 'normal' | 'super'
@@ -164,13 +169,13 @@ export const AETHER_SYMBOL_WEIGHTS: Record<AetherPaySymbol, number> = {
   star: 8
 }
 
-export const AETHER_SCATTER_WEIGHT = 3.3
-// Bonus scatters are pared back further and that weight is folded into the
-// bonus relic weight below — in free spins, the "luck" that would have
-// bought a retrigger buys a wild instead.
-export const AETHER_BONUS_SCATTER_WEIGHT = 1.1
+export const AETHER_SCATTER_WEIGHT = 3.78
+// Gates can still land during the bonus (see AG_RETRIGGER_SPINS) — the odds
+// are close to the base game's since the payoff (one extra +8-spin
+// retrigger, once per bonus) is meaningful but shouldn't be routine.
+export const AETHER_BONUS_SCATTER_WEIGHT = 1.5
 export const AETHER_MULTIPLIER_WEIGHT = 3.2 // rarer in the base game — fewer, smaller relic hits
-export const AETHER_BONUS_MULTIPLIER_WEIGHT = 17 // relics flood in once you're in the feature
+export const AETHER_BONUS_MULTIPLIER_WEIGHT = 9 // more common than the base game, but no longer flooding the board
 const AG_BONUS_CHANCE_SCATTER_MULT = 2.15
 
 // Relic values and how often each rolls. Bigger, rarer values are reserved
@@ -427,21 +432,25 @@ function runBonus(startMeter: number, initialSpins: number): AetherBonusResult {
   let bonusWinMult = 0
   let totalSpins = Math.min(initialSpins, AG_MAX_FREE_SPIN_ROUNDS)
   let retriggers = 0
+  let retriggerUsed = false // the scatter retrigger can only fire once per bonus
   const spins: AetherFreeSpin[] = []
 
   let round = 0
   while (round < totalSpins) {
     round++
-    const board = fullDrop(true, AETHER_BONUS_MULTIPLIER_WEIGHT, AETHER_BONUS_SCATTER_WEIGHT, BONUS_MULT_POOL)
+    // Once the one-time retrigger has fired, scatters stop spawning entirely
+    // for the rest of the feature — they have nothing left to do.
+    const board = fullDrop(!retriggerUsed, AETHER_BONUS_MULTIPLIER_WEIGHT, AETHER_BONUS_SCATTER_WEIGHT, BONUS_MULT_POOL)
     const sequence = runSequence(board, meter, AETHER_BONUS_MULTIPLIER_WEIGHT, BONUS_MULT_POOL)
     meter = sequence.meterAfter
     bonusWinMult += sequence.winMult
 
-    const scatterCount = findScatters(board.grid).length
-    const retriggered = scatterCount >= AG_SCATTER_TRIGGER
+    const scatterCount = retriggerUsed ? 0 : findScatters(board.grid).length
+    const retriggered = !retriggerUsed && scatterCount >= AG_SCATTER_TRIGGER
     if (retriggered) {
       totalSpins = Math.min(totalSpins + AG_RETRIGGER_SPINS, AG_MAX_FREE_SPIN_ROUNDS)
       retriggers++
+      retriggerUsed = true
     }
 
     spins.push({ round, sequence, spinWinMult: sequence.winMult, scatterCount, retriggered })
