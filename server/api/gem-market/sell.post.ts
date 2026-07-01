@@ -1,9 +1,8 @@
 import { eq, sql } from 'drizzle-orm'
 import { db } from '#server/database'
-import { gemMarketState, gemPriceHistory, user } from '#server/database/schema'
+import { gemMarketState, gemPriceHistory, user, transactions } from '#server/database/schema'
 import { auth } from '#server/utils/auth'
 import { GEM_MAX_GEMS_PER_TRADE, gemComputeLivePrice, gemSellGems } from '#shared/utils/gamelogic/gem-market'
-import { credit } from '#server/utils/balance'
 
 export default defineEventHandler(async (event) => {
     const session = await auth.api.getSession({ headers: event.headers })
@@ -17,25 +16,31 @@ export default defineEventHandler(async (event) => {
 
     const userId = session.user.id
 
-    // Check user has enough gems
-    const currentUser = await db.query.user.findFirst({
-        where: eq(user.id, userId),
-        columns: { gems: true },
-    })
-    if (!currentUser || currentUser.gems < gems) {
-        throw createError({ statusCode: 400, statusMessage: 'Not enough gems' })
-    }
-
-    const state = await db.query.gemMarketState.findFirst()
-    if (!state) throw createError({ statusCode: 500, statusMessage: 'Market not initialized' })
-
-    const livePrice = gemComputeLivePrice(parseFloat(state.price), state.lastUpdatedAt)
-    const { revenue, newPrice } = gemSellGems(livePrice, gems)
-
-    // Deduct gems + update market in a transaction
     await db.transaction(async (tx) => {
+        // Acquire an exclusive row lock on the market state before reading the price.
+        // Without this, concurrent requests all see the same stale price and every sell is
+        // paid at the pre-burst rate — the slippage curve is bypassed entirely.
+        const [state] = await tx.select().from(gemMarketState).for('update').limit(1)
+        if (!state) throw createError({ statusCode: 500, statusMessage: 'Market not initialized' })
+
+        const livePrice = gemComputeLivePrice(parseFloat(state.price), state.lastUpdatedAt)
+        const { revenue, newPrice } = gemSellGems(livePrice, gems)
+
+        // Lock the user row so the gem check and deduction are atomic with the balance credit.
+        const [currentUser] = await tx.select({ gems: user.gems })
+            .from(user)
+            .where(eq(user.id, userId))
+            .for('update')
+        if (!currentUser || currentUser.gems < gems) {
+            throw createError({ statusCode: 400, statusMessage: 'Not enough gems' })
+        }
+
+        await tx.insert(transactions).values({ userId, amount: revenue.toFixed(4), type: 'credit', category: 'gem market' })
         await tx.update(user)
-            .set({ gems: sql`${user.gems} - ${gems}` })
+            .set({
+                balance: sql`${user.balance} + ${revenue.toFixed(4)}::numeric`,
+                gems: sql`${user.gems} - ${gems}`
+            })
             .where(eq(user.id, userId))
 
         await tx.update(gemMarketState)
@@ -47,12 +52,9 @@ export default defineEventHandler(async (event) => {
                 action: 'sell',
                 userId,
                 gems,
-                totalAmount: revenue.toFixed(4),
+                totalAmount: revenue.toFixed(4)
             })
     })
-
-    // Credit balance (handles transaction record)
-    await credit(userId, revenue.toFixed(4), 'gem market')
 
     return { ok: true }
 })
