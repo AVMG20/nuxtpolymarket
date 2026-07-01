@@ -147,6 +147,7 @@ const canvasWrap = ref<HTMLDivElement>()
 let app: any = null
 let reelSet: any = null
 let connectionLayer: any = null
+let floatLayer: any = null
 let REELS: any = null
 let PIXI: any = null
 let GSAP: any = null
@@ -189,6 +190,12 @@ function clearConnections() {
   connectionLayer?.clear?.()
 }
 
+function clearWinText() {
+  floatLayer?.removeChildren?.().forEach((child: any) => {
+    try { child.destroy?.() } catch { /* ignore */ }
+  })
+}
+
 function drawConnectionPath(points: { x: number, y: number }[], color = 0xfde047, width = 5, alpha = 0.9) {
   if (points.length < 2) return
   const g = ensureConnectionLayer()
@@ -211,6 +218,52 @@ function drawBaseWinConnections(lines: XenoSlotResult['lines']) {
       y: reelSet.y + c.row * (CELL + GAP) + CELL / 2
     }))
     drawConnectionPath(points, 0xfde047, 5, 0.9)
+  }
+}
+
+function spawnLineWinText(lines: XenoSlotResult['lines']) {
+  if (!floatLayer || !PIXI || !GSAP) return
+  const { Text } = PIXI
+  for (const line of lines) {
+    if (!line.amount || line.amount <= 0 || !line.cells.length) continue
+
+    let sx = 0
+    let sy = 0
+    for (const c of line.cells) {
+      sx += c.col * (CELL + GAP) + CELL / 2
+      sy += c.row * (CELL + GAP) + CELL / 2
+    }
+    const cx = sx / line.cells.length
+    const cy = sy / line.cells.length
+
+    const t = new Text({
+      text: `+${formatNumber(line.amount, false)}`,
+      style: {
+        fontFamily: 'system-ui, sans-serif',
+        fontSize: 24,
+        fontWeight: '900',
+        fill: 0xfde047,
+        align: 'center',
+        stroke: { color: 0x14532d, width: 5, join: 'round' },
+        dropShadow: { color: 0x000000, blur: 4, distance: 2, alpha: 0.5, angle: Math.PI / 2 }
+      }
+    })
+    t.anchor.set(0.5)
+    t.position.set(cx, cy)
+    floatLayer.addChild(t)
+
+    const dur = turbo.value ? 0.95 : 1.6
+    GSAP.fromTo(t.scale, { x: 0.4, y: 0.4 }, { x: 1, y: 1, duration: 0.3, ease: 'back.out(2.6)' })
+    GSAP.to(t, { y: cy - 40, duration: dur, ease: 'power1.out' })
+    GSAP.to(t, {
+      alpha: 0,
+      duration: dur * 0.38,
+      delay: dur * 0.62,
+      ease: 'power1.in',
+      onComplete: () => {
+        try { t.destroy() } catch { /* ignore */ }
+      }
+    })
   }
 }
 
@@ -494,6 +547,7 @@ onMounted(async () => {
     // Transparent canvas so the jungle board panel shows through behind the tiles.
     await app.init({ width: APP_W, height: APP_H, backgroundAlpha: 0, antialias: true, autoDensity: true, resolution: Math.min(2, window.devicePixelRatio || 1) })
     if (destroyed) { app.destroy(true); return }
+    app.stage.sortableChildren = true
     canvasWrap.value?.appendChild(app.canvas)
 
     // Load the two atlases and slice out every frame we need.
@@ -529,6 +583,14 @@ onMounted(async () => {
     reelSet.x = (APP_W - REEL_W) / 2
     reelSet.y = (APP_H - REEL_H) / 2
     app.stage.addChild(reelSet)
+
+    floatLayer = new PIXI.Container()
+    floatLayer.x = reelSet.x
+    floatLayer.y = reelSet.y
+    floatLayer.zIndex = 30
+    floatLayer.eventMode = 'none'
+    app.stage.addChild(floatLayer)
+
     ready.value = true
   } catch (e) {
     errorMsg.value = e instanceof Error ? e.message : 'Failed to load the slot engine'
@@ -537,6 +599,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   destroyed = true
+  try { floatLayer?.destroy?.({ children: true }) } catch { /* ignore */ }
   try { reelSet?.destroy?.() } catch { /* ignore */ }
   try { app?.destroy?.(true) } catch { /* ignore */ }
 })
@@ -550,6 +613,7 @@ async function spin() {
   lastLines.value = 0
   winFlash.value = false
   clearConnections()
+  clearWinText()
 
   let data: { gameData: XenoSlotResult, balance: number }
   try {
@@ -579,12 +643,14 @@ async function spin() {
       lastLines.value = result.lines.length
       const winLines = result.lines.map(l => ({ positions: l.cells.map(c => ({ reelIndex: c.col, rowIndex: c.row })) }))
       drawBaseWinConnections(result.lines)
+      spawnLineWinText(result.lines)
       await reelSet.spotlight.cycle(winLines, { displayDuration: 850, gapDuration: 180, cycles: 1 })
       clearConnections()
     }
 
     // 3. Bonus feature.
     if (result.bonusTriggered && result.bonus) {
+      clearWinText()
       await reelSet.spotlight.show(result.bonusCells.map(c => ({ reelIndex: c.col, rowIndex: c.row })), { displayDuration: 600 } as any)
       if (autoSpinEnabled.value) {
         autoSpinPaused.value = true
