@@ -267,6 +267,12 @@ function spawnLineWinText(lines: XenoSlotResult['lines']) {
   }
 }
 
+function addLineWin(line: XenoSlotResult['lines'][number]) {
+  if (!line.amount || line.amount <= 0) return
+  lastWin.value += line.amount
+  winFlash.value = true
+}
+
 // Coin metal tiers, picked from a coin's bet-multiplier so the medallion metal
 // is stable regardless of stake. The tiny fly-into-chest clones reuse the same
 // palette so they match the medallion they left.
@@ -612,6 +618,9 @@ async function spin() {
   lastWin.value = 0
   lastLines.value = 0
   winFlash.value = false
+  const balanceBeforeSpin = balance.value
+  balance.value = balanceBeforeSpin - bet.value
+  setBalance(balance.value)
   clearConnections()
   clearWinText()
 
@@ -623,6 +632,8 @@ async function spin() {
     }) as { gameData: XenoSlotResult, balance: number }
   } catch (e: unknown) {
     errorMsg.value = e instanceof Error ? e.message : 'Something went wrong'
+    balance.value = balanceBeforeSpin
+    setBalance(balanceBeforeSpin)
     isSpinning.value = false
     stopAutoSpin()
     return
@@ -645,6 +656,7 @@ async function spin() {
         const winLine = { positions: line.cells.map(c => ({ reelIndex: c.col, rowIndex: c.row })) }
         drawBaseWinConnections([line])
         spawnLineWinText([line])
+        addLineWin(line)
         await reelSet.spotlight.cycle([winLine], { displayDuration: 850, gapDuration: 120, cycles: 1 })
       }
       clearConnections()

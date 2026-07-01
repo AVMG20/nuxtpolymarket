@@ -247,6 +247,8 @@ let activeBet = 1
 // whole sequence at the end). Each cluster's true contribution to the win is
 // cl.pay × this, so the cascade pop-ups must include it or they undercount.
 let activeMult = 1
+let activeWinTarget: typeof lastWin | typeof bonusTotal | null = null
+let winDisplayToken = 0
 const TEX: Record<string, any> = {}
 let destroyed = false
 
@@ -460,6 +462,23 @@ function spawnWinText(step: TumbleStep) {
       }
     })
   }
+}
+
+function addCascadeWin(step: TumbleStep) {
+  const target = activeWinTarget ?? lastWin
+  const token = winDisplayToken
+  const tickDelay = turbo.value ? 45 : 90
+
+  step.clusters.forEach((cl, index) => {
+    const amount = cl.pay * activeBet * activeMult
+    if (amount <= 0) return
+
+    setTimeout(() => {
+      if (token !== winDisplayToken) return
+      target.value += amount
+      if (target === lastWin) winFlash.value = true
+    }, index * tickDelay)
+  })
 }
 
 // --- multiplier badge overlay
@@ -698,6 +717,10 @@ async function spin(forceFeature?: CandyFeature) {
   errorMsg.value = ''
   lastWin.value = 0
   winFlash.value = false
+  winDisplayToken++
+  const balanceBeforeSpin = balance.value
+  balance.value = balanceBeforeSpin - cost
+  setBalance(balance.value)
 
   let data: { gameData: CandyMadnessResult, balance: number }
   try {
@@ -707,6 +730,8 @@ async function spin(forceFeature?: CandyFeature) {
     }) as { gameData: CandyMadnessResult, balance: number }
   } catch (e: unknown) {
     errorMsg.value = e instanceof Error ? e.message : 'Something went wrong'
+    balance.value = balanceBeforeSpin
+    setBalance(balanceBeforeSpin)
     isSpinning.value = false
     stopAutoSpin()
     return
@@ -717,8 +742,12 @@ async function spin(forceFeature?: CandyFeature) {
 
   try {
     clearBadges()
+    activeWinTarget = lastWin
+    winDisplayToken++
     const baseWin = await spinAndCascade(result.base)
+    winDisplayToken++
     lastWin.value = baseWin * result.bet
+    winFlash.value = lastWin.value > 0
 
     if (result.bonusTriggered && result.bonus) {
       // Highlight the trigger scatters (bought bonuses now also drop 3 for show).
@@ -740,6 +769,8 @@ async function spin(forceFeature?: CandyFeature) {
       await runBonus(result)
     }
 
+    activeWinTarget = null
+    winDisplayToken++
     lastWin.value = result.payout
     winFlash.value = result.payout > 0
     if (result.payout > 0) sfx.win()
@@ -748,11 +779,15 @@ async function spin(forceFeature?: CandyFeature) {
     history.value.unshift({payout: result.payout, bet: result.cost, bonus: result.bonusTriggered})
     if (history.value.length > 10) history.value.pop()
   } catch (e) {
+    activeWinTarget = null
+    winDisplayToken++
     errorMsg.value = e instanceof Error ? e.message : 'Animation error'
     balance.value = data.balance
     setBalance(data.balance)
     stopAutoSpin()
   } finally {
+    activeWinTarget = null
+    winDisplayToken++
     isSpinning.value = false
     if (autoSpinEnabled.value) {
       if (autoSpinPaused.value) {
@@ -806,6 +841,7 @@ async function spinAndCascade(seq: TumbleSequence): Promise<number> {
 function onTumble(step: TumbleStep | undefined, chain = 1) {
   if (!step) return
   if (step.winCells.length) sfx.pop(chain)
+  addCascadeWin(step)
   spawnPops(step)
   spawnWinText(step)
   syncBadges(step.spotsAfter)
@@ -827,8 +863,12 @@ async function runBonus(result: CandyMadnessResult) {
     for (const fs of bonus.spins) {
       bonusStatus.value = `Spin ${fs.round} / ${CM_FREE_SPINS}`
       bonusSpinsLeft.value = CM_FREE_SPINS - fs.round
+      const bonusTotalBeforeSpin = bonusTotal.value
+      activeWinTarget = bonusTotal
+      winDisplayToken++
       const win = await spinAndCascade(fs.sequence)
-      bonusTotal.value += win * result.bet
+      winDisplayToken++
+      bonusTotal.value = bonusTotalBeforeSpin + win * result.bet
       await wait(turbo.value ? 150 : 380)
     }
 
