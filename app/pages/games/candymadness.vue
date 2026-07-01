@@ -855,12 +855,12 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 
 <template>
   <!-- Candy background, scoped to the page (not the sidebar) -->
-  <div class="page-root relative min-h-full flex flex-col items-center justify-center overflow-hidden px-3 py-6">
+  <div class="page-root relative min-h-full flex flex-col items-center justify-start overflow-hidden px-3 pt-10 pb-6">
     <div class="page-bg"/>
     <div class="page-vignette"/>
 
     <!-- ── Title (centered over the board) ── -->
-    <div class="cm-title relative z-[1] mb-4 sm:mb-5 text-center">
+    <div class="cm-title relative z-[1] mb-2 sm:mb-3 text-center">
       <h1 class="cm-title__text">
         <span class="cm-title__emoji">🍭</span>
         Candy Madness
