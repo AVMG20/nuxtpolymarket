@@ -240,17 +240,25 @@ onMounted(() => {
   if (import.meta.client && localStorage.getItem('ag_muted') === '1') muted.value = true
 })
 
-const symbolMeta: Record<AetherSymbol, { name: string, src: string }> = {
-  coin: { name: 'Aurex Coin', src: '/slots/aethergates/coin.svg' },
-  ring: { name: 'Sky Ring', src: '/slots/aethergates/ring.svg' },
-  chalice: { name: 'Dawn Chalice', src: '/slots/aethergates/chalice.svg' },
-  laurel: { name: 'Verdant Laurel', src: '/slots/aethergates/laurel.svg' },
-  lyre: { name: 'Echo Lyre', src: '/slots/aethergates/lyre.svg' },
-  helm: { name: 'Aegis Helm', src: '/slots/aethergates/helm.svg' },
-  sun: { name: 'Solar Seal', src: '/slots/aethergates/sun.svg' },
-  star: { name: 'Aether Star', src: '/slots/aethergates/star.svg' },
-  scatter: { name: 'Gate Scatter', src: '/slots/aethergates/scatter.svg' },
-  multiplier: { name: 'Aether Relic', src: '/slots/aethergates/multiplier.svg' }
+// Sprite crop rects live in app/utils/aethergates-sprite.ts (single source of
+// truth shared with the /games/aethergates-sprite-debug tuning page).
+const SPRITE_SRC = AETHER_SPRITE_SRC
+const SHEET_W = AETHER_SHEET_W
+const SHEET_H = AETHER_SHEET_H
+const symbolMeta = AETHER_SYMBOL_META
+
+function tileStyle(sym: AetherPaySymbol, w = 40): Record<string, string> {
+  const [x, y, tw, th] = symbolMeta[sym].rect
+  const h = Math.round(w * th / tw)
+  const sx = w / tw
+  const sy = h / th
+  return {
+    width: `${w}px`,
+    height: `${h}px`,
+    backgroundImage: `url(${SPRITE_SRC})`,
+    backgroundSize: `${Math.round(SHEET_W * sx)}px ${Math.round(SHEET_H * sy)}px`,
+    backgroundPosition: `-${Math.round(x * sx)}px -${Math.round(y * sy)}px`
+  }
 }
 
 const paytableRows = [...AETHER_PAY_SYMBOLS].reverse().map(sym => ({
@@ -323,9 +331,9 @@ const OFFSET_X = (APP_W - REEL_W) / 2
 const OFFSET_Y = (APP_H - REEL_H) / 2
 
 const POP_COLOR: Record<AetherSymbol, number> = {
-  coin: 0xf5c518, ring: 0xfacc15, chalice: 0xd97706, laurel: 0x22c55e,
-  lyre: 0xe879f9, helm: 0x94a3b8, sun: 0xf97316, star: 0x38bdf8,
-  scatter: 0x22d3ee, multiplier: 0x06b6d4
+  coin: 0x34d399, ring: 0x38bdf8, chalice: 0xa78bfa, laurel: 0x84cc16,
+  lyre: 0xd8b4fe, helm: 0xf87171, sun: 0xfacc15, star: 0x93c5fd,
+  scatter: 0xfbbf24, multiplier: 0x67e8f9
 }
 
 function cellLocal(col: number, row: number): { x: number, y: number } {
@@ -357,7 +365,6 @@ function makeSymbolClass() {
   class AetherTile extends Base {
     frame = new Graphics()
     sprite = new Sprite()
-    shine = new Graphics()
     viewBox = new Container()
     w = CELL
     h = CELL
@@ -366,30 +373,27 @@ function makeSymbolClass() {
     constructor() {
       super()
       this.sprite.anchor.set(0.5)
-      this.viewBox.addChild(this.frame)
-      this.viewBox.addChild(this.shine)
       this.viewBox.addChild(this.sprite)
+      this.viewBox.addChild(this.frame)
       this.view.addChild(this.viewBox)
     }
 
     _render(id: string) {
       const tex = TEX[id]
       if (!tex) return
+      // The sprite art already bakes in its own gold card frame, so the tile
+      // just places it near edge-to-edge — no extra drawn border/shine on top.
       const isScatter = id === 'scatter'
       const isRelic = id === 'multiplier'
-      const isPremium = id === 'sun' || id === 'star'
-      const border = isScatter ? 0xf9a8d4 : isRelic ? 0x67e8f9 : isPremium ? 0xfde68a : 0x7dd3fc
-      const fill = isScatter ? 0x2a0f3d : isRelic ? 0x0b3a4a : isPremium ? 0x312e81 : 0x0f172a
-      const max = Math.min(this.w, this.h) * (isScatter || isRelic ? 0.88 : 0.78)
+      const glow = isScatter ? 0xfbbf24 : isRelic ? 0x67e8f9 : null
+      const max = Math.min(this.w, this.h) * 0.96
       const s = Math.min(max / tex.width, max / tex.height)
 
       this.frame.clear()
-      this.frame.roundRect(4, 4, this.w - 8, this.h - 8, 12)
-        .fill({ color: fill, alpha: 0.88 })
-        .stroke({ color: border, width: (isScatter || isRelic) ? 3 : 2, alpha: (isScatter || isRelic) ? 0.9 : 0.35 })
-      this.shine.clear()
-      this.shine.roundRect(9, 9, this.w - 18, Math.max(18, this.h * 0.28), 9)
-        .fill({ color: 0xffffff, alpha: 0.08 })
+      if (glow) {
+        this.frame.roundRect(2, 2, this.w - 4, this.h - 4, 12)
+          .stroke({ color: glow, width: 2, alpha: 0.65 })
+      }
       this.sprite.texture = tex
       this.sprite.scale.set(s)
       this.sprite.position.set(this.w / 2, this.h / 2)
@@ -843,10 +847,11 @@ onMounted(async () => {
     }
     canvasWrap.value?.appendChild(app.canvas)
 
-    await Promise.all(Object.entries(symbolMeta).map(async ([id, meta]) => {
-      TEX[id] = await PIXI.Assets.load(meta.src)
-    }))
+    const sheet = await PIXI.Assets.load(SPRITE_SRC)
     if (destroyed) return
+    for (const [id, meta] of Object.entries(symbolMeta)) {
+      TEX[id] = new PIXI.Texture({ source: sheet.source, frame: new PIXI.Rectangle(...meta.rect) })
+    }
 
     const AetherTile = makeSymbolClass()
     const weights: Record<string, number> = {}
@@ -920,339 +925,345 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="ag-root min-h-full overflow-hidden px-3 py-6">
-    <div class="ag-bg" />
-    <div class="ag-vignette" />
-    <div class="relative z-[1] mx-auto flex w-full max-w-7xl flex-col gap-4 xl:grid xl:grid-cols-[270px_minmax(0,640px)_270px] xl:items-start xl:justify-center">
-      <section class="ag-side ag-side-left order-2 xl:order-1">
-        <div class="ag-rail">
-          <button
-            class="ag-feature-btn ag-feature-btn-buy"
-            :disabled="!ready || isSpinning || autoSpinEnabled || balance < buyFreeSpinsCost"
-            @click="buyFreeSpins"
-          >
-            <span>Buy Free Spins</span>
-            <strong><CoinBalance
-              :compact="false"
-              :value="buyFreeSpinsCost"
-            /></strong>
-            <small>{{ AG_SCATTER_TRIGGER }} gates guaranteed · {{ AG_FREE_SPINS }} spins</small>
-          </button>
+  <div class="relative min-h-full overflow-hidden px-2 py-6 sm:px-3">
+    <div class="ag-bg absolute inset-0 z-0" />
+    <div class="ag-vignette absolute inset-0 z-0" />
+    <div class="relative z-[1] mx-auto w-full max-w-7xl">
+      <div class="ag-title mb-4 text-center">
+        <h1 class="text-[34px] leading-none font-black sm:text-[44px]">
+          Aether Gates
+        </h1>
+      </div>
 
-          <button
-            class="ag-feature-btn ag-feature-btn-super"
-            :disabled="!ready || isSpinning || autoSpinEnabled || balance < superBonusCost"
-            @click="buySuperBonus"
-          >
-            <span>Buy Super Bonus</span>
-            <strong><CoinBalance
-              :compact="false"
-              :value="superBonusCost"
-            /></strong>
-            <small>{{ AG_SCATTER_TRIGGER_SUPER }} gates guaranteed · {{ AG_FREE_SPINS_SUPER }} spins</small>
-          </button>
-
-          <div class="ag-bet-card">
-            <span>Bet</span>
-            <strong><CoinBalance
-              :compact="false"
-              :value="bet"
-            /></strong>
-          </div>
-
-          <button
-            class="ag-feature-btn"
-            :class="{ 'ag-feature-btn-active': bonusChanceMode }"
-            :disabled="isSpinning || autoSpinEnabled"
-            @click="toggleBonusChance"
-          >
-            <span>Bonus Chance</span>
-            <strong>{{ bonusChanceMode ? 'ON' : 'OFF' }}</strong>
-            <small>Spin cost {{ formatNumber(bonusChanceCost, false) }} · ~2× gate odds</small>
-          </button>
-
-          <div class="ag-rail-foot">
-            <img
-              src="/slots/aethergates/logo.svg"
-              alt=""
-            >
-            <p>{{ AG_MAX_WIN_MULT }}x max win</p>
-          </div>
+      <div class="order-1 flex justify-center xl:order-none xl:col-start-2 xl:row-start-1">
+        <div
+            ref="meterRef"
+            class="relative w-full max-w-[500px] bg-[url('/slots/aethergates/multi_meter_banner.png')] bg-center bg-no-repeat bg-[length:100%_100%] [aspect-ratio:1536/564] transition-transform duration-200 drop-shadow-[0_10px_22px_rgba(0,0,0,0.5)]"
+            :class="meterFlash ? 'scale-[1.045] drop-shadow-[0_0_26px_rgba(250,204,21,0.65)]' : ''"
+        >
+          <span class="sr-only">Multiplier meter</span>
+          <p class="absolute top-[74%] left-1/2 -translate-x-1/2 -translate-y-1/2 text-[clamp(20px,5.4vw,30px)] leading-none font-black whitespace-nowrap text-[#fde047] [text-shadow:0_0_20px_rgba(250,204,21,0.6)]">
+            ×{{ formatNumber(Math.max(1, meter), false) }}
+          </p>
         </div>
-      </section>
+      </div>
 
-      <main class="order-1 xl:order-2">
-        <div class="ag-title mb-3 text-center">
-          <h1>Aether Gates</h1>
-          <div class="mt-2 flex flex-wrap justify-center gap-2">
-            <span class="ag-pill">96–98% RTP</span>
-            <span class="ag-pill">Pay Anywhere</span>
-            <span class="ag-pill">Relic Meter</span>
-          </div>
-        </div>
-
-        <div class="ag-machine">
-          <div class="ag-meter-wrap">
-            <div
-              ref="meterRef"
-              class="ag-meter"
-              :class="{ 'ag-meter-flash': meterFlash }"
+      <div class="flex w-full flex-col gap-4 xl:grid xl:grid-cols-[260px_minmax(0,640px)_260px] xl:items-start xl:justify-center">
+        <section class="order-3 xl:order-none xl:col-start-1 xl:row-start-2">
+          <div class="ag-rail">
+            <button
+              class="ag-feature-btn ag-feature-btn-buy"
+              :disabled="!ready || isSpinning || autoSpinEnabled || balance < buyFreeSpinsCost"
+              @click="buyFreeSpins"
             >
-              <p class="ag-meter-label">
-                Multiplier meter
-              </p>
-              <p class="ag-meter-value">
-                ×{{ formatNumber(Math.max(1, meter), false) }}
-              </p>
+              <span>Buy Free Spins</span>
+              <strong><CoinBalance
+                :compact="false"
+                :value="buyFreeSpinsCost"
+              /></strong>
+              <small>{{ AG_SCATTER_TRIGGER }} gates guaranteed · {{ AG_FREE_SPINS }} spins</small>
+            </button>
+
+            <button
+              class="ag-feature-btn ag-feature-btn-super"
+              :disabled="!ready || isSpinning || autoSpinEnabled || balance < superBonusCost"
+              @click="buySuperBonus"
+            >
+              <span>Buy Super Bonus</span>
+              <strong><CoinBalance
+                :compact="false"
+                :value="superBonusCost"
+              /></strong>
+              <small>{{ AG_SCATTER_TRIGGER_SUPER }} gates guaranteed · {{ AG_FREE_SPINS_SUPER }} spins</small>
+            </button>
+
+            <button
+              class="ag-feature-btn"
+              :class="{ 'ag-feature-btn-active': bonusChanceMode }"
+              :disabled="isSpinning || autoSpinEnabled"
+              @click="toggleBonusChance"
+            >
+              <span>Bonus Chance</span>
+              <strong>{{ bonusChanceMode ? 'ON' : 'OFF' }}</strong>
+              <small>Spin cost {{ formatNumber(bonusChanceCost, false) }} · ~2× gate odds</small>
+            </button>
+
+            <div class="flex flex-wrap gap-1.5">
+              <span
+                v-for="tag in ['96–98% RTP', 'Pay Anywhere', 'Relic Meter']"
+                :key="tag"
+                class="inline-flex rounded-full border border-[rgba(250,204,21,0.32)] bg-[rgba(2,6,16,0.55)] px-2 py-1 text-[10.5px] font-extrabold uppercase text-muted"
+              >{{ tag }}</span>
+            </div>
+
+            <div class="ag-rail-foot">
+              <img
+                src="/slots/aethergates/logo.svg"
+                alt=""
+              >
+              <p>{{ AG_MAX_WIN_MULT }}x max win</p>
             </div>
           </div>
+        </section>
 
-          <div
-            class="ag-reel-area"
-            @click="onCanvasClick"
-          >
-            <div class="ag-reel-sheen" />
+        <main class="order-2 xl:order-none xl:col-start-2 xl:row-start-2">
+          <div class="ag-console relative overflow-hidden rounded-[10px] border border-[rgba(250,204,21,0.24)] backdrop-blur-[10px]">
             <div
-              ref="canvasWrap"
-              class="relative z-[1] w-full [&>canvas]:!block [&>canvas]:!h-auto [&>canvas]:!w-full"
-            />
-
-            <Transition name="pop">
+              class="ag-reel-area relative cursor-default overflow-hidden p-1.5 sm:p-2"
+              @click="onCanvasClick"
+            >
+              <div class="ag-reel-sheen pointer-events-none absolute inset-0 z-[2]" />
               <div
-                v-if="bonusBanner"
-                class="ag-bonus-banner"
+                ref="canvasWrap"
+                class="relative z-[1] w-full [&>canvas]:!block [&>canvas]:!h-auto [&>canvas]:!w-full"
+              />
+
+              <Transition name="pop">
+                <div
+                  v-if="bonusBanner"
+                  class="absolute inset-[50px_18px] z-[8] flex flex-col items-center justify-center rounded-lg border border-[rgba(236,254,255,0.55)] bg-[rgba(8,47,73,0.84)] text-center backdrop-blur-[4px]"
+                >
+                  <p class="text-[32px] leading-none font-black text-white sm:text-[44px]">
+                    {{ bonusBannerTier === 'super' ? 'Super Bonus!' : 'Free Spins!' }}
+                  </p>
+                  <span class="mt-2 font-extrabold text-primary">Multiplier meter stays alive the whole feature</span>
+                </div>
+              </Transition>
+
+              <Transition name="pop">
+                <div
+                  v-if="retriggerBanner"
+                  class="absolute inset-[90px_40px] z-[8] flex flex-col items-center justify-center rounded-lg border border-[rgba(253,224,71,0.6)] bg-[rgba(30,20,3,0.86)] text-center backdrop-blur-[4px]"
+                >
+                  <p class="text-[32px] leading-none font-black text-[#fde047] [text-shadow:0_0_20px_rgba(250,204,21,0.6)]">
+                    +{{ AG_RETRIGGER_SPINS }} Free Spins!
+                  </p>
+                  <span class="mt-2 text-xs font-extrabold uppercase tracking-wide text-[rgba(253,224,71,0.75)]">3+ gates landed again</span>
+                </div>
+              </Transition>
+
+              <Transition name="pop">
+                <div
+                  v-if="autoSpinPaused"
+                  class="absolute inset-0 z-20 flex cursor-pointer items-center justify-center bg-[rgba(4,9,20,0.78)] backdrop-blur-[3px]"
+                >
+                  <div class="rounded-2xl border border-[rgba(56,189,248,0.35)] bg-[rgba(8,20,38,0.95)] px-6 py-4 text-center shadow-[0_8px_32px_rgba(0,0,0,0.6)]">
+                    <p class="text-base font-black text-white">
+                      Bonus! Tap to play
+                    </p>
+                    <span class="mt-1 block text-xs text-[rgba(186,230,253,0.65)]">{{ autoSpinsLeft }} spin{{ autoSpinsLeft !== 1 ? 's' : '' }} remaining</span>
+                  </div>
+                </div>
+              </Transition>
+
+              <div
+                v-if="!ready && !errorMsg"
+                class="absolute inset-0 z-10 flex items-center justify-center"
               >
-                <p>{{ bonusBannerTier === 'super' ? 'Super Bonus!' : 'Free Spins!' }}</p>
-                <span>Multiplier meter stays alive the whole feature</span>
+                <UIcon
+                  name="i-lucide-loader-circle"
+                  class="size-10 animate-spin text-primary"
+                />
               </div>
-            </Transition>
+            </div>
 
-            <Transition name="pop">
-              <div
-                v-if="retriggerBanner"
-                class="ag-retrigger-banner"
-              >
-                <p>+{{ AG_RETRIGGER_SPINS }} Free Spins!</p>
-                <span>3+ gates landed again</span>
-              </div>
-            </Transition>
-
-            <Transition name="pop">
-              <div
-                v-if="autoSpinPaused"
-                class="ag-pause-overlay"
-              >
-                <div class="ag-pause-card">
-                  <p>Bonus! Tap to play</p>
-                  <span>{{ autoSpinsLeft }} spin{{ autoSpinsLeft !== 1 ? 's' : '' }} remaining</span>
+            <div class="grid grid-cols-1 items-center gap-3 border-t border-[rgba(250,204,21,0.14)] bg-black/40 px-3.5 py-3 sm:grid-cols-[1fr_auto_1fr]">
+              <div class="order-2 flex min-w-0 flex-col gap-1.5 sm:order-none">
+                <div class="flex min-w-0 items-center justify-between gap-2 rounded-lg border border-[rgba(250,204,21,0.12)] bg-black/40 px-2.5 py-1.5">
+                  <span class="text-[10px] font-black tracking-wide uppercase text-muted">Balance</span>
+                  <strong class="min-w-0 text-right text-sm font-black text-white"><CoinBalance
+                    :compact="false"
+                    :value="balance"
+                  /></strong>
+                </div>
+                <div class="flex min-w-0 items-center justify-between gap-2 rounded-lg border border-[rgba(250,204,21,0.12)] bg-black/40 px-2.5 py-1.5">
+                  <span class="text-[10px] font-black tracking-wide uppercase text-muted">Bet</span>
+                  <input
+                    v-model="betInput"
+                    :disabled="isSpinning || autoSpinEnabled"
+                    inputmode="numeric"
+                    aria-label="Bet amount"
+                    class="w-24 border-0 bg-transparent text-right text-sm font-black text-white outline-none"
+                    @blur="commitBetInput"
+                    @keydown.enter="($event.target as HTMLInputElement).blur()"
+                  >
                 </div>
               </div>
-            </Transition>
 
-            <div
-              v-if="!ready && !errorMsg"
-              class="absolute inset-0 z-10 flex items-center justify-center"
-            >
-              <UIcon
-                name="i-lucide-loader-circle"
-                class="size-10 animate-spin text-primary"
-              />
-            </div>
-          </div>
-
-          <div class="ag-controls">
-            <div class="ag-readouts">
-              <div>
-                <span>Balance</span>
-                <strong><CoinBalance
-                  :compact="false"
-                  :value="balance"
-                /></strong>
-              </div>
-              <div>
-                <span>Bet</span>
-                <input
-                  v-model="betInput"
-                  :disabled="isSpinning || autoSpinEnabled"
-                  inputmode="numeric"
-                  aria-label="Bet amount"
-                  @blur="commitBetInput"
-                  @keydown.enter="($event.target as HTMLInputElement).blur()"
-                >
-              </div>
-            </div>
-
-            <div
-              class="ag-win"
-              :class="{ 'ag-win-pulse': winPulse }"
-            >
-              <span>{{ inBonus ? bonusSpinLabel : 'Win' }}</span>
-              <Transition
-                mode="out-in"
-                name="pop"
+              <div
+                class="order-1 min-w-[126px] text-center transition-transform duration-200 sm:order-none"
+                :class="winPulse ? 'scale-[1.08]' : ''"
               >
-                <strong
-                  v-if="!inBonus && winFlash && lastWin > 0"
-                  key="win"
-                >{{ formatNumber(lastWin, false) }}</strong>
-                <strong
-                  v-else-if="inBonus"
-                  key="bonus"
-                >{{ formatNumber(lastWin, false) }}</strong>
-                <strong
-                  v-else
-                  key="idle"
-                  class="ag-win-idle"
-                >0.00</strong>
-              </Transition>
-            </div>
-
-            <div class="ag-actions">
-              <UTooltip text="Halve bet">
-                <button
-                  class="ag-icon-btn"
-                  :disabled="isSpinning || autoSpinEnabled || bet <= MIN_BET"
-                  @click="betDown"
+                <span class="text-[10px] font-black tracking-wide uppercase text-muted">{{ inBonus ? bonusSpinLabel : 'Win' }}</span>
+                <Transition
+                  mode="out-in"
+                  name="pop"
                 >
-                  1/2
-                </button>
-              </UTooltip>
-
-              <div class="ag-spin-stack">
-                <button
-                  class="ag-spin"
-                  :disabled="!ready || isSpinning || balance < spinCost"
-                  @click="autoSpinEnabled ? stopAutoSpin() : spin()"
-                >
-                  <UIcon
-                    v-if="isSpinning"
-                    name="i-lucide-loader-circle"
-                    class="size-5 animate-spin"
-                  />
-                  <span
-                    v-else-if="autoSpinEnabled"
-                    class="ag-spin-auto"
-                  >
-                    <span class="ag-spin-auto-count">{{ autoSpinsLeft }}×</span>
-                    <span>STOP</span>
-                  </span>
-                  <span v-else>SPIN</span>
-                </button>
-                <button
-                  v-if="!autoSpinEnabled"
-                  class="ag-auto-btn"
-                  :disabled="!ready || isSpinning || balance < spinCost"
-                  @click="showAutoSpinModal = true"
-                >
-                  AUTO
-                </button>
-                <button
-                  v-else
-                  class="ag-auto-btn ag-auto-btn-stop"
-                  @click="stopAutoSpin"
-                >
-                  STOP
-                </button>
+                  <strong
+                    v-if="!inBonus && winFlash && lastWin > 0"
+                    key="win"
+                    class="mt-0.5 block text-2xl leading-none font-black text-[#fde047] [text-shadow:0_0_16px_rgba(250,204,21,0.4)]"
+                  >{{ formatNumber(lastWin, false) }}</strong>
+                  <strong
+                    v-else-if="inBonus"
+                    key="bonus"
+                    class="mt-0.5 block text-2xl leading-none font-black text-[#fde047] [text-shadow:0_0_16px_rgba(250,204,21,0.4)]"
+                  >{{ formatNumber(lastWin, false) }}</strong>
+                  <strong
+                    v-else
+                    key="idle"
+                    class="mt-0.5 block text-2xl leading-none font-black text-[rgba(250,204,21,0.18)]"
+                  >0.00</strong>
+                </Transition>
               </div>
 
-              <UTooltip text="Double bet">
-                <button
-                  class="ag-icon-btn"
-                  :disabled="isSpinning || autoSpinEnabled || bet >= MAX_BET"
-                  @click="betUp"
-                >
-                  2x
-                </button>
-              </UTooltip>
+              <div class="order-3 flex items-center justify-end gap-2.5 sm:order-none">
+                <UTooltip text="Halve bet">
+                  <button
+                    class="ag-icon-btn"
+                    :disabled="isSpinning || autoSpinEnabled || bet <= MIN_BET"
+                    @click="betDown"
+                  >
+                    1/2
+                  </button>
+                </UTooltip>
+
+                <div class="flex flex-col items-center gap-1.5">
+                  <button
+                    class="ag-spin"
+                    :disabled="!ready || isSpinning || balance < spinCost"
+                    @click="autoSpinEnabled ? stopAutoSpin() : spin()"
+                  >
+                    <UIcon
+                      v-if="isSpinning"
+                      name="i-lucide-loader-circle"
+                      class="size-5 animate-spin"
+                    />
+                    <span
+                      v-else-if="autoSpinEnabled"
+                      class="flex flex-col items-center gap-0.5 leading-none"
+                    >
+                      <span class="text-[10px] opacity-85">{{ autoSpinsLeft }}×</span>
+                      <span>STOP</span>
+                    </span>
+                    <span v-else>SPIN</span>
+                  </button>
+                  <button
+                    v-if="!autoSpinEnabled"
+                    class="ag-auto-btn"
+                    :disabled="!ready || isSpinning || balance < spinCost"
+                    @click="showAutoSpinModal = true"
+                  >
+                    AUTO
+                  </button>
+                  <button
+                    v-else
+                    class="ag-auto-btn ag-auto-btn-stop"
+                    @click="stopAutoSpin"
+                  >
+                    STOP
+                  </button>
+                </div>
+
+                <UTooltip text="Double bet">
+                  <button
+                    class="ag-icon-btn"
+                    :disabled="isSpinning || autoSpinEnabled || bet >= MAX_BET"
+                    @click="betUp"
+                  >
+                    2x
+                  </button>
+                </UTooltip>
+              </div>
+            </div>
+
+            <div class="flex items-center justify-between gap-3 border-t border-[rgba(250,204,21,0.1)] px-3.5 pt-2.5 pb-3">
+              <div class="flex gap-2">
+                <UTooltip text="Game rules">
+                  <button
+                    class="ag-mini-btn"
+                    @click="showHelp = true"
+                  >
+                    <UIcon
+                      name="i-lucide-info"
+                      class="size-4"
+                    />
+                  </button>
+                </UTooltip>
+                <UTooltip text="Turbo">
+                  <button
+                    class="ag-mini-btn"
+                    :class="{ 'ag-mini-btn-active': turbo }"
+                    @click="turbo = !turbo"
+                  >
+                    <UIcon
+                      name="i-lucide-zap"
+                      class="size-4"
+                    />
+                  </button>
+                </UTooltip>
+                <UTooltip :text="muted ? 'Unmute' : 'Mute'">
+                  <button
+                    class="ag-mini-btn"
+                    @click="toggleMute"
+                  >
+                    <UIcon
+                      :name="muted ? 'i-lucide-volume-x' : 'i-lucide-volume-2'"
+                      class="size-4"
+                    />
+                  </button>
+                </UTooltip>
+              </div>
+              <p
+                v-if="errorMsg"
+                class="text-xs text-error"
+              >
+                {{ errorMsg }}
+              </p>
+              <p
+                v-else
+                class="text-xs text-muted"
+              >
+                Relics carry a value — any win sweeps them into the meter.
+              </p>
             </div>
           </div>
+        </main>
 
-          <div class="ag-footer">
-            <div class="flex gap-2">
-              <UTooltip text="Game rules">
-                <button
-                  class="ag-mini-btn"
-                  @click="showHelp = true"
-                >
-                  <UIcon
-                    name="i-lucide-info"
-                    class="size-4"
-                  />
-                </button>
-              </UTooltip>
-              <UTooltip text="Turbo">
-                <button
-                  class="ag-mini-btn"
-                  :class="{ 'ag-mini-btn-active': turbo }"
-                  @click="turbo = !turbo"
-                >
-                  <UIcon
-                    name="i-lucide-zap"
-                    class="size-4"
-                  />
-                </button>
-              </UTooltip>
-              <UTooltip :text="muted ? 'Unmute' : 'Mute'">
-                <button
-                  class="ag-mini-btn"
-                  @click="toggleMute"
-                >
-                  <UIcon
-                    :name="muted ? 'i-lucide-volume-x' : 'i-lucide-volume-2'"
-                    class="size-4"
-                  />
-                </button>
-              </UTooltip>
-            </div>
-            <p
-              v-if="errorMsg"
-              class="text-xs text-error"
-            >
-              {{ errorMsg }}
+        <aside class="order-4 xl:order-none xl:col-start-3 xl:row-start-2">
+          <div class="ag-panel rounded-lg border border-[rgba(250,204,21,0.24)] p-4 backdrop-blur-[10px]">
+            <p class="mb-3 text-xs font-black uppercase tracking-wide text-muted">
+              Recent spins
             </p>
-            <p
-              v-else
-              class="text-xs text-muted"
-            >
-              Relics carry a value — any win sweeps them into the meter.
-            </p>
-          </div>
-        </div>
-      </main>
-
-      <aside class="ag-side order-3">
-        <div class="ag-panel p-4">
-          <p class="mb-3 text-xs font-black uppercase tracking-wide text-muted">
-            Recent spins
-          </p>
-          <div
-            v-if="history.length"
-            class="space-y-2"
-          >
             <div
-              v-for="(h, i) in history"
-              :key="i"
-              class="ag-history-row"
-              :class="h.payout > h.bet ? 'text-primary' : 'text-muted'"
+              v-if="history.length"
+              class="space-y-2"
             >
-              <span>{{ h.bonus ? 'Free spins' : 'Base spin' }}</span>
-              <strong>{{ h.payout > 0 ? `${formatNumber(h.mult, false)}x` : '0x' }}</strong>
+              <div
+                v-for="(h, i) in history"
+                :key="i"
+                class="flex items-center justify-between rounded-lg bg-[rgba(15,23,42,0.48)] px-2.5 py-2 text-[13px] font-extrabold"
+                :class="h.payout > h.bet ? 'text-primary' : 'text-muted'"
+              >
+                <span>{{ h.bonus ? 'Free spins' : 'Base spin' }}</span>
+                <strong>{{ h.payout > 0 ? `${formatNumber(h.mult, false)}x` : '0x' }}</strong>
+              </div>
             </div>
+            <UEmpty
+              v-else
+              icon="i-lucide-sparkles"
+              description="No spins yet"
+            />
           </div>
-          <UEmpty
-            v-else
-            icon="i-lucide-sparkles"
-            description="No spins yet"
-          />
-        </div>
-      </aside>
+        </aside>
+      </div>
     </div>
 
     <div
       v-for="item in flying"
       :key="item.id"
       :data-fly="item.id"
-      class="ag-fly"
+      class="ag-fly pointer-events-none fixed z-[80] rounded-full border border-[rgba(255,251,235,0.7)] px-2.5 py-1.5 text-xl leading-none font-black text-[rgb(40,25,4)] [text-shadow:0_1px_0_rgba(255,255,255,0.45)]"
       :style="item.style"
     >
       x{{ item.value }}
@@ -1329,11 +1340,12 @@ onUnmounted(() => {
                   :class="i % 2 ? 'bg-elevated/40' : ''"
                   class="flex items-center justify-center px-3 py-1.5"
                 >
-                  <img
-                    :src="symbolMeta[row.sym as AetherPaySymbol].src"
-                    :alt="symbolMeta[row.sym as AetherPaySymbol].name"
-                    class="size-7"
-                  >
+                  <span
+                    class="inline-block rounded-md bg-no-repeat"
+                    :style="tileStyle(row.sym as AetherPaySymbol)"
+                    role="img"
+                    :aria-label="symbolMeta[row.sym as AetherPaySymbol].name"
+                  />
                 </div>
                 <div
                   :class="i % 2 ? 'bg-elevated/40' : ''"
@@ -1355,91 +1367,57 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-.ag-root {
-  position: relative;
-  min-height: 100%;
-}
-
 .ag-bg {
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  background: url('/slots/aethergates/aether_gates_bg.svg') center / cover no-repeat;
+  background: url('/slots/aethergates/aether_gates_bg.png') center 30% / cover no-repeat;
 }
 
 .ag-vignette {
-  position: absolute;
-  inset: 0;
-  z-index: 0;
   background: radial-gradient(ellipse 70% 60% at 50% 40%, rgba(4, 9, 20, 0.35) 0%, rgba(4, 9, 20, 0.72) 68%, rgba(2, 5, 10, 0.92) 100%);
 }
 
 .ag-title h1 {
-  font-size: 44px;
-  line-height: 1;
-  font-weight: 950;
-  background: linear-gradient(180deg, #ffffff 0%, #fef3c7 30%, #facc15 62%, #0891b2 100%);
+  background: linear-gradient(180deg, #ffffff 0%, #fef3c7 30%, #facc15 68%, #b45309 100%);
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
   color: transparent;
-  filter: drop-shadow(0 3px 0 rgba(8, 47, 73, 0.6)) drop-shadow(0 0 26px rgba(56, 189, 248, 0.45));
+  filter: drop-shadow(0 3px 0 rgba(8, 15, 30, 0.7)) drop-shadow(0 0 26px rgba(250, 204, 21, 0.35));
 }
 
-.ag-pill {
-  display: inline-flex;
-  border: 1px solid color-mix(in oklab, var(--ui-primary) 45%, transparent);
-  border-radius: 999px;
-  background: color-mix(in oklab, var(--ui-bg-elevated) 66%, transparent);
-  color: var(--ui-text-muted);
-  padding: 5px 10px;
-  font-size: 12px;
-  font-weight: 800;
-  text-transform: uppercase;
-}
-
-.ag-machine,
+.ag-console,
 .ag-panel {
-  border: 1px solid color-mix(in oklab, var(--ui-primary) 34%, var(--ui-border));
-  background: linear-gradient(180deg, color-mix(in oklab, var(--ui-bg-elevated) 74%, transparent), rgba(2, 6, 23, 0.78));
-  box-shadow: 0 30px 90px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.09), 0 0 60px rgba(56, 189, 248, 0.12);
-  backdrop-filter: blur(10px);
+  background: linear-gradient(180deg, rgba(10, 16, 30, 0.92), rgba(2, 5, 13, 0.96));
+  box-shadow: 0 30px 90px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 0 50px rgba(250, 204, 21, 0.08);
 }
 
 .ag-rail {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  border: 1px solid color-mix(in oklab, var(--ui-primary) 34%, var(--ui-border));
+  border: 1px solid rgba(250, 204, 21, 0.22);
   border-radius: 8px;
-  background: linear-gradient(180deg, rgba(125, 211, 252, 0.16), rgba(2, 6, 23, 0.78));
+  background: linear-gradient(180deg, rgba(250, 204, 21, 0.08), rgba(2, 5, 13, 0.9));
   padding: 10px;
-  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.44), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.08);
   backdrop-filter: blur(10px);
 }
 
-.ag-feature-btn,
-.ag-bet-card {
+.ag-feature-btn {
   display: flex;
   min-height: 78px;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  border: 1px solid rgba(125, 211, 252, 0.28);
+  border: 1px solid rgba(250, 204, 21, 0.2);
   border-radius: 8px;
-  background: rgba(15, 23, 42, 0.68);
+  background: rgba(4, 9, 20, 0.7);
   color: white;
   text-align: center;
   cursor: pointer;
   transition: transform 140ms ease, border-color 140ms ease, box-shadow 140ms ease, opacity 140ms ease;
 }
 
-.ag-bet-card {
-  cursor: default;
-}
-
-.ag-feature-btn span,
-.ag-bet-card span {
+.ag-feature-btn span {
   color: var(--ui-text-muted);
   font-size: 12px;
   font-weight: 950;
@@ -1447,10 +1425,9 @@ onUnmounted(() => {
   text-transform: uppercase;
 }
 
-.ag-feature-btn strong,
-.ag-bet-card strong {
+.ag-feature-btn strong {
   margin-top: 4px;
-  color: var(--ui-primary);
+  color: #fde047;
   font-size: 20px;
   font-weight: 950;
   line-height: 1;
@@ -1465,12 +1442,17 @@ onUnmounted(() => {
 }
 
 .ag-feature-btn-buy {
-  background: linear-gradient(180deg, rgba(34, 211, 238, 0.24), rgba(15, 23, 42, 0.72));
+  background: linear-gradient(180deg, rgba(56, 189, 248, 0.18), rgba(4, 9, 20, 0.75));
+  border-color: rgba(125, 211, 252, 0.28);
+}
+
+.ag-feature-btn-buy strong {
+  color: #7dd3fc;
 }
 
 .ag-feature-btn-super {
-  background: linear-gradient(180deg, rgba(250, 204, 21, 0.28), rgba(15, 23, 42, 0.72));
-  border-color: rgba(250, 204, 21, 0.4);
+  background: linear-gradient(180deg, rgba(250, 204, 21, 0.3), rgba(4, 9, 20, 0.75));
+  border-color: rgba(250, 204, 21, 0.45);
 }
 
 .ag-feature-btn-super strong {
@@ -1478,8 +1460,8 @@ onUnmounted(() => {
 }
 
 .ag-feature-btn-active {
-  border-color: var(--ui-primary);
-  box-shadow: 0 0 24px color-mix(in oklab, var(--ui-primary) 30%, transparent);
+  border-color: #facc15;
+  box-shadow: 0 0 24px rgba(250, 204, 21, 0.3);
 }
 
 .ag-feature-btn:disabled {
@@ -1496,7 +1478,8 @@ onUnmounted(() => {
   align-items: center;
   gap: 10px;
   border-radius: 8px;
-  background: rgba(2, 6, 23, 0.42);
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(250, 204, 21, 0.14);
   padding: 8px;
 }
 
@@ -1513,256 +1496,14 @@ onUnmounted(() => {
   text-transform: uppercase;
 }
 
-.ag-machine {
-  position: relative;
-  overflow: hidden;
-  border-radius: 8px;
-  padding: 10px;
-}
-
-.ag-panel {
-  border-radius: 8px;
-}
-
-.ag-meter-wrap {
-  display: flex;
-  justify-content: center;
-  padding: 6px 0 10px;
-}
-
-.ag-meter {
-  display: flex;
-  min-width: min(100%, 320px);
-  flex-direction: column;
-  align-items: center;
-  gap: 2px;
-  border: 1px solid color-mix(in oklab, var(--ui-primary) 44%, transparent);
-  border-radius: 999px;
-  background: radial-gradient(ellipse 100% 140% at 50% -20%, rgba(56, 189, 248, 0.22), rgba(8, 47, 73, 0.66) 70%);
-  padding: 10px 24px;
-  transition: transform 180ms ease, box-shadow 180ms ease;
-}
-
-.ag-meter-flash {
-  transform: scale(1.045);
-  box-shadow: 0 0 32px rgba(250, 204, 21, 0.55);
-}
-
-.ag-meter-label {
-  font-size: 10px;
-  font-weight: 900;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--ui-text-muted);
-}
-
-.ag-meter-value {
-  font-size: 28px;
-  line-height: 1.2;
-  font-weight: 950;
-  color: #fde047;
-  text-shadow: 0 0 20px rgba(250, 204, 21, 0.5);
-}
-
 .ag-reel-area {
-  position: relative;
-  overflow: hidden;
-  border: 1px solid rgba(125, 211, 252, 0.24);
-  border-radius: 8px;
-  background:
-    linear-gradient(180deg, rgba(14, 116, 144, 0.24), rgba(15, 23, 42, 0.65)),
-    repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.04) 0 1px, transparent 1px 80px);
-  cursor: default;
+  background: radial-gradient(ellipse 90% 65% at 50% 0%, rgba(37, 30, 10, 0.5), rgba(2, 5, 13, 0.92) 72%);
 }
 
 .ag-reel-sheen {
-  position: absolute;
-  inset: 0;
-  z-index: 2;
-  pointer-events: none;
   background:
     radial-gradient(ellipse 70% 50% at 50% 105%, rgba(0, 0, 0, 0.32), transparent 62%),
     linear-gradient(180deg, rgba(255, 255, 255, 0.06), transparent 22%);
-}
-
-.ag-bonus-banner,
-.ag-retrigger-banner {
-  position: absolute;
-  inset: 50px 18px;
-  z-index: 8;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  border-radius: 8px;
-  text-align: center;
-  backdrop-filter: blur(4px);
-}
-
-.ag-bonus-banner {
-  border: 1px solid rgba(236, 254, 255, 0.55);
-  background: rgba(8, 47, 73, 0.84);
-}
-
-.ag-bonus-banner p {
-  font-size: 44px;
-  line-height: 1;
-  font-weight: 950;
-  color: white;
-}
-
-.ag-bonus-banner span {
-  margin-top: 8px;
-  color: var(--ui-primary);
-  font-weight: 900;
-}
-
-.ag-retrigger-banner {
-  inset: 90px 40px;
-  border: 1px solid rgba(253, 224, 71, 0.6);
-  background: rgba(30, 20, 3, 0.86);
-}
-
-.ag-retrigger-banner p {
-  font-size: 32px;
-  line-height: 1;
-  font-weight: 950;
-  color: #fde047;
-  text-shadow: 0 0 20px rgba(250, 204, 21, 0.6);
-}
-
-.ag-retrigger-banner span {
-  margin-top: 8px;
-  color: rgba(253, 224, 71, 0.75);
-  font-weight: 800;
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-}
-
-.ag-pause-overlay {
-  position: absolute;
-  inset: 0;
-  z-index: 20;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  background: rgba(4, 9, 20, 0.78);
-  backdrop-filter: blur(3px);
-}
-
-.ag-pause-card {
-  border-radius: 14px;
-  background: rgba(8, 20, 38, 0.95);
-  border: 1px solid rgba(56, 189, 248, 0.35);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
-  padding: 16px 24px;
-  text-align: center;
-}
-
-.ag-pause-card p {
-  font-weight: 950;
-  color: white;
-  font-size: 16px;
-}
-
-.ag-pause-card span {
-  display: block;
-  margin-top: 4px;
-  font-size: 12px;
-  color: rgba(186, 230, 253, 0.65);
-}
-
-.ag-controls {
-  display: grid;
-  grid-template-columns: 1fr auto 1fr;
-  align-items: center;
-  gap: 12px;
-  border-radius: 0 0 8px 8px;
-  background: rgba(2, 6, 23, 0.72);
-  padding: 12px 4px 4px;
-}
-
-.ag-readouts {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.ag-readouts div {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  border: 1px solid rgba(148, 163, 184, 0.16);
-  border-radius: 8px;
-  background: rgba(15, 23, 42, 0.62);
-  padding: 6px 9px;
-}
-
-.ag-readouts span,
-.ag-win span {
-  font-size: 10px;
-  font-weight: 900;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--ui-text-muted);
-}
-
-.ag-readouts strong,
-.ag-readouts input {
-  min-width: 0;
-  color: white;
-  font-size: 14px;
-  font-weight: 900;
-  text-align: right;
-}
-
-.ag-readouts input {
-  width: 96px;
-  border: 0;
-  background: transparent;
-  outline: none;
-}
-
-.ag-win {
-  min-width: 126px;
-  text-align: center;
-  transition: transform 180ms ease;
-}
-
-.ag-win-pulse {
-  transform: scale(1.08);
-}
-
-.ag-win strong {
-  display: block;
-  margin-top: 2px;
-  color: var(--ui-primary);
-  font-size: 26px;
-  font-weight: 950;
-  line-height: 1;
-}
-
-.ag-win-idle {
-  color: rgba(186, 230, 253, 0.22) !important;
-}
-
-.ag-actions {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 10px;
-}
-
-.ag-spin-stack {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
 }
 
 .ag-spin,
@@ -1771,8 +1512,8 @@ onUnmounted(() => {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid rgba(125, 211, 252, 0.28);
-  background: rgba(15, 23, 42, 0.72);
+  border: 1px solid rgba(250, 204, 21, 0.22);
+  background: rgba(0, 0, 0, 0.45);
   color: white;
   font-weight: 950;
   transition: transform 140ms ease, border-color 140ms ease, background 140ms ease, opacity 140ms ease;
@@ -1781,23 +1522,11 @@ onUnmounted(() => {
 .ag-spin {
   width: 82px;
   height: 58px;
-  border-color: color-mix(in oklab, var(--ui-primary) 58%, transparent);
+  border-color: rgba(250, 204, 21, 0.7);
   border-radius: 999px;
-  background: linear-gradient(180deg, color-mix(in oklab, var(--ui-primary) 72%, white 4%), color-mix(in oklab, var(--ui-primary) 46%, black 20%));
-  box-shadow: 0 12px 22px rgba(0, 0, 0, 0.3), 0 0 24px color-mix(in oklab, var(--ui-primary) 34%, transparent);
-}
-
-.ag-spin-auto {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  line-height: 1;
-  gap: 2px;
-}
-
-.ag-spin-auto-count {
-  font-size: 10px;
-  opacity: 0.85;
+  background: linear-gradient(180deg, #fde047, #ca8a04);
+  color: #241705;
+  box-shadow: 0 12px 22px rgba(0, 0, 0, 0.4), 0 0 24px rgba(250, 204, 21, 0.35);
 }
 
 .ag-auto-btn {
@@ -1843,8 +1572,8 @@ onUnmounted(() => {
 }
 
 .ag-mini-btn-active {
-  border-color: var(--ui-primary);
-  background: color-mix(in oklab, var(--ui-primary) 24%, transparent);
+  border-color: #facc15;
+  background: rgba(250, 204, 21, 0.18);
 }
 
 .ag-spin:disabled,
@@ -1858,39 +1587,9 @@ onUnmounted(() => {
   transform: translateY(-1px);
 }
 
-.ag-footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 10px 4px 2px;
-}
-
-.ag-history-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  border-radius: 8px;
-  background: rgba(15, 23, 42, 0.48);
-  padding: 8px 10px;
-  font-size: 13px;
-  font-weight: 800;
-}
-
 .ag-fly {
-  position: fixed;
-  z-index: 80;
-  pointer-events: none;
-  border: 1px solid rgba(236, 254, 255, 0.7);
-  border-radius: 999px;
-  background: radial-gradient(circle at 32% 24%, white, #67e8f9 34%, #0891b2 72%);
-  color: rgb(8, 47, 73);
-  padding: 6px 10px;
-  font-size: 20px;
-  font-weight: 950;
-  line-height: 1;
-  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.45);
-  box-shadow: 0 0 18px rgba(34, 211, 238, 0.48);
+  background: radial-gradient(circle at 32% 24%, white, #fde047 34%, #ca8a04 72%);
+  box-shadow: 0 0 18px rgba(250, 204, 21, 0.5);
 }
 
 .pop-enter-active,
@@ -1902,40 +1601,5 @@ onUnmounted(() => {
 .pop-leave-to {
   opacity: 0;
   transform: scale(0.92);
-}
-
-@media (max-width: 720px) {
-  .ag-root {
-    padding-inline: 8px;
-  }
-
-  .ag-title h1 {
-    font-size: 34px;
-  }
-
-  .ag-machine {
-    padding: 7px;
-  }
-
-  .ag-controls {
-    grid-template-columns: 1fr;
-  }
-
-  .ag-actions {
-    order: 3;
-    justify-content: center;
-  }
-
-  .ag-readouts {
-    order: 2;
-  }
-
-  .ag-win {
-    order: 1;
-  }
-
-  .ag-bonus-banner p {
-    font-size: 32px;
-  }
 }
 </style>

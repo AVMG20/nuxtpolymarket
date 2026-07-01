@@ -164,18 +164,26 @@ export const AETHER_SYMBOL_WEIGHTS: Record<AetherPaySymbol, number> = {
 }
 
 export const AETHER_SCATTER_WEIGHT = 2.55
-export const AETHER_BONUS_SCATTER_WEIGHT = 1.35 // lower — keeps retriggers meaningful but not routine
-export const AETHER_MULTIPLIER_WEIGHT = 4.4
-export const AETHER_BONUS_MULTIPLIER_WEIGHT = 11.5 // relics land far more often once you're in the feature
+// Bonus scatters are pared back further and that weight is folded into the
+// bonus relic weight below — in free spins, the "luck" that would have
+// bought a retrigger buys a wild instead.
+export const AETHER_BONUS_SCATTER_WEIGHT = 1.1
+export const AETHER_MULTIPLIER_WEIGHT = 3.2 // rarer in the base game — fewer, smaller relic hits
+export const AETHER_BONUS_MULTIPLIER_WEIGHT = 17 // relics flood in once you're in the feature
 const AG_BONUS_CHANCE_SCATTER_MULT = 2.15
 
 // Relic values and how often each rolls. Bigger, rarer values are reserved
-// for the bonus so free spins feel like the payoff.
-export const AETHER_MULT_VALUES_BASE = [2, 3, 4, 5, 6, 8, 10, 15, 20, 25] as const
-const AETHER_MULT_WEIGHTS_BASE = [100, 70, 50, 34, 22, 14, 8, 4, 2, 1] as const
+// for the bonus so free spins feel like the payoff. Base-game relics are
+// capped low (max ×15) so the base stays subdued. The bonus pool keeps the
+// same average relic value (~×4.6) as the common tiers below ×50, but adds a
+// long, very-thin tail up to ×500 — those top tiers almost never land (×100
+// is roughly 1-in-15,000 relics, ×500 roughly 1-in-1,000,000), but on the
+// rare bonus where several do, the stacked meter can genuinely explode.
+export const AETHER_MULT_VALUES_BASE = [2, 3, 4, 5, 6, 8, 10, 15] as const
+const AETHER_MULT_WEIGHTS_BASE = [100, 70, 50, 34, 22, 14, 8, 4] as const
 
-export const AETHER_MULT_VALUES_BONUS = [2, 3, 4, 5, 6, 8, 10, 15, 20, 25, 50, 100] as const
-const AETHER_MULT_WEIGHTS_BONUS = [90, 66, 48, 34, 24, 16, 10, 6, 3.4, 2, 0.8, 0.25] as const
+export const AETHER_MULT_VALUES_BONUS = [2, 3, 4, 5, 6, 8, 10, 15, 20, 25, 30, 40, 50, 75, 100, 150, 250, 500] as const
+const AETHER_MULT_WEIGHTS_BONUS = [90, 66, 48, 34, 24, 16, 10, 6, 3.4, 2, 1.1, 0.55, 0.22, 0.07, 0.02, 0.006, 0.0015, 0.0003] as const
 
 const COUNT_BRACKETS = [8, 10, 12, 15, 20, 25, 30] as const
 
@@ -193,11 +201,12 @@ const PAYTABLE: Record<AetherPaySymbol, number[]> = {
   star: [2.5, 4.2, 6.8, 11, 24, 50, 100]
 }
 
-// Global scale applied to every paytable value. Tuned by Monte-Carlo
-// (scripts/aethergates-rtp.ts, 3e5 sims) to ~98.4% base-game RTP, in line
-// with Candy Madness's own ~98% target. Retune by simple ratio if weights
-// change.
-const PAY_SCALE = 0.43
+// Global scale applied to every paytable value — identical in base game and
+// bonus. Symbol pays never differ by phase; all of the volatility (and the
+// big wins) comes from the relic/multiplier meter, which IS tuned
+// differently per phase (rare + small in base, frequent + stacking in bonus
+// — see the relic pools above). Retune by simple ratio if weights change.
+const PAY_SCALE = 0.40
 
 // --- crypto RNG helpers --------------------------------------------------
 
