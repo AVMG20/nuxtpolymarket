@@ -98,3 +98,27 @@ const history = await getHistory(userId, 50)
   import { auth } from '#server/utils/auth'
   import { credit, debit } from '#server/utils/balance'
   ```
+
+## Code style
+
+- 4-space indentation in `server/` and `shared/` TypeScript files
+- No semicolons, single quotes, no trailing commas (`commaDangle: 'never'` in ESLint config)
+- `braceStyle: '1tbs'` — opening brace on the same line as the control statement
+
+## Branches
+
+Format: `type/short-description-kebab-case`  
+Types: `bugfix/`, `feature/`  
+Always branch from an up-to-date `main`.
+
+## Commits
+
+- Short, imperative subject line describing the actual change
+- Multiple commits when changes span different concerns
+- No `Co-Authored-By` lines, no footers, no summaries after the subject
+
+## Pull requests
+
+- Title: the branch name verbatim (e.g. `bugfix/gem-slippage-race-condition`)
+- Body: empty
+- Base branch: always `main`

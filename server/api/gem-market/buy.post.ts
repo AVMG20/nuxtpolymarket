@@ -1,9 +1,8 @@
 import { eq, sql } from 'drizzle-orm'
 import { db } from '#server/database'
-import { gemMarketState, gemPriceHistory, user } from '#server/database/schema'
+import { gemMarketState, gemPriceHistory, user, transactions } from '#server/database/schema'
 import { auth } from '#server/utils/auth'
 import { GEM_MAX_GEMS_PER_TRADE, gemBuyGems, gemComputeLivePrice } from '#shared/utils/gamelogic/gem-market'
-import { debit } from '#server/utils/balance'
 
 export default defineEventHandler(async (event) => {
     const session = await auth.api.getSession({ headers: event.headers })
@@ -17,19 +16,31 @@ export default defineEventHandler(async (event) => {
 
     const userId = session.user.id
 
-    const state = await db.query.gemMarketState.findFirst()
-    if (!state) throw createError({ statusCode: 500, statusMessage: 'Market not initialized' })
-
-    const livePrice = gemComputeLivePrice(parseFloat(state.price), state.lastUpdatedAt)
-    const { cost, newPrice } = gemBuyGems(livePrice, gems)
-
-    // Debit balance (handles insufficient balance check + transaction record)
-    await debit(userId, cost.toFixed(4), 'gem market')
-
-    // Credit gems + update market in a transaction
     await db.transaction(async (tx) => {
+        // Acquire an exclusive row lock on the market state before reading the price.
+        // Without this, concurrent requests all see the same stale price and every buy is
+        // charged at the pre-burst rate — the slippage curve is bypassed entirely.
+        const [state] = await tx.select().from(gemMarketState).for('update').limit(1)
+        if (!state) throw createError({ statusCode: 500, statusMessage: 'Market not initialized' })
+
+        const livePrice = gemComputeLivePrice(parseFloat(state.price), state.lastUpdatedAt)
+        const { cost, newPrice } = gemBuyGems(livePrice, gems)
+
+        // Lock the user row so the balance check and debit are atomic with the gem grant.
+        const [currentUser] = await tx.select({ balance: user.balance })
+            .from(user)
+            .where(eq(user.id, userId))
+            .for('update')
+        if (!currentUser || parseFloat(currentUser.balance) < cost) {
+            throw createError({ statusCode: 400, statusMessage: 'Insufficient balance' })
+        }
+
+        await tx.insert(transactions).values({ userId, amount: cost.toFixed(4), type: 'debit', category: 'gem market' })
         await tx.update(user)
-            .set({ gems: sql`${user.gems} + ${gems}` })
+            .set({
+                balance: sql`${user.balance} - ${cost.toFixed(4)}::numeric`,
+                gems: sql`${user.gems} + ${gems}`
+            })
             .where(eq(user.id, userId))
 
         await tx.update(gemMarketState)
@@ -41,7 +52,7 @@ export default defineEventHandler(async (event) => {
                 action: 'buy',
                 userId,
                 gems,
-                totalAmount: cost.toFixed(4),
+                totalAmount: cost.toFixed(4)
             })
     })
 
