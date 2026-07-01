@@ -146,6 +146,7 @@ const CHEST_FRAME: Record<'closed' | 'open', [number, number, number, number]> =
 const canvasWrap = ref<HTMLDivElement>()
 let app: any = null
 let reelSet: any = null
+let connectionLayer: any = null
 let REELS: any = null
 let PIXI: any = null
 let GSAP: any = null
@@ -171,6 +172,47 @@ const B_W = 5 * (B_CELL + B_GAP) - B_GAP
 const B_H = 3 * (B_CELL + B_GAP) - B_GAP
 
 const wait = (ms: number) => new Promise<void>(r => setTimeout(r, ms))
+
+function ensureConnectionLayer() {
+  if (!app || !PIXI) return null
+  if (!connectionLayer) {
+    connectionLayer = new PIXI.Graphics()
+    connectionLayer.zIndex = 20
+    app.stage.addChild(connectionLayer)
+  } else {
+    app.stage.addChild(connectionLayer)
+  }
+  return connectionLayer
+}
+
+function clearConnections() {
+  connectionLayer?.clear?.()
+}
+
+function drawConnectionPath(points: { x: number, y: number }[], color = 0xfde047, width = 5, alpha = 0.9) {
+  if (points.length < 2) return
+  const g = ensureConnectionLayer()
+  if (!g) return
+
+  g.moveTo(points[0]!.x, points[0]!.y)
+  for (const p of points.slice(1)) g.lineTo(p.x, p.y)
+  g.stroke({ color, width: width + 7, alpha: 0.18, cap: 'round', join: 'round' })
+
+  g.moveTo(points[0]!.x, points[0]!.y)
+  for (const p of points.slice(1)) g.lineTo(p.x, p.y)
+  g.stroke({ color, width, alpha, cap: 'round', join: 'round' })
+}
+
+function drawBaseWinConnections(lines: XenoSlotResult['lines']) {
+  clearConnections()
+  for (const line of lines) {
+    const points = line.cells.map(c => ({
+      x: reelSet.x + c.col * (CELL + GAP) + CELL / 2,
+      y: reelSet.y + c.row * (CELL + GAP) + CELL / 2
+    }))
+    drawConnectionPath(points, 0xfde047, 5, 0.9)
+  }
+}
 
 // Coin metal tiers, picked from a coin's bet-multiplier so the medallion metal
 // is stable regardless of stake. The tiny fly-into-chest clones reuse the same
@@ -474,15 +516,15 @@ onMounted(async () => {
     const SpriteSymbol = makeSymbolClasses()
 
     reelSet = new REELS.ReelSetBuilder()
-      .reels(5).visibleRows(3).symbolSize(CELL, CELL).symbolGap(GAP, GAP)
-      .symbols((r: any) => {
-        for (const id of Object.keys(SYMBOL_TILE)) r.register(id, SpriteSymbol, {})
-      })
-      .weights({ ten: 30, jack: 28, queen: 24, king: 20, ace: 16, bell: 12, seven: 7, diamond: 4, wild: 4, bonus: 5 })
-      .speed('normal', REELS.SpeedPresets.NORMAL)
-      .speed('turbo', REELS.SpeedPresets.TURBO)
-      .ticker(app.ticker)
-      .build()
+        .reels(5).visibleRows(3).symbolSize(CELL, CELL).symbolGap(GAP, GAP)
+        .symbols((r: any) => {
+          for (const id of Object.keys(SYMBOL_TILE)) r.register(id, SpriteSymbol, {})
+        })
+        .weights({ ten: 30, jack: 28, queen: 24, king: 20, ace: 16, bell: 12, seven: 7, diamond: 4, wild: 4, bonus: 5 })
+        .speed('normal', REELS.SpeedPresets.NORMAL)
+        .speed('turbo', REELS.SpeedPresets.TURBO)
+        .ticker(app.ticker)
+        .build()
 
     reelSet.x = (APP_W - REEL_W) / 2
     reelSet.y = (APP_H - REEL_H) / 2
@@ -507,6 +549,7 @@ async function spin() {
   lastWin.value = 0
   lastLines.value = 0
   winFlash.value = false
+  clearConnections()
 
   let data: { gameData: XenoSlotResult, balance: number }
   try {
@@ -535,7 +578,9 @@ async function spin() {
     if (result.lines.length) {
       lastLines.value = result.lines.length
       const winLines = result.lines.map(l => ({ positions: l.cells.map(c => ({ reelIndex: c.col, rowIndex: c.row })) }))
+      drawBaseWinConnections(result.lines)
       await reelSet.spotlight.cycle(winLines, { displayDuration: 850, gapDuration: 180, cycles: 1 })
+      clearConnections()
     }
 
     // 3. Bonus feature.
@@ -561,6 +606,7 @@ async function spin() {
     setBalance(data.balance)
     stopAutoSpin()
   } finally {
+    clearConnections()
     isSpinning.value = false
     if (autoSpinEnabled.value) {
       if (autoSpinPaused.value) {
@@ -592,19 +638,19 @@ async function runBonus(result: XenoSlotResult) {
   reelSet.visible = false
 
   const board = new REELS.HoldAndWinBuilder()
-    .grid(5, 3).cellSize(B_CELL, { gap: B_GAP })
-    .symbols((r: any) => {
-      r.register('coin', CoinSymbolClass, {})
-      r.register('glover', GloverSymbolClass, {})
-      r.register('collector', CollectorSymbolClass, {})
-    })
-    .weights({ coin: 3, collector: 1, glover: 1, empty: 9 })
-    .respins(99) // we drive the loop from server waves, not the board's counter
-    .cellChrome((g: any, size: number) => {
-      g.roundRect(0, 0, size, size, 14).fill({ color: 0x0d2410, alpha: 0.55 }).stroke({ color: 0x2f5a24, width: 2 })
-    })
-    .ticker(app.ticker)
-    .build()
+      .grid(5, 3).cellSize(B_CELL, { gap: B_GAP })
+      .symbols((r: any) => {
+        r.register('coin', CoinSymbolClass, {})
+        r.register('glover', GloverSymbolClass, {})
+        r.register('collector', CollectorSymbolClass, {})
+      })
+      .weights({ coin: 3, collector: 1, glover: 1, empty: 9 })
+      .respins(99) // we drive the loop from server waves, not the board's counter
+      .cellChrome((g: any, size: number) => {
+        g.roundRect(0, 0, size, size, 14).fill({ color: 0x000000, alpha: 0.94 }).stroke({ color: 0x2f5a24, width: 2 })
+      })
+      .ticker(app.ticker)
+      .build()
 
   // Coins show their value on landing. Collectors land as a closed chest —
   // their total stays hidden and ticks up later as coins fly into them.
@@ -784,13 +830,13 @@ async function collectIntoChest(board: any, wave: BonusWave, bet: number) {
     await wait(180)
 
     const flights = wave.collectedCoins.map((coin, i) =>
-      wait(i * 110).then(() => flyValue(board, coin.cell, collector.cell, coin.value * bet, coin.value, () => {
-        running += coin.value * bet
-        bonusTotal.value += coin.value * bet
-        const c = board.symbolAt(collector.cell)
-        c?.setCollected?.(running)
-        c?.playWin?.()
-      })))
+        wait(i * 110).then(() => flyValue(board, coin.cell, collector.cell, coin.value * bet, coin.value, () => {
+          running += coin.value * bet
+          bonusTotal.value += coin.value * bet
+          const c = board.symbolAt(collector.cell)
+          c?.setCollected?.(running)
+          c?.playWin?.()
+        })))
     await Promise.allSettled(flights)
     await wait(250)
   }
@@ -835,24 +881,24 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
       <div class="machine w-full flex flex-col">
         <!-- ── Reel area ── -->
         <div
-          class="reel-area relative select-none"
-          @click="onCanvasClick"
+            class="reel-area relative select-none"
+            @click="onCanvasClick"
         >
           <div class="reel-sheen" />
 
           <!-- Bonus banner -->
           <Transition name="pop">
             <div
-              v-if="bonusBanner"
-              class="absolute inset-0 z-30 flex items-center justify-center pointer-events-none"
+                v-if="bonusBanner"
+                class="absolute inset-0 z-30 flex items-center justify-center pointer-events-none"
             >
               <div class="bonus-banner text-center">
                 <p class="text-3xl font-black text-white tracking-tight drop-shadow-lg">
                   HOLD &amp; WIN
                 </p>
                 <p
-                  class="text-sm font-bold mt-1"
-                  style="color: #dcfce7;"
+                    class="text-sm font-bold mt-1"
+                    style="color: #dcfce7;"
                 >
                   {{ BONUS_FREE_SPINS }} free spins — collect the treasure!
                 </p>
@@ -863,17 +909,17 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
           <!-- Auto-spin pause overlay -->
           <Transition name="pop">
             <div
-              v-if="autoSpinPaused"
-              class="absolute inset-0 z-20 flex items-center justify-center cursor-pointer"
-              style="background: rgba(6,20,8,0.78); backdrop-filter: blur(3px);"
+                v-if="autoSpinPaused"
+                class="absolute inset-0 z-20 flex items-center justify-center cursor-pointer"
+                style="background: rgba(6,20,8,0.78); backdrop-filter: blur(3px);"
             >
               <div class="pause-card text-center px-6 py-4">
                 <p class="font-black text-white text-base">
                   🍀 Bonus! Tap to play
                 </p>
                 <p
-                  class="text-xs mt-1"
-                  style="color: rgba(187,247,208,0.7);"
+                    class="text-xs mt-1"
+                    style="color: rgba(187,247,208,0.7);"
                 >
                   {{ autoSpinsLeft }} spin{{ autoSpinsLeft !== 1 ? 's' : '' }} remaining
                 </p>
@@ -883,19 +929,19 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 
           <!-- Canvas -->
           <div
-            ref="canvasWrap"
-            class="relative z-10 w-full [&>canvas]:!w-full [&>canvas]:!h-auto [&>canvas]:block"
+              ref="canvasWrap"
+              class="relative z-10 w-full [&>canvas]:!w-full [&>canvas]:!h-auto [&>canvas]:block"
           />
 
           <!-- Loading -->
           <div
-            v-if="!ready && !errorMsg"
-            class="absolute inset-0 z-40 flex items-center justify-center"
+              v-if="!ready && !errorMsg"
+              class="absolute inset-0 z-40 flex items-center justify-center"
           >
             <UIcon
-              class="size-10 animate-spin"
-              name="i-lucide-loader-circle"
-              style="color: #86efac;"
+                class="size-10 animate-spin"
+                name="i-lucide-loader-circle"
+                style="color: #86efac;"
             />
           </div>
         </div>
@@ -907,24 +953,24 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
             <!-- Action icons stacked -->
             <div class="flex flex-col gap-1.5 shrink-0">
               <button
-                class="icon-btn"
-                title="Help"
-                @click="showHelp = true"
+                  class="icon-btn"
+                  title="Help"
+                  @click="showHelp = true"
               >
                 <UIcon
-                  class="size-3.5"
-                  name="i-lucide-info"
+                    class="size-3.5"
+                    name="i-lucide-info"
                 />
               </button>
               <button
-                :class="{ 'icon-btn--active': turbo }"
-                class="icon-btn"
-                title="Turbo"
-                @click="turbo = !turbo"
+                  :class="{ 'icon-btn--active': turbo }"
+                  class="icon-btn"
+                  title="Turbo"
+                  @click="turbo = !turbo"
               >
                 <UIcon
-                  class="size-3.5"
-                  name="i-lucide-zap"
+                    class="size-3.5"
+                    name="i-lucide-zap"
                 />
               </button>
             </div>
@@ -934,21 +980,21 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
               <div class="readout w-full flex justify-between">
                 <span class="ctrl-value truncate">
                   <CoinBalance
-                    :compact="false"
-                    :value="balance"
+                      :compact="false"
+                      :value="balance"
                   />
                 </span>
               </div>
               <div class="readout w-full justify-between">
                 <span class="ctrl-label">Bet</span>
                 <input
-                  v-model="betInput"
-                  :disabled="isSpinning || autoSpinEnabled"
-                  aria-label="Bet amount"
-                  class="bet-input ctrl-value tabular-nums"
-                  inputmode="numeric"
-                  @blur="commitBetInput"
-                  @keydown.enter="($event.target as HTMLInputElement).blur()"
+                    v-model="betInput"
+                    :disabled="isSpinning || autoSpinEnabled"
+                    aria-label="Bet amount"
+                    class="bet-input ctrl-value tabular-nums"
+                    inputmode="numeric"
+                    @blur="commitBetInput"
+                    @keydown.enter="($event.target as HTMLInputElement).blur()"
                 >
               </div>
             </div>
@@ -957,12 +1003,12 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
           <!-- CENTER: WIN / bonus total -->
           <div class="flex flex-col items-center justify-center shrink-0 min-w-[84px]">
             <div
-              v-if="inBonus"
-              class="text-center"
+                v-if="inBonus"
+                class="text-center"
             >
               <p
-                class="text-[9px] uppercase tracking-[0.2em] mb-1"
-                style="color: rgba(187,247,208,0.55);"
+                  class="text-[9px] uppercase tracking-[0.2em] mb-1"
+                  style="color: rgba(187,247,208,0.55);"
               >
                 {{ bonusStatus }}
               </p>
@@ -974,18 +1020,18 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
             <template v-else>
               <span class="ctrl-label mb-1">Win</span>
               <Transition
-                mode="out-in"
-                name="pop"
+                  mode="out-in"
+                  name="pop"
               >
                 <span
-                  v-if="winFlash && lastWin > 0"
-                  key="win"
-                  class="win-amount"
+                    v-if="winFlash && lastWin > 0"
+                    key="win"
+                    class="win-amount"
                 >{{ formatNumber(lastWin, false) }}</span>
                 <span
-                  v-else
-                  key="idle"
-                  class="win-idle"
+                    v-else
+                    key="idle"
+                    class="win-idle"
                 >0.00</span>
               </Transition>
             </template>
@@ -995,10 +1041,10 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
           <div class="flex items-center gap-2 sm:gap-2.5 flex-1 justify-end">
             <!-- Halve bet -->
             <button
-              :disabled="isSpinning || autoSpinEnabled || bet <= MIN_BET"
-              class="adj-btn"
-              title="Halve bet"
-              @click="betDown"
+                :disabled="isSpinning || autoSpinEnabled || bet <= MIN_BET"
+                class="adj-btn"
+                title="Halve bet"
+                @click="betDown"
             >
               <span class="text-sm font-black leading-none">½</span>
             </button>
@@ -1006,41 +1052,41 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
             <!-- SPIN + AUTO stacked -->
             <div class="flex flex-col items-center gap-1.5">
               <button
-                :disabled="!ready || balance < bet || isSpinning"
-                class="spin-btn"
-                @click="autoSpinEnabled ? stopAutoSpin() : spin()"
+                  :disabled="!ready || balance < bet || isSpinning"
+                  class="spin-btn"
+                  @click="autoSpinEnabled ? stopAutoSpin() : spin()"
               >
                 <span class="spin-btn__ring" />
                 <UIcon
-                  v-if="isSpinning"
-                  class="size-6 animate-spin relative"
-                  name="i-lucide-loader-circle"
+                    v-if="isSpinning"
+                    class="size-6 animate-spin relative"
+                    name="i-lucide-loader-circle"
                 />
                 <span
-                  v-else-if="autoSpinEnabled"
-                  class="flex flex-col items-center leading-none relative"
+                    v-else-if="autoSpinEnabled"
+                    class="flex flex-col items-center leading-none relative"
                 >
                   <span class="text-[10px] tracking-wider opacity-80">{{ autoSpinsLeft }}×</span>
                   <span class="text-xs font-black">STOP</span>
                 </span>
                 <span
-                  v-else
-                  class="relative"
+                    v-else
+                    class="relative"
                 >SPIN</span>
               </button>
 
               <button
-                v-if="!autoSpinEnabled"
-                :disabled="!ready || balance < bet || isSpinning"
-                class="auto-btn"
-                @click="showAutoSpinModal = true"
+                  v-if="!autoSpinEnabled"
+                  :disabled="!ready || balance < bet || isSpinning"
+                  class="auto-btn"
+                  @click="showAutoSpinModal = true"
               >
                 AUTO
               </button>
               <button
-                v-else
-                class="auto-btn auto-btn--stop"
-                @click="stopAutoSpin"
+                  v-else
+                  class="auto-btn auto-btn--stop"
+                  @click="stopAutoSpin"
               >
                 STOP
               </button>
@@ -1048,10 +1094,10 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 
             <!-- Double bet -->
             <button
-              :disabled="isSpinning || autoSpinEnabled || bet >= MAX_BET"
-              class="adj-btn"
-              title="Double bet"
-              @click="betUp"
+                :disabled="isSpinning || autoSpinEnabled || bet >= MAX_BET"
+                class="adj-btn"
+                title="Double bet"
+                @click="betUp"
             >
               <span class="text-xs font-black leading-none">2×</span>
             </button>
@@ -1061,15 +1107,15 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
         <!-- Error strip -->
         <Transition name="fade-up">
           <div
-            v-if="errorMsg"
-            class="error-strip flex items-center justify-between gap-3 px-4 py-2"
+              v-if="errorMsg"
+              class="error-strip flex items-center justify-between gap-3 px-4 py-2"
           >
             <p class="text-xs text-red-300">
               {{ errorMsg }}
             </p>
             <button
-              class="text-red-300/50 hover:text-red-200 text-sm transition-colors"
-              @click="errorMsg = ''"
+                class="text-red-300/50 hover:text-red-200 text-sm transition-colors"
+                @click="errorMsg = ''"
             >
               ✕
             </button>
@@ -1081,20 +1127,20 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
     <!-- History -->
     <div class="relative z-[1] min-h-8">
       <div
-        v-if="history.length"
-        class="flex gap-1.5 flex-wrap justify-center mt-3"
+          v-if="history.length"
+          class="flex gap-1.5 flex-wrap justify-center mt-3"
       >
         <span
-          v-for="(h, i) in history"
-          :key="i"
-          :class="h.payout > h.bet ? 'bg-emerald-500/15 text-emerald-300' : 'text-white/25'"
-          class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-mono font-bold"
-          style="background: rgba(255,255,255,0.04);"
+            v-for="(h, i) in history"
+            :key="i"
+            :class="h.payout > h.bet ? 'bg-emerald-500/15 text-emerald-300' : 'text-white/25'"
+            class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-mono font-bold"
+            style="background: rgba(255,255,255,0.04);"
         >
           <UIcon
-            v-if="h.bonus"
-            class="size-3"
-            name="i-lucide-gift"
+              v-if="h.bonus"
+              class="size-3"
+              name="i-lucide-gift"
           />
           {{ h.payout > 0 ? formatNumber(h.payout) : '—' }}
         </span>
@@ -1103,8 +1149,8 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 
     <!-- Auto-spin modal -->
     <UModal
-      v-model:open="showAutoSpinModal"
-      title="Auto Spin"
+        v-model:open="showAutoSpinModal"
+        title="Auto Spin"
     >
       <template #body>
         <div class="space-y-4">
@@ -1113,13 +1159,13 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
           </p>
           <div class="grid grid-cols-5 gap-2">
             <UButton
-              v-for="count in AUTO_SPIN_OPTIONS"
-              :key="count"
-              block
-              class="font-bold"
-              color="neutral"
-              variant="soft"
-              @click="startAutoSpin(count)"
+                v-for="count in AUTO_SPIN_OPTIONS"
+                :key="count"
+                block
+                class="font-bold"
+                color="neutral"
+                variant="soft"
+                @click="startAutoSpin(count)"
             >
               {{ count }}
             </UButton>
@@ -1130,8 +1176,8 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 
     <!-- Help modal -->
     <UModal
-      v-model:open="showHelp"
-      title="How Xeno Slot works"
+        v-model:open="showHelp"
+        title="How Xeno Slot works"
     >
       <template #body>
         <div class="space-y-4 text-sm text-muted">
@@ -1156,21 +1202,21 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
               </div>
               <div class="grid grid-cols-[auto_1fr] items-center text-sm">
                 <template
-                  v-for="(row, i) in paytableRows"
-                  :key="row.sym"
+                    v-for="(row, i) in paytableRows"
+                    :key="row.sym"
                 >
                   <div
-                    class="px-3 py-1.5 flex items-center justify-center"
-                    :class="i % 2 ? 'bg-elevated/40' : ''"
+                      class="px-3 py-1.5 flex items-center justify-center"
+                      :class="i % 2 ? 'bg-elevated/40' : ''"
                   >
                     <span
-                      class="rounded-md bg-no-repeat"
-                      :style="tileStyle(row.sym)"
+                        class="rounded-md bg-no-repeat"
+                        :style="tileStyle(row.sym)"
                     />
                   </div>
                   <div
-                    class="px-3 py-1.5 font-mono tabular-nums flex justify-end gap-3"
-                    :class="i % 2 ? 'bg-elevated/40' : ''"
+                      class="px-3 py-1.5 font-mono tabular-nums flex justify-end gap-3"
+                      :class="i % 2 ? 'bg-elevated/40' : ''"
                   >
                     <span class="w-10 text-right text-muted">{{ row.pays[0] }}×</span>
                     <span class="w-10 text-right text-muted">{{ row.pays[1] }}×</span>
@@ -1240,7 +1286,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
   -webkit-text-fill-color: transparent;
   color: transparent;
   filter: drop-shadow(0 2px 0 rgba(6, 46, 22, 0.6))
-    drop-shadow(0 6px 16px rgba(22, 163, 74, 0.5));
+  drop-shadow(0 6px 16px rgba(22, 163, 74, 0.5));
 }
 
 .xs-title__emoji {
@@ -1288,9 +1334,9 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
   padding: 8px;
   background: linear-gradient(160deg, rgba(74, 222, 128, 0.22), rgba(21, 94, 43, 0.14) 40%, rgba(6, 20, 8, 0.62));
   box-shadow: 0 0 0 1px rgba(74, 222, 128, 0.35),
-    inset 0 1px 0 rgba(187, 247, 208, 0.25),
-    0 0 60px rgba(22, 163, 74, 0.25),
-    0 30px 80px rgba(0, 0, 0, 0.85);
+  inset 0 1px 0 rgba(187, 247, 208, 0.25),
+  0 0 60px rgba(22, 163, 74, 0.25),
+  0 30px 80px rgba(0, 0, 0, 0.85);
   backdrop-filter: blur(2px);
 }
 
@@ -1309,7 +1355,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
   z-index: 15;
   pointer-events: none;
   background: radial-gradient(ellipse 80% 55% at 50% 110%, rgba(0, 0, 0, 0.38) 0%, transparent 60%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.06) 0%, transparent 18%);
+  linear-gradient(180deg, rgba(255, 255, 255, 0.06) 0%, transparent 18%);
 }
 
 /* ── Bonus / pause overlays ─────────────────────────────────────────────── */
@@ -1482,8 +1528,8 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
   color: #4a3206;
   background: radial-gradient(circle at 50% 28%, #fef3c7 0%, #fbdf6b 34%, #f5c518 66%, #b8860b 100%);
   box-shadow: 0 5px 0 #7a5a06,
-    0 10px 28px rgba(245, 197, 24, 0.5),
-    inset 0 2px 4px rgba(255, 255, 255, 0.55);
+  0 10px 28px rgba(245, 197, 24, 0.5),
+  inset 0 2px 4px rgba(255, 255, 255, 0.55);
   text-shadow: 0 1px 0 rgba(255, 255, 255, 0.3);
   cursor: pointer;
   transition: transform 0.08s, box-shadow 0.08s, filter 0.15s, opacity 0.15s;
