@@ -65,7 +65,7 @@ export const AG_MAX_WIN_MULT = 10000 // hard cap on total win, in × bet
 //                  spins (the 4-scatter tier).
 //   bonusChance  — ante toggle: every spin costs more but scatter odds are
 //                  roughly doubled, raising the odds of a natural trigger.
-export const AG_BUY_FREESPINS_COST = 53 // × bet → ~98.2% RTP (measured, scripts/aethergates-rtp.ts 4e4 sims)
+export const AG_BUY_FREESPINS_COST = 61 // × bet → ~97.5% RTP (measured, scripts/aethergates-rtp.ts 3e6 sims)
 export const AG_BUY_SUPERBONUS_COST = 73 // × bet → ~97.8% RTP (measured, 4e4 sims)
 export const AG_BONUS_CHANCE_COST = 2.2 // × bet → ~95.9% RTP (measured, scripts/aethergates-rtp.ts 1.5e5 sims)
 
@@ -105,6 +105,7 @@ export interface AetherStep {
 export interface AetherSequence {
   steps: AetherStep[]
   restGrid: AetherSymbol[][] // final settled grid (no winners) the client lands on
+  restMults: MultDrop[] // relic values sitting on restGrid, not yet collected
   meterBefore: number
   meterAfter: number
   basePayMult: number
@@ -163,7 +164,7 @@ export const AETHER_SYMBOL_WEIGHTS: Record<AetherPaySymbol, number> = {
   star: 8
 }
 
-export const AETHER_SCATTER_WEIGHT = 2.55
+export const AETHER_SCATTER_WEIGHT = 3.3
 // Bonus scatters are pared back further and that weight is folded into the
 // bonus relic weight below — in free spins, the "luck" that would have
 // bought a retrigger buys a wild instead.
@@ -278,6 +279,13 @@ function cellsToList(cellKeys: Set<string>): Cell[] {
   })
 }
 
+function multsToList(mults: Map<string, number>): MultDrop[] {
+  return [...mults].map(([k, value]) => {
+    const [col, row] = k.split(':').map(Number)
+    return { col: col!, row: row!, value }
+  })
+}
+
 // --- board (grid + the value carried by every relic currently on it) ----
 
 interface Board { grid: AetherSymbol[][], mults: Map<string, number> }
@@ -388,10 +396,7 @@ function runSequence(startBoard: Board, startMeter: number, multWeight: number, 
 
     // Every relic on the board — connected to this win by virtue of a win
     // having happened at all — flies into the meter.
-    const multipliers: MultDrop[] = [...board.mults].map(([k, value]) => {
-      const [col, row] = k.split(':').map(Number)
-      return { col: col!, row: row!, value }
-    })
+    const multipliers: MultDrop[] = multsToList(board.mults)
 
     const meterBefore = meter
     for (const drop of multipliers) meter += drop.value
@@ -412,7 +417,7 @@ function runSequence(startBoard: Board, startMeter: number, multWeight: number, 
   }
 
   const winMult = basePayMult > 0 ? basePayMult * Math.max(1, meter) : 0
-  return { steps, restGrid: board.grid, meterBefore: startMeter, meterAfter: meter, basePayMult, winMult }
+  return { steps, restGrid: board.grid, restMults: multsToList(board.mults), meterBefore: startMeter, meterAfter: meter, basePayMult, winMult }
 }
 
 // --- bonus ------------------------------------------------------------------
@@ -449,11 +454,11 @@ function runBonus(startMeter: number, initialSpins: number): AetherBonusResult {
 
 // An empty sequence — used as the (visual-only) base for a bought bonus,
 // where the player skips the paid spin and lands straight in free spins.
-function emptySequence(grid: AetherSymbol[][]): AetherSequence {
-  return { steps: [], restGrid: grid, meterBefore: 0, meterAfter: 0, basePayMult: 0, winMult: 0 }
+function emptySequence(grid: AetherSymbol[][], mults: Map<string, number> = new Map()): AetherSequence {
+  return { steps: [], restGrid: grid, restMults: multsToList(mults), meterBefore: 0, meterAfter: 0, basePayMult: 0, winMult: 0 }
 }
 
-function forceScatters(grid: AetherSymbol[][], count: number) {
+function forceScatters(grid: AetherSymbol[][], mults: Map<string, number>, count: number) {
   const placed = new Set<string>()
   while (placed.size < count) {
     const col = randInt(AG_COLS)
@@ -462,6 +467,7 @@ function forceScatters(grid: AetherSymbol[][], count: number) {
     if (placed.has(k)) continue
     placed.add(k)
     grid[col]![row] = 'scatter'
+    mults.delete(k)
   }
 }
 
@@ -485,9 +491,9 @@ export function playAetherGates(bet: number, options?: Record<string, unknown>):
     // Symbols only — purely cosmetic, pays nothing — with the trigger count
     // of scatters placed so the drop reads as a real bonus trigger.
     const board = fullDrop(false, AETHER_MULTIPLIER_WEIGHT, AETHER_SCATTER_WEIGHT, BASE_MULT_POOL)
-    forceScatters(board.grid, isSuper ? AG_SCATTER_TRIGGER_SUPER : AG_SCATTER_TRIGGER)
+    forceScatters(board.grid, board.mults, isSuper ? AG_SCATTER_TRIGGER_SUPER : AG_SCATTER_TRIGGER)
     grid = board.grid
-    base = emptySequence(grid)
+    base = emptySequence(grid, board.mults)
     bonusTriggered = true
     bonusTier = isSuper ? 'super' : 'normal'
     bonus = runBonus(0, isSuper ? AG_FREE_SPINS_SUPER : AG_FREE_SPINS)

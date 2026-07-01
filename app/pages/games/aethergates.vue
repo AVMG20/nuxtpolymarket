@@ -274,10 +274,6 @@ function stepDelay(ms: number) {
   return wait(turbo.value ? Math.round(ms * 0.45) : ms)
 }
 
-function cellKey(cell: Cell): string {
-  return `${cell.col}:${cell.row}`
-}
-
 function randomGrid(): AetherSymbol[][] {
   const grid: AetherSymbol[][] = []
   for (let col = 0; col < AG_COLS; col++) {
@@ -319,7 +315,20 @@ let GSAP: any = null
 let destroyed = false
 
 const TEX: Record<string, any> = {}
-const multOverlays = new Map<string, any>()
+// Relic values for whatever grid is about to be placed (initial reveal or a
+// cascade refill). Primed right before each reelSet.setResult()/nextGrid()
+// call, consumed by the 'cascade:place:end' handler so values are baked
+// onto tiles before the drop-in tween starts — see AGENTS.md in pixi-reels:
+// "the canonical spot to apply per-symbol decorations... so they fall WITH
+// the symbol."
+let pendingMults: MultDrop[] = []
+
+function applyPendingMults(info: { reelIndex: number, placedSymbols: readonly any[] }) {
+  for (const drop of pendingMults) {
+    if (drop.col !== info.reelIndex) continue
+    info.placedSymbols[drop.row]?.setMultValue?.(drop.value)
+  }
+}
 
 const CELL = 88
 const GAP = 7
@@ -358,23 +367,51 @@ function toTargets(grid: AetherSymbol[][]) {
   return grid.map(col => ({ visible: col }))
 }
 
+// Relic border glow ramps up in color as its rolled value climbs, so a big
+// hit reads as "special" the instant it lands — not just once it's flying.
+function multBorderColor(value: number): number {
+  if (value >= 100) return 0xfde047 // gold — jackpot-tier relic
+  if (value >= 50) return 0xfb923c // orange — huge
+  if (value >= AETHER_LIGHTNING_MIN_MULT) return 0xf472b6 // pink — big (lightning tier)
+  if (value >= 10) return 0xa78bfa // violet — solid
+  return 0x67e8f9 // cyan — default/small
+}
+
 function makeSymbolClass() {
-  const { Container, Graphics, Sprite } = PIXI
+  const { Container, Graphics, Sprite, Text } = PIXI
   const Base = REELS.ReelSymbol
 
   class AetherTile extends Base {
     frame = new Graphics()
     sprite = new Sprite()
     viewBox = new Container()
+    labelBg = new Graphics()
+    label = new Text({
+      text: '',
+      style: {
+        fontFamily: 'system-ui, sans-serif',
+        fontSize: 16,
+        fontWeight: '900',
+        fill: 0xffffff,
+        align: 'center',
+        stroke: { color: 0x082f49, width: 4, join: 'round' },
+        dropShadow: { color: 0x67e8f9, blur: 5, distance: 0, alpha: 0.85 }
+      }
+    })
+
     w = CELL
     h = CELL
+    value: number | undefined = undefined
     _tween: any = null
 
     constructor() {
       super()
       this.sprite.anchor.set(0.5)
+      this.label.anchor.set(0.5)
       this.viewBox.addChild(this.sprite)
       this.viewBox.addChild(this.frame)
+      this.viewBox.addChild(this.labelBg)
+      this.viewBox.addChild(this.label)
       this.view.addChild(this.viewBox)
     }
 
@@ -385,22 +422,51 @@ function makeSymbolClass() {
       // just places it near edge-to-edge — no extra drawn border/shine on top.
       const isScatter = id === 'scatter'
       const isRelic = id === 'multiplier'
-      const glow = isScatter ? 0xfbbf24 : isRelic ? 0x67e8f9 : null
+      const glow = isScatter ? 0xfbbf24 : isRelic ? multBorderColor(this.value ?? 0) : null
+      const borderWidth = isRelic ? 3 : 2
       const max = Math.min(this.w, this.h) * 0.96
       const s = Math.min(max / tex.width, max / tex.height)
 
       this.frame.clear()
       if (glow) {
         this.frame.roundRect(2, 2, this.w - 4, this.h - 4, 12)
-          .stroke({ color: glow, width: 2, alpha: 0.65 })
+          .stroke({ color: glow, width: borderWidth, alpha: 0.75 })
       }
       this.sprite.texture = tex
       this.sprite.scale.set(s)
       this.sprite.position.set(this.w / 2, this.h / 2)
+
+      this.label.x = this.w / 2
+      this.label.y = this.h - 15
+      this.labelBg.clear()
+      if (isRelic && this.value) {
+        this.labelBg.roundRect(-this.label.width / 2 - 6, -this.label.height / 2 - 3, this.label.width + 12, this.label.height + 6, 7)
+          .fill({ color: multBorderColor(this.value), alpha: 0.4 })
+        this.labelBg.position.set(this.label.x, this.label.y)
+      }
+    }
+
+    // Sets the relic's rolled value — text + border color update together so
+    // a big hit reads as "special" from the moment it lands on the board.
+    setMultValue(value: number | undefined) {
+      this.value = value
+      this.label.text = value ? `×${value}` : ''
+      this.label.alpha = 1
+      if (this.symbolId === 'multiplier') this._render(this.symbolId)
+    }
+
+    // Quick fade right as the relic starts its flight into the meter, so the
+    // static badge doesn't overlap the flying "×N" clone.
+    fadeMultLabel(duration: number) {
+      GSAP.to([this.label, this.labelBg], { alpha: 0, duration })
     }
 
     onActivate(id: string) {
       this.view.alpha = 1
+      this.value = undefined
+      this.label.text = ''
+      this.label.alpha = 1
+      this.labelBg.clear()
       this._render(id)
     }
 
@@ -479,50 +545,6 @@ function spawnPops(step: AetherStep) {
   }
 }
 
-function clearMultiplierOverlays() {
-  for (const view of multOverlays.values()) {
-    try {
-      view.destroy({ children: true })
-    } catch { /* ignore */ }
-  }
-  multOverlays.clear()
-}
-
-function drawMultiplierOverlays(drops: MultDrop[]) {
-  if (!PIXI || !overlayLayer) return
-  clearMultiplierOverlays()
-  const { Container, Graphics, Sprite, Text } = PIXI
-  for (const drop of drops) {
-    const view = new Container()
-    const bg = new Graphics()
-    const sprite = new Sprite(TEX.multiplier)
-    const label = new Text({
-      text: `x${drop.value}`,
-      style: {
-        fontFamily: 'system-ui, sans-serif',
-        fontSize: 18,
-        fontWeight: '900',
-        fill: 0xffffff,
-        align: 'center',
-        stroke: { color: 0x082f49, width: 4, join: 'round' }
-      }
-    })
-    const p = cellLocal(drop.col, drop.row)
-    view.position.set(p.x, p.y)
-    bg.circle(0, 0, 31).fill({ color: 0x0891b2, alpha: 0.34 }).stroke({ color: 0xecfeff, width: 2, alpha: 0.7 })
-    sprite.anchor.set(0.5)
-    sprite.scale.set(Math.min(44 / TEX.multiplier.width, 44 / TEX.multiplier.height))
-    label.anchor.set(0.5)
-    label.y = 23
-    view.addChild(bg)
-    view.addChild(sprite)
-    view.addChild(label)
-    overlayLayer.addChild(view)
-    multOverlays.set(cellKey(drop), view)
-    GSAP.fromTo(view.scale, { x: 0, y: 0 }, { x: 1, y: 1, duration: 0.26, ease: 'back.out(2.4)' })
-  }
-}
-
 function spawnWinText(step: AetherStep, sequence: AetherSequence, resultBet: number) {
   if (!PIXI || !GSAP || !floatLayer || step.stepPayMult <= 0) return
   const { Text } = PIXI
@@ -562,6 +584,28 @@ function spawnWinText(step: AetherStep, sequence: AetherSequence, resultBet: num
   })
 }
 
+function spawnFlightSparks(from: { x: number, y: number }, midX: number, midY: number, endX: number, endY: number, duration: number) {
+  if (!import.meta.client) return
+  const count = 3
+  for (let i = 0; i < count; i++) {
+    const el = document.createElement('div')
+    el.className = 'ag-fly-spark'
+    el.style.left = `${from.x}px`
+    el.style.top = `${from.y}px`
+    document.body.appendChild(el)
+    el.animate([
+      { transform: 'translate(-50%, -50%) scale(1)', offset: 0, opacity: 0.85 },
+      { transform: `translate(${midX - from.x}px, ${midY - from.y}px) scale(0.5)`, offset: 0.55, opacity: 0.55 },
+      { transform: `translate(${endX - from.x}px, ${endY - from.y}px) scale(0.1)`, offset: 1, opacity: 0 }
+    ], {
+      duration: duration * 0.9,
+      delay: i * (duration * 0.09),
+      easing: 'cubic-bezier(.18,.8,.2,1)',
+      fill: 'forwards'
+    }).finished.catch(() => {}).finally(() => el.remove())
+  }
+}
+
 async function flyMultiplier(drop: MultDrop, toValue: number) {
   const from = cellScreen(drop)
   const toEl = meterRef.value
@@ -570,10 +614,9 @@ async function flyMultiplier(drop: MultDrop, toValue: number) {
     return
   }
 
-  const overlay = multOverlays.get(cellKey(drop))
-  if (overlay) {
-    GSAP.to(overlay, { alpha: 0, duration: turbo.value ? 0.12 : 0.2 })
-  }
+  // Fade the tile's own baked-in badge right as it starts flying so it
+  // doesn't overlap the flying "×N" clone.
+  reelSet?.getReel?.(drop.col)?.getSymbolAt?.(drop.row)?.fadeMultLabel?.(turbo.value ? 0.12 : 0.2)
 
   const to = toEl.getBoundingClientRect()
   const endX = to.left + to.width / 2
@@ -597,23 +640,21 @@ async function flyMultiplier(drop: MultDrop, toValue: number) {
     return
   }
 
+  // 25% slower than the original 360/760ms so the flight reads clearly.
+  const duration = (turbo.value ? 360 : 760) * 1.25
+  spawnFlightSparks(from, midX, midY, endX, endY, duration)
+
   await el.animate([
     { transform: 'translate(-50%, -50%) scale(1)', offset: 0, opacity: 1 },
     { transform: `translate(${midX - from.x}px, ${midY - from.y}px) scale(0.76)`, offset: 0.52, opacity: 1 },
     { transform: `translate(${endX - from.x}px, ${endY - from.y}px) scale(0.24)`, offset: 1, opacity: 0.2 }
   ], {
-    duration: turbo.value ? 360 : 760,
+    duration,
     easing: 'cubic-bezier(.18,.8,.2,1)',
     fill: 'forwards'
   }).finished.catch(() => {})
 
   flying.value = flying.value.filter(f => f.id !== id)
-  if (overlay) {
-    try {
-      overlay.destroy({ children: true })
-    } catch { /* ignore */ }
-    multOverlays.delete(cellKey(drop))
-  }
   meterFlash.value = true
   tickNumber(meter, toValue, 320)
   setTimeout(() => {
@@ -621,19 +662,91 @@ async function flyMultiplier(drop: MultDrop, toValue: number) {
   }, 260)
 }
 
+// Relics at/above this value get a quick lightning strike before they fly off.
+const AETHER_LIGHTNING_MIN_MULT = 25
+// Requested for testing so every relic shows the strike right now — flip to
+// false once tuned so it only fires for drop.value >= AETHER_LIGHTNING_MIN_MULT.
+const AETHER_LIGHTNING_TEST_MODE = true
+
+// Deliberately NOT scaled by turbo — this is a short showcase beat for a big
+// hit, not part of the normal spin-speed pacing.
+function jaggedBolt(px: number, py: number, fromY: number, spread: number) {
+  const { Graphics } = PIXI
+  const g = new Graphics()
+  let x = px
+  let y = fromY
+  g.moveTo(x, y)
+  const segments = 5
+  for (let i = 1; i <= segments; i++) {
+    y = fromY + ((py - fromY) * i) / segments
+    x = px + (Math.random() - 0.5) * spread
+    g.lineTo(x, y)
+  }
+  return g
+}
+
+function spawnLightningStrike(drop: MultDrop): Promise<void> {
+  if (!PIXI || !GSAP || !overlayLayer) return Promise.resolve()
+  const { Graphics } = PIXI
+  const p = cellLocal(drop.col, drop.row)
+
+  const bolt = jaggedBolt(p.x, p.y, p.y - 74, 22)
+  bolt.stroke({ color: 0xe0f7ff, width: 3.5, alpha: 1 })
+  bolt.alpha = 0
+  overlayLayer.addChild(bolt)
+
+  const branch = jaggedBolt(p.x + 12, p.y, p.y - 46, 26)
+  branch.stroke({ color: 0xbae6fd, width: 2, alpha: 1 })
+  branch.alpha = 0
+  overlayLayer.addChild(branch)
+
+  const flash = new Graphics()
+  flash.circle(0, 0, 42).fill({ color: 0xffffff, alpha: 1 })
+  flash.position.set(p.x, p.y)
+  flash.alpha = 0
+  overlayLayer.addChild(flash)
+
+  const ring = new Graphics()
+  ring.circle(0, 0, 20).stroke({ color: 0xe0f7ff, width: 3, alpha: 1 })
+  ring.position.set(p.x, p.y)
+  ring.alpha = 0
+  overlayLayer.addChild(ring)
+
+  return new Promise<void>((resolve) => {
+    GSAP.timeline({
+      onComplete: () => {
+        for (const g of [bolt, branch, flash, ring]) {
+          try {
+            g.destroy()
+          } catch { /* ignore */ }
+        }
+        resolve()
+      }
+    })
+      .to(bolt, { alpha: 1, duration: 0.06 })
+      .to(branch, { alpha: 0.85, duration: 0.05 }, '<0.02')
+      .to(flash, { alpha: 0.9, duration: 0.05 }, '<')
+      .to(ring.scale, { x: 2.6, y: 2.6, duration: 0.3, ease: 'power2.out' }, '<')
+      .to(ring, { alpha: 0, duration: 0.3 }, '<')
+      .to(flash, { alpha: 0, duration: 0.12 }, '-=0.1')
+      .to([bolt, branch], { alpha: 0, duration: 0.18 }, '<')
+  })
+}
+
 async function collectMultipliers(step: AetherStep) {
   if (!step.multipliers.length) return
-  drawMultiplierOverlays(step.multipliers)
   await stepDelay(180)
   sfx.mult()
   const flights = step.multipliers.map((drop, index) =>
-    wait(index * (turbo.value ? 45 : 105)).then(() => {
+    wait(index * (turbo.value ? 45 : 105)).then(async () => {
       const previous = step.meterBefore + step.multipliers.slice(0, index).reduce((sum, d) => sum + d.value, 0)
+      if (AETHER_LIGHTNING_TEST_MODE || drop.value >= AETHER_LIGHTNING_MIN_MULT) {
+        await spawnLightningStrike(drop)
+      }
       return flyMultiplier(drop, previous + drop.value)
     })
   )
   await Promise.all(flights)
-  clearMultiplierOverlays()
 }
 
 function addStepWin(step: AetherStep, sequence: AetherSequence, resultBet: number) {
@@ -652,10 +765,10 @@ function addStepWin(step: AetherStep, sequence: AetherSequence, resultBet: numbe
 async function playSequence(sequence: AetherSequence, resultBet: number): Promise<number> {
   if (!reelSet) return 0
   meter.value = sequence.meterBefore
-  clearMultiplierOverlays()
 
   reelSet.setSpeed?.(turbo.value ? 'turbo' : 'normal')
   const first = sequence.steps[0]?.grid ?? sequence.restGrid
+  pendingMults = sequence.steps[0]?.multipliers ?? sequence.restMults
   const spinPromise = reelSet.spin({ mode: 'cascade' })
   reelSet.setResult(toTargets(first))
   await spinPromise
@@ -665,8 +778,10 @@ async function playSequence(sequence: AetherSequence, resultBet: number): Promis
     await reelSet.runCascade({
       detectWinners: (_grid: string[][], level: number) =>
         (winningSteps[level]?.winCells ?? []).map((c: Cell) => ({ reel: c.col, row: c.row })),
-      nextGrid: (_grid: string[][], _winners: any, level: number) =>
-        (winningSteps[level + 1]?.grid ?? sequence.restGrid) as unknown as string[][],
+      nextGrid: (_grid: string[][], _winners: any, level: number) => {
+        pendingMults = winningSteps[level + 1]?.multipliers ?? sequence.restMults
+        return (winningSteps[level + 1]?.grid ?? sequence.restGrid) as unknown as string[][]
+      },
       onCascade: async ({ chain }: { chain: number }) => {
         const step = winningSteps[chain - 1]
         if (!step) return
@@ -684,6 +799,7 @@ async function playSequence(sequence: AetherSequence, resultBet: number): Promis
     await collectMultipliers(step)
   }
 
+  pendingMults = sequence.restMults
   reelSet.setResult(toTargets(sequence.restGrid))
   meter.value = sequence.meterAfter
   return sequence.winMult * resultBet
@@ -740,7 +856,6 @@ async function spin(forceFeature?: AetherFeature) {
   lastWin.value = 0
   winFlash.value = false
   meter.value = 0
-  clearMultiplierOverlays()
 
   const balanceBeforeSpin = balance.value
   balance.value = balanceBeforeSpin - cost
@@ -880,6 +995,7 @@ onMounted(async () => {
     reelSet.x = OFFSET_X
     reelSet.y = OFFSET_Y
     app.stage.addChild(reelSet)
+    reelSet.events.on('cascade:place:end', applyPendingMults)
 
     overlayLayer = new PIXI.Container()
     overlayLayer.eventMode = 'none'
@@ -903,9 +1019,6 @@ onMounted(async () => {
 onUnmounted(() => {
   destroyed = true
   window.removeEventListener('keydown', onKeydown)
-  try {
-    clearMultiplierOverlays()
-  } catch { /* ignore */ }
   try {
     overlayLayer?.destroy?.({ children: true })
   } catch { /* ignore */ }
@@ -1590,6 +1703,17 @@ onUnmounted(() => {
 .ag-fly {
   background: radial-gradient(circle at 32% 24%, white, #fde047 34%, #ca8a04 72%);
   box-shadow: 0 0 18px rgba(250, 204, 21, 0.5);
+}
+
+.ag-fly-spark {
+  position: fixed;
+  z-index: 78;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  pointer-events: none;
+  background: radial-gradient(circle, #ffffff, #7dd3fc 60%, transparent 75%);
+  box-shadow: 0 0 8px rgba(125, 211, 252, 0.6);
 }
 
 .pop-enter-active,
