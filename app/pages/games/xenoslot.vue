@@ -898,180 +898,184 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
               style="color: #86efac;"
             />
           </div>
+        </div>
 
-          <!-- Bonus collected readout, floated over the board -->
-          <Transition name="pop">
-            <div
-              v-if="inBonus"
-              class="absolute bottom-2 inset-x-0 z-30 flex items-center justify-center pointer-events-none"
-            >
-              <div class="collect-readout text-center px-5 py-1.5">
-                <p class="text-[9px] uppercase tracking-[0.2em] text-emerald-200/70 leading-none mb-0.5">
-                  {{ bonusStatus }}
-                </p>
-                <p class="text-2xl font-black tabular-nums leading-none text-emerald-300 drop-shadow-[0_0_12px_rgba(52,211,153,0.55)]">
-                  {{ formatNumber(bonusTotal, false) }}
-                </p>
+        <!-- ── Control bar (attached below the board) ── -->
+        <div class="ctrl-bar flex items-center gap-2 sm:gap-4 px-4 py-3.5">
+          <!-- LEFT: icons + credit/bet -->
+          <div class="flex items-center gap-2.5 sm:gap-3 flex-1 min-w-0">
+            <!-- Action icons stacked -->
+            <div class="flex flex-col gap-1.5 shrink-0">
+              <button
+                class="icon-btn"
+                title="Help"
+                @click="showHelp = true"
+              >
+                <UIcon
+                  class="size-3.5"
+                  name="i-lucide-info"
+                />
+              </button>
+              <button
+                :class="{ 'icon-btn--active': turbo }"
+                class="icon-btn"
+                title="Turbo"
+                @click="turbo = !turbo"
+              >
+                <UIcon
+                  class="size-3.5"
+                  name="i-lucide-zap"
+                />
+              </button>
+            </div>
+
+            <!-- Credit + Bet readouts -->
+            <div class="min-w-0 flex flex-col gap-1.5">
+              <div class="readout w-full flex justify-between">
+                <span class="ctrl-value truncate">
+                  <CoinBalance
+                    :compact="false"
+                    :value="balance"
+                  />
+                </span>
+              </div>
+              <div class="readout w-full justify-between">
+                <span class="ctrl-label">Bet</span>
+                <input
+                  v-model="betInput"
+                  :disabled="isSpinning || autoSpinEnabled"
+                  aria-label="Bet amount"
+                  class="bet-input ctrl-value tabular-nums"
+                  inputmode="numeric"
+                  @blur="commitBetInput"
+                  @keydown.enter="($event.target as HTMLInputElement).blur()"
+                >
               </div>
             </div>
-          </Transition>
-        </div>
-      </div>
-
-      <!-- ── War Heroes footer: controls float on the page background; the SPIN
-           cluster straddles the bottom edge of the reel panel above ──────── -->
-      <div class="wh-footer flex items-end gap-2 sm:gap-4">
-        <!-- LEFT: detached credit / bet pill -->
-        <div class="wh-credit flex items-center gap-2 sm:gap-2.5 shrink-0">
-          <div class="flex gap-1.5">
-            <button
-              class="wh-icon"
-              title="Help"
-              @click="showHelp = true"
-            >
-              <UIcon
-                class="size-3.5"
-                name="i-lucide-info"
-              />
-            </button>
-            <button
-              :class="{ 'wh-icon--active': turbo }"
-              class="wh-icon"
-              title="Turbo"
-              @click="turbo = !turbo"
-            >
-              <UIcon
-                class="size-3.5"
-                name="i-lucide-zap"
-              />
-            </button>
           </div>
 
-          <div class="min-w-0 leading-tight">
-            <div class="flex items-baseline gap-1.5">
-              <span class="wh-meta-label">Credit</span>
-              <span class="wh-meta-val truncate">
-                <CoinBalance
-                  :compact="false"
-                  :value="balance"
+          <!-- CENTER: WIN / bonus total -->
+          <div class="flex flex-col items-center justify-center shrink-0 min-w-[84px]">
+            <div
+              v-if="inBonus"
+              class="text-center"
+            >
+              <p
+                class="text-[9px] uppercase tracking-[0.2em] mb-1"
+                style="color: rgba(187,247,208,0.55);"
+              >
+                {{ bonusStatus }}
+              </p>
+              <p class="text-xl font-black tabular-nums leading-none text-emerald-400 drop-shadow-[0_0_12px_rgba(52,211,153,0.5)]">
+                {{ formatNumber(bonusTotal, false) }}
+              </p>
+            </div>
+
+            <template v-else>
+              <span class="ctrl-label mb-1">Win</span>
+              <Transition
+                mode="out-in"
+                name="pop"
+              >
+                <span
+                  v-if="winFlash && lastWin > 0"
+                  key="win"
+                  class="win-amount"
+                >{{ formatNumber(lastWin, false) }}</span>
+                <span
+                  v-else
+                  key="idle"
+                  class="win-idle"
+                >0.00</span>
+              </Transition>
+            </template>
+          </div>
+
+          <!-- RIGHT: ½ SPIN 2× / AUTO -->
+          <div class="flex items-center gap-2 sm:gap-2.5 flex-1 justify-end">
+            <!-- Halve bet -->
+            <button
+              :disabled="isSpinning || autoSpinEnabled || bet <= MIN_BET"
+              class="adj-btn"
+              title="Halve bet"
+              @click="betDown"
+            >
+              <span class="text-sm font-black leading-none">½</span>
+            </button>
+
+            <!-- SPIN + AUTO stacked -->
+            <div class="flex flex-col items-center gap-1.5">
+              <button
+                :disabled="!ready || balance < bet || isSpinning"
+                class="spin-btn"
+                @click="autoSpinEnabled ? stopAutoSpin() : spin()"
+              >
+                <span class="spin-btn__ring" />
+                <UIcon
+                  v-if="isSpinning"
+                  class="size-6 animate-spin relative"
+                  name="i-lucide-loader-circle"
                 />
-              </span>
-            </div>
-            <div class="flex items-baseline gap-1.5 mt-1">
-              <span class="wh-meta-label">Bet</span>
-              <input
-                v-model="betInput"
-                :disabled="isSpinning || autoSpinEnabled"
-                aria-label="Bet amount"
-                class="wh-bet-input wh-meta-val tabular-nums"
-                inputmode="numeric"
-                @blur="commitBetInput"
-                @keydown.enter="($event.target as HTMLInputElement).blur()"
+                <span
+                  v-else-if="autoSpinEnabled"
+                  class="flex flex-col items-center leading-none relative"
+                >
+                  <span class="text-[10px] tracking-wider opacity-80">{{ autoSpinsLeft }}×</span>
+                  <span class="text-xs font-black">STOP</span>
+                </span>
+                <span
+                  v-else
+                  class="relative"
+                >SPIN</span>
+              </button>
+
+              <button
+                v-if="!autoSpinEnabled"
+                :disabled="!ready || balance < bet || isSpinning"
+                class="auto-btn"
+                @click="showAutoSpinModal = true"
               >
+                AUTO
+              </button>
+              <button
+                v-else
+                class="auto-btn auto-btn--stop"
+                @click="stopAutoSpin"
+              >
+                STOP
+              </button>
             </div>
+
+            <!-- Double bet -->
+            <button
+              :disabled="isSpinning || autoSpinEnabled || bet >= MAX_BET"
+              class="adj-btn"
+              title="Double bet"
+              @click="betUp"
+            >
+              <span class="text-xs font-black leading-none">2×</span>
+            </button>
           </div>
         </div>
 
-        <!-- CENTER: floating WIN -->
-        <div class="flex-1 flex flex-col items-center justify-end min-w-0 pb-1.5">
-          <Transition
-            mode="out-in"
-            name="pop"
+        <!-- Error strip -->
+        <Transition name="fade-up">
+          <div
+            v-if="errorMsg"
+            class="error-strip flex items-center justify-between gap-3 px-4 py-2"
           >
-            <span
-              v-if="winFlash && lastWin > 0"
-              key="win"
-              class="wh-win"
-            >WIN {{ formatNumber(lastWin, false) }}</span>
-            <span
-              v-else
-              key="idle"
-              class="wh-win wh-win--idle"
-            >WIN 0.00</span>
-          </Transition>
-          <span
-            v-if="winFlash && lastLines"
-            class="text-[10px] font-medium text-emerald-200/40 leading-none mt-0.5"
-          >{{ lastLines }} line{{ lastLines > 1 ? 's' : '' }}</span>
-        </div>
-
-        <!-- RIGHT: spin cluster, lifted so the ball overlaps the reel panel -->
-        <div class="wh-spin-cluster flex items-center gap-1.5 sm:gap-2.5 shrink-0">
-          <button
-            :disabled="isSpinning || autoSpinEnabled || bet <= MIN_BET"
-            class="wh-step"
-            title="Halve bet"
-            @click="betDown"
-          >
-            <span class="leading-none">−</span>
-          </button>
-
-          <div class="flex flex-col items-center gap-1">
+            <p class="text-xs text-red-300">
+              {{ errorMsg }}
+            </p>
             <button
-              :disabled="!ready || balance < bet || isSpinning"
-              class="wh-spin"
-              @click="autoSpinEnabled ? stopAutoSpin() : spin()"
+              class="text-red-300/50 hover:text-red-200 text-sm transition-colors"
+              @click="errorMsg = ''"
             >
-              <UIcon
-                v-if="isSpinning"
-                class="size-6 animate-spin"
-                name="i-lucide-loader-circle"
-              />
-              <span
-                v-else-if="autoSpinEnabled"
-                class="flex flex-col items-center leading-none"
-              >
-                <span class="text-[10px] tracking-wider opacity-80">{{ autoSpinsLeft }}×</span>
-                <span class="text-xs font-black">STOP</span>
-              </span>
-              <span v-else>SPIN</span>
-            </button>
-
-            <button
-              v-if="!autoSpinEnabled"
-              :disabled="!ready || balance < bet || isSpinning"
-              class="wh-auto"
-              @click="showAutoSpinModal = true"
-            >
-              AUTO
-            </button>
-            <button
-              v-else
-              class="wh-auto wh-auto--stop"
-              @click="stopAutoSpin"
-            >
-              STOP
+              ✕
             </button>
           </div>
-
-          <button
-            :disabled="isSpinning || autoSpinEnabled || bet >= MAX_BET"
-            class="wh-step"
-            title="Double bet"
-            @click="betUp"
-          >
-            <span class="leading-none">+</span>
-          </button>
-        </div>
+        </Transition>
       </div>
-
-      <!-- Error strip -->
-      <Transition name="fade-up">
-        <div
-          v-if="errorMsg"
-          class="error-strip flex items-center justify-between gap-3 px-4 py-2 mt-2"
-        >
-          <p class="text-xs text-red-300">
-            {{ errorMsg }}
-          </p>
-          <button
-            class="text-red-300/50 hover:text-red-200 text-sm transition-colors"
-            @click="errorMsg = ''"
-          >
-            ✕
-          </button>
-        </div>
-      </Transition>
     </div>
 
     <!-- History -->
@@ -1293,7 +1297,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 /* ── Reel area ──────────────────────────────────────────────────────────── */
 .reel-area {
   background: radial-gradient(ellipse 120% 78% at 50% 0%, #1e5a2a 0%, #14401d 30%, #0d2a13 58%, #08200c 82%, #061708 100%);
-  border-radius: 15px;
+  border-radius: 15px 15px 0 0;
   box-shadow: inset 0 0 0 1px rgba(74, 222, 128, 0.18), inset 0 2px 18px rgba(0, 0, 0, 0.4);
   cursor: default;
   overflow: hidden;
@@ -1324,67 +1328,47 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
 }
 
-.collect-readout {
-  border-radius: 12px;
-  background: rgba(6, 20, 8, 0.72);
-  border: 1px solid rgba(74, 222, 128, 0.28);
-  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.5);
-  backdrop-filter: blur(2px);
+/* ── Control bar (attached below the board, jungle palette) ─────────────── */
+.ctrl-bar {
+  background: linear-gradient(180deg, #0d2410 0%, #061708 100%);
+  border-top: 1px solid rgba(74, 222, 128, 0.28);
+  border-radius: 0 0 16px 16px;
+  box-shadow: inset 0 1px 0 rgba(187, 247, 208, 0.12);
 }
 
-/* ── Controls — War-Heroes style: transparent footer on the page bg, with a
-   detached credit pill, floating WIN, and a spin cluster overlapping the reels */
-.wh-footer {
-  position: relative;
-  z-index: 2;
-  margin-top: 10px;
-  min-height: 56px;
-  /* reserve the right zone so WIN centres between the credit pill and the
-     absolutely-positioned spin cluster */
-  padding: 0 164px 0 2px;
+/* Credit / Bet readout chips */
+.readout {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.28);
+  box-shadow: inset 0 0 0 1px rgba(74, 222, 128, 0.14);
 }
 
-/* the spin cluster floats at the right; anchored to the footer baseline so
-   AUTO lines up with CREDIT/WIN while the gold ball pokes up over the reels */
-.wh-spin-cluster {
-  position: absolute;
-  right: 2px;
-  bottom: 0;
-  padding: 0;
-}
-
-/* left credit/bet block — a standalone bordered pill like the War Heroes one */
-.wh-credit {
-  padding: 8px 14px 8px 9px;
-  border-radius: 14px;
-  background: rgba(6, 16, 8, 0.82);
-  border: 1px solid rgba(245, 197, 24, 0.28);
-  box-shadow: inset 0 1px 0 rgba(245, 197, 24, 0.08), 0 6px 18px rgba(0, 0, 0, 0.55);
-  backdrop-filter: blur(3px);
-}
-
-.wh-meta-label {
+.ctrl-label {
   font-size: 9px;
   text-transform: uppercase;
-  letter-spacing: 0.16em;
+  letter-spacing: 0.18em;
   font-weight: 700;
-  color: rgba(214, 211, 180, 0.45);
+  color: rgba(187, 247, 208, 0.45);
   flex-shrink: 0;
 }
 
-.wh-meta-val {
+.ctrl-value {
   font-family: ui-monospace, monospace;
-  font-size: 14px;
-  font-weight: 800;
-  color: #fde047;
+  font-size: 13px;
+  font-weight: 700;
+  color: #fff;
   letter-spacing: 0.01em;
-  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.5);
 }
 
-.wh-bet-input {
-  width: 4.5em;
+/* Editable bet field — looks like the readout value, free typing for any stake */
+.bet-input {
   min-width: 0;
-  text-align: left;
+  flex: 1;
+  text-align: right;
   background: transparent;
   border: none;
   outline: none;
@@ -1392,177 +1376,181 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
   appearance: textfield;
 }
 
-.wh-bet-input:focus {
-  color: #fff;
+.bet-input:focus {
+  color: #fde047;
 }
 
-.wh-bet-input:disabled {
-  opacity: 0.7;
+.bet-input:disabled {
+  opacity: 0.6;
   cursor: default;
 }
 
-.wh-bet-input::-webkit-inner-spin-button,
-.wh-bet-input::-webkit-outer-spin-button {
+.bet-input::-webkit-inner-spin-button,
+.bet-input::-webkit-outer-spin-button {
   appearance: none;
   margin: 0;
 }
 
-/* big centred WIN readout in gold */
-.wh-win {
-  font-size: clamp(20px, 4.5vw, 28px);
+/* Win amount */
+.win-amount {
+  font-size: 22px;
   font-weight: 900;
   line-height: 1;
-  letter-spacing: 0.02em;
   font-variant-numeric: tabular-nums;
-  color: #f5c518;
-  text-shadow: 0 0 20px rgba(245, 197, 24, 0.55), 0 2px 2px rgba(0, 0, 0, 0.5);
+  color: #fde047;
+  text-shadow: 0 0 18px rgba(250, 204, 21, 0.6), 0 1px 1px rgba(0, 0, 0, 0.4);
 }
 
-.wh-win--idle {
-  color: rgba(214, 211, 180, 0.22);
-  text-shadow: none;
+.win-idle {
+  font-size: 22px;
+  font-weight: 900;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  color: rgba(187, 247, 208, 0.18);
 }
 
-/* small round gold-outline icon buttons (info / turbo) */
-.wh-icon {
-  width: 30px;
-  height: 30px;
+/* Info / Turbo icon buttons */
+.icon-btn {
+  width: 32px;
+  height: 32px;
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(0, 0, 0, 0.25);
-  color: rgba(245, 197, 24, 0.6);
-  border: 1px solid rgba(245, 197, 24, 0.3);
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(187, 247, 208, 0.5);
+  border: 1px solid rgba(74, 222, 128, 0.2);
   cursor: pointer;
   transition: background 0.15s, color 0.15s, border-color 0.15s;
 }
 
-.wh-icon:hover {
-  background: rgba(245, 197, 24, 0.14);
-  color: #fde047;
-  border-color: rgba(245, 197, 24, 0.55);
+.icon-btn:hover {
+  background: rgba(74, 222, 128, 0.18);
+  color: #fff;
+  border-color: rgba(74, 222, 128, 0.4);
 }
 
-.wh-icon--active {
-  background: rgba(245, 197, 24, 0.2);
+.icon-btn--active {
+  background: rgba(250, 204, 21, 0.18);
   color: #fde047;
-  border-color: rgba(245, 197, 24, 0.6);
-  box-shadow: 0 0 10px rgba(245, 197, 24, 0.35);
+  border-color: rgba(250, 204, 21, 0.4);
+  box-shadow: 0 0 10px rgba(250, 204, 21, 0.3);
 }
 
-/* − / + bet steppers: gold-outlined transparent circles */
-.wh-step {
+/* Bet adjustment ½ / 2× buttons */
+.adj-btn {
   width: 38px;
   height: 38px;
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 22px;
-  font-weight: 700;
-  color: #f5c518;
-  background: rgba(0, 0, 0, 0.2);
-  border: 2px solid rgba(245, 197, 24, 0.5);
+  color: rgba(235, 255, 240, 0.85);
+  background: radial-gradient(circle at 50% 30%, #1e5a2a 0%, #0d2a13 100%);
+  border: 1px solid rgba(74, 222, 128, 0.35);
+  box-shadow: inset 0 1px 0 rgba(187, 247, 208, 0.2), 0 2px 6px rgba(0, 0, 0, 0.4);
   cursor: pointer;
-  transition: background 0.15s, border-color 0.15s, transform 0.1s;
+  transition: filter 0.15s, transform 0.1s;
 }
 
-.wh-step:hover:not(:disabled) {
-  background: rgba(245, 197, 24, 0.16);
-  border-color: rgba(245, 197, 24, 0.85);
+.adj-btn:hover:not(:disabled) {
+  filter: brightness(1.3);
 }
 
-.wh-step:active:not(:disabled) {
-  transform: scale(0.9);
+.adj-btn:active:not(:disabled) {
+  transform: scale(0.92);
 }
 
-.wh-step:disabled {
+.adj-btn:disabled {
   opacity: 0.3;
   cursor: default;
 }
 
-/* SPIN — solid gold sphere, the War Heroes hero button */
-.wh-spin {
-  width: 72px;
-  height: 72px;
+/* SPIN button — gold gem */
+.spin-btn {
+  position: relative;
+  width: 74px;
+  height: 74px;
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 900;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: #5a3d05;
-  background: radial-gradient(circle at 50% 30%, #fef3c7 0%, #fbdf6b 24%, #f5c518 52%, #d99a08 82%, #a06c04 100%);
-  box-shadow: 0 5px 0 #6e4a04,
-    0 11px 26px rgba(0, 0, 0, 0.55),
-    inset 0 2px 5px rgba(255, 255, 255, 0.6),
-    inset 0 -4px 8px rgba(120, 80, 4, 0.5);
-  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.35);
+  color: #4a3206;
+  background: radial-gradient(circle at 50% 28%, #fef3c7 0%, #fbdf6b 34%, #f5c518 66%, #b8860b 100%);
+  box-shadow: 0 5px 0 #7a5a06,
+    0 10px 28px rgba(245, 197, 24, 0.5),
+    inset 0 2px 4px rgba(255, 255, 255, 0.55);
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.3);
   cursor: pointer;
   transition: transform 0.08s, box-shadow 0.08s, filter 0.15s, opacity 0.15s;
   border: none;
   outline: none;
 }
 
-.wh-spin:hover:not(:disabled) {
+/* glossy ring */
+.spin-btn__ring {
+  position: absolute;
+  inset: 5px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.35) 0%, transparent 45%);
+  pointer-events: none;
+}
+
+.spin-btn:hover:not(:disabled) {
   filter: brightness(1.06);
 }
 
-.wh-spin:active:not(:disabled) {
+.spin-btn:active:not(:disabled) {
   transform: translateY(4px);
-  box-shadow: 0 1px 0 #6e4a04, 0 4px 12px rgba(0, 0, 0, 0.5), inset 0 2px 5px rgba(255, 255, 255, 0.5);
+  box-shadow: 0 1px 0 #7a5a06, 0 4px 14px rgba(245, 197, 24, 0.4), inset 0 2px 4px rgba(255, 255, 255, 0.45);
 }
 
-.wh-spin:disabled {
-  opacity: 0.55;
+.spin-btn:disabled {
+  opacity: 0.5;
   cursor: default;
-  filter: saturate(0.7);
+  filter: saturate(0.6);
 }
 
-/* AUTO pill under the spin ball */
-.wh-auto {
+/* AUTO / STOP text button */
+.auto-btn {
   font-size: 9px;
   text-transform: uppercase;
-  letter-spacing: 0.2em;
+  letter-spacing: 0.24em;
   font-weight: 800;
-  color: rgba(245, 197, 24, 0.75);
-  background: rgba(0, 0, 0, 0.25);
-  border: 1px solid rgba(245, 197, 24, 0.35);
-  border-radius: 999px;
-  padding: 2px 12px;
+  color: rgba(187, 247, 208, 0.5);
+  background: none;
+  border: none;
   cursor: pointer;
-  transition: color 0.15s, border-color 0.15s, background 0.15s;
+  transition: color 0.15s;
+  padding: 0;
 }
 
-.wh-auto:hover:not(:disabled) {
-  color: #fde047;
-  border-color: rgba(245, 197, 24, 0.6);
-  background: rgba(245, 197, 24, 0.12);
+.auto-btn:hover:not(:disabled) {
+  color: #dcfce7;
 }
 
-.wh-auto:disabled {
+.auto-btn:disabled {
   opacity: 0.3;
   cursor: default;
 }
 
-.wh-auto--stop {
-  color: rgba(248, 113, 113, 0.8);
-  border-color: rgba(248, 113, 113, 0.4);
+.auto-btn--stop {
+  color: rgba(248, 113, 113, 0.75);
 }
 
-.wh-auto--stop:hover {
+.auto-btn--stop:hover {
   color: #f87171;
-  border-color: rgba(248, 113, 113, 0.7);
-  background: rgba(248, 113, 113, 0.12);
 }
 
 .error-strip {
-  background: rgba(87, 29, 29, 0.6);
-  border: 1px solid rgba(185, 28, 28, 0.4);
-  border-radius: 12px;
+  background: rgba(87, 29, 29, 0.55);
+  border-top: 1px solid rgba(185, 28, 28, 0.4);
+  border-radius: 0 0 16px 16px;
 }
 
 /* ── Transitions ────────────────────────────────────────────────────────── */
