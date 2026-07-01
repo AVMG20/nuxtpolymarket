@@ -641,10 +641,12 @@ async function spin() {
     // 2. Celebrate line wins.
     if (result.lines.length) {
       lastLines.value = result.lines.length
-      const winLines = result.lines.map(l => ({ positions: l.cells.map(c => ({ reelIndex: c.col, rowIndex: c.row })) }))
-      drawBaseWinConnections(result.lines)
-      spawnLineWinText(result.lines)
-      await reelSet.spotlight.cycle(winLines, { displayDuration: 850, gapDuration: 180, cycles: 1 })
+      for (const line of result.lines) {
+        const winLine = { positions: line.cells.map(c => ({ reelIndex: c.col, rowIndex: c.row })) }
+        drawBaseWinConnections([line])
+        spawnLineWinText([line])
+        await reelSet.spotlight.cycle([winLine], { displayDuration: 850, gapDuration: 120, cycles: 1 })
+      }
       clearConnections()
     }
 
