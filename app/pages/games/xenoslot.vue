@@ -161,14 +161,14 @@ const SYMBOL_TEX: Record<string, any> = {}
 const MEDAL_TEX: Record<string, any> = {}
 const CHEST_TEX: Record<string, any> = {}
 
-const APP_W = 600
-const APP_H = 380
-const CELL = 108
-const GAP = 6
+const APP_W = 720
+const APP_H = 456
+const CELL = 128
+const GAP = 8
 const REEL_W = 5 * CELL + 4 * GAP
 const REEL_H = 3 * CELL + 2 * GAP
-const B_CELL = 100
-const B_GAP = 6
+const B_CELL = 120
+const B_GAP = 8
 const B_W = 5 * (B_CELL + B_GAP) - B_GAP
 const B_H = 3 * (B_CELL + B_GAP) - B_GAP
 
@@ -924,12 +924,12 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 
 <template>
   <!-- Jungle background, scoped to the page (not the sidebar) -->
-  <div class="page-root relative min-h-full flex flex-col items-center overflow-hidden px-3 py-6">
+  <div class="page-root relative min-h-full flex flex-col items-center overflow-hidden px-3 py-5 sm:py-6">
     <div class="page-bg" />
     <div class="page-vignette" />
 
     <!-- ── Title ── -->
-    <div class="xs-title relative z-[1] mb-4 sm:mb-5 text-center">
+    <div class="xs-title relative z-[1] mb-3 sm:mb-4 text-center">
       <h1 class="xs-title__text">
         <span class="xs-title__emoji">🌿</span>
         Xeno Slot
@@ -942,7 +942,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
       </div>
     </div>
 
-    <div class="game-layout relative w-full max-w-[600px] flex flex-col">
+    <div class="game-layout relative w-full max-w-[760px] flex flex-col">
       <!-- Slot machine -->
       <div class="machine w-full flex flex-col">
         <!-- ── Reel area ── -->
@@ -1013,7 +1013,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
         </div>
 
         <!-- ── Control bar (attached below the board) ── -->
-        <div class="ctrl-bar flex items-center gap-2 sm:gap-4 px-4 py-3.5">
+        <div class="ctrl-bar flex items-center gap-2 sm:gap-5 px-4 py-3.5 sm:px-5 sm:py-4">
           <!-- LEFT: icons + credit/bet -->
           <div class="flex items-center gap-2.5 sm:gap-3 flex-1 min-w-0">
             <!-- Action icons stacked -->
@@ -1328,7 +1328,9 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
   position: absolute;
   inset: 0;
   z-index: 0;
-  background: radial-gradient(ellipse 75% 65% at 50% 42%, rgba(4, 16, 6, 0.35) 0%, rgba(4, 16, 6, 0.72) 68%, rgba(2, 10, 4, 0.92) 100%);
+  background:
+      radial-gradient(ellipse 62% 44% at 50% 35%, rgba(255, 232, 129, 0.12) 0%, rgba(22, 163, 74, 0.08) 34%, transparent 68%),
+      radial-gradient(ellipse 78% 66% at 50% 42%, rgba(4, 16, 6, 0.28) 0%, rgba(4, 16, 6, 0.68) 66%, rgba(2, 10, 4, 0.94) 100%);
 }
 
 .page-root > .game-layout {
@@ -1396,21 +1398,31 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 
 /* ── Machine shell ──────────────────────────────────────────────────────── */
 .machine {
-  border-radius: 22px;
-  padding: 8px;
-  background: linear-gradient(160deg, rgba(74, 222, 128, 0.22), rgba(21, 94, 43, 0.14) 40%, rgba(6, 20, 8, 0.62));
-  box-shadow: 0 0 0 1px rgba(74, 222, 128, 0.35),
-  inset 0 1px 0 rgba(187, 247, 208, 0.25),
-  0 0 60px rgba(22, 163, 74, 0.25),
-  0 30px 80px rgba(0, 0, 0, 0.85);
+  border-radius: 24px;
+  padding: 10px;
+  background:
+      linear-gradient(180deg, rgba(239, 255, 244, 0.22), transparent 9%),
+      linear-gradient(160deg, rgba(74, 222, 128, 0.3), rgba(21, 94, 43, 0.18) 42%, rgba(4, 18, 8, 0.78));
+  box-shadow:
+      0 0 0 1px rgba(74, 222, 128, 0.42),
+      0 0 0 4px rgba(3, 14, 5, 0.5),
+      inset 0 1px 0 rgba(220, 252, 231, 0.28),
+      inset 0 -18px 28px rgba(0, 0, 0, 0.18),
+      0 0 72px rgba(22, 163, 74, 0.28),
+      0 34px 88px rgba(0, 0, 0, 0.88);
   backdrop-filter: blur(2px);
 }
 
 /* ── Reel area ──────────────────────────────────────────────────────────── */
 .reel-area {
-  background: radial-gradient(ellipse 120% 78% at 50% 0%, #1e5a2a 0%, #14401d 30%, #0d2a13 58%, #08200c 82%, #061708 100%);
-  border-radius: 15px 15px 0 0;
-  box-shadow: inset 0 0 0 1px rgba(74, 222, 128, 0.18), inset 0 2px 18px rgba(0, 0, 0, 0.4);
+  background:
+      linear-gradient(90deg, rgba(255, 255, 255, 0.04), transparent 10%, transparent 90%, rgba(255, 255, 255, 0.035)),
+      radial-gradient(ellipse 120% 78% at 50% 0%, #23652f 0%, #16461f 30%, #0d2a13 58%, #08200c 82%, #061708 100%);
+  border-radius: 17px 17px 0 0;
+  box-shadow:
+      inset 0 0 0 1px rgba(187, 247, 208, 0.18),
+      inset 0 0 0 5px rgba(3, 18, 7, 0.32),
+      inset 0 2px 22px rgba(0, 0, 0, 0.42);
   cursor: default;
   overflow: hidden;
 }
@@ -1420,8 +1432,10 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
   inset: 0;
   z-index: 15;
   pointer-events: none;
-  background: radial-gradient(ellipse 80% 55% at 50% 110%, rgba(0, 0, 0, 0.38) 0%, transparent 60%),
-  linear-gradient(180deg, rgba(255, 255, 255, 0.06) 0%, transparent 18%);
+  background:
+      radial-gradient(ellipse 72% 48% at 50% 105%, rgba(0, 0, 0, 0.42) 0%, transparent 64%),
+      linear-gradient(180deg, rgba(255, 255, 255, 0.1) 0%, transparent 16%),
+      linear-gradient(90deg, rgba(0, 0, 0, 0.28), transparent 7%, transparent 93%, rgba(0, 0, 0, 0.28));
 }
 
 /* ── Bonus / pause overlays ─────────────────────────────────────────────── */
@@ -1442,10 +1456,14 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 
 /* ── Control bar (attached below the board, jungle palette) ─────────────── */
 .ctrl-bar {
-  background: linear-gradient(180deg, #0d2410 0%, #061708 100%);
-  border-top: 1px solid rgba(74, 222, 128, 0.28);
-  border-radius: 0 0 16px 16px;
-  box-shadow: inset 0 1px 0 rgba(187, 247, 208, 0.12);
+  background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.045), transparent 20%),
+      linear-gradient(180deg, #102d14 0%, #071909 100%);
+  border-top: 1px solid rgba(187, 247, 208, 0.22);
+  border-radius: 0 0 18px 18px;
+  box-shadow:
+      inset 0 1px 0 rgba(220, 252, 231, 0.14),
+      inset 0 -1px 0 rgba(0, 0, 0, 0.65);
 }
 
 /* Credit / Bet readout chips */
@@ -1453,10 +1471,13 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 12px;
+  min-height: 34px;
+  padding: 7px 13px;
   border-radius: 8px;
-  background: rgba(0, 0, 0, 0.28);
-  box-shadow: inset 0 0 0 1px rgba(74, 222, 128, 0.14);
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.18), rgba(0, 0, 0, 0.36));
+  box-shadow:
+      inset 0 0 0 1px rgba(74, 222, 128, 0.18),
+      inset 0 1px 0 rgba(255, 255, 255, 0.05);
 }
 
 .ctrl-label {
@@ -1470,7 +1491,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 
 .ctrl-value {
   font-family: ui-monospace, monospace;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 700;
   color: #fff;
   letter-spacing: 0.01em;
@@ -1505,7 +1526,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 
 /* Win amount */
 .win-amount {
-  font-size: 22px;
+  font-size: 25px;
   font-weight: 900;
   line-height: 1;
   font-variant-numeric: tabular-nums;
@@ -1514,7 +1535,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 }
 
 .win-idle {
-  font-size: 22px;
+  font-size: 25px;
   font-weight: 900;
   line-height: 1;
   font-variant-numeric: tabular-nums;
@@ -1523,13 +1544,13 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 
 /* Info / Turbo icon buttons */
 .icon-btn {
-  width: 32px;
-  height: 32px;
+  width: 36px;
+  height: 36px;
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(255, 255, 255, 0.05);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.07), rgba(0, 0, 0, 0.16));
   color: rgba(187, 247, 208, 0.5);
   border: 1px solid rgba(74, 222, 128, 0.2);
   cursor: pointer;
@@ -1551,14 +1572,16 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 
 /* Bet adjustment ½ / 2× buttons */
 .adj-btn {
-  width: 38px;
-  height: 38px;
+  width: 42px;
+  height: 42px;
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
   color: rgba(235, 255, 240, 0.85);
-  background: radial-gradient(circle at 50% 30%, #1e5a2a 0%, #0d2a13 100%);
+  background:
+      radial-gradient(circle at 50% 26%, rgba(220, 252, 231, 0.16) 0%, transparent 32%),
+      radial-gradient(circle at 50% 30%, #23652f 0%, #0d2a13 100%);
   border: 1px solid rgba(74, 222, 128, 0.35);
   box-shadow: inset 0 1px 0 rgba(187, 247, 208, 0.2), 0 2px 6px rgba(0, 0, 0, 0.4);
   cursor: pointer;
@@ -1581,21 +1604,23 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 /* SPIN button — gold gem */
 .spin-btn {
   position: relative;
-  width: 74px;
-  height: 74px;
+  width: 84px;
+  height: 84px;
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 900;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: #4a3206;
   background: radial-gradient(circle at 50% 28%, #fef3c7 0%, #fbdf6b 34%, #f5c518 66%, #b8860b 100%);
-  box-shadow: 0 5px 0 #7a5a06,
-  0 10px 28px rgba(245, 197, 24, 0.5),
-  inset 0 2px 4px rgba(255, 255, 255, 0.55);
+  box-shadow:
+      0 6px 0 #7a5a06,
+      0 13px 30px rgba(245, 197, 24, 0.48),
+      0 0 0 4px rgba(58, 35, 4, 0.26),
+      inset 0 2px 4px rgba(255, 255, 255, 0.58);
   text-shadow: 0 1px 0 rgba(255, 255, 255, 0.3);
   cursor: pointer;
   transition: transform 0.08s, box-shadow 0.08s, filter 0.15s, opacity 0.15s;
@@ -1606,7 +1631,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 /* glossy ring */
 .spin-btn__ring {
   position: absolute;
-  inset: 5px;
+  inset: 6px;
   border-radius: 50%;
   border: 1px solid rgba(255, 255, 255, 0.35);
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.35) 0%, transparent 45%);
@@ -1619,7 +1644,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 
 .spin-btn:active:not(:disabled) {
   transform: translateY(4px);
-  box-shadow: 0 1px 0 #7a5a06, 0 4px 14px rgba(245, 197, 24, 0.4), inset 0 2px 4px rgba(255, 255, 255, 0.45);
+  box-shadow: 0 2px 0 #7a5a06, 0 6px 16px rgba(245, 197, 24, 0.38), inset 0 2px 4px rgba(255, 255, 255, 0.45);
 }
 
 .spin-btn:disabled {
@@ -1663,6 +1688,46 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
   background: rgba(87, 29, 29, 0.55);
   border-top: 1px solid rgba(185, 28, 28, 0.4);
   border-radius: 0 0 16px 16px;
+}
+
+@media (max-width: 480px) {
+  .machine {
+    border-radius: 18px;
+    padding: 6px;
+  }
+
+  .reel-area {
+    border-radius: 13px 13px 0 0;
+  }
+
+  .ctrl-bar {
+    border-radius: 0 0 14px 14px;
+  }
+
+  .readout {
+    min-height: 30px;
+    padding: 5px 9px;
+  }
+
+  .ctrl-value {
+    font-size: 12px;
+  }
+
+  .icon-btn {
+    width: 30px;
+    height: 30px;
+  }
+
+  .adj-btn {
+    width: 34px;
+    height: 34px;
+  }
+
+  .spin-btn {
+    width: 70px;
+    height: 70px;
+    font-size: 13px;
+  }
 }
 
 /* ── Transitions ────────────────────────────────────────────────────────── */
