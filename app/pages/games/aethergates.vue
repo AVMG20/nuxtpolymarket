@@ -372,7 +372,7 @@ function toTargets(grid: AetherSymbol[][]) {
 function multBorderColor(value: number): number {
   if (value >= 100) return 0xfde047 // gold — jackpot-tier relic
   if (value >= 50) return 0xfb923c // orange — huge
-  if (value >= AETHER_LIGHTNING_MIN_MULT) return 0xf472b6 // pink — big (lightning tier)
+  if (value >= 25) return 0xf472b6 // pink — big
   if (value >= 10) return 0xa78bfa // violet — solid
   return 0x67e8f9 // cyan — default/small
 }
@@ -459,6 +459,13 @@ function makeSymbolClass() {
     // static badge doesn't overlap the flying "×N" clone.
     fadeMultLabel(duration: number) {
       GSAP.to([this.label, this.labelBg], { alpha: 0, duration })
+    }
+
+    // A small grow-and-settle nudge on the value badge, timed with the
+    // lightning strike so the number stays the readable focal point.
+    pulseMultLabel(duration: number) {
+      GSAP.fromTo(this.label.scale, { x: 1, y: 1 }, { x: 1.45, y: 1.45, duration: duration * 0.4, yoyo: true, repeat: 1, ease: 'back.out(2)' })
+      GSAP.fromTo(this.labelBg.scale, { x: 1, y: 1 }, { x: 1.45, y: 1.45, duration: duration * 0.4, yoyo: true, repeat: 1, ease: 'back.out(2)' })
     }
 
     onActivate(id: string) {
@@ -663,10 +670,8 @@ async function flyMultiplier(drop: MultDrop, toValue: number) {
 }
 
 // Relics at/above this value get a quick lightning strike before they fly off.
-const AETHER_LIGHTNING_MIN_MULT = 25
-// Requested for testing so every relic shows the strike right now — flip to
-// false once tuned so it only fires for drop.value >= AETHER_LIGHTNING_MIN_MULT.
-const AETHER_LIGHTNING_TEST_MODE = true
+const AETHER_LIGHTNING_MIN_MULT = 10
+const AETHER_LIGHTNING_TEST_MODE = false
 
 // Deliberately NOT scaled by turbo — this is a short showcase beat for a big
 // hit, not part of the normal spin-speed pacing.
@@ -690,32 +695,38 @@ function spawnLightningStrike(drop: MultDrop): Promise<void> {
   const { Graphics } = PIXI
   const p = cellLocal(drop.col, drop.row)
 
-  const bolt = jaggedBolt(p.x, p.y, p.y - 74, 22)
-  bolt.stroke({ color: 0xe0f7ff, width: 3.5, alpha: 1 })
+  // The bolt is the star here — tall, thick, and it flickers like a real
+  // strike. The impact glow sits near the TOP of the tile (not centered)
+  // so it never washes out the "×N" label sitting at the bottom.
+  const bolt = jaggedBolt(p.x, p.y - 24, p.y - 96, 24)
+  bolt.stroke({ color: 0xe0f7ff, width: 4.5, alpha: 1 })
   bolt.alpha = 0
   overlayLayer.addChild(bolt)
 
-  const branch = jaggedBolt(p.x + 12, p.y, p.y - 46, 26)
-  branch.stroke({ color: 0xbae6fd, width: 2, alpha: 1 })
+  const branch = jaggedBolt(p.x + 16, p.y - 24, p.y - 60, 28)
+  branch.stroke({ color: 0xbae6fd, width: 2.5, alpha: 1 })
   branch.alpha = 0
   overlayLayer.addChild(branch)
 
-  const flash = new Graphics()
-  flash.circle(0, 0, 42).fill({ color: 0xffffff, alpha: 1 })
-  flash.position.set(p.x, p.y)
-  flash.alpha = 0
-  overlayLayer.addChild(flash)
+  const impactY = p.y - 26
+  const impact = new Graphics()
+  impact.circle(0, 0, 18).fill({ color: 0xffffff, alpha: 1 })
+  impact.position.set(p.x, impactY)
+  impact.alpha = 0
+  overlayLayer.addChild(impact)
 
   const ring = new Graphics()
-  ring.circle(0, 0, 20).stroke({ color: 0xe0f7ff, width: 3, alpha: 1 })
-  ring.position.set(p.x, p.y)
+  ring.circle(0, 0, 16).stroke({ color: 0xe0f7ff, width: 3, alpha: 1 })
+  ring.position.set(p.x, impactY)
   ring.alpha = 0
   overlayLayer.addChild(ring)
+
+  reelSet?.getReel?.(drop.col)?.getSymbolAt?.(drop.row)?.pulseMultLabel?.(0.4)
 
   return new Promise<void>((resolve) => {
     GSAP.timeline({
       onComplete: () => {
-        for (const g of [bolt, branch, flash, ring]) {
+        for (const g of [bolt, branch, impact, ring]) {
           try {
             g.destroy()
           } catch { /* ignore */ }
@@ -723,13 +734,15 @@ function spawnLightningStrike(drop: MultDrop): Promise<void> {
         resolve()
       }
     })
-      .to(bolt, { alpha: 1, duration: 0.06 })
-      .to(branch, { alpha: 0.85, duration: 0.05 }, '<0.02')
-      .to(flash, { alpha: 0.9, duration: 0.05 }, '<')
-      .to(ring.scale, { x: 2.6, y: 2.6, duration: 0.3, ease: 'power2.out' }, '<')
-      .to(ring, { alpha: 0, duration: 0.3 }, '<')
-      .to(flash, { alpha: 0, duration: 0.12 }, '-=0.1')
-      .to([bolt, branch], { alpha: 0, duration: 0.18 }, '<')
+      .to(bolt, { alpha: 1, duration: 0.07 })
+      .to(branch, { alpha: 0.85, duration: 0.05 }, '<0.03')
+      .to(bolt, { alpha: 0.35, duration: 0.04 }, '+=0.02')
+      .to(bolt, { alpha: 1, duration: 0.04 })
+      .to(impact, { alpha: 0.75, duration: 0.05 }, '<')
+      .to(ring.scale, { x: 2.4, y: 2.4, duration: 0.24, ease: 'power2.out' }, '<')
+      .to(ring, { alpha: 0, duration: 0.24 }, '<')
+      .to(impact, { alpha: 0, duration: 0.1 }, '+=0.02')
+      .to([bolt, branch], { alpha: 0, duration: 0.2 }, '<')
   })
 }
 
@@ -1056,7 +1069,7 @@ onUnmounted(() => {
         >
           <span class="sr-only">Multiplier meter</span>
           <p class="absolute top-[74%] left-1/2 -translate-x-1/2 -translate-y-1/2 text-[clamp(20px,5.4vw,30px)] leading-none font-black whitespace-nowrap text-[#fde047] [text-shadow:0_0_20px_rgba(250,204,21,0.6)]">
-            ×{{ formatNumber(Math.max(1, meter), false) }}
+            ×{{ formatNumber(Math.max(1, meter), false, 0) }}
           </p>
         </div>
       </div>
@@ -1578,8 +1591,7 @@ onUnmounted(() => {
 }
 
 .ag-feature-btn:disabled {
-  opacity: 0.45;
-  cursor: default;
+  cursor: not-allowed;
 }
 
 .ag-feature-btn:not(:disabled):hover {
