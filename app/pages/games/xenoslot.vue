@@ -7,7 +7,27 @@ const balance = ref(parseFloat(user.value?.balance ?? '0'))
 watch(() => user.value?.balance, (v) => { if (v !== undefined) balance.value = parseFloat(v ?? '0') })
 
 // --- bet / round state ------------------------------------------------------
+const MIN_BET = 1
+const MAX_BET = 1_000_000
 const bet = ref(10)
+const betInput = ref('10')
+watch(bet, (v) => { betInput.value = String(v) })
+
+function clampBet(v: number): number {
+  if (!Number.isFinite(v) || v < MIN_BET) return MIN_BET
+  return Math.min(MAX_BET, Math.floor(v))
+}
+function setBet(v: number) {
+  if (isSpinning.value || autoSpinEnabled.value) return
+  bet.value = clampBet(v)
+}
+function commitBetInput() {
+  setBet(parseInt(betInput.value.replace(/[^\d]/g, ''), 10) || MIN_BET)
+  betInput.value = String(bet.value)
+}
+function betDown() { setBet(Math.floor(bet.value / 2)) }
+function betUp() { setBet(bet.value * 2) }
+
 const turbo = ref(false)
 const isSpinning = ref(false)
 const errorMsg = ref('')
@@ -60,8 +80,6 @@ function onCanvasClick() {
   }
 }
 
-const lineBet = computed(() => bet.value / XENOSLOT_LINES)
-
 // Approx odds of triggering the bonus (3+ bonus symbols across the 15 cells),
 // expressed as "1 in N". Binomial, p = bonus weight / total weight per cell.
 const bonusOdds = computed(() => {
@@ -79,6 +97,51 @@ const bonusOdds = computed(() => {
   return pTrigger > 0 ? Math.round(1 / pTrigger) : 0
 })
 
+// --- asset atlas geometry ---------------------------------------------------
+// The symbols live in a 5×3 sheet; the coins/collector live in a second sheet.
+// The tiles are NOT evenly divided — the sheet has outer margins and ~16px
+// gutters between tiles, so the cut lines below were measured from the art
+// (gutter centres) rather than assumed. Slicing on 1/5 · 1/3 drifts and clips
+// the vine frames off the tiles.
+const SHEET_W = 1536
+const SHEET_H = 1024
+const COL_CUT = [27, 323, 621, 917, 1211, 1507] // vertical tile edges (6 → 5 cols)
+const ROW_CUT = [42, 343, 644, 945] // horizontal tile edges (4 → 3 rows)
+
+// [x, y, w, h] of the tile at grid cell (col, row).
+function tileRect(c: number, r: number): [number, number, number, number] {
+  const x = COL_CUT[c]!
+  const y = ROW_CUT[r]!
+  return [x, y, COL_CUT[c + 1]! - x, ROW_CUT[r + 1]! - y]
+}
+
+// Which sheet tile [col,row] each game symbol paints. Ordered low → high so the
+// value ramp reads: leafy greens → flowers → prestige plants → wild → scatter.
+const SYMBOL_TILE: Record<SlotSymbol, [number, number]> = {
+  ten: [2, 2], // fern
+  jack: [1, 0], // J
+  queen: [0, 0], // Q
+  king: [2, 0], // K
+  ace: [3, 0], // succulent
+  bell: [4, 1], // lavender
+  seven: [4, 0], // orchid
+  diamond: [2, 1], // bonsai
+  wild: [0, 2], // WILD plaque
+  bonus: [1, 2] // SCATTER clover
+}
+
+// Coin medallion + treasure-chest frames inside coins.png.
+const MEDAL_FRAME: Record<'bronze' | 'silver' | 'gold' | 'green', [number, number, number, number]> = {
+  bronze: [36, 100, 330, 330],
+  silver: [409, 100, 330, 330],
+  gold: [783, 100, 330, 330],
+  green: [1158, 100, 330, 330]
+}
+const CHEST_FRAME: Record<'closed' | 'open', [number, number, number, number]> = {
+  closed: [247, 520, 467, 378],
+  open: [809, 520, 452, 378]
+}
+
 // --- pixi (non-reactive on purpose; Vue proxies break PixiJS objects) -------
 const canvasWrap = ref<HTMLDivElement>()
 let app: any = null
@@ -90,6 +153,11 @@ let CoinSymbolClass: any = null
 let CollectorSymbolClass: any = null
 let GloverSymbolClass: any = null
 let destroyed = false
+
+// Textures cut from the two atlases, built once the sheets load.
+const SYMBOL_TEX: Record<string, any> = {}
+const MEDAL_TEX: Record<string, any> = {}
+const CHEST_TEX: Record<string, any> = {}
 
 const APP_W = 600
 const APP_H = 380
@@ -104,47 +172,15 @@ const B_H = 3 * (B_CELL + B_GAP) - B_GAP
 
 const wait = (ms: number) => new Promise<void>(r => setTimeout(r, ms))
 
-// Symbol tiers follow an RPG item-quality ramp so value is immediately readable:
-//   common (gray) → uncommon (green) → rare (blue) → epic (purple) → legendary (gold) → wild (red)
-//   bonus is its own fuchsia category (trigger, not a pay symbol).
-const VISUALS: Record<SlotSymbol, { bg: number, border: number, fg: number, label: string, size?: number }> = {
-  // ── Common (gray) ──────────────────────────────────────────────────────────
-  ten:     { bg: 0x18181b, border: 0x52525b, fg: 0xa1a1aa, label: '10',  size: 38 },
-  jack:    { bg: 0x1c1c1f, border: 0x71717a, fg: 0xd4d4d8, label: 'J',   size: 46 },
-  // ── Uncommon (green) ───────────────────────────────────────────────────────
-  queen:   { bg: 0x061a0e, border: 0x16a34a, fg: 0x86efac, label: 'Q',   size: 46 },
-  king:    { bg: 0x072b12, border: 0x22c55e, fg: 0xbbf7d0, label: 'K',   size: 46 },
-  // ── Rare (blue) ────────────────────────────────────────────────────────────
-  ace:     { bg: 0x0b1533, border: 0x3b82f6, fg: 0x93c5fd, label: 'A',   size: 46 },
-  bell:    { bg: 0x051a22, border: 0x06b6d4, fg: 0x67e8f9, label: '🌱',  size: 50 },
-  // ── Epic (purple) ──────────────────────────────────────────────────────────
-  seven:   { bg: 0x150929, border: 0x9333ea, fg: 0xd8b4fe, label: '🌿',  size: 52 },
-  // ── Legendary (gold) ───────────────────────────────────────────────────────
-  diamond: { bg: 0x1a1200, border: 0xf59e0b, fg: 0xfde68a, label: '🍀',  size: 52 },
-  // ── Wild (red — highest pay) ───────────────────────────────────────────────
-  wild:    { bg: 0x250404, border: 0xef4444, fg: 0xfecaca, label: '🍄‍',  size: 54 },
-  // ── Bonus (fuchsia — trigger only, not a pay symbol) ──────────────────────
-  bonus:   { bg: 0x1e0528, border: 0xe879f9, fg: 0xf5d0fe, label: '🃏',  size: 52 }
-}
-
-// Paytable rows for the help modal, high → low.
-// Divide by XENOSLOT_LINES so the values are × total bet (what the player actually feels).
-const PAY_ORDER: Exclude<SlotSymbol, 'bonus'>[] = ['wild', 'diamond', 'seven', 'bell', 'ace', 'king', 'queen', 'jack', 'ten']
-const paytableRows = PAY_ORDER.map(sym => ({
-  sym,
-  label: VISUALS[sym].label,
-  pays: PAYTABLE[sym].map(p => Math.round((p / XENOSLOT_LINES) * 10) / 10) as [number, number, number]
-}))
-
-// Coin metal tiers, picked from a coin's bet-multiplier so colour is stable
-// regardless of stake. face = disc, rim = edge, shine = gloss, ring = inner
-// hairline, text = value colour.
+// Coin metal tiers, picked from a coin's bet-multiplier so the medallion metal
+// is stable regardless of stake. The tiny fly-into-chest clones reuse the same
+// palette so they match the medallion they left.
 type CoinTier = { face: number, rim: number, shine: number, ring: number, text: number }
 const COIN_TIERS: Record<'bronze' | 'silver' | 'gold' | 'platinum', CoinTier> = {
   bronze: { face: 0xc97b3c, rim: 0x6e3f17, shine: 0xe8b27a, ring: 0xf0c79a, text: 0x3a210c },
   silver: { face: 0xc7d2e0, rim: 0x59697f, shine: 0xf6f9fc, ring: 0xeef3f9, text: 0x27313f },
   gold: { face: 0xf5c518, rim: 0x9a5b09, shine: 0xfde98a, ring: 0xfff0b3, text: 0x40260a },
-  platinum: { face: 0xd6e7f7, rim: 0x3b82c4, shine: 0xffffff, ring: 0xbfe3ff, text: 0x0c3a5e }
+  platinum: { face: 0x86efac, rim: 0x166534, shine: 0xdcfce7, ring: 0xbbf7d0, text: 0x0c3a1e }
 }
 function tierFor(mult: number): CoinTier {
   if (mult >= 25) return COIN_TIERS.platinum
@@ -152,8 +188,15 @@ function tierFor(mult: number): CoinTier {
   if (mult >= 1) return COIN_TIERS.silver
   return COIN_TIERS.bronze
 }
+// Same thresholds, but as the medallion sprite key.
+function medalFor(mult: number): 'bronze' | 'silver' | 'gold' | 'green' {
+  if (mult >= 25) return 'green'
+  if (mult >= 5) return 'gold'
+  if (mult >= 1) return 'silver'
+  return 'bronze'
+}
 
-// Glover (multiplier starburst) look per multiplier — progressively brighter green tiers.
+// Glover (multiplier clover) look per multiplier — progressively brighter green tiers.
 type GloverLook = { face: number, ring: number, glow: number, text: number }
 const GLOVER_LOOKS: Record<number, GloverLook> = {
   2: { face: 0x166534, ring: 0xbbf7d0, glow: 0x16a34a, text: 0xffffff },
@@ -164,40 +207,65 @@ function gloverLook(mult: number): GloverLook {
   return GLOVER_LOOKS[mult] ?? GLOVER_LOOKS[2]!
 }
 
+// Paytable rows for the help modal, high → low. Divide by XENOSLOT_LINES so the
+// values are × total bet (what the player actually feels).
+const PAY_ORDER: Exclude<SlotSymbol, 'bonus'>[] = ['wild', 'diamond', 'seven', 'bell', 'ace', 'king', 'queen', 'jack', 'ten']
+const paytableRows = PAY_ORDER.map(sym => ({
+  sym,
+  pays: PAYTABLE[sym].map(p => Math.round((p / XENOSLOT_LINES) * 10) / 10) as [number, number, number]
+}))
+
+// CSS one-tile crop of the symbol sheet (measured grid), for the paytable art.
+function tileStyle(sym: SlotSymbol, w = 46) {
+  const [c, r] = SYMBOL_TILE[sym]
+  const [x, y, tw, th] = tileRect(c!, r!)
+  const h = Math.round(w * th / tw)
+  const sx = w / tw
+  const sy = h / th
+  return {
+    width: `${w}px`,
+    height: `${h}px`,
+    backgroundImage: 'url(/slots/xenoslot/sprite.png)',
+    backgroundSize: `${Math.round(SHEET_W * sx)}px ${Math.round(SHEET_H * sy)}px`,
+    backgroundPosition: `-${Math.round(x * sx)}px -${Math.round(y * sy)}px`
+  }
+}
+
 // --- build the symbol classes once Pixi is loaded ---------------------------
 function makeSymbolClasses() {
-  const { Graphics, Text } = PIXI
+  const { Sprite, Graphics, Text } = PIXI
   const Base = REELS.ReelSymbol
 
-  class GraphicsSymbol extends Base {
-    bg = new Graphics()
-    label: any
+  // Scale a sprite to fit inside w×h without cropping, and centre it.
+  function fit(sprite: any, tex: any, w: number, h: number, factor = 1) {
+    sprite.texture = tex
+    const s = Math.min(w / tex.width, h / tex.height) * factor
+    sprite.scale.set(s)
+    sprite.x = w / 2
+    sprite.y = h / 2
+  }
+
+  // Base reel symbol: a single tile from the botanical sheet (frame + art baked
+  // in), so the reel reads like the reference board out of the box.
+  class SpriteSymbol extends Base {
+    sprite = new Sprite()
     w = CELL
     h = CELL
     _tween: any = null
 
     constructor() {
       super()
-      this.label = new Text({ text: '', style: { fontFamily: 'system-ui, sans-serif', fontSize: 40, fontWeight: '900', fill: 0xffffff, align: 'center' } })
-      this.label.anchor.set(0.5)
-      this.view.addChild(this.bg)
-      this.view.addChild(this.label)
+      this.sprite.anchor.set(0.5)
+      this.view.addChild(this.sprite)
     }
 
     _render(id: string) {
-      const v = VISUALS[id as SlotSymbol] ?? VISUALS.ten
-      const pad = 5
-      const r = 16
-      this.bg.clear()
-      this.bg.roundRect(pad, pad, this.w - 2 * pad, this.h - 2 * pad, r).fill({ color: v.bg }).stroke({ color: v.border, width: 3 })
-      this.label.text = v.label
-      this.label.style.fontSize = v.size ?? 40
-      this.label.style.fill = v.fg
-      this.label.x = this.w / 2
-      this.label.y = this.h / 2
+      const tex = SYMBOL_TEX[id]
+      if (!tex) return
+      fit(this.sprite, tex, this.w, this.h, 1)
     }
 
-    onActivate(id: string) { this._render(id) }
+    onActivate(id: string) { this.view.alpha = 1; this._render(id) }
     onDeactivate() { this._kill() }
     resize(w: number, h: number) { this.w = w; this.h = h; if (this.symbolId) this._render(this.symbolId) }
     stopAnimation() { this._kill(); this.view.scale.set(1, 1) }
@@ -205,119 +273,47 @@ function makeSymbolClasses() {
     playWin() {
       this._kill()
       return new Promise<void>((res) => {
-        // Pulse inward so it never spills outside the cell.
+        // Pulse inward so a framed tile never spills over its neighbours.
         this._tween = GSAP.to(this.view.scale, { x: 0.9, y: 0.9, duration: 0.12, yoyo: true, repeat: 1, ease: 'sine.inOut', onComplete: res })
       })
     }
   }
 
-  // A coin/value symbol for the Hold & Win board.
+  // A coin = a metal medallion sprite with its cash value stamped on the disc.
   class CoinSymbol extends Base {
-    bg = new Graphics()
+    sprite = new Sprite()
     label: any
     w = B_CELL
     h = B_CELL
     _tween: any = null
     // Default bronze: coins fall bronze while spinning, then setValue() re-tiers
-    // them on landing so they appear to upgrade to gold/silver/platinum (or stay
-    // bronze for low values).
-    _tier: CoinTier = COIN_TIERS.bronze
+    // them on landing so they appear to upgrade to silver/gold/green.
+    _medal: 'bronze' | 'silver' | 'gold' | 'green' = 'bronze'
 
     constructor() {
       super()
-      this.label = new Text({ text: '', style: { fontFamily: 'system-ui, sans-serif', fontSize: 24, fontWeight: '900', fill: 0x40260a, align: 'center' } })
+      this.sprite.anchor.set(0.5)
+      this.label = new Text({ text: '', style: { fontFamily: 'system-ui, sans-serif', fontSize: 23, fontWeight: '900', fill: 0x241708, align: 'center', stroke: { color: 0xf5deb3, width: 3 } } })
       this.label.anchor.set(0.5)
-      this.view.addChild(this.bg)
-      this.view.addChild(this.label)
-    }
-
-    _drawCoin() {
-      const cx = this.w / 2
-      const cy = this.h / 2
-      const rad = Math.min(this.w, this.h) / 2 - 9
-      const t = this._tier
-      this.bg.clear()
-      // edge → face → hairline ring → top-left gloss
-      this.bg.circle(cx, cy, rad).fill({ color: t.rim })
-      this.bg.circle(cx, cy, rad - 3).fill({ color: t.face })
-      this.bg.circle(cx, cy, rad - 9).stroke({ color: t.ring, width: 2, alpha: 0.9 })
-      this.bg.ellipse(cx - rad * 0.32, cy - rad * 0.42, rad * 0.44, rad * 0.26).fill({ color: t.shine, alpha: 0.4 })
-      this.label.style.fill = t.text
-      this.label.x = cx
-      this.label.y = cy
-    }
-
-    setValue(amount: number, mult?: number) {
-      if (mult !== undefined) { this._tier = tierFor(mult); this._drawCoin() }
-      this.label.text = formatNumber(amount, true, 0)
-    }
-
-    onActivate() { this.view.alpha = 1; this._drawCoin(); if (!this.label.text) this.label.text = '' }
-    onDeactivate() { this._kill(); this.label.text = '' }
-    resize(w: number, h: number) { this.w = w; this.h = h; this._drawCoin() }
-    stopAnimation() { this._kill(); this.view.scale.set(1, 1) }
-    _kill() { if (this._tween) { this._tween.kill(); this._tween = null } this.view.scale.set(1, 1) }
-    playWin() {
-      this._kill()
-      return new Promise<void>((res) => {
-        this._tween = GSAP.to(this.view.scale, { x: 0.9, y: 0.9, duration: 0.12, yoyo: true, repeat: 1, ease: 'sine.inOut', onComplete: res })
-      })
-    }
-  }
-
-  class CollectorSymbol extends Base {
-    bg = new Graphics()
-    label: any
-    w = B_CELL
-    h = B_CELL
-    _tween: any = null
-
-    constructor() {
-      super()
-      this.label = new Text({ text: '', style: { fontFamily: 'system-ui, sans-serif', fontSize: 19, fontWeight: '900', fill: 0xfef3c7, align: 'center', stroke: { color: 0x3a1c02, width: 3 } } })
-      this.label.anchor.set(0.5)
-      this.view.addChild(this.bg)
+      this.view.addChild(this.sprite)
       this.view.addChild(this.label)
     }
 
     _draw() {
-      this.bg.clear()
-      this._drawBasket(this.w / 2, this.h / 2 - 8)
+      fit(this.sprite, MEDAL_TEX[this._medal], this.w, this.h, 1)
+      // The disc sits a touch above the leaf-framed medallion's centre.
       this.label.x = this.w / 2
-      this.label.y = this.h - 17
+      this.label.y = this.h * 0.46
     }
 
-    // A clean little wicker basket with an open top for coins to drop into.
-    _drawBasket(cx: number, cy: number) {
-      const g = this.bg
-      const topHalf = 28
-      const botHalf = 19
-      const topY = cy - 11
-      const botY = cy + 21
-      // body
-      g.moveTo(cx - topHalf, topY).lineTo(cx + topHalf, topY).lineTo(cx + botHalf, botY).lineTo(cx - botHalf, botY).closePath()
-        .fill({ color: 0xc07f2a }).stroke({ color: 0x6e4715, width: 2 })
-      // horizontal weave bands
-      for (const fy of [0.34, 0.68]) {
-        const y = topY + (botY - topY) * fy
-        const half = topHalf + (botHalf - topHalf) * fy
-        g.moveTo(cx - half, y).lineTo(cx + half, y).stroke({ color: 0x6e4715, width: 1.5, alpha: 0.55 })
-      }
-      // vertical weave slats
-      for (const fx of [-0.6, -0.2, 0.2, 0.6]) {
-        g.moveTo(cx + topHalf * fx, topY + 2).lineTo(cx + botHalf * fx, botY - 2).stroke({ color: 0x6e4715, width: 1, alpha: 0.4 })
-      }
-      // rim band + dark open mouth
-      g.ellipse(cx, topY, topHalf + 2, 7).fill({ color: 0xd9982f }).stroke({ color: 0x6e4715, width: 2 })
-      g.ellipse(cx, topY, topHalf - 4, 4.5).fill({ color: 0x2a1908 })
+    setValue(amount: number, mult?: number) {
+      if (mult !== undefined) this._medal = medalFor(mult)
+      this._draw()
+      this.label.text = formatNumber(amount, true, 0)
     }
 
-    setCollected(amount: number) {
-      this.label.text = `+${formatNumber(amount, true)}`
-    }
-
-    onActivate() { this.view.alpha = 1; this.label.text = ''; this._draw() }
-    onDeactivate() { this._kill() }
+    onActivate() { this.view.alpha = 1; this._draw(); if (!this.label.text) this.label.text = '' }
+    onDeactivate() { this._kill(); this.label.text = '' }
     resize(w: number, h: number) { this.w = w; this.h = h; this._draw() }
     stopAnimation() { this._kill(); this.view.scale.set(1, 1) }
     _kill() { if (this._tween) { this._tween.kill(); this._tween = null } this.view.scale.set(1, 1) }
@@ -325,6 +321,57 @@ function makeSymbolClasses() {
       this._kill()
       return new Promise<void>((res) => {
         this._tween = GSAP.to(this.view.scale, { x: 0.9, y: 0.9, duration: 0.12, yoyo: true, repeat: 1, ease: 'sine.inOut', onComplete: res })
+      })
+    }
+  }
+
+  // A collector = the vine-wrapped treasure chest. It sits closed on the board
+  // and springs open while it harvests coins, its total ticking up underneath.
+  class CollectorSymbol extends Base {
+    sprite = new Sprite()
+    label: any
+    w = B_CELL
+    h = B_CELL
+    _tween: any = null
+    _open = false
+
+    constructor() {
+      super()
+      this.sprite.anchor.set(0.5)
+      this.label = new Text({ text: '', style: { fontFamily: 'system-ui, sans-serif', fontSize: 20, fontWeight: '900', fill: 0xfde68a, align: 'center', stroke: { color: 0x2a1a02, width: 4 } } })
+      this.label.anchor.set(0.5)
+      this.view.addChild(this.sprite)
+      this.view.addChild(this.label)
+    }
+
+    _draw() {
+      fit(this.sprite, this._open ? CHEST_TEX.open : CHEST_TEX.closed, this.w, this.h, 1.04)
+      this.label.x = this.w / 2
+      this.label.y = this.h - 12
+    }
+
+    // Pop the lid open — the "tiny bit of animation" as it starts collecting.
+    open() {
+      if (this._open) return
+      this._open = true
+      this._draw()
+      this._kill()
+      this._tween = GSAP.fromTo(this.view.scale, { x: 0.86, y: 0.86 }, { x: 1, y: 1, duration: 0.24, ease: 'back.out(2.4)' })
+    }
+
+    setCollected(amount: number) {
+      this.label.text = amount > 0 ? `+${formatNumber(amount, true)}` : ''
+    }
+
+    onActivate() { this.view.alpha = 1; this._open = false; this.label.text = ''; this._draw() }
+    onDeactivate() { this._kill() }
+    resize(w: number, h: number) { this.w = w; this.h = h; this._draw() }
+    stopAnimation() { this._kill(); this.view.scale.set(1, 1) }
+    _kill() { if (this._tween) { this._tween.kill(); this._tween = null } this.view.scale.set(1, 1) }
+    playWin() {
+      this._kill()
+      return new Promise<void>((res) => {
+        this._tween = GSAP.to(this.view.scale, { x: 1.08, y: 1.08, duration: 0.12, yoyo: true, repeat: 1, ease: 'sine.inOut', onComplete: res })
       })
     }
   }
@@ -386,7 +433,7 @@ function makeSymbolClasses() {
   CoinSymbolClass = CoinSymbol
   CollectorSymbolClass = CollectorSymbol
   GloverSymbolClass = GloverSymbol
-  return GraphicsSymbol
+  return SpriteSymbol
 }
 
 onMounted(async () => {
@@ -402,18 +449,34 @@ onMounted(async () => {
     GSAP = gsapMod.gsap ?? gsapMod.default
 
     app = new PIXI.Application()
-    // Transparent canvas so the surrounding card background shows through and
-    // the board blends into the site.
+    // Transparent canvas so the jungle board panel shows through behind the tiles.
     await app.init({ width: APP_W, height: APP_H, backgroundAlpha: 0, antialias: true, autoDensity: true, resolution: Math.min(2, window.devicePixelRatio || 1) })
     if (destroyed) { app.destroy(true); return }
     canvasWrap.value?.appendChild(app.canvas)
 
-    const GraphicsSymbol = makeSymbolClasses()
+    // Load the two atlases and slice out every frame we need.
+    const [sheet, coins] = await Promise.all([
+      PIXI.Assets.load('/slots/xenoslot/sprite.png'),
+      PIXI.Assets.load('/slots/xenoslot/coins.png')
+    ])
+    if (destroyed) { app.destroy(true); return }
+    for (const id of Object.keys(SYMBOL_TILE) as SlotSymbol[]) {
+      const [c, r] = SYMBOL_TILE[id]
+      SYMBOL_TEX[id] = new PIXI.Texture({ source: sheet.source, frame: new PIXI.Rectangle(...tileRect(c!, r!)) })
+    }
+    for (const [key, f] of Object.entries(MEDAL_FRAME)) {
+      MEDAL_TEX[key] = new PIXI.Texture({ source: coins.source, frame: new PIXI.Rectangle(f[0], f[1], f[2], f[3]) })
+    }
+    for (const [key, f] of Object.entries(CHEST_FRAME)) {
+      CHEST_TEX[key] = new PIXI.Texture({ source: coins.source, frame: new PIXI.Rectangle(f[0], f[1], f[2], f[3]) })
+    }
+
+    const SpriteSymbol = makeSymbolClasses()
 
     reelSet = new REELS.ReelSetBuilder()
       .reels(5).visibleRows(3).symbolSize(CELL, CELL).symbolGap(GAP, GAP)
       .symbols((r: any) => {
-        for (const id of Object.keys(VISUALS)) r.register(id, GraphicsSymbol, {})
+        for (const id of Object.keys(SYMBOL_TILE)) r.register(id, SpriteSymbol, {})
       })
       .weights({ ten: 30, jack: 28, queen: 24, king: 20, ace: 16, bell: 12, seven: 7, diamond: 4, wild: 4, bonus: 5 })
       .speed('normal', REELS.SpeedPresets.NORMAL)
@@ -538,12 +601,12 @@ async function runBonus(result: XenoSlotResult) {
     .weights({ coin: 3, collector: 1, glover: 1, empty: 9 })
     .respins(99) // we drive the loop from server waves, not the board's counter
     .cellChrome((g: any, size: number) => {
-      g.roundRect(0, 0, size, size, 14).fill({ color: 0x0b1220, alpha: 0.55 }).stroke({ color: 0x1e293b, width: 2 })
+      g.roundRect(0, 0, size, size, 14).fill({ color: 0x0d2410, alpha: 0.55 }).stroke({ color: 0x2f5a24, width: 2 })
     })
     .ticker(app.ticker)
     .build()
 
-  // Coins show their value on landing. Collectors land as a plain magnet —
+  // Coins show their value on landing. Collectors land as a closed chest —
   // their total stays hidden and ticks up later as coins fly into them.
   board.events.on('coin:locked', ({ coin }: any) => {
     if (coin.id === 'coin') {
@@ -599,7 +662,7 @@ async function runBonus(result: XenoSlotResult) {
       // then the whole board is wiped clean.
       if (wave.collectors.length) {
         await wait(200)
-        await collectIntoOrb(board, wave, result.bet)
+        await collectIntoChest(board, wave, result.bet)
         const occupied = [...wave.collectedCoins.map(c => c.cell), ...wave.collectors.map(c => c.cell)]
         board.release(occupied)
         await wait(220)
@@ -627,7 +690,7 @@ function absCenter(board: any, cell: Cell): { x: number, y: number } {
   return { x: board.container.x + c.x, y: board.container.y + c.y }
 }
 
-// A small tier-coloured coin carrying a value, used for the fly-into-basket clones.
+// A small tier-coloured coin carrying a value, used for the fly-into-chest clones.
 function makeFlyClone(amount: number, tier: CoinTier): any {
   const { Container, Graphics, Text } = PIXI
   const c = new Container()
@@ -706,26 +769,27 @@ async function applyGlovers(board: any, wave: BonusWave, bet: number) {
   }
 }
 
-// Each collector pulls in EVERY coin on the board, one collector at a time.
-// A clone of each coin's value flies into the orb along an arc and the orb's
-// running total ticks up on every arrival. Coins stay put until all collectors
+// Each collector chest pops open and pulls in EVERY coin on the board, one chest
+// at a time. A clone of each coin's value flies into the chest along an arc and
+// the running total ticks up on every arrival. Coins stay put until all chests
 // have harvested, then they fade out (the caller clears the board).
-async function collectIntoOrb(board: any, wave: BonusWave, bet: number) {
+async function collectIntoChest(board: any, wave: BonusWave, bet: number) {
   bonusStatus.value = 'Collecting…'
 
   for (const collector of wave.collectors) {
-    const orb = board.symbolAt(collector.cell)
+    const chest = board.symbolAt(collector.cell)
     let running = 0
-    orb?.setCollected?.(0)
-    await orb?.playWin?.()
+    chest?.open?.()
+    chest?.setCollected?.(0)
+    await wait(180)
 
     const flights = wave.collectedCoins.map((coin, i) =>
       wait(i * 110).then(() => flyValue(board, coin.cell, collector.cell, coin.value * bet, coin.value, () => {
         running += coin.value * bet
         bonusTotal.value += coin.value * bet
-        const o = board.symbolAt(collector.cell)
-        o?.setCollected?.(running)
-        o?.playWin?.()
+        const c = board.symbolAt(collector.cell)
+        c?.setCollected?.(running)
+        c?.playWin?.()
       })))
     await Promise.allSettled(flights)
     await wait(250)
@@ -747,284 +811,293 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 </script>
 
 <template>
-  <div class="p-6 max-w-6xl mx-auto space-y-6">
-    <!-- Header -->
-    <div>
-      <h1 class="text-2xl font-bold flex items-center gap-2">
-        <UIcon
-          name="i-lucide-cherry"
-          class="size-6 text-primary"
-        />
+  <!-- Jungle background, scoped to the page (not the sidebar) -->
+  <div class="page-root relative min-h-full flex flex-col items-center overflow-hidden px-3 py-6">
+    <div class="page-bg" />
+    <div class="page-vignette" />
+
+    <!-- ── Title ── -->
+    <div class="xs-title relative z-[1] mb-4 sm:mb-5 text-center">
+      <h1 class="xs-title__text">
+        <span class="xs-title__emoji">🌿</span>
         Xeno Slot
+        <span class="xs-title__emoji">🌺</span>
       </h1>
-      <p class="text-sm text-muted mt-0.5">
-        5×3 line slot · ~98% RTP
-      </p>
+      <div class="mt-2.5 flex flex-wrap items-center justify-center gap-1.5 sm:gap-2">
+        <span class="xs-badge xs-badge--rtp">98% RTP</span>
+        <span class="xs-badge xs-badge--lines">{{ XENOSLOT_LINES }} Lines</span>
+        <span class="xs-badge xs-badge--hold">Hold &amp; Win</span>
+      </div>
     </div>
 
-    <div class="grid lg:grid-cols-3 gap-6">
-      <!-- Controls -->
-      <UCard>
-        <template #header>
-          <div class="flex items-center justify-between">
-            <h2 class="font-semibold">
-              Controls
-            </h2>
-            <UButton
-              icon="i-lucide-circle-help"
-              color="neutral"
-              variant="ghost"
-              size="xs"
-              @click="showHelp = true"
-            />
-          </div>
-        </template>
+    <div class="game-layout relative w-full max-w-[600px] flex flex-col">
+      <!-- Slot machine -->
+      <div class="machine w-full flex flex-col">
+        <!-- ── Reel area ── -->
+        <div
+          class="reel-area relative select-none"
+          @click="onCanvasClick"
+        >
+          <div class="reel-sheen" />
 
-        <div class="space-y-4">
-          <!-- Bet -->
-          <div>
-            <label class="text-xs text-muted uppercase tracking-wide font-medium block mb-1.5">Bet Amount</label>
-            <div class="flex items-center gap-2">
-              <UInput
-                v-model.number="bet"
-                type="number"
-                min="1"
-                :disabled="isSpinning"
-                class="flex-1 font-mono"
-                size="lg"
-              />
-              <div class="flex gap-1">
-                <UButton
-                  color="neutral"
-                  variant="soft"
-                  :disabled="isSpinning"
-                  @click="bet = Math.max(1, Math.floor(bet / 2))"
-                >
-                  ½
-                </UButton>
-                <UButton
-                  color="neutral"
-                  variant="soft"
-                  :disabled="isSpinning"
-                  @click="bet = bet * 2"
-                >
-                  2×
-                </UButton>
-              </div>
-            </div>
-          </div>
-
-          <!-- Turbo -->
-          <div class="flex items-center justify-between rounded-lg bg-elevated border border-default p-3">
-            <div class="min-w-0">
-              <p class="text-sm font-medium flex items-center gap-1.5">
-                <UIcon
-                  name="i-lucide-zap"
-                  class="size-4 text-warning"
-                /> Turbo spin
-              </p>
-            </div>
-            <USwitch v-model="turbo" />
-          </div>
-
-          <!-- Stats -->
-          <div class="rounded-lg bg-elevated border border-default p-3 space-y-2">
-            <div class="flex items-center justify-between text-sm">
-              <span class="text-muted">Paylines</span>
-              <span class="font-bold tabular-nums">{{ XENOSLOT_LINES }}</span>
-            </div>
-            <USeparator />
-            <div class="flex items-center justify-between text-sm">
-              <span class="text-muted">Max win</span>
-              <span class="font-bold tabular-nums text-warning">{{ formatNumber(XENOSLOT_MAX_WIN_MULT * bet, true, 0) }}</span>
-            </div>
-          </div>
-
-          <!-- Error -->
-          <Transition name="fade-up">
-            <UAlert
-              v-if="errorMsg"
-              color="error"
-              variant="soft"
-              :description="errorMsg"
-              :close-button="{ icon: 'i-lucide-x', color: 'neutral', variant: 'ghost' }"
-              @close="errorMsg = ''"
-            />
-          </Transition>
-
-          <!-- Balance -->
-          <div class="rounded-lg bg-elevated border border-default p-3 flex justify-between items-center">
-            <span class="text-xs text-muted uppercase tracking-wide font-medium">Balance</span>
-            <span class="font-bold text-sm"><CoinBalance
-              :value="balance"
-              :compact="false"
-            /></span>
-          </div>
-
-          <!-- Recent -->
-          <div
-            v-if="history.length"
-            class="space-y-1.5"
-          >
-            <p class="text-xs text-muted uppercase tracking-wide font-medium">
-              Recent
-            </p>
-            <div class="flex gap-1.5 flex-wrap">
-              <span
-                v-for="(h, i) in history"
-                :key="i"
-                class="inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-mono font-bold"
-                :class="h.payout > h.bet ? 'bg-success/20 text-success' : 'bg-elevated text-muted'"
-              >
-                <UIcon
-                  v-if="h.bonus"
-                  name="i-lucide-gift"
-                  class="size-3"
-                />
-                {{ h.payout > 0 ? formatNumber(h.payout) : '—' }}
-              </span>
-            </div>
-          </div>
-        </div>
-      </UCard>
-
-      <!-- Game area -->
-      <div class="lg:col-span-2 flex flex-col gap-4">
-        <UCard :ui="{ body: 'relative overflow-hidden p-4' }">
           <!-- Bonus banner -->
           <Transition name="pop">
             <div
               v-if="bonusBanner"
               class="absolute inset-0 z-30 flex items-center justify-center pointer-events-none"
             >
-              <div class="bg-linear-to-br from-fuchsia-600 to-purple-700 px-8 py-5 rounded-2xl shadow-2xl shadow-fuchsia-500/30 text-center -rotate-3">
-                <p class="text-3xl font-black text-white tracking-tight">
+              <div class="bonus-banner text-center">
+                <p class="text-3xl font-black text-white tracking-tight drop-shadow-lg">
                   HOLD &amp; WIN
                 </p>
-                <p class="text-sm text-fuchsia-100 font-bold">
-                  {{ BONUS_FREE_SPINS }} free spins!
+                <p
+                  class="text-sm font-bold mt-1"
+                  style="color: #dcfce7;"
+                >
+                  {{ BONUS_FREE_SPINS }} free spins — collect the treasure!
                 </p>
               </div>
             </div>
           </Transition>
 
-          <!-- Pixi canvas -->
-          <div
-            class="relative flex items-center justify-center min-h-75"
-            @click="onCanvasClick"
-          >
+          <!-- Auto-spin pause overlay -->
+          <Transition name="pop">
             <div
-              ref="canvasWrap"
-              class="w-full max-w-150 [&>canvas]:w-full [&>canvas]:h-auto [&>canvas]:block"
-            />
-            <div
-              v-if="!ready && !errorMsg"
-              class="absolute inset-0 flex items-center justify-center"
+              v-if="autoSpinPaused"
+              class="absolute inset-0 z-20 flex items-center justify-center cursor-pointer"
+              style="background: rgba(6,20,8,0.78); backdrop-filter: blur(3px);"
             >
-              <UIcon
-                name="i-lucide-loader-circle"
-                class="size-8 text-muted animate-spin"
-              />
-            </div>
-            <!-- Auto-spin pause overlay -->
-            <Transition name="pop">
-              <div
-                v-if="autoSpinPaused"
-                class="absolute inset-0 z-10 flex items-center justify-center bg-background/70 backdrop-blur-sm cursor-pointer"
-              >
-                <div class="text-center px-6 py-4 rounded-xl bg-elevated border border-default shadow-xl">
-                  <p class="font-black text-default text-base">
-                    🃏 Bonus! Tap to play
-                  </p>
-                  <p class="text-xs text-muted mt-1">
-                    {{ autoSpinsLeft }} spin{{ autoSpinsLeft !== 1 ? 's' : '' }} remaining
-                  </p>
-                </div>
+              <div class="pause-card text-center px-6 py-4">
+                <p class="font-black text-white text-base">
+                  🍀 Bonus! Tap to play
+                </p>
+                <p
+                  class="text-xs mt-1"
+                  style="color: rgba(187,247,208,0.7);"
+                >
+                  {{ autoSpinsLeft }} spin{{ autoSpinsLeft !== 1 ? 's' : '' }} remaining
+                </p>
               </div>
-            </Transition>
+            </div>
+          </Transition>
+
+          <!-- Canvas -->
+          <div
+            ref="canvasWrap"
+            class="relative z-10 w-full [&>canvas]:!w-full [&>canvas]:!h-auto [&>canvas]:block"
+          />
+
+          <!-- Loading -->
+          <div
+            v-if="!ready && !errorMsg"
+            class="absolute inset-0 z-40 flex items-center justify-center"
+          >
+            <UIcon
+              class="size-10 animate-spin"
+              name="i-lucide-loader-circle"
+              style="color: #86efac;"
+            />
           </div>
 
-          <!-- Below-grid readout -->
-          <div class="mt-3 min-h-12 flex items-center justify-center">
-            <!-- Bonus: collected total counts up, with spins remaining -->
+          <!-- Bonus collected readout, floated over the board -->
+          <Transition name="pop">
             <div
               v-if="inBonus"
-              class="flex items-center justify-center gap-5"
+              class="absolute bottom-2 inset-x-0 z-30 flex items-center justify-center pointer-events-none"
             >
-              <div class="text-center">
-                <p class="text-[10px] uppercase tracking-wide text-muted leading-none mb-0.5">
+              <div class="collect-readout text-center px-5 py-1.5">
+                <p class="text-[9px] uppercase tracking-[0.2em] text-emerald-200/70 leading-none mb-0.5">
                   {{ bonusStatus }}
                 </p>
-                <p class="text-3xl font-black tabular-nums text-success leading-none">
-                  ${{ formatNumber(bonusTotal, false) }}
+                <p class="text-2xl font-black tabular-nums leading-none text-emerald-300 drop-shadow-[0_0_12px_rgba(52,211,153,0.55)]">
+                  {{ formatNumber(bonusTotal, false) }}
                 </p>
               </div>
             </div>
-            <!-- Base game win flash -->
-            <Transition
-              v-else
-              name="pop"
-            >
-              <span
-                v-if="winFlash && lastWin > 0"
-                class="text-success font-black text-2xl"
-              >
-                +${{ formatNumber(lastWin, false) }}
-                <span
-                  v-if="lastLines"
-                  class="text-muted text-sm font-medium"
-                >· {{ lastLines }} line{{ lastLines > 1 ? 's' : '' }}</span>
-              </span>
-            </Transition>
-          </div>
-        </UCard>
+          </Transition>
+        </div>
+      </div>
 
-        <!-- Play button -->
-        <UCard>
-          <div class="flex items-center gap-3">
-            <UButton
-              block
-              :loading="isSpinning"
-              :disabled="!ready || balance < bet || autoSpinEnabled"
-              color="primary"
-              size="xl"
-              class="flex-1 h-16 text-lg font-black uppercase tracking-widest transition-transform active:scale-[0.98]"
-              @click="spin"
+      <!-- ── War Heroes footer: controls float on the page background; the SPIN
+           cluster straddles the bottom edge of the reel panel above ──────── -->
+      <div class="wh-footer flex items-end gap-2 sm:gap-4">
+        <!-- LEFT: detached credit / bet pill -->
+        <div class="wh-credit flex items-center gap-2 sm:gap-2.5 shrink-0">
+          <div class="flex gap-1.5">
+            <button
+              class="wh-icon"
+              title="Help"
+              @click="showHelp = true"
             >
-              {{ isSpinning ? 'Spinning…' : 'Spin' }}
-            </UButton>
-            <!-- Auto-spin stop button when active -->
-            <template v-if="autoSpinEnabled">
-              <div class="flex flex-col items-center justify-center gap-1 w-16 shrink-0">
-                <span class="text-xs font-black tabular-nums text-primary">{{ autoSpinsLeft }}×</span>
-                <UButton
-                  icon="i-lucide-square"
-                  color="error"
-                  variant="soft"
-                  size="sm"
-                  @click="stopAutoSpin"
+              <UIcon
+                class="size-3.5"
+                name="i-lucide-info"
+              />
+            </button>
+            <button
+              :class="{ 'wh-icon--active': turbo }"
+              class="wh-icon"
+              title="Turbo"
+              @click="turbo = !turbo"
+            >
+              <UIcon
+                class="size-3.5"
+                name="i-lucide-zap"
+              />
+            </button>
+          </div>
+
+          <div class="min-w-0 leading-tight">
+            <div class="flex items-baseline gap-1.5">
+              <span class="wh-meta-label">Credit</span>
+              <span class="wh-meta-val truncate">
+                <CoinBalance
+                  :compact="false"
+                  :value="balance"
                 />
-              </div>
-            </template>
-            <!-- Auto-spin launch button when idle -->
-            <UButton
-              v-else
-              icon="i-lucide-repeat"
-              color="neutral"
-              variant="soft"
-              class="h-16 w-16 shrink-0 flex items-center justify-center"
-              :disabled="!ready || balance < bet || isSpinning"
-              @click="showAutoSpinModal = true"
-            />
-            <div class="hidden sm:flex flex-col items-end px-2 text-sm font-mono text-muted whitespace-nowrap">
-              <span>Press <kbd class="px-2 py-1 bg-elevated rounded text-xs font-sans font-bold border border-default">SPACE</kbd></span>
+              </span>
+            </div>
+            <div class="flex items-baseline gap-1.5 mt-1">
+              <span class="wh-meta-label">Bet</span>
+              <input
+                v-model="betInput"
+                :disabled="isSpinning || autoSpinEnabled"
+                aria-label="Bet amount"
+                class="wh-bet-input wh-meta-val tabular-nums"
+                inputmode="numeric"
+                @blur="commitBetInput"
+                @keydown.enter="($event.target as HTMLInputElement).blur()"
+              >
             </div>
           </div>
-        </UCard>
+        </div>
+
+        <!-- CENTER: floating WIN -->
+        <div class="flex-1 flex flex-col items-center justify-end min-w-0 pb-1.5">
+          <Transition
+            mode="out-in"
+            name="pop"
+          >
+            <span
+              v-if="winFlash && lastWin > 0"
+              key="win"
+              class="wh-win"
+            >WIN {{ formatNumber(lastWin, false) }}</span>
+            <span
+              v-else
+              key="idle"
+              class="wh-win wh-win--idle"
+            >WIN 0.00</span>
+          </Transition>
+          <span
+            v-if="winFlash && lastLines"
+            class="text-[10px] font-medium text-emerald-200/40 leading-none mt-0.5"
+          >{{ lastLines }} line{{ lastLines > 1 ? 's' : '' }}</span>
+        </div>
+
+        <!-- RIGHT: spin cluster, lifted so the ball overlaps the reel panel -->
+        <div class="wh-spin-cluster flex items-center gap-1.5 sm:gap-2.5 shrink-0">
+          <button
+            :disabled="isSpinning || autoSpinEnabled || bet <= MIN_BET"
+            class="wh-step"
+            title="Halve bet"
+            @click="betDown"
+          >
+            <span class="leading-none">−</span>
+          </button>
+
+          <div class="flex flex-col items-center gap-1">
+            <button
+              :disabled="!ready || balance < bet || isSpinning"
+              class="wh-spin"
+              @click="autoSpinEnabled ? stopAutoSpin() : spin()"
+            >
+              <UIcon
+                v-if="isSpinning"
+                class="size-6 animate-spin"
+                name="i-lucide-loader-circle"
+              />
+              <span
+                v-else-if="autoSpinEnabled"
+                class="flex flex-col items-center leading-none"
+              >
+                <span class="text-[10px] tracking-wider opacity-80">{{ autoSpinsLeft }}×</span>
+                <span class="text-xs font-black">STOP</span>
+              </span>
+              <span v-else>SPIN</span>
+            </button>
+
+            <button
+              v-if="!autoSpinEnabled"
+              :disabled="!ready || balance < bet || isSpinning"
+              class="wh-auto"
+              @click="showAutoSpinModal = true"
+            >
+              AUTO
+            </button>
+            <button
+              v-else
+              class="wh-auto wh-auto--stop"
+              @click="stopAutoSpin"
+            >
+              STOP
+            </button>
+          </div>
+
+          <button
+            :disabled="isSpinning || autoSpinEnabled || bet >= MAX_BET"
+            class="wh-step"
+            title="Double bet"
+            @click="betUp"
+          >
+            <span class="leading-none">+</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Error strip -->
+      <Transition name="fade-up">
+        <div
+          v-if="errorMsg"
+          class="error-strip flex items-center justify-between gap-3 px-4 py-2 mt-2"
+        >
+          <p class="text-xs text-red-300">
+            {{ errorMsg }}
+          </p>
+          <button
+            class="text-red-300/50 hover:text-red-200 text-sm transition-colors"
+            @click="errorMsg = ''"
+          >
+            ✕
+          </button>
+        </div>
+      </Transition>
+    </div>
+
+    <!-- History -->
+    <div class="relative z-[1] min-h-8">
+      <div
+        v-if="history.length"
+        class="flex gap-1.5 flex-wrap justify-center mt-3"
+      >
+        <span
+          v-for="(h, i) in history"
+          :key="i"
+          :class="h.payout > h.bet ? 'bg-emerald-500/15 text-emerald-300' : 'text-white/25'"
+          class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-mono font-bold"
+          style="background: rgba(255,255,255,0.04);"
+        >
+          <UIcon
+            v-if="h.bonus"
+            class="size-3"
+            name="i-lucide-gift"
+          />
+          {{ h.payout > 0 ? formatNumber(h.payout) : '—' }}
+        </span>
       </div>
     </div>
 
-    <!-- Auto-spin -->
+    <!-- Auto-spin modal -->
     <UModal
       v-model:open="showAutoSpinModal"
       title="Auto Spin"
@@ -1032,16 +1105,16 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
       <template #body>
         <div class="space-y-4">
           <p class="text-sm text-muted">
-            Select number of spins. Auto-spin pauses after a bonus round so you can watch — tap the board to resume.
+            Select number of spins. Auto-spin pauses before a bonus round so you can watch — tap the board to resume.
           </p>
           <div class="grid grid-cols-5 gap-2">
             <UButton
               v-for="count in AUTO_SPIN_OPTIONS"
               :key="count"
               block
+              class="font-bold"
               color="neutral"
               variant="soft"
-              class="font-bold"
               @click="startAutoSpin(count)"
             >
               {{ count }}
@@ -1051,17 +1124,16 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
       </template>
     </UModal>
 
-    <!-- Help -->
+    <!-- Help modal -->
     <UModal
       v-model:open="showHelp"
       title="How Xeno Slot works"
     >
       <template #body>
         <div class="space-y-4 text-sm text-muted">
-          <!-- Quick rules -->
           <ul class="space-y-1.5 list-disc list-inside">
-            <li>Match <strong class="text-default">3, 4 or 5</strong> of the same symbol left-to-right on any of the <strong class="text-default">{{ XENOSLOT_LINES }} paylines</strong>. 🍄‍ WILD substitutes for any symbol.</li>
-            <li>Land <strong class="text-default">3+ 🃏</strong> anywhere to trigger <strong class="text-default">Hold &amp; Win</strong> (~1 in {{ formatNumber(bonusOdds, true, 0) }} spins).</li>
+            <li>Match <strong class="text-default">3, 4 or 5</strong> of the same symbol left-to-right on any of the <strong class="text-default">{{ XENOSLOT_LINES }} paylines</strong>. The <strong class="text-default">WILD</strong> plaque substitutes for any symbol.</li>
+            <li>Land <strong class="text-default">3+ clover scatters</strong> anywhere to trigger <strong class="text-default">Hold &amp; Win</strong> (~1 in {{ formatNumber(bonusOdds, true, 0) }} spins).</li>
           </ul>
 
           <!-- Paytable -->
@@ -1070,7 +1142,6 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
               Pays × your bet
             </p>
             <div class="rounded-lg border border-default overflow-hidden">
-              <!-- Header -->
               <div class="grid grid-cols-[auto_1fr] text-xs text-muted bg-elevated/60 border-b border-default">
                 <div class="px-3 py-1" />
                 <div class="px-3 py-1 flex justify-end gap-3 font-medium">
@@ -1085,10 +1156,13 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
                   :key="row.sym"
                 >
                   <div
-                    class="px-3 py-1.5 font-black text-center text-base"
+                    class="px-3 py-1.5 flex items-center justify-center"
                     :class="i % 2 ? 'bg-elevated/40' : ''"
                   >
-                    {{ row.label }}
+                    <span
+                      class="rounded-md bg-no-repeat"
+                      :style="tileStyle(row.sym)"
+                    />
                   </div>
                   <div
                     class="px-3 py-1.5 font-mono tabular-nums flex justify-end gap-3"
@@ -1109,9 +1183,9 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
               Hold &amp; Win bonus
             </p>
             <ul class="space-y-1.5 list-disc list-inside">
-              <li><strong class="text-default">{{ BONUS_FREE_SPINS }} spins.</strong> Coins stick to the board with a cash value — bigger coins glow brighter.</li>
+              <li><strong class="text-default">{{ BONUS_FREE_SPINS }} spins.</strong> Coins stick to the board as <strong class="text-default">metal medallions</strong> — bronze → silver → gold → emerald as the value climbs.</li>
               <li><strong class="text-default">🍀 Glovers</strong> (<span class="text-success font-bold">×2</span> / <span class="text-success font-bold">×5</span> / <span class="text-success font-bold">×10</span>) multiply all adjacent coins, then vanish.</li>
-              <li><strong class="text-default">🧺 Baskets</strong> collect every coin on the board and wipe it clean. <strong class="text-default">Only collected coins pay out</strong> — max {{ formatNumber(XENOSLOT_MAX_WIN_MULT, false, 0) }}× bet.</li>
+              <li><strong class="text-default">Treasure chests</strong> spring open and collect every coin on the board, then wipe it clean. <strong class="text-default">Only collected coins pay out</strong> — max {{ formatNumber(XENOSLOT_MAX_WIN_MULT, false, 0) }}× bet.</li>
             </ul>
           </div>
         </div>
@@ -1121,14 +1195,401 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 </template>
 
 <style scoped>
-.fade-up-enter-active, .fade-up-leave-active { transition: all 0.2s ease; }
-.fade-up-enter-from, .fade-up-leave-to { opacity: 0; transform: translateY(5px); }
+/* ── Page background, scoped to the main content area ───────────────────── */
+.page-root {
+  min-height: 100%;
+}
 
-.pop-enter-active { transition: all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1); }
-.pop-leave-active { transition: all 0.2s ease; }
-.pop-enter-from { opacity: 0; transform: scale(0.7); }
-.pop-leave-to { opacity: 0; transform: scale(0.9); }
+.page-bg {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background: url('/slots/xenoslot/xenoslot_bg.png') center / cover no-repeat;
+}
 
-input[type=number]::-webkit-inner-spin-button,
-input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; }
+/* dark vignette so the machine pops and the art doesn't compete with it */
+.page-vignette {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background: radial-gradient(ellipse 75% 65% at 50% 42%, rgba(4, 16, 6, 0.35) 0%, rgba(4, 16, 6, 0.72) 68%, rgba(2, 10, 4, 0.92) 100%);
+}
+
+.page-root > .game-layout {
+  position: relative;
+  z-index: 1;
+}
+
+/* ── Title ──────────────────────────────────────────────────────────────── */
+.xs-title__text {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: clamp(30px, 6vw, 46px);
+  font-weight: 900;
+  letter-spacing: 0.5px;
+  line-height: 1;
+  /* glossy leaf-to-gold gradient poured top-to-bottom over the letters */
+  background: linear-gradient(180deg, #f0fff4 0%, #bbf7d0 30%, #4ade80 60%, #f5c518 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+  filter: drop-shadow(0 2px 0 rgba(6, 46, 22, 0.6))
+    drop-shadow(0 6px 16px rgba(22, 163, 74, 0.5));
+}
+
+.xs-title__emoji {
+  -webkit-text-fill-color: initial;
+  filter: drop-shadow(0 3px 5px rgba(0, 0, 0, 0.45));
+}
+
+.xs-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 11px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: #fff;
+  background: rgba(6, 20, 8, 0.5);
+  border: 1px solid rgba(74, 222, 128, 0.3);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  backdrop-filter: blur(2px);
+}
+
+.xs-badge--rtp {
+  color: #bbf7d0;
+  border-color: rgba(52, 211, 153, 0.5);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 0 12px rgba(52, 211, 153, 0.28);
+}
+
+.xs-badge--lines {
+  color: #d9f99d;
+  border-color: rgba(132, 204, 22, 0.5);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 0 12px rgba(132, 204, 22, 0.28);
+}
+
+.xs-badge--hold {
+  color: #fde68a;
+  border-color: rgba(245, 197, 24, 0.55);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 0 12px rgba(245, 197, 24, 0.3);
+}
+
+/* ── Machine shell ──────────────────────────────────────────────────────── */
+.machine {
+  border-radius: 22px;
+  padding: 8px;
+  background: linear-gradient(160deg, rgba(74, 222, 128, 0.22), rgba(21, 94, 43, 0.14) 40%, rgba(6, 20, 8, 0.62));
+  box-shadow: 0 0 0 1px rgba(74, 222, 128, 0.35),
+    inset 0 1px 0 rgba(187, 247, 208, 0.25),
+    0 0 60px rgba(22, 163, 74, 0.25),
+    0 30px 80px rgba(0, 0, 0, 0.85);
+  backdrop-filter: blur(2px);
+}
+
+/* ── Reel area ──────────────────────────────────────────────────────────── */
+.reel-area {
+  background: radial-gradient(ellipse 120% 78% at 50% 0%, #1e5a2a 0%, #14401d 30%, #0d2a13 58%, #08200c 82%, #061708 100%);
+  border-radius: 15px;
+  box-shadow: inset 0 0 0 1px rgba(74, 222, 128, 0.18), inset 0 2px 18px rgba(0, 0, 0, 0.4);
+  cursor: default;
+  overflow: hidden;
+}
+
+.reel-sheen {
+  position: absolute;
+  inset: 0;
+  z-index: 15;
+  pointer-events: none;
+  background: radial-gradient(ellipse 80% 55% at 50% 110%, rgba(0, 0, 0, 0.38) 0%, transparent 60%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.06) 0%, transparent 18%);
+}
+
+/* ── Bonus / pause overlays ─────────────────────────────────────────────── */
+.bonus-banner {
+  padding: 20px 32px;
+  border-radius: 18px;
+  transform: rotate(-2deg);
+  background: linear-gradient(135deg, #16a34a, #ca8a04);
+  box-shadow: 0 8px 40px rgba(22, 163, 74, 0.55);
+}
+
+.pause-card {
+  border-radius: 14px;
+  background: rgba(8, 26, 12, 0.95);
+  border: 1px solid rgba(74, 222, 128, 0.35);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+}
+
+.collect-readout {
+  border-radius: 12px;
+  background: rgba(6, 20, 8, 0.72);
+  border: 1px solid rgba(74, 222, 128, 0.28);
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(2px);
+}
+
+/* ── Controls — War-Heroes style: transparent footer on the page bg, with a
+   detached credit pill, floating WIN, and a spin cluster overlapping the reels */
+.wh-footer {
+  position: relative;
+  z-index: 2;
+  margin-top: 10px;
+  min-height: 56px;
+  /* reserve the right zone so WIN centres between the credit pill and the
+     absolutely-positioned spin cluster */
+  padding: 0 164px 0 2px;
+}
+
+/* the spin cluster floats at the right; anchored to the footer baseline so
+   AUTO lines up with CREDIT/WIN while the gold ball pokes up over the reels */
+.wh-spin-cluster {
+  position: absolute;
+  right: 2px;
+  bottom: 0;
+  padding: 0;
+}
+
+/* left credit/bet block — a standalone bordered pill like the War Heroes one */
+.wh-credit {
+  padding: 8px 14px 8px 9px;
+  border-radius: 14px;
+  background: rgba(6, 16, 8, 0.82);
+  border: 1px solid rgba(245, 197, 24, 0.28);
+  box-shadow: inset 0 1px 0 rgba(245, 197, 24, 0.08), 0 6px 18px rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(3px);
+}
+
+.wh-meta-label {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  font-weight: 700;
+  color: rgba(214, 211, 180, 0.45);
+  flex-shrink: 0;
+}
+
+.wh-meta-val {
+  font-family: ui-monospace, monospace;
+  font-size: 14px;
+  font-weight: 800;
+  color: #fde047;
+  letter-spacing: 0.01em;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.5);
+}
+
+.wh-bet-input {
+  width: 4.5em;
+  min-width: 0;
+  text-align: left;
+  background: transparent;
+  border: none;
+  outline: none;
+  padding: 0;
+  appearance: textfield;
+}
+
+.wh-bet-input:focus {
+  color: #fff;
+}
+
+.wh-bet-input:disabled {
+  opacity: 0.7;
+  cursor: default;
+}
+
+.wh-bet-input::-webkit-inner-spin-button,
+.wh-bet-input::-webkit-outer-spin-button {
+  appearance: none;
+  margin: 0;
+}
+
+/* big centred WIN readout in gold */
+.wh-win {
+  font-size: clamp(20px, 4.5vw, 28px);
+  font-weight: 900;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  font-variant-numeric: tabular-nums;
+  color: #f5c518;
+  text-shadow: 0 0 20px rgba(245, 197, 24, 0.55), 0 2px 2px rgba(0, 0, 0, 0.5);
+}
+
+.wh-win--idle {
+  color: rgba(214, 211, 180, 0.22);
+  text-shadow: none;
+}
+
+/* small round gold-outline icon buttons (info / turbo) */
+.wh-icon {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.25);
+  color: rgba(245, 197, 24, 0.6);
+  border: 1px solid rgba(245, 197, 24, 0.3);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.wh-icon:hover {
+  background: rgba(245, 197, 24, 0.14);
+  color: #fde047;
+  border-color: rgba(245, 197, 24, 0.55);
+}
+
+.wh-icon--active {
+  background: rgba(245, 197, 24, 0.2);
+  color: #fde047;
+  border-color: rgba(245, 197, 24, 0.6);
+  box-shadow: 0 0 10px rgba(245, 197, 24, 0.35);
+}
+
+/* − / + bet steppers: gold-outlined transparent circles */
+.wh-step {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  font-weight: 700;
+  color: #f5c518;
+  background: rgba(0, 0, 0, 0.2);
+  border: 2px solid rgba(245, 197, 24, 0.5);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, transform 0.1s;
+}
+
+.wh-step:hover:not(:disabled) {
+  background: rgba(245, 197, 24, 0.16);
+  border-color: rgba(245, 197, 24, 0.85);
+}
+
+.wh-step:active:not(:disabled) {
+  transform: scale(0.9);
+}
+
+.wh-step:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+/* SPIN — solid gold sphere, the War Heroes hero button */
+.wh-spin {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #5a3d05;
+  background: radial-gradient(circle at 50% 30%, #fef3c7 0%, #fbdf6b 24%, #f5c518 52%, #d99a08 82%, #a06c04 100%);
+  box-shadow: 0 5px 0 #6e4a04,
+    0 11px 26px rgba(0, 0, 0, 0.55),
+    inset 0 2px 5px rgba(255, 255, 255, 0.6),
+    inset 0 -4px 8px rgba(120, 80, 4, 0.5);
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.35);
+  cursor: pointer;
+  transition: transform 0.08s, box-shadow 0.08s, filter 0.15s, opacity 0.15s;
+  border: none;
+  outline: none;
+}
+
+.wh-spin:hover:not(:disabled) {
+  filter: brightness(1.06);
+}
+
+.wh-spin:active:not(:disabled) {
+  transform: translateY(4px);
+  box-shadow: 0 1px 0 #6e4a04, 0 4px 12px rgba(0, 0, 0, 0.5), inset 0 2px 5px rgba(255, 255, 255, 0.5);
+}
+
+.wh-spin:disabled {
+  opacity: 0.55;
+  cursor: default;
+  filter: saturate(0.7);
+}
+
+/* AUTO pill under the spin ball */
+.wh-auto {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.2em;
+  font-weight: 800;
+  color: rgba(245, 197, 24, 0.75);
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid rgba(245, 197, 24, 0.35);
+  border-radius: 999px;
+  padding: 2px 12px;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+
+.wh-auto:hover:not(:disabled) {
+  color: #fde047;
+  border-color: rgba(245, 197, 24, 0.6);
+  background: rgba(245, 197, 24, 0.12);
+}
+
+.wh-auto:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.wh-auto--stop {
+  color: rgba(248, 113, 113, 0.8);
+  border-color: rgba(248, 113, 113, 0.4);
+}
+
+.wh-auto--stop:hover {
+  color: #f87171;
+  border-color: rgba(248, 113, 113, 0.7);
+  background: rgba(248, 113, 113, 0.12);
+}
+
+.error-strip {
+  background: rgba(87, 29, 29, 0.6);
+  border: 1px solid rgba(185, 28, 28, 0.4);
+  border-radius: 12px;
+}
+
+/* ── Transitions ────────────────────────────────────────────────────────── */
+.fade-up-enter-active, .fade-up-leave-active {
+  transition: all 0.2s ease;
+}
+
+.fade-up-enter-from, .fade-up-leave-to {
+  opacity: 0;
+  transform: translateY(5px);
+}
+
+.pop-enter-active {
+  transition: all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.pop-leave-active {
+  transition: all 0.18s ease;
+}
+
+.pop-enter-from {
+  opacity: 0;
+  transform: scale(0.7);
+}
+
+.pop-leave-to {
+  opacity: 0;
+  transform: scale(0.9);
+}
 </style>
