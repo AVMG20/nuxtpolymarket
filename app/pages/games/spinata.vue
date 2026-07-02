@@ -101,14 +101,6 @@ const spinBonusCount = ref(0)
 
 const history = ref<{ payout: number, bet: number, bonus: boolean }[]>([])
 
-const sessionWagered = ref(0)
-const sessionReturned = ref(0)
-const sessionNet = computed(() => sessionReturned.value - sessionWagered.value)
-const sessionWinPct = computed(() => {
-    if (sessionWagered.value === 0) return 50
-    return Math.min(100, Math.max(0, (sessionReturned.value / sessionWagered.value) * 100))
-})
-
 // --- auto-spin ───────────────────────────────────────────────────────────────
 const autoSpinEnabled = ref(false)
 const autoSpinsLeft = ref(0)
@@ -750,8 +742,6 @@ async function spin(feature?: 'buyBonus') {
         }
         balance.value = data.balance
         setBalance(data.balance)
-        sessionWagered.value += result.cost
-        sessionReturned.value += result.payout
         history.value.unshift({ payout: result.payout, bet: result.cost, bonus: result.freeSpinsTriggered })
         if (history.value.length > 10) history.value.pop()
     } catch (e) {
@@ -1060,15 +1050,21 @@ const TRACK_COLORS = [
         </div>
       </div>
 
-      <!-- Session win-loss bar -->
-      <div v-if="sessionWagered > 0" class="session-bar">
-        <span class="session-bar__label" :class="sessionNet >= 0 ? 'session-bar__label--up' : 'session-bar__label--down'">
-          {{ sessionNet >= 0 ? '+' : '' }}{{ formatNumber(sessionNet, false) }}
+      <!-- History pills -->
+      <div v-if="history.length" class="history-strip">
+        <span
+          v-for="(h, i) in history"
+          :key="i"
+          :class="h.payout > h.bet
+            ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+            : h.payout > 0
+              ? 'bg-amber-500/10 text-amber-300/70 border-amber-500/20'
+              : 'bg-white/5 text-white/30 border-white/10'"
+          class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-mono font-bold border"
+        >
+          <UIcon v-if="h.bonus" class="size-3" name="i-lucide-gift" />
+          {{ h.payout > 0 ? formatNumber(h.payout) : '—' }}
         </span>
-        <div class="session-bar__track">
-          <div class="session-bar__fill" :style="{ width: sessionWinPct + '%' }" />
-        </div>
-        <span class="session-bar__label session-bar__label--muted">{{ formatNumber(sessionWagered, false) }} wagered</span>
       </div>
 
       <Transition name="fade-up">
@@ -1092,23 +1088,6 @@ const TRACK_COLORS = [
         </span>
         <span class="buy-card__cost"><CoinBalance :compact="false" :value="buyBonusCost" /></span>
       </button>
-    </div>
-
-    <!-- History -->
-    <div class="z-1 mt-3 flex gap-1.5 flex-wrap justify-center">
-      <span
-        v-for="(h, i) in history"
-        :key="i"
-        :class="h.payout > h.bet
-          ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
-          : h.payout > 0
-            ? 'bg-amber-500/10 text-amber-300/70 border-amber-500/20'
-            : 'bg-white/5 text-white/30 border-white/10'"
-        class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-mono font-bold border"
-      >
-        <UIcon v-if="h.bonus" class="size-3" name="i-lucide-gift" />
-        {{ h.payout > 0 ? formatNumber(h.payout) : '—' }}
-      </span>
     </div>
 
     <!-- Big win popup -->
@@ -1574,22 +1553,10 @@ const TRACK_COLORS = [
   border: 1px solid rgba(255,214,130,0.25);
 }
 
-.session-bar {
-  display: flex; align-items: center; gap: 10px; padding: 6px 16px 8px;
+.history-strip {
+  display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 16px;
   border-top: 1px solid rgba(255,255,255,0.06);
 }
-.session-bar__track {
-  flex: 1; height: 5px; border-radius: 3px; background: rgba(239,68,68,0.35); overflow: hidden;
-}
-.session-bar__fill {
-  height: 100%; border-radius: 3px; background: #22c55e; transition: width 0.4s ease;
-}
-.session-bar__label {
-  font-size: 11px; font-weight: 700; white-space: nowrap; min-width: 52px;
-}
-.session-bar__label--up { color: #4ade80; text-align: left; }
-.session-bar__label--down { color: #f87171; text-align: left; }
-.session-bar__label--muted { color: rgba(255,255,255,0.35); text-align: right; min-width: 80px; }
 
 .error-strip {
   display: flex; align-items: center; justify-content: space-between;
