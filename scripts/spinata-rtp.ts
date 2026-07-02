@@ -30,11 +30,11 @@ const SYMBOL_WEIGHTS: Record<SpinSymbol, number> = {
 }
 
 const PAYTABLE: Record<SpinPaySymbol | 'wild', [number, number, number]> = {
-    ten:      [   8,   43,  173],
-    jack:     [   8,   43,  173],
-    queen:    [  14,   69,  260],
-    king:     [  17,   87,  347],
-    ace:      [  26,  130,  520],
+    ten:      [   9,   45,  177],
+    jack:     [   9,   45,  177],
+    queen:    [  15,   70,  263],
+    king:     [  18,   88,  349],
+    ace:      [  27,  132,  523],
     maracas:  [  35,  173,  693],
     cactus:   [  52,  260, 1040],
     sombrero: [  87,  433, 1733],
