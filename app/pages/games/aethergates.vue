@@ -286,11 +286,16 @@ function randomGrid(): AetherSymbol[][] {
   return grid
 }
 
-function tickNumber(target: Ref<number>, to: number, duration = 480) {
+const tickRuns = new WeakMap<Ref<number>, number>()
+
+function tickNumber(target: Ref<number>, to: number, duration = 480, respectTurbo = true) {
+  const run = (tickRuns.get(target) ?? 0) + 1
+  tickRuns.set(target, run)
   const from = target.value
   const start = performance.now()
-  const d = turbo.value ? Math.round(duration * 0.45) : duration
+  const d = respectTurbo && turbo.value ? Math.round(duration * 0.45) : duration
   const frame = (now: number) => {
+    if (tickRuns.get(target) !== run) return
     const t = Math.min(1, (now - start) / d)
     const eased = 1 - (1 - t) ** 3
     target.value = from + (to - from) * eased
@@ -613,7 +618,7 @@ function spawnFlightSparks(from: { x: number, y: number }, midX: number, midY: n
   }
 }
 
-async function flyMultiplier(drop: MultDrop, toValue: number) {
+async function flyMultiplier(drop: MultDrop, toValue: number, normalSpeed = false) {
   const from = cellScreen(drop)
   const toEl = meterRef.value
   if (!from || !toEl || !import.meta.client) {
@@ -623,7 +628,8 @@ async function flyMultiplier(drop: MultDrop, toValue: number) {
 
   // Fade the tile's own baked-in badge right as it starts flying so it
   // doesn't overlap the flying "×N" clone.
-  reelSet?.getReel?.(drop.col)?.getSymbolAt?.(drop.row)?.fadeMultLabel?.(turbo.value ? 0.12 : 0.2)
+  const useTurboTiming = turbo.value && !normalSpeed
+  reelSet?.getReel?.(drop.col)?.getSymbolAt?.(drop.row)?.fadeMultLabel?.(useTurboTiming ? 0.12 : 0.2)
 
   const to = toEl.getBoundingClientRect()
   const endX = to.left + to.width / 2
@@ -647,26 +653,34 @@ async function flyMultiplier(drop: MultDrop, toValue: number) {
     return
   }
 
-  // 25% slower than the original 360/760ms so the flight reads clearly.
-  const duration = (turbo.value ? 360 : 760) * 1.25
+  const duration = useTurboTiming ? 420 : 860
+  let meterHitStarted = false
+  const startMeterHit = () => {
+    if (meterHitStarted) return
+    meterHitStarted = true
+    meterFlash.value = true
+    tickNumber(meter, toValue, 300, !normalSpeed)
+    setTimeout(() => {
+      meterFlash.value = false
+    }, useTurboTiming ? 150 : 240)
+  }
   spawnFlightSparks(from, midX, midY, endX, endY, duration)
+  const meterHitTimer = window.setTimeout(startMeterHit, duration * 0.78)
 
   await el.animate([
     { transform: 'translate(-50%, -50%) scale(1)', offset: 0, opacity: 1 },
-    { transform: `translate(${midX - from.x}px, ${midY - from.y}px) scale(0.76)`, offset: 0.52, opacity: 1 },
-    { transform: `translate(${endX - from.x}px, ${endY - from.y}px) scale(0.24)`, offset: 1, opacity: 0.2 }
+    { transform: `translate(${midX - from.x}px, ${midY - from.y}px) scale(0.82)`, offset: 0.5, opacity: 1 },
+    { transform: `translate(${endX - from.x}px, ${endY - from.y}px) scale(0.44)`, offset: 0.82, opacity: 0.92 },
+    { transform: `translate(${endX - from.x}px, ${endY - from.y - 8}px) scale(0.06)`, offset: 1, opacity: 0 }
   ], {
     duration,
-    easing: 'cubic-bezier(.18,.8,.2,1)',
+    easing: 'cubic-bezier(.16,.84,.24,1)',
     fill: 'forwards'
   }).finished.catch(() => {})
 
+  window.clearTimeout(meterHitTimer)
+  startMeterHit()
   flying.value = flying.value.filter(f => f.id !== id)
-  meterFlash.value = true
-  tickNumber(meter, toValue, 320)
-  setTimeout(() => {
-    meterFlash.value = false
-  }, 260)
 }
 
 // Relics at/above this value get a quick lightning strike before they fly off.
@@ -750,15 +764,17 @@ async function collectMultipliers(step: AetherStep) {
   if (!step.multipliers.length) return
   await stepDelay(180)
   sfx.mult()
-  const flights = step.multipliers.map((drop, index) =>
-    wait(index * (turbo.value ? 45 : 105)).then(async () => {
+  const flights = step.multipliers.map((drop, index) => {
+    const isShowcaseMult = AETHER_LIGHTNING_TEST_MODE || drop.value >= AETHER_LIGHTNING_MIN_MULT
+    const stagger = turbo.value && !isShowcaseMult ? 45 : 105
+    return wait(index * stagger).then(async () => {
       const previous = step.meterBefore + step.multipliers.slice(0, index).reduce((sum, d) => sum + d.value, 0)
-      if (AETHER_LIGHTNING_TEST_MODE || drop.value >= AETHER_LIGHTNING_MIN_MULT) {
+      if (isShowcaseMult) {
         await spawnLightningStrike(drop)
       }
-      return flyMultiplier(drop, previous + drop.value)
+      return flyMultiplier(drop, previous + drop.value, isShowcaseMult)
     })
-  )
+  })
   await Promise.all(flights)
 }
 
