@@ -101,6 +101,14 @@ const spinBonusCount = ref(0)
 
 const history = ref<{ payout: number, bet: number, bonus: boolean }[]>([])
 
+const sessionWagered = ref(0)
+const sessionReturned = ref(0)
+const sessionNet = computed(() => sessionReturned.value - sessionWagered.value)
+const sessionWinPct = computed(() => {
+    if (sessionWagered.value === 0) return 50
+    return Math.min(100, Math.max(0, (sessionReturned.value / sessionWagered.value) * 100))
+})
+
 // --- auto-spin ───────────────────────────────────────────────────────────────
 const autoSpinEnabled = ref(false)
 const autoSpinsLeft = ref(0)
@@ -742,6 +750,8 @@ async function spin(feature?: 'buyBonus') {
         }
         balance.value = data.balance
         setBalance(data.balance)
+        sessionWagered.value += result.cost
+        sessionReturned.value += result.payout
         history.value.unshift({ payout: result.payout, bet: result.cost, bonus: result.freeSpinsTriggered })
         if (history.value.length > 10) history.value.pop()
     } catch (e) {
@@ -1050,6 +1060,17 @@ const TRACK_COLORS = [
         </div>
       </div>
 
+      <!-- Session win-loss bar -->
+      <div v-if="sessionWagered > 0" class="session-bar">
+        <span class="session-bar__label" :class="sessionNet >= 0 ? 'session-bar__label--up' : 'session-bar__label--down'">
+          {{ sessionNet >= 0 ? '+' : '' }}{{ formatNumber(sessionNet, false) }}
+        </span>
+        <div class="session-bar__track">
+          <div class="session-bar__fill" :style="{ width: sessionWinPct + '%' }" />
+        </div>
+        <span class="session-bar__label session-bar__label--muted">{{ formatNumber(sessionWagered, false) }} wagered</span>
+      </div>
+
       <Transition name="fade-up">
         <div v-if="errorMsg" class="error-strip">
           <p class="text-sm text-red-400">{{ errorMsg }}</p>
@@ -1264,8 +1285,8 @@ const TRACK_COLORS = [
 }
 
 .spn-title__logo {
-  display: block; margin: 0 auto;
-  max-height: clamp(140px, 20vw, 280px); width: auto;
+  display: block; margin: 0 auto -195px;
+  width: min(90%, 700px); height: auto;
   filter: drop-shadow(0 4px 18px rgba(249,115,22,0.55));
 }
 
@@ -1552,6 +1573,23 @@ const TRACK_COLORS = [
   background: rgba(24,8,38,0.95);
   border: 1px solid rgba(255,214,130,0.25);
 }
+
+.session-bar {
+  display: flex; align-items: center; gap: 10px; padding: 6px 16px 8px;
+  border-top: 1px solid rgba(255,255,255,0.06);
+}
+.session-bar__track {
+  flex: 1; height: 5px; border-radius: 3px; background: rgba(239,68,68,0.35); overflow: hidden;
+}
+.session-bar__fill {
+  height: 100%; border-radius: 3px; background: #22c55e; transition: width 0.4s ease;
+}
+.session-bar__label {
+  font-size: 11px; font-weight: 700; white-space: nowrap; min-width: 52px;
+}
+.session-bar__label--up { color: #4ade80; text-align: left; }
+.session-bar__label--down { color: #f87171; text-align: left; }
+.session-bar__label--muted { color: rgba(255,255,255,0.35); text-align: right; min-width: 80px; }
 
 .error-strip {
   display: flex; align-items: center; justify-content: space-between;
