@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { FireBonusDrop, FireBonusResult, FireBonusValueEvent, FireCell, FireCascadeStep, FireInTheHoleResult, FireSymbol } from '#shared/utils/gamelogic/fireinthehole'
-import { FITH_COLS, FITH_FREE_SPINS, FITH_MAX_WIN_MULT, FITH_MIN_CONNECTION, FITH_ROWS, playFireInTheHole } from '#shared/utils/gamelogic/fireinthehole'
+import { FITH_BUY_BONUS_COST, FITH_COLS, FITH_FREE_SPINS, FITH_MAX_WIN_MULT, FITH_MIN_CONNECTION, FITH_ROWS, playFireInTheHole } from '#shared/utils/gamelogic/fireinthehole'
 
 definePageMeta({
   title: 'Fire in the Hole'
@@ -23,13 +23,13 @@ const errorMsg = ref('')
 const turbo = ref(false)
 const showHelp = ref(false)
 const totalWinPulse = ref(false)
-const isDevMode = import.meta.dev
 
 const MIN_BET = 1
 const MAX_BET = 1_000_000
 const bet = ref(10)
 const betInput = ref('10')
 const spinCost = computed(() => bet.value)
+const buyBonusCost = computed(() => bet.value * FITH_BUY_BONUS_COST)
 const history = ref<{ payout: number, bet: number, bonus: boolean }[]>([])
 
 const autoSpinEnabled = ref(false)
@@ -134,8 +134,8 @@ function stepDelay(ms: number) {
 }
 
 function animationSpeedFactor(index: number) {
-  const base = Math.max(0.15, 0.82 - index * 0.1)
-  return turbo.value ? Math.max(0.1, base * 0.55) : base
+  const base = Math.max(0.4, 0.85 - index * 0.05)
+  return turbo.value ? Math.max(0.32, base * 0.8) : base
 }
 
 function cellKey(cell: FireCell) {
@@ -1042,11 +1042,12 @@ async function animateResult(result: FireInTheHoleResult) {
   if (result.payout > 0) pulseWin()
 }
 
-async function play(forceScatters = false) {
-  if (!reelSet || isPlaying.value || balance.value < spinCost.value) return
+async function play(buy = false) {
+  const cost = buy ? buyBonusCost.value : spinCost.value
+  if (!reelSet || isPlaying.value || balance.value < cost) return
 
   isPlaying.value = true
-  status.value = forceScatters && isDevMode ? 'Forcing scatters' : 'Dropping'
+  status.value = buy ? 'Buying bonus' : 'Dropping'
   errorMsg.value = ''
   chainCount.value = 0
   lastBombs.value = 0
@@ -1057,7 +1058,7 @@ async function play(forceScatters = false) {
   clearBonusValues()
 
   const balanceBeforeSpin = balance.value
-  balance.value = balanceBeforeSpin - spinCost.value
+  balance.value = balanceBeforeSpin - cost
   setBalance(balance.value)
 
   let data: { gameData: FireInTheHoleResult, balance: number }
@@ -1067,7 +1068,7 @@ async function play(forceScatters = false) {
       body: {
         bet: bet.value,
         game: 'fireinthehole',
-        options: forceScatters && isDevMode ? { forceScatters: true } : undefined
+        options: buy ? { buyBonus: true } : undefined
       }
     }) as { gameData: FireInTheHoleResult, balance: number }
   } catch (error) {
@@ -1186,16 +1187,13 @@ onBeforeUnmount(() => {
             </strong>
           </div>
 
-          <div
-            v-if="isDevMode"
-            class="fire-panel mt-3 p-3"
-          >
+          <div class="fire-panel mt-3 p-3">
             <UButton
               block
-              color="neutral"
-              :disabled="!isReady || isPlaying || autoSpinEnabled"
-              icon="i-lucide-test-tube-2"
-              label="Force 3 scatters"
+              color="primary"
+              :disabled="!isReady || isPlaying || autoSpinEnabled || balance < buyBonusCost"
+              icon="i-lucide-flame"
+              :label="`Buy bonus · ${formatNumber(buyBonusCost, false)}`"
               size="sm"
               variant="soft"
               @click="play(true)"
@@ -1438,7 +1436,8 @@ onBeforeUnmount(() => {
         <div class="space-y-3 text-sm text-muted">
           <p>Connect {{ FITH_MIN_CONNECTION }}+ matching symbols. Bombs are wilds, explode nearby tiles, and unlock deeper rows when they hit near the divider.</p>
           <p>Three scatters award {{ FITH_FREE_SPINS }} free spins using only the rows you unlocked during the base spin.</p>
-          <p>Bonus coins can land as low as 0.2x and 0.5x. Rare sticky boosts add flat value every spin, doublers fire once, and collectors absorb coins.</p>
+          <p>Bonus coins can land as low as 0.13x and 0.33x. Sticky boosts add flat value every spin, doublers multiply everything on the board when they land, and collectors absorb coins.</p>
+          <p>Buy bonus skips straight to {{ FITH_FREE_SPINS }} free spins for {{ formatNumber(buyBonusCost, false) }} ({{ FITH_BUY_BONUS_COST }}x bet).</p>
           <p>Total win is capped at {{ FITH_MAX_WIN_MULT }}x bet.</p>
         </div>
       </template>

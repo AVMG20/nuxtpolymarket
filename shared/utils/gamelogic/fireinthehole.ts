@@ -8,6 +8,7 @@ export const FITH_SCATTERS_FOR_BONUS = 3
 export const FITH_FREE_SPINS = 10
 export const FITH_MAX_BONUS_MULTIPLIER = 20000
 export const FITH_MAX_WIN_MULT = 20000
+export const FITH_BUY_BONUS_COST = 46 // × bet → ~98% RTP (measured via bonus-only sim at FITH_STARTING_LINES)
 
 export type FireSymbol = 'coal' | 'ore' | 'ruby' | 'sapphire' | 'emerald' | 'bomb' | 'scatter' | 'coin' | 'boost' | 'double' | 'collector' | 'empty' | 'rock'
 export type FirePaySymbol = Extract<FireSymbol, 'coal' | 'ore' | 'ruby' | 'sapphire' | 'emerald'>
@@ -81,22 +82,17 @@ export interface FireInTheHoleResult {
   [key: string]: unknown
 }
 
-export interface FireInTheHoleOptions {
-  forceScatters?: boolean
-}
-
 const PAY_SYMBOLS: FirePaySymbol[] = ['coal', 'ore', 'ruby', 'sapphire', 'emerald']
 const PAY_WEIGHTS = [34, 28, 18, 13, 9]
 const BOMB_WEIGHT = 7
-const SCATTER_WEIGHT = 1.3
+const SCATTER_WEIGHT = 1.5
 const SYMBOL_PAY: Record<FirePaySymbol, number> = {
-  coal: 0.019,
-  ore: 0.026,
-  ruby: 0.04,
-  sapphire: 0.056,
-  emerald: 0.076
+  coal: 0.012,
+  ore: 0.017,
+  ruby: 0.025,
+  sapphire: 0.035,
+  emerald: 0.048
 }
-const BOMB_PAY = 0.089
 
 function rand(): number {
   const arr = new Uint32Array(1)
@@ -304,7 +300,6 @@ function calculateStepPay(grid: FireSymbol[][], winCells: FireCell[], chain: num
   const symbolPay = winCells.reduce((sum, cell) => {
     const symbol = grid[cell.col]![cell.row]!
 
-    if (symbol === 'bomb') return sum + BOMB_PAY
     if (!PAY_SYMBOLS.includes(symbol as FirePaySymbol)) return sum
 
     return sum + SYMBOL_PAY[symbol as FirePaySymbol]
@@ -325,7 +320,8 @@ function findScatters(grid: FireSymbol[][], activeLines: number): FireCell[] {
   return cells
 }
 
-function forceScatterTrigger(grid: FireSymbol[][], activeLines: number): FireCell[] {
+function buyBonusGrid(activeLines: number): FireSymbol[][] {
+  const grid = createGrid(activeLines)
   const cells: FireCell[] = []
 
   for (let row = 0; row < activeLines; row++) {
@@ -334,20 +330,15 @@ function forceScatterTrigger(grid: FireSymbol[][], activeLines: number): FireCel
     }
   }
 
-  const existing = findScatters(grid, activeLines)
-  const existingKeys = new Set(existing.map(key))
-  const needed = Math.max(0, FITH_SCATTERS_FOR_BONUS - existing.length)
-  const candidates = cells.filter(cell => !existingKeys.has(key(cell)))
-
-  for (let i = 0; i < needed && i < candidates.length; i++) {
-    const index = Math.floor(rand() * candidates.length)
-    const [cell] = candidates.splice(index, 1)
+  for (let i = 0; i < FITH_SCATTERS_FOR_BONUS && cells.length > 0; i++) {
+    const index = Math.floor(rand() * cells.length)
+    const [cell] = cells.splice(index, 1)
     if (!cell) continue
 
     grid[cell.col]![cell.row] = 'scatter'
   }
 
-  return findScatters(grid, activeLines)
+  return grid
 }
 
 function createBonusGrid(activeLines: number): FireSymbol[][] {
@@ -369,11 +360,11 @@ function emptyBonusCells(grid: FireSymbol[][], activeLines: number): FireCell[] 
 }
 
 function bonusCoinValue(): number {
-  return weightedPick([0.2, 0.5, 1, 2, 3, 5, 8, 10, 15, 20] as const, [18, 22, 22, 16, 8, 5, 3, 2.4, 1.1, 0.5])
+  return weightedPick([0.13, 0.33, 0.64, 1.23, 2.07, 3.25, 4.93, 7.4, 13.3, 24.6] as const, [18, 22, 22, 16, 8, 5, 3, 2.4, 1.1, 0.5])
 }
 
 function bonusAddValue(): number {
-  return weightedPick([2, 5, 10, 15] as const, [45, 30, 18, 7])
+  return weightedPick([1.23, 3.25, 7.4, 18.2] as const, [45, 30, 18, 7])
 }
 
 function clampBonusValue(value: number): number {
@@ -388,9 +379,9 @@ function bonusDropChances(occupied: number, capacity: number) {
   const nonCollectorScale = Math.max(0, (capacity - occupied - 1) / Math.max(1, capacity - 1))
 
   return {
-    coin: 0.0523 * nonCollectorScale,
+    coin: 0.04 * nonCollectorScale,
     boost: 0.0034 * nonCollectorScale,
-    double: 0.0011 * nonCollectorScale,
+    double: 0.006 * nonCollectorScale,
     collector: 0.0017
   }
 }
@@ -543,9 +534,34 @@ function playBonus(activeLines: number, bet: number): FireBonusResult {
   }
 }
 
-export function playFireInTheHole(bet: number, options: FireInTheHoleOptions = {}): FireInTheHoleResult {
+export function playFireInTheHole(bet: number, options?: Record<string, unknown>): FireInTheHoleResult {
   if (!Number.isFinite(bet) || bet <= 0) {
     throw createError({ statusCode: 400, message: 'Invalid bet amount' })
+  }
+
+  if (options?.buyBonus) {
+    const activeLines = FITH_STARTING_LINES
+    const cost = Number((bet * FITH_BUY_BONUS_COST).toFixed(2))
+    const grid = buyBonusGrid(activeLines)
+    const bonus = playBonus(activeLines, bet)
+    const maxWin = bet * FITH_MAX_WIN_MULT
+    const totalPayout = Number(Math.min(maxWin, bonus.payout).toFixed(2))
+
+    return {
+      bet,
+      cost,
+      payout: totalPayout,
+      basePayout: 0,
+      maxWin,
+      won: totalPayout > cost,
+      grid,
+      steps: [],
+      restGrid: grid,
+      scatterCells: findScatters(grid, activeLines),
+      activeLines,
+      maxLines: FITH_MAX_LINES,
+      bonus
+    }
   }
 
   let activeLines = FITH_STARTING_LINES
@@ -581,9 +597,7 @@ export function playFireInTheHole(bet: number, options: FireInTheHoleOptions = {
     grid = nextGrid
   }
 
-  const scatterCells = import.meta.dev && options.forceScatters
-    ? forceScatterTrigger(grid, activeLines)
-    : findScatters(grid, activeLines)
+  const scatterCells = findScatters(grid, activeLines)
   const bonus = scatterCells.length >= FITH_SCATTERS_FOR_BONUS
     ? playBonus(activeLines, bet)
     : undefined
