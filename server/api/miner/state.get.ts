@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm'
 import { db } from '#server/database'
-import { minerState, user, gemMarketState } from '#server/database/schema'
+import { minerState, user } from '#server/database/schema'
 import { auth } from '#server/utils/auth'
 import {
   vaultCap, rigUpgradeCost, vaultUpgradeCost,
@@ -65,8 +65,8 @@ export default defineEventHandler(async (event) => {
     lootboxMaxSlots: LOOTBOX_MAX_SLOTS,
     lootboxNextSlotCost: lootboxSlotCost(s.lootboxSlots),
     lootboxFreeOpensRemaining: Math.max(0, s.lootboxSlots - lootboxOpensToday),
-    lootboxAvgValue: lootboxExpectedValue(cap, gemPrice),
-    lootboxOpenPrice: lootboxOpenPrice(cap, gemPrice),
+    lootboxAvgValue: lootboxExpectedValue(cap, gemPrice, s.factoryLevel),
+    lootboxOpenPrice: lootboxOpenPrice(cap, gemPrice, s.factoryLevel),
     // Gem-shop upgrades
     overclockLevel: s.overclockLevel,
     overclockMaxLevel: OVERCLOCK_MAX_LEVEL,

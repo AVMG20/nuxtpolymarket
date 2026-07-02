@@ -1,7 +1,7 @@
 import { eq, sql } from 'drizzle-orm'
 import { readBody } from 'h3'
 import { db } from '#server/database'
-import { minerState, user, gemMarketState } from '#server/database/schema'
+import { minerState, user } from '#server/database/schema'
 import { auth } from '#server/utils/auth'
 import { credit, debit } from '#server/utils/balance'
 import {
@@ -10,7 +10,7 @@ import {
   lootboxRewardValue,
   lootboxGemCount,
   lootboxOpenPrice,
-  overclockMultiplier,
+  overclockMultiplier
 } from '#shared/utils/miner-config'
 import { gemComputeLivePrice, GEM_INITIAL_PRICE } from '#shared/utils/gamelogic/gem-market'
 
@@ -23,7 +23,7 @@ export default defineEventHandler(async (event) => {
 
   const [s, market] = await Promise.all([
     db.query.minerState.findFirst({ where: eq(minerState.userId, userId) }),
-    db.query.gemMarketState.findFirst(),
+    db.query.gemMarketState.findFirst()
   ])
   if (!s) throw createError({ statusCode: 404, statusMessage: 'Miner not initialized' })
 
@@ -42,7 +42,7 @@ export default defineEventHandler(async (event) => {
 
   // Charge / consume up-front so a roll is never granted for free.
   if (paid) {
-    const price = lootboxOpenPrice(cap, gemPrice)
+    const price = lootboxOpenPrice(cap, gemPrice, s.factoryLevel)
     // debit throws 400 if the user can't afford it
     await debit(userId, price.toFixed(4), 'lootbox')
   } else {
@@ -55,9 +55,9 @@ export default defineEventHandler(async (event) => {
   // Roll and pay out. Rig Overclock boosts cash rewards (not gem rewards).
   const reward = lootboxRoll()
   const cashValue = reward.kind === 'cash'
-    ? lootboxRewardValue(reward, cap, gemPrice) * overclockMultiplier(s.overclockLevel)
-    : lootboxRewardValue(reward, cap, gemPrice)
-  const gemsWon = lootboxGemCount(reward, gemPrice)
+    ? lootboxRewardValue(reward, cap, gemPrice, s.factoryLevel) * overclockMultiplier(s.overclockLevel)
+    : lootboxRewardValue(reward, cap, gemPrice, s.factoryLevel)
+  const gemsWon = lootboxGemCount(reward, s.factoryLevel)
 
   if (reward.kind === 'cash') {
     await credit(userId, cashValue.toFixed(4), 'lootbox')
@@ -72,6 +72,6 @@ export default defineEventHandler(async (event) => {
     cashValue,
     gemsWon,
     paid,
-    freeOpensRemaining: paid ? freeRemaining : freeRemaining - 1,
+    freeOpensRemaining: paid ? freeRemaining : freeRemaining - 1
   }
 })
