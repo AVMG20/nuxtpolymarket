@@ -846,7 +846,7 @@ const TRACK_COLORS = [
     <div class="spn-title z-1 text-center">
       <img src="/slots/spinata/logo.png" alt="Spiñata Slots" class="spn-title__logo" />
       <div class="mt-2 flex flex-wrap items-center justify-center gap-2">
-        <span class="spn-badge spn-badge--rtp">94.5% RTP</span>
+        <span class="spn-badge spn-badge--rtp">98% RTP</span>
         <span class="spn-badge spn-badge--vol">High Volatility</span>
         <span class="spn-badge spn-badge--lines">{{ SPN_LINES }} Paylines</span>
       </div>
