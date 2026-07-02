@@ -18,8 +18,14 @@ async function signIn() {
     password: password.value,
     callbackURL: '/'
   })
-  if (err) error.value = err.message ?? 'Sign in failed'
   loading.value = false
+  if (err) {
+    error.value = err.message ?? 'Sign in failed'
+    return
+  }
+  // Hard navigation so the session cookie rides a fresh SSR request and the
+  // middleware resolves the session cleanly (avoids the client-side fetch race).
+  window.location.href = '/'
 }
 </script>
 
