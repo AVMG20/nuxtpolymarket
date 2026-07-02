@@ -50,6 +50,12 @@ let boundaryVisualLines = 3
 let boundaryTween: { kill: () => void } | null = null
 let pendingBonusDrops: FireBonusDrop[] = []
 
+// Symbol textures cropped from sprite.png (base grid) and bonus.png (bonus
+// drops), populated in initPixi. Crop rects live in app/utils/fireinthehole-sprite.ts
+// — tune them via /games/fireinthehole-sprite-debug.
+const TEX: Partial<Record<FireSymbol, import('pixi.js').Texture>> = {}
+const ALL_SYMBOL_IDS = [...Object.keys(FITH_SYMBOL_META), ...Object.keys(FITH_BONUS_SYMBOL_META)] as FireSymbol[]
+
 watch(() => user.value?.balance, (value) => {
   if (value !== undefined) balance.value = parseFloat(value ?? '0')
 })
@@ -105,22 +111,6 @@ function onCanvasClick() {
   resumeAutoSpin = null
 }
 
-const symbolMeta: Record<FireSymbol, { label: string, color: number, accent: number }> = {
-  coal: { label: 'C', color: 0x3f3f46, accent: 0xa1a1aa },
-  ore: { label: 'O', color: 0x0f766e, accent: 0x5eead4 },
-  ruby: { label: 'R', color: 0xbe123c, accent: 0xfda4af },
-  sapphire: { label: 'S', color: 0x1d4ed8, accent: 0x93c5fd },
-  emerald: { label: 'E', color: 0x15803d, accent: 0x86efac },
-  bomb: { label: 'B', color: 0x18181b, accent: 0xf97316 },
-  scatter: { label: 'FS', color: 0x7c2d12, accent: 0xfacc15 },
-  coin: { label: '', color: 0xca8a04, accent: 0xfef3c7 },
-  boost: { label: '+', color: 0x0f766e, accent: 0x99f6e4 },
-  double: { label: '2X', color: 0x6d28d9, accent: 0xddd6fe },
-  collector: { label: '', color: 0xbe123c, accent: 0xfef3c7 },
-  empty: { label: '', color: 0x27272a, accent: 0x3f3f46 },
-  rock: { label: '', color: 0x27272a, accent: 0x52525b }
-}
-
 function gridToTargets(grid: FireSymbol[][]) {
   return grid.map(visible => ({ visible }))
 }
@@ -164,7 +154,7 @@ async function initPixi() {
   if (!canvasHost.value || pixiApp) return
 
   const [
-    { Application, Container, Graphics, Text },
+    { Application, Assets, Container, Graphics, Rectangle, Sprite, Text, Texture },
     { ReelSetBuilder, ReelSymbol, SpeedPresets },
     { gsap }
   ] = await Promise.all([
@@ -173,9 +163,20 @@ async function initPixi() {
     import('gsap')
   ])
 
+  const [baseSheet, bonusSheet] = await Promise.all([
+    Assets.load(FITH_SPRITE_SRC),
+    Assets.load(FITH_BONUS_SPRITE_SRC)
+  ])
+  for (const [id, meta] of Object.entries(FITH_SYMBOL_META)) {
+    TEX[id as FireSymbol] = new Texture({ source: baseSheet.source, frame: new Rectangle(...meta.rect) })
+  }
+  for (const [id, meta] of Object.entries(FITH_BONUS_SYMBOL_META)) {
+    TEX[id as FireSymbol] = new Texture({ source: bonusSheet.source, frame: new Rectangle(...meta.rect) })
+  }
+
   class MineSymbol extends ReelSymbol {
     private readonly tile = new Graphics()
-    private readonly ring = new Graphics()
+    private readonly sprite = new Sprite()
     private readonly bonusLabelBg = new Graphics()
 
     private readonly bonusLabel = new Text({
@@ -189,30 +190,19 @@ async function initPixi() {
       }
     })
 
-    private readonly glyph = new Text({
-      text: '',
-      style: {
-        fill: 0xffffff,
-        fontFamily: 'Inter, ui-sans-serif, system-ui',
-        fontSize: 28,
-        fontWeight: '900'
-      }
-    })
-
     private symbol: FireSymbol = 'coal'
     private width = 100
     private height = 100
 
     constructor() {
       super()
-      this.view.addChild(this.tile, this.ring, this.bonusLabelBg, this.bonusLabel, this.glyph)
+      this.view.addChild(this.tile, this.sprite, this.bonusLabelBg, this.bonusLabel)
+      this.sprite.anchor.set(0.5)
       this.bonusLabel.anchor.set(0.5)
-      this.glyph.anchor.set(0.5)
     }
 
     protected onActivate(symbolId: string): void {
       this.symbol = symbolId as FireSymbol
-      this.glyph.text = symbolMeta[this.symbol].label
       this.bonusLabel.text = ''
       this.bonusLabel.visible = false
       this.bonusLabelBg.clear()
@@ -278,48 +268,25 @@ async function initPixi() {
     }
 
     private draw() {
-      const meta = symbolMeta[this.symbol]
       const pad = 5
-      const radius = this.symbol === 'bomb' || this.symbol === 'coin' || this.symbol === 'collector' ? 999 : 13
+      const isLocked = this.symbol === 'rock' || this.symbol === 'empty'
 
       this.tile.clear()
-      this.tile.roundRect(pad, pad, this.width - pad * 2, this.height - pad * 2, radius)
-      this.tile.fill({ color: meta.color, alpha: this.symbol === 'rock' || this.symbol === 'empty' ? 0.72 : 0.96 })
-      this.tile.stroke({ color: meta.accent, alpha: this.symbol === 'rock' || this.symbol === 'empty' ? 0.28 : 0.78, width: this.symbol === 'bomb' ? 4 : 2 })
+      this.tile.roundRect(pad, pad, this.width - pad * 2, this.height - pad * 2, 13)
+      this.tile.fill({ color: 0x000000, alpha: isLocked ? 0.32 : 0.2 })
 
-      this.ring.clear()
-
-      if (this.symbol === 'bomb') {
-        this.ring.circle(this.width * 0.5, this.height * 0.5, Math.min(this.width, this.height) * 0.24)
-        this.ring.stroke({ color: 0xffedd5, alpha: 0.95, width: 4 })
-        this.ring.moveTo(this.width * 0.58, this.height * 0.28)
-        this.ring.lineTo(this.width * 0.72, this.height * 0.14)
-        this.ring.stroke({ color: meta.accent, alpha: 1, width: 5 })
-      } else if (this.symbol === 'scatter') {
-        this.ring.star(this.width * 0.5, this.height * 0.48, 5, this.width * 0.28, this.width * 0.13)
-        this.ring.fill({ color: meta.accent, alpha: 0.28 })
-        this.ring.stroke({ color: 0xfef3c7, alpha: 0.85, width: 3 })
-      } else if (this.symbol === 'coin' || this.symbol === 'collector') {
-        this.ring.circle(this.width * 0.5, this.height * 0.5, Math.min(this.width, this.height) * 0.32)
-        this.ring.fill({ color: meta.accent, alpha: this.symbol === 'collector' ? 0.22 : 0.18 })
-        this.ring.stroke({ color: meta.accent, alpha: 0.9, width: 4 })
-        this.ring.circle(this.width * 0.5, this.height * 0.5, Math.min(this.width, this.height) * 0.2)
-        this.ring.stroke({ color: 0xffffff, alpha: 0.55, width: 2 })
-      } else if (this.symbol === 'rock') {
-        for (let i = 0; i < 3; i++) {
-          const y = this.height * (0.32 + i * 0.18)
-          this.ring.moveTo(this.width * 0.22, y)
-          this.ring.lineTo(this.width * 0.78, y - 8)
-          this.ring.stroke({ color: meta.accent, alpha: 0.38, width: 3 })
-        }
+      const tex = TEX[this.symbol]
+      if (tex) {
+        const maxSize = Math.min(this.width, this.height) * 0.92
+        const scale = Math.min(maxSize / tex.width, maxSize / tex.height)
+        this.sprite.texture = tex
+        this.sprite.alpha = isLocked ? 0.75 : 1
+        this.sprite.scale.set(scale)
+        this.sprite.position.set(this.width * 0.5, this.height * 0.5)
+        this.sprite.visible = true
       } else {
-        this.ring.roundRect(this.width * 0.24, this.height * 0.24, this.width * 0.52, this.height * 0.52, 12)
-        this.ring.fill({ color: meta.accent, alpha: 0.18 })
-        this.ring.stroke({ color: 0xffffff, alpha: 0.42, width: 2 })
+        this.sprite.visible = false
       }
-
-      this.glyph.position.set(this.width * 0.5, this.height * 0.52)
-      this.glyph.visible = !this.bonusLabel.visible && !['rock', 'empty', 'coin', 'collector'].includes(this.symbol)
 
       if (this.bonusLabel.visible) {
         this.bonusLabel.position.set(this.width * 0.5, this.height * 0.5)
@@ -361,7 +328,7 @@ async function initPixi() {
     .symbolGap(8, 8)
     .bufferSymbols(1)
     .symbols((registry) => {
-      for (const id of Object.keys(symbolMeta)) {
+      for (const id of ALL_SYMBOL_IDS) {
         registry.register(id, MineSymbol, {})
       }
     })
@@ -665,7 +632,7 @@ function clearBonusValues() {
 async function drawBonusValues(coins: FireBonusDrop[]) {
   if (!bonusValueLayer) return
 
-  const { Container, Graphics, Text } = await import('pixi.js')
+  const { Container, Graphics, Sprite, Text } = await import('pixi.js')
 
   clearBonusValues()
 
@@ -673,10 +640,9 @@ async function drawBonusValues(coins: FireBonusDrop[]) {
     const bounds = reelSet?.getCellBounds(coin.col, coin.row)
     if (!bounds) continue
 
-    const meta = symbolMeta[coin.symbol]
+    const tex = TEX[coin.symbol]
     const holder = new Container()
-    const tile = new Graphics()
-    const ring = new Graphics()
+    const sprite = new Sprite()
     const bg = new Graphics()
     const labelText = coin.symbol === 'boost'
       ? `+${formatNumber(coin.multiplier, false)}x`
@@ -694,36 +660,23 @@ async function drawBonusValues(coins: FireBonusDrop[]) {
 
     const width = bounds.width
     const height = bounds.height
-    const pad = 5
 
-    label.anchor.set(0.5)
-    tile.roundRect(pad, pad, width - pad * 2, height - pad * 2, coin.symbol === 'boost' ? 16 : 999)
-    tile.fill({ color: meta.color, alpha: 0.98 })
-    tile.stroke({ color: meta.accent, alpha: 0.92, width: 4 })
-
-    if (coin.symbol === 'boost') {
-      ring.roundRect(width * 0.22, height * 0.22, width * 0.56, height * 0.56, 14)
-      ring.fill({ color: meta.accent, alpha: 0.2 })
-      ring.stroke({ color: meta.accent, alpha: 0.86, width: 4 })
-      ring.moveTo(width * 0.35, height * 0.5)
-      ring.lineTo(width * 0.65, height * 0.5)
-      ring.moveTo(width * 0.5, height * 0.35)
-      ring.lineTo(width * 0.5, height * 0.65)
-      ring.stroke({ color: 0xffffff, alpha: 0.45, width: 5 })
-    } else {
-      ring.circle(width * 0.5, height * 0.5, Math.min(width, height) * 0.32)
-      ring.fill({ color: meta.accent, alpha: coin.symbol === 'collector' ? 0.24 : 0.18 })
-      ring.stroke({ color: meta.accent, alpha: 0.9, width: 4 })
-      ring.circle(width * 0.5, height * 0.5, Math.min(width, height) * 0.2)
-      ring.stroke({ color: 0xffffff, alpha: 0.55, width: 2 })
+    if (tex) {
+      const maxSize = Math.min(width, height) * 0.92
+      const scale = Math.min(maxSize / tex.width, maxSize / tex.height)
+      sprite.texture = tex
+      sprite.anchor.set(0.5)
+      sprite.scale.set(scale)
+      sprite.position.set(width * 0.5, height * 0.5)
     }
 
     bg.roundRect(width * 0.5 - 42, height * 0.5 - 20, 84, 40, 20)
     bg.fill({ color: coin.symbol === 'collector' ? 0xbe123c : coin.symbol === 'boost' ? 0x047857 : 0x92400e, alpha: 0.88 })
     bg.stroke({ color: 0xfef3c7, alpha: 0.9, width: 2 })
 
+    label.anchor.set(0.5)
     label.position.set(width * 0.5, height * 0.5)
-    holder.addChild(tile, ring, bg, label)
+    holder.addChild(sprite, bg, label)
     holder.position.set(reelSet!.x + bounds.x, reelSet!.y + bounds.y)
     bonusValueLayer.addChild(holder)
   }
