@@ -46,6 +46,15 @@ const showAutoSpinModal = ref(false)
 const AUTO_SPIN_OPTIONS = [10, 25, 50, 100, 250]
 let resumeAutoSpin: (() => void) | null = null
 
+// Reel layout constants — kept in sync with the ReelSetBuilder config below
+// and used to derive a scale/margin that keeps the grid centered in the
+// canvas at every container width (see resizePixi).
+const SYMBOL_SIZE = 108
+const SYMBOL_GAP = 8
+const REEL_MARGIN = 36
+const REEL_CONTENT_W = FITH_COLS * SYMBOL_SIZE + (FITH_COLS - 1) * SYMBOL_GAP
+const CANVAS_DESIGN_SIZE = REEL_CONTENT_W + REEL_MARGIN * 2
+
 let pixiApp: import('pixi.js').Application | null = null
 let reelSet: import('pixi-reels').ReelSet | null = null
 let effectsLayer: import('pixi.js').Container | null = null
@@ -394,8 +403,8 @@ async function initPixi() {
 
   pixiApp = new Application()
   await pixiApp.init({
-    width: 760,
-    height: 760,
+    width: CANVAS_DESIGN_SIZE,
+    height: CANVAS_DESIGN_SIZE,
     backgroundAlpha: 0,
     antialias: true,
     autoDensity: true,
@@ -410,8 +419,8 @@ async function initPixi() {
   reelSet = new ReelSetBuilder()
     .reels(FITH_COLS)
     .visibleRows(FITH_ROWS)
-    .symbolSize(108, 108)
-    .symbolGap(8, 8)
+    .symbolSize(SYMBOL_SIZE, SYMBOL_SIZE)
+    .symbolGap(SYMBOL_GAP, SYMBOL_GAP)
     .bufferSymbols(1)
     .symbols((registry) => {
       for (const id of ALL_SYMBOL_IDS) {
@@ -464,7 +473,7 @@ async function initPixi() {
     .ticker(pixiApp.ticker)
     .build()
 
-  reelSet.position.set(36, 36)
+  reelSet.position.set(REEL_MARGIN, REEL_MARGIN)
   pixiApp.stage.addChild(reelSet)
 
   dividerLayer = new Graphics()
@@ -506,16 +515,19 @@ async function initPixi() {
 function resizePixi() {
   if (!pixiApp || !reelSet || !canvasHost.value) return
 
-  const size = Math.max(320, Math.min(canvasHost.value.clientWidth, 760))
+  const size = Math.max(320, Math.min(canvasHost.value.clientWidth, CANVAS_DESIGN_SIZE))
   pixiApp.renderer.resize(size, size)
 
-  const contentSize = 720
-  const scale = size / contentSize
+  const scale = size / CANVAS_DESIGN_SIZE
   reelSet.scale.set(scale)
 
-  if (effectsLayer) effectsLayer.scale.set(scale)
-  if (bonusValueLayer) bonusValueLayer.scale.set(scale)
-  if (dividerLayer) dividerLayer.scale.set(scale)
+  // effectsLayer/bonusValueLayer/dividerLayer stay unscaled (1:1 with the
+  // canvas) — every point drawn into them is computed in real screen pixels
+  // via reelSet.position + cellBounds * reelSet.scale, see cellCenter() and
+  // drawMineBoundary(). Scaling the layers on top of that double-applies the
+  // zoom and was the source of the grid drifting off-center.
+  const offset = REEL_MARGIN * scale
+  reelSet.position.set(offset, offset)
   drawMineBoundary()
 }
 
@@ -523,9 +535,10 @@ function cellCenter(cell: FireCell) {
   if (!reelSet) return { x: 0, y: 0 }
 
   const bounds = reelSet.getCellBounds(cell.col, cell.row)
+  const s = reelSet.scale.x
   return {
-    x: reelSet.x + bounds.x + bounds.width / 2,
-    y: reelSet.y + bounds.y + bounds.height / 2
+    x: reelSet.x + (bounds.x + bounds.width / 2) * s,
+    y: reelSet.y + (bounds.y + bounds.height / 2) * s
   }
 }
 
@@ -535,10 +548,59 @@ async function spawnBlast(cell: FireCell, bomb = false) {
   const { Graphics } = await import('pixi.js')
   const { gsap } = await import('gsap')
   const center = cellCenter(cell)
-  const count = bomb ? 40 : 10
-  const colors = bomb ? [0xffedd5, 0xfb923c, 0xef4444, 0xfacc15, 0xfdba74] : [0xd4d4d8, 0xa1a1aa, 0xffffff]
+  const count = bomb ? 34 : 10
+  const colors = bomb ? [0xfff7ed, 0xfacc15, 0xfb923c, 0xef4444] : [0xd4d4d8, 0xa1a1aa, 0xffffff]
+  const debrisColors = [0x27272a, 0x3f3f46, 0x18181b]
 
   if (bomb) {
+    // Dark soot puffs linger a beat longer than the flash — breaks up the
+    // "uniform bright circle" look with some grit/weight.
+    for (let i = 0; i < 6; i++) {
+      const smoke = new Graphics()
+      const size = 9 + Math.random() * 13
+      smoke.circle(0, 0, size)
+      smoke.fill({ color: debrisColors[i % debrisColors.length]!, alpha: 0.32 + Math.random() * 0.2 })
+      smoke.position.set(center.x + (Math.random() - 0.5) * 12, center.y + (Math.random() - 0.5) * 12)
+      smoke.scale.set(0.3)
+      effectsLayer.addChild(smoke)
+
+      const angle = Math.random() * Math.PI * 2
+      const dist = 18 + Math.random() * 36
+      const dur = 0.85 + Math.random() * 0.3
+
+      gsap.to(smoke.position, {
+        x: smoke.x + Math.cos(angle) * dist,
+        y: smoke.y + Math.sin(angle) * dist - 16,
+        duration: dur,
+        ease: 'power1.out'
+      })
+      gsap.to(smoke.scale, {
+        x: 1.5 + Math.random() * 0.7,
+        y: 1.5 + Math.random() * 0.7,
+        duration: dur,
+        ease: 'power1.out'
+      })
+      gsap.to(smoke, {
+        alpha: 0,
+        duration: dur,
+        delay: 0.06,
+        ease: 'power1.in',
+        onComplete: () => smoke.destroy()
+      })
+    }
+
+    // Hot white-core flash right at the point of impact.
+    const flash = new Graphics()
+    flash.circle(0, 0, 22)
+    flash.fill({ color: 0xfffbeb, alpha: 1 })
+    flash.position.set(center.x, center.y)
+    flash.scale.set(0.15)
+    flash.blendMode = 'add'
+    effectsLayer.addChild(flash)
+
+    gsap.to(flash.scale, { x: 1.3, y: 1.3, duration: 0.14, ease: 'power2.out' })
+    gsap.to(flash, { alpha: 0, duration: 0.16, ease: 'power2.in', onComplete: () => flash.destroy() })
+
     const ring = new Graphics()
     ring.circle(0, 0, 34)
     ring.stroke({ color: 0xfb923c, alpha: 1, width: 7 })
@@ -564,38 +626,46 @@ async function spawnBlast(cell: FireCell, bomb = false) {
   }
 
   for (let i = 0; i < count; i++) {
+    // Every fifth particle is a tumbling charcoal debris chunk instead of a
+    // glowing spark — non-additive and gravity-affected for contrast against
+    // the bright embers.
+    const isDebris = bomb && i % 5 === 0
     const particle = new Graphics()
-    const color = colors[i % colors.length]!
+    const color = isDebris ? debrisColors[i % debrisColors.length]! : colors[i % colors.length]!
     const angle = (Math.PI * 2 * i) / count + Math.random() * 0.35
-    // Every third particle is a bigger, slower "ember" instead of a fast spark
-    // — mixed sizes/speeds read as an explosion instead of a uniform ring.
-    const isEmber = i % 3 === 0
+    const isEmber = !isDebris && i % 3 === 0
     const distance = (bomb ? 88 : 38) + Math.random() * (bomb ? 90 : 26)
-    const size = isEmber
-      ? (bomb ? 6 + Math.random() * 7 : 3 + Math.random() * 3)
-      : (bomb ? 2 + Math.random() * 4 : 1.5 + Math.random() * 2.5)
-    const duration = (bomb ? 0.5 : 0.3) + Math.random() * (bomb ? 0.24 : 0.16)
+    const size = isDebris
+      ? 3 + Math.random() * 4
+      : isEmber
+        ? (bomb ? 6 + Math.random() * 7 : 3 + Math.random() * 3)
+        : (bomb ? 2 + Math.random() * 4 : 1.5 + Math.random() * 2.5)
+    const duration = (bomb ? 0.5 : 0.3) + Math.random() * (bomb ? 0.3 : 0.16)
+    const rotation = angle + Math.random() * 0.6
 
-    if (bomb && i % 5 === 0) {
-      particle.roundRect(-size * 0.5, -size * 2.3, size, size * 4.6, size)
-      particle.rotation = angle
+    if (isDebris) {
+      particle.roundRect(-size * 0.5, -size * 1.6, size, size * 3.2, size * 0.4)
+      particle.rotation = rotation
     } else {
       particle.circle(0, 0, size)
     }
-    particle.fill({ color, alpha: isEmber ? 0.55 : 0.95 })
-    particle.blendMode = 'add'
+    particle.fill({ color, alpha: isDebris ? 0.85 : isEmber ? 0.55 : 0.95 })
+    particle.blendMode = isDebris ? 'normal' : 'add'
     particle.position.set(center.x, center.y)
     effectsLayer.addChild(particle)
 
     gsap.to(particle.position, {
       x: center.x + Math.cos(angle) * distance,
-      y: center.y + Math.sin(angle) * distance,
+      y: center.y + Math.sin(angle) * distance + (isDebris ? 20 : 0),
       duration,
-      ease: 'power3.out'
+      ease: isDebris ? 'power2.out' : 'power3.out'
     })
+    if (isDebris) {
+      gsap.to(particle, { rotation: rotation + (Math.random() - 0.5) * 6, duration, ease: 'power1.out' })
+    }
     gsap.to(particle.scale, {
-      x: isEmber ? 0.55 : 0.2,
-      y: isEmber ? 0.55 : 0.2,
+      x: isDebris ? 0.7 : isEmber ? 0.55 : 0.2,
+      y: isDebris ? 0.7 : isEmber ? 0.55 : 0.2,
       duration,
       ease: 'power2.in'
     })
@@ -630,21 +700,22 @@ function drawMineBoundary() {
   const first = reelSet.getCellBounds(0, 0)
   const second = reelSet.getCellBounds(0, 1)
   const last = reelSet.getCellBounds(FITH_COLS - 1, FITH_ROWS - 1)
-  const rowPitch = second.y - first.y
-  const bottom = reelSet.y + last.y + last.height
-  const left = reelSet.x + first.x
-  const right = reelSet.x + last.x + last.width
+  const s = reelSet.scale.x
+  const rowPitch = (second.y - first.y) * s
+  const bottom = reelSet.y + (last.y + last.height) * s
+  const left = reelSet.x + first.x * s
+  const right = reelSet.x + (last.x + last.width) * s
   const lockedTop = boundaryVisualLines >= FITH_ROWS
     ? bottom
-    : reelSet.y + first.y + boundaryVisualLines * rowPitch - 8
+    : reelSet.y + first.y * s + boundaryVisualLines * rowPitch - 8 * s
 
   if (boundaryVisualLines < FITH_ROWS) {
-    dividerLayer.rect(left - 2, lockedTop, right - left + 4, bottom - lockedTop)
+    dividerLayer.rect(left - 2 * s, lockedTop, right - left + 4 * s, bottom - lockedTop)
     dividerLayer.fill({ color: 0x18181b, alpha: 0.88 })
 
-    dividerLayer.roundRect(left - 6, lockedTop - 3, right - left + 12, 7, 7)
+    dividerLayer.roundRect(left - 6 * s, lockedTop - 3 * s, right - left + 12 * s, 7 * s, 7 * s)
     dividerLayer.fill({ color: 0x10b981, alpha: 1 })
-    dividerLayer.roundRect(left - 6, lockedTop + 5, right - left + 12, 2, 2)
+    dividerLayer.roundRect(left - 6 * s, lockedTop + 5 * s, right - left + 12 * s, 2 * s, 2 * s)
     dividerLayer.fill({ color: 0x064e3b, alpha: 0.62 })
   }
 }
@@ -723,20 +794,21 @@ function clearBonusValues() {
 }
 
 async function drawBonusValues(coins: FireBonusDrop[]) {
-  if (!bonusValueLayer) return
+  if (!bonusValueLayer || !reelSet) return
 
-  const { Container, Graphics, Sprite, Text } = await import('pixi.js')
+  const { Container, Sprite, Text } = await import('pixi.js')
+  const s = reelSet.scale.x
 
   clearBonusValues()
 
   for (const coin of coins) {
-    const bounds = reelSet?.getCellBounds(coin.col, coin.row)
+    const bounds = reelSet.getCellBounds(coin.col, coin.row)
     if (!bounds) continue
 
     const tex = TEX[coin.symbol]
+    const glowColor = coin.symbol === 'collector' ? 0xf87171 : coin.symbol === 'boost' ? 0x6ee7b7 : 0xfacc15
     const holder = new Container()
     const sprite = new Sprite()
-    const bg = new Graphics()
     const labelText = coin.symbol === 'boost'
       ? `+${formatNumber(coin.multiplier, false)}x`
       : `${formatNumber(coin.multiplier, false)}x`
@@ -745,14 +817,15 @@ async function drawBonusValues(coins: FireBonusDrop[]) {
       style: {
         fill: 0xfffbeb,
         fontFamily: 'Inter, ui-sans-serif, system-ui',
-        fontSize: coin.multiplier >= 1000 || coin.symbol === 'boost' ? 22 : 26,
+        fontSize: coin.multiplier >= 1000 || coin.symbol === 'boost' ? 18 : 20,
         fontWeight: '900',
-        stroke: { color: coin.symbol === 'collector' ? 0x7f1d1d : coin.symbol === 'boost' ? 0x064e3b : 0x713f12, width: 5 }
+        stroke: { color: coin.symbol === 'collector' ? 0x7f1d1d : coin.symbol === 'boost' ? 0x064e3b : 0x713f12, width: 4 },
+        dropShadow: { color: glowColor, blur: 6, distance: 0, alpha: 0.85 }
       }
     })
 
-    const width = bounds.width
-    const height = bounds.height
+    const width = bounds.width * s
+    const height = bounds.height * s
 
     if (tex) {
       const maxSize = Math.min(width, height) * 0.92
@@ -763,14 +836,10 @@ async function drawBonusValues(coins: FireBonusDrop[]) {
       sprite.position.set(width * 0.5, height * 0.5)
     }
 
-    bg.roundRect(width * 0.5 - 42, height * 0.5 - 20, 84, 40, 20)
-    bg.fill({ color: coin.symbol === 'collector' ? 0xbe123c : coin.symbol === 'boost' ? 0x047857 : 0x92400e, alpha: 0.88 })
-    bg.stroke({ color: 0xfef3c7, alpha: 0.9, width: 2 })
-
     label.anchor.set(0.5)
     label.position.set(width * 0.5, height * 0.5)
-    holder.addChild(sprite, bg, label)
-    holder.position.set(reelSet!.x + bounds.x, reelSet!.y + bounds.y)
+    holder.addChild(sprite, label)
+    holder.position.set(reelSet.x + bounds.x * s, reelSet.y + bounds.y * s)
     bonusValueLayer.addChild(holder)
   }
 }
@@ -1019,18 +1088,21 @@ async function playBonusFeature(bonus: FireBonusResult) {
 }
 
 async function flashUnlockedRows(rows: number[]) {
-  if (!effectsLayer || rows.length === 0) return
+  if (!effectsLayer || !reelSet || rows.length === 0) return
 
   const { Graphics } = await import('pixi.js')
   const { gsap } = await import('gsap')
+  const s = reelSet.scale.x
 
   for (const row of rows) {
     for (let col = 0; col < FITH_COLS; col++) {
-      const bounds = reelSet?.getCellBounds(col, row)
+      const bounds = reelSet.getCellBounds(col, row)
       if (!bounds) continue
 
+      const width = bounds.width * s
+      const height = bounds.height * s
       const flash = new Graphics()
-      flash.roundRect(reelSet!.x + bounds.x + 5, reelSet!.y + bounds.y + 5, bounds.width - 10, bounds.height - 10, 14)
+      flash.roundRect(reelSet.x + bounds.x * s + 5 * s, reelSet.y + bounds.y * s + 5 * s, width - 10 * s, height - 10 * s, 14 * s)
       flash.stroke({ color: 0xfb923c, alpha: 0.95, width: 5 })
       effectsLayer.addChild(flash)
 
