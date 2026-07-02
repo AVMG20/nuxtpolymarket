@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import type { FireBonusDrop, FireBonusResult, FireBonusValueEvent, FireCell, FireCascadeStep, FireInTheHoleResult, FireSymbol } from '#shared/utils/gamelogic/fireinthehole'
-import { FITH_COLS, FITH_ROWS, playFireInTheHole } from '#shared/utils/gamelogic/fireinthehole'
+import { FITH_COLS, FITH_FREE_SPINS, FITH_MAX_WIN_MULT, FITH_MIN_CONNECTION, FITH_ROWS, playFireInTheHole } from '#shared/utils/gamelogic/fireinthehole'
 
 definePageMeta({
   title: 'Fire in the Hole'
 })
 
 const canvasHost = ref<HTMLDivElement | null>(null)
+const { user, setBalance, fetchSession } = useAuth()
+const balance = ref(parseFloat(user.value?.balance ?? '0'))
 const isReady = ref(false)
 const isPlaying = ref(false)
 const activeLines = ref(3)
@@ -17,6 +19,25 @@ const lastWin = ref(0)
 const bonusMultiplier = ref(0)
 const isBonusActive = ref(false)
 const status = ref('Ready')
+const errorMsg = ref('')
+const turbo = ref(false)
+const showHelp = ref(false)
+const totalWinPulse = ref(false)
+const isDevMode = import.meta.dev
+
+const MIN_BET = 1
+const MAX_BET = 1_000_000
+const bet = ref(10)
+const betInput = ref('10')
+const spinCost = computed(() => bet.value)
+const history = ref<{ payout: number, bet: number, bonus: boolean }[]>([])
+
+const autoSpinEnabled = ref(false)
+const autoSpinsLeft = ref(0)
+const autoSpinPaused = ref(false)
+const showAutoSpinModal = ref(false)
+const AUTO_SPIN_OPTIONS = [10, 25, 50, 100, 250]
+let resumeAutoSpin: (() => void) | null = null
 
 let pixiApp: import('pixi.js').Application | null = null
 let reelSet: import('pixi-reels').ReelSet | null = null
@@ -27,6 +48,62 @@ let resizeObserver: ResizeObserver | null = null
 let latestResult: FireInTheHoleResult | null = null
 let boundaryVisualLines = 3
 let boundaryTween: { kill: () => void } | null = null
+let pendingBonusDrops: FireBonusDrop[] = []
+
+watch(() => user.value?.balance, (value) => {
+  if (value !== undefined) balance.value = parseFloat(value ?? '0')
+})
+
+watch(bet, (value) => {
+  betInput.value = String(value)
+}, { immediate: true })
+
+function clampBet(value: number): number {
+  if (!Number.isFinite(value) || value < MIN_BET) return MIN_BET
+  return Math.min(MAX_BET, Math.floor(value))
+}
+
+function setBet(value: number) {
+  if (isPlaying.value || autoSpinEnabled.value) return
+  bet.value = clampBet(value)
+}
+
+function commitBetInput() {
+  setBet(parseInt(betInput.value.replace(/[^\d]/g, ''), 10) || MIN_BET)
+  betInput.value = String(bet.value)
+}
+
+function betDown() {
+  setBet(Math.floor(bet.value / 2))
+}
+
+function betUp() {
+  setBet(bet.value * 2)
+}
+
+function startAutoSpin(count: number) {
+  autoSpinsLeft.value = count
+  autoSpinEnabled.value = true
+  autoSpinPaused.value = false
+  showAutoSpinModal.value = false
+  if (!isPlaying.value) play()
+}
+
+function stopAutoSpin() {
+  autoSpinEnabled.value = false
+  autoSpinsLeft.value = 0
+  autoSpinPaused.value = false
+  resumeAutoSpin?.()
+  resumeAutoSpin = null
+}
+
+function onCanvasClick() {
+  if (!autoSpinPaused.value) return
+
+  autoSpinPaused.value = false
+  resumeAutoSpin?.()
+  resumeAutoSpin = null
+}
 
 const symbolMeta: Record<FireSymbol, { label: string, color: number, accent: number }> = {
   coal: { label: 'C', color: 0x3f3f46, accent: 0xa1a1aa },
@@ -52,8 +129,13 @@ function sleep(ms: number) {
   return new Promise(resolve => window.setTimeout(resolve, ms))
 }
 
+function stepDelay(ms: number) {
+  return sleep(turbo.value ? Math.round(ms * 0.55) : ms)
+}
+
 function animationSpeedFactor(index: number) {
-  return Math.max(0.15, 0.82 - index * 0.1)
+  const base = Math.max(0.15, 0.82 - index * 0.1)
+  return turbo.value ? Math.max(0.1, base * 0.55) : base
 }
 
 function cellKey(cell: FireCell) {
@@ -62,6 +144,20 @@ function cellKey(cell: FireCell) {
 
 function bonusVisibleTotal(values: Iterable<FireBonusDrop>) {
   return [...values].reduce((sum, value) => value.symbol === 'boost' ? sum : sum + value.multiplier, 0)
+}
+
+function bonusDropLabel(drop: FireBonusDrop) {
+  if (drop.symbol === 'boost') return `+${formatNumber(drop.multiplier, false)}x`
+  if (drop.symbol === 'double') return '2x'
+  if (drop.symbol === 'collector') return `${formatNumber(drop.multiplier, false)}x`
+  return `${formatNumber(drop.multiplier, false)}x`
+}
+
+function pulseWin() {
+  totalWinPulse.value = true
+  window.setTimeout(() => {
+    totalWinPulse.value = false
+  }, 320)
 }
 
 async function initPixi() {
@@ -80,6 +176,19 @@ async function initPixi() {
   class MineSymbol extends ReelSymbol {
     private readonly tile = new Graphics()
     private readonly ring = new Graphics()
+    private readonly bonusLabelBg = new Graphics()
+
+    private readonly bonusLabel = new Text({
+      text: '',
+      style: {
+        fill: 0xfffbeb,
+        fontFamily: 'Inter, ui-sans-serif, system-ui',
+        fontSize: 23,
+        fontWeight: '900',
+        stroke: { color: 0x111827, width: 5 }
+      }
+    })
+
     private readonly glyph = new Text({
       text: '',
       style: {
@@ -96,13 +205,17 @@ async function initPixi() {
 
     constructor() {
       super()
-      this.view.addChild(this.tile, this.ring, this.glyph)
+      this.view.addChild(this.tile, this.ring, this.bonusLabelBg, this.bonusLabel, this.glyph)
+      this.bonusLabel.anchor.set(0.5)
       this.glyph.anchor.set(0.5)
     }
 
     protected onActivate(symbolId: string): void {
       this.symbol = symbolId as FireSymbol
       this.glyph.text = symbolMeta[this.symbol].label
+      this.bonusLabel.text = ''
+      this.bonusLabel.visible = false
+      this.bonusLabelBg.clear()
       this.draw()
     }
 
@@ -134,6 +247,34 @@ async function initPixi() {
 
     override async playDestroy(opts?: { delay?: number, signal?: AbortSignal }): Promise<void> {
       await super.playDestroy(opts)
+    }
+
+    setBonusDrop(drop?: FireBonusDrop): void {
+      if (!drop) {
+        this.bonusLabel.text = ''
+        this.bonusLabel.visible = false
+        this.bonusLabelBg.clear()
+        return
+      }
+
+      const text = bonusDropLabel(drop)
+      const bgColor = drop.symbol === 'collector'
+        ? 0xbe123c
+        : drop.symbol === 'boost'
+          ? 0x047857
+          : drop.symbol === 'double'
+            ? 0x6d28d9
+            : 0x92400e
+
+      this.bonusLabel.text = text
+      this.bonusLabel.visible = true
+      this.bonusLabel.style.fontSize = text.length > 5 ? 19 : 23
+      this.bonusLabel.position.set(this.width * 0.5, this.height * 0.5)
+      this.bonusLabelBg.clear()
+      this.bonusLabelBg.roundRect(this.width * 0.5 - 42, this.height * 0.5 - 20, 84, 40, 20)
+      this.bonusLabelBg.fill({ color: bgColor, alpha: 0.9 })
+      this.bonusLabelBg.stroke({ color: 0xfef3c7, alpha: 0.9, width: 2 })
+      this.draw()
     }
 
     private draw() {
@@ -178,7 +319,23 @@ async function initPixi() {
       }
 
       this.glyph.position.set(this.width * 0.5, this.height * 0.52)
-      this.glyph.visible = !['rock', 'empty', 'coin', 'collector'].includes(this.symbol)
+      this.glyph.visible = !this.bonusLabel.visible && !['rock', 'empty', 'coin', 'collector'].includes(this.symbol)
+
+      if (this.bonusLabel.visible) {
+        this.bonusLabel.position.set(this.width * 0.5, this.height * 0.5)
+        this.bonusLabelBg.clear()
+        const bgColor = this.symbol === 'collector'
+          ? 0xbe123c
+          : this.symbol === 'boost'
+            ? 0x047857
+            : this.symbol === 'double'
+              ? 0x6d28d9
+              : 0x92400e
+
+        this.bonusLabelBg.roundRect(this.width * 0.5 - 42, this.height * 0.5 - 20, 84, 40, 20)
+        this.bonusLabelBg.fill({ color: bgColor, alpha: 0.9 })
+        this.bonusLabelBg.stroke({ color: 0xfef3c7, alpha: 0.9, width: 2 })
+      }
     }
   }
 
@@ -232,12 +389,21 @@ async function initPixi() {
       dropIn: { duration: 460, ease: 'power3.out', rowStagger: 30, distance: 'perHole' }
     })
     .speed('mine', {
-      ...SpeedPresets.TURBO,
+      ...SpeedPresets.NORMAL,
       name: 'mine',
-      minimumSpinTime: 380,
+      minimumSpinTime: 560,
       tumble: {
-        fall: { duration: 280, rowStagger: 28 },
-        dropIn: { duration: 460, rowStagger: 30 }
+        fall: { duration: 250, rowStagger: 20 },
+        dropIn: { duration: 420, rowStagger: 24 }
+      }
+    })
+    .speed('mineTurbo', {
+      ...SpeedPresets.TURBO,
+      name: 'mineTurbo',
+      minimumSpinTime: 260,
+      tumble: {
+        fall: { duration: 150, rowStagger: 10 },
+        dropIn: { duration: 250, rowStagger: 12 }
       }
     })
     .initialSpeed('mine')
@@ -264,6 +430,13 @@ async function initPixi() {
       duration: Math.max(duration / 2200, 0.1),
       ease: 'power2.out'
     })
+  })
+
+  reelSet.events.on('cascade:place:end', ({ reelIndex, placedSymbols }) => {
+    for (const drop of pendingBonusDrops) {
+      if (drop.col !== reelIndex) continue
+      placedSymbols[drop.row]?.setBonusDrop?.(drop)
+    }
   })
 
   resizeObserver = new ResizeObserver(resizePixi)
@@ -705,8 +878,10 @@ async function playBonusFeature(bonus: FireBonusResult) {
   for (const step of bonus.steps) {
     status.value = `Free spin ${step.spin}/${bonus.freeSpins}`
 
-    const spinDone = reelSet.spin({ timeoutMs: 4200 })
-    await sleep(110)
+    reelSet.setSpeed?.(turbo.value ? 'mineTurbo' : 'mine')
+    const spinDone = reelSet.spin({ timeoutMs: turbo.value ? 2800 : 4200 })
+    await stepDelay(110)
+    pendingBonusDrops = step.drops
     reelSet.setResult(gridToTargets(step.grid))
     await spinDone
 
@@ -715,9 +890,8 @@ async function playBonusFeature(bonus: FireBonusResult) {
     const collectorDrops = step.drops.filter(drop => drop.symbol === 'collector')
     const boostDrops = step.drops.filter(drop => drop.symbol === 'boost')
 
-    coinDrops.forEach((drop, index) => {
+    coinDrops.forEach((drop) => {
       lockedCoins.set(cellKey(drop), { ...drop })
-      spawnBonusDropPopup(drop, animationSpeedFactor(index))
     })
 
     for (const drop of [...collectorDrops, ...boostDrops]) {
@@ -761,7 +935,8 @@ async function playBonusFeature(bonus: FireBonusResult) {
     const bonusWin = step.totalMultiplier * (latestResult?.bet ?? 1)
     totalWin.value = Number(((latestResult?.basePayout ?? 0) + bonusWin).toFixed(2))
     lastWin.value = Number(bonusWin.toFixed(2))
-    await sleep(150)
+    if (bonusWin > 0) pulseWin()
+    await stepDelay(150)
   }
 
   totalWin.value = latestResult?.payout ?? bonus.payout
@@ -797,26 +972,17 @@ async function flashUnlockedRows(rows: number[]) {
   }
 }
 
-async function play(forceScatters = false) {
-  if (!reelSet || isPlaying.value) return
+async function animateResult(result: FireInTheHoleResult) {
+  if (!reelSet) return
 
-  isPlaying.value = true
-  status.value = forceScatters ? 'Forcing scatters' : 'Dropping'
-  chainCount.value = 0
-  lastBombs.value = 0
-  totalWin.value = 0
-  lastWin.value = 0
-  bonusMultiplier.value = 0
-  isBonusActive.value = false
-  clearBonusValues()
-
-  const result = playFireInTheHole(1, { forceScatters })
   latestResult = result
   activeLines.value = result.steps[0]?.activeLinesBefore ?? 3
   drawMineBoundary()
+  reelSet.setSpeed?.(turbo.value ? 'mineTurbo' : 'mine')
+  pendingBonusDrops = []
 
-  const spinDone = reelSet.spin({ mode: 'cascade', timeoutMs: 8000 })
-  await sleep(180)
+  const spinDone = reelSet.spin({ mode: 'cascade', timeoutMs: turbo.value ? 4200 : 8000 })
+  await stepDelay(160)
   reelSet.setResult(gridToTargets(result.grid))
   await spinDone
 
@@ -841,18 +1007,19 @@ async function play(forceScatters = false) {
       lastBombs.value = currentStep.bombCells.length
       lastWin.value = currentStep.stepPay
       totalWin.value = currentStep.totalPay
+      if (currentStep.stepPay > 0) pulseWin()
 
       await playCascadeEffects(currentStep)
 
       if (currentStep.unlockedRows.length > 0) {
         activeLines.value = currentStep.activeLinesAfter
-        drawMineBoundary()
+        await animateMineBoundary(currentStep.activeLinesAfter)
         await flashUnlockedRows(currentStep.unlockedRows)
       }
     },
-    pauseAfterDestroyMs: 180,
+    pauseAfterDestroyMs: turbo.value ? 90 : 180,
     refillMode: 'gravity-then-drop',
-    gravityHoldMs: 190,
+    gravityHoldMs: turbo.value ? 80 : 190,
     maxChain: FITH_ROWS * 2
   })
 
@@ -862,7 +1029,7 @@ async function play(forceScatters = false) {
 
   if (result.bonus) {
     status.value = 'Scatters hit'
-    await sleep(420)
+    await stepDelay(420)
     await playBonusFeature(result.bonus)
   } else {
     status.value = result.scatterCells.length > 0
@@ -871,7 +1038,78 @@ async function play(forceScatters = false) {
   }
 
   totalWin.value = result.payout
+  lastWin.value = result.payout
+  if (result.payout > 0) pulseWin()
+}
+
+async function play(forceScatters = false) {
+  if (!reelSet || isPlaying.value || balance.value < spinCost.value) return
+
+  isPlaying.value = true
+  status.value = forceScatters && isDevMode ? 'Forcing scatters' : 'Dropping'
+  errorMsg.value = ''
+  chainCount.value = 0
+  lastBombs.value = 0
+  totalWin.value = 0
+  lastWin.value = 0
+  bonusMultiplier.value = 0
+  isBonusActive.value = false
+  clearBonusValues()
+
+  const balanceBeforeSpin = balance.value
+  balance.value = balanceBeforeSpin - spinCost.value
+  setBalance(balance.value)
+
+  let data: { gameData: FireInTheHoleResult, balance: number }
+  try {
+    data = await $fetch('/api/games/play-game', {
+      method: 'POST',
+      body: {
+        bet: bet.value,
+        game: 'fireinthehole',
+        options: forceScatters && isDevMode ? { forceScatters: true } : undefined
+      }
+    }) as { gameData: FireInTheHoleResult, balance: number }
+  } catch (error) {
+    errorMsg.value = error instanceof Error ? error.message : 'Spin failed'
+    balance.value = balanceBeforeSpin
+    setBalance(balanceBeforeSpin)
+    isPlaying.value = false
+    stopAutoSpin()
+    return
+  }
+
+  try {
+    await animateResult(data.gameData)
+    history.value.unshift({ payout: data.gameData.payout, bet: data.gameData.cost, bonus: Boolean(data.gameData.bonus) })
+    if (history.value.length > 10) history.value.pop()
+    balance.value = data.balance
+    setBalance(data.balance)
+    await fetchSession()
+  } catch (error) {
+    errorMsg.value = error instanceof Error ? error.message : 'Animation error'
+    balance.value = data.balance
+    setBalance(data.balance)
+    stopAutoSpin()
+  }
+
   isPlaying.value = false
+
+  if (autoSpinEnabled.value) {
+    if (data.gameData.bonus) {
+      autoSpinPaused.value = true
+      status.value = 'Bonus complete'
+      await new Promise<void>((resolve) => {
+        resumeAutoSpin = resolve
+      })
+    }
+
+    if (autoSpinEnabled.value) {
+      autoSpinsLeft.value--
+      if (autoSpinsLeft.value > 0 && balance.value >= spinCost.value) play()
+      else stopAutoSpin()
+    }
+  }
 }
 
 watch(activeLines, () => {
@@ -893,117 +1131,488 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="min-h-svh bg-background text-default">
-    <UContainer class="py-6 lg:py-8">
-      <div class="mb-5 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-        <div>
-          <p class="text-sm font-semibold uppercase text-primary">
-            Fire in the Hole
-          </p>
-          <h1 class="text-3xl font-bold tracking-normal text-highlighted">
-            Bomb-wild cascade prototype
-          </h1>
-        </div>
+  <div class="fire-shell relative min-h-full overflow-hidden px-2 py-6 text-default sm:px-3">
+    <div class="fire-bg absolute inset-0" />
+    <div class="fire-vignette absolute inset-0" />
 
-        <div class="flex flex-wrap items-center gap-2">
-          <UBadge
-            color="neutral"
-            variant="soft"
-          >
-            {{ activeLines }}/6 lines
-          </UBadge>
-          <UBadge
-            color="neutral"
-            variant="soft"
-          >
-            {{ chainCount }} cascades
-          </UBadge>
-          <UBadge
-            color="primary"
-            variant="soft"
-          >
-            {{ lastBombs }} bombs
-          </UBadge>
-          <UBadge
-            color="success"
-            variant="soft"
-          >
-            ${{ formatNumber(totalWin, false) }}
-          </UBadge>
-        </div>
-      </div>
+    <div class="relative z-[1] mx-auto w-full max-w-7xl">
+      <header class="mb-4 text-center">
+        <p class="text-xs font-black tracking-[0.28em] uppercase text-primary">
+          Fire in the Hole
+        </p>
+        <h1 class="fire-title text-[36px] leading-none font-black tracking-normal sm:text-[52px]">
+          Fire in the Hole
+        </h1>
+      </header>
 
-      <div class="grid gap-5 xl:grid-cols-[minmax(0,760px)_280px]">
-        <div class="relative overflow-hidden rounded-lg border border-default bg-elevated">
-          <div
-            ref="canvasHost"
-            class="aspect-square w-full"
-          />
-        </div>
-
-        <div class="flex flex-col gap-4">
-          <div class="rounded-lg border border-default bg-elevated p-4">
-            <div class="mb-3 flex items-center justify-between">
-              <span class="text-sm font-medium text-muted">State</span>
-              <span class="text-sm font-semibold text-highlighted">{{ status }}</span>
+      <div class="grid gap-4 xl:grid-cols-[250px_minmax(0,760px)_260px] xl:items-start">
+        <aside class="order-3 xl:order-1">
+          <div class="fire-panel p-4">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-black tracking-wide uppercase text-muted">Mine depth</span>
+              <strong class="text-sm text-primary">{{ activeLines }}/6</strong>
             </div>
             <UProgress
+              class="mt-3"
               :model-value="activeLines"
               :max="6"
               color="primary"
             />
+            <div class="mt-4 grid grid-cols-2 gap-2 text-center">
+              <div class="fire-stat">
+                <span>Cascades</span>
+                <strong>{{ chainCount }}</strong>
+              </div>
+              <div class="fire-stat">
+                <span>Bombs</span>
+                <strong>{{ lastBombs }}</strong>
+              </div>
+            </div>
           </div>
 
-          <div class="rounded-lg border border-default bg-elevated p-4">
+          <div class="fire-panel mt-3 p-4">
             <div class="flex items-center justify-between">
-              <span class="text-sm font-medium text-muted">Win</span>
-              <span class="text-xl font-bold text-primary">${{ formatNumber(totalWin, false) }}</span>
-            </div>
-            <div class="mt-2 flex items-center justify-between text-sm text-muted">
-              <span>Last hit</span>
-              <span>${{ formatNumber(lastWin, false) }}</span>
-            </div>
-          </div>
-
-          <div class="rounded-lg border border-default bg-elevated p-4">
-            <div class="flex items-center justify-between">
-              <span class="text-sm font-medium text-muted">Bonus multi</span>
+              <span class="text-xs font-black tracking-wide uppercase text-muted">Bonus multi</span>
               <UIcon
                 name="i-lucide-sparkles"
                 :class="isBonusActive ? 'text-primary' : 'text-muted'"
               />
             </div>
-            <div
-              class="mt-2 text-3xl font-bold tracking-normal"
+            <strong
+              class="mt-2 block text-3xl leading-none font-black tracking-normal"
               :class="isBonusActive ? 'text-primary' : 'text-muted'"
             >
               {{ formatNumber(bonusMultiplier, false) }}x
-            </div>
+            </strong>
           </div>
 
-          <UButton
-            block
-            color="primary"
-            :disabled="!isReady || isPlaying"
-            :icon="isPlaying ? 'i-lucide-loader-circle' : 'i-lucide-flame'"
-            :label="isPlaying ? 'Playing' : 'Play'"
-            size="xl"
-            :loading="isPlaying"
-            @click="play"
-          />
+          <div
+            v-if="isDevMode"
+            class="fire-panel mt-3 p-3"
+          >
+            <UButton
+              block
+              color="neutral"
+              :disabled="!isReady || isPlaying || autoSpinEnabled"
+              icon="i-lucide-test-tube-2"
+              label="Force 3 scatters"
+              size="sm"
+              variant="soft"
+              @click="play(true)"
+            />
+          </div>
+        </aside>
 
-          <UButton
-            block
-            color="neutral"
-            :disabled="!isReady || isPlaying"
-            icon="i-lucide-test-tube-2"
-            label="Force 3 scatters"
-            size="lg"
-            variant="soft"
-            @click="play(true)"
-          />
-        </div>
+        <main class="order-1 xl:order-2">
+          <div class="fire-console overflow-hidden">
+            <div
+              class="fire-reel-area relative cursor-default overflow-hidden p-1.5 sm:p-2"
+              @click="onCanvasClick"
+            >
+              <div class="fire-reel-sheen pointer-events-none absolute inset-0 z-[2]" />
+              <div
+                ref="canvasHost"
+                class="relative z-[1] aspect-square w-full [&>canvas]:!block [&>canvas]:!h-auto [&>canvas]:!w-full"
+              />
+
+              <Transition name="pop">
+                <div
+                  v-if="autoSpinPaused"
+                  class="absolute inset-0 z-20 flex cursor-pointer items-center justify-center bg-[rgba(8,10,12,0.78)] backdrop-blur-[3px]"
+                >
+                  <div class="rounded-lg border border-primary/40 bg-background/95 px-6 py-4 text-center shadow-xl">
+                    <p class="text-base font-black text-highlighted">
+                      Bonus complete
+                    </p>
+                    <span class="mt-1 block text-xs text-muted">Tap to continue auto spin</span>
+                  </div>
+                </div>
+              </Transition>
+
+              <div
+                v-if="!isReady && !errorMsg"
+                class="absolute inset-0 z-10 flex items-center justify-center"
+              >
+                <UIcon
+                  name="i-lucide-loader-circle"
+                  class="size-10 animate-spin text-primary"
+                />
+              </div>
+            </div>
+
+            <div class="grid grid-cols-1 items-center gap-3 border-t border-primary/15 bg-background/75 px-3.5 py-3 sm:grid-cols-[1fr_auto_1fr]">
+              <div class="order-2 flex min-w-0 flex-col gap-1.5 sm:order-none">
+                <div class="fire-readout">
+                  <span>Balance</span>
+                  <strong><CoinBalance
+                    :compact="false"
+                    :value="balance"
+                  /></strong>
+                </div>
+                <div class="fire-readout">
+                  <span>Bet</span>
+                  <input
+                    v-model="betInput"
+                    :disabled="isPlaying || autoSpinEnabled"
+                    inputmode="numeric"
+                    aria-label="Bet amount"
+                    class="w-24 border-0 bg-transparent text-right text-sm font-black text-highlighted outline-none"
+                    @blur="commitBetInput"
+                    @keydown.enter="($event.target as HTMLInputElement).blur()"
+                  >
+                </div>
+              </div>
+
+              <div
+                class="order-1 min-w-[132px] text-center transition-transform duration-200 sm:order-none"
+                :class="totalWinPulse ? 'scale-[1.08]' : ''"
+              >
+                <span class="text-[10px] font-black tracking-wide uppercase text-muted">{{ isBonusActive ? status : 'Win' }}</span>
+                <strong
+                  class="mt-0.5 block text-3xl leading-none font-black tracking-normal"
+                  :class="totalWin > 0 ? 'text-primary' : 'text-muted/40'"
+                >
+                  {{ formatNumber(totalWin, false) }}
+                </strong>
+                <span class="mt-1 block text-[11px] font-bold text-muted">Last {{ formatNumber(lastWin, false) }}</span>
+              </div>
+
+              <div class="order-3 flex items-center justify-end gap-2.5 sm:order-none">
+                <UTooltip text="Halve bet">
+                  <button
+                    class="fire-icon-btn"
+                    :disabled="isPlaying || autoSpinEnabled || bet <= MIN_BET"
+                    @click="betDown"
+                  >
+                    1/2
+                  </button>
+                </UTooltip>
+
+                <div class="flex flex-col items-center gap-1.5">
+                  <button
+                    class="fire-spin-btn"
+                    :disabled="!isReady || isPlaying || balance < spinCost"
+                    @click="autoSpinEnabled ? stopAutoSpin() : play()"
+                  >
+                    <UIcon
+                      v-if="isPlaying"
+                      name="i-lucide-loader-circle"
+                      class="size-5 animate-spin"
+                    />
+                    <span
+                      v-else-if="autoSpinEnabled"
+                      class="flex flex-col items-center gap-0.5 leading-none"
+                    >
+                      <span class="text-[10px]">{{ autoSpinsLeft }}x</span>
+                      <span>STOP</span>
+                    </span>
+                    <span v-else>SPIN</span>
+                  </button>
+                  <button
+                    v-if="!autoSpinEnabled"
+                    class="fire-auto-btn"
+                    :disabled="!isReady || isPlaying || balance < spinCost"
+                    @click="showAutoSpinModal = true"
+                  >
+                    AUTO
+                  </button>
+                  <button
+                    v-else
+                    class="fire-auto-btn fire-auto-btn-stop"
+                    @click="stopAutoSpin"
+                  >
+                    STOP
+                  </button>
+                </div>
+
+                <UTooltip text="Double bet">
+                  <button
+                    class="fire-icon-btn"
+                    :disabled="isPlaying || autoSpinEnabled || bet >= MAX_BET"
+                    @click="betUp"
+                  >
+                    2x
+                  </button>
+                </UTooltip>
+              </div>
+            </div>
+
+            <div class="flex items-center justify-between gap-3 border-t border-primary/10 px-3.5 pt-2.5 pb-3">
+              <div class="flex gap-2">
+                <UTooltip text="Game rules">
+                  <button
+                    class="fire-mini-btn"
+                    @click="showHelp = true"
+                  >
+                    <UIcon
+                      name="i-lucide-info"
+                      class="size-4"
+                    />
+                  </button>
+                </UTooltip>
+                <UTooltip text="Turbo">
+                  <button
+                    class="fire-mini-btn"
+                    :class="{ 'fire-mini-btn-active': turbo }"
+                    @click="turbo = !turbo"
+                  >
+                    <UIcon
+                      name="i-lucide-zap"
+                      class="size-4"
+                    />
+                  </button>
+                </UTooltip>
+              </div>
+              <p
+                v-if="errorMsg"
+                class="text-xs text-error"
+              >
+                {{ errorMsg }}
+              </p>
+              <p
+                v-else
+                class="text-xs text-muted"
+              >
+                {{ status }} · {{ FITH_MAX_WIN_MULT }}x max
+              </p>
+            </div>
+          </div>
+        </main>
+
+        <aside class="order-2 xl:order-3">
+          <div class="fire-panel p-4">
+            <p class="mb-3 text-xs font-black tracking-wide uppercase text-muted">
+              Recent spins
+            </p>
+            <div
+              v-if="history.length"
+              class="space-y-2"
+            >
+              <div
+                v-for="(item, index) in history"
+                :key="index"
+                class="flex items-center justify-between rounded-lg border border-primary/10 bg-background/55 px-2.5 py-2 text-[13px] font-extrabold"
+                :class="item.payout > 0 ? 'text-primary' : 'text-muted'"
+              >
+                <span>{{ item.bonus ? 'Free spins' : 'Base spin' }}</span>
+                <strong>{{ item.payout > 0 ? formatNumber(item.payout, false) : '0.00' }}</strong>
+              </div>
+            </div>
+            <UEmpty
+              v-else
+              icon="i-lucide-flame"
+              description="No spins yet"
+            />
+          </div>
+        </aside>
       </div>
-    </UContainer>
+    </div>
+
+    <UModal
+      v-model:open="showAutoSpinModal"
+      title="Auto Spin"
+    >
+      <template #body>
+        <div class="space-y-4">
+          <div class="grid grid-cols-5 gap-2">
+            <UButton
+              v-for="count in AUTO_SPIN_OPTIONS"
+              :key="count"
+              block
+              color="neutral"
+              variant="soft"
+              @click="startAutoSpin(count)"
+            >
+              {{ count }}
+            </UButton>
+          </div>
+        </div>
+      </template>
+    </UModal>
+
+    <UModal
+      v-model:open="showHelp"
+      title="How Fire in the Hole works"
+    >
+      <template #body>
+        <div class="space-y-3 text-sm text-muted">
+          <p>Connect {{ FITH_MIN_CONNECTION }}+ matching symbols. Bombs are wilds, explode nearby tiles, and unlock deeper rows when they hit near the divider.</p>
+          <p>Three scatters award {{ FITH_FREE_SPINS }} free spins using only the rows you unlocked during the base spin.</p>
+          <p>Bonus coins can land as low as 0.2x and 0.5x. Rare sticky boosts add flat value every spin, doublers fire once, and collectors absorb coins.</p>
+          <p>Total win is capped at {{ FITH_MAX_WIN_MULT }}x bet.</p>
+        </div>
+      </template>
+    </UModal>
   </div>
 </template>
+
+<style scoped>
+.fire-shell {
+  background: var(--ui-bg);
+}
+
+.fire-bg {
+  background:
+    linear-gradient(180deg, rgba(24, 24, 27, 0.4), rgba(9, 9, 11, 0.94)),
+    repeating-linear-gradient(90deg, rgba(251, 146, 60, 0.08) 0 1px, transparent 1px 84px),
+    repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.04) 0 1px, transparent 1px 72px);
+}
+
+.fire-vignette {
+  background: radial-gradient(ellipse 75% 65% at 50% 36%, rgba(120, 53, 15, 0.16) 0%, rgba(9, 9, 11, 0.58) 70%, rgba(3, 7, 18, 0.9) 100%);
+}
+
+.fire-title {
+  color: rgb(255, 247, 237);
+  text-shadow: 0 3px 0 rgba(69, 26, 3, 0.8), 0 0 26px rgba(251, 146, 60, 0.42);
+}
+
+.fire-console,
+.fire-panel {
+  border: 1px solid rgba(251, 146, 60, 0.24);
+  border-radius: 8px;
+  background: linear-gradient(180deg, rgba(24, 24, 27, 0.92), rgba(9, 9, 11, 0.96));
+  box-shadow: 0 26px 80px rgba(0, 0, 0, 0.56), inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 0 42px rgba(251, 146, 60, 0.08);
+  backdrop-filter: blur(10px);
+}
+
+.fire-reel-area {
+  background:
+    radial-gradient(ellipse 88% 64% at 50% 0%, rgba(154, 52, 18, 0.2), transparent 72%),
+    linear-gradient(180deg, rgba(39, 39, 42, 0.8), rgba(9, 9, 11, 0.96));
+}
+
+.fire-reel-sheen {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.06), transparent 22%),
+    radial-gradient(ellipse 70% 44% at 50% 105%, rgba(0, 0, 0, 0.38), transparent 65%);
+}
+
+.fire-stat,
+.fire-readout {
+  border: 1px solid rgba(251, 146, 60, 0.13);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.28);
+}
+
+.fire-stat {
+  padding: 9px 8px;
+}
+
+.fire-stat span,
+.fire-readout span {
+  color: var(--ui-text-muted);
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.fire-stat strong {
+  display: block;
+  margin-top: 3px;
+  color: var(--ui-primary);
+  font-size: 20px;
+  line-height: 1;
+}
+
+.fire-readout {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 10px;
+}
+
+.fire-readout strong {
+  min-width: 0;
+  color: var(--ui-text-highlighted);
+  font-size: 14px;
+  font-weight: 950;
+  text-align: right;
+}
+
+.fire-spin-btn,
+.fire-icon-btn,
+.fire-mini-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(251, 146, 60, 0.28);
+  background: rgba(0, 0, 0, 0.45);
+  color: white;
+  font-weight: 950;
+  transition: transform 140ms ease, border-color 140ms ease, background 140ms ease, opacity 140ms ease;
+}
+
+.fire-spin-btn {
+  width: 84px;
+  height: 58px;
+  border-color: rgba(251, 146, 60, 0.8);
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgb(253, 186, 116), rgb(194, 65, 12));
+  color: rgb(24, 24, 27);
+  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.42), 0 0 24px rgba(251, 146, 60, 0.36);
+}
+
+.fire-icon-btn {
+  width: 38px;
+  height: 38px;
+  border-radius: 8px;
+}
+
+.fire-mini-btn {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+}
+
+.fire-mini-btn-active {
+  border-color: rgba(251, 146, 60, 0.95);
+  background: rgba(251, 146, 60, 0.18);
+}
+
+.fire-spin-btn:disabled,
+.fire-icon-btn:disabled,
+.fire-mini-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.fire-spin-btn:not(:disabled):hover,
+.fire-icon-btn:not(:disabled):hover,
+.fire-mini-btn:not(:disabled):hover {
+  transform: translateY(-1px);
+}
+
+.fire-auto-btn {
+  border: 0;
+  background: none;
+  color: var(--ui-text-muted);
+  cursor: pointer;
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: 0.22em;
+  padding: 0;
+}
+
+.fire-auto-btn:hover:not(:disabled) {
+  color: var(--ui-primary);
+}
+
+.fire-auto-btn-stop {
+  color: var(--ui-error);
+}
+
+.pop-enter-active,
+.pop-leave-active {
+  transition: transform 220ms ease, opacity 220ms ease;
+}
+
+.pop-enter-from,
+.pop-leave-to {
+  opacity: 0;
+  transform: scale(0.92);
+}
+</style>
