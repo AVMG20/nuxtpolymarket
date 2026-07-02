@@ -24,6 +24,13 @@ const turbo = ref(false)
 const showHelp = ref(false)
 const totalWinPulse = ref(false)
 
+const bigWinBanner = ref(false)
+const bigWinLabel = ref('')
+const bigWinAmount = ref(0)
+const bigWinGradient = ref('')
+const bigWinGlow = ref('')
+const bigWinIntensity = ref(1)
+
 const MIN_BET = 1
 const MAX_BET = 1_000_000
 const bet = ref(10)
@@ -148,6 +155,85 @@ function pulseWin() {
   window.setTimeout(() => {
     totalWinPulse.value = false
   }, 320)
+}
+
+const tickRuns = new WeakMap<Ref<number>, number>()
+
+// Eases a display ref toward `to` instead of snapping — used for the win
+// counters so a chain of coin/boost/double drops reads as accumulating value
+// rather than jumping in place.
+function tickNumber(target: Ref<number>, to: number, duration = 320, respectTurbo = true) {
+  const run = (tickRuns.get(target) ?? 0) + 1
+  tickRuns.set(target, run)
+  const from = target.value
+  const start = performance.now()
+  const d = respectTurbo && turbo.value ? Math.round(duration * 0.5) : duration
+  const frame = (now: number) => {
+    if (tickRuns.get(target) !== run) return
+    const t = Math.min(1, (now - start) / d)
+    const eased = 1 - (1 - t) ** 3
+    target.value = Number((from + (to - from) * eased).toFixed(2))
+    if (t < 1) requestAnimationFrame(frame)
+    else target.value = to
+  }
+  requestAnimationFrame(frame)
+}
+
+function syncBonusTotals(multiplier: number, duration = 260) {
+  tickNumber(bonusMultiplier, multiplier, duration)
+  const bonusWin = multiplier * (latestResult?.bet ?? 1)
+  tickNumber(totalWin, Number(((latestResult?.basePayout ?? 0) + bonusWin).toFixed(2)), duration)
+}
+
+async function screenShake(intensity = 8, duration = 0.3) {
+  if (!reelSet) return
+
+  const { gsap } = await import('gsap')
+  const target = reelSet
+  const baseX = target.position.x
+  const baseY = target.position.y
+  const steps = 5
+  const tl = gsap.timeline({
+    onComplete: () => target.position.set(baseX, baseY)
+  })
+
+  for (let i = 0; i < steps; i++) {
+    const decay = 1 - i / steps
+    tl.to(target.position, {
+      x: baseX + (Math.random() - 0.5) * intensity * decay,
+      y: baseY + (Math.random() - 0.5) * intensity * decay,
+      duration: duration / steps,
+      ease: 'sine.inOut'
+    })
+  }
+  tl.to(target.position, { x: baseX, y: baseY, duration: duration / steps })
+}
+
+// Escalating "big win" showcase shown once a bonus round clears a threshold —
+// tiers span 50x (quiet nod) through 1500x+ (full showcase).
+const WIN_TIERS = [
+  { threshold: 1500, rank: 6, label: 'ULTRA WIN', from: '#f0abfc', to: '#a855f7', glow: 'rgba(168,85,247,0.75)' },
+  { threshold: 600, rank: 5, label: 'SUPER WIN', from: '#fda4af', to: '#e11d48', glow: 'rgba(225,29,72,0.7)' },
+  { threshold: 300, rank: 4, label: 'MEGA WIN', from: '#fdba74', to: '#ea580c', glow: 'rgba(234,88,12,0.7)' },
+  { threshold: 150, rank: 3, label: 'GREAT WIN', from: '#fde047', to: '#ca8a04', glow: 'rgba(202,138,4,0.65)' },
+  { threshold: 75, rank: 2, label: 'BIG WIN', from: '#86efac', to: '#16a34a', glow: 'rgba(22,163,74,0.6)' },
+  { threshold: 50, rank: 1, label: 'NICE WIN', from: '#7dd3fc', to: '#0284c7', glow: 'rgba(2,132,199,0.55)' }
+] as const
+
+async function showBigWinPopup(totalMultiplier: number, amount: number) {
+  const tier = WIN_TIERS.find(t => totalMultiplier >= t.threshold)
+  if (!tier) return
+
+  bigWinLabel.value = tier.label
+  bigWinGradient.value = `linear-gradient(180deg, ${tier.from}, ${tier.to})`
+  bigWinGlow.value = tier.glow
+  bigWinIntensity.value = tier.rank
+  bigWinAmount.value = 0
+  bigWinBanner.value = true
+
+  tickNumber(bigWinAmount, amount, 1400, false)
+  await sleep(2200)
+  bigWinBanner.value = false
 }
 
 async function initPixi() {
@@ -458,6 +544,7 @@ async function spawnBlast(cell: FireCell, bomb = false) {
     ring.stroke({ color: 0xfb923c, alpha: 1, width: 7 })
     ring.position.set(center.x, center.y)
     ring.scale.set(0.2)
+    ring.blendMode = 'add'
     effectsLayer.addChild(ring)
 
     gsap.to(ring.scale, {
@@ -472,40 +559,49 @@ async function spawnBlast(cell: FireCell, bomb = false) {
       ease: 'power2.out',
       onComplete: () => ring.destroy()
     })
+
+    screenShake(turbo.value ? 5 : 9, turbo.value ? 0.18 : 0.32)
   }
 
   for (let i = 0; i < count; i++) {
     const particle = new Graphics()
     const color = colors[i % colors.length]!
     const angle = (Math.PI * 2 * i) / count + Math.random() * 0.35
-    const distance = (bomb ? 88 : 38) + Math.random() * (bomb ? 82 : 22)
-    const size = bomb ? 3 + Math.random() * 6 : 2 + Math.random() * 3
+    // Every third particle is a bigger, slower "ember" instead of a fast spark
+    // — mixed sizes/speeds read as an explosion instead of a uniform ring.
+    const isEmber = i % 3 === 0
+    const distance = (bomb ? 88 : 38) + Math.random() * (bomb ? 90 : 26)
+    const size = isEmber
+      ? (bomb ? 6 + Math.random() * 7 : 3 + Math.random() * 3)
+      : (bomb ? 2 + Math.random() * 4 : 1.5 + Math.random() * 2.5)
+    const duration = (bomb ? 0.5 : 0.3) + Math.random() * (bomb ? 0.24 : 0.16)
 
-    if (bomb && i % 3 === 0) {
+    if (bomb && i % 5 === 0) {
       particle.roundRect(-size * 0.5, -size * 2.3, size, size * 4.6, size)
       particle.rotation = angle
     } else {
       particle.circle(0, 0, size)
     }
-    particle.fill({ color, alpha: 0.95 })
+    particle.fill({ color, alpha: isEmber ? 0.55 : 0.95 })
+    particle.blendMode = 'add'
     particle.position.set(center.x, center.y)
     effectsLayer.addChild(particle)
 
     gsap.to(particle.position, {
       x: center.x + Math.cos(angle) * distance,
       y: center.y + Math.sin(angle) * distance,
-      duration: bomb ? 0.58 : 0.34,
+      duration,
       ease: 'power3.out'
     })
     gsap.to(particle.scale, {
-      x: 0.3,
-      y: 0.3,
-      duration: bomb ? 0.58 : 0.34,
+      x: isEmber ? 0.55 : 0.2,
+      y: isEmber ? 0.55 : 0.2,
+      duration,
       ease: 'power2.in'
     })
     gsap.to(particle, {
       alpha: 0,
-      duration: bomb ? 0.6 : 0.36,
+      duration: duration + 0.06,
       ease: 'power2.in',
       onComplete: () => particle.destroy()
     })
@@ -576,13 +672,12 @@ async function animateMineBoundary(lines: number) {
 async function spawnMoneyPopup(amount: number, cells: FireCell[]) {
   if (!effectsLayer || cells.length === 0 || amount <= 0) return
 
-  const { Container, Graphics, Text } = await import('pixi.js')
+  const { Text } = await import('pixi.js')
   const { gsap } = await import('gsap')
   const center = cells.reduce((point, cell) => {
     const next = cellCenter(cell)
     return { x: point.x + next.x, y: point.y + next.y }
   }, { x: 0, y: 0 })
-  const popup = new Container()
   const label = new Text({
     text: `+$${formatNumber(amount, false)}`,
     style: {
@@ -590,38 +685,36 @@ async function spawnMoneyPopup(amount: number, cells: FireCell[]) {
       fontFamily: 'Inter, ui-sans-serif, system-ui',
       fontSize: 34,
       fontWeight: '900',
-      stroke: { color: 0x111827, width: 6 }
+      stroke: { color: 0x111827, width: 6 },
+      dropShadow: { color: 0xfacc15, blur: 10, distance: 0, alpha: 0.9 }
     }
   })
-  const bg = new Graphics()
 
   label.anchor.set(0.5)
-  bg.roundRect(-label.width / 2 - 18, -label.height / 2 - 9, label.width + 36, label.height + 18, 18)
-  bg.fill({ color: 0x065f46, alpha: 0.92 })
-  bg.stroke({ color: 0xfacc15, alpha: 0.95, width: 3 })
+  label.position.set(center.x / cells.length, center.y / cells.length)
+  label.scale.set(0.45, 1.35)
+  effectsLayer.addChild(label)
 
-  popup.addChild(bg, label)
-  popup.position.set(center.x / cells.length, center.y / cells.length)
-  popup.scale.set(0.62)
-  effectsLayer.addChild(popup)
+  const drift = (Math.random() - 0.5) * 34
 
-  gsap.to(popup.scale, {
+  gsap.to(label.scale, {
     x: 1,
     y: 1,
-    duration: 0.18,
-    ease: 'back.out(2.4)'
+    duration: 0.2,
+    ease: 'back.out(2.8)'
   })
-  gsap.to(popup.position, {
-    y: popup.y - 78,
+  gsap.to(label.position, {
+    x: label.x + drift,
+    y: label.y - 78,
     duration: 0.9,
-    ease: 'power3.out'
+    ease: 'power2.out'
   })
-  gsap.to(popup, {
+  gsap.to(label, {
     alpha: 0,
     duration: 0.22,
     delay: 0.68,
     ease: 'power2.in',
-    onComplete: () => popup.destroy({ children: true })
+    onComplete: () => label.destroy()
   })
 }
 
@@ -685,7 +778,7 @@ async function drawBonusValues(coins: FireBonusDrop[]) {
 async function spawnBonusDropPopup(drop: FireBonusDrop, speedFactor = 1) {
   if (!effectsLayer) return
 
-  const { Container, Graphics, Text } = await import('pixi.js')
+  const { Text } = await import('pixi.js')
   const { gsap } = await import('gsap')
   const center = cellCenter(drop)
   const text = drop.symbol === 'boost'
@@ -695,7 +788,7 @@ async function spawnBonusDropPopup(drop: FireBonusDrop, speedFactor = 1) {
       : drop.symbol === 'collector'
         ? 'COLLECT'
         : `${formatNumber(drop.multiplier, false)}x`
-  const popup = new Container()
+  const glowColor = drop.symbol === 'double' ? 0xa78bfa : drop.symbol === 'collector' ? 0xf87171 : 0x6ee7b7
   const label = new Text({
     text,
     style: {
@@ -703,45 +796,40 @@ async function spawnBonusDropPopup(drop: FireBonusDrop, speedFactor = 1) {
       fontFamily: 'Inter, ui-sans-serif, system-ui',
       fontSize: drop.symbol === 'collector' ? 24 : 28,
       fontWeight: '900',
-      stroke: { color: 0x111827, width: 5 }
+      stroke: { color: 0x111827, width: 5 },
+      dropShadow: { color: glowColor, blur: 9, distance: 0, alpha: 0.9 }
     }
   })
-  const bg = new Graphics()
 
   label.anchor.set(0.5)
-  bg.roundRect(-label.width / 2 - 14, -label.height / 2 - 8, label.width + 28, label.height + 16, 16)
-  bg.fill({ color: drop.symbol === 'double' ? 0x6d28d9 : drop.symbol === 'collector' ? 0xbe123c : 0x065f46, alpha: 0.92 })
-  bg.stroke({ color: 0xfacc15, alpha: 0.9, width: 2 })
+  label.position.set(center.x, center.y)
+  label.scale.set(0.5, 1.3)
+  effectsLayer.addChild(label)
 
-  popup.addChild(bg, label)
-  popup.position.set(center.x, center.y)
-  popup.scale.set(0.68)
-  effectsLayer.addChild(popup)
-
-  gsap.to(popup.scale, {
+  gsap.to(label.scale, {
     x: 1,
     y: 1,
     duration: 0.13 * speedFactor,
-    ease: 'back.out(2.2)'
+    ease: 'back.out(2.4)'
   })
-  gsap.to(popup.position, {
-    y: popup.y - 64,
+  gsap.to(label.position, {
+    y: label.y - 64,
     duration: 0.48 * speedFactor,
     ease: 'power3.out'
   })
-  gsap.to(popup, {
+  gsap.to(label, {
     alpha: 0,
     duration: 0.16 * speedFactor,
     delay: 0.34 * speedFactor,
     ease: 'power2.in',
-    onComplete: () => popup.destroy({ children: true })
+    onComplete: () => label.destroy()
   })
 }
 
 async function animateValueTransfer(event: FireBonusValueEvent, speedFactor = 1) {
   if (!effectsLayer) return
 
-  const { Container, Graphics, Text } = await import('pixi.js')
+  const { Graphics, Text } = await import('pixi.js')
   const { gsap } = await import('gsap')
   const from = event.type === 'collect' ? cellCenter(event.target) : cellCenter(event.source)
   const to = event.type === 'collect' ? cellCenter(event.source) : cellCenter(event.target)
@@ -750,8 +838,7 @@ async function animateValueTransfer(event: FireBonusValueEvent, speedFactor = 1)
     : event.type === 'collect'
       ? `${formatNumber(event.amount, false)}x`
       : `+${formatNumber(event.amount, false)}x`
-  const chip = new Container()
-  const bg = new Graphics()
+  const glowColor = event.type === 'double' ? 0xa78bfa : event.type === 'collect' ? 0xf87171 : 0x6ee7b7
   const label = new Text({
     text,
     style: {
@@ -759,32 +846,60 @@ async function animateValueTransfer(event: FireBonusValueEvent, speedFactor = 1)
       fontFamily: 'Inter, ui-sans-serif, system-ui',
       fontSize: event.amount >= 1000 ? 20 : 24,
       fontWeight: '900',
-      stroke: { color: event.type === 'double' ? 0x312e81 : event.type === 'collect' ? 0x7f1d1d : 0x064e3b, width: 5 }
+      stroke: { color: event.type === 'double' ? 0x312e81 : event.type === 'collect' ? 0x7f1d1d : 0x064e3b, width: 5 },
+      dropShadow: { color: glowColor, blur: 8, distance: 0, alpha: 0.9 }
     }
   })
-  const color = event.type === 'double' ? 0x6d28d9 : event.type === 'collect' ? 0xbe123c : 0x0f766e
 
   label.anchor.set(0.5)
-  bg.roundRect(-label.width / 2 - 12, -label.height / 2 - 7, label.width + 24, label.height + 14, 14)
-  bg.fill({ color, alpha: 0.94 })
-  bg.stroke({ color: 0xfacc15, alpha: 0.9, width: 2 })
+  label.position.set(from.x, from.y)
+  label.scale.set(0.55)
+  effectsLayer.addChild(label)
 
-  chip.addChild(bg, label)
-  chip.position.set(from.x, from.y)
-  chip.scale.set(0.62)
-  effectsLayer.addChild(chip)
-
-  await gsap.to(chip.scale, {
+  await gsap.to(label.scale, {
     x: 1,
     y: 1,
     duration: 0.09 * speedFactor,
     ease: 'back.out(2)'
   })
 
-  await gsap.to(chip.position, {
-    x: to.x,
-    y: to.y,
-    duration: 0.24 * speedFactor,
+  // Single arcing tween (mid-flight peak, then settle) instead of a flat
+  // slide — reads more like a coin toss between the two cells.
+  const peakY = Math.min(from.y, to.y) - 46
+
+  // A few jittered sparks trail the same arc a beat behind the value, like
+  // the neon particle streams in pixi-reels' hold-and-win recipes.
+  const trailCount = turbo.value ? 2 : 4
+  for (let i = 0; i < trailCount; i++) {
+    const dot = new Graphics()
+    const jitterX = (Math.random() - 0.5) * 20
+    const jitterY = (Math.random() - 0.5) * 16
+    dot.circle(0, 0, 2 + Math.random() * 2)
+    dot.fill({ color: glowColor, alpha: 0.9 })
+    dot.blendMode = 'add'
+    dot.position.set(from.x, from.y)
+    effectsLayer.addChild(dot)
+
+    gsap.to(dot, {
+      delay: i * 0.035 * speedFactor,
+      keyframes: {
+        '55%': { x: (from.x + to.x) / 2 + jitterX, y: peakY + jitterY },
+        '100%': { x: to.x, y: to.y }
+      },
+      duration: 0.3 * speedFactor,
+      ease: 'power2.inOut',
+      onComplete: () => {
+        gsap.to(dot, { alpha: 0, duration: 0.12, onComplete: () => dot.destroy() })
+      }
+    })
+  }
+
+  await gsap.to(label, {
+    keyframes: {
+      '55%': { x: (from.x + to.x) / 2, y: peakY },
+      '100%': { x: to.x, y: to.y }
+    },
+    duration: 0.28 * speedFactor,
     ease: 'power2.inOut'
   })
 
@@ -793,6 +908,7 @@ async function animateValueTransfer(event: FireBonusValueEvent, speedFactor = 1)
   pulse.stroke({ color: 0xfacc15, alpha: 0.95, width: 4 })
   pulse.position.set(to.x, to.y)
   pulse.scale.set(0.35)
+  pulse.blendMode = 'add'
   effectsLayer.addChild(pulse)
 
   gsap.to(pulse.scale, {
@@ -808,11 +924,11 @@ async function animateValueTransfer(event: FireBonusValueEvent, speedFactor = 1)
     onComplete: () => pulse.destroy()
   })
 
-  await gsap.to(chip, {
+  await gsap.to(label, {
     alpha: 0,
     duration: 0.08 * speedFactor,
     ease: 'power2.in',
-    onComplete: () => chip.destroy({ children: true })
+    onComplete: () => label.destroy()
   })
 }
 
@@ -852,6 +968,7 @@ async function playBonusFeature(bonus: FireBonusResult) {
     }
 
     await drawBonusValues([...lockedCoins.values()])
+    syncBonusTotals(bonusVisibleTotal(lockedCoins.values()), 240)
 
     for (let index = 0; index < specialDrops.length; index++) {
       const speedFactor = animationSpeedFactor(index)
@@ -874,7 +991,7 @@ async function playBonusFeature(bonus: FireBonusResult) {
       }
 
       await drawBonusValues([...lockedCoins.values()])
-      bonusMultiplier.value = bonusVisibleTotal(lockedCoins.values())
+      syncBonusTotals(bonusVisibleTotal(lockedCoins.values()), 220 * speedFactor)
       await sleep(38 * speedFactor)
     }
 
@@ -883,10 +1000,9 @@ async function playBonusFeature(bonus: FireBonusResult) {
       lockedCoins.set(cellKey(coin), { ...coin })
     }
     await drawBonusValues([...lockedCoins.values()])
-    bonusMultiplier.value = step.totalMultiplier
+    syncBonusTotals(step.totalMultiplier, 320)
 
     const bonusWin = step.totalMultiplier * (latestResult?.bet ?? 1)
-    totalWin.value = Number(((latestResult?.basePayout ?? 0) + bonusWin).toFixed(2))
     lastWin.value = Number(bonusWin.toFixed(2))
     if (bonusWin > 0) pulseWin()
     await stepDelay(150)
@@ -896,6 +1012,10 @@ async function playBonusFeature(bonus: FireBonusResult) {
   lastWin.value = bonus.payout
   bonusMultiplier.value = bonus.totalMultiplier
   status.value = `Bonus ${formatNumber(bonus.totalMultiplier, false)}x`
+
+  if (bonus.totalMultiplier > 50) {
+    await showBigWinPopup(bonus.totalMultiplier, bonus.payout)
+  }
 }
 
 async function flashUnlockedRows(rows: number[]) {
@@ -1180,6 +1300,24 @@ onBeforeUnmount(() => {
                 </div>
               </Transition>
 
+              <Transition name="pop">
+                <div
+                  v-if="bigWinBanner"
+                  class="absolute inset-0 z-30 flex flex-col items-center justify-center gap-1 bg-[rgba(5,3,1,0.82)] backdrop-blur-[4px]"
+                  :style="{ '--tier': bigWinIntensity }"
+                >
+                  <p
+                    class="fire-bigwin-label"
+                    :style="{ backgroundImage: bigWinGradient, filter: `drop-shadow(0 0 22px ${bigWinGlow})` }"
+                  >
+                    {{ bigWinLabel }}
+                  </p>
+                  <strong class="fire-bigwin-amount">
+                    {{ formatNumber(bigWinAmount, false) }}
+                  </strong>
+                </div>
+              </Transition>
+
               <div
                 v-if="!isReady && !errorMsg"
                 class="absolute inset-0 z-10 flex items-center justify-center"
@@ -1404,10 +1542,7 @@ onBeforeUnmount(() => {
 }
 
 .fire-bg {
-  background:
-    linear-gradient(180deg, rgba(24, 24, 27, 0.4), rgba(9, 9, 11, 0.94)),
-    repeating-linear-gradient(90deg, rgba(251, 146, 60, 0.08) 0 1px, transparent 1px 84px),
-    repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.04) 0 1px, transparent 1px 72px);
+  background: url('/slots/fireinthehole/background.png') center 30% / cover no-repeat;
 }
 
 .fire-vignette {
@@ -1566,5 +1701,42 @@ onBeforeUnmount(() => {
 .pop-leave-to {
   opacity: 0;
   transform: scale(0.92);
+}
+
+.fire-bigwin-label {
+  margin: 0;
+  font-size: calc(26px + var(--tier, 1) * 6px);
+  font-weight: 950;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+  animation: fire-bigwin-pop 0.5s cubic-bezier(0.2, 1.4, 0.4, 1) both;
+}
+
+.fire-bigwin-amount {
+  font-size: calc(34px + var(--tier, 1) * 9px);
+  font-weight: 950;
+  line-height: 1;
+  color: rgb(254, 243, 199);
+  text-shadow: 0 3px 0 rgba(0, 0, 0, 0.6), 0 0 26px rgba(250, 204, 21, 0.55);
+  animation: fire-bigwin-pop 0.5s 0.08s cubic-bezier(0.2, 1.4, 0.4, 1) both;
+}
+
+@keyframes fire-bigwin-pop {
+  0% {
+    transform: scale(0.4);
+    opacity: 0;
+  }
+  60% {
+    transform: scale(1.12);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
 }
 </style>
