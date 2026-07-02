@@ -121,7 +121,7 @@ const retriggerBanner = ref(false)
 const inBonus = ref(false)
 const bonusSpinLabel = ref('')
 
-const history = ref<{ payout: number, bet: number, bonus: boolean, mult: number }[]>([])
+const history = ref<{ payout: number, bet: number, bonus: boolean }[]>([])
 const flying = ref<{ id: number, value: number, style: Record<string, string> }[]>([])
 let flyId = 0
 
@@ -908,7 +908,7 @@ async function spin(forceFeature?: AetherFeature) {
     winPulse.value = result.payout > 0
     if (result.payout > 0) sfx.win()
     meter.value = result.bonus?.finalMeter ?? result.base.meterAfter
-    history.value.unshift({ payout: result.payout, bet: result.cost, bonus: result.bonusTriggered, mult: result.totalWinMult })
+    history.value.unshift({ payout: result.payout, bet: result.cost, bonus: result.bonusTriggered })
     if (history.value.length > 10) history.value.pop()
     balance.value = data.balance
     setBalance(data.balance)
@@ -1063,9 +1063,9 @@ onUnmounted(() => {
 
       <div class="flex flex-col justify-center items-center">
         <div
-            ref="meterRef"
-            class="relative top-5 left-0 w-full max-w-125 bg-[url('/slots/aethergates/multi_meter_banner.png')] bg-center bg-no-repeat bg-size-[100%_100%] aspect-1536/564 transition-transform duration-200 drop-shadow-[0_10px_22px_rgba(0,0,0,0.5)]"
-            :class="meterFlash ? 'scale-[1.045] drop-shadow-[0_0_26px_rgba(250,204,21,0.65)]' : ''"
+          ref="meterRef"
+          class="relative top-5 left-0 w-full max-w-125 bg-[url('/slots/aethergates/multi_meter_banner.png')] bg-center bg-no-repeat bg-size-[100%_100%] aspect-1536/564 transition-transform duration-200 drop-shadow-[0_10px_22px_rgba(0,0,0,0.5)]"
+          :class="meterFlash ? 'scale-[1.045] drop-shadow-[0_0_26px_rgba(250,204,21,0.65)]' : ''"
         >
           <span class="sr-only">Multiplier meter</span>
           <p class="absolute top-[74%] left-1/2 -translate-x-1/2 -translate-y-1/2 text-[clamp(20px,5.4vw,30px)] leading-none font-black whitespace-nowrap text-[#fde047] [text-shadow:0_0_20px_rgba(250,204,21,0.6)]">
@@ -1367,10 +1367,10 @@ onUnmounted(() => {
                 v-for="(h, i) in history"
                 :key="i"
                 class="flex items-center justify-between rounded-lg bg-[rgba(15,23,42,0.48)] px-2.5 py-2 text-[13px] font-extrabold"
-                :class="h.payout > h.bet ? 'text-primary' : 'text-muted'"
+                :class="h.payout > 0 ? 'text-primary' : 'text-muted'"
               >
                 <span>{{ h.bonus ? 'Free spins' : 'Base spin' }}</span>
-                <strong>{{ h.payout > 0 ? `${formatNumber(h.mult, false)}x` : '0x' }}</strong>
+                <strong>{{ h.payout > 0 ? formatNumber(h.payout, false) : '—' }}</strong>
               </div>
             </div>
             <UEmpty
