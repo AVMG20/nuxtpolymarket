@@ -842,9 +842,7 @@ const TRACK_COLORS = [
 
     <!-- Title -->
     <div class="spn-title z-1 text-center">
-      <h1 class="spn-title__text">
-        <span class="spn-title__emoji">🪅</span> Spiñata Slots <span class="spn-title__emoji">🎉</span>
-      </h1>
+      <img src="/slots/spinata/logo.png" alt="Spiñata Slots" class="spn-title__logo" />
       <div class="mt-2 flex flex-wrap items-center justify-center gap-2">
         <span class="spn-badge spn-badge--rtp">94.5% RTP</span>
         <span class="spn-badge spn-badge--vol">High Volatility</span>
@@ -1263,16 +1261,10 @@ const TRACK_COLORS = [
   position: relative; margin-bottom: 14px;
 }
 
-.spn-title__text {
-  display: inline-flex; align-items: center; gap: 0.45rem;
-  font-size: clamp(28px, 5vw, 48px); font-weight: 900; line-height: 1;
-  background: linear-gradient(180deg, #fff7d6 0%, #ffd24a 34%, #ff8a1e 66%, #e2392a 100%);
-  -webkit-background-clip: text; background-clip: text;
-  -webkit-text-fill-color: transparent; color: transparent;
-  filter: drop-shadow(0 2px 0 rgba(122,40,12,0.6)) drop-shadow(0 6px 16px rgba(249,115,22,0.5));
+.spn-title__logo {
+  max-height: clamp(64px, 10vw, 120px); width: auto;
+  filter: drop-shadow(0 4px 18px rgba(249,115,22,0.55));
 }
-
-.spn-title__emoji { -webkit-text-fill-color: initial; filter: drop-shadow(0 3px 5px rgba(0,0,0,0.45)); }
 
 .spn-badge {
   display: inline-flex; align-items: center; padding: 3px 10px;
