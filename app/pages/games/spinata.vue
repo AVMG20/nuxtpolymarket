@@ -623,6 +623,10 @@ onMounted(async () => {
 
 onUnmounted(() => {
     destroyed = true
+    try { currentMusicNode?.stop(); currentMusicNode = null } catch { /* ignore */ }
+    try { spinSoundNode?.stop(); spinSoundNode = null } catch { /* ignore */ }
+    try { audioCtx?.close() } catch { /* ignore */ }
+    audioCtx = null; masterGain = null; soundBuffers.clear()
     try { lineLayer?.destroy?.({ children: true }) } catch { /* ignore */ }
     try { floatLayer?.destroy?.({ children: true }) } catch { /* ignore */ }
     try { reelSet?.destroy?.() } catch { /* ignore */ }
@@ -748,7 +752,6 @@ async function spin(feature?: 'buyBonus') {
     } finally {
         isSpinning.value = false
         spinScatterCount.value = 0
-        spinBonusCount.value = 0
         if (autoSpinEnabled.value) {
             if (autoSpinPaused.value) await new Promise<void>(res => { _resumeAutoSpin = res })
             if (autoSpinEnabled.value) {
@@ -777,7 +780,6 @@ async function runFreeSpins(result: SpinataResult) {
             bonusSpinsLeft.value = SPN_FREE_SPINS - fs.round + 1
             bonusStatus.value = `Spin ${fs.round} / ${SPN_FREE_SPINS}`
             trackLevel.value = fs.trackBefore
-            spinBonusCount.value = 0
             await spinReels(fs.grid, fs.lines, result.bet, fs.trackAfter)
 
             // Fly bonus piñatas — pass their pre-computed prizes so the pot accumulates
@@ -1262,7 +1264,8 @@ const TRACK_COLORS = [
 }
 
 .spn-title__logo {
-  max-height: clamp(64px, 10vw, 120px); width: auto;
+  display: block; margin: 0 auto;
+  max-height: clamp(140px, 20vw, 280px); width: auto;
   filter: drop-shadow(0 4px 18px rgba(249,115,22,0.55));
 }
 
