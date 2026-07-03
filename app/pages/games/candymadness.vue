@@ -24,12 +24,14 @@ import {
   SCATTER_WEIGHT
 } from '#shared/utils/gamelogic/candymadness'
 
-// Realistic max win shown to players, derived from a 2M-spin Monte Carlo run
-// (scripts/candymadness-rtp.ts — observed max ~1,050x). The configured hard
+// Realistic max win shown to players, derived from 2M-spin Monte Carlo runs
+// (scripts/candymadness-rtp.ts — observed max ~2,580x). The configured hard
 // cap (5,000x) is enforced server-side but is a rare, near-unreachable outlier.
-const CM_DISPLAY_MAX_WIN = 1500
-// Volatility rating (1-5 zaps) — see SlotVolatility.vue.
-const CM_VOLATILITY = 2
+const CM_DISPLAY_MAX_WIN = 3500
+// Volatility rating (1-5 zaps) — see SlotVolatility.vue. Bumped from 2 after
+// removing the apple symbol: hit frequency dropped but the sticky-multiplier
+// tail (esp. in the free-spins bonus) got a lot fatter.
+const CM_VOLATILITY = 3
 
 const { user, setBalance } = useAuth()
 const balance = ref(parseFloat(user.value?.balance ?? '0'))
@@ -287,7 +289,7 @@ const wait = (ms: number) => new Promise<void>(r => setTimeout(r, ms))
 
 // Escalating "big win" showcase shown once a round clears a threshold — tuned
 // below Fire in the Hole's tiers since Candy Madness's max win
-// (CM_DISPLAY_MAX_WIN, 1,500x) is a fraction of that game's.
+// (CM_DISPLAY_MAX_WIN, 3,500x) is a fraction of that game's.
 const WIN_TIERS = [
   { threshold: 1200, rank: 6, label: 'ULTRA WIN', from: '#f0abfc', to: '#a855f7', glow: 'rgba(168,85,247,0.75)' },
   { threshold: 600, rank: 5, label: 'SUPER WIN', from: '#fda4af', to: '#e11d48', glow: 'rgba(225,29,72,0.7)' },
@@ -326,12 +328,12 @@ async function showBigWinPopup(totalMultiplier: number, amount: number) {
 const SYMBOL_IDS: CandySymbol[] = [...CANDY_KEYS, 'scatter']
 
 const GLYPH: Record<CandySymbol, string> = {
-  grape: '🍇', blue: '🫐', banana: '🍌', green: '🍉', apple: '🍎', orange: '🍊', red: '🍓', scatter: '🍭'
+  grape: '🍇', blue: '🫐', banana: '🍌', green: '🍉', orange: '🍊', red: '🍓', scatter: '🍭'
 }
 
 const POP_COLOR: Record<CandySymbol, number> = {
   grape: 0x9b3fc4, blue: 0x2f7fd0, banana: 0xf5c518, green: 0x4caf2e,
-  apple: 0x66cc33, orange: 0xf0921a, red: 0xe2392a, scatter: 0xff5cae
+  orange: 0xf0921a, red: 0xe2392a, scatter: 0xff5cae
 }
 
 const PAY_SIZES = [5, 8, 12, 15] as const
