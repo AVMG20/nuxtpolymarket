@@ -36,6 +36,7 @@ const slotItems: NavigationMenuItem[] = [
   {label: 'Xeno Slot', class: 'mb-1', icon: 'i-lucide-cherry', to: '/games/xenoslot'},
   {label: 'Candy Madness', class: 'mb-1', icon: 'i-lucide-lollipop', to: '/games/candymadness'},
   {label: 'Aether Gates', class: 'mb-1', icon: 'i-lucide-zap', to: '/games/aethergates'},
+  {label: 'Fire in the Hole', class: 'mb-1', icon: 'i-lucide-flame', to: '/games/fireinthehole'},
 ]
 
 const casinoItems: NavigationMenuItem[] = [
@@ -223,11 +224,7 @@ function setNeutral(color: string) {
               <div class="flex items-center gap-3 px-3 py-2">
                 <div class="size-8 rounded-full bg-primary/20 flex items-center justify-center shrink-0">
                   <span class="text-sm font-semibold text-primary">
-                    {{
-                      (
-                          user?.name ?? 'A'
-                      )[0].toUpperCase()
-                    }}
+                    {{ (user?.name ?? 'A').charAt(0).toUpperCase() }}
                   </span>
                 </div>
                 <div class="min-w-0">
