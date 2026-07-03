@@ -12,15 +12,15 @@ export const FITH_SHEET_H = 1024
 //   ore      rock     empty
 //   sapphire scatter  bomb
 export const FITH_SYMBOL_META: Record<FireBaseSymbol, { name: string, rect: [number, number, number, number] }> = {
-    coal: { name: 'Coal', rect: [75, 47, 250, 250] },
-    ore: { name: 'Ore', rect: [72, 344, 250, 232] },
-    ruby: { name: 'Ruby', rect: [700, 47, 250, 250] },
-    sapphire: { name: 'Sapphire', rect: [76, 637, 250, 250] },
-    emerald: { name: 'Emerald', rect: [384, 47, 250, 250] },
+    coal: { name: 'Coal', rect: [75, 64, 250, 250] },
+    ore: { name: 'Ore', rect: [74, 354, 250, 232] },
+    ruby: { name: 'Ruby', rect: [698, 65, 250, 250] },
+    sapphire: { name: 'Sapphire', rect: [76, 639, 250, 250] },
+    emerald: { name: 'Emerald', rect: [384, 63, 250, 250] },
     bomb: { name: 'Bomb', rect: [685, 632, 258, 264] },
     scatter: { name: 'Scatter', rect: [365, 620, 280, 272] },
-    rock: { name: 'Rock', rect: [384, 344, 250, 230] },
-    empty: { name: 'Empty', rect: [758, 402, 100, 100] }
+    rock: { name: 'Rock', rect: [382, 354, 259, 234] },
+    empty: { name: 'Empty', rect: [771, 416, 100, 100] }
 }
 
 // Bonus-round drop sprite sheet (coin/boost/double/collector).
