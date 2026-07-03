@@ -343,22 +343,12 @@ async function initPixi() {
       }
 
       const text = bonusDropLabel(drop)
-      const bgColor = drop.symbol === 'collector'
-        ? 0xbe123c
-        : drop.symbol === 'boost'
-          ? 0x047857
-          : drop.symbol === 'double'
-            ? 0x6d28d9
-            : 0x92400e
 
       this.bonusLabel.text = text
       this.bonusLabel.visible = true
       this.bonusLabel.style.fontSize = text.length > 5 ? 19 : 23
       this.bonusLabel.position.set(this.width * 0.5, this.height * 0.5)
       this.bonusLabelBg.clear()
-      this.bonusLabelBg.roundRect(this.width * 0.5 - 42, this.height * 0.5 - 20, 84, 40, 20)
-      this.bonusLabelBg.fill({ color: bgColor, alpha: 0.9 })
-      this.bonusLabelBg.stroke({ color: 0xfef3c7, alpha: 0.9, width: 2 })
       this.draw()
     }
 
@@ -386,17 +376,6 @@ async function initPixi() {
       if (this.bonusLabel.visible) {
         this.bonusLabel.position.set(this.width * 0.5, this.height * 0.5)
         this.bonusLabelBg.clear()
-        const bgColor = this.symbol === 'collector'
-          ? 0xbe123c
-          : this.symbol === 'boost'
-            ? 0x047857
-            : this.symbol === 'double'
-              ? 0x6d28d9
-              : 0x92400e
-
-        this.bonusLabelBg.roundRect(this.width * 0.5 - 42, this.height * 0.5 - 20, 84, 40, 20)
-        this.bonusLabelBg.fill({ color: bgColor, alpha: 0.9 })
-        this.bonusLabelBg.stroke({ color: 0xfef3c7, alpha: 0.9, width: 2 })
       }
     }
   }
