@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { FireBonusDrop, FireBonusResult, FireBonusValueEvent, FireCell, FireCascadeStep, FireInTheHoleResult, FireSymbol } from '#shared/utils/gamelogic/fireinthehole'
-import { FITH_BUY_BONUS_COST, FITH_COLS, FITH_FREE_SPINS, FITH_MAX_WIN_MULT, FITH_MIN_CONNECTION, FITH_ROWS, playFireInTheHole } from '#shared/utils/gamelogic/fireinthehole'
+import { FITH_BUY_BONUS_COST, FITH_COLS, FITH_FREE_SPINS, FITH_MIN_CONNECTION, FITH_ROWS, playFireInTheHole } from '#shared/utils/gamelogic/fireinthehole'
 
 definePageMeta({
   title: 'Fire in the Hole'
@@ -30,6 +30,15 @@ const bigWinAmount = ref(0)
 const bigWinGradient = ref('')
 const bigWinGlow = ref('')
 const bigWinIntensity = ref(1)
+
+// Realistic max win shown to players, derived from a 2M-spin Monte Carlo run
+// (scripts/fireinthehole-rtp.ts — observed max ~8,880x). The configured hard
+// cap (20,000x) is enforced server-side but is an extreme, near-unreachable
+// outlier, so the UI advertises a figure players could plausibly hit instead.
+const FITH_DISPLAY_MAX_WIN = 10000
+// Volatility rating (1-5 zaps) — see SlotVolatility.vue. Fire in the Hole's
+// observed max win puts it at the top tier (>=5,000x).
+const FITH_VOLATILITY = 5
 
 const MIN_BET = 1
 const MAX_BET = 1_000_000
@@ -1282,13 +1291,13 @@ onBeforeUnmount(() => {
         <h1 class="fire-title text-[36px] leading-none font-black tracking-normal sm:text-[52px]">
           Fire in the Hole
         </h1>
-        <div class="mt-3 flex items-center justify-center gap-2">
+        <div class="mt-3 flex flex-wrap items-center justify-center gap-2">
           <span class="fire-badge">
             <UIcon
               name="i-lucide-flame"
               class="size-3"
             />
-            {{ FITH_MAX_WIN_MULT }}x max win
+            {{ formatNumber(FITH_DISPLAY_MAX_WIN, false, 0) }}x max win
           </span>
           <span class="fire-badge fire-badge-ruby">
             <UIcon
@@ -1296,6 +1305,9 @@ onBeforeUnmount(() => {
               class="size-3"
             />
             Bombs unlock deeper rows
+          </span>
+          <span class="fire-badge">
+            <SlotVolatility :level="FITH_VOLATILITY" />
           </span>
         </div>
       </header>
@@ -1559,7 +1571,7 @@ onBeforeUnmount(() => {
                 v-else
                 class="text-xs text-muted"
               >
-                {{ status }} · {{ FITH_MAX_WIN_MULT }}x max
+                {{ status }} · {{ formatNumber(FITH_DISPLAY_MAX_WIN, false, 0) }}x max
               </p>
             </div>
           </div>
@@ -1637,7 +1649,7 @@ onBeforeUnmount(() => {
           <p>Three scatters award {{ FITH_FREE_SPINS }} free spins using only the rows you unlocked during the base spin.</p>
           <p>Bonus coins can land as low as 0.13x and 0.33x. Sticky boosts add flat value every spin, doublers multiply everything on the board when they land, and collectors absorb coins.</p>
           <p>Buy bonus skips straight to {{ FITH_FREE_SPINS }} free spins for {{ formatNumber(buyBonusCost, false) }} ({{ FITH_BUY_BONUS_COST }}x bet).</p>
-          <p>Total win is capped at {{ FITH_MAX_WIN_MULT }}x bet.</p>
+          <p>Total win is realistically capped around {{ formatNumber(FITH_DISPLAY_MAX_WIN, false, 0) }}x bet — huge outlier bonus rounds can occasionally push higher.</p>
         </div>
       </template>
     </UModal>

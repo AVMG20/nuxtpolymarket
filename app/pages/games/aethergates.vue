@@ -25,7 +25,6 @@ import {
   AG_COLS,
   AG_FREE_SPINS,
   AG_FREE_SPINS_SUPER,
-  AG_MAX_WIN_MULT,
   AG_MIN_MATCH,
   AG_RETRIGGER_SPINS,
   AG_ROWS,
@@ -33,6 +32,14 @@ import {
   AG_SCATTER_TRIGGER_SUPER,
   aetherPayMult
 } from '#shared/utils/gamelogic/aethergates'
+
+// Realistic max win shown to players, derived from a 2M-spin Monte Carlo run
+// (scripts/aethergates-rtp.ts — observed max ~532x). AG_MAX_WIN_MULT (10,000x)
+// is the server-enforced hard cap but is an extreme, near-unreachable outlier.
+const AG_DISPLAY_MAX_WIN = 1000
+// Volatility rating (1-5 zaps) — see SlotVolatility.vue. Lowest observed max
+// win of the four slots puts Aether Gates at the bottom tier.
+const AG_VOLATILITY = 1
 
 const { user, setBalance, fetchSession } = useAuth()
 const balance = ref(parseFloat(user.value?.balance ?? '0'))
@@ -1130,12 +1137,15 @@ onUnmounted(() => {
               <small>Spin cost {{ formatNumber(bonusChanceCost, false) }} · ~2× gate odds</small>
             </button>
 
-            <div class="flex flex-wrap gap-1.5">
+            <div class="flex flex-wrap items-center gap-1.5">
               <span
-                v-for="tag in ['96–98% RTP', 'High Volatile']"
+                v-for="tag in ['96–98% RTP']"
                 :key="tag"
                 class="inline-flex rounded-full border border-[rgba(250,204,21,0.32)] bg-[rgba(2,6,16,0.55)] px-2 py-1 text-[10.5px] font-extrabold uppercase text-muted"
               >{{ tag }}</span>
+              <span class="inline-flex rounded-full border border-[rgba(250,204,21,0.32)] bg-[rgba(2,6,16,0.55)] px-2 py-1">
+                <SlotVolatility :level="AG_VOLATILITY" />
+              </span>
             </div>
 
             <div class="ag-rail-foot">
@@ -1143,7 +1153,7 @@ onUnmounted(() => {
                 src="/slots/aethergates/logo.svg"
                 alt=""
               >
-              <p>{{ AG_MAX_WIN_MULT }}x max win</p>
+              <p>{{ formatNumber(AG_DISPLAY_MAX_WIN, false, 0) }}x max win</p>
             </div>
           </div>
         </section>
@@ -1455,7 +1465,7 @@ onUnmounted(() => {
               <strong class="text-default">{{ AG_SCATTER_TRIGGER_SUPER }}+</strong> gates for the richer <strong class="text-default">{{ AG_FREE_SPINS_SUPER }}</strong>-spin Super Bonus.
             </li>
             <li>During free spins the meter <strong class="text-default">never resets</strong> and relics land more often. Landing {{ AG_SCATTER_TRIGGER }}+ gates again grants <strong class="text-default">+{{ AG_RETRIGGER_SPINS }} spins</strong> — a one-time bonus that can only happen once per feature, after which gates stop appearing.</li>
-            <li>Total win is capped at <strong class="text-default">{{ AG_MAX_WIN_MULT }}x</strong> bet.</li>
+            <li>Total win is realistically capped around <strong class="text-default">{{ formatNumber(AG_DISPLAY_MAX_WIN, false, 0) }}x</strong> bet — huge outlier bonus rounds can occasionally push higher.</li>
           </ul>
           <p class="text-xs text-muted">
             Approx natural bonus trigger: 1 in {{ formatNumber(bonusOdds, true, 0) }} base spins.
