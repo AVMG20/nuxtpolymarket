@@ -32,8 +32,8 @@ export const FITH_BONUS_SHEET_H = 1024
 //   coin   boost
 //   double collector
 export const FITH_BONUS_SYMBOL_META: Record<FireBonusSymbol, { name: string, rect: [number, number, number, number] }> = {
-    coin: { name: 'Coin', rect: [4, 4, 504, 504] },
-    boost: { name: 'Boost', rect: [516, 4, 504, 504] },
-    double: { name: 'Double', rect: [4, 516, 504, 504] },
-    collector: { name: 'Collector', rect: [516, 516, 504, 504] }
+    coin: { name: 'Coin', rect: [28, 33, 467, 461] },
+    boost: { name: 'Boost', rect: [522, 28, 466, 467] },
+    double: { name: 'Double', rect: [30, 526, 470, 422] },
+    collector: { name: 'Collector', rect: [516, 511, 471, 461] }
 }

@@ -693,9 +693,11 @@ function drawMineBoundary() {
     dividerLayer.fill({ color: 0x18181b, alpha: 0.88 })
 
     dividerLayer.roundRect(left - 6 * s, lockedTop - 3 * s, right - left + 12 * s, 7 * s, 7 * s)
-    dividerLayer.fill({ color: 0x10b981, alpha: 1 })
+    dividerLayer.fill({ color: 0x3f3f46, alpha: 1 })
+    dividerLayer.roundRect(left - 6 * s, lockedTop - 3 * s, right - left + 12 * s, 2 * s, 2 * s)
+    dividerLayer.fill({ color: 0xf2c14e, alpha: 0.4 })
     dividerLayer.roundRect(left - 6 * s, lockedTop + 5 * s, right - left + 12 * s, 2 * s, 2 * s)
-    dividerLayer.fill({ color: 0x064e3b, alpha: 0.62 })
+    dividerLayer.fill({ color: 0x0a0a0b, alpha: 0.7 })
   }
 }
 
@@ -1261,67 +1263,111 @@ onBeforeUnmount(() => {
     <div class="fire-vignette absolute inset-0" />
 
     <div class="relative z-[1] mx-auto w-full max-w-7xl">
-      <header class="mb-4 text-center">
-        <p class="text-xs font-black tracking-[0.28em] uppercase text-primary">
-          Fire in the Hole
-        </p>
+      <header class="mb-5 text-center">
+        <div class="mb-2 flex items-center justify-center gap-3">
+          <span class="fire-eyebrow-line" />
+          <p class="flex items-center gap-2 text-xs font-black tracking-[0.32em] uppercase text-[#f2c14e]">
+            <UIcon
+              name="i-lucide-pickaxe"
+              class="size-3.5 shrink-0"
+            />
+            Mine the depths
+            <UIcon
+              name="i-lucide-gem"
+              class="size-3.5 shrink-0"
+            />
+          </p>
+          <span class="fire-eyebrow-line" />
+        </div>
         <h1 class="fire-title text-[36px] leading-none font-black tracking-normal sm:text-[52px]">
           Fire in the Hole
         </h1>
+        <div class="mt-3 flex items-center justify-center gap-2">
+          <span class="fire-badge">
+            <UIcon
+              name="i-lucide-flame"
+              class="size-3"
+            />
+            {{ FITH_MAX_WIN_MULT }}x max win
+          </span>
+          <span class="fire-badge fire-badge-ruby">
+            <UIcon
+              name="i-lucide-bomb"
+              class="size-3"
+            />
+            Bombs unlock deeper rows
+          </span>
+        </div>
       </header>
 
       <div class="grid gap-4 xl:grid-cols-[250px_minmax(0,760px)_260px] xl:items-start">
         <aside class="order-3 xl:order-1">
           <div class="fire-panel p-4">
-            <div class="flex items-center justify-between">
-              <span class="text-xs font-black tracking-wide uppercase text-muted">Mine depth</span>
-              <strong class="text-sm text-primary">{{ activeLines }}/6</strong>
+            <div class="fire-panel-head">
+              <UIcon
+                name="i-lucide-layers"
+                class="size-3.5"
+              />
+              <span>Mine depth</span>
             </div>
-            <UProgress
-              class="mt-3"
-              :model-value="activeLines"
-              :max="6"
-              color="primary"
-            />
+            <div class="mt-2.5 flex items-center justify-between">
+              <span class="text-[11px] font-bold text-muted">Rows unlocked</span>
+              <strong class="fire-value-gold text-sm">{{ activeLines }}/6</strong>
+            </div>
+            <div class="fire-depth-bar mt-2">
+              <div
+                class="fire-depth-fill"
+                :style="{ width: `${(activeLines / 6) * 100}%` }"
+              />
+            </div>
             <div class="mt-4 grid grid-cols-2 gap-2 text-center">
               <div class="fire-stat">
+                <UIcon
+                  name="i-lucide-repeat"
+                  class="fire-stat-icon"
+                />
                 <span>Cascades</span>
                 <strong>{{ chainCount }}</strong>
               </div>
-              <div class="fire-stat">
+              <div class="fire-stat fire-stat-ruby">
+                <UIcon
+                  name="i-lucide-bomb"
+                  class="fire-stat-icon"
+                />
                 <span>Bombs</span>
                 <strong>{{ lastBombs }}</strong>
               </div>
             </div>
           </div>
 
-          <div class="fire-panel mt-3 p-4">
-            <div class="flex items-center justify-between">
-              <span class="text-xs font-black tracking-wide uppercase text-muted">Bonus multi</span>
-              <UIcon
-                name="i-lucide-sparkles"
-                :class="isBonusActive ? 'text-primary' : 'text-muted'"
-              />
+          <div
+            class="fire-panel fire-panel-bonus mt-3 p-4"
+            :class="{ 'fire-panel-bonus-active': isBonusActive }"
+          >
+            <div class="fire-panel-head">
+              <UIcon name="i-lucide-sparkles" />
+              <span>Bonus multi</span>
             </div>
             <strong
               class="mt-2 block text-3xl leading-none font-black tracking-normal"
-              :class="isBonusActive ? 'text-primary' : 'text-muted'"
+              :class="isBonusActive ? 'fire-value-gold' : 'text-muted'"
             >
               {{ formatNumber(bonusMultiplier, false) }}x
             </strong>
           </div>
 
           <div class="fire-panel mt-3 p-3">
-            <UButton
-              block
-              color="primary"
+            <button
+              class="fire-buy-btn"
               :disabled="!isReady || isPlaying || autoSpinEnabled || balance < buyBonusCost"
-              icon="i-lucide-flame"
-              :label="`Buy bonus · ${formatNumber(buyBonusCost, false)}`"
-              size="sm"
-              variant="soft"
               @click="play(true)"
-            />
+            >
+              <UIcon
+                name="i-lucide-flame"
+                class="size-4"
+              />
+              Buy bonus · {{ formatNumber(buyBonusCost, false) }}
+            </button>
           </div>
         </aside>
 
@@ -1342,7 +1388,7 @@ onBeforeUnmount(() => {
                   v-if="autoSpinPaused"
                   class="absolute inset-0 z-20 flex cursor-pointer items-center justify-center bg-[rgba(8,10,12,0.78)] backdrop-blur-[3px]"
                 >
-                  <div class="rounded-lg border border-primary/40 bg-background/95 px-6 py-4 text-center shadow-xl">
+                  <div class="rounded-lg border border-[#fbbf24]/40 bg-background/95 px-6 py-4 text-center shadow-xl">
                     <p class="text-base font-black text-highlighted">
                       Bonus complete
                     </p>
@@ -1375,12 +1421,12 @@ onBeforeUnmount(() => {
               >
                 <UIcon
                   name="i-lucide-loader-circle"
-                  class="size-10 animate-spin text-primary"
+                  class="size-10 animate-spin text-[#f2c14e]"
                 />
               </div>
             </div>
 
-            <div class="grid grid-cols-1 items-center gap-3 border-t border-primary/15 bg-background/75 px-3.5 py-3 sm:grid-cols-[1fr_auto_1fr]">
+            <div class="grid grid-cols-1 items-center gap-3 border-t border-[#fbbf24]/15 bg-background/75 px-3.5 py-3 sm:grid-cols-[1fr_auto_1fr]">
               <div class="order-2 flex min-w-0 flex-col gap-1.5 sm:order-none">
                 <div class="fire-readout">
                   <span>Balance</span>
@@ -1410,7 +1456,7 @@ onBeforeUnmount(() => {
                 <span class="text-[10px] font-black tracking-wide uppercase text-muted">{{ isBonusActive ? status : 'Win' }}</span>
                 <strong
                   class="mt-0.5 block text-3xl leading-none font-black tracking-normal"
-                  :class="totalWin > 0 ? 'text-primary' : 'text-muted/40'"
+                  :class="totalWin > 0 ? 'fire-value-gold' : 'text-muted/40'"
                 >
                   {{ formatNumber(totalWin, false) }}
                 </strong>
@@ -1477,7 +1523,7 @@ onBeforeUnmount(() => {
               </div>
             </div>
 
-            <div class="flex items-center justify-between gap-3 border-t border-primary/10 px-3.5 pt-2.5 pb-3">
+            <div class="flex items-center justify-between gap-3 border-t border-[#fbbf24]/10 px-3.5 pt-2.5 pb-3">
               <div class="flex gap-2">
                 <UTooltip text="Game rules">
                   <button
@@ -1521,26 +1567,37 @@ onBeforeUnmount(() => {
 
         <aside class="order-2 xl:order-3">
           <div class="fire-panel p-4">
-            <p class="mb-3 text-xs font-black tracking-wide uppercase text-muted">
-              Recent spins
-            </p>
+            <div class="fire-panel-head">
+              <UIcon
+                name="i-lucide-scroll-text"
+                class="size-3.5"
+              />
+              <span>Recent spins</span>
+            </div>
             <div
               v-if="history.length"
-              class="space-y-2"
+              class="fire-history mt-3 space-y-1.5"
             >
               <div
                 v-for="(item, index) in history"
                 :key="index"
-                class="flex items-center justify-between rounded-lg border border-primary/10 bg-background/55 px-2.5 py-2 text-[13px] font-extrabold"
-                :class="item.payout > 0 ? 'text-primary' : 'text-muted'"
+                class="fire-history-item"
+                :class="item.payout > 0 ? 'fire-history-item-win' : ''"
               >
-                <span>{{ item.bonus ? 'Free spins' : 'Base spin' }}</span>
-                <strong>{{ item.payout > 0 ? formatNumber(item.payout, false) : '0.00' }}</strong>
+                <UIcon
+                  :name="item.bonus ? 'i-lucide-flame' : 'i-lucide-pickaxe'"
+                  class="size-3.5 shrink-0"
+                />
+                <span class="min-w-0 flex-1 truncate text-[11px] font-bold tracking-wide text-muted uppercase">
+                  {{ item.bonus ? 'Free spins' : 'Base spin' }}
+                </span>
+                <strong class="text-[13px]">{{ item.payout > 0 ? formatNumber(item.payout, false) : '0.00' }}</strong>
               </div>
             </div>
             <UEmpty
               v-else
-              icon="i-lucide-flame"
+              class="mt-2"
+              icon="i-lucide-pickaxe"
               description="No spins yet"
             />
           </div>
@@ -1589,6 +1646,11 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .fire-shell {
+  --fith-gold: #f2c14e;
+  --fith-gold-soft: #fde68a;
+  --fith-gold-deep: #92400e;
+  --fith-ruby: #ef4444;
+  --fith-ruby-deep: #7f1d1d;
   background: var(--ui-bg);
 }
 
@@ -1601,17 +1663,169 @@ onBeforeUnmount(() => {
 }
 
 .fire-title {
-  color: rgb(255, 247, 237);
-  text-shadow: 0 3px 0 rgba(69, 26, 3, 0.8), 0 0 26px rgba(251, 146, 60, 0.42);
+  background: linear-gradient(180deg, #fff7ed 0%, var(--fith-gold-soft) 45%, var(--fith-gold) 78%, #c2740c 100%);
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  text-shadow: 0 3px 0 rgba(69, 26, 3, 0.8), 0 0 30px rgba(251, 146, 60, 0.45);
+}
+
+.fire-eyebrow-line {
+  height: 1px;
+  width: 32px;
+  background: linear-gradient(90deg, transparent, rgba(242, 193, 78, 0.7));
+}
+
+.fire-eyebrow-line:last-child {
+  background: linear-gradient(90deg, rgba(242, 193, 78, 0.7), transparent);
+}
+
+.fire-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid rgba(242, 193, 78, 0.28);
+  border-radius: 999px;
+  background: rgba(146, 64, 14, 0.14);
+  padding: 4px 10px;
+  color: var(--fith-gold-soft);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+}
+
+.fire-badge-ruby {
+  border-color: rgba(239, 68, 68, 0.28);
+  background: rgba(127, 29, 29, 0.18);
+  color: #fca5a5;
 }
 
 .fire-console,
 .fire-panel {
+  position: relative;
   border: 1px solid rgba(251, 146, 60, 0.24);
   border-radius: 8px;
   background: linear-gradient(180deg, rgba(24, 24, 27, 0.92), rgba(9, 9, 11, 0.96));
   box-shadow: 0 26px 80px rgba(0, 0, 0, 0.56), inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 0 42px rgba(251, 146, 60, 0.08);
   backdrop-filter: blur(10px);
+}
+
+.fire-console {
+  border-top-color: rgba(242, 193, 78, 0.5);
+}
+
+.fire-console::before {
+  content: '';
+  position: absolute;
+  z-index: 1;
+  inset: 0 0 auto 0;
+  height: 3px;
+  background: repeating-linear-gradient(-45deg, var(--fith-gold) 0 10px, var(--fith-ruby-deep) 10px 20px);
+  opacity: 0.85;
+  border-radius: 8px 8px 0 0;
+}
+
+.fire-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--fith-gold);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.fire-panel-head span {
+  color: var(--ui-text-muted);
+}
+
+.fire-value-gold {
+  color: var(--fith-gold-soft);
+  text-shadow: 0 0 16px rgba(242, 193, 78, 0.4);
+}
+
+.fire-depth-bar {
+  position: relative;
+  height: 7px;
+  overflow: hidden;
+  border: 1px solid rgba(251, 146, 60, 0.16);
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.45);
+}
+
+.fire-depth-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--fith-ruby-deep), var(--fith-gold-deep), var(--fith-gold));
+  box-shadow: 0 0 10px rgba(242, 193, 78, 0.55);
+  transition: width 320ms ease;
+}
+
+.fire-panel-bonus {
+  transition: box-shadow 260ms ease, border-color 260ms ease;
+}
+
+.fire-panel-bonus-active {
+  border-color: rgba(242, 193, 78, 0.55);
+  box-shadow: 0 26px 80px rgba(0, 0, 0, 0.56), inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 0 30px rgba(242, 193, 78, 0.28);
+  animation: fire-bonus-pulse 1.8s ease-in-out infinite;
+}
+
+@keyframes fire-bonus-pulse {
+  0%, 100% {
+    box-shadow: 0 26px 80px rgba(0, 0, 0, 0.56), inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 0 22px rgba(242, 193, 78, 0.22);
+  }
+  50% {
+    box-shadow: 0 26px 80px rgba(0, 0, 0, 0.56), inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 0 38px rgba(242, 193, 78, 0.42);
+  }
+}
+
+.fire-buy-btn {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px solid rgba(242, 193, 78, 0.45);
+  border-radius: 8px;
+  background: linear-gradient(180deg, rgba(127, 29, 29, 0.55), rgba(146, 64, 14, 0.55));
+  padding: 9px 10px;
+  color: var(--fith-gold-soft);
+  font-size: 12.5px;
+  font-weight: 900;
+  transition: transform 140ms ease, border-color 140ms ease, background 140ms ease, opacity 140ms ease;
+}
+
+.fire-buy-btn:not(:disabled):hover {
+  border-color: rgba(242, 193, 78, 0.8);
+  background: linear-gradient(180deg, rgba(153, 27, 27, 0.65), rgba(180, 83, 9, 0.65));
+  transform: translateY(-1px);
+}
+
+.fire-buy-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.fire-history-item {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid rgba(251, 146, 60, 0.12);
+  border-left: 2px solid rgba(251, 146, 60, 0.2);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.28);
+  padding: 7px 9px;
+  color: var(--ui-text-muted);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.fire-history-item-win {
+  border-left-color: var(--fith-gold);
+  color: var(--fith-gold-soft);
 }
 
 .fire-reel-area {
@@ -1637,8 +1851,21 @@ onBeforeUnmount(() => {
   padding: 9px 8px;
 }
 
+.fire-stat-icon {
+  margin-bottom: 2px;
+  color: var(--fith-gold);
+  opacity: 0.7;
+  width: 14px;
+  height: 14px;
+}
+
+.fire-stat-ruby .fire-stat-icon {
+  color: var(--fith-ruby);
+}
+
 .fire-stat span,
 .fire-readout span {
+  display: block;
   color: var(--ui-text-muted);
   font-size: 10px;
   font-weight: 900;
@@ -1649,9 +1876,13 @@ onBeforeUnmount(() => {
 .fire-stat strong {
   display: block;
   margin-top: 3px;
-  color: var(--ui-primary);
+  color: var(--fith-gold-soft);
   font-size: 20px;
   line-height: 1;
+}
+
+.fire-stat-ruby strong {
+  color: #fca5a5;
 }
 
 .fire-readout {
@@ -1736,7 +1967,7 @@ onBeforeUnmount(() => {
 }
 
 .fire-auto-btn:hover:not(:disabled) {
-  color: var(--ui-primary);
+  color: var(--fith-gold);
 }
 
 .fire-auto-btn-stop {
