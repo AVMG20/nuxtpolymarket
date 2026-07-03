@@ -1,29 +1,38 @@
 <script lang="ts" setup>
 import type { Cell, LineWin, SpinataResult, SpinSymbol, SpinPaySymbol } from '#shared/utils/gamelogic/spinata'
 import {
-    BONUS_PAY,
-    PAY_KEYS,
-    PAYTABLE,
-    PINATA_POT_PRIZES,
-    PINATA_POT_WEIGHTS,
-    SCATTER_PAY,
-    SYMBOL_WEIGHTS,
-    SPN_BUY_BONUS_COST,
-    SPN_COLS,
-    SPN_FREE_SPINS,
-    SPN_LINES,
-    SPN_ROWS,
-    SPN_SCATTER_TRIGGER,
-    SPN_TRACK_CAP,
-    SPN_TRACK_START,
-    SPN_BONUS_TRIGGER,
-    PAYLINES
+  BONUS_PAY,
+  PAY_KEYS,
+  PAYTABLE,
+  PINATA_POT_PRIZES,
+  PINATA_POT_WEIGHTS,
+  SCATTER_PAY,
+  SYMBOL_WEIGHTS,
+  SPN_BUY_BONUS_COST,
+  SPN_COLS,
+  SPN_FREE_SPINS,
+  SPN_LINES,
+  SPN_ROWS,
+  SPN_SCATTER_TRIGGER,
+  SPN_TRACK_CAP,
+  SPN_TRACK_START,
+  SPN_BONUS_TRIGGER,
+  PAYLINES
 } from '#shared/utils/gamelogic/spinata'
+
+// Realistic max win shown to players, derived from a 10M-spin Monte Carlo run
+// (scripts/spinata-rtp.ts — observed max ~850x normal, ~2,400x bonus buy).
+// SPN_MAX_WIN_MULT (5,000x) is the server-enforced hard cap but is an extreme,
+// near-unreachable outlier.
+const SPN_DISPLAY_MAX_WIN = 1000
+// Volatility rating (1-5 zaps) — see SlotVolatility.vue. Observed max win sits
+// just below Candy Madness (~1,050x), same tier.
+const SPN_VOLATILITY = 2
 
 const { user, setBalance } = useAuth()
 const balance = ref(parseFloat(user.value?.balance ?? '0'))
 watch(() => user.value?.balance, (v) => {
-    if (v != null) balance.value = parseFloat(v)
+  if (v != null) balance.value = parseFloat(v)
 })
 
 // --- bet ─────────────────────────────────────────────────────────────────────
@@ -33,20 +42,20 @@ const bet = ref(10)
 const betInput = ref('10')
 
 function clampBet(v: number): number {
-    if (!Number.isFinite(v) || v < MIN_BET) return MIN_BET
-    return Math.min(MAX_BET, Math.floor(v))
+  if (!Number.isFinite(v) || v < MIN_BET) return MIN_BET
+  return Math.min(MAX_BET, Math.floor(v))
 }
 
 function setBet(v: number) {
-    if (isSpinning.value || autoSpinEnabled.value) return
-    bet.value = clampBet(v)
+  if (isSpinning.value || autoSpinEnabled.value) return
+  bet.value = clampBet(v)
 }
 
 watch(bet, (v) => { betInput.value = String(v) }, { immediate: true })
 
 function commitBetInput() {
-    setBet(parseInt(betInput.value.replace(/[^\d]/g, ''), 10) || MIN_BET)
-    betInput.value = String(bet.value)
+  setBet(parseInt(betInput.value.replace(/[^\d]/g, ''), 10) || MIN_BET)
+  betInput.value = String(bet.value)
 }
 
 function betDown() { setBet(Math.floor(bet.value / 2)) }
@@ -74,7 +83,7 @@ const bonusBanner = ref(false)
 const bonusSpinsLeft = ref(0)
 const bonusTotal = ref(0)
 const bonusStatus = ref('')
-const pinataPot = ref(0)          // accumulated piñata pot during free spins
+const pinataPot = ref(0) // accumulated piñata pot during free spins
 const pinataPotFlash = ref(false) // pulses when pot increases
 
 // piñata bonus prize overlay
@@ -87,12 +96,12 @@ const bigWinLabel = ref('')
 const showBigWin = ref(false)
 
 function triggerBigWin(amount: number, betAmt: number) {
-    const mult = amount / betAmt
-    bigWinLabel.value = mult >= 100 ? 'EPIC WIN' : mult >= 40 ? 'MEGA WIN' : 'BIG WIN'
-    bigWinAmount.value = amount
-    showBigWin.value = true
-    playSfx(mult >= 40 ? 'sp_sfx_into_megawin_transition' : 'sp_sfx_into_bigwin_transition')
-    setTimeout(() => { showBigWin.value = false }, 4000)
+  const mult = amount / betAmt
+  bigWinLabel.value = mult >= 100 ? 'EPIC WIN' : mult >= 40 ? 'MEGA WIN' : 'BIG WIN'
+  bigWinAmount.value = amount
+  showBigWin.value = true
+  playSfx(mult >= 40 ? 'sp_sfx_into_megawin_transition' : 'sp_sfx_into_bigwin_transition')
+  setTimeout(() => { showBigWin.value = false }, 4000)
 }
 
 // scatter/bonus counters for this spin
@@ -111,43 +120,43 @@ const AUTO_SPIN_OPTIONS = [25, 50, 100, 250, 500]
 let _resumeAutoSpin: (() => void) | null = null
 
 function startAutoSpin(count: number) {
-    autoSpinsLeft.value = count
-    autoSpinEnabled.value = true
-    autoSpinPaused.value = false
-    showAutoSpinModal.value = false
-    if (!isSpinning.value) spin()
+  autoSpinsLeft.value = count
+  autoSpinEnabled.value = true
+  autoSpinPaused.value = false
+  showAutoSpinModal.value = false
+  if (!isSpinning.value) spin()
 }
 
 function stopAutoSpin() {
-    autoSpinEnabled.value = false
-    autoSpinsLeft.value = 0
-    autoSpinPaused.value = false
-    _resumeAutoSpin?.()
-    _resumeAutoSpin = null
+  autoSpinEnabled.value = false
+  autoSpinsLeft.value = 0
+  autoSpinPaused.value = false
+  _resumeAutoSpin?.()
+  _resumeAutoSpin = null
 }
 
 function onCanvasClick() {
-    if (autoSpinPaused.value) {
-        autoSpinPaused.value = false
-        _resumeAutoSpin?.()
-        _resumeAutoSpin = null
-    }
+  if (autoSpinPaused.value) {
+    autoSpinPaused.value = false
+    _resumeAutoSpin?.()
+    _resumeAutoSpin = null
+  }
 }
 
 // Binomial odds of landing SPN_SCATTER_TRIGGER+ scatters on one grid
 const bonusOdds = (() => {
-    const total = Object.values(SYMBOL_WEIGHTS).reduce((a, b) => a + b, 0)
-    const p = SYMBOL_WEIGHTS.scatter / total
-    const q = 1 - p
-    const cells = SPN_COLS * SPN_ROWS
-    const choose = (n: number, k: number) => {
-        let r = 1
-        for (let i = 0; i < k; i++) r = r * (n - i) / (i + 1)
-        return r
-    }
-    let pLess = 0
-    for (let k = 0; k < SPN_SCATTER_TRIGGER; k++) pLess += choose(cells, k) * p ** k * q ** (cells - k)
-    return (1 - pLess) > 0 ? Math.round(1 / (1 - pLess)) : 0
+  const total = Object.values(SYMBOL_WEIGHTS).reduce((a, b) => a + b, 0)
+  const p = SYMBOL_WEIGHTS.scatter / total
+  const q = 1 - p
+  const cells = SPN_COLS * SPN_ROWS
+  const choose = (n: number, k: number) => {
+    let r = 1
+    for (let i = 0; i < k; i++) r = r * (n - i) / (i + 1)
+    return r
+  }
+  let pLess = 0
+  for (let k = 0; k < SPN_SCATTER_TRIGGER; k++) pLess += choose(cells, k) * p ** k * q ** (cells - k)
+  return (1 - pLess) > 0 ? Math.round(1 / (1 - pLess)) : 0
 })()
 
 // --- sounds ──────────────────────────────────────────────────────────────────
@@ -162,139 +171,139 @@ let currentMusicName = 'sp_main_music'
 let spinSoundNode: AudioBufferSourceNode | null = null
 
 function ensureAudio(): AudioContext | null {
-    if (volume.value === 0 || !import.meta.client) return null
-    if (!audioCtx) {
-        const Ctx = window.AudioContext ?? (window as any).webkitAudioContext
-        if (!Ctx) return null
-        audioCtx = new Ctx()
-        masterGain = audioCtx.createGain()
-        masterGain.gain.value = volume.value
-        masterGain.connect(audioCtx.destination)
-    }
-    if (audioCtx.state === 'suspended') audioCtx.resume().catch(() => {})
-    return audioCtx
+  if (volume.value === 0 || !import.meta.client) return null
+  if (!audioCtx) {
+    const Ctx = window.AudioContext ?? (window as any).webkitAudioContext
+    if (!Ctx) return null
+    audioCtx = new Ctx()
+    masterGain = audioCtx.createGain()
+    masterGain.gain.value = volume.value
+    masterGain.connect(audioCtx.destination)
+  }
+  if (audioCtx.state === 'suspended') audioCtx.resume().catch(() => {})
+  return audioCtx
 }
 
 function loadBuffer(name: string): Promise<AudioBuffer | null> {
-    const c = audioCtx
-    if (!c) return Promise.resolve(null)
-    let pending = soundBuffers.get(name)
-    if (!pending) {
-        pending = (async () => {
-            try {
-                const res = await fetch(`${SOUND_BASE}/${name}.mp3`)
-                const ab = await res.arrayBuffer()
-                return await c.decodeAudioData(ab)
-            } catch {
-                soundBuffers.delete(name)
-                return null
-            }
-        })()
-        soundBuffers.set(name, pending)
-    }
-    return pending
+  const c = audioCtx
+  if (!c) return Promise.resolve(null)
+  let pending = soundBuffers.get(name)
+  if (!pending) {
+    pending = (async () => {
+      try {
+        const res = await fetch(`${SOUND_BASE}/${name}.mp3`)
+        const ab = await res.arrayBuffer()
+        return await c.decodeAudioData(ab)
+      } catch {
+        soundBuffers.delete(name)
+        return null
+      }
+    })()
+    soundBuffers.set(name, pending)
+  }
+  return pending
 }
 
 function spawnBuffer(buf: AudioBuffer, loop = false): AudioBufferSourceNode | null {
-    if (!audioCtx || !masterGain) return null
-    const src = audioCtx.createBufferSource()
-    src.buffer = buf
-    src.loop = loop
-    src.connect(masterGain)
-    src.start()
-    return src
+  if (!audioCtx || !masterGain) return null
+  const src = audioCtx.createBufferSource()
+  src.buffer = buf
+  src.loop = loop
+  src.connect(masterGain)
+  src.start()
+  return src
 }
 
 async function playSfx(name: string) {
-    const c = ensureAudio()
-    if (!c || !masterGain) return
-    const buf = await loadBuffer(name)
-    if (buf) spawnBuffer(buf)
+  const c = ensureAudio()
+  if (!c || !masterGain) return
+  const buf = await loadBuffer(name)
+  if (buf) spawnBuffer(buf)
 }
 
 async function playMusic(name: string) {
-    if (!import.meta.client) return
-    const c = ensureAudio()
-    if (!c || !masterGain) return
-    currentMusicName = name
-    try { currentMusicNode?.stop() } catch {}
-    currentMusicNode = null
-    const buf = await loadBuffer(name)
-    if (!buf || !audioCtx || !masterGain) return
-    currentMusicNode = spawnBuffer(buf, true)
+  if (!import.meta.client) return
+  const c = ensureAudio()
+  if (!c || !masterGain) return
+  currentMusicName = name
+  try { currentMusicNode?.stop() } catch {}
+  currentMusicNode = null
+  const buf = await loadBuffer(name)
+  if (!buf || !audioCtx || !masterGain) return
+  currentMusicNode = spawnBuffer(buf, true)
 }
 
 function setVolume(v: number) {
-    const wasZero = volume.value === 0
-    volume.value = Math.max(0, Math.min(1, v))
-    if (import.meta.client) localStorage.setItem('spn_volume', String(volume.value))
-    if (masterGain) masterGain.gain.value = volume.value
-    if (volume.value === 0) {
-        stopSpinSound()
-    } else if (wasZero && !currentMusicNode) {
-        playMusic(currentMusicName)
-    }
+  const wasZero = volume.value === 0
+  volume.value = Math.max(0, Math.min(1, v))
+  if (import.meta.client) localStorage.setItem('spn_volume', String(volume.value))
+  if (masterGain) masterGain.gain.value = volume.value
+  if (volume.value === 0) {
+    stopSpinSound()
+  } else if (wasZero && !currentMusicNode) {
+    playMusic(currentMusicName)
+  }
 }
 
 function toggleMute() {
-    if (volume.value > 0) {
-        prevVolume = volume.value
-        setVolume(0)
-    } else {
-        setVolume(prevVolume || 0.8)
-    }
+  if (volume.value > 0) {
+    prevVolume = volume.value
+    setVolume(0)
+  } else {
+    setVolume(prevVolume || 0.8)
+  }
 }
 
 async function startSpinSound() {
-    const c = ensureAudio()
-    if (!c || !masterGain) return
-    try { spinSoundNode?.stop() } catch {}
-    const buf = await loadBuffer('sp_sfx_reel_spin')
-    if (!buf) return
-    spinSoundNode = spawnBuffer(buf, true)
+  const c = ensureAudio()
+  if (!c || !masterGain) return
+  try { spinSoundNode?.stop() } catch {}
+  const buf = await loadBuffer('sp_sfx_reel_spin')
+  if (!buf) return
+  spinSoundNode = spawnBuffer(buf, true)
 }
 
 function stopSpinSound() {
-    try { spinSoundNode?.stop() } catch {}
-    spinSoundNode = null
+  try { spinSoundNode?.stop() } catch {}
+  spinSoundNode = null
 }
 
 function scheduleReelStops(grid: SpinSymbol[][]) {
-    const delays = turbo.value ? [250, 330, 410, 490, 570] : [900, 1200, 1500, 1800, 2100]
-    let scatterIdx = 0
-    for (let i = 0; i < SPN_COLS; i++) {
-        const hasScatter = grid[i]?.some(s => s === 'scatter')
-        const sIdx = hasScatter ? ++scatterIdx : 0
-        setTimeout(() => {
-            if (hasScatter) playSfx(`sp_sfx_scatter_stop_${sIdx}`)
-            else playSfx('sp_sfx_reel_stop')
-        }, delays[i])
-    }
+  const delays = turbo.value ? [250, 330, 410, 490, 570] : [900, 1200, 1500, 1800, 2100]
+  let scatterIdx = 0
+  for (let i = 0; i < SPN_COLS; i++) {
+    const hasScatter = grid[i]?.some(s => s === 'scatter')
+    const sIdx = hasScatter ? ++scatterIdx : 0
+    setTimeout(() => {
+      if (hasScatter) playSfx(`sp_sfx_scatter_stop_${sIdx}`)
+      else playSfx('sp_sfx_reel_stop')
+    }, delays[i])
+  }
 }
 
 const sfx = {
-    scatter:     () => playSfx('sp_sfx_scatter_win'),
-    bonus:       () => playSfx('sp_sfx_bonus_stop'),
-    bonusSymbol: () => playSfx('sp_sfx_bonus_symbol'),
-    wild:        () => playSfx('sp_sfx_wild'),
-    win:         () => playSfx('sp_sfx_low_symbol_win'),
-    bigWin:      () => playSfx('sp_sfx_into_bigwin_transition'),
-    festival:    () => {
-        playSfx('sp_sfx_free_spins_popup')
-        playMusic('sp_free_spins_music')
-    },
-    pop:         () => playSfx('sp_sfx_particle_release'),
-    meter:       () => playSfx('sp_sfx_meter_count'),
-    click:       () => playSfx('sfx_generic_all_other_clicks'),
-    notEnough:   () => playSfx('sfx_notEnoughCredits'),
+  scatter: () => playSfx('sp_sfx_scatter_win'),
+  bonus: () => playSfx('sp_sfx_bonus_stop'),
+  bonusSymbol: () => playSfx('sp_sfx_bonus_symbol'),
+  wild: () => playSfx('sp_sfx_wild'),
+  win: () => playSfx('sp_sfx_low_symbol_win'),
+  bigWin: () => playSfx('sp_sfx_into_bigwin_transition'),
+  festival: () => {
+    playSfx('sp_sfx_free_spins_popup')
+    playMusic('sp_free_spins_music')
+  },
+  pop: () => playSfx('sp_sfx_particle_release'),
+  meter: () => playSfx('sp_sfx_meter_count'),
+  click: () => playSfx('sfx_generic_all_other_clicks'),
+  notEnough: () => playSfx('sfx_notEnoughCredits')
 }
 
 onMounted(() => {
-    if (import.meta.client) {
-        const saved = localStorage.getItem('spn_volume')
-        if (saved !== null) volume.value = Math.max(0, Math.min(1, parseFloat(saved)))
-        if (volume.value > 0) playMusic('sp_main_music')
-    }
+  if (import.meta.client) {
+    const saved = localStorage.getItem('spn_volume')
+    if (saved !== null) volume.value = Math.max(0, Math.min(1, parseFloat(saved)))
+    if (volume.value > 0) playMusic('sp_main_music')
+  }
 })
 
 // --- pixi ────────────────────────────────────────────────────────────────────
@@ -305,8 +314,8 @@ let reelSet: any = null
 let PIXI: any = null
 let GSAP: any = null
 let REELS: any = null
-let lineLayer: any = null    // win-line overlay
-let floatLayer: any = null   // floating win text
+let lineLayer: any = null // win-line overlay
+let floatLayer: any = null // floating win text
 let destroyed = false
 
 const CELL = 120
@@ -324,516 +333,514 @@ const SYMBOL_IDS: SpinSymbol[] = [...PAY_KEYS, 'wild', 'scatter', 'bonus']
 const TEX: Record<string, any> = {}
 
 const GLYPH: Record<SpinSymbol, string> = {
-    ten: '10', jack: 'J', queen: 'Q', king: 'K', ace: 'A',
-    maracas: '🪇', cactus: '🌵', sombrero: '👒', flower: '🌺',
-    wild: '🌈', scatter: '🌟', bonus: '🪅'
+  ten: '10', jack: 'J', queen: 'Q', king: 'K', ace: 'A',
+  maracas: '🪇', cactus: '🌵', sombrero: '👒', flower: '🌺',
+  wild: '🌈', scatter: '🌟', bonus: '🪅'
 }
 
 const SYMBOL_LABEL: Record<SpinSymbol, string> = {
-    ten: '10', jack: 'J', queen: 'Q', king: 'K', ace: 'A',
-    maracas: 'Maracas', cactus: 'Cactus', sombrero: 'Sombrero', flower: 'Flower',
-    wild: 'Wild', scatter: 'Scatter', bonus: 'Piñata'
+  ten: '10', jack: 'J', queen: 'Q', king: 'K', ace: 'A',
+  maracas: 'Maracas', cactus: 'Cactus', sombrero: 'Sombrero', flower: 'Flower',
+  wild: 'Wild', scatter: 'Scatter', bonus: 'Piñata'
 }
 
 const LETTER_FACE: Partial<Record<SpinSymbol, string>> = {
-    ten: '#4caf2e', jack: '#3b82f6', queen: '#a855f7', king: '#f0921a', ace: '#e2392a'
+  ten: '#4caf2e', jack: '#3b82f6', queen: '#a855f7', king: '#f0921a', ace: '#e2392a'
 }
 
 function makeLetterTexture(text: string, face: string) {
-    const size = 256
-    const canvas = document.createElement('canvas')
-    canvas.width = canvas.height = size
-    const ctx = canvas.getContext('2d')!
-    const r = size * 0.16, m = size * 0.08
-    ctx.beginPath()
-    ctx.roundRect(m, m, size - 2 * m, size - 2 * m, r)
-    ctx.fillStyle = face; ctx.fill()
-    ctx.lineWidth = size * 0.05; ctx.strokeStyle = 'rgba(255,255,255,0.85)'; ctx.stroke()
-    ctx.font = `900 ${Math.floor(size * (text.length > 1 ? 0.5 : 0.62))}px system-ui, sans-serif`
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
-    ctx.lineWidth = size * 0.045; ctx.strokeStyle = 'rgba(0,0,0,0.35)'
-    ctx.strokeText(text, size / 2, size / 2 + size * 0.02)
-    ctx.fillStyle = '#fff'; ctx.fillText(text, size / 2, size / 2 + size * 0.02)
-    return PIXI.Texture.from(canvas)
+  const size = 256
+  const canvas = document.createElement('canvas')
+  canvas.width = canvas.height = size
+  const ctx = canvas.getContext('2d')!
+  const r = size * 0.16, m = size * 0.08
+  ctx.beginPath()
+  ctx.roundRect(m, m, size - 2 * m, size - 2 * m, r)
+  ctx.fillStyle = face; ctx.fill()
+  ctx.lineWidth = size * 0.05; ctx.strokeStyle = 'rgba(255,255,255,0.85)'; ctx.stroke()
+  ctx.font = `900 ${Math.floor(size * (text.length > 1 ? 0.5 : 0.62))}px system-ui, sans-serif`
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
+  ctx.lineWidth = size * 0.045; ctx.strokeStyle = 'rgba(0,0,0,0.35)'
+  ctx.strokeText(text, size / 2, size / 2 + size * 0.02)
+  ctx.fillStyle = '#fff'; ctx.fillText(text, size / 2, size / 2 + size * 0.02)
+  return PIXI.Texture.from(canvas)
 }
 
 function makeEmojiTexture(emoji: string) {
-    const size = 256
-    const canvas = document.createElement('canvas')
-    canvas.width = canvas.height = size
-    const ctx = canvas.getContext('2d')!
-    ctx.font = `${Math.floor(size * 0.78)}px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",serif`
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
-    ctx.fillText(emoji, size / 2, size / 2 + size * 0.04)
-    return PIXI.Texture.from(canvas)
+  const size = 256
+  const canvas = document.createElement('canvas')
+  canvas.width = canvas.height = size
+  const ctx = canvas.getContext('2d')!
+  ctx.font = `${Math.floor(size * 0.78)}px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",serif`
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
+  ctx.fillText(emoji, size / 2, size / 2 + size * 0.04)
+  return PIXI.Texture.from(canvas)
 }
 
 function fallbackTexture(id: SpinSymbol) {
-    const face = LETTER_FACE[id]
-    return face ? makeLetterTexture(GLYPH[id], face) : makeEmojiTexture(GLYPH[id])
+  const face = LETTER_FACE[id]
+  return face ? makeLetterTexture(GLYPH[id], face) : makeEmojiTexture(GLYPH[id])
 }
 
 async function loadTexture(id: SpinSymbol) {
-    // 'bonus' reuses the donkey piñata PNG
-    const file = id === 'bonus' ? 'pinata' : id
-    try {
-        return await PIXI.Assets.load({ src: `/slots/spinata/${file}.png`, loadParser: 'loadTextures' })
-    } catch {
-        return fallbackTexture(id)
-    }
+  // 'bonus' reuses the donkey piñata PNG
+  const file = id === 'bonus' ? 'pinata' : id
+  try {
+    return await PIXI.Assets.load({ src: `/slots/spinata/${file}.png`, loadParser: 'loadTextures' })
+  } catch {
+    return fallbackTexture(id)
+  }
 }
 
 function makeSymbolClass() {
-    const { Sprite } = PIXI
-    const Base = REELS.ReelSymbol
+  const { Sprite } = PIXI
+  const Base = REELS.ReelSymbol
 
-    class SpinTile extends Base {
-        sprite = new Sprite()
-        w = CELL; h = CELL; _tween: any = null
+  class SpinTile extends Base {
+    sprite = new Sprite()
+    w = CELL; h = CELL; _tween: any = null
 
-        constructor() {
-            super()
-            this.sprite.anchor.set(0.5)
-            this.view.addChild(this.sprite)
-        }
-
-        _render(id: string) {
-            const t = TEX[id]
-            if (!t) return
-            this.sprite.texture = t
-            const max = Math.min(this.w, this.h) * 0.88
-            const s = Math.min(max / t.width, max / t.height)
-            this.sprite.scale.set(s)
-            this.sprite.x = this.w / 2
-            this.sprite.y = this.h / 2
-        }
-
-        onActivate(id: string) { this.view.alpha = 1; this._render(id) }
-        onDeactivate() { this._kill() }
-        resize(w: number, h: number) { this.w = w; this.h = h; if (this.symbolId) this._render(this.symbolId) }
-        stopAnimation() { this._kill(); this.view.scale.set(1, 1) }
-        _kill() { if (this._tween) { this._tween.kill(); this._tween = null } this.view.scale.set(1, 1) }
-
-        playWin() {
-            this._kill()
-            return new Promise<void>((res) => {
-                this._tween = GSAP.to(this.view.scale, {
-                    x: 1.2, y: 1.2, duration: 0.14, yoyo: true, repeat: 1, ease: 'sine.inOut', onComplete: res
-                })
-            })
-        }
+    constructor() {
+      super()
+      this.sprite.anchor.set(0.5)
+      this.view.addChild(this.sprite)
     }
 
-    return SpinTile
+    _render(id: string) {
+      const t = TEX[id]
+      if (!t) return
+      this.sprite.texture = t
+      const max = Math.min(this.w, this.h) * 0.88
+      const s = Math.min(max / t.width, max / t.height)
+      this.sprite.scale.set(s)
+      this.sprite.x = this.w / 2
+      this.sprite.y = this.h / 2
+    }
+
+    onActivate(id: string) { this.view.alpha = 1; this._render(id) }
+    onDeactivate() { this._kill() }
+    resize(w: number, h: number) { this.w = w; this.h = h; if (this.symbolId) this._render(this.symbolId) }
+    stopAnimation() { this._kill(); this.view.scale.set(1, 1) }
+    _kill() { if (this._tween) { this._tween.kill(); this._tween = null } this.view.scale.set(1, 1) }
+
+    playWin() {
+      this._kill()
+      return new Promise<void>((res) => {
+        this._tween = GSAP.to(this.view.scale, {
+          x: 1.2, y: 1.2, duration: 0.14, yoyo: true, repeat: 1, ease: 'sine.inOut', onComplete: res
+        })
+      })
+    }
+  }
+
+  return SpinTile
 }
 
 // --- win line drawing ────────────────────────────────────────────────────────
 // Red polylines connecting winning cell centres, drawn on a Pixi overlay.
 
 function cellCenter(col: number, row: number) {
-    return { x: col * (CELL + GAP) + CELL / 2, y: row * (CELL + GAP) + CELL / 2 }
+  return { x: col * (CELL + GAP) + CELL / 2, y: row * (CELL + GAP) + CELL / 2 }
 }
 
 const LINE_PALETTE = [
-    0xffd700, 0x00e5ff, 0xff4d88, 0x66ff66, 0xff7c1f,
-    0xc77dff, 0x00ffb0, 0xffec44, 0xff6b6b, 0x44cfff,
+  0xffd700, 0x00e5ff, 0xff4d88, 0x66ff66, 0xff7c1f,
+  0xc77dff, 0x00ffb0, 0xffec44, 0xff6b6b, 0x44cfff
 ]
 
 function drawWinLine(w: LineWin, idx: number) {
-    if (!lineLayer || !PIXI || !GSAP) return
-    const { Graphics } = PIXI
-    const col = LINE_PALETTE[idx % LINE_PALETTE.length]!
-    const glow = new Graphics()
-    glow.setStrokeStyle({ width: 10, color: col, alpha: 0.22, cap: 'round', join: 'round' })
-    const core = new Graphics()
-    core.setStrokeStyle({ width: 3, color: col, alpha: 0.95, cap: 'round', join: 'round' })
-    // draw the full 5-column payline path so overlapping wins look visually distinct
-    const payline = PAYLINES[w.line]!
-    for (let reelIdx = 0; reelIdx < SPN_COLS; reelIdx++) {
-        const p = cellCenter(reelIdx, payline[reelIdx]!)
-        if (reelIdx === 0) { glow.moveTo(p.x, p.y); core.moveTo(p.x, p.y) }
-        else { glow.lineTo(p.x, p.y); core.lineTo(p.x, p.y) }
-    }
-    glow.stroke(); core.stroke()
-    lineLayer.addChild(glow); lineLayer.addChild(core)
-    GSAP.fromTo([glow, core], { alpha: 0 }, { alpha: 1, duration: 0.18, ease: 'power1.out' })
+  if (!lineLayer || !PIXI || !GSAP) return
+  const { Graphics } = PIXI
+  const col = LINE_PALETTE[idx % LINE_PALETTE.length]!
+  const glow = new Graphics()
+  glow.setStrokeStyle({ width: 10, color: col, alpha: 0.22, cap: 'round', join: 'round' })
+  const core = new Graphics()
+  core.setStrokeStyle({ width: 3, color: col, alpha: 0.95, cap: 'round', join: 'round' })
+  // draw the full 5-column payline path so overlapping wins look visually distinct
+  const payline = PAYLINES[w.line]!
+  for (let reelIdx = 0; reelIdx < SPN_COLS; reelIdx++) {
+    const p = cellCenter(reelIdx, payline[reelIdx]!)
+    if (reelIdx === 0) { glow.moveTo(p.x, p.y); core.moveTo(p.x, p.y) } else { glow.lineTo(p.x, p.y); core.lineTo(p.x, p.y) }
+  }
+  glow.stroke(); core.stroke()
+  lineLayer.addChild(glow); lineLayer.addChild(core)
+  GSAP.fromTo([glow, core], { alpha: 0 }, { alpha: 1, duration: 0.18, ease: 'power1.out' })
 }
 
 function clearWinLines() {
-    if (!lineLayer) return
-    try { lineLayer.removeChildren() } catch { /* ignore */ }
+  if (!lineLayer) return
+  try { lineLayer.removeChildren() } catch { /* ignore */ }
 }
 
 // --- floating win text ───────────────────────────────────────────────────────
 function floatText(cx: number, cy: number, text: string, fill: number, stroke: number, size = 26) {
-    if (!floatLayer || !PIXI || !GSAP) return
-    const { Text } = PIXI
-    const t = new Text({
-        text, style: {
-            fontFamily: 'system-ui, sans-serif', fontSize: size, fontWeight: '900', fill, align: 'center',
-            stroke: { color: stroke, width: 5, join: 'round' },
-            dropShadow: { color: 0x000000, blur: 4, distance: 2, alpha: 0.5, angle: Math.PI / 2 }
-        }
-    })
-    t.anchor.set(0.5)
-    t.position.set(cx, cy)
-    floatLayer.addChild(t)
-    const dur = turbo.value ? 0.9 : 1.6
-    GSAP.fromTo(t.scale, { x: 0.4, y: 0.4 }, { x: 1, y: 1, duration: 0.28, ease: 'back.out(2.6)' })
-    GSAP.to(t, { y: cy - 52, duration: dur, ease: 'power1.out' })
-    GSAP.to(t, {
-        alpha: 0, duration: dur * 0.38, delay: dur * 0.62, ease: 'power1.in', onComplete: () => {
-            try { t.destroy() } catch { /* ignore */ }
-        }
-    })
+  if (!floatLayer || !PIXI || !GSAP) return
+  const { Text } = PIXI
+  const t = new Text({
+    text, style: {
+      fontFamily: 'system-ui, sans-serif', fontSize: size, fontWeight: '900', fill, align: 'center',
+      stroke: { color: stroke, width: 5, join: 'round' },
+      dropShadow: { color: 0x000000, blur: 4, distance: 2, alpha: 0.5, angle: Math.PI / 2 }
+    }
+  })
+  t.anchor.set(0.5)
+  t.position.set(cx, cy)
+  floatLayer.addChild(t)
+  const dur = turbo.value ? 0.9 : 1.6
+  GSAP.fromTo(t.scale, { x: 0.4, y: 0.4 }, { x: 1, y: 1, duration: 0.28, ease: 'back.out(2.6)' })
+  GSAP.to(t, { y: cy - 52, duration: dur, ease: 'power1.out' })
+  GSAP.to(t, {
+    alpha: 0, duration: dur * 0.38, delay: dur * 0.62, ease: 'power1.in', onComplete: () => {
+      try { t.destroy() } catch { /* ignore */ }
+    }
+  })
 }
-
 
 // --- bonus fly animation ─────────────────────────────────────────────────────
 // prizes[i] is the pot contribution for cell[i] (in coins, bet-denominated).
 // Pass undefined/empty to fly without showing prizes (base-game piñatas).
 async function flyBonusToMedallion(cells: Cell[], prizes?: number[]) {
-    if (!import.meta.client || !canvasWrap.value || !medallionEl.value || !GSAP || cells.length === 0) return
+  if (!import.meta.client || !canvasWrap.value || !medallionEl.value || !GSAP || cells.length === 0) return
 
-    const canvasRect = canvasWrap.value.getBoundingClientRect()
-    const medalRect = medallionEl.value.getBoundingClientRect()
-    const medalCX = medalRect.left + medalRect.width / 2
-    const medalCY = medalRect.top + medalRect.height / 2
+  const canvasRect = canvasWrap.value.getBoundingClientRect()
+  const medalRect = medallionEl.value.getBoundingClientRect()
+  const medalCX = medalRect.left + medalRect.width / 2
+  const medalCY = medalRect.top + medalRect.height / 2
 
-    const scaleX = canvasRect.width / APP_W
-    const scaleY = canvasRect.height / APP_H
-    const dur = turbo.value ? 0.28 : 0.58
+  const scaleX = canvasRect.width / APP_W
+  const scaleY = canvasRect.height / APP_H
+  const dur = turbo.value ? 0.28 : 0.58
 
-    const arrivals = cells.map((cell, i) => {
-        const logicalX = OFFSET_X + cell.col * (CELL + GAP) + CELL / 2
-        const logicalY = OFFSET_Y + cell.row * (CELL + GAP) + CELL / 2
-        const startX = canvasRect.left + logicalX * scaleX
-        const startY = canvasRect.top + logicalY * scaleY
+  const arrivals = cells.map((cell, i) => {
+    const logicalX = OFFSET_X + cell.col * (CELL + GAP) + CELL / 2
+    const logicalY = OFFSET_Y + cell.row * (CELL + GAP) + CELL / 2
+    const startX = canvasRect.left + logicalX * scaleX
+    const startY = canvasRect.top + logicalY * scaleY
 
-        const el = document.createElement('div')
-        Object.assign(el.style, {
-            position: 'fixed',
-            left: `${startX}px`,
-            top: `${startY}px`,
-            width: '64px',
-            height: '64px',
-            transform: 'translate(-50%, -50%)',
-            pointerEvents: 'none',
-            zIndex: '9999',
-        })
-        const img = document.createElement('img')
-        img.src = '/slots/spinata/pinata.png'
-        img.style.cssText = 'width:100%;height:100%;object-fit:contain;filter:drop-shadow(0 0 10px rgba(249,168,37,0.9))'
-        el.appendChild(img)
-        document.body.appendChild(el)
-
-        const dx = medalCX - startX
-        const dy = medalCY - startY
-        const prize = prizes?.[i]
-
-        return new Promise<void>(resolve => {
-            GSAP.timeline({
-                delay: i * (turbo.value ? 0.07 : 0.14),
-                onComplete: () => {
-                    el.remove()
-                    spinBonusCount.value++
-                    sfx.pop()
-                    // If this piñata has a pot prize, add it and flash the pot display
-                    if (prize !== undefined) {
-                        pinataPot.value += prize
-                        pinataPotFlash.value = true
-                        setTimeout(() => { pinataPotFlash.value = false }, 400)
-                    }
-                    if (medallionEl.value) {
-                        GSAP.fromTo(medallionEl.value,
-                            { scale: 1.35 },
-                            { scale: 1, duration: 0.22, ease: 'back.out(2.5)' }
-                        )
-                    }
-                    resolve()
-                }
-            })
-            .fromTo(el,
-                { x: 0, y: 0, scale: 1, rotation: 0, opacity: 1 },
-                {
-                    x: dx, y: dy,
-                    scale: 0.25,
-                    rotation: (Math.random() > 0.5 ? 1 : -1) * (270 + Math.random() * 90),
-                    opacity: 0.6,
-                    duration: dur,
-                    ease: 'power2.in'
-                }
-            )
-        })
+    const el = document.createElement('div')
+    Object.assign(el.style, {
+      position: 'fixed',
+      left: `${startX}px`,
+      top: `${startY}px`,
+      width: '64px',
+      height: '64px',
+      transform: 'translate(-50%, -50%)',
+      pointerEvents: 'none',
+      zIndex: '9999'
     })
+    const img = document.createElement('img')
+    img.src = '/slots/spinata/pinata.png'
+    img.style.cssText = 'width:100%;height:100%;object-fit:contain;filter:drop-shadow(0 0 10px rgba(249,168,37,0.9))'
+    el.appendChild(img)
+    document.body.appendChild(el)
 
-    await Promise.all(arrivals)
+    const dx = medalCX - startX
+    const dy = medalCY - startY
+    const prize = prizes?.[i]
+
+    return new Promise<void>((resolve) => {
+      GSAP.timeline({
+        delay: i * (turbo.value ? 0.07 : 0.14),
+        onComplete: () => {
+          el.remove()
+          spinBonusCount.value++
+          sfx.pop()
+          // If this piñata has a pot prize, add it and flash the pot display
+          if (prize !== undefined) {
+            pinataPot.value += prize
+            pinataPotFlash.value = true
+            setTimeout(() => { pinataPotFlash.value = false }, 400)
+          }
+          if (medallionEl.value) {
+            GSAP.fromTo(medallionEl.value,
+              { scale: 1.35 },
+              { scale: 1, duration: 0.22, ease: 'back.out(2.5)' }
+            )
+          }
+          resolve()
+        }
+      })
+        .fromTo(el,
+          { x: 0, y: 0, scale: 1, rotation: 0, opacity: 1 },
+          {
+            x: dx, y: dy,
+            scale: 0.25,
+            rotation: (Math.random() > 0.5 ? 1 : -1) * (270 + Math.random() * 90),
+            opacity: 0.6,
+            duration: dur,
+            ease: 'power2.in'
+          }
+        )
+    })
+  })
+
+  await Promise.all(arrivals)
 }
 
 // --- pixi bootstrap ──────────────────────────────────────────────────────────
 onMounted(async () => {
-    try {
-        const [pixi, reels, gsapMod] = await Promise.all([
-            import('pixi.js'), import('pixi-reels'), import('gsap')
-        ])
-        if (destroyed) return
-        PIXI = pixi; REELS = reels; GSAP = gsapMod.gsap ?? gsapMod.default
+  try {
+    const [pixi, reels, gsapMod] = await Promise.all([
+      import('pixi.js'), import('pixi-reels'), import('gsap')
+    ])
+    if (destroyed) return
+    PIXI = pixi; REELS = reels; GSAP = gsapMod.gsap ?? gsapMod.default
 
-        app = new PIXI.Application()
-        await app.init({ width: APP_W, height: APP_H, backgroundAlpha: 0, antialias: true, autoDensity: true, resolution: Math.min(2, window.devicePixelRatio || 1) })
-        if (destroyed) { app.destroy(true); return }
-        canvasWrap.value?.appendChild(app.canvas)
+    app = new PIXI.Application()
+    await app.init({ width: APP_W, height: APP_H, backgroundAlpha: 0, antialias: true, autoDensity: true, resolution: Math.min(2, window.devicePixelRatio || 1) })
+    if (destroyed) { app.destroy(true); return }
+    canvasWrap.value?.appendChild(app.canvas)
 
-        await Promise.all(SYMBOL_IDS.map(async (id) => { TEX[id] = await loadTexture(id) }))
-        if (destroyed) { app.destroy(true); return }
+    await Promise.all(SYMBOL_IDS.map(async (id) => { TEX[id] = await loadTexture(id) }))
+    if (destroyed) { app.destroy(true); return }
 
-        const SpinTile = makeSymbolClass()
-        const weights: Record<string, number> = {}
-        for (const k of SYMBOL_IDS) weights[k] = SYMBOL_WEIGHTS[k as SpinSymbol]
+    const SpinTile = makeSymbolClass()
+    const weights: Record<string, number> = {}
+    for (const k of SYMBOL_IDS) weights[k] = SYMBOL_WEIGHTS[k as SpinSymbol]
 
-        reelSet = new REELS.ReelSetBuilder()
-            .reels(SPN_COLS).visibleRows(SPN_ROWS).symbolSize(CELL, CELL).symbolGap(GAP, GAP)
-            .symbols((r: any) => { for (const id of SYMBOL_IDS) r.register(id, SpinTile, {}) })
-            .weights(weights)
-            .speed('normal', REELS.SpeedPresets.NORMAL)
-            .speed('turbo', REELS.SpeedPresets.TURBO)
-            .ticker(app.ticker).build()
+    reelSet = new REELS.ReelSetBuilder()
+      .reels(SPN_COLS).visibleRows(SPN_ROWS).symbolSize(CELL, CELL).symbolGap(GAP, GAP)
+      .symbols((r: any) => { for (const id of SYMBOL_IDS) r.register(id, SpinTile, {}) })
+      .weights(weights)
+      .speed('normal', REELS.SpeedPresets.NORMAL)
+      .speed('turbo', REELS.SpeedPresets.TURBO)
+      .ticker(app.ticker).build()
 
-        reelSet.x = OFFSET_X
-        reelSet.y = OFFSET_Y
-        app.stage.addChild(reelSet)
+    reelSet.x = OFFSET_X
+    reelSet.y = OFFSET_Y
+    app.stage.addChild(reelSet)
 
-        lineLayer = new PIXI.Container()
-        lineLayer.x = OFFSET_X; lineLayer.y = OFFSET_Y; lineLayer.eventMode = 'none'
-        app.stage.addChild(lineLayer)
+    lineLayer = new PIXI.Container()
+    lineLayer.x = OFFSET_X; lineLayer.y = OFFSET_Y; lineLayer.eventMode = 'none'
+    app.stage.addChild(lineLayer)
 
-        floatLayer = new PIXI.Container()
-        floatLayer.x = OFFSET_X; floatLayer.y = OFFSET_Y; floatLayer.eventMode = 'none'
-        app.stage.addChild(floatLayer)
+    floatLayer = new PIXI.Container()
+    floatLayer.x = OFFSET_X; floatLayer.y = OFFSET_Y; floatLayer.eventMode = 'none'
+    app.stage.addChild(floatLayer)
 
-        const idle = Array.from({ length: SPN_COLS }, () => ({
-            visible: Array.from({ length: SPN_ROWS }, () => PAY_KEYS[Math.floor(Math.random() * PAY_KEYS.length)]!)
-        }))
-        reelSet.setResult(idle)
-        ready.value = true
-    } catch (e) {
-        errorMsg.value = e instanceof Error ? e.message : 'Failed to load the slot engine'
-    }
+    const idle = Array.from({ length: SPN_COLS }, () => ({
+      visible: Array.from({ length: SPN_ROWS }, () => PAY_KEYS[Math.floor(Math.random() * PAY_KEYS.length)]!)
+    }))
+    reelSet.setResult(idle)
+    ready.value = true
+  } catch (e) {
+    errorMsg.value = e instanceof Error ? e.message : 'Failed to load the slot engine'
+  }
 })
 
 onUnmounted(() => {
-    destroyed = true
-    try { currentMusicNode?.stop(); currentMusicNode = null } catch { /* ignore */ }
-    try { spinSoundNode?.stop(); spinSoundNode = null } catch { /* ignore */ }
-    try { audioCtx?.close() } catch { /* ignore */ }
-    audioCtx = null; masterGain = null; soundBuffers.clear()
-    try { lineLayer?.destroy?.({ children: true }) } catch { /* ignore */ }
-    try { floatLayer?.destroy?.({ children: true }) } catch { /* ignore */ }
-    try { reelSet?.destroy?.() } catch { /* ignore */ }
-    try { app?.destroy?.(true) } catch { /* ignore */ }
+  destroyed = true
+  try { currentMusicNode?.stop(); currentMusicNode = null } catch { /* ignore */ }
+  try { spinSoundNode?.stop(); spinSoundNode = null } catch { /* ignore */ }
+  try { audioCtx?.close() } catch { /* ignore */ }
+  audioCtx = null; masterGain = null; soundBuffers.clear()
+  try { lineLayer?.destroy?.({ children: true }) } catch { /* ignore */ }
+  try { floatLayer?.destroy?.({ children: true }) } catch { /* ignore */ }
+  try { reelSet?.destroy?.() } catch { /* ignore */ }
+  try { app?.destroy?.(true) } catch { /* ignore */ }
 })
 
 // --- spin helpers ────────────────────────────────────────────────────────────
 async function spinReels(grid: SpinSymbol[][], wins: LineWin[], betAmt: number, trackMult = 1) {
-    clearWinLines()
-    reelSet.setSpeed?.(turbo.value ? 'turbo' : 'normal')
-    startSpinSound()
-    scheduleReelStops(grid)
-    const spinPromise = reelSet.spin()
-    reelSet.setResult(grid.map(col => ({ visible: col })))
-    await spinPromise
-    stopSpinSound()
+  clearWinLines()
+  reelSet.setSpeed?.(turbo.value ? 'turbo' : 'normal')
+  startSpinSound()
+  scheduleReelStops(grid)
+  const spinPromise = reelSet.spin()
+  reelSet.setResult(grid.map(col => ({ visible: col })))
+  await spinPromise
+  stopSpinSound()
 
-    if (wins.length) {
-        const lineBet = betAmt / SPN_LINES
-        for (let i = 0; i < wins.length; i++) {
-            const w = wins[i]!
-            clearWinLines()
-            drawWinLine(w, i)
-            reelSet.spotlight.show(w.cells.map((c: Cell) => ({ reelIndex: c.col, rowIndex: c.row })))
-            const money = w.pay * lineBet * trackMult
-            if (money > 0) {
-                let sx = 0, sy = 0
-                for (const c of w.cells) { sx += c.col * (CELL + GAP) + CELL / 2; sy += c.row * (CELL + GAP) + CELL / 2 }
-                floatText(sx / w.cells.length, sy / w.cells.length, `+${formatNumber(money, false)}`, 0xfde047, 0x7a1296)
-                playSfx('sfx_generic_click_coin')
-            }
-            await wait(turbo.value ? 200 : 420)
-        }
-        clearWinLines()
+  if (wins.length) {
+    const lineBet = betAmt / SPN_LINES
+    for (let i = 0; i < wins.length; i++) {
+      const w = wins[i]!
+      clearWinLines()
+      drawWinLine(w, i)
+      reelSet.spotlight.show(w.cells.map((c: Cell) => ({ reelIndex: c.col, rowIndex: c.row })))
+      const money = w.pay * lineBet * trackMult
+      if (money > 0) {
+        let sx = 0, sy = 0
+        for (const c of w.cells) { sx += c.col * (CELL + GAP) + CELL / 2; sy += c.row * (CELL + GAP) + CELL / 2 }
+        floatText(sx / w.cells.length, sy / w.cells.length, `+${formatNumber(money, false)}`, 0xfde047, 0x7a1296)
+        playSfx('sfx_generic_click_coin')
+      }
+      await wait(turbo.value ? 200 : 420)
     }
+    clearWinLines()
+  }
 }
 
 // --- main spin flow ──────────────────────────────────────────────────────────
 async function spin(feature?: 'buyBonus') {
-    const cost = feature === 'buyBonus' ? buyBonusCost.value : bet.value
-    if (!ready.value || isSpinning.value || balance.value < cost) return
-    isSpinning.value = true
-    errorMsg.value = ''
-    lastWin.value = 0
-    winFlash.value = false
+  const cost = feature === 'buyBonus' ? buyBonusCost.value : bet.value
+  if (!ready.value || isSpinning.value || balance.value < cost) return
+  isSpinning.value = true
+  errorMsg.value = ''
+  lastWin.value = 0
+  winFlash.value = false
+  spinScatterCount.value = 0
+  spinBonusCount.value = 0
+
+  let data: { gameData: SpinataResult, balance: number }
+  try {
+    data = await $fetch('/api/games/play-game', {
+      method: 'POST',
+      body: { bet: bet.value, game: 'spinata', options: feature ? { feature } : undefined }
+    }) as { gameData: SpinataResult, balance: number }
+  } catch (e: unknown) {
+    errorMsg.value = e instanceof Error ? e.message : 'Something went wrong'
+    isSpinning.value = false
+    stopAutoSpin()
+    return
+  }
+
+  const result = data.gameData
+
+  try {
+    trackLevel.value = SPN_TRACK_START
+
+    // Base spin
+    await spinReels(result.grid, result.lines, result.bet)
+    spinScatterCount.value = result.scatterCount
+    // spinBonusCount increments one-by-one as each piñata flies to the medallion
+
+    // Fly bonus piñatas into the medallion (any count, not just triggered)
+    if (result.bonusSymbolCount > 0) {
+      await flyBonusToMedallion(result.bonusSymbolCells)
+    }
+
+    // Scatter highlight + sound
+    if (result.scatterCount >= SPN_SCATTER_TRIGGER) {
+      sfx.scatter()
+      await reelSet.spotlight.show(
+        result.scatterCells.map((c: Cell) => ({ reelIndex: c.col, rowIndex: c.row }))
+      )
+      await wait(700)
+    }
+
+    // Bonus symbol prize
+    if (result.bonusPrizeTriggered) {
+      sfx.bonus()
+      await reelSet.spotlight.show(
+        result.bonusSymbolCells.map((c: Cell) => ({ reelIndex: c.col, rowIndex: c.row }))
+      )
+      await wait(500)
+      lastBonusPrize.value = result.bonusPrizePayout
+      bonusCelebrating.value = true
+      await wait(2200)
+      bonusCelebrating.value = false
+    }
+
+    // Free spins feature
+    if (result.freeSpinsTriggered && result.freeSpins) {
+      if (autoSpinEnabled.value) {
+        autoSpinPaused.value = true
+        await new Promise<void>((res) => { _resumeAutoSpin = res })
+      }
+      await runFreeSpins(result)
+    }
+
+    lastWin.value = result.payout
+    winFlash.value = result.payout > 0
+    if (result.payout > 0) {
+      if (result.payout >= result.bet * 15) triggerBigWin(result.payout, result.bet)
+      else sfx.win()
+    }
+    balance.value = data.balance
+    setBalance(data.balance)
+    history.value.unshift({ payout: result.payout, bet: result.cost, bonus: result.freeSpinsTriggered })
+    if (history.value.length > 10) history.value.pop()
+  } catch (e) {
+    errorMsg.value = e instanceof Error ? e.message : 'Animation error'
+    balance.value = data.balance
+    setBalance(data.balance)
+    stopAutoSpin()
+  } finally {
+    isSpinning.value = false
     spinScatterCount.value = 0
-    spinBonusCount.value = 0
-
-    let data: { gameData: SpinataResult, balance: number }
-    try {
-        data = await $fetch('/api/games/play-game', {
-            method: 'POST',
-            body: { bet: bet.value, game: 'spinata', options: feature ? { feature } : undefined }
-        }) as { gameData: SpinataResult, balance: number }
-    } catch (e: unknown) {
-        errorMsg.value = e instanceof Error ? e.message : 'Something went wrong'
-        isSpinning.value = false
-        stopAutoSpin()
-        return
+    if (autoSpinEnabled.value) {
+      if (autoSpinPaused.value) await new Promise<void>((res) => { _resumeAutoSpin = res })
+      if (autoSpinEnabled.value) {
+        autoSpinsLeft.value--
+        if (autoSpinsLeft.value > 0 && balance.value >= bet.value) spin()
+        else stopAutoSpin()
+      }
     }
-
-    const result = data.gameData
-
-    try {
-        trackLevel.value = SPN_TRACK_START
-
-        // Base spin
-        await spinReels(result.grid, result.lines, result.bet)
-        spinScatterCount.value = result.scatterCount
-        // spinBonusCount increments one-by-one as each piñata flies to the medallion
-
-        // Fly bonus piñatas into the medallion (any count, not just triggered)
-        if (result.bonusSymbolCount > 0) {
-            await flyBonusToMedallion(result.bonusSymbolCells)
-        }
-
-        // Scatter highlight + sound
-        if (result.scatterCount >= SPN_SCATTER_TRIGGER) {
-            sfx.scatter()
-            await reelSet.spotlight.show(
-                result.scatterCells.map((c: Cell) => ({ reelIndex: c.col, rowIndex: c.row }))
-            )
-            await wait(700)
-        }
-
-        // Bonus symbol prize
-        if (result.bonusPrizeTriggered) {
-            sfx.bonus()
-            await reelSet.spotlight.show(
-                result.bonusSymbolCells.map((c: Cell) => ({ reelIndex: c.col, rowIndex: c.row }))
-            )
-            await wait(500)
-            lastBonusPrize.value = result.bonusPrizePayout
-            bonusCelebrating.value = true
-            await wait(2200)
-            bonusCelebrating.value = false
-        }
-
-        // Free spins feature
-        if (result.freeSpinsTriggered && result.freeSpins) {
-            if (autoSpinEnabled.value) {
-                autoSpinPaused.value = true
-                await new Promise<void>(res => { _resumeAutoSpin = res })
-            }
-            await runFreeSpins(result)
-        }
-
-        lastWin.value = result.payout
-        winFlash.value = result.payout > 0
-        if (result.payout > 0) {
-            if (result.payout >= result.bet * 15) triggerBigWin(result.payout, result.bet)
-            else sfx.win()
-        }
-        balance.value = data.balance
-        setBalance(data.balance)
-        history.value.unshift({ payout: result.payout, bet: result.cost, bonus: result.freeSpinsTriggered })
-        if (history.value.length > 10) history.value.pop()
-    } catch (e) {
-        errorMsg.value = e instanceof Error ? e.message : 'Animation error'
-        balance.value = data.balance
-        setBalance(data.balance)
-        stopAutoSpin()
-    } finally {
-        isSpinning.value = false
-        spinScatterCount.value = 0
-        if (autoSpinEnabled.value) {
-            if (autoSpinPaused.value) await new Promise<void>(res => { _resumeAutoSpin = res })
-            if (autoSpinEnabled.value) {
-                autoSpinsLeft.value--
-                if (autoSpinsLeft.value > 0 && balance.value >= bet.value) spin()
-                else stopAutoSpin()
-            }
-        }
-    }
+  }
 }
 
 async function runFreeSpins(result: SpinataResult) {
-    const spins = result.freeSpins!
-    inBonus.value = true
-    bonusBanner.value = true
-    bonusTotal.value = 0
-    pinataPot.value = 0
-    bonusSpinsLeft.value = SPN_FREE_SPINS
-    trackLevel.value = SPN_TRACK_START
-    sfx.festival()
-    await wait(1600)
-    bonusBanner.value = false
+  const spins = result.freeSpins!
+  inBonus.value = true
+  bonusBanner.value = true
+  bonusTotal.value = 0
+  pinataPot.value = 0
+  bonusSpinsLeft.value = SPN_FREE_SPINS
+  trackLevel.value = SPN_TRACK_START
+  sfx.festival()
+  await wait(1600)
+  bonusBanner.value = false
 
-    try {
-        for (const fs of spins) {
-            bonusSpinsLeft.value = SPN_FREE_SPINS - fs.round + 1
-            bonusStatus.value = `Spin ${fs.round} / ${SPN_FREE_SPINS}`
-            trackLevel.value = fs.trackBefore
-            await spinReels(fs.grid, fs.lines, result.bet, fs.trackAfter)
+  try {
+    for (const fs of spins) {
+      bonusSpinsLeft.value = SPN_FREE_SPINS - fs.round + 1
+      bonusStatus.value = `Spin ${fs.round} / ${SPN_FREE_SPINS}`
+      trackLevel.value = fs.trackBefore
+      await spinReels(fs.grid, fs.lines, result.bet, fs.trackAfter)
 
-            // Fly bonus piñatas — pass their pre-computed prizes so the pot accumulates
-            const freeBonusCells: Cell[] = fs.grid.flatMap((col: SpinSymbol[], c: number) =>
-                col.flatMap((sym: SpinSymbol, r: number) => sym === 'bonus' ? [{ col: c, row: r }] : [])
-            )
-            if (freeBonusCells.length > 0) {
-                const prizeCoins = fs.pinataPrizes.map(p => p * result.bet)
-                await flyBonusToMedallion(freeBonusCells, prizeCoins)
-            }
+      // Fly bonus piñatas — pass their pre-computed prizes so the pot accumulates
+      const freeBonusCells: Cell[] = fs.grid.flatMap((col: SpinSymbol[], c: number) =>
+        col.flatMap((sym: SpinSymbol, r: number) => sym === 'bonus' ? [{ col: c, row: r }] : [])
+      )
+      if (freeBonusCells.length > 0) {
+        const prizeCoins = fs.pinataPrizes.map(p => p * result.bet)
+        await flyBonusToMedallion(freeBonusCells, prizeCoins)
+      }
 
-            // Update track display after spin
-            if (fs.trackAfter > fs.trackBefore) {
-                trackPulse.value = true
-                trackLevel.value = fs.trackAfter
-                await wait(300)
-                trackPulse.value = false
-            }
-            bonusTotal.value += fs.spinPayout
-            await wait(turbo.value ? 130 : 320)
-        }
-        bonusSpinsLeft.value = 0
-        bonusStatus.value = '¡Fiesta! Bonus complete'
-        if (bonusTotal.value >= result.bet * 10) triggerBigWin(bonusTotal.value, result.bet)
-        await wait(turbo.value ? 600 : 1400)
-    } finally {
-        inBonus.value = false
-        trackLevel.value = SPN_TRACK_START
-        pinataPot.value = 0
-        playMusic('sp_main_music')
+      // Update track display after spin
+      if (fs.trackAfter > fs.trackBefore) {
+        trackPulse.value = true
+        trackLevel.value = fs.trackAfter
+        await wait(300)
+        trackPulse.value = false
+      }
+      bonusTotal.value += fs.spinPayout
+      await wait(turbo.value ? 130 : 320)
     }
+    bonusSpinsLeft.value = 0
+    bonusStatus.value = '¡Fiesta! Bonus complete'
+    if (bonusTotal.value >= result.bet * 10) triggerBigWin(bonusTotal.value, result.bet)
+    await wait(turbo.value ? 600 : 1400)
+  } finally {
+    inBonus.value = false
+    trackLevel.value = SPN_TRACK_START
+    pinataPot.value = 0
+    playMusic('sp_main_music')
+  }
 }
 
 function onKeydown(e: KeyboardEvent) {
-    if (e.code === 'Space' && e.target === document.body) {
-        e.preventDefault()
-        if (!autoSpinEnabled.value) spin()
-    }
+  if (e.code === 'Space' && e.target === document.body) {
+    e.preventDefault()
+    if (!autoSpinEnabled.value) spin()
+  }
 }
 onMounted(() => window.addEventListener('keydown', onKeydown))
 onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 
 // --- paytable for help modal ─────────────────────────────────────────────────
 const paytableDisplay = (['wild', ...PAY_KEYS].reverse() as (SpinPaySymbol | 'wild')[]).map(sym => ({
-    sym,
-    pays: PAYTABLE[sym]
+  sym,
+  pays: PAYTABLE[sym]
 }))
 
 // track colour steps
 const TRACK_COLORS = [
-    '#6b7280','#9ca3af','#4ade80','#34d399','#22d3ee','#38bdf8',
-    '#3b82f6','#818cf8','#a78bfa','#c084fc','#e879f9','#f0abfc',
-    '#f59e0b','#fbbf24','#f97316','#fb923c','#ef4444','#f87171',
-    '#e11d48','#fde047'
+  '#6b7280', '#9ca3af', '#4ade80', '#34d399', '#22d3ee', '#38bdf8',
+  '#3b82f6', '#818cf8', '#a78bfa', '#c084fc', '#e879f9', '#f0abfc',
+  '#f59e0b', '#fbbf24', '#f97316', '#fb923c', '#ef4444', '#f87171',
+  '#e11d48', '#fde047'
 ]
 </script>
 
@@ -844,23 +851,28 @@ const TRACK_COLORS = [
 
     <!-- Title -->
     <div class="spn-title z-1 text-center">
-      <img src="/slots/spinata/logo.png" alt="Spiñata Slots" class="spn-title__logo" />
+      <img
+        src="/slots/spinata/logo.png"
+        alt="Spiñata Slots"
+        class="spn-title__logo"
+      >
       <div class="mt-2 flex flex-wrap items-center justify-center gap-2">
         <span class="spn-badge spn-badge--rtp">98% RTP</span>
-        <span class="spn-badge spn-badge--vol">High Volatility</span>
+        <span class="spn-badge spn-badge--vol"><SlotVolatility :level="SPN_VOLATILITY" /></span>
         <span class="spn-badge spn-badge--lines">{{ SPN_LINES }} Paylines</span>
+        <span class="spn-badge spn-badge--max">{{ formatNumber(SPN_DISPLAY_MAX_WIN, false) }}× Max Win</span>
       </div>
     </div>
 
     <!-- Machine wrapper -->
     <div class="machine z-1">
-
       <!-- ── Board row: track | reels | info ── -->
       <div class="machine__board">
-
         <!-- LEFT: multiplier track x1–x8 -->
         <div class="track-panel">
-          <div class="track-panel__title">×MULT</div>
+          <div class="track-panel__title">
+            ×MULT
+          </div>
           <div class="track-stops">
             <div
               v-for="lvl in SPN_TRACK_CAP"
@@ -878,15 +890,23 @@ const TRACK_COLORS = [
         </div>
 
         <!-- CENTER: reel frame + canvas -->
-        <div class="reel-frame" @click="onCanvasClick">
+        <div
+          class="reel-frame"
+          @click="onCanvasClick"
+        >
           <div class="reel-area">
             <div class="reel-sheen" />
 
             <!-- Festival of Spins banner -->
             <Transition name="pop">
-              <div v-if="bonusBanner" class="reel-overlay z-30 flex items-center justify-center pointer-events-none">
+              <div
+                v-if="bonusBanner"
+                class="reel-overlay z-30 flex items-center justify-center pointer-events-none"
+              >
                 <div class="festival-banner text-center">
-                  <p class="text-4xl font-black text-white tracking-tight drop-shadow-lg">FESTIVAL OF SPINS</p>
+                  <p class="text-4xl font-black text-white tracking-tight drop-shadow-lg">
+                    FESTIVAL OF SPINS
+                  </p>
                   <p class="text-base font-bold mt-2 text-amber-100">
                     {{ SPN_FREE_SPINS }} free spins — Piñata Track grows with every Wild!
                   </p>
@@ -896,11 +916,22 @@ const TRACK_COLORS = [
 
             <!-- Piñata bonus prize overlay -->
             <Transition name="pop">
-              <div v-if="bonusCelebrating" class="reel-overlay z-30 flex items-center justify-center pointer-events-none">
+              <div
+                v-if="bonusCelebrating"
+                class="reel-overlay z-30 flex items-center justify-center pointer-events-none"
+              >
                 <div class="bonus-prize-card text-center">
-                  <img src="/slots/spinata/pinata.png" alt="" class="bonus-prize-img">
-                  <p class="bonus-prize-title">PIÑATA BONUS!</p>
-                  <p class="bonus-prize-amount">+{{ formatNumber(lastBonusPrize, false) }}</p>
+                  <img
+                    src="/slots/spinata/pinata.png"
+                    alt=""
+                    class="bonus-prize-img"
+                  >
+                  <p class="bonus-prize-title">
+                    PIÑATA BONUS!
+                  </p>
+                  <p class="bonus-prize-amount">
+                    +{{ formatNumber(lastBonusPrize, false) }}
+                  </p>
                 </div>
               </div>
             </Transition>
@@ -913,23 +944,42 @@ const TRACK_COLORS = [
                 style="background: rgba(20,4,30,0.78); backdrop-filter: blur(3px);"
               >
                 <div class="pause-card text-center px-8 py-5">
-                  <p class="font-black text-white text-lg">🪅 Bonus! Tap to play</p>
-                  <p class="text-sm mt-1 text-amber-100/60">{{ autoSpinsLeft }} spin{{ autoSpinsLeft !== 1 ? 's' : '' }} remaining</p>
+                  <p class="font-black text-white text-lg">
+                    🪅 Bonus! Tap to play
+                  </p>
+                  <p class="text-sm mt-1 text-amber-100/60">
+                    {{ autoSpinsLeft }} spin{{ autoSpinsLeft !== 1 ? 's' : '' }} remaining
+                  </p>
                 </div>
               </div>
             </Transition>
 
-            <div ref="canvasWrap" class="relative z-10 w-full [&>canvas]:w-full! [&>canvas]:h-auto! [&>canvas]:block" />
+            <div
+              ref="canvasWrap"
+              class="relative z-10 w-full [&>canvas]:w-full! [&>canvas]:h-auto! [&>canvas]:block"
+            />
 
-            <div v-if="!ready && !errorMsg" class="reel-overlay z-40 flex items-center justify-center">
-              <UIcon class="size-14 animate-spin text-amber-400" name="i-lucide-loader-circle" />
+            <div
+              v-if="!ready && !errorMsg"
+              class="reel-overlay z-40 flex items-center justify-center"
+            >
+              <UIcon
+                class="size-14 animate-spin text-amber-400"
+                name="i-lucide-loader-circle"
+              />
             </div>
 
             <!-- Free spins / win strip overlaid at bottom of reels -->
-            <div v-if="inBonus" class="reel-hud">
+            <div
+              v-if="inBonus"
+              class="reel-hud"
+            >
               <span class="reel-hud__item">FREE SPINS: {{ bonusSpinsLeft }} / {{ SPN_FREE_SPINS }}</span>
               <span class="reel-hud__item reel-hud__item--win">WINS: {{ formatNumber(bonusTotal, false) }}</span>
-              <span class="reel-hud__item" :class="pinataPotFlash ? 'reel-hud__item--pot-flash' : 'reel-hud__item--pot'">
+              <span
+                class="reel-hud__item"
+                :class="pinataPotFlash ? 'reel-hud__item--pot-flash' : 'reel-hud__item--pot'"
+              >
                 🪅 {{ formatNumber(pinataPot, false) }}
               </span>
             </div>
@@ -939,12 +989,25 @@ const TRACK_COLORS = [
         <!-- RIGHT: bonus counter + scatter count + paytable -->
         <div class="info-panel">
           <!-- Bonus counter (piñata medallion) -->
-          <div ref="medallionEl" class="medallion" :class="{ 'medallion--glow': spinBonusCount >= SPN_BONUS_TRIGGER }">
-            <img src="/slots/spinata/pinata.png" alt="" class="medallion__img">
-            <div class="medallion__badge" :class="spinBonusCount >= SPN_BONUS_TRIGGER ? 'medallion__badge--win' : ''">
+          <div
+            ref="medallionEl"
+            class="medallion"
+            :class="{ 'medallion--glow': spinBonusCount >= SPN_BONUS_TRIGGER }"
+          >
+            <img
+              src="/slots/spinata/pinata.png"
+              alt=""
+              class="medallion__img"
+            >
+            <div
+              class="medallion__badge"
+              :class="spinBonusCount >= SPN_BONUS_TRIGGER ? 'medallion__badge--win' : ''"
+            >
               {{ spinBonusCount }}
             </div>
-            <p class="medallion__label">BONUS</p>
+            <p class="medallion__label">
+              BONUS
+            </p>
           </div>
 
           <!-- Scatter counter -->
@@ -955,17 +1018,32 @@ const TRACK_COLORS = [
           </div>
 
           <!-- Free spins indicator (not in bonus) -->
-          <div v-if="!inBonus" class="info-chip">
+          <div
+            v-if="!inBonus"
+            class="info-chip"
+          >
             <span class="info-chip__icon">🎊</span>
-            <span class="info-chip__val" style="font-size:11px">FREE<br>SPINS</span>
+            <span
+              class="info-chip__val"
+              style="font-size:11px"
+            >FREE<br>SPINS</span>
           </div>
-          <div v-else class="info-chip info-chip--bonus">
+          <div
+            v-else
+            class="info-chip info-chip--bonus"
+          >
             <span class="info-chip__icon">🎊</span>
             <span class="info-chip__val">{{ bonusSpinsLeft }}</span>
           </div>
 
-          <button class="paytable-btn" @click="showHelp = true">
-            <UIcon class="size-4" name="i-lucide-list" />
+          <button
+            class="paytable-btn"
+            @click="showHelp = true"
+          >
+            <UIcon
+              class="size-4"
+              name="i-lucide-list"
+            />
             <span>Pay<br>Table</span>
           </button>
         </div>
@@ -974,18 +1052,47 @@ const TRACK_COLORS = [
       <!-- ── Control bar ── -->
       <div class="ctrl-bar">
         <div class="ctrl-left">
-          <button class="icon-btn" title="Help" @click="showHelp = true"><UIcon class="size-4" name="i-lucide-info" /></button>
-          <button :class="{ 'icon-btn--active': turbo }" class="icon-btn" title="Turbo" @click="turbo = !turbo"><UIcon class="size-4" name="i-lucide-zap" /></button>
+          <button
+            class="icon-btn"
+            title="Help"
+            @click="showHelp = true"
+          >
+            <UIcon
+              class="size-4"
+              name="i-lucide-info"
+            />
+          </button>
+          <button
+            :class="{ 'icon-btn--active': turbo }"
+            class="icon-btn"
+            title="Turbo"
+            @click="turbo = !turbo"
+          >
+            <UIcon
+              class="size-4"
+              name="i-lucide-zap"
+            />
+          </button>
           <div class="flex items-center gap-1.5">
-            <button class="icon-btn" :title="volume === 0 ? 'Unmute' : 'Mute'" @click="toggleMute">
-              <UIcon class="size-4" :name="volume === 0 ? 'i-lucide-volume-x' : volume < 0.5 ? 'i-lucide-volume-1' : 'i-lucide-volume-2'" />
+            <button
+              class="icon-btn"
+              :title="volume === 0 ? 'Unmute' : 'Mute'"
+              @click="toggleMute"
+            >
+              <UIcon
+                class="size-4"
+                :name="volume === 0 ? 'i-lucide-volume-x' : volume < 0.5 ? 'i-lucide-volume-1' : 'i-lucide-volume-2'"
+              />
             </button>
             <input
-              type="range" min="0" max="1" step="0.01"
+              type="range"
+              min="0"
+              max="1"
+              step="0.01"
               :value="volume"
-              @input="(e: Event) => setVolume(+((e.target as HTMLInputElement).value))"
               class="w-20 h-1 cursor-pointer accent-primary"
-            />
+              @input="(e: Event) => setVolume(+((e.target as HTMLInputElement).value))"
+            >
           </div>
         </div>
 
@@ -993,7 +1100,10 @@ const TRACK_COLORS = [
         <div class="ctrl-readouts">
           <div class="readout">
             <span class="readout__label">Balance</span>
-            <span class="readout__val"><CoinBalance :compact="false" :value="balance" /></span>
+            <span class="readout__val"><CoinBalance
+              :compact="false"
+              :value="balance"
+            /></span>
           </div>
           <div class="readout">
             <span class="readout__label">Bet</span>
@@ -1011,7 +1121,13 @@ const TRACK_COLORS = [
 
         <!-- Spin controls -->
         <div class="ctrl-spin">
-          <button :disabled="isSpinning || autoSpinEnabled || bet <= MIN_BET" class="adj-btn" @click="betDown">½</button>
+          <button
+            :disabled="isSpinning || autoSpinEnabled || bet <= MIN_BET"
+            class="adj-btn"
+            @click="betDown"
+          >
+            ½
+          </button>
 
           <div class="spin-stack">
             <button
@@ -1020,38 +1136,88 @@ const TRACK_COLORS = [
               @click="autoSpinEnabled ? stopAutoSpin() : spin()"
             >
               <span class="spin-btn__ring" />
-              <UIcon v-if="isSpinning" class="size-8 animate-spin" name="i-lucide-loader-circle" />
-              <span v-else-if="autoSpinEnabled" class="flex flex-col items-center leading-none">
+              <UIcon
+                v-if="isSpinning"
+                class="size-8 animate-spin"
+                name="i-lucide-loader-circle"
+              />
+              <span
+                v-else-if="autoSpinEnabled"
+                class="flex flex-col items-center leading-none"
+              >
                 <span class="text-xs tracking-wider opacity-80">{{ autoSpinsLeft }}×</span>
                 <span class="text-sm font-black">STOP</span>
               </span>
-              <span v-else class="text-sm font-black tracking-wider">SPIN</span>
+              <span
+                v-else
+                class="text-sm font-black tracking-wider"
+              >SPIN</span>
             </button>
-            <button v-if="!autoSpinEnabled" :disabled="!ready || balance < bet || isSpinning" class="auto-btn" @click="showAutoSpinModal = true">AUTO</button>
-            <button v-else class="auto-btn auto-btn--stop" @click="stopAutoSpin">STOP</button>
+            <button
+              v-if="!autoSpinEnabled"
+              :disabled="!ready || balance < bet || isSpinning"
+              class="auto-btn"
+              @click="showAutoSpinModal = true"
+            >
+              AUTO
+            </button>
+            <button
+              v-else
+              class="auto-btn auto-btn--stop"
+              @click="stopAutoSpin"
+            >
+              STOP
+            </button>
           </div>
 
-          <button :disabled="isSpinning || autoSpinEnabled || bet >= MAX_BET" class="adj-btn" @click="betUp">2×</button>
+          <button
+            :disabled="isSpinning || autoSpinEnabled || bet >= MAX_BET"
+            class="adj-btn"
+            @click="betUp"
+          >
+            2×
+          </button>
         </div>
 
         <!-- Win display -->
         <div class="ctrl-win">
-          <div v-if="inBonus" class="text-center">
-            <p class="readout__label mb-1">{{ bonusStatus }}</p>
-            <p class="win-amount win-amount--bonus">{{ formatNumber(bonusTotal, false) }}</p>
+          <div
+            v-if="inBonus"
+            class="text-center"
+          >
+            <p class="readout__label mb-1">
+              {{ bonusStatus }}
+            </p>
+            <p class="win-amount win-amount--bonus">
+              {{ formatNumber(bonusTotal, false) }}
+            </p>
           </div>
           <template v-else>
             <span class="readout__label">Win</span>
-            <Transition mode="out-in" name="pop">
-              <span v-if="winFlash && lastWin > 0" key="win" class="win-amount">{{ formatNumber(lastWin, false) }}</span>
-              <span v-else key="idle" class="win-idle">0.00</span>
+            <Transition
+              mode="out-in"
+              name="pop"
+            >
+              <span
+                v-if="winFlash && lastWin > 0"
+                key="win"
+                class="win-amount"
+              >{{ formatNumber(lastWin, false) }}</span>
+              <span
+                v-else
+                key="idle"
+                class="win-idle"
+              >0.00</span>
             </Transition>
           </template>
         </div>
       </div>
 
       <!-- History pills -->
-      <div v-if="history.length" class="history-strip">
+      <div
+        v-if="history.length"
+        class="history-strip"
+      >
         <span
           v-for="(h, i) in history"
           :key="i"
@@ -1062,22 +1228,40 @@ const TRACK_COLORS = [
               : 'bg-white/5 text-white/30 border-white/10'"
           class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-mono font-bold border"
         >
-          <UIcon v-if="h.bonus" class="size-3" name="i-lucide-gift" />
+          <UIcon
+            v-if="h.bonus"
+            class="size-3"
+            name="i-lucide-gift"
+          />
           {{ h.payout > 0 ? formatNumber(h.payout) : '—' }}
         </span>
       </div>
 
       <Transition name="fade-up">
-        <div v-if="errorMsg" class="error-strip">
-          <p class="text-sm text-red-400">{{ errorMsg }}</p>
-          <button class="text-red-400/50 hover:text-red-300 text-base" @click="errorMsg = ''">✕</button>
+        <div
+          v-if="errorMsg"
+          class="error-strip"
+        >
+          <p class="text-sm text-red-400">
+            {{ errorMsg }}
+          </p>
+          <button
+            class="text-red-400/50 hover:text-red-300 text-base"
+            @click="errorMsg = ''"
+          >
+            ✕
+          </button>
         </div>
       </Transition>
     </div>
 
     <!-- Buy Free Spins card -->
     <div class="z-1 mt-4 flex justify-center">
-      <button :disabled="!ready || autoSpinEnabled || balance < buyBonusCost" class="buy-card" @click="spin('buyBonus')">
+      <button
+        :disabled="!ready || autoSpinEnabled || balance < buyBonusCost"
+        class="buy-card"
+        @click="spin('buyBonus')"
+      >
         <span class="buy-card__glow" />
         <span class="relative flex items-center gap-2">
           <span class="text-2xl">🎊</span>
@@ -1086,50 +1270,94 @@ const TRACK_COLORS = [
         <span class="relative text-sm text-amber-100/70">
           {{ SPN_FREE_SPINS }} free spins with live Piñata Multiplier Track (×1→×{{ SPN_TRACK_CAP }})
         </span>
-        <span class="buy-card__cost"><CoinBalance :compact="false" :value="buyBonusCost" /></span>
+        <span class="buy-card__cost"><CoinBalance
+          :compact="false"
+          :value="buyBonusCost"
+        /></span>
       </button>
     </div>
 
     <!-- Big win popup -->
     <Transition name="bigwin">
-      <div v-if="showBigWin" class="bigwin-overlay" @click="showBigWin = false">
+      <div
+        v-if="showBigWin"
+        class="bigwin-overlay"
+        @click="showBigWin = false"
+      >
         <div class="bigwin-box">
-          <p class="bigwin-label">{{ bigWinLabel }}</p>
-          <p class="bigwin-amount"><CoinBalance :compact="false" :value="bigWinAmount" /></p>
-          <p class="bigwin-tap">tap to continue</p>
+          <p class="bigwin-label">
+            {{ bigWinLabel }}
+          </p>
+          <p class="bigwin-amount">
+            <CoinBalance
+              :compact="false"
+              :value="bigWinAmount"
+            />
+          </p>
+          <p class="bigwin-tap">
+            tap to continue
+          </p>
         </div>
       </div>
     </Transition>
 
     <!-- Auto-spin modal -->
-    <UModal v-model:open="showAutoSpinModal" title="Auto Spin">
+    <UModal
+      v-model:open="showAutoSpinModal"
+      title="Auto Spin"
+    >
       <template #body>
         <div class="space-y-4">
-          <p class="text-sm text-muted">Auto-spin pauses before the Festival so you can watch.</p>
+          <p class="text-sm text-muted">
+            Auto-spin pauses before the Festival so you can watch.
+          </p>
           <div class="grid grid-cols-5 gap-2">
-            <UButton v-for="count in AUTO_SPIN_OPTIONS" :key="count" block class="font-bold" color="neutral" variant="soft" @click="startAutoSpin(count)">{{ count }}</UButton>
+            <UButton
+              v-for="count in AUTO_SPIN_OPTIONS"
+              :key="count"
+              block
+              class="font-bold"
+              color="neutral"
+              variant="soft"
+              @click="startAutoSpin(count)"
+            >
+              {{ count }}
+            </UButton>
           </div>
         </div>
       </template>
     </UModal>
 
     <!-- Help / Paytable modal -->
-    <UModal v-model:open="showHelp" title="Spiñata Slots — How to play" size="xl">
+    <UModal
+      v-model:open="showHelp"
+      title="Spiñata Slots — How to play"
+      size="xl"
+    >
       <template #body>
         <div class="space-y-6 text-sm text-muted">
-
           <!-- Core mechanics -->
           <section class="space-y-3">
-            <h3 class="text-xs font-bold uppercase tracking-wider text-default">Basics</h3>
+            <h3 class="text-xs font-bold uppercase tracking-wider text-default">
+              Basics
+            </h3>
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
               <div class="help-card">
-                <p class="help-card__title">5 reels × 3 rows · {{ SPN_LINES }} paylines</p>
+                <p class="help-card__title">
+                  5 reels × 3 rows · {{ SPN_LINES }} paylines
+                </p>
                 <p>Wins pay left-to-right: 3, 4, or 5 matching symbols from reel 1. Line bet = total bet ÷ {{ SPN_LINES }}.</p>
               </div>
               <div class="help-card">
                 <div class="flex items-center gap-2 mb-1">
-                  <img src="/slots/spinata/wild.png" alt="Wild" class="size-8 object-contain">
-                  <p class="help-card__title">Wild</p>
+                  <img
+                    src="/slots/spinata/wild.png"
+                    alt="Wild"
+                    class="size-8 object-contain"
+                  >
+                  <p class="help-card__title">
+                    Wild
+                  </p>
                 </div>
                 <p>Substitutes for any pay symbol on any payline. Also pays its own line wins.</p>
               </div>
@@ -1138,30 +1366,47 @@ const TRACK_COLORS = [
 
           <!-- Special symbols -->
           <section class="space-y-3">
-            <h3 class="text-xs font-bold uppercase tracking-wider text-default">Special Symbols</h3>
+            <h3 class="text-xs font-bold uppercase tracking-wider text-default">
+              Special Symbols
+            </h3>
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-
               <div class="help-card help-card--scatter">
                 <div class="flex items-center gap-2 mb-1">
-                  <img src="/slots/spinata/scatter.png" alt="Scatter" class="size-10 object-contain">
-                  <p class="help-card__title text-amber-300">Scatter — Festival of Spins</p>
+                  <img
+                    src="/slots/spinata/scatter.png"
+                    alt="Scatter"
+                    class="size-10 object-contain"
+                  >
+                  <p class="help-card__title text-amber-300">
+                    Scatter — Festival of Spins
+                  </p>
                 </div>
                 <p>Land <strong class="text-default">{{ SPN_SCATTER_TRIGGER }}+</strong> anywhere to trigger <strong class="text-default">{{ SPN_FREE_SPINS }} free spins</strong>.</p>
                 <div class="mt-2 text-xs space-y-0.5">
                   <p>3 Scatters → ×{{ SCATTER_PAY[3] }} bet &nbsp;|&nbsp; 4 → ×{{ SCATTER_PAY[4] }} bet &nbsp;|&nbsp; 5 → ×{{ SCATTER_PAY[5] }} bet</p>
-                  <p class="text-amber-200/70">Trigger frequency: ~1 in {{ formatNumber(bonusOdds, true, 0) }} spins</p>
+                  <p class="text-amber-200/70">
+                    Trigger frequency: ~1 in {{ formatNumber(bonusOdds, true, 0) }} spins
+                  </p>
                 </div>
               </div>
 
               <div class="help-card help-card--bonus">
                 <div class="flex items-center gap-2 mb-1">
-                  <img src="/slots/spinata/pinata.png" alt="Bonus" class="size-10 object-contain">
-                  <p class="help-card__title text-emerald-300">Bonus — Piñata Prize</p>
+                  <img
+                    src="/slots/spinata/pinata.png"
+                    alt="Bonus"
+                    class="size-10 object-contain"
+                  >
+                  <p class="help-card__title text-emerald-300">
+                    Bonus — Piñata Prize
+                  </p>
                 </div>
                 <p>Land <strong class="text-default">{{ SPN_BONUS_TRIGGER }}+</strong> anywhere on a regular spin for an instant cash prize — piñatas don't need to line up on a payline.</p>
                 <div class="mt-2 text-xs space-y-0.5">
                   <p>3 Piñatas → ×{{ BONUS_PAY[3] }} bet &nbsp;|&nbsp; 4 → ×{{ BONUS_PAY[4] }} bet &nbsp;|&nbsp; 5 → ×{{ BONUS_PAY[5] }} bet</p>
-                  <p class="text-emerald-200/70">During free spins piñatas work differently: each one feeds the Piñata Pot instead (see below).</p>
+                  <p class="text-emerald-200/70">
+                    During free spins piñatas work differently: each one feeds the Piñata Pot instead (see below).
+                  </p>
                 </div>
               </div>
             </div>
@@ -1169,26 +1414,40 @@ const TRACK_COLORS = [
 
           <!-- Free spins mechanics -->
           <section class="space-y-3">
-            <h3 class="text-xs font-bold uppercase tracking-wider text-default">Festival of Spins</h3>
+            <h3 class="text-xs font-bold uppercase tracking-wider text-default">
+              Festival of Spins
+            </h3>
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
               <div class="help-card">
-                <p class="help-card__title">Piñata Multiplier Track (×1 → ×{{ SPN_TRACK_CAP }})</p>
+                <p class="help-card__title">
+                  Piñata Multiplier Track (×1 → ×{{ SPN_TRACK_CAP }})
+                </p>
                 <p>The left rail starts at ×1. Every <strong class="text-default">Wild</strong> that lands advances it by 1, up to ×{{ SPN_TRACK_CAP }}. The multiplier applies to all line wins and carries through all {{ SPN_FREE_SPINS }} spins.</p>
               </div>
               <div class="help-card help-card--pot">
                 <div class="flex items-center gap-2 mb-1">
-                  <img src="/slots/spinata/pinata.png" alt="Piñata Pot" class="size-8 object-contain">
-                  <p class="help-card__title text-amber-300">Piñata Pot</p>
+                  <img
+                    src="/slots/spinata/pinata.png"
+                    alt="Piñata Pot"
+                    class="size-8 object-contain"
+                  >
+                  <p class="help-card__title text-amber-300">
+                    Piñata Pot
+                  </p>
                 </div>
                 <p>Every single <strong class="text-default">piñata</strong> that lands during free spins — no minimum count — flies to the medallion and adds a random prize (×{{ PINATA_POT_PRIZES[0] }}–×{{ PINATA_POT_PRIZES[PINATA_POT_PRIZES.length - 1] }} bet) to the pot.</p>
-                <p class="mt-1 text-xs text-amber-200/70">The full pot is paid out on top of your line wins when the free spins finish. Prize odds are listed under "Piñata Pot Prize Distribution" below.</p>
+                <p class="mt-1 text-xs text-amber-200/70">
+                  The full pot is paid out on top of your line wins when the free spins finish. Prize odds are listed under "Piñata Pot Prize Distribution" below.
+                </p>
               </div>
             </div>
           </section>
 
           <!-- Paytable -->
           <section>
-            <h3 class="text-xs font-bold uppercase tracking-wider text-default mb-3">Paytable — ×line bet &nbsp;<span class="font-normal text-muted">(line bet = total bet ÷ {{ SPN_LINES }})</span></h3>
+            <h3 class="text-xs font-bold uppercase tracking-wider text-default mb-3">
+              Paytable — ×line bet &nbsp;<span class="font-normal text-muted">(line bet = total bet ÷ {{ SPN_LINES }})</span>
+            </h3>
             <div class="rounded-xl border border-default overflow-hidden">
               <div class="grid grid-cols-[56px_1fr] text-xs bg-elevated border-b border-default">
                 <div class="p-2" />
@@ -1198,8 +1457,14 @@ const TRACK_COLORS = [
                   <span class="w-16 text-right text-default">5-of-a-kind</span>
                 </div>
               </div>
-              <template v-for="(row, i) in paytableDisplay" :key="row.sym">
-                <div :class="i % 2 === 0 ? '' : 'bg-elevated/30'" class="grid grid-cols-[72px_1fr] items-center border-b border-default/30 last:border-0">
+              <template
+                v-for="(row, i) in paytableDisplay"
+                :key="row.sym"
+              >
+                <div
+                  :class="i % 2 === 0 ? '' : 'bg-elevated/30'"
+                  class="grid grid-cols-[72px_1fr] items-center border-b border-default/30 last:border-0"
+                >
                   <div class="p-2 flex flex-col items-center gap-1">
                     <img
                       :src="`/slots/spinata/${row.sym}.png`"
@@ -1220,15 +1485,20 @@ const TRACK_COLORS = [
 
           <!-- Piñata prize table -->
           <section>
-            <h3 class="text-xs font-bold uppercase tracking-wider text-default mb-2">Piñata Pot Prize Distribution</h3>
+            <h3 class="text-xs font-bold uppercase tracking-wider text-default mb-2">
+              Piñata Pot Prize Distribution
+            </h3>
             <div class="flex flex-wrap gap-2">
-              <div v-for="(prize, i) in PINATA_POT_PRIZES" :key="prize" class="help-pill">
+              <div
+                v-for="(prize, i) in PINATA_POT_PRIZES"
+                :key="prize"
+                class="help-pill"
+              >
                 ×{{ prize }} bet
                 <span class="text-muted/60 text-[10px]">({{ PINATA_POT_WEIGHTS[i] }}%)</span>
               </div>
             </div>
           </section>
-
         </div>
       </template>
     </UModal>
@@ -1279,6 +1549,7 @@ const TRACK_COLORS = [
 .spn-badge--rtp   { color: #bbf7d0; border-color: rgba(52,211,153,0.5); }
 .spn-badge--vol   { color: #fed7aa; border-color: rgba(249,115,22,0.5); }
 .spn-badge--lines { color: #fbcfe8; border-color: rgba(236,72,153,0.5); }
+.spn-badge--max   { color: #fde68a; border-color: rgba(250,204,21,0.5); }
 
 /* ── Machine shell ───────────────────────────────────────────────────────── */
 .machine {
