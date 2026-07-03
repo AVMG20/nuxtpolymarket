@@ -85,7 +85,7 @@ export interface FireInTheHoleResult {
 const PAY_SYMBOLS: FirePaySymbol[] = ['coal', 'ore', 'ruby', 'sapphire', 'emerald']
 const PAY_WEIGHTS = [34, 28, 18, 13, 9]
 const BOMB_WEIGHT = 7
-const SCATTER_WEIGHT = 1.5
+const SCATTER_WEIGHT = 1.15
 const SYMBOL_PAY: Record<FirePaySymbol, number> = {
   coal: 0.012,
   ore: 0.017,
@@ -240,7 +240,9 @@ function resolveBombExplosions(grid: FireSymbol[][], connectionCells: FireCell[]
       const cellKey = key(cell)
       const symbol = grid[cell.col]![cell.row]
 
-      if (!winByKey.has(cellKey)) {
+      // Scatters are invulnerable to bomb blasts — they survive so the mine
+      // stays consistent, but SCATTER_WEIGHT is tuned lower to compensate.
+      if (symbol !== 'scatter' && !winByKey.has(cellKey)) {
         winByKey.set(cellKey, cell)
       }
 
@@ -408,13 +410,18 @@ function playBonus(activeLines: number, bet: number): FireBonusResult {
     let appliedDouble = false
     let collected = 0
 
+    let collectorDropped = false
+
     for (const cell of emptyCells) {
       const roll = rand()
       const chances = bonusDropChances(values.size, capacity)
       const coinLimit = chances.coin
       const boostLimit = coinLimit + (values.size > 0 ? chances.boost : 0)
       const doubleLimit = boostLimit + (values.size > 0 ? chances.double : 0)
-      const collectorLimit = doubleLimit + ([...values.values()].some(value => value.symbol === 'coin') ? chances.collector : 0)
+      // Only one collector may drop per spin — a second collector would find
+      // every coin already swept up by the first, so it'd have nothing to do.
+      const canCollector = !collectorDropped && [...values.values()].some(value => value.symbol === 'coin')
+      const collectorLimit = doubleLimit + (canCollector ? chances.collector : 0)
 
       if (roll < coinLimit) {
         const multiplier = bonusCoinValue()
@@ -432,6 +439,7 @@ function playBonus(activeLines: number, bet: number): FireBonusResult {
         grid[cell.col]![cell.row] = 'collector'
         values.set(key(cell), { symbol: 'collector', multiplier: 0 })
         drops.push({ ...cell, symbol: 'collector', multiplier: 0 })
+        collectorDropped = true
       }
     }
 
