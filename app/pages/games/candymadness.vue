@@ -109,6 +109,13 @@ const bonusSpinsLeft = ref(0)
 const bonusTotal = ref(0)
 const bonusStatus = ref('')
 
+const bigWinBanner = ref(false)
+const bigWinLabel = ref('')
+const bigWinAmount = ref(0)
+const bigWinGradient = ref('')
+const bigWinGlow = ref('')
+const bigWinIntensity = ref(1)
+
 const history = ref<{ payout: number, bet: number, bonus: boolean }[]>([])
 
 // --- auto-spin state
@@ -277,6 +284,44 @@ const OFFSET_Y = (
 ) / 2
 
 const wait = (ms: number) => new Promise<void>(r => setTimeout(r, ms))
+
+// Escalating "big win" showcase shown once a round clears a threshold — tuned
+// below Fire in the Hole's tiers since Candy Madness's max win
+// (CM_DISPLAY_MAX_WIN, 1,500x) is a fraction of that game's.
+const WIN_TIERS = [
+  { threshold: 1200, rank: 6, label: 'ULTRA WIN', from: '#f0abfc', to: '#a855f7', glow: 'rgba(168,85,247,0.75)' },
+  { threshold: 600, rank: 5, label: 'SUPER WIN', from: '#fda4af', to: '#e11d48', glow: 'rgba(225,29,72,0.7)' },
+  { threshold: 300, rank: 4, label: 'MEGA WIN', from: '#fdba74', to: '#ea580c', glow: 'rgba(234,88,12,0.7)' },
+  { threshold: 150, rank: 3, label: 'GREAT WIN', from: '#fde047', to: '#ca8a04', glow: 'rgba(202,138,4,0.65)' },
+  { threshold: 75, rank: 2, label: 'BIG WIN', from: '#86efac', to: '#16a34a', glow: 'rgba(22,163,74,0.6)' },
+  { threshold: 40, rank: 1, label: 'NICE WIN', from: '#7dd3fc', to: '#0284c7', glow: 'rgba(2,132,199,0.55)' }
+] as const
+
+function tickBigWinAmount(to: number, duration = 1400) {
+  const obj = { v: bigWinAmount.value }
+  GSAP.to(obj, {
+    v: to,
+    duration: duration / 1000,
+    ease: 'power3.out',
+    onUpdate: () => { bigWinAmount.value = Number(obj.v.toFixed(2)) }
+  })
+}
+
+async function showBigWinPopup(totalMultiplier: number, amount: number) {
+  const tier = WIN_TIERS.find(t => totalMultiplier >= t.threshold)
+  if (!tier) return
+
+  bigWinLabel.value = tier.label
+  bigWinGradient.value = `linear-gradient(180deg, ${tier.from}, ${tier.to})`
+  bigWinGlow.value = tier.glow
+  bigWinIntensity.value = tier.rank
+  bigWinAmount.value = 0
+  bigWinBanner.value = true
+
+  tickBigWinAmount(amount)
+  await wait(2200)
+  bigWinBanner.value = false
+}
 
 const SYMBOL_IDS: CandySymbol[] = [...CANDY_KEYS, 'scatter']
 
@@ -889,6 +934,8 @@ async function runBonus(result: CandyMadnessResult) {
     clearBadges()
     inBonus.value = false
   }
+
+  await showBigWinPopup(result.payout / result.bet, result.payout)
 }
 
 function onKeydown(e: KeyboardEvent) {
@@ -1019,6 +1066,25 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
                   {{ CM_FREE_SPINS }} free spins — multipliers stay & grow!
                 </p>
               </div>
+            </div>
+          </Transition>
+
+          <!-- Big win showcase -->
+          <Transition name="pop">
+            <div
+              v-if="bigWinBanner"
+              class="absolute inset-0 z-30 flex flex-col items-center justify-center gap-1 bg-[rgba(10,2,20,0.82)] backdrop-blur-[4px]"
+              :style="{ '--tier': bigWinIntensity }"
+            >
+              <p
+                class="cm-bigwin-label"
+                :style="{ backgroundImage: bigWinGradient, filter: `drop-shadow(0 0 22px ${bigWinGlow})` }"
+              >
+                {{ bigWinLabel }}
+              </p>
+              <strong class="cm-bigwin-amount">
+                {{ formatNumber(bigWinAmount, false) }}
+              </strong>
             </div>
           </Transition>
 
@@ -1788,5 +1854,42 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 .pop-leave-to {
   opacity: 0;
   transform: scale(0.9);
+}
+
+.cm-bigwin-label {
+  margin: 0;
+  font-size: calc(26px + var(--tier, 1) * 6px);
+  font-weight: 950;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+  animation: cm-bigwin-pop 0.5s cubic-bezier(0.2, 1.4, 0.4, 1) both;
+}
+
+.cm-bigwin-amount {
+  font-size: calc(34px + var(--tier, 1) * 9px);
+  font-weight: 950;
+  line-height: 1;
+  color: rgb(253, 242, 248);
+  text-shadow: 0 3px 0 rgba(0, 0, 0, 0.6), 0 0 26px rgba(232, 121, 249, 0.55);
+  animation: cm-bigwin-pop 0.5s 0.08s cubic-bezier(0.2, 1.4, 0.4, 1) both;
+}
+
+@keyframes cm-bigwin-pop {
+  0% {
+    transform: scale(0.4);
+    opacity: 0;
+  }
+  60% {
+    transform: scale(1.12);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
 }
 </style>
