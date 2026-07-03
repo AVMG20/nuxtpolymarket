@@ -85,7 +85,7 @@ export interface FireInTheHoleResult {
 const PAY_SYMBOLS: FirePaySymbol[] = ['coal', 'ore', 'ruby', 'sapphire', 'emerald']
 const PAY_WEIGHTS = [34, 28, 18, 13, 9]
 const BOMB_WEIGHT = 7
-const SCATTER_WEIGHT = 1.15
+const SCATTER_WEIGHT = 1.104
 const SYMBOL_PAY: Record<FirePaySymbol, number> = {
   coal: 0.012,
   ore: 0.017,
