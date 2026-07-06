@@ -36,16 +36,16 @@ export const BOS_MAX_WIN_MULT = 20000 // hard cap on total win, in × bet
 
 export type SlotSymbol
   = 'ten' | 'jack' | 'queen' | 'king' | 'ace'
-    | 'raven' | 'cat' | 'potion' | 'cauldron'
-    | 'wild' | 'bonuswild'
+    | 'sword' | 'orb' | 'scythe' | 'hood'
+    | 'book' | 'bonuswild'
 
 // Reel strip weights (same for every reel). Higher = more frequent.
 // `bonuswild` is deliberately absent — it never comes up in a normal draw,
 // only via the bonus's own per-spin column roll (see BONUS_WILD_CHANCE).
 export const SYMBOL_WEIGHTS: Record<Exclude<SlotSymbol, 'bonuswild'>, number> = {
   ten: 26, jack: 24, queen: 20, king: 18, ace: 14,
-  raven: 10, cat: 8, potion: 6, cauldron: 4,
-  wild: 2 // ~1 in 90 spins land 3+ (see scripts/bookofshadows-rtp.ts)
+  sword: 10, orb: 8, scythe: 6, hood: 4,
+  book: 2 // ~1 in 90 spins land 3+ (see scripts/bookofshadows-rtp.ts)
 }
 
 // Payout multiplier of the total bet for a connected run of [3, 4, 5] columns.
@@ -65,11 +65,11 @@ export const PAYTABLE: Record<SlotSymbol, [number, number, number]> = {
   queen: [0.22, 0.65, 1.3],
   king: [0.26, 0.9, 1.8],
   ace: [0.44, 1.1, 2.2],
-  raven: [0.55, 1.3, 3],
-  cat: [0.66, 1.8, 4.4],
-  potion: [0.9, 2.2, 5.3],
-  cauldron: [1.1, 3, 8],
-  wild: [1.2, 3.6, 12],
+  sword: [0.55, 1.3, 3],
+  orb: [0.66, 1.8, 4.4],
+  scythe: [0.9, 2.2, 5.3],
+  hood: [1.1, 3, 8],
+  book: [1.2, 3.6, 12],
   bonuswild: [4.6, 14, 42]
 }
 
@@ -107,29 +107,31 @@ export const BOS_BUY_BONUS_COST = 16.5
 // scale with bet automatically since all pays are × bet.
 export interface BonusTier {
   id: string
-  symbol: Exclude<SlotSymbol, 'wild' | 'bonuswild'>
+  symbol: Exclude<SlotSymbol, 'ten' | 'bonuswild'>
   label: string
   multiplier: number
   weight: number
 }
 
 // A flatter ladder than a pure jackpot table: the mid tiers pay real
-// multipliers (king ×2.5, ace ×4, raven ×8, cat ×20) so you can still hit a big
+// multipliers (king ×2.5, ace ×4, sword ×8, orb ×20) so you can still hit a big
 // win WITHOUT rolling the very top symbol — landing any mid/high tier on a
-// multi-column lock pays. The top (potion ×55, cauldron ×120) is the dream, but
+// multi-column lock pays. The top (scythe ×55, hood ×120) is the dream, but
 // no longer the only route to a 5,000x+ hit. Weighted-average multiplier is
 // ~2.6, which keeps the bonus around 55-60% of total RTP. The rarest tier
-// (cauldron ×120) still rolls ~0.3% of bonuses — rare, but never impossible.
+// (hood ×120) still rolls ~0.3% of bonuses — rare, but never impossible.
+// BOOK takes TEN's old slot in the ladder — it's already the base game's wild
+// and scatter, so as a bonus-tier roll it's deliberately kept common/low value.
 export const BONUS_TIERS: BonusTier[] = [
-  { id: 'ten', symbol: 'ten', label: 'Ten', multiplier: 1, weight: 32 },
+  { id: 'book', symbol: 'book', label: 'Book', multiplier: 1, weight: 32 },
   { id: 'jack', symbol: 'jack', label: 'Jack', multiplier: 1, weight: 26 },
   { id: 'queen', symbol: 'queen', label: 'Queen', multiplier: 1.5, weight: 18 },
   { id: 'king', symbol: 'king', label: 'King', multiplier: 2.5, weight: 10 },
   { id: 'ace', symbol: 'ace', label: 'Ace', multiplier: 4, weight: 6 },
-  { id: 'raven', symbol: 'raven', label: 'Raven', multiplier: 8, weight: 3 },
-  { id: 'cat', symbol: 'cat', label: 'Black Cat', multiplier: 20, weight: 1.4 },
-  { id: 'potion', symbol: 'potion', label: 'Potion', multiplier: 55, weight: 0.6 },
-  { id: 'cauldron', symbol: 'cauldron', label: 'Cauldron', multiplier: 120, weight: 0.3 }
+  { id: 'sword', symbol: 'sword', label: 'Sword', multiplier: 8, weight: 3 },
+  { id: 'orb', symbol: 'orb', label: 'Orb', multiplier: 20, weight: 1.4 },
+  { id: 'scythe', symbol: 'scythe', label: 'Scythe', multiplier: 55, weight: 0.6 },
+  { id: 'hood', symbol: 'hood', label: 'Hood', multiplier: 120, weight: 0.3 }
 ]
 
 // --- crypto RNG helpers -----------------------------------------------------
@@ -154,10 +156,10 @@ function spinSymbol(): SlotSymbol {
   return weightedPick(SYMBOL_KEYS, SYMBOL_WEIGHT_VALUES)
 }
 
-// Same weighted draw but with BOOK ('wild') removed from the pool. Used for the
+// Same weighted draw but with BOOK removed from the pool. Used for the
 // remaining bonus spins once the retrigger has fired — after that point books
 // can no longer appear.
-const NO_BOOK_KEYS = SYMBOL_KEYS.filter(k => k !== 'wild')
+const NO_BOOK_KEYS = SYMBOL_KEYS.filter(k => k !== 'book')
 const NO_BOOK_WEIGHTS = NO_BOOK_KEYS.map(k => SYMBOL_WEIGHTS[k])
 function spinSymbolNoBook(): SlotSymbol {
   return weightedPick(NO_BOOK_KEYS, NO_BOOK_WEIGHTS)
@@ -182,7 +184,7 @@ export interface BonusSpinResult {
   ordinaryPayout: number // wins NOT involving BONUS_WILD — paid at face value, same as a base spin
   wildPayout: number // wins involving BONUS_WILD — this portion is what the tier multiplier scales
   spinPayout: number // ordinaryPayout + wildPayout, unscaled — used for the live per-spin display
-  booksLanded: number // BOOK ('wild') cells that landed this spin
+  booksLanded: number // BOOK cells that landed this spin
   retriggered: boolean // true only on the spin that awarded the +BONUS_RETRIGGER_SPINS
 }
 
@@ -236,7 +238,7 @@ function forcePlaceBonusSymbols(grid: SlotSymbol[][]) {
   for (const idx of chosen) {
     const col = Math.floor(idx / BOS_ROWS)
     const row = idx % BOS_ROWS
-    grid[col]![row] = 'wild'
+    grid[col]![row] = 'book'
   }
 }
 
@@ -303,13 +305,13 @@ function findConnectedComponents(grid: SlotSymbol[][], symbol: SlotSymbol, wildS
 }
 
 // `wildSymbols` defaults to just BOOK for the base game. Bonus spins pass
-// `['wild', 'bonuswild']` since BONUS_WILD substitutes too — that also means
-// a 'wild'-symbol scan and a would-be 'bonuswild' scan see the IDENTICAL
+// `['book', 'bonuswild']` since BONUS_WILD substitutes too — that also means
+// a 'book'-symbol scan and a would-be 'bonuswild' scan see the IDENTICAL
 // connected component (both wild types satisfy both scans' match test), so
 // bonuswild is never scanned as its own target: a wild-scan win that
 // actually contains a bonus wild cell is simply paid at the bonus-wild rate
 // instead. Scanning it separately too would double-pay the same cells.
-function detectConnections(grid: SlotSymbol[][], bet: number, wildSymbols: readonly SlotSymbol[] = ['wild']): { wins: ConnectionWin[], payout: number } {
+function detectConnections(grid: SlotSymbol[][], bet: number, wildSymbols: readonly SlotSymbol[] = ['book']): { wins: ConnectionWin[], payout: number } {
   const wins: ConnectionWin[] = []
   let payout = 0
 
@@ -321,8 +323,8 @@ function detectConnections(grid: SlotSymbol[][], bet: number, wildSymbols: reado
       if (length < BOS_MIN_CONNECTION) continue
 
       let paySymbol: SlotSymbol = symbol
-      if (symbol === 'wild') {
-        const upgrade = cells.find(c => grid[c.col]![c.row] !== 'wild' && wildSymbols.includes(grid[c.col]![c.row]!))
+      if (symbol === 'book') {
+        const upgrade = cells.find(c => grid[c.col]![c.row] !== 'book' && wildSymbols.includes(grid[c.col]![c.row]!))
         if (upgrade) paySymbol = grid[upgrade.col]![upgrade.row]!
       }
 
@@ -395,7 +397,7 @@ function simulateBonus(bet: number): BonusResult {
     const { landedGrid, expandedGrid, newlyLocked } = simulateBonusSpin(locked, booksAllowed)
 
     const booksLanded = landedGrid.reduce(
-      (n, colCells) => n + colCells.reduce((m, s) => m + (s === 'wild' ? 1 : 0), 0),
+      (n, colCells) => n + colCells.reduce((m, s) => m + (s === 'book' ? 1 : 0), 0),
       0
     )
 
@@ -407,7 +409,7 @@ function simulateBonus(bet: number): BonusResult {
       totalSpins += BONUS_RETRIGGER_SPINS
     }
 
-    const { wins, payout } = detectConnections(expandedGrid, bet, ['wild', 'bonuswild'])
+    const { wins, payout } = detectConnections(expandedGrid, bet, ['book', 'bonuswild'])
     const wildPayout = wins.filter(w => w.symbol === 'bonuswild').reduce((sum, w) => sum + w.amount, 0)
     const spinOrdinary = payout - wildPayout
     spins.push({ landedGrid, expandedGrid, newlyLocked, wins, ordinaryPayout: spinOrdinary, wildPayout, spinPayout: payout, booksLanded, retriggered: spinRetriggered })
@@ -475,7 +477,7 @@ export function playBookOfShadows(bet: number, options?: Record<string, unknown>
 
   const { wins, payout: rawPayout } = detectConnections(grid, bet)
 
-  const scatterCount = grid.flat().filter(s => s === 'wild').length
+  const scatterCount = grid.flat().filter(s => s === 'book').length
   const bonusTriggered = scatterCount >= BONUS_TRIGGER_COUNT
   const bonus = bonusTriggered ? simulateBonus(bet) : null
 

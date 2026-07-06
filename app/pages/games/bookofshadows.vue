@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { BonusResult, BonusSpinResult, BonusTier, BookOfShadowsResult, Cell, ConnectionWin, SlotSymbol } from '#shared/utils/gamelogic/bookofshadows'
-import { BONUS_TIERS, BOS_BUY_BONUS_COST, BOS_COLS, BOS_MAX_WIN_MULT, BOS_MIN_CONNECTION, BOS_ROWS, BONUS_SPINS, BONUS_RETRIGGER_SPINS, BONUS_TRIGGER_COUNT, PAYTABLE, SYMBOL_WEIGHTS, playBookOfShadows } from '#shared/utils/gamelogic/bookofshadows'
+import { BONUS_TIERS, BOS_BUY_BONUS_COST, BOS_COLS, BOS_MAX_WIN_MULT, BOS_MIN_CONNECTION, BOS_ROWS, BONUS_SPINS, BONUS_RETRIGGER_BOOKS, BONUS_RETRIGGER_SPINS, BONUS_TRIGGER_COUNT, PAYTABLE, SYMBOL_WEIGHTS, playBookOfShadows } from '#shared/utils/gamelogic/bookofshadows'
 
 definePageMeta({
   title: 'Book of Shadows'
@@ -151,11 +151,11 @@ const SYMBOL_VISUAL: Record<SlotSymbol, SymbolVisual> = {
   queen: { glyph: 'Q', glyphSize: 46, serif: true, glyphColor: 0x94a3b8, fill: 0x131519, rim: 0x323843, rimAlpha: 0.9 },
   king: { glyph: 'K', glyphSize: 46, serif: true, glyphColor: 0xb6bec9, fill: 0x14161a, rim: 0x3a414d, rimAlpha: 0.9 },
   ace: { glyph: 'A', glyphSize: 46, serif: true, glyphColor: 0xe2e8f0, fill: 0x15171c, rim: 0x4b5563, rimAlpha: 0.95 },
-  raven: { glyph: '🦇', glyphSize: 48, serif: false, glyphColor: 0xffffff, fill: 0x15141a, rim: 0x52525b, rimAlpha: 1, label: 'RAVEN' },
-  cat: { glyph: '🐈', glyphSize: 48, serif: false, glyphColor: 0xffffff, fill: 0x161320, rim: 0x5b4a8a, rimAlpha: 1, label: 'CAT' },
-  potion: { glyph: '🧪', glyphSize: 48, serif: false, glyphColor: 0xffffff, fill: 0x0f1a14, rim: 0x2f6b4f, rimAlpha: 1, label: 'POTION' },
-  cauldron: { glyph: '🔮', glyphSize: 48, serif: false, glyphColor: 0xffffff, fill: 0x1c1114, rim: 0x8a3a3a, rimAlpha: 1, label: 'CAULDRON' },
-  wild: { glyph: '📖', glyphSize: 50, serif: false, glyphColor: 0xffffff, fill: 0x1f0d0d, rim: 0xb91c1c, rimAlpha: 1, label: 'BOOK' },
+  sword: { glyph: '⚔️', glyphSize: 44, serif: false, glyphColor: 0xffffff, fill: 0x15141a, rim: 0x52525b, rimAlpha: 1, label: 'SWORD' },
+  orb: { glyph: '🔮', glyphSize: 48, serif: false, glyphColor: 0xffffff, fill: 0x161320, rim: 0x5b4a8a, rimAlpha: 1, label: 'ORB' },
+  scythe: { glyph: '🔪', glyphSize: 48, serif: false, glyphColor: 0xffffff, fill: 0x0f1a14, rim: 0x2f6b4f, rimAlpha: 1, label: 'SCYTHE' },
+  hood: { glyph: '🥷', glyphSize: 48, serif: false, glyphColor: 0xffffff, fill: 0x1c1114, rim: 0x8a3a3a, rimAlpha: 1, label: 'HOOD' },
+  book: { glyph: '📖', glyphSize: 50, serif: false, glyphColor: 0xffffff, fill: 0x1f0d0d, rim: 0xb91c1c, rimAlpha: 1, label: 'BOOK' },
   bonuswild: { glyph: '💀', glyphSize: 52, serif: false, glyphColor: 0xffffff, fill: 0x230607, rim: 0xef4444, rimAlpha: 1, label: 'WILD' }
 }
 
@@ -165,11 +165,11 @@ const SYMBOL_NAME: Record<SlotSymbol, string> = {
   queen: 'Queen',
   king: 'King',
   ace: 'Ace',
-  raven: 'Raven',
-  cat: 'Black Cat',
-  potion: 'Potion',
-  cauldron: 'Cauldron',
-  wild: 'The Book (wild + scatter)',
+  sword: 'Sword',
+  orb: 'Orb',
+  scythe: 'Scythe',
+  hood: 'Hood',
+  book: 'The Book (wild + scatter)',
   bonuswild: 'Bonus Symbol (bonus only)'
 }
 
@@ -194,6 +194,10 @@ const WIN_TIERS = [
 const wait = (ms: number) => new Promise<void>(r => setTimeout(r, ms))
 const stepDelay = (ms: number) => wait(turbo.value ? Math.round(ms * 0.55) : ms)
 const cellKey = (c: Cell) => `${c.col}:${c.row}`
+
+// A bonus tier's multiplier shown as a money value at the current bet — e.g.
+// a ×2 tier on a 10 bet reads as "20", which lands harder than "×2".
+const tierValue = (multiplier: number) => formatNumber(multiplier * bet.value, false)
 
 function pulseWin() {
   totalWinPulse.value = true
@@ -297,10 +301,10 @@ async function initPixi() {
       const isBonusCell = this.symbol === 'bonuswild'
       const frame = SYMBOL_VISUAL[this.symbol] ?? SYMBOL_VISUAL.ten
       // Bonus cells wear the blood frame of `bonuswild` but show the rolled
-      // bonus symbol itself — the cat pays, so the cat is what you see.
+      // bonus symbol itself — the orb pays, so the orb is what you see.
       const face = isBonusCell && bonusSymbolOverride ? SYMBOL_VISUAL[bonusSymbolOverride] : frame
       const pad = 3
-      const isSpecial = this.symbol === 'wild' || isBonusCell
+      const isSpecial = this.symbol === 'book' || isBonusCell
 
       this.tile.clear()
       this.tile.roundRect(pad, pad, this.w - pad * 2, this.h - pad * 2, 12)
@@ -965,7 +969,7 @@ onBeforeUnmount(() => {
               </div>
               <div class="mt-3 flex items-center justify-between">
                 <span class="text-[11px] font-bold text-muted">Bonus symbol</span>
-                <strong class="bos-value-bone text-sm">{{ SYMBOL_VISUAL[bonusData.tier.symbol].glyph }} {{ bonusData.tier.label }} ×{{ bonusData.tier.multiplier }}</strong>
+                <strong class="bos-value-bone text-sm">{{ SYMBOL_VISUAL[bonusData.tier.symbol].glyph }} {{ bonusData.tier.label }} · {{ tierValue(bonusData.tier.multiplier) }}</strong>
               </div>
               <div class="mt-4 border-t border-white/5 pt-3 text-center">
                 <span class="text-[10px] font-black tracking-wide uppercase text-muted">Bonus total</span>
@@ -977,20 +981,20 @@ onBeforeUnmount(() => {
 
             <template v-else>
               <p class="mt-2.5 text-[11px] leading-relaxed text-muted">
-                Land {{ BONUS_TRIGGER_COUNT }}+ books for {{ BONUS_SPINS }} bonus spins. You roll a
-                bonus symbol first — when it lands it locks its whole column wild and pays at its
-                own rate, up to ×20. Pray for something rare, then pray it lands. A lot.
+                Land {{ BONUS_TRIGGER_COUNT }}+ books to awaken {{ BONUS_SPINS }} bonus spins, then
+                roll a bonus symbol that locks its column and pays at its own value.
               </p>
-              <div class="mt-3 grid grid-cols-3 gap-1.5">
-                <div
-                  v-for="tier in BONUS_TIERS"
-                  :key="tier.id"
-                  class="bos-tier-chip"
-                >
-                  <span class="block text-sm leading-none">{{ SYMBOL_VISUAL[tier.symbol].glyph }}</span>
-                  <span class="mt-0.5 block text-[10px]">×{{ tier.multiplier }}</span>
-                </div>
-              </div>
+              <button
+                type="button"
+                class="mt-3 inline-flex items-center gap-1 text-[10px] font-bold text-muted underline-offset-2 hover:underline"
+                @click="showHelp = true"
+              >
+                <UIcon
+                  name="i-lucide-info"
+                  class="size-3"
+                />
+                Symbol values &amp; rules
+              </button>
             </template>
           </div>
 
@@ -1043,7 +1047,7 @@ onBeforeUnmount(() => {
                     <span
                       v-if="rolledTier"
                       class="text-base font-black text-[#fecaca]"
-                    >×{{ rolledTier.multiplier }}</span>
+                    >{{ tierValue(rolledTier.multiplier) }}</span>
                   </div>
 
                   <button
@@ -1296,12 +1300,29 @@ onBeforeUnmount(() => {
           </p>
           <p>
             {{ BONUS_TRIGGER_COUNT }}+ Books anywhere award {{ BONUS_SPINS }} bonus spins. Before they
-            start you roll a bonus symbol — commons roll often, the three premiums (×10, ×15 and the
-            ×20 Cauldron) are rare. During the bonus your symbol can land and lock its whole column
-            wild for the rest of the round, and every win paid through those columns at the bonus
-            rate is multiplied by your rolled symbol. The dream: roll a premium, then fill the board
-            with it. All other symbols pay their normal base rate.
+            start you roll a bonus symbol — commons roll often, premiums are rare. During the bonus
+            your symbol can land and lock its whole column wild for the rest of the round, paying at
+            its own value below; the dream is to roll a premium then fill the board with it. All
+            other symbols pay their normal base rate. Landing {{ BONUS_RETRIGGER_BOOKS }} books on a
+            single bonus spin adds {{ BONUS_RETRIGGER_SPINS }} more spins — once per bonus.
           </p>
+
+          <div>
+            <p class="mb-1.5 text-[11px] font-black tracking-wide text-muted uppercase">
+              Bonus symbol values · at {{ formatNumber(bet, false) }} bet
+            </p>
+            <div class="grid grid-cols-3 gap-1.5">
+              <div
+                v-for="tier in BONUS_TIERS"
+                :key="tier.id"
+                class="bos-tier-chip"
+              >
+                <span class="block text-sm leading-none">{{ SYMBOL_VISUAL[tier.symbol].glyph }}</span>
+                <span class="mt-0.5 block text-[10px] font-bold text-muted">{{ tier.label }}</span>
+                <span class="mt-0.5 block text-[11px] font-black text-[#fecaca]">{{ tierValue(tier.multiplier) }}</span>
+              </div>
+            </div>
+          </div>
           <p>
             Buy bonus skips straight to the feature for {{ formatNumber(buyBonusCost, false) }}
             ({{ BOS_BUY_BONUS_COST }}x bet). Total win is capped at
@@ -1373,7 +1394,8 @@ onBeforeUnmount(() => {
     radial-gradient(ellipse 80% 55% at 50% 0%, rgba(127, 29, 29, 0.14) 0%, transparent 65%),
     radial-gradient(ellipse 60% 45% at 18% 88%, rgba(63, 63, 70, 0.22) 0%, transparent 70%),
     radial-gradient(ellipse 55% 40% at 85% 80%, rgba(127, 29, 29, 0.1) 0%, transparent 70%),
-    linear-gradient(180deg, #0b0b0d 0%, #09090b 55%, #050506 100%);
+    linear-gradient(180deg, rgba(11, 11, 13, 0.35) 0%, rgba(9, 9, 11, 0.4) 55%, rgba(5, 5, 6, 0.55) 100%),
+    url('/slots/bookofshadows/background.png') center 30% / cover no-repeat;
 }
 
 .bos-fog {
@@ -1396,7 +1418,7 @@ onBeforeUnmount(() => {
 }
 
 .bos-vignette {
-  background: radial-gradient(ellipse 76% 66% at 50% 38%, transparent 0%, rgba(5, 5, 6, 0.45) 72%, rgba(2, 2, 3, 0.92) 100%);
+  background: radial-gradient(ellipse 76% 66% at 50% 38%, transparent 0%, rgba(5, 5, 6, 0.22) 72%, rgba(2, 2, 3, 0.55) 100%);
 }
 
 .bos-title {
