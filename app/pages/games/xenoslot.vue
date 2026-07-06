@@ -1029,7 +1029,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
       <!-- Buy bonus — sits above the card on mobile, floats to its left from lg up -->
       <button
         :disabled="!ready || isSpinning || autoSpinEnabled || balance < buyBonusCost"
-        class="relative mx-auto mb-3 aspect-[3/2] w-[190px] cursor-pointer border-0 bg-[url('/slots/xenoslot/buy_bonus.png')] bg-contain bg-center bg-no-repeat p-0 drop-shadow-[0_6px_16px_rgba(0,0,0,0.55)] transition-transform duration-150 hover:scale-[1.04] active:scale-[0.97] disabled:cursor-default disabled:opacity-45 disabled:grayscale-[70%] lg:absolute lg:right-full lg:top-1/2 lg:mx-0 lg:mb-0 lg:w-[260px] lg:-translate-y-1/2"
+        class="relative mx-auto mb-3 aspect-[3/2] w-[190px] cursor-pointer border-0 bg-[url('/slots/xenoslot/buy_bonus.png')] bg-contain bg-center bg-no-repeat p-0 drop-shadow-[0_6px_16px_rgba(0,0,0,0.55)] transition-transform duration-150 hover:scale-[1.04] active:scale-[0.97] disabled:cursor-default disabled:opacity-45 disabled:grayscale-[70%] lg:absolute lg:right-full lg:top-0 lg:mx-0 lg:mb-0 lg:w-[260px]"
         @click="spin(true)"
       >
         <span class="pointer-events-none absolute inset-x-0 bottom-[28%] text-center font-mono text-base font-black tracking-wide text-[#fff7d6] [text-shadow:0_2px_3px_rgba(0,0,0,0.65),0_0_10px_rgba(250,204,21,0.5)] lg:text-xl">{{ formatNumber(buyBonusCost, false) }}</span>
