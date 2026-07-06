@@ -382,9 +382,10 @@ async function initPixi() {
       }
 
       if (texture) {
-        const labelReserve = frame.label || isBonusCell ? 18 : 0
-        const maxW = this.w - pad * 6
-        const maxH = this.h - pad * 6 - labelReserve
+        const labelReserve = !isBonusCell && frame.label ? 18 : 0
+        const texPad = isBonusCell ? 0 : pad * 6
+        const maxW = this.w - texPad
+        const maxH = this.h - texPad - labelReserve
         const scale = Math.min(maxW / texture.width, maxH / texture.height)
         this.sprite.texture = texture
         this.sprite.scale.set(scale)
@@ -401,7 +402,7 @@ async function initPixi() {
         this.glyph.text = face.glyph
       }
 
-      const label = isBonusCell && bonusSymbolOverride ? 'BONUS' : frame.label
+      const label = isBonusCell ? undefined : frame.label
       this.glyph.position.set(this.w / 2, this.h / 2 - (label ? 6 : 0))
 
       this.caption.text = label ?? ''
@@ -977,7 +978,7 @@ onBeforeUnmount(() => {
     <div class="bos-fog absolute inset-0" />
     <div class="bos-vignette absolute inset-0" />
 
-    <div class="relative z-[1] mx-auto w-full max-w-7xl">
+    <div class="relative z-[1] mx-auto w-full max-w-7xl [zoom:0.85]">
       <header class="mb-5 text-center">
         <p class="bos-eyebrow mb-1.5 text-[11px] font-bold tracking-[0.5em] uppercase">
           ✦ Open the forbidden pages ✦
@@ -1122,23 +1123,26 @@ onBeforeUnmount(() => {
                   </p>
 
                   <div
-                    class="bos-tier-tile flex flex-col items-center justify-center gap-0.5"
-                    :class="{ 'bos-tier-tile-settled': !rolling && rolledTier }"
+                    class="bos-tier-reveal flex flex-col items-center justify-center gap-1"
+                    :class="{ 'bos-tier-reveal-settled': !rolling && rolledTier }"
                   >
                     <span
                       v-if="rolledTier"
                       class="bos-tier-sprite"
-                      :style="symbolIconStyle(rolledTier.symbol, true, 50)"
+                      :style="symbolIconStyle(rolledTier.symbol, true, 96)"
                       aria-hidden="true"
                     />
                     <span
                       v-else
-                      class="text-3xl leading-none"
+                      class="bos-tier-placeholder"
                     >?</span>
-                    <span class="px-2 text-center text-xs leading-tight font-black">{{ rolledTier?.label ?? '' }}</span>
                     <span
                       v-if="rolledTier"
-                      class="text-base font-black text-[#fecaca]"
+                      class="text-center text-[11px] font-bold tracking-wide text-muted uppercase"
+                    >{{ rolledTier.label }}</span>
+                    <span
+                      v-if="rolledTier"
+                      class="bos-tier-reveal-value"
                     >{{ tierValue(rolledTier.multiplier) }}</span>
                   </div>
 
@@ -1896,21 +1900,38 @@ onBeforeUnmount(() => {
   filter: drop-shadow(0 0 18px rgba(239, 68, 68, 0.55));
 }
 
-.bos-tier-tile {
-  width: 118px;
-  height: 118px;
-  border-radius: 12px;
-  border: 2px solid rgba(239, 68, 68, 0.4);
-  background: linear-gradient(180deg, #27272a, #09090b);
+.bos-tier-placeholder {
+  font-size: 56px;
+  font-weight: 900;
+  line-height: 1;
   color: var(--bos-bone);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 14px 34px rgba(0, 0, 0, 0.6);
-  transition: border-color 200ms ease, box-shadow 200ms ease, transform 200ms ease;
+  opacity: 0.45;
 }
 
-.bos-tier-tile-settled {
-  border-color: var(--bos-blood);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 14px 34px rgba(0, 0, 0, 0.6), 0 0 34px rgba(239, 68, 68, 0.5);
-  transform: scale(1.06);
+.bos-tier-reveal-value {
+  font-size: 26px;
+  font-weight: 950;
+  line-height: 1;
+  color: var(--bos-blood-soft);
+  text-shadow: 0 0 18px rgba(239, 68, 68, 0.5);
+}
+
+.bos-tier-reveal-settled .bos-tier-sprite {
+  animation: bos-tier-pop 320ms ease;
+}
+
+@keyframes bos-tier-pop {
+  0% {
+    transform: scale(0.8);
+  }
+
+  60% {
+    transform: scale(1.14);
+  }
+
+  100% {
+    transform: scale(1);
+  }
 }
 
 .bos-roll-btn {

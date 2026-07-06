@@ -12,16 +12,16 @@ export const BOS_SHEET_H = 1024
 //   ten    jack   queen  king   ace
 //   sword  orb    scythe hood   book
 export const BOS_SYMBOL_META: Record<BosBaseSymbol, { name: string, rect: [number, number, number, number] }> = {
-  ten: { name: 'Ten', rect: [77, 92, 170, 206] },
-  jack: { name: 'Jack', rect: [249, 92, 153, 206] },
-  queen: { name: 'Queen', rect: [404, 92, 169, 222] },
-  king: { name: 'King', rect: [578, 92, 159, 206] },
-  ace: { name: 'Ace', rect: [753, 92, 150, 206] },
-  sword: { name: 'Sword', rect: [22, 688, 160, 160] },
-  orb: { name: 'Orb', rect: [227, 688, 160, 160] },
-  scythe: { name: 'Scythe', rect: [432, 688, 160, 160] },
-  hood: { name: 'Hood', rect: [637, 688, 160, 160] },
-  book: { name: 'Book', rect: [842, 688, 160, 160] }
+    ten: { name: 'Ten', rect: [77, 92, 170, 206] },
+    jack: { name: 'Jack', rect: [249, 92, 153, 206] },
+    queen: { name: 'Queen', rect: [404, 92, 169, 222] },
+    king: { name: 'King', rect: [578, 92, 159, 206] },
+    ace: { name: 'Ace', rect: [753, 92, 150, 206] },
+    sword: { name: 'Sword', rect: [108, 369, 111, 269] },
+    orb: { name: 'Orb', rect: [449, 374, 150, 255] },
+    scythe: { name: 'Scythe', rect: [601, 668, 158, 257] },
+    hood: { name: 'Hood', rect: [607, 377, 211, 227] },
+    book: { name: 'Book', rect: [254, 384, 167, 241] }
 }
 
 // Bonus-tier reveal sprite sheet (the symbol rolled to decide what the locked
@@ -35,13 +35,13 @@ export const BOS_BONUS_SHEET_H = 1024
 //   ace    sword  orb
 //   scythe hood   book
 export const BOS_BONUS_SYMBOL_META: Record<BosBonusSymbol, { name: string, rect: [number, number, number, number] }> = {
-  jack: { name: 'Jack', rect: [59, 368, 280, 260] },
-  queen: { name: 'Queen', rect: [382, 41, 260, 260] },
-  king: { name: 'King', rect: [723, 41, 260, 260] },
-  ace: { name: 'Ace', rect: [41, 40, 260, 260] },
-  sword: { name: 'Sword', rect: [382, 382, 260, 260] },
-  orb: { name: 'Orb', rect: [723, 382, 260, 260] },
-  scythe: { name: 'Scythe', rect: [41, 723, 260, 260] },
-  hood: { name: 'Hood', rect: [382, 723, 260, 260] },
-  book: { name: 'Book', rect: [723, 723, 260, 260] }
+    jack: { name: 'Jack', rect: [59, 368, 280, 260] },
+    queen: { name: 'Queen', rect: [686, 59, 282, 274] },
+    king: { name: 'King', rect: [369, 61, 282, 274] },
+    ace: { name: 'Ace', rect: [57, 61, 282, 274] },
+    sword: { name: 'Sword', rect: [57, 666, 282, 256] },
+    orb: { name: 'Orb', rect: [685, 372, 282, 255] },
+    scythe: { name: 'Scythe', rect: [370, 667, 284, 257] },
+    hood: { name: 'Hood', rect: [683, 662, 285, 263] },
+    book: { name: 'Book', rect: [370, 368, 283, 259] }
 }
