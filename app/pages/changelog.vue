@@ -5,9 +5,7 @@ definePageMeta({
 
 const PAGE_SIZE = 5
 
-const { data: entries } = await useAsyncData('changelog', () =>
-    queryCollection('changelog').order('date', 'DESC').all()
-)
+const { data: entries } = await useAsyncData('changelog', () => $fetch('/api/changelog'))
 
 const visibleCount = ref(PAGE_SIZE)
 const visibleEntries = computed(() => entries.value?.slice(0, visibleCount.value) ?? [])
@@ -33,13 +31,13 @@ function formatDate(date: string) {
     </div>
 
     <div v-if="visibleEntries.length" class="space-y-6">
-      <UCard v-for="entry in visibleEntries" :key="entry.path">
+      <UCard v-for="entry in visibleEntries" :key="entry.title + entry.date">
         <template #header>
           <h2 class="text-lg font-bold">{{ entry.title }}</h2>
           <p class="text-xs text-muted mt-0.5">{{ formatDate(entry.date) }}</p>
         </template>
 
-        <ContentRenderer :value="entry" />
+        <div class="changelog-body" v-html="entry.html" />
       </UCard>
 
       <div v-if="hasMore" class="flex justify-center pt-2">
@@ -60,3 +58,36 @@ function formatDate(date: string) {
     />
   </div>
 </template>
+
+<style scoped>
+.changelog-body :deep(p) {
+    margin-bottom: 0.75rem;
+}
+
+.changelog-body :deep(p:last-child) {
+    margin-bottom: 0;
+}
+
+.changelog-body :deep(a) {
+    color: var(--ui-primary);
+    text-decoration: underline;
+}
+
+.changelog-body :deep(strong) {
+    font-weight: 600;
+}
+
+.changelog-body :deep(ul),
+.changelog-body :deep(ol) {
+    margin: 0.75rem 0;
+    padding-left: 1.25rem;
+}
+
+.changelog-body :deep(ul) {
+    list-style-type: disc;
+}
+
+.changelog-body :deep(ol) {
+    list-style-type: decimal;
+}
+</style>

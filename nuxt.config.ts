@@ -1,8 +1,7 @@
 export default defineNuxtConfig({
     modules: [
         '@nuxt/eslint',
-        '@nuxt/ui',
-        '@nuxt/content'
+        '@nuxt/ui'
     ],
 
     devtools: {
@@ -21,6 +20,9 @@ export default defineNuxtConfig({
 
     nitro: {
         preset: 'bun',
+        serverAssets: [
+            { baseName: 'changelog', dir: './content/changelog' }
+        ]
     },
 
     eslint: {
