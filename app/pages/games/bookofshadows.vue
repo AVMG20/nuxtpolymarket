@@ -273,6 +273,120 @@ function scaledSpinPayout(sp: BonusSpinResult, tier: BonusTier) {
   return sp.ordinaryPayout + sp.wildPayout * tier.multiplier
 }
 
+// --- audio -----------------------------------------------------------------------
+
+const AUDIO_SRC = {
+  music: '/slots/bookofshadows/background-music.mp3',
+  reel: '/slots/bookofshadows/reel.mp3',
+  button: '/slots/bookofshadows/button.mp3',
+  bonus: '/slots/bookofshadows/bonus.mp3',
+  bigWin: '/slots/bookofshadows/big-win.mp3',
+  drawLine: '/slots/bookofshadows/draw-line-4-sounds.mp3',
+  wildSpawn: '/slots/bookofshadows/wild-spawn.mp3'
+} as const
+
+type SfxKey = keyof typeof AUDIO_SRC
+
+const muted = ref(false)
+const volume = ref(70)
+const MUSIC_VOLUME = 0.4
+
+function applyVolume() {
+  const v = volume.value / 100
+  if (musicGain) musicGain.gain.value = v * MUSIC_VOLUME
+  if (sfxGain) sfxGain.gain.value = v
+}
+
+watch(volume, (value) => {
+  if (import.meta.client) localStorage.setItem('bos_volume', String(value))
+  applyVolume()
+})
+
+let audioCtx: AudioContext | null = null
+let musicGain: GainNode | null = null
+let sfxGain: GainNode | null = null
+let musicSource: AudioBufferSourceNode | null = null
+const buffers: Partial<Record<SfxKey, AudioBuffer>> = {}
+// draw-line-4-sounds.mp3 is four short "line trace" hits back-to-back; sliced
+// into equal offsets so each connection line draws with a random one.
+let drawLineSlices: { offset: number, duration: number }[] = []
+
+async function loadAudio() {
+  if (!import.meta.client) return
+  const Ctx = window.AudioContext ?? (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
+  if (!Ctx) return
+  audioCtx = new Ctx()
+  musicGain = audioCtx.createGain()
+  musicGain.connect(audioCtx.destination)
+  sfxGain = audioCtx.createGain()
+  sfxGain.connect(audioCtx.destination)
+  applyVolume()
+
+  await Promise.all(Object.entries(AUDIO_SRC).map(async ([key, url]) => {
+    try {
+      const res = await fetch(url)
+      const arr = await res.arrayBuffer()
+      buffers[key as SfxKey] = await audioCtx!.decodeAudioData(arr)
+    } catch { /* missing/broken asset — that cue just stays silent */ }
+  }))
+
+  const drawBuf = buffers.drawLine
+  if (drawBuf) {
+    const segDuration = drawBuf.duration / 4
+    drawLineSlices = Array.from({ length: 4 }, (_, i) => ({ offset: i * segDuration, duration: segDuration }))
+  }
+}
+
+// The context can only be created/resumed after a user gesture; spin, roll,
+// and the buy-bonus button all qualify.
+function ensureAudio(): AudioContext | null {
+  if (!audioCtx) return null
+  if (audioCtx.state === 'suspended') audioCtx.resume().catch(() => {})
+  if (!musicSource && !muted.value) startMusic()
+  return audioCtx
+}
+
+function startMusic() {
+  if (!audioCtx || !musicGain || !buffers.music || musicSource) return
+  musicSource = audioCtx.createBufferSource()
+  musicSource.buffer = buffers.music
+  musicSource.loop = true
+  musicSource.connect(musicGain)
+  musicSource.start()
+}
+
+function playSfx(key: Exclude<SfxKey, 'music' | 'drawLine'>) {
+  const ctx = ensureAudio()
+  if (!ctx || !sfxGain || muted.value) return
+  const buf = buffers[key]
+  if (!buf) return
+  const src = ctx.createBufferSource()
+  src.buffer = buf
+  src.connect(sfxGain)
+  src.start()
+}
+
+function playDrawLineSfx() {
+  const ctx = ensureAudio()
+  if (!ctx || !sfxGain || muted.value || !buffers.drawLine || !drawLineSlices.length) return
+  const slice = drawLineSlices[Math.floor(Math.random() * drawLineSlices.length)]!
+  const src = ctx.createBufferSource()
+  src.buffer = buffers.drawLine
+  src.connect(sfxGain)
+  src.start(0, slice.offset, slice.duration)
+}
+
+function toggleMuted() {
+  muted.value = !muted.value
+  if (import.meta.client) localStorage.setItem('bos_muted', muted.value ? '1' : '0')
+  if (muted.value) {
+    musicSource?.stop()
+    musicSource = null
+  } else {
+    ensureAudio()
+  }
+}
+
 // --- pixi setup ------------------------------------------------------------------
 
 async function initPixi() {
@@ -450,6 +564,15 @@ async function initPixi() {
   reelSet.position.set(MARGIN, MARGIN)
   pixiApp.stage.addChild(reelSet)
 
+  // Each reel kicks off its own spin slightly staggered, so hook the sound to
+  // the reel's own 'spin' phase rather than the shared spin() call — held
+  // reels during the bonus never enter 'spin' and so stay silent.
+  for (let i = 0; i < BOS_COLS; i++) {
+    reelSet.getReel(i).events.on('phase:enter', (phase: string) => {
+      if (phase === 'spin') playSfx('reel')
+    })
+  }
+
   linesLayer = new Graphics()
   pixiApp.stage.addChild(linesLayer)
 
@@ -561,6 +684,8 @@ function drawEdge(a: Cell, b: Cell): Promise<void> {
   const key = `${a.col}:${a.row}-${b.col}:${b.row}`
   const from = cellCenter(a.col, a.row)
   const to = cellCenter(b.col, b.row)
+
+  playDrawLineSfx()
 
   return new Promise((resolve) => {
     if (!GSAP) return resolve()
@@ -710,6 +835,7 @@ async function showBigWinPopup(totalMultiplier: number, amount: number) {
   bigWinGlow.value = tier.glow
   bigWinAmount.value = 0
   bigWinBanner.value = true
+  playSfx('bigWin')
 
   tickNumber(bigWinAmount, amount, 1400, false)
   await wait(2200)
@@ -758,6 +884,7 @@ async function expandColumn(col: number, triggerRow: number) {
     reelSet.setSymbolAt(col, row, 'bonuswild')
     const sym = reelSet.getReel(col).getSymbolAt(row)
     GSAP?.fromTo(sym.view.scale, { x: 1.3, y: 1.3 }, { x: 1, y: 1, duration: 0.18, ease: 'back.out(2)' })
+    playSfx('wildSpawn')
     await stepDelay(45)
   }
 
@@ -847,6 +974,7 @@ async function rollTier() {
 
   for (let i = 0; i < 12; i++) {
     rolledTier.value = BONUS_TIERS[Math.floor(Math.random() * BONUS_TIERS.length)]!
+    playSfx('reel')
     await stepDelay(60 + i * 8)
   }
   rolledTier.value = bonusData.value.tier
@@ -912,6 +1040,7 @@ async function spin(buy = false) {
       rolling.value = false
       showBonusPick.value = true
       status.value = 'The book awakens'
+      playSfx('bonus')
 
       await new Promise<void>((resolve) => {
         const stopWatch = watch(showBonusPick, (open) => {
@@ -954,7 +1083,15 @@ async function spin(buy = false) {
   }
 }
 
-onMounted(initPixi)
+onMounted(() => {
+  if (import.meta.client) {
+    if (localStorage.getItem('bos_muted') === '1') muted.value = true
+    const storedVolume = Number(localStorage.getItem('bos_volume'))
+    if (Number.isFinite(storedVolume) && storedVolume >= 0 && storedVolume <= 100) volume.value = storedVolume
+  }
+  void loadAudio()
+  initPixi()
+})
 
 onBeforeUnmount(() => {
   destroyed = true
@@ -969,6 +1106,10 @@ onBeforeUnmount(() => {
   pixiApp = null
   linesLayer = null
   effectsLayer = null
+  try {
+    musicSource?.stop()
+    void audioCtx?.close()
+  } catch { /* ignore */ }
 })
 </script>
 
@@ -978,7 +1119,7 @@ onBeforeUnmount(() => {
     <div class="bos-fog absolute inset-0" />
     <div class="bos-vignette absolute inset-0" />
 
-    <div class="relative z-[1] mx-auto w-full max-w-7xl [zoom:0.85]">
+    <div class="relative z-[1] mx-auto w-full max-w-7xl">
       <header class="mb-5 text-center">
         <p class="bos-eyebrow mb-1.5 text-[11px] font-bold tracking-[0.5em] uppercase">
           ✦ Open the forbidden pages ✦
@@ -1086,7 +1227,7 @@ onBeforeUnmount(() => {
             <button
               class="bos-buy-btn"
               :disabled="!ready || isSpinning || showBonusPick || bonusRunning || autoSpinEnabled || balance < buyBonusCost"
-              @click="spin(true)"
+              @click="playSfx('button'); spin(true)"
             >
               <UIcon
                 name="i-lucide-skull"
@@ -1149,7 +1290,7 @@ onBeforeUnmount(() => {
                   <button
                     class="bos-roll-btn"
                     :disabled="rolling || (!rolling && !!rolledTier)"
-                    @click="rollTier"
+                    @click="playSfx('button'); rollTier()"
                   >
                     {{ rolling ? 'Rolling…' : rolledTier ? 'Sealed' : 'Roll' }}
                   </button>
@@ -1226,7 +1367,7 @@ onBeforeUnmount(() => {
                   <button
                     class="bos-icon-btn"
                     :disabled="locked() || bet <= MIN_BET"
-                    @click="betDown"
+                    @click="playSfx('button'); betDown()"
                   >
                     1/2
                   </button>
@@ -1236,7 +1377,7 @@ onBeforeUnmount(() => {
                   <button
                     class="bos-spin-btn"
                     :disabled="!ready || isSpinning || showBonusPick || bonusRunning || (!autoSpinEnabled && balance < bet)"
-                    @click="autoSpinEnabled ? stopAutoSpin() : spin()"
+                    @click="playSfx('button'); autoSpinEnabled ? stopAutoSpin() : spin()"
                   >
                     <UIcon
                       v-if="isSpinning"
@@ -1256,14 +1397,14 @@ onBeforeUnmount(() => {
                     v-if="!autoSpinEnabled"
                     class="bos-auto-btn"
                     :disabled="!ready || isSpinning || showBonusPick || bonusRunning || balance < bet"
-                    @click="showAutoSpinModal = true"
+                    @click="playSfx('button'); showAutoSpinModal = true"
                   >
                     AUTO
                   </button>
                   <button
                     v-else
                     class="bos-auto-btn bos-auto-btn-stop"
-                    @click="stopAutoSpin"
+                    @click="playSfx('button'); stopAutoSpin()"
                   >
                     STOP
                   </button>
@@ -1273,7 +1414,7 @@ onBeforeUnmount(() => {
                   <button
                     class="bos-icon-btn"
                     :disabled="locked() || bet >= MAX_BET"
-                    @click="betUp"
+                    @click="playSfx('button'); betUp()"
                   >
                     2x
                   </button>
@@ -1286,7 +1427,7 @@ onBeforeUnmount(() => {
                 <UTooltip text="Rules & paytable">
                   <button
                     class="bos-mini-btn"
-                    @click="showHelp = true"
+                    @click="playSfx('button'); showHelp = true"
                   >
                     <UIcon
                       name="i-lucide-info"
@@ -1298,7 +1439,7 @@ onBeforeUnmount(() => {
                   <button
                     class="bos-mini-btn"
                     :class="{ 'bos-mini-btn-active': turbo }"
-                    @click="turbo = !turbo"
+                    @click="playSfx('button'); turbo = !turbo"
                   >
                     <UIcon
                       name="i-lucide-zap"
@@ -1306,6 +1447,28 @@ onBeforeUnmount(() => {
                     />
                   </button>
                 </UTooltip>
+                <UTooltip :text="muted ? 'Unmute' : 'Mute'">
+                  <button
+                    class="bos-mini-btn"
+                    :class="{ 'bos-mini-btn-active': muted }"
+                    @click="toggleMuted"
+                  >
+                    <UIcon
+                      :name="muted ? 'i-lucide-volume-x' : 'i-lucide-volume-2'"
+                      class="size-4"
+                    />
+                  </button>
+                </UTooltip>
+                <USlider
+                  v-model="volume"
+                  class="w-20 shrink-0"
+                  :min="0"
+                  :max="100"
+                  :step="5"
+                  :disabled="muted"
+                  size="sm"
+                  color="error"
+                />
               </div>
               <p
                 v-if="errorMsg"
@@ -1375,7 +1538,7 @@ onBeforeUnmount(() => {
             block
             color="neutral"
             variant="soft"
-            @click="startAutoSpin(count)"
+            @click="playSfx('button'); startAutoSpin(count)"
           >
             {{ count }}
           </UButton>
