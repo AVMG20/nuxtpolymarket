@@ -99,6 +99,8 @@ const bonusSpinTotal = ref(BONUS_SPINS)
 const bonusTotal = ref(0)
 const skullColumns = ref(0)
 
+const retriggerBanner = ref(false)
+
 const bigWinBanner = ref(false)
 const bigWinLabel = ref('')
 const bigWinAmount = ref(0)
@@ -185,14 +187,19 @@ const SYMBOL_NAME: Record<SlotSymbol, string> = {
   scythe: 'Scythe',
   hood: 'Hood',
   book: 'The Book (wild + scatter)',
-  bonuswild: 'Bonus Symbol (bonus only)'
+  bonuswild: 'Skull Wild (bonus only)' // not shown in the paytable, see PAYTABLE_ROWS
 }
 
-const PAYTABLE_ROWS = (Object.keys(PAYTABLE) as SlotSymbol[]).map(id => ({
-  id,
-  name: SYMBOL_NAME[id],
-  pays: PAYTABLE[id]
-})).reverse()
+// The Skull Wild (bonuswild) row is intentionally left out — it never lands in
+// the base game and its value only makes sense as "base rate × rolled tier",
+// which the bonus copy explains separately.
+const PAYTABLE_ROWS = (Object.keys(PAYTABLE) as SlotSymbol[])
+  .filter(id => id !== 'bonuswild')
+  .map(id => ({
+    id,
+    name: SYMBOL_NAME[id],
+    pays: PAYTABLE[id]
+  })).reverse()
 
 // Blood-and-bone big win tiers, in × bet of the full round payout.
 const WIN_TIERS = [
@@ -209,9 +216,10 @@ const wait = (ms: number) => new Promise<void>(r => setTimeout(r, ms))
 const stepDelay = (ms: number) => wait(turbo.value ? Math.round(ms * 0.55) : ms)
 const cellKey = (c: Cell) => `${c.col}:${c.row}`
 
-// A bonus tier's multiplier shown as a money value at the current bet — e.g.
-// a ×2 tier on a 10 bet reads as "20", which lands harder than "×2".
-const tierValue = (multiplier: number) => formatNumber(multiplier * bet.value, false)
+// The rolled bonus symbol's multiplier — every skull-column (wild) win during
+// the bonus is multiplied by this. Shown as "×8" so it never reads as a flat
+// prize: ordinary-symbol wins are unaffected, only skull-column wins scale.
+const tierMult = (multiplier: number) => `×${multiplier}`
 
 function symbolIconStyle(symbol: SlotSymbol, bonus = false, size = 30): SymbolIconStyle {
   const useBonusSheet = (bonus && symbol !== 'ten') || symbol === 'bonuswild'
@@ -952,10 +960,14 @@ async function runBonus(bonus: BonusResult) {
     await playBonusSpin(bonusSpin, tier)
     collected = Number((collected + scaledSpinPayout(bonusSpin, tier)).toFixed(2))
     tickNumber(bonusTotal, collected, 300)
-    // BOOK retrigger: this spin awarded extra spins — announce it before moving on.
+    // BOOK retrigger: this spin awarded extra spins — announce it with a full
+    // overlay (same weight as a win banner) so it can't be missed mid-bonus.
     if (bonusSpin.retriggered) {
       status.value = `+${BONUS_RETRIGGER_SPINS} spins — books awakened!`
-      await stepDelay(900)
+      retriggerBanner.value = true
+      playSfx('bonus')
+      await stepDelay(1700)
+      retriggerBanner.value = false
     }
     await stepDelay(120)
   }
@@ -1189,14 +1201,14 @@ onBeforeUnmount(() => {
                 <strong class="bos-value-blood text-sm">{{ skullColumns }}/{{ BOS_COLS }}</strong>
               </div>
               <div class="mt-3 flex items-center justify-between">
-                <span class="text-[11px] font-bold text-muted">Bonus symbol</span>
+                <span class="text-[11px] font-bold text-muted">Skull win multiplier</span>
                 <strong class="bos-value-bone inline-flex items-center gap-1.5 text-sm">
                   <span
                     class="bos-inline-symbol"
                     :style="symbolIconStyle(bonusData.tier.symbol, true, 22)"
                     aria-hidden="true"
                   />
-                  {{ bonusData.tier.label }} · {{ tierValue(bonusData.tier.multiplier) }}
+                  {{ bonusData.tier.label }} · <span class="bos-value-blood">{{ tierMult(bonusData.tier.multiplier) }}</span>
                 </strong>
               </div>
               <div class="mt-4 border-t border-white/5 pt-3 text-center">
@@ -1263,7 +1275,7 @@ onBeforeUnmount(() => {
                     THE BOOK AWAKENS
                   </p>
                   <p class="text-xs text-white/50">
-                    Roll your bonus symbol — skull columns pay at its rate
+                    Roll your bonus symbol — every skull-column win is multiplied by its value
                   </p>
 
                   <div
@@ -1287,7 +1299,11 @@ onBeforeUnmount(() => {
                     <span
                       v-if="rolledTier"
                       class="bos-tier-reveal-value"
-                    >{{ tierValue(rolledTier.multiplier) }}</span>
+                    >{{ tierMult(rolledTier.multiplier) }}</span>
+                    <span
+                      v-if="rolledTier"
+                      class="text-center text-[10px] font-bold tracking-wide text-white/45 uppercase"
+                    >skull-column wins</span>
                   </div>
 
                   <button
@@ -1297,6 +1313,27 @@ onBeforeUnmount(() => {
                   >
                     {{ rolling ? 'Rolling…' : rolledTier ? 'Sealed' : 'Roll' }}
                   </button>
+                </div>
+              </Transition>
+
+              <Transition name="pop">
+                <div
+                  v-if="retriggerBanner"
+                  class="absolute inset-0 z-30 flex flex-col items-center justify-center gap-2 bg-[rgba(6,4,5,0.86)] backdrop-blur-[4px]"
+                >
+                  <UIcon
+                    name="i-lucide-book-open"
+                    class="size-9 text-[#ef4444] drop-shadow-[0_0_16px_rgba(239,68,68,0.7)]"
+                  />
+                  <p class="bos-awaken-text">
+                    BOOKS AWAKENED
+                  </p>
+                  <strong class="bos-bigwin-amount">
+                    +{{ BONUS_RETRIGGER_SPINS }}
+                  </strong>
+                  <p class="text-xs font-bold tracking-wide text-white/55 uppercase">
+                    extra bonus spins
+                  </p>
                 </div>
               </Transition>
 
@@ -1562,16 +1599,19 @@ onBeforeUnmount(() => {
           </p>
           <p>
             {{ BONUS_TRIGGER_COUNT }}+ Books anywhere award {{ BONUS_SPINS }} bonus spins. Before they
-            start you roll a bonus symbol — commons roll often, premiums are rare. During the bonus
-            your symbol can land and lock its whole column wild for the rest of the round, paying at
-            its own value below; the dream is to roll a premium then fill the board with it. All
-            other symbols pay their normal base rate. Landing {{ BONUS_RETRIGGER_BOOKS }} books on a
-            single bonus spin adds {{ BONUS_RETRIGGER_SPINS }} more spins — once per bonus.
+            start you roll a bonus symbol — commons roll often, premiums are rare. During the bonus,
+            columns can lock into skull columns (walls of wilds) that stay for the rest of the round.
+            Every win made from those skull columns pays a high wild rate
+            <strong class="text-[#fecaca]">multiplied by your rolled symbol's value</strong> — so
+            Sword ×8 means each skull-column win pays 8 times that rate. All other symbols pay their
+            normal base rate, unaffected. The dream is to roll a high multiplier, then fill the board
+            with skulls. Landing {{ BONUS_RETRIGGER_BOOKS }} books on a single bonus spin adds
+            {{ BONUS_RETRIGGER_SPINS }} more spins — once per bonus.
           </p>
 
           <div>
             <p class="mb-1.5 text-[11px] font-black tracking-wide text-muted uppercase">
-              Bonus symbol values · at {{ formatNumber(bet, false) }} bet
+              Bonus symbol · skull-win multiplier
             </p>
             <div class="grid grid-cols-3 gap-1.5">
               <div
@@ -1585,7 +1625,7 @@ onBeforeUnmount(() => {
                   aria-hidden="true"
                 />
                 <span class="mt-0.5 block text-[10px] font-bold text-muted">{{ tier.label }}</span>
-                <span class="mt-0.5 block text-[11px] font-black text-[#fecaca]">{{ tierValue(tier.multiplier) }}</span>
+                <span class="mt-0.5 block text-[11px] font-black text-[#fecaca]">{{ tierMult(tier.multiplier) }}</span>
               </div>
             </div>
           </div>
@@ -1595,56 +1635,61 @@ onBeforeUnmount(() => {
             {{ formatNumber(BOS_DISPLAY_MAX_WIN, false, 0) }}x bet.
           </p>
 
-          <div class="overflow-hidden rounded-lg border border-default">
-            <table class="w-full text-left text-xs">
-              <thead>
-                <tr class="bg-elevated text-[10px] font-black tracking-wide uppercase">
-                  <th class="px-3 py-2">
-                    Symbol
-                  </th>
-                  <th class="px-2 py-2 text-right">
-                    ×3
-                  </th>
-                  <th class="px-2 py-2 text-right">
-                    ×4
-                  </th>
-                  <th class="px-3 py-2 text-right">
-                    ×5
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr
-                  v-for="row in PAYTABLE_ROWS"
-                  :key="row.id"
-                  class="border-t border-default"
-                >
-                  <td class="px-3 py-1.5 font-bold">
-                    <span class="inline-flex items-center gap-2">
-                      <span
-                        class="bos-table-sprite"
-                        :style="symbolIconStyle(row.id, false, 22)"
-                        aria-hidden="true"
-                      />
-                      {{ row.name }}
-                    </span>
-                  </td>
-                  <td class="px-2 py-1.5 text-right">
-                    {{ row.pays[0] }}x
-                  </td>
-                  <td class="px-2 py-1.5 text-right">
-                    {{ row.pays[1] }}x
-                  </td>
-                  <td class="px-3 py-1.5 text-right">
-                    {{ row.pays[2] }}x
-                  </td>
-                </tr>
-              </tbody>
-            </table>
+          <div>
+            <p class="mb-1.5 text-[11px] font-black tracking-wide text-muted uppercase">
+              Symbol payouts · at {{ formatNumber(bet, false) }} bet
+            </p>
+            <div class="overflow-hidden rounded-lg border border-default">
+              <table class="w-full text-left text-xs">
+                <thead>
+                  <tr class="bg-elevated text-[10px] font-black tracking-wide uppercase">
+                    <th class="px-3 py-2">
+                      Symbol
+                    </th>
+                    <th class="px-2 py-2 text-right">
+                      3 cols
+                    </th>
+                    <th class="px-2 py-2 text-right">
+                      4 cols
+                    </th>
+                    <th class="px-3 py-2 text-right">
+                      5 cols
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr
+                    v-for="row in PAYTABLE_ROWS"
+                    :key="row.id"
+                    class="border-t border-default"
+                  >
+                    <td class="px-3 py-1.5 font-bold">
+                      <span class="inline-flex items-center gap-2">
+                        <span
+                          class="bos-table-sprite"
+                          :style="symbolIconStyle(row.id, false, 22)"
+                          aria-hidden="true"
+                        />
+                        {{ row.name }}
+                      </span>
+                    </td>
+                    <td class="px-2 py-1.5 text-right">
+                      {{ formatNumber(row.pays[0] * bet, false) }}
+                    </td>
+                    <td class="px-2 py-1.5 text-right">
+                      {{ formatNumber(row.pays[1] * bet, false) }}
+                    </td>
+                    <td class="px-3 py-1.5 text-right">
+                      {{ formatNumber(row.pays[2] * bet, false) }}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
           </div>
           <p class="text-[11px]">
-            Paytable values are × total bet. Skull Wild pays only appear during the bonus and are
-            further multiplied by your rolled tier.
+            Payouts shown are the amount won at your current bet of {{ formatNumber(bet, false) }},
+            by number of connected columns. Change your bet to see them scale.
           </p>
         </div>
       </template>
