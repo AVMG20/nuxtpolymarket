@@ -98,7 +98,7 @@ const BONUS_WILD_CHANCE = 0.07
 
 // Cost (× bet) of the "Buy Bonus" feature buy. Tuned via
 // scripts/bookofshadows-rtp.ts (buyBonus mode) to track the natural bonus RTP.
-export const BOS_BUY_BONUS_COST = 16.5
+export const BOS_BUY_BONUS_COST = 57
 
 // The bonus "symbol roll": before the spins start, one paytable symbol is
 // drawn (weighted — commons are likely, premiums are the dream). Every win

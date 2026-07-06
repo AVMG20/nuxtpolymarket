@@ -32,6 +32,14 @@ const slotGames: {
     to: '/games/aethergates',
     gradient: 'from-cyan-950 to-slate-900',
     iconColor: 'text-cyan-300'
+  },
+  {
+    name: 'Book of Shadows',
+    description: '5×6 zigzag-connection grid with a column-locking fill-the-book bonus',
+    icon: 'i-lucide-book-open',
+    to: '/games/bookofshadows',
+    gradient: 'from-violet-950 to-slate-900',
+    iconColor: 'text-violet-400'
   }
 ]
 
