@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { BonusResult, BonusSpinResult, BonusTier, BookOfShadowsResult, Cell, ConnectionWin, SlotSymbol } from '#shared/utils/gamelogic/bookofshadows'
 import { BONUS_TIERS, BOS_BUY_BONUS_COST, BOS_COLS, BOS_MAX_WIN_MULT, BOS_MIN_CONNECTION, BOS_ROWS, BONUS_SPINS, BONUS_RETRIGGER_BOOKS, BONUS_RETRIGGER_SPINS, BONUS_TRIGGER_COUNT, PAYTABLE, SYMBOL_WEIGHTS, playBookOfShadows } from '#shared/utils/gamelogic/bookofshadows'
+import { BOS_BONUS_SHEET_H, BOS_BONUS_SHEET_W, BOS_BONUS_SPRITE_SRC, BOS_BONUS_SYMBOL_META, BOS_SHEET_H, BOS_SHEET_W, BOS_SPRITE_SRC, BOS_SYMBOL_META } from '~/utils/bookofshadows-sprite'
 
 definePageMeta({
   title: 'Book of Shadows'
@@ -128,9 +129,15 @@ let GSAP: typeof import('gsap').gsap | null = null
 let destroyed = false
 
 // While a bonus is running, locked "bonuswild" cells render as an upgraded
-// version of the rolled bonus symbol (blood frame, same glyph) instead of a
-// generic skull — when real assets land these become their own sprites.
+// version of the rolled bonus symbol (blood frame, same sprite) instead of a
+// generic skull.
 let bonusSymbolOverride: SlotSymbol | null = null
+
+// Symbol textures cropped from sprite.png (base grid) and bonus.png (the
+// bonus-tier reveal / locked-column art). Crop rects live in
+// app/utils/bookofshadows-sprite.ts — tune them via /games/bookofshadows-sprite-debug.
+const TEX_BASE: Partial<Record<SlotSymbol, import('pixi.js').Texture>> = {}
+const TEX_BONUS: Partial<Record<SlotSymbol, import('pixi.js').Texture>> = {}
 
 // --- theme: dark grimoire, bone gray, blood red ---------------------------------
 
@@ -145,18 +152,26 @@ interface SymbolVisual {
   label?: string
 }
 
+interface SymbolIconStyle {
+  width: string
+  height: string
+  backgroundImage: string
+  backgroundSize: string
+  backgroundPosition: string
+}
+
 const SYMBOL_VISUAL: Record<SlotSymbol, SymbolVisual> = {
   ten: { glyph: '10', glyphSize: 38, serif: true, glyphColor: 0x6b7280, fill: 0x121417, rim: 0x2b2f36, rimAlpha: 0.9 },
   jack: { glyph: 'J', glyphSize: 46, serif: true, glyphColor: 0x7d8694, fill: 0x121417, rim: 0x2b2f36, rimAlpha: 0.9 },
   queen: { glyph: 'Q', glyphSize: 46, serif: true, glyphColor: 0x94a3b8, fill: 0x131519, rim: 0x323843, rimAlpha: 0.9 },
   king: { glyph: 'K', glyphSize: 46, serif: true, glyphColor: 0xb6bec9, fill: 0x14161a, rim: 0x3a414d, rimAlpha: 0.9 },
   ace: { glyph: 'A', glyphSize: 46, serif: true, glyphColor: 0xe2e8f0, fill: 0x15171c, rim: 0x4b5563, rimAlpha: 0.95 },
-  sword: { glyph: '⚔️', glyphSize: 44, serif: false, glyphColor: 0xffffff, fill: 0x15141a, rim: 0x52525b, rimAlpha: 1, label: 'SWORD' },
-  orb: { glyph: '🔮', glyphSize: 48, serif: false, glyphColor: 0xffffff, fill: 0x161320, rim: 0x5b4a8a, rimAlpha: 1, label: 'ORB' },
-  scythe: { glyph: '🔪', glyphSize: 48, serif: false, glyphColor: 0xffffff, fill: 0x0f1a14, rim: 0x2f6b4f, rimAlpha: 1, label: 'SCYTHE' },
-  hood: { glyph: '🥷', glyphSize: 48, serif: false, glyphColor: 0xffffff, fill: 0x1c1114, rim: 0x8a3a3a, rimAlpha: 1, label: 'HOOD' },
-  book: { glyph: '📖', glyphSize: 50, serif: false, glyphColor: 0xffffff, fill: 0x1f0d0d, rim: 0xb91c1c, rimAlpha: 1, label: 'BOOK' },
-  bonuswild: { glyph: '💀', glyphSize: 52, serif: false, glyphColor: 0xffffff, fill: 0x230607, rim: 0xef4444, rimAlpha: 1, label: 'WILD' }
+  sword: { glyph: 'S', glyphSize: 44, serif: false, glyphColor: 0xffffff, fill: 0x15141a, rim: 0x52525b, rimAlpha: 1, label: 'SWORD' },
+  orb: { glyph: 'O', glyphSize: 48, serif: false, glyphColor: 0xffffff, fill: 0x161320, rim: 0x5b4a8a, rimAlpha: 1, label: 'ORB' },
+  scythe: { glyph: 'Y', glyphSize: 48, serif: false, glyphColor: 0xffffff, fill: 0x0f1a14, rim: 0x2f6b4f, rimAlpha: 1, label: 'SCYTHE' },
+  hood: { glyph: 'H', glyphSize: 48, serif: false, glyphColor: 0xffffff, fill: 0x1c1114, rim: 0x8a3a3a, rimAlpha: 1, label: 'HOOD' },
+  book: { glyph: 'B', glyphSize: 50, serif: false, glyphColor: 0xffffff, fill: 0x1f0d0d, rim: 0xb91c1c, rimAlpha: 1, label: 'BOOK' },
+  bonuswild: { glyph: 'W', glyphSize: 52, serif: false, glyphColor: 0xffffff, fill: 0x230607, rim: 0xef4444, rimAlpha: 1, label: 'WILD' }
 }
 
 const SYMBOL_NAME: Record<SlotSymbol, string> = {
@@ -176,7 +191,6 @@ const SYMBOL_NAME: Record<SlotSymbol, string> = {
 const PAYTABLE_ROWS = (Object.keys(PAYTABLE) as SlotSymbol[]).map(id => ({
   id,
   name: SYMBOL_NAME[id],
-  glyph: SYMBOL_VISUAL[id].glyph,
   pays: PAYTABLE[id]
 })).reverse()
 
@@ -198,6 +212,34 @@ const cellKey = (c: Cell) => `${c.col}:${c.row}`
 // A bonus tier's multiplier shown as a money value at the current bet — e.g.
 // a ×2 tier on a 10 bet reads as "20", which lands harder than "×2".
 const tierValue = (multiplier: number) => formatNumber(multiplier * bet.value, false)
+
+function symbolIconStyle(symbol: SlotSymbol, bonus = false, size = 30): SymbolIconStyle {
+  const useBonusSheet = (bonus && symbol !== 'ten') || symbol === 'bonuswild'
+  const meta = useBonusSheet
+    ? BOS_BONUS_SYMBOL_META[symbol === 'bonuswild' ? 'book' : symbol as BonusTier['symbol']]
+    : BOS_SYMBOL_META[symbol as Exclude<SlotSymbol, 'bonuswild'>]
+  const src = useBonusSheet ? BOS_BONUS_SPRITE_SRC : BOS_SPRITE_SRC
+  const sheetW = useBonusSheet ? BOS_BONUS_SHEET_W : BOS_SHEET_W
+  const sheetH = useBonusSheet ? BOS_BONUS_SHEET_H : BOS_SHEET_H
+  const [x, y, w, h] = meta.rect
+  const scale = size / Math.max(w, h)
+
+  return {
+    width: `${Math.round(w * scale)}px`,
+    height: `${Math.round(h * scale)}px`,
+    backgroundImage: `url(${src})`,
+    backgroundSize: `${sheetW * scale}px ${sheetH * scale}px`,
+    backgroundPosition: `${-x * scale}px ${-y * scale}px`
+  }
+}
+
+function scaledRect(rect: [number, number, number, number], sourceW: number, sourceH: number, sheetW: number, sheetH: number) {
+  const [x, y, w, h] = rect
+  const sx = sourceW / sheetW
+  const sy = sourceH / sheetH
+
+  return [x * sx, y * sy, w * sx, h * sy] as [number, number, number, number]
+}
 
 function pulseWin() {
   totalWinPulse.value = true
@@ -242,12 +284,30 @@ async function initPixi() {
     import('gsap')
   ])
   if (destroyed) return
-  const { Application, Container, Graphics, Text } = pixi
+  const { Application, Assets, Container, Graphics, Rectangle, Sprite, Text, Texture } = pixi
   const { ReelSetBuilder, ReelSymbol, SpeedPresets } = reels
   GSAP = gsapMod.gsap ?? gsapMod.default
 
+  const [baseSheet, bonusSheet] = await Promise.all([
+    Assets.load(BOS_SPRITE_SRC),
+    Assets.load(BOS_BONUS_SPRITE_SRC)
+  ])
+  for (const [id, meta] of Object.entries(BOS_SYMBOL_META)) {
+    TEX_BASE[id as SlotSymbol] = new Texture({
+      source: baseSheet.source,
+      frame: new Rectangle(...scaledRect(meta.rect, baseSheet.source.width, baseSheet.source.height, BOS_SHEET_W, BOS_SHEET_H))
+    })
+  }
+  for (const [id, meta] of Object.entries(BOS_BONUS_SYMBOL_META)) {
+    TEX_BONUS[id as SlotSymbol] = new Texture({
+      source: bonusSheet.source,
+      frame: new Rectangle(...scaledRect(meta.rect, bonusSheet.source.width, bonusSheet.source.height, BOS_BONUS_SHEET_W, BOS_BONUS_SHEET_H))
+    })
+  }
+
   class ShadowSymbol extends ReelSymbol {
     private readonly tile = new Graphics()
+    private readonly sprite = new Sprite()
 
     private readonly glyph = new Text({
       text: '',
@@ -265,9 +325,10 @@ async function initPixi() {
 
     constructor() {
       super()
+      this.sprite.anchor.set(0.5)
       this.glyph.anchor.set(0.5)
       this.caption.anchor.set(0.5)
-      this.view.addChild(this.tile, this.glyph, this.caption)
+      this.view.addChild(this.tile, this.sprite, this.glyph, this.caption)
     }
 
     protected onActivate(symbolId: string): void {
@@ -303,6 +364,7 @@ async function initPixi() {
       // Bonus cells wear the blood frame of `bonuswild` but show the rolled
       // bonus symbol itself — the orb pays, so the orb is what you see.
       const face = isBonusCell && bonusSymbolOverride ? SYMBOL_VISUAL[bonusSymbolOverride] : frame
+      const texture = isBonusCell && bonusSymbolOverride ? TEX_BONUS[bonusSymbolOverride] : TEX_BASE[this.symbol]
       const pad = 3
       const isSpecial = this.symbol === 'book' || isBonusCell
 
@@ -319,11 +381,25 @@ async function initPixi() {
         this.tile.stroke({ color: frame.rim, width: 4, alpha: 0.18 })
       }
 
-      this.glyph.style.fontFamily = face.serif ? 'Georgia, "Times New Roman", serif' : 'system-ui, sans-serif'
-      this.glyph.style.fontSize = face.glyphSize
-      // Royals get a blood-tinted letter in their upgraded bonus form.
-      this.glyph.style.fill = isBonusCell && bonusSymbolOverride && face.serif ? 0xfca5a5 : face.glyphColor
-      this.glyph.text = face.glyph
+      if (texture) {
+        const labelReserve = frame.label || isBonusCell ? 18 : 0
+        const maxW = this.w - pad * 6
+        const maxH = this.h - pad * 6 - labelReserve
+        const scale = Math.min(maxW / texture.width, maxH / texture.height)
+        this.sprite.texture = texture
+        this.sprite.scale.set(scale)
+        this.sprite.position.set(this.w / 2, this.h / 2 - (labelReserve ? 7 : 0))
+        this.sprite.visible = true
+        this.glyph.visible = false
+      } else {
+        this.sprite.visible = false
+        this.glyph.visible = true
+        this.glyph.style.fontFamily = face.serif ? 'Georgia, "Times New Roman", serif' : 'system-ui, sans-serif'
+        this.glyph.style.fontSize = face.glyphSize
+        // Royals get a blood-tinted letter in their upgraded bonus form.
+        this.glyph.style.fill = isBonusCell && bonusSymbolOverride && face.serif ? 0xfca5a5 : face.glyphColor
+        this.glyph.text = face.glyph
+      }
 
       const label = isBonusCell && bonusSymbolOverride ? 'BONUS' : frame.label
       this.glyph.position.set(this.w / 2, this.h / 2 - (label ? 6 : 0))
@@ -969,7 +1045,14 @@ onBeforeUnmount(() => {
               </div>
               <div class="mt-3 flex items-center justify-between">
                 <span class="text-[11px] font-bold text-muted">Bonus symbol</span>
-                <strong class="bos-value-bone text-sm">{{ SYMBOL_VISUAL[bonusData.tier.symbol].glyph }} {{ bonusData.tier.label }} · {{ tierValue(bonusData.tier.multiplier) }}</strong>
+                <strong class="bos-value-bone inline-flex items-center gap-1.5 text-sm">
+                  <span
+                    class="bos-inline-symbol"
+                    :style="symbolIconStyle(bonusData.tier.symbol, true, 22)"
+                    aria-hidden="true"
+                  />
+                  {{ bonusData.tier.label }} · {{ tierValue(bonusData.tier.multiplier) }}
+                </strong>
               </div>
               <div class="mt-4 border-t border-white/5 pt-3 text-center">
                 <span class="text-[10px] font-black tracking-wide uppercase text-muted">Bonus total</span>
@@ -1042,7 +1125,16 @@ onBeforeUnmount(() => {
                     class="bos-tier-tile flex flex-col items-center justify-center gap-0.5"
                     :class="{ 'bos-tier-tile-settled': !rolling && rolledTier }"
                   >
-                    <span class="text-3xl leading-none">{{ rolledTier ? SYMBOL_VISUAL[rolledTier.symbol].glyph : '?' }}</span>
+                    <span
+                      v-if="rolledTier"
+                      class="bos-tier-sprite"
+                      :style="symbolIconStyle(rolledTier.symbol, true, 50)"
+                      aria-hidden="true"
+                    />
+                    <span
+                      v-else
+                      class="text-3xl leading-none"
+                    >?</span>
                     <span class="px-2 text-center text-xs leading-tight font-black">{{ rolledTier?.label ?? '' }}</span>
                     <span
                       v-if="rolledTier"
@@ -1317,7 +1409,11 @@ onBeforeUnmount(() => {
                 :key="tier.id"
                 class="bos-tier-chip"
               >
-                <span class="block text-sm leading-none">{{ SYMBOL_VISUAL[tier.symbol].glyph }}</span>
+                <span
+                  class="bos-chip-sprite"
+                  :style="symbolIconStyle(tier.symbol, true, 24)"
+                  aria-hidden="true"
+                />
                 <span class="mt-0.5 block text-[10px] font-bold text-muted">{{ tier.label }}</span>
                 <span class="mt-0.5 block text-[11px] font-black text-[#fecaca]">{{ tierValue(tier.multiplier) }}</span>
               </div>
@@ -1354,7 +1450,14 @@ onBeforeUnmount(() => {
                   class="border-t border-default"
                 >
                   <td class="px-3 py-1.5 font-bold">
-                    {{ row.glyph }} {{ row.name }}
+                    <span class="inline-flex items-center gap-2">
+                      <span
+                        class="bos-table-sprite"
+                        :style="symbolIconStyle(row.id, false, 22)"
+                        aria-hidden="true"
+                      />
+                      {{ row.name }}
+                    </span>
                   </td>
                   <td class="px-2 py-1.5 text-right">
                     {{ row.pays[0] }}x
@@ -1568,6 +1671,30 @@ onBeforeUnmount(() => {
 
 .bos-value-bone {
   color: var(--bos-bone);
+}
+
+.bos-inline-symbol,
+.bos-tier-sprite,
+.bos-chip-sprite,
+.bos-table-sprite {
+  display: inline-block;
+  flex: 0 0 auto;
+  background-repeat: no-repeat;
+  image-rendering: auto;
+}
+
+.bos-inline-symbol,
+.bos-table-sprite {
+  filter: drop-shadow(0 0 5px rgba(239, 68, 68, 0.25));
+}
+
+.bos-tier-sprite {
+  filter: drop-shadow(0 0 12px rgba(239, 68, 68, 0.45));
+}
+
+.bos-chip-sprite {
+  margin: 0 auto;
+  filter: drop-shadow(0 0 7px rgba(239, 68, 68, 0.28));
 }
 
 .bos-progress {
