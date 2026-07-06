@@ -18,10 +18,17 @@ export default defineNuxtConfig({
 
     compatibilityDate: '2025-01-15',
 
+    vite: {
+        build: {
+            // pixi.js is a WebGL engine only loaded on game pages, not the main bundle
+            chunkSizeWarningLimit: 900
+        }
+    },
+
     nitro: {
         preset: 'bun',
         serverAssets: [
-            { baseName: 'changelog', dir: './content/changelog' }
+            { baseName: 'changelog', dir: '../content/changelog' }
         ]
     },
 

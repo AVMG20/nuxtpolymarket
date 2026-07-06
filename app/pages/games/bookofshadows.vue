@@ -372,7 +372,10 @@ function playDrawLineSfx() {
   const slice = drawLineSlices[Math.floor(Math.random() * drawLineSlices.length)]!
   const src = ctx.createBufferSource()
   src.buffer = buffers.drawLine
-  src.connect(sfxGain)
+  const gain = ctx.createGain()
+  gain.gain.value = 0.7
+  src.connect(gain)
+  gain.connect(sfxGain)
   src.start(0, slice.offset, slice.duration)
 }
 
