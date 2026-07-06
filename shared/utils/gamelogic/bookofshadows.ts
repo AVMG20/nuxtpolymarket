@@ -12,15 +12,15 @@
 // ── Bonus ("fill the columns") ───────────────────────────────────────────────
 // 3+ BOOK symbols anywhere trigger the bonus. The whole bonus playthrough
 // (BONUS_SPINS reel spins, which columns lock with the rare bonus wild and
-// when, every connection along the way) is precomputed in one shot — the
-// player's tier pick never changes what actually happened, so we only ever
-// have to simulate it once regardless of which tier they end up on.
+// when, every connection along the way) is precomputed in one shot, the tier
+// is picked server-side, and the ENTIRE payout (trigger-spin grid win + bonus
+// total) is settled on the triggering call. The client's "roll" button and
+// the bonus spins it plays afterwards are purely cosmetic replays of this
+// precomputed result — no second API call, nothing client-supplied is trusted.
 //
-// The bonus tier is picked entirely server-side — the client's "roll" button
-// is a purely cosmetic reveal animation with no influence on the outcome.
 // The tier ONLY scales the value of the special BONUS_WILD symbol itself
-// (`wildBaseline`); every ordinary symbol win during the bonus (`ordinaryPayout`)
-// pays at the exact same PAYTABLE rate as a base spin, tier or no tier.
+// (`wildBaseline` → `wildPayout`); every ordinary symbol win during the bonus
+// (`ordinaryPayout`) pays at the exact same PAYTABLE rate as a base spin.
 //
 // During bonus spins, an unlocked column has a small chance per spin to land
 // the rare BONUS_WILD symbol. At most one BONUS_WILD cell is ever placed in a
@@ -52,20 +52,23 @@ export const SYMBOL_WEIGHTS: Record<Exclude<SlotSymbol, 'bonuswild'>, number> = 
 // The 6-row grid makes connections land far more often than a classic 3-row
 // payline slot, so these sit much lower than they look at first glance. This
 // is the ONE table used everywhere — base spins and bonus spins alike — so a
-// symbol is never worth less just because it landed during the bonus. Tuned
-// via scripts/bookofshadows-rtp.ts to land total RTP around 95%.
+// symbol is never worth less just because it landed during the bonus.
+//
+// Deliberately stingy: the base game is a slow bleed that only returns
+// ~15-20% of total RTP — the real money lives in the bonus (skull columns ×
+// the rolled bonus symbol). Tuned via scripts/bookofshadows-rtp.ts.
 export const PAYTABLE: Record<SlotSymbol, [number, number, number]> = {
-  ten: [0.35, 0.9, 1.8],
-  jack: [0.35, 0.9, 1.8],
-  queen: [0.45, 1.35, 2.7],
-  king: [0.55, 1.8, 3.6],
-  ace: [0.9, 2.25, 4.5],
-  raven: [1.1, 2.7, 6.3],
-  cat: [1.35, 3.6, 9],
-  potion: [1.8, 4.5, 10.8],
-  cauldron: [2.25, 6.3, 16.2],
-  wild: [5.4, 16.2, 54],
-  bonuswild: [9, 31.5, 108]
+  ten: [0.08, 0.2, 0.4],
+  jack: [0.08, 0.2, 0.4],
+  queen: [0.1, 0.3, 0.6],
+  king: [0.12, 0.4, 0.8],
+  ace: [0.2, 0.5, 1],
+  raven: [0.25, 0.6, 1.4],
+  cat: [0.3, 0.8, 2],
+  potion: [0.4, 1, 2.4],
+  cauldron: [0.5, 1.4, 3.6],
+  wild: [1.2, 3.6, 12],
+  bonuswild: [6, 18, 55]
 }
 
 export const BOS_MIN_CONNECTION = 3
@@ -77,26 +80,42 @@ const SYMBOL_WEIGHT_VALUES = SYMBOL_KEYS.map(k => SYMBOL_WEIGHTS[k])
 
 export const BONUS_TRIGGER_COUNT = 3 // BOOK symbols needed anywhere on the grid
 export const BONUS_SPINS = 10 // fixed spin count, no resets/extensions
-// Chance an unlocked column locks in on any given bonus spin. Even one locked
-// column lets several ordinary symbols in column 0 ride the same wild bridge
-// to a win every remaining spin, so this has to stay small — a 4-5 column
-// clear should be a very rare jackpot, not a common outcome over 10 spins.
-// Tuned via scripts/bookofshadows-rtp.ts.
-const BONUS_WILD_CHANCE = 0.007
+// Chance an unlocked column locks in on any given bonus spin. The bonus is
+// where nearly all of the RTP lives now, so skulls land often enough that
+// most bonuses lock at least one column — but a 4-5 column clear stays a
+// rare jackpot. Tuned via scripts/bookofshadows-rtp.ts.
+const BONUS_WILD_CHANCE = 0.09
 
 // Cost (× bet) of the "Buy Bonus" feature buy. Tuned via
 // scripts/bookofshadows-rtp.ts (buyBonus mode) to track the natural bonus RTP.
 export const BOS_BUY_BONUS_COST = 16.5
 
-export interface BonusTier { id: string, label: string, multiplier: number }
+// The bonus "symbol roll": before the spins start, one paytable symbol is
+// drawn (weighted — commons are likely, premiums are the dream). Every win
+// paid at the skull rate is multiplied by the rolled symbol's multiplier, so
+// the player is hoping for a rare symbol AND a board full of skulls. Values
+// scale with bet automatically since all pays are × bet.
+export interface BonusTier {
+  id: string
+  symbol: Exclude<SlotSymbol, 'wild' | 'bonuswild'>
+  label: string
+  multiplier: number
+  weight: number
+}
 
+// Top-heavy on purpose: the three premiums (×10/×15/×20) are rare rolls, and
+// even rolling one still needs skull columns to actually land — but a premium
+// roll plus an early multi-column lock is where the 5,000x-10,000x runs live.
 export const BONUS_TIERS: BonusTier[] = [
-  { id: 'ember', label: 'Ember Candle', multiplier: 2 },
-  { id: 'chalice', label: 'Silver Chalice', multiplier: 3 },
-  { id: 'ravenseye', label: 'Raven\'s Eye', multiplier: 5 },
-  { id: 'cauldron', label: 'Witch\'s Cauldron', multiplier: 8 },
-  { id: 'bloodmoon', label: 'Blood Moon', multiplier: 15 },
-  { id: 'grimoire', label: 'Grimoire', multiplier: 25 }
+  { id: 'ten', symbol: 'ten', label: 'Ten', multiplier: 1, weight: 26 },
+  { id: 'jack', symbol: 'jack', label: 'Jack', multiplier: 1, weight: 22 },
+  { id: 'queen', symbol: 'queen', label: 'Queen', multiplier: 1.5, weight: 17 },
+  { id: 'king', symbol: 'king', label: 'King', multiplier: 2, weight: 13 },
+  { id: 'ace', symbol: 'ace', label: 'Ace', multiplier: 2.5, weight: 9 },
+  { id: 'raven', symbol: 'raven', label: 'Raven', multiplier: 4, weight: 6 },
+  { id: 'cat', symbol: 'cat', label: 'Black Cat', multiplier: 10, weight: 4 },
+  { id: 'potion', symbol: 'potion', label: 'Potion', multiplier: 15, weight: 2 },
+  { id: 'cauldron', symbol: 'cauldron', label: 'Cauldron', multiplier: 20, weight: 1 }
 ]
 
 // --- crypto RNG helpers -----------------------------------------------------
@@ -151,6 +170,8 @@ export interface BonusResult {
   // what tier is rolled, so they're summed and paid separately, unscaled.
   ordinaryPayout: number // sum of every spin's non-wild wins, paid as-is
   wildBaseline: number // sum of every spin's BONUS_WILD wins, BEFORE the tier multiplier
+  wildPayout: number // wildBaseline × tier.multiplier — what the wild wins actually pay
+  totalWin: number // ordinaryPayout + wildPayout — the bonus's full payout, pre max-win cap
 }
 
 export interface BookOfShadowsResult {
@@ -160,10 +181,10 @@ export interface BookOfShadowsResult {
   payout: number
   won: boolean
   maxWin: number
+  basePayout: number // the triggering grid's own wins (payout minus the bonus part)
   bonusTriggered?: boolean
   bonus?: BonusResult | null
   cost?: number
-  resolvedTier?: BonusTier
   [key: string]: unknown
 }
 
@@ -293,7 +314,7 @@ function detectConnections(grid: SlotSymbol[][], bet: number, wildSymbols: reado
 // --- bonus simulation --------------------------------------------------------
 
 function pickBonusTier(): BonusTier {
-  return BONUS_TIERS[Math.floor(rand() * BONUS_TIERS.length)]!
+  return weightedPick(BONUS_TIERS, BONUS_TIERS.map(t => t.weight))
 }
 
 function simulateBonusSpin(locked: Set<number>): Pick<BonusSpinResult, 'landedGrid' | 'expandedGrid' | 'newlyLocked'> {
@@ -345,12 +366,19 @@ function simulateBonus(bet: number): BonusResult {
     wildBaseline += wildPayout
   }
 
+  const tier = pickBonusTier()
+  const ordinary = Math.round(ordinaryPayout * 10000) / 10000
+  const baseline = Math.round(wildBaseline * 10000) / 10000
+  const wildPayout = Math.round(baseline * tier.multiplier * 10000) / 10000
+
   return {
-    tier: pickBonusTier(),
+    tier,
     spins,
     lockedColumnsFinal: [...locked],
-    ordinaryPayout: Math.round(ordinaryPayout * 10000) / 10000,
-    wildBaseline: Math.round(wildBaseline * 10000) / 10000
+    ordinaryPayout: ordinary,
+    wildBaseline: baseline,
+    wildPayout,
+    totalWin: Math.round((ordinary + wildPayout) * 10000) / 10000
   }
 }
 
@@ -363,27 +391,6 @@ export function playBookOfShadows(bet: number, options?: Record<string, unknown>
 
   const maxWin = bet * BOS_MAX_WIN_MULT
 
-  // Step 2 of the bonus flow: the player already watched the precomputed
-  // playthrough and saw their (server-picked) tier revealed. Pay out —
-  // no new spin happens here, and (for now, no anti-tamper) we trust the
-  // ordinary/wild sums the client sends back. Only the wild portion is
-  // scaled by the tier multiplier; ordinary symbols pay their normal rate.
-  const resolve = options?.resolveBonus as { ordinaryPayout?: number, wildBaseline?: number, tierId?: string } | undefined
-  if (resolve && typeof resolve.ordinaryPayout === 'number' && typeof resolve.wildBaseline === 'number' && typeof resolve.tierId === 'string') {
-    const tier = BONUS_TIERS.find(t => t.id === resolve.tierId) ?? BONUS_TIERS[0]!
-    const payout = Math.round(Math.min(resolve.ordinaryPayout + resolve.wildBaseline * tier.multiplier, maxWin) * 10000) / 10000
-    return {
-      bet,
-      grid: [],
-      wins: [],
-      payout,
-      won: payout > 0,
-      maxWin,
-      cost: 0, // the bet was already charged on the triggering spin
-      resolvedTier: tier
-    }
-  }
-
   // Feature buy: skip waiting for natural odds, force the trigger, and charge
   // the buy-bonus premium instead of the raw bet. `forceBonus` (below) stays a
   // free dev/testing-only hook, not exposed in the UI once buyBonus exists.
@@ -393,14 +400,18 @@ export function playBookOfShadows(bet: number, options?: Record<string, unknown>
     forcePlaceBonusSymbols(grid)
     const { wins, payout: rawPayout } = detectConnections(grid, bet)
     const bonus = simulateBonus(bet)
-    const payout = Math.round(Math.min(rawPayout, maxWin) * 10000) / 10000
+    const basePayout = Math.round(Math.min(rawPayout, maxWin) * 10000) / 10000
+    // The full round — trigger grid + every bonus spin, tier already applied —
+    // settles right here in one call.
+    const payout = Math.round(Math.min(rawPayout + bonus.totalWin, maxWin) * 10000) / 10000
 
     return {
       bet,
       grid,
       wins,
       payout,
-      won: true,
+      basePayout,
+      won: payout > 0,
       maxWin,
       bonusTriggered: true,
       bonus,
@@ -417,13 +428,15 @@ export function playBookOfShadows(bet: number, options?: Record<string, unknown>
   const bonusTriggered = scatterCount >= BONUS_TRIGGER_COUNT
   const bonus = bonusTriggered ? simulateBonus(bet) : null
 
-  const payout = Math.round(Math.min(rawPayout, maxWin) * 10000) / 10000
+  const basePayout = Math.round(Math.min(rawPayout, maxWin) * 10000) / 10000
+  const payout = Math.round(Math.min(rawPayout + (bonus?.totalWin ?? 0), maxWin) * 10000) / 10000
 
   return {
     bet,
     grid,
     wins,
     payout,
+    basePayout,
     won: payout > bet,
     maxWin,
     bonusTriggered,

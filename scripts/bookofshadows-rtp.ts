@@ -8,14 +8,10 @@
 //
 // Imports the *real* game logic so the measured RTP matches production exactly.
 //
-// A bonus-triggering spin pays out in TWO steps in production: the trigger
-// spin's own grid win is credited immediately, then the bonus's real payout
-// is credited separately once the bonus finishes (the client's "roll" is
-// cosmetic — the tier is picked server-side in `bonus.tier`, same value the
-// resolve step uses). Only the wild-baseline portion is scaled by the tier
-// multiplier; ordinary symbols pay their normal rate regardless of tier.
-// Both legs are replayed here so the measured RTP reflects everything a
-// player actually receives.
+// A bonus-triggering spin settles in ONE call in production: `payout` already
+// includes the trigger grid's own win plus the whole precomputed bonus with
+// the (server-picked) tier multiplier applied to the wild portion. The
+// client's "roll" and bonus spins are purely cosmetic replays.
 
 import { playBookOfShadows, BOS_MAX_WIN_MULT, BOS_BUY_BONUS_COST } from '../shared/utils/gamelogic/bookofshadows'
 
@@ -48,12 +44,10 @@ for (let i = 0; i < rounds; i++) {
   const cost = r.cost ?? bet
   totalCost += cost
 
-  let roundPayout = r.payout
+  const roundPayout = r.payout
 
   if (r.bonus) {
     bonusTriggers++
-    const resolved = playBookOfShadows(bet, { resolveBonus: { ordinaryPayout: r.bonus.ordinaryPayout, wildBaseline: r.bonus.wildBaseline, tierId: r.bonus.tier.id } })
-    roundPayout += resolved.payout
     bonusPayoutSum += roundPayout
     lockedColumnsSum += r.bonus.lockedColumnsFinal.length
     if (r.bonus.lockedColumnsFinal.length >= 5) fullClears++

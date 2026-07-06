@@ -1,6 +1,10 @@
 <script setup lang="ts">
 import type { BonusResult, BonusSpinResult, BonusTier, BookOfShadowsResult, Cell, ConnectionWin, SlotSymbol } from '#shared/utils/gamelogic/bookofshadows'
-import { BONUS_TIERS, BOS_BUY_BONUS_COST, BOS_COLS, BOS_ROWS, SYMBOL_WEIGHTS } from '#shared/utils/gamelogic/bookofshadows'
+import { BONUS_TIERS, BOS_BUY_BONUS_COST, BOS_COLS, BOS_MAX_WIN_MULT, BOS_MIN_CONNECTION, BOS_ROWS, BONUS_SPINS, BONUS_TRIGGER_COUNT, PAYTABLE, SYMBOL_WEIGHTS, playBookOfShadows } from '#shared/utils/gamelogic/bookofshadows'
+
+definePageMeta({
+  title: 'Book of Shadows'
+})
 
 const { user, setBalance, fetchSession } = useAuth()
 const balance = ref(parseFloat(user.value?.balance ?? '0'))
@@ -9,12 +13,15 @@ watch(() => user.value?.balance, (value) => {
   if (value !== undefined) balance.value = parseFloat(value ?? '0')
 })
 
+// --- bet / controls ----------------------------------------------------------
+
 const MIN_BET = 1
 const MAX_BET = 1_000_000
-const bet = ref(1)
-const betInput = ref('1')
+const bet = ref(10)
+const betInput = ref('10')
 const buyBonusCost = computed(() => Math.round(bet.value * BOS_BUY_BONUS_COST * 100) / 100)
 const turbo = ref(false)
+const showHelp = ref(false)
 
 const autoSpinEnabled = ref(false)
 const autoSpinsLeft = ref(0)
@@ -70,13 +77,16 @@ function stopAutoSpin() {
   resumeAutoSpin = null
 }
 
+// --- game state ----------------------------------------------------------------
+
 const isSpinning = ref(false)
 const ready = ref(false)
 const errorMsg = ref('')
+const status = ref('Ready')
 const lastWin = ref(0)
-
-const showBigWin = ref(false)
-const bigWinValue = ref(0)
+const totalWin = ref(0)
+const totalWinPulse = ref(false)
+const history = ref<{ payout: number, bet: number, bonus: boolean }[]>([])
 
 const bonusData = ref<BonusResult | null>(null)
 const showBonusPick = ref(false)
@@ -85,148 +95,315 @@ const rolledTier = ref<BonusTier | null>(null)
 const bonusRunning = ref(false)
 const bonusSpinIndex = ref(0)
 const bonusTotal = ref(0)
+const skullColumns = ref(0)
 
-const showBonusFlash = ref(false)
-const bonusFlashValue = ref(0)
+const bigWinBanner = ref(false)
+const bigWinLabel = ref('')
+const bigWinAmount = ref(0)
+const bigWinGradient = ref('')
+const bigWinGlow = ref('')
 
-const canvasWrap = ref<HTMLDivElement>()
-let app: any = null
-let reelSet: any = null
-let REELS: any = null
-let PIXI: any = null
-let GSAP: any = null
-let linesLayer: any = null
-let completedSegments: { from: { x: number, y: number }, to: { x: number, y: number } }[] = []
-let destroyed = false
+// Realistic display cap; the configured hard cap is enforced server-side.
+const BOS_DISPLAY_MAX_WIN = BOS_MAX_WIN_MULT
+const BOS_VOLATILITY = 5
 
-// Grid is a touch bigger than the first pass.
-const CELL = 94
-const GAP = 8
+// --- pixi layout ---------------------------------------------------------------
+
+const canvasHost = ref<HTMLDivElement | null>(null)
+const CELL = 108
+const GAP = 9
+const MARGIN = 18
 const REEL_W = BOS_COLS * CELL + (BOS_COLS - 1) * GAP
 const REEL_H = BOS_ROWS * CELL + (BOS_ROWS - 1) * GAP
-const APP_W = REEL_W + 40
-const APP_H = REEL_H + 40
+const APP_W = REEL_W + MARGIN * 2
+const APP_H = REEL_H + MARGIN * 2
 
-const SYMBOL_COLOR: Record<SlotSymbol, number> = {
-  ten: 0x334155,
-  jack: 0x3f3f46,
-  queen: 0x1e3a8a,
-  king: 0x581c87,
-  ace: 0x7c2d12,
-  raven: 0x0f172a,
-  cat: 0x4c1d95,
-  potion: 0x166534,
-  cauldron: 0x92400e,
-  wild: 0xca8a04,
-  bonuswild: 0xdc2626
+let pixiApp: import('pixi.js').Application | null = null
+let reelSet: import('pixi-reels').ReelSet | null = null
+let linesLayer: import('pixi.js').Graphics | null = null
+let effectsLayer: import('pixi.js').Container | null = null
+let resizeObserver: ResizeObserver | null = null
+let GSAP: typeof import('gsap').gsap | null = null
+let destroyed = false
+
+// While a bonus is running, locked "bonuswild" cells render as an upgraded
+// version of the rolled bonus symbol (blood frame, same glyph) instead of a
+// generic skull — when real assets land these become their own sprites.
+let bonusSymbolOverride: SlotSymbol | null = null
+
+// --- theme: dark grimoire, bone gray, blood red ---------------------------------
+
+interface SymbolVisual {
+  glyph: string
+  glyphSize: number
+  serif: boolean
+  glyphColor: number
+  fill: number
+  rim: number
+  rimAlpha: number
+  label?: string
 }
-const SYMBOL_LABEL: Record<SlotSymbol, string> = {
-  ten: '10',
-  jack: 'J',
-  queen: 'Q',
-  king: 'K',
-  ace: 'A',
-  raven: 'RAV',
-  cat: 'CAT',
-  potion: 'POT',
-  cauldron: 'CLD',
-  wild: 'BOOK',
-  bonuswild: 'WILD'
+
+const SYMBOL_VISUAL: Record<SlotSymbol, SymbolVisual> = {
+  ten: { glyph: '10', glyphSize: 38, serif: true, glyphColor: 0x6b7280, fill: 0x121417, rim: 0x2b2f36, rimAlpha: 0.9 },
+  jack: { glyph: 'J', glyphSize: 46, serif: true, glyphColor: 0x7d8694, fill: 0x121417, rim: 0x2b2f36, rimAlpha: 0.9 },
+  queen: { glyph: 'Q', glyphSize: 46, serif: true, glyphColor: 0x94a3b8, fill: 0x131519, rim: 0x323843, rimAlpha: 0.9 },
+  king: { glyph: 'K', glyphSize: 46, serif: true, glyphColor: 0xb6bec9, fill: 0x14161a, rim: 0x3a414d, rimAlpha: 0.9 },
+  ace: { glyph: 'A', glyphSize: 46, serif: true, glyphColor: 0xe2e8f0, fill: 0x15171c, rim: 0x4b5563, rimAlpha: 0.95 },
+  raven: { glyph: '🦇', glyphSize: 48, serif: false, glyphColor: 0xffffff, fill: 0x15141a, rim: 0x52525b, rimAlpha: 1, label: 'RAVEN' },
+  cat: { glyph: '🐈', glyphSize: 48, serif: false, glyphColor: 0xffffff, fill: 0x161320, rim: 0x5b4a8a, rimAlpha: 1, label: 'CAT' },
+  potion: { glyph: '🧪', glyphSize: 48, serif: false, glyphColor: 0xffffff, fill: 0x0f1a14, rim: 0x2f6b4f, rimAlpha: 1, label: 'POTION' },
+  cauldron: { glyph: '🔮', glyphSize: 48, serif: false, glyphColor: 0xffffff, fill: 0x1c1114, rim: 0x8a3a3a, rimAlpha: 1, label: 'CAULDRON' },
+  wild: { glyph: '📖', glyphSize: 50, serif: false, glyphColor: 0xffffff, fill: 0x1f0d0d, rim: 0xb91c1c, rimAlpha: 1, label: 'BOOK' },
+  bonuswild: { glyph: '💀', glyphSize: 52, serif: false, glyphColor: 0xffffff, fill: 0x230607, rim: 0xef4444, rimAlpha: 1, label: 'WILD' }
 }
+
+const SYMBOL_NAME: Record<SlotSymbol, string> = {
+  ten: 'Ten',
+  jack: 'Jack',
+  queen: 'Queen',
+  king: 'King',
+  ace: 'Ace',
+  raven: 'Raven',
+  cat: 'Black Cat',
+  potion: 'Potion',
+  cauldron: 'Cauldron',
+  wild: 'The Book (wild + scatter)',
+  bonuswild: 'Bonus Symbol (bonus only)'
+}
+
+const PAYTABLE_ROWS = (Object.keys(PAYTABLE) as SlotSymbol[]).map(id => ({
+  id,
+  name: SYMBOL_NAME[id],
+  glyph: SYMBOL_VISUAL[id].glyph,
+  pays: PAYTABLE[id]
+})).reverse()
+
+// Blood-and-bone big win tiers, in × bet of the full round payout.
+const WIN_TIERS = [
+  { threshold: 500, label: 'UNHOLY WIN', from: '#fecaca', to: '#7f1d1d', glow: 'rgba(239,68,68,0.85)' },
+  { threshold: 150, label: 'CURSED WIN', from: '#fca5a5', to: '#991b1b', glow: 'rgba(220,38,38,0.75)' },
+  { threshold: 60, label: 'MEGA WIN', from: '#f87171', to: '#b91c1c', glow: 'rgba(220,38,38,0.65)' },
+  { threshold: 25, label: 'BIG WIN', from: '#e4e4e7', to: '#71717a', glow: 'rgba(228,228,231,0.5)' },
+  { threshold: 10, label: 'DARK WIN', from: '#a1a1aa', to: '#3f3f46', glow: 'rgba(161,161,170,0.45)' }
+] as const
+
+// --- helpers -------------------------------------------------------------------
 
 const wait = (ms: number) => new Promise<void>(r => setTimeout(r, ms))
 const stepDelay = (ms: number) => wait(turbo.value ? Math.round(ms * 0.55) : ms)
 const cellKey = (c: Cell) => `${c.col}:${c.row}`
 
-function makeSymbolClass() {
-  const { Graphics, Text } = PIXI
-  const Base = REELS.ReelSymbol
+function pulseWin() {
+  totalWinPulse.value = true
+  window.setTimeout(() => {
+    totalWinPulse.value = false
+  }, 320)
+}
 
-  class BlockSymbol extends Base {
-    bg = new Graphics()
-    label: any
-    w = CELL
-    h = CELL
+const tickRuns = new WeakMap<Ref<number>, number>()
+
+function tickNumber(target: Ref<number>, to: number, duration = 320, respectTurbo = true) {
+  const run = (tickRuns.get(target) ?? 0) + 1
+  tickRuns.set(target, run)
+  const from = target.value
+  const start = performance.now()
+  const d = respectTurbo && turbo.value ? Math.round(duration * 0.5) : duration
+  const frame = (now: number) => {
+    if (tickRuns.get(target) !== run) return
+    const t = Math.min(1, (now - start) / d)
+    const eased = 1 - (1 - t) ** 3
+    target.value = Number((from + (to - from) * eased).toFixed(2))
+    if (t < 1) requestAnimationFrame(frame)
+    else target.value = to
+  }
+  requestAnimationFrame(frame)
+}
+
+// The tier multiplier only scales the skull-wild portion; this is exactly what
+// the server pays, so the running total always adds up to the final win.
+function scaledSpinPayout(sp: BonusSpinResult, tier: BonusTier) {
+  return sp.ordinaryPayout + sp.wildPayout * tier.multiplier
+}
+
+// --- pixi setup ------------------------------------------------------------------
+
+async function initPixi() {
+  if (!canvasHost.value || pixiApp) return
+
+  const [pixi, reels, gsapMod] = await Promise.all([
+    import('pixi.js'),
+    import('pixi-reels'),
+    import('gsap')
+  ])
+  if (destroyed) return
+  const { Application, Container, Graphics, Text } = pixi
+  const { ReelSetBuilder, ReelSymbol, SpeedPresets } = reels
+  GSAP = gsapMod.gsap ?? gsapMod.default
+
+  class ShadowSymbol extends ReelSymbol {
+    private readonly tile = new Graphics()
+
+    private readonly glyph = new Text({
+      text: '',
+      style: { fontFamily: 'system-ui, sans-serif', fontSize: 42, fontWeight: '900', fill: 0xffffff, align: 'center' }
+    })
+
+    private readonly caption = new Text({
+      text: '',
+      style: { fontFamily: 'Inter, ui-sans-serif, system-ui', fontSize: 10, fontWeight: '900', fill: 0x8b8f99, align: 'center', letterSpacing: 2 }
+    })
+
+    private symbol: SlotSymbol = 'ten'
+    private w = CELL
+    private h = CELL
 
     constructor() {
       super()
-      this.label = new Text({
-        text: '',
-        style: { fontFamily: 'system-ui, sans-serif', fontSize: 16, fontWeight: '900', fill: 0xffffff, align: 'center' }
-      })
-      this.label.anchor.set(0.5)
-      this.view.addChild(this.bg)
-      this.view.addChild(this.label)
+      this.glyph.anchor.set(0.5)
+      this.caption.anchor.set(0.5)
+      this.view.addChild(this.tile, this.glyph, this.caption)
     }
 
-    _render(id: string) {
-      const color = SYMBOL_COLOR[id as SlotSymbol] ?? 0x334155
-      this.bg.clear()
-      this.bg.roundRect(2, 2, this.w - 4, this.h - 4, 10).fill({ color }).stroke({ color: 0xffffff, width: 2, alpha: 0.15 })
-      this.label.text = SYMBOL_LABEL[id as SlotSymbol] ?? id
-      this.label.x = this.w / 2
-      this.label.y = this.h / 2
+    protected onActivate(symbolId: string): void {
+      this.symbol = symbolId as SlotSymbol
+      this.view.alpha = 1
+      this.view.scale.set(1)
+      this.draw()
     }
 
-    onActivate(id: string) { this.view.alpha = 1; this.view.scale.set(1, 1); this._render(id) }
-    onDeactivate() { /* no-op: nothing to tear down */ }
-    resize(w: number, h: number) { this.w = w; this.h = h; if (this.symbolId) this._render(this.symbolId) }
-    stopAnimation() { this.view.scale.set(1, 1) }
-    playWin() { return Promise.resolve() }
+    protected onDeactivate(): void {
+      GSAP?.killTweensOf([this.view, this.view.scale])
+    }
+
+    async playWin(): Promise<void> {
+      if (!GSAP) return
+      await GSAP.to(this.view.scale, { x: 1.1, y: 1.1, duration: 0.12, yoyo: true, repeat: 1, ease: 'power2.out' })
+    }
+
+    stopAnimation(): void {
+      GSAP?.killTweensOf(this.view.scale)
+      this.view.scale.set(1)
+    }
+
+    resize(width: number, height: number): void {
+      this.w = width
+      this.h = height
+      this.draw()
+    }
+
+    private draw() {
+      const isBonusCell = this.symbol === 'bonuswild'
+      const frame = SYMBOL_VISUAL[this.symbol] ?? SYMBOL_VISUAL.ten
+      // Bonus cells wear the blood frame of `bonuswild` but show the rolled
+      // bonus symbol itself — the cat pays, so the cat is what you see.
+      const face = isBonusCell && bonusSymbolOverride ? SYMBOL_VISUAL[bonusSymbolOverride] : frame
+      const pad = 3
+      const isSpecial = this.symbol === 'wild' || isBonusCell
+
+      this.tile.clear()
+      this.tile.roundRect(pad, pad, this.w - pad * 2, this.h - pad * 2, 12)
+      this.tile.fill({ color: frame.fill })
+      this.tile.stroke({ color: frame.rim, width: isSpecial ? 2.5 : 1.5, alpha: frame.rimAlpha })
+      // faint top sheen so tiles read as carved slabs, not flat rects
+      this.tile.roundRect(pad + 3, pad + 3, this.w - pad * 2 - 6, (this.h - pad * 2) * 0.3, 9)
+      this.tile.fill({ color: 0xffffff, alpha: 0.03 })
+      if (isSpecial) {
+        // inner blood glow ring
+        this.tile.roundRect(pad + 2, pad + 2, this.w - pad * 2 - 4, this.h - pad * 2 - 4, 10)
+        this.tile.stroke({ color: frame.rim, width: 4, alpha: 0.18 })
+      }
+
+      this.glyph.style.fontFamily = face.serif ? 'Georgia, "Times New Roman", serif' : 'system-ui, sans-serif'
+      this.glyph.style.fontSize = face.glyphSize
+      // Royals get a blood-tinted letter in their upgraded bonus form.
+      this.glyph.style.fill = isBonusCell && bonusSymbolOverride && face.serif ? 0xfca5a5 : face.glyphColor
+      this.glyph.text = face.glyph
+
+      const label = isBonusCell && bonusSymbolOverride ? 'BONUS' : frame.label
+      this.glyph.position.set(this.w / 2, this.h / 2 - (label ? 6 : 0))
+
+      this.caption.text = label ?? ''
+      this.caption.visible = Boolean(label)
+      this.caption.style.fill = isSpecial ? 0xf87171 : 0x8b8f99
+      this.caption.position.set(this.w / 2, this.h - 17)
+    }
   }
 
-  return BlockSymbol
+  pixiApp = new Application()
+  await pixiApp.init({
+    width: APP_W,
+    height: APP_H,
+    backgroundAlpha: 0,
+    antialias: true,
+    autoDensity: true,
+    resolution: Math.min(window.devicePixelRatio || 1, 2)
+  })
+  if (destroyed) {
+    pixiApp.destroy(true)
+    pixiApp = null
+    return
+  }
+  canvasHost.value.appendChild(pixiApp.canvas)
+
+  const initialGrid = playBookOfShadows(1).grid
+
+  reelSet = new ReelSetBuilder()
+    .reels(BOS_COLS)
+    .visibleRows(BOS_ROWS)
+    .symbolSize(CELL, CELL)
+    .symbolGap(GAP, GAP)
+    .symbols((registry) => {
+      for (const id of Object.keys(SYMBOL_WEIGHTS)) registry.register(id, ShadowSymbol, {})
+      registry.register('bonuswild', ShadowSymbol, {}) // bonus-only, placed via setSymbolAt
+    })
+    .weights(SYMBOL_WEIGHTS)
+    .speed('normal', SpeedPresets.NORMAL)
+    .speed('turbo', SpeedPresets.TURBO)
+    .initialSpeed('normal')
+    .initialFrame(initialGrid.map(col => ({ visible: col })))
+    .ticker(pixiApp.ticker)
+    .build()
+
+  reelSet.position.set(MARGIN, MARGIN)
+  pixiApp.stage.addChild(reelSet)
+
+  linesLayer = new Graphics()
+  pixiApp.stage.addChild(linesLayer)
+
+  effectsLayer = new Container()
+  pixiApp.stage.addChild(effectsLayer)
+
+  resizeObserver = new ResizeObserver(resizePixi)
+  resizeObserver.observe(canvasHost.value)
+  resizePixi()
+
+  ready.value = true
 }
 
-onMounted(async () => {
-  try {
-    const [pixi, reels, gsapMod] = await Promise.all([
-      import('pixi.js'),
-      import('pixi-reels'),
-      import('gsap')
-    ])
-    if (destroyed) return
-    PIXI = pixi
-    REELS = reels
-    GSAP = gsapMod.gsap ?? gsapMod.default
+function resizePixi() {
+  if (!pixiApp || !reelSet || !canvasHost.value) return
 
-    app = new PIXI.Application()
-    await app.init({ width: APP_W, height: APP_H, background: '#0a0d14', antialias: true, autoDensity: true, resolution: Math.min(2, window.devicePixelRatio || 1) })
-    if (destroyed) { app.destroy(true); return }
-    canvasWrap.value?.appendChild(app.canvas)
+  const width = Math.max(300, Math.min(canvasHost.value.clientWidth, APP_W))
+  const height = width * (APP_H / APP_W)
+  pixiApp.renderer.resize(width, height)
 
-    const BlockSymbol = makeSymbolClass()
+  const scale = width / APP_W
+  reelSet.scale.set(scale)
+  reelSet.position.set(MARGIN * scale, MARGIN * scale)
+}
 
-    reelSet = new REELS.ReelSetBuilder()
-      .reels(BOS_COLS).visibleRows(BOS_ROWS).symbolSize(CELL, CELL).symbolGap(GAP, GAP)
-      .symbols((r: any) => {
-        for (const id of Object.keys(SYMBOL_WEIGHTS)) r.register(id, BlockSymbol, {})
-        r.register('bonuswild', BlockSymbol, {}) // bonus-only: never drawn by .weights(), placed via setSymbolAt
-      })
-      .weights(SYMBOL_WEIGHTS)
-      .speed('normal', REELS.SpeedPresets.NORMAL)
-      .speed('turbo', REELS.SpeedPresets.TURBO)
-      .ticker(app.ticker)
-      .build()
-
-    reelSet.x = (APP_W - REEL_W) / 2
-    reelSet.y = (APP_H - REEL_H) / 2
-    app.stage.addChild(reelSet)
-
-    linesLayer = new PIXI.Graphics()
-    app.stage.addChild(linesLayer)
-
-    ready.value = true
-  } catch (e) {
-    errorMsg.value = e instanceof Error ? e.message : 'Failed to load the slot engine'
+function cellCenter(col: number, row: number) {
+  if (!reelSet) return { x: 0, y: 0 }
+  const bounds = reelSet.getCellBounds(col, row)
+  const s = reelSet.scale.x
+  return {
+    x: reelSet.x + (bounds.x + bounds.width / 2) * s,
+    y: reelSet.y + (bounds.y + bounds.height / 2) * s
   }
-})
+}
 
-onUnmounted(() => {
-  destroyed = true
-  try { reelSet?.destroy?.() } catch { /* ignore */ }
-  try { app?.destroy?.(true) } catch { /* ignore */ }
-})
+// --- cell dim / restore -----------------------------------------------------------
 
 function allCells(): Cell[] {
   const cells: Cell[] = []
@@ -236,75 +413,40 @@ function allCells(): Cell[] {
   return cells
 }
 
-// Snap every cell back to its neutral look before a new spin, killing any
-// leftover tween first so nothing overwrites the reset a frame later.
 function resetCellLooks() {
+  if (!reelSet || !GSAP) return
   for (const { col, row } of allCells()) {
     const view = reelSet.getReel(col).getSymbolAt(row).view
     GSAP.killTweensOf(view)
     view.alpha = 1
   }
+  linesLayer?.clear()
+  completedSegments = []
+  activePartials = new Map()
 }
 
-// Dim every cell not in `keepKeys` (built from `cellKey`), leaving the rest at full opacity.
 async function dimAllExcept(keepKeys: Set<string>) {
+  if (!reelSet || !GSAP) return
   await Promise.all(allCells().map(cell => new Promise<void>((res) => {
-    const sym = reelSet.getReel(cell.col).getSymbolAt(cell.row)
-    GSAP.to(sym.view, { alpha: keepKeys.has(cellKey(cell)) ? 1 : 0.4, duration: 0.25, onComplete: () => res() })
+    const sym = reelSet!.getReel(cell.col).getSymbolAt(cell.row)
+    GSAP!.to(sym.view, { alpha: keepKeys.has(cellKey(cell)) ? 1 : 0.28, duration: 0.25, onComplete: () => res() })
   })))
 }
 
 async function restoreAlpha() {
+  if (!reelSet || !GSAP) return
   await Promise.all(allCells().map(cell => new Promise<void>((res) => {
-    const sym = reelSet.getReel(cell.col).getSymbolAt(cell.row)
-    GSAP.to(sym.view, { alpha: 1, duration: 0.2, onComplete: () => res() })
+    const sym = reelSet!.getReel(cell.col).getSymbolAt(cell.row)
+    GSAP!.to(sym.view, { alpha: 1, duration: 0.2, onComplete: () => res() })
   })))
 }
 
-// Dim everything that didn't connect, flash the total win big and centered,
-// then settle back to normal.
-async function celebrateWins(result: BookOfShadowsResult) {
-  if (!result.wins.length) return
+// --- blood-red connection tracing ---------------------------------------------------
 
-  const winKeys = new Set(result.wins.flatMap(w => w.cells.map(cellKey)))
-  await dimAllExcept(winKeys)
+let completedSegments: { from: { x: number, y: number }, to: { x: number, y: number } }[] = []
+let activePartials = new Map<string, { from: { x: number, y: number }, to: { x: number, y: number }, t: number }>()
+let drawnEdgeKeys = new Set<string>()
 
-  bigWinValue.value = result.payout
-  showBigWin.value = true
-  await stepDelay(1200)
-  showBigWin.value = false
-
-  await restoreAlpha()
-}
-
-// Reveals a newly-locked column's BONUS_WILD cells outward from the cell that
-// actually landed, so it reads as cascading up and down rather than a flat wipe.
-async function expandColumn(col: number, triggerRow: number) {
-  const order: number[] = []
-  for (let d = 1; d < BOS_ROWS; d++) {
-    const up = triggerRow - d
-    const down = triggerRow + d
-    if (up >= 0) order.push(up)
-    if (down < BOS_ROWS) order.push(down)
-  }
-
-  for (const row of order) {
-    reelSet.setSymbolAt(col, row, 'bonuswild')
-    const sym = reelSet.getReel(col).getSymbolAt(row)
-    GSAP.fromTo(sym.view.scale, { x: 1.3, y: 1.3 }, { x: 1, y: 1, duration: 0.18, ease: 'back.out(2)' })
-    await stepDelay(45)
-  }
-}
-
-function cellCenter(col: number, row: number) {
-  return {
-    x: reelSet.x + col * (CELL + GAP) + CELL / 2,
-    y: reelSet.y + row * (CELL + GAP) + CELL / 2
-  }
-}
-
-// Every adjacent-column pair inside a connection's cells (row ±1 or same
-// row) — the full zigzag mesh, diagonals included.
 function winEdges(win: ConnectionWin): [Cell, Cell][] {
   const edges: [Cell, Cell][] = []
   for (const a of win.cells) {
@@ -315,17 +457,21 @@ function winEdges(win: ConnectionWin): [Cell, Cell][] {
   return edges
 }
 
-let activePartials = new Map<string, { from: { x: number, y: number }, to: { x: number, y: number }, t: number }>()
-
 function redrawLines() {
+  if (!linesLayer || !reelSet) return
+  const s = reelSet.scale.x
   linesLayer.clear()
+  const strokeGlow = { width: 9 * s, color: 0x7f1d1d, alpha: 0.5 }
+  const strokeCore = { width: 3.5 * s, color: 0xef4444, alpha: 0.95 }
   for (const seg of completedSegments) {
-    linesLayer.moveTo(seg.from.x, seg.from.y).lineTo(seg.to.x, seg.to.y).stroke({ width: 4, color: 0xffd700, alpha: 0.95 })
+    linesLayer.moveTo(seg.from.x, seg.from.y).lineTo(seg.to.x, seg.to.y).stroke(strokeGlow)
+    linesLayer.moveTo(seg.from.x, seg.from.y).lineTo(seg.to.x, seg.to.y).stroke(strokeCore)
   }
   for (const p of activePartials.values()) {
     const x = p.from.x + (p.to.x - p.from.x) * p.t
     const y = p.from.y + (p.to.y - p.from.y) * p.t
-    linesLayer.moveTo(p.from.x, p.from.y).lineTo(x, y).stroke({ width: 4, color: 0xffd700, alpha: 0.95 })
+    linesLayer.moveTo(p.from.x, p.from.y).lineTo(x, y).stroke(strokeGlow)
+    linesLayer.moveTo(p.from.x, p.from.y).lineTo(x, y).stroke(strokeCore)
   }
 }
 
@@ -335,30 +481,34 @@ function drawEdge(a: Cell, b: Cell): Promise<void> {
   const to = cellCenter(b.col, b.row)
 
   return new Promise((resolve) => {
+    if (!GSAP) return resolve()
     const obj = { t: 0 }
     activePartials.set(key, { from, to, t: 0 })
     GSAP.to(obj, {
       t: 1,
-      duration: 0.12,
+      duration: turbo.value ? 0.07 : 0.12,
       ease: 'power1.out',
-      onUpdate: () => { activePartials.get(key)!.t = obj.t; redrawLines() },
-      onComplete: () => { activePartials.delete(key); completedSegments.push({ from, to }); redrawLines(); resolve() }
+      onUpdate: () => {
+        const p = activePartials.get(key)
+        if (p) p.t = obj.t
+        redrawLines()
+      },
+      onComplete: () => {
+        activePartials.delete(key)
+        completedSegments.push({ from, to })
+        redrawLines()
+        resolve()
+      }
     })
   })
 }
 
-let drawnEdgeKeys = new Set<string>()
-
-// Traces the win's connection path one column-step at a time: every edge
-// starting in a given column draws simultaneously (so a whole wild-filled
-// column's fan of diagonals pops in together), then the next column's edges
-// start. Fast regardless of how tangled a step is, since the step count
-// (at most 4) drives the total time, not the edge count.
+// Traces the connection path column-step by column-step, whole fan at once.
 async function drawConnectionLines(win: ConnectionWin) {
   const byStartCol = new Map<number, [Cell, Cell][]>()
   for (const edge of winEdges(win)) {
     const key = `${edge[0].col}:${edge[0].row}-${edge[1].col}:${edge[1].row}`
-    if (drawnEdgeKeys.has(key)) continue // already traced this segment this spin
+    if (drawnEdgeKeys.has(key)) continue
     drawnEdgeKeys.add(key)
     if (!byStartCol.has(edge[0].col)) byStartCol.set(edge[0].col, [])
     byStartCol.get(edge[0].col)!.push(edge)
@@ -369,57 +519,194 @@ async function drawConnectionLines(win: ConnectionWin) {
   }
 }
 
-// Counts up from 0 to `target` over `durationMs`, holds briefly, then hides.
-async function countUpFlash(target: number, durationMs: number) {
-  showBonusFlash.value = true
-  const scaledMs = turbo.value ? Math.round(durationMs * 0.55) : durationMs
-  await new Promise<void>((resolve) => {
-    const obj = { v: 0 }
-    GSAP.to(obj, {
-      v: target,
-      duration: scaledMs / 1000,
-      ease: 'power1.out',
-      onUpdate: () => { bonusFlashValue.value = Math.round(obj.v * 10000) / 10000 },
-      onComplete: () => resolve()
-    })
-  })
-  await stepDelay(350)
-  showBonusFlash.value = false
+function clearLines() {
+  linesLayer?.clear()
+  completedSegments = []
+  activePartials = new Map()
+  drawnEdgeKeys = new Set()
 }
 
-// Dims non-winners, traces every connection's path, then shows only the
-// spin's total (not each individual connection — too noisy when there are
-// many). Bigger wins (5x bet+) get a count-up flourish instead of a flat flash.
-async function celebrateBonusSpin(spinResult: BonusSpinResult) {
+// --- effects ----------------------------------------------------------------------
+
+async function screenShake(intensity = 8, duration = 0.3) {
+  if (!reelSet || !GSAP) return
+
+  const target = reelSet
+  const baseX = target.position.x
+  const baseY = target.position.y
+  const steps = 5
+  const tl = GSAP.timeline({ onComplete: () => target.position.set(baseX, baseY) })
+
+  for (let i = 0; i < steps; i++) {
+    const decay = 1 - i / steps
+    tl.to(target.position, {
+      x: baseX + (Math.random() - 0.5) * intensity * decay,
+      y: baseY + (Math.random() - 0.5) * intensity * decay,
+      duration: duration / steps,
+      ease: 'sine.inOut'
+    })
+  }
+  tl.to(target.position, { x: baseX, y: baseY, duration: duration / steps })
+}
+
+async function spawnMoneyPopup(amount: number, cells: Cell[]) {
+  if (!effectsLayer || cells.length === 0 || amount <= 0 || !GSAP) return
+
+  const { Text } = await import('pixi.js')
+  const center = cells.reduce((point, cell) => {
+    const next = cellCenter(cell.col, cell.row)
+    return { x: point.x + next.x, y: point.y + next.y }
+  }, { x: 0, y: 0 })
+  const label = new Text({
+    text: `+${formatNumber(amount, false)}`,
+    style: {
+      fill: 0xfee2e2,
+      fontFamily: 'Inter, ui-sans-serif, system-ui',
+      fontSize: 34,
+      fontWeight: '900',
+      stroke: { color: 0x18181b, width: 6 },
+      dropShadow: { color: 0xdc2626, blur: 12, distance: 0, alpha: 0.9 }
+    }
+  })
+
+  label.anchor.set(0.5)
+  label.position.set(center.x / cells.length, center.y / cells.length)
+  label.scale.set(0.45, 1.35)
+  effectsLayer.addChild(label)
+
+  const drift = (Math.random() - 0.5) * 30
+
+  GSAP.to(label.scale, { x: 1, y: 1, duration: 0.2, ease: 'back.out(2.8)' })
+  GSAP.to(label.position, { x: label.x + drift, y: label.y - 74, duration: 0.9, ease: 'power2.out' })
+  GSAP.to(label, {
+    alpha: 0,
+    duration: 0.22,
+    delay: 0.66,
+    ease: 'power2.in',
+    onComplete: () => label.destroy()
+  })
+}
+
+// Ember-like blood motes bursting from a cell — used when a skull column locks.
+async function spawnBloodBurst(col: number, row: number) {
+  if (!effectsLayer || !GSAP) return
+
+  const { Graphics } = await import('pixi.js')
+  const center = cellCenter(col, row)
+  const colors = [0xef4444, 0x991b1b, 0xfecaca, 0x7f1d1d]
+
+  for (let i = 0; i < 18; i++) {
+    const particle = new Graphics()
+    const angle = (Math.PI * 2 * i) / 18 + Math.random() * 0.4
+    const distance = 42 + Math.random() * 58
+    const size = 2 + Math.random() * 4
+    const duration = 0.4 + Math.random() * 0.25
+
+    particle.circle(0, 0, size)
+    particle.fill({ color: colors[i % colors.length]!, alpha: 0.95 })
+    particle.blendMode = 'add'
+    particle.position.set(center.x, center.y)
+    effectsLayer.addChild(particle)
+
+    GSAP.to(particle.position, {
+      x: center.x + Math.cos(angle) * distance,
+      y: center.y + Math.sin(angle) * distance,
+      duration,
+      ease: 'power3.out'
+    })
+    GSAP.to(particle.scale, { x: 0.2, y: 0.2, duration, ease: 'power2.in' })
+    GSAP.to(particle, { alpha: 0, duration: duration + 0.05, ease: 'power2.in', onComplete: () => particle.destroy() })
+  }
+}
+
+async function showBigWinPopup(totalMultiplier: number, amount: number) {
+  const tier = WIN_TIERS.find(t => totalMultiplier >= t.threshold)
+  if (!tier) return
+
+  bigWinLabel.value = tier.label
+  bigWinGradient.value = `linear-gradient(180deg, ${tier.from}, ${tier.to})`
+  bigWinGlow.value = tier.glow
+  bigWinAmount.value = 0
+  bigWinBanner.value = true
+
+  tickNumber(bigWinAmount, amount, 1400, false)
+  await wait(2200)
+  bigWinBanner.value = false
+}
+
+// --- base game presentation ---------------------------------------------------------
+
+async function celebrateWins(wins: ConnectionWin[], payout: number) {
+  if (!wins.length || payout <= 0) return
+
+  const winKeys = new Set(wins.flatMap(w => w.cells.map(cellKey)))
+  await dimAllExcept(winKeys)
+
+  clearLines()
+  for (const win of wins) {
+    await drawConnectionLines(win)
+  }
+
+  await spawnMoneyPopup(payout, wins.flatMap(w => w.cells))
+  pulseWin()
+  await stepDelay(650)
+
+  clearLines()
+  await restoreAlpha()
+}
+
+// --- bonus flow ----------------------------------------------------------------------
+
+// Reveals a newly-locked column's skulls outward from the landing cell.
+async function expandColumn(col: number, triggerRow: number) {
+  if (!reelSet) return
+
+  void spawnBloodBurst(col, triggerRow)
+  void screenShake(turbo.value ? 5 : 9, turbo.value ? 0.18 : 0.3)
+
+  const order: number[] = [triggerRow]
+  for (let d = 1; d < BOS_ROWS; d++) {
+    const up = triggerRow - d
+    const down = triggerRow + d
+    if (up >= 0) order.push(up)
+    if (down < BOS_ROWS) order.push(down)
+  }
+
+  for (const row of order) {
+    reelSet.setSymbolAt(col, row, 'bonuswild')
+    const sym = reelSet.getReel(col).getSymbolAt(row)
+    GSAP?.fromTo(sym.view.scale, { x: 1.3, y: 1.3 }, { x: 1, y: 1, duration: 0.18, ease: 'back.out(2)' })
+    await stepDelay(45)
+  }
+
+  skullColumns.value++
+}
+
+async function celebrateBonusSpin(spinResult: BonusSpinResult, tier: BonusTier) {
   if (!spinResult.wins.length) return
 
   const winKeys = new Set(spinResult.wins.flatMap(w => w.cells.map(cellKey)))
   await dimAllExcept(winKeys)
 
-  completedSegments = []
-  drawnEdgeKeys = new Set()
+  clearLines()
   for (const win of spinResult.wins) {
     await drawConnectionLines(win)
   }
 
-  if (spinResult.spinPayout > bet.value * 5) {
-    await countUpFlash(spinResult.spinPayout, 1000)
-  } else {
-    bonusFlashValue.value = spinResult.spinPayout
-    showBonusFlash.value = true
-    await stepDelay(380)
-    showBonusFlash.value = false
-  }
+  const spinPay = scaledSpinPayout(spinResult, tier)
+  await spawnMoneyPopup(spinPay, spinResult.wins.flatMap(w => w.cells))
+  pulseWin()
+  await stepDelay(spinPay > bet.value * 5 ? 700 : 420)
 
-  linesLayer.clear()
-  completedSegments = []
-  activePartials = new Map()
+  clearLines()
   await restoreAlpha()
 }
 
-async function playBonusSpin(bonusSpin: BonusSpinResult) {
-  // Columns already fully bonuswild from an earlier spin stay put instead of
-  // spinning through symbols they're just going to show again.
+async function playBonusSpin(bonusSpin: BonusSpinResult, tier: BonusTier) {
+  if (!reelSet) return
+
+  // Fully-locked columns stay put instead of spinning through symbols
+  // they're just going to show again.
   const holdReels = bonusSpin.landedGrid
     .map((col: SlotSymbol[], i: number) => (col.every(s => s === 'bonuswild') && !bonusSpin.newlyLocked.includes(i) ? i : -1))
     .filter((i: number) => i >= 0)
@@ -434,64 +721,54 @@ async function playBonusSpin(bonusSpin: BonusSpinResult) {
     await expandColumn(col, triggerRow)
   }
 
-  await celebrateBonusSpin(bonusSpin)
+  await celebrateBonusSpin(bonusSpin, tier)
 }
 
-async function runBonus(bonus: BonusResult, tier: BonusTier) {
+async function runBonus(bonus: BonusResult) {
+  const tier = bonus.tier
+  bonusSymbolOverride = tier.symbol
   bonusRunning.value = true
   bonusTotal.value = 0
   bonusSpinIndex.value = 0
+  skullColumns.value = 0
 
+  let collected = 0
   for (const bonusSpin of bonus.spins) {
-    await playBonusSpin(bonusSpin)
-    bonusTotal.value += bonusSpin.spinPayout
     bonusSpinIndex.value++
+    status.value = `Bonus spin ${bonusSpinIndex.value}/${BONUS_SPINS}`
+    await playBonusSpin(bonusSpin, tier)
+    collected = Number((collected + scaledSpinPayout(bonusSpin, tier)).toFixed(2))
+    tickNumber(bonusTotal, collected, 300)
+    await stepDelay(120)
   }
 
-  let finalPayout = 0
-  try {
-    const data = await $fetch('/api/games/play-game', {
-      method: 'POST',
-      body: { bet: bet.value, game: 'bookofshadows', options: { resolveBonus: { ordinaryPayout: bonus.ordinaryPayout, wildBaseline: bonus.wildBaseline, tierId: tier.id } } }
-    }) as { gameData: BookOfShadowsResult, balance: number }
-    finalPayout = data.gameData.payout
-    balance.value = data.balance
-    setBalance(data.balance)
-    await fetchSession()
-  } catch (e) {
-    errorMsg.value = e instanceof Error ? e.message : 'Bonus resolve failed'
-  }
+  // The server settled everything on the triggering call — bonus.totalWin is
+  // exactly what was paid for the bonus, and it matches the collected total.
+  bonusTotal.value = bonus.totalWin
+  status.value = `Bonus over — ${formatNumber(bonus.totalWin, false)}`
 
-  lastWin.value = finalPayout
-  bigWinValue.value = finalPayout
-  showBigWin.value = true
-  await stepDelay(1200)
-  showBigWin.value = false
+  await showBigWinPopup(bonus.totalWin / bet.value, bonus.totalWin)
 
   bonusRunning.value = false
-  isSpinning.value = false
-
-  resumeAutoSpin?.()
-  resumeAutoSpin = null
 }
 
-// Purely cosmetic: the tier was already decided server-side (`bonusData.tier`).
-// This just flickers through random tiers before settling on the real one.
+// Purely cosmetic: the tier was already decided (and paid) server-side.
 async function rollTier() {
   if (rolling.value || !bonusData.value) return
   rolling.value = true
 
-  for (let i = 0; i < 10; i++) {
+  for (let i = 0; i < 12; i++) {
     rolledTier.value = BONUS_TIERS[Math.floor(Math.random() * BONUS_TIERS.length)]!
-    await stepDelay(60)
+    await stepDelay(60 + i * 8)
   }
   rolledTier.value = bonusData.value.tier
   rolling.value = false
 
-  await stepDelay(600)
+  await stepDelay(700)
   showBonusPick.value = false
-  void runBonus(bonusData.value, bonusData.value.tier)
 }
+
+// --- spin ------------------------------------------------------------------------------
 
 async function spin(buy = false) {
   if (!ready.value || isSpinning.value || showBonusPick.value || bonusRunning.value) return
@@ -500,6 +777,10 @@ async function spin(buy = false) {
 
   isSpinning.value = true
   errorMsg.value = ''
+  status.value = buy ? 'Summoning bonus' : 'Spinning'
+  totalWin.value = 0
+  lastWin.value = 0
+  bonusSymbolOverride = null
   resetCellLooks()
 
   const balanceBeforeSpin = balance.value
@@ -514,6 +795,7 @@ async function spin(buy = false) {
     }) as { gameData: BookOfShadowsResult, balance: number }
   } catch (e: unknown) {
     errorMsg.value = e instanceof Error ? e.message : 'Something went wrong'
+    status.value = 'Spin failed'
     balance.value = balanceBeforeSpin
     setBalance(balanceBeforeSpin)
     isSpinning.value = false
@@ -524,34 +806,58 @@ async function spin(buy = false) {
   const result = data.gameData
 
   try {
-    reelSet.setSpeed(turbo.value ? 'turbo' : 'normal')
-    const spinPromise = reelSet.spin()
-    reelSet.setResult(result.grid.map((col: SlotSymbol[]) => ({ visible: col })))
-    await spinPromise
-    lastWin.value = result.payout
-    await celebrateWins(result)
+    if (reelSet) {
+      reelSet.setSpeed(turbo.value ? 'turbo' : 'normal')
+      const spinPromise = reelSet.spin()
+      reelSet.setResult(result.grid.map((col: SlotSymbol[]) => ({ visible: col })))
+      await spinPromise
+    }
 
-    balance.value = data.balance
-    setBalance(data.balance)
-    await fetchSession()
+    tickNumber(totalWin, result.basePayout, 300)
+    await celebrateWins(result.wins, result.basePayout)
 
     if (result.bonusTriggered && result.bonus) {
+      // Hold the visible balance at "bet taken" until the bonus plays out —
+      // the win is already settled server-side, revealing it now spoils it.
       bonusData.value = result.bonus
       rolledTier.value = null
       rolling.value = false
       showBonusPick.value = true
+      status.value = 'The book awakens'
 
-      if (autoSpinEnabled.value) {
-        autoSpinPaused.value = true
-        await new Promise<void>((resolve) => { resumeAutoSpin = resolve })
-      }
+      await new Promise<void>((resolve) => {
+        const stopWatch = watch(showBonusPick, (open) => {
+          if (!open) {
+            stopWatch()
+            resolve()
+          }
+        })
+      })
+
+      await runBonus(result.bonus)
+    } else if (result.basePayout > 0) {
+      await showBigWinPopup(result.basePayout / bet.value, result.basePayout)
     }
+
+    totalWin.value = result.payout
+    lastWin.value = result.payout
+    if (result.payout > 0) pulseWin()
+    if (!result.bonusTriggered) status.value = result.payout > 0 ? 'Paid out' : 'No connection'
+
+    history.value.unshift({ payout: result.payout, bet: cost, bonus: Boolean(result.bonusTriggered) })
+    if (history.value.length > 10) history.value.pop()
+
+    balance.value = data.balance
+    setBalance(data.balance)
+    await fetchSession()
   } catch (e) {
     errorMsg.value = e instanceof Error ? e.message : 'Animation error'
+    balance.value = data.balance
+    setBalance(data.balance)
     stopAutoSpin()
-  } finally {
-    isSpinning.value = false
   }
+
+  isSpinning.value = false
 
   if (autoSpinEnabled.value) {
     autoSpinsLeft.value--
@@ -559,182 +865,395 @@ async function spin(buy = false) {
     else stopAutoSpin()
   }
 }
+
+onMounted(initPixi)
+
+onBeforeUnmount(() => {
+  destroyed = true
+  resizeObserver?.disconnect()
+  try {
+    reelSet?.destroy()
+  } catch { /* ignore */ }
+  try {
+    pixiApp?.destroy(true)
+  } catch { /* ignore */ }
+  reelSet = null
+  pixiApp = null
+  linesLayer = null
+  effectsLayer = null
+})
 </script>
 
 <template>
-  <div class="flex flex-col items-center gap-4 p-6">
-    <h1 class="text-xl font-bold">
-      Book of Shadows
-    </h1>
+  <div class="bos-shell relative min-h-full overflow-hidden px-2 py-6 text-default sm:px-3">
+    <div class="bos-bg absolute inset-0" />
+    <div class="bos-fog absolute inset-0" />
+    <div class="bos-vignette absolute inset-0" />
 
-    <div
-      ref="canvasWrap"
-      class="relative"
-    >
-      <Transition name="pop">
-        <div
-          v-if="showBigWin"
-          class="absolute inset-0 z-20 flex items-center justify-center pointer-events-none"
-        >
-          <span class="big-win-text">{{ formatNumber(bigWinValue, false) }}</span>
+    <div class="relative z-[1] mx-auto w-full max-w-7xl">
+      <header class="mb-5 text-center">
+        <p class="bos-eyebrow mb-1.5 text-[11px] font-bold tracking-[0.5em] uppercase">
+          ✦ Open the forbidden pages ✦
+        </p>
+        <h1 class="bos-title text-[42px] leading-none sm:text-[60px]">
+          Book of Shadows
+        </h1>
+        <div class="mt-2.5 flex items-center justify-center gap-2.5">
+          <span class="bos-seam-line" />
+          <UIcon
+            name="i-lucide-skull"
+            class="size-4 shrink-0 text-[#991b1b] drop-shadow-[0_0_8px_rgba(239,68,68,0.6)]"
+          />
+          <span class="bos-seam-line bos-seam-line-flip" />
         </div>
-      </Transition>
-
-      <Transition name="pop">
-        <div
-          v-if="showBonusPick"
-          class="absolute inset-0 z-30 flex flex-col items-center justify-center gap-4 bg-black/85"
-        >
-          <p class="text-lg font-black text-amber-400 tracking-wide">
-            BONUS TRIGGERED!
-          </p>
-          <p class="text-xs text-white/60">
-            Roll for your bonus wild value
-          </p>
-
-          <div class="tier-tile flex items-center justify-center">
-            <span class="text-sm font-black text-center px-2">{{ rolledTier?.label ?? '?' }}</span>
-          </div>
-          <p
-            v-if="rolledTier"
-            class="text-amber-300 font-bold"
-          >
-            ×{{ rolledTier.multiplier }}
-          </p>
-
-          <button
-            :disabled="rolling || !!rolledTier"
-            class="px-6 py-2 rounded bg-primary text-white font-bold disabled:opacity-40"
-            @click="rollTier"
-          >
-            {{ rolling ? 'Rolling...' : 'Roll' }}
-          </button>
-        </div>
-      </Transition>
-
-      <Transition name="pop">
-        <div
-          v-if="showBonusFlash"
-          class="absolute inset-0 z-20 flex items-center justify-center pointer-events-none"
-        >
-          <span class="bonus-flash-text">{{ formatNumber(bonusFlashValue, false) }}</span>
-        </div>
-      </Transition>
-    </div>
-
-    <p
-      v-if="!ready && !errorMsg"
-      class="text-sm text-muted"
-    >
-      Loading reels...
-    </p>
-    <p
-      v-if="errorMsg"
-      class="text-sm text-red-400"
-    >
-      {{ errorMsg }}
-    </p>
-    <p
-      v-if="bonusRunning"
-      class="text-sm text-amber-400 font-bold"
-    >
-      Bonus spin {{ bonusSpinIndex }} / 10 — total {{ formatNumber(bonusTotal, false) }}
-    </p>
-    <p
-      v-else-if="autoSpinPaused"
-      class="text-sm text-amber-400 font-bold"
-    >
-      Auto spin paused — roll to continue
-    </p>
-
-    <p class="text-sm">
-      Win: {{ formatNumber(lastWin, false) }}
-    </p>
-
-    <div class="flex w-full max-w-md flex-col gap-3 rounded-lg border border-default bg-elevated p-4">
-      <div class="flex items-center justify-between text-sm">
-        <span class="text-muted">Balance</span>
-        <strong><CoinBalance
-          :value="balance"
-          :compact="false"
-        /></strong>
-      </div>
-
-      <div class="flex items-center justify-between gap-3">
-        <span class="text-sm text-muted">Bet</span>
-        <div class="flex items-center gap-1.5">
-          <UTooltip text="Halve bet">
-            <button
-              class="rounded bg-white/10 px-2.5 py-1 text-xs font-bold text-white disabled:opacity-40"
-              :disabled="locked() || bet <= MIN_BET"
-              @click="betDown"
-            >
-              1/2
-            </button>
-          </UTooltip>
-          <input
-            v-model="betInput"
-            :disabled="locked()"
-            inputmode="numeric"
-            aria-label="Bet amount"
-            class="w-20 rounded border border-default bg-transparent px-2 py-1 text-right text-sm font-bold outline-none"
-            @blur="commitBetInput"
-            @keydown.enter="($event.target as HTMLInputElement).blur()"
-          >
-          <UTooltip text="Double bet">
-            <button
-              class="rounded bg-white/10 px-2.5 py-1 text-xs font-bold text-white disabled:opacity-40"
-              :disabled="locked() || bet >= MAX_BET"
-              @click="betUp"
-            >
-              2x
-            </button>
-          </UTooltip>
-        </div>
-      </div>
-
-      <div class="flex items-center gap-2">
-        <button
-          class="flex-1 rounded bg-primary py-2.5 font-bold text-white disabled:opacity-50"
-          :disabled="!ready || isSpinning || showBonusPick || bonusRunning || (!autoSpinEnabled && balance < bet)"
-          @click="autoSpinEnabled ? stopAutoSpin() : spin()"
-        >
-          <span v-if="autoSpinEnabled">{{ autoSpinsLeft }}x STOP</span>
-          <span v-else>{{ isSpinning ? 'Spinning...' : 'Spin' }}</span>
-        </button>
-
-        <UTooltip text="Auto spin">
-          <button
-            v-if="!autoSpinEnabled"
-            class="rounded bg-white/10 px-3 py-2.5 text-xs font-bold text-white disabled:opacity-40"
-            :disabled="!ready || isSpinning || showBonusPick || bonusRunning || balance < bet"
-            @click="showAutoSpinModal = true"
-          >
-            AUTO
-          </button>
-        </UTooltip>
-
-        <UTooltip text="Turbo mode">
-          <button
-            class="rounded px-3 py-2.5 text-xs font-bold disabled:opacity-40"
-            :class="turbo ? 'bg-primary text-white' : 'bg-white/10 text-white'"
-            @click="turbo = !turbo"
-          >
+        <div class="mt-3 flex flex-wrap items-center justify-center gap-2">
+          <span class="bos-badge bos-badge-blood">
             <UIcon
-              name="i-lucide-zap"
-              class="size-4"
+              name="i-lucide-droplets"
+              class="size-3"
             />
-          </button>
-        </UTooltip>
-      </div>
+            {{ formatNumber(BOS_DISPLAY_MAX_WIN, false, 0) }}x max win
+          </span>
+          <span class="bos-badge">
+            <UIcon
+              name="i-lucide-book-open"
+              class="size-3"
+            />
+            {{ BONUS_TRIGGER_COUNT }} books awaken the bonus
+          </span>
+          <span class="bos-badge">
+            <SlotVolatility :level="BOS_VOLATILITY" />
+          </span>
+        </div>
+      </header>
 
-      <button
-        class="rounded bg-white/10 py-2 text-sm font-bold text-amber-300 disabled:opacity-40"
-        :disabled="!ready || isSpinning || showBonusPick || bonusRunning || autoSpinEnabled || balance < buyBonusCost"
-        @click="spin(true)"
-      >
-        Buy Bonus · {{ formatNumber(buyBonusCost, false) }}
-      </button>
+      <div class="grid gap-4 xl:grid-cols-[250px_minmax(0,700px)_260px] xl:items-start xl:justify-center">
+        <aside class="order-3 xl:order-1">
+          <div
+            class="bos-panel p-4"
+            :class="{ 'bos-panel-active': bonusRunning }"
+          >
+            <div class="bos-panel-head">
+              <UIcon
+                name="i-lucide-book-open"
+                class="size-3.5"
+              />
+              <span>Grimoire</span>
+            </div>
+
+            <template v-if="bonusRunning && bonusData">
+              <div class="mt-2.5 flex items-center justify-between">
+                <span class="text-[11px] font-bold text-muted">Spin</span>
+                <strong class="bos-value-blood text-sm">{{ bonusSpinIndex }}/{{ BONUS_SPINS }}</strong>
+              </div>
+              <div class="bos-progress mt-2">
+                <div
+                  class="bos-progress-fill"
+                  :style="{ width: `${(bonusSpinIndex / BONUS_SPINS) * 100}%` }"
+                />
+              </div>
+              <div class="mt-3 flex items-center justify-between">
+                <span class="text-[11px] font-bold text-muted">Skull columns</span>
+                <strong class="bos-value-blood text-sm">{{ skullColumns }}/{{ BOS_COLS }}</strong>
+              </div>
+              <div class="mt-3 flex items-center justify-between">
+                <span class="text-[11px] font-bold text-muted">Bonus symbol</span>
+                <strong class="bos-value-bone text-sm">{{ SYMBOL_VISUAL[bonusData.tier.symbol].glyph }} {{ bonusData.tier.label }} ×{{ bonusData.tier.multiplier }}</strong>
+              </div>
+              <div class="mt-4 border-t border-white/5 pt-3 text-center">
+                <span class="text-[10px] font-black tracking-wide uppercase text-muted">Bonus total</span>
+                <strong class="bos-value-blood mt-1 block text-3xl leading-none font-black">
+                  {{ formatNumber(bonusTotal, false) }}
+                </strong>
+              </div>
+            </template>
+
+            <template v-else>
+              <p class="mt-2.5 text-[11px] leading-relaxed text-muted">
+                Land {{ BONUS_TRIGGER_COUNT }}+ books for {{ BONUS_SPINS }} bonus spins. You roll a
+                bonus symbol first — when it lands it locks its whole column wild and pays at its
+                own rate, up to ×20. Pray for something rare, then pray it lands. A lot.
+              </p>
+              <div class="mt-3 grid grid-cols-3 gap-1.5">
+                <div
+                  v-for="tier in BONUS_TIERS"
+                  :key="tier.id"
+                  class="bos-tier-chip"
+                >
+                  <span class="block text-sm leading-none">{{ SYMBOL_VISUAL[tier.symbol].glyph }}</span>
+                  <span class="mt-0.5 block text-[10px]">×{{ tier.multiplier }}</span>
+                </div>
+              </div>
+            </template>
+          </div>
+
+          <div class="bos-panel mt-3 p-3">
+            <button
+              class="bos-buy-btn"
+              :disabled="!ready || isSpinning || showBonusPick || bonusRunning || autoSpinEnabled || balance < buyBonusCost"
+              @click="spin(true)"
+            >
+              <UIcon
+                name="i-lucide-skull"
+                class="size-4"
+              />
+              Buy bonus · {{ formatNumber(buyBonusCost, false) }}
+            </button>
+          </div>
+        </aside>
+
+        <main class="order-1 xl:order-2">
+          <div class="bos-console overflow-hidden">
+            <div class="bos-reel-area relative overflow-hidden p-1.5 sm:p-2">
+              <div class="bos-reel-sheen pointer-events-none absolute inset-0 z-[2]" />
+              <div
+                ref="canvasHost"
+                class="relative z-[1] mx-auto w-full max-w-[612px] [&>canvas]:!block [&>canvas]:!h-auto [&>canvas]:!w-full"
+              />
+
+              <Transition name="pop">
+                <div
+                  v-if="showBonusPick"
+                  class="absolute inset-0 z-30 flex flex-col items-center justify-center gap-4 bg-[rgba(6,4,5,0.88)] backdrop-blur-[4px]"
+                >
+                  <UIcon
+                    name="i-lucide-skull"
+                    class="size-8 text-[#ef4444] drop-shadow-[0_0_14px_rgba(239,68,68,0.7)]"
+                  />
+                  <p class="bos-awaken-text">
+                    THE BOOK AWAKENS
+                  </p>
+                  <p class="text-xs text-white/50">
+                    Roll your bonus symbol — skull columns pay at its rate
+                  </p>
+
+                  <div
+                    class="bos-tier-tile flex flex-col items-center justify-center gap-0.5"
+                    :class="{ 'bos-tier-tile-settled': !rolling && rolledTier }"
+                  >
+                    <span class="text-3xl leading-none">{{ rolledTier ? SYMBOL_VISUAL[rolledTier.symbol].glyph : '?' }}</span>
+                    <span class="px-2 text-center text-xs leading-tight font-black">{{ rolledTier?.label ?? '' }}</span>
+                    <span
+                      v-if="rolledTier"
+                      class="text-base font-black text-[#fecaca]"
+                    >×{{ rolledTier.multiplier }}</span>
+                  </div>
+
+                  <button
+                    class="bos-roll-btn"
+                    :disabled="rolling || (!rolling && !!rolledTier)"
+                    @click="rollTier"
+                  >
+                    {{ rolling ? 'Rolling…' : rolledTier ? 'Sealed' : 'Roll' }}
+                  </button>
+                </div>
+              </Transition>
+
+              <Transition name="pop">
+                <div
+                  v-if="bigWinBanner"
+                  class="absolute inset-0 z-30 flex flex-col items-center justify-center gap-1 bg-[rgba(6,3,4,0.84)] backdrop-blur-[4px]"
+                >
+                  <p
+                    class="bos-bigwin-label"
+                    :style="{ backgroundImage: bigWinGradient, filter: `drop-shadow(0 0 22px ${bigWinGlow})` }"
+                  >
+                    {{ bigWinLabel }}
+                  </p>
+                  <strong class="bos-bigwin-amount">
+                    {{ formatNumber(bigWinAmount, false) }}
+                  </strong>
+                </div>
+              </Transition>
+
+              <div
+                v-if="!ready && !errorMsg"
+                class="absolute inset-0 z-10 flex items-center justify-center"
+              >
+                <UIcon
+                  name="i-lucide-loader-circle"
+                  class="size-10 animate-spin text-[#ef4444]"
+                />
+              </div>
+            </div>
+
+            <div class="grid grid-cols-1 items-center gap-3 border-t border-[#ef4444]/15 bg-background/75 px-3.5 py-3 sm:grid-cols-[1fr_auto_1fr]">
+              <div class="order-2 flex min-w-0 flex-col gap-1.5 sm:order-none">
+                <div class="bos-readout">
+                  <span>Balance</span>
+                  <strong><CoinBalance
+                    :compact="false"
+                    :value="balance"
+                  /></strong>
+                </div>
+                <div class="bos-readout">
+                  <span>Bet</span>
+                  <input
+                    v-model="betInput"
+                    :disabled="locked()"
+                    inputmode="numeric"
+                    aria-label="Bet amount"
+                    class="w-24 border-0 bg-transparent text-right text-sm font-black text-highlighted outline-none"
+                    @blur="commitBetInput"
+                    @keydown.enter="($event.target as HTMLInputElement).blur()"
+                  >
+                </div>
+              </div>
+
+              <div
+                class="order-1 min-w-[132px] text-center transition-transform duration-200 sm:order-none"
+                :class="totalWinPulse ? 'scale-[1.08]' : ''"
+              >
+                <span class="text-[10px] font-black tracking-wide uppercase text-muted">{{ bonusRunning ? status : 'Win' }}</span>
+                <strong
+                  class="mt-0.5 block text-3xl leading-none font-black tracking-normal"
+                  :class="(bonusRunning ? bonusTotal : totalWin) > 0 ? 'bos-value-blood' : 'text-muted/40'"
+                >
+                  {{ formatNumber(bonusRunning ? bonusTotal : totalWin, false) }}
+                </strong>
+                <span class="mt-1 block text-[11px] font-bold text-muted">Last {{ formatNumber(lastWin, false) }}</span>
+              </div>
+
+              <div class="order-3 flex items-center justify-end gap-2.5 sm:order-none">
+                <UTooltip text="Halve bet">
+                  <button
+                    class="bos-icon-btn"
+                    :disabled="locked() || bet <= MIN_BET"
+                    @click="betDown"
+                  >
+                    1/2
+                  </button>
+                </UTooltip>
+
+                <div class="flex flex-col items-center gap-1.5">
+                  <button
+                    class="bos-spin-btn"
+                    :disabled="!ready || isSpinning || showBonusPick || bonusRunning || (!autoSpinEnabled && balance < bet)"
+                    @click="autoSpinEnabled ? stopAutoSpin() : spin()"
+                  >
+                    <UIcon
+                      v-if="isSpinning"
+                      name="i-lucide-loader-circle"
+                      class="size-5 animate-spin"
+                    />
+                    <span
+                      v-else-if="autoSpinEnabled"
+                      class="flex flex-col items-center gap-0.5 leading-none"
+                    >
+                      <span class="text-[10px]">{{ autoSpinsLeft }}x</span>
+                      <span>STOP</span>
+                    </span>
+                    <span v-else>SPIN</span>
+                  </button>
+                  <button
+                    v-if="!autoSpinEnabled"
+                    class="bos-auto-btn"
+                    :disabled="!ready || isSpinning || showBonusPick || bonusRunning || balance < bet"
+                    @click="showAutoSpinModal = true"
+                  >
+                    AUTO
+                  </button>
+                  <button
+                    v-else
+                    class="bos-auto-btn bos-auto-btn-stop"
+                    @click="stopAutoSpin"
+                  >
+                    STOP
+                  </button>
+                </div>
+
+                <UTooltip text="Double bet">
+                  <button
+                    class="bos-icon-btn"
+                    :disabled="locked() || bet >= MAX_BET"
+                    @click="betUp"
+                  >
+                    2x
+                  </button>
+                </UTooltip>
+              </div>
+            </div>
+
+            <div class="flex items-center justify-between gap-3 border-t border-[#ef4444]/10 px-3.5 pt-2.5 pb-3">
+              <div class="flex gap-2">
+                <UTooltip text="Rules & paytable">
+                  <button
+                    class="bos-mini-btn"
+                    @click="showHelp = true"
+                  >
+                    <UIcon
+                      name="i-lucide-info"
+                      class="size-4"
+                    />
+                  </button>
+                </UTooltip>
+                <UTooltip text="Turbo">
+                  <button
+                    class="bos-mini-btn"
+                    :class="{ 'bos-mini-btn-active': turbo }"
+                    @click="turbo = !turbo"
+                  >
+                    <UIcon
+                      name="i-lucide-zap"
+                      class="size-4"
+                    />
+                  </button>
+                </UTooltip>
+              </div>
+              <p
+                v-if="errorMsg"
+                class="text-xs text-error"
+              >
+                {{ errorMsg }}
+              </p>
+              <p
+                v-else
+                class="text-xs text-muted"
+              >
+                {{ status }} · {{ formatNumber(BOS_DISPLAY_MAX_WIN, false, 0) }}x max
+              </p>
+            </div>
+          </div>
+        </main>
+
+        <aside class="order-2 xl:order-3">
+          <div class="bos-panel p-4">
+            <div class="bos-panel-head">
+              <UIcon
+                name="i-lucide-scroll-text"
+                class="size-3.5"
+              />
+              <span>Recent spins</span>
+            </div>
+            <div
+              v-if="history.length"
+              class="mt-3 space-y-1.5"
+            >
+              <div
+                v-for="(item, index) in history"
+                :key="index"
+                class="bos-history-item"
+                :class="item.payout > 0 ? 'bos-history-item-win' : ''"
+              >
+                <UIcon
+                  :name="item.bonus ? 'i-lucide-skull' : 'i-lucide-book-open'"
+                  class="size-3.5 shrink-0"
+                />
+                <span class="min-w-0 flex-1 truncate text-[11px] font-bold tracking-wide text-muted uppercase">
+                  {{ item.bonus ? 'Bonus' : 'Base spin' }}
+                </span>
+                <strong class="text-[13px]">{{ item.payout > 0 ? formatNumber(item.payout, false) : '0.00' }}</strong>
+              </div>
+            </div>
+            <UEmpty
+              v-else
+              class="mt-2"
+              icon="i-lucide-moon"
+              description="No spins yet"
+            />
+          </div>
+        </aside>
+      </div>
     </div>
 
     <UModal
@@ -756,49 +1275,547 @@ async function spin(buy = false) {
         </div>
       </template>
     </UModal>
+
+    <UModal
+      v-model:open="showHelp"
+      title="How Book of Shadows works"
+    >
+      <template #body>
+        <div class="space-y-3 text-sm text-muted">
+          <p>
+            Connections start on the leftmost column and read left to right — a symbol links to the
+            next column in the same row or one row up/down, so paths can zigzag.
+            {{ BOS_MIN_CONNECTION }}+ connected columns pay. The Book substitutes for everything.
+          </p>
+          <p>
+            {{ BONUS_TRIGGER_COUNT }}+ Books anywhere award {{ BONUS_SPINS }} bonus spins. Before they
+            start you roll a bonus symbol — commons roll often, the three premiums (×10, ×15 and the
+            ×20 Cauldron) are rare. During the bonus your symbol can land and lock its whole column
+            wild for the rest of the round, and every win paid through those columns at the bonus
+            rate is multiplied by your rolled symbol. The dream: roll a premium, then fill the board
+            with it. All other symbols pay their normal base rate.
+          </p>
+          <p>
+            Buy bonus skips straight to the feature for {{ formatNumber(buyBonusCost, false) }}
+            ({{ BOS_BUY_BONUS_COST }}x bet). Total win is capped at
+            {{ formatNumber(BOS_DISPLAY_MAX_WIN, false, 0) }}x bet.
+          </p>
+
+          <div class="overflow-hidden rounded-lg border border-default">
+            <table class="w-full text-left text-xs">
+              <thead>
+                <tr class="bg-elevated text-[10px] font-black tracking-wide uppercase">
+                  <th class="px-3 py-2">
+                    Symbol
+                  </th>
+                  <th class="px-2 py-2 text-right">
+                    ×3
+                  </th>
+                  <th class="px-2 py-2 text-right">
+                    ×4
+                  </th>
+                  <th class="px-3 py-2 text-right">
+                    ×5
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr
+                  v-for="row in PAYTABLE_ROWS"
+                  :key="row.id"
+                  class="border-t border-default"
+                >
+                  <td class="px-3 py-1.5 font-bold">
+                    {{ row.glyph }} {{ row.name }}
+                  </td>
+                  <td class="px-2 py-1.5 text-right">
+                    {{ row.pays[0] }}x
+                  </td>
+                  <td class="px-2 py-1.5 text-right">
+                    {{ row.pays[1] }}x
+                  </td>
+                  <td class="px-3 py-1.5 text-right">
+                    {{ row.pays[2] }}x
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="text-[11px]">
+            Paytable values are × total bet. Skull Wild pays only appear during the bonus and are
+            further multiplied by your rolled tier.
+          </p>
+        </div>
+      </template>
+    </UModal>
   </div>
 </template>
 
 <style scoped>
-.tier-tile {
-  width: 96px;
-  height: 96px;
-  border-radius: 12px;
-  background: linear-gradient(180deg, #dc2626, #7f1d1d);
-  border: 2px solid rgba(255, 255, 255, 0.25);
+.bos-shell {
+  --bos-blood: #ef4444;
+  --bos-blood-deep: #7f1d1d;
+  --bos-blood-soft: #fecaca;
+  --bos-bone: #d4d4d8;
+  --bos-ash: #27272a;
+  background: var(--ui-bg);
+}
+
+.bos-bg {
+  background:
+    radial-gradient(ellipse 80% 55% at 50% 0%, rgba(127, 29, 29, 0.14) 0%, transparent 65%),
+    radial-gradient(ellipse 60% 45% at 18% 88%, rgba(63, 63, 70, 0.22) 0%, transparent 70%),
+    radial-gradient(ellipse 55% 40% at 85% 80%, rgba(127, 29, 29, 0.1) 0%, transparent 70%),
+    linear-gradient(180deg, #0b0b0d 0%, #09090b 55%, #050506 100%);
+}
+
+.bos-fog {
+  background:
+    radial-gradient(ellipse 42% 26% at 28% 40%, rgba(161, 161, 170, 0.05), transparent 70%),
+    radial-gradient(ellipse 38% 22% at 74% 62%, rgba(161, 161, 170, 0.04), transparent 70%);
+  animation: bos-fog-drift 14s ease-in-out infinite alternate;
+}
+
+@keyframes bos-fog-drift {
+  0% {
+    transform: translateX(-1.5%) translateY(0);
+    opacity: 0.8;
+  }
+
+  100% {
+    transform: translateX(1.5%) translateY(-1%);
+    opacity: 1;
+  }
+}
+
+.bos-vignette {
+  background: radial-gradient(ellipse 76% 66% at 50% 38%, transparent 0%, rgba(5, 5, 6, 0.45) 72%, rgba(2, 2, 3, 0.92) 100%);
+}
+
+.bos-title {
+  font-family: Georgia, 'Times New Roman', serif;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  background: linear-gradient(180deg, #fafafa 0%, var(--bos-bone) 34%, #71717a 70%, #2c2c30 100%);
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  filter: drop-shadow(0 3px 0 rgba(0, 0, 0, 0.9)) drop-shadow(0 0 26px rgba(239, 68, 68, 0.3));
+  animation: bos-candle-flicker 7s ease-in-out infinite;
+}
+
+/* uneven candlelight — the glow breathes and occasionally stutters */
+@keyframes bos-candle-flicker {
+  0%, 100% {
+    filter: drop-shadow(0 3px 0 rgba(0, 0, 0, 0.9)) drop-shadow(0 0 26px rgba(239, 68, 68, 0.3));
+  }
+
+  42% {
+    filter: drop-shadow(0 3px 0 rgba(0, 0, 0, 0.9)) drop-shadow(0 0 38px rgba(239, 68, 68, 0.45));
+  }
+
+  47% {
+    filter: drop-shadow(0 3px 0 rgba(0, 0, 0, 0.9)) drop-shadow(0 0 18px rgba(239, 68, 68, 0.18));
+  }
+
+  52% {
+    filter: drop-shadow(0 3px 0 rgba(0, 0, 0, 0.9)) drop-shadow(0 0 34px rgba(239, 68, 68, 0.42));
+  }
+
+  76% {
+    filter: drop-shadow(0 3px 0 rgba(0, 0, 0, 0.9)) drop-shadow(0 0 22px rgba(239, 68, 68, 0.24));
+  }
+}
+
+.bos-eyebrow {
+  color: #71717a;
+  text-shadow: 0 0 12px rgba(239, 68, 68, 0.25);
+}
+
+.bos-seam-line {
+  height: 1px;
+  width: 110px;
+  background: linear-gradient(90deg, transparent, rgba(153, 27, 27, 0.9));
+  box-shadow: 0 0 8px rgba(239, 68, 68, 0.35);
+}
+
+.bos-seam-line-flip {
+  background: linear-gradient(90deg, rgba(153, 27, 27, 0.9), transparent);
+}
+
+.bos-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid rgba(161, 161, 170, 0.22);
+  border-radius: 999px;
+  background: rgba(39, 39, 42, 0.4);
+  padding: 4px 10px;
+  color: var(--bos-bone);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+}
+
+.bos-badge-blood {
+  border-color: rgba(239, 68, 68, 0.32);
+  background: rgba(127, 29, 29, 0.2);
+  color: var(--bos-blood-soft);
+}
+
+.bos-console,
+.bos-panel {
+  position: relative;
+  border: 1px solid rgba(113, 113, 122, 0.26);
+  border-radius: 8px;
+  background: linear-gradient(180deg, rgba(19, 19, 22, 0.94), rgba(7, 7, 9, 0.97));
+  box-shadow: 0 26px 80px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 0 42px rgba(127, 29, 29, 0.1);
+  backdrop-filter: blur(10px);
+}
+
+.bos-console {
+  border-top-color: rgba(153, 27, 27, 0.55);
+}
+
+/* a thin blood seam along the top edge, dripping down into the reels */
+.bos-console::before {
+  content: '';
+  position: absolute;
+  z-index: 2;
+  inset: 0 0 auto 0;
+  height: 14px;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse 2.5px 6px at 5% 3px, #7f1d1d 88%, transparent),
+    radial-gradient(ellipse 3px 9px at 14% 3px, #6b1414 88%, transparent),
+    radial-gradient(ellipse 2px 5px at 22% 3px, #7f1d1d 88%, transparent),
+    radial-gradient(ellipse 3.5px 11px at 33% 3px, #801717 88%, transparent),
+    radial-gradient(ellipse 2px 4px at 41% 3px, #6b1414 88%, transparent),
+    radial-gradient(ellipse 3px 8px at 52% 3px, #7f1d1d 88%, transparent),
+    radial-gradient(ellipse 2.5px 5px at 63% 3px, #6b1414 88%, transparent),
+    radial-gradient(ellipse 3px 10px at 74% 3px, #801717 88%, transparent),
+    radial-gradient(ellipse 2px 6px at 83% 3px, #7f1d1d 88%, transparent),
+    radial-gradient(ellipse 3px 8px at 92% 3px, #6b1414 88%, transparent),
+    radial-gradient(ellipse 2px 4px at 98% 3px, #7f1d1d 88%, transparent),
+    linear-gradient(180deg, rgba(127, 29, 29, 0.95) 0 3px, transparent 3px);
+  filter: drop-shadow(0 0 6px rgba(239, 68, 68, 0.3));
+}
+
+.bos-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--bos-blood);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.bos-panel-head span {
+  color: var(--ui-text-muted);
+}
+
+.bos-panel-active {
+  border-color: rgba(239, 68, 68, 0.5);
+  animation: bos-panel-pulse 1.8s ease-in-out infinite;
+}
+
+@keyframes bos-panel-pulse {
+  0%, 100% {
+    box-shadow: 0 26px 80px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 0 20px rgba(239, 68, 68, 0.18);
+  }
+
+  50% {
+    box-shadow: 0 26px 80px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 0 38px rgba(239, 68, 68, 0.38);
+  }
+}
+
+.bos-value-blood {
+  color: var(--bos-blood-soft);
+  text-shadow: 0 0 16px rgba(239, 68, 68, 0.45);
+}
+
+.bos-value-bone {
+  color: var(--bos-bone);
+}
+
+.bos-progress {
+  position: relative;
+  height: 7px;
+  overflow: hidden;
+  border: 1px solid rgba(239, 68, 68, 0.18);
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.5);
+}
+
+.bos-progress-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #450a0a, var(--bos-blood-deep), var(--bos-blood));
+  box-shadow: 0 0 10px rgba(239, 68, 68, 0.6);
+  transition: width 320ms ease;
+}
+
+.bos-tier-chip {
+  border: 1px solid rgba(113, 113, 122, 0.24);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.35);
+  padding: 5px 0;
+  color: var(--bos-bone);
+  font-size: 11px;
+  font-weight: 900;
+  text-align: center;
+}
+
+.bos-buy-btn {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px solid rgba(239, 68, 68, 0.45);
+  border-radius: 8px;
+  background: linear-gradient(180deg, rgba(69, 10, 10, 0.7), rgba(24, 24, 27, 0.7));
+  padding: 9px 10px;
+  color: var(--bos-blood-soft);
+  font-size: 12.5px;
+  font-weight: 900;
+  transition: transform 140ms ease, border-color 140ms ease, background 140ms ease, opacity 140ms ease;
+}
+
+.bos-buy-btn:not(:disabled):hover {
+  border-color: rgba(239, 68, 68, 0.85);
+  background: linear-gradient(180deg, rgba(127, 29, 29, 0.75), rgba(39, 39, 42, 0.75));
+  transform: translateY(-1px);
+}
+
+.bos-buy-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.bos-reel-area {
+  background:
+    radial-gradient(ellipse 88% 58% at 50% 0%, rgba(127, 29, 29, 0.14), transparent 72%),
+    linear-gradient(180deg, rgba(24, 24, 27, 0.85), rgba(7, 7, 9, 0.97));
+}
+
+.bos-reel-sheen {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.05), transparent 20%),
+    radial-gradient(ellipse 70% 42% at 50% 106%, rgba(0, 0, 0, 0.42), transparent 65%);
+}
+
+.bos-readout {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border: 1px solid rgba(113, 113, 122, 0.18);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.32);
+  padding: 6px 10px;
+}
+
+.bos-readout span {
+  display: block;
+  color: var(--ui-text-muted);
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.bos-readout strong {
+  min-width: 0;
+  color: var(--ui-text-highlighted);
+  font-size: 14px;
+  font-weight: 950;
+  text-align: right;
+}
+
+.bos-spin-btn,
+.bos-icon-btn,
+.bos-mini-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(113, 113, 122, 0.32);
+  background: rgba(0, 0, 0, 0.48);
   color: white;
+  font-weight: 950;
+  transition: transform 140ms ease, border-color 140ms ease, background 140ms ease, opacity 140ms ease;
 }
 
-.big-win-text {
-  font-size: 4rem;
-  font-weight: 900;
-  line-height: 1;
-  background-image: linear-gradient(180deg, #ff5252 0%, #7f0f0f 100%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.6));
+.bos-spin-btn {
+  width: 84px;
+  height: 58px;
+  border-color: rgba(239, 68, 68, 0.75);
+  border-radius: 999px;
+  background: linear-gradient(180deg, #b91c1c, #450a0a);
+  color: #fef2f2;
+  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.5), 0 0 24px rgba(239, 68, 68, 0.35);
 }
 
-.bonus-flash-text {
-  font-size: 2.75rem;
+.bos-icon-btn {
+  width: 38px;
+  height: 38px;
+  border-radius: 8px;
+}
+
+.bos-mini-btn {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+}
+
+.bos-mini-btn-active {
+  border-color: rgba(239, 68, 68, 0.9);
+  background: rgba(239, 68, 68, 0.16);
+}
+
+.bos-spin-btn:disabled,
+.bos-icon-btn:disabled,
+.bos-mini-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.bos-spin-btn:not(:disabled):hover,
+.bos-icon-btn:not(:disabled):hover,
+.bos-mini-btn:not(:disabled):hover {
+  transform: translateY(-1px);
+}
+
+.bos-auto-btn {
+  border: 0;
+  background: none;
+  color: var(--ui-text-muted);
+  cursor: pointer;
+  font-size: 9px;
   font-weight: 900;
-  line-height: 1;
-  background-image: linear-gradient(180deg, #ffe066 0%, #b8860b 100%);
-  -webkit-background-clip: text;
+  letter-spacing: 0.22em;
+  padding: 0;
+}
+
+.bos-auto-btn:hover:not(:disabled) {
+  color: var(--bos-blood);
+}
+
+.bos-auto-btn-stop {
+  color: var(--ui-error);
+}
+
+.bos-history-item {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid rgba(113, 113, 122, 0.14);
+  border-left: 2px solid rgba(113, 113, 122, 0.28);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.3);
+  padding: 7px 9px;
+  color: var(--ui-text-muted);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.bos-history-item-win {
+  border-left-color: var(--bos-blood);
+  color: var(--bos-blood-soft);
+}
+
+.bos-awaken-text {
+  font-size: 22px;
+  font-weight: 900;
+  letter-spacing: 0.28em;
+  background: linear-gradient(180deg, #fecaca, #991b1b);
   background-clip: text;
+  -webkit-background-clip: text;
   color: transparent;
-  filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.6));
+  -webkit-text-fill-color: transparent;
+  filter: drop-shadow(0 0 18px rgba(239, 68, 68, 0.55));
+}
+
+.bos-tier-tile {
+  width: 118px;
+  height: 118px;
+  border-radius: 12px;
+  border: 2px solid rgba(239, 68, 68, 0.4);
+  background: linear-gradient(180deg, #27272a, #09090b);
+  color: var(--bos-bone);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 14px 34px rgba(0, 0, 0, 0.6);
+  transition: border-color 200ms ease, box-shadow 200ms ease, transform 200ms ease;
+}
+
+.bos-tier-tile-settled {
+  border-color: var(--bos-blood);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 14px 34px rgba(0, 0, 0, 0.6), 0 0 34px rgba(239, 68, 68, 0.5);
+  transform: scale(1.06);
+}
+
+.bos-roll-btn {
+  border: 1px solid rgba(239, 68, 68, 0.65);
+  border-radius: 999px;
+  background: linear-gradient(180deg, #b91c1c, #450a0a);
+  padding: 9px 34px;
+  color: #fef2f2;
+  font-size: 13px;
+  font-weight: 900;
+  letter-spacing: 0.14em;
+  box-shadow: 0 10px 22px rgba(0, 0, 0, 0.5), 0 0 22px rgba(239, 68, 68, 0.35);
+  transition: transform 140ms ease, opacity 140ms ease;
+}
+
+.bos-roll-btn:not(:disabled):hover {
+  transform: translateY(-1px);
+}
+
+.bos-roll-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.bos-bigwin-label {
+  font-size: 40px;
+  font-weight: 950;
+  letter-spacing: 0.1em;
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  animation: bos-bigwin-throb 900ms ease-in-out infinite alternate;
+}
+
+.bos-bigwin-amount {
+  font-size: 46px;
+  font-weight: 950;
+  line-height: 1;
+  color: #fef2f2;
+  text-shadow: 0 0 26px rgba(239, 68, 68, 0.65), 0 3px 0 rgba(0, 0, 0, 0.8);
+}
+
+@keyframes bos-bigwin-throb {
+  0% {
+    transform: scale(1);
+  }
+
+  100% {
+    transform: scale(1.05);
+  }
 }
 
 .pop-enter-active,
 .pop-leave-active {
-  transition: all 0.25s ease;
+  transition: transform 220ms ease, opacity 220ms ease;
 }
 
 .pop-enter-from,
 .pop-leave-to {
   opacity: 0;
-  transform: scale(0.7);
+  transform: scale(0.92);
 }
 </style>
