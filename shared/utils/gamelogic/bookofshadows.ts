@@ -12,14 +12,15 @@
 // ── Bonus ("fill the columns") ───────────────────────────────────────────────
 // 3+ BOOK symbols anywhere trigger the bonus. The whole bonus playthrough
 // (BONUS_SPINS reel spins, which columns lock with the rare bonus wild and
-// when, every connection along the way) is precomputed in one shot at the
-// UNSCALED baseline value — the player's tier pick only scales the final
-// total, it never changes what actually happens, so we only ever have to
-// simulate it once regardless of which tier the player ends up on.
+// when, every connection along the way) is precomputed in one shot — the
+// player's tier pick never changes what actually happened, so we only ever
+// have to simulate it once regardless of which tier they end up on.
 //
-// The bonus tier (which scales the payout) is picked entirely server-side —
-// the client's "roll" button is a purely cosmetic reveal animation with no
-// influence on the outcome.
+// The bonus tier is picked entirely server-side — the client's "roll" button
+// is a purely cosmetic reveal animation with no influence on the outcome.
+// The tier ONLY scales the value of the special BONUS_WILD symbol itself
+// (`wildBaseline`); every ordinary symbol win during the bonus (`ordinaryPayout`)
+// pays at the exact same PAYTABLE rate as a base spin, tier or no tier.
 //
 // During bonus spins, an unlocked column has a small chance per spin to land
 // the rare BONUS_WILD symbol. At most one BONUS_WILD cell is ever placed in a
@@ -49,8 +50,10 @@ export const SYMBOL_WEIGHTS: Record<Exclude<SlotSymbol, 'bonuswild'>, number> = 
 
 // Payout multiplier of the total bet for a connected run of [3, 4, 5] columns.
 // The 6-row grid makes connections land far more often than a classic 3-row
-// payline slot, so these sit much lower than they look at first glance —
-// tuned via scripts/bookofshadows-rtp.ts to land total RTP around 95-96%.
+// payline slot, so these sit much lower than they look at first glance. This
+// is the ONE table used everywhere — base spins and bonus spins alike — so a
+// symbol is never worth less just because it landed during the bonus. Tuned
+// via scripts/bookofshadows-rtp.ts to land total RTP around 95%.
 export const PAYTABLE: Record<SlotSymbol, [number, number, number]> = {
   ten: [0.35, 0.9, 1.8],
   jack: [0.35, 0.9, 1.8],
@@ -74,14 +77,16 @@ const SYMBOL_WEIGHT_VALUES = SYMBOL_KEYS.map(k => SYMBOL_WEIGHTS[k])
 
 export const BONUS_TRIGGER_COUNT = 3 // BOOK symbols needed anywhere on the grid
 export const BONUS_SPINS = 10 // fixed spin count, no resets/extensions
-// Chance an unlocked column locks in on any given bonus spin. Tuned via
-// scripts/bookofshadows-rtp.ts so a full 5-column clear isn't trivial over
-// 10 spins while still being reachable.
-const BONUS_WILD_CHANCE = 0.03
+// Chance an unlocked column locks in on any given bonus spin. Even one locked
+// column lets several ordinary symbols in column 0 ride the same wild bridge
+// to a win every remaining spin, so this has to stay small — a 4-5 column
+// clear should be a very rare jackpot, not a common outcome over 10 spins.
+// Tuned via scripts/bookofshadows-rtp.ts.
+const BONUS_WILD_CHANCE = 0.007
 
 // Cost (× bet) of the "Buy Bonus" feature buy. Tuned via
 // scripts/bookofshadows-rtp.ts (buyBonus mode) to track the natural bonus RTP.
-export const BOS_BUY_BONUS_COST = 7.5
+export const BOS_BUY_BONUS_COST = 16.5
 
 export interface BonusTier { id: string, label: string, multiplier: number }
 

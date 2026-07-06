@@ -452,7 +452,7 @@ async function runBonus(bonus: BonusResult, tier: BonusTier) {
   try {
     const data = await $fetch('/api/games/play-game', {
       method: 'POST',
-      body: { bet: bet.value, game: 'bookofshadows', options: { resolveBonus: { baseline: bonus.baselinePayout, tierId: tier.id } } }
+      body: { bet: bet.value, game: 'bookofshadows', options: { resolveBonus: { ordinaryPayout: bonus.ordinaryPayout, wildBaseline: bonus.wildBaseline, tierId: tier.id } } }
     }) as { gameData: BookOfShadowsResult, balance: number }
     finalPayout = data.gameData.payout
     balance.value = data.balance
