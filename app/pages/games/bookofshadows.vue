@@ -221,6 +221,13 @@ const cellKey = (c: Cell) => `${c.col}:${c.row}`
 // prize: ordinary-symbol wins are unaffected, only skull-column wins scale.
 const tierMult = (multiplier: number) => `×${multiplier}`
 
+// Odds of rolling a given bonus symbol, derived exactly from its tier weight
+// (not the noisy Monte-Carlo estimate) — so "how rare is the Hood?" is
+// answerable at a glance in the help card. Verified against
+// scripts/bookofshadows-rtp.ts (buyBonus mode).
+const totalTierWeight = BONUS_TIERS.reduce((sum, t) => sum + t.weight, 0)
+const tierChance = (weight: number) => `1 in ${Math.round(totalTierWeight / weight)}`
+
 function symbolIconStyle(symbol: SlotSymbol, bonus = false, size = 30): SymbolIconStyle {
   const useBonusSheet = (bonus && symbol !== 'ten') || symbol === 'bonuswild'
   const meta = useBonusSheet
@@ -1611,7 +1618,7 @@ onBeforeUnmount(() => {
 
           <div>
             <p class="mb-1.5 text-[11px] font-black tracking-wide text-muted uppercase">
-              Bonus symbol · skull-win multiplier
+              Bonus symbol · multiplier &amp; roll odds
             </p>
             <div class="grid grid-cols-3 gap-1.5">
               <div
@@ -1626,6 +1633,7 @@ onBeforeUnmount(() => {
                 />
                 <span class="mt-0.5 block text-[10px] font-bold text-muted">{{ tier.label }}</span>
                 <span class="mt-0.5 block text-[11px] font-black text-[#fecaca]">{{ tierMult(tier.multiplier) }}</span>
+                <span class="mt-0.5 block text-[9px] font-bold tracking-wide text-muted/70">{{ tierChance(tier.weight) }}</span>
               </div>
             </div>
           </div>
