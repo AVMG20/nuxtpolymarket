@@ -97,8 +97,10 @@ export const BONUS_RETRIGGER_SPINS = 4
 const BONUS_WILD_CHANCE = 0.07
 
 // Cost (× bet) of the "Buy Bonus" feature buy. Tuned via
-// scripts/bookofshadows-rtp.ts (buyBonus mode) to track the natural bonus RTP.
-export const BOS_BUY_BONUS_COST = 57
+// scripts/bookofshadows-rtp.ts (buyBonus mode) to track the natural bonus RTP:
+// at 56.5× the buy returns ~97.56%, matching the ~97.6% you get playing
+// naturally, so buying is a convenience rather than an edge either way.
+export const BOS_BUY_BONUS_COST = 56.5
 
 // The bonus "symbol roll": before the spins start, one paytable symbol is
 // drawn (weighted — commons are likely, premiums are the dream). Every win
