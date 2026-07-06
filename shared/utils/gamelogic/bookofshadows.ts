@@ -70,7 +70,7 @@ export const PAYTABLE: Record<SlotSymbol, [number, number, number]> = {
   potion: [0.9, 2.2, 5.3],
   cauldron: [1.1, 3, 8],
   wild: [1.2, 3.6, 12],
-  bonuswild: [4.8, 14.5, 44]
+  bonuswild: [4.6, 14, 42]
 }
 
 export const BOS_MIN_CONNECTION = 3
