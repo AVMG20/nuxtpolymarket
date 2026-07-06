@@ -388,7 +388,7 @@ function playDrawLineSfx() {
   const src = ctx.createBufferSource()
   src.buffer = buffers.drawLine
   const gain = ctx.createGain()
-  gain.gain.value = 0.7
+  gain.gain.value = 0.5
   src.connect(gain)
   gain.connect(sfxGain)
   src.start(0, slice.offset, slice.duration)
