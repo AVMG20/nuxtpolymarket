@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { XenoSlotResult, BonusWave, Cell, SlotSymbol } from '#shared/utils/gamelogic/xenoslot'
-import { XENOSLOT_LINES, XENOSLOT_MAX_WIN_MULT, BONUS_FREE_SPINS, BONUS_TRIGGER_COUNT, XENOSLOT_CELLS, PAYTABLE, SYMBOL_WEIGHTS } from '#shared/utils/gamelogic/xenoslot'
+import { XENOSLOT_LINES, XENOSLOT_MAX_WIN_MULT, XENOSLOT_BUY_BONUS_COST, BONUS_FREE_SPINS, BONUS_TRIGGER_COUNT, XENOSLOT_CELLS, PAYTABLE, SYMBOL_WEIGHTS } from '#shared/utils/gamelogic/xenoslot'
 
 // Max win shown to players, derived from a 2M-spin Monte Carlo run
 // (scripts/xenoslot-rtp.ts). Unlike the other slots, Xeno Slot actually hit
@@ -36,6 +36,7 @@ function commitBetInput() {
   betInput.value = String(bet.value)
 }
 function betDown() { setBet(Math.floor(bet.value / 2)) }
+const buyBonusCost = computed(() => bet.value * XENOSLOT_BUY_BONUS_COST)
 function betUp() { setBet(bet.value * 2) }
 
 const turbo = ref(false)
@@ -666,15 +667,16 @@ onUnmounted(() => {
 })
 
 // --- spin flow --------------------------------------------------------------
-async function spin() {
-  if (!ready.value || isSpinning.value || balance.value < bet.value) return
+async function spin(buy = false) {
+  const cost = buy ? buyBonusCost.value : bet.value
+  if (!ready.value || isSpinning.value || balance.value < cost) return
   isSpinning.value = true
   errorMsg.value = ''
   lastWin.value = 0
   lastLines.value = 0
   winFlash.value = false
   const balanceBeforeSpin = balance.value
-  balance.value = balanceBeforeSpin - bet.value
+  balance.value = balanceBeforeSpin - cost
   setBalance(balance.value)
   clearConnections()
   clearWinText()
@@ -683,7 +685,7 @@ async function spin() {
   try {
     data = await $fetch('/api/games/play-game', {
       method: 'POST',
-      body: { bet: bet.value, game: 'xenoslot' }
+      body: { bet: bet.value, game: 'xenoslot', options: buy ? { buyBonus: true } : undefined }
     }) as { gameData: XenoSlotResult, balance: number }
   } catch (e: unknown) {
     errorMsg.value = e instanceof Error ? e.message : 'Something went wrong'
@@ -733,7 +735,7 @@ async function spin() {
     winFlash.value = result.payout > 0
     balance.value = data.balance
     setBalance(data.balance)
-    history.value.unshift({ payout: result.payout, bet: result.bet, bonus: result.bonusTriggered })
+    history.value.unshift({ payout: result.payout, bet: result.cost, bonus: result.bonusTriggered })
     if (history.value.length > 10) history.value.pop()
   } catch (e) {
     errorMsg.value = e instanceof Error ? e.message : 'Animation error'
@@ -809,8 +811,15 @@ async function runBonus(result: XenoSlotResult) {
     for (const c of bonus.seed) board.symbolAt(c.cell)?.setValue?.(c.value * result.bet, c.value)
     await wait(500)
 
-    // Replay each bonus spin.
+    // Replay each bonus spin. The pixi-reels board auto-ends the feature the
+    // instant its grid fills up (coins/glovers/collectors all occupy a cell
+    // until released), which can happen before the server's fixed 10 waves are
+    // exhausted — respin() would then throw on the next iteration. `boardDone`
+    // guards against that: once respin() reports the board ended, we stop
+    // advancing (the current wave still finishes its glover/collector replay).
+    let boardDone = false
     for (const wave of bonus.waves) {
+      if (boardDone) break
       bonusStatus.value = `Spin ${wave.round} / ${BONUS_FREE_SPINS}`
       bonusSpinsLeft.value = BONUS_FREE_SPINS - wave.round
       // Coins that land the same wave as a glover neighbour them already have
@@ -829,7 +838,8 @@ async function runBonus(result: XenoSlotResult) {
         ...wave.glovers.map(g => ({ cell: g.cell, id: 'glover', data: { mult: g.mult } })),
         ...wave.collectors.map(c => ({ cell: c.cell, id: 'collector', data: { collected: c.collected } }))
       ]
-      await board.respin(hits)
+      const res = await board.respin(hits)
+      boardDone = res.done
 
       // Glovers resolve first: each boosts its neighbouring coins, then vanishes.
       if (wave.glovers.length) {
@@ -1016,6 +1026,15 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
     </div>
 
     <div class="game-layout relative w-full max-w-[760px] flex flex-col">
+      <!-- Buy bonus — sits above the card on mobile, floats to its left from lg up -->
+      <button
+        :disabled="!ready || isSpinning || autoSpinEnabled || balance < buyBonusCost"
+        class="relative mx-auto mb-3 aspect-[3/2] w-[190px] cursor-pointer border-0 bg-[url('/slots/xenoslot/buy_bonus.png')] bg-contain bg-center bg-no-repeat p-0 drop-shadow-[0_6px_16px_rgba(0,0,0,0.55)] transition-transform duration-150 hover:scale-[1.04] active:scale-[0.97] disabled:cursor-default disabled:opacity-45 disabled:grayscale-[70%] lg:absolute lg:right-full lg:top-1/2 lg:mx-0 lg:mb-0 lg:w-[260px] lg:-translate-y-1/2"
+        @click="spin(true)"
+      >
+        <span class="pointer-events-none absolute inset-x-0 bottom-[28%] text-center font-mono text-base font-black tracking-wide text-[#fff7d6] [text-shadow:0_2px_3px_rgba(0,0,0,0.65),0_0_10px_rgba(250,204,21,0.5)] lg:text-xl">{{ formatNumber(buyBonusCost, false) }}</span>
+      </button>
+
       <!-- Slot machine -->
       <div class="machine w-full flex flex-col">
         <!-- ── Reel area ── -->
@@ -1394,6 +1413,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
               <li><strong class="text-default">{{ BONUS_FREE_SPINS }} spins.</strong> Coins stick to the board as <strong class="text-default">metal medallions</strong> — bronze → silver → gold → emerald as the value climbs.</li>
               <li><strong class="text-default">🍀 Glovers</strong> (<span class="text-success font-bold">×2</span> / <span class="text-success font-bold">×5</span> / <span class="text-success font-bold">×10</span>) multiply all adjacent coins, then vanish.</li>
               <li><strong class="text-default">Treasure chests</strong> spring open and collect every coin on the board, then wipe it clean. <strong class="text-default">Only collected coins pay out</strong> — max {{ formatNumber(XS_DISPLAY_MAX_WIN, false, 0) }}× bet.</li>
+              <li><strong class="text-default">Buy Bonus</strong> skips straight to the feature for {{ formatNumber(buyBonusCost, false) }} ({{ XENOSLOT_BUY_BONUS_COST }}× bet).</li>
             </ul>
           </div>
         </div>

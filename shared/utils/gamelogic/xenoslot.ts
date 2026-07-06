@@ -81,6 +81,8 @@ export const XENOSLOT_LINES = PAYLINES.length
 export const BONUS_TRIGGER_COUNT = 3 // BONUS symbols needed to start the feature
 export const XENOSLOT_CELLS = XENOSLOT_COLS * XENOSLOT_ROWS
 
+export const XENOSLOT_BUY_BONUS_COST = 52 // × bet → ~98% RTP (measured via bonus-only sim, see scripts/xenoslot-rtp.ts)
+
 // --- bonus feature tuning ---------------------------------------------------
 
 export const BONUS_FREE_SPINS = 10 // fixed number of bonus spins
@@ -91,16 +93,33 @@ export const BONUS_FREE_SPINS = 10 // fixed number of bonus spins
 // board. Coins fill faster (higher P_COIN) to keep each collection rich, which
 // offsets the RTP otherwise lost by collecting less often. Tuned to ~98% RTP
 // (see scripts/xenoslot-rtp.ts).
-const P_COIN = 0.20
+//
+// P_COIN scales down as the board fills up (see coinProbability below) so a
+// coin-choked board — one with no room left for a glover or collector to ever
+// land — becomes vanishingly rare. An empty board gets a small boost to make
+// up for the coins lost late-game, keeping the overall fill rate close to the
+// old flat 0.20.
+const P_COIN_EMPTY = 0.22 // chance per free cell when the board has 0 coins locked
+const P_COIN_FULL = 0.06 // chance per free cell once the board is almost full
 const P_COLLECTOR = 0.028
 const P_GLOVER = 0.028
+
+// Linear ramp from P_COIN_EMPTY down to P_COIN_FULL as coins accumulate.
+function coinProbability(coinsOnBoard: number): number {
+  const t = Math.min(coinsOnBoard / (XENOSLOT_CELLS - 1), 1)
+  return P_COIN_EMPTY - (P_COIN_EMPTY - P_COIN_FULL) * t
+}
 
 // Coin face values (× bet) and their relative weights. Heavily low-skewed:
 // individual coins are small, but glovers land often (see P_GLOVER) and multiply
 // neighbours, so most of the bonus payout comes from boosted coins rather than
-// big base faces.
+// big base faces. Skewed slightly smaller than a flat distribution would need —
+// coins now land more readily on an empty board and then sit there for more of
+// the remaining spins (since the fill rate tapers off), so each one has more
+// opportunities to be caught by a glover; the lighter weights offset that and
+// keep RTP at ~98% (see scripts/xenoslot-rtp.ts).
 const COIN_VALUES = [0.2, 0.5, 1, 2, 5, 10, 25, 50] as const
-const COIN_WEIGHTS = [0.355, 0.25, 0.17, 0.1, 0.06, 0.038, 0.024, 0.005] as const
+const COIN_WEIGHTS = [0.360, 0.254, 0.17, 0.1, 0.06, 0.033, 0.020, 0.003] as const
 
 // Glover (multiplier) — when one lands it multiplies the value of every coin in
 // the 8 neighbouring cells by its multiplier, then vanishes (it never occupies
@@ -131,6 +150,17 @@ const SYMBOL_WEIGHT_VALUES = SYMBOL_KEYS.map(k => SYMBOL_WEIGHTS[k])
 
 function spinSymbol(): SlotSymbol {
   return weightedPick(SYMBOL_KEYS, SYMBOL_WEIGHT_VALUES)
+}
+
+// Same reel weights with BONUS excluded — used to fill a bought bonus's grid so
+// the forced trigger cells are the only BONUS symbols on it (a natural roll
+// could otherwise land extra scatters and seed the board with more coins than
+// the buy price was tuned for).
+const NON_BONUS_SYMBOL_KEYS = SYMBOL_KEYS.filter(k => k !== 'bonus')
+const NON_BONUS_SYMBOL_WEIGHT_VALUES = NON_BONUS_SYMBOL_KEYS.map(k => SYMBOL_WEIGHTS[k])
+
+function spinNonBonusSymbol(): SlotSymbol {
+  return weightedPick(NON_BONUS_SYMBOL_KEYS, NON_BONUS_SYMBOL_WEIGHT_VALUES)
 }
 
 function pickCoinValue(): number {
@@ -213,6 +243,7 @@ export interface BonusResult {
 export interface XenoSlotResult {
   bet: number
   lineBet: number
+  cost: number // currency staked this round — bet, or the buy-bonus price
   grid: SlotSymbol[][] // [col][row]
   lines: LineWin[]
   basePayout: number
@@ -220,7 +251,7 @@ export interface XenoSlotResult {
   bonusCells: Cell[] // BONUS positions in the base grid
   bonus: BonusResult | null
   payout: number // total currency returned (capped)
-  won: boolean // payout > bet
+  won: boolean // payout > cost
   maxWin: number
   [key: string]: unknown
 }
@@ -235,6 +266,36 @@ function generateGrid(): SlotSymbol[][] {
     grid.push(column)
   }
   return grid
+}
+
+// Grid for a bought bonus: every other cell rolls normally (minus BONUS, so no
+// stray scatter can sneak in), then exactly BONUS_TRIGGER_COUNT random cells
+// are forced to BONUS — the minimum seed, matching what XENOSLOT_BUY_BONUS_COST
+// was tuned against. Line wins are never evaluated on this grid (see the
+// buyBonus branch in playXenoSlot), so the non-BONUS symbols are just dressing.
+function buyBonusGrid(): { grid: SlotSymbol[][], cells: Cell[] } {
+  const grid: SlotSymbol[][] = []
+  for (let col = 0; col < XENOSLOT_COLS; col++) {
+    const column: SlotSymbol[] = []
+    for (let row = 0; row < XENOSLOT_ROWS; row++) column.push(spinNonBonusSymbol())
+    grid.push(column)
+  }
+
+  const pool: Cell[] = []
+  for (let col = 0; col < XENOSLOT_COLS; col++) {
+    for (let row = 0; row < XENOSLOT_ROWS; row++) pool.push({ col, row })
+  }
+
+  const cells: Cell[] = []
+  for (let i = 0; i < BONUS_TRIGGER_COUNT && pool.length > 0; i++) {
+    const index = Math.floor(rand() * pool.length)
+    const [cell] = pool.splice(index, 1)
+    if (!cell) continue
+    grid[cell.col]![cell.row] = 'bonus'
+    cells.push(cell)
+  }
+
+  return { grid, cells }
 }
 
 function evaluateLine(grid: SlotSymbol[][], lineIdx: number, lineBet: number): LineWin | null {
@@ -318,18 +379,27 @@ function runBonus(bet: number, seedCells: Cell[]): BonusResult {
     const collectors: BonusCollector[] = []
     const glovers: BonusGlover[] = []
 
+    const pCoin = coinProbability(board.size)
     for (const cell of freeCells) {
       const r = rand()
-      if (r < P_COIN) {
-        const value = pickCoinValue()
-        coins.push({ cell, value })            // snapshot — not shared with board
-        board.set(key(cell), { cell, value })  // live entry — glovers may mutate this
-      } else if (r < P_COIN + P_COLLECTOR) {
+      if (r < pCoin) {
+        coins.push({ cell, value: pickCoinValue() }) // locked onto the board below
+      } else if (r < pCoin + P_COLLECTOR) {
         collectors.push({ cell, collected: 0 })
-      } else if (r < P_COIN + P_COLLECTOR + P_GLOVER) {
+      } else if (r < pCoin + P_COLLECTOR + P_GLOVER) {
         glovers.push({ cell, mult: pickGloverMult(), upgrades: [] })
       }
     }
+
+    // Guarantee at least one free cell survives the wave so a glover or
+    // collector always has somewhere to land — unless a collector is about to
+    // wipe the board clean anyway, in which case a full board doesn't matter.
+    if (!collectors.length && coins.length && board.size + coins.length >= XENOSLOT_CELLS) {
+      coins.pop()
+    }
+
+    // Live entries — glovers may mutate these.
+    for (const coin of coins) board.set(key(coin.cell), { cell: coin.cell, value: coin.value })
 
     // Glovers resolve after coins have locked: each multiplies the value of
     // every coin in its 8 neighbouring cells, then disappears (never occupies a
@@ -389,12 +459,36 @@ function runBonus(bet: number, seedCells: Cell[]): BonusResult {
 
 // --- main entry -------------------------------------------------------------
 
-export function playXenoSlot(bet: number, _options?: Record<string, unknown>): XenoSlotResult {
+export function playXenoSlot(bet: number, options?: Record<string, unknown>): XenoSlotResult {
   if (!Number.isFinite(bet) || bet <= 0) {
     throw createError({ statusCode: 400, message: 'Invalid bet amount' })
   }
 
   const lineBet = bet / XENOSLOT_LINES
+  const maxWin = bet * XENOSLOT_MAX_WIN_MULT
+
+  if (options?.buyBonus) {
+    const cost = Number((bet * XENOSLOT_BUY_BONUS_COST).toFixed(4))
+    const { grid, cells } = buyBonusGrid()
+    const bonus = runBonus(bet, cells)
+    const payout = Math.min(maxWin, Math.round(bonus.bonusPayout * 10000) / 10000)
+
+    return {
+      bet,
+      lineBet,
+      cost,
+      grid,
+      lines: [],
+      basePayout: 0,
+      bonusTriggered: true,
+      bonusCells: cells,
+      bonus,
+      payout,
+      won: payout > cost,
+      maxWin
+    }
+  }
+
   const grid = generateGrid()
 
   const lines: LineWin[] = []
@@ -412,13 +506,13 @@ export function playXenoSlot(bet: number, _options?: Record<string, unknown>): X
   const bonus = bonusTriggered ? runBonus(bet, bonusCells) : null
 
   let payout = basePayout + (bonus?.bonusPayout ?? 0)
-  const maxWin = bet * XENOSLOT_MAX_WIN_MULT
   if (payout > maxWin) payout = maxWin
   payout = Math.round(payout * 10000) / 10000
 
   return {
     bet,
     lineBet,
+    cost: bet,
     grid,
     lines,
     basePayout: Math.round(basePayout * 10000) / 10000,
