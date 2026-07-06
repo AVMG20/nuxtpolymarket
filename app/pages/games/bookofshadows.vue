@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { BonusResult, BonusSpinResult, BonusTier, BookOfShadowsResult, Cell, ConnectionWin, SlotSymbol } from '#shared/utils/gamelogic/bookofshadows'
-import { BONUS_TIERS, BOS_BUY_BONUS_COST, BOS_COLS, BOS_MAX_WIN_MULT, BOS_MIN_CONNECTION, BOS_ROWS, BONUS_SPINS, BONUS_TRIGGER_COUNT, PAYTABLE, SYMBOL_WEIGHTS, playBookOfShadows } from '#shared/utils/gamelogic/bookofshadows'
+import { BONUS_TIERS, BOS_BUY_BONUS_COST, BOS_COLS, BOS_MAX_WIN_MULT, BOS_MIN_CONNECTION, BOS_ROWS, BONUS_SPINS, BONUS_RETRIGGER_SPINS, BONUS_TRIGGER_COUNT, PAYTABLE, SYMBOL_WEIGHTS, playBookOfShadows } from '#shared/utils/gamelogic/bookofshadows'
 
 definePageMeta({
   title: 'Book of Shadows'
@@ -94,6 +94,7 @@ const rolling = ref(false)
 const rolledTier = ref<BonusTier | null>(null)
 const bonusRunning = ref(false)
 const bonusSpinIndex = ref(0)
+const bonusSpinTotal = ref(BONUS_SPINS)
 const bonusTotal = ref(0)
 const skullColumns = ref(0)
 
@@ -730,15 +731,21 @@ async function runBonus(bonus: BonusResult) {
   bonusRunning.value = true
   bonusTotal.value = 0
   bonusSpinIndex.value = 0
+  bonusSpinTotal.value = bonus.totalSpins ?? bonus.spins.length
   skullColumns.value = 0
 
   let collected = 0
   for (const bonusSpin of bonus.spins) {
     bonusSpinIndex.value++
-    status.value = `Bonus spin ${bonusSpinIndex.value}/${BONUS_SPINS}`
+    status.value = `Bonus spin ${bonusSpinIndex.value}/${bonusSpinTotal.value}`
     await playBonusSpin(bonusSpin, tier)
     collected = Number((collected + scaledSpinPayout(bonusSpin, tier)).toFixed(2))
     tickNumber(bonusTotal, collected, 300)
+    // BOOK retrigger: this spin awarded extra spins — announce it before moving on.
+    if (bonusSpin.retriggered) {
+      status.value = `+${BONUS_RETRIGGER_SPINS} spins — books awakened!`
+      await stepDelay(900)
+    }
     await stepDelay(120)
   }
 
@@ -944,12 +951,12 @@ onBeforeUnmount(() => {
             <template v-if="bonusRunning && bonusData">
               <div class="mt-2.5 flex items-center justify-between">
                 <span class="text-[11px] font-bold text-muted">Spin</span>
-                <strong class="bos-value-blood text-sm">{{ bonusSpinIndex }}/{{ BONUS_SPINS }}</strong>
+                <strong class="bos-value-blood text-sm">{{ bonusSpinIndex }}/{{ bonusSpinTotal }}</strong>
               </div>
               <div class="bos-progress mt-2">
                 <div
                   class="bos-progress-fill"
-                  :style="{ width: `${(bonusSpinIndex / BONUS_SPINS) * 100}%` }"
+                  :style="{ width: `${(bonusSpinIndex / bonusSpinTotal) * 100}%` }"
                 />
               </div>
               <div class="mt-3 flex items-center justify-between">
