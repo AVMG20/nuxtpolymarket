@@ -6,6 +6,7 @@ import { playXenoSlot } from './gamelogic/xenoslot'
 import { playCandyMadness } from './gamelogic/candymadness'
 import { playAetherGates } from './gamelogic/aethergates'
 import { playFireInTheHole } from './gamelogic/fireinthehole'
+import { playBookOfShadows } from './gamelogic/bookofshadows'
 
 export interface GameResult {
   payout: number
@@ -40,6 +41,9 @@ export const GAMES_REGISTRY: Record<string, GameDefinition> = {
   },
   fireinthehole: {
     play: playFireInTheHole
+  },
+  bookofshadows: {
+    play: playBookOfShadows
   }
 }
 

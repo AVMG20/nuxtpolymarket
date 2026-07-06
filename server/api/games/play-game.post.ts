@@ -32,8 +32,10 @@ export default defineEventHandler(async (event) => {
   const gameData = GAMES_REGISTRY[game].play(bet, options)
 
   // The game may stake more than the raw bet (e.g. a feature buy reports its
-  // own `cost`). No balance moves before this check, so it's exploit-safe.
-  const cost = typeof gameData.cost === 'number' && gameData.cost > 0 ? gameData.cost : bet
+  // own `cost`), or explicitly 0 (e.g. a bonus-resolution step that already
+  // charged the bet on an earlier call and just wants to pay out). Only an
+  // absent/non-numeric cost falls back to the raw bet.
+  const cost = typeof gameData.cost === 'number' && gameData.cost >= 0 ? gameData.cost : bet
   if (balanceNum < cost) {
     throw createError({ statusCode: 400, statusMessage: 'Insufficient balance' })
   }
