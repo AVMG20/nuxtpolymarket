@@ -114,24 +114,28 @@ export interface BonusTier {
 }
 
 // A flatter ladder than a pure jackpot table: the mid tiers pay real
-// multipliers (king ×2.5, ace ×4, sword ×8, orb ×20) so you can still hit a big
-// win WITHOUT rolling the very top symbol — landing any mid/high tier on a
-// multi-column lock pays. The top (scythe ×55, hood ×120) is the dream, but
-// no longer the only route to a 5,000x+ hit. Weighted-average multiplier is
-// ~2.6, which keeps the bonus around 55-60% of total RTP. The rarest tier
-// (hood ×120) still rolls ~0.3% of bonuses — rare, but never impossible.
+// multipliers (king ×3.5, ace ×6, sword ×12, orb ×22) so you can still hit a
+// big win WITHOUT rolling the very top symbol. The top (scythe ×35, hood ×60)
+// is the dream but is deliberately clipped down from the old ×55/×120: a Hood
+// full-clear used to blow straight through the 20,000× cap, so 2M-spin runs
+// kept minting 20k wins. Halving the top brings the realistic ceiling down to
+// ~10-12k× bet with the 20k cap essentially never hit, while the game stays by
+// far our highest-variance slot. The mids are bumped to hold the weighted-
+// average multiplier at ~2.57 so bonus RTP is essentially unchanged (~57%).
+// Hood rolls ~1 in 300 bonuses, scythe ~1 in 180. Tuned via
+// scripts/bookofshadows-rtp.ts.
 // BOOK takes TEN's old slot in the ladder — it's already the base game's wild
 // and scatter, so as a bonus-tier roll it's deliberately kept common/low value.
 export const BONUS_TIERS: BonusTier[] = [
-  { id: 'book', symbol: 'book', label: 'Book', multiplier: 1, weight: 32 },
-  { id: 'jack', symbol: 'jack', label: 'Jack', multiplier: 1, weight: 26 },
-  { id: 'queen', symbol: 'queen', label: 'Queen', multiplier: 1.5, weight: 18 },
-  { id: 'king', symbol: 'king', label: 'King', multiplier: 2.5, weight: 10 },
-  { id: 'ace', symbol: 'ace', label: 'Ace', multiplier: 4, weight: 6 },
-  { id: 'sword', symbol: 'sword', label: 'Sword', multiplier: 8, weight: 3 },
-  { id: 'orb', symbol: 'orb', label: 'Orb', multiplier: 20, weight: 1.4 },
-  { id: 'scythe', symbol: 'scythe', label: 'Scythe', multiplier: 55, weight: 0.6 },
-  { id: 'hood', symbol: 'hood', label: 'Hood', multiplier: 120, weight: 0.3 }
+  { id: 'book', symbol: 'book', label: 'Book', multiplier: 1, weight: 33 },
+  { id: 'jack', symbol: 'jack', label: 'Jack', multiplier: 1, weight: 27 },
+  { id: 'queen', symbol: 'queen', label: 'Queen', multiplier: 1.6, weight: 19 },
+  { id: 'king', symbol: 'king', label: 'King', multiplier: 3.5, weight: 10 },
+  { id: 'ace', symbol: 'ace', label: 'Ace', multiplier: 6, weight: 5.5 },
+  { id: 'sword', symbol: 'sword', label: 'Sword', multiplier: 12, weight: 2.6 },
+  { id: 'orb', symbol: 'orb', label: 'Orb', multiplier: 22, weight: 1.2 },
+  { id: 'scythe', symbol: 'scythe', label: 'Scythe', multiplier: 35, weight: 0.55 },
+  { id: 'hood', symbol: 'hood', label: 'Hood', multiplier: 60, weight: 0.33 }
 ]
 
 // --- crypto RNG helpers -----------------------------------------------------

@@ -107,8 +107,10 @@ const bigWinAmount = ref(0)
 const bigWinGradient = ref('')
 const bigWinGlow = ref('')
 
-// Realistic display cap; the configured hard cap is enforced server-side.
-const BOS_DISPLAY_MAX_WIN = BOS_MAX_WIN_MULT
+// Advertised max win. The hard cap (BOS_MAX_WIN_MULT) is 20,000× and is still
+// enforced server-side, but the rebalanced tiers keep real wins around ~10,000×
+// — so that's the ceiling we surface to players.
+const BOS_DISPLAY_MAX_WIN = 10000
 const BOS_VOLATILITY = 5
 
 // --- pixi layout ---------------------------------------------------------------
@@ -1609,11 +1611,11 @@ onBeforeUnmount(() => {
             start you roll a bonus symbol — commons roll often, premiums are rare. During the bonus,
             columns can lock into skull columns (walls of wilds) that stay for the rest of the round.
             Every win made from those skull columns pays a high wild rate
-            <strong class="text-[#fecaca]">multiplied by your rolled symbol's value</strong> — so
-            Sword ×8 means each skull-column win pays 8 times that rate. All other symbols pay their
-            normal base rate, unaffected. The dream is to roll a high multiplier, then fill the board
-            with skulls. Landing {{ BONUS_RETRIGGER_BOOKS }} books on a single bonus spin adds
-            {{ BONUS_RETRIGGER_SPINS }} more spins — once per bonus.
+            <strong class="text-[#fecaca]">multiplied by your rolled symbol's value</strong> — a ×12
+            Sword pays each skull-column win 12 times that rate, a ×60 Hood pays 60 times. All other
+            symbols pay their normal base rate, unaffected. The dream is to roll a high multiplier,
+            then fill the board with skulls. Landing {{ BONUS_RETRIGGER_BOOKS }} books on a single
+            bonus spin adds {{ BONUS_RETRIGGER_SPINS }} more spins — once per bonus.
           </p>
 
           <div>
@@ -1639,7 +1641,7 @@ onBeforeUnmount(() => {
           </div>
           <p>
             Buy bonus skips straight to the feature for {{ formatNumber(buyBonusCost, false) }}
-            ({{ BOS_BUY_BONUS_COST }}x bet). Total win is capped at
+            ({{ BOS_BUY_BONUS_COST }}x bet). Top wins reach up to
             {{ formatNumber(BOS_DISPLAY_MAX_WIN, false, 0) }}x bet.
           </p>
 
