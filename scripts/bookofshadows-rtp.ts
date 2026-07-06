@@ -39,6 +39,19 @@ let lastBonusRound = -1
 let gapSum = 0
 let gapCount = 0
 
+interface TopWin {
+  round: number
+  mult: number
+  payout: number
+  bonus: boolean
+  tier?: string
+  tierMult?: number
+  lockedCols?: number
+  retriggered?: boolean
+}
+const TOP_N = 20
+const topWins: TopWin[] = []
+
 for (let i = 0; i < rounds; i++) {
   const r = playBookOfShadows(bet, buyBonus ? { buyBonus: true } : undefined)
   const cost = r.cost ?? bet
@@ -72,6 +85,24 @@ for (let i = 0; i < rounds; i++) {
       break
     }
   }
+
+  if (topWins.length < TOP_N || m > topWins[topWins.length - 1]!.mult) {
+    const entry: TopWin = {
+      round: i,
+      mult: m,
+      payout: roundPayout,
+      bonus: Boolean(r.bonus)
+    }
+    if (r.bonus) {
+      entry.tier = r.bonus.tier.label
+      entry.tierMult = r.bonus.tier.multiplier
+      entry.lockedCols = r.bonus.lockedColumnsFinal.length
+      entry.retriggered = r.bonus.retriggered
+    }
+    topWins.push(entry)
+    topWins.sort((a, b) => b.mult - a.mult)
+    if (topWins.length > TOP_N) topWins.length = TOP_N
+  }
 }
 
 const pct = (n: number) => (100 * n).toFixed(4) + '%'
@@ -99,4 +130,12 @@ for (let b = 0; b < buckets.length; b++) {
   const hi = buckets[b]!
   const label = hi === Infinity ? `>${lo}` : `${lo}–${hi}`
   console.log(`  ${label.padEnd(12)} ${pct(bucketCounts[b] / rounds)}`)
+}
+
+console.log(`\ntop ${topWins.length} wins (× bet):`)
+for (const w of topWins) {
+  const detail = w.bonus
+    ? `bonus · ${w.tier} ×${w.tierMult} · ${w.lockedCols}/5 cols${w.retriggered ? ' · retriggered' : ''}`
+    : 'base game'
+  console.log(`  ${w.mult.toFixed(2).padStart(10)}x   round ${String(w.round).padEnd(9)} ${detail}`)
 }
