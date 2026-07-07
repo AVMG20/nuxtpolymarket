@@ -99,6 +99,32 @@ function relative(date: string) {
   return formatDistanceToNow(new Date(date), { addSuffix: true })
 }
 
+// -- user name colors ----------------------------------------------------------
+
+// stable per-user color, hashed from the user id; self is always text-primary
+const USER_COLORS = [
+  'text-red-400',
+  'text-orange-400',
+  'text-amber-400',
+  'text-lime-400',
+  'text-emerald-400',
+  'text-teal-400',
+  'text-sky-400',
+  'text-indigo-400',
+  'text-violet-400',
+  'text-fuchsia-400',
+  'text-rose-400'
+]
+
+function nameColor(userId: string) {
+  if (userId === user.value?.id) return 'text-primary'
+  let hash = 0
+  for (let i = 0; i < userId.length; i++) {
+    hash = (hash * 31 + userId.charCodeAt(i)) | 0
+  }
+  return USER_COLORS[Math.abs(hash) % USER_COLORS.length]
+}
+
 // -- minimal formatting: **bold** __underline__ ~~strikethrough~~ -------------
 
 function escapeHtml(s: string) {
@@ -179,7 +205,7 @@ function deleteMessage(id: string) {
             <div class="flex items-baseline gap-2">
               <span
                 class="truncate font-medium"
-                :class="m.userId === user?.id ? 'text-primary' : ''"
+                :class="nameColor(m.userId)"
               >
                 {{ m.name }}
               </span>
@@ -255,12 +281,7 @@ function deleteMessage(id: string) {
         </div>
       </div>
 
-      <UChip
-        color="error"
-        :show="!open && unread > 0"
-        size="3xl"
-        :text="unread > 9 ? '9+' : String(unread)"
-      >
+      <div class="relative">
         <UButton
           :aria-label="open ? 'Close chat' : 'Open chat'"
           class="rounded-full shadow-lg"
@@ -268,7 +289,13 @@ function deleteMessage(id: string) {
           size="lg"
           @click="toggle"
         />
-      </UChip>
+        <span
+          v-if="!open && unread > 0"
+          class="pointer-events-none absolute -end-1.5 -top-1.5 flex size-5 items-center justify-center rounded-full bg-error text-[10px] font-semibold leading-none text-inverted"
+        >
+          {{ unread > 9 ? '9+' : unread }}
+        </span>
+      </div>
     </div>
   </div>
 </template>
