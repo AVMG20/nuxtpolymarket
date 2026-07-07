@@ -1,9 +1,11 @@
 import type { Peer } from 'crossws'
-import { and, eq } from 'drizzle-orm'
+import { and, eq, inArray } from 'drizzle-orm'
 import { auth } from '#server/utils/auth'
 import { db } from '#server/database'
-import { chatMessages } from '#server/database/schema'
+import { chatMentions, chatMessages, user } from '#server/database/schema'
 import { sanitizeChatContent } from '#shared/utils/chat'
+
+const TAG_RE = /\[\[tag:([^:\]]{1,64}):[^\]]{1,60}\]\]/g
 
 interface ChatUser {
   id: string
@@ -65,6 +67,22 @@ export default defineWebSocketHandler({
       .values({ userId: sender.id, content })
       .returning()
     if (!row) return
+
+    // record @mentions so tagged users keep a notification until they see it
+    const taggedIds = [...new Set([...content.matchAll(TAG_RE)].map(m => m[1] ?? ''))]
+      .filter(Boolean)
+      .slice(0, 5)
+    if (taggedIds.length) {
+      const tagged = await db
+        .select({ id: user.id })
+        .from(user)
+        .where(inArray(user.id, taggedIds))
+      if (tagged.length) {
+        await db
+          .insert(chatMentions)
+          .values(tagged.map(u => ({ messageId: row.id, userId: u.id })))
+      }
+    }
 
     const payload = JSON.stringify({
       type: 'message',

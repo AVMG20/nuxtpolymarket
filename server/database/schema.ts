@@ -1,97 +1,96 @@
-import { relations } from "drizzle-orm";
-import { pgTable, text, timestamp, boolean, index, numeric, integer, unique, jsonb } from "drizzle-orm/pg-core";
+import { relations } from 'drizzle-orm'
+import { pgTable, text, timestamp, boolean, index, numeric, integer, unique, jsonb } from 'drizzle-orm/pg-core'
 
-
-export const user = pgTable("user", {
-  id: text("id").primaryKey(),
-  name: text("name").notNull(),
-  email: text("email").notNull().unique(),
-  emailVerified: boolean("email_verified").default(false).notNull(),
-  image: text("image"),
-  balance: numeric("balance", { precision: 19, scale: 4 }).notNull().default("0"),
-  rake: numeric("rake", { precision: 19, scale: 4 }).notNull().default("0"),
-  rakebackUnlocked: boolean("rakeback_unlocked").notNull().default(false),
-  gems: integer("gems").notNull().default(0),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at")
+export const user = pgTable('user', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  email: text('email').notNull().unique(),
+  emailVerified: boolean('email_verified').default(false).notNull(),
+  image: text('image'),
+  balance: numeric('balance', { precision: 19, scale: 4 }).notNull().default('0'),
+  rake: numeric('rake', { precision: 19, scale: 4 }).notNull().default('0'),
+  rakebackUnlocked: boolean('rakeback_unlocked').notNull().default(false),
+  gems: integer('gems').notNull().default(0),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at')
     .defaultNow()
     .$onUpdate(() => /* @__PURE__ */ new Date())
-    .notNull(),
-});
+    .notNull()
+})
 
 export const transactions = pgTable(
-  "transactions",
+  'transactions',
   {
-    id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
-    userId: text("user_id")
+    id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+    userId: text('user_id')
       .notNull()
-      .references(() => user.id, { onDelete: "cascade" }),
-    amount: numeric("amount", { precision: 19, scale: 4 }).notNull(),
-    type: text("type").notNull(),
-    category: text("category"),
-    createdAt: timestamp("created_at").defaultNow().notNull(),
+      .references(() => user.id, { onDelete: 'cascade' }),
+    amount: numeric('amount', { precision: 19, scale: 4 }).notNull(),
+    type: text('type').notNull(),
+    category: text('category'),
+    createdAt: timestamp('created_at').defaultNow().notNull()
   },
-  (table) => [index("transactions_userId_idx").on(table.userId)],
-);
+  table => [index('transactions_userId_idx').on(table.userId)]
+)
 
 export const session = pgTable(
-  "session",
+  'session',
   {
-    id: text("id").primaryKey(),
-    expiresAt: timestamp("expires_at").notNull(),
-    token: text("token").notNull().unique(),
-    createdAt: timestamp("created_at").defaultNow().notNull(),
-    updatedAt: timestamp("updated_at")
+    id: text('id').primaryKey(),
+    expiresAt: timestamp('expires_at').notNull(),
+    token: text('token').notNull().unique(),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at')
       .$onUpdate(() => /* @__PURE__ */ new Date())
       .notNull(),
-    ipAddress: text("ip_address"),
-    userAgent: text("user_agent"),
-    userId: text("user_id")
+    ipAddress: text('ip_address'),
+    userAgent: text('user_agent'),
+    userId: text('user_id')
       .notNull()
-      .references(() => user.id, { onDelete: "cascade" }),
+      .references(() => user.id, { onDelete: 'cascade' })
   },
-  (table) => [index("session_userId_idx").on(table.userId)],
-);
+  table => [index('session_userId_idx').on(table.userId)]
+)
 
 export const account = pgTable(
-  "account",
+  'account',
   {
-    id: text("id").primaryKey(),
-    accountId: text("account_id").notNull(),
-    providerId: text("provider_id").notNull(),
-    userId: text("user_id")
+    id: text('id').primaryKey(),
+    accountId: text('account_id').notNull(),
+    providerId: text('provider_id').notNull(),
+    userId: text('user_id')
       .notNull()
-      .references(() => user.id, { onDelete: "cascade" }),
-    accessToken: text("access_token"),
-    refreshToken: text("refresh_token"),
-    idToken: text("id_token"),
-    accessTokenExpiresAt: timestamp("access_token_expires_at"),
-    refreshTokenExpiresAt: timestamp("refresh_token_expires_at"),
-    scope: text("scope"),
-    password: text("password"),
-    createdAt: timestamp("created_at").defaultNow().notNull(),
-    updatedAt: timestamp("updated_at")
+      .references(() => user.id, { onDelete: 'cascade' }),
+    accessToken: text('access_token'),
+    refreshToken: text('refresh_token'),
+    idToken: text('id_token'),
+    accessTokenExpiresAt: timestamp('access_token_expires_at'),
+    refreshTokenExpiresAt: timestamp('refresh_token_expires_at'),
+    scope: text('scope'),
+    password: text('password'),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at')
       .$onUpdate(() => /* @__PURE__ */ new Date())
-      .notNull(),
+      .notNull()
   },
-  (table) => [index("account_userId_idx").on(table.userId)],
-);
+  table => [index('account_userId_idx').on(table.userId)]
+)
 
 export const verification = pgTable(
-  "verification",
+  'verification',
   {
-    id: text("id").primaryKey(),
-    identifier: text("identifier").notNull(),
-    value: text("value").notNull(),
-    expiresAt: timestamp("expires_at").notNull(),
-    createdAt: timestamp("created_at").defaultNow().notNull(),
-    updatedAt: timestamp("updated_at")
+    id: text('id').primaryKey(),
+    identifier: text('identifier').notNull(),
+    value: text('value').notNull(),
+    expiresAt: timestamp('expires_at').notNull(),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at')
       .defaultNow()
       .$onUpdate(() => /* @__PURE__ */ new Date())
-      .notNull(),
+      .notNull()
   },
-  (table) => [index("verification_identifier_idx").on(table.identifier)],
-);
+  table => [index('verification_identifier_idx').on(table.identifier)]
+)
 
 export const minerState = pgTable('miner_state', {
   id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
@@ -105,25 +104,24 @@ export const minerState = pgTable('miner_state', {
   lootboxTodayOpens: integer('lootbox_today_opens').notNull().default(0),
   lootboxOpensDate: text('lootbox_opens_date').notNull().default(''),
   overclockLevel: integer('overclock_level').notNull().default(0),
-  catalystLevel: integer('catalyst_level').notNull().default(0),
+  catalystLevel: integer('catalyst_level').notNull().default(0)
 })
 
 export const gemMarketState = pgTable('gem_market_state', {
-    id: text('id').primaryKey(), // always 'market'
-    price: numeric('price', { precision: 19, scale: 8 }).notNull(),
-    lastUpdatedAt: timestamp('last_updated_at').defaultNow().notNull(),
+  id: text('id').primaryKey(), // always 'market'
+  price: numeric('price', { precision: 19, scale: 8 }).notNull(),
+  lastUpdatedAt: timestamp('last_updated_at').defaultNow().notNull()
 })
 
 export const gemPriceHistory = pgTable('gem_price_history', {
-    id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
-    price: numeric('price', { precision: 19, scale: 8 }).notNull(),
-    action: text('action').notNull(), // 'buy' | 'sell' | 'init'
-    userId: text('user_id').references(() => user.id, { onDelete: 'set null' }),
-    gems: integer('gems').notNull().default(0),
-    totalAmount: numeric('total_amount', { precision: 19, scale: 4 }).notNull().default('0'),
-    createdAt: timestamp('created_at').defaultNow().notNull(),
-}, (t) => [index('gem_price_history_created_at_idx').on(t.createdAt)])
-
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  price: numeric('price', { precision: 19, scale: 8 }).notNull(),
+  action: text('action').notNull(), // 'buy' | 'sell' | 'init'
+  userId: text('user_id').references(() => user.id, { onDelete: 'set null' }),
+  gems: integer('gems').notNull().default(0),
+  totalAmount: numeric('total_amount', { precision: 19, scale: 4 }).notNull().default('0'),
+  createdAt: timestamp('created_at').defaultNow().notNull()
+}, t => [index('gem_price_history_created_at_idx').on(t.createdAt)])
 
 export const blackjackSessions = pgTable('blackjack_sessions', {
   id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
@@ -131,7 +129,7 @@ export const blackjackSessions = pgTable('blackjack_sessions', {
   state: jsonb('state').notNull(),
   bet: numeric('bet', { precision: 19, scale: 4 }).notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
-  updatedAt: timestamp('updated_at').defaultNow().$onUpdate(() => new Date()).notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().$onUpdate(() => new Date()).notNull()
 })
 
 // ─── Xeno ──────────────────────────────────────────────────────────────────
@@ -141,14 +139,14 @@ export const blackjackSessions = pgTable('blackjack_sessions', {
  * name/emoji/tier/baseTime/value. speed/yield are per-instance and can
  * differ from config defaults after breeding. Inventory groups by (typeId, speed, yield).
  */
-// eslint-disable-next-line @typescript-eslint/no-use-before-define
+
 export const xenoPlants = pgTable('xeno_plants', {
   id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
   userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
   typeId: text('type_id').notNull(),
   speed: integer('speed').notNull(),
-  yield: integer('yield').notNull(),
-}, (t) => [index('xeno_plants_userId_idx').on(t.userId)])
+  yield: integer('yield').notNull()
+}, t => [index('xeno_plants_userId_idx').on(t.userId)])
 
 /**
  * Permanent record of every plant type a user has ever obtained. Unlocks are
@@ -156,15 +154,15 @@ export const xenoPlants = pgTable('xeno_plants', {
  * soft-lock the player out of buying it again or seeing it in the encyclopedia.
  * Written via addPlants whenever plants are acquired.
  */
-// eslint-disable-next-line @typescript-eslint/no-use-before-define
+
 export const xenoPlantsUnlocked = pgTable('xeno_plants_unlocked', {
   id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
   userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
   typeId: text('type_id').notNull(),
-  unlockedAt: timestamp('unlocked_at').defaultNow().notNull(),
-}, (t) => [
+  unlockedAt: timestamp('unlocked_at').defaultNow().notNull()
+}, t => [
   index('xeno_plants_unlocked_userId_idx').on(t.userId),
-  unique('xeno_plants_unlocked_unique').on(t.userId, t.typeId),
+  unique('xeno_plants_unlocked_unique').on(t.userId, t.typeId)
 ])
 
 /** Artifact instances: each row is one artifact with its remaining charges */
@@ -174,8 +172,8 @@ export const xenoArtifacts = pgTable('xeno_artifacts', {
   typeId: text('type_id').notNull(),
   chargesRemaining: integer('charges_remaining').notNull(),
   /** Crafted with gems for +1 level on every one of its effects. */
-  gemCrafted: boolean('gem_crafted').notNull().default(false),
-}, (t) => [index('xeno_artifacts_userId_idx').on(t.userId)])
+  gemCrafted: boolean('gem_crafted').notNull().default(false)
+}, t => [index('xeno_artifacts_userId_idx').on(t.userId)])
 
 /** Grid slots: plantId references the specific plant instance growing. */
 export const xenoGridSlots = pgTable('xeno_grid_slots', {
@@ -184,10 +182,10 @@ export const xenoGridSlots = pgTable('xeno_grid_slots', {
   slotIndex: integer('slot_index').notNull(),
   plantId: text('plant_id').references(() => xenoPlants.id, { onDelete: 'set null' }),
   startedAt: timestamp('started_at'),
-  artifactId: text('artifact_id').references(() => xenoArtifacts.id, { onDelete: 'set null' }),
-}, (t) => [
+  artifactId: text('artifact_id').references(() => xenoArtifacts.id, { onDelete: 'set null' })
+}, t => [
   index('xeno_grid_userId_idx').on(t.userId),
-  unique('xeno_grid_slot_unique').on(t.userId, t.slotIndex),
+  unique('xeno_grid_slot_unique').on(t.userId, t.slotIndex)
 ])
 
 /**
@@ -211,10 +209,10 @@ export const xenoBreederSlots = pgTable('xeno_breeder_slots', {
   resultYield: integer('result_yield'),
   resultQuantity: integer('result_quantity'),
   wasMutation: boolean('was_mutation'),
-  collected: boolean('collected').notNull().default(false),
-}, (t) => [
+  collected: boolean('collected').notNull().default(false)
+}, t => [
   index('xeno_breeder_userId_idx').on(t.userId),
-  unique('xeno_breeder_slot_unique').on(t.userId, t.slotIndex),
+  unique('xeno_breeder_slot_unique').on(t.userId, t.slotIndex)
 ])
 
 // ─── Hack Ops ─────────────────────────────────────────────────────────────────
@@ -226,7 +224,7 @@ export const hackState = pgTable('hack_state', {
   totalOpsCompleted: integer('total_ops_completed').notNull().default(0),
   totalRecruits: integer('total_recruits').notNull().default(0),
   shopItems: jsonb('shop_items').notNull().default([]),
-  shopRefreshAt: timestamp('shop_refresh_at').notNull().defaultNow(),
+  shopRefreshAt: timestamp('shop_refresh_at').notNull().defaultNow()
 })
 
 export const hackAgents = pgTable('hack_agents', {
@@ -245,8 +243,8 @@ export const hackAgents = pgTable('hack_agents', {
   // sit in storage (the roster holds up to `rosterSlots` active agents; storage
   // holds the rest up to MAX_AGENTS total).
   active: boolean('active').notNull().default(true),
-  createdAt: timestamp('created_at').defaultNow().notNull(),
-}, (t) => [index('hack_agents_userId_idx').on(t.userId)])
+  createdAt: timestamp('created_at').defaultNow().notNull()
+}, t => [index('hack_agents_userId_idx').on(t.userId)])
 
 export const hackItems = pgTable('hack_items', {
   id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
@@ -257,8 +255,8 @@ export const hackItems = pgTable('hack_items', {
   rarity: text('rarity').notNull(),
   mods: jsonb('mods').notNull().default([]),
   equippedBy: text('equipped_by'),
-  createdAt: timestamp('created_at').defaultNow().notNull(),
-}, (t) => [index('hack_items_userId_idx').on(t.userId)])
+  createdAt: timestamp('created_at').defaultNow().notNull()
+}, t => [index('hack_items_userId_idx').on(t.userId)])
 
 export const hackOps = pgTable('hack_ops', {
   id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
@@ -268,8 +266,8 @@ export const hackOps = pgTable('hack_ops', {
   startedAt: timestamp('started_at').defaultNow().notNull(),
   completesAt: timestamp('completes_at').notNull(),
   collected: boolean('collected').notNull().default(false),
-  reward: jsonb('reward'),
-}, (t) => [index('hack_ops_userId_idx').on(t.userId)])
+  reward: jsonb('reward')
+}, t => [index('hack_ops_userId_idx').on(t.userId)])
 
 // One row per collected op — a lightweight log of the outcome (success, loot, time
 // taken) used by the player's history page and the leaderboard's ops-done count.
@@ -284,49 +282,64 @@ export const hackHistory = pgTable('hack_history', {
   itemRarity: text('item_rarity'),
   agentCount: integer('agent_count').notNull().default(0),
   durationMs: integer('duration_ms').notNull().default(0),
-  createdAt: timestamp('created_at').defaultNow().notNull(),
-}, (t) => [index('hack_history_userId_idx').on(t.userId)])
+  createdAt: timestamp('created_at').defaultNow().notNull()
+}, t => [index('hack_history_userId_idx').on(t.userId)])
 
 export const chatMessages = pgTable('chat_messages', {
   id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
   userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
   content: text('content').notNull(),
-  createdAt: timestamp('created_at').defaultNow().notNull(),
-}, (t) => [index('chat_messages_createdAt_idx').on(t.createdAt)])
+  createdAt: timestamp('created_at').defaultNow().notNull()
+}, t => [index('chat_messages_createdAt_idx').on(t.createdAt)])
+
+// One row per @mention in a chat message. `seen` flips once the mentioned
+// user has actually had the message on screen (or jumped to it).
+export const chatMentions = pgTable('chat_mentions', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  messageId: text('message_id').notNull().references(() => chatMessages.id, { onDelete: 'cascade' }),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  seen: boolean('seen').notNull().default(false),
+  createdAt: timestamp('created_at').defaultNow().notNull()
+}, t => [index('chat_mentions_userId_idx').on(t.userId)])
 
 export const chatMessagesRelations = relations(chatMessages, ({ one }) => ({
-  user: one(user, { fields: [chatMessages.userId], references: [user.id] }),
+  user: one(user, { fields: [chatMessages.userId], references: [user.id] })
+}))
+
+export const chatMentionsRelations = relations(chatMentions, ({ one }) => ({
+  message: one(chatMessages, { fields: [chatMentions.messageId], references: [chatMessages.id] }),
+  user: one(user, { fields: [chatMentions.userId], references: [user.id] })
 }))
 
 export const transactionsRelations = relations(transactions, ({ one }) => ({
-  user: one(user, { fields: [transactions.userId], references: [user.id] }),
-}));
+  user: one(user, { fields: [transactions.userId], references: [user.id] })
+}))
 
 export const userRelations = relations(user, ({ many, one }) => ({
   sessions: many(session),
   accounts: many(account),
   transactions: many(transactions),
-  minerState: one(minerState),
-}));
+  minerState: one(minerState)
+}))
 
 export const minerStateRelations = relations(minerState, ({ one }) => ({
-  user: one(user, { fields: [minerState.userId], references: [user.id] }),
+  user: one(user, { fields: [minerState.userId], references: [user.id] })
 }))
 
 export const gemPriceHistoryRelations = relations(gemPriceHistory, ({ one }) => ({
-  user: one(user, { fields: [gemPriceHistory.userId], references: [user.id] }),
-}));
+  user: one(user, { fields: [gemPriceHistory.userId], references: [user.id] })
+}))
 
 export const sessionRelations = relations(session, ({ one }) => ({
   user: one(user, {
     fields: [session.userId],
-    references: [user.id],
-  }),
-}));
+    references: [user.id]
+  })
+}))
 
 export const accountRelations = relations(account, ({ one }) => ({
   user: one(user, {
     fields: [account.userId],
-    references: [user.id],
-  }),
-}));
+    references: [user.id]
+  })
+}))

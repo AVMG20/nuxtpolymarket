@@ -25,12 +25,12 @@ let ws: WebSocket | null = null
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null
 let unmounted = false
 
-function pushMessage(msg: ChatMessage) {
+function pushMessage(msg: ChatMessage, countsAsUnread = true) {
   if (messages.value.some(m => m.id === msg.id)) return
   messages.value.push(msg)
   if (messages.value.length > 200) messages.value.splice(0, messages.value.length - 200)
   if (open.value) scrollToBottom()
-  else if (msg.userId !== user.value?.id) unread.value++
+  else if (countsAsUnread && msg.userId !== user.value?.id) unread.value++
 }
 
 function connect() {
@@ -40,8 +40,18 @@ function connect() {
   ws.onmessage = (event) => {
     try {
       const data = JSON.parse(event.data)
-      if (data.type === 'message') pushMessage(data)
-      else if (data.type === 'delete') messages.value = messages.value.filter(m => m.id !== data.id)
+      if (data.type === 'message') {
+        // a message that tags you counts via the mention tracker, not unread
+        const mentionsMe = !!user.value?.id && String(data.content).includes(`[[tag:${user.value.id}:`)
+        pushMessage(data, !mentionsMe)
+        if (mentionsMe) {
+          unseenMentions.value.push({ messageId: data.id })
+          nextTick(() => checkMentionsSeen())
+        }
+      } else if (data.type === 'delete') {
+        messages.value = messages.value.filter(m => m.id !== data.id)
+        unseenMentions.value = unseenMentions.value.filter(m => m.messageId !== data.id)
+      }
     } catch { /* ignore malformed frames */ }
   }
   ws.onclose = () => {
@@ -59,6 +69,9 @@ onMounted(async () => {
     messages.value = [...history.filter(m => !seen.has(m.id)), ...messages.value]
     hasMore.value = history.length >= CHAT_HISTORY_LIMIT
   } catch { /* history is best-effort; live messages still work */ }
+  try {
+    unseenMentions.value = await $fetch<{ messageId: string }[]>('/api/chat/mentions')
+  } catch { /* mentions are best-effort */ }
 })
 
 // -- older-message pagination (scroll up to load) ------------------------------
@@ -68,6 +81,7 @@ const loadingOlder = ref(false)
 
 function onListScroll() {
   if (listEl.value && listEl.value.scrollTop < 50) loadOlder()
+  checkMentionsSeen()
 }
 
 async function loadOlder() {
@@ -110,10 +124,68 @@ function toggle() {
   }
 }
 
+// regular unread resets on open; mention count sticks until actually seen
+const badgeCount = computed(() => unread.value + unseenMentions.value.length)
+
 function scrollToBottom() {
   nextTick(() => {
     if (listEl.value) listEl.value.scrollTop = listEl.value.scrollHeight
+    checkMentionsSeen()
   })
+}
+
+// -- @mentions -----------------------------------------------------------------
+
+const unseenMentions = ref<{ messageId: string }[]>([])
+const highlightId = ref<string | null>(null)
+
+async function markMentionSeen(messageId: string) {
+  unseenMentions.value = unseenMentions.value.filter(m => m.messageId !== messageId)
+  try {
+    await $fetch('/api/chat/mentions/seen', { method: 'POST', body: { messageId } })
+  } catch { /* will show again on next load, better than losing it */ }
+}
+
+// a mention counts as seen once its message has actually been inside the
+// visible part of the list while the chat is open
+function checkMentionsSeen() {
+  if (!open.value || !unseenMentions.value.length || !listEl.value) return
+  const listRect = listEl.value.getBoundingClientRect()
+  for (const mention of [...unseenMentions.value]) {
+    const el = listEl.value.querySelector(`[data-msg-id="${mention.messageId}"]`)
+    if (!el) continue
+    const r = el.getBoundingClientRect()
+    if (r.top >= listRect.top - 4 && r.bottom <= listRect.bottom + 4) {
+      markMentionSeen(mention.messageId)
+    }
+  }
+}
+
+// scroll (and page back as far as needed) to the oldest unseen mention
+const jumpingToMention = ref(false)
+async function jumpToMention() {
+  const target = unseenMentions.value[0]
+  if (!target || jumpingToMention.value) return
+  jumpingToMention.value = true
+  try {
+    let guard = 25
+    while (!messages.value.some(m => m.id === target.messageId) && hasMore.value && guard-- > 0) {
+      await loadOlder()
+    }
+    await nextTick()
+    const el = listEl.value?.querySelector(`[data-msg-id="${target.messageId}"]`)
+    if (el) {
+      el.scrollIntoView({ block: 'center' })
+      highlightId.value = target.messageId
+      setTimeout(() => {
+        if (highlightId.value === target.messageId) highlightId.value = null
+      }, 2000)
+    }
+    // clears it even if the message was deleted in the meantime
+    markMentionSeen(target.messageId)
+  } finally {
+    jumpingToMention.value = false
+  }
 }
 
 // ticks every 30s so relative timestamps stay fresh
@@ -194,8 +266,9 @@ type Part
   = | { type: 'text', html: string }
     | { type: 'coin' | 'gem', value: number }
     | { type: 'stat', kind: 'profit' | 'loss', category: string, value: number }
+    | { type: 'tag', userId: string, name: string }
 
-const TOKEN_RE = /\[\[(coin|gem|profit|loss):([^\]]{1,40})\]\]/g
+const TOKEN_RE = /\[\[(coin|gem|profit|loss|tag):([^\]]{1,100})\]\]/g
 
 function parseContent(content: string): Part[] {
   const parts: Part[] = []
@@ -207,6 +280,12 @@ function parseContent(content: string): Part[] {
     if (kind === 'coin' || kind === 'gem') {
       const value = parseFloat(payload)
       if (isFinite(value)) parts.push({ type: kind, value })
+      else parts.push({ type: 'text', html: renderContent(full) })
+    } else if (kind === 'tag') {
+      const sep = payload.indexOf(':')
+      const userId = sep > 0 ? payload.slice(0, sep) : ''
+      const name = payload.slice(sep + 1)
+      if (userId && name) parts.push({ type: 'tag', userId, name })
       else parts.push({ type: 'text', html: renderContent(full) })
     } else {
       const sep = payload.lastIndexOf(':')
@@ -260,6 +339,90 @@ async function insertStat(kind: 'profit' | 'loss') {
   } catch { /* stats are best-effort */ }
 }
 
+// -- @ autocomplete ------------------------------------------------------------
+
+const mentionQuery = ref<string | null>(null)
+const mentionIndex = ref(0)
+const allUsers = ref<{ id: string, name: string }[] | null>(null)
+let usersLoading = false
+
+async function ensureUsers() {
+  if (allUsers.value || usersLoading) return
+  usersLoading = true
+  try {
+    allUsers.value = await $fetch<{ id: string, name: string }[]>('/api/chat/users')
+  } catch { /* dropdown just stays empty */ } finally {
+    usersLoading = false
+  }
+}
+
+const mentionMatches = computed(() => {
+  if (mentionQuery.value === null || !allUsers.value) return []
+  const q = mentionQuery.value.toLowerCase()
+  return allUsers.value.filter(u => u.name.toLowerCase().includes(q)).slice(0, 5)
+})
+
+// look for an "@query" immediately before the cursor
+watch(draft, () => {
+  const el = inputWrapper.value?.textareaRef
+  if (!el) {
+    mentionQuery.value = null
+    return
+  }
+  const beforeCursor = draft.value.slice(0, el.selectionStart ?? draft.value.length)
+  const match = beforeCursor.match(/@(\w{0,20})$/)
+  if (match) {
+    mentionQuery.value = match[1] ?? ''
+    mentionIndex.value = 0
+    ensureUsers()
+  } else {
+    mentionQuery.value = null
+  }
+})
+
+function selectMention(u: { id: string, name: string }) {
+  const el = inputWrapper.value?.textareaRef
+  const cursor = el?.selectionStart ?? draft.value.length
+  const queryLength = (mentionQuery.value?.length ?? 0) + 1 // +1 for the @
+  const start = cursor - queryLength
+  const token = `[[tag:${u.id}:${u.name.replace(/[[\]:]/g, '')}]] `
+  draft.value = draft.value.slice(0, start) + token + draft.value.slice(cursor)
+  mentionQuery.value = null
+  nextTick(() => {
+    el?.focus()
+    el?.setSelectionRange(start + token.length, start + token.length)
+  })
+}
+
+function onInputKeydown(e: KeyboardEvent) {
+  if (mentionMatches.value.length) {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      mentionIndex.value = (mentionIndex.value + 1) % mentionMatches.value.length
+      return
+    }
+    if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      mentionIndex.value = (mentionIndex.value - 1 + mentionMatches.value.length) % mentionMatches.value.length
+      return
+    }
+    if (e.key === 'Escape') {
+      mentionQuery.value = null
+      return
+    }
+    if ((e.key === 'Enter' && !e.shiftKey) || e.key === 'Tab') {
+      e.preventDefault()
+      const pick = mentionMatches.value[mentionIndex.value]
+      if (pick) selectMention(pick)
+      return
+    }
+  }
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault()
+    send()
+  }
+}
+
 function send() {
   const content = sanitizeChatContent(draft.value)
   if (!content || ws?.readyState !== WebSocket.OPEN) return
@@ -279,8 +442,18 @@ function deleteMessage(id: string) {
     <div class="flex flex-col items-end gap-2">
       <div
         v-if="open"
-        class="flex w-[calc(100vw-1.5rem)] max-w-80 flex-col overflow-hidden rounded-lg border border-default bg-default shadow-xl"
+        class="relative flex w-[calc(100vw-1.5rem)] max-w-90 flex-col overflow-hidden rounded-lg border border-default bg-default shadow-xl"
       >
+        <UButton
+          v-if="unseenMentions.length"
+          class="absolute left-1/2 top-11 z-10 -translate-x-1/2 rounded-full shadow-md"
+          icon="i-lucide-at-sign"
+          :label="`${unseenMentions.length} mention${unseenMentions.length > 1 ? 's' : ''}`"
+          :loading="jumpingToMention"
+          size="xs"
+          trailing-icon="i-lucide-arrow-up"
+          @click="jumpToMention"
+        />
         <div class="flex items-center justify-between border-b border-default px-3 py-2">
           <span class="text-sm font-semibold">Chat</span>
           <UButton
@@ -295,7 +468,7 @@ function deleteMessage(id: string) {
 
         <div
           ref="listEl"
-          class="h-64 space-y-2 overflow-y-auto px-3 py-2"
+          class="h-72 space-y-2 overflow-y-auto px-3 py-2"
           @scroll.passive="onListScroll"
         >
           <div
@@ -316,7 +489,9 @@ function deleteMessage(id: string) {
           <div
             v-for="m in messages"
             :key="m.id"
-            class="group text-sm"
+            class="group -mx-1 rounded-md px-1 text-sm transition-colors duration-500"
+            :class="highlightId === m.id ? 'bg-primary/15' : ''"
+            :data-msg-id="m.id"
           >
             <div class="flex items-baseline gap-2">
               <span
@@ -358,6 +533,13 @@ function deleteMessage(id: string) {
                   class="inline-flex align-middle"
                   :value="part.value"
                 />
+                <span
+                  v-else-if="part.type === 'tag'"
+                  class="inline-flex items-center rounded px-1 align-middle font-medium"
+                  :class="part.userId === user?.id ? 'bg-primary/20 text-primary' : 'bg-elevated text-highlighted'"
+                >
+                  @{{ part.name }}
+                </span>
                 <span
                   v-else-if="part.type === 'stat'"
                   class="inline-flex items-center gap-1 rounded bg-elevated px-1.5 py-0.5 align-middle text-xs font-medium"
@@ -440,7 +622,29 @@ function deleteMessage(id: string) {
               @click="insertStat('loss')"
             />
           </div>
-          <div class="flex gap-1.5">
+          <div class="relative flex gap-1.5">
+            <div
+              v-if="mentionMatches.length"
+              class="absolute bottom-full left-0 z-10 mb-1.5 w-56 overflow-hidden rounded-md border border-default bg-default shadow-lg"
+            >
+              <button
+                v-for="(u, i) in mentionMatches"
+                :key="u.id"
+                class="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-sm hover:bg-elevated"
+                :class="i === mentionIndex ? 'bg-elevated' : ''"
+                type="button"
+                @mousedown.prevent="selectMention(u)"
+              >
+                <UIcon
+                  class="size-3.5 shrink-0 text-muted"
+                  name="i-lucide-at-sign"
+                />
+                <span
+                  class="truncate"
+                  :class="nameColor(u.id)"
+                >{{ u.name }}</span>
+              </button>
+            </div>
             <UTextarea
               ref="inputWrapper"
               v-model="draft"
@@ -451,7 +655,8 @@ function deleteMessage(id: string) {
               placeholder="Message…"
               :rows="1"
               size="sm"
-              @keydown.enter.exact.prevent="send"
+              @blur="mentionQuery = null"
+              @keydown="onInputKeydown"
             />
             <UButton
               aria-label="Send"
@@ -473,10 +678,10 @@ function deleteMessage(id: string) {
           @click="toggle"
         />
         <span
-          v-if="!open && unread > 0"
+          v-if="!open && badgeCount > 0"
           class="pointer-events-none absolute -end-1.5 -top-1.5 flex size-5 items-center justify-center rounded-full bg-error text-[10px] font-semibold leading-none text-inverted"
         >
-          {{ unread > 9 ? '9+' : unread }}
+          {{ badgeCount > 9 ? '9+' : badgeCount }}
         </span>
       </div>
     </div>
