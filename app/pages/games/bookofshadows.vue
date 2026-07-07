@@ -1004,7 +1004,7 @@ async function rollTier() {
   rolledTier.value = bonusData.value.tier
   rolling.value = false
 
-  await stepDelay(700)
+  await wait(turbo.value ? Math.round(700 * 0.55) + 150 : 700 + 350)
   showBonusPick.value = false
 }
 
