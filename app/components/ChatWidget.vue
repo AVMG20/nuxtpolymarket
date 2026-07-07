@@ -65,8 +65,10 @@ onMounted(async () => {
 
 const hasMore = ref(true)
 const loadingOlder = ref(false)
-const topSentinel = ref<HTMLElement | null>(null)
-let observer: IntersectionObserver | null = null
+
+function onListScroll() {
+  if (listEl.value && listEl.value.scrollTop < 50) loadOlder()
+}
 
 async function loadOlder() {
   if (loadingOlder.value || !hasMore.value) return
@@ -91,27 +93,6 @@ async function loadOlder() {
     loadingOlder.value = false
   }
 }
-
-// the panel is v-if'd, so (re)attach the observer whenever it opens
-watch(open, (isOpen) => {
-  if (!isOpen) {
-    observer?.disconnect()
-    observer = null
-    return
-  }
-  nextTick(() => {
-    if (!listEl.value || !topSentinel.value) return
-    observer = new IntersectionObserver((entries) => {
-      if (entries.some(e => e.isIntersecting)) loadOlder()
-    }, { root: listEl.value, rootMargin: '40px' })
-    observer.observe(topSentinel.value)
-  })
-})
-
-onBeforeUnmount(() => {
-  observer?.disconnect()
-  observer = null
-})
 
 onBeforeUnmount(() => {
   unmounted = true
@@ -207,6 +188,78 @@ function wrapSelection(marker: string) {
   })
 }
 
+// -- share tokens: [[coin:v]] [[gem:v]] [[profit:cat:v]] [[loss:cat:v]] --------
+
+type Part
+  = | { type: 'text', html: string }
+    | { type: 'coin' | 'gem', value: number }
+    | { type: 'stat', kind: 'profit' | 'loss', category: string, value: number }
+
+const TOKEN_RE = /\[\[(coin|gem|profit|loss):([^\]]{1,40})\]\]/g
+
+function parseContent(content: string): Part[] {
+  const parts: Part[] = []
+  let last = 0
+  for (const match of content.matchAll(TOKEN_RE)) {
+    const [full = '', kind = '', payload = ''] = match
+    const index = match.index ?? 0
+    if (index > last) parts.push({ type: 'text', html: renderContent(content.slice(last, index)) })
+    if (kind === 'coin' || kind === 'gem') {
+      const value = parseFloat(payload)
+      if (isFinite(value)) parts.push({ type: kind, value })
+      else parts.push({ type: 'text', html: renderContent(full) })
+    } else {
+      const sep = payload.lastIndexOf(':')
+      const category = sep > 0 ? payload.slice(0, sep) : ''
+      const value = parseFloat(payload.slice(sep + 1))
+      if (category && isFinite(value)) {
+        parts.push({ type: 'stat', kind: kind === 'profit' ? 'profit' : 'loss', category, value: Math.abs(value) })
+      } else {
+        parts.push({ type: 'text', html: renderContent(full) })
+      }
+    }
+    last = index + full.length
+  }
+  if (last < content.length) parts.push({ type: 'text', html: renderContent(content.slice(last)) })
+  return parts
+}
+
+function insertAtCursor(text: string) {
+  const el = inputWrapper.value?.textareaRef
+  const start = el?.selectionStart ?? draft.value.length
+  const end = el?.selectionEnd ?? draft.value.length
+  draft.value = draft.value.slice(0, start) + text + draft.value.slice(end)
+  nextTick(() => {
+    el?.focus()
+    el?.setSelectionRange(start + text.length, start + text.length)
+  })
+}
+
+const toast = useToast()
+
+function insertCoin() {
+  insertAtCursor(`[[coin:${parseFloat(user.value?.balance ?? '0')}]]`)
+}
+
+function insertGem() {
+  insertAtCursor(`[[gem:${user.value?.gems ?? 0}]]`)
+}
+
+async function insertStat(kind: 'profit' | 'loss') {
+  try {
+    const stats = await $fetch<{
+      best: { category: string, amount: number } | null
+      worst: { category: string, amount: number } | null
+    }>('/api/chat/stats')
+    const stat = kind === 'profit' ? stats.best : stats.worst
+    if (!stat || (kind === 'profit' ? stat.amount <= 0 : stat.amount >= 0)) {
+      toast.add({ title: kind === 'profit' ? 'No profit today (yet)' : 'No losses today, nice', color: 'neutral' })
+      return
+    }
+    insertAtCursor(`[[${kind}:${stat.category}:${Math.abs(stat.amount)}]]`)
+  } catch { /* stats are best-effort */ }
+}
+
 function send() {
   const content = sanitizeChatContent(draft.value)
   if (!content || ws?.readyState !== WebSocket.OPEN) return
@@ -243,11 +296,8 @@ function deleteMessage(id: string) {
         <div
           ref="listEl"
           class="h-64 space-y-2 overflow-y-auto px-3 py-2"
+          @scroll.passive="onListScroll"
         >
-          <div
-            ref="topSentinel"
-            class="h-px"
-          />
           <div
             v-if="loadingOlder"
             class="flex justify-center py-1"
@@ -287,12 +337,41 @@ function deleteMessage(id: string) {
                 @click="deleteMessage(m.id)"
               />
             </div>
-            <!-- eslint-disable vue/no-v-html -- content is HTML-escaped in renderContent -->
-            <p
-              class="whitespace-pre-line break-words"
-              v-html="renderContent(m.content)"
-            />
-            <!-- eslint-enable vue/no-v-html -->
+            <p class="whitespace-pre-line break-words">
+              <template
+                v-for="(part, i) in parseContent(m.content)"
+                :key="i"
+              >
+                <!-- eslint-disable vue/no-v-html -- content is HTML-escaped in renderContent -->
+                <span
+                  v-if="part.type === 'text'"
+                  v-html="part.html"
+                />
+                <!-- eslint-enable vue/no-v-html -->
+                <CoinBalance
+                  v-else-if="part.type === 'coin'"
+                  class="inline-flex align-middle"
+                  :value="part.value"
+                />
+                <GemBalance
+                  v-else-if="part.type === 'gem'"
+                  class="inline-flex align-middle"
+                  :value="part.value"
+                />
+                <span
+                  v-else-if="part.type === 'stat'"
+                  class="inline-flex items-center gap-1 rounded bg-elevated px-1.5 py-0.5 align-middle text-xs font-medium"
+                  :class="part.kind === 'profit' ? 'text-success' : 'text-error'"
+                >
+                  <UIcon
+                    class="size-3.5 shrink-0"
+                    :name="part.kind === 'profit' ? 'i-lucide-trending-up' : 'i-lucide-trending-down'"
+                  />
+                  {{ part.category }}
+                  {{ (part.kind === 'profit' ? '+' : '-') + formatNumber(part.value) }}
+                </span>
+              </template>
+            </p>
           </div>
         </div>
 
@@ -321,6 +400,44 @@ function deleteMessage(id: string) {
               size="xs"
               variant="ghost"
               @click="wrapSelection('~~')"
+            />
+            <USeparator
+              class="mx-1 h-5 self-center"
+              orientation="vertical"
+            />
+            <UButton
+              aria-label="Share coin balance"
+              class="text-yellow-400"
+              color="neutral"
+              icon="i-lucide-coins"
+              size="xs"
+              variant="ghost"
+              @click="insertCoin"
+            />
+            <UButton
+              aria-label="Share gem balance"
+              class="text-cyan-400"
+              color="neutral"
+              icon="i-lucide-gem"
+              size="xs"
+              variant="ghost"
+              @click="insertGem"
+            />
+            <UButton
+              aria-label="Share today's best profit"
+              color="success"
+              icon="i-lucide-trending-up"
+              size="xs"
+              variant="ghost"
+              @click="insertStat('profit')"
+            />
+            <UButton
+              aria-label="Share today's biggest loss"
+              color="error"
+              icon="i-lucide-trending-down"
+              size="xs"
+              variant="ghost"
+              @click="insertStat('loss')"
             />
           </div>
           <div class="flex gap-1.5">
