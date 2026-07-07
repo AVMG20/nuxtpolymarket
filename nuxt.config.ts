@@ -27,6 +27,9 @@ export default defineNuxtConfig({
 
     nitro: {
         preset: 'bun',
+        experimental: {
+            websocket: true
+        },
         serverAssets: [
             { baseName: 'changelog', dir: '../content/changelog' }
         ]

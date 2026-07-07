@@ -338,6 +338,7 @@ function setNeutral(color: string) {
 
       <main class="flex-1 overflow-auto">
         <slot/>
+        <ChatWidget v-if="user"/>
       </main>
     </div>
   </div>

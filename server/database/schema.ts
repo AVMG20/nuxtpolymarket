@@ -287,6 +287,17 @@ export const hackHistory = pgTable('hack_history', {
   createdAt: timestamp('created_at').defaultNow().notNull(),
 }, (t) => [index('hack_history_userId_idx').on(t.userId)])
 
+export const chatMessages = pgTable('chat_messages', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  content: text('content').notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (t) => [index('chat_messages_createdAt_idx').on(t.createdAt)])
+
+export const chatMessagesRelations = relations(chatMessages, ({ one }) => ({
+  user: one(user, { fields: [chatMessages.userId], references: [user.id] }),
+}))
+
 export const transactionsRelations = relations(transactions, ({ one }) => ({
   user: one(user, { fields: [transactions.userId], references: [user.id] }),
 }));
