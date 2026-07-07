@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import {
   tierLabel, tierColor, tierNameColor, levelTextColor, getPlant, getArtifact, getEffectValueFor,
-  getMutation, breedDuration,
+  getMutationPair, breedDuration,
 } from '#shared/utils/xeno'
 import { formatCountdown, progressPct, isDone, formatDuration } from '~/utils/xeno-format'
 
@@ -96,14 +96,12 @@ async function handleArtifactSlotClick(slotId: string) {
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-function mutationForParents(p1: any, p2: any) {
-  if (!p1 || !p2) return null
-  return getMutation(p1.typeId, p2.typeId)
-}
-
-function mutationPlantFor(p1: any, p2: any) {
-  const m = mutationForParents(p1, p2)
-  return m ? getPlant(m.offspring) : null
+// A parent pair can have more than one possible mutation (e.g. crystal-vine +
+// voidbloom → xenoform OR deepfrond) — each is rolled independently server-side,
+// so all must be shown, not just the first match.
+function mutationsForParents(p1: any, p2: any) {
+  if (!p1 || !p2) return []
+  return getMutationPair(p1.typeId, p2.typeId)
 }
 
 function baseBreedSecs(p1: any, p2: any): number {
@@ -133,10 +131,8 @@ function breedDurationSecs(slot: any): number {
   return Number.isFinite(secs) && secs > 0 ? secs : 0
 }
 
-function effectiveMutationChance(slot: any, p1: any, p2: any): number {
-  const m = mutationForParents(p1, p2)
-  if (!m) return 0
-  return Math.max(0, Math.min(1, m.chance + slotMutationBoost(slot)))
+function effectiveMutationChance(slot: any, mutation: { chance: number }): number {
+  return Math.max(0, Math.min(1, mutation.chance + slotMutationBoost(slot)))
 }
 
 function slotExtraYield(slot: any): number {
@@ -209,7 +205,7 @@ async function doCollect(slotId: string) {
           <div
             v-for="slot in breederSlots"
             :key="slot.id"
-            class="rounded-2xl border border-default bg-elevated flex flex-col overflow-hidden h-[28rem]"
+            class="rounded-2xl border border-default bg-elevated flex flex-col overflow-hidden min-h-[28rem]"
           >
             <!-- ════════ Active breeding ════════ -->
             <template v-if="slot.startedAt && !slot.collected">
@@ -381,58 +377,59 @@ async function doCollect(slotId: string) {
 
                 <!-- ═══ Expected offspring (focal hero) ═══ -->
                 <template v-if="bothPicked(slot.id)">
-                  <!-- Mutation -->
+                  <!-- Mutations — a pair can roll into more than one possible offspring -->
                   <div
-                    v-if="mutationForParents(getParent(slot.id, 1), getParent(slot.id, 2))"
+                    v-for="mutation in mutationsForParents(getParent(slot.id, 1), getParent(slot.id, 2))"
+                    :key="mutation.offspring"
                     class="relative rounded-xl border overflow-hidden px-3.5 py-3"
-                    :class="effectiveMutationChance(slot, getParent(slot.id, 1), getParent(slot.id, 2)) > 0
+                    :class="effectiveMutationChance(slot, mutation) > 0
                       ? 'border-primary/40 bg-gradient-to-br from-primary/12 to-primary/[0.02]'
                       : 'border-error/40 bg-error/[0.06]'"
                   >
                     <div
-                      v-if="effectiveMutationChance(slot, getParent(slot.id, 1), getParent(slot.id, 2)) > 0"
+                      v-if="effectiveMutationChance(slot, mutation) > 0"
                       class="absolute -top-10 -right-8 size-28 rounded-full bg-primary/20 blur-2xl pointer-events-none"
                     />
                     <div class="relative flex items-center justify-between gap-2">
                       <div class="flex items-center gap-3 min-w-0">
-                        <XenoPlantIcon :id="mutationPlantFor(getParent(slot.id, 1), getParent(slot.id, 2))?.id" :size="44" class="shrink-0 drop-shadow" />
+                        <XenoPlantIcon :id="getPlant(mutation.offspring)?.id" :size="44" class="shrink-0 drop-shadow" />
                         <div class="min-w-0">
                           <div class="flex items-center gap-1.5">
-                            <p class="font-black text-base truncate" :class="tierNameColor(mutationPlantFor(getParent(slot.id, 1), getParent(slot.id, 2))?.tier ?? 1)">{{ mutationPlantFor(getParent(slot.id, 1), getParent(slot.id, 2))?.name }}</p>
+                            <p class="font-black text-base truncate" :class="tierNameColor(getPlant(mutation.offspring)?.tier ?? 1)">{{ getPlant(mutation.offspring)?.name }}</p>
                             <span class="text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded bg-primary text-inverted leading-none shrink-0">Mutation</span>
                           </div>
-                          <p class="text-xs font-bold mt-0.5" :class="tierColor(mutationPlantFor(getParent(slot.id, 1), getParent(slot.id, 2))?.tier ?? 1)">
-                            {{ tierLabel(mutationPlantFor(getParent(slot.id, 1), getParent(slot.id, 2))?.tier ?? 1) }}
+                          <p class="text-xs font-bold mt-0.5" :class="tierColor(getPlant(mutation.offspring)?.tier ?? 1)">
+                            {{ tierLabel(getPlant(mutation.offspring)?.tier ?? 1) }}
                           </p>
                         </div>
                       </div>
                       <!-- Chance pill -->
                       <div
                         class="text-center shrink-0 rounded-lg border px-2.5 py-1.5"
-                        :class="effectiveMutationChance(slot, getParent(slot.id, 1), getParent(slot.id, 2)) > 0
+                        :class="effectiveMutationChance(slot, mutation) > 0
                           ? 'bg-primary/15 border-primary/30'
                           : 'bg-error/10 border-error/30'"
                       >
                         <div class="flex items-baseline gap-1 justify-center">
                           <span
-                            v-if="slotMutationBoost(slot) > 0 && effectiveMutationChance(slot, getParent(slot.id, 1), getParent(slot.id, 2)) > 0"
+                            v-if="slotMutationBoost(slot) > 0 && effectiveMutationChance(slot, mutation) > 0"
                             class="text-[10px] font-bold text-muted/60 line-through tabular-nums"
-                          >{{ Math.round(mutationForParents(getParent(slot.id, 1), getParent(slot.id, 2))!.chance * 100) }}%</span>
+                          >{{ Math.round(mutation.chance * 100) }}%</span>
                           <span
                             class="text-xl font-black tabular-nums leading-none"
-                            :class="effectiveMutationChance(slot, getParent(slot.id, 1), getParent(slot.id, 2)) > 0 ? 'text-primary' : 'text-error'"
-                          >{{ Math.round(effectiveMutationChance(slot, getParent(slot.id, 1), getParent(slot.id, 2)) * 100) }}%</span>
+                            :class="effectiveMutationChance(slot, mutation) > 0 ? 'text-primary' : 'text-error'"
+                          >{{ Math.round(effectiveMutationChance(slot, mutation) * 100) }}%</span>
                         </div>
                         <p
                           class="text-[9px] font-bold uppercase tracking-wider mt-0.5"
-                          :class="effectiveMutationChance(slot, getParent(slot.id, 1), getParent(slot.id, 2)) > 0 ? 'text-primary/70' : 'text-error/80'"
-                        >{{ effectiveMutationChance(slot, getParent(slot.id, 1), getParent(slot.id, 2)) > 0 ? 'chance' : 'needs flask' }}</p>
+                          :class="effectiveMutationChance(slot, mutation) > 0 ? 'text-primary/70' : 'text-error/80'"
+                        >{{ effectiveMutationChance(slot, mutation) > 0 ? 'chance' : 'needs flask' }}</p>
                       </div>
                     </div>
                   </div>
 
-                  <!-- Standard cross -->
-                  <div v-else class="rounded-xl border border-default/60 bg-background/40 px-3.5 py-3">
+                  <!-- Standard cross (only when no mutation is possible for this pair) -->
+                  <div v-if="mutationsForParents(getParent(slot.id, 1), getParent(slot.id, 2)).length === 0" class="rounded-xl border border-default/60 bg-background/40 px-3.5 py-3">
                     <div class="flex items-center justify-between gap-2">
                       <div class="flex items-center gap-3 min-w-0">
                         <div class="size-11 rounded-lg bg-background border border-default/60 flex items-center justify-center shrink-0">

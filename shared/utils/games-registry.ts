@@ -5,6 +5,8 @@ import { playMagicHands } from './gamelogic/magichands'
 import { playXenoSlot } from './gamelogic/xenoslot'
 import { playCandyMadness } from './gamelogic/candymadness'
 import { playAetherGates } from './gamelogic/aethergates'
+import { playFireInTheHole } from './gamelogic/fireinthehole'
+import { playBookOfShadows } from './gamelogic/bookofshadows'
 import { playSpinata } from './gamelogic/spinata'
 
 export interface GameResult {
@@ -37,6 +39,12 @@ export const GAMES_REGISTRY: Record<string, GameDefinition> = {
   },
   aethergates: {
     play: playAetherGates
+  },
+  fireinthehole: {
+    play: playFireInTheHole
+  },
+  bookofshadows: {
+    play: playBookOfShadows
   },
   spinata: {
     play: playSpinata

@@ -59,12 +59,20 @@ const transitionOn = ref(false)
 const spinning = ref(false)
 const result = ref<{ reward: LootboxReward, cashValue: number, gemsWon: number, paid: boolean } | null>(null)
 
+// The winning cell must show exactly what the server awarded, not a client-side
+// recomputation — otherwise a stale local `factoryLevel` can make the wheel show
+// a different number than what's actually credited.
+const winValue = ref<{ cashValue: number, gemsWon: number } | null>(null)
+
 // Live display values (gems scale with factory level)
-function cellPrimary(r: LootboxReward) {
-  return r.kind === 'cash' ? `+${Math.round(r.amount * 100)}%` : `${lootboxGemCount(r, factoryLevel.value)}`
+function cellPrimary(r: LootboxReward, i: number) {
+  if (r.kind !== 'cash') return `${i === WIN_INDEX && winValue.value ? winValue.value.gemsWon : lootboxGemCount(r, factoryLevel.value)}`
+  return `+${Math.round(r.amount * 100)}%`
 }
-function cellSecondary(r: LootboxReward) {
-  return r.kind === 'cash' ? `$${formatNumber(cashValueOf(r), true)}` : 'gems'
+function cellSecondary(r: LootboxReward, i: number) {
+  if (r.kind !== 'cash') return 'gems'
+  const value = i === WIN_INDEX && winValue.value ? winValue.value.cashValue : cashValueOf(r)
+  return `$${formatNumber(value, true)}`
 }
 
 const buyingSlot = ref(false)
@@ -73,10 +81,12 @@ async function open(mode: 'free' | 'paid') {
   if (spinning.value) return
   spinning.value = true
   result.value = null
+  winValue.value = null
   try {
     const res = await $fetch('/api/miner/lootbox/open', { method: 'POST', body: { mode } })
     const won = LOOTBOX_REWARDS.find(r => r.id === res.wonId)!
     freeRemaining.value = res.freeOpensRemaining
+    winValue.value = { cashValue: res.cashValue, gemsWon: res.gemsWon }
 
     // Build a fresh reel with the winning reward fixed at WIN_INDEX
     const items = Array.from({ length: REEL_LEN }, () => lootboxRoll())
@@ -261,8 +271,8 @@ const gemPrizes = computed(() =>
                   class="size-6"
                   :class="RARITY_CLASSES[item.rarity].text"
                 />
-                <span class="text-sm font-bold leading-none">{{ cellPrimary(item) }}</span>
-                <span class="text-[11px] text-muted leading-none">{{ cellSecondary(item) }}</span>
+                <span class="text-sm font-bold leading-none">{{ cellPrimary(item, i) }}</span>
+                <span class="text-[11px] text-muted leading-none">{{ cellSecondary(item, i) }}</span>
               </div>
             </div>
           </div>

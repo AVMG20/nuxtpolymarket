@@ -25,7 +25,6 @@ import {
   AG_COLS,
   AG_FREE_SPINS,
   AG_FREE_SPINS_SUPER,
-  AG_MAX_WIN_MULT,
   AG_MIN_MATCH,
   AG_RETRIGGER_SPINS,
   AG_ROWS,
@@ -33,6 +32,14 @@ import {
   AG_SCATTER_TRIGGER_SUPER,
   aetherPayMult
 } from '#shared/utils/gamelogic/aethergates'
+
+// Realistic max win shown to players, derived from a 2M-spin Monte Carlo run
+// (scripts/aethergates-rtp.ts — observed max ~532x). AG_MAX_WIN_MULT (10,000x)
+// is the server-enforced hard cap but is an extreme, near-unreachable outlier.
+const AG_DISPLAY_MAX_WIN = 1000
+// Volatility rating (1-5 zaps) — see SlotVolatility.vue. Lowest observed max
+// win of the four slots puts Aether Gates at the bottom tier.
+const AG_VOLATILITY = 1
 
 const { user, setBalance, fetchSession } = useAuth()
 const balance = ref(parseFloat(user.value?.balance ?? '0'))
@@ -120,6 +127,13 @@ const bonusBannerTier = ref<AetherBonusTier>('normal')
 const retriggerBanner = ref(false)
 const inBonus = ref(false)
 const bonusSpinLabel = ref('')
+
+const bigWinBanner = ref(false)
+const bigWinLabel = ref('')
+const bigWinAmount = ref(0)
+const bigWinGradient = ref('')
+const bigWinGlow = ref('')
+const bigWinIntensity = ref(1)
 
 const history = ref<{ payout: number, bet: number, bonus: boolean }[]>([])
 const flying = ref<{ id: number, value: number, style: Record<string, string> }[]>([])
@@ -303,6 +317,34 @@ function tickNumber(target: Ref<number>, to: number, duration = 480, respectTurb
     else target.value = to
   }
   requestAnimationFrame(frame)
+}
+
+// Escalating "big win" showcase shown once a round clears a threshold — tuned
+// well below Fire in the Hole's tiers since Aether Gates' realistic max win
+// (~532x, displayed as AG_DISPLAY_MAX_WIN) is a fraction of that game's.
+const WIN_TIERS = [
+  { threshold: 700, rank: 6, label: 'ULTRA WIN', from: '#f0abfc', to: '#a855f7', glow: 'rgba(168,85,247,0.75)' },
+  { threshold: 400, rank: 5, label: 'SUPER WIN', from: '#fda4af', to: '#e11d48', glow: 'rgba(225,29,72,0.7)' },
+  { threshold: 200, rank: 4, label: 'MEGA WIN', from: '#fdba74', to: '#ea580c', glow: 'rgba(234,88,12,0.7)' },
+  { threshold: 100, rank: 3, label: 'GREAT WIN', from: '#fde047', to: '#ca8a04', glow: 'rgba(202,138,4,0.65)' },
+  { threshold: 50, rank: 2, label: 'BIG WIN', from: '#86efac', to: '#16a34a', glow: 'rgba(22,163,74,0.6)' },
+  { threshold: 25, rank: 1, label: 'NICE WIN', from: '#7dd3fc', to: '#0284c7', glow: 'rgba(2,132,199,0.55)' }
+] as const
+
+async function showBigWinPopup(totalMultiplier: number, amount: number) {
+  const tier = WIN_TIERS.find(t => totalMultiplier >= t.threshold)
+  if (!tier) return
+
+  bigWinLabel.value = tier.label
+  bigWinGradient.value = `linear-gradient(180deg, ${tier.from}, ${tier.to})`
+  bigWinGlow.value = tier.glow
+  bigWinIntensity.value = tier.rank
+  bigWinAmount.value = 0
+  bigWinBanner.value = true
+
+  tickNumber(bigWinAmount, amount, 1400, false)
+  await wait(2200)
+  bigWinBanner.value = false
 }
 
 // Pixi / pixi-reels state. Kept outside Vue reactivity because Pixi objects do
@@ -872,6 +914,8 @@ async function runBonus(result: AetherGatesResult) {
   bonusSpinLabel.value = 'Feature complete'
   await stepDelay(850)
   inBonus.value = false
+
+  await showBigWinPopup(result.totalWinMult, result.payout)
 }
 
 async function spin(forceFeature?: AetherFeature) {
@@ -1130,12 +1174,15 @@ onUnmounted(() => {
               <small>Spin cost {{ formatNumber(bonusChanceCost, false) }} · ~2× gate odds</small>
             </button>
 
-            <div class="flex flex-wrap gap-1.5">
+            <div class="flex flex-wrap items-center gap-1.5">
               <span
-                v-for="tag in ['96–98% RTP', 'High Volatile']"
+                v-for="tag in ['96–98% RTP']"
                 :key="tag"
                 class="inline-flex rounded-full border border-[rgba(250,204,21,0.32)] bg-[rgba(2,6,16,0.55)] px-2 py-1 text-[10.5px] font-extrabold uppercase text-muted"
               >{{ tag }}</span>
+              <span class="inline-flex rounded-full border border-[rgba(250,204,21,0.32)] bg-[rgba(2,6,16,0.55)] px-2 py-1">
+                <SlotVolatility :level="AG_VOLATILITY" />
+              </span>
             </div>
 
             <div class="ag-rail-foot">
@@ -1143,7 +1190,7 @@ onUnmounted(() => {
                 src="/slots/aethergates/logo.svg"
                 alt=""
               >
-              <p>{{ AG_MAX_WIN_MULT }}x max win</p>
+              <p>{{ formatNumber(AG_DISPLAY_MAX_WIN, false, 0) }}x max win</p>
             </div>
           </div>
         </section>
@@ -1180,6 +1227,24 @@ onUnmounted(() => {
                     +{{ AG_RETRIGGER_SPINS }} Free Spins!
                   </p>
                   <span class="mt-2 text-xs font-extrabold uppercase tracking-wide text-[rgba(253,224,71,0.75)]">3+ gates landed again</span>
+                </div>
+              </Transition>
+
+              <Transition name="pop">
+                <div
+                  v-if="bigWinBanner"
+                  class="absolute inset-0 z-30 flex flex-col items-center justify-center gap-1 bg-[rgba(5,3,1,0.82)] backdrop-blur-[4px]"
+                  :style="{ '--tier': bigWinIntensity }"
+                >
+                  <p
+                    class="ag-bigwin-label"
+                    :style="{ backgroundImage: bigWinGradient, filter: `drop-shadow(0 0 22px ${bigWinGlow})` }"
+                  >
+                    {{ bigWinLabel }}
+                  </p>
+                  <strong class="ag-bigwin-amount">
+                    {{ formatNumber(bigWinAmount, false) }}
+                  </strong>
                 </div>
               </Transition>
 
@@ -1455,7 +1520,7 @@ onUnmounted(() => {
               <strong class="text-default">{{ AG_SCATTER_TRIGGER_SUPER }}+</strong> gates for the richer <strong class="text-default">{{ AG_FREE_SPINS_SUPER }}</strong>-spin Super Bonus.
             </li>
             <li>During free spins the meter <strong class="text-default">never resets</strong> and relics land more often. Landing {{ AG_SCATTER_TRIGGER }}+ gates again grants <strong class="text-default">+{{ AG_RETRIGGER_SPINS }} spins</strong> — a one-time bonus that can only happen once per feature, after which gates stop appearing.</li>
-            <li>Total win is capped at <strong class="text-default">{{ AG_MAX_WIN_MULT }}x</strong> bet.</li>
+            <li>Total win is realistically capped around <strong class="text-default">{{ formatNumber(AG_DISPLAY_MAX_WIN, false, 0) }}x</strong> bet — huge outlier bonus rounds can occasionally push higher.</li>
           </ul>
           <p class="text-xs text-muted">
             Approx natural bonus trigger: 1 in {{ formatNumber(bonusOdds, true, 0) }} base spins.
@@ -1751,5 +1816,42 @@ onUnmounted(() => {
 .pop-leave-to {
   opacity: 0;
   transform: scale(0.92);
+}
+
+.ag-bigwin-label {
+  margin: 0;
+  font-size: calc(26px + var(--tier, 1) * 6px);
+  font-weight: 950;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+  animation: ag-bigwin-pop 0.5s cubic-bezier(0.2, 1.4, 0.4, 1) both;
+}
+
+.ag-bigwin-amount {
+  font-size: calc(34px + var(--tier, 1) * 9px);
+  font-weight: 950;
+  line-height: 1;
+  color: rgb(254, 243, 199);
+  text-shadow: 0 3px 0 rgba(0, 0, 0, 0.6), 0 0 26px rgba(250, 204, 21, 0.55);
+  animation: ag-bigwin-pop 0.5s 0.08s cubic-bezier(0.2, 1.4, 0.4, 1) both;
+}
+
+@keyframes ag-bigwin-pop {
+  0% {
+    transform: scale(0.4);
+    opacity: 0;
+  }
+  60% {
+    transform: scale(1.12);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
 }
 </style>

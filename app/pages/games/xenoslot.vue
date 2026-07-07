@@ -1,6 +1,16 @@
 <script setup lang="ts">
 import type { XenoSlotResult, BonusWave, Cell, SlotSymbol } from '#shared/utils/gamelogic/xenoslot'
-import { XENOSLOT_LINES, XENOSLOT_MAX_WIN_MULT, BONUS_FREE_SPINS, BONUS_TRIGGER_COUNT, XENOSLOT_CELLS, PAYTABLE, SYMBOL_WEIGHTS } from '#shared/utils/gamelogic/xenoslot'
+import { XENOSLOT_LINES, XENOSLOT_MAX_WIN_MULT, XENOSLOT_BUY_BONUS_COST, BONUS_FREE_SPINS, BONUS_TRIGGER_COUNT, XENOSLOT_CELLS, PAYTABLE, SYMBOL_WEIGHTS } from '#shared/utils/gamelogic/xenoslot'
+
+// Max win shown to players, derived from a 2M-spin Monte Carlo run
+// (scripts/xenoslot-rtp.ts). Unlike the other slots, Xeno Slot actually hit
+// its configured hard cap a handful of times in that sample (1 in ~500,000),
+// so — unlike the others — the realistic figure matches the true cap here.
+const XS_DISPLAY_MAX_WIN = XENOSLOT_MAX_WIN_MULT
+// Volatility rating (1-5 zaps) — see SlotVolatility.vue. Realistic max win
+// (5,000x) is half of Fire in the Hole's (10,000x), so this sits a tier below
+// it rather than tying for the top spot.
+const XS_VOLATILITY = 4
 
 const { user, setBalance } = useAuth()
 const balance = ref(parseFloat(user.value?.balance ?? '0'))
@@ -26,6 +36,7 @@ function commitBetInput() {
   betInput.value = String(bet.value)
 }
 function betDown() { setBet(Math.floor(bet.value / 2)) }
+const buyBonusCost = computed(() => bet.value * XENOSLOT_BUY_BONUS_COST)
 function betUp() { setBet(bet.value * 2) }
 
 const turbo = ref(false)
@@ -44,6 +55,13 @@ const bonusBanner = ref(false)
 const bonusSpinsLeft = ref(0)
 const bonusTotal = ref(0)
 const bonusStatus = ref('')
+
+const bigWinBanner = ref(false)
+const bigWinLabel = ref('')
+const bigWinAmount = ref(0)
+const bigWinGradient = ref('')
+const bigWinGlow = ref('')
+const bigWinIntensity = ref(1)
 
 const history = ref<{ payout: number, bet: number, bonus: boolean }[]>([])
 
@@ -173,6 +191,44 @@ const B_W = 5 * (B_CELL + B_GAP) - B_GAP
 const B_H = 3 * (B_CELL + B_GAP) - B_GAP
 
 const wait = (ms: number) => new Promise<void>(r => setTimeout(r, ms))
+
+// Escalating "big win" showcase shown once a round clears a threshold — tuned
+// below Fire in the Hole's tiers since Xeno Slot's max win (XENOSLOT_MAX_WIN_MULT,
+// 5,000x) is half of that game's.
+const WIN_TIERS = [
+  { threshold: 2000, rank: 6, label: 'ULTRA WIN', from: '#f0abfc', to: '#a855f7', glow: 'rgba(168,85,247,0.75)' },
+  { threshold: 800, rank: 5, label: 'SUPER WIN', from: '#fda4af', to: '#e11d48', glow: 'rgba(225,29,72,0.7)' },
+  { threshold: 400, rank: 4, label: 'MEGA WIN', from: '#fdba74', to: '#ea580c', glow: 'rgba(234,88,12,0.7)' },
+  { threshold: 200, rank: 3, label: 'GREAT WIN', from: '#fde047', to: '#ca8a04', glow: 'rgba(202,138,4,0.65)' },
+  { threshold: 100, rank: 2, label: 'BIG WIN', from: '#86efac', to: '#16a34a', glow: 'rgba(22,163,74,0.6)' },
+  { threshold: 60, rank: 1, label: 'NICE WIN', from: '#7dd3fc', to: '#0284c7', glow: 'rgba(2,132,199,0.55)' }
+] as const
+
+function tickBigWinAmount(to: number, duration = 1400) {
+  const obj = { v: bigWinAmount.value }
+  GSAP.to(obj, {
+    v: to,
+    duration: duration / 1000,
+    ease: 'power3.out',
+    onUpdate: () => { bigWinAmount.value = Number(obj.v.toFixed(2)) }
+  })
+}
+
+async function showBigWinPopup(totalMultiplier: number, amount: number) {
+  const tier = WIN_TIERS.find(t => totalMultiplier >= t.threshold)
+  if (!tier) return
+
+  bigWinLabel.value = tier.label
+  bigWinGradient.value = `linear-gradient(180deg, ${tier.from}, ${tier.to})`
+  bigWinGlow.value = tier.glow
+  bigWinIntensity.value = tier.rank
+  bigWinAmount.value = 0
+  bigWinBanner.value = true
+
+  tickBigWinAmount(amount)
+  await wait(2200)
+  bigWinBanner.value = false
+}
 
 function ensureConnectionLayer() {
   if (!app || !PIXI) return null
@@ -576,15 +632,15 @@ onMounted(async () => {
     const SpriteSymbol = makeSymbolClasses()
 
     reelSet = new REELS.ReelSetBuilder()
-        .reels(5).visibleRows(3).symbolSize(CELL, CELL).symbolGap(GAP, GAP)
-        .symbols((r: any) => {
-          for (const id of Object.keys(SYMBOL_TILE)) r.register(id, SpriteSymbol, {})
-        })
-        .weights({ ten: 30, jack: 28, queen: 24, king: 20, ace: 16, bell: 12, seven: 7, diamond: 4, wild: 4, bonus: 5 })
-        .speed('normal', REELS.SpeedPresets.NORMAL)
-        .speed('turbo', REELS.SpeedPresets.TURBO)
-        .ticker(app.ticker)
-        .build()
+      .reels(5).visibleRows(3).symbolSize(CELL, CELL).symbolGap(GAP, GAP)
+      .symbols((r: any) => {
+        for (const id of Object.keys(SYMBOL_TILE)) r.register(id, SpriteSymbol, {})
+      })
+      .weights({ ten: 30, jack: 28, queen: 24, king: 20, ace: 16, bell: 12, seven: 7, diamond: 4, wild: 4, bonus: 5 })
+      .speed('normal', REELS.SpeedPresets.NORMAL)
+      .speed('turbo', REELS.SpeedPresets.TURBO)
+      .ticker(app.ticker)
+      .build()
 
     reelSet.x = (APP_W - REEL_W) / 2
     reelSet.y = (APP_H - REEL_H) / 2
@@ -611,15 +667,16 @@ onUnmounted(() => {
 })
 
 // --- spin flow --------------------------------------------------------------
-async function spin() {
-  if (!ready.value || isSpinning.value || balance.value < bet.value) return
+async function spin(buy = false) {
+  const cost = buy ? buyBonusCost.value : bet.value
+  if (!ready.value || isSpinning.value || balance.value < cost) return
   isSpinning.value = true
   errorMsg.value = ''
   lastWin.value = 0
   lastLines.value = 0
   winFlash.value = false
   const balanceBeforeSpin = balance.value
-  balance.value = balanceBeforeSpin - bet.value
+  balance.value = balanceBeforeSpin - cost
   setBalance(balance.value)
   clearConnections()
   clearWinText()
@@ -628,7 +685,7 @@ async function spin() {
   try {
     data = await $fetch('/api/games/play-game', {
       method: 'POST',
-      body: { bet: bet.value, game: 'xenoslot' }
+      body: { bet: bet.value, game: 'xenoslot', options: buy ? { buyBonus: true } : undefined }
     }) as { gameData: XenoSlotResult, balance: number }
   } catch (e: unknown) {
     errorMsg.value = e instanceof Error ? e.message : 'Something went wrong'
@@ -668,7 +725,7 @@ async function spin() {
       await reelSet.spotlight.show(result.bonusCells.map(c => ({ reelIndex: c.col, rowIndex: c.row })), { displayDuration: 600 } as any)
       if (autoSpinEnabled.value) {
         autoSpinPaused.value = true
-        await new Promise<void>(res => { _resumeAutoSpin = res })
+        await new Promise<void>((res) => { _resumeAutoSpin = res })
       }
       await runBonus(result)
     }
@@ -678,7 +735,7 @@ async function spin() {
     winFlash.value = result.payout > 0
     balance.value = data.balance
     setBalance(data.balance)
-    history.value.unshift({ payout: result.payout, bet: result.bet, bonus: result.bonusTriggered })
+    history.value.unshift({ payout: result.payout, bet: result.cost, bonus: result.bonusTriggered })
     if (history.value.length > 10) history.value.pop()
   } catch (e) {
     errorMsg.value = e instanceof Error ? e.message : 'Animation error'
@@ -690,7 +747,7 @@ async function spin() {
     isSpinning.value = false
     if (autoSpinEnabled.value) {
       if (autoSpinPaused.value) {
-        await new Promise<void>(res => { _resumeAutoSpin = res })
+        await new Promise<void>((res) => { _resumeAutoSpin = res })
       }
       if (autoSpinEnabled.value) {
         autoSpinsLeft.value--
@@ -718,19 +775,19 @@ async function runBonus(result: XenoSlotResult) {
   reelSet.visible = false
 
   const board = new REELS.HoldAndWinBuilder()
-      .grid(5, 3).cellSize(B_CELL, { gap: B_GAP })
-      .symbols((r: any) => {
-        r.register('coin', CoinSymbolClass, {})
-        r.register('glover', GloverSymbolClass, {})
-        r.register('collector', CollectorSymbolClass, {})
-      })
-      .weights({ coin: 3, collector: 1, glover: 1, empty: 9 })
-      .respins(99) // we drive the loop from server waves, not the board's counter
-      .cellChrome((g: any, size: number) => {
-        g.roundRect(0, 0, size, size, 14).fill({ color: 0x000000, alpha: 0.94 }).stroke({ color: 0x2f5a24, width: 2 })
-      })
-      .ticker(app.ticker)
-      .build()
+    .grid(5, 3).cellSize(B_CELL, { gap: B_GAP })
+    .symbols((r: any) => {
+      r.register('coin', CoinSymbolClass, {})
+      r.register('glover', GloverSymbolClass, {})
+      r.register('collector', CollectorSymbolClass, {})
+    })
+    .weights({ coin: 3, collector: 1, glover: 1, empty: 9 })
+    .respins(99) // we drive the loop from server waves, not the board's counter
+    .cellChrome((g: any, size: number) => {
+      g.roundRect(0, 0, size, size, 14).fill({ color: 0x000000, alpha: 0.94 }).stroke({ color: 0x2f5a24, width: 2 })
+    })
+    .ticker(app.ticker)
+    .build()
 
   // Coins show their value on landing. Collectors land as a closed chest —
   // their total stays hidden and ticks up later as coins fly into them.
@@ -754,8 +811,15 @@ async function runBonus(result: XenoSlotResult) {
     for (const c of bonus.seed) board.symbolAt(c.cell)?.setValue?.(c.value * result.bet, c.value)
     await wait(500)
 
-    // Replay each bonus spin.
+    // Replay each bonus spin. The pixi-reels board auto-ends the feature the
+    // instant its grid fills up (coins/glovers/collectors all occupy a cell
+    // until released), which can happen before the server's fixed 10 waves are
+    // exhausted — respin() would then throw on the next iteration. `boardDone`
+    // guards against that: once respin() reports the board ended, we stop
+    // advancing (the current wave still finishes its glover/collector replay).
+    let boardDone = false
     for (const wave of bonus.waves) {
+      if (boardDone) break
       bonusStatus.value = `Spin ${wave.round} / ${BONUS_FREE_SPINS}`
       bonusSpinsLeft.value = BONUS_FREE_SPINS - wave.round
       // Coins that land the same wave as a glover neighbour them already have
@@ -774,7 +838,8 @@ async function runBonus(result: XenoSlotResult) {
         ...wave.glovers.map(g => ({ cell: g.cell, id: 'glover', data: { mult: g.mult } })),
         ...wave.collectors.map(c => ({ cell: c.cell, id: 'collector', data: { collected: c.collected } }))
       ]
-      await board.respin(hits)
+      const res = await board.respin(hits)
+      boardDone = res.done
 
       // Glovers resolve first: each boosts its neighbouring coins, then vanishes.
       if (wave.glovers.length) {
@@ -808,6 +873,8 @@ async function runBonus(result: XenoSlotResult) {
     reelSet.visible = true
     inBonus.value = false
   }
+
+  await showBigWinPopup(result.payout / result.bet, result.payout)
 }
 
 // Absolute (stage-space) centre of a board cell.
@@ -910,13 +977,13 @@ async function collectIntoChest(board: any, wave: BonusWave, bet: number) {
     await wait(180)
 
     const flights = wave.collectedCoins.map((coin, i) =>
-        wait(i * 110).then(() => flyValue(board, coin.cell, collector.cell, coin.value * bet, coin.value, () => {
-          running += coin.value * bet
-          bonusTotal.value += coin.value * bet
-          const c = board.symbolAt(collector.cell)
-          c?.setCollected?.(running)
-          c?.playWin?.()
-        })))
+      wait(i * 110).then(() => flyValue(board, coin.cell, collector.cell, coin.value * bet, coin.value, () => {
+        running += coin.value * bet
+        bonusTotal.value += coin.value * bet
+        const c = board.symbolAt(collector.cell)
+        c?.setCollected?.(running)
+        c?.playWin?.()
+      })))
     await Promise.allSettled(flights)
     await wait(250)
   }
@@ -953,32 +1020,43 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
         <span class="xs-badge xs-badge--rtp">98% RTP</span>
         <span class="xs-badge xs-badge--lines">{{ XENOSLOT_LINES }} Lines</span>
         <span class="xs-badge xs-badge--hold">Hold &amp; Win</span>
+        <span class="xs-badge xs-badge--vol"><SlotVolatility :level="XS_VOLATILITY" /></span>
+        <span class="xs-badge xs-badge--maxwin">{{ formatNumber(XS_DISPLAY_MAX_WIN, false, 0) }}x max win</span>
       </div>
     </div>
 
     <div class="game-layout relative w-full max-w-[760px] flex flex-col">
+      <!-- Buy bonus — sits above the card on mobile, floats to its left from lg up -->
+      <button
+        :disabled="!ready || isSpinning || autoSpinEnabled || balance < buyBonusCost"
+        class="relative mx-auto mb-3 aspect-[3/2] w-[190px] cursor-pointer border-0 bg-[url('/slots/xenoslot/buy_bonus.png')] bg-contain bg-center bg-no-repeat p-0 drop-shadow-[0_6px_16px_rgba(0,0,0,0.55)] transition-transform duration-150 hover:scale-[1.04] active:scale-[0.97] disabled:cursor-default disabled:opacity-45 disabled:grayscale-[70%] lg:absolute lg:right-full lg:top-0 lg:mx-0 lg:mb-0 lg:w-[260px]"
+        @click="spin(true)"
+      >
+        <span class="pointer-events-none absolute inset-x-0 bottom-[28%] text-center font-mono text-base font-black tracking-wide text-[#fff7d6] [text-shadow:0_2px_3px_rgba(0,0,0,0.65),0_0_10px_rgba(250,204,21,0.5)] lg:text-xl">{{ formatNumber(buyBonusCost, false) }}</span>
+      </button>
+
       <!-- Slot machine -->
       <div class="machine w-full flex flex-col">
         <!-- ── Reel area ── -->
         <div
-            class="reel-area relative select-none"
-            @click="onCanvasClick"
+          class="reel-area relative select-none"
+          @click="onCanvasClick"
         >
           <div class="reel-sheen" />
 
           <!-- Bonus banner -->
           <Transition name="pop">
             <div
-                v-if="bonusBanner"
-                class="absolute inset-0 z-30 flex items-center justify-center pointer-events-none"
+              v-if="bonusBanner"
+              class="absolute inset-0 z-30 flex items-center justify-center pointer-events-none"
             >
               <div class="bonus-banner text-center">
                 <p class="text-3xl font-black text-white tracking-tight drop-shadow-lg">
                   HOLD &amp; WIN
                 </p>
                 <p
-                    class="text-sm font-bold mt-1"
-                    style="color: #dcfce7;"
+                  class="text-sm font-bold mt-1"
+                  style="color: #dcfce7;"
                 >
                   {{ BONUS_FREE_SPINS }} free spins — collect the treasure!
                 </p>
@@ -986,20 +1064,39 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
             </div>
           </Transition>
 
+          <!-- Big win showcase -->
+          <Transition name="pop">
+            <div
+              v-if="bigWinBanner"
+              class="absolute inset-0 z-30 flex flex-col items-center justify-center gap-1 bg-[rgba(3,10,5,0.82)] backdrop-blur-[4px]"
+              :style="{ '--tier': bigWinIntensity }"
+            >
+              <p
+                class="xs-bigwin-label"
+                :style="{ backgroundImage: bigWinGradient, filter: `drop-shadow(0 0 22px ${bigWinGlow})` }"
+              >
+                {{ bigWinLabel }}
+              </p>
+              <strong class="xs-bigwin-amount">
+                {{ formatNumber(bigWinAmount, false) }}
+              </strong>
+            </div>
+          </Transition>
+
           <!-- Auto-spin pause overlay -->
           <Transition name="pop">
             <div
-                v-if="autoSpinPaused"
-                class="absolute inset-0 z-20 flex items-center justify-center cursor-pointer"
-                style="background: rgba(6,20,8,0.78); backdrop-filter: blur(3px);"
+              v-if="autoSpinPaused"
+              class="absolute inset-0 z-20 flex items-center justify-center cursor-pointer"
+              style="background: rgba(6,20,8,0.78); backdrop-filter: blur(3px);"
             >
               <div class="pause-card text-center px-6 py-4">
                 <p class="font-black text-white text-base">
                   🍀 Bonus! Tap to play
                 </p>
                 <p
-                    class="text-xs mt-1"
-                    style="color: rgba(187,247,208,0.7);"
+                  class="text-xs mt-1"
+                  style="color: rgba(187,247,208,0.7);"
                 >
                   {{ autoSpinsLeft }} spin{{ autoSpinsLeft !== 1 ? 's' : '' }} remaining
                 </p>
@@ -1009,19 +1106,19 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 
           <!-- Canvas -->
           <div
-              ref="canvasWrap"
-              class="relative z-10 w-full [&>canvas]:!w-full [&>canvas]:!h-auto [&>canvas]:block"
+            ref="canvasWrap"
+            class="relative z-10 w-full [&>canvas]:!w-full [&>canvas]:!h-auto [&>canvas]:block"
           />
 
           <!-- Loading -->
           <div
-              v-if="!ready && !errorMsg"
-              class="absolute inset-0 z-40 flex items-center justify-center"
+            v-if="!ready && !errorMsg"
+            class="absolute inset-0 z-40 flex items-center justify-center"
           >
             <UIcon
-                class="size-10 animate-spin"
-                name="i-lucide-loader-circle"
-                style="color: #86efac;"
+              class="size-10 animate-spin"
+              name="i-lucide-loader-circle"
+              style="color: #86efac;"
             />
           </div>
         </div>
@@ -1033,24 +1130,24 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
             <!-- Action icons stacked -->
             <div class="flex flex-col gap-1.5 shrink-0">
               <button
-                  class="icon-btn"
-                  title="Help"
-                  @click="showHelp = true"
+                class="icon-btn"
+                title="Help"
+                @click="showHelp = true"
               >
                 <UIcon
-                    class="size-3.5"
-                    name="i-lucide-info"
+                  class="size-3.5"
+                  name="i-lucide-info"
                 />
               </button>
               <button
-                  :class="{ 'icon-btn--active': turbo }"
-                  class="icon-btn"
-                  title="Turbo"
-                  @click="turbo = !turbo"
+                :class="{ 'icon-btn--active': turbo }"
+                class="icon-btn"
+                title="Turbo"
+                @click="turbo = !turbo"
               >
                 <UIcon
-                    class="size-3.5"
-                    name="i-lucide-zap"
+                  class="size-3.5"
+                  name="i-lucide-zap"
                 />
               </button>
             </div>
@@ -1060,21 +1157,21 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
               <div class="readout w-full flex justify-between">
                 <span class="ctrl-value truncate">
                   <CoinBalance
-                      :compact="false"
-                      :value="balance"
+                    :compact="false"
+                    :value="balance"
                   />
                 </span>
               </div>
               <div class="readout w-full justify-between">
                 <span class="ctrl-label">Bet</span>
                 <input
-                    v-model="betInput"
-                    :disabled="isSpinning || autoSpinEnabled"
-                    aria-label="Bet amount"
-                    class="bet-input ctrl-value tabular-nums"
-                    inputmode="numeric"
-                    @blur="commitBetInput"
-                    @keydown.enter="($event.target as HTMLInputElement).blur()"
+                  v-model="betInput"
+                  :disabled="isSpinning || autoSpinEnabled"
+                  aria-label="Bet amount"
+                  class="bet-input ctrl-value tabular-nums"
+                  inputmode="numeric"
+                  @blur="commitBetInput"
+                  @keydown.enter="($event.target as HTMLInputElement).blur()"
                 >
               </div>
             </div>
@@ -1083,12 +1180,12 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
           <!-- CENTER: WIN / bonus total -->
           <div class="flex flex-col items-center justify-center shrink-0 min-w-[84px]">
             <div
-                v-if="inBonus"
-                class="text-center"
+              v-if="inBonus"
+              class="text-center"
             >
               <p
-                  class="text-[9px] uppercase tracking-[0.2em] mb-1"
-                  style="color: rgba(187,247,208,0.55);"
+                class="text-[9px] uppercase tracking-[0.2em] mb-1"
+                style="color: rgba(187,247,208,0.55);"
               >
                 {{ bonusStatus }}
               </p>
@@ -1100,18 +1197,18 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
             <template v-else>
               <span class="ctrl-label mb-1">Win</span>
               <Transition
-                  mode="out-in"
-                  name="pop"
+                mode="out-in"
+                name="pop"
               >
                 <span
-                    v-if="winFlash && lastWin > 0"
-                    key="win"
-                    class="win-amount"
+                  v-if="winFlash && lastWin > 0"
+                  key="win"
+                  class="win-amount"
                 >{{ formatNumber(lastWin, false) }}</span>
                 <span
-                    v-else
-                    key="idle"
-                    class="win-idle"
+                  v-else
+                  key="idle"
+                  class="win-idle"
                 >0.00</span>
               </Transition>
             </template>
@@ -1121,10 +1218,10 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
           <div class="flex items-center gap-2 sm:gap-2.5 flex-1 justify-end">
             <!-- Halve bet -->
             <button
-                :disabled="isSpinning || autoSpinEnabled || bet <= MIN_BET"
-                class="adj-btn"
-                title="Halve bet"
-                @click="betDown"
+              :disabled="isSpinning || autoSpinEnabled || bet <= MIN_BET"
+              class="adj-btn"
+              title="Halve bet"
+              @click="betDown"
             >
               <span class="text-sm font-black leading-none">½</span>
             </button>
@@ -1132,41 +1229,41 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
             <!-- SPIN + AUTO stacked -->
             <div class="flex flex-col items-center gap-1.5">
               <button
-                  :disabled="!ready || balance < bet || isSpinning"
-                  class="spin-btn"
-                  @click="autoSpinEnabled ? stopAutoSpin() : spin()"
+                :disabled="!ready || balance < bet || isSpinning"
+                class="spin-btn"
+                @click="autoSpinEnabled ? stopAutoSpin() : spin()"
               >
                 <span class="spin-btn__ring" />
                 <UIcon
-                    v-if="isSpinning"
-                    class="size-6 animate-spin relative"
-                    name="i-lucide-loader-circle"
+                  v-if="isSpinning"
+                  class="size-6 animate-spin relative"
+                  name="i-lucide-loader-circle"
                 />
                 <span
-                    v-else-if="autoSpinEnabled"
-                    class="flex flex-col items-center leading-none relative"
+                  v-else-if="autoSpinEnabled"
+                  class="flex flex-col items-center leading-none relative"
                 >
                   <span class="text-[10px] tracking-wider opacity-80">{{ autoSpinsLeft }}×</span>
                   <span class="text-xs font-black">STOP</span>
                 </span>
                 <span
-                    v-else
-                    class="relative"
+                  v-else
+                  class="relative"
                 >SPIN</span>
               </button>
 
               <button
-                  v-if="!autoSpinEnabled"
-                  :disabled="!ready || balance < bet || isSpinning"
-                  class="auto-btn"
-                  @click="showAutoSpinModal = true"
+                v-if="!autoSpinEnabled"
+                :disabled="!ready || balance < bet || isSpinning"
+                class="auto-btn"
+                @click="showAutoSpinModal = true"
               >
                 AUTO
               </button>
               <button
-                  v-else
-                  class="auto-btn auto-btn--stop"
-                  @click="stopAutoSpin"
+                v-else
+                class="auto-btn auto-btn--stop"
+                @click="stopAutoSpin"
               >
                 STOP
               </button>
@@ -1174,10 +1271,10 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 
             <!-- Double bet -->
             <button
-                :disabled="isSpinning || autoSpinEnabled || bet >= MAX_BET"
-                class="adj-btn"
-                title="Double bet"
-                @click="betUp"
+              :disabled="isSpinning || autoSpinEnabled || bet >= MAX_BET"
+              class="adj-btn"
+              title="Double bet"
+              @click="betUp"
             >
               <span class="text-xs font-black leading-none">2×</span>
             </button>
@@ -1187,15 +1284,15 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
         <!-- Error strip -->
         <Transition name="fade-up">
           <div
-              v-if="errorMsg"
-              class="error-strip flex items-center justify-between gap-3 px-4 py-2"
+            v-if="errorMsg"
+            class="error-strip flex items-center justify-between gap-3 px-4 py-2"
           >
             <p class="text-xs text-red-300">
               {{ errorMsg }}
             </p>
             <button
-                class="text-red-300/50 hover:text-red-200 text-sm transition-colors"
-                @click="errorMsg = ''"
+              class="text-red-300/50 hover:text-red-200 text-sm transition-colors"
+              @click="errorMsg = ''"
             >
               ✕
             </button>
@@ -1207,20 +1304,20 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
     <!-- History -->
     <div class="relative z-[1] min-h-8">
       <div
-          v-if="history.length"
-          class="flex gap-1.5 flex-wrap justify-center mt-3"
+        v-if="history.length"
+        class="flex gap-1.5 flex-wrap justify-center mt-3"
       >
         <span
-            v-for="(h, i) in history"
-            :key="i"
-            :class="h.payout > h.bet ? 'bg-emerald-500/15 text-emerald-300' : 'text-white/25'"
-            class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-mono font-bold"
-            style="background: rgba(255,255,255,0.04);"
+          v-for="(h, i) in history"
+          :key="i"
+          :class="h.payout > h.bet ? 'bg-emerald-500/15 text-emerald-300' : 'text-white/25'"
+          class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-mono font-bold"
+          style="background: rgba(255,255,255,0.04);"
         >
           <UIcon
-              v-if="h.bonus"
-              class="size-3"
-              name="i-lucide-gift"
+            v-if="h.bonus"
+            class="size-3"
+            name="i-lucide-gift"
           />
           {{ h.payout > 0 ? formatNumber(h.payout) : '—' }}
         </span>
@@ -1229,8 +1326,8 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 
     <!-- Auto-spin modal -->
     <UModal
-        v-model:open="showAutoSpinModal"
-        title="Auto Spin"
+      v-model:open="showAutoSpinModal"
+      title="Auto Spin"
     >
       <template #body>
         <div class="space-y-4">
@@ -1239,13 +1336,13 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
           </p>
           <div class="grid grid-cols-5 gap-2">
             <UButton
-                v-for="count in AUTO_SPIN_OPTIONS"
-                :key="count"
-                block
-                class="font-bold"
-                color="neutral"
-                variant="soft"
-                @click="startAutoSpin(count)"
+              v-for="count in AUTO_SPIN_OPTIONS"
+              :key="count"
+              block
+              class="font-bold"
+              color="neutral"
+              variant="soft"
+              @click="startAutoSpin(count)"
             >
               {{ count }}
             </UButton>
@@ -1256,8 +1353,8 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 
     <!-- Help modal -->
     <UModal
-        v-model:open="showHelp"
-        title="How Xeno Slot works"
+      v-model:open="showHelp"
+      title="How Xeno Slot works"
     >
       <template #body>
         <div class="space-y-4 text-sm text-muted">
@@ -1282,21 +1379,21 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
               </div>
               <div class="grid grid-cols-[auto_1fr] items-center text-sm">
                 <template
-                    v-for="(row, i) in paytableRows"
-                    :key="row.sym"
+                  v-for="(row, i) in paytableRows"
+                  :key="row.sym"
                 >
                   <div
-                      class="px-3 py-1.5 flex items-center justify-center"
-                      :class="i % 2 ? 'bg-elevated/40' : ''"
+                    class="px-3 py-1.5 flex items-center justify-center"
+                    :class="i % 2 ? 'bg-elevated/40' : ''"
                   >
                     <span
-                        class="rounded-md bg-no-repeat"
-                        :style="tileStyle(row.sym)"
+                      class="rounded-md bg-no-repeat"
+                      :style="tileStyle(row.sym)"
                     />
                   </div>
                   <div
-                      class="px-3 py-1.5 font-mono tabular-nums flex justify-end gap-3"
-                      :class="i % 2 ? 'bg-elevated/40' : ''"
+                    class="px-3 py-1.5 font-mono tabular-nums flex justify-end gap-3"
+                    :class="i % 2 ? 'bg-elevated/40' : ''"
                   >
                     <span class="w-10 text-right text-muted">{{ row.pays[0] }}×</span>
                     <span class="w-10 text-right text-muted">{{ row.pays[1] }}×</span>
@@ -1315,7 +1412,8 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
             <ul class="space-y-1.5 list-disc list-inside">
               <li><strong class="text-default">{{ BONUS_FREE_SPINS }} spins.</strong> Coins stick to the board as <strong class="text-default">metal medallions</strong> — bronze → silver → gold → emerald as the value climbs.</li>
               <li><strong class="text-default">🍀 Glovers</strong> (<span class="text-success font-bold">×2</span> / <span class="text-success font-bold">×5</span> / <span class="text-success font-bold">×10</span>) multiply all adjacent coins, then vanish.</li>
-              <li><strong class="text-default">Treasure chests</strong> spring open and collect every coin on the board, then wipe it clean. <strong class="text-default">Only collected coins pay out</strong> — max {{ formatNumber(XENOSLOT_MAX_WIN_MULT, false, 0) }}× bet.</li>
+              <li><strong class="text-default">Treasure chests</strong> spring open and collect every coin on the board, then wipe it clean. <strong class="text-default">Only collected coins pay out</strong> — max {{ formatNumber(XS_DISPLAY_MAX_WIN, false, 0) }}× bet.</li>
+              <li><strong class="text-default">Buy Bonus</strong> skips straight to the feature for {{ formatNumber(buyBonusCost, false) }} ({{ XENOSLOT_BUY_BONUS_COST }}× bet).</li>
             </ul>
           </div>
         </div>
@@ -1402,6 +1500,18 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
   color: #d9f99d;
   border-color: rgba(132, 204, 22, 0.5);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 0 12px rgba(132, 204, 22, 0.28);
+}
+
+.xs-badge--vol {
+  color: #bae6fd;
+  border-color: rgba(56, 189, 248, 0.5);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 0 12px rgba(56, 189, 248, 0.28);
+}
+
+.xs-badge--maxwin {
+  color: #fecaca;
+  border-color: rgba(248, 113, 113, 0.5);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 0 12px rgba(248, 113, 113, 0.28);
 }
 
 .xs-badge--hold {
@@ -1770,5 +1880,42 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 .pop-leave-to {
   opacity: 0;
   transform: scale(0.9);
+}
+
+.xs-bigwin-label {
+  margin: 0;
+  font-size: calc(26px + var(--tier, 1) * 6px);
+  font-weight: 950;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+  animation: xs-bigwin-pop 0.5s cubic-bezier(0.2, 1.4, 0.4, 1) both;
+}
+
+.xs-bigwin-amount {
+  font-size: calc(34px + var(--tier, 1) * 9px);
+  font-weight: 950;
+  line-height: 1;
+  color: rgb(220, 252, 231);
+  text-shadow: 0 3px 0 rgba(0, 0, 0, 0.6), 0 0 26px rgba(74, 222, 128, 0.55);
+  animation: xs-bigwin-pop 0.5s 0.08s cubic-bezier(0.2, 1.4, 0.4, 1) both;
+}
+
+@keyframes xs-bigwin-pop {
+  0% {
+    transform: scale(0.4);
+    opacity: 0;
+  }
+  60% {
+    transform: scale(1.12);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
 }
 </style>

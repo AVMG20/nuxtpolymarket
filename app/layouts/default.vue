@@ -30,12 +30,15 @@ const platformItems: NavigationMenuItem[] = [
   {label: 'Hack Ops', class: 'mb-1', icon: 'i-lucide-terminal', to: '/hack'},
   {label: 'Gem Market', class: 'mb-1', icon: 'i-lucide-gem', to: '/gem-market'},
   {label: 'Leaderboard', class: 'mb-1', icon: 'i-lucide-trophy', to: '/leaderboard'},
+  {label: 'Changelog', class: 'mb-1', icon: 'i-lucide-scroll-text', to: '/changelog'},
 ]
 
 const slotItems: NavigationMenuItem[] = [
   {label: 'Xeno Slot', class: 'mb-1', icon: 'i-lucide-cherry', to: '/games/xenoslot'},
   {label: 'Candy Madness', class: 'mb-1', icon: 'i-lucide-lollipop', to: '/games/candymadness'},
   {label: 'Aether Gates', class: 'mb-1', icon: 'i-lucide-zap', to: '/games/aethergates'},
+  {label: 'Fire in the Hole', class: 'mb-1', icon: 'i-lucide-flame', to: '/games/fireinthehole'},
+  {label: 'Book of Shadows', class: 'mb-1', icon: 'i-lucide-book-open', to: '/games/bookofshadows'},
   {label: 'Spiñata Slots', class: 'mb-1', icon: 'i-lucide-party-popper', to: '/games/spinata'},
 ]
 
@@ -224,11 +227,7 @@ function setNeutral(color: string) {
               <div class="flex items-center gap-3 px-3 py-2">
                 <div class="size-8 rounded-full bg-primary/20 flex items-center justify-center shrink-0">
                   <span class="text-sm font-semibold text-primary">
-                    {{
-                      (
-                          user?.name ?? 'A'
-                      )[0].toUpperCase()
-                    }}
+                    {{ (user?.name ?? 'A').charAt(0).toUpperCase() }}
                   </span>
                 </div>
                 <div class="min-w-0">

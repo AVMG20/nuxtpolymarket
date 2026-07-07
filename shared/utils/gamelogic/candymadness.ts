@@ -53,8 +53,8 @@ export const CM_SCATTER_TRIGGER = 3
 //   buyFreeSpins — pay up front to jump straight into the 10 free spins.
 //   bonusHunt    — pay a premium for a spin that is guaranteed to drop one 🍭
 //                  scatter, sharply raising the odds of triggering the bonus.
-export const CM_BUY_FREESPINS_COST = 31 // × bet → ~96.7% RTP (bonus EV ≈ 29.97× bet)
-export const CM_BONUS_HUNT_COST = 2.65 // × bet → ~96.7% RTP (EV ≈ 2.563× bet)
+export const CM_BUY_FREESPINS_COST = 38.1 // × bet → ~98% RTP (bonus EV ≈ 37.31× bet)
+export const CM_BONUS_HUNT_COST = 3.62 // × bet → ~98% RTP (EV ≈ 3.545× bet)
 
 export type CandyFeature = 'buyFreeSpins' | 'bonusHunt'
 
@@ -65,24 +65,24 @@ export interface CandyMadnessOptions {
 // --- symbols ----------------------------------------------------------------
 
 export type CandySymbol
-  = 'grape' | 'blue' | 'banana' | 'green' | 'apple' | 'orange' | 'red' | 'scatter'
+  = 'grape' | 'blue' | 'banana' | 'green' | 'orange' | 'red' | 'scatter'
 
-// The seven paying candies, low → high. `scatter` is the bonus trigger and
+// The six paying candies, low → high. `scatter` is the bonus trigger and
 // never forms a cluster.
 export const CANDY_KEYS: Exclude<CandySymbol, 'scatter'>[]
-  = ['grape', 'blue', 'banana', 'green', 'apple', 'orange', 'red']
+  = ['grape', 'blue', 'banana', 'green', 'orange', 'red']
 
 // Reel weights (same for every cell). Higher = more frequent. The scatter is
 // only ever drawn on a base-game full drop (never during tumbles or the bonus).
 export const CANDY_WEIGHTS: Record<Exclude<CandySymbol, 'scatter'>, number> = {
-  grape: 1.00, blue: 0.96, banana: 0.90, green: 0.84, apple: 0.76, orange: 0.68, red: 0.56
+  grape: 1.00, blue: 0.96, banana: 0.90, green: 0.84, orange: 0.68, red: 0.56
 }
 export const SCATTER_WEIGHT = 0.05
 
 // Global scale applied to every paytable value. Tuned by Monte-Carlo (5e6
 // sims) to ~98% base-game RTP. RTP scales linearly with this until the
 // MAX_WIN cap starts binding (which is rare), so retune by simple ratio.
-const PAY_SCALE = 1.524
+const PAY_SCALE = 0.385
 
 // Cluster size brackets (lower bound, inclusive). A cluster of `n` candies uses
 // the highest bracket whose bound is ≤ n.
@@ -96,7 +96,6 @@ const PAYTABLE: Record<Exclude<CandySymbol, 'scatter'>, number[]> = {
   blue:   [0.009, 0.013, 0.019, 0.029, 0.042, 0.060, 0.094, 0.162, 0.336],
   banana: [0.010, 0.015, 0.021, 0.032, 0.046, 0.066, 0.104, 0.180, 0.372],
   green:  [0.010, 0.016, 0.023, 0.034, 0.050, 0.072, 0.114, 0.198, 0.408],
-  apple:  [0.012, 0.018, 0.026, 0.039, 0.058, 0.083, 0.132, 0.230, 0.480],
   orange: [0.013, 0.019, 0.029, 0.043, 0.065, 0.094, 0.150, 0.264, 0.552],
   red:    [0.018, 0.026, 0.041, 0.062, 0.096, 0.142, 0.228, 0.408, 0.864]
 }

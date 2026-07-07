@@ -24,7 +24,16 @@ import {
   SCATTER_WEIGHT
 } from '#shared/utils/gamelogic/candymadness'
 
-const {user, setBalance} = useAuth()
+// Realistic max win shown to players, derived from 2M-spin Monte Carlo runs
+// (scripts/candymadness-rtp.ts — observed max ~2,580x). The configured hard
+// cap (5,000x) is enforced server-side but is a rare, near-unreachable outlier.
+const CM_DISPLAY_MAX_WIN = 3500
+// Volatility rating (1-5 zaps) — see SlotVolatility.vue. Bumped from 2 after
+// removing the apple symbol: hit frequency dropped but the sticky-multiplier
+// tail (esp. in the free-spins bonus) got a lot fatter.
+const CM_VOLATILITY = 3
+
+const { user, setBalance } = useAuth()
 const balance = ref(parseFloat(user.value?.balance ?? '0'))
 watch(() => user.value?.balance, (v) => {
   if (v !== undefined) balance.value = parseFloat(v ?? '0')
@@ -49,7 +58,7 @@ function setBet(v: number) {
 // Keep the editable field mirrored when bet changes via the ½ / 2× buttons.
 watch(bet, (v) => {
   betInput.value = String(v)
-}, {immediate: true})
+}, { immediate: true })
 
 function commitBetInput() {
   setBet(parseInt(betInput.value.replace(/[^\d]/g, ''), 10) || MIN_BET)
@@ -102,6 +111,13 @@ const bonusSpinsLeft = ref(0)
 const bonusTotal = ref(0)
 const bonusStatus = ref('')
 
+const bigWinBanner = ref(false)
+const bigWinLabel = ref('')
+const bigWinAmount = ref(0)
+const bigWinGradient = ref('')
+const bigWinGlow = ref('')
+const bigWinIntensity = ref(1)
+
 const history = ref<{ payout: number, bet: number, bonus: boolean }[]>([])
 
 // --- auto-spin state
@@ -144,15 +160,15 @@ const bonusOdds = computed(() => {
   const choose = (n: number, k: number) => {
     let r = 1
     for (let i = 0; i < k; i++) r = r * (
-        n - i
+      n - i
     ) / (
-        i + 1
+      i + 1
     )
     return r
   }
   let pLess = 0
   for (let k = 0; k < CM_SCATTER_TRIGGER; k++) pLess += choose(CM_CELLS, k) * p ** k * q ** (
-      CM_CELLS - k
+    CM_CELLS - k
   )
   const pTrigger = 1 - pLess
   return pTrigger > 0 ? Math.round(1 / pTrigger) : 0
@@ -173,7 +189,7 @@ function ensureAudio(): AudioContext | null {
   if (muted.value || !import.meta.client) return null
   if (!audioCtx) {
     const Ctx = window.AudioContext ?? (
-        window as any
+      window as any
     ).webkitAudioContext
     if (!Ctx) return null
     audioCtx = new Ctx()
@@ -255,42 +271,80 @@ let destroyed = false
 const CELL = 66
 const GAP = 5
 const REEL_W = CM_COLS * CELL + (
-    CM_COLS - 1
+  CM_COLS - 1
 ) * GAP
 const REEL_H = CM_ROWS * CELL + (
-    CM_ROWS - 1
+  CM_ROWS - 1
 ) * GAP
 const APP_W = REEL_W + 28
 const APP_H = REEL_H + 28
 const OFFSET_X = (
-    APP_W - REEL_W
+  APP_W - REEL_W
 ) / 2
 const OFFSET_Y = (
-    APP_H - REEL_H
+  APP_H - REEL_H
 ) / 2
 
 const wait = (ms: number) => new Promise<void>(r => setTimeout(r, ms))
 
+// Escalating "big win" showcase shown once a round clears a threshold — tuned
+// below Fire in the Hole's tiers since Candy Madness's max win
+// (CM_DISPLAY_MAX_WIN, 3,500x) is a fraction of that game's.
+const WIN_TIERS = [
+  { threshold: 1200, rank: 6, label: 'ULTRA WIN', from: '#f0abfc', to: '#a855f7', glow: 'rgba(168,85,247,0.75)' },
+  { threshold: 600, rank: 5, label: 'SUPER WIN', from: '#fda4af', to: '#e11d48', glow: 'rgba(225,29,72,0.7)' },
+  { threshold: 300, rank: 4, label: 'MEGA WIN', from: '#fdba74', to: '#ea580c', glow: 'rgba(234,88,12,0.7)' },
+  { threshold: 150, rank: 3, label: 'GREAT WIN', from: '#fde047', to: '#ca8a04', glow: 'rgba(202,138,4,0.65)' },
+  { threshold: 75, rank: 2, label: 'BIG WIN', from: '#86efac', to: '#16a34a', glow: 'rgba(22,163,74,0.6)' },
+  { threshold: 40, rank: 1, label: 'NICE WIN', from: '#7dd3fc', to: '#0284c7', glow: 'rgba(2,132,199,0.55)' }
+] as const
+
+function tickBigWinAmount(to: number, duration = 1400) {
+  const obj = { v: bigWinAmount.value }
+  GSAP.to(obj, {
+    v: to,
+    duration: duration / 1000,
+    ease: 'power3.out',
+    onUpdate: () => { bigWinAmount.value = Number(obj.v.toFixed(2)) }
+  })
+}
+
+async function showBigWinPopup(totalMultiplier: number, amount: number) {
+  const tier = WIN_TIERS.find(t => totalMultiplier >= t.threshold)
+  if (!tier) return
+
+  bigWinLabel.value = tier.label
+  bigWinGradient.value = `linear-gradient(180deg, ${tier.from}, ${tier.to})`
+  bigWinGlow.value = tier.glow
+  bigWinIntensity.value = tier.rank
+  bigWinAmount.value = 0
+  bigWinBanner.value = true
+
+  tickBigWinAmount(amount)
+  await wait(2200)
+  bigWinBanner.value = false
+}
+
 const SYMBOL_IDS: CandySymbol[] = [...CANDY_KEYS, 'scatter']
 
 const GLYPH: Record<CandySymbol, string> = {
-  grape: '🍇', blue: '🫐', banana: '🍌', green: '🍉', apple: '🍎', orange: '🍊', red: '🍓', scatter: '🍭'
+  grape: '🍇', blue: '🫐', banana: '🍌', green: '🍉', orange: '🍊', red: '🍓', scatter: '🍭'
 }
 
 const POP_COLOR: Record<CandySymbol, number> = {
   grape: 0x9b3fc4, blue: 0x2f7fd0, banana: 0xf5c518, green: 0x4caf2e,
-  apple: 0x66cc33, orange: 0xf0921a, red: 0xe2392a, scatter: 0xff5cae
+  orange: 0xf0921a, red: 0xe2392a, scatter: 0xff5cae
 }
 
 const PAY_SIZES = [5, 8, 12, 15] as const
 const paytableRows = (
-    [...CANDY_KEYS].reverse()
+  [...CANDY_KEYS].reverse()
 ).map(sym => (
-    {
-      sym,
-      glyph: GLYPH[sym],
-      pays: PAY_SIZES.map(n => Math.round(clusterPayMult(sym, n) * 1000) / 1000)
-    }
+  {
+    sym,
+    glyph: GLYPH[sym],
+    pays: PAY_SIZES.map(n => Math.round(clusterPayMult(sym, n) * 1000) / 1000)
+  }
 ))
 
 const MULT_RAMP: Record<number, number> = {
@@ -317,7 +371,7 @@ function makeEmojiTexture(emoji: string) {
 
 // --- candy symbol class
 function makeSymbolClass() {
-  const {Sprite} = PIXI
+  const { Sprite } = PIXI
   const Base = REELS.ReelSymbol
 
   class CandyTile extends Base {
@@ -344,7 +398,7 @@ function makeSymbolClass() {
     }
 
     onActivate(id: string) {
-      this.view.alpha = 1;
+      this.view.alpha = 1
       this._render(id)
     }
 
@@ -353,19 +407,19 @@ function makeSymbolClass() {
     }
 
     resize(w: number, h: number) {
-      this.w = w;
-      this.h = h;
+      this.w = w
+      this.h = h
       if (this.symbolId) this._render(this.symbolId)
     }
 
     stopAnimation() {
-      this._kill();
+      this._kill()
       this.view.scale.set(1, 1)
     }
 
     _kill() {
       if (this._tween) {
-        this._tween.kill();
+        this._tween.kill()
         this._tween = null
       }
       this.view.scale.set(1, 1)
@@ -375,8 +429,8 @@ function makeSymbolClass() {
       this._kill()
       return new Promise<void>((res) => {
         this._tween = GSAP.to(
-            this.view.scale,
-            {x: 1.14, y: 1.14, duration: 0.12, yoyo: true, repeat: 1, ease: 'sine.inOut', onComplete: res}
+          this.view.scale,
+          { x: 1.14, y: 1.14, duration: 0.12, yoyo: true, repeat: 1, ease: 'sine.inOut', onComplete: res }
         )
       })
     }
@@ -388,25 +442,27 @@ function makeSymbolClass() {
 // --- candy-pop particles
 function spawnPops(step: TumbleStep) {
   if (!particleLayer) return
-  const {Graphics} = PIXI
+  const { Graphics } = PIXI
   const count = turbo.value ? 4 : 7
   for (const wc of step.winCells) {
     const sym = step.grid[wc.col]?.[wc.row] as CandySymbol | undefined
-    const color = sym ? (
-        POP_COLOR[sym] ?? 0xffffff
-    ) : 0xffffff
+    const color = sym
+      ? (
+          POP_COLOR[sym] ?? 0xffffff
+        )
+      : 0xffffff
     const p = cellLocal(wc.col, wc.row)
     for (let k = 0; k < count; k++) {
       const g = new Graphics()
       g.circle(0, 0, 2.5 + Math.random() * 4)
-          .fill({color})
+        .fill({ color })
       g.position.set(p.x, p.y)
       particleLayer.addChild(g)
       const ang = Math.random() * Math.PI * 2
       const dist = 16 + Math.random() * 30
       const dur = 0.4 + Math.random() * 0.25
-      GSAP.to(g, {x: p.x + Math.cos(ang) * dist, y: p.y + Math.sin(ang) * dist - 8, duration: dur, ease: 'power2.out'})
-      GSAP.to(g.scale, {x: 0.1, y: 0.1, duration: dur, ease: 'power1.in'})
+      GSAP.to(g, { x: p.x + Math.cos(ang) * dist, y: p.y + Math.sin(ang) * dist - 8, duration: dur, ease: 'power2.out' })
+      GSAP.to(g.scale, { x: 0.1, y: 0.1, duration: dur, ease: 'power1.in' })
       GSAP.to(g, {
         alpha: 0, duration: dur, ease: 'power1.in', onComplete: () => {
           try {
@@ -422,7 +478,7 @@ function spawnPops(step: TumbleStep) {
 // --- floating "+win" text for each cascade
 function spawnWinText(step: TumbleStep) {
   if (!floatLayer || !step.clusters.length) return
-  const {Text} = PIXI
+  const { Text } = PIXI
   for (const cl of step.clusters) {
     const money = cl.pay * activeBet * activeMult
     if (money <= 0) continue
@@ -442,8 +498,8 @@ function spawnWinText(step: TumbleStep) {
       text: `+${formatNumber(money, false)}`,
       style: {
         fontFamily: 'system-ui, sans-serif', fontSize: 24, fontWeight: '900', fill: 0xfde047, align: 'center',
-        stroke: {color: 0x7a1296, width: 5, join: 'round'},
-        dropShadow: {color: 0x000000, blur: 4, distance: 2, alpha: 0.5, angle: Math.PI / 2}
+        stroke: { color: 0x7a1296, width: 5, join: 'round' },
+        dropShadow: { color: 0x000000, blur: 4, distance: 2, alpha: 0.5, angle: Math.PI / 2 }
       }
     })
     t.anchor.set(0.5)
@@ -451,8 +507,8 @@ function spawnWinText(step: TumbleStep) {
     floatLayer.addChild(t)
 
     const dur = turbo.value ? 0.95 : 1.6
-    GSAP.fromTo(t.scale, {x: 0.4, y: 0.4}, {x: 1, y: 1, duration: 0.3, ease: 'back.out(2.6)'})
-    GSAP.to(t, {y: cy - 40, duration: dur, ease: 'power1.out'})
+    GSAP.fromTo(t.scale, { x: 0.4, y: 0.4 }, { x: 1, y: 1, duration: 0.3, ease: 'back.out(2.6)' })
+    GSAP.to(t, { y: cy - 40, duration: dur, ease: 'power1.out' })
     GSAP.to(t, {
       alpha: 0, duration: dur * 0.38, delay: dur * 0.62, ease: 'power1.in', onComplete: () => {
         try {
@@ -476,7 +532,7 @@ function addCascadeWin(step: TumbleStep) {
     setTimeout(() => {
       if (token !== winDisplayToken) return
       target.value += amount
-      if (target === lastWin) winFlash.value = true
+      if (target === lastWin.value) winFlash.value = true
     }, index * tickDelay)
   })
 }
@@ -487,10 +543,10 @@ const badges = new Map<string, { value: number, view: any, label: any, bg: any }
 function cellLocal(col: number, row: number): { x: number, y: number } {
   return {
     x: col * (
-        CELL + GAP
+      CELL + GAP
     ) + CELL / 2,
     y: row * (
-        CELL + GAP
+      CELL + GAP
     ) + CELL / 2
   }
 }
@@ -502,20 +558,20 @@ function styleBadge(b: { value: number, label: any, bg: any }) {
   const h = 34
   b.bg.clear()
   b.bg.roundRect(-w / 2, -h / 2, w, h, 10)
-      .fill({color: c, alpha: 0.22})
-      .stroke({color: c, width: 2, alpha: 0.7})
+    .fill({ color: c, alpha: 0.22 })
+    .stroke({ color: c, width: 2, alpha: 0.7 })
 }
 
 function makeBadge(col: number, row: number, value: number) {
-  const {Container, Graphics, Text} = PIXI
+  const { Container, Graphics, Text } = PIXI
   const view = new Container()
   const bg = new Graphics()
   const label = new Text({
     text: '',
     style: {
       fontFamily: 'system-ui, sans-serif', fontSize: 19, fontWeight: '900', fill: 0xffffff, align: 'center',
-      stroke: {color: 0x2a0612, width: 4, join: 'round'},
-      dropShadow: {color: 0x000000, blur: 3, distance: 1, alpha: 0.55, angle: Math.PI / 2}
+      stroke: { color: 0x2a0612, width: 4, join: 'round' },
+      dropShadow: { color: 0x000000, blur: 3, distance: 1, alpha: 0.55, angle: Math.PI / 2 }
     }
   })
   label.anchor.set(0.5)
@@ -524,16 +580,16 @@ function makeBadge(col: number, row: number, value: number) {
   const p = cellLocal(col, row)
   view.position.set(p.x, p.y)
   multLayer.addChild(view)
-  const b = {value, view, label, bg}
+  const b = { value, view, label, bg }
   styleBadge(b)
   badges.set(`${col}:${row}`, b)
-  GSAP.fromTo(view.scale, {x: 0, y: 0}, {x: 1, y: 1, duration: 0.3, ease: 'back.out(2)'})
+  GSAP.fromTo(view.scale, { x: 0, y: 0 }, { x: 1, y: 1, duration: 0.3, ease: 'back.out(2)' })
 }
 
 function bumpBadge(b: { value: number, view: any, label: any, bg: any }, value: number) {
   b.value = value
   styleBadge(b)
-  GSAP.fromTo(b.view.scale, {x: 1.5, y: 1.5}, {x: 1, y: 1, duration: 0.32, ease: 'back.out(2.5)'})
+  GSAP.fromTo(b.view.scale, { x: 1.5, y: 1.5 }, { x: 1, y: 1, duration: 0.32, ease: 'back.out(2.5)' })
 }
 
 function syncBadges(spots: MultSpot[]) {
@@ -547,14 +603,14 @@ function syncBadges(spots: MultSpot[]) {
 
 function pulseBadges() {
   for (const b of badges.values()) {
-    GSAP.fromTo(b.view.scale, {x: 1.28, y: 1.28}, {x: 1, y: 1, duration: 0.38, ease: 'back.out(2)'})
+    GSAP.fromTo(b.view.scale, { x: 1.28, y: 1.28 }, { x: 1, y: 1, duration: 0.38, ease: 'back.out(2)' })
   }
 }
 
 function clearBadges() {
   for (const b of badges.values()) {
     try {
-      b.view.destroy({children: true})
+      b.view.destroy({ children: true })
     } catch { /* ignore */
     }
   }
@@ -564,7 +620,7 @@ function clearBadges() {
 // --- pixi bootstrap
 function toTargets(grid: CandySymbol[][]) {
   return grid.map(col => (
-      {visible: col}
+    { visible: col }
   ))
 }
 
@@ -590,7 +646,7 @@ onMounted(async () => {
       resolution: Math.min(2, window.devicePixelRatio || 1)
     })
     if (destroyed) {
-      app.destroy(true);
+      app.destroy(true)
       return
     }
     canvasWrap.value?.appendChild(app.canvas)
@@ -603,32 +659,32 @@ onMounted(async () => {
       TEX[id] = await PIXI.Assets.load(`/slots/candyblast/${id}.png`)
     }))
     if (destroyed) {
-      app.destroy(true);
+      app.destroy(true)
       return
     }
 
     const CandyTile = makeSymbolClass()
 
-    const weights: Record<string, number> = {scatter: SCATTER_WEIGHT}
+    const weights: Record<string, number> = { scatter: SCATTER_WEIGHT }
     for (const k of CANDY_KEYS) weights[k] = CANDY_WEIGHTS[k]
 
     reelSet = new REELS.ReelSetBuilder()
-        .reels(CM_COLS)
-        .visibleRows(CM_ROWS)
-        .symbolSize(CELL, CELL)
-        .symbolGap(GAP, GAP)
-        .symbols((r: any) => {
-          for (const id of SYMBOL_IDS) r.register(id, CandyTile, {})
-        })
-        .weights(weights)
-        .tumble({
-          fall: {duration: 240, ease: 'sine.in', rowStagger: 0},
-          dropIn: {duration: 380, ease: 'back.out(1.4)', rowStagger: 40, distance: 'perHole'}
-        })
-        .speed('normal', REELS.SpeedPresets.NORMAL)
-        .speed('turbo', REELS.SpeedPresets.TURBO)
-        .ticker(app.ticker)
-        .build()
+      .reels(CM_COLS)
+      .visibleRows(CM_ROWS)
+      .symbolSize(CELL, CELL)
+      .symbolGap(GAP, GAP)
+      .symbols((r: any) => {
+        for (const id of SYMBOL_IDS) r.register(id, CandyTile, {})
+      })
+      .weights(weights)
+      .tumble({
+        fall: { duration: 240, ease: 'sine.in', rowStagger: 0 },
+        dropIn: { duration: 380, ease: 'back.out(1.4)', rowStagger: 40, distance: 'perHole' }
+      })
+      .speed('normal', REELS.SpeedPresets.NORMAL)
+      .speed('turbo', REELS.SpeedPresets.TURBO)
+      .ticker(app.ticker)
+      .build()
 
     reelSet.x = OFFSET_X
     reelSet.y = OFFSET_Y
@@ -666,15 +722,15 @@ onUnmounted(() => {
   } catch { /* ignore */
   }
   try {
-    multLayer?.destroy?.({children: true})
+    multLayer?.destroy?.({ children: true })
   } catch { /* ignore */
   }
   try {
-    particleLayer?.destroy?.({children: true})
+    particleLayer?.destroy?.({ children: true })
   } catch { /* ignore */
   }
   try {
-    floatLayer?.destroy?.({children: true})
+    floatLayer?.destroy?.({ children: true })
   } catch { /* ignore */
   }
   try {
@@ -708,7 +764,7 @@ function buyFreeSpins() {
 async function spin(forceFeature?: CandyFeature) {
   // An explicit buy wins over the Bonus Hunter toggle.
   const feature: CandyFeature | undefined = forceFeature ?? (
-      huntMode.value ? 'bonusHunt' : undefined
+    huntMode.value ? 'bonusHunt' : undefined
   )
   const cost = costFor(feature)
   if (!ready.value || isSpinning.value || balance.value < cost) return
@@ -726,7 +782,7 @@ async function spin(forceFeature?: CandyFeature) {
   try {
     data = await $fetch('/api/games/play-game', {
       method: 'POST',
-      body: {bet: bet.value, game: 'candymadness', options: feature ? {feature} : undefined}
+      body: { bet: bet.value, game: 'candymadness', options: feature ? { feature } : undefined }
     }) as { gameData: CandyMadnessResult, balance: number }
   } catch (e: unknown) {
     errorMsg.value = e instanceof Error ? e.message : 'Something went wrong'
@@ -753,7 +809,7 @@ async function spin(forceFeature?: CandyFeature) {
       // Highlight the trigger scatters (bought bonuses now also drop 3 for show).
       if (result.scatterCells.length) {
         await reelSet.spotlight.show(result.scatterCells.map((c: Cell) => (
-            {reelIndex: c.col, rowIndex: c.row}
+          { reelIndex: c.col, rowIndex: c.row }
         )))
         await wait(700)
         // show() dims the whole board and never restores it on its own; hide()
@@ -776,7 +832,7 @@ async function spin(forceFeature?: CandyFeature) {
     if (result.payout > 0) sfx.win()
     balance.value = data.balance
     setBalance(data.balance)
-    history.value.unshift({payout: result.payout, bet: result.cost, bonus: result.bonusTriggered})
+    history.value.unshift({ payout: result.payout, bet: result.cost, bonus: result.bonusTriggered })
     if (history.value.length > 10) history.value.pop()
   } catch (e) {
     activeWinTarget = null
@@ -810,22 +866,22 @@ async function spinAndCascade(seq: TumbleSequence): Promise<number> {
   activeMult = Math.max(1, seq.multiplierSum)
   reelSet.setSpeed?.(turbo.value ? 'turbo' : 'normal')
   const first = seq.steps[0]?.grid ?? seq.restGrid
-  const spinPromise = reelSet.spin({mode: 'cascade'})
+  const spinPromise = reelSet.spin({ mode: 'cascade' })
   reelSet.setResult(toTargets(first))
   await spinPromise
 
   await reelSet.runCascade({
     detectWinners: (_g: string[][], lvl: number) =>
-        (
-            seq.steps[lvl]?.winCells ?? []
-        ).map((c: Cell) => (
-            {reel: c.col, row: c.row}
-        )),
+      (
+        seq.steps[lvl]?.winCells ?? []
+      ).map((c: Cell) => (
+        { reel: c.col, row: c.row }
+      )),
     nextGrid: (_g: string[][], _w: any, lvl: number) =>
-        (
-            seq.steps[lvl + 1]?.grid ?? seq.restGrid
-        ) as unknown as string[][],
-    onCascade: ({chain}: { chain: number }) => onTumble(seq.steps[chain - 1], chain),
+      (
+        seq.steps[lvl + 1]?.grid ?? seq.restGrid
+      ) as unknown as string[][],
+    onCascade: ({ chain }: { chain: number }) => onTumble(seq.steps[chain - 1], chain),
     pauseAfterDestroyMs: turbo.value ? 130 : 300,
     maxChain: 64
   })
@@ -880,11 +936,13 @@ async function runBonus(result: CandyMadnessResult) {
     clearBadges()
     inBonus.value = false
   }
+
+  await showBigWinPopup(result.payout / result.bet, result.payout)
 }
 
 function onKeydown(e: KeyboardEvent) {
   if (e.code === 'Space' && e.target === document.body) {
-    e.preventDefault();
+    e.preventDefault()
     if (!autoSpinEnabled.value) spin()
   }
 }
@@ -896,8 +954,8 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 <template>
   <!-- Candy background, scoped to the page (not the sidebar) -->
   <div class="page-root relative min-h-full flex flex-col items-center justify-start overflow-hidden px-3 pt-10 pb-6">
-    <div class="page-bg"/>
-    <div class="page-vignette"/>
+    <div class="page-bg" />
+    <div class="page-vignette" />
 
     <!-- ── Title (centered over the board) ── -->
     <div class="cm-title relative z-[1] mb-2 sm:mb-3 text-center">
@@ -908,8 +966,9 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
       </h1>
       <div class="mt-2.5 flex flex-wrap items-center justify-center gap-1.5 sm:gap-2">
         <span class="cm-badge cm-badge--rtp">98% RTP</span>
-        <span class="cm-badge cm-badge--vol">Low Volatility</span>
+        <span class="cm-badge cm-badge--vol"><SlotVolatility :level="CM_VOLATILITY" /></span>
         <span class="cm-badge cm-badge--cascade">Cascade</span>
+        <span class="cm-badge cm-badge--maxwin">{{ formatNumber(CM_DISPLAY_MAX_WIN, false, 0) }}x max win</span>
       </div>
     </div>
 
@@ -920,58 +979,64 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
       <div class="order-2 mt-3 lg:mt-0 lg:absolute lg:top-0 lg:right-full lg:mr-4 w-full lg:w-auto flex flex-row lg:flex-col gap-3">
         <!-- BUY FREE SPINS -->
         <button
-            :disabled="!ready  || autoSpinEnabled || balance < buyFreeSpinsCost"
-            class="group relative w-50 shrink-0 overflow-hidden flex flex-col gap-2 rounded-2xl p-3 text-left text-white cursor-pointer transition bg-gradient-to-b from-pink-500/25 to-[#0a041a]/60 border border-pink-500/45 shadow-[0_10px_30px_rgba(0,0,0,0.55)] hover:-translate-y-0.5 hover:brightness-110 active:translate-y-0 disabled:opacity-40 disabled:cursor-default disabled:saturate-[0.6] disabled:translate-y-0"
-            @click="buyFreeSpins"
+          :disabled="!ready || autoSpinEnabled || balance < buyFreeSpinsCost"
+          class="group relative w-50 shrink-0 overflow-hidden flex flex-col gap-2 rounded-2xl p-3 text-left text-white cursor-pointer transition bg-gradient-to-b from-pink-500/25 to-[#0a041a]/60 border border-pink-500/45 shadow-[0_10px_30px_rgba(0,0,0,0.55)] hover:-translate-y-0.5 hover:brightness-110 active:translate-y-0 disabled:opacity-40 disabled:cursor-default disabled:saturate-[0.6] disabled:translate-y-0"
+          @click="buyFreeSpins"
         >
-          <span class="pointer-events-none absolute inset-x-0 -top-1/2 h-2/3 opacity-60 bg-[radial-gradient(ellipse_at_50%_0%,rgba(244,114,182,0.55),transparent_70%)]"/>
+          <span class="pointer-events-none absolute inset-x-0 -top-1/2 h-2/3 opacity-60 bg-[radial-gradient(ellipse_at_50%_0%,rgba(244,114,182,0.55),transparent_70%)]" />
 
           <span class="relative flex items-center gap-2">
-      <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-pink-500/20 ring-1 ring-inset ring-pink-400/40 text-base leading-none">
-        🍭
-      </span>
-      <span class="font-black uppercase tracking-wide leading-tight">Buy Free Spins</span>
-    </span>
+            <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-pink-500/20 ring-1 ring-inset ring-pink-400/40 text-base leading-none">
+              🍭
+            </span>
+            <span class="font-black uppercase tracking-wide leading-tight">Buy Free Spins</span>
+          </span>
 
           <span class="relative text-sm leading-snug text-violet-300/70">
-      Drop straight into {{ CM_FREE_SPINS }} free spins
-    </span>
+            Drop straight into {{ CM_FREE_SPINS }} free spins
+          </span>
 
           <span class="relative mt-auto inline-flex items-center gap-1.5 self-start rounded-lg px-2.5 py-1 font-mono text-[12.5px] font-extrabold bg-black/30 ring-1 ring-inset ring-violet-500/20">
-      <CoinBalance :compact="false" :value="buyFreeSpinsCost"/>
-    </span>
+            <CoinBalance
+              :compact="false"
+              :value="buyFreeSpinsCost"
+            />
+          </span>
         </button>
 
         <!-- BONUS HUNTER (toggle) -->
         <button
-            :class="huntMode ? 'border-sky-400/70 shadow-[0_0_22px_rgba(56,189,248,0.45)]' : 'border-violet-500/35 shadow-[0_10px_30px_rgba(0,0,0,0.55)]'"
-            :disabled="!ready || autoSpinEnabled"
-            class="group relative w-50 shrink-0 overflow-hidden flex flex-col gap-2 rounded-2xl p-3 text-left text-white cursor-pointer transition bg-gradient-to-b from-violet-500/20 to-[#0a041a]/60 border hover:-translate-y-0.5 hover:brightness-110 active:translate-y-0 disabled:opacity-40 disabled:cursor-default disabled:saturate-[0.6] disabled:translate-y-0"
-            @click="toggleHunt"
+          :class="huntMode ? 'border-sky-400/70 shadow-[0_0_22px_rgba(56,189,248,0.45)]' : 'border-violet-500/35 shadow-[0_10px_30px_rgba(0,0,0,0.55)]'"
+          :disabled="!ready || autoSpinEnabled"
+          class="group relative w-50 shrink-0 overflow-hidden flex flex-col gap-2 rounded-2xl p-3 text-left text-white cursor-pointer transition bg-gradient-to-b from-violet-500/20 to-[#0a041a]/60 border hover:-translate-y-0.5 hover:brightness-110 active:translate-y-0 disabled:opacity-40 disabled:cursor-default disabled:saturate-[0.6] disabled:translate-y-0"
+          @click="toggleHunt"
         >
-    <span
-        :class="huntMode ? 'opacity-100' : 'opacity-50'"
-        class="pointer-events-none absolute inset-x-0 -top-1/2 h-2/3 bg-[radial-gradient(ellipse_at_50%_0%,rgba(56,189,248,0.45),transparent_70%)] transition-opacity"
-    />
           <span
-              :class="huntMode ? 'text-sky-950 bg-gradient-to-b from-sky-300 to-sky-400 shadow-[0_0_10px_rgba(56,189,248,0.6)]' : 'text-violet-300/60 bg-black/35 ring-1 ring-inset ring-violet-500/25'"
-              class="absolute top-2.5 right-2.5 rounded-full px-1.5 py-0.5 text-xs font-black tracking-wider"
+            :class="huntMode ? 'opacity-100' : 'opacity-50'"
+            class="pointer-events-none absolute inset-x-0 -top-1/2 h-2/3 bg-[radial-gradient(ellipse_at_50%_0%,rgba(56,189,248,0.45),transparent_70%)] transition-opacity"
+          />
+          <span
+            :class="huntMode ? 'text-sky-950 bg-gradient-to-b from-sky-300 to-sky-400 shadow-[0_0_10px_rgba(56,189,248,0.6)]' : 'text-violet-300/60 bg-black/35 ring-1 ring-inset ring-violet-500/25'"
+            class="absolute top-2.5 right-2.5 rounded-full px-1.5 py-0.5 text-xs font-black tracking-wider"
           >{{ huntMode ? 'ON' : 'OFF' }}</span>
 
           <span class="relative flex items-center gap-2 pr-8">
-      <span
-          :class="huntMode ? 'bg-sky-400/20 ring-1 ring-inset ring-sky-300/50' : 'bg-violet-500/15 ring-1 ring-inset ring-violet-400/30'"
-          class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-base leading-none transition"
-      >🔍</span>
-      <span class="font-black uppercase tracking-wide leading-tight">Bonus Hunter</span>
-    </span>
+            <span
+              :class="huntMode ? 'bg-sky-400/20 ring-1 ring-inset ring-sky-300/50' : 'bg-violet-500/15 ring-1 ring-inset ring-violet-400/30'"
+              class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-base leading-none transition"
+            >🔍</span>
+            <span class="font-black uppercase tracking-wide leading-tight">Bonus Hunter</span>
+          </span>
 
           <span class="relative text-sm leading-snug text-violet-300/70">
-          Force a 🍭 every spin — far better bonus odds
-        </span>
+            Force a 🍭 every spin — far better bonus odds
+          </span>
 
           <span class="relative mt-auto inline-flex items-center gap-1.5 self-start rounded-lg px-2.5 py-1 font-mono text-sm font-extrabold bg-black/30 ring-1 ring-inset ring-violet-500/20">
-            <CoinBalance :compact="false" :value="bonusHuntCost"/>
+            <CoinBalance
+              :compact="false"
+              :value="bonusHuntCost"
+            />
             <span class="text-[9px] font-bold uppercase tracking-wider text-violet-300/50">+/ spin</span>
           </span>
         </button>
@@ -981,24 +1046,24 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
       <div class="machine order-1 w-full flex flex-col">
         <!-- ── Reel area: purple gradient ── -->
         <div
-            class="reel-area relative select-none"
-            @click="onCanvasClick"
+          class="reel-area relative select-none"
+          @click="onCanvasClick"
         >
           <!-- inner sheen / vignette over the grid -->
-          <div class="reel-sheen"/>
+          <div class="reel-sheen" />
           <!-- Bonus banner -->
           <Transition name="pop">
             <div
-                v-if="bonusBanner"
-                class="absolute inset-0 z-30 flex items-center justify-center pointer-events-none"
+              v-if="bonusBanner"
+              class="absolute inset-0 z-30 flex items-center justify-center pointer-events-none"
             >
               <div class="bonus-banner text-center">
                 <p class="text-3xl font-black text-white tracking-tight drop-shadow-lg">
                   CANDY MADNESS
                 </p>
                 <p
-                    class="text-sm font-bold mt-1"
-                    style="color: #fce7f3;"
+                  class="text-sm font-bold mt-1"
+                  style="color: #fce7f3;"
                 >
                   {{ CM_FREE_SPINS }} free spins — multipliers stay & grow!
                 </p>
@@ -1006,20 +1071,39 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
             </div>
           </Transition>
 
+          <!-- Big win showcase -->
+          <Transition name="pop">
+            <div
+              v-if="bigWinBanner"
+              class="absolute inset-0 z-30 flex flex-col items-center justify-center gap-1 bg-[rgba(10,2,20,0.82)] backdrop-blur-[4px]"
+              :style="{ '--tier': bigWinIntensity }"
+            >
+              <p
+                class="cm-bigwin-label"
+                :style="{ backgroundImage: bigWinGradient, filter: `drop-shadow(0 0 22px ${bigWinGlow})` }"
+              >
+                {{ bigWinLabel }}
+              </p>
+              <strong class="cm-bigwin-amount">
+                {{ formatNumber(bigWinAmount, false) }}
+              </strong>
+            </div>
+          </Transition>
+
           <!-- Auto-spin pause overlay -->
           <Transition name="pop">
             <div
-                v-if="autoSpinPaused"
-                class="absolute inset-0 z-20 flex items-center justify-center cursor-pointer"
-                style="background: rgba(8,2,20,0.78); backdrop-filter: blur(3px);"
+              v-if="autoSpinPaused"
+              class="absolute inset-0 z-20 flex items-center justify-center cursor-pointer"
+              style="background: rgba(8,2,20,0.78); backdrop-filter: blur(3px);"
             >
               <div class="pause-card text-center px-6 py-4">
                 <p class="font-black text-white text-base">
                   🍭 Bonus! Tap to play
                 </p>
                 <p
-                    class="text-xs mt-1"
-                    style="color: rgba(216,180,254,0.65);"
+                  class="text-xs mt-1"
+                  style="color: rgba(216,180,254,0.65);"
                 >
                   {{ autoSpinsLeft }} spin{{ autoSpinsLeft !== 1 ? 's' : '' }} remaining
                 </p>
@@ -1029,19 +1113,19 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 
           <!-- Canvas -->
           <div
-              ref="canvasWrap"
-              class="relative z-10 w-full [&>canvas]:!w-full [&>canvas]:!h-auto [&>canvas]:block"
+            ref="canvasWrap"
+            class="relative z-10 w-full [&>canvas]:!w-full [&>canvas]:!h-auto [&>canvas]:block"
           />
 
           <!-- Loading -->
           <div
-              v-if="!ready && !errorMsg"
-              class="absolute inset-0 z-40 flex items-center justify-center"
+            v-if="!ready && !errorMsg"
+            class="absolute inset-0 z-40 flex items-center justify-center"
           >
             <UIcon
-                class="size-10 animate-spin"
-                name="i-lucide-loader-circle"
-                style="color: #c084fc;"
+              class="size-10 animate-spin"
+              name="i-lucide-loader-circle"
+              style="color: #c084fc;"
             />
           </div>
         </div>
@@ -1053,34 +1137,34 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
             <!-- Action icons stacked -->
             <div class="flex flex-col gap-1.5 shrink-0">
               <button
-                  class="icon-btn"
-                  title="Help"
-                  @click="showHelp = true"
+                class="icon-btn"
+                title="Help"
+                @click="showHelp = true"
               >
                 <UIcon
-                    class="size-3.5"
-                    name="i-lucide-info"
+                  class="size-3.5"
+                  name="i-lucide-info"
                 />
               </button>
               <button
-                  :class="{ 'icon-btn--active': turbo }"
-                  class="icon-btn"
-                  title="Turbo"
-                  @click="turbo = !turbo"
+                :class="{ 'icon-btn--active': turbo }"
+                class="icon-btn"
+                title="Turbo"
+                @click="turbo = !turbo"
               >
                 <UIcon
-                    class="size-3.5"
-                    name="i-lucide-zap"
+                  class="size-3.5"
+                  name="i-lucide-zap"
                 />
               </button>
               <button
-                  class="icon-btn"
-                  :title="muted ? 'Unmute' : 'Mute'"
-                  @click="toggleMute"
+                class="icon-btn"
+                :title="muted ? 'Unmute' : 'Mute'"
+                @click="toggleMute"
               >
                 <UIcon
-                    class="size-3.5"
-                    :name="muted ? 'i-lucide-volume-x' : 'i-lucide-volume-2'"
+                  class="size-3.5"
+                  :name="muted ? 'i-lucide-volume-x' : 'i-lucide-volume-2'"
                 />
               </button>
             </div>
@@ -1090,21 +1174,21 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
               <div class="readout w-full flex justify-between">
                 <span class="ctrl-value truncate">
                   <CoinBalance
-                      :compact="false"
-                      :value="balance"
+                    :compact="false"
+                    :value="balance"
                   />
                 </span>
               </div>
               <div class="readout w-full justify-between">
                 <span class="ctrl-label">Bet</span>
                 <input
-                    v-model="betInput"
-                    :disabled="isSpinning || autoSpinEnabled"
-                    aria-label="Bet amount"
-                    class="bet-input ctrl-value tabular-nums"
-                    inputmode="numeric"
-                    @blur="commitBetInput"
-                    @keydown.enter="($event.target as HTMLInputElement).blur()"
+                  v-model="betInput"
+                  :disabled="isSpinning || autoSpinEnabled"
+                  aria-label="Bet amount"
+                  class="bet-input ctrl-value tabular-nums"
+                  inputmode="numeric"
+                  @blur="commitBetInput"
+                  @keydown.enter="($event.target as HTMLInputElement).blur()"
                 >
               </div>
             </div>
@@ -1113,12 +1197,12 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
           <!-- CENTER: WIN -->
           <div class="flex flex-col items-center justify-center shrink-0 min-w-[84px]">
             <div
-                v-if="inBonus"
-                class="text-center"
+              v-if="inBonus"
+              class="text-center"
             >
               <p
-                  class="text-[9px] uppercase tracking-[0.2em] mb-1"
-                  style="color: rgba(216,180,254,0.55);"
+                class="text-[9px] uppercase tracking-[0.2em] mb-1"
+                style="color: rgba(216,180,254,0.55);"
               >
                 {{ bonusStatus }}
               </p>
@@ -1130,18 +1214,18 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
             <template v-else>
               <span class="ctrl-label mb-1">Win</span>
               <Transition
-                  mode="out-in"
-                  name="pop"
+                mode="out-in"
+                name="pop"
               >
                 <span
-                    v-if="winFlash && lastWin > 0"
-                    key="win"
-                    class="win-amount"
+                  v-if="winFlash && lastWin > 0"
+                  key="win"
+                  class="win-amount"
                 >{{ formatNumber(lastWin, false) }}</span>
                 <span
-                    v-else
-                    key="idle"
-                    class="win-idle"
+                  v-else
+                  key="idle"
+                  class="win-idle"
                 >0.00</span>
               </Transition>
             </template>
@@ -1151,10 +1235,10 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
           <div class="flex items-center gap-2 sm:gap-2.5 flex-1 justify-end">
             <!-- Halve bet -->
             <button
-                :disabled="isSpinning || autoSpinEnabled || bet <= MIN_BET"
-                class="adj-btn"
-                title="Halve bet"
-                @click="betDown"
+              :disabled="isSpinning || autoSpinEnabled || bet <= MIN_BET"
+              class="adj-btn"
+              title="Halve bet"
+              @click="betDown"
             >
               <span class="text-sm font-black leading-none">½</span>
             </button>
@@ -1162,41 +1246,41 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
             <!-- SPIN + AUTO stacked -->
             <div class="flex flex-col items-center gap-1.5">
               <button
-                  :disabled="!ready || balance < spinCost || isSpinning"
-                  class="spin-btn"
-                  @click="autoSpinEnabled ? stopAutoSpin() : spin()"
+                :disabled="!ready || balance < spinCost || isSpinning"
+                class="spin-btn"
+                @click="autoSpinEnabled ? stopAutoSpin() : spin()"
               >
-                <span class="spin-btn__ring"/>
+                <span class="spin-btn__ring" />
                 <UIcon
-                    v-if="isSpinning"
-                    class="size-6 animate-spin relative"
-                    name="i-lucide-loader-circle"
+                  v-if="isSpinning"
+                  class="size-6 animate-spin relative"
+                  name="i-lucide-loader-circle"
                 />
                 <span
-                    v-else-if="autoSpinEnabled"
-                    class="flex flex-col items-center leading-none relative"
+                  v-else-if="autoSpinEnabled"
+                  class="flex flex-col items-center leading-none relative"
                 >
                   <span class="text-[10px] tracking-wider opacity-80">{{ autoSpinsLeft }}×</span>
                   <span class="text-xs font-black">STOP</span>
                 </span>
                 <span
-                    v-else
-                    class="relative"
+                  v-else
+                  class="relative"
                 >SPIN</span>
               </button>
 
               <button
-                  v-if="!autoSpinEnabled"
-                  :disabled="!ready || balance < spinCost || isSpinning"
-                  class="auto-btn"
-                  @click="showAutoSpinModal = true"
+                v-if="!autoSpinEnabled"
+                :disabled="!ready || balance < spinCost || isSpinning"
+                class="auto-btn"
+                @click="showAutoSpinModal = true"
               >
                 AUTO
               </button>
               <button
-                  v-else
-                  class="auto-btn auto-btn--stop"
-                  @click="stopAutoSpin"
+                v-else
+                class="auto-btn auto-btn--stop"
+                @click="stopAutoSpin"
               >
                 STOP
               </button>
@@ -1204,10 +1288,10 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 
             <!-- Double bet -->
             <button
-                :disabled="isSpinning || autoSpinEnabled || bet >= MAX_BET"
-                class="adj-btn"
-                title="Double bet"
-                @click="betUp"
+              :disabled="isSpinning || autoSpinEnabled || bet >= MAX_BET"
+              class="adj-btn"
+              title="Double bet"
+              @click="betUp"
             >
               <span class="text-xs font-black leading-none">2×</span>
             </button>
@@ -1217,15 +1301,15 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
         <!-- Error strip -->
         <Transition name="fade-up">
           <div
-              v-if="errorMsg"
-              class="error-strip flex items-center justify-between gap-3 px-4 py-2"
+            v-if="errorMsg"
+            class="error-strip flex items-center justify-between gap-3 px-4 py-2"
           >
             <p class="text-xs text-red-400">
               {{ errorMsg }}
             </p>
             <button
-                class="text-red-400/50 hover:text-red-300 text-sm transition-colors"
-                @click="errorMsg = ''"
+              class="text-red-400/50 hover:text-red-300 text-sm transition-colors"
+              @click="errorMsg = ''"
             >
               ✕
             </button>
@@ -1237,30 +1321,30 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
     <!-- History -->
     <div class="min-h-8">
       <div
-          v-if="history.length"
-          class="flex gap-1.5 flex-wrap justify-center mt-3"
+        v-if="history.length"
+        class="flex gap-1.5 flex-wrap justify-center mt-3"
       >
-      <span
+        <span
           v-for="(h, i) in history"
           :key="i"
           :class="h.payout > h.bet ? 'bg-emerald-500/15 text-emerald-400' : 'text-white/20'"
           class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-mono font-bold"
           style="background: rgba(255,255,255,0.04);"
-      >
-        <UIcon
+        >
+          <UIcon
             v-if="h.bonus"
             class="size-3"
             name="i-lucide-gift"
-        />
-        {{ h.payout > 0 ? formatNumber(h.payout) : '—' }}
-      </span>
+          />
+          {{ h.payout > 0 ? formatNumber(h.payout) : '—' }}
+        </span>
       </div>
     </div>
 
     <!-- Auto-spin modal -->
     <UModal
-        v-model:open="showAutoSpinModal"
-        title="Auto Spin"
+      v-model:open="showAutoSpinModal"
+      title="Auto Spin"
     >
       <template #body>
         <div class="space-y-4">
@@ -1269,13 +1353,13 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
           </p>
           <div class="grid grid-cols-5 gap-2">
             <UButton
-                v-for="count in AUTO_SPIN_OPTIONS"
-                :key="count"
-                block
-                class="font-bold"
-                color="neutral"
-                variant="soft"
-                @click="startAutoSpin(count)"
+              v-for="count in AUTO_SPIN_OPTIONS"
+              :key="count"
+              block
+              class="font-bold"
+              color="neutral"
+              variant="soft"
+              @click="startAutoSpin(count)"
             >
               {{ count }}
             </UButton>
@@ -1286,34 +1370,39 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 
     <!-- Help modal -->
     <UModal
-        v-model:open="showHelp"
-        title="How Candy Madness works"
+      v-model:open="showHelp"
+      title="How Candy Madness works"
     >
       <template #body>
         <div class="space-y-4 text-sm text-muted">
           <ul class="space-y-1.5 list-disc list-inside">
-            <li>Land <strong class="text-default">{{ CM_MIN_CLUSTER }}+</strong> matching candies connected
+            <li>
+              Land <strong class="text-default">{{ CM_MIN_CLUSTER }}+</strong> matching candies connected
               up/down/left/right to win a <strong class="text-default">cluster</strong>.
             </li>
-            <li>Winning candies pop and <strong class="text-default">tumble</strong> — new candies drop in, so one spin
+            <li>
+              Winning candies pop and <strong class="text-default">tumble</strong> — new candies drop in, so one spin
               can chain many wins.
             </li>
-            <li>Every popped position leaves a <strong class="text-primary">multiplier</strong> starting at <strong
-                class="text-default">×2</strong>, doubling each time it wins again (up to <strong class="text-default">×{{
+            <li>
+              Every popped position leaves a <strong class="text-primary">multiplier</strong> starting at <strong
+                class="text-default"
+              >×2</strong>, doubling each time it wins again (up to <strong class="text-default">×{{
                 formatNumber(
-                    CM_MULT_CAP,
-                    true,
-                    0
+                  CM_MULT_CAP,
+                  true,
+                  0
                 )
               }}</strong>). When tumbling stops, the <strong class="text-default">sum of all multipliers</strong>
               multiplies the whole spin's win.
             </li>
-            <li>Land <strong class="text-default">{{ CM_SCATTER_TRIGGER }}+ 🍭</strong> to win
+            <li>
+              Land <strong class="text-default">{{ CM_SCATTER_TRIGGER }}+ 🍭</strong> to win
               <strong class="text-default">{{ CM_FREE_SPINS }} free spins</strong> (~1 in {{
                 formatNumber(
-                    bonusOdds,
-                    true,
-                    0
+                  bonusOdds,
+                  true,
+                  0
                 )
               }}). During free spins the multipliers <strong class="text-default">stay on the grid and keep
                 growing</strong> all feature long.
@@ -1325,7 +1414,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
             </p>
             <div class="rounded-lg border border-default overflow-hidden">
               <div class="grid grid-cols-[auto_1fr] text-xs text-muted bg-elevated/60 border-b border-default">
-                <div class="px-3 py-1"/>
+                <div class="px-3 py-1" />
                 <div class="px-3 py-1 flex justify-end gap-3 font-medium">
                   <span class="w-12 text-right">5</span>
                   <span class="w-12 text-right">8</span>
@@ -1335,22 +1424,22 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
               </div>
               <div class="grid grid-cols-[auto_1fr] items-center text-sm">
                 <template
-                    v-for="(row, i) in paytableRows"
-                    :key="row.sym"
+                  v-for="(row, i) in paytableRows"
+                  :key="row.sym"
                 >
                   <div
-                      :class="i % 2 ? 'bg-elevated/40' : ''"
-                      class="px-3 py-1.5 flex items-center justify-center"
+                    :class="i % 2 ? 'bg-elevated/40' : ''"
+                    class="px-3 py-1.5 flex items-center justify-center"
                   >
                     <img
-                        :alt="row.sym"
-                        :src="`/slots/candyblast/${row.sym}.png`"
-                        class="h-7 w-7 object-contain"
+                      :alt="row.sym"
+                      :src="`/slots/candyblast/${row.sym}.png`"
+                      class="h-7 w-7 object-contain"
                     >
                   </div>
                   <div
-                      :class="i % 2 ? 'bg-elevated/40' : ''"
-                      class="px-3 py-1.5 font-mono tabular-nums flex justify-end gap-3"
+                    :class="i % 2 ? 'bg-elevated/40' : ''"
+                    class="px-3 py-1.5 font-mono tabular-nums flex justify-end gap-3"
                   >
                     <span class="w-12 text-right text-muted">{{ row.pays[0] }}×</span>
                     <span class="w-12 text-right text-muted">{{ row.pays[1] }}×</span>
@@ -1460,6 +1549,12 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
   color: #fbcfe8;
   border-color: rgba(244, 114, 182, 0.55);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 0 12px rgba(244, 114, 182, 0.3);
+}
+
+.cm-badge--maxwin {
+  color: #fde68a;
+  border-color: rgba(250, 204, 21, 0.5);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 0 12px rgba(250, 204, 21, 0.28);
 }
 
 /* ── Machine shell ──────────────────────────────────────────────────────── */
@@ -1761,5 +1856,42 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 .pop-leave-to {
   opacity: 0;
   transform: scale(0.9);
+}
+
+.cm-bigwin-label {
+  margin: 0;
+  font-size: calc(26px + var(--tier, 1) * 6px);
+  font-weight: 950;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+  animation: cm-bigwin-pop 0.5s cubic-bezier(0.2, 1.4, 0.4, 1) both;
+}
+
+.cm-bigwin-amount {
+  font-size: calc(34px + var(--tier, 1) * 9px);
+  font-weight: 950;
+  line-height: 1;
+  color: rgb(253, 242, 248);
+  text-shadow: 0 3px 0 rgba(0, 0, 0, 0.6), 0 0 26px rgba(232, 121, 249, 0.55);
+  animation: cm-bigwin-pop 0.5s 0.08s cubic-bezier(0.2, 1.4, 0.4, 1) both;
+}
+
+@keyframes cm-bigwin-pop {
+  0% {
+    transform: scale(0.4);
+    opacity: 0;
+  }
+  60% {
+    transform: scale(1.12);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
 }
 </style>

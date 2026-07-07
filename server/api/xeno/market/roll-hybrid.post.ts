@@ -1,10 +1,10 @@
 import { eq } from 'drizzle-orm'
 import { db } from '#server/database'
-import { xenoPlants, gemMarketState } from '#server/database/schema'
+import { xenoPlants, xenoPlantsUnlocked, gemMarketState } from '#server/database/schema'
 import { auth } from '#server/utils/auth'
 import { debitGems } from '#server/utils/xeno'
 import {
-  rollHybrid, makeHybridTypeId, enrichHybridResources, hybridPriceCurrency, currencyToGems, isHybrid,
+  rollHybrid, makeHybridTypeId, enrichHybridResources, hybridPriceCurrency, currencyToGems,
   hybridTierFromUnlocked, HYBRID_UNLOCK_TIER,
 } from '#shared/utils/xeno'
 import { gemComputeLivePrice, GEM_INITIAL_PRICE } from '#shared/utils/gamelogic/gem-market'
@@ -16,8 +16,10 @@ export default defineEventHandler(async (event) => {
   const userId = session.user.id
 
   // Hybrid tier = highest tier where the player has unlocked EVERY plant.
-  const owned = await db.query.xenoPlants.findMany({ where: eq(xenoPlants.userId, userId), columns: { typeId: true } })
-  const realTypeIds = [...new Set(owned.map(p => p.typeId).filter(id => !isHybrid(id)))]
+  // Uses the permanent xenoPlantsUnlocked table, not current inventory, so
+  // selling/breeding away every instance never re-locks a discovered plant.
+  const unlockedRows = await db.query.xenoPlantsUnlocked.findMany({ where: eq(xenoPlantsUnlocked.userId, userId) })
+  const realTypeIds = [...new Set(unlockedRows.map(r => r.typeId))]
   const hybridTier = hybridTierFromUnlocked(realTypeIds)
   if (hybridTier < HYBRID_UNLOCK_TIER) {
     throw createError({ statusCode: 403, statusMessage: `Unlock all T${HYBRID_UNLOCK_TIER} plants to access the Hybrid vendor` })
