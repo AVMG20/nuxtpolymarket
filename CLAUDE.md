@@ -116,9 +116,14 @@ Always branch from an up-to-date `main`.
 - Short, imperative subject line describing the actual change
 - Multiple commits when changes span different concerns
 - No `Co-Authored-By` lines, no footers, no summaries after the subject
+- **Do not commit or push unless explicitly asked to do so.**
 
 ## Pull requests
 
 - Title: the branch name verbatim (e.g. `bugfix/gem-slippage-race-condition`)
 - Body: empty
 - Base branch: always `main`
+
+## Rebases
+
+- Claude may run `git fetch` and `git rebase` to start a rebase, but stops there — do not resolve conflicts, continue, or push. Hand off to the user after initiating.

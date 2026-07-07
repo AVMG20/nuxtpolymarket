@@ -40,7 +40,15 @@ const slotGames: {
     to: '/games/bookofshadows',
     gradient: 'from-violet-950 to-slate-900',
     iconColor: 'text-violet-400'
-  }
+  },
+  {
+    name: 'Spiñata Slots',
+    description: '5×3 reel slot, 50 paylines, left-to-right wins & Festival of Spins free spins',
+    icon: 'i-lucide-party-popper',
+    to: '/games/spinata',
+    gradient: 'from-orange-950 to-slate-900',
+    iconColor: 'text-orange-400',
+  },
 ]
 
 const casinoGames = [

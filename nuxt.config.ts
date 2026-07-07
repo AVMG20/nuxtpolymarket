@@ -32,6 +32,28 @@ export default defineNuxtConfig({
         ]
     },
 
+    // Dev-only: some browser setups (link-prefetching extensions or Chrome's
+    // "preload pages") request the client JS module graph with
+    // `Sec-Fetch-Dest: document`, which Vite's dev server rejects with a 404 —
+    // leaving the app unable to hydrate. Strip that header in dev so the modules
+    // load normally.
+    vite: {
+        plugins: [
+            {
+                name: 'dev-strip-sec-fetch-dest',
+                apply: 'serve',
+                configureServer(server) {
+                    server.middlewares.use((req, _res, next) => {
+                        if (req.headers['sec-fetch-dest'] === 'document') {
+                            delete req.headers['sec-fetch-dest']
+                        }
+                        next()
+                    })
+                }
+            }
+        ]
+    },
+
     eslint: {
         config: {
             stylistic: {
