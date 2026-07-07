@@ -1,6 +1,6 @@
 <script lang="ts" setup>
 import { formatDistanceToNow } from 'date-fns'
-import { CHAT_MAX_LENGTH, sanitizeChatContent } from '#shared/utils/chat'
+import { CHAT_HISTORY_LIMIT, CHAT_MAX_LENGTH, sanitizeChatContent } from '#shared/utils/chat'
 
 interface ChatMessage {
   id: string
@@ -28,7 +28,7 @@ let unmounted = false
 function pushMessage(msg: ChatMessage) {
   if (messages.value.some(m => m.id === msg.id)) return
   messages.value.push(msg)
-  if (messages.value.length > 50) messages.value.splice(0, messages.value.length - 50)
+  if (messages.value.length > 200) messages.value.splice(0, messages.value.length - 200)
   if (open.value) scrollToBottom()
   else if (msg.userId !== user.value?.id) unread.value++
 }
@@ -57,7 +57,60 @@ onMounted(async () => {
     // prepend history, skipping anything that already arrived over the socket
     const seen = new Set(messages.value.map(m => m.id))
     messages.value = [...history.filter(m => !seen.has(m.id)), ...messages.value]
+    hasMore.value = history.length >= CHAT_HISTORY_LIMIT
   } catch { /* history is best-effort; live messages still work */ }
+})
+
+// -- older-message pagination (scroll up to load) ------------------------------
+
+const hasMore = ref(true)
+const loadingOlder = ref(false)
+const topSentinel = ref<HTMLElement | null>(null)
+let observer: IntersectionObserver | null = null
+
+async function loadOlder() {
+  if (loadingOlder.value || !hasMore.value) return
+  const oldest = messages.value[0]
+  if (!oldest) return
+  loadingOlder.value = true
+  try {
+    const older = await $fetch<ChatMessage[]>('/api/chat/messages', {
+      query: { before: oldest.createdAt }
+    })
+    if (older.length < CHAT_HISTORY_LIMIT) hasMore.value = false
+    if (older.length) {
+      const el = listEl.value
+      const prevHeight = el?.scrollHeight ?? 0
+      const seen = new Set(messages.value.map(m => m.id))
+      messages.value = [...older.filter(m => !seen.has(m.id)), ...messages.value]
+      // keep the viewport anchored on the message the user was looking at
+      await nextTick()
+      if (el) el.scrollTop += el.scrollHeight - prevHeight
+    }
+  } catch { /* will retry on the next intersection */ } finally {
+    loadingOlder.value = false
+  }
+}
+
+// the panel is v-if'd, so (re)attach the observer whenever it opens
+watch(open, (isOpen) => {
+  if (!isOpen) {
+    observer?.disconnect()
+    observer = null
+    return
+  }
+  nextTick(() => {
+    if (!listEl.value || !topSentinel.value) return
+    observer = new IntersectionObserver((entries) => {
+      if (entries.some(e => e.isIntersecting)) loadOlder()
+    }, { root: listEl.value, rootMargin: '40px' })
+    observer.observe(topSentinel.value)
+  })
+})
+
+onBeforeUnmount(() => {
+  observer?.disconnect()
+  observer = null
 })
 
 onBeforeUnmount(() => {
@@ -191,6 +244,19 @@ function deleteMessage(id: string) {
           ref="listEl"
           class="h-64 space-y-2 overflow-y-auto px-3 py-2"
         >
+          <div
+            ref="topSentinel"
+            class="h-px"
+          />
+          <div
+            v-if="loadingOlder"
+            class="flex justify-center py-1"
+          >
+            <UIcon
+              class="size-4 animate-spin text-muted"
+              name="i-lucide-loader-2"
+            />
+          </div>
           <p
             v-if="!messages.length"
             class="py-4 text-center text-xs text-muted"

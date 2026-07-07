@@ -1,5 +1,5 @@
 export const CHAT_MAX_LENGTH = 500
-export const CHAT_HISTORY_LIMIT = 10
+export const CHAT_HISTORY_LIMIT = 20
 
 // Normalizes line endings, collapses newline spam (3+ in a row -> 1)
 // and enforces the max length. Used on both client and server.
