@@ -13,6 +13,126 @@ interface ChatMessage {
 const { user } = useAuth()
 
 const open = ref(false)
+
+// -- preferences (cookie-persisted) --------------------------------------------
+
+type ChatPosition = 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right'
+interface ChatPrefs {
+  position: ChatPosition
+  width: number
+  height: number
+}
+
+const DEFAULT_PREFS: ChatPrefs = { position: 'bottom-right', width: 320, height: 420 }
+const prefs = useCookie<ChatPrefs>('chat-prefs', { default: () => ({ ...DEFAULT_PREFS }) })
+
+const POSITIONS: { value: ChatPosition, icon: string }[] = [
+  { value: 'top-left', icon: 'i-lucide-arrow-up-left' },
+  { value: 'top-right', icon: 'i-lucide-arrow-up-right' },
+  { value: 'bottom-left', icon: 'i-lucide-arrow-down-left' },
+  { value: 'bottom-right', icon: 'i-lucide-arrow-down-right' }
+]
+
+const position = computed<ChatPosition>(() => prefs.value?.position ?? 'bottom-right')
+
+function setPosition(p: ChatPosition) {
+  prefs.value = { ...DEFAULT_PREFS, ...prefs.value, position: p }
+}
+
+function resetSize() {
+  prefs.value = { ...DEFAULT_PREFS, ...prefs.value, width: DEFAULT_PREFS.width, height: DEFAULT_PREFS.height }
+}
+
+// position prefs only apply on desktop; on mobile the widget stays in flow
+const wrapperPos = computed(() => ({
+  'top-left': 'lg:top-4 lg:left-4',
+  'top-right': 'lg:top-4 lg:right-4',
+  'bottom-left': 'lg:bottom-4 lg:left-4',
+  'bottom-right': 'lg:bottom-4 lg:right-4'
+})[position.value])
+
+const stackCls = computed(() => [
+  position.value.startsWith('top') ? 'lg:flex-col-reverse' : '',
+  position.value.endsWith('left') ? 'lg:items-start' : ''
+])
+
+const isDesktop = ref(false)
+onMounted(() => {
+  const mq = window.matchMedia('(min-width: 1024px)')
+  isDesktop.value = mq.matches
+  mq.addEventListener('change', (e) => {
+    isDesktop.value = e.matches
+  })
+})
+
+const panelStyle = computed(() => {
+  if (!isDesktop.value) return undefined
+  return {
+    width: `${prefs.value?.width ?? DEFAULT_PREFS.width}px`,
+    height: `${prefs.value?.height ?? DEFAULT_PREFS.height}px`
+  }
+})
+
+// persist the size when the user drags the native resize handle
+const panelEl = ref<HTMLElement | null>(null)
+let resizeObserver: ResizeObserver | null = null
+let saveSizeTimer: ReturnType<typeof setTimeout> | null = null
+
+watch(open, (isOpen) => {
+  if (!isOpen) {
+    resizeObserver?.disconnect()
+    resizeObserver = null
+    return
+  }
+  nextTick(() => {
+    if (!panelEl.value || !isDesktop.value) return
+    resizeObserver = new ResizeObserver(() => {
+      if (saveSizeTimer) clearTimeout(saveSizeTimer)
+      saveSizeTimer = setTimeout(() => {
+        const el = panelEl.value
+        if (!el) return
+        const width = Math.round(el.offsetWidth)
+        const height = Math.round(el.offsetHeight)
+        const current = prefs.value ?? DEFAULT_PREFS
+        if (Math.abs(width - current.width) > 2 || Math.abs(height - current.height) > 2) {
+          prefs.value = { ...DEFAULT_PREFS, ...current, width, height }
+        }
+      }, 250)
+    })
+    resizeObserver.observe(panelEl.value)
+  })
+})
+
+onBeforeUnmount(() => {
+  resizeObserver?.disconnect()
+  if (saveSizeTimer) clearTimeout(saveSizeTimer)
+})
+
+// drag handle in the header: resizes from the corner opposite the anchor;
+// the ResizeObserver above takes care of persisting the final size
+function startHandleResize(e: PointerEvent) {
+  const el = panelEl.value
+  if (!el || !isDesktop.value) return
+  e.preventDefault()
+  const startX = e.clientX
+  const startY = e.clientY
+  const startW = el.offsetWidth
+  const startH = el.offsetHeight
+  const signX = position.value.endsWith('right') ? -1 : 1
+  const signY = position.value.startsWith('bottom') ? -1 : 1
+  const onMove = (ev: PointerEvent) => {
+    const width = Math.min(576, Math.max(256, startW + (ev.clientX - startX) * signX))
+    const height = Math.min(window.innerHeight * 0.8, Math.max(288, startH + (ev.clientY - startY) * signY))
+    el.style.width = `${width}px`
+    el.style.height = `${height}px`
+  }
+  const onUp = () => {
+    window.removeEventListener('pointermove', onMove)
+    window.removeEventListener('pointerup', onUp)
+  }
+  window.addEventListener('pointermove', onMove)
+  window.addEventListener('pointerup', onUp)
+}
 const unread = ref(0)
 const draft = ref('')
 const messages = ref<ChatMessage[]>([])
@@ -437,12 +557,20 @@ function deleteMessage(id: string) {
 </script>
 
 <template>
-  <!-- in-flow bottom-right on mobile, fixed bottom-right on desktop -->
-  <div class="flex justify-end p-3 lg:p-0 lg:block lg:fixed lg:bottom-4 lg:right-4 lg:z-40">
-    <div class="flex flex-col items-end gap-2">
+  <!-- in-flow bottom-right on mobile, fixed to the preferred corner on desktop -->
+  <div
+    class="flex justify-end p-3 lg:p-0 lg:block lg:fixed lg:z-40"
+    :class="wrapperPos"
+  >
+    <div
+      class="flex flex-col items-end gap-2"
+      :class="stackCls"
+    >
       <div
         v-if="open"
-        class="relative flex w-[calc(100vw-1.5rem)] max-w-90 flex-col overflow-hidden rounded-lg border border-default bg-default shadow-xl"
+        ref="panelEl"
+        class="relative flex w-[calc(100vw-1.5rem)] max-w-90 flex-col overflow-hidden rounded-lg border border-default bg-default shadow-xl lg:max-h-[80vh] lg:min-h-72 lg:min-w-64 lg:max-w-[36rem] lg:resize"
+        :style="panelStyle"
       >
         <UButton
           v-if="unseenMentions.length"
@@ -455,20 +583,71 @@ function deleteMessage(id: string) {
           @click="jumpToMention"
         />
         <div class="flex items-center justify-between border-b border-default px-3 py-2">
-          <span class="text-sm font-semibold">Chat</span>
-          <UButton
-            aria-label="Close chat"
-            color="neutral"
-            icon="i-lucide-x"
-            size="xs"
-            variant="ghost"
-            @click="toggle"
-          />
+          <div
+            class="flex select-none items-center gap-1.5 lg:cursor-nwse-resize lg:touch-none"
+            title="Drag to resize"
+            @pointerdown="startHandleResize"
+          >
+            <UIcon
+              class="hidden size-3.5 text-muted lg:block"
+              name="i-lucide-grip"
+            />
+            <span class="text-sm font-semibold">Chat</span>
+          </div>
+          <div class="flex items-center gap-0.5">
+            <UPopover :content="{ side: 'bottom', align: 'end', sideOffset: 6 }">
+              <UButton
+                aria-label="Chat settings"
+                color="neutral"
+                icon="i-lucide-settings-2"
+                size="xs"
+                variant="ghost"
+              />
+              <template #content>
+                <div class="w-44 space-y-2 p-2">
+                  <p class="px-1 text-xs font-medium text-muted">
+                    Position
+                  </p>
+                  <div class="grid grid-cols-2 gap-1">
+                    <UButton
+                      v-for="p in POSITIONS"
+                      :key="p.value"
+                      :aria-label="`Move chat to ${p.value.replace('-', ' ')}`"
+                      block
+                      :color="position === p.value ? 'primary' : 'neutral'"
+                      :icon="p.icon"
+                      size="xs"
+                      :variant="position === p.value ? 'solid' : 'soft'"
+                      @click="setPosition(p.value)"
+                    />
+                  </div>
+                  <USeparator />
+                  <UButton
+                    block
+                    color="neutral"
+                    icon="i-lucide-rotate-ccw"
+                    label="Reset size"
+                    size="xs"
+                    variant="ghost"
+                    @click="resetSize"
+                  />
+                </div>
+              </template>
+            </UPopover>
+            <UButton
+              aria-label="Close chat"
+              color="neutral"
+              icon="i-lucide-x"
+              size="xs"
+              variant="ghost"
+              @click="toggle"
+            />
+          </div>
         </div>
 
         <div
           ref="listEl"
-          class="h-72 space-y-2 overflow-y-auto px-3 py-2"
+          class="h-72 space-y-2 overflow-y-auto px-3 py-2 lg:h-auto lg:min-h-0 lg:flex-1"
           @scroll.passive="onListScroll"
         >
           <div

@@ -1,7 +1,15 @@
-import {betterAuth} from 'better-auth'
+import {APIError, betterAuth} from 'better-auth'
 import {drizzleAdapter} from 'better-auth/adapters/drizzle'
 import {db} from '../database'
 import * as schema from '../database/schema'
+
+const NAME_MAX_LENGTH = 30
+
+function assertValidName(data: Record<string, unknown>) {
+    if (typeof data.name !== 'string') return
+    if (data.name.trim().length === 0) throw new APIError('BAD_REQUEST', {message: 'Name is required'})
+    if (data.name.length > NAME_MAX_LENGTH) throw new APIError('BAD_REQUEST', {message: `Name must be ${NAME_MAX_LENGTH} characters or fewer`})
+}
 
 export const auth = betterAuth({
     database: drizzleAdapter(db, {
@@ -20,6 +28,20 @@ export const auth = betterAuth({
     rateLimit: {
         window: 10, // default is 60
         max: 100, // default is 100
+    },
+    databaseHooks: {
+        user: {
+            create: {
+                before: async (user) => {
+                    assertValidName(user)
+                }
+            },
+            update: {
+                before: async (data) => {
+                    assertValidName(data)
+                }
+            }
+        }
     },
     user: {
         changeEmail: {
