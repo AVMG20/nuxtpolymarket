@@ -21,7 +21,7 @@ export default defineEventHandler(async (event) => {
     await db.update(hackAgents).set({ [slotField]: null }).where(eq(hackAgents.id, item.equippedBy))
   }
 
-  const price = itemSellPrice(item.rarity as HackRarity, item.itemLevel)
+  const price = itemSellPrice(item.rarity as HackRarity)
   await db.delete(hackItems).where(eq(hackItems.id, itemId))
   await credit(userId, price.toFixed(4), 'HackOps')
 

@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import {
   RARITY_COLOR, RARITY_ACCENT, RARITY_LABEL, MOD_LABEL, formatModValue, SLOT_ICON, SLOT_LABEL,
+  itemPower,
   type HackRarity, type ItemSlot, type ItemMod,
 } from '#shared/utils/hack-config'
 
-defineProps<{
+const props = defineProps<{
   item: {
     id: string
     name: string
@@ -20,6 +21,10 @@ defineProps<{
 }>()
 
 defineEmits<{ select: [] }>()
+
+// Power spec first — power is the one stat every item contributes to, so it leads.
+const sortedMods = computed(() =>
+  [...props.item.mods].sort((a, b) => Number(b.type === 'power_flat') - Number(a.type === 'power_flat')))
 </script>
 
 <template>
@@ -47,9 +52,17 @@ defineEmits<{ select: [] }>()
       <UBadge v-if="showStatus && item.equippedBy" size="xs" color="primary" variant="subtle" label="Equipped" class="ml-auto" />
     </div>
 
-    <!-- Mods -->
+    <!-- Power benefit — every item provides power (level × 2), Power specs add more -->
+    <div class="flex justify-between text-sm pb-1 mb-1 border-b border-default">
+      <span class="flex items-center gap-1 text-muted">
+        <UIcon name="i-lucide-zap" class="size-3.5" /> Power benefit
+      </span>
+      <span class="font-bold text-primary">+{{ itemPower(item) }}</span>
+    </div>
+
+    <!-- Mods (power spec first) -->
     <div class="space-y-0.5">
-      <div v-for="m in item.mods" :key="m.type" class="flex justify-between text-sm">
+      <div v-for="m in sortedMods" :key="m.type" class="flex justify-between text-sm">
         <span class="text-muted">{{ MOD_LABEL[m.type] }}</span>
         <span class="font-semibold text-primary">{{ formatModValue(m.type, m.value) }}</span>
       </div>

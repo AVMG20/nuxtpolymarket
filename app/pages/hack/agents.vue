@@ -1,22 +1,19 @@
 <script setup lang="ts">
 import {
-  RARITY_COLOR, RARITY_LABEL, RARITY_STYLE, CLASS_LABEL, CLASS_ICON, CLASS_PASSIVE,
+  RARITY_COLOR, RARITY_LABEL, RARITY_STYLE, RARITY_ACCENT, CLASS_LABEL, CLASS_ICON, CLASS_PASSIVE,
   SLOT_ICON, SLOT_LABEL,
   RARITY_ORDER, xpToNextLevel, AGENT_MAX_LEVEL, MOD_LABEL, formatModValue, itemSellPrice,
   agentBonusStats,
-  AGENT_TRAIT_LABEL, AGENT_TRAIT_COUNT, AGENT_TRAIT_RANGES,
-  type HackRarity, type AgentClass, type ItemSlot, type ItemMod, type AgentTraitType,
+  type HackRarity, type AgentClass, type ItemSlot, type ItemMod,
 } from '#shared/utils/hack-config'
 
 // Total bonuses for a single agent (class passive + traits + gear), summed by category.
 const agentCombinedStats = (agent: any) => agentBonusStats([agent])
 
-function formatTraitRange(type: AgentTraitType): string {
-  const r = AGENT_TRAIT_RANGES[type]
-  if (type === 'gem_chance') return `+${(r.min * 100).toFixed(1)}–${(r.max * 100).toFixed(1)}%`
-  if (type === 'gem_bonus') return `+${r.min}–${r.max} gems`
-  if (type === 'power_flat') return `+${r.min}–${r.max}`
-  return `+${r.min}–${r.max}%`
+// Share of a tier's total weight a rarity represents, for the odds chips.
+function tierPct(weights: Record<HackRarity, number>, r: HackRarity): number {
+  const total = Object.values(weights).reduce((a, b) => a + b, 0)
+  return Math.round(weights[r] / total * 100)
 }
 
 const { fetchSession, user } = useAuth()
@@ -48,10 +45,10 @@ const sortedItems = computed(() => {
   const dir = sortDir.value === 'asc' ? 1 : -1
   items.sort((a, b) => {
     let cmp = 0
-    if (sortBy.value === 'value') cmp = itemSellPrice(a.rarity, a.itemLevel) - itemSellPrice(b.rarity, b.itemLevel)
+    if (sortBy.value === 'value') cmp = itemSellPrice(a.rarity) - itemSellPrice(b.rarity)
     else if (sortBy.value === 'rarity') cmp = RARITY_ORDER.indexOf(a.rarity) - RARITY_ORDER.indexOf(b.rarity)
     else cmp = a.slot.localeCompare(b.slot)
-    if (cmp === 0) cmp = itemSellPrice(a.rarity, a.itemLevel) - itemSellPrice(b.rarity, b.itemLevel)
+    if (cmp === 0) cmp = itemSellPrice(a.rarity) - itemSellPrice(b.rarity)
     return cmp * dir
   })
   return items
@@ -244,125 +241,133 @@ function slotItem(agent: { gear?: { tool: any; software: any; hardware: any } },
 
       <template v-else>
         <!-- Agent Roster -->
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <UCard v-for="agent in state.agents" :key="agent.id">
-            <!-- Agent header -->
-            <div class="flex items-start gap-3 mb-4">
-              <!-- Avatar: rarity-tinted frame holding the class icon -->
-              <div class="size-12 rounded-xl flex items-center justify-center shrink-0 ring-1"
-                :class="[RARITY_STYLE[agent.rarity as HackRarity].bg, RARITY_STYLE[agent.rarity as HackRarity].ring, RARITY_STYLE[agent.rarity as HackRarity].text]">
-                <UIcon :name="CLASS_ICON[agent.class as AgentClass]" class="size-6" />
-              </div>
-              <div class="flex-1 min-w-0">
-                <div class="flex items-center gap-2 flex-wrap">
-                  <span class="font-bold text-lg">{{ agent.name }}</span>
-                  <UBadge :color="RARITY_COLOR[agent.rarity as HackRarity]" variant="subtle" :label="RARITY_LABEL[agent.rarity as HackRarity]" />
-                  <UBadge v-if="busyAgentIds.has(agent.id)" color="primary" variant="subtle" label="On Op" />
-                </div>
-                <!-- Spec — icon-led + neutral, with the class passive spelled out -->
-                <div class="flex items-center gap-1.5 mt-1 text-xs">
-                  <UIcon :name="CLASS_ICON[agent.class as AgentClass]" class="size-3.5 text-muted" />
-                  <span class="font-medium">{{ CLASS_LABEL[agent.class as AgentClass] }}</span>
-                  <span class="text-muted">· {{ CLASS_PASSIVE[agent.class as AgentClass].label }}</span>
-                </div>
-              </div>
-              <div class="flex flex-col items-end gap-2 shrink-0">
-                <div class="text-right">
-                  <p class="text-sm text-muted">Power</p>
-                  <p class="text-2xl font-bold text-primary">{{ agent.power }}</p>
-                </div>
-                <div class="flex items-center gap-1">
-                  <UButton
-                    size="xs" color="neutral" variant="ghost" icon="i-lucide-archive"
-                    label="Store" :loading="togglingActive === agent.id"
-                    :disabled="busyAgentIds.has(agent.id)"
-                    @click="setActive(agent.id, false)"
-                  />
-                  <UButton
-                    size="xs" color="error" icon="i-lucide-user-x"
-                    :variant="fireConfirmId === agent.id ? 'soft' : 'ghost'"
-                    :label="fireConfirmId === agent.id ? 'Sure?' : 'Fire'"
-                    :loading="firing === agent.id"
-                    :disabled="busyAgentIds.has(agent.id)"
-                    @click="requestFire(agent.id, agent.name)"
-                  />
-                </div>
-              </div>
-            </div>
-
-            <!-- XP bar -->
-            <div class="mb-4">
-              <div class="flex justify-between text-sm mb-1.5">
-                <span class="font-medium">Lv {{ agent.level }}<span v-if="agent.level < AGENT_MAX_LEVEL" class="text-muted"> / {{ AGENT_MAX_LEVEL }}</span></span>
-                <span v-if="agent.level < AGENT_MAX_LEVEL" class="text-muted">{{ agent.xp }} / {{ xpToNextLevel(agent.level) }} XP</span>
-                <span v-else class="text-success font-semibold">Max Level</span>
-              </div>
-              <div class="h-2 rounded-full bg-elevated overflow-hidden">
-                <div class="h-full rounded-full bg-primary transition-all duration-500" :style="{ width: `${xpPercent(agent)}%` }" />
-              </div>
-            </div>
-
-            <!-- Combined stats (traits + gear) -->
-            <div class="mb-4 p-3 rounded-lg bg-elevated space-y-1.5">
-              <p class="text-sm font-semibold text-muted uppercase tracking-wide mb-2">Total Bonuses</p>
-              <template v-if="agentCombinedStats(agent).length">
-                <div v-for="s in agentCombinedStats(agent)" :key="s.label"
-                  class="flex items-center justify-between text-sm">
-                  <span class="text-muted">{{ s.label }}</span>
-                  <span class="font-bold text-primary">{{ s.fmt(s.value) }}</span>
-                </div>
-              </template>
-              <p v-else class="text-sm text-muted italic">No traits yet — fire and re-recruit for a better agent.</p>
-            </div>
-
-            <!-- Gear slots -->
-            <div class="space-y-2">
-              <div v-for="slot in (['tool', 'software', 'hardware'] as ItemSlot[])" :key="slot">
-                <div v-if="slotItem(agent, slot)" class="flex items-start gap-3 p-3 rounded-lg border border-default">
-                  <div class="size-7 rounded-md flex items-center justify-center shrink-0 mt-0.5 bg-elevated text-muted">
-                    <UIcon :name="SLOT_ICON[slot]" class="size-4" />
-                  </div>
-                  <div class="flex-1 min-w-0">
-                    <div class="flex items-center gap-1.5 flex-wrap mb-1">
-                      <span class="font-medium text-sm">{{ slotItem(agent, slot)!.name }}</span>
-                      <UBadge size="xs" :color="RARITY_COLOR[slotItem(agent, slot)!.rarity as HackRarity]" variant="subtle"
-                        :label="RARITY_LABEL[slotItem(agent, slot)!.rarity as HackRarity]" />
-                    </div>
-                    <div class="flex flex-wrap gap-x-3">
-                      <span v-for="m in (slotItem(agent, slot)!.mods as ItemMod[])" :key="m.type" class="text-sm font-medium text-primary">
-                        {{ MOD_LABEL[m.type] }} {{ formatModValue(m.type, m.value) }}
-                      </span>
-                    </div>
-                  </div>
-                  <UButton size="xs" color="neutral" variant="outline" icon="i-lucide-link-slash"
-                    label="Unequip" :loading="equipping" @click="equipTo(slotItem(agent, slot)!.id, null)" />
-                </div>
-
-                <!-- Empty slot — clickable if matching item selected -->
-                <div v-else
-                  class="flex items-center gap-3 p-3 rounded-lg border transition-colors"
-                  :class="selectedItem?.slot === slot
-                    ? 'border-primary bg-primary/10 cursor-pointer'
-                    : 'border-dashed border-default'"
-                  @click="selectedItem?.slot === slot && equipTo(selectedItem.id, agent.id)"
-                >
-                  <UIcon :name="SLOT_ICON[slot]" class="size-4 shrink-0" :class="selectedItem?.slot === slot ? 'text-primary' : 'text-muted opacity-60'" />
-                  <span v-if="selectedItem?.slot === slot" class="text-sm text-primary font-medium">
-                    Equip {{ selectedItem.name }} here
-                  </span>
-                  <span v-else class="text-sm text-muted">{{ SLOT_LABEL[slot] }} — empty</span>
-                </div>
-              </div>
-            </div>
-          </UCard>
-
-          <!-- Empty active slots -->
-          <div v-for="i in (state.rosterSlots - state.agents.length)" :key="`empty-${i}`"
-            class="rounded-xl border-2 border-dashed border-default flex flex-col items-center justify-center h-36 gap-1 text-muted">
-            <UIcon name="i-lucide-user-plus" class="size-6 opacity-30" />
-            <span class="text-sm">{{ state.storedAgents.length ? 'Empty active slot — activate from storage' : 'Empty active slot — recruit below' }}</span>
+        <section class="space-y-3">
+          <div class="flex items-center justify-between gap-3 flex-wrap">
+            <h2 class="font-semibold text-base text-muted uppercase tracking-wide flex items-center gap-2">
+              <UIcon name="i-lucide-users" class="size-4" /> Active Roster
+            </h2>
+            <p class="text-sm text-muted">Only active agents can deploy on ops. Click an empty gear slot to equip the selected item.</p>
           </div>
-        </div>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <UCard v-for="agent in state.agents" :key="agent.id">
+              <!-- Agent header -->
+              <div class="flex items-start gap-3 mb-4">
+                <!-- Avatar: rarity-tinted frame holding the class icon -->
+                <div class="size-12 rounded-xl flex items-center justify-center shrink-0 ring-1"
+                  :class="[RARITY_STYLE[agent.rarity as HackRarity].bg, RARITY_STYLE[agent.rarity as HackRarity].ring, RARITY_STYLE[agent.rarity as HackRarity].text]">
+                  <UIcon :name="CLASS_ICON[agent.class as AgentClass]" class="size-6" />
+                </div>
+                <div class="flex-1 min-w-0">
+                  <div class="flex items-center gap-2 flex-wrap">
+                    <span class="font-bold text-lg">{{ agent.name }}</span>
+                    <UBadge :color="RARITY_COLOR[agent.rarity as HackRarity]" variant="subtle" :label="RARITY_LABEL[agent.rarity as HackRarity]" />
+                    <UBadge v-if="busyAgentIds.has(agent.id)" color="primary" variant="subtle" label="On Op" />
+                  </div>
+                  <!-- Spec — icon-led + neutral, with the class passive spelled out -->
+                  <div class="flex items-center gap-1.5 mt-1 text-xs">
+                    <UIcon :name="CLASS_ICON[agent.class as AgentClass]" class="size-3.5 text-muted" />
+                    <span class="font-medium">{{ CLASS_LABEL[agent.class as AgentClass] }}</span>
+                    <span class="text-muted">· {{ CLASS_PASSIVE[agent.class as AgentClass].label }}</span>
+                  </div>
+                </div>
+                <div class="flex flex-col items-end gap-2 shrink-0">
+                  <div class="text-right">
+                    <p class="text-sm text-muted">Power</p>
+                    <p class="text-2xl font-bold text-primary">{{ agent.power }}</p>
+                  </div>
+                  <div class="flex items-center gap-1">
+                    <UButton
+                      size="xs" color="neutral" variant="ghost" icon="i-lucide-archive"
+                      label="Store" :loading="togglingActive === agent.id"
+                      :disabled="busyAgentIds.has(agent.id)"
+                      @click="setActive(agent.id, false)"
+                    />
+                    <UButton
+                      size="xs" color="error" icon="i-lucide-user-x"
+                      :variant="fireConfirmId === agent.id ? 'soft' : 'ghost'"
+                      :label="fireConfirmId === agent.id ? 'Sure?' : 'Fire'"
+                      :loading="firing === agent.id"
+                      :disabled="busyAgentIds.has(agent.id)"
+                      @click="requestFire(agent.id, agent.name)"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <!-- XP bar -->
+              <div class="mb-4">
+                <div class="flex justify-between text-sm mb-1.5">
+                  <span class="font-medium">Lv {{ agent.level }}<span v-if="agent.level < AGENT_MAX_LEVEL" class="text-muted"> / {{ AGENT_MAX_LEVEL }}</span></span>
+                  <span v-if="agent.level < AGENT_MAX_LEVEL" class="text-muted">{{ agent.xp }} / {{ xpToNextLevel(agent.level) }} XP</span>
+                  <span v-else class="text-success font-semibold">Max Level</span>
+                </div>
+                <div class="h-2 rounded-full bg-elevated overflow-hidden">
+                  <div class="h-full rounded-full bg-primary transition-all duration-500" :style="{ width: `${xpPercent(agent)}%` }" />
+                </div>
+              </div>
+
+              <!-- Combined stats (traits + gear) -->
+              <div class="mb-4 p-3 rounded-lg bg-elevated">
+                <p class="text-sm font-semibold text-muted uppercase tracking-wide mb-2">Total Bonuses</p>
+                <div v-if="agentCombinedStats(agent).length" class="grid grid-cols-2 gap-x-6 gap-y-1">
+                  <div v-for="s in agentCombinedStats(agent)" :key="s.label"
+                    class="flex items-center justify-between text-sm">
+                    <span class="text-muted">{{ s.label }}</span>
+                    <span class="font-bold text-primary">{{ s.fmt(s.value) }}</span>
+                  </div>
+                </div>
+                <p v-else class="text-sm text-muted italic">No traits yet — fire and re-recruit for a better agent.</p>
+              </div>
+
+              <!-- Gear slots -->
+              <div class="space-y-2">
+                <div v-for="slot in (['tool', 'software', 'hardware'] as ItemSlot[])" :key="slot">
+                  <div v-if="slotItem(agent, slot)" class="flex items-start gap-3 p-3 rounded-lg border border-default">
+                    <div class="size-7 rounded-md flex items-center justify-center shrink-0 mt-0.5 bg-elevated text-muted">
+                      <UIcon :name="SLOT_ICON[slot]" class="size-4" />
+                    </div>
+                    <div class="flex-1 min-w-0">
+                      <div class="flex items-center gap-1.5 flex-wrap mb-1">
+                        <span class="font-medium text-sm">{{ slotItem(agent, slot)!.name }}</span>
+                        <UBadge size="xs" :color="RARITY_COLOR[slotItem(agent, slot)!.rarity as HackRarity]" variant="subtle"
+                          :label="RARITY_LABEL[slotItem(agent, slot)!.rarity as HackRarity]" />
+                      </div>
+                      <div class="flex flex-wrap gap-x-3">
+                        <span v-for="m in (slotItem(agent, slot)!.mods as ItemMod[])" :key="m.type" class="text-sm font-medium text-primary">
+                          {{ MOD_LABEL[m.type] }} {{ formatModValue(m.type, m.value) }}
+                        </span>
+                      </div>
+                    </div>
+                    <UButton size="xs" color="neutral" variant="outline" icon="i-lucide-link-slash"
+                      label="Unequip" :loading="equipping" @click="equipTo(slotItem(agent, slot)!.id, null)" />
+                  </div>
+
+                  <!-- Empty slot — clickable if matching item selected -->
+                  <div v-else
+                    class="flex items-center gap-3 p-3 rounded-lg border transition-colors"
+                    :class="selectedItem?.slot === slot
+                      ? 'border-primary bg-primary/10 cursor-pointer'
+                      : 'border-dashed border-default'"
+                    @click="selectedItem?.slot === slot && equipTo(selectedItem.id, agent.id)"
+                  >
+                    <UIcon :name="SLOT_ICON[slot]" class="size-4 shrink-0" :class="selectedItem?.slot === slot ? 'text-primary' : 'text-muted opacity-60'" />
+                    <span v-if="selectedItem?.slot === slot" class="text-sm text-primary font-medium">
+                      Equip {{ selectedItem.name }} here
+                    </span>
+                    <span v-else class="text-sm text-muted">{{ SLOT_LABEL[slot] }} — empty</span>
+                  </div>
+                </div>
+              </div>
+            </UCard>
+
+            <!-- Empty active slots -->
+            <div v-for="i in (state.rosterSlots - state.agents.length)" :key="`empty-${i}`"
+              class="rounded-xl border-2 border-dashed border-default flex flex-col items-center justify-center h-36 gap-1 text-muted">
+              <UIcon name="i-lucide-user-plus" class="size-6 opacity-30" />
+              <span class="text-sm">{{ state.storedAgents.length ? 'Empty active slot — activate from storage' : 'Empty active slot — recruit below' }}</span>
+            </div>
+          </div>
+        </section>
 
         <!-- Storage -->
         <div v-if="state.storedAgents.length" class="space-y-3">
@@ -412,44 +417,32 @@ function slotItem(agent: { gear?: { tool: any; software: any; hardware: any } },
             <h2 class="font-semibold text-base text-muted uppercase tracking-wide">Recruit</h2>
             <p class="text-sm text-muted">
               <template v-if="state.totalAgents >= state.maxAgents" class="text-warning">Storage full ({{ state.maxAgents }}) — fire an agent to recruit</template>
-              <template v-else>Fixed price per tier · higher tiers, better odds</template>
+              <template v-else>Fixed prices · better tiers guarantee higher rarity</template>
             </p>
           </div>
           <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <UCard v-for="tier in state.agentPullTiers" :key="tier.id" class="flex flex-col">
-              <div class="flex items-start gap-3 mb-4">
-                <div class="size-11 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
-                  <UIcon name="i-lucide-user-search" class="size-6 text-primary" />
+            <UCard v-for="tier in state.agentPullTiers" :key="tier.id" class="flex flex-col" :ui="{ body: 'flex-1 flex flex-col' }">
+              <div class="flex items-start gap-3 mb-3">
+                <div class="size-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
+                  <UIcon name="i-lucide-user-search" class="size-5 text-primary" />
                 </div>
-                <div>
-                  <p class="font-bold text-base">{{ tier.name }}</p>
-                  <p class="text-sm text-muted">{{ tier.description }}</p>
-                </div>
-              </div>
-
-              <!-- Rarity odds + trait count -->
-              <div class="space-y-1.5 mb-3">
-                <div v-for="r in RARITY_ORDER.filter(r => tier.weights[r] > 0)" :key="r"
-                  class="flex items-center justify-between text-sm">
-                  <div class="flex items-center gap-2">
-                    <UBadge :color="RARITY_COLOR[r]" variant="subtle" :label="RARITY_LABEL[r]" />
-                    <span class="text-muted">{{ AGENT_TRAIT_COUNT[r] }} trait{{ AGENT_TRAIT_COUNT[r] > 1 ? 's' : '' }}</span>
-                  </div>
-                  <span class="font-medium">{{ Math.round(tier.weights[r] / Object.values(tier.weights).reduce((a, b) => a + b, 0) * 100) }}%</span>
+                <div class="min-w-0">
+                  <p class="font-bold text-base leading-tight">{{ tier.name }}</p>
+                  <p class="text-sm text-muted mt-0.5">{{ tier.description }}</p>
                 </div>
               </div>
 
-              <!-- Possible trait ranges -->
-              <div class="mb-4 p-3 rounded-lg bg-elevated space-y-1 flex-1">
-                <p class="text-sm font-semibold text-muted mb-1.5">Possible traits:</p>
-                <div v-for="(_, traitType) in AGENT_TRAIT_RANGES" :key="traitType"
-                  class="flex items-center justify-between text-sm">
-                  <span class="text-muted">{{ AGENT_TRAIT_LABEL[traitType as AgentTraitType] }}</span>
-                  <span class="font-medium text-default">{{ formatTraitRange(traitType as AgentTraitType) }}</span>
-                </div>
+              <!-- Rarity odds -->
+              <div class="flex flex-wrap gap-1.5 mb-4">
+                <span v-for="r in RARITY_ORDER.filter(r => tier.weights[r] > 0)" :key="r"
+                  class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-elevated border border-default text-xs font-medium">
+                  <span class="size-1.5 rounded-full" :class="RARITY_ACCENT[r]" />
+                  {{ RARITY_LABEL[r] }}
+                  <span class="text-muted">{{ tierPct(tier.weights, r) }}%</span>
+                </span>
               </div>
 
-              <UButton block :loading="recruiting === tier.id"
+              <UButton block class="mt-auto" :loading="recruiting === tier.id"
                 :disabled="!canAfford(tier) || state.totalAgents >= state.maxAgents"
                 @click="recruit(tier.id)">
                 Pull
@@ -511,7 +504,7 @@ function slotItem(agent: { gear?: { tool: any; software: any; hardware: any } },
                 :color="sellConfirmId === item.id ? 'error' : 'neutral'"
                 :variant="sellConfirmId === item.id ? 'solid' : 'subtle'"
                 :loading="selling === item.id"
-                :label="sellConfirmId === item.id ? 'Confirm sell?' : `Sell $${formatNumber(itemSellPrice(item.rarity, item.itemLevel), true)}`"
+                :label="sellConfirmId === item.id ? 'Confirm sell?' : `Sell $${formatNumber(itemSellPrice(item.rarity), true)}`"
                 @click="requestSell(item.id)" />
             </template>
           </HackInventoryItem>
@@ -534,7 +527,7 @@ function slotItem(agent: { gear?: { tool: any; software: any; hardware: any } },
             <p class="text-sm text-muted">Close this panel and tap an empty <span class="capitalize">{{ item.slot }}</span> slot to equip.</p>
             <UButton block size="sm" color="neutral" variant="subtle"
               icon="i-lucide-dollar-sign" :loading="selling === item.id"
-              :label="`Sell $${formatNumber(itemSellPrice(item.rarity, item.itemLevel), true)}`"
+              :label="`Sell $${formatNumber(itemSellPrice(item.rarity), true)}`"
               @click="sellItem(item.id)" />
           </template>
         </HackInventoryItem>

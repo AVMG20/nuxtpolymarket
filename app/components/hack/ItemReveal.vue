@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import {
   RARITY_COLOR, RARITY_ACCENT, RARITY_STYLE, MOD_LABEL, formatModValue, MOD_RANGES,
-  SLOT_ICON, SLOT_LABEL,
+  SLOT_ICON, SLOT_LABEL, itemPower,
   type HackRarity, type ItemSlot, type ItemMod, type ModType,
 } from '#shared/utils/hack-config'
 
-defineProps<{
+const props = defineProps<{
   item: {
     name: string
     slot: ItemSlot
@@ -17,6 +17,10 @@ defineProps<{
 }>()
 
 const open = defineModel<boolean>('open', { default: false })
+
+// Power spec first — consistent with the inventory card.
+const sortedMods = computed(() =>
+  [...(props.item?.mods ?? [])].sort((a, b) => Number(b.type === 'power_flat') - Number(a.type === 'power_flat')))
 
 // Roll quality: what % of the mod's max value did this roll land at.
 function rollQuality(type: ModType, value: number): number {
@@ -63,14 +67,18 @@ function formatRangeValue(type: ModType, val: number): string {
                   <span>{{ SLOT_LABEL[item.slot] }}</span>
                 </div>
                 <span class="text-sm text-muted">Lv {{ item.itemLevel }}</span>
+                <div class="flex items-center gap-1 px-2 py-0.5 rounded-md border border-primary/30 bg-primary/10 text-primary text-sm font-semibold">
+                  <UIcon name="i-lucide-zap" class="size-3.5" />
+                  <span>+{{ itemPower(item) }} power</span>
+                </div>
               </div>
             </div>
           </div>
         </div>
 
-        <!-- Mods -->
+        <!-- Mods (power spec first) -->
         <div class="space-y-1.5">
-          <div v-for="m in item.mods" :key="m.type"
+          <div v-for="m in sortedMods" :key="m.type"
             class="flex items-center justify-between p-2 rounded-lg bg-elevated">
             <span class="text-sm text-muted">{{ MOD_LABEL[m.type] }}</span>
             <div class="flex items-center gap-2">

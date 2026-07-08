@@ -251,7 +251,8 @@ export const hackItems = pgTable('hack_items', {
   userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
   name: text('name').notNull(),
   slot: text('slot').notNull(),
-  itemLevel: integer('item_level').notNull(),
+  // Items drop at level 1 and are upgraded with gems at the Crafting Bench.
+  itemLevel: integer('item_level').notNull().default(1),
   rarity: text('rarity').notNull(),
   mods: jsonb('mods').notNull().default([]),
   equippedBy: text('equipped_by'),

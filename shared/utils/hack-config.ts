@@ -181,11 +181,11 @@ function generateAgentTraits(rarity: HackRarity): AgentTrait[] {
   return traits
 }
 
-// These are the FULL-POTENTIAL ranges — only the top crate (Ghost Cache) rolls the whole
-// band. Cheaper crates roll inside a fraction of it (see ItemPullTier.rollQuality). The
-// tier bands overlap heavily and floors stay low, so a roll is never guaranteed: a Junk
-// Cache can roll 1% loot, a Ghost Cache reaches 12% — but even Ghost can roll modestly.
-// The min is the absolute worst possible roll; the max is the Ghost Cache ceiling.
+// Mod ranges are GLOBAL: every item — crate-bought or op-dropped — rolls the same band
+// for a given mod type. A Ghost item from the Junk Cache can hit the same max Power
+// roll a Phantom from the Ghost Cache can. Rarity only decides how MANY mods an item
+// has, never how good each roll is. (Gear also always provides itemLevel × 2 power —
+// see itemPower — which is why the Power mod ceiling stays modest.)
 export const MOD_RANGES: Record<ModType, { min: number; max: number; decimals: number }> = {
   loot_percent:       { min: 1,     max: 12,    decimals: 1 },
   speed_percent:      { min: 1,     max: 12,    decimals: 1 },
@@ -289,42 +289,15 @@ function generateItemName(slot: ItemSlot, rarity: HackRarity): string {
   return RARITY_PREFIX[rarity] + pickRandom(pool)
 }
 
-// A fraction band [min, max] (each 0..1) of a mod's full MOD_RANGES span. A crate's
-// rollQuality decides where inside the full range its mods land — cheap crates use a
-// low band (low floor, low ceiling), expensive crates a high one. The width of the
-// band is the "luck gap": even the best crate can roll near its floor.
-export interface RollQuality { min: number; max: number }
-const FULL_QUALITY: RollQuality = { min: 0, max: 1 }
-
-// Bonus Gems is a tiny integer count (1–3): every crate should still be able to roll the
-// low end, with only the ceiling rising per tier. So it anchors its floor at the range
-// min and lets the tier scale only the ceiling, instead of shifting the whole band up
-// (which would force expensive crates to always roll high). Ghost Cache → full 1–3.
-function modQuality(type: ModType, tierQuality: RollQuality): RollQuality {
-  if (type === 'gem_bonus') return { min: 0, max: tierQuality.max }
-  return tierQuality
-}
-
-/** Roll a single mod's value within a quality band of its full range. */
-export function rollMod(type: ModType, quality: RollQuality = FULL_QUALITY): ItemMod {
-  const q = modQuality(type, quality)
+/** Roll a single mod's value uniformly across its full range. */
+export function rollMod(type: ModType): ItemMod {
   const range = MOD_RANGES[type]
-  const t = q.min + Math.random() * (q.max - q.min)
-  const raw = range.min + t * (range.max - range.min)
+  const raw = range.min + Math.random() * (range.max - range.min)
   const factor = Math.pow(10, range.decimals)
   return { type, value: Math.round(raw * factor) / factor }
 }
 
-/** The effective min–max a given quality band can roll for a mod type (for display). */
-export function tierModRange(type: ModType, quality: RollQuality): { min: number; max: number } {
-  const q = modQuality(type, quality)
-  const range = MOD_RANGES[type]
-  const factor = Math.pow(10, range.decimals)
-  const at = (v: number) => Math.round((range.min + v * (range.max - range.min)) * factor) / factor
-  return { min: at(q.min), max: at(q.max) }
-}
-
-export function generateItem(rarity: HackRarity, itemLevel: number, slot?: ItemSlot, quality: RollQuality = FULL_QUALITY): HackItemDef {
+export function generateItem(rarity: HackRarity, slot?: ItemSlot): HackItemDef {
   const s = slot ?? pickRandom(ITEM_SLOTS)
   const modCount = RARITY_MOD_COUNT[rarity]
   const available = [...ALL_MOD_TYPES]
@@ -332,9 +305,20 @@ export function generateItem(rarity: HackRarity, itemLevel: number, slot?: ItemS
   for (let i = 0; i < modCount && available.length > 0; i++) {
     const idx = Math.floor(Math.random() * available.length)
     const type = available.splice(idx, 1)[0]!
-    mods.push(rollMod(type, quality))
+    mods.push(rollMod(type))
   }
-  return { name: generateItemName(s, rarity), slot: s, itemLevel, rarity, mods }
+  // Every item drops at level 1, no matter the source — leveling is a deliberate gem
+  // sink at the Crafting Bench (see itemUpgradeCost), never automatic.
+  return { name: generateItemName(s, rarity), slot: s, itemLevel: 1, rarity, mods }
+}
+
+// ─── Item leveling ────────────────────────────────────────────────────────────
+// Items never level on their own. Upgrading at the Crafting Bench costs gems and adds
+// +2 power per level (see itemPower). Cost grows ~10% per level: 1 gem for level 2,
+// 6 gems for the final level — ~99 gems total to take one item from 1 to 20.
+export const ITEM_MAX_LEVEL = 20
+export function itemUpgradeCost(currentLevel: number): number {
+    return Math.round(Math.pow(1.13, currentLevel - 1))
 }
 
 // ─── Item re-rolling ────────────────────────────────────────────────────────────
@@ -404,10 +388,13 @@ export interface AgentPullTier {
   weights: Record<HackRarity, number>
 }
 
+// Same rarity-floor ladder as item crates: each tier removes the previous tier's lowest
+// rarity (Dark Web drops Ghost, Ghost Recruit drops Operative), so pricier pulls always
+// guarantee a better minimum. Trait ranges are identical in every tier.
 export const AGENT_PULL_TIERS: AgentPullTier[] = [
   { id: 'basic',    name: 'Script Pull',    description: 'Forum talent. Mostly rookies, sometimes a gem.', currency: 'cash', cost: 12_000,     weights: { ghost: 60, operative: 35, specialist: 5, elite: 0, phantom: 0 } },
-  { id: 'advanced', name: 'Dark Web Hire',  description: 'Underground operators. Better odds, real skill.', currency: 'cash', cost: 200_000,    weights: { ghost: 15, operative: 42, specialist: 32, elite: 9, phantom: 2 } },
-  { id: 'elite',    name: 'Ghost Recruit',  description: 'No rookies. Elite operators only — worth every cent.', currency: 'cash', cost: 3_500_000,  weights: { ghost: 0, operative: 8, specialist: 32, elite: 42, phantom: 18 } },
+  { id: 'advanced', name: 'Dark Web Hire',  description: 'Underground operators. Operative or better.',    currency: 'cash', cost: 200_000,    weights: { ghost: 0, operative: 50, specialist: 38, elite: 10, phantom: 2 } },
+  { id: 'elite',    name: 'Ghost Recruit',  description: 'Top-shelf talent. Specialist or better.',        currency: 'cash', cost: 3_500_000,  weights: { ghost: 0, operative: 0, specialist: 36, elite: 44, phantom: 20 } },
 ]
 
 // Backward-compat alias used by older API code
@@ -419,26 +406,22 @@ export interface ItemPullTier {
   id: string; name: string; description: string
   cost: number
   weights: Record<HackRarity, number>
-  minItemLevel: number; maxItemLevel: number
-  // Fraction of the full MOD_RANGES span this crate's mods roll within. Cheaper crates
-  // sit low (worse floor AND ceiling); pricier crates shift up, so the more you pay the
-  // stronger the guaranteed mods — while the band width keeps room for lucky rolls.
-  rollQuality: RollQuality
 }
 
+// Rarity-floor ladder: each crate tier removes the previous tier's lowest rarity
+// (Standard drops Ghost, Premium drops Operative, Ghost Cache drops Specialist), so a
+// pricier crate always guarantees at least the tier the cheaper one could floor at.
+// Rarity (= mod count) is the ONLY thing a crate buys — every mod rolls the same full
+// range everywhere, so a lucky Junk Cache pull can match a Ghost Cache roll.
 export const ITEM_PULL_TIERS: ItemPullTier[] = [
-  { id: 'junk',        name: 'Junk Cache',     description: 'Salvaged trash. Sometimes useful.',        cost: 5_000,     weights: { ghost: 65, operative: 30, specialist: 5, elite: 0, phantom: 0 }, minItemLevel: 1, maxItemLevel: 4,  rollQuality: { min: 0.00, max: 0.36 } },
-  { id: 'standard',    name: 'Standard Crate', description: 'Reliable mid-tier equipment.',             cost: 40_000,    weights: { ghost: 20, operative: 45, specialist: 30, elite: 4, phantom: 1 }, minItemLevel: 3, maxItemLevel: 8,  rollQuality: { min: 0.10, max: 0.55 } },
-  { id: 'premium',     name: 'Premium Stash',  description: 'High-end gear. Better odds, higher ceiling.', cost: 300_000, weights: { ghost: 0, operative: 18, specialist: 45, elite: 32, phantom: 5 }, minItemLevel: 6, maxItemLevel: 14, rollQuality: { min: 0.18, max: 0.73 } },
-  { id: 'ghost_cache', name: 'Ghost Cache',    description: 'Ultra-rare haul. Elite or Phantom, top-end mods.', cost: 2_000_000, weights: { ghost: 0, operative: 0, specialist: 20, elite: 50, phantom: 30 }, minItemLevel: 12, maxItemLevel: 20, rollQuality: { min: 0.27, max: 1.00 } },
+  { id: 'junk',        name: 'Junk Cache',     description: 'Salvaged trash. Sometimes useful.',       cost: 5_000,     weights: { ghost: 65, operative: 30, specialist: 5, elite: 0, phantom: 0 } },
+  { id: 'standard',    name: 'Standard Crate', description: 'Reliable gear. Operative or better.',     cost: 40_000,    weights: { ghost: 0, operative: 55, specialist: 38, elite: 5, phantom: 2 } },
+  { id: 'premium',     name: 'Premium Stash',  description: 'High-end gear. Specialist or better.',    cost: 300_000,   weights: { ghost: 0, operative: 0, specialist: 55, elite: 38, phantom: 7 } },
+  { id: 'ghost_cache', name: 'Ghost Cache',    description: 'Ultra-rare haul. Elite or Phantom only.', cost: 2_000_000, weights: { ghost: 0, operative: 0, specialist: 0, elite: 65, phantom: 35 } },
 ]
 
-export function rollItemFromTier(tier: ItemPullTier, avgAgentLevel: number): HackItemDef {
-  const rarity = rollRarity(tier.weights)
-  const levelBonus = Math.floor(avgAgentLevel / 5)
-  const rawLevel = tier.minItemLevel + Math.floor(Math.random() * (tier.maxItemLevel - tier.minItemLevel + 1))
-  const itemLevel = Math.min(20, rawLevel + levelBonus)
-  return generateItem(rarity, itemLevel, undefined, tier.rollQuality)
+export function rollItemFromTier(tier: ItemPullTier): HackItemDef {
+  return generateItem(rollRarity(tier.weights))
 }
 
 // ─── Roster expansion ─────────────────────────────────────────────────────────
@@ -454,6 +437,15 @@ export const MAX_INVENTORY_SLOTS = 30
 export const MAX_AGENTS = 15
 
 // ─── Power calculation ────────────────────────────────────────────────────────
+/**
+ * Power a single piece of gear provides: +2 per item level (every item contributes,
+ * even without a Power spec) plus any Power mods on top. This is THE number shown as
+ * "power benefit" on item cards, so the UI always agrees with the engine.
+ */
+export function itemPower(item: { itemLevel: number; mods: ItemMod[] }): number {
+  return item.itemLevel * 2 + item.mods.filter(m => m.type === 'power_flat').reduce((s, m) => s + m.value, 0)
+}
+
 export function agentPower(
   agent: { level: number; class: AgentClass },
   items: Array<{ itemLevel: number; mods: ItemMod[] }>,
@@ -462,14 +454,12 @@ export function agentPower(
   const passive = CLASS_PASSIVE[agent.class]
   const classPower = passive.type === 'power_flat' ? passive.value : 0
   const base = agent.level * 10 + classPower
-  const itemPower = items.reduce((sum, item) => {
-    return sum + item.itemLevel * 2 + item.mods.filter(m => m.type === 'power_flat').reduce((s, m) => s + m.value, 0)
-  }, 0)
+  const gearPower = items.reduce((sum, item) => sum + itemPower(item), 0)
   const traitFlat = (traits ?? []).filter(t => t.type === 'power_flat').reduce((s, t) => s + t.value, 0)
   // Power % traits multiply the agent's whole flat power, so the bonus scales with
   // how invested the agent is — no fixed bonus you could exploit at low power.
   const traitPct = (traits ?? []).filter(t => t.type === 'power_percent').reduce((s, t) => s + t.value, 0) / 100
-  return Math.round((base + itemPower + traitFlat) * (1 + traitPct))
+  return Math.round((base + gearPower + traitFlat) * (1 + traitPct))
 }
 
 // ─── Op speed ─────────────────────────────────────────────────────────────────
@@ -630,10 +620,9 @@ export function rollOpReward(
   // Item Find gear mods raise the op's base drop chance (capped so it can't be a guarantee).
   const itemDropChance = Math.min(0.9, template.itemDropChance + bonuses.itemChance)
   const wouldDropItem = Math.random() < itemDropChance
-  // Op drops are a free bonus, so they roll a modest mid band rather than the full range
-  // the top crate reaches — buying a Premium/Ghost Cache should still beat farming drops.
+  // Op drops roll the same full mod ranges as crates — rarity is fixed per op.
   const item = wouldDropItem && !inventoryFull
-    ? generateItem(template.itemDropRarity, Math.max(1, Math.round(agents.reduce((s, a) => s + a.level, 0) / agents.length)), undefined, { min: 0, max: 0.6 })
+    ? generateItem(template.itemDropRarity)
     : null
   return { success: true, cash, gems, item, inventoryFull: wouldDropItem && inventoryFull }
 }
@@ -648,9 +637,12 @@ export function rollRarity(weights: Record<HackRarity, number>): HackRarity {
   return 'ghost'
 }
 
-export function itemSellPrice(rarity: HackRarity, itemLevel: number): number {
-  const mult: Record<HackRarity, number> = { ghost: 1, operative: 2.5, specialist: 8, elite: 25, phantom: 100 }
-  return Math.round(300 * mult[rarity] * (1 + itemLevel * 0.25))
+// Flat per rarity — rarity (mod count) is an item's only intrinsic worth. Item levels
+// are a gem investment and deliberately do NOT refund as cash on sale, so upgrading
+// can never become a gems→cash conversion.
+export function itemSellPrice(rarity: HackRarity): number {
+  const prices: Record<HackRarity, number> = { ghost: 500, operative: 1_500, specialist: 7_500, elite: 30_000, phantom: 150_000 }
+  return prices[rarity]
 }
 
 // Kept for any code that still calls generateShopItems (can be removed later)

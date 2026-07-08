@@ -35,7 +35,8 @@ function fmtRange(type: AgentTraitType | ModType, min: number, max: number): str
           </div>
           <ul class="list-disc list-inside space-y-1 text-muted pl-2">
             <li>Leveling an agent from 1→20 adds 190 base power</li>
-            <li>A level-10 item adds 20 power (before mod bonuses)</li>
+            <li>Every item adds its level × 2 as power — even with no Power spec. Items always drop at level 1; upgrade them with gems at the Crafting Bench (max level 20 = +40)</li>
+            <li>Power specs add up to +28 per item on top</li>
             <li>Bruteforce class adds +15 power passively</li>
             <li>Flat Power adds up to +60; Power % multiplies the whole total by up to +30%</li>
             <li><strong>A single agent caps at 611 power</strong> (level 20, perfect gear &amp; traits) — so a 4-agent squad maxes at <strong>2,444</strong>, exactly what the final op demands</li>
@@ -152,7 +153,7 @@ function fmtRange(type: AgentTraitType | ModType, min: number, max: number): str
         <UIcon name="i-lucide-cpu" class="size-5 text-primary" /> Item Mods
       </h2>
       <UCard>
-        <p class="text-sm text-muted mb-4">Items drop from ops or are bought via pulls. Each mod is rolled randomly within its range. Roll quality is shown as a progress bar (green = near max).</p>
+        <p class="text-sm text-muted mb-4">Items drop from ops or are bought via crates. Each mod rolls randomly within its range — the range is the <strong>same in every crate</strong>, so better crates buy you higher rarity (more mods), never secretly better values. Roll quality is shown as a progress bar (green = near max).</p>
         <div class="space-y-2">
           <div v-for="(range, type) in MOD_RANGES" :key="type"
             class="flex items-start justify-between gap-3 p-3 rounded-lg bg-elevated text-sm">
@@ -189,9 +190,11 @@ function fmtRange(type: AgentTraitType | ModType, min: number, max: number): str
             <ul class="list-disc list-inside space-y-1 text-muted">
               <li><strong>The op ladder</strong> — each op pays roughly 1.6× the one before, from a few hundred up to ~5M on the final op, while durations stretch from 1h to 48h.</li>
               <li><strong>Roster slots</strong> — each extra agent slot multiplies how many ops you run at once, so its cost scales hard (150k → 60M).</li>
+              <li><strong>The rarity ladder</strong> — each crate/recruit tier removes the previous tier's lowest rarity, so a pricier pull always guarantees a better minimum tier. Mod and trait ranges stay identical everywhere.</li>
+              <li><strong>Item levels</strong> — every item drops at level 1 and never levels on its own. Upgrading at the Crafting Bench is a gem sink: 1 gem for level 2, scaling to ~51 gems total to max one item at level 20 (+2 power per level).</li>
             </ul>
           </div>
-          <p class="text-muted">Roster (6) and inventory (15) caps keep cheap late-game pulls in check: pull, equip your best roll, and sell the rest. Selling an item only frees a slot and refunds cash — it no longer affects any prices.</p>
+          <p class="text-muted">Roster (6) and inventory (30) caps keep cheap late-game pulls in check: pull, equip your best roll, and sell the rest. Selling an item only frees a slot and refunds cash — it no longer affects any prices.</p>
         </div>
       </UCard>
     </section>
