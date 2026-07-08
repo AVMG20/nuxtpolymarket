@@ -1,14 +1,13 @@
 import { eq } from 'drizzle-orm'
 import { db } from '#server/database'
-import { xenoPlants, xenoPlantsUnlocked, xenoArtifacts, xenoGridSlots, xenoBreederSlots, gemMarketState } from '#server/database/schema'
+import { xenoPlants, xenoPlantsUnlocked, xenoArtifacts, xenoGridSlots, xenoBreederSlots } from '#server/database/schema'
 import { auth } from '#server/utils/auth'
 import { computeGridDuration, computeBreedDuration } from '#server/utils/xeno'
 import {
-  getPlant, getPlantDisplay, isHybrid, hybridPriceCurrency, currencyToGems,
+  getPlant, getPlantDisplay, isHybrid, hybridGemCost,
   hybridTierFromUnlocked, tierUnlockProgress, HYBRID_UNLOCK_TIER, XENO_MAX_TIER,
   gridSlotUnlockCost, breederSlotUnlockCost, XENO_MAX_GRID_SLOTS, XENO_MAX_BREEDER_SLOTS,
 } from '#shared/utils/xeno'
-import { gemComputeLivePrice, GEM_INITIAL_PRICE } from '#shared/utils/gamelogic/gem-market'
 
 export default defineEventHandler(async (event) => {
   const session = await auth.api.getSession({ headers: event.headers })
@@ -128,14 +127,7 @@ export default defineEventHandler(async (event) => {
   const highestTier = realTypeIds.reduce((max, id) => Math.max(max, getPlant(id)?.tier ?? 0), 0)
   const hybridTier = hybridTierFromUnlocked(realTypeIds)
   const hybridUnlocked = hybridTier >= HYBRID_UNLOCK_TIER
-  let hybridCostGems = 0
-  if (hybridUnlocked) {
-    const market = await db.query.gemMarketState.findFirst({ where: eq(gemMarketState.id, 'market') })
-    const livePrice = market
-      ? gemComputeLivePrice(parseFloat(market.price), market.lastUpdatedAt)
-      : GEM_INITIAL_PRICE
-    hybridCostGems = currencyToGems(hybridPriceCurrency(hybridTier, realTypeIds), livePrice)
-  }
+  const hybridCostGems = hybridUnlocked ? hybridGemCost(hybridTier) : 0
   // Next tier to fully unlock: the gate tier when locked, or the tier above the
   // current hybrid tier when unlocked (null once maxed out).
   const nextTier = hybridUnlocked

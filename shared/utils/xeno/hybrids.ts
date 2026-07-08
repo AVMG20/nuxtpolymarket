@@ -1,4 +1,4 @@
-import { PLANT_TYPES, getPlant, plantBuyPrice, effectiveGrowTime, type PlantType } from './plants'
+import { PLANT_TYPES, getPlant, effectiveGrowTime, type PlantType } from './plants'
 
 /**
  * ─── Hybrids ─────────────────────────────────────────────────────────────────
@@ -235,20 +235,10 @@ export function getPlantDisplay(typeId: string): PlantDisplay | null {
 }
 
 /**
- * Currency cost of one hybrid roll: 3× the marketplace buy price of the most
- * expensive plant in the player's highest unlocked tier.
+ * Flat gem cost of one hybrid roll, based only on the player's hybrid tier.
+ * T4 = 4 gems, +2 per tier above that (T5 = 6, T6 = 8, …).
  */
-export function hybridPriceCurrency(maxTier: number, unlockedTypeIds: string[]): number {
-  const unlocked = new Set(unlockedTypeIds)
-  const candidates = PLANT_TYPES.filter(p => p.tier === maxTier && unlocked.has(p.id))
-  // Fall back to the whole tier if (somehow) none are unlocked but tier is reached.
-  const pool = candidates.length ? candidates : PLANT_TYPES.filter(p => p.tier === maxTier)
-  const top = pool.reduce((max, p) => Math.max(max, plantBuyPrice(p)), 0)
-  return top * 3
-}
-
-/** Convert a currency amount to whole gems at the given live gem price (rounded up). */
-export function currencyToGems(currency: number, livePrice: number): number {
-  if (livePrice <= 0) return 0
-  return Math.max(1, Math.ceil(currency / livePrice))
+export function hybridGemCost(tier: number): number {
+  if (tier < HYBRID_UNLOCK_TIER) return 0
+  return 4 + 2 * (tier - HYBRID_UNLOCK_TIER)
 }

@@ -1,13 +1,12 @@
 import { eq } from 'drizzle-orm'
 import { db } from '#server/database'
-import { xenoPlants, xenoPlantsUnlocked, gemMarketState } from '#server/database/schema'
+import { xenoPlants, xenoPlantsUnlocked } from '#server/database/schema'
 import { auth } from '#server/utils/auth'
 import { debitGems } from '#server/utils/xeno'
 import {
-  rollHybrid, makeHybridTypeId, enrichHybridResources, hybridPriceCurrency, currencyToGems,
+  rollHybrid, makeHybridTypeId, enrichHybridResources, hybridGemCost,
   hybridTierFromUnlocked, HYBRID_UNLOCK_TIER,
 } from '#shared/utils/xeno'
-import { gemComputeLivePrice, GEM_INITIAL_PRICE } from '#shared/utils/gamelogic/gem-market'
 
 export default defineEventHandler(async (event) => {
   const session = await auth.api.getSession({ headers: event.headers })
@@ -25,12 +24,8 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 403, statusMessage: `Unlock all T${HYBRID_UNLOCK_TIER} plants to access the Hybrid vendor` })
   }
 
-  // Recompute the gem cost server-side (live gem price).
-  const market = await db.query.gemMarketState.findFirst({ where: eq(gemMarketState.id, 'market') })
-  const livePrice = market
-    ? gemComputeLivePrice(parseFloat(market.price), market.lastUpdatedAt)
-    : GEM_INITIAL_PRICE
-  const costGems = currencyToGems(hybridPriceCurrency(hybridTier, realTypeIds), livePrice)
+  // Recompute the gem cost server-side (flat, tier-based — no gem market involved).
+  const costGems = hybridGemCost(hybridTier)
 
   const roll = rollHybrid(hybridTier)
 
