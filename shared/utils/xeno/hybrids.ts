@@ -170,13 +170,13 @@ export function enrichHybridResources(resources: HybridResource[]): HybridResour
 }
 
 /**
- * Effective grow time of a hybrid: the SUM of each resource's speed-adjusted
- * grow time. A hybrid yields every resource at once, so it should take as long
- * as growing them all — never faster than its slowest component.
+ * Effective grow time of a hybrid: the MAX of each resource's speed-adjusted
+ * grow time. A hybrid grows all its resources in parallel, so it only takes
+ * as long as its slowest component — never the sum of all of them.
  */
 export function hybridGrowSeconds(resources: HybridResource[]): number {
   const parts = resources.map(r => ({ base: getPlant(r.id), speed: r.speed })).filter(p => p.base)
-  return parts.reduce((s, p) => s + effectiveGrowTime({ baseTime: p.base!.baseTime, speed: p.speed }), 0)
+  return parts.reduce((s, p) => Math.max(s, effectiveGrowTime({ baseTime: p.base!.baseTime, speed: p.speed })), 0)
 }
 
 export interface PlantDisplay {
@@ -185,7 +185,7 @@ export interface PlantDisplay {
   emoji: string
   tier: number
   color: string
-  /** For hybrids this is already the speed-adjusted (effective) grow time (summed over resources). */
+  /** For hybrids this is already the speed-adjusted (effective) grow time (max over resources). */
   baseTime: number
   value: number
   description: string
