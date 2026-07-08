@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ARTIFACT_TYPES, artifactStatRows, gemCraftCost } from '#shared/utils/xeno'
+import { ARTIFACT_TYPES, artifactStatRows, gemCraftCost, getPlant } from '#shared/utils/xeno'
 
 const { inventory, buyArtifact } = useXeno()
 const { user } = useAuth()
@@ -115,18 +115,28 @@ async function doBuy(art: typeof ARTIFACT_TYPES[0]) {
         <div class="px-3.5 pb-2.5 flex-1">
           <p class="text-[10px] font-bold uppercase tracking-widest text-muted mb-1.5">Cost</p>
           <div class="flex flex-wrap gap-1">
-            <div
+            <UTooltip
               v-for="c in art.cost"
               :key="c.plantTypeId"
-              class="flex items-center gap-1 text-xs px-1.5 py-0.5 rounded border font-medium"
-              :class="ownedCount(c.plantTypeId) >= c.quantity
-                ? 'border-success/30 bg-success/10 text-success'
-                : 'border-default/50 text-muted'"
+              :disabled="!getPlant(c.plantTypeId)"
+              :delay-duration="300"
+              :content="{ side: 'bottom', align: 'end', sideOffset: 6 }"
+              :ui="{ content: 'h-auto p-0 bg-transparent ring-0 shadow-none' }"
             >
-              <XenoPlantIcon :id="c.plantTypeId" :size="16" />
-              <span>{{ c.quantity }}×</span>
-              <span class="opacity-60">({{ ownedCount(c.plantTypeId) }})</span>
-            </div>
+              <template #content>
+                <XenoPlantTooltipContent v-if="getPlant(c.plantTypeId)" v-bind="getPlant(c.plantTypeId)!" />
+              </template>
+              <div
+                class="flex items-center gap-1 text-xs px-1.5 py-0.5 rounded border font-medium cursor-default"
+                :class="ownedCount(c.plantTypeId) >= c.quantity
+                  ? 'border-success/30 bg-success/10 text-success'
+                  : 'border-default/50 text-muted'"
+              >
+                <XenoPlantIcon :id="c.plantTypeId" :size="20" />
+                <span>{{ c.quantity }}×</span>
+                <span class="opacity-60">({{ ownedCount(c.plantTypeId) }})</span>
+              </div>
+            </UTooltip>
             <!-- Gem cost when gem crafting -->
             <div
               v-if="gemCraft"

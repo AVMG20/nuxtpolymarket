@@ -258,27 +258,31 @@ function growTime(item: any) {
           :class="tierBg(item.tier)"
         >
           <!-- Emoji + qty -->
-          <div class="shrink-0 flex items-center gap-2">
-            <UTooltip :delay-duration="300" :content="{ side: 'right', sideOffset: 8 }">
-              <template #content>
-                <XenoPlantTooltipContent
-                  :name="item.name"
-                  :tier="item.tier"
-                  :color="item.color"
-                  :speed="item.speed"
-                  :yield="item.yield"
-                  :base-time="item.baseTime"
-                  :value="item.value"
-                  :description="item.description"
-                  :quantity="item.quantity"
-                  :is-hybrid="item.isHybrid"
-                  :resources="item.resources"
-                />
-              </template>
-              <XenoPlantIcon :id="item.typeId ?? item.id" :size="30" class="cursor-default" />
-            </UTooltip>
-            <span class="text-sm font-black text-primary tabular-nums leading-none">×{{ item.quantity }}</span>
-          </div>
+          <UTooltip
+            :delay-duration="300"
+            :content="{ side: 'bottom', align: 'end', sideOffset: 6 }"
+            :ui="{ content: 'h-auto p-0 bg-transparent ring-0 shadow-none' }"
+          >
+            <template #content>
+              <XenoPlantTooltipContent
+                :name="item.name"
+                :tier="item.tier"
+                :color="item.color"
+                :speed="item.speed"
+                :yield="item.yield"
+                :base-time="item.baseTime"
+                :value="item.value"
+                :description="item.description"
+                :quantity="item.quantity"
+                :is-hybrid="item.isHybrid"
+                :resources="item.resources"
+              />
+            </template>
+            <div class="shrink-0 flex items-center gap-2 cursor-default">
+              <XenoPlantIcon :id="item.typeId ?? item.id" :size="34" />
+              <span class="text-sm font-black text-primary tabular-nums leading-none">×{{ item.quantity }}</span>
+            </div>
+          </UTooltip>
 
           <!-- Plant info -->
           <div class="flex-1 min-w-0">
@@ -360,23 +364,27 @@ function growTime(item: any) {
           :class="tierBg(plant.tier)"
         >
           <!-- Emoji -->
-          <div class="shrink-0 flex flex-col items-center gap-1.5 w-10">
-            <UTooltip :delay-duration="300" :content="{ side: 'right', sideOffset: 8 }">
-              <template #content>
-                <XenoPlantTooltipContent
-                  :name="plant.name"
-                  :tier="plant.tier"
-                  :color="plant.color"
-                  :speed="plant.speed"
-                  :yield="plant.yield"
-                  :base-time="plant.baseTime"
-                  :value="plant.value"
-                  :description="plant.description"
-                />
-              </template>
-              <XenoPlantIcon :id="plant.id" :size="30" class="cursor-default" />
-            </UTooltip>
-          </div>
+          <UTooltip
+            :delay-duration="300"
+            :content="{ side: 'bottom', align: 'end', sideOffset: 6 }"
+            :ui="{ content: 'h-auto p-0 bg-transparent ring-0 shadow-none' }"
+          >
+            <template #content>
+              <XenoPlantTooltipContent
+                :name="plant.name"
+                :tier="plant.tier"
+                :color="plant.color"
+                :speed="plant.speed"
+                :yield="plant.yield"
+                :base-time="plant.baseTime"
+                :value="plant.value"
+                :description="plant.description"
+              />
+            </template>
+            <div class="shrink-0 flex flex-col items-center gap-1.5 w-10 cursor-default">
+              <XenoPlantIcon :id="plant.id" :size="34" />
+            </div>
+          </UTooltip>
 
           <!-- Plant info -->
           <div class="flex-1 min-w-0">
