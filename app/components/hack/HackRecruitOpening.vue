@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {
-  AGENT_TRAIT_LABEL, AGENT_TRAIT_RANGES, CLASS_LABEL, RARITY_COLOR, RARITY_LABEL, formatTraitValue,
+  AGENT_TRAIT_LABEL, AGENT_TRAIT_RANGES, CLASS_LABEL, RARITY_LABEL, RARITY_STYLE, formatTraitValue,
   type AgentPullTier, type AgentTrait, type HackRarity
 } from '#shared/utils/hack-config'
 import {
@@ -47,6 +47,7 @@ const barkCaption = ref('')
 const barkDone = ref(false)
 let barkHandle: VoiceHandle | null = null
 const revealEl = ref<HTMLElement | null>(null)
+const stampEl = ref<HTMLElement | null>(null)
 const flashEl = ref<HTMLElement | null>(null)
 const pitchCaptionRef = ref<{ play: () => void, stop: () => void } | null>(null)
 
@@ -129,10 +130,9 @@ async function playReveal() {
     captionsRef: barkCaption, text: rarityBarkText(rarity, 'agent'), delayMs: 50,
     skipAudio: !playAudio, onEnd: () => { barkDone.value = true }
   })
-  if (revealEl.value) {
-    const { gsap } = await import('gsap')
-    gsap.fromTo(revealEl.value, { opacity: 0, y: 12 }, { opacity: 1, y: 0, duration: 0.4, delay: 0.15 })
-  }
+  const { gsap } = await import('gsap')
+  if (stampEl.value) gsap.fromTo(stampEl.value, { scale: 0 }, { scale: 1, duration: 0.35, ease: 'back.out(1.7)' })
+  if (revealEl.value) gsap.fromTo(revealEl.value, { opacity: 0, y: 12 }, { opacity: 1, y: 0, duration: 0.4, delay: 0.15 })
 }
 
 function recruitAnother() {
@@ -259,21 +259,33 @@ function traitRange(type: AgentTrait['type']) {
           </div>
         </template>
 
-        <!-- Stage 2b: recruit reveal -->
+        <!-- Stage 2b: rarity stamp + recruit reveal -->
         <template v-else-if="stage === 'reveal' && result">
-          <div
-            ref="revealEl"
-            class="p-6"
-          >
-            <p class="hack-captions text-center mb-4">
+          <div class="text-center pt-8 px-5">
+            <div
+              ref="stampEl"
+              class="hack-stamp"
+              :class="RARITY_STYLE[result.rarity].text"
+            >
+              {{ RARITY_LABEL[result.rarity] }}
+            </div>
+            <p class="hack-captions mt-3 text-center">
               {{ barkCaption }}<span
                 v-if="!barkDone"
                 class="hack-cursor"
               />
             </p>
+          </div>
 
+          <div
+            ref="revealEl"
+            class="p-6"
+          >
             <div class="flex items-center gap-4 mb-5">
-              <div class="size-24 rounded-lg overflow-hidden shrink-0 ring-1 ring-default">
+              <div
+                class="size-24 rounded-lg overflow-hidden shrink-0 ring-1"
+                :class="RARITY_STYLE[result.rarity].ring"
+              >
                 <img
                   :src="CLASS_PORTRAIT[result.class as keyof typeof CLASS_PORTRAIT]"
                   class="w-full h-full object-cover"
@@ -281,15 +293,10 @@ function traitRange(type: AgentTrait['type']) {
                 >
               </div>
               <div class="min-w-0">
-                <div class="flex items-center gap-2 flex-wrap">
-                  <span class="hack-card-title-lg text-lg">{{ result.name }}</span>
-                  <UBadge
-                    size="sm"
-                    :color="RARITY_COLOR[result.rarity]"
-                    variant="subtle"
-                    :label="RARITY_LABEL[result.rarity]"
-                  />
-                </div>
+                <span
+                  class="hack-card-title-lg text-lg"
+                  :class="RARITY_STYLE[result.rarity].text"
+                >{{ result.name }}</span>
                 <p class="text-sm text-muted mt-0.5">
                   {{ CLASS_LABEL[result.class as keyof typeof CLASS_LABEL] }} · Level {{ result.level }}
                 </p>
