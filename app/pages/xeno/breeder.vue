@@ -556,6 +556,7 @@ async function doCollect(slotId: string) {
         <XenoInventoryPanel
           :inventory="breedableInventory"
           :free-artifacts="breederFreeArtifacts"
+          artifact-domain="breeder"
           :selected-plant-key="selectedPlant ? `${selectedPlant.typeId}:${selectedPlant.speed}:${selectedPlant.yield}` : null"
           :selected-artifact-id="selectedArtifact?.id ?? null"
           @select-plant="onSelectPlant"
@@ -572,6 +573,7 @@ async function doCollect(slotId: string) {
         <XenoInventoryPanel
           :inventory="breedableInventory"
           :free-artifacts="breederFreeArtifacts"
+          artifact-domain="breeder"
           :selected-plant-key="selectedPlant ? `${selectedPlant.typeId}:${selectedPlant.speed}:${selectedPlant.yield}` : null"
           :selected-artifact-id="selectedArtifact?.id ?? null"
           @select-plant="(p) => { onSelectPlant(p); mobileInventoryOpen = false }"

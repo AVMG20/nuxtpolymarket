@@ -22,7 +22,8 @@ export default defineEventHandler(async (event) => {
 
   if (!slot) throw createError({ statusCode: 404, statusMessage: 'Slot not found' })
   if (!artifact) throw createError({ statusCode: 404, statusMessage: 'Artifact not found' })
-  if (slot.artifactId) throw createError({ statusCode: 400, statusMessage: 'Slot already has an artifact' })
+  // Attaching over an existing artifact replaces it — the old one simply becomes
+  // free again (it's still owned by the user, just no longer referenced by a slot).
 
   const artType = getArtifactOrThrow(artifact.typeId)
   if (!artType.effects.some(e => e.type.startsWith('grid_'))) {

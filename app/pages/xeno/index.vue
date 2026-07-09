@@ -156,8 +156,8 @@ async function handleCellClick(cell: any, e: MouseEvent) {
     return
   }
 
-  // Apply selected artifact to slot (if it has no artifact yet)
-  if (selectedArtifact.value && !slot.artifact && !attachingSlot.value) {
+  // Apply selected artifact to slot — replaces any artifact already attached
+  if (selectedArtifact.value && !attachingSlot.value) {
     attachingSlot.value = slot.id
     try { await attachGridArtifact(slot.id, selectedArtifact.value.id) }
     finally { attachingSlot.value = null }
@@ -227,13 +227,29 @@ function cellCursor(cell: any): string {
   const { slot } = cell
   if (!slot) return 'cursor-default'
   if (slot.plant && isDone(slot.plant.completesAt)) return 'cursor-pointer'
-  if (selectedArtifact.value && !slot.artifact) return 'cursor-pointer'
+  if (selectedArtifact.value) return 'cursor-pointer'
   if (selectedPlant.value && !slot.plant) return 'cursor-pointer'
   return 'cursor-default'
 }
 
 function isArtifactTargetable(cell: any): boolean {
-  return !!selectedArtifact.value && cell.unlocked && cell.slot && !cell.slot.artifact
+  return !!selectedArtifact.value && cell.unlocked && !!cell.slot
+}
+
+/** True when placing the selected artifact on this cell would replace an existing one. */
+function isArtifactReplacing(cell: any): boolean {
+  return isArtifactTargetable(cell) && !!cell.slot?.artifact
+}
+
+/** Hover tooltip explaining the artifact action this cell would trigger. */
+function artifactActionTitle(cell: any): string | undefined {
+  if (!isArtifactTargetable(cell)) return undefined
+  const incoming = getArtifact(selectedArtifact.value!.typeId)?.name ?? 'artifact'
+  if (cell.slot?.artifact) {
+    const current = getArtifact(cell.slot.artifact.typeId)?.name ?? 'artifact'
+    return `Replace ${current} with ${incoming} — ${current} will be returned to your inventory`
+  }
+  return `Attach ${incoming} to this slot`
 }
 
 function slotYieldBonus(slot: any): number {
@@ -322,10 +338,13 @@ function slotSpeedBoost(slot: any): number {
               :class="[
                 isDone(cell.slot.plant.completesAt)
                   ? 'bg-primary/15 border-primary/40 hover:bg-primary/20 hover:border-primary/60'
-                  : ['bg-elevated/50', 'border-default/40', isArtifactTargetable(cell) ? 'ring-1 ring-primary/50 hover:ring-primary' : ''],
+                  : ['bg-elevated/50', 'border-default/40',
+                     isArtifactReplacing(cell) ? 'ring-2 ring-warning/70 hover:ring-warning'
+                       : isArtifactTargetable(cell) ? 'ring-1 ring-primary/50 hover:ring-primary' : ''],
                 cellCursor(cell),
                 (harvesting.has(cell.slot.id) || removing.has(cell.slot.id) || attachingSlot === cell.slot.id) ? 'opacity-50 pointer-events-none' : '',
               ]"
+              :title="artifactActionTitle(cell)"
               @click="(e) => handleCellClick(cell, e)"
             >
               <!-- Remove -->
@@ -335,6 +354,14 @@ function slotSpeedBoost(slot: any): number {
               >
                 <UIcon name="i-lucide-x" class="size-3" />
               </button>
+
+              <!-- Replace-artifact indicator -->
+              <div
+                v-if="isArtifactReplacing(cell)"
+                class="absolute bottom-1 right-1 z-10 size-5 flex items-center justify-center rounded-full bg-warning text-inverted shadow"
+              >
+                <UIcon name="i-lucide-repeat" class="size-3" />
+              </div>
 
               <!-- Top-left: artifact badge + effect dots -->
               <XenoGridArtifactBadge :slot="cell.slot" />
@@ -392,19 +419,24 @@ function slotSpeedBoost(slot: any): number {
               class="relative rounded-xl border aspect-square flex flex-col items-center justify-center gap-1 select-none transition-all duration-100"
               :class="[
                 cellCursor(cell),
-                selectedArtifact && !cell.slot?.artifact
-                  ? 'border-primary/40 bg-primary/5 hover:bg-primary/10 hover:border-primary/70'
-                  : selectedPlant
+                isArtifactReplacing(cell)
+                  ? 'border-warning/60 bg-warning/5 hover:bg-warning/10 hover:border-warning ring-1 ring-warning/40'
+                  : selectedArtifact || selectedPlant
                     ? 'border-primary/40 bg-primary/5 hover:bg-primary/10 hover:border-primary/70'
                     : 'border-dashed border-default/40 bg-elevated/20',
                 plantingSlot === cell.slot?.id || attachingSlot === cell.slot?.id ? 'opacity-40 pointer-events-none' : '',
               ]"
+              :title="artifactActionTitle(cell)"
               @click="(e) => handleCellClick(cell, e)"
             >
               <!-- Slot already has artifact attached (no plant yet) -->
               <template v-if="cell.slot?.artifact">
                 <XenoGridArtifactBadge :slot="cell.slot" />
+                <div v-if="isArtifactReplacing(cell)" class="absolute bottom-1 right-1 z-10 size-5 flex items-center justify-center rounded-full bg-warning text-inverted shadow">
+                  <UIcon name="i-lucide-repeat" class="size-3" />
+                </div>
                 <p v-if="selectedPlant" class="text-xs text-primary/70 font-medium">Plant here</p>
+                <p v-else-if="isArtifactReplacing(cell)" class="text-xs text-warning font-semibold text-center px-1">Replace with {{ getArtifact(selectedArtifact!.typeId)?.emoji }}</p>
               </template>
               <!-- No artifact: show preview or empty state -->
               <template v-else>
@@ -487,7 +519,7 @@ function slotSpeedBoost(slot: any): number {
               <span class="text-xs text-muted shrink-0">{{ selectedArtifact.chargesRemaining }} uses</span>
             </div>
             <div class="ml-auto flex items-center gap-3 shrink-0">
-              <p class="text-xs text-muted hidden md:block">Click a grid slot to attach</p>
+              <p class="text-xs text-muted hidden md:block">Click any slot to attach — occupied slots will be replaced</p>
               <UButton size="xs" variant="ghost" color="neutral" icon="i-lucide-x" @click="selectedArtifact = null" />
             </div>
           </template>
@@ -505,6 +537,7 @@ function slotSpeedBoost(slot: any): number {
         <XenoInventoryPanel
           :inventory="inventory"
           :free-artifacts="gridFreeArtifacts"
+          artifact-domain="grid"
           :selected-plant-key="selectedPlant ? `${selectedPlant.typeId}:${selectedPlant.speed}:${selectedPlant.yield}` : null"
           :selected-artifact-id="selectedArtifact?.id ?? null"
           @select-plant="onInventorySelectPlant"
@@ -521,6 +554,7 @@ function slotSpeedBoost(slot: any): number {
         <XenoInventoryPanel
           :inventory="inventory"
           :free-artifacts="gridFreeArtifacts"
+          artifact-domain="grid"
           :selected-plant-key="selectedPlant ? `${selectedPlant.typeId}:${selectedPlant.speed}:${selectedPlant.yield}` : null"
           :selected-artifact-id="selectedArtifact?.id ?? null"
           @select-plant="onInventorySelectPlant"

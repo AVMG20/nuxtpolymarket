@@ -117,6 +117,10 @@ export const useXeno = () => {
     return res
   }
 
+  async function deleteArtifacts(artifactIds: string[]) {
+    return call('/api/xeno/artifacts/delete', { artifactIds }, 'Artifact deleted')
+  }
+
   async function buyArtifact(artifactTypeId: string, gemCrafted = false) {
     const res = await call('/api/xeno/artifacts/buy', { artifactTypeId, gemCrafted }, gemCrafted ? 'Gem-crafted artifact created!' : 'Artifact crafted!')
     await fetchSession()
@@ -172,5 +176,6 @@ export const useXeno = () => {
     buyPlants,
     rollHybrid,
     buyArtifact,
+    deleteArtifacts,
   }
 }

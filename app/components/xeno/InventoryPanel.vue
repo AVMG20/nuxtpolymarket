@@ -10,12 +10,16 @@ const props = defineProps<{
   freeArtifacts: any[]
   selectedPlantKey?: string | null
   selectedArtifactId?: string | null
+  /** Which slot type these artifacts are used in — controls which sort/spec columns apply. */
+  artifactDomain?: 'grid' | 'breeder'
 }>()
 
 const emit = defineEmits<{
   selectPlant: [payload: { typeId: string; speed: number; yield: number; name: string; emoji: string; tier: number } | null]
   selectArtifact: [payload: { id: string; typeId: string; chargesRemaining: number; gemCrafted: boolean } | null]
 }>()
+
+const { deleteArtifacts } = useXeno()
 
 const activeTab = ref<'seeds' | 'artifacts'>('seeds')
 
@@ -57,18 +61,15 @@ function isStackSelected(stack: { ids: string[] }): boolean {
   return props.selectedArtifactId != null && stack.ids.includes(props.selectedArtifactId)
 }
 
+function stackKeyOf(stack: { typeId: string; chargesRemaining: number; gemCrafted: boolean }) {
+  return `${stack.typeId}:${stack.chargesRemaining}:${stack.gemCrafted ? 1 : 0}`
+}
+
 function ownedQty(plantTypeId: string): number {
   return props.inventory
     .filter(i => i.typeId === plantTypeId)
     .reduce((sum, i) => sum + i.quantity, 0)
 }
-
-const sortedInventory = computed(() =>
-  [...props.inventory].sort((a, b) => {
-    if (b.tier !== a.tier) return b.tier - a.tier
-    return a.name.localeCompare(b.name)
-  }),
-)
 
 function effectTarget(art: ArtifactType | undefined): string {
   if (!art) return ''
@@ -84,6 +85,154 @@ const MAX_CHARGES = Math.max(...ARTIFACT_TYPES.map(a => a.maxCharges))
 function specRows(art: ArtifactType | undefined, gemCrafted = false) {
   return art ? artifactStatRows(art, gemCrafted) : []
 }
+
+// ── Domain (grid vs breeder) — controls which artifact spec columns exist ──
+const domain = computed<'grid' | 'breeder'>(() => {
+  if (props.artifactDomain) return props.artifactDomain
+  const first = props.freeArtifacts[0]
+  const art = first ? getArtifact(first.typeId) : undefined
+  return art && effectTarget(art) === 'Breeder' ? 'breeder' : 'grid'
+})
+
+// ── Sorting (persisted via cookie, separate config per tab/domain) ─────────
+interface SortState { key: string; dir: 'asc' | 'desc' }
+interface SortCookie {
+  seeds: SortState
+  artifactsGrid: SortState
+  artifactsBreeder: SortState
+}
+
+const sortCookie = useCookie<SortCookie>('xeno-inventory-sort', {
+  default: () => ({
+    seeds: { key: 'tier', dir: 'desc' },
+    artifactsGrid: { key: 'qty', dir: 'desc' },
+    artifactsBreeder: { key: 'qty', dir: 'desc' },
+  }),
+})
+
+const sortSlotKey = computed<keyof SortCookie>(() =>
+  activeTab.value === 'seeds' ? 'seeds' : (domain.value === 'breeder' ? 'artifactsBreeder' : 'artifactsGrid'),
+)
+
+const seedSortOptions = [
+  { label: 'Tier', value: 'tier' },
+  { label: 'Quantity', value: 'qty' },
+  { label: 'Speed', value: 'speed' },
+  { label: 'Yield', value: 'yield' },
+  { label: 'Name', value: 'name' },
+]
+
+const artifactSortOptions = computed(() => {
+  const base = [
+    { label: 'Quantity', value: 'qty' },
+    { label: 'Charges', value: 'charges' },
+    { label: 'Level', value: 'level' },
+    { label: 'Speed', value: 'speed' },
+    { label: 'Yield', value: 'yield' },
+  ]
+  return domain.value === 'breeder' ? [...base, { label: 'Mutation', value: 'mutation' }] : base
+})
+
+const currentSortOptions = computed(() => activeTab.value === 'seeds' ? seedSortOptions : artifactSortOptions.value)
+
+const currentSortKey = computed<string>({
+  get: () => sortCookie.value[sortSlotKey.value].key,
+  set: (v) => {
+    sortCookie.value = { ...sortCookie.value, [sortSlotKey.value]: { ...sortCookie.value[sortSlotKey.value], key: v } }
+  },
+})
+
+const currentSortDir = computed(() => sortCookie.value[sortSlotKey.value].dir)
+
+function toggleSortDir() {
+  const slot = sortSlotKey.value
+  sortCookie.value = {
+    ...sortCookie.value,
+    [slot]: { ...sortCookie.value[slot], dir: sortCookie.value[slot].dir === 'asc' ? 'desc' : 'asc' },
+  }
+}
+
+function seedSortValue(item: any, key: string): number | string {
+  switch (key) {
+    case 'tier': return item.tier
+    case 'qty': return item.quantity
+    case 'speed': return item.speed
+    case 'yield': return item.yield
+    case 'name': return item.name
+    default: return 0
+  }
+}
+
+const sortedInventory = computed(() => {
+  const { key, dir } = sortCookie.value.seeds
+  const mult = dir === 'asc' ? 1 : -1
+  return [...props.inventory].sort((a, b) => {
+    const av = seedSortValue(a, key)
+    const bv = seedSortValue(b, key)
+    if (typeof av === 'string' || typeof bv === 'string') {
+      return mult * String(av).localeCompare(String(bv))
+    }
+    if (av !== bv) return mult * (av - bv)
+    return String(a.name).localeCompare(String(b.name))
+  })
+})
+
+function artifactSortValue(stack: { typeId: string; chargesRemaining: number; gemCrafted: boolean; count: number }, key: string): number {
+  switch (key) {
+    case 'qty': return stack.count
+    case 'charges': return stack.chargesRemaining
+    case 'level': return getArtifactDef(stack.typeId)?.level ?? 0
+    case 'speed': return specRows(getArtifact(stack.typeId), stack.gemCrafted).find(r => r.label === 'Speed')?.level ?? 0
+    case 'yield': return specRows(getArtifact(stack.typeId), stack.gemCrafted).find(r => r.label === 'Yield')?.level ?? 0
+    case 'mutation': return specRows(getArtifact(stack.typeId), stack.gemCrafted).find(r => r.label === 'Mutation')?.level ?? 0
+    default: return 0
+  }
+}
+
+const sortedArtifacts = computed(() => {
+  const { key, dir } = sortCookie.value[sortSlotKey.value]
+  const mult = dir === 'asc' ? 1 : -1
+  return [...stackedArtifacts.value].sort((a, b) => {
+    const av = artifactSortValue(a, key)
+    const bv = artifactSortValue(b, key)
+    if (av !== bv) return mult * (av - bv)
+    return (getArtifact(a.typeId)?.name ?? '').localeCompare(getArtifact(b.typeId)?.name ?? '')
+  })
+})
+
+// ── Delete artifact (double-click confirm, no refund) ───────────────────────
+const deleteConfirmKey = ref<string | null>(null)
+const deleting = ref<Record<string, boolean>>({})
+let deleteConfirmTimer: ReturnType<typeof setTimeout> | null = null
+
+function clearDeleteConfirm() {
+  if (deleteConfirmTimer) { clearTimeout(deleteConfirmTimer); deleteConfirmTimer = null }
+  deleteConfirmKey.value = null
+}
+
+async function onDeleteClick(stack: { typeId: string; chargesRemaining: number; gemCrafted: boolean; ids: string[] }, e: MouseEvent) {
+  e.stopPropagation()
+  const key = stackKeyOf(stack)
+  if (deleteConfirmKey.value === key) {
+    clearDeleteConfirm()
+    deleting.value[key] = true
+    try {
+      await deleteArtifacts(stack.ids)
+      if (props.selectedArtifactId != null && stack.ids.includes(props.selectedArtifactId)) {
+        emit('selectArtifact', null)
+      }
+    } finally {
+      delete deleting.value[key]
+    }
+  } else {
+    deleteConfirmKey.value = key
+    if (deleteConfirmTimer) clearTimeout(deleteConfirmTimer)
+    deleteConfirmTimer = setTimeout(clearDeleteConfirm, 3000)
+  }
+}
+
+watch(() => props.selectedArtifactId, () => clearDeleteConfirm())
+onUnmounted(() => { if (deleteConfirmTimer) clearTimeout(deleteConfirmTimer) })
 </script>
 
 <template>
@@ -106,6 +255,25 @@ function specRows(art: ArtifactType | undefined, gemCrafted = false) {
         {{ freeArtifacts.length }}
       </span>
     </button>
+  </div>
+
+  <!-- Sort controls -->
+  <div class="flex items-center gap-1.5 px-2.5 py-2 border-b border-default shrink-0">
+    <UIcon name="i-lucide-arrow-down-up" class="size-3.5 text-muted shrink-0" />
+    <USelect
+      v-model="currentSortKey"
+      :items="currentSortOptions"
+      size="xs"
+      class="flex-1 min-w-0"
+    />
+    <UButton
+      :icon="currentSortDir === 'asc' ? 'i-lucide-arrow-up' : 'i-lucide-arrow-down'"
+      size="xs"
+      variant="soft"
+      color="neutral"
+      :title="currentSortDir === 'asc' ? 'Ascending' : 'Descending'"
+      @click="toggleSortDir"
+    />
   </div>
 
   <!-- ── Seeds tab ─────────────────────────────────────────── -->
@@ -193,15 +361,15 @@ function specRows(art: ArtifactType | undefined, gemCrafted = false) {
 
   <!-- ── Artifacts tab ──────────────────────────────────────── -->
   <div v-else class="flex-1 overflow-y-auto p-3 space-y-2">
-    <div v-if="!stackedArtifacts.length" class="py-12 text-center px-4">
+    <div v-if="!sortedArtifacts.length" class="py-12 text-center px-4">
       <UIcon name="i-lucide-flask-conical" class="size-8 text-muted/30 mx-auto mb-2" />
       <p class="text-sm text-muted">No artifacts.</p>
       <p class="text-xs text-muted/50 mt-1">Craft them in the Artifacts shop.</p>
     </div>
 
     <div
-      v-for="stack in stackedArtifacts"
-      :key="`${stack.typeId}:${stack.chargesRemaining}:${stack.gemCrafted ? 1 : 0}`"
+      v-for="stack in sortedArtifacts"
+      :key="stackKeyOf(stack)"
       class="rounded-xl border cursor-pointer transition-all duration-100 overflow-hidden"
       :class="isStackSelected(stack)
         ? 'border-primary bg-primary/5 ring-1 ring-primary'
@@ -243,6 +411,19 @@ function specRows(art: ArtifactType | undefined, gemCrafted = false) {
         <XenoStatLevel label="Charges" :level="stack.chargesRemaining" :max="MAX_CHARGES" color="bg-primary" />
       </div>
 
+      <!-- Delete (double-click to confirm — no refund) -->
+      <div v-if="isStackSelected(stack)" class="px-3 pb-2.5 pt-0.5" @click.stop>
+        <UButton
+          block
+          size="xs"
+          :color="deleteConfirmKey === stackKeyOf(stack) ? 'error' : 'neutral'"
+          :variant="deleteConfirmKey === stackKeyOf(stack) ? 'solid' : 'soft'"
+          :icon="deleteConfirmKey === stackKeyOf(stack) ? 'i-lucide-alert-triangle' : 'i-lucide-trash-2'"
+          :label="deleteConfirmKey === stackKeyOf(stack) ? 'Confirm delete — no refund' : 'Delete'"
+          :loading="!!deleting[stackKeyOf(stack)]"
+          @click="onDeleteClick(stack, $event)"
+        />
+      </div>
     </div>
   </div>
 </template>
