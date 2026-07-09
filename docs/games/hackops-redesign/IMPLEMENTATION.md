@@ -471,6 +471,80 @@ What *did* need work, and what to watch for on the next drop:
    session, e.g. Phantom bark now opens `[flat]`; keep the same "diff
    before assuming it's current" habit when Phase 2 wires them in).
 
-### Phase 2 — Black Market — not started
+### Phase 2 — Black Market — done (commits `Add Black Market: Contacts + Dead Drops hub, recruit/crate opening cinematics`, `Wire Black Market into the tab bar and retire old recruit/crate UI`)
+
+Built per §6.4/§6.5/§10.7: `app/pages/hack/market.vue` (Contacts/Dead Drops
+segmented grid, real seller/contact art copied from
+`docs/games/hackops-redesign/assets/{contact,agent}/` into
+`public/hack/img/{contact,agent}/` — this was the first time those mockup
+assets made it into `public/`, following the same convention as the Phase-0
+sound dirs), `HackCrateOpening.vue` and `HackRecruitOpening.vue` as **two
+separate components** per §10.7 (scan/decrypt vs. vetting-radar sequence,
+Send-to-Loadout vs. Accept/Reject — confirmed no shared base component, only
+the small presentational `HackOddsBar.vue` and the existing `HackRangeBar`/
+`HackFrame`/`HackItemCard` are reused between them). Both use `UModal`'s
+`#content` slot with `ui.content` reset to transparent/no-ring so
+`.hack-frame`'s corner-cut owns 100% of the visual instead of fighting
+Nuxt UI's own card chrome (rounded-lg/ring/shadow) — worth remembering for
+any future from-scratch HUD modal, since the default `#body`+`:title` pattern
+(used by the Ops collect modal) keeps that chrome and works fine there
+specifically because it *isn't* trying to look like a `.hack-frame`.
+
+Reveal-bark throttling (§5.5) needed a real `useAudio` change: `playVoice`
+gained a `skipAudio` option so a throttled roll still teletypes the caption
+in full while silently skipping the clip fetch/play — added
+`rarityBarkVoice`/`rarityBarkText` gate on `audio.barkThrottle({ rare,
+quickOpen })` in both components. gsap (dynamic-imported client-side, same
+pattern as the slot pages) drives the one-shot sequence — flash + stamp
+scale-in (`back.out` ease) + reveal-card fade — while the scan-sweep/vet-ring
+loops stay plain CSS `@keyframes`, matching PLAN.md §5.4's split exactly.
+
+Content additions to `hack-content.ts`: per-tier contact/seller metadata +
+RELAY intro/confirm lines (verbatim from `crate-lore.md`), the shared
+rarity-bark table (`agent-bios.md` §2 / `crate-lore.md`, including the
+Ghost item-vs-agent variant), and an `agentBioLine()` composer implementing
+`agent-bios.md` §1's class+rarity+dominant-trait template system — this
+wasn't explicitly scoped in the Phase 2 plan but the recruit-reveal mockup
+shows a bio line and the content doc had the exact copy ready, so it shipped
+rather than left as a placeholder. **Filename convention I picked, since
+`crate-lore.md` doesn't pin one down:** `market-{tierId}-intro` /
+`market-{tierId}-confirm` (real tier id, not a display-name slug) — reuse
+this for the next voice-asset drop rather than inventing another pattern.
+
+**Retired in the same PR** (§5 Phase 2 explicitly calls for this, no dead
+double entry point): the Recruit section in `agents.vue` and Crates section
+in `items.vue`, both replaced with a "Visit the Black Market" link;
+`ItemReveal.vue` deleted outright (superseded by `HackCrateOpening`'s own
+reveal stage, and confirmed nothing else referenced it). Added the Black
+Market tab to `hack.vue`'s tab bar between Ops and Agents.
+
+**Verified in a real browser end-to-end, not just typecheck/lint** — this
+phase has real money/currency logic so a fresh test account needed crediting
+directly in the local dev DB (`UPDATE "user" SET balance = ...`) to get past
+the affordability gate; confirmed the gate itself first (disabled button + a
+reason message at $0 balance) before crediting. With balance: bought a Junk
+Cache crate through the full scan → flash → stamp → reveal sequence and
+confirmed the rolled item's mods/range-bar positions match what the server
+actually returned (not just placeholder numbers); ran a Ghost Recruit pull
+(the one line with an embedded `[quiet]` tag) and confirmed the caption
+teletyped cleanly with the tag stripped; recruited an agent, Accepted, and
+confirmed it actually persisted (visible on the Agents tab after
+navigating away and back — not just in the modal's local state); ran a
+second recruit and Rejected it, confirming the agent is gone server-side
+(fire.post.ts actually called, not just the modal closing). Confirmed the
+6 rarity-bark + all market intro/confirm voice lines 404 gracefully to
+captions-only exactly like the mission briefings did in Phase 1, since none
+of that VO has been recorded yet.
+
+**Not yet live-tested:** the roster-full / inventory-full disabled states
+(only the balance-gate path was driven through a real click; the capacity
+gate uses the same `:disabled`/`disabledReason` prop wiring so risk is low
+but it's asserted from reading the code, not from actually filling a roster
+to 15 agents in a browser). Gsap's timeline sequencing was verified by
+outcome (the right stage appears with the right content at the right time)
+rather than by inspecting intermediate animation frames — a real regression
+in easing/timing specifically (as opposed to sequencing) wouldn't have been
+caught by this pass.
+
 ### Phase 3 — Loadout — not started
 ### Phase 4 — History, Leaderboard, polish — not started

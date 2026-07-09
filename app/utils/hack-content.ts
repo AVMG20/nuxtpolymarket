@@ -1,4 +1,4 @@
-import type { HackRarity } from '#shared/utils/hack-config'
+import { AGENT_TRAIT_RANGES, type AgentClass, type AgentTrait, type AgentTraitType, type HackRarity } from '#shared/utils/hack-config'
 
 // RELAY's approved narrative copy for the Ops screens, sourced verbatim from
 // docs/games/hackops-redesign/content/mission-briefings.md and voice-lines.md.
@@ -81,4 +81,143 @@ export const COLLECT_LINES = {
   successRareText: 'Now THAT\'S a payday. Don\'t get used to it.',
   failureVoice: 'collect-failure',
   failureText: 'We lost this one. Everyone\'s alive, that\'s the part that matters.'
+}
+
+// ─── Black Market — Contacts (agent pulls) & Dead Drops (item crates) ─────────
+// Sourced verbatim from content/crate-lore.md §"Recruit tiers"/"Item crates".
+// Filenames follow the brief-{opId} precedent (real tier.id, not a display-name
+// slug) — crate-lore.md doesn't pin these down itself, so this is the
+// convention to keep using for any future market copy.
+
+export interface MarketSeller { handle: string, portrait: string }
+
+export const AGENT_PULL_CONTACT: Record<string, MarketSeller> = {
+  basic: { handle: '>_ghostwire', portrait: '/hack/img/contact/ghostwire.jpg' },
+  advanced: { handle: 'The Registry', portrait: '/hack/img/contact/registry.jpg' },
+  elite: { handle: 'unknown — "the old man"', portrait: '/hack/img/contact/old-man.jpg' }
+}
+export const AGENT_PULL_INTRO_VOICE: Record<string, string> = {
+  basic: 'market-basic-intro', advanced: 'market-advanced-intro', elite: 'market-elite-intro'
+}
+export const AGENT_PULL_INTRO_TEXT: Record<string, string> = {
+  basic: 'Forum talent. Cheap, plentiful, mostly rookies — but rookies still show up. Every specialist on your roster was a rookie once. Probably not the way to bet your whole operation, but a fine way to build one.',
+  advanced: 'The Registry doesn\'t deal in rookies. Everyone on their books has done this before, for someone, somewhere. Costs more because you\'re not gambling on potential — you\'re paying for a track record.',
+  elite: '[quiet] I\'m calling in a favor I\'ve been saving. Whoever comes back from this isn\'t auditioning — they\'re already the best in the business, and they know it. Don\'t waste them on the easy jobs.'
+}
+export const AGENT_PULL_CONFIRM_VOICE: Record<string, string> = {
+  basic: 'market-basic-confirm', advanced: 'market-advanced-confirm', elite: 'market-elite-confirm'
+}
+export const AGENT_PULL_CONFIRM_TEXT: Record<string, string> = {
+  basic: 'Posting the job. Give it a minute.',
+  advanced: 'Registry\'s running the vetting now. They\'re thorough. That\'s the point.',
+  elite: 'Made the call. Now we wait... and we don\'t ask what it cost me.'
+}
+
+export const ITEM_PULL_SELLER: Record<string, MarketSeller> = {
+  junk: { handle: 'Marsh', portrait: '/hack/img/contact/marsh.jpg' },
+  standard: { handle: 'Denny\'s Surplus', portrait: '/hack/img/contact/dennys.jpg' },
+  premium: { handle: 'Cutter', portrait: '/hack/img/contact/cutter.jpg' },
+  ghost_cache: { handle: 'unknown', portrait: '/hack/img/contact/unknown-seller.jpg' }
+}
+export const ITEM_PULL_INTRO_VOICE: Record<string, string> = {
+  junk: 'market-junk-intro', standard: 'market-standard-intro', premium: 'market-premium-intro', ghost_cache: 'market-ghost_cache-intro'
+}
+export const ITEM_PULL_INTRO_TEXT: Record<string, string> = {
+  junk: 'Marsh found this in a storage unit and has no idea what he\'s holding. Might be nothing. Might be something nobody\'s noticed yet. That\'s the whole pitch on a Junk Cache — you\'re buying the maybe.',
+  standard: 'Denny doesn\'t deal in mysteries. What\'s in the crate is what he says is in the crate, roughly — decent gear, no big surprises either way. Predictable is worth something.',
+  premium: 'Cutter used to be one of us, a long time ago. This is their retirement fund, sold off a piece at a time. Whatever\'s still in their cache is field-grade — they never held onto anything that wasn\'t.',
+  ghost_cache: 'I don\'t know who\'s selling this and I stopped asking after the second one. Whoever it is doesn\'t need cash — they need this off their hands, fast, quiet. Everything I\'ve seen come out of a Ghost Cache has been worth exactly what it should be worth. Draw your own conclusions.'
+}
+export const ITEM_PULL_CONFIRM_VOICE: Record<string, string> = {
+  junk: 'market-junk-confirm', standard: 'market-standard-confirm', premium: 'market-premium-confirm', ghost_cache: 'market-ghost_cache-confirm'
+}
+export const ITEM_PULL_CONFIRM_TEXT: Record<string, string> = {
+  junk: 'Paying Marsh before he changes his mind. Or finds someone else.',
+  standard: 'Denny\'s got it wrapped and ready. He always does.',
+  premium: 'Cutter said this is the last one for a while. Might want to take it.',
+  ghost_cache: 'Funds are moving. However this crate got here, it\'s yours now.'
+}
+
+// ─── Reveal-cinematic rarity barks — shared by every crate + recruit reveal ───
+// content/agent-bios.md §2 / content/crate-lore.md "Shared reveal-cinematic
+// barks". Ghost has a dedicated item variant (an inanimate object can't be a
+// "rookie"); every other rarity's line is identical for agents and items.
+export const RARITY_BARK_VOICE: Record<HackRarity, string> = {
+  ghost: 'bark-rarity-ghost-agent', operative: 'bark-rarity-operative', specialist: 'bark-rarity-specialist',
+  elite: 'bark-rarity-elite', phantom: 'bark-rarity-phantom'
+}
+export const RARITY_BARK_TEXT: Record<HackRarity, string> = {
+  ghost: 'Rookie. They\'ll do.',
+  operative: 'Solid. I\'ve built jobs around worse.',
+  specialist: 'Now we\'re talking.',
+  elite: '...Huh. Didn\'t expect that out of this one.',
+  phantom: '[flat] Don\'t ask what they used to do before us. I didn\'t, and I still don\'t sleep great.'
+}
+export const RARITY_BARK_VOICE_ITEM_GHOST = 'bark-rarity-ghost-item'
+export const RARITY_BARK_TEXT_ITEM_GHOST = 'Junk, mostly. Mostly.'
+
+export function rarityBarkVoice(rarity: HackRarity, kind: 'agent' | 'item'): string {
+  if (rarity === 'ghost' && kind === 'item') return RARITY_BARK_VOICE_ITEM_GHOST
+  return RARITY_BARK_VOICE[rarity]
+}
+export function rarityBarkText(rarity: HackRarity, kind: 'agent' | 'item'): string {
+  if (rarity === 'ghost' && kind === 'item') return RARITY_BARK_TEXT_ITEM_GHOST
+  return RARITY_BARK_TEXT[rarity]
+}
+
+// ─── Agent bio composer (agent-bios.md §1) ─────────────────────────────────────
+// One sentence assembled from class + rarity + the agent's own highest-value
+// trait, so every procedurally generated agent reads as individually written
+// without any bespoke per-agent content. Needs nothing beyond the fields
+// already on a hackAgents row (class, rarity, traits).
+const CLASS_OPENER: Record<AgentClass, string> = {
+  infiltrator: 'Gets in before anyone knows there\'s a door.',
+  cryptographer: 'Sees the pattern in the noise faster than the system that hid it.',
+  social_engineer: 'Doesn\'t hack the network — hacks the person holding the badge.',
+  bruteforce: 'Doesn\'t finesse a lock. Removes it.'
+}
+const RARITY_CLAUSE: Record<HackRarity, string> = {
+  ghost: 'Green, but hungry.',
+  operative: 'Field-tested, no complaints on file.',
+  specialist: 'The kind of resume that gets flagged, then buried.',
+  elite: 'Three agencies have a file open. None of them have a face.',
+  phantom: 'Doesn\'t officially exist. Neither do the people who\'ve tried to stop them.'
+}
+const TRAIT_CLOSER: Record<AgentTraitType, string> = {
+  gem_chance: 'Has a nose for the job that pays out in more than cash.',
+  speed_percent: 'In and out before the coffee\'s cold.',
+  loot_percent: 'Never leaves a job with less than what\'s on the table.',
+  xp_boost: 'Learns faster than the last op should\'ve allowed.',
+  power_flat: 'Overqualified for half the jobs on the board, and it shows.',
+  power_percent: 'Overqualified for half the jobs on the board, and it shows.',
+  gem_bonus: 'Somehow always finds the safe behind the safe.'
+}
+
+/** The agent's dominant trait — highest value relative to its own range, so a small
+ * roll on a wide-range trait doesn't outrank a strong roll on a narrow one. */
+function dominantTrait(traits: AgentTrait[]): AgentTrait | null {
+  if (!traits.length) return null
+  return [...traits].sort((a, b) => {
+    const ra = AGENT_TRAIT_RANGES[a.type], rb = AGENT_TRAIT_RANGES[b.type]
+    const pa = (a.value - ra.min) / (ra.max - ra.min)
+    const pb = (b.value - rb.min) / (rb.max - rb.min)
+    return pb - pa
+  })[0]!
+}
+
+export function agentBioLine(agent: { class: AgentClass, rarity: HackRarity, traits?: AgentTrait[] }): string {
+  const trait = dominantTrait(agent.traits ?? [])
+  const parts = [CLASS_OPENER[agent.class], RARITY_CLAUSE[agent.rarity]]
+  if (trait) parts.push(TRAIT_CLOSER[trait.type])
+  return parts.join(' ')
+}
+
+// One base template photo per class (PLAN.md §12.4) — every agent of a given
+// class shows the identical unmodified photo regardless of rarity for now; a
+// rarity color-grade layer on top is a planned follow-up, not built yet.
+export const CLASS_PORTRAIT: Record<AgentClass, string> = {
+  infiltrator: '/hack/img/agent/infiltrator.jpg',
+  cryptographer: '/hack/img/agent/cryptographer.jpg',
+  social_engineer: '/hack/img/agent/social-engineer.jpg',
+  bruteforce: '/hack/img/agent/bruteforce.jpg'
 }

@@ -22,6 +22,9 @@ interface PlayVoiceOptions {
   /** Beat before playback starts, so the caption "pops" a moment after the surface appears. */
   delayMs?: number
   onEnd?: () => void
+  /** Caption still runs in full (PLAN.md §5.5) — only the clip itself is skipped.
+   *  Pass `!barkThrottle(...)` for reveal barks on a throttled roll. */
+  skipAudio?: boolean
 }
 
 interface PlayMusicOptions {
@@ -247,7 +250,7 @@ export function useAudio(namespace: string) {
    * yet), or an autoplay block never blocks the caption, only the audio.
    */
   function playVoice(name: string, opts: PlayVoiceOptions = {}): VoiceHandle {
-    const { captionsRef, text = '', delayMs = 300, onEnd } = opts
+    const { captionsRef, text = '', delayMs = 300, onEnd, skipAudio = false } = opts
     // Content docs author some lines with bracketed ElevenLabs v3 delivery tags
     // (e.g. [grim], [quiet]) for generation — TTS-only, never shown on screen.
     // Tags can sit mid-sentence ("...call. [grim] This one's..."), so collapse
@@ -260,7 +263,7 @@ export function useAudio(namespace: string) {
       if (cancelled) return
       if (captionsRef && captionText) stopTeletype = teletype(captionsRef, captionText, onEnd)
       else onEnd?.()
-      void playBuffer('voice', name)
+      if (!skipAudio) void playBuffer('voice', name)
     }, delayMs)
 
     return {
