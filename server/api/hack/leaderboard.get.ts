@@ -33,8 +33,12 @@ export default defineEventHandler(async () => {
       const userItems = items.filter(i => i.userId === state.userId)
       const itemMap = new Map(userItems.map(i => [i.id, i]))
 
+      // Only active agents count toward power (matches /hack, where inactive
+      // agents sit in storage and don't contribute to totalPower).
+      const activeAgents = userAgents.filter(a => a.active)
+
       let totalPower = 0
-      for (const agent of userAgents) {
+      for (const agent of activeAgents) {
         const equippedItems = [agent.equippedTool, agent.equippedSoftware, agent.equippedHardware]
           .filter(Boolean)
           .map(id => itemMap.get(id!))
@@ -51,7 +55,7 @@ export default defineEventHandler(async () => {
         userId: state.userId,
         name: u.name,
         totalPower,
-        agentCount: userAgents.length,
+        agentCount: activeAgents.length,
         itemCount: userItems.length,
         rosterSlots: state.rosterSlots,
         totalOpsCompleted: state.totalOpsCompleted,
