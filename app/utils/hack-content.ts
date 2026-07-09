@@ -53,7 +53,7 @@ export const MISSION_BRIEFING: Record<string, string> = {
   phishing_run: 'Fifty inboxes at a logistics company, one convincing email, and we own their credentials by lunch. People still click links, Handler. Every time.',
   corp_breach: 'Fortune 500 HR database — social security numbers, salaries, the works. Get in, get the credentials, get out clean. First real target on the board. Don\'t get comfortable.',
   bank_skim: 'Wire traffic between two regional banks, running mostly unencrypted where it shouldn\'t be. Sit on the line, skim what moves, and nobody notices a thing — assuming your people are as good as you say they are.',
-  ransomware_drop: 'Regional hospital network, lousy backups, worse security. Drop the payload, lock what needs locking, and let me handle the ransom call. This one\'s going to test somebody\'s stomach.',
+  ransomware_drop: 'Regional hospital network, lousy backups, worse security. Drop the payload, lock what needs locking, and let me handle the ransom call. [grim] This one\'s going to test somebody\'s stomach.',
   dark_web: 'Anonymous buyer, anonymous drop point, credentials nobody asks where you got. Deliver clean, get paid in something that doesn\'t trace. Standard dead-drop rules apply — don\'t be curious about the client.',
   crypto_heist: 'Found a race condition in a decentralized exchange\'s contract — window\'s maybe ninety seconds before someone patches it. Drain the hot wallet, get out before the block confirms. Small window, big payday.',
   telecom_tap: 'We\'re splicing into backbone fibre between two national exchanges. This is real infrastructure, real stakes — carrier-grade security on the other end. I need a full team on this, not a solo run.',
@@ -61,12 +61,12 @@ export const MISSION_BRIEFING: Record<string, string> = {
   mil_intel: 'Defense subcontractor, procurement documents, the kind of paperwork that tells you what the government\'s buying before anyone else knows. High value, high heat. Move fast, leave nothing behind.',
   gov_heist: 'A federal server farm, classified documents, and a security team that actually knows what they\'re doing. This is the real thing now. I don\'t send a squad in light on this one.',
   ai_theft: 'Two hundred gigs of proprietary model weights sitting in a misconfigured storage bucket at a company that should know better. Whoever trained that model spent millions. We take it for the price of a data transfer.',
-  central_bank: 'Ten hours sitting quietly on SWIFT traffic out of a central bank. No smash and grab here — just patience, and the kind of intelligence that\'s worth more than the cash we\'ll skim off it.',
-  black_site: 'There\'s a facility that doesn\'t officially exist, running AI research that officially doesn\'t happen either. We\'re going in anyway. If this goes sideways, nobody\'s coming to explain it to the press.',
-  nsa_breach: 'Fort Meade. I\'m going to say that again so it sinks in — Fort Meade. We\'re not hacking a company anymore, we\'re hacking the people who taught everyone else how to hack. If your squad isn\'t ready, don\'t send them.',
+  central_bank: 'Ten hours, sitting quietly on SWIFT traffic out of a central bank... No smash and grab here — just patience, and the kind of intelligence that\'s worth more than the cash we\'ll skim off it.',
+  black_site: '[grim] There\'s a facility that doesn\'t officially exist, running AI research that officially doesn\'t happen either. We\'re going in anyway. If this goes sideways, nobody\'s coming to explain it to the press.',
+  nsa_breach: 'Fort Meade. I\'m going to say that again so it sinks in... Fort Meade. We\'re not hacking a company anymore — we\'re hacking the people who taught everyone else how to hack. If your squad isn\'t ready, don\'t send them.',
   ghost_protocol: 'Sovereign-level cyber fortress — that\'s diplomatic language for \'a nation-state built this to be unbreakable.\' Ghost Protocol means exactly what it sounds like: you\'re not there, you were never there, and if this goes wrong, I never heard of you.',
   quantum_heist: 'Somebody\'s quantum processor, hijacked for about six hours, cracking encryption that\'s supposed to be unbreakable for the next fifty years. We might be looking at the last heist of its kind before this stuff becomes standard. Make it count.',
-  project_zero: 'Project Zero. I\'ve been doing this a long time, and I\'ve never sent a full squad after something like this — a nation-state AI system, zero-day access, persistent. Whatever happens after tonight, the board looks different. Everyone goes. No exceptions.'
+  project_zero: 'Project Zero. I\'ve been doing this a long time, and I\'ve never sent a full squad after something like this — a nation-state AI system, zero-day access, persistent. [quiet] Whatever happens after tonight... the board looks different. Everyone goes. No exceptions.'
 }
 
 // Reused end-of-briefing line — plays once per session, not per mission.
@@ -78,7 +78,7 @@ export const COLLECT_LINES = {
   successVoice: 'collect-success-1',
   successText: 'Clean job. Money\'s already moving.',
   successRareVoice: 'collect-success-rare',
-  successRareText: 'Now *that\'s* a payday. Don\'t get used to it.',
+  successRareText: 'Now THAT\'S a payday. Don\'t get used to it.',
   failureVoice: 'collect-failure',
   failureText: 'We lost this one. Everyone\'s alive, that\'s the part that matters.'
 }

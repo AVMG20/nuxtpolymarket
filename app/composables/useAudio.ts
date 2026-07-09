@@ -250,7 +250,9 @@ export function useAudio(namespace: string) {
     const { captionsRef, text = '', delayMs = 300, onEnd } = opts
     // Content docs author some lines with bracketed ElevenLabs v3 delivery tags
     // (e.g. [grim], [quiet]) for generation — TTS-only, never shown on screen.
-    const captionText = text.replace(/\[[^\]]*\]/g, '').trim()
+    // Tags can sit mid-sentence ("...call. [grim] This one's..."), so collapse
+    // the resulting double space rather than just trimming the ends.
+    const captionText = text.replace(/\[[^\]]*\]/g, '').replace(/\s+/g, ' ').trim()
     let cancelled = false
     let stopTeletype: (() => void) | null = null
 
