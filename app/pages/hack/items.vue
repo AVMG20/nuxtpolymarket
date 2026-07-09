@@ -1,30 +1,10 @@
 <script setup lang="ts">
 import {
-  RARITY_COLOR, RARITY_LABEL, formatModValue, MOD_LABEL,
+  RARITY_COLOR, RARITY_LABEL, MOD_LABEL, formatModValue,
   itemSellPrice, RARITY_ORDER, MOD_RANGES,
   rerollCost, ITEM_MAX_LEVEL, itemUpgradeCost, itemPower,
   type HackRarity, type ItemSlot, type ItemMod, type ModType,
 } from '#shared/utils/hack-config'
-
-// Roll quality: what % of max value does this mod roll represent
-function rollQuality(type: ModType, value: number): number {
-  const range = MOD_RANGES[type]
-  return Math.round((value - range.min) / (range.max - range.min) * 100)
-}
-// Roll quality coloring (shared by value text + progress bar). Red below 25% of max,
-// yellow below 55%, primary above — never muted, so every bar stays visible.
-function rollQualityColor(pct: number) {
-  if (pct < 25) return 'text-error'
-  if (pct < 55) return 'text-warning'
-  return 'text-primary'
-}
-function formatRangeValue(type: ModType, val: number): string {
-  if (type === 'gem_chance' || type === 'item_chance') return `${(val * 100).toFixed(1)}%`
-  if (type === 'xp_flat') return `${val} XP`
-  if (type === 'gem_bonus') return `${Math.round(val)} gems`
-  if (type === 'power_flat') return `${val}`
-  return `${val}%`
-}
 
 const { fetchSession, user } = useAuth()
 const gems = computed(() => user.value?.gems ?? 0)
@@ -173,10 +153,10 @@ async function doReroll() {
       <div class="flex items-center justify-between">
         <div>
           <h1 class="text-2xl font-bold">Items</h1>
-          <p class="text-sm text-muted mt-0.5">Buy crates for random gear, then level it up or re-roll specs at the crafting bench.</p>
+          <p class="hack-eyebrow mt-1.5">// inventory &amp; crafting</p>
         </div>
         <div class="flex items-center gap-2">
-          <div v-if="state" class="px-3 py-2 rounded-lg bg-elevated border border-default text-sm font-medium">
+          <div v-if="state" class="hack-frame hack-frame-tight px-3 py-2 text-sm font-medium">
             {{ state.inventoryCount }}/{{ state.maxInventorySlots }} items
           </div>
           <UButton icon="i-lucide-package" label="Inventory" variant="soft" color="neutral" size="sm"
@@ -197,10 +177,10 @@ async function doReroll() {
 
       <!-- ── Crafting bench — select an item in the inventory, then drop it here ── -->
       <section class="space-y-3">
-        <h2 class="font-semibold text-base text-muted uppercase tracking-wide flex items-center gap-2">
+        <h2 class="hack-stat-label-md flex items-center gap-2">
           <UIcon name="i-lucide-hammer" class="size-4" /> Crafting Bench
         </h2>
-        <UCard class="ring-1 ring-primary/40">
+        <HackFrame accent class="p-5">
           <div class="flex items-start justify-between gap-3 mb-3">
             <p class="text-sm text-muted">Spend gems to upgrade an item's level (+2 power each), or lock the specs you want to keep and re-roll the rest — each lock costs extra.</p>
             <UButton v-if="rerollItem" size="xs" color="neutral" variant="ghost" icon="i-lucide-x" @click="clearReroll" />
@@ -210,11 +190,11 @@ async function doReroll() {
           <template v-if="rerollItem">
             <div class="flex items-center gap-2 mb-3">
               <UBadge :color="RARITY_COLOR[rerollItem.rarity]" variant="subtle" :label="RARITY_LABEL[rerollItem.rarity]" />
-              <span class="font-semibold text-sm">{{ rerollItem.name }}</span>
+              <span class="hack-card-title-lg">{{ rerollItem.name }}</span>
             </div>
 
             <!-- Level upgrade — +2 power per level, paid in gems -->
-            <div class="flex items-center justify-between gap-3 p-3 rounded-lg border border-default bg-elevated mb-3">
+            <div class="hack-frame hack-frame-tight hack-frame-2 flex items-center justify-between gap-3 p-3 mb-3">
               <div>
                 <p class="text-sm font-semibold">
                   Level {{ rerollItem.itemLevel }}<span v-if="!isMaxLevel" class="text-muted font-normal"> / {{ ITEM_MAX_LEVEL }}</span>
@@ -233,31 +213,21 @@ async function doReroll() {
             </div>
 
             <div class="space-y-1.5 mb-4">
-              <button
-                v-for="m in rerollItem.mods" :key="m.type" type="button"
-                class="w-full flex items-center justify-between gap-3 p-2 rounded-lg border transition-colors text-left"
-                :class="rerollLocked.includes(m.type)
-                  ? 'border-primary/50 bg-primary/10'
-                  : 'border-default bg-elevated hover:border-primary/40'"
-                @click="toggleLock(m.type)"
-              >
-                <div class="flex items-center gap-2 shrink-0">
-                  <UIcon :name="rerollLocked.includes(m.type) ? 'i-lucide-lock' : 'i-lucide-lock-open'"
-                    class="size-4" :class="rerollLocked.includes(m.type) ? 'text-primary' : 'text-muted'" />
-                  <span class="text-sm text-muted">{{ MOD_LABEL[m.type] }}</span>
-                </div>
-                <div class="flex items-center gap-2">
-                  <span class="text-xs text-muted">max {{ formatRangeValue(m.type, MOD_RANGES[m.type].max) }}</span>
-                  <span class="font-bold text-sm w-16 text-right" :class="rollQualityColor(rollQuality(m.type, m.value))">
-                    {{ formatModValue(m.type, m.value) }}
+              <div v-for="m in rerollItem.mods" :key="m.type" class="hack-trait-row">
+                <div class="flex items-center justify-between gap-3 mb-2">
+                  <span class="text-sm">
+                    <b>{{ formatModValue(m.type, m.value) }}</b>
+                    <span class="hack-mod-chip-label ml-1.5">{{ MOD_LABEL[m.type] }}</span>
                   </span>
-                  <div class="w-16 h-1.5 rounded-full bg-elevated-2 overflow-hidden">
-                    <div class="h-full rounded-full transition-all"
-                      :class="rollQualityColor(rollQuality(m.type, m.value)).replace('text-', 'bg-')"
-                      :style="{ width: `${rollQuality(m.type, m.value)}%` }" />
-                  </div>
+                  <button type="button" class="hack-lock-chip" :class="rerollLocked.includes(m.type) && 'locked'" @click="toggleLock(m.type)">
+                    <span class="hack-lock-dot" />
+                    {{ rerollLocked.includes(m.type) ? 'Locked' : 'Lock' }}
+                  </button>
                 </div>
-              </button>
+                <HackRangeBar
+                  :min="MOD_RANGES[m.type].min" :max="MOD_RANGES[m.type].max" :value="m.value"
+                />
+              </div>
             </div>
 
             <div class="flex items-center justify-between gap-3">
@@ -277,10 +247,8 @@ async function doReroll() {
           <!-- Empty: drop target when an item is selected, otherwise a hint -->
           <button
             v-else type="button" :disabled="!selectedItem"
-            class="w-full flex flex-col items-center justify-center gap-2 py-8 rounded-lg border-2 border-dashed transition-colors"
-            :class="selectedItem
-              ? 'border-primary/60 bg-primary/5 hover:bg-primary/10 cursor-pointer'
-              : 'border-default cursor-default'"
+            class="hack-frame hack-frame-tight w-full flex flex-col items-center justify-center gap-2 py-8 border-dashed transition-colors"
+            :class="selectedItem ? 'hack-frame-accent cursor-pointer' : 'cursor-default'"
             @click="selectedItem && loadReroll(selectedItem.id)"
           >
             <UIcon :name="selectedItem ? 'i-lucide-arrow-down-to-line' : 'i-lucide-hammer'"
@@ -288,7 +256,7 @@ async function doReroll() {
             <span v-if="selectedItem" class="text-sm font-medium text-primary">Place {{ selectedItem.name }} here</span>
             <span v-else class="text-sm text-muted">Select an item from your inventory to upgrade or re-roll it.</span>
           </button>
-        </UCard>
+        </HackFrame>
       </section>
     </div>
 
@@ -326,7 +294,7 @@ async function doReroll() {
           Buy a crate on the Black Market to fill your inventory.
         </div>
         <div v-else class="space-y-2">
-          <HackInventoryItem
+          <HackItemCard
             v-for="item in sortedItems" :key="item.id"
             :item="item" :selected="selectedItemId === item.id" show-status
             @select="selectItem(item.id)"
@@ -340,7 +308,7 @@ async function doReroll() {
                 :loading="selling === item.id"
                 @click="requestSell(item.id)" />
             </template>
-          </HackInventoryItem>
+          </HackItemCard>
         </div>
       </div>
     </div>
@@ -351,7 +319,7 @@ async function doReroll() {
     <template #body>
       <div class="p-4 space-y-2 overflow-y-auto h-full">
         <div v-if="!state?.items.length" class="text-sm text-muted text-center py-8">No items yet.</div>
-        <HackInventoryItem
+        <HackItemCard
           v-else v-for="item in sortedItems" :key="item.id"
           :item="item" :selected="selectedItemId === item.id" show-status
           @select="selectItem(item.id)"
@@ -366,7 +334,7 @@ async function doReroll() {
               :label="sellConfirmId === item.id ? 'Confirm sell?' : `Sell $${formatNumber(itemSellPrice(item.rarity), true)}`"
               :loading="selling === item.id" @click="requestSell(item.id)" />
           </template>
-        </HackInventoryItem>
+        </HackItemCard>
       </div>
     </template>
   </USlideover>

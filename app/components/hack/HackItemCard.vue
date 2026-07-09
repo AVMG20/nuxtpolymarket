@@ -5,11 +5,10 @@ import {
   type HackRarity, type ItemSlot, type ItemMod
 } from '#shared/utils/hack-config'
 
-// HUD counterpart to InventoryItem.vue — same prop/emit/slot contract so it
-// can drop in wherever an item card is used (Items, Loadout, Agents gear).
-// Per PLAN.md §10.4: base power (from level) is shown as its own row,
-// separate from the rolled mod list, even though a power_flat mod (if any)
-// contributes to both the "total" figure and its own chip below.
+// The one item card used everywhere an item is displayed (Items, Loadout,
+// Agents gear). Per PLAN.md §10.4: base power (from level) is shown as its
+// own row, separate from the rolled mod list, even though a power_flat mod
+// (if any) contributes to both the "total" figure and its own chip below.
 const props = defineProps<{
   item: {
     id: string
