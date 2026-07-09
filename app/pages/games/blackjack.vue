@@ -383,24 +383,24 @@ function newGame() {
                   <template v-for="hand in gameState.playerHands" :key="hand.id">
                     <div v-if="hand.status === 'won'" class="text-success font-bold flex items-center gap-1 text-base bg-success/15 px-3 py-1 rounded-full border border-success/20">
                       <UIcon name="i-lucide-coins" class="size-4" />
-                      +{{ hand.bet * 2 }}
+                      +{{ formatNumber(hand.bet * 2, false) }}
                     </div>
                     <div v-else-if="hand.status === 'blackjack'" class="text-success font-bold flex items-center gap-1 text-base bg-success/15 px-3 py-1 rounded-full border border-success/20">
                       <span class="text-xs text-success/70 font-medium uppercase tracking-wider mr-1">BJ</span>
                       <UIcon name="i-lucide-coins" class="size-4" />
-                      +{{ hand.bet * 2.5 }}
+                      +{{ formatNumber(hand.bet * 2.5, false) }}
                     </div>
                     <div v-else-if="hand.status === 'push'" class="text-warning font-bold flex items-center gap-1 text-base bg-warning/15 px-3 py-1 rounded-full border border-warning/20">
                       <UIcon name="i-lucide-coins" class="size-4" />
-                      +{{ hand.bet }}
+                      +{{ formatNumber(hand.bet, false) }}
                     </div>
                     <div v-else-if="hand.status === 'surrendered'" class="text-error font-bold flex items-center gap-1 text-base bg-error/15 px-3 py-1 rounded-full border border-error/20">
                       <UIcon name="i-lucide-coins" class="size-4" />
-                      -{{ Math.floor(hand.bet / 2) }}
+                      -{{ formatNumber(Math.floor(hand.bet / 2), false) }}
                     </div>
                     <div v-else class="text-error font-bold flex items-center gap-1 text-base bg-error/15 px-3 py-1 rounded-full border border-error/20">
                       <UIcon name="i-lucide-coins" class="size-4" />
-                      -{{ hand.bet }}
+                      -{{ formatNumber(hand.bet, false) }}
                     </div>
                   </template>
                 </div>
@@ -419,7 +419,7 @@ function newGame() {
                   <!-- Bet chip -->
                   <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold bg-warning/15 text-warning border border-warning/20">
                     <UIcon name="i-lucide-coins" class="size-3" />
-                    {{ hand.bet }}
+                    {{ formatNumber(hand.bet, false) }}
                   </span>
                 </div>
                 <div class="flex justify-center mt-2">
@@ -446,7 +446,7 @@ function newGame() {
                 <span class="font-bold tabular-nums text-sm opacity-30">?</span>
                 <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold bg-warning/10 text-warning/30 border border-warning/10">
                   <UIcon name="i-lucide-coins" class="size-3" />
-                  {{ bet }}
+                  {{ formatNumber(bet, false) }}
                 </span>
               </div>
               <div class="flex justify-center mt-2">
