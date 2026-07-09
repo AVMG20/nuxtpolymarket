@@ -772,3 +772,69 @@ errors, confirmed `items.vue`'s crafting bench correctly loads a real
 item, renders its mods on `HackRangeBar`, and that clicking a
 `.hack-lock-chip` actually toggles its `.locked` class (not just a visual
 check — asserted the class in the DOM).
+
+### Fidelity pass — done (playtest feedback after Phases 3–4 shipped)
+
+The first HUD pass restyled the tokens but several screens didn't actually
+resemble their `mockups/*.html`. Reworked all four against the mockups,
+plus two smaller asks:
+
+1. **`history.vue` → the `history.html` layout.** Was one `HackFrame` per
+   row; the mockup is a *single* frame with hairline-separated
+   `.hack-report-row`s, a rotated `.hack-stamp-sm`, `.hack-reward-chip`s
+   *between* the title and the meta line (not on the right), and a chevron
+   that rotates on expand. New `.hack-report-row`/`.hack-reward-chip`/
+   `.hack-chevron` classes in `hack.css`. Lifetime-total tiles now render
+   plain `formatNumber` mono text like the mockup instead of
+   `CoinBalance`/`GemBalance` — which also **killed a real SSR hydration
+   mismatch**: those two components wrap the value in a `UTooltip`
+   (`PopperRoot`) that hydrates with a different child count than the
+   server rendered. It predated this session (the old totals used them
+   too) but only surfaced now because earlier checks client-navigated
+   between tabs rather than cold-loading each; a full `page.goto` per tab
+   exposed it. Confirmed gone via a Vue-warn listener in Chromium.
+2. **`items.vue` → the `items.html` two-column layout.** Inventory left
+   (filter buttons + sort), Crafting Bench right (`frame-accent`) with a
+   gem cost-preview block and lock-chip + `HackRangeBar` re-roll rows. Item
+   cards gained always-visible Load-into-Bench / Sell actions
+   (`HackItemCard` `actionsAlways` prop) instead of the select-then-act
+   flow. Grid stacks on mobile — no separate bench slideover needed.
+3. **`agents.vue` → the `agents-roster.html` cards**, with the user's one
+   change: sleeper agents are a **right-side list on `xl`, and drop below
+   the roster on smaller screens** (`xl:grid-cols-[1fr_340px]`, verified in
+   both a 1600px and a 430px viewport). Real class portraits
+   (`CLASS_PORTRAIT`) replace the icon-in-a-box avatars, gear rows use a
+   rarity-accent left strip.
+4. **`loadout.vue` closer to `loadout.html`.** Kept the fixed three-column
+   layout (the user preferred it to the mockup's page-scroll), but framed
+   each rail (`HackFrame`), swapped icon boxes for portraits (150px
+   operator, 40px roster minis), enlarged the gear bays, and — the user's
+   specific ask — **unified the sort controls with the slot filter**: both
+   are now `.hack-filter-btn`s (new shared class, also used by `items.vue`)
+   instead of a mismatched `UButtonGroup` + direction toggle.
+
+**`HackItemCard` legibility fix** (the "hard to read" item text): titles
+are now rarity-colored, with a left slot-icon column and a clear
+"base +N · total N PWR" mono line, mirroring the mockup's `itemCardHTML`.
+Since it's shared, this improved the cards on Items, Loadout, and Agents
+at once.
+
+**Recruit reveal now stamps the rarity at the top** like a crate open
+(`HackRecruitOpening` gained the `.hack-stamp` + gsap scale-in the crate
+already had) instead of only showing a small badge beside the codename —
+verified a real Specialist pull renders the "SPECIALIST" stamp.
+
+**Cursor affordance:** Nuxt UI's base button sets no `cursor`, so enabled
+`UButton`s (and native `<button>`s) showed the arrow. Added a scoped
+`hack.css` rule — `.hack-shell button:not(:disabled), … a[href] { cursor:
+pointer }` — which also reaches the reveal/compare modals since they wrap
+their teleported content in `.hack-shell`. Every genuinely-clickable
+custom `div` (roster items, gear bays, report rows, sleeper cards) also
+carries an explicit `cursor-pointer`; confirmed `pointer` computed on both
+a `UButton` and a `.hack-filter-btn` in a real browser.
+
+Verified every hack tab cold-loads clean (only the unrelated
+`/api/chat/*` 500s remain, present app-wide) and typecheck passes on all
+touched files. Remaining lint is baseline-consistent — `catch (e: any)`
+and multi-root templates that the committed `market.vue`/`index.vue`
+carry identically.
