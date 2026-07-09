@@ -465,7 +465,7 @@ const filteredTemplates = computed(() =>
               class="size-9 text-primary/40"
             />
             <UBadge
-              size="xs"
+              size="md"
               class="absolute bottom-2 left-2"
               variant="subtle"
               :color="RARITY_COLOR[missionTierRarity(template.id)]"

@@ -12,9 +12,12 @@
    pages already use. */
 
 .hack-shell {
-  --hack-bg: #0a0d12;
-  --hack-panel: #11161d;
-  --hack-panel-2: #161c25;
+  /* Tracks the user's Neutral theme pick (zinc/stone/slate/...) via Nuxt UI's
+     own --ui-color-neutral-* scale, so the HUD's dark palette shifts hue with
+     it instead of sitting on a fixed navy-black regardless of preference. */
+  --hack-bg: var(--ui-color-neutral-950);
+  --hack-panel: var(--ui-color-neutral-900);
+  --hack-panel-2: var(--ui-color-neutral-800);
   --hack-border: rgba(255, 255, 255, 0.08);
   --hack-border-strong: rgba(255, 255, 255, 0.16);
   --hack-accent: var(--ui-primary);
@@ -76,9 +79,14 @@
 }
 .hack-stat-value-lg { font-family: var(--font-mono, ui-monospace, monospace); font-size: 17px; font-weight: 600; }
 
-/* Navbar-style hero stat (cash/gems/power) — bigger + bolder than a plain label. */
+/* Navbar-style hero stat (cash/gems/power) — bigger + bolder than a plain label.
+   Sets color directly rather than via a Tailwind text-primary utility class —
+   this stylesheet is JS-imported into hack.vue and lands after Nuxt UI's
+   generated CSS in the bundle, so a same-specificity Tailwind utility on the
+   same element loses to .hack-stat's color rule below. */
 .hack-stat-hero { display: inline-flex; align-items: center; gap: 6px; }
-.hack-stat-hero b { font-size: 16px; font-weight: 700; color: currentColor; }
+.hack-stat.hack-stat-hero { color: var(--hack-accent); }
+.hack-stat.hack-stat-hero b { font-size: 16px; font-weight: 700; color: currentColor; }
 
 /* ── Mod / trait chip — bold value + muted uppercase label, no emoji (round 5) ── */
 .hack-mod-chip {
@@ -168,7 +176,7 @@
   flex-wrap: wrap;
   padding: 10px 18px;
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 12.5px;
+  font-size: 13.5px;
 }
 .hack-stat { display: flex; align-items: center; gap: 7px; color: var(--ui-text-muted); }
 .hack-stat b { color: var(--ui-text); font-weight: 600; }

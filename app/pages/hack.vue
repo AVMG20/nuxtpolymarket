@@ -43,7 +43,7 @@ onMounted(() => {
     <div class="hack-statbar border-b border-default">
       <div class="flex items-center gap-5 flex-wrap">
         <span class="hack-stat"><span class="hack-dot" />{{ user?.name ?? 'OPERATOR' }}</span>
-        <span class="hack-stat hack-stat-hero text-primary">
+        <span class="hack-stat hack-stat-hero">
           <UIcon
             name="i-lucide-zap"
             class="size-4"
