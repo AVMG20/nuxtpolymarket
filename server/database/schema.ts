@@ -215,6 +215,86 @@ export const xenoBreederSlots = pgTable('xeno_breeder_slots', {
   unique('xeno_breeder_slot_unique').on(t.userId, t.slotIndex)
 ])
 
+// ─── Colony ───────────────────────────────────────────────────────────────────
+
+/**
+ * One row per user. Bugs forage continuously rather than XENO's single-shot
+ * grow cycle, so production is settled analytically from elapsed real time
+ * (see server/utils/colony.ts:settleColony) every time state is read or a
+ * colony action runs — there is no server-side interval/loop. lastSettledAt
+ * is the anchor nutrition decay (and each bug's tick progress) is computed
+ * from. Settling never credits items directly to the player — it only fills
+ * colonyLoot, which must be claimed manually via the loot chest.
+ */
+export const colonyState = pgTable('colony_state', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().unique().references(() => user.id, { onDelete: 'cascade' }),
+  /** Gates which bug tiers are purchasable (tier N species require habitatLevel >= N). */
+  habitatLevel: integer('habitat_level').notNull().default(1),
+  /** Current nutrition units, capped by the derived nutrition_storage track max; bugs stop producing at 0 */
+  nutrition: integer('nutrition').notNull().default(100),
+  lastSettledAt: timestamp('last_settled_at').defaultNow().notNull(),
+  /** The single builder's current job, if any — cleared on collect. */
+  builderTrackId: text('builder_track_id'),
+  builderStartedAt: timestamp('builder_started_at')
+})
+
+/**
+ * One row = one bug instance. Buying/mutating a bug puts it in the player's
+ * inventory (inTerrarium: false) — it only forages once manually placed into
+ * the terrarium (up to capacity), mirroring XENO's buy-then-plant flow.
+ */
+export const colonyBugs = pgTable('colony_bugs', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  typeId: text('type_id').notNull(),
+  speed: integer('speed').notNull(),
+  yield: integer('yield').notNull(),
+  /** How much nutrition this bug consumes — a downside stat, higher is hungrier. */
+  feed: integer('feed').notNull().default(0),
+  /** Whether this bug is placed in the terrarium (foraging) or sitting in inventory. */
+  inTerrarium: boolean('in_terrarium').notNull().default(false),
+  /** Progress in ms toward this bug's next production tick, only advances while placed. */
+  tickProgressMs: integer('tick_progress_ms').notNull().default(0),
+  createdAt: timestamp('created_at').defaultNow().notNull()
+}, t => [index('colony_bugs_userId_idx').on(t.userId)])
+
+/**
+ * Loot a bug's production tick generates but the player hasn't claimed yet.
+ * Settling fills this; the loot chest (loot/collect) moves it into colonyItems.
+ */
+export const colonyLoot = pgTable('colony_loot', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  itemTypeId: text('item_type_id').notNull(),
+  quantity: integer('quantity').notNull().default(0)
+}, t => [
+  index('colony_loot_userId_idx').on(t.userId),
+  unique('colony_loot_unique').on(t.userId, t.itemTypeId)
+])
+
+/** Claimed item inventory — spendable in the market and toward item-gated upgrades. */
+export const colonyItems = pgTable('colony_items', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  itemTypeId: text('item_type_id').notNull(),
+  quantity: integer('quantity').notNull().default(0)
+}, t => [
+  index('colony_items_userId_idx').on(t.userId),
+  unique('colony_items_unique').on(t.userId, t.itemTypeId)
+])
+
+/** Leveled builder upgrade tracks (capacity, yield, speed, nutrition storage/efficiency). One row per track. */
+export const colonyUpgrades = pgTable('colony_upgrades', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  trackId: text('track_id').notNull(),
+  level: integer('level').notNull().default(0)
+}, t => [
+  index('colony_upgrades_userId_idx').on(t.userId),
+  unique('colony_upgrades_unique').on(t.userId, t.trackId)
+])
+
 // ─── Hack Ops ─────────────────────────────────────────────────────────────────
 
 export const hackState = pgTable('hack_state', {
