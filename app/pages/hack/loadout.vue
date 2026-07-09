@@ -1,16 +1,25 @@
 <script setup lang="ts">
 import {
-  RARITY_COLOR, RARITY_LABEL, RARITY_STYLE, CLASS_LABEL, CLASS_ICON,
+  RARITY_COLOR, RARITY_LABEL, RARITY_STYLE, CLASS_LABEL,
   SLOT_ICON, SLOT_LABEL, RARITY_ORDER,
   agentPower, agentBonusStats, itemPower,
-  type HackRarity, type AgentClass, type ItemSlot, type ItemMod, type AgentTrait,
+  type HackRarity, type AgentClass, type ItemSlot, type ItemMod, type AgentTrait
 } from '#shared/utils/hack-config'
+import { CLASS_PORTRAIT } from '~/utils/hack-content'
 
-type InvItem = { id: string; name: string; slot: ItemSlot; itemLevel: number; rarity: HackRarity; mods: ItemMod[]; equippedBy?: string | null }
+type InvItem = { id: string, name: string, slot: ItemSlot, itemLevel: number, rarity: HackRarity, mods: ItemMod[], equippedBy?: string | null }
 type Gear = { tool: InvItem | null, software: InvItem | null, hardware: InvItem | null }
 type Agent = {
-  id: string; name: string; class: AgentClass; rarity: HackRarity; level: number; power: number
-  traits: AgentTrait[]; gear: Gear; active: boolean; onOp: boolean
+  id: string
+  name: string
+  class: AgentClass
+  rarity: HackRarity
+  level: number
+  power: number
+  traits: AgentTrait[]
+  gear: Gear
+  active: boolean
+  onOp: boolean
 }
 
 const SLOTS: ItemSlot[] = ['tool', 'software', 'hardware']
@@ -51,25 +60,31 @@ const agentCombinedStats = computed(() =>
 const mobileRosterOpen = ref(false)
 const mobileInventoryOpen = ref(false)
 const slotFilter = ref<ItemSlot | 'all'>('tool')
-const sortOptions = [
-  { value: 'value', label: 'Value' },
-  { value: 'rarity', label: 'Rarity' },
-  { value: 'type', label: 'Type' },
+const slotFilters = [
+  { value: 'all', label: 'All' },
+  { value: 'tool', label: 'Tool' },
+  { value: 'software', label: 'Soft' },
+  { value: 'hardware', label: 'HW' }
 ] as const
-const sortBy = ref<'value' | 'rarity' | 'type'>('rarity')
-const sortDir = ref<'desc' | 'asc'>('desc')
+const sortOptions = [
+  { value: 'rarity', label: 'Rarity' },
+  { value: 'power', label: 'Power' },
+  { value: 'name', label: 'Name' }
+] as const
+const sortBy = ref<'rarity' | 'power' | 'name'>('rarity')
 
 const filteredItems = computed<InvItem[]>(() => {
   const items = ((state.value?.items ?? []) as InvItem[])
     .filter(i => slotFilter.value === 'all' || i.slot === slotFilter.value)
-  const dir = sortDir.value === 'asc' ? 1 : -1
   items.sort((a, b) => {
-    let cmp = 0
-    if (sortBy.value === 'value') cmp = itemPower(a) - itemPower(b)
-    else if (sortBy.value === 'rarity') cmp = RARITY_ORDER.indexOf(a.rarity) - RARITY_ORDER.indexOf(b.rarity)
-    else cmp = a.slot.localeCompare(b.slot)
-    if (cmp === 0) cmp = itemPower(a) - itemPower(b)
-    return cmp * dir
+    if (sortBy.value === 'power') {
+      return itemPower(b) - itemPower(a)
+    }
+    if (sortBy.value === 'name') {
+      return a.name.localeCompare(b.name)
+    }
+    const r = RARITY_ORDER.indexOf(b.rarity) - RARITY_ORDER.indexOf(a.rarity)
+    return r !== 0 ? r : itemPower(b) - itemPower(a)
   })
   return items
 })
@@ -96,7 +111,7 @@ function statsFor(agent: Agent, gear: Gear) {
 const compareItemId = ref<string | null>(null)
 const compareOpen = computed({
   get: () => compareItemId.value !== null,
-  set: (v: boolean) => { if (!v) compareItemId.value = null },
+  set: (v: boolean) => { if (!v) compareItemId.value = null }
 })
 const compareCandidate = computed<InvItem | null>(() =>
   ((state.value?.items ?? []) as InvItem[]).find(i => i.id === compareItemId.value) ?? null)
@@ -113,7 +128,7 @@ const compareDeltaRows = computed(() => {
   if (!compareBefore.value || !compareAfter.value) return []
   const labels = new Set([
     ...compareBefore.value.bonuses.map(s => s.label),
-    ...compareAfter.value.bonuses.map(s => s.label),
+    ...compareAfter.value.bonuses.map(s => s.label)
   ])
   return [...labels].map((label) => {
     const b = compareBefore.value!.bonuses.find(s => s.label === label)
@@ -137,7 +152,7 @@ async function confirmSwap() {
   try {
     await $fetch('/api/hack/items/equip', {
       method: 'POST',
-      body: { itemId: compareCandidate.value.id, agentId: selectedAgent.value.id },
+      body: { itemId: compareCandidate.value.id, agentId: selectedAgent.value.id }
     })
     toast.add({ title: `${compareCandidate.value.name} equipped`, color: 'success' })
     compareItemId.value = null
@@ -179,201 +194,366 @@ function onDropOnBay(slot: ItemSlot) {
 <template>
   <div class="flex h-full min-h-0">
     <!-- ── Roster rail (desktop) ──────────────────────────────────── -->
-    <div class="hidden lg:flex flex-col w-64 shrink-0 border-r border-default overflow-y-auto">
-      <div class="p-3 space-y-4 pb-12">
+    <div class="hidden lg:block w-64 shrink-0 overflow-y-auto p-3">
+      <HackFrame class="py-1.5 pb-2">
         <template v-if="state?.agents.length">
-          <p class="text-sm font-semibold text-muted uppercase tracking-wide px-1">Active</p>
-          <div class="space-y-1">
-            <button v-for="a in (state.agents as Agent[])" :key="a.id" type="button"
-              class="w-full flex items-center gap-2.5 p-2 rounded-lg text-left transition-colors"
-              :class="selectedAgentId === a.id ? 'bg-primary/10 ring-1 ring-primary/40' : 'hover:bg-elevated'"
-              @click="selectAgent(a.id)"
+          <p class="hack-eyebrow px-3.5 pt-2.5 pb-1.5">
+            Active
+          </p>
+          <button
+            v-for="a in (state.agents as Agent[])"
+            :key="a.id"
+            type="button"
+            class="w-full flex items-center gap-3 px-3.5 py-2.5 text-left transition-colors border-l-2 cursor-pointer"
+            :class="selectedAgentId === a.id ? 'bg-primary/10 border-primary' : 'border-transparent hover:bg-elevated'"
+            @click="selectAgent(a.id)"
+          >
+            <div
+              class="size-10 shrink-0 overflow-hidden ring-1"
+              :class="RARITY_STYLE[a.rarity].ring"
             >
-              <div class="size-9 rounded-lg flex items-center justify-center shrink-0 ring-1"
-                :class="[RARITY_STYLE[a.rarity].bg, RARITY_STYLE[a.rarity].ring, RARITY_STYLE[a.rarity].text]">
-                <UIcon :name="CLASS_ICON[a.class]" class="size-4" />
-              </div>
-              <div class="min-w-0">
-                <p class="font-medium text-sm truncate">{{ a.name }}</p>
-                <p class="text-xs" :class="RARITY_STYLE[a.rarity].text">{{ RARITY_LABEL[a.rarity] }} · Lv{{ a.level }}</p>
-              </div>
-            </button>
-          </div>
+              <img
+                :src="CLASS_PORTRAIT[a.class]"
+                :alt="CLASS_LABEL[a.class]"
+                class="w-full h-full object-cover"
+              >
+            </div>
+            <div class="min-w-0">
+              <p class="font-semibold text-sm truncate">
+                {{ a.name }}
+              </p>
+              <p
+                class="text-xs font-mono"
+                :class="RARITY_STYLE[a.rarity].text"
+              >
+                {{ RARITY_LABEL[a.rarity] }} · Lv{{ a.level }}
+              </p>
+            </div>
+          </button>
         </template>
         <template v-if="state?.storedAgents.length">
-          <p class="text-sm font-semibold text-muted uppercase tracking-wide px-1">Storage</p>
-          <div class="space-y-1">
-            <button v-for="a in (state.storedAgents as Agent[])" :key="a.id" type="button"
-              class="w-full flex items-center gap-2.5 p-2 rounded-lg text-left transition-colors"
-              :class="selectedAgentId === a.id ? 'bg-primary/10 ring-1 ring-primary/40' : 'hover:bg-elevated'"
-              @click="selectAgent(a.id)"
+          <p class="hack-eyebrow px-3.5 pt-3 pb-1.5">
+            Sleeper
+          </p>
+          <button
+            v-for="a in (state.storedAgents as Agent[])"
+            :key="a.id"
+            type="button"
+            class="w-full flex items-center gap-3 px-3.5 py-2.5 text-left transition-colors border-l-2 cursor-pointer"
+            :class="selectedAgentId === a.id ? 'bg-primary/10 border-primary' : 'border-transparent hover:bg-elevated'"
+            @click="selectAgent(a.id)"
+          >
+            <div
+              class="size-10 shrink-0 overflow-hidden ring-1"
+              :class="RARITY_STYLE[a.rarity].ring"
             >
-              <div class="size-9 rounded-lg flex items-center justify-center shrink-0 ring-1"
-                :class="[RARITY_STYLE[a.rarity].bg, RARITY_STYLE[a.rarity].ring, RARITY_STYLE[a.rarity].text]">
-                <UIcon :name="CLASS_ICON[a.class]" class="size-4" />
-              </div>
-              <div class="min-w-0">
-                <p class="font-medium text-sm truncate">{{ a.name }}</p>
-                <p class="text-xs" :class="RARITY_STYLE[a.rarity].text">{{ RARITY_LABEL[a.rarity] }} · Lv{{ a.level }}</p>
-              </div>
-            </button>
-          </div>
+              <img
+                :src="CLASS_PORTRAIT[a.class]"
+                :alt="CLASS_LABEL[a.class]"
+                class="w-full h-full object-cover"
+              >
+            </div>
+            <div class="min-w-0">
+              <p class="font-semibold text-sm truncate">
+                {{ a.name }}
+              </p>
+              <p
+                class="text-xs font-mono"
+                :class="RARITY_STYLE[a.rarity].text"
+              >
+                {{ RARITY_LABEL[a.rarity] }} · Lv{{ a.level }}
+              </p>
+            </div>
+          </button>
         </template>
-      </div>
+      </HackFrame>
     </div>
 
     <!-- ── Main: operator card ───────────────────────────────────── -->
     <div class="flex-1 min-w-0 overflow-y-auto p-6 space-y-6 pb-12">
       <div class="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 class="text-2xl font-bold">Loadout</h1>
-          <p class="text-sm text-muted mt-0.5">Equip gear and compare before/after stats.</p>
+          <h1 class="text-2xl font-bold">
+            Loadout
+          </h1>
+          <p class="text-sm text-muted mt-0.5">
+            Equip gear and compare before/after stats.
+          </p>
         </div>
         <div class="flex items-center gap-2 lg:hidden">
-          <UButton icon="i-lucide-users" label="Roster" variant="soft" color="neutral" size="sm" @click="mobileRosterOpen = true" />
-          <UButton icon="i-lucide-package" label="Inventory" variant="soft" color="neutral" size="sm" @click="mobileInventoryOpen = true" />
+          <UButton
+            icon="i-lucide-users"
+            label="Roster"
+            variant="soft"
+            color="neutral"
+            size="sm"
+            @click="mobileRosterOpen = true"
+          />
+          <UButton
+            icon="i-lucide-package"
+            label="Inventory"
+            variant="soft"
+            color="neutral"
+            size="sm"
+            @click="mobileInventoryOpen = true"
+          />
         </div>
       </div>
 
-      <div v-if="!state" class="grid grid-cols-1">
+      <div
+        v-if="!state"
+        class="grid grid-cols-1"
+      >
         <USkeleton class="h-96 rounded-xl" />
       </div>
 
-      <div v-else-if="!selectedAgent" class="text-center py-16 text-muted">
-        <UIcon name="i-lucide-user-x" class="size-8 mx-auto mb-2 opacity-30" />
+      <div
+        v-else-if="!selectedAgent"
+        class="text-center py-16 text-muted"
+      >
+        <UIcon
+          name="i-lucide-user-x"
+          class="size-8 mx-auto mb-2 opacity-30"
+        />
         No agents yet — recruit one at the Black Market.
       </div>
 
-      <HackFrame v-else accent class="p-6">
+      <HackFrame
+        v-else
+        accent
+        class="p-6 max-w-2xl mx-auto"
+      >
         <div class="text-center mb-6">
-          <div class="size-16 rounded-xl flex items-center justify-center mx-auto mb-3 ring-1"
-            :class="[RARITY_STYLE[selectedAgent.rarity].bg, RARITY_STYLE[selectedAgent.rarity].ring, RARITY_STYLE[selectedAgent.rarity].text]">
-            <UIcon :name="CLASS_ICON[selectedAgent.class]" class="size-8" />
+          <div
+            class="size-36 mx-auto mb-4 overflow-hidden ring-1"
+            :class="RARITY_STYLE[selectedAgent.rarity].ring"
+          >
+            <img
+              :src="CLASS_PORTRAIT[selectedAgent.class]"
+              :alt="CLASS_LABEL[selectedAgent.class]"
+              class="w-full h-full object-cover"
+            >
           </div>
           <div class="flex items-center justify-center gap-2 flex-wrap">
-            <span class="font-bold text-xl">{{ selectedAgent.name }}</span>
-            <UBadge :color="RARITY_COLOR[selectedAgent.rarity]" variant="subtle" :label="RARITY_LABEL[selectedAgent.rarity]" />
+            <span class="font-bold text-2xl">{{ selectedAgent.name }}</span>
+            <UBadge
+              :color="RARITY_COLOR[selectedAgent.rarity]"
+              variant="subtle"
+              :label="RARITY_LABEL[selectedAgent.rarity]"
+            />
           </div>
-          <p class="text-sm text-muted font-mono mt-1">
+          <p class="text-sm text-muted font-mono mt-1.5">
             {{ CLASS_LABEL[selectedAgent.class] }} · Lv {{ selectedAgent.level }} ·
             <span class="text-primary font-semibold">PWR {{ selectedAgent.power }}</span>
           </p>
         </div>
 
-        <p class="hack-stat-label-md mb-2">Gear bays — click or drag from inventory</p>
-        <div class="space-y-2 mb-5">
-          <div v-for="slot in SLOTS" :key="slot"
-            class="flex items-center gap-3 p-3 rounded-lg border transition-colors cursor-pointer"
+        <p class="hack-stat-label-md mb-2.5">
+          Gear bays — click or drag from inventory
+        </p>
+        <div class="space-y-3 mb-5">
+          <div
+            v-for="slot in SLOTS"
+            :key="slot"
+            class="flex items-center gap-4 p-4 border transition-colors cursor-pointer"
             :class="[
-              selectedSlot === slot ? 'border-primary bg-primary/10' : 'border-default hover:border-primary/40',
-              dragOverSlot === slot && 'border-primary bg-primary/15',
+              selectedSlot === slot ? 'border-primary bg-primary/10' : 'border-default hover:border-primary/50',
+              dragOverSlot === slot && 'border-secondary bg-secondary/10'
             ]"
             @click="selectBay(slot)"
             @dragover.prevent="onDragOverBay(slot)"
             @dragleave="dragOverSlot === slot && (dragOverSlot = null)"
             @drop.prevent="onDropOnBay(slot)"
           >
-            <div class="size-9 rounded-md flex items-center justify-center shrink-0 bg-elevated text-muted">
-              <UIcon :name="SLOT_ICON[slot]" class="size-4" />
+            <div
+              class="size-[52px] shrink-0 flex items-center justify-center border"
+              :class="selectedAgent.gear[slot]
+                ? [RARITY_STYLE[selectedAgent.gear[slot]!.rarity].border, RARITY_STYLE[selectedAgent.gear[slot]!.rarity].text]
+                : 'border-dashed border-default text-muted'"
+            >
+              <UIcon
+                :name="SLOT_ICON[slot]"
+                class="size-6"
+              />
             </div>
             <div class="flex-1 min-w-0">
               <template v-if="selectedAgent.gear[slot]">
                 <div class="flex items-center gap-1.5 flex-wrap">
-                  <span class="font-medium text-sm">{{ selectedAgent.gear[slot]!.name }}</span>
-                  <UBadge size="xs" :color="RARITY_COLOR[selectedAgent.gear[slot]!.rarity]" variant="subtle" :label="RARITY_LABEL[selectedAgent.gear[slot]!.rarity]" />
+                  <span
+                    class="font-bold text-[15px]"
+                    :class="RARITY_STYLE[selectedAgent.gear[slot]!.rarity].text"
+                  >{{ selectedAgent.gear[slot]!.name }}</span>
                 </div>
-                <p class="text-xs text-muted font-mono">{{ SLOT_LABEL[slot] }} · Lv {{ selectedAgent.gear[slot]!.itemLevel }} · +{{ itemPower(selectedAgent.gear[slot]!) }} PWR</p>
+                <p class="text-xs text-muted font-mono mt-0.5">
+                  {{ SLOT_LABEL[slot] }} · Lv {{ selectedAgent.gear[slot]!.itemLevel }} · +{{ itemPower(selectedAgent.gear[slot]!) }} PWR
+                </p>
               </template>
               <template v-else>
-                <p class="text-sm text-muted">Empty {{ SLOT_LABEL[slot] }} slot</p>
-                <p class="text-xs text-muted">Drop a {{ slot }} item here</p>
+                <p class="font-bold text-[15px] text-muted">
+                  Empty {{ SLOT_LABEL[slot] }} slot
+                </p>
+                <p class="text-xs text-muted font-mono mt-0.5">
+                  Drop a {{ slot }} item here
+                </p>
               </template>
             </div>
-            <UButton v-if="selectedAgent.gear[slot]" size="xs" color="neutral" variant="outline" icon="i-lucide-link-slash"
-              label="Unequip" :loading="equipping" @click.stop="unequip(selectedAgent.gear[slot]!)" />
+            <UBadge
+              v-if="selectedSlot === slot && !selectedAgent.gear[slot]"
+              color="primary"
+              variant="subtle"
+              label="Selected"
+              class="shrink-0"
+            />
+            <UButton
+              v-if="selectedAgent.gear[slot]"
+              size="xs"
+              color="neutral"
+              variant="outline"
+              icon="i-lucide-link-slash"
+              label="Unequip"
+              :loading="equipping"
+              @click.stop="unequip(selectedAgent.gear[slot]!)"
+            />
           </div>
         </div>
 
-        <hr class="border-default">
-        <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-4">
+        <hr class="border-default mb-4">
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
           <div>
-            <p class="hack-stat-label-md">Power</p>
-            <p class="hack-stat-value-lg text-primary">{{ selectedAgent.power }}</p>
+            <p class="hack-stat-label-md">
+              Power
+            </p>
+            <p class="hack-stat-value-lg text-primary">
+              {{ selectedAgent.power }}
+            </p>
           </div>
-          <div v-for="s in agentCombinedStats" :key="s.label">
-            <p class="hack-stat-label-md">{{ s.label }}</p>
-            <p class="hack-stat-value-lg">{{ s.fmt(s.value) }}</p>
+          <div
+            v-for="s in agentCombinedStats"
+            :key="s.label"
+          >
+            <p class="hack-stat-label-md">
+              {{ s.label }}
+            </p>
+            <p class="hack-stat-value-lg">
+              {{ s.fmt(s.value) }}
+            </p>
           </div>
         </div>
       </HackFrame>
     </div>
 
     <!-- ── Inventory rail (desktop) ─────────────────────────────── -->
-    <div class="hidden lg:flex flex-col w-80 shrink-0 border-l border-default overflow-y-auto">
-      <div class="p-4 space-y-3 pb-12">
-        <div class="flex items-center justify-between">
-          <h2 class="font-semibold text-base">Inventory</h2>
-          <span class="text-sm text-muted">{{ state?.inventoryCount ?? 0 }}/{{ state?.maxInventorySlots ?? 30 }}</span>
+    <div class="hidden lg:block w-96 shrink-0 overflow-y-auto p-3">
+      <HackFrame class="p-4">
+        <h2 class="hack-stat-label-md mb-3">
+          Inventory <span class="text-muted normal-case tracking-normal">— {{ filteredItems.length }} shown / {{ state?.inventoryCount ?? 0 }} total</span>
+        </h2>
+
+        <div class="flex gap-1.5 mb-2.5">
+          <button
+            v-for="f in slotFilters"
+            :key="f.value"
+            type="button"
+            class="hack-filter-btn flex-1"
+            :class="slotFilter === f.value && 'active'"
+            @click="slotFilter = f.value"
+          >
+            {{ f.label }}
+          </button>
+        </div>
+        <div class="flex gap-1.5 mb-4">
+          <button
+            v-for="opt in sortOptions"
+            :key="opt.value"
+            type="button"
+            class="hack-filter-btn flex-1"
+            :class="sortBy === opt.value && 'active'"
+            @click="sortBy = opt.value"
+          >
+            {{ opt.label }}
+          </button>
         </div>
 
-        <div class="hack-seg">
-          <button type="button" :class="slotFilter === 'all' && 'active'" @click="slotFilter = 'all'">All</button>
-          <button type="button" :class="slotFilter === 'tool' && 'active'" @click="slotFilter = 'tool'">Tool</button>
-          <button type="button" :class="slotFilter === 'software' && 'active'" @click="slotFilter = 'software'">Soft</button>
-          <button type="button" :class="slotFilter === 'hardware' && 'active'" @click="slotFilter = 'hardware'">HW</button>
-        </div>
-
-        <div class="flex items-center gap-1">
-          <UButtonGroup size="xs" class="flex-1">
-            <UButton
-              v-for="opt in sortOptions" :key="opt.value"
-              :color="sortBy === opt.value ? 'primary' : 'neutral'"
-              :variant="sortBy === opt.value ? 'solid' : 'outline'"
-              class="flex-1 justify-center" :label="opt.label"
-              @click="sortBy = opt.value"
-            />
-          </UButtonGroup>
-          <UButton
-            size="xs" color="neutral" variant="outline"
-            :icon="sortDir === 'desc' ? 'i-lucide-arrow-down-wide-narrow' : 'i-lucide-arrow-up-narrow-wide'"
-            @click="sortDir = sortDir === 'desc' ? 'asc' : 'desc'"
+        <div
+          v-if="!filteredItems.length"
+          class="text-sm text-muted text-center py-8"
+        >
+          <UIcon
+            name="i-lucide-package-open"
+            class="size-8 mx-auto mb-2 opacity-30"
           />
-        </div>
-
-        <div v-if="!filteredItems.length" class="text-sm text-muted text-center py-8">
-          <UIcon name="i-lucide-package-open" class="size-8 mx-auto mb-2 opacity-30" />
           No matching gear.
-          <UButton block size="sm" class="mt-3" to="/hack/market" icon="i-lucide-store" label="Visit the Black Market" variant="soft" />
         </div>
-        <div v-else class="space-y-2">
-          <div v-for="item in filteredItems" :key="item.id"
+        <div
+          v-else
+          class="space-y-2.5 max-h-[62vh] overflow-y-auto pr-1"
+        >
+          <div
+            v-for="item in filteredItems"
+            :key="item.id"
+            class="cursor-grab"
             draggable="true"
             @dragstart="draggingId = item.id"
             @dragend="draggingId = null"
           >
-            <HackItemCard :item="item" :selected="compareItemId === item.id" @select="openCompare(item.id)" />
+            <HackItemCard
+              :item="item"
+              :selected="compareItemId === item.id"
+              @select="openCompare(item.id)"
+            />
           </div>
         </div>
-      </div>
+
+        <UButton
+          block
+          class="mt-4"
+          color="neutral"
+          variant="outline"
+          to="/hack/market"
+          icon="i-lucide-store"
+          label="Need better gear? → Black Market"
+        />
+      </HackFrame>
     </div>
   </div>
 
   <!-- Mobile roster slideover -->
-  <USlideover v-model:open="mobileRosterOpen" title="Roster" side="left" class="lg:hidden">
+  <USlideover
+    v-model:open="mobileRosterOpen"
+    title="Roster"
+    side="left"
+    class="lg:hidden"
+  >
     <template #body>
       <div class="p-2 space-y-1 overflow-y-auto h-full">
-        <button v-for="a in roster" :key="a.id" type="button"
-          class="w-full flex items-center gap-2.5 p-2 rounded-lg text-left transition-colors"
-          :class="selectedAgentId === a.id ? 'bg-primary/10 ring-1 ring-primary/40' : 'hover:bg-elevated'"
+        <button
+          v-for="a in roster"
+          :key="a.id"
+          type="button"
+          class="w-full flex items-center gap-3 p-2.5 text-left transition-colors border-l-2 cursor-pointer"
+          :class="selectedAgentId === a.id ? 'bg-primary/10 border-primary' : 'border-transparent hover:bg-elevated'"
           @click="selectAgent(a.id)"
         >
-          <div class="size-9 rounded-lg flex items-center justify-center shrink-0 ring-1"
-            :class="[RARITY_STYLE[a.rarity].bg, RARITY_STYLE[a.rarity].ring, RARITY_STYLE[a.rarity].text]">
-            <UIcon :name="CLASS_ICON[a.class]" class="size-4" />
+          <div
+            class="size-10 shrink-0 overflow-hidden ring-1"
+            :class="RARITY_STYLE[a.rarity].ring"
+          >
+            <img
+              :src="CLASS_PORTRAIT[a.class]"
+              :alt="CLASS_LABEL[a.class]"
+              class="w-full h-full object-cover"
+            >
           </div>
           <div class="min-w-0">
-            <p class="font-medium text-sm truncate">{{ a.name }}</p>
-            <p class="text-xs" :class="RARITY_STYLE[a.rarity].text">{{ RARITY_LABEL[a.rarity] }} · Lv{{ a.level }}{{ a.active ? '' : ' · Storage' }}</p>
+            <p class="font-semibold text-sm truncate">
+              {{ a.name }}
+            </p>
+            <p
+              class="text-xs font-mono"
+              :class="RARITY_STYLE[a.rarity].text"
+            >
+              {{ RARITY_LABEL[a.rarity] }} · Lv{{ a.level }}{{ a.active ? '' : ' · Sleeper' }}
+            </p>
           </div>
         </button>
       </div>
@@ -381,65 +561,152 @@ function onDropOnBay(slot: ItemSlot) {
   </USlideover>
 
   <!-- Mobile inventory slideover -->
-  <USlideover v-model:open="mobileInventoryOpen" title="Inventory" side="right" class="lg:hidden">
+  <USlideover
+    v-model:open="mobileInventoryOpen"
+    title="Inventory"
+    side="right"
+    class="lg:hidden"
+  >
     <template #body>
       <div class="p-4 space-y-3 overflow-y-auto h-full">
-        <div class="hack-seg">
-          <button type="button" :class="slotFilter === 'all' && 'active'" @click="slotFilter = 'all'">All</button>
-          <button type="button" :class="slotFilter === 'tool' && 'active'" @click="slotFilter = 'tool'">Tool</button>
-          <button type="button" :class="slotFilter === 'software' && 'active'" @click="slotFilter = 'software'">Soft</button>
-          <button type="button" :class="slotFilter === 'hardware' && 'active'" @click="slotFilter = 'hardware'">HW</button>
+        <div class="flex gap-1.5">
+          <button
+            v-for="f in slotFilters"
+            :key="f.value"
+            type="button"
+            class="hack-filter-btn flex-1"
+            :class="slotFilter === f.value && 'active'"
+            @click="slotFilter = f.value"
+          >
+            {{ f.label }}
+          </button>
         </div>
-        <div v-if="!filteredItems.length" class="text-sm text-muted text-center py-8">No matching gear.</div>
-        <div v-else class="space-y-2">
-          <HackItemCard v-for="item in filteredItems" :key="item.id" :item="item"
+        <div class="flex gap-1.5">
+          <button
+            v-for="opt in sortOptions"
+            :key="opt.value"
+            type="button"
+            class="hack-filter-btn flex-1"
+            :class="sortBy === opt.value && 'active'"
+            @click="sortBy = opt.value"
+          >
+            {{ opt.label }}
+          </button>
+        </div>
+        <div
+          v-if="!filteredItems.length"
+          class="text-sm text-muted text-center py-8"
+        >
+          No matching gear.
+        </div>
+        <div
+          v-else
+          class="space-y-2.5"
+        >
+          <HackItemCard
+            v-for="item in filteredItems"
+            :key="item.id"
+            :item="item"
             :selected="compareItemId === item.id"
-            @select="openCompare(item.id); mobileInventoryOpen = false" />
+            @select="openCompare(item.id); mobileInventoryOpen = false"
+          />
         </div>
       </div>
     </template>
   </USlideover>
 
   <!-- ── Comparison overlay ───────────────────────────────────────── -->
-  <UModal v-model:open="compareOpen" :ui="{ content: 'max-w-2xl bg-transparent shadow-none ring-0 rounded-none' }">
+  <UModal
+    v-model:open="compareOpen"
+    :ui="{ content: 'max-w-2xl bg-transparent shadow-none ring-0 rounded-none' }"
+  >
     <template #content>
-      <HackFrame accent class="hack-shell overflow-hidden">
+      <HackFrame
+        accent
+        class="hack-shell overflow-hidden"
+      >
         <div class="p-5 border-b border-default">
-          <p class="hack-eyebrow">Compare — {{ compareSlot ? SLOT_LABEL[compareSlot] : '' }} slot</p>
-          <h3 class="text-lg font-bold mt-1">Currently equipped vs. candidate</h3>
+          <p class="hack-eyebrow">
+            Compare — {{ compareSlot ? SLOT_LABEL[compareSlot] : '' }} slot
+          </p>
+          <h3 class="text-lg font-bold mt-1">
+            Currently equipped vs. candidate
+          </h3>
         </div>
 
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 p-5">
           <div>
-            <UBadge color="neutral" variant="subtle" :label="compareCurrent ? 'Currently equipped' : 'Slot empty'" class="mb-2" />
-            <HackItemCard v-if="compareCurrent" :item="compareCurrent" />
-            <p v-else class="text-sm text-muted text-center py-10">Nothing equipped here yet.</p>
+            <UBadge
+              color="neutral"
+              variant="subtle"
+              :label="compareCurrent ? 'Currently equipped' : 'Slot empty'"
+              class="mb-2"
+            />
+            <HackItemCard
+              v-if="compareCurrent"
+              :item="compareCurrent"
+            />
+            <p
+              v-else
+              class="text-sm text-muted text-center py-10"
+            >
+              Nothing equipped here yet.
+            </p>
           </div>
           <div>
-            <UBadge :color="compareCandidate ? RARITY_COLOR[compareCandidate.rarity] : 'neutral'" variant="subtle" label="Candidate" class="mb-2" />
-            <HackItemCard v-if="compareCandidate" :item="compareCandidate" />
+            <UBadge
+              :color="compareCandidate ? RARITY_COLOR[compareCandidate.rarity] : 'neutral'"
+              variant="subtle"
+              label="Candidate"
+              class="mb-2"
+            />
+            <HackItemCard
+              v-if="compareCandidate"
+              :item="compareCandidate"
+            />
           </div>
         </div>
 
         <div class="p-5 border-t border-default">
-          <p class="hack-stat-label-md mb-2">Impact on {{ selectedAgent?.name }}</p>
+          <p class="hack-stat-label-md mb-2">
+            Impact on {{ selectedAgent?.name }}
+          </p>
           <div class="flex items-center justify-between text-sm py-2 border-b border-default">
             <span>Power</span>
-            <span class="font-semibold"
-              :class="(compareAfter?.power ?? 0) > (compareBefore?.power ?? 0) ? 'text-success' : (compareAfter?.power ?? 0) < (compareBefore?.power ?? 0) ? 'text-error' : 'text-muted'">
+            <span
+              class="font-semibold"
+              :class="(compareAfter?.power ?? 0) > (compareBefore?.power ?? 0) ? 'text-success' : (compareAfter?.power ?? 0) < (compareBefore?.power ?? 0) ? 'text-error' : 'text-muted'"
+            >
               {{ compareBefore?.power ?? 0 }} → {{ compareAfter?.power ?? 0 }}
             </span>
           </div>
-          <div v-for="row in compareDeltaRows" :key="row.label" class="flex items-center justify-between text-sm py-2 border-b border-default last:border-none">
+          <div
+            v-for="row in compareDeltaRows"
+            :key="row.label"
+            class="flex items-center justify-between text-sm py-2 border-b border-default last:border-none"
+          >
             <span>{{ row.label }}</span>
-            <span class="font-semibold" :class="row.up ? 'text-success' : row.down ? 'text-error' : 'text-muted'">
+            <span
+              class="font-semibold"
+              :class="row.up ? 'text-success' : row.down ? 'text-error' : 'text-muted'"
+            >
               {{ row.beforeText }} → {{ row.afterText }}
             </span>
           </div>
 
           <div class="flex items-center justify-between gap-3 mt-5">
-            <UButton color="neutral" variant="ghost" label="Cancel" @click="compareItemId = null" />
-            <UButton color="primary" label="Confirm Swap" :loading="equipping" @click="confirmSwap" />
+            <UButton
+              color="neutral"
+              variant="ghost"
+              label="Cancel"
+              @click="compareItemId = null"
+            />
+            <UButton
+              color="primary"
+              label="Confirm Swap"
+              :loading="equipping"
+              @click="confirmSwap"
+            />
           </div>
         </div>
       </HackFrame>
