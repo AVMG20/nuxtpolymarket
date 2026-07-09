@@ -7,6 +7,7 @@ import {
   AGENT_PULL_CONFIRM_TEXT, AGENT_PULL_CONFIRM_VOICE, AGENT_PULL_CONTACT, AGENT_PULL_INTRO_TEXT, AGENT_PULL_INTRO_VOICE,
   CLASS_PORTRAIT, agentBioLine, rarityBarkText, rarityBarkVoice
 } from '~/utils/hack-content'
+import { sleep } from '~/utils/sleep'
 import type { VoiceHandle } from '~/composables/useAudio'
 
 // Agent recruitment reveal — deliberately a separate component from
@@ -47,6 +48,7 @@ const barkDone = ref(false)
 let barkHandle: VoiceHandle | null = null
 const revealEl = ref<HTMLElement | null>(null)
 const flashEl = ref<HTMLElement | null>(null)
+const pitchCaptionRef = ref<{ play: () => void, stop: () => void } | null>(null)
 
 watch(open, (v) => {
   if (v) {
@@ -56,15 +58,22 @@ watch(open, (v) => {
     barkDone.value = false
   } else {
     barkHandle?.cancel()
+    pitchCaptionRef.value?.stop()
     if (vetTimer) clearInterval(vetTimer)
   }
 })
 
-function sleep(ms: number) {
-  return new Promise(resolve => setTimeout(resolve, ms))
-}
+// Quick recruit toggled mid-pitch. HackRelayCaption's own autoplay watcher
+// only re-fires on a voiceName/text change, not on the autoplay prop
+// flipping, so turning Quick recruit back off wouldn't otherwise restart the
+// line — drive both directions explicitly here instead.
+watch(quickOpen, (v) => {
+  if (v) pitchCaptionRef.value?.stop()
+  else pitchCaptionRef.value?.play()
+})
 
 async function startRecruitment() {
+  pitchCaptionRef.value?.stop()
   recruiting.value = true
   try {
     if (!quickOpen.value) {
@@ -186,10 +195,12 @@ function traitRange(type: AgentTrait['type']) {
             </div>
 
             <HackRelayCaption
+              ref="pitchCaptionRef"
               :key="introVoice"
               class="mt-3.5 block"
               :voice-name="introVoice"
               :text="introText"
+              :autoplay="!quickOpen"
             />
 
             <hr class="border-default my-4">

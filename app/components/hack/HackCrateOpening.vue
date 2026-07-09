@@ -4,6 +4,7 @@ import {
   type HackItemDef, type HackRarity, type ItemPullTier, type ItemMod
 } from '#shared/utils/hack-config'
 import { ITEM_PULL_CONFIRM_TEXT, ITEM_PULL_CONFIRM_VOICE, ITEM_PULL_INTRO_TEXT, ITEM_PULL_INTRO_VOICE, ITEM_PULL_SELLER, rarityBarkText, rarityBarkVoice } from '~/utils/hack-content'
+import { sleep } from '~/utils/sleep'
 import type { VoiceHandle } from '~/composables/useAudio'
 
 // Gear-only reveal cinematic — deliberately a separate component from
@@ -33,6 +34,7 @@ let barkHandle: VoiceHandle | null = null
 const stampEl = ref<HTMLElement | null>(null)
 const cardEl = ref<HTMLElement | null>(null)
 const flashEl = ref<HTMLElement | null>(null)
+const pitchCaptionRef = ref<{ play: () => void, stop: () => void } | null>(null)
 
 watch(open, (v) => {
   if (v) {
@@ -42,14 +44,21 @@ watch(open, (v) => {
     barkDone.value = false
   } else {
     barkHandle?.cancel()
+    pitchCaptionRef.value?.stop()
   }
 })
 
-function sleep(ms: number) {
-  return new Promise(resolve => setTimeout(resolve, ms))
-}
+// Quick Open toggled mid-pitch. HackRelayCaption's own autoplay watcher only
+// re-fires on a voiceName/text change, not on the autoplay prop flipping, so
+// turning Quick Open back off wouldn't otherwise restart the line — drive
+// both directions explicitly here instead.
+watch(quickOpen, (v) => {
+  if (v) pitchCaptionRef.value?.stop()
+  else pitchCaptionRef.value?.play()
+})
 
 async function buyAndOpen() {
+  pitchCaptionRef.value?.stop()
   buying.value = true
   try {
     if (!quickOpen.value) {
@@ -154,10 +163,12 @@ function modRange(type: ItemMod['type']) {
             </div>
 
             <HackRelayCaption
+              ref="pitchCaptionRef"
               :key="introVoice"
               class="mt-3.5 block"
               :voice-name="introVoice"
               :text="introText"
+              :autoplay="!quickOpen"
             />
 
             <hr class="border-default my-4">

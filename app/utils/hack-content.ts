@@ -58,15 +58,15 @@ export const MISSION_BRIEFING: Record<string, string> = {
   crypto_heist: 'Found a race condition in a decentralized exchange\'s contract — window\'s maybe ninety seconds before someone patches it. Drain the hot wallet, get out before the block confirms. Small window, big payday.',
   telecom_tap: 'We\'re splicing into backbone fibre between two national exchanges. This is real infrastructure, real stakes — carrier-grade security on the other end. I need a full team on this, not a solo run.',
   supply_chain: 'A popular npm package, millions of downloads, and a CI/CD pipeline held together with an expired API key. Slip a backdoor into the next release and half the internet ships it for us. Elegant, if it works.',
-  mil_intel: 'Defense subcontractor, procurement documents, the kind of paperwork that tells you what the government\'s buying before anyone else knows. High value, high heat. Move fast, leave nothing behind.',
-  gov_heist: 'A federal server farm, classified documents, and a security team that actually knows what they\'re doing. This is the real thing now. I don\'t send a squad in light on this one.',
-  ai_theft: 'Two hundred gigs of proprietary model weights sitting in a misconfigured storage bucket at a company that should know better. Whoever trained that model spent millions. We take it for the price of a data transfer.',
-  central_bank: 'Ten hours, sitting quietly on SWIFT traffic out of a central bank... No smash and grab here — just patience, and the kind of intelligence that\'s worth more than the cash we\'ll skim off it.',
-  black_site: '[grim] There\'s a facility that doesn\'t officially exist, running AI research that officially doesn\'t happen either. We\'re going in anyway. If this goes sideways, nobody\'s coming to explain it to the press.',
-  nsa_breach: 'Fort Meade. I\'m going to say that again so it sinks in... Fort Meade. We\'re not hacking a company anymore — we\'re hacking the people who taught everyone else how to hack. If your squad isn\'t ready, don\'t send them.',
-  ghost_protocol: 'Sovereign-level cyber fortress — that\'s diplomatic language for \'a nation-state built this to be unbreakable.\' Ghost Protocol means exactly what it sounds like: you\'re not there, you were never there, and if this goes wrong, I never heard of you.',
-  quantum_heist: 'Somebody\'s quantum processor, hijacked for about six hours, cracking encryption that\'s supposed to be unbreakable for the next fifty years. We might be looking at the last heist of its kind before this stuff becomes standard. Make it count.',
-  project_zero: 'Project Zero. I\'ve been doing this a long time, and I\'ve never sent a full squad after something like this — a nation-state AI system, zero-day access, persistent. [quiet] Whatever happens after tonight... the board looks different. Everyone goes. No exceptions.'
+  mil_intel: 'We\'ve been hearing chatter. Troop movements, shipments, something big the government\'s not talking about publicly. A buyer reached out — serious money, serious connections. They want to know what the government\'s buying, what they\'re planning. The kind of intel that gets traded in rooms you don\'t go to. Defense subcontractor has the procurement docs — everything ordered, everything planned. Get in, get the files, get out clean. This one pays well if we don\'t screw it up.',
+  gov_heist: 'The mil-intel job opened doors. Word got out we can move classified material. Now we\'ve got an offer from someone very serious — government connections, foreign money, or both. They want classified documents from a federal server farm. Not procurement. Actual intelligence. The kind of job that ends careers or starts wars. But the money... let\'s just say it changes everything. Security\'s going to be tight, but we\'ve got the skills. We just need to not get caught.',
+  ai_theft: 'There\'s a company that built something nobody else has — an AI system that works. Real cutting-edge stuff. A buyer approached us, someone in the intelligence community, maybe a hedge fund, maybe a foreign actor. They want the model. Not to use it — to reverse-engineer it, understand how it works, sell it to the highest bidder. The weights are sitting in cloud storage, protected but not well. Get in, copy it all, get out. Twenty gigs of pure IP that cost millions to build. We move it and the buyer handles the rest. Our cut is enough to retire on.',
+  central_bank: 'A buyer wants SWIFT traffic data from a central bank. Not the money moving through it — the patterns. Who sends money where, when, how much. The corridors of global finance laid bare. With that, you predict economic moves before they happen, or blackmail the people making them. We splice the line for ten hours, just sitting there, listening. Security won\'t even know we\'re here if we do this right. [quiet] Ten hours of patience, and we walk away with data worth more than any cash transfer. This is the information that changes markets.',
+  black_site: '[grim] We\'ve been monitoring dark-web chatter for months. There\'s a black site somewhere — not on any map, not on satellite. But we\'ve got coordinates from a source that hasn\'t failed us yet. The government\'s running AI research there, research that breaks international law. A buyer wants proof it exists — documents, data, anything. If we get in and out with it, the money is enough to disappear to a country without extradition. But if we get caught, we don\'t get arrested. We just... don\'t come back. This is the one where we might not walk out.',
+  nsa_breach: 'Fort Meade. I\'m going to say that again so it sinks in... Fort Meade. We\'re not hacking a company anymore — we\'re hacking the people who taught everyone else how to hack. A buyer, someone with more resources than most governments, wants NSA access. Not to steal data. To plant something. We get in, we give them a doorway, they take it from there. Fort Meade is defended like nothing else on Earth. Their security people wrote the book on network defense. But we\'ve got zero-days, exploits, people who\'ve been waiting their whole lives for this shot. This doesn\'t fail. Because if it does, the people who sent us in make us disappear. If your squad isn\'t ready, don\'t send them.',
+  ghost_protocol: 'A foreign government wants us to crack a rival nation\'s cyber infrastructure. The kind of thing that starts wars. They\'ve built a fortress — network security designed by military strategists, encrypted with methods we don\'t have names for. But they need access, and they need it to look like someone else did it. We\'re the deniable option. If we succeed, we\'ve changed the balance of power between two countries. If we fail, nobody ever heard of us. The money comes through channels that don\'t exist officially. You don\'t talk about this job. You don\'t acknowledge it happened. You take the money, you disappear into the world, and you wait for the news headlines that show you what you actually did.',
+  quantum_heist: 'A quantum computer just came online. First time. The research team thinks they\'re running isolated tests. But we\'re in. We hijack the processor for six hours — not steal it, just borrow it. Long enough to crack something that\'s supposed to be unbreakable for fifty years. The buyer wants proof that quantum computers can be weaponized in ways governments haven\'t admitted. We give them six hours of cryptographic evidence, they run with it. By the time the research team realizes what happened, the information\'s already out there. This job changes cyber warfare forever. And if we pull it off, we\'ve just changed the game.',
+  project_zero: 'Project Zero. I\'ve been doing this a long time, and I\'ve never sent a full squad after something like this — a nation-state AI system, zero-day access, persistent. They say it coordinates military operations, predicts instability, guides weapons systems. A coalition of buyers put together the largest pool of money we\'ve ever seen. We don\'t know who they are. We don\'t want to know. They want control of Project Zero. Not steal it. Run it themselves. We crack it, give them the keys, then we disappear. [quiet] Everyone on this squad has already decided — after tonight, we\'re gone. Either rich and gone, or just gone. There\'s no middle ground. This is the one where even I\'m scared. But we\'ve come too far to stop now.'
 }
 
 // Reused end-of-briefing line — plays once per session, not per mission.
@@ -140,8 +140,14 @@ export const ITEM_PULL_CONFIRM_TEXT: Record<string, string> = {
 
 // ─── Reveal-cinematic rarity barks — shared by every crate + recruit reveal ───
 // content/agent-bios.md §2 / content/crate-lore.md "Shared reveal-cinematic
-// barks". Ghost has a dedicated item variant (an inanimate object can't be a
-// "rookie"); every other rarity's line is identical for agents and items.
+// barks". The agent lines below are the base table (crate-lore.md's own note
+// says items should reuse Operative+ verbatim, only special-casing Ghost) —
+// but that read wrong in practice past Ghost too: Phantom's "what THEY used
+// to do before us" is unambiguously about a person's history, and hearing it
+// after a gear pull was the reported bug. Diverging from the doc: every
+// rarity now has an item-flavored variant, not just Ghost. Specialist's line
+// ("Now we're talking") doesn't reference a person, so it's kept identical
+// on purpose, not an oversight.
 export const RARITY_BARK_VOICE: Record<HackRarity, string> = {
   ghost: 'bark-rarity-ghost-agent', operative: 'bark-rarity-operative', specialist: 'bark-rarity-specialist',
   elite: 'bark-rarity-elite', phantom: 'bark-rarity-phantom'
@@ -153,15 +159,26 @@ export const RARITY_BARK_TEXT: Record<HackRarity, string> = {
   elite: '...Huh. Didn\'t expect that out of this one.',
   phantom: '[flat] Don\'t ask what they used to do before us. I didn\'t, and I still don\'t sleep great.'
 }
-export const RARITY_BARK_VOICE_ITEM_GHOST = 'bark-rarity-ghost-item'
-export const RARITY_BARK_TEXT_ITEM_GHOST = 'Junk, mostly. Mostly.'
+
+const RARITY_BARK_VOICE_ITEM: Partial<Record<HackRarity, string>> = {
+  ghost: 'bark-rarity-ghost-item',
+  operative: 'bark-rarity-operative-item',
+  elite: 'bark-rarity-elite-item',
+  phantom: 'bark-rarity-phantom-item'
+}
+const RARITY_BARK_TEXT_ITEM: Partial<Record<HackRarity, string>> = {
+  ghost: 'Junk, mostly. Mostly.',
+  operative: 'Solid pull. I\'ve built jobs around worse gear.',
+  elite: '...Huh. Didn\'t expect that out of a crate like this.',
+  phantom: 'Don\'t ask where this came from. I didn\'t, and I still don\'t sleep great.'
+}
 
 export function rarityBarkVoice(rarity: HackRarity, kind: 'agent' | 'item'): string {
-  if (rarity === 'ghost' && kind === 'item') return RARITY_BARK_VOICE_ITEM_GHOST
+  if (kind === 'item') return RARITY_BARK_VOICE_ITEM[rarity] ?? RARITY_BARK_VOICE[rarity]
   return RARITY_BARK_VOICE[rarity]
 }
 export function rarityBarkText(rarity: HackRarity, kind: 'agent' | 'item'): string {
-  if (rarity === 'ghost' && kind === 'item') return RARITY_BARK_TEXT_ITEM_GHOST
+  if (kind === 'item') return RARITY_BARK_TEXT_ITEM[rarity] ?? RARITY_BARK_TEXT[rarity]
   return RARITY_BARK_TEXT[rarity]
 }
 

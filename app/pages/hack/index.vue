@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import {
   RARITY_COLOR, RARITY_LABEL, RARITY_STYLE, RARITY_ACCENT, CLASS_LABEL,
-  SLOT_ICON, SLOT_LABEL, MOD_LABEL, formatModValue, agentBonusStats,
+  agentBonusStats,
   effectiveDurationMs, collectBonuses, effectiveCashRange, effectiveGemChance, effectiveItemDropChance, opSuccessChance, MIN_DEPLOY_SUCCESS,
   type HackRarity, type AgentClass, type AgentTrait, type ItemMod, type ItemSlot
 } from '#shared/utils/hack-config'
+import type { VoiceHandle } from '~/composables/useAudio'
 
 const { fetchSession } = useAuth()
 const { data: state, refresh } = await useFetch('/api/hack/state')
@@ -103,15 +104,19 @@ watch(skipBriefing, v => localStorage.setItem('hack-skip-briefing', String(v)))
 
 const briefingVoice = computed(() => selectedTemplate.value ? missionVoice(selectedTemplate.value.id) : '')
 const briefingText = computed(() => selectedTemplate.value ? missionBriefing(selectedTemplate.value.id) : '')
+const briefingCaptionRef = ref<{ stop: () => void } | null>(null)
 
 // The "pick your people" outro line — plays once per session, on the first
 // squad selection of any briefing, not every time.
 let outroPlayed = false
+let outroHandle: VoiceHandle | null = null
 function openBriefing(template: any) {
   selectedTemplate.value = template
   selectedAgentIds.value = []
 }
 function closeBriefing() {
+  briefingCaptionRef.value?.stop()
+  outroHandle?.cancel()
   selectedTemplate.value = null
 }
 
@@ -124,12 +129,17 @@ function toggleAgent(id: string, template: any) {
   }
   if (!outroPlayed && selectedAgentIds.value.length > 0) {
     outroPlayed = true
-    audio.playVoice(BRIEF_OUTRO_VOICE, { delayMs: 200 })
+    outroHandle = audio.playVoice(BRIEF_OUTRO_VOICE, { delayMs: 200 })
   }
 }
 
 async function dispatch() {
   if (!selectedTemplate.value) return
+  // Stop the briefing/outro VO immediately on click rather than waiting for
+  // the request to resolve — clicking Deploy is the player's own signal that
+  // they're done listening.
+  briefingCaptionRef.value?.stop()
+  outroHandle?.cancel()
   dispatching.value = true
   try {
     await $fetch('/api/hack/ops/dispatch', {
@@ -572,6 +582,7 @@ const filteredTemplates = computed(() =>
             </div>
             <div class="relative w-full p-4 bg-gradient-to-t from-background/95 via-background/50 to-transparent">
               <HackRelayCaption
+                ref="briefingCaptionRef"
                 :key="selectedTemplate.id"
                 :voice-name="briefingVoice"
                 :text="briefingText"

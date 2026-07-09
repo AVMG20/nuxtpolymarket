@@ -546,5 +546,71 @@ rather than by inspecting intermediate animation frames — a real regression
 in easing/timing specifically (as opposed to sequencing) wouldn't have been
 caught by this pass.
 
+### Post-Phase-2 fixes — done (playtest feedback after Black Market shipped)
+
+Four issues reported after actually playing Phase 1+2, all fixed and
+re-verified in a real browser:
+
+1. **Real bug: voice never actually stopped on navigation.** `VoiceHandle.cancel()`
+   only ever cleared the pre-playback `setTimeout` and stopped the teletype —
+   it never touched the `AudioBufferSourceNode` once playback had actually
+   started, so leaving a mission briefing (clicking Deploy or the back
+   button) or a Black Market pitch left the clip audibly finishing in the
+   background. Root cause was `playBuffer()` never returning the node it
+   created. Fixed in `useAudio.ts`: `playBuffer` now returns the node, and
+   `playVoice`'s handle tracks it and calls `.stop()` (guarded — a node that
+   already finished throws on `.stop()`) in `cancel()`. Verified by
+   monkey-patching `AudioBufferSourceNode.prototype.start/stop` in a real
+   Chromium session and counting calls — confirmed `.stop()` now fires
+   exactly when Deploy is clicked and when navigating back to the mission
+   board, on the real audio graph, not just at the component level.
+   `HackRelayCaption` gained an exposed `stop()` (alongside the existing
+   `play()`) so callers can force this explicitly rather than only relying
+   on unmount timing; `index.vue` calls it from both `dispatch()` and
+   `closeBriefing()` (dispatch's success path already called the latter, so
+   one fix covers both of the user's reported triggers), and both
+   `HackCrateOpening`/`HackRecruitOpening` call it at the top of
+   `buyAndOpen()`/`startRecruitment()`.
+2. **Quick Open / Quick Recruit now genuinely skip the pitch voice**, not
+   just the reveal-stage animation as before. `HackRelayCaption` in both
+   pitch stages now binds `:autoplay="!quickOpen"`. Caught a real gap while
+   verifying: `HackRelayCaption`'s internal autoplay watcher only re-fires on
+   a `voiceName`/`text` change, not on the `autoplay` prop itself flipping —
+   so toggling Quick Open back *off* mid-session wouldn't have restarted the
+   line. Fixed with an explicit two-way `watch(quickOpen, ...)` in both
+   components (`v ? pitchCaptionRef.stop() : pitchCaptionRef.play()`).
+   Verified via caption text/cursor state (the `market-*` intro/confirm
+   lines have no recorded audio yet, so `AudioBufferSourceNode.start` never
+   fires regardless of this toggle — captions were the only observable
+   signal, and they run start-to-completion, tag-stripped, whether or not a
+   clip exists, per the existing captions-always-run design).
+3. **Mission collect now gets the same flash → stamp → reveal cinematic as a
+   Black Market pull**, replacing the old plain `UModal` result dialog — new
+   `HackCollectReveal.vue`, simpler than the crate/recruit components since
+   the op already resolved server-side before it opens (no pitch/buy stage,
+   just the two-beat reveal). Stamp reads SUCCESS/FAILED in
+   success/error color instead of a rarity label; reveal stage reuses the
+   crate reveal's `HackFrame` + `HackRangeBar` treatment for the dropped item
+   instead of the old flat `HackModChip` row, so a mission item drop and a
+   crate item drop now look identical. `index.vue`'s `collect()` now enriches
+   `levelUps` with `agentName` before handing the result to the component
+   (avoided a function prop). Extracted a `sleep()` util to
+   `app/utils/sleep.ts` — this was the third copy of the same 3-line
+   `setTimeout` promise wrapper (crate/recruit/collect), past the point
+   where duplicating it was reasonable.
+4. **Real bug: item pulls played an agent-flavored bark.** A Phantom item
+   drop said *"Don't ask what they used to do before us"* — unambiguously
+   about a person. `crate-lore.md`'s own note said items should reuse every
+   rarity's line verbatim except Ghost, but that didn't hold up in actual
+   play. Diverged from the doc on user feedback: `hack-content.ts` now has
+   item-flavored variants for Ghost/Operative/Elite/Phantom (Specialist's
+   "Now we're talking" doesn't reference a person, so it's kept shared on
+   purpose). **New voice filenames that don't exist in `crate-lore.md`,
+   flag before recording:** `bark-rarity-operative-item.mp3`,
+   `bark-rarity-elite-item.mp3`, `bark-rarity-phantom-item.mp3` (Ghost's
+   `bark-rarity-ghost-item.mp3` was already spec'd). Verified via a Ghost
+   Cache pull (Elite/Phantom only) across several rolls — both new item
+   lines render correctly, no agent-only phrasing.
+
 ### Phase 3 — Loadout — not started
 ### Phase 4 — History, Leaderboard, polish — not started

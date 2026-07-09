@@ -168,17 +168,18 @@ export function useAudio(namespace: string) {
     return cached
   }
 
-  async function playBuffer(channel: AudioChannel, name: string): Promise<void> {
-    if (masterMuted.value || channels[channel].muted) return
+  async function playBuffer(channel: AudioChannel, name: string): Promise<AudioBufferSourceNode | null> {
+    if (masterMuted.value || channels[channel].muted) return null
     const ctx = ensureContext()
     const gain = engine.gains[channel]
-    if (!ctx || !gain) return
+    if (!ctx || !gain) return null
     const buffer = await loadBuffer(channel, name)
-    if (!buffer) return
+    if (!buffer) return null
     const node = ctx.createBufferSource()
     node.buffer = buffer
     node.connect(gain)
     node.start()
+    return node
   }
 
   function playSfx(name: string) {
@@ -258,12 +259,29 @@ export function useAudio(namespace: string) {
     const captionText = text.replace(/\[[^\]]*\]/g, '').replace(/\s+/g, ' ').trim()
     let cancelled = false
     let stopTeletype: (() => void) | null = null
+    // Tracks the actual playing clip so cancel() can stop it mid-playback — a
+    // bare clearTimeout only prevents playback that hasn't started yet, which
+    // is why navigating away used to leave a briefing/bark clip audibly
+    // running to completion in the background.
+    let activeNode: AudioBufferSourceNode | null = null
 
     const timer = setTimeout(() => {
       if (cancelled) return
       if (captionsRef && captionText) stopTeletype = teletype(captionsRef, captionText, onEnd)
       else onEnd?.()
-      if (!skipAudio) void playBuffer('voice', name)
+      if (!skipAudio) {
+        void playBuffer('voice', name).then((node) => {
+          if (cancelled) {
+            try {
+              node?.stop()
+            } catch {
+              /* already finished */
+            }
+            return
+          }
+          activeNode = node
+        })
+      }
     }, delayMs)
 
     return {
@@ -271,6 +289,14 @@ export function useAudio(namespace: string) {
         cancelled = true
         clearTimeout(timer)
         stopTeletype?.()
+        if (activeNode) {
+          try {
+            activeNode.stop()
+          } catch {
+            /* already finished */
+          }
+          activeNode = null
+        }
       }
     }
   }

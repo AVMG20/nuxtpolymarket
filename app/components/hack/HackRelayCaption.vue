@@ -46,9 +46,14 @@ watch(() => [props.voiceName, props.text], () => {
   if (props.autoplay) play()
 }, { immediate: true })
 
+function stop() {
+  handle?.cancel()
+  done.value = true
+}
+
 onUnmounted(() => handle?.cancel())
 
-defineExpose({ play })
+defineExpose({ play, stop })
 </script>
 
 <template>
