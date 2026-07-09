@@ -1,8 +1,10 @@
 # HackOps Redesign — Implementation Plan
 
-Status: **Phases 0–1 built and verified in-browser** (2026-07-09), on
-`feature/hackops-redesign`. See §9 for the build log — what shipped, a real
-bug it caught, and what's next. Phases 2–4 not started.
+Status: **Phases 0–4 built and verified in-browser** (2026-07-09), on
+`feature/hackops-redesign`. See §9 for the build log — what shipped, real
+bugs it caught, and what's next. All planned phases are built, including
+a fifth-wheel Agents/Items HUD restyle that no phase had originally
+scheduled (found and closed during the Phase 4 pass — see §9).
 
 This is the bridge from the design spec
 (`PLAN.md` + `mockups/` + `content/`) to real Nuxt/Vue code. It assumes
@@ -124,6 +126,11 @@ export function useAudio(namespace: string) {
 
 1. After `delayMs` (200–400ms window — your ask), start teletyping `text` into
    the `captionsRef` (a `Ref<string>` the component binds to a `RelayCaption`).
+   The content docs (`voice-lines.md` etc.) author some lines with bracketed
+   ElevenLabs v3 delivery tags (e.g. `[grim]`, `[quiet]`) for generation —
+   those are TTS-only and must never reach the screen, so `playVoice` strips
+   them before teletyping: `text.replace(/\[[^\]]*\]/g, '').trim()`. Do this
+   once inside `playVoice`, not at each call site.
 2. In parallel, if the `voice` channel is on **and** master isn't muted **and**
    the buffer resolves, play the clip. Sync caption completion to clip length
    when the clip exists; otherwise the caption teletypes at a fixed cadence
@@ -612,5 +619,156 @@ re-verified in a real browser:
    Cache pull (Elite/Phantom only) across several rolls — both new item
    lines render correctly, no agent-only phrasing.
 
-### Phase 3 — Loadout — not started
-### Phase 4 — History, Leaderboard, polish — not started
+### Phase 3 — Loadout — done
+
+Built per §6.7: new `app/pages/hack/loadout.vue` — roster rail (Active/
+Storage, deep-linkable via `?agent={id}` from Agents cards), a center
+operator card with three gear bays, and an inventory rail on the right
+(slot filter + the existing value/rarity/type sort pattern). This is the
+first page to actually wire in `HackItemCard.vue` and `HackFrame`'s
+`accent` prop — both were built in Phase 0 but sat unused until now.
+
+**Comparison overlay** (§6.7's "most net-new client logic" call-out, and it
+held up): clicking or dragging an inventory item onto a same-slot bay opens
+a `UModal` (the same transparent-content-slot pattern as
+`HackCrateOpening`/`HackCollectReveal`) showing currently-equipped vs.
+candidate `HackItemCard`s, then a delta table under "Impact on {agent}".
+The delta table is computed by calling `agentPower`/`agentBonusStats`
+*twice* — once against the agent's real `gear`, once against a shallow
+copy with the candidate slotted in — so it's structurally impossible for
+the preview to drift from what `equip.post.ts` actually applies on
+confirm, matching the same "call the real function twice" pattern Ops
+already uses for squad-select math. `agentBonusStats`'s own `Power`/
+`Power %` entries are filtered out of the delta list (they're folded into
+the `agentPower()` total already shown as its own row) to avoid double-
+counting the same bonus under two labels.
+
+**Click-to-place and drag-to-equip are the same gate, not two code paths**:
+both call `openCompare(itemId)`, which only opens if `item.slot` matches
+the target bay. Confirmed via a real Chromium drag (Playwright's
+`locator.dragTo`, which drives actual HTML5 dragstart/dragover/drop
+events, not a synthetic click) that dropping onto a matching bay opens the
+identical overlay as clicking the same card.
+
+Server-side `equip.post.ts` already auto-unequips whatever's in the target
+slot (confirmed by reading it before building this), so the client never
+needs an explicit "unequip old item first" step — `confirmSwap()` is a
+single `equip` call with the new item id.
+
+**Agents page narrowed to roster management** (§5 Phase 3): removed the
+per-slot click-to-equip/Unequip interactions, the whole right-hand
+inventory rail (desktop `hidden lg:flex` panel + mobile `USlideover`), and
+the sell flow that only existed to serve that rail — gear now renders
+read-only, and an **Equip** button (`i-lucide-shield-half`) on each active
+roster card and in the storage detail modal's footer deep-links to
+`/hack/loadout?agent={id}`. `items.vue` needed no changes — its inventory
+rail exists for the Crafting Bench, not equip, so it was already correctly
+scoped.
+
+Also added the §2.2 "insufficient power" link: the existing low-success
+warning in the Ops briefing (`index.vue`) now includes a "Gear up in
+Loadout →" link to `/hack/loadout` instead of just naming the problem.
+
+**Mobile** (PLAN.md §9.3, flagged as needing a call before Phase 3):
+resolved by extending the existing `USlideover` convention rather than
+inventing a new layout — Roster and Inventory both become slideover
+triggers on mobile (`lg:hidden`), operator card stays full-width in the
+main column. Confirmed in a 390×844 Chromium viewport: both slideovers
+open correctly. The slideover content renders in the app's default light
+theme with the plain `HackInventoryItem`-style cards (not the dark HUD
+`.hack-frame` look) because `UModal`/`USlideover` teleport outside
+`.hack-shell`'s scoped dark background — confirmed this is pre-existing
+behavior already visible on `items.vue`'s mobile inventory slideover
+today, not a regression from this page.
+
+**Verified in a real browser, not just typecheck/lint**: registered a test
+account, seeded three test items directly in the dev DB (`hack_items`
+insert — faster than grinding Black Market pulls for a mods/rarity spread
+to compare), then drove the actual flow — clicked an inventory item into
+an empty bay, confirmed the compare overlay correctly showed "Slot empty"
+on the current side, confirmed the swap; clicked a second, better item
+against the now-filled bay and confirmed the delta table showed real
+before/after numbers (Power 62→85, Op Speed +0%→+8%) matching the two
+items' actual mods, confirmed the swap and that the previous item
+returned to the inventory rail; clicked the bay's Unequip button and
+confirmed the slot emptied and the item reappeared unequipped. Separately
+drove the same equip via native drag-and-drop. Confirmed the Agents page's
+new Equip button navigates to the correct `?agent=` deep link. The only
+console noise during this pass was pre-existing and unrelated:
+`/api/chat/messages`/`/api/chat/mentions` 500s from an unrelated global
+chat feature (confirmed present on unmodified pages too, not touched by
+this phase).
+
+### Phase 4 — History, Leaderboard, polish — done
+
+Restyle-only per §6.8/§6.9, same underlying data (`history.get.ts`,
+`leaderboard.get.ts` untouched).
+
+`history.vue` → **debrief log**: the 4 lifetime totals moved into
+`HackFrame tight` HUD tiles; each past op is now a `HackFrame` row with a
+small diagonal outcome stamp (new `.hack-stamp-sm` in `hack.css` — the
+existing `.hack-stamp` class is sized for the big centered
+`HackCollectReveal` moment, not an inline row, so it needed a compact
+sibling rather than being reused directly). Clicking a row expands it to
+a one-line RELAY-voice recap. Per §6.8 this is **template-generated
+client-side from the outcome data, no new content doc entries** — a small
+fixed pool of variants keyed by outcome shape (failure / rare-item success
+/ gem success / plain success), picked deterministically by hashing
+`op.id` so the line doesn't change on every re-render or reload.
+
+`leaderboard.vue` → **most-wanted board**: top 3 get a larger dossier
+card (`HackFrame`, `accent` on #1 only) with a placeholder silhouette
+icon in place of the old medal-gradient rows, a "#N MOST WANTED" eyebrow,
+and the same power/roster/gear/ops figures; ranks 4+ render as compact
+`HackFrame tight` rows. No new data — purely the same fields restyled.
+
+**Scope gap found and closed in the same pass (confirmed with you before
+doing it):** `agents.vue` and `items.vue` still used plain Nuxt UI
+`UCard`/`rounded-lg` styling, not the `hack-frame` HUD language, even
+though `PLAN.md` has mockups for both (`agents-roster.html`, `items.html`
+§6.6/§6.6a) — no phase in this doc's §5 had ever actually scheduled a
+visual pass for either page, only functional changes (remove Recruit/
+Crates in Phase 2, remove equip UI in Phase 3). Restyled both per the
+mockups:
+
+- `agents.vue`: roster/storage cards and gear rows now use `HackFrame`
+  (base + `hack-frame-tight`/`hack-frame-2` modifiers), `HackModChip` for
+  Total Bonuses (replacing the old 2-column text grid) and for each
+  equipped item's mods (replacing plain text spans), mono `hack-stat-*`
+  readouts for Power. The agent-detail `UModal` keeps its default Nuxt UI
+  chrome (title/description props) rather than fighting it with
+  `hack-frame` internals, per the precedent already noted in the Phase 2
+  entry above.
+- `items.vue`: crafting bench is now a `HackFrame accent` panel. The
+  re-roll rows dropped their hand-rolled `rollQuality`/quality-color bar
+  in favor of the existing `HackRangeBar` component (already used
+  identically by `HackCollectReveal`/`HackCrateOpening` — one fewer
+  bespoke bar implementation) and the lock toggle now uses `.hack-lock-
+  chip` (built in Phase 0, unused until now — its own CSS comment
+  literally said "Phase 3/4"). Inventory rail switched from
+  `HackInventoryItem` to `HackItemCard` (same prop/emit/slot contract);
+  with that swap, **`InventoryItem.vue` had zero remaining references and
+  was deleted outright** rather than left as dead code.
+
+**Verified in a real browser**: seeded `hack_history` rows directly
+(mixed success/failure/rare-item outcomes) since the test account had no
+completed ops yet, confirmed all 4 total tiles and the stamp/expand
+interaction render and toggle correctly, and confirmed the debrief line
+text matches the outcome (the phantom-item row says "paid off, and then
+some" wording, the failure row uses the no-loot phrasing). Confirmed the
+leaderboard's top-3 dossier layout and the ranked list below it render
+against real seeded data (the current dev DB has ~45 leftover test
+accounts from prior verification sessions, all rendering correctly at
+that scale).
+
+For the Agents/Items HUD pass specifically: the Playwright browser cache
+had been evicted mid-session (a `chromium.launch()` that had worked
+minutes earlier suddenly couldn't find its executable) — re-ran `npx
+playwright install chromium` before continuing, worth knowing if a future
+session hits the same "worked before, missing now" error rather than
+assuming something in the app broke. With that fixed: confirmed
+`agents.vue` renders the roster/gear/storage cards with zero console
+errors, confirmed `items.vue`'s crafting bench correctly loads a real
+item, renders its mods on `HackRangeBar`, and that clicking a
+`.hack-lock-chip` actually toggles its `.locked` class (not just a visual
+check — asserted the class in the DOM).
