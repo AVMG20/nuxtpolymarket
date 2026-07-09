@@ -248,12 +248,15 @@ export function useAudio(namespace: string) {
    */
   function playVoice(name: string, opts: PlayVoiceOptions = {}): VoiceHandle {
     const { captionsRef, text = '', delayMs = 300, onEnd } = opts
+    // Content docs author some lines with bracketed ElevenLabs v3 delivery tags
+    // (e.g. [grim], [quiet]) for generation — TTS-only, never shown on screen.
+    const captionText = text.replace(/\[[^\]]*\]/g, '').trim()
     let cancelled = false
     let stopTeletype: (() => void) | null = null
 
     const timer = setTimeout(() => {
       if (cancelled) return
-      if (captionsRef && text) stopTeletype = teletype(captionsRef, text, onEnd)
+      if (captionsRef && captionText) stopTeletype = teletype(captionsRef, captionText, onEnd)
       else onEnd?.()
       void playBuffer('voice', name)
     }, delayMs)

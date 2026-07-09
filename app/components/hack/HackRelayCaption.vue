@@ -21,16 +21,24 @@ const emit = defineEmits<{ ended: [] }>()
 
 const audio = useAudio('hack')
 const caption = ref('')
+// playVoice strips bracket delivery tags (TTS-only) before teletyping, so the
+// caption's final length can be shorter than props.text — track completion via
+// the onEnd callback instead of comparing against the raw prop length.
+const done = ref(false)
 let handle: VoiceHandle | null = null
 
 function play() {
   handle?.cancel()
   caption.value = ''
+  done.value = false
   handle = audio.playVoice(props.voiceName, {
     captionsRef: caption,
     text: props.text,
     delayMs: props.delayMs,
-    onEnd: () => emit('ended')
+    onEnd: () => {
+      done.value = true
+      emit('ended')
+    }
   })
 }
 
@@ -46,7 +54,7 @@ defineExpose({ play })
 <template>
   <p class="hack-captions">
     {{ caption }}<span
-      v-if="caption.length < text.length"
+      v-if="!done"
       class="hack-cursor"
     />
   </p>
