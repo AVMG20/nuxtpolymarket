@@ -6,7 +6,7 @@ import { formatCountdown, progressPct, isDone } from '~/utils/xeno-format'
 
 const {
   state, pending, gridSlots, inventory, freeArtifacts,
-  initGame, unlockGridSlot, plantInSlot, harvestSlot, removePlant,
+  initGame, unlockGridSlot, plantInSlot, plantAllSlots, harvestSlot, removePlant,
   attachGridArtifact,
 } = useXeno()
 
@@ -188,12 +188,7 @@ async function doPlantAll() {
   if (!selectedPlant.value || plantingAll.value) return
   plantingAll.value = true
   try {
-    const emptySlots = (gridSlots.value as any[]).filter(s => !s.plant)
-    for (const slot of emptySlots) {
-      if (!selectedPlant.value) break
-      try { await plantInSlot(slot.id, selectedPlant.value.typeId, selectedPlant.value.speed, selectedPlant.value.yield) }
-      catch { break }
-    }
+    await plantAllSlots(selectedPlant.value.typeId, selectedPlant.value.speed, selectedPlant.value.yield)
   } finally { plantingAll.value = false }
 }
 

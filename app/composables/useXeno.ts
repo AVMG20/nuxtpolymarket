@@ -62,6 +62,11 @@ export const useXeno = () => {
     return call('/api/xeno/grid/plant', { slotId, typeId, speed, yield: yield_ }, '')
   }
 
+  /** Plant a specific stack (typeId + speed + yield) into every empty slot in one request */
+  async function plantAllSlots(typeId: string, speed: number, yield_: number) {
+    return call('/api/xeno/grid/plant-all', { typeId, speed, yield: yield_ }, '')
+  }
+
   async function harvestSlot(slotId: string) {
     return call('/api/xeno/grid/harvest', { slotId }, '')
   }
@@ -162,6 +167,7 @@ export const useXeno = () => {
     initGame,
     unlockGridSlot,
     plantInSlot,
+    plantAllSlots,
     harvestSlot,
     removePlant,
     attachGridArtifact,
