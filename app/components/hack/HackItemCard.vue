@@ -1,14 +1,14 @@
 <script setup lang="ts">
 import {
-  RARITY_COLOR, RARITY_STYLE, RARITY_LABEL, MOD_LABEL, formatModValue, SLOT_ICON, SLOT_LABEL,
+  RARITY_COLOR, RARITY_STYLE, MOD_LABEL, formatModValue, SLOT_ICON, SLOT_LABEL,
   itemPower,
   type HackRarity, type ItemSlot, type ItemMod
 } from '#shared/utils/hack-config'
 
 // The one item card used everywhere an item is displayed (Items, Loadout,
-// Agents gear). Per PLAN.md §10.4: base power (from level) is shown as its
-// own row, separate from the rolled mod list, even though a power_flat mod
-// (if any) contributes to both the "total" figure and its own chip below.
+// Agents gear). Mirrors mockups/shared.js itemCardHTML: rarity-tinted slot
+// icon on the left, rarity-colored title, a "base power / total PWR" sub-line,
+// then the rolled mod chips.
 const props = defineProps<{
   item: {
     id: string
@@ -22,6 +22,8 @@ const props = defineProps<{
   selected?: boolean
   /** Show the "Equipped" badge when the item is on an agent. */
   showStatus?: boolean
+  /** Render the actions slot always (Items page), not only when selected. */
+  actionsAlways?: boolean
 }>()
 
 defineEmits<{ select: [] }>()
@@ -37,65 +39,66 @@ const totalPower = computed(() => itemPower(props.item))
 <template>
   <HackFrame
     tight
-    class="relative pl-4 pr-3.5 py-3.5 cursor-pointer transition-colors"
-    :class="selected ? 'hack-frame-accent' : 'hover:border-primary/40'"
-    @click="$emit('select')"
+    class="p-3.5 transition-colors"
+    :class="[
+      selected ? 'hack-frame-accent' : 'hover:border-primary/40',
+      !actionsAlways && 'cursor-pointer'
+    ]"
+    @click="!actionsAlways && $emit('select')"
   >
-    <span
-      class="absolute inset-y-0 left-0 w-1"
-      :class="RARITY_STYLE[item.rarity].bg"
-    />
-
-    <div class="flex items-start justify-between gap-2 mb-1.5">
-      <span class="hack-card-title-lg leading-snug">{{ item.name }}</span>
-      <UBadge
-        size="xs"
-        :color="RARITY_COLOR[item.rarity]"
-        variant="subtle"
-        :label="RARITY_LABEL[item.rarity]"
-        class="shrink-0"
-      />
-    </div>
-
-    <div class="flex items-center gap-1.5 mb-3">
-      <div class="flex items-center gap-1 px-2 py-0.5 rounded-md border border-default bg-elevated text-muted text-sm font-medium">
+    <div class="flex items-start gap-3.5">
+      <!-- Slot icon, rarity-tinted (the mockup's left icon column) -->
+      <div
+        class="size-12 shrink-0 flex items-center justify-center border"
+        :class="[RARITY_STYLE[item.rarity].bg, RARITY_STYLE[item.rarity].border, RARITY_STYLE[item.rarity].text]"
+      >
         <UIcon
           :name="SLOT_ICON[item.slot]"
-          class="size-3.5"
+          class="size-5"
         />
-        <span>{{ SLOT_LABEL[item.slot] }}</span>
       </div>
-      <span class="text-sm text-muted">Lv {{ item.itemLevel }}</span>
-      <UBadge
-        v-if="showStatus && item.equippedBy"
-        size="xs"
-        color="primary"
-        variant="subtle"
-        label="Equipped"
-        class="ml-auto"
-      />
-    </div>
 
-    <div class="flex items-baseline justify-between pb-2.5 mb-2.5 border-b border-default">
-      <span class="hack-stat-label-md">Base power (Lv × 2)</span>
-      <span class="flex items-baseline gap-1.5">
-        <span class="text-sm text-muted">+{{ basePower }}</span>
-        <b class="hack-stat-value-lg text-primary">{{ totalPower }} PWR</b>
-      </span>
-    </div>
+      <div class="flex-1 min-w-0">
+        <div class="flex items-start justify-between gap-2 flex-wrap">
+          <span
+            class="hack-card-title-lg leading-snug"
+            :class="RARITY_STYLE[item.rarity].text"
+          >{{ item.name }}</span>
+          <UBadge
+            size="xs"
+            :color="RARITY_COLOR[item.rarity]"
+            variant="subtle"
+            :label="`${SLOT_LABEL[item.slot]} · Lv ${item.itemLevel}`"
+            class="shrink-0"
+          />
+        </div>
 
-    <div class="flex flex-wrap gap-1.5">
-      <HackModChip
-        v-for="m in sortedMods"
-        :key="m.type"
-        :label="MOD_LABEL[m.type]"
-        :value="formatModValue(m.type, m.value)"
-      />
+        <p class="text-xs text-muted font-mono mt-1">
+          Base <b class="text-primary">+{{ basePower }}</b> · total <b class="text-primary">{{ totalPower }} PWR</b>
+          <UBadge
+            v-if="showStatus && item.equippedBy"
+            size="xs"
+            color="primary"
+            variant="subtle"
+            label="Equipped"
+            class="ml-1.5 align-middle"
+          />
+        </p>
+
+        <div class="flex flex-wrap gap-1.5 mt-2.5">
+          <HackModChip
+            v-for="m in sortedMods"
+            :key="m.type"
+            :label="MOD_LABEL[m.type]"
+            :value="formatModValue(m.type, m.value)"
+          />
+        </div>
+      </div>
     </div>
 
     <div
-      v-if="selected && $slots.actions"
-      class="space-y-1.5 pt-3 mt-3 border-t border-default"
+      v-if="(selected || actionsAlways) && $slots.actions"
+      class="pt-3 mt-3 border-t border-default"
       @click.stop
     >
       <slot name="actions" />
