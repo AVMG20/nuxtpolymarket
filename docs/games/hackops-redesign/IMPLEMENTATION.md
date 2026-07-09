@@ -425,6 +425,52 @@ original logic, so risk is low, but flag before calling Phase 1 fully closed.
 uncommitted edit (ElevenLabs TTS generation notes — model/stability/tags)
 that isn't mine; left it alone and out of the Phase 1 commit.
 
+### Voice asset drop 1/N — done (commit `Wire in first 8 mission briefing voice lines`)
+
+First real VO landed: `brief-{port-scan,wifi-crack,phishing-run,ransomware-drop,
+dark-web,crypto-heist,telecom-tap,supply-chain}.mp3` in
+`public/hack/sound/voice/`. **No code wiring was actually needed** — Phase 1's
+`MISSION_VOICE` filenames in `hack-content.ts` already matched this naming
+convention exactly, so `useAudio`'s existing fetch → decodeAudioData path
+picked them up automatically (confirmed via Playwright: the request now
+returns `200`, not a 404-to-captions-only fallback).
+
+What *did* need work, and what to watch for on the next drop:
+
+1. **`voice-lines.md`/`mission-briefings.md` got copy edits alongside the new
+   TTS generation-notes section** (a concurrent session, not this one) —
+   `[grim]`/`[quiet]` delivery tags got embedded *mid-sentence* into a few
+   briefing lines (`ransomware_drop`, `black_site`, `nsa_breach`,
+   `project_zero`) and `central_bank`/`nsa_breach` picked up punctuation
+   changes (added ellipses/commas for pacing). `hack-content.ts`'s
+   `MISSION_BRIEFING` copy is sourced verbatim from that file, so it was
+   stale — synced the 5 changed lines. **If another content sync lands
+   before Phase 2, diff `MISSION_BRIEFING`/`COLLECT_LINES` against the
+   content docs again before assuming they still match** — this will keep
+   happening as VO gets recorded/adjusted per line.
+2. **Real bug caught by this sync, not by typecheck:** a mid-sentence bracket
+   tag (`"...call. [grim] This one's..."`) left a doubled space once
+   `playVoice` stripped it, since the old regex only trimmed the string
+   *ends*. Fixed in `useAudio.ts` — the strip now also collapses internal
+   whitespace (`.replace(/\s+/g, ' ')`) before the caption gets it. This
+   would only have shown up as a visible double-space in a live caption, so
+   it's worth specifically checking for stray `[`/`]` or doubled spaces in
+   the rendered caption (not just the source string) whenever new tagged
+   lines get wired in.
+3. **`collect-success-rare`'s caption text also had a stale markdown artifact**
+   — `voice-lines.md` corrected `*that's*` to `THAT'S` (asterisks aren't
+   TTS-safe and were never going to render as emphasis in a plain caption
+   either). Synced in `COLLECT_LINES.successRareText`.
+4. **Not yet wired, no code needed until it lands:** `brief-{corp-breach,
+   bank-skim,mil-intel,gov-heist,ai-theft,central-bank,black-site,
+   nsa-breach,ghost-protocol,quantum-heist,project-zero}.mp3` (11 of 19
+   mission briefings), the general RELAY barks (`brief-outro-generic`,
+   `deploy-confirm`, `collect-*`, `agent-levelup`, `agent-max-level`), and
+   everything in `agent-bios.md`/`crate-lore.md` (Phase 2 scope, rarity
+   barks + contact intros — those two docs also picked up tag edits this
+   session, e.g. Phantom bark now opens `[flat]`; keep the same "diff
+   before assuming it's current" habit when Phase 2 wires them in).
+
 ### Phase 2 — Black Market — not started
 ### Phase 3 — Loadout — not started
 ### Phase 4 — History, Leaderboard, polish — not started
