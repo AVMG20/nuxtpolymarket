@@ -25,6 +25,15 @@
   --hack-cut: 14px;
 }
 
+/* Every enabled control inside the HUD shows the hand cursor. Nuxt UI's base
+   button sets no cursor, so a native <button> would otherwise show an arrow.
+   Scoped to .hack-shell — the reveal/compare modals wrap their teleported
+   content in .hack-shell too, so this reaches them despite the portal. */
+.hack-shell button:not(:disabled):not([aria-disabled='true']),
+.hack-shell [role='button']:not([aria-disabled='true']),
+.hack-shell label:has(input),
+.hack-shell a[href] { cursor: pointer; }
+
 /* ── Corner-cut panel — the core visual signature ─────────────────────── */
 .hack-frame {
   position: relative;
