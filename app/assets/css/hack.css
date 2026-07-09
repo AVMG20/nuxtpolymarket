@@ -1,0 +1,170 @@
+/* HackOps HUD design tokens — hybrid tactical-hacker aesthetic.
+   See docs/games/hackops-redesign/PLAN.md §4 and mockups/shared.css.
+
+   Every class here is prefixed `hack-` and only imported into
+   app/pages/hack.vue, so it never collides with Nuxt UI's own utilities
+   (text-muted, badge, etc.) even though Vite doesn't unload page CSS on
+   navigation. --hack-accent / --hack-accent-2 track the user's live
+   Primary/Secondary theme via Nuxt UI's --ui-primary / --ui-secondary —
+   never a hardcoded hue. Rarity/cash/gems/xp colors are NOT redefined
+   here; they stay the existing RARITY_STYLE/RARITY_ACCENT Tailwind
+   classes and text-yellow-400/text-cyan-400/text-violet-400 the current
+   pages already use. */
+
+.hack-shell {
+  --hack-bg: #0a0d12;
+  --hack-panel: #11161d;
+  --hack-panel-2: #161c25;
+  --hack-border: rgba(255, 255, 255, 0.08);
+  --hack-border-strong: rgba(255, 255, 255, 0.16);
+  --hack-accent: var(--ui-primary);
+  --hack-accent-2: var(--ui-secondary);
+  --hack-cut: 14px;
+}
+
+/* ── Corner-cut panel — the core visual signature ─────────────────────── */
+.hack-frame {
+  position: relative;
+  background: var(--hack-panel);
+  border: 1px solid var(--hack-border);
+  clip-path: polygon(
+    var(--hack-cut) 0, 100% 0, 100% calc(100% - var(--hack-cut)),
+    calc(100% - var(--hack-cut)) 100%, 0 100%, 0 var(--hack-cut)
+  );
+}
+.hack-frame::before, .hack-frame::after {
+  content: '';
+  position: absolute;
+  width: var(--hack-cut);
+  height: 1px;
+  background: var(--hack-border-strong);
+}
+.hack-frame::before { top: 0; left: 0; transform: rotate(45deg) translate(-3px, -1px); transform-origin: left; }
+.hack-frame::after { bottom: 0; right: 0; transform: rotate(45deg) translate(3px, 1px); transform-origin: right; }
+.hack-frame-2 { background: var(--hack-panel-2); }
+.hack-frame-tight { --hack-cut: 8px; }
+.hack-frame-accent {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--hack-accent) 25%, transparent),
+    0 0 24px -8px color-mix(in srgb, var(--hack-accent) 35%, transparent);
+  border-color: color-mix(in srgb, var(--hack-accent) 35%, var(--hack-border));
+}
+
+/* Do not nest a UPopover/UDropdownMenu trigger's content inside a .hack-frame —
+   clip-path on an ancestor clips descendant painting even for absolutely
+   positioned children that visually escape the box. Nuxt UI's overlay
+   primitives teleport to a portal by default, so this only bites if a
+   popover is hand-rolled inside a .hack-frame instead. */
+
+/* ── Typography helpers ───────────────────────────────────────────────── */
+.hack-eyebrow {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ui-text-dimmed);
+}
+.hack-glow-text { text-shadow: 0 0 12px currentColor; }
+
+/* ── Larger, legible data-card text tokens ────────────────────────────── */
+.hack-card-title-lg { font-size: 16px; font-weight: 700; }
+.hack-stat-label-md {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--ui-text-dimmed);
+}
+.hack-stat-value-lg { font-family: var(--font-mono, ui-monospace, monospace); font-size: 17px; font-weight: 600; }
+
+/* Navbar-style hero stat (cash/gems/power) — bigger + bolder than a plain label. */
+.hack-stat-hero { display: inline-flex; align-items: center; gap: 6px; }
+.hack-stat-hero b { font-size: 16px; font-weight: 700; color: currentColor; }
+
+/* ── Mod / trait chip — bold value + muted uppercase label, no emoji (round 5) ── */
+.hack-mod-chip {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 12.5px;
+  padding: 6px 10px;
+  border: 1px solid var(--hack-border);
+  background: color-mix(in srgb, var(--hack-panel-2) 60%, transparent);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.hack-mod-chip b { font-weight: 700; }
+.hack-mod-chip-label { color: var(--ui-text-dimmed); text-transform: uppercase; font-size: 10.5px; letter-spacing: 0.04em; }
+
+/* ── Range bar — a rolled value's position within its min/max range ──── */
+.hack-range-bar { position: relative; flex: 1; height: 8px; background: var(--hack-panel-2); border: 1px solid var(--hack-border); }
+.hack-range-fill { position: absolute; top: 0; left: 0; height: 100%; background: color-mix(in srgb, var(--hack-accent) 30%, transparent); }
+.hack-range-marker {
+  position: absolute; top: -4px; width: 3px; height: 16px;
+  background: var(--hack-accent); box-shadow: 0 0 6px var(--hack-accent); transform: translateX(-50%);
+}
+.hack-range-minmax {
+  display: flex; justify-content: space-between;
+  font-family: var(--font-mono, ui-monospace, monospace); font-size: 9.5px; color: var(--ui-text-dimmed); margin-top: 3px;
+}
+
+/* ── Lock chip — crafting bench lock/unlock affordance (Phase 3/4) ──── */
+.hack-lock-chip {
+  font-family: var(--font-mono, ui-monospace, monospace); font-size: 11.5px; letter-spacing: 0.04em; text-transform: uppercase;
+  padding: 6px 12px; border: 1px solid var(--hack-border-strong); color: var(--ui-text-dimmed);
+  cursor: pointer; display: inline-flex; align-items: center; gap: 6px; transition: all 0.12s;
+  background: var(--hack-panel-2);
+}
+.hack-lock-chip:hover { border-color: var(--ui-text-muted); color: var(--ui-text-muted); }
+.hack-lock-chip.locked { color: var(--hack-accent); border-color: var(--hack-accent); background: color-mix(in srgb, var(--hack-accent) 12%, transparent); }
+.hack-lock-chip .hack-lock-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; opacity: 0.5; }
+.hack-lock-chip.locked .hack-lock-dot { opacity: 1; box-shadow: 0 0 6px currentColor; }
+
+/* ── Corner tag — status pill anchored to a card corner ───────────────── */
+.hack-corner-tag {
+  position: absolute;
+  top: 10px; right: 10px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 10px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 3px 8px;
+  border: 1px solid var(--hack-border-strong);
+  background: rgba(10, 13, 18, 0.85);
+  backdrop-filter: blur(2px);
+}
+.hack-corner-tag.ready { color: var(--ui-color-success-400, #4ade80); border-color: currentColor; animation: hack-pulse-ready 1.4s infinite; }
+@keyframes hack-pulse-ready { 0%, 100% { box-shadow: 0 0 0 rgba(74, 222, 128, 0); } 50% { box-shadow: 0 0 12px rgba(74, 222, 128, 0.6); } }
+
+/* ── Captions / teletype ──────────────────────────────────────────────── */
+.hack-captions {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 15px;
+  line-height: 1.6;
+  min-height: 3.2em;
+}
+.hack-cursor {
+  display: inline-block; width: 8px; height: 1em; background: var(--hack-accent);
+  vertical-align: text-bottom; animation: hack-blink 1s step-end infinite; margin-left: 2px;
+}
+@keyframes hack-blink { 50% { opacity: 0; } }
+
+/* ── Glitch flicker — reveal moments only (crate open, rarity stamp) ──── */
+.hack-glitch { position: relative; }
+.hack-glitch.active::before, .hack-glitch.active::after {
+  content: attr(data-text);
+  position: absolute; inset: 0;
+  clip-path: inset(0 0 0 0);
+}
+.hack-glitch.active::before { color: var(--hack-accent-2); animation: hack-glitch-1 0.35s steps(2) 2; left: 2px; }
+.hack-glitch.active::after { color: var(--ui-color-error-400, #f87171); animation: hack-glitch-2 0.35s steps(2) 2; left: -2px; }
+@keyframes hack-glitch-1 { 0% { clip-path: inset(0 0 80% 0); } 50% { clip-path: inset(40% 0 20% 0); } 100% { clip-path: inset(0 0 0 0); } }
+@keyframes hack-glitch-2 { 0% { clip-path: inset(60% 0 0 0); } 50% { clip-path: inset(10% 0 50% 0); } 100% { clip-path: inset(0 0 0 0); } }
+
+/* ── Ambient idle scanline drift — subtle motion on resting panels ────── */
+.hack-scan-drift { position: relative; overflow: hidden; }
+.hack-scan-drift::after {
+  content: '';
+  position: absolute; inset: 0; pointer-events: none;
+  background: repeating-linear-gradient(to bottom, rgba(255, 255, 255, 0.02) 0px, rgba(255, 255, 255, 0.02) 1px, transparent 1px, transparent 3px);
+  animation: hack-scan-drift-move 6s linear infinite;
+}
+@keyframes hack-scan-drift-move { from { transform: translateY(0); } to { transform: translateY(12px); } }

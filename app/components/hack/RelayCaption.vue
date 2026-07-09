@@ -1,0 +1,53 @@
+<script setup lang="ts">
+import type { VoiceHandle } from '~/composables/useAudio'
+
+// RELAY's teletyped caption, synced to a voice clip via useAudio. Captions
+// always run to completion regardless of whether the clip is muted, missing
+// (no VO recorded yet), or blocked by autoplay policy — audio is enhancement,
+// captions are not optional. See PLAN.md §5.2/§5.3.
+const props = withDefaults(defineProps<{
+  /** Clip name under public/hack/sound/voice/, without extension. */
+  voiceName: string
+  text: string
+  autoplay?: boolean
+  /** Beat before playback starts (your ask: ~200-400ms so it "pops" after the surface appears). */
+  delayMs?: number
+}>(), {
+  autoplay: true,
+  delayMs: 300
+})
+
+const emit = defineEmits<{ ended: [] }>()
+
+const audio = useAudio('hack')
+const caption = ref('')
+let handle: VoiceHandle | null = null
+
+function play() {
+  handle?.cancel()
+  caption.value = ''
+  handle = audio.playVoice(props.voiceName, {
+    captionsRef: caption,
+    text: props.text,
+    delayMs: props.delayMs,
+    onEnd: () => emit('ended')
+  })
+}
+
+watch(() => [props.voiceName, props.text], () => {
+  if (props.autoplay) play()
+}, { immediate: true })
+
+onUnmounted(() => handle?.cancel())
+
+defineExpose({ play })
+</script>
+
+<template>
+  <p class="hack-captions">
+    {{ caption }}<span
+      v-if="caption.length < text.length"
+      class="hack-cursor"
+    />
+  </p>
+</template>
