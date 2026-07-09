@@ -253,6 +253,13 @@
 }
 .hack-trait-row { border: 1px solid var(--hack-border); padding: 12px 14px; margin-bottom: 10px; }
 
+/* Compact inline stamp — debrief log rows (§6.8), not the big reveal-modal one above */
+.hack-stamp-sm {
+  display: inline-block; font-family: var(--font-mono, ui-monospace, monospace); font-weight: 800; font-size: 11px;
+  letter-spacing: 0.08em; text-transform: uppercase; padding: 3px 8px; border: 2px solid currentColor;
+  transform: rotate(-6deg);
+}
+
 /* ── Ambient idle scanline drift — subtle motion on resting panels ────── */
 .hack-scan-drift { position: relative; overflow: hidden; }
 .hack-scan-drift::after {
