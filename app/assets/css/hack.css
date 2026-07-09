@@ -210,6 +210,27 @@
 .hack-tab:hover { color: var(--ui-text-muted); }
 .hack-tab.active { color: var(--hack-accent); border-bottom-color: var(--hack-accent); }
 
+/* ── Inventory toolbar — filter buttons + sort select (Items / Loadout) ── */
+.hack-filter-btn {
+  font-family: var(--font-mono, ui-monospace, monospace); font-size: 11px; letter-spacing: 0.04em;
+  text-transform: uppercase; padding: 7px 12px; border: 1px solid var(--hack-border-strong);
+  background: transparent; color: var(--ui-text-dimmed); cursor: pointer; transition: all 0.12s;
+}
+.hack-filter-btn:hover { color: var(--ui-text-muted); border-color: var(--ui-text-muted); }
+.hack-filter-btn.active { color: var(--hack-accent); border-color: var(--hack-accent); background: color-mix(in srgb, var(--hack-accent) 12%, transparent); }
+.hack-sort-select {
+  font-family: var(--font-mono, ui-monospace, monospace); font-size: 11px; letter-spacing: 0.04em;
+  text-transform: uppercase; padding: 7px 26px 7px 10px; border: 1px solid var(--hack-border-strong);
+  background: var(--hack-panel-2); color: var(--ui-text); cursor: pointer;
+  appearance: none; -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238593a3' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 8px center;
+}
+
+/* ── Crafting bench — gem cost preview rows (Items) ───────────────────── */
+.hack-cost-row { display: flex; justify-content: space-between; padding: 5px 0; font-size: 12.5px; }
+.hack-cost-row .lvl { color: var(--ui-text-dimmed); font-family: var(--font-mono, ui-monospace, monospace); }
+
 /* ── Black Market: segmented control + contact/seller card ────────────── */
 .hack-seg { display: inline-flex; border: 1px solid var(--hack-border-strong); }
 .hack-seg button {
@@ -264,10 +285,22 @@
 
 /* Compact inline stamp — debrief log rows (§6.8), not the big reveal-modal one above */
 .hack-stamp-sm {
-  display: inline-block; font-family: var(--font-mono, ui-monospace, monospace); font-weight: 800; font-size: 11px;
-  letter-spacing: 0.08em; text-transform: uppercase; padding: 3px 8px; border: 2px solid currentColor;
-  transform: rotate(-6deg);
+  display: inline-block; font-family: var(--font-mono, ui-monospace, monospace); font-weight: 800; font-size: 11.5px;
+  letter-spacing: 0.08em; text-transform: uppercase; padding: 4px 10px; border: 2px solid currentColor;
+  transform: rotate(-4deg);
 }
+
+/* ── Debrief log (History) — after-action report rows inside one frame ─── */
+.hack-report-row { padding: 16px; border-bottom: 1px solid var(--hack-border); cursor: pointer; transition: background 0.12s; }
+.hack-report-row:last-child { border-bottom: none; }
+.hack-report-row:hover { background: var(--hack-panel-2); }
+.hack-reward-chip {
+  font-family: var(--font-mono, ui-monospace, monospace); font-size: 12px;
+  padding: 4px 10px; border: 1px solid var(--hack-border); background: var(--hack-panel-2);
+  display: inline-flex; align-items: center; gap: 5px; white-space: nowrap;
+}
+.hack-chevron { transition: transform 0.15s; display: inline-block; }
+.hack-chevron.open { transform: rotate(90deg); }
 
 /* ── Ambient idle scanline drift — subtle motion on resting panels ────── */
 .hack-scan-drift { position: relative; overflow: hidden; }
