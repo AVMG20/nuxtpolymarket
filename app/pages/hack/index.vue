@@ -707,7 +707,8 @@ const filteredTemplates = computed(() =>
               v-if="modalStats && modalStats.successChance < MIN_DEPLOY_SUCCESS"
               class="text-sm text-error mt-2"
             >
-              Success chance too low to deploy — bring more power.
+              Success chance too low to deploy — your squad isn't ready.
+              <NuxtLink to="/hack/loadout" class="underline hover:text-error/80">Gear up in Loadout →</NuxtLink>
             </p>
           </HackFrame>
         </div>
