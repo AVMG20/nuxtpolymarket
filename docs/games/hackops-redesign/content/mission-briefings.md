@@ -22,7 +22,10 @@ read from there at runtime, never hardcoded into UI copy.
   labels used in the mockups.
 
 Voice direction default for all: RELAY, unhurried, dry. Where a line calls
-for something different (tension, dark humor, awe) it's called out.
+for something different (tension, dark humor, awe) it's called out below as
+a **Delivery** note, with the concrete ElevenLabs tag/setting to use. For
+the full model/stability/tag legend, see "TTS generation notes" in
+`voice-lines.md` — it covers this file too.
 
 ---
 
@@ -63,7 +66,8 @@ for something different (tension, dark humor, awe) it's called out.
 - **Assets:** `voice/brief-bank-skim.mp3`, `img/mission/bank-skim.jpg`
 
 ### Ransomware Drop (`ransomware_drop`)
-- **Briefing:** "Regional hospital network, lousy backups, worse security. Drop the payload, lock what needs locking, and let me handle the ransom call. This one's going to test somebody's stomach." *(delivery note: slightly graver than usual — RELAY doesn't love this one either)*
+- **Briefing:** "Regional hospital network, lousy backups, worse security. Drop the payload, lock what needs locking, and let me handle the ransom call. [grim] This one's going to test somebody's stomach."
+- **Delivery:** `[grim]` — slightly graver than usual, RELAY doesn't love this one either.
 - **Thumbnail prompt:** Hospital IT/server room corridor, fluorescent lights flickering, a wall-mounted monitor showing a red lock icon and scrolling encrypted-file list, sterile clinical color palette broken by red alert glow, tense, 16:9.
 - **Ambient audio cue:** fluorescent light hum/flicker buzz, distant hospital PA murmur.
 - **Assets:** `voice/brief-ransomware-drop.mp3`, `img/mission/ransomware-drop.jpg`
@@ -75,7 +79,8 @@ for something different (tension, dark humor, awe) it's called out.
 - **Assets:** `voice/brief-dark-web.mp3`, `img/mission/dark-web.jpg`
 
 ### Crypto Heist (`crypto_heist`)
-- **Briefing:** "Found a race condition in a decentralized exchange's contract — window's maybe ninety seconds before someone patches it. Drain the hot wallet, get out before the block confirms. Small window, big payday." *(delivery note: faster pace, real urgency)*
+- **Briefing:** "Found a race condition in a decentralized exchange's contract — window's maybe ninety seconds before someone patches it. Drain the hot wallet, get out before the block confirms. Small window, big payday."
+- **Delivery:** faster pace, real urgency — set generation `speed` to ~1.1 for this line (a whole-line pacing shift, more reliable via the setting than a text tag).
 - **Thumbnail prompt:** Stylized glowing wallet/vault icon cracking open with digital coin particles spilling out, countdown-timer HUD overlay, orange/gold crypto-branding-adjacent glow on black, high energy, 16:9.
 - **Ambient audio cue:** rising digital tension pulse, subtle countdown tick.
 - **Assets:** `voice/brief-crypto-heist.mp3`, `img/mission/crypto-heist.jpg`
@@ -119,13 +124,15 @@ for something different (tension, dark humor, awe) it's called out.
 - **Assets:** `voice/brief-ai-theft.mp3`, `img/mission/ai-theft.jpg`
 
 ### Central Bank Tap (`central_bank`)
-- **Briefing:** "Ten hours sitting quietly on SWIFT traffic out of a central bank. No smash and grab here — just patience, and the kind of intelligence that's worth more than the cash we'll skim off it." *(delivery note: slower, patient pacing)*
+- **Briefing:** "Ten hours, sitting quietly on SWIFT traffic out of a central bank... No smash and grab here — just patience, and the kind of intelligence that's worth more than the cash we'll skim off it."
+- **Delivery:** slower, patient pacing — set generation `speed` to ~0.9 for this line.
 - **Thumbnail prompt:** Grand neoclassical central-bank building exterior at night, illuminated columns, a single lit high-floor window, ominous scale, desaturated cold palette with one warm window glow, 16:9.
 - **Ambient audio cue:** distant city night ambience, slow ticking clock.
 - **Assets:** `voice/brief-central-bank.mp3`, `img/mission/central-bank.jpg`
 
 ### Black Site Raid (`black_site`)
-- **Briefing:** "There's a facility that doesn't officially exist, running AI research that officially doesn't happen either. We're going in anyway. If this goes sideways, nobody's coming to explain it to the press." *(delivery note: grim, no dark humor here)*
+- **Briefing:** "[grim] There's a facility that doesn't officially exist, running AI research that officially doesn't happen either. We're going in anyway. If this goes sideways, nobody's coming to explain it to the press."
+- **Delivery:** `[grim]` — no dark humor here, the one briefing that plays it completely straight.
 - **Thumbnail prompt:** Unmarked concrete bunker facility entrance in a desert at night, floodlights, chain-link fence, a single unmarked black vehicle parked outside, ominous wide shot, desaturated with cold spotlight highlights, 16:9.
 - **Ambient audio cue:** desert wind, distant generator hum, occasional metallic clank.
 - **Assets:** `voice/brief-black-site.mp3`, `img/mission/black-site.jpg`
@@ -135,7 +142,8 @@ for something different (tension, dark humor, awe) it's called out.
 ## Tier 5 — Endgame (3–4 agents, 22–56h, item floor rises to Elite)
 
 ### NSA Breach (`nsa_breach`)
-- **Briefing:** "Fort Meade. I'm going to say that again so it sinks in — Fort Meade. We're not hacking a company anymore, we're hacking the people who taught everyone else how to hack. If your squad isn't ready, don't send them." *(delivery note: weight, a beat of hesitation before "Fort Meade" repeats)*
+- **Briefing:** "Fort Meade. I'm going to say that again so it sinks in... Fort Meade. We're not hacking a company anymore — we're hacking the people who taught everyone else how to hack. If your squad isn't ready, don't send them."
+- **Delivery:** weight, a beat of hesitation before the repeat — carried entirely by the ellipsis, no tag needed.
 - **Thumbnail prompt:** Imposing black-glass government intelligence campus at dawn, satellite dishes and antenna arrays on the roofline, fog rolling across a manicured lawn, epic wide establishing shot, cold blue dawn light, 16:9.
 - **Ambient audio cue:** low ominous drone, distant electronic warble.
 - **Assets:** `voice/brief-nsa-breach.mp3`, `img/mission/nsa-breach.jpg`
@@ -153,7 +161,8 @@ for something different (tension, dark humor, awe) it's called out.
 - **Assets:** `voice/brief-quantum-heist.mp3`, `img/mission/quantum-heist.jpg`
 
 ### Project Zero (`project_zero`) — mythic-tier, requires full squad of 4
-- **Briefing:** "Project Zero. I've been doing this a long time, and I've never sent a full squad after something like this — a nation-state AI system, zero-day access, persistent. Whatever happens after tonight, the board looks different. Everyone goes. No exceptions." *(delivery note: the one moment RELAY sounds genuinely affected — slow down on the last two sentences)*
+- **Briefing:** "Project Zero. I've been doing this a long time, and I've never sent a full squad after something like this — a nation-state AI system, zero-day access, persistent. [quiet] Whatever happens after tonight... the board looks different. Everyone goes. No exceptions."
+- **Delivery:** the one moment RELAY sounds genuinely affected. v3 can't slow just part of a line via the `speed` setting, so the last two sentences are broken into shorter beats with `[quiet]` plus an ellipsis to force the deceleration instead.
 - **Thumbnail prompt:** A colossal glowing red "0-day" digital eye/sigil forming out of converging data-streams above a dark city skyline silhouette, apocalyptic-epic scale, dominant red/black palette breaking from the game's usual cyan, signaling "this one is different," 16:9.
 - **Ambient audio cue:** deep sub-bass swell, building tension, no percussion — dread rather than action.
 - **Assets:** `voice/brief-project-zero.mp3`, `img/mission/project-zero.jpg`

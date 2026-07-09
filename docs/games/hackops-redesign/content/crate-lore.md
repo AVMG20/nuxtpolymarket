@@ -9,6 +9,9 @@ RELAY is always the intermediary, consistent with §3's single-narrator rule.
 Odds/costs quoted here are the real values from `hack-config.ts` — restate,
 never invent new ones.
 
+For ElevenLabs generation (model, stability, tag legend), see the "TTS
+generation notes" section in `voice-lines.md` — it covers this file too.
+
 ---
 
 ## Recruit tiers ("Contacts")
@@ -49,12 +52,12 @@ thorough. That's the point."
 line that gets replaced after every use, to someone RELAY refers to only as
 **the old man**. Nobody else on your crew has ever heard that voice.
 
-**RELAY intro:** "I'm calling in a favor I've been saving. Whoever comes
-back from this isn't auditioning — they're already the best in the
+**RELAY intro:** "[quiet] I'm calling in a favor I've been saving. Whoever
+comes back from this isn't auditioning — they're already the best in the
 business, and they know it. Don't waste them on the easy jobs."
 
-**On purchase confirm:** "Made the call. Now we wait, and we don't ask what
-it cost me."
+**On purchase confirm:** "Made the call. Now we wait... and we don't ask
+what it cost me."
 
 ---
 

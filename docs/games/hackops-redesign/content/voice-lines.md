@@ -17,6 +17,52 @@ roughly every 3rd–5th roll, skip entirely under Quick Open). Every other
 line in this sheet (briefings, contact intros, one-off action barks) plays
 normally — the throttling is specific to rapid repeated reveals.
 
+## TTS generation notes (ElevenLabs)
+
+Applies to every line in this file plus `mission-briefings.md` and
+`crate-lore.md` (and the rarity-bark master copy in `agent-bios.md` §2).
+
+**Model:** generate with `eleven_v3` — it's the only model that understands
+the bracket delivery tags used below; a v2/multilingual model will just
+read the brackets aloud as literal text. v3 also drops SSML `<break>`
+support entirely, which is why pacing here leans on punctuation and tags
+instead of `<break time="x.xs" />`.
+
+**Stability:** start on **Natural**. It gives enough range for the dry
+humor to land without drifting into melodrama — RELAY should never sound
+"Creative"-tier expressive. Drop to **Robust** only if a specific take
+keeps overacting a line.
+
+**Speed:** for the two lines in `mission-briefings.md` marked with a pacing
+note (Central Bank Tap: slower/patient; Crypto Heist: faster/urgent), use
+the generation `speed` setting (0.7–1.2) rather than a text tag — it's the
+more reliable lever for a whole-line pacing change and those notes apply to
+the entire line evenly.
+
+**Tags** (used sparingly — RELAY undersells everything; most lines need
+zero tags, and none of these ever stack more than one per line):
+
+| Tag | Use for |
+|---|---|
+| `[flat]` | zero-inflection, just-the-facts default delivery |
+| `[dry]` / `[wry]` | the joke lines — delivered completely straight |
+| `[grim]` / `[quiet]` | the handful of graver moments (ransomware, black site, endgame) |
+| `[sighs]` / `[tired exhale]` | an actual performed breath — only where one is explicitly called for |
+
+**Punctuation first, tags second** — reach for these before a bracket tag;
+they're more reliable and don't risk the instability heavy tag use can
+cause:
+- `...` for hesitation, trailing off, a grim pause
+- `—` for a hard interrupting beat (already used throughout this copy)
+- CAPS on a single word for the rare emphasis point — not markdown
+  `*asterisks*`, which aren't rendered for speech and risk being read
+  literally as punctuation
+
+**Captions:** bracket tags are generation-only. Before rendering a line as
+an on-screen caption, strip them (`text.replace(/\[[^\]]*\]/g,
+'').trim()`) — see `IMPLEMENTATION.md` §2.1. Punctuation-based cues
+(ellipses, dashes, caps) are caption-safe as-is; leave those in.
+
 ## Voice — RELAY, general barks
 
 | Trigger | Line | Filename |
@@ -24,7 +70,7 @@ normally — the throttling is specific to rapid repeated reveals.
 | Briefing player, squad-select unlocked (session-once) | "Your call, Handler. Pick your people." | `voice/brief-outro-generic.mp3` |
 | Deploy confirmed | "They're moving. I'll let you know." | `voice/deploy-confirm.mp3` |
 | Op collect — success | "Clean job. Money's already moving." | `voice/collect-success-1.mp3` |
-| Op collect — success (high roll / rare item drop) | "Now *that's* a payday. Don't get used to it." | `voice/collect-success-rare.mp3` |
+| Op collect — success (high roll / rare item drop) | "Now THAT'S a payday. Don't get used to it." | `voice/collect-success-rare.mp3` |
 | Op collect — failure | "We lost this one. Everyone's alive, that's the part that matters." | `voice/collect-failure.mp3` |
 | Op collect — failure, agent squad wiped stat-wise (flavor only, no permadeath in this game) | "Rough night. They'll shake it off." | `voice/collect-failure-rough.mp3` |
 | Agent level-up (any) | "They're getting better. Good — they'll need to be." | `voice/agent-levelup.mp3` |

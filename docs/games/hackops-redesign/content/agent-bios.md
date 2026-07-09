@@ -64,13 +64,16 @@ rarity stamp lands, before the agent card animates in. Same five lines
 reused for every recruit source (Script Pull / Dark Web Hire / Ghost
 Recruit) — rarity is rarity regardless of which contact found them.
 
+For ElevenLabs generation (model, stability, tag legend), see the "TTS
+generation notes" section in `voice-lines.md` — it covers this table too.
+
 | Rarity | Bark |
 |---|---|
 | Ghost | "Rookie. They'll do." |
 | Operative | "Solid. I've built jobs around worse." |
 | Specialist | "Now we're talking." |
 | Elite | "...Huh. Didn't expect that out of this one." |
-| Phantom | "Don't ask what they used to do before us. I didn't, and I still don't sleep great." |
+| Phantom | "[flat] Don't ask what they used to do before us. I didn't, and I still don't sleep great." |
 
 ## 3. Class flavor (for tooltips / wiki / loadout screen headers)
 
