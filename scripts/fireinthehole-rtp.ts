@@ -23,6 +23,10 @@ let bonusTriggers = 0
 let wins = 0
 let capHits = 0
 
+let coinDrops = 0
+let coinHits = 0
+let coinBonusPaySum = 0
+
 // payout distribution buckets (× bet)
 const buckets = [0, 0.5, 1, 2, 5, 10, 50, 100, 500, 1000, 5000, Infinity]
 const bucketCounts = new Array(buckets.length).fill(0)
@@ -72,6 +76,14 @@ for (let i = 0; i < rounds; i++) {
   if (r.payout > r.cost) wins++
   if (r.payout >= maxWin) capHits++
 
+  if (r.coinDrop) coinDrops++
+  for (const step of r.steps) {
+    if (step.coinHit) {
+      coinHits++
+      coinBonusPaySum += step.coinHit.bonusPay
+    }
+  }
+
   if (r.bonus) {
     bonusTriggers++
 
@@ -113,6 +125,9 @@ console.log(`bonus trigger:      ${pct(bonusTriggers / rounds)}  (1 in ${bonusTr
 console.log(`avg spins to bonus: ${gapCount ? (gapSum / gapCount).toFixed(2) : '—'}  (n=${gapCount} gaps observed)`)
 console.log(`hit freq (>bet):    ${pct(wins / rounds)}`)
 console.log(`max-win hits:       ${capHits}  (1 in ${capHits ? (rounds / capHits).toFixed(0) : '—'})`)
+console.log(`coin drops:         ${pct(coinDrops / rounds)}  (1 in ${coinDrops ? (rounds / coinDrops).toFixed(1) : '—'})`)
+console.log(`coin pops (hits):   ${coinHits}  (${pct(coinHits / rounds)} of rounds, ${coinDrops ? pct(coinHits / coinDrops) : '—'} of drops)`)
+console.log(`coin RTP share:     ${pct(coinBonusPaySum / totalBet)}`)
 
 console.log('\npayout distribution (× bet):')
 for (let b = 0; b < buckets.length; b++) {

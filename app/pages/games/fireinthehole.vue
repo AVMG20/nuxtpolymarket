@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { FireBonusDrop, FireBonusResult, FireBonusValueEvent, FireCell, FireCascadeStep, FireInTheHoleResult, FireSymbol } from '#shared/utils/gamelogic/fireinthehole'
+import type { FireBonusDrop, FireBonusResult, FireBonusValueEvent, FireCell, FireCascadeStep, FireCoinDrop, FireInTheHoleResult, FireSymbol } from '#shared/utils/gamelogic/fireinthehole'
 import { FITH_BUY_BONUS_COST, FITH_COLS, FITH_FREE_SPINS, FITH_MIN_CONNECTION, FITH_ROWS, playFireInTheHole } from '#shared/utils/gamelogic/fireinthehole'
 
 definePageMeta({
@@ -157,6 +157,10 @@ function cellKey(cell: FireCell) {
   return `${cell.col}:${cell.row}`
 }
 
+function coinToDrop(coin: FireCoinDrop): FireBonusDrop {
+  return { col: coin.col, row: coin.row, symbol: 'coin', multiplier: coin.multiplier }
+}
+
 function bonusVisibleTotal(values: Iterable<FireBonusDrop>) {
   return [...values].reduce((sum, value) => value.symbol === 'boost' ? sum : sum + value.multiplier, 0)
 }
@@ -282,6 +286,11 @@ async function initPixi() {
     private readonly tile = new Graphics()
     private readonly sprite = new Sprite()
     private readonly bonusLabelBg = new Graphics()
+    // Small gold coin badge shown in the corner when a base-game coin drop
+    // is sitting on top of an ordinary symbol (the underlying tile stays
+    // whatever gem/bomb it was — the coin is an overlay, not a swap).
+    private readonly coinBadgeBg = new Graphics()
+    private readonly coinBadge = new Sprite()
 
     private readonly bonusLabel = new Text({
       text: '',
@@ -297,11 +306,14 @@ async function initPixi() {
     private symbol: FireSymbol = 'coal'
     private width = 100
     private height = 100
+    private showCoinBadge = false
 
     constructor() {
       super()
-      this.view.addChild(this.tile, this.sprite, this.bonusLabelBg, this.bonusLabel)
+      this.view.addChild(this.tile, this.sprite, this.coinBadgeBg, this.coinBadge, this.bonusLabelBg, this.bonusLabel)
       this.sprite.anchor.set(0.5)
+      this.coinBadge.anchor.set(0.5)
+      this.coinBadge.visible = false
       this.bonusLabel.anchor.set(0.5)
     }
 
@@ -310,6 +322,9 @@ async function initPixi() {
       this.bonusLabel.text = ''
       this.bonusLabel.visible = false
       this.bonusLabelBg.clear()
+      this.showCoinBadge = false
+      this.coinBadge.visible = false
+      this.coinBadgeBg.clear()
       this.draw()
     }
 
@@ -343,20 +358,29 @@ async function initPixi() {
       await super.playDestroy(opts)
     }
 
-    setBonusDrop(drop?: FireBonusDrop): void {
+    // `badge` renders a small coin icon in the corner instead of covering
+    // the whole tile with the label — used for base-game coin drops sitting
+    // on top of an ordinary gem/bomb symbol, where the underlying texture
+    // still needs to read clearly.
+    setBonusDrop(drop?: FireBonusDrop, badge = false): void {
       if (!drop) {
         this.bonusLabel.text = ''
         this.bonusLabel.visible = false
         this.bonusLabelBg.clear()
+        this.showCoinBadge = false
+        this.coinBadge.visible = false
+        this.coinBadgeBg.clear()
+        this.draw()
         return
       }
 
       const text = bonusDropLabel(drop)
+      const useBadge = badge && drop.symbol === 'coin'
 
+      this.showCoinBadge = useBadge
       this.bonusLabel.text = text
       this.bonusLabel.visible = true
-      this.bonusLabel.style.fontSize = text.length > 5 ? 19 : 23
-      this.bonusLabel.position.set(this.width * 0.5, this.height * 0.5)
+      this.bonusLabel.style.fontSize = useBadge ? 16 : (text.length > 5 ? 19 : 23)
       this.bonusLabelBg.clear()
       this.draw()
     }
@@ -383,8 +407,45 @@ async function initPixi() {
       }
 
       if (this.bonusLabel.visible) {
-        this.bonusLabel.position.set(this.width * 0.5, this.height * 0.5)
         this.bonusLabelBg.clear()
+
+        if (this.showCoinBadge) {
+          // Badge mode: small bomb/TNT icon top-right, value chip bottom-right.
+          // A coin icon here reads as "collect me"; a bomb icon makes it
+          // obvious this multiplier only pays out if something blows this
+          // block up — which is what actually triggers it.
+          const badgeSize = this.width * 0.34
+          const badgeX = this.width - badgeSize * 0.5 - 6
+          const badgeY = badgeSize * 0.5 + 6
+
+          const badgeTex = TEX.bomb
+          if (badgeTex) {
+            const scale = (badgeSize * 0.86) / Math.max(badgeTex.width, badgeTex.height)
+            this.coinBadge.texture = badgeTex
+            this.coinBadge.scale.set(scale)
+            this.coinBadge.position.set(badgeX, badgeY)
+            this.coinBadge.visible = true
+          }
+
+          this.coinBadgeBg.circle(badgeX, badgeY, badgeSize * 0.56)
+          this.coinBadgeBg.fill({ color: 0x111827, alpha: 0.55 })
+          this.coinBadgeBg.circle(badgeX, badgeY, badgeSize * 0.56)
+          this.coinBadgeBg.stroke({ color: 0xfacc15, alpha: 0.9, width: 2 })
+
+          this.bonusLabel.position.set(this.width * 0.5, this.height - this.height * 0.16)
+          this.bonusLabelBg.roundRect(
+            this.bonusLabel.x - this.bonusLabel.width * 0.5 - 6,
+            this.bonusLabel.y - this.bonusLabel.height * 0.5 - 2,
+            this.bonusLabel.width + 12,
+            this.bonusLabel.height + 4,
+            8
+          )
+          this.bonusLabelBg.fill({ color: 0x111827, alpha: 0.5 })
+        } else {
+          this.coinBadge.visible = false
+          this.coinBadgeBg.clear()
+          this.bonusLabel.position.set(this.width * 0.5, this.height * 0.5)
+        }
       }
     }
   }
@@ -483,10 +544,21 @@ async function initPixi() {
   })
 
   reelSet.events.on('cascade:place:end', ({ reelIndex, placedSymbols }) => {
-    for (const drop of pendingBonusDrops) {
-      if (drop.col !== reelIndex) continue
-      placedSymbols[drop.row]?.setBonusDrop?.(drop)
-    }
+    // Explicitly set-or-clear every row on this reel from the current
+    // authoritative pendingBonusDrops state, rather than only touching
+    // matches. The tumble engine tracks its own survivor/gravity bookkeeping
+    // internally; if we only ever *apply* a badge and never *clear* one, a
+    // symbol view that got shuffled by gravity without being reactivated can
+    // carry a stale badge from a previous cascade step forward silently.
+    const dropsForReel = new Map(pendingBonusDrops.filter(drop => drop.col === reelIndex).map(drop => [drop.row, drop]))
+    // In the bonus feature the drop's own symbol IS the tile (a coin/boost
+    // texture fills the whole cell); in the base game a coin rides on top
+    // of an ordinary gem/bomb, so it renders as a small badge instead.
+    const badge = !isBonusActive.value
+
+    placedSymbols.forEach((symbolView, row) => {
+      symbolView?.setBonusDrop?.(dropsForReel.get(row), badge)
+    })
   })
 
   resizeObserver = new ResizeObserver(resizePixi)
@@ -666,6 +738,189 @@ async function spawnBlast(cell: FireCell, bomb = false) {
   }
 }
 
+// Base-game coin drop popping — a bomb caught the coin's cell, so its
+// value multiplies the whole cascade step. Bigger, brassier than a normal
+// bomb blast: a gold shockwave ring, a burst of spinning coin sparks, and a
+// chunky "COIN POP!" callout that punches in before settling.
+async function spawnCoinPopEffect(cell: FireCell, multiplier: number) {
+  if (!pixiApp || !effectsLayer) return
+
+  const { Graphics, Text } = await import('pixi.js')
+  const { gsap } = await import('gsap')
+  const center = cellCenter(cell)
+
+  screenShake(turbo.value ? 6 : 11, turbo.value ? 0.2 : 0.36)
+
+  // Double gold shockwave ring.
+  for (let i = 0; i < 2; i++) {
+    const ring = new Graphics()
+    ring.circle(0, 0, 30)
+    ring.stroke({ color: i === 0 ? 0xfde047 : 0xf59e0b, alpha: 0.95, width: 8 - i * 3 })
+    ring.position.set(center.x, center.y)
+    ring.scale.set(0.15)
+    ring.blendMode = 'add'
+    effectsLayer.addChild(ring)
+
+    gsap.to(ring.scale, {
+      x: 2.6 + i * 0.5,
+      y: 2.6 + i * 0.5,
+      duration: 0.5 + i * 0.12,
+      delay: i * 0.05,
+      ease: 'power3.out'
+    })
+    gsap.to(ring, {
+      alpha: 0,
+      duration: 0.5 + i * 0.12,
+      delay: i * 0.05,
+      ease: 'power2.out',
+      onComplete: () => ring.destroy()
+    })
+  }
+
+  // Soft warm flash at the origin — sells the "this cell just changed" beat
+  // before anything flies outward, instead of particles appearing from
+  // nothing.
+  const glow = new Graphics()
+  glow.circle(0, 0, 26)
+  glow.fill({ color: 0xfff7ed, alpha: 0.8 })
+  glow.position.set(center.x, center.y)
+  glow.scale.set(0.4)
+  glow.blendMode = 'add'
+  effectsLayer.addChild(glow)
+  gsap.to(glow.scale, { x: 1.4, y: 1.4, duration: 0.28, ease: 'power2.out' })
+  gsap.to(glow, { alpha: 0, duration: 0.28, ease: 'power2.out', onComplete: () => glow.destroy() })
+
+  // Small four-point glints — a light sparkle accent, not the main event.
+  const glintCount = 10
+  for (let i = 0; i < glintCount; i++) {
+    const glint = new Graphics()
+    const size = 5 + Math.random() * 4
+    glint.star(0, 0, 4, size, size * 0.28)
+    glint.fill({ color: 0xfff7ed, alpha: 0.9 })
+    glint.blendMode = 'add'
+    glint.position.set(center.x, center.y)
+    glint.rotation = Math.random() * Math.PI
+    effectsLayer.addChild(glint)
+
+    const angle = (Math.PI * 2 * i) / glintCount + Math.random() * 0.4
+    const distance = 34 + Math.random() * 34
+    const duration = 0.4 + Math.random() * 0.2
+
+    gsap.to(glint.position, {
+      x: center.x + Math.cos(angle) * distance,
+      y: center.y + Math.sin(angle) * distance,
+      duration,
+      ease: 'power3.out'
+    })
+    gsap.to(glint, { rotation: glint.rotation + (Math.random() - 0.5) * 3, duration, ease: 'power1.out' })
+    gsap.to(glint.scale, { x: 0.15, y: 0.15, duration, ease: 'power2.in' })
+    gsap.to(glint, {
+      alpha: 0,
+      duration: duration + 0.08,
+      ease: 'power2.in',
+      onComplete: () => glint.destroy()
+    })
+  }
+
+  // A proper little coin shower — each disc reads as a coin (bright face +
+  // darker rim + a highlight sliver), pops mostly upward out of the block
+  // like it's bursting open, then arcs and falls with gravity. Staggered
+  // launches and varied sizes/speeds keep it from looking like a uniform
+  // synchronized ring.
+  const coinCount = 16
+  for (let i = 0; i < coinCount; i++) {
+    const disc = new Graphics()
+    const radius = 6 + Math.random() * 5
+
+    disc.circle(0, 0, radius)
+    disc.fill({ color: 0xca8a04, alpha: 1 })
+    disc.circle(0, 0, radius * 0.78)
+    disc.fill({ color: 0xfacc15, alpha: 1 })
+    disc.ellipse(-radius * 0.28, -radius * 0.32, radius * 0.32, radius * 0.18)
+    disc.fill({ color: 0xfff7ed, alpha: 0.85 })
+
+    disc.position.set(center.x, center.y)
+    effectsLayer.addChild(disc)
+
+    const launchAngle = -Math.PI / 2 + (Math.random() - 0.5) * Math.PI * 0.9
+    const burst = 46 + Math.random() * 58
+    const riseDuration = 0.22 + Math.random() * 0.12
+    const fallDuration = 0.5 + Math.random() * 0.3
+    const delay = Math.random() * 0.1
+    const spinDuration = 0.22 + Math.random() * 0.16
+
+    const tl = gsap.timeline({ delay })
+
+    tl.to(disc.position, {
+      x: center.x + Math.cos(launchAngle) * burst,
+      y: center.y + Math.sin(launchAngle) * burst - 12,
+      duration: riseDuration,
+      ease: 'power2.out'
+    }, 0)
+    tl.to(disc.position, {
+      x: `+=${(Math.random() - 0.5) * 30}`,
+      y: `+=${70 + Math.random() * 60}`,
+      duration: fallDuration,
+      ease: 'power1.in'
+    }, riseDuration)
+    tl.to(disc, {
+      alpha: 0,
+      duration: 0.25,
+      ease: 'power2.in',
+      onComplete: () => disc.destroy()
+    }, riseDuration + fallDuration - 0.2)
+
+    // Coin-flip illusion: squash the width down to a sliver and back,
+    // repeatedly, like the disc is tumbling end-over-end as it flies.
+    gsap.to(disc.scale, {
+      x: 0.12,
+      duration: spinDuration,
+      ease: 'sine.inOut',
+      repeat: Math.ceil((riseDuration + fallDuration) / spinDuration),
+      yoyo: true,
+      delay
+    })
+  }
+
+  // Dedicated multiplier popup — floats independently of the money popup
+  // spawnMoneyPopup() fires alongside this, so the player sees "×N" and
+  // "+$amount" together.
+  const multLabel = new Text({
+    text: `×${formatNumber(multiplier, false)}`,
+    style: {
+      fill: 0xfde047,
+      fontFamily: 'Inter, ui-sans-serif, system-ui',
+      fontSize: 42,
+      fontWeight: '900',
+      stroke: { color: 0x78350f, width: 7 },
+      dropShadow: { color: 0xfacc15, blur: 18, distance: 0, alpha: 1 }
+    }
+  })
+
+  multLabel.anchor.set(0.5)
+  multLabel.position.set(center.x, center.y - 12)
+  multLabel.scale.set(0.3)
+  multLabel.rotation = -0.05
+  effectsLayer.addChild(multLabel)
+
+  await gsap.to(multLabel.scale, { x: 1.18, y: 1.18, duration: 0.24, ease: 'back.out(3.4)' })
+  await gsap.to(multLabel.scale, { x: 1, y: 1, duration: 0.12, ease: 'power2.out' })
+
+  gsap.to(multLabel, {
+    y: '-=60',
+    duration: 0.7,
+    delay: 0.3,
+    ease: 'power2.in'
+  })
+  await gsap.to(multLabel, {
+    alpha: 0,
+    duration: 0.25,
+    delay: 0.85,
+    ease: 'power2.in',
+    onComplete: () => multLabel.destroy()
+  })
+}
+
 async function playCascadeEffects(step: FireCascadeStep) {
   const bombKeys = new Set(step.bombCells.map(cell => `${cell.col}:${cell.row}`))
   const chipCells = step.winCells.filter(cell => !bombKeys.has(`${cell.col}:${cell.row}`))
@@ -677,7 +932,16 @@ async function playCascadeEffects(step: FireCascadeStep) {
     await sleep(90)
   }
 
-  spawnMoneyPopup(step.stepPay, step.winCells)
+  if (step.coinHit) {
+    // Fire the multiplier showcase and the money popup together — the
+    // player should see "×N" and "+$amount" land at the same time, not
+    // one after the other.
+    const coinPop = spawnCoinPopEffect(step.coinHit.cell, step.coinHit.multiplier)
+    spawnMoneyPopup(step.stepPay, step.winCells)
+    await coinPop
+  } else {
+    spawnMoneyPopup(step.stepPay, step.winCells)
+  }
 }
 
 function drawMineBoundary() {
@@ -1114,7 +1378,10 @@ async function animateResult(result: FireInTheHoleResult) {
   activeLines.value = result.steps[0]?.activeLinesBefore ?? 3
   drawMineBoundary()
   reelSet.setSpeed?.(turbo.value ? 'mineTurbo' : 'mine')
-  pendingBonusDrops = []
+  // The base-game coin drop (if any) rides along as a "bonus drop" overlay —
+  // same rendering path the free-spin coins use — so it shows on the very
+  // first placed grid too.
+  pendingBonusDrops = result.coinDrop ? [coinToDrop(result.coinDrop)] : []
 
   const spinDone = reelSet.spin({ mode: 'cascade', timeoutMs: turbo.value ? 4200 : 8000 })
   await stepDelay(160)
@@ -1130,7 +1397,12 @@ async function animateResult(result: FireInTheHoleResult) {
       return currentStep?.winCells.map(cell => ({ reel: cell.col, row: cell.row })) ?? []
     },
     nextGrid: async () => {
-      const nextGrid = latestResult?.steps[stepIndex + 1]?.grid ?? latestResult?.restGrid ?? []
+      const nextStep = latestResult?.steps[stepIndex + 1]
+      const nextGrid = nextStep?.grid ?? latestResult?.restGrid ?? []
+      // Carry the coin overlay forward to whatever cell it survived to
+      // (or drop it if this step popped/consumed it).
+      const nextCoin = nextStep?.coinBefore ?? latestResult?.restCoinDrop
+      pendingBonusDrops = nextCoin ? [coinToDrop(nextCoin)] : []
       stepIndex += 1
       return gridToTargets(nextGrid)
     },
@@ -1646,9 +1918,10 @@ onBeforeUnmount(() => {
       <template #body>
         <div class="space-y-3 text-sm text-muted">
           <p>Connect {{ FITH_MIN_CONNECTION }}+ matching symbols. Bombs are wilds, explode nearby tiles, and unlock deeper rows when they hit near the divider.</p>
+          <p>During the base game, a coin can land on top of a tile (roughly 1 in 3 spins). It rides along for the ride — if a bomb blows up its tile, the coin pops and adds a flat multiplier of your bet straight to that win.</p>
           <p>Three scatters award {{ FITH_FREE_SPINS }} free spins using only the rows you unlocked during the base spin.</p>
-          <p>Bonus coins can land as low as 0.13x and 0.33x. Sticky boosts add flat value every spin, doublers multiply everything on the board when they land, and collectors absorb coins.</p>
-          <p>Buy bonus skips straight to {{ FITH_FREE_SPINS }} free spins for {{ formatNumber(buyBonusCost, false) }} ({{ FITH_BUY_BONUS_COST }}x bet).</p>
+          <p>Bonus coins land from 0.5x up to 35x. Sticky boosts add flat value every spin, doublers multiply everything on the board when they land, and collectors absorb coins.</p>
+          <p>Buy bonus skips straight to {{ FITH_FREE_SPINS }} free spins for {{ formatNumber(buyBonusCost, false) }} ({{ formatNumber(FITH_BUY_BONUS_COST, false) }}x bet).</p>
           <p>Total win is realistically capped around {{ formatNumber(FITH_DISPLAY_MAX_WIN, false, 0) }}x bet — huge outlier bonus rounds can occasionally push higher.</p>
         </div>
       </template>

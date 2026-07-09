@@ -8,7 +8,17 @@ export const FITH_SCATTERS_FOR_BONUS = 3
 export const FITH_FREE_SPINS = 10
 export const FITH_MAX_BONUS_MULTIPLIER = 20000
 export const FITH_MAX_WIN_MULT = 20000
-export const FITH_BUY_BONUS_COST = 46 // × bet → ~98% RTP (measured via bonus-only sim at FITH_STARTING_LINES)
+export const FITH_BUY_BONUS_COST = 65 // × bet → ~97.5% RTP (measured via bonus-only sim at FITH_MAX_LINES - 1)
+
+// Base-game coin drop — a coin can land on top of an existing symbol roughly
+// 1 in 3 spins. It never joins a cascade cluster itself, but if a bomb
+// detonates in the same cascade step that clears its tile, the coin "pops"
+// and pays out a flat bet multiplier (the badge's "×N" is always exactly
+// N× bet), regardless of whether that tile was directly in the matched
+// cluster or only caught in the blast radius.
+export const FITH_COIN_DROP_CHANCE = 1 / 3
+export const FITH_COIN_MIN_MULT = 1.5
+export const FITH_COIN_MAX_MULT = 25
 
 export type FireSymbol = 'coal' | 'ore' | 'ruby' | 'sapphire' | 'emerald' | 'bomb' | 'scatter' | 'coin' | 'boost' | 'double' | 'collector' | 'empty' | 'rock'
 export type FirePaySymbol = Extract<FireSymbol, 'coal' | 'ore' | 'ruby' | 'sapphire' | 'emerald'>
@@ -54,6 +64,16 @@ export interface FireBonusResult {
   payout: number
 }
 
+export interface FireCoinDrop extends FireCell {
+  multiplier: number
+}
+
+export interface FireCoinHit {
+  cell: FireCell
+  multiplier: number
+  bonusPay: number
+}
+
 export interface FireCascadeStep {
   grid: FireSymbol[][]
   activeLinesBefore: number
@@ -63,6 +83,10 @@ export interface FireCascadeStep {
   unlockedRows: number[]
   stepPay: number
   totalPay: number
+  // Base-game coin drop state — coinBefore is where the coin sits (if any)
+  // as this step begins, coinHit is populated the moment a bomb blast pops it.
+  coinBefore?: FireCoinDrop
+  coinHit?: FireCoinHit
 }
 
 export interface FireInTheHoleResult {
@@ -79,19 +103,21 @@ export interface FireInTheHoleResult {
   activeLines: number
   maxLines: number
   bonus?: FireBonusResult
+  coinDrop?: FireCoinDrop
+  restCoinDrop?: FireCoinDrop
   [key: string]: unknown
 }
 
 const PAY_SYMBOLS: FirePaySymbol[] = ['coal', 'ore', 'ruby', 'sapphire', 'emerald']
 const PAY_WEIGHTS = [34, 28, 18, 13, 9]
 const BOMB_WEIGHT = 7
-const SCATTER_WEIGHT = 1.104
+const SCATTER_WEIGHT = 1.4
 const SYMBOL_PAY: Record<FirePaySymbol, number> = {
-  coal: 0.012,
-  ore: 0.017,
-  ruby: 0.025,
-  sapphire: 0.035,
-  emerald: 0.048
+  coal: 0.0134,
+  ore: 0.0185,
+  ruby: 0.0285,
+  sapphire: 0.0394,
+  emerald: 0.0545
 }
 
 function rand(): number {
@@ -260,19 +286,45 @@ function resolveBombExplosions(grid: FireSymbol[][], connectionCells: FireCell[]
   }
 }
 
-function collapseGrid(grid: FireSymbol[][], winners: FireCell[], activeLines: number): FireSymbol[][] {
+// Collapses the grid after winners are removed (gravity-drops survivors
+// bottom-aligned within their column, refills vacated top slots with new
+// symbols), while additionally tracking where a single cell (the base-game
+// coin drop) ends up — or reporting it as consumed if it was among the
+// winners removed this step.
+function collapseGridTracking(
+  grid: FireSymbol[][],
+  winners: FireCell[],
+  activeLines: number,
+  tracked: FireCell | null
+): { grid: FireSymbol[][], trackedCell: FireCell | null } {
   const next = cloneGrid(grid)
   const removed = new Set(winners.map(key))
+  let trackedAfter: FireCell | null = null
+
+  if (tracked && removed.has(key(tracked))) {
+    trackedAfter = null
+  }
 
   for (let col = 0; col < FITH_COLS; col++) {
-    const survivors: FireSymbol[] = []
+    const survivorRows: number[] = []
 
     for (let row = activeLines - 1; row >= 0; row--) {
-      if (!removed.has(`${col}:${row}`)) survivors.push(next[col]![row]!)
+      if (!removed.has(`${col}:${row}`)) survivorRows.push(row)
     }
 
-    for (let row = activeLines - 1; row >= 0; row--) {
-      next[col]![row] = survivors.shift() ?? drawSymbol()
+    const survivorValues = survivorRows.map(row => next[col]![row]!)
+
+    if (tracked && tracked.col === col && !removed.has(key(tracked))) {
+      const idx = survivorRows.indexOf(tracked.row)
+      if (idx >= 0) trackedAfter = { col, row: activeLines - 1 - idx }
+    }
+
+    for (let i = 0; i < survivorRows.length; i++) {
+      next[col]![activeLines - 1 - i] = survivorValues[i]!
+    }
+
+    for (let row = 0; row < activeLines - survivorRows.length; row++) {
+      next[col]![row] = drawSymbol()
     }
 
     for (let row = activeLines; row < FITH_ROWS; row++) {
@@ -280,7 +332,14 @@ function collapseGrid(grid: FireSymbol[][], winners: FireCell[], activeLines: nu
     }
   }
 
-  return next
+  return { grid: next, trackedCell: trackedAfter }
+}
+
+function coinDropValue(): number {
+  return weightedPick(
+    [1.5, 2, 3, 5, 8, 12, 18, 25] as const,
+    [70, 15, 8, 4, 2, 0.7, 0.25, 0.05]
+  )
 }
 
 function applyUnlockedRows(grid: FireSymbol[][], activeLines: number, nextActiveLines: number): number[] {
@@ -361,12 +420,18 @@ function emptyBonusCells(grid: FireSymbol[][], activeLines: number): FireCell[] 
   return cells
 }
 
+// Values kept at a legible floor (never below 0.5x) so a single coin drop
+// always reads as a real amount on screen — RTP is tuned via drop
+// *frequency* in bonusDropChances below, not by shrinking these numbers.
 function bonusCoinValue(): number {
-  return weightedPick([0.13, 0.33, 0.64, 1.23, 2.07, 3.25, 4.93, 7.4, 13.3, 24.6] as const, [18, 22, 22, 16, 8, 5, 3, 2.4, 1.1, 0.5])
+  return weightedPick(
+    [0.5, 1, 1.5, 2.5, 4, 6, 10, 18, 35] as const,
+    [30, 24, 17, 12, 8, 5, 2.6, 0.9, 0.1]
+  )
 }
 
 function bonusAddValue(): number {
-  return weightedPick([1.23, 3.25, 7.4, 18.2] as const, [45, 30, 18, 7])
+  return weightedPick([1, 2, 4, 8, 15] as const, [45, 30, 18, 6.8, 1.1])
 }
 
 function clampBonusValue(value: number): number {
@@ -381,9 +446,9 @@ function bonusDropChances(occupied: number, capacity: number) {
   const nonCollectorScale = Math.max(0, (capacity - occupied - 1) / Math.max(1, capacity - 1))
 
   return {
-    coin: 0.04 * nonCollectorScale,
-    boost: 0.0034 * nonCollectorScale,
-    double: 0.006 * nonCollectorScale,
+    coin: 0.0125 * nonCollectorScale,
+    boost: 0.00275 * nonCollectorScale,
+    double: 0.0095 * nonCollectorScale,
     collector: 0.0017
   }
 }
@@ -548,7 +613,12 @@ export function playFireInTheHole(bet: number, options?: Record<string, unknown>
   }
 
   if (options?.buyBonus) {
-    const activeLines = FITH_STARTING_LINES
+    // Buying the bonus guarantees a strong entry (5 of 6 rows unlocked —
+    // the most common tier a natural trigger actually lands at) instead of
+    // the worst-case FITH_STARTING_LINES a base spin starts at. Paying a
+    // premium should get you a bonus at least as good as a typical natural
+    // trigger, not the weakest possible one.
+    const activeLines = FITH_MAX_LINES - 1
     const cost = Number((bet * FITH_BUY_BONUS_COST).toFixed(2))
     const grid = buyBonusGrid(activeLines)
     const bonus = playBonus(activeLines, bet)
@@ -577,15 +647,51 @@ export function playFireInTheHole(bet: number, options?: Record<string, unknown>
   const steps: FireCascadeStep[] = []
   let payout = 0
 
+  let coin: FireCoinDrop | null = null
+  if (rand() < FITH_COIN_DROP_CHANCE) {
+    // Never land on a scatter — scatters need to stay clearly readable so
+    // the bonus trigger count is never obscured by a coin badge.
+    const coinCandidates: FireCell[] = []
+    for (let col = 0; col < FITH_COLS; col++) {
+      for (let row = 0; row < activeLines; row++) {
+        if (grid[col]![row] !== 'scatter') coinCandidates.push({ col, row })
+      }
+    }
+
+    const pick = coinCandidates.length > 0 ? coinCandidates[Math.floor(rand() * coinCandidates.length)] : undefined
+    if (pick) {
+      coin = { col: pick.col, row: pick.row, multiplier: coinDropValue() }
+    }
+  }
+  const initialCoinDrop = coin ? { ...coin } : undefined
+
   for (let chain = 0; chain < FITH_MAX_CASCADES; chain++) {
     const connectionCells = detectConnections(grid, activeLines)
     if (connectionCells.length === 0) break
 
     const { winCells, bombCells, lineBombCells } = resolveBombExplosions(grid, connectionCells, activeLines)
-    const stepPay = calculateStepPay(grid, winCells, chain, bet)
+    let stepPay = calculateStepPay(grid, winCells, chain, bet)
     const activeLinesBefore = activeLines
     const nextActiveLines = Math.min(FITH_MAX_LINES, activeLines + lineBombCells.length)
-    const nextGrid = collapseGrid(grid, winCells, activeLines)
+
+    const coinBefore = coin ? { ...coin } : undefined
+    let coinHit: FireCoinHit | undefined
+
+    // A coin pops any time its cell is cleared during a step where at least
+    // one bomb detonated — it doesn't matter whether that block was part of
+    // the original matched cluster or only caught in the blast radius. If a
+    // bomb blew up this step and the coin's block went with it, it always
+    // pays out. It pays a flat bet multiplier — the badge's "×N" always
+    // means exactly N× bet, regardless of how small or large the underlying
+    // connection's own payout was.
+    if (coin && bombCells.length > 0 && winCells.some(cell => cell.col === coin!.col && cell.row === coin!.row)) {
+      const bonusPay = Number((bet * coin.multiplier).toFixed(2))
+      stepPay = Number((stepPay + bonusPay).toFixed(2))
+      coinHit = { cell: { col: coin.col, row: coin.row }, multiplier: coin.multiplier, bonusPay }
+    }
+
+    const { grid: nextGrid, trackedCell: nextCoinCell } = collapseGridTracking(grid, winCells, activeLines, coin)
+    coin = coinHit ? null : (nextCoinCell ? { ...nextCoinCell, multiplier: coin!.multiplier } : null)
     const unlockedRows = applyUnlockedRows(nextGrid, activeLines, nextActiveLines)
 
     activeLines = nextActiveLines
@@ -599,11 +705,17 @@ export function playFireInTheHole(bet: number, options?: Record<string, unknown>
       bombCells,
       unlockedRows,
       stepPay,
-      totalPay: payout
+      totalPay: payout,
+      coinBefore,
+      coinHit
     })
 
     grid = nextGrid
   }
+
+  // Coin survived every cascade this spin without being popped or swept
+  // away — surface its resting position so the UI can keep it on screen.
+  const restCoinDrop = coin ? { ...coin } : undefined
 
   const scatterCells = findScatters(grid, activeLines)
   const bonus = scatterCells.length >= FITH_SCATTERS_FOR_BONUS
@@ -626,6 +738,8 @@ export function playFireInTheHole(bet: number, options?: Record<string, unknown>
     scatterCells,
     activeLines,
     maxLines: FITH_MAX_LINES,
-    bonus
+    bonus,
+    coinDrop: initialCoinDrop,
+    restCoinDrop
   }
 }
