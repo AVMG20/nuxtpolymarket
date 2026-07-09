@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { formatDistanceToNow } from 'date-fns'
 import {
-  OP_TEMPLATES, RARITY_COLOR, RARITY_LABEL,
-  type HackRarity,
+  OP_TEMPLATES, RARITY_STYLE,
+  type HackRarity
 } from '#shared/utils/hack-config'
 
 type HistoryOp = {
@@ -26,15 +26,22 @@ function template(id: string) {
 }
 
 function formatDuration(ms: number) {
-  const h = Math.round(ms / 3_600_000)
+  const totalMin = Math.max(1, Math.round(ms / 60_000))
+  const h = Math.floor(totalMin / 60)
+  const m = totalMin % 60
   if (h >= 24) {
     const d = Math.floor(h / 24)
     const rem = h % 24
     return rem ? `${d}d ${rem}h` : `${d}d`
   }
-  if (h >= 1) return `${h}h`
-  return `${Math.max(1, Math.round(ms / 60_000))}m`
+  if (h >= 1) return `${h}h ${m.toString().padStart(2, '0')}m`
+  return `${m}m`
 }
+// Relative time is computed against "now", which differs between the SSR
+// render and hydration — guard it behind mount so the first client render
+// matches the server's and Vue doesn't flag a hydration mismatch.
+const mounted = ref(false)
+onMounted(() => { mounted.value = true })
 function relativeTime(date: string | Date) {
   return formatDistanceToNow(new Date(date), { addSuffix: true })
 }
@@ -60,24 +67,24 @@ function debriefLine(op: HistoryOp): string {
     return pick(op.id, [
       `${name} went sideways. Everyone made it back — that's the count that matters.`,
       `We lost this one. No cash, no gear, but nobody's in a hole in the ground.`,
-      `${name} didn't pan out. We'll get the next one.`,
+      `${name} didn't pan out. We'll get the next one.`
     ])
   }
   if (op.itemRarity && (op.itemRarity === 'elite' || op.itemRarity === 'phantom')) {
     return pick(op.id, [
       `${name} paid off, and then some. That gear alone was worth the risk.`,
-      `Clean in, clean out — and we walked away with something special.`,
+      `Clean in, clean out — and we walked away with something special.`
     ])
   }
   if (op.gems > 0) {
     return pick(op.id, [
       `${name} went smooth. Cash and gems both — don't get used to it.`,
-      `Good night's work. Money's moving, and there's a little extra in it.`,
+      `Good night's work. Money's moving, and there's a little extra in it.`
     ])
   }
   return pick(op.id, [
     `${name} went clean. Money's already moving.`,
-    `No surprises on this one. That's how we like it.`,
+    `No surprises on this one. That's how we like it.`
   ])
 }
 
@@ -88,119 +95,151 @@ function toggle(id: string) {
 </script>
 
 <template>
-  <div class="flex-1 min-h-0 overflow-y-auto p-6 space-y-6 pb-12">
-    <div>
-      <h1 class="text-2xl font-bold flex items-center gap-2">
-        <UIcon name="i-lucide-history" class="size-6 text-primary" />
-        Debrief Log
+  <div class="p-6 pb-12 overflow-y-auto h-full">
+    <div class="mb-5">
+      <p class="hack-eyebrow">
+        // field reports
+      </p>
+      <h1 class="text-2xl font-bold mt-1.5">
+        History
       </h1>
-      <p class="hack-eyebrow mt-1.5">// lifetime record — every op you've collected</p>
     </div>
 
-    <!-- Totals -->
-    <div v-if="pending" class="grid grid-cols-2 sm:grid-cols-4 gap-3">
-      <USkeleton v-for="i in 4" :key="i" class="h-24 rounded-xl" />
+    <!-- Lifetime totals -->
+    <div
+      v-if="pending"
+      class="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6"
+    >
+      <USkeleton
+        v-for="i in 4"
+        :key="i"
+        class="h-24 rounded-xl"
+      />
     </div>
-    <div v-else class="grid grid-cols-2 sm:grid-cols-4 gap-3">
-      <HackFrame tight class="p-4">
-        <div class="flex items-center gap-2 text-muted mb-1.5">
-          <UIcon name="i-lucide-banknote" class="size-4 text-yellow-400" />
-          <span class="hack-stat-label-md">Cash earned</span>
-        </div>
-        <p class="hack-stat-value-lg text-yellow-400">
-          <CoinBalance :value="data?.totals.cash ?? 0" :show-icon="false" />
+    <div
+      v-else
+      class="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6"
+    >
+      <HackFrame class="p-4">
+        <p class="hack-eyebrow">
+          Lifetime cash
+        </p>
+        <p
+          class="hack-stat-value-lg text-yellow-400 mt-1.5"
+          style="font-size: 22px;"
+        >
+          ${{ formatNumber(data?.totals.cash ?? 0, true) }}
         </p>
       </HackFrame>
-      <HackFrame tight class="p-4">
-        <div class="flex items-center gap-2 text-muted mb-1.5">
-          <UIcon name="i-lucide-gem" class="size-4 text-cyan-400" />
-          <span class="hack-stat-label-md">Gems earned</span>
-        </div>
-        <p class="hack-stat-value-lg text-cyan-400">
-          <GemBalance :value="data?.totals.gems ?? 0" :show-icon="false" />
+      <HackFrame class="p-4">
+        <p class="hack-eyebrow">
+          Lifetime gems
+        </p>
+        <p
+          class="hack-stat-value-lg text-cyan-400 mt-1.5"
+          style="font-size: 22px;"
+        >
+          {{ formatNumber(data?.totals.gems ?? 0, true) }}
         </p>
       </HackFrame>
-      <HackFrame tight class="p-4">
-        <div class="flex items-center gap-2 text-muted mb-1.5">
-          <UIcon name="i-lucide-package" class="size-4 text-warning" />
-          <span class="hack-stat-label-md">Items found</span>
-        </div>
-        <p class="hack-stat-value-lg text-warning">{{ formatNumber(data?.totals.items ?? 0, true) }}</p>
+      <HackFrame class="p-4">
+        <p class="hack-eyebrow">
+          Ops completed
+        </p>
+        <p
+          class="hack-stat-value-lg mt-1.5"
+          style="font-size: 22px;"
+        >
+          {{ formatNumber(data?.totals.ops ?? 0, true) }}
+        </p>
       </HackFrame>
-      <HackFrame tight class="p-4">
-        <div class="flex items-center gap-2 text-muted mb-1.5">
-          <UIcon name="i-lucide-check-circle" class="size-4 text-success" />
-          <span class="hack-stat-label-md">Ops done</span>
-        </div>
-        <p class="hack-stat-value-lg text-success">{{ formatNumber(data?.totals.ops ?? 0, true) }}</p>
-        <p class="text-[11px] text-muted mt-0.5">{{ successRate }}% success</p>
+      <HackFrame class="p-4">
+        <p class="hack-eyebrow">
+          Success rate
+        </p>
+        <p
+          class="hack-stat-value-lg text-success mt-1.5"
+          style="font-size: 22px;"
+        >
+          {{ successRate }}%
+        </p>
       </HackFrame>
     </div>
 
-    <!-- History list -->
-    <div v-if="pending" class="space-y-2">
-      <USkeleton v-for="i in 6" :key="i" class="h-16 rounded-lg" />
+    <p class="hack-stat-label-md flex items-center gap-2.5 mb-3.5">
+      After-action reports
+      <span class="flex-1 h-px bg-(--hack-border)" />
+    </p>
+
+    <!-- Report rows — all inside one frame, separated by hairlines -->
+    <div
+      v-if="pending"
+      class="space-y-2"
+    >
+      <USkeleton
+        v-for="i in 6"
+        :key="i"
+        class="h-20 rounded-lg"
+      />
     </div>
 
-    <div v-else-if="data?.history.length" class="space-y-2">
-      <HackFrame
+    <HackFrame v-else-if="data?.history.length">
+      <div
         v-for="op in (data.history as HistoryOp[])"
         :key="op.id"
-        tight
-        class="cursor-pointer"
+        class="hack-report-row"
         @click="toggle(op.id)"
       >
-        <div class="flex items-center gap-3 p-3">
-          <!-- Op icon -->
-          <div class="size-9 rounded-lg flex items-center justify-center shrink-0"
-            :class="op.success ? 'bg-success/10' : 'bg-error/10'">
-            <UIcon :name="template(op.templateId)?.icon ?? 'i-lucide-terminal'"
-              class="size-4.5" :class="op.success ? 'text-success' : 'text-error'" />
+        <div class="flex items-start justify-between gap-3">
+          <div class="flex items-center gap-3.5 min-w-0 flex-wrap">
+            <span
+              class="hack-stamp-sm shrink-0"
+              :class="op.success ? 'text-success' : 'text-error'"
+            >
+              {{ op.success ? 'Success' : 'Failed' }}
+            </span>
+            <b class="text-[15px] truncate">{{ template(op.templateId)?.name ?? op.templateId }}</b>
           </div>
-
-          <!-- Name + meta -->
-          <div class="min-w-0 flex-1">
-            <div class="flex items-center gap-2 flex-wrap">
-              <span class="font-semibold text-sm truncate">{{ template(op.templateId)?.name ?? op.templateId }}</span>
-              <span class="hack-stamp-sm" :class="op.success ? 'text-success' : 'text-error'">
-                {{ op.success ? 'Success' : 'Failed' }}
-              </span>
-            </div>
-            <p class="text-xs text-muted mt-1 flex items-center gap-2 flex-wrap">
-              <span class="flex items-center gap-1"><UIcon name="i-lucide-users" class="size-3" />{{ op.agentCount }}</span>
-              <span class="flex items-center gap-1"><UIcon name="i-lucide-clock" class="size-3" />{{ formatDuration(op.durationMs) }}</span>
-              <span>{{ relativeTime(op.createdAt) }}</span>
-            </p>
-          </div>
-
-          <!-- Rewards -->
-          <div class="flex items-center gap-3 shrink-0 text-sm tabular-nums">
-            <template v-if="op.success">
-              <span class="font-semibold text-yellow-400">
-                <CoinBalance :value="op.cash" />
-              </span>
-              <span v-if="op.gems > 0" class="font-semibold text-cyan-400">
-                <GemBalance :value="op.gems" />
-              </span>
-              <UBadge v-if="op.itemName" size="xs" variant="subtle"
-                :color="RARITY_COLOR[op.itemRarity as HackRarity] ?? 'neutral'"
-                :label="op.itemName" class="max-w-32 truncate" />
-            </template>
-            <span v-else class="text-muted text-xs">No loot</span>
-          </div>
-
           <UIcon
-            name="i-lucide-chevron-down"
-            class="size-4 text-muted shrink-0 transition-transform"
-            :class="expandedId === op.id && 'rotate-180'"
+            name="i-lucide-chevron-right"
+            class="hack-chevron size-4 text-muted shrink-0 mt-0.5"
+            :class="expandedId === op.id && 'open'"
           />
         </div>
 
-        <div v-if="expandedId === op.id" class="px-3 pb-3 pt-2 border-t border-default">
-          <p class="text-sm text-muted font-mono">{{ debriefLine(op) }}</p>
+        <div class="flex items-center gap-2 flex-wrap my-2.5">
+          <template v-if="op.success">
+            <span class="hack-reward-chip text-yellow-400">+${{ formatNumber(op.cash, true) }}</span>
+            <span
+              v-if="op.gems > 0"
+              class="hack-reward-chip text-cyan-400"
+            >+{{ op.gems }} gems</span>
+            <span
+              v-if="op.itemName"
+              class="hack-reward-chip"
+              :class="RARITY_STYLE[op.itemRarity as HackRarity]?.text"
+            >{{ op.itemName }}</span>
+          </template>
+          <template v-else>
+            <span class="hack-reward-chip text-muted">No reward</span>
+            <span class="hack-reward-chip text-violet-400">Partial XP only</span>
+          </template>
         </div>
-      </HackFrame>
-    </div>
+
+        <div class="flex items-center gap-3.5 text-muted font-mono text-[11.5px]">
+          <span>{{ op.agentCount }} agent{{ op.agentCount === 1 ? '' : 's' }}</span>
+          <span>{{ formatDuration(op.durationMs) }}</span>
+          <span v-if="mounted">{{ relativeTime(op.createdAt) }}</span>
+        </div>
+
+        <div
+          v-if="expandedId === op.id"
+          class="mt-3 pt-3 border-t border-dashed border-default text-[13px] leading-relaxed text-muted font-mono"
+        >
+          "{{ debriefLine(op) }}" — RELAY
+        </div>
+      </div>
+    </HackFrame>
 
     <UEmpty
       v-else
