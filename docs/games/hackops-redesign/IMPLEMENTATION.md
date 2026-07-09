@@ -1,6 +1,10 @@
 # HackOps Redesign — Implementation Plan
 
-Status: **ready to build**. This is the bridge from the design spec
+Status: **Phases 0–1 built and verified in-browser** (2026-07-09), on
+`feature/hackops-redesign`. See §9 for the build log — what shipped, a real
+bug it caught, and what's next. Phases 2–4 not started.
+
+This is the bridge from the design spec
 (`PLAN.md` + `mockups/` + `content/`) to real Nuxt/Vue code. It assumes
 `PLAN.md` as the source of truth for *what* every screen looks like and
 resolves the *how*: file-by-file changes, the audio system, routing, and the
@@ -345,3 +349,82 @@ Not blocking Phase 0/1; flag when the relevant phase starts:
   `USlideover` inventory pattern; confirm before Phase 3.
 - **Music beds** (§9.4): resolved — Music is an available channel, defaulting
   off.
+
+---
+
+## 9. Build progress log
+
+Branch `feature/hackops-redesign` off `main`. One commit per phase, no
+descriptions beyond the subject line per repo convention. Update this section
+as each phase lands so the state of the redesign is legible without replaying
+the whole conversation.
+
+### Phase 0 — Foundations — done (commit `Add HackOps Phase 0 foundations…`)
+
+Built exactly as scoped in §2/§3: `app/composables/useAudio.ts` (namespaced,
+reusable per-game; persisted Voice/SFX/Music via `useState` — SSR-safe, no
+hydration mismatch, hydrated from `localStorage` on `onNuxtReady`; a
+module-level `Map<namespace, AudioEngine>` holds the non-serializable
+`AudioContext`/buffer-cache/gain-node state outside Vue reactivity, mirroring
+`server/utils/balance`'s "engine vs. state" split), `app/assets/css/hack.css`
+(every class `hack-`-prefixed — confirmed safe to import globally per-page
+without leaking into Nuxt UI's own utility classes of the same conceptual
+name, e.g. `text-muted`), and the 6 shared components. `barkThrottle()`'s
+signature was simplified from the plan's `HackRarity`-typed version to a
+generic `{ rare: boolean }` flag so the composable stays domain-agnostic
+(reusable by a future non-HackOps game) rather than importing hack-config
+types into generic audio code.
+
+### Phase 1 — Ops — done (commit `Redesign HackOps Ops tab…`)
+
+`hack.vue` tab shell restyled to the HUD chrome (status strip: operator name
++ power + squad count, no cash/gems duplicate per §0; `HackAudioSettings`
+popover; autoplay-unlock listener on first pointer/key event). `hack/index.vue`
+rebuilt: dossier grid with tier badges/pills (tier is a new
+`app/utils/hack-content.ts` client-side lookup, not a DB field, per PLAN.md
+§11.4), Active Operations restyled, briefing as the locked-in **in-page
+overlay** (a `selectedTemplate` ref swaps grid↔briefing, no route change —
+confirmed via Playwright that the URL stays `/hack/` across the swap), squad
+select + live stats reusing the original `modalStats` computation verbatim,
+collect-reveal restyled with a `HackRelayCaption` bark. `hack-content.ts` also
+carries the 19 approved RELAY briefing lines verbatim from
+`content/mission-briefings.md` and the 3 collect-outcome barks from
+`content/voice-lines.md`.
+
+**Verified in a real browser**, not just typecheck/lint — registered a test
+account, logged in, and drove the actual Chromium-rendered page (Playwright,
+installed to a scratch dir, not a project dependency): mission grid renders
+with live "est. success" color bands, opened a briefing, confirmed via DOM
+inspection that the caption teletypes the exact approved line text starting
+~300ms after the panel mounts (your ask), confirmed a missing voice `.mp3`
+(none recorded yet) 404s and playback still completes captions-only exactly
+as designed, selected an agent and confirmed the live stat grid + Deploy
+button enable, and confirmed the still-unstyled Agents/Items tabs render
+unaffected underneath the new tab bar (no CSS leakage from the `hack-`
+namespace).
+
+**Real bug found and fixed by that browser pass, not by typecheck:** Nuxt
+auto-imports `app/components/hack/*.vue` with the directory name prefixed
+onto the component tag, deduplicating only when the filename already starts
+with it. Every other component was named `Hack*.vue` and resolved fine;
+`RelayCaption.vue` didn't start with "Hack", so it silently registered as
+`<HackRelayCaption>` while every usage in `index.vue` wrote `<RelayCaption>`
+— an unresolved tag Vue renders as a literal, inert custom element (no error,
+no console warning, just a dead caption). Fixed by renaming the file to
+`HackRelayCaption.vue` (`git mv`) and updating both call sites, for
+consistency with the rest of the `Hack*` family — worth remembering if a
+future component in this directory is tempted to skip the `Hack` prefix.
+
+**Not yet live-tested:** the actual `POST /api/hack/ops/dispatch` round trip
+(button-enable state and the request payload were verified, but Deploy
+wasn't clicked through to a real dispatch) and the collect-reveal modal
+(requires a completed op — shortest template is 2h). Both reuse unmodified
+original logic, so risk is low, but flag before calling Phase 1 fully closed.
+
+**Also noticed, not touched:** `content/voice-lines.md` has an in-progress
+uncommitted edit (ElevenLabs TTS generation notes — model/stability/tags)
+that isn't mine; left it alone and out of the Phase 1 commit.
+
+### Phase 2 — Black Market — not started
+### Phase 3 — Loadout — not started
+### Phase 4 — History, Leaderboard, polish — not started
