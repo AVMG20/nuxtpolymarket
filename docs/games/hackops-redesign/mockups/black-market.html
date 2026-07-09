@@ -1,0 +1,192 @@
+<title>HackOps — Black Market</title>
+<link rel="stylesheet" href="shared.css">
+<style>
+  .seg { display:inline-flex; border:1px solid var(--border-strong); }
+  .seg button { font-family: var(--font-mono); font-size:12px; text-transform:uppercase; letter-spacing:.05em; padding:9px 20px; background:transparent; border:none; color:var(--text-dim); cursor:pointer; }
+  .seg button.active { background: var(--accent); color:#06170d; font-weight:700; }
+  .contact-grid { grid-template-columns: repeat(auto-fill, minmax(300px,1fr)); }
+  .contact-card { overflow:hidden; text-decoration:none; color:inherit; display:block; cursor:pointer; transition: transform .15s, border-color .15s; }
+  .contact-card:hover { transform: translateY(-3px); border-color: var(--accent); }
+  .c-portrait { aspect-ratio: 1 / 1; }
+  .odds-bar { display:flex; height:8px; overflow:hidden; margin-top:10px; border:1px solid var(--border); }
+  .odds-bar span { height:100%; }
+  .odds-legend { display:flex; flex-wrap:wrap; gap:8px 12px; margin-top:8px; font-family: var(--font-mono); font-size:10px; }
+  .odds-legend i { display:inline-block; width:7px; height:7px; margin-right:4px; vertical-align:middle; }
+  .section-block { display:none; }
+  .section-block.active { display:block; }
+</style>
+<div id="app-shell"></div>
+
+<div class="page">
+  <div class="row between wrap" style="margin-bottom:18px;">
+    <div>
+      <div class="eyebrow">// black market</div>
+      <h1 style="margin:6px 0 0; font-size:22px;">Contacts &amp; dead drops</h1>
+      <div class="text-muted" style="font-size:13px; margin-top:4px;">Every listing here comes through RELAY. Nobody talks to a seller directly.</div>
+    </div>
+    <div class="seg">
+      <button class="active" onclick="showSection('contacts', this)">Contacts (Agents)</button>
+      <button onclick="showSection('drops', this)">Dead Drops (Gear)</button>
+    </div>
+  </div>
+
+  <!-- ── Recruit tiers ─────────────────────────────────────────────────── -->
+  <div class="section-block active" id="contacts">
+    <div class="grid contact-grid">
+
+      <a class="frame contact-card" href="recruit-opening.html?tier=script_pull">
+        <div class="c-portrait"><img class="photo-fill" src="../assets/contact/ghostwire.jpg" alt="Contact: &gt;_ghostwire"></div>
+        <div class="p-18">
+          <div class="row between"><b>Script Pull</b><span class="mono text-cash">$12,000</span></div>
+          <div class="text-dim mono" style="font-size:11px; margin:4px 0 8px;">contact: &gt;_ghostwire</div>
+          <div class="text-muted" style="font-size:12.5px; line-height:1.5;">Forum talent. Mostly rookies, sometimes a gem.</div>
+          <div class="odds-bar">
+            <span style="width:60%; background:var(--rarity-ghost)"></span>
+            <span style="width:35%; background:var(--rarity-operative)"></span>
+            <span style="width:5%; background:var(--rarity-specialist)"></span>
+          </div>
+          <div class="odds-legend text-dim">
+            <span><i style="background:var(--rarity-ghost)"></i>Ghost 60%</span>
+            <span><i style="background:var(--rarity-operative)"></i>Operative 35%</span>
+            <span><i style="background:var(--rarity-specialist)"></i>Specialist 5%</span>
+          </div>
+        </div>
+      </a>
+
+      <a class="frame contact-card" href="recruit-opening.html?tier=dark_web">
+        <div class="c-portrait"><img class="photo-fill" src="../assets/contact/registry.jpg" alt="Contact: The Registry"></div>
+        <div class="p-18">
+          <div class="row between"><b>Dark Web Hire</b><span class="mono text-cash">$200,000</span></div>
+          <div class="text-dim mono" style="font-size:11px; margin:4px 0 8px;">contact: The Registry</div>
+          <div class="text-muted" style="font-size:12.5px; line-height:1.5;">Underground operators. Operative or better.</div>
+          <div class="odds-bar">
+            <span style="width:50%; background:var(--rarity-operative)"></span>
+            <span style="width:38%; background:var(--rarity-specialist)"></span>
+            <span style="width:10%; background:var(--rarity-elite)"></span>
+            <span style="width:2%; background:var(--rarity-phantom)"></span>
+          </div>
+          <div class="odds-legend text-dim">
+            <span><i style="background:var(--rarity-operative)"></i>Operative 50%</span>
+            <span><i style="background:var(--rarity-specialist)"></i>Specialist 38%</span>
+            <span><i style="background:var(--rarity-elite)"></i>Elite 10%</span>
+            <span><i style="background:var(--rarity-phantom)"></i>Phantom 2%</span>
+          </div>
+        </div>
+      </a>
+
+      <a class="frame contact-card frame-accent" href="recruit-opening.html?tier=ghost_recruit">
+        <div class="c-portrait"><img class="photo-fill" src="../assets/contact/old-man.jpg" alt="Contact: unknown, &quot;the old man&quot;"></div>
+        <div class="p-18">
+          <div class="row between"><b>Ghost Recruit</b><span class="mono text-cash">$3,500,000</span></div>
+          <div class="text-dim mono" style="font-size:11px; margin:4px 0 8px;">contact: unknown — "the old man"</div>
+          <div class="text-muted" style="font-size:12.5px; line-height:1.5;">Top-shelf talent. Specialist or better.</div>
+          <div class="odds-bar">
+            <span style="width:36%; background:var(--rarity-specialist)"></span>
+            <span style="width:44%; background:var(--rarity-elite)"></span>
+            <span style="width:20%; background:var(--rarity-phantom)"></span>
+          </div>
+          <div class="odds-legend text-dim">
+            <span><i style="background:var(--rarity-specialist)"></i>Specialist 36%</span>
+            <span><i style="background:var(--rarity-elite)"></i>Elite 44%</span>
+            <span><i style="background:var(--rarity-phantom)"></i>Phantom 20%</span>
+          </div>
+        </div>
+      </a>
+
+    </div>
+  </div>
+
+  <!-- ── Crates ────────────────────────────────────────────────────────── -->
+  <div class="section-block" id="drops">
+    <div class="grid contact-grid">
+
+      <a class="frame contact-card" href="crate-opening.html?tier=junk&kind=item">
+        <div class="c-portrait"><img class="photo-fill" src="../assets/contact/marsh.jpg" alt="Seller: Marsh"></div>
+        <div class="p-18">
+          <div class="row between"><b>Junk Cache</b><span class="mono text-cash">$5,000</span></div>
+          <div class="text-dim mono" style="font-size:11px; margin:4px 0 8px;">seller: Marsh</div>
+          <div class="text-muted" style="font-size:12.5px; line-height:1.5;">Salvaged trash. Sometimes useful.</div>
+          <div class="odds-bar">
+            <span style="width:65%; background:var(--rarity-ghost)"></span>
+            <span style="width:30%; background:var(--rarity-operative)"></span>
+            <span style="width:5%; background:var(--rarity-specialist)"></span>
+          </div>
+          <div class="odds-legend text-dim">
+            <span><i style="background:var(--rarity-ghost)"></i>Ghost 65%</span>
+            <span><i style="background:var(--rarity-operative)"></i>Operative 30%</span>
+            <span><i style="background:var(--rarity-specialist)"></i>Specialist 5%</span>
+          </div>
+        </div>
+      </a>
+
+      <a class="frame contact-card" href="crate-opening.html?tier=standard&kind=item">
+        <div class="c-portrait"><img class="photo-fill" src="../assets/contact/dennys.jpg" alt="Seller: Denny's Surplus"></div>
+        <div class="p-18">
+          <div class="row between"><b>Standard Crate</b><span class="mono text-cash">$40,000</span></div>
+          <div class="text-dim mono" style="font-size:11px; margin:4px 0 8px;">seller: Denny's Surplus</div>
+          <div class="text-muted" style="font-size:12.5px; line-height:1.5;">Reliable gear. Operative or better.</div>
+          <div class="odds-bar">
+            <span style="width:55%; background:var(--rarity-operative)"></span>
+            <span style="width:38%; background:var(--rarity-specialist)"></span>
+            <span style="width:5%; background:var(--rarity-elite)"></span>
+            <span style="width:2%; background:var(--rarity-phantom)"></span>
+          </div>
+          <div class="odds-legend text-dim">
+            <span><i style="background:var(--rarity-operative)"></i>Operative 55%</span>
+            <span><i style="background:var(--rarity-specialist)"></i>Specialist 38%</span>
+            <span><i style="background:var(--rarity-elite)"></i>Elite 5%</span>
+            <span><i style="background:var(--rarity-phantom)"></i>Phantom 2%</span>
+          </div>
+        </div>
+      </a>
+
+      <a class="frame contact-card" href="crate-opening.html?tier=premium&kind=item">
+        <div class="c-portrait"><img class="photo-fill" src="../assets/contact/cutter.jpg" alt="Seller: Cutter"></div>
+        <div class="p-18">
+          <div class="row between"><b>Premium Stash</b><span class="mono text-cash">$300,000</span></div>
+          <div class="text-dim mono" style="font-size:11px; margin:4px 0 8px;">seller: Cutter</div>
+          <div class="text-muted" style="font-size:12.5px; line-height:1.5;">High-end gear. Specialist or better.</div>
+          <div class="odds-bar">
+            <span style="width:55%; background:var(--rarity-specialist)"></span>
+            <span style="width:38%; background:var(--rarity-elite)"></span>
+            <span style="width:7%; background:var(--rarity-phantom)"></span>
+          </div>
+          <div class="odds-legend text-dim">
+            <span><i style="background:var(--rarity-specialist)"></i>Specialist 55%</span>
+            <span><i style="background:var(--rarity-elite)"></i>Elite 38%</span>
+            <span><i style="background:var(--rarity-phantom)"></i>Phantom 7%</span>
+          </div>
+        </div>
+      </a>
+
+      <a class="frame contact-card frame-accent" href="crate-opening.html?tier=ghost_cache&kind=item">
+        <div class="c-portrait"><img class="photo-fill" src="../assets/contact/unknown-seller.jpg" alt="Seller: unknown"></div>
+        <div class="p-18">
+          <div class="row between"><b>Ghost Cache</b><span class="mono text-cash">$2,000,000</span></div>
+          <div class="text-dim mono" style="font-size:11px; margin:4px 0 8px;">seller: unknown</div>
+          <div class="text-muted" style="font-size:12.5px; line-height:1.5;">Ultra-rare haul. Elite or Phantom only.</div>
+          <div class="odds-bar">
+            <span style="width:65%; background:var(--rarity-elite)"></span>
+            <span style="width:35%; background:var(--rarity-phantom)"></span>
+          </div>
+          <div class="odds-legend text-dim">
+            <span><i style="background:var(--rarity-elite)"></i>Elite 65%</span>
+            <span><i style="background:var(--rarity-phantom)"></i>Phantom 35%</span>
+          </div>
+        </div>
+      </a>
+
+    </div>
+  </div>
+</div>
+
+<script src="shared.js"></script>
+<script>
+  renderShell('market')
+  function showSection(id, btn) {
+    document.querySelectorAll('.section-block').forEach(el => el.classList.remove('active'))
+    document.getElementById(id).classList.add('active')
+    document.querySelectorAll('.seg button').forEach(b => b.classList.remove('active'))
+    btn.classList.add('active')
+  }
+</script>

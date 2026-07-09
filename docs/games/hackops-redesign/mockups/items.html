@@ -1,0 +1,161 @@
+<title>HackOps — Items</title>
+<link rel="stylesheet" href="shared.css">
+<style>
+  .items-grid { grid-template-columns: 1fr 380px; align-items:start; }
+  .inv-toolbar { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:14px; flex-wrap:wrap; }
+  .inv-filter { display:flex; gap:6px; }
+  .inv-filter button { font-family:var(--font-mono); font-size:11px; text-transform:uppercase; padding:8px 14px; border:1px solid var(--border-strong); background:transparent; color:var(--text-dim); cursor:pointer; }
+  .inv-filter button.active { color: var(--accent); border-color: var(--accent); background: var(--accent-dim); }
+  select.sort-select { font-family:var(--font-mono); font-size:11.5px; text-transform:uppercase; background: var(--bg-elevated); border:1px solid var(--border-strong); color: var(--text); padding:8px 10px; }
+  .inv-scroll { max-height: 900px; overflow-y: auto; padding-right: 4px; }
+  .inv-card { padding:16px; border:1px solid var(--border); margin-bottom:10px; }
+  .inv-card .actions { display:flex; gap:8px; margin-top:12px; padding-top:12px; border-top:1px solid var(--border); }
+  .bench-slot { border:1px dashed var(--border-strong); padding:20px; text-align:center; margin-bottom:18px; }
+  .cost-preview-row { display:flex; justify-content:space-between; padding: 5px 0; font-size:12.5px; }
+  .cost-preview-row .lvl { color: var(--text-dim); font-family: var(--font-mono); }
+  .mod-reroll-row { border: 1px solid var(--border); padding: 12px; margin-bottom: 10px; }
+</style>
+<div id="app-shell"></div>
+
+<div class="page">
+  <div class="eyebrow">// inventory &amp; crafting</div>
+  <h1 style="margin: 6px 0 20px; font-size:22px;">Items</h1>
+
+  <div class="grid items-grid">
+    <div class="frame p-18">
+      <div class="inv-toolbar">
+        <div class="section-title" style="margin:0; flex:1;">Inventory <span class="text-dim" id="inv-count" style="text-transform:none; font-weight:400; letter-spacing:0;"></span></div>
+        <div class="inv-filter" id="inv-filter">
+          <button class="active" data-slot="all">All</button>
+          <button data-slot="tool">Tool</button>
+          <button data-slot="software">Software</button>
+          <button data-slot="hardware">Hardware</button>
+        </div>
+        <select class="sort-select" id="sort-select" onchange="renderInventory()">
+          <option value="rarity">Sort: Rarity</option>
+          <option value="power">Sort: Power</option>
+          <option value="name">Sort: Name</option>
+        </select>
+      </div>
+      <div class="inv-scroll" id="inv-list"></div>
+    </div>
+
+    <div class="frame frame-accent p-20">
+      <div class="section-title">Crafting bench</div>
+      <div class="bench-slot" id="bench-slot">
+        <div class="text-dim mono" style="font-size:12px;">Select "Load into Bench" on an item</div>
+      </div>
+
+      <div id="bench-loaded" style="display:none;">
+        <div class="card-title-lg text-rarity elite" id="bench-name">Military-Grade Dark Server</div>
+        <div class="card-sub-md" style="margin:4px 0 18px;">Hardware &middot; Level <span id="bench-level">4</span> / 20</div>
+
+        <div class="stat-label-md" style="margin-bottom:10px;">Upgrade level</div>
+        <div class="frame frame-2 p-14" style="margin-bottom:10px;">
+          <div class="cost-preview-row"><span class="lvl">Lv 4 → 5</span><span class="text-gems stat-value-lg" id="cost-next" style="font-size:14px;">2 gems</span></div>
+          <div class="cost-preview-row"><span class="lvl">Lv 5 → 6</span><span class="text-gems">2 gems</span></div>
+          <div class="cost-preview-row"><span class="lvl">Lv 6 → 7</span><span class="text-gems">2 gems</span></div>
+          <div class="cost-preview-row"><span class="lvl">Lv 7 → 8</span><span class="text-gems">3 gems</span></div>
+        </div>
+        <button class="btn btn-primary btn-block" style="margin-bottom:22px;" onclick="alert('Upgrade → POST /api/hack/items/upgrade — real cost: itemUpgradeCost(level)')">Upgrade to Lv 5 — <span class="text-gems">2 gems</span></button>
+
+        <hr class="hair">
+        <div class="row between" style="margin: 16px 0 6px;">
+          <div class="stat-label-md">Re-roll mods</div>
+          <div class="text-dim mono" style="font-size:11px;">cost = mods + (2&times;locked&minus;1)</div>
+        </div>
+        <div class="text-muted" style="font-size:12px; margin-bottom:12px; line-height:1.5;">
+          Click a chip to lock it — locked mods keep their exact value. Bars show
+          where each roll landed inside its full possible range, so you can judge
+          whether re-rolling is worth it.
+        </div>
+
+        <div id="bench-mods"></div>
+
+        <button class="btn btn-block" style="margin-top:6px;" id="reroll-btn" onclick="alert('Re-roll → POST /api/hack/items/reroll — real cost shown above')"></button>
+        <a href="../PLAN.md" class="text-dim mono" style="display:block; text-align:center; margin-top:10px; font-size:10.5px; text-decoration:none;">How are these ranges calculated? → Wiki</a>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="shared.js"></script>
+<script>
+  renderShell('items')
+
+  const inventory = genMockInventory(30, 4242)
+  let activeSlotFilter = 'all'
+
+  function renderInventory() {
+    const sortMode = document.getElementById('sort-select').value
+    let list = inventory.filter(it => activeSlotFilter === 'all' || it.slot === activeSlotFilter)
+    list = sortItems(list, sortMode)
+    document.getElementById('inv-count').textContent = `— ${list.length} / 30 shown`
+    document.getElementById('inv-list').innerHTML = list.map(item => `
+      <div class="frame inv-card">
+        ${itemCardHTML(item, { iconSize: 52 })}
+        <div class="actions">
+          <button class="btn btn-sm" onclick="loadIntoBench('${item.id}')">Load into Bench</button>
+          <button class="btn btn-sm btn-danger" style="margin-left:auto;" onclick="armConfirm(this, () => alert('Sold (mock)'))">Sell</button>
+        </div>
+      </div>
+    `).join('')
+  }
+
+  document.getElementById('inv-filter').addEventListener('click', e => {
+    const btn = e.target.closest('button'); if (!btn) return
+    document.querySelectorAll('#inv-filter button').forEach(b => b.classList.remove('active'))
+    btn.classList.add('active')
+    activeSlotFilter = btn.dataset.slot
+    renderInventory()
+  })
+
+  const locked = new Set()
+  function loadIntoBench(id) {
+    const item = inventory.find(i => i.id === id)
+    document.getElementById('bench-slot').style.display = 'none'
+    document.getElementById('bench-loaded').style.display = 'block'
+    document.getElementById('bench-name').textContent = item.name
+    document.getElementById('bench-name').className = 'card-title-lg text-rarity ' + item.rarity
+    document.getElementById('bench-level').textContent = item.level
+    document.getElementById('cost-next').textContent = itemUpgradeCost(item.level) + ' gem' + (itemUpgradeCost(item.level) === 1 ? '' : 's')
+    locked.clear()
+    renderRerollPanel(item)
+  }
+
+  function renderRerollPanel(item) {
+    document.getElementById('bench-mods').innerHTML = item.mods.map(mod => {
+      const meta = MOD_META[mod.type]
+      const range = MOD_RANGES[mod.type]
+      const pct = ((mod.value - range.min) / (range.max - range.min)) * 100
+      const isLocked = locked.has(mod.type)
+      return `
+        <div class="mod-reroll-row">
+          <div class="row between" style="margin-bottom:8px;">
+            <span style="font-size:13px;"><b>${mod.value}${meta.unit}</b> <span class="mod-chip-label">${meta.label}</span></span>
+            <button class="lock-chip ${isLocked ? 'locked' : ''}" onclick="toggleLock('${mod.type}', '${item.id}')">
+              <span class="dot-ind"></span>${isLocked ? 'Locked' : 'Lock'}
+            </button>
+          </div>
+          <div class="range-bar-wrap">
+            <div class="range-bar"><div class="fill" style="width:${pct}%"></div><div class="marker" style="left:${pct}%"></div></div>
+          </div>
+          <div class="row between text-dim mono" style="font-size:9.5px; margin-top:3px;">
+            <span>min ${range.min}${meta.unit}</span><span>max ${range.max}${meta.unit}</span>
+          </div>
+        </div>
+      `
+    }).join('')
+    const cost = rerollCost(item.mods.length, locked.size)
+    const btn = document.getElementById('reroll-btn')
+    btn.innerHTML = `Re-roll unlocked mods — <span class="text-gems">${cost} gems</span> (${locked.size} locked)`
+  }
+
+  function toggleLock(type, itemId) {
+    locked.has(type) ? locked.delete(type) : locked.add(type)
+    renderRerollPanel(inventory.find(i => i.id === itemId))
+  }
+
+  renderInventory()
+  loadIntoBench(inventory.find(i => i.slot === 'hardware').id)
+</script>

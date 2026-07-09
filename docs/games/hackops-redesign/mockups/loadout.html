@@ -1,0 +1,243 @@
+<title>HackOps — Loadout</title>
+<link rel="stylesheet" href="shared.css">
+<style>
+  .loadout-grid { grid-template-columns: 280px 1fr 400px; align-items:start; gap:18px; }
+  .roster-list-item { display:flex; align-items:center; gap:12px; padding:12px 14px; cursor:pointer; border-bottom:1px solid var(--border); }
+  .roster-list-item:hover { background: var(--panel-2); }
+  .roster-list-item.selected { background: var(--accent-dim); border-left:3px solid var(--accent); }
+  .roster-list-item .mini-portrait { width:42px; height:42px; flex-shrink:0; }
+  .roster-list-item .name { font-size:14px; font-weight:600; }
+  .roster-list-item .sub { font-size:11.5px; }
+  .group-label { font-family:var(--font-mono); font-size:10.5px; letter-spacing:.1em; text-transform:uppercase; color:var(--text-dim); padding:12px 14px 6px; }
+
+  .operator-portrait { width:150px; height:150px; margin: 0 auto 16px; }
+  .bay { border:1px solid var(--border-strong); padding:18px; margin-bottom:12px; cursor:pointer; display:flex; align-items:center; gap:16px; transition: border-color .12s, background .12s; }
+  .bay:hover { border-color: var(--accent); }
+  .bay.selected { border-color: var(--accent); background: var(--accent-dim); box-shadow: inset 0 0 0 1px var(--accent); }
+  .bay.drag-over { border-color: var(--accent-2); background: rgba(96,165,250,.12); }
+  .bay .bay-icon { width:52px; height:52px; flex-shrink:0; display:flex; align-items:center; justify-content:center; font-size:24px; border:1px solid var(--border); }
+  .bay.empty .bay-icon { border-style:dashed; color: var(--text-dim); }
+  .bay .bay-name { font-size:15px; font-weight:700; }
+  .bay .bay-sub { font-size:12px; color: var(--text-muted); font-family: var(--font-mono); margin-top:2px; }
+
+  .inv-toolbar { display:flex; align-items:center; gap:8px; margin-bottom:12px; flex-wrap:wrap; }
+  .inv-filter { display:flex; gap:5px; flex:1; }
+  .inv-filter button { font-family:var(--font-mono); font-size:10.5px; text-transform:uppercase; padding:7px 10px; border:1px solid var(--border-strong); background:transparent; color:var(--text-dim); cursor:pointer; flex:1; }
+  .inv-filter button.active { color: var(--accent); border-color: var(--accent); background: var(--accent-dim); }
+  select.sort-select { font-family:var(--font-mono); font-size:11px; text-transform:uppercase; background: var(--bg-elevated); border:1px solid var(--border-strong); color: var(--text); padding:7px 8px; }
+  .inv-scroll { max-height: 760px; overflow-y: auto; padding-right: 4px; }
+  .inv-item { padding:12px; border:1px solid var(--border); margin-bottom:8px; cursor:grab; transition: border-color .12s, opacity .12s; }
+  .inv-item:hover { border-color: var(--accent); }
+  .inv-item.dragging { opacity:.4; }
+  .inv-item.dim { opacity:.32; }
+
+  .compare-backdrop { position:fixed; inset:0; background:rgba(5,7,10,.85); backdrop-filter: blur(3px); display:none; align-items:center; justify-content:center; z-index:500; padding:20px; }
+  .compare-backdrop.show { display:flex; }
+  .compare-modal { width:100%; max-width: 860px; }
+  .compare-cols { display:grid; grid-template-columns:1fr 1fr; gap:16px; padding: 20px; }
+  .compare-item-card { border:1px solid var(--border-strong); padding:16px; }
+  .compare-item-card.candidate { border-color: var(--accent); }
+  .stat-delta-row { display:flex; justify-content:space-between; font-size:14px; padding:8px 0; border-bottom:1px solid var(--border); }
+  .delta.up { color: var(--success); font-weight:700; }
+  .delta.down { color: var(--error); font-weight:700; }
+  .delta.same { color: var(--text-dim); }
+</style>
+<div id="app-shell"></div>
+
+<div class="page">
+  <div class="eyebrow">// loadout</div>
+  <h1 style="margin: 6px 0 20px; font-size:22px;">Equip &amp; compare</h1>
+
+  <div class="grid loadout-grid">
+
+    <!-- ── Left: roster ─────────────────────────────────────────────── -->
+    <div class="frame" style="padding-bottom:8px;">
+      <div class="group-label">Active</div>
+      <div class="roster-list-item selected" onclick="selectAgent(this)">
+        <div class="mini-portrait"><img class="photo-fill" src="../assets/agent/infiltrator.jpg" alt="Infiltrator"></div>
+        <div><div class="name">Cipher</div><div class="text-rarity specialist mono sub">Specialist &middot; Lv14</div></div>
+      </div>
+      <div class="roster-list-item" onclick="selectAgent(this)">
+        <div class="mini-portrait"><img class="photo-fill" src="../assets/agent/cryptographer.jpg" alt="Cryptographer"></div>
+        <div><div class="name">Wraith-2</div><div class="text-rarity operative mono sub">Operative &middot; Lv9</div></div>
+      </div>
+      <div class="roster-list-item" onclick="selectAgent(this)">
+        <div class="mini-portrait"><img class="photo-fill" src="../assets/agent/bruteforce.jpg" alt="Bruteforce"></div>
+        <div><div class="name">Null</div><div class="text-rarity elite mono sub">Elite &middot; Lv17</div></div>
+      </div>
+      <div class="roster-list-item" onclick="selectAgent(this)">
+        <div class="mini-portrait"><img class="photo-fill" src="../assets/agent/social-engineer.jpg" alt="Social Engineer"></div>
+        <div><div class="name">Static</div><div class="text-rarity ghost mono sub">Ghost &middot; Lv4</div></div>
+      </div>
+      <div class="group-label">Sleeper</div>
+      <div class="roster-list-item" onclick="selectAgent(this)">
+        <div class="mini-portrait"><img class="photo-fill" src="../assets/agent/infiltrator.jpg" alt="Infiltrator"></div>
+        <div><div class="name">Hex</div><div class="text-rarity operative mono sub">Operative &middot; Lv6</div></div>
+      </div>
+      <div class="roster-list-item" onclick="selectAgent(this)">
+        <div class="mini-portrait"><img class="photo-fill" src="../assets/agent/cryptographer.jpg" alt="Cryptographer"></div>
+        <div><div class="name">Vector</div><div class="text-rarity ghost mono sub">Ghost &middot; Lv2</div></div>
+      </div>
+    </div>
+
+    <!-- ── Center: operator card ───────────────────────────────────── -->
+    <div class="frame frame-accent p-20">
+      <div class="operator-portrait"><img class="photo-fill" src="../assets/agent/infiltrator.jpg" alt="Infiltrator"></div>
+      <div style="text-align:center; margin-bottom:20px;">
+        <div class="row gap-10" style="justify-content:center;"><h2 style="margin:0; font-size:22px;">Cipher</h2><span class="badge badge-rarity specialist">Specialist</span></div>
+        <div class="text-dim mono" style="font-size:13px; margin-top:5px;">Infiltrator &middot; Lv 14 &middot; <span class="text-accent">PWR 214</span></div>
+      </div>
+
+      <div class="stat-label-md" style="margin-bottom:10px;">Gear bays — click or drag from inventory</div>
+
+      <div class="bay drop-target selected" data-slot="tool" onclick="selectBay('tool', this)">
+        <div class="bay-icon" style="color:var(--text-muted);"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3v11a3 3 0 0 0 3 3h1"/><path d="M18 3v11a3 3 0 0 1-3 3h-1"/><path d="M10 17v4"/><path d="M14 17v4"/><circle cx="6" cy="3" r="1.5"/><rect x="16.5" y="1.5" width="3" height="3" rx="0.5"/></svg></div>
+        <div style="flex:1;">
+          <div class="bay-name">Advanced USB Infiltrator</div>
+          <div class="bay-sub">Tool &middot; Lv 6 &middot; +12 PWR</div>
+        </div>
+        <span class="badge">Selected</span>
+      </div>
+
+      <div class="bay drop-target" data-slot="software" onclick="selectBay('software', this)">
+        <div class="bay-icon" style="color:var(--text-muted);"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg></div>
+        <div style="flex:1;">
+          <div class="bay-name">Ghost Suite</div>
+          <div class="bay-sub">Software &middot; Lv 3 &middot; +6 PWR</div>
+        </div>
+      </div>
+
+      <div class="bay drop-target empty" data-slot="hardware" onclick="selectBay('hardware', this)">
+        <div class="bay-icon">+</div>
+        <div style="flex:1;">
+          <div class="bay-name" style="color:var(--text-dim);">Empty hardware slot</div>
+          <div class="bay-sub">Drop a hardware item here</div>
+        </div>
+      </div>
+
+      <hr class="hair">
+      <div class="grid" style="grid-template-columns: repeat(4,1fr);">
+        <div><div class="stat-label-md">Power</div><div class="stat-value-lg text-accent">214</div></div>
+        <div><div class="stat-label-md">Loot</div><div class="stat-value-lg">+9.2%</div></div>
+        <div><div class="stat-label-md">Speed</div><div class="stat-value-lg">+4.0%</div></div>
+        <div><div class="stat-label-md">Gem %</div><div class="stat-value-lg text-gems">1.8%</div></div>
+      </div>
+    </div>
+
+    <!-- ── Right: inventory (30 items, sortable/filterable) ──────────── -->
+    <div class="frame p-18">
+      <div class="row between" style="margin-bottom:10px;">
+        <div class="section-title" style="margin:0;">Inventory <span class="text-dim" id="inv-count" style="text-transform:none; font-weight:400; letter-spacing:0;"></span></div>
+      </div>
+      <div class="inv-toolbar">
+        <div class="inv-filter" id="inv-filter">
+          <button data-slot="all">All</button>
+          <button class="active" data-slot="tool">Tool</button>
+          <button data-slot="software">Soft</button>
+          <button data-slot="hardware">Hardware</button>
+        </div>
+      </div>
+      <select class="sort-select" id="sort-select" style="width:100%; margin-bottom:12px;" onchange="renderInventory()">
+        <option value="rarity">Sort: Rarity</option>
+        <option value="power">Sort: Power</option>
+        <option value="name">Sort: Name</option>
+      </select>
+
+      <div class="inv-scroll" id="inv-list"></div>
+
+      <a href="black-market.html" class="btn btn-block" style="margin-top:10px;">Need better gear? → Dead Drops</a>
+    </div>
+  </div>
+</div>
+
+<!-- ── Comparison overlay ───────────────────────────────────────────── -->
+<div class="compare-backdrop" id="compare-backdrop">
+  <div class="frame frame-accent compare-modal">
+    <div class="p-18" style="border-bottom:1px solid var(--border);">
+      <div class="eyebrow" id="compare-slot-label">Compare — Tool slot</div>
+      <h3 style="margin:6px 0 0; font-size:19px;">Currently equipped vs. candidate</h3>
+    </div>
+    <div class="compare-cols" id="compare-cols"></div>
+    <div class="p-18" style="border-top:1px solid var(--border);">
+      <div class="stat-label-md" style="margin-bottom:10px;">Impact on Cipher</div>
+      <div class="stat-delta-row"><span>Power</span><span class="delta down">214 → 210 (-4)</span></div>
+      <div class="stat-delta-row"><span>Loot bonus</span><span class="delta down">+9.2% → +4.1% (-5.1%)</span></div>
+      <div class="stat-delta-row"><span>Speed bonus</span><span class="delta up">+4.0% → +11.4% (+7.4%)</span></div>
+      <div class="stat-delta-row" style="border:none;"><span>Item drop chance</span><span class="delta up">+0% → +3.2% (+3.2%)</span></div>
+      <div class="row between" style="margin-top:20px;">
+        <button class="btn" onclick="closeCompare()">Cancel</button>
+        <button class="btn btn-primary" onclick="confirmSwap()">Confirm Swap</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="shared.js"></script>
+<script>
+  renderShell('loadout')
+
+  const inventory = genMockInventory(30, 77)
+  let activeSlotFilter = 'tool'
+  const equipped = {
+    tool: { id: 'eq-tool', name: 'Advanced USB Infiltrator', slot: 'tool', rarity: 'specialist', level: 6, mods: [{type:'power_flat', value:12}, {type:'loot_percent', value:5.1}] },
+  }
+
+  function renderInventory() {
+    const sortMode = document.getElementById('sort-select').value
+    let list = inventory.filter(it => activeSlotFilter === 'all' || it.slot === activeSlotFilter)
+    list = sortItems(list, sortMode)
+    document.getElementById('inv-count').textContent = `— ${list.length} shown / 30 total`
+    document.getElementById('inv-list').innerHTML = list.map(item => `
+      <div class="frame inv-item" draggable="true" data-item-id="${item.id}" data-slot="${item.slot}" onclick="openCompare('${item.id}')">
+        ${itemCardHTML(item, { iconSize: 40 })}
+      </div>
+    `).join('')
+    initDragDrop((itemId) => openCompare(itemId))
+  }
+
+  document.getElementById('inv-filter').addEventListener('click', e => {
+    const btn = e.target.closest('button'); if (!btn) return
+    document.querySelectorAll('#inv-filter button').forEach(b => b.classList.remove('active'))
+    btn.classList.add('active')
+    activeSlotFilter = btn.dataset.slot
+    renderInventory()
+  })
+
+  function selectAgent(el) {
+    document.querySelectorAll('.roster-list-item').forEach(x => x.classList.remove('selected'))
+    el.classList.add('selected')
+  }
+  function selectBay(slot, el) {
+    document.querySelectorAll('.bay').forEach(x => x.classList.remove('selected'))
+    el.classList.add('selected')
+    activeSlotFilter = slot
+    document.querySelectorAll('#inv-filter button').forEach(b => b.classList.toggle('active', b.dataset.slot === slot))
+    renderInventory()
+  }
+
+  function openCompare(itemId) {
+    const candidate = inventory.find(i => i.id === itemId)
+    const current = equipped[candidate.slot]
+    document.getElementById('compare-slot-label').textContent = `Compare — ${candidate.slot} slot`
+    document.getElementById('compare-cols').innerHTML = `
+      <div class="compare-item-card">
+        <div class="badge" style="margin-bottom:10px;">${current ? 'Currently equipped' : 'Slot empty'}</div>
+        ${current ? itemCardHTML(current, { iconSize: 44 }) : '<div class="text-dim" style="padding:20px 0; text-align:center;">Nothing equipped here yet</div>'}
+      </div>
+      <div class="compare-item-card candidate">
+        <div class="badge badge-rarity ${candidate.rarity}" style="margin-bottom:10px;">Candidate</div>
+        ${itemCardHTML(candidate, { iconSize: 44 })}
+      </div>
+    `
+    document.getElementById('compare-backdrop').classList.add('show')
+  }
+  function closeCompare() {
+    document.getElementById('compare-backdrop').classList.remove('show')
+  }
+  function confirmSwap() {
+    closeCompare()
+    alert('Equip call → POST /api/hack/items/equip (existing endpoint, unchanged). Mockup only.')
+  }
+
+  renderInventory()
+</script>

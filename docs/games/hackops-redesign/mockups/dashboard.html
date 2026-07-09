@@ -1,0 +1,92 @@
+<title>HackOps — Dashboard</title>
+<link rel="stylesheet" href="shared.css">
+<div id="app-shell"></div>
+
+<div class="page">
+  <div class="frame frame-accent p-20" style="margin-bottom:20px; position:relative; overflow:hidden;">
+    <div class="ph-image" data-caption style="height:220px; position:absolute; inset:0; opacity:.35; border:none;">
+      <div class="glyph">&#127760;</div>
+      <div class="fname">img/ui/splash-opsroom.jpg</div>
+      <div class="prompt-link">Prompt → image-prompts.md §4 "App loading / splash background"</div>
+    </div>
+    <div style="position:relative;">
+      <div class="eyebrow">// operation status</div>
+      <h1 style="font-size:26px; margin:8px 0 6px;">Welcome back, <span class="text-accent glow-text">HANDLER-07</span>.</h1>
+      <p class="text-muted" style="max-width:620px; line-height:1.6; margin:0 0 16px;">
+        4 agents in the field, 1 op ready to collect. RELAY's got two new leads on the board
+        and a fresh contact posted at the Black Market. Your call on where we go next.
+      </p>
+      <div class="row gap-10 wrap">
+        <a href="ops-select.html" class="btn btn-primary">View Mission Board</a>
+        <a href="black-market.html" class="btn">Black Market</a>
+        <a href="loadout.html" class="btn">Loadout</a>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid" style="grid-template-columns: repeat(4, 1fr); margin-bottom: 20px;">
+    <div class="frame p-18">
+      <div class="eyebrow">Total power</div>
+      <div class="mono" style="font-size:26px; margin-top:6px;">1,840</div>
+      <div class="text-dim mono" style="font-size:11px; margin-top:4px;">4 active agents</div>
+    </div>
+    <div class="frame p-18">
+      <div class="eyebrow">Cash on hand</div>
+      <div class="mono text-cash" style="font-size:26px; margin-top:6px;">$812,450</div>
+      <div class="text-dim mono" style="font-size:11px; margin-top:4px;">+$47,200 last 24h</div>
+    </div>
+    <div class="frame p-18">
+      <div class="eyebrow">Gems</div>
+      <div class="mono text-gems" style="font-size:26px; margin-top:6px;">236</div>
+      <div class="text-dim mono" style="font-size:11px; margin-top:4px;">for the Crafting Bench</div>
+    </div>
+    <div class="frame p-18">
+      <div class="eyebrow">Success rate</div>
+      <div class="mono text-success" style="font-size:26px; margin-top:6px;">78%</div>
+      <div class="text-dim mono" style="font-size:11px; margin-top:4px;">last 20 ops</div>
+    </div>
+  </div>
+
+  <div class="grid" style="grid-template-columns: 1.4fr 1fr; align-items:start;">
+    <div class="frame p-20">
+      <div class="section-title">Active operations</div>
+      <div class="col gap-10">
+        <div class="frame frame-2 p-14 row between" data-countdown-end="" style="position:relative;">
+          <div class="row gap-14">
+            <div class="ph-image" style="width:64px;height:44px;"><div class="glyph" style="font-size:16px;">&#128274;</div></div>
+            <div>
+              <div style="font-weight:600;">Black Site Raid</div>
+              <div class="text-dim mono" style="font-size:11px;">3 agents deployed</div>
+            </div>
+          </div>
+          <div class="col" style="align-items:flex-end;">
+            <div class="mono text-accent countdown-text">4h 12m</div>
+            <div class="bar" style="width:120px; margin-top:4px;"><i style="width:62%"></i></div>
+          </div>
+        </div>
+        <div class="frame frame-2 p-14 row between">
+          <div class="row gap-14">
+            <div class="ph-image" style="width:64px;height:44px;"><div class="glyph" style="font-size:16px;">&#9989;</div></div>
+            <div>
+              <div style="font-weight:600;">Crypto Heist</div>
+              <div class="text-dim mono" style="font-size:11px;">1 agent deployed</div>
+            </div>
+          </div>
+          <a href="ops-select.html" class="btn btn-sm btn-primary">Collect</a>
+        </div>
+      </div>
+    </div>
+
+    <div class="frame p-20">
+      <div class="section-title">RELAY says</div>
+      <div class="ph-audio" data-caption="New lead came in overnight. Government job, high heat, pays like it. Board's updated — take a look when you're ready." data-caption-target="#relay-cap">
+        <span class="wave"><span></span><span></span><span></span><span></span><span></span></span>
+        <span class="label">▶ voice/dashboard-greeting.mp3</span>
+      </div>
+      <div id="relay-cap" class="captions" style="margin-top:12px; font-size:13px;"></div>
+    </div>
+  </div>
+</div>
+
+<script src="shared.js"></script>
+<script>renderShell('ops')</script>

@@ -1,0 +1,454 @@
+/* HackOps redesign — shared design tokens & components
+   Hybrid tactical-hacker aesthetic. See PLAN.md §4.
+   --accent / --accent-2 map 1:1 to Nuxt UI's bg-primary / bg-secondary
+   semantic tokens in the real implementation — swap freely, everything
+   else (rarity, cash, gems, xp) is intentionally theme-independent. */
+
+:root {
+  --bg: #0a0d12;
+  --bg-elevated: #0d1218;
+  --panel: #11161d;
+  --panel-2: #161c25;
+  --border: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.16);
+  --text: #e7edf3;
+  --text-muted: #8593a3;
+  --text-dim: #5b6673;
+
+  --accent: #4ade80;       /* primary — matches app's current default theme (green) */
+  --accent-dim: #4ade8022;
+  --accent-2: #60a5fa;     /* secondary */
+
+  --cash: #facc15;
+  --gems: #22d3ee;
+  --xp: #a78bfa;
+  --success: #22c55e;
+  --error: #f87171;
+
+  --rarity-ghost: #a1a1aa;
+  --rarity-operative: #4ade80;
+  --rarity-specialist: #38bdf8;
+  --rarity-elite: #fbbf24;
+  --rarity-phantom: #fb7185;
+
+  --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+
+  --cut: 14px; /* corner-bracket cut size */
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  margin: 0;
+  padding: 0;
+  min-height: 100%;
+}
+
+body {
+  background-image:
+    radial-gradient(ellipse 1200px 600px at 20% -10%, rgba(74, 222, 128, 0.06), transparent 60%),
+    radial-gradient(ellipse 900px 500px at 100% 0%, rgba(96, 165, 250, 0.05), transparent 60%);
+  background-attachment: fixed;
+}
+
+/* ── Scanline overlay — fixed, whole viewport, very subtle ───────────── */
+.scanlines {
+  pointer-events: none;
+  position: fixed;
+  inset: 0;
+  z-index: 999;
+  background: repeating-linear-gradient(
+    to bottom,
+    rgba(255, 255, 255, 0.018) 0px,
+    rgba(255, 255, 255, 0.018) 1px,
+    transparent 1px,
+    transparent 3px
+  );
+  mix-blend-mode: overlay;
+  opacity: 0.5;
+}
+
+.noise-vignette {
+  pointer-events: none;
+  position: fixed;
+  inset: 0;
+  z-index: 998;
+  box-shadow: inset 0 0 220px rgba(0, 0, 0, 0.65);
+}
+
+a { color: inherit; }
+
+::selection { background: var(--accent); color: #06170d; }
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 0; }
+
+/* ── Typography helpers ───────────────────────────────────────────────── */
+.mono { font-family: var(--font-mono); }
+.eyebrow {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.glow-text { text-shadow: 0 0 12px currentColor; }
+
+/* ── Corner-cut panel (the core visual signature) ─────────────────────── */
+.frame {
+  position: relative;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  clip-path: polygon(
+    var(--cut) 0, 100% 0, 100% calc(100% - var(--cut)),
+    calc(100% - var(--cut)) 100%, 0 100%, 0 var(--cut)
+  );
+}
+.frame::before, .frame::after {
+  content: '';
+  position: absolute;
+  width: var(--cut);
+  height: 1px;
+  background: var(--border-strong);
+}
+.frame::before { top: 0; left: 0; transform: rotate(45deg) translate(-3px, -1px); transform-origin: left; }
+.frame::after { bottom: 0; right: 0; transform: rotate(45deg) translate(3px, 1px); transform-origin: right; }
+.frame-2 { background: var(--panel-2); }
+.frame-tight { --cut: 8px; }
+
+.frame-accent {
+  box-shadow: inset 0 0 0 1px var(--accent-dim), 0 0 24px -8px var(--accent-dim);
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+}
+
+/* ── Top status bar ───────────────────────────────────────────────────── */
+.statbar {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  padding: 10px 18px;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+}
+.statbar .stat { display: flex; align-items: center; gap: 7px; color: var(--text-muted); }
+.statbar .stat b { color: var(--text); font-weight: 600; }
+.dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 8px var(--accent); flex-shrink: 0; }
+.dot.cash { background: var(--cash); box-shadow: 0 0 8px var(--cash); }
+.dot.gems { background: var(--gems); box-shadow: 0 0 8px var(--gems); }
+
+/* Navbar hero stats — cash / gems / power get bigger type + an icon
+   instead of the plain dot+label used for the rest of the statbar, so
+   the three currencies/resources you track constantly are legible at a
+   glance. Color comes from whichever text-* class wraps this (text-cash,
+   text-gems, text-accent) — the icon inherits it via currentColor. */
+.stat-hero { gap: 6px; }
+/* .stat.stat-hero (two classes) to at least match `.statbar .stat b`'s
+   specificity — a plain `.stat-hero b` would lose to that rule since
+   specificity, not source order, decides when both apply. */
+.stat.stat-hero b { font-size: 16px; font-weight: 700; color: currentColor; }
+.icon-svg { flex-shrink: 0; }
+
+/* ── Tab bar ───────────────────────────────────────────────────────────── */
+.tabbar { display: flex; gap: 2px; padding: 0 16px; border-bottom: 1px solid var(--border); }
+.tab {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 12px 18px 11px;
+  color: var(--text-dim);
+  text-decoration: none;
+  border-bottom: 2px solid transparent;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  transition: color .15s;
+}
+.tab:hover { color: var(--text-muted); }
+.tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+.tab svg, .tab .ic { width: 14px; height: 14px; }
+
+/* ── Buttons ───────────────────────────────────────────────────────────── */
+.btn {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  background: var(--panel-2);
+  border: 1px solid var(--border-strong);
+  color: var(--text);
+  padding: 9px 16px;
+  cursor: pointer;
+  clip-path: polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px);
+  transition: all .12s;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.btn:hover { border-color: var(--accent); color: var(--accent); }
+.btn:active { transform: translateY(1px); }
+.btn:disabled { opacity: .35; cursor: not-allowed; border-color: var(--border); color: var(--text-dim); }
+.btn:disabled:hover { color: var(--text-dim); border-color: var(--border); }
+.btn-primary { background: var(--accent); border-color: var(--accent); color: #06170d; font-weight: 700; }
+.btn-primary:hover { color: #06170d; filter: brightness(1.1); box-shadow: 0 0 20px -4px var(--accent); }
+.btn-danger:hover { border-color: var(--error); color: var(--error); }
+.btn-sm { padding: 6px 11px; font-size: 11px; }
+.btn-block { width: 100%; justify-content: center; }
+.btn-armed { border-color: var(--error) !important; color: var(--error) !important; animation: pulse-warn 1s infinite; }
+@keyframes pulse-warn { 0%,100% { box-shadow: 0 0 0 rgba(248,113,113,0); } 50% { box-shadow: 0 0 14px rgba(248,113,113,.5); } }
+
+/* ── Badges / chips ────────────────────────────────────────────────────── */
+.badge {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+  padding: 3px 8px;
+  border: 1px solid var(--border-strong);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+.badge-rarity { border-width: 1px; font-weight: 700; }
+.badge-rarity.ghost { color: var(--rarity-ghost); border-color: color-mix(in srgb, var(--rarity-ghost) 45%, transparent); background: color-mix(in srgb, var(--rarity-ghost) 10%, transparent); }
+.badge-rarity.operative { color: var(--rarity-operative); border-color: color-mix(in srgb, var(--rarity-operative) 45%, transparent); background: color-mix(in srgb, var(--rarity-operative) 10%, transparent); }
+.badge-rarity.specialist { color: var(--rarity-specialist); border-color: color-mix(in srgb, var(--rarity-specialist) 45%, transparent); background: color-mix(in srgb, var(--rarity-specialist) 10%, transparent); }
+.badge-rarity.elite { color: var(--rarity-elite); border-color: color-mix(in srgb, var(--rarity-elite) 45%, transparent); background: color-mix(in srgb, var(--rarity-elite) 10%, transparent); }
+.badge-rarity.phantom { color: var(--rarity-phantom); border-color: color-mix(in srgb, var(--rarity-phantom) 45%, transparent); background: color-mix(in srgb, var(--rarity-phantom) 10%, transparent); }
+
+.text-rarity.ghost { color: var(--rarity-ghost); }
+.text-rarity.operative { color: var(--rarity-operative); }
+.text-rarity.specialist { color: var(--rarity-specialist); }
+.text-rarity.elite { color: var(--rarity-elite); }
+.text-rarity.phantom { color: var(--rarity-phantom); }
+
+.text-cash { color: var(--cash); }
+.text-gems { color: var(--gems); }
+.text-xp { color: var(--xp); }
+.text-success { color: var(--success); }
+.text-error { color: var(--error); }
+.text-warning { color: var(--rarity-elite); }
+.text-accent { color: var(--accent); }
+.text-muted { color: var(--text-muted); }
+.text-dim { color: var(--text-dim); }
+
+/* ── Progress bars ─────────────────────────────────────────────────────── */
+.bar { height: 6px; background: var(--bg-elevated); border: 1px solid var(--border); position: relative; overflow: hidden; }
+.bar > i { display: block; height: 100%; background: var(--accent); }
+.bar.xp > i { background: var(--xp); }
+.bar.success > i { background: var(--success); }
+.bar.warn > i { background: var(--rarity-elite); }
+.bar.danger > i { background: var(--error); }
+
+/* ── Placeholders (audio / image) — deliberately loud & self-labeling ─── */
+.ph-audio {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  border: 1px dashed color-mix(in srgb, var(--accent) 55%, var(--border));
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 7px 12px;
+  cursor: pointer;
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+}
+.ph-audio:hover { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.ph-audio .wave { display: flex; align-items: center; gap: 2px; height: 12px; }
+.ph-audio .wave span { width: 2px; background: var(--accent); height: 4px; transition: height .1s; }
+.ph-audio.playing .wave span { animation: wave-bounce 0.9s ease-in-out infinite; }
+.ph-audio .wave span:nth-child(2) { animation-delay: .1s; }
+.ph-audio .wave span:nth-child(3) { animation-delay: .2s; }
+.ph-audio .wave span:nth-child(4) { animation-delay: .3s; }
+.ph-audio .wave span:nth-child(5) { animation-delay: .4s; }
+@keyframes wave-bounce { 0%,100% { height: 3px; } 50% { height: 13px; } }
+
+.ph-image {
+  border: 1px dashed var(--border-strong);
+  background:
+    repeating-linear-gradient(45deg, rgba(255,255,255,.02) 0 10px, transparent 10px 20px),
+    var(--bg-elevated);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--text-dim);
+  text-align: center;
+  padding: 16px;
+}
+.ph-image .glyph { font-size: 28px; opacity: .5; }
+.ph-image .fname { font-family: var(--font-mono); font-size: 10.5px; color: var(--text-muted); }
+.ph-image .prompt-link { font-size: 10.5px; color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
+
+/* A real generated asset dropped into a placeholder's spot — same box
+   sizing as the .ph-image it replaces, just filled with a photo instead
+   of a dashed border. Swap .ph-image for a wrapper + this on the <img>
+   as each asset in content/image-prompts.md gets produced. */
+.photo-fill { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+/* ── Captions / teletype ──────────────────────────────────────────────── */
+.captions {
+  font-family: var(--font-mono);
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--text);
+  min-height: 3.2em;
+}
+.captions .cursor { display: inline-block; width: 8px; height: 1em; background: var(--accent); vertical-align: text-bottom; animation: blink 1s step-end infinite; margin-left: 2px; }
+@keyframes blink { 50% { opacity: 0; } }
+
+/* ── Glitch (used sparingly, on reveal moments) ───────────────────────── */
+.glitch { position: relative; }
+.glitch.active::before, .glitch.active::after {
+  content: attr(data-text);
+  position: absolute; inset: 0;
+  clip-path: inset(0 0 0 0);
+}
+.glitch.active::before { color: var(--accent-2); animation: glitch-1 .35s steps(2) 2; left: 2px; }
+.glitch.active::after { color: var(--error); animation: glitch-2 .35s steps(2) 2; left: -2px; }
+@keyframes glitch-1 { 0% { clip-path: inset(0 0 80% 0); } 50% { clip-path: inset(40% 0 20% 0); } 100% { clip-path: inset(0 0 0 0); } }
+@keyframes glitch-2 { 0% { clip-path: inset(60% 0 0 0); } 50% { clip-path: inset(10% 0 50% 0); } 100% { clip-path: inset(0 0 0 0); } }
+
+/* ── Layout helpers ───────────────────────────────────────────────────── */
+.page { max-width: 1360px; margin: 0 auto; padding: 22px 24px 60px; }
+.grid { display: grid; gap: 16px; }
+.row { display: flex; align-items: center; }
+.col { display: flex; flex-direction: column; }
+.gap-4 { gap: 4px; } .gap-6 { gap: 6px; } .gap-8 { gap: 8px; } .gap-10 { gap: 10px; } .gap-12 { gap: 12px; } .gap-14 { gap: 14px; } .gap-20 { gap: 20px; }
+.between { justify-content: space-between; }
+.wrap { flex-wrap: wrap; }
+.p-14 { padding: 14px; } .p-18 { padding: 18px; } .p-20 { padding: 20px; }
+.section-title {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 14px;
+}
+.section-title::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+
+hr.hair { border: none; border-top: 1px solid var(--border); margin: 14px 0; }
+
+/* corner tag (status pill anchored to a card corner) */
+.corner-tag {
+  position: absolute;
+  top: 10px; right: 10px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+  padding: 3px 8px;
+  border: 1px solid var(--border-strong);
+  background: rgba(10,13,18,.85);
+  backdrop-filter: blur(2px);
+}
+.corner-tag.ready { color: var(--success); border-color: var(--success); animation: pulse-ready 1.4s infinite; }
+@keyframes pulse-ready { 0%,100% { box-shadow: 0 0 0 rgba(34,197,94,0);} 50% { box-shadow: 0 0 12px rgba(34,197,94,.6);} }
+.corner-tag.weak { color: var(--error); border-color: var(--error); }
+.corner-tag.progress { color: var(--accent-2); border-color: var(--accent-2); }
+
+.kbd { font-family: var(--font-mono); font-size: 10px; border: 1px solid var(--border-strong); padding: 1px 5px; color: var(--text-dim); }
+
+.toggle { display: inline-flex; align-items: center; gap: 8px; font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); cursor: pointer; user-select: none; }
+.toggle .switch { width: 30px; height: 16px; border: 1px solid var(--border-strong); position: relative; background: var(--bg-elevated); }
+.toggle .switch i { position: absolute; top: 1px; left: 1px; width: 12px; height: 12px; background: var(--text-dim); transition: all .15s; }
+.toggle input { display: none; }
+.toggle input:checked + .switch { border-color: var(--accent); }
+.toggle input:checked + .switch i { left: 15px; background: var(--accent); box-shadow: 0 0 6px var(--accent); }
+
+/* modal shell */
+.modal-backdrop { position: fixed; inset: 0; background: rgba(5,7,10,.82); backdrop-filter: blur(3px); display: flex; align-items: center; justify-content: center; z-index: 500; padding: 24px; }
+.modal { width: 100%; max-height: 92vh; overflow: auto; }
+
+@media (max-width: 900px) {
+  .page { padding: 16px; }
+  .statbar { flex-wrap: wrap; gap: 10px 16px; }
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   Round 2 additions — theme switcher, range bars, lock chips, larger
+   legible text tokens for dense data (item specs, crafting bench).
+   ══════════════════════════════════════════════════════════════════════ */
+
+/* ── Live theme switcher — mirrors the real app's popover exactly ─────
+   Appended to <body> and positioned `fixed` by JS (see getOrCreateThemePop
+   in shared.js) rather than nested inside the statbar's corner-cut
+   `.frame` — clip-path on an ancestor clips descendant painting even for
+   absolutely-positioned children, which silently cropped this off-screen
+   when it lived inside the frame. Don't move it back in. */
+.theme-pop-wrap { position: relative; }
+.theme-pop {
+  display: none;
+  z-index: 700;
+  width: 230px;
+  background: var(--panel);
+  border: 1px solid var(--border-strong);
+  box-shadow: 0 12px 32px -8px rgba(0,0,0,.6);
+  padding: 12px;
+}
+.theme-pop.open { display: block; }
+.theme-pop-group { margin-bottom: 12px; }
+.theme-pop-group:last-child { margin-bottom: 0; }
+.theme-pop-label { font-size: 11px; font-weight: 600; color: var(--text-muted); margin-bottom: 7px; }
+.theme-pop-swatches { display: flex; flex-wrap: wrap; gap: 5px; }
+.swatch {
+  width: 17px; height: 17px; border-radius: 50%; border: none;
+  cursor: pointer; transition: transform .12s;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.12);
+}
+.swatch:hover { transform: scale(1.15); }
+.swatch.selected { box-shadow: 0 0 0 2px var(--panel), 0 0 0 4px rgba(255,255,255,.85); }
+
+/* ── Range bar — shows a rolled value's position within its min/max ──── */
+.range-bar-wrap { display: flex; align-items: center; gap: 10px; }
+.range-bar { position: relative; flex: 1; height: 8px; background: var(--bg-elevated); border: 1px solid var(--border); }
+.range-bar .fill { position: absolute; top: 0; left: 0; height: 100%; background: color-mix(in srgb, var(--accent) 30%, transparent); }
+.range-bar .marker {
+  position: absolute; top: -4px; width: 3px; height: 16px;
+  background: var(--accent); box-shadow: 0 0 6px var(--accent); transform: translateX(-50%);
+}
+.range-bar .minmax { display: flex; justify-content: space-between; font-family: var(--font-mono); font-size: 9.5px; color: var(--text-dim); margin-top: 3px; }
+
+/* ── Lock chip — replaces the small lock icon with a clear labeled toggle ─ */
+.lock-chip {
+  font-family: var(--font-mono); font-size: 11.5px; letter-spacing: .04em; text-transform: uppercase;
+  padding: 6px 12px; border: 1px solid var(--border-strong); color: var(--text-dim);
+  cursor: pointer; display: inline-flex; align-items: center; gap: 6px; transition: all .12s;
+  background: var(--bg-elevated);
+}
+.lock-chip:hover { border-color: var(--text-muted); color: var(--text-muted); }
+.lock-chip.locked { color: var(--accent); border-color: var(--accent); background: var(--accent-dim); }
+.lock-chip .dot-ind { width: 6px; height: 6px; border-radius: 50%; background: currentColor; opacity: .5; }
+.lock-chip.locked .dot-ind { opacity: 1; box-shadow: 0 0 6px currentColor; }
+
+/* ── Larger, legible data-card text tokens ────────────────────────────── */
+.card-title-lg { font-size: 16px; font-weight: 700; }
+.card-sub-md { font-size: 13px; color: var(--text-muted); font-family: var(--font-mono); }
+.stat-label-md { font-family: var(--font-mono); font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--text-dim); }
+.stat-value-lg { font-family: var(--font-mono); font-size: 17px; font-weight: 600; }
+.mod-chip {
+  font-family: var(--font-mono); font-size: 12.5px; padding: 6px 10px;
+  border: 1px solid var(--border); background: var(--bg-elevated);
+  display: inline-flex; align-items: center; gap: 6px;
+}
+.mod-chip b { font-weight: 700; }
+.mod-chip-label { color: var(--text-dim); text-transform: uppercase; font-size: 10.5px; letter-spacing: .04em; }
+
+/* rarity-tinted left border for slot-colored rows (agent gear list) */
+.rarity-edge { border-left: 3px solid var(--rarity-ghost); }
+.rarity-edge.ghost { border-left-color: var(--rarity-ghost); }
+.rarity-edge.operative { border-left-color: var(--rarity-operative); }
+.rarity-edge.specialist { border-left-color: var(--rarity-specialist); }
+.rarity-edge.elite { border-left-color: var(--rarity-elite); }
+.rarity-edge.phantom { border-left-color: var(--rarity-phantom); }

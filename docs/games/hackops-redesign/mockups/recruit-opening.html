@@ -1,0 +1,186 @@
+<title>HackOps — Recruitment</title>
+<link rel="stylesheet" href="shared.css">
+<style>
+  .modal-recruit { max-width: 680px; }
+  .contact-art { aspect-ratio: 1 / 1; position:relative; }
+  .stage { display:none; }
+  .stage.active { display:block; }
+
+  /* vetting sequence — deliberately different from the crate scan:
+     a pulsing radar centered on a silhouette, not a box-scan */
+  #vet-stage { text-align:center; padding: 56px 20px; }
+  .vet-figure { width:130px; height:170px; margin:0 auto 22px; position:relative; }
+  .vet-figure .silhouette { font-size:90px; opacity:.25; }
+  .vet-ring { position:absolute; left:50%; top:50%; border:1px solid var(--accent); border-radius:50%; transform:translate(-50%,-50%); opacity:0; animation: vet-pulse 1.8s ease-out infinite; }
+  .vet-ring.r1 { width:80px; height:80px; animation-delay:0s; }
+  .vet-ring.r2 { width:80px; height:80px; animation-delay:.6s; }
+  .vet-ring.r3 { width:80px; height:80px; animation-delay:1.2s; }
+  @keyframes vet-pulse { 0% { width:60px; height:60px; opacity:.7; } 100% { width:220px; height:220px; opacity:0; } }
+  .vet-label { font-family: var(--font-mono); letter-spacing:.08em; color: var(--accent); }
+  .vet-sub { font-family: var(--font-mono); font-size:11px; color: var(--text-dim); margin-top:8px; }
+
+  .glitch-flash { position:fixed; inset:0; background:#fff; opacity:0; pointer-events:none; z-index:600; }
+  .glitch-flash.fire { animation: flash .25s steps(2); }
+  @keyframes flash { 0% { opacity:0; } 30% { opacity:.9; } 60% { opacity:0; } 80% { opacity:.6; } 100% { opacity:0; } }
+
+  .recruit-reveal { display:none; padding: 24px; }
+  .recruit-reveal.show { display:block; }
+  .recruit-header { display:flex; gap:18px; align-items:center; margin-bottom:20px; }
+  .recruit-portrait { width:100px; height:100px; flex-shrink:0; }
+  .trait-row { border:1px solid var(--border); padding:12px 14px; margin-bottom:10px; }
+</style>
+<div id="app-shell"></div>
+
+<div class="page" style="filter: blur(1px); opacity:.5; pointer-events:none;">
+  <div class="eyebrow">// black market — background page (dimmed)</div>
+  <h1>Contacts &amp; dead drops</h1>
+</div>
+
+<div class="glitch-flash" id="glitch-flash"></div>
+
+<div class="modal-backdrop">
+  <div class="frame frame-accent modal modal-recruit" id="modal">
+
+    <!-- ── Stage 1: the pitch ─────────────────────────────────────────── -->
+    <div class="stage active" id="pitch-stage">
+      <div class="contact-art"><img class="photo-fill" src="../assets/contact/registry.jpg" alt="Contact: The Registry"></div>
+      <div class="p-20">
+        <div class="row between">
+          <div>
+            <div class="eyebrow">Dark Web Hire</div>
+            <h2 style="margin:6px 0 0; font-size:20px;">contact: The Registry</h2>
+          </div>
+          <div class="mono text-cash" style="font-size:20px;">$200,000</div>
+        </div>
+
+        <div class="ph-audio" style="margin-top:14px; width:100%;"
+             data-caption="The Registry doesn't deal in rookies. Everyone on their books has done this before, for someone, somewhere. Costs more because you're not gambling on potential — you're paying for a track record."
+             data-caption-target="#pitch-cap">
+          <span class="wave"><span></span><span></span><span></span><span></span><span></span></span>
+          <span class="label">▶ voice/relay-dark-web-intro.mp3</span>
+        </div>
+        <div id="pitch-cap" class="captions" style="margin-top:10px; font-size:13px;"></div>
+
+        <hr class="hair">
+        <div class="stat-label-md" style="margin-bottom:8px;">Odds</div>
+        <div class="odds-bar" style="display:flex; height:10px; border:1px solid var(--border);">
+          <span style="width:50%; background:var(--rarity-operative)"></span>
+          <span style="width:38%; background:var(--rarity-specialist)"></span>
+          <span style="width:10%; background:var(--rarity-elite)"></span>
+          <span style="width:2%; background:var(--rarity-phantom)"></span>
+        </div>
+        <div class="row between wrap gap-8" style="margin-top:8px; font-family:var(--font-mono); font-size:11px;">
+          <span class="text-rarity operative">Operative 50%</span>
+          <span class="text-rarity specialist">Specialist 38%</span>
+          <span class="text-rarity elite">Elite 10%</span>
+          <span class="text-rarity phantom">Phantom 2%</span>
+        </div>
+
+        <div class="row between" style="margin-top:22px;">
+          <label class="toggle">
+            Quick recruit (skip animation)
+            <input type="checkbox" id="quick-open">
+            <span class="switch"><i></i></span>
+          </label>
+          <div class="row gap-10">
+            <button class="btn" onclick="history.back()">Cancel</button>
+            <button class="btn btn-primary" onclick="startRecruitment()">Start Recruitment</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Stage 2a: vetting sequence (distinct from crate scan) ──────── -->
+    <div class="stage" id="vet-stage">
+      <div class="vet-figure">
+        <div class="vet-ring r1"></div>
+        <div class="vet-ring r2"></div>
+        <div class="vet-ring r3"></div>
+        <div class="silhouette">&#128100;</div>
+      </div>
+      <div class="vet-label" id="vet-label">VETTING CANDIDATE…</div>
+      <div class="vet-sub">The Registry is running background &amp; skill verification</div>
+    </div>
+
+    <!-- ── Stage 2b: recruit reveal ────────────────────────────────────── -->
+    <div class="recruit-reveal" id="recruit-reveal">
+      <div class="row" style="justify-content:center; margin-bottom:6px;">
+        <div class="ph-audio" data-caption="...Huh. Didn't expect that out of this one." data-caption-target="#bark-cap">
+          <span class="wave"><span></span><span></span><span></span><span></span><span></span></span>
+          <span class="label">▶ voice/bark-rarity-elite.mp3</span>
+        </div>
+      </div>
+      <div id="bark-cap" class="captions" style="text-align:center; font-size:12.5px; margin-bottom:18px;"></div>
+
+      <div class="recruit-header">
+        <div class="recruit-portrait"><img class="photo-fill" src="../assets/agent/cryptographer.jpg" alt="Cryptographer"></div>
+        <div style="flex:1;">
+          <div class="row gap-10 wrap"><span class="card-title-lg" style="font-size:21px;">Wraith-9</span><span class="badge badge-rarity elite">Elite</span></div>
+          <div class="card-sub-md" style="margin-top:4px; font-size:13.5px;">Cryptographer &middot; Level 1</div>
+          <div class="text-dim" style="font-size:12px; margin-top:6px; max-width:360px;">Sees the pattern in the noise faster than the system that hid it. Three agencies have a file open. None of them have a face.</div>
+        </div>
+      </div>
+
+      <div class="stat-label-md" style="margin-bottom:8px;">Rolled traits <span style="text-transform:none; letter-spacing:0;">— bar shows where this roll landed vs. the max possible for this trait</span></div>
+
+      <div class="trait-row">
+        <div class="row between" style="margin-bottom:8px;"><span><b>+48</b> <span class="mod-chip-label">Power</span></span><span class="text-dim mono" style="font-size:11px;">range 10 – 60</span></div>
+        <div class="range-bar-wrap"><div class="range-bar"><div class="fill" style="width:76%"></div><div class="marker" style="left:76%"></div></div></div>
+      </div>
+      <div class="trait-row">
+        <div class="row between" style="margin-bottom:8px;"><span><b>+5.8%</b> <span class="mod-chip-label">Loot</span></span><span class="text-dim mono" style="font-size:11px;">range 3% – 6%</span></div>
+        <div class="range-bar-wrap"><div class="range-bar"><div class="fill" style="width:93%"></div><div class="marker" style="left:93%"></div></div></div>
+      </div>
+      <div class="trait-row">
+        <div class="row between" style="margin-bottom:8px;"><span><b>+41%</b> <span class="mod-chip-label">XP Boost</span></span><span class="text-dim mono" style="font-size:11px;">range 5% – 50%</span></div>
+        <div class="range-bar-wrap"><div class="range-bar"><div class="fill" style="width:80%"></div><div class="marker" style="left:80%"></div></div></div>
+      </div>
+      <div class="trait-row" style="margin-bottom:0;">
+        <div class="row between" style="margin-bottom:8px;"><span><b>1.2%</b> <span class="mod-chip-label">Gem Chance</span></span><span class="text-dim mono" style="font-size:11px;">range 0.5% – 5%</span></div>
+        <div class="range-bar-wrap"><div class="range-bar"><div class="fill" style="width:16%"></div><div class="marker" style="left:16%"></div></div></div>
+      </div>
+
+      <div class="row between" style="margin-top:22px;">
+        <button class="btn btn-danger" onclick="armConfirm(this, () => alert('Rejected → recruit discarded, no refund (mock)'))">Reject Recruit</button>
+        <div class="row gap-10">
+          <a href="black-market.html" class="btn">Recruit Another ($200,000)</a>
+          <button class="btn btn-primary" onclick="alert('Accepted → added to storage, POST /api/hack/recruit already resolved this pull server-side (mock)')">Accept Recruit</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script src="shared.js"></script>
+<script>
+  function setStage(id) {
+    document.querySelectorAll('.stage').forEach(s => s.classList.remove('active'))
+    document.getElementById(id).classList.add('active')
+  }
+
+  function startRecruitment() {
+    const quick = document.getElementById('quick-open').checked
+    if (quick) { revealFinal(); return }
+
+    setStage('vet-stage')
+    const labels = ['VETTING CANDIDATE…', 'CROSS-CHECKING REFERENCES…', 'CONFIRMING AVAILABILITY…']
+    let i = 0
+    const labelTimer = setInterval(() => {
+      i = (i + 1) % labels.length
+      document.getElementById('vet-label').textContent = labels[i]
+    }, 700)
+
+    setTimeout(() => {
+      clearInterval(labelTimer)
+      const flash = document.getElementById('glitch-flash')
+      flash.classList.add('fire')
+      setTimeout(() => { flash.classList.remove('fire'); revealFinal() }, 250)
+    }, 2200)
+  }
+
+  function revealFinal() {
+    document.getElementById('modal').querySelectorAll('.stage').forEach(s => s.classList.remove('active'))
+    document.getElementById('recruit-reveal').classList.add('show')
+  }
+</script>

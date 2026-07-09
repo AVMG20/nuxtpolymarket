@@ -1,0 +1,199 @@
+<title>HackOps — Mission Board</title>
+<link rel="stylesheet" href="shared.css">
+<style>
+  .mission-grid { grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); }
+  .m-card { cursor: pointer; transition: transform .15s, border-color .15s; text-decoration:none; color:inherit; display:block; }
+  .m-card:hover { transform: translateY(-3px); border-color: var(--accent); }
+  .m-thumb { height: 130px; position: relative; }
+  .m-tier { position:absolute; bottom:8px; left:8px; }
+  .m-running-tag { position:absolute; top:8px; right:8px; font-family:var(--font-mono); font-size:9.5px; padding:3px 8px; background: rgba(10,13,18,.85); border:1px solid var(--accent-2); color: var(--accent-2); }
+  .m-body { padding: 15px; }
+  .spec-line { display:flex; justify-content:space-between; padding: 5px 0; font-size:12px; border-bottom: 1px dashed var(--border); }
+  .spec-line:last-of-type { border-bottom:none; }
+  .spec-line .k { color: var(--text-dim); font-family: var(--font-mono); text-transform:uppercase; font-size:10.5px; letter-spacing:.03em; }
+  .odds-foot { margin-top:10px; padding-top:10px; border-top:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; }
+  .pill { font-family: var(--font-mono); font-size:11px; padding:6px 12px; border:1px solid var(--border-strong); color:var(--text-muted); cursor:pointer; text-transform: uppercase; letter-spacing:.04em; }
+  .pill.active { color: var(--accent); border-color: var(--accent); }
+
+  /* Active operations */
+  .active-op { padding: 16px 18px; }
+  .op-squad-avatars { display:flex; gap:4px; margin-top:6px; }
+  .op-avatar { width:22px; height:22px; border-radius:50%; border:1.5px solid var(--bg); display:flex; align-items:center; justify-content:center; font-size:10px; margin-left:-8px; }
+  .op-avatar:first-child { margin-left:0; }
+</style>
+<div id="app-shell"></div>
+
+<div class="page">
+
+  <!-- ══ Active operations — always above the board; multiple concurrent
+       runs supported, including the same template run twice with
+       different squads ═════════════════════════════════════════════ -->
+  <div class="row between" style="margin-bottom:12px;">
+    <div class="section-title" style="margin:0;">Active operations <span class="text-dim" style="text-transform:none; font-weight:400; letter-spacing:0;">— 3 running</span></div>
+  </div>
+  <div class="col gap-10" id="active-ops" style="margin-bottom:30px;"></div>
+
+  <!-- ══ Mission board ═══════════════════════════════════════════════ -->
+  <div class="row between wrap gap-14" style="margin-bottom:18px;">
+    <div>
+      <div class="eyebrow">// mission board</div>
+      <h1 style="margin:6px 0 0; font-size:22px;">Select an operation</h1>
+      <div class="text-dim" style="font-size:12px; margin-top:4px;">
+        Below the power requirement just means worse odds — it never blocks a deploy. You can also run
+        the same operation more than once at a time with different squads.
+      </div>
+    </div>
+    <div class="row gap-8 wrap">
+      <span class="pill active">All</span>
+      <span class="pill">Beginner</span>
+      <span class="pill">Early Mid</span>
+      <span class="pill">Mid</span>
+      <span class="pill">Late Mid</span>
+      <span class="pill">Endgame</span>
+    </div>
+  </div>
+
+  <div class="grid mission-grid" id="mission-grid"></div>
+</div>
+
+<script src="shared.js"></script>
+<script>
+  renderShell('ops')
+
+  // ── Active operations — data-driven so concurrent same-template runs
+  // (Corporate Breach × 2, different squads) are trivial to demonstrate.
+  const now = Date.now()
+  const activeOps = [
+    {
+      name: 'Corporate Breach', tier: 'Beginner', tierClass: 'ghost',
+      squad: [{ name: 'Static', rarity: 'ghost' }],
+      totalMs: 4 * 3600 * 1000, remainMs: 55 * 60 * 1000,
+      cash: '$2,000 – $4,800', gems: 'No gem chance', itemFind: '12% item find',
+    },
+    {
+      name: 'Corporate Breach', tier: 'Beginner', tierClass: 'ghost',
+      squad: [{ name: 'Hex', rarity: 'operative' }],
+      totalMs: 4 * 3600 * 1000, remainMs: 3 * 3600 * 1000 + 10 * 60 * 1000,
+      cash: '$2,000 – $4,800', gems: 'No gem chance', itemFind: '12% item find',
+    },
+    {
+      name: 'Black Site Raid', tier: 'Late Mid', tierClass: 'elite',
+      squad: [{ name: 'Null', rarity: 'elite' }, { name: 'Cipher', rarity: 'specialist' }, { name: 'Wraith-2', rarity: 'operative' }],
+      totalMs: 18 * 3600 * 1000, remainMs: 4 * 3600 * 1000 + 12 * 60 * 1000,
+      cash: '$236,000 – $550,000', gems: '25% chance · 2 gems', itemFind: '28% item find (Specialist+)',
+    },
+  ]
+
+  function fmtClock(ts) { return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }
+
+  function activeOpCardHTML(op, i) {
+    const end = now + op.remainMs
+    const avatars = op.squad.map(a => `<div class="op-avatar" style="background:var(--rarity-${a.rarity}); color:#06170d; font-weight:700;" title="${a.name}">${a.name[0]}</div>`).join('')
+    return `
+      <div class="frame frame-2 active-op" data-end="${end}" data-total="${op.totalMs}" data-idx="${i}">
+        <div class="row between wrap gap-12">
+          <div class="row gap-14">
+            <div class="ph-image" style="width:56px;height:56px;"><div class="glyph" style="font-size:20px;">&#128274;</div></div>
+            <div>
+              <div class="row gap-8"><b style="font-size:15px;">${op.name}</b><span class="badge badge-rarity ${op.tierClass}" style="font-size:9.5px;">${op.tier}</span></div>
+              <div class="op-squad-avatars">${avatars}</div>
+            </div>
+          </div>
+          <div class="col" style="align-items:flex-end;">
+            <span class="op-time-left mono text-accent" style="font-size:14px; font-weight:600;"></span>
+            <span class="text-dim mono" style="font-size:10.5px; margin-top:2px;">finishes ~${fmtClock(end)}</span>
+          </div>
+        </div>
+        <div class="bar" style="margin-top:12px;"><i style="width:0%"></i></div>
+        <div class="row between" style="margin-top:6px;">
+          <span class="text-dim mono op-pct" style="font-size:10.5px;">0%</span>
+          <div class="row gap-12 mono" style="font-size:11px;">
+            <span class="text-cash">${op.cash}</span>
+            <span class="text-gems">${op.gems}</span>
+            <span class="text-muted">${op.itemFind}</span>
+          </div>
+        </div>
+        <div class="row" style="justify-content:flex-end; margin-top:12px;">
+          <button class="btn btn-sm op-collect-btn" disabled>In progress…</button>
+        </div>
+      </div>`
+  }
+
+  document.getElementById('active-ops').innerHTML = activeOps.map(activeOpCardHTML).join('')
+
+  function tickActiveOps() {
+    document.querySelectorAll('.active-op').forEach(card => {
+      const end = Number(card.dataset.end)
+      const total = Number(card.dataset.total)
+      const remain = end - Date.now()
+      const timeEl = card.querySelector('.op-time-left')
+      const barEl = card.querySelector('.bar > i')
+      const pctEl = card.querySelector('.op-pct')
+      const btn = card.querySelector('.op-collect-btn')
+      if (remain <= 0) {
+        timeEl.textContent = 'Complete'
+        barEl.style.width = '100%'
+        pctEl.textContent = '100%'
+        btn.disabled = false
+        btn.textContent = 'Collect'
+        btn.classList.add('btn-primary')
+      } else {
+        const pct = Math.max(0, 100 - (remain / total) * 100)
+        const h = Math.floor(remain / 3600000), m = Math.floor((remain % 3600000) / 60000), s = Math.floor((remain % 60000) / 1000)
+        timeEl.textContent = `${h}h ${m}m ${s}s left`
+        barEl.style.width = pct.toFixed(1) + '%'
+        pctEl.textContent = Math.floor(pct) + '%'
+      }
+    })
+  }
+  tickActiveOps()
+  setInterval(tickActiveOps, 1000)
+
+  // ── Mission board — every op template, always deployable. Power
+  // requirement is advisory only (colored), never a hard block.
+  const missions = [
+    { id: 'port_scan', name: 'Port Scan', tier: 'Beginner', tierClass: 'ghost', glyph: '&#128737;', desc: 'Probe a small business subnet for open ports.', cash: '$500 – $1,200', gems: 'No gem chance', power: 0, agents: '1', time: '2h', success: 100 },
+    { id: 'phishing_run', name: 'Phishing Run', tier: 'Beginner', tierClass: 'ghost', glyph: '&#9993;', desc: 'Spear-phish 50 employees at a logistics firm.', cash: '$1,300 – $3,000', gems: 'No gem chance', power: 12, agents: '1', time: '3h', success: 100 },
+    { id: 'corp_breach', name: 'Corporate Breach', tier: 'Beginner', tierClass: 'ghost', glyph: '&#127970;', desc: 'Extract HR database credentials from a Fortune 500.', cash: '$2,000 – $4,800', gems: 'No gem chance', power: 18, agents: '1', time: '4h', success: 96, running: 2 },
+    { id: 'bank_skim', name: 'Bank Skim', tier: 'Early Mid', tierClass: 'operative', glyph: '&#127974;', desc: 'Intercept transaction data from a financial institution.', cash: '$3,000 – $6,800', gems: '2% chance · 1 gem', power: 25, agents: '1 – 2', time: '5h', success: 91 },
+    { id: 'ransomware_drop', name: 'Ransomware Drop', tier: 'Early Mid', tierClass: 'operative', glyph: '&#9760;', desc: 'Deploy ransomware and collect the payout.', cash: '$4,700 – $10,800', gems: '2% chance · 1 gem', power: 35, agents: '1 – 2', time: '5h', success: 84 },
+    { id: 'telecom_tap', name: 'Telecom Tap', tier: 'Mid', tierClass: 'specialist', glyph: '&#128225;', desc: "Tap a national carrier's backbone for intel.", cash: '$17,000 – $39,000', gems: '8% chance · 1 gem', power: 95, agents: '2', time: '9h', success: 77 },
+    { id: 'mil_intel', name: 'Military Intel Leak', tier: 'Mid', tierClass: 'specialist', glyph: '&#127919;', desc: 'Exfiltrate classified comms from a military contractor.', cash: '$42,000 – $98,000', gems: '12% chance · 1 gem', power: 180, agents: '2 – 3', time: '11h', success: 61 },
+    { id: 'black_site', name: 'Black Site Raid', tier: 'Late Mid', tierClass: 'elite', glyph: '&#128128;', desc: 'Breach an off-books intelligence facility.', cash: '$236,000 – $550,000', gems: '25% chance · 2 gems', power: 650, agents: '2 – 4', time: '18h', success: 38, running: 1 },
+    { id: 'nsa_breach', name: 'NSA Breach', tier: 'Endgame', tierClass: 'phantom', glyph: '&#128752;', desc: 'Penetrate the most defended network on the planet.', cash: '$295,000 – $690,000', gems: '32% chance · 2 – 3 gems', power: 900, agents: '3 – 4', time: '22h', success: 22 },
+    { id: 'project_zero', name: 'Project Zero', tier: 'Endgame', tierClass: 'phantom', glyph: '&#127919;', desc: 'Mythic-tier op. Requires a full squad of 4.', cash: '$1,200,000 – $2,750,000', gems: '70% chance · 3 – 5 gems', power: 2444, agents: '4', time: '56h', success: 9 },
+  ]
+
+  function successClass(pct) { return pct >= 69 ? 'text-success' : pct >= 31 ? 'text-warning' : 'text-error' }
+
+  function missionCardHTML(m) {
+    return `
+      <a class="frame m-card" href="ops-briefing.html?m=${m.id}">
+        <div class="ph-image m-thumb">
+          <div class="glyph">${m.glyph}</div><div class="fname">img/mission/${m.id.replace(/_/g, '-')}.jpg</div>
+          <span class="badge badge-rarity ${m.tierClass} m-tier">${m.tier}</span>
+          ${m.running ? `<span class="m-running-tag">&#9679; ${m.running} running</span>` : ''}
+        </div>
+        <div class="m-body">
+          <div style="font-weight:700; font-size:15px;">${m.name}</div>
+          <div class="text-dim" style="font-size:12px; margin-top:3px; min-height:2.5em;">${m.desc}</div>
+          <div style="margin-top:8px;">
+            <div class="spec-line"><span class="k">Payout (base)</span><span class="text-cash">${m.cash}</span></div>
+            <div class="spec-line"><span class="k">Gems (base)</span><span class="text-gems">${m.gems}</span></div>
+            <div class="spec-line"><span class="k">Power req.</span><span>${m.power}</span></div>
+            <div class="spec-line"><span class="k">Agents</span><span>${m.agents}</span></div>
+            <div class="spec-line"><span class="k">Time (base)</span><span>${m.time}</span></div>
+          </div>
+          <div class="text-dim" style="font-size:10px; margin-top:6px; line-height:1.4;">
+            Base numbers — pick your squad on the briefing screen to see the recalculated payout, gems and success chance.
+          </div>
+          <div class="odds-foot">
+            <span class="text-dim mono" style="font-size:10.5px;">est. success, your best squad</span>
+            <b class="${successClass(m.success)} mono" style="font-size:14px;">${m.success}%</b>
+          </div>
+        </div>
+      </a>`
+  }
+
+  document.getElementById('mission-grid').innerHTML = missions.map(missionCardHTML).join('')
+</script>

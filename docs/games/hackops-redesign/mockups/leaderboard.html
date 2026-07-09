@@ -1,0 +1,118 @@
+<title>HackOps — Leaderboard</title>
+<link rel="stylesheet" href="shared.css">
+<style>
+  .podium { grid-template-columns: repeat(3,1fr); margin-bottom: 24px; }
+  .podium-card { text-align:center; padding: 24px 18px; position:relative; }
+  .podium-card.first { border-color: var(--rarity-elite); }
+  .rank-tag { font-family: var(--font-mono); font-weight:800; font-size:26px; margin-bottom:10px; }
+  .rank-portrait { width:76px; height:76px; margin: 0 auto 12px; border-radius:50%; overflow:hidden; }
+  .podium-name { font-size:17px; font-weight:700; }
+  .podium-sub { font-family: var(--font-mono); font-size:12px; color: var(--text-dim); margin-top:3px; }
+  .podium-stats { display:grid; grid-template-columns: repeat(4,1fr); gap:8px; margin: 16px 0; }
+  .podium-stats .k { font-family: var(--font-mono); font-size:9.5px; text-transform:uppercase; letter-spacing:.05em; color: var(--text-dim); }
+  .podium-stats .v { font-family: var(--font-mono); font-size:14px; font-weight:600; margin-top:2px; }
+  .podium-total { font-family: var(--font-mono); font-size:11px; color: var(--text-dim); text-transform:uppercase; letter-spacing:.06em; padding-top:12px; border-top:1px solid var(--border); }
+  .podium-total b { display:block; font-size:22px; color: var(--accent); font-weight:800; margin-top:4px; }
+
+  .lb-row { display:flex; align-items:center; gap:16px; padding:13px 18px; border-bottom:1px solid var(--border); }
+  .lb-row:last-child { border-bottom:none; }
+  .lb-rank { width:28px; font-family:var(--font-mono); color:var(--text-dim); font-size:14px; }
+  .lb-name-col { flex:1; min-width:0; }
+  .lb-name { font-size:14.5px; font-weight:600; }
+  .lb-sub { font-family:var(--font-mono); font-size:11px; color:var(--text-dim); margin-top:1px; }
+  .lb-stats { display:flex; gap:22px; }
+  .lb-stats .k { font-family:var(--font-mono); font-size:9.5px; text-transform:uppercase; color:var(--text-dim); letter-spacing:.05em; }
+  .lb-stats .v { font-family:var(--font-mono); font-size:13.5px; font-weight:600; margin-top:2px; }
+</style>
+<div id="app-shell"></div>
+
+<div class="page">
+  <div class="eyebrow">// most wanted</div>
+  <h1 style="margin: 6px 0 20px; font-size:22px;">Leaderboard</h1>
+
+  <div class="grid podium">
+    <div class="frame podium-card" style="margin-top:28px;">
+      <div class="rank-tag text-rarity operative">#2</div>
+      <div class="ph-image rank-portrait"><div class="glyph" style="font-size:24px;">&#128373;</div></div>
+      <div class="podium-name">ShadowCast</div>
+      <div class="podium-sub">7 agents</div>
+      <div class="podium-stats">
+        <div><div class="k">Power</div><div class="v text-accent">4,120</div></div>
+        <div><div class="k">Roster</div><div class="v">7 / 6</div></div>
+        <div><div class="k">Equip.</div><div class="v">24</div></div>
+        <div><div class="k">Ops</div><div class="v">88</div></div>
+      </div>
+    </div>
+    <div class="frame podium-card frame-accent first">
+      <div class="rank-tag text-rarity elite glow-text">#1</div>
+      <div class="ph-image rank-portrait" style="width:92px;height:92px;"><div class="glyph" style="font-size:28px;">&#128081;</div></div>
+      <div class="podium-name" style="font-size:19px;">BitSec</div>
+      <div class="podium-sub">10 agents</div>
+      <div class="podium-stats">
+        <div><div class="k">Power</div><div class="v text-accent">1,983</div></div>
+        <div><div class="k">Roster</div><div class="v">10 / 5</div></div>
+        <div><div class="k">Equip.</div><div class="v">31</div></div>
+        <div><div class="k">Ops</div><div class="v">93</div></div>
+      </div>
+      <div class="podium-total">Total power<b>1,983.00</b></div>
+    </div>
+    <div class="frame podium-card" style="margin-top:28px;">
+      <div class="rank-tag text-rarity specialist">#3</div>
+      <div class="ph-image rank-portrait"><div class="glyph" style="font-size:24px;">&#128373;</div></div>
+      <div class="podium-name">Redshift</div>
+      <div class="podium-sub">6 agents</div>
+      <div class="podium-stats">
+        <div><div class="k">Power</div><div class="v text-accent">1,650</div></div>
+        <div><div class="k">Roster</div><div class="v">6 / 6</div></div>
+        <div><div class="k">Equip.</div><div class="v">19</div></div>
+        <div><div class="k">Ops</div><div class="v">61</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="frame">
+    <div class="lb-row">
+      <span class="lb-rank">4</span>
+      <div class="lb-name-col"><div class="lb-name">GlitchKing</div><div class="lb-sub">6 agents</div></div>
+      <div class="lb-stats">
+        <div><div class="k">Power</div><div class="v text-accent">1,410</div></div>
+        <div><div class="k">Roster</div><div class="v">6 / 6</div></div>
+        <div><div class="k">Equip.</div><div class="v">18</div></div>
+        <div><div class="k">Ops</div><div class="v">54</div></div>
+      </div>
+    </div>
+    <div class="lb-row">
+      <span class="lb-rank">5</span>
+      <div class="lb-name-col"><div class="lb-name">VoidCaller</div><div class="lb-sub">5 agents</div></div>
+      <div class="lb-stats">
+        <div><div class="k">Power</div><div class="v text-accent">1,290</div></div>
+        <div><div class="k">Roster</div><div class="v">5 / 6</div></div>
+        <div><div class="k">Equip.</div><div class="v">15</div></div>
+        <div><div class="k">Ops</div><div class="v">47</div></div>
+      </div>
+    </div>
+    <div class="lb-row" style="background: var(--accent-dim);">
+      <span class="lb-rank text-accent">12</span>
+      <div class="lb-name-col"><div class="lb-name">HANDLER-07 <span class="text-dim" style="font-weight:400;">(you)</span></div><div class="lb-sub">4 agents</div></div>
+      <div class="lb-stats">
+        <div><div class="k">Power</div><div class="v text-accent">1,840</div></div>
+        <div><div class="k">Roster</div><div class="v">4 / 5</div></div>
+        <div><div class="k">Equip.</div><div class="v">14</div></div>
+        <div><div class="k">Ops</div><div class="v">142</div></div>
+      </div>
+    </div>
+    <div class="lb-row">
+      <span class="lb-rank">13</span>
+      <div class="lb-name-col"><div class="lb-name">EchoBreak</div><div class="lb-sub">4 agents</div></div>
+      <div class="lb-stats">
+        <div><div class="k">Power</div><div class="v text-accent">1,120</div></div>
+        <div><div class="k">Roster</div><div class="v">4 / 5</div></div>
+        <div><div class="k">Equip.</div><div class="v">12</div></div>
+        <div><div class="k">Ops</div><div class="v">39</div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="shared.js"></script>
+<script>renderShell('leaderboard')</script>
