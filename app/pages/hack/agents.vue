@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {
-  RARITY_COLOR, RARITY_LABEL, RARITY_STYLE, RARITY_ACCENT, CLASS_LABEL, CLASS_ICON, CLASS_PASSIVE,
+  RARITY_COLOR, RARITY_LABEL, RARITY_STYLE, CLASS_LABEL, CLASS_ICON, CLASS_PASSIVE,
   SLOT_ICON, SLOT_LABEL,
   RARITY_ORDER, xpToNextLevel, AGENT_MAX_LEVEL, MOD_LABEL, formatModValue, itemSellPrice,
   agentBonusStats,
@@ -10,14 +10,7 @@ import {
 // Total bonuses for a single agent (class passive + traits + gear), summed by category.
 const agentCombinedStats = (agent: any) => agentBonusStats([agent])
 
-// Share of a tier's total weight a rarity represents, for the odds chips.
-function tierPct(weights: Record<HackRarity, number>, r: HackRarity): number {
-  const total = Object.values(weights).reduce((a, b) => a + b, 0)
-  return Math.round(weights[r] / total * 100)
-}
-
 const { fetchSession, user } = useAuth()
-const gems = computed(() => user.value?.gems ?? 0)
 const balance = computed(() => parseFloat(user.value?.balance ?? '0'))
 const { data: state, refresh } = await useFetch('/api/hack/state')
 const toast = useToast()
@@ -125,21 +118,6 @@ async function sellItem(itemId: string) {
   } finally { selling.value = null }
 }
 
-// ── Recruit ────────────────────────────────────────────────────────
-const recruiting = ref<string | null>(null)
-
-async function recruit(tierId: string) {
-  recruiting.value = tierId
-  try {
-    const res = await $fetch('/api/hack/recruit', { method: 'POST', body: { tierId } })
-    await Promise.all([refresh(), fetchSession()])
-    // Reveal what you pulled in the shared agent detail modal.
-    detailAgentId.value = res.agent!.id
-  } catch (e: any) {
-    toast.add({ title: e.data?.statusMessage ?? 'Recruit failed', color: 'error' })
-  } finally { recruiting.value = null }
-}
-
 // ── Activate / store agents ─────────────────────────────────────────
 const togglingActive = ref<string | null>(null)
 const activeFull = computed(() =>
@@ -158,8 +136,8 @@ async function setActive(agentId: string, active: boolean) {
   } finally { togglingActive.value = null }
 }
 
-// Agent detail modal — shared by storage (click a stored agent) and recruit
-// (reveal what you just pulled). Looks the agent up in either roster by id.
+// Agent detail modal, opened by clicking a stored agent. Looks the agent up
+// in either roster by id.
 const detailAgentId = ref<string | null>(null)
 const detailAgent = computed(() =>
   state.value?.agents.find(a => a.id === detailAgentId.value)
@@ -194,10 +172,6 @@ function xpPercent(a: { xp: number; level: number }) {
   if (a.level >= AGENT_MAX_LEVEL) return 100
   return Math.round((a.xp / xpToNextLevel(a.level)) * 100)
 }
-function canAfford(tier: { currency: string; cost: number }) {
-  return tier.currency === 'cash' ? balance.value >= tier.cost : gems.value >= tier.cost
-}
-
 function slotItem(agent: { gear?: { tool: any; software: any; hardware: any } }, slot: ItemSlot) {
   return agent.gear?.[slot] ?? null
 }
@@ -364,7 +338,7 @@ function slotItem(agent: { gear?: { tool: any; software: any; hardware: any } },
             <div v-for="i in (state.rosterSlots - state.agents.length)" :key="`empty-${i}`"
               class="rounded-xl border-2 border-dashed border-default flex flex-col items-center justify-center h-36 gap-1 text-muted">
               <UIcon name="i-lucide-user-plus" class="size-6 opacity-30" />
-              <span class="text-sm">{{ state.storedAgents.length ? 'Empty active slot — activate from storage' : 'Empty active slot — recruit below' }}</span>
+              <span class="text-sm">{{ state.storedAgents.length ? 'Empty active slot — activate from storage' : 'Empty active slot — recruit from the Black Market' }}</span>
             </div>
           </div>
         </section>
@@ -411,51 +385,16 @@ function slotItem(agent: { gear?: { tool: any; software: any; hardware: any } },
           <p v-if="activeFull" class="text-xs text-muted">Active roster is full — store or fire an active agent (or add a slot) to activate more.</p>
         </div>
 
-        <!-- Recruit -->
-        <div class="space-y-3">
-          <div class="flex items-center justify-between">
-            <h2 class="font-semibold text-base text-muted uppercase tracking-wide">Recruit</h2>
-            <p class="text-sm text-muted">
-              <template v-if="state.totalAgents >= state.maxAgents" class="text-warning">Storage full ({{ state.maxAgents }}) — fire an agent to recruit</template>
-              <template v-else>Fixed prices · better tiers guarantee higher rarity</template>
-            </p>
-          </div>
-          <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <UCard v-for="tier in state.agentPullTiers" :key="tier.id" class="flex flex-col" :ui="{ body: 'flex-1 flex flex-col' }">
-              <div class="flex items-start gap-3 mb-3">
-                <div class="size-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
-                  <UIcon name="i-lucide-user-search" class="size-5 text-primary" />
-                </div>
-                <div class="min-w-0">
-                  <p class="font-bold text-base leading-tight">{{ tier.name }}</p>
-                  <p class="text-sm text-muted mt-0.5">{{ tier.description }}</p>
-                </div>
-              </div>
-
-              <!-- Rarity odds -->
-              <div class="flex flex-wrap gap-1.5 mb-4">
-                <span v-for="r in RARITY_ORDER.filter(r => tier.weights[r] > 0)" :key="r"
-                  class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-elevated border border-default text-xs font-medium">
-                  <span class="size-1.5 rounded-full" :class="RARITY_ACCENT[r]" />
-                  {{ RARITY_LABEL[r] }}
-                  <span class="text-muted">{{ tierPct(tier.weights, r) }}%</span>
-                </span>
-              </div>
-
-              <UButton block class="mt-auto" :loading="recruiting === tier.id"
-                :disabled="!canAfford(tier) || state.totalAgents >= state.maxAgents"
-                @click="recruit(tier.id)">
-                Pull
-                <template #trailing>
-                  <span class="text-sm opacity-80 flex items-center gap-1">
-                    <template v-if="tier.currency === 'cash'">${{ formatNumber(tier.cost, true) }}</template>
-                    <template v-else>{{ tier.cost }} <UIcon name="i-lucide-gem" class="size-4 text-cyan-400" /></template>
-                  </span>
-                </template>
-              </UButton>
-            </UCard>
-          </div>
-        </div>
+        <!-- Recruit — moved to the Black Market tab (Contacts section) -->
+        <UButton
+          block
+          size="lg"
+          color="neutral"
+          variant="outline"
+          to="/hack/market"
+          icon="i-lucide-store"
+          label="Need more agents? Visit the Black Market"
+        />
       </template>
     </div>
 
@@ -535,7 +474,7 @@ function slotItem(agent: { gear?: { tool: any; software: any; hardware: any } },
     </template>
   </USlideover>
 
-  <!-- Agent detail — shared by storage browsing and recruit reveals -->
+  <!-- Agent detail — click a stored agent to view/manage them -->
   <UModal v-model:open="detailModalOpen" :title="detailAgent?.name ?? 'Agent'"
     :description="detailAgentActive ? 'Active on your roster.' : 'In storage — activate to add them to your roster.'">
     <template v-if="detailAgent" #body>

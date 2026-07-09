@@ -1,16 +1,10 @@
 <script setup lang="ts">
 import {
-  RARITY_COLOR, RARITY_LABEL, RARITY_ACCENT, formatModValue, MOD_LABEL,
+  RARITY_COLOR, RARITY_LABEL, formatModValue, MOD_LABEL,
   itemSellPrice, RARITY_ORDER, MOD_RANGES,
   rerollCost, ITEM_MAX_LEVEL, itemUpgradeCost, itemPower,
   type HackRarity, type ItemSlot, type ItemMod, type ModType,
 } from '#shared/utils/hack-config'
-
-// Share of a tier's total weight a rarity represents, for the odds chips.
-function tierPct(weights: Record<HackRarity, number>, r: HackRarity): number {
-  const total = Object.values(weights).reduce((a, b) => a + b, 0)
-  return Math.round(weights[r] / total * 100)
-}
 
 // Roll quality: what % of max value does this mod roll represent
 function rollQuality(type: ModType, value: number): number {
@@ -33,7 +27,6 @@ function formatRangeValue(type: ModType, val: number): string {
 }
 
 const { fetchSession, user } = useAuth()
-const balance = computed(() => parseFloat(user.value?.balance ?? '0'))
 const gems = computed(() => user.value?.gems ?? 0)
 const { data: state, refresh } = await useFetch('/api/hack/state')
 const toast = useToast()
@@ -42,34 +35,6 @@ type InvItem = { id: string; name: string; slot: ItemSlot; itemLevel: number; ra
 
 // Mobile inventory
 const mobileOpen = ref(false)
-
-// Item pulls
-const pulling = ref<string | null>(null)
-// Last pull drives the reveal modal — shows what you got instead of hiding it in the sidebar.
-const lastPull = ref<{
-  name: string; rarity: HackRarity; rarityLabel: string
-  slot: ItemSlot; itemLevel: number; mods: ItemMod[]
-} | null>(null)
-const revealOpen = computed({
-  get: () => lastPull.value !== null,
-  set: (v: boolean) => { if (!v) lastPull.value = null },
-})
-
-async function pullItem(tierId: string) {
-  pulling.value = tierId
-  lastPull.value = null
-  try {
-    const res = await $fetch('/api/hack/items/pull', { method: 'POST', body: { tierId } })
-    const item = res.item!
-    lastPull.value = {
-      name: item.name, rarity: res.rarity as HackRarity, rarityLabel: res.rarityLabel,
-      slot: item.slot as ItemSlot, itemLevel: item.itemLevel, mods: item.mods as ItemMod[],
-    }
-    await Promise.all([refresh(), fetchSession()])
-  } catch (e: any) {
-    toast.add({ title: e.data?.statusMessage ?? 'Pull failed', color: 'error' })
-  } finally { pulling.value = null }
-}
 
 // Inventory selection — selecting an item lets you drop it into the crafting bench
 const selectedItemId = ref<string | null>(null)
@@ -219,52 +184,16 @@ async function doReroll() {
         </div>
       </div>
 
-      <!-- ── Crates ──────────────────────────────────────────────────── -->
-      <section class="space-y-3">
-        <div class="flex items-center justify-between gap-3 flex-wrap">
-          <h2 class="font-semibold text-base text-muted uppercase tracking-wide flex items-center gap-2">
-            <UIcon name="i-lucide-package-open" class="size-4" /> Crates
-          </h2>
-          <p class="text-sm text-muted">Fixed prices · better crates guarantee higher rarity</p>
-        </div>
-
-        <div v-if="!state" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-          <USkeleton v-for="i in 4" :key="i" class="h-48 rounded-xl" />
-        </div>
-
-        <div v-else class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-          <UCard v-for="tier in state.itemPullTiers" :key="tier.id" class="flex flex-col" :ui="{ body: 'flex-1 flex flex-col' }">
-            <div class="flex items-start gap-3 mb-3">
-              <div class="size-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
-                <UIcon name="i-lucide-package-open" class="size-5 text-primary" />
-              </div>
-              <div class="min-w-0">
-                <p class="font-bold text-base leading-tight">{{ tier.name }}</p>
-                <p class="text-sm text-muted mt-0.5">{{ tier.description }}</p>
-              </div>
-            </div>
-
-            <!-- Rarity odds -->
-            <div class="flex flex-wrap gap-1.5 mb-4">
-              <span v-for="r in RARITY_ORDER.filter(r => tier.weights[r] > 0)" :key="r"
-                class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-elevated border border-default text-xs font-medium">
-                <span class="size-1.5 rounded-full" :class="RARITY_ACCENT[r]" />
-                {{ RARITY_LABEL[r] }}
-                <span class="text-muted">{{ tierPct(tier.weights, r) }}%</span>
-              </span>
-            </div>
-
-            <UButton block class="mt-auto" :loading="pulling === tier.id"
-              :disabled="(state.inventoryCount ?? 0) >= (state.maxInventorySlots ?? 30) || balance < tier.cost"
-              @click="pullItem(tier.id)">
-              Pull
-              <template #trailing>
-                <span class="text-sm opacity-80">${{ formatNumber(tier.cost, true) }}</span>
-              </template>
-            </UButton>
-          </UCard>
-        </div>
-      </section>
+      <!-- ── Crates — moved to the Black Market tab (Dead Drops section) ── -->
+      <UButton
+        block
+        size="lg"
+        color="neutral"
+        variant="outline"
+        to="/hack/market"
+        icon="i-lucide-store"
+        label="Need more gear? Visit the Black Market"
+      />
 
       <!-- ── Crafting bench — select an item in the inventory, then drop it here ── -->
       <section class="space-y-3">
@@ -361,9 +290,6 @@ async function doReroll() {
           </button>
         </UCard>
       </section>
-
-      <!-- Pull result reveal — modal so you see what you got right away -->
-      <HackItemReveal v-model:open="revealOpen" :item="lastPull" :rarity-label="lastPull?.rarityLabel ?? ''" />
     </div>
 
     <!-- ── Right sidebar: Inventory ───────────────────────────────── -->
@@ -397,7 +323,7 @@ async function doReroll() {
         </div>
         <div v-else-if="!state.items.length" class="text-sm text-muted text-center py-8">
           <UIcon name="i-lucide-package-open" class="size-8 mx-auto mb-2 opacity-30" />
-          Pull some items to fill your inventory.
+          Buy a crate on the Black Market to fill your inventory.
         </div>
         <div v-else class="space-y-2">
           <HackInventoryItem

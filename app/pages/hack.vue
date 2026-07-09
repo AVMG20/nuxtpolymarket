@@ -7,6 +7,7 @@ const { data: state } = await useFetch('/api/hack/state')
 
 const tabs = [
   { label: 'Ops', to: '/hack', icon: 'i-lucide-terminal' },
+  { label: 'Black Market', to: '/hack/market', icon: 'i-lucide-store' },
   { label: 'Agents', to: '/hack/agents', icon: 'i-lucide-users' },
   { label: 'Items', to: '/hack/items', icon: 'i-lucide-cpu' },
   { label: 'History', to: '/hack/history', icon: 'i-lucide-history' },
