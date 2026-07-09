@@ -159,6 +159,40 @@
 @keyframes hack-glitch-1 { 0% { clip-path: inset(0 0 80% 0); } 50% { clip-path: inset(40% 0 20% 0); } 100% { clip-path: inset(0 0 0 0); } }
 @keyframes hack-glitch-2 { 0% { clip-path: inset(60% 0 0 0); } 50% { clip-path: inset(10% 0 50% 0); } 100% { clip-path: inset(0 0 0 0); } }
 
+/* ── Status strip ──────────────────────────────────────────────────────── */
+.hack-statbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 10px 18px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 12.5px;
+}
+.hack-stat { display: flex; align-items: center; gap: 7px; color: var(--ui-text-muted); }
+.hack-stat b { color: var(--ui-text); font-weight: 600; }
+.hack-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--hack-accent); box-shadow: 0 0 8px var(--hack-accent); flex-shrink: 0; }
+
+/* ── Tab bar ───────────────────────────────────────────────────────────── */
+.hack-tabbar { display: flex; gap: 2px; flex-wrap: wrap; }
+.hack-tab {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 12.5px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 12px 16px 11px;
+  color: var(--ui-text-dimmed);
+  text-decoration: none;
+  border-bottom: 2px solid transparent;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  transition: color 0.15s, border-color 0.15s;
+}
+.hack-tab:hover { color: var(--ui-text-muted); }
+.hack-tab.active { color: var(--hack-accent); border-bottom-color: var(--hack-accent); }
+
 /* ── Ambient idle scanline drift — subtle motion on resting panels ────── */
 .hack-scan-drift { position: relative; overflow: hidden; }
 .hack-scan-drift::after {
