@@ -2,15 +2,38 @@
 import {
   RARITY_LABEL, RARITY_STYLE, MOD_LABEL, formatModValue,
   itemSellPrice, RARITY_ORDER, MOD_RANGES,
-  rerollCost, ITEM_MAX_LEVEL, itemUpgradeCost, itemPower,
+  rerollCost, ITEM_MAX_LEVEL, itemUpgradeCost, itemUpgradeCostForLevels, itemBulkUpgradeLevels, itemPower,
   type HackRarity, type ItemSlot, type ItemMod, type ModType
 } from '#shared/utils/hack-config'
+import { CRAFT_UPGRADE, CRAFT_REROLL_GOOD, CRAFT_REROLL_BAD, pickVoiceLine, type VoiceEntry } from '~/utils/hack-voice-lines'
+import type { VoiceHandle } from '~/composables/useAudio'
 
 const { fetchSession, user } = useAuth()
 const gems = computed(() => user.value?.gems ?? 0)
 const { data: state, refresh } = await useFetch('/api/hack/state')
 const toast = useToast()
 const audio = useAudio('hack')
+
+// RELAY's spoken reaction on bench actions — audio-only, no-immediate-repeat,
+// single-tracked so back-to-back crafts cut the previous line instead of stacking.
+let barkHandle: VoiceHandle | null = null
+function relayBark(entry: VoiceEntry) {
+  barkHandle?.cancel()
+  barkHandle = audio.playVoice(pickVoiceLine(entry).voice, { delayMs: 80 })
+}
+onUnmounted(() => barkHandle?.cancel())
+
+// Mean roll quality (0-1) across an item's mods, each scored against its own
+// range — used only to decide whether a re-roll earned RELAY's approval or not.
+function rollQuality(mods: ItemMod[]): number {
+  if (!mods.length) return 0
+  const sum = mods.reduce((acc, m) => {
+    const r = MOD_RANGES[m.type]
+    if (!r || r.max === r.min) return acc + 1
+    return acc + (m.value - r.min) / (r.max - r.min)
+  }, 0)
+  return sum / mods.length
+}
 
 type InvItem = { id: string, name: string, slot: ItemSlot, itemLevel: number, rarity: HackRarity, mods: ItemMod[], equippedBy?: string | null }
 
@@ -94,36 +117,36 @@ function toggleLock(type: ModType) {
 }
 
 // ── Level upgrades ─────────────────────────────────────────────
-const upgrading = ref(false)
+// `upgrading` tracks how many levels the in-flight request is buying (1 or
+// bulkLevels), so the two buttons can show independent loading states.
+const upgrading = ref<number | null>(null)
 const upgradeCost = computed(() =>
   benchItem.value ? itemUpgradeCost(benchItem.value.itemLevel) : 0)
 const isMaxLevel = computed(() =>
   !!benchItem.value && benchItem.value.itemLevel >= ITEM_MAX_LEVEL)
 
-// The next few level-up costs, like items.html's cost-preview rows.
-const costPreview = computed(() => {
-  if (!benchItem.value) return []
-  const rows: Array<{ from: number, to: number, cost: number }> = []
-  for (let lvl = benchItem.value.itemLevel; lvl < ITEM_MAX_LEVEL && rows.length < 4; lvl++) {
-    rows.push({ from: lvl, to: lvl + 1, cost: itemUpgradeCost(lvl) })
-  }
-  return rows
-})
+// Bulk button buys up to ITEM_BULK_UPGRADE_LEVELS levels at once, fewer once the
+// item is within that many levels of the cap (e.g. Lv 17 → "Upgrade 3 levels").
+const bulkLevels = computed(() =>
+  benchItem.value ? itemBulkUpgradeLevels(benchItem.value.itemLevel) : 0)
+const bulkCost = computed(() =>
+  benchItem.value ? itemUpgradeCostForLevels(benchItem.value.itemLevel, bulkLevels.value) : 0)
 
-async function doUpgrade() {
+async function doUpgrade(levels: number) {
   if (!benchItem.value) return
-  upgrading.value = true
+  upgrading.value = levels
   try {
     const res = await $fetch('/api/hack/items/upgrade', {
       method: 'POST',
-      body: { itemId: benchItem.value.id }
+      body: { itemId: benchItem.value.id, levels }
     })
+    relayBark(CRAFT_UPGRADE)
     toast.add({ title: `Upgraded to level ${res.newLevel}`, color: 'success' })
     await Promise.all([refresh(), fetchSession()])
   } catch (e: any) {
     audio.playSfx('deny')
     toast.add({ title: e.data?.statusMessage ?? 'Upgrade failed', color: 'error' })
-  } finally { upgrading.value = false }
+  } finally { upgrading.value = null }
 }
 
 const rerollCostValue = computed(() =>
@@ -135,11 +158,13 @@ const canReroll = computed(() => rerollCountValue.value > 0)
 async function doReroll() {
   if (!benchItem.value) return
   rerolling.value = true
+  const beforeQuality = rollQuality(benchItem.value.mods)
   try {
     const res = await $fetch('/api/hack/items/reroll', {
       method: 'POST',
       body: { itemId: benchItem.value.id, lockedTypes: rerollLocked.value }
     })
+    relayBark(rollQuality(res.item.mods as ItemMod[]) >= beforeQuality ? CRAFT_REROLL_GOOD : CRAFT_REROLL_BAD)
     toast.add({ title: `Re-rolled for ${res.cost} gems`, color: 'success' })
     await Promise.all([refresh(), fetchSession()])
   } catch (e: any) {
@@ -316,47 +341,55 @@ async function doReroll() {
           </p>
           <div
             v-if="!isMaxLevel"
-            class="hack-frame hack-frame-tight hack-frame-2 p-3.5 mb-2.5"
+            class="space-y-2 mb-5"
           >
-            <div
-              v-for="(row, i) in costPreview"
-              :key="row.from"
-              class="hack-cost-row"
+            <UButton
+              block
+              color="primary"
+              variant="soft"
+              icon="i-lucide-arrow-up"
+              :loading="upgrading === 1"
+              :disabled="gems < upgradeCost || upgrading !== null"
+              @click="doUpgrade(1)"
             >
-              <span class="lvl">Lv {{ row.from }} → {{ row.to }}</span>
-              <span
-                class="text-cyan-400"
-                :class="i === 0 && 'hack-stat-value-lg'"
-                style="font-size: 13px;"
-              >{{ row.cost }} {{ row.cost === 1 ? 'gem' : 'gems' }}</span>
-            </div>
+              Upgrade to Lv {{ benchItem.itemLevel + 1 }}
+              <template #trailing>
+                <GemBalance
+                  :value="upgradeCost"
+                  :compact="false"
+                />
+              </template>
+            </UButton>
+            <UButton
+              v-if="bulkLevels > 1"
+              block
+              color="primary"
+              variant="soft"
+              icon="i-lucide-chevrons-up"
+              :loading="upgrading === bulkLevels"
+              :disabled="gems < bulkCost || upgrading !== null"
+              @click="doUpgrade(bulkLevels)"
+            >
+              Upgrade {{ bulkLevels }} levels
+              <template #trailing>
+                <GemBalance
+                  :value="bulkCost"
+                  :compact="false"
+                />
+              </template>
+            </UButton>
           </div>
-          <UButton
-            v-if="!isMaxLevel"
-            block
-            class="mb-5"
-            color="primary"
-            :loading="upgrading"
-            :disabled="gems < upgradeCost"
-            @click="doUpgrade"
-          >
-            Upgrade to Lv {{ benchItem.itemLevel + 1 }}
-            <template #trailing>
-              <GemBalance
-                :value="upgradeCost"
-                :compact="false"
-              />
-            </template>
-          </UButton>
           <div
             v-else
-            class="mb-5"
+            class="flex justify-center mb-5"
           >
-            <UBadge
-              color="success"
-              variant="subtle"
-              label="Max level reached"
-            />
+            <span class="hack-stamp-sm text-emerald-400">
+              <UIcon
+                name="i-lucide-check"
+                class="size-3 -mt-0.5 mr-0.5 inline-block"
+              />
+              Max Level
+            </span>
           </div>
 
           <hr class="border-default mb-4">

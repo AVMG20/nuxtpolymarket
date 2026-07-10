@@ -369,6 +369,22 @@ export function itemUpgradeCost(currentLevel: number): number {
     return Math.round(Math.pow(1.13, currentLevel - 1))
 }
 
+// Bulk upgrade buys up to this many levels in one go (fewer if that would cross
+// ITEM_MAX_LEVEL) — the Crafting Bench's "big" upgrade button.
+export const ITEM_BULK_UPGRADE_LEVELS = 5
+
+/** How many levels a bulk upgrade actually applies, capped at the level ceiling. */
+export function itemBulkUpgradeLevels(currentLevel: number): number {
+    return Math.max(0, Math.min(ITEM_BULK_UPGRADE_LEVELS, ITEM_MAX_LEVEL - currentLevel))
+}
+
+/** Total gem cost to upgrade `levels` levels starting from currentLevel. */
+export function itemUpgradeCostForLevels(currentLevel: number, levels: number): number {
+    let cost = 0
+    for (let lvl = currentLevel; lvl < currentLevel + levels; lvl++) cost += itemUpgradeCost(lvl)
+    return cost
+}
+
 // ─── Item re-rolling ────────────────────────────────────────────────────────────
 // Re-roll gem cost: 1 gem per mod on the item, plus an escalating surcharge per
 // locked mod — 1 locked = +1, 2 = +3, 3 = +5, … (i.e. 2·locked − 1). Locking more
