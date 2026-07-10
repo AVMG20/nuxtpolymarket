@@ -34,9 +34,12 @@ const { data: state, refresh } = await useFetch('/api/hack/state')
 
 // RELAY's spoken reaction on equip/unequip — audio-only, no-immediate-repeat,
 // single-tracked so back-to-back swaps cut the previous line instead of stacking.
+// Throttled via barkThrottle (same cadence as reveal barks) so a swap spree
+// doesn't talk over itself on every single click.
 let barkHandle: VoiceHandle | null = null
 function relayBark(entry: VoiceEntry) {
   barkHandle?.cancel()
+  if (!audio.barkThrottle()) return
   barkHandle = audio.playVoice(pickVoiceLine(entry).voice, { delayMs: 80 })
 }
 onUnmounted(() => barkHandle?.cancel())

@@ -20,10 +20,13 @@ const audio = useAudio('hack')
 
 // RELAY's one-liners on roster actions. Audio-only (no on-screen caption here),
 // picked with no-immediate-repeat, and single-tracked so rapid actions cut the
-// previous line instead of stacking voices.
+// previous line instead of stacking voices. Throttled via barkThrottle (same
+// cadence as reveal barks) so an action spree doesn't talk over itself on
+// every single click.
 let barkHandle: VoiceHandle | null = null
 function relayBark(entry: VoiceEntry) {
   barkHandle?.cancel()
+  if (!audio.barkThrottle()) return
   barkHandle = audio.playVoice(pickVoiceLine(entry).voice, { delayMs: 80 })
 }
 onUnmounted(() => barkHandle?.cancel())
