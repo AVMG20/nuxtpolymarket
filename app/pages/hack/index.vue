@@ -583,13 +583,25 @@ const thumbFailed = ref<Record<string, boolean>>({})
             accent
             class="relative aspect-video overflow-hidden flex items-end"
           >
-            <div class="absolute inset-0 flex items-center justify-center bg-elevated/40">
-              <UIcon
-                :name="selectedTemplate.icon"
-                class="size-16 text-primary/25"
-              />
+            <div class="absolute inset-0 bg-elevated/40">
+              <img
+                v-if="!thumbFailed[selectedTemplate.id]"
+                :src="missionThumbnail(selectedTemplate.id)"
+                :alt="selectedTemplate.name"
+                class="size-full object-cover"
+                @error="thumbFailed[selectedTemplate.id] = true"
+              >
+              <div
+                v-else
+                class="size-full flex items-center justify-center"
+              >
+                <UIcon
+                  :name="selectedTemplate.icon"
+                  class="size-16 text-primary/25"
+                />
+              </div>
             </div>
-            <div class="relative w-full p-4 bg-gradient-to-t from-background/95 via-background/50 to-transparent">
+            <div class="relative w-full p-4 bg-gradient-to-t from-background/95 via-background/60 to-transparent">
               <HackRelayCaption
                 ref="briefingCaptionRef"
                 :key="selectedTemplate.id"

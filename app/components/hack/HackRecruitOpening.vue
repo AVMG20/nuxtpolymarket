@@ -39,6 +39,15 @@ const contact = computed(() => AGENT_PULL_CONTACT[props.tier.id])
 const introVoice = computed(() => AGENT_PULL_INTRO_VOICE[props.tier.id] ?? '')
 const introText = computed(() => AGENT_PULL_INTRO_TEXT[props.tier.id] ?? '')
 
+// The contact pitch is a one-shot per tier per session — cool to hear once,
+// grating if it replays every single time you revisit the same contact.
+// Marks itself seen as a side effect, so this runs once on mount/tier-change,
+// never from a template expression.
+const introIsFirstTime = ref(false)
+watch(() => props.tier.id, (id) => {
+  introIsFirstTime.value = audio.firstTimeThisSession(`market-recruit-intro-${id}`)
+}, { immediate: true })
+
 const vetLabels = ['VETTING CANDIDATE…', 'CROSS-CHECKING REFERENCES…', 'CONFIRMING AVAILABILITY…']
 const vetLabelIdx = ref(0)
 let vetTimer: ReturnType<typeof setInterval> | null = null
@@ -49,7 +58,7 @@ let barkHandle: VoiceHandle | null = null
 const revealEl = ref<HTMLElement | null>(null)
 const stampEl = ref<HTMLElement | null>(null)
 const flashEl = ref<HTMLElement | null>(null)
-const pitchCaptionRef = ref<{ play: () => void, stop: () => void } | null>(null)
+const pitchCaptionRef = ref<{ play: () => void, stop: () => void, showInstant: () => void } | null>(null)
 
 watch(open, (v) => {
   if (v) {
@@ -65,16 +74,21 @@ watch(open, (v) => {
 })
 
 // Quick recruit toggled mid-pitch. HackRelayCaption's own autoplay watcher
-// only re-fires on a voiceName/text change, not on the autoplay prop
+// only re-fires on a voiceName/text change, not on the autoplay/instant props
 // flipping, so turning Quick recruit back off wouldn't otherwise restart the
-// line — drive both directions explicitly here instead.
+// line — drive both directions explicitly here instead. Respects the same
+// first-time-this-session gate as the initial render.
 watch(quickOpen, (v) => {
-  if (v) pitchCaptionRef.value?.stop()
-  else pitchCaptionRef.value?.play()
+  if (v) { pitchCaptionRef.value?.stop(); return }
+  if (introIsFirstTime.value) pitchCaptionRef.value?.play()
+  else pitchCaptionRef.value?.showInstant()
 })
 
 async function startRecruitment() {
   pitchCaptionRef.value?.stop()
+  // The pitch has now been shown (played or instant) — if recruitment fails and
+  // we fall back to the pitch stage below, it shouldn't replay.
+  introIsFirstTime.value = false
   recruiting.value = true
   try {
     if (!quickOpen.value) {
@@ -204,7 +218,8 @@ function traitRange(type: AgentTrait['type']) {
               class="mt-3.5 block"
               :voice-name="introVoice"
               :text="introText"
-              :autoplay="!quickOpen"
+              :autoplay="!quickOpen && introIsFirstTime"
+              :instant="!quickOpen && !introIsFirstTime"
             />
 
             <hr class="border-default my-4">

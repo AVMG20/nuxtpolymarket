@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { VoiceHandle } from '~/composables/useAudio'
+import { stripDeliveryTags, type VoiceHandle } from '~/composables/useAudio'
 
 // RELAY's teletyped caption, synced to a voice clip via useAudio. Captions
 // always run to completion regardless of whether the clip is muted, missing
@@ -12,9 +12,14 @@ const props = withDefaults(defineProps<{
   autoplay?: boolean
   /** Beat before playback starts (your ask: ~200-400ms so it "pops" after the surface appears). */
   delayMs?: number
+  /** Skip audio + teletype entirely and show the full stripped text at once —
+   * for a repeat view of a one-shot line already heard this session. Wins
+   * over `autoplay` when both are set. */
+  instant?: boolean
 }>(), {
   autoplay: true,
-  delayMs: 300
+  delayMs: 300,
+  instant: false
 })
 
 const emit = defineEmits<{ ended: [] }>()
@@ -42,8 +47,16 @@ function play() {
   })
 }
 
-watch(() => [props.voiceName, props.text], () => {
-  if (props.autoplay) play()
+function showInstant() {
+  handle?.cancel()
+  done.value = true
+  caption.value = stripDeliveryTags(props.text)
+  emit('ended')
+}
+
+watch(() => [props.voiceName, props.text, props.instant], () => {
+  if (props.instant) showInstant()
+  else if (props.autoplay) play()
 }, { immediate: true })
 
 function stop() {
@@ -53,7 +66,7 @@ function stop() {
 
 onUnmounted(() => handle?.cancel())
 
-defineExpose({ play, stop })
+defineExpose({ play, stop, showInstant })
 </script>
 
 <template>

@@ -39,10 +39,37 @@ interface BarkThrottleOptions {
   quickOpen?: boolean
 }
 
+// Reading-speed fallback used when no clip is playing (muted, throttled, or the
+// VO isn't recorded yet) — a comfortable read pace with nothing to sync to.
 const TELETYPE_MS_PER_CHAR = 32
+// When a clip IS playing we instead pace the caption to the clip's real
+// duration so the text reveals roughly as RELAY speaks it. Clamp the derived
+// rate so a very short or very long clip can't make the caption flicker or crawl.
+const TELETYPE_MIN_MS_PER_CHAR = 14
+const TELETYPE_MAX_MS_PER_CHAR = 110
 // Common-rarity reveal barks play first-of-session, then every Nth roll after —
 // bulk-opening sessions (~30 rolls) make a bark on every single one fatiguing fast.
 const BARK_INTERVAL = 4
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value))
+}
+
+// Content docs author some lines with bracketed ElevenLabs v3 delivery tags
+// (e.g. [grim], [quiet]) for generation — TTS-only, never shown on screen.
+// Tags can sit mid-sentence ("...call. [grim] This one's..."), so collapse
+// the resulting double space rather than just trimming the ends. Exported so
+// callers that render a caption without going through playVoice (e.g. an
+// already-heard one-shot line shown instantly) strip tags identically.
+export function stripDeliveryTags(text: string): string {
+  return text.replace(/\[[^\]]*\]/g, '').replace(/\s+/g, ' ').trim()
+}
+
+// Session-scoped (module lifetime — resets on a full page reload, survives SPA
+// navigation), for one-shot lines that should only play once per session, e.g.
+// a Black Market seller's pitch: cool the first time you visit that contact,
+// grating if it replays on every single revisit.
+const seenOnce = new Set<string>()
 
 interface AudioEngine {
   ctx: AudioContext | null
@@ -168,18 +195,23 @@ export function useAudio(namespace: string) {
     return cached
   }
 
-  async function playBuffer(channel: AudioChannel, name: string): Promise<AudioBufferSourceNode | null> {
+  function startBuffer(channel: AudioChannel, buffer: AudioBuffer): AudioBufferSourceNode | null {
     if (masterMuted.value || channels[channel].muted) return null
     const ctx = ensureContext()
     const gain = engine.gains[channel]
     if (!ctx || !gain) return null
-    const buffer = await loadBuffer(channel, name)
-    if (!buffer) return null
     const node = ctx.createBufferSource()
     node.buffer = buffer
     node.connect(gain)
     node.start()
     return node
+  }
+
+  async function playBuffer(channel: AudioChannel, name: string): Promise<AudioBufferSourceNode | null> {
+    if (masterMuted.value || channels[channel].muted) return null
+    const buffer = await loadBuffer(channel, name)
+    if (!buffer) return null
+    return startBuffer(channel, buffer)
   }
 
   function playSfx(name: string) {
@@ -231,7 +263,7 @@ export function useAudio(namespace: string) {
     engine.musicGain = null
   }
 
-  function teletype(target: Ref<string>, text: string, onDone?: () => void): () => void {
+  function teletype(target: Ref<string>, text: string, msPerChar: number, onDone?: () => void): () => void {
     let i = 0
     target.value = ''
     const interval = setInterval(() => {
@@ -241,7 +273,7 @@ export function useAudio(namespace: string) {
         clearInterval(interval)
         onDone?.()
       }
-    }, TELETYPE_MS_PER_CHAR)
+    }, msPerChar)
     return () => clearInterval(interval)
   }
 
@@ -252,11 +284,7 @@ export function useAudio(namespace: string) {
    */
   function playVoice(name: string, opts: PlayVoiceOptions = {}): VoiceHandle {
     const { captionsRef, text = '', delayMs = 300, onEnd, skipAudio = false } = opts
-    // Content docs author some lines with bracketed ElevenLabs v3 delivery tags
-    // (e.g. [grim], [quiet]) for generation — TTS-only, never shown on screen.
-    // Tags can sit mid-sentence ("...call. [grim] This one's..."), so collapse
-    // the resulting double space rather than just trimming the ends.
-    const captionText = text.replace(/\[[^\]]*\]/g, '').replace(/\s+/g, ' ').trim()
+    const captionText = stripDeliveryTags(text)
     let cancelled = false
     let stopTeletype: (() => void) | null = null
     // Tracks the actual playing clip so cancel() can stop it mid-playback — a
@@ -265,23 +293,32 @@ export function useAudio(namespace: string) {
     // running to completion in the background.
     let activeNode: AudioBufferSourceNode | null = null
 
+    function runCaption(msPerChar: number) {
+      if (cancelled) return
+      if (captionsRef && captionText) stopTeletype = teletype(captionsRef, captionText, msPerChar, onEnd)
+      else onEnd?.()
+    }
+
     const timer = setTimeout(() => {
       if (cancelled) return
-      if (captionsRef && captionText) stopTeletype = teletype(captionsRef, captionText, onEnd)
-      else onEnd?.()
-      if (!skipAudio) {
-        void playBuffer('voice', name).then((node) => {
-          if (cancelled) {
-            try {
-              node?.stop()
-            } catch {
-              /* already finished */
-            }
-            return
-          }
-          activeNode = node
-        })
+      // No audio this time (throttled bark, or the channel/master is muted):
+      // there's nothing to sync to, so read at the comfortable default pace.
+      const audioWillPlay = !skipAudio && !masterMuted.value && !channels.voice.muted
+      if (!audioWillPlay) {
+        runCaption(TELETYPE_MS_PER_CHAR)
+        return
       }
+      // Load the clip first so we know its length, then start the audio and the
+      // caption together and pace the teletype to finish about when RELAY does.
+      // A missing clip (404 — VO not recorded yet) falls back to reading speed.
+      void loadBuffer('voice', name).then((buffer) => {
+        if (cancelled) return
+        activeNode = buffer ? startBuffer('voice', buffer) : null
+        const msPerChar = (buffer && captionText.length)
+          ? clamp((buffer.duration * 1000) / captionText.length, TELETYPE_MIN_MS_PER_CHAR, TELETYPE_MAX_MS_PER_CHAR)
+          : TELETYPE_MS_PER_CHAR
+        runCaption(msPerChar)
+      })
     }, delayMs)
 
     return {
@@ -299,6 +336,19 @@ export function useAudio(namespace: string) {
         }
       }
     }
+  }
+
+  /**
+   * True only the first time this exact key is passed, for the lifetime of
+   * this browser tab's session (a full reload resets it, SPA navigation
+   * doesn't). Marks the key as seen as a side effect — call it exactly once
+   * per candidate playback, not from a template expression that might
+   * re-evaluate.
+   */
+  function firstTimeThisSession(key: string): boolean {
+    if (seenOnce.has(key)) return false
+    seenOnce.add(key)
+    return true
   }
 
   // Session-scoped (not persisted) — the fatigue problem is bulk-session repetition,
@@ -331,6 +381,7 @@ export function useAudio(namespace: string) {
     playMusic,
     stopMusic,
     unlock,
-    barkThrottle
+    barkThrottle,
+    firstTimeThisSession
   }
 }

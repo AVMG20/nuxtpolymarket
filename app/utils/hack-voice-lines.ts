@@ -33,9 +33,24 @@ export function voiceFile(entry: VoiceEntry, index: number): string {
   return `${entry.id}-${index + 1}`
 }
 
+// Remembers the last variant played per entry id so the same line never plays
+// twice in a row — an immediate repeat is the single biggest thing that makes a
+// small pool feel repetitive, far more than the pool size itself.
+const lastVariantIndex = new Map<string, number>()
+
 /** Random variant for playback — text and filename always come from the same picked index. */
 export function pickVoiceLine(entry: VoiceEntry): { voice: string, text: string } {
-  const i = Math.floor(Math.random() * entry.variants.length)
+  const n = entry.variants.length
+  const last = lastVariantIndex.get(entry.id)
+  let i: number
+  if (n > 1 && last !== undefined) {
+    // Uniform over the other n-1 variants: pick in [0, n-1) then skip past `last`.
+    i = Math.floor(Math.random() * (n - 1))
+    if (i >= last) i++
+  } else {
+    i = Math.floor(Math.random() * n)
+  }
+  lastVariantIndex.set(entry.id, i)
   return { voice: voiceFile(entry, i), text: entry.variants[i]!.text }
 }
 
