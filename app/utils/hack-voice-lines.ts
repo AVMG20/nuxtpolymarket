@@ -217,6 +217,14 @@ export const CRAFT_UPGRADE: VoiceEntry = {
     { text: 'Upgraded. Wish everything improved that easily.' }
   ]
 }
+export const CRAFT_MAX_LEVEL: VoiceEntry = {
+  id: 'craft-max-level',
+  variants: [
+    { text: 'That\'s maxed. Nothing left in it to buy.' },
+    { text: 'Fully upgraded. Save your gems for the next piece.' },
+    { text: 'That\'s as good as that gear gets. Put your money elsewhere.' }
+  ]
+}
 export const CRAFT_REROLL_GOOD: VoiceEntry = {
   id: 'craft-reroll-good',
   variants: [
@@ -423,7 +431,7 @@ const GENERAL_BARK_ENTRIES: VoiceEntry[] = [
   BRIEF_OUTRO, DEPLOY_CONFIRM,
   COLLECT_SUCCESS, COLLECT_SUCCESS_RARE, COLLECT_FAILURE, COLLECT_FAILURE_ROUGH,
   AGENT_LEVELUP, AGENT_MAX_LEVEL_BARK, ROSTER_EXPAND, AGENT_FIRED, AGENT_ACTIVATE, AGENT_DEACTIVATE,
-  CRAFT_UPGRADE, CRAFT_REROLL_GOOD, CRAFT_REROLL_BAD,
+  CRAFT_UPGRADE, CRAFT_MAX_LEVEL, CRAFT_REROLL_GOOD, CRAFT_REROLL_BAD,
   LOADOUT_SWAP, LOADOUT_UNEQUIP, DEPLOY_BLOCKED_POWER, INSUFFICIENT_FUNDS, LEADERBOARD_TOP3,
   ONBOARDING_INTRO,
   ...Object.values(RARITY_BARK), ...Object.values(RARITY_BARK_ITEM).filter((e): e is VoiceEntry => !!e)

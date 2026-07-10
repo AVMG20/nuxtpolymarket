@@ -5,7 +5,7 @@ import {
   rerollCost, ITEM_MAX_LEVEL, itemUpgradeCost, itemUpgradeCostForLevels, itemBulkUpgradeLevels, itemPower,
   type HackRarity, type ItemSlot, type ItemMod, type ModType
 } from '#shared/utils/hack-config'
-import { CRAFT_UPGRADE, CRAFT_REROLL_GOOD, CRAFT_REROLL_BAD, pickVoiceLine, type VoiceEntry } from '~/utils/hack-voice-lines'
+import { CRAFT_UPGRADE, CRAFT_MAX_LEVEL, CRAFT_REROLL_GOOD, CRAFT_REROLL_BAD, pickVoiceLine, type VoiceEntry } from '~/utils/hack-voice-lines'
 import type { VoiceHandle } from '~/composables/useAudio'
 
 const { fetchSession, user } = useAuth()
@@ -16,9 +16,12 @@ const audio = useAudio('hack')
 
 // RELAY's spoken reaction on bench actions — audio-only, no-immediate-repeat,
 // single-tracked so back-to-back crafts cut the previous line instead of stacking.
+// Throttled via barkThrottle (same cadence as reveal barks) so a crafting spree
+// doesn't talk over itself on every single click.
 let barkHandle: VoiceHandle | null = null
-function relayBark(entry: VoiceEntry) {
+function relayBark(entry: VoiceEntry, { rare = false } = {}) {
   barkHandle?.cancel()
+  if (!audio.barkThrottle({ rare })) return
   barkHandle = audio.playVoice(pickVoiceLine(entry).voice, { delayMs: 80 })
 }
 onUnmounted(() => barkHandle?.cancel())
@@ -140,7 +143,8 @@ async function doUpgrade(levels: number) {
       method: 'POST',
       body: { itemId: benchItem.value.id, levels }
     })
-    relayBark(CRAFT_UPGRADE)
+    const reachedMax = res.newLevel >= ITEM_MAX_LEVEL
+    relayBark(reachedMax ? CRAFT_MAX_LEVEL : CRAFT_UPGRADE, { rare: reachedMax })
     toast.add({ title: `Upgraded to level ${res.newLevel}`, color: 'success' })
     await Promise.all([refresh(), fetchSession()])
   } catch (e: any) {
