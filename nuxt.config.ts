@@ -18,13 +18,6 @@ export default defineNuxtConfig({
 
     compatibilityDate: '2025-01-15',
 
-    vite: {
-        build: {
-            // pixi.js is a WebGL engine only loaded on game pages, not the main bundle
-            chunkSizeWarningLimit: 900
-        }
-    },
-
     nitro: {
         preset: 'bun',
         experimental: {
@@ -35,13 +28,34 @@ export default defineNuxtConfig({
         ]
     },
 
-    // Dev-only: some browser setups (link-prefetching extensions or Chrome's
-    // "preload pages") request the client JS module graph with
-    // `Sec-Fetch-Dest: document`, which Vite's dev server rejects with a 404 —
-    // leaving the app unable to hydrate. Strip that header in dev so the modules
-    // load normally.
     vite: {
+        build: {
+            // pixi.js is a WebGL engine only loaded on game pages, not the main bundle
+            chunkSizeWarningLimit: 900
+        },
+        // Pre-bundle heavy deps that are only reached via dynamic import() or
+        // client-only components. Without this, Vite discovers each one at
+        // runtime the first time a page needs it, re-runs its optimizer, and
+        // forces a full-page reload that re-downloads the entire dev module
+        // graph (thousands of requests per reload). Listing them here bundles
+        // them up front so navigation stays a normal SPA transition.
+        optimizeDeps: {
+            include: [
+                'gsap',
+                'date-fns',
+                'better-auth/client',
+                'better-auth/client/plugins',
+                '@unovis/vue',
+                'pixi.js',
+                'pixi-reels'
+            ]
+        },
         plugins: [
+            // Dev-only: some browser setups (link-prefetching extensions or
+            // Chrome's "preload pages") request the client JS module graph with
+            // `Sec-Fetch-Dest: document`, which Vite's dev server rejects with a
+            // 404 — leaving the app unable to hydrate. Strip that header in dev
+            // so the modules load normally.
             {
                 name: 'dev-strip-sec-fetch-dest',
                 apply: 'serve',

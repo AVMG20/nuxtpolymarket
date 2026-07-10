@@ -7,6 +7,8 @@
 @theme static {
   --font-sans: 'Public Sans', sans-serif;
 
+  --breakpoint-huge: 1920px;
+
   --color-green-50: #EFFDF5;
   --color-green-100: #D9FBE8;
   --color-green-200: #B3F5D1;
