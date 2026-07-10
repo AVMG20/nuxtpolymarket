@@ -67,6 +67,10 @@ Recruit) — rarity is rarity regardless of which contact found them.
 For ElevenLabs generation (model, stability, tag legend), see the "TTS
 generation notes" section in `voice-lines.md` — it covers this table too.
 
+**Canonical source has moved.** Each rarity now has 3 variants (`RARITY_BARK`
+in `app/utils/hack-voice-lines.ts`), picked at random on each reveal via
+`pickRarityBark()` — this table shows variant 1 of 3 only, kept as an index.
+
 | Rarity | Bark |
 |---|---|
 | Ghost | "Rookie. They'll do." |

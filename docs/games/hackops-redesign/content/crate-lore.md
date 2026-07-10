@@ -129,6 +129,15 @@ an agent or a piece of gear, and reusing the same five VO clips for every
 reveal in the game (agent pulls, crates) keeps the total VO line count for
 the entire reveal system at exactly 5 instead of 5 × N sources.
 
+**Both the table below and the implementation have since diverged from
+that "5 total" framing, in the same direction:** every rarity now has its
+own item-flavored variant (not just Ghost — see `RARITY_BARK_ITEM` in
+`app/utils/hack-voice-lines.ts`, Specialist still shared since its line
+doesn't reference a person), and each of those 9 lines has 3 variants
+picked at random via `pickRarityBark()`. Treat this doc section as
+historical context for *why* item variants exist, not the current line
+count or copy — read the code for both.
+
 | Rarity | Bark |
 |---|---|
 | Ghost | "Rookie. They'll do." *(agents)* / "Junk, mostly. Mostly." *(items — see note)* |

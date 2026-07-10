@@ -65,7 +65,15 @@ an on-screen caption, strip them (`text.replace(/\[[^\]]*\]/g,
 
 ## Voice — RELAY, general barks
 
-| Trigger | Line | Filename |
+**Canonical source has moved.** Every line below (plus rarity barks and
+market copy) now lives in `app/utils/hack-voice-lines.ts`, which each has
+**3 variants** to cut down on bulk-session repetition — this table is kept
+only as a readable index of triggers; for the actual current copy and
+filenames (`${id}-1.mp3`, `${id}-2.mp3`, `${id}-3.mp3`), read the code.
+`scripts/generate-hack-voice-lines.ts` generates whatever's missing via
+ElevenLabs, driven by that same file.
+
+| Trigger | Line (variant 1 of 3 — see hack-voice-lines.ts) | Filename |
 |---|---|---|
 | Briefing player, squad-select unlocked (session-once) | "Your call, Handler. Pick your people." | `voice/brief-outro-generic.mp3` |
 | Deploy confirmed | "They're moving. I'll let you know." | `voice/deploy-confirm.mp3` |
