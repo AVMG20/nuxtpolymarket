@@ -157,6 +157,10 @@
   font-size: 15px;
   line-height: 1.6;
   min-height: 3.2em;
+  /* Briefing captions sit over a mission thumbnail whose brightness varies
+     per image — this dark halo keeps them legible even where the bottom
+     gradient overlay is thin (top of the caption) or the photo itself is light. */
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.9), 0 2px 16px rgba(0, 0, 0, 0.7);
 }
 .hack-cursor {
   display: inline-block; width: 8px; height: 1em; background: var(--hack-accent);
