@@ -3,10 +3,12 @@ import {
   RARITY_COLOR, RARITY_LABEL, RARITY_STYLE, RARITY_ACCENT, RARITY_ORDER, CLASS_LABEL, CLASS_ICON, CLASS_PASSIVE,
   SLOT_ICON, SLOT_LABEL,
   xpToNextLevel, AGENT_MAX_LEVEL, MOD_LABEL, formatModValue,
-  agentBonusStats, sortModsByPriority,
+  agentBonusStats, sortModsByPriority, itemPower,
   type HackRarity, type AgentClass, type ItemSlot, type ItemMod
 } from '#shared/utils/hack-config'
 import { CLASS_PORTRAIT } from '~/utils/hack-content'
+import { AGENT_ACTIVATE, AGENT_DEACTIVATE, AGENT_FIRED, ROSTER_EXPAND, pickVoiceLine, type VoiceEntry } from '~/utils/hack-voice-lines'
+import type { VoiceHandle } from '~/composables/useAudio'
 
 const agentCombinedStats = (agent: any) => agentBonusStats([agent])
 
@@ -15,6 +17,16 @@ const balance = computed(() => parseFloat(user.value?.balance ?? '0'))
 const { data: state, refresh } = await useFetch('/api/hack/state')
 const toast = useToast()
 const audio = useAudio('hack')
+
+// RELAY's one-liners on roster actions. Audio-only (no on-screen caption here),
+// picked with no-immediate-repeat, and single-tracked so rapid actions cut the
+// previous line instead of stacking voices.
+let barkHandle: VoiceHandle | null = null
+function relayBark(entry: VoiceEntry) {
+  barkHandle?.cancel()
+  barkHandle = audio.playVoice(pickVoiceLine(entry).voice, { delayMs: 80 })
+}
+onUnmounted(() => barkHandle?.cancel())
 
 // Fire agent — arms a confirm first; a second click within the window fires.
 const firing = ref<string | null>(null)
@@ -36,6 +48,7 @@ async function fireAgent(agentId: string, name: string) {
   firing.value = agentId
   try {
     await $fetch('/api/hack/agents/fire', { method: 'POST', body: { agentId } })
+    relayBark(AGENT_FIRED)
     toast.add({ title: `${name} dismissed`, color: 'neutral' })
     if (detailAgentId.value === agentId) detailAgentId.value = null
     await Promise.all([refresh(), fetchSession()])
@@ -55,6 +68,7 @@ async function setActive(agentId: string, active: boolean) {
   togglingActive.value = agentId
   try {
     await $fetch('/api/hack/agents/active', { method: 'POST', body: { agentId, active } })
+    relayBark(active ? AGENT_ACTIVATE : AGENT_DEACTIVATE)
     toast.add({ title: active ? 'Agent activated' : 'Agent moved to storage', color: active ? 'success' : 'neutral' })
     detailAgentId.value = null
     await refresh()
@@ -84,6 +98,7 @@ async function expandRoster() {
   expanding.value = true
   try {
     await $fetch('/api/hack/roster/expand', { method: 'POST' })
+    relayBark(ROSTER_EXPAND)
     toast.add({ title: 'Roster expanded', color: 'success' })
     await Promise.all([refresh(), fetchSession()])
   } catch (e: any) {
@@ -281,28 +296,40 @@ const sortedStoredAgents = computed(() => {
                     class="absolute inset-y-0 left-0 w-1"
                     :class="RARITY_ACCENT[slotItem(agent, slot)!.rarity as HackRarity]"
                   />
-                  <div class="flex items-center justify-between gap-2 mb-1.5">
-                    <div class="flex items-center gap-2">
+                  <div class="flex items-start gap-3">
+                    <div
+                      class="size-12 shrink-0 flex items-center justify-center border"
+                      :class="[
+                        RARITY_STYLE[slotItem(agent, slot)!.rarity as HackRarity].bg,
+                        RARITY_STYLE[slotItem(agent, slot)!.rarity as HackRarity].border,
+                        RARITY_STYLE[slotItem(agent, slot)!.rarity as HackRarity].text
+                      ]"
+                    >
                       <UIcon
                         :name="SLOT_ICON[slot]"
-                        class="size-4 shrink-0"
-                        :class="RARITY_STYLE[slotItem(agent, slot)!.rarity as HackRarity].text"
+                        class="size-5"
                       />
                     </div>
-                    <UBadge
-                      size="xs"
-                      variant="subtle"
-                      color="neutral"
-                      :label="SLOT_LABEL[slot]"
-                    />
-                  </div>
-                  <div class="flex flex-wrap gap-1.5">
-                    <HackModChip
-                      v-for="m in sortModsByPriority(slotItem(agent, slot)!.mods as ItemMod[])"
-                      :key="m.type"
-                      :label="MOD_LABEL[m.type]"
-                      :value="formatModValue(m.type, m.value)"
-                    />
+                    <div class="flex-1 min-w-0">
+                      <span
+                        class="font-bold text-[15px] leading-snug"
+                        :class="RARITY_STYLE[slotItem(agent, slot)!.rarity as HackRarity].text"
+                      >{{ slotItem(agent, slot)!.name }}</span>
+                      <p class="text-sm font-mono font-bold text-zinc-100 mt-0.5">
+                        Level {{ slotItem(agent, slot)!.itemLevel }}
+                      </p>
+                      <p class="text-xs text-muted font-mono mt-1">
+                        Base <b class="text-primary">+{{ slotItem(agent, slot)!.itemLevel * 2 }}</b> · total <b class="text-primary">{{ itemPower(slotItem(agent, slot)!) }} PWR</b>
+                      </p>
+                      <div class="flex flex-wrap gap-1.5 mt-2">
+                        <HackModChip
+                          v-for="m in sortModsByPriority(slotItem(agent, slot)!.mods as ItemMod[])"
+                          :key="m.type"
+                          :label="MOD_LABEL[m.type]"
+                          :value="formatModValue(m.type, m.value)"
+                        />
+                      </div>
+                    </div>
                   </div>
                 </div>
                 <div
@@ -451,14 +478,6 @@ const sortedStoredAgents = computed(() => {
                 label="Equip"
                 class="flex-1 justify-center"
                 :to="`/hack/loadout?agent=${agent.id}`"
-              />
-              <UButton
-                size="xs"
-                color="error"
-                variant="ghost"
-                icon="i-lucide-user-x"
-                :loading="firing === agent.id"
-                @click="requestFire(agent.id, agent.name)"
               />
             </div>
           </HackFrame>
