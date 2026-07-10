@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import {
   RARITY_COLOR, RARITY_LABEL, RARITY_STYLE, CLASS_LABEL,
-  SLOT_ICON, SLOT_LABEL, RARITY_ORDER,
+  SLOT_ICON, SLOT_LABEL, RARITY_ORDER, MOD_LABEL, formatModValue, sortModsByPriority,
   agentPower, agentBonusStats, itemPower,
   type HackRarity, type AgentClass, type ItemSlot, type ItemMod, type AgentTrait
 } from '#shared/utils/hack-config'
 import { CLASS_PORTRAIT } from '~/utils/hack-content'
+import { LOADOUT_SWAP, LOADOUT_UNEQUIP, pickVoiceLine, type VoiceEntry } from '~/utils/hack-voice-lines'
+import type { VoiceHandle } from '~/composables/useAudio'
 
 type InvItem = { id: string, name: string, slot: ItemSlot, itemLevel: number, rarity: HackRarity, mods: ItemMod[], equippedBy?: string | null }
 type Gear = { tool: InvItem | null, software: InvItem | null, hardware: InvItem | null }
@@ -29,6 +31,15 @@ const router = useRouter()
 const toast = useToast()
 const audio = useAudio('hack')
 const { data: state, refresh } = await useFetch('/api/hack/state')
+
+// RELAY's spoken reaction on equip/unequip — audio-only, no-immediate-repeat,
+// single-tracked so back-to-back swaps cut the previous line instead of stacking.
+let barkHandle: VoiceHandle | null = null
+function relayBark(entry: VoiceEntry) {
+  barkHandle?.cancel()
+  barkHandle = audio.playVoice(pickVoiceLine(entry).voice, { delayMs: 80 })
+}
+onUnmounted(() => barkHandle?.cancel())
 
 const agentSortBy = ref<'power' | 'rarity' | 'level'>('power')
 const roster = computed<Agent[]>(() => {
@@ -90,6 +101,17 @@ const sortOptions = [
   { value: 'level', label: 'Level' }
 ] as const
 const sortBy = ref<'rarity' | 'power' | 'name' | 'level'>('rarity')
+
+// At-a-glance upgrade/downgrade signal for the inventory rail: each candidate's
+// mod chips get colored against whatever the selected agent already has in that
+// slot, trait by trait. Null when the slot is empty (nothing to compare against).
+function slotCompare(item: InvItem): { equippedMods: ItemMod[] } | null {
+  const agent = selectedAgent.value
+  if (!agent) return null
+  const equipped = agent.gear[item.slot]
+  if (!equipped) return null
+  return { equippedMods: equipped.mods }
+}
 
 const filteredItems = computed<InvItem[]>(() => {
   const items = ((state.value?.items ?? []) as InvItem[])
@@ -176,6 +198,7 @@ async function confirmSwap() {
       body: { itemId: compareCandidate.value.id, agentId: selectedAgent.value.id }
     })
     audio.playSfx('loadout-lock')
+    relayBark(LOADOUT_SWAP)
     toast.add({ title: `${compareCandidate.value.name} equipped`, color: 'success' })
     compareItemId.value = null
     await refresh()
@@ -190,6 +213,7 @@ async function unequip(item: InvItem) {
   try {
     await $fetch('/api/hack/items/equip', { method: 'POST', body: { itemId: item.id, agentId: null } })
     audio.playSfx('loadout-lock')
+    relayBark(LOADOUT_UNEQUIP)
     toast.add({ title: 'Item unequipped', color: 'neutral' })
     await refresh()
   } catch (e: any) {
@@ -392,7 +416,7 @@ function onDropOnBay(slot: ItemSlot) {
           <div
             v-for="slot in SLOTS"
             :key="slot"
-            class="flex items-center gap-4 p-4 border transition-colors cursor-pointer"
+            class="flex items-start gap-4 p-4 border transition-colors cursor-pointer"
             :class="[
               selectedSlot === slot ? 'border-primary bg-primary/10' : 'border-default hover:border-primary/50',
               dragOverSlot === slot && 'border-secondary bg-secondary/10'
@@ -424,6 +448,14 @@ function onDropOnBay(slot: ItemSlot) {
                 <p class="text-xs text-muted font-mono mt-0.5">
                   {{ SLOT_LABEL[slot] }} · Lv {{ selectedAgent.gear[slot]!.itemLevel }} · +{{ itemPower(selectedAgent.gear[slot]!) }} PWR
                 </p>
+                <div class="flex flex-wrap gap-1.5 mt-2">
+                  <HackModChip
+                    v-for="m in sortModsByPriority(selectedAgent.gear[slot]!.mods)"
+                    :key="m.type"
+                    :label="MOD_LABEL[m.type]"
+                    :value="formatModValue(m.type, m.value)"
+                  />
+                </div>
               </template>
               <template v-else>
                 <p class="font-bold text-[15px] text-muted">
@@ -536,6 +568,7 @@ function onDropOnBay(slot: ItemSlot) {
             <HackItemCard
               :item="item"
               :selected="compareItemId === item.id"
+              :compare="slotCompare(item)"
               @select="openCompare(item.id)"
             />
           </div>
@@ -645,6 +678,7 @@ function onDropOnBay(slot: ItemSlot) {
             :key="item.id"
             :item="item"
             :selected="compareItemId === item.id"
+            :compare="slotCompare(item)"
             @select="openCompare(item.id); mobileInventoryOpen = false"
           />
         </div>
