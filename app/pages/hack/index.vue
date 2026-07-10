@@ -111,6 +111,7 @@ const briefingCaptionRef = ref<{ stop: () => void } | null>(null)
 let outroPlayed = false
 let outroHandle: VoiceHandle | null = null
 function openBriefing(template: any) {
+  audio.playSfx('briefing-open')
   selectedTemplate.value = template
   selectedAgentIds.value = []
 }
@@ -129,7 +130,7 @@ function toggleAgent(id: string, template: any) {
   }
   if (!outroPlayed && selectedAgentIds.value.length > 0) {
     outroPlayed = true
-    outroHandle = audio.playVoice(BRIEF_OUTRO_VOICE, { delayMs: 200 })
+    outroHandle = audio.playVoice(pickVoiceLine(BRIEF_OUTRO).voice, { delayMs: 200 })
   }
 }
 
@@ -146,10 +147,12 @@ async function dispatch() {
       method: 'POST',
       body: { templateId: selectedTemplate.value.id, agentIds: selectedAgentIds.value }
     })
+    audio.playSfx('deploy-confirm')
     toast.add({ title: `Op dispatched`, description: selectedTemplate.value.name, color: 'success' })
     closeBriefing()
     await refresh()
   } catch (e: any) {
+    audio.playSfx('deny')
     toast.add({ title: e.data?.statusMessage ?? 'Dispatch failed', color: 'error' })
   } finally {
     dispatching.value = false
@@ -176,17 +179,13 @@ const collectModalOpen = computed({
 
 // Specialist+ item drop reads as a "rare" success for the reveal bark (voice-lines.md).
 const RARE_ITEM_RARITIES: HackRarity[] = ['specialist', 'elite', 'phantom']
-const collectVoice = computed(() => {
-  if (!collectResult.value) return ''
-  if (!collectResult.value.success) return COLLECT_LINES.failureVoice
-  if (collectResult.value.item && RARE_ITEM_RARITIES.includes(collectResult.value.item.rarity)) return COLLECT_LINES.successRareVoice
-  return COLLECT_LINES.successVoice
-})
-const collectText = computed(() => {
-  if (!collectResult.value) return ''
-  if (!collectResult.value.success) return COLLECT_LINES.failureText
-  if (collectResult.value.item && RARE_ITEM_RARITIES.includes(collectResult.value.item.rarity)) return COLLECT_LINES.successRareText
-  return COLLECT_LINES.successText
+// Voice+text picked together (not two independent computeds) so a random
+// variant pick never mismatches the caption with a different variant's clip.
+const collectLine = computed(() => {
+  if (!collectResult.value) return { voice: '', text: '' }
+  if (!collectResult.value.success) return pickVoiceLine(COLLECT_FAILURE)
+  if (collectResult.value.item && RARE_ITEM_RARITIES.includes(collectResult.value.item.rarity)) return pickVoiceLine(COLLECT_SUCCESS_RARE)
+  return pickVoiceLine(COLLECT_SUCCESS)
 })
 
 async function collect(op: { id: string, templateId: string }) {
@@ -203,6 +202,7 @@ async function collect(op: { id: string, templateId: string }) {
     }
     await Promise.all([refresh(), fetchSession()])
   } catch (e: any) {
+    audio.playSfx('deny')
     toast.add({ title: e.data?.statusMessage ?? 'Collect failed', color: 'error' })
   } finally {
     collecting.value = null
@@ -290,6 +290,10 @@ const sortedTemplates = computed(() => {
 })
 const filteredTemplates = computed(() =>
   tierFilter.value ? sortedTemplates.value.filter(t => missionTier(t.id) === tierFilter.value) : sortedTemplates.value)
+
+// Thumbnails roll in gradually via scripts/generate-hack-images.ts — not every
+// mission has one yet, so a 404 falls back to the plain icon tile per-card.
+const thumbFailed = ref<Record<string, boolean>>({})
 </script>
 
 <template>
@@ -466,8 +470,16 @@ const filteredTemplates = computed(() =>
           @click="openBriefing(template)"
           @keydown.enter.space.prevent="openBriefing(template)"
         >
-          <div class="h-28 bg-elevated/60 flex items-center justify-center relative border-b border-default">
+          <div class="h-28 bg-elevated/60 flex items-center justify-center relative border-b border-default overflow-hidden">
+            <img
+              v-if="!thumbFailed[template.id]"
+              :src="missionThumbnail(template.id)"
+              :alt="template.name"
+              class="absolute inset-0 size-full object-cover"
+              @error="thumbFailed[template.id] = true"
+            >
             <UIcon
+              v-else
               :name="template.icon"
               class="size-9 text-primary/40"
             />
@@ -700,7 +712,7 @@ const filteredTemplates = computed(() =>
                 icon="i-lucide-send"
                 :loading="dispatching"
                 :disabled="selectedAgentIds.length < selectedTemplate.minAgents || !modalStats || modalStats.successChance < MIN_DEPLOY_SUCCESS"
-                @click="dispatch"
+                @click="audio.playSfx('click'); dispatch()"
               />
             </div>
             <p
@@ -756,8 +768,8 @@ const filteredTemplates = computed(() =>
       v-if="collectResult"
       v-model:open="collectModalOpen"
       :result="collectResult"
-      :voice-name="collectVoice"
-      :voice-text="collectText"
+      :voice-name="collectLine.voice"
+      :voice-text="collectLine.text"
     />
   </UContainer>
 </template>

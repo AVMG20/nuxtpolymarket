@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import {
-  MOD_LABEL, MOD_RANGES, RARITY_COLOR, RARITY_LABEL, RARITY_STYLE, formatModValue,
+  MOD_LABEL, MOD_RANGES, RARITY_COLOR, RARITY_LABEL, RARITY_STAMP_SFX, RARITY_STYLE, SLOT_ICON, formatModValue, sortModsByPriority,
   type HackItemDef, type HackRarity, type ItemPullTier, type ItemMod
 } from '#shared/utils/hack-config'
-import { ITEM_PULL_CONFIRM_TEXT, ITEM_PULL_CONFIRM_VOICE, ITEM_PULL_INTRO_TEXT, ITEM_PULL_INTRO_VOICE, ITEM_PULL_SELLER, rarityBarkText, rarityBarkVoice } from '~/utils/hack-content'
+import { ITEM_PULL_SELLER } from '~/utils/hack-content'
+import { ITEM_PULL_CONFIRM_TEXT, ITEM_PULL_CONFIRM_VOICE, ITEM_PULL_INTRO_TEXT, ITEM_PULL_INTRO_VOICE, pickRarityBark } from '~/utils/hack-voice-lines'
 import { sleep } from '~/utils/sleep'
 import type { VoiceHandle } from '~/composables/useAudio'
 
@@ -72,6 +73,7 @@ async function buyAndOpen() {
       quickOpen.value ? Promise.resolve() : sleep(1800)
     ])
     result.value = { item: res.item as PulledItem, rarity: res.rarity as HackRarity }
+    audio.playSfx('purchase')
     emit('pulled')
     if (!quickOpen.value) await flash()
     stage.value = 'reveal'
@@ -99,11 +101,13 @@ async function playReveal() {
     const { gsap } = await import('gsap')
     gsap.fromTo(stampEl.value, { scale: 0 }, { scale: 1, duration: 0.35, ease: 'back.out(1.7)' })
   }
+  audio.playSfx(RARITY_STAMP_SFX[rarity])
   barkHandle?.cancel()
   barkDone.value = false
   const playAudio = audio.barkThrottle({ rare: rarity === 'elite' || rarity === 'phantom', quickOpen: quickOpen.value })
-  barkHandle = audio.playVoice(rarityBarkVoice(rarity, 'item'), {
-    captionsRef: barkCaption, text: rarityBarkText(rarity, 'item'), delayMs: 50,
+  const bark = pickRarityBark(rarity, 'item')
+  barkHandle = audio.playVoice(bark.voice, {
+    captionsRef: barkCaption, text: bark.text, delayMs: 50,
     skipAudio: !playAudio, onEnd: () => { barkDone.value = true }
   })
   await sleep(500)
@@ -121,7 +125,7 @@ function openAnother() {
 
 const sortedMods = computed(() => {
   if (!result.value) return [] as ItemMod[]
-  return [...result.value.item.mods].sort((a, b) => Number(b.type === 'power_flat') - Number(a.type === 'power_flat'))
+  return sortModsByPriority(result.value.item.mods)
 })
 function modRange(type: ItemMod['type']) {
   return MOD_RANGES[type]
@@ -199,7 +203,7 @@ function modRange(type: ItemMod['type']) {
                   :loading="buying"
                   :disabled="disabled"
                   label="Buy & Open"
-                  @click="buyAndOpen"
+                  @click="audio.playSfx('click'); buyAndOpen()"
                 />
               </div>
             </div>
@@ -251,10 +255,17 @@ function modRange(type: ItemMod['type']) {
               class="p-4"
             >
               <div class="flex items-center justify-between mb-2">
-                <span
-                  class="hack-card-title-lg"
-                  :class="RARITY_STYLE[result.rarity].text"
-                >{{ result.item.name }}</span>
+                <div class="flex items-center gap-2">
+                  <UIcon
+                    :name="SLOT_ICON[result.item.slot]"
+                    class="size-5 shrink-0"
+                    :class="RARITY_STYLE[result.rarity].text"
+                  />
+                  <span
+                    class="hack-card-title-lg"
+                    :class="RARITY_STYLE[result.rarity].text"
+                  >{{ result.item.name }}</span>
+                </div>
                 <UBadge
                   size="sm"
                   :color="RARITY_COLOR[result.rarity]"

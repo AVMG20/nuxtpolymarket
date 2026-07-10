@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import {
-  AGENT_TRAIT_LABEL, AGENT_TRAIT_RANGES, CLASS_LABEL, RARITY_LABEL, RARITY_STYLE, formatTraitValue,
+  AGENT_TRAIT_LABEL, AGENT_TRAIT_RANGES, CLASS_LABEL, RARITY_LABEL, RARITY_STAMP_SFX, RARITY_STYLE, formatTraitValue,
   type AgentPullTier, type AgentTrait, type HackRarity
 } from '#shared/utils/hack-config'
+import { AGENT_PULL_CONTACT, CLASS_PORTRAIT, agentBioLine } from '~/utils/hack-content'
 import {
-  AGENT_PULL_CONFIRM_TEXT, AGENT_PULL_CONFIRM_VOICE, AGENT_PULL_CONTACT, AGENT_PULL_INTRO_TEXT, AGENT_PULL_INTRO_VOICE,
-  CLASS_PORTRAIT, agentBioLine, rarityBarkText, rarityBarkVoice
-} from '~/utils/hack-content'
+  AGENT_PULL_CONFIRM_TEXT, AGENT_PULL_CONFIRM_VOICE, AGENT_PULL_INTRO_TEXT, AGENT_PULL_INTRO_VOICE, pickRarityBark
+} from '~/utils/hack-voice-lines'
 import { sleep } from '~/utils/sleep'
 import type { VoiceHandle } from '~/composables/useAudio'
 
@@ -83,6 +83,7 @@ async function startRecruitment() {
       vetTimer = setInterval(() => {
         vetLabelIdx.value = (vetLabelIdx.value + 1) % vetLabels.length
       }, 700)
+      audio.playSfx('radar-ping')
       audio.playVoice(AGENT_PULL_CONFIRM_VOICE[props.tier.id] ?? '', {
         text: AGENT_PULL_CONFIRM_TEXT[props.tier.id] ?? '', delayMs: 100
       })
@@ -96,6 +97,7 @@ async function startRecruitment() {
       vetTimer = null
     }
     result.value = res.agent as unknown as PulledAgent
+    audio.playSfx('purchase')
     emit('recruited')
     if (!quickOpen.value) await flash()
     stage.value = 'reveal'
@@ -123,11 +125,13 @@ async function flash() {
 
 async function playReveal() {
   const rarity = result.value!.rarity
+  audio.playSfx(RARITY_STAMP_SFX[rarity])
   barkHandle?.cancel()
   barkDone.value = false
   const playAudio = audio.barkThrottle({ rare: rarity === 'elite' || rarity === 'phantom', quickOpen: quickOpen.value })
-  barkHandle = audio.playVoice(rarityBarkVoice(rarity, 'agent'), {
-    captionsRef: barkCaption, text: rarityBarkText(rarity, 'agent'), delayMs: 50,
+  const bark = pickRarityBark(rarity, 'agent')
+  barkHandle = audio.playVoice(bark.voice, {
+    captionsRef: barkCaption, text: bark.text, delayMs: 50,
     skipAudio: !playAudio, onEnd: () => { barkDone.value = true }
   })
   const { gsap } = await import('gsap')
@@ -231,7 +235,7 @@ function traitRange(type: AgentTrait['type']) {
                   :loading="recruiting"
                   :disabled="disabled"
                   label="Start Recruitment"
-                  @click="startRecruitment"
+                  @click="audio.playSfx('click'); startRecruitment()"
                 />
               </div>
             </div>
