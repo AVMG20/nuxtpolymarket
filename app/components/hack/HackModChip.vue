@@ -6,12 +6,17 @@
 defineProps<{
   label: string
   value: string
+  /** Loadout compare: colors the value green/red vs. the equipped item's same
+   * trait. Omitted or 'same' keeps the default neutral color. */
+  compareDir?: 'up' | 'down' | 'same' | null
 }>()
 </script>
 
 <template>
   <span class="hack-mod-chip">
-    <b>{{ value }}</b>
+    <b
+      :class="{ 'text-success': compareDir === 'up', 'text-error': compareDir === 'down' }"
+    >{{ value }}</b>
     <span class="hack-mod-chip-label">{{ label }}</span>
   </span>
 </template>

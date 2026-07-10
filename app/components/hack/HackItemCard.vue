@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {
-  RARITY_COLOR, RARITY_STYLE, MOD_LABEL, formatModValue, SLOT_ICON, SLOT_LABEL,
+  RARITY_STYLE, RARITY_ACCENT, MOD_LABEL, formatModValue, SLOT_ICON,
   itemPower, sortModsByPriority,
   type HackRarity, type ItemSlot, type ItemMod
 } from '#shared/utils/hack-config'
@@ -24,6 +24,9 @@ const props = defineProps<{
   showStatus?: boolean
   /** Render the actions slot always (Items page), not only when selected. */
   actionsAlways?: boolean
+  /** Loadout-only: the currently-equipped item's mods in this slot, so each of
+   * this item's rolled traits can be colored green/red against it. */
+  compare?: { equippedMods: ItemMod[] } | null
 }>()
 
 defineEmits<{ select: [] }>()
@@ -33,6 +36,17 @@ const sortedMods = computed(() => sortModsByPriority(props.item.mods))
 
 const basePower = computed(() => props.item.itemLevel * 2)
 const totalPower = computed(() => itemPower(props.item))
+
+// Per-trait upgrade/downgrade signal vs. the equipped item — only colored when
+// both items roll the same mod type, so we're never implying a verdict on a
+// trait the equipped item simply doesn't have.
+function compareDirFor(mod: ItemMod): 'up' | 'down' | 'same' | null {
+  const equipped = props.compare?.equippedMods.find(m => m.type === mod.type)
+  if (!equipped) return null
+  if (mod.value > equipped.value) return 'up'
+  if (mod.value < equipped.value) return 'down'
+  return 'same'
+}
 </script>
 
 <template>
@@ -45,6 +59,13 @@ const totalPower = computed(() => itemPower(props.item))
     ]"
     @click="!actionsAlways && $emit('select')"
   >
+    <!-- Rarity strip — same treatment as the Agents page's equipped-gear rows,
+         so an item's rarity reads identically wherever it's shown. -->
+    <span
+      class="absolute inset-y-0 left-0 w-1"
+      :class="RARITY_ACCENT[item.rarity]"
+    />
+
     <div class="flex items-start gap-3.5">
       <!-- Slot icon, rarity-tinted (the mockup's left icon column) -->
       <div
@@ -64,24 +85,21 @@ const totalPower = computed(() => itemPower(props.item))
             :class="RARITY_STYLE[item.rarity].text"
           >{{ item.name }}</span>
           <UBadge
-            size="xs"
-            :color="RARITY_COLOR[item.rarity]"
-            variant="subtle"
-            :label="`${SLOT_LABEL[item.slot]} · Lv ${item.itemLevel}`"
-            class="shrink-0"
-          />
-        </div>
-
-        <p class="text-xs text-muted font-mono mt-1">
-          Base <b class="text-primary">+{{ basePower }}</b> · total <b class="text-primary">{{ totalPower }} PWR</b>
-          <UBadge
             v-if="showStatus && item.equippedBy"
             size="xs"
             color="primary"
             variant="subtle"
             label="Equipped"
-            class="ml-1.5 align-middle"
+            class="shrink-0"
           />
+        </div>
+
+        <p class="text-sm font-mono font-bold text-zinc-100 mt-0.5">
+          Level {{ item.itemLevel }}
+        </p>
+
+        <p class="text-xs text-muted font-mono mt-1">
+          Base <b class="text-primary">+{{ basePower }}</b> · total <b class="text-primary">{{ totalPower }} PWR</b>
         </p>
 
         <div class="flex flex-wrap gap-1.5 mt-2.5">
@@ -90,6 +108,7 @@ const totalPower = computed(() => itemPower(props.item))
             :key="m.type"
             :label="MOD_LABEL[m.type]"
             :value="formatModValue(m.type, m.value)"
+            :compare-dir="compareDirFor(m)"
           />
         </div>
       </div>
