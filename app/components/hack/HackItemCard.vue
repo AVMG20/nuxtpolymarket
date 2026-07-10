@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import {
   RARITY_COLOR, RARITY_STYLE, MOD_LABEL, formatModValue, SLOT_ICON, SLOT_LABEL,
-  itemPower,
+  itemPower, sortModsByPriority,
   type HackRarity, type ItemSlot, type ItemMod
 } from '#shared/utils/hack-config'
 
@@ -29,8 +29,7 @@ const props = defineProps<{
 defineEmits<{ select: [] }>()
 
 // Power spec first — power is the one stat every item contributes to.
-const sortedMods = computed(() =>
-  [...props.item.mods].sort((a, b) => Number(b.type === 'power_flat') - Number(a.type === 'power_flat')))
+const sortedMods = computed(() => sortModsByPriority(props.item.mods))
 
 const basePower = computed(() => props.item.itemLevel * 2)
 const totalPower = computed(() => itemPower(props.item))

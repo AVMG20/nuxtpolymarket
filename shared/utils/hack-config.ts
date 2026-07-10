@@ -69,6 +69,11 @@ export const RARITY_COLOR: Record<HackRarity, NuxtColor> = { ghost: 'neutral', o
 export const RARITY_ACCENT: Record<HackRarity, string> = {
   ghost: 'bg-zinc-400', operative: 'bg-green-500', specialist: 'bg-sky-500', elite: 'bg-amber-500', phantom: 'bg-rose-500',
 }
+// Only 3 stamp SFX exist so far (public/hack/sound/sfx/stamp-*.mp3) — the two lower
+// tiers share the "common" stamp until dedicated sounds are sourced for them.
+export const RARITY_STAMP_SFX: Record<HackRarity, string> = {
+  ghost: 'stamp-common', operative: 'stamp-common', specialist: 'stamp-common', elite: 'stamp-elite', phantom: 'stamp-phantom',
+}
 
 // ─── Unified rarity tint ──────────────────────────────────────────────────────
 // Rarity is the ONE color language across the hack UI: avatars, item icons and frames
@@ -197,9 +202,33 @@ export const MOD_RANGES: Record<ModType, { min: number; max: number; decimals: n
 }
 export const MOD_LABEL: Record<ModType, string> = {
   loot_percent: 'Loot', speed_percent: 'Speed', xp_flat: 'XP',
-  gem_chance: 'Gem Chance', power_flat: 'Power',
-  item_chance: 'Item Find', gem_bonus: 'Bonus Gems',
+  gem_chance: 'Gem Chance', power_flat: 'Power', item_chance: 'Item Find', gem_bonus: 'Bonus Gems',
 }
+
+// Global stat display priority order - enforced across all agents and items
+export const STAT_PRIORITY: ModType[] = [
+  'power_flat',      // Power (Calculated as item level + power_flat mod)
+  'speed_percent',   // Op speed %
+  'loot_percent',    // Loot %
+  'item_chance',     // Item find %
+  'gem_chance',      // Gem chance %
+  'gem_bonus',       // Bonus gems (flat)
+]
+
+export function sortModsByPriority(mods: ItemMod[]): ItemMod[] {
+  return [...mods].sort((a, b) => {
+    const aIndex = STAT_PRIORITY.indexOf(a.type)
+    const bIndex = STAT_PRIORITY.indexOf(b.type)
+    // If both types are in the priority list, sort by that
+    if (aIndex !== -1 && bIndex !== -1) return aIndex - bIndex
+    // If only one is in the priority list, it comes first
+    if (aIndex !== -1) return -1
+    if (bIndex !== -1) return 1
+    // If neither is in the priority list, maintain original order
+    return 0
+  })
+}
+
 // Loot & Speed roll to one decimal (e.g. 6.2%), so format up to 1 decimal but trim a
 // trailing ".0" so whole values stay clean (6% not 6.0%).
 export function formatPct(value: number): string { return `${parseFloat(value.toFixed(1))}` }
@@ -270,7 +299,26 @@ export function agentBonusStats(
     }
   }
 
-  return Array.from(map.values()).filter(s => s.value > 0)
+  const stats = Array.from(map.values()).filter(s => s.value > 0)
+  // Sort by global stat priority
+  const keyToPriority: Record<string, number> = {
+    power: 0,
+    speed: 1,
+    loot: 2,
+    itemfind: 3,
+    gem: 4,
+    gembonus: 5,
+    xpflat: 6,
+    xp: 7,
+    powerpct: 8
+  }
+  return stats.sort((a, b) => {
+    const aKey = a.label.toLowerCase().replace(/[^a-z]/g, '')
+    const bKey = b.label.toLowerCase().replace(/[^a-z]/g, '')
+    const aPriority = keyToPriority[aKey] ?? 99
+    const bPriority = keyToPriority[bKey] ?? 99
+    return aPriority - bPriority
+  })
 }
 
 export const RARITY_MOD_COUNT: Record<HackRarity, number> = { ghost: 1, operative: 2, specialist: 3, elite: 4, phantom: 5 }
