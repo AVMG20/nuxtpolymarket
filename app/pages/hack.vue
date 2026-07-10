@@ -64,6 +64,7 @@ onMounted(() => {
         :to="tab.to"
         class="hack-tab"
         :class="activeTab === tab.to && 'active'"
+        @click="audio.playSfx('click')"
       >
         <UIcon
           :name="tab.icon"

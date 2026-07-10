@@ -10,6 +10,7 @@ const { fetchSession, user } = useAuth()
 const gems = computed(() => user.value?.gems ?? 0)
 const { data: state, refresh } = await useFetch('/api/hack/state')
 const toast = useToast()
+const audio = useAudio('hack')
 
 type InvItem = { id: string, name: string, slot: ItemSlot, itemLevel: number, rarity: HackRarity, mods: ItemMod[], equippedBy?: string | null }
 
@@ -60,9 +61,11 @@ async function sellItem(itemId: string) {
   selling.value = itemId
   try {
     const res = await $fetch('/api/hack/items/sell', { method: 'POST', body: { itemId } })
+    audio.playSfx('purchase')
     toast.add({ title: `Sold for $${formatNumber(res.price, true)}`, color: 'success' })
     await Promise.all([refresh(), fetchSession()])
   } catch (e: any) {
+    audio.playSfx('deny')
     toast.add({ title: e.data?.statusMessage ?? 'Sell failed', color: 'error' })
   } finally { selling.value = null }
 }
@@ -118,6 +121,7 @@ async function doUpgrade() {
     toast.add({ title: `Upgraded to level ${res.newLevel}`, color: 'success' })
     await Promise.all([refresh(), fetchSession()])
   } catch (e: any) {
+    audio.playSfx('deny')
     toast.add({ title: e.data?.statusMessage ?? 'Upgrade failed', color: 'error' })
   } finally { upgrading.value = false }
 }
@@ -139,6 +143,7 @@ async function doReroll() {
     toast.add({ title: `Re-rolled for ${res.cost} gems`, color: 'success' })
     await Promise.all([refresh(), fetchSession()])
   } catch (e: any) {
+    audio.playSfx('deny')
     toast.add({ title: e.data?.statusMessage ?? 'Re-roll failed', color: 'error' })
   } finally { rerolling.value = false }
 }
@@ -242,7 +247,7 @@ async function doReroll() {
                   icon="i-lucide-dollar-sign"
                   :label="sellConfirmId === item.id ? 'Confirm sell?' : `Sell $${formatNumber(itemSellPrice(item.rarity), true)}`"
                   :loading="selling === item.id"
-                  @click="requestSell(item.id)"
+                  @click="audio.playSfx('click'); requestSell(item.id)"
                 />
               </div>
             </template>
