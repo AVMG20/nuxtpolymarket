@@ -6,6 +6,7 @@ const { user, fetchSession } = useAuth()
 const balance = computed(() => parseFloat(user.value?.balance ?? '0'))
 const gems = computed(() => user.value?.gems ?? 0)
 const { data: state, refresh } = await useFetch('/api/hack/state')
+const audio = useAudio('hack')
 
 const route = useRoute()
 const section = ref<'contacts' | 'drops'>('contacts')
@@ -30,6 +31,7 @@ const recruitOpen = computed({
   set: (v: boolean) => { if (!v) activeRecruitTier.value = null }
 })
 function openRecruit(tier: AgentPullTier) {
+  audio.playSfx('click-soft')
   activeRecruitTier.value = tier
 }
 
@@ -39,6 +41,7 @@ const crateOpen = computed({
   set: (v: boolean) => { if (!v) activeCrateTier.value = null }
 })
 function openCrate(tier: ItemPullTier) {
+  audio.playSfx('click-soft')
   activeCrateTier.value = tier
 }
 

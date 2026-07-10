@@ -29,13 +29,22 @@ const seller = computed(() => ITEM_PULL_SELLER[props.tier.id])
 const introVoice = computed(() => ITEM_PULL_INTRO_VOICE[props.tier.id] ?? '')
 const introText = computed(() => ITEM_PULL_INTRO_TEXT[props.tier.id] ?? '')
 
+// The seller pitch is a one-shot per tier per session — cool to hear once,
+// grating if it replays every single time you revisit the same dead drop.
+// Marks itself seen as a side effect, so this runs once on mount/tier-change,
+// never from a template expression.
+const introIsFirstTime = ref(false)
+watch(() => props.tier.id, (id) => {
+  introIsFirstTime.value = audio.firstTimeThisSession(`market-crate-intro-${id}`)
+}, { immediate: true })
+
 const barkCaption = ref('')
 const barkDone = ref(false)
 let barkHandle: VoiceHandle | null = null
 const stampEl = ref<HTMLElement | null>(null)
 const cardEl = ref<HTMLElement | null>(null)
 const flashEl = ref<HTMLElement | null>(null)
-const pitchCaptionRef = ref<{ play: () => void, stop: () => void } | null>(null)
+const pitchCaptionRef = ref<{ play: () => void, stop: () => void, showInstant: () => void } | null>(null)
 
 watch(open, (v) => {
   if (v) {
@@ -50,16 +59,21 @@ watch(open, (v) => {
 })
 
 // Quick Open toggled mid-pitch. HackRelayCaption's own autoplay watcher only
-// re-fires on a voiceName/text change, not on the autoplay prop flipping, so
-// turning Quick Open back off wouldn't otherwise restart the line — drive
-// both directions explicitly here instead.
+// re-fires on a voiceName/text change, not on the autoplay/instant props
+// flipping, so turning Quick Open back off wouldn't otherwise restart the
+// line — drive both directions explicitly here instead. Respects the same
+// first-time-this-session gate as the initial render.
 watch(quickOpen, (v) => {
-  if (v) pitchCaptionRef.value?.stop()
-  else pitchCaptionRef.value?.play()
+  if (v) { pitchCaptionRef.value?.stop(); return }
+  if (introIsFirstTime.value) pitchCaptionRef.value?.play()
+  else pitchCaptionRef.value?.showInstant()
 })
 
 async function buyAndOpen() {
   pitchCaptionRef.value?.stop()
+  // The pitch has now been shown (played or instant) — if the pull fails and
+  // we fall back to the pitch stage below, it shouldn't replay.
+  introIsFirstTime.value = false
   buying.value = true
   try {
     if (!quickOpen.value) {
@@ -172,7 +186,8 @@ function modRange(type: ItemMod['type']) {
               class="mt-3.5 block"
               :voice-name="introVoice"
               :text="introText"
-              :autoplay="!quickOpen"
+              :autoplay="!quickOpen && introIsFirstTime"
+              :instant="!quickOpen && !introIsFirstTime"
             />
 
             <hr class="border-default my-4">
