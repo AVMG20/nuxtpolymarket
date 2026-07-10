@@ -187,46 +187,47 @@ function toggle(id: string) {
       <div
         v-for="op in (data.history as HistoryOp[])"
         :key="op.id"
-        class="hack-report-row"
+        class="p-4 border-b border-default last:border-b-0 cursor-pointer hover:bg-elevated transition-colors"
+        :class="expandedId === op.id && 'bg-elevated'"
         @click="toggle(op.id)"
       >
-        <div class="flex items-start justify-between gap-3">
-          <div class="flex items-center gap-3.5 min-w-0 flex-wrap">
+        <div class="flex items-start justify-between gap-4">
+          <div class="flex items-center gap-4 min-w-0 flex-wrap">
             <span
-              class="hack-stamp-sm shrink-0"
+              class="font-mono font-bold text-[11.5px] tracking-wider px-2.5 py-1 border-2 border-current -rotate-4 shrink-0"
               :class="op.success ? 'text-success' : 'text-error'"
             >
-              {{ op.success ? 'Success' : 'Failed' }}
+              {{ op.success ? 'SUCCESS' : 'FAILED' }}
             </span>
             <b class="text-[15px] truncate">{{ template(op.templateId)?.name ?? op.templateId }}</b>
           </div>
           <UIcon
             name="i-lucide-chevron-right"
-            class="hack-chevron size-4 text-muted shrink-0 mt-0.5"
-            :class="expandedId === op.id && 'open'"
+            class="size-4 text-muted shrink-0 transition-transform"
+            :class="expandedId === op.id && 'rotate-90'"
           />
         </div>
 
         <div class="flex items-center gap-2 flex-wrap my-2.5">
           <template v-if="op.success">
-            <span class="hack-reward-chip text-yellow-400">+${{ formatNumber(op.cash, true) }}</span>
+            <span class="font-mono text-xs px-2.5 py-1 border border-default bg-elevated text-yellow-400">+${{ formatNumber(op.cash, true) }}</span>
             <span
               v-if="op.gems > 0"
-              class="hack-reward-chip text-cyan-400"
+              class="font-mono text-xs px-2.5 py-1 border border-default bg-elevated text-cyan-400"
             >+{{ op.gems }} gems</span>
             <span
               v-if="op.itemName"
-              class="hack-reward-chip"
+              class="font-mono text-xs px-2.5 py-1 border border-default bg-elevated"
               :class="RARITY_STYLE[op.itemRarity as HackRarity]?.text"
             >{{ op.itemName }}</span>
           </template>
           <template v-else>
-            <span class="hack-reward-chip text-muted">No reward</span>
-            <span class="hack-reward-chip text-violet-400">Partial XP only</span>
+            <span class="font-mono text-xs px-2.5 py-1 border border-default bg-elevated text-muted">No reward</span>
+            <span class="font-mono text-xs px-2.5 py-1 border border-default bg-elevated text-violet-400">Partial XP only</span>
           </template>
         </div>
 
-        <div class="flex items-center gap-3.5 text-muted font-mono text-[11.5px]">
+        <div class="flex items-center gap-4 text-muted font-mono text-[11.5px]">
           <span>{{ op.agentCount }} agent{{ op.agentCount === 1 ? '' : 's' }}</span>
           <span>{{ formatDuration(op.durationMs) }}</span>
           <span v-if="mounted">{{ relativeTime(op.createdAt) }}</span>
@@ -234,7 +235,7 @@ function toggle(id: string) {
 
         <div
           v-if="expandedId === op.id"
-          class="mt-3 pt-3 border-t border-dashed border-default text-[13px] leading-relaxed text-muted font-mono"
+          class="mt-3 pt-3 border-t border-dashed border-default text-[13px] leading-relaxed text-muted"
         >
           "{{ debriefLine(op) }}" — RELAY
         </div>
