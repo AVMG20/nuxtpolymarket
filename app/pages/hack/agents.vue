@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import {
-  RARITY_COLOR, RARITY_LABEL, RARITY_STYLE, RARITY_ACCENT, CLASS_LABEL, CLASS_ICON, CLASS_PASSIVE,
+  RARITY_COLOR, RARITY_LABEL, RARITY_STYLE, RARITY_ACCENT, RARITY_ORDER, CLASS_LABEL, CLASS_ICON, CLASS_PASSIVE,
   SLOT_ICON, SLOT_LABEL,
   xpToNextLevel, AGENT_MAX_LEVEL, MOD_LABEL, formatModValue,
-  agentBonusStats,
+  agentBonusStats, sortModsByPriority,
   type HackRarity, type AgentClass, type ItemSlot, type ItemMod
 } from '#shared/utils/hack-config'
 import { CLASS_PORTRAIT } from '~/utils/hack-content'
@@ -14,6 +14,7 @@ const { fetchSession, user } = useAuth()
 const balance = computed(() => parseFloat(user.value?.balance ?? '0'))
 const { data: state, refresh } = await useFetch('/api/hack/state')
 const toast = useToast()
+const audio = useAudio('hack')
 
 // Fire agent — arms a confirm first; a second click within the window fires.
 const firing = ref<string | null>(null)
@@ -39,6 +40,7 @@ async function fireAgent(agentId: string, name: string) {
     if (detailAgentId.value === agentId) detailAgentId.value = null
     await Promise.all([refresh(), fetchSession()])
   } catch (e: any) {
+    audio.playSfx('deny')
     toast.add({ title: e.data?.statusMessage ?? 'Cannot fire agent', color: 'error' })
   } finally { firing.value = null }
 }
@@ -57,6 +59,7 @@ async function setActive(agentId: string, active: boolean) {
     detailAgentId.value = null
     await refresh()
   } catch (e: any) {
+    audio.playSfx('deny')
     toast.add({ title: e.data?.statusMessage ?? 'Failed', color: 'error' })
   } finally { togglingActive.value = null }
 }
@@ -84,6 +87,7 @@ async function expandRoster() {
     toast.add({ title: 'Roster expanded', color: 'success' })
     await Promise.all([refresh(), fetchSession()])
   } catch (e: any) {
+    audio.playSfx('deny')
     toast.add({ title: e.data?.statusMessage ?? 'Failed', color: 'error' })
   } finally { expanding.value = false }
 }
@@ -99,6 +103,19 @@ function xpPercent(a: { xp: number, level: number }) {
 function slotItem(agent: { gear?: { tool: any, software: any, hardware: any } }, slot: ItemSlot) {
   return agent.gear?.[slot] ?? null
 }
+
+// ── Sleeper sort ─────────────────────────────────────────────────────
+const sleeperSortBy = ref<'power' | 'rarity' | 'level'>('power')
+const sortedStoredAgents = computed(() => {
+  const agents = [...(state.value?.storedAgents ?? [])]
+  agents.sort((a, b) => {
+    if (sleeperSortBy.value === 'power') return b.power - a.power
+    if (sleeperSortBy.value === 'level') return b.level - a.level
+    const r = RARITY_ORDER.indexOf(b.rarity as HackRarity) - RARITY_ORDER.indexOf(a.rarity as HackRarity)
+    return r !== 0 ? r : b.power - a.power
+  })
+  return agents
+})
 </script>
 
 <template>
@@ -149,7 +166,7 @@ function slotItem(agent: { gear?: { tool: any, software: any, hardware: any } },
     <!-- Large screens: active roster (left) + sleepers (right). Small: stacked. -->
     <div
       v-else
-      class="grid grid-cols-1 xl:grid-cols-[1fr_340px] gap-6 items-start"
+      class="grid grid-cols-1 xl:grid-cols-[1.5fr_340px] gap-6 items-start"
     >
       <!-- ── Active roster ────────────────────────────────────────────── -->
       <section>
@@ -158,7 +175,7 @@ function slotItem(agent: { gear?: { tool: any, software: any, hardware: any } },
           <span class="flex-1 h-px bg-(--hack-border)" />
         </p>
 
-        <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2 gap-4">
+        <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2 huge:grid-cols-3! gap-4">
           <HackFrame
             v-for="agent in state.agents"
             :key="agent.id"
@@ -178,12 +195,22 @@ function slotItem(agent: { gear?: { tool: any, software: any, hardware: any } },
               </div>
               <div class="flex-1 min-w-0">
                 <div class="flex items-center justify-between gap-2 flex-wrap">
-                  <span class="hack-card-title-lg text-lg">{{ agent.name }}</span>
-                  <UBadge
-                    :color="RARITY_COLOR[agent.rarity as HackRarity]"
-                    variant="subtle"
-                    :label="RARITY_LABEL[agent.rarity as HackRarity]"
-                  />
+                  <div class="flex items-center gap-2">
+                    <span class="hack-card-title-lg text-lg">{{ agent.name }}</span>
+                    <UBadge
+                      :color="RARITY_COLOR[agent.rarity as HackRarity]"
+                      variant="subtle"
+                      :label="RARITY_LABEL[agent.rarity as HackRarity]"
+                    />
+                  </div>
+                  <div class="text-right shrink-0">
+                    <p class="text-xs text-muted">
+                      Power Total
+                    </p>
+                    <p class="text-xl font-bold text-primary">
+                      {{ agent.power }}
+                    </p>
+                  </div>
                 </div>
                 <p class="text-xs text-muted font-mono mt-1 flex items-center gap-1.5 flex-wrap">
                   <UIcon
@@ -255,10 +282,13 @@ function slotItem(agent: { gear?: { tool: any, software: any, hardware: any } },
                     :class="RARITY_ACCENT[slotItem(agent, slot)!.rarity as HackRarity]"
                   />
                   <div class="flex items-center justify-between gap-2 mb-1.5">
-                    <span
-                      class="font-bold text-sm"
-                      :class="RARITY_STYLE[slotItem(agent, slot)!.rarity as HackRarity].text"
-                    >{{ slotItem(agent, slot)!.name }}</span>
+                    <div class="flex items-center gap-2">
+                      <UIcon
+                        :name="SLOT_ICON[slot]"
+                        class="size-4 shrink-0"
+                        :class="RARITY_STYLE[slotItem(agent, slot)!.rarity as HackRarity].text"
+                      />
+                    </div>
                     <UBadge
                       size="xs"
                       variant="subtle"
@@ -268,7 +298,7 @@ function slotItem(agent: { gear?: { tool: any, software: any, hardware: any } },
                   </div>
                   <div class="flex flex-wrap gap-1.5">
                     <HackModChip
-                      v-for="m in (slotItem(agent, slot)!.mods as ItemMod[])"
+                      v-for="m in sortModsByPriority(slotItem(agent, slot)!.mods as ItemMod[])"
                       :key="m.type"
                       :label="MOD_LABEL[m.type]"
                       :value="formatModValue(m.type, m.value)"
@@ -351,13 +381,23 @@ function slotItem(agent: { gear?: { tool: any, software: any, hardware: any } },
 
       <!-- ── Sleeper agents (right on xl, below on small) ────────────────── -->
       <section v-if="state.storedAgents.length">
-        <p class="hack-stat-label-md flex items-center gap-2.5 mb-3.5">
+        <p class="hack-stat-label-md flex items-center gap-2.5 mb-2">
           Sleeper agents <span class="text-muted normal-case tracking-normal">— {{ state.storedAgents.length }} stored, {{ state.maxAgents }} max</span>
           <span class="flex-1 h-px bg-(--hack-border)" />
         </p>
+        <USelect
+          v-model="sleeperSortBy"
+          :items="[
+            { value: 'power', label: 'Power' },
+            { value: 'rarity', label: 'Rarity' },
+            { value: 'level', label: 'Level' }
+          ]"
+          size="xs"
+          class="w-28 mb-3.5"
+        />
         <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-1 gap-2.5">
           <HackFrame
-            v-for="agent in state.storedAgents"
+            v-for="agent in sortedStoredAgents"
             :key="agent.id"
             tight
             class="p-3 space-y-2.5"
