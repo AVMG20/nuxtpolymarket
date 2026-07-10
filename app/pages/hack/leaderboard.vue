@@ -35,65 +35,147 @@ const rankLabel = ['#1 MOST WANTED', '#2 MOST WANTED', '#3 MOST WANTED']
       v-else-if="players?.length"
       class="space-y-6"
     >
-      <!-- Top 3 — dossier treatment -->
+      <!-- Top 3 podium layout -->
       <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <!-- #2 position -->
         <HackFrame
-          v-for="(p, i) in players.slice(0, 3)"
-          :key="p.userId"
-          :accent="i === 0"
-          class="p-4 text-center"
+          v-if="players[1]"
+          :key="players[1].userId"
+          class="p-6 text-center mt-7"
         >
           <p
-            class="hack-eyebrow"
-            :class="rankAccent[i]"
+            class="font-mono font-bold text-2xl"
+            :class="rankAccent[1]"
           >
-            {{ rankLabel[i] }}
+            #2
           </p>
           <div
-            class="size-20 mx-auto my-3 rounded-lg flex items-center justify-center bg-elevated border border-default"
-            :class="rankAccent[i]"
+            class="size-20 mx-auto my-3 rounded-full overflow-hidden bg-elevated border border-default"
           >
             <UIcon
               name="i-lucide-user-round"
               class="size-10 opacity-70"
             />
           </div>
-          <p class="font-bold text-lg truncate">
-            {{ p.name }}
+          <p class="font-bold text-xl truncate">
+            {{ players[1].name }}
           </p>
+          <p class="text-sm text-muted mt-1">
+            {{ players[1].agentCount }} agents
+          </p>
+          <div class="grid grid-cols-4 gap-2 mt-4">
+            <div>
+              <p class="font-mono text-xs uppercase text-muted tracking-wider">Power</p>
+              <p class="font-mono text-lg font-semibold text-primary mt-0.5">{{ formatNumber(players[1].totalPower, false) }}</p>
+            </div>
+            <div>
+              <p class="font-mono text-xs uppercase text-muted tracking-wider">Roster</p>
+              <p class="font-mono text-lg font-semibold mt-0.5">{{ players[1].agentCount }}/{{ players[1].rosterSlots }}</p>
+            </div>
+            <div>
+              <p class="font-mono text-xs uppercase text-muted tracking-wider">Equip.</p>
+              <p class="font-mono text-lg font-semibold mt-0.5">{{ players[1].itemCount }}</p>
+            </div>
+            <div>
+              <p class="font-mono text-xs uppercase text-muted tracking-wider">Ops</p>
+              <p class="font-mono text-lg font-semibold mt-0.5">{{ players[1].totalOpsCompleted }}</p>
+            </div>
+          </div>
+        </HackFrame>
+
+        <!-- #1 position (center, larger) -->
+        <HackFrame
+          v-if="players[0]"
+          :key="players[0].userId"
+          accent
+          class="p-6 text-center"
+        >
           <p
-            class="hack-stat-value-lg mt-1"
-            :class="rankAccent[i]"
+            class="font-mono font-bold text-2xl"
+            :class="rankAccent[0]"
           >
-            {{ formatNumber(p.totalPower, false) }}
+            #1
           </p>
-          <p class="hack-stat-label-md mb-3">
-            Power
+          <div
+            class="size-24 mx-auto my-3 rounded-full overflow-hidden bg-elevated border-2 border-primary"
+          >
+            <UIcon
+              name="i-lucide-user-round"
+              class="size-12 opacity-70"
+            />
+          </div>
+          <p class="font-bold text-2xl truncate">
+            {{ players[0].name }}
           </p>
-          <div class="grid grid-cols-3 gap-2 pt-3 border-t border-default text-xs">
+          <p class="text-sm text-muted mt-1">
+            {{ players[0].agentCount }} agents
+          </p>
+          <div class="grid grid-cols-4 gap-2 mt-4">
             <div>
-              <p class="font-semibold text-info">
-                {{ p.agentCount }}/{{ p.rosterSlots }}
-              </p>
-              <p class="text-muted">
-                Roster
-              </p>
+              <p class="font-mono text-xs uppercase text-muted tracking-wider">Power</p>
+              <p class="font-mono text-lg font-semibold text-primary mt-0.5">{{ formatNumber(players[0].totalPower, false) }}</p>
             </div>
             <div>
-              <p class="font-semibold text-warning">
-                {{ p.itemCount }}
-              </p>
-              <p class="text-muted">
-                Gear
-              </p>
+              <p class="font-mono text-xs uppercase text-muted tracking-wider">Roster</p>
+              <p class="font-mono text-lg font-semibold mt-0.5">{{ players[0].agentCount }}/{{ players[0].rosterSlots }}</p>
             </div>
             <div>
-              <p class="font-semibold text-success">
-                {{ p.totalOpsCompleted }}
-              </p>
-              <p class="text-muted">
-                Ops
-              </p>
+              <p class="font-mono text-xs uppercase text-muted tracking-wider">Equip.</p>
+              <p class="font-mono text-lg font-semibold mt-0.5">{{ players[0].itemCount }}</p>
+            </div>
+            <div>
+              <p class="font-mono text-xs uppercase text-muted tracking-wider">Ops</p>
+              <p class="font-mono text-lg font-semibold mt-0.5">{{ players[0].totalOpsCompleted }}</p>
+            </div>
+          </div>
+          <div class="mt-4 pt-3 border-t border-default">
+            <p class="font-mono text-sm uppercase text-muted tracking-wider">Total power</p>
+            <p class="font-mono text-2xl font-bold text-primary mt-1">{{ formatNumber(players[0].totalPower, false) }}</p>
+          </div>
+        </HackFrame>
+
+        <!-- #3 position -->
+        <HackFrame
+          v-if="players[2]"
+          :key="players[2].userId"
+          class="p-6 text-center mt-7"
+        >
+          <p
+            class="font-mono font-bold text-2xl"
+            :class="rankAccent[2]"
+          >
+            #3
+          </p>
+          <div
+            class="size-20 mx-auto my-3 rounded-full overflow-hidden bg-elevated border border-default"
+          >
+            <UIcon
+              name="i-lucide-user-round"
+              class="size-10 opacity-70"
+            />
+          </div>
+          <p class="font-bold text-xl truncate">
+            {{ players[2].name }}
+          </p>
+          <p class="text-sm text-muted mt-1">
+            {{ players[2].agentCount }} agents
+          </p>
+          <div class="grid grid-cols-4 gap-2 mt-4">
+            <div>
+              <p class="font-mono text-xs uppercase text-muted tracking-wider">Power</p>
+              <p class="font-mono text-lg font-semibold text-primary mt-0.5">{{ formatNumber(players[2].totalPower, false) }}</p>
+            </div>
+            <div>
+              <p class="font-mono text-xs uppercase text-muted tracking-wider">Roster</p>
+              <p class="font-mono text-lg font-semibold mt-0.5">{{ players[2].agentCount }}/{{ players[2].rosterSlots }}</p>
+            </div>
+            <div>
+              <p class="font-mono text-xs uppercase text-muted tracking-wider">Equip.</p>
+              <p class="font-mono text-lg font-semibold mt-0.5">{{ players[2].itemCount }}</p>
+            </div>
+            <div>
+              <p class="font-mono text-xs uppercase text-muted tracking-wider">Ops</p>
+              <p class="font-mono text-lg font-semibold mt-0.5">{{ players[2].totalOpsCompleted }}</p>
             </div>
           </div>
         </HackFrame>
@@ -102,64 +184,44 @@ const rankLabel = ['#1 MOST WANTED', '#2 MOST WANTED', '#3 MOST WANTED']
       <!-- Rest of the board -->
       <div
         v-if="players.length > 3"
-        class="space-y-1.5"
       >
-        <HackFrame
-          v-for="(p, i) in players.slice(3)"
-          :key="p.userId"
-          tight
-          class="flex items-center gap-3 p-3"
-        >
-          <span class="w-7 text-center text-muted font-mono text-sm shrink-0">{{ i + 4 }}</span>
+        <HackFrame tight>
+          <div
+            v-for="(p, i) in players.slice(3)"
+            :key="p.userId"
+            class="flex items-center gap-4 p-4 border-b border-default last:border-b-0"
+            :class="p.isCurrentUser ? 'bg-primary/10' : ''"
+          >
+            <span class="w-7 text-center text-muted font-mono text-sm shrink-0">{{ i + 4 }}</span>
 
-          <div class="size-8 rounded-lg bg-elevated border border-default flex items-center justify-center shrink-0 text-muted">
-            <UIcon
-              name="i-lucide-user-round"
-              class="size-4"
-            />
-          </div>
+            <div class="min-w-0 flex-1">
+              <p class="font-semibold text-base truncate">
+                {{ p.name }} <span v-if="p.isCurrentUser" class="text-muted font-normal">(you)</span>
+              </p>
+              <p class="text-sm text-muted mt-0.5">
+                {{ p.agentCount }} agents
+              </p>
+            </div>
 
-          <div class="min-w-0 w-28 shrink-0">
-            <p class="font-medium truncate text-sm">
-              {{ p.name }}
-            </p>
-            <p class="text-[10px] text-muted">
-              {{ p.agentCount }} agents
-            </p>
-          </div>
-
-          <div class="hidden sm:flex items-center gap-4 flex-1">
-            <div class="flex items-center gap-1">
-              <UIcon
-                name="i-lucide-zap"
-                class="size-3 text-primary"
-              />
-              <span class="text-xs text-primary">{{ formatNumber(p.totalPower, false) }}</span>
-            </div>
-            <div class="flex items-center gap-1">
-              <UIcon
-                name="i-lucide-users"
-                class="size-3 text-info"
-              />
-              <span class="text-xs text-info">{{ p.agentCount }}/{{ p.rosterSlots }}</span>
-            </div>
-            <div class="flex items-center gap-1">
-              <UIcon
-                name="i-lucide-package"
-                class="size-3 text-warning"
-              />
-              <span class="text-xs text-warning">{{ p.itemCount }}</span>
-            </div>
-            <div class="flex items-center gap-1">
-              <UIcon
-                name="i-lucide-check-circle"
-                class="size-3 text-success"
-              />
-              <span class="text-xs text-success">{{ p.totalOpsCompleted }}</span>
+            <div class="flex items-center gap-6">
+              <div class="text-right">
+                <p class="font-mono text-xs uppercase text-muted tracking-wider">Power</p>
+                <p class="font-mono text-base font-semibold text-primary mt-0.5">{{ formatNumber(p.totalPower, false) }}</p>
+              </div>
+              <div class="text-right">
+                <p class="font-mono text-xs uppercase text-muted tracking-wider">Roster</p>
+                <p class="font-mono text-base font-semibold mt-0.5">{{ p.agentCount }}/{{ p.rosterSlots }}</p>
+              </div>
+              <div class="text-right">
+                <p class="font-mono text-xs uppercase text-muted tracking-wider">Equip.</p>
+                <p class="font-mono text-base font-semibold mt-0.5">{{ p.itemCount }}</p>
+              </div>
+              <div class="text-right">
+                <p class="font-mono text-xs uppercase text-muted tracking-wider">Ops</p>
+                <p class="font-mono text-base font-semibold mt-0.5">{{ p.totalOpsCompleted }}</p>
+              </div>
             </div>
           </div>
-
-          <span class="hack-stat-value-lg shrink-0 text-primary">{{ formatNumber(p.totalPower, false) }}</span>
         </HackFrame>
       </div>
     </div>
