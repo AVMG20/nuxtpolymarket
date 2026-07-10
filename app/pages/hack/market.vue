@@ -7,7 +7,15 @@ const balance = computed(() => parseFloat(user.value?.balance ?? '0'))
 const gems = computed(() => user.value?.gems ?? 0)
 const { data: state, refresh } = await useFetch('/api/hack/state')
 
+const route = useRoute()
 const section = ref<'contacts' | 'drops'>('contacts')
+
+// Handle tab query parameter from Loadout redirect
+onMounted(() => {
+  if (route.query.tab === 'gear') {
+    section.value = 'drops'
+  }
+})
 
 function canAfford(tier: { currency?: string, cost: number }) {
   return tier.currency === 'gems' ? gems.value >= tier.cost : balance.value >= tier.cost

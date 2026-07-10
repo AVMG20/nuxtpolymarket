@@ -27,9 +27,26 @@ const SLOTS: ItemSlot[] = ['tool', 'software', 'hardware']
 const route = useRoute()
 const router = useRouter()
 const toast = useToast()
+const audio = useAudio('hack')
 const { data: state, refresh } = await useFetch('/api/hack/state')
 
-const roster = computed<Agent[]>(() => [...(state.value?.agents ?? []), ...(state.value?.storedAgents ?? [])] as Agent[])
+const agentSortBy = ref<'power' | 'rarity' | 'level'>('power')
+const roster = computed<Agent[]>(() => {
+  const agents = [...(state.value?.agents ?? []), ...(state.value?.storedAgents ?? [])] as Agent[]
+  agents.sort((a, b) => {
+    if (agentSortBy.value === 'power') {
+      return b.power - a.power
+    }
+    if (agentSortBy.value === 'level') {
+      return b.level - a.level
+    }
+    const r = RARITY_ORDER.indexOf(b.rarity) - RARITY_ORDER.indexOf(a.rarity)
+    return r !== 0 ? r : b.power - a.power
+  })
+  return agents
+})
+const sortedActiveAgents = computed(() => roster.value.filter(a => a.active))
+const sortedStoredAgents = computed(() => roster.value.filter(a => !a.active))
 
 // Deep-linked from Agents cards via ?agent={id} (PLAN.md §2.2). Falls back to
 // the first roster agent, and re-settles if the selected agent gets fired.
@@ -69,9 +86,10 @@ const slotFilters = [
 const sortOptions = [
   { value: 'rarity', label: 'Rarity' },
   { value: 'power', label: 'Power' },
-  { value: 'name', label: 'Name' }
+  { value: 'name', label: 'Name' },
+  { value: 'level', label: 'Level' }
 ] as const
-const sortBy = ref<'rarity' | 'power' | 'name'>('rarity')
+const sortBy = ref<'rarity' | 'power' | 'name' | 'level'>('rarity')
 
 const filteredItems = computed<InvItem[]>(() => {
   const items = ((state.value?.items ?? []) as InvItem[])
@@ -82,6 +100,9 @@ const filteredItems = computed<InvItem[]>(() => {
     }
     if (sortBy.value === 'name') {
       return a.name.localeCompare(b.name)
+    }
+    if (sortBy.value === 'level') {
+      return b.itemLevel - a.itemLevel
     }
     const r = RARITY_ORDER.indexOf(b.rarity) - RARITY_ORDER.indexOf(a.rarity)
     return r !== 0 ? r : itemPower(b) - itemPower(a)
@@ -154,10 +175,12 @@ async function confirmSwap() {
       method: 'POST',
       body: { itemId: compareCandidate.value.id, agentId: selectedAgent.value.id }
     })
+    audio.playSfx('loadout-lock')
     toast.add({ title: `${compareCandidate.value.name} equipped`, color: 'success' })
     compareItemId.value = null
     await refresh()
   } catch (e: any) {
+    audio.playSfx('deny')
     toast.add({ title: e.data?.statusMessage ?? 'Equip failed', color: 'error' })
   } finally { equipping.value = false }
 }
@@ -166,9 +189,11 @@ async function unequip(item: InvItem) {
   equipping.value = true
   try {
     await $fetch('/api/hack/items/equip', { method: 'POST', body: { itemId: item.id, agentId: null } })
+    audio.playSfx('loadout-lock')
     toast.add({ title: 'Item unequipped', color: 'neutral' })
     await refresh()
   } catch (e: any) {
+    audio.playSfx('deny')
     toast.add({ title: e.data?.statusMessage ?? 'Failed', color: 'error' })
   } finally { equipping.value = false }
 }
@@ -197,11 +222,23 @@ function onDropOnBay(slot: ItemSlot) {
     <div class="hidden lg:block w-64 shrink-0 overflow-y-auto p-3">
       <HackFrame class="py-1.5 pb-2">
         <template v-if="state?.agents.length">
-          <p class="hack-eyebrow px-3.5 pt-2.5 pb-1.5">
-            Active
-          </p>
+          <div class="px-3.5 pt-2.5 pb-1.5 flex items-center justify-between gap-2">
+            <p class="hack-eyebrow">
+              Active
+            </p>
+            <USelect
+              v-model="agentSortBy"
+              :items="[
+                { value: 'power', label: 'Power' },
+                { value: 'rarity', label: 'Rarity' },
+                { value: 'level', label: 'Level' }
+              ]"
+              size="xs"
+              class="w-28 shrink-0"
+            />
+          </div>
           <button
-            v-for="a in (state.agents as Agent[])"
+            v-for="a in sortedActiveAgents"
             :key="a.id"
             type="button"
             class="w-full flex items-center gap-3 px-3.5 py-2.5 text-left transition-colors border-l-2 cursor-pointer"
@@ -226,7 +263,7 @@ function onDropOnBay(slot: ItemSlot) {
                 class="text-xs font-mono"
                 :class="RARITY_STYLE[a.rarity].text"
               >
-                {{ RARITY_LABEL[a.rarity] }} · Lv{{ a.level }}
+                {{ RARITY_LABEL[a.rarity] }} · Lv{{ a.level }} · PWR {{ a.power }}
               </p>
             </div>
           </button>
@@ -236,7 +273,7 @@ function onDropOnBay(slot: ItemSlot) {
             Sleeper
           </p>
           <button
-            v-for="a in (state.storedAgents as Agent[])"
+            v-for="a in sortedStoredAgents"
             :key="a.id"
             type="button"
             class="w-full flex items-center gap-3 px-3.5 py-2.5 text-left transition-colors border-l-2 cursor-pointer"
@@ -261,7 +298,7 @@ function onDropOnBay(slot: ItemSlot) {
                 class="text-xs font-mono"
                 :class="RARITY_STYLE[a.rarity].text"
               >
-                {{ RARITY_LABEL[a.rarity] }} · Lv{{ a.level }}
+                {{ RARITY_LABEL[a.rarity] }} · Lv{{ a.level }} · PWR {{ a.power }}
               </p>
             </div>
           </button>
@@ -409,10 +446,10 @@ function onDropOnBay(slot: ItemSlot) {
               size="xs"
               color="neutral"
               variant="outline"
-              icon="i-lucide-link-slash"
+              icon="i-lucide-link-2-off"
               label="Unequip"
               :loading="equipping"
-              @click.stop="unequip(selectedAgent.gear[slot]!)"
+              @click.stop="audio.playSfx('click'); unequip(selectedAgent.gear[slot]!)"
             />
           </div>
         </div>
@@ -509,7 +546,7 @@ function onDropOnBay(slot: ItemSlot) {
           class="mt-4"
           color="neutral"
           variant="outline"
-          to="/hack/market"
+          to="/hack/market?tab=gear"
           icon="i-lucide-store"
           label="Need better gear? → Black Market"
         />
@@ -705,7 +742,7 @@ function onDropOnBay(slot: ItemSlot) {
               color="primary"
               label="Confirm Swap"
               :loading="equipping"
-              @click="confirmSwap"
+              @click="audio.playSfx('click'); confirmSwap()"
             />
           </div>
         </div>
