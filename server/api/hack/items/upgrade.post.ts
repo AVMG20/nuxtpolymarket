@@ -1,7 +1,8 @@
-import { eq, and, sql } from 'drizzle-orm'
+import { eq, and } from 'drizzle-orm'
 import { db } from '#server/database'
-import { hackItems, user } from '#server/database/schema'
+import { hackItems } from '#server/database/schema'
 import { auth } from '#server/utils/auth'
+import { debitGems } from '#server/utils/balance'
 import { ITEM_MAX_LEVEL, itemUpgradeCostForLevels } from '#shared/utils/hack-config'
 
 export default defineEventHandler(async (event) => {
@@ -25,11 +26,7 @@ export default defineEventHandler(async (event) => {
   )
   const cost = itemUpgradeCostForLevels(item.itemLevel, levels)
 
-  const currentUser = await db.query.user.findFirst({ where: eq(user.id, userId) })
-  if ((currentUser?.gems ?? 0) < cost)
-    throw createError({ statusCode: 400, statusMessage: 'Not enough gems' })
-
-  await db.update(user).set({ gems: sql`${user.gems} - ${cost}` }).where(eq(user.id, userId))
+  await debitGems(userId, cost)
   const [updated] = await db.update(hackItems)
     .set({ itemLevel: item.itemLevel + levels })
     .where(eq(hackItems.id, itemId))
