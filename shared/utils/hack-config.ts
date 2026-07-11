@@ -412,26 +412,44 @@ export function rerollItemMods(mods: ItemMod[], lockedTypes: ModType[]): ItemMod
   return mods.map(m => (lockedSet.has(m.type) ? m : rolled[r++]!))
 }
 
-export const AGENT_CODENAMES = [
-  'Cipher', 'Phantom', 'Ghost', 'Wraith', 'Viper', 'Shadow', 'Nexus', 'Static',
-  'Hydra', 'Void', 'Specter', 'Rogue', 'Neon', 'Glitch', 'Byte', 'Root',
-  'Kernel', 'Vector', 'Daemon', 'Proxy', 'Null', 'Hex', 'Zero', 'Stack',
-]
+// Each class draws from its own flavored codename pool, so a name reinforces the
+// agent's role: ghosts for infiltrators, math/crypto for cryptographers, con-artist
+// handles for social engineers, and blunt-force names for bruteforcers.
+export const AGENT_CODENAMES: Record<AgentClass, string[]> = {
+  infiltrator: [
+    'Wraith', 'Specter', 'Shade', 'Ghost', 'Phantom', 'Mirage',
+    'Veil', 'Hollow', 'Umbra', 'Drift', 'Vanish', 'Whisper',
+  ],
+  cryptographer: [
+    'Cipher', 'Hash', 'Enigma', 'Vector', 'Prime', 'Lattice',
+    'Rune', 'Glyph', 'Sigma', 'Axiom', 'Quanta', 'Kernel',
+  ],
+  social_engineer: [
+    'Guile', 'Grift', 'Persona', 'Chameleon', 'Vox', 'Muse',
+    'Envoy', 'Fable', 'Charm', 'Mimic', 'Halo', 'Silvertongue',
+  ],
+  bruteforce: [
+    'Havoc', 'Titan', 'Hammer', 'Brute', 'Breaker', 'Anvil',
+    'Maul', 'Siege', 'Onyx', 'Blitz', 'Fury', 'Rampart',
+  ],
+}
 const AGENT_CLASSES: AgentClass[] = ['infiltrator', 'cryptographer', 'social_engineer', 'bruteforce']
 
 export function generateAgentDef(rarity: HackRarity, takenNames: string[] = []) {
-  const available = AGENT_CODENAMES.filter(n => !takenNames.includes(n))
+  const cls = pickRandom(AGENT_CLASSES)
+  const pool = AGENT_CODENAMES[cls]
+  const available = pool.filter(n => !takenNames.includes(n))
   let name: string
   if (available.length > 0) {
     name = pickRandom(available)
   } else {
-    // All base names taken — add numeric suffix
-    let base = pickRandom(AGENT_CODENAMES)
+    // Whole class pool taken — add a numeric suffix to one of its codenames
+    const base = pickRandom(pool)
     let suffix = 2
     while (takenNames.includes(`${base}-${suffix}`)) suffix++
     name = `${base}-${suffix}`
   }
-  return { name, class: pickRandom(AGENT_CLASSES), rarity, level: 1, xp: 0, traits: generateAgentTraits(rarity) }
+  return { name, class: cls, rarity, level: 1, xp: 0, traits: generateAgentTraits(rarity) }
 }
 
 // ─── Fixed pull pricing ───────────────────────────────────────────────────────
