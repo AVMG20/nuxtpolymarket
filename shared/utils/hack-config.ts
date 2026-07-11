@@ -299,8 +299,8 @@ export function agentBonusStats(
     }
   }
 
-  const stats = Array.from(map.values()).filter(s => s.value > 0)
-  // Sort by global stat priority
+  // Sort by global stat priority, keyed off the internal accumulator key (not the
+  // display label) so every stat lands where intended.
   const keyToPriority: Record<string, number> = {
     power: 0,
     speed: 1,
@@ -310,15 +310,12 @@ export function agentBonusStats(
     gembonus: 5,
     xpflat: 6,
     xp: 7,
-    powerpct: 8
+    powerpct: 8,
   }
-  return stats.sort((a, b) => {
-    const aKey = a.label.toLowerCase().replace(/[^a-z]/g, '')
-    const bKey = b.label.toLowerCase().replace(/[^a-z]/g, '')
-    const aPriority = keyToPriority[aKey] ?? 99
-    const bPriority = keyToPriority[bKey] ?? 99
-    return aPriority - bPriority
-  })
+  return Array.from(map.entries())
+    .filter(([, s]) => s.value > 0)
+    .sort(([aKey], [bKey]) => (keyToPriority[aKey] ?? 99) - (keyToPriority[bKey] ?? 99))
+    .map(([, s]) => s)
 }
 
 export const RARITY_MOD_COUNT: Record<HackRarity, number> = { ghost: 1, operative: 2, specialist: 3, elite: 4, phantom: 5 }
@@ -362,8 +359,8 @@ export function generateItem(rarity: HackRarity, slot?: ItemSlot): HackItemDef {
 
 // ─── Item leveling ────────────────────────────────────────────────────────────
 // Items never level on their own. Upgrading at the Crafting Bench costs gems and adds
-// +2 power per level (see itemPower). Cost grows ~10% per level: 1 gem for level 2,
-// 6 gems for the final level — ~99 gems total to take one item from 1 to 20.
+// +2 power per level (see itemPower). Cost grows ~13% per level: 1 gem for level 2,
+// 9 gems for the final level — ~70 gems total to take one item from 1 to 20.
 export const ITEM_MAX_LEVEL = 20
 export function itemUpgradeCost(currentLevel: number): number {
     return Math.round(Math.pow(1.13, currentLevel - 1))
@@ -682,8 +679,7 @@ export function rollOpReward(
     gems = gMin + Math.floor(Math.random() * (gMax - gMin + 1)) + bonuses.gemBonus
   }
   // Item Find gear mods raise the op's base drop chance (capped so it can't be a guarantee).
-  const itemDropChance = Math.min(0.9, template.itemDropChance + bonuses.itemChance)
-  const wouldDropItem = Math.random() < itemDropChance
+  const wouldDropItem = Math.random() < effectiveItemDropChance(template, bonuses)
   // Op drops roll the same full mod ranges as crates — rarity is fixed per op.
   const item = wouldDropItem && !inventoryFull
     ? generateItem(template.itemDropRarity)
