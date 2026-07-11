@@ -5,7 +5,6 @@ import {
   agentPower, agentBonusStats, itemPower,
   type HackRarity, type AgentClass, type ItemSlot, type ItemMod, type AgentTrait
 } from '#shared/utils/hack-config'
-import { CLASS_PORTRAIT } from '~/utils/hack-content'
 import { LOADOUT_SWAP, LOADOUT_UNEQUIP, pickVoiceLine, type VoiceEntry } from '~/utils/hack-voice-lines'
 import type { VoiceHandle } from '~/composables/useAudio'
 
@@ -272,16 +271,11 @@ function onDropOnBay(slot: ItemSlot) {
             :class="selectedAgentId === a.id ? 'bg-primary/10 border-primary' : 'border-transparent hover:bg-elevated'"
             @click="selectAgent(a.id)"
           >
-            <div
-              class="size-10 shrink-0 overflow-hidden ring-1"
-              :class="RARITY_STYLE[a.rarity].ring"
-            >
-              <img
-                :src="CLASS_PORTRAIT[a.class]"
-                :alt="CLASS_LABEL[a.class]"
-                class="w-full h-full object-cover"
-              >
-            </div>
+            <HackAgentAvatar
+              class="size-10 shrink-0"
+              :name="a.name"
+              :rarity="a.rarity"
+            />
             <div class="min-w-0">
               <p class="font-semibold text-sm truncate">
                 {{ a.name }}
@@ -307,16 +301,11 @@ function onDropOnBay(slot: ItemSlot) {
             :class="selectedAgentId === a.id ? 'bg-primary/10 border-primary' : 'border-transparent hover:bg-elevated'"
             @click="selectAgent(a.id)"
           >
-            <div
-              class="size-10 shrink-0 overflow-hidden ring-1"
-              :class="RARITY_STYLE[a.rarity].ring"
-            >
-              <img
-                :src="CLASS_PORTRAIT[a.class]"
-                :alt="CLASS_LABEL[a.class]"
-                class="w-full h-full object-cover"
-              >
-            </div>
+            <HackAgentAvatar
+              class="size-10 shrink-0"
+              :name="a.name"
+              :rarity="a.rarity"
+            />
             <div class="min-w-0">
               <p class="font-semibold text-sm truncate">
                 {{ a.name }}
@@ -388,16 +377,11 @@ function onDropOnBay(slot: ItemSlot) {
         class="p-6 max-w-2xl mx-auto"
       >
         <div class="text-center mb-6">
-          <div
-            class="size-36 mx-auto mb-4 overflow-hidden ring-1"
-            :class="RARITY_STYLE[selectedAgent.rarity].ring"
-          >
-            <img
-              :src="CLASS_PORTRAIT[selectedAgent.class]"
-              :alt="CLASS_LABEL[selectedAgent.class]"
-              class="w-full h-full object-cover"
-            >
-          </div>
+          <HackAgentAvatar
+            class="size-36 mx-auto mb-4"
+            :name="selectedAgent.name"
+            :rarity="selectedAgent.rarity"
+          />
           <div class="flex items-center justify-center gap-2 flex-wrap">
             <span class="font-bold text-2xl">{{ selectedAgent.name }}</span>
             <UBadge
@@ -607,16 +591,11 @@ function onDropOnBay(slot: ItemSlot) {
           :class="selectedAgentId === a.id ? 'bg-primary/10 border-primary' : 'border-transparent hover:bg-elevated'"
           @click="selectAgent(a.id)"
         >
-          <div
-            class="size-10 shrink-0 overflow-hidden ring-1"
-            :class="RARITY_STYLE[a.rarity].ring"
-          >
-            <img
-              :src="CLASS_PORTRAIT[a.class]"
-              :alt="CLASS_LABEL[a.class]"
-              class="w-full h-full object-cover"
-            >
-          </div>
+          <HackAgentAvatar
+            class="size-10 shrink-0"
+            :name="a.name"
+            :rarity="a.rarity"
+          />
           <div class="min-w-0">
             <p class="font-semibold text-sm truncate">
               {{ a.name }}

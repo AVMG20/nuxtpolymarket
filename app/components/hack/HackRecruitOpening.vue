@@ -3,7 +3,7 @@ import {
   AGENT_TRAIT_LABEL, AGENT_TRAIT_RANGES, CLASS_LABEL, RARITY_LABEL, RARITY_STAMP_SFX, RARITY_STYLE, formatTraitValue,
   type AgentPullTier, type AgentTrait, type HackRarity
 } from '#shared/utils/hack-config'
-import { AGENT_PULL_CONTACT, CLASS_PORTRAIT, agentBioLine } from '~/utils/hack-content'
+import { AGENT_PULL_CONTACT, agentBioLine } from '~/utils/hack-content'
 import {
   AGENT_PULL_CONFIRM_TEXT, AGENT_PULL_CONFIRM_VOICE, AGENT_PULL_INTRO_TEXT, AGENT_PULL_INTRO_VOICE, pickRarityBark
 } from '~/utils/hack-voice-lines'
@@ -301,16 +301,11 @@ function traitRange(type: AgentTrait['type']) {
             class="p-6"
           >
             <div class="flex items-center gap-4 mb-5">
-              <div
-                class="size-24 rounded-lg overflow-hidden shrink-0 ring-1"
-                :class="RARITY_STYLE[result.rarity].ring"
-              >
-                <img
-                  :src="CLASS_PORTRAIT[result.class as keyof typeof CLASS_PORTRAIT]"
-                  class="w-full h-full object-cover"
-                  :alt="CLASS_LABEL[result.class as keyof typeof CLASS_LABEL]"
-                >
-              </div>
+              <HackAgentAvatar
+                class="size-24 rounded-lg shrink-0"
+                :name="result.name"
+                :rarity="result.rarity"
+              />
               <div class="min-w-0">
                 <span
                   class="hack-card-title-lg text-lg"

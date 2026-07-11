@@ -110,12 +110,29 @@ export function agentBioLine(agent: { class: AgentClass, rarity: HackRarity, tra
   return parts.join(' ')
 }
 
-// One base template photo per class (PLAN.md §12.4) — every agent of a given
-// class shows the identical unmodified photo regardless of rarity for now; a
-// rarity color-grade layer on top is a planned follow-up, not built yet.
-export const CLASS_PORTRAIT: Record<AgentClass, string> = {
-  infiltrator: '/hack/img/agent/infiltrator.jpg',
-  cryptographer: '/hack/img/agent/cryptographer.jpg',
-  social_engineer: '/hack/img/agent/social-engineer.jpg',
-  bruteforce: '/hack/img/agent/bruteforce.jpg'
+// Agent sigil icons — a name maps deterministically to one emblem, tinted per
+// rarity by an SVG duotone (HackAgentAvatar + HackRarityDuotone). Two tiers:
+// ghost/operative/specialist share the common pool; elite/phantom draw fancier
+// crests so higher rarities feel more special. Pools can grow over time; a name
+// always resolves to the same icon within whichever pool its rarity uses.
+export const AGENT_ICON_COMMON = [
+  'wraith', 'dagger', 'cipher', 'sigil', 'mask', 'fox', 'hammer', 'skull',
+  'viper', 'raven', 'neural', 'padlock', 'knight', 'crown', 'bolt', 'hydra'
+]
+export const AGENT_ICON_ELITE = ['phoenix', 'dragon', 'seraph', 'warcrown', 'kraken', 'demon']
+
+function hashName(name: string): number {
+  let h = 2166136261
+  for (let i = 0; i < name.length; i++) {
+    h ^= name.charCodeAt(i)
+    h = Math.imul(h, 16777619)
+  }
+  return h >>> 0
+}
+
+export function agentIcon(name: string, rarity: HackRarity): string {
+  const elite = rarity === 'elite' || rarity === 'phantom'
+  const pool = elite ? AGENT_ICON_ELITE : AGENT_ICON_COMMON
+  const dir = elite ? 'agent-icons-elite' : 'agent-icons'
+  return `/hack/img/${dir}/${pool[hashName(name) % pool.length]}.png`
 }

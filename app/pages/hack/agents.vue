@@ -6,7 +6,6 @@ import {
   agentBonusStats, sortModsByPriority, itemPower,
   type HackRarity, type AgentClass, type ItemSlot, type ItemMod
 } from '#shared/utils/hack-config'
-import { CLASS_PORTRAIT } from '~/utils/hack-content'
 import { AGENT_ACTIVATE, AGENT_DEACTIVATE, AGENT_FIRED, ROSTER_EXPAND, pickVoiceLine, type VoiceEntry } from '~/utils/hack-voice-lines'
 import type { VoiceHandle } from '~/composables/useAudio'
 
@@ -201,16 +200,11 @@ const sortedStoredAgents = computed(() => {
           >
             <!-- Header: portrait + identity + xp -->
             <div class="flex items-start gap-4 mb-4">
-              <div
-                class="size-20 shrink-0 overflow-hidden ring-1"
-                :class="RARITY_STYLE[agent.rarity as HackRarity].ring"
-              >
-                <img
-                  :src="CLASS_PORTRAIT[agent.class as AgentClass]"
-                  :alt="CLASS_LABEL[agent.class as AgentClass]"
-                  class="w-full h-full object-cover"
-                >
-              </div>
+              <HackAgentAvatar
+                class="size-20 shrink-0"
+                :name="agent.name"
+                :rarity="agent.rarity as HackRarity"
+              />
               <div class="flex-1 min-w-0">
                 <div class="flex items-center justify-between gap-2 flex-wrap">
                   <div class="flex items-center gap-2">
@@ -436,16 +430,11 @@ const sortedStoredAgents = computed(() => {
               class="flex items-center gap-3 cursor-pointer"
               @click="detailAgentId = agent.id"
             >
-              <div
-                class="size-11 shrink-0 overflow-hidden ring-1"
-                :class="RARITY_STYLE[agent.rarity as HackRarity].ring"
-              >
-                <img
-                  :src="CLASS_PORTRAIT[agent.class as AgentClass]"
-                  :alt="CLASS_LABEL[agent.class as AgentClass]"
-                  class="w-full h-full object-cover"
-                >
-              </div>
+              <HackAgentAvatar
+                class="size-11 shrink-0"
+                :name="agent.name"
+                :rarity="agent.rarity as HackRarity"
+              />
               <div class="flex-1 min-w-0">
                 <div class="flex items-center gap-2 flex-wrap">
                   <span class="font-semibold text-sm truncate">{{ agent.name }}</span>
@@ -507,16 +496,11 @@ const sortedStoredAgents = computed(() => {
     >
       <div class="space-y-4">
         <div class="flex items-start gap-3">
-          <div
-            class="size-14 shrink-0 overflow-hidden ring-1"
-            :class="RARITY_STYLE[detailAgent.rarity as HackRarity].ring"
-          >
-            <img
-              :src="CLASS_PORTRAIT[detailAgent.class as AgentClass]"
-              :alt="CLASS_LABEL[detailAgent.class as AgentClass]"
-              class="w-full h-full object-cover"
-            >
-          </div>
+          <HackAgentAvatar
+            class="size-14 shrink-0"
+            :name="detailAgent.name"
+            :rarity="detailAgent.rarity as HackRarity"
+          />
           <div class="flex-1 min-w-0">
             <div class="flex items-center gap-2 flex-wrap">
               <span class="font-bold text-lg">{{ detailAgent.name }}</span>
