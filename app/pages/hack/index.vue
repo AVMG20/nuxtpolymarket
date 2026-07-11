@@ -105,6 +105,10 @@ watch(skipBriefing, v => localStorage.setItem('hack-skip-briefing', String(v)))
 const briefingVoice = computed(() => selectedTemplate.value ? missionVoice(selectedTemplate.value.id) : '')
 const briefingText = computed(() => selectedTemplate.value ? missionBriefing(selectedTemplate.value.id) : '')
 const briefingCaptionRef = ref<{ stop: () => void } | null>(null)
+// While the briefing VO is still playing, suppress the squad-select outro so the
+// two lines don't talk over each other. Cleared when the caption — paced to the
+// clip's real length — finishes (`@ended`), or when the briefing is dismissed.
+const briefingPlaying = ref(false)
 
 // The "pick your people" outro line — plays once per session, on the first
 // squad selection of any briefing, not every time.
@@ -114,10 +118,12 @@ function openBriefing(template: any) {
   audio.playSfx('briefing-open')
   selectedTemplate.value = template
   selectedAgentIds.value = []
+  briefingPlaying.value = true
 }
 function closeBriefing() {
   briefingCaptionRef.value?.stop()
   outroHandle?.cancel()
+  briefingPlaying.value = false
   selectedTemplate.value = null
 }
 
@@ -128,7 +134,10 @@ function toggleAgent(id: string, template: any) {
   } else if (selectedAgentIds.value.length < template.maxAgents) {
     selectedAgentIds.value.push(id)
   }
-  if (!outroPlayed && selectedAgentIds.value.length > 0) {
+  // Don't let the squad-select outro play over a briefing that's still running.
+  // It simply doesn't fire in that case; a later pick after the briefing has
+  // finished still gets it, since outroPlayed stays false here.
+  if (!outroPlayed && !briefingPlaying.value && selectedAgentIds.value.length > 0) {
     outroPlayed = true
     outroHandle = audio.playVoice(pickVoiceLine(BRIEF_OUTRO).voice, { delayMs: 200 })
   }
@@ -141,6 +150,7 @@ async function dispatch() {
   // they're done listening.
   briefingCaptionRef.value?.stop()
   outroHandle?.cancel()
+  briefingPlaying.value = false
   dispatching.value = true
   try {
     await $fetch('/api/hack/ops/dispatch', {
@@ -608,6 +618,7 @@ const thumbFailed = ref<Record<string, boolean>>({})
                 :voice-name="briefingVoice"
                 :text="briefingText"
                 :delay-ms="skipBriefing ? 0 : 300"
+                @ended="briefingPlaying = false"
               />
             </div>
           </HackFrame>
