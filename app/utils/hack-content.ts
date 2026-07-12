@@ -45,6 +45,12 @@ export function missionThumbnail(id: string): string {
   return `/hack/img/mission/${id.replace(/_/g, '-')}.jpg`
 }
 
+// URL slug for an op's dedicated briefing page (/hack/ops/<slug>). Op ids only
+// ever use underscores, so the underscore↔hyphen swap is reversible and safe.
+export function missionSlug(id: string): string {
+  return id.replace(/_/g, '-')
+}
+
 // ─── Black Market — Contacts (agent pulls) & Dead Drops (item crates) ─────────
 // Seller identity/portrait only — the actual intro/confirm voice lines live
 // in hack-voice-lines.ts alongside every other VO line.

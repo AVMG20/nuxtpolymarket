@@ -16,7 +16,10 @@ const tabs = [
   { label: 'Wiki', to: '/hack/wiki', icon: 'i-lucide-book-open' }
 ]
 
-const activeTab = computed(() => route.path)
+// The Ops tab (/hack) stays active on its nested briefing routes (/hack/ops/*).
+function isActiveTab(to: string) {
+  return to === '/hack' ? route.path === '/hack' || route.path.startsWith('/hack/ops') : route.path === to
+}
 
 // Browsers block autoplay until a user gesture on the page — resume the
 // AudioContext on the first one so briefing/reveal VO plays audibly instead
@@ -64,7 +67,7 @@ onMounted(() => {
         :key="tab.to"
         :to="tab.to"
         class="hack-tab"
-        :class="activeTab === tab.to && 'active'"
+        :class="isActiveTab(tab.to) && 'active'"
         @click="audio.playSfx('click')"
       >
         <UIcon
