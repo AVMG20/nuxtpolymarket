@@ -1,10 +1,10 @@
 import { eq } from 'drizzle-orm'
 import { db } from '#server/database'
-import { pirateState } from '#server/database/schema'
+import { pirateState, pirateCannons } from '#server/database/schema'
 import { auth } from '#server/utils/auth'
 import {
     PIRATE_RUN_DURATION_MS, piratePowerLevel,
-    pirateMaxHp, pirateShipSpeed, pirateCannonStats, pirateCannonRange, pirateReloadMs
+    pirateMaxHp, pirateShipSpeed, pirateDefenseRating, pirateAmmoCapacity, pirateCannonTier
 } from '#shared/utils/gamelogic/pirates'
 
 export default defineEventHandler(async (event) => {
@@ -13,17 +13,21 @@ export default defineEventHandler(async (event) => {
 
     const userId = session.user.id
 
-    const s = await db.query.pirateState.findFirst({ where: eq(pirateState.userId, userId) })
+    const [s, cannons] = await Promise.all([
+        db.query.pirateState.findFirst({ where: eq(pirateState.userId, userId) }),
+        db.query.pirateCannons.findMany({ where: eq(pirateCannons.userId, userId) })
+    ])
     if (!s) throw createError({ statusCode: 404, statusMessage: 'Pirate state not initialized' })
+    if (cannons.length < 1) throw createError({ statusCode: 400, statusMessage: 'Equip at least one cannon before setting sail' })
+    if (s.ammoCount < 1) throw createError({ statusCode: 400, statusMessage: 'Stock up on ammo before setting sail' })
 
     const levels = {
         hull: s.hullLevel,
         speed: s.speedLevel,
-        damage: s.damageLevel,
-        range: s.rangeLevel,
-        reload: s.reloadLevel
+        defense: s.defenseLevel,
+        ammoCapacity: s.ammoCapacityLevel
     }
-    const power = piratePowerLevel(levels)
+    const power = piratePowerLevel({ levels, cannonTierIds: cannons.map(c => c.tierId), cannonSlots: s.cannonSlots })
     const startedAt = new Date()
 
     await db.update(pirateState)
@@ -37,9 +41,21 @@ export default defineEventHandler(async (event) => {
         stats: {
             maxHp: pirateMaxHp(s.hullLevel),
             speed: pirateShipSpeed(s.speedLevel),
-            cannon: pirateCannonStats(s.damageLevel),
-            range: pirateCannonRange(s.rangeLevel),
-            reloadMs: pirateReloadMs(s.reloadLevel)
-        }
+            defenseRating: pirateDefenseRating(s.defenseLevel),
+            ammoCapacity: pirateAmmoCapacity(s.ammoCapacityLevel)
+        },
+        ammo: s.ammoCount,
+        cannons: cannons
+            .sort((a, b) => a.slotIndex - b.slotIndex)
+            .map((c) => {
+                const tier = pirateCannonTier(c.tierId)
+                return {
+                    slotIndex: c.slotIndex,
+                    attackRating: tier.attackRating,
+                    maxDamage: tier.maxDamage,
+                    reloadMs: tier.reloadMs,
+                    range: tier.range
+                }
+            })
     }
 })

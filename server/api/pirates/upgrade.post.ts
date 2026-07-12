@@ -3,14 +3,13 @@ import { db } from '#server/database'
 import { pirateState } from '#server/database/schema'
 import { auth } from '#server/utils/auth'
 import { debit } from '#server/utils/balance'
-import { PIRATE_STAT_IDS, PIRATE_MAX_STAT_LEVEL, pirateUpgradeCost, type PirateStatId } from '#shared/utils/gamelogic/pirates'
+import { PIRATE_SHIP_STAT_IDS, PIRATE_MAX_STAT_LEVEL, pirateUpgradeCost, type PirateShipStatId } from '#shared/utils/gamelogic/pirates'
 
-const LEVEL_COLUMN: Record<PirateStatId, 'hullLevel' | 'speedLevel' | 'damageLevel' | 'rangeLevel' | 'reloadLevel'> = {
+const LEVEL_COLUMN: Record<PirateShipStatId, 'hullLevel' | 'speedLevel' | 'defenseLevel' | 'ammoCapacityLevel'> = {
     hull: 'hullLevel',
     speed: 'speedLevel',
-    damage: 'damageLevel',
-    range: 'rangeLevel',
-    reload: 'reloadLevel'
+    defense: 'defenseLevel',
+    ammoCapacity: 'ammoCapacityLevel'
 }
 
 export default defineEventHandler(async (event) => {
@@ -20,8 +19,8 @@ export default defineEventHandler(async (event) => {
     const userId = session.user.id
 
     const body = await readBody(event)
-    const stat = body?.stat as PirateStatId
-    if (!PIRATE_STAT_IDS.includes(stat)) throw createError({ statusCode: 400, statusMessage: 'Invalid stat' })
+    const stat = body?.stat as PirateShipStatId
+    if (!PIRATE_SHIP_STAT_IDS.includes(stat)) throw createError({ statusCode: 400, statusMessage: 'Invalid stat' })
 
     const s = await db.query.pirateState.findFirst({ where: eq(pirateState.userId, userId) })
     if (!s) throw createError({ statusCode: 404, statusMessage: 'Pirate state not initialized' })

@@ -1,12 +1,13 @@
 import { eq } from 'drizzle-orm'
 import { db } from '#server/database'
-import { pirateState } from '#server/database/schema'
+import { pirateState, pirateCannons } from '#server/database/schema'
 import { auth } from '#server/utils/auth'
 import { getBalance } from '#server/utils/balance'
 import {
-    PIRATE_STAT_IDS, PIRATE_MAX_STAT_LEVEL, PIRATE_RUN_DURATION_MS,
-    pirateUpgradeCost, pirateMaxHp, pirateShipSpeed, pirateCannonStats,
-    pirateCannonRange, pirateReloadMs, piratePowerLevel
+    PIRATE_SHIP_STAT_IDS, PIRATE_MAX_STAT_LEVEL, PIRATE_RUN_DURATION_MS, PIRATE_MAX_CANNON_SLOTS,
+    PIRATE_CANNON_SELL_REFUND_RATE, PIRATE_AMMO_PRICE_PER_UNIT,
+    pirateUpgradeCost, pirateMaxHp, pirateShipSpeed, pirateDefenseRating, pirateAmmoCapacity,
+    pirateSlotUnlockCost, pirateCannonTier, piratePowerLevel
 } from '#shared/utils/gamelogic/pirates'
 
 export default defineEventHandler(async (event) => {
@@ -15,33 +16,65 @@ export default defineEventHandler(async (event) => {
 
     const userId = session.user.id
 
-    const [balance, existing] = await Promise.all([
+    const [balance, existing, cannons] = await Promise.all([
         getBalance(userId),
-        db.query.pirateState.findFirst({ where: eq(pirateState.userId, userId) })
+        db.query.pirateState.findFirst({ where: eq(pirateState.userId, userId) }),
+        db.query.pirateCannons.findMany({ where: eq(pirateCannons.userId, userId) })
     ])
 
-    const s = existing ?? (await db.insert(pirateState).values({ userId }).returning())[0]!
+    let s = existing
+    let cannonRows = cannons
+    if (!s) {
+        s = (await db.insert(pirateState).values({ userId }).returning())[0]!
+        cannonRows = (await db.insert(pirateCannons).values({ userId, slotIndex: 0, tierId: 'swivel', purchasePrice: 0 }).returning())
+    }
 
     const levels = {
         hull: s.hullLevel,
         speed: s.speedLevel,
-        damage: s.damageLevel,
-        range: s.rangeLevel,
-        reload: s.reloadLevel
+        defense: s.defenseLevel,
+        ammoCapacity: s.ammoCapacityLevel
     }
+
+    const cannonList = cannonRows
+        .sort((a, b) => a.slotIndex - b.slotIndex)
+        .map((c) => {
+            const tier = pirateCannonTier(c.tierId)
+            return {
+                slotIndex: c.slotIndex,
+                tierId: c.tierId,
+                name: tier.name,
+                attackRating: tier.attackRating,
+                maxDamage: tier.maxDamage,
+                reloadMs: tier.reloadMs,
+                range: tier.range,
+                purchasePrice: c.purchasePrice,
+                sellValue: Math.round(c.purchasePrice * PIRATE_CANNON_SELL_REFUND_RATE)
+            }
+        })
+
+    const capacity = pirateAmmoCapacity(s.ammoCapacityLevel)
 
     return {
         balance,
         levels,
         maxLevel: PIRATE_MAX_STAT_LEVEL,
-        costs: Object.fromEntries(PIRATE_STAT_IDS.map(id => [id, pirateUpgradeCost(levels[id])])),
-        power: piratePowerLevel(levels),
+        costs: Object.fromEntries(PIRATE_SHIP_STAT_IDS.map(id => [id, pirateUpgradeCost(levels[id])])),
+        power: piratePowerLevel({ levels, cannonTierIds: cannonList.map(c => c.tierId), cannonSlots: s.cannonSlots }),
         stats: {
             maxHp: pirateMaxHp(s.hullLevel),
             speed: pirateShipSpeed(s.speedLevel),
-            cannon: pirateCannonStats(s.damageLevel),
-            range: pirateCannonRange(s.rangeLevel),
-            reloadMs: pirateReloadMs(s.reloadLevel)
+            defenseRating: pirateDefenseRating(s.defenseLevel),
+            ammoCapacity: capacity
+        },
+        cannons: cannonList,
+        cannonSlots: s.cannonSlots,
+        maxCannonSlots: PIRATE_MAX_CANNON_SLOTS,
+        nextSlotCost: pirateSlotUnlockCost(s.cannonSlots),
+        ammo: {
+            count: s.ammoCount,
+            capacity,
+            pricePerUnit: PIRATE_AMMO_PRICE_PER_UNIT
         },
         runsPlayed: s.runsPlayed,
         totalCoinsEarned: s.totalCoinsEarned,

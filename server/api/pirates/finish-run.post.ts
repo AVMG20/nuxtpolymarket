@@ -13,6 +13,7 @@ export default defineEventHandler(async (event) => {
 
     const body = await readBody(event)
     const reportedCoins = Math.max(0, Math.floor(Number(body?.coins) || 0))
+    const reportedAmmoUsed = Math.max(0, Math.floor(Number(body?.ammoUsed) || 0))
     const survived = Boolean(body?.survived)
     // Set when the client is just clearing a stale lock left by a closed tab on
     // page load, not reporting a real voyage — its wall-clock "elapsed" time is
@@ -33,16 +34,18 @@ export default defineEventHandler(async (event) => {
 
     const maxPayout = abandoned ? 0 : pirateMaxPayoutForRun(elapsedMs, power)
     const awarded = Math.min(reportedCoins, maxPayout)
+    const ammoUsed = abandoned ? 0 : Math.min(reportedAmmoUsed, s.ammoCount)
 
     await db.update(pirateState).set({
         runStartedAt: null,
         runPowerSnapshot: null,
         runsPlayed: abandoned ? s.runsPlayed : s.runsPlayed + 1,
         totalCoinsEarned: s.totalCoinsEarned + awarded,
+        ammoCount: s.ammoCount - ammoUsed,
         bestSurvivalMs: abandoned ? s.bestSurvivalMs : Math.max(s.bestSurvivalMs, Math.min(elapsedMs, PIRATE_RUN_DURATION_MS))
     }).where(eq(pirateState.userId, userId))
 
     if (awarded > 0) await credit(userId, awarded.toFixed(4), 'pirates')
 
-    return { awarded, capped: awarded < reportedCoins, elapsedMs, survived }
+    return { awarded, capped: awarded < reportedCoins, elapsedMs, survived, ammoRemaining: s.ammoCount - ammoUsed }
 })
