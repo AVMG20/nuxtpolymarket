@@ -107,6 +107,26 @@ export const minerState = pgTable('miner_state', {
   catalystLevel: integer('catalyst_level').notNull().default(0)
 })
 
+// ─── Pirates ──────────────────────────────────────────────────────────────
+
+export const pirateState = pgTable('pirate_state', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().unique().references(() => user.id, { onDelete: 'cascade' }),
+  hullLevel: integer('hull_level').notNull().default(1),
+  speedLevel: integer('speed_level').notNull().default(1),
+  damageLevel: integer('damage_level').notNull().default(1),
+  rangeLevel: integer('range_level').notNull().default(1),
+  reloadLevel: integer('reload_level').notNull().default(1),
+  runsPlayed: integer('runs_played').notNull().default(0),
+  totalCoinsEarned: integer('total_coins_earned').notNull().default(0),
+  bestSurvivalMs: integer('best_survival_ms').notNull().default(0),
+  // Set when a voyage starts, cleared on finish. Server computes elapsed time
+  // from this instead of trusting the client, and snapshots the power level
+  // so mid-run upgrades can't raise the finish-run payout ceiling.
+  runStartedAt: timestamp('run_started_at'),
+  runPowerSnapshot: integer('run_power_snapshot')
+})
+
 export const gemMarketState = pgTable('gem_market_state', {
   id: text('id').primaryKey(), // always 'market'
   price: numeric('price', { precision: 19, scale: 8 }).notNull(),
@@ -320,11 +340,16 @@ export const userRelations = relations(user, ({ many, one }) => ({
   sessions: many(session),
   accounts: many(account),
   transactions: many(transactions),
-  minerState: one(minerState)
+  minerState: one(minerState),
+  pirateState: one(pirateState)
 }))
 
 export const minerStateRelations = relations(minerState, ({ one }) => ({
   user: one(user, { fields: [minerState.userId], references: [user.id] })
+}))
+
+export const pirateStateRelations = relations(pirateState, ({ one }) => ({
+  user: one(user, { fields: [pirateState.userId], references: [user.id] })
 }))
 
 export const gemPriceHistoryRelations = relations(gemPriceHistory, ({ one }) => ({
