@@ -11,7 +11,7 @@ function parseChangelogEntry(raw: string): ChangelogEntry {
     const match = raw.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/)
     if (!match) throw createError({ statusCode: 500, statusMessage: 'Invalid changelog entry format' })
 
-    const [, frontmatter, body] = match
+    const [, frontmatter = '', body = ''] = match
     const data: Record<string, string> = {}
     for (const line of frontmatter.split('\n')) {
         const separatorIndex = line.indexOf(':')
