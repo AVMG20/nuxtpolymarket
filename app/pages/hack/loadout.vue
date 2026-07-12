@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import {
   RARITY_COLOR, RARITY_LABEL, RARITY_STYLE, CLASS_LABEL,
-  SLOT_ICON, SLOT_LABEL, RARITY_ORDER, MOD_LABEL, formatModValue, sortModsByPriority,
+  SLOT_ICON, SLOT_LABEL, RARITY_ORDER, MOD_LABEL, MOD_RANGES, formatModValue, rollPct, sortModsByPriority,
   agentPower, agentBonusStats, itemPower,
   type HackRarity, type AgentClass, type ItemSlot, type ItemMod, type AgentTrait
 } from '#shared/utils/hack-config'
@@ -441,6 +441,8 @@ function onDropOnBay(slot: ItemSlot) {
                     :key="m.type"
                     :label="MOD_LABEL[m.type]"
                     :value="formatModValue(m.type, m.value)"
+                    :pct="rollPct(MOD_RANGES[m.type], m.value)"
+                    :value-max="formatModValue(m.type, MOD_RANGES[m.type].max)"
                   />
                 </div>
               </template>

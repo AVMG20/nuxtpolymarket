@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { rollPct } from '#shared/utils/hack-config'
+
 // Shows a rolled value's position within its full min/max range — reused
 // identically for item mods (MOD_RANGES) and agent traits (AGENT_TRAIT_RANGES),
 // per PLAN.md §10.5/§10.7: "how good is this roll" answered visually.
@@ -10,10 +12,7 @@ const props = defineProps<{
   maxLabel?: string
 }>()
 
-const pct = computed(() => {
-  if (props.max === props.min) return 100
-  return Math.min(100, Math.max(0, Math.round((props.value - props.min) / (props.max - props.min) * 100)))
-})
+const pct = computed(() => rollPct({ min: props.min, max: props.max }, props.value))
 </script>
 
 <template>

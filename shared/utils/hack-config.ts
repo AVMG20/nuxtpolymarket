@@ -205,6 +205,14 @@ export const MOD_LABEL: Record<ModType, string> = {
   gem_chance: 'Gem Chance', power_flat: 'Power', item_chance: 'Item Find', gem_bonus: 'Bonus Gems',
 }
 
+// Where a rolled value lands within its full range, as 0–100. The single source
+// of truth for "how good is this roll" — used by both HackRangeBar and the fill
+// baked into HackModChip so a floor roll and a god roll read the same everywhere.
+export function rollPct(range: { min: number; max: number }, value: number): number {
+    if (range.max === range.min) return 100
+    return Math.min(100, Math.max(0, Math.round((value - range.min) / (range.max - range.min) * 100)))
+}
+
 // Global stat display priority order - enforced across all agents and items
 export const STAT_PRIORITY: ModType[] = [
   'power_flat',      // Power (Calculated as item level + power_flat mod)

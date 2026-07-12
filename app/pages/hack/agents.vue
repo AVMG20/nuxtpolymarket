@@ -2,7 +2,7 @@
 import {
   RARITY_COLOR, RARITY_LABEL, RARITY_STYLE, RARITY_ACCENT, RARITY_ORDER, CLASS_LABEL, CLASS_ICON, CLASS_PASSIVE,
   SLOT_ICON, SLOT_LABEL,
-  xpToNextLevel, AGENT_MAX_LEVEL, MOD_LABEL, formatModValue,
+  xpToNextLevel, AGENT_MAX_LEVEL, MOD_LABEL, MOD_RANGES, formatModValue, rollPct,
   agentBonusStats, sortModsByPriority, itemPower,
   type HackRarity, type AgentClass, type ItemSlot, type ItemMod
 } from '#shared/utils/hack-config'
@@ -119,6 +119,9 @@ function xpPercent(a: { xp: number, level: number }) {
 }
 function slotItem(agent: { gear?: { tool: any, software: any, hardware: any } }, slot: ItemSlot) {
   return agent.gear?.[slot] ?? null
+}
+function gearCount(agent: { gear?: { tool: any, software: any, hardware: any } }) {
+  return (['tool', 'software', 'hardware'] as ItemSlot[]).filter(s => slotItem(agent, s)).length
 }
 
 // ── Sleeper sort ─────────────────────────────────────────────────────
@@ -272,15 +275,34 @@ const sortedStoredAgents = computed(() => {
               />
             </div>
 
-            <!-- Equipped gear -->
-            <p class="hack-stat-label-md mb-2">
-              Equipped gear
-            </p>
-            <div class="space-y-2 mb-4">
-              <div
-                v-for="slot in (['tool', 'software', 'hardware'] as ItemSlot[])"
-                :key="slot"
-              >
+            <!-- Equipped gear — collapsed by default; gear is secondary on this
+                 roster view, so it stays out of the way until expanded. -->
+            <UCollapsible
+              :default-open="false"
+              class="mb-4"
+            >
+              <template #default="{ open }">
+                <button
+                  type="button"
+                  class="w-full flex items-center justify-between gap-2 mb-2"
+                >
+                  <span class="hack-stat-label-md">
+                    Equipped gear <span class="text-muted normal-case tracking-normal">— {{ gearCount(agent) }} / 3</span>
+                  </span>
+                  <UIcon
+                    name="i-lucide-chevron-down"
+                    class="size-4 text-muted transition-transform"
+                    :class="open && 'rotate-180'"
+                  />
+                </button>
+              </template>
+
+              <template #content>
+                <div class="space-y-2 pt-1">
+                  <div
+                    v-for="slot in (['tool', 'software', 'hardware'] as ItemSlot[])"
+                    :key="slot"
+                  >
                 <div
                   v-if="slotItem(agent, slot)"
                   class="hack-frame hack-frame-tight hack-frame-2 relative pl-4 pr-3 py-2.5"
@@ -320,6 +342,8 @@ const sortedStoredAgents = computed(() => {
                           :key="m.type"
                           :label="MOD_LABEL[m.type]"
                           :value="formatModValue(m.type, m.value)"
+                          :pct="rollPct(MOD_RANGES[m.type], m.value)"
+                          :value-max="formatModValue(m.type, MOD_RANGES[m.type].max)"
                         />
                       </div>
                     </div>
@@ -335,8 +359,10 @@ const sortedStoredAgents = computed(() => {
                   />
                   <span class="text-xs text-muted font-mono uppercase tracking-wide">Empty {{ SLOT_LABEL[slot] }} slot</span>
                 </div>
-              </div>
-            </div>
+                  </div>
+                </div>
+              </template>
+            </UCollapsible>
 
             <!-- Footer: power + actions -->
             <div class="flex items-center justify-between gap-2 flex-wrap">

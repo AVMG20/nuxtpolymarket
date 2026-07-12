@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {
-  RARITY_STYLE, RARITY_ACCENT, MOD_LABEL, formatModValue, SLOT_ICON,
+  RARITY_STYLE, RARITY_ACCENT, MOD_LABEL, MOD_RANGES, formatModValue, rollPct, SLOT_ICON,
   itemPower, sortModsByPriority,
   type HackRarity, type ItemSlot, type ItemMod
 } from '#shared/utils/hack-config'
@@ -108,6 +108,8 @@ function compareDirFor(mod: ItemMod): 'up' | 'down' | 'same' | null {
             :key="m.type"
             :label="MOD_LABEL[m.type]"
             :value="formatModValue(m.type, m.value)"
+            :pct="rollPct(MOD_RANGES[m.type], m.value)"
+            :value-max="formatModValue(m.type, MOD_RANGES[m.type].max)"
             :compare-dir="compareDirFor(m)"
           />
         </div>

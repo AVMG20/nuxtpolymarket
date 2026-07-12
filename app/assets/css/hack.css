@@ -111,6 +111,18 @@
 .hack-mod-chip b { font-weight: 700; }
 .hack-mod-chip-label { color: var(--ui-text-dimmed); text-transform: uppercase; font-size: 10.5px; letter-spacing: 0.04em; }
 
+/* Roll-quality grading: a thin accent bar along the chip's inside bottom edge
+   fills to the roll's percentile within its range, so a floor roll and a god
+   roll read at a glance without washing out the label above it. */
+.hack-mod-chip-graded { position: relative; overflow: hidden; }
+.hack-mod-chip-fill {
+  position: absolute; left: 0; bottom: 0; height: 4px;
+  background: var(--hack-accent);
+}
+/* Standalone bar for the chip's hover popover — same look as hack-range-bar but
+   without its flex:1 (which would collapse height inside the tooltip column). */
+.hack-roll-tip-bar { position: relative; height: 6px; background: var(--hack-panel-2); border: 1px solid var(--hack-border); }
+
 /* ── Range bar — a rolled value's position within its min/max range ──── */
 .hack-range-bar { position: relative; flex: 1; height: 8px; background: var(--hack-panel-2); border: 1px solid var(--hack-border); }
 .hack-range-fill { position: absolute; top: 0; left: 0; height: 100%; background: color-mix(in srgb, var(--hack-accent) 30%, transparent); }
