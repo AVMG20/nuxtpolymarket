@@ -2,7 +2,10 @@
 const { data: players, pending } = await useFetch('/api/hack/leaderboard')
 
 const rankAccent = ['text-yellow-400', 'text-slate-300', 'text-amber-600']
+const rankCircleBg = ['bg-yellow-400', 'bg-slate-300', 'bg-amber-600']
 const rankLabel = ['#1 MOST WANTED', '#2 MOST WANTED', '#3 MOST WANTED']
+
+const initial = (name: string) => name.charAt(0).toUpperCase()
 </script>
 
 <template>
@@ -50,12 +53,10 @@ const rankLabel = ['#1 MOST WANTED', '#2 MOST WANTED', '#3 MOST WANTED']
             #2
           </p>
           <div
-            class="size-20 mx-auto my-3 rounded-full overflow-hidden bg-elevated border border-default"
+            class="size-20 mx-auto my-3 rounded-full flex items-center justify-center"
+            :class="rankCircleBg[1]"
           >
-            <UIcon
-              name="i-lucide-user-round"
-              class="size-10 opacity-70"
-            />
+            <span class="text-3xl font-bold text-black">{{ initial(players[1].name) }}</span>
           </div>
           <p class="font-bold text-xl truncate">
             {{ players[1].name }}
@@ -97,12 +98,10 @@ const rankLabel = ['#1 MOST WANTED', '#2 MOST WANTED', '#3 MOST WANTED']
             #1
           </p>
           <div
-            class="size-24 mx-auto my-3 rounded-full overflow-hidden bg-elevated border-2 border-primary"
+            class="size-24 mx-auto my-3 rounded-full flex items-center justify-center"
+            :class="rankCircleBg[0]"
           >
-            <UIcon
-              name="i-lucide-user-round"
-              class="size-12 opacity-70"
-            />
+            <span class="text-4xl font-bold text-black">{{ initial(players[0].name) }}</span>
           </div>
           <p class="font-bold text-2xl truncate">
             {{ players[0].name }}
@@ -147,12 +146,10 @@ const rankLabel = ['#1 MOST WANTED', '#2 MOST WANTED', '#3 MOST WANTED']
             #3
           </p>
           <div
-            class="size-20 mx-auto my-3 rounded-full overflow-hidden bg-elevated border border-default"
+            class="size-20 mx-auto my-3 rounded-full flex items-center justify-center"
+            :class="rankCircleBg[2]"
           >
-            <UIcon
-              name="i-lucide-user-round"
-              class="size-10 opacity-70"
-            />
+            <span class="text-3xl font-bold text-black">{{ initial(players[2].name) }}</span>
           </div>
           <p class="font-bold text-xl truncate">
             {{ players[2].name }}
