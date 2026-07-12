@@ -51,6 +51,7 @@ watch(() => props.tier.id, (id) => {
 const vetLabels = ['VETTING CANDIDATE…', 'CROSS-CHECKING REFERENCES…', 'CONFIRMING AVAILABILITY…']
 const vetLabelIdx = ref(0)
 let vetTimer: ReturnType<typeof setInterval> | null = null
+let pingTimer: ReturnType<typeof setTimeout> | null = null
 
 const barkCaption = ref('')
 const barkDone = ref(false)
@@ -70,6 +71,7 @@ watch(open, (v) => {
     barkHandle?.cancel()
     pitchCaptionRef.value?.stop()
     if (vetTimer) clearInterval(vetTimer)
+    if (pingTimer) clearTimeout(pingTimer)
   }
 })
 
@@ -98,17 +100,24 @@ async function startRecruitment() {
         vetLabelIdx.value = (vetLabelIdx.value + 1) % vetLabels.length
       }, 700)
       audio.playSfx('radar-ping')
+      // The vetting window is sized to let the longest confirm VO finish
+      // (~4.4s). One 2.6s ping leaves dead air, so fire a second mid-sweep.
+      pingTimer = setTimeout(() => audio.playSfx('radar-ping'), 2300)
       audio.playVoice(AGENT_PULL_CONFIRM_VOICE[props.tier.id] ?? '', {
         text: AGENT_PULL_CONFIRM_TEXT[props.tier.id] ?? '', delayMs: 100
       })
     }
     const [res] = await Promise.all([
       $fetch('/api/hack/recruit', { method: 'POST', body: { tierId: props.tier.id } }),
-      quickOpen.value ? Promise.resolve() : sleep(2200)
+      quickOpen.value ? Promise.resolve() : sleep(4600)
     ])
     if (vetTimer) {
       clearInterval(vetTimer)
       vetTimer = null
+    }
+    if (pingTimer) {
+      clearTimeout(pingTimer)
+      pingTimer = null
     }
     result.value = res.agent as unknown as PulledAgent
     audio.playSfx('purchase')
@@ -121,6 +130,10 @@ async function startRecruitment() {
     if (vetTimer) {
       clearInterval(vetTimer)
       vetTimer = null
+    }
+    if (pingTimer) {
+      clearTimeout(pingTimer)
+      pingTimer = null
     }
     toast.add({ title: e.data?.statusMessage ?? 'Recruitment failed', color: 'error' })
     stage.value = 'pitch'

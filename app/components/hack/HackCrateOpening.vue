@@ -84,7 +84,9 @@ async function buyAndOpen() {
     }
     const [res] = await Promise.all([
       $fetch('/api/hack/items/pull', { method: 'POST', body: { tierId: props.tier.id } }),
-      quickOpen.value ? Promise.resolve() : sleep(1800)
+      // Sized to let the longest confirm VO finish (~4.1s) before the reveal
+      // cuts it off. Quick open skips this entirely.
+      quickOpen.value ? Promise.resolve() : sleep(4300)
     ])
     result.value = { item: res.item as PulledItem, rarity: res.rarity as HackRarity }
     audio.playSfx('purchase')
