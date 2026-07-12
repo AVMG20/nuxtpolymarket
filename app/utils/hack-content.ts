@@ -134,5 +134,5 @@ export function agentIcon(name: string, rarity: HackRarity): string {
   const elite = rarity === 'elite' || rarity === 'phantom'
   const pool = elite ? AGENT_ICON_ELITE : AGENT_ICON_COMMON
   const dir = elite ? 'agent-icons-elite' : 'agent-icons'
-  return `/hack/img/${dir}/${pool[hashName(name) % pool.length]}.png`
+  return `/hack/img/${dir}/${pool[hashName(name) % pool.length]}.webp`
 }
