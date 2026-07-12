@@ -1,48 +1,42 @@
 <script setup lang="ts">
-import {
-    PIRATE_STAT_IDS, PIRATE_MAX_STAT_LEVEL,
-    pirateMaxHp, pirateShipSpeed, pirateCannonStats, pirateCannonRange, pirateReloadMs,
-    type PirateStatId
-} from '#shared/utils/gamelogic/pirates'
-
 definePageMeta({
     title: 'Pirate Raid'
 })
 
 const canvasHost = ref<HTMLDivElement | null>(null)
-const { user, fetchSession } = useAuth()
+const { fetchSession } = useAuth()
 const toast = useToast()
-const balance = computed(() => parseFloat(user.value?.balance ?? '0'))
 
 const { data: state, refresh } = await useFetch('/api/pirates/state')
 
-const STAT_META: Record<PirateStatId, { label: string, icon: string, color: string, effect: (level: number) => string }> = {
-    hull: { label: 'Hull', icon: 'i-lucide-heart', color: 'text-red-400 bg-red-400/15', effect: l => `${pirateMaxHp(l)} HP` },
-    speed: { label: 'Speed', icon: 'i-lucide-wind', color: 'text-cyan-400 bg-cyan-400/15', effect: l => `${pirateShipSpeed(l)} spd` },
-    damage: { label: 'Cannons', icon: 'i-lucide-flame', color: 'text-orange-400 bg-orange-400/15', effect: (l) => { const c = pirateCannonStats(l); return `${c.min}-${c.max} dmg \xd7${c.balls}` } },
-    range: { label: 'Range', icon: 'i-lucide-crosshair', color: 'text-violet-400 bg-violet-400/15', effect: l => `${pirateCannonRange(l)} range` },
-    reload: { label: 'Reload', icon: 'i-lucide-timer', color: 'text-emerald-400 bg-emerald-400/15', effect: l => `${(pirateReloadMs(l) / 1000).toFixed(1)}s reload` }
-}
-
-const upgrading = ref<PirateStatId | null>(null)
 const starting = ref(false)
 
 const hp = ref(0)
 const maxHp = ref(0)
 const coins = ref(0)
+const ammo = ref(0)
 const remainingMs = ref(0)
 const running = ref(false)
 const killFeed = ref<{ id: number, text: string }[]>([])
 let killFeedSeq = 0
 
 const gameOverVisible = ref(false)
-const gameOverResult = ref<{ survived: boolean, coins: number, awarded: number, capped: boolean } | null>(null)
+const gameOverResult = ref<{
+    survived: boolean
+    reason: 'timeout' | 'defeat' | 'ammo'
+    coins: number
+    awarded: number
+    capped: boolean
+} | null>(null)
 
 let game: PirateGame | null = null
 let resizeObserver: ResizeObserver | null = null
 
 const hpPercent = computed(() => maxHp.value > 0 ? Math.max(0, Math.min(100, (hp.value / maxHp.value) * 100)) : 0)
 const hpBarColor = computed(() => hpPercent.value > 50 ? 'bg-emerald-400' : hpPercent.value > 25 ? 'bg-amber-400' : 'bg-red-500')
+const ammoCapacity = computed(() => state.value?.ammo.capacity ?? 0)
+const ammoPercent = computed(() => ammoCapacity.value > 0 ? Math.max(0, Math.min(100, (ammo.value / ammoCapacity.value) * 100)) : 0)
+const ammoLow = computed(() => ammoCapacity.value > 0 && ammoPercent.value <= 20)
 const timerLabel = computed(() => {
     const totalSeconds = Math.max(0, Math.ceil(remainingMs.value / 1000))
     const m = Math.floor(totalSeconds / 60)
@@ -56,37 +50,58 @@ const bestSurvivalLabel = computed(() => {
     return `${m}:${s.toString().padStart(2, '0')}`
 })
 
+const canSetSail = computed(() => (state.value?.cannons.length ?? 0) > 0 && (state.value?.ammo.count ?? 0) > 0)
+const blockReason = computed(() => {
+    if (!state.value) return null
+    if (state.value.cannons.length === 0) return 'Your gun deck is empty — equip a cannon before setting sail.'
+    if (state.value.ammo.count === 0) return 'Your ammo hold is empty — stock up before setting sail.'
+    return null
+})
+
+const gameOverIcon = computed(() => {
+    if (!gameOverResult.value) return 'i-lucide-anchor'
+    if (gameOverResult.value.survived) return 'i-lucide-party-popper'
+    if (gameOverResult.value.reason === 'ammo') return 'i-lucide-box'
+    return 'i-lucide-skull'
+})
+const gameOverTitle = computed(() => {
+    if (!gameOverResult.value) return ''
+    if (gameOverResult.value.survived) return 'Made it home'
+    if (gameOverResult.value.reason === 'ammo') return 'Ammo hold empty'
+    return 'Ship sunk'
+})
+const gameOverMessage = computed(() => {
+    if (!gameOverResult.value) return ''
+    if (gameOverResult.value.survived) return 'You survived the full voyage.'
+    if (gameOverResult.value.reason === 'ammo') return 'You fired your last shot with enemies still on the horizon — stock up more before your next voyage.'
+    return 'Enemy cannons got the better of you.'
+})
+
 function pushKillFeed(text: string) {
     const id = killFeedSeq++
     killFeed.value = [...killFeed.value, { id, text }].slice(-4)
     setTimeout(() => { killFeed.value = killFeed.value.filter(k => k.id !== id) }, 3000)
 }
 
-async function upgrade(stat: PirateStatId) {
-    if (running.value || upgrading.value) return
-    upgrading.value = stat
-    try {
-        await $fetch('/api/pirates/upgrade', { method: 'POST', body: { stat } })
-        await Promise.all([refresh(), fetchSession()])
-    } catch (e: any) {
-        toast.add({ title: e.data?.message ?? 'Upgrade failed', color: 'error' })
-    } finally {
-        upgrading.value = null
-    }
-}
-
 async function startVoyage() {
-    if (!state.value || running.value || starting.value) return
+    if (!state.value || running.value || starting.value || !canSetSail.value) return
     starting.value = true
     try {
         const res = await $fetch('/api/pirates/start-run', { method: 'POST' })
         hp.value = res.stats.maxHp
         maxHp.value = res.stats.maxHp
         coins.value = 0
+        ammo.value = res.ammo
         remainingMs.value = res.runDurationMs
         killFeed.value = []
         running.value = true
-        game?.start(res.stats, res.power)
+        game?.start({
+            maxHp: res.stats.maxHp,
+            speed: res.stats.speed,
+            defenseRating: res.stats.defenseRating,
+            ammo: res.ammo,
+            cannons: res.cannons
+        }, res.power)
     } catch (e: any) {
         toast.add({ title: e.data?.message ?? 'Failed to set sail', color: 'error' })
     } finally {
@@ -94,11 +109,14 @@ async function startVoyage() {
     }
 }
 
-async function handleGameOver(result: { survived: boolean, coins: number, elapsedMs: number }) {
+async function handleGameOver(result: { survived: boolean, coins: number, elapsedMs: number, ammoUsed: number, reason: 'timeout' | 'defeat' | 'ammo' }) {
     running.value = false
     try {
-        const res = await $fetch('/api/pirates/finish-run', { method: 'POST', body: { coins: result.coins, survived: result.survived } })
-        gameOverResult.value = { survived: result.survived, coins: result.coins, awarded: res.awarded, capped: res.capped }
+        const res = await $fetch('/api/pirates/finish-run', {
+            method: 'POST',
+            body: { coins: result.coins, survived: result.survived, ammoUsed: result.ammoUsed }
+        })
+        gameOverResult.value = { survived: result.survived, reason: result.reason, coins: result.coins, awarded: res.awarded, capped: res.capped }
         gameOverVisible.value = true
         await Promise.all([refresh(), fetchSession()])
     } catch (e: any) {
@@ -124,15 +142,16 @@ onMounted(async () => {
     game = new PirateGame({
         onHpChange: (h, mh) => { hp.value = h; maxHp.value = mh },
         onCoinsChange: (c) => { coins.value = c },
+        onAmmoChange: (a) => { ammo.value = a },
         onTimeChange: (_elapsed, remaining) => { remainingMs.value = remaining },
         onGameOver: (result) => { handleGameOver(result) },
         onKill: (tierName, reward) => pushKillFeed(`Sunk a ${tierName} (+${reward})`)
     }, {
         maxHp: state.value.stats.maxHp,
         speed: state.value.stats.speed,
-        cannon: state.value.stats.cannon,
-        range: state.value.stats.range,
-        reloadMs: state.value.stats.reloadMs
+        defenseRating: state.value.stats.defenseRating,
+        ammo: state.value.ammo.count,
+        cannons: state.value.cannons.map(c => ({ slotIndex: c.slotIndex, attackRating: c.attackRating, maxDamage: c.maxDamage, reloadMs: c.reloadMs, range: c.range }))
     })
 
     await game.mount(canvasHost.value)
@@ -166,12 +185,12 @@ onUnmounted(() => {
         <UBadge color="primary" variant="subtle" :label="`Power ${state.power}`" icon="i-lucide-anchor" />
         <UBadge color="neutral" variant="subtle" :label="`Best ${bestSurvivalLabel}`" icon="i-lucide-trophy" />
         <UBadge color="neutral" variant="subtle" :label="`${state.runsPlayed} voyages`" icon="i-lucide-map" />
+        <UButton to="/pirates/manage" color="neutral" variant="subtle" icon="i-lucide-hammer" label="Manage Ship" />
       </div>
     </div>
 
     <div v-if="!state" class="space-y-4">
       <USkeleton class="h-80 rounded-xl" />
-      <USkeleton class="h-44 rounded-xl" />
     </div>
 
     <template v-else>
@@ -183,13 +202,28 @@ onUnmounted(() => {
           <!-- HUD overlay -->
           <div v-if="running" class="pointer-events-none absolute inset-0 p-3 flex flex-col justify-between">
             <div class="flex items-start justify-between gap-3">
-              <div class="w-40 sm:w-56 bg-black/50 backdrop-blur-sm rounded-lg px-3 py-2">
-                <div class="flex items-center justify-between text-xs text-white/80 mb-1">
-                  <span class="flex items-center gap-1"><UIcon name="i-lucide-heart" class="size-3.5" /> Hull</span>
-                  <span>{{ Math.ceil(hp) }} / {{ maxHp }}</span>
+              <div class="w-40 sm:w-56 space-y-1.5">
+                <div class="bg-black/50 backdrop-blur-sm rounded-lg px-3 py-2">
+                  <div class="flex items-center justify-between text-xs text-white/80 mb-1">
+                    <span class="flex items-center gap-1"><UIcon name="i-lucide-heart" class="size-3.5" /> Hull</span>
+                    <span>{{ Math.ceil(hp) }} / {{ maxHp }}</span>
+                  </div>
+                  <div class="h-2 rounded-full bg-white/15 overflow-hidden">
+                    <div class="h-full rounded-full transition-[width] duration-200" :class="hpBarColor" :style="{ width: `${hpPercent}%` }" />
+                  </div>
                 </div>
-                <div class="h-2 rounded-full bg-white/15 overflow-hidden">
-                  <div class="h-full rounded-full transition-[width] duration-200" :class="hpBarColor" :style="{ width: `${hpPercent}%` }" />
+                <div class="bg-black/50 backdrop-blur-sm rounded-lg px-3 py-2">
+                  <div class="flex items-center justify-between text-xs mb-1" :class="ammoLow ? 'text-red-300' : 'text-white/80'">
+                    <span class="flex items-center gap-1"><UIcon name="i-lucide-box" class="size-3.5" /> Ammo</span>
+                    <span>{{ ammo }} / {{ ammoCapacity }}</span>
+                  </div>
+                  <div class="h-2 rounded-full bg-white/15 overflow-hidden">
+                    <div
+                      class="h-full rounded-full transition-[width] duration-200"
+                      :class="ammoLow ? 'bg-red-500 animate-pulse' : 'bg-sky-400'"
+                      :style="{ width: `${ammoPercent}%` }"
+                    />
+                  </div>
                 </div>
               </div>
 
@@ -226,78 +260,44 @@ onUnmounted(() => {
                 Ready to set sail?
               </p>
               <p class="text-white/70 text-sm max-w-xs mx-auto">
-                Click open water to move, click an enemy ship to open fire. Survive 5 minutes and keep every coin you earn.
+                Click open water to move, click an enemy ship to open fire — your cannons reload and engage independently. Survive 5 minutes and keep every coin you earn.
               </p>
-              <UButton
-                size="lg"
-                icon="i-lucide-anchor"
-                label="Set Sail"
-                :loading="starting"
-                @click="startVoyage"
-              />
+              <div class="flex items-center justify-center gap-4 text-xs text-white/70">
+                <span class="flex items-center gap-1"><UIcon name="i-lucide-crosshair" class="size-3.5" /> {{ state.cannons.length }}/{{ state.cannonSlots }} cannons</span>
+                <span class="flex items-center gap-1"><UIcon name="i-lucide-box" class="size-3.5" /> {{ state.ammo.count }} ammo</span>
+              </div>
+
+              <template v-if="canSetSail">
+                <UButton
+                  size="lg"
+                  icon="i-lucide-anchor"
+                  label="Set Sail"
+                  :loading="starting"
+                  @click="startVoyage"
+                />
+              </template>
+              <template v-else>
+                <p class="text-red-300 text-xs max-w-xs mx-auto">
+                  {{ blockReason }}
+                </p>
+                <UButton size="lg" to="/pirates/manage" icon="i-lucide-hammer" label="Go to Armory" />
+              </template>
             </div>
           </div>
         </div>
       </UCard>
-
-      <!-- Upgrades -->
-      <div>
-        <p class="text-xs font-semibold text-muted uppercase tracking-wider mb-2 px-0.5">
-          Shipwright — Upgrades
-        </p>
-        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
-          <UCard v-for="statId in PIRATE_STAT_IDS" :key="statId" :ui="{ body: 'p-3.5' }">
-            <div class="flex items-center gap-2.5 mb-2.5">
-              <div class="size-8 rounded-lg flex items-center justify-center shrink-0" :class="STAT_META[statId].color">
-                <UIcon :name="STAT_META[statId].icon" class="size-4" />
-              </div>
-              <div class="min-w-0">
-                <p class="font-semibold text-sm truncate">
-                  {{ STAT_META[statId].label }}
-                </p>
-                <p class="text-xs text-muted">
-                  Lv {{ state.levels[statId] }} / {{ PIRATE_MAX_STAT_LEVEL }}
-                </p>
-              </div>
-            </div>
-
-            <p class="text-xs text-muted mb-3">
-              {{ STAT_META[statId].effect(state.levels[statId]) }}
-            </p>
-
-            <UButton
-              block
-              size="sm"
-              :color="state.levels[statId] >= PIRATE_MAX_STAT_LEVEL ? 'neutral' : 'primary'"
-              :variant="state.levels[statId] >= PIRATE_MAX_STAT_LEVEL ? 'subtle' : 'solid'"
-              :disabled="running || state.levels[statId] >= PIRATE_MAX_STAT_LEVEL || balance < (state.costs[statId] ?? 0)"
-              :loading="upgrading === statId"
-              @click="upgrade(statId)"
-            >
-              <span v-if="state.levels[statId] >= PIRATE_MAX_STAT_LEVEL">Maxed</span>
-              <span v-else class="flex items-center gap-1">
-                <UIcon name="i-lucide-coins" class="size-3.5 text-yellow-400" />
-                {{ formatNumber(state.costs[statId] ?? 0, false) }}
-              </span>
-            </UButton>
-          </UCard>
-        </div>
-        <p v-if="running" class="text-xs text-muted mt-2 px-0.5">
-          Upgrades are locked while you're at sea.
-        </p>
-      </div>
     </template>
 
-    <UModal v-model:open="gameOverVisible" :title="gameOverResult?.survived ? 'Made it home' : 'Ship sunk'" :ui="{ content: 'max-w-sm' }">
+    <UModal v-model:open="gameOverVisible" :title="gameOverTitle" :ui="{ content: 'max-w-sm' }">
       <template #body>
         <div v-if="gameOverResult" class="text-center space-y-3">
           <UIcon
-            :name="gameOverResult.survived ? 'i-lucide-party-popper' : 'i-lucide-skull'"
+            :name="gameOverIcon"
             class="size-10 mx-auto"
-            :class="gameOverResult.survived ? 'text-primary' : 'text-red-400'"
+            :class="gameOverResult.survived ? 'text-primary' : gameOverResult.reason === 'ammo' ? 'text-amber-400' : 'text-red-400'"
           />
           <p class="text-sm text-muted">
-            {{ gameOverResult.survived ? 'You survived the full voyage.' : 'Enemy cannons got the better of you.' }}
+            {{ gameOverMessage }}
           </p>
           <div class="flex items-center justify-center gap-2 text-2xl font-bold">
             <UIcon name="i-lucide-coins" class="size-6 text-yellow-400" />
@@ -306,7 +306,10 @@ onUnmounted(() => {
           <p v-if="gameOverResult.capped" class="text-xs text-muted">
             Payout capped for this voyage's duration.
           </p>
-          <UButton block label="Back to port" @click="gameOverVisible = false" />
+          <div class="flex gap-2">
+            <UButton block color="neutral" variant="subtle" label="Manage Ship" to="/pirates/manage" @click="gameOverVisible = false" />
+            <UButton block label="Back to port" @click="gameOverVisible = false" />
+          </div>
         </div>
       </template>
     </UModal>
