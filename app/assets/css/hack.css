@@ -1,0 +1,317 @@
+/* HackOps HUD design tokens — hybrid tactical-hacker aesthetic.
+   See docs/games/hackops-redesign/PLAN.md §4 and mockups/shared.css.
+
+   Every class here is prefixed `hack-` and only imported into
+   app/pages/hack.vue, so it never collides with Nuxt UI's own utilities
+   (text-muted, badge, etc.) even though Vite doesn't unload page CSS on
+   navigation. --hack-accent / --hack-accent-2 track the user's live
+   Primary/Secondary theme via Nuxt UI's --ui-primary / --ui-secondary —
+   never a hardcoded hue. Rarity/cash/gems/xp colors are NOT redefined
+   here; they stay the existing RARITY_STYLE/RARITY_ACCENT Tailwind
+   classes and text-yellow-400/text-cyan-400/text-violet-400 the current
+   pages already use. */
+
+.hack-shell {
+  /* Tracks the user's Neutral theme pick (zinc/stone/slate/...) via Nuxt UI's
+     own --ui-color-neutral-* scale, so the HUD's dark palette shifts hue with
+     it instead of sitting on a fixed navy-black regardless of preference. */
+  --hack-bg: var(--ui-color-neutral-950);
+  --hack-panel: var(--ui-color-neutral-900);
+  --hack-panel-2: var(--ui-color-neutral-800);
+  --hack-border: rgba(255, 255, 255, 0.08);
+  --hack-border-strong: rgba(255, 255, 255, 0.16);
+  --hack-accent: var(--ui-primary);
+  --hack-accent-2: var(--ui-secondary);
+  --hack-cut: 14px;
+}
+
+/* Every enabled control inside the HUD shows the hand cursor. Nuxt UI's base
+   button sets no cursor, so a native <button> would otherwise show an arrow.
+   Scoped to .hack-shell — the reveal/compare modals wrap their teleported
+   content in .hack-shell too, so this reaches them despite the portal. */
+.hack-shell button:not(:disabled):not([aria-disabled='true']),
+.hack-shell [role='button']:not([aria-disabled='true']),
+.hack-shell label:has(input),
+.hack-shell a[href] { cursor: pointer; }
+
+/* ── Corner-cut panel — the core visual signature ─────────────────────── */
+.hack-frame {
+  position: relative;
+  background: var(--hack-panel);
+  border: 1px solid var(--hack-border);
+  clip-path: polygon(
+    var(--hack-cut) 0, 100% 0, 100% calc(100% - var(--hack-cut)),
+    calc(100% - var(--hack-cut)) 100%, 0 100%, 0 var(--hack-cut)
+  );
+}
+.hack-frame::before, .hack-frame::after {
+  content: '';
+  position: absolute;
+  width: var(--hack-cut);
+  height: 1px;
+  background: var(--hack-border-strong);
+}
+.hack-frame::before { top: 0; left: 0; transform: rotate(45deg) translate(-3px, -1px); transform-origin: left; }
+.hack-frame::after { bottom: 0; right: 0; transform: rotate(45deg) translate(3px, 1px); transform-origin: right; }
+.hack-frame-2 { background: var(--hack-panel-2); }
+.hack-frame-tight { --hack-cut: 8px; }
+.hack-frame-accent {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--hack-accent) 25%, transparent),
+    0 0 24px -8px color-mix(in srgb, var(--hack-accent) 35%, transparent);
+  border-color: color-mix(in srgb, var(--hack-accent) 35%, var(--hack-border));
+}
+
+/* Do not nest a UPopover/UDropdownMenu trigger's content inside a .hack-frame —
+   clip-path on an ancestor clips descendant painting even for absolutely
+   positioned children that visually escape the box. Nuxt UI's overlay
+   primitives teleport to a portal by default, so this only bites if a
+   popover is hand-rolled inside a .hack-frame instead. */
+
+/* ── Typography helpers ───────────────────────────────────────────────── */
+.hack-eyebrow {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ui-text-dimmed);
+}
+.hack-glow-text { text-shadow: 0 0 12px currentColor; }
+
+/* ── Larger, legible data-card text tokens ────────────────────────────── */
+.hack-card-title-lg { font-size: 16px; font-weight: 700; }
+.hack-stat-label-md {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--ui-text-dimmed);
+}
+.hack-stat-value-lg { font-family: var(--font-mono, ui-monospace, monospace); font-size: 17px; font-weight: 600; }
+
+/* Navbar-style hero stat (cash/gems/power) — bigger + bolder than a plain label.
+   Sets color directly rather than via a Tailwind text-primary utility class —
+   this stylesheet is JS-imported into hack.vue and lands after Nuxt UI's
+   generated CSS in the bundle, so a same-specificity Tailwind utility on the
+   same element loses to .hack-stat's color rule below. */
+.hack-stat-hero { display: inline-flex; align-items: center; gap: 6px; }
+.hack-stat.hack-stat-hero { color: var(--hack-accent); }
+.hack-stat.hack-stat-hero b { font-size: 16px; font-weight: 700; color: currentColor; }
+
+/* ── Mod / trait chip — bold value + muted uppercase label, no emoji (round 5) ── */
+.hack-mod-chip {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 12.5px;
+  padding: 6px 10px;
+  border: 1px solid var(--hack-border);
+  background: color-mix(in srgb, var(--hack-panel-2) 60%, transparent);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.hack-mod-chip b { font-weight: 700; }
+.hack-mod-chip-label { color: var(--ui-text-dimmed); text-transform: uppercase; font-size: 10.5px; letter-spacing: 0.04em; }
+
+/* ── Range bar — a rolled value's position within its min/max range ──── */
+.hack-range-bar { position: relative; flex: 1; height: 8px; background: var(--hack-panel-2); border: 1px solid var(--hack-border); }
+.hack-range-fill { position: absolute; top: 0; left: 0; height: 100%; background: color-mix(in srgb, var(--hack-accent) 30%, transparent); }
+.hack-range-marker {
+  position: absolute; top: -4px; width: 3px; height: 16px;
+  background: var(--hack-accent); box-shadow: 0 0 6px var(--hack-accent); transform: translateX(-50%);
+}
+.hack-range-minmax {
+  display: flex; justify-content: space-between;
+  font-family: var(--font-mono, ui-monospace, monospace); font-size: 9.5px; color: var(--ui-text-dimmed); margin-top: 3px;
+}
+
+/* ── Lock chip — crafting bench lock/unlock affordance (Phase 3/4) ──── */
+.hack-lock-chip {
+  font-family: var(--font-mono, ui-monospace, monospace); font-size: 11.5px; letter-spacing: 0.04em; text-transform: uppercase;
+  padding: 6px 12px; border: 1px solid var(--hack-border-strong); color: var(--ui-text-dimmed);
+  cursor: pointer; display: inline-flex; align-items: center; gap: 6px; transition: all 0.12s;
+  background: var(--hack-panel-2);
+}
+.hack-lock-chip:hover { border-color: var(--ui-text-muted); color: var(--ui-text-muted); }
+.hack-lock-chip.locked { color: var(--hack-accent); border-color: var(--hack-accent); background: color-mix(in srgb, var(--hack-accent) 12%, transparent); }
+.hack-lock-chip .hack-lock-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; opacity: 0.5; }
+.hack-lock-chip.locked .hack-lock-dot { opacity: 1; box-shadow: 0 0 6px currentColor; }
+
+/* ── Corner tag — status pill anchored to a card corner ───────────────── */
+.hack-corner-tag {
+  position: absolute;
+  top: 10px; right: 10px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 10px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 3px 8px;
+  border: 1px solid var(--hack-border-strong);
+  background: rgba(10, 13, 18, 0.85);
+  backdrop-filter: blur(2px);
+}
+.hack-corner-tag.ready { color: var(--ui-color-success-400, #4ade80); border-color: currentColor; animation: hack-pulse-ready 1.4s infinite; }
+@keyframes hack-pulse-ready { 0%, 100% { box-shadow: 0 0 0 rgba(74, 222, 128, 0); } 50% { box-shadow: 0 0 12px rgba(74, 222, 128, 0.6); } }
+
+/* ── Captions / teletype ──────────────────────────────────────────────── */
+.hack-captions {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 15px;
+  line-height: 1.6;
+  min-height: 3.2em;
+  /* Briefing captions sit over a mission thumbnail whose brightness varies
+     per image — this dark halo keeps them legible even where the bottom
+     gradient overlay is thin (top of the caption) or the photo itself is light. */
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.9), 0 2px 16px rgba(0, 0, 0, 0.7);
+}
+.hack-cursor {
+  display: inline-block; width: 8px; height: 1em; background: var(--hack-accent);
+  vertical-align: text-bottom; animation: hack-blink 1s step-end infinite; margin-left: 2px;
+}
+@keyframes hack-blink { 50% { opacity: 0; } }
+
+/* ── Glitch flicker — reveal moments only (crate open, rarity stamp) ──── */
+.hack-glitch { position: relative; }
+.hack-glitch.active::before, .hack-glitch.active::after {
+  content: attr(data-text);
+  position: absolute; inset: 0;
+  clip-path: inset(0 0 0 0);
+}
+.hack-glitch.active::before { color: var(--hack-accent-2); animation: hack-glitch-1 0.35s steps(2) 2; left: 2px; }
+.hack-glitch.active::after { color: var(--ui-color-error-400, #f87171); animation: hack-glitch-2 0.35s steps(2) 2; left: -2px; }
+@keyframes hack-glitch-1 { 0% { clip-path: inset(0 0 80% 0); } 50% { clip-path: inset(40% 0 20% 0); } 100% { clip-path: inset(0 0 0 0); } }
+@keyframes hack-glitch-2 { 0% { clip-path: inset(60% 0 0 0); } 50% { clip-path: inset(10% 0 50% 0); } 100% { clip-path: inset(0 0 0 0); } }
+
+/* ── Status strip ──────────────────────────────────────────────────────── */
+.hack-statbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 10px 18px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 13.5px;
+}
+.hack-stat { display: flex; align-items: center; gap: 7px; color: var(--ui-text-muted); }
+.hack-stat b { color: var(--ui-text); font-weight: 600; }
+.hack-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--hack-accent); box-shadow: 0 0 8px var(--hack-accent); flex-shrink: 0; }
+
+/* ── Tab bar ───────────────────────────────────────────────────────────── */
+.hack-tabbar { display: flex; gap: 2px; flex-wrap: wrap; }
+.hack-tab {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 12.5px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 12px 16px 11px;
+  color: var(--ui-text-dimmed);
+  text-decoration: none;
+  border-bottom: 2px solid transparent;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  transition: color 0.15s, border-color 0.15s;
+}
+.hack-tab:hover { color: var(--ui-text-muted); }
+.hack-tab.active { color: var(--hack-accent); border-bottom-color: var(--hack-accent); }
+
+/* ── Inventory toolbar — filter buttons + sort select (Items / Loadout) ── */
+.hack-filter-btn {
+  font-family: var(--font-mono, ui-monospace, monospace); font-size: 11px; letter-spacing: 0.04em;
+  text-transform: uppercase; padding: 7px 12px; border: 1px solid var(--hack-border-strong);
+  background: transparent; color: var(--ui-text-dimmed); cursor: pointer; transition: all 0.12s;
+}
+.hack-filter-btn:hover { color: var(--ui-text-muted); border-color: var(--ui-text-muted); }
+.hack-filter-btn.active { color: var(--hack-accent); border-color: var(--hack-accent); background: color-mix(in srgb, var(--hack-accent) 12%, transparent); }
+.hack-sort-select {
+  font-family: var(--font-mono, ui-monospace, monospace); font-size: 11px; letter-spacing: 0.04em;
+  text-transform: uppercase; padding: 7px 26px 7px 10px; border: 1px solid var(--hack-border-strong);
+  background: var(--hack-panel-2); color: var(--ui-text); cursor: pointer;
+  appearance: none; -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238593a3' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 8px center;
+}
+
+/* ── Crafting bench — gem cost preview rows (Items) ───────────────────── */
+.hack-cost-row { display: flex; justify-content: space-between; padding: 5px 0; font-size: 12.5px; }
+.hack-cost-row .lvl { color: var(--ui-text-dimmed); font-family: var(--font-mono, ui-monospace, monospace); }
+
+/* ── Black Market: segmented control + contact/seller card ────────────── */
+.hack-seg { display: inline-flex; border: 1px solid var(--hack-border-strong); }
+.hack-seg button {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 12px; letter-spacing: 0.05em; text-transform: uppercase;
+  padding: 9px 20px; background: transparent; border: none;
+  color: var(--ui-text-dimmed); cursor: pointer; transition: color 0.15s, background 0.15s;
+}
+.hack-seg button.active { background: var(--hack-accent); color: #06170d; font-weight: 700; }
+
+.hack-contact-card { display: block; text-decoration: none; color: inherit; cursor: pointer; transition: transform 0.15s, border-color 0.15s; }
+.hack-contact-card:hover { transform: translateY(-3px); }
+.hack-contact-portrait { aspect-ratio: 1 / 1; overflow: hidden; }
+.hack-contact-portrait img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+.hack-odds-bar { display: flex; height: 8px; overflow: hidden; margin-top: 10px; border: 1px solid var(--hack-border); }
+.hack-odds-bar span { height: 100%; }
+.hack-odds-legend { display: flex; flex-wrap: wrap; gap: 6px 12px; margin-top: 8px; font-family: var(--font-mono, ui-monospace, monospace); font-size: 10px; }
+.hack-odds-legend i { display: inline-block; width: 7px; height: 7px; margin-right: 4px; vertical-align: middle; border-radius: 1px; }
+
+/* ── Crate scan sequence — gear reveal only, deliberately distinct from vetting ── */
+.hack-scan-frame { width: 200px; height: 200px; margin: 0 auto 20px; position: relative; border: 1px solid var(--hack-border-strong); }
+.hack-scan-frame .box { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
+.hack-scan-sweep {
+  position: absolute; left: 0; right: 0; height: 3px; top: 0;
+  background: var(--hack-accent); box-shadow: 0 0 16px var(--hack-accent);
+  animation: hack-sweep 1.1s linear infinite;
+}
+@keyframes hack-sweep { 0% { top: 0; } 100% { top: 100%; } }
+.hack-scan-frame::before, .hack-scan-frame::after { content: ''; position: absolute; width: 16px; height: 16px; border: 2px solid var(--hack-accent); }
+.hack-scan-frame::before { top: -1px; left: -1px; border-right: none; border-bottom: none; }
+.hack-scan-frame::after { bottom: -1px; right: -1px; border-left: none; border-top: none; }
+
+/* ── Recruit vetting sequence — pulsing radar on a silhouette, not a box-scan ── */
+.hack-vet-figure { width: 130px; height: 170px; margin: 0 auto 22px; position: relative; display: flex; align-items: center; justify-content: center; }
+.hack-vet-ring {
+  position: absolute; left: 50%; top: 50%; border: 1px solid var(--hack-accent); border-radius: 50%;
+  transform: translate(-50%, -50%); opacity: 0; animation: hack-vet-pulse 1.8s ease-out infinite;
+}
+.hack-vet-ring.r1 { animation-delay: 0s; }
+.hack-vet-ring.r2 { animation-delay: 0.6s; }
+.hack-vet-ring.r3 { animation-delay: 1.2s; }
+@keyframes hack-vet-pulse { 0% { width: 60px; height: 60px; opacity: 0.7; } 100% { width: 220px; height: 220px; opacity: 0; } }
+
+/* ── Reveal stamp + glitch flash — one-shot, driven by gsap, not CSS transitions ── */
+.hack-glitch-flash { position: fixed; inset: 0; background: #fff; opacity: 0; pointer-events: none; z-index: 60; }
+.hack-stamp {
+  display: inline-block; font-family: var(--font-mono, ui-monospace, monospace); font-weight: 800; font-size: 28px;
+  letter-spacing: 0.1em; text-transform: uppercase; padding: 14px 34px; border: 3px solid currentColor;
+}
+.hack-trait-row { border: 1px solid var(--hack-border); padding: 12px 14px; margin-bottom: 10px; }
+
+/* Compact inline stamp — debrief log rows (§6.8), not the big reveal-modal one above */
+.hack-stamp-sm {
+  display: inline-block; font-family: var(--font-mono, ui-monospace, monospace); font-weight: 800; font-size: 11.5px;
+  letter-spacing: 0.08em; text-transform: uppercase; padding: 4px 10px; border: 2px solid currentColor;
+  transform: rotate(-4deg);
+}
+
+/* ── Debrief log (History) — after-action report rows inside one frame ─── */
+.hack-report-row { padding: 16px; border-bottom: 1px solid var(--hack-border); cursor: pointer; transition: background 0.12s; }
+.hack-report-row:last-child { border-bottom: none; }
+.hack-report-row:hover { background: var(--hack-panel-2); }
+.hack-reward-chip {
+  font-family: var(--font-mono, ui-monospace, monospace); font-size: 12px;
+  padding: 4px 10px; border: 1px solid var(--hack-border); background: var(--hack-panel-2);
+  display: inline-flex; align-items: center; gap: 5px; white-space: nowrap;
+}
+.hack-chevron { transition: transform 0.15s; display: inline-block; }
+.hack-chevron.open { transform: rotate(90deg); }
+
+/* ── Ambient idle scanline drift — subtle motion on resting panels ────── */
+.hack-scan-drift { position: relative; overflow: hidden; }
+.hack-scan-drift::after {
+  content: '';
+  position: absolute; inset: 0; pointer-events: none;
+  background: repeating-linear-gradient(to bottom, rgba(255, 255, 255, 0.02) 0px, rgba(255, 255, 255, 0.02) 1px, transparent 1px, transparent 3px);
+  animation: hack-scan-drift-move 6s linear infinite;
+}
+@keyframes hack-scan-drift-move { from { transform: translateY(0); } to { transform: translateY(12px); } }

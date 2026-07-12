@@ -69,6 +69,11 @@ export const RARITY_COLOR: Record<HackRarity, NuxtColor> = { ghost: 'neutral', o
 export const RARITY_ACCENT: Record<HackRarity, string> = {
   ghost: 'bg-zinc-400', operative: 'bg-green-500', specialist: 'bg-sky-500', elite: 'bg-amber-500', phantom: 'bg-rose-500',
 }
+// Only 3 stamp SFX exist so far (public/hack/sound/sfx/stamp-*.mp3) — the two lower
+// tiers share the "common" stamp until dedicated sounds are sourced for them.
+export const RARITY_STAMP_SFX: Record<HackRarity, string> = {
+  ghost: 'stamp-common', operative: 'stamp-common', specialist: 'stamp-common', elite: 'stamp-elite', phantom: 'stamp-phantom',
+}
 
 // ─── Unified rarity tint ──────────────────────────────────────────────────────
 // Rarity is the ONE color language across the hack UI: avatars, item icons and frames
@@ -197,9 +202,33 @@ export const MOD_RANGES: Record<ModType, { min: number; max: number; decimals: n
 }
 export const MOD_LABEL: Record<ModType, string> = {
   loot_percent: 'Loot', speed_percent: 'Speed', xp_flat: 'XP',
-  gem_chance: 'Gem Chance', power_flat: 'Power',
-  item_chance: 'Item Find', gem_bonus: 'Bonus Gems',
+  gem_chance: 'Gem Chance', power_flat: 'Power', item_chance: 'Item Find', gem_bonus: 'Bonus Gems',
 }
+
+// Global stat display priority order - enforced across all agents and items
+export const STAT_PRIORITY: ModType[] = [
+  'power_flat',      // Power (Calculated as item level + power_flat mod)
+  'speed_percent',   // Op speed %
+  'loot_percent',    // Loot %
+  'item_chance',     // Item find %
+  'gem_chance',      // Gem chance %
+  'gem_bonus',       // Bonus gems (flat)
+]
+
+export function sortModsByPriority(mods: ItemMod[]): ItemMod[] {
+  return [...mods].sort((a, b) => {
+    const aIndex = STAT_PRIORITY.indexOf(a.type)
+    const bIndex = STAT_PRIORITY.indexOf(b.type)
+    // If both types are in the priority list, sort by that
+    if (aIndex !== -1 && bIndex !== -1) return aIndex - bIndex
+    // If only one is in the priority list, it comes first
+    if (aIndex !== -1) return -1
+    if (bIndex !== -1) return 1
+    // If neither is in the priority list, maintain original order
+    return 0
+  })
+}
+
 // Loot & Speed roll to one decimal (e.g. 6.2%), so format up to 1 decimal but trim a
 // trailing ".0" so whole values stay clean (6% not 6.0%).
 export function formatPct(value: number): string { return `${parseFloat(value.toFixed(1))}` }
@@ -270,7 +299,23 @@ export function agentBonusStats(
     }
   }
 
-  return Array.from(map.values()).filter(s => s.value > 0)
+  // Sort by global stat priority, keyed off the internal accumulator key (not the
+  // display label) so every stat lands where intended.
+  const keyToPriority: Record<string, number> = {
+    power: 0,
+    speed: 1,
+    loot: 2,
+    itemfind: 3,
+    gem: 4,
+    gembonus: 5,
+    xpflat: 6,
+    xp: 7,
+    powerpct: 8,
+  }
+  return Array.from(map.entries())
+    .filter(([, s]) => s.value > 0)
+    .sort(([aKey], [bKey]) => (keyToPriority[aKey] ?? 99) - (keyToPriority[bKey] ?? 99))
+    .map(([, s]) => s)
 }
 
 export const RARITY_MOD_COUNT: Record<HackRarity, number> = { ghost: 1, operative: 2, specialist: 3, elite: 4, phantom: 5 }
@@ -314,11 +359,27 @@ export function generateItem(rarity: HackRarity, slot?: ItemSlot): HackItemDef {
 
 // ─── Item leveling ────────────────────────────────────────────────────────────
 // Items never level on their own. Upgrading at the Crafting Bench costs gems and adds
-// +2 power per level (see itemPower). Cost grows ~10% per level: 1 gem for level 2,
-// 6 gems for the final level — ~99 gems total to take one item from 1 to 20.
+// +2 power per level (see itemPower). Cost grows ~13% per level: 1 gem for level 2,
+// 9 gems for the final level — ~70 gems total to take one item from 1 to 20.
 export const ITEM_MAX_LEVEL = 20
 export function itemUpgradeCost(currentLevel: number): number {
     return Math.round(Math.pow(1.13, currentLevel - 1))
+}
+
+// Bulk upgrade buys up to this many levels in one go (fewer if that would cross
+// ITEM_MAX_LEVEL) — the Crafting Bench's "big" upgrade button.
+export const ITEM_BULK_UPGRADE_LEVELS = 5
+
+/** How many levels a bulk upgrade actually applies, capped at the level ceiling. */
+export function itemBulkUpgradeLevels(currentLevel: number): number {
+    return Math.max(0, Math.min(ITEM_BULK_UPGRADE_LEVELS, ITEM_MAX_LEVEL - currentLevel))
+}
+
+/** Total gem cost to upgrade `levels` levels starting from currentLevel. */
+export function itemUpgradeCostForLevels(currentLevel: number, levels: number): number {
+    let cost = 0
+    for (let lvl = currentLevel; lvl < currentLevel + levels; lvl++) cost += itemUpgradeCost(lvl)
+    return cost
 }
 
 // ─── Item re-rolling ────────────────────────────────────────────────────────────
@@ -351,26 +412,44 @@ export function rerollItemMods(mods: ItemMod[], lockedTypes: ModType[]): ItemMod
   return mods.map(m => (lockedSet.has(m.type) ? m : rolled[r++]!))
 }
 
-export const AGENT_CODENAMES = [
-  'Cipher', 'Phantom', 'Ghost', 'Wraith', 'Viper', 'Shadow', 'Nexus', 'Static',
-  'Hydra', 'Void', 'Specter', 'Rogue', 'Neon', 'Glitch', 'Byte', 'Root',
-  'Kernel', 'Vector', 'Daemon', 'Proxy', 'Null', 'Hex', 'Zero', 'Stack',
-]
+// Each class draws from its own flavored codename pool, so a name reinforces the
+// agent's role: ghosts for infiltrators, math/crypto for cryptographers, con-artist
+// handles for social engineers, and blunt-force names for bruteforcers.
+export const AGENT_CODENAMES: Record<AgentClass, string[]> = {
+  infiltrator: [
+    'Wraith', 'Specter', 'Shade', 'Ghost', 'Phantom', 'Mirage',
+    'Veil', 'Hollow', 'Umbra', 'Drift', 'Vanish', 'Whisper',
+  ],
+  cryptographer: [
+    'Cipher', 'Hash', 'Enigma', 'Vector', 'Prime', 'Lattice',
+    'Rune', 'Glyph', 'Sigma', 'Axiom', 'Quanta', 'Kernel',
+  ],
+  social_engineer: [
+    'Guile', 'Grift', 'Persona', 'Chameleon', 'Vox', 'Muse',
+    'Envoy', 'Fable', 'Charm', 'Mimic', 'Halo', 'Silvertongue',
+  ],
+  bruteforce: [
+    'Havoc', 'Titan', 'Hammer', 'Brute', 'Breaker', 'Anvil',
+    'Maul', 'Siege', 'Onyx', 'Blitz', 'Fury', 'Rampart',
+  ],
+}
 const AGENT_CLASSES: AgentClass[] = ['infiltrator', 'cryptographer', 'social_engineer', 'bruteforce']
 
 export function generateAgentDef(rarity: HackRarity, takenNames: string[] = []) {
-  const available = AGENT_CODENAMES.filter(n => !takenNames.includes(n))
+  const cls = pickRandom(AGENT_CLASSES)
+  const pool = AGENT_CODENAMES[cls]
+  const available = pool.filter(n => !takenNames.includes(n))
   let name: string
   if (available.length > 0) {
     name = pickRandom(available)
   } else {
-    // All base names taken — add numeric suffix
-    let base = pickRandom(AGENT_CODENAMES)
+    // Whole class pool taken — add a numeric suffix to one of its codenames
+    const base = pickRandom(pool)
     let suffix = 2
     while (takenNames.includes(`${base}-${suffix}`)) suffix++
     name = `${base}-${suffix}`
   }
-  return { name, class: pickRandom(AGENT_CLASSES), rarity, level: 1, xp: 0, traits: generateAgentTraits(rarity) }
+  return { name, class: cls, rarity, level: 1, xp: 0, traits: generateAgentTraits(rarity) }
 }
 
 // ─── Fixed pull pricing ───────────────────────────────────────────────────────
@@ -618,8 +697,7 @@ export function rollOpReward(
     gems = gMin + Math.floor(Math.random() * (gMax - gMin + 1)) + bonuses.gemBonus
   }
   // Item Find gear mods raise the op's base drop chance (capped so it can't be a guarantee).
-  const itemDropChance = Math.min(0.9, template.itemDropChance + bonuses.itemChance)
-  const wouldDropItem = Math.random() < itemDropChance
+  const wouldDropItem = Math.random() < effectiveItemDropChance(template, bonuses)
   // Op drops roll the same full mod ranges as crates — rarity is fixed per op.
   const item = wouldDropItem && !inventoryFull
     ? generateItem(template.itemDropRarity)

@@ -1,4 +1,4 @@
-import { eq, sql, desc } from 'drizzle-orm'
+import { eq, and, gte, sql, desc } from 'drizzle-orm'
 import { db } from '../database'
 import { user, transactions } from '../database/schema'
 import { RAKEBACK_RATE } from '../../shared/utils/profile'
@@ -23,6 +23,19 @@ export async function debit(userId: string, amount: string, category?: string) {
       .set({ balance: sql`${user.balance} - ${amount}::numeric` })
       .where(eq(user.id, userId))
   })
+}
+
+// Atomically spend gems. The `gte` guard lives in the WHERE clause so the check and
+// the decrement are a single statement — two concurrent spends can never both pass and
+// push the balance negative (the read-then-write pattern this replaces could). Throws a
+// 400 when the user can't afford `cost` and returns the remaining gem balance otherwise.
+export async function debitGems(userId: string, cost: number) {
+  const [updated] = await db.update(user)
+    .set({ gems: sql`${user.gems} - ${cost}` })
+    .where(and(eq(user.id, userId), gte(user.gems, cost)))
+    .returning({ gems: user.gems })
+  if (!updated) throw createError({ statusCode: 400, statusMessage: 'Not enough gems' })
+  return updated.gems
 }
 
 export async function accumulateRake(userId: string, wagerAmount: number) {

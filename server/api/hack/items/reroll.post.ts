@@ -1,7 +1,8 @@
-import { eq, and, sql } from 'drizzle-orm'
+import { eq, and } from 'drizzle-orm'
 import { db } from '#server/database'
-import { hackItems, user } from '#server/database/schema'
+import { hackItems } from '#server/database/schema'
 import { auth } from '#server/utils/auth'
+import { debitGems } from '#server/utils/balance'
 import { rerollCost, rerollItemMods, type ItemMod, type ModType } from '#shared/utils/hack-config'
 
 export default defineEventHandler(async (event) => {
@@ -23,13 +24,9 @@ export default defineEventHandler(async (event) => {
 
   const cost = rerollCost(mods.length, locked.length)
 
-  const currentUser = await db.query.user.findFirst({ where: eq(user.id, userId) })
-  if ((currentUser?.gems ?? 0) < cost)
-    throw createError({ statusCode: 400, statusMessage: 'Not enough gems' })
+  await debitGems(userId, cost)
 
   const newMods = rerollItemMods(mods, locked)
-
-  await db.update(user).set({ gems: sql`${user.gems} - ${cost}` }).where(eq(user.id, userId))
   const [updated] = await db.update(hackItems).set({ mods: newMods }).where(eq(hackItems.id, itemId)).returning()
 
   return { item: updated, cost }

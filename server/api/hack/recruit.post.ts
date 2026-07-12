@@ -1,8 +1,8 @@
 import { eq, sql } from 'drizzle-orm'
 import { db } from '#server/database'
-import { hackAgents, hackState, user } from '#server/database/schema'
+import { hackAgents, hackState } from '#server/database/schema'
 import { auth } from '#server/utils/auth'
-import { debit } from '#server/utils/balance'
+import { debit, debitGems } from '#server/utils/balance'
 import {
   AGENT_PULL_TIERS, rollRarity, generateAgentDef,
   RARITY_LABEL, MAX_AGENTS,
@@ -17,10 +17,9 @@ export default defineEventHandler(async (event) => {
   const tier = AGENT_PULL_TIERS.find(t => t.id === tierId)
   if (!tier) throw createError({ statusCode: 400, statusMessage: 'Unknown recruit tier' })
 
-  const [currentAgents, state, currentUser] = await Promise.all([
+  const [currentAgents, state] = await Promise.all([
     db.query.hackAgents.findMany({ where: eq(hackAgents.userId, userId) }),
     db.query.hackState.findFirst({ where: eq(hackState.userId, userId) }),
-    db.query.user.findFirst({ where: eq(user.id, userId) }),
   ])
 
   if (!state) throw createError({ statusCode: 400, statusMessage: 'Hack ops not initialized' })
@@ -37,9 +36,7 @@ export default defineEventHandler(async (event) => {
   if (tier.currency === 'cash') {
     await debit(userId, cost.toFixed(4), 'HackOps')
   } else {
-    if ((currentUser?.gems ?? 0) < cost)
-      throw createError({ statusCode: 400, statusMessage: 'Not enough gems' })
-    await db.update(user).set({ gems: sql`${user.gems} - ${cost}` }).where(eq(user.id, userId))
+    await debitGems(userId, cost)
   }
 
   const takenNames = currentAgents.map(a => a.name)

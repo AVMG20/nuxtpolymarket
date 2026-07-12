@@ -25,3 +25,6 @@ logs
 
 # Network captures
 *.har
+
+# Game design docs & prototype art — kept local, not versioned
+docs/games
