@@ -4,23 +4,40 @@ import {
     PIRATE_RUN_DURATION_MS,
     PIRATE_TREASURE_MIN_INTERVAL_MS, PIRATE_TREASURE_MAX_INTERVAL_MS, PIRATE_TREASURE_LIFESPAN_MS,
     pirateSpawnIntervalMs, pirateMaxConcurrentEnemies, pirateRollEnemyTier, pirateDifficultyMultiplier,
-    pirateTreasureReward,
-    type PirateEnemyTier, type PirateCannonStats
+    pirateTreasureReward, pirateRollAttack,
+    type PirateEnemyTier
 } from '#shared/utils/gamelogic/pirates'
+
+export interface PirateCannonRuntime {
+    slotIndex: number
+    attackRating: number
+    maxDamage: number
+    reloadMs: number
+    range: number
+}
 
 export interface PirateShipStats {
     maxHp: number
     speed: number
-    cannon: PirateCannonStats
-    range: number
-    reloadMs: number
+    defenseRating: number
+    cannons: PirateCannonRuntime[]
+    ammo: number
+}
+
+export interface PirateGameOverResult {
+    survived: boolean
+    coins: number
+    elapsedMs: number
+    ammoUsed: number
+    reason: 'timeout' | 'defeat' | 'ammo'
 }
 
 export interface PirateGameCallbacks {
     onHpChange: (hp: number, maxHp: number) => void
     onCoinsChange: (coins: number) => void
+    onAmmoChange: (ammo: number) => void
     onTimeChange: (elapsedMs: number, remainingMs: number) => void
-    onGameOver: (result: { survived: boolean, coins: number, elapsedMs: number }) => void
+    onGameOver: (result: PirateGameOverResult) => void
     onKill?: (tierName: string, reward: number) => void
 }
 
@@ -35,6 +52,10 @@ const HOLD_RANGE_FRACTION = 0.85
 const ROTATE_LERP = 0.12
 const MOVE_STOP_DIST = 6
 
+interface Cannon extends PirateCannonRuntime {
+    reloadTimer: number
+}
+
 interface Enemy {
     id: number
     tier: PirateEnemyTier
@@ -45,8 +66,9 @@ interface Enemy {
     angle: number
     reloadTimer: number
     speed: number
-    dmgMin: number
-    dmgMax: number
+    defense: number
+    attackRating: number
+    maxDamage: number
     root: Container
     hull: Container
     hpBarFill: Graphics
@@ -97,12 +119,15 @@ export class PirateGame {
     private elapsedMs = 0
     private playerHp = 100
     private coins = 0
+    private ammo = 0
+    private ammoStart = 0
+    private cannons: Cannon[] = []
+    private maxCannonRange = 220
     private playerX = WORLD_W / 2
     private playerY = WORLD_H / 2
     private playerAngle = 0
     private moveTarget: { x: number, y: number } | null = null
     private attackTargetId: number | null = null
-    private reloadTimer = 0
     private spawnTimerMs = 0
     private treasureTimerMs = 0
     private nextEnemyId = 1
@@ -164,10 +189,13 @@ export class PirateGame {
         this.power = power
         this.playerHp = stats.maxHp
         this.coins = 0
+        this.ammo = stats.ammo
+        this.ammoStart = stats.ammo
+        this.cannons = stats.cannons.map(c => ({ ...c, reloadTimer: randRange(0, c.reloadMs * 0.5) }))
+        this.maxCannonRange = this.cannons.reduce((max, c) => Math.max(max, c.range), 220)
         this.elapsedMs = 0
         this.attackTargetId = null
         this.moveTarget = null
-        this.reloadTimer = 0
         this.spawnTimerMs = pirateSpawnIntervalMs(0)
         this.treasureTimerMs = randRange(PIRATE_TREASURE_MIN_INTERVAL_MS, PIRATE_TREASURE_MAX_INTERVAL_MS)
         this.playerX = WORLD_W / 2
@@ -183,6 +211,7 @@ export class PirateGame {
 
         this.callbacks.onHpChange(this.playerHp, this.stats.maxHp)
         this.callbacks.onCoinsChange(this.coins)
+        this.callbacks.onAmmoChange(this.ammo)
         this.callbacks.onTimeChange(0, this.runDurationMs)
 
         this.running = true
@@ -213,15 +242,16 @@ export class PirateGame {
         this.elapsedMs += deltaMS
         this.callbacks.onTimeChange(this.elapsedMs, Math.max(0, this.runDurationMs - this.elapsedMs))
 
-        this.updatePlayer(dt, deltaMS)
+        this.updatePlayer(dt)
+        this.updateCannons(deltaMS)
         this.updateEnemies(dt, deltaMS)
         this.updateTreasure(dt, deltaMS)
         this.updateSpawning(deltaMS)
 
-        if (this.elapsedMs >= this.runDurationMs) this.endGame(true)
+        if (this.elapsedMs >= this.runDurationMs) this.endGame(true, 'timeout')
     }
 
-    private updatePlayer(dt: number, deltaMS: number) {
+    private updatePlayer(dt: number) {
         const target = this.attackTargetId !== null ? this.enemies.get(this.attackTargetId) : null
 
         if (target) {
@@ -232,16 +262,9 @@ export class PirateGame {
             // Close the distance until comfortably inside range (a margin below
             // the hard cutoff) so the ship doesn't flicker between chasing and
             // holding as the enemy drifts right at the boundary.
-            if (d > this.stats.range * HOLD_RANGE_FRACTION) {
+            if (d > this.maxCannonRange * HOLD_RANGE_FRACTION) {
                 this.playerX += Math.cos(desiredAngle) * this.stats.speed * dt
                 this.playerY += Math.sin(desiredAngle) * this.stats.speed * dt
-            }
-            if (d <= this.stats.range) {
-                this.reloadTimer -= deltaMS
-                if (this.reloadTimer <= 0) {
-                    this.reloadTimer = this.stats.reloadMs
-                    this.playerFireAt(target)
-                }
             }
         } else if (this.moveTarget) {
             const d = dist(this.playerX, this.playerY, this.moveTarget.x, this.moveTarget.y)
@@ -262,8 +285,45 @@ export class PirateGame {
         this.player.hull.rotation = this.playerAngle
     }
 
-    private updateEnemies(_dt: number, deltaMS: number) {
-        const dt = _dt
+    /**
+     * Each gun port reloads and fires on its own clock. A cannon prefers the
+     * player's explicit attack target if that target is within ITS range, but
+     * otherwise opportunistically engages whichever enemy is nearest and in
+     * range — short-range guns end up handling close threats while long-range
+     * guns snipe the priority target, independently of each other.
+     */
+    private updateCannons(deltaMS: number) {
+        if (this.enemies.size === 0) return
+        for (const cannon of this.cannons) {
+            cannon.reloadTimer -= deltaMS
+            if (cannon.reloadTimer > 0) continue
+            const target = this.pickCannonTarget(cannon)
+            if (!target) continue
+            cannon.reloadTimer = cannon.reloadMs
+            this.fireCannonAtEnemy(cannon, target)
+        }
+    }
+
+    private pickCannonTarget(cannon: Cannon): Enemy | null {
+        const priority = this.attackTargetId !== null ? this.enemies.get(this.attackTargetId) : null
+        if (priority && !priority.dead && dist(this.playerX, this.playerY, priority.x, priority.y) <= cannon.range) {
+            return priority
+        }
+
+        let best: Enemy | null = null
+        let bestDist = Infinity
+        for (const enemy of this.enemies.values()) {
+            if (enemy.dead) continue
+            const d = dist(this.playerX, this.playerY, enemy.x, enemy.y)
+            if (d <= cannon.range && d < bestDist) {
+                best = enemy
+                bestDist = d
+            }
+        }
+        return best
+    }
+
+    private updateEnemies(dt: number, deltaMS: number) {
         for (const enemy of this.enemies.values()) {
             const d = dist(enemy.x, enemy.y, this.playerX, this.playerY)
             const desiredAngle = Math.atan2(this.playerY - enemy.y, this.playerX - enemy.x)
@@ -324,67 +384,39 @@ export class PirateGame {
 
     // ─── Combat ─────────────────────────────────────────────────────────────
 
-    private playerFireAt(target: Enemy) {
+    private fireCannonAtEnemy(cannon: Cannon, target: Enemy) {
+        if (this.ammo <= 0) {
+            this.endGame(false, 'ammo')
+            return
+        }
+        this.ammo -= 1
+        this.callbacks.onAmmoChange(this.ammo)
+
         const id = target.id
-        const cannon = this.stats.cannon
-        this.fireVolley({
-            getFrom: () => this.running ? { x: this.playerX, y: this.playerY } : null,
-            getTo: () => {
-                const e = this.enemies.get(id)
-                return e && !e.dead ? { x: e.x, y: e.y } : null
-            },
-            dmgMin: cannon.min,
-            dmgMax: cannon.max,
-            ballCount: cannon.balls,
-            ballColor: 0x44403c,
-            onHit: (dmg, crit) => {
-                const e = this.enemies.get(id)
-                if (e && !e.dead) this.hitEnemy(e, dmg, crit)
-            }
+        const from = { x: this.playerX, y: this.playerY }
+        const to = { x: target.x, y: target.y }
+        this.spawnCannonball(from.x, from.y, to.x, to.y, 0x44403c, (hitX, hitY) => {
+            const e = this.enemies.get(id)
+            if (!e || e.dead) return
+            const roll = pirateRollAttack(cannon.attackRating, e.defense, cannon.maxDamage)
+            this.hitEnemy(e, roll, hitX, hitY)
         })
     }
 
     private enemyFire(enemy: Enemy) {
-        const id = enemy.id
-        this.fireVolley({
-            getFrom: () => {
-                const e = this.enemies.get(id)
-                return e ? { x: e.x, y: e.y } : null
-            },
-            getTo: () => this.running ? { x: this.playerX, y: this.playerY } : null,
-            dmgMin: enemy.dmgMin,
-            dmgMax: enemy.dmgMax,
-            ballCount: 1,
-            ballColor: 0x1c1917,
-            onHit: (dmg, crit) => { if (this.running) this.hitPlayer(dmg, crit) }
+        const from = { x: enemy.x, y: enemy.y }
+        const to = { x: this.playerX, y: this.playerY }
+        this.spawnCannonball(from.x, from.y, to.x, to.y, 0x1c1917, () => {
+            if (!this.running) return
+            const roll = pirateRollAttack(enemy.attackRating, this.stats.defenseRating, enemy.maxDamage)
+            this.hitPlayer(roll)
         })
-    }
-
-    private fireVolley(opts: {
-        getFrom: () => { x: number, y: number } | null
-        getTo: () => { x: number, y: number } | null
-        dmgMin: number
-        dmgMax: number
-        ballCount: number
-        ballColor?: number
-        onHit: (dmg: number, crit: boolean, x: number, y: number) => void
-    }) {
-        for (let i = 0; i < opts.ballCount; i++) {
-            gsap.delayedCall(i * 0.09, () => {
-                if (this.destroyed || !this.running) return
-                const from = opts.getFrom()
-                const to = opts.getTo()
-                if (!from || !to) return
-                this.spawnCannonball(from.x, from.y, to.x, to.y, opts.dmgMin, opts.dmgMax, opts.onHit, opts.ballColor)
-            })
-        }
     }
 
     private spawnCannonball(
         fromX: number, fromY: number, toX: number, toY: number,
-        dmgMin: number, dmgMax: number,
-        onHit: (dmg: number, crit: boolean, x: number, y: number) => void,
-        ballColor = 0x2b2320
+        ballColor: number,
+        onImpact: (x: number, y: number) => void
     ) {
         const spread = 22
         const tx = toX + (Math.random() - 0.5) * spread
@@ -410,17 +442,19 @@ export class PirateGame {
                 if (this.destroyed) return
                 ballRoot.destroy({ children: true })
                 this.spawnSplash(tx, ty)
-                const dmg = Math.round(randRange(dmgMin, dmgMax))
-                const crit = Math.random() < 0.12
-                onHit(crit ? Math.round(dmg * 1.6) : dmg, crit, tx, ty)
+                onImpact(tx, ty)
             }
         })
     }
 
-    private hitEnemy(enemy: Enemy, dmg: number, crit: boolean) {
+    private hitEnemy(enemy: Enemy, roll: { hit: boolean, dmg: number, crit: boolean }, x: number, y: number) {
         if (enemy.dead) return
-        enemy.hp -= dmg
-        this.spawnDamagePopup(enemy.x, enemy.y - 34, crit ? `${dmg}!` : `${dmg}`, crit ? 0xfacc15 : 0xffffff, crit)
+        if (!roll.hit) {
+            this.spawnDamagePopup(x, y - 24, 'MISS', 0x9ca3af, false)
+            return
+        }
+        enemy.hp -= roll.dmg
+        this.spawnDamagePopup(enemy.x, enemy.y - 34, roll.crit ? `${roll.dmg}!` : `${roll.dmg}`, roll.crit ? 0xfacc15 : 0xffffff, roll.crit)
         if (enemy.hp <= 0) {
             this.killEnemy(enemy)
         } else {
@@ -449,13 +483,17 @@ export class PirateGame {
         })
     }
 
-    private hitPlayer(dmg: number, crit: boolean) {
+    private hitPlayer(roll: { hit: boolean, dmg: number, crit: boolean }) {
         if (!this.running) return
-        this.playerHp = Math.max(0, this.playerHp - dmg)
+        if (!roll.hit) {
+            this.spawnDamagePopup(this.playerX, this.playerY - 30, 'MISS', 0x9ca3af, false)
+            return
+        }
+        this.playerHp = Math.max(0, this.playerHp - roll.dmg)
         this.callbacks.onHpChange(this.playerHp, this.stats.maxHp)
-        this.spawnDamagePopup(this.playerX, this.playerY - 30, `-${dmg}`, 0xff6b6b, crit)
-        this.shake(crit ? 9 : 5)
-        if (this.playerHp <= 0) this.endGame(false)
+        this.spawnDamagePopup(this.playerX, this.playerY - 30, `-${roll.dmg}`, 0xff6b6b, roll.crit)
+        this.shake(roll.crit ? 9 : 5)
+        if (this.playerHp <= 0) this.endGame(false, 'defeat')
     }
 
     // ─── Treasure ───────────────────────────────────────────────────────────
@@ -558,8 +596,9 @@ export class PirateGame {
             angle: Math.atan2(this.playerY - y, this.playerX - x),
             reloadTimer: randRange(300, tier.reloadMs),
             speed: tier.speed,
-            dmgMin: Math.max(1, Math.round(tier.dmgMin * diff.dmgMult)),
-            dmgMax: Math.max(1, Math.round(tier.dmgMax * diff.dmgMult)),
+            defense: Math.max(1, Math.round(tier.defense * diff.statMult)),
+            attackRating: Math.max(1, Math.round(tier.attackRating * diff.statMult)),
+            maxDamage: Math.max(1, Math.round(tier.maxDamage * diff.dmgMult)),
             root: visual.root,
             hull: visual.hull,
             hpBarFill: hpBar.fill,
@@ -656,7 +695,7 @@ export class PirateGame {
             style: {
                 fill: color,
                 fontFamily: 'Inter, ui-sans-serif, system-ui',
-                fontSize: crit ? 26 : 20,
+                fontSize: crit ? 26 : text === 'MISS' ? 17 : 20,
                 fontWeight: '900',
                 stroke: { color: 0x111827, width: 4 },
                 dropShadow: { color, blur: 8, distance: 0, alpha: 0.85 }
@@ -715,7 +754,7 @@ export class PirateGame {
         this.world.position.set(0, 0)
     }
 
-    private endGame(survived: boolean) {
+    private endGame(survived: boolean, reason: 'timeout' | 'defeat' | 'ammo') {
         if (!this.running) return
         this.running = false
         this.attackTargetId = null
@@ -725,6 +764,6 @@ export class PirateGame {
             gsap.to(this.player.hull, { rotation: this.player.hull.rotation + 1.3, alpha: 0.15, duration: 0.9 })
             this.spawnSplash(this.playerX, this.playerY)
         }
-        this.callbacks.onGameOver({ survived, coins: this.coins, elapsedMs: this.elapsedMs })
+        this.callbacks.onGameOver({ survived, coins: this.coins, elapsedMs: this.elapsedMs, ammoUsed: this.ammoStart - this.ammo, reason })
     }
 }
