@@ -201,7 +201,7 @@ const sortedStoredAgents = computed(() => {
             <!-- Header: portrait + identity + xp -->
             <div class="flex items-start gap-4 mb-4">
               <HackAgentAvatar
-                class="size-20 shrink-0"
+                class="size-30 shrink-0"
                 :name="agent.name"
                 :rarity="agent.rarity as HackRarity"
               />
@@ -213,6 +213,12 @@ const sortedStoredAgents = computed(() => {
                       :color="RARITY_COLOR[agent.rarity as HackRarity]"
                       variant="subtle"
                       :label="RARITY_LABEL[agent.rarity as HackRarity]"
+                    />
+                    <UBadge
+                      v-if="busyAgentIds.has(agent.id)"
+                      color="primary"
+                      variant="subtle"
+                      label="On Op"
                     />
                   </div>
                   <div class="text-right shrink-0">
@@ -229,17 +235,7 @@ const sortedStoredAgents = computed(() => {
                     :name="CLASS_ICON[agent.class as AgentClass]"
                     class="size-3.5"
                   />
-                  {{ CLASS_LABEL[agent.class as AgentClass] }} · Level {{ agent.level }}
-                  <UBadge
-                    v-if="busyAgentIds.has(agent.id)"
-                    size="xs"
-                    color="primary"
-                    variant="subtle"
-                    label="On Op"
-                  />
-                </p>
-                <p class="text-[11px] text-muted mt-1.5">
-                  {{ CLASS_PASSIVE[agent.class as AgentClass].label }}
+                  {{ CLASS_LABEL[agent.class as AgentClass] }} · {{ CLASS_PASSIVE[agent.class as AgentClass].label }}
                 </p>
                 <div class="mt-2">
                   <div class="flex justify-between text-[11px] mb-1">
@@ -424,53 +420,54 @@ const sortedStoredAgents = computed(() => {
             v-for="agent in sortedStoredAgents"
             :key="agent.id"
             tight
-            class="p-3 space-y-2.5"
+            class="p-3"
           >
-            <div
-              class="flex items-center gap-3 cursor-pointer"
-              @click="detailAgentId = agent.id"
-            >
+            <div class="flex items-start gap-3">
               <HackAgentAvatar
-                class="size-11 shrink-0"
+                class="size-26 shrink-0 cursor-pointer"
                 :name="agent.name"
                 :rarity="agent.rarity as HackRarity"
+                @click="detailAgentId = agent.id"
               />
-              <div class="flex-1 min-w-0">
-                <div class="flex items-center gap-2 flex-wrap">
-                  <span class="font-semibold text-sm truncate">{{ agent.name }}</span>
-                  <UBadge
-                    size="xs"
-                    :color="RARITY_COLOR[agent.rarity as HackRarity]"
-                    variant="subtle"
-                    :label="RARITY_LABEL[agent.rarity as HackRarity]"
-                  />
+              <div class="flex-1 min-w-0 space-y-2">
+                <div
+                  class="cursor-pointer"
+                  @click="detailAgentId = agent.id"
+                >
+                  <div class="flex items-center gap-2 flex-wrap">
+                    <span class="font-semibold text-sm truncate">{{ agent.name }}</span>
+                    <UBadge
+                      size="xs"
+                      :color="RARITY_COLOR[agent.rarity as HackRarity]"
+                      variant="subtle"
+                      :label="RARITY_LABEL[agent.rarity as HackRarity]"
+                    />
+                  </div>
+                  <p class="text-[11px] text-muted font-mono mt-0.5">
+                    {{ CLASS_LABEL[agent.class as AgentClass] }} · Lv {{ agent.level }} · PWR {{ agent.power }}
+                  </p>
                 </div>
-                <p class="text-[11px] text-muted font-mono mt-0.5">
-                  {{ CLASS_LABEL[agent.class as AgentClass] }} · Lv {{ agent.level }} · PWR {{ agent.power }}
-                </p>
+                <UButton
+                  size="xs"
+                  color="primary"
+                  variant="soft"
+                  icon="i-lucide-arrow-up-circle"
+                  label="Activate"
+                  block
+                  :loading="togglingActive === agent.id"
+                  :disabled="activeFull"
+                  @click="setActive(agent.id, true)"
+                />
+                <UButton
+                  size="xs"
+                  color="neutral"
+                  variant="outline"
+                  icon="i-lucide-shield-half"
+                  label="Equip"
+                  block
+                  :to="`/hack/loadout?agent=${agent.id}`"
+                />
               </div>
-            </div>
-            <div class="flex items-center gap-1.5">
-              <UButton
-                size="xs"
-                color="primary"
-                variant="soft"
-                icon="i-lucide-arrow-up-circle"
-                label="Activate"
-                class="flex-1 justify-center"
-                :loading="togglingActive === agent.id"
-                :disabled="activeFull"
-                @click="setActive(agent.id, true)"
-              />
-              <UButton
-                size="xs"
-                color="neutral"
-                variant="outline"
-                icon="i-lucide-shield-half"
-                label="Equip"
-                class="flex-1 justify-center"
-                :to="`/hack/loadout?agent=${agent.id}`"
-              />
             </div>
           </HackFrame>
         </div>
@@ -497,7 +494,7 @@ const sortedStoredAgents = computed(() => {
       <div class="space-y-4">
         <div class="flex items-start gap-3">
           <HackAgentAvatar
-            class="size-14 shrink-0"
+            class="size-22 shrink-0"
             :name="detailAgent.name"
             :rarity="detailAgent.rarity as HackRarity"
           />
