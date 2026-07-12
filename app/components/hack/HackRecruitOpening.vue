@@ -201,11 +201,13 @@ function traitRange(type: AgentTrait['type']) {
         ref="flashEl"
         class="hack-glitch-flash"
       />
-      <div class="hack-shell hack-frame hack-frame-accent overflow-hidden">
+      <div class="hack-shell hack-frame hack-frame-accent overflow-hidden flex flex-col max-h-[calc(100dvh-2rem)] sm:max-h-[calc(100dvh-4rem)]">
+        <div class="overflow-y-auto min-h-0">
         <!-- Stage 1: the pitch -->
         <template v-if="stage === 'pitch'">
-          <div class="hack-contact-portrait">
+          <div class="hack-contact-portrait aspect-auto! h-[clamp(10rem,42vh,32rem)]">
             <img
+              class="object-top"
               :src="contact?.portrait"
               :alt="`Contact: ${contact?.handle}`"
             >
@@ -376,6 +378,7 @@ function traitRange(type: AgentTrait['type']) {
             </div>
           </div>
         </template>
+        </div>
       </div>
     </template>
   </UModal>
