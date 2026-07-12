@@ -114,9 +114,12 @@ export const pirateState = pgTable('pirate_state', {
   userId: text('user_id').notNull().unique().references(() => user.id, { onDelete: 'cascade' }),
   hullLevel: integer('hull_level').notNull().default(1),
   speedLevel: integer('speed_level').notNull().default(1),
-  damageLevel: integer('damage_level').notNull().default(1),
-  rangeLevel: integer('range_level').notNull().default(1),
-  reloadLevel: integer('reload_level').notNull().default(1),
+  defenseLevel: integer('defense_level').notNull().default(1),
+  ammoCapacityLevel: integer('ammo_capacity_level').notNull().default(1),
+  // Unlocked gun ports. Slot 0 starts equipped with a free starter cannon
+  // (see pirateCannons) so a brand new player isn't defenseless.
+  cannonSlots: integer('cannon_slots').notNull().default(1),
+  ammoCount: integer('ammo_count').notNull().default(30),
   runsPlayed: integer('runs_played').notNull().default(0),
   totalCoinsEarned: integer('total_coins_earned').notNull().default(0),
   bestSurvivalMs: integer('best_survival_ms').notNull().default(0),
@@ -126,6 +129,21 @@ export const pirateState = pgTable('pirate_state', {
   runStartedAt: timestamp('run_started_at'),
   runPowerSnapshot: integer('run_power_snapshot')
 })
+
+// Equipped cannons, one row per occupied gun port (0..cannonSlots-1). Selling
+// removes the row; purchasePrice is stored per-instance (rather than re-read
+// from the tier config) so the 20% sell refund stays correct even if tier
+// prices are rebalanced later.
+export const pirateCannons = pgTable('pirate_cannons', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  slotIndex: integer('slot_index').notNull(),
+  tierId: text('tier_id').notNull(),
+  purchasePrice: integer('purchase_price').notNull()
+}, t => [
+  index('pirate_cannons_userId_idx').on(t.userId),
+  unique('pirate_cannons_slot_unique').on(t.userId, t.slotIndex)
+])
 
 export const gemMarketState = pgTable('gem_market_state', {
   id: text('id').primaryKey(), // always 'market'
@@ -341,7 +359,8 @@ export const userRelations = relations(user, ({ many, one }) => ({
   accounts: many(account),
   transactions: many(transactions),
   minerState: one(minerState),
-  pirateState: one(pirateState)
+  pirateState: one(pirateState),
+  pirateCannons: many(pirateCannons)
 }))
 
 export const minerStateRelations = relations(minerState, ({ one }) => ({
@@ -350,6 +369,10 @@ export const minerStateRelations = relations(minerState, ({ one }) => ({
 
 export const pirateStateRelations = relations(pirateState, ({ one }) => ({
   user: one(user, { fields: [pirateState.userId], references: [user.id] })
+}))
+
+export const pirateCannonsRelations = relations(pirateCannons, ({ one }) => ({
+  user: one(user, { fields: [pirateCannons.userId], references: [user.id] })
 }))
 
 export const gemPriceHistoryRelations = relations(gemPriceHistory, ({ one }) => ({
