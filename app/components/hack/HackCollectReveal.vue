@@ -6,11 +6,11 @@ import {
 import { sleep } from '~/utils/sleep'
 import type { VoiceHandle } from '~/composables/useAudio'
 
-// Mission collect reveal — the user's ask: this should feel like a Black
-// Market reveal (flash → stamp → rewards card), not a plain result dialog.
-// Simpler than HackCrateOpening/HackRecruitOpening: the op already resolved
-// server-side before this opens, so there's no pitch/buy stage, just the
-// two-beat reveal.
+// Mission collect reveal — one continuous card: flash + stamp scale-in at the
+// top, the RELAY bark caption below it, then the rewards fade in underneath
+// (no stage swap — the stamp stays put and the loot appears below it). The op
+// already resolved server-side before this opens, so there's no pitch/buy
+// stage.
 const props = defineProps<{
   result: {
     success: boolean
@@ -29,7 +29,7 @@ const props = defineProps<{
 const open = defineModel<boolean>('open', { required: true })
 const audio = useAudio('hack')
 
-const stage = ref<'stamp' | 'reveal'>('stamp')
+const showRewards = ref(false)
 const barkCaption = ref('')
 const barkDone = ref(false)
 let barkHandle: VoiceHandle | null = null
@@ -39,7 +39,7 @@ const flashEl = ref<HTMLElement | null>(null)
 
 watch(open, (v) => {
   if (v) {
-    stage.value = 'stamp'
+    showRewards.value = false
     barkCaption.value = ''
     barkDone.value = false
     void playSequence()
@@ -67,7 +67,7 @@ async function playSequence() {
     onEnd: () => { barkDone.value = true }
   })
   await sleep(700)
-  stage.value = 'reveal'
+  showRewards.value = true
   await nextTick()
   if (revealEl.value) {
     const { gsap } = await import('gsap')
@@ -98,50 +98,35 @@ function modRange(type: ItemMod['type']) {
         class="hack-shell hack-frame overflow-hidden"
         :class="result.success && 'hack-frame-accent'"
       >
-        <!-- Stage 1: stamp + bark -->
-        <template v-if="stage === 'stamp'">
-          <div class="text-center pt-8 pb-6 px-5">
-            <div class="hack-eyebrow mb-3 flex items-center justify-center gap-1.5">
-              <UIcon
-                :name="result.icon"
-                class="size-3.5"
-              />{{ result.templateName }}
-            </div>
-            <div
-              ref="stampEl"
-              class="hack-stamp"
-              :class="result.success ? 'text-success' : 'text-error'"
-            >
-              {{ result.success ? 'SUCCESS' : 'FAILED' }}
-            </div>
-            <p class="hack-captions mt-3 text-center">
-              {{ barkCaption }}<span
-                v-if="!barkDone"
-                class="hack-cursor"
-              />
-            </p>
+        <!-- Stamp + bark: always shown at the top -->
+        <div class="text-center pt-8 pb-5 px-5">
+          <div class="hack-eyebrow mb-3 flex items-center justify-center gap-1.5">
+            <UIcon
+              :name="result.icon"
+              class="size-3.5"
+            />{{ result.templateName }}
           </div>
-        </template>
+          <div
+            ref="stampEl"
+            class="hack-stamp"
+            :class="result.success ? 'text-success' : 'text-error'"
+          >
+            {{ result.success ? 'SUCCESS' : 'FAILED' }}
+          </div>
+          <p class="hack-captions mt-3 text-center">
+            {{ barkCaption }}<span
+              v-if="!barkDone"
+              class="hack-cursor"
+            />
+          </p>
+        </div>
 
-        <!-- Stage 2: rewards reveal -->
-        <template v-else>
+        <!-- Rewards: fade in below the stamp -->
+        <template v-if="showRewards">
           <div
             ref="revealEl"
-            class="p-5"
+            class="px-5 pb-5"
           >
-            <div class="hack-eyebrow mb-1 flex items-center gap-1.5">
-              <UIcon
-                :name="result.icon"
-                class="size-3.5"
-              />{{ result.templateName }}
-            </div>
-            <h2
-              class="text-xl font-bold mb-4"
-              :class="result.success ? 'text-success' : 'text-error'"
-            >
-              {{ result.success ? 'Mission Success' : 'Mission Failed' }}
-            </h2>
-
             <div
               v-if="result.success"
               class="grid grid-cols-2 gap-2 mb-4"
@@ -196,23 +181,21 @@ function modRange(type: ItemMod['type']) {
                   :label="`${SLOT_LABEL[result.item.slot]} · Lv.${result.item.itemLevel}`"
                 />
               </div>
-              <div class="space-y-2 mt-3">
-                <div
+              <!-- Grid so the value column and bar column share a width across
+                   every row — the range bars all render the exact same size. -->
+              <div class="grid grid-cols-[1fr_auto_8rem] items-center gap-x-2.5 gap-y-2 mt-3">
+                <template
                   v-for="m in sortedMods"
                   :key="m.type"
-                  class="flex items-center justify-between gap-3"
                 >
                   <span class="text-sm">{{ MOD_LABEL[m.type] }}</span>
-                  <div class="flex items-center gap-2.5 flex-1 max-w-[55%]">
-                    <span class="mono text-xs shrink-0">{{ formatModValue(m.type, m.value) }}</span>
-                    <HackRangeBar
-                      class="flex-1"
-                      :min="modRange(m.type).min"
-                      :max="modRange(m.type).max"
-                      :value="m.value"
-                    />
-                  </div>
-                </div>
+                  <span class="mono text-xs text-right">{{ formatModValue(m.type, m.value) }}</span>
+                  <HackRangeBar
+                    :min="modRange(m.type).min"
+                    :max="modRange(m.type).max"
+                    :value="m.value"
+                  />
+                </template>
               </div>
             </HackFrame>
 

@@ -5,7 +5,7 @@ import { auth } from '#server/utils/auth'
 import { credit } from '#server/utils/balance'
 import {
   OP_TEMPLATES, rollOpReward, agentXpGain, agentPower, xpToNextLevel, AGENT_MAX_LEVEL, MAX_INVENTORY_SLOTS,
-  type AgentClass, type ItemMod, type AgentTrait,
+  type AgentClass, type ItemMod, type AgentTrait, type OpReward,
 } from '#shared/utils/hack-config'
 
 export default defineEventHandler(async (event) => {
@@ -52,7 +52,13 @@ export default defineEventHandler(async (event) => {
   const totalPower = rewardAgents.reduce((sum, a) =>
     sum + agentPower({ level: a.level, class: a.class }, a.items, a.traits), 0)
 
-  const reward = rollOpReward(template, rewardAgents, totalPower, inventoryFull)
+  // Dev-only: seed-hack-ops.ts inserts uncollected ops that already carry a
+  // forced `reward` (a real op only gets `reward` set once it's collected, so a
+  // non-null reward on an uncollected op can only be a seeded one). Honor it so
+  // the collect reveal can be exercised with specific loot/traits.
+  const reward = (import.meta.dev && op.reward)
+    ? (op.reward as OpReward)
+    : rollOpReward(template, rewardAgents, totalPower, inventoryFull)
 
   // Apply XP per agent — each agent earns from its OWN xp_boost trait and xp_flat
   // gear (never pooled). On failure every agent gets the same flat 15% of base XP.
