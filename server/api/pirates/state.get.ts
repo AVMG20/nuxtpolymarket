@@ -1,14 +1,15 @@
 import { eq } from 'drizzle-orm'
 import { db } from '#server/database'
-import { pirateState, pirateCannons } from '#server/database/schema'
+import { pirateState, pirateCannons, user } from '#server/database/schema'
 import { auth } from '#server/utils/auth'
 import { getBalance } from '#server/utils/balance'
 import {
     PIRATE_SHIP_STAT_IDS, PIRATE_MAX_STAT_LEVEL, PIRATE_RUN_DURATION_MS, PIRATE_MAX_CANNON_SLOTS,
-    PIRATE_CANNON_SELL_REFUND_RATE, PIRATE_AMMO_PRICE_PER_UNIT,
+    PIRATE_CANNON_SELL_REFUND_RATE,
     PIRATE_GEM_AMMO_CAPACITY, PIRATE_GEM_AMMO_BUNDLE_SIZE, PIRATE_GEM_AMMO_BUNDLE_PRICE_GEMS,
     pirateUpgradeCost, pirateMaxHp, pirateShipSpeed, pirateDefenseRating, pirateAmmoCapacity,
-    pirateSlotUnlockCost, pirateCannonTier, piratePowerLevel, pirateRepairRushCost
+    pirateSlotUnlockCost, pirateCannonTier, piratePowerLevel, pirateRepairRushCost, pirateAmmoPricePerUnit,
+    PIRATE_SHIP_SKINS
 } from '#shared/utils/gamelogic/pirates'
 
 export default defineEventHandler(async (event) => {
@@ -17,8 +18,9 @@ export default defineEventHandler(async (event) => {
 
     const userId = session.user.id
 
-    const [balance, existing, cannons] = await Promise.all([
+    const [balance, currentUser, existing, cannons] = await Promise.all([
         getBalance(userId),
+        db.query.user.findFirst({ where: eq(user.id, userId), columns: { gems: true } }),
         db.query.pirateState.findFirst({ where: eq(pirateState.userId, userId) }),
         db.query.pirateCannons.findMany({ where: eq(pirateCannons.userId, userId) })
     ])
@@ -60,9 +62,11 @@ export default defineEventHandler(async (event) => {
     const power = piratePowerLevel({ levels, cannonTierIds: cannonList.map(c => c.tierId), cannonSlots: s.cannonSlots })
 
     const repairRemainingMs = s.hullRepairUntil ? Math.max(0, s.hullRepairUntil.getTime() - Date.now()) : 0
+    const ownedSkinIds = Array.from(new Set(['starter', ...(s.ownedSkinIds ?? [])]))
 
     return {
         balance,
+        gems: currentUser?.gems ?? 0,
         levels,
         maxLevel: PIRATE_MAX_STAT_LEVEL,
         costs: Object.fromEntries(PIRATE_SHIP_STAT_IDS.map(id => [id, pirateUpgradeCost(levels[id])])),
@@ -80,7 +84,7 @@ export default defineEventHandler(async (event) => {
         ammo: {
             count: s.ammoCount,
             capacity,
-            pricePerUnit: PIRATE_AMMO_PRICE_PER_UNIT
+            pricePerUnit: pirateAmmoPricePerUnit(power)
         },
         gemAmmo: {
             count: s.gemAmmoCount,
@@ -91,6 +95,8 @@ export default defineEventHandler(async (event) => {
         runsPlayed: s.runsPlayed,
         totalCoinsEarned: s.totalCoinsEarned,
         bestSurvivalMs: s.bestSurvivalMs,
+        skins: PIRATE_SHIP_SKINS.map(skin => ({ ...skin, owned: ownedSkinIds.includes(skin.id), equipped: skin.id === s.equippedSkinId })),
+        equippedSkinId: s.equippedSkinId,
         runDurationMs: PIRATE_RUN_DURATION_MS,
         activeRun: s.runStartedAt ? { startedAt: s.runStartedAt } : null,
         repair: {

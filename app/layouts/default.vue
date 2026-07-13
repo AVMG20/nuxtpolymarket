@@ -26,7 +26,6 @@ const platformItems: NavigationMenuItem[] = [
   { label: 'Xeno', class: 'mb-1', icon: 'i-lucide-sprout', to: '/xeno' },
   { label: 'Hack Ops', class: 'mb-1', icon: 'i-lucide-terminal', to: '/hack' },
   { label: 'Pirate Raid', class: 'mb-1', icon: 'i-lucide-anchor', to: '/pirates' },
-  { label: 'Ship Armory', class: 'mb-1', icon: 'i-lucide-hammer', to: '/pirates/manage' },
   { label: 'Gem Market', class: 'mb-1', icon: 'i-lucide-gem', to: '/gem-market' },
   { label: 'Leaderboard', class: 'mb-1', icon: 'i-lucide-trophy', to: '/leaderboard' },
   { label: 'Changelog', class: 'mb-1', icon: 'i-lucide-scroll-text', to: '/changelog' }

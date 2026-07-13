@@ -22,8 +22,6 @@ export default defineEventHandler(async (event) => {
         throw createError({ statusCode: 400, statusMessage: 'Your ship is still in dry dock — repair it or rush the repair first' })
     }
     if (cannons.length < 1) throw createError({ statusCode: 400, statusMessage: 'Equip at least one cannon before setting sail' })
-    if (s.ammoCount + s.gemAmmoCount < 1) throw createError({ statusCode: 400, statusMessage: 'Stock up on ammo before setting sail' })
-
     const levels = {
         hull: s.hullLevel,
         speed: s.speedLevel,
@@ -40,6 +38,7 @@ export default defineEventHandler(async (event) => {
     return {
         startedAt,
         power,
+        skinId: s.equippedSkinId,
         runDurationMs: PIRATE_RUN_DURATION_MS,
         stats: {
             maxHp: pirateMaxHp(s.hullLevel),

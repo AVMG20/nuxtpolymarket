@@ -59,6 +59,10 @@ export default defineEventHandler(async (event) => {
     const hullDamageFraction = abandoned ? 0 : (reason === 'defeat' ? 1 : reportedHullDamageFraction)
     const repairMs = pirateRepairDurationMs(hullDamageFraction)
     const hullRepairUntil = repairMs > 0 ? new Date(Date.now() + repairMs) : null
+    const isBestRun = !abandoned && (
+        elapsedMs > s.bestSurvivalMs
+        || (elapsedMs === s.bestSurvivalMs && awarded > s.bestRunLoot)
+    )
 
     await db.update(pirateState).set({
         runStartedAt: null,
@@ -68,6 +72,8 @@ export default defineEventHandler(async (event) => {
         ammoCount: s.ammoCount - ammoUsed,
         gemAmmoCount: s.gemAmmoCount - gemAmmoUsed,
         bestSurvivalMs: abandoned ? s.bestSurvivalMs : Math.max(s.bestSurvivalMs, Math.min(elapsedMs, PIRATE_RUN_DURATION_MS)),
+        bestRunPower: isBestRun ? power : s.bestRunPower,
+        bestRunLoot: isBestRun ? awarded : s.bestRunLoot,
         hullRepairUntil: abandoned ? s.hullRepairUntil : hullRepairUntil,
         hullRepairTotalMs: abandoned ? s.hullRepairTotalMs : repairMs
     }).where(eq(pirateState.userId, userId))

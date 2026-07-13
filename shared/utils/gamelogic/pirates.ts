@@ -1,4 +1,18 @@
 // ─── Pirate Raid ────────────────────────────────────────────────────────────
+
+export const PIRATE_SHIP_SKINS = [
+  { id: 'starter', name: 'Golden Brigantine', cost: 0, sprite: '/pirates/sprites/player-ship.png', description: 'The dependable brig every captain starts with.' },
+  { id: 'crimson-privateer', name: 'Crimson Privateer', cost: 50, sprite: '/pirates/sprites/skin-crimson-privateer.png', description: 'Polished mahogany, silver trim, and privateer-red sails.' },
+  { id: 'emerald-serpent', name: 'Emerald Serpent', cost: 250, sprite: '/pirates/sprites/skin-emerald-serpent.png', description: 'Jade lacquer, silver scales, and an ornate serpent prow.' },
+  { id: 'royal-aether', name: 'Royal Aether', cost: 1000, sprite: '/pirates/sprites/skin-royal-aether.png', description: 'A regal warship lined with luminous violet crystals.' },
+  { id: 'crown-of-tides', name: 'Crown of Tides', cost: 10_000, sprite: '/pirates/sprites/skin-crown-of-tides.png', description: 'Pure gold and sapphire excess. The ultimate captain flex.' }
+] as const
+
+export type PirateShipSkinId = typeof PIRATE_SHIP_SKINS[number]['id']
+
+export function pirateShipSkin(id: string) {
+  return PIRATE_SHIP_SKINS.find(skin => skin.id === id) ?? PIRATE_SHIP_SKINS[0]
+}
 // A 5-minute real-time roguelike skirmish. Ship-level upgrades (hull, speed,
 // defense, ammo capacity) are bought directly; attack power instead comes from
 // equipping cannons (up to 8 gun ports) bought from the armory, each with its
@@ -6,8 +20,9 @@
 // independent timer rather than the whole ship volleying together. Combat
 // accuracy is RuneScape-style: an attack roll vs a defense roll decides hit or
 // miss (a heavily-armored target can shrug off a hit entirely), and only a
-// successful hit rolls 1..maxDamage. Ammo is a consumable stock (capacity is
-// upgradeable) — running dry mid-voyage ends the run.
+// successful hit rolls 1..maxDamage. Every ship has unlimited basic cannonballs.
+// Purchased ammo is a consumable premium stock (capacity is upgradeable) that
+// adds range and damage; once it is gone, cannons keep firing basic shots.
 
 export const PIRATE_SHIP_STAT_IDS = ['hull', 'speed', 'defense', 'ammoCapacity'] as const
 export type PirateShipStatId = typeof PIRATE_SHIP_STAT_IDS[number]
@@ -113,7 +128,15 @@ export function pirateCannonDps(tier: PirateCannonTier, defenseRating: number) {
 }
 
 // ─── Ammo ───────────────────────────────────────────────────────────────────
-export const PIRATE_AMMO_PRICE_PER_UNIT = 2
+export const PIRATE_AMMO_BASE_PRICE_PER_UNIT = 50
+export const PIRATE_AMMO_PRICE_PER_POWER = 2
+export const PIRATE_AMMO_RANGE_MULT = 1.1
+export const PIRATE_AMMO_DAMAGE_MULT = 1.2
+
+/** Premium cannonball price. Stronger ships pay more for the same relative combat boost. */
+export function pirateAmmoPricePerUnit(power: number) {
+  return Math.max(1, Math.round(PIRATE_AMMO_BASE_PRICE_PER_UNIT + Math.max(0, power) * PIRATE_AMMO_PRICE_PER_POWER))
+}
 
 // ─── Gem ammo ───────────────────────────────────────────────────────────────
 // Premium powder bought with gems (much rarer than coins). Each gem buys a

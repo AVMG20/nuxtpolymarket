@@ -6,6 +6,7 @@ import {
     PIRATE_POWER_UP_INTERVAL_MS, PIRATE_POWER_UP_LIFESPAN_MS,
     PIRATE_HEALTH_PACK_INTERVAL_MS, PIRATE_HEALTH_PACK_LIFESPAN_MS,
     PIRATE_SEA_MINE_INTERVAL_MS, PIRATE_SEA_MINE_LIFESPAN_MS,
+    PIRATE_AMMO_RANGE_MULT, PIRATE_AMMO_DAMAGE_MULT,
     PIRATE_GEM_AMMO_ATTACK_MULT, PIRATE_GEM_AMMO_DAMAGE_MULT,
     PIRATE_COMBO_WINDOW_MS, PIRATE_COMBO_BONUS_PER_STACK, PIRATE_COMBO_MAX_STACKS,
     PIRATE_BOSS_FIRST_SPAWN_MS, PIRATE_BOSS_RESPAWN_MS, PIRATE_BOSS_DAMAGE_MULT, PIRATE_ENEMY_TIERS,
@@ -14,6 +15,7 @@ import {
     pirateInitialEnemyCount, pirateSpawnBatchSize,
     pirateSeaMineDamageFraction,
     pirateEnemyReloadMultiplier,
+    PIRATE_SHIP_SKINS,
     type PirateEnemyTier
 } from '#shared/utils/gamelogic/pirates'
 
@@ -35,6 +37,7 @@ export interface PirateShipStats {
     cannons: PirateCannonRuntime[]
     ammo: number
     gemAmmo: number
+    skinId: string
 }
 
 export interface PirateGameOverResult {
@@ -44,8 +47,11 @@ export interface PirateGameOverResult {
     ammoUsed: number
     gemAmmoUsed: number
     kills: number
+    shotsFired: number
+    bombsFired: number
+    sunkByType: { id: string, name: string, count: number }[]
     maxCombo: number
-    reason: 'timeout' | 'defeat' | 'ammo' | 'cancelled'
+    reason: 'timeout' | 'defeat' | 'cancelled'
     /** 0 (pristine) to 1 (sunk) — drives how long the ship spends in dry dock afterward. */
     hullDamageFraction: number
 }
@@ -74,6 +80,7 @@ export interface PirateGameCallbacks {
     onHpChange: (hp: number, maxHp: number) => void
     onCoinsChange: (coins: number) => void
     onAmmoChange: (ammo: number, gemAmmo: number) => void
+    onBombCooldownChange: (remainingMs: number, totalMs: number) => void
     onTimeChange: (elapsedMs: number, remainingMs: number) => void
     onGameOver: (result: PirateGameOverResult) => void
     onKill?: (tierName: string, reward: number) => void
@@ -95,6 +102,8 @@ const PICKUP_RADIUS = 46
 const HOLD_RANGE_FRACTION = 0.85
 const ROTATE_LERP = 0.12
 const WAYPOINT_REACH_DIST = 12
+const PLAYER_BOMB_COOLDOWN_MS = 15_000
+const PLAYER_BOMB_RADIUS = 145
 
 // Pathfinding grid — coarse cells over circular island obstacles. Ships are
 // treated as circles of SHIP_RADIUS for clearance checks.
@@ -104,12 +113,17 @@ const GRID_H = Math.ceil(WORLD_H / CELL)
 const SHIP_RADIUS = 26
 const ISLAND_COUNT_MIN = 4
 const ISLAND_COUNT_MAX = 6
-const PLAYER_SHIP_SPRITE = '/pirates/sprites/player-ship.png'
 const RAIDER_SHIP_SPRITE = '/pirates/sprites/raider-ship.png'
+const DPS_RAIDER_SPRITE = '/pirates/sprites/dps-raider.png'
+const TANK_RAIDER_SPRITE = '/pirates/sprites/tank-raider.png'
 const SNIPER_SHIP_SPRITE = '/pirates/sprites/sniper-ship.png'
-const ISLAND_SPRITE = '/pirates/sprites/tropical-island.png'
+const ISLAND_SPRITES = [
+    '/pirates/sprites/tropical-island.png',
+    '/pirates/sprites/volcanic-island.png',
+    '/pirates/sprites/ruins-island.png'
+]
 
-type AmmoKind = 'standard' | 'gem'
+type AmmoKind = 'free' | 'standard' | 'gem'
 
 interface PowerUpDefinition {
     id: PiratePowerUpId
@@ -152,6 +166,7 @@ interface ShipVisual {
     root: Container
     hull: Container
     body: Container
+    sprite?: Sprite
     sails: Graphics[]
     flashOverlay: Graphics
     phase: number
@@ -166,6 +181,7 @@ interface Enemy {
     y: number
     angle: number
     reloadTimer: number
+    abilityTimer: number
     speed: number
     defense: number
     attackRating: number
@@ -215,6 +231,8 @@ interface SeaMine {
     age: number
     damageFraction: number
 }
+
+type EnemyAbility = 'sniper' | 'mine' | 'bomb' | 'skiffs'
 
 function lerpAngle(from: number, to: number, t: number) {
     let diff = ((to - from + Math.PI) % (Math.PI * 2)) - Math.PI
@@ -298,9 +316,12 @@ export class PirateGame {
     private titanShotCount = 0
     private player!: ShipVisual
     private playerShipTexture: Texture | null = null
+    private playerSkinTextures = new Map<string, Texture>()
     private raiderShipTexture: Texture | null = null
+    private dpsRaiderTexture: Texture | null = null
+    private tankRaiderTexture: Texture | null = null
     private sniperShipTexture: Texture | null = null
-    private islandTexture: Texture | null = null
+    private islandTextures: Texture[] = []
     private islands: Island[] = []
     private blocked: Uint8Array = new Uint8Array(GRID_W * GRID_H)
     private popupLanes = new Map<string, number>()
@@ -308,6 +329,12 @@ export class PirateGame {
     private combo = 0
     private maxCombo = 0
     private lastKillAt = -Infinity
+    private shotsFired = 0
+    private bombsFired = 0
+    private sunkByType = new Map<string, { name: string, count: number }>()
+    private playerBombCooldownMs = 0
+    private bombHudTimerMs = 0
+    private contextMenuHandler: ((event: MouseEvent) => void) | null = null
 
     constructor(callbacks: PirateGameCallbacks, initialStats: PirateShipStats) {
         this.callbacks = callbacks
@@ -327,6 +354,15 @@ export class PirateGame {
 
         this.app.canvas.classList.add('h-full', 'w-full', 'block', 'touch-none')
         container.appendChild(this.app.canvas)
+        this.contextMenuHandler = (event: MouseEvent) => {
+            event.preventDefault()
+            if (!this.running || !this.app) return
+            const rect = this.app.canvas.getBoundingClientRect()
+            const x = (event.clientX - rect.left) / rect.width * WORLD_W
+            const y = (event.clientY - rect.top) / rect.height * WORLD_H
+            this.castPlayerBomb(x, y)
+        }
+        this.app.canvas.addEventListener('contextmenu', this.contextMenuHandler)
 
         this.world.addChild(this.bg)
         this.world.addChild(this.waveLayer)
@@ -338,16 +374,23 @@ export class PirateGame {
         this.app.stage.addChild(this.world)
 
         try {
-            const textures = await Promise.all([
-                Assets.load<Texture>(PLAYER_SHIP_SPRITE),
-                Assets.load<Texture>(RAIDER_SHIP_SPRITE),
-                Assets.load<Texture>(SNIPER_SHIP_SPRITE),
-                Assets.load<Texture>(ISLAND_SPRITE)
+            const [playerTextures, enemyTextures, islandTextures] = await Promise.all([
+                Promise.all(PIRATE_SHIP_SKINS.map(skin => Assets.load<Texture>(skin.sprite))),
+                Promise.all([
+                    Assets.load<Texture>(RAIDER_SHIP_SPRITE),
+                    Assets.load<Texture>(DPS_RAIDER_SPRITE),
+                    Assets.load<Texture>(TANK_RAIDER_SPRITE),
+                    Assets.load<Texture>(SNIPER_SHIP_SPRITE)
+                ]),
+                Promise.all(ISLAND_SPRITES.map(path => Assets.load<Texture>(path)))
             ])
-            this.playerShipTexture = textures[0]!
-            this.raiderShipTexture = textures[1]!
-            this.sniperShipTexture = textures[2]!
-            this.islandTexture = textures[3]!
+            this.playerSkinTextures = new Map(PIRATE_SHIP_SKINS.map((skin, index) => [skin.id, playerTextures[index]!]))
+            this.playerShipTexture = this.playerSkinTextures.get('starter') ?? null
+            this.raiderShipTexture = enemyTextures[0]!
+            this.dpsRaiderTexture = enemyTextures[1]!
+            this.tankRaiderTexture = enemyTextures[2]!
+            this.sniperShipTexture = enemyTextures[3]!
+            this.islandTextures = islandTextures
         } catch (error) {
             console.warn('Pirate sprites failed to load; using procedural artwork.', error)
         }
@@ -365,7 +408,7 @@ export class PirateGame {
             this.handleWaterClick(p.x, p.y)
         })
 
-        this.player = this.createShipVisual(0xf4d35e, true, 1)
+        this.player = this.createShipVisual(0xf4d35e, true, 1, undefined, this.stats.skinId)
         this.player.root.position.set(this.playerX, this.playerY)
         this.playerLayer.addChild(this.player.root)
 
@@ -382,8 +425,18 @@ export class PirateGame {
         this.world.scale.set(w / WORLD_W)
     }
 
+    setPlayerSkin(skinId: string) {
+        const texture = this.playerSkinTextures.get(skinId) ?? this.playerShipTexture
+        if (texture && this.player?.sprite) {
+            this.player.sprite.texture = texture
+            this.player.sprite.height = this.player.sprite.width * texture.height / texture.width
+        }
+        this.stats.skinId = skinId
+    }
+
     start(stats: PirateShipStats, power: number) {
         this.stats = stats
+        this.setPlayerSkin(stats.skinId)
         this.power = power
         this.playerHp = stats.maxHp
         this.coins = 0
@@ -398,6 +451,12 @@ export class PirateGame {
         this.attackTargetId = null
         this.playerPath = []
         this.kills = 0
+        this.shotsFired = 0
+        this.bombsFired = 0
+        this.sunkByType.clear()
+        this.playerBombCooldownMs = 0
+        this.bombHudTimerMs = 0
+        this.callbacks.onBombCooldownChange(0, PLAYER_BOMB_COOLDOWN_MS)
         this.combo = 0
         this.maxCombo = 0
         this.lastKillAt = -Infinity
@@ -514,9 +573,11 @@ export class PirateGame {
         this.running = false
         this.paused = false
         if (this.app) {
+            if (this.contextMenuHandler) this.app.canvas.removeEventListener('contextmenu', this.contextMenuHandler)
             this.app.destroy(true, { children: true, texture: true })
             this.app = null
         }
+        this.contextMenuHandler = null
     }
 
     // ─── Islands & pathfinding ──────────────────────────────────────────────
@@ -552,8 +613,9 @@ export class PirateGame {
         shallows.circle(0, 0, r + 7).fill({ color: 0x5eb3d6, alpha: 0.35 })
         root.addChild(shallows)
 
-        if (this.islandTexture) {
-            const island = new Sprite(this.islandTexture)
+        if (this.islandTextures.length) {
+            const texture = this.islandTextures[Math.floor(Math.random() * this.islandTextures.length)]!
+            const island = new Sprite(texture)
             island.anchor.set(0.5)
             island.width = r * 2.05
             island.height = r * 2.04
@@ -776,6 +838,14 @@ export class PirateGame {
         const dt = deltaMS / 1000
         this.elapsedMs += deltaMS
         this.timeSec += dt
+        if (this.playerBombCooldownMs > 0) {
+            this.playerBombCooldownMs = Math.max(0, this.playerBombCooldownMs - deltaMS)
+            this.bombHudTimerMs -= deltaMS
+            if (this.bombHudTimerMs <= 0 || this.playerBombCooldownMs === 0) {
+                this.callbacks.onBombCooldownChange(this.playerBombCooldownMs, PLAYER_BOMB_COOLDOWN_MS)
+                this.bombHudTimerMs = 100
+            }
+        }
         this.callbacks.onTimeChange(this.elapsedMs, Math.max(0, this.runDurationMs - this.elapsedMs))
 
         this.updatePlayer(dt, deltaMS)
@@ -813,7 +883,8 @@ export class PirateGame {
             const d = dist(this.playerX, this.playerY, target.x, target.y)
             const clearShot = this.segmentClear(this.playerX, this.playerY, target.x, target.y)
 
-            const effectiveMaxRange = this.maxCannonRange * (this.hasPowerUp('eagle-eye') ? 1.35 : 1)
+            const ammoRangeMult = this.peekShotKind() === 'standard' ? PIRATE_AMMO_RANGE_MULT : 1
+            const effectiveMaxRange = this.maxCannonRange * ammoRangeMult * (this.hasPowerUp('eagle-eye') ? 1.35 : 1)
             if (clearShot && d <= effectiveMaxRange * HOLD_RANGE_FRACTION) {
                 // In position — face the target and hold.
                 const desiredAngle = Math.atan2(target.y - this.playerY, target.x - this.playerX)
@@ -892,7 +963,8 @@ export class PirateGame {
     }
 
     private pickCannonTarget(cannon: Cannon): Enemy | null {
-        const effectiveRange = cannon.range * (this.hasPowerUp('eagle-eye') ? 1.35 : 1)
+        const ammoRangeMult = this.peekShotKind() === 'standard' ? PIRATE_AMMO_RANGE_MULT : 1
+        const effectiveRange = cannon.range * ammoRangeMult * (this.hasPowerUp('eagle-eye') ? 1.35 : 1)
         const priority = this.attackTargetId !== null ? this.enemies.get(this.attackTargetId) : null
         if (priority && !priority.dead && dist(this.playerX, this.playerY, priority.x, priority.y) <= effectiveRange) {
             return priority
@@ -914,6 +986,11 @@ export class PirateGame {
     private updateEnemies(dt: number, deltaMS: number) {
         for (const enemy of this.enemies.values()) {
             if (enemy.dead) continue
+            enemy.abilityTimer -= deltaMS
+            if (enemy.abilityTimer <= 0) {
+                this.useEnemyAbility(enemy)
+                enemy.abilityTimer = enemy.tier.boss ? randRange(5200, 7200) : randRange(7600, 11_500)
+            }
             const d = dist(enemy.x, enemy.y, this.playerX, this.playerY)
             const desiredAngle = Math.atan2(this.playerY - enemy.y, this.playerX - enemy.x)
 
@@ -1023,12 +1100,17 @@ export class PirateGame {
 
     // ─── Combat ─────────────────────────────────────────────────────────────
 
-    /**
-     * Draw one shot from the magazines. Prefers gem powder when toggled on,
-     * silently falls back to whichever stock still has shells, and only ends
-     * the run when both are dry.
-     */
-    private consumeShot(): AmmoKind | null {
+    /** Select the next ammunition without consuming it, so targeting uses the same range profile. */
+    private peekShotKind(): AmmoKind {
+        if (this.preferGem && this.gemAmmo > 0) return 'gem'
+        if (this.ammo > 0) return 'standard'
+        if (this.gemAmmo > 0) return 'gem'
+        return 'free'
+    }
+
+    /** Draw a premium shot when available, otherwise fall back to unlimited free ammunition. */
+    private consumeShot(): AmmoKind {
+        const kind = this.peekShotKind()
         const takeGem = () => {
             this.gemAmmo -= 1
             this.callbacks.onAmmoChange(this.ammo, this.gemAmmo)
@@ -1039,16 +1121,13 @@ export class PirateGame {
             this.callbacks.onAmmoChange(this.ammo, this.gemAmmo)
             return 'standard' as const
         }
-        if (this.preferGem && this.gemAmmo > 0) return takeGem()
-        if (this.ammo > 0) return takeStandard()
-        if (this.gemAmmo > 0) return takeGem()
-        this.endGame(false, 'ammo')
-        return null
+        if (kind === 'gem') return takeGem()
+        if (kind === 'standard') return takeStandard()
+        return 'free'
     }
 
     private fireCannonAtEnemy(cannon: Cannon, target: Enemy) {
         const kind = this.consumeShot()
-        if (!kind) return
 
         if (this.hasPowerUp('blast-powder')) this.blastShotCount += 1
         if (this.hasPowerUp('titan-shot')) this.titanShotCount += 1
@@ -1068,7 +1147,9 @@ export class PirateGame {
 
         const ammoAttackRating = kind === 'gem' ? cannon.attackRating * PIRATE_GEM_AMMO_ATTACK_MULT : cannon.attackRating
         const attackRating = Math.round(ammoAttackRating * (this.hasPowerUp('deadeye') ? 1.3 : 1))
-        const ammoMaxDamage = kind === 'gem' ? cannon.maxDamage * PIRATE_GEM_AMMO_DAMAGE_MULT : cannon.maxDamage
+        const ammoMaxDamage = kind === 'gem'
+            ? cannon.maxDamage * PIRATE_GEM_AMMO_DAMAGE_MULT
+            : kind === 'standard' ? cannon.maxDamage * PIRATE_AMMO_DAMAGE_MULT : cannon.maxDamage
         const maxDamage = Math.round(ammoMaxDamage * (this.hasPowerUp('broadside-fury') ? 1.2 : 1))
 
         this.spawnCannonball(fromX, fromY, target.x, target.y, kind, (hitX, hitY) => {
@@ -1847,7 +1928,7 @@ export class PirateGame {
         if (!foundSpawn) return
 
         const sizeScale = tier.sizeScale ?? 1
-        const visual = this.createShipVisual(tier.color, false, sizeScale, tier.sniper === true)
+        const visual = this.createShipVisual(tier.color, false, sizeScale, tier.id)
         if (tier.id === 'ghostship') {
             visual.body.alpha = 0.78
         }
@@ -1893,6 +1974,7 @@ export class PirateGame {
             y,
             angle: Math.atan2(this.playerY - y, this.playerX - x),
             reloadTimer: randRange(300, tier.reloadMs * pirateEnemyReloadMultiplier(this.elapsedMs, this.power)),
+            abilityTimer: randRange(tier.boss ? 2800 : 4200, tier.boss ? 4800 : 7200),
             speed: tier.speed,
             defense: Math.max(1, Math.round(tier.defense * diff.statMult)),
             attackRating: Math.max(1, Math.round(tier.attackRating * diff.statMult)),
@@ -1959,7 +2041,7 @@ export class PirateGame {
      * square-rig sails seen from above) so rotating toward any heading —
      * including straight down — never flips the sprite upside down.
      */
-    private createShipVisual(color: number, isPlayer: boolean, sizeScale: number, isSniper = false): ShipVisual {
+    private createShipVisual(color: number, isPlayer: boolean, sizeScale: number, tierId?: string, playerSkinId?: string): ShipVisual {
         const root = new Container()
         const hull = new Container()
         const body = new Container()
@@ -1969,14 +2051,23 @@ export class PirateGame {
         shadow.ellipse(3, 5, 40, 18).fill({ color: 0x000000, alpha: 0.25 })
         body.addChild(shadow)
 
+        const isSniper = tierId === 'sniper'
+        const isDpsRaider = tierId === 'corsair' || tierId === 'frigate' || tierId === 'manowar'
+        const isTankRaider = tierId === 'ironclad' || tierId === 'dreadnought'
         const spriteTexture = isPlayer
-            ? this.playerShipTexture
-            : isSniper ? this.sniperShipTexture : this.raiderShipTexture
+            ? (this.playerSkinTextures.get(playerSkinId ?? 'starter') ?? this.playerShipTexture)
+            : isSniper
+                ? this.sniperShipTexture
+                : isDpsRaider
+                    ? this.dpsRaiderTexture
+                    : isTankRaider ? this.tankRaiderTexture : this.raiderShipTexture
         if (spriteTexture) {
             const sprite = new Sprite(spriteTexture)
             sprite.anchor.set(0.5)
-            sprite.width = isSniper ? 88 : isPlayer ? 82 : 78
-            sprite.height = isSniper ? 24 : isPlayer ? 30 : 37
+            sprite.width = isSniper ? 88 : isDpsRaider ? 82 : isTankRaider ? 76 : isPlayer ? 82 : 78
+            sprite.height = isPlayer
+                ? sprite.width * spriteTexture.height / spriteTexture.width
+                : isSniper ? 24 : isDpsRaider ? 30 : isTankRaider ? 42 : 37
             body.addChild(sprite)
 
             // Preserve instant faction/tier readability without recoloring the art.
@@ -1986,13 +2077,13 @@ export class PirateGame {
             body.addChild(marker)
 
             const flashOverlay = new Graphics()
-            flashOverlay.ellipse(0, 0, isSniper ? 44 : 39, isSniper ? 12 : 18).fill({ color: 0xffffff })
+            flashOverlay.ellipse(0, 0, isSniper ? 44 : isDpsRaider ? 41 : 39, isSniper ? 12 : isTankRaider ? 21 : 18).fill({ color: 0xffffff })
             flashOverlay.alpha = 0
             body.addChild(flashOverlay)
 
             hull.addChild(body)
             root.addChild(hull)
-            return { root, hull, body, sails: [], flashOverlay, phase: Math.random() * Math.PI * 2 }
+            return { root, hull, body, sprite, sails: [], flashOverlay, phase: Math.random() * Math.PI * 2 }
         }
 
         // Hull: pointed bow (+x), rounded stern
@@ -2344,7 +2435,7 @@ export class PirateGame {
         this.world.position.set(0, 0)
     }
 
-    private endGame(survived: boolean, reason: 'timeout' | 'defeat' | 'ammo' | 'cancelled') {
+    private endGame(survived: boolean, reason: 'timeout' | 'defeat' | 'cancelled') {
         if (!this.running) return
         this.running = false
         this.activePowerUps.clear()

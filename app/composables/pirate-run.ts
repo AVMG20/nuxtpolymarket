@@ -13,6 +13,7 @@ import { PirateGame, type PirateActivePowerUp, type PirateShipStats } from '~/ut
 
 interface PirateStateSnapshot {
     activeRun: unknown
+    equippedSkinId: string
     stats: { maxHp: number, speed: number, defenseRating: number }
     ammo: { count: number }
     gemAmmo: { count: number }
@@ -21,7 +22,7 @@ interface PirateStateSnapshot {
 
 export interface PirateGameOverInfo {
     survived: boolean
-    reason: 'timeout' | 'defeat' | 'ammo' | 'cancelled'
+    reason: 'timeout' | 'defeat' | 'cancelled'
     coins: number
     awarded: number
     capped: boolean
@@ -105,7 +106,7 @@ async function handleGameOver(result: {
     gemAmmoUsed: number
     kills: number
     maxCombo: number
-    reason: 'timeout' | 'defeat' | 'ammo' | 'cancelled'
+    reason: 'timeout' | 'defeat' | 'cancelled'
     hullDamageFraction: number
 }) {
     running.value = false
@@ -194,6 +195,7 @@ export function usePirateRun() {
         registerRefresh(refresh)
 
         if (game) {
+            if (stateRef.value?.equippedSkinId) game.setPlayerSkin(stateRef.value.equippedSkinId)
             game.attach(host)
             setupResizeObserver(host)
             return
@@ -218,6 +220,7 @@ export function usePirateRun() {
             defenseRating: state.stats.defenseRating,
             ammo: state.ammo.count,
             gemAmmo: state.gemAmmo.count,
+            skinId: state.equippedSkinId,
             cannons: state.cannons.map(c => ({ slotIndex: c.slotIndex, tierId: c.tierId, attackRating: c.attackRating, maxDamage: c.maxDamage, reloadMs: c.reloadMs, range: c.range, shotColor: c.shotColor, shotTrail: c.shotTrail }))
         } satisfies PirateShipStats)
 
@@ -239,7 +242,7 @@ export function usePirateRun() {
 
     async function startVoyage(state: { cannons: unknown[], ammo: { count: number }, gemAmmo: { count: number } }) {
         if (!game || running.value || paused.value || starting.value) return
-        if (state.cannons.length === 0 || (state.ammo.count + state.gemAmmo.count) === 0) return
+        if (state.cannons.length === 0) return
         starting.value = true
         try {
             const res = await $fetch('/api/pirates/start-run', { method: 'POST' })
@@ -265,6 +268,7 @@ export function usePirateRun() {
                 defenseRating: res.stats.defenseRating,
                 ammo: res.ammo,
                 gemAmmo: res.gemAmmo,
+                skinId: res.skinId,
                 cannons: res.cannons
             }, res.power)
         } catch (e: any) {

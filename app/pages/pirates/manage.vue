@@ -55,6 +55,7 @@ const buyingGemAmmo = ref<number | null>(null)
 const equipping = ref<string | null>(null)
 const sellingSlot = ref<number | null>(null)
 const swapping = ref(false)
+const skinAction = ref<string | null>(null)
 
 // Swap mode: pick a source port, then pick a destination.
 const swapSource = ref<number | null>(null)
@@ -215,6 +216,25 @@ async function sellCannon(slotIndex: number) {
         sellingSlot.value = null
     }
 }
+
+async function selectSkin(skin: NonNullable<typeof state.value>['skins'][number]) {
+    if (skin.equipped || skinAction.value) return
+    skinAction.value = skin.id
+    try {
+        if (skin.owned) {
+            await $fetch('/api/pirates/skins/equip', { method: 'POST', body: { skinId: skin.id } })
+            toast.add({ title: `${skin.name} equipped`, color: 'success' })
+        } else {
+            await $fetch('/api/pirates/skins/buy', { method: 'POST', body: { skinId: skin.id } })
+            toast.add({ title: `${skin.name} purchased and equipped`, color: 'success' })
+        }
+        await Promise.all([refresh(), fetchSession()])
+    } catch (e: any) {
+        toast.add({ title: e.data?.message ?? 'Failed to update ship skin', color: 'error' })
+    } finally {
+        skinAction.value = null
+    }
+}
 </script>
 
 <template>
@@ -231,7 +251,6 @@ async function sellCannon(slotIndex: number) {
       <div class="flex items-center gap-2">
         <UBadge v-if="state" color="primary" variant="subtle" :label="`Power ${state.power}`" icon="i-lucide-anchor" />
         <UBadge v-if="state?.repair.remainingMs" color="warning" variant="subtle" :label="`Dry dock ${repairRemainingLabel}`" icon="i-lucide-wrench" />
-        <UButton to="/pirates" color="neutral" variant="subtle" icon="i-lucide-sailboat" label="Set Sail" />
       </div>
     </div>
 
@@ -244,6 +263,60 @@ async function sellCannon(slotIndex: number) {
       <p v-if="state.activeRun" class="text-xs text-amber-400 bg-amber-400/10 border border-amber-400/20 rounded-lg px-3 py-2">
         You have a voyage in progress — refitting is locked until it ends.
       </p>
+
+      <!-- Cosmetic ship skins -->
+      <div>
+        <div class="mb-2 flex flex-wrap items-center justify-between gap-2 px-0.5">
+          <div>
+            <p class="text-xs font-semibold text-muted uppercase tracking-wider">
+              Captain's Shipyard — Cosmetic Skins
+            </p>
+            <p class="mt-0.5 text-xs text-muted">
+              Skins grant no combat power. They grant considerably more important bragging rights.
+            </p>
+          </div>
+          <UBadge color="info" variant="subtle" icon="i-lucide-gem" :label="`${formatNumber(gems, false)} gems`" />
+        </div>
+
+        <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+          <UCard
+            v-for="skin in state.skins"
+            :key="skin.id"
+            :class="skin.equipped ? 'ring-2 ring-primary' : ''"
+            :ui="{ body: 'p-3' }"
+          >
+            <div class="relative mb-3 flex h-28 items-center justify-center overflow-hidden rounded-lg border border-default bg-gradient-to-br from-info/15 via-elevated to-primary/10 p-3">
+              <img :src="skin.sprite" :alt="skin.name" class="h-full w-full object-contain drop-shadow-xl">
+              <UBadge v-if="skin.equipped" class="absolute right-2 top-2" color="primary" variant="solid" size="sm" label="Equipped" />
+              <UBadge v-else-if="skin.owned" class="absolute right-2 top-2" color="success" variant="subtle" size="sm" label="Owned" />
+            </div>
+            <p class="truncate text-sm font-bold" :class="skin.id === 'crown-of-tides' ? 'text-warning' : ''">
+              {{ skin.name }}
+            </p>
+            <p class="mt-1 min-h-10 text-[11px] leading-snug text-muted">
+              {{ skin.description }}
+            </p>
+            <UButton
+              block
+              size="sm"
+              class="mt-3"
+              :color="skin.id === 'crown-of-tides' ? 'warning' : skin.owned ? 'neutral' : 'info'"
+              :variant="skin.equipped ? 'subtle' : 'solid'"
+              :disabled="!!state.activeRun || skin.equipped || (!skin.owned && gems < skin.cost)"
+              :loading="skinAction === skin.id"
+              @click="selectSkin(skin)"
+            >
+              <span v-if="skin.equipped">At the helm</span>
+              <span v-else-if="skin.owned">Equip</span>
+              <span v-else-if="skin.cost === 0">Free</span>
+              <span v-else class="flex items-center gap-1">
+                <UIcon name="i-lucide-gem" class="size-3.5" />
+                {{ formatNumber(skin.cost, false) }}
+              </span>
+            </UButton>
+          </UCard>
+        </div>
+      </div>
 
       <!-- Ship stats -->
       <div>
@@ -305,7 +378,7 @@ async function sellCannon(slotIndex: number) {
 
       <!-- Munitions -->
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-3">
-        <!-- Coin ammo -->
+        <!-- Premium coin ammo -->
         <UCard>
           <template #header>
             <div class="flex items-center gap-2.5">
@@ -314,10 +387,10 @@ async function sellCannon(slotIndex: number) {
               </div>
               <div>
                 <p class="font-semibold text-sm">
-                  Ammo Depot
+                  Premium Ammo Depot
                 </p>
                 <p class="text-xs text-muted">
-                  {{ state.ammo.pricePerUnit }} coin per shot — run dry mid-voyage and the trip ends
+                  {{ formatNumber(state.ammo.pricePerUnit, false) }} coins per shot at Power {{ state.power }}
                 </p>
               </div>
             </div>
@@ -325,7 +398,7 @@ async function sellCannon(slotIndex: number) {
 
           <div class="space-y-3">
             <div class="flex items-center justify-between text-sm">
-              <span class="text-muted">Stock</span>
+              <span class="text-muted">Premium stock</span>
               <span class="font-semibold">{{ state.ammo.count }} / {{ state.ammo.capacity }}</span>
             </div>
             <div class="h-2 rounded-full bg-elevated overflow-hidden">
@@ -353,6 +426,9 @@ async function sellCannon(slotIndex: number) {
                 Fill hold <span class="opacity-80 ml-1">({{ formatNumber(ammoCostFor(state.ammo.capacity - state.ammo.count), false) }})</span>
               </UButton>
             </div>
+            <p class="text-[11px] text-muted">
+              Premium shots gain +10% range and +20% damage. When this stock runs out, your cannons automatically keep firing unlimited free ammo without those bonuses.
+            </p>
           </div>
         </UCard>
 
