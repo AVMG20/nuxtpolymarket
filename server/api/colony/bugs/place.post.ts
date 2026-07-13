@@ -5,9 +5,9 @@ import { auth } from '#server/utils/auth'
 import { settleColony, getUpgradeLevels, countPlacedBugs } from '#server/utils/colony'
 import { deriveCapacity } from '#shared/utils/colony'
 
-/** Move one bug matching {typeId, speed, yield, feed} from inventory into the terrarium. */
+/** Move one bug matching {typeId, speed, yield, eat} from inventory into the terrarium. */
 export default defineEventHandler(async (event) => {
-  const body = await readBody<{ typeId: string, speed: number, yield: number, feed: number }>(event)
+  const body = await readBody<{ typeId: string, speed: number, yield: number, eat: number }>(event)
   const session = await auth.api.getSession({ headers: event.headers })
   if (!session?.user?.id) throw createError({ statusCode: 401, statusMessage: 'Unauthorized' })
   const userId = session.user.id
@@ -26,7 +26,7 @@ export default defineEventHandler(async (event) => {
       eq(colonyBugs.typeId, body.typeId),
       eq(colonyBugs.speed, body.speed),
       eq(colonyBugs.yield, body.yield),
-      eq(colonyBugs.feed, body.feed),
+      eq(colonyBugs.eat, body.eat),
       eq(colonyBugs.inTerrarium, false)
     )
   })

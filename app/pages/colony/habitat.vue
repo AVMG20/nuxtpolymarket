@@ -1,13 +1,24 @@
 <script setup lang="ts">
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { getItem } from '#shared/utils/colony'
+import { getItem, BUG_TYPES } from '#shared/utils/colony'
+import { tierColor } from '#shared/utils/xeno'
 import { formatDuration, progressPct } from '~/utils/colony-format'
 
+// Rich stat-block tooltip content, matching the terrarium page's convention —
+// UTooltip's default content class clips multi-line #content slots to a
+// fixed 24px height, so it needs overriding to size to content.
+const TOOLTIP_CONTENT_UI = 'h-auto max-w-64 p-3 flex-col items-start bg-default ring ring-default rounded-lg shadow-lg z-50'
+
+function foragedBy(itemId: string) {
+  return BUG_TYPES.find(b => b.itemId === itemId)
+}
+
 const colony = useColony()
-const { upgrades, builder, builderCount, inventory, habitatLevel, maxTier, habitatLevelUpCost } = colony
+const { upgrades, builder, builderCount, inventory, habitatLevel, maxTier, habitatLevelUpCost, habitatLevelUpGemCost } = colony
 
 const { user } = useAuth()
 const balance = computed(() => parseFloat(user.value?.balance ?? '0'))
+const gems = computed(() => user.value?.gems ?? 0)
 
 const now = ref(Date.now())
 let interval: ReturnType<typeof setInterval> | null = null
@@ -27,7 +38,11 @@ const builderReady = computed(() => {
 
 const tracksMeetingRequirement = computed(() => upgrades.value.filter((t: any) => t.meetsHabitatRequirement).length)
 const habitatUpgradeReady = computed(() => tracksMeetingRequirement.value === upgrades.value.length && upgrades.value.length > 0)
-const canAffordHabitatLevelUp = computed(() => balance.value >= habitatLevelUpCost.value)
+const canAffordHabitatLevelUp = computed(() =>
+  habitatLevelUpCost.value !== null
+  && balance.value >= habitatLevelUpCost.value
+  && gems.value >= (habitatLevelUpGemCost.value ?? 0)
+)
 
 function ownedQty(itemTypeId: string) {
   const owned = inventory.value.find((i: any) => i.id === itemTypeId)
@@ -126,8 +141,7 @@ function affordCost(cost: { coins: number, items: { itemTypeId: string, quantity
           >
             <span v-if="!habitatUpgradeReady">Requirements not met</span>
             <span v-else>
-              Upgrade to Level {{ habitatLevel + 1 }} —
-              <span :class="canAffordHabitatLevelUp ? 'text-success' : 'text-muted'">{{ canAffordHabitatLevelUp ? 'affordable' : 'need more coins' }}</span>
+              Upgrade to Level {{ habitatLevel + 1 }} — {{ formatNumber(habitatLevelUpCost ?? 0) }} coins + {{ formatNumber(habitatLevelUpGemCost ?? 0, false) }} 💎{{ canAffordHabitatLevelUp ? '' : ' (not enough)' }}
             </span>
           </UButton>
         </div>
@@ -191,38 +205,39 @@ function affordCost(cost: { coins: number, items: { itemTypeId: string, quantity
       <h2 class="text-sm font-semibold text-muted uppercase tracking-wider mb-2">
         Upgrade Tracks
       </h2>
-      <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+      <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
         <UCard
           v-for="track in upgrades"
           :key="track.id"
           :ui="{ body: 'p-0' }"
         >
-          <div class="p-4 space-y-3">
-            <div class="flex items-start gap-3">
-              <div class="size-10 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+          <div class="p-3 space-y-2.5">
+            <div class="flex items-center gap-2.5">
+              <div class="flex flex-col items-center leading-none shrink-0 w-9">
+                <span class="text-[9px] font-bold text-muted uppercase tracking-wider">Lv</span>
+                <span class="text-2xl font-black text-primary tabular-nums">{{ track.level }}</span>
+              </div>
+              <div class="size-9 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
                 <UIcon
                   :name="track.icon"
-                  class="size-5 text-primary"
+                  class="size-4.5 text-primary"
                 />
               </div>
               <div class="min-w-0 flex-1">
-                <p class="font-semibold text-sm flex items-center gap-1.5">
+                <p class="font-semibold text-sm">
                   {{ track.name }}
-                  <UBadge
-                    size="xs"
-                    variant="subtle"
-                    :color="track.meetsHabitatRequirement ? 'success' : 'neutral'"
-                  >
-                    Lv {{ track.level }}{{ track.atMax ? ' (max)' : '' }}
-                  </UBadge>
+                  <span
+                    v-if="track.atMax"
+                    class="text-[10px] text-muted font-normal"
+                  >(max)</span>
                 </p>
-                <p class="text-xs text-muted mt-0.5">
+                <p class="text-xs text-muted mt-0.5 line-clamp-1">
                   {{ track.description }}
                 </p>
               </div>
             </div>
 
-            <div class="rounded-lg bg-elevated p-2.5 space-y-1">
+            <div class="rounded-lg bg-elevated p-2 space-y-1">
               <div class="flex items-center justify-between text-xs">
                 <span class="text-muted">Currently</span>
                 <span class="font-mono font-medium text-highlighted">{{ track.currentEffect }}</span>
@@ -245,38 +260,76 @@ function affordCost(cost: { coins: number, items: { itemTypeId: string, quantity
 
           <template v-if="!track.atMax">
             <USeparator />
-            <div class="p-4 space-y-2">
-              <div class="flex flex-wrap items-center gap-1.5">
+            <div class="p-3 space-y-2">
+              <div class="flex flex-wrap items-center gap-2">
                 <UBadge
-                  :color="balance >= track.nextCost.coins ? 'success' : 'neutral'"
+                  :color="balance >= (track.nextCost?.coins ?? 0) ? 'success' : 'neutral'"
                   variant="subtle"
-                  size="sm"
+                  size="lg"
+                  class="text-sm font-semibold"
                 >
                   <UIcon
                     name="i-lucide-coins"
-                    class="size-3 mr-0.5"
+                    class="size-4 mr-1"
                   />
-                  {{ balance >= track.nextCost.coins ? 'Enough' : 'Short' }}
+                  {{ formatNumber(track.nextCost?.coins ?? 0, false) }}
                 </UBadge>
-                <UBadge
-                  v-for="need in track.nextCost.items"
+                <UTooltip
+                  v-for="need in track.nextCost?.items ?? []"
                   :key="need.itemTypeId"
-                  :color="ownedQty(need.itemTypeId) >= need.quantity ? 'success' : 'neutral'"
-                  variant="subtle"
-                  size="sm"
+                  :delay-duration="150"
+                  :content="{ side: 'top', sideOffset: 6 }"
+                  :ui="{ content: TOOLTIP_CONTENT_UI }"
                 >
-                  {{ getItem(need.itemTypeId)?.emoji }} {{ formatNumber(ownedQty(need.itemTypeId), false) }}/{{ formatNumber(need.quantity, false) }}
-                </UBadge>
+                  <template #content>
+                    <div class="flex items-center gap-2 mb-1.5">
+                      <span class="text-xl leading-none">{{ getItem(need.itemTypeId)?.emoji }}</span>
+                      <div class="min-w-0">
+                        <p class="font-bold text-sm flex items-center gap-1.5">
+                          {{ getItem(need.itemTypeId)?.name }}
+                          <span
+                            class="text-xs font-black"
+                            :class="tierColor(getItem(need.itemTypeId)?.tier ?? 1)"
+                          >T{{ getItem(need.itemTypeId)?.tier }}</span>
+                        </p>
+                      </div>
+                    </div>
+                    <USeparator class="mb-1.5" />
+                    <div class="w-full space-y-1 text-xs">
+                      <div class="flex justify-between gap-4">
+                        <span class="text-muted uppercase tracking-wider font-semibold">Foraged by</span>
+                        <span class="font-mono">{{ foragedBy(need.itemTypeId)?.emoji }} {{ foragedBy(need.itemTypeId)?.name ?? '???' }}</span>
+                      </div>
+                      <div class="flex justify-between gap-4">
+                        <span class="text-muted uppercase tracking-wider font-semibold">Have</span>
+                        <span class="font-mono">{{ formatNumber(ownedQty(need.itemTypeId), false) }} / {{ formatNumber(need.quantity, false) }}</span>
+                      </div>
+                      <div class="flex justify-between gap-4">
+                        <span class="text-muted uppercase tracking-wider font-semibold">Sells for</span>
+                        <span class="font-mono">{{ formatNumber(getItem(need.itemTypeId)?.sellValue ?? 0, false) }} coins</span>
+                      </div>
+                    </div>
+                  </template>
+                  <UBadge
+                    :color="ownedQty(need.itemTypeId) >= need.quantity ? 'success' : 'neutral'"
+                    variant="subtle"
+                    size="lg"
+                    class="text-sm font-semibold cursor-default"
+                  >
+                    {{ getItem(need.itemTypeId)?.emoji }} {{ formatNumber(ownedQty(need.itemTypeId), false) }}/{{ formatNumber(need.quantity, false) }}
+                  </UBadge>
+                </UTooltip>
                 <UBadge
                   color="neutral"
                   variant="subtle"
-                  size="sm"
+                  size="lg"
+                  class="text-sm font-semibold"
                 >
                   <UIcon
                     name="i-lucide-clock"
-                    class="size-3 mr-0.5"
+                    class="size-4 mr-1"
                   />
-                  {{ formatDuration(track.nextDurationMs) }}
+                  {{ formatDuration(track.nextDurationMs ?? 0) }}
                 </UBadge>
               </div>
               <UButton

@@ -1,24 +1,107 @@
 <script setup lang="ts">
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { TIER_NAMES } from '#shared/utils/colony'
-import { formatRate, formatDuration } from '~/utils/colony-format'
+import { tierBg, tierColor, levelTextColor } from '#shared/utils/xeno'
+import { avgTickYield } from '#shared/utils/colony'
+import { formatDuration, traitTextColor } from '~/utils/colony-format'
 
 const colony = useColony()
-const { bugs, bugInventory, capacity, placedCount, nutrition, nutritionMax, nutritionDrainPerHour, initialized, pending, pendingLoot } = colony
+const { bugs, bugInventory, inventory, capacity, placedCount, nutrition, nutritionMax, nutritionDrainPerHour, feedCost, gemNutrition, gemBuffActive, gemFeedCost, initialized, pending, pendingLoot, serverNow } = colony
 
-const manageOpen = ref(false)
+const { user } = useAuth()
+const balance = computed(() => parseFloat(user.value?.balance ?? '0'))
+const gems = computed(() => user.value?.gems ?? 0)
+
+const sidebarTab = ref<'inventory' | 'bugs' | 'resources'>('inventory')
+const sidebarTabItems = [
+  { label: 'Inventory', value: 'inventory', icon: 'i-lucide-package' },
+  { label: 'Bugs', value: 'bugs', icon: 'i-lucide-bug' },
+  { label: 'Resources', value: 'resources', icon: 'i-lucide-box' }
+]
+
+const resourcesOwned = computed(() => [...inventory.value].sort((a: any, b: any) => a.tier - b.tier || a.name.localeCompare(b.name)))
+
+/** Effective tick time for an unplaced stack (speed trait applied, no habitat speed_boost track since that's colony-wide and not modeled here for a dormant bug — matches the market card's own convention). */
+function stackTickMs(stack: any): number {
+  return stack.baseTickMs * (1 - stack.speed / 100)
+}
+
+/** Items/hr for an unplaced stack — no social bonus yet since it isn't placed. Uses the expected per-tick roll (see avgTickYield), not the raw yield level. */
+function stackItemsPerHour(stack: any): number {
+  const tickMs = stackTickMs(stack)
+  return tickMs > 0 ? (avgTickYield(stack.yield) / tickMs) * 3_600_000 : 0
+}
+
+function stackCoinsPerHour(stack: any): number {
+  return stackItemsPerHour(stack) * (stack.itemSellValue ?? 0)
+}
+
+/** Per-cycle output range for an unplaced (dormant) stack — no social bonus yet, so just the raw 1..yield+1 roll range. */
+function stackYieldPerCycle(stack: any): string {
+  return `1–${stack.yield + 1}`
+}
+
+// UTooltip's default content class is a fixed-height (h-6), single-line badge
+// meant for short text/kbd hints — it clips rich multi-line #content slots
+// (like the ones below) to that 24px height, so the popup's background/ring
+// only covers the first sliver and the rest of the text renders with no
+// backing panel at all. Override just enough to let it size to content.
+const TOOLTIP_CONTENT_UI = 'h-auto max-w-72 p-3 flex-col items-start bg-default ring ring-default rounded-lg shadow-lg z-50'
+
 const placingKey = ref<string | null>(null)
 const unplacingId = ref<string | null>(null)
 
 function stackKey(stack: any) {
-  return `${stack.typeId}:${stack.speed}:${stack.yield}:${stack.feed}`
+  return `${stack.typeId}:${stack.speed}:${stack.yield}:${stack.eat}`
 }
 
+// ─── Inventory sort/filter (Inventory tab) ─────────────────────────────────
+const inventorySortOptions = [
+  { label: 'Tier', value: 'tier' },
+  { label: 'Name', value: 'name' },
+  { label: 'Speed', value: 'speed' },
+  { label: 'Yield', value: 'yield' },
+  { label: 'Quantity', value: 'quantity' }
+]
+const inventorySortBy = ref<'tier' | 'name' | 'speed' | 'yield' | 'quantity'>('tier')
+const inventoryDirOptions = [
+  { label: 'Highest first', value: 'desc' },
+  { label: 'Lowest first', value: 'asc' }
+]
+const inventorySortDir = ref<'desc' | 'asc'>('desc')
+const inventoryFilterType = ref('all')
+
+const inventoryFilterOptions = computed(() => {
+  const seen = new Map<string, string>()
+  for (const stack of bugInventory.value) {
+    if (!seen.has(stack.typeId)) seen.set(stack.typeId, stack.name)
+  }
+  return [
+    { label: 'All types', value: 'all' },
+    ...Array.from(seen, ([value, label]) => ({ label, value }))
+  ]
+})
+
+const filteredSortedBugInventory = computed(() => {
+  const dir = inventorySortDir.value === 'asc' ? 1 : -1
+  return [...bugInventory.value]
+    .filter(stack => inventoryFilterType.value === 'all' || stack.typeId === inventoryFilterType.value)
+    .sort((a, b) => {
+      let cmp = 0
+      if (inventorySortBy.value === 'tier') cmp = a.tier - b.tier
+      else if (inventorySortBy.value === 'name') cmp = a.name.localeCompare(b.name)
+      else if (inventorySortBy.value === 'speed') cmp = a.speed - b.speed
+      else if (inventorySortBy.value === 'yield') cmp = a.yield - b.yield
+      else cmp = a.quantity - b.quantity
+      if (cmp === 0) cmp = a.name.localeCompare(b.name)
+      return cmp * dir
+    })
+})
+
 async function handlePlace(stack: any) {
-  if (placingKey.value) return
+  if (placingKey.value || placedCount.value >= capacity.value) return
   placingKey.value = stackKey(stack)
   try {
-    await colony.placeBug(stack.typeId, stack.speed, stack.yield, stack.feed)
+    await colony.placeBug(stack.typeId, stack.speed, stack.yield, stack.eat)
   } finally {
     placingKey.value = null
   }
@@ -34,207 +117,46 @@ async function handleUnplace(bugId: string) {
   }
 }
 
-const isStarving = computed(() => nutrition.value <= 0)
-const nutritionLow = computed(() => nutrition.value > 0 && nutrition.value / nutritionMax.value < 0.25)
-const nutritionEtaMs = computed(() => nutritionDrainPerHour.value > 0 ? (nutrition.value / nutritionDrainPerHour.value) * 3_600_000 : null)
+// ─── Nutrition / feeding ────────────────────────────────────────────────────
+// `nutrition` is only as fresh as the last server round-trip (a fetch, or
+// any action that triggers one) — displaying it raw makes the bar look like
+// it only drops when the player happens to do something (like opening the
+// loot chest), when really it's been draining continuously the whole time.
+// liveNutrition interpolates from that last-known value using the same
+// nowTick clock the bug progress bars use, anchored to the server's own
+// clock (serverNow) rather than local time so latency doesn't skew it.
+
+const isStarving = computed(() => liveTotalNutrition.value <= 0)
+const nutritionLow = computed(() => liveTotalNutrition.value > 0 && liveTotalNutrition.value / nutritionMax.value < 0.25)
+const nutritionEtaMs = computed(() => nutritionDrainPerHour.value > 0 ? (liveTotalNutrition.value / nutritionDrainPerHour.value) * 3_600_000 : null)
 const nutritionEtaClock = computed(() => {
   if (nutritionEtaMs.value === null) return null
   return new Date(Date.now() + nutritionEtaMs.value).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
 })
 
-// ─── Canvas (terrarium) ─────────────────────────────────────────────────────
+const feeding = ref(false)
+const canFeed = computed(() => feedCost.value > 0 && balance.value >= feedCost.value)
+const canGemFeed = computed(() => gemFeedCost.value > 0 && gems.value >= gemFeedCost.value)
 
-const canvasWrap = ref<HTMLDivElement | null>(null)
-let destroyed = false
-let app: any = null
-let PIXI: any = null
-let bugLayer: any = null
-
-interface LiveBug {
-  id: string
-  typeId: string
-  color: number
-  tier: number
-  x: number
-  y: number
-  vx: number
-  vy: number
-  tickMs: number
-  baseProgressMs: number
-  fetchedAtMs: number
-  cyclesSeen: number
-}
-const liveBugs = new Map<string, LiveBug>()
-const bugGfx = new Map<string, { gfx: any, halo: any }>()
-
-function bugSize(tier: number) {
-  return 5 + tier * 1.6
-}
-
-function syncLiveBugs() {
-  const width = app?.screen.width ?? 600
-  const height = app?.screen.height ?? 420
-  const now = Date.now()
-
-  for (const id of [...liveBugs.keys()]) {
-    if (!bugs.value.some((b: any) => b.id === id)) {
-      liveBugs.delete(id)
-      const entry = bugGfx.get(id)
-      if (entry && bugLayer) {
-        bugLayer.removeChild(entry.gfx)
-        bugLayer.removeChild(entry.halo)
-      }
-      bugGfx.delete(id)
-    }
-  }
-
-  for (const bug of bugs.value as any[]) {
-    const existing = liveBugs.get(bug.id)
-    if (existing) {
-      existing.color = bug.color
-      existing.tier = bug.tier
-      existing.tickMs = bug.tickMs
-      existing.baseProgressMs = bug.tickProgressMs
-      existing.fetchedAtMs = now
-      continue
-    }
-    const speedBase = 14 + bug.tier * 3
-    const angle = Math.random() * Math.PI * 2
-    liveBugs.set(bug.id, {
-      id: bug.id,
-      typeId: bug.typeId,
-      color: bug.color,
-      tier: bug.tier,
-      x: Math.random() * width,
-      y: Math.random() * height,
-      vx: Math.cos(angle) * speedBase * 0.5,
-      vy: Math.sin(angle) * speedBase * 0.5,
-      tickMs: bug.tickMs,
-      baseProgressMs: bug.tickProgressMs,
-      fetchedAtMs: now,
-      cyclesSeen: 0
-    })
-  }
-
-  if (!PIXI || !bugLayer) return
-  for (const [id, live] of liveBugs) {
-    if (bugGfx.has(id)) continue
-    const size = bugSize(live.tier)
-    const halo = new PIXI.Graphics()
-    halo.circle(0, 0, size * 2.4).fill({ color: live.color, alpha: 0.12 })
-    const gfx = new PIXI.Graphics()
-    gfx.circle(0, 0, size).fill({ color: live.color })
-    halo.position.set(live.x, live.y)
-    gfx.position.set(live.x, live.y)
-    bugLayer.addChild(halo)
-    bugLayer.addChild(gfx)
-    bugGfx.set(id, { gfx, halo })
+async function handleFeed() {
+  if (feeding.value || !canFeed.value) return
+  feeding.value = true
+  try {
+    await colony.feedSwarm('coins')
+  } finally {
+    feeding.value = false
   }
 }
 
-// ─── Floating popups (over the canvas, per-bug production ticks) ──────────
-
-interface FloatText { id: number, text: string, x: number, y: number }
-const bugFloats = ref<FloatText[]>([])
-let floatSeq = 0
-
-function spawnBugFloat(text: string, x: number, y: number) {
-  const id = floatSeq++
-  bugFloats.value.push({ id, text, x, y })
-  setTimeout(() => {
-    bugFloats.value = bugFloats.value.filter(f => f.id !== id)
-  }, 1100)
-}
-
-function tickFrame(deltaMS: number) {
-  if (!PIXI || !app) return
-  const width = app.screen.width
-  const height = app.screen.height
-  const pad = 14
-  const now = Date.now()
-
-  for (const live of liveBugs.values()) {
-    if (!isStarving.value) {
-      const speedBase = 14 + live.tier * 3
-      live.x += (live.vx * deltaMS) / 1000
-      live.y += (live.vy * deltaMS) / 1000
-
-      if (live.x < pad || live.x > width - pad) {
-        live.vx *= -1
-        live.x = Math.max(pad, Math.min(width - pad, live.x))
-      }
-      if (live.y < pad || live.y > height - pad) {
-        live.vy *= -1
-        live.y = Math.max(pad, Math.min(height - pad, live.y))
-      }
-
-      live.vx += (Math.random() - 0.5) * 2.4
-      live.vy += (Math.random() - 0.5) * 2.4
-      const speed = Math.hypot(live.vx, live.vy)
-      if (speed > speedBase) {
-        live.vx = (live.vx / speed) * speedBase
-        live.vy = (live.vy / speed) * speedBase
-      }
-
-      // predict production ticks client-side for the floating popup — the
-      // actual accounting already happened server-side via settleColony
-      const elapsedSinceFetch = now - live.fetchedAtMs
-      const totalProgress = live.baseProgressMs + elapsedSinceFetch
-      const cycles = live.tickMs > 0 ? Math.floor(totalProgress / live.tickMs) : 0
-      if (cycles > live.cyclesSeen) {
-        live.cyclesSeen = cycles
-        const bugData = (bugs.value as any[]).find(b => b.id === live.id)
-        if (bugData) spawnBugFloat(`+${bugData.itemEmoji}`, live.x, live.y - bugSize(live.tier))
-      }
-    }
-
-    const entry = bugGfx.get(live.id)
-    if (!entry) continue
-    entry.gfx.position.set(live.x, live.y)
-    entry.halo.position.set(live.x, live.y)
-    const targetAlpha = isStarving.value ? 0.3 : 1
-    entry.gfx.alpha += (targetAlpha - entry.gfx.alpha) * 0.08
-    entry.halo.alpha += (targetAlpha * 0.4 - entry.halo.alpha) * 0.08
+async function handleGemFeed() {
+  if (feeding.value || !canGemFeed.value) return
+  feeding.value = true
+  try {
+    await colony.feedSwarm('gems')
+  } finally {
+    feeding.value = false
   }
 }
-
-onMounted(async () => {
-  const pixi = await import('pixi.js')
-  if (destroyed) return
-  PIXI = pixi
-
-  app = new PIXI.Application()
-  await app.init({
-    resizeTo: canvasWrap.value ?? undefined,
-    backgroundAlpha: 0,
-    antialias: true,
-    autoDensity: true,
-    resolution: Math.min(2, window.devicePixelRatio || 1)
-  })
-  if (destroyed) {
-    app.destroy(true)
-    return
-  }
-  canvasWrap.value?.appendChild(app.canvas)
-
-  bugLayer = new PIXI.Container()
-  app.stage.addChild(bugLayer)
-
-  syncLiveBugs()
-  app.ticker.add(() => tickFrame(app.ticker.deltaMS))
-})
-
-watch(() => bugs.value.map((b: any) => `${b.id}:${b.tickProgressMs}`).join(','), syncLiveBugs)
-
-onUnmounted(() => {
-  destroyed = true
-  bugGfx.clear()
-  liveBugs.clear()
-  if (app) {
-    app.destroy(true, { children: true })
-    app = null
-  }
-})
 
 // light poll so nutrition/loot stay fresh without a heavy server loop —
 // production itself is always settled analytically on the server when this fires
@@ -248,6 +170,8 @@ onUnmounted(() => {
 
 // ─── Loot chest ─────────────────────────────────────────────────────────────
 
+interface FloatText { id: number, text: string, x: number, y: number }
+let floatSeq = 0
 const chestFloats = ref<FloatText[]>([])
 const chestBusy = ref(false)
 
@@ -278,7 +202,10 @@ async function handleInit() {
   await colony.initColony()
 }
 
-// ─── Bug list progress bars (right sidebar) ────────────────────────────────
+// ─── Bug list progress bars ─────────────────────────────────────────────────
+// bugsSyncedAt marks the moment `bugs` last changed (matches the timestamp the
+// terrarium canvas uses internally) so these bars can interpolate between polls
+// without needing access to the canvas component's own animation state.
 
 const nowTick = ref(Date.now())
 let progressInterval: ReturnType<typeof setInterval> | null = null
@@ -291,28 +218,60 @@ onUnmounted(() => {
   if (progressInterval) clearInterval(progressInterval)
 })
 
+/**
+ * Nutrition, interpolated smoothly between polls instead of only jumping on
+ * the next server round-trip. Gem-fed nutrition always drains first (see
+ * settleColony) — nutritionDrainPerHour already reflects whichever rate is
+ * CURRENTLY active, so the combined drain is split gem-pool-first here too,
+ * self-correcting at the next real poll regardless of small approximation
+ * error right around the moment the gem pool actually runs dry.
+ */
+const liveGemNutrition = computed(() => {
+  const elapsedMs = Math.max(0, nowTick.value - serverNow.value)
+  const drainPerMs = nutritionDrainPerHour.value / 3_600_000
+  return Math.max(0, gemNutrition.value - drainPerMs * elapsedMs)
+})
+const liveNutrition = computed(() => {
+  const elapsedMs = Math.max(0, nowTick.value - serverNow.value)
+  const drainPerMs = nutritionDrainPerHour.value / 3_600_000
+  const totalDrained = drainPerMs * elapsedMs
+  const spillover = Math.max(0, totalDrained - gemNutrition.value)
+  return Math.max(0, Math.min(nutritionMax.value, nutrition.value - spillover))
+})
+const liveTotalNutrition = computed(() => liveGemNutrition.value + liveNutrition.value)
+
+const bugsSyncedAt = ref(Date.now())
+watch(() => bugs.value.map((b: any) => `${b.id}:${b.tickProgressMs}`).join(','), () => {
+  bugsSyncedAt.value = Date.now()
+})
+
 function bugProgressPct(bug: any) {
   if (isStarving.value) return Math.min(100, (bug.tickProgressMs / bug.tickMs) * 100)
-  const live = liveBugs.get(bug.id)
-  const elapsed = live ? nowTick.value - live.fetchedAtMs : 0
-  const total = bug.tickProgressMs + Math.max(0, elapsed)
+  const elapsed = Math.max(0, nowTick.value - bugsSyncedAt.value)
+  const total = bug.tickProgressMs + elapsed
   return Math.min(100, ((total % bug.tickMs) / bug.tickMs) * 100)
 }
 
 function bugCountdown(bug: any) {
-  if (isStarving.value) return 'Idle'
-  const live = liveBugs.get(bug.id)
-  const elapsed = live ? nowTick.value - live.fetchedAtMs : 0
-  const total = bug.tickProgressMs + Math.max(0, elapsed)
+  if (isStarving.value) return 'Starving'
+  const elapsed = Math.max(0, nowTick.value - bugsSyncedAt.value)
+  const total = bug.tickProgressMs + elapsed
   const remaining = bug.tickMs - (total % bug.tickMs)
   const secs = Math.max(0, Math.ceil(remaining / 1000))
-  if (secs >= 3600) return `${Math.floor(secs / 3600)}h ${Math.floor((secs % 3600) / 60)}m`
   if (secs >= 60) return `${Math.floor(secs / 60)}m ${secs % 60}s`
   return `${secs}s`
 }
 
-function statDots(level: number) {
-  return Array.from({ length: 5 }, (_, i) => i < level)
+/**
+ * How much this bug actually drops per cycle — not a per-hour rate. Every
+ * completed cycle rolls 1 + random(0..bug.yield) items, so output genuinely
+ * varies tick to tick; shown as the real [itemsPerTickMin, itemsPerTickMax]
+ * range (after social + habitat multipliers), not a single number.
+ */
+function bugYieldPerCycle(bug: any): string {
+  const min = Math.round(bug.itemsPerTickMin ?? 1)
+  const max = Math.round(bug.itemsPerTickMax ?? bug.yield + 1)
+  return max > min ? `${min}–${max}` : `${min}`
 }
 </script>
 
@@ -328,10 +287,10 @@ function statDots(level: number) {
       />
       <div>
         <h1 class="text-xl font-bold">
-          Start your colony
+          Found your colony
         </h1>
         <p class="text-sm text-muted max-w-sm">
-          You'll get a few starter bugs to begin foraging. Collect their loot from the chest, feed them in the Market, and grow your habitat to unlock rarer species.
+          COLONY is an idle bug empire for established players — species start at {{ formatNumber(120000) }} coins and pay for themselves over days of foraging. Found the colony, buy your first bugs in the Market, and keep them fed.
         </p>
       </div>
       <UButton
@@ -339,80 +298,99 @@ function statDots(level: number) {
         icon="i-lucide-sprout"
         @click="handleInit"
       >
-        Start Colony
+        Found Colony
       </UButton>
     </div>
 
     <template v-else>
-      <!-- Nutrition bar on top -->
-      <UCard class="mb-4">
-        <div class="flex items-center justify-between mb-1">
-          <span class="text-sm font-medium text-muted flex items-center gap-1.5">
-            <UIcon
-              name="i-lucide-heart-pulse"
-              class="size-4"
-            />
-            Colony Nutrition
-          </span>
-          <span class="text-sm font-mono">{{ nutrition }} / {{ nutritionMax }}</span>
-        </div>
-        <div class="h-2.5 rounded-full bg-elevated overflow-hidden">
-          <div
-            class="h-full transition-all"
-            :class="isStarving ? 'bg-error' : nutritionLow ? 'bg-warning' : 'bg-primary'"
-            :style="{ width: (nutrition / nutritionMax) * 100 + '%' }"
-          />
-        </div>
-        <p
-          v-if="isStarving"
-          class="text-xs text-error font-medium mt-1.5 flex items-center gap-1"
-        >
-          <UIcon name="i-lucide-alert-triangle" />
-          Colony is starving — bugs have stopped foraging.
-          <NuxtLink
-            to="/colony/market"
-            class="underline"
-          >Feed them in the Market</NuxtLink>
-        </p>
-        <p
-          v-else
-          class="text-xs mt-1.5 flex items-center gap-1"
-          :class="nutritionLow ? 'text-warning' : 'text-muted'"
-        >
-          <UIcon
-            name="i-lucide-clock"
-            class="size-3"
-          />
-          <template v-if="nutritionEtaMs !== null">
-            Runs out in {{ formatDuration(nutritionEtaMs) }} (around {{ nutritionEtaClock }})
-          </template>
-          <template v-else>
-            Not draining — no bugs eating right now.
-          </template>
-          <NuxtLink
-            to="/colony/market"
-            class="underline ml-1"
-          >Feed in the Market</NuxtLink>
-        </p>
-      </UCard>
-
-      <div class="grid grid-cols-1 xl:grid-cols-[1fr_400px] gap-6">
-        <!-- Terrarium + chest, centered -->
+      <div class="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_26rem] gap-6 max-w-full overflow-x-hidden">
+        <!-- Nutrition + Terrarium + chest -->
         <div class="space-y-3 flex flex-col items-center">
-          <div
-            ref="canvasWrap"
-            class="relative w-full rounded-xl border border-default bg-elevated/40 overflow-hidden"
-            style="height: 560px;"
-          >
-            <div
-              v-for="f in bugFloats"
-              :key="f.id"
-              class="colony-float pointer-events-none absolute text-sm font-semibold"
-              :style="{ left: f.x + 'px', top: f.y + 'px' }"
-            >
-              {{ f.text }}
+          <!-- Nutrition bar -->
+          <UCard class="w-full">
+            <div class="flex items-center justify-between gap-3 mb-1.5 flex-wrap">
+              <span class="text-sm font-medium text-muted flex items-center gap-1.5">
+                <UIcon
+                  name="i-lucide-heart-pulse"
+                  class="size-4"
+                />
+                Colony Nutrition
+                <span class="font-mono text-xs">{{ formatNumber(Math.round(liveTotalNutrition), false) }} / {{ formatNumber(nutritionMax, false) }}</span>
+                <span
+                  v-if="gemBuffActive"
+                  class="inline-flex items-center gap-1 text-[10px] font-bold text-info bg-info/10 border border-info/30 rounded-full px-1.5 py-0.5"
+                  title="Gem-fed nutrition is active: +1 yield and +20% speed, colony-wide, until it runs out."
+                >
+                  💎 Buffed
+                </span>
+              </span>
+              <div class="flex items-center gap-1.5">
+                <UButton
+                  size="xs"
+                  color="info"
+                  variant="soft"
+                  icon="i-lucide-gem"
+                  :loading="feeding"
+                  :disabled="!canGemFeed"
+                  title="Top up with gems — expensive, but grants +1 yield and +20% speed colony-wide while it lasts."
+                  @click="handleGemFeed"
+                >
+                  {{ gemFeedCost <= 0 ? 'Full' : `${formatNumber(gemFeedCost, false)} 💎` }}
+                </UButton>
+                <UButton
+                  size="xs"
+                  :color="isStarving ? 'error' : nutritionLow ? 'warning' : 'primary'"
+                  :variant="isStarving || nutritionLow ? 'solid' : 'soft'"
+                  icon="i-lucide-utensils"
+                  :loading="feeding"
+                  :disabled="!canFeed"
+                  @click="handleFeed"
+                >
+                  {{ feedCost <= 0 ? 'Full' : `Feed — ${formatNumber(feedCost, false)} coins` }}
+                </UButton>
+              </div>
             </div>
-          </div>
+            <div class="h-1.5 rounded-full bg-elevated overflow-hidden flex">
+              <div
+                class="h-full transition-all"
+                :class="isStarving ? 'bg-error' : nutritionLow ? 'bg-warning' : 'bg-primary'"
+                :style="{ width: (liveNutrition / nutritionMax) * 100 + '%' }"
+              />
+              <div
+                class="h-full bg-info transition-all"
+                :style="{ width: (liveGemNutrition / nutritionMax) * 100 + '%' }"
+              />
+            </div>
+            <p
+              v-if="isStarving"
+              class="text-xs text-error font-medium mt-1.5 flex items-center gap-1"
+            >
+              <UIcon name="i-lucide-alert-triangle" />
+              Colony is starving — all foraging has stopped until you feed.
+            </p>
+            <p
+              v-else
+              class="text-xs mt-1.5 flex items-center gap-1"
+              :class="nutritionLow ? 'text-warning' : 'text-muted'"
+            >
+              <UIcon
+                name="i-lucide-clock"
+                class="size-3"
+              />
+              <template v-if="nutritionEtaMs !== null">
+                Runs out in {{ formatDuration(nutritionEtaMs) }} (around {{ nutritionEtaClock }}) — bugs stop foraging at zero.
+              </template>
+              <template v-else>
+                Not draining — no bugs eating right now.
+              </template>
+            </p>
+          </UCard>
+
+          <ColonyTerrariumCanvas
+            :bugs="bugs"
+            :is-starving="isStarving"
+            :has-spare-bugs="!!bugInventory.length"
+          />
 
           <div class="relative flex flex-col items-center gap-2 pt-2">
             <UButton
@@ -421,6 +399,7 @@ function statDots(level: number) {
               variant="soft"
               icon="i-lucide-package-open"
               :loading="chestBusy"
+              :disabled="!pendingLoot.length"
               @click="handleCollect"
             >
               Open loot chest
@@ -456,216 +435,446 @@ function statDots(level: number) {
           </div>
         </div>
 
-        <!-- Right sidebar: bug inventory -->
-        <div class="space-y-4">
-          <UCard>
-            <div class="flex items-center justify-between">
-              <span class="text-sm font-medium text-muted">Terrarium</span>
-              <span class="text-sm font-mono">{{ placedCount }} / {{ capacity }}</span>
-            </div>
-            <div class="flex items-center justify-between mt-2 gap-2">
-              <UButton
+        <!-- Right sidebar: xeno-style inventory / bugs panel, fills full column height -->
+        <div class="rounded-xl border border-default bg-elevated/30 overflow-hidden flex flex-col">
+          <div class="flex items-center justify-between px-3 py-2.5 border-b border-default">
+            <span class="text-xs font-semibold uppercase tracking-wider text-muted">Terrarium</span>
+            <span
+              class="text-xs font-mono"
+              :class="placedCount >= capacity ? 'text-warning' : 'text-muted'"
+            >{{ placedCount }} / {{ capacity }}</span>
+          </div>
+
+          <div class="px-2 pt-2 border-b border-default">
+            <UTabs
+              v-model="sidebarTab"
+              :items="sidebarTabItems"
+              size="xs"
+              class="w-full"
+            />
+          </div>
+
+          <!-- Inventory tab -->
+          <template v-if="sidebarTab === 'inventory'">
+            <div
+              v-if="bugInventory.length"
+              class="flex items-center gap-1 px-2 py-1.5 border-b border-default"
+            >
+              <USelect
+                v-model="inventorySortBy"
+                :items="inventorySortOptions"
                 size="xs"
-                color="neutral"
-                variant="soft"
-                icon="i-lucide-settings-2"
-                :disabled="!bugs.length"
-                @click="manageOpen = true"
-              >
-                Manage Terrarium
-              </UButton>
-              <NuxtLink
-                to="/colony/habitat"
-                class="text-xs text-primary underline"
-              >
-                Habitat upgrades
-              </NuxtLink>
+                class="flex-1 min-w-0"
+              />
+              <USelect
+                v-model="inventorySortDir"
+                :items="inventoryDirOptions"
+                size="xs"
+                class="flex-1 min-w-0"
+              />
+              <USelect
+                v-model="inventoryFilterType"
+                :items="inventoryFilterOptions"
+                size="xs"
+                class="flex-1 min-w-0"
+              />
             </div>
-          </UCard>
 
-          <UCard
-            v-if="bugInventory.length"
-            :ui="{ body: 'p-2' }"
-          >
-            <span class="text-sm font-medium text-muted mb-2 block px-1 pt-1">Inventory</span>
-            <div class="space-y-2 max-h-[36rem] overflow-y-auto pr-1">
-              <div
-                v-for="stack in bugInventory"
+            <div
+              v-if="!bugInventory.length"
+              class="py-10 text-center px-4"
+            >
+              <UIcon
+                name="i-lucide-package"
+                class="size-8 text-muted/30 mx-auto mb-2"
+              />
+              <p class="text-sm text-muted">
+                No spare bugs.
+              </p>
+              <p class="text-xs text-muted/50 mt-1">
+                Buy more in the <NuxtLink
+                  to="/colony/market"
+                  class="text-primary underline"
+                >Market</NuxtLink>.
+              </p>
+            </div>
+
+            <div
+              v-else-if="!filteredSortedBugInventory.length"
+              class="py-10 text-center px-4"
+            >
+              <UIcon
+                name="i-lucide-filter-x"
+                class="size-8 text-muted/30 mx-auto mb-2"
+              />
+              <p class="text-sm text-muted">
+                No bugs match this filter.
+              </p>
+            </div>
+
+            <div
+              v-else
+              class="p-2 grid grid-cols-3 gap-1.5 flex-1 overflow-y-auto content-start"
+            >
+              <UTooltip
+                v-for="stack in filteredSortedBugInventory"
                 :key="stackKey(stack)"
-                class="rounded-xl border border-default bg-elevated overflow-hidden"
+                :delay-duration="300"
+                :content="{ side: 'left', sideOffset: 8 }"
+                :ui="{ content: TOOLTIP_CONTENT_UI }"
               >
-                <div
-                  class="h-1"
-                  :style="{ backgroundColor: '#' + stack.color.toString(16).padStart(6, '0') }"
-                />
-                <div class="p-2.5 space-y-2">
-                  <div class="flex items-start gap-2">
-                    <span class="text-2xl leading-none">{{ stack.emoji }}</span>
-                    <div class="min-w-0 flex-1">
-                      <p class="text-sm font-bold truncate flex items-center gap-1.5">
-                        {{ stack.name }}
-                        <UIcon
-                          :name="stack.social ? 'i-lucide-users' : 'i-lucide-user'"
-                          class="size-3 text-muted"
-                          :title="stack.social ? 'Social — thrives in groups' : 'Solitary — thrives alone'"
-                        />
+                <template #content>
+                  <div class="w-56 space-y-3">
+                    <div class="flex items-start justify-between gap-2">
+                      <p class="font-bold text-sm flex items-center gap-1.5">
+                        {{ stack.emoji }} {{ stack.name }}
                       </p>
-                      <p class="text-xs text-muted">
-                        {{ TIER_NAMES[stack.tier] }}
-                      </p>
+                      <span
+                        class="text-xs font-black rounded-full border px-2 py-0.5 shrink-0"
+                        :class="[tierColor(stack.tier), tierBg(stack.tier)]"
+                      >T{{ stack.tier }}</span>
                     </div>
-                    <UBadge
-                      color="neutral"
-                      variant="subtle"
-                      size="sm"
-                    >
-                      x{{ stack.quantity }}
-                    </UBadge>
-                  </div>
 
-                  <USeparator />
-
-                  <div class="space-y-1">
-                    <div
-                      v-for="stat in [{ label: 'Speed', level: stack.speed }, { label: 'Yield', level: stack.yield }, { label: 'Feed', level: stack.feed }]"
-                      :key="stat.label"
-                      class="flex items-center gap-2 text-xs"
-                    >
-                      <span class="text-muted w-10 shrink-0">{{ stat.label }}</span>
-                      <div class="flex gap-0.5">
+                    <USeparator />
+                    <div class="space-y-1.5">
+                      <div class="flex items-center justify-between gap-3">
+                        <span class="text-xs font-bold uppercase tracking-wider text-muted">Speed</span>
                         <span
-                          v-for="(filled, i) in statDots(stat.level)"
-                          :key="i"
-                          class="size-1.5 rounded-full"
-                          :class="filled ? 'bg-primary' : 'bg-background'"
+                          class="text-xs font-black tabular-nums"
+                          :class="traitTextColor(stack.speed)"
+                        >{{ stack.speed }}%</span>
+                      </div>
+                      <XenoStatLevel
+                        label="Yield"
+                        :level="stack.yield"
+                        :max="8"
+                        color="bg-info"
+                      />
+                      <div class="flex items-center justify-between gap-3">
+                        <span class="text-xs font-bold uppercase tracking-wider text-muted">Eat</span>
+                        <span class="text-xs font-black tabular-nums text-muted">{{ stack.eat }} / cycle</span>
+                      </div>
+                    </div>
+
+                    <USeparator />
+                    <div class="space-y-1">
+                      <div class="flex justify-between text-xs">
+                        <span class="text-muted uppercase tracking-wider font-semibold">Owned</span>
+                        <span class="font-mono">×{{ stack.quantity }}</span>
+                      </div>
+                      <div class="flex justify-between text-xs">
+                        <span class="text-muted uppercase tracking-wider font-semibold">Cycle</span>
+                        <span class="font-mono">{{ formatDuration(stackTickMs(stack)) }}</span>
+                      </div>
+                      <div class="flex justify-between text-xs">
+                        <span class="text-muted uppercase tracking-wider font-semibold">Per cycle</span>
+                        <span class="font-mono">{{ stack.itemEmoji }} {{ stackYieldPerCycle(stack) }}</span>
+                      </div>
+                      <div class="flex justify-between text-xs">
+                        <span class="text-muted uppercase tracking-wider font-semibold">Per hour</span>
+                        <span class="font-mono">{{ stack.itemEmoji }} {{ formatNumber(Math.round(stackItemsPerHour(stack)), false) }}</span>
+                      </div>
+                      <div class="flex justify-between text-xs">
+                        <span class="text-muted uppercase tracking-wider font-semibold">Coins/hr</span>
+                        <CoinBalance
+                          :show-icon="false"
+                          :value="stackCoinsPerHour(stack)"
+                          :compact="false"
                         />
+                      </div>
+                      <div class="flex justify-between text-xs">
+                        <span class="text-muted uppercase tracking-wider font-semibold">Eats</span>
+                        <span class="font-mono">{{ formatNumber(Math.round(stack.feedPerHour), false) }}/hr</span>
+                      </div>
+                      <div class="flex justify-between text-xs">
+                        <span class="text-muted uppercase tracking-wider font-semibold">Temperament</span>
+                        <span class="font-mono flex items-center gap-1">
+                          <UIcon
+                            :name="stack.social ? 'i-lucide-users' : 'i-lucide-user'"
+                            class="size-3"
+                          />
+                          {{ stack.social ? 'Social' : 'Solitary' }}
+                        </span>
                       </div>
                     </div>
                   </div>
+                </template>
 
-                  <UButton
-                    block
-                    size="xs"
-                    icon="i-lucide-arrow-right-circle"
-                    :loading="placingKey === stackKey(stack)"
-                    :disabled="placedCount >= capacity"
-                    @click="handlePlace(stack)"
+                <button
+                  class="relative flex flex-col rounded-xl border aspect-square w-full overflow-hidden transition-all duration-100 disabled:opacity-50"
+                  :class="[tierBg(stack.tier), placingKey === stackKey(stack) ? 'ring-2 ring-primary' : 'hover:ring-1 hover:ring-primary/50']"
+                  :disabled="placedCount >= capacity || !!placingKey"
+                  @click="handlePlace(stack)"
+                >
+                  <div class="flex-1 flex flex-col items-center justify-center gap-0.5 min-h-0">
+                    <span class="text-3xl leading-none">{{ stack.emoji }}</span>
+                  </div>
+                  <p class="text-xs font-bold text-center px-1 mb-1 truncate shrink-0">
+                    {{ stack.name }}
+                  </p>
+                  <div class="flex divide-x divide-default border-t border-default shrink-0">
+                    <div class="flex-1 flex items-center justify-center gap-0.5 py-1">
+                      <UIcon
+                        name="i-lucide-zap"
+                        class="size-2.5 shrink-0"
+                        :class="traitTextColor(stack.speed)"
+                      />
+                      <span
+                        class="text-[10px] font-black tabular-nums"
+                        :class="traitTextColor(stack.speed)"
+                      >{{ stack.speed }}%</span>
+                    </div>
+                    <div class="flex-1 flex items-center justify-center gap-0.5 py-1">
+                      <UIcon
+                        name="i-lucide-gem"
+                        class="size-2.5 shrink-0"
+                        :class="levelTextColor(stack.yield)"
+                      />
+                      <span
+                        class="text-[10px] font-black tabular-nums"
+                        :class="levelTextColor(stack.yield)"
+                      >{{ stack.yield }}</span>
+                    </div>
+                    <div class="flex-1 flex items-center justify-center gap-0.5 py-1">
+                      <UIcon
+                        name="i-lucide-utensils"
+                        class="size-2.5 shrink-0 text-muted"
+                      />
+                      <span class="text-[10px] font-black tabular-nums text-muted">{{ stack.eat }}</span>
+                    </div>
+                  </div>
+                </button>
+              </UTooltip>
+            </div>
+
+            <p
+              v-if="bugInventory.length && placedCount >= capacity"
+              class="text-xs text-warning text-center px-3 py-2 border-t border-default"
+            >
+              Terrarium full — upgrade Capacity in the Habitat.
+            </p>
+          </template>
+
+          <!-- Bugs tab: everything currently placed in the terrarium -->
+          <template v-if="sidebarTab === 'bugs'">
+            <div
+              v-if="bugs.length"
+              class="p-2 grid grid-cols-3 gap-1.5 flex-1 overflow-y-auto content-start"
+            >
+              <UTooltip
+                v-for="bug in bugs"
+                :key="bug.id"
+                :delay-duration="300"
+                :content="{ side: 'left', sideOffset: 8 }"
+                :ui="{ content: TOOLTIP_CONTENT_UI }"
+              >
+                <template #content>
+                  <div class="w-56 space-y-3">
+                    <div class="flex items-start justify-between gap-2">
+                      <p class="font-bold text-sm flex items-center gap-1.5">
+                        {{ bug.emoji }} {{ bug.name }}
+                      </p>
+                      <span
+                        class="text-xs font-black rounded-full border px-2 py-0.5 shrink-0"
+                        :class="[tierColor(bug.tier), tierBg(bug.tier)]"
+                      >T{{ bug.tier }}</span>
+                    </div>
+
+                    <USeparator />
+                    <div class="space-y-1.5">
+                      <div class="flex items-center justify-between gap-3">
+                        <span class="text-xs font-bold uppercase tracking-wider text-muted">Speed</span>
+                        <span
+                          class="text-xs font-black tabular-nums"
+                          :class="traitTextColor(bug.speed)"
+                        >{{ bug.speed }}%</span>
+                      </div>
+                      <XenoStatLevel
+                        label="Yield"
+                        :level="bug.yield"
+                        :max="8"
+                        color="bg-info"
+                      />
+                      <div class="flex items-center justify-between gap-3">
+                        <span class="text-xs font-bold uppercase tracking-wider text-muted">Eat</span>
+                        <span class="text-xs font-black tabular-nums text-muted">{{ bug.eat }} / cycle</span>
+                      </div>
+                    </div>
+
+                    <USeparator />
+                    <div class="space-y-1">
+                      <div class="flex justify-between text-xs">
+                        <span class="text-muted uppercase tracking-wider font-semibold">Cycle</span>
+                        <span class="font-mono">{{ formatDuration(bug.tickMs) }}</span>
+                      </div>
+                      <div class="flex justify-between text-xs">
+                        <span class="text-muted uppercase tracking-wider font-semibold">Per cycle</span>
+                        <span class="font-mono">{{ bug.itemEmoji }} {{ bugYieldPerCycle(bug) }}</span>
+                      </div>
+                      <div class="flex justify-between text-xs">
+                        <span class="text-muted uppercase tracking-wider font-semibold">Per hour</span>
+                        <span class="font-mono">{{ bug.itemEmoji }} {{ formatNumber(Math.round(bug.itemsPerHour), false) }}</span>
+                      </div>
+                      <div class="flex justify-between text-xs">
+                        <span class="text-muted uppercase tracking-wider font-semibold">Coins/hr</span>
+                        <CoinBalance
+                          :show-icon="false"
+                          :value="bug.itemsPerHour * bug.itemSellValue"
+                          :compact="false"
+                        />
+                      </div>
+                      <div class="flex justify-between text-xs">
+                        <span class="text-muted uppercase tracking-wider font-semibold">Eats</span>
+                        <span class="font-mono">{{ formatNumber(Math.round(bug.feedPerHour), false) }}/hr</span>
+                      </div>
+                      <div
+                        v-if="bug.socialMultiplier !== 1"
+                        class="flex justify-between text-xs"
+                      >
+                        <span class="text-muted uppercase tracking-wider font-semibold">Neighbor speed</span>
+                        <span
+                          class="font-mono"
+                          :class="bug.socialMultiplier > 1 ? 'text-success' : 'text-error'"
+                        >{{ bug.socialMultiplier > 1 ? '+' : '' }}{{ Math.round((bug.socialMultiplier - 1) * 100) }}%</span>
+                      </div>
+                    </div>
+                  </div>
+                </template>
+
+                <div
+                  class="group relative flex flex-col rounded-xl border aspect-square w-full overflow-hidden transition-all duration-100 cursor-pointer"
+                  :class="[tierBg(bug.tier), unplacingId === bug.id ? 'opacity-50 pointer-events-none' : 'hover:ring-1 hover:ring-primary/50']"
+                  @click="handleUnplace(bug.id)"
+                >
+                  <!-- Release (hover reveal) -->
+                  <button
+                    class="absolute top-1.5 right-1.5 z-20 size-5 flex items-center justify-center rounded bg-black/30 opacity-0 group-hover:opacity-100 hover:bg-error hover:text-white transition-all"
+                    title="Release — refunds 50% of spawn cost, plus credit for progress on the current cycle"
+                    @click.stop="colony.removeBug(bug.id)"
                   >
-                    {{ placedCount >= capacity ? 'Terrarium full' : 'Place in Terrarium' }}
-                  </UButton>
+                    <UIcon
+                      name="i-lucide-x"
+                      class="size-3"
+                    />
+                  </button>
+
+                  <!-- Top: progress + per-cycle output -->
+                  <div class="shrink-0 px-1.5 pt-1.5">
+                    <div class="h-1 rounded-full bg-background overflow-hidden">
+                      <div
+                        class="h-full bg-primary transition-all"
+                        :style="{ width: bugProgressPct(bug) + '%' }"
+                      />
+                    </div>
+                    <p class="text-[10px] flex items-center justify-between mt-0.5">
+                      <span class="text-highlighted font-medium">{{ bug.itemEmoji }} {{ bugYieldPerCycle(bug) }}</span>
+                      <span class="text-muted font-mono">{{ bugCountdown(bug) }}</span>
+                    </p>
+                  </div>
+
+                  <!-- Center: emoji + name + social -->
+                  <div class="flex-1 flex flex-col items-center justify-center gap-0.5 min-h-0">
+                    <span class="text-3xl leading-none">{{ bug.emoji }}</span>
+                    <p class="text-xs font-bold text-center px-1 truncate w-full">
+                      {{ bug.name }}
+                    </p>
+                    <span
+                      v-if="bug.socialMultiplier !== 1"
+                      class="text-[10px] font-bold leading-none"
+                      :class="bug.socialMultiplier > 1 ? 'text-success' : 'text-error'"
+                      title="Speed bonus/penalty from same-species neighbors"
+                    >
+                      {{ bug.social ? '👥' : '🚫' }} {{ bug.socialMultiplier > 1 ? '+' : '' }}{{ Math.round((bug.socialMultiplier - 1) * 100) }}%
+                    </span>
+                  </div>
+
+                  <!-- Bottom: speed | yield | eat footer strip, matching Inventory -->
+                  <div class="flex divide-x divide-default border-t border-default shrink-0">
+                    <div class="flex-1 flex items-center justify-center gap-0.5 py-1">
+                      <UIcon
+                        name="i-lucide-zap"
+                        class="size-2.5 shrink-0"
+                        :class="traitTextColor(bug.speed)"
+                      />
+                      <span
+                        class="text-[10px] font-black tabular-nums"
+                        :class="traitTextColor(bug.speed)"
+                      >{{ bug.speed }}%</span>
+                    </div>
+                    <div class="flex-1 flex items-center justify-center gap-0.5 py-1">
+                      <UIcon
+                        name="i-lucide-gem"
+                        class="size-2.5 shrink-0"
+                        :class="levelTextColor(bug.yield)"
+                      />
+                      <span
+                        class="text-[10px] font-black tabular-nums"
+                        :class="levelTextColor(bug.yield)"
+                      >{{ bug.yield }}</span>
+                    </div>
+                    <div class="flex-1 flex items-center justify-center gap-0.5 py-1">
+                      <UIcon
+                        name="i-lucide-utensils"
+                        class="size-2.5 shrink-0 text-muted"
+                      />
+                      <span class="text-[10px] font-black tabular-nums text-muted">{{ bug.eat }}</span>
+                    </div>
+                  </div>
+                </div>
+              </UTooltip>
+            </div>
+            <p
+              v-else
+              class="text-sm text-muted text-center py-10 px-4"
+            >
+              Nothing placed yet — place bugs from the Inventory tab.
+            </p>
+          </template>
+
+          <!-- Resources tab: everything foraged and claimed, at a glance -->
+          <template v-if="sidebarTab === 'resources'">
+            <div class="p-2 grid grid-cols-3 gap-1.5 flex-1 overflow-y-auto content-start">
+              <div
+                v-for="item in resourcesOwned"
+                :key="item.id"
+                class="relative flex flex-col rounded-xl border aspect-square w-full overflow-hidden"
+                :class="[tierBg(item.tier), item.quantity <= 0 && 'opacity-50']"
+              >
+                <div class="flex items-center justify-between px-1.5 pt-1.5 shrink-0">
+                  <span
+                    class="text-[10px] font-black"
+                    :class="tierColor(item.tier)"
+                  >T{{ item.tier }}</span>
+                  <span class="text-xs font-black text-primary leading-none">{{ formatNumber(item.quantity, false) }}</span>
+                </div>
+                <div class="flex-1 flex flex-col items-center justify-center gap-0.5 min-h-0">
+                  <span class="text-3xl leading-none">{{ item.emoji }}</span>
+                </div>
+                <p class="text-xs font-bold text-center px-1 mb-1 truncate shrink-0">
+                  {{ item.name }}
+                </p>
+                <div class="flex items-center justify-center border-t border-default py-1 shrink-0">
+                  <span class="text-[10px] font-black tabular-nums text-muted">{{ formatNumber(item.sellValue, false) }} coins each</span>
                 </div>
               </div>
             </div>
-          </UCard>
-
-          <UCard v-else>
-            <p class="text-sm text-muted text-center py-4">
-              No spare bugs — buy more in the Market.
+            <p class="text-xs text-muted text-center px-3 py-2 border-t border-default">
+              Sell foraged items in the <NuxtLink
+                to="/colony/market"
+                class="text-primary underline"
+              >Market</NuxtLink>.
             </p>
-          </UCard>
+          </template>
         </div>
       </div>
     </template>
-
-    <UModal
-      v-model:open="manageOpen"
-      title="Manage Terrarium"
-      description="Bugs actively foraging. Remove one to send it back to your inventory."
-    >
-      <template #body>
-        <div
-          v-if="bugs.length"
-          class="space-y-2 max-h-[28rem] overflow-y-auto pr-1"
-        >
-          <div
-            v-for="bug in bugs"
-            :key="bug.id"
-            class="rounded-xl border border-default bg-elevated overflow-hidden"
-          >
-            <div
-              class="h-1"
-              :style="{ backgroundColor: '#' + bug.color.toString(16).padStart(6, '0') }"
-            />
-            <div class="p-2.5 space-y-2">
-              <div class="flex items-start gap-2">
-                <span class="text-2xl leading-none">{{ bug.emoji }}</span>
-                <div class="min-w-0 flex-1">
-                  <p class="text-sm font-bold truncate">
-                    {{ bug.name }}
-                  </p>
-                  <p class="text-xs text-muted">
-                    {{ TIER_NAMES[bug.tier] }}
-                  </p>
-                </div>
-                <UButton
-                  size="xs"
-                  color="neutral"
-                  variant="soft"
-                  icon="i-lucide-arrow-left-circle"
-                  :loading="unplacingId === bug.id"
-                  @click="handleUnplace(bug.id)"
-                >
-                  Unplace
-                </UButton>
-                <UButton
-                  size="xs"
-                  color="error"
-                  variant="ghost"
-                  icon="i-lucide-x"
-                  @click="colony.removeBug(bug.id)"
-                />
-              </div>
-
-              <div class="h-1.5 rounded-full bg-background overflow-hidden">
-                <div
-                  class="h-full bg-primary transition-all"
-                  :style="{ width: bugProgressPct(bug) + '%' }"
-                />
-              </div>
-              <p class="text-xs flex items-center justify-between">
-                <span class="text-highlighted font-medium">{{ bug.itemEmoji }} {{ formatRate(bug.itemsPerHour) }}</span>
-                <span class="text-muted font-mono">{{ bugCountdown(bug) }}</span>
-              </p>
-            </div>
-          </div>
-        </div>
-        <p
-          v-else
-          class="text-sm text-muted text-center py-4"
-        >
-          Nothing placed yet.
-        </p>
-      </template>
-    </UModal>
   </div>
 </template>
 
 <style scoped>
-.colony-float {
-  animation: colony-float-up 1.1s ease-out forwards;
-  transform: translate(-50%, -100%);
-  color: white;
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
-}
-
 .colony-chest-float {
   animation: colony-chest-float-up 1.6s ease-out forwards;
   transform: translateX(-50%);
-}
-
-@keyframes colony-float-up {
-  0% {
-    opacity: 0;
-    transform: translate(-50%, -100%) scale(0.8);
-  }
-  15% {
-    opacity: 1;
-    transform: translate(-50%, -130%) scale(1.1);
-  }
-  100% {
-    opacity: 0;
-    transform: translate(-50%, -220%) scale(1);
-  }
 }
 
 @keyframes colony-chest-float-up {

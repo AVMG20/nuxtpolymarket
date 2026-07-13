@@ -13,16 +13,21 @@ export const useColony = () => {
   const placedCount = computed(() => state.value?.placedCount ?? 0)
   const pendingLoot = computed(() => state.value?.pendingLoot ?? [])
   const upgrades = computed(() => state.value?.upgrades ?? [])
+  const research = computed(() => state.value?.research ?? [])
   const builder = computed(() => state.value?.builder ?? null)
   const builderCount = computed(() => state.value?.builderCount ?? 1)
   const capacity = computed(() => state.value?.capacity ?? 0)
   const habitatLevel = computed(() => state.value?.habitatLevel ?? 1)
   const maxTier = computed(() => state.value?.maxTier ?? 6)
   const habitatLevelUpCost = computed(() => state.value?.habitatLevelUpCost ?? 0)
+  const habitatLevelUpGemCost = computed(() => state.value?.habitatLevelUpGemCost ?? 0)
   const nutrition = computed(() => state.value?.nutrition ?? 0)
   const nutritionMax = computed(() => state.value?.nutritionMax ?? 100)
   const nutritionDrainPerHour = computed(() => state.value?.nutritionDrainPerHour ?? 0)
   const feedCost = computed(() => state.value?.feedCost ?? 0)
+  const gemNutrition = computed(() => state.value?.gemNutrition ?? 0)
+  const gemBuffActive = computed(() => state.value?.gemBuffActive ?? false)
+  const gemFeedCost = computed(() => state.value?.gemFeedCost ?? 0)
   const initialized = computed(() => state.value?.initialized ?? false)
   const serverNow = computed(() => state.value?.serverNow ?? Date.now())
 
@@ -45,14 +50,23 @@ export const useColony = () => {
     await refresh()
   }
 
-  async function feedSwarm() {
-    const res = await call('/api/colony/feed', {}, 'Colony fed')
+  async function feedSwarm(method: 'coins' | 'gems' = 'coins') {
+    const res = await call('/api/colony/feed', { method }, '')
+    if (res?.cost) {
+      toast.add({
+        title: method === 'gems'
+          ? `Colony fed with ${formatNumber(res.cost, false)} gems — buffed!`
+          : `Colony fed for ${formatNumber(res.cost, false)} coins`,
+        color: 'success'
+      })
+    }
     await fetchSession()
     return res
   }
 
   async function buyBug(typeId: string) {
-    const res = await call('/api/colony/bugs/buy', { typeId }, 'Bug acquired!')
+    const res = await call('/api/colony/bugs/buy', { typeId }, '')
+    if (res) toast.add({ title: `Bug acquired — Speed +${res.speed}% · Yield ${res.yield} · Eats ${res.eat}`, color: 'success' })
     await fetchSession()
     return res
   }
@@ -63,8 +77,8 @@ export const useColony = () => {
     return res
   }
 
-  async function placeBug(typeId: string, speed: number, yield_: number, feed: number) {
-    return call('/api/colony/bugs/place', { typeId, speed, yield: yield_, feed }, 'Bug placed in terrarium')
+  async function placeBug(typeId: string, speed: number, yield_: number, eat: number) {
+    return call('/api/colony/bugs/place', { typeId, speed, yield: yield_, eat }, '')
   }
 
   async function unplaceBug(bugId: string) {
@@ -100,6 +114,12 @@ export const useColony = () => {
     return res
   }
 
+  async function sacrificeForResearch(typeId: string) {
+    const res = await call('/api/colony/research/sacrifice', { typeId }, '')
+    if (res) toast.add({ title: `Research complete — Level ${res.level} unlocked`, color: 'success' })
+    return res
+  }
+
   return {
     state,
     pending,
@@ -113,16 +133,21 @@ export const useColony = () => {
     placedCount,
     pendingLoot,
     upgrades,
+    research,
     builder,
     builderCount,
     capacity,
     habitatLevel,
     maxTier,
     habitatLevelUpCost,
+    habitatLevelUpGemCost,
     nutrition,
     nutritionMax,
     nutritionDrainPerHour,
     feedCost,
+    gemNutrition,
+    gemBuffActive,
+    gemFeedCost,
     initColony,
     feedSwarm,
     buyBug,
@@ -133,6 +158,7 @@ export const useColony = () => {
     collectLoot,
     startUpgrade,
     collectUpgrade,
-    upgradeHabitatLevel
+    upgradeHabitatLevel,
+    sacrificeForResearch
   }
 }

@@ -1,20 +1,37 @@
 import { eq, and, sql } from 'drizzle-orm'
 import { db } from '#server/database'
-import { colonyState, colonyBugs, colonyUpgrades, colonyLoot, colonyItems } from '#server/database/schema'
+import { colonyState, colonyBugs, colonyUpgrades, colonyBugResearch, colonyLoot, colonyItems, user } from '#server/database/schema'
 import { debit } from '#server/utils/balance'
 import {
   getBug,
   effectiveTickMs,
-  effectiveYieldPerTick,
-  feedPerHour,
+  effectiveFeedPerHour,
+  socialSpeedBonusPct,
+  avgTickYield,
+  gemTickMs,
+  effectiveGemsPerDay,
   deriveNutritionMax,
   deriveTrackModifiers,
+  GEM_FEED_YIELD_BONUS,
+  GEM_FEED_SPEED_BONUS_PCT,
+  MAX_RESEARCH_LEVEL,
+  researchSacrificeCount,
   type ItemCost,
   type Price
 } from '#shared/utils/colony'
 
+/** Credit gems straight to the user's spendable balance — gems aren't a colony inventory item, they're the same currency the rest of the site uses (see server/api/miner/collect-gems.post.ts for the same pattern). */
+async function creditGems(userId: string, quantity: number) {
+  if (quantity <= 0) return
+  await db.update(user).set({ gems: sql`${user.gems} + ${quantity}` }).where(eq(user.id, userId))
+}
+
+export async function getColonyState(userId: string) {
+  return db.query.colonyState.findFirst({ where: eq(colonyState.userId, userId) })
+}
+
 export async function ensureColonyState(userId: string) {
-  const existing = await db.query.colonyState.findFirst({ where: eq(colonyState.userId, userId) })
+  const existing = await getColonyState(userId)
   if (existing) return existing
   const [created] = await db.insert(colonyState).values({ userId }).returning()
   return created!
@@ -26,6 +43,59 @@ export async function getUpgradeLevels(userId: string): Promise<Record<string, n
   const levels: Record<string, number> = {}
   for (const row of rows) levels[row.trackId] = row.level
   return levels
+}
+
+/** Every species' current Research level, keyed by typeId (0 if never researched). */
+export async function getResearchLevels(userId: string): Promise<Record<string, number>> {
+  const rows = await db.query.colonyBugResearch.findMany({ where: eq(colonyBugResearch.userId, userId) })
+  const levels: Record<string, number> = {}
+  for (const row of rows) levels[row.typeId] = row.level
+  return levels
+}
+
+/** A single species' current Research level (0 if never researched). */
+export async function getResearchLevel(userId: string, typeId: string): Promise<number> {
+  const row = await db.query.colonyBugResearch.findFirst({ where: and(eq(colonyBugResearch.userId, userId), eq(colonyBugResearch.typeId, typeId)) })
+  return row?.level ?? 0
+}
+
+/**
+ * Sacrifice `count` of the player's own unplaced (inventory) bugs of
+ * `typeId` to advance that species' Research level by one — raising the
+ * roll range every FUTURE purchase of that species uses. Only unplaced bugs
+ * are eligible so an active terrarium bug is never accidentally destroyed.
+ * Throws 400 if already maxed or short on bugs to sacrifice.
+ */
+export async function sacrificeForResearch(userId: string, typeId: string): Promise<{ level: number }> {
+  const currentLevel = await getResearchLevel(userId, typeId)
+  const needed = researchSacrificeCount(currentLevel)
+  if (needed === null || currentLevel >= MAX_RESEARCH_LEVEL) {
+    throw createError({ statusCode: 400, statusMessage: 'This species is already at max Research level' })
+  }
+
+  await db.transaction(async (tx) => {
+    const eligible = await tx.query.colonyBugs.findMany({
+      where: and(eq(colonyBugs.userId, userId), eq(colonyBugs.typeId, typeId), eq(colonyBugs.inTerrarium, false)),
+      limit: needed,
+      columns: { id: true }
+    })
+    if (eligible.length < needed) {
+      throw createError({ statusCode: 400, statusMessage: `Not enough spare ${typeId} bugs to sacrifice (need ${needed}, have ${eligible.length})` })
+    }
+
+    for (const bug of eligible) {
+      await tx.delete(colonyBugs).where(eq(colonyBugs.id, bug.id))
+    }
+
+    await tx.insert(colonyBugResearch)
+      .values({ userId, typeId, level: currentLevel + 1 })
+      .onConflictDoUpdate({
+        target: [colonyBugResearch.userId, colonyBugResearch.typeId],
+        set: { level: currentLevel + 1 }
+      })
+  })
+
+  return { level: currentLevel + 1 }
 }
 
 /** Add `quantity` of an item straight to unclaimed loot (not yet in the player's spendable inventory). */
@@ -45,8 +115,16 @@ async function addLoot(userId: string, itemTypeId: string, quantity: number) {
  * much did my bugs forage while I was away" is always computed analytically
  * on read — no server-side interval/loop needed. Production is only ever
  * written into colonyLoot (unclaimed); the player must collect it manually
- * via the loot chest. Nutrition drain is the sum of every bug's own feed
- * consumption, so a bigger or hungrier colony needs feeding more often.
+ * via the loot chest. Nutrition drain is the sum of every placed bug's feed
+ * rate, so a bigger or rarer colony needs feeding more often — and once the
+ * tank hits 0 all foraging stops until the player comes back to feed.
+ *
+ * Runs in up to two phases because of gem-fed nutrition: it always drains
+ * FIRST and grants a colony-wide +1 yield / +20% speed buff while any is
+ * left, so a settle window that starts buffed and runs the gem pool dry
+ * partway through needs to split cleanly into a buffed phase (draining
+ * gemNutrition, boosted rates) followed by a normal phase (draining regular
+ * nutrition, base rates) rather than applying one rate to the whole window.
  */
 export async function settleColony(userId: string) {
   const state = await ensureColonyState(userId)
@@ -64,47 +142,114 @@ export async function settleColony(userId: string) {
   const mods = deriveTrackModifiers(levels)
   const nutritionMax = deriveNutritionMax(levels)
 
-  const totalFeedPerHour = bugs.reduce((sum, bug) => sum + feedPerHour(bug) * mods.feedMultiplier, 0)
-  const drainPerMs = totalFeedPerHour / 3_600_000
-  const activeMs = drainPerMs > 0 && state.nutrition > 0 ? Math.min(elapsedMs, state.nutrition / drainPerMs) : (state.nutrition > 0 ? elapsedMs : 0)
-  const newNutrition = drainPerMs > 0 ? Math.max(0, state.nutrition - drainPerMs * elapsedMs) : state.nutrition
+  // Same-species-in-terrarium counts drive the Social trait's speed bonus/
+  // penalty (see socialSpeedBonusPct) — needed up front since it affects
+  // both eating (feed ties to completed ticks) and production below.
+  const sameSpeciesCounts = new Map<string, number>()
+  for (const bug of bugs) sameSpeciesCounts.set(bug.typeId, (sameSpeciesCounts.get(bug.typeId) ?? 0) + 1)
 
-  if (activeMs > 0) {
-    const sameSpeciesCounts = new Map<string, number>()
-    for (const bug of bugs) sameSpeciesCounts.set(bug.typeId, (sameSpeciesCounts.get(bug.typeId) ?? 0) + 1)
+  function feedPerHourTotal(buffed: boolean) {
+    return bugs.reduce((sum, bug) => {
+      const socialPct = socialSpeedBonusPct(bug.typeId, sameSpeciesCounts.get(bug.typeId) ?? 1)
+      const buffPct = buffed ? GEM_FEED_SPEED_BONUS_PCT : 0
+      return sum + effectiveFeedPerHour(bug, mods.speedBonusPct + socialPct + buffPct) * mods.feedMultiplier
+    }, 0)
+  }
+  const baseFeedPerHour = feedPerHourTotal(false)
+  const buffedFeedPerHour = feedPerHourTotal(true)
 
-    const lootByItem = new Map<string, number>()
-    const bugUpdates: Promise<unknown>[] = []
+  const lootByItem = new Map<string, number>()
+  const bugRemainders = new Map<string, number>(bugs.map(b => [b.id, b.tickProgressMs]))
+  let gemsEarned = 0
+  let totalActiveMs = 0
 
+  /** Advance every placed bug's progress by `activeMs` of wall-clock time under a given buff state, accumulating loot/gems and updating bugRemainders in place. */
+  function runPhase(activeMs: number, buffed: boolean) {
+    if (activeMs <= 0) return
+    totalActiveMs += activeMs
     for (const bug of bugs) {
       const type = getBug(bug.typeId)
       if (!type) continue
-      const tickMs = effectiveTickMs(bug) * mods.tickMultiplier
+      const sameSpeciesCount = sameSpeciesCounts.get(bug.typeId) ?? 1
+
+      // Gem-producing bugs run on a completely separate, fixed-scale cycle
+      // TIME — never sped up by the bug's own roll, the Foraging Speed
+      // track, a social bonus, or the gem-feed buff. Their per-cycle GEM
+      // OUTPUT does scale with the Foraging Yield/Speed tracks though (not
+      // the gem-feed buff), hard-capped at MAX_GEMS_PER_DAY. See
+      // gemTickMs/effectiveGemsPerDay.
+      const buffPct = buffed ? GEM_FEED_SPEED_BONUS_PCT : 0
+      const tickMs = type.producesGems
+        ? gemTickMs(bug, sameSpeciesCount)
+        : effectiveTickMs(bug, mods.speedBonusPct + socialSpeedBonusPct(bug.typeId, sameSpeciesCount) + buffPct)
       if (!Number.isFinite(tickMs) || tickMs <= 0) continue
 
-      const totalProgress = bug.tickProgressMs + activeMs
+      const startProgress = bugRemainders.get(bug.id) ?? bug.tickProgressMs
+      const totalProgress = startProgress + activeMs
       const ticks = Math.floor(totalProgress / tickMs)
       const remainder = totalProgress - ticks * tickMs
+      bugRemainders.set(bug.id, Math.round(remainder))
 
       if (ticks > 0) {
-        const sameSpeciesCount = sameSpeciesCounts.get(bug.typeId) ?? 1
-        const qty = Math.round(ticks * effectiveYieldPerTick(bug, sameSpeciesCount) * mods.yieldMultiplier)
-        lootByItem.set(type.itemId, (lootByItem.get(type.itemId) ?? 0) + qty)
+        if (type.producesGems) {
+          gemsEarned += effectiveGemsPerDay(bug, mods.yieldLevelBonus, mods.speedBonusPct) * ticks
+        } else {
+          // Each completed cycle actually rolls 1 + random(0..effectiveYield)
+          // items (see rollTickYield) — for a bulk offline catch-up
+          // spanning many ticks we settle on the expected value
+          // (avgTickYield) rather than rolling every individual tick.
+          // The gem-feed buff and the Foraging Yield track both raise the
+          // effective yield LEVEL by a flat amount before that roll.
+          const effectiveYield = bug.yield + mods.yieldLevelBonus + (buffed ? GEM_FEED_YIELD_BONUS : 0)
+          const qty = Math.round(avgTickYield(effectiveYield) * ticks)
+          lootByItem.set(type.itemId, (lootByItem.get(type.itemId) ?? 0) + qty)
+        }
       }
-
-      bugUpdates.push(
-        db.update(colonyBugs).set({ tickProgressMs: Math.round(remainder) }).where(eq(colonyBugs.id, bug.id))
-      )
     }
+  }
 
+  let remainingMs = elapsedMs
+  let newGemNutrition = state.gemNutrition
+
+  // Phase 1 — gem-fed nutrition, buffed rates. Drains first, always.
+  if (newGemNutrition > 0 && remainingMs > 0) {
+    const drainPerMs = buffedFeedPerHour / 3_600_000
+    const phaseMs = drainPerMs > 0 ? Math.min(remainingMs, newGemNutrition / drainPerMs) : remainingMs
+    if (phaseMs > 0) {
+      runPhase(phaseMs, true)
+      newGemNutrition = drainPerMs > 0 ? Math.max(0, newGemNutrition - drainPerMs * phaseMs) : newGemNutrition
+      remainingMs -= phaseMs
+    }
+  }
+
+  // Phase 2 — regular nutrition, base rates, for whatever time is left.
+  let newNutrition = state.nutrition
+  if (remainingMs > 0) {
+    const drainPerMs = baseFeedPerHour / 3_600_000
+    const phaseMs = drainPerMs > 0 && newNutrition > 0 ? Math.min(remainingMs, newNutrition / drainPerMs) : (newNutrition > 0 ? remainingMs : 0)
+    if (phaseMs > 0) {
+      runPhase(phaseMs, false)
+      newNutrition = drainPerMs > 0 ? Math.max(0, newNutrition - drainPerMs * phaseMs) : newNutrition
+    }
+  }
+
+  if (totalActiveMs > 0) {
+    const bugUpdates = bugs.map(bug =>
+      db.update(colonyBugs).set({ tickProgressMs: bugRemainders.get(bug.id) ?? bug.tickProgressMs }).where(eq(colonyBugs.id, bug.id))
+    )
     await Promise.all(bugUpdates)
     for (const [itemTypeId, qty] of lootByItem) {
       await addLoot(userId, itemTypeId, qty)
     }
+    if (gemsEarned > 0) await creditGems(userId, Math.floor(gemsEarned))
   }
 
   const [updated] = await db.update(colonyState)
-    .set({ nutrition: Math.round(Math.min(nutritionMax, newNutrition)), lastSettledAt: new Date(now) })
+    .set({
+      nutrition: Math.round(Math.min(nutritionMax, newNutrition)),
+      gemNutrition: Math.round(Math.max(0, newGemNutrition)),
+      lastSettledAt: new Date(now)
+    })
     .where(eq(colonyState.userId, userId))
     .returning()
 
@@ -112,9 +257,51 @@ export async function settleColony(userId: string) {
 }
 
 /** Insert one bug instance. Defaults to the player's inventory (unplaced); pass inTerrarium to place it directly. */
-export async function addBug(userId: string, typeId: string, speed: number, yield_: number, feed: number, inTerrarium = false) {
-  const [bug] = await db.insert(colonyBugs).values({ userId, typeId, speed, yield: yield_, feed, inTerrarium }).returning()
+export async function addBug(userId: string, typeId: string, speed: number, yield_: number, eat: number, inTerrarium = false) {
+  const [bug] = await db.insert(colonyBugs).values({ userId, typeId, speed, yield: yield_, eat, inTerrarium }).returning()
   return bug!
+}
+
+/** Count of bugs of a given species currently placed in the terrarium (includes the bug itself, if placed). */
+async function countSameSpeciesPlaced(userId: string, typeId: string): Promise<number> {
+  const rows = await db.query.colonyBugs.findMany({
+    where: and(eq(colonyBugs.userId, userId), eq(colonyBugs.typeId, typeId), eq(colonyBugs.inTerrarium, true))
+  })
+  return rows.length
+}
+
+/**
+ * Credit partial progress toward a bug's current, unfinished tick as loot —
+ * called right before a placed bug is deleted (release/remove) so stopping
+ * it mid-cycle doesn't just throw away the progress it already made. Prorated
+ * by how far through the cycle it got: 55s into a 60s cycle that drops 10
+ * items credits ~9. No-op for bugs that were never placed (dormant bugs
+ * never accumulate tick progress) or that just started a fresh cycle.
+ * Caller must run settleColony() first so tickProgressMs is up to date, and
+ * must call this before deleting the bug row.
+ */
+export async function creditPartialTick(userId: string, bug: { typeId: string, yield: number, speed: number, tickProgressMs: number, inTerrarium: boolean }) {
+  if (!bug.inTerrarium) return
+  const type = getBug(bug.typeId)
+  if (!type) return
+
+  const levels = await getUpgradeLevels(userId)
+  const mods = deriveTrackModifiers(levels)
+  const sameSpeciesCount = await countSameSpeciesPlaced(userId, bug.typeId)
+  const tickMs = type.producesGems
+    ? gemTickMs(bug, sameSpeciesCount)
+    : effectiveTickMs(bug, mods.speedBonusPct + socialSpeedBonusPct(bug.typeId, sameSpeciesCount))
+  if (!Number.isFinite(tickMs) || tickMs <= 0) return
+
+  const fraction = Math.min(1, bug.tickProgressMs / tickMs)
+  if (fraction <= 0) return
+
+  if (type.producesGems) {
+    await creditGems(userId, Math.floor(effectiveGemsPerDay(bug, mods.yieldLevelBonus, mods.speedBonusPct) * fraction))
+  } else {
+    const qty = Math.round(avgTickYield(bug.yield + mods.yieldLevelBonus) * fraction)
+    await addLoot(userId, type.itemId, qty)
+  }
 }
 
 /** Count of bugs currently placed in the terrarium. */

@@ -5,6 +5,7 @@ const tabs = [
   { label: 'Terrarium', to: '/colony', icon: 'i-lucide-bug' },
   { label: 'Market', to: '/colony/market', icon: 'i-lucide-store' },
   { label: 'Habitat', to: '/colony/habitat', icon: 'i-lucide-home' },
+  { label: 'Research', to: '/colony/research', icon: 'i-lucide-flask-conical' },
   { label: 'Colonopedia', to: '/colony/encyclopedia', icon: 'i-lucide-book-open' }
 ]
 

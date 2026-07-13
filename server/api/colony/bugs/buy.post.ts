@@ -1,7 +1,7 @@
 import { auth } from '#server/utils/auth'
-import { settleColony, addBug } from '#server/utils/colony'
+import { settleColony, addBug, getResearchLevel } from '#server/utils/colony'
 import { debit } from '#server/utils/balance'
-import { getBug, rollStartLevel } from '#shared/utils/colony'
+import { getBug, rollTraitPct, rollYieldLevel, rollEatRate } from '#shared/utils/colony'
 
 export default defineEventHandler(async (event) => {
   const body = await readBody<{ typeId: string }>(event)
@@ -14,14 +14,19 @@ export default defineEventHandler(async (event) => {
 
   const state = await settleColony(userId)
 
-  if (!type.isStarter && type.tier > state.habitatLevel) {
+  if (type.tier > state.habitatLevel) {
     throw createError({ statusCode: 403, statusMessage: `${type.name} requires Habitat Level ${type.tier} — upgrade your habitat first.` })
   }
+
+  // The roll range for both speed and yield is driven by this species'
+  // Research level (see rollTraitPct/rollYieldLevel) — sacrificing bugs of
+  // this type on the Research page is the only way to raise it.
+  const researchLevel = await getResearchLevel(userId, type.id)
 
   // bought bugs land in inventory, unplaced — no capacity check here, that
   // only applies when placing a bug into the terrarium
   await debit(userId, type.spawnCost.toFixed(4), 'colony:buy-bug')
-  await addBug(userId, type.id, rollStartLevel(), rollStartLevel(), rollStartLevel())
+  const bug = await addBug(userId, type.id, rollTraitPct(researchLevel), rollYieldLevel(researchLevel), rollEatRate(type))
 
-  return { ok: true }
+  return { ok: true, speed: bug.speed, yield: bug.yield, eat: bug.eat }
 })
