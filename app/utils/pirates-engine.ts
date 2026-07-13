@@ -37,6 +37,8 @@ export interface PirateGameOverResult {
     kills: number
     maxCombo: number
     reason: 'timeout' | 'defeat' | 'ammo' | 'cancelled'
+    /** 0 (pristine) to 1 (sunk) — drives how long the ship spends in dry dock afterward. */
+    hullDamageFraction: number
 }
 
 export interface PirateGameCallbacks {
@@ -1631,6 +1633,10 @@ export class PirateGame {
             gsap.to(v.body, { alpha: 0.1, duration: 1.15, ease: 'power2.in' })
             this.spawnSplash(this.playerX, this.playerY)
         }
+        const hullDamageFraction = reason === 'defeat'
+            ? 1
+            : Math.min(1, Math.max(0, 1 - this.playerHp / this.stats.maxHp))
+
         this.callbacks.onGameOver({
             survived,
             coins: this.coins,
@@ -1639,7 +1645,8 @@ export class PirateGame {
             gemAmmoUsed: this.gemAmmoStart - this.gemAmmo,
             kills: this.kills,
             maxCombo: this.maxCombo,
-            reason
+            reason,
+            hullDamageFraction
         })
     }
 }

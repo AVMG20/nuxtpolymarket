@@ -16,6 +16,15 @@ const gems = computed(() => user.value?.gems ?? 0)
 
 const { data: state, refresh } = await useFetch('/api/pirates/state')
 
+const repairRemainingLabel = computed(() => {
+    const ms = state.value?.repair?.remainingMs ?? 0
+    const totalSeconds = Math.max(0, Math.ceil(ms / 1000))
+    const h = Math.floor(totalSeconds / 3600)
+    const m = Math.floor((totalSeconds % 3600) / 60)
+    if (h > 0) return `${h}h ${m}m`
+    return `${m}m`
+})
+
 // Reference defense used only to compare cannon tiers in the shop — an
 // approximate mid-game target, not tied to any real enemy.
 const DPS_REFERENCE_DEFENSE = 20
@@ -221,6 +230,7 @@ async function sellCannon(slotIndex: number) {
       </div>
       <div class="flex items-center gap-2">
         <UBadge v-if="state" color="primary" variant="subtle" :label="`Power ${state.power}`" icon="i-lucide-anchor" />
+        <UBadge v-if="state?.repair.remainingMs" color="warning" variant="subtle" :label="`Dry dock ${repairRemainingLabel}`" icon="i-lucide-wrench" />
         <UButton to="/pirates" color="neutral" variant="subtle" icon="i-lucide-sailboat" label="Set Sail" />
       </div>
     </div>

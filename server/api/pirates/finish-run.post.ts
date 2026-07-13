@@ -3,7 +3,7 @@ import { db } from '#server/database'
 import { pirateState } from '#server/database/schema'
 import { auth } from '#server/utils/auth'
 import { credit } from '#server/utils/balance'
-import { PIRATE_RUN_DURATION_MS, pirateMaxPayoutForRun } from '#shared/utils/gamelogic/pirates'
+import { PIRATE_RUN_DURATION_MS, pirateMaxPayoutForRun, pirateRepairDurationMs } from '#shared/utils/gamelogic/pirates'
 
 export default defineEventHandler(async (event) => {
     const session = await auth.api.getSession({ headers: event.headers })
@@ -22,6 +22,13 @@ export default defineEventHandler(async (event) => {
     // player spent browsing the armory.
     const reportedElapsedMs = Math.max(0, Math.floor(Number(body?.elapsedMs) || 0))
     const survived = Boolean(body?.survived)
+    const reason = String(body?.reason ?? '')
+    // The client reports how banged-up the hull ended up (0 = pristine, 1 =
+    // sunk) so we know how long the repair should take. A 'defeat' finish
+    // means hp hit zero by definition, so that one is forced to full damage
+    // server-side regardless of what's reported — no reason to trust the
+    // client on the one case that's unambiguous.
+    const reportedHullDamageFraction = Math.min(1, Math.max(0, Number(body?.hullDamageFraction) || 0))
     // Set when the client is just clearing a stale lock left by a closed tab on
     // page load, not reporting a real voyage — its wall-clock "elapsed" time is
     // dead browser-closed time, not gameplay, so it must never count toward
@@ -49,6 +56,10 @@ export default defineEventHandler(async (event) => {
     const maxPayout = abandoned ? 0 : pirateMaxPayoutForRun(elapsedMs, power, gemAmmoUsed)
     const awarded = Math.min(reportedCoins, maxPayout)
 
+    const hullDamageFraction = abandoned ? 0 : (reason === 'defeat' ? 1 : reportedHullDamageFraction)
+    const repairMs = pirateRepairDurationMs(hullDamageFraction)
+    const hullRepairUntil = repairMs > 0 ? new Date(Date.now() + repairMs) : null
+
     await db.update(pirateState).set({
         runStartedAt: null,
         runPowerSnapshot: null,
@@ -56,10 +67,21 @@ export default defineEventHandler(async (event) => {
         totalCoinsEarned: s.totalCoinsEarned + awarded,
         ammoCount: s.ammoCount - ammoUsed,
         gemAmmoCount: s.gemAmmoCount - gemAmmoUsed,
-        bestSurvivalMs: abandoned ? s.bestSurvivalMs : Math.max(s.bestSurvivalMs, Math.min(elapsedMs, PIRATE_RUN_DURATION_MS))
+        bestSurvivalMs: abandoned ? s.bestSurvivalMs : Math.max(s.bestSurvivalMs, Math.min(elapsedMs, PIRATE_RUN_DURATION_MS)),
+        hullRepairUntil: abandoned ? s.hullRepairUntil : hullRepairUntil,
+        hullRepairTotalMs: abandoned ? s.hullRepairTotalMs : repairMs
     }).where(eq(pirateState.userId, userId))
 
     if (awarded > 0) await credit(userId, awarded.toFixed(4), 'pirates')
 
-    return { awarded, capped: awarded < reportedCoins, elapsedMs, survived, ammoRemaining: s.ammoCount - ammoUsed, gemAmmoRemaining: s.gemAmmoCount - gemAmmoUsed }
+    return {
+        awarded,
+        capped: awarded < reportedCoins,
+        elapsedMs,
+        survived,
+        ammoRemaining: s.ammoCount - ammoUsed,
+        gemAmmoRemaining: s.gemAmmoCount - gemAmmoUsed,
+        repairUntil: abandoned ? s.hullRepairUntil : hullRepairUntil,
+        repairTotalMs: abandoned ? s.hullRepairTotalMs : repairMs
+    }
 })

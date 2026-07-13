@@ -129,7 +129,14 @@ export const pirateState = pgTable('pirate_state', {
   // from this instead of trusting the client, and snapshots the power level
   // so mid-run upgrades can't raise the finish-run payout ceiling.
   runStartedAt: timestamp('run_started_at'),
-  runPowerSnapshot: integer('run_power_snapshot')
+  runPowerSnapshot: integer('run_power_snapshot'),
+  // Hull damage from the last voyage puts the ship in dry dock — up to 2h for
+  // a total loss, proportional for a partial one. Set on finish-run, cleared
+  // naturally once it elapses or immediately via the repair-rush endpoint.
+  // hullRepairTotalMs is kept alongside so the client can render a progress
+  // bar (it's the original duration this repair was scheduled for).
+  hullRepairUntil: timestamp('hull_repair_until'),
+  hullRepairTotalMs: integer('hull_repair_total_ms').notNull().default(0)
 })
 
 // Equipped cannons, one row per occupied gun port (0..cannonSlots-1). Selling

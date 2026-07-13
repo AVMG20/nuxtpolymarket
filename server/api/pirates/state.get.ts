@@ -8,7 +8,7 @@ import {
     PIRATE_CANNON_SELL_REFUND_RATE, PIRATE_AMMO_PRICE_PER_UNIT,
     PIRATE_GEM_AMMO_CAPACITY, PIRATE_GEM_AMMO_BUNDLE_SIZE, PIRATE_GEM_AMMO_BUNDLE_PRICE_GEMS,
     pirateUpgradeCost, pirateMaxHp, pirateShipSpeed, pirateDefenseRating, pirateAmmoCapacity,
-    pirateSlotUnlockCost, pirateCannonTier, piratePowerLevel
+    pirateSlotUnlockCost, pirateCannonTier, piratePowerLevel, pirateRepairRushCost
 } from '#shared/utils/gamelogic/pirates'
 
 export default defineEventHandler(async (event) => {
@@ -55,13 +55,16 @@ export default defineEventHandler(async (event) => {
         })
 
     const capacity = pirateAmmoCapacity(s.ammoCapacityLevel)
+    const power = piratePowerLevel({ levels, cannonTierIds: cannonList.map(c => c.tierId), cannonSlots: s.cannonSlots })
+
+    const repairRemainingMs = s.hullRepairUntil ? Math.max(0, s.hullRepairUntil.getTime() - Date.now()) : 0
 
     return {
         balance,
         levels,
         maxLevel: PIRATE_MAX_STAT_LEVEL,
         costs: Object.fromEntries(PIRATE_SHIP_STAT_IDS.map(id => [id, pirateUpgradeCost(levels[id])])),
-        power: piratePowerLevel({ levels, cannonTierIds: cannonList.map(c => c.tierId), cannonSlots: s.cannonSlots }),
+        power,
         stats: {
             maxHp: pirateMaxHp(s.hullLevel),
             speed: pirateShipSpeed(s.speedLevel),
@@ -87,6 +90,12 @@ export default defineEventHandler(async (event) => {
         totalCoinsEarned: s.totalCoinsEarned,
         bestSurvivalMs: s.bestSurvivalMs,
         runDurationMs: PIRATE_RUN_DURATION_MS,
-        activeRun: s.runStartedAt ? { startedAt: s.runStartedAt } : null
+        activeRun: s.runStartedAt ? { startedAt: s.runStartedAt } : null,
+        repair: {
+            until: repairRemainingMs > 0 ? s.hullRepairUntil : null,
+            remainingMs: repairRemainingMs,
+            totalMs: repairRemainingMs > 0 ? s.hullRepairTotalMs : 0,
+            rushCost: repairRemainingMs > 0 ? pirateRepairRushCost(power, repairRemainingMs) : 0
+        }
     }
 })

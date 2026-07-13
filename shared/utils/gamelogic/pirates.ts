@@ -214,20 +214,20 @@ export interface PirateEnemyTier {
   boss?: boolean
 }
 
-// Kill payouts sit an order of magnitude above the old numbers so a strong
-// ship's DPS translates into a visibly bigger per-run haul, but they're still
-// tiny next to the new upgrade costs (tens of thousands to tens of millions)
-// — a full voyage should read as "nice pocket change", not a way to grind out
-// upgrades on its own.
+// Kill payouts got bumped again (roughly another 2x on top of the earlier
+// order-of-magnitude increase) now that hull damage gates how often you can
+// go back out (see the repair system below) — a run can no longer be
+// repeated back-to-back indefinitely, so it's fine for each one to pay out
+// more without turning into an infinite money farm.
 export const PIRATE_ENEMY_TIERS: PirateEnemyTier[] = [
-  { id: 'sloop', name: 'Sloop', unlockAtMs: 0, hp: 30, defense: 5, attackRating: 14, maxDamage: 10, range: 160, speed: 90, reloadMs: 2300, coinMin: 150, coinMax: 250, color: 0x8b8f96, weight: 10, sizeScale: 0.82 },
-  { id: 'corsair', name: 'Crimson Corsair', unlockAtMs: 40_000, hp: 50, defense: 8, attackRating: 24, maxDamage: 11, range: 250, speed: 135, reloadMs: 2700, coinMin: 400, coinMax: 600, color: 0xef4444, weight: 5, volley: 3, sizeScale: 0.9 },
-  { id: 'brigantine', name: 'Brigantine', unlockAtMs: 55_000, hp: 80, defense: 12, attackRating: 24, maxDamage: 18, range: 220, speed: 110, reloadMs: 1900, coinMin: 300, coinMax: 450, color: 0x5b7a9e, weight: 8, sizeScale: 0.94 },
-  { id: 'ironclad', name: 'Cobalt Ironclad', unlockAtMs: 90_000, hp: 300, defense: 32, attackRating: 20, maxDamage: 12, range: 200, speed: 70, reloadMs: 2100, coinMin: 700, coinMax: 1000, color: 0x3b82f6, weight: 4, sizeScale: 1.14 },
-  { id: 'frigate', name: 'Frigate', unlockAtMs: 130_000, hp: 160, defense: 20, attackRating: 36, maxDamage: 30, range: 300, speed: 125, reloadMs: 1600, coinMin: 550, coinMax: 800, color: 0xc06a2c, weight: 6, sizeScale: 1.05 },
-  { id: 'manowar', name: "Man-o'-War", unlockAtMs: 215_000, hp: 260, defense: 30, attackRating: 50, maxDamage: 42, range: 380, speed: 105, reloadMs: 1400, coinMin: 900, coinMax: 1300, color: 0x8b2635, weight: 4, sizeScale: 1.2 },
-  { id: 'ghostship', name: 'Ghost Ship', unlockAtMs: 260_000, hp: 200, defense: 26, attackRating: 58, maxDamage: 48, range: 340, speed: 155, reloadMs: 1100, coinMin: 1500, coinMax: 2200, color: 0x2ecc9c, weight: 1.5, sizeScale: 1.02 },
-  { id: 'dreadnought', name: 'The Dreadnought', unlockAtMs: 0, hp: 850, defense: 30, attackRating: 52, maxDamage: 36, range: 380, speed: 78, reloadMs: 2000, coinMin: 3800, coinMax: 5500, color: 0x991b1b, weight: 0, volley: 3, sizeScale: 1.55, boss: true }
+  { id: 'sloop', name: 'Sloop', unlockAtMs: 0, hp: 30, defense: 5, attackRating: 14, maxDamage: 10, range: 160, speed: 90, reloadMs: 2300, coinMin: 300, coinMax: 500, color: 0x8b8f96, weight: 10, sizeScale: 0.82 },
+  { id: 'corsair', name: 'Crimson Corsair', unlockAtMs: 40_000, hp: 50, defense: 8, attackRating: 24, maxDamage: 11, range: 250, speed: 135, reloadMs: 2700, coinMin: 800, coinMax: 1200, color: 0xef4444, weight: 5, volley: 3, sizeScale: 0.9 },
+  { id: 'brigantine', name: 'Brigantine', unlockAtMs: 55_000, hp: 80, defense: 12, attackRating: 24, maxDamage: 18, range: 220, speed: 110, reloadMs: 1900, coinMin: 600, coinMax: 900, color: 0x5b7a9e, weight: 8, sizeScale: 0.94 },
+  { id: 'ironclad', name: 'Cobalt Ironclad', unlockAtMs: 90_000, hp: 300, defense: 32, attackRating: 20, maxDamage: 12, range: 200, speed: 70, reloadMs: 2100, coinMin: 1400, coinMax: 2000, color: 0x3b82f6, weight: 4, sizeScale: 1.14 },
+  { id: 'frigate', name: 'Frigate', unlockAtMs: 130_000, hp: 160, defense: 20, attackRating: 36, maxDamage: 30, range: 300, speed: 125, reloadMs: 1600, coinMin: 1100, coinMax: 1600, color: 0xc06a2c, weight: 6, sizeScale: 1.05 },
+  { id: 'manowar', name: "Man-o'-War", unlockAtMs: 215_000, hp: 260, defense: 30, attackRating: 50, maxDamage: 42, range: 380, speed: 105, reloadMs: 1400, coinMin: 1800, coinMax: 2600, color: 0x8b2635, weight: 4, sizeScale: 1.2 },
+  { id: 'ghostship', name: 'Ghost Ship', unlockAtMs: 260_000, hp: 200, defense: 26, attackRating: 58, maxDamage: 48, range: 340, speed: 155, reloadMs: 1100, coinMin: 3000, coinMax: 4400, color: 0x2ecc9c, weight: 1.5, sizeScale: 1.02 },
+  { id: 'dreadnought', name: 'The Dreadnought', unlockAtMs: 0, hp: 850, defense: 30, attackRating: 52, maxDamage: 36, range: 380, speed: 78, reloadMs: 2000, coinMin: 7600, coinMax: 11000, color: 0x991b1b, weight: 0, volley: 3, sizeScale: 1.55, boss: true }
 ]
 
 // ─── Boss cadence ───────────────────────────────────────────────────────────
@@ -250,6 +250,13 @@ export function pirateBossFirstSpawnMs(power: number) {
  * on elapsed time, which left the opening stretch trivial for anyone with a
  * kitted-out broadside since the power-based bite hadn't caught up yet.
  *
+ * The per-power coefficients below are intentionally uncapped (unlike the
+ * spawn-rate/concurrency curves, which cap out at a sane swarm size) — the
+ * armory now runs up to Leviathan's Wrath (power ~1045 fully kitted, roughly
+ * double the old Mythril-only ceiling), and stat difficulty needs to keep
+ * climbing right along with it rather than plateauing once someone's
+ * squeezed everything out of the old top tier.
+ *
  * - Enemy HP tracks the player's power (which is DPS-dominated) immediately,
  *   not just as time goes on — a maxed broadside faces bulky targets from
  *   the first shot, while a rookie still pops early ships quickly. A
@@ -258,19 +265,20 @@ export function pirateBossFirstSpawnMs(power: number) {
  *   for everyone, and strong ships get chip-damaged from the start too.
  * - Accuracy/defense ratings scale at a damped rate with a hard cap, because
  *   the hit-chance formula degenerates (always-miss / always-hit) when
- *   ratings run away.
+ *   ratings run away — but the cap itself is a bit higher now so it doesn't
+ *   choke off scaling as early into the new, wider power range.
  */
 export function pirateDifficultyMultiplier(elapsedMs: number, power: number) {
   const t = Math.min(1.05, elapsedMs / PIRATE_RUN_DURATION_MS)
   const overBase = Math.max(0, power - PIRATE_BASE_POWER)
 
   const timeHpMult = 1 + t * 0.9 + Math.pow(Math.max(0, t - 0.5), 2) * 2.4
-  const powerHpMult = 1 + overBase * 0.018
+  const powerHpMult = 1 + overBase * 0.022
   const hpMult = timeHpMult * powerHpMult
 
-  const dmgMult = (1 + t * 1.1) * (1 + overBase * 0.004)
+  const dmgMult = (1 + t * 1.1) * (1 + overBase * 0.005)
 
-  const statMult = Math.min(2.1, 1 + (hpMult - 1) * 0.11)
+  const statMult = Math.min(2.3, 1 + (hpMult - 1) * 0.1)
 
   return { hpMult, dmgMult, statMult }
 }
@@ -278,12 +286,12 @@ export function pirateDifficultyMultiplier(elapsedMs: number, power: number) {
 /**
  * Loot inflation — kill rewards (and treasure) climb with run time and player
  * power so the risk of staying out longer keeps paying, and strong ships
- * facing spongier enemies aren't earning rookie rates.
+ * facing spongier, harder-hitting enemies aren't earning rookie rates.
  */
 export function pirateRewardMultiplier(elapsedMs: number, power: number) {
   const t = Math.min(1.05, elapsedMs / PIRATE_RUN_DURATION_MS)
   const overBase = Math.max(0, power - PIRATE_BASE_POWER)
-  return 1 + t * 1.6 + overBase * 0.008
+  return 1 + t * 1.6 + overBase * 0.01
 }
 
 /**
@@ -368,7 +376,7 @@ export const PIRATE_TREASURE_LIFESPAN_MS = 20_000
 
 export function pirateTreasureReward(elapsedMs: number, power = PIRATE_BASE_POWER, rng: () => number = Math.random) {
   const t = Math.min(1, elapsedMs / PIRATE_RUN_DURATION_MS)
-  const base = (800 + t * 700) * (1 + Math.max(0, power - PIRATE_BASE_POWER) * 0.004)
+  const base = (1600 + t * 1400) * (1 + Math.max(0, power - PIRATE_BASE_POWER) * 0.005)
   const variance = 0.8 + rng() * 0.4
   return Math.round(base * variance)
 }
@@ -379,13 +387,52 @@ export function pirateTreasureReward(elapsedMs: number, power = PIRATE_BASE_POWE
 // payout to what's plausible for the elapsed wall-clock time and the power
 // level snapshotted at run start, with generous slack over the expected
 // average haul so skilled/lucky runs are never clipped in practice.
+
+/** Plausible average coins-per-second for a run at this power — the baseline both the payout cap and the repair-rush price are built from. */
+function pirateRunPayoutRatePerSecond(power: number) {
+  return 80 + Math.max(0, power - PIRATE_BASE_POWER) * 6.8
+}
+
 export function pirateMaxPayoutForRun(elapsedMs: number, power: number, gemAmmoUsed = 0) {
   const seconds = Math.max(0, elapsedMs / 1000)
-  const ratePerSecond = 80 + Math.max(0, power - PIRATE_BASE_POWER) * 3
   // Gem shots noticeably accelerate the kill rate, so each one spent raises
   // the plausible-haul ceiling a little (combo bonuses and the late-run
   // reward multiplier live inside the 1.8 slack factor).
-  return Math.round(ratePerSecond * seconds * 1.8 + gemAmmoUsed * 50)
+  return Math.round(pirateRunPayoutRatePerSecond(power) * seconds * 1.8 + gemAmmoUsed * 100)
+}
+
+/** Rough expected average haul for one full voyage — the payout cap above is this same rate with generous slack layered on top, so dividing that slack back out gives a reasonable "typical run" estimate. */
+export function pirateAverageRunPayoutEstimate(power: number) {
+  return Math.round(pirateRunPayoutRatePerSecond(power) * (PIRATE_RUN_DURATION_MS / 1000))
 }
 
 export const PIRATE_MIN_RUN_MS_FOR_PAYOUT = 3000
+
+// ─── Hull repair ────────────────────────────────────────────────────────────
+// Taking damage isn't free anymore: coming back from a voyage puts the ship
+// in dry dock for a stretch proportional to how badly it was shot up, up to
+// a full 2 hours for a total loss. This is what actually stops a strong ship
+// from just re-running the same 5 minutes forever for easy money — the
+// bigger per-kill payouts above only make sense because of this cap.
+export const PIRATE_REPAIR_MAX_MS = 2 * 60 * 60 * 1000
+
+/** Repair time owed for a given fraction of hull damage taken (0 = pristine, 1 = sunk). */
+export function pirateRepairDurationMs(hullDamageFraction: number) {
+  const frac = Math.min(1, Math.max(0, hullDamageFraction))
+  return Math.round(PIRATE_REPAIR_MAX_MS * frac)
+}
+
+// A full-length rush (skipping the entire 2h a total loss would cost) is
+// priced a bit above one voyage's expected average haul, so paying to skip
+// the wait is never quietly more profitable than just playing — it's there
+// for players who'd rather spend coin than time, not a loophole around the
+// repair timer.
+export const PIRATE_REPAIR_RUSH_MULTIPLIER = 1.25
+
+/** Coin cost to instantly clear `remainingMs` of repair time at the given power level. */
+export function pirateRepairRushCost(power: number, remainingMs: number) {
+  const clampedRemaining = Math.min(PIRATE_REPAIR_MAX_MS, Math.max(0, remainingMs))
+  if (clampedRemaining <= 0) return 0
+  const fullRushCost = pirateAverageRunPayoutEstimate(power) * PIRATE_REPAIR_RUSH_MULTIPLIER
+  return Math.round(fullRushCost * (clampedRemaining / PIRATE_REPAIR_MAX_MS))
+}

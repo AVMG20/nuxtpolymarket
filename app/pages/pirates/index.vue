@@ -4,6 +4,8 @@ definePageMeta({
 })
 
 const canvasHost = ref<HTMLDivElement | null>(null)
+const toast = useToast()
+const { fetchSession } = useAuth()
 
 const { data: state, refresh } = await useFetch('/api/pirates/state')
 
@@ -74,16 +76,64 @@ const gameOverSurvivalLabel = computed(() => {
     const s = totalSeconds % 60
     return `${m}:${s.toString().padStart(2, '0')}`
 })
+const gameOverRepairLabel = computed(() => durationLabel(gameOverResult.value?.repairMs ?? 0))
+
+// Dry dock — the server is the source of truth (repair.until), we just tick
+// a local clock so the countdown moves smoothly between refreshes instead of
+// jumping once a minute.
+const now = ref(Date.now())
+let clockTimer: ReturnType<typeof setInterval> | null = null
+
+function durationLabel(ms: number) {
+    const totalSeconds = Math.max(0, Math.ceil(ms / 1000))
+    const h = Math.floor(totalSeconds / 3600)
+    const m = Math.floor((totalSeconds % 3600) / 60)
+    const s = totalSeconds % 60
+    if (h > 0) return `${h}h ${m}m`
+    if (m > 0) return `${m}m ${s}s`
+    return `${s}s`
+}
+
+const repairUntilMs = computed(() => {
+    const until = state.value?.repair?.until
+    return until ? new Date(until).getTime() : 0
+})
+const repairRemainingMs = computed(() => Math.max(0, repairUntilMs.value - now.value))
+const isRepairing = computed(() => repairRemainingMs.value > 0)
+const repairProgressPercent = computed(() => {
+    const total = state.value?.repair?.totalMs ?? 0
+    if (total <= 0) return 100
+    return Math.min(100, Math.max(0, ((total - repairRemainingMs.value) / total) * 100))
+})
+const repairRemainingLabel = computed(() => durationLabel(repairRemainingMs.value))
+const repairRushCost = computed(() => state.value?.repair?.rushCost ?? 0)
+const balance = computed(() => parseFloat(state.value?.balance ?? '0'))
+const rushing = ref(false)
+
+async function rushRepair() {
+    if (rushing.value || !isRepairing.value) return
+    rushing.value = true
+    try {
+        const res = await $fetch('/api/pirates/repair/rush', { method: 'POST' })
+        await Promise.all([refresh(), fetchSession()])
+        toast.add({ title: `Repairs rushed for ${formatNumber(res.cost, false)} coins`, color: 'success' })
+    } catch (e: any) {
+        toast.add({ title: e.data?.message ?? 'Failed to rush repair', color: 'error' })
+    } finally {
+        rushing.value = false
+    }
+}
 
 async function handleStartVoyage() {
     const s = state.value
-    if (!s || !canSetSail.value) return
+    if (!s || !canSetSail.value || isRepairing.value) return
     await startVoyage(s)
 }
 
 let resizeObserverConnected = false
 
 onMounted(async () => {
+    clockTimer = setInterval(() => { now.value = Date.now() }, 1000)
     const host = canvasHost.value
     if (!host || !state.value) return
     await attachCanvas(host, state, refresh)
@@ -91,6 +141,7 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+    if (clockTimer) clearInterval(clockTimer)
     if (resizeObserverConnected) detachCanvas()
 })
 </script>
@@ -111,6 +162,7 @@ onUnmounted(() => {
         <UBadge color="primary" variant="subtle" :label="`Power ${state.power}`" icon="i-lucide-anchor" />
         <UBadge color="neutral" variant="subtle" :label="`Best ${bestSurvivalLabel}`" icon="i-lucide-trophy" />
         <UBadge color="neutral" variant="subtle" :label="`${state.runsPlayed} voyages`" icon="i-lucide-map" />
+        <UBadge v-if="isRepairing" color="warning" variant="subtle" :label="`Dry dock ${repairRemainingLabel}`" icon="i-lucide-wrench" />
         <UButton to="/pirates/manage" color="neutral" variant="subtle" icon="i-lucide-hammer" label="Manage Ship" />
       </div>
     </div>
@@ -254,6 +306,35 @@ onUnmounted(() => {
             </div>
           </div>
 
+          <!-- Dry dock overlay -->
+          <div v-else-if="isRepairing" class="absolute inset-0 flex items-center justify-center bg-black/55 backdrop-blur-[2px]">
+            <div class="text-center space-y-3 px-4 w-full max-w-xs mx-auto">
+              <UIcon name="i-lucide-wrench" class="size-10 text-primary mx-auto" />
+              <p class="text-white font-semibold text-lg">
+                Ship in dry dock
+              </p>
+              <p class="text-white/70 text-sm">
+                Patching up hull damage from the last voyage — back on the water in {{ repairRemainingLabel }}.
+              </p>
+              <div class="h-2 rounded-full bg-white/15 overflow-hidden">
+                <div class="h-full rounded-full bg-primary transition-[width] duration-1000" :style="{ width: `${repairProgressPercent}%` }" />
+              </div>
+              <UButton
+                size="lg"
+                color="neutral"
+                variant="subtle"
+                icon="i-lucide-zap"
+                :label="`Rush Repair (${formatNumber(repairRushCost, false)})`"
+                :loading="rushing"
+                :disabled="balance < repairRushCost"
+                @click="rushRepair"
+              />
+              <p v-if="balance < repairRushCost" class="text-red-300 text-xs">
+                Not enough coins to rush this repair yet.
+              </p>
+            </div>
+          </div>
+
           <!-- Pre-voyage overlay -->
           <div v-else class="absolute inset-0 flex items-center justify-center bg-black/55 backdrop-blur-[2px]">
             <div class="text-center space-y-3 px-4">
@@ -334,6 +415,10 @@ onUnmounted(() => {
           </div>
           <p v-if="gameOverResult.capped" class="text-xs text-muted">
             Payout capped for this voyage's duration.
+          </p>
+          <p v-if="gameOverResult.repairMs > 0" class="text-xs text-amber-400 bg-amber-400/10 border border-amber-400/20 rounded-lg px-3 py-2 flex items-center justify-center gap-1.5">
+            <UIcon name="i-lucide-wrench" class="size-3.5" />
+            Dry dock for {{ gameOverRepairLabel }} before your next voyage
           </p>
           <div class="flex gap-2">
             <UButton block color="neutral" variant="subtle" label="Manage Ship" to="/pirates/manage" @click="closeGameOver" />

@@ -28,6 +28,7 @@ export interface PirateGameOverInfo {
     kills: number
     maxCombo: number
     elapsedMs: number
+    repairMs: number
 }
 
 const hp = ref(0)
@@ -94,6 +95,7 @@ async function handleGameOver(result: {
     kills: number
     maxCombo: number
     reason: 'timeout' | 'defeat' | 'ammo' | 'cancelled'
+    hullDamageFraction: number
 }) {
     running.value = false
     paused.value = false
@@ -106,7 +108,9 @@ async function handleGameOver(result: {
                 survived: result.survived,
                 ammoUsed: result.ammoUsed,
                 gemAmmoUsed: result.gemAmmoUsed,
-                elapsedMs: result.elapsedMs
+                elapsedMs: result.elapsedMs,
+                reason: result.reason,
+                hullDamageFraction: result.hullDamageFraction
             }
         })
         gameOverResult.value = {
@@ -117,7 +121,8 @@ async function handleGameOver(result: {
             capped: res.capped,
             kills: result.kills,
             maxCombo: result.maxCombo,
-            elapsedMs: result.elapsedMs
+            elapsedMs: result.elapsedMs,
+            repairMs: res.repairTotalMs ?? 0
         }
         gameOverVisible.value = true
         await Promise.all([currentRefresh?.(), currentFetchSession?.()])

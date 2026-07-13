@@ -18,6 +18,9 @@ export default defineEventHandler(async (event) => {
         db.query.pirateCannons.findMany({ where: eq(pirateCannons.userId, userId) })
     ])
     if (!s) throw createError({ statusCode: 404, statusMessage: 'Pirate state not initialized' })
+    if (s.hullRepairUntil && s.hullRepairUntil.getTime() > Date.now()) {
+        throw createError({ statusCode: 400, statusMessage: 'Your ship is still in dry dock — repair it or rush the repair first' })
+    }
     if (cannons.length < 1) throw createError({ statusCode: 400, statusMessage: 'Equip at least one cannon before setting sail' })
     if (s.ammoCount + s.gemAmmoCount < 1) throw createError({ statusCode: 400, statusMessage: 'Stock up on ammo before setting sail' })
 
