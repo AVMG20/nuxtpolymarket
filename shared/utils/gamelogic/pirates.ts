@@ -53,7 +53,7 @@ export function pirateDefenseRating(level: number) {
 
 /** Max ammo the hold can carry. */
 export function pirateAmmoCapacity(level: number) {
-  return 40 + (clampLevel(level) - 1) * 15
+    return 120 + (clampLevel(level) - 1) * 45
 }
 
 // ─── Cannons ────────────────────────────────────────────────────────────────
