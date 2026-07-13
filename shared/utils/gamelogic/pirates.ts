@@ -345,13 +345,13 @@ export const PIRATE_ENEMY_TIERS: PirateEnemyTier[] = [
 // A Dreadnought surfaces on its own clock (independent of the concurrency
 // cap). A strong ship gets it sooner — otherwise the scariest thing in the
 // game never shows up until the fight's basically over for a well-built crew.
-export const PIRATE_BOSS_FIRST_SPAWN_MS = 85_000
+export const PIRATE_BOSS_FIRST_SPAWN_MS = 150_000
 export const PIRATE_BOSS_RESPAWN_MS = 80_000
 export const PIRATE_BOSS_DAMAGE_MULT = 0.55
 
 /** First Dreadnought sighting — pulled earlier the stronger the ship. */
 export function pirateBossFirstSpawnMs(power: number) {
-  return Math.round(PIRATE_BOSS_FIRST_SPAWN_MS - piratePowerT(power) * 30_000)
+  return Math.round(PIRATE_BOSS_FIRST_SPAWN_MS - piratePowerT(power) * 20_000)
 }
 
 /**
@@ -385,7 +385,10 @@ export function pirateDifficultyMultiplier(elapsedMs: number, power: number) {
   const overBase = Math.max(0, power - PIRATE_BASE_POWER)
 
   const timeHpMult = 1 + t * 1.05 + Math.pow(Math.max(0, t - 0.42), 2) * 3.2
-  const powerHpMult = 1 + overBase * 0.024
+  // Power 366 used to begin at almost 9x HP, which turned the opening wave
+  // into endgame-sized damage sponges. Keep power relevant without letting it
+  // overwhelm the time curve: that same loadout now opens at roughly 3x HP.
+  const powerHpMult = 1 + overBase * 0.006
   const hpMult = timeHpMult * powerHpMult
 
   // Keep the first two minutes survivable, then let damage accelerate hard.
@@ -395,7 +398,7 @@ export function pirateDifficultyMultiplier(elapsedMs: number, power: number) {
   // Per-hit damage grows sub-linearly with power. High-power fleets still
   // produce much more incoming DPS through accuracy, population, and faster
   // reloads, but an ordinary cannonball no longer scales into a one-shot.
-  const powerDmgMult = 1 + Math.sqrt(overBase) * 0.035
+  const powerDmgMult = 1 + Math.sqrt(overBase) * 0.02
   const dmgMult = timeDmgMult * powerDmgMult
 
   const statMult = Math.min(2.3, 1 + (hpMult - 1) * 0.1)
@@ -437,17 +440,15 @@ export function piratePowerT(power: number) {
 }
 
 /**
- * Spawn cadence — weak ships see a relaxed trickle, strong ships get
- * swarmed hard from the opening seconds. A maxed broadside two-shots
- * individual hulls, so the actual challenge has to come from volume: more
- * hulls, arriving faster — and a strong ship shouldn't have to wait out the
- * clock to see that pressure, it should be there from minute one.
+ * Spawn cadence — stronger ships still receive faster reinforcements, but
+ * the opening two minutes leave enough room to build a power-up stack. The
+ * cadence then compresses steadily and retains the extreme 6–8 minute surge.
  */
 export function pirateSpawnIntervalMs(elapsedMs: number, power: number) {
   const t = Math.min(1, elapsedMs / PIRATE_RUN_DURATION_MS)
   const pT = piratePowerT(power)
   const overrun = Math.min(1, Math.max(0, (elapsedMs - 6 * 60_000) / (2 * 60_000)))
-  const start = 6500 - pT * 4500 // 6.5s at base power → 2s fully kitted, from second one
+  const start = 6500 - pT * 2200 // 6.5s at base power → 4.3s fully kitted
   const end = 2600 - pT * 1700 // 2.6s → 0.9s by the end of the run
   // Most of the cadence squeeze happens after two minutes.
   const ramp = Math.pow(t, 1.35)
@@ -455,26 +456,22 @@ export function pirateSpawnIntervalMs(elapsedMs: number, power: number) {
 }
 
 /**
- * Concurrent enemy cap — grows with both run time and player power. The
- * power-driven `growth` term intentionally isn't fully gated behind `t`
- * (only `timeWeight` scales it down, and even at t=0 a third of it still
- * applies) — otherwise a heavily-kitted ship would see almost nothing extra
- * in the opening seconds, which is exactly the "first few minutes are zero
- * challenge" problem this is meant to fix.
+ * Concurrent enemy cap — a modest power-scaled opening group grows through
+ * the run, then breaks into the large overrun swarm after minute six.
  */
 export function pirateMaxConcurrentEnemies(elapsedMs: number, power: number) {
   const t = Math.min(1, elapsedMs / PIRATE_RUN_DURATION_MS)
   const pT = piratePowerT(power)
   const overrun = Math.min(1, Math.max(0, (elapsedMs - 6 * 60_000) / (2 * 60_000)))
-  const base = 2 + pT * 4 // 2 at the start for a rookie, 6 for a veteran
+  const base = 2 + pT * 2
   const growth = 3 + pT * 6 // late pressure still reaches the old swarm ceiling
-  const timeWeight = 0.2 + Math.pow(t, 1.25) * 0.8
+  const timeWeight = 0.08 + Math.pow(t, 1.25) * 0.92
   return Math.round(base + growth * timeWeight + overrun * (10 + pT * 5))
 }
 
 /** Ships already bearing down on the player when a voyage begins. */
 export function pirateInitialEnemyCount(power: number) {
-  return 2 + Math.round(piratePowerT(power) * 3)
+  return 2 + Math.round(piratePowerT(power) * 1.5)
 }
 
 /**
@@ -486,7 +483,7 @@ export function pirateSpawnBatchSize(elapsedMs: number, power: number, rng: () =
   const pT = piratePowerT(power)
   const overrun = Math.min(1, Math.max(0, (elapsedMs - 6 * 60_000) / (2 * 60_000)))
   let count = 1
-  if (rng() < 0.08 + pT * 0.42 + Math.pow(t, 1.4) * 0.3) count += 1
+  if (rng() < 0.06 + pT * 0.18 + Math.pow(t, 1.4) * 0.45) count += 1
   if (pT > 0.55 && rng() < (pT - 0.55) * 0.35 + Math.pow(t, 1.5) * 0.15) count += 1
   count += Math.floor(overrun * 3)
   return count
@@ -507,14 +504,12 @@ export const PIRATE_COMBO_BONUS_PER_STACK = 0.1
 export const PIRATE_COMBO_MAX_STACKS = 5
 
 /**
- * Weighted-random pick among non-boss tiers unlocked at `elapsedMs`. A strong
- * ship gets an "unlock head start" of up to 90s at full power — otherwise the
- * opening stretch of every run is nothing but sloops and corsairs regardless
- * of how kitted the player is, which is a big part of why the early game
- * used to feel trivial no matter how strong the ship.
+ * Weighted-random pick among non-boss tiers unlocked at `elapsedMs`. Power
+ * grants up to a 30-second tier head start, enough to vary early waves without
+ * compressing the entire midgame into the first minute.
  */
 export function pirateRollEnemyTier(elapsedMs: number, power = PIRATE_BASE_POWER, rng: () => number = Math.random): PirateEnemyTier {
-  const effectiveElapsedMs = elapsedMs + piratePowerT(power) * 90_000
+  const effectiveElapsedMs = elapsedMs + piratePowerT(power) * 30_000
   const available = PIRATE_ENEMY_TIERS.filter(t => !t.boss && t.weight > 0 && effectiveElapsedMs >= t.unlockAtMs)
   const pool = available.length ? available : [PIRATE_ENEMY_TIERS[0]!]
   const totalWeight = pool.reduce((sum, t) => sum + t.weight, 0)

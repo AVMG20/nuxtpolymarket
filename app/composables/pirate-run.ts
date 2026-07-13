@@ -133,6 +133,8 @@ async function handleGameOver(result: {
                 ammoUsed: result.ammoUsed,
                 gemAmmoUsed: result.gemAmmoUsed,
                 elapsedMs: result.elapsedMs,
+                kills: result.kills,
+                shotsFired: result.shotsFired,
                 reason: result.reason,
                 hullDamageFraction: result.hullDamageFraction
             }

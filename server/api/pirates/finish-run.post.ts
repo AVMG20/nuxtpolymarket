@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm'
 import { db } from '#server/database'
-import { pirateState } from '#server/database/schema'
+import { pirateRunHistory, pirateState } from '#server/database/schema'
 import { auth } from '#server/utils/auth'
 import { credit } from '#server/utils/balance'
 import { PIRATE_RUN_DURATION_MS, pirateMaxPayoutForRun, pirateRepairDurationMs } from '#shared/utils/gamelogic/pirates'
@@ -15,6 +15,8 @@ export default defineEventHandler(async (event) => {
     const reportedCoins = Math.max(0, Math.floor(Number(body?.coins) || 0))
     const reportedAmmoUsed = Math.max(0, Math.floor(Number(body?.ammoUsed) || 0))
     const reportedGemAmmoUsed = Math.max(0, Math.floor(Number(body?.gemAmmoUsed) || 0))
+    const reportedKills = Math.min(10_000, Math.max(0, Math.floor(Number(body?.kills) || 0)))
+    const reportedShotsFired = Math.min(100_000, Math.max(0, Math.floor(Number(body?.shotsFired) || 0)))
     // The client's own elapsed-time counter only advances while the voyage is
     // actively simulating (it's frozen whenever the tab is paused/navigated
     // away), unlike wall-clock time below — this is what lets a paused-and-
@@ -22,7 +24,8 @@ export default defineEventHandler(async (event) => {
     // player spent browsing the armory.
     const reportedElapsedMs = Math.max(0, Math.floor(Number(body?.elapsedMs) || 0))
     const survived = Boolean(body?.survived)
-    const reason = String(body?.reason ?? '')
+    const reportedReason = String(body?.reason ?? '')
+    const reason = ['timeout', 'defeat', 'cancelled'].includes(reportedReason) ? reportedReason : 'defeat'
     // The client reports how banged-up the hull ended up (0 = pristine, 1 =
     // sunk) so we know how long the repair should take. A 'defeat' finish
     // means hp hit zero by definition, so that one is forced to full damage
@@ -77,6 +80,20 @@ export default defineEventHandler(async (event) => {
         hullRepairUntil: abandoned ? s.hullRepairUntil : hullRepairUntil,
         hullRepairTotalMs: abandoned ? s.hullRepairTotalMs : repairMs
     }).where(eq(pirateState.userId, userId))
+
+    if (!abandoned) {
+        await db.insert(pirateRunHistory).values({
+            userId,
+            loot: awarded,
+            durationMs: elapsedMs,
+            power,
+            survived,
+            reason,
+            kills: reportedKills,
+            shotsFired: reportedShotsFired,
+            skinId: s.equippedSkinId
+        })
+    }
 
     if (awarded > 0) await credit(userId, awarded.toFixed(4), 'pirates')
 

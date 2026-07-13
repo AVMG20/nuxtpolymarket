@@ -160,6 +160,22 @@ export const pirateCannons = pgTable('pirate_cannons', {
   unique('pirate_cannons_slot_unique').on(t.userId, t.slotIndex)
 ])
 
+export const pirateRunHistory = pgTable('pirate_run_history', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  loot: integer('loot').notNull().default(0),
+  durationMs: integer('duration_ms').notNull().default(0),
+  power: integer('power').notNull().default(0),
+  survived: boolean('survived').notNull().default(false),
+  reason: text('reason').notNull(),
+  kills: integer('kills').notNull().default(0),
+  shotsFired: integer('shots_fired').notNull().default(0),
+  skinId: text('skin_id').notNull().default('starter'),
+  createdAt: timestamp('created_at').defaultNow().notNull()
+}, t => [
+  index('pirate_run_history_userId_createdAt_idx').on(t.userId, t.createdAt)
+])
+
 export const gemMarketState = pgTable('gem_market_state', {
   id: text('id').primaryKey(), // always 'market'
   price: numeric('price', { precision: 19, scale: 8 }).notNull(),
@@ -375,7 +391,8 @@ export const userRelations = relations(user, ({ many, one }) => ({
   transactions: many(transactions),
   minerState: one(minerState),
   pirateState: one(pirateState),
-  pirateCannons: many(pirateCannons)
+  pirateCannons: many(pirateCannons),
+  pirateRunHistory: many(pirateRunHistory)
 }))
 
 export const minerStateRelations = relations(minerState, ({ one }) => ({
@@ -388,6 +405,10 @@ export const pirateStateRelations = relations(pirateState, ({ one }) => ({
 
 export const pirateCannonsRelations = relations(pirateCannons, ({ one }) => ({
   user: one(user, { fields: [pirateCannons.userId], references: [user.id] })
+}))
+
+export const pirateRunHistoryRelations = relations(pirateRunHistory, ({ one }) => ({
+  user: one(user, { fields: [pirateRunHistory.userId], references: [user.id] })
 }))
 
 export const gemPriceHistoryRelations = relations(gemPriceHistory, ({ one }) => ({
