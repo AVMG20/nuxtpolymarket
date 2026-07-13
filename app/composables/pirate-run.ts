@@ -1,4 +1,5 @@
 import { PirateGame, type PirateActivePowerUp, type PirateShipStats } from '~/utils/pirates-engine'
+import type { PirateAbilityId } from '#shared/utils/gamelogic/pirates'
 
 // ─── Shared pirate-voyage state ────────────────────────────────────────────
 // Navigating between /pirates and /pirates/manage unmounts and remounts the
@@ -14,6 +15,7 @@ import { PirateGame, type PirateActivePowerUp, type PirateShipStats } from '~/ut
 interface PirateStateSnapshot {
     activeRun: unknown
     equippedSkinId: string
+    equippedAbilityId: PirateAbilityId
     stats: { maxHp: number, speed: number, defenseRating: number }
     ammo: { count: number }
     gemAmmo: { count: number }
@@ -27,6 +29,9 @@ export interface PirateGameOverInfo {
     awarded: number
     capped: boolean
     kills: number
+    shotsFired: number
+    abilitiesUsed: number
+    sunkByType: { id: string, name: string, count: number }[]
     maxCombo: number
     elapsedMs: number
     repairMs: number
@@ -38,6 +43,8 @@ const coins = ref(0)
 const ammo = ref(0)
 const gemAmmo = ref(0)
 const preferGem = ref(false)
+const abilityCooldownMs = ref(0)
+const abilityCooldownTotalMs = ref(15_000)
 const remainingMs = ref(0)
 const running = ref(false)
 const paused = ref(false)
@@ -105,6 +112,9 @@ async function handleGameOver(result: {
     ammoUsed: number
     gemAmmoUsed: number
     kills: number
+    shotsFired: number
+    abilitiesUsed: number
+    sunkByType: { id: string, name: string, count: number }[]
     maxCombo: number
     reason: 'timeout' | 'defeat' | 'cancelled'
     hullDamageFraction: number
@@ -134,8 +144,11 @@ async function handleGameOver(result: {
             awarded: res.awarded,
             capped: res.capped,
             kills: result.kills,
+            shotsFired: result.shotsFired,
+            abilitiesUsed: result.abilitiesUsed,
+            sunkByType: result.sunkByType,
             maxCombo: result.maxCombo,
-            elapsedMs: result.elapsedMs,
+            elapsedMs: res.elapsedMs,
             repairMs: res.repairTotalMs ?? 0
         }
         gameOverVisible.value = true
@@ -150,6 +163,10 @@ function buildCallbacks() {
         onHpChange: (h: number, mh: number) => { hp.value = h; maxHp.value = mh },
         onCoinsChange: (c: number) => { coins.value = c },
         onAmmoChange: (a: number, g: number) => { ammo.value = a; gemAmmo.value = g },
+        onAbilityCooldownChange: (remaining: number, total: number) => {
+            abilityCooldownMs.value = remaining
+            abilityCooldownTotalMs.value = total
+        },
         onTimeChange: (_elapsed: number, remaining: number) => { remainingMs.value = remaining },
         onGameOver: (result: Parameters<typeof handleGameOver>[0]) => { handleGameOver(result) },
         onKill: (tierName: string, reward: number) => pushKillFeed(`Sunk a ${tierName} (+${reward})`),
@@ -221,6 +238,7 @@ export function usePirateRun() {
             ammo: state.ammo.count,
             gemAmmo: state.gemAmmo.count,
             skinId: state.equippedSkinId,
+            abilityId: state.equippedAbilityId,
             cannons: state.cannons.map(c => ({ slotIndex: c.slotIndex, tierId: c.tierId, attackRating: c.attackRating, maxDamage: c.maxDamage, reloadMs: c.reloadMs, range: c.range, shotColor: c.shotColor, shotTrail: c.shotTrail }))
         } satisfies PirateShipStats)
 
@@ -252,6 +270,7 @@ export function usePirateRun() {
             ammo.value = res.ammo
             gemAmmo.value = res.gemAmmo
             preferGem.value = false
+            abilityCooldownMs.value = 0
             remainingMs.value = res.runDurationMs
             killFeed.value = []
             activePowerUps.value = []
@@ -269,6 +288,7 @@ export function usePirateRun() {
                 ammo: res.ammo,
                 gemAmmo: res.gemAmmo,
                 skinId: res.skinId,
+                abilityId: res.abilityId,
                 cannons: res.cannons
             }, res.power)
         } catch (e: any) {
@@ -313,6 +333,8 @@ export function usePirateRun() {
         ammo,
         gemAmmo,
         preferGem,
+        abilityCooldownMs,
+        abilityCooldownTotalMs,
         remainingMs,
         running,
         paused,

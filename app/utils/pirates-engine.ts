@@ -15,8 +15,8 @@ import {
     pirateInitialEnemyCount, pirateSpawnBatchSize,
     pirateSeaMineDamageFraction,
     pirateEnemyReloadMultiplier,
-    PIRATE_SHIP_SKINS,
-    type PirateEnemyTier
+    PIRATE_SHIP_SKINS, pirateAbility,
+    type PirateEnemyTier, type PirateAbilityId
 } from '#shared/utils/gamelogic/pirates'
 
 export interface PirateCannonRuntime {
@@ -38,6 +38,7 @@ export interface PirateShipStats {
     ammo: number
     gemAmmo: number
     skinId: string
+    abilityId: PirateAbilityId
 }
 
 export interface PirateGameOverResult {
@@ -48,7 +49,7 @@ export interface PirateGameOverResult {
     gemAmmoUsed: number
     kills: number
     shotsFired: number
-    bombsFired: number
+    abilitiesUsed: number
     sunkByType: { id: string, name: string, count: number }[]
     maxCombo: number
     reason: 'timeout' | 'defeat' | 'cancelled'
@@ -80,7 +81,7 @@ export interface PirateGameCallbacks {
     onHpChange: (hp: number, maxHp: number) => void
     onCoinsChange: (coins: number) => void
     onAmmoChange: (ammo: number, gemAmmo: number) => void
-    onBombCooldownChange: (remainingMs: number, totalMs: number) => void
+    onAbilityCooldownChange: (remainingMs: number, totalMs: number) => void
     onTimeChange: (elapsedMs: number, remainingMs: number) => void
     onGameOver: (result: PirateGameOverResult) => void
     onKill?: (tierName: string, reward: number) => void
@@ -102,7 +103,6 @@ const PICKUP_RADIUS = 46
 const HOLD_RANGE_FRACTION = 0.85
 const ROTATE_LERP = 0.12
 const WAYPOINT_REACH_DIST = 12
-const PLAYER_BOMB_COOLDOWN_MS = 15_000
 const PLAYER_BOMB_RADIUS = 145
 
 // Pathfinding grid — coarse cells over circular island obstacles. Ships are
@@ -315,6 +315,8 @@ export class PirateGame {
     private blastShotCount = 0
     private titanShotCount = 0
     private player!: ShipVisual
+    private playerHealthBar = new Container()
+    private playerHealthBarFill = new Graphics()
     private playerShipTexture: Texture | null = null
     private playerSkinTextures = new Map<string, Texture>()
     private raiderShipTexture: Texture | null = null
@@ -330,10 +332,10 @@ export class PirateGame {
     private maxCombo = 0
     private lastKillAt = -Infinity
     private shotsFired = 0
-    private bombsFired = 0
+    private abilitiesUsed = 0
     private sunkByType = new Map<string, { name: string, count: number }>()
-    private playerBombCooldownMs = 0
-    private bombHudTimerMs = 0
+    private playerAbilityCooldownMs = 0
+    private abilityHudTimerMs = 0
     private contextMenuHandler: ((event: MouseEvent) => void) | null = null
 
     constructor(callbacks: PirateGameCallbacks, initialStats: PirateShipStats) {
@@ -360,7 +362,7 @@ export class PirateGame {
             const rect = this.app.canvas.getBoundingClientRect()
             const x = (event.clientX - rect.left) / rect.width * WORLD_W
             const y = (event.clientY - rect.top) / rect.height * WORLD_H
-            this.castPlayerBomb(x, y)
+            this.castPlayerAbility(x, y)
         }
         this.app.canvas.addEventListener('contextmenu', this.contextMenuHandler)
 
@@ -404,6 +406,7 @@ export class PirateGame {
         this.bg.eventMode = 'static'
         this.bg.cursor = 'crosshair'
         this.bg.on('pointerdown', (e) => {
+            if (e.button !== 0) return
             const p = e.getLocalPosition(this.world)
             this.handleWaterClick(p.x, p.y)
         })
@@ -411,6 +414,13 @@ export class PirateGame {
         this.player = this.createShipVisual(0xf4d35e, true, 1, undefined, this.stats.skinId)
         this.player.root.position.set(this.playerX, this.playerY)
         this.playerLayer.addChild(this.player.root)
+        const healthBarBg = new Graphics()
+        healthBarBg.roundRect(-48, -6, 96, 12, 5).fill({ color: 0x020617, alpha: 0.88 }).stroke({ width: 2, color: 0xf8fafc, alpha: 0.85 })
+        this.playerHealthBar.addChild(healthBarBg, this.playerHealthBarFill)
+        this.playerHealthBar.position.set(this.playerX, this.playerY - 58)
+        this.playerHealthBar.alpha = 0
+        this.playerLayer.addChild(this.playerHealthBar)
+        this.updatePlayerHealthBar()
 
         this.generateIslands()
 
@@ -452,11 +462,11 @@ export class PirateGame {
         this.playerPath = []
         this.kills = 0
         this.shotsFired = 0
-        this.bombsFired = 0
+        this.abilitiesUsed = 0
         this.sunkByType.clear()
-        this.playerBombCooldownMs = 0
-        this.bombHudTimerMs = 0
-        this.callbacks.onBombCooldownChange(0, PLAYER_BOMB_COOLDOWN_MS)
+        this.playerAbilityCooldownMs = 0
+        this.abilityHudTimerMs = 0
+        this.callbacks.onAbilityCooldownChange(0, pirateAbility(stats.abilityId).cooldownMs)
         this.combo = 0
         this.maxCombo = 0
         this.lastKillAt = -Infinity
@@ -485,6 +495,9 @@ export class PirateGame {
         this.player.body.scale.set(1)
         this.player.body.alpha = 1
         this.player.root.position.set(this.playerX, this.playerY)
+        gsap.killTweensOf(this.playerHealthBar)
+        this.playerHealthBar.alpha = 0
+        this.updatePlayerHealthBar()
 
         this.callbacks.onHpChange(this.playerHp, this.stats.maxHp)
         this.callbacks.onCoinsChange(this.coins)
@@ -838,12 +851,12 @@ export class PirateGame {
         const dt = deltaMS / 1000
         this.elapsedMs += deltaMS
         this.timeSec += dt
-        if (this.playerBombCooldownMs > 0) {
-            this.playerBombCooldownMs = Math.max(0, this.playerBombCooldownMs - deltaMS)
-            this.bombHudTimerMs -= deltaMS
-            if (this.bombHudTimerMs <= 0 || this.playerBombCooldownMs === 0) {
-                this.callbacks.onBombCooldownChange(this.playerBombCooldownMs, PLAYER_BOMB_COOLDOWN_MS)
-                this.bombHudTimerMs = 100
+        if (this.playerAbilityCooldownMs > 0) {
+            this.playerAbilityCooldownMs = Math.max(0, this.playerAbilityCooldownMs - deltaMS)
+            this.abilityHudTimerMs -= deltaMS
+            if (this.abilityHudTimerMs <= 0 || this.playerAbilityCooldownMs === 0) {
+                this.callbacks.onAbilityCooldownChange(this.playerAbilityCooldownMs, pirateAbility(this.stats.abilityId).cooldownMs)
+                this.abilityHudTimerMs = 100
             }
         }
         this.callbacks.onTimeChange(this.elapsedMs, Math.max(0, this.runDurationMs - this.elapsedMs))
@@ -916,7 +929,22 @@ export class PirateGame {
         this.playerX = Math.min(WORLD_W - margin, Math.max(margin, this.playerX))
         this.playerY = Math.min(WORLD_H - margin, Math.max(margin, this.playerY))
         this.player.root.position.set(this.playerX, this.playerY)
+        this.playerHealthBar.position.set(this.playerX, this.playerY - 58)
         this.player.hull.rotation = this.playerAngle
+    }
+
+    private updatePlayerHealthBar() {
+        const fraction = Math.max(0, Math.min(1, this.playerHp / Math.max(1, this.stats.maxHp)))
+        const color = fraction > 0.5 ? 0x22c55e : fraction > 0.25 ? 0xf59e0b : 0xef4444
+        this.playerHealthBarFill.clear()
+        this.playerHealthBarFill.roundRect(-44, -3, 88 * fraction, 6, 3).fill({ color })
+    }
+
+    private showPlayerHealthBar() {
+        this.updatePlayerHealthBar()
+        gsap.killTweensOf(this.playerHealthBar)
+        this.playerHealthBar.alpha = 1
+        gsap.to(this.playerHealthBar, { alpha: 0, duration: 0.45, delay: 4, ease: 'power2.out' })
     }
 
     /** Advance the player along the current waypoint list. Returns true when it moved. */
@@ -1128,6 +1156,7 @@ export class PirateGame {
 
     private fireCannonAtEnemy(cannon: Cannon, target: Enemy) {
         const kind = this.consumeShot()
+        this.shotsFired += 1
 
         if (this.hasPowerUp('blast-powder')) this.blastShotCount += 1
         if (this.hasPowerUp('titan-shot')) this.titanShotCount += 1
@@ -1163,11 +1192,296 @@ export class PirateGame {
         }, profile)
     }
 
-    private enemyFire(enemy: Enemy) {
-        if (enemy.tier.sniper) {
-            this.fireSniperShot(enemy)
+    private castPlayerAbility(targetX: number, targetY: number) {
+        if (this.playerAbilityCooldownMs > 0) {
+            this.spawnDamagePopup('player-ability-cooldown', targetX, targetY - 20, `${Math.ceil(this.playerAbilityCooldownMs / 1000)}s`, 0xfde68a, false)
             return
         }
+        const ability = pirateAbility(this.stats.abilityId)
+        this.playerAbilityCooldownMs = ability.cooldownMs
+        this.abilityHudTimerMs = 100
+        this.abilitiesUsed += 1
+        this.callbacks.onAbilityCooldownChange(this.playerAbilityCooldownMs, ability.cooldownMs)
+
+        if (ability.id === 'seekers') this.castSeekerSalvo(targetX, targetY)
+        else if (ability.id === 'stormchain') this.castStormchain(targetX, targetY)
+        else if (ability.id === 'maelstrom') this.castMaelstrom(targetX, targetY)
+        else if (ability.id === 'firestorm') this.castHellfireBarrage(targetX, targetY)
+        else this.castPlayerBomb(targetX, targetY)
+    }
+
+    private castPlayerBomb(targetX: number, targetY: number) {
+        const marker = new Graphics()
+        marker.circle(0, 0, PLAYER_BOMB_RADIUS).fill({ color: 0xfacc15, alpha: 0.07 })
+        marker.circle(0, 0, PLAYER_BOMB_RADIUS).stroke({ width: 3, color: 0xfde047, alpha: 0.85 })
+        marker.circle(0, 0, 24).stroke({ width: 2, color: 0xfef9c3, alpha: 0.9 })
+        marker.position.set(targetX, targetY)
+        this.effectsLayer.addChild(marker)
+        gsap.fromTo(marker.scale, { x: 0.2, y: 0.2 }, { x: 1, y: 1, duration: 0.28, ease: 'back.out(2)' })
+        gsap.to(marker, { alpha: 0.28, duration: 0.18, yoyo: true, repeat: 5 })
+
+        const root = new Container()
+        root.position.set(this.playerX, this.playerY)
+        const bomb = new Graphics()
+        bomb.circle(0, 0, 16).fill({ color: 0x713f12 }).stroke({ width: 4, color: 0xfde047 })
+        bomb.star(-4, -4, 5, 6, 2).fill({ color: 0xfef9c3 })
+        root.addChild(bomb)
+        this.effectsLayer.addChild(root)
+        this.spawnMuzzleFlash(this.playerX, this.playerY, Math.atan2(targetY - this.playerY, targetX - this.playerX), 'standard', 0xfacc15)
+        let lastTrail = 0
+        gsap.to(bomb.position, { y: -115, duration: 0.42, ease: 'sine.out', yoyo: true, repeat: 1 })
+        gsap.to(root.position, {
+            x: targetX,
+            y: targetY,
+            duration: 0.84,
+            ease: 'none',
+            onUpdate: () => {
+                const now = performance.now()
+                if (now - lastTrail < 26) return
+                lastTrail = now
+                this.spawnTrailParticle(root.x, root.y + bomb.y, 0xfacc15, 1.45)
+            },
+            onComplete: () => {
+                if (!root.destroyed) root.destroy({ children: true })
+                if (!marker.destroyed) marker.destroy()
+                if (!this.running || this.destroyed) return
+                this.detonatePlayerBomb(targetX, targetY)
+            }
+        })
+    }
+
+    private detonatePlayerBomb(x: number, y: number) {
+        const damage = Math.max(25, Math.round(20 + this.power * 0.75))
+        const ring = new Graphics()
+        ring.circle(0, 0, 18).fill({ color: 0xfef3c7, alpha: 0.65 }).stroke({ width: 6, color: 0xfacc15, alpha: 0.95 })
+        ring.position.set(x, y)
+        this.effectsLayer.addChild(ring)
+        gsap.to(ring.scale, { x: PLAYER_BOMB_RADIUS / 18, y: PLAYER_BOMB_RADIUS / 18, duration: 0.38, ease: 'power3.out' })
+        gsap.to(ring, { alpha: 0, duration: 0.48, ease: 'power2.out', onComplete: () => ring.destroy() })
+        this.spawnExplosion(x, y, 0xfacc15, true)
+        this.spawnExplosion(x + randRange(-28, 28), y + randRange(-28, 28), 0xf97316, true)
+        for (let i = 0; i < 22; i++) {
+            const angle = i / 22 * Math.PI * 2 + randRange(-0.12, 0.12)
+            const distance = randRange(65, PLAYER_BOMB_RADIUS + 45)
+            const spark = new Graphics()
+            spark.star(0, 0, 4, randRange(3, 7), 1.5).fill({ color: i % 2 ? 0xfde047 : 0xfb923c, alpha: 0.95 })
+            spark.position.set(x, y)
+            this.effectsLayer.addChild(spark)
+            gsap.to(spark.position, { x: x + Math.cos(angle) * distance, y: y + Math.sin(angle) * distance, duration: 0.55, ease: 'power3.out' })
+            gsap.to(spark, { alpha: 0, rotation: Math.PI, duration: 0.6, ease: 'power2.in', onComplete: () => spark.destroy() })
+        }
+        this.shake(12)
+        let hits = 0
+        for (const enemy of [...this.enemies.values()]) {
+            if (enemy.dead || dist(x, y, enemy.x, enemy.y) > PLAYER_BOMB_RADIUS) continue
+            hits += 1
+            enemy.hp -= damage
+            this.flashShip(enemy.visual)
+            this.spawnDamagePopup(`player-bomb-${enemy.id}`, enemy.x, enemy.y - 42, `${damage} BOMB`, 0xfde047, true)
+            if (enemy.hp <= 0) this.killEnemy(enemy)
+            else this.updateEnemyHpBar(enemy)
+        }
+        this.spawnDamagePopup('player-bomb-result', x, y - 72, hits ? `${hits} HIT${hits === 1 ? '' : 'S'}` : 'NO TARGETS', hits ? 0xfef08a : 0x9ca3af, true)
+    }
+
+    private damageEnemyWithAbility(enemy: Enemy, damage: number, label: string, color: number, big = false) {
+        if (enemy.dead) return
+        enemy.hp -= damage
+        this.flashShip(enemy.visual)
+        this.spawnExplosion(enemy.x, enemy.y, color, big)
+        this.spawnDamagePopup(`ability-${enemy.id}`, enemy.x, enemy.y - 42, `${damage} ${label}`, color, big)
+        if (enemy.hp <= 0) this.killEnemy(enemy)
+        else this.updateEnemyHpBar(enemy)
+    }
+
+    private closestEnemy(x: number, y: number, excluded = new Set<number>()) {
+        return [...this.enemies.values()]
+            .filter(enemy => !enemy.dead && !excluded.has(enemy.id))
+            .sort((a, b) => dist(x, y, a.x, a.y) - dist(x, y, b.x, b.y))[0]
+    }
+
+    private castSeekerSalvo(targetX: number, targetY: number) {
+        const picked = [...this.enemies.values()]
+            .filter(enemy => !enemy.dead)
+            .sort((a, b) => dist(targetX, targetY, a.x, a.y) - dist(targetX, targetY, b.x, b.y))
+            .slice(0, 3)
+        const damage = Math.max(18, Math.round(12 + this.power * 0.24))
+        this.spawnDamagePopup('seeker-cast', this.playerX, this.playerY - 55, "HUNTER'S SALVO", 0xfca5a5, true)
+
+        for (let i = 0; i < 3; i++) {
+            const initialTarget = picked[i] ?? picked[i % Math.max(1, picked.length)]
+            const root = new Container()
+            root.position.set(this.playerX, this.playerY)
+            const missile = new Graphics()
+            missile.moveTo(15, 0).lineTo(-9, -7).lineTo(-5, 0).lineTo(-9, 7).closePath()
+                .fill({ color: 0xf8fafc }).stroke({ width: 2, color: 0xef4444 })
+            const glow = new Graphics()
+            glow.circle(-10, 0, 6).fill({ color: 0xfb7185, alpha: 0.5 })
+            root.addChild(glow, missile)
+            this.effectsLayer.addChild(root)
+            const flight = { progress: 0 }
+            let lastTrail = 0
+            gsap.delayedCall(i * 0.13, () => {
+                if (!this.running || root.destroyed) return
+                gsap.to(flight, {
+                    progress: 1,
+                    duration: 1.15,
+                    ease: 'power1.in',
+                    onUpdate: () => {
+                        const target = (initialTarget && this.enemies.get(initialTarget.id)) || this.closestEnemy(root.x, root.y)
+                        const aimX = target?.x ?? targetX
+                        const aimY = target?.y ?? targetY
+                        const angle = Math.atan2(aimY - root.y, aimX - root.x)
+                        const step = Math.min(28, dist(root.x, root.y, aimX, aimY) * 0.16 + 3)
+                        root.x += Math.cos(angle) * step
+                        root.y += Math.sin(angle) * step
+                        root.rotation = angle
+                        const now = performance.now()
+                        if (now - lastTrail > 28) {
+                            lastTrail = now
+                            this.spawnTrailParticle(root.x, root.y, i % 2 ? 0xf97316 : 0xef4444, 1.2)
+                        }
+                    },
+                    onComplete: () => {
+                        const target = (initialTarget && this.enemies.get(initialTarget.id)) || this.closestEnemy(root.x, root.y)
+                        const hitX = target?.x ?? root.x
+                        const hitY = target?.y ?? root.y
+                        if (!root.destroyed) root.destroy({ children: true })
+                        if (!this.running) return
+                        this.spawnExplosion(hitX, hitY, 0xef4444, true)
+                        if (target && dist(hitX, hitY, target.x, target.y) < 65) this.damageEnemyWithAbility(target, damage, 'SEEKER', 0xfca5a5, true)
+                    }
+                })
+            })
+        }
+    }
+
+    private drawLightningArc(fromX: number, fromY: number, toX: number, toY: number) {
+        const bolt = new Graphics()
+        bolt.moveTo(fromX, fromY)
+        const segments = 7
+        for (let i = 1; i < segments; i++) {
+            const t = i / segments
+            const x = fromX + (toX - fromX) * t + randRange(-12, 12)
+            const y = fromY + (toY - fromY) * t + randRange(-12, 12)
+            bolt.lineTo(x, y)
+        }
+        bolt.lineTo(toX, toY).stroke({ width: 7, color: 0x38bdf8, alpha: 0.25 })
+        bolt.moveTo(fromX, fromY)
+        for (let i = 1; i < segments; i++) {
+            const t = i / segments
+            bolt.lineTo(fromX + (toX - fromX) * t + randRange(-7, 7), fromY + (toY - fromY) * t + randRange(-7, 7))
+        }
+        bolt.lineTo(toX, toY).stroke({ width: 2.5, color: 0xe0f2fe, alpha: 1 })
+        this.effectsLayer.addChild(bolt)
+        gsap.to(bolt, { alpha: 0, duration: 0.32, ease: 'power2.in', onComplete: () => bolt.destroy() })
+    }
+
+    private castStormchain(targetX: number, targetY: number) {
+        const first = this.closestEnemy(targetX, targetY)
+        if (!first || dist(targetX, targetY, first.x, first.y) > 280) {
+            this.spawnDamagePopup('stormchain-empty', targetX, targetY - 20, 'NO CONDUCTOR', 0x7dd3fc, false)
+            return
+        }
+        const chain: Enemy[] = [first]
+        const used = new Set([first.id])
+        while (chain.length < 6) {
+            const previous = chain[chain.length - 1]!
+            const next = this.closestEnemy(previous.x, previous.y, used)
+            if (!next || dist(previous.x, previous.y, next.x, next.y) > 285) break
+            chain.push(next)
+            used.add(next.id)
+        }
+        this.spawnDamagePopup('stormchain-cast', targetX, targetY - 70, 'STORMCHAIN', 0x7dd3fc, true)
+        chain.forEach((enemy, index) => {
+            gsap.delayedCall(index * 0.11, () => {
+                if (!this.running || enemy.dead) return
+                const previous = index === 0 ? { x: targetX, y: targetY - 170 } : chain[index - 1]!
+                this.drawLightningArc(previous.x, previous.y, enemy.x, enemy.y)
+                const damage = Math.max(12, Math.round((18 + this.power * 0.32) * Math.pow(0.84, index)))
+                this.damageEnemyWithAbility(enemy, damage, 'SHOCK', 0x7dd3fc, index === 0)
+                for (let spark = 0; spark < 5; spark++) this.spawnTrailParticle(enemy.x + randRange(-22, 22), enemy.y + randRange(-22, 22), 0x38bdf8, 1.2)
+                if (index === 0) this.shake(6)
+            })
+        })
+    }
+
+    private castMaelstrom(targetX: number, targetY: number) {
+        const root = new Container()
+        root.position.set(targetX, targetY)
+        const outer = new Graphics()
+        outer.circle(0, 0, 175).fill({ color: 0x0ea5e9, alpha: 0.09 }).stroke({ width: 4, color: 0x67e8f9, alpha: 0.7 })
+        const inner = new Graphics()
+        for (let radius = 35; radius <= 140; radius += 35) inner.arc(0, 0, radius, 0.25, Math.PI * 1.72).stroke({ width: 6, color: 0x38bdf8, alpha: 0.42 })
+        const eye = new Graphics()
+        eye.circle(0, 0, 24).fill({ color: 0x082f49, alpha: 0.85 }).stroke({ width: 3, color: 0xa5f3fc })
+        root.addChild(outer, inner, eye)
+        this.effectsLayer.addChild(root)
+        gsap.fromTo(root.scale, { x: 0.15, y: 0.15 }, { x: 1, y: 1, duration: 0.45, ease: 'back.out(2)' })
+        gsap.to(inner, { rotation: Math.PI * 4, duration: 4.2, ease: 'none' })
+        gsap.to(outer, { alpha: 0.35, duration: 0.35, yoyo: true, repeat: 9 })
+        const pulseDamage = Math.max(8, Math.round(5 + this.power * 0.09))
+        for (let pulse = 0; pulse < 7; pulse++) {
+            gsap.delayedCall(0.35 + pulse * 0.52, () => {
+                if (!this.running || root.destroyed) return
+                for (const enemy of [...this.enemies.values()]) {
+                    if (enemy.dead || dist(targetX, targetY, enemy.x, enemy.y) > 185) continue
+                    enemy.x += (targetX - enemy.x) * 0.13
+                    enemy.y += (targetY - enemy.y) * 0.13
+                    enemy.root.position.set(enemy.x, enemy.y)
+                    this.damageEnemyWithAbility(enemy, pulseDamage, 'RIP', 0x67e8f9, false)
+                }
+                for (let i = 0; i < 8; i++) this.spawnTrailParticle(targetX + randRange(-145, 145), targetY + randRange(-145, 145), 0x22d3ee, 1.1, 0.55)
+            })
+        }
+        gsap.delayedCall(4.25, () => {
+            if (root.destroyed) return
+            gsap.to(root.scale, { x: 0, y: 0, duration: 0.35, ease: 'back.in(1.8)' })
+            gsap.to(root, { alpha: 0, duration: 0.35, onComplete: () => root.destroy({ children: true }) })
+        })
+    }
+
+    private castHellfireBarrage(targetX: number, targetY: number) {
+        this.spawnDamagePopup('hellfire-cast', targetX, targetY - 145, 'HELLFIRE INBOUND', 0xfdba74, true)
+        const damage = Math.max(16, Math.round(10 + this.power * 0.18))
+        for (let i = 0; i < 7; i++) {
+            const angle = i / 7 * Math.PI * 2 + randRange(-0.35, 0.35)
+            const radius = i === 0 ? 0 : randRange(35, 125)
+            const x = Math.max(45, Math.min(WORLD_W - 45, targetX + Math.cos(angle) * radius))
+            const y = Math.max(45, Math.min(WORLD_H - 45, targetY + Math.sin(angle) * radius))
+            gsap.delayedCall(i * 0.22, () => {
+                if (!this.running) return
+                const warning = new Graphics()
+                warning.circle(0, 0, 72).fill({ color: 0xef4444, alpha: 0.08 }).stroke({ width: 3, color: 0xfb923c, alpha: 0.8 })
+                warning.position.set(x, y)
+                this.effectsLayer.addChild(warning)
+                gsap.fromTo(warning.scale, { x: 0.25, y: 0.25 }, { x: 1, y: 1, duration: 0.62, ease: 'power1.out' })
+                const shell = new Graphics()
+                shell.circle(0, 0, 12).fill({ color: 0x431407 }).stroke({ width: 3, color: 0xfde68a })
+                shell.position.set(x - 75, y - 210)
+                this.effectsLayer.addChild(shell)
+                gsap.to(shell.position, {
+                    x,
+                    y,
+                    duration: 0.65,
+                    ease: 'power2.in',
+                    onUpdate: () => this.spawnTrailParticle(shell.x, shell.y, 0xf97316, 1.15),
+                    onComplete: () => {
+                        if (!shell.destroyed) shell.destroy()
+                        if (!warning.destroyed) warning.destroy()
+                        if (!this.running) return
+                        this.spawnExplosion(x, y, 0xf97316, true)
+                        this.shake(5)
+                        for (const enemy of [...this.enemies.values()]) {
+                            if (!enemy.dead && dist(x, y, enemy.x, enemy.y) <= 72) this.damageEnemyWithAbility(enemy, damage, 'FIRE', 0xfdba74, true)
+                        }
+                    }
+                })
+            })
+        }
+    }
+
+    private enemyFire(enemy: Enemy) {
         const volley = enemy.tier.volley ?? 1
         const fireOne = () => {
             if (!this.running || enemy.dead || this.destroyed) return
@@ -1187,6 +1501,24 @@ export class PirateGame {
         for (let i = 1; i < volley; i++) {
             gsap.delayedCall(i * 0.15, fireOne)
         }
+    }
+
+    private enemyAbilities(enemy: Enemy): EnemyAbility[] {
+        if (enemy.tier.boss) return ['sniper', 'mine', 'bomb', 'skiffs']
+        if (enemy.tier.sniper) return ['sniper']
+        if (enemy.tier.id === 'ironclad' || enemy.tier.id === 'brigantine') return ['mine']
+        if (['corsair', 'frigate', 'manowar', 'ghostship'].includes(enemy.tier.id)) return ['bomb']
+        return ['skiffs']
+    }
+
+    private useEnemyAbility(enemy: Enemy) {
+        if (!this.running || enemy.dead || this.destroyed) return
+        const abilities = this.enemyAbilities(enemy)
+        const ability = abilities[Math.floor(Math.random() * abilities.length)]!
+        if (ability === 'sniper') this.fireSniperShot(enemy)
+        else if (ability === 'mine') this.launchDriftMine(enemy)
+        else if (ability === 'bomb') this.launchFrenzyBomb(enemy)
+        else this.deployKamikazeSkiffs(enemy)
     }
 
     private fireSniperShot(enemy: Enemy) {
@@ -1260,6 +1592,176 @@ export class PirateGame {
                 this.hitPlayer(roll, targetX, targetY)
             }
         })
+    }
+
+    private launchDriftMine(enemy: Enemy) {
+        const targetX = this.playerX
+        const targetY = this.playerY
+        const warning = new Graphics()
+        warning.circle(0, 0, 68).fill({ color: 0x2563eb, alpha: 0.08 })
+        warning.circle(0, 0, 68).stroke({ width: 3, color: 0x60a5fa, alpha: 0.85 })
+        warning.position.set(targetX, targetY)
+        this.effectsLayer.addChild(warning)
+        gsap.fromTo(warning.scale, { x: 0.35, y: 0.35 }, { x: 1, y: 1, duration: 0.45, ease: 'back.out(2)' })
+        gsap.to(warning, { alpha: 0.35, duration: 0.35, ease: 'sine.inOut', yoyo: true, repeat: 5 })
+
+        const root = new Container()
+        root.position.set(enemy.x, enemy.y)
+        const glow = new Graphics()
+        glow.circle(0, 0, 18).fill({ color: 0x3b82f6, alpha: 0.22 })
+        glow.circle(0, 0, 10).fill({ color: 0x172554 }).stroke({ width: 3, color: 0x93c5fd })
+        for (let i = 0; i < 6; i++) {
+            const angle = i / 6 * Math.PI * 2
+            glow.moveTo(Math.cos(angle) * 8, Math.sin(angle) * 8)
+                .lineTo(Math.cos(angle) * 15, Math.sin(angle) * 15)
+                .stroke({ width: 3, color: 0x60a5fa })
+        }
+        root.addChild(glow)
+        this.effectsLayer.addChild(root)
+        gsap.to(glow, { rotation: Math.PI * 3, duration: 2.35, ease: 'none' })
+        let lastTrail = 0
+        gsap.to(root.position, {
+            x: targetX,
+            y: targetY,
+            duration: 2.35,
+            ease: 'power1.in',
+            onUpdate: () => {
+                const now = performance.now()
+                if (now - lastTrail < 45) return
+                lastTrail = now
+                this.spawnTrailParticle(root.x, root.y, 0x60a5fa, 1.1)
+            },
+            onComplete: () => {
+                if (!root.destroyed) root.destroy({ children: true })
+                if (!warning.destroyed) warning.destroy()
+                if (!this.running || this.destroyed) return
+                this.resolveEnemyAreaAttack(targetX, targetY, 68, Math.max(5, Math.round(enemy.maxDamage * 0.9)), 'DRIFT MINE', 0x3b82f6)
+            }
+        })
+    }
+
+    private launchFrenzyBomb(enemy: Enemy) {
+        const targetX = this.playerX
+        const targetY = this.playerY
+        const radius = enemy.tier.boss ? 125 : 110
+        const warning = new Graphics()
+        warning.circle(0, 0, radius).fill({ color: 0xf97316, alpha: 0.1 })
+        warning.circle(0, 0, radius).stroke({ width: 4, color: 0xfb923c, alpha: 0.9 })
+        warning.circle(0, 0, radius * 0.7).stroke({ width: 2, color: 0xfed7aa, alpha: 0.65 })
+        warning.position.set(targetX, targetY)
+        this.effectsLayer.addChild(warning)
+        gsap.fromTo(warning.scale, { x: 0.2, y: 0.2 }, { x: 1, y: 1, duration: 0.5, ease: 'power2.out' })
+        gsap.to(warning, { alpha: 0.28, duration: 0.22, yoyo: true, repeat: 7 })
+
+        const root = new Container()
+        root.position.set(enemy.x, enemy.y)
+        const bomb = new Graphics()
+        bomb.circle(0, 0, 18).fill({ color: 0x431407 }).stroke({ width: 4, color: 0xfdba74 })
+        bomb.circle(-5, -5, 5).fill({ color: 0xffedd5, alpha: 0.8 })
+        const fuse = new Graphics()
+        fuse.moveTo(8, -14).quadraticCurveTo(18, -24, 24, -14).stroke({ width: 3, color: 0xfde68a })
+        fuse.circle(24, -14, 4).fill({ color: 0xfacc15 })
+        root.addChild(bomb, fuse)
+        this.effectsLayer.addChild(root)
+        this.spawnMuzzleFlash(enemy.x, enemy.y, Math.atan2(targetY - enemy.y, targetX - enemy.x), 'enemy', 0xfb923c)
+        let lastTrail = 0
+        gsap.to(bomb.position, { y: -95, duration: 0.65, ease: 'sine.out', yoyo: true, repeat: 1 })
+        gsap.to(root.position, {
+            x: targetX,
+            y: targetY,
+            duration: 1.3,
+            ease: 'none',
+            onUpdate: () => {
+                const now = performance.now()
+                if (now - lastTrail < 35) return
+                lastTrail = now
+                this.spawnTrailParticle(root.x, root.y + bomb.y, 0xfb923c, 1.4)
+            },
+            onComplete: () => {
+                if (!root.destroyed) root.destroy({ children: true })
+                if (!warning.destroyed) warning.destroy()
+                if (!this.running || this.destroyed) return
+                this.resolveEnemyAreaAttack(targetX, targetY, radius, Math.max(8, Math.round(enemy.maxDamage * 1.35)), 'FRENZY BOMB', 0xf97316)
+            }
+        })
+    }
+
+    private deployKamikazeSkiffs(enemy: Enemy) {
+        const baseTargetX = this.playerX
+        const baseTargetY = this.playerY
+        for (let i = 0; i < 3; i++) {
+            const angle = i / 3 * Math.PI * 2
+            const targetX = baseTargetX + Math.cos(angle) * 38
+            const targetY = baseTargetY + Math.sin(angle) * 38
+            const warning = new Graphics()
+            warning.circle(0, 0, 42).fill({ color: 0x22d3ee, alpha: 0.06 })
+            warning.circle(0, 0, 42).stroke({ width: 2, color: 0x67e8f9, alpha: 0.75 })
+            warning.position.set(targetX, targetY)
+            this.effectsLayer.addChild(warning)
+            gsap.to(warning, { alpha: 0.2, duration: 0.25, yoyo: true, repeat: 7 })
+
+            const skiff = new Container()
+            skiff.position.set(enemy.x + Math.cos(angle) * 24, enemy.y + Math.sin(angle) * 24)
+            const hull = new Graphics()
+            hull.poly([-13, -6, 15, 0, -13, 6, -8, 0]).fill({ color: 0x164e63 }).stroke({ width: 2, color: 0xa5f3fc })
+            hull.moveTo(-2, 0).lineTo(-2, -14).lineTo(8, -3).closePath().fill({ color: 0xecfeff, alpha: 0.9 })
+            skiff.addChild(hull)
+            this.effectsLayer.addChild(skiff)
+            skiff.rotation = Math.atan2(targetY - skiff.y, targetX - skiff.x)
+            const duration = 1.65 + i * 0.12
+            let wakeTimer = 0
+            gsap.to(skiff.position, {
+                x: targetX,
+                y: targetY,
+                duration,
+                ease: 'power1.in',
+                onUpdate: () => {
+                    const now = performance.now()
+                    if (now - wakeTimer < 55) return
+                    wakeTimer = now
+                    this.spawnTrailParticle(skiff.x, skiff.y, 0x67e8f9, 0.7, 0.55)
+                },
+                onComplete: () => {
+                    if (!skiff.destroyed) skiff.destroy({ children: true })
+                    if (!warning.destroyed) warning.destroy()
+                    if (!this.running || this.destroyed) return
+                    this.resolveEnemyAreaAttack(targetX, targetY, 42, Math.max(4, Math.round(enemy.maxDamage * 0.55)), 'SKIFF', 0x06b6d4, false)
+                }
+            })
+        }
+    }
+
+    private resolveEnemyAreaAttack(x: number, y: number, radius: number, damage: number, label: string, color: number, heavy = true) {
+        this.spawnExplosion(x, y, color, heavy)
+        if (heavy) {
+            this.spawnExplosion(x + randRange(-20, 20), y + randRange(-20, 20), 0xfbbf24, false)
+            this.shake(8)
+        }
+        if (dist(this.playerX, this.playerY, x, y) > radius) {
+            this.spawnSplash(x, y)
+            this.spawnDamagePopup(`dodge-${label}`, x, y - 28, 'DODGED', 0xa5f3fc, true)
+            return
+        }
+        this.damagePlayerDirect(damage, label, color)
+    }
+
+    private damagePlayerDirect(damage: number, label: string, color: number) {
+        let hullDamage = damage
+        if (this.shieldHp > 0) {
+            const absorbed = Math.min(this.shieldHp, hullDamage)
+            this.shieldHp -= absorbed
+            hullDamage -= absorbed
+            this.spawnShieldImpact(absorbed)
+            if (this.shieldHp <= 0) this.activePowerUps.delete('tide-shield')
+            this.emitPowerUpState()
+        }
+        if (hullDamage <= 0) return
+        this.playerHp = Math.max(0, this.playerHp - hullDamage)
+        this.callbacks.onHpChange(this.playerHp, this.stats.maxHp)
+        this.showPlayerHealthBar()
+        this.flashShip(this.player)
+        this.spawnDamagePopup('player-ability', this.playerX, this.playerY - 42, `${label} -${hullDamage}`, color, true)
+        if (this.playerHp <= 0) this.endGame(false, 'defeat')
     }
 
     private spawnCannonball(
@@ -1374,6 +1876,8 @@ export class PirateGame {
         this.lastKillAt = now
         this.maxCombo = Math.max(this.maxCombo, this.combo)
         this.kills += 1
+        const sunk = this.sunkByType.get(enemy.tier.id)
+        this.sunkByType.set(enemy.tier.id, { name: enemy.tier.name, count: (sunk?.count ?? 0) + 1 })
 
         const rewardMult = pirateRewardMultiplier(this.elapsedMs, this.power)
         const baseReward = Math.round(randRange(enemy.tier.coinMin, enemy.tier.coinMax) * rewardMult)
@@ -1437,6 +1941,7 @@ export class PirateGame {
         if (hullDamage <= 0) return
         this.playerHp = Math.max(0, this.playerHp - hullDamage)
         this.callbacks.onHpChange(this.playerHp, this.stats.maxHp)
+        this.showPlayerHealthBar()
         this.spawnExplosion(this.playerX, this.playerY, 0xef4444, roll.crit)
         this.flashShip(this.player)
         this.spawnDamagePopup('player', this.playerX, this.playerY - 34, `-${hullDamage}`, 0xff6b6b, roll.crit)
@@ -1484,6 +1989,7 @@ export class PirateGame {
         root.cursor = 'pointer'
         root.hitArea = new Circle(0, 0, 26)
         root.on('pointerdown', (e) => {
+            if (e.button !== 0) return
             e.stopPropagation()
             if (!this.running || !this.treasure) return
             this.attackTargetId = null
@@ -1664,6 +2170,7 @@ export class PirateGame {
         root.cursor = 'pointer'
         root.hitArea = new Circle(0, 0, 38)
         root.on('pointerdown', (e) => {
+            if (e.button !== 0) return
             e.stopPropagation()
             const activePickup = this.powerUpPickup
             if (!this.running || activePickup?.root !== root) return
@@ -1745,6 +2252,7 @@ export class PirateGame {
         root.cursor = 'pointer'
         root.hitArea = new Circle(0, 0, 38)
         root.on('pointerdown', (e) => {
+            if (e.button !== 0) return
             e.stopPropagation()
             const activePack = this.healthPackPickup
             if (!this.running || activePack?.root !== root) return
@@ -1762,6 +2270,7 @@ export class PirateGame {
         const healed = Math.min(requestedHeal, this.stats.maxHp - this.playerHp)
         this.playerHp += healed
         this.callbacks.onHpChange(this.playerHp, this.stats.maxHp)
+        this.updatePlayerHealthBar()
         this.callbacks.onHealthPackCollected?.(healed)
         this.spawnPowerUpBurst(pack.x, pack.y, 0x4ade80)
         this.spawnDamagePopup('health-pack', pack.x, pack.y - 35, `+${healed} HULL`, 0x86efac, true)
@@ -1884,6 +2393,7 @@ export class PirateGame {
         }
         this.playerHp = Math.max(0, this.playerHp - hullDamage)
         this.callbacks.onHpChange(this.playerHp, this.stats.maxHp)
+        if (hullDamage > 0) this.showPlayerHealthBar()
         this.spawnExplosion(mine.x, mine.y, 0xef4444, true)
         this.spawnExplosion(mine.x + randRange(-16, 16), mine.y + randRange(-16, 16), 0xf97316, true)
         this.spawnDamagePopup('sea-mine', this.playerX, this.playerY - 45, `MINE -${Math.round(mine.damageFraction * 100)}%`, 0xfca5a5, true)
@@ -1992,6 +2502,7 @@ export class PirateGame {
         visual.root.cursor = 'pointer'
         visual.root.hitArea = new Circle(0, 0, 44 * sizeScale)
         visual.root.on('pointerdown', (e) => {
+            if (e.button !== 0) return
             e.stopPropagation()
             if (!this.running || enemy.dead) return
             this.attackTargetId = id
@@ -2463,6 +2974,11 @@ export class PirateGame {
             ammoUsed: this.ammoStart - this.ammo,
             gemAmmoUsed: this.gemAmmoStart - this.gemAmmo,
             kills: this.kills,
+            shotsFired: this.shotsFired,
+            abilitiesUsed: this.abilitiesUsed,
+            sunkByType: [...this.sunkByType.entries()]
+                .map(([id, value]) => ({ id, ...value }))
+                .sort((a, b) => b.count - a.count),
             maxCombo: this.maxCombo,
             reason,
             hullDamageFraction

@@ -129,6 +129,8 @@ export const pirateState = pgTable('pirate_state', {
   bestRunLoot: integer('best_run_loot').notNull().default(0),
   ownedSkinIds: jsonb('owned_skin_ids').$type<string[]>().notNull().default(['starter']),
   equippedSkinId: text('equipped_skin_id').notNull().default('starter'),
+  ownedAbilityIds: jsonb('owned_ability_ids').$type<string[]>().notNull().default(['bomb']),
+  equippedAbilityId: text('equipped_ability_id').notNull().default('bomb'),
   // Set when a voyage starts, cleared on finish. Server computes elapsed time
   // from this instead of trusting the client, and snapshots the power level
   // so mid-run upgrades can't raise the finish-run payout ceiling.

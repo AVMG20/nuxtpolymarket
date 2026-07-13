@@ -13,6 +13,23 @@ export type PirateShipSkinId = typeof PIRATE_SHIP_SKINS[number]['id']
 export function pirateShipSkin(id: string) {
   return PIRATE_SHIP_SKINS.find(skin => skin.id === id) ?? PIRATE_SHIP_SKINS[0]
 }
+
+// One right-click ability may be equipped at a time. The powder keg remains
+// the free starter option; the other techniques are permanent coin unlocks.
+export const PIRATE_ABILITIES = [
+  { id: 'bomb', name: 'Powder Keg', cost: 0, cooldownMs: 15_000, icon: 'i-lucide-bomb', accent: 'warning', description: 'Lob a heavy keg that explodes in a wide area.' },
+  { id: 'seekers', name: "Hunter's Salvo", cost: 250_000, cooldownMs: 18_000, icon: 'i-lucide-rocket', accent: 'error', description: 'Launch three spectral missiles that hunt down separate enemy ships.' },
+  { id: 'stormchain', name: 'Stormchain', cost: 250_000, cooldownMs: 20_000, icon: 'i-lucide-zap', accent: 'info', description: 'Call lightning onto the nearest target, then chain it through the fleet.' },
+  { id: 'maelstrom', name: "Kraken's Maw", cost: 250_000, cooldownMs: 24_000, icon: 'i-lucide-tornado', accent: 'primary', description: 'Open a damaging whirlpool that drags nearby ships toward its center.' },
+  { id: 'firestorm', name: 'Hellfire Barrage', cost: 250_000, cooldownMs: 22_000, icon: 'i-lucide-flame', accent: 'warning', description: 'Rain seven explosive cannon shells across the targeted area.' }
+] as const
+
+export type PirateAbilityId = typeof PIRATE_ABILITIES[number]['id']
+export const PIRATE_STARTER_ABILITY_ID: PirateAbilityId = 'bomb'
+
+export function pirateAbility(id: string) {
+  return PIRATE_ABILITIES.find(ability => ability.id === id) ?? PIRATE_ABILITIES[0]
+}
 // A 5-minute real-time roguelike skirmish. Ship-level upgrades (hull, speed,
 // defense, ammo capacity) are bought directly; attack power instead comes from
 // equipping cannons (up to 8 gun ports) bought from the armory, each with its
@@ -272,7 +289,7 @@ export const PIRATE_ENEMY_TIERS: PirateEnemyTier[] = [
   { id: 'frigate', name: 'Frigate', unlockAtMs: 130_000, hp: 160, defense: 20, attackRating: 36, maxDamage: 30, range: 300, speed: 125, reloadMs: 1600, coinMin: 1100, coinMax: 1600, color: 0xc06a2c, weight: 6, sizeScale: 1.05 },
   { id: 'manowar', name: "Man-o'-War", unlockAtMs: 215_000, hp: 260, defense: 30, attackRating: 50, maxDamage: 42, range: 380, speed: 105, reloadMs: 1400, coinMin: 1800, coinMax: 2600, color: 0x8b2635, weight: 4, sizeScale: 1.2 },
   { id: 'ghostship', name: 'Ghost Ship', unlockAtMs: 260_000, hp: 200, defense: 26, attackRating: 58, maxDamage: 48, range: 340, speed: 155, reloadMs: 1100, coinMin: 3000, coinMax: 4400, color: 0x2ecc9c, weight: 1.5, sizeScale: 1.02 },
-  { id: 'dreadnought', name: 'The Dreadnought', unlockAtMs: 0, hp: 850, defense: 30, attackRating: 52, maxDamage: 36, range: 380, speed: 78, reloadMs: 2000, coinMin: 7600, coinMax: 11000, color: 0x991b1b, weight: 0, volley: 3, sizeScale: 1.55, boss: true }
+  { id: 'dreadnought', name: 'The Dreadnought', unlockAtMs: 0, hp: 700, defense: 30, attackRating: 52, maxDamage: 36, range: 380, speed: 78, reloadMs: 2000, coinMin: 7600, coinMax: 11000, color: 0x991b1b, weight: 0, volley: 3, sizeScale: 1.55, boss: true }
 ]
 
 // ─── Boss cadence ───────────────────────────────────────────────────────────
@@ -281,7 +298,7 @@ export const PIRATE_ENEMY_TIERS: PirateEnemyTier[] = [
 // game never shows up until the fight's basically over for a well-built crew.
 export const PIRATE_BOSS_FIRST_SPAWN_MS = 85_000
 export const PIRATE_BOSS_RESPAWN_MS = 80_000
-export const PIRATE_BOSS_DAMAGE_MULT = 0.65
+export const PIRATE_BOSS_DAMAGE_MULT = 0.55
 
 /** First Dreadnought sighting — pulled earlier the stronger the ship. */
 export function pirateBossFirstSpawnMs(power: number) {

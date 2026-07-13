@@ -56,6 +56,7 @@ const equipping = ref<string | null>(null)
 const sellingSlot = ref<number | null>(null)
 const swapping = ref(false)
 const skinAction = ref<string | null>(null)
+const abilityAction = ref<string | null>(null)
 
 // Swap mode: pick a source port, then pick a destination.
 const swapSource = ref<number | null>(null)
@@ -235,6 +236,25 @@ async function selectSkin(skin: NonNullable<typeof state.value>['skins'][number]
         skinAction.value = null
     }
 }
+
+async function selectAbility(ability: NonNullable<typeof state.value>['abilities'][number]) {
+    if (ability.equipped || abilityAction.value) return
+    abilityAction.value = ability.id
+    try {
+        if (ability.owned) {
+            await $fetch('/api/pirates/abilities/equip', { method: 'POST', body: { abilityId: ability.id } })
+            toast.add({ title: `${ability.name} equipped`, color: 'success' })
+        } else {
+            await $fetch('/api/pirates/abilities/buy', { method: 'POST', body: { abilityId: ability.id } })
+            toast.add({ title: `${ability.name} purchased and equipped`, color: 'success' })
+        }
+        await Promise.all([refresh(), fetchSession()])
+    } catch (e: any) {
+        toast.add({ title: e.data?.message ?? 'Failed to update ability', color: 'error' })
+    } finally {
+        abilityAction.value = null
+    }
+}
 </script>
 
 <template>
@@ -312,6 +332,66 @@ async function selectSkin(skin: NonNullable<typeof state.value>['skins'][number]
               <span v-else class="flex items-center gap-1">
                 <UIcon name="i-lucide-gem" class="size-3.5" />
                 {{ formatNumber(skin.cost, false) }}
+              </span>
+            </UButton>
+          </UCard>
+        </div>
+      </div>
+
+      <!-- Right-click combat ability -->
+      <div>
+        <div class="mb-2 flex flex-wrap items-end justify-between gap-2 px-0.5">
+          <div>
+            <p class="text-xs font-semibold uppercase tracking-wider text-muted">
+              Captain's Arsenal — Right-click Ability
+            </p>
+            <p class="mt-0.5 text-xs text-muted">
+              Permanently unlock techniques, then equip exactly one before setting sail.
+            </p>
+          </div>
+          <UBadge color="neutral" variant="subtle" icon="i-lucide-coins" :label="`${formatNumber(balance, false)} coins`" />
+        </div>
+
+        <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+          <UCard
+            v-for="ability in state.abilities"
+            :key="ability.id"
+            :class="ability.equipped ? 'ring-2 ring-primary' : ''"
+            :ui="{ body: 'p-3.5' }"
+          >
+            <div class="mb-3 flex items-start justify-between gap-2">
+              <div class="flex size-10 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                <UIcon :name="ability.icon" class="size-5" />
+              </div>
+              <UBadge v-if="ability.equipped" color="primary" variant="solid" size="sm" label="Equipped" />
+              <UBadge v-else-if="ability.owned" color="success" variant="subtle" size="sm" label="Owned" />
+            </div>
+            <p class="text-sm font-bold">
+              {{ ability.name }}
+            </p>
+            <p class="mt-1 min-h-14 text-[11px] leading-snug text-muted">
+              {{ ability.description }}
+            </p>
+            <div class="mt-2 flex items-center gap-1 text-[11px] text-muted">
+              <UIcon name="i-lucide-timer" class="size-3.5" />
+              {{ ability.cooldownMs / 1000 }}s cooldown
+            </div>
+            <UButton
+              block
+              size="sm"
+              class="mt-3"
+              :color="ability.owned ? 'neutral' : 'primary'"
+              :variant="ability.equipped ? 'subtle' : 'solid'"
+              :disabled="!!state.activeRun || ability.equipped || (!ability.owned && balance < ability.cost)"
+              :loading="abilityAction === ability.id"
+              @click="selectAbility(ability)"
+            >
+              <span v-if="ability.equipped">Ready to fire</span>
+              <span v-else-if="ability.owned">Equip</span>
+              <span v-else-if="ability.cost === 0">Free</span>
+              <span v-else class="flex items-center gap-1">
+                <UIcon name="i-lucide-coins" class="size-3.5" />
+                {{ formatNumber(ability.cost, false) }}
               </span>
             </UButton>
           </UCard>

@@ -9,7 +9,7 @@ import {
     PIRATE_GEM_AMMO_CAPACITY, PIRATE_GEM_AMMO_BUNDLE_SIZE, PIRATE_GEM_AMMO_BUNDLE_PRICE_GEMS,
     pirateUpgradeCost, pirateMaxHp, pirateShipSpeed, pirateDefenseRating, pirateAmmoCapacity,
     pirateSlotUnlockCost, pirateCannonTier, piratePowerLevel, pirateRepairRushCost, pirateAmmoPricePerUnit,
-    PIRATE_SHIP_SKINS
+    PIRATE_SHIP_SKINS, PIRATE_ABILITIES, pirateAbility
 } from '#shared/utils/gamelogic/pirates'
 
 export default defineEventHandler(async (event) => {
@@ -63,6 +63,8 @@ export default defineEventHandler(async (event) => {
 
     const repairRemainingMs = s.hullRepairUntil ? Math.max(0, s.hullRepairUntil.getTime() - Date.now()) : 0
     const ownedSkinIds = Array.from(new Set(['starter', ...(s.ownedSkinIds ?? [])]))
+    const ownedAbilityIds = Array.from(new Set(['bomb', ...(s.ownedAbilityIds ?? [])]))
+    const equippedAbilityId = pirateAbility(s.equippedAbilityId).id
 
     return {
         balance,
@@ -97,6 +99,8 @@ export default defineEventHandler(async (event) => {
         bestSurvivalMs: s.bestSurvivalMs,
         skins: PIRATE_SHIP_SKINS.map(skin => ({ ...skin, owned: ownedSkinIds.includes(skin.id), equipped: skin.id === s.equippedSkinId })),
         equippedSkinId: s.equippedSkinId,
+        abilities: PIRATE_ABILITIES.map(ability => ({ ...ability, owned: ownedAbilityIds.includes(ability.id), equipped: ability.id === equippedAbilityId })),
+        equippedAbilityId,
         runDurationMs: PIRATE_RUN_DURATION_MS,
         activeRun: s.runStartedAt ? { startedAt: s.runStartedAt } : null,
         repair: {
