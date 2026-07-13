@@ -384,17 +384,18 @@ export function pirateDifficultyMultiplier(elapsedMs: number, power: number) {
   const t = Math.min(1.05, elapsedMs / PIRATE_RUN_DURATION_MS)
   const overBase = Math.max(0, power - PIRATE_BASE_POWER)
 
-  const timeHpMult = 1 + t * 1.05 + Math.pow(Math.max(0, t - 0.42), 2) * 3.2
-  // Power 366 used to begin at almost 9x HP, which turned the opening wave
-  // into endgame-sized damage sponges. Keep power relevant without letting it
-  // overwhelm the time curve: that same loadout now opens at roughly 3x HP.
-  const powerHpMult = 1 + overBase * 0.006
+  // Put more resistance into the opening wave, then grow it gently. At power
+  // 366 this starts around 4.45x and still ends around the previous 9.3x cap,
+  // so upgraded cannons cannot erase every ship before it enters the fight
+  // without making the second half spike faster than it already did.
+  const timeHpMult = 1 + t * 0.55 + Math.pow(Math.max(0, t - 0.42), 2) * 1.6
+  const powerHpMult = 1 + overBase * 0.0105
   const hpMult = timeHpMult * powerHpMult
 
   // Keep the first two minutes survivable, then let damage accelerate hard.
   // This moves the usual failure point toward minutes 3–5 without flattening
   // the endgame or making high-power glass cannons safe.
-  const timeDmgMult = 1 + t * 0.9 + Math.pow(Math.max(0, t - 0.4), 2) * 1.8
+  const timeDmgMult = 1 + t * 0.72 + Math.pow(Math.max(0, t - 0.4), 2) * 1.45
   // Per-hit damage grows sub-linearly with power. High-power fleets still
   // produce much more incoming DPS through accuracy, population, and faster
   // reloads, but an ordinary cannonball no longer scales into a one-shot.

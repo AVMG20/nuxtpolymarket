@@ -16,9 +16,10 @@ describe('pirate difficulty at power 366', () => {
     const minuteOne = pirateDifficultyMultiplier(60_000, TEST_POWER)
     const endgame = pirateDifficultyMultiplier(8 * 60_000, TEST_POWER)
 
-    expect(opening.hpMult).toBeCloseTo(2.974, 3)
+    expect(opening.hpMult).toBeCloseTo(4.4545, 3)
     expect(opening.dmgMult).toBeLessThan(1.4)
-    expect(minuteOne.hpMult).toBeLessThan(3.5)
+    expect(minuteOne.hpMult).toBeLessThan(4.8)
+    expect(minuteOne.hpMult / opening.hpMult).toBeLessThan(1.08)
     expect(endgame.hpMult).toBeGreaterThan(9)
   })
 
