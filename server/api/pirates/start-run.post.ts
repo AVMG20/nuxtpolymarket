@@ -19,7 +19,7 @@ export default defineEventHandler(async (event) => {
     ])
     if (!s) throw createError({ statusCode: 404, statusMessage: 'Pirate state not initialized' })
     if (cannons.length < 1) throw createError({ statusCode: 400, statusMessage: 'Equip at least one cannon before setting sail' })
-    if (s.ammoCount < 1) throw createError({ statusCode: 400, statusMessage: 'Stock up on ammo before setting sail' })
+    if (s.ammoCount + s.gemAmmoCount < 1) throw createError({ statusCode: 400, statusMessage: 'Stock up on ammo before setting sail' })
 
     const levels = {
         hull: s.hullLevel,
@@ -45,6 +45,7 @@ export default defineEventHandler(async (event) => {
             ammoCapacity: pirateAmmoCapacity(s.ammoCapacityLevel)
         },
         ammo: s.ammoCount,
+        gemAmmo: s.gemAmmoCount,
         cannons: cannons
             .sort((a, b) => a.slotIndex - b.slotIndex)
             .map((c) => {

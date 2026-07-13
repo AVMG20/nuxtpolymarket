@@ -6,6 +6,7 @@ import { getBalance } from '#server/utils/balance'
 import {
     PIRATE_SHIP_STAT_IDS, PIRATE_MAX_STAT_LEVEL, PIRATE_RUN_DURATION_MS, PIRATE_MAX_CANNON_SLOTS,
     PIRATE_CANNON_SELL_REFUND_RATE, PIRATE_AMMO_PRICE_PER_UNIT,
+    PIRATE_GEM_AMMO_CAPACITY, PIRATE_GEM_AMMO_BUNDLE_SIZE, PIRATE_GEM_AMMO_BUNDLE_PRICE_GEMS,
     pirateUpgradeCost, pirateMaxHp, pirateShipSpeed, pirateDefenseRating, pirateAmmoCapacity,
     pirateSlotUnlockCost, pirateCannonTier, piratePowerLevel
 } from '#shared/utils/gamelogic/pirates'
@@ -75,6 +76,12 @@ export default defineEventHandler(async (event) => {
             count: s.ammoCount,
             capacity,
             pricePerUnit: PIRATE_AMMO_PRICE_PER_UNIT
+        },
+        gemAmmo: {
+            count: s.gemAmmoCount,
+            capacity: PIRATE_GEM_AMMO_CAPACITY,
+            bundleSize: PIRATE_GEM_AMMO_BUNDLE_SIZE,
+            bundlePriceGems: PIRATE_GEM_AMMO_BUNDLE_PRICE_GEMS
         },
         runsPlayed: s.runsPlayed,
         totalCoinsEarned: s.totalCoinsEarned,

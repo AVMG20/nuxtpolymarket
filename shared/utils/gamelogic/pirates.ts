@@ -16,8 +16,11 @@ export const PIRATE_MAX_STAT_LEVEL = 10
 export const PIRATE_RUN_DURATION_MS = 5 * 60 * 1000
 
 // ─── Upgrade cost curve — identical shape for every ship stat ─────────────
-export const PIRATE_UPGRADE_BASE_COST = 40
-export const PIRATE_UPGRADE_GROWTH = 1.55
+// Steep exponential sink: the first upgrade sits in the "extra spending
+// money" range, the last (level 9 → 10) lands around 20-22m — a proper
+// end-game money sink relative to the other ways to earn on the site.
+export const PIRATE_UPGRADE_BASE_COST = 20_000
+export const PIRATE_UPGRADE_GROWTH = 2.4
 
 /** Coin cost to go from `level` to `level + 1`. Null once at max level. */
 export function pirateUpgradeCost(level: number): number | null {
@@ -64,23 +67,32 @@ export interface PirateCannonTier {
   powerRating: number
 }
 
+// Costs step up ~2.6x per tier, topping out at 10m for the Leviathan's Wrath
+// — the armory's own equivalent of the ship-stat/slot money sinks.
 export const PIRATE_CANNON_TIERS: PirateCannonTier[] = [
-  { id: 'swivel', name: 'Swivel Gun', cost: 0, attackRating: 15, maxDamage: 12, reloadMs: 2200, range: 220, powerRating: 2 },
-  { id: 'carronade', name: 'Bronze Carronade', cost: 150, attackRating: 22, maxDamage: 18, reloadMs: 2000, range: 250, powerRating: 4 },
-  { id: 'culverin', name: 'Iron Culverin', cost: 400, attackRating: 32, maxDamage: 26, reloadMs: 1800, range: 280, powerRating: 7 },
-  { id: 'longgun', name: 'Steel Long Gun', cost: 900, attackRating: 45, maxDamage: 36, reloadMs: 1600, range: 320, powerRating: 11 },
-  { id: 'basilisk', name: 'Reinforced Basilisk', cost: 1800, attackRating: 60, maxDamage: 48, reloadMs: 1400, range: 360, powerRating: 16 },
-  { id: 'mythril', name: 'Mythril Broadside', cost: 3500, attackRating: 80, maxDamage: 65, reloadMs: 1200, range: 400, powerRating: 24 }
+  { id: 'swivel', name: 'Swivel Gun', cost: 0, attackRating: 20, maxDamage: 16, reloadMs: 1900, range: 240, powerRating: 2 },
+  { id: 'carronade', name: 'Bronze Carronade', cost: 30_000, attackRating: 22, maxDamage: 18, reloadMs: 2000, range: 250, powerRating: 4 },
+  { id: 'culverin', name: 'Iron Culverin', cost: 79_000, attackRating: 32, maxDamage: 26, reloadMs: 1800, range: 280, powerRating: 7 },
+  { id: 'longgun', name: 'Steel Long Gun', cost: 208_000, attackRating: 45, maxDamage: 36, reloadMs: 1600, range: 320, powerRating: 11 },
+  { id: 'basilisk', name: 'Reinforced Basilisk', cost: 548_000, attackRating: 60, maxDamage: 48, reloadMs: 1400, range: 360, powerRating: 16 },
+  { id: 'mythril', name: 'Mythril Broadside', cost: 1_440_000, attackRating: 80, maxDamage: 65, reloadMs: 1200, range: 400, powerRating: 24 },
+  { id: 'adamantite', name: 'Adamantite Bombard', cost: 3_800_000, attackRating: 100, maxDamage: 85, reloadMs: 1050, range: 440, powerRating: 36 },
+  { id: 'leviathan', name: "Leviathan's Wrath", cost: 10_000_000, attackRating: 130, maxDamage: 115, reloadMs: 900, range: 480, powerRating: 55 }
 ]
 
 export function pirateCannonTier(id: string): PirateCannonTier {
   return PIRATE_CANNON_TIERS.find(t => t.id === id) ?? PIRATE_CANNON_TIERS[0]!
 }
 
+// Same steep shape as the stat upgrades — unlocking the 8th port (the last
+// of 7 purchases) lands around 15m.
+export const PIRATE_SLOT_UNLOCK_BASE_COST = 15_000
+export const PIRATE_SLOT_UNLOCK_GROWTH = 3.16
+
 /** Coin cost to unlock the next gun port, given the number currently unlocked. */
 export function pirateSlotUnlockCost(currentSlots: number): number | null {
   if (currentSlots >= PIRATE_MAX_CANNON_SLOTS) return null
-  return Math.round(300 * Math.pow(1.7, currentSlots - 1))
+  return Math.round(PIRATE_SLOT_UNLOCK_BASE_COST * Math.pow(PIRATE_SLOT_UNLOCK_GROWTH, currentSlots - 1))
 }
 
 /** Expected damage per second, accuracy-weighted, vs a given defense rating — used for shop comparisons. */
@@ -93,6 +105,16 @@ export function pirateCannonDps(tier: PirateCannonTier, defenseRating: number) {
 // ─── Ammo ───────────────────────────────────────────────────────────────────
 export const PIRATE_AMMO_PRICE_PER_UNIT = 2
 
+// ─── Gem ammo ───────────────────────────────────────────────────────────────
+// Premium powder bought with gems (much rarer than coins). Each gem buys a
+// small bundle of charged shots that hit harder and more accurately — and burn
+// blue. Stored in its own separate magazine with a fixed capacity.
+export const PIRATE_GEM_AMMO_CAPACITY = 60
+export const PIRATE_GEM_AMMO_BUNDLE_SIZE = 10
+export const PIRATE_GEM_AMMO_BUNDLE_PRICE_GEMS = 1
+export const PIRATE_GEM_AMMO_ATTACK_MULT = 1.5
+export const PIRATE_GEM_AMMO_DAMAGE_MULT = 1.75
+
 // ─── Power level ────────────────────────────────────────────────────────────
 export interface PirateLoadout {
   levels: Record<PirateShipStatId, number>
@@ -100,14 +122,42 @@ export interface PirateLoadout {
   cannonSlots: number
 }
 
-/** All stats at level 1, one starter cannon, one slot — the baseline every new captain starts at. */
-export const PIRATE_BASE_POWER = PIRATE_SHIP_STAT_IDS.length + pirateCannonTier(PIRATE_STARTER_CANNON_TIER).powerRating + 1
+/** Defense rating the power formula measures loadout DPS against. */
+export const PIRATE_POWER_REFERENCE_DEFENSE = 20
 
+/**
+ * Power level measures what the loadout actually DOES rather than what it
+ * cost: real accuracy-weighted DPS dominates (that's what melts enemies),
+ * with smaller terms for effective survivability and utility. Difficulty,
+ * spawn pressure, rewards and the payout cap all key off this, so a ship
+ * with eight Mythrils reads dramatically stronger than one with eight
+ * Swivels even though both fill every port.
+ */
 export function piratePowerLevel(loadout: PirateLoadout) {
-  const statSum = PIRATE_SHIP_STAT_IDS.reduce((sum, id) => sum + clampLevel(loadout.levels[id]), 0)
-  const cannonSum = loadout.cannonTierIds.reduce((sum, id) => sum + pirateCannonTier(id).powerRating, 0)
-  return statSum + cannonSum + loadout.cannonSlots
+  const dps = loadout.cannonTierIds.reduce(
+    (sum, id) => sum + pirateCannonDps(pirateCannonTier(id), PIRATE_POWER_REFERENCE_DEFENSE),
+    0
+  )
+  const maxHp = pirateMaxHp(loadout.levels.hull)
+  const defense = pirateDefenseRating(loadout.levels.defense)
+  const speed = pirateShipSpeed(loadout.levels.speed)
+  const ammoCap = pirateAmmoCapacity(loadout.levels.ammoCapacity)
+  return Math.round(
+    dps * 2
+    + maxHp / 12
+    + defense / 2
+    + speed / 40
+    + ammoCap / 30
+    + loadout.cannonSlots
+  )
 }
+
+/** All stats at level 1, one starter cannon, one slot — the baseline every new captain starts at. */
+export const PIRATE_BASE_POWER = piratePowerLevel({
+  levels: { hull: 1, speed: 1, defense: 1, ammoCapacity: 1 },
+  cannonTierIds: [PIRATE_STARTER_CANNON_TIER],
+  cannonSlots: 1
+})
 
 // ─── Combat rolls (RuneScape-style accuracy) ───────────────────────────────
 export function pirateHitChance(attackRating: number, defenseRating: number) {
@@ -156,44 +206,151 @@ export interface PirateEnemyTier {
   color: number
   /** Relative spawn weight once unlocked (elites use a low weight). */
   weight: number
+  /** Cannonballs per volley (default 1) — corsairs and bosses fire spreads. */
+  volley?: number
+  /** Visual scale of the ship art (default 1). */
+  sizeScale?: number
+  /** Bosses spawn on their own timer, never from the regular weighted pool. */
+  boss?: boolean
 }
 
+// Kill payouts sit an order of magnitude above the old numbers so a strong
+// ship's DPS translates into a visibly bigger per-run haul, but they're still
+// tiny next to the new upgrade costs (tens of thousands to tens of millions)
+// — a full voyage should read as "nice pocket change", not a way to grind out
+// upgrades on its own.
 export const PIRATE_ENEMY_TIERS: PirateEnemyTier[] = [
-  { id: 'sloop', name: 'Sloop', unlockAtMs: 0, hp: 40, defense: 8, attackRating: 18, maxDamage: 14, range: 160, speed: 90, reloadMs: 2200, coinMin: 15, coinMax: 25, color: 0x8b8f96, weight: 10 },
-  { id: 'brigantine', name: 'Brigantine', unlockAtMs: 55_000, hp: 90, defense: 14, attackRating: 26, maxDamage: 20, range: 220, speed: 110, reloadMs: 1900, coinMin: 30, coinMax: 45, color: 0x5b7a9e, weight: 8 },
-  { id: 'frigate', name: 'Frigate', unlockAtMs: 130_000, hp: 160, defense: 20, attackRating: 36, maxDamage: 30, range: 300, speed: 125, reloadMs: 1600, coinMin: 55, coinMax: 80, color: 0xc06a2c, weight: 6 },
-  { id: 'manowar', name: "Man-o'-War", unlockAtMs: 215_000, hp: 260, defense: 30, attackRating: 50, maxDamage: 42, range: 380, speed: 105, reloadMs: 1400, coinMin: 90, coinMax: 130, color: 0x8b2635, weight: 4 },
-  { id: 'ghostship', name: 'Ghost Ship', unlockAtMs: 260_000, hp: 200, defense: 26, attackRating: 58, maxDamage: 48, range: 340, speed: 155, reloadMs: 1100, coinMin: 150, coinMax: 220, color: 0x2ecc9c, weight: 1.5 }
+  { id: 'sloop', name: 'Sloop', unlockAtMs: 0, hp: 30, defense: 5, attackRating: 14, maxDamage: 10, range: 160, speed: 90, reloadMs: 2300, coinMin: 150, coinMax: 250, color: 0x8b8f96, weight: 10, sizeScale: 0.82 },
+  { id: 'corsair', name: 'Crimson Corsair', unlockAtMs: 40_000, hp: 50, defense: 8, attackRating: 24, maxDamage: 11, range: 250, speed: 135, reloadMs: 2700, coinMin: 400, coinMax: 600, color: 0xef4444, weight: 5, volley: 3, sizeScale: 0.9 },
+  { id: 'brigantine', name: 'Brigantine', unlockAtMs: 55_000, hp: 80, defense: 12, attackRating: 24, maxDamage: 18, range: 220, speed: 110, reloadMs: 1900, coinMin: 300, coinMax: 450, color: 0x5b7a9e, weight: 8, sizeScale: 0.94 },
+  { id: 'ironclad', name: 'Cobalt Ironclad', unlockAtMs: 90_000, hp: 300, defense: 32, attackRating: 20, maxDamage: 12, range: 200, speed: 70, reloadMs: 2100, coinMin: 700, coinMax: 1000, color: 0x3b82f6, weight: 4, sizeScale: 1.14 },
+  { id: 'frigate', name: 'Frigate', unlockAtMs: 130_000, hp: 160, defense: 20, attackRating: 36, maxDamage: 30, range: 300, speed: 125, reloadMs: 1600, coinMin: 550, coinMax: 800, color: 0xc06a2c, weight: 6, sizeScale: 1.05 },
+  { id: 'manowar', name: "Man-o'-War", unlockAtMs: 215_000, hp: 260, defense: 30, attackRating: 50, maxDamage: 42, range: 380, speed: 105, reloadMs: 1400, coinMin: 900, coinMax: 1300, color: 0x8b2635, weight: 4, sizeScale: 1.2 },
+  { id: 'ghostship', name: 'Ghost Ship', unlockAtMs: 260_000, hp: 200, defense: 26, attackRating: 58, maxDamage: 48, range: 340, speed: 155, reloadMs: 1100, coinMin: 1500, coinMax: 2200, color: 0x2ecc9c, weight: 1.5, sizeScale: 1.02 },
+  { id: 'dreadnought', name: 'The Dreadnought', unlockAtMs: 0, hp: 850, defense: 30, attackRating: 52, maxDamage: 36, range: 380, speed: 78, reloadMs: 2000, coinMin: 3800, coinMax: 5500, color: 0x991b1b, weight: 0, volley: 3, sizeScale: 1.55, boss: true }
 ]
 
+// ─── Boss cadence ───────────────────────────────────────────────────────────
+// A Dreadnought surfaces on its own clock (independent of the concurrency
+// cap). A strong ship gets it sooner — otherwise the scariest thing in the
+// game never shows up until the fight's basically over for a well-built crew.
+export const PIRATE_BOSS_FIRST_SPAWN_MS = 70_000
+export const PIRATE_BOSS_RESPAWN_MS = 80_000
+
+/** First Dreadnought sighting — pulled earlier the stronger the ship. */
+export function pirateBossFirstSpawnMs(power: number) {
+  return Math.round(PIRATE_BOSS_FIRST_SPAWN_MS - piratePowerT(power) * 30_000)
+}
+
 /**
- * Enemies get tougher over the run (hp/damage scale fully; accuracy/defense
- * scale at half rate so the hit-chance formula never degenerates toward
- * always-hit or always-miss) AND scale up with the player's power level, so a
- * fully-upgraded ship still faces a ~5-minute fight instead of trivializing
- * early game content.
+ * Difficulty ramp. Design goal: nobody comfortably survives the full 5
+ * minutes — the sea always wins eventually, and the question is how deep you
+ * get and how much loot you extract first. Crucially, a strong ship should
+ * feel real pressure from minute one — the old curve leaned almost entirely
+ * on elapsed time, which left the opening stretch trivial for anyone with a
+ * kitted-out broadside since the power-based bite hadn't caught up yet.
+ *
+ * - Enemy HP tracks the player's power (which is DPS-dominated) immediately,
+ *   not just as time goes on — a maxed broadside faces bulky targets from
+ *   the first shot, while a rookie still pops early ships quickly. A
+ *   super-linear time ramp still kicks in on top of that past the ~40% mark.
+ * - Enemy damage ramps with time and with power so the late run is lethal
+ *   for everyone, and strong ships get chip-damaged from the start too.
+ * - Accuracy/defense ratings scale at a damped rate with a hard cap, because
+ *   the hit-chance formula degenerates (always-miss / always-hit) when
+ *   ratings run away.
  */
 export function pirateDifficultyMultiplier(elapsedMs: number, power: number) {
-  const timeT = Math.min(1, elapsedMs / PIRATE_RUN_DURATION_MS)
-  const timeMult = 1 + timeT * 0.9
-  const powerMult = 1 + Math.max(0, power - PIRATE_BASE_POWER) * 0.006
-  const fullMult = timeMult * powerMult
-  return { hpMult: fullMult, dmgMult: fullMult, statMult: 1 + (fullMult - 1) * 0.5 }
+  const t = Math.min(1.05, elapsedMs / PIRATE_RUN_DURATION_MS)
+  const overBase = Math.max(0, power - PIRATE_BASE_POWER)
+
+  const timeHpMult = 1 + t * 0.9 + Math.pow(Math.max(0, t - 0.5), 2) * 2.4
+  const powerHpMult = 1 + overBase * 0.018
+  const hpMult = timeHpMult * powerHpMult
+
+  const dmgMult = (1 + t * 1.1) * (1 + overBase * 0.004)
+
+  const statMult = Math.min(2.1, 1 + (hpMult - 1) * 0.11)
+
+  return { hpMult, dmgMult, statMult }
 }
 
-export function pirateSpawnIntervalMs(elapsedMs: number) {
+/**
+ * Loot inflation — kill rewards (and treasure) climb with run time and player
+ * power so the risk of staying out longer keeps paying, and strong ships
+ * facing spongier enemies aren't earning rookie rates.
+ */
+export function pirateRewardMultiplier(elapsedMs: number, power: number) {
+  const t = Math.min(1.05, elapsedMs / PIRATE_RUN_DURATION_MS)
+  const overBase = Math.max(0, power - PIRATE_BASE_POWER)
+  return 1 + t * 1.6 + overBase * 0.008
+}
+
+/**
+ * Normalized 0..1 progression of the player's power level, used to scale how
+ * crowded the map gets and how fast enemies spawn. This deliberately caps out
+ * well before the theoretical max (a full Leviathan's Wrath broadside runs
+ * power ~1045) — there's a sane ceiling on how many hulls can usefully be on
+ * screen and how fast they can arrive. Past that ceiling, difficulty keeps
+ * climbing anyway through pirateDifficultyMultiplier's uncapped per-power HP
+ * and damage scaling below, so min-maxing the armory never plateaus into an
+ * easy game, it just stops meaning "more enemies" and starts meaning
+ * "nastier ones".
+ */
+export function piratePowerT(power: number) {
+  return Math.min(1, Math.max(0, (power - PIRATE_BASE_POWER) / 500))
+}
+
+/**
+ * Spawn cadence — weak ships see a relaxed trickle, strong ships get
+ * swarmed hard from the opening seconds. A maxed broadside two-shots
+ * individual hulls, so the actual challenge has to come from volume: more
+ * hulls, arriving faster — and a strong ship shouldn't have to wait out the
+ * clock to see that pressure, it should be there from minute one.
+ */
+export function pirateSpawnIntervalMs(elapsedMs: number, power: number) {
   const t = Math.min(1, elapsedMs / PIRATE_RUN_DURATION_MS)
-  return Math.round(7000 - t * (7000 - 3200))
+  const pT = piratePowerT(power)
+  const start = 7000 - pT * 5200 // 7s at base power → 1.8s fully kitted, from second one
+  const end = 3200 - pT * 2200 // 3.2s → 1s by the end of the run
+  return Math.round(start - t * (start - end))
 }
 
-export function pirateMaxConcurrentEnemies(elapsedMs: number) {
+/**
+ * Concurrent enemy cap — grows with both run time and player power. The
+ * power-driven `growth` term intentionally isn't fully gated behind `t`
+ * (only `timeWeight` scales it down, and even at t=0 a third of it still
+ * applies) — otherwise a heavily-kitted ship would see almost nothing extra
+ * in the opening seconds, which is exactly the "first few minutes are zero
+ * challenge" problem this is meant to fix.
+ */
+export function pirateMaxConcurrentEnemies(elapsedMs: number, power: number) {
   const t = Math.min(1, elapsedMs / PIRATE_RUN_DURATION_MS)
-  return Math.round(3 + t * 4)
+  const pT = piratePowerT(power)
+  const base = 1 + pT * 5 // 1 at the start for a rookie, 6 for a veteran, from the first spawn
+  const growth = 2 + pT * 5 // +2 over the run for a rookie, +7 for a veteran
+  const timeWeight = 0.35 + t * 0.65
+  return Math.round(base + growth * timeWeight)
 }
 
-/** Weighted-random pick among tiers unlocked at `elapsedMs`. */
-export function pirateRollEnemyTier(elapsedMs: number, rng: () => number = Math.random): PirateEnemyTier {
-  const available = PIRATE_ENEMY_TIERS.filter(t => elapsedMs >= t.unlockAtMs)
+// ─── Kill combos ────────────────────────────────────────────────────────────
+// Sinking ships back-to-back chains a combo: each link adds a coin bonus on
+// top of the kill reward, capped so it stays a nice ramp rather than the
+// dominant income source.
+export const PIRATE_COMBO_WINDOW_MS = 6000
+export const PIRATE_COMBO_BONUS_PER_STACK = 0.1
+export const PIRATE_COMBO_MAX_STACKS = 5
+
+/**
+ * Weighted-random pick among non-boss tiers unlocked at `elapsedMs`. A strong
+ * ship gets an "unlock head start" of up to 90s at full power — otherwise the
+ * opening stretch of every run is nothing but sloops and corsairs regardless
+ * of how kitted the player is, which is a big part of why the early game
+ * used to feel trivial no matter how strong the ship.
+ */
+export function pirateRollEnemyTier(elapsedMs: number, power = PIRATE_BASE_POWER, rng: () => number = Math.random): PirateEnemyTier {
+  const effectiveElapsedMs = elapsedMs + piratePowerT(power) * 90_000
+  const available = PIRATE_ENEMY_TIERS.filter(t => !t.boss && t.weight > 0 && effectiveElapsedMs >= t.unlockAtMs)
   const pool = available.length ? available : [PIRATE_ENEMY_TIERS[0]!]
   const totalWeight = pool.reduce((sum, t) => sum + t.weight, 0)
   let roll = rng() * totalWeight
@@ -209,9 +366,9 @@ export const PIRATE_TREASURE_MIN_INTERVAL_MS = 25_000
 export const PIRATE_TREASURE_MAX_INTERVAL_MS = 40_000
 export const PIRATE_TREASURE_LIFESPAN_MS = 20_000
 
-export function pirateTreasureReward(elapsedMs: number, rng: () => number = Math.random) {
+export function pirateTreasureReward(elapsedMs: number, power = PIRATE_BASE_POWER, rng: () => number = Math.random) {
   const t = Math.min(1, elapsedMs / PIRATE_RUN_DURATION_MS)
-  const base = 80 + t * 70
+  const base = (800 + t * 700) * (1 + Math.max(0, power - PIRATE_BASE_POWER) * 0.004)
   const variance = 0.8 + rng() * 0.4
   return Math.round(base * variance)
 }
@@ -222,10 +379,13 @@ export function pirateTreasureReward(elapsedMs: number, rng: () => number = Math
 // payout to what's plausible for the elapsed wall-clock time and the power
 // level snapshotted at run start, with generous slack over the expected
 // average haul so skilled/lucky runs are never clipped in practice.
-export function pirateMaxPayoutForRun(elapsedMs: number, power: number) {
+export function pirateMaxPayoutForRun(elapsedMs: number, power: number, gemAmmoUsed = 0) {
   const seconds = Math.max(0, elapsedMs / 1000)
-  const ratePerSecond = 8 + Math.max(0, power - PIRATE_BASE_POWER) * 0.35
-  return Math.round(ratePerSecond * seconds * 1.4)
+  const ratePerSecond = 80 + Math.max(0, power - PIRATE_BASE_POWER) * 3
+  // Gem shots noticeably accelerate the kill rate, so each one spent raises
+  // the plausible-haul ceiling a little (combo bonuses and the late-run
+  // reward multiplier live inside the 1.8 slack factor).
+  return Math.round(ratePerSecond * seconds * 1.8 + gemAmmoUsed * 50)
 }
 
 export const PIRATE_MIN_RUN_MS_FOR_PAYOUT = 3000

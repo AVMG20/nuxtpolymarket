@@ -120,6 +120,8 @@ export const pirateState = pgTable('pirate_state', {
   // (see pirateCannons) so a brand new player isn't defenseless.
   cannonSlots: integer('cannon_slots').notNull().default(1),
   ammoCount: integer('ammo_count').notNull().default(30),
+  // Premium gem-bought shots, tracked separately from the coin-bought stock.
+  gemAmmoCount: integer('gem_ammo_count').notNull().default(0),
   runsPlayed: integer('runs_played').notNull().default(0),
   totalCoinsEarned: integer('total_coins_earned').notNull().default(0),
   bestSurvivalMs: integer('best_survival_ms').notNull().default(0),
