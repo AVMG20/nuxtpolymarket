@@ -4,6 +4,7 @@ const route = useRoute()
 const tabs = [
   { label: 'Set Sail', to: '/pirates', icon: 'i-lucide-sailboat' },
   { label: 'Ship', to: '/pirates/manage', icon: 'i-lucide-hammer' },
+  { label: 'Wiki', to: '/pirates/wiki', icon: 'i-lucide-book-open' },
   { label: 'Leaderboard', to: '/pirates/leaderboard', icon: 'i-lucide-trophy' }
 ]
 

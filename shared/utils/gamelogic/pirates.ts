@@ -30,6 +30,55 @@ export const PIRATE_STARTER_ABILITY_ID: PirateAbilityId = 'bomb'
 export function pirateAbility(id: string) {
   return PIRATE_ABILITIES.find(ability => ability.id === id) ?? PIRATE_ABILITIES[0]
 }
+
+export type PiratePowerUpId =
+  | 'broadside-fury'
+  | 'quick-fuse'
+  | 'eagle-eye'
+  | 'iron-plating'
+  | 'tide-shield'
+  | 'titan-shot'
+  | 'blast-powder'
+  | 'deadeye'
+  | 'rapid-loader'
+  | 'keen-sights'
+  | 'reinforced-keel'
+  | 'lucky-shot'
+  | 'razor-orbit'
+  | 'starburst-battery'
+  | 'chain-tempest'
+  | 'ghost-armada'
+  | 'blood-tide'
+
+export interface PiratePowerUpDefinition {
+  id: PiratePowerUpId
+  name: string
+  description: string
+  icon: string
+  color: number
+  durationMs: number | null
+  maxStacks: number
+}
+
+export const PIRATE_POWER_UPS: PiratePowerUpDefinition[] = [
+  { id: 'broadside-fury', name: 'Broadside Fury', description: '+20% cannon damage per stack', icon: '🔥', color: 0xf97316, durationMs: 35_000, maxStacks: 4 },
+  { id: 'quick-fuse', name: 'Quick Fuse', description: 'Cannons reload 20% faster per stack', icon: '⚡', color: 0xfacc15, durationMs: 30_000, maxStacks: 3 },
+  { id: 'eagle-eye', name: "Eagle's Eye", description: '+25% cannon range per stack', icon: '🔭', color: 0x60a5fa, durationMs: 45_000, maxStacks: 3 },
+  { id: 'iron-plating', name: 'Iron Plating', description: '+30% defense per stack', icon: '⚓', color: 0x94a3b8, durationMs: 45_000, maxStacks: 3 },
+  { id: 'tide-shield', name: 'Tide Shield', description: '+20 rechargeable shield per stack', icon: '🛡️', color: 0x22d3ee, durationMs: null, maxStacks: 5 },
+  { id: 'titan-shot', name: 'Titan Shot', description: 'Stacks make massive shots more frequent', icon: '💥', color: 0xa78bfa, durationMs: 70_000, maxStacks: 4 },
+  { id: 'blast-powder', name: 'Blast Powder', description: 'Stacks make explosive shots more frequent', icon: '🧨', color: 0xef4444, durationMs: 55_000, maxStacks: 3 },
+  { id: 'deadeye', name: 'Deadeye', description: '+22% cannon accuracy per stack', icon: '🎯', color: 0x4ade80, durationMs: 45_000, maxStacks: 3 },
+  { id: 'rapid-loader', name: 'Rapid Loader', description: '+10% reload speed per stack', icon: '⏱️', color: 0xfde047, durationMs: 90_000, maxStacks: 5 },
+  { id: 'keen-sights', name: 'Keen Sights', description: '+10% range per stack', icon: '👁️', color: 0x7dd3fc, durationMs: 120_000, maxStacks: 5 },
+  { id: 'reinforced-keel', name: 'Reinforced Keel', description: '+10% sailing speed per stack', icon: '⛵', color: 0x34d399, durationMs: 120_000, maxStacks: 5 },
+  { id: 'lucky-shot', name: 'Lucky Shot', description: '+8% cannon damage per stack', icon: '🍀', color: 0x86efac, durationMs: 100_000, maxStacks: 5 },
+  { id: 'razor-orbit', name: 'Razor Orbit', description: 'Spinning blades shred nearby ships', icon: '🪚', color: 0xf87171, durationMs: 50_000, maxStacks: 4 },
+  { id: 'starburst-battery', name: 'Starburst Battery', description: 'Fires ten cannonballs in every direction', icon: '☀️', color: 0xfbbf24, durationMs: 32_000, maxStacks: 4 },
+  { id: 'chain-tempest', name: 'Chain Tempest', description: 'Automatic lightning tears through fleets', icon: '🌩️', color: 0x38bdf8, durationMs: 42_000, maxStacks: 4 },
+  { id: 'ghost-armada', name: 'Ghost Armada', description: 'Spectral escorts orbit and fire for you', icon: '👻', color: 0xc4b5fd, durationMs: 80_000, maxStacks: 4 },
+  { id: 'blood-tide', name: 'Blood Tide', description: 'Every point of damage dealt restores 1 hull', icon: '🩸', color: 0xfb7185, durationMs: 24_000, maxStacks: 1 }
+]
 // An 8-minute real-time roguelike skirmish. Ship-level upgrades (hull, speed,
 // defense, ammo capacity) are bought directly; attack power instead comes from
 // equipping cannons (up to 8 gun ports) bought from the armory, each with its
