@@ -107,6 +107,53 @@ export const minerState = pgTable('miner_state', {
   catalystLevel: integer('catalyst_level').notNull().default(0)
 })
 
+// ─── Pirates ──────────────────────────────────────────────────────────────
+
+export const pirateState = pgTable('pirate_state', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().unique().references(() => user.id, { onDelete: 'cascade' }),
+  hullLevel: integer('hull_level').notNull().default(1),
+  speedLevel: integer('speed_level').notNull().default(1),
+  defenseLevel: integer('defense_level').notNull().default(1),
+  ammoCapacityLevel: integer('ammo_capacity_level').notNull().default(1),
+  // Unlocked gun ports. Slot 0 starts equipped with a free starter cannon
+  // (see pirateCannons) so a brand new player isn't defenseless.
+  cannonSlots: integer('cannon_slots').notNull().default(1),
+  ammoCount: integer('ammo_count').notNull().default(30),
+  // Premium gem-bought shots, tracked separately from the coin-bought stock.
+  gemAmmoCount: integer('gem_ammo_count').notNull().default(0),
+  runsPlayed: integer('runs_played').notNull().default(0),
+  totalCoinsEarned: integer('total_coins_earned').notNull().default(0),
+  bestSurvivalMs: integer('best_survival_ms').notNull().default(0),
+  // Set when a voyage starts, cleared on finish. Server computes elapsed time
+  // from this instead of trusting the client, and snapshots the power level
+  // so mid-run upgrades can't raise the finish-run payout ceiling.
+  runStartedAt: timestamp('run_started_at'),
+  runPowerSnapshot: integer('run_power_snapshot'),
+  // Hull damage from the last voyage puts the ship in dry dock — up to 2h for
+  // a total loss, proportional for a partial one. Set on finish-run, cleared
+  // naturally once it elapses or immediately via the repair-rush endpoint.
+  // hullRepairTotalMs is kept alongside so the client can render a progress
+  // bar (it's the original duration this repair was scheduled for).
+  hullRepairUntil: timestamp('hull_repair_until'),
+  hullRepairTotalMs: integer('hull_repair_total_ms').notNull().default(0)
+})
+
+// Equipped cannons, one row per occupied gun port (0..cannonSlots-1). Selling
+// removes the row; purchasePrice is stored per-instance (rather than re-read
+// from the tier config) so the 20% sell refund stays correct even if tier
+// prices are rebalanced later.
+export const pirateCannons = pgTable('pirate_cannons', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  slotIndex: integer('slot_index').notNull(),
+  tierId: text('tier_id').notNull(),
+  purchasePrice: integer('purchase_price').notNull()
+}, t => [
+  index('pirate_cannons_userId_idx').on(t.userId),
+  unique('pirate_cannons_slot_unique').on(t.userId, t.slotIndex)
+])
+
 export const gemMarketState = pgTable('gem_market_state', {
   id: text('id').primaryKey(), // always 'market'
   price: numeric('price', { precision: 19, scale: 8 }).notNull(),
@@ -320,11 +367,21 @@ export const userRelations = relations(user, ({ many, one }) => ({
   sessions: many(session),
   accounts: many(account),
   transactions: many(transactions),
-  minerState: one(minerState)
+  minerState: one(minerState),
+  pirateState: one(pirateState),
+  pirateCannons: many(pirateCannons)
 }))
 
 export const minerStateRelations = relations(minerState, ({ one }) => ({
   user: one(user, { fields: [minerState.userId], references: [user.id] })
+}))
+
+export const pirateStateRelations = relations(pirateState, ({ one }) => ({
+  user: one(user, { fields: [pirateState.userId], references: [user.id] })
+}))
+
+export const pirateCannonsRelations = relations(pirateCannons, ({ one }) => ({
+  user: one(user, { fields: [pirateCannons.userId], references: [user.id] })
 }))
 
 export const gemPriceHistoryRelations = relations(gemPriceHistory, ({ one }) => ({
