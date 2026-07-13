@@ -95,6 +95,8 @@ const HOLD_RANGE_FRACTION = 0.85
 const ROTATE_LERP = 0.12
 const WAYPOINT_REACH_DIST = 12
 const PLAYER_BOMB_RADIUS = 145
+const ENEMY_POWER_UP_DROP_CHANCE = 0.1
+const ENEMY_HEALTH_PACK_DROP_CHANCE = 0.05
 
 // Pathfinding grid — coarse cells over circular island obstacles. Ships are
 // treated as circles of SHIP_RADIUS for clearance checks.
@@ -278,8 +280,8 @@ export class PirateGame {
     private nextEnemyId = 1
     private enemies = new Map<number, Enemy>()
     private treasure: Treasure | null = null
-    private powerUpPickup: PowerUpPickup | null = null
-    private healthPackPickup: HealthPackPickup | null = null
+    private powerUpPickups: PowerUpPickup[] = []
+    private healthPackPickups: HealthPackPickup[] = []
     private seaMines: SeaMine[] = []
     private activePowerUps = new Map<PiratePowerUpId, number | null>()
     private powerUpStacks = new Map<PiratePowerUpId, number>()
@@ -1964,6 +1966,12 @@ export class PirateGame {
         this.spawnExplosion(enemy.x, enemy.y, 0xfb923c, true)
         this.spawnSinkBubbles(enemy.x, enemy.y)
 
+        if (Math.random() < ENEMY_POWER_UP_DROP_CHANCE) {
+            this.spawnPowerUp(enemy.x, enemy.y)
+        } else if (Math.random() < ENEMY_HEALTH_PACK_DROP_CHANCE) {
+            this.spawnHealthPack(enemy.x, enemy.y)
+        }
+
         if (enemy.tier.boss) {
             this.bossCount = Math.max(0, this.bossCount - 1)
             this.bossTimerMs = this.elapsedMs >= 7 * 60_000 ? 12_000 : PIRATE_BOSS_RESPAWN_MS
@@ -2296,8 +2304,7 @@ export class PirateGame {
 
         this.updateRoguePowerUps(dt, deltaMS)
 
-        const pickup = this.powerUpPickup
-        if (pickup) {
+        for (const pickup of [...this.powerUpPickups]) {
             pickup.age += deltaMS
             pickup.x += pickup.vx * dt
             pickup.y += pickup.vy * dt
@@ -2318,8 +2325,7 @@ export class PirateGame {
             }
         }
 
-        const healthPack = this.healthPackPickup
-        if (healthPack) {
+        for (const healthPack of [...this.healthPackPickups]) {
             healthPack.age += deltaMS
             healthPack.x += healthPack.vx * dt
             healthPack.y += healthPack.vy * dt
@@ -2342,12 +2348,12 @@ export class PirateGame {
 
         this.powerUpTimerMs -= deltaMS
         if (this.powerUpTimerMs <= 0) {
-            if (!this.powerUpPickup) this.spawnPowerUp()
+            if (!this.powerUpPickups.length) this.spawnPowerUp()
             this.powerUpTimerMs += PIRATE_POWER_UP_INTERVAL_MS
         }
         this.healthPackTimerMs -= deltaMS
         if (this.healthPackTimerMs <= 0) {
-            if (!this.healthPackPickup) this.spawnHealthPack()
+            if (!this.healthPackPickups.length) this.spawnHealthPack()
             this.healthPackTimerMs += PIRATE_HEALTH_PACK_INTERVAL_MS
         }
 
@@ -2358,14 +2364,14 @@ export class PirateGame {
         }
     }
 
-    private spawnPowerUp() {
+    private spawnPowerUp(dropX?: number, dropY?: number) {
         if (!this.running || !this.app) return
         const choices = PIRATE_POWER_UPS.filter(definition => this.powerUpStack(definition.id) < definition.maxStacks)
         const definition = (choices.length ? choices : PIRATE_POWER_UPS)[Math.floor(Math.random() * (choices.length || PIRATE_POWER_UPS.length))]!
         const margin = 110
-        let x = randRange(margin, WORLD_W - margin)
-        let y = randRange(margin, WORLD_H - margin)
-        if (dist(x, y, this.playerX, this.playerY) < 220) {
+        let x = dropX ?? randRange(margin, WORLD_W - margin)
+        let y = dropY ?? randRange(margin, WORLD_H - margin)
+        if (dropX === undefined && dropY === undefined && dist(x, y, this.playerX, this.playerY) < 220) {
             x = WORLD_W - x
             y = WORLD_H - y
         }
@@ -2409,18 +2415,18 @@ export class PirateGame {
         root.on('pointerdown', (e) => {
             if (e.button !== 0) return
             e.stopPropagation()
-            const activePickup = this.powerUpPickup
-            if (!this.running || activePickup?.root !== root) return
+            const activePickup = this.powerUpPickups.find(pickup => pickup.root === root)
+            if (!this.running || !activePickup) return
             this.attackTargetId = null
             this.playerPath = this.computePath(this.playerX, this.playerY, activePickup.x, activePickup.y)
         })
 
-        this.powerUpPickup = { root, definition, x, y, vx: randRange(-12, 12), vy: randRange(-12, 12), age: 0 }
+        this.powerUpPickups.push({ root, definition, x, y, vx: randRange(-12, 12), vy: randRange(-12, 12), age: 0 })
         this.callbacks.onPowerUpSpawn?.(definition.name)
     }
 
     private collectPowerUp(pickup: PowerUpPickup) {
-        this.powerUpPickup = null
+        this.powerUpPickups = this.powerUpPickups.filter(active => active !== pickup)
         const { definition } = pickup
         const stacks = Math.min(definition.maxStacks, this.powerUpStack(definition.id) + 1)
         this.powerUpStacks.set(definition.id, stacks)
@@ -2443,17 +2449,17 @@ export class PirateGame {
     }
 
     private expirePowerUpPickup(pickup: PowerUpPickup) {
-        this.powerUpPickup = null
+        this.powerUpPickups = this.powerUpPickups.filter(active => active !== pickup)
         gsap.killTweensOf(pickup.root)
         gsap.to(pickup.root, { alpha: 0, duration: 0.5, onComplete: () => pickup.root.destroy({ children: true }) })
     }
 
-    private spawnHealthPack() {
+    private spawnHealthPack(dropX?: number, dropY?: number) {
         if (!this.running || !this.app) return
         const margin = 110
-        let x = randRange(margin, WORLD_W - margin)
-        let y = randRange(margin, WORLD_H - margin)
-        if (dist(x, y, this.playerX, this.playerY) < 210) {
+        let x = dropX ?? randRange(margin, WORLD_W - margin)
+        let y = dropY ?? randRange(margin, WORLD_H - margin)
+        if (dropX === undefined && dropY === undefined && dist(x, y, this.playerX, this.playerY) < 210) {
             x = WORLD_W - x
             y = WORLD_H - y
         }
@@ -2494,18 +2500,18 @@ export class PirateGame {
         root.on('pointerdown', (e) => {
             if (e.button !== 0) return
             e.stopPropagation()
-            const activePack = this.healthPackPickup
-            if (!this.running || activePack?.root !== root) return
+            const activePack = this.healthPackPickups.find(pack => pack.root === root)
+            if (!this.running || !activePack) return
             this.attackTargetId = null
             this.playerPath = this.computePath(this.playerX, this.playerY, activePack.x, activePack.y)
         })
 
-        this.healthPackPickup = { root, x, y, vx: randRange(-10, 10), vy: randRange(-10, 10), age: 0, healFraction: randRange(0.1, 0.2) }
+        this.healthPackPickups.push({ root, x, y, vx: randRange(-10, 10), vy: randRange(-10, 10), age: 0, healFraction: randRange(0.1, 0.2) })
         this.callbacks.onHealthPackSpawn?.()
     }
 
     private collectHealthPack(pack: HealthPackPickup) {
-        this.healthPackPickup = null
+        this.healthPackPickups = this.healthPackPickups.filter(active => active !== pack)
         const requestedHeal = Math.max(1, Math.round(this.stats.maxHp * pack.healFraction))
         const healed = Math.min(requestedHeal, this.stats.maxHp - this.playerHp)
         this.playerHp += healed
@@ -2520,7 +2526,7 @@ export class PirateGame {
     }
 
     private expireHealthPack(pack: HealthPackPickup) {
-        this.healthPackPickup = null
+        this.healthPackPickups = this.healthPackPickups.filter(active => active !== pack)
         gsap.killTweensOf(pack.root)
         gsap.to(pack.root, { alpha: 0, duration: 0.5, onComplete: () => pack.root.destroy({ children: true }) })
     }
@@ -3171,16 +3177,16 @@ export class PirateGame {
             this.treasure.root.destroy({ children: true })
             this.treasure = null
         }
-        if (this.powerUpPickup) {
-            gsap.killTweensOf(this.powerUpPickup.root)
-            this.powerUpPickup.root.destroy({ children: true })
-            this.powerUpPickup = null
+        for (const pickup of this.powerUpPickups) {
+            gsap.killTweensOf(pickup.root)
+            pickup.root.destroy({ children: true })
         }
-        if (this.healthPackPickup) {
-            gsap.killTweensOf(this.healthPackPickup.root)
-            this.healthPackPickup.root.destroy({ children: true })
-            this.healthPackPickup = null
+        this.powerUpPickups = []
+        for (const pack of this.healthPackPickups) {
+            gsap.killTweensOf(pack.root)
+            pack.root.destroy({ children: true })
         }
+        this.healthPackPickups = []
         for (const mine of this.seaMines) {
             gsap.killTweensOf(mine.root)
             gsap.killTweensOf(mine.root.children)
