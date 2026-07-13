@@ -1,4 +1,4 @@
-import { PirateGame, type PirateShipStats } from '~/utils/pirates-engine'
+import { PirateGame, type PirateActivePowerUp, type PirateShipStats } from '~/utils/pirates-engine'
 
 // ─── Shared pirate-voyage state ────────────────────────────────────────────
 // Navigating between /pirates and /pirates/manage unmounts and remounts the
@@ -16,7 +16,7 @@ interface PirateStateSnapshot {
     stats: { maxHp: number, speed: number, defenseRating: number }
     ammo: { count: number }
     gemAmmo: { count: number }
-    cannons: { slotIndex: number, attackRating: number, maxDamage: number, reloadMs: number, range: number }[]
+    cannons: { slotIndex: number, tierId: string, attackRating: number, maxDamage: number, reloadMs: number, range: number, shotColor: number, shotTrail: boolean }[]
 }
 
 export interface PirateGameOverInfo {
@@ -42,6 +42,11 @@ const running = ref(false)
 const paused = ref(false)
 const starting = ref(false)
 const killFeed = ref<{ id: number, text: string }[]>([])
+const activePowerUps = ref<PirateActivePowerUp[]>([])
+const nextPowerUpMs = ref(30_000)
+const nextHealthPackMs = ref(45_000)
+const powerUpNotice = ref<{ title: string, collected: boolean } | null>(null)
+let powerUpNoticeTimeout: ReturnType<typeof setTimeout> | null = null
 let killFeedSeq = 0
 
 const combo = ref(0)
@@ -86,6 +91,12 @@ function showBossWarning(name: string) {
     bossTimeout = setTimeout(() => { bossVisible.value = false }, 4000)
 }
 
+function showPowerUpNotice(title: string, collected: boolean) {
+    powerUpNotice.value = { title, collected }
+    if (powerUpNoticeTimeout) clearTimeout(powerUpNoticeTimeout)
+    powerUpNoticeTimeout = setTimeout(() => { powerUpNotice.value = null }, collected ? 2600 : 4200)
+}
+
 async function handleGameOver(result: {
     survived: boolean
     coins: number
@@ -100,6 +111,8 @@ async function handleGameOver(result: {
     running.value = false
     paused.value = false
     comboVisible.value = false
+    activePowerUps.value = []
+    powerUpNotice.value = null
     try {
         const res = await $fetch('/api/pirates/finish-run', {
             method: 'POST',
@@ -140,7 +153,16 @@ function buildCallbacks() {
         onGameOver: (result: Parameters<typeof handleGameOver>[0]) => { handleGameOver(result) },
         onKill: (tierName: string, reward: number) => pushKillFeed(`Sunk a ${tierName} (+${reward})`),
         onCombo: (count: number) => showCombo(count),
-        onBossSpawn: (name: string) => showBossWarning(name)
+        onBossSpawn: (name: string) => showBossWarning(name),
+        onPowerUpsChange: (powerUps: PirateActivePowerUp[], nextDropMs: number, nextRepairMs: number) => {
+            activePowerUps.value = powerUps
+            nextPowerUpMs.value = nextDropMs
+            nextHealthPackMs.value = nextRepairMs
+        },
+        onPowerUpSpawn: (name: string) => showPowerUpNotice(`${name} sighted — sail to collect it!`, false),
+        onPowerUpCollected: (name: string) => showPowerUpNotice(`${name} activated!`, true),
+        onHealthPackSpawn: () => showPowerUpNotice('Hull repair pack sighted — sail to collect it!', false),
+        onHealthPackCollected: (amount: number) => showPowerUpNotice(`Hull repaired by ${amount}!`, true)
     }
 }
 
@@ -196,7 +218,7 @@ export function usePirateRun() {
             defenseRating: state.stats.defenseRating,
             ammo: state.ammo.count,
             gemAmmo: state.gemAmmo.count,
-            cannons: state.cannons.map(c => ({ slotIndex: c.slotIndex, attackRating: c.attackRating, maxDamage: c.maxDamage, reloadMs: c.reloadMs, range: c.range }))
+            cannons: state.cannons.map(c => ({ slotIndex: c.slotIndex, tierId: c.tierId, attackRating: c.attackRating, maxDamage: c.maxDamage, reloadMs: c.reloadMs, range: c.range, shotColor: c.shotColor, shotTrail: c.shotTrail }))
         } satisfies PirateShipStats)
 
         await game.mount(host)
@@ -229,6 +251,10 @@ export function usePirateRun() {
             preferGem.value = false
             remainingMs.value = res.runDurationMs
             killFeed.value = []
+            activePowerUps.value = []
+            nextPowerUpMs.value = 30_000
+            nextHealthPackMs.value = 45_000
+            powerUpNotice.value = null
             comboVisible.value = false
             gameOverVisible.value = false
             running.value = true
@@ -288,6 +314,10 @@ export function usePirateRun() {
         paused,
         starting,
         killFeed,
+        activePowerUps,
+        nextPowerUpMs,
+        nextHealthPackMs,
+        powerUpNotice,
         combo,
         comboVisible,
         bossName,

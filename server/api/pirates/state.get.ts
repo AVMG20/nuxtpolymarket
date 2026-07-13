@@ -49,6 +49,8 @@ export default defineEventHandler(async (event) => {
                 maxDamage: tier.maxDamage,
                 reloadMs: tier.reloadMs,
                 range: tier.range,
+                shotColor: tier.shotColor,
+                shotTrail: tier.shotTrail ?? false,
                 purchasePrice: c.purchasePrice,
                 sellValue: Math.round(c.purchasePrice * PIRATE_CANNON_SELL_REFUND_RATE)
             }

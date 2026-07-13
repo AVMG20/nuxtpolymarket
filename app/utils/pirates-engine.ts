@@ -3,20 +3,29 @@ import gsap from 'gsap'
 import {
     PIRATE_RUN_DURATION_MS,
     PIRATE_TREASURE_MIN_INTERVAL_MS, PIRATE_TREASURE_MAX_INTERVAL_MS, PIRATE_TREASURE_LIFESPAN_MS,
+    PIRATE_POWER_UP_INTERVAL_MS, PIRATE_POWER_UP_LIFESPAN_MS,
+    PIRATE_HEALTH_PACK_INTERVAL_MS, PIRATE_HEALTH_PACK_LIFESPAN_MS,
+    PIRATE_SEA_MINE_INTERVAL_MS, PIRATE_SEA_MINE_LIFESPAN_MS,
     PIRATE_GEM_AMMO_ATTACK_MULT, PIRATE_GEM_AMMO_DAMAGE_MULT,
     PIRATE_COMBO_WINDOW_MS, PIRATE_COMBO_BONUS_PER_STACK, PIRATE_COMBO_MAX_STACKS,
-    PIRATE_BOSS_FIRST_SPAWN_MS, PIRATE_BOSS_RESPAWN_MS, PIRATE_ENEMY_TIERS,
+    PIRATE_BOSS_FIRST_SPAWN_MS, PIRATE_BOSS_RESPAWN_MS, PIRATE_BOSS_DAMAGE_MULT, PIRATE_ENEMY_TIERS,
     pirateSpawnIntervalMs, pirateMaxConcurrentEnemies, pirateRollEnemyTier, pirateDifficultyMultiplier,
     pirateTreasureReward, pirateRollAttack, pirateRewardMultiplier, pirateBossFirstSpawnMs,
+    pirateInitialEnemyCount, pirateSpawnBatchSize,
+    pirateSeaMineDamageFraction,
+    pirateEnemyReloadMultiplier,
     type PirateEnemyTier
 } from '#shared/utils/gamelogic/pirates'
 
 export interface PirateCannonRuntime {
     slotIndex: number
+    tierId: string
     attackRating: number
     maxDamage: number
     reloadMs: number
     range: number
+    shotColor: number
+    shotTrail: boolean
 }
 
 export interface PirateShipStats {
@@ -41,6 +50,26 @@ export interface PirateGameOverResult {
     hullDamageFraction: number
 }
 
+export type PiratePowerUpId =
+    | 'broadside-fury'
+    | 'quick-fuse'
+    | 'eagle-eye'
+    | 'iron-plating'
+    | 'tide-shield'
+    | 'titan-shot'
+    | 'blast-powder'
+    | 'deadeye'
+
+export interface PirateActivePowerUp {
+    id: PiratePowerUpId
+    name: string
+    description: string
+    icon: string
+    remainingMs: number | null
+    counter?: number
+    shield?: number
+}
+
 export interface PirateGameCallbacks {
     onHpChange: (hp: number, maxHp: number) => void
     onCoinsChange: (coins: number) => void
@@ -50,6 +79,11 @@ export interface PirateGameCallbacks {
     onKill?: (tierName: string, reward: number) => void
     onCombo?: (count: number) => void
     onBossSpawn?: (name: string) => void
+    onPowerUpsChange?: (powerUps: PirateActivePowerUp[], nextDropMs: number, nextHealthPackMs: number) => void
+    onPowerUpSpawn?: (name: string) => void
+    onPowerUpCollected?: (name: string) => void
+    onHealthPackSpawn?: () => void
+    onHealthPackCollected?: (amount: number) => void
 }
 
 // World is authored in a fixed design space and the whole `world` container is
@@ -73,8 +107,35 @@ const ISLAND_COUNT_MAX = 6
 
 type AmmoKind = 'standard' | 'gem'
 
+interface PowerUpDefinition {
+    id: PiratePowerUpId
+    name: string
+    description: string
+    icon: string
+    color: number
+    durationMs: number | null
+}
+
+const POWER_UPS: PowerUpDefinition[] = [
+    { id: 'broadside-fury', name: 'Broadside Fury', description: '+20% cannon damage', icon: '🔥', color: 0xf97316, durationMs: 30_000 },
+    { id: 'quick-fuse', name: 'Quick Fuse', description: 'Cannons reload 25% faster', icon: '⚡', color: 0xfacc15, durationMs: 25_000 },
+    { id: 'eagle-eye', name: "Eagle's Eye", description: '+35% cannon range', icon: '🔭', color: 0x60a5fa, durationMs: 35_000 },
+    { id: 'iron-plating', name: 'Iron Plating', description: '+40% defense', icon: '⚓', color: 0x94a3b8, durationMs: 32_000 },
+    { id: 'tide-shield', name: 'Tide Shield', description: 'Absorbs 20 hull damage', icon: '🛡️', color: 0x22d3ee, durationMs: null },
+    { id: 'titan-shot', name: 'Titan Shot', description: 'Every 10th shot is massive', icon: '💥', color: 0xa78bfa, durationMs: 60_000 },
+    { id: 'blast-powder', name: 'Blast Powder', description: 'Every 4th shot explodes for +50%', icon: '🧨', color: 0xef4444, durationMs: 50_000 },
+    { id: 'deadeye', name: 'Deadeye', description: '+30% cannon accuracy', icon: '🎯', color: 0x4ade80, durationMs: 35_000 }
+]
+
 interface Cannon extends PirateCannonRuntime {
     reloadTimer: number
+}
+
+interface PlayerShotProfile {
+    explosive: boolean
+    massive: boolean
+    cannonColor: number
+    tierTrail: boolean
 }
 
 interface Island {
@@ -121,6 +182,34 @@ interface Treasure {
     vy: number
     reward: number
     age: number
+}
+
+interface PowerUpPickup {
+    root: Container
+    definition: PowerUpDefinition
+    x: number
+    y: number
+    vx: number
+    vy: number
+    age: number
+}
+
+interface HealthPackPickup {
+    root: Container
+    x: number
+    y: number
+    vx: number
+    vy: number
+    age: number
+    healFraction: number
+}
+
+interface SeaMine {
+    root: Container
+    x: number
+    y: number
+    age: number
+    damageFraction: number
 }
 
 function lerpAngle(from: number, to: number, t: number) {
@@ -189,9 +278,20 @@ export class PirateGame {
     private bossTimerMs = PIRATE_BOSS_FIRST_SPAWN_MS
     private bossAlive = false
     private treasureTimerMs = 0
+    private powerUpTimerMs = PIRATE_POWER_UP_INTERVAL_MS
+    private healthPackTimerMs = PIRATE_HEALTH_PACK_INTERVAL_MS
+    private seaMineTimerMs = PIRATE_SEA_MINE_INTERVAL_MS
+    private powerUpHudTimerMs = 0
     private nextEnemyId = 1
     private enemies = new Map<number, Enemy>()
     private treasure: Treasure | null = null
+    private powerUpPickup: PowerUpPickup | null = null
+    private healthPackPickup: HealthPackPickup | null = null
+    private seaMines: SeaMine[] = []
+    private activePowerUps = new Map<PiratePowerUpId, number | null>()
+    private shieldHp = 0
+    private blastShotCount = 0
+    private titanShotCount = 0
     private player!: ShipVisual
     private islands: Island[] = []
     private blocked: Uint8Array = new Uint8Array(GRID_W * GRID_H)
@@ -282,6 +382,14 @@ export class PirateGame {
         this.bossTimerMs = pirateBossFirstSpawnMs(power)
         this.bossAlive = false
         this.treasureTimerMs = randRange(PIRATE_TREASURE_MIN_INTERVAL_MS, PIRATE_TREASURE_MAX_INTERVAL_MS)
+        this.powerUpTimerMs = PIRATE_POWER_UP_INTERVAL_MS
+        this.healthPackTimerMs = PIRATE_HEALTH_PACK_INTERVAL_MS
+        this.seaMineTimerMs = PIRATE_SEA_MINE_INTERVAL_MS
+        this.powerUpHudTimerMs = 0
+        this.activePowerUps.clear()
+        this.shieldHp = 0
+        this.blastShotCount = 0
+        this.titanShotCount = 0
         this.playerX = WORLD_W / 2
         this.playerY = WORLD_H / 2
         this.playerAngle = 0
@@ -300,9 +408,13 @@ export class PirateGame {
         this.callbacks.onCoinsChange(this.coins)
         this.callbacks.onAmmoChange(this.ammo, this.gemAmmo)
         this.callbacks.onTimeChange(0, this.runDurationMs)
+        this.emitPowerUpState()
 
         this.paused = false
         this.running = true
+        const openingEnemies = pirateInitialEnemyCount(power)
+        for (let i = 0; i < openingEnemies; i++) this.spawnEnemy()
+        this.spawnPowerUp()
         if (this.app) {
             this.app.ticker.start()
             gsap.globalTimeline.resume()
@@ -635,6 +747,8 @@ export class PirateGame {
         this.updateCannons(deltaMS)
         this.updateEnemies(dt, deltaMS)
         this.updateTreasure(dt, deltaMS)
+        this.updatePowerUps(dt, deltaMS)
+        this.updateSeaMines(deltaMS)
         this.updateSpawning(deltaMS)
         this.updateIdleMotion()
 
@@ -664,7 +778,8 @@ export class PirateGame {
             const d = dist(this.playerX, this.playerY, target.x, target.y)
             const clearShot = this.segmentClear(this.playerX, this.playerY, target.x, target.y)
 
-            if (clearShot && d <= this.maxCannonRange * HOLD_RANGE_FRACTION) {
+            const effectiveMaxRange = this.maxCannonRange * (this.hasPowerUp('eagle-eye') ? 1.35 : 1)
+            if (clearShot && d <= effectiveMaxRange * HOLD_RANGE_FRACTION) {
                 // In position — face the target and hold.
                 const desiredAngle = Math.atan2(target.y - this.playerY, target.x - this.playerX)
                 this.playerAngle = lerpAngle(this.playerAngle, desiredAngle, ROTATE_LERP)
@@ -736,14 +851,15 @@ export class PirateGame {
             if (cannon.reloadTimer > 0) continue
             const target = this.pickCannonTarget(cannon)
             if (!target) continue
-            cannon.reloadTimer = cannon.reloadMs
+            cannon.reloadTimer = cannon.reloadMs * (this.hasPowerUp('quick-fuse') ? 0.75 : 1)
             this.fireCannonAtEnemy(cannon, target)
         }
     }
 
     private pickCannonTarget(cannon: Cannon): Enemy | null {
+        const effectiveRange = cannon.range * (this.hasPowerUp('eagle-eye') ? 1.35 : 1)
         const priority = this.attackTargetId !== null ? this.enemies.get(this.attackTargetId) : null
-        if (priority && !priority.dead && dist(this.playerX, this.playerY, priority.x, priority.y) <= cannon.range) {
+        if (priority && !priority.dead && dist(this.playerX, this.playerY, priority.x, priority.y) <= effectiveRange) {
             return priority
         }
 
@@ -752,7 +868,7 @@ export class PirateGame {
         for (const enemy of this.enemies.values()) {
             if (enemy.dead) continue
             const d = dist(this.playerX, this.playerY, enemy.x, enemy.y)
-            if (d <= cannon.range && d < bestDist) {
+            if (d <= effectiveRange && d < bestDist) {
                 best = enemy
                 bestDist = d
             }
@@ -797,7 +913,7 @@ export class PirateGame {
                 enemy.angle = lerpAngle(enemy.angle, desiredAngle, ROTATE_LERP)
                 enemy.reloadTimer -= deltaMS
                 if (enemy.reloadTimer <= 0) {
-                    enemy.reloadTimer = enemy.tier.reloadMs
+                    enemy.reloadTimer = enemy.tier.reloadMs * pirateEnemyReloadMultiplier(this.elapsedMs, this.power)
                     this.enemyFire(enemy)
                 }
             }
@@ -848,7 +964,9 @@ export class PirateGame {
             for (const e of this.enemies.values()) {
                 if (!e.tier.boss) regular++
             }
-            if (regular < max) this.spawnEnemy()
+            const availableSlots = Math.max(0, max - regular)
+            const batchSize = Math.min(availableSlots, pirateSpawnBatchSize(this.elapsedMs, this.power))
+            for (let i = 0; i < batchSize; i++) this.spawnEnemy()
             this.spawnTimerMs = pirateSpawnIntervalMs(this.elapsedMs, this.power) * randRange(0.85, 1.2)
         }
 
@@ -897,14 +1015,26 @@ export class PirateGame {
         const kind = this.consumeShot()
         if (!kind) return
 
+        if (this.hasPowerUp('blast-powder')) this.blastShotCount += 1
+        if (this.hasPowerUp('titan-shot')) this.titanShotCount += 1
+        const profile: PlayerShotProfile = {
+            explosive: this.hasPowerUp('blast-powder') && this.blastShotCount % 4 === 0,
+            massive: this.hasPowerUp('titan-shot') && this.titanShotCount % 10 === 0,
+            cannonColor: cannon.shotColor,
+            tierTrail: cannon.shotTrail
+        }
+        if (profile.explosive || profile.massive) this.emitPowerUpState()
+
         const id = target.id
         const fireAngle = Math.atan2(target.y - this.playerY, target.x - this.playerX)
         const fromX = this.playerX + Math.cos(fireAngle) * 34
         const fromY = this.playerY + Math.sin(fireAngle) * 34
-        this.spawnMuzzleFlash(fromX, fromY, fireAngle, kind)
+        this.spawnMuzzleFlash(fromX, fromY, fireAngle, kind, cannon.shotColor)
 
-        const attackRating = kind === 'gem' ? Math.round(cannon.attackRating * PIRATE_GEM_AMMO_ATTACK_MULT) : cannon.attackRating
-        const maxDamage = kind === 'gem' ? Math.round(cannon.maxDamage * PIRATE_GEM_AMMO_DAMAGE_MULT) : cannon.maxDamage
+        const ammoAttackRating = kind === 'gem' ? cannon.attackRating * PIRATE_GEM_AMMO_ATTACK_MULT : cannon.attackRating
+        const attackRating = Math.round(ammoAttackRating * (this.hasPowerUp('deadeye') ? 1.3 : 1))
+        const ammoMaxDamage = kind === 'gem' ? cannon.maxDamage * PIRATE_GEM_AMMO_DAMAGE_MULT : cannon.maxDamage
+        const maxDamage = Math.round(ammoMaxDamage * (this.hasPowerUp('broadside-fury') ? 1.2 : 1))
 
         this.spawnCannonball(fromX, fromY, target.x, target.y, kind, (hitX, hitY) => {
             const e = this.enemies.get(id)
@@ -913,11 +1043,15 @@ export class PirateGame {
                 return
             }
             const roll = pirateRollAttack(attackRating, e.defense, maxDamage)
-            this.hitEnemy(e, roll, hitX, hitY, kind)
-        })
+            this.hitEnemy(e, roll, hitX, hitY, kind, profile)
+        }, profile)
     }
 
     private enemyFire(enemy: Enemy) {
+        if (enemy.tier.sniper) {
+            this.fireSniperShot(enemy)
+            return
+        }
         const volley = enemy.tier.volley ?? 1
         const fireOne = () => {
             if (!this.running || enemy.dead || this.destroyed) return
@@ -927,7 +1061,8 @@ export class PirateGame {
             this.spawnMuzzleFlash(fromX, fromY, fireAngle, 'enemy')
             this.spawnCannonball(fromX, fromY, this.playerX, this.playerY, 'enemy', (hitX, hitY) => {
                 if (!this.running) return
-                const roll = pirateRollAttack(enemy.attackRating, this.stats.defenseRating, enemy.maxDamage)
+                const defenseRating = Math.round(this.stats.defenseRating * (this.hasPowerUp('iron-plating') ? 1.4 : 1))
+                const roll = pirateRollAttack(enemy.attackRating, defenseRating, enemy.maxDamage)
                 this.hitPlayer(roll, hitX, hitY)
             })
         }
@@ -938,10 +1073,84 @@ export class PirateGame {
         }
     }
 
+    private fireSniperShot(enemy: Enemy) {
+        if (!this.running || enemy.dead || this.destroyed) return
+        const targetX = this.playerX
+        const targetY = this.playerY
+        const telegraph = new Container()
+        const aimLine = new Graphics()
+        aimLine.moveTo(enemy.x, enemy.y)
+            .lineTo(targetX, targetY)
+            .stroke({ width: 2.5, color: 0xf0abfc, alpha: 0.75 })
+        telegraph.addChild(aimLine)
+        const impact = new Graphics()
+        impact.circle(0, 0, 58).fill({ color: 0xdc2626, alpha: 0.1 })
+        impact.circle(0, 0, 58).stroke({ width: 3, color: 0xf87171, alpha: 0.9 })
+        impact.moveTo(-14, 0).lineTo(14, 0).stroke({ width: 2, color: 0xfef2f2, alpha: 0.9 })
+        impact.moveTo(0, -14).lineTo(0, 14).stroke({ width: 2, color: 0xfef2f2, alpha: 0.9 })
+        impact.position.set(targetX, targetY)
+        telegraph.addChild(impact)
+        this.effectsLayer.addChild(telegraph)
+
+        gsap.fromTo(impact.scale, { x: 0.55, y: 0.55 }, { x: 1, y: 1, duration: 0.32, ease: 'power2.out' })
+        gsap.to(impact, { alpha: 0.35, duration: 0.22, ease: 'sine.inOut', yoyo: true, repeat: 3 })
+
+        gsap.delayedCall(0.9, () => {
+            if (telegraph.destroyed) return
+            gsap.killTweensOf(impact)
+            telegraph.destroy({ children: true })
+            if (!this.running || enemy.dead || this.destroyed || this.enemies.get(enemy.id) !== enemy) return
+            const fireAngle = Math.atan2(targetY - enemy.y, targetX - enemy.x)
+            const fromX = enemy.x + Math.cos(fireAngle) * 30
+            const fromY = enemy.y + Math.sin(fireAngle) * 30
+            this.spawnMuzzleFlash(fromX, fromY, fireAngle, 'enemy')
+            this.spawnSniperProjectile(enemy, fromX, fromY, targetX, targetY)
+        })
+    }
+
+    private spawnSniperProjectile(enemy: Enemy, fromX: number, fromY: number, targetX: number, targetY: number) {
+        const root = new Container()
+        root.position.set(fromX, fromY)
+        const glow = new Graphics()
+        glow.circle(0, 0, 13).fill({ color: 0xc026d3, alpha: 0.25 })
+        glow.circle(0, 0, 7).fill({ color: 0xf0abfc }).stroke({ width: 2, color: 0xfdf4ff })
+        root.addChild(glow)
+        this.effectsLayer.addChild(root)
+
+        const duration = Math.min(1.5, Math.max(0.5, dist(fromX, fromY, targetX, targetY) / 430))
+        let lastTrail = 0
+        gsap.to(root.position, {
+            x: targetX,
+            y: targetY,
+            duration,
+            ease: 'none',
+            onUpdate: () => {
+                const now = performance.now()
+                if (now - lastTrail < 32) return
+                lastTrail = now
+                this.spawnTrailParticle(root.x, root.y, 0xe879f9, 1.5)
+            },
+            onComplete: () => {
+                if (root.destroyed) return
+                root.destroy({ children: true })
+                if (!this.running || enemy.dead || this.enemies.get(enemy.id) !== enemy) return
+                if (dist(this.playerX, this.playerY, targetX, targetY) > 58) {
+                    this.spawnSplash(targetX, targetY)
+                    this.spawnDamagePopup('sniper-dodge', targetX, targetY - 24, 'DODGED', 0xf0abfc, true)
+                    return
+                }
+                const defenseRating = Math.round(this.stats.defenseRating * (this.hasPowerUp('iron-plating') ? 1.4 : 1))
+                const roll = pirateRollAttack(enemy.attackRating, defenseRating, enemy.maxDamage)
+                this.hitPlayer(roll, targetX, targetY)
+            }
+        })
+    }
+
     private spawnCannonball(
         fromX: number, fromY: number, toX: number, toY: number,
         kind: AmmoKind | 'enemy',
-        onImpact: (x: number, y: number) => void
+        onImpact: (x: number, y: number) => void,
+        profile?: PlayerShotProfile
     ) {
         const spread = 22
         const tx = toX + (Math.random() - 0.5) * spread
@@ -952,11 +1161,14 @@ export class PirateGame {
         const ballRoot = new Container()
         ballRoot.position.set(fromX, fromY)
         const ball = new Graphics()
+        const ballScale = profile?.massive ? 2.5 : profile?.explosive ? 1.55 : 1
         if (kind === 'gem') {
-            ball.circle(0, 0, 8).fill({ color: 0x38bdf8, alpha: 0.3 })
-            ball.circle(0, 0, 5).fill({ color: 0x7dd3fc }).stroke({ width: 1.5, color: 0xe0f2fe, alpha: 0.9 })
+            ball.circle(0, 0, 8 * ballScale).fill({ color: profile?.explosive ? 0xef4444 : 0x38bdf8, alpha: 0.3 })
+            ball.circle(0, 0, 5 * ballScale).fill({ color: profile?.explosive ? 0xf97316 : 0x7dd3fc }).stroke({ width: 1.5, color: profile?.cannonColor ?? 0xe0f2fe, alpha: 0.9 })
         } else {
-            ball.circle(0, 0, 5).fill({ color: kind === 'enemy' ? 0x1c1917 : 0x44403c }).stroke({ width: 1, color: 0x000000, alpha: 0.5 })
+            const ballColor = profile?.explosive ? 0xea580c : profile?.massive ? 0x7c3aed : kind === 'enemy' ? 0x1c1917 : 0x44403c
+            const strokeColor = profile?.massive ? 0xc4b5fd : profile?.cannonColor ?? 0x000000
+            ball.circle(0, 0, 5 * ballScale).fill({ color: ballColor }).stroke({ width: profile?.massive ? 2.5 : 1.5, color: strokeColor, alpha: 0.8 })
         }
         ballRoot.addChild(ball)
         this.effectsLayer.addChild(ballRoot)
@@ -971,11 +1183,13 @@ export class PirateGame {
             duration,
             ease: 'none',
             onUpdate: () => {
-                if (this.destroyed || kind !== 'gem') return
+                if (this.destroyed || (kind !== 'gem' && !profile?.explosive && !profile?.massive && !profile?.tierTrail)) return
                 const now = performance.now()
-                if (now - lastTrail < 36) return
+                if (now - lastTrail < (profile?.tierTrail ? 48 : 36)) return
                 lastTrail = now
-                this.spawnGemTrailParticle(ballRoot.position.x, ballRoot.position.y + ball.position.y)
+                const trailColor = profile?.tierTrail ? profile.cannonColor : profile?.explosive ? 0xfb923c : profile?.massive ? 0xa78bfa : 0x7dd3fc
+                const trailScale = profile?.massive ? 1.8 : profile?.tierTrail ? 0.85 : 1
+                this.spawnTrailParticle(ballRoot.position.x, ballRoot.position.y + ball.position.y, trailColor, trailScale, profile?.tierTrail ? 0.38 : 0.85)
             },
             onComplete: () => {
                 if (this.destroyed) return
@@ -985,22 +1199,49 @@ export class PirateGame {
         })
     }
 
-    private hitEnemy(enemy: Enemy, roll: { hit: boolean, dmg: number, crit: boolean }, x: number, y: number, kind: AmmoKind) {
+    private hitEnemy(enemy: Enemy, roll: { hit: boolean, dmg: number, crit: boolean }, x: number, y: number, kind: AmmoKind, profile: PlayerShotProfile) {
         if (enemy.dead) return
         if (!roll.hit) {
             this.spawnSplash(x, y)
             this.spawnDamagePopup(`enemy-${enemy.id}`, x, y - 24, 'MISS', 0x9ca3af, false)
             return
         }
-        enemy.hp -= roll.dmg
-        this.spawnExplosion(enemy.x, enemy.y, kind === 'gem' ? 0x38bdf8 : 0xfb923c, roll.crit)
+        const baseDamage = roll.dmg
+        const damageMult = (profile.explosive ? 1.5 : 1) * (profile.massive ? 3 : 1)
+        const damage = Math.max(1, Math.round(baseDamage * damageMult))
+        enemy.hp -= damage
+        const impactColor = profile.explosive ? 0xef4444 : profile.massive ? 0x8b5cf6 : profile.cannonColor
+        this.spawnExplosion(enemy.x, enemy.y, impactColor, roll.crit || profile.explosive || profile.massive)
+        if (profile.explosive) this.explodeAround(enemy, Math.max(1, Math.round(baseDamage * 0.5)))
+        if (profile.massive) this.shake(9)
         this.flashShip(enemy.visual)
-        const color = kind === 'gem' ? 0x7dd3fc : roll.crit ? 0xfacc15 : 0xffffff
-        this.spawnDamagePopup(`enemy-${enemy.id}`, enemy.x, enemy.y - 40, roll.crit ? `${roll.dmg}!` : `${roll.dmg}`, color, roll.crit)
+        const color = profile.explosive ? 0xfb923c : profile.massive ? 0xc4b5fd : kind === 'gem' ? 0x7dd3fc : roll.crit ? 0xfacc15 : 0xffffff
+        const suffix = profile.massive ? ' TITAN!' : profile.explosive ? ' BOOM!' : roll.crit ? '!' : ''
+        this.spawnDamagePopup(`enemy-${enemy.id}`, enemy.x, enemy.y - 40, `${damage}${suffix}`, color, roll.crit || profile.explosive || profile.massive)
         if (enemy.hp <= 0) {
             this.killEnemy(enemy)
         } else {
             this.updateEnemyHpBar(enemy)
+        }
+    }
+
+    private explodeAround(primary: Enemy, splashDamage: number) {
+        const radius = 105
+        const ring = new Graphics()
+        ring.circle(0, 0, 18).stroke({ width: 5, color: 0xfb923c, alpha: 0.9 })
+        ring.position.set(primary.x, primary.y)
+        this.effectsLayer.addChild(ring)
+        gsap.to(ring.scale, { x: radius / 18, y: radius / 18, duration: 0.3, ease: 'power2.out' })
+        gsap.to(ring, { alpha: 0, duration: 0.35, ease: 'power2.out', onComplete: () => ring.destroy() })
+
+        for (const enemy of [...this.enemies.values()]) {
+            if (enemy.id === primary.id || enemy.dead || dist(primary.x, primary.y, enemy.x, enemy.y) > radius) continue
+            enemy.hp -= splashDamage
+            this.spawnExplosion(enemy.x, enemy.y, 0xf97316, false)
+            this.flashShip(enemy.visual)
+            this.spawnDamagePopup(`enemy-${enemy.id}`, enemy.x, enemy.y - 35, `${splashDamage} SPLASH`, 0xfdba74, false)
+            if (enemy.hp <= 0) this.killEnemy(enemy)
+            else this.updateEnemyHpBar(enemy)
         }
     }
 
@@ -1067,11 +1308,22 @@ export class PirateGame {
             this.spawnDamagePopup('player', this.playerX, this.playerY - 34, 'MISS', 0x9ca3af, false)
             return
         }
-        this.playerHp = Math.max(0, this.playerHp - roll.dmg)
+        let hullDamage = roll.dmg
+        if (this.shieldHp > 0) {
+            const absorbed = Math.min(this.shieldHp, hullDamage)
+            this.shieldHp -= absorbed
+            hullDamage -= absorbed
+            this.spawnShieldImpact(absorbed)
+            this.spawnDamagePopup('shield', this.playerX, this.playerY - 58, `BLOCK ${absorbed}`, 0x67e8f9, false)
+            if (this.shieldHp <= 0) this.activePowerUps.delete('tide-shield')
+            this.emitPowerUpState()
+        }
+        if (hullDamage <= 0) return
+        this.playerHp = Math.max(0, this.playerHp - hullDamage)
         this.callbacks.onHpChange(this.playerHp, this.stats.maxHp)
         this.spawnExplosion(this.playerX, this.playerY, 0xef4444, roll.crit)
         this.flashShip(this.player)
-        this.spawnDamagePopup('player', this.playerX, this.playerY - 34, `-${roll.dmg}`, 0xff6b6b, roll.crit)
+        this.spawnDamagePopup('player', this.playerX, this.playerY - 34, `-${hullDamage}`, 0xff6b6b, roll.crit)
         this.shake(roll.crit ? 9 : 5)
         if (this.playerHp <= 0) this.endGame(false, 'defeat')
     }
@@ -1170,6 +1422,374 @@ export class PirateGame {
         gsap.to(tr.root, { alpha: 0, duration: 0.6, onComplete: () => tr.root.destroy({ children: true }) })
     }
 
+    // ─── Power ups ─────────────────────────────────────────────────────────
+
+    private hasPowerUp(id: PiratePowerUpId) {
+        return this.activePowerUps.has(id)
+    }
+
+    private updatePowerUps(dt: number, deltaMS: number) {
+        let stateChanged = false
+        for (const [id, expiresAt] of this.activePowerUps) {
+            if (expiresAt !== null && this.elapsedMs >= expiresAt) {
+                this.activePowerUps.delete(id)
+                stateChanged = true
+            }
+        }
+
+        const pickup = this.powerUpPickup
+        if (pickup) {
+            pickup.age += deltaMS
+            pickup.x += pickup.vx * dt
+            pickup.y += pickup.vy * dt
+            const margin = 65
+            if (pickup.x < margin || pickup.x > WORLD_W - margin) pickup.vx *= -1
+            if (pickup.y < margin || pickup.y > WORLD_H - margin) pickup.vy *= -1
+            if (this.pointInIsland(pickup.x + pickup.vx * dt * 8, pickup.y + pickup.vy * dt * 8, 24)) {
+                pickup.vx *= -1
+                pickup.vy *= -1
+            }
+            pickup.root.position.set(pickup.x, pickup.y)
+
+            if (dist(pickup.x, pickup.y, this.playerX, this.playerY) < PICKUP_RADIUS + 6) {
+                this.collectPowerUp(pickup)
+                stateChanged = true
+            } else if (pickup.age >= PIRATE_POWER_UP_LIFESPAN_MS) {
+                this.expirePowerUpPickup(pickup)
+            }
+        }
+
+        const healthPack = this.healthPackPickup
+        if (healthPack) {
+            healthPack.age += deltaMS
+            healthPack.x += healthPack.vx * dt
+            healthPack.y += healthPack.vy * dt
+            const margin = 65
+            if (healthPack.x < margin || healthPack.x > WORLD_W - margin) healthPack.vx *= -1
+            if (healthPack.y < margin || healthPack.y > WORLD_H - margin) healthPack.vy *= -1
+            if (this.pointInIsland(healthPack.x + healthPack.vx * dt * 8, healthPack.y + healthPack.vy * dt * 8, 24)) {
+                healthPack.vx *= -1
+                healthPack.vy *= -1
+            }
+            healthPack.root.position.set(healthPack.x, healthPack.y)
+
+            if (this.playerHp < this.stats.maxHp && dist(healthPack.x, healthPack.y, this.playerX, this.playerY) < PICKUP_RADIUS + 6) {
+                this.collectHealthPack(healthPack)
+                stateChanged = true
+            } else if (healthPack.age >= PIRATE_HEALTH_PACK_LIFESPAN_MS) {
+                this.expireHealthPack(healthPack)
+            }
+        }
+
+        this.powerUpTimerMs -= deltaMS
+        if (this.powerUpTimerMs <= 0) {
+            if (!this.powerUpPickup) this.spawnPowerUp()
+            this.powerUpTimerMs += PIRATE_POWER_UP_INTERVAL_MS
+        }
+        this.healthPackTimerMs -= deltaMS
+        if (this.healthPackTimerMs <= 0) {
+            if (!this.healthPackPickup) this.spawnHealthPack()
+            this.healthPackTimerMs += PIRATE_HEALTH_PACK_INTERVAL_MS
+        }
+
+        this.powerUpHudTimerMs -= deltaMS
+        if (stateChanged || this.powerUpHudTimerMs <= 0) {
+            this.powerUpHudTimerMs = 250
+            this.emitPowerUpState()
+        }
+    }
+
+    private spawnPowerUp() {
+        if (!this.running || !this.app) return
+        const choices = POWER_UPS.filter(p => !this.activePowerUps.has(p.id))
+        const definition = (choices.length ? choices : POWER_UPS)[Math.floor(Math.random() * (choices.length || POWER_UPS.length))]!
+        const margin = 110
+        let x = randRange(margin, WORLD_W - margin)
+        let y = randRange(margin, WORLD_H - margin)
+        if (dist(x, y, this.playerX, this.playerY) < 220) {
+            x = WORLD_W - x
+            y = WORLD_H - y
+        }
+        if (this.pointInIsland(x, y, 45)) {
+            const free = this.nearestFreePoint(x, y)
+            x = free.x
+            y = free.y
+        }
+
+        const root = new Container()
+        root.position.set(x, y)
+        const pulse = new Graphics()
+        pulse.circle(0, 0, 32).fill({ color: definition.color, alpha: 0.2 })
+        pulse.circle(0, 0, 25).stroke({ width: 3, color: definition.color, alpha: 0.85 })
+        root.addChild(pulse)
+        const buoy = new Graphics()
+        buoy.circle(0, 2, 18).fill({ color: 0xf8fafc }).stroke({ width: 3, color: definition.color })
+        buoy.rect(-12, -2, 24, 8).fill({ color: definition.color, alpha: 0.9 })
+        root.addChild(buoy)
+        const icon = new Text({ text: definition.icon, style: { fontSize: 21 } })
+        icon.anchor.set(0.5)
+        icon.position.y = -1
+        root.addChild(icon)
+        const label = new Text({
+            text: definition.name.toUpperCase(),
+            style: { fill: 0xffffff, fontFamily: 'Inter, ui-sans-serif, system-ui', fontSize: 12, fontWeight: '900', stroke: { color: 0x111827, width: 4 } }
+        })
+        label.anchor.set(0.5)
+        label.position.y = -34
+        root.addChild(label)
+        this.treasureLayer.addChild(root)
+
+        gsap.fromTo(root.scale, { x: 0, y: 0 }, { x: 1, y: 1, duration: 0.45, ease: 'back.out(2.5)' })
+        gsap.to(pulse.scale, { x: 1.35, y: 1.35, duration: 0.75, ease: 'sine.inOut', yoyo: true, repeat: -1 })
+        gsap.to(pulse, { alpha: 0.45, duration: 0.75, ease: 'sine.inOut', yoyo: true, repeat: -1 })
+        gsap.to(buoy.position, { y: -5, duration: 1, ease: 'sine.inOut', yoyo: true, repeat: -1 })
+
+        root.eventMode = 'static'
+        root.cursor = 'pointer'
+        root.hitArea = new Circle(0, 0, 38)
+        root.on('pointerdown', (e) => {
+            e.stopPropagation()
+            const activePickup = this.powerUpPickup
+            if (!this.running || activePickup?.root !== root) return
+            this.attackTargetId = null
+            this.playerPath = this.computePath(this.playerX, this.playerY, activePickup.x, activePickup.y)
+        })
+
+        this.powerUpPickup = { root, definition, x, y, vx: randRange(-12, 12), vy: randRange(-12, 12), age: 0 }
+        this.callbacks.onPowerUpSpawn?.(definition.name)
+    }
+
+    private collectPowerUp(pickup: PowerUpPickup) {
+        this.powerUpPickup = null
+        const { definition } = pickup
+        if (definition.id === 'tide-shield') {
+            this.shieldHp = Math.min(40, this.shieldHp + 20)
+            this.activePowerUps.set(definition.id, null)
+        } else {
+            this.activePowerUps.set(definition.id, this.elapsedMs + definition.durationMs!)
+        }
+        if (definition.id === 'blast-powder') this.blastShotCount = 0
+        if (definition.id === 'titan-shot') this.titanShotCount = 0
+
+        this.callbacks.onPowerUpCollected?.(definition.name)
+        this.spawnPowerUpBurst(pickup.x, pickup.y, definition.color)
+        this.spawnDamagePopup('power-up', pickup.x, pickup.y - 35, definition.name.toUpperCase(), definition.color, true)
+        gsap.killTweensOf(pickup.root)
+        gsap.to(pickup.root.scale, { x: 1.8, y: 1.8, duration: 0.22, ease: 'power2.out' })
+        gsap.to(pickup.root, { alpha: 0, duration: 0.25, onComplete: () => pickup.root.destroy({ children: true }) })
+    }
+
+    private expirePowerUpPickup(pickup: PowerUpPickup) {
+        this.powerUpPickup = null
+        gsap.killTweensOf(pickup.root)
+        gsap.to(pickup.root, { alpha: 0, duration: 0.5, onComplete: () => pickup.root.destroy({ children: true }) })
+    }
+
+    private spawnHealthPack() {
+        if (!this.running || !this.app) return
+        const margin = 110
+        let x = randRange(margin, WORLD_W - margin)
+        let y = randRange(margin, WORLD_H - margin)
+        if (dist(x, y, this.playerX, this.playerY) < 210) {
+            x = WORLD_W - x
+            y = WORLD_H - y
+        }
+        if (this.pointInIsland(x, y, 45)) {
+            const free = this.nearestFreePoint(x, y)
+            x = free.x
+            y = free.y
+        }
+
+        const root = new Container()
+        root.position.set(x, y)
+        const pulse = new Graphics()
+        pulse.circle(0, 0, 32).fill({ color: 0x22c55e, alpha: 0.2 })
+        pulse.circle(0, 0, 25).stroke({ width: 3, color: 0x4ade80, alpha: 0.9 })
+        root.addChild(pulse)
+        const crate = new Graphics()
+        crate.roundRect(-18, -15, 36, 30, 6).fill({ color: 0xf8fafc }).stroke({ width: 3, color: 0x16a34a })
+        crate.rect(-5, -11, 10, 22).fill({ color: 0xef4444 })
+        crate.rect(-12, -4, 24, 9).fill({ color: 0xef4444 })
+        root.addChild(crate)
+        const label = new Text({
+            text: 'HULL REPAIR',
+            style: { fill: 0xbbf7d0, fontFamily: 'Inter, ui-sans-serif, system-ui', fontSize: 12, fontWeight: '900', stroke: { color: 0x111827, width: 4 } }
+        })
+        label.anchor.set(0.5)
+        label.position.y = -35
+        root.addChild(label)
+        this.treasureLayer.addChild(root)
+
+        gsap.fromTo(root.scale, { x: 0, y: 0 }, { x: 1, y: 1, duration: 0.45, ease: 'back.out(2.5)' })
+        gsap.to(pulse.scale, { x: 1.4, y: 1.4, duration: 0.7, ease: 'sine.inOut', yoyo: true, repeat: -1 })
+        gsap.to(pulse, { alpha: 0.5, duration: 0.7, ease: 'sine.inOut', yoyo: true, repeat: -1 })
+        gsap.to(crate.position, { y: -5, duration: 1, ease: 'sine.inOut', yoyo: true, repeat: -1 })
+
+        root.eventMode = 'static'
+        root.cursor = 'pointer'
+        root.hitArea = new Circle(0, 0, 38)
+        root.on('pointerdown', (e) => {
+            e.stopPropagation()
+            const activePack = this.healthPackPickup
+            if (!this.running || activePack?.root !== root) return
+            this.attackTargetId = null
+            this.playerPath = this.computePath(this.playerX, this.playerY, activePack.x, activePack.y)
+        })
+
+        this.healthPackPickup = { root, x, y, vx: randRange(-10, 10), vy: randRange(-10, 10), age: 0, healFraction: randRange(0.1, 0.2) }
+        this.callbacks.onHealthPackSpawn?.()
+    }
+
+    private collectHealthPack(pack: HealthPackPickup) {
+        this.healthPackPickup = null
+        const requestedHeal = Math.max(1, Math.round(this.stats.maxHp * pack.healFraction))
+        const healed = Math.min(requestedHeal, this.stats.maxHp - this.playerHp)
+        this.playerHp += healed
+        this.callbacks.onHpChange(this.playerHp, this.stats.maxHp)
+        this.callbacks.onHealthPackCollected?.(healed)
+        this.spawnPowerUpBurst(pack.x, pack.y, 0x4ade80)
+        this.spawnDamagePopup('health-pack', pack.x, pack.y - 35, `+${healed} HULL`, 0x86efac, true)
+        gsap.killTweensOf(pack.root)
+        gsap.to(pack.root.scale, { x: 1.8, y: 1.8, duration: 0.22, ease: 'power2.out' })
+        gsap.to(pack.root, { alpha: 0, duration: 0.25, onComplete: () => pack.root.destroy({ children: true }) })
+    }
+
+    private expireHealthPack(pack: HealthPackPickup) {
+        this.healthPackPickup = null
+        gsap.killTweensOf(pack.root)
+        gsap.to(pack.root, { alpha: 0, duration: 0.5, onComplete: () => pack.root.destroy({ children: true }) })
+    }
+
+    private emitPowerUpState() {
+        const active = POWER_UPS
+            .filter(definition => this.activePowerUps.has(definition.id))
+            .map((definition): PirateActivePowerUp => {
+                const expiresAt = this.activePowerUps.get(definition.id) ?? null
+                const item: PirateActivePowerUp = {
+                    id: definition.id,
+                    name: definition.name,
+                    description: definition.description,
+                    icon: definition.icon,
+                    remainingMs: expiresAt === null ? null : Math.max(0, expiresAt - this.elapsedMs)
+                }
+                if (definition.id === 'tide-shield') item.shield = this.shieldHp
+                if (definition.id === 'blast-powder') item.counter = 4 - (this.blastShotCount % 4)
+                if (definition.id === 'titan-shot') item.counter = 10 - (this.titanShotCount % 10)
+                return item
+            })
+        this.callbacks.onPowerUpsChange?.(active, Math.max(0, this.powerUpTimerMs), Math.max(0, this.healthPackTimerMs))
+    }
+
+    // ─── Sea mines ─────────────────────────────────────────────────────────
+
+    private updateSeaMines(deltaMS: number) {
+        this.seaMineTimerMs -= deltaMS
+        if (this.seaMineTimerMs <= 0) {
+            this.spawnSeaMine()
+            this.seaMineTimerMs += PIRATE_SEA_MINE_INTERVAL_MS
+        }
+
+        for (const mine of [...this.seaMines]) {
+            mine.age += deltaMS
+            if (dist(mine.x, mine.y, this.playerX, this.playerY) < 50) {
+                this.detonateSeaMine(mine)
+            } else if (mine.age >= PIRATE_SEA_MINE_LIFESPAN_MS) {
+                this.expireSeaMine(mine)
+            }
+        }
+    }
+
+    private spawnSeaMine() {
+        if (!this.running || !this.app) return
+        const margin = 80
+        let position: { x: number, y: number } | null = null
+        for (let attempt = 0; attempt < 40; attempt++) {
+            const x = randRange(margin, WORLD_W - margin)
+            const y = randRange(margin, WORLD_H - margin)
+            if (dist(x, y, this.playerX, this.playerY) < 300) continue
+            if (this.pointInIsland(x, y, 38)) continue
+            if (this.seaMines.some(mine => dist(x, y, mine.x, mine.y) < 120)) continue
+            position = { x, y }
+            break
+        }
+        if (!position) return
+
+        const root = new Container()
+        root.position.set(position.x, position.y)
+        root.eventMode = 'none'
+        const warning = new Graphics()
+        warning.circle(0, 0, 34).fill({ color: 0xef4444, alpha: 0.08 })
+        warning.circle(0, 0, 29).stroke({ width: 2, color: 0xf87171, alpha: 0.55 })
+        root.addChild(warning)
+        const mine = new Graphics()
+        mine.circle(0, 0, 14).fill({ color: 0x292524 }).stroke({ width: 3, color: 0x78716c })
+        for (let i = 0; i < 8; i++) {
+            const angle = (i / 8) * Math.PI * 2
+            mine.moveTo(Math.cos(angle) * 11, Math.sin(angle) * 11)
+                .lineTo(Math.cos(angle) * 22, Math.sin(angle) * 22)
+                .stroke({ width: 4, color: 0x57534e })
+            mine.circle(Math.cos(angle) * 23, Math.sin(angle) * 23, 3).fill({ color: 0xef4444 })
+        }
+        mine.circle(0, 0, 4).fill({ color: 0xfca5a5 })
+        root.addChild(mine)
+        const label = new Text({
+            text: 'SEA MINE',
+            style: { fill: 0xfca5a5, fontFamily: 'Inter, ui-sans-serif, system-ui', fontSize: 11, fontWeight: '900', stroke: { color: 0x111827, width: 4 } }
+        })
+        label.anchor.set(0.5)
+        label.position.y = -37
+        root.addChild(label)
+        this.treasureLayer.addChild(root)
+
+        gsap.fromTo(root.scale, { x: 0, y: 0 }, { x: 1, y: 1, duration: 0.4, ease: 'back.out(2.5)' })
+        gsap.to(warning.scale, { x: 1.25, y: 1.25, duration: 0.7, ease: 'sine.inOut', yoyo: true, repeat: -1 })
+        gsap.to(warning, { alpha: 0.8, duration: 0.7, ease: 'sine.inOut', yoyo: true, repeat: -1 })
+        gsap.to(mine, { rotation: Math.PI * 2, duration: 8, ease: 'none', repeat: -1 })
+
+        this.seaMines.push({
+            root,
+            x: position.x,
+            y: position.y,
+            age: 0,
+            damageFraction: pirateSeaMineDamageFraction(this.elapsedMs)
+        })
+    }
+
+    private detonateSeaMine(mine: SeaMine) {
+        this.removeSeaMine(mine)
+        let hullDamage = Math.max(1, Math.round(this.stats.maxHp * mine.damageFraction))
+        if (this.shieldHp > 0) {
+            const absorbed = Math.min(this.shieldHp, hullDamage)
+            this.shieldHp -= absorbed
+            hullDamage -= absorbed
+            this.spawnShieldImpact(absorbed)
+            if (this.shieldHp <= 0) this.activePowerUps.delete('tide-shield')
+            this.emitPowerUpState()
+        }
+        this.playerHp = Math.max(0, this.playerHp - hullDamage)
+        this.callbacks.onHpChange(this.playerHp, this.stats.maxHp)
+        this.spawnExplosion(mine.x, mine.y, 0xef4444, true)
+        this.spawnExplosion(mine.x + randRange(-16, 16), mine.y + randRange(-16, 16), 0xf97316, true)
+        this.spawnDamagePopup('sea-mine', this.playerX, this.playerY - 45, `MINE -${Math.round(mine.damageFraction * 100)}%`, 0xfca5a5, true)
+        this.flashShip(this.player)
+        this.shake(12)
+        if (this.playerHp <= 0) this.endGame(false, 'defeat')
+    }
+
+    private expireSeaMine(mine: SeaMine) {
+        this.seaMines = this.seaMines.filter(item => item !== mine)
+        gsap.killTweensOf(mine.root)
+        gsap.killTweensOf(mine.root.children)
+        gsap.to(mine.root, { alpha: 0, duration: 0.45, onComplete: () => mine.root.destroy({ children: true }) })
+    }
+
+    private removeSeaMine(mine: SeaMine) {
+        this.seaMines = this.seaMines.filter(item => item !== mine)
+        gsap.killTweensOf(mine.root)
+        gsap.killTweensOf(mine.root.children)
+        mine.root.destroy({ children: true })
+    }
+
     // ─── Enemy spawning ─────────────────────────────────────────────────────
 
     private spawnEnemy(tierOverride?: PirateEnemyTier) {
@@ -1181,11 +1801,15 @@ export class PirateGame {
         const margin = 50
         let x = 0
         let y = 0
-        for (let attempt = 0; attempt < 12; attempt++) {
+        let foundSpawn = false
+        for (let attempt = 0; attempt < 30; attempt++) {
             const edge = Math.floor(Math.random() * 4)
             if (edge === 0) { x = margin; y = randRange(margin, WORLD_H - margin) } else if (edge === 1) { x = WORLD_W - margin; y = randRange(margin, WORLD_H - margin) } else if (edge === 2) { x = randRange(margin, WORLD_W - margin); y = margin } else { x = randRange(margin, WORLD_W - margin); y = WORLD_H - margin }
-            if (!this.pointInIsland(x, y)) break
+            if (this.pointInIsland(x, y) || dist(x, y, this.playerX, this.playerY) < 260) continue
+            foundSpawn = true
+            break
         }
+        if (!foundSpawn) return
 
         const sizeScale = tier.sizeScale ?? 1
         const visual = this.createShipVisual(tier.color, false, sizeScale)
@@ -1233,11 +1857,11 @@ export class PirateGame {
             x,
             y,
             angle: Math.atan2(this.playerY - y, this.playerX - x),
-            reloadTimer: randRange(300, tier.reloadMs),
+            reloadTimer: randRange(300, tier.reloadMs * pirateEnemyReloadMultiplier(this.elapsedMs, this.power)),
             speed: tier.speed,
             defense: Math.max(1, Math.round(tier.defense * diff.statMult)),
             attackRating: Math.max(1, Math.round(tier.attackRating * diff.statMult)),
-            maxDamage: Math.max(1, Math.round(tier.maxDamage * diff.dmgMult)),
+            maxDamage: Math.max(1, Math.round(tier.maxDamage * diff.dmgMult * (tier.boss ? PIRATE_BOSS_DAMAGE_MULT : 1))),
             root: visual.root,
             visual,
             targetRing,
@@ -1519,8 +2143,8 @@ export class PirateGame {
         gsap.to(flash, { alpha: 0, duration: 0.18, ease: 'power2.out', onComplete: () => flash.destroy() })
     }
 
-    private spawnMuzzleFlash(x: number, y: number, angle: number, kind: AmmoKind | 'enemy') {
-        const color = kind === 'gem' ? 0x7dd3fc : 0xfcd34d
+    private spawnMuzzleFlash(x: number, y: number, angle: number, kind: AmmoKind | 'enemy', cannonColor?: number) {
+        const color = cannonColor ?? (kind === 'gem' ? 0x7dd3fc : 0xfcd34d)
         const flash = new Graphics()
         flash.poly([0, 0, 16, -5, 20, 0, 16, 5]).fill({ color, alpha: 0.95 })
         flash.position.set(x, y)
@@ -1530,7 +2154,7 @@ export class PirateGame {
 
         for (let i = 0; i < 3; i++) {
             const smoke = new Graphics()
-            smoke.circle(0, 0, randRange(3, 5)).fill({ color: kind === 'gem' ? 0xbae6fd : 0x9ca3af, alpha: 0.5 })
+            smoke.circle(0, 0, randRange(3, 5)).fill({ color: cannonColor ?? (kind === 'gem' ? 0xbae6fd : 0x9ca3af), alpha: cannonColor ? 0.38 : 0.5 })
             smoke.position.set(x, y)
             this.effectsLayer.addChild(smoke)
             const sAng = angle + randRange(-0.5, 0.5)
@@ -1545,13 +2169,37 @@ export class PirateGame {
         }
     }
 
-    private spawnGemTrailParticle(x: number, y: number) {
+    private spawnTrailParticle(x: number, y: number, color: number, scale = 1, alpha = 0.85) {
         const p = new Graphics()
-        p.circle(0, 0, randRange(1.5, 3)).fill({ color: 0x7dd3fc, alpha: 0.85 })
+        p.circle(0, 0, randRange(1.5, 3) * scale).fill({ color, alpha })
         p.position.set(x + randRange(-3, 3), y + randRange(-3, 3))
         this.effectsLayer.addChild(p)
         gsap.to(p.scale, { x: 0.2, y: 0.2, duration: 0.4, ease: 'power1.in' })
         gsap.to(p, { alpha: 0, duration: 0.4, ease: 'power1.in', onComplete: () => p.destroy() })
+    }
+
+    private spawnPowerUpBurst(x: number, y: number, color: number) {
+        for (let i = 0; i < 16; i++) {
+            const p = new Graphics()
+            p.star(0, 0, 4, randRange(3, 6), randRange(1, 2)).fill({ color, alpha: 0.95 })
+            p.position.set(x, y)
+            this.effectsLayer.addChild(p)
+            const angle = (i / 16) * Math.PI * 2 + randRange(-0.1, 0.1)
+            const radius = randRange(35, 75)
+            gsap.to(p.position, { x: x + Math.cos(angle) * radius, y: y + Math.sin(angle) * radius, duration: 0.55, ease: 'power3.out' })
+            gsap.to(p, { alpha: 0, rotation: Math.PI, duration: 0.55, ease: 'power2.in', onComplete: () => p.destroy() })
+        }
+        this.shake(5)
+    }
+
+    private spawnShieldImpact(absorbed: number) {
+        const shield = new Graphics()
+        shield.circle(0, 0, 43).fill({ color: 0x22d3ee, alpha: 0.13 })
+        shield.circle(0, 0, 43).stroke({ width: 4, color: 0x67e8f9, alpha: 0.9 })
+        shield.position.set(this.playerX, this.playerY)
+        this.effectsLayer.addChild(shield)
+        gsap.fromTo(shield.scale, { x: 0.75, y: 0.75 }, { x: 1.25 + absorbed / 50, y: 1.25 + absorbed / 50, duration: 0.25, ease: 'power2.out' })
+        gsap.to(shield, { alpha: 0, duration: 0.35, ease: 'power2.out', onComplete: () => shield.destroy() })
     }
 
     private spawnWake(x: number, y: number, angle: number) {
@@ -1613,6 +2261,22 @@ export class PirateGame {
             this.treasure.root.destroy({ children: true })
             this.treasure = null
         }
+        if (this.powerUpPickup) {
+            gsap.killTweensOf(this.powerUpPickup.root)
+            this.powerUpPickup.root.destroy({ children: true })
+            this.powerUpPickup = null
+        }
+        if (this.healthPackPickup) {
+            gsap.killTweensOf(this.healthPackPickup.root)
+            this.healthPackPickup.root.destroy({ children: true })
+            this.healthPackPickup = null
+        }
+        for (const mine of this.seaMines) {
+            gsap.killTweensOf(mine.root)
+            gsap.killTweensOf(mine.root.children)
+            mine.root.destroy({ children: true })
+        }
+        this.seaMines = []
         this.effectsLayer.removeChildren().forEach(c => c.destroy({ children: true }))
         this.popupLanes.clear()
         gsap.killTweensOf(this.world.position)
@@ -1622,6 +2286,9 @@ export class PirateGame {
     private endGame(survived: boolean, reason: 'timeout' | 'defeat' | 'ammo' | 'cancelled') {
         if (!this.running) return
         this.running = false
+        this.activePowerUps.clear()
+        this.shieldHp = 0
+        this.emitPowerUpState()
         this.attackTargetId = null
         this.playerPath = []
         if (!survived && reason === 'defeat') {

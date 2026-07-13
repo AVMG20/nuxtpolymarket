@@ -14,6 +14,12 @@ export type PirateShipStatId = typeof PIRATE_SHIP_STAT_IDS[number]
 
 export const PIRATE_MAX_STAT_LEVEL = 10
 export const PIRATE_RUN_DURATION_MS = 5 * 60 * 1000
+export const PIRATE_POWER_UP_INTERVAL_MS = 30_000
+export const PIRATE_POWER_UP_LIFESPAN_MS = 22_000
+export const PIRATE_HEALTH_PACK_INTERVAL_MS = 45_000
+export const PIRATE_HEALTH_PACK_LIFESPAN_MS = 22_000
+export const PIRATE_SEA_MINE_INTERVAL_MS = 10_000
+export const PIRATE_SEA_MINE_LIFESPAN_MS = 30_000
 
 // ─── Upgrade cost curve — identical shape for every ship stat ─────────────
 // Steep exponential sink: the first upgrade sits in the "extra spending
@@ -65,19 +71,23 @@ export interface PirateCannonTier {
   range: number
   /** Contribution to the ship's power level used for difficulty scaling. */
   powerRating: number
+  /** In-game muzzle, impact, and projectile accent. */
+  shotColor: number
+  /** Top-tier cannonballs leave a subtle colored trail. */
+  shotTrail?: boolean
 }
 
 // Costs step up ~2.6x per tier, topping out at 10m for the Leviathan's Wrath
 // — the armory's own equivalent of the ship-stat/slot money sinks.
 export const PIRATE_CANNON_TIERS: PirateCannonTier[] = [
-  { id: 'swivel', name: 'Swivel Gun', cost: 0, attackRating: 20, maxDamage: 16, reloadMs: 1900, range: 240, powerRating: 2 },
-  { id: 'carronade', name: 'Bronze Carronade', cost: 30_000, attackRating: 22, maxDamage: 18, reloadMs: 2000, range: 250, powerRating: 4 },
-  { id: 'culverin', name: 'Iron Culverin', cost: 79_000, attackRating: 32, maxDamage: 26, reloadMs: 1800, range: 280, powerRating: 7 },
-  { id: 'longgun', name: 'Steel Long Gun', cost: 208_000, attackRating: 45, maxDamage: 36, reloadMs: 1600, range: 320, powerRating: 11 },
-  { id: 'basilisk', name: 'Reinforced Basilisk', cost: 548_000, attackRating: 60, maxDamage: 48, reloadMs: 1400, range: 360, powerRating: 16 },
-  { id: 'mythril', name: 'Mythril Broadside', cost: 1_440_000, attackRating: 80, maxDamage: 65, reloadMs: 1200, range: 400, powerRating: 24 },
-  { id: 'adamantite', name: 'Adamantite Bombard', cost: 3_800_000, attackRating: 100, maxDamage: 85, reloadMs: 1050, range: 440, powerRating: 36 },
-  { id: 'leviathan', name: "Leviathan's Wrath", cost: 10_000_000, attackRating: 130, maxDamage: 115, reloadMs: 900, range: 480, powerRating: 55 }
+  { id: 'swivel', name: 'Swivel Gun', cost: 0, attackRating: 20, maxDamage: 16, reloadMs: 1900, range: 240, powerRating: 2, shotColor: 0xa8a29e },
+  { id: 'carronade', name: 'Bronze Carronade', cost: 30_000, attackRating: 22, maxDamage: 18, reloadMs: 2000, range: 250, powerRating: 4, shotColor: 0xf59e0b },
+  { id: 'culverin', name: 'Iron Culverin', cost: 79_000, attackRating: 32, maxDamage: 26, reloadMs: 1800, range: 280, powerRating: 7, shotColor: 0xcbd5e1 },
+  { id: 'longgun', name: 'Steel Long Gun', cost: 208_000, attackRating: 45, maxDamage: 36, reloadMs: 1600, range: 320, powerRating: 11, shotColor: 0x38bdf8 },
+  { id: 'basilisk', name: 'Reinforced Basilisk', cost: 548_000, attackRating: 60, maxDamage: 48, reloadMs: 1400, range: 360, powerRating: 16, shotColor: 0xa78bfa },
+  { id: 'mythril', name: 'Mythril Broadside', cost: 1_440_000, attackRating: 80, maxDamage: 65, reloadMs: 1200, range: 400, powerRating: 24, shotColor: 0x34d399 },
+  { id: 'adamantite', name: 'Adamantite Bombard', cost: 3_800_000, attackRating: 100, maxDamage: 85, reloadMs: 1050, range: 440, powerRating: 36, shotColor: 0xe879f9, shotTrail: true },
+  { id: 'leviathan', name: "Leviathan's Wrath", cost: 10_000_000, attackRating: 130, maxDamage: 115, reloadMs: 900, range: 480, powerRating: 55, shotColor: 0xfb7185, shotTrail: true }
 ]
 
 export function pirateCannonTier(id: string): PirateCannonTier {
@@ -110,7 +120,7 @@ export const PIRATE_AMMO_PRICE_PER_UNIT = 2
 // small bundle of charged shots that hit harder and more accurately — and burn
 // blue. Stored in its own separate magazine with a fixed capacity.
 export const PIRATE_GEM_AMMO_CAPACITY = 60
-export const PIRATE_GEM_AMMO_BUNDLE_SIZE = 10
+export const PIRATE_GEM_AMMO_BUNDLE_SIZE = 2
 export const PIRATE_GEM_AMMO_BUNDLE_PRICE_GEMS = 1
 export const PIRATE_GEM_AMMO_ATTACK_MULT = 1.5
 export const PIRATE_GEM_AMMO_DAMAGE_MULT = 1.75
@@ -124,6 +134,7 @@ export interface PirateLoadout {
 
 /** Defense rating the power formula measures loadout DPS against. */
 export const PIRATE_POWER_REFERENCE_DEFENSE = 20
+export const PIRATE_POWER_REFERENCE_ATTACK = 50
 
 /**
  * Power level measures what the loadout actually DOES rather than what it
@@ -142,12 +153,19 @@ export function piratePowerLevel(loadout: PirateLoadout) {
   const defense = pirateDefenseRating(loadout.levels.defense)
   const speed = pirateShipSpeed(loadout.levels.speed)
   const ammoCap = pirateAmmoCapacity(loadout.levels.ammoCapacity)
+  // Defense has to carry real weight in matchmaking too. Effective hull uses
+  // the same accuracy curve as combat against a representative enemy attack,
+  // so investing in both hull and armor raises power substantially instead of
+  // letting a tank build stay in a rookie bracket. DPS still dominates a true
+  // glass cannon, which deliberately gives that build nastier waves without
+  // secretly protecting its small hull.
+  const incomingHitChance = pirateHitChance(PIRATE_POWER_REFERENCE_ATTACK, defense)
+  const effectiveHull = maxHp / Math.max(0.15, incomingHitChance)
   return Math.round(
-    dps * 2
-    + maxHp / 12
-    + defense / 2
-    + speed / 40
-    + ammoCap / 30
+    dps * 1.65
+    + effectiveHull / 4.5
+    + speed / 50
+    + ammoCap / 40
     + loadout.cannonSlots
   )
 }
@@ -212,6 +230,8 @@ export interface PirateEnemyTier {
   sizeScale?: number
   /** Bosses spawn on their own timer, never from the regular weighted pool. */
   boss?: boolean
+  /** Snipers telegraph a high-damage shot at a fixed, dodgeable impact point. */
+  sniper?: boolean
 }
 
 // Kill payouts got bumped again (roughly another 2x on top of the earlier
@@ -221,8 +241,10 @@ export interface PirateEnemyTier {
 // more without turning into an infinite money farm.
 export const PIRATE_ENEMY_TIERS: PirateEnemyTier[] = [
   { id: 'sloop', name: 'Sloop', unlockAtMs: 0, hp: 30, defense: 5, attackRating: 14, maxDamage: 10, range: 160, speed: 90, reloadMs: 2300, coinMin: 300, coinMax: 500, color: 0x8b8f96, weight: 10, sizeScale: 0.82 },
+  { id: 'razorskiff', name: 'Razor Skiff', unlockAtMs: 25_000, hp: 55, defense: 8, attackRating: 28, maxDamage: 12, range: 145, speed: 390, reloadMs: 1750, coinMin: 650, coinMax: 950, color: 0xf97316, weight: 3.5, sizeScale: 0.76 },
   { id: 'corsair', name: 'Crimson Corsair', unlockAtMs: 40_000, hp: 50, defense: 8, attackRating: 24, maxDamage: 11, range: 250, speed: 135, reloadMs: 2700, coinMin: 800, coinMax: 1200, color: 0xef4444, weight: 5, volley: 3, sizeScale: 0.9 },
   { id: 'brigantine', name: 'Brigantine', unlockAtMs: 55_000, hp: 80, defense: 12, attackRating: 24, maxDamage: 18, range: 220, speed: 110, reloadMs: 1900, coinMin: 600, coinMax: 900, color: 0x5b7a9e, weight: 8, sizeScale: 0.94 },
+  { id: 'sniper', name: 'Longshot Schooner', unlockAtMs: 70_000, hp: 35, defense: 5, attackRating: 62, maxDamage: 55, range: 560, speed: 72, reloadMs: 4800, coinMin: 1500, coinMax: 2200, color: 0xa855f7, weight: 2, sizeScale: 0.8, sniper: true },
   { id: 'ironclad', name: 'Cobalt Ironclad', unlockAtMs: 90_000, hp: 300, defense: 32, attackRating: 20, maxDamage: 12, range: 200, speed: 70, reloadMs: 2100, coinMin: 1400, coinMax: 2000, color: 0x3b82f6, weight: 4, sizeScale: 1.14 },
   { id: 'frigate', name: 'Frigate', unlockAtMs: 130_000, hp: 160, defense: 20, attackRating: 36, maxDamage: 30, range: 300, speed: 125, reloadMs: 1600, coinMin: 1100, coinMax: 1600, color: 0xc06a2c, weight: 6, sizeScale: 1.05 },
   { id: 'manowar', name: "Man-o'-War", unlockAtMs: 215_000, hp: 260, defense: 30, attackRating: 50, maxDamage: 42, range: 380, speed: 105, reloadMs: 1400, coinMin: 1800, coinMax: 2600, color: 0x8b2635, weight: 4, sizeScale: 1.2 },
@@ -234,8 +256,9 @@ export const PIRATE_ENEMY_TIERS: PirateEnemyTier[] = [
 // A Dreadnought surfaces on its own clock (independent of the concurrency
 // cap). A strong ship gets it sooner — otherwise the scariest thing in the
 // game never shows up until the fight's basically over for a well-built crew.
-export const PIRATE_BOSS_FIRST_SPAWN_MS = 70_000
+export const PIRATE_BOSS_FIRST_SPAWN_MS = 85_000
 export const PIRATE_BOSS_RESPAWN_MS = 80_000
+export const PIRATE_BOSS_DAMAGE_MULT = 0.65
 
 /** First Dreadnought sighting — pulled earlier the stronger the ship. */
 export function pirateBossFirstSpawnMs(power: number) {
@@ -252,7 +275,7 @@ export function pirateBossFirstSpawnMs(power: number) {
  *
  * The per-power coefficients below are intentionally uncapped (unlike the
  * spawn-rate/concurrency curves, which cap out at a sane swarm size) — the
- * armory now runs up to Leviathan's Wrath (power ~1045 fully kitted, roughly
+ * armory now runs up to Leviathan's Wrath (power ~1075 fully kitted, roughly
  * double the old Mythril-only ceiling), and stat difficulty needs to keep
  * climbing right along with it rather than plateauing once someone's
  * squeezed everything out of the old top tier.
@@ -272,15 +295,30 @@ export function pirateDifficultyMultiplier(elapsedMs: number, power: number) {
   const t = Math.min(1.05, elapsedMs / PIRATE_RUN_DURATION_MS)
   const overBase = Math.max(0, power - PIRATE_BASE_POWER)
 
-  const timeHpMult = 1 + t * 0.9 + Math.pow(Math.max(0, t - 0.5), 2) * 2.4
-  const powerHpMult = 1 + overBase * 0.022
+  const timeHpMult = 1 + t * 1.05 + Math.pow(Math.max(0, t - 0.42), 2) * 3.2
+  const powerHpMult = 1 + overBase * 0.024
   const hpMult = timeHpMult * powerHpMult
 
-  const dmgMult = (1 + t * 1.1) * (1 + overBase * 0.005)
+  // Keep the first two minutes survivable, then let damage accelerate hard.
+  // This moves the usual failure point toward minutes 3–5 without flattening
+  // the endgame or making high-power glass cannons safe.
+  const timeDmgMult = 1 + t * 0.9 + Math.pow(Math.max(0, t - 0.4), 2) * 1.8
+  // Per-hit damage grows sub-linearly with power. High-power fleets still
+  // produce much more incoming DPS through accuracy, population, and faster
+  // reloads, but an ordinary cannonball no longer scales into a one-shot.
+  const powerDmgMult = 1 + Math.sqrt(overBase) * 0.035
+  const dmgMult = timeDmgMult * powerDmgMult
 
   const statMult = Math.min(2.3, 1 + (hpMult - 1) * 0.1)
 
   return { hpMult, dmgMult, statMult }
+}
+
+/** More frequent, smaller enemy hits as the run and matchmaking power rise. */
+export function pirateEnemyReloadMultiplier(elapsedMs: number, power: number) {
+  const t = Math.min(1, Math.max(0, elapsedMs / PIRATE_RUN_DURATION_MS))
+  const pT = piratePowerT(power)
+  return Math.max(0.58, 0.96 - pT * 0.1 - t * 0.26)
 }
 
 /**
@@ -298,7 +336,7 @@ export function pirateRewardMultiplier(elapsedMs: number, power: number) {
  * Normalized 0..1 progression of the player's power level, used to scale how
  * crowded the map gets and how fast enemies spawn. This deliberately caps out
  * well before the theoretical max (a full Leviathan's Wrath broadside runs
- * power ~1045) — there's a sane ceiling on how many hulls can usefully be on
+ * power ~1075) — there's a sane ceiling on how many hulls can usefully be on
  * screen and how fast they can arrive. Past that ceiling, difficulty keeps
  * climbing anyway through pirateDifficultyMultiplier's uncapped per-power HP
  * and damage scaling below, so min-maxing the armory never plateaus into an
@@ -319,9 +357,11 @@ export function piratePowerT(power: number) {
 export function pirateSpawnIntervalMs(elapsedMs: number, power: number) {
   const t = Math.min(1, elapsedMs / PIRATE_RUN_DURATION_MS)
   const pT = piratePowerT(power)
-  const start = 7000 - pT * 5200 // 7s at base power → 1.8s fully kitted, from second one
-  const end = 3200 - pT * 2200 // 3.2s → 1s by the end of the run
-  return Math.round(start - t * (start - end))
+  const start = 6500 - pT * 4500 // 6.5s at base power → 2s fully kitted, from second one
+  const end = 2600 - pT * 1700 // 2.6s → 0.9s by the end of the run
+  // Most of the cadence squeeze happens after two minutes.
+  const ramp = Math.pow(t, 1.35)
+  return Math.round(start - ramp * (start - end))
 }
 
 /**
@@ -335,10 +375,34 @@ export function pirateSpawnIntervalMs(elapsedMs: number, power: number) {
 export function pirateMaxConcurrentEnemies(elapsedMs: number, power: number) {
   const t = Math.min(1, elapsedMs / PIRATE_RUN_DURATION_MS)
   const pT = piratePowerT(power)
-  const base = 1 + pT * 5 // 1 at the start for a rookie, 6 for a veteran, from the first spawn
-  const growth = 2 + pT * 5 // +2 over the run for a rookie, +7 for a veteran
-  const timeWeight = 0.35 + t * 0.65
+  const base = 2 + pT * 4 // 2 at the start for a rookie, 6 for a veteran
+  const growth = 3 + pT * 6 // late pressure still reaches the old swarm ceiling
+  const timeWeight = 0.2 + Math.pow(t, 1.25) * 0.8
   return Math.round(base + growth * timeWeight)
+}
+
+/** Ships already bearing down on the player when a voyage begins. */
+export function pirateInitialEnemyCount(power: number) {
+  return 2 + Math.round(piratePowerT(power) * 3)
+}
+
+/**
+ * Reinforcement size. Rookie runs mostly add one hull at a time; higher-power
+ * and later runs frequently add two, with a late veteran chance of three.
+ */
+export function pirateSpawnBatchSize(elapsedMs: number, power: number, rng: () => number = Math.random) {
+  const t = Math.min(1, elapsedMs / PIRATE_RUN_DURATION_MS)
+  const pT = piratePowerT(power)
+  let count = 1
+  if (rng() < 0.08 + pT * 0.42 + Math.pow(t, 1.4) * 0.3) count += 1
+  if (pT > 0.55 && rng() < (pT - 0.55) * 0.35 + Math.pow(t, 1.5) * 0.15) count += 1
+  return count
+}
+
+/** Sea-mine damage rises from 10% to 45% of max hull over the voyage. */
+export function pirateSeaMineDamageFraction(elapsedMs: number) {
+  const t = Math.min(1, Math.max(0, elapsedMs / PIRATE_RUN_DURATION_MS))
+  return 0.1 + Math.pow(t, 1.35) * 0.35
 }
 
 // ─── Kill combos ────────────────────────────────────────────────────────────

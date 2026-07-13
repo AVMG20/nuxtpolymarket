@@ -13,6 +13,7 @@ const {
     hp, maxHp, coins, ammo, gemAmmo, preferGem, remainingMs,
     running, paused, starting,
     killFeed, combo, comboVisible, bossName, bossVisible,
+    activePowerUps, nextPowerUpMs, nextHealthPackMs, powerUpNotice,
     gameOverVisible, gameOverResult,
     attachCanvas, detachCanvas, startVoyage, pauseVoyage, resumeVoyage, cancelVoyage,
     toggleAmmoMode, closeGameOver
@@ -31,6 +32,14 @@ const timerLabel = computed(() => {
     const s = totalSeconds % 60
     return `${m}:${s.toString().padStart(2, '0')}`
 })
+const nextPowerUpLabel = computed(() => `${Math.max(0, Math.ceil(nextPowerUpMs.value / 1000))}s`)
+const nextHealthPackLabel = computed(() => `${Math.max(0, Math.ceil(nextHealthPackMs.value / 1000))}s`)
+
+function powerUpStatus(powerUp: typeof activePowerUps.value[number]) {
+    if (powerUp.shield !== undefined) return `${powerUp.shield} shield`
+    if (powerUp.counter !== undefined) return `${powerUp.counter} shots`
+    return `${Math.max(0, Math.ceil((powerUp.remainingMs ?? 0) / 1000))}s`
+}
 const bestSurvivalLabel = computed(() => {
     const totalSeconds = Math.floor((state.value?.bestSurvivalMs ?? 0) / 1000)
     const m = Math.floor(totalSeconds / 60)
@@ -225,6 +234,34 @@ onUnmounted(() => {
                     </span>
                   </button>
                 </div>
+                <div class="bg-black/50 backdrop-blur-sm rounded-lg px-2.5 py-2 space-y-1.5">
+                  <div class="flex items-center justify-between text-[10px] font-bold uppercase tracking-wide text-white/70">
+                    <span class="flex items-center gap-1"><UIcon name="i-lucide-sparkles" class="size-3" /> Power ups</span>
+                    <span class="tabular-nums">Power {{ nextPowerUpLabel }} · Repair {{ nextHealthPackLabel }}</span>
+                  </div>
+                  <div v-if="activePowerUps.length" class="grid gap-1">
+                    <div
+                      v-for="powerUp in activePowerUps"
+                      :key="powerUp.id"
+                      class="flex items-center gap-2 rounded-md bg-white/10 px-2 py-1 text-white"
+                      :title="powerUp.description"
+                    >
+                      <span class="text-base leading-none">{{ powerUp.icon }}</span>
+                      <div class="min-w-0 flex-1">
+                        <p class="truncate text-[11px] font-bold leading-tight">
+                          {{ powerUp.name }}
+                        </p>
+                        <p class="truncate text-[9px] text-white/65 leading-tight">
+                          {{ powerUp.description }}
+                        </p>
+                      </div>
+                      <span class="shrink-0 text-[10px] font-black tabular-nums text-primary">{{ powerUpStatus(powerUp) }}</span>
+                    </div>
+                  </div>
+                  <p v-else class="text-[10px] text-white/55">
+                    Watch the sea for a glowing supply buoy.
+                  </p>
+                </div>
               </div>
 
               <div class="bg-black/50 backdrop-blur-sm rounded-lg px-4 py-2 text-center">
@@ -271,6 +308,23 @@ onUnmounted(() => {
                   </p>
                   <p class="text-white font-black text-sm">
                     {{ bossName }}
+                  </p>
+                </div>
+              </div>
+            </Transition>
+
+            <!-- Power-up pickup / activation warning -->
+            <Transition name="power-up">
+              <div v-if="powerUpNotice" class="absolute left-1/2 top-28 -translate-x-1/2">
+                <div
+                  class="rounded-xl border px-4 py-2 text-center backdrop-blur-sm"
+                  :class="powerUpNotice.collected ? 'bg-primary/85 border-primary text-inverted shadow-lg shadow-primary/30' : 'bg-black/75 border-primary/60 text-white animate-pulse'"
+                >
+                  <p class="text-[10px] font-black uppercase tracking-[0.2em]">
+                    {{ powerUpNotice.collected ? '⚡ Power up' : '✦ Supply drop' }}
+                  </p>
+                  <p class="text-sm font-black whitespace-nowrap">
+                    {{ powerUpNotice.title }}
                   </p>
                 </div>
               </div>
@@ -343,7 +397,7 @@ onUnmounted(() => {
                 Ready to set sail?
               </p>
               <p class="text-white/70 text-sm max-w-xs mx-auto">
-                Click open water to move — your ship sails around the islands on its own. Click an enemy ship to open fire. Chain kills for combo gold, and survive 5 minutes to keep every coin.
+                Click open water to move — your ship sails around the islands on its own. Click an enemy ship to open fire. Chase power ups and repair packs, steer clear of sea mines, and move out of marked sniper shots before they land. Chain kills for combo gold and try to survive 5 brutal minutes.
               </p>
               <div class="flex items-center justify-center gap-4 text-xs text-white/70">
                 <span class="flex items-center gap-1"><UIcon name="i-lucide-crosshair" class="size-3.5" /> {{ state.cannons.length }}/{{ state.cannonSlots }} cannons</span>
@@ -466,5 +520,19 @@ onUnmounted(() => {
 .boss-leave-to {
   opacity: 0;
   transform: translate(-50%, -8px);
+}
+.power-up-enter-active {
+  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.power-up-leave-active {
+  transition: all 0.25s ease;
+}
+.power-up-enter-from {
+  opacity: 0;
+  transform: translate(-50%, -12px) scale(1.25);
+}
+.power-up-leave-to {
+  opacity: 0;
+  transform: translate(-50%, -8px) scale(0.9);
 }
 </style>

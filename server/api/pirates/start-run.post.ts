@@ -55,10 +55,13 @@ export default defineEventHandler(async (event) => {
                 const tier = pirateCannonTier(c.tierId)
                 return {
                     slotIndex: c.slotIndex,
+                    tierId: tier.id,
                     attackRating: tier.attackRating,
                     maxDamage: tier.maxDamage,
                     reloadMs: tier.reloadMs,
-                    range: tier.range
+                    range: tier.range,
+                    shotColor: tier.shotColor,
+                    shotTrail: tier.shotTrail ?? false
                 }
             })
     }
