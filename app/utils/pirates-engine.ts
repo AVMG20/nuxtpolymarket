@@ -1567,18 +1567,35 @@ export class PirateGame {
 
         const duration = Math.min(1.5, Math.max(0.5, dist(fromX, fromY, targetX, targetY) / 430))
         let lastTrail = 0
+        let previousX = fromX
+        let previousY = fromY
+        let collided = false
         gsap.to(root.position, {
             x: targetX,
             y: targetY,
             duration,
             ease: 'none',
             onUpdate: () => {
+                if (!collided && segPointDist(previousX, previousY, root.x, root.y, this.playerX, this.playerY) <= 34) {
+                    collided = true
+                    gsap.killTweensOf(root.position)
+                    const hitX = root.x
+                    const hitY = root.y
+                    if (!root.destroyed) root.destroy({ children: true })
+                    if (this.running && !this.destroyed) {
+                        this.resolveEnemyAreaAttack(hitX, hitY, 34, Math.max(6, Math.round(enemy.maxDamage * 0.9)), 'SNIPER HIT', 0xe879f9, false)
+                    }
+                    return
+                }
+                previousX = root.x
+                previousY = root.y
                 const now = performance.now()
                 if (now - lastTrail < 32) return
                 lastTrail = now
                 this.spawnTrailParticle(root.x, root.y, 0xe879f9, 1.5)
             },
             onComplete: () => {
+                if (collided) return
                 if (root.destroyed) return
                 root.destroy({ children: true })
                 if (!this.running || enemy.dead || this.enemies.get(enemy.id) !== enemy) return
@@ -1620,18 +1637,37 @@ export class PirateGame {
         this.effectsLayer.addChild(root)
         gsap.to(glow, { rotation: Math.PI * 3, duration: 2.35, ease: 'none' })
         let lastTrail = 0
+        let previousX = enemy.x
+        let previousY = enemy.y
+        let collided = false
         gsap.to(root.position, {
             x: targetX,
             y: targetY,
             duration: 2.35,
             ease: 'power1.in',
             onUpdate: () => {
+                if (!collided && segPointDist(previousX, previousY, root.x, root.y, this.playerX, this.playerY) <= 42) {
+                    collided = true
+                    gsap.killTweensOf(root.position)
+                    gsap.killTweensOf(glow)
+                    const hitX = root.x
+                    const hitY = root.y
+                    if (!root.destroyed) root.destroy({ children: true })
+                    if (!warning.destroyed) warning.destroy()
+                    if (this.running && !this.destroyed) {
+                        this.resolveEnemyAreaAttack(hitX, hitY, 42, Math.max(5, Math.round(enemy.maxDamage * 0.9)), 'DRIFT MINE', 0x3b82f6)
+                    }
+                    return
+                }
+                previousX = root.x
+                previousY = root.y
                 const now = performance.now()
                 if (now - lastTrail < 45) return
                 lastTrail = now
                 this.spawnTrailParticle(root.x, root.y, 0x60a5fa, 1.1)
             },
             onComplete: () => {
+                if (collided) return
                 if (!root.destroyed) root.destroy({ children: true })
                 if (!warning.destroyed) warning.destroy()
                 if (!this.running || this.destroyed) return
@@ -1710,18 +1746,36 @@ export class PirateGame {
             skiff.rotation = Math.atan2(targetY - skiff.y, targetX - skiff.x)
             const duration = 1.65 + i * 0.12
             let wakeTimer = 0
+            let previousX = skiff.x
+            let previousY = skiff.y
+            let collided = false
             gsap.to(skiff.position, {
                 x: targetX,
                 y: targetY,
                 duration,
                 ease: 'power1.in',
                 onUpdate: () => {
+                    if (!collided && segPointDist(previousX, previousY, skiff.x, skiff.y, this.playerX, this.playerY) <= 40) {
+                        collided = true
+                        gsap.killTweensOf(skiff.position)
+                        const hitX = skiff.x
+                        const hitY = skiff.y
+                        if (!skiff.destroyed) skiff.destroy({ children: true })
+                        if (!warning.destroyed) warning.destroy()
+                        if (this.running && !this.destroyed) {
+                            this.resolveEnemyAreaAttack(hitX, hitY, 40, Math.max(4, Math.round(enemy.maxDamage * 0.55)), 'SKIFF RAM', 0x06b6d4, false)
+                        }
+                        return
+                    }
+                    previousX = skiff.x
+                    previousY = skiff.y
                     const now = performance.now()
                     if (now - wakeTimer < 55) return
                     wakeTimer = now
                     this.spawnTrailParticle(skiff.x, skiff.y, 0x67e8f9, 0.7, 0.55)
                 },
                 onComplete: () => {
+                    if (collided) return
                     if (!skiff.destroyed) skiff.destroy({ children: true })
                     if (!warning.destroyed) warning.destroy()
                     if (!this.running || this.destroyed) return
