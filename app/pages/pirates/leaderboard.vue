@@ -75,10 +75,7 @@ function durationLabel(ms: number) {
           </div>
           <div class="flex items-center justify-between gap-2 sm:block sm:text-right">
             <span class="text-[10px] font-bold uppercase tracking-wide text-muted sm:block">Loot secured</span>
-            <span class="inline-flex items-center gap-1 text-lg font-black tabular-nums">
-              <UIcon name="i-lucide-coins" class="size-4 text-warning" />
-              {{ formatNumber(captain.loot, false) }}
-            </span>
+            <CoinBalance :value="captain.loot" class="justify-end text-lg font-black tabular-nums" />
           </div>
         </div>
       </UCard>

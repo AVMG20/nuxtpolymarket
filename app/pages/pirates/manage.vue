@@ -210,7 +210,7 @@ async function sellCannon(slotIndex: number) {
     try {
         const res = await $fetch('/api/pirates/cannons/sell', { method: 'POST', body: { slotIndex } })
         await Promise.all([refresh(), fetchSession()])
-        toast.add({ title: `Sold for ${formatNumber(res.refund, false)} coins`, color: 'success' })
+        toast.add({ title: `Sold for ${formatNumber(res.refund)} coins`, color: 'success' })
     } catch (e: any) {
         toast.add({ title: e.data?.message ?? 'Failed to sell cannon', color: 'error' })
     } finally {
@@ -295,7 +295,9 @@ async function selectAbility(ability: NonNullable<typeof state.value>['abilities
               Skins grant no combat power. They grant considerably more important bragging rights.
             </p>
           </div>
-          <UBadge color="info" variant="subtle" icon="i-lucide-gem" :label="`${formatNumber(gems, false)} gems`" />
+          <UBadge color="info" variant="subtle">
+            <GemBalance :value="gems" />
+          </UBadge>
         </div>
 
         <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
@@ -329,10 +331,7 @@ async function selectAbility(ability: NonNullable<typeof state.value>['abilities
               <span v-if="skin.equipped">At the helm</span>
               <span v-else-if="skin.owned">Equip</span>
               <span v-else-if="skin.cost === 0">Free</span>
-              <span v-else class="flex items-center gap-1">
-                <UIcon name="i-lucide-gem" class="size-3.5" />
-                {{ formatNumber(skin.cost, false) }}
-              </span>
+              <GemBalance v-else :value="skin.cost" />
             </UButton>
           </UCard>
         </div>
@@ -349,7 +348,9 @@ async function selectAbility(ability: NonNullable<typeof state.value>['abilities
               Permanently unlock techniques, then equip exactly one before setting sail.
             </p>
           </div>
-          <UBadge color="neutral" variant="subtle" icon="i-lucide-coins" :label="`${formatNumber(balance, false)} coins`" />
+          <UBadge color="neutral" variant="subtle">
+            <CoinBalance :value="balance" />
+          </UBadge>
         </div>
 
         <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
@@ -389,10 +390,7 @@ async function selectAbility(ability: NonNullable<typeof state.value>['abilities
               <span v-if="ability.equipped">Ready to fire</span>
               <span v-else-if="ability.owned">Equip</span>
               <span v-else-if="ability.cost === 0">Free</span>
-              <span v-else class="flex items-center gap-1">
-                <UIcon name="i-lucide-coins" class="size-3.5" />
-                {{ formatNumber(ability.cost, false) }}
-              </span>
+              <CoinBalance v-else :value="ability.cost" />
             </UButton>
           </UCard>
         </div>
@@ -447,10 +445,7 @@ async function selectAbility(ability: NonNullable<typeof state.value>['abilities
               @click="upgradeStat(statId)"
             >
               <span v-if="state.levels[statId] >= PIRATE_MAX_STAT_LEVEL">Maxed</span>
-              <span v-else class="flex items-center gap-1">
-                <UIcon name="i-lucide-coins" class="size-3.5 text-yellow-400" />
-                {{ formatNumber(state.costs[statId] ?? 0, false) }}
-              </span>
+              <CoinBalance v-else :value="state.costs[statId] ?? 0" />
             </UButton>
           </UCard>
         </div>
@@ -469,9 +464,10 @@ async function selectAbility(ability: NonNullable<typeof state.value>['abilities
                 <p class="font-semibold text-sm">
                   Premium Ammo Depot
                 </p>
-                <p class="text-xs text-muted">
-                  {{ formatNumber(state.ammo.pricePerUnit, false) }} coins per shot at Power {{ state.power }}
-                </p>
+                <div class="flex flex-wrap items-center gap-x-1 text-xs text-muted">
+                  <CoinBalance :value="state.ammo.pricePerUnit" />
+                  <span>per shot at Power {{ state.power }}</span>
+                </div>
               </div>
             </div>
           </template>
@@ -495,7 +491,11 @@ async function selectAbility(ability: NonNullable<typeof state.value>['abilities
                 :loading="buyingAmmo === amount"
                 @click="buyAmmo(amount)"
               >
-                +{{ amount }} <span class="text-muted ml-1">({{ formatNumber(ammoCostFor(amount), false) }})</span>
+                <span class="flex items-center gap-1.5">
+                  +{{ amount }}
+                  <span class="text-muted">·</span>
+                  <CoinBalance :value="ammoCostFor(amount)" />
+                </span>
               </UButton>
               <UButton
                 size="sm"
@@ -503,7 +503,11 @@ async function selectAbility(ability: NonNullable<typeof state.value>['abilities
                 :loading="buyingAmmo === state.ammo.capacity - state.ammo.count"
                 @click="buyAmmo(state.ammo.capacity - state.ammo.count)"
               >
-                Fill hold <span class="opacity-80 ml-1">({{ formatNumber(ammoCostFor(state.ammo.capacity - state.ammo.count), false) }})</span>
+                <span class="flex items-center gap-1.5">
+                  Fill hold
+                  <span class="opacity-80">·</span>
+                  <CoinBalance :value="ammoCostFor(state.ammo.capacity - state.ammo.count)" />
+                </span>
               </UButton>
             </div>
             <p class="text-[11px] text-muted">
@@ -530,7 +534,7 @@ async function selectAbility(ability: NonNullable<typeof state.value>['abilities
                 </div>
               </div>
               <UBadge color="info" variant="subtle" size="sm">
-                <UIcon name="i-lucide-gem" class="size-3 mr-0.5" /> {{ formatNumber(gems, false) }}
+                <GemBalance :value="gems" />
               </UBadge>
             </div>
           </template>
@@ -607,7 +611,10 @@ async function selectAbility(ability: NonNullable<typeof state.value>['abilities
                   :loading="unlockingSlot"
                   @click="unlockSlot"
                 >
-                  Unlock ({{ formatNumber(state.nextSlotCost ?? 0, false) }})
+                  <span class="flex items-center gap-1.5">
+                    Unlock
+                    <CoinBalance :value="state.nextSlotCost ?? 0" />
+                  </span>
                 </UButton>
               </div>
             </template>
@@ -653,7 +660,7 @@ async function selectAbility(ability: NonNullable<typeof state.value>['abilities
                     :loading="sellingSlot === slotIndex"
                     @click.stop="sellCannon(slotIndex)"
                   >
-                    {{ formatNumber(cannonsBySlot.get(slotIndex)!.sellValue, false) }}
+                    <CoinBalance :value="cannonsBySlot.get(slotIndex)!.sellValue" />
                   </UButton>
                 </div>
               </div>
@@ -727,16 +734,14 @@ async function selectAbility(ability: NonNullable<typeof state.value>['abilities
                 @click="equipCannon(tier.id)"
               >
                 <span v-if="tier.cost === 0">Free</span>
-                <span v-else class="flex items-center gap-1">
-                  <UIcon name="i-lucide-coins" class="size-3.5 text-yellow-400" />
-                  {{ formatNumber(tier.cost, false) }}
-                </span>
+                <CoinBalance v-else :value="tier.cost" />
               </UButton>
             </div>
           </UCard>
-          <p v-if="pickerCurrentTier" class="text-xs text-muted px-1">
-            Equipping a new cannon sells the current one first (refunds {{ formatNumber(pickerCurrentTier.sellValue, false) }}).
-          </p>
+          <div v-if="pickerCurrentTier" class="flex flex-wrap items-center gap-1 px-1 text-xs text-muted">
+            <span>Equipping a new cannon sells the current one first. Refund:</span>
+            <CoinBalance :value="pickerCurrentTier.sellValue" />
+          </div>
         </div>
       </template>
     </UModal>

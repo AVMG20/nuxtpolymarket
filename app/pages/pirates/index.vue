@@ -125,7 +125,7 @@ async function rushRepair() {
     try {
         const res = await $fetch('/api/pirates/repair/rush', { method: 'POST' })
         await Promise.all([refresh(), fetchSession()])
-        toast.add({ title: `Repairs rushed for ${formatNumber(res.cost, false)} coins`, color: 'success' })
+        toast.add({ title: `Repairs rushed for ${formatNumber(res.cost)} coins`, color: 'success' })
     } catch (e: any) {
         toast.add({ title: e.data?.message ?? 'Failed to rush repair', color: 'error' })
     } finally {
@@ -192,9 +192,11 @@ onUnmounted(() => {
               <p class="text-white font-semibold text-lg">
                 Voyage paused
               </p>
-              <p class="text-white/70 text-sm max-w-xs mx-auto">
-                {{ Math.ceil(hp) }} / {{ maxHp }} hull, {{ formatNumber(coins, false) }} coins banked so far, {{ timerLabel }} left on the clock.
-              </p>
+              <div class="mx-auto flex max-w-xs flex-wrap items-center justify-center gap-x-1 text-sm text-white/70">
+                <span>{{ Math.ceil(hp) }} / {{ maxHp }} hull,</span>
+                <CoinBalance :value="coins" />
+                <span>banked, {{ timerLabel }} left on the clock.</span>
+              </div>
               <div class="flex items-center justify-center gap-2">
                 <UButton size="lg" icon="i-lucide-play" label="Resume Voyage" @click="resumeVoyage" />
                 <UButton size="lg" color="error" variant="subtle" icon="i-lucide-flag" label="Cancel Voyage" @click="cancelVoyage" />
@@ -220,11 +222,16 @@ onUnmounted(() => {
                 color="neutral"
                 variant="subtle"
                 icon="i-lucide-zap"
-                :label="`Rush Repair (${formatNumber(repairRushCost, false)})`"
                 :loading="rushing"
                 :disabled="balance < repairRushCost"
                 @click="rushRepair"
-              />
+              >
+                <span class="flex items-center gap-1.5">
+                  Rush Repair
+                  <span class="opacity-80">·</span>
+                  <CoinBalance :value="repairRushCost" />
+                </span>
+              </UButton>
               <p v-if="balance < repairRushCost" class="text-red-300 text-xs">
                 Not enough coins to rush this repair yet.
               </p>
@@ -355,7 +362,9 @@ onUnmounted(() => {
                 </p>
               </div>
               <div class="flex flex-wrap items-center justify-center gap-2">
-                <UBadge color="warning" variant="subtle" icon="i-lucide-coins" :label="formatNumber(coins, false)" />
+                <UBadge color="warning" variant="subtle">
+                  <CoinBalance :value="coins" />
+                </UBadge>
                 <Transition name="combo">
                   <UBadge v-if="comboVisible" color="error" variant="subtle" :label="`Combo x${combo}`" icon="i-lucide-flame" />
                 </Transition>
@@ -458,10 +467,7 @@ onUnmounted(() => {
             <p class="text-[10px] font-bold uppercase tracking-[0.18em] text-muted">
               Loot secured
             </p>
-            <div class="mt-1 flex items-center justify-center gap-2 text-3xl font-black">
-              <UIcon name="i-lucide-coins" class="size-7 text-warning" />
-              {{ formatNumber(gameOverResult.awarded, false) }}
-            </div>
+            <CoinBalance :value="gameOverResult.awarded" class="mt-1 justify-center text-3xl font-black" />
           </div>
 
           <div class="grid grid-cols-2 gap-2 text-center sm:grid-cols-5">
