@@ -30,7 +30,7 @@ export const PIRATE_STARTER_ABILITY_ID: PirateAbilityId = 'bomb'
 export function pirateAbility(id: string) {
   return PIRATE_ABILITIES.find(ability => ability.id === id) ?? PIRATE_ABILITIES[0]
 }
-// A 5-minute real-time roguelike skirmish. Ship-level upgrades (hull, speed,
+// An 8-minute real-time roguelike skirmish. Ship-level upgrades (hull, speed,
 // defense, ammo capacity) are bought directly; attack power instead comes from
 // equipping cannons (up to 8 gun ports) bought from the armory, each with its
 // own accuracy, damage, reload speed and range — and each fires on its own
@@ -45,8 +45,8 @@ export const PIRATE_SHIP_STAT_IDS = ['hull', 'speed', 'defense', 'ammoCapacity']
 export type PirateShipStatId = typeof PIRATE_SHIP_STAT_IDS[number]
 
 export const PIRATE_MAX_STAT_LEVEL = 10
-export const PIRATE_RUN_DURATION_MS = 5 * 60 * 1000
-export const PIRATE_POWER_UP_INTERVAL_MS = 30_000
+export const PIRATE_RUN_DURATION_MS = 8 * 60 * 1000
+export const PIRATE_POWER_UP_INTERVAL_MS = 25_000
 export const PIRATE_POWER_UP_LIFESPAN_MS = 22_000
 export const PIRATE_HEALTH_PACK_INTERVAL_MS = 45_000
 export const PIRATE_HEALTH_PACK_LIFESPAN_MS = 22_000
@@ -306,7 +306,7 @@ export function pirateBossFirstSpawnMs(power: number) {
 }
 
 /**
- * Difficulty ramp. Design goal: nobody comfortably survives the full 5
+ * Difficulty ramp. Design goal: nobody comfortably survives the full 8
  * minutes — the sea always wins eventually, and the question is how deep you
  * get and how much loot you extract first. Crucially, a strong ship should
  * feel real pressure from minute one — the old curve leaned almost entirely
@@ -397,11 +397,12 @@ export function piratePowerT(power: number) {
 export function pirateSpawnIntervalMs(elapsedMs: number, power: number) {
   const t = Math.min(1, elapsedMs / PIRATE_RUN_DURATION_MS)
   const pT = piratePowerT(power)
+  const overrun = Math.min(1, Math.max(0, (elapsedMs - 6 * 60_000) / (2 * 60_000)))
   const start = 6500 - pT * 4500 // 6.5s at base power → 2s fully kitted, from second one
   const end = 2600 - pT * 1700 // 2.6s → 0.9s by the end of the run
   // Most of the cadence squeeze happens after two minutes.
   const ramp = Math.pow(t, 1.35)
-  return Math.round(start - ramp * (start - end))
+  return Math.max(450, Math.round((start - ramp * (start - end)) * (1 - overrun * 0.52)))
 }
 
 /**
@@ -415,10 +416,11 @@ export function pirateSpawnIntervalMs(elapsedMs: number, power: number) {
 export function pirateMaxConcurrentEnemies(elapsedMs: number, power: number) {
   const t = Math.min(1, elapsedMs / PIRATE_RUN_DURATION_MS)
   const pT = piratePowerT(power)
+  const overrun = Math.min(1, Math.max(0, (elapsedMs - 6 * 60_000) / (2 * 60_000)))
   const base = 2 + pT * 4 // 2 at the start for a rookie, 6 for a veteran
   const growth = 3 + pT * 6 // late pressure still reaches the old swarm ceiling
   const timeWeight = 0.2 + Math.pow(t, 1.25) * 0.8
-  return Math.round(base + growth * timeWeight)
+  return Math.round(base + growth * timeWeight + overrun * (10 + pT * 5))
 }
 
 /** Ships already bearing down on the player when a voyage begins. */
@@ -433,9 +435,11 @@ export function pirateInitialEnemyCount(power: number) {
 export function pirateSpawnBatchSize(elapsedMs: number, power: number, rng: () => number = Math.random) {
   const t = Math.min(1, elapsedMs / PIRATE_RUN_DURATION_MS)
   const pT = piratePowerT(power)
+  const overrun = Math.min(1, Math.max(0, (elapsedMs - 6 * 60_000) / (2 * 60_000)))
   let count = 1
   if (rng() < 0.08 + pT * 0.42 + Math.pow(t, 1.4) * 0.3) count += 1
   if (pT > 0.55 && rng() < (pT - 0.55) * 0.35 + Math.pow(t, 1.5) * 0.15) count += 1
+  count += Math.floor(overrun * 3)
   return count
 }
 
@@ -516,7 +520,7 @@ export const PIRATE_MIN_RUN_MS_FOR_PAYOUT = 3000
 // Taking damage isn't free anymore: coming back from a voyage puts the ship
 // in dry dock for a stretch proportional to how badly it was shot up, up to
 // a full 2 hours for a total loss. This is what actually stops a strong ship
-// from just re-running the same 5 minutes forever for easy money — the
+// from just re-running the same 8 minutes forever for easy money — the
 // bigger per-kill payouts above only make sense because of this cap.
 export const PIRATE_REPAIR_MAX_MS = 2 * 60 * 60 * 1000
 

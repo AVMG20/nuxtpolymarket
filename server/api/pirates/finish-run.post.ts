@@ -44,7 +44,7 @@ export default defineEventHandler(async (event) => {
     // spent playing regardless of what the client claims. The client-reported
     // elapsed (real, pause-immune playtime) is then clamped to that wall-clock
     // ceiling too, so a voyage that was paused for a while doesn't get treated
-    // as a full 5-minute survival, but a genuinely long pause also can't be
+    // as a full 8-minute survival, but a genuinely long pause also can't be
     // used to inflate the payout cap beyond what real wall-clock time allows.
     const rawElapsedMs = Date.now() - s.runStartedAt.getTime()
     const wallClampedMs = Math.max(0, Math.min(rawElapsedMs, PIRATE_RUN_DURATION_MS + 5000))

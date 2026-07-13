@@ -38,9 +38,12 @@ const abilityCooldownLabel = computed(() => abilityCooldownMs.value > 0 ? `${Mat
 const abilityCooldownPercent = computed(() => abilityCooldownTotalMs.value > 0 ? Math.max(0, Math.min(100, abilityCooldownMs.value / abilityCooldownTotalMs.value * 100)) : 0)
 
 function powerUpStatus(powerUp: typeof activePowerUps.value[number]) {
-    if (powerUp.shield !== undefined) return `${powerUp.shield} shield`
-    if (powerUp.counter !== undefined) return `${powerUp.counter} shots`
-    return `${Math.max(0, Math.ceil((powerUp.remainingMs ?? 0) / 1000))}s`
+    const stack = powerUp.stacks > 1 ? `x${powerUp.stacks}` : ''
+    let status = ''
+    if (powerUp.shield !== undefined) status = `${powerUp.shield} shield`
+    else if (powerUp.counter !== undefined) status = `${powerUp.counter} shots`
+    else status = `${Math.max(0, Math.ceil((powerUp.remainingMs ?? 0) / 1000))}s`
+    return [stack, status].filter(Boolean).join(' · ')
 }
 const bestSurvivalLabel = computed(() => {
     const totalSeconds = Math.floor((state.value?.bestSurvivalMs ?? 0) / 1000)
@@ -161,7 +164,7 @@ onUnmounted(() => {
           Pirate Raid
         </h1>
         <p class="text-sm text-muted mt-0.5">
-          Sail out for 5 minutes, sink what you can, keep the loot.
+          Sail out for 8 minutes, stack wild power-ups, and survive the final overrun.
         </p>
       </div>
       <div v-if="state" class="flex items-center gap-2">

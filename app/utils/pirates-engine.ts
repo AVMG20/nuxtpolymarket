@@ -66,6 +66,15 @@ export type PiratePowerUpId =
     | 'titan-shot'
     | 'blast-powder'
     | 'deadeye'
+    | 'rapid-loader'
+    | 'keen-sights'
+    | 'reinforced-keel'
+    | 'lucky-shot'
+    | 'razor-orbit'
+    | 'starburst-battery'
+    | 'chain-tempest'
+    | 'ghost-armada'
+    | 'blood-tide'
 
 export interface PirateActivePowerUp {
     id: PiratePowerUpId
@@ -73,6 +82,7 @@ export interface PirateActivePowerUp {
     description: string
     icon: string
     remainingMs: number | null
+    stacks: number
     counter?: number
     shield?: number
 }
@@ -132,17 +142,27 @@ interface PowerUpDefinition {
     icon: string
     color: number
     durationMs: number | null
+    maxStacks: number
 }
 
 const POWER_UPS: PowerUpDefinition[] = [
-    { id: 'broadside-fury', name: 'Broadside Fury', description: '+20% cannon damage', icon: '🔥', color: 0xf97316, durationMs: 30_000 },
-    { id: 'quick-fuse', name: 'Quick Fuse', description: 'Cannons reload 25% faster', icon: '⚡', color: 0xfacc15, durationMs: 25_000 },
-    { id: 'eagle-eye', name: "Eagle's Eye", description: '+35% cannon range', icon: '🔭', color: 0x60a5fa, durationMs: 35_000 },
-    { id: 'iron-plating', name: 'Iron Plating', description: '+40% defense', icon: '⚓', color: 0x94a3b8, durationMs: 32_000 },
-    { id: 'tide-shield', name: 'Tide Shield', description: 'Absorbs 20 hull damage', icon: '🛡️', color: 0x22d3ee, durationMs: null },
-    { id: 'titan-shot', name: 'Titan Shot', description: 'Every 10th shot is massive', icon: '💥', color: 0xa78bfa, durationMs: 60_000 },
-    { id: 'blast-powder', name: 'Blast Powder', description: 'Every 4th shot explodes for +50%', icon: '🧨', color: 0xef4444, durationMs: 50_000 },
-    { id: 'deadeye', name: 'Deadeye', description: '+30% cannon accuracy', icon: '🎯', color: 0x4ade80, durationMs: 35_000 }
+    { id: 'broadside-fury', name: 'Broadside Fury', description: '+20% cannon damage per stack', icon: '🔥', color: 0xf97316, durationMs: 35_000, maxStacks: 4 },
+    { id: 'quick-fuse', name: 'Quick Fuse', description: 'Cannons reload 20% faster per stack', icon: '⚡', color: 0xfacc15, durationMs: 30_000, maxStacks: 3 },
+    { id: 'eagle-eye', name: "Eagle's Eye", description: '+25% cannon range per stack', icon: '🔭', color: 0x60a5fa, durationMs: 45_000, maxStacks: 3 },
+    { id: 'iron-plating', name: 'Iron Plating', description: '+30% defense per stack', icon: '⚓', color: 0x94a3b8, durationMs: 45_000, maxStacks: 3 },
+    { id: 'tide-shield', name: 'Tide Shield', description: '+20 rechargeable shield per stack', icon: '🛡️', color: 0x22d3ee, durationMs: null, maxStacks: 5 },
+    { id: 'titan-shot', name: 'Titan Shot', description: 'Stacks make massive shots more frequent', icon: '💥', color: 0xa78bfa, durationMs: 70_000, maxStacks: 4 },
+    { id: 'blast-powder', name: 'Blast Powder', description: 'Stacks make explosive shots more frequent', icon: '🧨', color: 0xef4444, durationMs: 55_000, maxStacks: 3 },
+    { id: 'deadeye', name: 'Deadeye', description: '+22% cannon accuracy per stack', icon: '🎯', color: 0x4ade80, durationMs: 45_000, maxStacks: 3 },
+    { id: 'rapid-loader', name: 'Rapid Loader', description: '+10% reload speed per stack', icon: '⏱️', color: 0xfde047, durationMs: 90_000, maxStacks: 5 },
+    { id: 'keen-sights', name: 'Keen Sights', description: '+10% range per stack', icon: '👁️', color: 0x7dd3fc, durationMs: 120_000, maxStacks: 5 },
+    { id: 'reinforced-keel', name: 'Reinforced Keel', description: '+10% sailing speed per stack', icon: '⛵', color: 0x34d399, durationMs: 120_000, maxStacks: 5 },
+    { id: 'lucky-shot', name: 'Lucky Shot', description: '+8% cannon damage per stack', icon: '🍀', color: 0x86efac, durationMs: 100_000, maxStacks: 5 },
+    { id: 'razor-orbit', name: 'Razor Orbit', description: 'Spinning blades shred nearby ships', icon: '🪚', color: 0xf87171, durationMs: 50_000, maxStacks: 4 },
+    { id: 'starburst-battery', name: 'Starburst Battery', description: 'Fires ten cannonballs in every direction', icon: '☀️', color: 0xfbbf24, durationMs: 32_000, maxStacks: 4 },
+    { id: 'chain-tempest', name: 'Chain Tempest', description: 'Automatic lightning tears through fleets', icon: '🌩️', color: 0x38bdf8, durationMs: 42_000, maxStacks: 4 },
+    { id: 'ghost-armada', name: 'Ghost Armada', description: 'Spectral escorts orbit and fire for you', icon: '👻', color: 0xc4b5fd, durationMs: 80_000, maxStacks: 4 },
+    { id: 'blood-tide', name: 'Blood Tide', description: 'Every point of damage dealt restores 1 hull', icon: '🩸', color: 0xfb7185, durationMs: 24_000, maxStacks: 1 }
 ]
 
 interface Cannon extends PirateCannonRuntime {
@@ -298,7 +318,7 @@ export class PirateGame {
     private wakeTimer = 0
     private spawnTimerMs = 0
     private bossTimerMs = PIRATE_BOSS_FIRST_SPAWN_MS
-    private bossAlive = false
+    private bossCount = 0
     private treasureTimerMs = 0
     private powerUpTimerMs = PIRATE_POWER_UP_INTERVAL_MS
     private healthPackTimerMs = PIRATE_HEALTH_PACK_INTERVAL_MS
@@ -311,12 +331,21 @@ export class PirateGame {
     private healthPackPickup: HealthPackPickup | null = null
     private seaMines: SeaMine[] = []
     private activePowerUps = new Map<PiratePowerUpId, number | null>()
+    private powerUpStacks = new Map<PiratePowerUpId, number>()
     private shieldHp = 0
     private blastShotCount = 0
     private titanShotCount = 0
     private player!: ShipVisual
     private playerHealthBar = new Container()
     private playerHealthBarFill = new Graphics()
+    private razorOrbit = new Container()
+    private ghostArmada = new Container()
+    private razorVisualStacks = 0
+    private ghostVisualStacks = 0
+    private razorDamageTimerMs = 0
+    private starburstTimerMs = 0
+    private tempestTimerMs = 0
+    private ghostFireTimerMs = 0
     private playerShipTexture: Texture | null = null
     private playerSkinTextures = new Map<string, Texture>()
     private raiderShipTexture: Texture | null = null
@@ -420,6 +449,7 @@ export class PirateGame {
         this.playerHealthBar.position.set(this.playerX, this.playerY - 58)
         this.playerHealthBar.alpha = 0
         this.playerLayer.addChild(this.playerHealthBar)
+        this.playerLayer.addChild(this.razorOrbit, this.ghostArmada)
         this.updatePlayerHealthBar()
 
         this.generateIslands()
@@ -472,16 +502,22 @@ export class PirateGame {
         this.lastKillAt = -Infinity
         this.spawnTimerMs = pirateSpawnIntervalMs(0, power)
         this.bossTimerMs = pirateBossFirstSpawnMs(power)
-        this.bossAlive = false
+        this.bossCount = 0
         this.treasureTimerMs = randRange(PIRATE_TREASURE_MIN_INTERVAL_MS, PIRATE_TREASURE_MAX_INTERVAL_MS)
         this.powerUpTimerMs = PIRATE_POWER_UP_INTERVAL_MS
         this.healthPackTimerMs = PIRATE_HEALTH_PACK_INTERVAL_MS
         this.seaMineTimerMs = PIRATE_SEA_MINE_INTERVAL_MS
         this.powerUpHudTimerMs = 0
         this.activePowerUps.clear()
+        this.powerUpStacks.clear()
         this.shieldHp = 0
         this.blastShotCount = 0
         this.titanShotCount = 0
+        this.razorDamageTimerMs = 0
+        this.starburstTimerMs = 0
+        this.tempestTimerMs = 0
+        this.ghostFireTimerMs = 0
+        this.syncRoguePowerVisuals()
         this.playerX = WORLD_W / 2
         this.playerY = WORLD_H / 2
         this.playerAngle = 0
@@ -897,7 +933,8 @@ export class PirateGame {
             const clearShot = this.segmentClear(this.playerX, this.playerY, target.x, target.y)
 
             const ammoRangeMult = this.peekShotKind() === 'standard' ? PIRATE_AMMO_RANGE_MULT : 1
-            const effectiveMaxRange = this.maxCannonRange * ammoRangeMult * (this.hasPowerUp('eagle-eye') ? 1.35 : 1)
+            const rangeMult = 1 + this.powerUpStack('eagle-eye') * 0.25 + this.powerUpStack('keen-sights') * 0.1
+            const effectiveMaxRange = this.maxCannonRange * ammoRangeMult * rangeMult
             if (clearShot && d <= effectiveMaxRange * HOLD_RANGE_FRACTION) {
                 // In position — face the target and hold.
                 const desiredAngle = Math.atan2(target.y - this.playerY, target.x - this.playerX)
@@ -930,6 +967,8 @@ export class PirateGame {
         this.playerY = Math.min(WORLD_H - margin, Math.max(margin, this.playerY))
         this.player.root.position.set(this.playerX, this.playerY)
         this.playerHealthBar.position.set(this.playerX, this.playerY - 58)
+        this.razorOrbit.position.set(this.playerX, this.playerY)
+        this.ghostArmada.position.set(this.playerX, this.playerY)
         this.player.hull.rotation = this.playerAngle
     }
 
@@ -958,7 +997,8 @@ export class PirateGame {
         }
         const ang = Math.atan2(wp.y - this.playerY, wp.x - this.playerX)
         this.playerAngle = lerpAngle(this.playerAngle, ang, ROTATE_LERP)
-        const step = Math.min(this.stats.speed * dt, d)
+        const speedMult = 1 + this.powerUpStack('reinforced-keel') * 0.1
+        const step = Math.min(this.stats.speed * speedMult * dt, d)
         const nx = this.playerX + Math.cos(ang) * step
         const ny = this.playerY + Math.sin(ang) * step
         // Belt-and-braces: never step inside an island even if the path is stale.
@@ -985,14 +1025,16 @@ export class PirateGame {
             if (cannon.reloadTimer > 0) continue
             const target = this.pickCannonTarget(cannon)
             if (!target) continue
-            cannon.reloadTimer = cannon.reloadMs * (this.hasPowerUp('quick-fuse') ? 0.75 : 1)
+            const reloadMult = Math.max(0.35, 1 - this.powerUpStack('quick-fuse') * 0.2 - this.powerUpStack('rapid-loader') * 0.1)
+            cannon.reloadTimer = cannon.reloadMs * reloadMult
             this.fireCannonAtEnemy(cannon, target)
         }
     }
 
     private pickCannonTarget(cannon: Cannon): Enemy | null {
         const ammoRangeMult = this.peekShotKind() === 'standard' ? PIRATE_AMMO_RANGE_MULT : 1
-        const effectiveRange = cannon.range * ammoRangeMult * (this.hasPowerUp('eagle-eye') ? 1.35 : 1)
+        const rangeMult = 1 + this.powerUpStack('eagle-eye') * 0.25 + this.powerUpStack('keen-sights') * 0.1
+        const effectiveRange = cannon.range * ammoRangeMult * rangeMult
         const priority = this.attackTargetId !== null ? this.enemies.get(this.attackTargetId) : null
         if (priority && !priority.dead && dist(this.playerX, this.playerY, priority.x, priority.y) <= effectiveRange) {
             return priority
@@ -1110,18 +1152,22 @@ export class PirateGame {
             this.spawnTimerMs = pirateSpawnIntervalMs(this.elapsedMs, this.power) * randRange(0.85, 1.2)
         }
 
-        // The Dreadnought runs on its own clock, outside the concurrency cap.
-        if (!this.bossAlive) {
+        // Dreadnoughts run on their own clock, outside the concurrency cap.
+        // The final minute can support two simultaneously.
+        const lateBossPhase = this.elapsedMs >= 7 * 60_000
+        const bossCap = lateBossPhase ? 2 : 1
+        if (lateBossPhase && this.bossCount < bossCap) this.bossTimerMs = Math.min(this.bossTimerMs, 12_000)
+        if (this.bossCount < bossCap) {
             this.bossTimerMs -= deltaMS
             if (this.bossTimerMs <= 0) {
                 const bossTier = PIRATE_ENEMY_TIERS.find(t => t.boss)
                 if (bossTier) {
-                    this.bossAlive = true
+                    this.bossCount += 1
                     this.spawnEnemy(bossTier)
                     this.callbacks.onBossSpawn?.(bossTier.name)
                     this.shake(7)
                 }
-                this.bossTimerMs = PIRATE_BOSS_RESPAWN_MS
+                this.bossTimerMs = lateBossPhase ? 28_000 : PIRATE_BOSS_RESPAWN_MS
             }
         }
     }
@@ -1160,9 +1206,11 @@ export class PirateGame {
 
         if (this.hasPowerUp('blast-powder')) this.blastShotCount += 1
         if (this.hasPowerUp('titan-shot')) this.titanShotCount += 1
+        const blastEvery = Math.max(2, 5 - this.powerUpStack('blast-powder'))
+        const titanEvery = Math.max(4, 12 - this.powerUpStack('titan-shot') * 2)
         const profile: PlayerShotProfile = {
-            explosive: this.hasPowerUp('blast-powder') && this.blastShotCount % 4 === 0,
-            massive: this.hasPowerUp('titan-shot') && this.titanShotCount % 10 === 0,
+            explosive: this.hasPowerUp('blast-powder') && this.blastShotCount % blastEvery === 0,
+            massive: this.hasPowerUp('titan-shot') && this.titanShotCount % titanEvery === 0,
             cannonColor: cannon.shotColor,
             tierTrail: cannon.shotTrail
         }
@@ -1175,11 +1223,12 @@ export class PirateGame {
         this.spawnMuzzleFlash(fromX, fromY, fireAngle, kind, cannon.shotColor)
 
         const ammoAttackRating = kind === 'gem' ? cannon.attackRating * PIRATE_GEM_AMMO_ATTACK_MULT : cannon.attackRating
-        const attackRating = Math.round(ammoAttackRating * (this.hasPowerUp('deadeye') ? 1.3 : 1))
+        const attackRating = Math.round(ammoAttackRating * (1 + this.powerUpStack('deadeye') * 0.22))
         const ammoMaxDamage = kind === 'gem'
             ? cannon.maxDamage * PIRATE_GEM_AMMO_DAMAGE_MULT
             : kind === 'standard' ? cannon.maxDamage * PIRATE_AMMO_DAMAGE_MULT : cannon.maxDamage
-        const maxDamage = Math.round(ammoMaxDamage * (this.hasPowerUp('broadside-fury') ? 1.2 : 1))
+        const damageMult = 1 + this.powerUpStack('broadside-fury') * 0.2 + this.powerUpStack('lucky-shot') * 0.08
+        const maxDamage = Math.round(ammoMaxDamage * damageMult)
 
         this.spawnCannonball(fromX, fromY, target.x, target.y, kind, (hitX, hitY) => {
             const e = this.enemies.get(id)
@@ -1275,6 +1324,7 @@ export class PirateGame {
         for (const enemy of [...this.enemies.values()]) {
             if (enemy.dead || dist(x, y, enemy.x, enemy.y) > PLAYER_BOMB_RADIUS) continue
             hits += 1
+            this.applyLifesteal(Math.min(damage, enemy.hp))
             enemy.hp -= damage
             this.flashShip(enemy.visual)
             this.spawnDamagePopup(`player-bomb-${enemy.id}`, enemy.x, enemy.y - 42, `${damage} BOMB`, 0xfde047, true)
@@ -1286,12 +1336,23 @@ export class PirateGame {
 
     private damageEnemyWithAbility(enemy: Enemy, damage: number, label: string, color: number, big = false) {
         if (enemy.dead) return
+        this.applyLifesteal(Math.min(damage, enemy.hp))
         enemy.hp -= damage
         this.flashShip(enemy.visual)
         this.spawnExplosion(enemy.x, enemy.y, color, big)
         this.spawnDamagePopup(`ability-${enemy.id}`, enemy.x, enemy.y - 42, `${damage} ${label}`, color, big)
         if (enemy.hp <= 0) this.killEnemy(enemy)
         else this.updateEnemyHpBar(enemy)
+    }
+
+    private applyLifesteal(damageDealt: number) {
+        if (!this.hasPowerUp('blood-tide') || damageDealt <= 0 || this.playerHp >= this.stats.maxHp) return
+        const healed = Math.min(Math.round(damageDealt), this.stats.maxHp - this.playerHp)
+        if (healed <= 0) return
+        this.playerHp += healed
+        this.callbacks.onHpChange(this.playerHp, this.stats.maxHp)
+        this.updatePlayerHealthBar()
+        this.showPlayerHealthBar()
     }
 
     private closestEnemy(x: number, y: number, excluded = new Set<number>()) {
@@ -1491,7 +1552,7 @@ export class PirateGame {
             this.spawnMuzzleFlash(fromX, fromY, fireAngle, 'enemy')
             this.spawnCannonball(fromX, fromY, this.playerX, this.playerY, 'enemy', (hitX, hitY) => {
                 if (!this.running) return
-                const defenseRating = Math.round(this.stats.defenseRating * (this.hasPowerUp('iron-plating') ? 1.4 : 1))
+                const defenseRating = Math.round(this.stats.defenseRating * (1 + this.powerUpStack('iron-plating') * 0.3))
                 const roll = pirateRollAttack(enemy.attackRating, defenseRating, enemy.maxDamage)
                 this.hitPlayer(roll, hitX, hitY)
             })
@@ -1604,7 +1665,7 @@ export class PirateGame {
                     this.spawnDamagePopup('sniper-dodge', targetX, targetY - 24, 'DODGED', 0xf0abfc, true)
                     return
                 }
-                const defenseRating = Math.round(this.stats.defenseRating * (this.hasPowerUp('iron-plating') ? 1.4 : 1))
+                const defenseRating = Math.round(this.stats.defenseRating * (1 + this.powerUpStack('iron-plating') * 0.3))
                 const roll = pirateRollAttack(enemy.attackRating, defenseRating, enemy.maxDamage)
                 this.hitPlayer(roll, targetX, targetY)
             }
@@ -1806,7 +1867,7 @@ export class PirateGame {
             this.shieldHp -= absorbed
             hullDamage -= absorbed
             this.spawnShieldImpact(absorbed)
-            if (this.shieldHp <= 0) this.activePowerUps.delete('tide-shield')
+            if (this.shieldHp <= 0) this.removePowerUp('tide-shield')
             this.emitPowerUpState()
         }
         if (hullDamage <= 0) return
@@ -1881,6 +1942,7 @@ export class PirateGame {
         const baseDamage = roll.dmg
         const damageMult = (profile.explosive ? 1.5 : 1) * (profile.massive ? 3 : 1)
         const damage = Math.max(1, Math.round(baseDamage * damageMult))
+        this.applyLifesteal(Math.min(damage, enemy.hp))
         enemy.hp -= damage
         const impactColor = profile.explosive ? 0xef4444 : profile.massive ? 0x8b5cf6 : profile.cannonColor
         this.spawnExplosion(enemy.x, enemy.y, impactColor, roll.crit || profile.explosive || profile.massive)
@@ -1908,6 +1970,7 @@ export class PirateGame {
 
         for (const enemy of [...this.enemies.values()]) {
             if (enemy.id === primary.id || enemy.dead || dist(primary.x, primary.y, enemy.x, enemy.y) > radius) continue
+            this.applyLifesteal(Math.min(splashDamage, enemy.hp))
             enemy.hp -= splashDamage
             this.spawnExplosion(enemy.x, enemy.y, 0xf97316, false)
             this.flashShip(enemy.visual)
@@ -1951,8 +2014,8 @@ export class PirateGame {
         this.spawnSinkBubbles(enemy.x, enemy.y)
 
         if (enemy.tier.boss) {
-            this.bossAlive = false
-            this.bossTimerMs = PIRATE_BOSS_RESPAWN_MS
+            this.bossCount = Math.max(0, this.bossCount - 1)
+            this.bossTimerMs = this.elapsedMs >= 7 * 60_000 ? 12_000 : PIRATE_BOSS_RESPAWN_MS
             // A kill this big deserves fireworks.
             this.spawnExplosion(enemy.x, enemy.y, 0xdc2626, true)
             this.spawnExplosion(enemy.x + randRange(-24, 24), enemy.y + randRange(-24, 24), 0xfbbf24, true)
@@ -1989,7 +2052,7 @@ export class PirateGame {
             hullDamage -= absorbed
             this.spawnShieldImpact(absorbed)
             this.spawnDamagePopup('shield', this.playerX, this.playerY - 58, `BLOCK ${absorbed}`, 0x67e8f9, false)
-            if (this.shieldHp <= 0) this.activePowerUps.delete('tide-shield')
+            if (this.shieldHp <= 0) this.removePowerUp('tide-shield')
             this.emitPowerUpState()
         }
         if (hullDamage <= 0) return
@@ -2104,14 +2167,183 @@ export class PirateGame {
         return this.activePowerUps.has(id)
     }
 
+    private powerUpStack(id: PiratePowerUpId) {
+        return this.powerUpStacks.get(id) ?? 0
+    }
+
+    private removePowerUp(id: PiratePowerUpId) {
+        this.activePowerUps.delete(id)
+        this.powerUpStacks.delete(id)
+    }
+
+    private syncRoguePowerVisuals() {
+        const razorStacks = this.powerUpStack('razor-orbit')
+        if (razorStacks !== this.razorVisualStacks) {
+            this.razorVisualStacks = razorStacks
+            this.razorOrbit.removeChildren().forEach(child => child.destroy({ children: true }))
+            const bladeCount = razorStacks > 0 ? Math.min(8, 2 + razorStacks * 2) : 0
+            for (let i = 0; i < bladeCount; i++) {
+                const angle = i / bladeCount * Math.PI * 2
+                const blade = new Graphics()
+                blade.moveTo(15, 0).lineTo(0, -7).lineTo(-15, 0).lineTo(0, 7).closePath()
+                    .fill({ color: 0xe2e8f0 }).stroke({ width: 2, color: 0xfb7185 })
+                blade.position.set(Math.cos(angle) * 92, Math.sin(angle) * 92)
+                blade.rotation = angle + Math.PI / 2
+                this.razorOrbit.addChild(blade)
+            }
+        }
+
+        const ghostStacks = this.powerUpStack('ghost-armada')
+        if (ghostStacks !== this.ghostVisualStacks) {
+            this.ghostVisualStacks = ghostStacks
+            this.ghostArmada.removeChildren().forEach(child => child.destroy({ children: true }))
+            const shipCount = ghostStacks > 0 ? Math.min(5, ghostStacks + 1) : 0
+            for (let i = 0; i < shipCount; i++) {
+                const angle = i / shipCount * Math.PI * 2
+                const ghost = new Graphics()
+                ghost.poly([-12, -5, 14, 0, -12, 5, -7, 0]).fill({ color: 0xc4b5fd, alpha: 0.55 }).stroke({ width: 2, color: 0xf5f3ff, alpha: 0.8 })
+                ghost.moveTo(-2, 0).lineTo(-2, -12).lineTo(7, -3).closePath().fill({ color: 0xede9fe, alpha: 0.5 })
+                ghost.position.set(Math.cos(angle) * 70, Math.sin(angle) * 70)
+                ghost.rotation = angle + Math.PI / 2
+                this.ghostArmada.addChild(ghost)
+            }
+        }
+    }
+
+    private updateRoguePowerUps(dt: number, deltaMS: number) {
+        this.syncRoguePowerVisuals()
+        const razorStacks = this.powerUpStack('razor-orbit')
+        this.razorOrbit.visible = razorStacks > 0
+        if (razorStacks > 0) {
+            this.razorOrbit.rotation += dt * (2.4 + razorStacks * 0.3)
+            this.razorDamageTimerMs -= deltaMS
+            if (this.razorDamageTimerMs <= 0) {
+                this.razorDamageTimerMs = Math.max(220, 420 - razorStacks * 45)
+                const damage = Math.max(3, Math.round(3 + this.power * 0.02 + razorStacks * 2))
+                for (const enemy of [...this.enemies.values()]) {
+                    if (!enemy.dead && dist(this.playerX, this.playerY, enemy.x, enemy.y) <= 112) {
+                        this.damageEnemyWithAbility(enemy, damage, 'RAZOR', 0xfb7185, false)
+                    }
+                }
+            }
+        } else {
+            this.razorDamageTimerMs = 0
+        }
+
+        const starburstStacks = this.powerUpStack('starburst-battery')
+        if (starburstStacks > 0) {
+            this.starburstTimerMs -= deltaMS
+            if (this.starburstTimerMs <= 0) {
+                this.starburstTimerMs = Math.max(2800, 6500 - starburstStacks * 800)
+                this.fireStarburst(starburstStacks)
+            }
+        } else {
+            this.starburstTimerMs = 0
+        }
+
+        const tempestStacks = this.powerUpStack('chain-tempest')
+        if (tempestStacks > 0) {
+            this.tempestTimerMs -= deltaMS
+            if (this.tempestTimerMs <= 0) {
+                this.tempestTimerMs = Math.max(2200, 5200 - tempestStacks * 650)
+                this.fireChainTempest(tempestStacks)
+            }
+        } else {
+            this.tempestTimerMs = 0
+        }
+
+        const ghostStacks = this.powerUpStack('ghost-armada')
+        this.ghostArmada.visible = ghostStacks > 0
+        if (ghostStacks > 0) {
+            this.ghostArmada.rotation -= dt * 0.8
+            this.ghostFireTimerMs -= deltaMS
+            if (this.ghostFireTimerMs <= 0) {
+                this.ghostFireTimerMs = Math.max(1200, 2900 - ghostStacks * 350)
+                this.fireGhostArmada(ghostStacks)
+            }
+        } else {
+            this.ghostFireTimerMs = 0
+        }
+    }
+
+    private fireStarburst(stacks: number) {
+        const damage = Math.max(8, Math.round(7 + this.power * 0.06 + stacks * 3))
+        this.spawnDamagePopup('starburst', this.playerX, this.playerY - 70, 'STARBURST', 0xfde047, true)
+        for (let i = 0; i < 10; i++) {
+            const angle = i / 10 * Math.PI * 2 + this.timeSec * 0.25
+            const targetX = this.playerX + Math.cos(angle) * 380
+            const targetY = this.playerY + Math.sin(angle) * 380
+            const target = [...this.enemies.values()]
+                .filter(enemy => !enemy.dead && segPointDist(this.playerX, this.playerY, targetX, targetY, enemy.x, enemy.y) <= 48)
+                .sort((a, b) => dist(this.playerX, this.playerY, a.x, a.y) - dist(this.playerX, this.playerY, b.x, b.y))[0]
+            const hitId = target?.id
+            this.spawnCannonball(
+                this.playerX,
+                this.playerY,
+                target?.x ?? targetX,
+                target?.y ?? targetY,
+                'free',
+                (x, y) => {
+                    const enemy = hitId === undefined ? null : this.enemies.get(hitId)
+                    if (enemy && !enemy.dead && dist(x, y, enemy.x, enemy.y) <= 70) this.damageEnemyWithAbility(enemy, damage, 'STAR', 0xfde047, false)
+                    else this.spawnSplash(x, y)
+                },
+                { explosive: false, massive: false, cannonColor: 0xfde047, tierTrail: true }
+            )
+        }
+    }
+
+    private fireChainTempest(stacks: number) {
+        const chain: Enemy[] = []
+        const used = new Set<number>()
+        let fromX = this.playerX
+        let fromY = this.playerY
+        for (let i = 0; i < Math.min(8, 3 + stacks); i++) {
+            const next = this.closestEnemy(fromX, fromY, used)
+            if (!next || dist(fromX, fromY, next.x, next.y) > (i === 0 ? 330 : 260)) break
+            chain.push(next)
+            used.add(next.id)
+            fromX = next.x
+            fromY = next.y
+        }
+        chain.forEach((enemy, index) => {
+            const previous = index === 0 ? { x: this.playerX, y: this.playerY } : chain[index - 1]!
+            this.drawLightningArc(previous.x, previous.y, enemy.x, enemy.y)
+            const damage = Math.max(7, Math.round((8 + this.power * 0.045 + stacks * 2) * Math.pow(0.88, index)))
+            this.damageEnemyWithAbility(enemy, damage, 'TEMPEST', 0x7dd3fc, index === 0)
+        })
+    }
+
+    private fireGhostArmada(stacks: number) {
+        const targets = [...this.enemies.values()]
+            .filter(enemy => !enemy.dead)
+            .sort((a, b) => dist(this.playerX, this.playerY, a.x, a.y) - dist(this.playerX, this.playerY, b.x, b.y))
+        if (!targets.length) return
+        const damage = Math.max(7, Math.round(6 + this.power * 0.04 + stacks * 2))
+        this.ghostArmada.children.forEach((ghost, index) => {
+            const target = targets[index % targets.length]!
+            const id = target.id
+            const fromX = this.playerX + ghost.x
+            const fromY = this.playerY + ghost.y
+            this.spawnMuzzleFlash(fromX, fromY, Math.atan2(target.y - fromY, target.x - fromX), 'gem', 0xa78bfa)
+            this.spawnCannonball(fromX, fromY, target.x, target.y, 'gem', (x, y) => {
+                const enemy = this.enemies.get(id)
+                if (enemy && !enemy.dead) this.damageEnemyWithAbility(enemy, damage, 'GHOST', 0xc4b5fd, false)
+                else this.spawnSplash(x, y)
+            }, { explosive: false, massive: false, cannonColor: 0xa78bfa, tierTrail: true })
+        })
+    }
+
     private updatePowerUps(dt: number, deltaMS: number) {
         let stateChanged = false
         for (const [id, expiresAt] of this.activePowerUps) {
             if (expiresAt !== null && this.elapsedMs >= expiresAt) {
-                this.activePowerUps.delete(id)
+                this.removePowerUp(id)
                 stateChanged = true
             }
         }
+
+        this.updateRoguePowerUps(dt, deltaMS)
 
         const pickup = this.powerUpPickup
         if (pickup) {
@@ -2177,7 +2409,7 @@ export class PirateGame {
 
     private spawnPowerUp() {
         if (!this.running || !this.app) return
-        const choices = POWER_UPS.filter(p => !this.activePowerUps.has(p.id))
+        const choices = POWER_UPS.filter(definition => this.powerUpStack(definition.id) < definition.maxStacks)
         const definition = (choices.length ? choices : POWER_UPS)[Math.floor(Math.random() * (choices.length || POWER_UPS.length))]!
         const margin = 110
         let x = randRange(margin, WORLD_W - margin)
@@ -2239,8 +2471,10 @@ export class PirateGame {
     private collectPowerUp(pickup: PowerUpPickup) {
         this.powerUpPickup = null
         const { definition } = pickup
+        const stacks = Math.min(definition.maxStacks, this.powerUpStack(definition.id) + 1)
+        this.powerUpStacks.set(definition.id, stacks)
         if (definition.id === 'tide-shield') {
-            this.shieldHp = Math.min(40, this.shieldHp + 20)
+            this.shieldHp = Math.min(100, this.shieldHp + 20)
             this.activePowerUps.set(definition.id, null)
         } else {
             this.activePowerUps.set(definition.id, this.elapsedMs + definition.durationMs!)
@@ -2248,7 +2482,8 @@ export class PirateGame {
         if (definition.id === 'blast-powder') this.blastShotCount = 0
         if (definition.id === 'titan-shot') this.titanShotCount = 0
 
-        this.callbacks.onPowerUpCollected?.(definition.name)
+        this.syncRoguePowerVisuals()
+        this.callbacks.onPowerUpCollected?.(`${definition.name}${stacks > 1 ? ` x${stacks}` : ''}`)
         this.spawnPowerUpBurst(pickup.x, pickup.y, definition.color)
         this.spawnDamagePopup('power-up', pickup.x, pickup.y - 35, definition.name.toUpperCase(), definition.color, true)
         gsap.killTweensOf(pickup.root)
@@ -2349,11 +2584,18 @@ export class PirateGame {
                     name: definition.name,
                     description: definition.description,
                     icon: definition.icon,
-                    remainingMs: expiresAt === null ? null : Math.max(0, expiresAt - this.elapsedMs)
+                    remainingMs: expiresAt === null ? null : Math.max(0, expiresAt - this.elapsedMs),
+                    stacks: this.powerUpStack(definition.id)
                 }
                 if (definition.id === 'tide-shield') item.shield = this.shieldHp
-                if (definition.id === 'blast-powder') item.counter = 4 - (this.blastShotCount % 4)
-                if (definition.id === 'titan-shot') item.counter = 10 - (this.titanShotCount % 10)
+                if (definition.id === 'blast-powder') {
+                    const every = Math.max(2, 5 - this.powerUpStack('blast-powder'))
+                    item.counter = every - (this.blastShotCount % every)
+                }
+                if (definition.id === 'titan-shot') {
+                    const every = Math.max(4, 12 - this.powerUpStack('titan-shot') * 2)
+                    item.counter = every - (this.titanShotCount % every)
+                }
                 return item
             })
         this.callbacks.onPowerUpsChange?.(active, Math.max(0, this.powerUpTimerMs), Math.max(0, this.healthPackTimerMs))
@@ -2442,7 +2684,7 @@ export class PirateGame {
             this.shieldHp -= absorbed
             hullDamage -= absorbed
             this.spawnShieldImpact(absorbed)
-            if (this.shieldHp <= 0) this.activePowerUps.delete('tide-shield')
+            if (this.shieldHp <= 0) this.removePowerUp('tide-shield')
             this.emitPowerUpState()
         }
         this.playerHp = Math.max(0, this.playerHp - hullDamage)
@@ -3004,6 +3246,8 @@ export class PirateGame {
         if (!this.running) return
         this.running = false
         this.activePowerUps.clear()
+        this.powerUpStacks.clear()
+        this.syncRoguePowerVisuals()
         this.shieldHp = 0
         this.emitPowerUpState()
         this.attackTargetId = null
