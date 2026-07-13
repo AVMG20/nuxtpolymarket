@@ -1,4 +1,4 @@
-import { Application, Container, Graphics, Text, Circle } from 'pixi.js'
+import { Application, Assets, Container, Graphics, Sprite, Text, Circle, type Texture } from 'pixi.js'
 import gsap from 'gsap'
 import {
     PIRATE_RUN_DURATION_MS,
@@ -104,6 +104,10 @@ const GRID_H = Math.ceil(WORLD_H / CELL)
 const SHIP_RADIUS = 26
 const ISLAND_COUNT_MIN = 4
 const ISLAND_COUNT_MAX = 6
+const PLAYER_SHIP_SPRITE = '/pirates/sprites/player-ship.png'
+const RAIDER_SHIP_SPRITE = '/pirates/sprites/raider-ship.png'
+const SNIPER_SHIP_SPRITE = '/pirates/sprites/sniper-ship.png'
+const ISLAND_SPRITE = '/pirates/sprites/tropical-island.png'
 
 type AmmoKind = 'standard' | 'gem'
 
@@ -293,6 +297,10 @@ export class PirateGame {
     private blastShotCount = 0
     private titanShotCount = 0
     private player!: ShipVisual
+    private playerShipTexture: Texture | null = null
+    private raiderShipTexture: Texture | null = null
+    private sniperShipTexture: Texture | null = null
+    private islandTexture: Texture | null = null
     private islands: Island[] = []
     private blocked: Uint8Array = new Uint8Array(GRID_W * GRID_H)
     private popupLanes = new Map<string, number>()
@@ -328,6 +336,21 @@ export class PirateGame {
         this.world.addChild(this.playerLayer)
         this.world.addChild(this.effectsLayer)
         this.app.stage.addChild(this.world)
+
+        try {
+            const textures = await Promise.all([
+                Assets.load<Texture>(PLAYER_SHIP_SPRITE),
+                Assets.load<Texture>(RAIDER_SHIP_SPRITE),
+                Assets.load<Texture>(SNIPER_SHIP_SPRITE),
+                Assets.load<Texture>(ISLAND_SPRITE)
+            ])
+            this.playerShipTexture = textures[0]!
+            this.raiderShipTexture = textures[1]!
+            this.sniperShipTexture = textures[2]!
+            this.islandTexture = textures[3]!
+        } catch (error) {
+            console.warn('Pirate sprites failed to load; using procedural artwork.', error)
+        }
 
         this.drawWaterTexture()
         this.spawnAmbientWaves()
@@ -528,6 +551,18 @@ export class PirateGame {
         shallows.circle(0, 0, r + 16).fill({ color: 0x2e7ea8, alpha: 0.5 })
         shallows.circle(0, 0, r + 7).fill({ color: 0x5eb3d6, alpha: 0.35 })
         root.addChild(shallows)
+
+        if (this.islandTexture) {
+            const island = new Sprite(this.islandTexture)
+            island.anchor.set(0.5)
+            island.width = r * 2.05
+            island.height = r * 2.04
+            island.rotation = randRange(-0.3, 0.3)
+            root.addChild(island)
+            this.obstacleLayer.addChild(root)
+            gsap.to(shallows, { alpha: 0.7, duration: randRange(2, 3.2), ease: 'sine.inOut', yoyo: true, repeat: -1 })
+            return
+        }
 
         // Irregular sandy blob
         const sand = new Graphics()
@@ -1812,7 +1847,7 @@ export class PirateGame {
         if (!foundSpawn) return
 
         const sizeScale = tier.sizeScale ?? 1
-        const visual = this.createShipVisual(tier.color, false, sizeScale)
+        const visual = this.createShipVisual(tier.color, false, sizeScale, tier.sniper === true)
         if (tier.id === 'ghostship') {
             visual.body.alpha = 0.78
         }
@@ -1924,7 +1959,7 @@ export class PirateGame {
      * square-rig sails seen from above) so rotating toward any heading —
      * including straight down — never flips the sprite upside down.
      */
-    private createShipVisual(color: number, isPlayer: boolean, sizeScale: number): ShipVisual {
+    private createShipVisual(color: number, isPlayer: boolean, sizeScale: number, isSniper = false): ShipVisual {
         const root = new Container()
         const hull = new Container()
         const body = new Container()
@@ -1933,6 +1968,32 @@ export class PirateGame {
         const shadow = new Graphics()
         shadow.ellipse(3, 5, 40, 18).fill({ color: 0x000000, alpha: 0.25 })
         body.addChild(shadow)
+
+        const spriteTexture = isPlayer
+            ? this.playerShipTexture
+            : isSniper ? this.sniperShipTexture : this.raiderShipTexture
+        if (spriteTexture) {
+            const sprite = new Sprite(spriteTexture)
+            sprite.anchor.set(0.5)
+            sprite.width = isSniper ? 88 : isPlayer ? 82 : 78
+            sprite.height = isSniper ? 24 : isPlayer ? 30 : 37
+            body.addChild(sprite)
+
+            // Preserve instant faction/tier readability without recoloring the art.
+            const marker = new Graphics()
+            marker.circle(-27, 0, isSniper ? 3 : 4).fill({ color, alpha: 0.95 })
+            marker.circle(-27, 0, isSniper ? 6 : 7).stroke({ width: 1.5, color, alpha: 0.6 })
+            body.addChild(marker)
+
+            const flashOverlay = new Graphics()
+            flashOverlay.ellipse(0, 0, isSniper ? 44 : 39, isSniper ? 12 : 18).fill({ color: 0xffffff })
+            flashOverlay.alpha = 0
+            body.addChild(flashOverlay)
+
+            hull.addChild(body)
+            root.addChild(hull)
+            return { root, hull, body, sails: [], flashOverlay, phase: Math.random() * Math.PI * 2 }
+        }
 
         // Hull: pointed bow (+x), rounded stern
         const hullShape = new Graphics()
