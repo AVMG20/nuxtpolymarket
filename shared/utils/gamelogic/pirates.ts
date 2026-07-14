@@ -61,23 +61,23 @@ export interface PiratePowerUpDefinition {
 }
 
 export const PIRATE_POWER_UPS: PiratePowerUpDefinition[] = [
-  { id: 'broadside-fury', name: 'Broadside Fury', description: '+20% cannon damage per stack', icon: '🔥', color: 0xf97316, durationMs: 35_000, maxStacks: 4 },
-  { id: 'quick-fuse', name: 'Quick Fuse', description: 'Cannons reload 20% faster per stack', icon: '⚡', color: 0xfacc15, durationMs: 30_000, maxStacks: 3 },
-  { id: 'eagle-eye', name: "Eagle's Eye", description: '+25% cannon range per stack', icon: '🔭', color: 0x60a5fa, durationMs: 45_000, maxStacks: 3 },
-  { id: 'iron-plating', name: 'Iron Plating', description: '+30% defense per stack', icon: '⚓', color: 0x94a3b8, durationMs: 45_000, maxStacks: 3 },
+  { id: 'broadside-fury', name: 'Broadside Fury', description: '+20% cannon damage per stack', icon: '🔥', color: 0xf97316, durationMs: 45_000, maxStacks: 4 },
+  { id: 'quick-fuse', name: 'Quick Fuse', description: 'Cannons reload 20% faster per stack', icon: '⚡', color: 0xfacc15, durationMs: 40_000, maxStacks: 3 },
+  { id: 'eagle-eye', name: "Eagle's Eye", description: '+25% cannon range per stack', icon: '🔭', color: 0x60a5fa, durationMs: 60_000, maxStacks: 3 },
+  { id: 'iron-plating', name: 'Iron Plating', description: '+30% defense per stack', icon: '⚓', color: 0x94a3b8, durationMs: 60_000, maxStacks: 3 },
   { id: 'tide-shield', name: 'Tide Shield', description: '+20 rechargeable shield per stack', icon: '🛡️', color: 0x22d3ee, durationMs: null, maxStacks: 5 },
-  { id: 'titan-shot', name: 'Titan Shot', description: 'Stacks make massive shots more frequent', icon: '💥', color: 0xa78bfa, durationMs: 70_000, maxStacks: 4 },
-  { id: 'blast-powder', name: 'Blast Powder', description: 'Stacks make explosive shots more frequent', icon: '🧨', color: 0xef4444, durationMs: 55_000, maxStacks: 3 },
-  { id: 'deadeye', name: 'Deadeye', description: '+22% cannon accuracy per stack', icon: '🎯', color: 0x4ade80, durationMs: 45_000, maxStacks: 3 },
-  { id: 'rapid-loader', name: 'Rapid Loader', description: '+10% reload speed per stack', icon: '⏱️', color: 0xfde047, durationMs: 90_000, maxStacks: 5 },
-  { id: 'keen-sights', name: 'Keen Sights', description: '+10% range per stack', icon: '👁️', color: 0x7dd3fc, durationMs: 120_000, maxStacks: 5 },
-  { id: 'reinforced-keel', name: 'Reinforced Keel', description: '+10% sailing speed per stack', icon: '⛵', color: 0x34d399, durationMs: 120_000, maxStacks: 5 },
-  { id: 'lucky-shot', name: 'Lucky Shot', description: '+8% cannon damage per stack', icon: '🍀', color: 0x86efac, durationMs: 100_000, maxStacks: 5 },
-  { id: 'razor-orbit', name: 'Razor Orbit', description: 'Spinning blades shred nearby ships', icon: '🪚', color: 0xf87171, durationMs: 50_000, maxStacks: 4 },
-  { id: 'starburst-battery', name: 'Starburst Battery', description: 'Fires ten cannonballs in every direction', icon: '☀️', color: 0xfbbf24, durationMs: 32_000, maxStacks: 4 },
-  { id: 'chain-tempest', name: 'Chain Tempest', description: 'Automatic lightning tears through fleets', icon: '🌩️', color: 0x38bdf8, durationMs: 42_000, maxStacks: 4 },
-  { id: 'ghost-armada', name: 'Ghost Armada', description: 'Spectral escorts orbit and fire for you', icon: '👻', color: 0xc4b5fd, durationMs: 80_000, maxStacks: 4 },
-  { id: 'blood-tide', name: 'Blood Tide', description: 'Every point of damage dealt restores 1 hull', icon: '🩸', color: 0xfb7185, durationMs: 24_000, maxStacks: 1 }
+  { id: 'titan-shot', name: 'Titan Shot', description: 'Stacks make massive shots more frequent', icon: '💥', color: 0xa78bfa, durationMs: 90_000, maxStacks: 4 },
+  { id: 'blast-powder', name: 'Blast Powder', description: 'Stacks make explosive shots more frequent', icon: '🧨', color: 0xef4444, durationMs: 72_000, maxStacks: 3 },
+  { id: 'deadeye', name: 'Deadeye', description: '+22% cannon accuracy per stack', icon: '🎯', color: 0x4ade80, durationMs: 60_000, maxStacks: 3 },
+  { id: 'rapid-loader', name: 'Rapid Loader', description: '+10% reload speed per stack', icon: '⏱️', color: 0xfde047, durationMs: 120_000, maxStacks: 5 },
+  { id: 'keen-sights', name: 'Keen Sights', description: '+10% range per stack', icon: '👁️', color: 0x7dd3fc, durationMs: 155_000, maxStacks: 5 },
+  { id: 'reinforced-keel', name: 'Reinforced Keel', description: '+10% sailing speed per stack', icon: '⛵', color: 0x34d399, durationMs: 155_000, maxStacks: 5 },
+  { id: 'lucky-shot', name: 'Lucky Shot', description: '+8% cannon damage per stack', icon: '🍀', color: 0x86efac, durationMs: 130_000, maxStacks: 5 },
+  { id: 'razor-orbit', name: 'Razor Orbit', description: 'Spinning blades shred nearby ships', icon: '🪚', color: 0xf87171, durationMs: 65_000, maxStacks: 4 },
+  { id: 'starburst-battery', name: 'Starburst Battery', description: 'Fires ten cannonballs in every direction', icon: '☀️', color: 0xfbbf24, durationMs: 42_000, maxStacks: 4 },
+  { id: 'chain-tempest', name: 'Chain Tempest', description: 'Automatic lightning tears through fleets', icon: '🌩️', color: 0x38bdf8, durationMs: 55_000, maxStacks: 4 },
+  { id: 'ghost-armada', name: 'Ghost Armada', description: 'Spectral escorts orbit and fire for you', icon: '👻', color: 0xc4b5fd, durationMs: 105_000, maxStacks: 4 },
+  { id: 'blood-tide', name: 'Blood Tide', description: 'Every enemy hit restores 1 hull', icon: '🩸', color: 0xfb7185, durationMs: 32_000, maxStacks: 1 }
 ]
 // An 8-minute real-time roguelike skirmish. Ship-level upgrades (hull, speed,
 // defense, ammo capacity) are bought directly; attack power instead comes from
@@ -90,10 +90,21 @@ export const PIRATE_POWER_UPS: PiratePowerUpDefinition[] = [
 // Purchased ammo is a consumable premium stock (capacity is upgradeable) that
 // adds range and damage; once it is gone, cannons keep firing basic shots.
 
-export const PIRATE_SHIP_STAT_IDS = ['hull', 'speed', 'defense', 'ammoCapacity'] as const
+export const PIRATE_SHIP_STAT_IDS = ['hull', 'speed', 'defense', 'ammoCapacity', 'regen'] as const
 export type PirateShipStatId = typeof PIRATE_SHIP_STAT_IDS[number]
 
 export const PIRATE_MAX_STAT_LEVEL = 10
+// Life regen is a shorter track than the other stats: it starts at +1 hull/sec
+// (every captain owns level 1 for free) and tops out at +5 hull/sec.
+export const PIRATE_REGEN_MAX_LEVEL = 5
+// Regen only kicks in once the ship has been out of combat this long — no hits
+// taken and no cannon shots fired.
+export const PIRATE_REGEN_DELAY_MS = 6000
+
+/** Max upgrade level for a given ship stat — regen caps early, everything else at 10. */
+export function pirateStatMaxLevel(statId: PirateShipStatId) {
+  return statId === 'regen' ? PIRATE_REGEN_MAX_LEVEL : PIRATE_MAX_STAT_LEVEL
+}
 export const PIRATE_RUN_DURATION_MS = 8 * 60 * 1000
 export const PIRATE_DIFFICULTY_STEP = 50
 export const PIRATE_MAX_DIFFICULTY = 1000
@@ -106,19 +117,37 @@ export const PIRATE_SEA_MINE_LIFESPAN_MS = 30_000
 
 // ─── Upgrade cost curve — identical shape for every ship stat ─────────────
 // Steep exponential sink: the first upgrade sits in the "extra spending
-// money" range, the last (level 9 → 10) lands around 20-22m — a proper
-// end-game money sink relative to the other ways to earn on the site.
-export const PIRATE_UPGRADE_BASE_COST = 20_000
+// money" range, the last (level 9 → 10) lands around 24-26m — a proper
+// end-game money sink relative to the other ways to earn on the site. Base
+// cost was raised 20% alongside the wider economy rebalance.
+export const PIRATE_UPGRADE_BASE_COST = 24_000
 export const PIRATE_UPGRADE_GROWTH = 2.4
 
 /** Coin cost to go from `level` to `level + 1`. Null once at max level. */
-export function pirateUpgradeCost(level: number): number | null {
-  if (level >= PIRATE_MAX_STAT_LEVEL) return null
+export function pirateUpgradeCost(level: number, maxLevel: number = PIRATE_MAX_STAT_LEVEL): number | null {
+  if (level >= maxLevel) return null
   return Math.round(PIRATE_UPGRADE_BASE_COST * Math.pow(PIRATE_UPGRADE_GROWTH, level - 1))
+}
+
+// Life regen is the strongest stat and only a 5-level track, so it would total
+// far less than the 10-level stats on the shared curve. Doubling each step keeps
+// it a meaningful investment rather than a cheap must-buy.
+export const PIRATE_REGEN_COST_MULTIPLIER = 2
+
+/** Coin cost to level a specific ship stat, accounting for its own cap and any per-stat price multiplier. */
+export function pirateStatUpgradeCost(statId: PirateShipStatId, level: number): number | null {
+  const base = pirateUpgradeCost(level, pirateStatMaxLevel(statId))
+  if (base === null) return null
+  return statId === 'regen' ? base * PIRATE_REGEN_COST_MULTIPLIER : base
 }
 
 function clampLevel(level: number) {
   return Math.max(1, Math.min(level, PIRATE_MAX_STAT_LEVEL))
+}
+
+/** Passive hull regeneration in HP/sec at a given regen level (level 1 = +1, max = +5). */
+export function pirateRegenRate(level: number) {
+  return Math.max(1, Math.min(level, PIRATE_REGEN_MAX_LEVEL))
 }
 
 export function pirateMaxHp(level: number) {
@@ -160,17 +189,19 @@ export interface PirateCannonTier {
   shotTrail?: boolean
 }
 
-// Costs step up ~2.6x per tier, topping out at 10m for the Leviathan's Wrath
-// — the armory's own equivalent of the ship-stat/slot money sinks.
+// Costs step up ~2.6x per tier, topping out at 14m for the Leviathan's Wrath
+// — the armory's own equivalent of the ship-stat/slot money sinks. Prices were
+// raised ~40% across the board: cannons are the main progression lever, so with
+// run payouts tripled they need to cost more to stay a meaningful money sink.
 export const PIRATE_CANNON_TIERS: PirateCannonTier[] = [
   { id: 'swivel', name: 'Swivel Gun', cost: 0, attackRating: 20, maxDamage: 16, reloadMs: 1900, range: 240, powerRating: 2, shotColor: 0xa8a29e },
-  { id: 'carronade', name: 'Bronze Carronade', cost: 30_000, attackRating: 22, maxDamage: 18, reloadMs: 2000, range: 250, powerRating: 4, shotColor: 0xf59e0b },
-  { id: 'culverin', name: 'Iron Culverin', cost: 79_000, attackRating: 32, maxDamage: 26, reloadMs: 1800, range: 280, powerRating: 7, shotColor: 0xcbd5e1 },
-  { id: 'longgun', name: 'Steel Long Gun', cost: 208_000, attackRating: 45, maxDamage: 36, reloadMs: 1600, range: 320, powerRating: 11, shotColor: 0x38bdf8 },
-  { id: 'basilisk', name: 'Reinforced Basilisk', cost: 548_000, attackRating: 60, maxDamage: 48, reloadMs: 1400, range: 360, powerRating: 16, shotColor: 0xa78bfa },
-  { id: 'mythril', name: 'Mythril Broadside', cost: 1_440_000, attackRating: 80, maxDamage: 65, reloadMs: 1200, range: 400, powerRating: 24, shotColor: 0x34d399 },
-  { id: 'adamantite', name: 'Adamantite Bombard', cost: 3_800_000, attackRating: 100, maxDamage: 85, reloadMs: 1050, range: 440, powerRating: 36, shotColor: 0xe879f9, shotTrail: true },
-  { id: 'leviathan', name: "Leviathan's Wrath", cost: 10_000_000, attackRating: 130, maxDamage: 115, reloadMs: 900, range: 480, powerRating: 55, shotColor: 0xfb7185, shotTrail: true }
+  { id: 'carronade', name: 'Bronze Carronade', cost: 42_000, attackRating: 22, maxDamage: 18, reloadMs: 2000, range: 250, powerRating: 4, shotColor: 0xf59e0b },
+  { id: 'culverin', name: 'Iron Culverin', cost: 110_000, attackRating: 32, maxDamage: 26, reloadMs: 1800, range: 280, powerRating: 7, shotColor: 0xcbd5e1 },
+  { id: 'longgun', name: 'Steel Long Gun', cost: 290_000, attackRating: 45, maxDamage: 36, reloadMs: 1600, range: 320, powerRating: 11, shotColor: 0x38bdf8 },
+  { id: 'basilisk', name: 'Reinforced Basilisk', cost: 765_000, attackRating: 60, maxDamage: 48, reloadMs: 1400, range: 360, powerRating: 16, shotColor: 0xa78bfa },
+  { id: 'mythril', name: 'Mythril Broadside', cost: 2_020_000, attackRating: 80, maxDamage: 65, reloadMs: 1200, range: 400, powerRating: 24, shotColor: 0x34d399 },
+  { id: 'adamantite', name: 'Adamantite Bombard', cost: 5_320_000, attackRating: 100, maxDamage: 85, reloadMs: 1050, range: 440, powerRating: 36, shotColor: 0xe879f9, shotTrail: true },
+  { id: 'leviathan', name: "Leviathan's Wrath", cost: 14_000_000, attackRating: 130, maxDamage: 115, reloadMs: 900, range: 480, powerRating: 55, shotColor: 0xfb7185, shotTrail: true }
 ]
 
 export function pirateCannonTier(id: string): PirateCannonTier {
@@ -279,7 +310,7 @@ export function piratePowerLevel(loadout: PirateLoadout) {
 
 /** All stats at level 1, one starter cannon, one slot — the baseline every new captain starts at. */
 export const PIRATE_BASE_POWER = piratePowerLevel({
-  levels: { hull: 1, speed: 1, defense: 1, ammoCapacity: 1 },
+  levels: { hull: 1, speed: 1, defense: 1, ammoCapacity: 1, regen: 1 },
   cannonTierIds: [PIRATE_STARTER_CANNON_TIER],
   cannonSlots: 1
 })
@@ -436,6 +467,12 @@ export function pirateEnemyReloadMultiplier(elapsedMs: number, power: number) {
   return Math.max(0.58, 0.96 - pT * 0.1 - t * 0.26)
 }
 
+// Global multiplier on the coins earned *during* a run (kill rewards, treasure
+// and the anti-cheat payout cap all key off it). Set to 2.5x; surviving the
+// full voyage adds a separate completion bonus on top (see pirateCompletionBonus)
+// that lifts a finished run to roughly 3.5x of the original baseline.
+export const PIRATE_PAYOUT_SCALE = 2.5
+
 /**
  * Loot inflation — kill rewards (and treasure) climb with run time and player
  * power so the risk of staying out longer keeps paying, and strong ships
@@ -444,7 +481,7 @@ export function pirateEnemyReloadMultiplier(elapsedMs: number, power: number) {
 export function pirateRewardMultiplier(elapsedMs: number, power: number) {
   const t = Math.min(1.05, elapsedMs / PIRATE_RUN_DURATION_MS)
   const overBase = Math.max(0, power - PIRATE_BASE_POWER)
-  return 1 + t * 1.6 + overBase * 0.01
+  return (1 + t * 1.6 + overBase * 0.01) * PIRATE_PAYOUT_SCALE
 }
 
 /**
@@ -553,7 +590,7 @@ export function pirateTreasureReward(elapsedMs: number, power = PIRATE_BASE_POWE
   const t = Math.min(1, elapsedMs / PIRATE_RUN_DURATION_MS)
   const base = (1600 + t * 1400) * (1 + Math.max(0, power - PIRATE_BASE_POWER) * 0.005)
   const variance = 0.8 + rng() * 0.4
-  return Math.round(base * variance)
+  return Math.round(base * variance * PIRATE_PAYOUT_SCALE)
 }
 
 // ─── Server-side anti-cheat clamp ──────────────────────────────────────────
@@ -565,7 +602,7 @@ export function pirateTreasureReward(elapsedMs: number, power = PIRATE_BASE_POWE
 
 /** Plausible average coins-per-second for a run at this power — the baseline both the payout cap and the repair-rush price are built from. */
 function pirateRunPayoutRatePerSecond(difficulty: number) {
-  return 80 + pirateNormalizeDifficulty(difficulty) * 6.8
+  return (80 + pirateNormalizeDifficulty(difficulty) * 6.8) * PIRATE_PAYOUT_SCALE
 }
 
 export function pirateMaxPayoutForRun(elapsedMs: number, difficulty: number, gemAmmoUsed = 0) {
@@ -579,6 +616,19 @@ export function pirateMaxPayoutForRun(elapsedMs: number, difficulty: number, gem
 /** Rough expected average haul for one full voyage — the payout cap above is this same rate with generous slack layered on top, so dividing that slack back out gives a reasonable "typical run" estimate. */
 export function pirateAverageRunPayoutEstimate(difficulty: number) {
   return Math.round(pirateRunPayoutRatePerSecond(difficulty) * (PIRATE_RUN_DURATION_MS / 1000))
+}
+
+// Surviving the whole eight-minute voyage pays a lump completion bonus on top of
+// the coins collected during it. It's sized as a fraction of a typical haul so
+// that a finished run earns roughly 3.5x the original baseline (2.5x in-run take
+// + ~1x bonus), turning "just survive to the end" into a real payoff rather than
+// bailing early with a partial bag. Awarded server-side, so it's never clipped
+// by the anti-cheat cap.
+export const PIRATE_COMPLETION_BONUS_RATE = 0.4
+
+/** Flat coin bonus for completing a full voyage at this difficulty. */
+export function pirateCompletionBonus(difficulty: number) {
+  return Math.round(pirateAverageRunPayoutEstimate(difficulty) * PIRATE_COMPLETION_BONUS_RATE)
 }
 
 export const PIRATE_MIN_RUN_MS_FOR_PAYOUT = 3000

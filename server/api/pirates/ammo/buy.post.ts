@@ -53,7 +53,8 @@ export default defineEventHandler(async (event) => {
             hull: s.hullLevel,
             speed: s.speedLevel,
             defense: s.defenseLevel,
-            ammoCapacity: s.ammoCapacityLevel
+            ammoCapacity: s.ammoCapacityLevel,
+            regen: s.regenLevel
         },
         cannonTierIds: cannons.map(cannon => cannon.tierId),
         cannonSlots: s.cannonSlots

@@ -24,7 +24,8 @@ export default defineEventHandler(async (event) => {
         hull: s.hullLevel,
         speed: s.speedLevel,
         defense: s.defenseLevel,
-        ammoCapacity: s.ammoCapacityLevel
+        ammoCapacity: s.ammoCapacityLevel,
+        regen: s.regenLevel
     }
     const power = piratePowerLevel({ levels, cannonTierIds: cannons.map(c => c.tierId), cannonSlots: s.cannonSlots })
     const cost = pirateRepairRushCost(power, remainingMs)

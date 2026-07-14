@@ -5,7 +5,7 @@ import { auth } from '#server/utils/auth'
 import {
     PIRATE_RUN_DURATION_MS, piratePowerLevel,
     PIRATE_MAX_DIFFICULTY, PIRATE_DIFFICULTY_STEP,
-    pirateMaxHp, pirateShipSpeed, pirateDefenseRating, pirateAmmoCapacity, pirateCannonTier, pirateAbility
+    pirateMaxHp, pirateShipSpeed, pirateDefenseRating, pirateAmmoCapacity, pirateCannonTier, pirateAbility, pirateRegenRate
 } from '#shared/utils/gamelogic/pirates'
 
 export default defineEventHandler(async (event) => {
@@ -33,7 +33,8 @@ export default defineEventHandler(async (event) => {
         hull: s.hullLevel,
         speed: s.speedLevel,
         defense: s.defenseLevel,
-        ammoCapacity: s.ammoCapacityLevel
+        ammoCapacity: s.ammoCapacityLevel,
+        regen: s.regenLevel
     }
     const power = piratePowerLevel({ levels, cannonTierIds: cannons.map(c => c.tierId), cannonSlots: s.cannonSlots })
     const startedAt = new Date()
@@ -53,7 +54,8 @@ export default defineEventHandler(async (event) => {
             maxHp: pirateMaxHp(s.hullLevel),
             speed: pirateShipSpeed(s.speedLevel),
             defenseRating: pirateDefenseRating(s.defenseLevel),
-            ammoCapacity: pirateAmmoCapacity(s.ammoCapacityLevel)
+            ammoCapacity: pirateAmmoCapacity(s.ammoCapacityLevel),
+            regenRate: pirateRegenRate(s.regenLevel)
         },
         ammo: s.ammoCount,
         gemAmmo: s.gemAmmoCount,

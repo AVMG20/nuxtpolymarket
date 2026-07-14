@@ -16,7 +16,7 @@ interface PirateStateSnapshot {
     activeRun: unknown
     equippedSkinId: string
     equippedAbilityId: PirateAbilityId
-    stats: { maxHp: number, speed: number, defenseRating: number }
+    stats: { maxHp: number, speed: number, defenseRating: number, regenRate: number }
     ammo: { count: number }
     gemAmmo: { count: number }
     cannons: { slotIndex: number, tierId: string, attackRating: number, maxDamage: number, reloadMs: number, range: number, shotColor: number, shotTrail: boolean }[]
@@ -27,6 +27,7 @@ export interface PirateGameOverInfo {
     reason: 'timeout' | 'defeat' | 'cancelled'
     coins: number
     awarded: number
+    completionBonus: number
     capped: boolean
     kills: number
     shotsFired: number
@@ -146,6 +147,7 @@ async function handleGameOver(result: {
             reason: result.reason,
             coins: result.coins,
             awarded: res.awarded,
+            completionBonus: res.completionBonus ?? 0,
             capped: res.capped,
             kills: result.kills,
             shotsFired: result.shotsFired,
@@ -241,6 +243,7 @@ export function usePirateRun() {
             maxHp: state.stats.maxHp,
             speed: state.stats.speed,
             defenseRating: state.stats.defenseRating,
+            regenRate: state.stats.regenRate,
             ammo: state.ammo.count,
             gemAmmo: state.gemAmmo.count,
             skinId: state.equippedSkinId,
@@ -291,6 +294,7 @@ export function usePirateRun() {
                 maxHp: res.stats.maxHp,
                 speed: res.stats.speed,
                 defenseRating: res.stats.defenseRating,
+                regenRate: res.stats.regenRate,
                 ammo: res.ammo,
                 gemAmmo: res.gemAmmo,
                 skinId: res.skinId,

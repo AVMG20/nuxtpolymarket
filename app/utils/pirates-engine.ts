@@ -6,6 +6,7 @@ import {
     PIRATE_POWER_UP_INTERVAL_MS, PIRATE_POWER_UP_LIFESPAN_MS,
     PIRATE_HEALTH_PACK_INTERVAL_MS, PIRATE_HEALTH_PACK_LIFESPAN_MS,
     PIRATE_SEA_MINE_INTERVAL_MS, PIRATE_SEA_MINE_LIFESPAN_MS,
+    PIRATE_REGEN_DELAY_MS,
     PIRATE_AMMO_RANGE_MULT, PIRATE_AMMO_DAMAGE_MULT,
     PIRATE_GEM_AMMO_ATTACK_MULT, PIRATE_GEM_AMMO_DAMAGE_MULT,
     PIRATE_COMBO_WINDOW_MS, PIRATE_COMBO_BONUS_PER_STACK, PIRATE_COMBO_MAX_STACKS,
@@ -36,6 +37,8 @@ export interface PirateShipStats {
     maxHp: number
     speed: number
     defenseRating: number
+    /** Passive hull regen in HP/sec, applied only after PIRATE_REGEN_DELAY_MS without a hit. */
+    regenRate: number
     cannons: PirateCannonRuntime[]
     ammo: number
     gemAmmo: number
@@ -257,6 +260,10 @@ export class PirateGame {
     private elapsedMs = 0
     private timeSec = 0
     private playerHp = 100
+    // Passive regen: once the ship has been out of combat (no hit taken and no
+    // shot fired) for PIRATE_REGEN_DELAY_MS, it heals on a fixed 1-second tick.
+    private msOutOfCombat = 0
+    private regenTickMs = 0
     private coins = 0
     private ammo = 0
     private gemAmmo = 0
@@ -457,6 +464,8 @@ export class PirateGame {
         this.power = power
         this.difficulty = difficulty
         this.playerHp = stats.maxHp
+        this.msOutOfCombat = 0
+        this.regenTickMs = 0
         this.coins = 0
         this.ammo = stats.ammo
         this.gemAmmo = stats.gemAmmo
@@ -877,6 +886,7 @@ export class PirateGame {
         }
         this.callbacks.onTimeChange(this.elapsedMs, Math.max(0, this.runDurationMs - this.elapsedMs))
 
+        this.updateRegen(deltaMS)
         this.updatePlayer(dt, deltaMS)
         this.updateCannons(deltaMS)
         this.updateEnemies(dt, deltaMS)
@@ -887,6 +897,39 @@ export class PirateGame {
         this.updateIdleMotion()
 
         if (this.elapsedMs >= this.runDurationMs) this.endGame(true, 'timeout')
+    }
+
+    /** Reset the out-of-combat timer — call on any combat action (taking a hit or firing a shot). */
+    private enterCombat() {
+        this.msOutOfCombat = 0
+        this.regenTickMs = 0
+    }
+
+    /**
+     * Passive hull regen. Once the ship has been out of combat (no hit taken
+     * and no shot fired) for PIRATE_REGEN_DELAY_MS, it heals regenRate HP once
+     * per second, spawning a floating heal popup on each tick.
+     */
+    private updateRegen(deltaMS: number) {
+        this.msOutOfCombat += deltaMS
+        const rate = this.stats.regenRate
+        if (rate <= 0 || this.playerHp <= 0 || this.playerHp >= this.stats.maxHp) {
+            this.regenTickMs = 0
+            return
+        }
+        if (this.msOutOfCombat < PIRATE_REGEN_DELAY_MS) return
+
+        this.regenTickMs += deltaMS
+        if (this.regenTickMs < 1000) return
+        this.regenTickMs -= 1000
+
+        const healed = Math.min(rate, this.stats.maxHp - this.playerHp)
+        if (healed <= 0) return
+        this.playerHp += healed
+        this.callbacks.onHpChange(this.playerHp, this.stats.maxHp)
+        this.updatePlayerHealthBar()
+        this.showPlayerHealthBar()
+        this.spawnDamagePopup('regen', this.playerX, this.playerY - 46, `+${healed}`, 0xfb7185, false)
     }
 
     /** Gentle bobbing/sail-billow for every ship, driven off the clock so it never fights gsap. */
@@ -1007,6 +1050,7 @@ export class PirateGame {
             if (!target) continue
             const reloadMult = Math.max(0.35, 1 - this.powerUpStack('quick-fuse') * 0.2 - this.powerUpStack('rapid-loader') * 0.1)
             cannon.reloadTimer = cannon.reloadMs * reloadMult
+            this.enterCombat()
             this.fireCannonAtEnemy(cannon, target)
         }
     }
@@ -1330,7 +1374,7 @@ export class PirateGame {
 
     private applyLifesteal(damageDealt: number) {
         if (!this.hasPowerUp('blood-tide') || damageDealt <= 0 || this.playerHp >= this.stats.maxHp) return
-        const healed = Math.min(Math.round(damageDealt), this.stats.maxHp - this.playerHp)
+        const healed = Math.min(1, this.stats.maxHp - this.playerHp)
         if (healed <= 0) return
         this.playerHp += healed
         this.callbacks.onHpChange(this.playerHp, this.stats.maxHp)
@@ -1846,6 +1890,7 @@ export class PirateGame {
     }
 
     private damagePlayerDirect(damage: number, label: string, color: number) {
+        this.enterCombat()
         let hullDamage = damage
         if (this.shieldHp > 0) {
             const absorbed = Math.min(this.shieldHp, hullDamage)
@@ -2036,6 +2081,7 @@ export class PirateGame {
             this.spawnDamagePopup('player', this.playerX, this.playerY - 34, 'MISS', 0x9ca3af, false)
             return
         }
+        this.enterCombat()
         let hullDamage = roll.dmg
         if (this.shieldHp > 0) {
             const absorbed = Math.min(this.shieldHp, hullDamage)
@@ -2667,6 +2713,7 @@ export class PirateGame {
 
     private detonateSeaMine(mine: SeaMine) {
         this.removeSeaMine(mine)
+        this.enterCombat()
         let hullDamage = Math.max(1, Math.round(this.stats.maxHp * mine.damageFraction))
         if (this.shieldHp > 0) {
             const absorbed = Math.min(this.shieldHp, hullDamage)

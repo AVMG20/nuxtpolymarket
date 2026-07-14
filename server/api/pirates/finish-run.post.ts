@@ -3,7 +3,7 @@ import { db } from '#server/database'
 import { pirateRunHistory, pirateState } from '#server/database/schema'
 import { auth } from '#server/utils/auth'
 import { credit } from '#server/utils/balance'
-import { PIRATE_RUN_DURATION_MS, pirateMaxPayoutForRun, pirateRepairDurationMs } from '#shared/utils/gamelogic/pirates'
+import { PIRATE_RUN_DURATION_MS, pirateMaxPayoutForRun, pirateRepairDurationMs, pirateCompletionBonus } from '#shared/utils/gamelogic/pirates'
 
 export default defineEventHandler(async (event) => {
     const session = await auth.api.getSession({ headers: event.headers })
@@ -58,7 +58,13 @@ export default defineEventHandler(async (event) => {
     const ammoUsed = abandoned ? 0 : Math.min(reportedAmmoUsed, s.ammoCount)
     const gemAmmoUsed = abandoned ? 0 : Math.min(reportedGemAmmoUsed, s.gemAmmoCount)
     const maxPayout = abandoned ? 0 : pirateMaxPayoutForRun(elapsedMs, difficulty, gemAmmoUsed)
-    const awarded = Math.min(reportedCoins, maxPayout)
+    // Coins collected during the run, clamped by the anti-cheat ceiling.
+    const runCoins = Math.min(reportedCoins, maxPayout)
+    const completed = !abandoned && survived && reason === 'timeout' && elapsedMs >= PIRATE_RUN_DURATION_MS - 1000
+    // Completing the full voyage adds a flat bonus on top, sized server-side so
+    // the anti-cheat cap never clips it.
+    const completionBonus = completed ? pirateCompletionBonus(difficulty) : 0
+    const awarded = runCoins + completionBonus
 
     const hullDamageFraction = abandoned ? 0 : (reason === 'defeat' ? 1 : reportedHullDamageFraction)
     const repairMs = pirateRepairDurationMs(hullDamageFraction)
@@ -67,7 +73,6 @@ export default defineEventHandler(async (event) => {
         elapsedMs > s.bestSurvivalMs
         || (elapsedMs === s.bestSurvivalMs && awarded > s.bestRunLoot)
     )
-    const completed = !abandoned && survived && reason === 'timeout' && elapsedMs >= PIRATE_RUN_DURATION_MS - 1000
     const isBestCompletedRun = completed && (
         difficulty > s.highestCompletedDifficulty
         || (difficulty === s.highestCompletedDifficulty && awarded > s.bestCompletedLoot)
@@ -111,7 +116,8 @@ export default defineEventHandler(async (event) => {
 
     return {
         awarded,
-        capped: awarded < reportedCoins,
+        completionBonus,
+        capped: runCoins < reportedCoins,
         elapsedMs,
         survived,
         completed,

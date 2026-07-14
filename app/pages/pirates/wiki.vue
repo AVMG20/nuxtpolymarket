@@ -2,8 +2,60 @@
 import {
     PIRATE_ENEMY_TIERS,
     PIRATE_POWER_UPS,
+    PIRATE_MAX_STAT_LEVEL,
+    PIRATE_REGEN_MAX_LEVEL,
+    PIRATE_REGEN_DELAY_MS,
+    pirateMaxHp, pirateShipSpeed, pirateDefenseRating, pirateAmmoCapacity, pirateRegenRate,
     type PiratePowerUpId
 } from '#shared/utils/gamelogic/pirates'
+
+const shipSystems = [
+    {
+        id: 'hull',
+        name: 'Hull',
+        icon: 'i-lucide-heart',
+        accent: 'text-red-400 bg-red-400/10',
+        range: `${pirateMaxHp(1)} → ${pirateMaxHp(PIRATE_MAX_STAT_LEVEL)} HP`,
+        levels: `${PIRATE_MAX_STAT_LEVEL} levels`,
+        description: 'Your total health pool. Every enemy cannonball, bomb, ramming skiff, and sea mine chips away at it, and the voyage ends the instant it hits zero. A bigger hull is the single most reliable way to survive deeper into the run, and it also makes percentage-based hazards like sea mines hurt proportionally less of your bar.'
+    },
+    {
+        id: 'speed',
+        name: 'Speed',
+        icon: 'i-lucide-wind',
+        accent: 'text-cyan-400 bg-cyan-400/10',
+        range: `${pirateShipSpeed(1)} → ${pirateShipSpeed(PIRATE_MAX_STAT_LEVEL)} spd`,
+        levels: `${PIRATE_MAX_STAT_LEVEL} levels`,
+        description: 'How fast your ship sails to wherever you tap. Nearly every enemy attack is dodgeable — bombs, missiles, mines, and skiffs all telegraph a marked area before they land — so raw movement speed is what lets you slip out of those circles and kite the final-minute swarm instead of being cornered by it.'
+    },
+    {
+        id: 'defense',
+        name: 'Defense',
+        icon: 'i-lucide-shield',
+        accent: 'text-blue-400 bg-blue-400/10',
+        range: `${pirateDefenseRating(1)} → ${pirateDefenseRating(PIRATE_MAX_STAT_LEVEL)} def`,
+        levels: `${PIRATE_MAX_STAT_LEVEL} levels`,
+        description: 'Your defense rating in the hit-chance formula. Combat is RuneScape-style: every incoming cannonball rolls its attack rating against your defense roll, and a higher defense makes more of those shots miss outright rather than reducing the size of each hit. It does nothing against unavoidable hazards (mines and telegraphed area attacks) — it only shrugs off direct cannon fire.'
+    },
+    {
+        id: 'ammoCapacity',
+        name: 'Ammo Hold',
+        icon: 'i-lucide-package',
+        accent: 'text-amber-400 bg-amber-400/10',
+        range: `${pirateAmmoCapacity(1)} → ${pirateAmmoCapacity(PIRATE_MAX_STAT_LEVEL)} rounds`,
+        levels: `${PIRATE_MAX_STAT_LEVEL} levels`,
+        description: 'How many premium cannonballs the magazine can carry into a voyage. Premium ammo hits harder and reaches farther than the unlimited basic shots your cannons fall back on once it runs dry, so a larger hold keeps your broadside at full strength for longer before you drop back to basic fire.'
+    },
+    {
+        id: 'regen',
+        name: 'Life Regen',
+        icon: 'i-lucide-heart-pulse',
+        accent: 'text-rose-400 bg-rose-400/10',
+        range: `+${pirateRegenRate(1)} → +${pirateRegenRate(PIRATE_REGEN_MAX_LEVEL)} HP/s`,
+        levels: `${PIRATE_REGEN_MAX_LEVEL} levels`,
+        description: `Passive hull repair. Every captain owns level 1 (+${pirateRegenRate(1)} HP/sec) for free, upgrading up to +${pirateRegenRate(PIRATE_REGEN_MAX_LEVEL)} HP/sec. Regen only kicks in once your ship has been out of combat for ${PIRATE_REGEN_DELAY_MS / 1000} seconds — taking any hit or firing a single cannon shot resets the timer — so it tops you back up between fights while you disengage and reposition, never during a firefight.`
+    }
+]
 
 definePageMeta({
     title: 'Pirate Raid Wiki'
@@ -34,7 +86,7 @@ const powerUpDetails: Record<PiratePowerUpId, string> = {
     'starburst-battery': 'Automatically fires ten shots in a full circle. Each ray can acquire an enemy along its path; stacks increase damage and shorten the time between bursts.',
     'chain-tempest': 'Periodically releases automatic lightning from your ship and chains it through nearby enemies. Stacks add targets, increase damage, and reduce its cooldown.',
     'ghost-armada': 'Summons spectral escort boats that orbit the player and automatically fire at nearby targets. Stacks add escorts and accelerate their volleys.',
-    'blood-tide': 'For a short window, every point of actual enemy hull damage restores one point of your hull. Overkill damage does not count and healing cannot exceed maximum hull.'
+    'blood-tide': 'For a short window, every enemy you hit restores one point of your hull. Healing cannot exceed maximum hull.'
 }
 
 const enemyAbilities = [
@@ -160,11 +212,50 @@ function unlockLabel(unlockAtMs: number, boss?: boolean) {
         </p>
       </div>
       <div class="flex flex-wrap gap-2">
+        <UButton size="sm" color="neutral" variant="subtle" to="#ship-systems" icon="i-lucide-ship" label="Ship systems" />
         <UButton size="sm" color="neutral" variant="subtle" to="#power-ups" icon="i-lucide-sparkles" label="Power-ups" />
         <UButton size="sm" color="neutral" variant="subtle" to="#enemy-abilities" icon="i-lucide-bomb" label="Enemy abilities" />
         <UButton size="sm" color="neutral" variant="subtle" to="#bestiary" icon="i-lucide-skull" label="Bestiary" />
       </div>
     </header>
+
+    <section id="ship-systems" class="scroll-mt-6 space-y-4">
+      <div>
+        <p class="text-xs font-bold uppercase tracking-wider text-primary">
+          Shipwright
+        </p>
+        <h2 class="mt-1 text-xl font-bold">
+          Ship systems
+        </h2>
+        <p class="mt-1 text-sm text-muted">
+          The four core stats and life regen are upgraded with coins in the Armory between voyages. Ranges below span level 1 to max.
+        </p>
+      </div>
+
+      <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+        <UCard v-for="system in shipSystems" :key="system.id" :ui="{ body: 'p-4' }">
+          <div class="flex items-start gap-3">
+            <div class="flex size-11 shrink-0 items-center justify-center rounded-xl" :class="system.accent">
+              <UIcon :name="system.icon" class="size-5" />
+            </div>
+            <div class="min-w-0 flex-1">
+              <h3 class="font-bold">
+                {{ system.name }}
+              </h3>
+              <p class="mt-0.5 text-xs font-semibold text-primary">
+                {{ system.range }}
+              </p>
+            </div>
+          </div>
+          <p class="mt-3 text-xs leading-relaxed text-muted">
+            {{ system.description }}
+          </p>
+          <div class="mt-3 flex gap-2 border-t border-default pt-3">
+            <UBadge color="neutral" variant="subtle" size="sm" icon="i-lucide-trending-up" :label="system.levels" />
+          </div>
+        </UCard>
+      </div>
+    </section>
 
     <section id="power-ups" class="scroll-mt-6 space-y-4">
       <div>

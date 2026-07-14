@@ -12,8 +12,8 @@ const { data: state, refresh } = await useFetch('/api/pirates/state')
 const {
     hp, maxHp, coins, ammo, gemAmmo, preferGem, abilityCooldownMs, abilityCooldownTotalMs, remainingMs,
     running, paused, starting,
-    killFeed, combo, comboVisible, bossName, bossVisible,
-    activePowerUps, nextPowerUpMs, nextHealthPackMs, powerUpNotice,
+    combo, comboVisible, bossName, bossVisible,
+    activePowerUps, nextPowerUpMs, nextHealthPackMs,
     gameOverVisible, gameOverResult,
     attachCanvas, detachCanvas, startVoyage, pauseVoyage, resumeVoyage, cancelVoyage,
     toggleAmmoMode, closeGameOver
@@ -312,12 +312,23 @@ onUnmounted(() => {
                 </div>
                 <USelect v-model="selectedDifficulty" :items="difficultySelectItems" value-key="value" class="mt-2 w-full" />
                 <div class="mt-2 flex items-center justify-between text-xs">
-                  <span class="text-muted">Estimated full-run loot</span>
+                  <span class="text-muted">Estimated in-run loot</span>
                   <span class="flex items-center gap-2 font-bold">
                     <UBadge color="success" variant="subtle" :label="`${selectedProfitMultiplier.toFixed(1)}x profit`" />
                     <CoinBalance :value="selectedDifficultyInfo?.estimatedLoot ?? 0" />
                   </span>
                 </div>
+                <div class="mt-1.5 flex items-center justify-between border-t border-primary/20 pt-1.5 text-xs">
+                  <span class="flex items-center gap-1 text-muted">
+                    <UIcon name="i-lucide-flag-triangle-right" class="size-3.5 text-primary" /> Completion bonus
+                  </span>
+                  <span class="flex items-center gap-1 font-bold text-primary">
+                    +<CoinBalance :value="selectedDifficultyInfo?.completionBonus ?? 0" />
+                  </span>
+                </div>
+                <p class="mt-1 text-[10px] leading-snug text-muted">
+                  Survive the full 8-minute voyage to claim the completion bonus on top of your loot.
+                </p>
               </div>
 
               <template v-if="canSetSail">
@@ -408,11 +419,6 @@ onUnmounted(() => {
                   <span class="font-black uppercase">Flagship:</span> {{ bossName }}
                 </div>
               </Transition>
-              <Transition name="power-up">
-                <div v-if="powerUpNotice" class="rounded-md border border-primary/40 bg-primary/10 px-2 py-1 text-xs text-primary">
-                  <span class="font-black">{{ powerUpNotice.collected ? 'Power up:' : 'Supply drop:' }}</span> {{ powerUpNotice.title }}
-                </div>
-              </Transition>
             </section>
 
             <!-- Power-up rack -->
@@ -466,10 +472,6 @@ onUnmounted(() => {
               <UButton color="error" variant="subtle" icon="i-lucide-flag" label="Retreat" @click="cancelVoyage" />
             </section>
           </div>
-
-          <TransitionGroup v-if="killFeed.length" name="list" tag="div" class="mt-2 flex flex-wrap gap-1.5 border-t border-default pt-2">
-            <UBadge v-for="k in killFeed" :key="k.id" color="neutral" variant="subtle" :label="k.text" />
-          </TransitionGroup>
         </div>
       </UCard>
     </template>
@@ -502,6 +504,10 @@ onUnmounted(() => {
               Loot secured
             </p>
             <CoinBalance :value="gameOverResult.awarded" class="mt-1 justify-center text-3xl font-black" />
+            <div v-if="gameOverResult.completionBonus > 0" class="mt-2 flex items-center justify-center gap-1.5 text-xs font-bold text-primary">
+              <UIcon name="i-lucide-flag-triangle-right" class="size-3.5" />
+              <span>Includes +<CoinBalance :value="gameOverResult.completionBonus" class="inline-flex" /> completion bonus</span>
+            </div>
           </div>
 
           <div class="flex justify-center">

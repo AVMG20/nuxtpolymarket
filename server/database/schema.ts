@@ -116,6 +116,9 @@ export const pirateState = pgTable('pirate_state', {
   speedLevel: integer('speed_level').notNull().default(1),
   defenseLevel: integer('defense_level').notNull().default(1),
   ammoCapacityLevel: integer('ammo_capacity_level').notNull().default(1),
+  // Passive hull regeneration track — every captain owns level 1 (+1 hull/sec)
+  // for free; regen only ticks after PIRATE_REGEN_DELAY_MS without being hit.
+  regenLevel: integer('regen_level').notNull().default(1),
   // Unlocked gun ports. Slot 0 starts equipped with a free starter cannon
   // (see pirateCannons) so a brand new player isn't defenseless.
   cannonSlots: integer('cannon_slots').notNull().default(1),

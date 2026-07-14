@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import {
-    PIRATE_SHIP_STAT_IDS, PIRATE_MAX_STAT_LEVEL, PIRATE_CANNON_TIERS, PIRATE_MAX_CANNON_SLOTS,
-    pirateMaxHp, pirateShipSpeed, pirateDefenseRating, pirateAmmoCapacity, pirateCannonDps,
+    PIRATE_SHIP_STAT_IDS, PIRATE_CANNON_TIERS, PIRATE_MAX_CANNON_SLOTS,
+    pirateMaxHp, pirateShipSpeed, pirateDefenseRating, pirateAmmoCapacity, pirateRegenRate,
+    pirateStatMaxLevel, pirateCannonDps,
     type PirateShipStatId
 } from '#shared/utils/gamelogic/pirates'
 
@@ -33,8 +34,11 @@ const STAT_META: Record<PirateShipStatId, { label: string, icon: string, color: 
     hull: { label: 'Hull', icon: 'i-lucide-heart', color: 'text-red-400 bg-red-400/15', value: l => pirateMaxHp(l), unit: 'HP' },
     speed: { label: 'Speed', icon: 'i-lucide-wind', color: 'text-cyan-400 bg-cyan-400/15', value: l => pirateShipSpeed(l), unit: 'spd' },
     defense: { label: 'Defense', icon: 'i-lucide-shield', color: 'text-blue-400 bg-blue-400/15', value: l => pirateDefenseRating(l), unit: 'def' },
-    ammoCapacity: { label: 'Ammo Hold', icon: 'i-lucide-package', color: 'text-amber-400 bg-amber-400/15', value: l => pirateAmmoCapacity(l), unit: 'cap' }
+    ammoCapacity: { label: 'Ammo Hold', icon: 'i-lucide-package', color: 'text-amber-400 bg-amber-400/15', value: l => pirateAmmoCapacity(l), unit: 'cap' },
+    regen: { label: 'Life Regen', icon: 'i-lucide-heart-pulse', color: 'text-rose-400 bg-rose-400/15', value: l => pirateRegenRate(l), unit: 'HP/s' }
 }
+
+const statMaxLevel = (statId: PirateShipStatId) => pirateStatMaxLevel(statId)
 
 // Tier accents, matching the escalation feel in-game
 const TIER_ACCENTS: Record<string, string> = {
@@ -401,7 +405,7 @@ async function selectAbility(ability: NonNullable<typeof state.value>['abilities
         <p class="text-xs font-semibold text-muted uppercase tracking-wider mb-2 px-0.5">
           Shipwright — Hull &amp; Systems
         </p>
-        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3">
           <UCard v-for="statId in PIRATE_SHIP_STAT_IDS" :key="statId" :ui="{ body: 'p-3.5' }">
             <div class="flex items-center gap-2.5 mb-2">
               <div class="size-8 rounded-lg flex items-center justify-center shrink-0" :class="STAT_META[statId].color">
@@ -412,7 +416,7 @@ async function selectAbility(ability: NonNullable<typeof state.value>['abilities
                   {{ STAT_META[statId].label }}
                 </p>
                 <p class="text-xs text-muted">
-                  Lv {{ state.levels[statId] }} / {{ PIRATE_MAX_STAT_LEVEL }}
+                  Lv {{ state.levels[statId] }} / {{ statMaxLevel(statId) }}
                 </p>
               </div>
             </div>
@@ -420,7 +424,7 @@ async function selectAbility(ability: NonNullable<typeof state.value>['abilities
             <!-- Level pips -->
             <div class="flex gap-0.5 mb-2.5">
               <div
-                v-for="i in PIRATE_MAX_STAT_LEVEL"
+                v-for="i in statMaxLevel(statId)"
                 :key="i"
                 class="h-1 flex-1 rounded-full"
                 :class="i <= state.levels[statId] ? 'bg-primary' : 'bg-elevated'"
@@ -429,7 +433,7 @@ async function selectAbility(ability: NonNullable<typeof state.value>['abilities
 
             <p class="text-xs mb-3">
               <span class="font-semibold">{{ STAT_META[statId].value(state.levels[statId]) }} {{ STAT_META[statId].unit }}</span>
-              <template v-if="state.levels[statId] < PIRATE_MAX_STAT_LEVEL">
+              <template v-if="state.levels[statId] < statMaxLevel(statId)">
                 <UIcon name="i-lucide-arrow-right" class="size-3 inline mx-1 text-muted" />
                 <span class="text-emerald-400 font-semibold">{{ STAT_META[statId].value(state.levels[statId] + 1) }}</span>
               </template>
@@ -438,13 +442,13 @@ async function selectAbility(ability: NonNullable<typeof state.value>['abilities
             <UButton
               block
               size="sm"
-              :color="state.levels[statId] >= PIRATE_MAX_STAT_LEVEL ? 'neutral' : 'primary'"
-              :variant="state.levels[statId] >= PIRATE_MAX_STAT_LEVEL ? 'subtle' : 'solid'"
-              :disabled="!!state.activeRun || state.levels[statId] >= PIRATE_MAX_STAT_LEVEL || balance < (state.costs[statId] ?? 0)"
+              :color="state.levels[statId] >= statMaxLevel(statId) ? 'neutral' : 'primary'"
+              :variant="state.levels[statId] >= statMaxLevel(statId) ? 'subtle' : 'solid'"
+              :disabled="!!state.activeRun || state.levels[statId] >= statMaxLevel(statId) || balance < (state.costs[statId] ?? 0)"
               :loading="upgrading === statId"
               @click="upgradeStat(statId)"
             >
-              <span v-if="state.levels[statId] >= PIRATE_MAX_STAT_LEVEL">Maxed</span>
+              <span v-if="state.levels[statId] >= statMaxLevel(statId)">Maxed</span>
               <CoinBalance v-else :value="state.costs[statId] ?? 0" />
             </UButton>
           </UCard>

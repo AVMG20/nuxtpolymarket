@@ -7,10 +7,11 @@ import {
     PIRATE_SHIP_STAT_IDS, PIRATE_MAX_STAT_LEVEL, PIRATE_RUN_DURATION_MS, PIRATE_MAX_CANNON_SLOTS,
     PIRATE_CANNON_SELL_REFUND_RATE,
     PIRATE_GEM_AMMO_CAPACITY, PIRATE_GEM_AMMO_BUNDLE_SIZE, PIRATE_GEM_AMMO_BUNDLE_PRICE_GEMS,
-    pirateUpgradeCost, pirateMaxHp, pirateShipSpeed, pirateDefenseRating, pirateAmmoCapacity,
+    pirateStatMaxLevel, pirateRegenRate, pirateStatUpgradeCost,
+    pirateMaxHp, pirateShipSpeed, pirateDefenseRating, pirateAmmoCapacity,
     pirateSlotUnlockCost, pirateCannonTier, piratePowerLevel, pirateRepairRushCost, pirateAmmoPricePerUnit,
     PIRATE_SHIP_SKINS, PIRATE_ABILITIES, pirateAbility,
-    pirateRecommendedDifficulty, pirateDifficultyOptions, pirateAverageRunPayoutEstimate
+    pirateRecommendedDifficulty, pirateDifficultyOptions, pirateAverageRunPayoutEstimate, pirateCompletionBonus
 } from '#shared/utils/gamelogic/pirates'
 
 export default defineEventHandler(async (event) => {
@@ -37,7 +38,8 @@ export default defineEventHandler(async (event) => {
         hull: s.hullLevel,
         speed: s.speedLevel,
         defense: s.defenseLevel,
-        ammoCapacity: s.ammoCapacityLevel
+        ammoCapacity: s.ammoCapacityLevel,
+        regen: s.regenLevel
     }
 
     const cannonList = cannonRows
@@ -74,13 +76,15 @@ export default defineEventHandler(async (event) => {
         gems: currentUser?.gems ?? 0,
         levels,
         maxLevel: PIRATE_MAX_STAT_LEVEL,
-        costs: Object.fromEntries(PIRATE_SHIP_STAT_IDS.map(id => [id, pirateUpgradeCost(levels[id])])),
+        maxLevels: Object.fromEntries(PIRATE_SHIP_STAT_IDS.map(id => [id, pirateStatMaxLevel(id)])),
+        costs: Object.fromEntries(PIRATE_SHIP_STAT_IDS.map(id => [id, pirateStatUpgradeCost(id, levels[id])])),
         power,
         stats: {
             maxHp: pirateMaxHp(s.hullLevel),
             speed: pirateShipSpeed(s.speedLevel),
             defenseRating: pirateDefenseRating(s.defenseLevel),
-            ammoCapacity: capacity
+            ammoCapacity: capacity,
+            regenRate: pirateRegenRate(s.regenLevel)
         },
         cannons: cannonList,
         cannonSlots: s.cannonSlots,
@@ -105,6 +109,7 @@ export default defineEventHandler(async (event) => {
         difficultyOptions: difficultyOptions.map(difficulty => ({
             difficulty,
             estimatedLoot: pirateAverageRunPayoutEstimate(difficulty),
+            completionBonus: pirateCompletionBonus(difficulty),
             completed: difficulty <= s.highestCompletedDifficulty
         })),
         skins: PIRATE_SHIP_SKINS.map(skin => ({ ...skin, owned: ownedSkinIds.includes(skin.id), equipped: skin.id === s.equippedSkinId })),
