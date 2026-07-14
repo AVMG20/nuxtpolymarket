@@ -36,6 +36,18 @@ const nextHealthPackLabel = computed(() => `${Math.max(0, Math.ceil(nextHealthPa
 const equippedAbility = computed(() => state.value?.abilities.find(ability => ability.equipped) ?? state.value?.abilities[0])
 const abilityCooldownLabel = computed(() => abilityCooldownMs.value > 0 ? `${Math.ceil(abilityCooldownMs.value / 1000)}s` : 'Ready')
 const abilityCooldownPercent = computed(() => abilityCooldownTotalMs.value > 0 ? Math.max(0, Math.min(100, abilityCooldownMs.value / abilityCooldownTotalMs.value * 100)) : 0)
+const selectedDifficulty = ref(0)
+const difficultySelectItems = computed(() => (state.value?.difficultyOptions ?? []).map(option => ({
+    label: `Difficulty ${option.difficulty}${option.completed ? ' · cleared' : option.difficulty === state.value?.recommendedDifficulty ? ' · recommended' : ''}`,
+    value: option.difficulty
+})))
+const selectedDifficultyInfo = computed(() => state.value?.difficultyOptions.find(option => option.difficulty === selectedDifficulty.value))
+const baseDifficultyProfit = computed(() => state.value?.difficultyOptions[0]?.estimatedLoot ?? 1)
+const selectedProfitMultiplier = computed(() => (selectedDifficultyInfo.value?.estimatedLoot ?? 0) / Math.max(1, baseDifficultyProfit.value))
+
+watch(() => state.value?.recommendedDifficulty, (difficulty) => {
+    if (difficulty !== undefined && !running.value && !paused.value) selectedDifficulty.value = difficulty
+}, { immediate: true })
 
 function powerUpStatus(powerUp: typeof activePowerUps.value[number]) {
     const stack = powerUp.stacks > 1 ? `x${powerUp.stacks}` : ''
@@ -136,7 +148,7 @@ async function rushRepair() {
 async function handleStartVoyage() {
     const s = state.value
     if (!s || !canSetSail.value || isRepairing.value) return
-    await startVoyage(s)
+    await startVoyage(s, selectedDifficulty.value)
 }
 
 let resizeObserverConnected = false
@@ -283,6 +295,28 @@ onUnmounted(() => {
                   <p class="mt-1 text-lg font-black tabular-nums">
                     {{ state.power }}
                   </p>
+                </div>
+              </div>
+
+              <div class="mt-3 rounded-lg border border-primary/30 bg-primary/5 p-3 text-left">
+                <div class="flex items-center justify-between gap-3">
+                  <div>
+                    <p class="flex items-center gap-1.5 text-xs font-bold">
+                      <UIcon name="i-lucide-waves" class="size-4 text-primary" /> Voyage difficulty
+                    </p>
+                    <p class="mt-0.5 text-[10px] text-muted">
+                      Enemy strength and loot scale with the selected tier.
+                    </p>
+                  </div>
+                  <UBadge v-if="selectedDifficulty === state.recommendedDifficulty" color="primary" variant="subtle" label="Recommended" />
+                </div>
+                <USelect v-model="selectedDifficulty" :items="difficultySelectItems" value-key="value" class="mt-2 w-full" />
+                <div class="mt-2 flex items-center justify-between text-xs">
+                  <span class="text-muted">Estimated full-run loot</span>
+                  <span class="flex items-center gap-2 font-bold">
+                    <UBadge color="success" variant="subtle" :label="`${selectedProfitMultiplier.toFixed(1)}x profit`" />
+                    <CoinBalance :value="selectedDifficultyInfo?.estimatedLoot ?? 0" />
+                  </span>
                 </div>
               </div>
 
@@ -468,6 +502,15 @@ onUnmounted(() => {
               Loot secured
             </p>
             <CoinBalance :value="gameOverResult.awarded" class="mt-1 justify-center text-3xl font-black" />
+          </div>
+
+          <div class="flex justify-center">
+            <UBadge
+              :color="gameOverResult.completed ? 'success' : 'neutral'"
+              variant="subtle"
+              :icon="gameOverResult.completed ? 'i-lucide-badge-check' : 'i-lucide-waves'"
+              :label="`Difficulty ${gameOverResult.difficulty}${gameOverResult.completed ? ' completed' : ''}`"
+            />
           </div>
 
           <div class="grid grid-cols-2 gap-2 text-center sm:grid-cols-5">

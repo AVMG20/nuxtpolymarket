@@ -246,6 +246,7 @@ export class PirateGame {
     private callbacks: PirateGameCallbacks
     private stats: PirateShipStats
     private power = 5
+    private difficulty = 0
     private runDurationMs = PIRATE_RUN_DURATION_MS
 
     private running = false
@@ -319,6 +320,10 @@ export class PirateGame {
     private playerAbilityCooldownMs = 0
     private abilityHudTimerMs = 0
     private contextMenuHandler: ((event: MouseEvent) => void) | null = null
+    private steeringPointerMoveHandler: ((event: PointerEvent) => void) | null = null
+    private steeringPointerUpHandler: (() => void) | null = null
+    private steeringPointerDown: { x: number, y: number } | null = null
+    private lastSteeringUpdateAt = 0
 
     constructor(callbacks: PirateGameCallbacks, initialStats: PirateShipStats) {
         this.callbacks = callbacks
@@ -347,6 +352,23 @@ export class PirateGame {
             this.castPlayerAbility(x, y)
         }
         this.app.canvas.addEventListener('contextmenu', this.contextMenuHandler)
+        this.app.canvas.addEventListener('pointerdown', (event) => {
+            if (event.button === 0) this.steeringPointerDown = { x: event.clientX, y: event.clientY }
+        })
+        this.steeringPointerMoveHandler = (event: PointerEvent) => {
+            if (!this.running || !this.app || !this.steeringPointerDown || (event.buttons & 1) === 0) return
+            if (Math.hypot(event.clientX - this.steeringPointerDown.x, event.clientY - this.steeringPointerDown.y) < 6) return
+            const now = performance.now()
+            if (now - this.lastSteeringUpdateAt < 90) return
+            this.lastSteeringUpdateAt = now
+            const rect = this.app.canvas.getBoundingClientRect()
+            const x = (event.clientX - rect.left) / rect.width * WORLD_W
+            const y = (event.clientY - rect.top) / rect.height * WORLD_H
+            this.handleWaterClick(x, y, false)
+        }
+        this.steeringPointerUpHandler = () => { this.steeringPointerDown = null }
+        this.app.canvas.addEventListener('pointermove', this.steeringPointerMoveHandler)
+        window.addEventListener('pointerup', this.steeringPointerUpHandler)
 
         this.world.addChild(this.bg)
         this.world.addChild(this.waveLayer)
@@ -427,10 +449,11 @@ export class PirateGame {
         this.stats.skinId = skinId
     }
 
-    start(stats: PirateShipStats, power: number) {
+    start(stats: PirateShipStats, power: number, difficulty: number) {
         this.stats = stats
         this.setPlayerSkin(stats.skinId)
         this.power = power
+        this.difficulty = difficulty
         this.playerHp = stats.maxHp
         this.coins = 0
         this.ammo = stats.ammo
@@ -453,8 +476,8 @@ export class PirateGame {
         this.combo = 0
         this.maxCombo = 0
         this.lastKillAt = -Infinity
-        this.spawnTimerMs = pirateSpawnIntervalMs(0, power)
-        this.bossTimerMs = pirateBossFirstSpawnMs(power)
+        this.spawnTimerMs = pirateSpawnIntervalMs(0, difficulty)
+        this.bossTimerMs = pirateBossFirstSpawnMs(difficulty)
         this.bossCount = 0
         this.treasureTimerMs = randRange(PIRATE_TREASURE_MIN_INTERVAL_MS, PIRATE_TREASURE_MAX_INTERVAL_MS)
         this.powerUpTimerMs = PIRATE_POWER_UP_INTERVAL_MS
@@ -496,7 +519,7 @@ export class PirateGame {
 
         this.paused = false
         this.running = true
-        const openingEnemies = pirateInitialEnemyCount(power)
+        const openingEnemies = pirateInitialEnemyCount(difficulty)
         for (let i = 0; i < openingEnemies; i++) this.spawnEnemy()
         this.spawnPowerUp()
         if (this.app) {
@@ -576,6 +599,8 @@ export class PirateGame {
         this.paused = false
         if (this.app) {
             if (this.contextMenuHandler) this.app.canvas.removeEventListener('contextmenu', this.contextMenuHandler)
+            if (this.steeringPointerMoveHandler) this.app.canvas.removeEventListener('pointermove', this.steeringPointerMoveHandler)
+            if (this.steeringPointerUpHandler) window.removeEventListener('pointerup', this.steeringPointerUpHandler)
             this.app.destroy(true, { children: true, texture: true })
             this.app = null
         }
@@ -825,12 +850,12 @@ export class PirateGame {
 
     // ─── Input ──────────────────────────────────────────────────────────────
 
-    private handleWaterClick(x: number, y: number) {
+    private handleWaterClick(x: number, y: number, showMarker = true) {
         if (!this.running) return
         this.attackTargetId = null
         this.playerPath = this.computePath(this.playerX, this.playerY, x, y)
         const dest = this.playerPath[this.playerPath.length - 1]
-        if (dest) this.spawnMoveMarker(dest.x, dest.y)
+        if (dest && showMarker) this.spawnMoveMarker(dest.x, dest.y)
     }
 
     // ─── Main loop ──────────────────────────────────────────────────────────
@@ -1048,7 +1073,7 @@ export class PirateGame {
                 enemy.angle = lerpAngle(enemy.angle, desiredAngle, ROTATE_LERP)
                 enemy.reloadTimer -= deltaMS
                 if (enemy.reloadTimer <= 0) {
-                    enemy.reloadTimer = enemy.tier.reloadMs * pirateEnemyReloadMultiplier(this.elapsedMs, this.power)
+                    enemy.reloadTimer = enemy.tier.reloadMs * pirateEnemyReloadMultiplier(this.elapsedMs, this.difficulty)
                     this.enemyFire(enemy)
                 }
             }
@@ -1094,15 +1119,15 @@ export class PirateGame {
     private updateSpawning(deltaMS: number) {
         this.spawnTimerMs -= deltaMS
         if (this.spawnTimerMs <= 0) {
-            const max = pirateMaxConcurrentEnemies(this.elapsedMs, this.power)
+            const max = pirateMaxConcurrentEnemies(this.elapsedMs, this.difficulty)
             let regular = 0
             for (const e of this.enemies.values()) {
                 if (!e.tier.boss) regular++
             }
             const availableSlots = Math.max(0, max - regular)
-            const batchSize = Math.min(availableSlots, pirateSpawnBatchSize(this.elapsedMs, this.power))
+            const batchSize = Math.min(availableSlots, pirateSpawnBatchSize(this.elapsedMs, this.difficulty))
             for (let i = 0; i < batchSize; i++) this.spawnEnemy()
-            this.spawnTimerMs = pirateSpawnIntervalMs(this.elapsedMs, this.power) * randRange(0.85, 1.2)
+            this.spawnTimerMs = pirateSpawnIntervalMs(this.elapsedMs, this.difficulty) * randRange(0.85, 1.2)
         }
 
         // Dreadnoughts run on their own clock, outside the concurrency cap.
@@ -1273,6 +1298,7 @@ export class PirateGame {
             gsap.to(spark, { alpha: 0, rotation: Math.PI, duration: 0.6, ease: 'power2.in', onComplete: () => spark.destroy() })
         }
         this.shake(12)
+        this.destroySeaMinesInRadius(x, y, PLAYER_BOMB_RADIUS)
         let hits = 0
         for (const enemy of [...this.enemies.values()]) {
             if (enemy.dead || dist(x, y, enemy.x, enemy.y) > PLAYER_BOMB_RADIUS) continue
@@ -1431,6 +1457,7 @@ export class PirateGame {
         eye.circle(0, 0, 24).fill({ color: 0x082f49, alpha: 0.85 }).stroke({ width: 3, color: 0xa5f3fc })
         root.addChild(outer, inner, eye)
         this.effectsLayer.addChild(root)
+        this.destroySeaMinesInRadius(targetX, targetY, 185)
         gsap.fromTo(root.scale, { x: 0.15, y: 0.15 }, { x: 1, y: 1, duration: 0.45, ease: 'back.out(2)' })
         gsap.to(inner, { rotation: Math.PI * 4, duration: 4.2, ease: 'none' })
         gsap.to(outer, { alpha: 0.35, duration: 0.35, yoyo: true, repeat: 9 })
@@ -1485,6 +1512,7 @@ export class PirateGame {
                         if (!warning.destroyed) warning.destroy()
                         if (!this.running) return
                         this.spawnExplosion(x, y, 0xf97316, true)
+                        this.destroySeaMinesInRadius(x, y, 72)
                         this.shake(5)
                         for (const enemy of [...this.enemies.values()]) {
                             if (!enemy.dead && dist(x, y, enemy.x, enemy.y) <= 72) this.damageEnemyWithAbility(enemy, damage, 'FIRE', 0xfdba74, true)
@@ -1949,7 +1977,7 @@ export class PirateGame {
         const sunk = this.sunkByType.get(enemy.tier.id)
         this.sunkByType.set(enemy.tier.id, { name: enemy.tier.name, count: (sunk?.count ?? 0) + 1 })
 
-        const rewardMult = pirateRewardMultiplier(this.elapsedMs, this.power)
+        const rewardMult = pirateRewardMultiplier(this.elapsedMs, this.difficulty)
         const baseReward = Math.round(randRange(enemy.tier.coinMin, enemy.tier.coinMax) * rewardMult)
         const stacks = Math.min(this.combo - 1, PIRATE_COMBO_MAX_STACKS)
         const bonus = Math.round(baseReward * stacks * PIRATE_COMBO_BONUS_PER_STACK)
@@ -2078,7 +2106,7 @@ export class PirateGame {
             y,
             vx: randRange(-16, 16),
             vy: randRange(-16, 16),
-            reward: pirateTreasureReward(this.elapsedMs, this.power),
+            reward: pirateTreasureReward(this.elapsedMs, this.difficulty),
             age: 0
         }
     }
@@ -2669,12 +2697,21 @@ export class PirateGame {
         mine.root.destroy({ children: true })
     }
 
+    private destroySeaMinesInRadius(x: number, y: number, radius: number) {
+        const mines = this.seaMines.filter(mine => dist(x, y, mine.x, mine.y) <= radius)
+        for (const mine of mines) {
+            this.removeSeaMine(mine)
+            this.spawnExplosion(mine.x, mine.y, 0x38bdf8, false)
+            this.spawnDamagePopup(`mine-cleared-${mine.x}-${mine.y}`, mine.x, mine.y - 28, 'MINE CLEARED', 0x7dd3fc, true)
+        }
+    }
+
     // ─── Enemy spawning ─────────────────────────────────────────────────────
 
     private spawnEnemy(tierOverride?: PirateEnemyTier) {
         if (!this.running || !this.app) return
-        const tier = tierOverride ?? pirateRollEnemyTier(this.elapsedMs, this.power)
-        const diff = pirateDifficultyMultiplier(this.elapsedMs, this.power)
+        const tier = tierOverride ?? pirateRollEnemyTier(this.elapsedMs, this.difficulty)
+        const diff = pirateDifficultyMultiplier(this.elapsedMs, this.difficulty)
         const hp = Math.max(1, Math.round(tier.hp * diff.hpMult))
 
         const margin = 50
@@ -2736,7 +2773,7 @@ export class PirateGame {
             x,
             y,
             angle: Math.atan2(this.playerY - y, this.playerX - x),
-            reloadTimer: randRange(300, tier.reloadMs * pirateEnemyReloadMultiplier(this.elapsedMs, this.power)),
+            reloadTimer: randRange(300, tier.reloadMs * pirateEnemyReloadMultiplier(this.elapsedMs, this.difficulty)),
             abilityTimer: randRange(tier.boss ? 2800 : 4200, tier.boss ? 4800 : 7200),
             speed: tier.speed,
             defense: Math.max(1, Math.round(tier.defense * diff.statMult)),

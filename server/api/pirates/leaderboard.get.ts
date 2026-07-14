@@ -1,4 +1,4 @@
-import { desc, eq, gt } from 'drizzle-orm'
+import { desc, eq, gte } from 'drizzle-orm'
 import { db } from '#server/database'
 import { pirateState, user } from '#server/database/schema'
 import { pirateShipSkin } from '#shared/utils/gamelogic/pirates'
@@ -8,15 +8,15 @@ export default defineEventHandler(async () => {
         .select({
             userId: user.id,
             name: user.name,
-            durationMs: pirateState.bestSurvivalMs,
-            power: pirateState.bestRunPower,
-            loot: pirateState.bestRunLoot,
-            skinId: pirateState.equippedSkinId
+            difficulty: pirateState.highestCompletedDifficulty,
+            power: pirateState.bestCompletedPower,
+            loot: pirateState.bestCompletedLoot,
+            skinId: pirateState.bestCompletedSkinId
         })
         .from(pirateState)
         .innerJoin(user, eq(user.id, pirateState.userId))
-        .where(gt(pirateState.bestSurvivalMs, 0))
-        .orderBy(desc(pirateState.bestSurvivalMs), desc(pirateState.bestRunLoot))
+        .where(gte(pirateState.highestCompletedDifficulty, 0))
+        .orderBy(desc(pirateState.highestCompletedDifficulty), desc(pirateState.bestCompletedLoot))
         .limit(50)
 
     return rows.map((row, index) => {
@@ -25,7 +25,8 @@ export default defineEventHandler(async () => {
             rank: index + 1,
             userId: row.userId,
             name: row.name,
-            durationMs: row.durationMs,
+            durationMs: 8 * 60 * 1000,
+            difficulty: row.difficulty,
             power: row.power,
             loot: row.loot,
             skin: { id: skin.id, name: skin.name, sprite: skin.sprite }

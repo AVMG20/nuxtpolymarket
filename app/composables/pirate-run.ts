@@ -35,6 +35,8 @@ export interface PirateGameOverInfo {
     maxCombo: number
     elapsedMs: number
     repairMs: number
+    difficulty: number
+    completed: boolean
 }
 
 const hp = ref(0)
@@ -151,7 +153,9 @@ async function handleGameOver(result: {
             sunkByType: result.sunkByType,
             maxCombo: result.maxCombo,
             elapsedMs: res.elapsedMs,
-            repairMs: res.repairTotalMs ?? 0
+            repairMs: res.repairTotalMs ?? 0,
+            difficulty: res.difficulty,
+            completed: res.completed
         }
         gameOverVisible.value = true
         await Promise.all([currentRefresh?.(), currentFetchSession?.()])
@@ -260,12 +264,12 @@ export function usePirateRun() {
         }
     }
 
-    async function startVoyage(state: { cannons: unknown[], ammo: { count: number }, gemAmmo: { count: number } }) {
+    async function startVoyage(state: { cannons: unknown[], ammo: { count: number }, gemAmmo: { count: number } }, difficulty: number) {
         if (!game || running.value || paused.value || starting.value) return
         if (state.cannons.length === 0) return
         starting.value = true
         try {
-            const res = await $fetch('/api/pirates/start-run', { method: 'POST' })
+            const res = await $fetch('/api/pirates/start-run', { method: 'POST', body: { difficulty } })
             hp.value = res.stats.maxHp
             maxHp.value = res.stats.maxHp
             coins.value = 0
@@ -292,7 +296,7 @@ export function usePirateRun() {
                 skinId: res.skinId,
                 abilityId: res.abilityId,
                 cannons: res.cannons
-            }, res.power)
+            }, res.power, res.difficulty)
         } catch (e: any) {
             currentToast?.add({ title: e.data?.message ?? 'Failed to set sail', color: 'error' })
         } finally {

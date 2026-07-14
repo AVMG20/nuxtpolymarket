@@ -119,7 +119,7 @@ export const pirateState = pgTable('pirate_state', {
   // Unlocked gun ports. Slot 0 starts equipped with a free starter cannon
   // (see pirateCannons) so a brand new player isn't defenseless.
   cannonSlots: integer('cannon_slots').notNull().default(1),
-  ammoCount: integer('ammo_count').notNull().default(30),
+  ammoCount: integer('ammo_count').notNull().default(60),
   // Premium gem-bought shots, tracked separately from the coin-bought stock.
   gemAmmoCount: integer('gem_ammo_count').notNull().default(0),
   runsPlayed: integer('runs_played').notNull().default(0),
@@ -136,6 +136,13 @@ export const pirateState = pgTable('pirate_state', {
   // so mid-run upgrades can't raise the finish-run payout ceiling.
   runStartedAt: timestamp('run_started_at'),
   runPowerSnapshot: integer('run_power_snapshot'),
+  runDifficultySnapshot: integer('run_difficulty_snapshot'),
+  // Only full eight-minute clears advance this value. Difficulty 0 is the
+  // universal starting tier, so -50 means a new captain has no clear yet.
+  highestCompletedDifficulty: integer('highest_completed_difficulty').notNull().default(-50),
+  bestCompletedLoot: integer('best_completed_loot').notNull().default(0),
+  bestCompletedPower: integer('best_completed_power').notNull().default(0),
+  bestCompletedSkinId: text('best_completed_skin_id').notNull().default('starter'),
   // Hull damage from the last voyage puts the ship in dry dock — up to 2h for
   // a total loss, proportional for a partial one. Set on finish-run, cleared
   // naturally once it elapses or immediately via the repair-rush endpoint.
@@ -166,6 +173,7 @@ export const pirateRunHistory = pgTable('pirate_run_history', {
   loot: integer('loot').notNull().default(0),
   durationMs: integer('duration_ms').notNull().default(0),
   power: integer('power').notNull().default(0),
+  difficulty: integer('difficulty').notNull().default(0),
   survived: boolean('survived').notNull().default(false),
   reason: text('reason').notNull(),
   kills: integer('kills').notNull().default(0),

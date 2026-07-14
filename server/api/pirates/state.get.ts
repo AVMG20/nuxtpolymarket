@@ -9,7 +9,8 @@ import {
     PIRATE_GEM_AMMO_CAPACITY, PIRATE_GEM_AMMO_BUNDLE_SIZE, PIRATE_GEM_AMMO_BUNDLE_PRICE_GEMS,
     pirateUpgradeCost, pirateMaxHp, pirateShipSpeed, pirateDefenseRating, pirateAmmoCapacity,
     pirateSlotUnlockCost, pirateCannonTier, piratePowerLevel, pirateRepairRushCost, pirateAmmoPricePerUnit,
-    PIRATE_SHIP_SKINS, PIRATE_ABILITIES, pirateAbility
+    PIRATE_SHIP_SKINS, PIRATE_ABILITIES, pirateAbility,
+    pirateRecommendedDifficulty, pirateDifficultyOptions, pirateAverageRunPayoutEstimate
 } from '#shared/utils/gamelogic/pirates'
 
 export default defineEventHandler(async (event) => {
@@ -65,6 +66,8 @@ export default defineEventHandler(async (event) => {
     const ownedSkinIds = Array.from(new Set(['starter', ...(s.ownedSkinIds ?? [])]))
     const ownedAbilityIds = Array.from(new Set(['bomb', ...(s.ownedAbilityIds ?? [])]))
     const equippedAbilityId = pirateAbility(s.equippedAbilityId).id
+    const recommendedDifficulty = pirateRecommendedDifficulty(s.highestCompletedDifficulty)
+    const difficultyOptions = pirateDifficultyOptions(Math.max(power, recommendedDifficulty))
 
     return {
         balance,
@@ -97,6 +100,13 @@ export default defineEventHandler(async (event) => {
         runsPlayed: s.runsPlayed,
         totalCoinsEarned: s.totalCoinsEarned,
         bestSurvivalMs: s.bestSurvivalMs,
+        highestCompletedDifficulty: s.highestCompletedDifficulty,
+        recommendedDifficulty,
+        difficultyOptions: difficultyOptions.map(difficulty => ({
+            difficulty,
+            estimatedLoot: pirateAverageRunPayoutEstimate(difficulty),
+            completed: difficulty <= s.highestCompletedDifficulty
+        })),
         skins: PIRATE_SHIP_SKINS.map(skin => ({ ...skin, owned: ownedSkinIds.includes(skin.id), equipped: skin.id === s.equippedSkinId })),
         equippedSkinId: s.equippedSkinId,
         abilities: PIRATE_ABILITIES.map(ability => ({ ...ability, owned: ownedAbilityIds.includes(ability.id), equipped: ability.id === equippedAbilityId })),

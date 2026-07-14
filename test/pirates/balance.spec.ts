@@ -2,6 +2,11 @@ import { describe, expect, it } from 'vitest'
 import {
   pirateBossFirstSpawnMs,
   pirateDifficultyMultiplier,
+  pirateAmmoCapacity,
+  pirateAmmoPricePerUnit,
+  pirateAverageRunPayoutEstimate,
+  pirateNormalizeDifficulty,
+  pirateRecommendedDifficulty,
   pirateInitialEnemyCount,
   pirateMaxConcurrentEnemies,
   pirateRollEnemyTier,
@@ -16,7 +21,7 @@ describe('pirate difficulty at power 366', () => {
     const minuteOne = pirateDifficultyMultiplier(60_000, TEST_POWER)
     const endgame = pirateDifficultyMultiplier(8 * 60_000, TEST_POWER)
 
-    expect(opening.hpMult).toBeCloseTo(4.4545, 3)
+    expect(opening.hpMult).toBeCloseTo(4.423, 3)
     expect(opening.dmgMult).toBeLessThan(1.4)
     expect(minuteOne.hpMult).toBeLessThan(4.8)
     expect(minuteOne.hpMult / opening.hpMult).toBeLessThan(1.08)
@@ -35,5 +40,25 @@ describe('pirate difficulty at power 366', () => {
     expect(pirateRollEnemyTier(0, TEST_POWER, alwaysLastRoll).id).toBe('sloop')
     expect(pirateRollEnemyTier(60_000, TEST_POWER, alwaysLastRoll).id).toBe('sniper')
     expect(pirateRollEnemyTier(75_000, TEST_POWER, alwaysLastRoll).id).toBe('ironclad')
+  })
+})
+
+describe('pirate selectable difficulty and premium ammo', () => {
+  it('advances recommendations in 50-point completed tiers', () => {
+    expect(pirateRecommendedDifficulty(-50)).toBe(0)
+    expect(pirateRecommendedDifficulty(0)).toBe(50)
+    expect(pirateRecommendedDifficulty(350)).toBe(400)
+    expect(pirateNormalizeDifficulty(374)).toBe(350)
+  })
+
+  it('makes higher tiers visibly more profitable', () => {
+    expect(pirateAverageRunPayoutEstimate(50)).toBeGreaterThan(pirateAverageRunPayoutEstimate(0))
+    expect(pirateAverageRunPayoutEstimate(350)).toBeGreaterThan(pirateAverageRunPayoutEstimate(50) * 4)
+  })
+
+  it('doubles magazine capacity and cuts premium prices by 75 percent', () => {
+    expect(pirateAmmoCapacity(1)).toBe(240)
+    expect(pirateAmmoCapacity(10)).toBe(1050)
+    expect(pirateAmmoPricePerUnit(366)).toBe(196)
   })
 })

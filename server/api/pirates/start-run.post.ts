@@ -4,6 +4,7 @@ import { pirateState, pirateCannons } from '#server/database/schema'
 import { auth } from '#server/utils/auth'
 import {
     PIRATE_RUN_DURATION_MS, piratePowerLevel,
+    PIRATE_MAX_DIFFICULTY, PIRATE_DIFFICULTY_STEP,
     pirateMaxHp, pirateShipSpeed, pirateDefenseRating, pirateAmmoCapacity, pirateCannonTier, pirateAbility
 } from '#shared/utils/gamelogic/pirates'
 
@@ -12,12 +13,18 @@ export default defineEventHandler(async (event) => {
     if (!session?.user?.id) throw createError({ statusCode: 401, statusMessage: 'Unauthorized' })
 
     const userId = session.user.id
+    const body = await readBody(event)
+    const difficulty = Number(body?.difficulty)
+    if (!Number.isInteger(difficulty) || difficulty < 0 || difficulty > PIRATE_MAX_DIFFICULTY || difficulty % PIRATE_DIFFICULTY_STEP !== 0) {
+        throw createError({ statusCode: 400, statusMessage: `Difficulty must be a multiple of ${PIRATE_DIFFICULTY_STEP}` })
+    }
 
     const [s, cannons] = await Promise.all([
         db.query.pirateState.findFirst({ where: eq(pirateState.userId, userId) }),
         db.query.pirateCannons.findMany({ where: eq(pirateCannons.userId, userId) })
     ])
     if (!s) throw createError({ statusCode: 404, statusMessage: 'Pirate state not initialized' })
+    if (s.runStartedAt) throw createError({ statusCode: 400, statusMessage: 'A voyage is already active' })
     if (s.hullRepairUntil && s.hullRepairUntil.getTime() > Date.now()) {
         throw createError({ statusCode: 400, statusMessage: 'Your ship is still in dry dock — repair it or rush the repair first' })
     }
@@ -32,12 +39,13 @@ export default defineEventHandler(async (event) => {
     const startedAt = new Date()
 
     await db.update(pirateState)
-        .set({ runStartedAt: startedAt, runPowerSnapshot: power })
+        .set({ runStartedAt: startedAt, runPowerSnapshot: power, runDifficultySnapshot: difficulty })
         .where(eq(pirateState.userId, userId))
 
     return {
         startedAt,
         power,
+        difficulty,
         skinId: s.equippedSkinId,
         abilityId: pirateAbility(s.equippedAbilityId).id,
         runDurationMs: PIRATE_RUN_DURATION_MS,

@@ -95,6 +95,8 @@ export type PirateShipStatId = typeof PIRATE_SHIP_STAT_IDS[number]
 
 export const PIRATE_MAX_STAT_LEVEL = 10
 export const PIRATE_RUN_DURATION_MS = 8 * 60 * 1000
+export const PIRATE_DIFFICULTY_STEP = 50
+export const PIRATE_MAX_DIFFICULTY = 1000
 export const PIRATE_POWER_UP_INTERVAL_MS = 25_000
 export const PIRATE_POWER_UP_LIFESPAN_MS = 22_000
 export const PIRATE_HEALTH_PACK_INTERVAL_MS = 45_000
@@ -134,7 +136,7 @@ export function pirateDefenseRating(level: number) {
 
 /** Max ammo the hold can carry. */
 export function pirateAmmoCapacity(level: number) {
-    return 120 + (clampLevel(level) - 1) * 45
+  return 240 + (clampLevel(level) - 1) * 90
 }
 
 // ─── Cannons ────────────────────────────────────────────────────────────────
@@ -194,14 +196,30 @@ export function pirateCannonDps(tier: PirateCannonTier, defenseRating: number) {
 }
 
 // ─── Ammo ───────────────────────────────────────────────────────────────────
-export const PIRATE_AMMO_BASE_PRICE_PER_UNIT = 50
-export const PIRATE_AMMO_PRICE_PER_POWER = 2
+export const PIRATE_AMMO_BASE_PRICE_PER_UNIT = 12.5
+export const PIRATE_AMMO_PRICE_PER_POWER = 0.5
 export const PIRATE_AMMO_RANGE_MULT = 1.1
 export const PIRATE_AMMO_DAMAGE_MULT = 1.2
 
 /** Premium cannonball price. Stronger ships pay more for the same relative combat boost. */
 export function pirateAmmoPricePerUnit(power: number) {
   return Math.max(1, Math.round(PIRATE_AMMO_BASE_PRICE_PER_UNIT + Math.max(0, power) * PIRATE_AMMO_PRICE_PER_POWER))
+}
+
+export function pirateNormalizeDifficulty(value: number) {
+  const finite = Number.isFinite(value) ? value : 0
+  return Math.max(0, Math.min(PIRATE_MAX_DIFFICULTY, Math.round(finite / PIRATE_DIFFICULTY_STEP) * PIRATE_DIFFICULTY_STEP))
+}
+
+export function pirateRecommendedDifficulty(highestCompletedDifficulty: number) {
+  return pirateNormalizeDifficulty(Math.max(0, highestCompletedDifficulty + PIRATE_DIFFICULTY_STEP))
+}
+
+export function pirateDifficultyOptions(maxRelevantDifficulty: number) {
+  const ceiling = pirateNormalizeDifficulty(Math.max(200, maxRelevantDifficulty + PIRATE_DIFFICULTY_STEP * 2))
+  const options: number[] = []
+  for (let difficulty = 0; difficulty <= ceiling; difficulty += PIRATE_DIFFICULTY_STEP) options.push(difficulty)
+  return options
 }
 
 // ─── Gem ammo ───────────────────────────────────────────────────────────────
@@ -542,21 +560,21 @@ export function pirateTreasureReward(elapsedMs: number, power = PIRATE_BASE_POWE
 // average haul so skilled/lucky runs are never clipped in practice.
 
 /** Plausible average coins-per-second for a run at this power — the baseline both the payout cap and the repair-rush price are built from. */
-function pirateRunPayoutRatePerSecond(power: number) {
-  return 80 + Math.max(0, power - PIRATE_BASE_POWER) * 6.8
+function pirateRunPayoutRatePerSecond(difficulty: number) {
+  return 80 + pirateNormalizeDifficulty(difficulty) * 6.8
 }
 
-export function pirateMaxPayoutForRun(elapsedMs: number, power: number, gemAmmoUsed = 0) {
+export function pirateMaxPayoutForRun(elapsedMs: number, difficulty: number, gemAmmoUsed = 0) {
   const seconds = Math.max(0, elapsedMs / 1000)
   // Gem shots noticeably accelerate the kill rate, so each one spent raises
   // the plausible-haul ceiling a little (combo bonuses and the late-run
   // reward multiplier live inside the 1.8 slack factor).
-  return Math.round(pirateRunPayoutRatePerSecond(power) * seconds * 1.8 + gemAmmoUsed * 100)
+  return Math.round(pirateRunPayoutRatePerSecond(difficulty) * seconds * 1.8 + gemAmmoUsed * 100)
 }
 
 /** Rough expected average haul for one full voyage — the payout cap above is this same rate with generous slack layered on top, so dividing that slack back out gives a reasonable "typical run" estimate. */
-export function pirateAverageRunPayoutEstimate(power: number) {
-  return Math.round(pirateRunPayoutRatePerSecond(power) * (PIRATE_RUN_DURATION_MS / 1000))
+export function pirateAverageRunPayoutEstimate(difficulty: number) {
+  return Math.round(pirateRunPayoutRatePerSecond(difficulty) * (PIRATE_RUN_DURATION_MS / 1000))
 }
 
 export const PIRATE_MIN_RUN_MS_FOR_PAYOUT = 3000

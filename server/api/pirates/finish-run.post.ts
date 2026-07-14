@@ -53,10 +53,11 @@ export default defineEventHandler(async (event) => {
     const wallClampedMs = Math.max(0, Math.min(rawElapsedMs, PIRATE_RUN_DURATION_MS + 5000))
     const elapsedMs = abandoned ? 0 : Math.max(0, Math.min(reportedElapsedMs, wallClampedMs))
     const power = s.runPowerSnapshot ?? 5
+    const difficulty = s.runDifficultySnapshot ?? 0
 
     const ammoUsed = abandoned ? 0 : Math.min(reportedAmmoUsed, s.ammoCount)
     const gemAmmoUsed = abandoned ? 0 : Math.min(reportedGemAmmoUsed, s.gemAmmoCount)
-    const maxPayout = abandoned ? 0 : pirateMaxPayoutForRun(elapsedMs, power, gemAmmoUsed)
+    const maxPayout = abandoned ? 0 : pirateMaxPayoutForRun(elapsedMs, difficulty, gemAmmoUsed)
     const awarded = Math.min(reportedCoins, maxPayout)
 
     const hullDamageFraction = abandoned ? 0 : (reason === 'defeat' ? 1 : reportedHullDamageFraction)
@@ -66,10 +67,16 @@ export default defineEventHandler(async (event) => {
         elapsedMs > s.bestSurvivalMs
         || (elapsedMs === s.bestSurvivalMs && awarded > s.bestRunLoot)
     )
+    const completed = !abandoned && survived && reason === 'timeout' && elapsedMs >= PIRATE_RUN_DURATION_MS - 1000
+    const isBestCompletedRun = completed && (
+        difficulty > s.highestCompletedDifficulty
+        || (difficulty === s.highestCompletedDifficulty && awarded > s.bestCompletedLoot)
+    )
 
     await db.update(pirateState).set({
         runStartedAt: null,
         runPowerSnapshot: null,
+        runDifficultySnapshot: null,
         runsPlayed: abandoned ? s.runsPlayed : s.runsPlayed + 1,
         totalCoinsEarned: s.totalCoinsEarned + awarded,
         ammoCount: s.ammoCount - ammoUsed,
@@ -77,6 +84,10 @@ export default defineEventHandler(async (event) => {
         bestSurvivalMs: abandoned ? s.bestSurvivalMs : Math.max(s.bestSurvivalMs, Math.min(elapsedMs, PIRATE_RUN_DURATION_MS)),
         bestRunPower: isBestRun ? power : s.bestRunPower,
         bestRunLoot: isBestRun ? awarded : s.bestRunLoot,
+        highestCompletedDifficulty: completed ? Math.max(s.highestCompletedDifficulty, difficulty) : s.highestCompletedDifficulty,
+        bestCompletedLoot: isBestCompletedRun ? awarded : s.bestCompletedLoot,
+        bestCompletedPower: isBestCompletedRun ? power : s.bestCompletedPower,
+        bestCompletedSkinId: isBestCompletedRun ? s.equippedSkinId : s.bestCompletedSkinId,
         hullRepairUntil: abandoned ? s.hullRepairUntil : hullRepairUntil,
         hullRepairTotalMs: abandoned ? s.hullRepairTotalMs : repairMs
     }).where(eq(pirateState.userId, userId))
@@ -87,6 +98,7 @@ export default defineEventHandler(async (event) => {
             loot: awarded,
             durationMs: elapsedMs,
             power,
+            difficulty,
             survived,
             reason,
             kills: reportedKills,
@@ -102,6 +114,8 @@ export default defineEventHandler(async (event) => {
         capped: awarded < reportedCoins,
         elapsedMs,
         survived,
+        completed,
+        difficulty,
         ammoRemaining: s.ammoCount - ammoUsed,
         gemAmmoRemaining: s.gemAmmoCount - gemAmmoUsed,
         repairUntil: abandoned ? s.hullRepairUntil : hullRepairUntil,

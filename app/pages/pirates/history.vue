@@ -109,6 +109,7 @@ function outcome(voyage: NonNullable<typeof voyages.value>[number]) {
               <div class="min-w-0">
                 <div class="flex flex-wrap items-center gap-1.5">
                   <UBadge v-bind="outcome(voyage)" variant="subtle" size="sm" />
+                  <UBadge color="primary" variant="subtle" size="sm" :label="`Difficulty ${voyage.difficulty}`" />
                   <span class="text-[10px] font-bold uppercase tracking-wide text-muted">Recent #{{ voyage.recentNumber }}</span>
                 </div>
                 <p class="mt-1.5 truncate text-base font-bold">{{ voyage.skin.name }}</p>

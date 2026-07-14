@@ -11,12 +11,6 @@ const rankStyles = [
     'border-warning/20 bg-warning/5'
 ]
 
-function durationLabel(ms: number) {
-    const totalSeconds = Math.max(0, Math.floor(ms / 1000))
-    const minutes = Math.floor(totalSeconds / 60)
-    const seconds = totalSeconds % 60
-    return `${minutes}:${seconds.toString().padStart(2, '0')}`
-}
 </script>
 
 <template>
@@ -28,7 +22,7 @@ function durationLabel(ms: number) {
           Pirate Raid Hall of Captains
         </h1>
         <p class="mt-0.5 text-sm text-muted">
-          Each captain's longest server-verified voyage, including its power, loot, and ship skin.
+          Ranked by the highest eight-minute difficulty completed. Failed and abandoned voyages never enter the board.
         </p>
       </div>
     </div>
@@ -66,12 +60,12 @@ function durationLabel(ms: number) {
           </div>
 
           <div class="flex items-center justify-between gap-2 sm:block sm:text-center">
-            <span class="text-[10px] font-bold uppercase tracking-wide text-muted sm:block">Survived</span>
-            <span class="text-lg font-black tabular-nums">{{ durationLabel(captain.durationMs) }}</span>
+            <span class="text-[10px] font-bold uppercase tracking-wide text-muted sm:block">Difficulty</span>
+            <span class="text-lg font-black tabular-nums text-primary">{{ captain.difficulty }}</span>
           </div>
           <div class="flex items-center justify-between gap-2 sm:block sm:text-center">
-            <span class="text-[10px] font-bold uppercase tracking-wide text-muted sm:block">Mission power</span>
-            <span class="text-lg font-black tabular-nums text-primary">{{ captain.power }}</span>
+            <span class="text-[10px] font-bold uppercase tracking-wide text-muted sm:block">Ship power</span>
+            <span class="text-lg font-black tabular-nums">{{ captain.power }}</span>
           </div>
           <div class="flex items-center justify-between gap-2 sm:block sm:text-right">
             <span class="text-[10px] font-bold uppercase tracking-wide text-muted sm:block">Loot secured</span>
@@ -88,7 +82,7 @@ function durationLabel(ms: number) {
           No captains have returned yet
         </p>
         <p class="mt-1 text-sm text-muted">
-          Complete a voyage to claim the first place on the board.
+          Complete all eight minutes at difficulty 0 to claim the first place on the board.
         </p>
         <UButton class="mt-4" to="/pirates" icon="i-lucide-anchor" label="Set Sail" />
       </div>
