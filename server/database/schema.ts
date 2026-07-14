@@ -234,7 +234,8 @@ export const colonyState = pgTable('colony_state', {
   /** Current nutrition units, capped by the derived nutrition_storage track max; bugs stop producing at 0 */
   nutrition: integer('nutrition').notNull().default(150),
   /**
-   * Premium nutrition bought with gems (1 gem per 100 points) instead of
+   * Premium nutrition bought with gems (at least 200 points per gem, scaling
+   * with tank size) instead of
    * coins — always drained BEFORE regular nutrition, and grants +1 yield
    * and +20% speed colony-wide (every non-gem bug) for as long as any is
    * left. Shares the same tank ceiling as `nutrition` (gemNutrition +

@@ -3,7 +3,7 @@ import {
   tierLabel, tierColor, tierNameColor, levelTextColor, getPlant, getArtifact, getEffectValueFor,
   getMutationPair, breedDuration,
 } from '#shared/utils/xeno'
-import { formatCountdown, progressPct, isDone, formatDuration } from '~/utils/xeno-format'
+import { formatCountdown, progressPct, isDone, formatDuration } from '~/lib/xeno-format'
 
 const {
   state, breederSlots, inventory, freeArtifacts,

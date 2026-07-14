@@ -6,7 +6,8 @@ const tabs = [
   { label: 'Market', to: '/colony/market', icon: 'i-lucide-store' },
   { label: 'Habitat', to: '/colony/habitat', icon: 'i-lucide-home' },
   { label: 'Research', to: '/colony/research', icon: 'i-lucide-flask-conical' },
-  { label: 'Colonopedia', to: '/colony/encyclopedia', icon: 'i-lucide-book-open' }
+  { label: 'Colonopedia', to: '/colony/encyclopedia', icon: 'i-lucide-book-open' },
+  { label: 'Leaderboard', to: '/colony/leaderboard', icon: 'i-lucide-trophy' }
 ]
 
 const activeTab = computed(() => route.path)

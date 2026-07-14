@@ -1,5 +1,5 @@
 import { auth } from '#server/utils/auth'
-import { sacrificeForResearch } from '#server/utils/colony'
+import { upgradeResearch } from '#server/utils/colony'
 import { getBug } from '#shared/utils/colony'
 
 export default defineEventHandler(async (event) => {
@@ -11,7 +11,7 @@ export default defineEventHandler(async (event) => {
   const type = getBug(body.typeId)
   if (!type) throw createError({ statusCode: 400, statusMessage: `Unknown bug type: ${body.typeId}` })
 
-  const result = await sacrificeForResearch(userId, body.typeId)
+  const result = await upgradeResearch(userId, body.typeId)
 
   return { ok: true, typeId: body.typeId, level: result.level }
 })

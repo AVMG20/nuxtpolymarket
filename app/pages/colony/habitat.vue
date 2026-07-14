@@ -2,7 +2,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { getItem, BUG_TYPES } from '#shared/utils/colony'
 import { tierColor } from '#shared/utils/xeno'
-import { formatDuration, progressPct } from '~/utils/colony-format'
+import { formatDuration, progressPct } from '~/lib/colony-format'
 
 // Rich stat-block tooltip content, matching the terrarium page's convention —
 // UTooltip's default content class clips multi-line #content slots to a
@@ -14,7 +14,7 @@ function foragedBy(itemId: string) {
 }
 
 const colony = useColony()
-const { upgrades, builder, builderCount, inventory, habitatLevel, maxTier, habitatLevelUpCost, habitatLevelUpGemCost } = colony
+const { upgrades, builder, builderCount, inventory, habitatLevel, maxTier, habitatLevelUpCost, habitatLevelUpDurationMs, habitatLevelUpGemCost } = colony
 
 const { user } = useAuth()
 const balance = computed(() => parseFloat(user.value?.balance ?? '0'))
@@ -43,6 +43,7 @@ const canAffordHabitatLevelUp = computed(() =>
   && balance.value >= habitatLevelUpCost.value
   && gems.value >= (habitatLevelUpGemCost.value ?? 0)
 )
+const canStartHabitatLevelUp = computed(() => habitatUpgradeReady.value && canAffordHabitatLevelUp.value && !builder.value)
 
 function ownedQty(itemTypeId: string) {
   const owned = inventory.value.find((i: any) => i.id === itemTypeId)
@@ -136,12 +137,19 @@ function affordCost(cost: { coins: number, items: { itemTypeId: string, quantity
             block
             size="sm"
             color="primary"
-            :disabled="!habitatUpgradeReady || !canAffordHabitatLevelUp"
+            :disabled="!canStartHabitatLevelUp"
             @click="colony.upgradeHabitatLevel"
           >
             <span v-if="!habitatUpgradeReady">Requirements not met</span>
-            <span v-else>
-              Upgrade to Level {{ habitatLevel + 1 }} — {{ formatNumber(habitatLevelUpCost ?? 0) }} coins + {{ formatNumber(habitatLevelUpGemCost ?? 0, false) }} 💎{{ canAffordHabitatLevelUp ? '' : ' (not enough)' }}
+            <span v-else-if="builder">Builder busy</span>
+            <span
+              v-else
+              class="flex items-center gap-1 flex-wrap justify-center"
+            >
+              Build Level {{ habitatLevel + 1 }} — <CoinBalance
+                :value="habitatLevelUpCost ?? 0"
+                :show-icon="false"
+              /> + {{ formatNumber(habitatLevelUpGemCost ?? 0, false) }} 💎 · {{ formatDuration(habitatLevelUpDurationMs ?? 0) }}{{ canAffordHabitatLevelUp ? '' : ' (not enough)' }}
             </span>
           </UButton>
         </div>
@@ -268,11 +276,10 @@ function affordCost(cost: { coins: number, items: { itemTypeId: string, quantity
                   size="lg"
                   class="text-sm font-semibold"
                 >
-                  <UIcon
-                    name="i-lucide-coins"
-                    class="size-4 mr-1"
+                  <CoinBalance
+                    :value="track.nextCost?.coins ?? 0"
+                    :compact="false"
                   />
-                  {{ formatNumber(track.nextCost?.coins ?? 0, false) }}
                 </UBadge>
                 <UTooltip
                   v-for="need in track.nextCost?.items ?? []"
@@ -306,7 +313,11 @@ function affordCost(cost: { coins: number, items: { itemTypeId: string, quantity
                       </div>
                       <div class="flex justify-between gap-4">
                         <span class="text-muted uppercase tracking-wider font-semibold">Sells for</span>
-                        <span class="font-mono">{{ formatNumber(getItem(need.itemTypeId)?.sellValue ?? 0, false) }} coins</span>
+                        <CoinBalance
+                          class="font-mono"
+                          :value="getItem(need.itemTypeId)?.sellValue ?? 0"
+                          :compact="false"
+                        />
                       </div>
                     </div>
                   </template>

@@ -3,7 +3,7 @@ import { db } from '#server/database'
 import { colonyState, user, transactions } from '#server/database/schema'
 import { auth } from '#server/utils/auth'
 import { settleColony, getUpgradeLevels } from '#server/utils/colony'
-import { UPGRADE_TRACKS, habitatTrackRequirement, habitatLevelUpCost, habitatLevelUpGemCost, MAX_TIER } from '#shared/utils/colony'
+import { UPGRADE_TRACKS, habitatTrackRequirement, habitatLevelUpCost, habitatLevelUpGemCost, HABITAT_BUILDER_JOB_ID, MAX_TIER } from '#shared/utils/colony'
 
 export default defineEventHandler(async (event) => {
   const session = await auth.api.getSession({ headers: event.headers })
@@ -12,6 +12,7 @@ export default defineEventHandler(async (event) => {
 
   const state = await settleColony(userId)
   if (state.habitatLevel >= MAX_TIER) throw createError({ statusCode: 400, statusMessage: 'Habitat is already at max level' })
+  if (state.builderTrackId) throw createError({ statusCode: 400, statusMessage: 'The builder is already busy' })
 
   const levels = await getUpgradeLevels(userId)
   const short = UPGRADE_TRACKS.filter(t => (levels[t.id] ?? 0) < habitatTrackRequirement(t.id, state.habitatLevel))
@@ -39,8 +40,10 @@ export default defineEventHandler(async (event) => {
         gems: sql`${user.gems} - ${gemCost}`
       })
       .where(eq(user.id, userId))
-    await tx.update(colonyState).set({ habitatLevel: state.habitatLevel + 1 }).where(eq(colonyState.userId, userId))
+    await tx.update(colonyState)
+      .set({ builderTrackId: HABITAT_BUILDER_JOB_ID, builderStartedAt: new Date() })
+      .where(eq(colonyState.userId, userId))
   })
 
-  return { ok: true }
+  return { ok: true, level: state.habitatLevel + 1 }
 })

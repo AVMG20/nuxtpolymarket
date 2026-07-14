@@ -10,6 +10,7 @@ import {
   ITEM_TYPES,
   UPGRADE_TRACKS,
   effectiveTickMs,
+  effectiveEatPerTick,
   effectiveFeedPerHour,
   socialMultiplier,
   socialSpeedBonusPct,
@@ -23,18 +24,21 @@ import {
   trackLevelDurationMs,
   habitatTrackRequirement,
   habitatLevelUpCost,
+  habitatLevelUpDurationMs,
   habitatLevelUpGemCost,
+  HABITAT_BUILDER_JOB_ID,
   MAX_TIER,
   MAX_TRAIT_PCT,
   MAX_YIELD_LEVEL,
   MAX_RESEARCH_LEVEL,
   researchSpeedRange,
   researchYieldRange,
-  researchSacrificeCount,
+  researchCost,
   FEED_COST_PER_POINT,
   GEM_FEED_YIELD_BONUS,
   GEM_FEED_SPEED_BONUS_PCT,
   gemFeedCost,
+  gemFeedNutritionPerGem,
   type BugType
 } from '#shared/utils/colony'
 
@@ -64,6 +68,7 @@ export default defineEventHandler(async (event) => {
       maxTraitPct: MAX_TRAIT_PCT,
       maxYieldLevel: MAX_YIELD_LEVEL,
       habitatLevelUpCost: habitatLevelUpCost(1) as number | null,
+      habitatLevelUpDurationMs: habitatLevelUpDurationMs(1) as number | null,
       habitatLevelUpGemCost: habitatLevelUpGemCost(1) as number | null,
       nutrition: 0,
       nutritionMax: deriveNutritionMax({}),
@@ -72,6 +77,7 @@ export default defineEventHandler(async (event) => {
       gemNutrition: 0,
       gemBuffActive: false,
       gemFeedCost: 0,
+      gemFeedNutritionPerGem: gemFeedNutritionPerGem(deriveNutritionMax({})),
       bugs: [],
       speciesCatalog: [],
       inventory: [],
@@ -114,7 +120,12 @@ export default defineEventHandler(async (event) => {
 
   const nutritionDrainPerHour = placedBugs.reduce((sum, bug) => {
     const socialPct = socialSpeedBonusPct(bug.typeId, sameSpeciesCounts.get(bug.typeId) ?? 1)
-    return sum + effectiveFeedPerHour(bug, mods.speedBonusPct + socialPct + buffSpeedPct) * mods.feedMultiplier
+    const type = getBug(bug.typeId)
+    if (type?.producesGems) {
+      const tickMs = gemTickMs(bug, sameSpeciesCounts.get(bug.typeId) ?? 1)
+      return sum + effectiveEatPerTick(bug, mods.feedMultiplier) * (3_600_000 / tickMs)
+    }
+    return sum + effectiveFeedPerHour(bug, mods.speedBonusPct + socialPct + buffSpeedPct, mods.feedMultiplier)
   }, 0)
 
   const enrichedBugs = placedBugs.map((bug) => {
@@ -152,7 +163,7 @@ export default defineEventHandler(async (event) => {
         itemsPerTickMax: gemsPerCycle,
         itemsPerHour: tickMs > 0 ? (gemsPerCycle / tickMs) * 3_600_000 : 0,
         gemsPerCycle,
-        feedPerHour: effectiveFeedPerHour(bug, mods.speedBonusPct) * mods.feedMultiplier
+        feedPerHour: effectiveEatPerTick(bug, mods.feedMultiplier) * (3_600_000 / tickMs)
       }
     }
 
@@ -196,7 +207,7 @@ export default defineEventHandler(async (event) => {
       // faster effective tick from the speed trait, the Foraging Speed
       // track, a Social speed bonus, or the gem-feed buff means more meals
       // per hour, exactly like it means more loot.
-      feedPerHour: effectiveFeedPerHour(bug, mods.speedBonusPct + socialPct + buffSpeedPct) * mods.feedMultiplier
+      feedPerHour: effectiveFeedPerHour(bug, mods.speedBonusPct + socialPct + buffSpeedPct, mods.feedMultiplier)
     }
   })
 
@@ -231,7 +242,9 @@ export default defineEventHandler(async (event) => {
       yieldMax: type?.yieldMax ?? 0,
       eatMin: type?.eatMin ?? 0,
       eatMax: type?.eatMax ?? 0,
-      feedPerHour: effectiveFeedPerHour(stack, mods.speedBonusPct) * mods.feedMultiplier,
+      feedPerHour: type?.producesGems
+        ? effectiveEatPerTick(stack, mods.feedMultiplier) * (3_600_000 / gemTickMs(stack, 1))
+        : effectiveFeedPerHour(stack, mods.speedBonusPct, mods.feedMultiplier),
       itemEmoji: display.emoji,
       itemName: display.name,
       itemSellValue: display.sellValue
@@ -265,17 +278,29 @@ export default defineEventHandler(async (event) => {
     }
   })
 
-  let builder: { trackId: string, trackName: string, level: number, startedAt: string, completesAt: string } | null = null
+  let builder: { kind: 'track' | 'habitat', trackId: string, trackName: string, level: number, startedAt: string, completesAt: string } | null = null
   if (state.builderTrackId && state.builderStartedAt) {
-    const track = UPGRADE_TRACKS.find(t => t.id === state.builderTrackId)
-    const nextLevel = (levels[state.builderTrackId] ?? 0) + 1
-    const durationMs = trackLevelDurationMs(nextLevel)
-    builder = {
-      trackId: state.builderTrackId,
-      trackName: track?.name ?? state.builderTrackId,
-      level: nextLevel,
-      startedAt: state.builderStartedAt.toISOString(),
-      completesAt: new Date(state.builderStartedAt.getTime() + durationMs).toISOString()
+    if (state.builderTrackId === HABITAT_BUILDER_JOB_ID) {
+      builder = {
+        kind: 'habitat',
+        trackId: state.builderTrackId,
+        trackName: 'Habitat',
+        level: state.habitatLevel + 1,
+        startedAt: state.builderStartedAt.toISOString(),
+        completesAt: new Date(state.builderStartedAt.getTime() + habitatLevelUpDurationMs(state.habitatLevel)).toISOString()
+      }
+    } else {
+      const track = UPGRADE_TRACKS.find(t => t.id === state.builderTrackId)
+      const nextLevel = (levels[state.builderTrackId] ?? 0) + 1
+      const durationMs = trackLevelDurationMs(nextLevel)
+      builder = {
+        kind: 'track',
+        trackId: state.builderTrackId,
+        trackName: track?.name ?? state.builderTrackId,
+        level: nextLevel,
+        startedAt: state.builderStartedAt.toISOString(),
+        completesAt: new Date(state.builderStartedAt.getTime() + durationMs).toISOString()
+      }
     }
   }
 
@@ -288,6 +313,7 @@ export default defineEventHandler(async (event) => {
     maxTraitPct: MAX_TRAIT_PCT,
     maxYieldLevel: MAX_YIELD_LEVEL,
     habitatLevelUpCost: state.habitatLevel < MAX_TIER ? habitatLevelUpCost(state.habitatLevel) : null,
+    habitatLevelUpDurationMs: state.habitatLevel < MAX_TIER ? habitatLevelUpDurationMs(state.habitatLevel) : null,
     habitatLevelUpGemCost: state.habitatLevel < MAX_TIER ? habitatLevelUpGemCost(state.habitatLevel) : null,
     nutrition: state.nutrition,
     nutritionMax,
@@ -297,7 +323,8 @@ export default defineEventHandler(async (event) => {
     feedCost: Math.max(0, (nutritionMax - state.nutrition - state.gemNutrition) * FEED_COST_PER_POINT),
     gemNutrition: state.gemNutrition,
     gemBuffActive,
-    gemFeedCost: gemFeedCost(Math.max(0, nutritionMax - state.nutrition - state.gemNutrition)),
+    gemFeedCost: gemFeedCost(Math.max(0, nutritionMax - state.nutrition - state.gemNutrition), nutritionMax),
+    gemFeedNutritionPerGem: gemFeedNutritionPerGem(nutritionMax),
     bugs: enrichedBugs,
     speciesCatalog: BUG_TYPES.map((t) => {
       const display = foragedDisplay(t)
@@ -330,7 +357,7 @@ export default defineEventHandler(async (event) => {
       const atMax = researchLevel >= MAX_RESEARCH_LEVEL
       const [speedMin, speedMax] = researchSpeedRange(researchLevel)
       const [yieldMin, yieldMax] = researchYieldRange(researchLevel)
-      const sacrificeNeeded = atMax ? null : researchSacrificeCount(researchLevel)
+      const cost = atMax ? null : researchCost(researchLevel, t.spawnCost)
       return {
         typeId: t.id,
         name: t.name,
@@ -345,8 +372,7 @@ export default defineEventHandler(async (event) => {
         yieldMax,
         nextSpeedRange: atMax ? null : researchSpeedRange(researchLevel + 1),
         nextYieldRange: atMax ? null : researchYieldRange(researchLevel + 1),
-        sacrificeNeeded,
-        spareOwned: unplacedBugs.filter(b => b.typeId === t.id).length
+        cost
       }
     }),
     builder,

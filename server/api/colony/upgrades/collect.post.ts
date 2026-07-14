@@ -3,7 +3,7 @@ import { db } from '#server/database'
 import { colonyState, colonyUpgrades } from '#server/database/schema'
 import { auth } from '#server/utils/auth'
 import { settleColony, getUpgradeLevels } from '#server/utils/colony'
-import { getUpgradeTrack, trackLevelDurationMs } from '#shared/utils/colony'
+import { getUpgradeTrack, trackLevelDurationMs, habitatLevelUpDurationMs, HABITAT_BUILDER_JOB_ID, MAX_TIER } from '#shared/utils/colony'
 
 export default defineEventHandler(async (event) => {
   const session = await auth.api.getSession({ headers: event.headers })
@@ -13,6 +13,18 @@ export default defineEventHandler(async (event) => {
   const state = await settleColony(userId)
   if (!state.builderTrackId || !state.builderStartedAt) {
     throw createError({ statusCode: 400, statusMessage: 'The builder has nothing to collect' })
+  }
+
+  if (state.builderTrackId === HABITAT_BUILDER_JOB_ID) {
+    if (state.habitatLevel >= MAX_TIER) throw createError({ statusCode: 400, statusMessage: 'Habitat is already at max level' })
+    const completesAt = state.builderStartedAt.getTime() + habitatLevelUpDurationMs(state.habitatLevel)
+    if (Date.now() < completesAt) throw createError({ statusCode: 400, statusMessage: 'Habitat construction is not finished yet' })
+
+    await db.update(colonyState)
+      .set({ habitatLevel: state.habitatLevel + 1, builderTrackId: null, builderStartedAt: null })
+      .where(eq(colonyState.userId, userId))
+
+    return { ok: true, habitatLevel: state.habitatLevel + 1 }
   }
 
   const track = getUpgradeTrack(state.builderTrackId)

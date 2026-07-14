@@ -32,17 +32,22 @@ export interface ItemType {
 // value at any tier (it's higher at T1, lower at T5/6). Every sellValue
 // below is scaled by (old avg / new avg) for its species' yield range so
 // coins/hr is unchanged from before this mechanic switch.
+//
+// T4-T6 are additionally tuned around each species' intended temperament:
+// social bugs grouped for their full bonus and solitary bugs kept alone.
+// This keeps late-tier income climbing by roughly 2.3-3x per tier instead
+// of leaving T4 flat and then jumping almost 6x at T5.
 export const ITEM_TYPES: ItemType[] = [
   { id: 'silk', name: 'Silk Scrap', emoji: '🧵', tier: 1, sellValue: 50 },
-  { id: 'loam', name: 'Rich Loam', emoji: '🧱', tier: 1, sellValue: 225 },
-  { id: 'chitin', name: 'Chitin Shard', emoji: '🦴', tier: 2, sellValue: 215 },
-  { id: 'shell_fragment', name: 'Shell Fragment', emoji: '🐚', tier: 2, sellValue: 400 },
-  { id: 'resin', name: 'Amber Resin', emoji: '🟠', tier: 3, sellValue: 600 },
-  { id: 'pheromone', name: 'Pheromone Vial', emoji: '🧪', tier: 3, sellValue: 865 },
-  { id: 'venom', name: 'Venom Sac', emoji: '☠️', tier: 4, sellValue: 2300 },
-  { id: 'carapace', name: 'Hardened Carapace', emoji: '🛡️', tier: 4, sellValue: 3400 },
-  { id: 'ember_dust', name: 'Ember Dust', emoji: '🔥', tier: 5, sellValue: 9000 },
-  { id: 'royal_jelly', name: 'Royal Jelly', emoji: '🍯', tier: 6, sellValue: 33500 }
+  { id: 'loam', name: 'Rich Loam', emoji: '🧱', tier: 1, sellValue: 140 },
+  { id: 'chitin', name: 'Chitin Shard', emoji: '🦴', tier: 2, sellValue: 375 },
+  { id: 'shell_fragment', name: 'Shell Fragment', emoji: '🐚', tier: 2, sellValue: 500 },
+  { id: 'resin', name: 'Amber Resin', emoji: '🟠', tier: 3, sellValue: 1500 },
+  { id: 'pheromone', name: 'Pheromone Vial', emoji: '🧪', tier: 3, sellValue: 2400 },
+  { id: 'venom', name: 'Venom Sac', emoji: '☠️', tier: 4, sellValue: 5500 },
+  { id: 'carapace', name: 'Hardened Carapace', emoji: '🛡️', tier: 4, sellValue: 8500 },
+  { id: 'ember_dust', name: 'Ember Dust', emoji: '🔥', tier: 5, sellValue: 28_000 },
+  { id: 'royal_jelly', name: 'Royal Jelly', emoji: '🍯', tier: 6, sellValue: 90_000 }
 ]
 
 export function getItem(id: string): ItemType | undefined {
@@ -125,16 +130,16 @@ export const MAX_TIER = 6
 // COMPLETES a production tick it eats this many nutrition points, so a
 // faster cycle (base or from the speed trait) means more meals per hour,
 // not just more loot. The range still climbs with tier (5-8 at T1, up to
-// 36-50 at T6), but because higher tiers also tick less often, effective
-// nutrition/hr ends up fairly flat across the whole roster (~40-100/hr) —
+// 32-44 at T6), but because higher tiers also tick less often, effective
+// nutrition/hr stays manageable across the whole roster —
 // feeding stays a real cost at every tier instead of vanishing at endgame.
 export const BUG_TYPES: BugType[] = [
-  { id: 'larva', name: 'Larva', tier: 1, emoji: '🐛', color: 0x8ecae6, baseTickMs: 240_000, yieldMin: 1, yieldMax: 2, eatMin: 5, eatMax: 8, itemId: 'silk', spawnCost: 120_000, description: 'Hardy and quick — the fastest cycle in the colony. Every colony starts here.', social: true },
-  { id: 'grub', name: 'Grub', tier: 1, emoji: '🪱', color: 0xa3b18a, baseTickMs: 600_000, yieldMin: 1, yieldMax: 2, eatMin: 5, eatMax: 8, itemId: 'loam', spawnCost: 180_000, description: 'Slower than a larva but churns out fat piles of loam.', social: false },
-  { id: 'beetle', name: 'Beetle', tier: 2, emoji: '🪲', color: 0xffb703, baseTickMs: 450_000, yieldMin: 1, yieldMax: 2, eatMin: 8, eatMax: 12, itemId: 'chitin', spawnCost: 400_000, description: 'A sturdy, armored forager that does fine in a crowd.', social: true },
-  { id: 'ladybug', name: 'Ladybug', tier: 2, emoji: '🐞', color: 0xe63946, baseTickMs: 720_000, yieldMin: 1, yieldMax: 2, eatMin: 8, eatMax: 12, itemId: 'shell_fragment', spawnCost: 480_000, description: 'Spotted and independent — prefers to forage alone.', social: false },
-  { id: 'cricket', name: 'Cricket', tier: 3, emoji: '🦗', color: 0x90be6d, baseTickMs: 10 * 60_000, yieldMin: 1, yieldMax: 2, eatMin: 12, eatMax: 18, itemId: 'resin', spawnCost: 1_200_000, description: 'Chirps happily in a chorus of its own kind.', social: true },
-  { id: 'ant', name: 'Ant', tier: 3, emoji: '🐜', color: 0x6f4e37, baseTickMs: 12 * 60_000, yieldMin: 1, yieldMax: 2, eatMin: 12, eatMax: 18, itemId: 'pheromone', spawnCost: 1_500_000, description: 'Tireless colonial workers — thrive together.', social: true },
+  { id: 'larva', name: 'Larva', tier: 1, emoji: '🐛', color: 0x8ecae6, baseTickMs: 240_000, yieldMin: 1, yieldMax: 2, eatMin: 2, eatMax: 4, itemId: 'silk', spawnCost: 120_000, description: 'Hardy and quick — the fastest cycle in the colony. Every colony starts here.', social: true },
+  { id: 'grub', name: 'Grub', tier: 1, emoji: '🪱', color: 0xa3b18a, baseTickMs: 600_000, yieldMin: 1, yieldMax: 2, eatMin: 2, eatMax: 4, itemId: 'loam', spawnCost: 180_000, description: 'Slower than a larva but churns out fat piles of loam.', social: false },
+  { id: 'beetle', name: 'Beetle', tier: 2, emoji: '🪲', color: 0xffb703, baseTickMs: 450_000, yieldMin: 1, yieldMax: 2, eatMin: 4, eatMax: 7, itemId: 'chitin', spawnCost: 650_000, description: 'A sturdy, armored forager that does fine in a crowd.', social: true },
+  { id: 'ladybug', name: 'Ladybug', tier: 2, emoji: '🐞', color: 0xe63946, baseTickMs: 720_000, yieldMin: 1, yieldMax: 2, eatMin: 4, eatMax: 7, itemId: 'shell_fragment', spawnCost: 900_000, description: 'Spotted and independent — prefers to forage alone.', social: false },
+  { id: 'cricket', name: 'Cricket', tier: 3, emoji: '🦗', color: 0x90be6d, baseTickMs: 10 * 60_000, yieldMin: 1, yieldMax: 2, eatMin: 8, eatMax: 12, itemId: 'resin', spawnCost: 2_400_000, description: 'Chirps happily in a chorus of its own kind.', social: true },
+  { id: 'ant', name: 'Ant', tier: 3, emoji: '🐜', color: 0x6f4e37, baseTickMs: 12 * 60_000, yieldMin: 1, yieldMax: 2, eatMin: 8, eatMax: 12, itemId: 'pheromone', spawnCost: 3_200_000, description: 'Tireless colonial workers — thrive together.', social: true },
   // Special: forages gems instead of coins/items. Fiercely solitary — a
   // 24h base cycle that only ever gets SLOWER when crowded, never faster.
   // Its per-CYCLE output (not the cycle's frequency) does ride the same
@@ -142,11 +147,11 @@ export const BUG_TYPES: BugType[] = [
   // see effectiveGemsPerDay — so a base, un-upgraded snail is very slow
   // (~1 gem/24h) and only reaches its MAX_GEMS_PER_DAY cap with real
   // investment in those tracks.
-  { id: 'gem_snail', name: 'Gem Snail', tier: 3, emoji: '🐌', color: 0x4cc9f0, baseTickMs: 24 * 60 * 60_000, yieldMin: 1, yieldMax: 2, eatMin: 12, eatMax: 18, itemId: '', spawnCost: 2_800_000, description: 'A reclusive gem-forager — one per terrarium is plenty. Crowd it with its own kind and it slows to a crawl. Upgrading Foraging Yield or Foraging Speed lets it distill more per cycle.', social: false, producesGems: true },
-  { id: 'spider', name: 'Spider', tier: 4, emoji: '🕷️', color: 0x9d4edd, baseTickMs: 15 * 60_000, yieldMin: 1, yieldMax: 2, eatMin: 18, eatMax: 26, itemId: 'venom', spawnCost: 3_800_000, description: 'A patient, territorial predator. Does not share well.', social: false },
-  { id: 'scorpion', name: 'Scorpion', tier: 4, emoji: '🦂', color: 0xf77f00, baseTickMs: 20 * 60_000, yieldMin: 1, yieldMax: 2, eatMin: 18, eatMax: 26, itemId: 'carapace', spawnCost: 4_500_000, description: 'Armored, dangerous, and fiercely solitary.', social: false },
-  { id: 'ember_roach', name: 'Ember Roach', tier: 5, emoji: '🪳', color: 0xff006e, baseTickMs: 24 * 60_000, yieldMin: 1, yieldMax: 2, eatMin: 26, eatMax: 36, itemId: 'ember_dust', spawnCost: 14_000_000, description: 'Legendary and nearly indestructible.', social: true },
-  { id: 'hive_empress', name: 'Hive Empress', tier: 6, emoji: '🐝', color: 0xffd60a, baseTickMs: 30 * 60_000, yieldMin: 1, yieldMax: 2, eatMin: 36, eatMax: 50, itemId: 'royal_jelly', spawnCost: 50_000_000, description: 'A mythic queen. The absolute pinnacle of the colony.', social: true }
+  { id: 'gem_snail', name: 'Gem Snail', tier: 3, emoji: '🐌', color: 0x4cc9f0, baseTickMs: 24 * 60 * 60_000, yieldMin: 1, yieldMax: 2, eatMin: 8, eatMax: 12, itemId: '', spawnCost: 4_000_000, description: 'A reclusive gem-forager — one per terrarium is plenty. Crowd it with its own kind and it slows to a crawl. Upgrading Foraging Yield or Foraging Speed lets it distill more per cycle.', social: false, producesGems: true },
+  { id: 'spider', name: 'Spider', tier: 4, emoji: '🕷️', color: 0x9d4edd, baseTickMs: 15 * 60_000, yieldMin: 1, yieldMax: 2, eatMin: 14, eatMax: 20, itemId: 'venom', spawnCost: 7_000_000, description: 'A patient, territorial predator. Does not share well.', social: false },
+  { id: 'scorpion', name: 'Scorpion', tier: 4, emoji: '🦂', color: 0xf77f00, baseTickMs: 20 * 60_000, yieldMin: 1, yieldMax: 2, eatMin: 14, eatMax: 20, itemId: 'carapace', spawnCost: 9_000_000, description: 'Armored, dangerous, and fiercely solitary.', social: false },
+  { id: 'ember_roach', name: 'Ember Roach', tier: 5, emoji: '🪳', color: 0xff006e, baseTickMs: 24 * 60_000, yieldMin: 1, yieldMax: 2, eatMin: 22, eatMax: 30, itemId: 'ember_dust', spawnCost: 25_000_000, description: 'Legendary and nearly indestructible.', social: true },
+  { id: 'hive_empress', name: 'Hive Empress', tier: 6, emoji: '🐝', color: 0xffd60a, baseTickMs: 30 * 60_000, yieldMin: 1, yieldMax: 2, eatMin: 32, eatMax: 44, itemId: 'royal_jelly', spawnCost: 80_000_000, description: 'A mythic queen. The absolute pinnacle of the colony.', social: true }
 ]
 
 export function getBug(id: string): BugType | undefined {
@@ -228,28 +233,29 @@ export function rollEatRate(type: BugType): number {
 
 // ─── Research (per-species roll upgrades) ──────────────────────────────────
 // Every species starts at Research level 0 (base roll: 0-25% speed, 1-2
-// yield — see MAX_TRAIT_PCT/BUG_TYPES). On the Research page, sacrificing a
-// growing pile of a species' OWN bugs (see RESEARCH_SACRIFICE_COUNTS) raises
-// that species' research level, which widens the roll range every FUTURE
-// purchase of that species uses — existing owned bugs keep whatever they
-// already rolled. Four sacrifices take a species from the base range all
-// the way to 65-75% speed / 6-8 yield. This is deliberately the only way to
-// get a strong roll on a given species — tier no longer hands out a better
-// dice roll for free (see the BUG_TYPES doc comment above).
+// yield — see MAX_TRAIT_PCT/BUG_TYPES). On the Research page, paying coins
+// (see RESEARCH_COST_MULTIPLIERS) raises that species' research level, which
+// widens the roll range every FUTURE purchase of that species uses —
+// existing owned bugs keep whatever they already rolled. Four upgrades take
+// a species from the base range all the way to 65-75% speed / 6-8 yield.
+// This is deliberately the only way to get a strong roll on a given species —
+// tier no longer hands out a better dice roll for free (see the BUG_TYPES
+// doc comment above).
 
-/** Highest Research level any species can reach (4 sacrifices past base). */
+/** Highest Research level any species can reach (4 upgrades past base). */
 export const MAX_RESEARCH_LEVEL = 4
 
 /**
- * How many of a species' own bugs must be sacrificed to advance FROM the
- * level at this index TO the next one — indexed by current level (0-3).
- * Climbs by +15 each time: 50, 65, 80, 95.
+ * Coin cost to advance FROM the level at this index TO the next one, as a
+ * multiple of the species' own spawn cost — indexed by current level (0-3).
+ * Climbs by +15× each time: 50×, 65×, 80×, 95× the bug's price.
  */
-export const RESEARCH_SACRIFICE_COUNTS = [50, 65, 80, 95]
+export const RESEARCH_COST_MULTIPLIERS = [50, 65, 80, 95]
 
-/** Returns the sacrifice count needed to advance from `currentLevel`, or null if already maxed. */
-export function researchSacrificeCount(currentLevel: number): number | null {
-  return RESEARCH_SACRIFICE_COUNTS[currentLevel] ?? null
+/** Coin cost to advance a species from `currentLevel` to the next, given its spawn cost, or null if already maxed. */
+export function researchCost(currentLevel: number, spawnCost: number): number | null {
+  const multiplier = RESEARCH_COST_MULTIPLIERS[currentLevel]
+  return multiplier == null ? null : multiplier * spawnCost
 }
 
 // Speed ranges chain end-to-end as research climbs — each level's floor is
@@ -312,10 +318,15 @@ export function effectiveTickMs(bug: { typeId: string, speed: number }, speedBon
  * cycle," so speed traits and the Foraging Speed track (which shorten
  * tickMs) directly raise this number, exactly like they raise item output.
  */
-export function effectiveFeedPerHour(bug: { typeId: string, speed: number, eat: number }, speedBonusPct = 0): number {
+/** Whole nutrition points consumed whenever this bug completes one production cycle. */
+export function effectiveEatPerTick(bug: { eat: number }, feedMultiplier = 1): number {
+  return Math.max(1, Math.ceil(bug.eat * feedMultiplier))
+}
+
+export function effectiveFeedPerHour(bug: { typeId: string, speed: number, eat: number }, speedBonusPct = 0, feedMultiplier = 1): number {
   const tickMs = effectiveTickMs(bug, speedBonusPct)
   if (!Number.isFinite(tickMs) || tickMs <= 0) return 0
-  return bug.eat * (3_600_000 / tickMs)
+  return effectiveEatPerTick(bug, feedMultiplier) * (3_600_000 / tickMs)
 }
 
 // ─── Social trait ───────────────────────────────────────────────────────────
@@ -549,14 +560,13 @@ export function trackLevelCost(level: number): Price {
 }
 
 /**
- * Build time to reach `level`: 1.5h at level 1, ×1.5 per level, capped at 5
- * days. Level 5 ≈ 7.6h, level 8 ≈ 26h, level 10 ≈ 2.4d, level 12+ ≈ 5d.
- * Serialized through the single builder, the level-6 habitat requirements
- * alone are ~90 days of build time — item/coin gathering runs in parallel.
+ * Build time to reach `level`: 1.5h at level 1, ×1.5 per level, capped at 3
+ * days. Track construction totals ~66 days through the Level 6 requirements;
+ * habitat-level construction brings the full critical path to ~82 days.
  */
 export function trackLevelDurationMs(level: number): number {
   const raw = 1.5 * 3600_000 * Math.pow(1.5, level - 1)
-  return Math.round(Math.min(5 * 24 * 3600_000, raw))
+  return Math.round(Math.min(3 * 24 * 3600_000, raw))
 }
 
 export function deriveCapacity(levels: Record<string, number>): number {
@@ -604,6 +614,14 @@ export function habitatTrackRequirement(trackId: UpgradeTrackId, habitatLevel: n
 export function habitatLevelUpCost(level: number): number {
   return Math.round(250_000 * Math.pow(4, level - 1) / 1000) * 1000
 }
+
+/** Builder time to raise habitat from `level` to `level + 1`: 12h → 1d → 2d → 4d → 8d. */
+export function habitatLevelUpDurationMs(level: number): number {
+  return 12 * 3600_000 * Math.pow(2, Math.max(0, level - 1))
+}
+
+/** Sentinel stored in colonyState.builderTrackId while the builder raises the habitat itself. */
+export const HABITAT_BUILDER_JOB_ID = 'habitat_level'
 
 /** Gem cost bounds for habitat level-ups: the first step costs the least, the final step (to Level 6) costs the most. */
 export const HABITAT_GEM_COST_MIN = 20
@@ -655,11 +673,17 @@ export const NUTRITION_BASE = 3000
 // source — see effectiveTickMs). Expensive on purpose — this is a burst
 // booster, not a replacement for regular feeding.
 
-export const GEM_FEED_NUTRITION_PER_GEM = 100
+export const GEM_FEED_NUTRITION_PER_GEM = 200
+export const GEM_FEED_MAX_NUTRITION_PCT_PER_GEM = 0.015
 export const GEM_FEED_YIELD_BONUS = 1
 export const GEM_FEED_SPEED_BONUS_PCT = 20
 
+/** Nutrition bought by one gem: at least 200, scaling to 1.5% of the user's maximum tank. */
+export function gemFeedNutritionPerGem(nutritionMax: number): number {
+  return Math.max(GEM_FEED_NUTRITION_PER_GEM, Math.ceil(nutritionMax * GEM_FEED_MAX_NUTRITION_PCT_PER_GEM))
+}
+
 /** Gems required to add `nutritionPoints` to the gem-fed pool (rounded up — gems are whole). */
-export function gemFeedCost(nutritionPoints: number): number {
-  return Math.ceil(nutritionPoints / GEM_FEED_NUTRITION_PER_GEM)
+export function gemFeedCost(nutritionPoints: number, nutritionMax = NUTRITION_BASE): number {
+  return Math.ceil(nutritionPoints / gemFeedNutritionPerGem(nutritionMax))
 }

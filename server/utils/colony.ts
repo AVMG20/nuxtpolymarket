@@ -5,7 +5,7 @@ import { debit } from '#server/utils/balance'
 import {
   getBug,
   effectiveTickMs,
-  effectiveFeedPerHour,
+  effectiveEatPerTick,
   socialSpeedBonusPct,
   avgTickYield,
   gemTickMs,
@@ -15,7 +15,7 @@ import {
   GEM_FEED_YIELD_BONUS,
   GEM_FEED_SPEED_BONUS_PCT,
   MAX_RESEARCH_LEVEL,
-  researchSacrificeCount,
+  researchCost,
   type ItemCost,
   type Price
 } from '#shared/utils/colony'
@@ -60,40 +60,30 @@ export async function getResearchLevel(userId: string, typeId: string): Promise<
 }
 
 /**
- * Sacrifice `count` of the player's own unplaced (inventory) bugs of
- * `typeId` to advance that species' Research level by one — raising the
- * roll range every FUTURE purchase of that species uses. Only unplaced bugs
- * are eligible so an active terrarium bug is never accidentally destroyed.
- * Throws 400 if already maxed or short on bugs to sacrifice.
+ * Pay coins to advance a species' Research level by one — raising the roll
+ * range every FUTURE purchase of that species uses. Existing owned bugs keep
+ * whatever they already rolled. The cost is a multiple of the species' own
+ * spawn cost (see researchCost). Throws 400 if already maxed or short on
+ * coins (debit handles the balance check).
  */
-export async function sacrificeForResearch(userId: string, typeId: string): Promise<{ level: number }> {
+export async function upgradeResearch(userId: string, typeId: string): Promise<{ level: number }> {
+  const type = getBug(typeId)
+  if (!type) throw createError({ statusCode: 400, statusMessage: `Unknown bug type: ${typeId}` })
+
   const currentLevel = await getResearchLevel(userId, typeId)
-  const needed = researchSacrificeCount(currentLevel)
-  if (needed === null || currentLevel >= MAX_RESEARCH_LEVEL) {
+  const cost = researchCost(currentLevel, type.spawnCost)
+  if (cost === null || currentLevel >= MAX_RESEARCH_LEVEL) {
     throw createError({ statusCode: 400, statusMessage: 'This species is already at max Research level' })
   }
 
-  await db.transaction(async (tx) => {
-    const eligible = await tx.query.colonyBugs.findMany({
-      where: and(eq(colonyBugs.userId, userId), eq(colonyBugs.typeId, typeId), eq(colonyBugs.inTerrarium, false)),
-      limit: needed,
-      columns: { id: true }
+  await debit(userId, cost.toFixed(4), 'colony:research')
+
+  await db.insert(colonyBugResearch)
+    .values({ userId, typeId, level: currentLevel + 1 })
+    .onConflictDoUpdate({
+      target: [colonyBugResearch.userId, colonyBugResearch.typeId],
+      set: { level: currentLevel + 1 }
     })
-    if (eligible.length < needed) {
-      throw createError({ statusCode: 400, statusMessage: `Not enough spare ${typeId} bugs to sacrifice (need ${needed}, have ${eligible.length})` })
-    }
-
-    for (const bug of eligible) {
-      await tx.delete(colonyBugs).where(eq(colonyBugs.id, bug.id))
-    }
-
-    await tx.insert(colonyBugResearch)
-      .values({ userId, typeId, level: currentLevel + 1 })
-      .onConflictDoUpdate({
-        target: [colonyBugResearch.userId, colonyBugResearch.typeId],
-        set: { level: currentLevel + 1 }
-      })
-  })
 
   return { level: currentLevel + 1 }
 }
@@ -148,16 +138,6 @@ export async function settleColony(userId: string) {
   const sameSpeciesCounts = new Map<string, number>()
   for (const bug of bugs) sameSpeciesCounts.set(bug.typeId, (sameSpeciesCounts.get(bug.typeId) ?? 0) + 1)
 
-  function feedPerHourTotal(buffed: boolean) {
-    return bugs.reduce((sum, bug) => {
-      const socialPct = socialSpeedBonusPct(bug.typeId, sameSpeciesCounts.get(bug.typeId) ?? 1)
-      const buffPct = buffed ? GEM_FEED_SPEED_BONUS_PCT : 0
-      return sum + effectiveFeedPerHour(bug, mods.speedBonusPct + socialPct + buffPct) * mods.feedMultiplier
-    }, 0)
-  }
-  const baseFeedPerHour = feedPerHourTotal(false)
-  const buffedFeedPerHour = feedPerHourTotal(true)
-
   const lootByItem = new Map<string, number>()
   const bugRemainders = new Map<string, number>(bugs.map(b => [b.id, b.tickProgressMs]))
   let gemsEarned = 0
@@ -208,28 +188,90 @@ export async function settleColony(userId: string) {
     }
   }
 
+  function phaseFoodCost(activeMs: number, buffed: boolean): number {
+    if (activeMs <= 0) return 0
+    let food = 0
+    for (const bug of bugs) {
+      const type = getBug(bug.typeId)
+      if (!type) continue
+      const sameSpeciesCount = sameSpeciesCounts.get(bug.typeId) ?? 1
+      const buffPct = buffed ? GEM_FEED_SPEED_BONUS_PCT : 0
+      const tickMs = type.producesGems
+        ? gemTickMs(bug, sameSpeciesCount)
+        : effectiveTickMs(bug, mods.speedBonusPct + socialSpeedBonusPct(bug.typeId, sameSpeciesCount) + buffPct)
+      if (!Number.isFinite(tickMs) || tickMs <= 0) continue
+      const startProgress = bugRemainders.get(bug.id) ?? bug.tickProgressMs
+      const ticks = Math.floor((startProgress + activeMs) / tickMs)
+      food += ticks * effectiveEatPerTick(bug, mods.feedMultiplier)
+    }
+    return food
+  }
+
+  /** Largest whole millisecond interval whose completed cycles can all be fed. */
+  function affordablePhaseMs(maxMs: number, buffed: boolean, foodAvailable: number): number {
+    if (maxMs <= 0 || foodAvailable <= 0) return 0
+    if (phaseFoodCost(maxMs, buffed) <= foodAvailable) return maxMs
+    let low = 0
+    let high = Math.floor(maxMs)
+    while (low < high) {
+      const mid = Math.ceil((low + high) / 2)
+      if (phaseFoodCost(mid, buffed) <= foodAvailable) low = mid
+      else high = mid - 1
+    }
+    return low
+  }
+
+  function nextCycleMs(buffed: boolean): number {
+    return Math.min(...bugs.map((bug) => {
+      const type = getBug(bug.typeId)
+      if (!type) return Infinity
+      const sameSpeciesCount = sameSpeciesCounts.get(bug.typeId) ?? 1
+      const buffPct = buffed ? GEM_FEED_SPEED_BONUS_PCT : 0
+      const tickMs = type.producesGems
+        ? gemTickMs(bug, sameSpeciesCount)
+        : effectiveTickMs(bug, mods.speedBonusPct + socialSpeedBonusPct(bug.typeId, sameSpeciesCount) + buffPct)
+      const progress = bugRemainders.get(bug.id) ?? bug.tickProgressMs
+      return Number.isFinite(tickMs) ? Math.max(1, tickMs - progress) : Infinity
+    }))
+  }
+
   let remainingMs = elapsedMs
   let newGemNutrition = state.gemNutrition
+  let newNutrition = state.nutrition
 
   // Phase 1 — gem-fed nutrition, buffed rates. Drains first, always.
   if (newGemNutrition > 0 && remainingMs > 0) {
-    const drainPerMs = buffedFeedPerHour / 3_600_000
-    const phaseMs = drainPerMs > 0 ? Math.min(remainingMs, newGemNutrition / drainPerMs) : remainingMs
+    const phaseMs = affordablePhaseMs(remainingMs, true, newGemNutrition)
     if (phaseMs > 0) {
+      const foodSpent = phaseFoodCost(phaseMs, true)
       runPhase(phaseMs, true)
-      newGemNutrition = drainPerMs > 0 ? Math.max(0, newGemNutrition - drainPerMs * phaseMs) : newGemNutrition
+      newGemNutrition -= foodSpent
       remainingMs -= phaseMs
+    }
+
+    // A cycle may spend the premium remainder and draw the rest of its meal
+    // from regular nutrition. It stays buffed because premium food was active
+    // when that cycle completed.
+    const boundaryMs = nextCycleMs(true)
+    if (remainingMs > 0 && newGemNutrition > 0 && boundaryMs <= remainingMs) {
+      const boundaryCost = phaseFoodCost(boundaryMs, true)
+      if (boundaryCost <= newGemNutrition + newNutrition) {
+        runPhase(boundaryMs, true)
+        const premiumSpent = Math.min(newGemNutrition, boundaryCost)
+        newGemNutrition -= premiumSpent
+        newNutrition -= boundaryCost - premiumSpent
+        remainingMs -= boundaryMs
+      }
     }
   }
 
   // Phase 2 — regular nutrition, base rates, for whatever time is left.
-  let newNutrition = state.nutrition
-  if (remainingMs > 0) {
-    const drainPerMs = baseFeedPerHour / 3_600_000
-    const phaseMs = drainPerMs > 0 && newNutrition > 0 ? Math.min(remainingMs, newNutrition / drainPerMs) : (newNutrition > 0 ? remainingMs : 0)
+  if (remainingMs > 0 && newGemNutrition <= 0 && newNutrition > 0) {
+    const phaseMs = affordablePhaseMs(remainingMs, false, newNutrition)
     if (phaseMs > 0) {
+      const foodSpent = phaseFoodCost(phaseMs, false)
       runPhase(phaseMs, false)
-      newNutrition = drainPerMs > 0 ? Math.max(0, newNutrition - drainPerMs * phaseMs) : newNutrition
+      newNutrition -= foodSpent
     }
   }
 

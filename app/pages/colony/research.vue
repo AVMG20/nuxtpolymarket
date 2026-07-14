@@ -4,6 +4,9 @@ import { tierColor } from '#shared/utils/xeno'
 const colony = useColony()
 const { research } = colony
 
+const { user } = useAuth()
+const balance = computed(() => parseFloat(user.value?.balance ?? '0'))
+
 const sacrificing = ref<string | null>(null)
 
 async function handleSacrifice(typeId: string) {
@@ -28,11 +31,11 @@ async function handleSacrifice(typeId: string) {
         Research
       </h1>
       <p class="text-sm text-muted">
-        Sacrifice a growing pile of a species' own spare bugs to permanently widen the roll range every future purchase of that species uses. Bugs you already own keep whatever they rolled — buy spares in the
+        Pour coins into a species to permanently widen the roll range every future purchase of that species uses. Bugs you already own keep whatever they rolled — each level costs a multiple of the species' own
         <NuxtLink
           to="/colony/market"
           class="text-primary underline"
-        >Market</NuxtLink> to sacrifice here.
+        >Market</NuxtLink> price.
       </p>
     </div>
 
@@ -95,25 +98,20 @@ async function handleSacrifice(typeId: string) {
 
         <template v-if="!species.atMax">
           <USeparator />
-          <div class="p-3 space-y-2">
-            <div class="flex items-center justify-between text-xs">
-              <span class="text-muted">Spare bugs to sacrifice</span>
-              <span
-                class="font-mono font-semibold"
-                :class="species.spareOwned >= (species.sacrificeNeeded ?? 0) ? 'text-success' : 'text-muted'"
-              >
-                {{ species.spareOwned }} / {{ species.sacrificeNeeded }}
-              </span>
-            </div>
+          <div class="p-3">
             <UButton
               block
               size="sm"
               color="primary"
               :loading="sacrificing === species.typeId"
-              :disabled="species.spareOwned < (species.sacrificeNeeded ?? 0)"
+              :disabled="balance < (species.cost ?? 0)"
               @click="handleSacrifice(species.typeId)"
             >
-              Sacrifice {{ species.sacrificeNeeded }} {{ species.name }}{{ (species.sacrificeNeeded ?? 0) === 1 ? '' : 's' }}
+              <span class="flex items-center gap-1">
+                Research for <CoinBalance
+                  :value="species.cost ?? 0"
+                />
+              </span>
             </UButton>
           </div>
         </template>

@@ -10,7 +10,7 @@ import {
   levelTextColor,
 } from '#shared/utils/xeno'
 
-import { formatDuration } from '~/utils/xeno-format'
+import { formatDuration } from '~/lib/xeno-format'
 
 const mutationOffspring = MUTATION_OFFSPRING
 const { unlockedTypeIds } = useXeno()

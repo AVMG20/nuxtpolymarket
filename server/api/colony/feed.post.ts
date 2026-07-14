@@ -29,7 +29,7 @@ export default defineEventHandler(async (event) => {
   if (missing <= 0) throw createError({ statusCode: 400, statusMessage: 'Nutrition is already full' })
 
   if (method === 'gems') {
-    const cost = gemFeedCost(missing)
+    const cost = gemFeedCost(missing, max)
     await db.transaction(async (tx) => {
       const [currentUser] = await tx.select({ gems: user.gems }).from(user).where(eq(user.id, userId)).for('update')
       if (!currentUser || currentUser.gems < cost) {

@@ -20,6 +20,7 @@ export const useColony = () => {
   const habitatLevel = computed(() => state.value?.habitatLevel ?? 1)
   const maxTier = computed(() => state.value?.maxTier ?? 6)
   const habitatLevelUpCost = computed(() => state.value?.habitatLevelUpCost ?? 0)
+  const habitatLevelUpDurationMs = computed(() => state.value?.habitatLevelUpDurationMs ?? 0)
   const habitatLevelUpGemCost = computed(() => state.value?.habitatLevelUpGemCost ?? 0)
   const nutrition = computed(() => state.value?.nutrition ?? 0)
   const nutritionMax = computed(() => state.value?.nutritionMax ?? 100)
@@ -28,6 +29,7 @@ export const useColony = () => {
   const gemNutrition = computed(() => state.value?.gemNutrition ?? 0)
   const gemBuffActive = computed(() => state.value?.gemBuffActive ?? false)
   const gemFeedCost = computed(() => state.value?.gemFeedCost ?? 0)
+  const gemFeedNutritionPerGem = computed(() => state.value?.gemFeedNutritionPerGem ?? 200)
   const initialized = computed(() => state.value?.initialized ?? false)
   const serverNow = computed(() => state.value?.serverNow ?? Date.now())
 
@@ -109,7 +111,7 @@ export const useColony = () => {
   }
 
   async function upgradeHabitatLevel() {
-    const res = await call('/api/colony/habitat/upgrade', {}, 'Habitat level up!')
+    const res = await call('/api/colony/habitat/upgrade', {}, 'Habitat construction started')
     await fetchSession()
     return res
   }
@@ -117,6 +119,7 @@ export const useColony = () => {
   async function sacrificeForResearch(typeId: string) {
     const res = await call('/api/colony/research/sacrifice', { typeId }, '')
     if (res) toast.add({ title: `Research complete — Level ${res.level} unlocked`, color: 'success' })
+    await fetchSession()
     return res
   }
 
@@ -140,6 +143,7 @@ export const useColony = () => {
     habitatLevel,
     maxTier,
     habitatLevelUpCost,
+    habitatLevelUpDurationMs,
     habitatLevelUpGemCost,
     nutrition,
     nutritionMax,
@@ -148,6 +152,7 @@ export const useColony = () => {
     gemNutrition,
     gemBuffActive,
     gemFeedCost,
+    gemFeedNutritionPerGem,
     initColony,
     feedSwarm,
     buyBug,

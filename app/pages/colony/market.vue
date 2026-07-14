@@ -1,11 +1,11 @@
 <script setup lang="ts">
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { MAX_TRAIT_PCT, MAX_GEMS_PER_DAY } from '#shared/utils/colony'
-import { tierColor, tierBg, levelTextColor } from '#shared/utils/xeno'
-import { formatDuration, tickTimeTextColor, traitTextColor } from '~/utils/colony-format'
+import { tierColor, tierBg } from '#shared/utils/xeno'
+import { formatDuration } from '~/lib/colony-format'
 
 const colony = useColony()
-const { speciesCatalog, inventory, habitatLevel } = colony
+const { speciesCatalog, inventory } = colony
 
 const { user } = useAuth()
 const balance = computed(() => parseFloat(user.value?.balance ?? '0'))
@@ -25,17 +25,6 @@ async function handleBuy(typeId: string) {
   } finally {
     buyingId.value = null
   }
-}
-
-/**
- * Coins/hr at the guaranteed floor. Every cycle rolls 1 + random(0..yield)
- * items — the minimum is always 1, regardless of the rolled yield level —
- * so the true floor is the same "at least 1 per cycle" for every bug, at
- * 0% speed.
- */
-function baseCoinsPerHour(species: any): number {
-  if (!species.baseTickMs) return 0
-  return (1 / species.baseTickMs) * 3_600_000 * species.itemSellValue
 }
 
 /** Nutrition/hr at the guaranteed floor — lowest possible eat roll, 0% speed. Eating scales with how often a bug ticks, so this is a floor, not a fixed number. */
@@ -146,23 +135,25 @@ async function doSellKeepAll() {
             :class="!species.buyable && 'opacity-60'"
             :ui="{ body: 'p-0' }"
           >
-            <div class="p-3 pb-2">
+            <div class="p-3 space-y-3">
               <div class="flex items-start gap-3">
                 <span
                   class="text-3xl leading-none size-12 flex items-center justify-center rounded-xl border shrink-0"
                   :class="tierBg(species.tier)"
                 >{{ species.buyable ? species.emoji : '❔' }}</span>
                 <div class="min-w-0 flex-1">
-                  <p class="font-semibold text-sm truncate flex items-center gap-1.5">
-                    {{ species.buyable ? species.name : '???' }}
+                  <div class="flex items-center gap-1.5">
+                    <p class="font-semibold text-sm truncate">
+                      {{ species.buyable ? species.name : 'Unknown species' }}
+                    </p>
                     <span
                       class="text-xs font-black"
                       :class="tierColor(species.tier)"
                     >T{{ species.tier }}</span>
-                  </p>
+                  </div>
                   <div
                     v-if="species.buyable"
-                    class="flex flex-wrap items-center gap-1.5 mt-1.5"
+                    class="flex flex-wrap gap-1.5 mt-1.5"
                   >
                     <UBadge
                       size="sm"
@@ -172,151 +163,122 @@ async function doSellKeepAll() {
                     >
                       {{ species.social ? 'Social' : 'Solitary' }}
                     </UBadge>
-                    <span
-                      class="inline-flex items-center gap-1 rounded-full border border-default bg-elevated px-2 py-0.5 text-[11px] font-bold"
-                      :class="tickTimeTextColor(species.baseTickMs)"
-                      title="Cycle time — every cycle this bug drops loot. Speed traits and habitat upgrades shorten it."
-                    >
-                      <UIcon
-                        name="i-lucide-zap"
-                        class="size-3"
-                      />
-                      {{ formatDuration(species.baseTickMs) }}
-                    </span>
-                    <span
-                      v-if="!species.producesGems"
-                      class="inline-flex items-center gap-1 rounded-full border border-default bg-elevated px-2 py-0.5 text-[11px] font-bold"
-                      :class="traitTextColor(species.speedMin)"
-                      title="Speed trait roll range for this species right now — sacrifice spares on the Research page to widen it."
-                    >
-                      <UIcon
-                        name="i-lucide-zap"
-                        class="size-3"
-                      />
-                      {{ species.speedMin }}–{{ species.speedMax }}%
-                    </span>
-                    <span
-                      v-if="!species.producesGems"
-                      class="inline-flex items-center gap-1 rounded-full border border-default bg-elevated px-2 py-0.5 text-[11px] font-bold"
-                      :class="levelTextColor(species.yieldMin)"
-                      title="Yield level rolled on purchase — each cycle drops 1 up to level+1 items (never a flat number or a percentage). Sacrifice spares on the Research page to widen this range."
-                    >
-                      <UIcon
-                        name="i-lucide-gem"
-                        class="size-3"
-                      />
-                      Yield {{ species.yieldMin }}–{{ species.yieldMax }}
-                    </span>
-                    <span
+                    <UBadge
                       v-if="species.producesGems"
-                      class="inline-flex items-center gap-1 rounded-full border border-info/40 bg-info/10 text-info px-2 py-0.5 text-[11px] font-bold"
-                      title="Solitary gem-forager — fixed 24h cycle time, immune to speed upgrades. Foraging Yield/Speed instead boost how many gems it earns per cycle. Crowding only ever slows the cycle down."
+                      size="sm"
+                      variant="subtle"
+                      color="info"
+                      icon="i-lucide-gem"
                     >
-                      <UIcon
-                        name="i-lucide-gem"
-                        class="size-3"
-                      />
                       Gem forager
-                    </span>
+                    </UBadge>
                     <UBadge
                       v-if="species.researchLevel > 0"
                       size="sm"
                       variant="subtle"
                       color="primary"
                     >
-                      Research Lv {{ species.researchLevel }}
+                      Research {{ species.researchLevel }}
                     </UBadge>
-                    <span
-                      class="inline-flex items-center gap-1 rounded-full border border-default bg-elevated px-2 py-0.5 text-[11px] font-bold text-muted"
-                      title="Eat rate rolled on purchase — nutrition spent per completed cycle, not per hour. Faster cycles mean more meals."
-                    >
-                      <UIcon
-                        name="i-lucide-utensils"
-                        class="size-3"
-                      />
-                      Eats {{ species.eatMin }}–{{ species.eatMax }}
-                    </span>
                   </div>
-                  <p class="text-xs text-muted mt-1.5 line-clamp-2">
-                    {{ species.buyable ? species.description : `Requires Habitat Level ${species.tier} (you are ${habitatLevel})` }}
+                </div>
+              </div>
+
+              <p class="text-xs text-muted min-h-8">
+                {{ species.buyable ? species.description : `Reach Habitat Level ${species.tier} to reveal and buy this species.` }}
+              </p>
+
+              <div
+                v-if="species.buyable"
+                class="grid grid-cols-2 gap-2"
+              >
+                <div class="rounded-lg bg-elevated/70 p-2">
+                  <p class="text-[10px] uppercase tracking-wider text-muted font-semibold">
+                    Cycle
                   </p>
+                  <p class="text-xs font-bold mt-0.5 flex items-center gap-1">
+                    <UIcon
+                      name="i-lucide-timer"
+                      class="size-3 text-warning"
+                    />
+                    {{ formatDuration(species.baseTickMs) }}
+                  </p>
+                </div>
+                <div class="rounded-lg bg-elevated/70 p-2">
+                  <p class="text-[10px] uppercase tracking-wider text-muted font-semibold">
+                    Speed roll
+                  </p>
+                  <p class="text-xs font-bold mt-0.5 flex items-center gap-1">
+                    <UIcon
+                      name="i-lucide-zap"
+                      class="size-3 text-primary"
+                    />
+                    {{ species.producesGems ? 'Fixed cycle' : `${species.speedMin}–${species.speedMax}%` }}
+                  </p>
+                </div>
+                <div class="rounded-lg bg-elevated/70 p-2">
+                  <p class="text-[10px] uppercase tracking-wider text-muted font-semibold">
+                    Output
+                  </p>
+                  <p class="text-xs font-bold mt-0.5 flex items-center gap-1">
+                    <UIcon
+                      :name="species.producesGems ? 'i-lucide-gem' : 'i-lucide-package-plus'"
+                      class="size-3 text-success"
+                    />
+                    {{ species.producesGems ? `1–${MAX_GEMS_PER_DAY} gems/day` : `Yield ${species.yieldMin}–${species.yieldMax}` }}
+                  </p>
+                </div>
+                <div class="rounded-lg bg-elevated/70 p-2">
+                  <p class="text-[10px] uppercase tracking-wider text-muted font-semibold">
+                    Appetite
+                  </p>
+                  <p class="text-xs font-bold mt-0.5 flex items-center gap-1">
+                    <UIcon
+                      name="i-lucide-utensils"
+                      class="size-3 text-muted"
+                    />
+                    {{ species.eatMin }}–{{ species.eatMax }} / cycle
+                  </p>
+                </div>
+              </div>
+
+              <div
+                v-if="species.buyable"
+                class="border-t border-default pt-2.5 space-y-1 text-xs"
+              >
+                <div class="flex items-center justify-between gap-3">
+                  <span class="text-muted">Forages</span>
+                  <span class="font-medium truncate">{{ species.itemEmoji }} {{ species.itemName }}</span>
+                </div>
+                <div class="flex items-center justify-between gap-3">
+                  <span class="text-muted">Baseline appetite</span>
+                  <span class="font-mono">~{{ formatNumber(Math.round(baseFeedPerHour(species)), false) }}/hr</span>
+                </div>
+                <div class="flex items-center justify-between gap-3">
+                  <span class="text-muted">Owned</span>
+                  <span class="font-mono">{{ species.owned }}</span>
                 </div>
               </div>
             </div>
 
-            <template v-if="species.buyable">
-              <div class="px-3 pb-3 pt-0.5 space-y-1.5">
-                <div class="space-y-0.5 text-xs">
-                  <div class="flex items-center justify-between">
-                    <span class="text-muted">Forages</span>
-                    <span class="font-medium">{{ species.itemEmoji }} {{ species.itemName }}</span>
-                  </div>
-                  <div
-                    v-if="species.producesGems"
-                    class="flex items-center justify-between"
-                  >
-                    <span
-                      class="text-muted"
-                      title="Forages gems instead of coins — very slow at base (~1/24h). Investing in the Foraging Yield or Foraging Speed habitat tracks raises this, hard-capped at the max."
-                    >Gems</span>
-                    <span class="font-medium">💎 ~1 / 24h (up to {{ MAX_GEMS_PER_DAY }} / 24h)</span>
-                  </div>
-                  <div
-                    v-else
-                    class="flex items-center justify-between"
-                  >
-                    <span
-                      class="text-muted"
-                      title="Assumes the worst-case roll (1 item/cycle, every bug's guaranteed minimum) and 0% speed — the honest floor."
-                    >Floor income</span>
-                    <span class="font-medium flex items-center gap-1">
-                      ~<CoinBalance
-                        :value="Math.round(baseCoinsPerHour(species))"
-                        :compact="false"
-                        :show-icon="false"
-                      />/hr
-                    </span>
-                  </div>
-                  <div class="flex items-center justify-between">
-                    <span
-                      class="text-muted"
-                      title="Assumes the lowest possible eat roll and 0% speed — the guaranteed floor. Faster cycles (from speed rolls or habitat upgrades) raise this."
-                    >Floor eats</span>
-                    <span class="font-mono">~{{ formatNumber(Math.round(baseFeedPerHour(species)), false) }} nutrition/hr</span>
-                  </div>
-                  <div
-                    v-if="species.owned > 0"
-                    class="flex items-center justify-between"
-                  >
-                    <span class="text-muted">Owned</span>
-                    <span class="font-mono">{{ species.owned }}</span>
-                  </div>
-                </div>
-
-                <UButton
-                  block
-                  size="sm"
-                  color="primary"
-                  :loading="buyingId === species.id"
-                  :disabled="balance < species.spawnCost"
-                  @click="handleBuy(species.id)"
-                >
-                  <span class="flex items-center gap-1">
-                    Buy —
-                    <CoinBalance
-                      :value="species.spawnCost"
-                      :compact="false"
-                      :show-icon="false"
-                    />
-                  </span>
-                </UButton>
-              </div>
-            </template>
-            <div
-              v-else
-              class="px-3 pb-3"
-            >
+            <div class="border-t border-default p-3">
               <UButton
+                v-if="species.buyable"
+                block
+                size="sm"
+                color="primary"
+                :loading="buyingId === species.id"
+                :disabled="balance < species.spawnCost"
+                @click="handleBuy(species.id)"
+              >
+                <span class="flex items-center gap-1">
+                  Buy — <CoinBalance
+                    :value="species.spawnCost"
+                  />
+                </span>
+              </UButton>
+              <UButton
+                v-else
                 block
                 size="sm"
                 color="neutral"
@@ -324,7 +286,7 @@ async function doSellKeepAll() {
                 icon="i-lucide-lock"
                 disabled
               >
-                Locked — Habitat {{ species.tier }}
+                Requires Habitat {{ species.tier }}
               </UButton>
             </div>
           </UCard>
@@ -452,7 +414,6 @@ async function doSellKeepAll() {
                 <CoinBalance
                   :value="item.sellValue"
                   :compact="false"
-                  :show-icon="false"
                 /> ea
               </span>
             </div>

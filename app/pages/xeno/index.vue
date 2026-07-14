@@ -2,7 +2,7 @@
 import {
   gridSlotUnlockCost, getArtifact, getEffectValueFor, getPlantDisplay,
 } from '#shared/utils/xeno'
-import { formatCountdown, progressPct, isDone } from '~/utils/xeno-format'
+import { formatCountdown, progressPct, isDone } from '~/lib/xeno-format'
 
 const {
   state, pending, gridSlots, inventory, freeArtifacts,

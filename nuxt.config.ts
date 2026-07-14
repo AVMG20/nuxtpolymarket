@@ -18,13 +18,6 @@ export default defineNuxtConfig({
 
     compatibilityDate: '2025-01-15',
 
-    vite: {
-        build: {
-            // pixi.js is a WebGL engine only loaded on game pages, not the main bundle
-            chunkSizeWarningLimit: 900
-        }
-    },
-
     nitro: {
         preset: 'bun',
         experimental: {
@@ -41,6 +34,10 @@ export default defineNuxtConfig({
     // leaving the app unable to hydrate. Strip that header in dev so the modules
     // load normally.
     vite: {
+        build: {
+            // pixi.js is a WebGL engine only loaded on game pages, not the main bundle
+            chunkSizeWarningLimit: 900
+        },
         plugins: [
             {
                 name: 'dev-strip-sec-fetch-dest',

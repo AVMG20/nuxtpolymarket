@@ -2,10 +2,10 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { tierBg, tierColor, levelTextColor } from '#shared/utils/xeno'
 import { avgTickYield } from '#shared/utils/colony'
-import { formatDuration, traitTextColor } from '~/utils/colony-format'
+import { formatDuration, traitTextColor } from '~/lib/colony-format'
 
 const colony = useColony()
-const { bugs, bugInventory, inventory, capacity, placedCount, nutrition, nutritionMax, nutritionDrainPerHour, feedCost, gemNutrition, gemBuffActive, gemFeedCost, initialized, pending, pendingLoot, serverNow } = colony
+const { bugs, bugInventory, inventory, capacity, placedCount, nutrition, nutritionMax, nutritionDrainPerHour, feedCost, gemNutrition, gemBuffActive, gemFeedCost, gemFeedNutritionPerGem, initialized, pending, pendingLoot, serverNow } = colony
 
 const { user } = useAuth()
 const balance = computed(() => parseFloat(user.value?.balance ?? '0'))
@@ -19,6 +19,7 @@ const sidebarTabItems = [
 ]
 
 const resourcesOwned = computed(() => [...inventory.value].sort((a: any, b: any) => a.tier - b.tier || a.name.localeCompare(b.name)))
+const pendingLootTotal = computed(() => pendingLoot.value.reduce((sum: number, item: any) => sum + item.quantity, 0))
 
 /** Effective tick time for an unplaced stack (speed trait applied, no habitat speed_boost track since that's colony-wide and not modeled here for a dormant bug — matches the market card's own convention). */
 function stackTickMs(stack: any): number {
@@ -158,14 +159,18 @@ async function handleGemFeed() {
   }
 }
 
-// light poll so nutrition/loot stay fresh without a heavy server loop —
-// production itself is always settled analytically on the server when this fires
-let pollHandle: ReturnType<typeof setInterval> | null = null
-onMounted(() => {
-  pollHandle = setInterval(() => colony.refresh(), 30_000)
-})
+let lootRefreshHandle: ReturnType<typeof setTimeout> | null = null
+
+function handleBugProduced() {
+  if (lootRefreshHandle) clearTimeout(lootRefreshHandle)
+  lootRefreshHandle = setTimeout(() => {
+    void colony.refresh()
+    lootRefreshHandle = null
+  }, 300)
+}
+
 onUnmounted(() => {
-  if (pollHandle) clearInterval(pollHandle)
+  if (lootRefreshHandle) clearTimeout(lootRefreshHandle)
 })
 
 // ─── Loot chest ─────────────────────────────────────────────────────────────
@@ -218,24 +223,23 @@ onUnmounted(() => {
   if (progressInterval) clearInterval(progressInterval)
 })
 
-/**
- * Nutrition, interpolated smoothly between polls instead of only jumping on
- * the next server round-trip. Gem-fed nutrition always drains first (see
- * settleColony) — nutritionDrainPerHour already reflects whichever rate is
- * CURRENTLY active, so the combined drain is split gem-pool-first here too,
- * self-correcting at the next real poll regardless of small approximation
- * error right around the moment the gem pool actually runs dry.
- */
-const liveGemNutrition = computed(() => {
+/** Mirror server settlement between polls: food is spent only when a bug's
+ * displayed cycle completes, with premium nutrition consumed first. */
+const liveFoodSpent = computed(() => {
   const elapsedMs = Math.max(0, nowTick.value - serverNow.value)
-  const drainPerMs = nutritionDrainPerHour.value / 3_600_000
-  return Math.max(0, gemNutrition.value - drainPerMs * elapsedMs)
+  return bugs.value.reduce((sum: number, bug: any) => {
+    if (!bug.tickMs || bug.tickMs <= 0) return sum
+    const completedCycles = Math.floor((bug.tickProgressMs + elapsedMs) / bug.tickMs)
+    const foodPerCycle = Math.round(bug.feedPerHour * bug.tickMs / 3_600_000)
+    return sum + completedCycles * foodPerCycle
+  }, 0)
+})
+
+const liveGemNutrition = computed(() => {
+  return Math.max(0, gemNutrition.value - liveFoodSpent.value)
 })
 const liveNutrition = computed(() => {
-  const elapsedMs = Math.max(0, nowTick.value - serverNow.value)
-  const drainPerMs = nutritionDrainPerHour.value / 3_600_000
-  const totalDrained = drainPerMs * elapsedMs
-  const spillover = Math.max(0, totalDrained - gemNutrition.value)
+  const spillover = Math.max(0, liveFoodSpent.value - gemNutrition.value)
   return Math.max(0, Math.min(nutritionMax.value, nutrition.value - spillover))
 })
 const liveTotalNutrition = computed(() => liveGemNutrition.value + liveNutrition.value)
@@ -307,7 +311,10 @@ function bugYieldPerCycle(bug: any): string {
         <!-- Nutrition + Terrarium + chest -->
         <div class="space-y-3 flex flex-col items-center">
           <!-- Nutrition bar -->
-          <UCard class="w-full">
+          <UCard
+            variant="soft"
+            class="w-full border border-default"
+          >
             <div class="flex items-center justify-between gap-3 mb-1.5 flex-wrap">
               <span class="text-sm font-medium text-muted flex items-center gap-1.5">
                 <UIcon
@@ -332,7 +339,7 @@ function bugYieldPerCycle(bug: any): string {
                   icon="i-lucide-gem"
                   :loading="feeding"
                   :disabled="!canGemFeed"
-                  title="Top up with gems — expensive, but grants +1 yield and +20% speed colony-wide while it lasts."
+                  :title="`Each gem adds ${formatNumber(gemFeedNutritionPerGem, false)} nutrition and grants +1 yield and +20% speed colony-wide while it lasts.`"
                   @click="handleGemFeed"
                 >
                   {{ gemFeedCost <= 0 ? 'Full' : `${formatNumber(gemFeedCost, false)} 💎` }}
@@ -346,7 +353,19 @@ function bugYieldPerCycle(bug: any): string {
                   :disabled="!canFeed"
                   @click="handleFeed"
                 >
-                  {{ feedCost <= 0 ? 'Full' : `Feed — ${formatNumber(feedCost, false)} coins` }}
+                  <template v-if="feedCost <= 0">
+                    Full
+                  </template>
+                  <span
+                    v-else
+                    class="flex items-center gap-1"
+                  >
+                    Feed — <CoinBalance
+                      :value="feedCost"
+                      :compact="false"
+                      :show-icon="false"
+                    />
+                  </span>
                 </UButton>
               </div>
             </div>
@@ -390,48 +409,77 @@ function bugYieldPerCycle(bug: any): string {
             :bugs="bugs"
             :is-starving="isStarving"
             :has-spare-bugs="!!bugInventory.length"
+            @produced="handleBugProduced"
           />
 
-          <div class="relative flex flex-col items-center gap-2 pt-2">
+          <div
+            class="relative w-full rounded-xl border border-default bg-elevated/40 px-3 py-2.5 flex items-center gap-3"
+            :class="pendingLoot.length ? 'border-warning/40 bg-warning/5' : ''"
+          >
+            <div
+              class="size-9 rounded-lg flex items-center justify-center shrink-0"
+              :class="pendingLoot.length ? 'bg-warning/15 text-warning' : 'bg-elevated text-muted'"
+            >
+              <UIcon
+                :name="pendingLoot.length ? 'i-lucide-package-open' : 'i-lucide-package'"
+                class="size-5"
+              />
+            </div>
+            <div class="min-w-0 flex-1">
+              <div class="flex items-center gap-2">
+                <p class="text-sm font-semibold">
+                  Loot chest
+                </p>
+                <UBadge
+                  v-if="pendingLoot.length"
+                  color="warning"
+                  variant="subtle"
+                  size="sm"
+                >
+                  {{ formatNumber(pendingLootTotal, false) }} waiting
+                </UBadge>
+              </div>
+              <div
+                v-if="pendingLoot.length"
+                class="flex items-center gap-1.5 mt-1 overflow-hidden"
+              >
+                <span
+                  v-for="item in pendingLoot.slice(0, 4)"
+                  :key="item.itemTypeId"
+                  class="text-xs text-muted whitespace-nowrap"
+                >
+                  {{ item.emoji }} {{ formatNumber(item.quantity, false) }}
+                </span>
+                <span
+                  v-if="pendingLoot.length > 4"
+                  class="text-xs text-muted"
+                >+{{ pendingLoot.length - 4 }} more</span>
+              </div>
+              <p
+                v-else
+                class="text-xs text-muted"
+              >
+                New forage will appear here as soon as a cycle completes.
+              </p>
+            </div>
             <UButton
-              size="xl"
-              color="warning"
-              variant="soft"
-              icon="i-lucide-package-open"
+              size="sm"
+              :color="pendingLoot.length ? 'warning' : 'neutral'"
+              :variant="pendingLoot.length ? 'solid' : 'soft'"
               :loading="chestBusy"
               :disabled="!pendingLoot.length"
               @click="handleCollect"
             >
-              Open loot chest
+              Collect
             </UButton>
             <div
               v-for="f in chestFloats"
               :key="f.id"
-              class="colony-chest-float pointer-events-none absolute text-sm font-semibold whitespace-nowrap"
-              :style="{ left: 'calc(50% + ' + (f.x - 50) + 'px)', bottom: '100%' }"
+              class="colony-chest-float pointer-events-none absolute z-50 text-sm font-semibold whitespace-nowrap"
+              :style="{ right: '2rem', bottom: '100%' }"
             >
               {{ f.text }}
             </div>
-            <div
-              v-if="pendingLoot.length"
-              class="flex flex-wrap justify-center gap-1.5 max-w-md"
-            >
-              <UBadge
-                v-for="item in pendingLoot"
-                :key="item.itemTypeId"
-                color="warning"
-                variant="subtle"
-                size="sm"
-              >
-                {{ item.emoji }} {{ formatNumber(item.quantity, false) }}
-              </UBadge>
-            </div>
-            <p
-              v-else
-              class="text-xs text-muted"
-            >
-              Nothing waiting yet — bugs forage on their own, check back soon.
-            </p>
           </div>
         </div>
 
@@ -854,7 +902,13 @@ function bugYieldPerCycle(bug: any): string {
                   {{ item.name }}
                 </p>
                 <div class="flex items-center justify-center border-t border-default py-1 shrink-0">
-                  <span class="text-[10px] font-black tabular-nums text-muted">{{ formatNumber(item.sellValue, false) }} coins each</span>
+                  <CoinBalance
+                    class="text-[10px] font-black tabular-nums text-muted"
+                    :value="item.sellValue"
+                    :compact="false"
+                    :show-icon="false"
+                  />
+                  <span class="text-[10px] font-black text-muted ml-1">each</span>
                 </div>
               </div>
             </div>
