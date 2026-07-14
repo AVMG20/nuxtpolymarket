@@ -9,7 +9,9 @@ import {
     PIRATE_AMMO_RANGE_MULT, PIRATE_AMMO_DAMAGE_MULT,
     PIRATE_GEM_AMMO_ATTACK_MULT, PIRATE_GEM_AMMO_DAMAGE_MULT,
     PIRATE_COMBO_WINDOW_MS, PIRATE_COMBO_BONUS_PER_STACK, PIRATE_COMBO_MAX_STACKS,
-    PIRATE_BOSS_FIRST_SPAWN_MS, PIRATE_BOSS_RESPAWN_MS, PIRATE_BOSS_DAMAGE_MULT, PIRATE_ENEMY_TIERS,
+    PIRATE_BOSS_FIRST_SPAWN_MS, PIRATE_BOSS_RESPAWN_MS, PIRATE_BOSS_DAMAGE_MULT,
+    PIRATE_BOSS_ABILITY_INITIAL_MIN_MS, PIRATE_BOSS_ABILITY_INITIAL_MAX_MS,
+    PIRATE_BOSS_ABILITY_COOLDOWN_MIN_MS, PIRATE_BOSS_ABILITY_COOLDOWN_MAX_MS, PIRATE_ENEMY_TIERS,
     pirateSpawnIntervalMs, pirateMaxConcurrentEnemies, pirateRollEnemyTier, pirateDifficultyMultiplier,
     pirateTreasureReward, pirateRollAttack, pirateRewardMultiplier, pirateBossFirstSpawnMs,
     pirateInitialEnemyCount, pirateSpawnBatchSize,
@@ -1037,7 +1039,9 @@ export class PirateGame {
             enemy.abilityTimer -= deltaMS
             if (enemy.abilityTimer <= 0) {
                 this.useEnemyAbility(enemy)
-                enemy.abilityTimer = enemy.tier.boss ? randRange(5200, 7200) : randRange(7600, 11_500)
+                enemy.abilityTimer = enemy.tier.boss
+                    ? randRange(PIRATE_BOSS_ABILITY_COOLDOWN_MIN_MS, PIRATE_BOSS_ABILITY_COOLDOWN_MAX_MS)
+                    : randRange(7600, 11_500)
             }
             const d = dist(enemy.x, enemy.y, this.playerX, this.playerY)
             const desiredAngle = Math.atan2(this.playerY - enemy.y, this.playerX - enemy.x)
@@ -2774,7 +2778,9 @@ export class PirateGame {
             y,
             angle: Math.atan2(this.playerY - y, this.playerX - x),
             reloadTimer: randRange(300, tier.reloadMs * pirateEnemyReloadMultiplier(this.elapsedMs, this.difficulty)),
-            abilityTimer: randRange(tier.boss ? 2800 : 4200, tier.boss ? 4800 : 7200),
+            abilityTimer: tier.boss
+                ? randRange(PIRATE_BOSS_ABILITY_INITIAL_MIN_MS, PIRATE_BOSS_ABILITY_INITIAL_MAX_MS)
+                : randRange(4200, 7200),
             speed: tier.speed,
             defense: Math.max(1, Math.round(tier.defense * diff.statMult)),
             attackRating: Math.max(1, Math.round(tier.attackRating * diff.statMult)),

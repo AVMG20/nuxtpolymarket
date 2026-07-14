@@ -7,6 +7,9 @@ import {
   pirateAverageRunPayoutEstimate,
   pirateNormalizeDifficulty,
   pirateRecommendedDifficulty,
+  PIRATE_BOSS_ABILITY_COOLDOWN_MAX_MS,
+  PIRATE_BOSS_DAMAGE_MULT,
+  PIRATE_ENEMY_TIERS,
   pirateInitialEnemyCount,
   pirateMaxConcurrentEnemies,
   pirateRollEnemyTier,
@@ -60,5 +63,16 @@ describe('pirate selectable difficulty and premium ammo', () => {
     expect(pirateAmmoCapacity(1)).toBe(240)
     expect(pirateAmmoCapacity(10)).toBe(1050)
     expect(pirateAmmoPricePerUnit(366)).toBe(196)
+  })
+})
+
+describe('pirate boss balance', () => {
+  it('is kiteable and less durable while using specials frequently', () => {
+    const boss = PIRATE_ENEMY_TIERS.find(tier => tier.boss)!
+    expect(boss.hp).toBe(560)
+    expect(boss.range).toBe(310)
+    expect(boss.maxDamage).toBe(32)
+    expect(PIRATE_BOSS_DAMAGE_MULT).toBe(0.3)
+    expect(PIRATE_BOSS_ABILITY_COOLDOWN_MAX_MS).toBeLessThan(6000)
   })
 })
