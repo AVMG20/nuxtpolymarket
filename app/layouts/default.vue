@@ -25,6 +25,7 @@ const platformItems: NavigationMenuItem[] = [
   { label: 'Miner', class: 'mb-1', icon: 'i-lucide-pickaxe', to: '/miner' },
   { label: 'Xeno', class: 'mb-1', icon: 'i-lucide-sprout', to: '/xeno' },
   { label: 'Hack Ops', class: 'mb-1', icon: 'i-lucide-terminal', to: '/hack' },
+  { label: 'Colony', class: 'mb-1', icon: 'i-lucide-bug', to: '/colony' },
   { label: 'Pirate Raid', class: 'mb-1', icon: 'i-lucide-anchor', to: '/pirates' },
   { label: 'Gem Market', class: 'mb-1', icon: 'i-lucide-gem', to: '/gem-market' },
   { label: 'Leaderboard', class: 'mb-1', icon: 'i-lucide-trophy', to: '/leaderboard' },

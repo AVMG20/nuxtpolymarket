@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { tierNameColor, effectiveGrowTime } from '#shared/utils/xeno'
-import { formatDuration } from '~/utils/xeno-format'
+import { formatDuration } from '~/lib/xeno-format'
 
 const props = defineProps<{
   name: string

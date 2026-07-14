@@ -292,6 +292,117 @@ export const xenoBreederSlots = pgTable('xeno_breeder_slots', {
   unique('xeno_breeder_slot_unique').on(t.userId, t.slotIndex)
 ])
 
+// ─── Colony ───────────────────────────────────────────────────────────────────
+
+/**
+ * One row per user. Bugs forage continuously rather than XENO's single-shot
+ * grow cycle, so production is settled analytically from elapsed real time
+ * (see server/utils/colony.ts:settleColony) every time state is read or a
+ * colony action runs — there is no server-side interval/loop. lastSettledAt
+ * is the anchor nutrition decay (and each bug's tick progress) is computed
+ * from. Settling never credits items directly to the player — it only fills
+ * colonyLoot, which must be claimed manually via the loot chest.
+ */
+export const colonyState = pgTable('colony_state', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().unique().references(() => user.id, { onDelete: 'cascade' }),
+  /** Gates which bug tiers are purchasable (tier N species require habitatLevel >= N). */
+  habitatLevel: integer('habitat_level').notNull().default(1),
+  /** Current nutrition units, capped by the derived nutrition_storage track max; bugs stop producing at 0 */
+  nutrition: integer('nutrition').notNull().default(150),
+  /**
+   * Premium nutrition bought with gems (at least 200 points per gem, scaling
+   * with tank size) instead of
+   * coins — always drained BEFORE regular nutrition, and grants +1 yield
+   * and +20% speed colony-wide (every non-gem bug) for as long as any is
+   * left. Shares the same tank ceiling as `nutrition` (gemNutrition +
+   * nutrition <= nutritionMax).
+   */
+  gemNutrition: integer('gem_nutrition').notNull().default(0),
+  lastSettledAt: timestamp('last_settled_at').defaultNow().notNull(),
+  /** The single builder's current job, if any — cleared on collect. */
+  builderTrackId: text('builder_track_id'),
+  builderStartedAt: timestamp('builder_started_at')
+})
+
+/**
+ * One row = one bug instance. Buying a bug puts it in the player's inventory
+ * (inTerrarium: false) — it only forages once manually placed into the
+ * terrarium (up to capacity), mirroring XENO's buy-then-plant flow.
+ * speed is a randomly-rolled percentage trait (0-25) that cuts tick time.
+ * yield and eat are both fixed levels (not percentages) rolled once within
+ * the species' range on purchase: yield is the exact item quantity dropped
+ * per tick, eat is the exact nutrition spent per COMPLETED tick (so a
+ * shorter effective tick from the speed trait means more meals per hour).
+ */
+export const colonyBugs = pgTable('colony_bugs', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  typeId: text('type_id').notNull(),
+  speed: integer('speed').notNull(),
+  yield: integer('yield').notNull(),
+  /** Nutrition spent per completed production tick — rolled once on purchase, like speed/yield. Defaults cover any pre-existing rows from before this column existed. */
+  eat: integer('eat').notNull().default(8),
+  /** Whether this bug is placed in the terrarium (foraging) or sitting in inventory. */
+  inTerrarium: boolean('in_terrarium').notNull().default(false),
+  /** Progress in ms toward this bug's next production tick, only advances while placed. */
+  tickProgressMs: integer('tick_progress_ms').notNull().default(0),
+  createdAt: timestamp('created_at').defaultNow().notNull()
+}, t => [index('colony_bugs_userId_idx').on(t.userId)])
+
+/**
+ * Loot a bug's production tick generates but the player hasn't claimed yet.
+ * Settling fills this; the loot chest (loot/collect) moves it into colonyItems.
+ */
+export const colonyLoot = pgTable('colony_loot', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  itemTypeId: text('item_type_id').notNull(),
+  quantity: integer('quantity').notNull().default(0)
+}, t => [
+  index('colony_loot_userId_idx').on(t.userId),
+  unique('colony_loot_unique').on(t.userId, t.itemTypeId)
+])
+
+/** Claimed item inventory — spendable in the market and toward item-gated upgrades. */
+export const colonyItems = pgTable('colony_items', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  itemTypeId: text('item_type_id').notNull(),
+  quantity: integer('quantity').notNull().default(0)
+}, t => [
+  index('colony_items_userId_idx').on(t.userId),
+  unique('colony_items_unique').on(t.userId, t.itemTypeId)
+])
+
+/** Leveled builder upgrade tracks (capacity, yield, speed, nutrition storage/efficiency). One row per track. */
+export const colonyUpgrades = pgTable('colony_upgrades', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  trackId: text('track_id').notNull(),
+  level: integer('level').notNull().default(0)
+}, t => [
+  index('colony_upgrades_userId_idx').on(t.userId),
+  unique('colony_upgrades_unique').on(t.userId, t.trackId)
+])
+
+/**
+ * Per-species research level (0-4) — sacrificing a growing number of a
+ * species' own bugs on the Research page raises the roll range every FUTURE
+ * purchase of that species uses (see RESEARCH_SPEED_MIN/MAX and
+ * RESEARCH_YIELD_MIN/MAX in shared/utils/colony.ts). One row per species
+ * the player has ever researched; missing = level 0 (base roll).
+ */
+export const colonyBugResearch = pgTable('colony_bug_research', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  typeId: text('type_id').notNull(),
+  level: integer('level').notNull().default(0)
+}, t => [
+  index('colony_bug_research_userId_idx').on(t.userId),
+  unique('colony_bug_research_unique').on(t.userId, t.typeId)
+])
+
 // ─── Hack Ops ─────────────────────────────────────────────────────────────────
 
 export const hackState = pgTable('hack_state', {

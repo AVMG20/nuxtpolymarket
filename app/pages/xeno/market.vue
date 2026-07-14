@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { tierNameColor, tierBg, getPlantDisplay, effectiveGrowTime, plantBuyPrice, PLANT_TYPES } from '#shared/utils/xeno'
-import { formatDuration } from '~/utils/xeno-format'
+import { formatDuration } from '~/lib/xeno-format'
 
 const { user } = useAuth()
 const balance = computed(() => parseFloat(user.value?.balance ?? '0'))
