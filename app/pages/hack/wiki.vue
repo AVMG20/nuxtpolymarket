@@ -2,7 +2,7 @@
 import {
   RARITY_COLOR, RARITY_LABEL, RARITY_MOD_COUNT, AGENT_TRAIT_COUNT,
   AGENT_TRAIT_LABEL, AGENT_TRAIT_RANGES, MOD_LABEL, MOD_RANGES, CLASS_LABEL, CLASS_PASSIVE,
-  CLASS_COLOR, CLASS_ICON, RARITY_ORDER,
+  CLASS_COLOR, CLASS_ICON, RARITY_ORDER, ARTIFACT_VALUE, formatArtifactAdd,
   type HackRarity, type AgentTraitType, type ModType, type AgentClass,
 } from '#shared/utils/hack-config'
 
@@ -11,6 +11,12 @@ function fmtRange(type: AgentTraitType | ModType, min: number, max: number): str
   if (type === 'gem_bonus') return `+${min} – +${max} gems`
   if (type === 'xp_flat' || type === 'power_flat') return `+${min} – +${max}`
   return `+${min}% – +${max}%`
+}
+
+function fmtArtifactRange(type: AgentTraitType): string {
+  const ghost = formatArtifactAdd(type, ARTIFACT_VALUE[type].ghost)
+  const phantom = formatArtifactAdd(type, ARTIFACT_VALUE[type].phantom)
+  return `${ghost} (Ghost) – ${phantom} (Phantom)`
 }
 </script>
 
@@ -120,6 +126,37 @@ function fmtRange(type: AgentTraitType | ModType, min: number, max: number): str
             </div>
             <span class="font-medium text-primary shrink-0">{{ fmtRange(type as AgentTraitType, range.min, range.max) }}</span>
           </div>
+        </div>
+      </UCard>
+    </section>
+
+    <!-- Artifacts -->
+    <section class="space-y-3">
+      <h2 class="text-xl font-bold flex items-center gap-2">
+        <UIcon name="i-lucide-sparkles" class="size-5 text-primary" /> Artifacts
+      </h2>
+      <UCard>
+        <p class="text-sm text-muted mb-4">
+          Artifacts are consumable items that mission drops award. Applying one permanently pushes one of an agent's
+          <strong>already-rolled</strong> traits closer to (never past) that trait's max — they're not gear, an Artifact
+          is applied once and consumed. There's one Artifact per trait type; rarity (Ghost → Phantom) only controls
+          how much it adds, never which trait it targets.
+        </p>
+        <div class="space-y-2 mb-4">
+          <div v-for="(range, type) in AGENT_TRAIT_RANGES" :key="type"
+            class="flex items-center justify-between gap-3 p-3 rounded-lg bg-elevated text-sm">
+            <span class="font-semibold">{{ AGENT_TRAIT_LABEL[type as AgentTraitType] }} Artifact</span>
+            <span class="font-medium text-primary shrink-0">{{ fmtArtifactRange(type as AgentTraitType) }}</span>
+          </div>
+        </div>
+        <div class="p-3 rounded-lg bg-elevated text-sm space-y-1.5 text-muted">
+          <p><strong class="text-default">Only applies to a trait the agent already rolled</strong> — an Artifact can never add a trait type the agent doesn't have, and it's disabled in your inventory if the selected agent can't use it.</p>
+          <p><strong class="text-default">Hard-capped at the trait's real max</strong> — the Upgrade page blocks the apply once a trait is maxed, so nothing is ever wasted.</p>
+          <p><strong class="text-default">Drops scale with an op's base duration</strong>, not a flat per-op chance — a long endgame op yields a whole cache of Artifacts at better rarity odds, so higher-tier ops are always the fastest way to farm them. The final op (Project Zero) drops none, since reaching it means you're already close to maxed out.</p>
+        </div>
+        <div class="mt-4 p-3 rounded-lg bg-primary/10 border border-primary/20 text-sm">
+          <p class="font-semibold text-primary mb-1">Where to apply them</p>
+          <p class="text-muted">Open an agent's <strong>Upgrade</strong> page (from the Agents tab) to pick an Artifact from your stacked inventory and preview the trait's current → projected value before confirming.</p>
         </div>
       </UCard>
     </section>

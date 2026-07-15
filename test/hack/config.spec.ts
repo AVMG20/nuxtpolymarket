@@ -252,7 +252,7 @@ describe('rollOpReward', () => {
         vi.spyOn(Math, 'random').mockReturnValue(0.99)
         const gov = OP_TEMPLATES.find(t => t.id === 'gov_heist')!
         const reward = rollOpReward(gov, [{ level: 1, class: 'infiltrator', items: [] }], 1, false)
-        expect(reward).toEqual({ success: false, cash: 0, gems: 0, item: null, inventoryFull: false })
+        expect(reward).toEqual({ success: false, cash: 0, gems: 0, item: null, inventoryFull: false, artifacts: [] })
     })
 
     it('never awards gems on an op with no base gem chance', () => {

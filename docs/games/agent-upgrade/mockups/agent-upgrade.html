@@ -1,0 +1,714 @@
+<meta charset="utf-8">
+<title>HackOps — Agent Upgrade Artifacts (concept)</title>
+<link rel="stylesheet" href="../../hackops-redesign/mockups/shared.css">
+<style>
+  .concept-grid {
+    grid-template-columns: 300px 1fr 340px;
+    align-items: start;
+    gap: 18px;
+  }
+
+  .roster-list-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 14px;
+    cursor: pointer;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .roster-list-item:hover {
+    background: var(--panel-2);
+  }
+
+  .roster-list-item.selected {
+    background: var(--accent-dim);
+    border-left: 3px solid var(--accent);
+  }
+
+  .roster-list-item .name {
+    font-size: 14px;
+    font-weight: 600;
+  }
+
+  .roster-list-item .sub {
+    font-size: 11.5px;
+  }
+
+  .group-label {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    padding: 12px 14px 6px;
+  }
+
+  /* Agent avatar — mirrors the real HackAgentAvatar.vue: a deterministic
+     name→icon lookup (common pool below Elite, elite pool at Elite/Phantom),
+     duotone-tinted per rarity via the shared SVG filter, inset 72% inside a
+     rarity-bordered box. Not the old per-CLASS portrait photo this mockup
+     used at first — those were superseded by this icon system in the real app. */
+  .agent-avatar {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-strong);
+    flex-shrink: 0;
+  }
+
+  .agent-avatar img {
+    max-width: 72%;
+    max-height: 72%;
+    object-fit: contain;
+  }
+
+  .roster-list-item .agent-avatar {
+    width: 42px;
+    height: 42px;
+  }
+
+  .operator-portrait.agent-avatar {
+    width: 130px;
+    height: 130px;
+    margin: 0 auto 14px;
+  }
+
+  .agent-avatar.ghost {
+    border-color: color-mix(in srgb, var(--rarity-ghost) 45%, var(--border-strong));
+  }
+
+  .agent-avatar.operative {
+    border-color: color-mix(in srgb, var(--rarity-operative) 45%, var(--border-strong));
+  }
+
+  .agent-avatar.specialist {
+    border-color: color-mix(in srgb, var(--rarity-specialist) 45%, var(--border-strong));
+  }
+
+  .agent-avatar.elite {
+    border-color: color-mix(in srgb, var(--rarity-elite) 45%, var(--border-strong));
+  }
+
+  .agent-avatar.phantom {
+    border-color: color-mix(in srgb, var(--rarity-phantom) 45%, var(--border-strong));
+  }
+
+  /* Trait row — a rolled trait plus its range bar, with room for a second
+     "projected" fill layered on top when an Artifact is staged. Every trait
+     reads the same weight — Power is not visually special here. */
+  .trait-row {
+    border: 1px solid var(--border);
+    padding: 14px 16px;
+    margin-bottom: 9px;
+    transition: border-color .15s, background .15s;
+  }
+
+  .trait-row.targetable {
+    border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  }
+
+  .trait-row.maxed {
+    opacity: .55;
+  }
+
+  .trait-row .trait-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 11px;
+  }
+
+  .trait-row .trait-name {
+    font-size: 14px;
+    font-weight: 700;
+  }
+
+  .trait-row .trait-val {
+    font-family: var(--font-mono);
+    font-size: 15px;
+    font-weight: 700;
+  }
+
+  .trait-row .trait-val .arrow {
+    color: var(--text-dim);
+    margin: 0 6px;
+  }
+
+  .trait-row .trait-val .projected {
+    color: var(--accent);
+  }
+
+  /* Bar row — min label on the LEFT, the bar in the MIDDLE (flex:1), max label
+     on the RIGHT, all on one line. This is the layout the user asked for:
+     "min 10 ----||---- max 60" so the whole scale reads left-to-right at a glance. */
+  .trait-bar-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .trait-bar-row .minmax-label {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--text-dim);
+    white-space: nowrap;
+  }
+
+  .trait-bar-row .minmax-label b {
+    color: var(--text-muted);
+    font-weight: 600;
+  }
+
+  .trait-bar-row .range-bar {
+    flex: 1;
+    height: 9px;
+  }
+
+  /* Two-layer range bar: base fill (existing grammar) + a lighter overlay
+     showing where the value WOULD land if the staged directive is applied. */
+  .range-bar .fill-projected {
+    position: absolute;
+    top: 0;
+    left: 0;
+    height: 100%;
+    background: color-mix(in srgb, var(--accent) 55%, transparent);
+    transition: width .25s ease;
+  }
+
+  .range-bar .marker-projected {
+    position: absolute;
+    top: -4px;
+    width: 3px;
+    height: 17px;
+    background: var(--accent);
+    box-shadow: 0 0 8px var(--accent);
+    transform: translateX(-50%);
+    transition: left .25s ease;
+  }
+
+  .no-trait-note {
+    font-size: 11.5px;
+    color: var(--text-dim);
+    font-family: var(--font-mono);
+    margin-top: 2px;
+  }
+
+  /* Artifact inventory — grouped stacks (traitType × rarity), not 1-per-slot
+     like gear, per PLAN.md §7 open question (recommended default). */
+  .directive-groups {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .directive-card {
+    padding: 12px 13px;
+    border: 1px solid var(--border);
+    margin-bottom: 8px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    transition: border-color .12s, opacity .12s;
+  }
+
+  .directive-card:hover {
+    border-color: var(--accent);
+  }
+
+  .directive-card.disabled {
+    opacity: .35;
+    cursor: not-allowed;
+  }
+
+  .directive-card.selected {
+    border-color: var(--accent);
+    background: var(--accent-dim);
+  }
+
+  .directive-icon {
+    width: 38px;
+    height: 38px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+  }
+
+  .directive-card .d-name {
+    font-size: 13.5px;
+    font-weight: 700;
+  }
+
+  .directive-card .d-sub {
+    font-size: 11.5px;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    margin-top: 1px;
+  }
+
+  .directive-card .d-count {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--text-dim);
+    margin-left: auto;
+    white-space: nowrap;
+  }
+
+  .apply-panel {
+    border-top: 1px solid var(--border);
+    margin-top: 14px;
+    padding-top: 14px;
+  }
+
+  .apply-panel .stat-delta-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 14px;
+    padding: 9px 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .apply-panel .delta.up {
+    color: var(--success);
+    font-weight: 700;
+  }
+
+  .apply-panel .delta.maxed {
+    color: var(--rarity-elite);
+    font-weight: 700;
+  }
+
+  .concept-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    color: var(--accent-2);
+    border: 1px solid color-mix(in srgb, var(--accent-2) 40%, transparent);
+    background: color-mix(in srgb, var(--accent-2) 8%, transparent);
+    padding: 4px 10px;
+    margin-bottom: 10px;
+  }
+</style>
+<div id="app-shell"></div>
+
+<!-- Rarity duotone filters — copied 1:1 from app/components/hack/HackRarityDuotone.vue
+     (tint 1 / shadow 0 / contrast 0.75, approved art-direction values). Agent icons
+     below reference these by id, same as the real HackAgentAvatar.vue. -->
+<svg aria-hidden="true" focusable="false" width="0" height="0"
+  style="position:absolute;width:0;height:0;overflow:hidden;">
+  <defs id="duotone-defs"></defs>
+</svg>
+
+<div class="page">
+  <div class="eyebrow">// agent upgrade — concept mockup, not implemented</div>
+  <div class="concept-badge">&#9679; Design concept — see docs/games/agent-upgrade/PLAN.md</div>
+  <div class="row between wrap" style="margin: 6px 0 20px;">
+    <h1 style="margin:0; font-size:22px;">Artifacts</h1>
+    <div class="row gap-12 wrap">
+      <div class="text-dim mono" style="font-size:12.5px;">Push a rolled trait toward its cap. Never exceeds the trait's
+        real max.</div>
+      <a class="btn btn-sm" href="artifact-drop.html">Simulate successful drop</a>
+    </div>
+  </div>
+
+  <div class="grid concept-grid">
+
+    <!-- ── Left: roster ─────────────────────────────────────────────── -->
+    <div class="frame" style="padding-bottom:8px;">
+      <div class="group-label">Active</div>
+      <div class="roster-list-item" onclick="selectAgent(this, 'cipher')">
+        <div class="agent-avatar specialist"><img alt="Cipher"></div>
+        <div>
+          <div class="name">Cipher</div>
+          <div class="text-rarity specialist mono sub">Specialist &middot; Lv14</div>
+        </div>
+      </div>
+      <div class="roster-list-item selected" onclick="selectAgent(this, 'null')">
+        <div class="agent-avatar elite"><img alt="Null"></div>
+        <div>
+          <div class="name">Null</div>
+          <div class="text-rarity elite mono sub">Elite &middot; Lv17</div>
+        </div>
+      </div>
+      <div class="roster-list-item" onclick="selectAgent(this, 'wraith2')">
+        <div class="agent-avatar operative"><img alt="Wraith-2"></div>
+        <div>
+          <div class="name">Wraith-2</div>
+          <div class="text-rarity operative mono sub">Operative &middot; Lv9</div>
+        </div>
+      </div>
+      <div class="group-label">Sleeper</div>
+      <div class="roster-list-item" onclick="selectAgent(this, 'static')">
+        <div class="agent-avatar ghost"><img alt="Static"></div>
+        <div>
+          <div class="name">Static</div>
+          <div class="text-rarity ghost mono sub">Ghost &middot; Lv4</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Center: operator card with rolled traits ────────────────────── -->
+    <div class="frame frame-accent p-20">
+      <div class="operator-portrait agent-avatar elite" id="operator-avatar-box"><img id="operator-avatar-img"
+          alt="Null"></div>
+      <div style="text-align:center; margin-bottom:18px;">
+        <div class="row gap-10" style="justify-content:center;">
+          <h2 style="margin:0; font-size:22px;" id="op-name">Null</h2><span class="badge badge-rarity elite"
+            id="op-rarity-badge">Elite</span>
+        </div>
+        <div class="text-dim mono" style="font-size:13px; margin-top:5px;" id="op-sub">Bruteforce &middot; Lv 17
+          &middot; <span class="text-accent">PWR 388</span></div>
+        <div class="text-dim mono" style="font-size:11.5px; margin-top:3px;">Class passive +15 flat power is always-on
+          &mdash; Artifacts never touch it, only rolled traits below.</div>
+      </div>
+
+      <div class="stat-label-md" style="margin-bottom:10px;">Rolled traits <span class="text-dim"
+          style="text-transform:none; font-weight:400; letter-spacing:0;">— select an Artifact on the right to preview
+          its effect here</span></div>
+      <div id="trait-list"></div>
+    </div>
+
+    <!-- ── Right: directive inventory + apply panel ────────────────────── -->
+    <div class="frame p-18">
+      <div class="section-title" style="margin-bottom:12px;">Artifact inventory <span class="text-dim"
+          id="directive-count" style="text-transform:none; font-weight:400; letter-spacing:0;"></span></div>
+      <div class="directive-groups" id="directive-list"></div>
+
+      <div class="apply-panel" id="apply-panel" style="display:none;">
+        <div class="stat-label-md" style="margin-bottom:6px;">Preview</div>
+        <div class="stat-delta-row" id="apply-delta-row"></div>
+        <div class="row between" style="margin-top:16px;">
+          <button class="btn" onclick="clearSelection()">Cancel</button>
+          <button class="btn btn-primary" id="apply-confirm-btn" onclick="confirmApply()">Apply Artifact</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="frame p-18" style="margin-top:22px;">
+    <div class="section-title" style="margin-bottom:10px;">How this reads at a glance</div>
+    <div class="grid" style="grid-template-columns: repeat(3,1fr); gap:16px;">
+      <div>
+        <div class="stat-label-md" style="margin-bottom:6px;">1 &middot; Pick an Artifact</div>
+        <div class="text-muted" style="font-size:13px; line-height:1.5;">Grouped by trait type &amp; rarity, like a
+          stacked resource rather than 1-per-slot gear. Greyed out if this agent never rolled that trait.</div>
+      </div>
+      <div>
+        <div class="stat-label-md" style="margin-bottom:6px;">2 &middot; Preview the push</div>
+        <div class="text-muted" style="font-size:13px; line-height:1.5;">The trait's range bar gains a brighter overlay
+          fill showing current &rarr; projected, clamped at the trait's real max. Already-maxed traits show "Already
+          maxed" and can't be targeted.</div>
+      </div>
+      <div>
+        <div class="stat-label-md" style="margin-bottom:6px;">3 &middot; Apply, consumed</div>
+        <div class="text-muted" style="font-size:13px; line-height:1.5;">One Artifact, one application. No bulk-apply
+          &mdash; each is a deliberate choice, same weight as a Crafting Bench re-roll today.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="../../hackops-redesign/mockups/shared.js"></script>
+<script>
+  renderShell(null) // no matching tab yet — this is a concept, not a real nav entry
+
+  // ── Agent icon system, mirrored from app/utils/hack-content.ts + HackRarityDuotone.vue ──
+  // Deterministic name→icon (common pool below Elite, elite pool at Elite/Phantom),
+  // tinted per-rarity by an SVG duotone filter. Same assets/logic as the real app —
+  // NOT the old per-class portrait photos this mockup used at first.
+  const AGENT_ICON_COMMON = ['wraith', 'dagger', 'cipher', 'sigil', 'mask', 'fox', 'hammer', 'skull', 'viper', 'raven', 'neural', 'padlock', 'knight', 'crown', 'bolt', 'hydra']
+  const AGENT_ICON_ELITE = ['phoenix', 'dragon', 'seraph', 'warcrown', 'kraken', 'demon']
+  function hashName(name) {
+    let h = 2166136261
+    for (let i = 0; i < name.length; i++) { h ^= name.charCodeAt(i); h = Math.imul(h, 16777619) }
+    return h >>> 0
+  }
+  function agentIconSrc(name, rarity) {
+    const elite = rarity === 'elite' || rarity === 'phantom'
+    const pool = elite ? AGENT_ICON_ELITE : AGENT_ICON_COMMON
+    const dir = elite ? 'assets/agent-icons-elite' : 'assets/agent-icons'
+    return `${dir}/${pool[hashName(name) % pool.length]}.webp`
+  }
+
+  const RARITY_TINT = { ghost: '#a1a1aa', operative: '#4ade80', specialist: '#38bdf8', elite: '#fbbf24', phantom: '#fb7185' }
+  function buildDuotoneFilters() {
+    const TINT = 1, SHADOW = 0, CONTRAST = 0.75
+    const channelTable = (c) => {
+      const hi = 255 - (255 - c) * TINT
+      const lo = c * SHADOW
+      const mid = (lo + hi) / 2
+      const clamp = (v) => Math.max(0, Math.min(255, v)) / 255
+      return `${clamp(mid + (lo - mid) * CONTRAST).toFixed(4)} ${clamp(mid + (hi - mid) * CONTRAST).toFixed(4)}`
+    }
+    const defs = document.getElementById('duotone-defs')
+    defs.innerHTML = Object.entries(RARITY_TINT).map(([rarity, hex]) => {
+      const rgb = [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16))
+      const [r, g, b] = rgb.map(channelTable)
+      return `
+        <filter id="hack-duo-${rarity}" color-interpolation-filters="sRGB">
+          <feColorMatrix type="matrix" values="0.299 0.587 0.114 0 0  0.299 0.587 0.114 0 0  0.299 0.587 0.114 0 0  0 0 0 1 0"/>
+          <feComponentTransfer>
+            <feFuncR type="table" tableValues="${r}"/>
+            <feFuncG type="table" tableValues="${g}"/>
+            <feFuncB type="table" tableValues="${b}"/>
+          </feComponentTransfer>
+        </filter>
+      `
+    }).join('')
+  }
+  buildDuotoneFilters()
+
+  function setAgentAvatar(imgEl, name, rarity) {
+    imgEl.src = agentIconSrc(name, rarity)
+    imgEl.style.filter = `url(#hack-duo-${rarity})`
+  }
+
+  // ── Real trait ranges, mirrored from shared/utils/hack-config.ts AGENT_TRAIT_RANGES ──
+  const TRAIT_RANGES = {
+    power_flat: { min: 10, max: 60, label: 'Power', fmt: v => `+${Math.round(v)}` },
+    power_percent: { min: 5, max: 30, label: 'Power %', fmt: v => `+${Math.round(v)}%` },
+    speed_percent: { min: 3, max: 10, label: 'Op Speed', fmt: v => `+${round1(v)}%` },
+    loot_percent: { min: 3, max: 6, label: 'Loot', fmt: v => `+${round1(v)}%` },
+    xp_boost: { min: 5, max: 50, label: 'XP Gain', fmt: v => `+${Math.round(v)}%` },
+    gem_chance: { min: 0.5, max: 5, label: 'Gem Chance', fmt: v => `+${round1(v)}%` },
+    gem_bonus: { min: 1, max: 3, label: 'Bonus Gems', fmt: v => `+${round1(v)} gems` },
+  }
+  function round1(v) { return Math.round(v * 10) / 10 }
+
+  // ── Artifact magnitude table — PLAN.md §4. Each rarity adds a fixed fraction of
+  //    the trait's gap (ghost 2% → phantom 20%, ~10x). Anchored: phantom Power +10. ──
+  const ARTIFACT_VALUES = {
+    power_flat: { ghost: 1, operative: 2, specialist: 3, elite: 6, phantom: 10 },
+    power_percent: { ghost: 0.5, operative: 1, specialist: 2, elite: 3, phantom: 5 },
+    xp_boost: { ghost: 1, operative: 2, specialist: 3, elite: 5, phantom: 9 },
+    speed_percent: { ghost: 0.1, operative: 0.3, specialist: 0.4, elite: 0.8, phantom: 1.4 },
+    gem_chance: { ghost: 0.1, operative: 0.2, specialist: 0.3, elite: 0.5, phantom: 0.9 },
+    loot_percent: { ghost: 0.1, operative: 0.1, specialist: 0.2, elite: 0.3, phantom: 0.6 },
+    gem_bonus: { ghost: 0.05, operative: 0.1, specialist: 0.15, elite: 0.25, phantom: 0.4 },
+  }
+  const RARITY_ORDER = ['ghost', 'operative', 'specialist', 'elite', 'phantom']
+  const RARITY_LABEL = { ghost: 'Ghost', operative: 'Operative', specialist: 'Specialist', elite: 'Elite', phantom: 'Phantom' }
+
+  // ── Mock agents (rolled traits shaped like real generateAgentTraits output) ──
+  const AGENTS = {
+    cipher: {
+      name: 'Cipher', class: 'Infiltrator', rarity: 'specialist', level: 14, power: 214,
+      traits: [{ type: 'loot_percent', value: 4.2 }, { type: 'speed_percent', value: 6.8 }, { type: 'power_flat', value: 22 }]
+    },
+    null: {
+      name: 'Null', class: 'Bruteforce', rarity: 'elite', level: 17, power: 388,
+      traits: [{ type: 'power_flat', value: 30 }, { type: 'power_percent', value: 14 }, { type: 'xp_boost', value: 18 }, { type: 'gem_bonus', value: 1 }]
+    },
+    wraith2: {
+      name: 'Wraith-2', class: 'Cryptographer', rarity: 'operative', level: 9, power: 132,
+      traits: [{ type: 'gem_chance', value: 1.4 }, { type: 'speed_percent', value: 5.1 }]
+    },
+    static: {
+      name: 'Static', class: 'Social Engineer', rarity: 'ghost', level: 4, power: 61,
+      traits: [{ type: 'gem_chance', value: 2.6 }]
+    },
+  }
+
+  // ── Mock directive inventory: stacked by (traitType, rarity) ──
+  const artifactInventory = [
+    { type: 'power_flat', rarity: 'elite', count: 2 },
+    { type: 'power_flat', rarity: 'specialist', count: 3 },
+    { type: 'power_percent', rarity: 'operative', count: 1 },
+    { type: 'xp_boost', rarity: 'specialist', count: 4 },
+    { type: 'gem_bonus', rarity: 'ghost', count: 6 },
+    { type: 'loot_percent', rarity: 'phantom', count: 1 },
+    { type: 'speed_percent', rarity: 'elite', count: 2 },
+    { type: 'gem_chance', rarity: 'operative', count: 5 },
+  ]
+
+  let currentAgentId = 'null'
+  let selectedArtifact = null // { type, rarity }
+
+  function agentTraitValue(agent, type) {
+    const t = agent.traits.find(t => t.type === type)
+    return t ? t.value : null
+  }
+
+  function renderAgentHeader(agent) {
+    document.getElementById('op-name').textContent = agent.name
+    document.getElementById('op-rarity-badge').textContent = RARITY_LABEL[agent.rarity]
+    document.getElementById('op-rarity-badge').className = `badge badge-rarity ${agent.rarity}`
+    document.getElementById('op-sub').innerHTML = `${agent.class} &middot; Lv ${agent.level} &middot; <span class="text-accent">PWR ${agent.power}</span>`
+    const box = document.getElementById('operator-avatar-box')
+    box.className = `operator-portrait agent-avatar ${agent.rarity}`
+    const img = document.getElementById('operator-avatar-img')
+    img.alt = agent.name
+    setAgentAvatar(img, agent.name, agent.rarity)
+  }
+
+  function traitRowHTML(type, currentValue, projectedValue) {
+    const range = TRAIT_RANGES[type]
+    const isMaxed = currentValue !== null && currentValue >= range.max
+    const pct = currentValue === null ? 0 : Math.min(100, Math.max(0, (currentValue - range.min) / (range.max - range.min) * 100))
+    const projPct = projectedValue == null ? null : Math.min(100, Math.max(0, (projectedValue - range.min) / (range.max - range.min) * 100))
+    const targetable = currentValue !== null && projectedValue != null && projectedValue > currentValue
+
+    const rawMin = range.fmt(range.min).replace('+', '')
+    const rawMax = range.fmt(range.max).replace('+', '')
+
+    return `
+      <div class="trait-row ${targetable ? 'targetable' : ''} ${isMaxed ? 'maxed' : ''}">
+        <div class="trait-head">
+          <span class="trait-name">${range.label}</span>
+          <span class="trait-val">
+            ${currentValue === null ? '<span class="text-dim">not rolled</span>' : range.fmt(currentValue)}
+            ${projPct != null && projectedValue > currentValue ? `<span class="arrow">&rarr;</span><span class="projected">${range.fmt(projectedValue)}</span>` : ''}
+            ${isMaxed ? '<span class="badge" style="margin-left:8px;">Maxed</span>' : ''}
+          </span>
+        </div>
+        <div class="trait-bar-row">
+          <span class="minmax-label">min <b>${rawMin}</b></span>
+          <div class="range-bar">
+            <div class="fill" style="width:${currentValue === null ? 0 : pct}%"></div>
+            ${projPct != null && projectedValue > currentValue ? `<div class="fill-projected" style="width:${projPct}%"></div>` : ''}
+            <div class="marker" style="left:${currentValue === null ? 0 : pct}%"></div>
+            ${projPct != null && projectedValue > currentValue ? `<div class="marker-projected" style="left:${projPct}%"></div>` : ''}
+          </div>
+          <span class="minmax-label">max <b>${rawMax}</b></span>
+        </div>
+      </div>
+    `
+  }
+
+  function renderTraits() {
+    const agent = AGENTS[currentAgentId]
+    const rows = Object.keys(TRAIT_RANGES).map(type => {
+      const current = agentTraitValue(agent, type)
+      let projected = null
+      if (selectedArtifact && selectedArtifact.type === type && current !== null) {
+        const range = TRAIT_RANGES[type]
+        const add = ARTIFACT_VALUES[type][selectedArtifact.rarity]
+        projected = Math.min(range.max, current + add)
+      }
+      return { type, current, projected }
+    }).filter(r => r.current !== null) // only show traits this agent actually rolled
+
+    document.getElementById('trait-list').innerHTML = rows.map(r => traitRowHTML(r.type, r.current, r.projected)).join('')
+      + `<div class="no-trait-note">Only rolled traits are shown — Artifacts can't add a trait type this agent never rolled.</div>`
+  }
+
+  function artifactCardHTML(d) {
+    const agent = AGENTS[currentAgentId]
+    const currentVal = agentTraitValue(agent, d.type)
+    const range = TRAIT_RANGES[d.type]
+    const hasTrait = currentVal !== null
+    const isMaxed = hasTrait && currentVal >= range.max
+    const usable = hasTrait && !isMaxed
+    const addValue = ARTIFACT_VALUES[d.type][d.rarity]
+    const isSelected = selectedArtifact && selectedArtifact.type === d.type && selectedArtifact.rarity === d.rarity
+
+    // Rarity is NEVER in the artifact's name — it's a badge + color only. The name
+    // is the trait: "Power Artifact", "Speed Artifact". Rarity just sets how much
+    // it adds (shown in the sub-label / badge).
+    let subLabel
+    if (!hasTrait) subLabel = `<span class="text-dim">${agent.name} has no ${range.label} trait</span>`
+    else if (isMaxed) subLabel = `<span class="text-dim">${range.label} already maxed</span>`
+    else subLabel = `adds <b class="text-accent">${range.fmt(addValue)}</b> to ${range.label}`
+
+    return `
+      <div class="directive-card ${usable ? '' : 'disabled'} ${isSelected ? 'selected' : ''}"
+           onclick="${usable ? `selectArtifact('${d.type}','${d.rarity}')` : ''}">
+        <div class="directive-icon text-rarity ${d.rarity}">${iconSvg('zap', 18)}</div>
+        <div style="flex:1; min-width:0;">
+          <div class="row gap-6" style="flex-wrap:wrap;">
+            <span class="d-name">${range.label} Artifact</span>
+            <span class="badge badge-rarity ${d.rarity}">${RARITY_LABEL[d.rarity]}</span>
+          </div>
+          <div class="d-sub">${subLabel}</div>
+        </div>
+        <div class="d-count">&times;${d.count}</div>
+      </div>
+    `
+  }
+
+  function renderArtifacts() {
+    document.getElementById('directive-count').textContent = `— ${artifactInventory.reduce((s, d) => s + d.count, 0)} total`
+    document.getElementById('directive-list').innerHTML = artifactInventory.map(artifactCardHTML).join('')
+  }
+
+  function renderApplyPanel() {
+    const panel = document.getElementById('apply-panel')
+    if (!selectedArtifact) { panel.style.display = 'none'; return }
+    const agent = AGENTS[currentAgentId]
+    const range = TRAIT_RANGES[selectedArtifact.type]
+    const current = agentTraitValue(agent, selectedArtifact.type)
+    const add = ARTIFACT_VALUES[selectedArtifact.type][selectedArtifact.rarity]
+    const projected = Math.min(range.max, current + add)
+    const hitCap = projected < current + add
+
+    panel.style.display = 'block'
+    document.getElementById('apply-delta-row').innerHTML = `
+      <span>${range.label}</span>
+      <span class="delta up">${range.fmt(current)} &rarr; ${range.fmt(projected)} ${hitCap ? '<span class="delta maxed">(hit cap)</span>' : `(+${range.fmt(projected - current).replace('+', '')})`}</span>
+    `
+  }
+
+  function selectAgent(el, agentId) {
+    document.querySelectorAll('.roster-list-item').forEach(x => x.classList.remove('selected'))
+    el.classList.add('selected')
+    currentAgentId = agentId
+    selectedArtifact = null
+    renderAgentHeader(AGENTS[agentId])
+    renderTraits()
+    renderArtifacts()
+    renderApplyPanel()
+  }
+
+  function selectArtifact(type, rarity) {
+    selectedArtifact = { type, rarity }
+    renderTraits()
+    renderArtifacts()
+    renderApplyPanel()
+  }
+
+  function clearSelection() {
+    selectedArtifact = null
+    renderTraits()
+    renderArtifacts()
+    renderApplyPanel()
+  }
+
+  function confirmApply() {
+    const stack = artifactInventory.find(d => d.type === selectedArtifact.type && d.rarity === selectedArtifact.rarity)
+    if (stack) {
+      const agent = AGENTS[currentAgentId]
+      const range = TRAIT_RANGES[selectedArtifact.type]
+      const current = agentTraitValue(agent, selectedArtifact.type)
+      const add = ARTIFACT_VALUES[selectedArtifact.type][selectedArtifact.rarity]
+      const trait = agent.traits.find(t => t.type === selectedArtifact.type)
+      trait.value = Math.min(range.max, current + add)
+      stack.count -= 1
+      if (stack.count <= 0) artifactInventory.splice(artifactInventory.indexOf(stack), 1)
+    }
+    selectedArtifact = null
+    renderTraits()
+    renderArtifacts()
+    renderApplyPanel()
+  }
+
+  // ── Init ──
+  document.querySelectorAll('.roster-list-item').forEach(el => {
+    const agentId = el.getAttribute('onclick').match(/'([^']+)'\)$/)[1]
+    const agent = AGENTS[agentId]
+    setAgentAvatar(el.querySelector('.agent-avatar img'), agent.name, agent.rarity)
+  })
+  renderAgentHeader(AGENTS[currentAgentId])
+  renderTraits()
+  renderArtifacts()
+  renderApplyPanel()
+</script>

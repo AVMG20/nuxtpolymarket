@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import {
-  MOD_LABEL, MOD_RANGES, RARITY_COLOR, RARITY_STYLE, SLOT_LABEL, formatModValue,
-  type HackRarity, type ItemMod, type ItemSlot
+  MOD_LABEL, MOD_RANGES, RARITY_COLOR, RARITY_STYLE, RARITY_LABEL, SLOT_LABEL, AGENT_TRAIT_LABEL, ARTIFACT_VALUE, formatModValue, formatArtifactAdd,
+  type HackRarity, type ItemMod, type ItemSlot, type AgentTraitType
 } from '#shared/utils/hack-config'
 import { sleep } from '~/utils/sleep'
 import type { VoiceHandle } from '~/composables/useAudio'
@@ -19,6 +19,7 @@ const props = defineProps<{
     xpPerAgent: number
     item: { name: string, slot: ItemSlot, itemLevel: number, rarity: HackRarity, mods: ItemMod[] } | null
     inventoryFull: boolean
+    artifacts: Array<{ type: string, rarity: string, count: number }>
     levelUps: Array<{ agentId: string, agentName: string, newLevel: number }>
     templateName: string
     icon: string
@@ -164,10 +165,20 @@ function modRange(type: ItemMod['type']) {
               </div>
             </div>
 
+            <div class="flex items-center justify-between p-2.5 hack-frame-tight hack-frame-2 mb-2">
+              <span class="text-sm text-muted flex items-center gap-2">
+                <UIcon
+                  name="i-lucide-sparkles"
+                  class="size-4 text-violet-400"
+                /> XP per agent
+              </span>
+              <span class="font-semibold text-sm text-violet-400">+{{ result.xpPerAgent }}</span>
+            </div>
+
             <HackFrame
               v-if="result.success && result.item"
               tight
-              class="p-4 mb-4"
+              class="p-4 mb-4 mt-4"
             >
               <div class="flex items-center justify-between mb-2">
                 <span
@@ -206,15 +217,48 @@ function modRange(type: ItemMod['type']) {
               No cash, gems or gear recovered — but your agents still earned XP from the attempt.
             </p>
 
-            <div class="flex items-center justify-between p-2.5 hack-frame-tight hack-frame-2 mb-2">
-              <span class="text-sm text-muted flex items-center gap-2">
-                <UIcon
-                  name="i-lucide-sparkles"
-                  class="size-4 text-violet-400"
-                /> XP per agent
-              </span>
-              <span class="font-semibold text-sm text-violet-400">+{{ result.xpPerAgent }}</span>
-            </div>
+            <HackFrame
+              v-if="result.success && result.artifacts.length"
+              tight
+              class="p-4 mb-4"
+            >
+              <div class="flex items-center justify-between mb-2">
+                <span class="hack-card-title-lg">
+                  Artifact drops <span :class="RARITY_STYLE.phantom.text">· {{ result.artifacts.reduce((s, a) => s + a.count, 0) }} recovered</span>
+                </span>
+                <span class="font-mono text-[10px] text-primary uppercase tracking-wider">Drop confirmed</span>
+              </div>
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <div
+                  v-for="art in result.artifacts"
+                  :key="`${art.type}-${art.rarity}`"
+                  class="flex items-center gap-3 p-2.5 border"
+                  :class="RARITY_STYLE[art.rarity as HackRarity].border"
+                >
+                  <div
+                    class="size-9 shrink-0 flex items-center justify-center border"
+                    :class="[RARITY_STYLE[art.rarity as HackRarity].bg, RARITY_STYLE[art.rarity as HackRarity].text]"
+                  >
+                    <UIcon
+                      name="i-lucide-zap"
+                      class="size-4"
+                    />
+                  </div>
+                  <div class="min-w-0">
+                    <p class="font-semibold text-sm">
+                      {{ AGENT_TRAIT_LABEL[art.type as AgentTraitType] }} Artifact
+                    </p>
+                    <p class="text-xs text-muted font-mono">
+                      {{ RARITY_LABEL[art.rarity as HackRarity] }} · adds {{ formatArtifactAdd(art.type as AgentTraitType, ARTIFACT_VALUE[art.type as AgentTraitType][art.rarity as HackRarity]).replace('+', '') }}
+                    </p>
+                  </div>
+                  <span class="font-mono text-sm font-bold ml-auto">×{{ art.count }}</span>
+                </div>
+              </div>
+              <p class="text-[11px] text-muted font-mono mt-3">
+                Added to the stacked Artifact inventory by trait + rarity.
+              </p>
+            </HackFrame>
 
             <div
               v-if="result.levelUps.length"

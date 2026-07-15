@@ -17,8 +17,11 @@ const tabs = [
 ]
 
 // The Ops tab (/hack) stays active on its nested briefing routes (/hack/ops/*).
+// The Agents tab stays active on the Upgrade sub-page (/hack/upgrade).
 function isActiveTab(to: string) {
-  return to === '/hack' ? route.path === '/hack' || route.path.startsWith('/hack/ops') : route.path === to
+  if (to === '/hack') return route.path === '/hack' || route.path.startsWith('/hack/ops')
+  if (to === '/hack/agents') return route.path === '/hack/agents' || route.path === '/hack/upgrade'
+  return route.path === to
 }
 
 // Browsers block autoplay until a user gesture on the page — resume the

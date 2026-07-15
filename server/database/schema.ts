@@ -450,6 +450,19 @@ export const hackItems = pgTable('hack_items', {
   createdAt: timestamp('created_at').defaultNow().notNull()
 }, t => [index('hack_items_userId_idx').on(t.userId)])
 
+export const hackArtifacts = pgTable('hack_artifacts', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  // One of the seven AgentTraitType values, e.g. 'power_flat'
+  traitType: text('trait_type').notNull(),
+  rarity: text('rarity').notNull(),
+  count: integer('count').notNull().default(1),
+  createdAt: timestamp('created_at').defaultNow().notNull()
+}, t => [
+  index('hack_artifacts_userId_idx').on(t.userId),
+  unique('hack_artifacts_user_type_rarity').on(t.userId, t.traitType, t.rarity)
+])
+
 export const hackOps = pgTable('hack_ops', {
   id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
   userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),

@@ -378,6 +378,14 @@ const sortedStoredAgents = computed(() => {
                 />
                 <UButton
                   size="xs"
+                  color="secondary"
+                  variant="soft"
+                  icon="i-lucide-zap"
+                  label="Upgrade"
+                  :to="`/hack/upgrade?agent=${agent.id}`"
+                />
+                <UButton
+                  size="xs"
                   color="neutral"
                   variant="ghost"
                   icon="i-lucide-archive"
@@ -667,6 +675,13 @@ const sortedStoredAgents = computed(() => {
             icon="i-lucide-shield-half"
             label="Equip"
             :to="detailAgent ? `/hack/loadout?agent=${detailAgent.id}` : undefined"
+          />
+          <UButton
+            color="secondary"
+            variant="soft"
+            icon="i-lucide-zap"
+            label="Upgrade"
+            :to="detailAgent ? `/hack/upgrade?agent=${detailAgent.id}` : undefined"
           />
           <UButton
             v-if="detailAgentActive"
