@@ -1,0 +1,1022 @@
+<meta charset="utf-8">
+<title>HackOps — Artifact Drop Reveal</title>
+<style id="standalone-theme">
+  :root {
+    --bg: #0a0d12;
+    --bg-elevated: #0d1218;
+    --panel: #11161d;
+    --panel-2: #161c25;
+    --border: rgba(255, 255, 255, .08);
+    --border-strong: rgba(255, 255, 255, .16);
+    --text: #e7edf3;
+    --text-muted: #8593a3;
+    --text-dim: #5b6673;
+    --accent: #4ade80;
+    --accent-dim: #4ade8022;
+    --accent-2: #60a5fa;
+    --cash: #facc15;
+    --gems: #22d3ee;
+    --xp: #a78bfa;
+    --success: #22c55e;
+    --error: #f87171;
+    --rarity-ghost: #a1a1aa;
+    --rarity-operative: #4ade80;
+    --rarity-specialist: #38bdf8;
+    --rarity-elite: #fbbf24;
+    --rarity-phantom: #fb7185;
+    --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif;
+    --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+    --cut: 14px;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  html,
+  body {
+    min-height: 100%;
+    margin: 0;
+    padding: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-sans);
+  }
+
+  body {
+    background-image: radial-gradient(ellipse 1200px 600px at 20% -10%, rgba(74, 222, 128, .06), transparent 60%), radial-gradient(ellipse 900px 500px at 100% 0%, rgba(96, 165, 250, .05), transparent 60%);
+    background-attachment: fixed;
+  }
+
+  a {
+    color: inherit;
+  }
+
+  .mono {
+    font-family: var(--font-mono);
+  }
+
+  .eyebrow {
+    color: var(--text-dim);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+  }
+
+  .text-rarity.ghost {
+    color: var(--rarity-ghost);
+  }
+
+  .text-rarity.operative {
+    color: var(--rarity-operative);
+  }
+
+  .text-rarity.specialist {
+    color: var(--rarity-specialist);
+  }
+
+  .text-rarity.elite {
+    color: var(--rarity-elite);
+  }
+
+  .text-rarity.phantom {
+    color: var(--rarity-phantom);
+  }
+
+  .text-cash {
+    color: var(--cash);
+  }
+
+  .text-gems {
+    color: var(--gems);
+  }
+
+  .text-xp {
+    color: var(--xp);
+  }
+
+  .text-success {
+    color: var(--success);
+  }
+
+  .text-accent {
+    color: var(--accent);
+  }
+
+  .text-muted {
+    color: var(--text-muted);
+  }
+
+  .text-dim {
+    color: var(--text-dim);
+  }
+
+  .frame {
+    position: relative;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    clip-path: polygon(var(--cut) 0, 100% 0, 100% calc(100% - var(--cut)), calc(100% - var(--cut)) 100%, 0 100%, 0 var(--cut));
+  }
+
+  .frame::before,
+  .frame::after {
+    content: '';
+    position: absolute;
+    width: var(--cut);
+    height: 1px;
+    background: var(--border-strong);
+  }
+
+  .frame::before {
+    top: 0;
+    left: 0;
+    transform: rotate(45deg) translate(-3px, -1px);
+    transform-origin: left;
+  }
+
+  .frame::after {
+    right: 0;
+    bottom: 0;
+    transform: rotate(45deg) translate(3px, 1px);
+    transform-origin: right;
+  }
+
+  .frame-accent {
+    box-shadow: inset 0 0 0 1px var(--accent-dim), 0 0 24px -8px var(--accent-dim);
+    border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+  }
+
+  .frame-2 {
+    background: var(--panel-2);
+  }
+
+  .page {
+    max-width: 1360px;
+    margin: 0 auto;
+    padding: 22px 24px 60px;
+  }
+
+  .grid {
+    display: grid;
+    gap: 16px;
+  }
+
+  .row {
+    display: flex;
+    align-items: center;
+  }
+
+  .between {
+    justify-content: space-between;
+  }
+
+  .wrap {
+    flex-wrap: wrap;
+  }
+
+  .gap-10 {
+    gap: 10px;
+  }
+
+  .p-20 {
+    padding: 20px;
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 16px;
+    border: 1px solid var(--border-strong);
+    background: var(--panel-2);
+    color: var(--text);
+    cursor: pointer;
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    letter-spacing: .03em;
+    text-transform: uppercase;
+    clip-path: polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px);
+  }
+
+  .btn:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+
+  .btn-primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #06170d;
+    font-weight: 700;
+  }
+
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 3px 8px;
+    border: 1px solid var(--border-strong);
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    letter-spacing: .05em;
+    text-transform: uppercase;
+  }
+
+  .badge-rarity {
+    font-weight: 700;
+  }
+
+  .badge-rarity.elite {
+    color: var(--rarity-elite);
+    border-color: color-mix(in srgb, var(--rarity-elite) 45%, transparent);
+    background: color-mix(in srgb, var(--rarity-elite) 10%, transparent);
+  }
+
+  .modal-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 500;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    background: rgba(5, 7, 10, .82);
+    backdrop-filter: blur(3px);
+  }
+
+  .modal {
+    width: 100%;
+    max-height: 92vh;
+    overflow: auto;
+  }
+
+  .ph-audio {
+    display: inline-flex;
+    align-items: center;
+    gap: 9px;
+    padding: 7px 12px;
+    border: 1px dashed color-mix(in srgb, var(--accent) 55%, var(--border));
+    background: color-mix(in srgb, var(--accent) 6%, transparent);
+    color: var(--accent);
+    cursor: pointer;
+    font-family: var(--font-mono);
+    font-size: 11px;
+  }
+
+  .ph-audio .wave {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    height: 12px;
+  }
+
+  .ph-audio .wave span {
+    width: 2px;
+    height: 4px;
+    background: var(--accent);
+  }
+
+  .ph-audio.playing .wave span {
+    animation: wave-bounce .9s ease-in-out infinite;
+  }
+
+  .ph-audio .wave span:nth-child(2) {
+    animation-delay: .1s;
+  }
+
+  .ph-audio .wave span:nth-child(3) {
+    animation-delay: .2s;
+  }
+
+  .ph-audio .wave span:nth-child(4) {
+    animation-delay: .3s;
+  }
+
+  .ph-audio .wave span:nth-child(5) {
+    animation-delay: .4s;
+  }
+
+  @keyframes wave-bounce {
+
+    0%,
+    100% {
+      height: 3px;
+    }
+
+    50% {
+      height: 13px;
+    }
+  }
+
+  .stamp-mini {
+    display: inline-block;
+    border: 2px solid currentColor;
+    padding: 4px 10px;
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    font-weight: 800;
+    letter-spacing: .08em;
+    transform: rotate(-4deg);
+  }
+
+  .scanlines {
+    pointer-events: none;
+    position: fixed;
+    inset: 0;
+    z-index: 999;
+    background: repeating-linear-gradient(to bottom, rgba(255, 255, 255, .018) 0, rgba(255, 255, 255, .018) 1px, transparent 1px, transparent 3px);
+    mix-blend-mode: overlay;
+    opacity: .5;
+  }
+
+  .noise-vignette {
+    pointer-events: none;
+    position: fixed;
+    inset: 0;
+    z-index: 998;
+    box-shadow: inset 0 0 220px rgba(0, 0, 0, .65);
+  }
+
+  @media (max-width: 900px) {
+    .page {
+      padding: 16px;
+    }
+  }
+</style>
+<style>
+  .drop-page {
+    transition: filter .35s, opacity .35s;
+  }
+
+  .drop-page.is-dimmed {
+    filter: blur(1px);
+    opacity: .42;
+    pointer-events: none;
+  }
+
+  .drop-modal {
+    max-width: 760px;
+  }
+
+  .collect-top {
+    text-align: center;
+    padding: 32px 20px 20px;
+  }
+
+  .collect-rewards {
+    opacity: 0;
+    transform: translateY(12px);
+    pointer-events: none;
+    transition: opacity .35s ease, transform .35s ease;
+  }
+
+  .collect-rewards.show {
+    opacity: 1;
+    transform: translateY(0);
+    pointer-events: auto;
+  }
+
+  .mission-kicker {
+    color: var(--text-dim);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+  }
+
+  .mission-title {
+    margin: 6px 0 0;
+    font-size: 22px;
+  }
+
+  .mission-meta {
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    margin-top: 5px;
+  }
+
+  .success-line {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 14px;
+    color: var(--success);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    letter-spacing: .07em;
+    text-transform: uppercase;
+  }
+
+  .success-line .pulse {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--success);
+    box-shadow: 0 0 10px var(--success);
+  }
+
+  .glitch-flash {
+    position: fixed;
+    inset: 0;
+    background: #fff;
+    opacity: 0;
+    pointer-events: none;
+    z-index: 600;
+  }
+
+  .glitch-flash.fire {
+    animation: flash .25s steps(2);
+  }
+
+  @keyframes flash {
+    0% {
+      opacity: 0;
+    }
+
+    30% {
+      opacity: .9;
+    }
+
+    60% {
+      opacity: 0;
+    }
+
+    80% {
+      opacity: .6;
+    }
+
+    100% {
+      opacity: 0;
+    }
+  }
+
+  .reveal-stage {
+    padding: 0 24px 24px;
+  }
+
+  .reveal-hero {
+    position: relative;
+    text-align: center;
+    padding: 0 0 18px;
+    overflow: hidden;
+  }
+
+  .reveal-hero::before {
+    content: '';
+    position: absolute;
+    width: 360px;
+    height: 190px;
+    left: 50%;
+    top: 5px;
+    transform: translateX(-50%);
+    background: radial-gradient(ellipse, color-mix(in srgb, var(--rarity-phantom) 16%, transparent), transparent 68%);
+    pointer-events: none;
+  }
+
+  .stamp {
+    position: relative;
+    display: inline-block;
+    color: var(--success);
+    border: 3px solid currentColor;
+    padding: 13px 28px;
+    font-family: var(--font-mono);
+    font-size: 29px;
+    font-weight: 800;
+    letter-spacing: .1em;
+    transform: rotate(-4deg) scale(0);
+    transition: transform .35s cubic-bezier(.2, 1.4, .4, 1);
+  }
+
+  .stamp.show {
+    transform: rotate(-4deg) scale(1);
+  }
+
+  .reveal-title {
+    position: relative;
+    margin: 17px 0 4px;
+    font-size: 20px;
+  }
+
+  .reveal-sub {
+    position: relative;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: 12px;
+  }
+
+  .reward-strip {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin: 0 0 16px;
+  }
+
+  .reward-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 7px 10px;
+    border: 1px solid var(--border);
+    background: var(--bg-elevated);
+    font-family: var(--font-mono);
+    font-size: 12px;
+  }
+
+  .reward-chip strong {
+    font-size: 14px;
+  }
+
+  .gear-card,
+  .artifact-card-panel {
+    border: 1px solid var(--border);
+    background: var(--panel-2);
+    padding: 16px;
+    margin-bottom: 12px;
+  }
+
+  .artifact-card-panel {
+    border-color: color-mix(in srgb, var(--rarity-phantom) 35%, var(--border));
+    background: linear-gradient(135deg, color-mix(in srgb, var(--rarity-phantom) 7%, var(--panel-2)), var(--panel-2));
+  }
+
+  .reward-card-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 14px;
+    margin-bottom: 13px;
+  }
+
+  .reward-card-title {
+    font-size: 15px;
+    font-weight: 700;
+  }
+
+  .reward-card-sub {
+    margin-top: 4px;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: 11px;
+  }
+
+  .cache-mark {
+    color: var(--rarity-phantom);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+
+  .artifact-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+  }
+
+  .artifact-card {
+    display: flex;
+    align-items: center;
+    gap: 11px;
+    min-height: 64px;
+    padding: 10px;
+    border: 1px solid var(--border);
+    background: color-mix(in srgb, var(--bg-elevated) 80%, transparent);
+    animation: card-in .35s both;
+  }
+
+  .artifact-card:nth-child(2) {
+    animation-delay: .06s;
+  }
+
+  .artifact-card:nth-child(3) {
+    animation-delay: .12s;
+  }
+
+  .artifact-card:nth-child(4) {
+    animation-delay: .18s;
+  }
+
+  .artifact-card:nth-child(5) {
+    animation-delay: .24s;
+  }
+
+  .artifact-card:nth-child(6) {
+    animation-delay: .30s;
+  }
+
+  .artifact-card:nth-child(7) {
+    animation-delay: .36s;
+  }
+
+  @keyframes card-in {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  .artifact-icon {
+    width: 38px;
+    height: 38px;
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid currentColor;
+    background: color-mix(in srgb, currentColor 8%, transparent);
+  }
+
+  .artifact-name {
+    font-size: 13px;
+    font-weight: 700;
+  }
+
+  .artifact-detail {
+    margin-top: 3px;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+  }
+
+  .artifact-count {
+    margin-left: auto;
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: 13px;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+
+  .cache-note {
+    color: var(--text-dim);
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    line-height: 1.5;
+    margin-top: 12px;
+  }
+
+  .currency-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+
+  .currency-card,
+  .xp-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px;
+    border: 1px solid var(--border);
+    background: var(--bg-elevated);
+  }
+
+  .currency-card .label,
+  .xp-row .label {
+    color: var(--text-muted);
+    font-size: 10px;
+    line-height: 1;
+    margin-bottom: 4px;
+  }
+
+  .currency-card .value,
+  .xp-row .value {
+    font-family: var(--font-mono);
+    font-size: 14px;
+    font-weight: 700;
+  }
+
+  .gear-card .gear-name {
+    font-size: 15px;
+    font-weight: 700;
+  }
+
+  .gear-card .gear-meta {
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    margin-top: 3px;
+  }
+
+  .mod-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 0 0;
+    border-top: 1px solid var(--border);
+    margin-top: 8px;
+    font-size: 12px;
+  }
+
+  .reveal-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-top: 18px;
+  }
+
+  .voice-row {
+    margin-top: 17px;
+    text-align: center;
+  }
+
+  .caption {
+    min-height: 1.5em;
+    margin-top: 8px;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: 12px;
+  }
+
+  .concept-note {
+    margin-top: 20px;
+    padding: 14px 16px;
+    border: 1px dashed var(--border-strong);
+    color: var(--text-muted);
+    font-size: 12px;
+    line-height: 1.55;
+  }
+
+  .concept-note b {
+    color: var(--text);
+  }
+
+  @media (max-width:700px) {
+    .page {
+      padding-left: 14px;
+      padding-right: 14px;
+    }
+
+    .drop-modal {
+      max-height: 95vh;
+    }
+
+    .artifact-grid,
+    .currency-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .reveal-footer {
+      align-items: stretch;
+      flex-direction: column;
+    }
+
+    .reveal-footer .btn {
+      justify-content: center;
+    }
+  }
+</style>
+<div id="app-shell"></div>
+
+<div class="drop-page is-dimmed">
+  <div class="page">
+    <div class="eyebrow">// field report — ready to collect</div>
+    <div class="row between wrap" style="margin:6px 0 20px; gap:12px;">
+      <div>
+        <h1 style="margin:0; font-size:22px;">Ghost Protocol</h1>
+        <div class="text-muted mono" style="font-size:12px; margin-top:5px;">Endgame operation · 30h base duration · 4
+          agents deployed</div>
+      </div>
+      <span class="badge badge-rarity elite">READY TO COLLECT</span>
+    </div>
+    <div class="grid" style="grid-template-columns:1.35fr 1fr; align-items:start;">
+      <div class="frame p-20">
+        <div class="section-title">After-action report</div>
+        <div class="row between" style="margin-bottom:14px;">
+          <span class="stamp-mini text-success">SUCCESS</span>
+          <span class="text-dim mono" style="font-size:11px;">just now</span>
+        </div>
+        <p class="text-muted" style="line-height:1.6; margin:0 0 16px;">Clean extraction. The team came back with more
+          than the brief asked for.</p>
+        <div class="reward-strip">
+          <span class="reward-chip text-cash">+$286,000</span>
+          <span class="reward-chip text-gems">+8 gems</span>
+          <span class="reward-chip text-rarity phantom">Artifact cache · 7</span>
+        </div>
+      </div>
+      <div class="frame p-20">
+        <div class="section-title">Squad status</div>
+        <div class="row between" style="padding:9px 0; border-bottom:1px solid var(--border);"><span>Null</span><span
+            class="text-success mono">+2,840 XP</span></div>
+        <div class="row between" style="padding:9px 0; border-bottom:1px solid var(--border);"><span>Cipher</span><span
+            class="text-success mono">+2,840 XP</span></div>
+        <div class="row between" style="padding:9px 0;"><span>2 other agents</span><span
+            class="text-success mono">+5,680 XP</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="glitch-flash" id="glitch-flash"></div>
+<div class="modal-backdrop">
+  <div class="frame frame-accent modal drop-modal" id="modal">
+    <div class="collect-top">
+      <div class="mission-kicker">Ghost Protocol</div>
+      <div class="stamp text-success" id="stamp">SUCCESS</div>
+      <div class="reveal-sub">30h base duration · endgame tier · 4 agents returned</div>
+      <div class="voice-row">
+        <div class="ph-audio" style="display:inline-flex;"
+          data-caption="Now that's a payday. And something useful besides cash. Don't get used to it."
+          data-caption-target="#relay-cap">
+          <span class="wave"><span></span><span></span><span></span><span></span><span></span></span>
+          <span class="label">▶ voice/collect-success-rare.mp3</span>
+        </div>
+        <div class="caption" id="relay-cap"></div>
+      </div>
+    </div>
+
+    <div class="collect-rewards" id="collect-rewards">
+      <div class="reveal-stage">
+        <div class="currency-grid">
+          <div class="currency-card text-cash">
+            <span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 2v20" />
+                <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
+              </svg></span>
+            <div>
+              <div class="label">Cash</div>
+              <div class="value">+$286,000</div>
+            </div>
+          </div>
+          <div class="currency-card text-gems">
+            <span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round" stroke-linejoin="round">
+                <path d="M6 3h12l4 6-10 13L2 9Z" />
+                <path d="M11 3 8 9l4 13 4-13-3-6" />
+                <path d="M2 9h20" />
+              </svg></span>
+            <div>
+              <div class="label">Gems</div>
+              <div class="value">+8</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="gear-card">
+          <div class="reward-card-head">
+            <div>
+              <div class="gear-name text-rarity elite">Military-Grade Signal Scrambler</div>
+              <div class="gear-meta">Hardware · Lv.12 · +24 base power</div>
+            </div>
+            <span class="badge badge-rarity elite">Elite</span>
+          </div>
+          <div class="mod-row"><span>Power</span><strong class="text-accent">+18</strong></div>
+          <div class="mod-row"><span>Loot</span><strong class="text-accent">+4.8%</strong></div>
+        </div>
+
+        <div class="artifact-card-panel">
+          <div class="reward-card-head">
+            <div>
+              <div class="reward-card-title">Artifact drops <span class="text-rarity phantom">· 5 recovered</span></div>
+              <div class="reward-card-sub">Added to the stacked inventory by trait + rarity.</div>
+            </div>
+            <div class="cache-mark">DROP CONFIRMED</div>
+          </div>
+          <div class="artifact-grid">
+            <div class="artifact-card text-rarity phantom">
+              <div class="artifact-icon"><svg width="19" height="19" viewBox="0 0 24 24" fill="none"
+                  stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M13 2 3 14h9l-1 8 10-12h-9l1-8Z" />
+                </svg></div>
+              <div>
+                <div class="artifact-name">Power Artifact</div>
+                <div class="artifact-detail">Phantom · adds +10 power</div>
+              </div>
+              <div class="artifact-count">×1</div>
+            </div>
+            <div class="artifact-card text-rarity phantom">
+              <div class="artifact-icon"><svg width="19" height="19" viewBox="0 0 24 24" fill="none"
+                  stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M13 2 3 14h9l-1 8 10-12h-9l1-8Z" />
+                </svg></div>
+              <div>
+                <div class="artifact-name">Power % Artifact</div>
+                <div class="artifact-detail">Phantom · adds +5% power</div>
+              </div>
+              <div class="artifact-count">×1</div>
+            </div>
+            <div class="artifact-card text-rarity elite">
+              <div class="artifact-icon"><svg width="19" height="19" viewBox="0 0 24 24" fill="none"
+                  stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M13 2 3 14h9l-1 8 10-12h-9l1-8Z" />
+                </svg></div>
+              <div>
+                <div class="artifact-name">Speed Artifact</div>
+                <div class="artifact-detail">Elite · adds +0.8% speed</div>
+              </div>
+              <div class="artifact-count">×1</div>
+            </div>
+            <div class="artifact-card text-rarity elite">
+              <div class="artifact-icon"><svg width="19" height="19" viewBox="0 0 24 24" fill="none"
+                  stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M13 2 3 14h9l-1 8 10-12h-9l1-8Z" />
+                </svg></div>
+              <div>
+                <div class="artifact-name">XP Artifact</div>
+                <div class="artifact-detail">Elite · adds +5% XP</div>
+              </div>
+              <div class="artifact-count">×1</div>
+            </div>
+            <div class="artifact-card text-rarity elite">
+              <div class="artifact-icon"><svg width="19" height="19" viewBox="0 0 24 24" fill="none"
+                  stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M13 2 3 14h9l-1 8 10-12h-9l1-8Z" />
+                </svg></div>
+              <div>
+                <div class="artifact-name">Gem Chance Artifact</div>
+                <div class="artifact-detail">Elite · adds +0.5% chance</div>
+              </div>
+              <div class="artifact-count">×1</div>
+            </div>
+          </div>
+          <div class="cache-note">Five artifacts recovered. Rarity controls magnitude only; no drop can push a rolled
+            trait beyond its real cap.</div>
+        </div>
+
+        <div class="xp-row">
+          <span class="text-xp"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              stroke-width="2" stroke-linecap="round">
+              <path d="m12 3-1.2 4.8L6 9l4.8 1.2L12 15l1.2-4.8L18 9l-4.8-1.2L12 3Z" />
+              <path d="m19 15-.6 2.4L16 18l2.4.6L19 21l.6-2.4L22 18l-2.4-.6L19 15Z" />
+              <path d="m5 14-.5 2L2.5 17l2 .5L5 19l.5-1.5 2-.5-2-.5L5 14Z" />
+            </svg></span>
+          <div>
+            <div class="label">XP per agent</div>
+            <div class="value text-xp">+2,840</div>
+          </div>
+        </div>
+        <div class="reveal-footer">
+          <a href="agent-upgrade.html" class="btn">Open Agent Upgrades</a>
+          <button class="btn btn-primary" onclick="closeReveal()">Continue</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  function playPlaceholderVoice(triggerEl) {
+    if (triggerEl.classList.contains('playing')) return
+    const caption = document.querySelector(triggerEl.dataset.captionTarget)
+    const text = triggerEl.dataset.caption || ''
+    const label = triggerEl.querySelector('.label')
+    const originalLabel = label ? label.textContent : ''
+    triggerEl.classList.add('playing')
+    if (label) label.textContent = 'PLAYING…'
+    if (!caption) return
+    caption.innerHTML = '<span class="cursor"></span>'
+    let index = 0
+    const timer = setInterval(() => {
+      index += 1
+      caption.innerHTML = `${text.slice(0, index)}<span class="cursor"></span>`
+      if (index >= text.length) {
+        clearInterval(timer)
+        triggerEl.classList.remove('playing')
+        if (label) label.textContent = originalLabel
+      }
+    }, 28)
+  }
+
+  function initializeStandalone() {
+    document.querySelectorAll('.ph-audio[data-caption]').forEach(trigger => {
+      trigger.addEventListener('click', () => playPlaceholderVoice(trigger))
+    })
+    const scanlines = document.createElement('div')
+    scanlines.className = 'scanlines'
+    document.body.appendChild(scanlines)
+    const vignette = document.createElement('div')
+    vignette.className = 'noise-vignette'
+    document.body.appendChild(vignette)
+    playSequence()
+  }
+
+  function playSequence() {
+    const flash = document.getElementById('glitch-flash')
+    const stamp = document.getElementById('stamp')
+    const rewards = document.getElementById('collect-rewards')
+
+    setTimeout(() => {
+      flash.classList.add('fire')
+      setTimeout(() => flash.classList.remove('fire'), 250)
+    }, 100)
+    setTimeout(() => stamp.classList.add('show'), 350)
+    setTimeout(() => rewards.classList.add('show'), 1050)
+  }
+
+  function closeReveal() {
+    document.querySelector('.drop-page').classList.remove('is-dimmed')
+    document.querySelector('.modal-backdrop').style.display = 'none'
+  }
+
+  document.addEventListener('DOMContentLoaded', initializeStandalone)
+</script>
