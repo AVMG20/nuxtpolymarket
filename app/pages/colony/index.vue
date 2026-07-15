@@ -405,12 +405,17 @@ function bugYieldPerCycle(bug: any): string {
             </p>
           </UCard>
 
-          <ColonyTerrariumCanvas
-            :bugs="bugs"
-            :is-starving="isStarving"
-            :has-spare-bugs="!!bugInventory.length"
-            @produced="handleBugProduced"
-          />
+          <ClientOnly>
+            <ColonyTerrariumCanvas
+              :bugs="bugs"
+              :is-starving="isStarving"
+              :has-spare-bugs="!!bugInventory.length"
+              @produced="handleBugProduced"
+            />
+            <template #fallback>
+              <div class="h-[460px] w-full animate-pulse rounded-2xl border border-default bg-elevated" />
+            </template>
+          </ClientOnly>
 
           <div
             class="relative w-full rounded-xl border border-default bg-elevated/40 px-3 py-2.5 flex items-center gap-3"

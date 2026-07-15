@@ -18,11 +18,24 @@ export default defineNuxtConfig({
         betterAuthUrl: process.env.BETTER_AUTH_URL || 'http://localhost:3000',
         devMode: false,
     },
+    // The casino and pirate raid are canvas-heavy, interactive experiences.
+    // Serving their route shells client-only avoids SSR work and keeps their
+    // game engines out of the server rendering path. Economy and account
+    // pages remain SSR-enabled.
+    routeRules: {
+        '/games/**': { ssr: false },
+        '/pirates/**': { ssr: false }
+    },
+
 
     compatibilityDate: '2025-01-15',
 
     nitro: {
         preset: 'bun',
+        // Keep production output focused on warnings and errors. Nitro's
+        // per-file report is useful for bundle analysis, but needlessly makes
+        // routine builds noisy in this app's large server output.
+        logLevel: 2,
         experimental: {
             websocket: true
         },
@@ -35,7 +48,17 @@ export default defineNuxtConfig({
     vite: {
         build: {
             // pixi.js is a WebGL engine only loaded on game pages, not the main bundle
-            chunkSizeWarningLimit: 900
+            chunkSizeWarningLimit: 900,
+            rollupOptions: {
+                onwarn(warning, warn) {
+                    // Both warnings originate in framework dependencies and
+                    // do not affect the generated application bundles.
+                    if (warning.code === 'SOURCEMAP_ERROR' && warning.plugin === 'nuxt:module-preload-polyfill') return
+                    if (warning.code === 'INVALID_ANNOTATION' && warning.id?.includes('@vueuse/core/')) return
+
+                    warn(warning)
+                }
+            }
         },
         // Pre-bundle heavy deps that are only reached via dynamic import() or
         // client-only components. Without this, Vite discovers each one at
@@ -82,5 +105,5 @@ export default defineNuxtConfig({
                 braceStyle: '1tbs'
             }
         }
-    }
+    },
 })
