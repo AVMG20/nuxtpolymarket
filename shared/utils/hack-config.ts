@@ -171,6 +171,53 @@ export function formatTraitValue(type: AgentTraitType, value: number): string {
   return `+${formatPct(value)}%`
 }
 
+// ─── Agent upgrade artifacts (PLAN.md §4) ───────────────────────────────────
+// Each rarity applies a fixed fraction of the trait's gap. Values are stored as
+// exact decimals and clamped at the trait max on apply.
+//
+// gem_chance is the one trait stored as a raw 0-1 fraction (AGENT_TRAIT_RANGES:
+// 0.005-0.05) rather than a plain percentage number like the other percent traits
+// (e.g. power_percent stores "5" for 5%) — its adds must be /100 of the PLAN.md
+// percentage-point table (Ghost +0.1% == 0.001, Phantom +0.9% == 0.009), or a
+// single artifact overshoots the entire 0.005-0.05 range and always maxes the trait.
+export const ARTIFACT_VALUE: Record<AgentTraitType, Record<HackRarity, number>> = {
+  power_flat:    { ghost: 1,     operative: 2,    specialist: 3,    elite: 6,     phantom: 10 },
+  power_percent: { ghost: 0.5,   operative: 1,    specialist: 2,    elite: 3,     phantom: 5 },
+  xp_boost:      { ghost: 1,     operative: 2,    specialist: 3,    elite: 5,     phantom: 9 },
+  speed_percent: { ghost: 0.1,   operative: 0.3,  specialist: 0.4,  elite: 0.8,   phantom: 1.4 },
+  gem_chance:    { ghost: 0.001, operative: 0.002, specialist: 0.003, elite: 0.005, phantom: 0.009 },
+  loot_percent:  { ghost: 0.1,   operative: 0.1,  specialist: 0.2,  elite: 0.3,   phantom: 0.6 },
+  gem_bonus:     { ghost: 0.05,  operative: 0.1,  specialist: 0.15, elite: 0.25,  phantom: 0.4 },
+}
+
+// Formats a raw artifact "add" amount for preview/inventory text. Unlike
+// formatTraitValue (which rounds trait values to whole numbers for the on-agent
+// display), this must never collapse a genuine nonzero add — like gem_bonus's
+// 0.05 Ghost stack — down to a misleading "+0".
+export function formatArtifactAdd(type: AgentTraitType, value: number): string {
+  const trimmed = (v: number) => (Math.round(v * 100) / 100).toString()
+  if (type === 'gem_chance') return `+${trimmed(value * 100)}%`
+  if (type === 'gem_bonus') return `+${trimmed(value)} gems`
+  if (type === 'power_flat') return `+${trimmed(value)} power`
+  if (type === 'power_percent') return `+${trimmed(value)}% power`
+  if (type === 'xp_boost') return `+${trimmed(value)}% XP`
+  return `+${trimmed(value)}%`
+}
+
+export interface ArtifactRoll { type: AgentTraitType; rarity: HackRarity; count: number }
+
+// Per-tier rarity table (PLAN.md §5). Trait type is uniform-random across all 7.
+export function artifactRarityTable(templateId: string): Record<HackRarity, number> | null {
+  // Tier is keyed by the op's position in the money ladder.
+  const idx = OP_TEMPLATES.findIndex(t => t.id === templateId)
+  if (idx === -1) return null
+  if (idx <= 3) return { ghost: 60, operative: 30, specialist: 10, elite: 0, phantom: 0 }
+  if (idx <= 7) return { ghost: 0, operative: 60, specialist: 30, elite: 10, phantom: 0 }
+  if (idx <= 11) return { ghost: 0, operative: 0, specialist: 60, elite: 30, phantom: 10 }
+  if (idx <= 15) return { ghost: 0, operative: 0, specialist: 60, elite: 30, phantom: 10 }
+  return { ghost: 0, operative: 0, specialist: 0, elite: 60, phantom: 40 }
+}
+
 function generateAgentTraits(rarity: HackRarity): AgentTrait[] {
   const count = AGENT_TRAIT_COUNT[rarity]
   const available = [...ALL_TRAIT_TYPES]
@@ -593,7 +640,7 @@ export function opSuccessChance(totalPower: number, minPower: number): number {
 /** Ops below this success chance can't be deployed (but are still shown). */
 export const MIN_DEPLOY_SUCCESS = 0.01
 
-export interface OpReward { success: boolean; cash: number; gems: number; item: HackItemDef | null; inventoryFull: boolean }
+export interface OpReward { success: boolean; cash: number; gems: number; item: HackItemDef | null; inventoryFull: boolean; artifacts: ArtifactRoll[] }
 
 // ─── Loot ─────────────────────────────────────────────────────────────────────
 // Loot is computed per agent (own gear loot mods + class passive + loot traits) and
@@ -647,9 +694,14 @@ export function collectBonuses(agents: RewardAgent[]) {
              + allTraits.filter(t => t.type === 'gem_chance').reduce((s, t) => s + t.value, 0)
              + agents.reduce((s, a) => s + (CLASS_PASSIVE[a.class].type === 'gem_chance' ? CLASS_PASSIVE[a.class].value : 0), 0),
     // Flat extra gems from the Bonus Gems trait + Bonus Gems gear mod — only paid out
-    // when the op rolls gems (never creates gems on a gem-less op).
-    gemBonus:  allTraits.filter(t => t.type === 'gem_bonus').reduce((s, t) => s + t.value, 0)
-             + allItemMods.filter(m => m.type === 'gem_bonus').reduce((s, m) => s + m.value, 0),
+    // when the op rolls gems (never creates gems on a gem-less op). Rounded here, the
+    // one place every consumer (payout + preview) reads from: gear mods always roll
+    // whole, but a Bonus Gems Artifact accumulates in fractional steps (PLAN.md §4) and
+    // gems are never fractional anywhere else in the game.
+    gemBonus:  Math.round(
+      allTraits.filter(t => t.type === 'gem_bonus').reduce((s, t) => s + t.value, 0)
+      + allItemMods.filter(m => m.type === 'gem_bonus').reduce((s, m) => s + m.value, 0)
+    ),
     // Extra item-drop chance from Item Find gear mods, added on top of the op's base.
     itemChance: allItemMods.filter(m => m.type === 'item_chance').reduce((s, m) => s + m.value, 0),
     // Modest reward bonus for leveling agents — endgame full squad ≈ +32%.
@@ -691,7 +743,7 @@ export function rollOpReward(
   const bonuses = collectBonuses(agents)
 
   if (!success) {
-    return { success: false, cash: 0, gems: 0, item: null, inventoryFull: false }
+    return { success: false, cash: 0, gems: 0, item: null, inventoryFull: false, artifacts: [] }
   }
   const [minCash, maxCash] = effectiveCashRange(template, bonuses)
   const cash = Math.round(minCash + Math.random() * (maxCash - minCash))
@@ -710,7 +762,26 @@ export function rollOpReward(
   const item = wouldDropItem && !inventoryFull
     ? generateItem(template.itemDropRarity)
     : null
-  return { success: true, cash, gems, item, inventoryFull: wouldDropItem && inventoryFull }
+
+  // Artifact drops scale with base op duration (PLAN.md §5). Project Zero drops none.
+  const artifacts: ArtifactRoll[] = []
+  if (template.id !== 'project_zero') {
+    const baseHours = template.durationMs / 3_600_000
+    const expected = 0.25 * baseHours
+    const count = Math.max(0, Math.floor(expected + Math.random()))
+    const rarityWeights = artifactRarityTable(template.id)
+    if (count > 0 && rarityWeights) {
+      for (let i = 0; i < count; i++) {
+        const rarity = rollRarity(rarityWeights)
+        const type = ALL_TRAIT_TYPES[Math.floor(Math.random() * ALL_TRAIT_TYPES.length)]!
+        const existing = artifacts.find(a => a.type === type && a.rarity === rarity)
+        if (existing) existing.count += 1
+        else artifacts.push({ type, rarity, count: 1 })
+      }
+    }
+  }
+
+  return { success: true, cash, gems, item, inventoryFull: wouldDropItem && inventoryFull, artifacts }
 }
 
 export function rollRarity(weights: Record<HackRarity, number>): HackRarity {

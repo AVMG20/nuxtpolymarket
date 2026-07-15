@@ -99,6 +99,7 @@ const collectResult = ref<{
   xpPerAgent: number
   item: { name: string, slot: ItemSlot, itemLevel: number, rarity: HackRarity, mods: ItemMod[] } | null
   inventoryFull: boolean
+  artifacts: Array<{ type: string, rarity: string, count: number }>
   levelUps: Array<{ agentId: string, agentName: string, newLevel: number }>
   templateName: string
   icon: string

@@ -1,6 +1,6 @@
 import { eq, and, inArray, sql } from 'drizzle-orm'
 import { db } from '#server/database'
-import { hackAgents, hackItems, hackOps, hackHistory, hackState, user } from '#server/database/schema'
+import { hackAgents, hackArtifacts, hackItems, hackOps, hackHistory, hackState, user } from '#server/database/schema'
 import { auth } from '#server/utils/auth'
 import { credit } from '#server/utils/balance'
 import {
@@ -99,6 +99,20 @@ export default defineEventHandler(async (event) => {
     droppedItem = newItem
   }
 
+  // Add rolled artifacts to the stacked (traitType, rarity) inventory.
+  if (reward.artifacts?.length) {
+    for (const roll of reward.artifacts) {
+      const existing = await db.query.hackArtifacts.findFirst({
+        where: and(eq(hackArtifacts.userId, userId), eq(hackArtifacts.traitType, roll.type), eq(hackArtifacts.rarity, roll.rarity))
+      })
+      if (existing) {
+        await db.update(hackArtifacts).set({ count: existing.count + roll.count }).where(eq(hackArtifacts.id, existing.id))
+      } else {
+        await db.insert(hackArtifacts).values({ userId, traitType: roll.type, rarity: roll.rarity, count: roll.count })
+      }
+    }
+  }
+
   await db.update(hackOps).set({ collected: true, reward }).where(eq(hackOps.id, opId))
 
   // Log the outcome and bump the lifetime ops-done counter (used by the leaderboard).
@@ -127,6 +141,7 @@ export default defineEventHandler(async (event) => {
     xpPerAgent: reportXp,
     item: droppedItem ?? null,
     inventoryFull: reward.inventoryFull,
+    artifacts: reward.artifacts,
     levelUps,
   }
 })

@@ -1,6 +1,6 @@
 import { eq, and } from 'drizzle-orm'
 import { db } from '#server/database'
-import { hackState, hackAgents, hackItems, hackOps } from '#server/database/schema'
+import { hackState, hackAgents, hackArtifacts, hackItems, hackOps } from '#server/database/schema'
 import { auth } from '#server/utils/auth'
 import {
   OP_TEMPLATES, AGENT_PULL_TIERS, ITEM_PULL_TIERS, ROSTER_EXPAND_COSTS, MAX_ROSTER_SLOTS,
@@ -24,10 +24,11 @@ export default defineEventHandler(async (event) => {
     await db.insert(hackAgents).values({ userId, ...def })
   }
 
-  const [agents, items, activeOps] = await Promise.all([
+  const [agents, items, activeOps, artifacts] = await Promise.all([
     db.query.hackAgents.findMany({ where: eq(hackAgents.userId, userId) }),
     db.query.hackItems.findMany({ where: eq(hackItems.userId, userId) }),
     db.query.hackOps.findMany({ where: and(eq(hackOps.userId, userId), eq(hackOps.collected, false)) }),
+    db.query.hackArtifacts.findMany({ where: eq(hackArtifacts.userId, userId) }),
   ])
 
   const busyAgentIds = new Set(activeOps.flatMap(op => op.agentIds as string[]))
@@ -126,5 +127,6 @@ export default defineEventHandler(async (event) => {
     opTemplates: opTemplatesOut,
     agentPullTiers: AGENT_PULL_TIERS,
     itemPullTiers: ITEM_PULL_TIERS,
+    artifacts: artifacts.map(a => ({ id: a.id, traitType: a.traitType, rarity: a.rarity as HackRarity, count: a.count })),
   }
 })

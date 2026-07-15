@@ -243,9 +243,57 @@ function onDropOnBay(slot: ItemSlot) {
 </script>
 
 <template>
-  <div class="flex h-full min-h-0">
-    <!-- ── Roster rail (desktop) ──────────────────────────────────── -->
-    <div class="hidden lg:block w-64 shrink-0 overflow-y-auto p-3">
+  <div class="p-6 pb-12 overflow-y-auto h-full">
+    <div class="flex items-start justify-between flex-wrap gap-3 mb-6">
+      <div>
+        <h1 class="text-2xl font-bold">
+          Loadout
+        </h1>
+        <p class="text-sm text-muted mt-0.5">
+          Equip gear and compare before/after stats.
+        </p>
+      </div>
+      <div class="flex items-center gap-2">
+        <UButton
+          color="neutral"
+          variant="outline"
+          icon="i-lucide-users"
+          label="Back to Agents"
+          to="/hack/agents"
+        />
+        <div class="flex items-center gap-2 lg:hidden">
+          <UButton
+            icon="i-lucide-users"
+            label="Roster"
+            variant="soft"
+            color="neutral"
+            size="sm"
+            @click="mobileRosterOpen = true"
+          />
+          <UButton
+            icon="i-lucide-package"
+            label="Inventory"
+            variant="soft"
+            color="neutral"
+            size="sm"
+            @click="mobileInventoryOpen = true"
+          />
+        </div>
+      </div>
+    </div>
+
+    <div
+      v-if="!state"
+      class="grid grid-cols-1"
+    >
+      <USkeleton class="h-96 rounded-xl" />
+    </div>
+
+    <div
+      v-else
+      class="grid grid-cols-1 xl:grid-cols-[280px_1fr_380px] gap-6 items-start"
+    >
+      <!-- ── Roster sidebar ─────────────────────────────────────────── -->
       <HackFrame class="py-1.5 pb-2">
         <template v-if="state?.agents.length">
           <div class="px-3.5 pt-2.5 pb-1.5 flex items-center justify-between gap-2">
@@ -320,48 +368,10 @@ function onDropOnBay(slot: ItemSlot) {
           </button>
         </template>
       </HackFrame>
-    </div>
 
-    <!-- ── Main: operator card ───────────────────────────────────── -->
-    <div class="flex-1 min-w-0 overflow-y-auto p-6 space-y-6 pb-12">
-      <div class="flex items-center justify-between flex-wrap gap-3">
-        <div>
-          <h1 class="text-2xl font-bold">
-            Loadout
-          </h1>
-          <p class="text-sm text-muted mt-0.5">
-            Equip gear and compare before/after stats.
-          </p>
-        </div>
-        <div class="flex items-center gap-2 lg:hidden">
-          <UButton
-            icon="i-lucide-users"
-            label="Roster"
-            variant="soft"
-            color="neutral"
-            size="sm"
-            @click="mobileRosterOpen = true"
-          />
-          <UButton
-            icon="i-lucide-package"
-            label="Inventory"
-            variant="soft"
-            color="neutral"
-            size="sm"
-            @click="mobileInventoryOpen = true"
-          />
-        </div>
-      </div>
-
+      <!-- ── Center: operator card ───────────────────────────────────── -->
       <div
-        v-if="!state"
-        class="grid grid-cols-1"
-      >
-        <USkeleton class="h-96 rounded-xl" />
-      </div>
-
-      <div
-        v-else-if="!selectedAgent"
+        v-if="!selectedAgent"
         class="text-center py-16 text-muted"
       >
         <UIcon
@@ -374,7 +384,7 @@ function onDropOnBay(slot: ItemSlot) {
       <HackFrame
         v-else
         accent
-        class="p-6 max-w-2xl mx-auto"
+        class="p-6"
       >
         <div class="text-center mb-6">
           <HackAgentAvatar
@@ -498,10 +508,8 @@ function onDropOnBay(slot: ItemSlot) {
           </div>
         </div>
       </HackFrame>
-    </div>
 
-    <!-- ── Inventory rail (desktop) ─────────────────────────────── -->
-    <div class="hidden lg:block w-96 shrink-0 overflow-y-auto p-3">
+      <!-- ── Inventory sidebar ─────────────────────────────────────── -->
       <HackFrame class="p-4">
         <h2 class="hack-stat-label-md mb-3">
           Inventory <span class="text-muted normal-case tracking-normal">— {{ filteredItems.length }} shown / {{ state?.inventoryCount ?? 0 }} total</span>
@@ -768,3 +776,4 @@ function onDropOnBay(slot: ItemSlot) {
     </template>
   </UModal>
 </template>
+
