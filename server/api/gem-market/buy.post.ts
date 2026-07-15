@@ -15,6 +15,7 @@ export default defineEventHandler(async (event) => {
     }
 
     const userId = session.user.id
+    let tradeResult: { cost: number, newPrice: number } | null = null
 
     await db.transaction(async (tx) => {
         // Acquire an exclusive row lock on the market state before reading the price.
@@ -25,6 +26,7 @@ export default defineEventHandler(async (event) => {
 
         const livePrice = gemComputeLivePrice(parseFloat(state.price), state.lastUpdatedAt)
         const { cost, newPrice } = gemBuyGems(livePrice, gems)
+        tradeResult = { cost, newPrice }
 
         // Lock the user row so the balance check and debit are atomic with the gem grant.
         const [currentUser] = await tx.select({ balance: user.balance })
@@ -56,5 +58,5 @@ export default defineEventHandler(async (event) => {
             })
     })
 
-    return { ok: true }
+    return { ok: true, action: 'buy' as const, gems, ...tradeResult! }
 })

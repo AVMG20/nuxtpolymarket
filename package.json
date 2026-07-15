@@ -4,7 +4,8 @@
   "type": "module",
   "scripts": {
     "build": "nuxt build",
-    "dev": "bun --bun run nuxt dev",
+    "dev": "nuxt dev",
+    "db:push": "drizzle-kit push",
     "preview": "nuxt preview",
     "postinstall": "nuxt prepare",
     "lint": "eslint .",

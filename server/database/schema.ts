@@ -507,6 +507,32 @@ export const chatMentions = pgTable('chat_mentions', {
   createdAt: timestamp('created_at').defaultNow().notNull()
 }, t => [index('chat_mentions_userId_idx').on(t.userId)])
 
+// ─── AI assistant ───────────────────────────────────────────────────────────
+
+export const aiConversations = pgTable('ai_conversations', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  title: text('title').notNull().default('New chat'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  deletedAt: timestamp('deleted_at')
+}, t => [index('ai_conversations_userId_updatedAt_idx').on(t.userId, t.updatedAt)])
+
+export const aiMessages = pgTable('ai_messages', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  conversationId: text('conversation_id').notNull().references(() => aiConversations.id, { onDelete: 'cascade' }),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  role: text('role').notNull(),
+  content: text('content').notNull().default(''),
+  toolCalls: jsonb('tool_calls'),
+  toolCallId: text('tool_call_id'),
+  toolName: text('tool_name'),
+  createdAt: timestamp('created_at').defaultNow().notNull()
+}, t => [
+  index('ai_messages_conversationId_createdAt_idx').on(t.conversationId, t.createdAt),
+  index('ai_messages_userId_role_createdAt_idx').on(t.userId, t.role, t.createdAt)
+])
+
 export const chatMessagesRelations = relations(chatMessages, ({ one }) => ({
   user: one(user, { fields: [chatMessages.userId], references: [user.id] })
 }))
