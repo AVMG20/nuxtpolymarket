@@ -27,7 +27,7 @@ logs
 *.har
 
 # Game design docs & prototype art — kept local, not versioned
-# docs/games
+docs/games
 
 # Python bytecode cache (balance sim scripts under docs/games)
 __pycache__
