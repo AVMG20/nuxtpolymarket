@@ -46,7 +46,53 @@ export const AI_TOOLS: OpenRouterTool[] = [
         type: 'function',
         function: {
             name: 'get_player_overview',
-            description: 'Read a compact live overview of the player\'s Xeno, Colony, Hack Ops, Miner, and Gem Market state. This does not mutate game state.',
+            description: 'Read a compact live overview of the player\'s Xeno, Colony, Hack Ops, Miner, and Gem Market state. For bank balances, rates, debt, or loan room, use get_bank_status. This does not mutate game state.',
+            parameters: { type: 'object', properties: {}, additionalProperties: false }
+        }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'get_bank_status',
+            description: 'Read the player\'s live bank balance, savings rate, debt rate, wallet-independent total deposited, and remaining loan room. Use this before advising on or making a bank transfer.',
+            parameters: { type: 'object', properties: {}, additionalProperties: false }
+        }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'deposit_to_bank',
+            description: 'Move a positive amount of coins from the player\'s wallet into the bank. Deposits repay active bank debt first; any remainder becomes savings. The server checks the live wallet balance.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    amount: { type: 'number', exclusiveMinimum: 0, maximum: 100000000000000, description: 'Positive coin amount to deposit from the wallet.' }
+                },
+                required: ['amount'],
+                additionalProperties: false
+            }
+        }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'withdraw_from_bank',
+            description: 'Move a positive amount of coins from the bank to the player\'s wallet. A withdrawal above available savings automatically uses remaining loan allowance and can make the bank balance negative. The server enforces all loan and debt limits.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    amount: { type: 'number', exclusiveMinimum: 0, maximum: 100000000000000, description: 'Positive coin amount to withdraw, including any desired loan amount.' }
+                },
+                required: ['amount'],
+                additionalProperties: false
+            }
+        }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'repay_bank_debt',
+            description: 'Repay the exact current bank debt from the player\'s wallet and return the bank balance to zero. The server settles the debt immediately before calculating the exact repayment amount.',
             parameters: { type: 'object', properties: {}, additionalProperties: false }
         }
     },
@@ -755,6 +801,24 @@ export async function executeAiTool(event: H3Event, toolCall: AiToolCall): Promi
     switch (toolCall.function.name) {
         case 'get_player_overview':
             return getOverview(event)
+        case 'get_bank_status':
+            return event.$fetch('/api/bank/state', { headers })
+        case 'deposit_to_bank': {
+            const amount = Number(args.amount)
+            if (!Number.isFinite(amount) || amount <= 0 || amount > 100_000_000_000_000) {
+                throw createError({ statusCode: 400, statusMessage: 'Enter a valid positive bank deposit amount' })
+            }
+            return event.$fetch('/api/bank/deposit', { method: 'POST', headers, body: { amount } })
+        }
+        case 'withdraw_from_bank': {
+            const amount = Number(args.amount)
+            if (!Number.isFinite(amount) || amount <= 0 || amount > 100_000_000_000_000) {
+                throw createError({ statusCode: 400, statusMessage: 'Enter a valid positive bank withdrawal amount' })
+            }
+            return event.$fetch('/api/bank/withdraw', { method: 'POST', headers, body: { amount } })
+        }
+        case 'repay_bank_debt':
+            return event.$fetch('/api/bank/deposit', { method: 'POST', headers, body: { repayDebt: true } })
         case 'collect_colony_loot':
             return event.$fetch('/api/colony/loot/collect', { method: 'POST', headers })
         case 'run_colony_dailies':

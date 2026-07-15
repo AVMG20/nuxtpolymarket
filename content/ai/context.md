@@ -16,6 +16,16 @@ Keep this file compact and current. It is injected into the AI system prompt. So
 
 Polynux has idle/economy games (Miner, Xeno, Colony, Hack Ops), Pirate Raid, a player-priced Gem Market, and casino games. Coins are the main currency. Gems buy premium upgrades and are produced in limited ways. Protected APIs authenticate the signed-in user and enforce all costs, timers, inventory ownership, and rewards server-side.
 
+## Bank
+
+The Bank is a virtual-coin savings and loan account that settles continuously from server time. Always use `get_bank_status` for a live balance, rate, total deposited, and loan room before giving bank advice or proposing a bank action.
+
+- A positive bank balance earns an exponential daily rate from 2% to 4%; the maximum rate is reached at 1B coins. Interest compounds continuously, so partial-day earnings are proportional to elapsed time.
+- A negative bank balance is debt and grows at a flat 7% daily. Debt cannot grow beyond 10 times the amount originally borrowed for that loan.
+- `deposit_to_bank` moves wallet coins into the Bank. It repays debt before adding any remaining amount as savings. `repay_bank_debt` settles first, then deposits the exact amount needed to return the Bank to zero.
+- `withdraw_from_bank` moves Bank coins to the wallet. It may pass below zero: the excess becomes a loan automatically. Total loan principal is limited to 10 times the player's high-water mark of own deposited savings; cycling deposits and withdrawals cannot inflate that record. The server is authoritative for every wallet, loan, and debt limit.
+- Never call a bank mutation just to check what is possible. Explain whether a requested withdrawal will enter debt, use live tool data, and do not describe savings or debt as real money.
+
 ## Xeno
 
 Plants are inventory instances with type, speed level, and yield level. Planting consumes an inventory instance into a grid slot. Harvesting consumes that planted instance and produces `1 + random(0..yield)` new instances. Keep one instance to replant; expected sellable surplus per cycle is `yield / 2`. Speed cuts grow time by 10% per level, capped at 80%.
