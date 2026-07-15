@@ -601,8 +601,13 @@ export function agentPower(
 // ~56% is the natural ceiling a perfect agent can reach: a maxed infiltrator with
 // three 12% speed items (36%) + the 10% class passive + a 10% speed trait = 56%.
 // Squad-wide floor on the remaining time: even a perfect 4-agent team can't drop an
-// op below (1 - this) of its base duration, keeping long endgame ops meaningful.
-export const MAX_TOTAL_SPEED = 0.65
+// op below (1 - this) of its base duration. A genuinely maxed 4-agent squad's own
+// per-agent multiplication already lands under this floor (0.44^4 ≈ 3.75%), so the
+// floor — not per-agent speed — is what actually gates the endgame ceiling: at 0.93
+// a 30h Ghost Protocol run bottoms out around 2h for a fully invested squad, while a
+// good-but-not-maxed squad (e.g. ~30% per agent) still sits around 7h. Reaching the
+// floor requires real investment across the whole roster, not a single stacked agent.
+export const MAX_TOTAL_SPEED = 0.93
 
 export interface AgentLoadout {
   class: AgentClass
@@ -627,7 +632,8 @@ export function effectiveDurationMs(template: OpTemplate, agents: AgentLoadout[]
   // returns, so stacking agents can't trivialise long ops.
   let factor = 1
   for (const agent of agents) factor *= (1 - agentSpeedPercent(agent))
-  // Never go below 35% of the base duration, no matter how stacked the squad is.
+  // Never go below (1 - MAX_TOTAL_SPEED) of the base duration, no matter how stacked
+  // the squad is.
   return Math.round(template.durationMs * Math.max(factor, 1 - MAX_TOTAL_SPEED))
 }
 
