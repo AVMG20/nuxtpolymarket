@@ -1,7 +1,7 @@
 import { Application, Assets, Container, Graphics, Sprite, Text, Circle, type Texture } from 'pixi.js'
 import gsap from 'gsap'
 import {
-    PIRATE_RUN_DURATION_MS,
+    PIRATE_RUN_DURATION_MS, PIRATE_TIMELINE_SCALE, PIRATE_LATE_BOSS_PHASE_MS,
     PIRATE_TREASURE_MIN_INTERVAL_MS, PIRATE_TREASURE_MAX_INTERVAL_MS, PIRATE_TREASURE_LIFESPAN_MS,
     PIRATE_POWER_UP_INTERVAL_MS, PIRATE_POWER_UP_LIFESPAN_MS,
     PIRATE_HEALTH_PACK_INTERVAL_MS, PIRATE_HEALTH_PACK_LIFESPAN_MS,
@@ -17,7 +17,7 @@ import {
     pirateTreasureReward, pirateRollAttack, pirateRewardMultiplier, pirateBossFirstSpawnMs,
     pirateInitialEnemyCount, pirateSpawnBatchSize,
     pirateSeaMineDamageFraction,
-    pirateEnemyReloadMultiplier,
+    pirateEnemyReloadMultiplier, pirateMaxPayoutForRun,
     PIRATE_SHIP_SKINS, PIRATE_POWER_UPS, pirateAbility,
     type PirateEnemyTier, type PirateAbilityId, type PiratePowerUpId, type PiratePowerUpDefinition
 } from '#shared/utils/gamelogic/pirates'
@@ -265,6 +265,7 @@ export class PirateGame {
     private msOutOfCombat = 0
     private regenTickMs = 0
     private coins = 0
+    private rawCoins = 0
     private ammo = 0
     private gemAmmo = 0
     private ammoStart = 0
@@ -467,12 +468,13 @@ export class PirateGame {
         this.msOutOfCombat = 0
         this.regenTickMs = 0
         this.coins = 0
+        this.rawCoins = 0
         this.ammo = stats.ammo
         this.gemAmmo = stats.gemAmmo
         this.ammoStart = stats.ammo
         this.gemAmmoStart = stats.gemAmmo
         this.preferGem = false
-        this.cannons = stats.cannons.map(c => ({ ...c, reloadTimer: randRange(0, c.reloadMs * 0.5) }))
+        this.cannons = stats.cannons.map(c => ({ ...c, reloadTimer: randRange(0, c.reloadMs * 0.5 * PIRATE_TIMELINE_SCALE) }))
         this.maxCannonRange = this.cannons.reduce((max, c) => Math.max(max, c.range), 220)
         this.elapsedMs = 0
         this.attackTargetId = null
@@ -876,6 +878,7 @@ export class PirateGame {
         const dt = deltaMS / 1000
         this.elapsedMs += deltaMS
         this.timeSec += dt
+        this.syncBankableCoins()
         if (this.playerAbilityCooldownMs > 0) {
             this.playerAbilityCooldownMs = Math.max(0, this.playerAbilityCooldownMs - deltaMS)
             this.abilityHudTimerMs -= deltaMS
@@ -897,6 +900,29 @@ export class PirateGame {
         this.updateIdleMotion()
 
         if (this.elapsedMs >= this.runDurationMs) this.endGame(true, 'timeout')
+    }
+
+    /**
+     * Keep the visible and reported loot aligned with the server's payout
+     * ceiling. Raw drops remain accumulated behind the scenes, allowing more
+     * of an already-earned haul to become bankable as playtime advances.
+     */
+    private syncBankableCoins() {
+        const gemAmmoUsed = this.gemAmmoStart - this.gemAmmo
+        const bankableCoins = Math.min(
+            this.rawCoins,
+            pirateMaxPayoutForRun(this.elapsedMs, this.difficulty, gemAmmoUsed)
+        )
+        if (bankableCoins === this.coins) return
+        this.coins = bankableCoins
+        this.callbacks.onCoinsChange(this.coins)
+    }
+
+    private addRawCoins(amount: number) {
+        const previouslyBanked = this.coins
+        this.rawCoins += amount
+        this.syncBankableCoins()
+        return this.coins - previouslyBanked
     }
 
     /** Reset the out-of-combat timer — call on any combat action (taking a hit or firing a shot). */
@@ -1049,7 +1075,7 @@ export class PirateGame {
             const target = this.pickCannonTarget(cannon)
             if (!target) continue
             const reloadMult = Math.max(0.35, 1 - this.powerUpStack('quick-fuse') * 0.2 - this.powerUpStack('rapid-loader') * 0.1)
-            cannon.reloadTimer = cannon.reloadMs * reloadMult
+            cannon.reloadTimer = cannon.reloadMs * reloadMult * PIRATE_TIMELINE_SCALE
             this.enterCombat()
             this.fireCannonAtEnemy(cannon, target)
         }
@@ -1085,7 +1111,7 @@ export class PirateGame {
                 this.useEnemyAbility(enemy)
                 enemy.abilityTimer = enemy.tier.boss
                     ? randRange(PIRATE_BOSS_ABILITY_COOLDOWN_MIN_MS, PIRATE_BOSS_ABILITY_COOLDOWN_MAX_MS)
-                    : randRange(7600, 11_500)
+                    : randRange(7600 * PIRATE_TIMELINE_SCALE, 11_500 * PIRATE_TIMELINE_SCALE)
             }
             const d = dist(enemy.x, enemy.y, this.playerX, this.playerY)
             const desiredAngle = Math.atan2(this.playerY - enemy.y, this.playerX - enemy.x)
@@ -1121,7 +1147,7 @@ export class PirateGame {
                 enemy.angle = lerpAngle(enemy.angle, desiredAngle, ROTATE_LERP)
                 enemy.reloadTimer -= deltaMS
                 if (enemy.reloadTimer <= 0) {
-                    enemy.reloadTimer = enemy.tier.reloadMs * pirateEnemyReloadMultiplier(this.elapsedMs, this.difficulty)
+                    enemy.reloadTimer = enemy.tier.reloadMs * pirateEnemyReloadMultiplier(this.elapsedMs, this.difficulty) * PIRATE_TIMELINE_SCALE
                     this.enemyFire(enemy)
                 }
             }
@@ -1181,9 +1207,9 @@ export class PirateGame {
         // Dreadnoughts run on their own clock, outside the concurrency cap.
         // Only higher difficulty tiers add a second simultaneous boss in the
         // final minute; low tiers remain completable with a strong ship.
-        const lateBossPhase = this.elapsedMs >= 7 * 60_000
+        const lateBossPhase = this.elapsedMs >= PIRATE_LATE_BOSS_PHASE_MS
         const bossCap = lateBossPhase && this.difficulty >= PIRATE_DOUBLE_BOSS_DIFFICULTY ? 2 : 1
-        if (lateBossPhase && this.bossCount < bossCap) this.bossTimerMs = Math.min(this.bossTimerMs, 12_000)
+        if (lateBossPhase && this.bossCount < bossCap) this.bossTimerMs = Math.min(this.bossTimerMs, 12_000 * PIRATE_TIMELINE_SCALE)
         if (this.bossCount < bossCap) {
             this.bossTimerMs -= deltaMS
             if (this.bossTimerMs <= 0) {
@@ -1194,7 +1220,7 @@ export class PirateGame {
                     this.callbacks.onBossSpawn?.(bossTier.name)
                     this.shake(7)
                 }
-                this.bossTimerMs = lateBossPhase ? 28_000 : PIRATE_BOSS_RESPAWN_MS
+                this.bossTimerMs = lateBossPhase ? 28_000 * PIRATE_TIMELINE_SCALE : PIRATE_BOSS_RESPAWN_MS
             }
         }
     }
@@ -2032,12 +2058,13 @@ export class PirateGame {
         const stacks = Math.min(this.combo - 1, PIRATE_COMBO_MAX_STACKS)
         const bonus = Math.round(baseReward * stacks * PIRATE_COMBO_BONUS_PER_STACK)
         const reward = baseReward + bonus
-        this.coins += reward
-        this.callbacks.onCoinsChange(this.coins)
-        this.callbacks.onKill?.(enemy.tier.name, reward)
+        const bankedReward = this.addRawCoins(reward)
+        this.callbacks.onKill?.(enemy.tier.name, bankedReward)
         if (this.combo > 1) this.callbacks.onCombo?.(this.combo)
 
-        this.spawnDamagePopup(`enemy-${enemy.id}`, enemy.x, enemy.y - 14, `+${reward}`, 0xfde047, false)
+        if (bankedReward > 0) {
+            this.spawnDamagePopup(`enemy-${enemy.id}`, enemy.x, enemy.y - 14, `+${bankedReward}`, 0xfde047, false)
+        }
         if (stacks > 0) {
             this.spawnDamagePopup(`combo`, enemy.x, enemy.y - 62, `COMBO x${this.combo}`, 0xf97316, true)
         }
@@ -2052,7 +2079,7 @@ export class PirateGame {
 
         if (enemy.tier.boss) {
             this.bossCount = Math.max(0, this.bossCount - 1)
-            this.bossTimerMs = this.elapsedMs >= 7 * 60_000 ? 12_000 : PIRATE_BOSS_RESPAWN_MS
+            this.bossTimerMs = this.elapsedMs >= PIRATE_LATE_BOSS_PHASE_MS ? 12_000 * PIRATE_TIMELINE_SCALE : PIRATE_BOSS_RESPAWN_MS
             // A kill this big deserves fireworks.
             this.spawnExplosion(enemy.x, enemy.y, 0xdc2626, true)
             this.spawnExplosion(enemy.x + randRange(-24, 24), enemy.y + randRange(-24, 24), 0xfbbf24, true)
@@ -2184,9 +2211,10 @@ export class PirateGame {
 
     private collectTreasure(tr: Treasure) {
         this.treasure = null
-        this.coins += tr.reward
-        this.callbacks.onCoinsChange(this.coins)
-        this.spawnDamagePopup('treasure', tr.x, tr.y - 14, `+${tr.reward}`, 0xfde047, true)
+        const bankedReward = this.addRawCoins(tr.reward)
+        if (bankedReward > 0) {
+            this.spawnDamagePopup('treasure', tr.x, tr.y - 14, `+${bankedReward}`, 0xfde047, true)
+        }
         this.spawnSplash(tr.x, tr.y)
         gsap.killTweensOf(tr.root)
         gsap.to(tr.root.scale, { x: 1.6, y: 1.6, duration: 0.25, ease: 'power2.out' })
@@ -2825,10 +2853,10 @@ export class PirateGame {
             x,
             y,
             angle: Math.atan2(this.playerY - y, this.playerX - x),
-            reloadTimer: randRange(300, tier.reloadMs * pirateEnemyReloadMultiplier(this.elapsedMs, this.difficulty)),
+            reloadTimer: randRange(300 * PIRATE_TIMELINE_SCALE, tier.reloadMs * pirateEnemyReloadMultiplier(this.elapsedMs, this.difficulty) * PIRATE_TIMELINE_SCALE),
             abilityTimer: tier.boss
                 ? randRange(PIRATE_BOSS_ABILITY_INITIAL_MIN_MS, PIRATE_BOSS_ABILITY_INITIAL_MAX_MS)
-                : randRange(4200, 7200),
+                : randRange(4200 * PIRATE_TIMELINE_SCALE, 7200 * PIRATE_TIMELINE_SCALE),
             speed: tier.speed,
             defense: Math.max(1, Math.round(tier.defense * diff.statMult)),
             attackRating: Math.max(1, Math.round(tier.attackRating * diff.statMult)),

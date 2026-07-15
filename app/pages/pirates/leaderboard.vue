@@ -22,7 +22,7 @@ const rankStyles = [
           Pirate Raid Hall of Captains
         </h1>
         <p class="mt-0.5 text-sm text-muted">
-          Ranked by the highest eight-minute difficulty completed. Failed and abandoned voyages never enter the board.
+          Ranked by the highest six-minute difficulty completed. Failed and abandoned voyages never enter the board.
         </p>
       </div>
     </div>
@@ -82,7 +82,7 @@ const rankStyles = [
           No captains have returned yet
         </p>
         <p class="mt-1 text-sm text-muted">
-          Complete all eight minutes at difficulty 0 to claim the first place on the board.
+          Complete all six minutes at difficulty 0 to claim the first place on the board.
         </p>
         <UButton class="mt-4" to="/pirates" icon="i-lucide-anchor" label="Set Sail" />
       </div>

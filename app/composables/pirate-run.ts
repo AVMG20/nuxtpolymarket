@@ -177,7 +177,9 @@ function buildCallbacks() {
         },
         onTimeChange: (_elapsed: number, remaining: number) => { remainingMs.value = remaining },
         onGameOver: (result: Parameters<typeof handleGameOver>[0]) => { handleGameOver(result) },
-        onKill: (tierName: string, reward: number) => pushKillFeed(`Sunk a ${tierName} (+${reward})`),
+        onKill: (tierName: string, reward: number) => pushKillFeed(
+            reward > 0 ? `Sunk a ${tierName} (+${reward} banked)` : `Sunk a ${tierName}`
+        ),
         onCombo: (count: number) => showCombo(count),
         onBossSpawn: (name: string) => showBossWarning(name),
         onPowerUpsChange: (powerUps: PirateActivePowerUp[], nextDropMs: number, nextRepairMs: number) => {

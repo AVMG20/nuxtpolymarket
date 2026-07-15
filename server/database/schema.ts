@@ -140,7 +140,7 @@ export const pirateState = pgTable('pirate_state', {
   runStartedAt: timestamp('run_started_at'),
   runPowerSnapshot: integer('run_power_snapshot'),
   runDifficultySnapshot: integer('run_difficulty_snapshot'),
-  // Only full eight-minute clears advance this value. Difficulty 0 is the
+  // Only full six-minute clears advance this value. Difficulty 0 is the
   // universal starting tier, so -50 means a new captain has no clear yet.
   highestCompletedDifficulty: integer('highest_completed_difficulty').notNull().default(-50),
   bestCompletedLoot: integer('best_completed_loot').notNull().default(0),

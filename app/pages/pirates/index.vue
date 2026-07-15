@@ -176,7 +176,7 @@ onUnmounted(() => {
           Pirate Raid
         </h1>
         <p class="text-sm text-muted mt-0.5">
-          Sail out for 8 minutes, stack wild power-ups, and survive the final overrun.
+          Sail out for 6 minutes, stack wild power-ups, and survive the final overrun.
         </p>
       </div>
       <div v-if="state" class="flex items-center gap-2">
@@ -327,7 +327,7 @@ onUnmounted(() => {
                   </span>
                 </div>
                 <p class="mt-1 text-[10px] leading-snug text-muted">
-                  Survive the full 8-minute voyage to claim the completion bonus on top of your loot.
+                  Survive the full 6-minute voyage to claim the completion bonus on top of your loot.
                 </p>
               </div>
 

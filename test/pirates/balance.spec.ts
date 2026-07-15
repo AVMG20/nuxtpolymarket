@@ -6,6 +6,8 @@ import {
   pirateAmmoCapacity,
   pirateAmmoPricePerUnit,
   pirateAverageRunPayoutEstimate,
+  pirateCompletionBonus,
+  pirateMaxPayoutForRun,
   pirateNormalizeDifficulty,
   piratePowerLevel,
   pirateRecommendedDifficulty,
@@ -13,6 +15,7 @@ import {
   PIRATE_BOSS_DAMAGE_MULT,
   PIRATE_DOUBLE_BOSS_DIFFICULTY,
   PIRATE_ENEMY_TIERS,
+  PIRATE_RUN_DURATION_MS,
   pirateInitialEnemyCount,
   pirateMaxConcurrentEnemies,
   pirateRollEnemyTier,
@@ -27,7 +30,7 @@ describe('pirate difficulty at tier 366', () => {
   it('keeps the opening survivable while preserving a late ramp', () => {
     const opening = pirateDifficultyMultiplier(0, TEST_DIFFICULTY)
     const minuteOne = pirateDifficultyMultiplier(60_000, TEST_DIFFICULTY)
-    const endgame = pirateDifficultyMultiplier(8 * 60_000, TEST_DIFFICULTY)
+    const endgame = pirateDifficultyMultiplier(PIRATE_RUN_DURATION_MS, TEST_DIFFICULTY)
 
     expect(opening.hpMult).toBeCloseTo(4.423, 3)
     expect(opening.dmgMult).toBeLessThan(1.4)
@@ -40,16 +43,16 @@ describe('pirate difficulty at tier 366', () => {
   it('starts with a manageable fleet and delays the first boss', () => {
     expect(pirateInitialEnemyCount(TEST_DIFFICULTY)).toBe(3)
     expect(pirateMaxConcurrentEnemies(0, TEST_DIFFICULTY)).toBe(3)
-    expect(pirateSpawnIntervalMs(0, TEST_DIFFICULTY)).toBeGreaterThanOrEqual(4500)
-    expect(pirateBossFirstSpawnMs(TEST_DIFFICULTY)).toBeGreaterThanOrEqual(135_000)
+    expect(pirateSpawnIntervalMs(0, TEST_DIFFICULTY)).toBeGreaterThanOrEqual(3800)
+    expect(pirateBossFirstSpawnMs(TEST_DIFFICULTY)).toBeGreaterThanOrEqual(100_000)
   })
 
   it('does not unlock midgame tanks in the first minute', () => {
     const alwaysLastRoll = () => 0.999999
     expect(pirateRollEnemyTier(0, TEST_DIFFICULTY, alwaysLastRoll).id).toBe('sloop')
-    expect(pirateRollEnemyTier(60_000, TEST_DIFFICULTY, alwaysLastRoll).id).toBe('sniper')
-    expect(pirateRollEnemyTier(75_000, TEST_DIFFICULTY, alwaysLastRoll).id).toBe('sniper')
-    expect(pirateRollEnemyTier(80_000, TEST_DIFFICULTY, alwaysLastRoll).id).toBe('ironclad')
+    expect(pirateRollEnemyTier(45_000, TEST_DIFFICULTY, alwaysLastRoll).id).toBe('sniper')
+    expect(pirateRollEnemyTier(50_000, TEST_DIFFICULTY, alwaysLastRoll).id).toBe('sniper')
+    expect(pirateRollEnemyTier(60_000, TEST_DIFFICULTY, alwaysLastRoll).id).toBe('ironclad')
   })
 })
 
@@ -60,18 +63,18 @@ describe('pirate selectable difficulty and premium ammo', () => {
       cannonTierIds: ['longgun', 'longgun', 'longgun', 'longgun'],
       cannonSlots: 4
     })
-    const endgame = pirateDifficultyMultiplier(8 * 60_000, 0)
+    const endgame = pirateDifficultyMultiplier(PIRATE_RUN_DURATION_MS, 0)
 
     expect(upgradedPower).toBeGreaterThanOrEqual(100)
     expect(upgradedPower).toBeLessThanOrEqual(200)
     expect(endgame.hpMult).toBeLessThan(1.55)
     expect(endgame.dmgMult).toBeLessThan(1.55)
-    expect(pirateEnemyReloadMultiplier(8 * 60_000, 0)).toBeCloseTo(0.84)
+    expect(pirateEnemyReloadMultiplier(PIRATE_RUN_DURATION_MS, 0)).toBeCloseTo(0.84)
     expect(pirateSpawnIntervalMs(0, 0)).toBeLessThan(6500)
-    expect(pirateSpawnIntervalMs(8 * 60_000, 0)).toBeGreaterThanOrEqual(2200)
-    expect(pirateMaxConcurrentEnemies(8 * 60_000, 0)).toBeLessThanOrEqual(6)
-    expect(pirateSpawnBatchSize(8 * 60_000, 0, () => 0)).toBe(3)
-    expect(pirateSeaMineDamageFraction(8 * 60_000)).toBeCloseTo(0.3)
+    expect(pirateSpawnIntervalMs(PIRATE_RUN_DURATION_MS, 0)).toBeGreaterThanOrEqual(1600)
+    expect(pirateMaxConcurrentEnemies(PIRATE_RUN_DURATION_MS, 0)).toBeLessThanOrEqual(6)
+    expect(pirateSpawnBatchSize(PIRATE_RUN_DURATION_MS, 0, () => 0)).toBe(3)
+    expect(pirateSeaMineDamageFraction(PIRATE_RUN_DURATION_MS)).toBeCloseTo(0.3)
     expect(PIRATE_DOUBLE_BOSS_DIFFICULTY).toBe(600)
   })
 
@@ -85,9 +88,9 @@ describe('pirate selectable difficulty and premium ammo', () => {
 
     expect(upgradedPower - difficulty).toBeGreaterThanOrEqual(100)
     expect(upgradedPower - difficulty).toBeLessThanOrEqual(200)
-    expect(pirateDifficultyMultiplier(8 * 60_000, difficulty).hpMult).toBeLessThan(6.5)
-    expect(pirateSpawnIntervalMs(8 * 60_000, difficulty)).toBeGreaterThanOrEqual(1700)
-    expect(pirateMaxConcurrentEnemies(8 * 60_000, difficulty)).toBeLessThanOrEqual(8)
+    expect(pirateDifficultyMultiplier(PIRATE_RUN_DURATION_MS, difficulty).hpMult).toBeLessThan(6.5)
+    expect(pirateSpawnIntervalMs(PIRATE_RUN_DURATION_MS, difficulty)).toBeGreaterThanOrEqual(1250)
+    expect(pirateMaxConcurrentEnemies(PIRATE_RUN_DURATION_MS, difficulty)).toBeLessThanOrEqual(8)
   })
 
   it('advances recommendations in 50-point completed tiers', () => {
@@ -100,6 +103,13 @@ describe('pirate selectable difficulty and premium ammo', () => {
   it('makes higher tiers visibly more profitable', () => {
     expect(pirateAverageRunPayoutEstimate(50)).toBeGreaterThan(pirateAverageRunPayoutEstimate(0))
     expect(pirateAverageRunPayoutEstimate(350)).toBeGreaterThan(pirateAverageRunPayoutEstimate(50) * 4)
+  })
+
+  it('compresses the voyage to six minutes without reducing full-run rewards', () => {
+    expect(PIRATE_RUN_DURATION_MS).toBe(6 * 60_000)
+    expect(pirateAverageRunPayoutEstimate(0)).toBe(96_000)
+    expect(pirateMaxPayoutForRun(PIRATE_RUN_DURATION_MS, 0)).toBe(172_800)
+    expect(pirateCompletionBonus(0)).toBe(38_400)
   })
 
   it('doubles magazine capacity and cuts premium prices by 75 percent', () => {

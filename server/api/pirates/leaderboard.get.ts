@@ -1,7 +1,7 @@
 import { desc, eq, gte } from 'drizzle-orm'
 import { db } from '#server/database'
 import { pirateState, user } from '#server/database/schema'
-import { pirateShipSkin } from '#shared/utils/gamelogic/pirates'
+import { PIRATE_RUN_DURATION_MS, pirateShipSkin } from '#shared/utils/gamelogic/pirates'
 
 export default defineEventHandler(async () => {
     const rows = await db
@@ -25,7 +25,7 @@ export default defineEventHandler(async () => {
             rank: index + 1,
             userId: row.userId,
             name: row.name,
-            durationMs: 8 * 60 * 1000,
+            durationMs: PIRATE_RUN_DURATION_MS,
             difficulty: row.difficulty,
             power: row.power,
             loot: row.loot,

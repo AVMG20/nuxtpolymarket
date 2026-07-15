@@ -179,7 +179,7 @@ const enemyInfo: Record<string, { role: string, ability: string, sprite: string,
         role: 'Boss flagship',
         ability: 'Random: all four abilities',
         sprite: '/pirates/sprites/tank-raider.png',
-        behavior: 'A massive boss with 700 base hull and three-shot broadsides. It randomly chooses any enemy ability, and two Dreadnoughts may be active after minute seven.'
+        behavior: 'A massive boss with 560 base hull and three-shot broadsides. It randomly chooses any enemy ability, and two Dreadnoughts may be active during the final 45 seconds.'
     }
 }
 
@@ -208,7 +208,7 @@ function unlockLabel(unlockAtMs: number, boss?: boolean) {
           Pirate Wiki
         </h1>
         <p class="mt-1 max-w-2xl text-sm text-muted">
-          Everything that can empower or sink you during an eight-minute voyage.
+          Everything that can empower or sink you during a six-minute voyage.
         </p>
       </div>
       <div class="flex flex-wrap gap-2">
