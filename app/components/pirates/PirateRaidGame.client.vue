@@ -16,7 +16,8 @@ const {
     activePowerUps, nextPowerUpMs, nextHealthPackMs,
     gameOverVisible, gameOverResult,
     attachCanvas, detachCanvas, startVoyage, pauseVoyage, resumeVoyage, cancelVoyage,
-    toggleAmmoMode, closeGameOver
+    toggleAmmoMode, closeGameOver,
+    soundEnabled, soundVolume, playMenuSound
 } = usePirateRun()
 
 const hpPercent = computed(() => maxHp.value > 0 ? Math.max(0, Math.min(100, (hp.value / maxHp.value) * 100)) : 0)
@@ -148,6 +149,7 @@ async function rushRepair() {
 async function handleStartVoyage() {
     const s = state.value
     if (!s || !canSetSail.value || isRepairing.value) return
+    playMenuSound()
     await startVoyage(s, selectedDifficulty.value)
 }
 
@@ -184,6 +186,12 @@ onUnmounted(() => {
         <UBadge color="neutral" variant="subtle" :label="`Best ${bestSurvivalLabel}`" icon="i-lucide-trophy" />
         <UBadge color="neutral" variant="subtle" :label="`${state.runsPlayed} voyages`" icon="i-lucide-map" />
         <UBadge v-if="isRepairing" color="warning" variant="subtle" :label="`Dry dock ${repairRemainingLabel}`" icon="i-lucide-wrench" />
+      </div>
+      <div class="flex w-full items-center gap-2 rounded-lg border border-default bg-elevated px-3 py-2 sm:w-64">
+        <UIcon :name="soundEnabled ? 'i-lucide-volume-2' : 'i-lucide-volume-x'" class="size-4 text-primary" />
+        <USwitch v-model="soundEnabled" size="sm" aria-label="Enable pirate game sound" @click="playMenuSound" />
+        <USlider v-model="soundVolume" :min="0" :max="100" :disabled="!soundEnabled" size="xs" aria-label="Sound volume" />
+        <span class="w-8 text-right text-[10px] font-bold tabular-nums text-muted">{{ soundVolume }}%</span>
       </div>
     </div>
 

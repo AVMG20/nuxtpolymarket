@@ -73,6 +73,13 @@ export interface PirateActivePowerUp {
     shield?: number
 }
 
+export type PirateAbilitySound =
+    | 'powder-keg-throw' | 'powder-keg-explosion'
+    | 'hunter-salvo-launch' | 'hunter-salvo-hit'
+    | 'stormchain-call' | 'stormchain-hit'
+    | 'kraken-open' | 'kraken-loop-start' | 'kraken-loop-stop'
+    | 'hellfire-barrage' | 'hellfire-multi'
+
 export interface PirateGameCallbacks {
     onHpChange: (hp: number, maxHp: number) => void
     onCoinsChange: (coins: number) => void
@@ -80,7 +87,12 @@ export interface PirateGameCallbacks {
     onAbilityCooldownChange: (remainingMs: number, totalMs: number) => void
     onTimeChange: (elapsedMs: number, remainingMs: number) => void
     onGameOver: (result: PirateGameOverResult) => void
+    onCannonFire?: () => void
+    onCannonImpact?: () => void
+    onShipHit?: () => void
+    onAbilitySound?: (sound: PirateAbilitySound) => void
     onKill?: (tierName: string, reward: number) => void
+    onTreasureCollected?: () => void
     onCombo?: (count: number) => void
     onBossSpawn?: (name: string) => void
     onPowerUpsChange?: (powerUps: PirateActivePowerUp[], nextDropMs: number, nextHealthPackMs: number) => void
@@ -1273,6 +1285,7 @@ export class PirateGame {
         const fireAngle = Math.atan2(target.y - this.playerY, target.x - this.playerX)
         const fromX = this.playerX + Math.cos(fireAngle) * 34
         const fromY = this.playerY + Math.sin(fireAngle) * 34
+        this.callbacks.onCannonFire?.()
         this.spawnMuzzleFlash(fromX, fromY, fireAngle, kind, cannon.shotColor)
 
         const ammoAttackRating = kind === 'gem' ? cannon.attackRating * PIRATE_GEM_AMMO_ATTACK_MULT : cannon.attackRating
@@ -1313,6 +1326,7 @@ export class PirateGame {
     }
 
     private castPlayerBomb(targetX: number, targetY: number) {
+        this.callbacks.onAbilitySound?.('powder-keg-throw')
         const marker = new Graphics()
         marker.circle(0, 0, PLAYER_BOMB_RADIUS).fill({ color: 0xfacc15, alpha: 0.07 })
         marker.circle(0, 0, PLAYER_BOMB_RADIUS).stroke({ width: 3, color: 0xfde047, alpha: 0.85 })
@@ -1353,6 +1367,7 @@ export class PirateGame {
     }
 
     private detonatePlayerBomb(x: number, y: number) {
+        this.callbacks.onAbilitySound?.('powder-keg-explosion')
         const damage = Math.max(25, Math.round(20 + this.power * 0.75))
         const ring = new Graphics()
         ring.circle(0, 0, 18).fill({ color: 0xfef3c7, alpha: 0.65 }).stroke({ width: 6, color: 0xfacc15, alpha: 0.95 })
@@ -1422,6 +1437,7 @@ export class PirateGame {
             .slice(0, 3)
         const damage = Math.max(18, Math.round(12 + this.power * 0.24))
         this.spawnDamagePopup('seeker-cast', this.playerX, this.playerY - 55, "HUNTER'S SALVO", 0xfca5a5, true)
+        this.callbacks.onAbilitySound?.('hunter-salvo-launch')
 
         for (let i = 0; i < 3; i++) {
             const initialTarget = picked[i] ?? picked[i % Math.max(1, picked.length)]
@@ -1463,6 +1479,7 @@ export class PirateGame {
                         const hitY = target?.y ?? root.y
                         if (!root.destroyed) root.destroy({ children: true })
                         if (!this.running) return
+                        this.callbacks.onAbilitySound?.('hunter-salvo-hit')
                         this.spawnExplosion(hitX, hitY, 0xef4444, true)
                         if (target && dist(hitX, hitY, target.x, target.y) < 65) this.damageEnemyWithAbility(target, damage, 'SEEKER', 0xfca5a5, true)
                     }
@@ -1508,11 +1525,13 @@ export class PirateGame {
             used.add(next.id)
         }
         this.spawnDamagePopup('stormchain-cast', targetX, targetY - 70, 'STORMCHAIN', 0x7dd3fc, true)
+        this.callbacks.onAbilitySound?.('stormchain-call')
         chain.forEach((enemy, index) => {
             gsap.delayedCall(index * 0.11, () => {
                 if (!this.running || enemy.dead) return
                 const previous = index === 0 ? { x: targetX, y: targetY - 170 } : chain[index - 1]!
                 this.drawLightningArc(previous.x, previous.y, enemy.x, enemy.y)
+                this.callbacks.onAbilitySound?.('stormchain-hit')
                 const damage = Math.max(12, Math.round((18 + this.power * 0.32) * Math.pow(0.84, index)))
                 this.damageEnemyWithAbility(enemy, damage, 'SHOCK', 0x7dd3fc, index === 0)
                 for (let spark = 0; spark < 5; spark++) this.spawnTrailParticle(enemy.x + randRange(-22, 22), enemy.y + randRange(-22, 22), 0x38bdf8, 1.2)
@@ -1522,6 +1541,8 @@ export class PirateGame {
     }
 
     private castMaelstrom(targetX: number, targetY: number) {
+        this.callbacks.onAbilitySound?.('kraken-open')
+        this.callbacks.onAbilitySound?.('kraken-loop-start')
         const root = new Container()
         root.position.set(targetX, targetY)
         const outer = new Graphics()
@@ -1551,6 +1572,7 @@ export class PirateGame {
             })
         }
         gsap.delayedCall(4.25, () => {
+            this.callbacks.onAbilitySound?.('kraken-loop-stop')
             if (root.destroyed) return
             gsap.to(root.scale, { x: 0, y: 0, duration: 0.35, ease: 'back.in(1.8)' })
             gsap.to(root, { alpha: 0, duration: 0.35, onComplete: () => root.destroy({ children: true }) })
@@ -1559,6 +1581,7 @@ export class PirateGame {
 
     private castHellfireBarrage(targetX: number, targetY: number) {
         this.spawnDamagePopup('hellfire-cast', targetX, targetY - 145, 'HELLFIRE INBOUND', 0xfdba74, true)
+        this.callbacks.onAbilitySound?.('hellfire-barrage')
         const damage = Math.max(16, Math.round(10 + this.power * 0.18))
         for (let i = 0; i < 7; i++) {
             const angle = i / 7 * Math.PI * 2 + randRange(-0.35, 0.35)
@@ -1586,6 +1609,7 @@ export class PirateGame {
                         if (!shell.destroyed) shell.destroy()
                         if (!warning.destroyed) warning.destroy()
                         if (!this.running) return
+                        if (i === 0) this.callbacks.onAbilitySound?.('hellfire-multi')
                         this.spawnExplosion(x, y, 0xf97316, true)
                         this.destroySeaMinesInRadius(x, y, 72)
                         this.shake(5)
@@ -1996,6 +2020,7 @@ export class PirateGame {
             this.spawnDamagePopup(`enemy-${enemy.id}`, x, y - 24, 'MISS', 0x9ca3af, false)
             return
         }
+        this.callbacks.onCannonImpact?.()
         const baseDamage = roll.dmg
         const damageMult = (profile.explosive ? 1.5 : 1) * (profile.massive ? 3 : 1)
         const damage = Math.max(1, Math.round(baseDamage * damageMult))
@@ -2122,6 +2147,7 @@ export class PirateGame {
         }
         if (hullDamage <= 0) return
         this.playerHp = Math.max(0, this.playerHp - hullDamage)
+        this.callbacks.onShipHit?.()
         this.callbacks.onHpChange(this.playerHp, this.stats.maxHp)
         this.showPlayerHealthBar()
         this.spawnExplosion(this.playerX, this.playerY, 0xef4444, roll.crit)
@@ -2212,6 +2238,7 @@ export class PirateGame {
     private collectTreasure(tr: Treasure) {
         this.treasure = null
         const bankedReward = this.addRawCoins(tr.reward)
+        this.callbacks.onTreasureCollected?.()
         if (bankedReward > 0) {
             this.spawnDamagePopup('treasure', tr.x, tr.y - 14, `+${bankedReward}`, 0xfde047, true)
         }

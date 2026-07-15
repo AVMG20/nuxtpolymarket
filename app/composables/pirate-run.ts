@@ -1,5 +1,7 @@
-import { PirateGame, type PirateActivePowerUp, type PirateShipStats } from '~/utils/pirates-engine'
+import { PirateGame, type PirateAbilitySound, type PirateActivePowerUp, type PirateShipStats } from '~/utils/pirates-engine'
 import type { PirateAbilityId } from '#shared/utils/gamelogic/pirates'
+
+const pirateSound = usePirateSound()
 
 // ─── Shared pirate-voyage state ────────────────────────────────────────────
 // Navigating between /pirates and /pirates/manage unmounts and remounts the
@@ -122,6 +124,8 @@ async function handleGameOver(result: {
     reason: 'timeout' | 'defeat' | 'cancelled'
     hullDamageFraction: number
 }) {
+    pirateSound.stopAmbience()
+    pirateSound.stopKrakenLoop()
     running.value = false
     paused.value = false
     comboVisible.value = false
@@ -177,9 +181,18 @@ function buildCallbacks() {
         },
         onTimeChange: (_elapsed: number, remaining: number) => { remainingMs.value = remaining },
         onGameOver: (result: Parameters<typeof handleGameOver>[0]) => { handleGameOver(result) },
-        onKill: (tierName: string, reward: number) => pushKillFeed(
-            reward > 0 ? `Sunk a ${tierName} (+${reward} banked)` : `Sunk a ${tierName}`
-        ),
+        onCannonFire: () => pirateSound.play('cannon-fire'),
+        onCannonImpact: () => pirateSound.play('cannon-impact'),
+        onShipHit: () => pirateSound.play('ship-hit'),
+        onAbilitySound: (sound: PirateAbilitySound) => {
+            if (sound === 'kraken-loop-start') pirateSound.startKrakenLoop()
+            else if (sound === 'kraken-loop-stop') pirateSound.stopKrakenLoop()
+            else pirateSound.play(sound)
+        },
+        onKill: (tierName: string, reward: number) => {
+            pirateSound.play('enemy-sunk')
+            pushKillFeed(reward > 0 ? `Sunk a ${tierName} (+${reward} banked)` : `Sunk a ${tierName}`)
+        },
         onCombo: (count: number) => showCombo(count),
         onBossSpawn: (name: string) => showBossWarning(name),
         onPowerUpsChange: (powerUps: PirateActivePowerUp[], nextDropMs: number, nextRepairMs: number) => {
@@ -188,9 +201,16 @@ function buildCallbacks() {
             nextHealthPackMs.value = nextRepairMs
         },
         onPowerUpSpawn: (name: string) => showPowerUpNotice(`${name} sighted — sail to collect it!`, false),
-        onPowerUpCollected: (name: string) => showPowerUpNotice(`${name} activated!`, true),
+        onPowerUpCollected: (name: string) => {
+            pirateSound.play(name.startsWith('Reinforced Keel') ? 'speed-boost' : 'power-up')
+            showPowerUpNotice(`${name} activated!`, true)
+        },
         onHealthPackSpawn: () => showPowerUpNotice('Hull repair pack sighted — sail to collect it!', false),
-        onHealthPackCollected: (amount: number) => showPowerUpNotice(`Hull repaired by ${amount}!`, true)
+        onHealthPackCollected: (amount: number) => {
+            pirateSound.play('power-up')
+            showPowerUpNotice(`Hull repaired by ${amount}!`, true)
+        },
+        onTreasureCollected: () => pirateSound.play('treasure-pickup')
     }
 }
 
@@ -264,6 +284,8 @@ export function usePirateRun() {
         resizeObserver = null
         if (game && running.value) {
             game.pause()
+            pirateSound.pauseAmbience()
+            pirateSound.pauseKrakenLoop()
             running.value = false
             paused.value = true
         }
@@ -303,6 +325,7 @@ export function usePirateRun() {
                 abilityId: res.abilityId,
                 cannons: res.cannons
             }, res.power, res.difficulty)
+            pirateSound.startAmbience()
         } catch (e: any) {
             currentToast?.add({ title: e.data?.message ?? 'Failed to set sail', color: 'error' })
         } finally {
@@ -313,6 +336,8 @@ export function usePirateRun() {
     function pauseVoyage() {
         if (!game || !running.value) return
         game.pause()
+        pirateSound.pauseAmbience()
+        pirateSound.pauseKrakenLoop()
         running.value = false
         paused.value = true
     }
@@ -320,6 +345,8 @@ export function usePirateRun() {
     function resumeVoyage() {
         if (!game || !paused.value) return
         game.resume()
+        pirateSound.startAmbience()
+        pirateSound.resumeKrakenLoop()
         paused.value = false
         running.value = true
     }
@@ -371,6 +398,9 @@ export function usePirateRun() {
         resumeVoyage,
         cancelVoyage,
         toggleAmmoMode,
-        closeGameOver
+        closeGameOver,
+        soundEnabled: pirateSound.soundEnabled,
+        soundVolume: pirateSound.soundVolume,
+        playMenuSound: () => pirateSound.play('menu')
     }
 }
