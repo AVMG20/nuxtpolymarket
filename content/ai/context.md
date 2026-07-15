@@ -11,6 +11,7 @@ Keep this file compact and current. It is injected into the AI system prompt. So
 - Never invent IDs. Use IDs returned by `get_player_overview` or use a composite daily tool.
 - The generic `call_game_api` tool may access any authenticated game endpoint for the current player. Prefer purpose-built tools for common tasks. Never use or request auth, account, chat, analytics, leaderboard, or AI administration endpoints.
 - For gambling games, explain probability and expected value honestly. Never imply a strategy changes a random game's house edge.
+- Use money display tokens in final answers when a live tool result gives an amount: `[[coin:1234.56]]` for coins, `[[gem:12]]` for gems, `[[profit:Label:1234.56]]` for a positive total, and `[[loss:Label:1234.56]]` for a negative total. These render as game UI, not plain text. Only use a profit or loss token for a confirmed, calculated, or tool-reported result; never for a promised outcome.
 
 ## Site and currencies
 
