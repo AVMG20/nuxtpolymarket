@@ -11,7 +11,11 @@ function assertValidName(data: Record<string, unknown>) {
     if (data.name.length > NAME_MAX_LENGTH) throw new APIError('BAD_REQUEST', {message: `Name must be ${NAME_MAX_LENGTH} characters or fewer`})
 }
 
+const BASE_URL = process.env.BETTER_AUTH_URL || 'http://localhost:3000'
+
 export const auth = betterAuth({
+    baseURL: BASE_URL,
+    trustedOrigins: [BASE_URL, 'http://localhost:3000', 'http://127.0.0.1:3000'],
     database: drizzleAdapter(db, {
         provider: 'pg',
         schema
