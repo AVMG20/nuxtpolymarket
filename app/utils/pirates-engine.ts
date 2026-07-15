@@ -10,7 +10,7 @@ import {
     PIRATE_AMMO_RANGE_MULT, PIRATE_AMMO_DAMAGE_MULT,
     PIRATE_GEM_AMMO_ATTACK_MULT, PIRATE_GEM_AMMO_DAMAGE_MULT,
     PIRATE_COMBO_WINDOW_MS, PIRATE_COMBO_BONUS_PER_STACK, PIRATE_COMBO_MAX_STACKS,
-    PIRATE_BOSS_FIRST_SPAWN_MS, PIRATE_BOSS_RESPAWN_MS, PIRATE_BOSS_DAMAGE_MULT,
+    PIRATE_BOSS_FIRST_SPAWN_MS, PIRATE_BOSS_RESPAWN_MS, PIRATE_BOSS_DAMAGE_MULT, PIRATE_DOUBLE_BOSS_DIFFICULTY,
     PIRATE_BOSS_ABILITY_INITIAL_MIN_MS, PIRATE_BOSS_ABILITY_INITIAL_MAX_MS,
     PIRATE_BOSS_ABILITY_COOLDOWN_MIN_MS, PIRATE_BOSS_ABILITY_COOLDOWN_MAX_MS, PIRATE_ENEMY_TIERS,
     pirateSpawnIntervalMs, pirateMaxConcurrentEnemies, pirateRollEnemyTier, pirateDifficultyMultiplier,
@@ -1179,9 +1179,10 @@ export class PirateGame {
         }
 
         // Dreadnoughts run on their own clock, outside the concurrency cap.
-        // The final minute can support two simultaneously.
+        // Only higher difficulty tiers add a second simultaneous boss in the
+        // final minute; low tiers remain completable with a strong ship.
         const lateBossPhase = this.elapsedMs >= 7 * 60_000
-        const bossCap = lateBossPhase ? 2 : 1
+        const bossCap = lateBossPhase && this.difficulty >= PIRATE_DOUBLE_BOSS_DIFFICULTY ? 2 : 1
         if (lateBossPhase && this.bossCount < bossCap) this.bossTimerMs = Math.min(this.bossTimerMs, 12_000)
         if (this.bossCount < bossCap) {
             this.bossTimerMs -= deltaMS

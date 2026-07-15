@@ -29,8 +29,10 @@ export async function debit(userId: string, amount: string, category?: string) {
 // the decrement are a single statement — two concurrent spends can never both pass and
 // push the balance negative (the read-then-write pattern this replaces could). Throws a
 // 400 when the user can't afford `cost` and returns the remaining gem balance otherwise.
-export async function debitGems(userId: string, cost: number) {
-  const [updated] = await db.update(user)
+export async function debitGems(userId: string, cost: number, tx: Pick<typeof db, 'update'> = db) {
+  if (!Number.isInteger(cost) || cost < 0) throw createError({ statusCode: 400, statusMessage: 'Invalid gem amount' })
+
+  const [updated] = await tx.update(user)
     .set({ gems: sql`${user.gems} - ${cost}` })
     .where(and(eq(user.id, userId), gte(user.gems, cost)))
     .returning({ gems: user.gems })

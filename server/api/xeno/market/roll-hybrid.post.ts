@@ -2,7 +2,7 @@ import { eq } from 'drizzle-orm'
 import { db } from '#server/database'
 import { xenoPlants, xenoPlantsUnlocked } from '#server/database/schema'
 import { auth } from '#server/utils/auth'
-import { debitGems } from '#server/utils/xeno'
+import { debitGems } from '#server/utils/balance'
 import {
   rollHybrid, makeHybridTypeId, enrichHybridResources, hybridGemCost,
   hybridTierFromUnlocked, HYBRID_UNLOCK_TIER,

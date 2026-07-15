@@ -2,51 +2,94 @@ import { describe, expect, it } from 'vitest'
 import {
   pirateBossFirstSpawnMs,
   pirateDifficultyMultiplier,
+  pirateEnemyReloadMultiplier,
   pirateAmmoCapacity,
   pirateAmmoPricePerUnit,
   pirateAverageRunPayoutEstimate,
   pirateNormalizeDifficulty,
+  piratePowerLevel,
   pirateRecommendedDifficulty,
   PIRATE_BOSS_ABILITY_COOLDOWN_MAX_MS,
   PIRATE_BOSS_DAMAGE_MULT,
+  PIRATE_DOUBLE_BOSS_DIFFICULTY,
   PIRATE_ENEMY_TIERS,
   pirateInitialEnemyCount,
   pirateMaxConcurrentEnemies,
   pirateRollEnemyTier,
+  pirateSeaMineDamageFraction,
+  pirateSpawnBatchSize,
   pirateSpawnIntervalMs
 } from '../../shared/utils/gamelogic/pirates'
 
-const TEST_POWER = 366
+const TEST_DIFFICULTY = 366
 
-describe('pirate difficulty at power 366', () => {
+describe('pirate difficulty at tier 366', () => {
   it('keeps the opening survivable while preserving a late ramp', () => {
-    const opening = pirateDifficultyMultiplier(0, TEST_POWER)
-    const minuteOne = pirateDifficultyMultiplier(60_000, TEST_POWER)
-    const endgame = pirateDifficultyMultiplier(8 * 60_000, TEST_POWER)
+    const opening = pirateDifficultyMultiplier(0, TEST_DIFFICULTY)
+    const minuteOne = pirateDifficultyMultiplier(60_000, TEST_DIFFICULTY)
+    const endgame = pirateDifficultyMultiplier(8 * 60_000, TEST_DIFFICULTY)
 
     expect(opening.hpMult).toBeCloseTo(4.423, 3)
     expect(opening.dmgMult).toBeLessThan(1.4)
     expect(minuteOne.hpMult).toBeLessThan(4.8)
     expect(minuteOne.hpMult / opening.hpMult).toBeLessThan(1.08)
-    expect(endgame.hpMult).toBeGreaterThan(9)
+    expect(endgame.hpMult).toBeGreaterThan(6.5)
+    expect(endgame.hpMult).toBeLessThan(7)
   })
 
   it('starts with a manageable fleet and delays the first boss', () => {
-    expect(pirateInitialEnemyCount(TEST_POWER)).toBe(3)
-    expect(pirateMaxConcurrentEnemies(0, TEST_POWER)).toBe(4)
-    expect(pirateSpawnIntervalMs(0, TEST_POWER)).toBeGreaterThanOrEqual(5000)
-    expect(pirateBossFirstSpawnMs(TEST_POWER)).toBeGreaterThanOrEqual(135_000)
+    expect(pirateInitialEnemyCount(TEST_DIFFICULTY)).toBe(3)
+    expect(pirateMaxConcurrentEnemies(0, TEST_DIFFICULTY)).toBe(3)
+    expect(pirateSpawnIntervalMs(0, TEST_DIFFICULTY)).toBeGreaterThanOrEqual(4500)
+    expect(pirateBossFirstSpawnMs(TEST_DIFFICULTY)).toBeGreaterThanOrEqual(135_000)
   })
 
   it('does not unlock midgame tanks in the first minute', () => {
     const alwaysLastRoll = () => 0.999999
-    expect(pirateRollEnemyTier(0, TEST_POWER, alwaysLastRoll).id).toBe('sloop')
-    expect(pirateRollEnemyTier(60_000, TEST_POWER, alwaysLastRoll).id).toBe('sniper')
-    expect(pirateRollEnemyTier(75_000, TEST_POWER, alwaysLastRoll).id).toBe('ironclad')
+    expect(pirateRollEnemyTier(0, TEST_DIFFICULTY, alwaysLastRoll).id).toBe('sloop')
+    expect(pirateRollEnemyTier(60_000, TEST_DIFFICULTY, alwaysLastRoll).id).toBe('sniper')
+    expect(pirateRollEnemyTier(75_000, TEST_DIFFICULTY, alwaysLastRoll).id).toBe('sniper')
+    expect(pirateRollEnemyTier(80_000, TEST_DIFFICULTY, alwaysLastRoll).id).toBe('ironclad')
   })
 })
 
 describe('pirate selectable difficulty and premium ammo', () => {
+  it('keeps low difficulty completable while making its opening busier', () => {
+    const upgradedPower = piratePowerLevel({
+      levels: { hull: 5, speed: 5, defense: 5, ammoCapacity: 5, regen: 5 },
+      cannonTierIds: ['longgun', 'longgun', 'longgun', 'longgun'],
+      cannonSlots: 4
+    })
+    const endgame = pirateDifficultyMultiplier(8 * 60_000, 0)
+
+    expect(upgradedPower).toBeGreaterThanOrEqual(100)
+    expect(upgradedPower).toBeLessThanOrEqual(200)
+    expect(endgame.hpMult).toBeLessThan(1.55)
+    expect(endgame.dmgMult).toBeLessThan(1.55)
+    expect(pirateEnemyReloadMultiplier(8 * 60_000, 0)).toBeCloseTo(0.84)
+    expect(pirateSpawnIntervalMs(0, 0)).toBeLessThan(6500)
+    expect(pirateSpawnIntervalMs(8 * 60_000, 0)).toBeGreaterThanOrEqual(2200)
+    expect(pirateMaxConcurrentEnemies(8 * 60_000, 0)).toBeLessThanOrEqual(6)
+    expect(pirateSpawnBatchSize(8 * 60_000, 0, () => 0)).toBe(3)
+    expect(pirateSeaMineDamageFraction(8 * 60_000)).toBeCloseTo(0.3)
+    expect(PIRATE_DOUBLE_BOSS_DIFFICULTY).toBe(600)
+  })
+
+  it('keeps mid-tier pressure within reach of a 100–200 power surplus', () => {
+    const difficulty = 350
+    const upgradedPower = piratePowerLevel({
+      levels: { hull: 5, speed: 5, defense: 5, ammoCapacity: 5, regen: 5 },
+      cannonTierIds: ['leviathan', 'leviathan', 'leviathan', 'leviathan'],
+      cannonSlots: 4
+    })
+
+    expect(upgradedPower - difficulty).toBeGreaterThanOrEqual(100)
+    expect(upgradedPower - difficulty).toBeLessThanOrEqual(200)
+    expect(pirateDifficultyMultiplier(8 * 60_000, difficulty).hpMult).toBeLessThan(6.5)
+    expect(pirateSpawnIntervalMs(8 * 60_000, difficulty)).toBeGreaterThanOrEqual(1700)
+    expect(pirateMaxConcurrentEnemies(8 * 60_000, difficulty)).toBeLessThanOrEqual(8)
+  })
+
   it('advances recommendations in 50-point completed tiers', () => {
     expect(pirateRecommendedDifficulty(-50)).toBe(0)
     expect(pirateRecommendedDifficulty(0)).toBe(50)

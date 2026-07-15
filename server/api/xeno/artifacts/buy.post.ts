@@ -1,7 +1,8 @@
 import { db } from '#server/database'
 import { xenoArtifacts } from '#server/database/schema'
 import { auth } from '#server/utils/auth'
-import { consumePlantsByType, debitGems } from '#server/utils/xeno'
+import { debitGems } from '#server/utils/balance'
+import { consumePlantsByType } from '#server/utils/xeno'
 import { getArtifactOrThrow, gemCraftCost } from '#shared/utils/xeno'
 
 export default defineEventHandler(async (event) => {
