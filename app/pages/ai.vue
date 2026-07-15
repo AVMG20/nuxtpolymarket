@@ -425,7 +425,7 @@ const starterPrompts = [
               <UAlert
                 v-if="autoApprove"
                 color="warning"
-                description="The assistant can spend coins and gems, sell inventory, and play up to 100 casino rounds per tool call without another prompt."
+                description="The assistant can spend coins and gems, sell inventory, and play up to 10,000 casino rounds per tool call without another prompt."
                 icon="i-lucide-triangle-alert"
               />
             </div>
@@ -470,7 +470,7 @@ const starterPrompts = [
               :avatar="{ icon: message.role === 'user' ? 'i-lucide-user' : 'i-lucide-bot' }"
               :role="message.role === 'user' ? 'user' : 'assistant'"
               :side="message.role === 'user' ? 'right' : 'left'"
-              :ui="message.role === 'user' ? { container: 'flex-row-reverse' } : undefined"
+              :ui="message.role === 'user' ? { container: 'flex-row-reverse justify-start' } : undefined"
               :variant="message.role === 'user' ? 'soft' : 'naked'"
             >
               <template #content>
@@ -522,7 +522,7 @@ const starterPrompts = [
               :avatar="{ icon: 'i-lucide-user' }"
               role="user"
               side="right"
-              :ui="{ container: 'flex-row-reverse' }"
+              :ui="{ container: 'flex-row-reverse justify-start' }"
               variant="soft"
             >
               <template #content>

@@ -99,7 +99,7 @@ Early operations run 2–7h and pay hundreds to tens of thousands; midgame runs 
 
 ## Casino games
 
-All wagers debit coins server-side and random outcomes are independent. Casino tools can play up to 100 sequential rounds per confirmed call. The assistant must state the game, base bet, round count, base stake (`bet × rounds`), and any bonus-buy or extra-cost option before requesting execution. Never chase losses, silently increase a bet, or claim that rapid play improves odds.
+All wagers debit coins server-side and random outcomes are independent. Casino tools can play up to 10,000 sequential rounds per confirmed call. The assistant must state the game, base bet, round count, base stake (`bet × rounds`), and any bonus-buy or extra-cost option before requesting execution. Never chase losses, silently increase a bet, or claim that rapid play improves odds.
 
 Omit `options` for a normal round unless a game needs a selection. Allowed option payloads are strictly validated:
 

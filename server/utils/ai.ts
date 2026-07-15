@@ -203,7 +203,7 @@ export const AI_TOOLS: OpenRouterTool[] = [
         type: 'function',
         function: {
             name: 'play_casino_rounds',
-            description: 'Play between 1 and 100 sequential rounds of a supported non-blackjack casino game. Each round is server-authoritative and may stop early if the balance is insufficient. This spends coins.',
+            description: 'Play between 1 and 10,000 sequential rounds of a supported non-blackjack casino game. Each round is server-authoritative and may stop early if the balance is insufficient. This spends coins.',
             parameters: {
                 type: 'object',
                 properties: {
@@ -212,7 +212,7 @@ export const AI_TOOLS: OpenRouterTool[] = [
                         enum: ['dice', 'limbo', 'wheel', 'magichands', 'xenoslot', 'candymadness', 'aethergates', 'fireinthehole', 'bookofshadows', 'spinata']
                     },
                     bet: { type: 'number', minimum: 1, maximum: 1000000, description: 'Base coin bet per round.' },
-                    rounds: { type: 'integer', minimum: 1, maximum: 100 },
+                    rounds: { type: 'integer', minimum: 1, maximum: 10000 },
                     options: {
                         type: 'object',
                         description: 'Validated game-specific options. Omit for a normal round when the game has defaults.',
@@ -756,15 +756,18 @@ async function playCasinoRounds(event: H3Event, args: Record<string, unknown>) {
     const rounds = Number(args.rounds)
     if (!CASINO_GAMES.has(game)) throw createError({ statusCode: 400, statusMessage: 'Unsupported casino game' })
     if (!Number.isFinite(bet) || bet < 1 || bet > 1_000_000) throw createError({ statusCode: 400, statusMessage: 'Invalid bet' })
-    if (!Number.isInteger(rounds) || rounds < 1 || rounds > 100) throw createError({ statusCode: 400, statusMessage: 'Rounds must be from 1 to 100' })
+    if (!Number.isInteger(rounds) || rounds < 1 || rounds > 10_000) throw createError({ statusCode: 400, statusMessage: 'Rounds must be from 1 to 10,000' })
     const options = normalizeCasinoOptions(game, args.options, bet)
 
     const headers = toolHeaders(event)
-    const results: Array<Record<string, unknown>> = []
     let totalCost = 0
     let totalPayout = 0
     let finalBalance: number | null = null
     let stoppedReason: string | null = null
+    let playedRounds = 0
+    let winningRounds = 0
+    let highestPayout = 0
+    let bestMultiplier = 0
     for (let round = 1; round <= rounds; round++) {
         let response: { gameData: Record<string, unknown>, balance: number }
         try {
@@ -779,19 +782,17 @@ async function playCasinoRounds(event: H3Event, args: Record<string, unknown>) {
         }
         const payout = Number(response.gameData.payout ?? 0)
         const cost = typeof response.gameData.cost === 'number' ? response.gameData.cost : bet
+        const won = typeof response.gameData.won === 'boolean' ? response.gameData.won : payout > 0
+        const multiplier = Number(response.gameData.multiplier ?? response.gameData.totalMultiplier ?? 0)
         totalCost += cost
         totalPayout += payout
         finalBalance = response.balance
-        results.push({
-            round,
-            cost,
-            payout,
-            net: payout - cost,
-            won: typeof response.gameData.won === 'boolean' ? response.gameData.won : payout > 0,
-            multiplier: response.gameData.multiplier ?? response.gameData.totalMultiplier
-        })
+        playedRounds++
+        if (won) winningRounds++
+        highestPayout = Math.max(highestPayout, payout)
+        if (Number.isFinite(multiplier)) bestMultiplier = Math.max(bestMultiplier, multiplier)
     }
-    return { game, requestedRounds: rounds, playedRounds: results.length, stoppedReason, totalCost, totalPayout, net: totalPayout - totalCost, finalBalance, results }
+    return { game, requestedRounds: rounds, playedRounds, stoppedReason, totalCost, totalPayout, net: totalPayout - totalCost, finalBalance, winningRounds, highestPayout, bestMultiplier }
 }
 
 export async function executeAiTool(event: H3Event, toolCall: AiToolCall): Promise<unknown> {
