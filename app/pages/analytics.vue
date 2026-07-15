@@ -153,12 +153,30 @@ const lineChartData = computed((): PerfPoint[] => {
 const finalValue = computed(() => lineChartData.value[lineChartData.value.length - 1]?.value ?? 0)
 const lineColor = computed(() => finalValue.value >= 0 ? 'var(--ui-success)' : 'var(--ui-error)')
 
+// Split sign changes at an exact zero point so ChartsChartLine can render
+// gains in green and losses in red without a gap at the crossover.
+const coloredLineChartData = computed((): PerfPoint[] => {
+  const points: PerfPoint[] = []
+  for (const point of lineChartData.value) {
+    const previous = points.at(-1)
+    if (previous && previous.value * point.value < 0) {
+      const ratio = previous.value / (previous.value - point.value)
+      points.push({
+        date: new Date(previous.date.getTime() + ((point.date.getTime() - previous.date.getTime()) * ratio)),
+        value: 0
+      })
+    }
+    points.push(point)
+  }
+  return points
+})
+
 const xPerf = (_: PerfPoint, i: number) => i
 const yPerf = (d: PerfPoint) => d.value
 
 const xPerfTicks = (i: number) => {
-  if (i === 0 || i === lineChartData.value.length - 1 || !lineChartData.value[i]) return ''
-  return format(lineChartData.value[i]!.date, 'HH:mm')
+  if (i === 0 || i === coloredLineChartData.value.length - 1 || !coloredLineChartData.value[i]) return ''
+  return format(coloredLineChartData.value[i]!.date, 'HH:mm')
 }
 
 const perfTooltip = (d: PerfPoint) => formatNumber(d.value)
@@ -550,10 +568,11 @@ onMounted(() => setTimeout(() => { mounted.value = true }, 50))
       <ChartsChartLine
         v-else
         :key="`${selectedCategory ?? 'all'}-${lineColor}`"
-        :data="lineChartData"
+        :data="coloredLineChartData"
         :x="xPerf"
         :y="yPerf"
-        :color="lineColor"
+        color="var(--ui-success)"
+        negative-color="var(--ui-error)"
         :width="perfCardWidth"
         :tick-format="xPerfTicks"
         :tooltip-template="perfTooltip"

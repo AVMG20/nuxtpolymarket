@@ -8,23 +8,30 @@ import { nextMaxPrincipal } from '#shared/utils/gamelogic/bank'
 export default defineEventHandler(async (event) => {
   const session = await auth.api.getSession({ headers: event.headers })
   if (!session?.user?.id) throw createError({ statusCode: 401, statusMessage: 'Unauthorized' })
-  const amount = parseBankAmount((await readBody(event))?.amount)
+  const body = await readBody(event)
+  const repayDebt = body?.repayDebt === true
   const userId = session.user.id
 
   await db.transaction(async (tx) => {
     const [currentUser] = await tx.select({ balance: user.balance }).from(user).where(eq(user.id, userId)).for('update')
-    if (!currentUser || parseFloat(currentUser.balance) < amount) throw createError({ statusCode: 400, statusMessage: 'Insufficient balance' })
+    if (!currentUser) throw createError({ statusCode: 400, statusMessage: 'Insufficient balance' })
 
     const settled = await settleBankState(tx, await getLockedBankState(tx, userId))
     const currentBalance = parseFloat(settled.balance)
+    if (repayDebt && currentBalance >= 0) throw createError({ statusCode: 400, statusMessage: 'No active debt to repay' })
+    const amount = repayDebt
+      ? parseBankAmount((-currentBalance).toFixed(4))
+      : parseBankAmount(body?.amount)
+    if (parseFloat(currentUser.balance) < amount) throw createError({ statusCode: 400, statusMessage: 'Insufficient balance' })
+
     const debtPayment = Math.min(amount, Math.max(0, -currentBalance))
     const savingsAdded = amount - debtPayment
-    const newBalance = currentBalance + amount
+    const newBalance = repayDebt ? 0 : currentBalance + amount
     const principal = Math.max(0, parseFloat(settled.principal) + savingsAdded)
     const maxPrincipal = nextMaxPrincipal(parseFloat(settled.maxPrincipal), principal)
 
     await tx.update(bankState).set({ balance: newBalance.toFixed(4), principal: principal.toFixed(4), maxPrincipal: maxPrincipal.toFixed(4), loanPrincipal: newBalance >= 0 ? '0' : settled.loanPrincipal, lastSettledAt: new Date() }).where(eq(bankState.id, settled.id))
-    await tx.insert(transactions).values({ userId, amount: amount.toFixed(4), type: 'debit', category: 'bank deposit' })
+    await tx.insert(transactions).values({ userId, amount: amount.toFixed(4), type: 'debit', category: repayDebt ? 'bank debt repayment' : 'bank deposit' })
     await tx.update(user).set({ balance: sql`${user.balance} - ${amount.toFixed(4)}::numeric` }).where(eq(user.id, userId))
     await writeBankHistory(tx, userId, newBalance, 'deposit', amount)
   })

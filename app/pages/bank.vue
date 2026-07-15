@@ -45,8 +45,7 @@ const availableBankBalance = computed(() => Math.max(0, liveBalance.value))
 const maxWithdrawal = computed(() => Math.max(0, liveBalance.value) + availableLoan.value)
 const canDeposit = computed(() => validAmount.value > 0 && walletBalance.value >= validAmount.value)
 const canWithdraw = computed(() => validAmount.value > 0 && validAmount.value <= maxWithdrawal.value)
-const repayToPositiveAmount = computed(() => isInDebt.value ? Math.abs(liveBalance.value) * 1.01 : 0)
-const canRepayToPositive = computed(() => repayToPositiveAmount.value > 0 && walletBalance.value >= repayToPositiveAmount.value)
+const canRepayDebt = computed(() => isInDebt.value && walletBalance.value >= Math.abs(liveBalance.value))
 const isEmpty = computed(() => Math.abs(liveBalance.value) < 0.0001)
 
 type ChartPoint = { date: Date, balance: number }
@@ -84,7 +83,19 @@ const chartData = computed((): ChartPoint[] => {
     const anchor = history.at(-1)!
     points.push({ date: current, balance: growBankBalance(anchor.balance, anchor.date, current) })
   }
-  return points
+  const zeroCrossingPoints: ChartPoint[] = []
+  for (const point of points) {
+    const previous = zeroCrossingPoints.at(-1)
+    if (previous && previous.balance * point.balance < 0) {
+      const ratio = previous.balance / (previous.balance - point.balance)
+      zeroCrossingPoints.push({
+        date: new Date(previous.date.getTime() + ((point.date.getTime() - previous.date.getTime()) * ratio)),
+        balance: 0
+      })
+    }
+    zeroCrossingPoints.push(point)
+  }
+  return zeroCrossingPoints
 })
 const xFn = (_: ChartPoint, index: number) => index
 const yFn = (point: ChartPoint) => point.balance
@@ -122,15 +133,15 @@ function setAmount(value: number) {
   amount.value = Math.max(0, Math.floor(value * 10_000) / 10_000)
 }
 
-async function submit(action: 'deposit' | 'withdraw', overrideAmount?: number) {
+async function submit(action: 'deposit' | 'withdraw', overrideAmount?: number, repayDebt = false) {
   const selectedAmount = overrideAmount ?? validAmount.value
-  if (!selectedAmount || selectedAmount <= 0) return
+  if (!repayDebt && (!selectedAmount || selectedAmount <= 0)) return
   loading.value = action
   try {
-    await $fetch(`/api/bank/${action}`, { method: 'POST', body: { amount: selectedAmount } })
+    await $fetch(`/api/bank/${action}`, { method: 'POST', body: repayDebt ? { repayDebt: true } : { amount: selectedAmount } })
     amount.value = null
     await Promise.all([refresh(), refreshChartHistory(), fetchSession(), loadHistory(true)])
-    toast.add({ title: overrideAmount ? 'Debt repaid and balance restored' : action === 'deposit' ? 'Money deposited' : 'Money withdrawn', color: 'success', icon: 'i-lucide-check' })
+    toast.add({ title: repayDebt ? 'Debt repaid exactly' : action === 'deposit' ? 'Money deposited' : 'Money withdrawn', color: 'success', icon: 'i-lucide-check' })
   } catch (error: unknown) {
     const message = typeof error === 'object' && error && 'data' in error
       ? (error.data as { statusMessage?: string })?.statusMessage
@@ -214,7 +225,7 @@ async function submit(action: 'deposit' | 'withdraw', overrideAmount?: number) {
           <p class="mt-3 text-sm font-medium">Your growth chart starts with a deposit</p>
           <p class="mt-1 max-w-sm text-xs text-muted">Savings begin at 2% daily and rise smoothly to 4% as your bank balance approaches 1B.</p>
         </div>
-        <ChartsChartLine v-else-if="chartData.length" :data="chartData" :x="xFn" :y="yFn" :color="lineColor" :width="chartWidth" :tick-format="xTickFmt" :tooltip-template="tooltipFmt" :padding="{ top: 36 }" height="h-56" />
+        <ChartsChartLine v-else-if="chartData.length" :data="chartData" :x="xFn" :y="yFn" color="var(--ui-primary)" negative-color="var(--ui-error)" :width="chartWidth" :tick-format="xTickFmt" :tooltip-template="tooltipFmt" :padding="{ top: 36 }" height="h-56" />
       </UCard>
 
       <UCard :ui="{ body: 'space-y-5' }">
@@ -257,11 +268,11 @@ async function submit(action: 'deposit' | 'withdraw', overrideAmount?: number) {
           block
           color="primary"
           variant="soft"
-          icon="i-lucide-circle-dollar-sign"
+          icon="i-lucide-coins"
           :loading="loading === 'deposit'"
-          :disabled="!canRepayToPositive || !!loading"
-          label="Repay debt +1% positive"
-          @click="submit('deposit', repayToPositiveAmount)"
+          :disabled="!canRepayDebt || !!loading"
+          label="Repay debt"
+          @click="submit('deposit', undefined, true)"
         />
         <div class="rounded-lg bg-muted/50 p-3 text-xs text-muted">
           <div class="flex justify-between gap-3">
