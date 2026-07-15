@@ -571,12 +571,6 @@ const starterPrompts = [
             description="Your 300 monthly prompts are used. The allowance resets automatically next month."
             icon="i-lucide-calendar-x"
           />
-          <UAlert
-            v-else-if="hasPendingTools"
-            color="info"
-            description="Approve or decline the pending tool request before sending another message."
-            icon="i-lucide-wrench"
-          />
           <div class="rounded-xl border border-default bg-default p-2 shadow-sm">
             <UTextarea
               v-model="draft"
