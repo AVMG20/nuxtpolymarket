@@ -103,12 +103,18 @@ const upgradeColors = {
           </span>
         </div>
 
-        <!-- Balance + total wealth -->
-        <div class="flex flex-col items-end shrink-0">
-          <span class="font-semibold text-sm"><CoinBalance :value="u.balance" /></span>
-          <span class="text-[10px] text-muted flex items-center gap-0.5">
-            total <span class="text-[10px]"><CoinBalance :value="u.totalWealth" :show-icon="false" /></span>
-          </span>
+        <!-- Bank + wallet -->
+        <div class="flex items-end gap-3 shrink-0">
+          <div class="flex flex-col items-end">
+            <span class="font-semibold text-sm" :class="u.bankBalance < 0 ? 'text-error' : 'text-primary'"><CoinBalance :value="u.bankBalance" /></span>
+            <span class="text-[10px] text-muted">Bank</span>
+          </div>
+          <div class="flex flex-col items-end">
+            <span class="font-semibold text-sm"><CoinBalance :value="u.balance" /></span>
+            <span class="text-[10px] text-muted flex items-center gap-0.5">
+              total <span class="text-[10px]"><CoinBalance :value="u.totalWealth" :show-icon="false" /></span>
+            </span>
+          </div>
         </div>
       </div>
 
@@ -162,9 +168,16 @@ const upgradeColors = {
             <span class="text-xs"><GemBalance :value="u.gems" /></span>
           </div>
 
-          <!-- Balance -->
-          <div class="shrink-0">
+          <!-- Bank -->
+          <div class="flex flex-col items-end shrink-0">
+            <span class="font-semibold text-sm" :class="u.bankBalance < 0 ? 'text-error' : 'text-primary'"><CoinBalance :value="u.bankBalance" /></span>
+            <span class="text-[10px] text-muted">Bank</span>
+          </div>
+
+          <!-- Wallet -->
+          <div class="flex flex-col items-end shrink-0">
             <span class="font-semibold text-sm"><CoinBalance :value="u.balance" /></span>
+            <span class="text-[10px] text-muted">Wallet</span>
           </div>
         </div>
       </div>

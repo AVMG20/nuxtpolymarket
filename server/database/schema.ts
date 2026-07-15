@@ -203,6 +203,31 @@ export const gemPriceHistory = pgTable('gem_price_history', {
   createdAt: timestamp('created_at').defaultNow().notNull()
 }, t => [index('gem_price_history_created_at_idx').on(t.createdAt)])
 
+/**
+ * A bank position is settled lazily whenever it is read or changed. `principal`
+ * tracks user-funded savings only (earned interest is deliberately excluded),
+ * while `maxPrincipal` is its all-time high-water mark for loan eligibility.
+ */
+export const bankState = pgTable('bank_state', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().unique().references(() => user.id, { onDelete: 'cascade' }),
+  balance: numeric('balance', { precision: 19, scale: 4 }).notNull().default('0'),
+  principal: numeric('principal', { precision: 19, scale: 4 }).notNull().default('0'),
+  maxPrincipal: numeric('max_principal', { precision: 19, scale: 4 }).notNull().default('0'),
+  loanPrincipal: numeric('loan_principal', { precision: 19, scale: 4 }).notNull().default('0'),
+  lastSettledAt: timestamp('last_settled_at').defaultNow().notNull()
+})
+
+/** Snapshot only at bank actions; the UI projects the latest point in real time. */
+export const bankHistory = pgTable('bank_history', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  balance: numeric('balance', { precision: 19, scale: 4 }).notNull(),
+  action: text('action').notNull(),
+  amount: numeric('amount', { precision: 19, scale: 4 }).notNull().default('0'),
+  createdAt: timestamp('created_at').defaultNow().notNull()
+}, t => [index('bank_history_userId_createdAt_idx').on(t.userId, t.createdAt)])
+
 export const blackjackSessions = pgTable('blackjack_sessions', {
   id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
   userId: text('user_id').notNull().unique().references(() => user.id, { onDelete: 'cascade' }),
