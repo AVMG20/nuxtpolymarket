@@ -43,7 +43,7 @@ function resetSize() {
   prefs.value = { ...DEFAULT_PREFS, ...prefs.value, width: DEFAULT_PREFS.width, height: DEFAULT_PREFS.height }
 }
 
-// position prefs only apply on desktop; on mobile the widget stays in flow
+// position prefs only apply on desktop; mobile chat is a full-screen overlay.
 const wrapperPos = computed(() => ({
   'top-left': 'lg:top-4 lg:left-4',
   'top-right': 'lg:top-4 lg:right-4',
@@ -557,19 +557,19 @@ function deleteMessage(id: string) {
 </script>
 
 <template>
-  <!-- in-flow bottom-right on mobile, fixed to the preferred corner on desktop -->
+  <!-- Full-screen overlay on mobile, fixed to the preferred corner on desktop -->
   <div
-    class="flex justify-end p-3 lg:p-0 lg:block lg:fixed lg:z-40"
+    class="pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-end p-3 lg:block lg:p-0"
     :class="wrapperPos"
   >
     <div
-      class="flex flex-col items-end gap-2"
+      class="flex pointer-events-auto flex-col items-end gap-2"
       :class="stackCls"
     >
       <div
         v-if="open"
         ref="panelEl"
-        class="relative flex w-[calc(100vw-1.5rem)] max-w-90 flex-col overflow-hidden rounded-lg border border-default bg-default shadow-xl lg:max-h-[80vh] lg:min-h-72 lg:min-w-64 lg:max-w-[36rem] lg:resize"
+        class="fixed inset-0 flex h-[100dvh] w-full flex-col overflow-hidden bg-default shadow-xl lg:relative lg:inset-auto lg:h-auto lg:w-[calc(100vw-1.5rem)] lg:max-w-90 lg:rounded-lg lg:border lg:border-default lg:max-h-[80vh] lg:min-h-72 lg:min-w-64 lg:max-w-[36rem] lg:resize"
         :style="panelStyle"
       >
         <UButton
@@ -647,7 +647,7 @@ function deleteMessage(id: string) {
 
         <div
           ref="listEl"
-          class="h-72 space-y-2 overflow-y-auto px-3 py-2 lg:h-auto lg:min-h-0 lg:flex-1"
+          class="min-h-0 flex-1 space-y-2 overflow-y-auto px-3 py-2"
           @scroll.passive="onListScroll"
         >
           <div
@@ -848,7 +848,7 @@ function deleteMessage(id: string) {
         </div>
       </div>
 
-      <div class="relative">
+      <div class="relative" :class="open ? 'hidden lg:block' : ''">
         <UButton
           :aria-label="open ? 'Close chat' : 'Open chat'"
           class="rounded-full shadow-lg"

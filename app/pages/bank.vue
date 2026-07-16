@@ -25,7 +25,7 @@ const { width: chartWidth } = useElementSize(chartRef)
 const chartRange = ref<ChartRange>('1d')
 const chartRanges: ChartRange[] = ['1d', '7d', '30d']
 
-useIntervalFn(() => { now.value = Date.now() }, 1_000)
+useIntervalFn(() => { now.value = Date.now() }, 50)
 useIntervalFn(() => refresh(), 30_000)
 
 const liveBalance = computed(() => data.value
