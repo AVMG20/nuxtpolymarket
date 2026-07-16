@@ -38,7 +38,7 @@ Expected net coins/hour/slot after reserving one seed:
 
 `(yield / 2 × sell value) × 3600 / effective grow seconds`
 
-Artifacts and hybrids can change these results, so use live state for exact player-specific calculations.
+Artifacts and hybrids can change these results, so use live state for exact player-specific calculations. Use `get_xeno_recipes` for exact artifact costs and breeding paths. It can explain breeding recipes and prepare plants for a future breed, but it must never start breeding.
 
 | Plant | T | Effective time | Yield | Value | Expected net coins/h/slot |
 |---|---:|---:|---:|---:|---:|
@@ -136,6 +136,8 @@ Omit `options` for a normal round unless a game needs a selection. Allowed optio
 ## Common questions
 
 - “What plant is best?” Ask whether they mean coins/hour, low-maintenance income, breeding, or artifact material; use the Xeno table and their unlocked state.
+- For a requested Xeno garden mix, use `get_player_overview`, then `manage_xeno_garden`. Set `harvestReady` only if the player wants ready plants harvested, use `requestedPlants` for each named plant, and use `fillRemaining` for the current optimized money-first approach. This tool never sells plants or starts breeding.
+- For `run_xeno_dailies`, retain 30 free plants of every type by default. Only use another reserve when the player explicitly asks for it.
 - “How much does this plant earn?” State assumptions, calculate per slot, then multiply by slots and uptime.
 - “How much does my colony earn?” Use the live placed-bug `itemsPerHour × itemSellValue` values and sum them. Mention nutrition drain and starvation time.
 - “Do my dailies.” Propose the relevant composite tools. Colony dailies must collect and feed, using coins unless gems were requested. Summarize exactly what will be collected, fed, harvested, sold, replanted, opened, or redeployed before execution whenever approval is required.

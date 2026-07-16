@@ -3,6 +3,7 @@ import type { H3Event } from 'h3'
 import { db } from '#server/database'
 import { aiMessages } from '#server/database/schema'
 import { MIN_DEPLOY_SUCCESS, opSuccessChance } from '#shared/utils/hack-config'
+import { ARTIFACT_TYPES, effectiveGrowTime, getPlant, MUTATIONS, PLANT_TYPES } from '#shared/utils/xeno'
 import { AI_TOOL_CATALOG_BY_NAME } from '#shared/utils/ai-tools'
 import {
     AI_CONTEXT_MAX_CHARS,
@@ -208,14 +209,59 @@ export const AI_TOOLS: OpenRouterTool[] = [
     {
         type: 'function',
         function: {
-            name: 'run_xeno_dailies',
-            description: 'Harvest every ready Xeno grid slot, replant the harvested stack into empty slots, then sell surplus free plants while retaining the requested quantity per plant type.',
+            name: 'get_xeno_recipes',
+            description: 'Read Xeno artifact crafting costs and breeding mutation recipes. Use this to plan plants for an artifact or a future breed. This never starts breeding.',
             parameters: {
                 type: 'object',
                 properties: {
-                    keepPerPlantType: { type: 'integer', minimum: 0, maximum: 1000, description: 'Free inventory quantity to retain for each plant type after replanting.' }
+                    kind: { type: 'string', enum: ['all', 'artifacts', 'breeding'], default: 'all' },
+                    artifactId: { type: 'string', description: 'Optional artifact ID to look up, such as harvest-prism-iii.' },
+                    targetPlantId: { type: 'string', description: 'Optional offspring plant ID to find breeding recipes for, such as cosmosbloom.' }
                 },
-                required: ['keepPerPlantType'],
+                additionalProperties: false
+            }
+        }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'manage_xeno_garden',
+            description: 'Harvest ready Xeno plants if requested, then plant an exact requested mix into empty grid slots and optionally fill the rest with the best available money-making plants. This never starts breeding or sells plants. Use get_player_overview first to inspect inventory, and get_xeno_recipes when the player names an artifact or breeding target.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    requestedPlants: {
+                        type: 'array',
+                        maxItems: 40,
+                        items: {
+                            type: 'object',
+                            properties: {
+                                typeId: { type: 'string', description: 'Canonical Xeno plant ID from get_player_overview or get_xeno_recipes.' },
+                                quantity: { type: 'integer', minimum: 1, maximum: 40 }
+                            },
+                            required: ['typeId', 'quantity'],
+                            additionalProperties: false
+                        },
+                        description: 'Plants to prioritize in the garden. Only available free inventory is planted.'
+                    },
+                    harvestReady: { type: 'boolean', default: false, description: 'Set true only when the player wants completed plants harvested before replanting.' },
+                    fillRemaining: { type: 'boolean', default: true, description: 'Fill remaining empty slots after the requested mix with the best available plants for expected coins per hour.' }
+                },
+                required: ['requestedPlants'],
+                additionalProperties: false
+            }
+        }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'run_xeno_dailies',
+            description: 'Harvest ready Xeno grid slots, replant the harvested stack into empty slots, then sell surplus free plants. Retains 30 of each plant type unless the player requests a different reserve.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    keepPerPlantType: { type: 'integer', minimum: 0, maximum: 1000, default: 30, description: 'Free inventory quantity to retain for each plant type after selling. Defaults to 30; use another value only when the player asks.' }
+                },
                 additionalProperties: false
             }
         }
@@ -357,6 +403,7 @@ interface XenoStack {
 interface XenoSlot {
     id: string
     plant: null | (XenoStack & { completesAt: string, name: string })
+    artifact?: { typeId: string } | null
 }
 
 interface XenoState {
@@ -505,7 +552,19 @@ async function getOverview(event: H3Event) {
             highestTier: xeno.highestTier,
             gridSlots: xeno.grid.unlockedCount,
             readySlots: xeno.grid.slots.filter(slot => slot.plant && Date.parse(slot.plant.completesAt) <= Date.now()).length,
-            inventory: xeno.inventory
+            emptySlots: xeno.grid.slots.filter(slot => !slot.plant).length,
+            inventory: xeno.inventory.map(stack => {
+                const plant = getPlant(stack.typeId)
+                return {
+                    ...stack,
+                    name: plant?.name ?? stack.typeId,
+                    tier: plant?.tier ?? null,
+                    sellValue: plant?.value ?? null,
+                    expectedCoinsPerHour: plant
+                        ? plant.value * (1 + stack.yield / 2) * 3600 / effectiveGrowTime({ baseTime: plant.baseTime, speed: stack.speed })
+                        : null
+                }
+            })
         },
         colony: {
             initialized: colony.initialized,
@@ -651,6 +710,151 @@ async function runXenoDailies(event: H3Event, keepPerPlantType: number) {
     }
 
     return { harvested, replanted, sold, keptPerPlantType: keepPerPlantType }
+}
+
+function getXenoRecipes(args: Record<string, unknown>) {
+    const kind = args.kind === 'artifacts' || args.kind === 'breeding' ? args.kind : 'all'
+    const artifactId = typeof args.artifactId === 'string' ? args.artifactId : null
+    const targetPlantId = typeof args.targetPlantId === 'string' ? args.targetPlantId : null
+
+    if (artifactId && !ARTIFACT_TYPES.some(artifact => artifact.id === artifactId)) {
+        throw createError({ statusCode: 400, statusMessage: 'Unknown Xeno artifact' })
+    }
+    if (targetPlantId && !getPlant(targetPlantId)) {
+        throw createError({ statusCode: 400, statusMessage: 'Unknown Xeno plant' })
+    }
+
+    const artifacts = ARTIFACT_TYPES
+        .filter(artifact => !artifactId || artifact.id === artifactId)
+        .map(artifact => ({
+            id: artifact.id,
+            name: artifact.name,
+            description: artifact.description,
+            costs: artifact.cost.map(cost => ({
+                typeId: cost.plantTypeId,
+                name: getPlant(cost.plantTypeId)?.name ?? cost.plantTypeId,
+                quantity: cost.quantity
+            }))
+        }))
+    const breeding = MUTATIONS
+        .filter(recipe => !targetPlantId || recipe.offspring === targetPlantId)
+        .map(recipe => ({
+            parent1: { typeId: recipe.parent1, name: getPlant(recipe.parent1)?.name ?? recipe.parent1 },
+            parent2: { typeId: recipe.parent2, name: getPlant(recipe.parent2)?.name ?? recipe.parent2 },
+            offspring: { typeId: recipe.offspring, name: getPlant(recipe.offspring)?.name ?? recipe.offspring },
+            baseMutationChance: recipe.chance
+        }))
+
+    return {
+        plants: artifactId || targetPlantId
+            ? undefined
+            : PLANT_TYPES.map(plant => ({
+                typeId: plant.id, name: plant.name, tier: plant.tier, value: plant.value
+            })),
+        ...(kind !== 'breeding' ? { artifacts } : {}),
+        ...(kind !== 'artifacts' ? { breeding, breedingAvailable: false } : {})
+    }
+}
+
+function xenoStackValue(stack: XenoStack) {
+    const plant = getPlant(stack.typeId)
+    if (!plant) return -1
+    return plant.value * (1 + stack.yield / 2) / effectiveGrowTime({ baseTime: plant.baseTime, speed: stack.speed })
+}
+
+async function manageXenoGarden(event: H3Event, args: Record<string, unknown>) {
+    const requested = Array.isArray(args.requestedPlants) ? args.requestedPlants : []
+    const requestedPlants = new Map<string, number>()
+    for (const entry of requested) {
+        if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+            throw createError({ statusCode: 400, statusMessage: 'Each requested Xeno plant needs a typeId and quantity' })
+        }
+        const { typeId, quantity } = entry as Record<string, unknown>
+        const amount = Number(quantity)
+        if (typeof typeId !== 'string' || !getPlant(typeId) || !Number.isInteger(amount) || amount < 1 || amount > 40) {
+            throw createError({ statusCode: 400, statusMessage: 'Requested Xeno plants must use a known type ID and a quantity from 1 to 40' })
+        }
+        requestedPlants.set(typeId, (requestedPlants.get(typeId) ?? 0) + amount)
+    }
+    if (!requestedPlants.size) throw createError({ statusCode: 400, statusMessage: 'Choose at least one Xeno plant to prioritize' })
+
+    const headers = toolHeaders(event)
+    let state = await event.$fetch<XenoState>('/api/xeno/state', { headers })
+    const ready = state.grid.slots.filter((slot): slot is XenoSlot & { plant: NonNullable<XenoSlot['plant']> } =>
+        Boolean(slot.plant && Date.parse(slot.plant.completesAt) <= Date.now())
+    )
+    if (args.harvestReady === true) {
+        for (const slot of ready) {
+            await event.$fetch('/api/xeno/grid/harvest', { method: 'POST', headers, body: { slotId: slot.id } })
+        }
+        state = await event.$fetch<XenoState>('/api/xeno/state', { headers })
+    }
+
+    const inventory = state.inventory.map(stack => ({ ...stack }))
+    const slots = state.grid.slots.filter(slot => !slot.plant)
+    const canPlantInSlot = (slot: XenoSlot, stack: XenoStack) => {
+        const plant = getPlant(stack.typeId)
+        if (!plant?.voidPlant) return true
+        const artifact = slot.artifact ? ARTIFACT_TYPES.find(item => item.id === slot.artifact?.typeId) : null
+        return (artifact?.level ?? 0) >= 2
+    }
+    const takeStack = (slot: XenoSlot, typeId?: string) => inventory
+        .filter(stack => stack.quantity > 0 && (!typeId || stack.typeId === typeId) && canPlantInSlot(slot, stack))
+        .sort((a, b) => xenoStackValue(b) - xenoStackValue(a))[0]
+    const planted: Array<{ slotId: string, typeId: string }> = []
+    const unavailableRequested: Array<{ typeId: string, requested: number, planted: number }> = []
+
+    for (const [typeId, requestedQuantity] of requestedPlants) {
+        let plantedCount = 0
+        while (slots.length && plantedCount < requestedQuantity) {
+            const slotIndex = slots.findIndex(slot => Boolean(takeStack(slot, typeId)))
+            if (slotIndex < 0) break
+            const slot = slots.splice(slotIndex, 1)[0]!
+            const stack = takeStack(slot, typeId)!
+            await event.$fetch('/api/xeno/grid/plant', {
+                method: 'POST', headers, body: { slotId: slot.id, typeId: stack.typeId, speed: stack.speed, yield: stack.yield }
+            })
+            stack.quantity--
+            plantedCount++
+            planted.push({ slotId: slot.id, typeId })
+        }
+        if (plantedCount < requestedQuantity) unavailableRequested.push({ typeId, requested: requestedQuantity, planted: plantedCount })
+    }
+
+    let fillerPlanted = 0
+    if (args.fillRemaining !== false) {
+        while (slots.length) {
+            let candidate: { slotIndex: number, stack: XenoStack } | null = null
+            for (const [slotIndex, slot] of slots.entries()) {
+                const stack = takeStack(slot)
+                if (stack && (!candidate || xenoStackValue(stack) > xenoStackValue(candidate.stack))) {
+                    candidate = { slotIndex, stack }
+                }
+            }
+            if (!candidate) break
+            const slot = slots.splice(candidate.slotIndex, 1)[0]!
+            const { stack } = candidate
+            await event.$fetch('/api/xeno/grid/plant', {
+                method: 'POST', headers, body: { slotId: slot.id, typeId: stack.typeId, speed: stack.speed, yield: stack.yield }
+            })
+            stack.quantity--
+            fillerPlanted++
+            planted.push({ slotId: slot.id, typeId: stack.typeId })
+        }
+    }
+
+    const plantedByType = Object.entries(planted.reduce<Record<string, number>>((counts, plant) => {
+        counts[plant.typeId] = (counts[plant.typeId] ?? 0) + 1
+        return counts
+    }, {})).map(([typeId, quantity]) => ({ typeId, name: getPlant(typeId)?.name ?? typeId, quantity }))
+    return {
+        harvestedReadyPlants: args.harvestReady === true ? ready.length : 0,
+        planted: plantedByType,
+        fillerPlanted,
+        fillerStrategy: 'money_first',
+        unavailableRequested,
+        emptySlotsRemaining: slots.length
+    }
 }
 
 async function runHackOpsDailies(event: H3Event) {
@@ -1136,8 +1340,12 @@ export async function executeAiTool(event: H3Event, toolCall: AiToolCall): Promi
             return sellColonyResources(event, args)
         case 'start_colony_upgrade':
             return startColonyUpgrade(event, args)
+        case 'get_xeno_recipes':
+            return getXenoRecipes(args)
+        case 'manage_xeno_garden':
+            return manageXenoGarden(event, args)
         case 'run_xeno_dailies': {
-            const rawKeep = Number(args.keepPerPlantType)
+            const rawKeep = args.keepPerPlantType == null ? 30 : Number(args.keepPerPlantType)
             if (!Number.isInteger(rawKeep) || rawKeep < 0 || rawKeep > 1000) {
                 throw createError({ statusCode: 400, statusMessage: 'keepPerPlantType must be an integer from 0 to 1000' })
             }

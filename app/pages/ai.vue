@@ -282,6 +282,11 @@ function toolDescription(call: AiToolCall) {
     return `${casinoGame}: ${rounds} round${rounds === 1 ? '' : 's'} × ${formatNumber(bet, false)} coins (base stake ${formatNumber(bet * rounds, false)})`
   }
   if (call.function.name === 'play_blackjack') return `Play and fully resolve one blackjack hand with a ${formatNumber(Number(args.bet ?? 0), false)} coin base stake. Basic strategy may double or split when affordable.`
+  if (call.function.name === 'manage_xeno_garden') {
+    const requested = Array.isArray(args.requestedPlants) ? args.requestedPlants : []
+    const mix = requested.map(plant => `${(plant as Record<string, unknown>).quantity ?? 0} × ${(plant as Record<string, unknown>).typeId ?? 'plant'}`).join(', ')
+    return `Plant ${mix || 'the requested Xeno mix'}${args.harvestReady ? ' after harvesting ready plants' : ''}; ${args.fillRemaining === false ? 'leave remaining slots empty' : 'fill remaining slots with the money-first plan'}.`
+  }
   if (call.function.name === 'run_xeno_dailies') return `Harvest ready slots, replant, and retain ${args.keepPerPlantType ?? 0} free plants of each type before selling surplus.`
   if (call.function.name === 'run_colony_dailies') return `Collect Colony loot and refill nutrition using ${args.feedMethod ?? 'coins'}.`
   if (call.function.name === 'sell_colony_resources') {
