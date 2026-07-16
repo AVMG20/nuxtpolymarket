@@ -26,9 +26,7 @@ const { width: chartWidth } = useElementSize(chartRef)
 const chartRange = ref<ChartRange>('1d')
 const chartRanges: ChartRange[] = ['1d', '7d', '30d']
 
-// Past ~10M the balance gains whole dollars per second, so a 50ms tick just blurs the number and burns CPU; step down to 1s.
-const balanceTickMs = computed(() => Math.abs(data.value?.balance ?? 0) >= 10_000_000 ? 1_000 : 50)
-useIntervalFn(() => { now.value = Date.now() }, balanceTickMs)
+useIntervalFn(() => { now.value = Date.now() }, 500)
 useIntervalFn(() => { chartNow.value = Date.now() }, 1_000)
 useIntervalFn(() => refresh(), 30_000)
 
@@ -110,7 +108,7 @@ const xTickFmt = (index: number) => {
   return chartRange.value === '7d' ? format(point.date, 'EEE') : format(point.date, 'MMM d')
 }
 const tooltipFmt = (point: ChartPoint) =>
-  `<div style="font-weight:700;font-size:1rem">${point.balance < 0 ? '-' : '+'}${formatNumber(Math.abs(point.balance), false)}</div>` +
+  `<div style="font-weight:700;font-size:1rem">${point.balance < 0 ? '-' : '+'}${formatNumber(Math.abs(point.balance), false, 2)}</div>` +
   `<div style="font-size:0.7rem;opacity:0.6;margin-top:2px">${format(point.date, 'MMM d, HH:mm:ss')}</div>`
 const lineColor = computed(() => isInDebt.value ? 'var(--ui-error)' : 'var(--ui-primary)')
 
@@ -180,17 +178,17 @@ async function submit(action: 'deposit' | 'withdraw', overrideAmount?: number, r
             <div class="flex items-center gap-2 text-4xl sm:text-5xl font-bold tracking-tight tabular-nums" :class="isInDebt ? 'text-error' : 'text-highlighted'">
               <span v-if="isInDebt">−</span>
               <UIcon name="i-lucide-coins" class="size-8 sm:size-10 text-yellow-400" />
-              <span>{{ formatNumber(Math.abs(liveBalance), false) }}</span>
+              <span>{{ formatNumber(Math.abs(liveBalance), false, 2) }}</span>
             </div>
           </div>
           <div class="mt-3 text-sm text-muted">
-            <span v-if="isInDebt">Debt grows by <CoinBalance :value="interestToday" :compact="false" class="inline-flex align-middle" /> over the next 24 hours.</span>
-            <span v-else>Earns about <CoinBalance :value="interestToday" :compact="false" class="inline-flex align-middle" /> over the next 24 hours.</span>
+            <span v-if="isInDebt">Debt grows by <CoinBalance :value="interestToday" :compact="false" :minimum-fraction-digits="2" class="inline-flex align-middle" /> over the next 24 hours.</span>
+            <span v-else>Earns about <CoinBalance :value="interestToday" :compact="false" :minimum-fraction-digits="2" class="inline-flex align-middle" /> over the next 24 hours.</span>
           </div>
         </div>
         <div class="border-t border-default p-5 sm:p-6 lg:border-t-0 lg:border-l">
           <p class="text-xs font-medium uppercase tracking-wide text-muted">{{ bankProfitLoss < 0 ? 'Total bank loss' : 'Total bank profit' }}</p>
-          <CoinBalance :value="Math.abs(bankProfitLoss)" :compact="false" class="mt-2 text-xl font-bold tabular-nums" :class="bankProfitLoss < 0 ? 'text-error' : 'text-success'" />
+          <CoinBalance :value="Math.abs(bankProfitLoss)" :compact="false" :minimum-fraction-digits="2" class="mt-2 text-xl font-bold tabular-nums" :class="bankProfitLoss < 0 ? 'text-error' : 'text-success'" />
           <p class="mt-1 text-xs text-muted">{{ bankProfitLoss < 0 ? 'Current outstanding debt' : 'Interest earned to date' }}</p>
         </div>
       </div>
@@ -281,7 +279,7 @@ async function submit(action: 'deposit' | 'withdraw', overrideAmount?: number, r
         <div class="rounded-lg bg-muted/50 p-3 text-xs text-muted">
           <div class="flex justify-between gap-3">
             <span>Maximum withdrawal</span>
-            <CoinBalance :value="maxWithdrawal" :compact="false" class="font-medium text-default tabular-nums" />
+            <CoinBalance :value="maxWithdrawal" :compact="false" :minimum-fraction-digits="2" class="font-medium text-default tabular-nums" />
           </div>
           <p class="mt-2">Any amount beyond your savings becomes a loan at 7% daily. Debt cannot exceed 10× the amount borrowed.</p>
         </div>
@@ -291,11 +289,11 @@ async function submit(action: 'deposit' | 'withdraw', overrideAmount?: number, r
     <div class="grid sm:grid-cols-2 gap-4">
       <div class="rounded-lg border border-default px-4 py-3">
         <p class="text-xs text-muted">Total deposited</p>
-        <CoinBalance :value="data?.totalDeposited" :compact="false" class="mt-1 font-semibold tabular-nums" />
+        <CoinBalance :value="data?.totalDeposited" :compact="false" :minimum-fraction-digits="2" class="mt-1 font-semibold tabular-nums" />
       </div>
       <div class="rounded-lg border border-default px-4 py-3">
         <p class="text-xs text-muted">Maximum loan</p>
-        <CoinBalance :value="data?.loanLimit" :compact="false" class="mt-1 font-semibold tabular-nums" />
+        <CoinBalance :value="data?.loanLimit" :compact="false" :minimum-fraction-digits="2" class="mt-1 font-semibold tabular-nums" />
       </div>
     </div>
 
@@ -328,9 +326,9 @@ async function submit(action: 'deposit' | 'withdraw', overrideAmount?: number, r
           </div>
           <div class="text-right">
             <div class="flex justify-end items-center text-sm font-semibold tabular-nums" :class="entry.action === 'deposit' ? 'text-primary' : 'text-error'">
-              <span>{{ entry.action === 'deposit' ? '+' : '−' }}</span><CoinBalance :value="entry.amount" :compact="false" class="inline-flex" />
+              <span>{{ entry.action === 'deposit' ? '+' : '−' }}</span><CoinBalance :value="entry.amount" :compact="false" :minimum-fraction-digits="2" class="inline-flex" />
             </div>
-            <div class="flex justify-end gap-1 text-xs tabular-nums" :class="parseFloat(entry.balance) < 0 ? 'text-error' : 'text-muted'"><span>Bank:</span><CoinBalance :value="entry.balance" :compact="false" /></div>
+            <div class="flex justify-end gap-1 text-xs tabular-nums" :class="parseFloat(entry.balance) < 0 ? 'text-error' : 'text-muted'"><span>Bank:</span><CoinBalance :value="entry.balance" :compact="false" :minimum-fraction-digits="2" /></div>
           </div>
         </div>
       </div>

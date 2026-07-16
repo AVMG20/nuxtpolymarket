@@ -40,7 +40,6 @@ export default defineNuxtConfig({
         },
         serverAssets: [
             { baseName: 'changelog', dir: '../content/changelog' },
-            { baseName: 'ai-context', dir: '../content/ai' }
         ]
     },
 
