@@ -48,10 +48,6 @@ const upgradeColors = {
   catalyst: 'text-violet-400'
 }
 
-function totalBalance(user: LeaderboardUser) {
-  return Number(user.balance) + user.bankBalance
-}
-
 function openDetails(user: LeaderboardUser) {
   selectedUser.value = user
 }
@@ -71,61 +67,71 @@ function openDetails(user: LeaderboardUser) {
       <USkeleton v-for="i in 8" :key="i" class="h-20 rounded-xl" />
     </div>
 
-    <div v-else-if="users?.length" class="space-y-2">
-      <div
-        v-for="(u, i) in users"
-        :key="u.id"
-        class="group flex w-full cursor-pointer items-center gap-3 rounded-xl border px-3 py-3 text-left transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary sm:gap-4 sm:px-4"
-        :class="i < 3 ? [rankBg[i]!, 'sm:py-4'] : 'border-default bg-elevated/40 hover:bg-elevated'"
-        role="button"
-        tabindex="0"
-        @click="openDetails(u)"
-        @keydown.enter="openDetails(u)"
-        @keydown.space.prevent="openDetails(u)"
-      >
-        <div class="flex w-7 shrink-0 items-center justify-center sm:w-8">
-          <UIcon
-            v-if="i < 3"
-            :name="medals[i]!"
-            class="size-6 sm:size-7"
-            :class="medalColors[i]"
-          />
-          <span v-else class="font-mono text-sm text-muted">{{ i + 1 }}</span>
-        </div>
-
-        <div class="flex size-9 shrink-0 items-center justify-center rounded-full border border-default bg-background text-sm font-bold sm:size-10 sm:text-base">
-          {{ u.name[0]?.toUpperCase() }}
-        </div>
-
-        <div class="min-w-0 flex-1">
-          <p class="truncate font-semibold" :class="i < 3 ? 'sm:text-base' : 'text-sm'">{{ u.name }}</p>
-        </div>
-
-        <div class="hidden w-28 shrink-0 flex-col items-end gap-0.5 text-xs font-semibold md:ml-auto md:flex">
-          <GemBalance :value="u.gems" :compact="false" />
-          <CoinBalance :value="u.gemValue" />
-        </div>
-
-        <div class="hidden w-28 shrink-0 flex-col items-end lg:flex">
-          <BankBalance :value="u.bankBalance" class="text-sm font-semibold" />
-          <p class="text-[10px] text-muted">Bank</p>
-        </div>
-        <div class="hidden w-28 shrink-0 flex-col items-end lg:flex">
-          <span class="text-sm font-semibold"><CoinBalance :value="u.balance" /></span>
-          <p class="text-[10px] text-muted">Wallet</p>
-        </div>
-
-        <div class="flex shrink-0 flex-col items-end gap-0.5 text-xs font-semibold md:hidden">
-          <GemBalance :value="u.gems" />
-          <CoinBalance :value="u.gemValue" />
-        </div>
-        <div class="flex shrink-0 flex-col items-end gap-0.5 lg:hidden">
-          <span class="text-sm font-semibold" :class="totalBalance(u) < 0 ? 'text-error' : 'text-primary'"><CoinBalance :value="totalBalance(u)" /></span>
-        </div>
-
-        <UIcon name="i-lucide-chevron-right" class="hidden size-4 shrink-0 text-muted transition-transform group-hover:translate-x-0.5 sm:block lg:hidden" />
+    <UCard v-else-if="users?.length" :ui="{ body: 'p-0 sm:p-0' }">
+      <div class="overflow-x-auto">
+        <table class="min-w-[1200px] w-full border-collapse text-sm">
+          <thead class="border-b border-default bg-elevated/50 text-xs font-bold uppercase tracking-wide text-muted">
+            <tr>
+              <th scope="col" class="w-14 px-3 py-3 text-center"><UTooltip text="Rank"><UIcon name="i-lucide-trophy" class="mx-auto size-4" /></UTooltip></th>
+              <th scope="col" class="min-w-44 px-3 py-3 text-left">Player</th>
+              <th scope="col" class="px-3 py-3 text-left"><UTooltip text="Balances"><UIcon name="i-lucide-wallet-cards" class="size-4" /></UTooltip></th>
+              <th scope="col" class="px-3 py-3 text-left"><UTooltip text="Miner progression"><UIcon name="i-lucide-pickaxe" class="size-4" /></UTooltip></th>
+              <th scope="col" class="px-3 py-3 text-left"><UTooltip text="Game progress"><UIcon name="i-lucide-chart-no-axes-combined" class="size-4" /></UTooltip></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr
+              v-for="(u, i) in users"
+              :key="u.id"
+              class="cursor-pointer border-b border-default/70 transition-colors last:border-b-0 hover:bg-elevated/50 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-primary"
+              :class="i < 3 ? rankBg[i] : ''"
+              tabindex="0"
+              @click="openDetails(u)"
+              @keydown.enter="openDetails(u)"
+              @keydown.space.prevent="openDetails(u)"
+            >
+              <td class="px-3 py-3 text-center">
+                <UIcon v-if="i < 3" :name="medals[i]!" class="mx-auto size-5" :class="medalColors[i]" />
+                <span v-else class="font-mono text-sm text-muted">{{ i + 1 }}</span>
+              </td>
+              <td class="px-3 py-3">
+                <div class="flex items-center gap-2.5">
+                  <div class="flex size-9 shrink-0 items-center justify-center rounded-full border border-default bg-background font-bold">{{ u.name[0]?.toUpperCase() }}</div>
+                  <p class="max-w-40 truncate font-semibold">{{ u.name }}</p>
+                </div>
+              </td>
+              <td class="px-3 py-3">
+                <div class="flex items-center gap-3 whitespace-nowrap text-xs font-semibold">
+                  <UTooltip text="Wallet"><CoinBalance :value="u.balance" /></UTooltip>
+                  <UTooltip text="Bank"><BankBalance :value="u.bankBalance" /></UTooltip>
+                  <UTooltip text="Gems and gem value"><span class="inline-flex items-center gap-1"><GemBalance :value="u.gems" /><CoinBalance :value="u.gemValue" /></span></UTooltip>
+                </div>
+              </td>
+              <td class="px-3 py-3">
+                <div class="flex items-center gap-2.5 whitespace-nowrap font-semibold tabular-nums">
+                  <UTooltip text="Rig level"><span class="inline-flex items-center gap-1"><UIcon name="i-lucide-cpu" class="size-3.5 text-warning" />{{ u.rigLevel }}</span></UTooltip>
+                  <UTooltip text="Vault level"><span class="inline-flex items-center gap-1"><UIcon name="i-lucide-vault" class="size-3.5 text-success" />{{ u.vaultLevel }}</span></UTooltip>
+                  <UTooltip text="Factory level"><span class="inline-flex items-center gap-1"><UIcon name="i-lucide-factory" class="size-3.5 text-info" />{{ u.factoryLevel }}</span></UTooltip>
+                  <UTooltip text="Rig Overclock"><span class="inline-flex items-center gap-1 text-warning"><UIcon name="i-lucide-gauge" class="size-3.5" />+{{ u.overclockPct }}%</span></UTooltip>
+                  <UTooltip text="Factory Catalyst"><span class="inline-flex items-center gap-1 text-secondary"><UIcon name="i-lucide-flask-conical" class="size-3.5" />+{{ u.catalystPct }}%</span></UTooltip>
+                </div>
+              </td>
+              <td class="px-3 py-3">
+                <div class="flex items-center gap-2.5 whitespace-nowrap font-semibold tabular-nums">
+                  <UTooltip text="HackOps power"><span class="inline-flex items-center gap-1 text-primary"><UIcon name="i-lucide-shield" class="size-3.5" />{{ formatNumber(u.hackPower, false) }}</span></UTooltip>
+                  <UTooltip text="Colony habitat"><span class="inline-flex items-center gap-1 text-warning"><UIcon name="i-lucide-house" class="size-3.5" />{{ u.colonyHabitatLevel }}</span></UTooltip>
+                  <UTooltip text="Colony research"><span class="inline-flex items-center gap-1 text-warning"><UIcon name="i-lucide-bug" class="size-3.5" />{{ u.colonyResearchLevels }}</span></UTooltip>
+                  <UTooltip text="Xeno species"><span class="inline-flex items-center gap-1 text-success"><UIcon name="i-lucide-sprout" class="size-3.5" />{{ u.xenoSpeciesUnlocked }}</span></UTooltip>
+                  <UTooltip text="Xeno grid tiles"><span class="inline-flex items-center gap-1 text-success"><UIcon name="i-lucide-grid-2x2" class="size-3.5" />{{ u.xenoGridSlotsUnlocked }}</span></UTooltip>
+                  <UTooltip text="Xeno breeder slots"><span class="inline-flex items-center gap-1 text-success"><UIcon name="i-lucide-git-branch" class="size-3.5" />{{ u.xenoBreederSlotsUnlocked }}</span></UTooltip>
+                  <UTooltip text="AI prompts used"><span class="inline-flex items-center gap-1 text-info"><UIcon name="i-lucide-bot" class="size-3.5" />{{ formatNumber(u.aiPromptsUsed, false) }}</span></UTooltip>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
       </div>
-    </div>
+    </UCard>
 
     <UEmpty
       v-else
@@ -171,15 +177,15 @@ function openDetails(user: LeaderboardUser) {
                 <p class="mt-1 text-lg font-bold tabular-nums" :class="upgradeColors.factory">{{ selectedUser.factoryLevel }}</p>
                 <p class="text-[10px] text-muted">Factory</p>
               </div>
-              <div v-if="selectedUser.overclockPct > 0" class="rounded-lg bg-elevated/60 p-3 text-center">
+              <div class="rounded-lg bg-elevated/60 p-3 text-center">
                 <UIcon name="i-lucide-gauge" class="size-4" :class="upgradeColors.overclock" />
                 <p class="mt-1 text-lg font-bold tabular-nums" :class="upgradeColors.overclock">+{{ selectedUser.overclockPct }}%</p>
-                <p class="text-[10px] text-muted">Overclock</p>
+                <p class="text-[10px] text-muted">Rig Overclock</p>
               </div>
-              <div v-if="selectedUser.catalystPct > 0" class="rounded-lg bg-elevated/60 p-3 text-center">
+              <div class="rounded-lg bg-elevated/60 p-3 text-center">
                 <UIcon name="i-lucide-flask-conical" class="size-4" :class="upgradeColors.catalyst" />
                 <p class="mt-1 text-lg font-bold tabular-nums" :class="upgradeColors.catalyst">+{{ selectedUser.catalystPct }}%</p>
-                <p class="text-[10px] text-muted">Catalyst</p>
+                <p class="text-[10px] text-muted">Factory Catalyst</p>
               </div>
             </div>
           </div>
