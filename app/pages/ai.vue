@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { AiContextStatus, AiMessageDto, AiToolCall } from '#shared/utils/ai'
+import { AI_TOOL_CATALOG_BY_NAME } from '#shared/utils/ai-tools'
 
 interface Conversation {
   id: string
@@ -28,6 +29,7 @@ interface MessagesResponse {
 type AiStreamEvent
   = { type: 'conversation', conversationId: string }
     | { type: 'delta', content: string }
+    | { type: 'tool_result', toolCallId: string, result: Record<string, unknown> }
     | { type: 'done', conversationId: string }
     | { type: 'error', message: string }
 
@@ -48,6 +50,7 @@ const historyOpen = ref(false)
 const deleteOpen = ref(false)
 const deleteTarget = ref<Conversation | null>(null)
 const resolvingToolId = ref('')
+const streamedToolResults = ref<Record<string, Record<string, unknown>>>({})
 const autoApprove = useCookie<boolean>('ai_auto_approve', {
   default: () => false,
   sameSite: 'lax',
@@ -216,6 +219,8 @@ async function deleteConversation() {
 }
 
 function toolResult(toolCallId: string) {
+  const streamedResult = streamedToolResults.value[toolCallId]
+  if (streamedResult) return streamedResult
   const message = messages.value.find(item => item.role === 'tool' && item.toolCallId === toolCallId)
   if (!message) return null
   try {
@@ -223,6 +228,10 @@ function toolResult(toolCallId: string) {
   } catch {
     return { result: message.content }
   }
+}
+
+function requiresToolConfirmation(call: AiToolCall) {
+  return AI_TOOL_CATALOG_BY_NAME[call.function.name]?.requiresConfirmation ?? true
 }
 
 function toolArguments(call: AiToolCall) {
@@ -301,6 +310,13 @@ async function resolveTool(message: AiMessageDto, call: AiToolCall, approved: bo
       assistantMessageId: message.id,
       toolCallId: call.id,
       approved
+    }, (streamEvent) => {
+      if (streamEvent.type !== 'tool_result') return
+      streamedToolResults.value = {
+        ...streamedToolResults.value,
+        [streamEvent.toolCallId]: streamEvent.result
+      }
+      if (resolvingToolId.value === streamEvent.toolCallId) resolvingToolId.value = ''
     })
     await Promise.all([loadMessages(), refreshConversations()])
     await fetchSession()
@@ -430,7 +446,7 @@ const starterPrompts = [
             <div class="w-80 space-y-3 p-4">
               <div>
                 <p class="font-medium">Tool approval</p>
-                <p class="text-sm text-muted">Game API calls require confirmation unless auto-approval is enabled.</p>
+                <p class="text-sm text-muted">Read-only tools run immediately. Actions that can change your account require confirmation unless auto-approval is enabled.</p>
               </div>
               <USwitch v-model="autoApprove" label="Execute tools without asking" />
               <UAlert
@@ -506,8 +522,9 @@ const starterPrompts = [
                           </UBadge>
                         </div>
                         <p class="mt-1 whitespace-pre-wrap break-words text-sm text-muted">{{ toolDescription(call) }}</p>
-                        <div v-if="!toolResult(call.id)" class="mt-3 flex gap-2">
+                        <div v-if="!toolResult(call.id) && requiresToolConfirmation(call)" class="mt-3 flex gap-2">
                           <UButton
+                            :disabled="Boolean(resolvingToolId)"
                             :loading="resolvingToolId === call.id"
                             size="sm"
                             label="Approve"
@@ -522,6 +539,7 @@ const starterPrompts = [
                             @click="resolveTool(message, call, false)"
                           />
                         </div>
+                        <p v-else-if="!toolResult(call.id)" class="mt-3 text-sm text-muted">Running read-only lookup…</p>
                       </div>
                     </div>
                   </UCard>

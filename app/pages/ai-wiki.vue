@@ -1,14 +1,9 @@
 <script setup lang="ts">
-interface AiTool {
-  name: string
-  description: string
-}
+import { AI_TOOL_CATALOG } from '#shared/utils/ai-tools'
 
-const { data } = await useFetch<{ tools: AiTool[] }>('/api/ai/tools', {
-  default: () => ({ tools: [] })
-})
+definePageMeta({ path: '/ai/wiki' })
 
-const tools = computed(() => data.value?.tools ?? [])
+const tools = AI_TOOL_CATALOG
 
 function toolLabel(name: string) {
   return name.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')
@@ -40,13 +35,11 @@ function toolLabel(name: string) {
             </div>
             <div class="min-w-0">
               <h2 class="font-medium text-highlighted">{{ toolLabel(tool.name) }}</h2>
-              <p class="mt-1 text-sm leading-5 text-muted">{{ tool.description }}</p>
+              <p class="mt-1 text-sm leading-5 text-muted">{{ tool.wikiDescription }}</p>
             </div>
           </div>
         </UCard>
       </div>
-
-      <p v-if="!tools.length" class="mt-8 text-sm text-muted">No AI tools are currently available.</p>
     </UContainer>
   </div>
 </template>

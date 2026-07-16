@@ -34,6 +34,9 @@ export default defineEventHandler(async (event) => {
                 body.approved!,
                 async (content) => {
                     await stream.push({ data: JSON.stringify({ type: 'delta', content }) })
+                },
+                async (toolCallId, result) => {
+                    await stream.push({ data: JSON.stringify({ type: 'tool_result', toolCallId, result }) })
                 }
             )
             await stream.push({ data: JSON.stringify({ type: 'done', conversationId, ...result }) })

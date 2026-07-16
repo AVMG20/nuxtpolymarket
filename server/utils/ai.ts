@@ -3,6 +3,7 @@ import type { H3Event } from 'h3'
 import { db } from '#server/database'
 import { aiMessages } from '#server/database/schema'
 import { MIN_DEPLOY_SUCCESS, opSuccessChance } from '#shared/utils/hack-config'
+import { AI_TOOL_CATALOG, AI_TOOL_CATALOG_BY_NAME } from '#shared/utils/ai-tools'
 import {
     AI_CONTEXT_MAX_CHARS,
     AI_CONTEXT_MAX_MESSAGES,
@@ -343,7 +344,25 @@ export const AI_TOOLS: OpenRouterTool[] = [
             }
         }
     }
-]
+].map(tool => {
+    const catalogTool = AI_TOOL_CATALOG_BY_NAME[tool.function.name]
+    if (!catalogTool) throw new Error(`Missing AI tool catalogue entry: ${tool.function.name}`)
+    return {
+        ...tool,
+        function: {
+            ...tool.function,
+            description: catalogTool.description
+        }
+    }
+})
+
+if (AI_TOOLS.length !== AI_TOOL_CATALOG.length) {
+    throw new Error('AI tool catalogue and registered tools are out of sync')
+}
+
+function toolRequiresConfirmation(toolCall: AiToolCall) {
+    return AI_TOOL_CATALOG_BY_NAME[toolCall.function.name]?.requiresConfirmation ?? true
+}
 
 interface XenoStack {
     typeId: string
@@ -1274,8 +1293,11 @@ export async function continueAiConversation(
         }).returning({ id: aiMessages.id })
         lastMessageId = saved?.id ?? ''
 
-        if (!toolCalls.length || getCookie(event, 'ai_auto_approve') !== 'true') break
-        for (const toolCall of toolCalls) {
+        if (!toolCalls.length) break
+        const canAutoApprove = getCookie(event, 'ai_auto_approve') === 'true'
+        const executableTools = toolCalls.filter(toolCall => canAutoApprove || !toolRequiresConfirmation(toolCall))
+        if (!executableTools.length) break
+        for (const toolCall of executableTools) {
             try {
                 await insertToolResult(conversationId, userId, toolCall, await executeAiTool(event, toolCall))
             } catch (error) {
@@ -1311,7 +1333,8 @@ export async function resolveAiToolCall(
     assistantMessageId: string,
     toolCallId: string,
     approved: boolean,
-    onText?: (content: string) => void | Promise<void>
+    onText?: (content: string) => void | Promise<void>,
+    onToolResolved?: (toolCallId: string, result: unknown) => void | Promise<void>
 ) {
     const assistant = await db.query.aiMessages.findFirst({
         where: and(
@@ -1335,13 +1358,18 @@ export async function resolveAiToolCall(
     if (existing) throw createError({ statusCode: 409, statusMessage: 'This tool call was already resolved' })
 
     if (!approved) {
-        await insertToolResult(conversationId, userId, toolCall, { declined: true, message: 'The player declined this action.' })
+        const result = { declined: true, message: 'The player declined this action.' }
+        await insertToolResult(conversationId, userId, toolCall, result)
+        await onToolResolved?.(toolCall.id, result)
     } else {
+        let result: unknown
         try {
-            await insertToolResult(conversationId, userId, toolCall, await executeAiTool(event, toolCall))
+            result = await executeAiTool(event, toolCall)
         } catch (error) {
-            await insertToolResult(conversationId, userId, toolCall, { error: getErrorMessage(error) })
+            result = { error: getErrorMessage(error) }
         }
+        await insertToolResult(conversationId, userId, toolCall, result)
+        await onToolResolved?.(toolCall.id, result)
     }
 
     const rows = await conversationMessages(conversationId, userId)
