@@ -2,6 +2,7 @@ import { and, asc, eq } from 'drizzle-orm'
 import type { H3Event } from 'h3'
 import { db } from '#server/database'
 import { aiMessages } from '#server/database/schema'
+import { MIN_DEPLOY_SUCCESS, opSuccessChance } from '#shared/utils/hack-config'
 import {
     AI_CONTEXT_MAX_CHARS,
     AI_CONTEXT_MAX_MESSAGES,
@@ -135,6 +136,38 @@ export const AI_TOOLS: OpenRouterTool[] = [
     {
         type: 'function',
         function: {
+            name: 'sell_colony_resources',
+            description: 'Sell Colony resources from inventory while keeping a requested quantity of each resource. Set itemTypeId to sell only one resource, or omit it to sell every resource above the keep quantity. Read the player overview first to inspect inventory and resource IDs.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    keepQuantity: { type: 'integer', minimum: 0, maximum: 1000000, description: 'Quantity of each selected resource to retain.' },
+                    itemTypeId: { type: 'string', description: 'Optional Colony resource ID. Omit to process every resource in inventory.' }
+                },
+                required: ['keepQuantity'],
+                additionalProperties: false
+            }
+        }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'start_colony_upgrade',
+            description: 'Start one Colony builder upgrade: an upgrade track, the habitat level-up, or species research. Read the player overview first to compare every upgrade, its prerequisites, costs, and whether the builder is busy.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    upgradeType: { type: 'string', enum: ['track', 'habitat', 'research'] },
+                    id: { type: 'string', description: 'Required for track and research upgrades: use the track ID or bug type ID from the player overview. Omit for habitat.' }
+                },
+                required: ['upgradeType'],
+                additionalProperties: false
+            }
+        }
+    },
+    {
+        type: 'function',
+        function: {
             name: 'run_xeno_dailies',
             description: 'Harvest every ready Xeno grid slot, replant the harvested stack into empty slots, then sell surplus free plants while retaining the requested quantity per plant type.',
             parameters: {
@@ -153,6 +186,30 @@ export const AI_TOOLS: OpenRouterTool[] = [
             name: 'run_hackops_dailies',
             description: 'Collect all completed Hack Ops and redeploy the same agents on the same operation templates when still valid.',
             parameters: { type: 'object', properties: {}, additionalProperties: false }
+        }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'find_best_hackops_mission',
+            description: 'Rank the player\'s currently available Hack Ops missions using their free agents\' actual power. Returns the strongest legal squad for each mission and ranks dispatchable missions by expected base cash per hour. This does not dispatch anything.',
+            parameters: { type: 'object', properties: {}, additionalProperties: false }
+        }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'dispatch_hackops_mission',
+            description: 'Dispatch selected available agents on a new Hack Ops mission. Read the player overview first for available mission template IDs, agent IDs, power, and availability.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    templateId: { type: 'string', description: 'Hack Ops mission template ID from the player overview.' },
+                    agentIds: { type: 'array', minItems: 1, maxItems: 4, items: { type: 'string' }, description: 'Available agent IDs to send on the mission.' }
+                },
+                required: ['templateId', 'agentIds'],
+                additionalProperties: false
+            }
         }
     },
     {
@@ -319,6 +376,16 @@ interface HackState {
     totalPower: number
     activeOps: HackOp[]
     agents: Array<{ id: string, name: string, power: number, onOp: boolean }>
+    opTemplates: Array<{
+        id: string
+        name: string
+        minAgents: number
+        maxAgents: number
+        minPower: number
+        durationMs: number
+        baseCash: [number, number]
+        effectiveSuccessChance: number
+    }>
 }
 
 interface ColonyState {
@@ -329,8 +396,37 @@ interface ColonyState {
     nutritionDrainPerHour: number
     feedCost: number
     gemFeedCost: number
+    habitatLevel: number
+    habitatLevelUpCost: number | null
+    habitatLevelUpGemCost: number | null
     pendingLoot: Array<{ name: string, quantity: number }>
     bugs: Array<{ name: string, itemsPerHour: number, itemSellValue: number, feedPerHour: number }>
+    inventory: Array<{ id: string, name: string, quantity: number, sellValue: number }>
+    upgrades: Array<{
+        id: string
+        name: string
+        description: string
+        level: number
+        maxLevel: number
+        atMax: boolean
+        currentEffect: string
+        nextEffect: string | null
+        nextCost: { coins?: number, gems?: number } | null
+        nextDurationMs: number | null
+        requiredLevel: number
+        meetsHabitatRequirement: boolean
+    }>
+    research: Array<{
+        typeId: string
+        name: string
+        level: number
+        maxLevel: number
+        atMax: boolean
+        nextSpeedRange: [number, number] | null
+        nextYieldRange: [number, number] | null
+        cost: unknown
+    }>
+    builder: { kind: 'track' | 'habitat', trackName: string, completesAt: string } | null
 }
 
 interface MinerState {
@@ -410,9 +506,18 @@ async function getOverview(event: H3Event) {
             nutritionMax: colony.nutritionMax,
             feedCostCoins: colony.feedCost,
             feedCostGems: colony.gemFeedCost,
+            habitat: {
+                level: colony.habitatLevel,
+                nextCoinCost: colony.habitatLevelUpCost,
+                nextGemCost: colony.habitatLevelUpGemCost
+            },
             estimatedCoinsPerHour: colonyCoinsPerHour,
             estimatedHoursUntilStarving: starvationHours,
             pendingLoot: colony.pendingLoot,
+            inventory: colony.inventory,
+            builder: colony.builder,
+            upgrades: colony.upgrades,
+            research: colony.research,
             placedBugs: colony.bugs.map(bug => ({
                 name: bug.name,
                 itemsPerHour: bug.itemsPerHour,
@@ -424,7 +529,8 @@ async function getOverview(event: H3Event) {
             totalPower: hack.totalPower,
             completedOps: hack.activeOps.filter(op => op.done).length,
             activeOps: hack.activeOps,
-            freeAgents: hack.agents.filter(agent => !agent.onOp)
+            freeAgents: hack.agents.filter(agent => !agent.onOp),
+            missionTemplates: hack.opTemplates
         },
         miner,
         gemMarket: {
@@ -553,6 +659,110 @@ async function runColonyDailies(event: H3Event, feedMethod: 'coins' | 'gems') {
     }
 
     return { ...result, feedMethod }
+}
+
+async function sellColonyResources(event: H3Event, args: Record<string, unknown>) {
+    const keepQuantity = Number(args.keepQuantity)
+    if (!Number.isInteger(keepQuantity) || keepQuantity < 0 || keepQuantity > 1_000_000) {
+        throw createError({ statusCode: 400, statusMessage: 'keepQuantity must be an integer from 0 to 1,000,000' })
+    }
+    const itemTypeId = typeof args.itemTypeId === 'string' ? args.itemTypeId : undefined
+    const headers = toolHeaders(event)
+    const colony = await event.$fetch<ColonyState>('/api/colony/state', { headers })
+    const resources = itemTypeId
+        ? colony.inventory.filter(item => item.id === itemTypeId)
+        : colony.inventory
+
+    if (itemTypeId && !resources.length) {
+        throw createError({ statusCode: 400, statusMessage: 'Unknown Colony resource' })
+    }
+
+    const sold: Array<{ itemTypeId: string, quantity: number, result: unknown }> = []
+    for (const resource of resources) {
+        const quantity = resource.quantity - keepQuantity
+        if (quantity <= 0) continue
+        const result = await event.$fetch('/api/colony/market/sell', {
+            method: 'POST',
+            headers,
+            body: { itemTypeId: resource.id, quantity }
+        })
+        sold.push({ itemTypeId: resource.id, quantity, result })
+    }
+
+    return { keepQuantity, itemTypeId: itemTypeId ?? null, sold }
+}
+
+async function startColonyUpgrade(event: H3Event, args: Record<string, unknown>) {
+    const upgradeType = args.upgradeType
+    const id = typeof args.id === 'string' ? args.id : ''
+    const headers = toolHeaders(event)
+
+    if (upgradeType === 'habitat') {
+        return event.$fetch('/api/colony/habitat/upgrade', { method: 'POST', headers })
+    }
+    if (upgradeType === 'track' && id) {
+        return event.$fetch('/api/colony/upgrades/start', { method: 'POST', headers, body: { trackId: id } })
+    }
+    if (upgradeType === 'research' && id) {
+        return event.$fetch('/api/colony/research/sacrifice', { method: 'POST', headers, body: { typeId: id } })
+    }
+
+    throw createError({ statusCode: 400, statusMessage: 'Choose habitat, or provide an upgrade ID for a track or research upgrade' })
+}
+
+async function dispatchHackOpsMission(event: H3Event, args: Record<string, unknown>) {
+    const templateId = typeof args.templateId === 'string' ? args.templateId : ''
+    const agentIds = Array.isArray(args.agentIds) && args.agentIds.every(id => typeof id === 'string')
+        ? args.agentIds as string[]
+        : []
+    if (!templateId || agentIds.length < 1 || agentIds.length > 4 || new Set(agentIds).size !== agentIds.length) {
+        throw createError({ statusCode: 400, statusMessage: 'Choose one mission template and one to four unique agent IDs' })
+    }
+
+    return event.$fetch('/api/hack/ops/dispatch', {
+        method: 'POST',
+        headers: toolHeaders(event),
+        body: { templateId, agentIds }
+    })
+}
+
+async function findBestHackOpsMission(event: H3Event) {
+    const hack = await event.$fetch<HackState>('/api/hack/state', { headers: toolHeaders(event) })
+    const freeAgents = hack.agents
+        .filter(agent => !agent.onOp)
+        .sort((a, b) => b.power - a.power)
+
+    const missions = hack.opTemplates
+        .map(template => {
+            const squad = freeAgents.slice(0, template.maxAgents)
+            const power = squad.reduce((total, agent) => total + agent.power, 0)
+            const successChance = squad.length >= template.minAgents
+                ? opSuccessChance(power, template.minPower)
+                : 0
+            const averageCash = (template.baseCash[0] + template.baseCash[1]) / 2
+            const expectedCashPerHour = template.durationMs > 0
+                ? (successChance * averageCash) / (template.durationMs / 3_600_000)
+                : 0
+
+            return {
+                templateId: template.id,
+                name: template.name,
+                squad: squad.map(agent => ({ id: agent.id, name: agent.name, power: agent.power })),
+                squadPower: power,
+                successChance,
+                dispatchable: squad.length >= template.minAgents && successChance >= MIN_DEPLOY_SUCCESS,
+                averageBaseCash: averageCash,
+                baseDurationMs: template.durationMs,
+                expectedBaseCashPerHour: expectedCashPerHour
+            }
+        })
+        .sort((a, b) => b.expectedBaseCashPerHour - a.expectedBaseCashPerHour)
+
+    return {
+        freeAgentCount: freeAgents.length,
+        recommended: missions.find(mission => mission.dispatchable) ?? null,
+        missions
+    }
 }
 
 async function runMinerDailies(event: H3Event) {
@@ -828,6 +1038,10 @@ export async function executeAiTool(event: H3Event, toolCall: AiToolCall): Promi
             const method = args.method === 'gems' ? 'gems' : 'coins'
             return event.$fetch('/api/colony/feed', { method: 'POST', headers, body: { method } })
         }
+        case 'sell_colony_resources':
+            return sellColonyResources(event, args)
+        case 'start_colony_upgrade':
+            return startColonyUpgrade(event, args)
         case 'run_xeno_dailies': {
             const rawKeep = Number(args.keepPerPlantType)
             if (!Number.isInteger(rawKeep) || rawKeep < 0 || rawKeep > 1000) {
@@ -837,6 +1051,10 @@ export async function executeAiTool(event: H3Event, toolCall: AiToolCall): Promi
         }
         case 'run_hackops_dailies':
             return runHackOpsDailies(event)
+        case 'find_best_hackops_mission':
+            return findBestHackOpsMission(event)
+        case 'dispatch_hackops_mission':
+            return dispatchHackOpsMission(event, args)
         case 'run_miner_dailies':
             return runMinerDailies(event)
         case 'purchase_miner_upgrades':

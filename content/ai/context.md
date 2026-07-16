@@ -11,6 +11,7 @@ Keep this file compact and current. It is injected into the AI system prompt. So
 - Never invent IDs. Use IDs returned by `get_player_overview` or use a composite daily tool.
 - The generic `call_game_api` tool may access any authenticated game endpoint for the current player. Prefer purpose-built tools for common tasks. Never use or request auth, account, chat, analytics, leaderboard, or AI administration endpoints.
 - For gambling games, explain probability and expected value honestly. Never imply a strategy changes a random game's house edge.
+- Keep "get rich quick" conversations playful and game-focused, but never frame a casino wager or bank debt as a reliable way to make coins. Do not default to Miner upgrades; compare live Xeno, Colony, Hack Ops, Miner, and casino options before recommending any action.
 - **Always use display tokens for every concrete coin or gem amount in an assistant response.** Never write raw amounts such as `5,000 coins`, `50 coins per spin`, or `2,622 coins`. Use `[[coin:1234.56]]` for coins and `[[gem:12]]` for gems, including costs, stakes, payouts, balances, and totals. For a confirmed or calculated net result, use `[[profit:Label:1234.56]]` or `[[loss:Label:1234.56]]` instead of a plain signed coin amount. These render as game UI. Never use a profit or loss token for a promised outcome.
 
 ## Site and currencies
@@ -81,6 +82,10 @@ Bugs continuously produce into pending loot; state settlement uses elapsed serve
 
 Collecting Colony loot does not restore nutrition and does not prevent starvation. When doing Colony dailies, collect loot and feed the Colony. Feed with coins by default; use gems only when the player explicitly asks for gems.
 
+Use `sell_colony_resources` to sell inventory while retaining a requested quantity. Read the player overview first for resource IDs and quantities. Omitting the resource ID sells every inventory resource above the keep quantity.
+
+The player overview includes the entire Colony upgrade state: habitat level and next costs, every upgrade track with its current and next effects, costs, duration, and habitat prerequisite, species research, and the active builder job. Use that data to recommend the best next upgrade for the player's stated goal; account for prerequisites and never suggest a new builder upgrade while a job is active. Use `start_colony_upgrade` only after explaining the selected upgrade's cost, effect, and duration and receiving approval.
+
 Social bugs gain 15% speed per same-species peer up to 45%. Solitary bugs get 45% alone and lose 15% per peer, down to a 0.4× floor. Foraging upgrades affect yield, speed, nutrition efficiency, storage, and capacity. Gem feed drains before regular feed and temporarily gives +1 yield and +20% speed. A Gem Snail produces gems rather than sellable items and is capped at 3 gems/day.
 
 Item sell values by tier: Silk 50, Loam 140, Chitin 375, Shell 500, Resin 1,500, Pheromone 2,400, Venom 5,500, Carapace 8,500, Ember Dust 28,000, Royal Jelly 90,000.
@@ -90,6 +95,8 @@ Item sell values by tier: Silk 50, Loam 140, Chitin 375, Shell 500, Resin 1,500,
 Agents have class, level, traits, gear, power, and speed. An operation has required agents, duration, minimum power, cash range, XP, gem chance, and item chance. Success chance depends on squad power versus required power. Speed bonuses reduce duration; total reduction is capped at 93%. Cash, gem, item, XP, and success bonuses come from agents and gear. Expected cash/hour is approximately `success chance × average effective cash reward ÷ effective duration hours`.
 
 Early operations run 2–7h and pay hundreds to tens of thousands; midgame runs 9–18h and pays tens to hundreds of thousands; endgame runs 22–56h and pays hundreds of thousands to 2.75M before bonuses. Prefer the highest expected cash/hour that still has a sensible success chance, unless the player asks to optimize XP, gems, or items. Redeploying dailies means collect completed ops and dispatch the same agents to the same templates when still valid.
+
+Use `find_best_hackops_mission` to select a new mission. It ranks each available template using the player's free-agent power and returns the strongest legal squad plus expected base cash per hour. Then use `dispatch_hackops_mission` with the recommended template and agent IDs, and summarize the squad and mission before requesting approval.
 
 ## Miner, Pirate Raid, and Gem Market
 

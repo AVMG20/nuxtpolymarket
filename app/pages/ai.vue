@@ -248,6 +248,16 @@ function toolDescription(call: AiToolCall) {
   if (call.function.name === 'blackjack_action') return `Take the “${args.action}” action in the active blackjack hand.`
   if (call.function.name === 'run_xeno_dailies') return `Harvest ready slots, replant, and retain ${args.keepPerPlantType ?? 0} free plants of each type before selling surplus.`
   if (call.function.name === 'run_colony_dailies') return `Collect Colony loot and refill nutrition using ${args.feedMethod ?? 'coins'}.`
+  if (call.function.name === 'sell_colony_resources') {
+    const resource = args.itemTypeId ? ` ${args.itemTypeId}` : ' resources'
+    return `Sell Colony${resource}, keeping ${args.keepQuantity ?? 0} of each selected resource.`
+  }
+  if (call.function.name === 'start_colony_upgrade') {
+    const target = args.upgradeType === 'habitat' ? 'the Colony habitat' : `${args.upgradeType ?? 'Colony'} upgrade ${args.id ?? ''}`
+    return `Start ${target}.`
+  }
+  if (call.function.name === 'find_best_hackops_mission') return 'Analyze available Hack Ops missions and choose the best squad. This does not dispatch a mission.'
+  if (call.function.name === 'dispatch_hackops_mission') return `Dispatch ${Array.isArray(args.agentIds) ? args.agentIds.length : 0} agent(s) on Hack Ops mission ${args.templateId ?? ''}.`
   if (call.function.name === 'run_miner_dailies') return 'Collect available Miner cash and Factory gems, then open every remaining free lootbox. No paid lootboxes.'
   if (call.function.name === 'purchase_miner_upgrades') {
     const levels = Number(args.levels ?? 0)
@@ -413,6 +423,7 @@ const starterPrompts = [
           <p class="truncate font-semibold">{{ conversations.find(item => item.id === selectedId)?.title ?? 'AI Assistant' }}</p>
           <p class="text-xs text-muted">{{ usage.limit - usage.used }} prompts left this month</p>
         </div>
+        <UButton color="neutral" icon="i-lucide-book-open" label="Wiki" to="/ai/wiki" variant="ghost" />
         <UPopover :content="{ side: 'bottom', align: 'end' }">
           <UButton aria-label="AI settings" color="neutral" icon="i-lucide-settings-2" variant="ghost" />
           <template #content>
