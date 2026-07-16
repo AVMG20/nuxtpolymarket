@@ -1389,7 +1389,9 @@ export async function continueAiConversation(
     event: H3Event,
     conversationId: string,
     userId: string,
-    onText?: (content: string) => void | Promise<void>
+    onText?: (content: string) => void | Promise<void>,
+    onAssistantMessage?: (messageId: string) => void | Promise<void>,
+    onToolResolved?: (toolCallId: string, result: unknown) => void | Promise<void>
 ) {
     let lastMessageId = ''
     for (let round = 0; round < 4; round++) {
@@ -1421,6 +1423,7 @@ export async function continueAiConversation(
             toolCalls: toolCalls.length ? toolCalls : null
         }).returning({ id: aiMessages.id })
         lastMessageId = saved?.id ?? ''
+        if (lastMessageId) await onAssistantMessage?.(lastMessageId)
 
         if (!toolCalls.length) break
         const canAutoApprove = getCookie(event, 'ai_auto_approve') === 'true'
@@ -1428,11 +1431,15 @@ export async function continueAiConversation(
         if (!executableTools.length) break
         for (const toolCall of executableTools) {
             try {
-                await insertToolResult(conversationId, userId, toolCall, await executeAiTool(event, toolCall))
+                const result = await executeAiTool(event, toolCall)
+                await insertToolResult(conversationId, userId, toolCall, result)
+                await onToolResolved?.(toolCall.id, result)
             } catch (error) {
-                await insertToolResult(conversationId, userId, toolCall, {
+                const result = {
                     error: getErrorMessage(error)
-                })
+                }
+                await insertToolResult(conversationId, userId, toolCall, result)
+                await onToolResolved?.(toolCall.id, result)
             }
         }
     }
@@ -1463,7 +1470,8 @@ export async function resolveAiToolCall(
     toolCallId: string,
     approved: boolean,
     onText?: (content: string) => void | Promise<void>,
-    onToolResolved?: (toolCallId: string, result: unknown) => void | Promise<void>
+    onToolResolved?: (toolCallId: string, result: unknown) => void | Promise<void>,
+    onAssistantMessage?: (messageId: string) => void | Promise<void>
 ) {
     const assistant = await db.query.aiMessages.findFirst({
         where: and(
@@ -1504,7 +1512,7 @@ export async function resolveAiToolCall(
     const rows = await conversationMessages(conversationId, userId)
     const resolvedIds = new Set(rows.filter(row => row.role === 'tool' && row.toolCallId).map(row => row.toolCallId))
     const allResolved = toolCalls.every(call => resolvedIds.has(call.id))
-    if (allResolved) await continueAiConversation(event, conversationId, userId, onText)
+    if (allResolved) await continueAiConversation(event, conversationId, userId, onText, onAssistantMessage, onToolResolved)
 
     return { context: await getAiContextStatus(conversationId, userId) }
 }

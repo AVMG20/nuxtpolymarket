@@ -29,6 +29,7 @@ interface MessagesResponse {
 type AiStreamEvent
   = { type: 'conversation', conversationId: string }
     | { type: 'delta', content: string }
+    | { type: 'assistant_message', assistantMessageId: string }
     | { type: 'tool_result', toolCallId: string, result: Record<string, unknown> }
     | { type: 'done', conversationId: string }
     | { type: 'error', message: string }
@@ -66,7 +67,7 @@ const usage = computed(() => listData.value?.usage ?? { used: 0, limit: 300, res
 const visibleMessages = computed(() => messages.value.filter(message => message.role !== 'tool'))
 const showPendingUser = computed(() => Boolean(
   pendingUserContent.value
-  && visibleMessages.value.at(-1)?.content !== pendingUserContent.value
+  && !visibleMessages.value.some(message => message.role === 'user' && message.content === pendingUserContent.value)
 ))
 const hasPendingTools = computed(() => messages.value.some(message =>
   message.role === 'assistant' && message.toolCalls.some(call => !toolResult(call.id))
@@ -128,6 +129,15 @@ async function sendMessage() {
       if (streamEvent.type === 'conversation') {
         conversationId = streamEvent.conversationId
         selectedId.value = streamEvent.conversationId
+      }
+      if (streamEvent.type === 'assistant_message' && conversationId === selectedId.value) {
+        void loadMessages(conversationId, false)
+      }
+      if (streamEvent.type === 'tool_result') {
+        streamedToolResults.value = {
+          ...streamedToolResults.value,
+          [streamEvent.toolCallId]: streamEvent.result
+        }
       }
     })
     // Avoid rendering the streamed reply and its persisted copy together, and
@@ -329,6 +339,9 @@ async function resolveTool(message: AiMessageDto, call: AiToolCall, approved: bo
       toolCallId: call.id,
       approved
     }, (streamEvent) => {
+      if (streamEvent.type === 'assistant_message' && selectedId.value) {
+        void loadMessages(selectedId.value, false)
+      }
       if (streamEvent.type !== 'tool_result') return
       streamedToolResults.value = {
         ...streamedToolResults.value,

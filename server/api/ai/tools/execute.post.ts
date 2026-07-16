@@ -37,6 +37,9 @@ export default defineEventHandler(async (event) => {
                 },
                 async (toolCallId, result) => {
                     await stream.push({ data: JSON.stringify({ type: 'tool_result', toolCallId, result }) })
+                },
+                async (assistantMessageId) => {
+                    await stream.push({ data: JSON.stringify({ type: 'assistant_message', assistantMessageId }) })
                 }
             )
             await stream.push({ data: JSON.stringify({ type: 'done', conversationId, ...result }) })
