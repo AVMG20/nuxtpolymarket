@@ -91,9 +91,9 @@ onMounted(() => {
   if (!selectedId.value && conversations.value[0]) selectedId.value = conversations.value[0].id
 })
 
-async function loadMessages(id = selectedId.value) {
+async function loadMessages(id = selectedId.value, showLoading = true) {
   if (!id) return
-  loadingMessages.value = true
+  if (showLoading) loadingMessages.value = true
   try {
     const response = await $fetch<MessagesResponse>(`/api/ai/conversations/${id}/messages`)
     messages.value = response.messages
@@ -101,7 +101,7 @@ async function loadMessages(id = selectedId.value) {
   } catch (error) {
     toast.add({ title: 'Could not load chat', description: errorText(error), color: 'error' })
   } finally {
-    loadingMessages.value = false
+    if (showLoading) loadingMessages.value = false
   }
 }
 
@@ -130,7 +130,10 @@ async function sendMessage() {
         selectedId.value = streamEvent.conversationId
       }
     })
-    await Promise.all([loadMessages(conversationId), refreshConversations()])
+    // Avoid rendering the streamed reply and its persisted copy together, and
+    // keep the existing conversation mounted during the completion refresh.
+    streamingContent.value = ''
+    await Promise.all([loadMessages(conversationId, false), refreshConversations()])
     await fetchSession()
   } catch (error) {
     draft.value = message
@@ -248,10 +251,25 @@ function toolTitle(call: AiToolCall) {
 
 function toolDescription(call: AiToolCall) {
   const args = toolArguments(call)
-  if (call.function.name === 'play_casino_rounds') {
+  const casinoGames: Record<string, string> = {
+    play_dice_rounds: 'dice',
+    play_limbo_rounds: 'limbo',
+    play_wheel_rounds: 'wheel',
+    play_magichands_rounds: 'magichands',
+    play_xenoslot_rounds: 'xenoslot',
+    play_candymadness_rounds: 'candymadness',
+    play_aethergates_rounds: 'aethergates',
+    play_fireinthehole_rounds: 'fireinthehole',
+    play_bookofshadows_rounds: 'bookofshadows',
+    play_spinata_rounds: 'spinata'
+  }
+  const casinoGame = call.function.name === 'play_casino_rounds'
+    ? String(args.game ?? 'casino')
+    : casinoGames[call.function.name]
+  if (casinoGame) {
     const bet = Number(args.bet ?? 0)
     const rounds = Number(args.rounds ?? 0)
-    return `${args.game}: ${rounds} round${rounds === 1 ? '' : 's'} × ${formatNumber(bet, false)} coins (base stake ${formatNumber(bet * rounds, false)})`
+    return `${casinoGame}: ${rounds} round${rounds === 1 ? '' : 's'} × ${formatNumber(bet, false)} coins (base stake ${formatNumber(bet * rounds, false)})`
   }
   if (call.function.name === 'start_blackjack') return `Start a blackjack hand for ${formatNumber(Number(args.bet ?? 0), false)} coins.`
   if (call.function.name === 'blackjack_action') return `Take the “${args.action}” action in the active blackjack hand.`
@@ -318,7 +336,7 @@ async function resolveTool(message: AiMessageDto, call: AiToolCall, approved: bo
       }
       if (resolvingToolId.value === streamEvent.toolCallId) resolvingToolId.value = ''
     })
-    await Promise.all([loadMessages(), refreshConversations()])
+    await Promise.all([loadMessages(selectedId.value, false), refreshConversations()])
     await fetchSession()
   } catch (error) {
     toast.add({ title: 'Tool confirmation failed', description: errorText(error), color: 'error' })

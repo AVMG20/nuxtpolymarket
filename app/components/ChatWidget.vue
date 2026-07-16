@@ -380,15 +380,15 @@ function wrapSelection(marker: string) {
   })
 }
 
-// -- share tokens: [[coin:v]] [[gem:v]] [[profit:cat:v]] [[loss:cat:v]] --------
+// -- share tokens: [[coin:v]] [[gem:v]] [[bank:v]] [[profit:cat:v]] [[loss:cat:v]]
 
 type Part
   = | { type: 'text', html: string }
-    | { type: 'coin' | 'gem', value: number }
+    | { type: 'coin' | 'gem' | 'bank', value: number }
     | { type: 'stat', kind: 'profit' | 'loss', category: string, value: number }
     | { type: 'tag', userId: string, name: string }
 
-const TOKEN_RE = /\[\[(coin|gem|profit|loss|tag):([^\]]{1,100})\]\]/g
+const TOKEN_RE = /\[\[(coin|gem|bank|profit|loss|tag):([^\]]{1,100})\]\]/g
 
 function parseTokenNumber(value: string) {
   return Number(value.replace(/,/g, ''))
@@ -401,7 +401,7 @@ function parseContent(content: string): Part[] {
     const [full = '', kind = '', payload = ''] = match
     const index = match.index ?? 0
     if (index > last) parts.push({ type: 'text', html: renderContent(content.slice(last, index)) })
-    if (kind === 'coin' || kind === 'gem') {
+    if (kind === 'coin' || kind === 'gem' || kind === 'bank') {
       const value = parseTokenNumber(payload)
       if (Number.isFinite(value)) parts.push({ type: kind, value })
       else parts.push({ type: 'text', html: renderContent(full) })
@@ -446,6 +446,15 @@ function insertCoin() {
 
 function insertGem() {
   insertAtCursor(`[[gem:${user.value?.gems ?? 0}]]`)
+}
+
+async function insertBank() {
+  try {
+    const bank = await $fetch<{ balance: number }>('/api/bank/state')
+    insertAtCursor(`[[bank:${bank.balance}]]`)
+  } catch {
+    toast.add({ title: 'Could not load bank balance', color: 'error' })
+  }
 }
 
 async function insertStat(kind: 'profit' | 'loss') {
@@ -716,6 +725,11 @@ function deleteMessage(id: string) {
                   class="inline-flex align-middle"
                   :value="part.value"
                 />
+                <BankBalance
+                  v-else-if="part.type === 'bank'"
+                  class="inline-flex align-middle"
+                  :value="part.value"
+                />
                 <span
                   v-else-if="part.type === 'tag'"
                   class="inline-flex items-center rounded px-1 align-middle font-medium"
@@ -787,6 +801,14 @@ function deleteMessage(id: string) {
               size="xs"
               variant="ghost"
               @click="insertGem"
+            />
+            <UButton
+              aria-label="Share bank balance"
+              color="neutral"
+              icon="i-lucide-landmark"
+              size="xs"
+              variant="ghost"
+              @click="insertBank"
             />
             <UButton
               aria-label="Share today's best profit"

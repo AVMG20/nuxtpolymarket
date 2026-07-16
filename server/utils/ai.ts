@@ -3,7 +3,7 @@ import type { H3Event } from 'h3'
 import { db } from '#server/database'
 import { aiMessages } from '#server/database/schema'
 import { MIN_DEPLOY_SUCCESS, opSuccessChance } from '#shared/utils/hack-config'
-import { AI_TOOL_CATALOG, AI_TOOL_CATALOG_BY_NAME } from '#shared/utils/ai-tools'
+import { AI_TOOL_CATALOG_BY_NAME } from '#shared/utils/ai-tools'
 import {
     AI_CONTEXT_MAX_CHARS,
     AI_CONTEXT_MAX_MESSAGES,
@@ -42,6 +42,45 @@ interface OpenRouterStreamChunk {
         finish_reason?: string | null
     }>
 }
+
+function casinoRoundTool(game: string, properties: Record<string, unknown> = {}, required: string[] = []): OpenRouterTool {
+    return {
+        type: 'function',
+        function: {
+            name: `play_${game}_rounds`,
+            description: `Play 1 to 10,000 ${game} rounds. This spends coins.`,
+            parameters: {
+                type: 'object',
+                properties: {
+                    bet: { type: 'number', minimum: 1, maximum: 1000000, description: 'Base coin bet per round.' },
+                    rounds: { type: 'integer', minimum: 1, maximum: 10000 },
+                    ...properties
+                },
+                required: ['bet', 'rounds', ...required],
+                additionalProperties: false
+            }
+        }
+    }
+}
+
+// Keep each game's mutually exclusive settings in a separate tool schema. GPT-5
+// follows the complete schema closely, so a shared options object led it to send
+// settings belonging to other games (for example winChance on a slot round).
+const CASINO_TOOLS: OpenRouterTool[] = [
+    casinoRoundTool('dice', { winChance: { type: 'number', minimum: 2, maximum: 96, description: 'Optional Dice win chance. Omit for the standard chance.' } }),
+    casinoRoundTool('limbo', { target: { type: 'number', minimum: 1.1, maximum: 1000000, description: 'Optional Limbo target multiplier. Omit for the standard target.' } }),
+    casinoRoundTool('wheel', { difficulty: { type: 'string', enum: ['easy', 'medium', 'hard'], description: 'Optional Wheel difficulty. Omit for the standard difficulty.' } }),
+    casinoRoundTool('magichands', {
+        handValue: { type: 'number', exclusiveMinimum: 0 },
+        placements: { type: 'array', minItems: 1, maxItems: 40, items: { type: 'integer', minimum: 0, maximum: 39 } }
+    }, ['handValue', 'placements']),
+    casinoRoundTool('xenoslot', { buyBonus: { type: 'boolean', description: 'Set true only when the player explicitly requests a bonus buy.' } }),
+    casinoRoundTool('candymadness', { feature: { type: 'string', enum: ['buyFreeSpins', 'bonusHunt'], description: 'Set only when the player explicitly requests that feature.' } }),
+    casinoRoundTool('aethergates', { feature: { type: 'string', enum: ['buyFreeSpins', 'superBonus', 'bonusChance'], description: 'Set only when the player explicitly requests that feature.' } }),
+    casinoRoundTool('fireinthehole', { buyBonus: { type: 'boolean', description: 'Set true only when the player explicitly requests a bonus buy.' } }),
+    casinoRoundTool('bookofshadows', { buyBonus: { type: 'boolean', description: 'Set true only when the player explicitly requests a bonus buy.' } }),
+    casinoRoundTool('spinata', { feature: { type: 'string', enum: ['buyBonus'], description: 'Set only when the player explicitly requests a bonus buy.' } })
+]
 
 export const AI_TOOLS: OpenRouterTool[] = [
     {
@@ -257,40 +296,7 @@ export const AI_TOOLS: OpenRouterTool[] = [
             }
         }
     },
-    {
-        type: 'function',
-        function: {
-            name: 'play_casino_rounds',
-            description: 'Play between 1 and 10,000 sequential rounds of a supported non-blackjack casino game. Each round is server-authoritative and may stop early if the balance is insufficient. This spends coins.',
-            parameters: {
-                type: 'object',
-                properties: {
-                    game: {
-                        type: 'string',
-                        enum: ['dice', 'limbo', 'wheel', 'magichands', 'xenoslot', 'candymadness', 'aethergates', 'fireinthehole', 'bookofshadows', 'spinata']
-                    },
-                    bet: { type: 'number', minimum: 1, maximum: 1000000, description: 'Base coin bet per round.' },
-                    rounds: { type: 'integer', minimum: 1, maximum: 10000 },
-                    options: {
-                        type: 'object',
-                        description: 'Validated game-specific options. Omit for a normal round when the game has defaults.',
-                        properties: {
-                            winChance: { type: 'number', minimum: 2, maximum: 96 },
-                            target: { type: 'number', minimum: 1.1, maximum: 1000000 },
-                            difficulty: { type: 'string', enum: ['easy', 'medium', 'hard'] },
-                            handValue: { type: 'number', exclusiveMinimum: 0 },
-                            placements: { type: 'array', minItems: 1, maxItems: 40, items: { type: 'integer', minimum: 0, maximum: 39 } },
-                            buyBonus: { type: 'boolean' },
-                            feature: { type: 'string', enum: ['buyFreeSpins', 'bonusHunt', 'superBonus', 'bonusChance', 'buyBonus'] }
-                        },
-                        additionalProperties: false
-                    }
-                },
-                required: ['game', 'bet', 'rounds'],
-                additionalProperties: false
-            }
-        }
-    },
+    ...CASINO_TOOLS,
     {
         type: 'function',
         function: {
@@ -356,8 +362,8 @@ export const AI_TOOLS: OpenRouterTool[] = [
     }
 })
 
-if (AI_TOOLS.length !== AI_TOOL_CATALOG.length) {
-    throw new Error('AI tool catalogue and registered tools are out of sync')
+if (AI_TOOLS.some(tool => !AI_TOOL_CATALOG_BY_NAME[tool.function.name])) {
+    throw new Error('A registered AI tool is missing from the catalogue')
 }
 
 function toolRequiresConfirmation(toolCall: AiToolCall) {
@@ -449,6 +455,7 @@ interface ColonyState {
 }
 
 interface MinerState {
+    walletBalance: number
     rigLevel: number
     rigMaxLevel: number
     rigUpgradeCost: number
@@ -475,6 +482,11 @@ interface MinerState {
     catalystLevel: number
     catalystMaxLevel: number
     catalystNextCost: number | null
+    incomeMultiplier: number
+    gemRateMultiplier: number
+    gemPrice: number
+    lootboxAvgValue: number
+    lootboxOpenPrice: number
 }
 
 interface GemMarketState {
@@ -551,7 +563,53 @@ async function getOverview(event: H3Event) {
             freeAgents: hack.agents.filter(agent => !agent.onOp),
             missionTemplates: hack.opTemplates
         },
-        miner,
+        miner: {
+            walletCoins: miner.walletBalance,
+            rig: {
+                level: miner.rigLevel,
+                maxLevel: miner.rigMaxLevel,
+                incomePerDay: miner.income,
+                pendingCoins: miner.pendingCash,
+                storageCapCoins: miner.cap,
+                nextUpgradeCostCoins: miner.rigUpgradeCost
+            },
+            vault: {
+                level: miner.vaultLevel,
+                maxLevel: miner.vaultMaxLevel,
+                storageCapCoins: miner.cap,
+                nextUpgradeCostCoins: miner.vaultUpgradeCost
+            },
+            factory: {
+                level: miner.factoryLevel,
+                maxLevel: miner.factoryMaxLevel,
+                gemsPerDay: miner.rate,
+                pendingGems: miner.pendingGems,
+                storageCapGems: miner.gemCap,
+                nextUpgradeCostCoins: miner.factoryUpgradeCost
+            },
+            overclock: {
+                level: miner.overclockLevel,
+                maxLevel: miner.overclockMaxLevel,
+                rigAndLootboxCashMultiplier: miner.incomeMultiplier,
+                nextUpgradeCostGems: miner.overclockNextCost
+            },
+            catalyst: {
+                level: miner.catalystLevel,
+                maxLevel: miner.catalystMaxLevel,
+                factoryRateMultiplier: miner.gemRateMultiplier,
+                nextUpgradeCostGems: miner.catalystNextCost
+            },
+            lootboxes: {
+                slots: miner.lootboxSlots,
+                maxSlots: miner.lootboxMaxSlots,
+                freeOpensRemainingToday: miner.lootboxFreeOpensRemaining,
+                nextSlotCostCoins: miner.lootboxNextSlotCost,
+                expectedValueCoins: miner.lootboxAvgValue,
+                paidOpenCostCoins: miner.lootboxOpenPrice,
+                liveGemPriceCoins: miner.gemPrice
+            },
+            gems: miner.gems
+        },
         gemMarket: {
             livePrice: gemMarket.livePrice,
             userGems: gemMarket.userGems
@@ -899,6 +957,32 @@ const CASINO_GAMES = new Set([
     'candymadness', 'aethergates', 'fireinthehole', 'bookofshadows', 'spinata'
 ])
 
+const CASINO_TOOL_GAMES: Record<string, string> = {
+    play_dice_rounds: 'dice',
+    play_limbo_rounds: 'limbo',
+    play_wheel_rounds: 'wheel',
+    play_magichands_rounds: 'magichands',
+    play_xenoslot_rounds: 'xenoslot',
+    play_candymadness_rounds: 'candymadness',
+    play_aethergates_rounds: 'aethergates',
+    play_fireinthehole_rounds: 'fireinthehole',
+    play_bookofshadows_rounds: 'bookofshadows',
+    play_spinata_rounds: 'spinata'
+}
+
+const CASINO_OPTION_KEYS: Record<string, string[]> = {
+    dice: ['winChance'],
+    limbo: ['target'],
+    wheel: ['difficulty'],
+    magichands: ['handValue', 'placements'],
+    xenoslot: ['buyBonus'],
+    candymadness: ['feature'],
+    aethergates: ['feature'],
+    fireinthehole: ['buyBonus'],
+    bookofshadows: ['buyBonus'],
+    spinata: ['feature']
+}
+
 function invalidCasinoOptions(message: string): never {
     throw createError({ statusCode: 400, statusMessage: message })
 }
@@ -1024,6 +1108,20 @@ async function playCasinoRounds(event: H3Event, args: Record<string, unknown>) {
     return { game, requestedRounds: rounds, playedRounds, stoppedReason, totalCost, totalPayout, net: totalPayout - totalCost, finalBalance, winningRounds, highestPayout, bestMultiplier }
 }
 
+function playNamedCasinoRounds(event: H3Event, toolName: string, args: Record<string, unknown>) {
+    const game = CASINO_TOOL_GAMES[toolName]
+    if (!game) throw createError({ statusCode: 400, statusMessage: 'Unsupported casino game' })
+    const options = Object.fromEntries(
+        CASINO_OPTION_KEYS[game].flatMap(key => args[key] == null ? [] : [[key, args[key]]])
+    )
+    return playCasinoRounds(event, {
+        game,
+        bet: args.bet,
+        rounds: args.rounds,
+        ...(Object.keys(options).length ? { options } : {})
+    })
+}
+
 export async function executeAiTool(event: H3Event, toolCall: AiToolCall): Promise<unknown> {
     const args = parseArguments(toolCall.function.arguments)
     const headers = toolHeaders(event)
@@ -1082,6 +1180,17 @@ export async function executeAiTool(event: H3Event, toolCall: AiToolCall): Promi
             return tradeGems(event, args)
         case 'play_casino_rounds':
             return playCasinoRounds(event, args)
+        case 'play_dice_rounds':
+        case 'play_limbo_rounds':
+        case 'play_wheel_rounds':
+        case 'play_magichands_rounds':
+        case 'play_xenoslot_rounds':
+        case 'play_candymadness_rounds':
+        case 'play_aethergates_rounds':
+        case 'play_fireinthehole_rounds':
+        case 'play_bookofshadows_rounds':
+        case 'play_spinata_rounds':
+            return playNamedCasinoRounds(event, toolCall.function.name, args)
         case 'get_blackjack_state':
             return event.$fetch('/api/games/blackjack/resume', { headers })
         case 'start_blackjack': {
@@ -1117,6 +1226,7 @@ async function getSystemPrompt() {
     return [
         'You are the Polynux game assistant. Be concise, accurate, and helpful.',
         'Use tools for live player data or game actions. Never say a tool succeeded before receiving its tool result.',
+        'After receiving tool results, always send the player a concise visible text response that summarizes the result or answers their question. Never end a turn with only tool calls or an empty response.',
         'When proposing an action, clearly summarize costs, retained quantities, and mutations so the player can make an informed approval decision.',
         'Always render concrete currency amounts with the display tokens defined in the context. Do not write raw coin or gem amounts in assistant responses.',
         context ?? ''
@@ -1183,6 +1293,7 @@ async function openRouterStream(
         throw createError({ statusCode: 503, statusMessage: 'The AI assistant is not configured' })
     }
 
+    const isGpt5 = /(?:^|\/)gpt-5(?:$|-)/.test(config.openRouterModel)
     const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
         method: 'POST',
         headers: {
@@ -1193,7 +1304,11 @@ async function openRouterStream(
         },
         body: JSON.stringify({
             model: config.openRouterModel,
-            max_completion_tokens: 800,
+            // GPT-5 spends from the completion budget while reasoning. The
+            // previous 800-token cap could be exhausted before it emitted a
+            // visible answer or tool call; 4o-mini does not have that behavior.
+            max_completion_tokens: isGpt5 ? 1600 : 800,
+            ...(isGpt5 ? { reasoning: { effort: 'low', exclude: true } } : {}),
             messages,
             tools: AI_TOOLS,
             tool_choice: 'auto',
@@ -1279,10 +1394,24 @@ export async function continueAiConversation(
     let lastMessageId = ''
     for (let round = 0; round < 4; round++) {
         const rows = await conversationMessages(conversationId, userId)
-        const response = await openRouterStream(event, [
+        const requestMessages: OpenRouterMessage[] = [
             { role: 'system', content: await getSystemPrompt() },
             ...toOpenAiMessages(rows)
-        ], onText)
+        ]
+        let response = await openRouterStream(event, requestMessages, onText)
+
+        // GPT-5 can complete a turn without emitting content or a tool call.
+        // Retry once with an explicit reply instruction instead of persisting a
+        // blank assistant message.
+        if (!response.toolCalls.length && !response.content.trim()) {
+            response = await openRouterStream(event, [
+                ...requestMessages,
+                { role: 'user', content: 'Respond now with either the necessary tool call or a concise visible answer. Do not return an empty response.' }
+            ], onText)
+        }
+        if (!response.toolCalls.length && !response.content.trim()) {
+            throw createError({ statusCode: 502, statusMessage: 'The AI model returned no text or tool call. Please try again.' })
+        }
         const toolCalls = response.toolCalls
         const [saved] = await db.insert(aiMessages).values({
             conversationId,

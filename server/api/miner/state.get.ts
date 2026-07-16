@@ -19,7 +19,7 @@ export default defineEventHandler(async (event) => {
   const userId = session.user.id
 
   const [currentUser, state, market] = await Promise.all([
-    db.query.user.findFirst({ where: eq(user.id, userId), columns: { gems: true } }),
+    db.query.user.findFirst({ where: eq(user.id, userId), columns: { balance: true, gems: true } }),
     db.query.minerState.findFirst({ where: eq(minerState.userId, userId) }),
     db.query.gemMarketState.findFirst(),
   ])
@@ -42,6 +42,7 @@ export default defineEventHandler(async (event) => {
   const lootboxOpensToday = s.lootboxOpensDate === today ? s.lootboxTodayOpens : 0
 
   return {
+    walletBalance: parseFloat(currentUser?.balance ?? '0'),
     rigLevel: s.rigLevel,
     rigMaxLevel: RIG_MAX_LEVEL,
     income,
