@@ -11,6 +11,13 @@ interface LeaderboardUser {
   factoryLevel: number
   overclockPct: number
   catalystPct: number
+  hackPower: number
+  colonyHabitatLevel: number
+  colonyResearchLevels: number
+  xenoSpeciesUnlocked: number
+  xenoGridSlotsUnlocked: number
+  xenoBreederSlotsUnlocked: number
+  aiPromptsUsed: number
   totalLevels: number
   totalWealth: number
 }
@@ -57,7 +64,7 @@ function openDetails(user: LeaderboardUser) {
         <UIcon name="i-lucide-trophy" class="size-6 text-yellow-400" />
         Leaderboard
       </h1>
-      <p class="mt-0.5 text-sm text-muted">Top players ranked by total level progression</p>
+      <p class="mt-0.5 text-sm text-muted">Top players ranked by total wealth</p>
     </div>
 
     <div v-if="pending" class="space-y-3">
@@ -90,72 +97,30 @@ function openDetails(user: LeaderboardUser) {
           {{ u.name[0]?.toUpperCase() }}
         </div>
 
-        <div class="min-w-0 flex-1 sm:max-w-44 xl:max-w-56">
+        <div class="min-w-0 flex-1">
           <p class="truncate font-semibold" :class="i < 3 ? 'sm:text-base' : 'text-sm'">{{ u.name }}</p>
-          <p class="text-[10px] text-muted sm:text-xs">#{{ i + 1 }} · Lv {{ u.totalLevels }}</p>
         </div>
 
-        <div class="hidden flex-1 items-center justify-center gap-5 lg:flex xl:gap-7">
-          <div class="flex flex-col items-center gap-0.5">
-            <div class="flex items-center gap-1">
-              <UIcon name="i-lucide-cpu" class="size-3.5" :class="upgradeColors.miner" />
-              <span class="text-xs font-semibold" :class="upgradeColors.miner">{{ u.rigLevel }}</span>
-            </div>
-            <span class="text-[10px] text-muted">Miner</span>
-          </div>
-          <div class="flex flex-col items-center gap-0.5">
-            <div class="flex items-center gap-1">
-              <UIcon name="i-lucide-vault" class="size-3.5" :class="upgradeColors.vault" />
-              <span class="text-xs font-semibold" :class="upgradeColors.vault">{{ u.vaultLevel }}</span>
-            </div>
-            <span class="text-[10px] text-muted">Vault</span>
-          </div>
-          <div class="flex flex-col items-center gap-0.5">
-            <div class="flex items-center gap-1">
-              <UIcon name="i-lucide-factory" class="size-3.5" :class="upgradeColors.factory" />
-              <span class="text-xs font-semibold" :class="upgradeColors.factory">{{ u.factoryLevel }}</span>
-            </div>
-            <span class="text-[10px] text-muted">Factory</span>
-          </div>
-          <div v-if="u.overclockPct > 0" class="flex flex-col items-center gap-0.5">
-            <div class="flex items-center gap-1">
-              <UIcon name="i-lucide-gauge" class="size-3.5" :class="upgradeColors.overclock" />
-              <span class="text-xs font-semibold" :class="upgradeColors.overclock">+{{ u.overclockPct }}%</span>
-            </div>
-            <span class="text-[10px] text-muted">Overclock</span>
-          </div>
-          <div v-if="u.catalystPct > 0" class="flex flex-col items-center gap-0.5">
-            <div class="flex items-center gap-1">
-              <UIcon name="i-lucide-flask-conical" class="size-3.5" :class="upgradeColors.catalyst" />
-              <span class="text-xs font-semibold" :class="upgradeColors.catalyst">+{{ u.catalystPct }}%</span>
-            </div>
-            <span class="text-[10px] text-muted">Catalyst</span>
-          </div>
+        <div class="hidden w-28 shrink-0 flex-col items-end gap-0.5 text-xs font-semibold md:ml-auto md:flex">
+          <GemBalance :value="u.gems" :compact="false" />
+          <CoinBalance :value="u.gemValue" />
         </div>
 
-        <div class="hidden shrink-0 flex-col items-end gap-0.5 md:flex">
-          <span class="text-xs font-semibold"><GemBalance :value="u.gems" :compact="false" /></span>
-          <span class="flex items-center gap-0.5 text-[10px] text-muted">
-            ≈ <CoinBalance :value="u.gemValue" :show-icon="false" />
-          </span>
+        <div class="hidden w-28 shrink-0 flex-col items-end lg:flex">
+          <BankBalance :value="u.bankBalance" class="text-sm font-semibold" />
+          <p class="text-[10px] text-muted">Bank</p>
         </div>
-
-        <div class="hidden shrink-0 flex-col items-end lg:flex">
-          <span class="text-sm font-semibold" :class="u.bankBalance < 0 ? 'text-error' : 'text-primary'"><CoinBalance :value="u.bankBalance" /></span>
-          <span class="text-[10px] text-muted">Bank</span>
-        </div>
-        <div class="hidden shrink-0 flex-col items-end lg:flex">
+        <div class="hidden w-28 shrink-0 flex-col items-end lg:flex">
           <span class="text-sm font-semibold"><CoinBalance :value="u.balance" /></span>
-          <span class="text-[10px] text-muted">Wallet</span>
+          <p class="text-[10px] text-muted">Wallet</p>
         </div>
 
-        <div class="flex shrink-0 flex-col items-end gap-0.5 md:hidden">
-          <span class="text-xs font-semibold"><GemBalance :value="u.gems" /></span>
-          <span class="text-[10px] text-muted">Gems</span>
+        <div class="flex shrink-0 flex-col items-end gap-0.5 text-xs font-semibold md:hidden">
+          <GemBalance :value="u.gems" />
+          <CoinBalance :value="u.gemValue" />
         </div>
         <div class="flex shrink-0 flex-col items-end gap-0.5 lg:hidden">
           <span class="text-sm font-semibold" :class="totalBalance(u) < 0 ? 'text-error' : 'text-primary'"><CoinBalance :value="totalBalance(u)" /></span>
-          <span class="text-[10px] text-muted">Total balance</span>
         </div>
 
         <UIcon name="i-lucide-chevron-right" class="hidden size-4 shrink-0 text-muted transition-transform group-hover:translate-x-0.5 sm:block lg:hidden" />
@@ -171,51 +136,91 @@ function openDetails(user: LeaderboardUser) {
     <UModal v-model:open="detailsOpen" :title="selectedUser?.name ?? 'Player details'" description="Player progression and balances">
       <template v-if="selectedUser" #body>
         <div class="space-y-5">
-          <div class="grid grid-cols-2 gap-3">
+          <div class="grid grid-cols-3 gap-2">
             <div class="rounded-lg border border-default bg-elevated/40 p-3">
-              <p class="text-xs text-muted">Total balance</p>
-              <CoinBalance :value="totalBalance(selectedUser)" :compact="false" class="mt-1 text-lg font-bold" :class="totalBalance(selectedUser) < 0 ? 'text-error' : 'text-primary'" />
+              <BankBalance :value="selectedUser.bankBalance" class="text-base font-bold" />
+              <p class="mt-0.5 text-[10px] text-muted">Bank</p>
             </div>
             <div class="rounded-lg border border-default bg-elevated/40 p-3">
-              <p class="text-xs text-muted">Gems</p>
-              <GemBalance :value="selectedUser.gems" :compact="false" class="mt-1 text-lg font-bold" />
-              <p class="mt-0.5 text-[10px] text-muted">≈ <CoinBalance :value="selectedUser.gemValue" :show-icon="false" /></p>
+              <div class="space-y-1 text-sm font-bold">
+                <GemBalance :value="selectedUser.gems" :compact="false" />
+                <CoinBalance :value="selectedUser.gemValue" />
+              </div>
             </div>
-          </div>
-
-          <div class="grid grid-cols-2 gap-3 text-sm">
-            <div class="rounded-lg border border-default p-3">
-              <p class="text-xs text-muted">Bank</p>
-              <CoinBalance :value="selectedUser.bankBalance" :compact="false" class="mt-1 font-semibold" :class="selectedUser.bankBalance < 0 ? 'text-error' : 'text-primary'" />
-            </div>
-            <div class="rounded-lg border border-default p-3">
-              <p class="text-xs text-muted">Wallet</p>
-              <CoinBalance :value="selectedUser.balance" :compact="false" class="mt-1 font-semibold" />
+            <div class="rounded-lg border border-default bg-elevated/40 p-3">
+              <CoinBalance :value="selectedUser.balance" class="mt-1 block text-base font-bold" />
+              <p class="mt-0.5 text-[10px] text-muted">Wallet</p>
             </div>
           </div>
 
           <div>
-            <p class="mb-2 text-xs font-medium uppercase tracking-wide text-muted">Progression · level {{ selectedUser.totalLevels }}</p>
-            <div class="grid grid-cols-2 gap-2 sm:grid-cols-3">
-              <div class="rounded-lg bg-elevated/60 p-3 text-sm">
-                <UIcon name="i-lucide-cpu" class="mr-1.5 inline size-4" :class="upgradeColors.miner" />
-                Miner <span class="font-semibold" :class="upgradeColors.miner">{{ selectedUser.rigLevel }}</span>
+            <p class="mb-2 text-xs font-medium uppercase tracking-wide text-muted">Miner progression</p>
+            <div class="grid grid-cols-3 gap-2">
+              <div class="rounded-lg bg-elevated/60 p-3 text-center">
+                <UIcon name="i-lucide-cpu" class="size-4" :class="upgradeColors.miner" />
+                <p class="mt-1 text-lg font-bold tabular-nums" :class="upgradeColors.miner">{{ selectedUser.rigLevel }}</p>
+                <p class="text-[10px] text-muted">Miner</p>
               </div>
-              <div class="rounded-lg bg-elevated/60 p-3 text-sm">
-                <UIcon name="i-lucide-vault" class="mr-1.5 inline size-4" :class="upgradeColors.vault" />
-                Vault <span class="font-semibold" :class="upgradeColors.vault">{{ selectedUser.vaultLevel }}</span>
+              <div class="rounded-lg bg-elevated/60 p-3 text-center">
+                <UIcon name="i-lucide-vault" class="size-4" :class="upgradeColors.vault" />
+                <p class="mt-1 text-lg font-bold tabular-nums" :class="upgradeColors.vault">{{ selectedUser.vaultLevel }}</p>
+                <p class="text-[10px] text-muted">Vault</p>
               </div>
-              <div class="rounded-lg bg-elevated/60 p-3 text-sm">
-                <UIcon name="i-lucide-factory" class="mr-1.5 inline size-4" :class="upgradeColors.factory" />
-                Factory <span class="font-semibold" :class="upgradeColors.factory">{{ selectedUser.factoryLevel }}</span>
+              <div class="rounded-lg bg-elevated/60 p-3 text-center">
+                <UIcon name="i-lucide-factory" class="size-4" :class="upgradeColors.factory" />
+                <p class="mt-1 text-lg font-bold tabular-nums" :class="upgradeColors.factory">{{ selectedUser.factoryLevel }}</p>
+                <p class="text-[10px] text-muted">Factory</p>
               </div>
-              <div v-if="selectedUser.overclockPct > 0" class="rounded-lg bg-elevated/60 p-3 text-sm">
-                <UIcon name="i-lucide-gauge" class="mr-1.5 inline size-4" :class="upgradeColors.overclock" />
-                Overclock <span class="font-semibold" :class="upgradeColors.overclock">+{{ selectedUser.overclockPct }}%</span>
+              <div v-if="selectedUser.overclockPct > 0" class="rounded-lg bg-elevated/60 p-3 text-center">
+                <UIcon name="i-lucide-gauge" class="size-4" :class="upgradeColors.overclock" />
+                <p class="mt-1 text-lg font-bold tabular-nums" :class="upgradeColors.overclock">+{{ selectedUser.overclockPct }}%</p>
+                <p class="text-[10px] text-muted">Overclock</p>
               </div>
-              <div v-if="selectedUser.catalystPct > 0" class="rounded-lg bg-elevated/60 p-3 text-sm">
-                <UIcon name="i-lucide-flask-conical" class="mr-1.5 inline size-4" :class="upgradeColors.catalyst" />
-                Catalyst <span class="font-semibold" :class="upgradeColors.catalyst">+{{ selectedUser.catalystPct }}%</span>
+              <div v-if="selectedUser.catalystPct > 0" class="rounded-lg bg-elevated/60 p-3 text-center">
+                <UIcon name="i-lucide-flask-conical" class="size-4" :class="upgradeColors.catalyst" />
+                <p class="mt-1 text-lg font-bold tabular-nums" :class="upgradeColors.catalyst">+{{ selectedUser.catalystPct }}%</p>
+                <p class="text-[10px] text-muted">Catalyst</p>
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <p class="mb-2 text-xs font-medium uppercase tracking-wide text-muted">Other details</p>
+            <div class="divide-y divide-default overflow-hidden rounded-lg border border-default">
+              <div class="flex items-center gap-3 bg-elevated/40 px-3 py-2.5">
+                <UIcon name="i-lucide-shield" class="size-4 text-primary" />
+                <span class="flex-1 text-sm">HackOps power</span>
+                <span class="font-semibold tabular-nums text-primary">{{ formatNumber(selectedUser.hackPower, false) }}</span>
+              </div>
+              <div class="flex items-center gap-3 bg-elevated/40 px-3 py-2.5">
+                <UIcon name="i-lucide-house" class="size-4 text-warning" />
+                <span class="flex-1 text-sm">Colony habitat</span>
+                <span class="font-semibold tabular-nums text-warning">{{ selectedUser.colonyHabitatLevel }}</span>
+              </div>
+              <div class="flex items-center gap-3 bg-elevated/40 px-3 py-2.5">
+                <UIcon name="i-lucide-bug" class="size-4 text-warning" />
+                <span class="flex-1 text-sm">Colony research</span>
+                <span class="font-semibold tabular-nums text-warning">{{ selectedUser.colonyResearchLevels }}</span>
+              </div>
+              <div class="flex items-center gap-3 bg-elevated/40 px-3 py-2.5">
+                <UIcon name="i-lucide-sprout" class="size-4 text-success" />
+                <span class="flex-1 text-sm">Xeno species unlocked</span>
+                <span class="font-semibold tabular-nums text-success">{{ selectedUser.xenoSpeciesUnlocked }}</span>
+              </div>
+              <div class="flex items-center gap-3 bg-elevated/40 px-3 py-2.5">
+                <UIcon name="i-lucide-grid-2x2" class="size-4 text-success" />
+                <span class="flex-1 text-sm">Xeno grid tiles unlocked</span>
+                <span class="font-semibold tabular-nums text-success">{{ selectedUser.xenoGridSlotsUnlocked }}</span>
+              </div>
+              <div class="flex items-center gap-3 bg-elevated/40 px-3 py-2.5">
+                <UIcon name="i-lucide-git-branch" class="size-4 text-success" />
+                <span class="flex-1 text-sm">Xeno breeder slots unlocked</span>
+                <span class="font-semibold tabular-nums text-success">{{ selectedUser.xenoBreederSlotsUnlocked }}</span>
+              </div>
+              <div class="flex items-center gap-3 bg-elevated/40 px-3 py-2.5">
+                <UIcon name="i-lucide-bot" class="size-4 text-info" />
+                <span class="flex-1 text-sm">AI prompts used</span>
+                <span class="font-semibold tabular-nums text-info">{{ formatNumber(selectedUser.aiPromptsUsed, false) }}</span>
               </div>
             </div>
           </div>
