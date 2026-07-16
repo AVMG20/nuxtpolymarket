@@ -563,7 +563,7 @@ function deleteMessage(id: string) {
 <template>
   <!-- Full-screen overlay on mobile, fixed to the preferred corner on desktop -->
   <div
-    class="pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-end p-3 lg:block lg:p-0"
+    class="pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-end p-3 lg:inset-x-auto lg:block lg:p-0"
     :class="wrapperPos"
   >
     <div
