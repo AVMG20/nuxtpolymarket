@@ -414,8 +414,8 @@ function parseContent(content: string): Part[] {
     } else {
       const sep = payload.lastIndexOf(':')
       const category = sep > 0 ? payload.slice(0, sep) : ''
-      const value = parseTokenNumber(payload.slice(sep + 1))
-      if (category && Number.isFinite(value)) {
+      const value = parseTokenNumber(sep > 0 ? payload.slice(sep + 1) : payload)
+      if (Number.isFinite(value)) {
         parts.push({ type: 'stat', kind: kind === 'profit' ? 'profit' : 'loss', category, value: Math.abs(value) })
       } else {
         parts.push({ type: 'text', html: renderContent(full) })
@@ -732,7 +732,7 @@ function deleteMessage(id: string) {
                     class="size-3.5 shrink-0"
                     :name="part.kind === 'profit' ? 'i-lucide-trending-up' : 'i-lucide-trending-down'"
                   />
-                  {{ part.category }}
+                  <span v-if="part.category">{{ part.category }}</span>
                   {{ (part.kind === 'profit' ? '+' : '-') + formatNumber(part.value) }}
                 </span>
               </template>

@@ -74,8 +74,8 @@ function parseInlineParts(markdown: string): Part[] {
     } else {
       const separator = payload.lastIndexOf(':')
       const category = separator > 0 ? payload.slice(0, separator) : ''
-      const value = parseTokenNumber(payload.slice(separator + 1))
-      if (category && Number.isFinite(value)) {
+      const value = parseTokenNumber(separator > 0 ? payload.slice(separator + 1) : payload)
+      if (Number.isFinite(value)) {
         parts.push({ type: 'stat', kind: kind === 'profit' ? 'profit' : 'loss', category, value: Math.abs(value) })
       } else {
         parts.push({ type: 'text', html: renderInlineMarkdown(full) })
@@ -147,7 +147,7 @@ const blocks = computed(() => parseBlocks(props.markdown))
               :class="part.kind === 'profit' ? 'text-success' : 'text-error'"
             >
               <UIcon class="size-3.5 shrink-0" :name="part.kind === 'profit' ? 'i-lucide-trending-up' : 'i-lucide-trending-down'" />
-              {{ part.category }}
+              <span v-if="part.category">{{ part.category }}</span>
               <span>{{ part.kind === 'profit' ? '+' : '-' }}</span>
               <CoinBalance :value="part.value" class="inline-flex" />
             </span>
