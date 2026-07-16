@@ -25,7 +25,7 @@ export default defineEventHandler(async (event) => {
 
   // bought bugs land in inventory, unplaced — no capacity check here, that
   // only applies when placing a bug into the terrarium
-  await debit(userId, type.spawnCost.toFixed(4), 'colony:buy-bug')
+  await debit(userId, type.spawnCost.toFixed(4), 'colony')
   const bug = await addBug(userId, type.id, rollTraitPct(researchLevel), rollYieldLevel(researchLevel), rollEatRate(type))
 
   return { ok: true, speed: bug.speed, yield: bug.yield, eat: bug.eat }

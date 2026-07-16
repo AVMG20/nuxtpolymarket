@@ -28,7 +28,7 @@ export default defineEventHandler(async (event) => {
   await creditPartialTick(userId, bug)
 
   await db.delete(colonyBugs).where(eq(colonyBugs.id, bug.id))
-  if (refund > 0) await credit(userId, refund.toFixed(4), 'colony:remove-bug')
+  if (refund > 0) await credit(userId, refund.toFixed(4), 'colony')
 
   return { ok: true }
 })

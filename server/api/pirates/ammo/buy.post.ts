@@ -62,7 +62,7 @@ export default defineEventHandler(async (event) => {
     const pricePerUnit = pirateAmmoPricePerUnit(power)
     const cost = amount * pricePerUnit
 
-    await debit(userId, cost.toFixed(4), 'pirates:ammo')
+    await debit(userId, cost.toFixed(4), 'pirates')
     await db.update(pirateState).set({ ammoCount: s.ammoCount + amount }).where(eq(pirateState.userId, userId))
 
     return { bought: amount, cost, pricePerUnit, currency: 'coins' as const, ammoCount: s.ammoCount + amount }

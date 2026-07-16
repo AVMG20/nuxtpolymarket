@@ -30,7 +30,7 @@ export default defineEventHandler(async (event) => {
     const power = piratePowerLevel({ levels, cannonTierIds: cannons.map(c => c.tierId), cannonSlots: s.cannonSlots })
     const cost = pirateRepairRushCost(power, remainingMs)
 
-    await debit(userId, cost.toFixed(4), 'pirates:repair-rush')
+    await debit(userId, cost.toFixed(4), 'pirates')
     await db.update(pirateState)
         .set({ hullRepairUntil: null, hullRepairTotalMs: 0 })
         .where(eq(pirateState.userId, userId))

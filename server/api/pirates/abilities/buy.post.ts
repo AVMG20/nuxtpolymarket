@@ -20,7 +20,7 @@ export default defineEventHandler(async (event) => {
     if (state.runStartedAt) throw createError({ statusCode: 400, statusMessage: 'Cannot change abilities mid-voyage' })
     if ((state.ownedAbilityIds ?? []).includes(ability.id)) throw createError({ statusCode: 400, statusMessage: 'Ability already owned' })
 
-    await debit(userId, ability.cost.toFixed(4), 'pirates:ability')
+    await debit(userId, ability.cost.toFixed(4), 'pirates')
     await db.update(pirateState)
         .set({
             ownedAbilityIds: Array.from(new Set(['bomb', ...(state.ownedAbilityIds ?? []), ability.id])),

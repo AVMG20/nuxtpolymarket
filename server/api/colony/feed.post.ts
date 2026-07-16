@@ -42,7 +42,7 @@ export default defineEventHandler(async (event) => {
   }
 
   const cost = missing * FEED_COST_PER_POINT
-  await debit(userId, cost.toFixed(4), 'colony:feed')
+  await debit(userId, cost.toFixed(4), 'colony')
   await db.update(colonyState).set({ nutrition: state.nutrition + missing }).where(eq(colonyState.userId, userId))
 
   return { ok: true, method, cost, nutrition: state.nutrition + missing, gemNutrition: state.gemNutrition }

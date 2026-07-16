@@ -31,7 +31,7 @@ export default defineEventHandler(async (event) => {
     const maxPrincipal = nextMaxPrincipal(parseFloat(settled.maxPrincipal), principal)
 
     await tx.update(bankState).set({ balance: newBalance.toFixed(4), principal: principal.toFixed(4), maxPrincipal: maxPrincipal.toFixed(4), loanPrincipal: newBalance >= 0 ? '0' : settled.loanPrincipal, lastSettledAt: new Date() }).where(eq(bankState.id, settled.id))
-    await tx.insert(transactions).values({ userId, amount: amount.toFixed(4), type: 'debit', category: repayDebt ? 'bank debt repayment' : 'bank deposit' })
+    await tx.insert(transactions).values({ userId, amount: amount.toFixed(4), type: 'debit', category: 'bank' })
     await tx.update(user).set({ balance: sql`${user.balance} - ${amount.toFixed(4)}::numeric` }).where(eq(user.id, userId))
     await writeBankHistory(tx, userId, newBalance, 'deposit', amount)
   })

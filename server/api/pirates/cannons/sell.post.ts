@@ -26,7 +26,7 @@ export default defineEventHandler(async (event) => {
     const refund = Math.round(cannon.purchasePrice * PIRATE_CANNON_SELL_REFUND_RATE)
 
     await db.delete(pirateCannons).where(eq(pirateCannons.id, cannon.id))
-    if (refund > 0) await credit(userId, refund.toFixed(4), 'pirates:cannon-sale')
+    if (refund > 0) await credit(userId, refund.toFixed(4), 'pirates')
 
     return { slotIndex, refund }
 })

@@ -76,7 +76,7 @@ export async function upgradeResearch(userId: string, typeId: string): Promise<{
     throw createError({ statusCode: 400, statusMessage: 'This species is already at max Research level' })
   }
 
-  await debit(userId, cost.toFixed(4), 'colony:research')
+  await debit(userId, cost.toFixed(4), 'colony')
 
   await db.insert(colonyBugResearch)
     .values({ userId, typeId, level: currentLevel + 1 })
@@ -394,5 +394,5 @@ export async function payPrice(userId: string, price: Price) {
     throw createError({ statusCode: 400, statusMessage: 'Not enough items for this upgrade' })
   }
   if (price.items.length > 0) await consumeItems(userId, price.items)
-  if (price.coins > 0) await debit(userId, price.coins.toFixed(4), 'colony:upgrade')
+  if (price.coins > 0) await debit(userId, price.coins.toFixed(4), 'colony')
 }

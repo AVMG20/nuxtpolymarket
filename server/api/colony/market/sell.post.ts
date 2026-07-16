@@ -26,7 +26,7 @@ export default defineEventHandler(async (event) => {
     .where(and(eq(colonyItems.userId, userId), eq(colonyItems.itemTypeId, body.itemTypeId)))
 
   const coins = quantity * type.sellValue
-  await credit(userId, coins.toFixed(4), 'colony:sell')
+  await credit(userId, coins.toFixed(4), 'colony')
 
   return { ok: true, coins, quantity, itemTypeId: type.id }
 })

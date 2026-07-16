@@ -18,7 +18,7 @@ export default defineEventHandler(async (event) => {
     const cost = pirateSlotUnlockCost(s.cannonSlots)
     if (cost === null) throw createError({ statusCode: 400, statusMessage: 'All gun ports already unlocked' })
 
-    await debit(userId, cost.toFixed(4), 'pirates:slot')
+    await debit(userId, cost.toFixed(4), 'pirates')
     await db.update(pirateState).set({ cannonSlots: s.cannonSlots + 1 }).where(eq(pirateState.userId, userId))
 
     return { cannonSlots: s.cannonSlots + 1 }

@@ -29,7 +29,7 @@ export default defineEventHandler(async (event) => {
     })
     if (existing) throw createError({ statusCode: 400, statusMessage: 'Slot occupied — sell the current cannon first' })
 
-    await debit(userId, tier.cost.toFixed(4), 'pirates:cannon')
+    await debit(userId, tier.cost.toFixed(4), 'pirates')
     await db.insert(pirateCannons).values({ userId, slotIndex, tierId: tier.id, purchasePrice: tier.cost })
 
     return { slotIndex, tierId: tier.id }

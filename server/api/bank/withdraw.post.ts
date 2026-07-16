@@ -32,7 +32,7 @@ export default defineEventHandler(async (event) => {
       loanPrincipal: newBalance < 0 ? newLoanPrincipal.toFixed(4) : '0',
       lastSettledAt: new Date()
     }).where(eq(bankState.id, settled.id))
-    await tx.insert(transactions).values({ userId, amount: amount.toFixed(4), type: 'credit', category: 'bank withdrawal' })
+    await tx.insert(transactions).values({ userId, amount: amount.toFixed(4), type: 'credit', category: 'bank' })
     await tx.update(user).set({ balance: sql`${user.balance} + ${amount.toFixed(4)}::numeric` }).where(eq(user.id, userId))
     await writeBankHistory(tx, userId, newBalance, 'withdraw', amount)
   })

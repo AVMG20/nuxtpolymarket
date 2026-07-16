@@ -33,7 +33,7 @@ export default defineEventHandler(async (event) => {
     if (parseFloat(currentUser.balance) < coinCost) throw createError({ statusCode: 400, statusMessage: 'Insufficient balance' })
     if (currentUser.gems < gemCost) throw createError({ statusCode: 400, statusMessage: `Not enough gems (need ${gemCost})` })
 
-    await tx.insert(transactions).values({ userId, amount: coinCost.toFixed(4), type: 'debit', category: 'colony:habitat-level' })
+    await tx.insert(transactions).values({ userId, amount: coinCost.toFixed(4), type: 'debit', category: 'colony' })
     await tx.update(user)
       .set({
         balance: sql`${user.balance} - ${coinCost.toFixed(4)}::numeric`,
