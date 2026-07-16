@@ -469,6 +469,7 @@ const starterPrompts = [
               :key="message.id"
               :avatar="{ icon: message.role === 'user' ? 'i-lucide-user' : 'i-lucide-bot' }"
               :role="message.role === 'user' ? 'user' : 'assistant'"
+              :parts="[]"
               :side="message.role === 'user' ? 'right' : 'left'"
               :ui="message.role === 'user' ? { container: 'flex-row-reverse justify-start' } : undefined"
               :variant="message.role === 'user' ? 'soft' : 'naked'"
@@ -519,7 +520,9 @@ const starterPrompts = [
 
             <UChatMessage
               v-if="showPendingUser"
+              id="pending-user-message"
               :avatar="{ icon: 'i-lucide-user' }"
+              :parts="[]"
               role="user"
               side="right"
               :ui="{ container: 'flex-row-reverse justify-start' }"
@@ -532,7 +535,9 @@ const starterPrompts = [
 
             <UChatMessage
               v-if="streamingContent"
+              id="streaming-assistant-message"
               :avatar="{ icon: 'i-lucide-bot' }"
+              :parts="[]"
               role="assistant"
               side="left"
               variant="naked"

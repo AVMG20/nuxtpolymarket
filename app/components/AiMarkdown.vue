@@ -40,6 +40,10 @@ type Block
 
 const TOKEN_RE = /\[\[(coin|gem|profit|loss):([^\]]{1,100})\]\]/g
 
+function parseTokenNumber(value: string) {
+  return Number(value.replace(/,/g, ''))
+}
+
 function renderMarkdown(markdown: string) {
   return marked.parse(escapeHtml(markdown), {
     async: false,
@@ -64,13 +68,13 @@ function parseInlineParts(markdown: string): Part[] {
     if (index > last) parts.push({ type: 'text', html: renderInlineMarkdown(markdown.slice(last, index)) })
 
     if (kind === 'coin' || kind === 'gem') {
-      const value = Number(payload)
+      const value = parseTokenNumber(payload)
       if (Number.isFinite(value)) parts.push({ type: kind, value })
       else parts.push({ type: 'text', html: renderInlineMarkdown(full) })
     } else {
       const separator = payload.lastIndexOf(':')
       const category = separator > 0 ? payload.slice(0, separator) : ''
-      const value = Number(payload.slice(separator + 1))
+      const value = parseTokenNumber(payload.slice(separator + 1))
       if (category && Number.isFinite(value)) {
         parts.push({ type: 'stat', kind: kind === 'profit' ? 'profit' : 'loss', category, value: Math.abs(value) })
       } else {

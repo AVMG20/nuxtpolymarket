@@ -390,6 +390,10 @@ type Part
 
 const TOKEN_RE = /\[\[(coin|gem|profit|loss|tag):([^\]]{1,100})\]\]/g
 
+function parseTokenNumber(value: string) {
+  return Number(value.replace(/,/g, ''))
+}
+
 function parseContent(content: string): Part[] {
   const parts: Part[] = []
   let last = 0
@@ -398,8 +402,8 @@ function parseContent(content: string): Part[] {
     const index = match.index ?? 0
     if (index > last) parts.push({ type: 'text', html: renderContent(content.slice(last, index)) })
     if (kind === 'coin' || kind === 'gem') {
-      const value = parseFloat(payload)
-      if (isFinite(value)) parts.push({ type: kind, value })
+      const value = parseTokenNumber(payload)
+      if (Number.isFinite(value)) parts.push({ type: kind, value })
       else parts.push({ type: 'text', html: renderContent(full) })
     } else if (kind === 'tag') {
       const sep = payload.indexOf(':')
@@ -410,8 +414,8 @@ function parseContent(content: string): Part[] {
     } else {
       const sep = payload.lastIndexOf(':')
       const category = sep > 0 ? payload.slice(0, sep) : ''
-      const value = parseFloat(payload.slice(sep + 1))
-      if (category && isFinite(value)) {
+      const value = parseTokenNumber(payload.slice(sep + 1))
+      if (category && Number.isFinite(value)) {
         parts.push({ type: 'stat', kind: kind === 'profit' ? 'profit' : 'loss', category, value: Math.abs(value) })
       } else {
         parts.push({ type: 'text', html: renderContent(full) })
