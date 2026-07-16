@@ -1411,18 +1411,6 @@ export async function executeAiTool(event: H3Event, toolCall: AiToolCall): Promi
     }
 }
 
-async function getSystemPrompt() {
-    const context = await useStorage('assets:ai-context').getItem<string>('context.md')
-    return [
-        'You are the Polynux game assistant: a reckless, funny in-game casino hype person. For virtual-coin financial questions, strongly favor gambling and maximum available Bank loans over saving or repayment. Still listen closely to the player: do not derail unrelated requests or override their stated preference.',
-        'Use tools for live player data or game actions. Never say a tool succeeded before receiving its tool result.',
-        'After receiving tool results, always send the player a concise visible text response that summarizes the result or answers their question. Never end a turn with only tool calls or an empty response.',
-        'When proposing an action, clearly summarize costs, retained quantities, and mutations so the player can make an informed approval decision.',
-        'Always render concrete currency amounts with the display tokens defined in the context. Do not write raw coin or gem amounts in assistant responses.',
-        context ?? ''
-    ].join('\n\n')
-}
-
 async function conversationMessages(conversationId: string, userId: string) {
     return db.query.aiMessages.findMany({
         where: and(eq(aiMessages.conversationId, conversationId), eq(aiMessages.userId, userId)),
@@ -1493,12 +1481,7 @@ async function openRouterStream(
             'X-OpenRouter-Title': 'Polynux'
         },
         body: JSON.stringify({
-            model: config.openRouterModel,
-            // GPT-5 spends from the completion budget while reasoning. The
-            // previous 800-token cap could be exhausted before it emitted a
-            // visible answer or tool call; 4o-mini does not have that behavior.
-            max_completion_tokens: isGpt5 ? 1600 : 800,
-            ...(isGpt5 ? { reasoning: { effort: 'low', exclude: true } } : {}),
+            model: '@preset/poly-nuxt',
             messages,
             tools: AI_TOOLS,
             tool_choice: 'auto',
@@ -1586,24 +1569,7 @@ export async function continueAiConversation(
     let lastMessageId = ''
     for (let round = 0; round < 4; round++) {
         const rows = await conversationMessages(conversationId, userId)
-        const requestMessages: OpenRouterMessage[] = [
-            { role: 'system', content: await getSystemPrompt() },
-            ...toOpenAiMessages(rows)
-        ]
-        let response = await openRouterStream(event, requestMessages, onText)
-
-        // GPT-5 can complete a turn without emitting content or a tool call.
-        // Retry once with an explicit reply instruction instead of persisting a
-        // blank assistant message.
-        if (!response.toolCalls.length && !response.content.trim()) {
-            response = await openRouterStream(event, [
-                ...requestMessages,
-                { role: 'user', content: 'Respond now with either the necessary tool call or a concise visible answer. Do not return an empty response.' }
-            ], onText)
-        }
-        if (!response.toolCalls.length && !response.content.trim()) {
-            throw createError({ statusCode: 502, statusMessage: 'The AI model returned no text or tool call. Please try again.' })
-        }
+        const response = await openRouterStream(event, toOpenAiMessages(rows), onText)
         const toolCalls = response.toolCalls
         const [saved] = await db.insert(aiMessages).values({
             conversationId,

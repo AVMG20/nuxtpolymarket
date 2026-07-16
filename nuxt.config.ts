@@ -14,7 +14,6 @@ export default defineNuxtConfig({
         authSecret: process.env.BETTER_AUTH_SECRET,
         databaseUrl: process.env.DATABASE_URL,
         openRouterApiKey: process.env.OPENROUTER_API_KEY,
-        openRouterModel: process.env.OPENROUTER_MODEL || 'openai/gpt-4o-mini',
         betterAuthUrl: process.env.BETTER_AUTH_URL || 'http://localhost:3000',
         devMode: false,
     },
