@@ -49,7 +49,7 @@ watch(() => user.value?.balance, (v) => {
 
 // --- bet control
 const MIN_BET = 1
-const MAX_BET = 1_000_000
+const MAX_BET = 100_000_000_000
 const bet = ref(10)
 const betInput = ref('10')
 watch(bet, (v) => {

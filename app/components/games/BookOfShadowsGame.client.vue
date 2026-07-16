@@ -17,7 +17,7 @@ watch(() => user.value?.balance, (value) => {
 // --- bet / controls ----------------------------------------------------------
 
 const MIN_BET = 1
-const MAX_BET = 1_000_000
+const MAX_BET = 100_000_000_000
 const bet = ref(10)
 const betInput = ref('10')
 const buyBonusCost = computed(() => Math.round(bet.value * BOS_BUY_BONUS_COST * 100) / 100)

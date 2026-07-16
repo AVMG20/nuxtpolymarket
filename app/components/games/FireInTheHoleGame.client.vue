@@ -41,7 +41,7 @@ const FITH_DISPLAY_MAX_WIN = 10000
 const FITH_VOLATILITY = 5
 
 const MIN_BET = 1
-const MAX_BET = 1_000_000
+const MAX_BET = 100_000_000_000
 const bet = ref(10)
 const betInput = ref('10')
 const spinCost = computed(() => bet.value)
