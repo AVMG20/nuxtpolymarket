@@ -41,7 +41,7 @@ watch(() => user.value?.balance, (v) => {
 
 // --- bet control (half / double / free typing — no upper ladder cap)
 const MIN_BET = 1
-const MAX_BET = 1_000_000 // matches the server-side cap in play-game.post.ts
+const MAX_BET = 100_000_000_000 // matches the server-side cap in play-game.post.ts
 const bet = ref(10)
 const betInput = ref('10')
 

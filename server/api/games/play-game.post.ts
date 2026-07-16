@@ -18,7 +18,7 @@ export default defineEventHandler(async (event) => {
     })
   }
 
-  if (!bet || bet < 1 || !Number.isFinite(bet) || bet > 1_000_000) {
+  if (!bet || bet < 1 || !Number.isFinite(bet) || bet > 100_000_000_000) {
     throw createError({ statusCode: 400, statusMessage: 'Invalid bet amount' })
   }
 
