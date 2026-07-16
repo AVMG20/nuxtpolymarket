@@ -26,7 +26,9 @@ const { width: chartWidth } = useElementSize(chartRef)
 const chartRange = ref<ChartRange>('1d')
 const chartRanges: ChartRange[] = ['1d', '7d', '30d']
 
-useIntervalFn(() => { now.value = Date.now() }, 50)
+// Past ~10M the balance gains whole dollars per second, so a 50ms tick just blurs the number and burns CPU; step down to 1s.
+const balanceTickMs = computed(() => Math.abs(data.value?.balance ?? 0) >= 10_000_000 ? 1_000 : 50)
+useIntervalFn(() => { now.value = Date.now() }, balanceTickMs)
 useIntervalFn(() => { chartNow.value = Date.now() }, 1_000)
 useIntervalFn(() => refresh(), 30_000)
 
