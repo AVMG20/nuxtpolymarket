@@ -11,10 +11,11 @@ type BankData = {
 type ChartRange = '1d' | '7d' | '30d'
 
 const { data, refresh } = await useFetch<BankData>('/api/bank/state')
-const { data: chartHistory, refresh: refreshChartHistory } = await useFetch<{ points: BankPoint[] }>('/api/bank/chart')
+const { data: chartHistory, refresh: refreshChartHistory } = await useFetch<{ points: BankPoint[], earliestAt: string | null }>('/api/bank/chart')
 const { user, fetchSession } = useAuth()
 const toast = useToast()
 const now = ref(Date.now())
+const chartNow = ref(Date.now())
 const amount = ref<number | null>(null)
 const loading = ref<'deposit' | 'withdraw' | null>(null)
 const history = ref<BankPoint[]>([])
@@ -26,6 +27,7 @@ const chartRange = ref<ChartRange>('1d')
 const chartRanges: ChartRange[] = ['1d', '7d', '30d']
 
 useIntervalFn(() => { now.value = Date.now() }, 50)
+useIntervalFn(() => { chartNow.value = Date.now() }, 1_000)
 useIntervalFn(() => refresh(), 30_000)
 
 const liveBalance = computed(() => data.value
@@ -53,31 +55,31 @@ const chartRangeDays: Record<ChartRange, number> = { '1d': 1, '7d': 7, '30d': 30
 const chartHistoryPoints = computed(() => chartHistory.value?.points ?? [])
 const chartRangeAvailable = (range: ChartRange) => {
   if (range === '1d') return true
-  const first = chartHistoryPoints.value[0]
-  return !!first && now.value - new Date(first.createdAt).getTime() >= chartRangeDays[range] * 86_400_000
+  const earliest = chartHistory.value?.earliestAt
+  return !!earliest && chartNow.value - new Date(earliest).getTime() >= chartRangeDays[range] * 86_400_000
 }
 const chartData = computed((): ChartPoint[] => {
   if (!data.value || !chartHistoryPoints.value.length) return []
   const history = chartHistoryPoints.value.map(point => ({ date: new Date(point.createdAt), balance: parseFloat(point.balance) }))
-  const cutoff = new Date(now.value - chartRangeDays[chartRange.value] * 86_400_000)
+  const cutoff = new Date(chartNow.value - chartRangeDays[chartRange.value] * 86_400_000)
   const anchorIndex = Math.max(0, history.findLastIndex(point => point.date <= cutoff))
 
   const points: ChartPoint[] = []
   for (let index = anchorIndex; index < history.length; index++) {
     const from = history[index]!
-    const to = history[index + 1]?.date ?? new Date(now.value)
+    const to = history[index + 1]?.date ?? new Date(chartNow.value)
     const segmentStart = index === anchorIndex ? cutoff : from.date
-    const segmentEnd = new Date(Math.min(to.getTime(), now.value))
+    const segmentEnd = new Date(Math.min(to.getTime(), chartNow.value))
     const steps = Math.max(1, Math.min(12, Math.ceil((segmentEnd.getTime() - segmentStart.getTime()) / 7_200_000)))
 
     for (let step = 0; step <= steps; step++) {
       const time = new Date(segmentStart.getTime() + ((segmentEnd.getTime() - segmentStart.getTime()) * step / steps))
       points.push({ date: time, balance: growBankBalance(from.balance, from.date, time) })
     }
-    if (to.getTime() > now.value) break
+    if (to.getTime() > chartNow.value) break
   }
 
-  const current = new Date(now.value)
+  const current = new Date(chartNow.value)
   const last = points.at(-1)
   if (!last || last.date.getTime() !== current.getTime()) {
     const anchor = history.at(-1)!
