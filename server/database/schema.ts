@@ -30,7 +30,7 @@ export const transactions = pgTable(
     category: text('category'),
     createdAt: timestamp('created_at').defaultNow().notNull()
   },
-  table => [index('transactions_userId_idx').on(table.userId)]
+  table => [index('transactions_userId_createdAt_idx').on(table.userId, table.createdAt)]
 )
 
 export const session = pgTable(

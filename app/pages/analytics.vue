@@ -2,7 +2,19 @@
 import { format } from 'date-fns'
 import { useElementSize } from '@vueuse/core'
 
-const { data, pending } = await useFetch('/api/analytics/transactions')
+// ---- Category filter (drives the server query) ----
+const selectedCategory = ref<string | null>(null)
+
+const { data, pending } = useFetch('/api/analytics/transactions', {
+  lazy: true,
+  query: computed(() => ({ category: selectedCategory.value ?? undefined }))
+})
+
+// `data` is retained while a filter change refetches, so only gate the skeletons
+// on the very first load — filter toggles keep the previous view until fresh
+// data lands instead of flashing skeletons.
+const loading = computed(() => pending.value && !data.value)
+
 const { signOut: authSignOut } = useAuth()
 
 async function signOut() {
@@ -66,29 +78,11 @@ function mix(cssVar: string, opacity: number) {
   return `color-mix(in srgb, ${cssVar} ${Math.round(opacity * 100)}%, transparent)`
 }
 
-// ---- Category performance (today) ----
-const todayCatStats = computed(() => {
-  const txs = data.value?.todayTransactions
-  if (!txs?.length) return []
-  const cats: Record<string, { credits: number, debits: number, count: number }> = {}
-  for (const tx of txs) {
-    const cat = tx.category ?? 'general'
-    if (!cats[cat]) cats[cat] = { credits: 0, debits: 0, count: 0 }
-    if (tx.type === 'credit') cats[cat].credits += parseFloat(tx.amount)
-    else cats[cat].debits += parseFloat(tx.amount)
-    cats[cat].count++
-  }
-  return Object.entries(cats)
-    .map(([cat, s]) => ({
-      cat,
-      credits: s.credits,
-      debits: s.debits,
-      net: s.credits - s.debits,
-      count: s.count,
-      volume: s.credits + s.debits
-    }))
-    .sort((a, b) => Math.abs(b.net) - Math.abs(a.net))
-})
+// ---- Summary cards (server-aggregated, reflects the active filter) ----
+const summary = computed(() => data.value?.summary ?? { totalCredits: 0, totalDebits: 0, net: 0, txCount: 0 })
+
+// ---- Category performance (today) — pre-aggregated server-side ----
+const todayCatStats = computed(() => data.value?.categoryStats ?? [])
 
 const maxCatVolume = computed(() => {
   let max = 0
@@ -97,8 +91,6 @@ const maxCatVolume = computed(() => {
 })
 
 // ---- Category filter ----
-const selectedCategory = ref<string | null>(null)
-
 function toggleCategory(cat: string) {
   selectedCategory.value = selectedCategory.value === cat ? null : cat
 }
@@ -107,50 +99,30 @@ const selectedCatLabel = computed(() =>
   selectedCategory.value === 'general' ? 'General' : selectedCategory.value
 )
 
-// ---- Filtered transactions (respects category selection) ----
-const filteredTodayTxs = computed(() => {
-  const txs = data.value?.todayTransactions ?? []
-  if (!selectedCategory.value) return txs
-  return txs.filter(tx => (tx.category ?? 'general') === selectedCategory.value)
-})
-
-const filteredSummary = computed(() => {
-  const txs = filteredTodayTxs.value
-  const totalCredits = txs.filter(t => t.type === 'credit').reduce((s, t) => s + parseFloat(t.amount), 0)
-  const totalDebits = txs.filter(t => t.type === 'debit').reduce((s, t) => s + parseFloat(t.amount), 0)
-  return {
-    totalCredits,
-    totalDebits,
-    net: totalCredits - totalDebits,
-    txCount: txs.length
-  }
-})
+const recentTransactions = computed(() => data.value?.recentTransactions ?? [])
 
 // ---- Today's running balance (Unovis line chart) ----
+// The server returns a minute-bucketed cumulative series; we frame it with a
+// zero point at midnight and a flat segment out to "now" for the current value.
 type PerfPoint = { date: Date, value: number }
 
 const perfCardRef = useTemplateRef<HTMLElement>('perfCardRef')
 const { width: perfCardWidth } = useElementSize(perfCardRef)
 
 const lineChartData = computed((): PerfPoint[] => {
-  const txs = filteredTodayTxs.value
-  if (!txs?.length) return []
+  const series = data.value?.perfSeries
+  if (!series?.length) return []
 
-  const sorted = [...txs].reverse()
   const startOfDay = new Date()
   startOfDay.setHours(0, 0, 0, 0)
 
-  let running = 0
   const pts: PerfPoint[] = [{ date: startOfDay, value: 0 }]
-  for (const tx of sorted) {
-    running += tx.type === 'credit' ? parseFloat(tx.amount) : -parseFloat(tx.amount)
-    pts.push({ date: new Date(tx.createdAt), value: running })
-  }
-  pts.push({ date: new Date(), value: running })
+  for (const point of series) pts.push({ date: new Date(point.t), value: point.value })
+  pts.push({ date: new Date(), value: series[series.length - 1]!.value })
   return pts
 })
 
-const finalValue = computed(() => lineChartData.value[lineChartData.value.length - 1]?.value ?? 0)
+const finalValue = computed(() => summary.value.net)
 const lineColor = computed(() => finalValue.value >= 0 ? 'var(--ui-success)' : 'var(--ui-error)')
 
 // Split sign changes at an exact zero point so ChartsChartLine can render
@@ -247,7 +219,7 @@ onMounted(() => setTimeout(() => { mounted.value = true }, 50))
 
     <!-- Stats cards -->
     <div
-      v-if="pending"
+      v-if="loading"
       class="grid grid-cols-2 lg:grid-cols-4 gap-4"
     >
       <USkeleton
@@ -267,7 +239,7 @@ onMounted(() => setTimeout(() => { mounted.value = true }, 50))
               Credits{{ selectedCategory ? ` · ${selectedCatLabel}` : ' Today' }}
             </p>
             <p class="text-2xl font-bold text-success mt-1">
-              +{{ formatNumber(filteredSummary.totalCredits) }}
+              +{{ formatNumber(summary.totalCredits) }}
             </p>
           </div>
           <div class="size-9 rounded-lg bg-success/15 flex items-center justify-center shrink-0">
@@ -286,7 +258,7 @@ onMounted(() => setTimeout(() => { mounted.value = true }, 50))
               Debits{{ selectedCategory ? ` · ${selectedCatLabel}` : ' Today' }}
             </p>
             <p class="text-2xl font-bold text-error mt-1">
-              -{{ formatNumber(filteredSummary.totalDebits) }}
+              -{{ formatNumber(summary.totalDebits) }}
             </p>
           </div>
           <div class="size-9 rounded-lg bg-error/15 flex items-center justify-center shrink-0">
@@ -301,7 +273,7 @@ onMounted(() => setTimeout(() => { mounted.value = true }, 50))
       <UCard
         :class="[
           'ring-1',
-          filteredSummary.net >= 0
+          summary.net >= 0
             ? 'ring-success/20 bg-success/5'
             : 'ring-error/20 bg-error/5'
         ]"
@@ -313,19 +285,19 @@ onMounted(() => setTimeout(() => { mounted.value = true }, 50))
             </p>
             <p
               class="text-2xl font-bold mt-1"
-              :class="filteredSummary.net >= 0 ? 'text-success' : 'text-error'"
+              :class="summary.net >= 0 ? 'text-success' : 'text-error'"
             >
-              {{ filteredSummary.net >= 0 ? '+' : '' }}{{ formatNumber(filteredSummary.net) }}
+              {{ summary.net >= 0 ? '+' : '' }}{{ formatNumber(summary.net) }}
             </p>
           </div>
           <div
             class="size-9 rounded-lg flex items-center justify-center shrink-0"
-            :class="filteredSummary.net >= 0 ? 'bg-success/15' : 'bg-error/15'"
+            :class="summary.net >= 0 ? 'bg-success/15' : 'bg-error/15'"
           >
             <UIcon
               name="i-lucide-wallet"
               class="size-4"
-              :class="filteredSummary.net >= 0 ? 'text-success' : 'text-error'"
+              :class="summary.net >= 0 ? 'text-success' : 'text-error'"
             />
           </div>
         </div>
@@ -338,7 +310,7 @@ onMounted(() => setTimeout(() => { mounted.value = true }, 50))
               Transactions
             </p>
             <p class="text-2xl font-bold mt-1">
-              {{ filteredSummary.txCount }}
+              {{ summary.txCount }}
             </p>
           </div>
           <div class="size-9 rounded-lg bg-primary/15 flex items-center justify-center shrink-0">
@@ -373,7 +345,7 @@ onMounted(() => setTimeout(() => { mounted.value = true }, 50))
           </div>
         </template>
 
-        <div v-if="pending">
+        <div v-if="loading">
           <USkeleton class="h-48 rounded-lg" />
         </div>
         <div
@@ -453,7 +425,7 @@ onMounted(() => setTimeout(() => { mounted.value = true }, 50))
         </template>
 
         <div
-          v-if="pending"
+          v-if="loading"
           class="space-y-4"
         >
           <USkeleton
@@ -480,17 +452,17 @@ onMounted(() => setTimeout(() => { mounted.value = true }, 50))
         >
           <button
             v-for="stat in todayCatStats"
-            :key="stat.cat"
+            :key="stat.category"
             type="button"
             class="w-full text-left rounded-lg px-2.5 py-2 -mx-2.5 transition-colors cursor-pointer"
-            :class="selectedCategory === stat.cat
+            :class="selectedCategory === stat.category
               ? 'bg-primary/10 ring-1 ring-primary/30'
               : 'hover:bg-elevated/70'"
-            @click="toggleCategory(stat.cat)"
+            @click="toggleCategory(stat.category)"
           >
             <div class="flex items-center justify-between gap-2">
               <div class="flex items-center gap-1.5 min-w-0">
-                <span class="text-sm font-medium capitalize truncate">{{ stat.cat }}</span>
+                <span class="text-sm font-medium capitalize truncate">{{ stat.category }}</span>
                 <UBadge
                   :label="`${stat.count}`"
                   color="neutral"
@@ -550,7 +522,7 @@ onMounted(() => setTimeout(() => { mounted.value = true }, 50))
         </div>
       </template>
 
-      <div v-if="pending">
+      <div v-if="loading">
         <USkeleton class="h-48 mx-4 rounded-lg" />
       </div>
       <div
@@ -589,7 +561,7 @@ onMounted(() => setTimeout(() => { mounted.value = true }, 50))
           </h2>
           <div class="flex items-center gap-2">
             <UBadge
-              :label="`${filteredTodayTxs.length} ${selectedCategory ? '' : 'total'}`"
+              :label="`${summary.txCount} total`"
               color="neutral"
               variant="subtle"
             />
@@ -606,7 +578,7 @@ onMounted(() => setTimeout(() => { mounted.value = true }, 50))
       </template>
 
       <div
-        v-if="pending"
+        v-if="loading"
         class="space-y-3"
       >
         <div
@@ -623,7 +595,7 @@ onMounted(() => setTimeout(() => { mounted.value = true }, 50))
         </div>
       </div>
       <div
-        v-else-if="!filteredTodayTxs.length"
+        v-else-if="!recentTransactions.length"
         class="py-12 flex flex-col items-center gap-2 text-muted"
       >
         <UIcon
@@ -640,7 +612,7 @@ onMounted(() => setTimeout(() => { mounted.value = true }, 50))
       >
         <div class="divide-y divide-default">
           <div
-            v-for="tx in filteredTodayTxs"
+            v-for="tx in recentTransactions"
             :key="tx.id"
             class="flex items-center gap-3 px-4 py-3 hover:bg-elevated/50 transition-colors"
           >
@@ -684,6 +656,12 @@ onMounted(() => setTimeout(() => { mounted.value = true }, 50))
             </span>
           </div>
         </div>
+        <p
+          v-if="summary.txCount > recentTransactions.length"
+          class="text-xs text-muted text-center py-3 border-t border-default"
+        >
+          Showing the latest {{ recentTransactions.length }} of {{ formatNumber(summary.txCount) }}
+        </p>
       </UScrollArea>
     </UCard>
   </UContainer>
