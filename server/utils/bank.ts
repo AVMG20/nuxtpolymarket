@@ -1,4 +1,4 @@
-import { eq, desc } from 'drizzle-orm'
+import { eq, and, gte, lt, desc } from 'drizzle-orm'
 import { db } from '#server/database'
 import { bankHistory, bankState } from '#server/database/schema'
 import { BANK_CAP, debtFloor, LOAN_MULTIPLIER, bankDailyRate, growBankBalance, loanAllowance } from '#shared/utils/gamelogic/bank'
@@ -75,4 +75,48 @@ export async function getBankHistory(userId: string, limit = 100, offset = 0) {
     offset,
     columns: { id: true, balance: true, action: true, amount: true, createdAt: true }
   })
+}
+
+const CHART_WINDOW_DAYS = 30
+const CHART_POINT_BUDGET = 500
+const CHART_WINDOW_ROW_CAP = 2000
+
+const CHART_COLUMNS = { id: true, balance: true, action: true, amount: true, createdAt: true } as const
+
+function downsample<T>(rows: T[], budget: number): T[] {
+  if (rows.length <= budget) return rows
+  const step = rows.length / budget
+  const out: T[] = []
+  for (let i = 0; i < budget; i++) out.push(rows[Math.floor(i * step)]!)
+  const last = rows[rows.length - 1]!
+  if (out[out.length - 1] !== last) out.push(last)
+  return out
+}
+
+export async function getBankChartHistory(userId: string) {
+  const windowStart = new Date(Date.now() - CHART_WINDOW_DAYS * 86_400_000)
+
+  const [earliest, anchorRows, windowRows] = await Promise.all([
+    db.query.bankHistory.findFirst({
+      where: eq(bankHistory.userId, userId),
+      orderBy: [bankHistory.createdAt],
+      columns: { createdAt: true }
+    }),
+    // Anchors the left edge: the balance the window opens at.
+    db.query.bankHistory.findMany({
+      where: and(eq(bankHistory.userId, userId), lt(bankHistory.createdAt, windowStart)),
+      orderBy: [desc(bankHistory.createdAt)],
+      limit: 1,
+      columns: CHART_COLUMNS
+    }),
+    db.query.bankHistory.findMany({
+      where: and(eq(bankHistory.userId, userId), gte(bankHistory.createdAt, windowStart)),
+      orderBy: [desc(bankHistory.createdAt)],
+      limit: CHART_WINDOW_ROW_CAP,
+      columns: CHART_COLUMNS
+    })
+  ])
+
+  const points = [...anchorRows, ...downsample(windowRows.reverse(), CHART_POINT_BUDGET)]
+  return { points, earliestAt: earliest?.createdAt ?? null }
 }
