@@ -65,7 +65,7 @@ export default defineEventHandler(async (event) => {
     const totalBets = result.state.playerHands.reduce((sum, h) => sum + h.bet, 0) + result.state.insuranceBet
     const totalPayout = totalBets + result.netPayout
     if (totalPayout > 0) {
-      await credit(session.user.id, totalPayout.toFixed(4), 'blackjack')
+      await credit(session.user.id, totalPayout.toFixed(4), 'blackjack', false)
     }
     await db.delete(blackjackSessions).where(eq(blackjackSessions.userId, session.user.id))
   } else {

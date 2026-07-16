@@ -2,19 +2,33 @@ import { eq, and, gte, sql, desc } from 'drizzle-orm'
 import { db } from '../database'
 import { user, transactions } from '../database/schema'
 import { RAKEBACK_RATE } from '../../shared/utils/profile'
+import { applyPrestigeCreditBonus } from '../../shared/utils/prestige'
 
-export async function credit(userId: string, amount: string, category?: string) {
-  await db.transaction(async (tx) => {
-    await tx.insert(transactions).values({ userId, amount, type: 'credit', category })
-    await tx.update(user)
-      .set({ balance: sql`${user.balance} + ${amount}::numeric` })
+export async function credit(userId: string, amount: string, category?: string, prestigeEligible = true) {
+  return db.transaction(async (tx) => {
+    const [current] = await tx
+      .select({ prestigeLevel: user.prestigeLevel })
+      .from(user)
       .where(eq(user.id, userId))
+      .for('update')
+    if (!current) throw createError({ statusCode: 404, statusMessage: 'User not found' })
+
+    const creditedAmount = applyPrestigeCreditBonus(amount, current.prestigeLevel, category, prestigeEligible)
+    await tx.insert(transactions).values({ userId, amount: creditedAmount, type: 'credit', category })
+    await tx.update(user)
+      .set({ balance: sql`${user.balance} + ${creditedAmount}::numeric` })
+      .where(eq(user.id, userId))
+    return creditedAmount
   })
 }
 
 export async function debit(userId: string, amount: string, category?: string) {
   await db.transaction(async (tx) => {
-    const current = await tx.query.user.findFirst({ where: eq(user.id, userId), columns: { balance: true } })
+    const [current] = await tx
+      .select({ balance: user.balance })
+      .from(user)
+      .where(eq(user.id, userId))
+      .for('update')
     if (!current || parseFloat(current.balance) < parseFloat(amount)) throw createError({ statusCode: 400, statusMessage: 'Insufficient balance' })
 
     await tx.insert(transactions).values({ userId, amount, type: 'debit', category })

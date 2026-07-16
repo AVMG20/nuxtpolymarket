@@ -13,6 +13,7 @@ export default defineEventHandler(async () => {
         name: user.name,
         balance: user.balance,
         gems: user.gems,
+        prestigeLevel: user.prestigeLevel,
         rigLevel: minerState.rigLevel,
         vaultLevel: minerState.vaultLevel,
         factoryLevel: minerState.factoryLevel,
@@ -48,6 +49,7 @@ export default defineEventHandler(async () => {
       return {
         id: u.id,
         name: u.name,
+        prestigeLevel: u.prestigeLevel,
         balance: u.balance,
         bankBalance,
         gems,
@@ -61,5 +63,5 @@ export default defineEventHandler(async () => {
         totalWealth,
       }
     })
-    .sort((a, b) => b.totalLevels - a.totalLevels || b.totalWealth - a.totalWealth)
+    .sort((a, b) => b.prestigeLevel - a.prestigeLevel || b.totalLevels - a.totalLevels || b.totalWealth - a.totalWealth)
 })

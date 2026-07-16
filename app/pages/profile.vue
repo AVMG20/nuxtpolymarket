@@ -1,11 +1,48 @@
 <script setup lang="ts">
 import { RAKEBACK_RATE, RAKEBACK_UNLOCK_COST } from '#shared/utils/profile'
+import {
+  MAX_PRESTIGE_LEVEL,
+  PRESTIGE_BONUS_PER_LEVEL,
+  PRESTIGE_COIN_COST,
+  PRESTIGE_GEM_COST,
+  prestigeBonusPercent,
+  prestigeTitle
+} from '#shared/utils/prestige'
 
 const { user, client, fetchSession, signOut: authSignOut } = useAuth()
 
 const rake = computed(() => parseFloat(user.value?.rake ?? '0'))
 const gems = computed(() => user.value?.gems ?? 0)
 const rakebackUnlocked = computed(() => !!user.value?.rakebackUnlocked)
+const balance = computed(() => parseFloat(user.value?.balance ?? '0'))
+const prestigeLevel = computed(() => user.value?.prestigeLevel ?? 0)
+const nextPrestigeLevel = computed(() => Math.min(MAX_PRESTIGE_LEVEL, prestigeLevel.value + 1))
+const canAffordPrestige = computed(() =>
+  balance.value >= PRESTIGE_COIN_COST && gems.value >= PRESTIGE_GEM_COST
+)
+
+const prestigeModalOpen = ref(false)
+const prestigeLoading = ref(false)
+async function prestige() {
+  prestigeLoading.value = true
+  try {
+    const result = await $fetch<{ prestigeLevel: number, bonusPercent: number }>('/api/user/prestige', {
+      method: 'POST'
+    })
+    await fetchSession()
+    prestigeModalOpen.value = false
+    toast.add({
+      title: `Prestige ${result.prestigeLevel} reached`,
+      description: `Earned credits now receive +${result.bonusPercent}%.`,
+      color: 'success',
+      icon: 'i-lucide-crown'
+    })
+  } catch (e: any) {
+    toast.add({ title: e?.data?.statusMessage ?? 'Prestige failed', color: 'error' })
+  } finally {
+    prestigeLoading.value = false
+  }
+}
 
 const rakeInfoOpen = ref(false)
 
@@ -157,15 +194,137 @@ async function handleSignOut() {
       </div>
     </div>
 
+    <UCard
+      class="overflow-hidden"
+      :class="prestigeLevel > 0 ? 'ring-1 ring-primary/30' : ''"
+      :ui="{ body: 'p-0 sm:p-0' }"
+    >
+      <div class="relative p-5 sm:p-6">
+        <div class="pointer-events-none absolute inset-0 bg-gradient-to-br from-primary/10 via-transparent to-secondary/10" />
+        <div class="relative flex flex-col gap-5 xl:flex-row xl:items-center xl:justify-between">
+          <div class="flex items-start gap-4">
+            <div
+              class="flex size-14 shrink-0 items-center justify-center rounded-2xl border bg-elevated/80"
+              :class="prestigeLevel > 0 ? 'border-primary/50 shadow-lg shadow-primary/15' : 'border-default'"
+            >
+              <UIcon name="i-lucide-crown" class="size-7" :class="prestigeLevel > 0 ? 'text-primary' : 'text-muted'" />
+            </div>
+            <div>
+              <div class="flex flex-wrap items-center gap-2">
+                <h2 class="text-xl font-black">Prestige</h2>
+                <PrestigeBadge v-if="prestigeLevel > 0" :level="prestigeLevel" />
+                <UBadge v-else color="neutral" variant="subtle" label="Not prestiged" />
+              </div>
+              <p class="mt-1 max-w-2xl text-sm text-muted">
+                Reset all economic and game progress for permanent status and
+                <span class="font-semibold text-default">+{{ PRESTIGE_BONUS_PER_LEVEL * 100 }}% money from earned credits per level</span>.
+              </p>
+              <p v-if="prestigeLevel > 0" class="mt-2 text-sm font-semibold text-primary">
+                Current bonus: +{{ prestigeBonusPercent(prestigeLevel) }}%
+              </p>
+            </div>
+          </div>
+
+          <div class="flex flex-col items-stretch gap-2 sm:flex-row sm:items-center xl:justify-end">
+            <div class="flex items-center gap-3 rounded-lg border border-default bg-background/70 px-3 py-2 text-sm">
+              <CoinBalance :value="PRESTIGE_COIN_COST" />
+              <span class="text-muted">+</span>
+              <GemBalance :value="PRESTIGE_GEM_COST" />
+            </div>
+            <UButton
+              v-if="prestigeLevel < MAX_PRESTIGE_LEVEL"
+              icon="i-lucide-crown"
+              :label="`Reach Prestige ${nextPrestigeLevel}`"
+              :disabled="!canAffordPrestige"
+              @click="prestigeModalOpen = true"
+            />
+            <UBadge v-else color="success" variant="subtle" icon="i-lucide-sparkles" label="Maximum prestige" size="lg" />
+          </div>
+        </div>
+
+        <div class="relative mt-5 grid gap-2 sm:grid-cols-3">
+          <div
+            v-for="level in MAX_PRESTIGE_LEVEL"
+            :key="level"
+            class="rounded-lg border p-3"
+            :class="prestigeLevel >= level ? 'border-primary/40 bg-primary/10' : 'border-default bg-elevated/30'"
+          >
+            <div class="flex items-center justify-between gap-2">
+              <PrestigeBadge :level="level" compact />
+              <UIcon
+                :name="prestigeLevel >= level ? 'i-lucide-circle-check' : 'i-lucide-lock'"
+                class="size-4"
+                :class="prestigeLevel >= level ? 'text-success' : 'text-muted'"
+              />
+            </div>
+            <p class="mt-2 text-sm font-bold">{{ prestigeTitle(level) }}</p>
+            <p class="text-xs text-muted">+{{ prestigeBonusPercent(level) }}% credit bonus</p>
+          </div>
+        </div>
+      </div>
+    </UCard>
+
+    <UModal v-model:open="prestigeModalOpen" :title="`Reach Prestige ${nextPrestigeLevel}`">
+      <template #body>
+        <div class="space-y-4">
+          <UAlert
+            color="warning"
+            variant="soft"
+            icon="i-lucide-triangle-alert"
+            title="This reset cannot be undone"
+            description="Your account identity, chat messages, and prestige level stay. Everything economic and all game progression will be reset."
+          />
+          <div class="grid grid-cols-2 gap-3">
+            <div class="rounded-lg border border-default bg-elevated/40 p-3">
+              <p class="text-xs text-muted">Wallet cost</p>
+              <CoinBalance :value="PRESTIGE_COIN_COST" :compact="false" class="mt-1 font-bold" />
+            </div>
+            <div class="rounded-lg border border-default bg-elevated/40 p-3">
+              <p class="text-xs text-muted">Gem cost</p>
+              <GemBalance :value="PRESTIGE_GEM_COST" :compact="false" class="mt-1 font-bold" />
+            </div>
+          </div>
+          <div class="text-sm">
+            <p class="font-semibold">The reset includes:</p>
+            <p class="mt-1 text-muted">
+              Wallet, gems, bank, rakeback, transaction history, Miner, Pirate Raid, Xeno, Colony, Hack Ops, and active casino sessions.
+            </p>
+          </div>
+          <p class="text-sm font-semibold text-primary">
+            Permanent reward: Prestige {{ nextPrestigeLevel }} {{ prestigeTitle(nextPrestigeLevel) }} and +{{ prestigeBonusPercent(nextPrestigeLevel) }}% on future earned credits. Bank and gem-market transfers are excluded.
+          </p>
+        </div>
+      </template>
+      <template #footer>
+        <div class="flex w-full justify-end gap-2">
+          <UButton color="neutral" variant="outline" label="Cancel" @click="prestigeModalOpen = false" />
+          <UButton
+            color="warning"
+            icon="i-lucide-crown"
+            :label="`Reset everything and reach P${nextPrestigeLevel}`"
+            :loading="prestigeLoading"
+            :disabled="!canAffordPrestige"
+            @click="prestige"
+          />
+        </div>
+      </template>
+    </UModal>
+
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
       <!-- Avatar card -->
       <UCard>
         <div class="flex items-center gap-5">
-          <div class="size-16 rounded-full bg-primary/20 flex items-center justify-center shrink-0">
-            <span class="text-2xl font-bold text-primary">{{ (user?.name ?? 'A')[0].toUpperCase() }}</span>
+          <div
+            class="size-16 rounded-full bg-primary/20 flex items-center justify-center shrink-0"
+            :class="prestigeLevel > 0 ? 'ring-2 ring-primary ring-offset-2 ring-offset-background shadow-lg shadow-primary/20' : ''"
+          >
+            <span class="text-2xl font-bold text-primary">{{ (user?.name ?? 'A').charAt(0).toUpperCase() }}</span>
           </div>
           <div class="min-w-0">
-            <p class="font-semibold text-xl truncate">{{ user?.name }}</p>
+            <div class="flex items-center gap-2">
+              <p class="font-semibold text-xl truncate">{{ user?.name }}</p>
+              <PrestigeBadge v-if="prestigeLevel > 0" :level="prestigeLevel" compact />
+            </div>
             <p class="text-sm text-muted truncate mt-0.5">{{ user?.email }}</p>
           </div>
         </div>

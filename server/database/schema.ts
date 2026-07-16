@@ -11,6 +11,7 @@ export const user = pgTable('user', {
   rake: numeric('rake', { precision: 19, scale: 4 }).notNull().default('0'),
   rakebackUnlocked: boolean('rakeback_unlocked').notNull().default(false),
   gems: integer('gems').notNull().default(0),
+  prestigeLevel: integer('prestige_level').notNull().default(0),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at')
     .defaultNow()

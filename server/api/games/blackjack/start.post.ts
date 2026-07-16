@@ -37,10 +37,10 @@ export default defineEventHandler(async (event) => {
 
   // If game finished immediately (e.g. blackjack), credit winnings
   if (result.finished && result.netPayout > 0) {
-    await credit(session.user.id, (bet + result.netPayout).toFixed(4), 'blackjack')
+    await credit(session.user.id, (bet + result.netPayout).toFixed(4), 'blackjack', false)
   } else if (result.finished && result.netPayout === 0) {
     // Push on immediate blackjack vs dealer blackjack - return bet
-    await credit(session.user.id, bet.toFixed(4), 'blackjack')
+    await credit(session.user.id, bet.toFixed(4), 'blackjack', false)
   }
 
   // Persist active game to DB

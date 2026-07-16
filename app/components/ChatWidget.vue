@@ -6,6 +6,7 @@ interface ChatMessage {
   id: string
   userId: string
   name: string
+  prestigeLevel: number
   content: string
   createdAt: string
 }
@@ -688,10 +689,11 @@ function deleteMessage(id: string) {
             <div class="flex items-baseline gap-2">
               <span
                 class="truncate font-medium"
-                :class="nameColor(m.userId)"
+                :class="[nameColor(m.userId), m.prestigeLevel > 0 ? 'font-black' : '']"
               >
                 {{ m.name }}
               </span>
+              <PrestigeBadge v-if="m.prestigeLevel > 0" :level="m.prestigeLevel" compact />
               <span class="shrink-0 text-[10px] text-muted">{{ relative(m.createdAt) }}</span>
               <UButton
                 v-if="m.userId === user?.id"

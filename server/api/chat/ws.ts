@@ -62,6 +62,12 @@ export default defineWebSocketHandler({
     const content = sanitizeChatContent(String(data.content ?? ''))
     if (!content) return
 
+    const currentSender = await db.query.user.findFirst({
+      where: eq(user.id, sender.id),
+      columns: { name: true, prestigeLevel: true }
+    })
+    if (!currentSender) return
+
     const [row] = await db
       .insert(chatMessages)
       .values({ userId: sender.id, content })
@@ -88,7 +94,8 @@ export default defineWebSocketHandler({
       type: 'message',
       id: row.id,
       userId: sender.id,
-      name: sender.name,
+      name: currentSender.name,
+      prestigeLevel: currentSender.prestigeLevel,
       content: row.content,
       createdAt: row.createdAt.toISOString()
     })

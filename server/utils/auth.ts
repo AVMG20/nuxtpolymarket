@@ -76,6 +76,12 @@ export const auth = betterAuth({
                 defaultValue: false,
                 input: false,
             },
+            prestigeLevel: {
+                type: 'number',
+                required: false,
+                defaultValue: 0,
+                input: false,
+            },
         }
     }
 })

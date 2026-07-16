@@ -2,6 +2,7 @@
 interface LeaderboardUser {
   id: string
   name: string
+  prestigeLevel: number
   balance: string
   bankBalance: number
   gems: number
@@ -48,6 +49,13 @@ function totalBalance(user: LeaderboardUser) {
 function openDetails(user: LeaderboardUser) {
   selectedUser.value = user
 }
+
+function prestigeRowClass(level: number) {
+  if (level === 1) return 'ring-1 ring-amber-400/50 shadow-[0_0_22px_rgba(251,191,36,0.12)]'
+  if (level === 2) return 'ring-1 ring-violet-400/60 shadow-[0_0_26px_rgba(167,139,250,0.16)]'
+  if (level >= 3) return 'ring-2 ring-cyan-300/70 bg-gradient-to-r from-cyan-400/10 via-violet-400/10 to-fuchsia-400/10 shadow-[0_0_32px_rgba(34,211,238,0.22)]'
+  return ''
+}
 </script>
 
 <template>
@@ -57,7 +65,7 @@ function openDetails(user: LeaderboardUser) {
         <UIcon name="i-lucide-trophy" class="size-6 text-yellow-400" />
         Leaderboard
       </h1>
-      <p class="mt-0.5 text-sm text-muted">Top players ranked by total level progression</p>
+      <p class="mt-0.5 text-sm text-muted">Prestige ranks first, followed by total level progression</p>
     </div>
 
     <div v-if="pending" class="space-y-3">
@@ -69,7 +77,7 @@ function openDetails(user: LeaderboardUser) {
         v-for="(u, i) in users"
         :key="u.id"
         class="group flex w-full cursor-pointer items-center gap-3 rounded-xl border px-3 py-3 text-left transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary sm:gap-4 sm:px-4"
-        :class="i < 3 ? [rankBg[i]!, 'sm:py-4'] : 'border-default bg-elevated/40 hover:bg-elevated'"
+        :class="[i < 3 ? [rankBg[i]!, 'sm:py-4'] : 'border-default bg-elevated/40 hover:bg-elevated', prestigeRowClass(u.prestigeLevel)]"
         role="button"
         tabindex="0"
         @click="openDetails(u)"
@@ -86,13 +94,19 @@ function openDetails(user: LeaderboardUser) {
           <span v-else class="font-mono text-sm text-muted">{{ i + 1 }}</span>
         </div>
 
-        <div class="flex size-9 shrink-0 items-center justify-center rounded-full border border-default bg-background text-sm font-bold sm:size-10 sm:text-base">
+        <div
+          class="flex size-9 shrink-0 items-center justify-center rounded-full border bg-background text-sm font-bold sm:size-10 sm:text-base"
+          :class="u.prestigeLevel > 0 ? 'border-primary ring-2 ring-primary/30' : 'border-default'"
+        >
           {{ u.name[0]?.toUpperCase() }}
         </div>
 
         <div class="min-w-0 flex-1 sm:max-w-44 xl:max-w-56">
-          <p class="truncate font-semibold" :class="i < 3 ? 'sm:text-base' : 'text-sm'">{{ u.name }}</p>
-          <p class="text-[10px] text-muted sm:text-xs">#{{ i + 1 }} · Lv {{ u.totalLevels }}</p>
+          <div class="flex items-center gap-1.5">
+            <p class="truncate font-semibold" :class="i < 3 ? 'sm:text-base' : 'text-sm'">{{ u.name }}</p>
+            <PrestigeBadge v-if="u.prestigeLevel > 0" :level="u.prestigeLevel" compact />
+          </div>
+          <p class="text-[10px] text-muted sm:text-xs">#{{ i + 1 }} · P{{ u.prestigeLevel }} · Lv {{ u.totalLevels }}</p>
         </div>
 
         <div class="hidden flex-1 items-center justify-center gap-5 lg:flex xl:gap-7">
@@ -181,6 +195,17 @@ function openDetails(user: LeaderboardUser) {
               <GemBalance :value="selectedUser.gems" :compact="false" class="mt-1 text-lg font-bold" />
               <p class="mt-0.5 text-[10px] text-muted">≈ <CoinBalance :value="selectedUser.gemValue" :show-icon="false" /></p>
             </div>
+          </div>
+
+          <div
+            v-if="selectedUser.prestigeLevel > 0"
+            class="flex items-center justify-between rounded-lg border border-primary/40 bg-primary/10 p-3"
+          >
+            <div>
+              <p class="text-xs text-muted">Permanent status</p>
+              <PrestigeBadge :level="selectedUser.prestigeLevel" class="mt-1" />
+            </div>
+            <p class="text-sm font-black text-primary">+{{ selectedUser.prestigeLevel * 5 }}% credits</p>
           </div>
 
           <div class="grid grid-cols-2 gap-3 text-sm">

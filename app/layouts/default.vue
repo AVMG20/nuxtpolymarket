@@ -6,6 +6,7 @@ await fetchSession()
 const appConfig = useAppConfig()
 const open = ref(true)
 const menuOpen = ref(false)
+const prestigeLevel = computed(() => user.value?.prestigeLevel ?? 0)
 
 // Close the mobile sidebar sheet on navigation, but leave the desktop
 // expanded/collapsed state untouched
@@ -231,22 +232,30 @@ function setNeutral(color: string) {
             :trailing-icon="state === 'collapsed' ? undefined : 'i-lucide-chevrons-up-down'"
             class="w-full"
             color="neutral"
-            icon="i-lucide-user"
             variant="ghost"
-          />
+          >
+            <template #leading>
+              <span v-if="prestigeLevel > 0" class="flex shrink-0 items-center gap-1 font-bold text-amber-300">
+                <UIcon name="i-lucide-crown" class="size-5" />
+                <span v-if="state !== 'collapsed'" class="text-sm">{{ prestigeLevel }}</span>
+              </span>
+              <UIcon v-else name="i-lucide-user" class="size-5 shrink-0" />
+            </template>
+          </UButton>
 
           <template #content>
             <div class="w-56 py-1.5">
               <div class="flex items-center gap-3 px-3 py-2">
-                <div class="size-8 rounded-full bg-primary/20 flex items-center justify-center shrink-0">
+                <div
+                  class="size-8 rounded-full bg-primary/20 flex items-center justify-center shrink-0"
+                  :class="prestigeLevel > 0 ? 'ring-2 ring-primary/70' : ''"
+                >
                   <span class="text-sm font-semibold text-primary">
                     {{ (user?.name ?? 'A').charAt(0).toUpperCase() }}
                   </span>
                 </div>
                 <div class="min-w-0">
-                  <p class="text-sm font-semibold truncate">
-                    {{ user?.name ?? 'Account' }}
-                  </p>
+                  <p class="text-sm font-semibold truncate">{{ user?.name ?? 'Account' }}</p>
                   <p class="text-xs text-muted truncate">
                     {{ user?.email }}
                   </p>

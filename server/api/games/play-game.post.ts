@@ -43,7 +43,7 @@ export default defineEventHandler(async (event) => {
   const net = gameData.payout - cost
 
   if (net > 0) {
-    await credit(session.user.id, net.toFixed(4), game)
+    await credit(session.user.id, net.toFixed(4), game, false)
   } else if (net < 0) {
     await debit(session.user.id, Math.abs(net).toFixed(4), game)
   }

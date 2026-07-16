@@ -23,7 +23,7 @@ export default defineEventHandler(async (event) => {
   if (rake <= 0) throw createError({ statusCode: 400, statusMessage: 'No rakeback to claim' })
 
   await db.update(user).set({ rake: '0' }).where(eq(user.id, userId))
-  await credit(userId, rake.toFixed(4), 'rakeback')
+  const credited = await credit(userId, rake.toFixed(4), 'rakeback')
 
-  return { credited: rake }
+  return { credited: parseFloat(credited) }
 })
