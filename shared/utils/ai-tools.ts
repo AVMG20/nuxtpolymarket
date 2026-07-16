@@ -27,9 +27,7 @@ export const AI_TOOL_CATALOG = [
     { name: 'play_fireinthehole_rounds', description: 'Play 1 to 10,000 Fire in the Hole rounds. This spends coins.', wikiDescription: 'Play a bounded Fire in the Hole session.', requiresConfirmation: true },
     { name: 'play_bookofshadows_rounds', description: 'Play 1 to 10,000 Book of Shadows rounds. This spends coins.', wikiDescription: 'Play a bounded Book of Shadows session.', requiresConfirmation: true },
     { name: 'play_spinata_rounds', description: 'Play 1 to 10,000 Spiñata rounds. This spends coins.', wikiDescription: 'Play a bounded Spiñata session.', requiresConfirmation: true },
-    { name: 'get_blackjack_state', description: 'Read the current blackjack hand and available public state without changing it.', wikiDescription: 'View the active blackjack hand.', requiresConfirmation: false },
-    { name: 'start_blackjack', description: 'Start a new blackjack hand with the requested coin bet. This spends coins.', wikiDescription: 'Start a blackjack hand.', requiresConfirmation: true },
-    { name: 'blackjack_action', description: 'Take one action in the active blackjack hand. Double, split, and insurance can spend additional coins.', wikiDescription: 'Take an action in the active blackjack hand.', requiresConfirmation: true },
+    { name: 'play_blackjack', description: 'Play and fully resolve one blackjack hand using basic strategy. This spends the requested coin bet and may double or split when the live balance can cover the additional stake.', wikiDescription: 'Play one complete blackjack hand with basic strategy.', requiresConfirmation: true },
     { name: 'call_game_api', description: 'Call any authenticated Polynux game API for the current player. Use this for game actions not covered by a purpose-built tool. The exact path and payload are shown to the player for approval. Account, auth, chat, analytics, leaderboard, and AI APIs are not allowed.', wikiDescription: 'Use another allowed game action not listed above.', requiresConfirmation: true }
 ] as const
 

@@ -300,35 +300,12 @@ export const AI_TOOLS: OpenRouterTool[] = [
     {
         type: 'function',
         function: {
-            name: 'get_blackjack_state',
-            description: 'Read the current blackjack hand and available public state without changing it.',
-            parameters: { type: 'object', properties: {}, additionalProperties: false }
-        }
-    },
-    {
-        type: 'function',
-        function: {
-            name: 'start_blackjack',
-            description: 'Start a new blackjack hand with the requested coin bet. This spends coins.',
+            name: 'play_blackjack',
+            description: 'Play and fully resolve one blackjack hand using basic strategy. This spends the requested coin bet and may double or split when the live balance can cover the additional stake. Use this single tool instead of starting a hand or taking individual blackjack actions.',
             parameters: {
                 type: 'object',
                 properties: { bet: { type: 'number', minimum: 1, maximum: 1000000 } },
                 required: ['bet'],
-                additionalProperties: false
-            }
-        }
-    },
-    {
-        type: 'function',
-        function: {
-            name: 'blackjack_action',
-            description: 'Take one action in the active blackjack hand. Double, split, and insurance can spend additional coins.',
-            parameters: {
-                type: 'object',
-                properties: {
-                    action: { type: 'string', enum: ['hit', 'stand', 'double', 'split', 'surrender', 'insurance', 'no-insurance'] }
-                },
-                required: ['action'],
                 additionalProperties: false
             }
         }
@@ -1191,6 +1168,11 @@ export async function executeAiTool(event: H3Event, toolCall: AiToolCall): Promi
         case 'play_bookofshadows_rounds':
         case 'play_spinata_rounds':
             return playNamedCasinoRounds(event, toolCall.function.name, args)
+        case 'play_blackjack': {
+            const bet = Number(args.bet)
+            if (!Number.isFinite(bet) || bet < 1 || bet > 1_000_000) throw createError({ statusCode: 400, statusMessage: 'Invalid blackjack bet' })
+            return event.$fetch('/api/games/blackjack/play', { method: 'POST', headers, body: { bet } })
+        }
         case 'get_blackjack_state':
             return event.$fetch('/api/games/blackjack/resume', { headers })
         case 'start_blackjack': {
