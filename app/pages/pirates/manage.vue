@@ -100,6 +100,15 @@ function ammoCostFor(amount: number) {
     return amount * (state.value?.ammo.pricePerUnit ?? 0)
 }
 
+const gemAmmoFill = computed(() => {
+    const g = state.value?.gemAmmo
+    if (!g) return null
+    const room = g.capacity - g.count
+    if (room <= 0) return null
+    const bundles = Math.ceil(room / g.bundleSize)
+    return { bundles, cost: bundles * g.bundlePriceGems }
+})
+
 function statDelta(tier: typeof PIRATE_CANNON_TIERS[number], key: 'attackRating' | 'maxDamage' | 'range') {
     if (!pickerCurrentTier.value) return null
     return tier[key] - pickerCurrentTier.value[key]
@@ -564,6 +573,18 @@ async function selectAbility(ability: NonNullable<typeof state.value>['abilities
               >
                 +{{ bundles * state.gemAmmo.bundleSize }} shots
                 <span class="opacity-80 ml-1 flex items-center gap-0.5">(<UIcon name="i-lucide-gem" class="size-3" />{{ bundles * state.gemAmmo.bundlePriceGems }})</span>
+              </UButton>
+              <UButton
+                v-if="gemAmmoFill"
+                size="sm"
+                color="info"
+                variant="solid"
+                :disabled="gems < gemAmmoFill.cost"
+                :loading="buyingGemAmmo === gemAmmoFill.bundles"
+                @click="buyGemAmmo(gemAmmoFill.bundles)"
+              >
+                Fill shots
+                <span class="opacity-80 ml-1 flex items-center gap-0.5">(<UIcon name="i-lucide-gem" class="size-3" />{{ gemAmmoFill.cost }})</span>
               </UButton>
             </div>
             <p class="text-[11px] text-muted">
