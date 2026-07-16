@@ -123,7 +123,7 @@ function openDetails(user: LeaderboardUser) {
                   <UTooltip text="Colony research"><span class="inline-flex items-center gap-1 text-warning"><UIcon name="i-lucide-bug" class="size-3.5" />{{ u.colonyResearchLevels }}</span></UTooltip>
                   <UTooltip text="Xeno species"><span class="inline-flex items-center gap-1 text-success"><UIcon name="i-lucide-sprout" class="size-3.5" />{{ u.xenoSpeciesUnlocked }}</span></UTooltip>
                   <UTooltip text="Xeno grid tiles"><span class="inline-flex items-center gap-1 text-success"><UIcon name="i-lucide-grid-2x2" class="size-3.5" />{{ u.xenoGridSlotsUnlocked }}</span></UTooltip>
-                  <UTooltip text="Xeno breeder slots"><span class="inline-flex items-center gap-1 text-success"><UIcon name="i-lucide-git-branch" class="size-3.5" />{{ u.xenoBreederSlotsUnlocked }}</span></UTooltip>
+                  <UTooltip text="Xeno breeder slots"><span class="inline-flex items-center gap-1 text-success"><UIcon name="i-lucide-dna" class="size-3.5" />{{ u.xenoBreederSlotsUnlocked }}</span></UTooltip>
                   <UTooltip text="AI prompts used"><span class="inline-flex items-center gap-1 text-info"><UIcon name="i-lucide-bot" class="size-3.5" />{{ formatNumber(u.aiPromptsUsed, false) }}</span></UTooltip>
                 </div>
               </td>
@@ -219,7 +219,7 @@ function openDetails(user: LeaderboardUser) {
                 <span class="font-semibold tabular-nums text-success">{{ selectedUser.xenoGridSlotsUnlocked }}</span>
               </div>
               <div class="flex items-center gap-3 bg-elevated/40 px-3 py-2.5">
-                <UIcon name="i-lucide-git-branch" class="size-4 text-success" />
+                <UIcon name="i-lucide-dna" class="size-4 text-success" />
                 <span class="flex-1 text-sm">Xeno breeder slots unlocked</span>
                 <span class="font-semibold tabular-nums text-success">{{ selectedUser.xenoBreederSlotsUnlocked }}</span>
               </div>
