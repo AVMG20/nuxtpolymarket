@@ -7,6 +7,7 @@ export const user = pgTable('user', {
   email: text('email').notNull().unique(),
   emailVerified: boolean('email_verified').default(false).notNull(),
   image: text('image'),
+  emblem: text('emblem'),
   balance: numeric('balance', { precision: 19, scale: 4 }).notNull().default('0'),
   rake: numeric('rake', { precision: 19, scale: 4 }).notNull().default('0'),
   rakebackUnlocked: boolean('rakeback_unlocked').notNull().default(false),

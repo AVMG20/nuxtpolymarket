@@ -2,6 +2,7 @@
 interface LeaderboardUser {
   id: string
   name: string
+  emblem: string | null
   balance: string
   bankBalance: number
   gems: number
@@ -96,7 +97,7 @@ function openDetails(user: LeaderboardUser) {
               </td>
               <td class="px-3 py-3">
                 <div class="flex items-center gap-2.5">
-                  <div class="flex size-9 shrink-0 items-center justify-center rounded-full border border-default bg-background font-bold">{{ u.name[0]?.toUpperCase() }}</div>
+                  <ProfileEmblem :emblem="u.emblem" :name="u.name" class="size-9 text-sm" />
                   <p class="max-w-40 truncate font-semibold">{{ u.name }}</p>
                 </div>
               </td>
@@ -142,6 +143,14 @@ function openDetails(user: LeaderboardUser) {
     <UModal v-model:open="detailsOpen" :title="selectedUser?.name ?? 'Player details'" description="Player progression and balances">
       <template v-if="selectedUser" #body>
         <div class="space-y-5">
+          <div class="flex items-center gap-3">
+            <ProfileEmblem :emblem="selectedUser.emblem" :name="selectedUser.name" class="size-12 text-lg" />
+            <div class="min-w-0">
+              <p class="truncate font-semibold">{{ selectedUser.name }}</p>
+              <p class="text-xs text-muted">Player emblem</p>
+            </div>
+          </div>
+
           <div class="grid grid-cols-3 gap-2">
             <div class="rounded-lg border border-default bg-elevated/40 p-3">
               <BankBalance :value="selectedUser.bankBalance" class="text-base font-bold" />

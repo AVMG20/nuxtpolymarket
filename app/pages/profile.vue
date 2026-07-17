@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { RAKEBACK_RATE, RAKEBACK_UNLOCK_COST } from '#shared/utils/profile'
+import type { EmblemData } from '#shared/utils/emblem'
 
 const { user, client, fetchSession, signOut: authSignOut } = useAuth()
 
@@ -8,6 +9,21 @@ const gems = computed(() => user.value?.gems ?? 0)
 const rakebackUnlocked = computed(() => !!user.value?.rakebackUnlocked)
 
 const rakeInfoOpen = ref(false)
+
+const emblemLoading = ref(false)
+async function saveEmblem(emblem: EmblemData) {
+  emblemLoading.value = true
+  try {
+    await $fetch('/api/user/emblem', { method: 'PUT', body: { emblem } })
+    await fetchSession()
+    toast.add({ title: 'Emblem saved', description: 'Your new icon is now visible across Polynux.', color: 'success', icon: 'i-lucide-check' })
+  } catch (error: unknown) {
+    const message = (error as { data?: { statusMessage?: string } })?.data?.statusMessage
+    toast.add({ title: message ?? 'Failed to save emblem', color: 'error' })
+  } finally {
+    emblemLoading.value = false
+  }
+}
 
 const unlockModalOpen = ref(false)
 const unlockLoading = ref(false)
@@ -161,9 +177,7 @@ async function handleSignOut() {
       <!-- Avatar card -->
       <UCard>
         <div class="flex items-center gap-5">
-          <div class="size-16 rounded-full bg-primary/20 flex items-center justify-center shrink-0">
-            <span class="text-2xl font-bold text-primary">{{ (user?.name ?? 'A')[0].toUpperCase() }}</span>
-          </div>
+          <ProfileEmblem :emblem="user?.emblem" :name="user?.name" class="size-16 text-2xl" />
           <div class="min-w-0">
             <p class="font-semibold text-xl truncate">{{ user?.name }}</p>
             <p class="text-sm text-muted truncate mt-0.5">{{ user?.email }}</p>
@@ -222,6 +236,16 @@ async function handleSignOut() {
         </div>
       </UCard>
     </div>
+
+    <UCard>
+      <template #header>
+        <div>
+          <h2 class="font-semibold">Profile Emblem</h2>
+          <p class="mt-0.5 text-xs text-muted">Create the icon players see in chat, leaderboards, and around the app.</p>
+        </div>
+      </template>
+      <ProfileEmblemEditor :loading="emblemLoading" :model-value="user?.emblem" @save="saveEmblem" />
+    </UCard>
 
     <!-- Unlock rakeback modal -->
     <UModal v-model:open="unlockModalOpen" title="Unlock Rakeback">

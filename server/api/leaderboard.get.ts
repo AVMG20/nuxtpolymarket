@@ -13,6 +13,7 @@ export default defineEventHandler(async () => {
       .select({
         id: user.id,
         name: user.name,
+        emblem: user.emblem,
         balance: user.balance,
         gems: user.gems,
         rigLevel: minerState.rigLevel,
@@ -87,6 +88,7 @@ export default defineEventHandler(async () => {
       return {
         id: u.id,
         name: u.name,
+        emblem: u.emblem,
         balance: u.balance,
         bankBalance,
         gems,
