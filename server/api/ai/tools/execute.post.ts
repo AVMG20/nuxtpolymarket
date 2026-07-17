@@ -2,7 +2,8 @@ import { and, eq, isNull } from 'drizzle-orm'
 import { createEventStream } from 'h3'
 import { db } from '#server/database'
 import { aiConversations } from '#server/database/schema'
-import { getErrorMessage, resolveAiToolCall } from '#server/utils/ai'
+import { getErrorMessage } from '#server/utils/ai/helpers'
+import { resolveAiToolCall } from '#server/utils/ai/transport'
 import { requireAiUser } from '#server/utils/ai-auth'
 
 export default defineEventHandler(async (event) => {
