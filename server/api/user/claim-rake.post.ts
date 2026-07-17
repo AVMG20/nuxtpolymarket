@@ -10,20 +10,24 @@ export default defineEventHandler(async (event) => {
 
   const userId = session.user.id
 
-  const current = await db.query.user.findFirst({
-    where: eq(user.id, userId),
-    columns: { rake: true, rakebackUnlocked: true },
+  return db.transaction(async (tx) => {
+    // The row lock serializes claimers: the loser reads rake only after the winner
+    // has zeroed it, so it sees 0 and gets the 400.
+    const [current] = await tx.select({ rake: user.rake, rakebackUnlocked: user.rakebackUnlocked })
+      .from(user)
+      .where(eq(user.id, userId))
+      .for('update')
+
+    if (!current?.rakebackUnlocked) {
+      throw createError({ statusCode: 403, statusMessage: 'Unlock rakeback claiming first' })
+    }
+
+    const rake = parseFloat(current.rake ?? '0')
+    if (rake <= 0) throw createError({ statusCode: 400, statusMessage: 'No rakeback to claim' })
+
+    await tx.update(user).set({ rake: '0' }).where(eq(user.id, userId))
+    await credit(userId, rake.toFixed(4), 'rakeback', tx)
+
+    return { credited: rake }
   })
-
-  if (!current?.rakebackUnlocked) {
-    throw createError({ statusCode: 403, statusMessage: 'Unlock rakeback claiming first' })
-  }
-
-  const rake = parseFloat(current?.rake ?? '0')
-  if (rake <= 0) throw createError({ statusCode: 400, statusMessage: 'No rakeback to claim' })
-
-  await db.update(user).set({ rake: '0' }).where(eq(user.id, userId))
-  await credit(userId, rake.toFixed(4), 'rakeback')
-
-  return { credited: rake }
 })
