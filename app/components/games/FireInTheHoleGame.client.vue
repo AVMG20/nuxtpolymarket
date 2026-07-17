@@ -485,7 +485,8 @@ async function initPixi() {
   reelSet.events.on('cascade:place:end', ({ reelIndex, placedSymbols }) => {
     for (const drop of pendingBonusDrops) {
       if (drop.col !== reelIndex) continue
-      placedSymbols[drop.row]?.setBonusDrop?.(drop)
+      const symbol = placedSymbols[drop.row]
+      if (symbol instanceof MineSymbol) symbol.setBonusDrop(drop)
     }
   })
 

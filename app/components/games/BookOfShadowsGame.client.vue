@@ -156,7 +156,7 @@ interface SymbolVisual {
   label?: string
 }
 
-interface SymbolIconStyle {
+type SymbolIconStyle = {
   width: string
   height: string
   backgroundImage: string
