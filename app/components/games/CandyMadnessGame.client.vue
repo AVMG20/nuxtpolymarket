@@ -532,7 +532,7 @@ function addCascadeWin(step: TumbleStep) {
     setTimeout(() => {
       if (token !== winDisplayToken) return
       target.value += amount
-      if (target === lastWin.value) winFlash.value = true
+      if (Object.is(target, lastWin)) winFlash.value = true
     }, index * tickDelay)
   })
 }
