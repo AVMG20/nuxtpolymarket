@@ -1,8 +1,8 @@
 import { eq, and, inArray, sql } from 'drizzle-orm'
 import { db } from '#server/database'
-import { hackAgents, hackArtifacts, hackItems, hackOps, hackHistory, hackState, user } from '#server/database/schema'
+import { hackAgents, hackArtifacts, hackItems, hackOps, hackHistory, hackState } from '#server/database/schema'
 import { auth } from '#server/utils/auth'
-import { credit } from '#server/utils/balance'
+import { credit, creditGems } from '#server/utils/balance'
 import {
   OP_TEMPLATES, rollOpReward, agentXpGain, agentPower, xpToNextLevel, AGENT_MAX_LEVEL, MAX_INVENTORY_SLOTS,
   type AgentClass, type ItemMod, type AgentTrait, type OpReward,
@@ -22,6 +22,14 @@ export default defineEventHandler(async (event) => {
 
   const template = OP_TEMPLATES.find(t => t.id === op.templateId)
   if (!template) throw createError({ statusCode: 400, statusMessage: 'Unknown op template' })
+
+  // Flipping `collected` is the mutex — it must win before any reward is rolled or
+  // paid, otherwise concurrent calls each award the op in full.
+  const [claimed] = await db.update(hackOps)
+    .set({ collected: true })
+    .where(and(eq(hackOps.id, opId), eq(hackOps.userId, userId), eq(hackOps.collected, false)))
+    .returning({ id: hackOps.id })
+  if (!claimed) throw createError({ statusCode: 400, statusMessage: 'Already collected' })
 
   const agentIds = op.agentIds as string[]
   const [agents, currentItems] = await Promise.all([
@@ -82,7 +90,7 @@ export default defineEventHandler(async (event) => {
   if (reward.success) {
     await credit(userId, reward.cash.toFixed(4), 'HackOps')
     if (reward.gems > 0) {
-      await db.update(user).set({ gems: sql`${user.gems} + ${reward.gems}` }).where(eq(user.id, userId))
+      await creditGems(userId, reward.gems)
     }
   }
 
@@ -113,7 +121,7 @@ export default defineEventHandler(async (event) => {
     }
   }
 
-  await db.update(hackOps).set({ collected: true, reward }).where(eq(hackOps.id, opId))
+  await db.update(hackOps).set({ reward }).where(eq(hackOps.id, opId))
 
   // Log the outcome and bump the lifetime ops-done counter (used by the leaderboard).
   const durationMs = op.completesAt.getTime() - op.startedAt.getTime()
