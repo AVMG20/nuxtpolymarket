@@ -64,14 +64,14 @@ const wheelSegments = computed(() => {
 
   while (nlIdx < nonLossFlat.length || lossPlaced < lossCount) {
     if (lossPlaced < lossCount && result.length >= Math.round(nextLoss + lossPlaced)) {
-      result.push({ multiplier: 0, color: segmentColor(0) })
+      result.push({ multiplier: 0, color: segmentColor('0') })
       lossPlaced++
       nextLoss += spacing
     } else if (nlIdx < nonLossFlat.length) {
       result.push(nonLossFlat[nlIdx]!)
       nlIdx++
     } else {
-      result.push({ multiplier: 0, color: segmentColor(0) })
+      result.push({ multiplier: 0, color: segmentColor('0') })
       lossPlaced++
     }
   }
@@ -420,7 +420,7 @@ watch(difficulty, () => { rotationOffset.value = 0; lastResult.value = null; nex
       </div>
     </div>
 
-    <UModal v-model:open="showHelp" title="How Wheel works" :ui="{ width: 'max-w-sm' }">
+    <UModal v-model:open="showHelp" title="How Wheel works">
       <template #body>
         <ul class="text-sm text-muted space-y-2 list-disc list-inside">
           <li>Spin the wheel and win the multiplier of the segment it lands on.</li>

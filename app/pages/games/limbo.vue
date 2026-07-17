@@ -248,7 +248,7 @@ onUnmounted(() => {
       </div>
     </div>
 
-    <UModal v-model:open="showHelp" title="How Limbo works" :ui="{ width: 'max-w-sm' }">
+    <UModal v-model:open="showHelp" title="How Limbo works">
       <template #body>
         <ul class="text-sm text-muted space-y-2 list-disc list-inside">
           <li>Set a target multiplier (e.g. 2×).</li>

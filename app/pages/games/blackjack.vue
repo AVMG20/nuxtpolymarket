@@ -596,7 +596,7 @@ function newGame() {
       </div>
     </div>
 
-    <UModal v-model:open="showHelp" title="How Blackjack works" :ui="{ width: 'max-w-sm' }">
+    <UModal v-model:open="showHelp" title="How Blackjack works">
       <template #body>
         <ul class="text-sm text-muted space-y-2 list-disc list-inside">
           <li>Beat the dealer's hand without going over 21.</li>

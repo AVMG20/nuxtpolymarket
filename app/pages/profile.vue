@@ -162,7 +162,7 @@ async function handleSignOut() {
       <UCard>
         <div class="flex items-center gap-5">
           <div class="size-16 rounded-full bg-primary/20 flex items-center justify-center shrink-0">
-            <span class="text-2xl font-bold text-primary">{{ (user?.name ?? 'A')[0].toUpperCase() }}</span>
+            <span class="text-2xl font-bold text-primary">{{ (user?.name?.[0] ?? 'A').toUpperCase() }}</span>
           </div>
           <div class="min-w-0">
             <p class="font-semibold text-xl truncate">{{ user?.name }}</p>

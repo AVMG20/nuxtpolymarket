@@ -168,7 +168,7 @@ async function doReroll() {
       method: 'POST',
       body: { itemId: benchItem.value.id, lockedTypes: rerollLocked.value }
     })
-    relayBark(rollQuality(res.item.mods as ItemMod[]) >= beforeQuality ? CRAFT_REROLL_GOOD : CRAFT_REROLL_BAD)
+    relayBark(rollQuality(res.item!.mods as ItemMod[]) >= beforeQuality ? CRAFT_REROLL_GOOD : CRAFT_REROLL_BAD)
     toast.add({ title: `Re-rolled for ${res.cost} gems`, color: 'success' })
     await Promise.all([refresh(), fetchSession()])
   } catch (e: any) {

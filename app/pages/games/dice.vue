@@ -274,7 +274,7 @@ onUnmounted(() => {
       </div>
     </div>
 
-    <UModal v-model:open="showHelp" title="How Dice works" :ui="{ width: 'max-w-sm' }">
+    <UModal v-model:open="showHelp" title="How Dice works">
       <template #body>
         <ul class="text-sm text-muted space-y-2 list-disc list-inside">
           <li>A random number between 0 and 100 is rolled.</li>
