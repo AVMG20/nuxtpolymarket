@@ -1,4 +1,4 @@
-import { eq, and } from 'drizzle-orm'
+import { eq, and, or, isNull } from 'drizzle-orm'
 import { db } from '#server/database'
 import { xenoBreederSlots, xenoArtifacts } from '#server/database/schema'
 import { auth } from '#server/utils/auth'
@@ -32,9 +32,6 @@ export default defineEventHandler(async (event) => {
   getPlantOrThrow(body.plant1TypeId)
   getPlantOrThrow(body.plant2TypeId)
 
-  await consumePlantsByStack(userId, body.plant1TypeId, body.plant1Speed, body.plant1Yield, 1)
-  await consumePlantsByStack(userId, body.plant2TypeId, body.plant2Speed, body.plant2Yield, 1)
-
   let mutationBoost = 0
   let extraYield = 0
   if (slot.artifactId) {
@@ -54,19 +51,32 @@ export default defineEventHandler(async (event) => {
     { mutationBoost, extraYield },
   )
 
-  await db.update(xenoBreederSlots)
-    .set({
-      plant1TypeId: body.plant1TypeId, plant1Speed: body.plant1Speed, plant1Yield: body.plant1Yield,
-      plant2TypeId: body.plant2TypeId, plant2Speed: body.plant2Speed, plant2Yield: body.plant2Yield,
-      startedAt: new Date(),
-      resultTypeId: result.resultTypeId,
-      resultSpeed: result.resultSpeed,
-      resultYield: result.resultYield,
-      resultQuantity: result.resultQuantity,
-      wasMutation: result.wasMutation,
-      collected: false,
-    })
-    .where(eq(xenoBreederSlots.id, slot.id))
+  await db.transaction(async (tx) => {
+    // Claiming the idle slot is the mutex — the plants are only consumed by the
+    // request that won it, and an insufficient stack rolls the claim back.
+    const [claimed] = await tx.update(xenoBreederSlots)
+      .set({
+        plant1TypeId: body.plant1TypeId, plant1Speed: body.plant1Speed, plant1Yield: body.plant1Yield,
+        plant2TypeId: body.plant2TypeId, plant2Speed: body.plant2Speed, plant2Yield: body.plant2Yield,
+        startedAt: new Date(),
+        resultTypeId: result.resultTypeId,
+        resultSpeed: result.resultSpeed,
+        resultYield: result.resultYield,
+        resultQuantity: result.resultQuantity,
+        wasMutation: result.wasMutation,
+        collected: false,
+      })
+      .where(and(
+        eq(xenoBreederSlots.id, slot.id),
+        eq(xenoBreederSlots.userId, userId),
+        or(isNull(xenoBreederSlots.startedAt), eq(xenoBreederSlots.collected, true)),
+      ))
+      .returning({ id: xenoBreederSlots.id })
+    if (!claimed) throw createError({ statusCode: 400, statusMessage: 'Breeding already in progress' })
+
+    await consumePlantsByStack(userId, body.plant1TypeId, body.plant1Speed, body.plant1Yield, 1, tx)
+    await consumePlantsByStack(userId, body.plant2TypeId, body.plant2Speed, body.plant2Yield, 1, tx)
+  })
 
   return { ok: true, wasMutation: result.wasMutation }
 })

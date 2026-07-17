@@ -1,7 +1,7 @@
 import { db } from '#server/database'
 import { auth } from '#server/utils/auth'
-import { consumePlantsByStack } from '#server/utils/xeno'
 import { credit } from '#server/utils/balance'
+import { consumePlantsByStack } from '#server/utils/xeno'
 import { getPlantDisplay } from '#shared/utils/xeno'
 
 export default defineEventHandler(async (event) => {
@@ -17,9 +17,12 @@ export default defineEventHandler(async (event) => {
 
   const plant = getPlantDisplay(body.typeId)
   if (!plant) throw createError({ statusCode: 400, statusMessage: `Unknown plant type: ${body.typeId}` })
-  await consumePlantsByStack(userId, body.typeId, body.speed, body.yield, qty)
 
-  const total = plant.value * qty
-  await credit(userId, total.toFixed(4), 'xeno')
-  return { sold: qty, total }
+  return db.transaction(async (tx) => {
+    await consumePlantsByStack(userId, body.typeId, body.speed, body.yield, qty, tx)
+
+    const total = plant.value * qty
+    await credit(userId, total.toFixed(4), 'xeno', tx)
+    return { sold: qty, total }
+  })
 })

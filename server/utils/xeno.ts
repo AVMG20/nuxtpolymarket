@@ -1,4 +1,4 @@
-import { eq, and } from 'drizzle-orm'
+import { eq, and, inArray } from 'drizzle-orm'
 import { db } from '#server/database'
 import { xenoPlants, xenoPlantsUnlocked, xenoArtifacts, xenoGridSlots, xenoBreederSlots } from '#server/database/schema'
 import { randomChance } from '#shared/utils/random'
@@ -6,6 +6,10 @@ import {
   getArtifact, getEffectValueFor, getPlant, getPlantDisplay,
   effectiveGrowTime, breedDuration, getMutationPair,
 } from '#shared/utils/xeno'
+
+// The pool, or an open transaction. Callers consuming plants as part of a larger
+// atomic step must pass their `tx` so a later failure rolls the consumption back.
+type XenoExecutor = Pick<typeof db, 'query' | 'delete'>
 
 /** When DEV_MODE=true, all grow/breed durations are capped to 1 second for testing */
 export function xenoDuration(rawSecs: number): number {
@@ -160,8 +164,9 @@ export async function consumePlantsByStack(
   speed: number,
   yield_: number,
   quantity: number,
+  tx: XenoExecutor = db,
 ) {
-  const allOfStack = await db.query.xenoPlants.findMany({
+  const allOfStack = await tx.query.xenoPlants.findMany({
     where: and(
       eq(xenoPlants.userId, userId),
       eq(xenoPlants.typeId, typeId),
@@ -170,7 +175,7 @@ export async function consumePlantsByStack(
     ),
   })
   const gridPlantIds = new Set(
-    (await db.query.xenoGridSlots.findMany({ where: eq(xenoGridSlots.userId, userId) }))
+    (await tx.query.xenoGridSlots.findMany({ where: eq(xenoGridSlots.userId, userId) }))
       .map(s => s.plantId)
       .filter(Boolean),
   )
@@ -178,9 +183,17 @@ export async function consumePlantsByStack(
   if (free.length < quantity) {
     throw createError({ statusCode: 400, statusMessage: `Not enough plants to consume (need ${quantity}, have ${free.length})` })
   }
-  const toDelete = free.slice(0, quantity).map(p => p.id)
-  for (const id of toDelete) {
-    await db.delete(xenoPlants).where(eq(xenoPlants.id, id))
+
+  // The delete is the mutex: a concurrent claim on the same rows deletes fewer
+  // than asked, so the loser throws instead of consuming a plant twice.
+  const deleted = await tx.delete(xenoPlants)
+    .where(and(
+      eq(xenoPlants.userId, userId),
+      inArray(xenoPlants.id, free.slice(0, quantity).map(p => p.id)),
+    ))
+    .returning({ id: xenoPlants.id })
+  if (deleted.length < quantity) {
+    throw createError({ statusCode: 400, statusMessage: `Not enough plants to consume (need ${quantity}, have ${deleted.length})` })
   }
 }
 
