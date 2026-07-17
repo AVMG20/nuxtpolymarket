@@ -23,7 +23,9 @@ export default defineNuxtConfig({
     // pages remain SSR-enabled.
     routeRules: {
         '/games/**': { ssr: false },
-        '/pirates/**': { ssr: false }
+        '/pirates/**': { ssr: false },
+        '/shapezz': { ssr: false },
+        '/shapezz/**': { ssr: false }
     },
 
 
