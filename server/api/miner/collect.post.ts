@@ -11,16 +11,20 @@ export default defineEventHandler(async (event) => {
 
   const userId = session.user.id
 
-  const s = await db.query.minerState.findFirst({ where: eq(minerState.userId, userId) })
-  if (!s) throw createError({ statusCode: 404, statusMessage: 'Miner not initialized' })
+  return db.transaction(async (tx) => {
+    // The row lock serializes collectors: the loser reads lastCollectedAt only after
+    // the winner has moved it forward, so its pending recomputes to ~0.
+    const [s] = await tx.select().from(minerState).where(eq(minerState.userId, userId)).for('update')
+    if (!s) throw createError({ statusCode: 404, statusMessage: 'Miner not initialized' })
 
-  const pending = computePending(effectiveRigIncome(s.rigLevel, s.overclockLevel), s.lastCollectedAt, vaultCap(s.vaultLevel))
-  const amount = Math.floor(pending * 100) / 100
+    const pending = computePending(effectiveRigIncome(s.rigLevel, s.overclockLevel), s.lastCollectedAt, vaultCap(s.vaultLevel))
+    const amount = Math.floor(pending * 100) / 100
 
-  if (amount < 0.01) throw createError({ statusCode: 400, statusMessage: 'Nothing to collect yet' })
+    if (amount < 0.01) throw createError({ statusCode: 400, statusMessage: 'Nothing to collect yet' })
 
-  await db.update(minerState).set({ lastCollectedAt: new Date() }).where(eq(minerState.userId, userId))
-  await credit(userId, amount.toFixed(4), 'miner')
+    await tx.update(minerState).set({ lastCollectedAt: new Date() }).where(eq(minerState.userId, userId))
+    await credit(userId, amount.toFixed(4), 'miner', tx)
 
-  return { collected: amount }
+    return { collected: amount }
+  })
 })

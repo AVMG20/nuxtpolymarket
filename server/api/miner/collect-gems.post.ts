@@ -1,7 +1,8 @@
-import { eq, sql } from 'drizzle-orm'
+import { eq } from 'drizzle-orm'
 import { db } from '#server/database'
-import { minerState, user } from '#server/database/schema'
+import { minerState } from '#server/database/schema'
 import { auth } from '#server/utils/auth'
+import { creditGems } from '#server/utils/balance'
 import { effectiveFactoryRate, factoryCap, computePending } from '#shared/utils/miner-config'
 
 export default defineEventHandler(async (event) => {
@@ -10,19 +11,21 @@ export default defineEventHandler(async (event) => {
 
   const userId = session.user.id
 
-  const s = await db.query.minerState.findFirst({ where: eq(minerState.userId, userId) })
-  if (!s) throw createError({ statusCode: 404, statusMessage: 'Miner not initialized' })
+  return db.transaction(async (tx) => {
+    // The row lock serialises collectors: the loser recomputes pending from the
+    // timer the winner already moved forward, so it sees ~0 and takes the 400.
+    const [s] = await tx.select().from(minerState).where(eq(minerState.userId, userId)).for('update')
+    if (!s) throw createError({ statusCode: 404, statusMessage: 'Miner not initialized' })
 
-  const pending = computePending(effectiveFactoryRate(s.factoryLevel, s.catalystLevel), s.factoryLastCollectedAt, factoryCap(s.factoryLevel))
-  const collected = Math.floor(pending) // whole gems only
+    const pending = computePending(effectiveFactoryRate(s.factoryLevel, s.catalystLevel), s.factoryLastCollectedAt, factoryCap(s.factoryLevel))
+    const collected = Math.floor(pending) // whole gems only
 
-  if (collected < 1) throw createError({ statusCode: 400, statusMessage: 'Not enough gems to collect yet' })
+    if (collected < 1) throw createError({ statusCode: 400, statusMessage: 'Not enough gems to collect yet' })
 
-  await db.transaction(async (tx) => {
     // Reset factory timer; fractional remainder is lost (floor)
     await tx.update(minerState).set({ factoryLastCollectedAt: new Date() }).where(eq(minerState.userId, userId))
-    await tx.update(user).set({ gems: sql`${user.gems} + ${collected}` }).where(eq(user.id, userId))
-  })
+    await creditGems(userId, collected, tx)
 
-  return { collected }
+    return { collected }
+  })
 })
