@@ -1,19 +1,15 @@
 <script setup lang="ts">
 import type { LimboResult } from '#shared/utils/gamelogic/limbo'
 
-const { user, setBalance } = useAuth()
-const balance = ref(parseFloat(user.value?.balance ?? '0'))
-watch(() => user.value?.balance, v => { if (v !== undefined) balance.value = parseFloat(v ?? '0') })
+type LimboHistoryEntry = { result: number; won: boolean; payout: number; target: number; bet: number }
 
-const bet = ref(10)
+const {
+  bet, isPlaying: isRolling, isFetching, lastBet, errorMsg, balance, setBalance, history, pushHistory, play
+} = useCasinoGame<LimboResult, LimboHistoryEntry>('limbo')
+
 const target = ref(2)
-const isRolling = ref(false)
-const isFetching = ref(false)
 const lastResult = ref<LimboResult | null>(null)
-const lastBet = ref(0)
 const animResult = ref<number | null>(null)
-const history = ref<{ result: number; won: boolean; payout: number; target: number; bet: number }[]>([])
-const errorMsg = ref('')
 const showHelp = ref(false)
 
 const winChance = computed(() => Math.min(98 / target.value, 98))
@@ -27,47 +23,29 @@ function clampTarget(v: number) {
 let animTimer: ReturnType<typeof setTimeout> | null = null
 
 async function roll() {
-  if (isRolling.value || balance.value < bet.value) return
-  isRolling.value = true
-  isFetching.value = true
-  lastResult.value = null
-  errorMsg.value = ''
-  lastBet.value = bet.value
+  const data = await play({ target: target.value }, () => { lastResult.value = null })
+  if (!data) return
 
-  try {
-    const data = await $fetch('/api/games/play-game', {
-      method: 'POST',
-      body: { bet: bet.value, game: 'limbo', options: { target: target.value } }
-    }) as { gameData: LimboResult; balance: number }
+  const finalResult = data.gameData.result
+  const duration = 600
+  const startTime = Date.now()
+  animResult.value = 0
 
-    isFetching.value = false
-    const finalResult = data.gameData.result
-    const duration = 600
-    const startTime = Date.now()
-    animResult.value = 0
-
-    const animate = () => {
-      const t = Math.min(1, (Date.now() - startTime) / duration)
-      const ease = 1 - Math.pow(1 - t, 3)
-      animResult.value = parseFloat((finalResult * ease).toFixed(2))
-      if (t < 1) {
-        animTimer = setTimeout(animate, 16)
-      } else {
-        animResult.value = null
-        lastResult.value = data.gameData
-        balance.value = data.balance
-        setBalance(data.balance)
-        history.value.unshift({ result: data.gameData.result, won: data.gameData.won, payout: data.gameData.payout, target: target.value, bet: lastBet.value })
-        if (history.value.length > 8) history.value.pop()
-        isRolling.value = false
-      }
+  const animate = () => {
+    const t = Math.min(1, (Date.now() - startTime) / duration)
+    const ease = 1 - Math.pow(1 - t, 3)
+    animResult.value = parseFloat((finalResult * ease).toFixed(2))
+    if (t < 1) {
+      animTimer = setTimeout(animate, 16)
+    } else {
+      animResult.value = null
+      lastResult.value = data.gameData
+      setBalance(data.balance)
+      pushHistory({ result: data.gameData.result, won: data.gameData.won, payout: data.gameData.payout, target: target.value, bet: lastBet.value })
+      isRolling.value = false
     }
-    animate()
-  } catch (e: unknown) {
-    isFetching.value = false
-    isRolling.value = false
-    errorMsg.value = e instanceof Error ? e.message : 'Something went wrong'
   }
+  animate()
 }
 
 function onKeydown(e: KeyboardEvent) {
@@ -104,16 +82,7 @@ onUnmounted(() => {
 
         <div class="space-y-4">
           <!-- Bet Amount -->
-          <div>
-            <label class="text-xs text-muted uppercase tracking-wide font-medium block mb-1.5">Bet Amount</label>
-            <div class="flex items-center gap-2">
-              <UInput v-model.number="bet" type="number" min="1" :disabled="isRolling" class="flex-1 font-mono" size="lg" />
-              <div class="flex gap-1">
-                <UButton color="neutral" variant="soft" :disabled="isRolling" @click="bet = Math.max(1, Math.floor(bet / 2))">½</UButton>
-                <UButton color="neutral" variant="soft" :disabled="isRolling" @click="bet = bet * 2">2×</UButton>
-              </div>
-            </div>
-          </div>
+          <BetControls v-model="bet" :disabled="isRolling" />
 
           <!-- Target Multiplier -->
           <div>
@@ -248,16 +217,12 @@ onUnmounted(() => {
       </div>
     </div>
 
-    <UModal v-model:open="showHelp" title="How Limbo works">
-      <template #body>
-        <ul class="text-sm text-muted space-y-2 list-disc list-inside">
-          <li>Set a target multiplier (e.g. 2×).</li>
-          <li>A random number is rolled. If it's <strong class="text-default">≥ your target</strong>, you win.</li>
-          <li>Higher target → bigger payout, lower win chance.</li>
-          <li>Payout = bet × target multiplier.</li>
-        </ul>
-      </template>
-    </UModal>
+    <GameHelpModal v-model:open="showHelp" title="How Limbo works">
+      <li>Set a target multiplier (e.g. 2×).</li>
+      <li>A random number is rolled. If it's <strong class="text-default">≥ your target</strong>, you win.</li>
+      <li>Higher target → bigger payout, lower win chance.</li>
+      <li>Payout = bet × target multiplier.</li>
+    </GameHelpModal>
   </div>
 </template>
 
