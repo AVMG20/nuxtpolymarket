@@ -77,6 +77,48 @@ const history = await getHistory(userId, 50)
 
 `amount` is always a string representing a decimal number (matches the `numeric(19,4)` DB column). Pass the optional `category` to tag the transaction (e.g. `'game:cyber'`, `'deposit'`).
 
+`credit`, `debit`, `creditGems`, `debitGems` and `accumulateRake` all take an optional final `tx` argument. **If you are inside a `db.transaction()` that holds a row lock, you must pass `tx`** — otherwise the write goes out on a second pool connection and deadlocks against the lock your own transaction is holding.
+
+## Concurrency — never read-then-write value
+
+Any endpoint that grants or spends value (coins, gems, items, collectables) is a target for a burst of concurrent requests. A `SELECT` to check, followed by an `UPDATE` to apply, is **always a bug**: under Postgres' default READ COMMITTED, N concurrent requests all read the same pre-state, all pass the check, and all apply. This has been exploited in this codebase before — 10 parallel rakeback claims paid out 10x.
+
+**The mutation itself must be the guard.** Two acceptable patterns:
+
+**A — claim-then-reward.** Preferred when a flag or row marks the reward as consumed. Flip it with a conditional `UPDATE`, and only pay out if you won the claim:
+```ts
+const [claimed] = await tx.update(hackOps)
+  .set({ collected: true })
+  .where(and(eq(hackOps.id, opId), eq(hackOps.userId, userId), eq(hackOps.collected, false)))
+  .returning()
+if (!claimed) throw createError({ statusCode: 400, statusMessage: 'Already collected' })
+// only now roll rewards and credit
+```
+The same shape covers spends (`debitGems` guards `gems >= cost` in the WHERE) and sells (conditional `DELETE ... RETURNING`, credit only if a row came back).
+
+**B — lock-then-read.** When there's no flag to flip and you need the old value, take `SELECT ... FOR UPDATE` inside a transaction (see `getLockedBankState` in `server/utils/bank.ts`), and pass that `tx` to every write. Read the row *inside* the lock — a value read before it is already stale.
+
+**Never compare-and-swap on a `timestamp` column.** Postgres stores microseconds (`09:11:43.761343`) but drizzle hands back a JS `Date`, which only holds milliseconds (`09:11:43.761`). A `where(eq(table.someTimestamp, valueYouRead))` guard therefore matches **zero rows** for any row written by `defaultNow()`, silently failing closed forever. Use pattern B for timestamps. Integer and boolean columns are safe to CAS.
+
+Reviewing your own diff: if a handler reads a value, and later writes a value derived from it, ask what happens when the same request runs twice at once. If the answer isn't "the second one throws", it's not finished.
+
+## Randomness — `shared/utils/random.ts`
+
+**Never use `Math.random()` for anything that decides an outcome, payout, drop, or roll.** It is xorshift128+ in V8 — not a CSPRNG, and its state is shared across every request the process serves. Use the helpers instead:
+
+```ts
+import { randomFloat, randomInt, randomPick, randomChance } from '#shared/utils/random'
+
+randomFloat()            // [0, 1) — drop-in for Math.random()
+randomInt(1, 6)          // inclusive both ends
+randomPick(items)        // uniform element
+randomChance(0.25)       // true 25% of the time
+```
+
+`Math.random()` is acceptable only for cosmetics with no bearing on state — animation jitter, decorative sprite placement.
+
+Do not roll your own from `crypto.getRandomValues`. Note `x / 0xFFFFFFFF` is a subtly wrong idiom (it can return exactly `1.0`, so `Math.floor(r * len)` can index off the end of an array) — `randomFloat()` is correctly `[0, 1)`.
+
 ## Database schema highlights — `server/database/schema.ts`
 
 - `user` — `id`, `name`, `email`, `balance` (numeric string), `gems` (integer)
