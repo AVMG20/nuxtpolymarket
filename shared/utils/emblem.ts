@@ -1,5 +1,6 @@
 export const EMBLEM_VERSION = 1
-export const EMBLEM_MAX_ELEMENTS = 80
+export const EMBLEM_MAX_ELEMENTS = 150
+export const EMBLEM_HISTORY_LIMIT = 30
 export const EMBLEM_MAX_POINTS_PER_STROKE = 120
 export const EMBLEM_MAX_SERIALIZED_LENGTH = 30_000
 
