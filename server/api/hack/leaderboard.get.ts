@@ -1,11 +1,11 @@
 import { eq, inArray } from 'drizzle-orm'
 import { db } from '#server/database'
-import { auth } from '#server/utils/auth'
+import { getSessionUserId } from '#server/utils/auth'
 import { user, hackState, hackAgents, hackItems } from '#server/database/schema'
-import { agentPower, type AgentClass, type AgentTrait, type ItemMod } from '#shared/utils/hack-config'
+import { equippedAgentPower } from '#server/utils/hack'
 
 export default defineEventHandler(async (event) => {
-  const session = await auth.api.getSession({ headers: event.headers })
+  const sessionUserId = await getSessionUserId(event)
   const states = await db
     .select({
       userId: hackState.userId,
@@ -39,22 +39,10 @@ export default defineEventHandler(async (event) => {
       // agents sit in storage and don't contribute to totalPower).
       const activeAgents = userAgents.filter(a => a.active)
 
-      let totalPower = 0
-      for (const agent of activeAgents) {
-        const equippedItems = [agent.equippedTool, agent.equippedSoftware, agent.equippedHardware]
-          .filter(Boolean)
-          .map(id => itemMap.get(id!))
-          .filter((i): i is NonNullable<typeof i> => !!i)
-        const traits = (agent.traits ?? []) as AgentTrait[]
-        totalPower += agentPower(
-          { level: agent.level, class: agent.class as AgentClass },
-          equippedItems.map(i => ({ itemLevel: i.itemLevel, mods: i.mods as ItemMod[] })),
-          traits,
-        )
-      }
+      const totalPower = activeAgents.reduce((total, agent) => total + equippedAgentPower(agent, itemMap), 0)
 
       return {
-        isCurrentUser: state.userId === session?.user?.id,
+        isCurrentUser: state.userId === sessionUserId,
         name: u.name,
         totalPower,
         agentCount: activeAgents.length,

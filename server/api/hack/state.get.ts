@@ -1,19 +1,18 @@
 import { eq, and } from 'drizzle-orm'
 import { db } from '#server/database'
 import { hackState, hackAgents, hackArtifacts, hackItems, hackOps } from '#server/database/schema'
-import { auth } from '#server/utils/auth'
+import { requireUserId } from '#server/utils/auth'
 import {
   OP_TEMPLATES, AGENT_PULL_TIERS, ITEM_PULL_TIERS, ROSTER_EXPAND_COSTS, MAX_ROSTER_SLOTS,
-  MAX_INVENTORY_SLOTS, MAX_AGENTS, agentPower, generateAgentDef,
+  MAX_INVENTORY_SLOTS, MAX_AGENTS, generateAgentDef,
   xpToNextLevel, AGENT_MAX_LEVEL,
   opSuccessChance,
-  type AgentClass, type HackRarity, type ItemMod, type ItemSlot, type AgentTrait,
+  type HackRarity, type ItemMod, type ItemSlot, type AgentTrait,
 } from '#shared/utils/hack-config'
+import { equippedAgentPower } from '#server/utils/hack'
 
 export default defineEventHandler(async (event) => {
-  const session = await auth.api.getSession({ headers: event.headers })
-  if (!session?.user?.id) throw createError({ statusCode: 401, statusMessage: 'Unauthorized' })
-  const userId = session.user.id
+  const userId = await requireUserId(event)
 
   // Auto-create state + seed first agent
   let state = await db.query.hackState.findFirst({ where: eq(hackState.userId, userId) })
@@ -40,14 +39,8 @@ export default defineEventHandler(async (event) => {
   }
 
   const agentsOut = agents.map(a => {
-    const equippedItems = [a.equippedTool, a.equippedSoftware, a.equippedHardware]
-      .filter(Boolean).map(id => itemMap.get(id!)).filter(Boolean) as typeof items
+    const power = equippedAgentPower(a, itemMap)
     const traits = (a.traits ?? []) as AgentTrait[]
-    const power = agentPower(
-      { level: a.level, class: a.class as AgentClass },
-      equippedItems.map(i => ({ itemLevel: i.itemLevel, mods: i.mods as ItemMod[] })),
-      traits,
-    )
     return {
       id: a.id, name: a.name, class: a.class, rarity: a.rarity,
       level: a.level, xp: a.xp, active: a.active,
