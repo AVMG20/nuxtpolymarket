@@ -190,14 +190,28 @@ refactors can't silently break things:
 
 Surfaced while doing the work above; each deliberately left alone to keep refactors behavior-preserving.
 
-- [ ] **BOS reports `won: true` on losing buy-bonus rounds.** `bookofshadows.ts:473` uses
+- [x] **BOS reported `won: true` on losing buy-bonus rounds.** `bookofshadows.ts:473` used
   `won: payout > 0`; every other slot uses `payout > cost` (xenoslot:487, candymadness:453,
-  aethergates:557). A buy costs 56.5x bet, so a round returning 0.18x reports `won: true`. Payout
-  math is correct — presentation only. Pinned by a spec asserting current behavior.
-- [ ] **bookofshadows.ts + candymadness.ts roll their own `rand()`** from `crypto.getRandomValues`,
-  which CLAUDE.md explicitly forbids. Not a correctness bug (`/ 0x1_0000_0000` is 2^32, so `[0,1)`
-  is right — not the bad `/0xFFFFFFFF` idiom) but they use 32 bits vs `randomFloat()`'s 53 and
-  duplicate the helper.
+  aethergates:557). A buy costs 56.5x bet, so a round returning 0.18x reported `won: true`.
+  *Fixed to `payout > cost`; the spec that pinned the old behavior now pins the fix.*
+- [x] **Hand-rolled `rand()` across the gamelogic modules** — far wider than first reported, and
+  three of them carried the exact bug CLAUDE.md warns about.
+  *`dice.ts`, `limbo.ts` and `wheel.ts` divided by `0xFFFFFFFF`, which reaches exactly 1.0:*
+  - *`wheel.ts` — `idx = floor(r * totalSegments)` could hit `totalSegments`, so the mapping loop
+    never broke and the spin silently returned `segmentIndex: 0, multiplier: 0` — a player losing a
+    spin they may have won, with the UI showing a segment that contradicts the result.*
+  - *`dice.ts` — could roll `100.00` against a documented `0.00–99.99` range.*
+  - *`limbo.ts` — could return exactly `1.0`.*
+  *All nine simple helpers (dice, limbo, wheel, spinata, xenoslot, aethergates, magichands,
+  bookofshadows, candymadness) now call `randomFloat()`. Two dice/limbo specs had encoded the bug
+  in their expected values (limbo's `0.98/0.5` floored to 1.95 only because the divisor skewed
+  `rand` above 0.5; it is exactly 1.96 with a correct RNG) — corrected. New bound specs in
+  test/shared/random.spec.ts pin `randomFloat() < 1` on all-ones entropy, which is what actually
+  reproduces the bug — `stubRandomFloat` cannot, as it packs buf[0]'s low bits with zeroes.*
+- [ ] **blackjack.ts still hand-rolls its shuffle** — a bulk `Uint32Array(deck.length)` Fisher-Yates
+  using `arr[i] % (i + 1)`, which carries modulo bias. Left alone deliberately: it is a different
+  shape from the others, it is not the `/0xFFFFFFFF` bug, and all 52 blackjack specs are coupled to
+  a `stubDeal` helper that reverse-engineers this exact shuffle. Worth doing as its own pass.
 - [ ] **`leaderboard.vue` and `pirates/leaderboard.vue` receive `isCurrentUser` but render no
   highlight from it.** Pre-existing gap spotted during C5.
 - [ ] **Blackjack's inline bet block** is near-identical to `<BetControls>` (C2 covered
