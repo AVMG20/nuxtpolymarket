@@ -50,11 +50,11 @@ function renderMarkdown(markdown: string) {
     breaks: true,
     gfm: true,
     renderer
-  }) as string
+  })
 }
 
 function renderInlineMarkdown(markdown: string) {
-  return marked.parseInline(escapeHtml(markdown), { renderer })
+  return marked.parseInline(escapeHtml(markdown), { async: false, renderer })
 }
 
 function parseInlineParts(markdown: string): Part[] {
@@ -142,7 +142,7 @@ const blocks = computed(() => parseBlocks(props.markdown))
             <CoinBalance v-else-if="part.type === 'coin'" :value="part.value" class="inline-flex align-middle" />
             <GemBalance v-else-if="part.type === 'gem'" :value="part.value" class="inline-flex align-middle" />
             <span
-              v-else
+              v-else-if="part.type === 'stat'"
               class="inline-flex items-center gap-1 rounded bg-elevated px-1.5 py-0.5 align-middle text-xs font-medium"
               :class="part.kind === 'profit' ? 'text-success' : 'text-error'"
             >
