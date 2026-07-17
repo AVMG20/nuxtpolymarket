@@ -6,6 +6,7 @@ interface ChatMessage {
   id: string
   userId: string
   name: string
+  emblem: string | null
   content: string
   createdAt: string
 }
@@ -685,26 +686,29 @@ function deleteMessage(id: string) {
             :class="highlightId === m.id ? 'bg-primary/15' : ''"
             :data-msg-id="m.id"
           >
-            <div class="flex items-baseline gap-2">
-              <span
-                class="truncate font-medium"
-                :class="nameColor(m.userId)"
-              >
-                {{ m.name }}
-              </span>
-              <span class="shrink-0 text-[10px] text-muted">{{ relative(m.createdAt) }}</span>
-              <UButton
-                v-if="m.userId === user?.id"
-                aria-label="Delete message"
-                class="ms-auto shrink-0 opacity-60 hover:opacity-100 lg:opacity-0 lg:group-hover:opacity-100"
-                color="error"
-                icon="i-lucide-trash-2"
-                size="xs"
-                variant="ghost"
-                @click="deleteMessage(m.id)"
-              />
-            </div>
-            <p class="whitespace-pre-line break-words">
+            <div class="flex items-start gap-2">
+              <ProfileEmblem :emblem="m.emblem" :name="m.name" class="mt-0.5 size-7 text-[10px]" />
+              <div class="min-w-0 flex-1">
+                <div class="flex items-baseline gap-2">
+                  <span
+                    class="truncate font-medium"
+                    :class="nameColor(m.userId)"
+                  >
+                    {{ m.name }}
+                  </span>
+                  <span class="shrink-0 text-[10px] text-muted">{{ relative(m.createdAt) }}</span>
+                  <UButton
+                    v-if="m.userId === user?.id"
+                    aria-label="Delete message"
+                    class="ms-auto shrink-0 opacity-60 hover:opacity-100 lg:opacity-0 lg:group-hover:opacity-100"
+                    color="error"
+                    icon="i-lucide-trash-2"
+                    size="xs"
+                    variant="ghost"
+                    @click="deleteMessage(m.id)"
+                  />
+                </div>
+                <p class="whitespace-pre-line break-words">
               <template
                 v-for="(part, i) in parseContent(m.content)"
                 :key="i"
@@ -750,7 +754,9 @@ function deleteMessage(id: string) {
                   {{ (part.kind === 'profit' ? '+' : '-') + formatNumber(part.value) }}
                 </span>
               </template>
-            </p>
+                </p>
+              </div>
+            </div>
           </div>
         </div>
 

@@ -35,7 +35,7 @@ type AiStreamEvent
     | { type: 'error', message: string }
 
 const toast = useToast()
-const { fetchSession } = useAuth()
+const { user, fetchSession } = useAuth()
 const route = useRoute()
 const router = useRouter()
 const draft = ref('')
@@ -529,13 +529,16 @@ const starterPrompts = [
               v-for="message in visibleMessages"
               :id="message.id"
               :key="message.id"
-              :avatar="{ icon: message.role === 'user' ? 'i-lucide-user' : 'i-lucide-bot' }"
               :role="message.role === 'user' ? 'user' : 'assistant'"
               :parts="[]"
               :side="message.role === 'user' ? 'right' : 'left'"
               :ui="message.role === 'user' ? { container: 'flex-row-reverse justify-start' } : undefined"
               :variant="message.role === 'user' ? 'soft' : 'naked'"
             >
+              <template #leading>
+                <ProfileEmblem v-if="message.role === 'user'" :emblem="user?.emblem" :name="user?.name" class="size-8 text-xs" />
+                <UAvatar v-else icon="i-lucide-bot" size="md" />
+              </template>
               <template #content>
                 <p v-if="message.role === 'user' && message.content" class="whitespace-pre-wrap break-words leading-7">{{ message.content }}</p>
                 <AiMarkdown v-else-if="message.content" :markdown="message.content" />
@@ -585,13 +588,15 @@ const starterPrompts = [
             <UChatMessage
               v-if="showPendingUser"
               id="pending-user-message"
-              :avatar="{ icon: 'i-lucide-user' }"
               :parts="[]"
               role="user"
               side="right"
               :ui="{ container: 'flex-row-reverse justify-start' }"
               variant="soft"
             >
+              <template #leading>
+                <ProfileEmblem :emblem="user?.emblem" :name="user?.name" class="size-8 text-xs" />
+              </template>
               <template #content>
                 <p class="whitespace-pre-wrap break-words leading-7">{{ pendingUserContent }}</p>
               </template>

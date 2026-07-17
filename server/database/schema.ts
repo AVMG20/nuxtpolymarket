@@ -7,6 +7,7 @@ export const user = pgTable('user', {
   email: text('email').notNull().unique(),
   emailVerified: boolean('email_verified').default(false).notNull(),
   image: text('image'),
+  emblem: text('emblem'),
   balance: numeric('balance', { precision: 19, scale: 4 }).notNull().default('0'),
   rake: numeric('rake', { precision: 19, scale: 4 }).notNull().default('0'),
   rakebackUnlocked: boolean('rakeback_unlocked').notNull().default(false),
@@ -17,6 +18,19 @@ export const user = pgTable('user', {
     .$onUpdate(() => /* @__PURE__ */ new Date())
     .notNull()
 })
+
+export const emblemHistory = pgTable(
+  'emblem_history',
+  {
+    id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+    userId: text('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    emblem: text('emblem').notNull(),
+    createdAt: timestamp('created_at').defaultNow().notNull()
+  },
+  table => [index('emblem_history_userId_createdAt_idx').on(table.userId, table.createdAt)]
+)
 
 export const transactions = pgTable(
   'transactions',
