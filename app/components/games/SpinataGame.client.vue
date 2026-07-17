@@ -19,6 +19,7 @@ import {
   SPN_BONUS_TRIGGER,
   PAYLINES
 } from '#shared/utils/gamelogic/spinata'
+import { initSlotPixiApp, safeDestroy } from '~/utils/slot-pixi'
 
 // Realistic max win shown to players, derived from a 10M-spin Monte Carlo run
 // (scripts/spinata-rtp.ts — observed max ~850x normal, ~2,400x bonus buy).
@@ -29,16 +30,11 @@ const SPN_DISPLAY_MAX_WIN = 1000
 // just below Candy Madness (~1,050x), same tier.
 const SPN_VOLATILITY = 2
 
-const { user, setBalance } = useAuth()
-const balance = ref(parseFloat(user.value?.balance ?? '0'))
-watch(() => user.value?.balance, (v) => {
-  if (v != null) balance.value = parseFloat(v)
-})
+const { bet, isSpinning, errorMsg, balance, setBalance, history, pushHistory, spin: requestSpin } = useSlotGame<SpinataResult, { payout: number, bet: number, bonus: boolean }>('spinata')
 
 // --- bet ─────────────────────────────────────────────────────────────────────
 const MIN_BET = 1
 const MAX_BET = 100_000_000_000
-const bet = ref(10)
 const betInput = ref('10')
 
 function clampBet(v: number): number {
@@ -65,8 +61,6 @@ const buyBonusCost = computed(() => bet.value * SPN_BUY_BONUS_COST)
 
 // --- round state ─────────────────────────────────────────────────────────────
 const turbo = ref(false)
-const isSpinning = ref(false)
-const errorMsg = ref('')
 const showHelp = ref(false)
 const ready = ref(false)
 
@@ -107,8 +101,6 @@ function triggerBigWin(amount: number, betAmt: number) {
 // scatter/bonus counters for this spin
 const spinScatterCount = ref(0)
 const spinBonusCount = ref(0)
-
-const history = ref<{ payout: number, bet: number, bonus: boolean }[]>([])
 
 // --- auto-spin ───────────────────────────────────────────────────────────────
 const autoSpinEnabled = ref(false)
@@ -586,13 +578,12 @@ onMounted(async () => {
     if (destroyed) return
     PIXI = pixi; REELS = reels; GSAP = gsapMod.gsap ?? gsapMod.default
 
-    app = new PIXI.Application()
-    await app.init({ width: APP_W, height: APP_H, backgroundAlpha: 0, antialias: true, autoDensity: true, resolution: Math.min(2, window.devicePixelRatio || 1) })
-    if (destroyed) { app.destroy(true); return }
+    app = await initSlotPixiApp(PIXI.Application, { width: APP_W, height: APP_H }, () => destroyed)
+    if (!app) return
     canvasWrap.value?.appendChild(app.canvas)
 
     await Promise.all(SYMBOL_IDS.map(async (id) => { TEX[id] = await loadTexture(id) }))
-    if (destroyed) { app.destroy(true); return }
+    if (destroyed) { safeDestroy(() => app.destroy(true)); return }
 
     const SpinTile = makeSymbolClass()
     const weights: Record<string, number> = {}
@@ -637,7 +628,7 @@ onUnmounted(() => {
   try { lineLayer?.destroy?.({ children: true }) } catch { /* ignore */ }
   try { floatLayer?.destroy?.({ children: true }) } catch { /* ignore */ }
   try { reelSet?.destroy?.() } catch { /* ignore */ }
-  try { app?.destroy?.(true) } catch { /* ignore */ }
+  safeDestroy(() => app?.destroy?.(true))
 })
 
 // --- spin helpers ────────────────────────────────────────────────────────────
@@ -673,25 +664,23 @@ async function spinReels(grid: SpinSymbol[][], wins: LineWin[], betAmt: number, 
 
 // --- main spin flow ──────────────────────────────────────────────────────────
 async function spin(feature?: 'buyBonus') {
+  if (!ready.value) return
   const cost = feature === 'buyBonus' ? buyBonusCost.value : bet.value
-  if (!ready.value || isSpinning.value || balance.value < cost) return
-  isSpinning.value = true
-  errorMsg.value = ''
-  lastWin.value = 0
-  winFlash.value = false
-  spinScatterCount.value = 0
-  spinBonusCount.value = 0
 
-  let data: { gameData: SpinataResult, balance: number }
-  try {
-    data = await $fetch('/api/games/play-game', {
-      method: 'POST',
-      body: { bet: bet.value, game: 'spinata', options: feature ? { feature } : undefined }
-    }) as { gameData: SpinataResult, balance: number }
-  } catch (e: unknown) {
-    errorMsg.value = e instanceof Error ? e.message : 'Something went wrong'
-    isSpinning.value = false
-    stopAutoSpin()
+  // Distinguishes "the composable's guard blocked us" (nothing to undo) from
+  // "the fetch failed after the guard passed" (must stop auto-spin).
+  let started = false
+
+  const data = await requestSpin(cost, feature ? { feature } : undefined, () => {
+    started = true
+    lastWin.value = 0
+    winFlash.value = false
+    spinScatterCount.value = 0
+    spinBonusCount.value = 0
+  })
+
+  if (!data) {
+    if (started) stopAutoSpin()
     return
   }
 
@@ -747,13 +736,10 @@ async function spin(feature?: 'buyBonus') {
       if (result.payout >= result.bet * 15) triggerBigWin(result.payout, result.bet)
       else sfx.win()
     }
-    balance.value = data.balance
     setBalance(data.balance)
-    history.value.unshift({ payout: result.payout, bet: result.cost, bonus: result.freeSpinsTriggered })
-    if (history.value.length > 10) history.value.pop()
+    pushHistory({ payout: result.payout, bet: result.cost, bonus: result.freeSpinsTriggered })
   } catch (e) {
     errorMsg.value = e instanceof Error ? e.message : 'Animation error'
-    balance.value = data.balance
     setBalance(data.balance)
     stopAutoSpin()
   } finally {
@@ -1302,31 +1288,17 @@ const TRACK_COLORS = [
     </Transition>
 
     <!-- Auto-spin modal -->
-    <UModal
+    <AutoSpinModal
       v-model:open="showAutoSpinModal"
-      title="Auto Spin"
+      :options="AUTO_SPIN_OPTIONS"
+      @pick="startAutoSpin"
     >
-      <template #body>
-        <div class="space-y-4">
-          <p class="text-sm text-muted">
-            Auto-spin pauses before the Festival so you can watch.
-          </p>
-          <div class="grid grid-cols-5 gap-2">
-            <UButton
-              v-for="count in AUTO_SPIN_OPTIONS"
-              :key="count"
-              block
-              class="font-bold"
-              color="neutral"
-              variant="soft"
-              @click="startAutoSpin(count)"
-            >
-              {{ count }}
-            </UButton>
-          </div>
-        </div>
+      <template #description>
+        <p class="text-sm text-muted">
+          Auto-spin pauses before the Festival so you can watch.
+        </p>
       </template>
-    </UModal>
+    </AutoSpinModal>
 
     <!-- Help / Paytable modal -->
     <UModal

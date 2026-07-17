@@ -32,6 +32,7 @@ import {
   AG_SCATTER_TRIGGER_SUPER,
   aetherPayMult
 } from '#shared/utils/gamelogic/aethergates'
+import { initSlotPixiApp, safeDestroy } from '~/utils/slot-pixi'
 
 // Realistic max win shown to players, derived from a 2M-spin Monte Carlo run
 // (scripts/aethergates-rtp.ts — observed max ~532x). AG_MAX_WIN_MULT (10,000x)
@@ -41,16 +42,12 @@ const AG_DISPLAY_MAX_WIN = 1000
 // win of the four slots puts Aether Gates at the bottom tier.
 const AG_VOLATILITY = 1
 
-const { user, setBalance, fetchSession } = useAuth()
-const balance = ref(parseFloat(user.value?.balance ?? '0'))
-watch(() => user.value?.balance, (v) => {
-  if (v !== undefined) balance.value = parseFloat(v ?? '0')
-})
+const { fetchSession } = useAuth()
+const { bet, isSpinning, errorMsg, balance, setBalance, history, pushHistory, spin: requestSpin } = useSlotGame<AetherGatesResult, { payout: number, bet: number, bonus: boolean }>('aethergates')
 
 // --- bet control
 const MIN_BET = 1
 const MAX_BET = 100_000_000_000
-const bet = ref(10)
 const betInput = ref('10')
 watch(bet, (v) => {
   betInput.value = String(v)
@@ -111,8 +108,6 @@ function buySuperBonus() {
 
 // --- round state
 const turbo = ref(false)
-const isSpinning = ref(false)
-const errorMsg = ref('')
 const showHelp = ref(false)
 const ready = ref(false)
 
@@ -135,7 +130,6 @@ const bigWinGradient = ref('')
 const bigWinGlow = ref('')
 const bigWinIntensity = ref(1)
 
-const history = ref<{ payout: number, bet: number, bonus: boolean }[]>([])
 const flying = ref<{ id: number, value: number, style: Record<string, string> }[]>([])
 let flyId = 0
 
@@ -921,31 +915,25 @@ async function runBonus(result: AetherGatesResult) {
 async function spin(forceFeature?: AetherFeature) {
   const feature: AetherFeature | undefined = forceFeature ?? (bonusChanceMode.value ? 'bonusChance' : undefined)
   const cost = costFor(feature)
-
-  if (!ready.value || isSpinning.value || balance.value < cost) return
-  isSpinning.value = true
-  sfx.spin()
-  errorMsg.value = ''
-  lastWin.value = 0
-  winFlash.value = false
-  meter.value = 0
+  if (!ready.value) return
 
   const balanceBeforeSpin = balance.value
-  balance.value = balanceBeforeSpin - cost
-  setBalance(balance.value)
+  let debited = false
 
-  let data: { gameData: AetherGatesResult, balance: number }
-  try {
-    data = await $fetch('/api/games/play-game', {
-      method: 'POST',
-      body: { bet: bet.value, game: 'aethergates', options: feature ? { feature } : undefined }
-    }) as { gameData: AetherGatesResult, balance: number }
-  } catch (e: unknown) {
-    errorMsg.value = e instanceof Error ? e.message : 'Something went wrong'
-    balance.value = balanceBeforeSpin
-    setBalance(balanceBeforeSpin)
-    isSpinning.value = false
-    stopAutoSpin()
+  const data = await requestSpin(cost, feature ? { feature } : undefined, () => {
+    sfx.spin()
+    lastWin.value = 0
+    winFlash.value = false
+    meter.value = 0
+    setBalance(balanceBeforeSpin - cost)
+    debited = true
+  })
+
+  if (!data) {
+    if (debited) {
+      setBalance(balanceBeforeSpin)
+      stopAutoSpin()
+    }
     return
   }
 
@@ -968,14 +956,11 @@ async function spin(forceFeature?: AetherFeature) {
     winPulse.value = result.payout > 0
     if (result.payout > 0) sfx.win()
     meter.value = result.bonus?.finalMeter ?? result.base.meterAfter
-    history.value.unshift({ payout: result.payout, bet: result.cost, bonus: result.bonusTriggered })
-    if (history.value.length > 10) history.value.pop()
-    balance.value = data.balance
+    pushHistory({ payout: result.payout, bet: result.cost, bonus: result.bonusTriggered })
     setBalance(data.balance)
     await fetchSession()
   } catch (e) {
     errorMsg.value = e instanceof Error ? e.message : 'Animation error'
-    balance.value = data.balance
     setBalance(data.balance)
     stopAutoSpin()
   } finally {
@@ -1020,19 +1005,8 @@ onMounted(async () => {
     REELS = reels
     GSAP = gsapMod.gsap ?? gsapMod.default
 
-    app = new PIXI.Application()
-    await app.init({
-      width: APP_W,
-      height: APP_H,
-      backgroundAlpha: 0,
-      antialias: true,
-      autoDensity: true,
-      resolution: Math.min(2, window.devicePixelRatio || 1)
-    })
-    if (destroyed) {
-      app.destroy(true)
-      return
-    }
+    app = await initSlotPixiApp(PIXI.Application, { width: APP_W, height: APP_H }, () => destroyed)
+    if (!app) return
     canvasWrap.value?.appendChild(app.canvas)
 
     const sheet = await PIXI.Assets.load(SPRITE_SRC)
@@ -1101,12 +1075,8 @@ onUnmounted(() => {
   try {
     floatLayer?.destroy?.({ children: true })
   } catch { /* ignore */ }
-  try {
-    reelSet?.destroy?.()
-  } catch { /* ignore */ }
-  try {
-    app?.destroy?.(true)
-  } catch { /* ignore */ }
+  safeDestroy(() => reelSet?.destroy?.())
+  safeDestroy(() => app?.destroy?.(true))
 })
 </script>
 
@@ -1231,10 +1201,10 @@ onUnmounted(() => {
               </Transition>
 
               <Transition name="pop">
-                <div
+                <BigWinOverlay
                   v-if="bigWinBanner"
-                  class="absolute inset-0 z-30 flex flex-col items-center justify-center gap-1 bg-[rgba(5,3,1,0.82)] backdrop-blur-[4px]"
-                  :style="{ '--tier': bigWinIntensity }"
+                  tint="rgba(5,3,1,0.82)"
+                  :intensity="bigWinIntensity"
                 >
                   <p
                     class="ag-bigwin-label"
@@ -1245,7 +1215,7 @@ onUnmounted(() => {
                   <strong class="ag-bigwin-amount">
                     {{ formatNumber(bigWinAmount, false) }}
                   </strong>
-                </div>
+                </BigWinOverlay>
               </Transition>
 
               <Transition name="pop">
@@ -1475,31 +1445,17 @@ onUnmounted(() => {
     </div>
 
     <!-- Auto-spin modal -->
-    <UModal
+    <AutoSpinModal
       v-model:open="showAutoSpinModal"
-      title="Auto Spin"
+      :options="AUTO_SPIN_OPTIONS"
+      @pick="startAutoSpin($event)"
     >
-      <template #body>
-        <div class="space-y-4">
-          <p class="text-sm text-muted">
-            Select number of spins. Auto-spin pauses before a bonus round so you can watch — tap the board to resume.
-          </p>
-          <div class="grid grid-cols-5 gap-2">
-            <UButton
-              v-for="count in AUTO_SPIN_OPTIONS"
-              :key="count"
-              block
-              class="font-bold"
-              color="neutral"
-              variant="soft"
-              @click="startAutoSpin(count)"
-            >
-              {{ count }}
-            </UButton>
-          </div>
-        </div>
+      <template #description>
+        <p class="text-sm text-muted">
+          Select number of spins. Auto-spin pauses before a bonus round so you can watch — tap the board to resume.
+        </p>
       </template>
-    </UModal>
+    </AutoSpinModal>
 
     <UModal
       v-model:open="showHelp"

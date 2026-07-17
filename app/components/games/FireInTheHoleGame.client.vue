@@ -1,16 +1,16 @@
 <script setup lang="ts">
 import type { FireBonusDrop, FireBonusResult, FireBonusValueEvent, FireCell, FireCascadeStep, FireInTheHoleResult, FireSymbol } from '#shared/utils/gamelogic/fireinthehole'
 import { FITH_BUY_BONUS_COST, FITH_COLS, FITH_FREE_SPINS, FITH_MIN_CONNECTION, FITH_ROWS, playFireInTheHole } from '#shared/utils/gamelogic/fireinthehole'
+import { initSlotPixiApp, safeDestroy } from '~/utils/slot-pixi'
 
 definePageMeta({
   title: 'Fire in the Hole'
 })
 
 const canvasHost = ref<HTMLDivElement | null>(null)
-const { user, setBalance, fetchSession } = useAuth()
-const balance = ref(parseFloat(user.value?.balance ?? '0'))
+const { fetchSession } = useAuth()
+const { bet, isSpinning: isPlaying, errorMsg, balance, setBalance, history, pushHistory, spin: requestSpin } = useSlotGame<FireInTheHoleResult, { payout: number, bet: number, bonus: boolean }>('fireinthehole')
 const isReady = ref(false)
-const isPlaying = ref(false)
 const activeLines = ref(3)
 const chainCount = ref(0)
 const lastBombs = ref(0)
@@ -19,7 +19,6 @@ const lastWin = ref(0)
 const bonusMultiplier = ref(0)
 const isBonusActive = ref(false)
 const status = ref('Ready')
-const errorMsg = ref('')
 const turbo = ref(false)
 const showHelp = ref(false)
 const totalWinPulse = ref(false)
@@ -42,11 +41,9 @@ const FITH_VOLATILITY = 5
 
 const MIN_BET = 1
 const MAX_BET = 100_000_000_000
-const bet = ref(10)
 const betInput = ref('10')
 const spinCost = computed(() => bet.value)
 const buyBonusCost = computed(() => bet.value * FITH_BUY_BONUS_COST)
-const history = ref<{ payout: number, bet: number, bonus: boolean }[]>([])
 
 const autoSpinEnabled = ref(false)
 const autoSpinsLeft = ref(0)
@@ -74,16 +71,13 @@ let latestResult: FireInTheHoleResult | null = null
 let boundaryVisualLines = 3
 let boundaryTween: { kill: () => void } | null = null
 let pendingBonusDrops: FireBonusDrop[] = []
+let destroyed = false
 
 // Symbol textures cropped from sprite.png (base grid) and bonus.png (bonus
 // drops), populated in initPixi. Crop rects live in app/utils/fireinthehole-sprite.ts
 // — tune them via /games/fireinthehole-sprite-debug.
 const TEX: Partial<Record<FireSymbol, import('pixi.js').Texture>> = {}
 const ALL_SYMBOL_IDS = [...Object.keys(FITH_SYMBOL_META), ...Object.keys(FITH_BONUS_SYMBOL_META)] as FireSymbol[]
-
-watch(() => user.value?.balance, (value) => {
-  if (value !== undefined) balance.value = parseFloat(value ?? '0')
-})
 
 watch(bet, (value) => {
   betInput.value = String(value)
@@ -266,6 +260,7 @@ async function initPixi() {
     import('pixi-reels'),
     import('gsap')
   ])
+  if (destroyed) return
 
   const [baseSheet, bonusSheet] = await Promise.all([
     Assets.load(FITH_SPRITE_SRC),
@@ -389,15 +384,8 @@ async function initPixi() {
     }
   }
 
-  pixiApp = new Application()
-  await pixiApp.init({
-    width: CANVAS_DESIGN_SIZE,
-    height: CANVAS_DESIGN_SIZE,
-    backgroundAlpha: 0,
-    antialias: true,
-    autoDensity: true,
-    resolution: Math.min(window.devicePixelRatio || 1, 2)
-  })
+  pixiApp = await initSlotPixiApp(Application, { width: CANVAS_DESIGN_SIZE, height: CANVAS_DESIGN_SIZE }, () => destroyed)
+  if (!pixiApp) return
 
   pixiApp.canvas.classList.add('h-full', 'w-full')
   canvasHost.value.appendChild(pixiApp.canvas)
@@ -1179,53 +1167,43 @@ async function animateResult(result: FireInTheHoleResult) {
 }
 
 async function play(buy = false) {
+  if (!reelSet) return
   const cost = buy ? buyBonusCost.value : spinCost.value
-  if (!reelSet || isPlaying.value || balance.value < cost) return
-
-  isPlaying.value = true
-  status.value = buy ? 'Buying bonus' : 'Dropping'
-  errorMsg.value = ''
-  chainCount.value = 0
-  lastBombs.value = 0
-  totalWin.value = 0
-  lastWin.value = 0
-  bonusMultiplier.value = 0
-  isBonusActive.value = false
-  clearBonusValues()
-
   const balanceBeforeSpin = balance.value
-  balance.value = balanceBeforeSpin - cost
-  setBalance(balance.value)
 
-  let data: { gameData: FireInTheHoleResult, balance: number }
-  try {
-    data = await $fetch('/api/games/play-game', {
-      method: 'POST',
-      body: {
-        bet: bet.value,
-        game: 'fireinthehole',
-        options: buy ? { buyBonus: true } : undefined
-      }
-    }) as { gameData: FireInTheHoleResult, balance: number }
-  } catch (error) {
-    errorMsg.value = error instanceof Error ? error.message : 'Spin failed'
-    balance.value = balanceBeforeSpin
-    setBalance(balanceBeforeSpin)
-    isPlaying.value = false
-    stopAutoSpin()
+  // Distinguishes "the composable's guard blocked us" (nothing to undo) from
+  // "the fetch failed after we took the bet" (must refund).
+  let debited = false
+
+  const data = await requestSpin(cost, buy ? { buyBonus: true } : undefined, () => {
+    status.value = buy ? 'Buying bonus' : 'Dropping'
+    chainCount.value = 0
+    lastBombs.value = 0
+    totalWin.value = 0
+    lastWin.value = 0
+    bonusMultiplier.value = 0
+    isBonusActive.value = false
+    clearBonusValues()
+    setBalance(balanceBeforeSpin - cost)
+    debited = true
+  })
+
+  if (!data) {
+    if (debited) {
+      status.value = 'Spin failed'
+      setBalance(balanceBeforeSpin)
+      stopAutoSpin()
+    }
     return
   }
 
   try {
     await animateResult(data.gameData)
-    history.value.unshift({ payout: data.gameData.payout, bet: data.gameData.cost, bonus: Boolean(data.gameData.bonus) })
-    if (history.value.length > 10) history.value.pop()
-    balance.value = data.balance
+    pushHistory({ payout: data.gameData.payout, bet: data.gameData.cost, bonus: Boolean(data.gameData.bonus) })
     setBalance(data.balance)
     await fetchSession()
   } catch (error) {
     errorMsg.value = error instanceof Error ? error.message : 'Animation error'
-    balance.value = data.balance
     setBalance(data.balance)
     stopAutoSpin()
   }
@@ -1256,9 +1234,10 @@ watch(activeLines, () => {
 onMounted(initPixi)
 
 onBeforeUnmount(() => {
+  destroyed = true
   resizeObserver?.disconnect()
-  reelSet?.destroy()
-  pixiApp?.destroy(true)
+  safeDestroy(() => reelSet?.destroy())
+  safeDestroy(() => pixiApp?.destroy(true))
   reelSet = null
   pixiApp = null
   effectsLayer = null
@@ -1411,10 +1390,10 @@ onBeforeUnmount(() => {
               </Transition>
 
               <Transition name="pop">
-                <div
+                <BigWinOverlay
                   v-if="bigWinBanner"
-                  class="absolute inset-0 z-30 flex flex-col items-center justify-center gap-1 bg-[rgba(5,3,1,0.82)] backdrop-blur-[4px]"
-                  :style="{ '--tier': bigWinIntensity }"
+                  tint="rgba(5,3,1,0.82)"
+                  :intensity="bigWinIntensity"
                 >
                   <p
                     class="fire-bigwin-label"
@@ -1425,7 +1404,7 @@ onBeforeUnmount(() => {
                   <strong class="fire-bigwin-amount">
                     {{ formatNumber(bigWinAmount, false) }}
                   </strong>
-                </div>
+                </BigWinOverlay>
               </Transition>
 
               <div
@@ -1618,27 +1597,11 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
-    <UModal
+    <AutoSpinModal
       v-model:open="showAutoSpinModal"
-      title="Auto Spin"
-    >
-      <template #body>
-        <div class="space-y-4">
-          <div class="grid grid-cols-5 gap-2">
-            <UButton
-              v-for="count in AUTO_SPIN_OPTIONS"
-              :key="count"
-              block
-              color="neutral"
-              variant="soft"
-              @click="startAutoSpin(count)"
-            >
-              {{ count }}
-            </UButton>
-          </div>
-        </div>
-      </template>
-    </UModal>
+      :options="AUTO_SPIN_OPTIONS"
+      @pick="startAutoSpin($event)"
+    />
 
     <UModal
       v-model:open="showHelp"

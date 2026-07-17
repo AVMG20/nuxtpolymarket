@@ -24,6 +24,7 @@ const open = defineModel<boolean>('open', { default: false })
             block
             color="neutral"
             variant="soft"
+            class="font-bold"
             @click="emit('pick', count)"
           >
             {{ count }}

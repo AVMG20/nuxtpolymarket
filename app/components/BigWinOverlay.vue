@@ -6,15 +6,22 @@
 // Wrap usage in `<Transition name="pop">` in the caller: a child component's
 // root node inherits the parent's scope id, so the caller's own
 // `.pop-enter-active` keeps driving the transition unchanged.
-defineProps<{
+// `intensity` feeds the --tier CSS var the slots' own keyframes scale against.
+const props = defineProps<{
   tint: string
+  intensity?: number
 }>()
+
+const style = computed(() => ({
+  backgroundColor: props.tint,
+  ...(props.intensity === undefined ? {} : { '--tier': String(props.intensity) })
+}))
 </script>
 
 <template>
   <div
     class="absolute inset-0 z-30 flex flex-col items-center justify-center gap-1 backdrop-blur-[4px]"
-    :style="{ backgroundColor: tint }"
+    :style="style"
   >
     <slot />
   </div>
