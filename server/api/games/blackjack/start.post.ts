@@ -14,7 +14,7 @@ export default defineEventHandler(async (event) => {
   const { bet: rawBet } = await readBody<{ bet: number }>(event)
   const bet = Number(rawBet)
 
-  if (!bet || bet < 1 || !Number.isFinite(bet)) {
+  if (!bet || bet < 1 || !Number.isFinite(bet) || bet > 100_000_000_000) {
     throw createError({ statusCode: 400, statusMessage: 'Invalid bet amount' })
   }
 
