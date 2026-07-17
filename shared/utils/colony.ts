@@ -1,3 +1,5 @@
+import { randomFloat, randomInt } from './random'
+
 // Colony — shared game-balance config, used by both client and server.
 // Static species/item/tier data lives here; only instance data (which bug,
 // what traits it rolled, how much of each item is owned) is persisted.
@@ -194,7 +196,7 @@ export function rollTraitPct(researchLevel = 0): number {
   const lvl = Math.max(0, Math.min(MAX_RESEARCH_LEVEL, researchLevel))
   const min = RESEARCH_SPEED_MIN[lvl] ?? 0
   const max = RESEARCH_SPEED_MAX[lvl] ?? MAX_TRAIT_PCT
-  return min + Math.floor(Math.random() * (max - min + 1))
+  return randomInt(min, max)
 }
 
 /** Roll a fixed yield LEVEL within the given Research level's [min, max] (see RESEARCH_YIELD_MIN/MAX) — stored once per bug instance, and acts as a ceiling for its per-tick roll (see rollTickYield). */
@@ -202,7 +204,7 @@ export function rollYieldLevel(researchLevel = 0): number {
   const lvl = Math.max(0, Math.min(MAX_RESEARCH_LEVEL, researchLevel))
   const min = RESEARCH_YIELD_MIN[lvl] ?? 1
   const max = RESEARCH_YIELD_MAX[lvl] ?? 2
-  return min + Math.floor(Math.random() * (max - min + 1))
+  return randomInt(min, max)
 }
 
 /**
@@ -214,7 +216,7 @@ export function rollYieldLevel(researchLevel = 0): number {
  * 6, never a flat number.
  */
 export function rollTickYield(yieldLevel: number): number {
-  return 1 + Math.floor(Math.random() * (yieldLevel + 1))
+  return 1 + Math.floor(randomFloat() * (yieldLevel + 1))
 }
 
 /**
@@ -228,7 +230,7 @@ export function avgTickYield(yieldLevel: number): number {
 
 /** Roll a fixed eat rate for a species, uniform within [eatMin, eatMax]. */
 export function rollEatRate(type: BugType): number {
-  return type.eatMin + Math.floor(Math.random() * (type.eatMax - type.eatMin + 1))
+  return randomInt(type.eatMin, type.eatMax)
 }
 
 // ─── Research (per-species roll upgrades) ──────────────────────────────────

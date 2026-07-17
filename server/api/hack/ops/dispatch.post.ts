@@ -1,16 +1,14 @@
 import { eq, and, inArray } from 'drizzle-orm'
 import { db } from '#server/database'
 import { hackAgents, hackItems, hackOps } from '#server/database/schema'
-import { auth } from '#server/utils/auth'
+import { requireUserId } from '#server/utils/auth'
 import {
   OP_TEMPLATES, agentPower, effectiveDurationMs, opSuccessChance, MIN_DEPLOY_SUCCESS,
   type AgentClass, type ItemMod, type AgentTrait,
 } from '#shared/utils/hack-config'
 
 export default defineEventHandler(async (event) => {
-  const session = await auth.api.getSession({ headers: event.headers })
-  if (!session?.user?.id) throw createError({ statusCode: 401, statusMessage: 'Unauthorized' })
-  const userId = session.user.id
+  const userId = await requireUserId(event)
 
   const body = await readBody(event)
   const { templateId, agentIds } = body as { templateId: string; agentIds: string[] }

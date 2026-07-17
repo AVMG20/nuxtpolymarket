@@ -1,15 +1,12 @@
 import { eq, and } from 'drizzle-orm'
 import { db } from '#server/database'
 import { xenoGridSlots, xenoArtifacts } from '#server/database/schema'
-import { auth } from '#server/utils/auth'
+import { requireUserId } from '#server/utils/auth'
 import { getArtifactOrThrow } from '#shared/utils/xeno'
 
 export default defineEventHandler(async (event) => {
   const body = await readBody<{ slotId: string; artifactId: string }>(event)
-  const session = await auth.api.getSession({ headers: event.headers })
-  if (!session?.user?.id) throw createError({ statusCode: 401, statusMessage: 'Unauthorized' })
-
-  const userId = session.user.id
+  const userId = await requireUserId(event)
 
   const [slot, artifact] = await Promise.all([
     db.query.xenoGridSlots.findFirst({

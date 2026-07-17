@@ -1,7 +1,7 @@
 import { eq, sql } from 'drizzle-orm'
 import { db } from '#server/database'
 import { colonyState, user } from '#server/database/schema'
-import { auth } from '#server/utils/auth'
+import { requireUserId } from '#server/utils/auth'
 import { settleColony, getUpgradeLevels } from '#server/utils/colony'
 import { debit } from '#server/utils/balance'
 import { deriveNutritionMax, FEED_COST_PER_POINT, gemFeedCost } from '#shared/utils/colony'
@@ -17,9 +17,7 @@ export default defineEventHandler(async (event) => {
   const body = await readBody<{ method?: 'coins' | 'gems' }>(event)
   const method = body?.method === 'gems' ? 'gems' : 'coins'
 
-  const session = await auth.api.getSession({ headers: event.headers })
-  if (!session?.user?.id) throw createError({ statusCode: 401, statusMessage: 'Unauthorized' })
-  const userId = session.user.id
+  const userId = await requireUserId(event)
 
   const state = await settleColony(userId)
   const levels = await getUpgradeLevels(userId)

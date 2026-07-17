@@ -19,7 +19,7 @@ async function unlockRakeback() {
     unlockModalOpen.value = false
     toast.add({ title: 'Rakeback unlocked!', color: 'success', icon: 'i-lucide-check' })
   } catch (e: any) {
-    toast.add({ title: e?.data?.statusMessage ?? 'Unlock failed', color: 'error' })
+    toast.add({ title: apiErrorMessage(e, 'Unlock failed'), color: 'error' })
   } finally {
     unlockLoading.value = false
   }
@@ -35,7 +35,7 @@ async function claimRake() {
     claimModalOpen.value = false
     toast.add({ title: 'Rakeback claimed!', color: 'success', icon: 'i-lucide-check' })
   } catch (e: any) {
-    toast.add({ title: e?.data?.statusMessage ?? 'Claim failed', color: 'error' })
+    toast.add({ title: apiErrorMessage(e, 'Claim failed'), color: 'error' })
   } finally {
     claimLoading.value = false
   }
@@ -120,7 +120,7 @@ async function savePassword() {
       accounts.value = (data as Account[]) ?? []
       toast.add({ title: 'Password set', color: 'success', icon: 'i-lucide-check' })
     } catch (e: any) {
-      pwError.value = e?.data?.statusMessage ?? e?.data?.message ?? 'Failed to set password'
+      pwError.value = apiErrorMessage(e, 'Failed to set password')
     }
   }
   pwLoading.value = false
@@ -162,7 +162,7 @@ async function handleSignOut() {
       <UCard>
         <div class="flex items-center gap-5">
           <div class="size-16 rounded-full bg-primary/20 flex items-center justify-center shrink-0">
-            <span class="text-2xl font-bold text-primary">{{ (user?.name ?? 'A')[0].toUpperCase() }}</span>
+            <span class="text-2xl font-bold text-primary">{{ (user?.name?.[0] ?? 'A').toUpperCase() }}</span>
           </div>
           <div class="min-w-0">
             <p class="font-semibold text-xl truncate">{{ user?.name }}</p>

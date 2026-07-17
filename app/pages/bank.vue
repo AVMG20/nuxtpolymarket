@@ -145,10 +145,7 @@ async function submit(action: 'deposit' | 'withdraw', overrideAmount?: number, r
     await Promise.all([refresh(), refreshChartHistory(), fetchSession(), loadHistory(true)])
     toast.add({ title: repayDebt ? 'Debt repaid exactly' : action === 'deposit' ? 'Money deposited' : 'Money withdrawn', color: 'success', icon: 'i-lucide-check' })
   } catch (error: unknown) {
-    const message = typeof error === 'object' && error && 'data' in error
-      ? (error.data as { statusMessage?: string })?.statusMessage
-      : undefined
-    toast.add({ title: message ?? 'Bank action failed', color: 'error' })
+    toast.add({ title: apiErrorMessage(error, 'Bank action failed'), color: 'error' })
   } finally {
     loading.value = null
   }

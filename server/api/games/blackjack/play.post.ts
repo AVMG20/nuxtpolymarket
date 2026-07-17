@@ -1,10 +1,12 @@
-import { eq } from 'drizzle-orm'
-import { auth } from '#server/utils/auth'
-import { debit, credit, getBalance, accumulateRake } from '#server/utils/balance'
+import { requireUserId } from '#server/utils/auth'
+import { debit, accumulateRake } from '#server/utils/balance'
 import { getHint, performAction, startGame, toClientState } from '#shared/utils/gamelogic/blackjack'
 import type { BlackjackAction, BlackjackResult, BlackjackState, Card, Hand } from '#shared/utils/gamelogic/blackjack'
 import { db } from '#server/database'
 import { blackjackSessions } from '#server/database/schema'
+import { eq } from 'drizzle-orm'
+import { lockUserBalance, readUserBalance, settleFinishedHand } from '#server/utils/blackjack'
+import { AI_CASINO_MAX_BET } from '#shared/utils/limits'
 
 function visibleCard(card: Card) {
     return `${card.rank} of ${card.suit}`
@@ -30,84 +32,78 @@ function handSummary(hand: Hand) {
 }
 
 export default defineEventHandler(async (event) => {
-    const session = await auth.api.getSession({ headers: event.headers })
-    if (!session?.user?.id) {
-        throw createError({ statusCode: 401, statusMessage: 'Unauthorized' })
-    }
+    const userId = await requireUserId(event)
 
     const { bet: rawBet } = await readBody<{ bet: number }>(event)
     const bet = Number(rawBet)
-    if (!Number.isFinite(bet) || bet < 1 || bet > 1_000_000) {
+    if (!Number.isFinite(bet) || bet < 1 || bet > AI_CASINO_MAX_BET) {
         throw createError({ statusCode: 400, statusMessage: 'Invalid bet amount' })
     }
 
-    const existing = await db.select().from(blackjackSessions).where(eq(blackjackSessions.userId, session.user.id)).limit(1)
-    if (existing.length > 0) {
-        throw createError({ statusCode: 400, statusMessage: 'You already have an active blackjack game. Finish it first.' })
-    }
+    return db.transaction(async (tx) => {
+        // Locking the user row keeps the whole auto-played hand atomic: no other
+        // blackjack request can stake or settle against this player mid-resolution.
+        const startingBalance = await lockUserBalance(tx, userId)
 
-    const startingBalance = Number(await getBalance(session.user.id))
-    if (startingBalance < bet) {
-        throw createError({ statusCode: 400, statusMessage: 'Insufficient balance' })
-    }
-
-    await debit(session.user.id, bet.toFixed(4), 'blackjack')
-    await accumulateRake(session.user.id, bet)
-
-    let result: BlackjackResult = startGame(bet)
-    const actions: BlackjackAction[] = []
-
-    // Resolve the whole hand in this request. Insurance is declined because its
-    // expected value is negative; all other choices follow the existing hint.
-    while (!result.finished) {
-        const state: BlackjackState = result.state
-        let action: BlackjackAction
-
-        if (state.phase === 'insurance') {
-            action = 'no-insurance'
-        } else if (state.phase === 'playing') {
-            const hand = state.playerHands[state.currentHandIndex]
-            const availableBalance = Number(await getBalance(session.user.id))
-            if (!hand) throw createError({ statusCode: 500, statusMessage: 'Blackjack hand is missing' })
-
-            const canFundExtraBet = availableBalance >= hand.bet
-            action = getHint(
-                hand,
-                state.dealerHand.cards[0]!,
-                hand.cards.length === 2 && canFundExtraBet,
-                hand.cards.length === 2,
-                hand.cards.length === 2 && canFundExtraBet
-            )
-
-            if (action === 'double' || action === 'split') {
-                await debit(session.user.id, hand.bet.toFixed(4), 'blackjack')
-                await accumulateRake(session.user.id, hand.bet)
-            }
-        } else {
-            throw createError({ statusCode: 500, statusMessage: 'Blackjack could not be resolved' })
+        const existing = await tx.select().from(blackjackSessions).where(eq(blackjackSessions.userId, userId)).limit(1)
+        if (existing.length > 0) {
+            throw createError({ statusCode: 400, statusMessage: 'You already have an active blackjack game. Finish it first.' })
         }
 
-        actions.push(action)
-        result = performAction(state, action, bet)
-    }
+        await debit(userId, bet.toFixed(4), 'blackjack', tx)
+        await accumulateRake(userId, bet, tx)
 
-    const totalBets = result.state.playerHands.reduce((sum, hand) => sum + hand.bet, 0) + result.state.insuranceBet
-    const payout = totalBets + result.netPayout
-    if (payout > 0) {
-        await credit(session.user.id, payout.toFixed(4), 'blackjack')
-    }
+        let result: BlackjackResult = startGame(bet)
+        const actions: BlackjackAction[] = []
 
-    const balance = Number(await getBalance(session.user.id))
-    return {
-        bet,
-        totalWagered: totalBets,
-        payout,
-        net: balance - startingBalance,
-        balance,
-        actions,
-        message: result.state.message,
-        dealer: handSummary(result.state.dealerHand),
-        hands: result.state.playerHands.map(handSummary),
-        clientState: toClientState(result.state)
-    }
+        // Resolve the whole hand in this request. Insurance is declined because its
+        // expected value is negative; all other choices follow the existing hint.
+        while (!result.finished) {
+            const state: BlackjackState = result.state
+            let action: BlackjackAction
+
+            if (state.phase === 'insurance') {
+                action = 'no-insurance'
+            } else if (state.phase === 'playing') {
+                const hand = state.playerHands[state.currentHandIndex]
+                const availableBalance = await readUserBalance(tx, userId)
+                if (!hand) throw createError({ statusCode: 500, statusMessage: 'Blackjack hand is missing' })
+
+                const canFundExtraBet = availableBalance >= hand.bet
+                action = getHint(
+                    hand,
+                    state.dealerHand.cards[0]!,
+                    hand.cards.length === 2 && canFundExtraBet,
+                    hand.cards.length === 2,
+                    hand.cards.length === 2 && canFundExtraBet
+                )
+
+                if (action === 'double' || action === 'split') {
+                    await debit(userId, hand.bet.toFixed(4), 'blackjack', tx)
+                    await accumulateRake(userId, hand.bet, tx)
+                }
+            } else {
+                throw createError({ statusCode: 500, statusMessage: 'Blackjack could not be resolved' })
+            }
+
+            actions.push(action)
+            result = performAction(state, action, bet)
+        }
+
+        const { totalBets, payout } = await settleFinishedHand(tx, userId, result)
+        const balance = await readUserBalance(tx, userId)
+
+        return {
+            bet,
+            totalWagered: totalBets,
+            payout,
+            net: balance - startingBalance,
+            balance,
+            actions,
+            message: result.state.message,
+            dealer: handSummary(result.state.dealerHand),
+            hands: result.state.playerHands.map(handSummary),
+            clientState: toClientState(result.state)
+        }
+    })
 })

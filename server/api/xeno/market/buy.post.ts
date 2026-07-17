@@ -1,17 +1,15 @@
 import { and, eq } from 'drizzle-orm'
 import { db } from '#server/database'
 import { xenoPlantsUnlocked } from '#server/database/schema'
-import { auth } from '#server/utils/auth'
+import { requireUserId } from '#server/utils/auth'
 import { addPlants } from '#server/utils/xeno'
 import { debit } from '#server/utils/balance'
 import { getPlantOrThrow, plantBuyPrice } from '#shared/utils/xeno'
 
 export default defineEventHandler(async (event) => {
   const body = await readBody<{ typeId: string; quantity: number }>(event)
-  const session = await auth.api.getSession({ headers: event.headers })
-  if (!session?.user?.id) throw createError({ statusCode: 401, statusMessage: 'Unauthorized' })
+  const userId = await requireUserId(event)
 
-  const userId = session.user.id
   const qty = body.quantity ?? 1
   if (!body.typeId || qty < 1 || qty > 10) {
     throw createError({ statusCode: 400, statusMessage: 'Provide typeId and quantity (1–10)' })

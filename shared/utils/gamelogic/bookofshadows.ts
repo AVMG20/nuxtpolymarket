@@ -29,6 +29,8 @@
 // to BONUS_WILD and stays that way (sticky) for the rest of the bonus.
 // BONUS_WILD is also a wild, so it substitutes into ordinary paylines too.
 
+import { randomFloat } from '../random'
+
 export const BOS_COLS = 5
 export const BOS_ROWS = 6
 
@@ -142,15 +144,9 @@ export const BONUS_TIERS: BonusTier[] = [
 
 // --- crypto RNG helpers -----------------------------------------------------
 
-function rand(): number {
-  const arr = new Uint32Array(1)
-  crypto.getRandomValues(arr)
-  return arr[0]! / 0x1_0000_0000 // [0, 1)
-}
-
 function weightedPick<T>(items: readonly T[], weights: readonly number[]): T {
   const total = weights.reduce((a, b) => a + b, 0)
-  let r = rand() * total
+  let r = randomFloat() * total
   for (let i = 0; i < items.length; i++) {
     r -= weights[i]!
     if (r < 0) return items[i]!
@@ -240,7 +236,7 @@ function generateGrid(): SlotSymbol[][] {
 function forcePlaceBonusSymbols(grid: SlotSymbol[][]) {
   const chosen = new Set<number>()
   const totalCells = BOS_COLS * BOS_ROWS
-  while (chosen.size < BONUS_TRIGGER_COUNT) chosen.add(Math.floor(rand() * totalCells))
+  while (chosen.size < BONUS_TRIGGER_COUNT) chosen.add(Math.floor(randomFloat() * totalCells))
   for (const idx of chosen) {
     const col = Math.floor(idx / BOS_ROWS)
     const row = idx % BOS_ROWS
@@ -369,8 +365,8 @@ function simulateBonusSpin(locked: Set<number>, booksAllowed: boolean): Pick<Bon
     const column: SlotSymbol[] = []
     for (let row = 0; row < BOS_ROWS; row++) column.push(draw())
 
-    if (rand() < BONUS_WILD_CHANCE) {
-      const triggerRow = Math.floor(rand() * BOS_ROWS)
+    if (randomFloat() < BONUS_WILD_CHANCE) {
+      const triggerRow = Math.floor(randomFloat() * BOS_ROWS)
       const landedColumn = [...column]
       landedColumn[triggerRow] = 'bonuswild' // exactly one cell pre-expansion
       landedGrid.push(landedColumn)
@@ -470,7 +466,7 @@ export function playBookOfShadows(bet: number, options?: Record<string, unknown>
       wins,
       payout,
       basePayout,
-      won: payout > 0,
+      won: payout > cost,
       maxWin,
       bonusTriggered: true,
       bonus,

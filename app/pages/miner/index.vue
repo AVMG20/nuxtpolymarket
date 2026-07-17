@@ -40,7 +40,7 @@ async function collect() {
     toast.add({ title: `Collected $${formatNumber(res.collected, true)}`, color: 'success' })
     await Promise.all([refresh(), fetchSession()])
   } catch (e: any) {
-    toast.add({ title: e.data?.message ?? 'Failed to collect', color: 'error' })
+    toast.add({ title: apiErrorMessage(e, 'Failed to collect'), color: 'error' })
   } finally {
     collecting.value = false
   }
@@ -53,7 +53,7 @@ async function upgradeRig() {
     toast.add({ title: `Rig upgraded to level ${res.newLevel}`, color: 'success' })
     await Promise.all([refresh(), fetchSession()])
   } catch (e: any) {
-    toast.add({ title: e.data?.message ?? 'Upgrade failed', color: 'error' })
+    toast.add({ title: apiErrorMessage(e, 'Upgrade failed'), color: 'error' })
   } finally {
     upgradingRig.value = false
   }
@@ -66,7 +66,7 @@ async function upgradeVault() {
     toast.add({ title: `Vault expanded to level ${res.newLevel}`, color: 'success' })
     await Promise.all([refresh(), fetchSession()])
   } catch (e: any) {
-    toast.add({ title: e.data?.message ?? 'Upgrade failed', color: 'error' })
+    toast.add({ title: apiErrorMessage(e, 'Upgrade failed'), color: 'error' })
   } finally {
     upgradingVault.value = false
   }

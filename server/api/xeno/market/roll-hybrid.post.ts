@@ -1,7 +1,7 @@
 import { eq } from 'drizzle-orm'
 import { db } from '#server/database'
 import { xenoPlants, xenoPlantsUnlocked } from '#server/database/schema'
-import { auth } from '#server/utils/auth'
+import { requireUserId } from '#server/utils/auth'
 import { debitGems } from '#server/utils/balance'
 import {
   rollHybrid, makeHybridTypeId, enrichHybridResources, hybridGemCost,
@@ -9,10 +9,7 @@ import {
 } from '#shared/utils/xeno'
 
 export default defineEventHandler(async (event) => {
-  const session = await auth.api.getSession({ headers: event.headers })
-  if (!session?.user?.id) throw createError({ statusCode: 401, statusMessage: 'Unauthorized' })
-
-  const userId = session.user.id
+  const userId = await requireUserId(event)
 
   // Hybrid tier = highest tier where the player has unlocked EVERY plant.
   // Uses the permanent xenoPlantsUnlocked table, not current inventory, so

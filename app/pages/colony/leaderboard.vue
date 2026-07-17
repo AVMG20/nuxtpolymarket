@@ -2,9 +2,7 @@
 import { MAX_TIER } from '#shared/utils/colony'
 
 const { data: players, pending } = await useFetch('/api/colony/leaderboard')
-const { user } = useAuth()
 
-const medals = ['i-lucide-medal', 'i-lucide-award', 'i-lucide-star']
 const medalColors = ['text-yellow-400', 'text-muted', 'text-warning']
 const rankBg = [
   'bg-gradient-to-r from-warning/10 to-warning/5 border-warning/30',
@@ -33,154 +31,128 @@ function habitatProgress(level: number) {
       </p>
     </div>
 
-    <div
-      v-if="pending"
-      class="space-y-3"
-    >
-      <USkeleton
-        v-for="i in 6"
-        :key="i"
-        class="h-20 rounded-xl"
-      />
-    </div>
+    <LeaderboardSkeleton v-if="pending" :rows="6" />
 
     <div
       v-else-if="players?.length"
       class="space-y-2"
     >
-      <div
+      <LeaderboardPodiumRow
         v-for="(player, index) in players.slice(0, 3)"
-        :key="player.userId"
-        class="flex items-center gap-3 px-4 py-4 rounded-xl border transition-all"
-        :class="[rankBg[index], player.userId === user?.id ? 'ring-1 ring-primary/40' : '']"
+        :key="player.name"
+        :rank="index"
+        :name="player.name"
+        :is-current-user="player.isCurrentUser"
+        :rank-bg="rankBg"
+        :medal-colors="medalColors"
+        name-width="w-32"
+        you-badge-variant="badge"
       >
-        <div class="w-8 flex items-center justify-center shrink-0">
-          <UIcon
-            :name="medals[index]!"
-            class="size-7"
-            :class="medalColors[index]"
-          />
-        </div>
-
-        <div class="size-10 rounded-full bg-background flex items-center justify-center shrink-0 font-bold border border-default">
-          {{ player.name[0]?.toUpperCase() }}
-        </div>
-
-        <div class="min-w-0 w-32 shrink-0">
-          <div class="flex items-center gap-1.5">
-            <p class="font-bold truncate">
-              {{ player.name }}
-            </p>
-            <UBadge
-              v-if="player.userId === user?.id"
-              color="primary"
-              variant="subtle"
-              size="sm"
-            >
-              YOU
-            </UBadge>
-          </div>
+        <template #meta>
           <p class="text-xs text-muted">
             Habitat {{ player.habitatLevel }} / {{ MAX_TIER }}
           </p>
-        </div>
+        </template>
 
-        <div class="hidden sm:block flex-1 max-w-40">
-          <div class="flex items-center justify-between text-[10px] text-muted mb-1">
-            <span>Habitat progress</span>
-            <span>{{ habitatProgress(player.habitatLevel) }}%</span>
+        <template #progress>
+          <div class="hidden sm:block flex-1 max-w-40">
+            <div class="flex items-center justify-between text-[10px] text-muted mb-1">
+              <span>Habitat progress</span>
+              <span>{{ habitatProgress(player.habitatLevel) }}%</span>
+            </div>
+            <div class="h-1.5 rounded-full bg-elevated overflow-hidden">
+              <div
+                class="h-full rounded-full bg-primary"
+                :style="{ width: `${habitatProgress(player.habitatLevel)}%` }"
+              />
+            </div>
           </div>
-          <div class="h-1.5 rounded-full bg-elevated overflow-hidden">
-            <div
-              class="h-full rounded-full bg-primary"
-              :style="{ width: `${habitatProgress(player.habitatLevel)}%` }"
-            />
-          </div>
-        </div>
+        </template>
 
-        <div class="hidden lg:flex items-center gap-5 shrink-0">
-          <div class="text-center">
-            <p class="text-sm font-bold">
-              {{ formatNumber(player.bugCount, false, 0) }}
-            </p>
-            <p class="text-[10px] text-muted">
-              Bugs
-            </p>
+        <template #stats>
+          <div class="hidden lg:flex items-center gap-5 shrink-0">
+            <div class="text-center">
+              <p class="text-sm font-bold">
+                {{ formatNumber(player.bugCount, false, 0) }}
+              </p>
+              <p class="text-[10px] text-muted">
+                Bugs
+              </p>
+            </div>
+            <div class="text-center">
+              <p class="text-sm font-bold">
+                {{ player.speciesOwned }}
+              </p>
+              <p class="text-[10px] text-muted">
+                Species
+              </p>
+            </div>
+            <div class="text-center">
+              <p class="text-sm font-bold">
+                {{ player.upgradeLevels }}
+              </p>
+              <p class="text-[10px] text-muted">
+                Upgrades
+              </p>
+            </div>
+            <div class="text-center">
+              <p class="text-sm font-bold">
+                {{ player.researchLevels }}
+              </p>
+              <p class="text-[10px] text-muted">
+                Research
+              </p>
+            </div>
           </div>
-          <div class="text-center">
-            <p class="text-sm font-bold">
-              {{ player.speciesOwned }}
-            </p>
-            <p class="text-[10px] text-muted">
-              Species
-            </p>
-          </div>
-          <div class="text-center">
-            <p class="text-sm font-bold">
-              {{ player.upgradeLevels }}
-            </p>
-            <p class="text-[10px] text-muted">
-              Upgrades
-            </p>
-          </div>
-          <div class="text-center">
-            <p class="text-sm font-bold">
-              {{ player.researchLevels }}
-            </p>
-            <p class="text-[10px] text-muted">
-              Research
-            </p>
-          </div>
-        </div>
+        </template>
 
-        <div class="ml-auto text-right shrink-0">
-          <CoinBalance :value="player.colonyValue" />
-          <p class="text-[10px] text-muted">
-            colony value
-          </p>
-        </div>
-      </div>
+        <template #trailing>
+          <div class="ml-auto text-right shrink-0">
+            <CoinBalance :value="player.colonyValue" />
+            <p class="text-[10px] text-muted">
+              colony value
+            </p>
+          </div>
+        </template>
+      </LeaderboardPodiumRow>
 
       <div
         v-if="players.length > 3"
         class="pt-3 space-y-1.5"
       >
-        <div
+        <LeaderboardListRow
           v-for="(player, index) in players.slice(3)"
-          :key="player.userId"
-          class="flex items-center gap-3 px-4 py-3 rounded-xl border transition-colors"
-          :class="player.userId === user?.id ? 'bg-primary/5 border-primary/30' : 'bg-elevated/40 border-default hover:bg-elevated'"
+          :key="player.name"
+          :rank="index + 4"
+          :name="player.name"
+          :is-current-user="player.isCurrentUser"
+          wrapper-base-class="flex items-center gap-3 px-4 py-3 rounded-xl border transition-colors"
+          wrapper-active-class="bg-primary/5 border-primary/30"
+          wrapper-inactive-class="bg-elevated/40 border-default hover:bg-elevated"
+          name-width="w-28"
+          you-badge-variant="text"
         >
-          <span class="w-7 text-center text-muted font-mono text-sm shrink-0">{{ index + 4 }}</span>
-          <div class="size-8 rounded-full bg-background flex items-center justify-center shrink-0 text-xs font-bold border border-default">
-            {{ player.name[0]?.toUpperCase() }}
-          </div>
-          <div class="min-w-0 w-28 shrink-0">
-            <div class="flex items-center gap-1.5">
-              <p class="font-medium truncate text-sm">
-                {{ player.name }}
-              </p>
-              <span
-                v-if="player.userId === user?.id"
-                class="text-[9px] font-black text-primary"
-              >YOU</span>
-            </div>
+          <template #meta>
             <p class="text-[10px] text-muted">
               Habitat {{ player.habitatLevel }}
             </p>
-          </div>
+          </template>
 
-          <div class="hidden sm:flex items-center gap-4 flex-1 text-xs text-muted">
-            <span><strong class="text-default">{{ player.bugCount }}</strong> bugs</span>
-            <span><strong class="text-default">{{ player.placedBugCount }}</strong> active</span>
-            <span><strong class="text-default">{{ player.speciesOwned }}</strong> species</span>
-            <span><strong class="text-default">{{ formatNumber(player.itemCount) }}</strong> items</span>
-          </div>
+          <template #middle>
+            <div class="hidden sm:flex items-center gap-4 flex-1 text-xs text-muted">
+              <span><strong class="text-default">{{ player.bugCount }}</strong> bugs</span>
+              <span><strong class="text-default">{{ player.placedBugCount }}</strong> active</span>
+              <span><strong class="text-default">{{ player.speciesOwned }}</strong> species</span>
+              <span><strong class="text-default">{{ formatNumber(player.itemCount) }}</strong> items</span>
+            </div>
+          </template>
 
-          <div class="ml-auto shrink-0">
-            <CoinBalance :value="player.colonyValue" />
-          </div>
-        </div>
+          <template #trailing>
+            <div class="ml-auto shrink-0">
+              <CoinBalance :value="player.colonyValue" />
+            </div>
+          </template>
+        </LeaderboardListRow>
       </div>
     </div>
 

@@ -1,3 +1,5 @@
+import { randomFloat } from '../random'
+
 export interface LimboResult {
   result: number     // generated multiplier
   won: boolean
@@ -14,9 +16,7 @@ export function playLimbo(bet: number, options?: Record<string, unknown>): Limbo
     throw createError({ statusCode: 400, message: 'Target must be between 1.01 and 1000000' })
   }
 
-  const arr = new Uint32Array(1)
-  crypto.getRandomValues(arr)
-  const rand = arr[0]! / 0xFFFFFFFF
+  const rand = randomFloat()
 
   // RTP = 98%: P(result >= target) = 0.98 / target
   const raw = rand === 0 ? 1_000_000 : 0.98 / rand

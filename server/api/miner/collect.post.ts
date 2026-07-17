@@ -1,26 +1,27 @@
 import { eq } from 'drizzle-orm'
 import { db } from '#server/database'
 import { minerState } from '#server/database/schema'
-import { auth } from '#server/utils/auth'
+import { requireUserId } from '#server/utils/auth'
 import { effectiveRigIncome, vaultCap, computePending } from '#shared/utils/miner-config'
 import { credit } from '#server/utils/balance'
+import { getLockedMinerState } from '#server/utils/miner'
 
 export default defineEventHandler(async (event) => {
-  const session = await auth.api.getSession({ headers: event.headers })
-  if (!session?.user?.id) throw createError({ statusCode: 401, statusMessage: 'Unauthorized' })
+  const userId = await requireUserId(event)
 
-  const userId = session.user.id
+  return db.transaction(async (tx) => {
+    // The row lock serializes collectors: the loser reads lastCollectedAt only after
+    // the winner has moved it forward, so its pending recomputes to ~0.
+    const s = await getLockedMinerState(tx, userId)
 
-  const s = await db.query.minerState.findFirst({ where: eq(minerState.userId, userId) })
-  if (!s) throw createError({ statusCode: 404, statusMessage: 'Miner not initialized' })
+    const pending = computePending(effectiveRigIncome(s.rigLevel, s.overclockLevel), s.lastCollectedAt, vaultCap(s.vaultLevel))
+    const amount = Math.floor(pending * 100) / 100
 
-  const pending = computePending(effectiveRigIncome(s.rigLevel, s.overclockLevel), s.lastCollectedAt, vaultCap(s.vaultLevel))
-  const amount = Math.floor(pending * 100) / 100
+    if (amount < 0.01) throw createError({ statusCode: 400, statusMessage: 'Nothing to collect yet' })
 
-  if (amount < 0.01) throw createError({ statusCode: 400, statusMessage: 'Nothing to collect yet' })
+    await tx.update(minerState).set({ lastCollectedAt: new Date() }).where(eq(minerState.userId, userId))
+    await credit(userId, amount.toFixed(4), 'miner', tx)
 
-  await db.update(minerState).set({ lastCollectedAt: new Date() }).where(eq(minerState.userId, userId))
-  await credit(userId, amount.toFixed(4), 'miner')
-
-  return { collected: amount }
+    return { collected: amount }
+  })
 })

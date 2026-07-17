@@ -1,13 +1,12 @@
 import { and, eq, gte, sql } from 'drizzle-orm'
 import { db } from '#server/database'
 import { transactions } from '#server/database/schema'
-import { auth } from '#server/utils/auth'
+import { requireUserId } from '#server/utils/auth'
 
 // Today's net result per transaction category for the current user.
 // Used by the chat widget's profit/loss share buttons.
 export default defineEventHandler(async (event) => {
-  const session = await auth.api.getSession({ headers: event.headers })
-  if (!session?.user?.id) throw createError({ statusCode: 401, statusMessage: 'Unauthorized' })
+  const userId = await requireUserId(event)
 
   const startOfToday = new Date()
   startOfToday.setHours(0, 0, 0, 0)
@@ -19,7 +18,7 @@ export default defineEventHandler(async (event) => {
     })
     .from(transactions)
     .where(and(
-      eq(transactions.userId, session.user.id),
+      eq(transactions.userId, userId),
       gte(transactions.createdAt, startOfToday)
     ))
     .groupBy(transactions.category)

@@ -137,7 +137,7 @@ async function swapCannons(slotA: number, slotB: number) {
         await refresh()
         toast.add({ title: 'Cannons rearranged', color: 'success' })
     } catch (e: any) {
-        toast.add({ title: e.data?.message ?? 'Failed to swap cannons', color: 'error' })
+        toast.add({ title: apiErrorMessage(e, 'Failed to swap cannons'), color: 'error' })
     } finally {
         swapping.value = false
         swapSource.value = null
@@ -151,7 +151,7 @@ async function upgradeStat(stat: PirateShipStatId) {
         await $fetch('/api/pirates/upgrade', { method: 'POST', body: { stat } })
         await Promise.all([refresh(), fetchSession()])
     } catch (e: any) {
-        toast.add({ title: e.data?.message ?? 'Upgrade failed', color: 'error' })
+        toast.add({ title: apiErrorMessage(e, 'Upgrade failed'), color: 'error' })
     } finally {
         upgrading.value = null
     }
@@ -165,7 +165,7 @@ async function unlockSlot() {
         await Promise.all([refresh(), fetchSession()])
         toast.add({ title: 'New gun port unlocked', color: 'success' })
     } catch (e: any) {
-        toast.add({ title: e.data?.message ?? 'Failed to unlock slot', color: 'error' })
+        toast.add({ title: apiErrorMessage(e, 'Failed to unlock slot'), color: 'error' })
     } finally {
         unlockingSlot.value = false
     }
@@ -179,7 +179,7 @@ async function buyAmmo(amount: number) {
         await Promise.all([refresh(), fetchSession()])
         toast.add({ title: `Stocked ${res.bought} ammo`, color: 'success' })
     } catch (e: any) {
-        toast.add({ title: e.data?.message ?? 'Failed to buy ammo', color: 'error' })
+        toast.add({ title: apiErrorMessage(e, 'Failed to buy ammo'), color: 'error' })
     } finally {
         buyingAmmo.value = null
     }
@@ -193,7 +193,7 @@ async function buyGemAmmo(bundles: number) {
         await Promise.all([refresh(), fetchSession()])
         toast.add({ title: `Loaded ${res.bought} gem shots`, color: 'success' })
     } catch (e: any) {
-        toast.add({ title: e.data?.message ?? 'Failed to buy gem powder', color: 'error' })
+        toast.add({ title: apiErrorMessage(e, 'Failed to buy gem powder'), color: 'error' })
     } finally {
         buyingGemAmmo.value = null
     }
@@ -211,7 +211,7 @@ async function equipCannon(tierId: string) {
         pickerOpen.value = false
         toast.add({ title: 'Cannon equipped', color: 'success' })
     } catch (e: any) {
-        toast.add({ title: e.data?.message ?? 'Failed to equip cannon', color: 'error' })
+        toast.add({ title: apiErrorMessage(e, 'Failed to equip cannon'), color: 'error' })
     } finally {
         equipping.value = null
     }
@@ -225,7 +225,7 @@ async function sellCannon(slotIndex: number) {
         await Promise.all([refresh(), fetchSession()])
         toast.add({ title: `Sold for ${formatNumber(res.refund)} coins`, color: 'success' })
     } catch (e: any) {
-        toast.add({ title: e.data?.message ?? 'Failed to sell cannon', color: 'error' })
+        toast.add({ title: apiErrorMessage(e, 'Failed to sell cannon'), color: 'error' })
     } finally {
         sellingSlot.value = null
     }
@@ -244,7 +244,7 @@ async function selectSkin(skin: NonNullable<typeof state.value>['skins'][number]
         }
         await Promise.all([refresh(), fetchSession()])
     } catch (e: any) {
-        toast.add({ title: e.data?.message ?? 'Failed to update ship skin', color: 'error' })
+        toast.add({ title: apiErrorMessage(e, 'Failed to update ship skin'), color: 'error' })
     } finally {
         skinAction.value = null
     }
@@ -263,7 +263,7 @@ async function selectAbility(ability: NonNullable<typeof state.value>['abilities
         }
         await Promise.all([refresh(), fetchSession()])
     } catch (e: any) {
-        toast.add({ title: e.data?.message ?? 'Failed to update ability', color: 'error' })
+        toast.add({ title: apiErrorMessage(e, 'Failed to update ability'), color: 'error' })
     } finally {
         abilityAction.value = null
     }

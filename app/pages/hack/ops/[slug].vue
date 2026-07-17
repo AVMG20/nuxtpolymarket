@@ -116,7 +116,7 @@ async function dispatch() {
     await navigateTo('/hack')
   } catch (e: any) {
     audio.playSfx('deny')
-    toast.add({ title: e.data?.statusMessage ?? 'Dispatch failed', color: 'error' })
+    toast.add({ title: apiErrorMessage(e, 'Dispatch failed'), color: 'error' })
   } finally {
     dispatching.value = false
   }
@@ -131,7 +131,8 @@ const modalStats = computed(() => {
   const t = template.value
   const agents = selectedAgentIds.value
     .map(id => state.value!.agents.find(a => a.id === id))
-    .filter(Boolean) as NonNullable<typeof state.value>['agents']
+    .filter((a): a is NonNullable<typeof a> => !!a)
+    .map(a => ({ ...a, class: a.class as AgentClass }))
   const power = agents.reduce((s, a) => s + a.power, 0)
   const successChance = opSuccessChance(power, t.minPower)
   // Per-agent loadouts — collectBonuses / effectiveDurationMs fold in each agent's
@@ -139,7 +140,7 @@ const modalStats = computed(() => {
   // the preview matches the real reward roll.
   const rewardAgents = agents.map(a => ({
     level: a.level,
-    class: a.class as AgentClass,
+    class: a.class,
     traits: (a.traits ?? []) as AgentTrait[],
     items: ([a.gear?.tool, a.gear?.software, a.gear?.hardware] as any[])
       .filter(Boolean)

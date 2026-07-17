@@ -28,6 +28,8 @@
 //   7.8, giving RTP ≈ 0.125 × 7.8 ≈ 0.98 (verified ≈ 97.5% by Monte Carlo, flat across
 //   1/5/10/40 hands, never above 100%).
 
+import { randomFloat } from '../random'
+
 const COLS = 5
 const ROWS = 8
 const TILES = COLS * ROWS // 40
@@ -94,18 +96,13 @@ export interface MagicHandsResult {
 
 // --- crypto RNG helpers -----------------------------------------------------
 
-function rand(): number {
-  const arr = new Uint32Array(1)
-  crypto.getRandomValues(arr)
-  return arr[0]! / 0x1_0000_0000 // [0, 1)
-}
 
 function randInt(minInclusive: number, maxInclusive: number): number {
-  return minInclusive + Math.floor(rand() * (maxInclusive - minInclusive + 1))
+  return minInclusive + Math.floor(randomFloat() * (maxInclusive - minInclusive + 1))
 }
 
 function pickMultiplierValue(): number {
-  const r = rand()
+  const r = randomFloat()
   let acc = 0
   for (let i = 0; i < MAGIC_HANDS_MULTIPLIERS.length; i++) {
     acc += MULTIPLIER_WEIGHTS[i]!
@@ -115,7 +112,7 @@ function pickMultiplierValue(): number {
 }
 
 function rollSlot(): SlotType {
-  const r = rand()
+  const r = randomFloat()
   if (r < P_NOTHING) return 'nothing'
   if (r < P_NOTHING + P_MULTIPLIER) return 'multiplier'
   return 'reroll'

@@ -2,6 +2,7 @@ import { eq, and, gte, lt, desc } from 'drizzle-orm'
 import { db } from '#server/database'
 import { bankHistory, bankState } from '#server/database/schema'
 import { BANK_CAP, debtFloor, LOAN_MULTIPLIER, bankDailyRate, growBankBalance, loanAllowance } from '#shared/utils/gamelogic/bank'
+import { BANK_MAX_AMOUNT } from '#shared/utils/limits'
 
 type BankTx = Parameters<Parameters<typeof db.transaction>[0]>[0]
 type BankRow = typeof bankState.$inferSelect
@@ -12,7 +13,7 @@ function round(value: number) {
 
 export function parseBankAmount(value: unknown) {
   const amount = typeof value === 'number' ? value : Number(value)
-  if (!Number.isFinite(amount) || amount <= 0 || amount > 100_000_000_000_000) {
+  if (!Number.isFinite(amount) || amount <= 0 || amount > BANK_MAX_AMOUNT) {
     throw createError({ statusCode: 400, statusMessage: 'Enter a valid positive amount' })
   }
   return round(amount)

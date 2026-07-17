@@ -117,7 +117,7 @@ async function open(mode: 'free' | 'paid') {
     }, revealDelayMs.value)
   } catch (e: any) {
     spinning.value = false
-    toast.add({ title: e.data?.message ?? 'Open failed', color: 'error' })
+    toast.add({ title: apiErrorMessage(e, 'Open failed'), color: 'error' })
   }
 }
 
@@ -128,7 +128,7 @@ async function buySlot() {
     toast.add({ title: `Lootbox slot #${res.newSlots} unlocked!`, color: 'success', icon: 'i-lucide-gift' })
     await Promise.all([refresh(), fetchSession()])
   } catch (e: any) {
-    toast.add({ title: e.data?.message ?? 'Purchase failed', color: 'error' })
+    toast.add({ title: apiErrorMessage(e, 'Purchase failed'), color: 'error' })
   } finally {
     buyingSlot.value = false
   }

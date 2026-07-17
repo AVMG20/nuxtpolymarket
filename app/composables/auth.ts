@@ -67,6 +67,7 @@ export function useAuth() {
     session,
     user,
     setBalance,
+    balanceNum: computed(() => parseFloat(user.value?.balance ?? '0')),
     loggedIn: computed(() => !!session.value),
     signIn: client.signIn,
     signUp: client.signUp,

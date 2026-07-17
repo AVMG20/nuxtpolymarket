@@ -1,4 +1,5 @@
 import { db } from '#server/database'
+import { getSessionUserId } from '#server/utils/auth'
 import { user, xenoPlants, xenoPlantsUnlocked, xenoArtifacts, xenoGridSlots, xenoBreederSlots } from '#server/database/schema'
 import { getPlantDisplay, PLANT_TYPES } from '#shared/utils/xeno'
 
@@ -7,7 +8,8 @@ import { getPlantDisplay, PLANT_TYPES } from '#shared/utils/xeno'
 // Xenopedia's discovered count.
 const SPECIES_IDS = new Set(PLANT_TYPES.map(p => p.id))
 
-export default defineEventHandler(async () => {
+export default defineEventHandler(async (event) => {
+  const sessionUserId = await getSessionUserId(event)
   const [users, allPlants, allUnlocked, allArtifacts, allGridSlots, allBreederSlots] = await Promise.all([
     db.select({ id: user.id, name: user.name }).from(user),
     db.select({ userId: xenoPlants.userId, typeId: xenoPlants.typeId }).from(xenoPlants),
@@ -52,7 +54,7 @@ export default defineEventHandler(async () => {
       const speciesUnlocked = unlockedByUser.get(u.id)?.size ?? 0
       const portfolioValue = plants.reduce((sum, p) => sum + (getPlantDisplay(p.typeId)?.value ?? 0), 0)
       return {
-        id: u.id,
+        isCurrentUser: u.id === sessionUserId,
         name: u.name,
         speciesUnlocked,
         plantCount: plants.length,

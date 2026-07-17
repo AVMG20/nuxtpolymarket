@@ -27,15 +27,13 @@ const rankStyles = [
       </div>
     </div>
 
-    <div v-if="pending" class="space-y-3">
-      <USkeleton v-for="i in 8" :key="i" class="h-28 rounded-xl" />
-    </div>
+    <LeaderboardSkeleton v-if="pending" height="h-28" />
 
     <div v-else-if="captains?.length" class="space-y-2">
       <UCard
         v-for="(captain, index) in captains"
-        :key="captain.userId"
-        :class="index < 3 ? rankStyles[index] : ''"
+        :key="captain.rank"
+        :class="[index < 3 ? rankStyles[index] : '', captain.isCurrentUser ? 'ring-1 ring-inset ring-primary/40' : '']"
         :ui="{ body: 'p-3 sm:p-4' }"
       >
         <div class="grid items-center gap-3 sm:grid-cols-[40px_minmax(190px,1fr)_repeat(3,minmax(80px,0.45fr))]">
@@ -49,8 +47,9 @@ const rankStyles = [
               <img :src="captain.skin.sprite" :alt="captain.skin.name" class="h-full w-full object-contain drop-shadow-lg">
             </div>
             <div class="min-w-0">
-              <p class="truncate font-bold">
+              <p class="flex items-center gap-1.5 truncate font-bold">
                 {{ captain.name }}
+                <LeaderboardYouBadge :show="captain.isCurrentUser" />
               </p>
               <p class="truncate text-xs text-muted">
                 {{ captain.skin.name }}

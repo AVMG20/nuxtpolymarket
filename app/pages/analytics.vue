@@ -35,7 +35,7 @@ const last3DayStrs = computed(() =>
   Array.from({ length: 3 }, (_, i) => {
     const d = new Date()
     d.setDate(d.getDate() - (2 - i))
-    return d.toISOString().split('T')[0]
+    return d.toISOString().slice(0, 10)
   })
 )
 

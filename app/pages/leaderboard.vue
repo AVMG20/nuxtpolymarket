@@ -1,6 +1,6 @@
 <script setup lang="ts">
 interface LeaderboardUser {
-  id: string
+  isCurrentUser: boolean
   name: string
   balance: string
   bankBalance: number
@@ -32,8 +32,6 @@ const detailsOpen = computed({
   }
 })
 
-const medals = ['i-lucide-medal', 'i-lucide-award', 'i-lucide-star']
-const medalColors = ['text-yellow-400', 'text-slate-400', 'text-amber-600']
 const rankBg = [
   'bg-gradient-to-r from-yellow-500/10 to-amber-500/5 border-yellow-500/30',
   'bg-gradient-to-r from-slate-500/10 to-slate-400/5 border-slate-500/30',
@@ -63,9 +61,7 @@ function openDetails(user: LeaderboardUser) {
       <p class="mt-0.5 text-sm text-muted">Top players ranked by total wealth</p>
     </div>
 
-    <div v-if="pending" class="space-y-3">
-      <USkeleton v-for="i in 8" :key="i" class="h-20 rounded-xl" />
-    </div>
+    <LeaderboardSkeleton v-if="pending" />
 
     <UCard v-else-if="users?.length" :ui="{ body: 'p-0 sm:p-0' }">
       <div class="overflow-x-auto">
@@ -82,22 +78,23 @@ function openDetails(user: LeaderboardUser) {
           <tbody>
             <tr
               v-for="(u, i) in users"
-              :key="u.id"
+              :key="u.name"
               class="cursor-pointer border-b border-default/70 transition-colors last:border-b-0 hover:bg-elevated/50 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-primary"
-              :class="i < 3 ? rankBg[i] : ''"
+              :class="[i < 3 ? rankBg[i] : '', u.isCurrentUser ? 'ring-1 ring-inset ring-primary/40' : '']"
               tabindex="0"
               @click="openDetails(u)"
               @keydown.enter="openDetails(u)"
               @keydown.space.prevent="openDetails(u)"
             >
               <td class="px-3 py-3 text-center">
-                <UIcon v-if="i < 3" :name="medals[i]!" class="mx-auto size-5" :class="medalColors[i]" />
+                <LeaderboardMedal v-if="i < 3" :rank="i" size="mx-auto size-5" />
                 <span v-else class="font-mono text-sm text-muted">{{ i + 1 }}</span>
               </td>
               <td class="px-3 py-3">
                 <div class="flex items-center gap-2.5">
                   <div class="flex size-9 shrink-0 items-center justify-center rounded-full border border-default bg-background font-bold">{{ u.name[0]?.toUpperCase() }}</div>
                   <p class="max-w-40 truncate font-semibold">{{ u.name }}</p>
+                  <LeaderboardYouBadge :show="u.isCurrentUser" />
                 </div>
               </td>
               <td class="px-3 py-3">

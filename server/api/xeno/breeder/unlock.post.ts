@@ -1,15 +1,13 @@
 import { eq } from 'drizzle-orm'
 import { db } from '#server/database'
 import { xenoBreederSlots } from '#server/database/schema'
-import { auth } from '#server/utils/auth'
+import { requireUserId } from '#server/utils/auth'
 import { debit } from '#server/utils/balance'
 import { breederSlotUnlockCost, XENO_MAX_BREEDER_SLOTS } from '#shared/utils/xeno'
 
 export default defineEventHandler(async (event) => {
-  const session = await auth.api.getSession({ headers: event.headers })
-  if (!session?.user?.id) throw createError({ statusCode: 401, statusMessage: 'Unauthorized' })
+  const userId = await requireUserId(event)
 
-  const userId = session.user.id
   const slots = await db.query.xenoBreederSlots.findMany({ where: eq(xenoBreederSlots.userId, userId) })
   const nextIndex = slots.length
 
