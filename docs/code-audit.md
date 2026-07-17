@@ -107,10 +107,15 @@ Legend: `[ ]` todo · `[x]` done · `[~]` in progress / partial
   *Correction to this audit line: there is NO buy-bonus modal in any of the six — every slot fires
   the spin straight from the button, and each button is custom-themed. `<BuyBonusModal>` was a
   phantom. The modal all six DO share is Auto Spin, so `<AutoSpinModal>` was extracted instead.*
-  *Phase 2 (open): migrate the other five. Known non-fits — Spinata has no optimistic debit and its
-  big-win is click-to-dismiss on a 4000ms timeout, so don't force `<BigWinOverlay>` on it; the
-  overlay will need an `intensity?: number` prop back for the four that scale font size by tier
-  (left out deliberately — BOS doesn't use it, so it lands with its first real caller).*
+  *Phase 2 done: all five migrated (Aethergates, CandyMadness, FireInTheHole, XenoSlot, Spinata).
+  `<BigWinOverlay>` gained the `intensity?: number` prop its first real callers needed. Spinata
+  behaved exactly as predicted — it keeps its own big-win (different state, click-to-dismiss, fixed
+  4000ms timeout) and its no-optimistic-debit `onStart`; it adopted only useSlotGame + slot-pixi +
+  AutoSpinModal. Reel building, atlases, symbol classes and `resizePixi` stayed in every component
+  by design. Slot components net −180 lines.*
+  *`AutoSpinModal` was missing `font-bold` on its count buttons: it was modelled on BookOfShadows,
+  which is one of only 2 of 6 slots without it. Fixed in the component (4 of 6 originals had it)
+  rather than adding a prop for a font weight.*
 - [x] **C2 — `useCasinoGame(game)` + `<GameHelpModal>` + `<BetControls>`.** dice/limbo/wheel pages
   have line-identical script blocks; all five casino pages repeat the help modal + bet controls.
   *Done: `useCasinoGame` owns bet/isPlaying/isFetching/lastBet/errorMsg/history + the play-guard
@@ -212,10 +217,16 @@ Surfaced while doing the work above; each deliberately left alone to keep refact
   using `arr[i] % (i + 1)`, which carries modulo bias. Left alone deliberately: it is a different
   shape from the others, it is not the `/0xFFFFFFFF` bug, and all 52 blackjack specs are coupled to
   a `stubDeal` helper that reverse-engineers this exact shuffle. Worth doing as its own pass.
-- [ ] **`leaderboard.vue` and `pirates/leaderboard.vue` receive `isCurrentUser` but render no
-  highlight from it.** Pre-existing gap spotted during C5.
-- [ ] **Blackjack's inline bet block** is near-identical to `<BetControls>` (C2 covered
+- [x] **`leaderboard.vue` and `pirates/leaderboard.vue` received `isCurrentUser` but rendered no
+  highlight from it.** Pre-existing gap spotted during C5. `leaderboard.vue` declared the field in
+  its row type and never referenced it; `pirates/leaderboard.vue` never declared it at all, though
+  `pirates/leaderboard.get.ts:28` has always sent it.
+  *Fixed: both now render `<LeaderboardYouBadge>` plus a `ring-primary/40` inset ring, layered
+  alongside the existing top-3 `rankBg`/`rankStyles` rather than replacing it.*
+- [x] **Blackjack's inline bet block** is near-identical to `<BetControls>` (C2 covered
   dice/limbo/wheel only).
+  *Fixed: the block was character-identical apart from its disabled expression; now
+  `<BetControls v-model="bet" :disabled="isPlaying && !showResults" />`.*
 - [ ] **ai.ts `XenoState`/`HackState`/`ColonyState`/`MinerState`** still mirror state-endpoint
   responses by hand and can silently drift (B1 deferred this deliberately).
 - [ ] **`slot-rtp.ts --fast`** (Math.random swap) measured 2.7x faster under tsx but **0% under
@@ -238,6 +249,14 @@ Surfaced while doing the work above; each deliberately left alone to keep refact
 - 2026-07-17 — wave 1 via parallel subagents: A3, A4, A5, A7, B4, B5, C3, C4, D1, D3 done;
   C5 keys fixed (component extraction open). Suite grew 85 → 127 tests. Solo verification:
   typecheck exit 0, 127 passed / 2 skipped. Working tree: 139 files, net −434 lines.
+- 2026-07-17 — rebased onto origin/main (1 incoming commit, no conflicts; verified nothing still
+  referenced the AI context file it deleted). Wave 4: C1 phase 2 (all five remaining slots) plus the
+  follow-up fixes. Solo verification again caught what the agents could not: XenoSlot destructured
+  `isSpinning`/`errorMsg`/`history` from `useSlotGame` while ALSO keeping the old local refs — six
+  TS2451 redeclare errors. Tests and eslint both passed it (slot components have no specs, and
+  no-redeclare isn't an eslint error here); only `nuxt typecheck` caught it. Three of the five
+  wave-3/4 agents were again killed by API 529s, all after doing the work.
+  Final: typecheck exit 0, 297 passed / 2 skipped, eslint 0 errors.
 - 2026-07-17 — wave 3 via parallel subagents: B1, C6, D2 done; C1 phase 1 done (phase 2 = migrate
   the other five slots). Three of four agents were killed mid-task by transient API 529s and were
   resumed from their own transcripts rather than restarted — no work lost. Solo verification caught
