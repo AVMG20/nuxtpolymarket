@@ -1,16 +1,17 @@
-import { eq } from 'drizzle-orm'
+import { count, eq, inArray, sql } from 'drizzle-orm'
 import { db } from '#server/database'
-import { auth } from '#server/utils/auth'
-import { user, minerState, bankState, colonyState, colonyBugResearch, xenoPlantsUnlocked, xenoGridSlots, xenoBreederSlots, aiMessages } from '#server/database/schema'
+import { getSessionUserId } from '#server/utils/auth'
+import { user, minerState, bankState, colonyState, colonyBugResearch, xenoPlantsUnlocked, xenoGridSlots, xenoBreederSlots, aiMessages, hackAgents, hackItems } from '#server/database/schema'
 import { gemComputeLivePrice, gemSellGems, GEM_INITIAL_PRICE } from '#shared/utils/gamelogic/gem-market'
 import { overclockMultiplier, catalystMultiplier } from '#shared/utils/miner-config'
 import { debtFloor, growBankBalance } from '#shared/utils/gamelogic/bank'
-import { agentPower, type AgentClass, type AgentTrait, type ItemMod } from '#shared/utils/hack-config'
 import { PLANT_TYPES } from '#shared/utils/xeno'
+import { equippedAgentPower, type EquippableItemRow } from '#server/utils/hack'
 
 export default defineEventHandler(async (event) => {
-  const session = await auth.api.getSession({ headers: event.headers })
-  const [users, market, hackAgentRows, hackItemRows, colonyStates, researchRows, unlockedPlantRows, xenoGridSlotRows, xenoBreederSlotRows, aiMessageRows] = await Promise.all([
+  const sessionUserId = await getSessionUserId(event)
+  const xenoSpeciesIds = [...new Set(PLANT_TYPES.map(plant => plant.id))]
+  const [users, market, hackAgentRows, hackItemRows, colonyHabitatRows, researchTotals, xenoSpeciesCounts, xenoGridCounts, xenoBreederCounts, aiPromptCounts] = await Promise.all([
     db
       .select({
         id: user.id,
@@ -30,20 +31,62 @@ export default defineEventHandler(async (event) => {
       .leftJoin(minerState, eq(minerState.userId, user.id))
       .leftJoin(bankState, eq(bankState.userId, user.id)),
     db.query.gemMarketState.findFirst(),
-    db.query.hackAgents.findMany(),
-    db.query.hackItems.findMany(),
+    db
+      .select({
+        userId: hackAgents.userId,
+        level: hackAgents.level,
+        class: hackAgents.class,
+        equippedTool: hackAgents.equippedTool,
+        equippedSoftware: hackAgents.equippedSoftware,
+        equippedHardware: hackAgents.equippedHardware,
+        traits: hackAgents.traits,
+      })
+      .from(hackAgents)
+      .where(eq(hackAgents.active, true)),
+    db
+      .select({ id: hackItems.id, userId: hackItems.userId, itemLevel: hackItems.itemLevel, mods: hackItems.mods })
+      .from(hackItems),
     db.select({ userId: colonyState.userId, habitatLevel: colonyState.habitatLevel }).from(colonyState),
-    db.select({ userId: colonyBugResearch.userId, level: colonyBugResearch.level }).from(colonyBugResearch),
-    db.select({ userId: xenoPlantsUnlocked.userId, typeId: xenoPlantsUnlocked.typeId }).from(xenoPlantsUnlocked),
-    db.select({ userId: xenoGridSlots.userId }).from(xenoGridSlots),
-    db.select({ userId: xenoBreederSlots.userId }).from(xenoBreederSlots),
-    db.select({ userId: aiMessages.userId, role: aiMessages.role }).from(aiMessages),
+    db
+      .select({ userId: colonyBugResearch.userId, total: sql<number>`coalesce(sum(${colonyBugResearch.level}), 0)`.mapWith(Number) })
+      .from(colonyBugResearch)
+      .groupBy(colonyBugResearch.userId),
+    db
+      .select({ userId: xenoPlantsUnlocked.userId, n: count() })
+      .from(xenoPlantsUnlocked)
+      .where(inArray(xenoPlantsUnlocked.typeId, xenoSpeciesIds))
+      .groupBy(xenoPlantsUnlocked.userId),
+    db.select({ userId: xenoGridSlots.userId, n: count() }).from(xenoGridSlots).groupBy(xenoGridSlots.userId),
+    db.select({ userId: xenoBreederSlots.userId, n: count() }).from(xenoBreederSlots).groupBy(xenoBreederSlots.userId),
+    db
+      .select({ userId: aiMessages.userId, n: count() })
+      .from(aiMessages)
+      .where(eq(aiMessages.role, 'user'))
+      .groupBy(aiMessages.userId),
   ])
 
   const livePrice = market
     ? gemComputeLivePrice(parseFloat(market.price), market.lastUpdatedAt)
     : GEM_INITIAL_PRICE
-  const xenoSpeciesIds = new Set(PLANT_TYPES.map(plant => plant.id))
+
+  const itemsByUser = new Map<string, Map<string, EquippableItemRow>>()
+  for (const item of hackItemRows) {
+    let itemMap = itemsByUser.get(item.userId)
+    if (!itemMap) itemsByUser.set(item.userId, itemMap = new Map())
+    itemMap.set(item.id, item)
+  }
+  const agentsByUser = new Map<string, typeof hackAgentRows>()
+  for (const agent of hackAgentRows) {
+    let agentList = agentsByUser.get(agent.userId)
+    if (!agentList) agentsByUser.set(agent.userId, agentList = [])
+    agentList.push(agent)
+  }
+  const habitatByUser = new Map(colonyHabitatRows.map(row => [row.userId, row.habitatLevel]))
+  const researchByUser = new Map(researchTotals.map(row => [row.userId, row.total]))
+  const xenoSpeciesByUser = new Map(xenoSpeciesCounts.map(row => [row.userId, row.n]))
+  const xenoGridByUser = new Map(xenoGridCounts.map(row => [row.userId, row.n]))
+  const xenoBreederByUser = new Map(xenoBreederCounts.map(row => [row.userId, row.n]))
+  const aiPromptsByUser = new Map(aiPromptCounts.map(row => [row.userId, row.n]))
 
   return users
     .map(u => {
@@ -58,36 +101,17 @@ export default defineEventHandler(async (event) => {
       if (bankBalance < 0 && loanPrincipal > 0) bankBalance = Math.max(bankBalance, debtFloor(loanPrincipal))
       const totalWealth = balance + gemValue + bankBalance
       const totalLevels = (u.rigLevel ?? 1) + (u.vaultLevel ?? 1) + (u.factoryLevel ?? 1)
-      const userItems = hackItemRows.filter(item => item.userId === u.id)
-      const itemMap = new Map(userItems.map(item => [item.id, item]))
-      const hackPower = hackAgentRows
-        .filter(agent => agent.userId === u.id && agent.active)
-        .reduce((total, agent) => {
-          const equippedItems = [agent.equippedTool, agent.equippedSoftware, agent.equippedHardware]
-            .filter(Boolean)
-            .map(id => itemMap.get(id!))
-            .filter((item): item is NonNullable<typeof item> => !!item)
-          const traits = (agent.traits ?? []) as AgentTrait[]
-          return total + agentPower(
-            { level: agent.level, class: agent.class as AgentClass },
-            equippedItems.map(item => ({ itemLevel: item.itemLevel, mods: item.mods as ItemMod[] })),
-            traits,
-          )
-        }, 0)
-      const colonyResearchLevels = researchRows
-        .filter(research => research.userId === u.id)
-        .reduce((total, research) => total + research.level, 0)
-      const colonyHabitatLevel = colonyStates.find(state => state.userId === u.id)?.habitatLevel ?? 0
-      const xenoSpeciesUnlocked = new Set(
-        unlockedPlantRows
-          .filter(plant => plant.userId === u.id && xenoSpeciesIds.has(plant.typeId))
-          .map(plant => plant.typeId)
-      ).size
-      const xenoGridSlotsUnlocked = xenoGridSlotRows.filter(slot => slot.userId === u.id).length
-      const xenoBreederSlotsUnlocked = xenoBreederSlotRows.filter(slot => slot.userId === u.id).length
-      const aiPromptsUsed = aiMessageRows.filter(message => message.userId === u.id && message.role === 'user').length
+      const itemMap = itemsByUser.get(u.id) ?? new Map<string, EquippableItemRow>()
+      const hackPower = (agentsByUser.get(u.id) ?? [])
+        .reduce((total, agent) => total + equippedAgentPower(agent, itemMap), 0)
+      const colonyResearchLevels = researchByUser.get(u.id) ?? 0
+      const colonyHabitatLevel = habitatByUser.get(u.id) ?? 0
+      const xenoSpeciesUnlocked = xenoSpeciesByUser.get(u.id) ?? 0
+      const xenoGridSlotsUnlocked = xenoGridByUser.get(u.id) ?? 0
+      const xenoBreederSlotsUnlocked = xenoBreederByUser.get(u.id) ?? 0
+      const aiPromptsUsed = aiPromptsByUser.get(u.id) ?? 0
       return {
-        isCurrentUser: u.id === session?.user?.id,
+        isCurrentUser: u.id === sessionUserId,
         name: u.name,
         balance: u.balance,
         bankBalance,
