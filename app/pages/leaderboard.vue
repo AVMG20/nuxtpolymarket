@@ -80,7 +80,7 @@ function openDetails(user: LeaderboardUser) {
               v-for="(u, i) in users"
               :key="u.name"
               class="cursor-pointer border-b border-default/70 transition-colors last:border-b-0 hover:bg-elevated/50 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-primary"
-              :class="i < 3 ? rankBg[i] : ''"
+              :class="[i < 3 ? rankBg[i] : '', u.isCurrentUser ? 'ring-1 ring-inset ring-primary/40' : '']"
               tabindex="0"
               @click="openDetails(u)"
               @keydown.enter="openDetails(u)"
@@ -94,6 +94,7 @@ function openDetails(user: LeaderboardUser) {
                 <div class="flex items-center gap-2.5">
                   <div class="flex size-9 shrink-0 items-center justify-center rounded-full border border-default bg-background font-bold">{{ u.name[0]?.toUpperCase() }}</div>
                   <p class="max-w-40 truncate font-semibold">{{ u.name }}</p>
+                  <LeaderboardYouBadge :show="u.isCurrentUser" />
                 </div>
               </td>
               <td class="px-3 py-3">
