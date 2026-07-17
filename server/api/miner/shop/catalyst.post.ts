@@ -1,7 +1,8 @@
-import { eq, sql } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import { db } from '#server/database'
 import { minerState, user } from '#server/database/schema'
 import { auth } from '#server/utils/auth'
+import { debitGems } from '#server/utils/balance'
 import { catalystUpgradeCost, CATALYST_MAX_LEVEL } from '#shared/utils/miner-config'
 
 export default defineEventHandler(async (event) => {
@@ -22,8 +23,13 @@ export default defineEventHandler(async (event) => {
   if ((currentUser?.gems ?? 0) < cost) throw createError({ statusCode: 400, statusMessage: `Need ${cost} gems` })
 
   await db.transaction(async (tx) => {
-    await tx.update(user).set({ gems: sql`${user.gems} - ${cost}` }).where(eq(user.id, userId))
-    await tx.update(minerState).set({ catalystLevel: s.catalystLevel + 1 }).where(eq(minerState.userId, userId))
+    const [upgraded] = await tx.update(minerState)
+      .set({ catalystLevel: s.catalystLevel + 1 })
+      .where(and(eq(minerState.userId, userId), eq(minerState.catalystLevel, s.catalystLevel)))
+      .returning({ id: minerState.id })
+    if (!upgraded) throw createError({ statusCode: 409, statusMessage: 'Miner state changed, try again' })
+
+    await debitGems(userId, cost, tx)
   })
 
   return { newLevel: s.catalystLevel + 1, gemsSpent: cost }
