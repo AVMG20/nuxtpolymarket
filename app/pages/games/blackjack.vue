@@ -259,17 +259,7 @@ function newGame() {
         </template>
 
         <div class="space-y-4">
-          <!-- Bet Amount -->
-          <div>
-            <label class="text-xs text-muted uppercase tracking-wide font-medium block mb-1.5">Bet Amount</label>
-            <div class="flex items-center gap-2">
-              <UInput v-model.number="bet" type="number" min="1" :disabled="isPlaying && !showResults" class="flex-1 font-mono" size="lg" />
-              <div class="flex gap-1">
-                <UButton color="neutral" variant="soft" :disabled="isPlaying && !showResults" @click="bet = Math.max(1, Math.floor(bet / 2))">½</UButton>
-                <UButton color="neutral" variant="soft" :disabled="isPlaying && !showResults" @click="bet = bet * 2">2×</UButton>
-              </div>
-            </div>
-          </div>
+          <BetControls v-model="bet" :disabled="isPlaying && !showResults" />
 
           <!-- Strategy Hint -->
           <div class="space-y-2">
