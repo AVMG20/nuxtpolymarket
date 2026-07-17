@@ -161,13 +161,19 @@ async function handleSignOut() {
       <!-- Avatar card -->
       <UCard>
         <div class="flex items-center gap-5">
-          <div class="size-16 rounded-full bg-primary/20 flex items-center justify-center shrink-0">
-            <span class="text-2xl font-bold text-primary">{{ (user?.name?.[0] ?? 'A').toUpperCase() }}</span>
-          </div>
-          <div class="min-w-0">
+          <ProfileEmblem :emblem="user?.emblem" :name="user?.name" class="size-16 text-2xl" />
+          <div class="min-w-0 flex-1">
             <p class="font-semibold text-xl truncate">{{ user?.name }}</p>
             <p class="text-sm text-muted truncate mt-0.5">{{ user?.email }}</p>
           </div>
+          <UButton
+            to="/profile/emblem"
+            color="neutral"
+            variant="outline"
+            icon="i-lucide-palette"
+            label="Edit emblem"
+            class="shrink-0"
+          />
         </div>
       </UCard>
 

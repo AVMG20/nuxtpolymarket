@@ -21,6 +21,7 @@ export default defineEventHandler(async (event) => {
       id: chatMessages.id,
       userId: chatMessages.userId,
       name: user.name,
+      emblem: user.emblem,
       content: chatMessages.content,
       createdAt: chatMessages.createdAt
     })

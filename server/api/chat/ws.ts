@@ -9,7 +9,6 @@ const TAG_RE = /\[\[tag:([^:\]]{1,64}):[^\]]{1,60}\]\]/g
 
 interface ChatUser {
   id: string
-  name: string
 }
 
 const peers = new Map<Peer, ChatUser>()
@@ -29,7 +28,7 @@ export default defineWebSocketHandler({
       peer.close(4401, 'Unauthorized')
       return
     }
-    peers.set(peer, { id: session.user.id, name: session.user.name })
+    peers.set(peer, { id: session.user.id })
   },
 
   async message(peer, message) {
@@ -62,6 +61,13 @@ export default defineWebSocketHandler({
     const content = sanitizeChatContent(String(data.content ?? ''))
     if (!content) return
 
+    const [currentSender] = await db
+      .select({ name: user.name, emblem: user.emblem })
+      .from(user)
+      .where(eq(user.id, sender.id))
+      .limit(1)
+    if (!currentSender) return
+
     const [row] = await db
       .insert(chatMessages)
       .values({ userId: sender.id, content })
@@ -88,7 +94,8 @@ export default defineWebSocketHandler({
       type: 'message',
       id: row.id,
       userId: sender.id,
-      name: sender.name,
+      name: currentSender.name,
+      emblem: currentSender.emblem,
       content: row.content,
       createdAt: row.createdAt.toISOString()
     })
