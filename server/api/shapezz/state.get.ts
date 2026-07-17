@@ -3,6 +3,7 @@ import { db } from '#server/database'
 import { shapezzState } from '#server/database/schema'
 import { requireUserId } from '#server/utils/auth'
 import { getBalance } from '#server/utils/balance'
+import { shapezzArsenal } from '#server/utils/shapezz'
 import {
     SHAPEZZ_DIFFICULTIES,
     SHAPEZZ_MAX_PERMANENT_LEVEL,
@@ -14,7 +15,8 @@ import {
     shapezzPower,
     shapezzWeapon,
     shapezzWeaponRefund,
-    type ShapezzPermanentLevels
+    type ShapezzPermanentLevels,
+    type ShapezzWeaponType
 } from '#shared/utils/gamelogic/shapezz'
 
 export default defineEventHandler(async (event) => {
@@ -33,21 +35,29 @@ export default defineEventHandler(async (event) => {
         magnet: state.magnetLevel,
         killHeal: state.killHealLevel
     }
-    const currentWeapon = shapezzWeapon(state.weaponType, state.weaponRarity)
-    const weaponRefund = shapezzWeaponRefund(state.weaponPurchasePrice)
+    const arsenal = shapezzArsenal(state)
+    const equippedType = state.weaponType as ShapezzWeaponType
+    const currentWeapon = shapezzWeapon(equippedType, arsenal[equippedType]?.rarity ?? 'common')
 
     return {
         balance,
         levels,
         power: shapezzPower(levels, currentWeapon),
         stats: shapezzPlayerStats(levels),
-        currentWeapon: { ...currentWeapon, purchasePrice: state.weaponPurchasePrice, refund: weaponRefund },
-        weapons: SHAPEZZ_WEAPONS.map(weapon => ({
-            ...weapon,
-            equipped: weapon.id === currentWeapon.id,
-            refund: weapon.id === currentWeapon.id ? 0 : weaponRefund,
-            netCost: weapon.id === currentWeapon.id ? 0 : weapon.cost - weaponRefund
-        })),
+        currentWeapon,
+        weapons: SHAPEZZ_WEAPONS.map((weapon) => {
+            const ownedInType = arsenal[weapon.type]
+            const owned = ownedInType.rarity === weapon.rarity
+            // The trade-in only applies within the weapon's own type.
+            const refund = owned ? 0 : shapezzWeaponRefund(ownedInType.rarity === null ? 0 : ownedInType.purchasePrice)
+            return {
+                ...weapon,
+                owned,
+                equipped: weapon.id === currentWeapon.id,
+                refund,
+                netCost: owned ? 0 : weapon.cost - refund
+            }
+        }),
         maxLevel: SHAPEZZ_MAX_PERMANENT_LEVEL,
         upgrades: SHAPEZZ_PERMANENT_UPGRADE_IDS.map(id => ({
             id,

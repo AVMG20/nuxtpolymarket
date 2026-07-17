@@ -6,13 +6,39 @@ import {
     shapezzCheckpointCount,
     shapezzDifficulty,
     shapezzMaxPayoutForRun,
-    type ShapezzDifficultyId
+    type ShapezzDifficultyId,
+    type ShapezzWeaponType
 } from '#shared/utils/gamelogic/shapezz'
 
 export async function getLockedShapezzState(tx: DbExecutor, userId: string) {
     const [state] = await tx.select().from(shapezzState).where(eq(shapezzState.userId, userId)).for('update')
     if (!state) throw createError({ statusCode: 404, statusMessage: 'SHAPEZZ state not initialized' })
     return state
+}
+
+export interface ShapezzArsenalState {
+    weaponType: string
+    blasterRarity: string
+    blasterPurchasePrice: number
+    launcherRarity: string | null
+    launcherPurchasePrice: number
+    shotgunRarity: string | null
+    shotgunPurchasePrice: number
+}
+
+/** Owned rarity and stored purchase price per weapon type. `rarity: null` means the type is not owned. */
+export function shapezzArsenal(state: ShapezzArsenalState): Record<ShapezzWeaponType, { rarity: string | null, purchasePrice: number }> {
+    return {
+        blaster: { rarity: state.blasterRarity, purchasePrice: state.blasterPurchasePrice },
+        launcher: { rarity: state.launcherRarity, purchasePrice: state.launcherPurchasePrice },
+        shotgun: { rarity: state.shotgunRarity, purchasePrice: state.shotgunPurchasePrice }
+    }
+}
+
+export const SHAPEZZ_WEAPON_COLUMNS: Record<ShapezzWeaponType, { rarity: 'blasterRarity' | 'launcherRarity' | 'shotgunRarity', price: 'blasterPurchasePrice' | 'launcherPurchasePrice' | 'shotgunPurchasePrice' }> = {
+    blaster: { rarity: 'blasterRarity', price: 'blasterPurchasePrice' },
+    launcher: { rarity: 'launcherRarity', price: 'launcherPurchasePrice' },
+    shotgun: { rarity: 'shotgunRarity', price: 'shotgunPurchasePrice' }
 }
 
 export interface ShapezzSettlementState {

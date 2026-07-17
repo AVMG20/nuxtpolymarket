@@ -31,11 +31,11 @@ export interface ShapezzDifficulty {
 }
 
 export const SHAPEZZ_DIFFICULTIES: ShapezzDifficulty[] = [
-    { id: 'spark', name: 'Spark', tagline: 'A warm-up with teeth', enemyHealth: 0.78, enemyDamage: 0.65, enemySpeed: 0.88, spawnRate: 0.82, reward: 0.8, color: '#22d3ee' },
+    { id: 'spark', name: 'Spark', tagline: 'A warm-up with teeth', enemyHealth: 0.78, enemyDamage: 0.65, enemySpeed: 0.88, spawnRate: 0.82, reward: 0.75, color: '#22d3ee' },
     { id: 'surge', name: 'Surge', tagline: 'The intended first run', enemyHealth: 1.1, enemyDamage: 1, enemySpeed: 1, spawnRate: 1, reward: 1, color: '#a3e635' },
-    { id: 'overdrive', name: 'Overdrive', tagline: 'Crowds become a flood', enemyHealth: 2.15, enemyDamage: 1.45, enemySpeed: 1.12, spawnRate: 1.2, reward: 1.7, color: '#fbbf24' },
-    { id: 'mayhem', name: 'Mayhem', tagline: 'Bosses stop taking turns', enemyHealth: 3.7, enemyDamage: 2.1, enemySpeed: 1.25, spawnRate: 1.42, reward: 2.9, color: '#fb7185' },
-    { id: 'annihilation', name: 'Annihilation', tagline: 'The screen is the enemy', enemyHealth: 6.2, enemyDamage: 3, enemySpeed: 1.4, spawnRate: 1.62, reward: 4.8, color: '#e879f9' }
+    { id: 'overdrive', name: 'Overdrive', tagline: 'Crowds become a flood', enemyHealth: 2.15, enemyDamage: 1.45, enemySpeed: 1.12, spawnRate: 1.2, reward: 2.2, color: '#fbbf24' },
+    { id: 'mayhem', name: 'Mayhem', tagline: 'Bosses stop taking turns', enemyHealth: 3.7, enemyDamage: 2.1, enemySpeed: 1.25, spawnRate: 1.42, reward: 3.6, color: '#fb7185' },
+    { id: 'annihilation', name: 'Annihilation', tagline: 'The screen is the enemy', enemyHealth: 6.2, enemyDamage: 3, enemySpeed: 1.4, spawnRate: 1.62, reward: 5.5, color: '#e879f9' }
 ]
 
 export function shapezzDifficulty(id: unknown): ShapezzDifficulty {
@@ -274,7 +274,7 @@ export function shapezzCheckpointPressure(checkpoint: number) {
         health: Math.pow(1.28, acceptedUpgrades),
         damage: Math.pow(1.055, acceptedUpgrades),
         population: Math.min(1.7, 1 + acceptedUpgrades * 0.045),
-        reward: 1 + acceptedUpgrades * 0.18
+        reward: 1 + acceptedUpgrades * 0.12
     }
 }
 
@@ -294,11 +294,15 @@ export function shapezzEnemyHealthMultiplier(elapsedMs: number, difficultyId: Sh
     return shapezzDifficulty(difficultyId).enemyHealth * (baselineRamp + highDifficultyRamp)
 }
 
-/** Server-side anti-cheat ceiling. Deliberately generous, but grows only with real elapsed time and selected difficulty. */
+/**
+ * Server-side anti-cheat ceiling, tuned so honest play brushes against it only on excellent runs.
+ * Target economy: a fresh account on Spark/Surge banks roughly 1-10k per run; a maxed build on
+ * Annihilation reaches ~1M+ on a long, clean run.
+ */
 export function shapezzMaxPayoutForRun(elapsedMs: number, difficultyId: ShapezzDifficultyId) {
     const seconds = Math.max(0, Math.min(elapsedMs, 24 * 60 * 60 * 1000)) / 1000
     const minutes = seconds / 60
     const difficulty = shapezzDifficulty(difficultyId)
     const checkpointReward = shapezzCheckpointPressure(shapezzCheckpointCount(elapsedMs)).reward
-    return Math.floor(seconds * 900 * difficulty.reward * checkpointReward * (1 + minutes * 0.34 + Math.pow(minutes, 1.3) * 0.035))
+    return Math.floor(seconds * 55 * difficulty.reward * checkpointReward * (1 + minutes * 0.17))
 }

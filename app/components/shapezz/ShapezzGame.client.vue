@@ -13,6 +13,7 @@ definePageMeta({ title: 'SHAPEZZ' })
 const canvas = ref<HTMLCanvasElement | null>(null)
 const toast = useToast()
 const { fetchSession } = useAuth()
+const sound = useShapezzSound()
 const { data: state, refresh } = await useFetch('/api/shapezz/state')
 
 const selectedDifficultyId = ref<ShapezzDifficultyId>('surge')
@@ -84,6 +85,10 @@ async function clearStaleRun() {
 async function startRun() {
     if (starting.value || !canvas.value || !state.value) return
     starting.value = true
+    // Starting a run is a user gesture — the one reliable moment to lift the
+    // browser autoplay block and warm the sample cache before the first shot.
+    sound.unlock()
+    sound.preload()
     result.value = null
     checkpointOffers.value = []
     try {
@@ -103,7 +108,8 @@ async function startRun() {
                 if (bossWarningTimer) clearTimeout(bossWarningTimer)
                 bossWarningTimer = setTimeout(() => { bossWarning.value = '' }, 4200)
             },
-            onGameOver: (value) => { settleDefeat(value) }
+            onGameOver: (value) => { settleDefeat(value) },
+            onShoot: weaponType => sound.play(`shoot-${weaponType}`)
         })
         running.value = true
         engine.start()

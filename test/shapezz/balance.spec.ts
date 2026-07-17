@@ -47,9 +47,18 @@ describe('SHAPEZZ checkpoint pacing', () => {
     expect(shapezzEnemyHealthMultiplier(5 * 60_000, 'annihilation')).toBeGreaterThan(shapezzEnemyHealthMultiplier(5 * 60_000, 'spark') * 10)
   })
 
-  it('pays enough at the first cashout to support the rebuilt workshop economy', () => {
-    expect(shapezzMaxPayoutForRun(45_000, 'surge')).toBeGreaterThan(50_000)
+  it('keeps a fresh account run in the low thousands while high difficulties pay several times more', () => {
+    // A first cashout on Surge is worth a few thousand at most.
+    expect(shapezzMaxPayoutForRun(45_000, 'surge')).toBeGreaterThan(1_000)
+    expect(shapezzMaxPayoutForRun(45_000, 'surge')).toBeLessThan(10_000)
     expect(shapezzMaxPayoutForRun(45_000, 'annihilation')).toBeGreaterThan(shapezzMaxPayoutForRun(45_000, 'surge') * 4)
+  })
+
+  it('lets a long clean Annihilation run reach roughly a million coins', () => {
+    expect(shapezzMaxPayoutForRun(10 * 60_000, 'annihilation')).toBeGreaterThan(1_000_000)
+    expect(shapezzMaxPayoutForRun(10 * 60_000, 'annihilation')).toBeLessThan(2_000_000)
+    // Lower difficulties stay an order of magnitude below the top end.
+    expect(shapezzMaxPayoutForRun(10 * 60_000, 'surge')).toBeLessThan(shapezzMaxPayoutForRun(10 * 60_000, 'annihilation') / 4)
   })
 })
 

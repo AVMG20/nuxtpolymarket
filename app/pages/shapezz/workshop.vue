@@ -40,18 +40,24 @@ async function buyWeapon(weapon: NonNullable<typeof state.value>['weapons'][numb
     if (buyingWeaponId.value || weapon.equipped) return
     buyingWeaponId.value = weapon.id
     try {
-        const response = await $fetch('/api/shapezz/weapon', {
-            method: 'POST',
-            body: { weaponType: weapon.type, weaponRarity: weapon.rarity }
-        })
-        await Promise.all([refresh(), fetchSession()])
-        toast.add({
-            title: `${response.weapon.name} equipped`,
-            description: response.refund > 0 ? `${formatNumber(response.refund)} refunded from the previous weapon.` : undefined,
-            color: 'success'
-        })
+        if (weapon.owned) {
+            const response = await $fetch('/api/shapezz/equip', { method: 'POST', body: { weaponType: weapon.type } })
+            await refresh()
+            toast.add({ title: `${response.weapon.name} equipped`, color: 'success' })
+        } else {
+            const response = await $fetch('/api/shapezz/weapon', {
+                method: 'POST',
+                body: { weaponType: weapon.type, weaponRarity: weapon.rarity }
+            })
+            await Promise.all([refresh(), fetchSession()])
+            toast.add({
+                title: `${response.weapon.name} equipped`,
+                description: response.refund > 0 ? `${formatNumber(response.refund)} refunded from your previous ${response.weapon.type}.` : undefined,
+                color: 'success'
+            })
+        }
     } catch (error: unknown) {
-        toast.add({ title: apiErrorMessage(error, 'Weapon replacement failed'), color: 'error' })
+        toast.add({ title: apiErrorMessage(error, 'Weapon purchase failed'), color: 'error' })
     } finally {
         buyingWeaponId.value = null
     }
@@ -110,7 +116,7 @@ async function buyWeapon(weapon: NonNullable<typeof state.value>['weapons'][numb
         <div class="mb-4 flex flex-wrap items-end justify-between gap-3">
           <div>
             <h2 class="text-lg font-black">WEAPON FOUNDRY</h2>
-            <p class="text-sm text-muted">Replacing a weapon refunds exactly 25% of what you paid for the previous one.</p>
+            <p class="text-sm text-muted">Own one weapon of each type and switch freely. Upgrading within a type refunds 25% of what you paid for its previous tier.</p>
           </div>
           <div class="rounded-lg border border-default bg-elevated px-3 py-2 text-right">
             <p class="text-[10px] font-bold uppercase tracking-wide text-muted">Equipped</p>
@@ -140,7 +146,10 @@ async function buyWeapon(weapon: NonNullable<typeof state.value>['weapons'][numb
                 <div class="weapon-icon flex size-11 items-center justify-center rounded-xl border border-white/10 bg-background/80">
                   <UIcon :name="weapon.icon" class="size-6" :style="{ color: weapon.primaryColor }" />
                 </div>
-                <UBadge :label="weapon.rarityName" color="neutral" variant="subtle" />
+                <div class="flex flex-col items-end gap-1">
+                  <UBadge :label="weapon.rarityName" color="neutral" variant="subtle" />
+                  <UBadge v-if="weapon.owned" label="Owned" color="success" variant="subtle" />
+                </div>
               </div>
               <h3 class="mt-4 text-sm font-black">{{ weapon.name }}</h3>
               <p class="mt-1 min-h-14 text-xs leading-relaxed text-muted">{{ weapon.description }}</p>
@@ -152,21 +161,22 @@ async function buyWeapon(weapon: NonNullable<typeof state.value>['weapons'][numb
                 <div v-if="weapon.type === 'shotgun'" class="flex justify-between"><span class="text-muted">Pellets</span><span class="font-bold">{{ weapon.pellets }}</span></div>
               </div>
 
-              <div v-if="!weapon.equipped && weapon.refund > 0" class="mt-3 rounded-md bg-success/8 px-2 py-1.5 text-[10px] text-success">
-                Previous weapon refund: {{ formatNumber(weapon.refund) }}
+              <div v-if="!weapon.owned && weapon.refund > 0" class="mt-3 rounded-md bg-success/8 px-2 py-1.5 text-[10px] text-success">
+                Trade-in from your current {{ weapon.type }}: {{ formatNumber(weapon.refund) }}
               </div>
 
               <UButton
                 class="mt-3 w-full justify-center"
                 :color="weapon.equipped ? 'primary' : 'neutral'"
-                :variant="weapon.equipped ? 'soft' : 'solid'"
+                :variant="weapon.equipped || weapon.owned ? 'soft' : 'solid'"
                 size="sm"
-                :disabled="weapon.equipped || balance < affordabilityCost(weapon.netCost)"
+                :disabled="weapon.equipped || (!weapon.owned && balance < affordabilityCost(weapon.netCost))"
                 :loading="buyingWeaponId === weapon.id"
                 @click="buyWeapon(weapon)"
               >
                 <span v-if="weapon.equipped">EQUIPPED</span>
-                <span v-else-if="weapon.netCost < 0" class="flex items-center gap-1">Replace · receive {{ formatNumber(Math.abs(weapon.netCost)) }}</span>
+                <span v-else-if="weapon.owned">EQUIP</span>
+                <span v-else-if="weapon.netCost < 0" class="flex items-center gap-1">Upgrade · receive {{ formatNumber(Math.abs(weapon.netCost)) }}</span>
                 <span v-else class="flex items-center gap-1"><UIcon name="i-lucide-coins" class="size-3.5 text-warning" /> {{ formatNumber(weapon.netCost) }}</span>
               </UButton>
             </div>

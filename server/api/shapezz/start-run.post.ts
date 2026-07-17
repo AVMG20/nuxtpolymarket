@@ -2,7 +2,7 @@ import { eq } from 'drizzle-orm'
 import { db } from '#server/database'
 import { shapezzState } from '#server/database/schema'
 import { requireUserId } from '#server/utils/auth'
-import { getLockedShapezzState } from '#server/utils/shapezz'
+import { getLockedShapezzState, shapezzArsenal } from '#server/utils/shapezz'
 import {
     SHAPEZZ_CHECKPOINT_MS,
     SHAPEZZ_DIFFICULTY_IDS,
@@ -10,7 +10,8 @@ import {
     shapezzPlayerStats,
     shapezzPower,
     shapezzWeapon,
-    type ShapezzDifficultyId
+    type ShapezzDifficultyId,
+    type ShapezzWeaponType
 } from '#shared/utils/gamelogic/shapezz'
 
 export default defineEventHandler(async (event) => {
@@ -33,7 +34,9 @@ export default defineEventHandler(async (event) => {
             magnet: state.magnetLevel,
             killHeal: state.killHealLevel
         }
-        const weapon = shapezzWeapon(state.weaponType, state.weaponRarity)
+        const arsenal = shapezzArsenal(state)
+        const equippedType = state.weaponType as ShapezzWeaponType
+        const weapon = shapezzWeapon(equippedType, arsenal[equippedType]?.rarity ?? 'common')
         const power = shapezzPower(levels, weapon)
         const startedAt = new Date()
 

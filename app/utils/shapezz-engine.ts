@@ -8,7 +8,8 @@ import {
     shapezzIntensity,
     type ShapezzDifficultyId,
     type ShapezzRunUpgradeId,
-    type ShapezzWeapon
+    type ShapezzWeapon,
+    type ShapezzWeaponType
 } from '#shared/utils/gamelogic/shapezz'
 
 const WIDTH = 1280
@@ -42,6 +43,8 @@ export interface ShapezzEngineCallbacks {
     onCheckpoint: (offers: ShapezzRunUpgradeId[], snapshot: ShapezzSnapshot) => void
     onBoss: (name: string) => void
     onGameOver: (snapshot: ShapezzSnapshot) => void
+    /** Fired for each player-triggered volley (not turrets/drones) — drives SFX. */
+    onShoot?: (weaponType: ShapezzWeaponType) => void
 }
 
 interface Point { x: number, y: number }
@@ -328,6 +331,7 @@ export class ShapezzEngine {
         const fireMultiplier = this.combo > 0 && frenzy > 0 ? 2 + (frenzy - 1) * 0.35 : 1
         if (this.firing && this.fireCooldown <= 0) {
             this.firePlayerVolley(this.player.x, this.player.y - 6, Math.atan2(this.aim.y - this.player.y, this.aim.x - this.player.x))
+            this.callbacks.onShoot?.(this.weapon.type)
             const requestedFireRate = this.stats.fireRate * this.weapon.fireRateMultiplier * fireMultiplier
             const fireRateCap = this.weapon.type === 'shotgun' ? 4.5 : this.weapon.type === 'launcher' ? 3 : 18
             this.fireCooldown = 1 / Math.min(fireRateCap, requestedFireRate)
@@ -424,11 +428,11 @@ export class ShapezzEngine {
         const pressure = shapezzCheckpointPressure(checkpoint)
         const side = Math.random() < 0.5 ? -1 : 1
         const config = {
-            melee: { radius: 18, hp: 38, damage: 13, speed: 150, reward: 240, color: '#fb7185' },
-            shooter: { radius: 21, hp: 52, damage: 10, speed: 92, reward: 360, color: '#fbbf24' },
-            tank: { radius: 31, hp: 155, damage: 22, speed: 62, reward: 800, color: '#a78bfa' },
-            dasher: { radius: 16, hp: 62, damage: 18, speed: 205, reward: 480, color: '#34d399' },
-            boss: { radius: 74, hp: 2200, damage: 28, speed: 68, reward: 12_000, color: '#e879f9' }
+            melee: { radius: 18, hp: 38, damage: 13, speed: 150, reward: 15, color: '#fb7185' },
+            shooter: { radius: 21, hp: 52, damage: 10, speed: 92, reward: 22, color: '#fbbf24' },
+            tank: { radius: 31, hp: 155, damage: 22, speed: 62, reward: 50, color: '#a78bfa' },
+            dasher: { radius: 16, hp: 62, damage: 18, speed: 205, reward: 30, color: '#34d399' },
+            boss: { radius: 74, hp: 2200, damage: 28, speed: 68, reward: 750, color: '#e879f9' }
         }[type]
         this.enemies.push({
             id: this.enemyId++, type,
@@ -439,7 +443,7 @@ export class ShapezzEngine {
             maxHp: config.hp * healthMultiplier * pressure.health,
             damage: config.damage * difficulty.enemyDamage * (1 + minutes * 0.1) * pressure.damage,
             speed: config.speed * difficulty.enemySpeed,
-            reward: Math.round(config.reward * difficulty.reward * pressure.reward * (1 + minutes * 0.16)),
+            reward: Math.round(config.reward * difficulty.reward * pressure.reward * (1 + minutes * 0.04)),
             color: config.color,
             fireCooldown: randomBetween(0.3, 1.4), contactCooldown: 0,
             phase: Math.random() * Math.PI * 2,

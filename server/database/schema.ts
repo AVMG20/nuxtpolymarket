@@ -212,9 +212,13 @@ export const shapezzState = pgTable('shapezz_state', {
   thrustersLevel: integer('thrusters_level').notNull().default(0),
   magnetLevel: integer('magnet_level').notNull().default(0),
   killHealLevel: integer('kill_heal_level').notNull().default(0),
-  weaponType: text('weapon_type').notNull().default('blaster'),
-  weaponRarity: text('weapon_rarity').notNull().default('common'),
-  weaponPurchasePrice: integer('weapon_purchase_price').notNull().default(0),
+  weaponType: text('weapon_type').notNull().default('blaster'), // equipped weapon type
+  blasterRarity: text('blaster_rarity').notNull().default('common'),
+  blasterPurchasePrice: integer('blaster_purchase_price').notNull().default(0),
+  launcherRarity: text('launcher_rarity'), // null = not owned
+  launcherPurchasePrice: integer('launcher_purchase_price').notNull().default(0),
+  shotgunRarity: text('shotgun_rarity'), // null = not owned
+  shotgunPurchasePrice: integer('shotgun_purchase_price').notNull().default(0),
   runsPlayed: integer('runs_played').notNull().default(0),
   totalCoinsEarned: integer('total_coins_earned').notNull().default(0),
   bestSurvivalMs: integer('best_survival_ms').notNull().default(0),
