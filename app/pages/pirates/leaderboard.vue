@@ -27,9 +27,7 @@ const rankStyles = [
       </div>
     </div>
 
-    <div v-if="pending" class="space-y-3">
-      <USkeleton v-for="i in 8" :key="i" class="h-28 rounded-xl" />
-    </div>
+    <LeaderboardSkeleton v-if="pending" height="h-28" />
 
     <div v-else-if="captains?.length" class="space-y-2">
       <UCard

@@ -23,16 +23,7 @@ const initial = (name: string) => name.charAt(0).toUpperCase()
       </p>
     </div>
 
-    <div
-      v-if="pending"
-      class="space-y-3"
-    >
-      <USkeleton
-        v-for="i in 8"
-        :key="i"
-        class="h-20 rounded-xl"
-      />
-    </div>
+    <LeaderboardSkeleton v-if="pending" />
 
     <div
       v-else-if="players?.length"
@@ -43,7 +34,7 @@ const initial = (name: string) => name.charAt(0).toUpperCase()
         <!-- #2 position -->
         <HackFrame
           v-if="players[1]"
-          :key="2"
+          :key="players[1].name"
           class="p-6 text-center mt-7"
         >
           <p
@@ -87,7 +78,7 @@ const initial = (name: string) => name.charAt(0).toUpperCase()
         <!-- #1 position (center, larger) -->
         <HackFrame
           v-if="players[0]"
-          :key="1"
+          :key="players[0].name"
           accent
           class="p-6 text-center"
         >
@@ -136,7 +127,7 @@ const initial = (name: string) => name.charAt(0).toUpperCase()
         <!-- #3 position -->
         <HackFrame
           v-if="players[2]"
-          :key="3"
+          :key="players[2].name"
           class="p-6 text-center mt-7"
         >
           <p
@@ -185,7 +176,7 @@ const initial = (name: string) => name.charAt(0).toUpperCase()
         <HackFrame tight>
           <div
             v-for="(p, i) in players.slice(3)"
-            :key="i"
+            :key="p.name"
             class="flex items-center gap-4 p-4 border-b border-default last:border-b-0"
             :class="p.isCurrentUser ? 'bg-primary/10' : ''"
           >
@@ -193,7 +184,7 @@ const initial = (name: string) => name.charAt(0).toUpperCase()
 
             <div class="min-w-0 flex-1">
               <p class="font-semibold text-base truncate">
-                {{ p.name }} <span v-if="p.isCurrentUser" class="text-muted font-normal">(you)</span>
+                {{ p.name }} <LeaderboardYouBadge :show="p.isCurrentUser" variant="inline" />
               </p>
               <p class="text-sm text-muted mt-0.5">
                 {{ p.agentCount }} agents
