@@ -1,11 +1,13 @@
 <script setup lang="ts">
 const { data: players, pending } = await useFetch('/api/hack/leaderboard')
+const { user } = useAuth()
 
 const rankAccent = ['text-yellow-400', 'text-slate-300', 'text-amber-600']
 const rankCircleBg = ['bg-yellow-400', 'bg-slate-300', 'bg-amber-600']
 const rankLabel = ['#1 MOST WANTED', '#2 MOST WANTED', '#3 MOST WANTED']
 
 const initial = (name: string) => name.charAt(0).toUpperCase()
+const isCurrentUser = (userId: string) => userId === user.value?.id
 </script>
 
 <template>
@@ -187,13 +189,13 @@ const initial = (name: string) => name.charAt(0).toUpperCase()
             v-for="(p, i) in players.slice(3)"
             :key="p.userId"
             class="flex items-center gap-4 p-4 border-b border-default last:border-b-0"
-            :class="p.isCurrentUser ? 'bg-primary/10' : ''"
+            :class="isCurrentUser(p.userId) ? 'bg-primary/10' : ''"
           >
             <span class="w-7 text-center text-muted font-mono text-sm shrink-0">{{ i + 4 }}</span>
 
             <div class="min-w-0 flex-1">
               <p class="font-semibold text-base truncate">
-                {{ p.name }} <span v-if="p.isCurrentUser" class="text-muted font-normal">(you)</span>
+                {{ p.name }} <span v-if="isCurrentUser(p.userId)" class="text-muted font-normal">(you)</span>
               </p>
               <p class="text-sm text-muted mt-0.5">
                 {{ p.agentCount }} agents
