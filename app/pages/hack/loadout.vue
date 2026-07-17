@@ -206,7 +206,7 @@ async function confirmSwap() {
     await refresh()
   } catch (e: any) {
     audio.playSfx('deny')
-    toast.add({ title: e.data?.statusMessage ?? 'Equip failed', color: 'error' })
+    toast.add({ title: apiErrorMessage(e, 'Equip failed'), color: 'error' })
   } finally { equipping.value = false }
 }
 
@@ -220,7 +220,7 @@ async function unequip(item: InvItem) {
     await refresh()
   } catch (e: any) {
     audio.playSfx('deny')
-    toast.add({ title: e.data?.statusMessage ?? 'Failed', color: 'error' })
+    toast.add({ title: apiErrorMessage(e, 'Failed'), color: 'error' })
   } finally { equipping.value = false }
 }
 

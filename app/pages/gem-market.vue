@@ -172,7 +172,7 @@ async function executeTrade() {
         : `Sold ${gemLabel} for $${formatNumber(tradeValue, false)}`
     toast.add({ title, color: 'success' })
   } catch (e: any) {
-    toast.add({ title: e?.data?.message ?? 'Trade failed', color: 'error' })
+    toast.add({ title: apiErrorMessage(e, 'Trade failed'), color: 'error' })
   } finally {
     loading.value = false
   }

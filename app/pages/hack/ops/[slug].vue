@@ -116,7 +116,7 @@ async function dispatch() {
     await navigateTo('/hack')
   } catch (e: any) {
     audio.playSfx('deny')
-    toast.add({ title: e.data?.statusMessage ?? 'Dispatch failed', color: 'error' })
+    toast.add({ title: apiErrorMessage(e, 'Dispatch failed'), color: 'error' })
   } finally {
     dispatching.value = false
   }

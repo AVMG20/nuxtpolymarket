@@ -48,7 +48,7 @@ async function purchase(item: { id: string, label: string, endpoint: string }) {
     toast.add({ title: `${item.label} upgraded!`, color: 'success', icon: 'i-lucide-arrow-up' })
     await Promise.all([refresh(), fetchSession()])
   } catch (e: any) {
-    toast.add({ title: e.data?.statusMessage ?? e.data?.message ?? 'Purchase failed', color: 'error' })
+    toast.add({ title: apiErrorMessage(e, 'Purchase failed'), color: 'error' })
   } finally {
     buying.value = null
   }
@@ -61,7 +61,7 @@ async function unlockRakeback() {
     toast.add({ title: 'Rakeback unlocked!', color: 'success', icon: 'i-lucide-lock-open' })
     await fetchSession()
   } catch (e: any) {
-    toast.add({ title: e.data?.statusMessage ?? e.data?.message ?? 'Unlock failed', color: 'error' })
+    toast.add({ title: apiErrorMessage(e, 'Unlock failed'), color: 'error' })
   } finally {
     buying.value = null
   }
