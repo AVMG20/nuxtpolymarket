@@ -34,7 +34,7 @@ const rankStyles = [
     <div v-else-if="captains?.length" class="space-y-2">
       <UCard
         v-for="(captain, index) in captains"
-        :key="captain.userId"
+        :key="captain.rank"
         :class="index < 3 ? rankStyles[index] : ''"
         :ui="{ body: 'p-3 sm:p-4' }"
       >

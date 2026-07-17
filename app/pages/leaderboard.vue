@@ -1,6 +1,6 @@
 <script setup lang="ts">
 interface LeaderboardUser {
-  id: string
+  isCurrentUser: boolean
   name: string
   balance: string
   bankBalance: number
@@ -82,7 +82,7 @@ function openDetails(user: LeaderboardUser) {
           <tbody>
             <tr
               v-for="(u, i) in users"
-              :key="u.id"
+              :key="i"
               class="cursor-pointer border-b border-default/70 transition-colors last:border-b-0 hover:bg-elevated/50 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-primary"
               :class="i < 3 ? rankBg[i] : ''"
               tabindex="0"

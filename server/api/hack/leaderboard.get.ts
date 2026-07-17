@@ -1,9 +1,11 @@
 import { eq, inArray } from 'drizzle-orm'
 import { db } from '#server/database'
+import { auth } from '#server/utils/auth'
 import { user, hackState, hackAgents, hackItems } from '#server/database/schema'
 import { agentPower, type AgentClass, type AgentTrait, type ItemMod } from '#shared/utils/hack-config'
 
-export default defineEventHandler(async () => {
+export default defineEventHandler(async (event) => {
+  const session = await auth.api.getSession({ headers: event.headers })
   const states = await db
     .select({
       userId: hackState.userId,
@@ -52,7 +54,7 @@ export default defineEventHandler(async () => {
       }
 
       return {
-        userId: state.userId,
+        isCurrentUser: state.userId === session?.user?.id,
         name: u.name,
         totalPower,
         agentCount: activeAgents.length,

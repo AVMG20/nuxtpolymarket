@@ -1,5 +1,6 @@
 import { eq } from 'drizzle-orm'
 import { db } from '#server/database'
+import { auth } from '#server/utils/auth'
 import { user, minerState, bankState, colonyState, colonyBugResearch, xenoPlantsUnlocked, xenoGridSlots, xenoBreederSlots, aiMessages } from '#server/database/schema'
 import { gemComputeLivePrice, gemSellGems, GEM_INITIAL_PRICE } from '#shared/utils/gamelogic/gem-market'
 import { overclockMultiplier, catalystMultiplier } from '#shared/utils/miner-config'
@@ -7,7 +8,8 @@ import { debtFloor, growBankBalance } from '#shared/utils/gamelogic/bank'
 import { agentPower, type AgentClass, type AgentTrait, type ItemMod } from '#shared/utils/hack-config'
 import { PLANT_TYPES } from '#shared/utils/xeno'
 
-export default defineEventHandler(async () => {
+export default defineEventHandler(async (event) => {
+  const session = await auth.api.getSession({ headers: event.headers })
   const [users, market, hackAgentRows, hackItemRows, colonyStates, researchRows, unlockedPlantRows, xenoGridSlotRows, xenoBreederSlotRows, aiMessageRows] = await Promise.all([
     db
       .select({
@@ -85,7 +87,7 @@ export default defineEventHandler(async () => {
       const xenoBreederSlotsUnlocked = xenoBreederSlotRows.filter(slot => slot.userId === u.id).length
       const aiPromptsUsed = aiMessageRows.filter(message => message.userId === u.id && message.role === 'user').length
       return {
-        id: u.id,
+        isCurrentUser: u.id === session?.user?.id,
         name: u.name,
         balance: u.balance,
         bankBalance,

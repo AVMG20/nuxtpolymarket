@@ -1,9 +1,11 @@
 import { desc, eq, gte } from 'drizzle-orm'
 import { db } from '#server/database'
+import { auth } from '#server/utils/auth'
 import { pirateState, user } from '#server/database/schema'
 import { PIRATE_RUN_DURATION_MS, pirateShipSkin } from '#shared/utils/gamelogic/pirates'
 
-export default defineEventHandler(async () => {
+export default defineEventHandler(async (event) => {
+    const session = await auth.api.getSession({ headers: event.headers })
     const rows = await db
         .select({
             userId: user.id,
@@ -23,7 +25,7 @@ export default defineEventHandler(async () => {
         const skin = pirateShipSkin(row.skinId)
         return {
             rank: index + 1,
-            userId: row.userId,
+            isCurrentUser: row.userId === session?.user?.id,
             name: row.name,
             durationMs: PIRATE_RUN_DURATION_MS,
             difficulty: row.difficulty,

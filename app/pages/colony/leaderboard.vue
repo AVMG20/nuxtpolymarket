@@ -2,7 +2,6 @@
 import { MAX_TIER } from '#shared/utils/colony'
 
 const { data: players, pending } = await useFetch('/api/colony/leaderboard')
-const { user } = useAuth()
 
 const medals = ['i-lucide-medal', 'i-lucide-award', 'i-lucide-star']
 const medalColors = ['text-yellow-400', 'text-muted', 'text-warning']
@@ -50,9 +49,9 @@ function habitatProgress(level: number) {
     >
       <div
         v-for="(player, index) in players.slice(0, 3)"
-        :key="player.userId"
+        :key="index"
         class="flex items-center gap-3 px-4 py-4 rounded-xl border transition-all"
-        :class="[rankBg[index], player.userId === user?.id ? 'ring-1 ring-primary/40' : '']"
+        :class="[rankBg[index], player.isCurrentUser ? 'ring-1 ring-primary/40' : '']"
       >
         <div class="w-8 flex items-center justify-center shrink-0">
           <UIcon
@@ -72,7 +71,7 @@ function habitatProgress(level: number) {
               {{ player.name }}
             </p>
             <UBadge
-              v-if="player.userId === user?.id"
+              v-if="player.isCurrentUser"
               color="primary"
               variant="subtle"
               size="sm"
@@ -147,9 +146,9 @@ function habitatProgress(level: number) {
       >
         <div
           v-for="(player, index) in players.slice(3)"
-          :key="player.userId"
+          :key="index"
           class="flex items-center gap-3 px-4 py-3 rounded-xl border transition-colors"
-          :class="player.userId === user?.id ? 'bg-primary/5 border-primary/30' : 'bg-elevated/40 border-default hover:bg-elevated'"
+          :class="player.isCurrentUser ? 'bg-primary/5 border-primary/30' : 'bg-elevated/40 border-default hover:bg-elevated'"
         >
           <span class="w-7 text-center text-muted font-mono text-sm shrink-0">{{ index + 4 }}</span>
           <div class="size-8 rounded-full bg-background flex items-center justify-center shrink-0 text-xs font-bold border border-default">
@@ -161,7 +160,7 @@ function habitatProgress(level: number) {
                 {{ player.name }}
               </p>
               <span
-                v-if="player.userId === user?.id"
+                v-if="player.isCurrentUser"
                 class="text-[9px] font-black text-primary"
               >YOU</span>
             </div>

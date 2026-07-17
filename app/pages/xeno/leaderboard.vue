@@ -2,7 +2,6 @@
 import { PLANT_TYPES } from '#shared/utils/xeno'
 
 const { data: players, pending } = await useFetch('/api/xeno/leaderboard')
-const { user } = useAuth()
 
 const totalSpecies = PLANT_TYPES.length
 
@@ -34,9 +33,9 @@ const rankBg = [
       <!-- Top 3 -->
       <div
         v-for="(p, i) in players.slice(0, 3)"
-        :key="p.id"
+        :key="i"
         class="flex items-center gap-3 px-4 py-4 rounded-xl border transition-all"
-        :class="[rankBg[i], p.id === user?.id ? 'ring-1 ring-primary/40' : '']"
+        :class="[rankBg[i], p.isCurrentUser ? 'ring-1 ring-primary/40' : '']"
       >
         <!-- Medal -->
         <div class="w-8 flex items-center justify-center shrink-0">
@@ -47,7 +46,7 @@ const rankBg = [
         <div class="min-w-0 w-28 shrink-0">
           <div class="flex items-center gap-1.5">
             <p class="font-bold truncate">{{ p.name }}</p>
-            <span v-if="p.id === user?.id" class="text-[10px] font-black text-primary bg-primary/15 px-1 py-0.5 rounded leading-none shrink-0">YOU</span>
+            <span v-if="p.isCurrentUser" class="text-[10px] font-black text-primary bg-primary/15 px-1 py-0.5 rounded leading-none shrink-0">YOU</span>
           </div>
           <p class="text-xs text-muted">{{ p.speciesUnlocked }}/{{ totalSpecies }} species</p>
         </div>
@@ -97,9 +96,9 @@ const rankBg = [
       <div v-if="players.length > 3" class="mt-4 space-y-1.5">
         <div
           v-for="(p, i) in players.slice(3)"
-          :key="p.id"
+          :key="i"
           class="flex items-center gap-3 px-4 py-3 rounded-xl border border-default transition-colors"
-          :class="p.id === user?.id
+          :class="p.isCurrentUser
             ? 'bg-primary/5 border-primary/30'
             : 'bg-elevated/40 hover:bg-elevated'"
         >
@@ -115,7 +114,7 @@ const rankBg = [
           <div class="min-w-0 w-24 shrink-0">
             <div class="flex items-center gap-1.5">
               <p class="font-medium truncate text-sm">{{ p.name }}</p>
-              <span v-if="p.id === user?.id" class="text-[9px] font-black text-primary bg-primary/15 px-1 py-0.5 rounded leading-none shrink-0">YOU</span>
+              <span v-if="p.isCurrentUser" class="text-[9px] font-black text-primary bg-primary/15 px-1 py-0.5 rounded leading-none shrink-0">YOU</span>
             </div>
             <p class="text-[10px] text-muted">{{ p.speciesUnlocked }}/{{ totalSpecies }} spp</p>
           </div>
