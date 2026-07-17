@@ -67,9 +67,11 @@ describe('playDice win/loss boundary', () => {
     })
 
     it('produces a roll capped below 100', () => {
-        stubRandomFloat(() => 0.9)
+        // The largest value randomFloat() can return. The old rand() divided by
+        // 0xFFFFFFFF and so could reach exactly 1.0, rolling a 100.00.
+        stubRandomFloat(() => 1 - Number.EPSILON / 2)
         const result = playDice(100, { winChance: 50 })
-        expect(result.roll).toBe(89.99)
+        expect(result.roll).toBe(99.99)
         expect(result.roll).toBeLessThan(100)
     })
 })

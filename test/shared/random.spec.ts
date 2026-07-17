@@ -1,5 +1,39 @@
-import { describe, it, expect } from 'vitest'
-import { randomWeighted } from '../../shared/utils/random'
+import { describe, it, expect, afterEach, vi } from 'vitest'
+import { randomFloat, randomInt, randomPick, randomWeighted } from '../../shared/utils/random'
+
+afterEach(() => {
+    vi.restoreAllMocks()
+})
+
+/** Force the raw entropy randomFloat() reads, without stub-random's packing. */
+function stubEntropy(fill: number) {
+    return vi.spyOn(globalThis.crypto, 'getRandomValues').mockImplementation(<T extends ArrayBufferView | null>(array: T): T => {
+        (array as unknown as Uint32Array).fill(fill)
+        return array
+    })
+}
+
+describe('randomFloat bounds', () => {
+    // The bug this pins: `x / 0xFFFFFFFF` reaches exactly 1.0 on all-ones entropy,
+    // so Math.floor(r * len) indexes one past the end of an array. randomFloat
+    // divides by 2^53 and must stay in [0, 1) for every possible input.
+    it('stays below 1 when every entropy bit is set', () => {
+        stubEntropy(0xFFFFFFFF)
+        expect(randomFloat()).toBeLessThan(1)
+        expect(randomFloat()).toBeGreaterThan(0.9999999)
+    })
+
+    it('returns 0 when no entropy bit is set', () => {
+        stubEntropy(0)
+        expect(randomFloat()).toBe(0)
+    })
+
+    it('never indexes off the end of an array on all-ones entropy', () => {
+        stubEntropy(0xFFFFFFFF)
+        expect(randomPick(['a', 'b', 'c'])).toBe('c')
+        expect(randomInt(1, 6)).toBe(6)
+    })
+})
 
 interface Item { id: string; weight: number }
 

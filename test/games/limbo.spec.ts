@@ -56,11 +56,18 @@ describe('playLimbo multiplier math', () => {
 
 describe('playLimbo win/loss boundary', () => {
     it('loses when the generated result lands just under the target', () => {
-        stubRandomFloat(() => 0.5)
+        stubRandomFloat(() => 0.5000001)
         const result = playLimbo(100, { target: 1.96 })
         expect(result.result).toBe(1.95)
         expect(result.won).toBe(false)
         expect(result.payout).toBe(0)
+    })
+
+    it('pays exactly 0.98 / roll, without the old divisor skewing the result down', () => {
+        stubRandomFloat(() => 0.5)
+        const result = playLimbo(100, { target: 1.96 })
+        expect(result.result).toBe(1.96)
+        expect(result.won).toBe(true)
     })
 
     it('wins when the generated result reaches the target exactly', () => {

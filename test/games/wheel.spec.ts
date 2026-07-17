@@ -1,9 +1,27 @@
 import { describe, it, expect, afterEach, vi } from 'vitest'
 import { stubRandomFloat } from '../setup/stub-random'
-import { playWheel, WHEEL_CONFIGS } from '../../shared/utils/gamelogic/wheel'
+import { playWheel, WHEEL_CONFIGS, type WheelDifficulty } from '../../shared/utils/gamelogic/wheel'
 
 afterEach(() => {
     vi.restoreAllMocks()
+})
+
+describe('playWheel maximum roll', () => {
+    // The mapping loop leaves segmentIndex/multiplier at 0 if idx is ever >=
+    // totalSegments, so a losing 0x is indistinguishable from falling off the end.
+    // The all-ones entropy case that could actually push idx that far is pinned in
+    // test/shared/random.spec.ts — stubRandomFloat cannot reach it, since it packs
+    // the low bits of buf[0] with zeroes.
+    it('selects the last segment at the top of the roll range', () => {
+        stubRandomFloat(() => 1 - Number.EPSILON / 2)
+        for (const difficulty of Object.keys(WHEEL_CONFIGS) as WheelDifficulty[]) {
+            const segments = WHEEL_CONFIGS[difficulty]
+            const last = segments[segments.length - 1]!
+            const result = playWheel(100, { difficulty })
+            expect(result.segmentIndex).toBe(segments.length - 1)
+            expect(result.multiplier).toBe(last.multiplier)
+        }
+    })
 })
 
 // Same crypto.getRandomValues(len-1 array) pattern as dice.ts — see the note

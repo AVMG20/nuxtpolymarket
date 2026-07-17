@@ -1,5 +1,7 @@
 // shared/utils/gamelogic/wheel.ts
 
+import { randomFloat } from '../random'
+
 export type WheelDifficulty = 'easy' | 'medium' | 'hard'
 
 export interface WheelSegment {
@@ -52,9 +54,7 @@ export function playWheel(bet: number, options?: Record<string, unknown>): Wheel
   const totalSegments = segments.reduce((s, seg) => s + seg.count, 0)
 
   // Pick a random segment
-  const arr = new Uint32Array(1)
-  crypto.getRandomValues(arr)
-  const idx = Math.floor((arr[0]! / 0xFFFFFFFF) * totalSegments)
+  const idx = Math.floor(randomFloat() * totalSegments)
 
   // Map flat index to segment
   let cursor = 0
