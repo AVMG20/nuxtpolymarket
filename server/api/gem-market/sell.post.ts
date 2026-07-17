@@ -1,12 +1,11 @@
 import { eq, sql } from 'drizzle-orm'
 import { db } from '#server/database'
 import { gemMarketState, gemPriceHistory, user, transactions } from '#server/database/schema'
-import { auth } from '#server/utils/auth'
+import { requireUserId } from '#server/utils/auth'
 import { GEM_MAX_GEMS_PER_TRADE, gemComputeLivePrice, gemSellGems } from '#shared/utils/gamelogic/gem-market'
 
 export default defineEventHandler(async (event) => {
-    const session = await auth.api.getSession({ headers: event.headers })
-    if (!session?.user?.id) throw createError({ statusCode: 401, statusMessage: 'Unauthorized' })
+    const userId = await requireUserId(event)
 
     const body = await readBody(event)
     const gems = parseInt(body?.gems)
@@ -14,7 +13,6 @@ export default defineEventHandler(async (event) => {
         throw createError({ statusCode: 400, statusMessage: `Sell between 1 and ${GEM_MAX_GEMS_PER_TRADE} gems` })
     }
 
-    const userId = session.user.id
     let tradeResult: { revenue: number, newPrice: number } | null = null
 
     await db.transaction(async (tx) => {

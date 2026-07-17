@@ -1,7 +1,7 @@
 import { eq } from 'drizzle-orm'
 import { db } from '#server/database'
 import { xenoPlants, xenoPlantsUnlocked, xenoArtifacts, xenoGridSlots, xenoBreederSlots } from '#server/database/schema'
-import { auth } from '#server/utils/auth'
+import { requireUserId } from '#server/utils/auth'
 import { computeGridDuration, computeBreedDuration } from '#server/utils/xeno'
 import {
   getPlant, getPlantDisplay, isHybrid, hybridGemCost,
@@ -10,10 +10,7 @@ import {
 } from '#shared/utils/xeno'
 
 export default defineEventHandler(async (event) => {
-  const session = await auth.api.getSession({ headers: event.headers })
-  if (!session?.user?.id) throw createError({ statusCode: 401, statusMessage: 'Unauthorized' })
-
-  const userId = session.user.id
+  const userId = await requireUserId(event)
 
   const [plants, artifacts, gridSlots, breederSlots, unlockedRows] = await Promise.all([
     db.query.xenoPlants.findMany({ where: eq(xenoPlants.userId, userId) }),

@@ -1,12 +1,11 @@
 import { desc, eq, lt } from 'drizzle-orm'
 import { db } from '#server/database'
 import { chatMessages, user } from '#server/database/schema'
-import { auth } from '#server/utils/auth'
+import { requireUserId } from '#server/utils/auth'
 import { CHAT_HISTORY_LIMIT } from '#shared/utils/chat'
 
 export default defineEventHandler(async (event) => {
-  const session = await auth.api.getSession({ headers: event.headers })
-  if (!session?.user?.id) throw createError({ statusCode: 401, statusMessage: 'Unauthorized' })
+  const userId = await requireUserId(event)
 
   // optional cursor: only messages older than this timestamp (a timestamp
   // cursor keeps working even if the cursor message itself gets deleted)

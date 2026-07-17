@@ -1,7 +1,7 @@
 import { eq, and, or, isNull } from 'drizzle-orm'
 import { db } from '#server/database'
 import { xenoBreederSlots, xenoArtifacts } from '#server/database/schema'
-import { auth } from '#server/utils/auth'
+import { requireUserId } from '#server/utils/auth'
 import { computeBreedResult, consumePlantsByStack } from '#server/utils/xeno'
 import { getPlantOrThrow, getArtifact, getEffectValueFor, isHybrid } from '#shared/utils/xeno'
 
@@ -12,10 +12,8 @@ export default defineEventHandler(async (event) => {
     plant2TypeId: string; plant2Speed: number; plant2Yield: number
   }>(event)
 
-  const session = await auth.api.getSession({ headers: event.headers })
-  if (!session?.user?.id) throw createError({ statusCode: 401, statusMessage: 'Unauthorized' })
+  const userId = await requireUserId(event)
 
-  const userId = session.user.id
   if (!body.plant1TypeId || !body.plant2TypeId) {
     throw createError({ statusCode: 400, statusMessage: 'Provide both plant types' })
   }

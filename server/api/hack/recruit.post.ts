@@ -1,7 +1,7 @@
 import { eq, sql } from 'drizzle-orm'
 import { db } from '#server/database'
 import { hackAgents, hackState } from '#server/database/schema'
-import { auth } from '#server/utils/auth'
+import { requireUserId } from '#server/utils/auth'
 import { debit, debitGems } from '#server/utils/balance'
 import {
   AGENT_PULL_TIERS, rollRarity, generateAgentDef,
@@ -9,9 +9,7 @@ import {
 } from '#shared/utils/hack-config'
 
 export default defineEventHandler(async (event) => {
-  const session = await auth.api.getSession({ headers: event.headers })
-  if (!session?.user?.id) throw createError({ statusCode: 401, statusMessage: 'Unauthorized' })
-  const userId = session.user.id
+  const userId = await requireUserId(event)
 
   const { tierId } = await readBody(event) as { tierId: string }
   const tier = AGENT_PULL_TIERS.find(t => t.id === tierId)

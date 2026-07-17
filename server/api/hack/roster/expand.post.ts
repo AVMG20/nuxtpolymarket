@@ -1,14 +1,12 @@
 import { and, eq } from 'drizzle-orm'
 import { db } from '#server/database'
 import { hackState } from '#server/database/schema'
-import { auth } from '#server/utils/auth'
+import { requireUserId } from '#server/utils/auth'
 import { debit } from '#server/utils/balance'
 import { ROSTER_EXPAND_COSTS, MAX_ROSTER_SLOTS } from '#shared/utils/hack-config'
 
 export default defineEventHandler(async (event) => {
-  const session = await auth.api.getSession({ headers: event.headers })
-  if (!session?.user?.id) throw createError({ statusCode: 401, statusMessage: 'Unauthorized' })
-  const userId = session.user.id
+  const userId = await requireUserId(event)
 
   return db.transaction(async (tx) => {
     const state = await tx.query.hackState.findFirst({ where: eq(hackState.userId, userId) })

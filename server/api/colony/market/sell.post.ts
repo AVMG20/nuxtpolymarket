@@ -1,15 +1,13 @@
 import { eq, and, gte, sql } from 'drizzle-orm'
 import { db } from '#server/database'
 import { colonyItems } from '#server/database/schema'
-import { auth } from '#server/utils/auth'
+import { requireUserId } from '#server/utils/auth'
 import { credit } from '#server/utils/balance'
 import { getItem } from '#shared/utils/colony'
 
 export default defineEventHandler(async (event) => {
   const body = await readBody<{ itemTypeId: string, quantity?: number }>(event)
-  const session = await auth.api.getSession({ headers: event.headers })
-  if (!session?.user?.id) throw createError({ statusCode: 401, statusMessage: 'Unauthorized' })
-  const userId = session.user.id
+  const userId = await requireUserId(event)
 
   const type = getItem(body.itemTypeId)
   if (!type) throw createError({ statusCode: 400, statusMessage: `Unknown item: ${body.itemTypeId}` })

@@ -1,4 +1,4 @@
-import { auth } from '#server/utils/auth'
+import { requireUserId } from '#server/utils/auth'
 import { ensureColonyState } from '#server/utils/colony'
 
 /**
@@ -7,10 +7,9 @@ import { ensureColonyState } from '#server/utils/colony'
  * in the market with coins earned elsewhere.
  */
 export default defineEventHandler(async (event) => {
-  const session = await auth.api.getSession({ headers: event.headers })
-  if (!session?.user?.id) throw createError({ statusCode: 401, statusMessage: 'Unauthorized' })
+  const userId = await requireUserId(event)
 
-  await ensureColonyState(session.user.id)
+  await ensureColonyState(userId)
 
   return { ok: true }
 })

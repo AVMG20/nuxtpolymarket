@@ -1,14 +1,12 @@
 import { eq } from 'drizzle-orm'
 import { db } from '#server/database'
 import { colonyLoot } from '#server/database/schema'
-import { auth } from '#server/utils/auth'
+import { requireUserId } from '#server/utils/auth'
 import { settleColony, creditItems } from '#server/utils/colony'
 import { getItem } from '#shared/utils/colony'
 
 export default defineEventHandler(async (event) => {
-  const session = await auth.api.getSession({ headers: event.headers })
-  if (!session?.user?.id) throw createError({ statusCode: 401, statusMessage: 'Unauthorized' })
-  const userId = session.user.id
+  const userId = await requireUserId(event)
 
   await settleColony(userId)
 

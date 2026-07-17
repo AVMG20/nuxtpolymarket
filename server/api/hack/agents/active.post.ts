@@ -1,14 +1,12 @@
 import { eq, and } from 'drizzle-orm'
 import { db } from '#server/database'
 import { hackAgents, hackState, hackOps } from '#server/database/schema'
-import { auth } from '#server/utils/auth'
+import { requireUserId } from '#server/utils/auth'
 
 // Activate (move to roster) or deactivate (move to storage) an agent. Only active
 // agents count toward power and can be deployed on ops.
 export default defineEventHandler(async (event) => {
-  const session = await auth.api.getSession({ headers: event.headers })
-  if (!session?.user?.id) throw createError({ statusCode: 401, statusMessage: 'Unauthorized' })
-  const userId = session.user.id
+  const userId = await requireUserId(event)
 
   const { agentId, active } = await readBody(event) as { agentId: string; active: boolean }
 

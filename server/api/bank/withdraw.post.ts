@@ -1,15 +1,13 @@
 import { eq, sql } from 'drizzle-orm'
 import { db } from '#server/database'
 import { bankState, transactions, user } from '#server/database/schema'
-import { auth } from '#server/utils/auth'
+import { requireUserId } from '#server/utils/auth'
 import { getLockedBankState, parseBankAmount, settleBankState, writeBankHistory } from '#server/utils/bank'
 import { withdrawalAllowance } from '#shared/utils/gamelogic/bank'
 
 export default defineEventHandler(async (event) => {
-  const session = await auth.api.getSession({ headers: event.headers })
-  if (!session?.user?.id) throw createError({ statusCode: 401, statusMessage: 'Unauthorized' })
+  const userId = await requireUserId(event)
   const amount = parseBankAmount((await readBody(event))?.amount)
-  const userId = session.user.id
 
   await db.transaction(async (tx) => {
     const settled = await settleBankState(tx, await getLockedBankState(tx, userId))

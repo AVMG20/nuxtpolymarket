@@ -1,14 +1,11 @@
 import { eq } from 'drizzle-orm'
 import { db } from '#server/database'
 import { user } from '#server/database/schema'
-import { auth } from '#server/utils/auth'
+import { requireUserId } from '#server/utils/auth'
 import { credit } from '#server/utils/balance'
 
 export default defineEventHandler(async (event) => {
-  const session = await auth.api.getSession({ headers: event.headers })
-  if (!session?.user?.id) throw createError({ statusCode: 401, statusMessage: 'Unauthorized' })
-
-  const userId = session.user.id
+  const userId = await requireUserId(event)
 
   return db.transaction(async (tx) => {
     // The row lock serializes claimers: the loser reads rake only after the winner

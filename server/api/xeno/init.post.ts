@@ -1,15 +1,12 @@
 import { eq } from 'drizzle-orm'
 import { db } from '#server/database'
 import { xenoGridSlots, xenoBreederSlots } from '#server/database/schema'
-import { auth } from '#server/utils/auth'
+import { requireUserId } from '#server/utils/auth'
 import { addPlants } from '#server/utils/xeno'
 import { getPlantOrThrow } from '#shared/utils/xeno'
 
 export default defineEventHandler(async (event) => {
-  const session = await auth.api.getSession({ headers: event.headers })
-  if (!session?.user?.id) throw createError({ statusCode: 401, statusMessage: 'Unauthorized' })
-
-  const userId = session.user.id
+  const userId = await requireUserId(event)
 
   const existing = await db.query.xenoGridSlots.findFirst({ where: eq(xenoGridSlots.userId, userId) })
   if (existing) return { ok: true }

@@ -1,11 +1,10 @@
 import { and, eq, isNotNull } from 'drizzle-orm'
 import { db } from '#server/database'
 import { account } from '#server/database/schema'
-import { auth } from '#server/utils/auth'
+import { auth, requireUserId } from '#server/utils/auth'
 
 export default defineEventHandler(async (event) => {
-  const session = await auth.api.getSession({ headers: event.headers })
-  if (!session?.user?.id) throw createError({ statusCode: 401, statusMessage: 'Unauthorized' })
+  const userId = await requireUserId(event)
 
   const { password } = await readBody(event)
   if (!password || typeof password !== 'string' || password.length < 8) {
@@ -16,7 +15,7 @@ export default defineEventHandler(async (event) => {
   // password exists, changing it must go through changePassword, which requires
   // the current one — otherwise a hijacked session could silently reset it here.
   const existing = await db.query.account.findFirst({
-    where: and(eq(account.userId, session.user.id), eq(account.providerId, 'credential'), isNotNull(account.password))
+    where: and(eq(account.userId, userId), eq(account.providerId, 'credential'), isNotNull(account.password))
   })
   if (existing) throw createError({ statusCode: 400, statusMessage: 'You already have a password. Use change password instead.' })
 

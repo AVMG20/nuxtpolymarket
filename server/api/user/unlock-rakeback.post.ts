@@ -1,15 +1,12 @@
 import { and, eq } from 'drizzle-orm'
 import { db } from '#server/database'
 import { user } from '#server/database/schema'
-import { auth } from '#server/utils/auth'
+import { requireUserId } from '#server/utils/auth'
 import { debitGems } from '#server/utils/balance'
 import { RAKEBACK_UNLOCK_COST } from '#shared/utils/profile'
 
 export default defineEventHandler(async (event) => {
-  const session = await auth.api.getSession({ headers: event.headers })
-  if (!session?.user?.id) throw createError({ statusCode: 401, statusMessage: 'Unauthorized' })
-
-  const userId = session.user.id
+  const userId = await requireUserId(event)
 
   const current = await db.query.user.findFirst({
     where: eq(user.id, userId),

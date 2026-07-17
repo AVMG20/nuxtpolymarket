@@ -1,15 +1,12 @@
 import { eq, and } from 'drizzle-orm'
 import { db } from '#server/database'
 import { xenoBreederSlots } from '#server/database/schema'
-import { auth } from '#server/utils/auth'
+import { requireUserId } from '#server/utils/auth'
 import { addPlants } from '#server/utils/xeno'
 
 export default defineEventHandler(async (event) => {
   const { slotId } = await readBody<{ slotId: string }>(event)
-  const session = await auth.api.getSession({ headers: event.headers })
-  if (!session?.user?.id) throw createError({ statusCode: 401, statusMessage: 'Unauthorized' })
-
-  const userId = session.user.id
+  const userId = await requireUserId(event)
 
   const slot = await db.query.xenoBreederSlots.findFirst({
     where: and(eq(xenoBreederSlots.id, slotId), eq(xenoBreederSlots.userId, userId)),
