@@ -162,10 +162,6 @@ describe('bonus retrigger boundary', () => {
     })
 })
 
-// Pins current behavior, which looks wrong: on the buy-bonus path `won` is
-// `payout > 0`, so a round costing BOS_BUY_BONUS_COST x bet reports won:true
-// for any payout at all. Every other slot (xenoslot, candymadness,
-// aethergates) uses `payout > cost` on its buy path. Reported, not fixed.
 describe('won flag', () => {
     it('compares payout against bet on a base spin', () => {
         stubRandomFloat(() => TEN_VAL)
@@ -173,15 +169,23 @@ describe('won flag', () => {
         expect(result.won).toBe(result.payout > 100)
     })
 
-    it('compares payout against zero, not cost, on a buy-bonus round', () => {
+    it('compares payout against the buy price, not zero, on a buy-bonus round', () => {
         stubRandomFloat(mulberry32(5))
-        let sawUnderwaterWin = false
+        let sawUnderwaterRound = false
         for (let i = 0; i < 300; i++) {
             const result = playBookOfShadows(1, { buyBonus: true })
-            expect(result.won).toBe(result.payout > 0)
-            if (result.payout > 0 && result.payout < result.cost!) sawUnderwaterWin = true
+            expect(result.won).toBe(result.payout > result.cost!)
+            if (result.payout > 0 && result.payout < result.cost!) sawUnderwaterRound = true
         }
-        expect(sawUnderwaterWin).toBe(true) // rounds that returned less than the buy price still report won:true
+        expect(sawUnderwaterRound).toBe(true)
+    })
+
+    it('does not report a win when a buy-bonus round pays less than it cost', () => {
+        stubRandomFloat(mulberry32(5))
+        const underwater = Array.from({ length: 300 }, () => playBookOfShadows(1, { buyBonus: true }))
+            .filter(r => r.payout > 0 && r.payout < r.cost!)
+        expect(underwater.length).toBeGreaterThan(0)
+        expect(underwater.every(r => r.won === false)).toBe(true)
     })
 })
 
