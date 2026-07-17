@@ -1,29 +1,26 @@
 import { eq } from 'drizzle-orm'
-import { auth } from '#server/utils/auth'
-import { debit, credit, accumulateRake } from '#server/utils/balance'
+import { requireUserId } from '#server/utils/auth'
+import { debit, accumulateRake } from '#server/utils/balance'
 import { startGame, toClientState } from '#shared/utils/gamelogic/blackjack'
 import { db } from '#server/database'
-import { blackjackSessions, user } from '#server/database/schema'
+import { blackjackSessions } from '#server/database/schema'
+import { lockUserBalance, readUserBalance, settleFinishedHand } from '#server/utils/blackjack'
+import { CASINO_MAX_BET } from '#shared/utils/limits'
 
 export default defineEventHandler(async (event) => {
-  const session = await auth.api.getSession({ headers: event.headers })
-  if (!session?.user?.id) {
-    throw createError({ statusCode: 401, statusMessage: 'Unauthorized' })
-  }
+  const userId = await requireUserId(event)
 
   const { bet: rawBet } = await readBody<{ bet: number }>(event)
   const bet = Number(rawBet)
 
-  if (!bet || bet < 1 || !Number.isFinite(bet) || bet > 100_000_000_000) {
+  if (!bet || bet < 1 || !Number.isFinite(bet) || bet > CASINO_MAX_BET) {
     throw createError({ statusCode: 400, statusMessage: 'Invalid bet amount' })
   }
-
-  const userId = session.user.id
 
   return db.transaction(async (tx) => {
     // Locking the user row makes the active-session check, the debit and the
     // insert atomic, so two concurrent starts cannot both stake a bet.
-    await tx.select({ id: user.id }).from(user).where(eq(user.id, userId)).for('update')
+    await lockUserBalance(tx, userId)
 
     // Check if user already has an active session (prevent starting new game while one is active)
     const existing = await tx.select().from(blackjackSessions).where(eq(blackjackSessions.userId, userId)).limit(1)
@@ -37,16 +34,11 @@ export default defineEventHandler(async (event) => {
 
     const result = startGame(bet)
 
-    // If game finished immediately (e.g. blackjack), credit winnings
-    if (result.finished && result.netPayout > 0) {
-      await credit(userId, (bet + result.netPayout).toFixed(4), 'blackjack', tx)
-    } else if (result.finished && result.netPayout === 0) {
-      // Push on immediate blackjack vs dealer blackjack - return bet
-      await credit(userId, bet.toFixed(4), 'blackjack', tx)
-    }
-
-    // Persist active game to DB
-    if (!result.finished) {
+    // If game finished immediately (e.g. blackjack), settle winnings/push now
+    if (result.finished) {
+      await settleFinishedHand(tx, userId, result)
+    } else {
+      // Persist active game to DB
       await tx.insert(blackjackSessions).values({
         userId,
         state: result.state,
@@ -54,11 +46,9 @@ export default defineEventHandler(async (event) => {
       })
     }
 
-    const [settled] = await tx.select({ balance: user.balance }).from(user).where(eq(user.id, userId))
-
     return {
       clientState: toClientState(result.state),
-      balance: parseFloat(settled!.balance),
+      balance: await readUserBalance(tx, userId),
       finished: result.finished,
     }
   })

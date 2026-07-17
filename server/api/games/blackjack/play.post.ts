@@ -1,10 +1,12 @@
-import { eq } from 'drizzle-orm'
-import { auth } from '#server/utils/auth'
-import { debit, credit, accumulateRake } from '#server/utils/balance'
+import { requireUserId } from '#server/utils/auth'
+import { debit, accumulateRake } from '#server/utils/balance'
 import { getHint, performAction, startGame, toClientState } from '#shared/utils/gamelogic/blackjack'
 import type { BlackjackAction, BlackjackResult, BlackjackState, Card, Hand } from '#shared/utils/gamelogic/blackjack'
 import { db } from '#server/database'
-import { blackjackSessions, user } from '#server/database/schema'
+import { blackjackSessions } from '#server/database/schema'
+import { eq } from 'drizzle-orm'
+import { lockUserBalance, readUserBalance, settleFinishedHand } from '#server/utils/blackjack'
+import { AI_CASINO_MAX_BET } from '#shared/utils/limits'
 
 function visibleCard(card: Card) {
     return `${card.rank} of ${card.suit}`
@@ -30,24 +32,18 @@ function handSummary(hand: Hand) {
 }
 
 export default defineEventHandler(async (event) => {
-    const session = await auth.api.getSession({ headers: event.headers })
-    if (!session?.user?.id) {
-        throw createError({ statusCode: 401, statusMessage: 'Unauthorized' })
-    }
+    const userId = await requireUserId(event)
 
     const { bet: rawBet } = await readBody<{ bet: number }>(event)
     const bet = Number(rawBet)
-    if (!Number.isFinite(bet) || bet < 1 || bet > 1_000_000) {
+    if (!Number.isFinite(bet) || bet < 1 || bet > AI_CASINO_MAX_BET) {
         throw createError({ statusCode: 400, statusMessage: 'Invalid bet amount' })
     }
-
-    const userId = session.user.id
 
     return db.transaction(async (tx) => {
         // Locking the user row keeps the whole auto-played hand atomic: no other
         // blackjack request can stake or settle against this player mid-resolution.
-        const [currentUser] = await tx.select({ balance: user.balance }).from(user).where(eq(user.id, userId)).for('update')
-        const startingBalance = Number(currentUser!.balance)
+        const startingBalance = await lockUserBalance(tx, userId)
 
         const existing = await tx.select().from(blackjackSessions).where(eq(blackjackSessions.userId, userId)).limit(1)
         if (existing.length > 0) {
@@ -70,8 +66,7 @@ export default defineEventHandler(async (event) => {
                 action = 'no-insurance'
             } else if (state.phase === 'playing') {
                 const hand = state.playerHands[state.currentHandIndex]
-                const [funds] = await tx.select({ balance: user.balance }).from(user).where(eq(user.id, userId))
-                const availableBalance = Number(funds!.balance)
+                const availableBalance = await readUserBalance(tx, userId)
                 if (!hand) throw createError({ statusCode: 500, statusMessage: 'Blackjack hand is missing' })
 
                 const canFundExtraBet = availableBalance >= hand.bet
@@ -95,14 +90,9 @@ export default defineEventHandler(async (event) => {
             result = performAction(state, action, bet)
         }
 
-        const totalBets = result.state.playerHands.reduce((sum, hand) => sum + hand.bet, 0) + result.state.insuranceBet
-        const payout = totalBets + result.netPayout
-        if (payout > 0) {
-            await credit(userId, payout.toFixed(4), 'blackjack', tx)
-        }
+        const { totalBets, payout } = await settleFinishedHand(tx, userId, result)
+        const balance = await readUserBalance(tx, userId)
 
-        const [settled] = await tx.select({ balance: user.balance }).from(user).where(eq(user.id, userId))
-        const balance = Number(settled!.balance)
         return {
             bet,
             totalWagered: totalBets,

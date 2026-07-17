@@ -1,16 +1,14 @@
 import { eq } from 'drizzle-orm'
-import { auth } from '#server/utils/auth'
-import { debit, credit, accumulateRake } from '#server/utils/balance'
+import { requireUserId } from '#server/utils/auth'
+import { debit, accumulateRake } from '#server/utils/balance'
 import { performAction, toClientState } from '#shared/utils/gamelogic/blackjack'
 import type { BlackjackState, BlackjackAction } from '#shared/utils/gamelogic/blackjack'
 import { db } from '#server/database'
-import { blackjackSessions, user } from '#server/database/schema'
+import { blackjackSessions } from '#server/database/schema'
+import { lockUserBalance, readUserBalance, settleFinishedHand } from '#server/utils/blackjack'
 
 export default defineEventHandler(async (event) => {
-  const session = await auth.api.getSession({ headers: event.headers })
-  if (!session?.user?.id) {
-    throw createError({ statusCode: 401, statusMessage: 'Unauthorized' })
-  }
+  const userId = await requireUserId(event)
 
   const { action } = await readBody<{ action: BlackjackAction }>(event)
 
@@ -18,13 +16,10 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 400, statusMessage: 'Missing action' })
   }
 
-  const userId = session.user.id
-
   return db.transaction(async (tx) => {
     // Locking the user row serialises every blackjack write for this player, so a
     // finished hand is settled and deleted exactly once.
-    const [currentUser] = await tx.select({ balance: user.balance }).from(user).where(eq(user.id, userId)).for('update')
-    const balance = parseFloat(currentUser!.balance)
+    const balance = await lockUserBalance(tx, userId)
 
     // Load game state from DB
     const rows = await tx.select().from(blackjackSessions).where(eq(blackjackSessions.userId, userId)).limit(1)
@@ -67,23 +62,16 @@ export default defineEventHandler(async (event) => {
 
     // If game finished, settle balance and remove DB session
     if (result.finished) {
-      const totalBets = result.state.playerHands.reduce((sum, h) => sum + h.bet, 0) + result.state.insuranceBet
-      const totalPayout = totalBets + result.netPayout
-      if (totalPayout > 0) {
-        await credit(userId, totalPayout.toFixed(4), 'blackjack', tx)
-      }
-      await tx.delete(blackjackSessions).where(eq(blackjackSessions.userId, userId))
+      await settleFinishedHand(tx, userId, result)
     } else {
       await tx.update(blackjackSessions)
         .set({ state: result.state })
         .where(eq(blackjackSessions.userId, userId))
     }
 
-    const [settled] = await tx.select({ balance: user.balance }).from(user).where(eq(user.id, userId))
-
     return {
       clientState: toClientState(result.state),
-      balance: parseFloat(settled!.balance),
+      balance: await readUserBalance(tx, userId),
       finished: result.finished,
     }
   })
