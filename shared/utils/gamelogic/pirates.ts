@@ -1,4 +1,4 @@
-import { randomFloat } from '../random'
+import { randomFloat, randomWeighted } from '../random'
 
 // ─── Pirate Raid ────────────────────────────────────────────────────────────
 
@@ -570,13 +570,7 @@ export function pirateRollEnemyTier(elapsedMs: number, difficulty = 0, rng: () =
   const effectiveElapsedMs = elapsedMs + pirateDifficultyT(difficulty) * pirateTimelineMs(30_000)
   const available = PIRATE_ENEMY_TIERS.filter(t => !t.boss && t.weight > 0 && effectiveElapsedMs >= t.unlockAtMs)
   const pool = available.length ? available : [PIRATE_ENEMY_TIERS[0]!]
-  const totalWeight = pool.reduce((sum, t) => sum + t.weight, 0)
-  let roll = rng() * totalWeight
-  for (const t of pool) {
-    roll -= t.weight
-    if (roll <= 0) return t
-  }
-  return pool[pool.length - 1]!
+  return randomWeighted(pool, t => t.weight, rng)
 }
 
 // ─── Treasure ───────────────────────────────────────────────────────────────

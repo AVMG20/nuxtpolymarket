@@ -1,3 +1,5 @@
+import { randomWeighted } from '../random'
+
 export const FITH_COLS = 6
 export const FITH_ROWS = 6
 export const FITH_STARTING_LINES = 3
@@ -101,15 +103,8 @@ function rand(): number {
 }
 
 function weightedPick<T>(items: readonly T[], weights: readonly number[]): T {
-  const total = weights.reduce((sum, weight) => sum + weight, 0)
-  let roll = rand() * total
-
-  for (let i = 0; i < items.length; i++) {
-    roll -= weights[i]!
-    if (roll < 0) return items[i]!
-  }
-
-  return items[items.length - 1]!
+  const pairs = items.map((item, i) => ({ item, weight: weights[i]! }))
+  return randomWeighted(pairs, p => p.weight, rand).item
 }
 
 function drawSymbol(canBomb = true): Exclude<FireSymbol, 'coin' | 'boost' | 'double' | 'collector' | 'empty' | 'rock'> {

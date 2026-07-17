@@ -1,4 +1,4 @@
-import { randomChance, randomFloat, randomInt, randomPick } from './random'
+import { randomChance, randomFloat, randomInt, randomPick, randomWeighted } from './random'
 
 export type HackRarity = 'ghost' | 'operative' | 'specialist' | 'elite' | 'phantom'
 export type AgentClass = 'infiltrator' | 'cryptographer' | 'social_engineer' | 'bruteforce'
@@ -793,13 +793,7 @@ export function rollOpReward(
 }
 
 export function rollRarity(weights: Record<HackRarity, number>): HackRarity {
-  const total = Object.values(weights).reduce((a, b) => a + b, 0)
-  let roll = randomFloat() * total
-  for (const rarity of RARITY_ORDER) {
-    roll -= weights[rarity]
-    if (roll <= 0) return rarity
-  }
-  return 'ghost'
+  return randomWeighted(RARITY_ORDER, rarity => weights[rarity])
 }
 
 // Flat per rarity — rarity (mod count) is an item's only intrinsic worth. Item levels
