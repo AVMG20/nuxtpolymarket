@@ -81,7 +81,7 @@ function openDetails(user: LeaderboardUser) {
               v-for="(u, i) in users"
               :key="u.name"
               class="cursor-pointer border-b border-default/70 transition-colors last:border-b-0 hover:bg-elevated/50 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-primary"
-              :class="[i < 3 ? rankBg[i] : '', u.isCurrentUser ? 'ring-1 ring-inset ring-primary/40' : '']"
+              :class="i < 3 ? rankBg[i] : ''"
               tabindex="0"
               @click="openDetails(u)"
               @keydown.enter="openDetails(u)"
@@ -142,10 +142,7 @@ function openDetails(user: LeaderboardUser) {
         <div class="space-y-5">
           <div class="flex items-center gap-3">
             <ProfileEmblem :emblem="selectedUser.emblem" :name="selectedUser.name" class="size-12 text-lg" />
-            <div class="min-w-0">
-              <p class="truncate font-semibold">{{ selectedUser.name }}</p>
-              <p class="text-xs text-muted">Player emblem</p>
-            </div>
+            <p class="min-w-0 truncate font-semibold">{{ selectedUser.name }}</p>
           </div>
 
           <div class="grid grid-cols-3 gap-2">

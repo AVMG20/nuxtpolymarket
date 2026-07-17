@@ -2,9 +2,12 @@
 import {
   EMBLEM_MAX_ELEMENTS,
   EMBLEM_MAX_POINTS_PER_STROKE,
+  emblemPolygonPoints,
+  emblemStarPoints,
   parseEmblem,
   type EmblemData,
   type EmblemElement,
+  type EmblemPlacedShape,
   type EmblemPoint,
   type EmblemShape,
   type EmblemStroke
@@ -28,9 +31,29 @@ const tool = ref<Tool>('pencil')
 const color = ref('#ffffff')
 const brushSize = ref(6)
 const shapeSize = ref(34)
+const shapeRotation = ref(0)
 const drawing = ref(false)
 const activeStroke = ref<EmblemStroke | null>(null)
 const history = ref<EmblemElement[][]>([])
+const hoverPoint = ref<EmblemPoint | null>(null)
+
+watch(tool, (next) => {
+  shapeRotation.value = next === 'square' ? 45 : 0
+})
+
+const previewShape = computed<EmblemPlacedShape | null>(() => {
+  if (tool.value === 'pencil' || !hoverPoint.value || emblem.elements.length >= EMBLEM_MAX_ELEMENTS) return null
+  const [x, y] = hoverPoint.value
+  return {
+    kind: 'shape',
+    shape: tool.value,
+    color: color.value,
+    x,
+    y,
+    size: shapeSize.value,
+    rotation: shapeRotation.value
+  }
+})
 
 function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T
@@ -91,17 +114,29 @@ function pointerDown(event: PointerEvent) {
     x,
     y,
     size: shapeSize.value,
-    rotation: tool.value === 'square' ? 45 : 0
+    rotation: shapeRotation.value
   })
   changed()
 }
 
+function wheelRotate(event: WheelEvent) {
+  if (tool.value === 'pencil' || (!event.metaKey && !event.altKey)) return
+  event.preventDefault()
+  const delta = event.deltaY > 0 ? -5 : 5
+  shapeRotation.value = Math.max(-180, Math.min(180, shapeRotation.value + delta))
+}
+
 function pointerMove(event: PointerEvent) {
-  if (!drawing.value || !activeStroke.value) return
   const next = pointFromEvent(event)
+  hoverPoint.value = next
+  if (!drawing.value || !activeStroke.value) return
   const last = activeStroke.value.points.at(-1)!
   if (Math.hypot(next[0] - last[0], next[1] - last[1]) < 1.2) return
   if (activeStroke.value.points.length < EMBLEM_MAX_POINTS_PER_STROKE) activeStroke.value.points.push(next)
+}
+
+function pointerLeave() {
+  hoverPoint.value = null
 }
 
 function pointerUp(event: PointerEvent) {
@@ -159,9 +194,55 @@ defineShortcuts({
           viewBox="0 0 100 100"
           @pointercancel="pointerUp"
           @pointerdown="pointerDown"
+          @pointerleave="pointerLeave"
           @pointermove="pointerMove"
           @pointerup="pointerUp"
-        />
+          @wheel="wheelRotate"
+        >
+          <g pointer-events="none">
+            <circle
+              v-if="tool === 'pencil' && hoverPoint"
+              :cx="hoverPoint[0]"
+              :cy="hoverPoint[1]"
+              :r="brushSize / 2"
+              :fill="color"
+              fill-opacity="0.4"
+              :stroke="color"
+              stroke-width="0.5"
+            />
+            <circle
+              v-else-if="previewShape && previewShape.shape === 'circle'"
+              :cx="previewShape.x"
+              :cy="previewShape.y"
+              :r="previewShape.size / 2"
+              :fill="previewShape.color"
+              opacity="0.5"
+            />
+            <rect
+              v-else-if="previewShape && previewShape.shape === 'square'"
+              :fill="previewShape.color"
+              :height="previewShape.size"
+              opacity="0.5"
+              rx="2"
+              :transform="`rotate(${previewShape.rotation} ${previewShape.x} ${previewShape.y})`"
+              :width="previewShape.size"
+              :x="previewShape.x - previewShape.size / 2"
+              :y="previewShape.y - previewShape.size / 2"
+            />
+            <polygon
+              v-else-if="previewShape && previewShape.shape === 'star'"
+              :fill="previewShape.color"
+              opacity="0.5"
+              :points="emblemStarPoints(previewShape)"
+            />
+            <polygon
+              v-else-if="previewShape"
+              :fill="previewShape.color"
+              opacity="0.5"
+              :points="emblemPolygonPoints(previewShape)"
+            />
+          </g>
+        </svg>
       </div>
       <p class="mt-3 text-center text-xs text-muted">Draw or tap to place shapes. Your emblem is cropped to a circle everywhere.</p>
     </div>
@@ -233,6 +314,10 @@ defineShortcuts({
       <UFormField :label="tool === 'pencil' ? 'Brush size' : 'Shape size'">
         <USlider v-if="tool === 'pencil'" v-model="brushSize" :max="18" :min="1" :step="1" />
         <USlider v-else v-model="shapeSize" :max="80" :min="8" :step="1" />
+      </UFormField>
+
+      <UFormField v-if="tool !== 'pencil'" label="Shape rotation" description="Hold ⌘ or Alt and scroll over the canvas to rotate.">
+        <USlider v-model="shapeRotation" :max="180" :min="-180" :step="1" />
       </UFormField>
 
       <div class="flex flex-wrap gap-2 border-t border-default pt-5">

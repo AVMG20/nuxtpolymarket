@@ -104,3 +104,25 @@ export function serializeEmblem(value: unknown): string | null {
     const emblem = parseEmblem(value)
     return emblem ? JSON.stringify(emblem) : null
 }
+
+export function emblemPolygonPoints(element: Pick<EmblemPlacedShape, 'shape' | 'rotation' | 'size' | 'x' | 'y'>): string {
+    const count = element.shape === 'triangle' ? 3 : 4
+    const start = element.shape === 'triangle' ? -90 : -45
+    return Array.from({ length: count }, (_, index) => {
+        const angle = ((start + element.rotation + index * (360 / count)) * Math.PI) / 180
+        const radius = element.size / 2
+        return `${element.x + Math.cos(angle) * radius},${element.y + Math.sin(angle) * radius}`
+    }).join(' ')
+}
+
+export function emblemStarPoints(element: Pick<EmblemPlacedShape, 'rotation' | 'size' | 'x' | 'y'>): string {
+    return Array.from({ length: 10 }, (_, index) => {
+        const angle = ((-90 + element.rotation + index * 36) * Math.PI) / 180
+        const radius = index % 2 === 0 ? element.size / 2 : element.size / 4.5
+        return `${element.x + Math.cos(angle) * radius},${element.y + Math.sin(angle) * radius}`
+    }).join(' ')
+}
+
+export function emblemStrokePath(points: EmblemPoint[]): string {
+    return points.map((point, index) => `${index ? 'L' : 'M'} ${point[0]} ${point[1]}`).join(' ')
+}
