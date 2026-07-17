@@ -1,15 +1,11 @@
 import { eq, and, inArray } from 'drizzle-orm'
-import { db } from '#server/database'
+import { db, type DbExecutor } from '#server/database'
 import { xenoPlants, xenoPlantsUnlocked, xenoArtifacts, xenoGridSlots, xenoBreederSlots } from '#server/database/schema'
 import { randomChance } from '#shared/utils/random'
 import {
   getArtifact, getEffectValueFor, getPlant, getPlantDisplay,
   effectiveGrowTime, breedDuration, getMutationPair,
 } from '#shared/utils/xeno'
-
-// The pool, or an open transaction. Callers consuming plants as part of a larger
-// atomic step must pass their `tx` so a later failure rolls the consumption back.
-type XenoExecutor = Pick<typeof db, 'query' | 'delete'>
 
 /** When DEV_MODE=true, all grow/breed durations are capped to 1 second for testing */
 export function xenoDuration(rawSecs: number): number {
@@ -164,7 +160,7 @@ export async function consumePlantsByStack(
   speed: number,
   yield_: number,
   quantity: number,
-  tx: XenoExecutor = db,
+  tx: DbExecutor = db,
 ) {
   const allOfStack = await tx.query.xenoPlants.findMany({
     where: and(
