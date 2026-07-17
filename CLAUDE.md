@@ -6,7 +6,7 @@
 - **UI**: Nuxt UI (v3) — use its components and design tokens wherever possible
 - **ORM**: Drizzle ORM with PostgreSQL
 - **Auth**: better-auth — session is retrieved server-side via `auth.api.getSession({ headers: event.headers })`
-- **Package manager**: bun; always use `bun` for adding and removing packages and executing scripts. try not to use `pnpm`
+- **Package manager**: bun, exclusively. Use `bun` for installing packages and running scripts — never `pnpm`, `npm`, or `yarn`. `bun.lock` is the only lockfile; the others are gitignored so they cannot come back.
 
 ## Colors
 

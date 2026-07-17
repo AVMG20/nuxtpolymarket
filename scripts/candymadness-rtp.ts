@@ -1,7 +1,7 @@
 // scripts/candymadness-rtp.ts
 //
 // Monte-Carlo RTP tester for Candy Madness.
-// Run:  pnpm tsx scripts/candymadness-rtp.ts [rounds]
+// Run:  bun scripts/candymadness-rtp.ts [rounds]
 //
 // Imports the *real* game logic so the measured RTP matches production exactly.
 
