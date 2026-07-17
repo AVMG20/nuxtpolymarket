@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { stubRandomFloat } from '../setup/stub-random'
 import {
   OP_TEMPLATES,
   rollOpReward,
@@ -36,7 +37,7 @@ function mockRandom() {
 
 function resetRandom() {
   randomCall = 0
-  vi.spyOn(Math, 'random').mockImplementation(mockRandom)
+  stubRandomFloat(mockRandom)
 }
 
 describe('artifact drops', () => {

@@ -1,3 +1,5 @@
+import { randomFloat } from '../random'
+
 // ─── Pirate Raid ────────────────────────────────────────────────────────────
 
 // The voyage was originally balanced around eight minutes. Timeline-based
@@ -346,7 +348,7 @@ export interface PirateAttackRoll {
 }
 
 /** One shot: accuracy roll first, then (only on a hit) a 1..maxDamage damage roll. */
-export function pirateRollAttack(attackRating: number, defenseRating: number, maxDamage: number, rng: () => number = Math.random): PirateAttackRoll {
+export function pirateRollAttack(attackRating: number, defenseRating: number, maxDamage: number, rng: () => number = randomFloat): PirateAttackRoll {
   const attackRoll = rng() * (attackRating + 1)
   const defenseRoll = rng() * (defenseRating + 1)
   if (attackRoll < defenseRoll) return { hit: false, dmg: 0, crit: false }
@@ -534,7 +536,7 @@ export function pirateInitialEnemyCount(difficulty: number) {
  * Reinforcement size. Rookie runs mostly add one hull at a time; higher-tier
  * and later runs frequently add two, with an occasional late third hull.
  */
-export function pirateSpawnBatchSize(elapsedMs: number, difficulty: number, rng: () => number = Math.random) {
+export function pirateSpawnBatchSize(elapsedMs: number, difficulty: number, rng: () => number = randomFloat) {
   const t = Math.min(1, elapsedMs / PIRATE_RUN_DURATION_MS)
   const pT = pirateDifficultyT(difficulty)
   const overrun = Math.min(1, Math.max(0, (elapsedMs - PIRATE_OVERRUN_START_MS) / (PIRATE_RUN_DURATION_MS - PIRATE_OVERRUN_START_MS)))
@@ -564,7 +566,7 @@ export const PIRATE_COMBO_MAX_STACKS = 5
  * grants up to a 30-second tier head start, enough to vary early waves without
  * compressing the entire midgame into the first minute.
  */
-export function pirateRollEnemyTier(elapsedMs: number, difficulty = 0, rng: () => number = Math.random): PirateEnemyTier {
+export function pirateRollEnemyTier(elapsedMs: number, difficulty = 0, rng: () => number = randomFloat): PirateEnemyTier {
   const effectiveElapsedMs = elapsedMs + pirateDifficultyT(difficulty) * pirateTimelineMs(30_000)
   const available = PIRATE_ENEMY_TIERS.filter(t => !t.boss && t.weight > 0 && effectiveElapsedMs >= t.unlockAtMs)
   const pool = available.length ? available : [PIRATE_ENEMY_TIERS[0]!]
@@ -582,7 +584,7 @@ export const PIRATE_TREASURE_MIN_INTERVAL_MS = pirateTimelineMs(25_000)
 export const PIRATE_TREASURE_MAX_INTERVAL_MS = pirateTimelineMs(40_000)
 export const PIRATE_TREASURE_LIFESPAN_MS = pirateTimelineMs(20_000)
 
-export function pirateTreasureReward(elapsedMs: number, difficulty = 0, rng: () => number = Math.random) {
+export function pirateTreasureReward(elapsedMs: number, difficulty = 0, rng: () => number = randomFloat) {
   const t = Math.min(1, elapsedMs / PIRATE_RUN_DURATION_MS)
   const base = (1600 + t * 1400) * (1 + Math.max(0, difficulty - PIRATE_BASE_POWER) * 0.005)
   const variance = 0.8 + rng() * 0.4

@@ -1,6 +1,7 @@
 import { eq, and } from 'drizzle-orm'
 import { db } from '#server/database'
 import { xenoPlants, xenoPlantsUnlocked, xenoArtifacts, xenoGridSlots, xenoBreederSlots } from '#server/database/schema'
+import { randomChance } from '#shared/utils/random'
 import {
   getArtifact, getEffectValueFor, getPlant, getPlantDisplay,
   effectiveGrowTime, breedDuration, getMutationPair,
@@ -78,7 +79,7 @@ export function computeBreedResult(
   const possibleMutations = getMutationPair(p1.typeId, p2.typeId)
   for (const mutation of possibleMutations) {
     const effectiveChance = Math.max(0, Math.min(1, mutation.chance + options.mutationBoost))
-    if (Math.random() < effectiveChance) {
+    if (randomChance(effectiveChance)) {
       const offspring = getPlant(mutation.offspring)!
       resultTypeId = mutation.offspring
       resultSpeed = offspring.speed
@@ -90,9 +91,9 @@ export function computeBreedResult(
 
   if (!wasMutation) {
     // No mutation: type, speed, and yield are each independently random from either parent.
-    resultTypeId = Math.random() < 0.5 ? p1.typeId : p2.typeId
-    resultSpeed = Math.random() < 0.5 ? p1.speed : p2.speed
-    resultYield = Math.random() < 0.5 ? p1.yield : p2.yield
+    resultTypeId = randomChance(0.5) ? p1.typeId : p2.typeId
+    resultSpeed = randomChance(0.5) ? p1.speed : p2.speed
+    resultYield = randomChance(0.5) ? p1.yield : p2.yield
   }
 
   return {

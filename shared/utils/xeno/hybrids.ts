@@ -1,3 +1,4 @@
+import { randomFloat, randomInt } from '../random'
 import { PLANT_TYPES, getPlant, effectiveGrowTime, type PlantType } from './plants'
 
 /**
@@ -126,7 +127,7 @@ export function tierUnlockProgress(tier: number, unlockedTypeIds: string[]): Tie
 
 function weightedRarityK(): number {
   const total = HYBRID_RARITY.reduce((s, r) => s + r.w, 0)
-  let roll = Math.random() * total
+  let roll = randomFloat() * total
   for (const r of HYBRID_RARITY) {
     roll -= r.w
     if (roll < 0) return r.k
@@ -139,7 +140,7 @@ function pickDistinct<T>(arr: T[], count: number): T[] {
   const out: T[] = []
   const n = Math.min(count, pool.length)
   for (let i = 0; i < n; i++) {
-    const idx = Math.floor(Math.random() * pool.length)
+    const idx = Math.floor(randomFloat() * pool.length)
     out.push(pool.splice(idx, 1)[0]!)
   }
   return out
@@ -155,8 +156,8 @@ export function rollHybrid(maxTier: number): { resources: HybridResource[] } {
   const pool = hybridResourcePool(maxTier)
   const resources = pickDistinct(pool, k).map(p => ({
     id: p.id,
-    speed: Math.floor(Math.random() * (maxTier + 1)),
-    yield: Math.floor(Math.random() * (maxTier + 1)),
+    speed: randomInt(0, maxTier),
+    yield: randomInt(0, maxTier),
   }))
   return { resources }
 }
