@@ -1,21 +1,18 @@
 import { eq } from 'drizzle-orm'
 import { db } from '#server/database'
 import { minerState } from '#server/database/schema'
-import { auth } from '#server/utils/auth'
+import { requireUserId } from '#server/utils/auth'
 import { effectiveRigIncome, vaultCap, computePending } from '#shared/utils/miner-config'
 import { credit } from '#server/utils/balance'
+import { getLockedMinerState } from '#server/utils/miner'
 
 export default defineEventHandler(async (event) => {
-  const session = await auth.api.getSession({ headers: event.headers })
-  if (!session?.user?.id) throw createError({ statusCode: 401, statusMessage: 'Unauthorized' })
-
-  const userId = session.user.id
+  const userId = await requireUserId(event)
 
   return db.transaction(async (tx) => {
     // The row lock serializes collectors: the loser reads lastCollectedAt only after
     // the winner has moved it forward, so its pending recomputes to ~0.
-    const [s] = await tx.select().from(minerState).where(eq(minerState.userId, userId)).for('update')
-    if (!s) throw createError({ statusCode: 404, statusMessage: 'Miner not initialized' })
+    const s = await getLockedMinerState(tx, userId)
 
     const pending = computePending(effectiveRigIncome(s.rigLevel, s.overclockLevel), s.lastCollectedAt, vaultCap(s.vaultLevel))
     const amount = Math.floor(pending * 100) / 100

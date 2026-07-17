@@ -1,15 +1,12 @@
 import { eq } from 'drizzle-orm'
 import { db } from '#server/database'
 import { minerState } from '#server/database/schema'
-import { auth } from '#server/utils/auth'
+import { requireUserId } from '#server/utils/auth'
 import { debit } from '#server/utils/balance'
 import { lootboxSlotCost, LOOTBOX_MAX_SLOTS } from '#shared/utils/miner-config'
 
 export default defineEventHandler(async (event) => {
-  const session = await auth.api.getSession({ headers: event.headers })
-  if (!session?.user?.id) throw createError({ statusCode: 401, statusMessage: 'Unauthorized' })
-
-  const userId = session.user.id
+  const userId = await requireUserId(event)
 
   const s = await db.query.minerState.findFirst({ where: eq(minerState.userId, userId) })
   if (!s) throw createError({ statusCode: 404, statusMessage: 'Miner not initialized' })
