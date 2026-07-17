@@ -22,8 +22,6 @@ async function signOut() {
 
 const platformItems: NavigationMenuItem[] = [
   { label: 'Games', class: 'mb-1', icon: 'i-lucide-house', to: '/' },
-  { label: 'Pirate Raid', class: 'mb-1', icon: 'i-lucide-anchor', to: '/pirates' },
-  { label: 'SHAPEZZ', class: 'mb-1', icon: 'i-lucide-shapes', to: '/shapezz' },
   { label: 'AI Assistant', class: 'mb-1', icon: 'i-lucide-bot', to: '/ai' },
   { label: 'Gem Market', class: 'mb-1', icon: 'i-lucide-gem', to: '/gem-market' },
   { label: 'Bank', class: 'mb-1', icon: 'i-lucide-landmark', to: '/bank' },
@@ -36,6 +34,11 @@ const idleGameItems: NavigationMenuItem[] = [
   { label: 'Xeno', class: 'mb-1', icon: 'i-lucide-sprout', to: '/xeno' },
   { label: 'Hack Ops', class: 'mb-1', icon: 'i-lucide-terminal', to: '/hack' },
   { label: 'Colony', class: 'mb-1', icon: 'i-lucide-bug', to: '/colony' }
+]
+
+const activeGameItems: NavigationMenuItem[] = [
+  { label: 'Pirate Raid', class: 'mb-1', icon: 'i-lucide-anchor', to: '/pirates' },
+  { label: 'SHAPEZZ', class: 'mb-1', icon: 'i-lucide-shapes', to: '/shapezz' }
 ]
 
 const slotItems: NavigationMenuItem[] = [
@@ -159,6 +162,20 @@ function setNeutral(color: string) {
         <UNavigationMenu
           :collapsed="state === 'collapsed'"
           :items="idleGameItems"
+          orientation="vertical"
+        />
+
+        <USeparator class="my-3" />
+
+        <p
+          v-if="state !== 'collapsed'"
+          class="text-xs font-semibold text-muted uppercase tracking-wider px-2 mb-1"
+        >
+          Active Games
+        </p>
+        <UNavigationMenu
+          :collapsed="state === 'collapsed'"
+          :items="activeGameItems"
           orientation="vertical"
         />
 

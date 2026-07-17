@@ -9,8 +9,10 @@ import {
   shapezzEnemyHealthMultiplier,
   shapezzIntensity,
   shapezzMaxPayoutForRun,
+  SHAPEZZ_RUN_COOLDOWN_MS,
   shapezzPermanentUpgradeCost,
   shapezzPlayerStats,
+  shapezzRunCooldownRemainingMs,
   shapezzWeapon,
   shapezzWeaponReplacement
 } from '#shared/utils/gamelogic/shapezz'
@@ -133,5 +135,21 @@ describe('SHAPEZZ weapons', () => {
     expect(SHAPEZZ_COMBAT_LIMITS.bullets).toBeLessThanOrEqual(520)
     expect(SHAPEZZ_COMBAT_LIMITS.particles).toBeLessThanOrEqual(700)
     expect(SHAPEZZ_COMBAT_LIMITS.enemies).toBeLessThanOrEqual(100)
+  })
+})
+
+describe('SHAPEZZ arena cooldown', () => {
+  it('locks the arena for 2 hours after a settled run', () => {
+    expect(SHAPEZZ_RUN_COOLDOWN_MS).toBe(2 * 60 * 60 * 1000)
+    const finishedAt = new Date('2026-07-17T12:00:00Z')
+    expect(shapezzRunCooldownRemainingMs(finishedAt, finishedAt.getTime())).toBe(SHAPEZZ_RUN_COOLDOWN_MS)
+    expect(shapezzRunCooldownRemainingMs(finishedAt, finishedAt.getTime() + 30 * 60 * 1000)).toBe(90 * 60 * 1000)
+  })
+
+  it('is fully open once the cooldown elapses or when no run ever finished', () => {
+    const finishedAt = new Date('2026-07-17T12:00:00Z')
+    expect(shapezzRunCooldownRemainingMs(finishedAt, finishedAt.getTime() + SHAPEZZ_RUN_COOLDOWN_MS)).toBe(0)
+    expect(shapezzRunCooldownRemainingMs(finishedAt, finishedAt.getTime() + SHAPEZZ_RUN_COOLDOWN_MS + 1)).toBe(0)
+    expect(shapezzRunCooldownRemainingMs(null, Date.now())).toBe(0)
   })
 })

@@ -8,9 +8,9 @@ import {
     shapezzIntensity,
     type ShapezzDifficultyId,
     type ShapezzRunUpgradeId,
-    type ShapezzWeapon,
-    type ShapezzWeaponType
+    type ShapezzWeapon
 } from '#shared/utils/gamelogic/shapezz'
+import type { ShapezzSoundEvent } from '~/utils/shapezz-sounds'
 
 const WIDTH = 1280
 const HEIGHT = 720
@@ -43,8 +43,10 @@ export interface ShapezzEngineCallbacks {
     onCheckpoint: (offers: ShapezzRunUpgradeId[], snapshot: ShapezzSnapshot) => void
     onBoss: (name: string) => void
     onGameOver: (snapshot: ShapezzSnapshot) => void
-    /** Fired for each player-triggered volley (not turrets/drones) — drives SFX. */
-    onShoot?: (weaponType: ShapezzWeaponType) => void
+    /** Fired at every audible game moment — playback throttles per-event. */
+    onSfx?: (event: ShapezzSoundEvent) => void
+    /** Fired when the pause state changes (button or P/Escape key). */
+    onPause?: (paused: boolean) => void
 }
 
 interface Point { x: number, y: number }
@@ -158,6 +160,7 @@ export class ShapezzEngine {
     private aim = { x: WIDTH * 0.75, y: HEIGHT * 0.45 }
     private firing = false
     private running = false
+    private paused = false
     private checkpointOpen = false
     private destroyed = false
     private raf = 0
@@ -202,11 +205,19 @@ export class ShapezzEngine {
         const key = event.key.toLowerCase()
         if ([' ', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright', 'w', 'a', 's', 'd'].includes(key)) event.preventDefault()
         this.keys.add(key)
-        if ((key === ' ' || key === 'w' || key === 'arrowup') && this.running && this.player.onGround) this.jump()
+        if (key === 'p' || key === 'escape') this.togglePause()
+        if ((key === ' ' || key === 'w' || key === 'arrowup') && this.running && !this.paused && this.player.onGround) this.jump()
     }
 
     private keyup = (event: KeyboardEvent) => {
         this.keys.delete(event.key.toLowerCase())
+    }
+
+    // Without this, enemies keep attacking while the player has no input.
+    private windowBlur = () => {
+        this.keys.clear()
+        this.firing = false
+        if (this.running && !this.paused) this.togglePause()
     }
 
     private pointermove = (event: PointerEvent) => {
@@ -240,6 +251,7 @@ export class ShapezzEngine {
         window.addEventListener('keydown', this.keydown, { passive: false })
         window.addEventListener('keyup', this.keyup)
         window.addEventListener('pointerup', this.pointerup)
+        window.addEventListener('blur', this.windowBlur)
         canvas.addEventListener('pointermove', this.pointermove)
         canvas.addEventListener('pointerdown', this.pointerdown)
         canvas.addEventListener('contextmenu', event => event.preventDefault())
@@ -266,6 +278,7 @@ export class ShapezzEngine {
         window.removeEventListener('keydown', this.keydown)
         window.removeEventListener('keyup', this.keyup)
         window.removeEventListener('pointerup', this.pointerup)
+        window.removeEventListener('blur', this.windowBlur)
         this.canvas.removeEventListener('pointermove', this.pointermove)
         this.canvas.removeEventListener('pointerdown', this.pointerdown)
     }
@@ -285,12 +298,19 @@ export class ShapezzEngine {
         return this.snapshot()
     }
 
+    /** Freeze/unfreeze the simulation. No-op outside a live run (checkpoint, game over). */
+    togglePause() {
+        if (!this.running) return
+        this.paused = !this.paused
+        this.callbacks.onPause?.(this.paused)
+    }
+
     private frame = (now: number) => {
         if (this.destroyed) return
         const dt = Math.min(0.033, Math.max(0, (now - (this.lastFrame || now)) / 1000))
         this.lastFrame = now
-        if (this.running) this.update(dt)
-        else this.updateEffects(dt)
+        if (this.running && !this.paused) this.update(dt)
+        else if (!this.paused) this.updateEffects(dt)
         this.render(now / 1000)
         this.raf = requestAnimationFrame(this.frame)
     }
@@ -331,7 +351,7 @@ export class ShapezzEngine {
         const fireMultiplier = this.combo > 0 && frenzy > 0 ? 2 + (frenzy - 1) * 0.35 : 1
         if (this.firing && this.fireCooldown <= 0) {
             this.firePlayerVolley(this.player.x, this.player.y - 6, Math.atan2(this.aim.y - this.player.y, this.aim.x - this.player.x))
-            this.callbacks.onShoot?.(this.weapon.type)
+            this.callbacks.onSfx?.(`shoot-${this.weapon.type}`)
             const requestedFireRate = this.stats.fireRate * this.weapon.fireRateMultiplier * fireMultiplier
             const fireRateCap = this.weapon.type === 'shotgun' ? 4.5 : this.weapon.type === 'launcher' ? 3 : 18
             this.fireCooldown = 1 / Math.min(fireRateCap, requestedFireRate)
@@ -346,6 +366,7 @@ export class ShapezzEngine {
             this.running = false
             this.flash = 0.9
             this.burst(this.player.x, this.player.y, '#ffffff', 120, 760)
+            this.callbacks.onSfx?.('player-death')
             this.callbacks.onGameOver(this.snapshot())
         }
 
@@ -394,6 +415,7 @@ export class ShapezzEngine {
     private jump() {
         this.player.vy = -this.stats.jumpSpeed
         this.player.onGround = false
+        this.callbacks.onSfx?.('dash')
         this.burst(this.player.x, this.player.y + 18, '#67e8f9', 14, 230)
         const stacks = Math.min(4, this.upgrades.afterimage ?? 0)
         for (let i = 0; i < stacks && this.turrets.length < SHAPEZZ_COMBAT_LIMITS.turrets; i++) {
@@ -460,6 +482,7 @@ export class ShapezzEngine {
         boss.reward = Math.round(boss.reward * scale)
         boss.boss = true
         boss.fireCooldown = 1
+        this.callbacks.onSfx?.('boss-spawn')
         this.callbacks.onBoss(checkpoint >= 6 ? 'THE IMPOSSIBLE POLYGON' : 'THE OVERSEER')
         this.shake = 18
         this.flash = 0.7
@@ -520,6 +543,7 @@ export class ShapezzEngine {
             explosionRadius: 0, traveled: 0, falloffStart: 9999, falloffEnd: 10_000,
             minFalloffDamage: 1, visualIntensity: enemy.boss ? 3 : 1, secondaryEffects: false, hitIds: new Set()
         })
+        this.callbacks.onSfx?.('enemy-shoot')
         this.burst(enemy.x, enemy.y, enemy.color, enemy.boss ? 12 : 5, 150)
     }
 
@@ -556,6 +580,7 @@ export class ShapezzEngine {
         if ((this.upgrades.blackHole ?? 0) > 0 && this.shotCounter % singularityEvery === 0) {
             this.singularities.push({ x: this.aim.x, y: this.aim.y, life: 2.6, maxLife: 2.6, radius: 125 + Math.min(4, this.upgrades.blackHole ?? 1) * 18, damageTick: 0 })
             this.singularities = this.singularities.slice(-SHAPEZZ_COMBAT_LIMITS.singularities)
+            this.callbacks.onSfx?.('singularity')
         }
         const muzzleX = x + Math.cos(angle) * 25
         const muzzleY = y + Math.sin(angle) * 25
@@ -698,6 +723,7 @@ export class ShapezzEngine {
             const radius = Math.max(64, bullet.explosionRadius) + explosive * 24
             const explosionColor = bullet.explosionRadius > 0 ? bullet.color : '#fb7185'
             const blastDamage = impactDamage * (bullet.explosionRadius > 0 ? 0.78 + bullet.visualIntensity * 0.04 : 0.45 + explosive * 0.12)
+            this.callbacks.onSfx?.('explosion')
             this.shockwaves.push({ x: bullet.x, y: bullet.y, radius: 8, maxRadius: radius, life: 0.3 + bullet.visualIntensity * 0.035, maxLife: 0.3 + bullet.visualIntensity * 0.035, color: explosionColor, width: 5 + bullet.visualIntensity })
             this.burst(bullet.x, bullet.y, explosionColor, 12 + bullet.visualIntensity * 5 + explosive * 3, 390 + bullet.visualIntensity * 55)
             for (const target of this.enemies) {
@@ -726,6 +752,7 @@ export class ShapezzEngine {
         if (enemy.hp <= 0) return
         const dealt = Math.min(enemy.hp, damage)
         enemy.hp -= damage
+        this.callbacks.onSfx?.('hit-enemy')
         if (this.damageTexts.length < SHAPEZZ_COMBAT_LIMITS.damageTexts) {
             this.damageTexts.push({ x, y, text: Math.round(dealt).toString(), color, life: 0.65, maxLife: 0.65, size: clamp(12 + Math.log2(Math.max(2, damage)) * 2, 14, 34), vx: randomBetween(-25, 25), vy: randomBetween(-120, -75) })
         }
@@ -739,6 +766,7 @@ export class ShapezzEngine {
         this.comboTimer = 2.6
         this.shake = Math.max(this.shake, enemy.boss ? 24 : 3 + enemy.radius * 0.08)
         this.flash = Math.max(this.flash, enemy.boss ? 0.9 : 0.12)
+        this.callbacks.onSfx?.(enemy.boss ? 'boss-death' : 'enemy-death')
         this.burst(enemy.x, enemy.y, enemy.color, enemy.boss ? 180 : 16 + Math.floor(enemy.radius * 0.5), enemy.boss ? 920 : 430)
         this.shockwaves.push({ x: enemy.x, y: enemy.y, radius: 5, maxRadius: enemy.radius * (enemy.boss ? 5 : 2.7), life: enemy.boss ? 0.75 : 0.35, maxLife: enemy.boss ? 0.75 : 0.35, color: enemy.color, width: enemy.boss ? 12 : 5 })
 
@@ -813,6 +841,7 @@ export class ShapezzEngine {
             if (dist < 28) {
                 if (pickup.kind === 'coin') this.coins += pickup.value
                 else this.player.hp = Math.min(this.stats.maxHp, this.player.hp + pickup.value)
+                this.callbacks.onSfx?.(pickup.kind === 'coin' ? 'pickup-coin' : 'pickup-health')
                 this.burst(pickup.x, pickup.y, pickup.kind === 'coin' ? '#fde047' : '#34d399', 7, 190)
                 continue
             }
@@ -828,7 +857,10 @@ export class ShapezzEngine {
                 const angle = this.elapsedMs / 700 + i / orbitals * Math.PI * 2
                 const origin = { x: this.player.x + Math.cos(angle) * 72, y: this.player.y + Math.sin(angle) * 72 }
                 const target = this.nearestEnemy(origin, 650)
-                if (target) this.createPlayerBullet(origin.x, origin.y, Math.atan2(target.y - origin.y, target.x - origin.x), 0.5, true)
+                if (target) {
+                    this.createPlayerBullet(origin.x, origin.y, Math.atan2(target.y - origin.y, target.x - origin.x), 0.5, true)
+                    this.callbacks.onSfx?.('drone-shoot')
+                }
             }
             this.orbitalCooldown = 0.72
         }
@@ -840,6 +872,7 @@ export class ShapezzEngine {
                 const target = this.nearestEnemy(origin, 760)
                 if (!target) continue
                 this.createPlayerBullet(origin.x, origin.y, Math.atan2(target.y - origin.y, target.x - origin.x), 0.42, true)
+                this.callbacks.onSfx?.('drone-shoot')
                 this.beams.push({ from: origin, to: { x: target.x, y: target.y }, life: 0.08, maxLife: 0.08, color: '#34d399', width: 2 })
             }
             this.droneCooldown = 0.42
@@ -853,6 +886,7 @@ export class ShapezzEngine {
             if (target) turret.angle = Math.atan2(target.y - turret.y, target.x - turret.x)
             if (target && turret.fireCooldown <= 0) {
                 this.createPlayerBullet(turret.x, turret.y, turret.angle, 0.48)
+                this.callbacks.onSfx?.('drone-shoot')
                 turret.fireCooldown = 0.32
             }
             if (turret.life > 0) turrets.push(turret)
@@ -909,6 +943,7 @@ export class ShapezzEngine {
         if (this.player.invulnerable > 0 || !this.running) return
         this.player.hp -= amount
         this.player.invulnerable = 0.58
+        this.callbacks.onSfx?.('player-hurt')
         this.combo = 0
         this.comboTimer = 0
         this.shake = Math.max(this.shake, 12)

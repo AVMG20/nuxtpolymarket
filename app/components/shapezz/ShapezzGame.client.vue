@@ -14,12 +14,24 @@ const canvas = ref<HTMLCanvasElement | null>(null)
 const toast = useToast()
 const { fetchSession } = useAuth()
 const sound = useShapezzSound()
+const { soundEnabled, soundVolume } = sound
+
+function togglePause() {
+    engine?.togglePause()
+}
+
+// Audible feedback when toggling sound on (play() is a no-op when off).
+function onSoundToggle() {
+    sound.unlock()
+    sound.play('pickup-coin')
+}
 const { data: state, refresh } = await useFetch('/api/shapezz/state')
 
 const selectedDifficultyId = ref<ShapezzDifficultyId>('surge')
 const starting = ref(false)
 const settling = ref(false)
 const running = ref(false)
+const paused = ref(false)
 const checkpointOffers = ref<ShapezzRunUpgradeId[]>([])
 const snapshot = ref<ShapezzSnapshot>({ hp: 0, maxHp: 1, coins: 0, kills: 0, elapsedMs: 0, checkpoint: 0, combo: 0, upgrades: {} })
 const result = ref<null | {
@@ -45,6 +57,24 @@ const activeUpgrades = computed(() => Object.entries(snapshot.value.upgrades)
     .filter((entry): entry is [ShapezzRunUpgradeId, number] => Number(entry[1]) > 0)
     .map(([id, stacks]) => ({ ...shapezzRunUpgrade(id), stacks })))
 const currentPressure = computed(() => shapezzCheckpointPressure(snapshot.value.checkpoint))
+
+// Arena cooldown after a settled run — ticks once a second while visible.
+const now = ref(Date.now())
+let clockTimer: ReturnType<typeof setInterval> | null = null
+const cooldownRemainingMs = computed(() => {
+    const until = state.value?.runCooldown?.until
+    return until ? Math.max(0, new Date(until).getTime() - now.value) : 0
+})
+const isCoolingDown = computed(() => cooldownRemainingMs.value > 0)
+const cooldownLabel = computed(() => {
+    const totalSeconds = Math.ceil(cooldownRemainingMs.value / 1000)
+    const hours = Math.floor(totalSeconds / 3600)
+    const minutes = Math.floor((totalSeconds % 3600) / 60)
+    const seconds = totalSeconds % 60
+    if (hours > 0) return `${hours}h ${minutes.toString().padStart(2, '0')}m`
+    if (minutes > 0) return `${minutes}m ${seconds.toString().padStart(2, '0')}s`
+    return `${seconds}s`
+})
 
 function clampPercent(value: number) {
     return Math.max(0, Math.min(100, value))
@@ -83,7 +113,7 @@ async function clearStaleRun() {
 }
 
 async function startRun() {
-    if (starting.value || !canvas.value || !state.value) return
+    if (starting.value || !canvas.value || !state.value || isCoolingDown.value) return
     starting.value = true
     // Starting a run is a user gesture — the one reliable moment to lift the
     // browser autoplay block and warm the sample cache before the first shot.
@@ -96,12 +126,22 @@ async function startRun() {
             method: 'POST',
             body: { difficultyId: selectedDifficultyId.value }
         })
+        if (!canvas.value) {
+            // Unmounted while the request was in flight — release the run the
+            // server just opened instead of leaving it blocking the workshop.
+            void $fetch('/api/shapezz/finish-run', {
+                method: 'POST',
+                body: { reason: 'abandoned', elapsedMs: 0, coins: 0, kills: 0 }
+            }).catch(() => {})
+            return
+        }
         engine?.destroy()
         engine = new ShapezzEngine(canvas.value, run.stats, run.weapon, selectedDifficultyId.value, {
             onHud: value => { snapshot.value = value },
             onCheckpoint: (offers, value) => {
                 snapshot.value = value
                 checkpointOffers.value = offers
+                sound.play('checkpoint')
             },
             onBoss: (name) => {
                 bossWarning.value = name
@@ -109,10 +149,13 @@ async function startRun() {
                 bossWarningTimer = setTimeout(() => { bossWarning.value = '' }, 4200)
             },
             onGameOver: (value) => { settleDefeat(value) },
-            onShoot: weaponType => sound.play(`shoot-${weaponType}`)
+            onSfx: event => sound.play(event),
+            onPause: (value) => { paused.value = value }
         })
         running.value = true
+        paused.value = false
         engine.start()
+        sound.play('run-start')
     } catch (error: unknown) {
         toast.add({ title: apiErrorMessage(error, 'Could not start SHAPEZZ'), color: 'error' })
     } finally {
@@ -124,6 +167,7 @@ function chooseUpgrade(upgradeId: ShapezzRunUpgradeId) {
     if (!engine || settling.value) return
     engine.chooseUpgrade(upgradeId)
     checkpointOffers.value = []
+    sound.play('upgrade')
     toast.add({
         title: `${shapezzRunUpgrade(upgradeId).name} ONLINE`,
         description: shapezzRunUpgrade(upgradeId).stackText,
@@ -149,7 +193,9 @@ async function cashOut() {
         engine.destroy()
         engine = null
         running.value = false
+        paused.value = false
         checkpointOffers.value = []
+        sound.play('cash-out')
         result.value = {
             reason: 'cashout',
             awarded: response.awarded,
@@ -193,6 +239,7 @@ async function settleDefeat(finalSnapshot: ShapezzSnapshot) {
         engine?.destroy()
         engine = null
         running.value = false
+        paused.value = false
         checkpointOffers.value = []
         settling.value = false
     }
@@ -203,10 +250,24 @@ function closeResult() {
     snapshot.value = { hp: 0, maxHp: 1, coins: 0, kills: 0, elapsedMs: 0, checkpoint: 0, combo: 0, upgrades: {} }
 }
 
-onMounted(clearStaleRun)
+onMounted(() => {
+    clockTimer = setInterval(() => { now.value = Date.now() }, 1000)
+    void clearStaleRun()
+})
 onUnmounted(() => {
     engine?.destroy()
+    engine = null
+    if (clockTimer) clearInterval(clockTimer)
     if (bossWarningTimer) clearTimeout(bossWarningTimer)
+    // Leaving mid-run forfeits it — settle server-side so the workshop and
+    // the next visit aren't blocked by a run that no longer exists.
+    if (running.value) {
+        running.value = false
+        void $fetch('/api/shapezz/finish-run', {
+            method: 'POST',
+            body: { reason: 'abandoned', elapsedMs: 0, coins: 0, kills: 0 }
+        }).catch(() => {})
+    }
 })
 </script>
 
@@ -228,6 +289,13 @@ onUnmounted(() => {
         <UBadge :label="`Power ${state.power}`" icon="i-lucide-zap" color="primary" variant="subtle" />
         <UBadge :label="`Best ${formatTime(state.bestSurvivalMs)}`" icon="i-lucide-trophy" color="neutral" variant="subtle" />
         <UBadge :label="`${state.runsPlayed} runs`" icon="i-lucide-repeat-2" color="neutral" variant="subtle" />
+        <UBadge v-if="isCoolingDown" :label="`Recharging ${cooldownLabel}`" icon="i-lucide-battery-charging" color="warning" variant="subtle" />
+      </div>
+      <div class="flex w-full items-center gap-2 rounded-lg border border-default bg-elevated px-3 py-2 sm:w-64">
+        <UIcon :name="soundEnabled ? 'i-lucide-volume-2' : 'i-lucide-volume-x'" class="size-4 text-primary" />
+        <USwitch v-model="soundEnabled" size="sm" aria-label="Enable SHAPEZZ sound" @click="onSoundToggle" />
+        <USlider v-model="soundVolume" :min="0" :max="100" :disabled="!soundEnabled" size="xs" aria-label="Sound volume" />
+        <span class="w-8 text-right text-[10px] font-bold tabular-nums text-muted">{{ soundVolume }}%</span>
       </div>
     </div>
 
@@ -262,6 +330,14 @@ onUnmounted(() => {
                   <p class="text-[9px] font-black uppercase tracking-widest text-white/50">Next mutation</p>
                   <p class="text-lg font-black tabular-nums text-info">{{ Math.ceil(nextMutationMs / 1000) }}s</p>
                 </div>
+                <UButton
+                  :icon="paused ? 'i-lucide-play' : 'i-lucide-pause'"
+                  color="neutral"
+                  variant="outline"
+                  class="pointer-events-auto self-center border-white/10 bg-black/55 backdrop-blur-sm"
+                  :aria-label="paused ? 'Resume' : 'Pause'"
+                  @click="togglePause"
+                />
               </div>
             </div>
 
@@ -281,6 +357,13 @@ onUnmounted(() => {
                 ×{{ snapshot.combo }} COMBO
               </div>
             </div>
+          </div>
+
+          <div v-if="paused" class="absolute inset-0 z-10 flex flex-col items-center justify-center gap-4 bg-black/70 backdrop-blur-sm">
+            <p class="text-xs font-black uppercase tracking-[0.5em] text-white/60">Simulation frozen</p>
+            <h2 class="text-3xl font-black text-white sm:text-4xl">PAUSED</h2>
+            <UButton icon="i-lucide-play" size="lg" color="primary" label="Resume" @click="togglePause" />
+            <p class="text-xs text-white/40">P or Escape also toggles pause</p>
           </div>
 
           <Transition name="boss">
@@ -375,12 +458,16 @@ onUnmounted(() => {
               </div>
 
               <div class="mt-4 grid grid-cols-3 gap-2 text-center text-xs">
-                <div class="rounded-lg bg-elevated p-2.5"><p class="text-muted">Weapon</p><p class="mt-0.5 truncate font-black" :style="{ color: state.currentWeapon.primaryColor }">{{ state.currentWeapon.rarityName }} {{ state.currentWeapon.type }}</p></div>
+                <div class="rounded-lg bg-elevated p-2.5"><p class="text-muted">Weapon</p><p class="mt-0.5 truncate font-black" :style="{ color: state.currentWeapon.primaryColor }">{{ state.currentWeapon.name }}</p></div>
                 <div class="rounded-lg bg-elevated p-2.5"><p class="text-muted">Output</p><p class="mt-0.5 font-black">{{ Math.round(state.stats.damage * state.currentWeapon.damageMultiplier) }}</p></div>
                 <div class="rounded-lg bg-elevated p-2.5"><p class="text-muted">Starting HP</p><p class="mt-0.5 font-black">{{ state.stats.maxHp }}</p></div>
               </div>
 
-              <UButton class="mt-5 w-full justify-center" size="xl" icon="i-lucide-play" label="START THE VIOLENCE" :loading="starting" @click="startRun" />
+              <div v-if="isCoolingDown" class="mt-5 rounded-lg border border-warning/25 bg-warning/10 p-4 text-center">
+                <p class="flex items-center justify-center gap-2 font-black text-warning"><UIcon name="i-lucide-battery-charging" class="size-5" /> ARENA RECHARGING</p>
+                <p class="mt-1 text-sm text-muted">The shapes are regrouping after your last run. Next run in <span class="font-black tabular-nums text-highlighted">{{ cooldownLabel }}</span>.</p>
+              </div>
+              <UButton v-else class="mt-5 w-full justify-center" size="xl" icon="i-lucide-play" label="START THE VIOLENCE" :loading="starting" @click="startRun" />
               <p class="mt-3 text-center text-xs text-muted">Move: WASD / arrows · Jump: W / Space · Aim: mouse · Fire: hold left click</p>
             </UCard>
           </div>
@@ -392,7 +479,7 @@ onUnmounted(() => {
         color="neutral"
         variant="subtle"
         title="The greed contract"
-        description="You can only bank at a 45-second checkpoint. Choosing a mutation rejects that offer and starts the next round. Death pays zero. There is no final wave."
+        description="You can only bank at a 45-second checkpoint. Choosing a mutation rejects that offer and starts the next round. Death pays zero. There is no final wave. Every settled run puts the arena on a 2-hour recharge."
       />
     </template>
   </UContainer>

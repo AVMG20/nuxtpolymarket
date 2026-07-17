@@ -7,6 +7,7 @@ import { shapezzArsenal } from '#server/utils/shapezz'
 import {
     SHAPEZZ_DIFFICULTIES,
     SHAPEZZ_MAX_PERMANENT_LEVEL,
+    SHAPEZZ_RUN_COOLDOWN_MS,
     SHAPEZZ_PERMANENT_UPGRADE_IDS,
     SHAPEZZ_PERMANENT_UPGRADES,
     SHAPEZZ_WEAPONS,
@@ -26,7 +27,11 @@ export default defineEventHandler(async (event) => {
         db.query.shapezzState.findFirst({ where: eq(shapezzState.userId, userId) })
     ])
 
-    const state = existing ?? (await db.insert(shapezzState).values({ userId }).returning())[0]!
+    // Two first-visit requests can race the insert — the loser reads the row
+    // the winner created instead of failing on the unique constraint.
+    const state = existing
+        ?? (await db.insert(shapezzState).values({ userId }).onConflictDoNothing().returning())[0]
+        ?? (await db.query.shapezzState.findFirst({ where: eq(shapezzState.userId, userId) }))!
     const levels: ShapezzPermanentLevels = {
         core: state.coreLevel,
         overclock: state.overclockLevel,
@@ -72,6 +77,9 @@ export default defineEventHandler(async (event) => {
         bestSurvivalMs: state.bestSurvivalMs,
         bestKills: state.bestKills,
         bestCheckpoint: state.bestCheckpoint,
-        activeRun: state.runStartedAt ? { startedAt: state.runStartedAt } : null
+        activeRun: state.runStartedAt ? { startedAt: state.runStartedAt } : null,
+        runCooldown: state.lastRunFinishedAt
+            ? { until: new Date(state.lastRunFinishedAt.getTime() + SHAPEZZ_RUN_COOLDOWN_MS) }
+            : null
     }
 })

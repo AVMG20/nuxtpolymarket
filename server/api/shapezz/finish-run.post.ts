@@ -20,17 +20,21 @@ export default defineEventHandler(async (event) => {
         const state = await getLockedShapezzState(tx, userId)
         if (!state.runStartedAt) throw createError({ statusCode: 400, statusMessage: 'No active SHAPEZZ run' })
 
+        const now = Date.now()
         const result = settleShapezzRun({ ...state, runStartedAt: state.runStartedAt }, {
             reason,
             reportedElapsedMs,
             reportedCoins,
             reportedKills
-        }, Date.now())
+        }, now)
 
         const [claimed] = await tx.update(shapezzState).set({
             runStartedAt: null,
             runDifficultySnapshot: null,
             runPowerSnapshot: null,
+            // Abandons (page navigation) keep the previous value — only truly
+            // played-out runs put the arena on cooldown.
+            ...(reason === 'abandoned' ? {} : { lastRunFinishedAt: new Date(now) }),
             runsPlayed: result.runsPlayed,
             totalCoinsEarned: result.totalCoinsEarned,
             bestSurvivalMs: result.bestSurvivalMs,

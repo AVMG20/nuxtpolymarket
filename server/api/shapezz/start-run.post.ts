@@ -7,6 +7,7 @@ import {
     SHAPEZZ_CHECKPOINT_MS,
     SHAPEZZ_DIFFICULTY_IDS,
     shapezzDifficulty,
+    shapezzRunCooldownRemainingMs,
     shapezzPlayerStats,
     shapezzPower,
     shapezzWeapon,
@@ -25,6 +26,9 @@ export default defineEventHandler(async (event) => {
     return db.transaction(async (tx) => {
         const state = await getLockedShapezzState(tx, userId)
         if (state.runStartedAt) throw createError({ statusCode: 400, statusMessage: 'A SHAPEZZ run is already active' })
+        if (shapezzRunCooldownRemainingMs(state.lastRunFinishedAt, Date.now()) > 0) {
+            throw createError({ statusCode: 400, statusMessage: 'The arena is still recharging' })
+        }
 
         const levels = {
             core: state.coreLevel,

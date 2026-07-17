@@ -306,3 +306,11 @@ export function shapezzMaxPayoutForRun(elapsedMs: number, difficultyId: ShapezzD
     const checkpointReward = shapezzCheckpointPressure(shapezzCheckpointCount(elapsedMs)).reward
     return Math.floor(seconds * 55 * difficulty.reward * checkpointReward * (1 + minutes * 0.17))
 }
+
+/** Arena recharge after a settled run (cashout or defeat) — abandoned runs never trigger it. */
+export const SHAPEZZ_RUN_COOLDOWN_MS = 2 * 60 * 60 * 1000
+
+export function shapezzRunCooldownRemainingMs(lastRunFinishedAt: Date | null, now: number) {
+    if (!lastRunFinishedAt) return 0
+    return Math.max(0, lastRunFinishedAt.getTime() + SHAPEZZ_RUN_COOLDOWN_MS - now)
+}

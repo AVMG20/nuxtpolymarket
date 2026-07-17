@@ -226,7 +226,10 @@ export const shapezzState = pgTable('shapezz_state', {
   bestCheckpoint: integer('best_checkpoint').notNull().default(0),
   runStartedAt: timestamp('run_started_at'),
   runDifficultySnapshot: text('run_difficulty_snapshot'),
-  runPowerSnapshot: integer('run_power_snapshot')
+  runPowerSnapshot: integer('run_power_snapshot'),
+  // Set when a run settles as cashout or defeat (not abandoned) — the arena
+  // cooldown is derived from this at read time, never stored.
+  lastRunFinishedAt: timestamp('last_run_finished_at')
 })
 
 export const gemMarketState = pgTable('gem_market_state', {

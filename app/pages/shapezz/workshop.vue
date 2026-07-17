@@ -11,6 +11,22 @@ const buyingUpgrade = ref<ShapezzPermanentUpgradeId | null>(null)
 const buyingWeaponId = ref<string | null>(null)
 
 const balance = computed(() => parseFloat(state.value?.balance ?? '0'))
+
+// A run left behind by closing the game tab mid-run blocks every purchase
+// ("Cannot buy a weapon during a run") — settle it as abandoned, same as the
+// game page does on mount.
+onMounted(async () => {
+    if (!state.value?.activeRun) return
+    try {
+        await $fetch('/api/shapezz/finish-run', {
+            method: 'POST',
+            body: { reason: 'abandoned', elapsedMs: 0, coins: 0, kills: 0 }
+        })
+    } catch {
+        // A concurrent request may already have cleared it; refreshing is enough.
+    }
+    await refresh()
+})
 const weaponTabs = [
     { label: 'Pulse Carbine', value: 'blaster', icon: 'i-lucide-crosshair' },
     { label: 'Nova Mortar', value: 'launcher', icon: 'i-lucide-bomb' },
