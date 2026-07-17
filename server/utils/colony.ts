@@ -20,10 +20,15 @@ import {
   type Price
 } from '#shared/utils/colony'
 
+// The pool, or an open transaction. Colony writes that are part of a larger
+// atomic step (settle, collect) must run on the caller's tx so they commit or
+// roll back together and stay under the caller's colony_state row lock.
+type ColonyWriteTx = Pick<typeof db, 'insert' | 'update'>
+
 /** Credit gems straight to the user's spendable balance — gems aren't a colony inventory item, they're the same currency the rest of the site uses (see server/api/miner/collect-gems.post.ts for the same pattern). */
-async function creditGems(userId: string, quantity: number) {
+async function creditGems(userId: string, quantity: number, tx: ColonyWriteTx = db) {
   if (quantity <= 0) return
-  await db.update(user).set({ gems: sql`${user.gems} + ${quantity}` }).where(eq(user.id, userId))
+  await tx.update(user).set({ gems: sql`${user.gems} + ${quantity}` }).where(eq(user.id, userId))
 }
 
 export async function getColonyState(userId: string) {
@@ -70,28 +75,36 @@ export async function upgradeResearch(userId: string, typeId: string): Promise<{
   const type = getBug(typeId)
   if (!type) throw createError({ statusCode: 400, statusMessage: `Unknown bug type: ${typeId}` })
 
-  const currentLevel = await getResearchLevel(userId, typeId)
-  const cost = researchCost(currentLevel, type.spawnCost)
-  if (cost === null || currentLevel >= MAX_RESEARCH_LEVEL) {
-    throw createError({ statusCode: 400, statusMessage: 'This species is already at max Research level' })
-  }
+  return db.transaction(async (tx) => {
+    const currentLevel = await getResearchLevel(userId, typeId)
+    const cost = researchCost(currentLevel, type.spawnCost)
+    if (cost === null || currentLevel >= MAX_RESEARCH_LEVEL) {
+      throw createError({ statusCode: 400, statusMessage: 'This species is already at max Research level' })
+    }
 
-  await debit(userId, cost.toFixed(4), 'colony')
+    // The conditional upsert is the mutex: only the request that finds the row
+    // still at `currentLevel` bumps it (or inserts the very first level). A
+    // concurrent claim matches nothing and rolls back before the debit.
+    const [claimed] = await tx.insert(colonyBugResearch)
+      .values({ userId, typeId, level: currentLevel + 1 })
+      .onConflictDoUpdate({
+        target: [colonyBugResearch.userId, colonyBugResearch.typeId],
+        set: { level: currentLevel + 1 },
+        setWhere: eq(colonyBugResearch.level, currentLevel)
+      })
+      .returning({ level: colonyBugResearch.level })
+    if (!claimed) throw createError({ statusCode: 409, statusMessage: 'Research already advancing, try again' })
 
-  await db.insert(colonyBugResearch)
-    .values({ userId, typeId, level: currentLevel + 1 })
-    .onConflictDoUpdate({
-      target: [colonyBugResearch.userId, colonyBugResearch.typeId],
-      set: { level: currentLevel + 1 }
-    })
+    await debit(userId, cost.toFixed(4), 'colony', tx)
 
-  return { level: currentLevel + 1 }
+    return { level: currentLevel + 1 }
+  })
 }
 
 /** Add `quantity` of an item straight to unclaimed loot (not yet in the player's spendable inventory). */
-async function addLoot(userId: string, itemTypeId: string, quantity: number) {
+async function addLoot(userId: string, itemTypeId: string, quantity: number, tx: ColonyWriteTx = db) {
   if (quantity <= 0) return
-  await db.insert(colonyLoot)
+  await tx.insert(colonyLoot)
     .values({ userId, itemTypeId, quantity })
     .onConflictDoUpdate({
       target: [colonyLoot.userId, colonyLoot.itemTypeId],
@@ -117,13 +130,20 @@ async function addLoot(userId: string, itemTypeId: string, quantity: number) {
  * nutrition, base rates) rather than applying one rate to the whole window.
  */
 export async function settleColony(userId: string) {
-  const state = await ensureColonyState(userId)
+  return db.transaction(async (tx) => {
+  // Lock the colony_state row for the whole settle: two concurrent settles would
+  // otherwise both read the same lastSettledAt and both bank the same elapsed
+  // window's loot. The loser now blocks here, then reads the advanced timestamp
+  // and returns early with elapsedMs <= 0.
+  await tx.insert(colonyState).values({ userId }).onConflictDoNothing()
+  const [state] = await tx.select().from(colonyState).where(eq(colonyState.userId, userId)).for('update')
+  if (!state) throw createError({ statusCode: 500, statusMessage: 'Could not initialize colony state' })
   const now = Date.now()
   const elapsedMs = now - state.lastSettledAt.getTime()
   if (elapsedMs <= 0) return state
 
   const [allBugs, levels] = await Promise.all([
-    db.query.colonyBugs.findMany({ where: eq(colonyBugs.userId, userId) }),
+    tx.query.colonyBugs.findMany({ where: eq(colonyBugs.userId, userId) }),
     getUpgradeLevels(userId)
   ])
   // only bugs placed in the terrarium forage and eat — inventory bugs are dormant
@@ -277,16 +297,16 @@ export async function settleColony(userId: string) {
 
   if (totalActiveMs > 0) {
     const bugUpdates = bugs.map(bug =>
-      db.update(colonyBugs).set({ tickProgressMs: bugRemainders.get(bug.id) ?? bug.tickProgressMs }).where(eq(colonyBugs.id, bug.id))
+      tx.update(colonyBugs).set({ tickProgressMs: bugRemainders.get(bug.id) ?? bug.tickProgressMs }).where(eq(colonyBugs.id, bug.id))
     )
     await Promise.all(bugUpdates)
     for (const [itemTypeId, qty] of lootByItem) {
-      await addLoot(userId, itemTypeId, qty)
+      await addLoot(userId, itemTypeId, qty, tx)
     }
-    if (gemsEarned > 0) await creditGems(userId, Math.floor(gemsEarned))
+    if (gemsEarned > 0) await creditGems(userId, Math.floor(gemsEarned), tx)
   }
 
-  const [updated] = await db.update(colonyState)
+  const [updated] = await tx.update(colonyState)
     .set({
       nutrition: Math.round(Math.min(nutritionMax, newNutrition)),
       gemNutrition: Math.round(Math.max(0, newGemNutrition)),
@@ -296,6 +316,7 @@ export async function settleColony(userId: string) {
     .returning()
 
   return updated!
+  })
 }
 
 /** Insert one bug instance. Defaults to the player's inventory (unplaced); pass inTerrarium to place it directly. */
@@ -353,9 +374,9 @@ export async function countPlacedBugs(userId: string): Promise<number> {
 }
 
 /** Add `quantity` of an item directly to the player's claimed, spendable inventory. */
-export async function creditItems(userId: string, itemTypeId: string, quantity: number) {
+export async function creditItems(userId: string, itemTypeId: string, quantity: number, tx: ColonyWriteTx = db) {
   if (quantity <= 0) return
-  await db.insert(colonyItems)
+  await tx.insert(colonyItems)
     .values({ userId, itemTypeId, quantity })
     .onConflictDoUpdate({
       target: [colonyItems.userId, colonyItems.itemTypeId],

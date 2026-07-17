@@ -12,13 +12,19 @@ export default defineEventHandler(async (event) => {
 
   await settleColony(userId)
 
-  const loot = await db.query.colonyLoot.findMany({ where: eq(colonyLoot.userId, userId) })
-  const collected = loot.filter(l => l.quantity > 0)
-
-  for (const row of collected) {
-    await creditItems(userId, row.itemTypeId, row.quantity)
-  }
-  await db.delete(colonyLoot).where(eq(colonyLoot.userId, userId))
+  // Deleting the loot rows is the claim: two concurrent collects both try to
+  // delete, but only one gets the rows back from RETURNING and credits them —
+  // the other sees an empty result and grants nothing.
+  const collected = await db.transaction(async (tx) => {
+    const claimed = await tx.delete(colonyLoot)
+      .where(eq(colonyLoot.userId, userId))
+      .returning({ itemTypeId: colonyLoot.itemTypeId, quantity: colonyLoot.quantity })
+    const withLoot = claimed.filter(l => l.quantity > 0)
+    for (const row of withLoot) {
+      await creditItems(userId, row.itemTypeId, row.quantity, tx)
+    }
+    return withLoot
+  })
 
   return {
     ok: true,
