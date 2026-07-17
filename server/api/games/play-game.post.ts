@@ -1,5 +1,6 @@
 import { auth } from '#server/utils/auth'
 import { debit, credit, getBalance, accumulateRake } from '#server/utils/balance'
+import { db } from '#server/database'
 import { GAMES_REGISTRY, isValidGame } from '#shared/utils/games-registry'
 
 export default defineEventHandler(async (event) => {
@@ -22,12 +23,6 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 400, statusMessage: 'Invalid bet amount' })
   }
 
-  const balance = await getBalance(session.user.id)
-  const balanceNum = parseFloat(balance)
-  if (balanceNum < bet) {
-    throw createError({ statusCode: 400, statusMessage: 'Insufficient balance' })
-  }
-
   if (!GAMES_REGISTRY[game]) throw new Error('Invalid GAMES_REGISTRY')
   const gameData = GAMES_REGISTRY[game].play(bet, options)
 
@@ -36,19 +31,18 @@ export default defineEventHandler(async (event) => {
   // charged the bet on an earlier call and just wants to pay out). Only an
   // absent/non-numeric cost falls back to the raw bet.
   const cost = typeof gameData.cost === 'number' && gameData.cost >= 0 ? gameData.cost : bet
-  if (balanceNum < cost) {
-    throw createError({ statusCode: 400, statusMessage: 'Insufficient balance' })
-  }
 
-  const net = gameData.payout - cost
-
-  if (net > 0) {
-    await credit(session.user.id, net.toFixed(4), game)
-  } else if (net < 0) {
-    await debit(session.user.id, Math.abs(net).toFixed(4), game)
-  }
-
-  await accumulateRake(session.user.id, cost)
+  // Stake first, pay out second: the atomic debit is what enforces affordability,
+  // so a win can never be credited for a round the player could not cover.
+  await db.transaction(async (tx) => {
+    if (cost > 0) {
+      await debit(session.user.id, cost.toFixed(4), game, tx)
+    }
+    if (gameData.payout > 0) {
+      await credit(session.user.id, gameData.payout.toFixed(4), game, tx)
+    }
+    await accumulateRake(session.user.id, cost, tx)
+  })
 
   return {
     gameData,
