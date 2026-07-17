@@ -1,7 +1,7 @@
 import { eq } from 'drizzle-orm'
 import { db } from '#server/database'
 import { pirateState, pirateCannons } from '#server/database/schema'
-import { auth } from '#server/utils/auth'
+import { requireUserId } from '#server/utils/auth'
 import { debit, debitGems } from '#server/utils/balance'
 import {
     pirateAmmoCapacity, pirateAmmoPricePerUnit, piratePowerLevel,
@@ -11,10 +11,7 @@ import {
 // Buys either premium shots (coins, `amount`) or gem powder (gems, `bundles`,
 // with `currency: 'gems'`). One endpoint for both keeps the armory simple.
 export default defineEventHandler(async (event) => {
-    const session = await auth.api.getSession({ headers: event.headers })
-    if (!session?.user?.id) throw createError({ statusCode: 401, statusMessage: 'Unauthorized' })
-
-    const userId = session.user.id
+    const userId = await requireUserId(event)
 
     const body = await readBody(event)
     const [s, cannons] = await Promise.all([

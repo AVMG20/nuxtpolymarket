@@ -1,15 +1,12 @@
 import { and, eq } from 'drizzle-orm'
 import { db } from '#server/database'
 import { pirateState, pirateCannons } from '#server/database/schema'
-import { auth } from '#server/utils/auth'
+import { requireUserId } from '#server/utils/auth'
 import { debit } from '#server/utils/balance'
 import { PIRATE_CANNON_TIERS } from '#shared/utils/gamelogic/pirates'
 
 export default defineEventHandler(async (event) => {
-    const session = await auth.api.getSession({ headers: event.headers })
-    if (!session?.user?.id) throw createError({ statusCode: 401, statusMessage: 'Unauthorized' })
-
-    const userId = session.user.id
+    const userId = await requireUserId(event)
 
     const body = await readBody(event)
     const slotIndex = Number(body?.slotIndex)

@@ -1,15 +1,12 @@
-import { and, eq, isNotNull, sql } from 'drizzle-orm'
+import { and, eq, isNotNull } from 'drizzle-orm'
 import { db } from '#server/database'
 import { pirateRunHistory, pirateState } from '#server/database/schema'
-import { auth } from '#server/utils/auth'
+import { requireUserId } from '#server/utils/auth'
 import { credit } from '#server/utils/balance'
-import { PIRATE_RUN_DURATION_MS, pirateMaxPayoutForRun, pirateRepairDurationMs, pirateCompletionBonus } from '#shared/utils/gamelogic/pirates'
+import { getLockedPirateState, settlePirateRun } from '#server/utils/pirates'
 
 export default defineEventHandler(async (event) => {
-    const session = await auth.api.getSession({ headers: event.headers })
-    if (!session?.user?.id) throw createError({ statusCode: 401, statusMessage: 'Unauthorized' })
-
-    const userId = session.user.id
+    const userId = await requireUserId(event)
 
     const body = await readBody(event)
     const reportedCoins = Math.max(0, Math.floor(Number(body?.coins) || 0))
@@ -39,65 +36,41 @@ export default defineEventHandler(async (event) => {
     const abandoned = Boolean(body?.abandoned)
 
     return db.transaction(async (tx) => {
-        await tx.execute(sql`SELECT id FROM pirate_state WHERE user_id = ${userId} FOR UPDATE`)
-        const s = await tx.query.pirateState.findFirst({ where: eq(pirateState.userId, userId) })
-        if (!s) throw createError({ statusCode: 404, statusMessage: 'Pirate state not initialized' })
-        if (!s.runStartedAt) throw createError({ statusCode: 400, statusMessage: 'No active voyage' })
+        const s = await getLockedPirateState(tx, userId)
+        const runStartedAt = s.runStartedAt
+        if (!runStartedAt) throw createError({ statusCode: 400, statusMessage: 'No active voyage' })
 
-        // Wall-clock elapsed, clamped to the run length (plus a small grace window
-        // for network latency), bounds how much time could plausibly have been
-        // spent playing regardless of what the client claims. The client-reported
-        // elapsed (real, pause-immune playtime) is then clamped to that wall-clock
-        // ceiling too, so a voyage that was paused for a while doesn't get treated
-        // as a full 6-minute survival, but a genuinely long pause also can't be
-        // used to inflate the payout cap beyond what real wall-clock time allows.
-        const rawElapsedMs = Date.now() - s.runStartedAt.getTime()
-        const wallClampedMs = Math.max(0, Math.min(rawElapsedMs, PIRATE_RUN_DURATION_MS + 5000))
-        const elapsedMs = abandoned ? 0 : Math.max(0, Math.min(reportedElapsedMs, wallClampedMs))
-        const power = s.runPowerSnapshot ?? 5
-        const difficulty = s.runDifficultySnapshot ?? 0
-
-        const ammoUsed = abandoned ? 0 : Math.min(reportedAmmoUsed, s.ammoCount)
-        const gemAmmoUsed = abandoned ? 0 : Math.min(reportedGemAmmoUsed, s.gemAmmoCount)
-        const maxPayout = abandoned ? 0 : pirateMaxPayoutForRun(elapsedMs, difficulty, gemAmmoUsed)
-        // Coins collected during the run, clamped by the anti-cheat ceiling.
-        const runCoins = Math.min(reportedCoins, maxPayout)
-        const completed = !abandoned && survived && reason === 'timeout' && elapsedMs >= PIRATE_RUN_DURATION_MS - 1000
-        // Completing the full voyage adds a flat bonus on top, sized server-side so
-        // the anti-cheat cap never clips it.
-        const completionBonus = completed ? pirateCompletionBonus(difficulty) : 0
-        const awarded = runCoins + completionBonus
-
-        const hullDamageFraction = abandoned ? 0 : (reason === 'defeat' ? 1 : reportedHullDamageFraction)
-        const repairMs = pirateRepairDurationMs(hullDamageFraction)
-        const hullRepairUntil = repairMs > 0 ? new Date(Date.now() + repairMs) : null
-        const isBestRun = !abandoned && (
-            elapsedMs > s.bestSurvivalMs
-            || (elapsedMs === s.bestSurvivalMs && awarded > s.bestRunLoot)
-        )
-        const isBestCompletedRun = completed && (
-            difficulty > s.highestCompletedDifficulty
-            || (difficulty === s.highestCompletedDifficulty && awarded > s.bestCompletedLoot)
-        )
+        const result = settlePirateRun({ ...s, runStartedAt }, {
+            abandoned,
+            survived,
+            reason,
+            reportedElapsedMs,
+            reportedCoins,
+            reportedKills,
+            reportedShotsFired,
+            reportedAmmoUsed,
+            reportedGemAmmoUsed,
+            reportedHullDamageFraction
+        }, Date.now())
 
         // Row lock above plus this runStartedAt guard: only the request that clears it pays out.
         const [claimed] = await tx.update(pirateState).set({
             runStartedAt: null,
             runPowerSnapshot: null,
             runDifficultySnapshot: null,
-            runsPlayed: abandoned ? s.runsPlayed : s.runsPlayed + 1,
-            totalCoinsEarned: s.totalCoinsEarned + awarded,
-            ammoCount: s.ammoCount - ammoUsed,
-            gemAmmoCount: s.gemAmmoCount - gemAmmoUsed,
-            bestSurvivalMs: abandoned ? s.bestSurvivalMs : Math.max(s.bestSurvivalMs, Math.min(elapsedMs, PIRATE_RUN_DURATION_MS)),
-            bestRunPower: isBestRun ? power : s.bestRunPower,
-            bestRunLoot: isBestRun ? awarded : s.bestRunLoot,
-            highestCompletedDifficulty: completed ? Math.max(s.highestCompletedDifficulty, difficulty) : s.highestCompletedDifficulty,
-            bestCompletedLoot: isBestCompletedRun ? awarded : s.bestCompletedLoot,
-            bestCompletedPower: isBestCompletedRun ? power : s.bestCompletedPower,
-            bestCompletedSkinId: isBestCompletedRun ? s.equippedSkinId : s.bestCompletedSkinId,
-            hullRepairUntil: abandoned ? s.hullRepairUntil : hullRepairUntil,
-            hullRepairTotalMs: abandoned ? s.hullRepairTotalMs : repairMs
+            runsPlayed: result.runsPlayed,
+            totalCoinsEarned: result.totalCoinsEarned,
+            ammoCount: result.ammoCount,
+            gemAmmoCount: result.gemAmmoCount,
+            bestSurvivalMs: result.bestSurvivalMs,
+            bestRunPower: result.bestRunPower,
+            bestRunLoot: result.bestRunLoot,
+            highestCompletedDifficulty: result.highestCompletedDifficulty,
+            bestCompletedLoot: result.bestCompletedLoot,
+            bestCompletedPower: result.bestCompletedPower,
+            bestCompletedSkinId: result.bestCompletedSkinId,
+            hullRepairUntil: result.hullRepairUntil,
+            hullRepairTotalMs: result.hullRepairTotalMs
         }).where(and(eq(pirateState.userId, userId), isNotNull(pirateState.runStartedAt)))
             .returning({ userId: pirateState.userId })
         if (!claimed) throw createError({ statusCode: 400, statusMessage: 'No active voyage' })
@@ -105,10 +78,10 @@ export default defineEventHandler(async (event) => {
         if (!abandoned) {
             await tx.insert(pirateRunHistory).values({
                 userId,
-                loot: awarded,
-                durationMs: elapsedMs,
-                power,
-                difficulty,
+                loot: result.awarded,
+                durationMs: result.elapsedMs,
+                power: result.power,
+                difficulty: result.difficulty,
                 survived,
                 reason,
                 kills: reportedKills,
@@ -117,20 +90,20 @@ export default defineEventHandler(async (event) => {
             })
         }
 
-        if (awarded > 0) await credit(userId, awarded.toFixed(4), 'pirates', tx)
+        if (result.awarded > 0) await credit(userId, result.awarded.toFixed(4), 'pirates', tx)
 
         return {
-            awarded,
-            completionBonus,
-            capped: runCoins < reportedCoins,
-            elapsedMs,
+            awarded: result.awarded,
+            completionBonus: result.completionBonus,
+            capped: result.capped,
+            elapsedMs: result.elapsedMs,
             survived,
-            completed,
-            difficulty,
-            ammoRemaining: s.ammoCount - ammoUsed,
-            gemAmmoRemaining: s.gemAmmoCount - gemAmmoUsed,
-            repairUntil: abandoned ? s.hullRepairUntil : hullRepairUntil,
-            repairTotalMs: abandoned ? s.hullRepairTotalMs : repairMs
+            completed: result.completed,
+            difficulty: result.difficulty,
+            ammoRemaining: result.ammoCount,
+            gemAmmoRemaining: result.gemAmmoCount,
+            repairUntil: result.hullRepairUntil,
+            repairTotalMs: result.hullRepairTotalMs
         }
     })
 })

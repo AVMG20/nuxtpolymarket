@@ -1,14 +1,12 @@
 import { and, eq, gte, sql } from 'drizzle-orm'
 import { db } from '#server/database'
 import { pirateState, user } from '#server/database/schema'
-import { auth } from '#server/utils/auth'
+import { requireUserId } from '#server/utils/auth'
 import { PIRATE_SHIP_SKINS } from '#shared/utils/gamelogic/pirates'
 
 export default defineEventHandler(async (event) => {
-    const session = await auth.api.getSession({ headers: event.headers })
-    if (!session?.user?.id) throw createError({ statusCode: 401, statusMessage: 'Unauthorized' })
+    const userId = await requireUserId(event)
 
-    const userId = session.user.id
     const body = await readBody(event)
     const skin = PIRATE_SHIP_SKINS.find(item => item.id === body?.skinId)
     if (!skin || skin.cost <= 0) throw createError({ statusCode: 400, statusMessage: 'Invalid premium skin' })

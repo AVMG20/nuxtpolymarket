@@ -1,7 +1,7 @@
 import { eq } from 'drizzle-orm'
 import { db } from '#server/database'
 import { pirateState, pirateCannons } from '#server/database/schema'
-import { auth } from '#server/utils/auth'
+import { requireUserId } from '#server/utils/auth'
 import {
     PIRATE_RUN_DURATION_MS, piratePowerLevel,
     PIRATE_MAX_DIFFICULTY, PIRATE_DIFFICULTY_STEP,
@@ -9,10 +9,8 @@ import {
 } from '#shared/utils/gamelogic/pirates'
 
 export default defineEventHandler(async (event) => {
-    const session = await auth.api.getSession({ headers: event.headers })
-    if (!session?.user?.id) throw createError({ statusCode: 401, statusMessage: 'Unauthorized' })
+    const userId = await requireUserId(event)
 
-    const userId = session.user.id
     const body = await readBody(event)
     const difficulty = Number(body?.difficulty)
     if (!Number.isInteger(difficulty) || difficulty < 0 || difficulty > PIRATE_MAX_DIFFICULTY || difficulty % PIRATE_DIFFICULTY_STEP !== 0) {
