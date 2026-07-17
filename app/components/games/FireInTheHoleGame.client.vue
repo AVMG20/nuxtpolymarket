@@ -1115,6 +1115,10 @@ async function animateResult(result: FireInTheHoleResult) {
 
   await reelSet.runCascade({
     detectWinners: () => {
+      // Unmounting mid-cascade destroys the reels' symbols while this chain is
+      // still awaiting. Reporting no winners ends the cascade cleanly; without
+      // it the next refill phase builds against destroyed symbols and throws.
+      if (destroyed) return []
       currentStep = latestResult?.steps[stepIndex]
       return currentStep?.winCells.map(cell => ({ reel: cell.col, row: cell.row })) ?? []
     },

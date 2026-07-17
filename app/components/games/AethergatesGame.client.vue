@@ -841,8 +841,13 @@ async function playSequence(sequence: AetherSequence, resultBet: number): Promis
   const winningSteps = sequence.steps.filter(step => step.winCells.length > 0)
   if (winningSteps.length) {
     await reelSet.runCascade({
+      // Unmounting mid-cascade destroys the reels' symbols while this chain is
+      // still awaiting. Reporting no winners ends the cascade cleanly; without
+      // it the next refill phase builds against destroyed symbols and throws.
       detectWinners: (_grid: string[][], level: number) =>
-        (winningSteps[level]?.winCells ?? []).map((c: Cell) => ({ reel: c.col, row: c.row })),
+        destroyed
+          ? []
+          : (winningSteps[level]?.winCells ?? []).map((c: Cell) => ({ reel: c.col, row: c.row })),
       nextGrid: (_grid: string[][], _winners: any, level: number) => {
         pendingMults = winningSteps[level + 1]?.multipliers ?? sequence.restMults
         return (winningSteps[level + 1]?.grid ?? sequence.restGrid) as unknown as string[][]

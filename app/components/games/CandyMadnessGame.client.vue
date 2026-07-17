@@ -839,12 +839,17 @@ async function spinAndCascade(seq: TumbleSequence): Promise<number> {
   await spinPromise
 
   await reelSet.runCascade({
+    // Unmounting mid-cascade destroys the reels' symbols while this chain is
+    // still awaiting. Reporting no winners ends the cascade cleanly; without
+    // it the next refill phase builds against destroyed symbols and throws.
     detectWinners: (_g: string[][], lvl: number) =>
-      (
-        seq.steps[lvl]?.winCells ?? []
-      ).map((c: Cell) => (
-        { reel: c.col, row: c.row }
-      )),
+      destroyed
+        ? []
+        : (
+            seq.steps[lvl]?.winCells ?? []
+          ).map((c: Cell) => (
+            { reel: c.col, row: c.row }
+          )),
     nextGrid: (_g: string[][], _w: any, lvl: number) =>
       (
         seq.steps[lvl + 1]?.grid ?? seq.restGrid
