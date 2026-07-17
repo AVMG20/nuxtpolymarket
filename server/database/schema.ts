@@ -19,6 +19,19 @@ export const user = pgTable('user', {
     .notNull()
 })
 
+export const emblemHistory = pgTable(
+  'emblem_history',
+  {
+    id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+    userId: text('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    emblem: text('emblem').notNull(),
+    createdAt: timestamp('created_at').defaultNow().notNull()
+  },
+  table => [index('emblem_history_userId_createdAt_idx').on(table.userId, table.createdAt)]
+)
+
 export const transactions = pgTable(
   'transactions',
   {

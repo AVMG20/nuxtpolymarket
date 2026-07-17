@@ -80,11 +80,15 @@ function changed() {
   emit('update:modelValue', clone(emblem))
 }
 
+function round2(value: number) {
+  return Math.round(value * 100) / 100
+}
+
 function pointFromEvent(event: PointerEvent): EmblemPoint {
   const rect = canvas.value!.getBoundingClientRect()
   return [
-    Math.max(0, Math.min(100, ((event.clientX - rect.left) / rect.width) * 100)),
-    Math.max(0, Math.min(100, ((event.clientY - rect.top) / rect.height) * 100))
+    round2(Math.max(0, Math.min(100, ((event.clientX - rect.left) / rect.width) * 100))),
+    round2(Math.max(0, Math.min(100, ((event.clientY - rect.top) / rect.height) * 100)))
   ]
 }
 
