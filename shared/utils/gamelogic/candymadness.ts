@@ -34,6 +34,8 @@
 //   Total win (base + bonus) is capped at MAX_WIN_MULT × bet. Weights and the
 //   paytable are tuned by Monte-Carlo to ~98% RTP.
 
+import { randomFloat } from '../random'
+
 export const CM_COLS = 7
 export const CM_ROWS = 7
 export const CM_CELLS = CM_COLS * CM_ROWS // 49
@@ -116,19 +118,13 @@ export function clusterPayMult(symbol: Exclude<CandySymbol, 'scatter'>, size: nu
 
 // --- crypto RNG helpers -----------------------------------------------------
 
-function rand(): number {
-  const arr = new Uint32Array(1)
-  crypto.getRandomValues(arr)
-  return arr[0]! / 0x1_0000_0000 // [0, 1)
-}
-
 function randInt(n: number): number {
-  return Math.floor(rand() * n)
+  return Math.floor(randomFloat() * n)
 }
 
 function weightedPick<T>(items: readonly T[], weights: readonly number[]): T {
   const total = weights.reduce((a, b) => a + b, 0)
-  let r = rand() * total
+  let r = randomFloat() * total
   for (let i = 0; i < items.length; i++) {
     r -= weights[i]!
     if (r < 0) return items[i]!
