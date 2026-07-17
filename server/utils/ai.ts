@@ -83,7 +83,7 @@ const CASINO_TOOLS: OpenRouterTool[] = [
     casinoRoundTool('spinata', { feature: { type: 'string', enum: ['buyBonus'], description: 'Set only when the player explicitly requests a bonus buy.' } })
 ]
 
-export const AI_TOOLS: OpenRouterTool[] = [
+const AI_TOOL_DEFINITIONS: OpenRouterTool[] = [
     {
         type: 'function',
         function: {
@@ -373,7 +373,9 @@ export const AI_TOOLS: OpenRouterTool[] = [
             }
         }
     }
-].map(tool => {
+]
+
+export const AI_TOOLS: OpenRouterTool[] = AI_TOOL_DEFINITIONS.map(tool => {
     const catalogTool = AI_TOOL_CATALOG_BY_NAME[tool.function.name]
     if (!catalogTool) throw new Error(`Missing AI tool catalogue entry: ${tool.function.name}`)
     return {
@@ -1138,7 +1140,7 @@ const CASINO_GAMES = new Set([
     'candymadness', 'aethergates', 'fireinthehole', 'bookofshadows', 'spinata'
 ])
 
-const CASINO_TOOL_GAMES: Record<string, string> = {
+const CASINO_TOOL_GAMES: Record<string, CasinoGame> = {
     play_dice_rounds: 'dice',
     play_limbo_rounds: 'limbo',
     play_wheel_rounds: 'wheel',
@@ -1151,7 +1153,7 @@ const CASINO_TOOL_GAMES: Record<string, string> = {
     play_spinata_rounds: 'spinata'
 }
 
-const CASINO_OPTION_KEYS: Record<string, string[]> = {
+const CASINO_OPTION_KEYS = {
     dice: ['winChance'],
     limbo: ['target'],
     wheel: ['difficulty'],
@@ -1162,7 +1164,9 @@ const CASINO_OPTION_KEYS: Record<string, string[]> = {
     fireinthehole: ['buyBonus'],
     bookofshadows: ['buyBonus'],
     spinata: ['feature']
-}
+} satisfies Record<string, string[]>
+
+type CasinoGame = keyof typeof CASINO_OPTION_KEYS
 
 function invalidCasinoOptions(message: string): never {
     throw createError({ statusCode: 400, statusMessage: message })
@@ -1244,6 +1248,11 @@ function normalizeCasinoOptions(game: string, raw: unknown, bet: number): Record
     }
 }
 
+interface PlayGameResponse {
+    gameData: Record<string, unknown>
+    balance: number
+}
+
 async function playCasinoRounds(event: H3Event, args: Record<string, unknown>) {
     const game = typeof args.game === 'string' ? args.game : ''
     const bet = Number(args.bet)
@@ -1263,9 +1272,9 @@ async function playCasinoRounds(event: H3Event, args: Record<string, unknown>) {
     let highestPayout = 0
     let bestMultiplier = 0
     for (let round = 1; round <= rounds; round++) {
-        let response: { gameData: Record<string, unknown>, balance: number }
+        let response: PlayGameResponse
         try {
-            response = await event.$fetch('/api/games/play-game', {
+            response = await event.$fetch<PlayGameResponse, string>('/api/games/play-game', {
                 method: 'POST',
                 headers,
                 body: { game, bet, options }
@@ -1471,7 +1480,8 @@ async function openRouterStream(
         throw createError({ statusCode: 503, statusMessage: 'The AI assistant is not configured' })
     }
 
-    const isGpt5 = /(?:^|\/)gpt-5(?:$|-)/.test(config.openRouterModel)
+    const model = config.openRouterModel
+    const isGpt5 = typeof model === 'string' && /(?:^|\/)gpt-5(?:$|-)/.test(model)
     const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
         method: 'POST',
         headers: {
