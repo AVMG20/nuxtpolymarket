@@ -2,11 +2,7 @@
 import type { MagicHandsResult, TopBarPass, PassSlot } from '#shared/utils/gamelogic/magichands'
 import { MAGIC_HANDS_MAX_HANDS, MAGIC_HANDS_MULTIPLIERS } from '#shared/utils/gamelogic/magichands'
 
-const { user, setBalance } = useAuth()
-const balance = ref(parseFloat(user.value?.balance ?? '0'))
-watch(() => user.value?.balance, (v) => {
-  if (v !== undefined) balance.value = parseFloat(v ?? '0')
-})
+const { setBalance, balanceNum: balance } = useAuth()
 
 const COLS = 5
 const ROWS = 8
@@ -310,7 +306,6 @@ async function runReveal(data: { gameData: MagicHandsResult, balance: number }) 
   // 3. Settle.
   await sleep(500)
   phase.value = 'done'
-  balance.value = data.balance
   setBalance(data.balance)
   history.value.unshift({
     won: res.won,
@@ -797,22 +792,14 @@ onUnmounted(() => {
     </div>
 
     <!-- Help -->
-    <UModal
-      v-model:open="showHelp"
-      title="How Magic Hands works"
-      :ui="{ content: 'max-w-md' }"
-    >
-      <template #body>
-        <ul class="text-sm text-muted space-y-2 list-disc list-inside">
-          <li>Pick a <strong class="text-default">hand value</strong> and click tiles to place hands (up to the whole board). Cost = hands × value.</li>
-          <li>On Play the <strong class="text-default">top bar</strong> spins like a slot. Each of the 5 slots lands on nothing, a <strong class="text-warning">multiplier</strong>, or a <strong class="text-info">reroll</strong>.</li>
-          <li>Each multiplier stamps its value onto <strong class="text-default">1–4 tiles</strong> in that column.</li>
-          <li>A <strong class="text-info">reroll</strong> spins a whole new top bar after the current one finishes. Multipliers landing on the same tile <strong class="text-default">stack</strong> (e.g. 50× then 10× = 500×) — capped at 2500× per tile.</li>
-          <li>Then <strong class="text-success">2–8 tiles</strong> are revealed as winners. A hand on a winning tile pays <strong class="text-default">hand value × that tile's multiplier</strong> (a plain winner returns your 1×).</li>
-          <li>Max win 2500× total stake — and the odds are identical no matter how many hands you place.</li>
-        </ul>
-      </template>
-    </UModal>
+    <GameHelpModal v-model:open="showHelp" title="How Magic Hands works" :ui="{ content: 'max-w-md' }">
+      <li>Pick a <strong class="text-default">hand value</strong> and click tiles to place hands (up to the whole board). Cost = hands × value.</li>
+      <li>On Play the <strong class="text-default">top bar</strong> spins like a slot. Each of the 5 slots lands on nothing, a <strong class="text-warning">multiplier</strong>, or a <strong class="text-info">reroll</strong>.</li>
+      <li>Each multiplier stamps its value onto <strong class="text-default">1–4 tiles</strong> in that column.</li>
+      <li>A <strong class="text-info">reroll</strong> spins a whole new top bar after the current one finishes. Multipliers landing on the same tile <strong class="text-default">stack</strong> (e.g. 50× then 10× = 500×) — capped at 2500× per tile.</li>
+      <li>Then <strong class="text-success">2–8 tiles</strong> are revealed as winners. A hand on a winning tile pays <strong class="text-default">hand value × that tile's multiplier</strong> (a plain winner returns your 1×).</li>
+      <li>Max win 2500× total stake — and the odds are identical no matter how many hands you place.</li>
+    </GameHelpModal>
   </div>
 </template>
 

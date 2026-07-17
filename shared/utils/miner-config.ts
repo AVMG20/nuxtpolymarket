@@ -1,3 +1,5 @@
+import { randomWeighted } from './random'
+
 // All miner upgrade prices AND rewards scale EXPONENTIALLY (geometric per level),
 // ─── Mining Rig ───────────────────────────────────────────────────────────────
 export const RIG_MAX_LEVEL = 100
@@ -142,13 +144,7 @@ export function lootboxOpenPrice(storageValue: number, gemPrice: number, factory
 
 /** Pick a reward by weight. Returns the chosen reward (server-authoritative). */
 export function lootboxRoll(): LootboxReward {
-    const totalWeight = LOOTBOX_REWARDS.reduce((sum, r) => sum + r.weight, 0)
-    let roll = Math.random() * totalWeight
-    for (const r of LOOTBOX_REWARDS) {
-        roll -= r.weight
-        if (roll <= 0) return r
-    }
-    return LOOTBOX_REWARDS[LOOTBOX_REWARDS.length - 1]!
+    return randomWeighted(LOOTBOX_REWARDS, r => r.weight)
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────

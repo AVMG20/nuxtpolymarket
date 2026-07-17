@@ -1,3 +1,5 @@
+import { randomChance, randomFloat, randomInt, randomPick, randomWeighted } from './random'
+
 export type HackRarity = 'ghost' | 'operative' | 'specialist' | 'elite' | 'phantom'
 export type AgentClass = 'infiltrator' | 'cryptographer' | 'social_engineer' | 'bruteforce'
 export type ItemSlot = 'tool' | 'software' | 'hardware'
@@ -223,10 +225,10 @@ function generateAgentTraits(rarity: HackRarity): AgentTrait[] {
   const available = [...ALL_TRAIT_TYPES]
   const traits: AgentTrait[] = []
   for (let i = 0; i < count && available.length > 0; i++) {
-    const idx = Math.floor(Math.random() * available.length)
+    const idx = Math.floor(randomFloat() * available.length)
     const type = available.splice(idx, 1)[0]!
     const range = AGENT_TRAIT_RANGES[type]
-    const raw = range.min + Math.random() * (range.max - range.min)
+    const raw = range.min + randomFloat() * (range.max - range.min)
     const factor = Math.pow(10, range.decimals)
     traits.push({ type, value: Math.round(raw * factor) / factor })
   }
@@ -382,7 +384,7 @@ const SOFTWARE_NAMES = ['Zero Day Exploit', 'Polymorphic Shell', 'Ghost Suite', 
 const HARDWARE_NAMES = ['Black Ice Rig', 'Signal Scrambler', 'Neural Implant', 'Optical Jammer', 'Dark Server', 'Void Terminal', 'Quantum Node', 'Stealth Array']
 const RARITY_PREFIX: Record<HackRarity, string> = { ghost: '', operative: 'Improved ', specialist: 'Advanced ', elite: 'Military-Grade ', phantom: 'Mythic ' }
 
-function pickRandom<T>(arr: T[]): T { return arr[Math.floor(Math.random() * arr.length)]! }
+function pickRandom<T>(arr: T[]): T { return randomPick(arr) }
 
 function generateItemName(slot: ItemSlot, rarity: HackRarity): string {
   const pool = slot === 'tool' ? TOOL_NAMES : slot === 'software' ? SOFTWARE_NAMES : HARDWARE_NAMES
@@ -392,7 +394,7 @@ function generateItemName(slot: ItemSlot, rarity: HackRarity): string {
 /** Roll a single mod's value uniformly across its full range. */
 export function rollMod(type: ModType): ItemMod {
   const range = MOD_RANGES[type]
-  const raw = range.min + Math.random() * (range.max - range.min)
+  const raw = range.min + randomFloat() * (range.max - range.min)
   const factor = Math.pow(10, range.decimals)
   return { type, value: Math.round(raw * factor) / factor }
 }
@@ -403,7 +405,7 @@ export function generateItem(rarity: HackRarity, slot?: ItemSlot): HackItemDef {
   const available = [...ALL_MOD_TYPES]
   const mods: ItemMod[] = []
   for (let i = 0; i < modCount && available.length > 0; i++) {
-    const idx = Math.floor(Math.random() * available.length)
+    const idx = Math.floor(randomFloat() * available.length)
     const type = available.splice(idx, 1)[0]!
     mods.push(rollMod(type))
   }
@@ -459,7 +461,7 @@ export function rerollItemMods(mods: ItemMod[], lockedTypes: ModType[]): ItemMod
   const rerollCount = mods.length - lockedSet.size
   const rolled: ItemMod[] = []
   for (let i = 0; i < rerollCount && pool.length > 0; i++) {
-    const idx = Math.floor(Math.random() * pool.length)
+    const idx = Math.floor(randomFloat() * pool.length)
     const type = pool.splice(idx, 1)[0]!
     rolled.push(rollMod(type))
   }
@@ -744,7 +746,7 @@ export function rollOpReward(
 ): OpReward {
   // Success depends purely on the power ratio — agents raise it via Power / Power %
   // traits and gear, which scale with investment (no flat success bonus to exploit).
-  const success = Math.random() < opSuccessChance(totalPower, template.minPower)
+  const success = randomChance(opSuccessChance(totalPower, template.minPower))
 
   const bonuses = collectBonuses(agents)
 
@@ -752,18 +754,18 @@ export function rollOpReward(
     return { success: false, cash: 0, gems: 0, item: null, inventoryFull: false, artifacts: [] }
   }
   const [minCash, maxCash] = effectiveCashRange(template, bonuses)
-  const cash = Math.round(minCash + Math.random() * (maxCash - minCash))
+  const cash = Math.round(minCash + randomFloat() * (maxCash - minCash))
   const gemChance = effectiveGemChance(template, bonuses)
   let gems = 0
   // Gems only ever drop on ops that already award them, and only when the chance roll
   // succeeds. The Bonus Gems trait adds on top — it can never create gems on an op
   // that has none.
-  if (template.baseGemChance > 0 && Math.random() < gemChance) {
+  if (template.baseGemChance > 0 && randomChance(gemChance)) {
     const [gMin, gMax] = template.baseGemCount
-    gems = gMin + Math.floor(Math.random() * (gMax - gMin + 1)) + bonuses.gemBonus
+    gems = randomInt(gMin, gMax) + bonuses.gemBonus
   }
   // Item Find gear mods raise the op's base drop chance (capped so it can't be a guarantee).
-  const wouldDropItem = Math.random() < effectiveItemDropChance(template, bonuses)
+  const wouldDropItem = randomChance(effectiveItemDropChance(template, bonuses))
   // Op drops roll the same full mod ranges as crates — rarity is fixed per op.
   const item = wouldDropItem && !inventoryFull
     ? generateItem(template.itemDropRarity)
@@ -774,12 +776,12 @@ export function rollOpReward(
   if (template.id !== 'project_zero') {
     const baseHours = template.durationMs / 3_600_000
     const expected = 0.25 * baseHours
-    const count = Math.max(0, Math.floor(expected + Math.random()))
+    const count = Math.max(0, Math.floor(expected + randomFloat()))
     const rarityWeights = artifactRarityTable(template.id)
     if (count > 0 && rarityWeights) {
       for (let i = 0; i < count; i++) {
         const rarity = rollRarity(rarityWeights)
-        const type = ALL_TRAIT_TYPES[Math.floor(Math.random() * ALL_TRAIT_TYPES.length)]!
+        const type = randomPick(ALL_TRAIT_TYPES)
         const existing = artifacts.find(a => a.type === type && a.rarity === rarity)
         if (existing) existing.count += 1
         else artifacts.push({ type, rarity, count: 1 })
@@ -791,13 +793,7 @@ export function rollOpReward(
 }
 
 export function rollRarity(weights: Record<HackRarity, number>): HackRarity {
-  const total = Object.values(weights).reduce((a, b) => a + b, 0)
-  let roll = Math.random() * total
-  for (const rarity of RARITY_ORDER) {
-    roll -= weights[rarity]
-    if (roll <= 0) return rarity
-  }
-  return 'ghost'
+  return randomWeighted(RARITY_ORDER, rarity => weights[rarity])
 }
 
 // Flat per rarity — rarity (mod count) is an item's only intrinsic worth. Item levels

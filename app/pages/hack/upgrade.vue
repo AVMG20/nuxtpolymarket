@@ -140,8 +140,7 @@ async function confirmApply() {
     await refresh()
   } catch (e: unknown) {
     audio.playSfx('deny')
-    const message = (e as { data?: { statusMessage?: string } })?.data?.statusMessage
-    toast.add({ title: message ?? 'Apply failed', color: 'error' })
+    toast.add({ title: apiErrorMessage(e, 'Apply failed'), color: 'error' })
   } finally { applying.value = false }
 }
 

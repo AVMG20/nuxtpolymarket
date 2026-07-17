@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { XenoSlotResult, BonusWave, Cell, SlotSymbol } from '#shared/utils/gamelogic/xenoslot'
 import { XENOSLOT_LINES, XENOSLOT_MAX_WIN_MULT, XENOSLOT_BUY_BONUS_COST, BONUS_FREE_SPINS, BONUS_TRIGGER_COUNT, XENOSLOT_CELLS, PAYTABLE, SYMBOL_WEIGHTS } from '#shared/utils/gamelogic/xenoslot'
+import { initSlotPixiApp, safeDestroy } from '~/utils/slot-pixi'
 
 // Max win shown to players, derived from a 2M-spin Monte Carlo run
 // (scripts/xenoslot-rtp.ts). Unlike the other slots, Xeno Slot actually hit
@@ -12,14 +13,11 @@ const XS_DISPLAY_MAX_WIN = XENOSLOT_MAX_WIN_MULT
 // it rather than tying for the top spot.
 const XS_VOLATILITY = 4
 
-const { user, setBalance } = useAuth()
-const balance = ref(parseFloat(user.value?.balance ?? '0'))
-watch(() => user.value?.balance, (v) => { if (v !== undefined) balance.value = parseFloat(v ?? '0') })
+const { bet, isSpinning, errorMsg, balance, setBalance, history, pushHistory, spin: requestSpin } = useSlotGame<XenoSlotResult, { payout: number, bet: number, bonus: boolean }>('xenoslot')
 
 // --- bet / round state ------------------------------------------------------
 const MIN_BET = 1
 const MAX_BET = 100_000_000_000
-const bet = ref(10)
 const betInput = ref('10')
 watch(bet, (v) => { betInput.value = String(v) })
 
@@ -40,8 +38,6 @@ const buyBonusCost = computed(() => bet.value * XENOSLOT_BUY_BONUS_COST)
 function betUp() { setBet(bet.value * 2) }
 
 const turbo = ref(false)
-const isSpinning = ref(false)
-const errorMsg = ref('')
 const showHelp = ref(false)
 const ready = ref(false)
 
@@ -62,8 +58,6 @@ const bigWinAmount = ref(0)
 const bigWinGradient = ref('')
 const bigWinGlow = ref('')
 const bigWinIntensity = ref(1)
-
-const history = ref<{ payout: number, bet: number, bonus: boolean }[]>([])
 
 // --- auto-spin state -------------------------------------------------------
 const autoSpinEnabled = ref(false)
@@ -605,10 +599,9 @@ onMounted(async () => {
     REELS = reels
     GSAP = gsapMod.gsap ?? gsapMod.default
 
-    app = new PIXI.Application()
     // Transparent canvas so the jungle board panel shows through behind the tiles.
-    await app.init({ width: APP_W, height: APP_H, backgroundAlpha: 0, antialias: true, autoDensity: true, resolution: Math.min(2, window.devicePixelRatio || 1) })
-    if (destroyed) { app.destroy(true); return }
+    app = await initSlotPixiApp(PIXI.Application, { width: APP_W, height: APP_H }, () => destroyed)
+    if (!app) return
     app.stage.sortableChildren = true
     canvasWrap.value?.appendChild(app.canvas)
 
@@ -661,38 +654,36 @@ onMounted(async () => {
 
 onUnmounted(() => {
   destroyed = true
-  try { floatLayer?.destroy?.({ children: true }) } catch { /* ignore */ }
-  try { reelSet?.destroy?.() } catch { /* ignore */ }
-  try { app?.destroy?.(true) } catch { /* ignore */ }
+  safeDestroy(() => floatLayer?.destroy?.({ children: true }))
+  safeDestroy(() => reelSet?.destroy?.())
+  safeDestroy(() => app?.destroy?.(true))
 })
 
 // --- spin flow --------------------------------------------------------------
 async function spin(buy = false) {
+  if (!ready.value) return
   const cost = buy ? buyBonusCost.value : bet.value
-  if (!ready.value || isSpinning.value || balance.value < cost) return
-  isSpinning.value = true
-  errorMsg.value = ''
-  lastWin.value = 0
-  lastLines.value = 0
-  winFlash.value = false
   const balanceBeforeSpin = balance.value
-  balance.value = balanceBeforeSpin - cost
-  setBalance(balance.value)
-  clearConnections()
-  clearWinText()
 
-  let data: { gameData: XenoSlotResult, balance: number }
-  try {
-    data = await $fetch('/api/games/play-game', {
-      method: 'POST',
-      body: { bet: bet.value, game: 'xenoslot', options: buy ? { buyBonus: true } : undefined }
-    }) as { gameData: XenoSlotResult, balance: number }
-  } catch (e: unknown) {
-    errorMsg.value = e instanceof Error ? e.message : 'Something went wrong'
-    balance.value = balanceBeforeSpin
-    setBalance(balanceBeforeSpin)
-    isSpinning.value = false
-    stopAutoSpin()
+  // Distinguishes "the composable's guard blocked us" (nothing to undo) from
+  // "the fetch failed after we took the bet" (must refund).
+  let debited = false
+
+  const data = await requestSpin(cost, buy ? { buyBonus: true } : undefined, () => {
+    lastWin.value = 0
+    lastLines.value = 0
+    winFlash.value = false
+    clearConnections()
+    clearWinText()
+    setBalance(balanceBeforeSpin - cost)
+    debited = true
+  })
+
+  if (!data) {
+    if (debited) {
+      setBalance(balanceBeforeSpin)
+      stopAutoSpin()
+    }
     return
   }
 
@@ -733,13 +724,10 @@ async function spin(buy = false) {
     // 4. Settle balance + HUD.
     lastWin.value = result.payout
     winFlash.value = result.payout > 0
-    balance.value = data.balance
     setBalance(data.balance)
-    history.value.unshift({ payout: result.payout, bet: result.cost, bonus: result.bonusTriggered })
-    if (history.value.length > 10) history.value.pop()
+    pushHistory({ payout: result.payout, bet: result.cost, bonus: result.bonusTriggered })
   } catch (e) {
     errorMsg.value = e instanceof Error ? e.message : 'Animation error'
-    balance.value = data.balance
     setBalance(data.balance)
     stopAutoSpin()
   } finally {
@@ -1066,10 +1054,10 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 
           <!-- Big win showcase -->
           <Transition name="pop">
-            <div
+            <BigWinOverlay
               v-if="bigWinBanner"
-              class="absolute inset-0 z-30 flex flex-col items-center justify-center gap-1 bg-[rgba(3,10,5,0.82)] backdrop-blur-[4px]"
-              :style="{ '--tier': bigWinIntensity }"
+              tint="rgba(3,10,5,0.82)"
+              :intensity="bigWinIntensity"
             >
               <p
                 class="xs-bigwin-label"
@@ -1080,7 +1068,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
               <strong class="xs-bigwin-amount">
                 {{ formatNumber(bigWinAmount, false) }}
               </strong>
-            </div>
+            </BigWinOverlay>
           </Transition>
 
           <!-- Auto-spin pause overlay -->
@@ -1325,31 +1313,17 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
     </div>
 
     <!-- Auto-spin modal -->
-    <UModal
+    <AutoSpinModal
       v-model:open="showAutoSpinModal"
-      title="Auto Spin"
+      :options="AUTO_SPIN_OPTIONS"
+      @pick="startAutoSpin($event)"
     >
-      <template #body>
-        <div class="space-y-4">
-          <p class="text-sm text-muted">
-            Select number of spins. Auto-spin pauses before a bonus round so you can watch — tap the board to resume.
-          </p>
-          <div class="grid grid-cols-5 gap-2">
-            <UButton
-              v-for="count in AUTO_SPIN_OPTIONS"
-              :key="count"
-              block
-              class="font-bold"
-              color="neutral"
-              variant="soft"
-              @click="startAutoSpin(count)"
-            >
-              {{ count }}
-            </UButton>
-          </div>
-        </div>
+      <template #description>
+        <p class="text-sm text-muted">
+          Select number of spins. Auto-spin pauses before a bonus round so you can watch — tap the board to resume.
+        </p>
       </template>
-    </UModal>
+    </AutoSpinModal>
 
     <!-- Help modal -->
     <UModal

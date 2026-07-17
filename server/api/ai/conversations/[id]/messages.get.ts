@@ -2,7 +2,7 @@ import { and, asc, eq, isNull } from 'drizzle-orm'
 import { db } from '#server/database'
 import { aiConversations, aiMessages } from '#server/database/schema'
 import { requireAiUser } from '#server/utils/ai-auth'
-import { getAiContextStatus } from '#server/utils/ai'
+import { getAiContextStatus } from '#server/utils/ai/conversations'
 import type { AiToolCall } from '#shared/utils/ai'
 
 export default defineEventHandler(async (event) => {

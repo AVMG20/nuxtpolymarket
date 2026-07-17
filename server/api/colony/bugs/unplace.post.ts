@@ -1,15 +1,13 @@
 import { eq, and } from 'drizzle-orm'
 import { db } from '#server/database'
 import { colonyBugs } from '#server/database/schema'
-import { auth } from '#server/utils/auth'
+import { requireUserId } from '#server/utils/auth'
 import { settleColony } from '#server/utils/colony'
 
 /** Move one placed bug back into inventory (stops it foraging, frees a terrarium slot). */
 export default defineEventHandler(async (event) => {
   const body = await readBody<{ bugId: string }>(event)
-  const session = await auth.api.getSession({ headers: event.headers })
-  if (!session?.user?.id) throw createError({ statusCode: 401, statusMessage: 'Unauthorized' })
-  const userId = session.user.id
+  const userId = await requireUserId(event)
 
   await settleColony(userId)
 

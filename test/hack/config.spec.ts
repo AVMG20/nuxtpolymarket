@@ -1,4 +1,5 @@
 import { describe, it, expect, afterEach, vi } from 'vitest'
+import { stubRandomFloat } from '../setup/stub-random'
 import {
     OP_TEMPLATES,
     ITEM_MAX_LEVEL,
@@ -249,21 +250,21 @@ describe('effective reward ranges & clamps', () => {
 
 describe('rollOpReward', () => {
     it('returns nothing on a failed op', () => {
-        vi.spyOn(Math, 'random').mockReturnValue(0.99)
+        stubRandomFloat(() => 0.99)
         const gov = OP_TEMPLATES.find(t => t.id === 'gov_heist')!
         const reward = rollOpReward(gov, [{ level: 1, class: 'infiltrator', items: [] }], 1, false)
         expect(reward).toEqual({ success: false, cash: 0, gems: 0, item: null, inventoryFull: false, artifacts: [] })
     })
 
     it('never awards gems on an op with no base gem chance', () => {
-        vi.spyOn(Math, 'random').mockReturnValue(0)
+        stubRandomFloat(() => 0)
         const reward = rollOpReward(OP, [{ level: 1, class: 'infiltrator', items: [] }], 100, false)
         expect(reward.success).toBe(true)
         expect(reward.gems).toBe(0)
     })
 
     it('flags a dropped item as lost when the inventory is full', () => {
-        vi.spyOn(Math, 'random').mockReturnValue(0)
+        stubRandomFloat(() => 0)
         const reward = rollOpReward(OP, [{ level: 1, class: 'infiltrator', items: [] }], 100, true)
         expect(reward.item).toBeNull()
         expect(reward.inventoryFull).toBe(true)
@@ -281,9 +282,9 @@ describe('rollRarity', () => {
 
     it('picks the rarity the roll lands in', () => {
         const weights = { ghost: 60, operative: 35, specialist: 5, elite: 0, phantom: 0 }
-        vi.spyOn(Math, 'random').mockReturnValue(0) // roll ≈ 0 → first bucket
+        stubRandomFloat(() => 0) // roll ≈ 0 → first bucket
         expect(rollRarity(weights)).toBe('ghost')
-        vi.spyOn(Math, 'random').mockReturnValue(0.99) // roll ≈ 99 → last non-zero bucket
+        stubRandomFloat(() => 0.99) // roll ≈ 99 → last non-zero bucket
         expect(rollRarity(weights)).toBe('specialist')
     })
 })

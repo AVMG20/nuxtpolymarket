@@ -1,16 +1,14 @@
 import { eq, and } from 'drizzle-orm'
 import { db } from '#server/database'
 import { colonyBugs } from '#server/database/schema'
-import { auth } from '#server/utils/auth'
+import { requireUserId } from '#server/utils/auth'
 import { settleColony, creditPartialTick } from '#server/utils/colony'
 import { credit } from '#server/utils/balance'
 import { getBug, REMOVE_REFUND_RATE } from '#shared/utils/colony'
 
 export default defineEventHandler(async (event) => {
   const body = await readBody<{ bugId: string }>(event)
-  const session = await auth.api.getSession({ headers: event.headers })
-  if (!session?.user?.id) throw createError({ statusCode: 401, statusMessage: 'Unauthorized' })
-  const userId = session.user.id
+  const userId = await requireUserId(event)
 
   // Brings tickProgressMs up to date so the partial-tick credit below is accurate.
   await settleColony(userId)

@@ -40,7 +40,7 @@ async function collectGems() {
     toast.add({ title: `Collected ${res.collected} gem${res.collected !== 1 ? 's' : ''}`, color: 'success', icon: 'i-lucide-gem' })
     await Promise.all([refresh(), fetchSession()])
   } catch (e: any) {
-    toast.add({ title: e.data?.message ?? 'Failed to collect', color: 'error' })
+    toast.add({ title: apiErrorMessage(e, 'Failed to collect'), color: 'error' })
   } finally {
     collecting.value = false
   }
@@ -53,7 +53,7 @@ async function upgradeFactory() {
     toast.add({ title: `Factory upgraded to level ${res.newLevel}`, color: 'success' })
     await Promise.all([refresh(), fetchSession()])
   } catch (e: any) {
-    toast.add({ title: e.data?.message ?? 'Upgrade failed', color: 'error' })
+    toast.add({ title: apiErrorMessage(e, 'Upgrade failed'), color: 'error' })
   } finally {
     upgrading.value = false
   }

@@ -1,10 +1,12 @@
 import { inArray } from 'drizzle-orm'
 /* eslint-disable @stylistic/indent */
 import { db } from '#server/database'
+import { getSessionUserId } from '#server/utils/auth'
 import { colonyBugResearch, colonyBugs, colonyItems, colonyState, colonyUpgrades, user } from '#server/database/schema'
 import { getBug, getItem } from '#shared/utils/colony'
 
-export default defineEventHandler(async () => {
+export default defineEventHandler(async (event) => {
+    const sessionUserId = await getSessionUserId(event)
     const states = await db.select({
         userId: colonyState.userId,
         habitatLevel: colonyState.habitatLevel
@@ -36,7 +38,7 @@ export default defineEventHandler(async () => {
             }, 0)
 
             return {
-                userId: state.userId,
+                isCurrentUser: state.userId === sessionUserId,
                 name: player.name,
                 habitatLevel: state.habitatLevel,
                 bugCount: playerBugs.length,

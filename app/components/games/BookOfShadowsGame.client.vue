@@ -2,23 +2,19 @@
 import type { BonusResult, BonusSpinResult, BonusTier, BookOfShadowsResult, Cell, ConnectionWin, SlotSymbol } from '#shared/utils/gamelogic/bookofshadows'
 import { BONUS_TIERS, BOS_BUY_BONUS_COST, BOS_COLS, BOS_MAX_WIN_MULT, BOS_MIN_CONNECTION, BOS_ROWS, BONUS_SPINS, BONUS_RETRIGGER_BOOKS, BONUS_RETRIGGER_SPINS, BONUS_TRIGGER_COUNT, PAYTABLE, SYMBOL_WEIGHTS, playBookOfShadows } from '#shared/utils/gamelogic/bookofshadows'
 import { BOS_BONUS_SHEET_H, BOS_BONUS_SHEET_W, BOS_BONUS_SPRITE_SRC, BOS_BONUS_SYMBOL_META, BOS_SHEET_H, BOS_SHEET_W, BOS_SPRITE_SRC, BOS_SYMBOL_META } from '~/utils/bookofshadows-sprite'
+import { initSlotPixiApp, safeDestroy } from '~/utils/slot-pixi'
 
 definePageMeta({
   title: 'Book of Shadows'
 })
 
-const { user, setBalance, fetchSession } = useAuth()
-const balance = ref(parseFloat(user.value?.balance ?? '0'))
-
-watch(() => user.value?.balance, (value) => {
-  if (value !== undefined) balance.value = parseFloat(value ?? '0')
-})
+const { fetchSession } = useAuth()
+const { bet, isSpinning, errorMsg, balance, setBalance, history, pushHistory, spin: requestSpin } = useSlotGame<BookOfShadowsResult, { payout: number, bet: number, bonus: boolean }>('bookofshadows')
 
 // --- bet / controls ----------------------------------------------------------
 
 const MIN_BET = 1
 const MAX_BET = 100_000_000_000
-const bet = ref(10)
 const betInput = ref('10')
 const buyBonusCost = computed(() => Math.round(bet.value * BOS_BUY_BONUS_COST * 100) / 100)
 const turbo = ref(false)
@@ -80,14 +76,11 @@ function stopAutoSpin() {
 
 // --- game state ----------------------------------------------------------------
 
-const isSpinning = ref(false)
 const ready = ref(false)
-const errorMsg = ref('')
 const status = ref('Ready')
 const lastWin = ref(0)
 const totalWin = ref(0)
 const totalWinPulse = ref(false)
-const history = ref<{ payout: number, bet: number, bonus: boolean }[]>([])
 
 const bonusData = ref<BonusResult | null>(null)
 const showBonusPick = ref(false)
@@ -156,7 +149,7 @@ interface SymbolVisual {
   label?: string
 }
 
-interface SymbolIconStyle {
+type SymbolIconStyle = {
   width: string
   height: string
   backgroundImage: string
@@ -546,20 +539,8 @@ async function initPixi() {
     }
   }
 
-  pixiApp = new Application()
-  await pixiApp.init({
-    width: APP_W,
-    height: APP_H,
-    backgroundAlpha: 0,
-    antialias: true,
-    autoDensity: true,
-    resolution: Math.min(window.devicePixelRatio || 1, 2)
-  })
-  if (destroyed) {
-    pixiApp.destroy(true)
-    pixiApp = null
-    return
-  }
+  pixiApp = await initSlotPixiApp(Application, { width: APP_W, height: APP_H }, () => destroyed)
+  if (!pixiApp) return
   canvasHost.value.appendChild(pixiApp.canvas)
 
   const initialGrid = playBookOfShadows(1).grid
@@ -1011,35 +992,30 @@ async function rollTier() {
 // --- spin ------------------------------------------------------------------------------
 
 async function spin(buy = false) {
-  if (!ready.value || isSpinning.value || showBonusPick.value || bonusRunning.value) return
+  if (!ready.value || showBonusPick.value || bonusRunning.value) return
   const cost = buy ? buyBonusCost.value : bet.value
-  if (balance.value < cost) return
-
-  isSpinning.value = true
-  errorMsg.value = ''
-  status.value = buy ? 'Summoning bonus' : 'Spinning'
-  totalWin.value = 0
-  lastWin.value = 0
-  bonusSymbolOverride = null
-  resetCellLooks()
-
   const balanceBeforeSpin = balance.value
-  balance.value = balanceBeforeSpin - cost
-  setBalance(balance.value)
 
-  let data: { gameData: BookOfShadowsResult, balance: number }
-  try {
-    data = await $fetch('/api/games/play-game', {
-      method: 'POST',
-      body: { bet: bet.value, game: 'bookofshadows', options: buy ? { buyBonus: true } : undefined }
-    }) as { gameData: BookOfShadowsResult, balance: number }
-  } catch (e: unknown) {
-    errorMsg.value = e instanceof Error ? e.message : 'Something went wrong'
-    status.value = 'Spin failed'
-    balance.value = balanceBeforeSpin
-    setBalance(balanceBeforeSpin)
-    isSpinning.value = false
-    stopAutoSpin()
+  // Distinguishes "the composable's guard blocked us" (nothing to undo) from
+  // "the fetch failed after we took the bet" (must refund).
+  let debited = false
+
+  const data = await requestSpin(cost, buy ? { buyBonus: true } : undefined, () => {
+    status.value = buy ? 'Summoning bonus' : 'Spinning'
+    totalWin.value = 0
+    lastWin.value = 0
+    bonusSymbolOverride = null
+    resetCellLooks()
+    setBalance(balanceBeforeSpin - cost)
+    debited = true
+  })
+
+  if (!data) {
+    if (debited) {
+      status.value = 'Spin failed'
+      setBalance(balanceBeforeSpin)
+      stopAutoSpin()
+    }
     return
   }
 
@@ -1085,15 +1061,12 @@ async function spin(buy = false) {
     if (result.payout > 0) pulseWin()
     if (!result.bonusTriggered) status.value = result.payout > 0 ? 'Paid out' : 'No connection'
 
-    history.value.unshift({ payout: result.payout, bet: cost, bonus: Boolean(result.bonusTriggered) })
-    if (history.value.length > 10) history.value.pop()
+    pushHistory({ payout: result.payout, bet: cost, bonus: Boolean(result.bonusTriggered) })
 
-    balance.value = data.balance
     setBalance(data.balance)
     await fetchSession()
   } catch (e) {
     errorMsg.value = e instanceof Error ? e.message : 'Animation error'
-    balance.value = data.balance
     setBalance(data.balance)
     stopAutoSpin()
   }
@@ -1120,12 +1093,8 @@ onMounted(() => {
 onBeforeUnmount(() => {
   destroyed = true
   resizeObserver?.disconnect()
-  try {
-    reelSet?.destroy()
-  } catch { /* ignore */ }
-  try {
-    pixiApp?.destroy(true)
-  } catch { /* ignore */ }
+  safeDestroy(() => reelSet?.destroy())
+  safeDestroy(() => pixiApp?.destroy(true))
   reelSet = null
   pixiApp = null
   linesLayer = null
@@ -1347,9 +1316,9 @@ onBeforeUnmount(() => {
               </Transition>
 
               <Transition name="pop">
-                <div
+                <BigWinOverlay
                   v-if="bigWinBanner"
-                  class="absolute inset-0 z-30 flex flex-col items-center justify-center gap-1 bg-[rgba(6,3,4,0.84)] backdrop-blur-[4px]"
+                  tint="rgba(6,3,4,0.84)"
                 >
                   <p
                     class="bos-bigwin-label"
@@ -1360,7 +1329,7 @@ onBeforeUnmount(() => {
                   <strong class="bos-bigwin-amount">
                     {{ formatNumber(bigWinAmount, false) }}
                   </strong>
-                </div>
+                </BigWinOverlay>
               </Transition>
 
               <div
@@ -1575,25 +1544,11 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
-    <UModal
+    <AutoSpinModal
       v-model:open="showAutoSpinModal"
-      title="Auto Spin"
-    >
-      <template #body>
-        <div class="grid grid-cols-5 gap-2">
-          <UButton
-            v-for="count in AUTO_SPIN_OPTIONS"
-            :key="count"
-            block
-            color="neutral"
-            variant="soft"
-            @click="playSfx('button'); startAutoSpin(count)"
-          >
-            {{ count }}
-          </UButton>
-        </div>
-      </template>
-    </UModal>
+      :options="AUTO_SPIN_OPTIONS"
+      @pick="playSfx('button'); startAutoSpin($event)"
+    />
 
     <UModal
       v-model:open="showHelp"

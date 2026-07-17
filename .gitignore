@@ -31,3 +31,9 @@ docs/games
 
 # Python bytecode cache (balance sim scripts under docs/games)
 __pycache__
+
+# Package manager — this project is bun-only; these must never come back
+pnpm-lock.yaml
+pnpm-workspace.yaml
+package-lock.json
+yarn.lock

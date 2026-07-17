@@ -2,7 +2,7 @@ import { eq, sql } from 'drizzle-orm'
 import { readBody } from 'h3'
 import { db } from '#server/database'
 import { minerState, user } from '#server/database/schema'
-import { auth } from '#server/utils/auth'
+import { requireUserId } from '#server/utils/auth'
 import { credit, debit } from '#server/utils/balance'
 import {
   vaultCap,
@@ -15,11 +15,9 @@ import {
 import { gemComputeLivePrice, GEM_INITIAL_PRICE } from '#shared/utils/gamelogic/gem-market'
 
 export default defineEventHandler(async (event) => {
-  const session = await auth.api.getSession({ headers: event.headers })
-  if (!session?.user?.id) throw createError({ statusCode: 401, statusMessage: 'Unauthorized' })
+  const userId = await requireUserId(event)
 
   const { mode } = await readBody<{ mode?: 'free' | 'paid' }>(event) ?? {}
-  const userId = session.user.id
 
   const [s, market] = await Promise.all([
     db.query.minerState.findFirst({ where: eq(minerState.userId, userId) }),

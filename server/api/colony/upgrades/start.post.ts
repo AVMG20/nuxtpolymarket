@@ -1,15 +1,13 @@
 import { eq } from 'drizzle-orm'
 import { db } from '#server/database'
 import { colonyState } from '#server/database/schema'
-import { auth } from '#server/utils/auth'
+import { requireUserId } from '#server/utils/auth'
 import { settleColony, getUpgradeLevels, payPrice } from '#server/utils/colony'
 import { getUpgradeTrack, trackLevelCost } from '#shared/utils/colony'
 
 export default defineEventHandler(async (event) => {
   const body = await readBody<{ trackId: string }>(event)
-  const session = await auth.api.getSession({ headers: event.headers })
-  if (!session?.user?.id) throw createError({ statusCode: 401, statusMessage: 'Unauthorized' })
-  const userId = session.user.id
+  const userId = await requireUserId(event)
 
   const track = getUpgradeTrack(body.trackId)
   if (!track) throw createError({ statusCode: 400, statusMessage: `Unknown upgrade track: ${body.trackId}` })

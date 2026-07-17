@@ -135,7 +135,7 @@ async function collect(op: { id: string, templateId: string }) {
     await Promise.all([refresh(), fetchSession()])
   } catch (e: any) {
     audio.playSfx('deny')
-    toast.add({ title: e.data?.statusMessage ?? 'Collect failed', color: 'error' })
+    toast.add({ title: apiErrorMessage(e, 'Collect failed'), color: 'error' })
   } finally {
     collecting.value = null
   }

@@ -42,6 +42,8 @@
 //   paytable, relic-value odds and the buy-feature costs are tuned by
 //   Monte-Carlo to ~96–97% RTP (see the measured figures next to each cost).
 
+import { randomFloat } from '../random'
+
 export const AG_COLS = 6
 export const AG_ROWS = 5
 export const AG_CELLS = AG_COLS * AG_ROWS // 30
@@ -216,19 +218,14 @@ const PAY_SCALE = 0.40
 
 // --- crypto RNG helpers --------------------------------------------------
 
-function rand(): number {
-  const arr = new Uint32Array(1)
-  crypto.getRandomValues(arr)
-  return arr[0]! / 0x1_0000_0000 // [0, 1)
-}
 
 function randInt(n: number): number {
-  return Math.floor(rand() * n)
+  return Math.floor(randomFloat() * n)
 }
 
 function weightedPick<T>(items: readonly T[], weights: readonly number[]): T {
   const total = weights.reduce((a, b) => a + b, 0)
-  let r = rand() * total
+  let r = randomFloat() * total
   for (let i = 0; i < items.length; i++) {
     r -= weights[i]!
     if (r < 0) return items[i]!

@@ -1,30 +1,37 @@
 import { eq, and, sql } from 'drizzle-orm'
-import { db } from '#server/database'
-import { colonyState, colonyBugs, colonyUpgrades, colonyBugResearch, colonyLoot, colonyItems, user } from '#server/database/schema'
-import { debit } from '#server/utils/balance'
+import { db, type DbExecutor } from '#server/database'
+import { colonyState, colonyBugs, colonyUpgrades, colonyBugResearch, colonyLoot, colonyItems } from '#server/database/schema'
+import { creditGems, debit } from '#server/utils/balance'
 import {
   getBug,
+  getItem,
+  BUG_TYPES,
+  UPGRADE_TRACKS,
   effectiveTickMs,
   effectiveEatPerTick,
+  effectiveFeedPerHour,
+  socialMultiplier,
   socialSpeedBonusPct,
   avgTickYield,
   gemTickMs,
   effectiveGemsPerDay,
   deriveNutritionMax,
   deriveTrackModifiers,
+  trackLevelCost,
+  trackLevelDurationMs,
+  habitatTrackRequirement,
+  habitatLevelUpDurationMs,
+  HABITAT_BUILDER_JOB_ID,
   GEM_FEED_YIELD_BONUS,
   GEM_FEED_SPEED_BONUS_PCT,
   MAX_RESEARCH_LEVEL,
+  researchSpeedRange,
+  researchYieldRange,
   researchCost,
+  type BugType,
   type ItemCost,
   type Price
 } from '#shared/utils/colony'
-
-/** Credit gems straight to the user's spendable balance — gems aren't a colony inventory item, they're the same currency the rest of the site uses (see server/api/miner/collect-gems.post.ts for the same pattern). */
-async function creditGems(userId: string, quantity: number) {
-  if (quantity <= 0) return
-  await db.update(user).set({ gems: sql`${user.gems} + ${quantity}` }).where(eq(user.id, userId))
-}
 
 export async function getColonyState(userId: string) {
   return db.query.colonyState.findFirst({ where: eq(colonyState.userId, userId) })
@@ -70,28 +77,36 @@ export async function upgradeResearch(userId: string, typeId: string): Promise<{
   const type = getBug(typeId)
   if (!type) throw createError({ statusCode: 400, statusMessage: `Unknown bug type: ${typeId}` })
 
-  const currentLevel = await getResearchLevel(userId, typeId)
-  const cost = researchCost(currentLevel, type.spawnCost)
-  if (cost === null || currentLevel >= MAX_RESEARCH_LEVEL) {
-    throw createError({ statusCode: 400, statusMessage: 'This species is already at max Research level' })
-  }
+  return db.transaction(async (tx) => {
+    const currentLevel = await getResearchLevel(userId, typeId)
+    const cost = researchCost(currentLevel, type.spawnCost)
+    if (cost === null || currentLevel >= MAX_RESEARCH_LEVEL) {
+      throw createError({ statusCode: 400, statusMessage: 'This species is already at max Research level' })
+    }
 
-  await debit(userId, cost.toFixed(4), 'colony')
+    // The conditional upsert is the mutex: only the request that finds the row
+    // still at `currentLevel` bumps it (or inserts the very first level). A
+    // concurrent claim matches nothing and rolls back before the debit.
+    const [claimed] = await tx.insert(colonyBugResearch)
+      .values({ userId, typeId, level: currentLevel + 1 })
+      .onConflictDoUpdate({
+        target: [colonyBugResearch.userId, colonyBugResearch.typeId],
+        set: { level: currentLevel + 1 },
+        setWhere: eq(colonyBugResearch.level, currentLevel)
+      })
+      .returning({ level: colonyBugResearch.level })
+    if (!claimed) throw createError({ statusCode: 409, statusMessage: 'Research already advancing, try again' })
 
-  await db.insert(colonyBugResearch)
-    .values({ userId, typeId, level: currentLevel + 1 })
-    .onConflictDoUpdate({
-      target: [colonyBugResearch.userId, colonyBugResearch.typeId],
-      set: { level: currentLevel + 1 }
-    })
+    await debit(userId, cost.toFixed(4), 'colony', tx)
 
-  return { level: currentLevel + 1 }
+    return { level: currentLevel + 1 }
+  })
 }
 
 /** Add `quantity` of an item straight to unclaimed loot (not yet in the player's spendable inventory). */
-async function addLoot(userId: string, itemTypeId: string, quantity: number) {
+async function addLoot(userId: string, itemTypeId: string, quantity: number, tx: DbExecutor = db) {
   if (quantity <= 0) return
-  await db.insert(colonyLoot)
+  await tx.insert(colonyLoot)
     .values({ userId, itemTypeId, quantity })
     .onConflictDoUpdate({
       target: [colonyLoot.userId, colonyLoot.itemTypeId],
@@ -117,13 +132,20 @@ async function addLoot(userId: string, itemTypeId: string, quantity: number) {
  * nutrition, base rates) rather than applying one rate to the whole window.
  */
 export async function settleColony(userId: string) {
-  const state = await ensureColonyState(userId)
+  return db.transaction(async (tx) => {
+  // Lock the colony_state row for the whole settle: two concurrent settles would
+  // otherwise both read the same lastSettledAt and both bank the same elapsed
+  // window's loot. The loser now blocks here, then reads the advanced timestamp
+  // and returns early with elapsedMs <= 0.
+  await tx.insert(colonyState).values({ userId }).onConflictDoNothing()
+  const [state] = await tx.select().from(colonyState).where(eq(colonyState.userId, userId)).for('update')
+  if (!state) throw createError({ statusCode: 500, statusMessage: 'Could not initialize colony state' })
   const now = Date.now()
   const elapsedMs = now - state.lastSettledAt.getTime()
   if (elapsedMs <= 0) return state
 
   const [allBugs, levels] = await Promise.all([
-    db.query.colonyBugs.findMany({ where: eq(colonyBugs.userId, userId) }),
+    tx.query.colonyBugs.findMany({ where: eq(colonyBugs.userId, userId) }),
     getUpgradeLevels(userId)
   ])
   // only bugs placed in the terrarium forage and eat — inventory bugs are dormant
@@ -277,16 +299,16 @@ export async function settleColony(userId: string) {
 
   if (totalActiveMs > 0) {
     const bugUpdates = bugs.map(bug =>
-      db.update(colonyBugs).set({ tickProgressMs: bugRemainders.get(bug.id) ?? bug.tickProgressMs }).where(eq(colonyBugs.id, bug.id))
+      tx.update(colonyBugs).set({ tickProgressMs: bugRemainders.get(bug.id) ?? bug.tickProgressMs }).where(eq(colonyBugs.id, bug.id))
     )
     await Promise.all(bugUpdates)
     for (const [itemTypeId, qty] of lootByItem) {
-      await addLoot(userId, itemTypeId, qty)
+      await addLoot(userId, itemTypeId, qty, tx)
     }
-    if (gemsEarned > 0) await creditGems(userId, Math.floor(gemsEarned))
+    if (gemsEarned > 0) await creditGems(userId, Math.floor(gemsEarned), tx)
   }
 
-  const [updated] = await db.update(colonyState)
+  const [updated] = await tx.update(colonyState)
     .set({
       nutrition: Math.round(Math.min(nutritionMax, newNutrition)),
       gemNutrition: Math.round(Math.max(0, newGemNutrition)),
@@ -296,6 +318,7 @@ export async function settleColony(userId: string) {
     .returning()
 
   return updated!
+  })
 }
 
 /** Insert one bug instance. Defaults to the player's inventory (unplaced); pass inTerrarium to place it directly. */
@@ -353,9 +376,9 @@ export async function countPlacedBugs(userId: string): Promise<number> {
 }
 
 /** Add `quantity` of an item directly to the player's claimed, spendable inventory. */
-export async function creditItems(userId: string, itemTypeId: string, quantity: number) {
+export async function creditItems(userId: string, itemTypeId: string, quantity: number, tx: DbExecutor = db) {
   if (quantity <= 0) return
-  await db.insert(colonyItems)
+  await tx.insert(colonyItems)
     .values({ userId, itemTypeId, quantity })
     .onConflictDoUpdate({
       target: [colonyItems.userId, colonyItems.itemTypeId],
@@ -395,4 +418,272 @@ export async function payPrice(userId: string, price: Price) {
   }
   if (price.items.length > 0) await consumeItems(userId, price.items)
   if (price.coins > 0) await debit(userId, price.coins.toFixed(4), 'colony')
+}
+
+// ─── state.get.ts DTO serializers ──────────────────────────────────────────
+// Pure shaping only: takes rows and config lookups the endpoint already
+// fetched, returns exactly the JSON slices state.get.ts sends to the client.
+// No DB access below this point.
+
+type TrackModifiers = ReturnType<typeof deriveTrackModifiers>
+type ColonyBugRow = typeof colonyBugs.$inferSelect
+type ColonyStateRow = typeof colonyState.$inferSelect
+
+/** Gem-producing species don't forage a real ITEM_TYPES entry (itemId is ''), so display info is special-cased here instead of via getItem(). */
+export function foragedDisplay(type: BugType | undefined) {
+  if (type?.producesGems) return { emoji: '💎', name: 'Gems', sellValue: 0 }
+  const item = type ? getItem(type.itemId) : undefined
+  return { emoji: item?.emoji ?? '❓', name: item?.name ?? 'Item', sellValue: item?.sellValue ?? 0 }
+}
+
+function buildPlacedBugDto(bug: ColonyBugRow, mods: TrackModifiers, sameSpeciesCount: number, gemBuffActive: boolean, buffSpeedPct: number) {
+  const type = getBug(bug.typeId)
+  const display = foragedDisplay(type)
+  const social = socialMultiplier(bug.typeId, sameSpeciesCount)
+  const socialPct = socialSpeedBonusPct(bug.typeId, sameSpeciesCount)
+
+  if (type?.producesGems) {
+    // Fixed cycle TIME, but per-cycle output rides the Foraging
+    // Yield/Speed tracks, hard-capped — see gemTickMs/effectiveGemsPerDay.
+    const tickMs = gemTickMs(bug, sameSpeciesCount)
+    const gemsPerCycle = effectiveGemsPerDay(bug, mods.yieldLevelBonus, mods.speedBonusPct)
+    return {
+      id: bug.id,
+      typeId: bug.typeId,
+      speed: bug.speed,
+      yield: bug.yield,
+      eat: bug.eat,
+      name: type.name,
+      emoji: type.emoji,
+      color: type.color,
+      tier: type.tier,
+      social: type.social,
+      sameSpeciesCount,
+      socialMultiplier: social,
+      itemTypeId: '',
+      itemEmoji: display.emoji,
+      itemName: display.name,
+      itemSellValue: 0,
+      tickMs,
+      tickProgressMs: bug.tickProgressMs,
+      itemsPerTickMin: gemsPerCycle,
+      itemsPerTickMax: gemsPerCycle,
+      itemsPerHour: tickMs > 0 ? (gemsPerCycle / tickMs) * 3_600_000 : 0,
+      gemsPerCycle,
+      feedPerHour: effectiveEatPerTick(bug, mods.feedMultiplier) * (3_600_000 / tickMs)
+    }
+  }
+
+  const tickMs = effectiveTickMs(bug, mods.speedBonusPct + socialPct + buffSpeedPct)
+  // Social no longer touches output at all. Every completed cycle rolls
+  // 1 + random(0..effectiveYield) items (see rollTickYield) — bug.yield is
+  // a fixed per-instance LEVEL that acts as the ceiling, not the output
+  // itself, bumped by the Foraging Yield track's flat level bonus and by
+  // +1 more while the gem-feed buff is active. min is always 1, max is
+  // effectiveYield+1, avg (for rate math) is avgTickYield.
+  const effectiveYield = bug.yield + mods.yieldLevelBonus + (gemBuffActive ? GEM_FEED_YIELD_BONUS : 0)
+  const itemsPerTickMin = 1
+  const itemsPerTickMax = effectiveYield + 1
+  const itemsPerTickAvg = avgTickYield(effectiveYield)
+  return {
+    id: bug.id,
+    typeId: bug.typeId,
+    speed: bug.speed,
+    yield: bug.yield,
+    eat: bug.eat,
+    name: type?.name ?? bug.typeId,
+    emoji: type?.emoji ?? '🐛',
+    color: type?.color ?? 0x888888,
+    tier: type?.tier ?? 1,
+    social: type?.social ?? true,
+    sameSpeciesCount,
+    socialMultiplier: social,
+    itemTypeId: type?.itemId ?? '',
+    itemEmoji: display.emoji,
+    itemName: display.name,
+    itemSellValue: display.sellValue,
+    tickMs,
+    tickProgressMs: bug.tickProgressMs,
+    // Min/max pair drives the terrarium canvas's floating-number popup —
+    // it picks a random value in this range client-side to visualize the
+    // real per-tick roll. itemsPerHour uses the true expected value.
+    itemsPerTickMin,
+    itemsPerTickMax,
+    itemsPerHour: tickMs > 0 ? (itemsPerTickAvg / tickMs) * 3_600_000 : 0,
+    // Eating is tied to completed ticks (see effectiveFeedPerHour) — a
+    // faster effective tick from the speed trait, the Foraging Speed
+    // track, a Social speed bonus, or the gem-feed buff means more meals
+    // per hour, exactly like it means more loot.
+    feedPerHour: effectiveFeedPerHour(bug, mods.speedBonusPct + socialPct + buffSpeedPct, mods.feedMultiplier)
+  }
+}
+
+/**
+ * DTOs for every placed (terrarium) bug, plus the colony's total nutrition
+ * drain/hr — both ride the same same-species-count and gem-feed-buff state,
+ * so they're derived together in one pass over placedBugs.
+ */
+export function serializePlacedBugs(placedBugs: ColonyBugRow[], mods: TrackModifiers, gemBuffActive: boolean) {
+  const buffSpeedPct = gemBuffActive ? GEM_FEED_SPEED_BONUS_PCT : 0
+  const sameSpeciesCounts = new Map<string, number>()
+  for (const bug of placedBugs) sameSpeciesCounts.set(bug.typeId, (sameSpeciesCounts.get(bug.typeId) ?? 0) + 1)
+
+  const nutritionDrainPerHour = placedBugs.reduce((sum, bug) => {
+    const socialPct = socialSpeedBonusPct(bug.typeId, sameSpeciesCounts.get(bug.typeId) ?? 1)
+    const type = getBug(bug.typeId)
+    if (type?.producesGems) {
+      const tickMs = gemTickMs(bug, sameSpeciesCounts.get(bug.typeId) ?? 1)
+      return sum + effectiveEatPerTick(bug, mods.feedMultiplier) * (3_600_000 / tickMs)
+    }
+    return sum + effectiveFeedPerHour(bug, mods.speedBonusPct + socialPct + buffSpeedPct, mods.feedMultiplier)
+  }, 0)
+
+  const bugs = placedBugs.map(bug =>
+    buildPlacedBugDto(bug, mods, sameSpeciesCounts.get(bug.typeId) ?? 1, gemBuffActive, buffSpeedPct)
+  )
+
+  return { bugs, nutritionDrainPerHour }
+}
+
+/** Unplaced bugs, stacked by type+traits, with display/feed info for the inventory list. */
+export function serializeBugInventory(unplacedBugs: ColonyBugRow[], mods: TrackModifiers) {
+  const bugStacks = new Map<string, { typeId: string, speed: number, yield: number, eat: number, quantity: number }>()
+  for (const bug of unplacedBugs) {
+    const key = `${bug.typeId}:${bug.speed}:${bug.yield}:${bug.eat}`
+    const existingStack = bugStacks.get(key)
+    if (existingStack) existingStack.quantity++
+    else bugStacks.set(key, { typeId: bug.typeId, speed: bug.speed, yield: bug.yield, eat: bug.eat, quantity: 1 })
+  }
+  return Array.from(bugStacks.values()).map((stack) => {
+    const type = getBug(stack.typeId)
+    const display = foragedDisplay(type)
+    return {
+      typeId: stack.typeId,
+      speed: stack.speed,
+      yield: stack.yield,
+      eat: stack.eat,
+      quantity: stack.quantity,
+      name: type?.name ?? stack.typeId,
+      emoji: type?.emoji ?? '🐛',
+      color: type?.color ?? 0x888888,
+      tier: type?.tier ?? 1,
+      social: type?.social ?? true,
+      producesGems: type?.producesGems ?? false,
+      baseTickMs: type?.baseTickMs ?? 0,
+      yieldMin: type?.yieldMin ?? 0,
+      yieldMax: type?.yieldMax ?? 0,
+      eatMin: type?.eatMin ?? 0,
+      eatMax: type?.eatMax ?? 0,
+      feedPerHour: type?.producesGems
+        ? effectiveEatPerTick(stack, mods.feedMultiplier) * (3_600_000 / gemTickMs(stack, 1))
+        : effectiveFeedPerHour(stack, mods.speedBonusPct, mods.feedMultiplier),
+      itemEmoji: display.emoji,
+      itemName: display.name,
+      itemSellValue: display.sellValue
+    }
+  })
+}
+
+/** Every upgrade track's DTO: current/next effect labels, next cost/duration, and whether it meets the current habitat's requirement. */
+export function serializeUpgradeTracks(levels: Record<string, number>, habitatLevel: number) {
+  return UPGRADE_TRACKS.map((track) => {
+    const level = levels[track.id] ?? 0
+    const atMax = level >= track.maxLevel
+    const requiredLevel = habitatTrackRequirement(track.id, habitatLevel)
+    return {
+      id: track.id,
+      name: track.name,
+      icon: track.icon,
+      description: track.description,
+      level,
+      maxLevel: track.maxLevel,
+      atMax,
+      currentEffect: track.effectLabel(level),
+      nextEffect: atMax ? null : track.effectLabel(level + 1),
+      nextCost: atMax ? null : trackLevelCost(level + 1),
+      nextDurationMs: atMax ? null : trackLevelDurationMs(level + 1),
+      requiredLevel,
+      meetsHabitatRequirement: level >= requiredLevel
+    }
+  })
+}
+
+/** The single builder's current job (track level-up or habitat level-up), or null if idle. */
+export function serializeBuilder(state: ColonyStateRow, levels: Record<string, number>) {
+  if (!state.builderTrackId || !state.builderStartedAt) return null
+
+  if (state.builderTrackId === HABITAT_BUILDER_JOB_ID) {
+    return {
+      kind: 'habitat' as const,
+      trackId: state.builderTrackId,
+      trackName: 'Habitat',
+      level: state.habitatLevel + 1,
+      startedAt: state.builderStartedAt.toISOString(),
+      completesAt: new Date(state.builderStartedAt.getTime() + habitatLevelUpDurationMs(state.habitatLevel)).toISOString()
+    }
+  }
+
+  const track = UPGRADE_TRACKS.find(t => t.id === state.builderTrackId)
+  const nextLevel = (levels[state.builderTrackId] ?? 0) + 1
+  const durationMs = trackLevelDurationMs(nextLevel)
+  return {
+    kind: 'track' as const,
+    trackId: state.builderTrackId,
+    trackName: track?.name ?? state.builderTrackId,
+    level: nextLevel,
+    startedAt: state.builderStartedAt.toISOString(),
+    completesAt: new Date(state.builderStartedAt.getTime() + durationMs).toISOString()
+  }
+}
+
+/** Every species' Research DTO: current roll range, next range, and coin cost to advance. */
+export function serializeResearch(researchLevels: Record<string, number>) {
+  return BUG_TYPES.map((t) => {
+    const researchLevel = researchLevels[t.id] ?? 0
+    const atMax = researchLevel >= MAX_RESEARCH_LEVEL
+    const [speedMin, speedMax] = researchSpeedRange(researchLevel)
+    const [yieldMin, yieldMax] = researchYieldRange(researchLevel)
+    const cost = atMax ? null : researchCost(researchLevel, t.spawnCost)
+    return {
+      typeId: t.id,
+      name: t.name,
+      emoji: t.emoji,
+      tier: t.tier,
+      level: researchLevel,
+      maxLevel: MAX_RESEARCH_LEVEL,
+      atMax,
+      speedMin,
+      speedMax,
+      yieldMin,
+      yieldMax,
+      nextSpeedRange: atMax ? null : researchSpeedRange(researchLevel + 1),
+      nextYieldRange: atMax ? null : researchYieldRange(researchLevel + 1),
+      cost
+    }
+  })
+}
+
+/** Every species' catalog entry: current roll range (from Research), buyability, and owned count. */
+export function serializeSpeciesCatalog(bugs: ColonyBugRow[], researchLevels: Record<string, number>, habitatLevel: number) {
+  return BUG_TYPES.map((t) => {
+    const display = foragedDisplay(t)
+    const researchLevel = researchLevels[t.id] ?? 0
+    const [speedMin, speedMax] = researchSpeedRange(researchLevel)
+    const [yieldMin, yieldMax] = researchYieldRange(researchLevel)
+    return {
+      ...t,
+      // Overridden with the species' current Research-level roll range —
+      // BUG_TYPES' own yieldMin/yieldMax is just the level-0 base.
+      yieldMin,
+      yieldMax,
+      speedMin,
+      speedMax,
+      researchLevel,
+      buyable: t.tier <= habitatLevel,
+      owned: bugs.filter(b => b.typeId === t.id).length,
+      itemEmoji: display.emoji,
+      itemName: display.name,
+      itemSellValue: display.sellValue
+    }
+  })
 }

@@ -3,9 +3,7 @@ import type { BlackjackClientState, BlackjackAction, Card } from '#shared/utils/
 import { getHint } from '#shared/utils/gamelogic/blackjack'
 import BlackjackCard from "~/components/games/blackjack/BlackjackCard.vue";
 
-const { user, setBalance } = useAuth()
-const balance = ref(parseFloat(user.value?.balance ?? '0'))
-watch(() => user.value?.balance, v => { if (v !== undefined) balance.value = parseFloat(v ?? '0') })
+const { setBalance, balanceNum: balance } = useAuth()
 
 const bet = ref(10)
 const isPlaying = ref(false)
@@ -98,7 +96,6 @@ const DEALER_CARD_DELAY = 800
 const sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms))
 
 function applyBalance(bal: number) {
-  balance.value = bal
   setBalance(bal)
 }
 
@@ -262,17 +259,7 @@ function newGame() {
         </template>
 
         <div class="space-y-4">
-          <!-- Bet Amount -->
-          <div>
-            <label class="text-xs text-muted uppercase tracking-wide font-medium block mb-1.5">Bet Amount</label>
-            <div class="flex items-center gap-2">
-              <UInput v-model.number="bet" type="number" min="1" :disabled="isPlaying && !showResults" class="flex-1 font-mono" size="lg" />
-              <div class="flex gap-1">
-                <UButton color="neutral" variant="soft" :disabled="isPlaying && !showResults" @click="bet = Math.max(1, Math.floor(bet / 2))">½</UButton>
-                <UButton color="neutral" variant="soft" :disabled="isPlaying && !showResults" @click="bet = bet * 2">2×</UButton>
-              </div>
-            </div>
-          </div>
+          <BetControls v-model="bet" :disabled="isPlaying && !showResults" />
 
           <!-- Strategy Hint -->
           <div class="space-y-2">
@@ -596,19 +583,15 @@ function newGame() {
       </div>
     </div>
 
-    <UModal v-model:open="showHelp" title="How Blackjack works" :ui="{ width: 'max-w-sm' }">
-      <template #body>
-        <ul class="text-sm text-muted space-y-2 list-disc list-inside">
-          <li>Beat the dealer's hand without going over 21.</li>
-          <li>Face cards = 10. Aces = 1 or 11.</li>
-          <li><strong class="text-default">Blackjack</strong> (Ace + 10-value on deal) pays 2.5×.</li>
-          <li><strong class="text-default">Double</strong>: double your bet and take exactly one more card.</li>
-          <li><strong class="text-default">Split</strong>: split a pair into two separate hands.</li>
-          <li><strong class="text-default">Surrender</strong>: fold and recover half your bet.</li>
-          <li>Dealer must hit until 17 or more.</li>
-        </ul>
-      </template>
-    </UModal>
+    <GameHelpModal v-model:open="showHelp" title="How Blackjack works">
+      <li>Beat the dealer's hand without going over 21.</li>
+      <li>Face cards = 10. Aces = 1 or 11.</li>
+      <li><strong class="text-default">Blackjack</strong> (Ace + 10-value on deal) pays 2.5×.</li>
+      <li><strong class="text-default">Double</strong>: double your bet and take exactly one more card.</li>
+      <li><strong class="text-default">Split</strong>: split a pair into two separate hands.</li>
+      <li><strong class="text-default">Surrender</strong>: fold and recover half your bet.</li>
+      <li>Dealer must hit until 17 or more.</li>
+    </GameHelpModal>
   </div>
 </template>
 

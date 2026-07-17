@@ -1,17 +1,16 @@
 import { desc, eq } from 'drizzle-orm'
 import { db } from '#server/database'
 import { pirateRunHistory } from '#server/database/schema'
-import { auth } from '#server/utils/auth'
+import { requireUserId } from '#server/utils/auth'
 import { pirateShipSkin } from '#shared/utils/gamelogic/pirates'
 
 export default defineEventHandler(async (event) => {
-    const session = await auth.api.getSession({ headers: event.headers })
-    if (!session?.user?.id) throw createError({ statusCode: 401, statusMessage: 'Unauthorized' })
+    const userId = await requireUserId(event)
 
     const rows = await db
         .select()
         .from(pirateRunHistory)
-        .where(eq(pirateRunHistory.userId, session.user.id))
+        .where(eq(pirateRunHistory.userId, userId))
         .orderBy(desc(pirateRunHistory.createdAt))
         .limit(50)
 

@@ -1,13 +1,11 @@
 import { eq, and } from 'drizzle-orm'
 import { db } from '#server/database'
 import { hackAgents, hackArtifacts } from '#server/database/schema'
-import { auth } from '#server/utils/auth'
+import { requireUserId } from '#server/utils/auth'
 import { AGENT_TRAIT_RANGES, ARTIFACT_VALUE, type AgentTraitType, type HackRarity } from '#shared/utils/hack-config'
 
 export default defineEventHandler(async (event) => {
-  const session = await auth.api.getSession({ headers: event.headers })
-  if (!session?.user?.id) throw createError({ statusCode: 401, statusMessage: 'Unauthorized' })
-  const userId = session.user.id
+  const userId = await requireUserId(event)
 
   const { agentId, artifactId } = await readBody(event) as { agentId: string; artifactId: string }
   if (!agentId || !artifactId) throw createError({ statusCode: 400, statusMessage: 'Missing agent or artifact' })

@@ -56,7 +56,7 @@ async function fireAgent(agentId: string, name: string) {
     await Promise.all([refresh(), fetchSession()])
   } catch (e: any) {
     audio.playSfx('deny')
-    toast.add({ title: e.data?.statusMessage ?? 'Cannot fire agent', color: 'error' })
+    toast.add({ title: apiErrorMessage(e, 'Cannot fire agent'), color: 'error' })
   } finally { firing.value = null }
 }
 
@@ -76,7 +76,7 @@ async function setActive(agentId: string, active: boolean) {
     await refresh()
   } catch (e: any) {
     audio.playSfx('deny')
-    toast.add({ title: e.data?.statusMessage ?? 'Failed', color: 'error' })
+    toast.add({ title: apiErrorMessage(e, 'Failed'), color: 'error' })
   } finally { togglingActive.value = null }
 }
 
@@ -105,7 +105,7 @@ async function expandRoster() {
     await Promise.all([refresh(), fetchSession()])
   } catch (e: any) {
     audio.playSfx('deny')
-    toast.add({ title: e.data?.statusMessage ?? 'Failed', color: 'error' })
+    toast.add({ title: apiErrorMessage(e, 'Failed'), color: 'error' })
   } finally { expanding.value = false }
 }
 

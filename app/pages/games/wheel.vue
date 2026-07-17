@@ -2,19 +2,15 @@
 import type { WheelResult, WheelDifficulty } from '#shared/utils/gamelogic/wheel'
 import { WHEEL_CONFIGS } from '#shared/utils/gamelogic/wheel'
 
-const { user, setBalance } = useAuth()
-const balance = ref(parseFloat(user.value?.balance ?? '0'))
-watch(() => user.value?.balance, v => { if (v !== undefined) balance.value = parseFloat(v ?? '0') })
+type WheelHistoryEntry = { multiplier: number; won: boolean; payout: number; bet: number }
 
-const bet = ref(10)
+const {
+  bet, isPlaying: isSpinning, isFetching, lastBet, errorMsg, balance, setBalance, history, pushHistory, play
+} = useCasinoGame<WheelResult, WheelHistoryEntry>('wheel')
+
 const difficulty = ref<WheelDifficulty>('medium')
-const isSpinning = ref(false)
-const isFetching = ref(false)
 const lastResult = ref<WheelResult | null>(null)
-const lastBet = ref(0)
-const errorMsg = ref('')
 const showHelp = ref(false)
-const history = ref<{ multiplier: number; won: boolean; payout: number; bet: number }[]>([])
 
 const canvasRef = ref<HTMLCanvasElement | null>(null)
 // rotationOffset: how far the wheel has been rotated clockwise (radians).
@@ -64,14 +60,14 @@ const wheelSegments = computed(() => {
 
   while (nlIdx < nonLossFlat.length || lossPlaced < lossCount) {
     if (lossPlaced < lossCount && result.length >= Math.round(nextLoss + lossPlaced)) {
-      result.push({ multiplier: 0, color: segmentColor(0) })
+      result.push({ multiplier: 0, color: segmentColor('0') })
       lossPlaced++
       nextLoss += spacing
     } else if (nlIdx < nonLossFlat.length) {
       result.push(nonLossFlat[nlIdx]!)
       nlIdx++
     } else {
-      result.push({ multiplier: 0, color: segmentColor(0) })
+      result.push({ multiplier: 0, color: segmentColor('0') })
       lossPlaced++
     }
   }
@@ -184,55 +180,36 @@ function animateSpin(from: number, to: number, duration: number, winIdx: number,
 
 // ─── Spin ──────────────────────────────────────────────────────────────────
 async function spin() {
-  if (isSpinning.value || balance.value < bet.value) return
-  isSpinning.value = true
-  isFetching.value = true
-  lastResult.value = null
-  errorMsg.value = ''
-  lastBet.value = bet.value
+  const data = await play({ difficulty: difficulty.value }, () => { lastResult.value = null })
+  if (!data) return
 
-  try {
-    const data = await $fetch('/api/games/play-game', {
-      method: 'POST',
-      body: { bet: bet.value, game: 'wheel', options: { difficulty: difficulty.value } }
-    }) as { gameData: WheelResult; balance: number }
+  const segs = wheelSegments.value
+  const n   = segs.length
+  const arc = (2 * Math.PI) / n
 
-    isFetching.value = false
+  // Pick any flat index that matches the winning multiplier
+  const winMult    = data.gameData.multiplier
+  const candidates = segs.map((s, i) => i).filter(i => segs[i]!.multiplier === winMult)
+  const winIdx     = candidates[Math.floor(Math.random() * candidates.length)]!
 
-    const segs = wheelSegments.value
-    const n   = segs.length
-    const arc = (2 * Math.PI) / n
+  // Target rotationOffset so winIdx's midpoint is at the top:
+  //   rotationOffset ≡ -(winIdx + 0.5) * arc  (mod 2π)
+  const targetBase = ((-(winIdx + 0.5) * arc) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI)
 
-    // Pick any flat index that matches the winning multiplier
-    const winMult    = data.gameData.multiplier
-    const candidates = segs.map((s, i) => i).filter(i => segs[i]!.multiplier === winMult)
-    const winIdx     = candidates[Math.floor(Math.random() * candidates.length)]!
+  // How much more do we need to rotate from current normalised position to reach targetBase?
+  const currentNorm = ((rotationOffset.value % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI)
+  const remaining   = ((targetBase - currentNorm) + 2 * Math.PI) % (2 * Math.PI)
 
-    // Target rotationOffset so winIdx's midpoint is at the top:
-    //   rotationOffset ≡ -(winIdx + 0.5) * arc  (mod 2π)
-    const targetBase = ((-(winIdx + 0.5) * arc) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI)
+  // Add full spins so it looks dramatic, never go backwards
+  const extraSpins  = (2 + Math.floor(Math.random() * 4)) * 2 * Math.PI
+  const targetOffset = rotationOffset.value + extraSpins + remaining
 
-    // How much more do we need to rotate from current normalised position to reach targetBase?
-    const currentNorm = ((rotationOffset.value % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI)
-    const remaining   = ((targetBase - currentNorm) + 2 * Math.PI) % (2 * Math.PI)
-
-    // Add full spins so it looks dramatic, never go backwards
-    const extraSpins  = (2 + Math.floor(Math.random() * 4)) * 2 * Math.PI
-    const targetOffset = rotationOffset.value + extraSpins + remaining
-
-    animateSpin(rotationOffset.value, targetOffset, 1800, winIdx, () => {
-      lastResult.value = data.gameData
-      balance.value = data.balance
-      setBalance(data.balance)
-      history.value.unshift({ multiplier: data.gameData.multiplier, won: data.gameData.won, payout: data.gameData.payout, bet: lastBet.value })
-      if (history.value.length > 8) history.value.pop()
-      isSpinning.value = false
-    })
-  } catch (e: unknown) {
-    isFetching.value = false
+  animateSpin(rotationOffset.value, targetOffset, 1800, winIdx, () => {
+    lastResult.value = data.gameData
+    setBalance(data.balance)
+    pushHistory({ multiplier: data.gameData.multiplier, won: data.gameData.won, payout: data.gameData.payout, bet: lastBet.value })
     isSpinning.value = false
-    errorMsg.value = e instanceof Error ? e.message : 'Something went wrong'
-  }
+  })
 }
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
@@ -287,16 +264,7 @@ watch(difficulty, () => { rotationOffset.value = 0; lastResult.value = null; nex
         <div class="space-y-4">
 
           <!-- Bet -->
-          <div>
-            <label class="text-xs text-muted uppercase tracking-wide font-medium block mb-1.5">Bet Amount</label>
-            <div class="flex items-center gap-2">
-              <UInput v-model.number="bet" type="number" min="1" :disabled="isSpinning" class="flex-1 font-mono" size="lg" />
-              <div class="flex gap-1">
-                <UButton color="neutral" variant="soft" :disabled="isSpinning" @click="bet = Math.max(1, Math.floor(bet / 2))">½</UButton>
-                <UButton color="neutral" variant="soft" :disabled="isSpinning" @click="bet = bet * 2">2×</UButton>
-              </div>
-            </div>
-          </div>
+          <BetControls v-model="bet" :disabled="isSpinning" />
 
           <!-- Difficulty -->
           <div>
@@ -420,16 +388,12 @@ watch(difficulty, () => { rotationOffset.value = 0; lastResult.value = null; nex
       </div>
     </div>
 
-    <UModal v-model:open="showHelp" title="How Wheel works" :ui="{ width: 'max-w-sm' }">
-      <template #body>
-        <ul class="text-sm text-muted space-y-2 list-disc list-inside">
-          <li>Spin the wheel and win the multiplier of the segment it lands on.</li>
-          <li>A 0× segment means you lose your bet.</li>
-          <li><strong class="text-default">Difficulty</strong> controls how many losing segments are on the wheel.</li>
-          <li>Payout = bet × segment multiplier.</li>
-        </ul>
-      </template>
-    </UModal>
+    <GameHelpModal v-model:open="showHelp" title="How Wheel works">
+      <li>Spin the wheel and win the multiplier of the segment it lands on.</li>
+      <li>A 0× segment means you lose your bet.</li>
+      <li><strong class="text-default">Difficulty</strong> controls how many losing segments are on the wheel.</li>
+      <li>Payout = bet × segment multiplier.</li>
+    </GameHelpModal>
   </div>
 </template>
 

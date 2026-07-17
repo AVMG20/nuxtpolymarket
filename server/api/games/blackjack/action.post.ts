@@ -1,16 +1,14 @@
 import { eq } from 'drizzle-orm'
-import { auth } from '#server/utils/auth'
-import { debit, credit, getBalance, accumulateRake } from '#server/utils/balance'
+import { requireUserId } from '#server/utils/auth'
+import { debit, accumulateRake } from '#server/utils/balance'
 import { performAction, toClientState } from '#shared/utils/gamelogic/blackjack'
 import type { BlackjackState, BlackjackAction } from '#shared/utils/gamelogic/blackjack'
 import { db } from '#server/database'
 import { blackjackSessions } from '#server/database/schema'
+import { lockUserBalance, readUserBalance, settleFinishedHand } from '#server/utils/blackjack'
 
 export default defineEventHandler(async (event) => {
-  const session = await auth.api.getSession({ headers: event.headers })
-  if (!session?.user?.id) {
-    throw createError({ statusCode: 401, statusMessage: 'Unauthorized' })
-  }
+  const userId = await requireUserId(event)
 
   const { action } = await readBody<{ action: BlackjackAction }>(event)
 
@@ -18,67 +16,63 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 400, statusMessage: 'Missing action' })
   }
 
-  // Load game state from DB
-  const rows = await db.select().from(blackjackSessions).where(eq(blackjackSessions.userId, session.user.id)).limit(1)
-  if (rows.length === 0) {
-    throw createError({ statusCode: 400, statusMessage: 'No active blackjack game' })
-  }
+  return db.transaction(async (tx) => {
+    // Locking the user row serialises every blackjack write for this player, so a
+    // finished hand is settled and deleted exactly once.
+    const balance = await lockUserBalance(tx, userId)
 
-  const gameSession = rows[0]!
-  const state = gameSession.state as BlackjackState
-  const bet = parseFloat(gameSession.bet)
-
-  // Handle extra costs for double and split (need to debit additional bet)
-  const hand = state.playerHands[state.currentHandIndex]
-  if (action === 'double' && hand) {
-    const balance = await getBalance(session.user.id)
-    if (parseFloat(balance) < hand.bet) {
-      throw createError({ statusCode: 400, statusMessage: 'Insufficient balance to double down' })
+    // Load game state from DB
+    const rows = await tx.select().from(blackjackSessions).where(eq(blackjackSessions.userId, userId)).limit(1)
+    if (rows.length === 0) {
+      throw createError({ statusCode: 400, statusMessage: 'No active blackjack game' })
     }
-    await debit(session.user.id, hand.bet.toFixed(4), 'blackjack')
-    await accumulateRake(session.user.id, hand.bet)
-  }
 
-  if (action === 'split' && hand) {
-    const balance = await getBalance(session.user.id)
-    if (parseFloat(balance) < hand.bet) {
-      throw createError({ statusCode: 400, statusMessage: 'Insufficient balance to split' })
+    const gameSession = rows[0]!
+    const state = gameSession.state as BlackjackState
+    const bet = parseFloat(gameSession.bet)
+
+    // Handle extra costs for double and split (need to debit additional bet)
+    const hand = state.playerHands[state.currentHandIndex]
+    if (action === 'double' && hand) {
+      if (balance < hand.bet) {
+        throw createError({ statusCode: 400, statusMessage: 'Insufficient balance to double down' })
+      }
+      await debit(userId, hand.bet.toFixed(4), 'blackjack', tx)
+      await accumulateRake(userId, hand.bet, tx)
     }
-    await debit(session.user.id, hand.bet.toFixed(4), 'blackjack')
-    await accumulateRake(session.user.id, hand.bet)
-  }
 
-  if (action === 'insurance' && hand) {
-    const cost = state.playerHands[0]!.bet / 2
-    const balance = await getBalance(session.user.id)
-    if (parseFloat(balance) < cost) {
-      throw createError({ statusCode: 400, statusMessage: 'Insufficient balance for insurance' })
+    if (action === 'split' && hand) {
+      if (balance < hand.bet) {
+        throw createError({ statusCode: 400, statusMessage: 'Insufficient balance to split' })
+      }
+      await debit(userId, hand.bet.toFixed(4), 'blackjack', tx)
+      await accumulateRake(userId, hand.bet, tx)
     }
-    await debit(session.user.id, cost.toFixed(4), 'blackjack')
-    await accumulateRake(session.user.id, cost)
-  }
 
-  const result = performAction(state, action, bet)
-
-  // If game finished, settle balance and remove DB session
-  if (result.finished) {
-    const totalBets = result.state.playerHands.reduce((sum, h) => sum + h.bet, 0) + result.state.insuranceBet
-    const totalPayout = totalBets + result.netPayout
-    if (totalPayout > 0) {
-      await credit(session.user.id, totalPayout.toFixed(4), 'blackjack')
+    if (action === 'insurance' && hand) {
+      const cost = state.playerHands[0]!.bet / 2
+      if (balance < cost) {
+        throw createError({ statusCode: 400, statusMessage: 'Insufficient balance for insurance' })
+      }
+      await debit(userId, cost.toFixed(4), 'blackjack', tx)
+      await accumulateRake(userId, cost, tx)
     }
-    await db.delete(blackjackSessions).where(eq(blackjackSessions.userId, session.user.id))
-  } else {
-    await db.update(blackjackSessions)
-      .set({ state: result.state })
-      .where(eq(blackjackSessions.userId, session.user.id))
-  }
 
-  const newBalance = parseFloat(await getBalance(session.user.id))
+    const result = performAction(state, action, bet)
 
-  return {
-    clientState: toClientState(result.state),
-    balance: newBalance,
-    finished: result.finished,
-  }
+    // If game finished, settle balance and remove DB session
+    if (result.finished) {
+      await settleFinishedHand(tx, userId, result)
+    } else {
+      await tx.update(blackjackSessions)
+        .set({ state: result.state })
+        .where(eq(blackjackSessions.userId, userId))
+    }
+
+    return {
+      clientState: toClientState(result.state),
+      balance: await readUserBalance(tx, userId),
+      finished: result.finished,
+    }
+  })
 })

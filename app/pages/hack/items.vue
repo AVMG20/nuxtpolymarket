@@ -92,7 +92,7 @@ async function sellItem(itemId: string) {
     await Promise.all([refresh(), fetchSession()])
   } catch (e: any) {
     audio.playSfx('deny')
-    toast.add({ title: e.data?.statusMessage ?? 'Sell failed', color: 'error' })
+    toast.add({ title: apiErrorMessage(e, 'Sell failed'), color: 'error' })
   } finally { selling.value = null }
 }
 
@@ -149,7 +149,7 @@ async function doUpgrade(levels: number) {
     await Promise.all([refresh(), fetchSession()])
   } catch (e: any) {
     audio.playSfx('deny')
-    toast.add({ title: e.data?.statusMessage ?? 'Upgrade failed', color: 'error' })
+    toast.add({ title: apiErrorMessage(e, 'Upgrade failed'), color: 'error' })
   } finally { upgrading.value = null }
 }
 
@@ -168,12 +168,12 @@ async function doReroll() {
       method: 'POST',
       body: { itemId: benchItem.value.id, lockedTypes: rerollLocked.value }
     })
-    relayBark(rollQuality(res.item.mods as ItemMod[]) >= beforeQuality ? CRAFT_REROLL_GOOD : CRAFT_REROLL_BAD)
+    relayBark(rollQuality(res.item!.mods as ItemMod[]) >= beforeQuality ? CRAFT_REROLL_GOOD : CRAFT_REROLL_BAD)
     toast.add({ title: `Re-rolled for ${res.cost} gems`, color: 'success' })
     await Promise.all([refresh(), fetchSession()])
   } catch (e: any) {
     audio.playSfx('deny')
-    toast.add({ title: e.data?.statusMessage ?? 'Re-roll failed', color: 'error' })
+    toast.add({ title: apiErrorMessage(e, 'Re-roll failed'), color: 'error' })
   } finally { rerolling.value = false }
 }
 </script>

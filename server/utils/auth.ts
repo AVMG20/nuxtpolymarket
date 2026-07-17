@@ -1,3 +1,4 @@
+import type {H3Event} from 'h3'
 import {APIError, betterAuth} from 'better-auth'
 import {drizzleAdapter} from 'better-auth/adapters/drizzle'
 import {db} from '../database'
@@ -84,3 +85,16 @@ export const auth = betterAuth({
         }
     }
 })
+
+/** Session user id for a protected endpoint — throws 401 when not signed in. */
+export async function requireUserId(event: H3Event): Promise<string> {
+    const session = await auth.api.getSession({headers: event.headers})
+    if (!session?.user?.id) throw createError({statusCode: 401, statusMessage: 'Unauthorized'})
+    return session.user.id
+}
+
+/** Session user id for public endpoints that only personalize their response. */
+export async function getSessionUserId(event: H3Event): Promise<string | null> {
+    const session = await auth.api.getSession({headers: event.headers})
+    return session?.user?.id ?? null
+}

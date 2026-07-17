@@ -23,6 +23,7 @@ import {
   CM_SCATTER_TRIGGER,
   SCATTER_WEIGHT
 } from '#shared/utils/gamelogic/candymadness'
+import { initSlotPixiApp, safeDestroy } from '~/utils/slot-pixi'
 
 // Realistic max win shown to players, derived from 2M-spin Monte Carlo runs
 // (scripts/candymadness-rtp.ts — observed max ~2,580x). The configured hard
@@ -33,16 +34,11 @@ const CM_DISPLAY_MAX_WIN = 3500
 // tail (esp. in the free-spins bonus) got a lot fatter.
 const CM_VOLATILITY = 3
 
-const { user, setBalance } = useAuth()
-const balance = ref(parseFloat(user.value?.balance ?? '0'))
-watch(() => user.value?.balance, (v) => {
-  if (v !== undefined) balance.value = parseFloat(v ?? '0')
-})
+const { bet, isSpinning, errorMsg, balance, setBalance, history, pushHistory, spin: requestSpin } = useSlotGame<CandyMadnessResult, { payout: number, bet: number, bonus: boolean }>('candymadness')
 
 // --- bet control (half / double / free typing — no upper ladder cap)
 const MIN_BET = 1
 const MAX_BET = 100_000_000_000 // matches the server-side cap in play-game.post.ts
-const bet = ref(10)
 const betInput = ref('10')
 
 function clampBet(v: number): number {
@@ -96,8 +92,6 @@ function toggleHunt() {
 
 // --- round state
 const turbo = ref(false)
-const isSpinning = ref(false)
-const errorMsg = ref('')
 const showHelp = ref(false)
 const ready = ref(false)
 
@@ -117,8 +111,6 @@ const bigWinAmount = ref(0)
 const bigWinGradient = ref('')
 const bigWinGlow = ref('')
 const bigWinIntensity = ref(1)
-
-const history = ref<{ payout: number, bet: number, bonus: boolean }[]>([])
 
 // --- auto-spin state
 const autoSpinEnabled = ref(false)
@@ -532,7 +524,7 @@ function addCascadeWin(step: TumbleStep) {
     setTimeout(() => {
       if (token !== winDisplayToken) return
       target.value += amount
-      if (target === lastWin.value) winFlash.value = true
+      if (Object.is(target, lastWin)) winFlash.value = true
     }, index * tickDelay)
   })
 }
@@ -636,19 +628,8 @@ onMounted(async () => {
     REELS = reels
     GSAP = gsapMod.gsap ?? gsapMod.default
 
-    app = new PIXI.Application()
-    await app.init({
-      width: APP_W,
-      height: APP_H,
-      backgroundAlpha: 0,
-      antialias: true,
-      autoDensity: true,
-      resolution: Math.min(2, window.devicePixelRatio || 1)
-    })
-    if (destroyed) {
-      app.destroy(true)
-      return
-    }
+    app = await initSlotPixiApp(PIXI.Application, { width: APP_W, height: APP_H }, () => destroyed)
+    if (!app) return
     canvasWrap.value?.appendChild(app.canvas)
 
     await Promise.all(SYMBOL_IDS.map(async (id) => {
@@ -733,14 +714,8 @@ onUnmounted(() => {
     floatLayer?.destroy?.({ children: true })
   } catch { /* ignore */
   }
-  try {
-    reelSet?.destroy?.()
-  } catch { /* ignore */
-  }
-  try {
-    app?.destroy?.(true)
-  } catch { /* ignore */
-  }
+  safeDestroy(() => reelSet?.destroy?.())
+  safeDestroy(() => app?.destroy?.(true))
 })
 
 function randomGrid(): CandySymbol[][] {
@@ -767,29 +742,25 @@ async function spin(forceFeature?: CandyFeature) {
     huntMode.value ? 'bonusHunt' : undefined
   )
   const cost = costFor(feature)
-  if (!ready.value || isSpinning.value || balance.value < cost) return
-  isSpinning.value = true
-  sfx.spin()
-  errorMsg.value = ''
-  lastWin.value = 0
-  winFlash.value = false
-  winDisplayToken++
-  const balanceBeforeSpin = balance.value
-  balance.value = balanceBeforeSpin - cost
-  setBalance(balance.value)
+  if (!ready.value) return
 
-  let data: { gameData: CandyMadnessResult, balance: number }
-  try {
-    data = await $fetch('/api/games/play-game', {
-      method: 'POST',
-      body: { bet: bet.value, game: 'candymadness', options: feature ? { feature } : undefined }
-    }) as { gameData: CandyMadnessResult, balance: number }
-  } catch (e: unknown) {
-    errorMsg.value = e instanceof Error ? e.message : 'Something went wrong'
-    balance.value = balanceBeforeSpin
-    setBalance(balanceBeforeSpin)
-    isSpinning.value = false
-    stopAutoSpin()
+  const balanceBeforeSpin = balance.value
+  let debited = false
+
+  const data = await requestSpin(cost, feature ? { feature } : undefined, () => {
+    sfx.spin()
+    lastWin.value = 0
+    winFlash.value = false
+    winDisplayToken++
+    setBalance(balanceBeforeSpin - cost)
+    debited = true
+  })
+
+  if (!data) {
+    if (debited) {
+      setBalance(balanceBeforeSpin)
+      stopAutoSpin()
+    }
     return
   }
 
@@ -830,15 +801,12 @@ async function spin(forceFeature?: CandyFeature) {
     lastWin.value = result.payout
     winFlash.value = result.payout > 0
     if (result.payout > 0) sfx.win()
-    balance.value = data.balance
     setBalance(data.balance)
-    history.value.unshift({ payout: result.payout, bet: result.cost, bonus: result.bonusTriggered })
-    if (history.value.length > 10) history.value.pop()
+    pushHistory({ payout: result.payout, bet: result.cost, bonus: result.bonusTriggered })
   } catch (e) {
     activeWinTarget = null
     winDisplayToken++
     errorMsg.value = e instanceof Error ? e.message : 'Animation error'
-    balance.value = data.balance
     setBalance(data.balance)
     stopAutoSpin()
   } finally {
@@ -871,12 +839,17 @@ async function spinAndCascade(seq: TumbleSequence): Promise<number> {
   await spinPromise
 
   await reelSet.runCascade({
+    // Unmounting mid-cascade destroys the reels' symbols while this chain is
+    // still awaiting. Reporting no winners ends the cascade cleanly; without
+    // it the next refill phase builds against destroyed symbols and throws.
     detectWinners: (_g: string[][], lvl: number) =>
-      (
-        seq.steps[lvl]?.winCells ?? []
-      ).map((c: Cell) => (
-        { reel: c.col, row: c.row }
-      )),
+      destroyed
+        ? []
+        : (
+            seq.steps[lvl]?.winCells ?? []
+          ).map((c: Cell) => (
+            { reel: c.col, row: c.row }
+          )),
     nextGrid: (_g: string[][], _w: any, lvl: number) =>
       (
         seq.steps[lvl + 1]?.grid ?? seq.restGrid
@@ -1073,10 +1046,10 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 
           <!-- Big win showcase -->
           <Transition name="pop">
-            <div
+            <BigWinOverlay
               v-if="bigWinBanner"
-              class="absolute inset-0 z-30 flex flex-col items-center justify-center gap-1 bg-[rgba(10,2,20,0.82)] backdrop-blur-[4px]"
-              :style="{ '--tier': bigWinIntensity }"
+              tint="rgba(10,2,20,0.82)"
+              :intensity="bigWinIntensity"
             >
               <p
                 class="cm-bigwin-label"
@@ -1087,7 +1060,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
               <strong class="cm-bigwin-amount">
                 {{ formatNumber(bigWinAmount, false) }}
               </strong>
-            </div>
+            </BigWinOverlay>
           </Transition>
 
           <!-- Auto-spin pause overlay -->
@@ -1342,31 +1315,17 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
     </div>
 
     <!-- Auto-spin modal -->
-    <UModal
+    <AutoSpinModal
       v-model:open="showAutoSpinModal"
-      title="Auto Spin"
+      :options="AUTO_SPIN_OPTIONS"
+      @pick="startAutoSpin($event)"
     >
-      <template #body>
-        <div class="space-y-4">
-          <p class="text-sm text-muted">
-            Select number of spins. Auto-spin pauses before a bonus round so you can watch — tap the board to resume.
-          </p>
-          <div class="grid grid-cols-5 gap-2">
-            <UButton
-              v-for="count in AUTO_SPIN_OPTIONS"
-              :key="count"
-              block
-              class="font-bold"
-              color="neutral"
-              variant="soft"
-              @click="startAutoSpin(count)"
-            >
-              {{ count }}
-            </UButton>
-          </div>
-        </div>
+      <template #description>
+        <p class="text-sm text-muted">
+          Select number of spins. Auto-spin pauses before a bonus round so you can watch — tap the board to resume.
+        </p>
       </template>
-    </UModal>
+    </AutoSpinModal>
 
     <!-- Help modal -->
     <UModal

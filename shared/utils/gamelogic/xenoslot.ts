@@ -35,6 +35,8 @@
 //   Weights and the bonus probabilities below are tuned by Monte-Carlo to ~96%
 //   RTP.
 
+import { randomFloat } from '../random'
+
 export const XENOSLOT_COLS = 5
 export const XENOSLOT_ROWS = 3
 
@@ -129,15 +131,10 @@ const GLOVER_WEIGHTS = [0.7, 0.24, 0.06] as const
 
 // --- crypto RNG helpers -----------------------------------------------------
 
-function rand(): number {
-  const arr = new Uint32Array(1)
-  crypto.getRandomValues(arr)
-  return arr[0]! / 0x1_0000_0000 // [0, 1)
-}
 
 function weightedPick<T>(items: readonly T[], weights: readonly number[]): T {
   const total = weights.reduce((a, b) => a + b, 0)
-  let r = rand() * total
+  let r = randomFloat() * total
   for (let i = 0; i < items.length; i++) {
     r -= weights[i]!
     if (r < 0) return items[i]!
@@ -288,7 +285,7 @@ function buyBonusGrid(): { grid: SlotSymbol[][], cells: Cell[] } {
 
   const cells: Cell[] = []
   for (let i = 0; i < BONUS_TRIGGER_COUNT && pool.length > 0; i++) {
-    const index = Math.floor(rand() * pool.length)
+    const index = Math.floor(randomFloat() * pool.length)
     const [cell] = pool.splice(index, 1)
     if (!cell) continue
     grid[cell.col]![cell.row] = 'bonus'
@@ -381,7 +378,7 @@ function runBonus(bet: number, seedCells: Cell[]): BonusResult {
 
     const pCoin = coinProbability(board.size)
     for (const cell of freeCells) {
-      const r = rand()
+      const r = randomFloat()
       if (r < pCoin) {
         coins.push({ cell, value: pickCoinValue() }) // locked onto the board below
       } else if (r < pCoin + P_COLLECTOR) {

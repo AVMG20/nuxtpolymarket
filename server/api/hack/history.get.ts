@@ -1,12 +1,10 @@
 import { eq, desc, sql, count } from 'drizzle-orm'
 import { db } from '#server/database'
 import { hackHistory } from '#server/database/schema'
-import { auth } from '#server/utils/auth'
+import { requireUserId } from '#server/utils/auth'
 
 export default defineEventHandler(async (event) => {
-  const session = await auth.api.getSession({ headers: event.headers })
-  if (!session?.user?.id) throw createError({ statusCode: 401, statusMessage: 'Unauthorized' })
-  const userId = session.user.id
+  const userId = await requireUserId(event)
 
   const [rows, totals] = await Promise.all([
     db.query.hackHistory.findMany({

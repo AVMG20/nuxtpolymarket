@@ -1,15 +1,14 @@
 import { db } from '#server/database'
-import { auth } from '#server/utils/auth'
+import { requireUserId } from '#server/utils/auth'
 import { bankSummary, getBankHistory, getLockedBankState, settleBankState } from '#server/utils/bank'
 
 export default defineEventHandler(async (event) => {
-  const session = await auth.api.getSession({ headers: event.headers })
-  if (!session?.user?.id) throw createError({ statusCode: 401, statusMessage: 'Unauthorized' })
+  const userId = await requireUserId(event)
 
   const state = await db.transaction(async (tx) => {
-    const locked = await getLockedBankState(tx, session.user.id)
+    const locked = await getLockedBankState(tx, userId)
     return settleBankState(tx, locked)
   })
-  const history = await getBankHistory(session.user.id, 1)
+  const history = await getBankHistory(userId, 1)
   return { ...bankSummary(state), serverNow: Date.now(), history: history.reverse() }
 })

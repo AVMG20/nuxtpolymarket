@@ -25,6 +25,8 @@
 // ── Fairness ────────────────────────────────────────────────────────────────
 //   Total win is capped at SPN_MAX_WIN_MULT × bet.
 
+import { randomFloat } from '../random'
+
 export const SPN_COLS = 5
 export const SPN_ROWS = 3
 export const SPN_LINES = 50
@@ -122,15 +124,10 @@ export const PAYLINES: number[][] = [
 
 // --- RNG ─────────────────────────────────────────────────────────────────────
 
-function rand(): number {
-  const arr = new Uint32Array(1)
-  crypto.getRandomValues(arr)
-  return arr[0]! / 0x1_0000_0000
-}
 
 function weightedPick<T>(items: readonly T[], weights: readonly number[]): T {
   const total = weights.reduce((a, b) => a + b, 0)
-  let r = rand() * total
+  let r = randomFloat() * total
   for (let i = 0; i < items.length; i++) {
     r -= weights[i]!
     if (r < 0) return items[i]!
@@ -297,8 +294,8 @@ const round4 = (n: number) => Math.round(n * 10000) / 10000
 function forceScatters(grid: SpinSymbol[][]) {
   const placed = new Set<string>()
   while (placed.size < SPN_SCATTER_TRIGGER) {
-    const col = Math.floor(rand() * SPN_COLS)
-    const row = Math.floor(rand() * SPN_ROWS)
+    const col = Math.floor(randomFloat() * SPN_COLS)
+    const row = Math.floor(randomFloat() * SPN_ROWS)
     const key = `${col}:${row}`
     if (!placed.has(key)) {
       placed.add(key)

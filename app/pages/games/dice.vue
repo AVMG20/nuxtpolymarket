@@ -1,19 +1,15 @@
 <script setup lang="ts">
 import type { DiceResult } from '#shared/utils/gamelogic/dice'
 
-const { user, setBalance } = useAuth()
-const balance = ref(parseFloat(user.value?.balance ?? '0'))
-watch(() => user.value?.balance, v => { if (v !== undefined) balance.value = parseFloat(v ?? '0') })
+type DiceHistoryEntry = { roll: number; won: boolean; payout: number; multiplier: number; bet: number }
 
-const bet = ref(10)
+const {
+  bet, isPlaying: isRolling, isFetching, lastBet, errorMsg, balance, setBalance, history, pushHistory, play
+} = useCasinoGame<DiceResult, DiceHistoryEntry>('dice')
+
 const winChance = ref(50)
-const isRolling = ref(false)
-const isFetching = ref(false)
 const lastResult = ref<DiceResult | null>(null)
-const lastBet = ref(0)
 const animRoll = ref<number | null>(null)
-const history = ref<{ roll: number; won: boolean; payout: number; multiplier: number; bet: number }[]>([])
-const errorMsg = ref('')
 const showHelp = ref(false)
 
 const multiplier = computed(() => 98 / winChance.value)
@@ -27,47 +23,29 @@ function clampWC(v: number) {
 let animTimer: ReturnType<typeof setTimeout> | null = null
 
 async function roll() {
-  if (isRolling.value || balance.value < bet.value) return
-  isRolling.value = true
-  isFetching.value = true
-  lastResult.value = null
-  errorMsg.value = ''
-  lastBet.value = bet.value
+  const data = await play({ winChance: winChance.value }, () => { lastResult.value = null })
+  if (!data) return
 
-  try {
-    const data = await $fetch('/api/games/play-game', {
-      method: 'POST',
-      body: { bet: bet.value, game: 'dice', options: { winChance: winChance.value } }
-    }) as { gameData: DiceResult; balance: number }
+  const target = data.gameData.roll
+  const duration = 650
+  const startTime = Date.now()
+  animRoll.value = 0
 
-    isFetching.value = false
-    const target = data.gameData.roll
-    const duration = 650
-    const startTime = Date.now()
-    animRoll.value = 0
-
-    const countUp = () => {
-      const t = Math.min(1, (Date.now() - startTime) / duration)
-      const ease = 1 - Math.pow(1 - t, 3)
-      animRoll.value = parseFloat((target * ease).toFixed(2))
-      if (t < 1) {
-        animTimer = setTimeout(countUp, 16)
-      } else {
-        animRoll.value = null
-        lastResult.value = data.gameData
-        balance.value = data.balance
-        setBalance(data.balance)
-        history.value.unshift({ roll: data.gameData.roll, won: data.gameData.won, payout: data.gameData.payout, multiplier: data.gameData.multiplier, bet: lastBet.value })
-        if (history.value.length > 8) history.value.pop()
-        isRolling.value = false
-      }
+  const countUp = () => {
+    const t = Math.min(1, (Date.now() - startTime) / duration)
+    const ease = 1 - Math.pow(1 - t, 3)
+    animRoll.value = parseFloat((target * ease).toFixed(2))
+    if (t < 1) {
+      animTimer = setTimeout(countUp, 16)
+    } else {
+      animRoll.value = null
+      lastResult.value = data.gameData
+      setBalance(data.balance)
+      pushHistory({ roll: data.gameData.roll, won: data.gameData.won, payout: data.gameData.payout, multiplier: data.gameData.multiplier, bet: lastBet.value })
+      isRolling.value = false
     }
-    countUp()
-  } catch (e: unknown) {
-    isFetching.value = false
-    isRolling.value = false
-    errorMsg.value = e instanceof Error ? e.message : 'Something went wrong'
   }
+  countUp()
 }
 
 function onKeydown(e: KeyboardEvent) {
@@ -104,16 +82,7 @@ onUnmounted(() => {
 
         <div class="space-y-4">
           <!-- Bet Amount -->
-          <div>
-            <label class="text-xs text-muted uppercase tracking-wide font-medium block mb-1.5">Bet Amount</label>
-            <div class="flex items-center gap-2">
-              <UInput v-model.number="bet" type="number" min="1" :disabled="isRolling" class="flex-1 font-mono" size="lg" />
-              <div class="flex gap-1">
-                <UButton color="neutral" variant="soft" :disabled="isRolling" @click="bet = Math.max(1, Math.floor(bet / 2))">½</UButton>
-                <UButton color="neutral" variant="soft" :disabled="isRolling" @click="bet = bet * 2">2×</UButton>
-              </div>
-            </div>
-          </div>
+          <BetControls v-model="bet" :disabled="isRolling" />
 
           <!-- Win Chance -->
           <div>
@@ -274,16 +243,12 @@ onUnmounted(() => {
       </div>
     </div>
 
-    <UModal v-model:open="showHelp" title="How Dice works" :ui="{ width: 'max-w-sm' }">
-      <template #body>
-        <ul class="text-sm text-muted space-y-2 list-disc list-inside">
-          <li>A random number between 0 and 100 is rolled.</li>
-          <li>You win if the result is <strong class="text-default">below your win chance</strong>.</li>
-          <li>Lower win chance → higher multiplier.</li>
-          <li>Multiplier = 98 ÷ win chance.</li>
-        </ul>
-      </template>
-    </UModal>
+    <GameHelpModal v-model:open="showHelp" title="How Dice works">
+      <li>A random number between 0 and 100 is rolled.</li>
+      <li>You win if the result is <strong class="text-default">below your win chance</strong>.</li>
+      <li>Lower win chance → higher multiplier.</li>
+      <li>Multiplier = 98 ÷ win chance.</li>
+    </GameHelpModal>
   </div>
 </template>
 

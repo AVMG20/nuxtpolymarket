@@ -1,3 +1,4 @@
+import { randomFloat } from '../random'
 import { SPEED_REDUCTION_PER_LEVEL, MAX_SPEED_REDUCTION } from './tiers'
 
 export interface PlantType {
@@ -367,7 +368,7 @@ export function effectiveGrowTime(plant: PlantType | { baseTime: number; speed: 
 
 /** Roll harvest yield: always 1 + random(0..plantYield) */
 export function rollYield(plantYield: number): number {
-  return 1 + Math.floor(Math.random() * (plantYield + 1))
+  return 1 + Math.floor(randomFloat() * (plantYield + 1))
 }
 
 /** Breed duration = max(baseTime(p1), baseTime(p2)) × 2 — speed does not affect breeding */

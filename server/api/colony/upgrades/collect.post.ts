@@ -1,14 +1,12 @@
 import { eq, and } from 'drizzle-orm'
 import { db } from '#server/database'
 import { colonyState, colonyUpgrades } from '#server/database/schema'
-import { auth } from '#server/utils/auth'
+import { requireUserId } from '#server/utils/auth'
 import { settleColony, getUpgradeLevels } from '#server/utils/colony'
 import { getUpgradeTrack, trackLevelDurationMs, habitatLevelUpDurationMs, HABITAT_BUILDER_JOB_ID, MAX_TIER } from '#shared/utils/colony'
 
 export default defineEventHandler(async (event) => {
-  const session = await auth.api.getSession({ headers: event.headers })
-  if (!session?.user?.id) throw createError({ statusCode: 401, statusMessage: 'Unauthorized' })
-  const userId = session.user.id
+  const userId = await requireUserId(event)
 
   const state = await settleColony(userId)
   if (!state.builderTrackId || !state.builderStartedAt) {

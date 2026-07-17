@@ -1,7 +1,7 @@
 import { sql, eq, gte, and, isNull, desc } from 'drizzle-orm'
 import { db } from '#server/database'
 import { transactions } from '#server/database/schema'
-import { auth } from '#server/utils/auth'
+import { requireUserId } from '#server/utils/auth'
 
 // The category list and the daily bars display null-category rows under the
 // label "general", so the client sends that sentinel back when filtering by
@@ -12,12 +12,8 @@ const GENERAL = 'general'
 const RECENT_LIMIT = 100
 
 export default defineEventHandler(async (event) => {
-    const session = await auth.api.getSession({ headers: event.headers })
-    if (!session?.user?.id) {
-        throw createError({ statusCode: 401, statusMessage: 'Unauthorized' })
-    }
+    const userId = await requireUserId(event)
 
-    const userId = session.user.id
     const category = getQuery(event).category as string | undefined
 
     const todayStart = new Date()

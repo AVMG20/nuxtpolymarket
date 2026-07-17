@@ -1,3 +1,5 @@
+import { randomFloat } from '../random'
+
 export interface DiceResult {
   roll: number       // 0.00–99.99
   won: boolean
@@ -14,9 +16,7 @@ export function playDice(bet: number, options?: Record<string, unknown>): DiceRe
     throw createError({ statusCode: 400, message: 'Win chance must be between 2 and 96' })
   }
 
-  const arr = new Uint32Array(1)
-  crypto.getRandomValues(arr)
-  const roll = Math.floor((arr[0]! / 0xFFFFFFFF) * 10000) / 100  // 0.00–99.99
+  const roll = Math.floor(randomFloat() * 10000) / 100  // 0.00–99.99
 
   const multiplier = 98 / winChance
   const won = roll < winChance
