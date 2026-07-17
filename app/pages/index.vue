@@ -94,6 +94,25 @@ const casinoGames = [
   }
 ]
 
+const arcadeGames = [
+  {
+    name: 'SHAPEZZ',
+    description: 'Endless platform-shooter mayhem with stackable mutations and 45-second cash-outs',
+    icon: 'i-lucide-shapes',
+    to: '/shapezz',
+    gradient: 'from-cyan-950 via-violet-950 to-slate-950',
+    iconColor: 'text-cyan-300'
+  },
+  {
+    name: 'Pirate Raid',
+    description: 'Build a warship, choose a difficulty and survive a six-minute ocean raid',
+    icon: 'i-lucide-anchor',
+    to: '/pirates',
+    gradient: 'from-sky-950 to-slate-900',
+    iconColor: 'text-sky-300'
+  }
+]
+
 const filteredSlots = computed(() =>
   search.value
     ? slotGames.filter(g => g.name.toLowerCase().includes(search.value.toLowerCase()))
@@ -104,6 +123,12 @@ const filteredCasino = computed(() =>
   search.value
     ? casinoGames.filter(g => g.name.toLowerCase().includes(search.value.toLowerCase()))
     : casinoGames
+)
+
+const filteredArcade = computed(() =>
+  search.value
+    ? arcadeGames.filter(g => g.name.toLowerCase().includes(search.value.toLowerCase()))
+    : arcadeGames
 )
 </script>
 
@@ -168,6 +193,40 @@ const filteredCasino = computed(() =>
       </div>
     </section>
 
+    <!-- Arcade games section -->
+    <section
+      v-if="filteredArcade.length"
+      class="mb-10"
+    >
+      <div class="flex items-center gap-3 mb-4">
+        <div class="w-1 h-5 rounded-full bg-primary" />
+        <h2 class="text-base font-bold">
+          Arcade
+        </h2>
+      </div>
+      <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+        <NuxtLink
+          v-for="game in filteredArcade"
+          :key="game.name"
+          :to="game.to"
+          class="group rounded-xl overflow-hidden border border-default bg-elevated hover:border-primary/50 hover:shadow-lg hover:shadow-primary/5 transition-all duration-200"
+        >
+          <div :class="`relative aspect-video bg-gradient-to-br ${game.gradient} flex items-center justify-center overflow-hidden`">
+            <UIcon :name="game.icon" :class="`size-10 ${game.iconColor} opacity-30 group-hover:opacity-60 group-hover:scale-110 transition-all duration-300`" />
+          </div>
+          <div class="p-3 flex items-start gap-2.5">
+            <div class="size-7 rounded-md bg-background flex items-center justify-center shrink-0 mt-0.5">
+              <UIcon :name="game.icon" class="size-3.5 text-muted" />
+            </div>
+            <div class="min-w-0">
+              <p class="text-sm font-bold leading-tight">{{ game.name }}</p>
+              <p class="text-xs text-muted mt-0.5 line-clamp-2 leading-relaxed">{{ game.description }}</p>
+            </div>
+          </div>
+        </NuxtLink>
+      </div>
+    </section>
+
     <!-- Casino games section -->
     <section v-if="filteredCasino.length">
       <div class="flex items-center gap-3 mb-4">
@@ -207,7 +266,7 @@ const filteredCasino = computed(() =>
 
     <!-- Empty state -->
     <UEmpty
-      v-if="search && !filteredSlots.length && !filteredCasino.length"
+      v-if="search && !filteredSlots.length && !filteredArcade.length && !filteredCasino.length"
       :description="`No games found for '${search}'`"
       icon="i-lucide-search"
     />

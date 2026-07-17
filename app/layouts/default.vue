@@ -23,6 +23,7 @@ async function signOut() {
 const platformItems: NavigationMenuItem[] = [
   { label: 'Games', class: 'mb-1', icon: 'i-lucide-house', to: '/' },
   { label: 'Pirate Raid', class: 'mb-1', icon: 'i-lucide-anchor', to: '/pirates' },
+  { label: 'SHAPEZZ', class: 'mb-1', icon: 'i-lucide-shapes', to: '/shapezz' },
   { label: 'AI Assistant', class: 'mb-1', icon: 'i-lucide-bot', to: '/ai' },
   { label: 'Gem Market', class: 'mb-1', icon: 'i-lucide-gem', to: '/gem-market' },
   { label: 'Bank', class: 'mb-1', icon: 'i-lucide-landmark', to: '/bank' },

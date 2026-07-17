@@ -187,6 +187,30 @@ export const pirateRunHistory = pgTable('pirate_run_history', {
   index('pirate_run_history_userId_createdAt_idx').on(t.userId, t.createdAt)
 ])
 
+// ─── SHAPEZZ ─────────────────────────────────────────────────────────────
+
+export const shapezzState = pgTable('shapezz_state', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().unique().references(() => user.id, { onDelete: 'cascade' }),
+  coreLevel: integer('core_level').notNull().default(0),
+  overclockLevel: integer('overclock_level').notNull().default(0),
+  armorLevel: integer('armor_level').notNull().default(0),
+  thrustersLevel: integer('thrusters_level').notNull().default(0),
+  magnetLevel: integer('magnet_level').notNull().default(0),
+  killHealLevel: integer('kill_heal_level').notNull().default(0),
+  weaponType: text('weapon_type').notNull().default('blaster'),
+  weaponRarity: text('weapon_rarity').notNull().default('common'),
+  weaponPurchasePrice: integer('weapon_purchase_price').notNull().default(0),
+  runsPlayed: integer('runs_played').notNull().default(0),
+  totalCoinsEarned: integer('total_coins_earned').notNull().default(0),
+  bestSurvivalMs: integer('best_survival_ms').notNull().default(0),
+  bestKills: integer('best_kills').notNull().default(0),
+  bestCheckpoint: integer('best_checkpoint').notNull().default(0),
+  runStartedAt: timestamp('run_started_at'),
+  runDifficultySnapshot: text('run_difficulty_snapshot'),
+  runPowerSnapshot: integer('run_power_snapshot')
+})
+
 export const gemMarketState = pgTable('gem_market_state', {
   id: text('id').primaryKey(), // always 'market'
   price: numeric('price', { precision: 19, scale: 8 }).notNull(),
@@ -578,7 +602,8 @@ export const userRelations = relations(user, ({ many, one }) => ({
   minerState: one(minerState),
   pirateState: one(pirateState),
   pirateCannons: many(pirateCannons),
-  pirateRunHistory: many(pirateRunHistory)
+  pirateRunHistory: many(pirateRunHistory),
+  shapezzState: one(shapezzState)
 }))
 
 export const minerStateRelations = relations(minerState, ({ one }) => ({
@@ -595,6 +620,10 @@ export const pirateCannonsRelations = relations(pirateCannons, ({ one }) => ({
 
 export const pirateRunHistoryRelations = relations(pirateRunHistory, ({ one }) => ({
   user: one(user, { fields: [pirateRunHistory.userId], references: [user.id] })
+}))
+
+export const shapezzStateRelations = relations(shapezzState, ({ one }) => ({
+  user: one(user, { fields: [shapezzState.userId], references: [user.id] })
 }))
 
 export const gemPriceHistoryRelations = relations(gemPriceHistory, ({ one }) => ({
