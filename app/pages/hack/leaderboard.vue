@@ -2,10 +2,8 @@
 const { data: players, pending } = await useFetch('/api/hack/leaderboard')
 
 const rankAccent = ['text-yellow-400', 'text-slate-300', 'text-amber-600']
-const rankCircleBg = ['bg-yellow-400', 'bg-slate-300', 'bg-amber-600']
+const rankRing = ['ring-yellow-400', 'ring-slate-300', 'ring-amber-600']
 const rankLabel = ['#1 MOST WANTED', '#2 MOST WANTED', '#3 MOST WANTED']
-
-const initial = (name: string) => name.charAt(0).toUpperCase()
 </script>
 
 <template>
@@ -43,11 +41,13 @@ const initial = (name: string) => name.charAt(0).toUpperCase()
           >
             #2
           </p>
-          <div
-            class="size-20 mx-auto my-3 rounded-full flex items-center justify-center"
-            :class="rankCircleBg[1]"
-          >
-            <span class="text-3xl font-bold text-black">{{ initial(players[1].name) }}</span>
+          <div class="my-3 flex justify-center">
+            <ProfileEmblem
+              :emblem="players[1].emblem"
+              :name="players[1].name"
+              class="size-20 ring-4"
+              :class="rankRing[1]"
+            />
           </div>
           <p class="font-bold text-xl truncate">
             {{ players[1].name }}
@@ -88,11 +88,13 @@ const initial = (name: string) => name.charAt(0).toUpperCase()
           >
             #1
           </p>
-          <div
-            class="size-24 mx-auto my-3 rounded-full flex items-center justify-center"
-            :class="rankCircleBg[0]"
-          >
-            <span class="text-4xl font-bold text-black">{{ initial(players[0].name) }}</span>
+          <div class="my-3 flex justify-center">
+            <ProfileEmblem
+              :emblem="players[0].emblem"
+              :name="players[0].name"
+              class="size-24 ring-4"
+              :class="rankRing[0]"
+            />
           </div>
           <p class="font-bold text-2xl truncate">
             {{ players[0].name }}
@@ -136,11 +138,13 @@ const initial = (name: string) => name.charAt(0).toUpperCase()
           >
             #3
           </p>
-          <div
-            class="size-20 mx-auto my-3 rounded-full flex items-center justify-center"
-            :class="rankCircleBg[2]"
-          >
-            <span class="text-3xl font-bold text-black">{{ initial(players[2].name) }}</span>
+          <div class="my-3 flex justify-center">
+            <ProfileEmblem
+              :emblem="players[2].emblem"
+              :name="players[2].name"
+              class="size-20 ring-4"
+              :class="rankRing[2]"
+            />
           </div>
           <p class="font-bold text-xl truncate">
             {{ players[2].name }}
@@ -181,6 +185,12 @@ const initial = (name: string) => name.charAt(0).toUpperCase()
             :class="p.isCurrentUser ? 'bg-primary/10' : ''"
           >
             <span class="w-7 text-center text-muted font-mono text-sm shrink-0">{{ i + 4 }}</span>
+
+            <ProfileEmblem
+              :emblem="p.emblem"
+              :name="p.name"
+              class="size-9 text-sm"
+            />
 
             <div class="min-w-0 flex-1">
               <p class="font-semibold text-base truncate">

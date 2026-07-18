@@ -19,7 +19,7 @@ export default defineEventHandler(async (event) => {
   const userIds = states.map(s => s.userId)
 
   const [users, agents, items] = await Promise.all([
-    db.select({ id: user.id, name: user.name }).from(user).where(inArray(user.id, userIds)),
+    db.select({ id: user.id, name: user.name, emblem: user.emblem }).from(user).where(inArray(user.id, userIds)),
     db.query.hackAgents.findMany({ where: inArray(hackAgents.userId, userIds) }),
     db.query.hackItems.findMany({ where: inArray(hackItems.userId, userIds) }),
   ])
@@ -44,6 +44,7 @@ export default defineEventHandler(async (event) => {
       return {
         isCurrentUser: state.userId === sessionUserId,
         name: u.name,
+        emblem: u.emblem,
         totalPower,
         agentCount: activeAgents.length,
         itemCount: userItems.length,
