@@ -46,6 +46,11 @@ function gemLabel(chance: number, count: [number, number]) {
   const countLabel = count[0] === count[1] ? `${count[0]}` : `${count[0]} – ${count[1]}`
   return `${Math.round(chance * 100)}% chance · ${countLabel} gem${count[1] > 1 ? 's' : ''}`
 }
+function gemAmountLabel(count: [number, number], bonus: number) {
+  const lo = count[0] + bonus
+  const hi = count[1] + bonus
+  return lo === hi ? String(lo) : `${lo} – ${hi}`
+}
 
 const selectedAgentIds = ref<string[]>([])
 const dispatching = ref(false)
@@ -327,10 +332,16 @@ const thumbFailed = ref(false)
                 </div>
                 <div>
                   <p class="hack-eyebrow">
-                    Gem chance
+                    Gems
                   </p>
-                  <p class="hack-stat-value-lg text-cyan-400 mt-1">
-                    {{ Math.round(modalStats.gemChance * 100) }}%
+                  <p class="hack-stat-value-lg text-cyan-400 mt-1 tabular-nums">
+                    <template v-if="template.baseGemChance > 0">
+                      {{ gemAmountLabel(template.baseGemCount, modalStats.gemBonus) }}
+                      <span class="text-cyan-400/60 text-xs font-normal">({{ Math.round(modalStats.gemChance * 100) }}%)</span>
+                    </template>
+                    <template v-else>
+                      None
+                    </template>
                   </p>
                 </div>
               </div>
