@@ -141,6 +141,24 @@ async function collect(op: { id: string, templateId: string }) {
   }
 }
 
+// Cancel a running op — inline confirm (no modal), then abort. Dispatch is free so
+// there's no refund; the op is dropped and its agents free up.
+const confirmingCancel = ref<string | null>(null)
+const cancelling = ref<string | null>(null)
+async function cancelOp(op: { id: string }) {
+  cancelling.value = op.id
+  try {
+    await $fetch('/api/hack/ops/cancel', { method: 'POST', body: { opId: op.id } })
+    confirmingCancel.value = null
+    await refresh()
+  } catch (e: any) {
+    audio.playSfx('deny')
+    toast.add({ title: apiErrorMessage(e, 'Cancel failed'), color: 'error' })
+  } finally {
+    cancelling.value = null
+  }
+}
+
 // Helpers
 function agentById(id: string) {
   return state.value?.agents.find(a => a.id === id)
@@ -321,6 +339,42 @@ const thumbFailed = ref<Record<string, boolean>>({})
             >
               {{ isDone(op) ? '100%' : `${progressPct(op)}%` }}
             </span>
+          </div>
+
+          <div
+            v-if="!isDone(op)"
+            class="mt-3 flex items-center justify-end gap-2"
+          >
+            <template v-if="confirmingCancel === op.id">
+              <span class="text-xs text-muted mr-auto">
+                Are you sure you want to cancel the operation?
+              </span>
+              <UButton
+                size="xs"
+                color="neutral"
+                variant="ghost"
+                label="No"
+                :disabled="cancelling === op.id"
+                @click="confirmingCancel = null"
+              />
+              <UButton
+                size="xs"
+                color="error"
+                variant="soft"
+                label="Yes, cancel"
+                :loading="cancelling === op.id"
+                @click="cancelOp(op)"
+              />
+            </template>
+            <UButton
+              v-else
+              size="xs"
+              color="neutral"
+              variant="ghost"
+              icon="i-lucide-x"
+              label="Cancel op"
+              @click="confirmingCancel = op.id"
+            />
           </div>
         </HackFrame>
       </div>
