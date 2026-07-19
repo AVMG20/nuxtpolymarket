@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { formatDistanceToNow } from 'date-fns'
-import type { EmblemData } from '#shared/utils/emblem'
+import { emptyEmblem, parseEmblem, type EmblemData } from '#shared/utils/emblem'
 
 interface EmblemHistoryEntry {
   id: string
@@ -16,6 +16,44 @@ const { data: history, pending: historyPending, refresh: refreshHistory } = awai
 
 const draftEmblem = ref<string | null>(null)
 const sharedByName = ref<string | null>(null)
+const restoredDraft = ref(false)
+
+function draftKey() {
+  return user.value?.id ? `polynux:emblem-draft:${user.value.id}` : null
+}
+
+function persistDraft(serialized: string | null) {
+  const key = draftKey()
+  if (!key || !import.meta.client) return
+  if (serialized) localStorage.setItem(key, serialized)
+  else localStorage.removeItem(key)
+}
+
+function onEmblemChange(value: EmblemData) {
+  const serialized = JSON.stringify(value)
+  draftEmblem.value = serialized
+  persistDraft(serialized)
+}
+
+function discardDraft() {
+  persistDraft(null)
+  restoredDraft.value = false
+  draftEmblem.value = user.value?.emblem ?? JSON.stringify(emptyEmblem())
+}
+
+onMounted(() => {
+  if (draftEmblem.value) return
+  const key = draftKey()
+  if (!key) return
+  const stored = localStorage.getItem(key)
+  if (!stored) return
+  if (stored === user.value?.emblem || !parseEmblem(stored)) {
+    persistDraft(null)
+    return
+  }
+  draftEmblem.value = stored
+  restoredDraft.value = true
+})
 
 const shareId = route.query.share
 if (typeof shareId === 'string' && shareId) {
@@ -35,8 +73,10 @@ async function saveEmblem(emblem: EmblemData) {
     await $fetch('/api/user/emblem', { method: 'PUT', body: { emblem } })
     await fetchSession()
     await refreshHistory()
+    persistDraft(null)
     draftEmblem.value = null
     sharedByName.value = null
+    restoredDraft.value = false
     toast.add({ title: 'Emblem saved', description: 'Your new icon is now visible across Polynux.', color: 'success', icon: 'i-lucide-check' })
   } catch (e: unknown) {
     toast.add({ title: apiErrorMessage(e, 'Failed to save emblem'), color: 'error' })
@@ -101,8 +141,23 @@ async function handleSignOut() {
       description="Click Save below to make it yours."
     />
 
+    <UAlert
+      v-if="restoredDraft"
+      color="info"
+      variant="soft"
+      icon="i-lucide-history"
+      title="Unsaved draft restored"
+      description="We brought back the emblem you were working on. Save it to keep it, or discard it to go back to your saved emblem."
+      :actions="[{ label: 'Discard draft', color: 'neutral', variant: 'outline', onClick: () => discardDraft() }]"
+    />
+
     <UCard>
-      <ProfileEmblemEditor :loading="emblemLoading" :model-value="draftEmblem ?? user?.emblem" @save="saveEmblem" />
+      <ProfileEmblemEditor
+        :loading="emblemLoading"
+        :model-value="draftEmblem ?? user?.emblem"
+        @save="saveEmblem"
+        @update:model-value="onEmblemChange"
+      />
     </UCard>
 
     <UCard>
