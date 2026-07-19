@@ -37,6 +37,7 @@ export default defineEventHandler(async (event) => {
         userId: hackAgents.userId,
         level: hackAgents.level,
         class: hackAgents.class,
+        rarity: hackAgents.rarity,
         equippedTool: hackAgents.equippedTool,
         equippedSoftware: hackAgents.equippedSoftware,
         equippedHardware: hackAgents.equippedHardware,

@@ -143,7 +143,7 @@ describe('itemPower', () => {
 describe('agentPower', () => {
     it('sums level, class power, gear and flat traits', () => {
         const power = agentPower(
-            { level: 10, class: 'bruteforce' }, // base 100 + 15 class passive = 115
+            { level: 10, class: 'bruteforce', rarity: 'phantom' }, // base 100 + 15 class passive = 115
             [{ itemLevel: 5, mods: [{ type: 'power_flat', value: 10 }] }], // +10 level power +10 mod = 20
             [{ type: 'power_flat', value: 5 }] // +5
         )
@@ -152,11 +152,21 @@ describe('agentPower', () => {
 
     it('applies power_percent traits as a multiplier on the flat total', () => {
         const power = agentPower(
-            { level: 10, class: 'infiltrator' }, // base 100, no class power
+            { level: 10, class: 'infiltrator', rarity: 'phantom' }, // base 100, no class power
             [],
             [{ type: 'power_percent', value: 20 }]
         )
         expect(power).toBe(120)
+    })
+
+    it('clamps the total to the rarity power cap', () => {
+        // base 200 + 20 gear = 220 raw, but a Ghost is capped at 200
+        const power = agentPower(
+            { level: 20, class: 'infiltrator', rarity: 'ghost' },
+            [{ itemLevel: 10, mods: [] }],
+            []
+        )
+        expect(power).toBe(200)
     })
 })
 

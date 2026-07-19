@@ -5,7 +5,7 @@ import { requireUserId } from '#server/utils/auth'
 import { credit, creditGems } from '#server/utils/balance'
 import {
   OP_TEMPLATES, rollOpReward, agentXpGain, agentPower, xpToNextLevel, AGENT_MAX_LEVEL, MAX_INVENTORY_SLOTS,
-  type AgentClass, type ItemMod, type AgentTrait, type OpReward,
+  type AgentClass, type ItemMod, type AgentTrait, type OpReward, type HackRarity,
 } from '#shared/utils/hack-config'
 
 export default defineEventHandler(async (event) => {
@@ -51,12 +51,13 @@ export default defineEventHandler(async (event) => {
       return {
         level: agent.level,
         class: agent.class as AgentClass,
+        rarity: agent.rarity as HackRarity,
         traits: (agent.traits ?? []) as AgentTrait[],
         items: equippedItems.filter(i => agentItemIds.includes(i.id)).map(i => ({ itemLevel: i.itemLevel, mods: i.mods as ItemMod[] })),
       }
     })
     const totalPower = rewardAgents.reduce((sum, a) =>
-      sum + agentPower({ level: a.level, class: a.class }, a.items, a.traits), 0)
+      sum + agentPower({ level: a.level, class: a.class, rarity: a.rarity }, a.items, a.traits), 0)
 
     // Dev-only: seed-hack-ops.ts inserts uncollected ops that already carry a
     // forced `reward` (a real op only gets `reward` set once it's collected, so a

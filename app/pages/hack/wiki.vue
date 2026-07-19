@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {
-  RARITY_COLOR, RARITY_LABEL, RARITY_MOD_COUNT, AGENT_TRAIT_COUNT,
+  RARITY_COLOR, RARITY_LABEL, RARITY_MOD_COUNT, RARITY_POWER_CAP, AGENT_TRAIT_COUNT,
   AGENT_TRAIT_LABEL, AGENT_TRAIT_RANGES, MOD_LABEL, MOD_RANGES, CLASS_LABEL, CLASS_PASSIVE,
   CLASS_COLOR, CLASS_ICON, RARITY_ORDER, ARTIFACT_VALUE, formatArtifactAdd,
   type HackRarity, type AgentTraitType, type ModType, type AgentClass,
@@ -45,7 +45,7 @@ function fmtArtifactRange(type: AgentTraitType): string {
             <li>Power specs add up to +28 per item on top</li>
             <li>Bruteforce class adds +15 power passively</li>
             <li>Flat Power adds up to +60; Power % multiplies the whole total by up to +30%</li>
-            <li><strong>A single agent caps at 611 power</strong> (level 20, perfect gear &amp; traits) — so a 4-agent squad maxes at <strong>2,444</strong>, exactly what the final op demands</li>
+            <li><strong>Each agent's power is hard-capped by its rarity</strong> — Ghost 200, Operative 300, Specialist 400, Elite 500, Phantom 600 — no matter how it's leveled or geared. A 4-agent squad therefore tops out at <strong>2,400</strong> (four Phantoms), so the toughest ops genuinely require higher-rarity agents, not just a lucky roll on a cheap one</li>
           </ul>
         </div>
         <div class="mt-4 p-3 rounded-lg bg-primary/10 border border-primary/20 text-sm">
@@ -89,13 +89,14 @@ function fmtArtifactRange(type: AgentTraitType): string {
         <UIcon name="i-lucide-gem" class="size-5 text-primary" /> Rarity System
       </h2>
       <UCard>
-        <p class="text-sm text-muted mb-3">Both agents and items share the same 5-tier rarity. Higher rarity = more stats.</p>
+        <p class="text-sm text-muted mb-3">Both agents and items share the same 5-tier rarity. Higher rarity = more stats — and, for agents, a higher <strong>power cap</strong> that gates which ops they can run.</p>
         <div class="space-y-2">
           <div v-for="r in RARITY_ORDER" :key="r" class="flex items-center gap-3 p-3 rounded-lg bg-elevated">
             <UBadge :color="RARITY_COLOR[r]" variant="subtle" :label="RARITY_LABEL[r]" class="w-24 justify-center shrink-0" />
-            <div class="flex-1 grid grid-cols-2 gap-x-4 text-sm">
+            <div class="flex-1 grid grid-cols-3 gap-x-4 text-sm">
               <span class="text-muted">Agent traits: <strong>{{ AGENT_TRAIT_COUNT[r] }}</strong></span>
               <span class="text-muted">Item mods: <strong>{{ RARITY_MOD_COUNT[r] }}</strong></span>
+              <span class="text-muted">Power cap: <strong>{{ RARITY_POWER_CAP[r] }}</strong></span>
             </div>
           </div>
         </div>

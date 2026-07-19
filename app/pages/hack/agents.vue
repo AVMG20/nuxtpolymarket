@@ -3,13 +3,17 @@ import {
   RARITY_COLOR, RARITY_LABEL, RARITY_STYLE, RARITY_ACCENT, RARITY_ORDER, CLASS_LABEL, CLASS_ICON, CLASS_PASSIVE,
   SLOT_ICON, SLOT_LABEL,
   xpToNextLevel, AGENT_MAX_LEVEL, MOD_LABEL, MOD_RANGES, formatModValue, rollPct,
-  agentBonusStats, sortModsByPriority, itemPower,
+  agentBonusStats, sortModsByPriority, itemPower, RARITY_POWER_CAP,
   type HackRarity, type AgentClass, type ItemSlot, type ItemMod
 } from '#shared/utils/hack-config'
 import { AGENT_ACTIVATE, AGENT_DEACTIVATE, AGENT_FIRED, ROSTER_EXPAND, pickVoiceLine, type VoiceEntry } from '~/utils/hack-voice-lines'
 import type { VoiceHandle } from '~/composables/useAudio'
 
 const agentCombinedStats = (agent: any) => agentBonusStats([agent])
+// Per-rarity power ceiling — an agent's power can't climb past it, so higher rarity is
+// required for the tougher ops. Shown next to power so the cap is never a surprise.
+const agentCap = (agent: any) => RARITY_POWER_CAP[agent.rarity as HackRarity]
+const atPowerCap = (agent: any) => agent.power >= agentCap(agent)
 
 const { fetchSession, user } = useAuth()
 const balance = computed(() => parseFloat(user.value?.balance ?? '0'))
@@ -229,7 +233,7 @@ const sortedStoredAgents = computed(() => {
                       Power Total
                     </p>
                     <p class="text-xl font-bold text-primary">
-                      {{ agent.power }}
+                      {{ agent.power }}<span class="text-sm font-normal text-muted"> / {{ agentCap(agent) }}</span>
                     </p>
                   </div>
                 </div>
@@ -366,7 +370,7 @@ const sortedStoredAgents = computed(() => {
 
             <!-- Footer: power + actions -->
             <div class="flex items-center justify-between gap-2 flex-wrap">
-              <span class="font-mono text-lg font-bold text-primary">PWR {{ agent.power }}</span>
+              <span class="font-mono text-lg font-bold text-primary">PWR {{ agent.power }}<span class="text-sm font-normal text-muted">/{{ agentCap(agent) }}</span></span>
               <div class="flex items-center gap-1">
                 <UButton
                   size="xs"
@@ -478,7 +482,7 @@ const sortedStoredAgents = computed(() => {
                     />
                   </div>
                   <p class="text-[11px] text-muted font-mono mt-0.5">
-                    {{ CLASS_LABEL[agent.class as AgentClass] }} · Lv {{ agent.level }} · PWR {{ agent.power }}
+                    {{ CLASS_LABEL[agent.class as AgentClass] }} · Lv {{ agent.level }} · PWR {{ agent.power }}/{{ agentCap(agent) }}
                   </p>
                 </div>
                 <UButton
@@ -555,7 +559,10 @@ const sortedStoredAgents = computed(() => {
               Power
             </p>
             <p class="text-2xl font-bold text-primary">
-              {{ detailAgent.power }}
+              {{ detailAgent.power }}<span class="text-base font-normal text-muted"> / {{ agentCap(detailAgent) }}</span>
+            </p>
+            <p v-if="atPowerCap(detailAgent)" class="text-xs text-warning font-medium">
+              {{ RARITY_LABEL[detailAgent.rarity as HackRarity] }} power cap reached
             </p>
           </div>
         </div>

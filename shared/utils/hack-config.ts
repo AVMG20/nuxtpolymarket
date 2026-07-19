@@ -26,10 +26,13 @@ export interface OpTemplate {
   itemDropChance: number; itemDropRarity: HackRarity
 }
 
-// Cash rewards follow a geometric ladder (~1.59× per op) from ~850 avg up to a
-// ~3.6M average (max ~5M) on the final op — comparable to the miner's endgame
-// income, but gated behind longer durations, power requirements and failure risk
-// so it stays the slower of the three money sources. Every op is always shown; you
+// Cash rewards follow a geometric ladder from ~850 avg up to ~5M average (max 7M)
+// on the final op. The endgame tiers (Central Bank and up) are deliberately steepened
+// so reward-per-hour keeps climbing with the power you invest — the earlier flat top,
+// where tripling squad power for the last ops bought almost no extra income, is gone.
+// XP scales the same way: a top op is worth several mid ops, so hard ops actually level
+// your deck. Ops stay gated behind longer durations, power requirements and failure risk
+// so this remains the slower, higher-ceiling money source. Every op is always shown; you
 // just need ≥1% success (see MIN_DEPLOY_SUCCESS) to deploy. Reward is the op base ×
 // a modest level/loot bonus — no hidden multipliers, so the listed range is honest.
 export const OP_TEMPLATES: OpTemplate[] = [
@@ -47,19 +50,19 @@ export const OP_TEMPLATES: OpTemplate[] = [
   { id: 'dark_web',         name: 'Dark Web Contract',      description: 'Anonymous contract from the underground market.', flavor: 'Deliver compromised creds to a Tor dead drop.', icon: 'i-lucide-shield-alert',    minAgents: 1, maxAgents: 2, durationMs:  7 * 60 * 60 * 1000, minPower: 50,    baseCash: [7_400,     17_000],    baseXP: 35,  baseGemChance: 0.05, baseGemCount: [1, 1],   itemDropChance: 0.18, itemDropRarity: 'operative' },
   { id: 'crypto_heist',     name: 'Crypto Heist',           description: 'Drain a hot wallet from an unprotected exchange.', flavor: 'Exploit a race condition in a DEX smart contract.', icon: 'i-lucide-bitcoin',         minAgents: 1, maxAgents: 2, durationMs:  7 * 60 * 60 * 1000, minPower: 70,    baseCash: [11_700,    27_000],    baseXP: 36,  baseGemChance: 0.04, baseGemCount: [1, 1],   itemDropChance: 0.16, itemDropRarity: 'operative' },
   // ── Tier 3: Mid (-20%) ────────────────────────────────────────────────────────
-  { id: 'telecom_tap',      name: 'Telecom Tap',            description: "Tap a national carrier's backbone for intel.", flavor: 'Splice into fibre routing between two major exchanges.', icon: 'i-lucide-radio-tower',     minAgents: 2, maxAgents: 2, durationMs:  9 * 60 * 60 * 1000, minPower: 95,    baseCash: [17_000,    39_000],    baseXP: 42,  baseGemChance: 0.08, baseGemCount: [1, 1],   itemDropChance: 0.20, itemDropRarity: 'operative' },
-  { id: 'supply_chain',     name: 'Supply Chain Inject',    description: 'Inject a backdoor into a popular software package.', flavor: 'Compromise the CI/CD pipeline of a major npm package.', icon: 'i-lucide-package-2',       minAgents: 2, maxAgents: 2, durationMs: 10 * 60 * 60 * 1000, minPower: 130,   baseCash: [26_000,    62_000],    baseXP: 44,  baseGemChance: 0.10, baseGemCount: [1, 1],   itemDropChance: 0.20, itemDropRarity: 'operative' },
-  { id: 'mil_intel',        name: 'Military Intel Leak',    description: 'Exfiltrate classified comms from a military contractor.', flavor: 'Extract procurement docs from a defense subcontractor.', icon: 'i-lucide-crosshair',       minAgents: 2, maxAgents: 3, durationMs: 11 * 60 * 60 * 1000, minPower: 180,   baseCash: [42_000,    98_000],    baseXP: 47,  baseGemChance: 0.12, baseGemCount: [1, 1],   itemDropChance: 0.22, itemDropRarity: 'operative' },
-  { id: 'gov_heist',        name: 'Government Heist',       description: 'High-risk exfiltration from a classified federal network.', flavor: 'Exfiltrate documents from a government server farm.', icon: 'i-lucide-shield',          minAgents: 2, maxAgents: 3, durationMs: 12 * 60 * 60 * 1000, minPower: 250,   baseCash: [67_000,    157_000],   baseXP: 50,  baseGemChance: 0.15, baseGemCount: [1, 1],   itemDropChance: 0.24, itemDropRarity: 'operative' },
+  { id: 'telecom_tap',      name: 'Telecom Tap',            description: "Tap a national carrier's backbone for intel.", flavor: 'Splice into fibre routing between two major exchanges.', icon: 'i-lucide-radio-tower',     minAgents: 2, maxAgents: 2, durationMs:  9 * 60 * 60 * 1000, minPower: 95,    baseCash: [17_000,    39_000],    baseXP: 55,  baseGemChance: 0.08, baseGemCount: [1, 1],   itemDropChance: 0.20, itemDropRarity: 'operative' },
+  { id: 'supply_chain',     name: 'Supply Chain Inject',    description: 'Inject a backdoor into a popular software package.', flavor: 'Compromise the CI/CD pipeline of a major npm package.', icon: 'i-lucide-package-2',       minAgents: 2, maxAgents: 2, durationMs: 10 * 60 * 60 * 1000, minPower: 130,   baseCash: [26_000,    62_000],    baseXP: 65,  baseGemChance: 0.10, baseGemCount: [1, 1],   itemDropChance: 0.20, itemDropRarity: 'operative' },
+  { id: 'mil_intel',        name: 'Military Intel Leak',    description: 'Exfiltrate classified comms from a military contractor.', flavor: 'Extract procurement docs from a defense subcontractor.', icon: 'i-lucide-crosshair',       minAgents: 2, maxAgents: 3, durationMs: 11 * 60 * 60 * 1000, minPower: 180,   baseCash: [42_000,    98_000],    baseXP: 80,  baseGemChance: 0.12, baseGemCount: [1, 1],   itemDropChance: 0.22, itemDropRarity: 'operative' },
+  { id: 'gov_heist',        name: 'Government Heist',       description: 'High-risk exfiltration from a classified federal network.', flavor: 'Exfiltrate documents from a government server farm.', icon: 'i-lucide-shield',          minAgents: 2, maxAgents: 3, durationMs: 12 * 60 * 60 * 1000, minPower: 250,   baseCash: [67_000,    157_000],   baseXP: 95,  baseGemChance: 0.15, baseGemCount: [1, 1],   itemDropChance: 0.24, itemDropRarity: 'operative' },
   // ── Tier 4: Late mid (-30%) ─────────────────────────────────────────────────────
-  { id: 'ai_theft',         name: 'AI Model Theft',         description: 'Steal proprietary model weights from a tech giant.', flavor: 'Exfiltrate 200GB of trained weights from a cloud storage bucket.', icon: 'i-lucide-brain',           minAgents: 2, maxAgents: 3, durationMs: 14 * 60 * 60 * 1000, minPower: 340,   baseCash: [93_000,    218_000],   baseXP: 56,  baseGemChance: 0.18, baseGemCount: [1, 2],   itemDropChance: 0.26, itemDropRarity: 'specialist' },
-  { id: 'central_bank',     name: 'Central Bank Tap',       description: 'Intercept SWIFT messages from a central bank.', flavor: 'Eavesdrop on interbank settlements for 10 hours.', icon: 'i-lucide-coins',           minAgents: 2, maxAgents: 3, durationMs: 15 * 60 * 60 * 1000, minPower: 470,   baseCash: [148_000,   346_000],   baseXP: 58,  baseGemChance: 0.20, baseGemCount: [1, 2],   itemDropChance: 0.26, itemDropRarity: 'specialist' },
-  { id: 'black_site',       name: 'Black Site Raid',        description: 'Breach an off-books intelligence facility.', flavor: 'Exfiltrate AI research from a black-site data center.', icon: 'i-lucide-skull',           minAgents: 2, maxAgents: 4, durationMs: 18 * 60 * 60 * 1000, minPower: 650,   baseCash: [236_000,   550_000],   baseXP: 65,  baseGemChance: 0.25, baseGemCount: [2, 2],   itemDropChance: 0.28, itemDropRarity: 'specialist' },
+  { id: 'ai_theft',         name: 'AI Model Theft',         description: 'Steal proprietary model weights from a tech giant.', flavor: 'Exfiltrate 200GB of trained weights from a cloud storage bucket.', icon: 'i-lucide-brain',           minAgents: 2, maxAgents: 3, durationMs: 14 * 60 * 60 * 1000, minPower: 340,   baseCash: [93_000,    218_000],   baseXP: 115,  baseGemChance: 0.18, baseGemCount: [1, 2],   itemDropChance: 0.26, itemDropRarity: 'specialist' },
+  { id: 'central_bank',     name: 'Central Bank Tap',       description: 'Intercept SWIFT messages from a central bank.', flavor: 'Eavesdrop on interbank settlements for 10 hours.', icon: 'i-lucide-coins',           minAgents: 2, maxAgents: 3, durationMs: 15 * 60 * 60 * 1000, minPower: 470,   baseCash: [180_000,   420_000],   baseXP: 140, baseGemChance: 0.20, baseGemCount: [1, 2],   itemDropChance: 0.26, itemDropRarity: 'specialist' },
+  { id: 'black_site',       name: 'Black Site Raid',        description: 'Breach an off-books intelligence facility.', flavor: 'Exfiltrate AI research from a black-site data center.', icon: 'i-lucide-skull',           minAgents: 2, maxAgents: 4, durationMs: 18 * 60 * 60 * 1000, minPower: 650,   baseCash: [300_000,   700_000],   baseXP: 175, baseGemChance: 0.25, baseGemCount: [2, 3],   itemDropChance: 0.28, itemDropRarity: 'specialist' },
   // ── Tier 5: Endgame (-45%) ──────────────────────────────────────────────────────
-  { id: 'nsa_breach',       name: 'NSA Breach',             description: 'Penetrate the most defended network on the planet.', flavor: 'Access a signals intelligence feed from Fort Meade.', icon: 'i-lucide-satellite',       minAgents: 3, maxAgents: 4, durationMs: 22 * 60 * 60 * 1000, minPower: 900,   baseCash: [295_000,   690_000],   baseXP: 72,  baseGemChance: 0.32, baseGemCount: [2, 3],   itemDropChance: 0.30, itemDropRarity: 'specialist' },
-  { id: 'ghost_protocol',   name: 'Ghost Protocol',         description: 'The most dangerous op in existence.', flavor: 'Infiltrate and extract from a sovereign-level cyber fortress.', icon: 'i-lucide-ghost',           minAgents: 3, maxAgents: 4, durationMs: 30 * 60 * 60 * 1000, minPower: 1_250, baseCash: [470_000,   1_100_000], baseXP: 80,  baseGemChance: 0.40, baseGemCount: [2, 3],  itemDropChance: 0.36, itemDropRarity: 'specialist' },
-  { id: 'quantum_heist',    name: 'Quantum Heist',          description: 'Exploit a quantum computing lab for unbreakable access.', flavor: 'Crack post-quantum encryption using a hijacked QPU.', icon: 'i-lucide-cpu',             minAgents: 3, maxAgents: 4, durationMs: 40 * 60 * 60 * 1000, minPower: 1_750, baseCash: [750_000,   1_750_000], baseXP: 90,  baseGemChance: 0.55, baseGemCount: [2, 4],  itemDropChance: 0.40, itemDropRarity: 'elite' },
-  { id: 'project_zero',     name: 'Project Zero',           description: 'Mythic-tier op. Requires full squad of 4.', flavor: 'Achieve zero-day persistent access to a nation-state AI system.', icon: 'i-lucide-target',          minAgents: 4, maxAgents: 4, durationMs: 56 * 60 * 60 * 1000, minPower: 2_444, baseCash: [1_200_000, 2_750_000], baseXP: 100, baseGemChance: 0.70, baseGemCount: [3, 5],  itemDropChance: 0.44, itemDropRarity: 'elite' },
+  { id: 'nsa_breach',       name: 'NSA Breach',             description: 'Penetrate the most defended network on the planet.', flavor: 'Access a signals intelligence feed from Fort Meade.', icon: 'i-lucide-satellite',       minAgents: 3, maxAgents: 4, durationMs: 22 * 60 * 60 * 1000, minPower: 900,   baseCash: [460_000,   1_080_000], baseXP: 240, baseGemChance: 0.40, baseGemCount: [3, 4],   itemDropChance: 0.30, itemDropRarity: 'specialist' },
+  { id: 'ghost_protocol',   name: 'Ghost Protocol',         description: 'The most dangerous op in existence.', flavor: 'Infiltrate and extract from a sovereign-level cyber fortress.', icon: 'i-lucide-ghost',           minAgents: 3, maxAgents: 4, durationMs: 28 * 60 * 60 * 1000, minPower: 1_250, baseCash: [820_000,   1_920_000], baseXP: 340, baseGemChance: 0.50, baseGemCount: [3, 5],  itemDropChance: 0.36, itemDropRarity: 'specialist' },
+  { id: 'quantum_heist',    name: 'Quantum Heist',          description: 'Exploit a quantum computing lab for unbreakable access.', flavor: 'Crack post-quantum encryption using a hijacked QPU.', icon: 'i-lucide-cpu',             minAgents: 3, maxAgents: 4, durationMs: 36 * 60 * 60 * 1000, minPower: 1_750, baseCash: [1_300_000, 3_000_000], baseXP: 460, baseGemChance: 0.65, baseGemCount: [4, 6],  itemDropChance: 0.40, itemDropRarity: 'elite' },
+  { id: 'project_zero',     name: 'Project Zero',           description: 'Mythic-tier op. Requires full squad of 4.', flavor: 'Achieve zero-day persistent access to a nation-state AI system.', icon: 'i-lucide-target',          minAgents: 4, maxAgents: 4, durationMs: 44 * 60 * 60 * 1000, minPower: 2_300, baseCash: [2_400_000, 5_600_000], baseXP: 650, baseGemChance: 0.80, baseGemCount: [5, 8],  itemDropChance: 0.44, itemDropRarity: 'elite' },
 ]
 
 export const RARITY_ORDER: HackRarity[] = ['ghost', 'operative', 'specialist', 'elite', 'phantom']
@@ -582,8 +585,19 @@ export function itemPower(item: { itemLevel: number; mods: ItemMod[] }): number 
   return item.itemLevel * 2 + item.mods.filter(m => m.type === 'power_flat').reduce((s, m) => s + m.value, 0)
 }
 
+// Hard ceiling on a single agent's power, by rarity. This is what makes rarity gate
+// progression: gear, levels and power traits can push an agent up to its cap and no
+// further, so a lucky Ghost can't match a Phantom on raw power. With a 4-agent op the
+// totals gate cleanly to the op ladder — 4× each cap = 800 / 1200 / 1600 / 2000 / 2400
+// — so Ghost tops out around Black Site, Specialist around Ghost Protocol, Elite around
+// Quantum, and only Phantom can seriously attempt Project Zero. Tune these to re-shape
+// which rarity is required for which tier.
+export const RARITY_POWER_CAP: Record<HackRarity, number> = {
+  ghost: 200, operative: 300, specialist: 400, elite: 500, phantom: 600,
+}
+
 export function agentPower(
-  agent: { level: number; class: AgentClass },
+  agent: { level: number; class: AgentClass; rarity: HackRarity },
   items: Array<{ itemLevel: number; mods: ItemMod[] }>,
   traits?: AgentTrait[],
 ): number {
@@ -595,7 +609,8 @@ export function agentPower(
   // Power % traits multiply the agent's whole flat power, so the bonus scales with
   // how invested the agent is — no fixed bonus you could exploit at low power.
   const traitPct = (traits ?? []).filter(t => t.type === 'power_percent').reduce((s, t) => s + t.value, 0) / 100
-  return Math.round((base + gearPower + traitFlat) * (1 + traitPct))
+  const raw = Math.round((base + gearPower + traitFlat) * (1 + traitPct))
+  return Math.min(raw, RARITY_POWER_CAP[agent.rarity])
 }
 
 // ─── Op speed ─────────────────────────────────────────────────────────────────
