@@ -1,7 +1,7 @@
 import type { H3Event } from 'h3'
 import { MIN_DEPLOY_SUCCESS, opSuccessChance } from '#shared/utils/hack-config'
 import { ARTIFACT_TYPES, effectiveGrowTime, getPlant, MUTATIONS, PLANT_TYPES } from '#shared/utils/xeno'
-import { AI_CASINO_MAX_BET, BANK_MAX_AMOUNT } from '#shared/utils/limits'
+import { AI_CASINO_MAX_BET, AI_MAX_ROUNDS, BANK_MAX_AMOUNT } from '#shared/utils/limits'
 import type { AiToolCall } from '#shared/utils/ai'
 import { playCasinoRounds, playNamedCasinoRounds } from './casino'
 import { getErrorMessage, toolHeaders } from './helpers'
@@ -753,7 +753,7 @@ async function playBlackjackRounds(event: H3Event, args: Record<string, unknown>
     const bet = Number(args.bet)
     const rounds = Number(args.rounds)
     if (!Number.isFinite(bet) || bet < 1 || bet > AI_CASINO_MAX_BET) throw createError({ statusCode: 400, statusMessage: 'Invalid blackjack bet' })
-    if (!Number.isInteger(rounds) || rounds < 1 || rounds > 10_000) throw createError({ statusCode: 400, statusMessage: 'Rounds must be from 1 to 10,000' })
+    if (!Number.isInteger(rounds) || rounds < 1 || rounds > AI_MAX_ROUNDS) throw createError({ statusCode: 400, statusMessage: `Rounds must be from 1 to ${AI_MAX_ROUNDS}` })
 
     const headers = toolHeaders(event)
     let totalWagered = 0
