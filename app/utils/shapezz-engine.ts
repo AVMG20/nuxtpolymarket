@@ -16,6 +16,8 @@ const WIDTH = 1280
 const HEIGHT = 720
 const FLOOR_Y = 662
 const GRAVITY = 1900
+const COIN_COLOR = '#22d3ee'
+const COIN_GRAVITY = 1100
 
 export interface ShapezzPlayerStats {
     maxHp: number
@@ -786,7 +788,7 @@ export class ShapezzEngine {
             const value = i === pickupCount - 1 ? remaining : Math.max(1, Math.floor(enemy.reward / pickupCount))
             remaining -= value
             if (this.pickups.length < SHAPEZZ_COMBAT_LIMITS.pickups) {
-                this.pickups.push({ x: enemy.x, y: enemy.y, vx: randomBetween(-260, 260), vy: randomBetween(-360, -100), value, life: 12, kind: 'coin' })
+                this.pickups.push({ x: enemy.x, y: enemy.y, vx: randomBetween(-220, 220), vy: randomBetween(-280, -60), value, life: 12, kind: 'coin' })
             } else this.coins += value
         }
         if (this.pickups.length < SHAPEZZ_COMBAT_LIMITS.pickups && (Math.random() < 0.045 || enemy.boss)) {
@@ -823,11 +825,12 @@ export class ShapezzEngine {
         const kept: Pickup[] = []
         for (const pickup of this.pickups) {
             pickup.life -= dt
-            pickup.vy += 720 * dt
+            pickup.vy += (pickup.kind === 'coin' ? COIN_GRAVITY : 720) * dt
             pickup.x += pickup.vx * dt
             pickup.y += pickup.vy * dt
-            if (pickup.y > FLOOR_Y - 6) {
-                pickup.y = FLOOR_Y - 6
+            const groundClearance = pickup.kind === 'coin' ? 9 : 6
+            if (pickup.y > FLOOR_Y - groundClearance) {
+                pickup.y = FLOOR_Y - groundClearance
                 pickup.vy *= -0.45
                 pickup.vx *= 0.82
             }
@@ -842,7 +845,7 @@ export class ShapezzEngine {
                 if (pickup.kind === 'coin') this.coins += pickup.value
                 else this.player.hp = Math.min(this.stats.maxHp, this.player.hp + pickup.value)
                 this.callbacks.onSfx?.(pickup.kind === 'coin' ? 'pickup-coin' : 'pickup-health')
-                this.burst(pickup.x, pickup.y, pickup.kind === 'coin' ? '#fde047' : '#34d399', 7, 190)
+                this.burst(pickup.x, pickup.y, pickup.kind === 'coin' ? COIN_COLOR : '#34d399', 7, 190)
                 continue
             }
             if (pickup.life > 0) kept.push(pickup)
@@ -1196,15 +1199,35 @@ export class ShapezzEngine {
     private renderPickups(time: number) {
         const ctx = this.ctx
         for (const pickup of this.pickups) {
-            const color = pickup.kind === 'coin' ? '#fde047' : '#34d399'
+            const color = pickup.kind === 'coin' ? COIN_COLOR : '#34d399'
             ctx.shadowColor = color
-            ctx.shadowBlur = 14
+            ctx.shadowBlur = pickup.kind === 'coin' ? 8 : 14
             ctx.fillStyle = color
             if (pickup.kind === 'coin') {
                 ctx.save()
                 ctx.translate(pickup.x, pickup.y)
-                ctx.rotate(time * 4 + pickup.x)
-                ctx.fillRect(-5, -5, 10, 10)
+                ctx.rotate(time * 2.4 + pickup.x * 0.03)
+                ctx.beginPath()
+                for (let i = 0; i < 6; i++) {
+                    const angle = i / 6 * Math.PI * 2
+                    const x = Math.cos(angle) * 9
+                    const y = Math.sin(angle) * 9
+                    if (i === 0) ctx.moveTo(x, y)
+                    else ctx.lineTo(x, y)
+                }
+                ctx.closePath()
+                ctx.lineWidth = 4
+                ctx.strokeStyle = '#082f49'
+                ctx.stroke()
+                ctx.fill()
+                ctx.shadowBlur = 0
+                ctx.strokeStyle = '#ecfeff'
+                ctx.lineWidth = 1.5
+                ctx.stroke()
+                ctx.fillStyle = '#ecfeff'
+                ctx.fillRect(-1.5, -5, 3, 10)
+                ctx.fillStyle = '#082f49'
+                ctx.fillRect(-4, -1.5, 8, 3)
                 ctx.restore()
             } else {
                 ctx.fillRect(pickup.x - 3, pickup.y - 9, 6, 18)
