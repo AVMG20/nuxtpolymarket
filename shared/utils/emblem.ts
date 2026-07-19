@@ -34,6 +34,12 @@ export interface EmblemData {
     elements: EmblemElement[]
 }
 
+export const EMBLEM_DEFAULT_BACKGROUND = '#312e81'
+
+export function emptyEmblem(): EmblemData {
+    return { version: EMBLEM_VERSION, background: EMBLEM_DEFAULT_BACKGROUND, elements: [] }
+}
+
 const COLOR_RE = /^#[0-9a-f]{6}$/i
 
 function isFiniteNumber(value: unknown): value is number {
