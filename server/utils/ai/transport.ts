@@ -3,10 +3,11 @@ import type { H3Event } from 'h3'
 import { db } from '#server/database'
 import { aiMessages } from '#server/database/schema'
 import type { AiToolCall } from '#shared/utils/ai'
+import { shouldToolAutoRun } from '#shared/utils/ai-guard'
 import { conversationMessages, getAiContextStatus, insertToolResult, toOpenAiMessages } from './conversations'
 import { executeAiTool } from './executors'
-import { getErrorMessage } from './helpers'
-import { AI_TOOLS, toolRequiresConfirmation } from './tools'
+import { getAiGuard, getErrorMessage } from './helpers'
+import { AI_TOOLS } from './tools'
 import type { OpenRouterMessage } from './types'
 
 interface OpenRouterStreamChunk {
@@ -147,8 +148,8 @@ export async function continueAiConversation(
         if (lastMessageId) await onAssistantMessage?.(lastMessageId)
 
         if (!toolCalls.length) break
-        const canAutoApprove = getCookie(event, 'ai_auto_approve') === 'true'
-        const executableTools = toolCalls.filter(toolCall => canAutoApprove || !toolRequiresConfirmation(toolCall))
+        const guard = getAiGuard(event)
+        const executableTools = toolCalls.filter(toolCall => shouldToolAutoRun(toolCall, guard))
         if (!executableTools.length) break
         for (const toolCall of executableTools) {
             try {

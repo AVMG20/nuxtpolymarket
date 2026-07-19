@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import type { AiContextStatus, AiMessageDto, AiToolCall } from '#shared/utils/ai'
-import { AI_TOOL_CATALOG_BY_NAME } from '#shared/utils/ai-tools'
+import type { AiCapabilityKey, AiGuardSettings } from '#shared/utils/ai-guard'
+import { AI_CAPABILITIES, AI_GUARD_COOKIE, defaultAiGuard, shouldToolAutoRun } from '#shared/utils/ai-guard'
+import { AI_CASINO_MAX_BET } from '#shared/utils/limits'
 
 interface Conversation {
   id: string
@@ -52,11 +54,27 @@ const deleteOpen = ref(false)
 const deleteTarget = ref<Conversation | null>(null)
 const resolvingToolId = ref('')
 const streamedToolResults = ref<Record<string, Record<string, unknown>>>({})
-const autoApprove = useCookie<boolean>('ai_auto_approve', {
-  default: () => false,
+const guard = useCookie<AiGuardSettings>(AI_GUARD_COOKIE, {
+  default: () => defaultAiGuard(),
   sameSite: 'lax',
   maxAge: 60 * 60 * 24 * 365
 })
+const maxBetInput = ref(guard.value.maxBet != null ? String(guard.value.maxBet) : '')
+
+const enabledCapabilities = computed(() => AI_CAPABILITIES.filter(capability => guard.value.autoRun[capability.key]))
+const autoRunWarning = computed(() => `Runs without asking: ${enabledCapabilities.value.map(capability => capability.label).join(', ')}. The assistant can spend coins and gems within your limits.`)
+
+function setAutoRun(key: AiCapabilityKey, value: boolean) {
+  guard.value = { ...guard.value, autoRun: { ...guard.value.autoRun, [key]: value } }
+}
+
+function commitMaxBet() {
+  const match = maxBetInput.value.trim().toLowerCase().replace(/[,\s]/g, '').match(/^([\d.]+)([kmbt])?$/)
+  const parsed = match ? parseFloat(match[1]!) * ({ k: 1e3, m: 1e6, b: 1e9, t: 1e12 }[match[2] ?? ''] ?? 1) : NaN
+  const maxBet = Number.isFinite(parsed) && parsed > 0 ? Math.min(parsed, AI_CASINO_MAX_BET) : null
+  guard.value = { ...guard.value, maxBet }
+  maxBetInput.value = maxBet != null ? String(maxBet) : ''
+}
 
 const { data: listData, refresh: refreshConversations } = await useFetch<ConversationListResponse>('/api/ai/conversations', {
   default: () => ({ conversations: [], usage: { used: 0, limit: 300, resetsAt: '' } })
@@ -243,8 +261,10 @@ function toolResult(toolCallId: string) {
   }
 }
 
-function requiresToolConfirmation(call: AiToolCall) {
-  return AI_TOOL_CATALOG_BY_NAME[call.function.name]?.requiresConfirmation ?? true
+// Mirror the server's auto-run decision so a tool that will run unattended shows
+// "Running…" instead of a confirmation prompt that vanishes a moment later.
+function willAutoRun(call: AiToolCall) {
+  return shouldToolAutoRun(call, guard.value)
 }
 
 function toolArguments(call: AiToolCall) {
@@ -282,6 +302,11 @@ function toolDescription(call: AiToolCall) {
     return `${casinoGame}: ${rounds} round${rounds === 1 ? '' : 's'} × ${formatNumber(bet, false)} coins (base stake ${formatNumber(bet * rounds, false)})`
   }
   if (call.function.name === 'play_blackjack') return `Play and fully resolve one blackjack hand with a ${formatNumber(Number(args.bet ?? 0), false)} coin base stake. Basic strategy may double or split when affordable.`
+  if (call.function.name === 'play_blackjack_rounds') {
+    const bet = Number(args.bet ?? 0)
+    const rounds = Number(args.rounds ?? 0)
+    return `Play ${rounds} blackjack hand${rounds === 1 ? '' : 's'} at ${formatNumber(bet, false)} coins each with basic strategy (base stake ${formatNumber(bet * rounds, false)}).`
+  }
   if (call.function.name === 'manage_xeno_garden') {
     const requested = Array.isArray(args.requestedPlants) ? args.requestedPlants : []
     const mix = requested.map(plant => `${(plant as Record<string, unknown>).quantity ?? 0} × ${(plant as Record<string, unknown>).typeId ?? 'plant'}`).join(', ')
@@ -328,6 +353,10 @@ function toolResultSummary(result: Record<string, unknown>) {
   }
   if (result.action === 'buy' && typeof result.cost === 'number') return `Bought ${result.gems} gem(s) for ${formatNumber(result.cost, false)} coins`
   if (result.action === 'sell' && typeof result.revenue === 'number') return `Sold ${result.gems} gem(s) for ${formatNumber(result.revenue, false)} coins`
+  if (result.game === 'blackjack' && typeof result.playedRounds === 'number') {
+    const net = Number(result.net)
+    return `${result.playedRounds} hand(s) · ${result.wins}W/${result.pushes}P/${result.losses}L · Net ${net >= 0 ? '+' : ''}${formatNumber(net, false)} coins`
+  }
   if (typeof result.net === 'number') return `Completed · Net ${result.net >= 0 ? '+' : ''}${formatNumber(result.net, false)} coins`
   return 'Completed successfully'
 }
@@ -478,16 +507,42 @@ const starterPrompts = [
         <UPopover :content="{ side: 'bottom', align: 'end' }">
           <UButton aria-label="AI settings" color="neutral" icon="i-lucide-settings-2" variant="ghost" />
           <template #content>
-            <div class="w-80 space-y-3 p-4">
+            <div class="max-h-[70vh] w-80 space-y-4 overflow-y-auto p-4">
               <div>
-                <p class="font-medium">Tool approval</p>
-                <p class="text-sm text-muted">Read-only tools run immediately. Actions that can change your account require confirmation unless auto-approval is enabled.</p>
+                <p class="font-medium">Autonomy guard</p>
+                <p class="text-sm text-muted">Read-only lookups always run. Choose which actions the assistant may perform without asking; everything else still needs your approval each time.</p>
               </div>
-              <USwitch v-model="autoApprove" label="Execute tools without asking" />
+              <div class="space-y-3">
+                <div v-for="capability in AI_CAPABILITIES" :key="capability.key" class="flex items-start justify-between gap-3">
+                  <div class="flex min-w-0 items-start gap-2">
+                    <UIcon class="mt-0.5 size-4 shrink-0 text-muted" :name="capability.icon" />
+                    <div class="min-w-0">
+                      <p class="text-sm font-medium">{{ capability.label }}</p>
+                      <p class="text-xs text-muted">{{ capability.description }}</p>
+                    </div>
+                  </div>
+                  <USwitch
+                    :aria-label="`Auto-run ${capability.label}`"
+                    :model-value="guard.autoRun[capability.key]"
+                    @update:model-value="value => setAutoRun(capability.key, value)"
+                  />
+                </div>
+              </div>
+              <div class="space-y-1.5 border-t border-default pt-3">
+                <label class="text-sm font-medium" for="ai-max-bet">Auto-run bet limit</label>
+                <UInput
+                  id="ai-max-bet"
+                  v-model="maxBetInput"
+                  placeholder="No limit"
+                  @blur="commitMaxBet"
+                  @keydown.enter="commitMaxBet"
+                />
+                <p class="text-xs text-muted">Single wagers above this still need approval, even with Casino on. Accepts k/m/b/t (e.g. 1b). Hard cap {{ formatNumber(AI_CASINO_MAX_BET) }}.</p>
+              </div>
               <UAlert
-                v-if="autoApprove"
+                v-if="enabledCapabilities.length"
                 color="warning"
-                description="The assistant can spend coins and gems, sell inventory, and play up to 10,000 casino rounds per tool call without another prompt."
+                :description="autoRunWarning"
                 icon="i-lucide-triangle-alert"
               />
             </div>
@@ -552,15 +607,15 @@ const starterPrompts = [
                         <div class="flex flex-wrap items-center gap-2">
                           <p class="font-medium">{{ toolTitle(call) }}</p>
                           <UBadge
-                            :color="toolResult(call.id)?.error ? 'error' : toolResult(call.id)?.declined ? 'neutral' : toolResult(call.id) ? 'success' : 'warning'"
+                            :color="toolResult(call.id)?.error ? 'error' : toolResult(call.id)?.declined ? 'neutral' : toolResult(call.id) ? 'success' : willAutoRun(call) ? 'neutral' : 'warning'"
                             size="sm"
                             variant="soft"
                           >
-                            {{ toolResult(call.id) ? toolResultSummary(toolResult(call.id)!) : 'Approval required' }}
+                            {{ toolResult(call.id) ? toolResultSummary(toolResult(call.id)!) : willAutoRun(call) ? 'Running…' : 'Approval required' }}
                           </UBadge>
                         </div>
                         <p class="mt-1 whitespace-pre-wrap break-words text-sm text-muted">{{ toolDescription(call) }}</p>
-                        <div v-if="!toolResult(call.id) && requiresToolConfirmation(call)" class="mt-3 flex gap-2">
+                        <div v-if="!toolResult(call.id) && !willAutoRun(call)" class="mt-3 flex gap-2">
                           <UButton
                             :disabled="Boolean(resolvingToolId)"
                             :loading="resolvingToolId === call.id"
@@ -577,7 +632,7 @@ const starterPrompts = [
                             @click="resolveTool(message, call, false)"
                           />
                         </div>
-                        <p v-else-if="!toolResult(call.id)" class="mt-3 text-sm text-muted">Running read-only lookup…</p>
+                        <p v-else-if="!toolResult(call.id)" class="mt-3 text-sm text-muted">Running automatically…</p>
                       </div>
                     </div>
                   </UCard>
