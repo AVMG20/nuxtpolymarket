@@ -1,5 +1,5 @@
 import { AI_TOOL_CATALOG_BY_NAME } from '#shared/utils/ai-tools'
-import { AI_CASINO_MAX_BET } from '#shared/utils/limits'
+import { AI_CASINO_MAX_BET, AI_MAX_ROUNDS } from '#shared/utils/limits'
 import type { AiToolCall } from '#shared/utils/ai'
 
 interface OpenRouterTool {
@@ -16,12 +16,12 @@ function casinoRoundTool(game: string, properties: Record<string, unknown> = {},
         type: 'function',
         function: {
             name: `play_${game}_rounds`,
-            description: `Play 1 to 10,000 ${game} rounds. This spends coins.`,
+            description: `Play 1 to ${AI_MAX_ROUNDS} ${game} rounds. This spends coins.`,
             parameters: {
                 type: 'object',
                 properties: {
                     bet: { type: 'number', minimum: 1, maximum: AI_CASINO_MAX_BET, description: 'Base coin bet per round.' },
-                    rounds: { type: 'integer', minimum: 1, maximum: 10000 },
+                    rounds: { type: 'integer', minimum: 1, maximum: AI_MAX_ROUNDS },
                     ...properties
                 },
                 required: ['bet', 'rounds', ...required],
@@ -327,12 +327,12 @@ const AI_TOOL_DEFINITIONS: OpenRouterTool[] = [
         type: 'function',
         function: {
             name: 'play_blackjack_rounds',
-            description: 'Play and fully resolve 1 to 10,000 blackjack hands with basic strategy, entirely on the server, and return aggregate results. Each hand uses the same base bet and may double or split when the live balance can cover the extra stake. Prefer this over calling play_blackjack repeatedly when the player wants more than one hand.',
+            description: `Play and fully resolve 1 to ${AI_MAX_ROUNDS} blackjack hands with basic strategy, entirely on the server, and return aggregate results. Each hand uses the same base bet and may double or split when the live balance can cover the extra stake. Prefer this over calling play_blackjack repeatedly when the player wants more than one hand.`,
             parameters: {
                 type: 'object',
                 properties: {
                     bet: { type: 'number', minimum: 1, maximum: AI_CASINO_MAX_BET, description: 'Base coin bet per hand.' },
-                    rounds: { type: 'integer', minimum: 1, maximum: 10000, description: 'Number of hands to play.' }
+                    rounds: { type: 'integer', minimum: 1, maximum: AI_MAX_ROUNDS, description: 'Number of hands to play.' }
                 },
                 required: ['bet', 'rounds'],
                 additionalProperties: false

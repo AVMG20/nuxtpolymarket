@@ -10,5 +10,12 @@ export const CASINO_MAX_BET = 100_000_000_000
  */
 export const AI_CASINO_MAX_BET = CASINO_MAX_BET
 
+/**
+ * Max rounds/hands per AI auto-play batch call (blackjack and every casino round
+ * tool). Each round is a sequential request settled in its own transaction, so
+ * this bounds how long one tool call can keep the server busy.
+ */
+export const AI_MAX_ROUNDS = 200
+
 /** Max amount for a single bank deposit or withdrawal. */
 export const BANK_MAX_AMOUNT = 100_000_000_000_000
