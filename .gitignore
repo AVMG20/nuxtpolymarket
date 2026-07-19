@@ -29,6 +29,10 @@ logs
 # Game design docs & prototype art — kept local, not versioned
 docs/games
 
+# Local blackjack autoplay test scripts — never versioned
+scripts/blackjack-autoplay.js
+scripts/blackjack-api-play.js
+
 # Python bytecode cache (balance sim scripts under docs/games)
 __pycache__
 

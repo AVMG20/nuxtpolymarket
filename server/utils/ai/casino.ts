@@ -1,4 +1,5 @@
 import type { H3Event } from 'h3'
+import { AI_CASINO_MAX_BET } from '#shared/utils/limits'
 import { getErrorMessage, toolHeaders } from './helpers'
 
 const CASINO_GAMES = new Set([
@@ -124,7 +125,7 @@ export async function playCasinoRounds(event: H3Event, args: Record<string, unkn
     const bet = Number(args.bet)
     const rounds = Number(args.rounds)
     if (!CASINO_GAMES.has(game)) throw createError({ statusCode: 400, statusMessage: 'Unsupported casino game' })
-    if (!Number.isFinite(bet) || bet < 1 || bet > 1_000_000) throw createError({ statusCode: 400, statusMessage: 'Invalid bet' })
+    if (!Number.isFinite(bet) || bet < 1 || bet > AI_CASINO_MAX_BET) throw createError({ statusCode: 400, statusMessage: 'Invalid bet' })
     if (!Number.isInteger(rounds) || rounds < 1 || rounds > 10_000) throw createError({ statusCode: 400, statusMessage: 'Rounds must be from 1 to 10,000' })
     const options = normalizeCasinoOptions(game, args.options, bet)
 

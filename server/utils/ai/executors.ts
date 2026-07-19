@@ -1,7 +1,7 @@
 import type { H3Event } from 'h3'
 import { MIN_DEPLOY_SUCCESS, opSuccessChance } from '#shared/utils/hack-config'
 import { ARTIFACT_TYPES, effectiveGrowTime, getPlant, MUTATIONS, PLANT_TYPES } from '#shared/utils/xeno'
-import { BANK_MAX_AMOUNT } from '#shared/utils/limits'
+import { AI_CASINO_MAX_BET, BANK_MAX_AMOUNT } from '#shared/utils/limits'
 import type { AiToolCall } from '#shared/utils/ai'
 import { playCasinoRounds, playNamedCasinoRounds } from './casino'
 import { getErrorMessage, toolHeaders } from './helpers'
@@ -742,6 +742,57 @@ async function tradeGems(event: H3Event, args: Record<string, unknown>) {
     })
 }
 
+interface BlackjackPlayResponse {
+    totalWagered: number
+    payout: number
+    net: number
+    balance: number
+}
+
+async function playBlackjackRounds(event: H3Event, args: Record<string, unknown>) {
+    const bet = Number(args.bet)
+    const rounds = Number(args.rounds)
+    if (!Number.isFinite(bet) || bet < 1 || bet > AI_CASINO_MAX_BET) throw createError({ statusCode: 400, statusMessage: 'Invalid blackjack bet' })
+    if (!Number.isInteger(rounds) || rounds < 1 || rounds > 10_000) throw createError({ statusCode: 400, statusMessage: 'Rounds must be from 1 to 10,000' })
+
+    const headers = toolHeaders(event)
+    let totalWagered = 0
+    let totalPayout = 0
+    let net = 0
+    let finalBalance: number | null = null
+    let stoppedReason: string | null = null
+    let playedRounds = 0
+    let wins = 0
+    let pushes = 0
+    let losses = 0
+    let biggestWin = 0
+    let biggestLoss = 0
+
+    // Each hand settles in its own locked transaction, so the row lock is released
+    // between hands instead of being held for the whole batch.
+    for (let round = 1; round <= rounds; round++) {
+        let hand: BlackjackPlayResponse
+        try {
+            hand = await event.$fetch<BlackjackPlayResponse>('/api/games/blackjack/play', { method: 'POST', headers, body: { bet } })
+        } catch (error) {
+            stoppedReason = getErrorMessage(error)
+            break
+        }
+        totalWagered += hand.totalWagered
+        totalPayout += hand.payout
+        net += hand.net
+        finalBalance = hand.balance
+        playedRounds++
+        if (hand.net > 1e-9) wins++
+        else if (hand.net < -1e-9) losses++
+        else pushes++
+        biggestWin = Math.max(biggestWin, hand.net)
+        biggestLoss = Math.min(biggestLoss, hand.net)
+    }
+
+    return { game: 'blackjack', bet, requestedRounds: rounds, playedRounds, stoppedReason, totalWagered, totalPayout, net, finalBalance, wins, pushes, losses, biggestWin, biggestLoss }
+}
+
 export async function executeAiTool(event: H3Event, toolCall: AiToolCall): Promise<unknown> {
     const args = parseArguments(toolCall.function.arguments)
     const headers = toolHeaders(event)
@@ -817,14 +868,16 @@ export async function executeAiTool(event: H3Event, toolCall: AiToolCall): Promi
             return playNamedCasinoRounds(event, toolCall.function.name, args)
         case 'play_blackjack': {
             const bet = Number(args.bet)
-            if (!Number.isFinite(bet) || bet < 1 || bet > 1_000_000) throw createError({ statusCode: 400, statusMessage: 'Invalid blackjack bet' })
+            if (!Number.isFinite(bet) || bet < 1 || bet > AI_CASINO_MAX_BET) throw createError({ statusCode: 400, statusMessage: 'Invalid blackjack bet' })
             return event.$fetch('/api/games/blackjack/play', { method: 'POST', headers, body: { bet } })
         }
+        case 'play_blackjack_rounds':
+            return playBlackjackRounds(event, args)
         case 'get_blackjack_state':
             return event.$fetch('/api/games/blackjack/resume', { headers })
         case 'start_blackjack': {
             const bet = Number(args.bet)
-            if (!Number.isFinite(bet) || bet < 1 || bet > 1_000_000) throw createError({ statusCode: 400, statusMessage: 'Invalid blackjack bet' })
+            if (!Number.isFinite(bet) || bet < 1 || bet > AI_CASINO_MAX_BET) throw createError({ statusCode: 400, statusMessage: 'Invalid blackjack bet' })
             return event.$fetch('/api/games/blackjack/start', { method: 'POST', headers, body: { bet } })
         }
         case 'blackjack_action': {
