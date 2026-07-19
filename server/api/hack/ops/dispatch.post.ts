@@ -4,7 +4,7 @@ import { hackAgents, hackItems, hackOps } from '#server/database/schema'
 import { requireUserId } from '#server/utils/auth'
 import {
   OP_TEMPLATES, agentPower, effectiveDurationMs, opSuccessChance, MIN_DEPLOY_SUCCESS,
-  type AgentClass, type ItemMod, type AgentTrait,
+  type AgentClass, type ItemMod, type AgentTrait, type HackRarity,
 } from '#shared/utils/hack-config'
 
 export default defineEventHandler(async (event) => {
@@ -55,7 +55,7 @@ export default defineEventHandler(async (event) => {
     }
   })
   const totalPower = agents.reduce((sum, agent, i) =>
-    sum + agentPower({ level: agent.level, class: agent.class as AgentClass }, agentLoadouts[i]!.items, (agent.traits ?? []) as AgentTrait[]), 0)
+    sum + agentPower({ level: agent.level, class: agent.class as AgentClass, rarity: agent.rarity as HackRarity }, agentLoadouts[i]!.items, (agent.traits ?? []) as AgentTrait[]), 0)
 
   const durationMs = useRuntimeConfig(event).devMode
     ? 1000

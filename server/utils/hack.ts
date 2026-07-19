@@ -1,8 +1,9 @@
-import { agentPower, type AgentClass, type AgentTrait, type ItemMod } from '#shared/utils/hack-config'
+import { agentPower, type AgentClass, type AgentTrait, type ItemMod, type HackRarity } from '#shared/utils/hack-config'
 
 export interface EquippedAgentRow {
   level: number
   class: string
+  rarity: string
   equippedTool: string | null
   equippedSoftware: string | null
   equippedHardware: string | null
@@ -22,7 +23,7 @@ export function equippedAgentPower(agent: EquippedAgentRow, itemsById: Map<strin
     .filter((item): item is EquippableItemRow => !!item)
   const traits = (agent.traits ?? []) as AgentTrait[]
   return agentPower(
-    { level: agent.level, class: agent.class as AgentClass },
+    { level: agent.level, class: agent.class as AgentClass, rarity: agent.rarity as HackRarity },
     equippedItems.map(item => ({ itemLevel: item.itemLevel, mods: item.mods as ItemMod[] })),
     traits,
   )

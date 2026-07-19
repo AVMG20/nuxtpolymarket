@@ -144,7 +144,7 @@ function gearList(gear: Gear) {
   return SLOTS.map(s => gear[s]).filter((i): i is InvItem => !!i).map(i => ({ itemLevel: i.itemLevel, mods: i.mods }))
 }
 function statsFor(agent: Agent, gear: Gear) {
-  const power = agentPower({ level: agent.level, class: agent.class }, gearList(gear), agent.traits)
+  const power = agentPower({ level: agent.level, class: agent.class, rarity: agent.rarity }, gearList(gear), agent.traits)
   // "Power" is folded into the `power` total above already — the bonus list
   // is everything else (loot/speed/gem/xp/etc).
   const bonuses = agentBonusStats([{ class: agent.class, traits: agent.traits, gear }])
