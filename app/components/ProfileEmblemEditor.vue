@@ -2,8 +2,10 @@
 import {
   EMBLEM_MAX_ELEMENTS,
   EMBLEM_MAX_POINTS_PER_STROKE,
+  EMBLEM_MAX_SERIALIZED_LENGTH,
   emblemPolygonPoints,
   emblemStarPoints,
+  emptyEmblem,
   parseEmblem,
   type EmblemData,
   type EmblemElement,
@@ -12,6 +14,11 @@ import {
   type EmblemShape,
   type EmblemStroke
 } from '#shared/utils/emblem'
+
+// Margins keep headroom for the element/point about to be added, so the
+// serialized emblem can never cross the limit parseEmblem rejects at.
+const ELEMENT_BYTE_MARGIN = 250
+const POINT_BYTE_MARGIN = 50
 
 const props = defineProps<{
   modelValue?: unknown
@@ -42,7 +49,7 @@ watch(tool, (next) => {
 })
 
 const previewShape = computed<EmblemPlacedShape | null>(() => {
-  if (tool.value === 'pencil' || !hoverPoint.value || emblem.elements.length >= EMBLEM_MAX_ELEMENTS) return null
+  if (tool.value === 'pencil' || !hoverPoint.value || full.value) return null
   const [x, y] = hoverPoint.value
   return {
     kind: 'shape',
@@ -60,9 +67,15 @@ function clone<T>(value: T): T {
 }
 
 const initial = parseEmblem(props.modelValue)
-const emblem = reactive<EmblemData>(initial
-  ? clone(initial)
-  : { version: 1, background: '#312e81', elements: [] })
+const emblem = reactive<EmblemData>(initial ? clone(initial) : emptyEmblem())
+
+const serializedLength = computed(() => JSON.stringify(emblem).length)
+const full = computed(() => emblem.elements.length >= EMBLEM_MAX_ELEMENTS
+  || serializedLength.value >= EMBLEM_MAX_SERIALIZED_LENGTH - ELEMENT_BYTE_MARGIN)
+const capacityPercent = computed(() => Math.min(100, Math.round(Math.max(
+  emblem.elements.length / EMBLEM_MAX_ELEMENTS,
+  serializedLength.value / EMBLEM_MAX_SERIALIZED_LENGTH
+) * 100)))
 
 watch(() => props.modelValue, (value) => {
   const next = parseEmblem(value)
@@ -93,7 +106,7 @@ function pointFromEvent(event: PointerEvent): EmblemPoint {
 }
 
 function pointerDown(event: PointerEvent) {
-  if (!canvas.value || emblem.elements.length >= EMBLEM_MAX_ELEMENTS) return
+  if (!canvas.value || full.value) return
   canvas.value.setPointerCapture(event.pointerId)
   const [x, y] = pointFromEvent(event)
   snapshot()
@@ -136,7 +149,8 @@ function pointerMove(event: PointerEvent) {
   if (!drawing.value || !activeStroke.value) return
   const last = activeStroke.value.points.at(-1)!
   if (Math.hypot(next[0] - last[0], next[1] - last[1]) < 1.2) return
-  if (activeStroke.value.points.length < EMBLEM_MAX_POINTS_PER_STROKE) activeStroke.value.points.push(next)
+  if (activeStroke.value.points.length < EMBLEM_MAX_POINTS_PER_STROKE
+    && serializedLength.value < EMBLEM_MAX_SERIALIZED_LENGTH - POINT_BYTE_MARGIN) activeStroke.value.points.push(next)
 }
 
 function pointerLeave() {
@@ -193,7 +207,8 @@ defineShortcuts({
         <svg
           ref="canvas"
           aria-label="Profile emblem drawing canvas"
-          class="absolute inset-0 size-full cursor-crosshair touch-none rounded-full"
+          :class="full ? 'cursor-not-allowed' : 'cursor-crosshair'"
+          class="absolute inset-0 size-full touch-none rounded-full"
           role="img"
           viewBox="0 0 100 100"
           @pointercancel="pointerUp"
@@ -205,7 +220,7 @@ defineShortcuts({
         >
           <g pointer-events="none">
             <circle
-              v-if="tool === 'pencil' && hoverPoint"
+              v-if="tool === 'pencil' && hoverPoint && !full"
               :cx="hoverPoint[0]"
               :cy="hoverPoint[1]"
               :r="brushSize / 2"
@@ -338,7 +353,14 @@ defineShortcuts({
           <template #trailing><div class="flex gap-0.5"><UKbd size="sm" value="meta" /><UKbd size="sm" value="S" /></div></template>
         </UButton>
       </div>
-      <p class="text-xs text-muted">{{ emblem.elements.length }}/{{ EMBLEM_MAX_ELEMENTS }} marks used</p>
+      <div class="space-y-1.5">
+        <UProgress :color="full ? 'error' : capacityPercent >= 85 ? 'warning' : 'primary'" :model-value="capacityPercent" size="sm" />
+        <p :class="full ? 'font-medium text-error' : 'text-muted'" class="text-xs">
+          {{ full
+            ? 'Emblem full — undo or clear some marks to keep drawing.'
+            : `${emblem.elements.length}/${EMBLEM_MAX_ELEMENTS} marks · ${capacityPercent}% of space used` }}
+        </p>
+      </div>
     </div>
   </div>
 </template>
