@@ -22,7 +22,7 @@ import {
     type PirateEnemyTier, type PiratePowerUpId
 } from '#shared/utils/gamelogic/pirates'
 import {
-    WORLD_W, WORLD_H, BALL_SPEED, PICKUP_RADIUS, HOLD_RANGE_FRACTION, ROTATE_LERP, WAYPOINT_REACH_DIST,
+    WORLD_W, WORLD_H, BALL_SPEED, PLAYER_CANNON_FIRE_GAP_MS, PICKUP_RADIUS, HOLD_RANGE_FRACTION, ROTATE_LERP, WAYPOINT_REACH_DIST,
     PLAYER_BOMB_RADIUS, ENEMY_POWER_UP_DROP_CHANCE, ENEMY_HEALTH_PACK_DROP_CHANCE, SHIP_RADIUS,
     RAIDER_SHIP_SPRITE, DPS_RAIDER_SPRITE, TANK_RAIDER_SPRITE, SNIPER_SHIP_SPRITE, ISLAND_SPRITES
 } from './constants'
@@ -69,6 +69,7 @@ export class PirateGame {
     private gemAmmoStart = 0
     private preferGem = false
     private cannons: Cannon[] = []
+    private cannonFireGapMs = 0
     private maxCannonRange = 220
     private playerX = WORLD_W / 2
     private playerY = WORLD_H / 2
@@ -271,6 +272,7 @@ export class PirateGame {
         this.gemAmmoStart = stats.gemAmmo
         this.preferGem = false
         this.cannons = stats.cannons.map(c => ({ ...c, reloadTimer: randRange(0, c.reloadMs * 0.5 * PIRATE_TIMELINE_SCALE) }))
+        this.cannonFireGapMs = 0
         this.maxCannonRange = this.cannons.reduce((max, c) => Math.max(max, c.range), 220)
         this.elapsedMs = 0
         this.attackTargetId = null
@@ -650,14 +652,17 @@ export class PirateGame {
      * (mortar-style), so range is all that matters here.
      */
     private updateCannons(deltaMS: number) {
+        this.cannonFireGapMs = Math.max(0, this.cannonFireGapMs - deltaMS)
         if (this.enemies.size === 0) return
         for (const cannon of this.cannons) {
             cannon.reloadTimer -= deltaMS
             if (cannon.reloadTimer > 0) continue
+            if (this.cannonFireGapMs > 0) continue
             const target = this.pickCannonTarget(cannon)
             if (!target) continue
             const reloadMult = Math.max(0.35, 1 - this.powerUpStack('quick-fuse') * 0.2 - this.powerUpStack('rapid-loader') * 0.1)
             cannon.reloadTimer = cannon.reloadMs * reloadMult * PIRATE_TIMELINE_SCALE
+            this.cannonFireGapMs = PLAYER_CANNON_FIRE_GAP_MS
             this.enterCombat()
             this.fireCannonAtEnemy(cannon, target)
         }

@@ -3,6 +3,7 @@
 export const WORLD_W = 1400
 export const WORLD_H = 820
 export const BALL_SPEED = 780 // px/s
+export const PLAYER_CANNON_FIRE_GAP_MS = 85
 export const PICKUP_RADIUS = 46
 export const HOLD_RANGE_FRACTION = 0.85
 export const ROTATE_LERP = 0.12
