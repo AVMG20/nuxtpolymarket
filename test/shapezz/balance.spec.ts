@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   SHAPEZZ_CHECKPOINT_MS,
+  SHAPEZZ_COIN_PAYOUT_SCALE,
   SHAPEZZ_COMBAT_LIMITS,
   SHAPEZZ_DIFFICULTIES,
   SHAPEZZ_WEAPONS,
@@ -49,16 +50,19 @@ describe('SHAPEZZ checkpoint pacing', () => {
     expect(shapezzEnemyHealthMultiplier(5 * 60_000, 'annihilation')).toBeGreaterThan(shapezzEnemyHealthMultiplier(5 * 60_000, 'spark') * 10)
   })
 
-  it('keeps a fresh account run in the low thousands while high difficulties pay several times more', () => {
-    // A first cashout on Surge is worth a few thousand at most.
-    expect(shapezzMaxPayoutForRun(45_000, 'surge')).toBeGreaterThan(1_000)
-    expect(shapezzMaxPayoutForRun(45_000, 'surge')).toBeLessThan(10_000)
+  it('gives a first cashout meaningful value while high difficulties pay several times more', () => {
+    // A first cashout has enough headroom for the 10x drop conversion.
+    expect(SHAPEZZ_COIN_PAYOUT_SCALE).toBe(10)
+    expect(shapezzMaxPayoutForRun(45_000, 'surge')).toBeGreaterThan(18_000)
+    expect(shapezzMaxPayoutForRun(45_000, 'surge')).toBeLessThan(20_000)
     expect(shapezzMaxPayoutForRun(45_000, 'annihilation')).toBeGreaterThan(shapezzMaxPayoutForRun(45_000, 'surge') * 4)
   })
 
-  it('lets a long clean Annihilation run reach roughly a million coins', () => {
-    expect(shapezzMaxPayoutForRun(10 * 60_000, 'annihilation')).toBeGreaterThan(1_000_000)
-    expect(shapezzMaxPayoutForRun(10 * 60_000, 'annihilation')).toBeLessThan(2_000_000)
+  it('keeps a six-minute Surge ceiling close to Pirate while preserving high-difficulty upside', () => {
+    expect(shapezzMaxPayoutForRun(6 * 60_000, 'surge')).toBeGreaterThan(180_000)
+    expect(shapezzMaxPayoutForRun(6 * 60_000, 'surge')).toBeLessThan(200_000)
+    expect(shapezzMaxPayoutForRun(10 * 60_000, 'annihilation')).toBeGreaterThan(2_000_000)
+    expect(shapezzMaxPayoutForRun(10 * 60_000, 'annihilation')).toBeLessThan(2_500_000)
     // Lower difficulties stay an order of magnitude below the top end.
     expect(shapezzMaxPayoutForRun(10 * 60_000, 'surge')).toBeLessThan(shapezzMaxPayoutForRun(10 * 60_000, 'annihilation') / 4)
   })
@@ -103,7 +107,7 @@ describe('SHAPEZZ weapons', () => {
     expect(shapezzWeapon('launcher', 'mythic').cost).toBe(50_000_000)
   })
 
-  it('keeps the launcher slow and explosive while the shotgun is pellet-heavy with falloff', () => {
+  it('keeps the launcher slow and explosive while shotgun pellets deal full damage at range', () => {
     const launcher = shapezzWeapon('launcher', 'common')
     const shotgun = shapezzWeapon('shotgun', 'common')
 
@@ -111,9 +115,9 @@ describe('SHAPEZZ weapons', () => {
     expect(launcher.explosionRadius).toBeGreaterThan(0)
     expect(shotgun.pellets).toBe(7)
     expect(shapezzWeapon('shotgun', 'mythic').pellets).toBe(11)
-    expect(shotgun.minFalloffDamage).toBeLessThan(0.1)
+    expect(shotgun.minFalloffDamage).toBe(1)
     expect(shotgun.falloffEnd).toBeGreaterThan(shotgun.falloffStart)
-    expect(shotgun.falloffEnd).toBeLessThanOrEqual(340)
+    expect(shotgun.falloffStart).toBeGreaterThan(9000)
   })
 
   it('makes higher rarities visually louder as well as stronger', () => {

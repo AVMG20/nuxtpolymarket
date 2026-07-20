@@ -1,4 +1,5 @@
 import {
+    SHAPEZZ_COIN_PAYOUT_SCALE,
     SHAPEZZ_CHECKPOINT_MS,
     SHAPEZZ_COMBAT_LIMITS,
     SHAPEZZ_RUN_UPGRADES,
@@ -467,7 +468,7 @@ export class ShapezzEngine {
             maxHp: config.hp * healthMultiplier * pressure.health,
             damage: config.damage * difficulty.enemyDamage * (1 + minutes * 0.1) * pressure.damage,
             speed: config.speed * difficulty.enemySpeed,
-            reward: Math.round(config.reward * difficulty.reward * pressure.reward * (1 + minutes * 0.04)),
+            reward: Math.round(config.reward * SHAPEZZ_COIN_PAYOUT_SCALE * difficulty.reward * pressure.reward * (1 + minutes * 0.04)),
             color: config.color,
             fireCooldown: randomBetween(0.3, 1.4), contactCooldown: 0,
             phase: Math.random() * Math.PI * 2,

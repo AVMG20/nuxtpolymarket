@@ -1,4 +1,8 @@
 export const SHAPEZZ_CHECKPOINT_MS = 45_000
+// SHAPEZZ used to pay its raw arcade-score values as coins, leaving a clean
+// six-minute run far behind a completed Pirate voyage. Keep score tuning
+// readable in the engine and convert it into the shared game economy here.
+export const SHAPEZZ_COIN_PAYOUT_SCALE = 10
 export const SHAPEZZ_MAX_PERMANENT_LEVEL = 20
 export const SHAPEZZ_MAX_KILL_HEAL_LEVEL = 4
 export const SHAPEZZ_WEAPON_REFUND_RATE = 0.25
@@ -128,8 +132,8 @@ const WEAPON_TYPE_META: Record<ShapezzWeaponType, {
         prices: { common: 12_000, rare: 75_000, epic: 800_000, legendary: 8_000_000, mythic: 50_000_000 }
     },
     shotgun: {
-        name: 'Scatter Array', description: 'A violent wall of pellets. Devastating up close, rapidly weaker at range.', icon: 'i-lucide-chevrons-right',
-        damage: 0.34, fireRate: 0.46, speed: 0.9, size: 0.74, pellets: 7, spread: 0.3, explosionRadius: 0, falloffStart: 80, falloffEnd: 340, minFalloffDamage: 0.05,
+        name: 'Scatter Array', description: 'A violent wall of full-power pellets. Devastating when you land the whole spread.', icon: 'i-lucide-chevrons-right',
+        damage: 0.34, fireRate: 0.46, speed: 0.9, size: 0.74, pellets: 7, spread: 0.3, explosionRadius: 0, falloffStart: 9999, falloffEnd: 10_000, minFalloffDamage: 1,
         prices: { common: 8_000, rare: 50_000, epic: 600_000, legendary: 6_000_000, mythic: 45_000_000 }
     }
 }
@@ -301,10 +305,12 @@ export function shapezzEnemyHealthMultiplier(elapsedMs: number, difficultyId: Sh
  */
 export function shapezzMaxPayoutForRun(elapsedMs: number, difficultyId: ShapezzDifficultyId) {
     const seconds = Math.max(0, Math.min(elapsedMs, 24 * 60 * 60 * 1000)) / 1000
-    const minutes = seconds / 60
     const difficulty = shapezzDifficulty(difficultyId)
-    const checkpointReward = shapezzCheckpointPressure(shapezzCheckpointCount(elapsedMs)).reward
-    return Math.floor(seconds * 55 * difficulty.reward * checkpointReward * (1 + minutes * 0.17))
+    const checkpoints = shapezzCheckpointCount(elapsedMs)
+    // Surge tracks Pirate's baseline anti-cheat ceiling per minute. Later
+    // checkpoints add modest headroom for denser waves without turning the
+    // cap itself into a much larger economy than Pirate Raid.
+    return Math.floor(seconds * 400 * difficulty.reward * (1 + checkpoints * 0.04))
 }
 
 /** Arena recharge after a settled run (cashout or defeat) — abandoned runs never trigger it. */
