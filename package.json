@@ -12,7 +12,9 @@
     "lint": "eslint .",
     "typecheck": "nuxt typecheck",
     "test": "vitest run",
-    "test:integration": "vitest run --reporter=verbose"
+    "test:integration": "vitest run --reporter=verbose",
+    "balance:xeno": "bun scripts/xeno-income.ts",
+    "balance:colony": "bun scripts/colony-income.ts"
   },
   "dependencies": {
     "@elevenlabs/elevenlabs-js": "^2.57.0",

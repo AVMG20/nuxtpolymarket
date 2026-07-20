@@ -30,9 +30,11 @@ const TIER_LABELS: Record<number, string> = {
   5: 'Cosmic Tier',
   6: 'Ethereal Tier',
   7: 'Singularity Tier',
+  8: 'Transcendent Tier',
+  9: 'Omega Tier',
 }
 
-const tiers = computed(() => [1, 2, 3, 4, 5, 6, 7].map(t => ({
+const tiers = computed(() => [...new Set(PLANT_TYPES.map(plant => plant.tier))].sort((a, b) => a - b).map(t => ({
   tier: t,
   label: TIER_LABELS[t],
   plants: PLANT_TYPES.filter(p => p.tier === t),

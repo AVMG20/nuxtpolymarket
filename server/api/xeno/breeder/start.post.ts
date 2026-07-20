@@ -2,8 +2,8 @@ import { eq, and, or, isNull } from 'drizzle-orm'
 import { db } from '#server/database'
 import { xenoBreederSlots, xenoArtifacts } from '#server/database/schema'
 import { requireUserId } from '#server/utils/auth'
-import { computeBreedResult, consumePlantsByStack } from '#server/utils/xeno'
-import { getPlantOrThrow, getArtifact, getEffectValueFor, isHybrid } from '#shared/utils/xeno'
+import { computeBreedResult, consumePlantsByStack, getXenoUpgradeLevels } from '#server/utils/xeno'
+import { getPlantOrThrow, getArtifact, getEffectValueFor, isHybrid, xenoMutationBoost, xenoYieldBonus } from '#shared/utils/xeno'
 
 export default defineEventHandler(async (event) => {
   const body = await readBody<{
@@ -32,6 +32,7 @@ export default defineEventHandler(async (event) => {
 
   let mutationBoost = 0
   let extraYield = 0
+  const upgrades = await getXenoUpgradeLevels(userId)
   if (slot.artifactId) {
     const art = await db.query.xenoArtifacts.findFirst({ where: eq(xenoArtifacts.id, slot.artifactId) })
     if (art) {
@@ -42,6 +43,8 @@ export default defineEventHandler(async (event) => {
       }
     }
   }
+  mutationBoost += xenoMutationBoost(upgrades.mutation)
+  extraYield += xenoYieldBonus(upgrades.yield)
 
   const result = computeBreedResult(
     { typeId: body.plant1TypeId, speed: body.plant1Speed, yield: body.plant1Yield },

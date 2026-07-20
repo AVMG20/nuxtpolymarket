@@ -30,6 +30,7 @@ export const useXeno = () => {
   const freeArtifacts = computed(() => state.value?.freeArtifacts ?? [])
   const unlockedTypeIds = computed<string[]>(() => state.value?.unlockedTypeIds ?? [])
   const highestTier = computed<number>(() => state.value?.highestTier ?? 0)
+  const upgrades = computed(() => state.value?.upgrades ?? { mutation: 0, yield: 0, speed: 0 })
   const hybrids = computed(() => state.value?.hybrids ?? { unlocked: false, unlockTier: 4, tier: 0, costGems: 0, nextTier: 4, nextTierProgress: null })
 
   const { fetchSession } = useAuth()
@@ -151,6 +152,12 @@ export const useXeno = () => {
     }
   }
 
+  async function buyUpgrade(upgradeId: 'mutation' | 'yield' | 'speed') {
+    const res = await call('/api/xeno/upgrades/buy', { upgradeId }, 'Global upgrade purchased!')
+    await fetchSession()
+    return res
+  }
+
   return {
     state,
     refresh,
@@ -163,6 +170,7 @@ export const useXeno = () => {
     freeArtifacts,
     unlockedTypeIds,
     highestTier,
+    upgrades,
     hybrids,
     initGame,
     unlockGridSlot,
@@ -183,5 +191,6 @@ export const useXeno = () => {
     rollHybrid,
     buyArtifact,
     deleteArtifacts,
+    buyUpgrade,
   }
 }

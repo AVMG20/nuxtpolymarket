@@ -1,14 +1,25 @@
 <script setup lang="ts">
-import { tierNameColor, tierBg, getPlantDisplay, effectiveGrowTime, plantBuyPrice, PLANT_TYPES } from '#shared/utils/xeno'
+import { tierNameColor, tierBg, getPlantDisplay, effectiveGrowTime, plantBuyPrice, PLANT_TYPES, XENO_UPGRADE_TRACKS, xenoUpgradeCost } from '#shared/utils/xeno'
 import { formatDuration } from '~/lib/xeno-format'
 
 const { user } = useAuth()
 const balance = computed(() => parseFloat(user.value?.balance ?? '0'))
 const gems = computed(() => user.value?.gems ?? 0)
 
-const { inventory, sellPlants, unlockedTypeIds, buyPlants, hybrids, rollHybrid } = useXeno()
+const { inventory, sellPlants, unlockedTypeIds, buyPlants, hybrids, rollHybrid, upgrades, buyUpgrade } = useXeno()
 
-const activeTab = ref<'sell' | 'buy' | 'hybrids'>('sell')
+const activeTab = ref<'sell' | 'buy' | 'hybrids' | 'upgrades'>('sell')
+const buyingUpgrade = ref<string | null>(null)
+
+function upgradeLevel(id: 'mutation' | 'yield' | 'speed'): number {
+  return upgrades.value[id]
+}
+
+async function doBuyUpgrade(id: 'mutation' | 'yield' | 'speed') {
+  buyingUpgrade.value = id
+  try { await buyUpgrade(id) }
+  finally { buyingUpgrade.value = null }
+}
 
 // ── Hybrid gamble state ──────────────────────────────────────────────────────
 const rolling = ref(false)
@@ -170,6 +181,13 @@ function growTime(item: any) {
         Sell
       </button>
       <button
+        class="px-5 py-2.5 text-sm font-semibold transition-all duration-100 flex items-center gap-1.5"
+        :class="activeTab === 'upgrades' ? 'text-primary border-b-2 border-primary' : 'text-muted hover:text-default'"
+        @click="activeTab = 'upgrades'"
+      >
+        <UIcon name="i-lucide-chart-no-axes-combined" class="size-4" /> Upgrades
+      </button>
+      <button
         class="px-5 py-2.5 text-sm font-semibold transition-all duration-100"
         :class="activeTab === 'buy' ? 'text-primary border-b-2 border-primary' : 'text-muted hover:text-default'"
         @click="activeTab = 'buy'"
@@ -187,7 +205,7 @@ function growTime(item: any) {
     </div>
 
     <!-- Filters -->
-    <div v-if="activeTab !== 'hybrids'" class="flex gap-2 mb-4">
+    <div v-if="activeTab === 'sell' || activeTab === 'buy'" class="flex gap-2 mb-4">
       <UInput
         v-model="searchQuery"
         placeholder="Search plants…"
@@ -206,6 +224,8 @@ function growTime(item: any) {
           { label: 'T5', value: 5 },
           { label: 'T6', value: 6 },
           { label: 'T7', value: 7 },
+          { label: 'T8', value: 8 },
+          { label: 'T9', value: 9 },
         ]"
         size="sm"
         class="w-28"
@@ -424,7 +444,7 @@ function growTime(item: any) {
     </div>
 
     <!-- ── HYBRIDS TAB ── -->
-    <div v-else>
+    <div v-else-if="activeTab === 'hybrids'">
       <!-- Locked -->
       <div v-if="!hybrids.unlocked" class="flex flex-col items-center justify-center py-16 gap-4 text-center">
         <div class="text-5xl opacity-60">🧬</div>
@@ -559,6 +579,59 @@ function growTime(item: any) {
               <span v-if="roll.isHybrid" class="text-[10px] mr-0.5">🧬</span>
               <XenoPlantIcon v-for="r in roll.resources" :key="r.id" :id="r.id" :size="18" :title="`${r.name} · S${r.speed} Y${r.yield}`" />
             </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── GLOBAL UPGRADES TAB ── -->
+    <div v-else class="space-y-3">
+      <UAlert
+        color="primary"
+        variant="soft"
+        icon="i-lucide-orbit"
+        title="Account-wide cultivation upgrades"
+        description="Permanent bonuses apply to every grid slot and breeder. Speed reduces both grow and mutation-cycle time."
+      />
+      <div
+        v-for="track in XENO_UPGRADE_TRACKS"
+        :key="track.id"
+        class="rounded-xl border border-default bg-elevated/40 p-4"
+      >
+        <div class="flex items-center gap-4">
+          <div class="size-11 rounded-xl border border-primary/30 bg-primary/10 flex items-center justify-center shrink-0">
+            <UIcon :name="track.icon" class="size-5 text-primary" />
+          </div>
+          <div class="flex-1 min-w-0">
+            <div class="flex items-center justify-between gap-3">
+              <p class="font-bold">{{ track.name }}</p>
+              <span class="text-xs font-black tabular-nums text-primary">LV {{ upgradeLevel(track.id) }} / {{ track.maxLevel }}</span>
+            </div>
+            <p class="text-xs text-muted mt-0.5">{{ track.description }}</p>
+            <div class="flex items-center gap-1 mt-2">
+              <span
+                v-for="level in track.maxLevel"
+                :key="level"
+                class="h-1.5 flex-1 rounded-full"
+                :class="level <= upgradeLevel(track.id) ? 'bg-primary' : 'bg-muted/20'"
+              />
+            </div>
+            <p class="text-xs font-semibold text-default mt-2">{{ track.effectLabel(upgradeLevel(track.id)) }}</p>
+          </div>
+          <div class="text-right shrink-0">
+            <template v-if="xenoUpgradeCost(track.id, upgradeLevel(track.id)) !== null">
+              <CoinBalance :value="xenoUpgradeCost(track.id, upgradeLevel(track.id))!" :compact="false" class="text-sm font-bold" />
+              <UButton
+                class="mt-2"
+                size="sm"
+                color="primary"
+                label="Upgrade"
+                :loading="buyingUpgrade === track.id"
+                :disabled="balance < xenoUpgradeCost(track.id, upgradeLevel(track.id))!"
+                @click="doBuyUpgrade(track.id)"
+              />
+            </template>
+            <UBadge v-else color="success" variant="soft" label="MAX" />
           </div>
         </div>
       </div>

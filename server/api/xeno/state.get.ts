@@ -2,7 +2,7 @@ import { eq } from 'drizzle-orm'
 import { db } from '#server/database'
 import { xenoPlants, xenoPlantsUnlocked, xenoArtifacts, xenoGridSlots, xenoBreederSlots } from '#server/database/schema'
 import { requireUserId } from '#server/utils/auth'
-import { computeGridDuration, computeBreedDuration } from '#server/utils/xeno'
+import { computeGridDuration, computeBreedDuration, getXenoUpgradeLevels } from '#server/utils/xeno'
 import {
   getPlant, getPlantDisplay, isHybrid, hybridGemCost,
   hybridTierFromUnlocked, tierUnlockProgress, HYBRID_UNLOCK_TIER, XENO_MAX_TIER,
@@ -12,12 +12,13 @@ import {
 export default defineEventHandler(async (event) => {
   const userId = await requireUserId(event)
 
-  const [plants, artifacts, gridSlots, breederSlots, unlockedRows] = await Promise.all([
+  const [plants, artifacts, gridSlots, breederSlots, unlockedRows, upgrades] = await Promise.all([
     db.query.xenoPlants.findMany({ where: eq(xenoPlants.userId, userId) }),
     db.query.xenoArtifacts.findMany({ where: eq(xenoArtifacts.userId, userId) }),
     db.query.xenoGridSlots.findMany({ where: eq(xenoGridSlots.userId, userId) }),
     db.query.xenoBreederSlots.findMany({ where: eq(xenoBreederSlots.userId, userId) }),
     db.query.xenoPlantsUnlocked.findMany({ where: eq(xenoPlantsUnlocked.userId, userId) }),
+    getXenoUpgradeLevels(userId),
   ])
 
   // Permanent unlock set — drives the market, encyclopedia and hybrid vendor so
@@ -57,6 +58,7 @@ export default defineEventHandler(async (event) => {
         { typeId: plantInstance.typeId, speed: plantInstance.speed },
         attachedArt?.typeId ?? null,
         attachedArt?.gemCrafted ?? false,
+        upgrades.speed,
       )
       plant = {
         id: plantInstance.id,
@@ -95,6 +97,7 @@ export default defineEventHandler(async (event) => {
         { typeId: slot.plant2TypeId, speed: slot.plant2Speed },
         attachedArt?.typeId ?? null,
         attachedArt?.gemCrafted ?? false,
+        upgrades.speed,
       )
       completesAt = new Date(slot.startedAt.getTime() + durationSecs * 1000).toISOString()
     }
@@ -136,6 +139,7 @@ export default defineEventHandler(async (event) => {
     initialized,
     inventory,
     highestTier,
+    upgrades,
     hybrids: {
       unlocked: hybridUnlocked,
       unlockTier: HYBRID_UNLOCK_TIER,

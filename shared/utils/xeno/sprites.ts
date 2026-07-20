@@ -105,6 +105,20 @@ export const PLANT_SPRITES: Record<string, PlantSprite> = {
   'quantum-bloom': { sheet: 2, col: 3, row: 2 },
   starcore:        { sheet: 2, col: 7, row: 2 },
   singularity:     { sheet: 2, col: 1, row: 2 },
+
+  // ── T8 — Transcendent (sheet 2, row 3) ──
+  'solar-needle':   { sheet: 2, col: 0, row: 3 },
+  'nebula-root':    { sheet: 2, col: 2, row: 3 },
+  'eventide-bloom': { sheet: 2, col: 4, row: 3 },
+  'gravity-vine':   { sheet: 2, col: 6, row: 3 },
+  'void-orchid':    { sheet: 2, col: 8, row: 3 },
+
+  // ── T9 — Omega (sheet 2, row 4) ──
+  chronofrond:      { sheet: 2, col: 0, row: 4 },
+  'darkmatter-pod': { sheet: 2, col: 2, row: 4 },
+  'galaxy-bloom':   { sheet: 2, col: 4, row: 4 },
+  'reality-thorn':  { sheet: 2, col: 6, row: 4 },
+  'omega-core':     { sheet: 2, col: 8, row: 4 },
 }
 
 /**

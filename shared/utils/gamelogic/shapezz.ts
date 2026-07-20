@@ -2,7 +2,7 @@ export const SHAPEZZ_CHECKPOINT_MS = 45_000
 // SHAPEZZ used to pay its raw arcade-score values as coins, leaving a clean
 // six-minute run far behind a completed Pirate voyage. Keep score tuning
 // readable in the engine and convert it into the shared game economy here.
-export const SHAPEZZ_COIN_PAYOUT_SCALE = 10
+export const SHAPEZZ_COIN_PAYOUT_SCALE = 25
 export const SHAPEZZ_MAX_PERMANENT_LEVEL = 20
 export const SHAPEZZ_MAX_KILL_HEAL_LEVEL = 4
 export const SHAPEZZ_WEAPON_REFUND_RATE = 0.25
@@ -307,10 +307,9 @@ export function shapezzMaxPayoutForRun(elapsedMs: number, difficultyId: ShapezzD
     const seconds = Math.max(0, Math.min(elapsedMs, 24 * 60 * 60 * 1000)) / 1000
     const difficulty = shapezzDifficulty(difficultyId)
     const checkpoints = shapezzCheckpointCount(elapsedMs)
-    // Surge tracks Pirate's baseline anti-cheat ceiling per minute. Later
-    // checkpoints add modest headroom for denser waves without turning the
-    // cap itself into a much larger economy than Pirate Raid.
-    return Math.floor(seconds * 400 * difficulty.reward * (1 + checkpoints * 0.04))
+    // Keep server settlement aligned with the boosted client-side coin drops.
+    // Later checkpoints add modest headroom for increasingly dense waves.
+    return Math.floor(seconds * 1000 * difficulty.reward * (1 + checkpoints * 0.04))
 }
 
 /** Arena recharge after a settled run (cashout or defeat) — abandoned runs never trigger it. */

@@ -1,5 +1,5 @@
 /** Global display maximum for any stat level (speed, yield, charges, etc.) */
-export const XENO_MAX_STAT_LEVEL = 7
+export const XENO_MAX_STAT_LEVEL = 9
 
 /** % time reduced per speed level (10% off base time per point) */
 export const SPEED_REDUCTION_PER_LEVEL = 0.10
@@ -18,6 +18,7 @@ export function tierColor(tier: number): string {
     6: 'text-red-600 dark:text-red-400',
     7: 'text-pink-600 dark:text-pink-400',
     8: 'text-cyan-600 dark:text-cyan-400',
+    9: 'text-primary',
   }
   return map[tier] ?? 'text-muted'
 }
@@ -32,6 +33,7 @@ export function tierBg(tier: number): string {
     6: 'bg-red-50 border-red-200 dark:bg-red-400/5 dark:border-red-400/15',
     7: 'bg-pink-50 border-pink-200 dark:bg-pink-400/5 dark:border-pink-400/15',
     8: 'bg-cyan-50 border-cyan-200 dark:bg-cyan-400/5 dark:border-cyan-400/15',
+    9: 'bg-primary/5 border-primary/20',
   }
   return map[tier] ?? 'bg-elevated border-default'
 }
@@ -50,6 +52,8 @@ export function tierNameColor(tier: number): string {
     5: 'text-orange-400',
     6: 'text-red-400',
     7: 'text-pink-400',
+    8: 'text-cyan-400',
+    9: 'text-primary',
   }
   return map[tier] ?? 'text-muted'
 }
@@ -71,4 +75,3 @@ export function levelTextColor(level: number): string {
   }
   return map[level] ?? 'text-gray-400'
 }
-

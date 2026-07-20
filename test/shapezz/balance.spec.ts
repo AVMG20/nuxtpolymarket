@@ -51,18 +51,18 @@ describe('SHAPEZZ checkpoint pacing', () => {
   })
 
   it('gives a first cashout meaningful value while high difficulties pay several times more', () => {
-    // A first cashout has enough headroom for the 10x drop conversion.
-    expect(SHAPEZZ_COIN_PAYOUT_SCALE).toBe(10)
-    expect(shapezzMaxPayoutForRun(45_000, 'surge')).toBeGreaterThan(18_000)
-    expect(shapezzMaxPayoutForRun(45_000, 'surge')).toBeLessThan(20_000)
+    // A first cashout has enough headroom for the 25x drop conversion.
+    expect(SHAPEZZ_COIN_PAYOUT_SCALE).toBe(25)
+    expect(shapezzMaxPayoutForRun(45_000, 'surge')).toBeGreaterThan(46_000)
+    expect(shapezzMaxPayoutForRun(45_000, 'surge')).toBeLessThan(48_000)
     expect(shapezzMaxPayoutForRun(45_000, 'annihilation')).toBeGreaterThan(shapezzMaxPayoutForRun(45_000, 'surge') * 4)
   })
 
-  it('keeps a six-minute Surge ceiling close to Pirate while preserving high-difficulty upside', () => {
-    expect(shapezzMaxPayoutForRun(6 * 60_000, 'surge')).toBeGreaterThan(180_000)
-    expect(shapezzMaxPayoutForRun(6 * 60_000, 'surge')).toBeLessThan(200_000)
-    expect(shapezzMaxPayoutForRun(10 * 60_000, 'annihilation')).toBeGreaterThan(2_000_000)
-    expect(shapezzMaxPayoutForRun(10 * 60_000, 'annihilation')).toBeLessThan(2_500_000)
+  it('gives risky long runs substantially more upside than guaranteed-payout games', () => {
+    expect(shapezzMaxPayoutForRun(6 * 60_000, 'surge')).toBeGreaterThan(450_000)
+    expect(shapezzMaxPayoutForRun(6 * 60_000, 'surge')).toBeLessThan(500_000)
+    expect(shapezzMaxPayoutForRun(10 * 60_000, 'annihilation')).toBeGreaterThan(5_000_000)
+    expect(shapezzMaxPayoutForRun(10 * 60_000, 'annihilation')).toBeLessThan(6_250_000)
     // Lower difficulties stay an order of magnitude below the top end.
     expect(shapezzMaxPayoutForRun(10 * 60_000, 'surge')).toBeLessThan(shapezzMaxPayoutForRun(10 * 60_000, 'annihilation') / 4)
   })
