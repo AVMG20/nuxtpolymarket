@@ -469,7 +469,7 @@ onUnmounted(() => {
                 <p class="mt-1 text-sm text-muted">The shapes are regrouping after your last run. Next run in <span class="font-black tabular-nums text-highlighted">{{ cooldownLabel }}</span>.</p>
               </div>
               <UButton v-else class="mt-5 w-full justify-center" size="xl" icon="i-lucide-play" label="START THE VIOLENCE" :loading="starting" @click="startRun" />
-              <p class="mt-3 text-center text-xs text-muted">Move: WASD / arrows · Jump: W / Space · Aim: mouse · Fire: hold left click</p>
+              <p class="mt-3 text-center text-xs text-muted">Move: WASD / arrows · Jump: W / Space · Drop: S / Down · Aim: mouse · Fire: hold left click</p>
             </UCard>
           </div>
         </div>

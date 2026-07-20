@@ -162,6 +162,7 @@ export class ShapezzEngine {
     private keys = new Set<string>()
     private aim = { x: WIDTH * 0.75, y: HEIGHT * 0.45 }
     private firing = false
+    private dropThroughTimer = 0
     private running = false
     private paused = false
     private checkpointOpen = false
@@ -210,6 +211,7 @@ export class ShapezzEngine {
         this.keys.add(key)
         if (key === 'p' || key === 'escape') this.togglePause()
         if ((key === ' ' || key === 'w' || key === 'arrowup') && this.running && !this.paused && this.player.onGround) this.jump()
+        if ((key === 's' || key === 'arrowdown') && this.running && !this.paused && this.player.onGround) this.dropThroughPlatform()
     }
 
     private keyup = (event: KeyboardEvent) => {
@@ -382,6 +384,7 @@ export class ShapezzEngine {
     private updatePlayer(dt: number) {
         const left = this.keys.has('a') || this.keys.has('arrowleft')
         const right = this.keys.has('d') || this.keys.has('arrowright')
+        this.dropThroughTimer = Math.max(0, this.dropThroughTimer - dt)
         const targetVx = (Number(right) - Number(left)) * this.stats.moveSpeed
         const acceleration = this.player.onGround ? 16 : 8
         this.player.vx += (targetVx - this.player.vx) * Math.min(1, dt * acceleration)
@@ -395,6 +398,7 @@ export class ShapezzEngine {
 
         const bottom = this.player.y + this.player.size / 2
         for (const platform of this.platforms) {
+            if (this.dropThroughTimer > 0 && platform.y < FLOOR_Y) continue
             const withinX = this.player.x + this.player.size * 0.35 > platform.x && this.player.x - this.player.size * 0.35 < platform.x + platform.width
             if (withinX && this.player.vy >= 0 && previousBottom <= platform.y + 4 && bottom >= platform.y) {
                 this.player.y = platform.y - this.player.size / 2
@@ -424,6 +428,20 @@ export class ShapezzEngine {
         for (let i = 0; i < stacks && this.turrets.length < SHAPEZZ_COMBAT_LIMITS.turrets; i++) {
             this.turrets.push({ x: this.player.x + (i - (stacks - 1) / 2) * 18, y: this.player.y + 14, life: 5.5, fireCooldown: i * 0.09, angle: 0 })
         }
+    }
+
+    private dropThroughPlatform() {
+        const feet = this.player.y + this.player.size / 2
+        const onElevatedPlatform = this.platforms.some(platform => {
+            const withinX = this.player.x + this.player.size * 0.35 > platform.x && this.player.x - this.player.size * 0.35 < platform.x + platform.width
+            return platform.y < FLOOR_Y && withinX && Math.abs(feet - platform.y) <= 4
+        })
+        if (!onElevatedPlatform) return
+
+        this.dropThroughTimer = 0.2
+        this.player.onGround = false
+        this.player.vy = Math.max(this.player.vy, 120)
+        this.player.y += 5
     }
 
     private updateSpawning(dt: number) {
