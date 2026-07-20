@@ -1,5 +1,3 @@
-import { randomFloat } from '../random'
-
 export type XenoUpgradeId = 'mutation' | 'yield' | 'speed'
 
 export interface XenoUpgradeLevels {
@@ -38,10 +36,10 @@ export const XENO_UPGRADE_TRACKS: XenoUpgradeTrack[] = [
         id: 'yield',
         name: 'Xenoflora Abundance',
         icon: 'i-lucide-sprout',
-        description: 'Adds a random yield bonus from 1 up to the upgrade level to every grid harvest.',
+        description: 'Adds the upgrade level as a fixed bonus on top of every grid harvest.',
         maxLevel: XENO_UPGRADE_MAX_LEVEL,
         costs: [5_000_000, 20_000_000, 75_000_000, 250_000_000, 1_000_000_000, 5_000_000_000, 20_000_000_000, 75_000_000_000, 200_000_000_000, 500_000_000_000],
-        effectLabel: level => level > 0 ? `+1–${level} plants per grid harvest` : 'No yield bonus'
+        effectLabel: level => `+${level} plants per grid harvest`
     },
     {
         id: 'speed',
@@ -68,19 +66,8 @@ export function xenoMutationBoost(level: number): number {
     return Math.min(XENO_UPGRADE_MAX_LEVEL, Math.max(0, level)) * XENO_MUTATION_PER_LEVEL
 }
 
-export function xenoYieldBonusMax(level: number): number {
+export function xenoYieldBonus(level: number): number {
     return Math.min(XENO_UPGRADE_MAX_LEVEL, Math.max(0, level)) * XENO_YIELD_PER_LEVEL
-}
-
-export function averageXenoYieldBonus(level: number): number {
-    const max = xenoYieldBonusMax(level)
-    return max > 0 ? (1 + max) / 2 : 0
-}
-
-/** Roll the global yield upgrade: level 0 adds nothing; level N adds 1..N plants. */
-export function rollXenoYieldBonus(level: number): number {
-    const max = xenoYieldBonusMax(level)
-    return max > 0 ? 1 + Math.floor(randomFloat() * max) : 0
 }
 
 export function xenoSpeedBoost(level: number): number {

@@ -4,12 +4,12 @@ import {
     effectiveGrowTime,
     getEffectValueFor,
     xenoSpeedBoost,
-    averageXenoYieldBonus
+    xenoYieldBonus
 } from '../shared/utils/xeno'
 
 function hourlyIncome(plant: typeof PLANT_TYPES[number], speedLevel: number, yieldLevel: number): number {
     const growSeconds = effectiveGrowTime(plant) * (1 - xenoSpeedBoost(speedLevel))
-    const averageHarvest = 1 + plant.yield / 2 + averageXenoYieldBonus(yieldLevel)
+    const averageHarvest = 1 + plant.yield / 2 + xenoYieldBonus(yieldLevel)
     return plant.value * averageHarvest * (3600 / growSeconds)
 }
 
@@ -19,7 +19,7 @@ function bestArtifactIncome(plant: typeof PLANT_TYPES[number]): number {
         const artifactSpeed = getEffectValueFor(artifact, 'grid_speed_boost', true)
         const artifactYield = getEffectValueFor(artifact, 'grid_yield_bonus', true)
         const growSeconds = effectiveGrowTime(plant) * (1 - xenoSpeedBoost(10)) * (1 - artifactSpeed)
-        const averageHarvest = 1 + plant.yield / 2 + averageXenoYieldBonus(10) + artifactYield
+        const averageHarvest = 1 + plant.yield / 2 + xenoYieldBonus(10) + artifactYield
         return plant.value * averageHarvest * (3600 / growSeconds)
     }))
 }
