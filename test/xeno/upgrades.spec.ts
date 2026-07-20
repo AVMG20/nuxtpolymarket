@@ -1,22 +1,38 @@
 import { describe, expect, it } from 'vitest'
+import { stubRandomFloat } from '../setup/stub-random'
 import {
     ARTIFACT_TYPES,
     PLANT_TYPES,
     XENO_UPGRADE_TRACKS,
+    averageXenoYieldBonus,
     getEffectValue,
     getPlantOrThrow,
+    rollXenoYieldBonus,
     xenoMutationBoost,
     xenoSpeedBoost,
     xenoUpgradeCost,
-    xenoYieldBonus
+    xenoYieldBonusMax
 } from '../../shared/utils/xeno'
 
 describe('XENO global upgrades', () => {
     it('caps the three global tracks at their intended bonuses', () => {
         expect(xenoMutationBoost(10)).toBe(0.10)
-        expect(xenoYieldBonus(10)).toBe(10)
+        expect(xenoYieldBonusMax(10)).toBe(10)
+        expect(averageXenoYieldBonus(10)).toBe(5.5)
         expect(xenoSpeedBoost(10)).toBe(0.50)
         expect(XENO_UPGRADE_TRACKS.every(track => track.maxLevel === 10)).toBe(true)
+    })
+
+    it('rolls the global yield bonus from one through the purchased level', () => {
+        expect(rollXenoYieldBonus(0)).toBe(0)
+
+        const minimumRoll = stubRandomFloat(() => 0)
+        expect(rollXenoYieldBonus(10)).toBe(1)
+        minimumRoll.mockRestore()
+
+        const maximumRoll = stubRandomFloat(() => 0.999999)
+        expect(rollXenoYieldBonus(10)).toBe(10)
+        maximumRoll.mockRestore()
     })
 
     it('makes the final yield level cost 500 billion', () => {

@@ -6,7 +6,7 @@ import { addPlants, computeGridDuration, consumeArtifactCharge, getXenoUpgradeLe
 import {
   getArtifact, getEffectValueFor, rollYield,
   isHybrid, parseHybridResources, getPlant, getPlantDisplay,
-  xenoYieldBonus,
+  rollXenoYieldBonus,
 } from '#shared/utils/xeno'
 
 export default defineEventHandler(async (event) => {
@@ -59,7 +59,7 @@ export default defineEventHandler(async (event) => {
     for (const r of parseHybridResources(plantInstance.typeId)) {
       const base = getPlant(r.id)
       if (!base) continue
-      const qty = rollYield(r.yield) + artifactYieldBonus + xenoYieldBonus(upgrades.yield)
+      const qty = rollYield(r.yield) + artifactYieldBonus + rollXenoYieldBonus(upgrades.yield)
       await addPlants(userId, base.id, r.speed, r.yield, qty)
       drops.push({ id: base.id, emoji: base.emoji, name: base.name, count: qty })
       harvested += qty
@@ -69,7 +69,7 @@ export default defineEventHandler(async (event) => {
     await addPlants(userId, plantInstance.typeId, plantInstance.speed, plantInstance.yield, regrow)
     drops.push({ id: plantInstance.typeId, emoji: '🧬', name: 'Hybrid', count: regrow, isHybrid: true })
   } else {
-    harvested = rollYield(plantInstance.yield) + artifactYieldBonus + xenoYieldBonus(upgrades.yield)
+    harvested = rollYield(plantInstance.yield) + artifactYieldBonus + rollXenoYieldBonus(upgrades.yield)
     await addPlants(userId, plantInstance.typeId, plantInstance.speed, plantInstance.yield, harvested)
     drops.push({ id: plantInstance.typeId, emoji: display.emoji, name: display.name, count: harvested })
   }

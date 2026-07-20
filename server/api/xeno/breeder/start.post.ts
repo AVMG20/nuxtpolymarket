@@ -3,7 +3,7 @@ import { db } from '#server/database'
 import { xenoBreederSlots, xenoArtifacts } from '#server/database/schema'
 import { requireUserId } from '#server/utils/auth'
 import { computeBreedResult, consumePlantsByStack, getXenoUpgradeLevels } from '#server/utils/xeno'
-import { getPlantOrThrow, getArtifact, getEffectValueFor, isHybrid, xenoMutationBoost, xenoYieldBonus } from '#shared/utils/xeno'
+import { getPlantOrThrow, getArtifact, getEffectValueFor, isHybrid, xenoMutationBoost } from '#shared/utils/xeno'
 
 export default defineEventHandler(async (event) => {
   const body = await readBody<{
@@ -44,8 +44,6 @@ export default defineEventHandler(async (event) => {
     }
   }
   mutationBoost += xenoMutationBoost(upgrades.mutation)
-  extraYield += xenoYieldBonus(upgrades.yield)
-
   const result = computeBreedResult(
     { typeId: body.plant1TypeId, speed: body.plant1Speed, yield: body.plant1Yield },
     { typeId: body.plant2TypeId, speed: body.plant2Speed, yield: body.plant2Yield },

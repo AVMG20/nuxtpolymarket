@@ -2,7 +2,7 @@
 import {
   tierLabel, tierColor, tierNameColor, levelTextColor, getPlant, getArtifact, getEffectValueFor,
   getMutationPair, breedDuration,
-  xenoMutationBoost, xenoYieldBonus,
+  xenoMutationBoost,
 } from '#shared/utils/xeno'
 import { formatCountdown, progressPct, isDone, formatDuration } from '~/lib/xeno-format'
 
@@ -138,10 +138,9 @@ function effectiveMutationChance(slot: any, mutation: { chance: number }): numbe
 }
 
 function slotExtraYield(slot: any): number {
-  const globalYield = xenoYieldBonus(upgrades.value.yield)
-  if (!slot.artifact) return globalYield
+  if (!slot.artifact) return 0
   const art = getArtifact(slot.artifact.typeId)
-  return globalYield + (art ? getEffectValueFor(art, 'breeder_extra_yield', slot.artifact.gemCrafted) : 0)
+  return art ? getEffectValueFor(art, 'breeder_extra_yield', slot.artifact.gemCrafted) : 0
 }
 
 // ── Actions ───────────────────────────────────────────────────────────────────
