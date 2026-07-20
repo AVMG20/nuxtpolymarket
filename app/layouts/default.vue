@@ -118,21 +118,16 @@ function setNeutral(color: string) {
     >
       <!-- Header -->
       <template #header="{ state, close }">
-        <div
-          class="flex flex-1 min-w-0 items-start gap-2"
+        <UIcon
+          class="size-5 shrink-0 text-primary"
+          name="i-lucide-gamepad-2"
+        />
+        <span
+          v-if="state !== 'collapsed'"
+          class="flex-1 truncate text-lg font-bold text-primary"
         >
-          <UIcon
-            class="size-5 shrink-0 text-primary mt-1"
-            name="i-lucide-gamepad-2"
-          />
-          <div
-            v-if="state !== 'collapsed'"
-            class="flex min-w-0 flex-col leading-tight"
-          >
-            <span class="font-bold text-lg text-primary truncate">Polynux</span>
-            <span class="text-xs text-muted">{{ siteVersion }}</span>
-          </div>
-        </div>
+          Polynux
+        </span>
         <!-- Mobile close -->
         <UButton
           class="lg:hidden shrink-0"
@@ -366,6 +361,19 @@ function setNeutral(color: string) {
             </div>
           </template>
         </UPopover>
+
+        <p
+          v-if="state !== 'collapsed'"
+          class="px-2 text-xs text-muted"
+        >
+          {{ siteVersion }}
+        </p>
+        <UIcon
+          v-else
+          :title="siteVersion"
+          class="mx-auto size-3.5 text-muted"
+          name="i-lucide-git-commit-horizontal"
+        />
       </template>
     </USidebar>
 
