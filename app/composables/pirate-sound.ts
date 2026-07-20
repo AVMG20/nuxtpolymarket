@@ -66,6 +66,7 @@ const SOUND_COOLDOWNS: Partial<Record<PirateSoundEvent, number>> = {
 }
 
 const lastPlayedAt = new Map<PirateSoundEvent, number>()
+const activeEffects = new Set<HTMLAudioElement>()
 let ambience: HTMLAudioElement | null = null
 let krakenLoop: HTMLAudioElement | null = null
 let seagullTimer: ReturnType<typeof setTimeout> | null = null
@@ -89,7 +90,20 @@ function play(event: PirateSoundEvent) {
 
     const audio = new Audio(pick(SOUND_FILES[event]))
     audio.volume = Math.min(1, masterLevel() * SOUND_LEVELS[event])
+    activeEffects.add(audio)
+    audio.addEventListener('ended', () => activeEffects.delete(audio), { once: true })
+    audio.addEventListener('error', () => activeEffects.delete(audio), { once: true })
     audio.play().catch(() => {})
+}
+
+/** Stop short effects that otherwise continue playing after the game page unmounts. */
+function stopEffects() {
+    for (const audio of activeEffects) {
+        audio.pause()
+        audio.currentTime = 0
+    }
+    activeEffects.clear()
+    lastPlayedAt.clear()
 }
 
 function startAmbience() {
@@ -113,6 +127,9 @@ function scheduleSeagulls() {
         if (!soundEnabled.value) return
         const gulls = new Audio(pick(['/pirates/sounds/seagull-ambience.mp3', '/pirates/sounds/seagull-ambience-2.mp3']))
         gulls.volume = Math.min(1, masterLevel() * 0.07)
+        activeEffects.add(gulls)
+        gulls.addEventListener('ended', () => activeEffects.delete(gulls), { once: true })
+        gulls.addEventListener('error', () => activeEffects.delete(gulls), { once: true })
         gulls.play().catch(() => {})
         scheduleSeagulls()
     }, delay)
@@ -191,6 +208,7 @@ export function usePirateSound() {
         soundEnabled,
         soundVolume,
         play,
+        stopEffects,
         startAmbience,
         pauseAmbience,
         stopAmbience,

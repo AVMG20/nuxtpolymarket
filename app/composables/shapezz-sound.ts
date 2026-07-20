@@ -24,6 +24,7 @@ const loading = new Map<string, Promise<AudioBuffer | null>>()
 /** Resolved decode results — null marks a variant that 404'd or failed. */
 const decoded = new Map<string, AudioBuffer | null>()
 const lastPlayedAt = new Map<ShapezzSoundEvent, number>()
+const activeSources = new Set<AudioBufferSourceNode>()
 let initialized = false
 
 function ensureContext(): AudioContext | null {
@@ -84,7 +85,22 @@ function play(event: ShapezzSoundEvent) {
     gain.gain.value = Math.min(1, (soundVolume.value / 100) * SHAPEZZ_SOUND_LEVELS[event])
     source.connect(gain)
     gain.connect(context.destination)
+    activeSources.add(source)
+    source.onended = () => activeSources.delete(source)
     source.start()
+}
+
+/** Stop every in-flight effect when the SHAPEZZ arena is unmounted. */
+function stop() {
+    for (const source of activeSources) {
+        try {
+            source.stop()
+        } catch {
+            // A source may already have naturally ended between iteration and stop().
+        }
+    }
+    activeSources.clear()
+    lastPlayedAt.clear()
 }
 
 /** Resume a suspended AudioContext — call from a user gesture (starting a run). */
@@ -116,5 +132,5 @@ function initialize() {
 
 export function useShapezzSound() {
     initialize()
-    return { soundEnabled, soundVolume, play, unlock, preload }
+    return { soundEnabled, soundVolume, play, stop, unlock, preload }
 }

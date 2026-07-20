@@ -257,6 +257,7 @@ onMounted(() => {
 onUnmounted(() => {
     engine?.destroy()
     engine = null
+    sound.stop()
     if (clockTimer) clearInterval(clockTimer)
     if (bossWarningTimer) clearTimeout(bossWarningTimer)
     // Leaving mid-run forfeits it — settle server-side so the workshop and

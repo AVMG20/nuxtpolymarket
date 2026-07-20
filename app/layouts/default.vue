@@ -1,11 +1,13 @@
 <script lang="ts" setup>
 import type { NavigationMenuItem } from '@nuxt/ui'
+import packageJson from '../../package.json'
 
 const { user, signOut: authSignOut, fetchSession } = useAuth()
 await fetchSession()
 const appConfig = useAppConfig()
 const open = ref(true)
 const menuOpen = ref(false)
+const siteVersion = `v${packageJson.version.split('.').slice(0, 2).join('.')}`
 
 // Close the mobile sidebar sheet on navigation, but leave the desktop
 // expanded/collapsed state untouched
@@ -116,16 +118,21 @@ function setNeutral(color: string) {
     >
       <!-- Header -->
       <template #header="{ state, close }">
-        <UIcon
-          class="size-5 text-primary shrink-0"
-          name="i-lucide-gamepad-2"
-        />
-        <span
-          v-if="state !== 'collapsed'"
-          class="font-bold text-lg text-primary flex-1 truncate"
+        <div
+          class="flex flex-1 min-w-0 items-start gap-2"
         >
-          Polynux
-        </span>
+          <UIcon
+            class="size-5 shrink-0 text-primary mt-1"
+            name="i-lucide-gamepad-2"
+          />
+          <div
+            v-if="state !== 'collapsed'"
+            class="flex min-w-0 flex-col leading-tight"
+          >
+            <span class="font-bold text-lg text-primary truncate">Polynux</span>
+            <span class="text-xs text-muted">{{ siteVersion }}</span>
+          </div>
+        </div>
         <!-- Mobile close -->
         <UButton
           class="lg:hidden shrink-0"

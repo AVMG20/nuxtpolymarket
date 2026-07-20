@@ -284,6 +284,7 @@ export function usePirateRun() {
         resizeObserver = null
         if (game && running.value) {
             game.pause()
+            pirateSound.stopEffects()
             pirateSound.pauseAmbience()
             pirateSound.pauseKrakenLoop()
             running.value = false
