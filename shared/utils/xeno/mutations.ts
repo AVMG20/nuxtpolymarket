@@ -13,43 +13,17 @@ export interface Mutation {
 // Players targeting deepfrond need to be aware xenoform might appear first.
 //
 // ─── Balance philosophy ───────────────────────────────────────────────────────
-// `effectiveChance = base chance + artifact mutation boost` (clamped to [0, 1]).
+// `effectiveChance = base chance + artifact boost + global upgrade` (clamped to [0, 1]).
 // A failed roll is NOT a total loss — the breeder returns a plant of one parent's
 // type, so players keep cycling parents while hunting a new species.
 //
-// T1–T2 stays approachable so new players ramp up fast. From T3 onward each new
-// species gets progressively harder, and the only way to keep odds in a rewarding
-// band is to invest in stronger mutation artifacts. Because artifacts can only be
-// crafted from plants you already own, the BEST boost realistically available at
-// each stage is gated:
-//   • reaching T3 (own T2):       Mutation Booster / Xenoculture Flask  → +5%
-//   • T3→T3 & T3→T4 (own T3):     Mutation Booster II / Flask II        → +10%
-//   • T4→T5 (own T4):             Prism Lens / Flask III                → +15–20%
-//   • T5→T6 (own T5):             Prism Lens                            → +20%
-//   • T6→T7 (own T6/T7):          Prism Lens II                         → +30%
-// Bases below are tuned so the effective chance with the best artifact you can
-// realistically own *while climbing that tier* lands on a deliberately tightening
-// ladder — rewarding but never trivial, and harder every step:
-//   T3 ~13%  →  T4 ~11%  →  T5 8%  →  T6 6%  →  T7 4%  →  singularity 2%.
-// T5+ bases are negative, so a mutation artifact is mandatory to advance.
-//
-// ─── Gem crafting (T5+ rebalance) ──────────────────────────────────────────────
-// Mutation artifacts can be gem-crafted for +1 level (+5% mutation). To make this a
-// meaningful (and at the top, mandatory) investment, T5/T6/T7 bases are 3% LOWER than
-// the targets above. With the best plain artifact you now land 3% under the old ladder
-// (T5 5%, T6 3%, T7 1%, singularity 0% — i.e. plain-crafting can no longer reach
-// singularity at all); gem-crafting that same artifact adds +5%, landing 2% ABOVE the
-// old ladder (T5 10%, T6 8%, T7 6%, singularity 4%). Net: gem crafting is the new way to
-// keep the climb rewarding, and is required outright for singularity.
-//
-// Important gating detail: Prism Lens II (+30%) is the strongest mutation artifact,
-// but it can only be crafted from T6/T7 plants (2 aetherix + 1 tempest-spike). When
-// you first break into T5/T6/T7 you only have Prism Lens (+20%), so the headline
-// targets above are anchored to +20% — and the first aetherix/tempest-spike MUST
-// stay breedable at +20% or the game softlocks. Singularity is the lone exception:
-// it needs two T7 parents, by which point you always own Prism Lens II, so it is
-// anchored to +30% to land on 2%. (Once you grind out Prism Lens II, re-breeding
-// earlier tiers gets easier — the intended reward for mastering a tier's artifacts.)
+// T1–T2 stays approachable. T5+ uses negative base chances, making mutation
+// artifacts part of the progression. Every mutation artifact now carries one
+// extra +5% level; the permanent market track adds up to another +10%.
+// T8–T9 initially unlock around Prism Lens II (+35%, or +40% gem-crafted) plus
+// investment in that global track: first T8 remains possible at 1% with a
+// gem-crafted lens alone. Tier V artifacts are crafted from T8 and T9 plants,
+// so Prism Lens III is a post-progression reward rather than a shortcut into T9.
 
 export const MUTATIONS: Mutation[] = [
   // T1 × T1 → T1  (early game — left generous on purpose)
@@ -69,51 +43,67 @@ export const MUTATIONS: Mutation[] = [
   { parent1: 'bloom',        parent2: 'creeper',      offspring: 'crystal-bud',  chance: 0.10 },
   { parent1: 'creeper',      parent2: 'fernite',      offspring: 'crystal-bud',  chance: 0.08 },
 
-  // T2-mutation × T2 → T3  (difficulty ramp begins; best realistic boost +5% → ~10–13% effective)
+  // T2-mutation × T2 → T3
   { parent1: 'crystal-bud',  parent2: 'bloom',        offspring: 'crystal-vine', chance: 0.08 },
   { parent1: 'crystal-bud',  parent2: 'creeper',      offspring: 'phantom-leaf', chance: 0.06 },
   { parent1: 'crystal-bud',  parent2: 'fernite',      offspring: 'voidbloom',    chance: 0.05 },
   { parent1: 'crystal-bud',  parent2: 'ashvine',      offspring: 'emberfern',    chance: 0.05 },
 
-  // T3 × T3 → T3  (best realistic boost +10% → ~11–12% effective)
+  // T3 × T3 → T3
   { parent1: 'crystal-vine', parent2: 'phantom-leaf', offspring: 'xenoform',     chance: 0.02 },
   { parent1: 'crystal-vine', parent2: 'voidbloom',    offspring: 'xenoform',     chance: 0.015 },
   { parent1: 'phantom-leaf', parent2: 'voidbloom',    offspring: 'xenoform',     chance: 0.015 },
 
-  // T3 × T3 → T4  (best realistic boost +10% → ~10–11% effective; Prism Lens not craftable yet)
+  // T3 × T3 → T4
   { parent1: 'crystal-vine', parent2: 'voidbloom',    offspring: 'deepfrond',    chance: 0.01 },
   { parent1: 'xenoform',     parent2: 'phantom-leaf', offspring: 'swiftcane',    chance: 0.01 },
   { parent1: 'emberfern',    parent2: 'voidbloom',    offspring: 'crystalmoss',  chance: 0.01 },
   { parent1: 'xenoform',     parent2: 'crystal-vine', offspring: 'voidfern',     chance: 0.005 },
 
-  // T4 × T4 → T4  (+10% for the first abyssform, ~10% effective; Prism Lens makes repeats easier)
+  // T4 × T4 → T4
   { parent1: 'deepfrond',    parent2: 'swiftcane',    offspring: 'abyssform',    chance: 0.005 },
 
-  // T4 × T4 → T5 (negative base — mutation artifact mandatory; Prism Lens +20% → 5%, gem-crafted +25% → 10%)
+  // T4 × T4 → T5 (negative base — mutation artifact mandatory)
   { parent1: 'deepfrond',    parent2: 'crystalmoss',  offspring: 'starweave',    chance: -0.15 },
   { parent1: 'swiftcane',    parent2: 'voidfern',     offspring: 'voidpulse',    chance: -0.15 },
   { parent1: 'abyssform',    parent2: 'crystalmoss',  offspring: 'cosmosbloom',  chance: -0.15 },
 
-  // T5 × T5 → T5 (Prism Lens +20% → 5%, gem-crafted +25% → 10% effective)
+  // T5 × T5 → T5
   { parent1: 'starweave',    parent2: 'voidpulse',    offspring: 'etherform',    chance: -0.15 },
 
-  // T5 × T5 → T6 (Prism Lens +20% → 3%, gem-crafted +25% → 8% effective)
+  // T5 × T5 → T6
   { parent1: 'etherform',    parent2: 'starweave',    offspring: 'dawnrift',     chance: -0.17 },
   { parent1: 'starweave',    parent2: 'cosmosbloom',  offspring: 'voidlattice',  chance: -0.17 },
   { parent1: 'voidpulse',    parent2: 'etherform',    offspring: 'nexusbloom',   chance: -0.17 },
   { parent1: 'cosmosbloom',  parent2: 'etherform',    offspring: 'stellarfrond', chance: -0.17 },
 
-  // T6 × T6 → T6 (first aetherix: Prism Lens +20% → 3%, gem-crafted +25% → 8%; gates Prism Lens II & all of T7)
+  // T6 × T6 → T6 (first aetherix gates Prism Lens II and all of T7)
   { parent1: 'dawnrift',     parent2: 'voidlattice',  offspring: 'aetherix',     chance: -0.17 },
 
-  // T6 × T6 → T7 (Prism Lens +20% → 1%, gem-crafted +25% → 6%; Prism Lens II +30% → 11% once unlocked)
+  // T6 × T6 → T7
   { parent1: 'dawnrift',     parent2: 'aetherix',     offspring: 'tempest-spike', chance: -0.19 },
   { parent1: 'voidlattice',  parent2: 'nexusbloom',   offspring: 'abyssal-frond', chance: -0.19 },
   { parent1: 'nexusbloom',   parent2: 'stellarfrond', offspring: 'quantum-bloom', chance: -0.19 },
   { parent1: 'stellarfrond', parent2: 'aetherix',     offspring: 'starcore',      chance: -0.19 },
 
-  // T7 × T7 → T7 (the ultimate plant — gem-crafted Prism Lens II +35% gives 4%: the endgame grind, gem crafting mandatory)
+  // T7 × T7 → T7
   { parent1: 'tempest-spike', parent2: 'abyssal-frond', offspring: 'singularity', chance: -0.31 },
+
+  // T7 × T7 → T8
+  { parent1: 'tempest-spike', parent2: 'starcore', offspring: 'solar-needle', chance: -0.39 },
+  { parent1: 'abyssal-frond', parent2: 'quantum-bloom', offspring: 'nebula-root', chance: -0.39 },
+  { parent1: 'quantum-bloom', parent2: 'starcore', offspring: 'eventide-bloom', chance: -0.39 },
+  { parent1: 'starcore', parent2: 'singularity', offspring: 'gravity-vine', chance: -0.39 },
+
+  // T8 capstone and T9 mutations
+  { parent1: 'solar-needle', parent2: 'gravity-vine', offspring: 'void-orchid', chance: -0.40 },
+  { parent1: 'solar-needle', parent2: 'void-orchid', offspring: 'chronofrond', chance: -0.41 },
+  { parent1: 'nebula-root', parent2: 'eventide-bloom', offspring: 'darkmatter-pod', chance: -0.41 },
+  { parent1: 'eventide-bloom', parent2: 'gravity-vine', offspring: 'galaxy-bloom', chance: -0.41 },
+  { parent1: 'gravity-vine', parent2: 'void-orchid', offspring: 'reality-thorn', chance: -0.41 },
+
+  // T9 × T9 → final Void organism
+  { parent1: 'chronofrond', parent2: 'reality-thorn', offspring: 'omega-core', chance: -0.44 },
 ]
 
 /** Returns the first mutation for a plant pair (used for UI preview). */

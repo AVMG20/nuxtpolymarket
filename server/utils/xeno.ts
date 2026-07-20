@@ -1,11 +1,21 @@
 import { eq, and, inArray } from 'drizzle-orm'
 import { db, type DbExecutor } from '#server/database'
-import { xenoPlants, xenoPlantsUnlocked, xenoArtifacts, xenoGridSlots, xenoBreederSlots } from '#server/database/schema'
+import { xenoPlants, xenoPlantsUnlocked, xenoArtifacts, xenoGridSlots, xenoBreederSlots, xenoUpgrades } from '#server/database/schema'
 import { randomChance } from '#shared/utils/random'
 import {
   getArtifact, getEffectValueFor, getPlant, getPlantDisplay,
   effectiveGrowTime, breedDuration, getMutationPair,
+  xenoSpeedBoost, type XenoUpgradeLevels,
 } from '#shared/utils/xeno'
+
+export async function getXenoUpgradeLevels(userId: string, tx: DbExecutor = db): Promise<XenoUpgradeLevels> {
+  const row = await tx.query.xenoUpgrades.findFirst({ where: eq(xenoUpgrades.userId, userId) })
+  return {
+    mutation: row?.mutationLevel ?? 0,
+    yield: row?.yieldLevel ?? 0,
+    speed: row?.speedLevel ?? 0
+  }
+}
 
 /** When DEV_MODE=true, all grow/breed durations are capped to 1 second for testing */
 export function xenoDuration(rawSecs: number): number {
@@ -17,6 +27,7 @@ export function computeGridDuration(
   plant: { typeId: string; speed: number },
   artifactTypeId: string | null | undefined,
   gemCrafted = false,
+  globalSpeedLevel = 0,
 ): number {
   const base = getPlantDisplay(plant.typeId)
   if (!base) throw createError({ statusCode: 400, statusMessage: `Unknown plant type: ${plant.typeId}` })
@@ -28,6 +39,7 @@ export function computeGridDuration(
       if (speedBoost > 0) secs = Math.round(secs * (1 - speedBoost))
     }
   }
+  secs = Math.round(secs * (1 - xenoSpeedBoost(globalSpeedLevel)))
   return xenoDuration(secs)
 }
 
@@ -37,6 +49,7 @@ export function computeBreedDuration(
   p2: { typeId: string; speed: number },
   artifactTypeId?: string | null,
   gemCrafted = false,
+  globalSpeedLevel = 0,
 ): number {
   const t1 = getPlant(p1.typeId)
   const t2 = getPlant(p2.typeId)
@@ -52,6 +65,7 @@ export function computeBreedDuration(
       if (speedBoost > 0) secs = Math.round(secs * (1 - speedBoost))
     }
   }
+  secs = Math.round(secs * (1 - xenoSpeedBoost(globalSpeedLevel)))
   return secs
 }
 

@@ -21,7 +21,7 @@ export interface ArtifactType {
   name: string
   emoji: string
   description: string
-  /** Tier within its family: 1 = base, 2 = II, 3 = III, 4 = IV */
+  /** Tier within its family: 1 = base through 5 = endgame T8/T9 artifact. */
   level: number
   maxCharges: number
   effects: ArtifactEffect[]
@@ -167,6 +167,15 @@ export const ARTIFACT_TYPES: ArtifactType[] = [
     effects: [{ type: 'grid_speed_boost', value: 0.50 }],
     cost: [{ plantTypeId: 'dawnrift', quantity: 4 }, { plantTypeId: 'stellarfrond', quantity: 2 }],
   },
+  {
+    id: 'speed-rune-v',
+    name: 'Speed Rune V',
+    emoji: '⚡',
+    description: 'Grid: −60% grow time. Transcendent speed forged from T8/T9 plants.',
+    level: 5, maxCharges: 20,
+    effects: [{ type: 'grid_speed_boost', value: 0.60 }],
+    cost: [{ plantTypeId: 'solar-needle', quantity: 4 }, { plantTypeId: 'chronofrond', quantity: 2 }],
+  },
 
   // ─── Grid: yield bonus (pure) ─────────────────────────────────────────────
   {
@@ -204,6 +213,15 @@ export const ARTIFACT_TYPES: ArtifactType[] = [
     level: 4, maxCharges: 17,
     effects: [{ type: 'grid_yield_bonus', value: 7 }],
     cost: [{ plantTypeId: 'voidlattice', quantity: 3 }, { plantTypeId: 'nexusbloom', quantity: 2 }],
+  },
+  {
+    id: 'yield-crystal-v',
+    name: 'Yield Crystal V',
+    emoji: '💠',
+    description: 'Grid: +10 yield per harvest. Omega-grade abundance.',
+    level: 5, maxCharges: 20,
+    effects: [{ type: 'grid_yield_bonus', value: 10 }],
+    cost: [{ plantTypeId: 'nebula-root', quantity: 4 }, { plantTypeId: 'darkmatter-pod', quantity: 2 }],
   },
 
   // ─── Grid: hybrid (speed + yield) ────────────────────────────────────────
@@ -255,6 +273,18 @@ export const ARTIFACT_TYPES: ArtifactType[] = [
     ],
     cost: [{ plantTypeId: 'aetherix', quantity: 2 }, { plantTypeId: 'quantum-bloom', quantity: 1 }],
   },
+  {
+    id: 'harvest-prism-v',
+    name: 'Harvest Prism V',
+    emoji: '🔷',
+    description: 'Grid: −45% grow time & +9 yield. The ultimate cultivation hybrid.',
+    level: 5, maxCharges: 20,
+    effects: [
+      { type: 'grid_speed_boost', value: 0.45 },
+      { type: 'grid_yield_bonus', value: 9 },
+    ],
+    cost: [{ plantTypeId: 'gravity-vine', quantity: 3 }, { plantTypeId: 'galaxy-bloom', quantity: 2 }],
+  },
 
   // ─── Breeder: yield + speed (Growth Catalyst) ────────────────────────────
   {
@@ -305,17 +335,29 @@ export const ARTIFACT_TYPES: ArtifactType[] = [
     ],
     cost: [{ plantTypeId: 'nexusbloom', quantity: 4 }, { plantTypeId: 'dawnrift', quantity: 2 }],
   },
+  {
+    id: 'growth-catalyst-v',
+    name: 'Growth Catalyst V',
+    emoji: '⚗️',
+    description: 'Breeder: +10 yield, −60% breed time. Omega-grade propagation.',
+    level: 5, maxCharges: 7,
+    effects: [
+      { type: 'breeder_speed_boost', value: 0.60 },
+      { type: 'breeder_extra_yield', value: 10 },
+    ],
+    cost: [{ plantTypeId: 'eventide-bloom', quantity: 4 }, { plantTypeId: 'reality-thorn', quantity: 2 }],
+  },
 
   // ─── Breeder: mutation boost (Mutation Booster / Prism Lens) ─────────────
   {
     id: 'mutation-booster',
     name: 'Mutation Booster',
     emoji: '🧬',
-    description: 'Breeder: +5% mutation, −5% breed time. Good for T1–T2 void hunting.',
+    description: 'Breeder: +10% mutation, −5% breed time. Good for T1–T2 void hunting.',
     level: 1, maxCharges: 3,
     effects: [
       { type: 'breeder_speed_boost', value: 0.05 },
-      { type: 'breeder_mutation_boost', value: 0.05 },
+      { type: 'breeder_mutation_boost', value: 0.10 },
     ],
     cost: [{ plantTypeId: 'glowshroom', quantity: 8 }, { plantTypeId: 'dustbloom', quantity: 15 }],
   },
@@ -323,11 +365,11 @@ export const ARTIFACT_TYPES: ArtifactType[] = [
     id: 'mutation-booster-ii',
     name: 'Mutation Booster II',
     emoji: '🧬',
-    description: 'Breeder: +10% mutation, −10% breed time. Reliable for T3–T4 void hunting.',
+    description: 'Breeder: +15% mutation, −10% breed time. Reliable for T3–T4 void hunting.',
     level: 2, maxCharges: 4,
     effects: [
       { type: 'breeder_speed_boost', value: 0.10 },
-      { type: 'breeder_mutation_boost', value: 0.10 },
+      { type: 'breeder_mutation_boost', value: 0.15 },
     ],
     cost: [{ plantTypeId: 'crystal-bud', quantity: 3 }, { plantTypeId: 'emberfern', quantity: 4 }],
   },
@@ -335,11 +377,11 @@ export const ARTIFACT_TYPES: ArtifactType[] = [
     id: 'prism-lens',
     name: 'Prism Lens',
     emoji: '🧬',
-    description: 'Breeder: +20% mutation, −15% breed time. Highest mutation chance. Essential for Void plants.',
+    description: 'Breeder: +25% mutation, −15% breed time. High mutation chance. Essential for Void plants.',
     level: 3, maxCharges: 5,
     effects: [
       { type: 'breeder_speed_boost', value: 0.15 },
-      { type: 'breeder_mutation_boost', value: 0.20 },
+      { type: 'breeder_mutation_boost', value: 0.25 },
     ],
     cost: [{ plantTypeId: 'xenoform', quantity: 3 }, { plantTypeId: 'abyssform', quantity: 2 }],
   },
@@ -347,13 +389,25 @@ export const ARTIFACT_TYPES: ArtifactType[] = [
     id: 'prism-lens-ii',
     name: 'Prism Lens II',
     emoji: '🧬',
-    description: 'Breeder: +30% mutation, −25% breed time. Unmatched void hunting. Essential for T6–T7 Void plants.',
+    description: 'Breeder: +35% mutation, −25% breed time. Unmatched void hunting. Essential for upper-tier Void plants.',
     level: 4, maxCharges: 6,
     effects: [
       { type: 'breeder_speed_boost', value: 0.25 },
-      { type: 'breeder_mutation_boost', value: 0.30 },
+      { type: 'breeder_mutation_boost', value: 0.35 },
     ],
     cost: [{ plantTypeId: 'aetherix', quantity: 2 }, { plantTypeId: 'tempest-spike', quantity: 1 }],
+  },
+  {
+    id: 'prism-lens-iii',
+    name: 'Prism Lens III',
+    emoji: '🧬',
+    description: 'Breeder: +45% mutation, −35% breed time. The strongest mutation artifact.',
+    level: 5, maxCharges: 7,
+    effects: [
+      { type: 'breeder_speed_boost', value: 0.35 },
+      { type: 'breeder_mutation_boost', value: 0.45 },
+    ],
+    cost: [{ plantTypeId: 'void-orchid', quantity: 2 }, { plantTypeId: 'omega-core', quantity: 1 }],
   },
 
   // ─── Breeder: hybrid all-rounder (Xenoculture Flask) ─────────────────────
@@ -361,12 +415,12 @@ export const ARTIFACT_TYPES: ArtifactType[] = [
     id: 'xenoculture-flask',
     name: 'Xenoculture Flask',
     emoji: '🫧',
-    description: 'Breeder: +2 yield, +5% mutation, −5% breed time. Balanced early hybrid.',
+    description: 'Breeder: +2 yield, +10% mutation, −5% breed time. Balanced early hybrid.',
     level: 1, maxCharges: 3,
     effects: [
       { type: 'breeder_speed_boost', value: 0.05 },
       { type: 'breeder_extra_yield', value: 2 },
-      { type: 'breeder_mutation_boost', value: 0.05 },
+      { type: 'breeder_mutation_boost', value: 0.10 },
     ],
     cost: [{ plantTypeId: 'ashvine', quantity: 6 }, { plantTypeId: 'bloom', quantity: 3 }],
   },
@@ -374,12 +428,12 @@ export const ARTIFACT_TYPES: ArtifactType[] = [
     id: 'xenoculture-flask-ii',
     name: 'Xenoculture Flask II',
     emoji: '🫧',
-    description: 'Breeder: +3 yield, +10% mutation, −10% breed time. Balanced T3 hybrid.',
+    description: 'Breeder: +3 yield, +15% mutation, −10% breed time. Balanced T3 hybrid.',
     level: 2, maxCharges: 4,
     effects: [
       { type: 'breeder_speed_boost', value: 0.10 },
       { type: 'breeder_extra_yield', value: 3 },
-      { type: 'breeder_mutation_boost', value: 0.10 },
+      { type: 'breeder_mutation_boost', value: 0.15 },
     ],
     cost: [{ plantTypeId: 'emberfern', quantity: 4 }, { plantTypeId: 'crystal-vine', quantity: 2 }],
   },
@@ -387,12 +441,12 @@ export const ARTIFACT_TYPES: ArtifactType[] = [
     id: 'xenoculture-flask-iii',
     name: 'Xenoculture Flask III',
     emoji: '🫧',
-    description: 'Breeder: +4 yield, +15% mutation, −15% breed time. Premium T4 all-rounder.',
+    description: 'Breeder: +4 yield, +20% mutation, −15% breed time. Premium T4 all-rounder.',
     level: 3, maxCharges: 5,
     effects: [
       { type: 'breeder_speed_boost', value: 0.15 },
       { type: 'breeder_extra_yield', value: 4 },
-      { type: 'breeder_mutation_boost', value: 0.15 },
+      { type: 'breeder_mutation_boost', value: 0.20 },
     ],
     cost: [{ plantTypeId: 'abyssform', quantity: 2 }, { plantTypeId: 'crystalmoss', quantity: 2 }],
   },
@@ -400,14 +454,27 @@ export const ARTIFACT_TYPES: ArtifactType[] = [
     id: 'xenoculture-flask-iv',
     name: 'Xenoculture Flask IV',
     emoji: '🫧',
-    description: 'Breeder: +5 yield, +25% mutation, −25% breed time. Legendary T7 all-rounder.',
+    description: 'Breeder: +5 yield, +30% mutation, −25% breed time. Legendary T7 all-rounder.',
     level: 4, maxCharges: 6,
     effects: [
       { type: 'breeder_speed_boost', value: 0.25 },
       { type: 'breeder_extra_yield', value: 5 },
-      { type: 'breeder_mutation_boost', value: 0.25 },
+      { type: 'breeder_mutation_boost', value: 0.30 },
     ],
     cost: [{ plantTypeId: 'quantum-bloom', quantity: 2 }, { plantTypeId: 'starcore', quantity: 1 }],
+  },
+  {
+    id: 'xenoculture-flask-v',
+    name: 'Xenoculture Flask V',
+    emoji: '🫧',
+    description: 'Breeder: +7 yield, +40% mutation, −35% breed time. The final all-rounder.',
+    level: 5, maxCharges: 7,
+    effects: [
+      { type: 'breeder_speed_boost', value: 0.35 },
+      { type: 'breeder_extra_yield', value: 7 },
+      { type: 'breeder_mutation_boost', value: 0.40 },
+    ],
+    cost: [{ plantTypeId: 'void-orchid', quantity: 2 }, { plantTypeId: 'reality-thorn', quantity: 1 }, { plantTypeId: 'omega-core', quantity: 1 }],
   },
 ]
 

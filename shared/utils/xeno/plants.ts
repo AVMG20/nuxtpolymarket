@@ -340,6 +340,78 @@ export const T7_PLANTS: PlantType[] = [
   },
 ]
 
+// ─── T8 — Transcendent tier ────────────────────────────────────────────────
+
+export const T8_PLANTS: PlantType[] = [
+  {
+    id: 'solar-needle', name: 'Solar Needle',
+    tier: 8, emoji: '🌞', color: 'cyan',
+    baseTime: 259200, speed: 8, yield: 2, value: 450_000,
+    description: 'A fast transcendent organism built for rapid high-value cycling.',
+  },
+  {
+    id: 'nebula-root', name: 'Nebula Root',
+    tier: 8, emoji: '🫚', color: 'cyan',
+    baseTime: 518400, speed: 1, yield: 8, value: 360_000,
+    description: 'Slow-growing cosmic roots that return an enormous harvest.',
+  },
+  {
+    id: 'eventide-bloom', name: 'Eventide Bloom',
+    tier: 8, emoji: '🌒', color: 'cyan',
+    baseTime: 345600, speed: 5, yield: 5, value: 750_000,
+    description: 'A balanced flower suspended between stellar dusk and dawn.',
+  },
+  {
+    id: 'gravity-vine', name: 'Gravity Vine',
+    tier: 8, emoji: '🪐', color: 'cyan',
+    baseTime: 432000, speed: 7, yield: 6, value: 1_200_000,
+    description: 'Dense vines that bend cultivation time around their fruit.',
+  },
+  {
+    id: 'void-orchid', name: 'Void Orchid',
+    tier: 8, emoji: '🪷', color: 'cyan',
+    baseTime: 345600, speed: 8, yield: 8, value: 2_400_000,
+    description: 'Transcendent Void plant with maximum T8 stats.',
+    voidPlant: true,
+  },
+]
+
+// ─── T9 — Omega tier ───────────────────────────────────────────────────────
+
+export const T9_PLANTS: PlantType[] = [
+  {
+    id: 'chronofrond', name: 'Chronofrond',
+    tier: 9, emoji: '⏳', color: 'primary',
+    baseTime: 345600, speed: 9, yield: 3, value: 2_400_000,
+    description: 'An Omega organism that grows across several timelines at once.',
+  },
+  {
+    id: 'darkmatter-pod', name: 'Darkmatter Pod',
+    tier: 9, emoji: '⚫', color: 'primary',
+    baseTime: 691200, speed: 2, yield: 9, value: 1_500_000,
+    description: 'A glacial pod whose harvest carries impossible density.',
+  },
+  {
+    id: 'galaxy-bloom', name: 'Galaxy Bloom',
+    tier: 9, emoji: '🌌', color: 'primary',
+    baseTime: 518400, speed: 6, yield: 6, value: 3_600_000,
+    description: 'A balanced Omega flower containing a miniature spiral galaxy.',
+  },
+  {
+    id: 'reality-thorn', name: 'Reality Thorn',
+    tier: 9, emoji: '🌀', color: 'primary',
+    baseTime: 432000, speed: 8, yield: 8, value: 4_500_000,
+    description: 'Near-perfect xenoflora that punctures the edge of reality.',
+  },
+  {
+    id: 'omega-core', name: 'Omega Core',
+    tier: 9, emoji: '🌐', color: 'primary',
+    baseTime: 518400, speed: 9, yield: 9, value: 9_000_000,
+    description: 'The final Void organism. Maximum speed, yield, and value.',
+    voidPlant: true,
+  },
+]
+
 export const PLANT_TYPES: PlantType[] = [
   ...T1_PLANTS,
   ...T2_PLANTS,
@@ -348,6 +420,8 @@ export const PLANT_TYPES: PlantType[] = [
   ...T5_PLANTS,
   ...T6_PLANTS,
   ...T7_PLANTS,
+  ...T8_PLANTS,
+  ...T9_PLANTS,
 ]
 
 export function getPlant(id: string): PlantType | undefined {

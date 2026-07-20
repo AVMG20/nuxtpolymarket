@@ -2,7 +2,7 @@ import { eq, and } from 'drizzle-orm'
 import { db } from '#server/database'
 import { xenoBreederSlots, xenoArtifacts } from '#server/database/schema'
 import { requireUserId } from '#server/utils/auth'
-import { addPlants, consumeArtifactCharge, computeBreedDuration } from '#server/utils/xeno'
+import { addPlants, consumeArtifactCharge, computeBreedDuration, getXenoUpgradeLevels } from '#server/utils/xeno'
 import { getPlantOrThrow } from '#shared/utils/xeno'
 
 export default defineEventHandler(async (event) => {
@@ -27,12 +27,14 @@ export default defineEventHandler(async (event) => {
       artifactGemCrafted = art.gemCrafted
     }
   }
+  const upgrades = await getXenoUpgradeLevels(userId)
 
   const durationSecs = computeBreedDuration(
     { typeId: slot.plant1TypeId, speed: slot.plant1Speed ?? 1 },
     { typeId: slot.plant2TypeId, speed: slot.plant2Speed ?? 1 },
     artifactTypeId,
     artifactGemCrafted,
+    upgrades.speed,
   )
   const completesAt = slot.startedAt.getTime() + durationSecs * 1000
   if (Date.now() < completesAt) throw createError({ statusCode: 400, statusMessage: 'Breeding not complete yet' })

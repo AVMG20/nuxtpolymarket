@@ -2,10 +2,11 @@ import { eq, and } from 'drizzle-orm'
 import { db } from '#server/database'
 import { xenoGridSlots, xenoPlants, xenoArtifacts } from '#server/database/schema'
 import { requireUserId } from '#server/utils/auth'
-import { addPlants, computeGridDuration, consumeArtifactCharge } from '#server/utils/xeno'
+import { addPlants, computeGridDuration, consumeArtifactCharge, getXenoUpgradeLevels } from '#server/utils/xeno'
 import {
   getArtifact, getEffectValueFor, rollYield,
   isHybrid, parseHybridResources, getPlant, getPlantDisplay,
+  xenoYieldBonus,
 } from '#shared/utils/xeno'
 
 export default defineEventHandler(async (event) => {
@@ -24,11 +25,13 @@ export default defineEventHandler(async (event) => {
   const attachedArt = slot.artifactId
     ? await db.query.xenoArtifacts.findFirst({ where: eq(xenoArtifacts.id, slot.artifactId) })
     : null
+  const upgrades = await getXenoUpgradeLevels(userId)
 
   const durationSecs = computeGridDuration(
     { typeId: plantInstance.typeId, speed: plantInstance.speed },
     attachedArt?.typeId ?? null,
     attachedArt?.gemCrafted ?? false,
+    upgrades.speed,
   )
   const completesAt = new Date(slot.startedAt.getTime() + durationSecs * 1000)
   if (Date.now() < completesAt.getTime()) throw createError({ statusCode: 400, statusMessage: 'Plant is still growing' })
@@ -56,7 +59,7 @@ export default defineEventHandler(async (event) => {
     for (const r of parseHybridResources(plantInstance.typeId)) {
       const base = getPlant(r.id)
       if (!base) continue
-      const qty = rollYield(r.yield) + artifactYieldBonus
+      const qty = rollYield(r.yield) + artifactYieldBonus + xenoYieldBonus(upgrades.yield)
       await addPlants(userId, base.id, r.speed, r.yield, qty)
       drops.push({ id: base.id, emoji: base.emoji, name: base.name, count: qty })
       harvested += qty
@@ -66,7 +69,7 @@ export default defineEventHandler(async (event) => {
     await addPlants(userId, plantInstance.typeId, plantInstance.speed, plantInstance.yield, regrow)
     drops.push({ id: plantInstance.typeId, emoji: '🧬', name: 'Hybrid', count: regrow, isHybrid: true })
   } else {
-    harvested = rollYield(plantInstance.yield) + artifactYieldBonus
+    harvested = rollYield(plantInstance.yield) + artifactYieldBonus + xenoYieldBonus(upgrades.yield)
     await addPlants(userId, plantInstance.typeId, plantInstance.speed, plantInstance.yield, harvested)
     drops.push({ id: plantInstance.typeId, emoji: display.emoji, name: display.name, count: harvested })
   }

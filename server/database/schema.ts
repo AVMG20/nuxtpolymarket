@@ -315,6 +315,15 @@ export const xenoPlantsUnlocked = pgTable('xeno_plants_unlocked', {
   unique('xeno_plants_unlocked_unique').on(t.userId, t.typeId)
 ])
 
+/** Permanent account-wide Xeno market upgrades. */
+export const xenoUpgrades = pgTable('xeno_upgrades', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().unique().references(() => user.id, { onDelete: 'cascade' }),
+  mutationLevel: integer('mutation_level').notNull().default(0),
+  yieldLevel: integer('yield_level').notNull().default(0),
+  speedLevel: integer('speed_level').notNull().default(0)
+})
+
 /** Artifact instances: each row is one artifact with its remaining charges */
 export const xenoArtifacts = pgTable('xeno_artifacts', {
   id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
