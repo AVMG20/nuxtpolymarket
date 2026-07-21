@@ -151,6 +151,8 @@ export default defineEventHandler(async (event) => {
             sellerName: trade.sellerName,
             sellerEmblem: trade.sellerEmblem,
             mine: userId !== null && (trade.buyerId === userId || trade.sellerId === userId),
+            iBought: userId !== null && trade.buyerId === userId,
+            iSold: userId !== null && trade.sellerId === userId,
             createdAt: trade.createdAt
         })),
         // Oldest-first for charting

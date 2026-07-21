@@ -795,9 +795,17 @@ const maxAskDepth = computed(() => Math.max(1, ...(data.value?.book.asks ?? []).
               </div>
               <div class="flex-1 min-w-0">
                 <p class="text-sm truncate">
-                  <span class="font-semibold">{{ trade.sellerName ?? 'Unknown' }}</span>
+                  <span class="font-semibold" :class="showMineTradesOnly && trade.iSold ? 'text-error' : ''">{{ trade.sellerName ?? 'Unknown' }}</span>
                   <UIcon name="i-lucide-arrow-right" class="size-3 inline mx-1 text-muted" />
-                  <span class="font-semibold">{{ trade.buyerName ?? 'Unknown' }}</span>
+                  <span class="font-semibold" :class="showMineTradesOnly && trade.iBought ? 'text-success' : ''">{{ trade.buyerName ?? 'Unknown' }}</span>
+                  <UBadge
+                      v-if="showMineTradesOnly"
+                      :label="trade.iBought ? 'bought' : 'sold'"
+                      :color="trade.iBought ? 'success' : 'error'"
+                      variant="subtle"
+                      size="sm"
+                      class="ml-1.5"
+                  />
                 </p>
                 <p class="text-xs text-muted mt-0.5">
                   {{ timeAgo(trade.createdAt) }}
