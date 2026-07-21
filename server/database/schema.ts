@@ -232,21 +232,38 @@ export const shapezzState = pgTable('shapezz_state', {
   lastRunFinishedAt: timestamp('last_run_finished_at')
 })
 
-export const gemMarketState = pgTable('gem_market_state', {
-  id: text('id').primaryKey(), // always 'market'
-  price: numeric('price', { precision: 19, scale: 8 }).notNull(),
-  lastUpdatedAt: timestamp('last_updated_at').defaultNow().notNull()
-})
-
-export const gemPriceHistory = pgTable('gem_price_history', {
+/**
+ * Grand-exchange-style limit orders. Placing a buy order escrows
+ * `quantity × price` coins; placing a sell order escrows `quantity` gems.
+ * `filled` advances as opposing orders match (partial fills allowed) and the
+ * escrow for the unfilled remainder is returned on cancel. Matching runs under
+ * a Postgres advisory lock (see server/utils/gem-exchange.ts) so the book is
+ * only ever mutated by one request at a time.
+ */
+export const gemOrders = pgTable('gem_orders', {
   id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
-  price: numeric('price', { precision: 19, scale: 8 }).notNull(),
-  action: text('action').notNull(), // 'buy' | 'sell' | 'init'
-  userId: text('user_id').references(() => user.id, { onDelete: 'set null' }),
-  gems: integer('gems').notNull().default(0),
-  totalAmount: numeric('total_amount', { precision: 19, scale: 4 }).notNull().default('0'),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  side: text('side').notNull(), // 'buy' | 'sell'
+  price: numeric('price', { precision: 19, scale: 4 }).notNull(), // coins per gem
+  quantity: integer('quantity').notNull(),
+  filled: integer('filled').notNull().default(0),
+  status: text('status').notNull().default('open'), // 'open' | 'filled' | 'cancelled'
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().$onUpdate(() => new Date()).notNull()
+}, t => [
+  index('gem_orders_book_idx').on(t.status, t.side, t.price),
+  index('gem_orders_userId_createdAt_idx').on(t.userId, t.createdAt)
+])
+
+/** One row per executed match — doubles as the exchange's price history. */
+export const gemTrades = pgTable('gem_trades', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  buyerId: text('buyer_id').references(() => user.id, { onDelete: 'set null' }),
+  sellerId: text('seller_id').references(() => user.id, { onDelete: 'set null' }),
+  price: numeric('price', { precision: 19, scale: 4 }).notNull(),
+  quantity: integer('quantity').notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull()
-}, t => [index('gem_price_history_created_at_idx').on(t.createdAt)])
+}, t => [index('gem_trades_createdAt_idx').on(t.createdAt)])
 
 /**
  * A bank position is settled lazily whenever it is read or changed. `principal`
@@ -654,10 +671,6 @@ export const pirateRunHistoryRelations = relations(pirateRunHistory, ({ one }) =
 
 export const shapezzStateRelations = relations(shapezzState, ({ one }) => ({
   user: one(user, { fields: [shapezzState.userId], references: [user.id] })
-}))
-
-export const gemPriceHistoryRelations = relations(gemPriceHistory, ({ one }) => ({
-  user: one(user, { fields: [gemPriceHistory.userId], references: [user.id] })
 }))
 
 export const sessionRelations = relations(session, ({ one }) => ({

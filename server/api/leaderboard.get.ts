@@ -1,8 +1,8 @@
 import { count, eq, inArray, sql } from 'drizzle-orm'
 import { db } from '#server/database'
 import { getSessionUserId } from '#server/utils/auth'
-import { user, minerState, bankState, colonyState, colonyBugResearch, xenoPlantsUnlocked, xenoGridSlots, xenoBreederSlots, aiMessages, hackAgents, hackItems } from '#server/database/schema'
-import { gemComputeLivePrice, gemSellGems, GEM_INITIAL_PRICE } from '#shared/utils/gamelogic/gem-market'
+import { user, minerState, bankState, colonyState, colonyBugResearch, xenoPlantsUnlocked, xenoGridSlots, xenoBreederSlots, aiMessages, hackAgents, hackItems, gemOrders } from '#server/database/schema'
+import { getGemGuidePrice } from '#server/utils/gem-exchange'
 import { overclockMultiplier, catalystMultiplier } from '#shared/utils/miner-config'
 import { debtFloor, growBankBalance } from '#shared/utils/gamelogic/bank'
 import { PLANT_TYPES } from '#shared/utils/xeno'
@@ -11,7 +11,7 @@ import { equippedAgentPower, type EquippableItemRow } from '#server/utils/hack'
 export default defineEventHandler(async (event) => {
   const sessionUserId = await getSessionUserId(event)
   const xenoSpeciesIds = [...new Set(PLANT_TYPES.map(plant => plant.id))]
-  const [users, market, hackAgentRows, hackItemRows, colonyHabitatRows, researchTotals, xenoSpeciesCounts, xenoGridCounts, xenoBreederCounts, aiPromptCounts] = await Promise.all([
+  const [users, gemGuidePrice, gemEscrowRows, hackAgentRows, hackItemRows, colonyHabitatRows, researchTotals, xenoSpeciesCounts, xenoGridCounts, xenoBreederCounts, aiPromptCounts] = await Promise.all([
     db
       .select({
         id: user.id,
@@ -31,7 +31,18 @@ export default defineEventHandler(async (event) => {
       .from(user)
       .leftJoin(minerState, eq(minerState.userId, user.id))
       .leftJoin(bankState, eq(bankState.userId, user.id)),
-    db.query.gemMarketState.findFirst(),
+    getGemGuidePrice(),
+    // Coins and gems escrowed in open exchange offers still belong to the
+    // player — count them so wealth can't be hidden in the order book.
+    db
+      .select({
+        userId: gemOrders.userId,
+        escrowCoins: sql<string>`coalesce(sum(case when ${gemOrders.side} = 'buy' then (${gemOrders.quantity} - ${gemOrders.filled}) * ${gemOrders.price} else 0 end), 0)`,
+        escrowGems: sql<number>`coalesce(sum(case when ${gemOrders.side} = 'sell' then ${gemOrders.quantity} - ${gemOrders.filled} else 0 end), 0)`.mapWith(Number)
+      })
+      .from(gemOrders)
+      .where(eq(gemOrders.status, 'open'))
+      .groupBy(gemOrders.userId),
     db
       .select({
         userId: hackAgents.userId,
@@ -67,9 +78,7 @@ export default defineEventHandler(async (event) => {
       .groupBy(aiMessages.userId),
   ])
 
-  const livePrice = market
-    ? gemComputeLivePrice(parseFloat(market.price), market.lastUpdatedAt)
-    : GEM_INITIAL_PRICE
+  const gemEscrowByUser = new Map(gemEscrowRows.map(row => [row.userId, row]))
 
   const itemsByUser = new Map<string, Map<string, EquippableItemRow>>()
   for (const item of hackItemRows) {
@@ -92,9 +101,10 @@ export default defineEventHandler(async (event) => {
 
   return users
     .map(u => {
-      const balance = parseFloat(u.balance)
-      const gems = u.gems ?? 0
-      const gemValue = gems > 0 ? gemSellGems(livePrice, gems).revenue : 0
+      const escrow = gemEscrowByUser.get(u.id)
+      const balance = parseFloat(u.balance) + parseFloat(escrow?.escrowCoins ?? '0')
+      const gems = (u.gems ?? 0) + (escrow?.escrowGems ?? 0)
+      const gemValue = gems * gemGuidePrice
       const storedBankBalance = parseFloat(u.bankBalance ?? '0')
       const loanPrincipal = parseFloat(u.bankLoanPrincipal ?? '0')
       let bankBalance = u.bankLastSettledAt

@@ -22,6 +22,8 @@ export default defineNuxtConfig({
     // game engines out of the server rendering path. Economy and account
     // pages remain SSR-enabled.
     routeRules: {
+        // The auto-scaling gem market became the player-driven exchange
+        '/gem-market': { redirect: '/gem-exchange' },
         '/games/**': { ssr: false },
         '/pirates/**': { ssr: false },
         '/shapezz': { ssr: false },

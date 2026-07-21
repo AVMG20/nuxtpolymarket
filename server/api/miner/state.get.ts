@@ -10,15 +10,15 @@ import {
   effectiveRigIncome, effectiveFactoryRate, overclockMultiplier, catalystMultiplier,
   overclockUpgradeCost, catalystUpgradeCost, OVERCLOCK_MAX_LEVEL, CATALYST_MAX_LEVEL,
 } from '#shared/utils/miner-config'
-import { gemComputeLivePrice, GEM_INITIAL_PRICE } from '#shared/utils/gamelogic/gem-market'
+import { getGemGuidePrice } from '#server/utils/gem-exchange'
 
 export default defineEventHandler(async (event) => {
   const userId = await requireUserId(event)
 
-  const [currentUser, state, market] = await Promise.all([
+  const [currentUser, state, gemPrice] = await Promise.all([
     db.query.user.findFirst({ where: eq(user.id, userId), columns: { balance: true, gems: true } }),
     db.query.minerState.findFirst({ where: eq(minerState.userId, userId) }),
-    db.query.gemMarketState.findFirst(),
+    getGemGuidePrice(),
   ])
 
   // Auto-create state on first visit
@@ -32,9 +32,6 @@ export default defineEventHandler(async (event) => {
   const pendingCash = computePending(income, s.lastCollectedAt, cap)
   const pendingGems = computePending(rate, s.factoryLastCollectedAt, gemCap)
 
-  const gemPrice = market
-    ? gemComputeLivePrice(parseFloat(market.price), market.lastUpdatedAt)
-    : GEM_INITIAL_PRICE
   const today = new Date().toISOString().slice(0, 10)
   const lootboxOpensToday = s.lootboxOpensDate === today ? s.lootboxTodayOpens : 0
 

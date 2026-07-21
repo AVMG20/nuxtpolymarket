@@ -12,16 +12,16 @@ import {
   lootboxOpenPrice,
   overclockMultiplier
 } from '#shared/utils/miner-config'
-import { gemComputeLivePrice, GEM_INITIAL_PRICE } from '#shared/utils/gamelogic/gem-market'
+import { getGemGuidePrice } from '#server/utils/gem-exchange'
 
 export default defineEventHandler(async (event) => {
   const userId = await requireUserId(event)
 
   const { mode } = await readBody<{ mode?: 'free' | 'paid' }>(event) ?? {}
 
-  const [s, market] = await Promise.all([
+  const [s, gemPrice] = await Promise.all([
     db.query.minerState.findFirst({ where: eq(minerState.userId, userId) }),
-    db.query.gemMarketState.findFirst()
+    getGemGuidePrice()
   ])
   if (!s) throw createError({ statusCode: 404, statusMessage: 'Miner not initialized' })
 
@@ -30,9 +30,6 @@ export default defineEventHandler(async (event) => {
   const freeRemaining = Math.max(0, s.lootboxSlots - opensToday)
 
   const cap = vaultCap(s.vaultLevel)
-  const gemPrice = market
-    ? gemComputeLivePrice(parseFloat(market.price), market.lastUpdatedAt)
-    : GEM_INITIAL_PRICE
 
   const paid = mode === 'paid' || freeRemaining <= 0
   if (!paid && freeRemaining <= 0)

@@ -25,7 +25,7 @@ async function signOut() {
 const platformItems: NavigationMenuItem[] = [
   { label: 'Games', class: 'mb-1', icon: 'i-lucide-house', to: '/' },
   { label: 'AI Assistant', class: 'mb-1', icon: 'i-lucide-bot', to: '/ai' },
-  { label: 'Gem Market', class: 'mb-1', icon: 'i-lucide-gem', to: '/gem-market' },
+  { label: 'Gem Exchange', class: 'mb-1', icon: 'i-lucide-gem', to: '/gem-exchange' },
   { label: 'Bank', class: 'mb-1', icon: 'i-lucide-landmark', to: '/bank' },
   { label: 'Leaderboard', class: 'mb-1', icon: 'i-lucide-trophy', to: '/leaderboard' },
   { label: 'Changelog', class: 'mb-1', icon: 'i-lucide-scroll-text', to: '/changelog' }

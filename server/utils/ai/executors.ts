@@ -126,8 +126,10 @@ interface MinerState {
     lootboxOpenPrice: number
 }
 
-interface GemMarketState {
-    livePrice: number
+interface GemExchangeState {
+    guidePrice: number
+    bestBid: number | null
+    bestAsk: number | null
     userGems: number | null
 }
 
@@ -142,12 +144,12 @@ function parseArguments(raw: string): Record<string, unknown> {
 
 async function getOverview(event: H3Event) {
     const headers = toolHeaders(event)
-    const [xeno, colony, hack, miner, gemMarket] = await Promise.all([
+    const [xeno, colony, hack, miner, gemExchange] = await Promise.all([
         event.$fetch<XenoState>('/api/xeno/state', { headers }),
         event.$fetch<ColonyState>('/api/colony/state', { headers }),
         event.$fetch<HackState>('/api/hack/state', { headers }),
         event.$fetch<MinerState>('/api/miner/state', { headers }),
-        event.$fetch<GemMarketState>('/api/gem-market/state', { headers })
+        event.$fetch<GemExchangeState>('/api/gem-exchange/state', { headers })
     ])
 
     const colonyCoinsPerHour = colony.bugs.reduce((sum, bug) => sum + bug.itemsPerHour * bug.itemSellValue, 0)
@@ -255,9 +257,11 @@ async function getOverview(event: H3Event) {
             },
             gems: miner.gems
         },
-        gemMarket: {
-            livePrice: gemMarket.livePrice,
-            userGems: gemMarket.userGems
+        gemExchange: {
+            guidePrice: gemExchange.guidePrice,
+            bestBuyOffer: gemExchange.bestBid,
+            bestSellOffer: gemExchange.bestAsk,
+            userGems: gemExchange.userGems
         }
     }
 }
@@ -731,14 +735,24 @@ async function purchaseMinerUpgrades(event: H3Event, args: Record<string, unknow
 async function tradeGems(event: H3Event, args: Record<string, unknown>) {
     const action = args.action === 'buy' ? 'buy' : args.action === 'sell' ? 'sell' : ''
     const gems = Number(args.gems)
-    if (!action || !Number.isInteger(gems) || gems < 1 || gems > 50) {
-        throw createError({ statusCode: 400, statusMessage: 'Choose buy or sell and an integer from 1 to 50 gems' })
+    if (!action || !Number.isInteger(gems) || gems < 1) {
+        throw createError({ statusCode: 400, statusMessage: 'Choose buy or sell and a positive whole number of gems' })
     }
 
-    return event.$fetch(`/api/gem-market/${action}`, {
+    const headers = toolHeaders(event)
+    let price = args.price == null ? null : Number(args.price)
+    if (price === null) {
+        // Default to the price most likely to fill instantly: cross the spread
+        // when the opposite side of the book has offers, otherwise the guide.
+        const state = await event.$fetch<GemExchangeState>('/api/gem-exchange/state', { headers })
+        price = (action === 'buy' ? state.bestAsk : state.bestBid) ?? state.guidePrice
+        price = Math.round(price * 100) / 100
+    }
+
+    return event.$fetch('/api/gem-exchange/place', {
         method: 'POST',
-        headers: toolHeaders(event),
-        body: { gems }
+        headers,
+        body: { side: action, quantity: gems, price }
     })
 }
 
@@ -889,7 +903,7 @@ export async function executeAiTool(event: H3Event, toolCall: AiToolCall): Promi
         case 'call_game_api': {
             const path = typeof args.path === 'string' ? args.path : ''
             const method = args.method === 'GET' ? 'GET' : args.method === 'POST' ? 'POST' : ''
-            const gamePath = /^\/api\/(xeno|colony|hack|miner|pirates|gem-market|games)(?:\/[a-z0-9-]+)*$/
+            const gamePath = /^\/api\/(xeno|colony|hack|miner|pirates|gem-exchange|games)(?:\/[a-z0-9-]+)*$/
             if (!gamePath.test(path) || !method) {
                 throw createError({ statusCode: 400, statusMessage: 'Only authenticated game API paths and GET/POST methods are allowed' })
             }

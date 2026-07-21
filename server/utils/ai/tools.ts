@@ -297,12 +297,13 @@ const AI_TOOL_DEFINITIONS: OpenRouterTool[] = [
         type: 'function',
         function: {
             name: 'trade_gems',
-            description: 'Buy gems with coins or sell gems for coins on the live Gem Market. Each trade is server-authoritative and moves the market price.',
+            description: 'Place a buy or sell limit order on the player-driven Gem Exchange. Omit price to cross the spread at the best opposing offer (instant fill when the book has volume); otherwise the order rests until another player matches it. Buy orders escrow coins, sell orders escrow gems.',
             parameters: {
                 type: 'object',
                 properties: {
                     action: { type: 'string', enum: ['buy', 'sell'] },
-                    gems: { type: 'integer', minimum: 1, maximum: 50, description: 'Number of gems to buy or sell.' }
+                    gems: { type: 'integer', minimum: 1, description: 'Number of gems to buy or sell.' },
+                    price: { type: 'number', minimum: 0.01, description: 'Optional limit price in coins per gem (max 2 decimals). Defaults to the best opposing offer or the guide price.' }
                 },
                 required: ['action', 'gems'],
                 additionalProperties: false
@@ -347,7 +348,7 @@ const AI_TOOL_DEFINITIONS: OpenRouterTool[] = [
             parameters: {
                 type: 'object',
                 properties: {
-                    path: { type: 'string', description: 'A path beginning with /api/xeno, /api/colony, /api/hack, /api/miner, /api/pirates, /api/gem-market, or /api/games.' },
+                    path: { type: 'string', description: 'A path beginning with /api/xeno, /api/colony, /api/hack, /api/miner, /api/pirates, /api/gem-exchange, or /api/games.' },
                     method: { type: 'string', enum: ['GET', 'POST'] },
                     body: { type: 'object', description: 'Request JSON for POST calls.', additionalProperties: true }
                 },
