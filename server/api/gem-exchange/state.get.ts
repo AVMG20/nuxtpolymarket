@@ -55,8 +55,10 @@ export default defineEventHandler(async (event) => {
             price: gemTrades.price,
             quantity: gemTrades.quantity,
             createdAt: gemTrades.createdAt,
+            buyerId: gemTrades.buyerId,
             buyerName: buyer.name,
             buyerEmblem: buyer.emblem,
+            sellerId: gemTrades.sellerId,
             sellerName: seller.name,
             sellerEmblem: seller.emblem,
             self: sql<boolean>`${gemTrades.buyerId} is not distinct from ${gemTrades.sellerId}`
@@ -148,6 +150,7 @@ export default defineEventHandler(async (event) => {
             sellerName: trade.sellerName,
             sellerEmblem: trade.sellerEmblem,
             self: trade.self,
+            mine: userId !== null && (trade.buyerId === userId || trade.sellerId === userId),
             createdAt: trade.createdAt
         })),
         // Oldest-first for charting

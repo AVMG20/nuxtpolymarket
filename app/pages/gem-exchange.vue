@@ -256,9 +256,22 @@ const tooltipFmt = (d: PricePoint) =>
 
 // ---- Live offers filter ----
 const showMineOnly = ref(false)
+const sideFilter = ref<'buy' | 'sell' | null>(null)
+function toggleSideFilter(side: 'buy' | 'sell') {
+  sideFilter.value = sideFilter.value === side ? null : side
+}
 const visibleOrders = computed(() => {
-  const orders = data.value?.orders ?? []
-  return showMineOnly.value ? orders.filter(order => order.mine) : orders
+  let orders = data.value?.orders ?? []
+  if (showMineOnly.value) orders = orders.filter(order => order.mine)
+  if (sideFilter.value) orders = orders.filter(order => order.side === sideFilter.value)
+  return orders
+})
+
+// ---- Recent trades filter ----
+const showMineTradesOnly = ref(false)
+const visibleTrades = computed(() => {
+  const trades = data.value?.trades ?? []
+  return showMineTradesOnly.value ? trades.filter(trade => trade.mine) : trades
 })
 
 // ---- Order book depth bars ----
@@ -645,6 +658,26 @@ const maxAskDepth = computed(() => Math.max(1, ...(data.value?.book.asks ?? []).
           <div class="flex items-center justify-between">
             <h2 class="font-semibold">Live Offers</h2>
             <div class="flex items-center gap-2">
+              <UTooltip text="Buying only" :delay-duration="120">
+                <UButton
+                    size="xs"
+                    :color="sideFilter === 'buy' ? 'success' : 'neutral'"
+                    :variant="sideFilter === 'buy' ? 'solid' : 'soft'"
+                    icon="i-lucide-trending-up"
+                    square
+                    @click="toggleSideFilter('buy')"
+                />
+              </UTooltip>
+              <UTooltip text="Selling only" :delay-duration="120">
+                <UButton
+                    size="xs"
+                    :color="sideFilter === 'sell' ? 'error' : 'neutral'"
+                    :variant="sideFilter === 'sell' ? 'solid' : 'soft'"
+                    icon="i-lucide-trending-down"
+                    square
+                    @click="toggleSideFilter('sell')"
+                />
+              </UTooltip>
               <UButton
                   v-if="user"
                   size="xs"
@@ -654,7 +687,7 @@ const maxAskDepth = computed(() => Math.max(1, ...(data.value?.book.asks ?? []).
                   label="Mine"
                   @click="showMineOnly = !showMineOnly"
               />
-              <UBadge :label="`${data?.orders.length ?? 0} open`" color="neutral" variant="subtle" />
+              <UBadge :label="`${visibleOrders.length} open`" color="neutral" variant="subtle" />
             </div>
           </div>
         </template>
@@ -664,7 +697,7 @@ const maxAskDepth = computed(() => Math.max(1, ...(data.value?.book.asks ?? []).
             class="py-12 flex flex-col items-center gap-2 text-muted"
         >
           <UIcon name="i-lucide-inbox" class="size-10 opacity-20" />
-          <p class="text-sm">{{ showMineOnly ? 'You have no open offers' : 'No open offers right now' }}</p>
+          <p class="text-sm">{{ showMineOnly || sideFilter ? 'No offers match these filters' : 'No open offers right now' }}</p>
         </div>
 
         <UScrollArea v-else class="max-h-96">
@@ -726,22 +759,33 @@ const maxAskDepth = computed(() => Math.max(1, ...(data.value?.book.asks ?? []).
         <template #header>
           <div class="flex items-center justify-between">
             <h2 class="font-semibold">Recent Trades</h2>
-            <UBadge :label="`${data?.trades.length ?? 0} shown`" color="neutral" variant="subtle" />
+            <div class="flex items-center gap-2">
+              <UButton
+                  v-if="user"
+                  size="xs"
+                  :color="showMineTradesOnly ? 'primary' : 'neutral'"
+                  :variant="showMineTradesOnly ? 'solid' : 'soft'"
+                  icon="i-lucide-user"
+                  label="Mine"
+                  @click="showMineTradesOnly = !showMineTradesOnly"
+              />
+              <UBadge :label="`${visibleTrades.length} shown`" color="neutral" variant="subtle" />
+            </div>
           </div>
         </template>
 
         <div
-            v-if="!data?.trades.length"
+            v-if="!visibleTrades.length"
             class="py-12 flex flex-col items-center gap-2 text-muted"
         >
           <UIcon name="i-lucide-activity" class="size-10 opacity-20" />
-          <p class="text-sm">No trades yet — be part of the first!</p>
+          <p class="text-sm">{{ showMineTradesOnly ? 'You have no trades yet' : 'No trades yet — be part of the first!' }}</p>
         </div>
 
         <UScrollArea v-else class="max-h-96">
           <TransitionGroup name="live-list" tag="div" class="relative divide-y divide-default">
             <div
-                v-for="trade in data.trades"
+                v-for="trade in visibleTrades"
                 :key="trade.id"
                 class="flex items-center gap-3 px-4 py-2.5 hover:bg-elevated/50 transition-colors"
             >
