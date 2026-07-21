@@ -789,19 +789,12 @@ const maxAskDepth = computed(() => Math.max(1, ...(data.value?.book.asks ?? []).
                 :key="trade.id"
                 class="flex items-center gap-3 px-4 py-2.5 hover:bg-elevated/50 transition-colors"
             >
-              <div v-if="trade.self" class="shrink-0">
-                <ProfileEmblem :emblem="trade.sellerEmblem" :name="trade.sellerName" class="size-8" />
-              </div>
-              <div v-else class="flex shrink-0 -space-x-2.5">
+              <div class="flex shrink-0 -space-x-2.5">
                 <ProfileEmblem :emblem="trade.sellerEmblem" :name="trade.sellerName" class="size-8 ring-2 ring-(--ui-bg)" />
                 <ProfileEmblem :emblem="trade.buyerEmblem" :name="trade.buyerName" class="size-8 ring-2 ring-(--ui-bg)" />
               </div>
               <div class="flex-1 min-w-0">
-                <p v-if="trade.self" class="text-sm truncate">
-                  <span class="font-semibold">{{ trade.sellerName ?? 'Unknown' }}</span>
-                  <UBadge label="self" color="neutral" variant="subtle" size="sm" class="ml-1.5" />
-                </p>
-                <p v-else class="text-sm truncate">
+                <p class="text-sm truncate">
                   <span class="font-semibold">{{ trade.sellerName ?? 'Unknown' }}</span>
                   <UIcon name="i-lucide-arrow-right" class="size-3 inline mx-1 text-muted" />
                   <span class="font-semibold">{{ trade.buyerName ?? 'Unknown' }}</span>

@@ -60,12 +60,13 @@ export default defineEventHandler(async (event) => {
             buyerEmblem: buyer.emblem,
             sellerId: gemTrades.sellerId,
             sellerName: seller.name,
-            sellerEmblem: seller.emblem,
-            self: sql<boolean>`${gemTrades.buyerId} is not distinct from ${gemTrades.sellerId}`
+            sellerEmblem: seller.emblem
         })
             .from(gemTrades)
             .leftJoin(buyer, eq(gemTrades.buyerId, buyer.id))
             .leftJoin(seller, eq(gemTrades.sellerId, seller.id))
+            // Self-trades (a player filling their own offer) are just wash volume — not worth surfacing.
+            .where(sql`${gemTrades.buyerId} is distinct from ${gemTrades.sellerId}`)
             .orderBy(desc(gemTrades.createdAt))
             .limit(40),
         db.select({
@@ -149,7 +150,6 @@ export default defineEventHandler(async (event) => {
             buyerEmblem: trade.buyerEmblem,
             sellerName: trade.sellerName,
             sellerEmblem: trade.sellerEmblem,
-            self: trade.self,
             mine: userId !== null && (trade.buyerId === userId || trade.sellerId === userId),
             createdAt: trade.createdAt
         })),
