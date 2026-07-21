@@ -20,6 +20,7 @@ interface LeaderboardUser {
   xenoBreederSlotsUnlocked: number
   aiPromptsUsed: number
   totalLevels: number
+  totalUpgrades: number
   totalWealth: number
 }
 
@@ -59,7 +60,7 @@ function openDetails(user: LeaderboardUser) {
         <UIcon name="i-lucide-trophy" class="size-6 text-yellow-400" />
         Leaderboard
       </h1>
-      <p class="mt-0.5 text-sm text-muted">Top players ranked by total wealth</p>
+      <p class="mt-0.5 text-sm text-muted">Top players ranked by total upgrades, then total wealth</p>
     </div>
 
     <LeaderboardSkeleton v-if="pending" />
@@ -71,6 +72,7 @@ function openDetails(user: LeaderboardUser) {
             <tr>
               <th scope="col" class="w-14 px-3 py-3 text-center"><UTooltip text="Rank"><UIcon name="i-lucide-trophy" class="mx-auto size-4" /></UTooltip></th>
               <th scope="col" class="min-w-44 px-3 py-3 text-left">Player</th>
+              <th scope="col" class="px-3 py-3 text-left"><UTooltip text="Total upgrades"><UIcon name="i-lucide-arrow-big-up-dash" class="size-4" /></UTooltip></th>
               <th scope="col" class="px-3 py-3 text-left"><UTooltip text="Balances"><UIcon name="i-lucide-wallet-cards" class="size-4" /></UTooltip></th>
               <th scope="col" class="px-3 py-3 text-left"><UTooltip text="Miner progression"><UIcon name="i-lucide-pickaxe" class="size-4" /></UTooltip></th>
               <th scope="col" class="px-3 py-3 text-left"><UTooltip text="Game progress"><UIcon name="i-lucide-chart-no-axes-combined" class="size-4" /></UTooltip></th>
@@ -97,6 +99,13 @@ function openDetails(user: LeaderboardUser) {
                   <p class="max-w-40 truncate font-semibold">{{ u.name }}</p>
                   <LeaderboardYouBadge :show="u.isCurrentUser" />
                 </div>
+              </td>
+              <td class="px-3 py-3">
+                <UTooltip text="Total upgrades">
+                  <span class="inline-flex items-center gap-1 font-bold tabular-nums text-primary">
+                    <UIcon name="i-lucide-arrow-big-up-dash" class="size-3.5" />{{ formatNumber(u.totalUpgrades, false) }}
+                  </span>
+                </UTooltip>
               </td>
               <td class="px-3 py-3">
                 <div class="flex items-center gap-3 whitespace-nowrap text-xs font-semibold">

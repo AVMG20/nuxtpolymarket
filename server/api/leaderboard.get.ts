@@ -112,6 +112,14 @@ export default defineEventHandler(async (event) => {
       const xenoGridSlotsUnlocked = xenoGridByUser.get(u.id) ?? 0
       const xenoBreederSlotsUnlocked = xenoBreederByUser.get(u.id) ?? 0
       const aiPromptsUsed = aiPromptsByUser.get(u.id) ?? 0
+      const totalUpgrades = totalLevels
+        + (u.overclockLevel ?? 0)
+        + (u.catalystLevel ?? 0)
+        + colonyHabitatLevel
+        + colonyResearchLevels
+        + xenoSpeciesUnlocked
+        + xenoGridSlotsUnlocked
+        + xenoBreederSlotsUnlocked
       return {
         isCurrentUser: u.id === sessionUserId,
         name: u.name,
@@ -133,8 +141,9 @@ export default defineEventHandler(async (event) => {
         xenoBreederSlotsUnlocked,
         aiPromptsUsed,
         totalLevels,
+        totalUpgrades,
         totalWealth,
       }
     })
-    .sort((a, b) => b.totalWealth - a.totalWealth || b.totalLevels - a.totalLevels)
+    .sort((a, b) => b.totalUpgrades - a.totalUpgrades || b.totalWealth - a.totalWealth)
 })
