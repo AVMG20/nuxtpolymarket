@@ -1,5 +1,5 @@
 import { relations } from 'drizzle-orm'
-import { pgTable, text, timestamp, boolean, index, numeric, integer, unique, jsonb } from 'drizzle-orm/pg-core'
+import { pgTable, text, timestamp, boolean, index, numeric, integer, jsonb } from 'drizzle-orm/pg-core'
 
 export const user = pgTable('user', {
   id: text('id').primaryKey(),
@@ -179,10 +179,7 @@ export const pirateCannons = pgTable('pirate_cannons', {
   slotIndex: integer('slot_index').notNull(),
   tierId: text('tier_id').notNull(),
   purchasePrice: integer('purchase_price').notNull()
-}, t => [
-  index('pirate_cannons_userId_idx').on(t.userId),
-  unique('pirate_cannons_slot_unique').on(t.userId, t.slotIndex)
-])
+}, t => [index('pirate_cannons_userId_idx').on(t.userId)])
 
 export const pirateRunHistory = pgTable('pirate_run_history', {
   id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
@@ -327,10 +324,7 @@ export const xenoPlantsUnlocked = pgTable('xeno_plants_unlocked', {
   userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
   typeId: text('type_id').notNull(),
   unlockedAt: timestamp('unlocked_at').defaultNow().notNull()
-}, t => [
-  index('xeno_plants_unlocked_userId_idx').on(t.userId),
-  unique('xeno_plants_unlocked_unique').on(t.userId, t.typeId)
-])
+}, t => [index('xeno_plants_unlocked_userId_idx').on(t.userId)])
 
 /** Permanent account-wide Xeno market upgrades. */
 export const xenoUpgrades = pgTable('xeno_upgrades', {
@@ -359,10 +353,7 @@ export const xenoGridSlots = pgTable('xeno_grid_slots', {
   plantId: text('plant_id').references(() => xenoPlants.id, { onDelete: 'set null' }),
   startedAt: timestamp('started_at'),
   artifactId: text('artifact_id').references(() => xenoArtifacts.id, { onDelete: 'set null' })
-}, t => [
-  index('xeno_grid_userId_idx').on(t.userId),
-  unique('xeno_grid_slot_unique').on(t.userId, t.slotIndex)
-])
+}, t => [index('xeno_grid_userId_idx').on(t.userId)])
 
 /**
  * Breeder slots. Parents are consumed (deleted from xenoPlants) when breeding starts;
@@ -386,10 +377,7 @@ export const xenoBreederSlots = pgTable('xeno_breeder_slots', {
   resultQuantity: integer('result_quantity'),
   wasMutation: boolean('was_mutation'),
   collected: boolean('collected').notNull().default(false)
-}, t => [
-  index('xeno_breeder_userId_idx').on(t.userId),
-  unique('xeno_breeder_slot_unique').on(t.userId, t.slotIndex)
-])
+}, t => [index('xeno_breeder_userId_idx').on(t.userId)])
 
 // ─── Colony ───────────────────────────────────────────────────────────────────
 
@@ -458,10 +446,7 @@ export const colonyLoot = pgTable('colony_loot', {
   userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
   itemTypeId: text('item_type_id').notNull(),
   quantity: integer('quantity').notNull().default(0)
-}, t => [
-  index('colony_loot_userId_idx').on(t.userId),
-  unique('colony_loot_unique').on(t.userId, t.itemTypeId)
-])
+}, t => [index('colony_loot_userId_idx').on(t.userId)])
 
 /** Claimed item inventory — spendable in the market and toward item-gated upgrades. */
 export const colonyItems = pgTable('colony_items', {
@@ -469,10 +454,7 @@ export const colonyItems = pgTable('colony_items', {
   userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
   itemTypeId: text('item_type_id').notNull(),
   quantity: integer('quantity').notNull().default(0)
-}, t => [
-  index('colony_items_userId_idx').on(t.userId),
-  unique('colony_items_unique').on(t.userId, t.itemTypeId)
-])
+}, t => [index('colony_items_userId_idx').on(t.userId)])
 
 /** Leveled builder upgrade tracks (capacity, yield, speed, nutrition storage/efficiency). One row per track. */
 export const colonyUpgrades = pgTable('colony_upgrades', {
@@ -480,10 +462,7 @@ export const colonyUpgrades = pgTable('colony_upgrades', {
   userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
   trackId: text('track_id').notNull(),
   level: integer('level').notNull().default(0)
-}, t => [
-  index('colony_upgrades_userId_idx').on(t.userId),
-  unique('colony_upgrades_unique').on(t.userId, t.trackId)
-])
+}, t => [index('colony_upgrades_userId_idx').on(t.userId)])
 
 /**
  * Per-species research level (0-4) — sacrificing a growing number of a
@@ -497,10 +476,7 @@ export const colonyBugResearch = pgTable('colony_bug_research', {
   userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
   typeId: text('type_id').notNull(),
   level: integer('level').notNull().default(0)
-}, t => [
-  index('colony_bug_research_userId_idx').on(t.userId),
-  unique('colony_bug_research_unique').on(t.userId, t.typeId)
-])
+}, t => [index('colony_bug_research_userId_idx').on(t.userId)])
 
 // ─── Hack Ops ─────────────────────────────────────────────────────────────────
 
@@ -554,10 +530,7 @@ export const hackArtifacts = pgTable('hack_artifacts', {
   rarity: text('rarity').notNull(),
   count: integer('count').notNull().default(1),
   createdAt: timestamp('created_at').defaultNow().notNull()
-}, t => [
-  index('hack_artifacts_userId_idx').on(t.userId),
-  unique('hack_artifacts_user_type_rarity').on(t.userId, t.traitType, t.rarity)
-])
+}, t => [index('hack_artifacts_userId_idx').on(t.userId)])
 
 export const hackOps = pgTable('hack_ops', {
   id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
