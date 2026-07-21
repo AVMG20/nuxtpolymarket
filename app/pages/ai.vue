@@ -53,6 +53,7 @@ const historyOpen = ref(false)
 const deleteOpen = ref(false)
 const deleteTarget = ref<Conversation | null>(null)
 const resolvingToolId = ref('')
+const activeToolResolutions = ref(0)
 const streamedToolResults = ref<Record<string, Record<string, unknown>>>({})
 const guard = useCookie<AiGuardSettings>(AI_GUARD_COOKIE, {
   default: () => defaultAiGuard(),
@@ -90,10 +91,12 @@ const showPendingUser = computed(() => Boolean(
 const hasPendingTools = computed(() => messages.value.some(message =>
   message.role === 'assistant' && message.toolCalls.some(call => !toolResult(call.id))
 ))
-const promptDisabled = computed(() => sending.value || context.value?.blocked || usage.value.used >= usage.value.limit || hasPendingTools.value)
+const toolResolutionActive = computed(() => activeToolResolutions.value > 0)
+const promptDisabled = computed(() => sending.value || toolResolutionActive.value || context.value?.blocked || usage.value.used >= usage.value.limit || hasPendingTools.value)
 
 watch(streamingContent, scrollToBottom)
 watch(() => messages.value.length, scrollToBottom)
+watch(toolResolutionActive, scrollToBottom)
 
 watch(selectedId, async (id) => {
   if (!id) {
@@ -364,6 +367,7 @@ function toolResultSummary(result: Record<string, unknown>) {
 async function resolveTool(message: AiMessageDto, call: AiToolCall, approved: boolean) {
   if (!selectedId.value) return
   resolvingToolId.value = call.id
+  activeToolResolutions.value += 1
   streamingContent.value = ''
   try {
     await readAiStream('/api/ai/tools/execute', {
@@ -389,6 +393,7 @@ async function resolveTool(message: AiMessageDto, call: AiToolCall, approved: bo
   } finally {
     streamingContent.value = ''
     resolvingToolId.value = ''
+    activeToolResolutions.value = Math.max(0, activeToolResolutions.value - 1)
   }
 }
 
@@ -672,7 +677,7 @@ const starterPrompts = [
               </template>
             </UChatMessage>
 
-            <div v-else-if="sending || resolvingToolId" class="flex items-center gap-2 py-4 text-sm text-muted">
+            <div v-else-if="sending || toolResolutionActive" class="flex items-center gap-2 py-4 text-sm text-muted">
               <UIcon class="size-4 animate-spin" name="i-lucide-loader-circle" />
               Thinking…
             </div>
