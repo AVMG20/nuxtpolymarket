@@ -20,6 +20,9 @@ export default defineEventHandler(async (event) => {
     const seller = alias(user, 'seller')
     const dayAgo = new Date(Date.now() - 24 * 3_600_000)
     const historyCutoff = new Date(Date.now() - GEM_EXCHANGE_HISTORY_DAYS * 24 * 3_600_000)
+    // Self-trades are wash volume at an arbitrary self-chosen price — excluded
+    // from every price/stat query below, not just the "Recent Trades" list.
+    const notSelfTrade = sql`${gemTrades.buyerId} is distinct from ${gemTrades.sellerId}`
 
     const [guidePrice, depthRows, bids, asks, recentTrades, history, stats24hRows, prevTrade] = await Promise.all([
         getGemGuidePrice(),
@@ -65,8 +68,7 @@ export default defineEventHandler(async (event) => {
             .from(gemTrades)
             .leftJoin(buyer, eq(gemTrades.buyerId, buyer.id))
             .leftJoin(seller, eq(gemTrades.sellerId, seller.id))
-            // Self-trades (a player filling their own offer) are just wash volume — not worth surfacing.
-            .where(sql`${gemTrades.buyerId} is distinct from ${gemTrades.sellerId}`)
+            .where(notSelfTrade)
             .orderBy(desc(gemTrades.createdAt))
             .limit(40),
         db.select({
@@ -75,7 +77,7 @@ export default defineEventHandler(async (event) => {
             createdAt: gemTrades.createdAt
         })
             .from(gemTrades)
-            .where(gte(gemTrades.createdAt, historyCutoff))
+            .where(and(gte(gemTrades.createdAt, historyCutoff), notSelfTrade))
             .orderBy(desc(gemTrades.createdAt))
             .limit(GEM_EXCHANGE_HISTORY_LIMIT),
         db.select({
@@ -85,10 +87,10 @@ export default defineEventHandler(async (event) => {
             low: sql<string | null>`min(${gemTrades.price})`
         })
             .from(gemTrades)
-            .where(gte(gemTrades.createdAt, dayAgo)),
+            .where(and(gte(gemTrades.createdAt, dayAgo), notSelfTrade)),
         // Reference price for the 24h change: last trade before the window.
         db.query.gemTrades.findFirst({
-            where: lt(gemTrades.createdAt, dayAgo),
+            where: and(lt(gemTrades.createdAt, dayAgo), notSelfTrade),
             orderBy: desc(gemTrades.createdAt),
             columns: { price: true }
         })

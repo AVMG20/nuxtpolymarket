@@ -3,7 +3,7 @@ import { eq, inArray, or } from 'drizzle-orm'
 import { db } from '#server/database'
 import { user, gemOrders, gemTrades } from '#server/database/schema'
 import { getBalance } from '#server/utils/balance'
-import { placeGemOrder, cancelGemOrder } from '#server/utils/gem-exchange'
+import { placeGemOrder, cancelGemOrder, getGemGuidePrice } from '#server/utils/gem-exchange'
 import { GEM_EXCHANGE_MAX_OPEN_ORDERS } from '#shared/utils/gamelogic/gem-exchange'
 import { SKIP, burst, cleanupUser, seedUser } from '../setup/db-helpers'
 
@@ -66,6 +66,26 @@ describe.skipIf(SKIP)('gem exchange (database)', () => {
         const trades = await db.select().from(gemTrades).where(eq(gemTrades.sellerId, SELLER))
         expect(trades).toHaveLength(1)
         expect(trades[0]!.quantity).toBe(10)
+    })
+
+    // applyFill() has a separate branch for takerSide === 'sell' (the seller is
+    // paid the resting bid directly with no change calc) — every other test in
+    // this file has a buy order as the taker, so this branch was never exercised.
+    it('lets a seller cross a resting buy and get paid the higher resting bid', async () => {
+        await seedUser(BUYER, { balance: '3500.0000' })
+        await seedUser(SELLER, { gems: 10 })
+
+        await placeGemOrder(BUYER, 'buy', 350, 10)
+        const sell = await placeGemOrder(SELLER, 'sell', 300, 10)
+
+        expect(sell.status).toBe('filled')
+        expect(sell.avgFillPrice).toBe(350)
+        expect(sell.coinsMoved).toBe(3500)
+
+        expect(await getBalance(SELLER)).toBe('3500.0000')
+        expect(await getBalance(BUYER)).toBe('0.0000')
+        expect(await getGems(BUYER)).toBe(10)
+        expect(await getGems(SELLER)).toBe(0)
     })
 
     it('fills at the resting price and refunds the buyer the difference', async () => {
@@ -197,5 +217,38 @@ describe.skipIf(SKIP)('gem exchange (database)', () => {
 
         expect(result).toEqual({ ok: 1, rejected: 9 })
         expect(await getGems(SELLER)).toBe(25)
+    })
+
+    describe('getGemGuidePrice', () => {
+        // This price is credited into leaderboard wealth and drives lootbox
+        // open cost/reward value (see server/utils/miner-config.ts), so letting
+        // a self-trade move it lets a player mint gems for near-free coins.
+        it('is untouched by a wash trade a player fills against themself', async () => {
+            await seedUser(BUYER, { balance: '300000000000.0000', gems: 5_000_000 })
+
+            const before = await getGemGuidePrice()
+
+            // Huge volume at a wildly off-market price, bought back from myself.
+            await placeGemOrder(BUYER, 'sell', 50_000, 5_000_000)
+            const wash = await placeGemOrder(BUYER, 'buy', 50_000, 5_000_000)
+            expect(wash.status).toBe('filled')
+
+            expect(await getGemGuidePrice()).toBe(before)
+        })
+
+        it('does move once a real trade between two different players fills', async () => {
+            await seedUser(BUYER, { balance: '100000000.0000' })
+            await seedUser(SELLER, { gems: 5_000_000 })
+
+            const before = await getGemGuidePrice()
+
+            await placeGemOrder(SELLER, 'sell', 0.01, 5_000_000)
+            const fill = await placeGemOrder(BUYER, 'buy', 0.01, 5_000_000)
+            expect(fill.status).toBe('filled')
+
+            const after = await getGemGuidePrice()
+            expect(after).toBeLessThan(before)
+            expect(after).toBeCloseTo(0.01, 1)
+        })
     })
 })

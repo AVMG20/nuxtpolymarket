@@ -30,13 +30,18 @@ async function lockBook(tx: DbExecutor) {
  */
 export async function getGemGuidePrice(): Promise<number> {
     const cutoff = new Date(Date.now() - 24 * 3_600_000)
+    // Self-trades (a player filling their own offer) are wash volume with an
+    // arbitrary self-chosen price — counting them would let a single player
+    // drag the guide price anywhere, and that price feeds lootbox economics.
+    const notSelfTrade = sql`${gemTrades.buyerId} is distinct from ${gemTrades.sellerId}`
     const [vwapRow] = await db
         .select({ vwap: sql<string | null>`sum(${gemTrades.price} * ${gemTrades.quantity}) / nullif(sum(${gemTrades.quantity}), 0)` })
         .from(gemTrades)
-        .where(gte(gemTrades.createdAt, cutoff))
+        .where(and(gte(gemTrades.createdAt, cutoff), notSelfTrade))
     if (vwapRow?.vwap) return parseFloat(vwapRow.vwap)
 
     const last = await db.query.gemTrades.findFirst({
+        where: notSelfTrade,
         orderBy: desc(gemTrades.createdAt),
         columns: { price: true }
     })
