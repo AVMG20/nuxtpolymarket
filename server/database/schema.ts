@@ -1,5 +1,5 @@
 import { relations } from 'drizzle-orm'
-import { pgTable, text, timestamp, boolean, index, numeric, integer, jsonb } from 'drizzle-orm/pg-core'
+import { pgTable, text, timestamp, boolean, index, numeric, integer, unique, jsonb } from 'drizzle-orm/pg-core'
 
 export const user = pgTable('user', {
   id: text('id').primaryKey(),
@@ -446,7 +446,10 @@ export const colonyLoot = pgTable('colony_loot', {
   userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
   itemTypeId: text('item_type_id').notNull(),
   quantity: integer('quantity').notNull().default(0)
-}, t => [index('colony_loot_userId_idx').on(t.userId)])
+}, t => [
+  index('colony_loot_userId_idx').on(t.userId),
+  unique('colony_loot_unique').on(t.userId, t.itemTypeId)
+])
 
 /** Claimed item inventory — spendable in the market and toward item-gated upgrades. */
 export const colonyItems = pgTable('colony_items', {
@@ -454,7 +457,10 @@ export const colonyItems = pgTable('colony_items', {
   userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
   itemTypeId: text('item_type_id').notNull(),
   quantity: integer('quantity').notNull().default(0)
-}, t => [index('colony_items_userId_idx').on(t.userId)])
+}, t => [
+  index('colony_items_userId_idx').on(t.userId),
+  unique('colony_items_unique').on(t.userId, t.itemTypeId)
+])
 
 /** Leveled builder upgrade tracks (capacity, yield, speed, nutrition storage/efficiency). One row per track. */
 export const colonyUpgrades = pgTable('colony_upgrades', {
@@ -462,7 +468,10 @@ export const colonyUpgrades = pgTable('colony_upgrades', {
   userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
   trackId: text('track_id').notNull(),
   level: integer('level').notNull().default(0)
-}, t => [index('colony_upgrades_userId_idx').on(t.userId)])
+}, t => [
+  index('colony_upgrades_userId_idx').on(t.userId),
+  unique('colony_upgrades_unique').on(t.userId, t.trackId)
+])
 
 /**
  * Per-species research level (0-4) — sacrificing a growing number of a
@@ -476,7 +485,10 @@ export const colonyBugResearch = pgTable('colony_bug_research', {
   userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
   typeId: text('type_id').notNull(),
   level: integer('level').notNull().default(0)
-}, t => [index('colony_bug_research_userId_idx').on(t.userId)])
+}, t => [
+  index('colony_bug_research_userId_idx').on(t.userId),
+  unique('colony_bug_research_unique').on(t.userId, t.typeId)
+])
 
 // ─── Hack Ops ─────────────────────────────────────────────────────────────────
 
