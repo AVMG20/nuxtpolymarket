@@ -12,9 +12,12 @@ export const GEM_EXCHANGE_MAX_QUANTITY = 2_147_483_647
 export const GEM_EXCHANGE_MAX_OPEN_ORDERS = 100
 
 // ─── Guide price ──────────────────────────────────────────────────────────────
-// Volume-weighted average of the last 24h of trades; before any trade exists
-// the exchange anchors on this value.
+// Volume-weighted average of the last N trades; before any trade exists the
+// exchange anchors on this value. A count-based window (rather than a time
+// window like 24h) keeps the price meaningful with a small, sporadically
+// trading player base — a slow day no longer starves it back to the fallback.
 export const GEM_GUIDE_PRICE_FALLBACK = 300
+export const GEM_GUIDE_PRICE_SAMPLE_SIZE = 30
 
 /** Quick price nudges offered by the UI, as fractions of the guide price. */
 export const GEM_PRICE_NUDGES = [0.05, 0.20] as const

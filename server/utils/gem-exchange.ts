@@ -5,6 +5,7 @@ import { credit, debit, creditGems, debitGems } from './balance'
 import {
     GEM_EXCHANGE_MAX_OPEN_ORDERS,
     GEM_GUIDE_PRICE_FALLBACK,
+    GEM_GUIDE_PRICE_SAMPLE_SIZE,
     isValidGemPrice,
     isValidGemQuantity,
     isValidGemOrderTotal,
@@ -23,29 +24,32 @@ async function lockBook(tx: DbExecutor) {
 }
 
 /**
- * Volume-weighted average trade price over the last 24h, falling back to the
- * most recent trade and finally to the launch anchor. Used wherever the rest
- * of the game needs a coin value for one gem (leaderboard wealth, lootbox
- * pricing) and as the default price in the exchange UI.
+ * Volume-weighted average price over the last GEM_GUIDE_PRICE_SAMPLE_SIZE
+ * trades, falling back to the launch anchor before any trade exists. A
+ * count-based window rather than a time window (e.g. 24h) so the price stays
+ * meaningful even on a quiet day with a small player base. Used wherever the
+ * rest of the game needs a coin value for one gem (leaderboard wealth,
+ * lootbox pricing) and as the default price in the exchange UI.
  */
 export async function getGemGuidePrice(): Promise<number> {
-    const cutoff = new Date(Date.now() - 24 * 3_600_000)
     // Self-trades (a player filling their own offer) are wash volume with an
     // arbitrary self-chosen price — counting them would let a single player
     // drag the guide price anywhere, and that price feeds lootbox economics.
     const notSelfTrade = sql`${gemTrades.buyerId} is distinct from ${gemTrades.sellerId}`
-    const [vwapRow] = await db
-        .select({ vwap: sql<string | null>`sum(${gemTrades.price} * ${gemTrades.quantity}) / nullif(sum(${gemTrades.quantity}), 0)` })
+    const recentTrades = await db
+        .select({ price: gemTrades.price, quantity: gemTrades.quantity })
         .from(gemTrades)
-        .where(and(gte(gemTrades.createdAt, cutoff), notSelfTrade))
-    if (vwapRow?.vwap) return parseFloat(vwapRow.vwap)
+        .where(notSelfTrade)
+        .orderBy(desc(gemTrades.createdAt))
+        .limit(GEM_GUIDE_PRICE_SAMPLE_SIZE)
 
-    const last = await db.query.gemTrades.findFirst({
-        where: notSelfTrade,
-        orderBy: desc(gemTrades.createdAt),
-        columns: { price: true }
-    })
-    return last ? parseFloat(last.price) : GEM_GUIDE_PRICE_FALLBACK
+    let totalValue = 0
+    let totalQuantity = 0
+    for (const trade of recentTrades) {
+        totalValue += parseFloat(trade.price) * trade.quantity
+        totalQuantity += trade.quantity
+    }
+    return totalQuantity > 0 ? totalValue / totalQuantity : GEM_GUIDE_PRICE_FALLBACK
 }
 
 export interface PlaceGemOrderResult {
