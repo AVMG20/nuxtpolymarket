@@ -21,6 +21,20 @@ const sidebarTabItems = [
 const resourcesOwned = computed(() => [...inventory.value].sort((a: any, b: any) => a.tier - b.tier || a.name.localeCompare(b.name)))
 const pendingLootTotal = computed(() => pendingLoot.value.reduce((sum: number, item: any) => sum + item.quantity, 0))
 
+/** Keep the placed-bugs grid stable across production refreshes. Average coin
+ * output is the primary ordering; the remaining fields make equal-value bugs
+ * deterministic instead of inheriting an arbitrary database response order. */
+const sortedPlacedBugs = computed(() => [...bugs.value].sort((a: any, b: any) => {
+  const valueDifference = (b.itemsPerHour * b.itemSellValue) - (a.itemsPerHour * a.itemSellValue)
+  if (valueDifference !== 0) return valueDifference
+
+  const tierDifference = b.tier - a.tier
+  if (tierDifference !== 0) return tierDifference
+
+  const nameDifference = a.name.localeCompare(b.name)
+  return nameDifference !== 0 ? nameDifference : a.id.localeCompare(b.id)
+}))
+
 /** Effective tick time for an unplaced stack (speed trait applied, no habitat speed_boost track since that's colony-wide and not modeled here for a dormant bug — matches the market card's own convention). */
 function stackTickMs(stack: any): number {
   return stack.baseTickMs * (1 - stack.speed / 100)
@@ -715,7 +729,7 @@ function bugYieldPerCycle(bug: any): string {
               class="p-2 grid grid-cols-3 gap-1.5 flex-1 overflow-y-auto content-start"
             >
               <UTooltip
-                v-for="bug in bugs"
+                v-for="bug in sortedPlacedBugs"
                 :key="bug.id"
                 :delay-duration="300"
                 :content="{ side: 'left', sideOffset: 8 }"
