@@ -60,8 +60,8 @@ export default defineEventHandler(async (event) => {
     lootboxMaxSlots: LOOTBOX_MAX_SLOTS,
     lootboxNextSlotCost: lootboxSlotCost(s.lootboxSlots),
     lootboxFreeOpensRemaining: Math.max(0, s.lootboxSlots - lootboxOpensToday),
-    lootboxAvgValue: lootboxExpectedValue(cap, gemPrice, s.factoryLevel),
-    lootboxOpenPrice: lootboxOpenPrice(cap, gemPrice, s.factoryLevel),
+    lootboxAvgValue: lootboxExpectedValue(cap),
+    lootboxOpenPrice: lootboxOpenPrice(cap),
     // Gem-shop upgrades
     overclockLevel: s.overclockLevel,
     overclockMaxLevel: OVERCLOCK_MAX_LEVEL,

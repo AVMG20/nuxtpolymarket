@@ -2,7 +2,6 @@
 import {
   LOOTBOX_REWARDS,
   lootboxRewardValue,
-  lootboxGemCount,
   lootboxRoll,
   type LootboxRarity,
   type LootboxReward,
@@ -23,11 +22,9 @@ const { data: state, refresh } = await useFetch('/api/miner/state')
 const toast = useToast()
 
 const cap = computed(() => state.value?.cap ?? 0)
-const gemPrice = computed(() => state.value?.gemPrice ?? 0)
-const factoryLevel = computed(() => state.value?.factoryLevel ?? 0)
-// Rig Overclock boosts lootbox cash payouts (not gem payouts).
+// Rig Overclock boosts all lootbox cash payouts.
 const incomeMult = computed(() => state.value?.incomeMultiplier ?? 1)
-const cashValueOf = (r: LootboxReward) => lootboxRewardValue(r, cap.value, gemPrice.value, factoryLevel.value) * incomeMult.value
+const cashValueOf = (r: LootboxReward) => lootboxRewardValue(r, cap.value) * incomeMult.value
 const freeRemaining = ref(0)
 watch(
   () => state.value?.lootboxFreeOpensRemaining,
@@ -57,20 +54,15 @@ const reel = useState<LootboxReward[]>('lootbox-reel', () => Array.from({ length
 const offset = ref(0)
 const transitionOn = ref(false)
 const spinning = ref(false)
-const result = ref<{ reward: LootboxReward, cashValue: number, gemsWon: number, paid: boolean } | null>(null)
+const result = ref<{ reward: LootboxReward, cashValue: number, paid: boolean } | null>(null)
 
-// The winning cell must show exactly what the server awarded, not a client-side
-// recomputation — otherwise a stale local `factoryLevel` can make the wheel show
-// a different number than what's actually credited.
-const winValue = ref<{ cashValue: number, gemsWon: number } | null>(null)
+// The winning cell must show exactly what the server awarded.
+const winValue = ref<{ cashValue: number } | null>(null)
 
-// Live display values (gems scale with factory level)
-function cellPrimary(r: LootboxReward, i: number) {
-  if (r.kind !== 'cash') return `${i === WIN_INDEX && winValue.value ? winValue.value.gemsWon : lootboxGemCount(r, factoryLevel.value)}`
+function cellPrimary(r: LootboxReward) {
   return `+${Math.round(r.amount * 100)}%`
 }
 function cellSecondary(r: LootboxReward, i: number) {
-  if (r.kind !== 'cash') return 'gems'
   const value = i === WIN_INDEX && winValue.value ? winValue.value.cashValue : cashValueOf(r)
   return `$${formatNumber(value, true)}`
 }
@@ -86,7 +78,7 @@ async function open(mode: 'free' | 'paid') {
     const res = await $fetch('/api/miner/lootbox/open', { method: 'POST', body: { mode } })
     const won = LOOTBOX_REWARDS.find(r => r.id === res.wonId)!
     freeRemaining.value = res.freeOpensRemaining
-    winValue.value = { cashValue: res.cashValue, gemsWon: res.gemsWon }
+    winValue.value = { cashValue: res.cashValue }
 
     // Build a fresh reel with the winning reward fixed at WIN_INDEX
     const items = Array.from({ length: REEL_LEN }, () => lootboxRoll())
@@ -107,12 +99,9 @@ async function open(mode: 'free' | 'paid') {
 
     // Reveal after the spin animation finishes
     setTimeout(async () => {
-      result.value = { reward: won, cashValue: res.cashValue, gemsWon: res.gemsWon, paid: res.paid }
+      result.value = { reward: won, cashValue: res.cashValue, paid: res.paid }
       spinning.value = false
-      const title = won.kind === 'cash'
-        ? `+$${formatNumber(res.cashValue, true)}!`
-        : `+${res.gemsWon} gems!`
-      toast.add({ title, color: 'success', icon: won.kind === 'cash' ? 'i-lucide-coins' : 'i-lucide-gem' })
+      toast.add({ title: `+$${formatNumber(res.cashValue, true)}!`, color: 'success', icon: 'i-lucide-coins' })
       await Promise.all([fetchSession(), refresh()])
     }, revealDelayMs.value)
   } catch (e: any) {
@@ -134,15 +123,10 @@ async function buySlot() {
   }
 }
 
-// Prize pool — grouped by kind, sorted low → high value
+// Prize pool — sorted low → high value
 const totalWeight = LOOTBOX_REWARDS.reduce((s, r) => s + r.weight, 0)
 const withChance = (r: LootboxReward) => ({ ...r, chance: (r.weight / totalWeight) * 100 })
-const cashPrizes = computed(() =>
-  LOOTBOX_REWARDS.filter(r => r.kind === 'cash').sort((a, b) => a.amount - b.amount).map(withChance),
-)
-const gemPrizes = computed(() =>
-  LOOTBOX_REWARDS.filter(r => r.kind === 'gems').sort((a, b) => a.amount - b.amount).map(withChance),
-)
+const cashPrizes = computed(() => LOOTBOX_REWARDS.slice().sort((a, b) => a.amount - b.amount).map(withChance))
 </script>
 
 <template>
@@ -150,7 +134,7 @@ const gemPrizes = computed(() =>
     <!-- Header -->
     <div>
       <h1 class="text-2xl font-bold">Lootboxes</h1>
-      <p class="text-sm text-muted mt-0.5">Spin the wheel for cash or gems — cash scales with your vault, gems with your factory.</p>
+      <p class="text-sm text-muted mt-0.5">Spin the wheel for cash rewards that scale with your vault.</p>
     </div>
 
     <div v-if="!state" class="space-y-4">
@@ -267,7 +251,7 @@ const gemPrizes = computed(() =>
                 :class="[RARITY_CLASSES[item.rarity].border, RARITY_CLASSES[item.rarity].bg]"
               >
                 <UIcon
-                  :name="item.kind === 'cash' ? 'i-lucide-coins' : 'i-lucide-gem'"
+                  name="i-lucide-coins"
                   class="size-6"
                   :class="RARITY_CLASSES[item.rarity].text"
                 />
@@ -286,13 +270,13 @@ const gemPrizes = computed(() =>
         >
           <div class="flex items-center gap-3">
             <UIcon
-              :name="result.reward.kind === 'cash' ? 'i-lucide-coins' : 'i-lucide-gem'"
+              name="i-lucide-coins"
               class="size-7"
               :class="RARITY_CLASSES[result.reward.rarity].text"
             />
             <div>
               <p class="font-bold text-lg leading-tight">
-                {{ result.reward.kind === 'cash' ? `+$${formatNumber(result.cashValue, true)}` : `+${result.gemsWon} gems` }}
+                +${{ formatNumber(result.cashValue, true) }}
               </p>
               <p class="text-xs text-muted capitalize">{{ result.reward.rarity }} reward</p>
             </div>
@@ -336,40 +320,18 @@ const gemPrizes = computed(() =>
             <p class="font-semibold text-sm">Prize Pool</p>
           </div>
         </template>
-        <div class="space-y-4">
-          <div>
-            <p class="text-xs font-semibold text-muted uppercase tracking-wide mb-2">Cash</p>
-            <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
-              <div
-                v-for="r in cashPrizes"
-                :key="r.id"
-                class="rounded-lg border p-2.5 flex items-center justify-between"
-                :class="RARITY_CLASSES[r.rarity].borderSoft"
-              >
-                <div class="flex items-center gap-2 min-w-0">
-                  <UIcon name="i-lucide-coins" class="size-4 shrink-0" :class="RARITY_CLASSES[r.rarity].text" />
-                  <span class="text-sm font-semibold truncate">${{ formatNumber(cashValueOf(r), true) }}</span>
-                </div>
-                <span class="text-xs text-muted shrink-0">{{ r.chance < 1 ? r.chance.toFixed(1) : Math.round(r.chance) }}%</span>
-              </div>
+        <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
+          <div
+            v-for="r in cashPrizes"
+            :key="r.id"
+            class="rounded-lg border p-2.5 flex items-center justify-between"
+            :class="RARITY_CLASSES[r.rarity].borderSoft"
+          >
+            <div class="flex items-center gap-2 min-w-0">
+              <UIcon name="i-lucide-coins" class="size-4 shrink-0" :class="RARITY_CLASSES[r.rarity].text" />
+              <span class="text-sm font-semibold truncate">${{ formatNumber(cashValueOf(r), true) }}</span>
             </div>
-          </div>
-          <div>
-            <p class="text-xs font-semibold text-muted uppercase tracking-wide mb-2">Gems</p>
-            <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
-              <div
-                v-for="r in gemPrizes"
-                :key="r.id"
-                class="rounded-lg border p-2.5 flex items-center justify-between"
-                :class="RARITY_CLASSES[r.rarity].borderSoft"
-              >
-                <div class="flex items-center gap-2 min-w-0">
-                  <UIcon name="i-lucide-gem" class="size-4 shrink-0" :class="RARITY_CLASSES[r.rarity].text" />
-                  <span class="text-sm font-semibold truncate">{{ lootboxGemCount(r, factoryLevel) }} gems</span>
-                </div>
-                <span class="text-xs text-muted shrink-0">{{ r.chance < 1 ? r.chance.toFixed(1) : Math.round(r.chance) }}%</span>
-              </div>
-            </div>
+            <span class="text-xs text-muted shrink-0">{{ r.chance < 1 ? r.chance.toFixed(1) : Math.round(r.chance) }}%</span>
           </div>
         </div>
       </UCard>

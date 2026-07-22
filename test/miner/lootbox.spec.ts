@@ -1,15 +1,26 @@
 import { describe, it, expect } from 'vitest'
 import {
     LOOTBOX_REWARDS,
-    lootboxGemCount
+    lootboxExpectedValue,
+    lootboxOpenPrice,
+    lootboxRoll
 } from '../../shared/utils/miner-config'
 
-describe('lootboxGemCount', () => {
-    it('scales gem rewards by factory level and rarity', () => {
-        const common = LOOTBOX_REWARDS.find(r => r.id === 'gems-1')!
-        const legendary = LOOTBOX_REWARDS.find(r => r.id === 'gems-10')!
+describe('lootboxes', () => {
+    it('only contains cash rewards', () => {
+        expect(LOOTBOX_REWARDS).toHaveLength(7)
+        expect(LOOTBOX_REWARDS.every(reward => reward.id.startsWith('cash-'))).toBe(true)
+    })
 
-        expect(lootboxGemCount(common, 20)).toBe(5)
-        expect(lootboxGemCount(legendary, 20)).toBe(30)
+    it('only rolls cash rewards', () => {
+        for (let index = 0; index < 100; index++) {
+            expect(lootboxRoll().id).toMatch(/^cash-/)
+        }
+    })
+
+    it('calculates paid opens from cash-only expected value', () => {
+        const expectedValue = lootboxExpectedValue(1_000)
+        expect(expectedValue).toBeGreaterThan(0)
+        expect(lootboxOpenPrice(1_000)).toBeGreaterThan(expectedValue)
     })
 })
