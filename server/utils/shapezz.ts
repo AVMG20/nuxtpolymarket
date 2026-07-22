@@ -5,7 +5,7 @@ import {
     SHAPEZZ_CHECKPOINT_MS,
     shapezzCheckpointCount,
     shapezzDifficulty,
-    shapezzMaxPayoutForRun,
+    shapezzPayoutForRun,
     type ShapezzDifficultyId,
     type ShapezzWeaponType
 } from '#shared/utils/gamelogic/shapezz'
@@ -67,8 +67,9 @@ export function settleShapezzRun(state: ShapezzSettlementState, report: ShapezzR
     const difficulty = shapezzDifficulty(state.runDifficultySnapshot).id
     const checkpoint = shapezzCheckpointCount(elapsedMs + 1000)
     const validCashout = report.reason === 'cashout' && checkpoint >= 1
-    const maxPayout = validCashout ? shapezzMaxPayoutForRun(elapsedMs, difficulty) : 0
-    const awarded = Math.min(report.reportedCoins, maxPayout)
+    const awarded = validCashout
+        ? shapezzPayoutForRun(report.reportedCoins, elapsedMs, difficulty)
+        : 0
     const abandoned = report.reason === 'abandoned'
 
     return {

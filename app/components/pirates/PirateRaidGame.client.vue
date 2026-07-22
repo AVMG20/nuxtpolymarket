@@ -128,8 +128,8 @@ const repairProgressPercent = computed(() => {
     return Math.min(100, Math.max(0, ((total - repairRemainingMs.value) / total) * 100))
 })
 const repairRemainingLabel = computed(() => durationLabel(repairRemainingMs.value))
-const repairRushCost = computed(() => state.value?.repair?.rushCost ?? 0)
-const balance = computed(() => parseFloat(state.value?.balance ?? '0'))
+const repairRushGemCost = computed(() => state.value?.repair?.rushGemCost ?? 0)
+const gems = computed(() => state.value?.gems ?? 0)
 const rushing = ref(false)
 
 async function rushRepair() {
@@ -138,9 +138,9 @@ async function rushRepair() {
     try {
         const res = await $fetch('/api/pirates/repair/rush', { method: 'POST' })
         await Promise.all([refresh(), fetchSession()])
-        toast.add({ title: `Repairs rushed for ${formatNumber(res.cost)} coins`, color: 'success' })
-    } catch (e: any) {
-        toast.add({ title: e.data?.message ?? 'Failed to rush repair', color: 'error' })
+        toast.add({ title: `Repairs rushed for ${res.gemCost} gem${res.gemCost === 1 ? '' : 's'}`, color: 'success' })
+    } catch (error: unknown) {
+        toast.add({ title: apiErrorMessage(error, 'Failed to rush repair'), color: 'error' })
     } finally {
         rushing.value = false
     }
@@ -241,19 +241,22 @@ onUnmounted(() => {
                 size="lg"
                 color="neutral"
                 variant="subtle"
-                icon="i-lucide-zap"
+                icon="i-lucide-gem"
                 :loading="rushing"
-                :disabled="balance < repairRushCost"
+                :disabled="gems < repairRushGemCost"
                 @click="rushRepair"
               >
                 <span class="flex items-center gap-1.5">
                   Rush Repair
                   <span class="opacity-80">·</span>
-                  <CoinBalance :value="repairRushCost" />
+                  {{ repairRushGemCost }} gem{{ repairRushGemCost === 1 ? '' : 's' }}
                 </span>
               </UButton>
-              <p v-if="balance < repairRushCost" class="text-red-300 text-xs">
-                Not enough coins to rush this repair yet.
+              <p v-if="gems < repairRushGemCost" class="text-red-300 text-xs">
+                Need {{ repairRushGemCost }} gems; you have {{ gems }}.
+              </p>
+              <p v-else class="text-white/60 text-xs">
+                1 gem per started 10 minutes remaining.
               </p>
             </div>
           </div>

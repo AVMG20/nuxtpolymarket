@@ -472,10 +472,10 @@ export function pirateEnemyReloadMultiplier(elapsedMs: number, difficulty: numbe
 }
 
 // Global multiplier on the coins earned *during* a run (kill rewards, treasure
-// and the anti-cheat payout cap all key off it). Set to 2.5x; surviving the
+// and the anti-cheat payout cap all key off it). Set to 3.75x; surviving the
 // full voyage adds a separate completion bonus on top (see pirateCompletionBonus)
-// that lifts a finished run to roughly 3.5x of the original baseline.
-export const PIRATE_PAYOUT_SCALE = 2.5
+// that lifts a finished run to roughly 5.25x of the original baseline.
+export const PIRATE_PAYOUT_SCALE = 3.75
 
 /**
  * Loot inflation — kill rewards (and treasure) climb with run time and selected
@@ -639,17 +639,9 @@ export function pirateRepairDurationMs(hullDamageFraction: number) {
   return Math.round(PIRATE_REPAIR_MAX_MS * frac)
 }
 
-// A full-length rush (skipping the entire 2h a total loss would cost) is
-// priced a bit above one voyage's expected average haul, so paying to skip
-// the wait is never quietly more profitable than just playing — it's there
-// for players who'd rather spend coin than time, not a loophole around the
-// repair timer.
-export const PIRATE_REPAIR_RUSH_MULTIPLIER = 1.25
+export const PIRATE_REPAIR_RUSH_MS_PER_GEM = 10 * 60 * 1000
 
-/** Coin cost to instantly clear `remainingMs` of repair time at the given power level. */
-export function pirateRepairRushCost(power: number, remainingMs: number) {
-  const clampedRemaining = Math.min(PIRATE_REPAIR_MAX_MS, Math.max(0, remainingMs))
-  if (clampedRemaining <= 0) return 0
-  const fullRushCost = pirateAverageRunPayoutEstimate(power) * PIRATE_REPAIR_RUSH_MULTIPLIER
-  return Math.round(fullRushCost * (clampedRemaining / PIRATE_REPAIR_MAX_MS))
+/** One gem clears each started ten-minute block of remaining dry-dock time. */
+export function pirateRepairRushGemCost(remainingMs: number) {
+  return Math.max(0, Math.ceil(Math.max(0, remainingMs) / PIRATE_REPAIR_RUSH_MS_PER_GEM))
 }

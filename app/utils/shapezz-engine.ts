@@ -6,7 +6,9 @@ import {
     shapezzCheckpointPressure,
     shapezzDifficulty,
     shapezzEnemyHealthMultiplier,
+    shapezzExplosionDamageMultiplier,
     shapezzIntensity,
+    shapezzWeaponFireRateCap,
     type ShapezzDifficultyId,
     type ShapezzRunUpgradeId,
     type ShapezzWeapon
@@ -358,7 +360,7 @@ export class ShapezzEngine {
             this.firePlayerVolley(this.player.x, this.player.y - 6, Math.atan2(this.aim.y - this.player.y, this.aim.x - this.player.x))
             this.callbacks.onSfx?.(`shoot-${this.weapon.type}`)
             const requestedFireRate = this.stats.fireRate * this.weapon.fireRateMultiplier * fireMultiplier
-            const fireRateCap = this.weapon.type === 'shotgun' ? 4.5 : this.weapon.type === 'launcher' ? 3 : 18
+            const fireRateCap = shapezzWeaponFireRateCap(this.weapon.type)
             this.fireCooldown = 1 / Math.min(fireRateCap, requestedFireRate)
         }
 
@@ -605,8 +607,11 @@ export class ShapezzEngine {
         }
         const muzzleX = x + Math.cos(angle) * 25
         const muzzleY = y + Math.sin(angle) * 25
-        this.burst(muzzleX, muzzleY, this.weapon.primaryColor, 5 + Math.min(8, Math.ceil(count / 2)) + this.weapon.visualIntensity * 2, 210 + this.weapon.visualIntensity * 35)
-        if (this.weapon.visualIntensity >= 3) this.burst(muzzleX, muzzleY, this.weapon.accentColor, this.weapon.visualIntensity * 2, 310)
+        const muzzleParticleCount = this.weapon.type === 'shotgun'
+            ? 4 + Math.ceil(count / 4) + this.weapon.visualIntensity
+            : 5 + Math.min(8, Math.ceil(count / 2)) + this.weapon.visualIntensity * 2
+        this.burst(muzzleX, muzzleY, this.weapon.primaryColor, muzzleParticleCount, 210 + this.weapon.visualIntensity * 35)
+        if (this.weapon.visualIntensity >= 3 && this.weapon.type !== 'shotgun') this.burst(muzzleX, muzzleY, this.weapon.accentColor, this.weapon.visualIntensity * 2, 310)
         if (this.weapon.type === 'launcher') {
             this.shake = Math.max(this.shake, 3 + this.weapon.visualIntensity)
             this.shockwaves.push({ x: muzzleX, y: muzzleY, radius: 3, maxRadius: 35 + this.weapon.visualIntensity * 6, life: 0.18, maxLife: 0.18, color: this.weapon.primaryColor, width: 4 })
@@ -674,8 +679,9 @@ export class ShapezzEngine {
                 bullet.traveled += Math.hypot(bullet.vx, bullet.vy) * dt
             }
 
-            if (bullet.trail && this.particles.length < SHAPEZZ_COMBAT_LIMITS.particles && Math.random() < dt * (5 + bullet.visualIntensity * 4)) {
-                const trailLife = 0.18 + bullet.visualIntensity * 0.045
+            const shotgunVisualMultiplier = bullet.friendly && this.weapon.type === 'shotgun' ? 0.3 : 1
+            if (bullet.trail && this.particles.length < SHAPEZZ_COMBAT_LIMITS.particles && Math.random() < dt * (5 + bullet.visualIntensity * 4) * shotgunVisualMultiplier) {
+                const trailLife = (0.18 + bullet.visualIntensity * 0.045) * (bullet.friendly && this.weapon.type === 'shotgun' ? 0.7 : 1)
                 this.particles.push({
                     x: bullet.x, y: bullet.y,
                     vx: -bullet.vx * 0.04 + randomBetween(-25, 25), vy: -bullet.vy * 0.04 + randomBetween(-25, 25),
@@ -736,8 +742,9 @@ export class ShapezzEngine {
     }
 
     private triggerImpact(enemy: Enemy, bullet: Bullet, impactDamage: number) {
-        this.burst(bullet.x, bullet.y, bullet.color, 3 + bullet.visualIntensity * 2, 230 + bullet.visualIntensity * 30)
-        if (bullet.visualIntensity >= 3) this.burst(bullet.x, bullet.y, bullet.accentColor, bullet.visualIntensity, 360)
+        const isShotgunBullet = bullet.friendly && this.weapon.type === 'shotgun'
+        this.burst(bullet.x, bullet.y, bullet.color, isShotgunBullet ? 2 + bullet.visualIntensity : 3 + bullet.visualIntensity * 2, 230 + bullet.visualIntensity * 30)
+        if (bullet.visualIntensity >= 3 && (!isShotgunBullet || bullet.secondaryEffects)) this.burst(bullet.x, bullet.y, bullet.accentColor, bullet.visualIntensity, 360)
         if (!bullet.secondaryEffects) return
         const explosive = Math.min(4, this.upgrades.explosive ?? 0)
         if (explosive > 0 || bullet.explosionRadius > 0) {
@@ -748,7 +755,13 @@ export class ShapezzEngine {
             this.shockwaves.push({ x: bullet.x, y: bullet.y, radius: 8, maxRadius: radius, life: 0.3 + bullet.visualIntensity * 0.035, maxLife: 0.3 + bullet.visualIntensity * 0.035, color: explosionColor, width: 5 + bullet.visualIntensity })
             this.burst(bullet.x, bullet.y, explosionColor, 12 + bullet.visualIntensity * 5 + explosive * 3, 390 + bullet.visualIntensity * 55)
             for (const target of this.enemies) {
-                if (target.id !== enemy.id && distance(target, bullet) < radius) this.hitEnemy(target, blastDamage, explosionColor, target.x, target.y)
+                const targetDistance = distance(target, bullet)
+                if (target.id !== enemy.id && targetDistance < radius) {
+                    const damageMultiplier = bullet.explosionRadius > 0
+                        ? shapezzExplosionDamageMultiplier(targetDistance, radius)
+                        : 1
+                    this.hitEnemy(target, blastDamage * damageMultiplier, explosionColor, target.x, target.y)
+                }
             }
             this.shake = Math.max(this.shake, 4 + explosive * 2 + bullet.visualIntensity)
             this.flash = Math.max(this.flash, 0.08 + bullet.visualIntensity * 0.035)

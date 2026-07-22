@@ -6,6 +6,8 @@ export const SHAPEZZ_COIN_PAYOUT_SCALE = 25
 export const SHAPEZZ_MAX_PERMANENT_LEVEL = 20
 export const SHAPEZZ_MAX_KILL_HEAL_LEVEL = 4
 export const SHAPEZZ_WEAPON_REFUND_RATE = 0.25
+export const SHAPEZZ_LAUNCHER_CORE_RADIUS_RATIO = 0.45
+export const SHAPEZZ_LAUNCHER_EDGE_DAMAGE_MULTIPLIER = 0.2
 
 export const SHAPEZZ_COMBAT_LIMITS = {
     enemies: 100,
@@ -127,13 +129,13 @@ const WEAPON_TYPE_META: Record<ShapezzWeaponType, {
         prices: { common: 0, rare: 20_000, epic: 300_000, legendary: 4_000_000, mythic: 36_000_000 }
     },
     launcher: {
-        name: 'Nova Mortar', description: 'Slow, oversized plasma shells that turn every impact into an explosion.', icon: 'i-lucide-bomb',
-        damage: 2.4, fireRate: 0.24, speed: 0.72, size: 1.65, pellets: 1, spread: 0, explosionRadius: 80, falloffStart: 9999, falloffEnd: 10_000, minFalloffDamage: 1,
+        name: 'Nova Mortar', description: 'Slow plasma shells with a devastating core and a wide, weakening blast.', icon: 'i-lucide-bomb',
+        damage: 2.4, fireRate: 0.24, speed: 0.72, size: 1.65, pellets: 1, spread: 0, explosionRadius: 125, falloffStart: 9999, falloffEnd: 10_000, minFalloffDamage: 1,
         prices: { common: 12_000, rare: 75_000, epic: 800_000, legendary: 8_000_000, mythic: 50_000_000 }
     },
     shotgun: {
         name: 'Scatter Array', description: 'A violent wall of full-power pellets. Devastating when you land the whole spread.', icon: 'i-lucide-chevrons-right',
-        damage: 0.34, fireRate: 0.46, speed: 0.9, size: 0.74, pellets: 7, spread: 0.3, explosionRadius: 0, falloffStart: 9999, falloffEnd: 10_000, minFalloffDamage: 1,
+        damage: 0.24, fireRate: 0.46, speed: 0.9, size: 0.74, pellets: 7, spread: 0.3, explosionRadius: 0, falloffStart: 9999, falloffEnd: 10_000, minFalloffDamage: 1,
         prices: { common: 8_000, rare: 50_000, epic: 600_000, legendary: 6_000_000, mythic: 45_000_000 }
     }
 }
@@ -168,6 +170,35 @@ export function shapezzWeapon(type: unknown, rarity: unknown): ShapezzWeapon {
         accentColor: rarityMeta.accentColor,
         visualIntensity: rank + 1
     }
+}
+
+/** Maximum volleys per second, kept below the particle budget for each weapon class. */
+export function shapezzWeaponFireRateCap(type: ShapezzWeaponType) {
+    if (type === 'shotgun') return 4.5
+    if (type === 'launcher') return 3
+    return 18
+}
+
+/**
+ * Full-hit sustained DPS before upgrades, pierce, explosions, or misses.
+ * Scatter Array's real combat DPS is lower at range because its spread causes
+ * pellets to miss; this is deliberately its close-range ceiling.
+ */
+export function shapezzWeaponPointBlankDps(weapon: ShapezzWeapon, baseFireRate: number) {
+    const volleysPerSecond = Math.min(shapezzWeaponFireRateCap(weapon.type), Math.max(0, baseFireRate) * weapon.fireRateMultiplier)
+    return volleysPerSecond * weapon.damageMultiplier * weapon.pellets
+}
+
+/** Launcher splash is full strength in the inner blast, then falls to chip damage at its edge. */
+export function shapezzExplosionDamageMultiplier(distanceFromImpact: number, radius: number) {
+    const distance = Math.max(0, distanceFromImpact)
+    const safeRadius = Math.max(1, radius)
+    const coreRadius = safeRadius * SHAPEZZ_LAUNCHER_CORE_RADIUS_RATIO
+    if (distance <= coreRadius) return 1
+    if (distance >= safeRadius) return SHAPEZZ_LAUNCHER_EDGE_DAMAGE_MULTIPLIER
+
+    const outerProgress = (distance - coreRadius) / (safeRadius - coreRadius)
+    return 1 - outerProgress * (1 - SHAPEZZ_LAUNCHER_EDGE_DAMAGE_MULTIPLIER)
 }
 
 export const SHAPEZZ_WEAPONS = SHAPEZZ_WEAPON_TYPES.flatMap(type => SHAPEZZ_WEAPON_RARITIES.map(rarity => shapezzWeapon(type, rarity)))
@@ -312,10 +343,25 @@ export function shapezzMaxPayoutForRun(elapsedMs: number, difficultyId: ShapezzD
     return Math.floor(seconds * 1000 * difficulty.reward * (1 + checkpoints * 0.04))
 }
 
+/**
+ * The amount a completed run can actually bank. Keep this shared so the live
+ * offer shown by the client uses the exact same ceiling as server settlement.
+ */
+export function shapezzPayoutForRun(coins: number, elapsedMs: number, difficultyId: ShapezzDifficultyId) {
+    const collectedCoins = Math.max(0, Math.floor(Number.isFinite(coins) ? coins : 0))
+    return Math.min(collectedCoins, shapezzMaxPayoutForRun(elapsedMs, difficultyId))
+}
+
 /** Arena recharge after a settled run (cashout or defeat) — abandoned runs never trigger it. */
 export const SHAPEZZ_RUN_COOLDOWN_MS = 2 * 60 * 60 * 1000
+export const SHAPEZZ_COOLDOWN_RUSH_MS_PER_GEM = 10 * 60 * 1000
 
 export function shapezzRunCooldownRemainingMs(lastRunFinishedAt: Date | null, now: number) {
     if (!lastRunFinishedAt) return 0
     return Math.max(0, lastRunFinishedAt.getTime() + SHAPEZZ_RUN_COOLDOWN_MS - now)
+}
+
+/** One gem clears each started ten-minute block of arena recharge time. */
+export function shapezzCooldownRushCost(remainingMs: number) {
+    return Math.max(0, Math.ceil(Math.max(0, remainingMs) / SHAPEZZ_COOLDOWN_RUSH_MS_PER_GEM))
 }

@@ -1,36 +1,25 @@
 import { eq } from 'drizzle-orm'
 import { db } from '#server/database'
-import { pirateState, pirateCannons } from '#server/database/schema'
+import { pirateState } from '#server/database/schema'
 import { requireUserId } from '#server/utils/auth'
-import { debit } from '#server/utils/balance'
-import { piratePowerLevel, pirateRepairRushCost } from '#shared/utils/gamelogic/pirates'
+import { debitGems } from '#server/utils/balance'
+import { getLockedPirateState } from '#server/utils/pirates'
+import { pirateRepairRushGemCost } from '#shared/utils/gamelogic/pirates'
 
 export default defineEventHandler(async (event) => {
     const userId = await requireUserId(event)
 
-    const [s, cannons] = await Promise.all([
-        db.query.pirateState.findFirst({ where: eq(pirateState.userId, userId) }),
-        db.query.pirateCannons.findMany({ where: eq(pirateCannons.userId, userId) })
-    ])
-    if (!s) throw createError({ statusCode: 404, statusMessage: 'Pirate state not initialized' })
+    return db.transaction(async (tx) => {
+        const state = await getLockedPirateState(tx, userId)
+        const remainingMs = state.hullRepairUntil ? state.hullRepairUntil.getTime() - Date.now() : 0
+        if (remainingMs <= 0) throw createError({ statusCode: 400, statusMessage: 'Your ship isn\'t under repair' })
 
-    const remainingMs = s.hullRepairUntil ? s.hullRepairUntil.getTime() - Date.now() : 0
-    if (remainingMs <= 0) throw createError({ statusCode: 400, statusMessage: 'Your ship isn\'t under repair' })
+        const gemCost = pirateRepairRushGemCost(remainingMs)
+        const gems = await debitGems(userId, gemCost, tx)
+        await tx.update(pirateState)
+            .set({ hullRepairUntil: null, hullRepairTotalMs: 0 })
+            .where(eq(pirateState.userId, userId))
 
-    const levels = {
-        hull: s.hullLevel,
-        speed: s.speedLevel,
-        defense: s.defenseLevel,
-        ammoCapacity: s.ammoCapacityLevel,
-        regen: s.regenLevel
-    }
-    const power = piratePowerLevel({ levels, cannonTierIds: cannons.map(c => c.tierId), cannonSlots: s.cannonSlots })
-    const cost = pirateRepairRushCost(power, remainingMs)
-
-    await debit(userId, cost.toFixed(4), 'pirates')
-    await db.update(pirateState)
-        .set({ hullRepairUntil: null, hullRepairTotalMs: 0 })
-        .where(eq(pirateState.userId, userId))
-
-    return { cost }
+        return { gemCost, gems }
+    })
 })

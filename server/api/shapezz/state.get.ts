@@ -12,6 +12,7 @@ import {
     SHAPEZZ_PERMANENT_UPGRADES,
     SHAPEZZ_WEAPONS,
     shapezzPermanentUpgradeCost,
+    shapezzCooldownRushCost,
     shapezzPlayerStats,
     shapezzPower,
     shapezzWeapon,
@@ -79,7 +80,13 @@ export default defineEventHandler(async (event) => {
         bestCheckpoint: state.bestCheckpoint,
         activeRun: state.runStartedAt ? { startedAt: state.runStartedAt } : null,
         runCooldown: state.lastRunFinishedAt
-            ? { until: new Date(state.lastRunFinishedAt.getTime() + SHAPEZZ_RUN_COOLDOWN_MS) }
+            ? (() => {
+                const until = new Date(state.lastRunFinishedAt.getTime() + SHAPEZZ_RUN_COOLDOWN_MS)
+                return {
+                    until,
+                    rushCost: shapezzCooldownRushCost(until.getTime() - Date.now())
+                }
+            })()
             : null
     }
 })

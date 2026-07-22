@@ -1,20 +1,26 @@
 import { describe, expect, it } from 'vitest'
 import {
   SHAPEZZ_CHECKPOINT_MS,
+  SHAPEZZ_COOLDOWN_RUSH_MS_PER_GEM,
   SHAPEZZ_COIN_PAYOUT_SCALE,
   SHAPEZZ_COMBAT_LIMITS,
   SHAPEZZ_DIFFICULTIES,
+  SHAPEZZ_LAUNCHER_EDGE_DAMAGE_MULTIPLIER,
   SHAPEZZ_WEAPONS,
   shapezzCheckpointCount,
+  shapezzCooldownRushCost,
   shapezzCheckpointPressure,
   shapezzEnemyHealthMultiplier,
+  shapezzExplosionDamageMultiplier,
   shapezzIntensity,
   shapezzMaxPayoutForRun,
+  shapezzPayoutForRun,
   SHAPEZZ_RUN_COOLDOWN_MS,
   shapezzPermanentUpgradeCost,
   shapezzPlayerStats,
   shapezzRunCooldownRemainingMs,
   shapezzWeapon,
+  shapezzWeaponPointBlankDps,
   shapezzWeaponReplacement
 } from '#shared/utils/gamelogic/shapezz'
 
@@ -66,6 +72,14 @@ describe('SHAPEZZ checkpoint pacing', () => {
     // Lower difficulties stay an order of magnitude below the top end.
     expect(shapezzMaxPayoutForRun(10 * 60_000, 'surge')).toBeLessThan(shapezzMaxPayoutForRun(10 * 60_000, 'annihilation') / 4)
   })
+
+  it('turns an over-cap client loot total into the amount the server can bank', () => {
+    const elapsedMs = 7 * SHAPEZZ_CHECKPOINT_MS
+    const cap = shapezzMaxPayoutForRun(elapsedMs, 'surge')
+
+    expect(shapezzPayoutForRun(cap + 400_000, elapsedMs, 'surge')).toBe(cap)
+    expect(shapezzPayoutForRun(cap - 1, elapsedMs, 'surge')).toBe(cap - 1)
+  })
 })
 
 describe('SHAPEZZ permanent progression', () => {
@@ -112,12 +126,33 @@ describe('SHAPEZZ weapons', () => {
     const shotgun = shapezzWeapon('shotgun', 'common')
 
     expect(launcher.fireRateMultiplier).toBeLessThan(0.3)
-    expect(launcher.explosionRadius).toBeGreaterThan(0)
+    expect(launcher.explosionRadius).toBe(125)
     expect(shotgun.pellets).toBe(7)
     expect(shapezzWeapon('shotgun', 'mythic').pellets).toBe(11)
     expect(shotgun.minFalloffDamage).toBe(1)
     expect(shotgun.falloffEnd).toBeGreaterThan(shotgun.falloffStart)
     expect(shotgun.falloffStart).toBeGreaterThan(9000)
+  })
+
+  it('gives the Nova Mortar a strong inner blast and a weaker outer ring', () => {
+    const radius = shapezzWeapon('launcher', 'common').explosionRadius
+
+    expect(shapezzExplosionDamageMultiplier(radius * 0.45, radius)).toBe(1)
+    expect(shapezzExplosionDamageMultiplier(radius * 0.725, radius)).toBeCloseTo(0.6)
+    expect(shapezzExplosionDamageMultiplier(radius, radius)).toBe(SHAPEZZ_LAUNCHER_EDGE_DAMAGE_MULTIPLIER)
+  })
+
+  it('keeps Scatter Array close-range DPS in line with the other weapons', () => {
+    const baseFireRate = shapezzPlayerStats({ core: 0, overclock: 0, armor: 0, thrusters: 0, magnet: 0, killHeal: 0 }).fireRate
+
+    for (const rarity of ['common', 'rare', 'epic', 'legendary', 'mythic'] as const) {
+      const blasterDps = shapezzWeaponPointBlankDps(shapezzWeapon('blaster', rarity), baseFireRate)
+      const launcherDps = shapezzWeaponPointBlankDps(shapezzWeapon('launcher', rarity), baseFireRate)
+      const shotgunDps = shapezzWeaponPointBlankDps(shapezzWeapon('shotgun', rarity), baseFireRate)
+
+      expect(launcherDps).toBeLessThan(blasterDps)
+      expect(shotgunDps).toBeLessThanOrEqual(blasterDps * 1.22)
+    }
   })
 
   it('makes higher rarities visually louder as well as stronger', () => {
@@ -143,6 +178,14 @@ describe('SHAPEZZ weapons', () => {
 })
 
 describe('SHAPEZZ arena cooldown', () => {
+  it('charges one gem per started ten minutes to rush arena recharge', () => {
+    expect(shapezzCooldownRushCost(0)).toBe(0)
+    expect(shapezzCooldownRushCost(1)).toBe(1)
+    expect(shapezzCooldownRushCost(SHAPEZZ_COOLDOWN_RUSH_MS_PER_GEM)).toBe(1)
+    expect(shapezzCooldownRushCost(SHAPEZZ_COOLDOWN_RUSH_MS_PER_GEM + 1)).toBe(2)
+    expect(shapezzCooldownRushCost(SHAPEZZ_RUN_COOLDOWN_MS)).toBe(12)
+  })
+
   it('locks the arena for 2 hours after a settled run', () => {
     expect(SHAPEZZ_RUN_COOLDOWN_MS).toBe(2 * 60 * 60 * 1000)
     const finishedAt = new Date('2026-07-17T12:00:00Z')

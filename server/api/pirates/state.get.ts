@@ -9,7 +9,7 @@ import {
     PIRATE_GEM_AMMO_CAPACITY, PIRATE_GEM_AMMO_BUNDLE_SIZE, PIRATE_GEM_AMMO_BUNDLE_PRICE_GEMS,
     pirateStatMaxLevel, pirateRegenRate, pirateStatUpgradeCost,
     pirateMaxHp, pirateShipSpeed, pirateDefenseRating, pirateAmmoCapacity,
-    pirateSlotUnlockCost, pirateCannonTier, piratePowerLevel, pirateRepairRushCost, pirateAmmoPricePerUnit,
+    pirateSlotUnlockCost, pirateCannonTier, piratePowerLevel, pirateRepairRushGemCost, pirateAmmoPricePerUnit,
     PIRATE_SHIP_SKINS, PIRATE_ABILITIES, pirateAbility,
     pirateRecommendedDifficulty, pirateDifficultyOptions, pirateAverageRunPayoutEstimate, pirateCompletionBonus
 } from '#shared/utils/gamelogic/pirates'
@@ -119,7 +119,7 @@ export default defineEventHandler(async (event) => {
             until: repairRemainingMs > 0 ? s.hullRepairUntil : null,
             remainingMs: repairRemainingMs,
             totalMs: repairRemainingMs > 0 ? s.hullRepairTotalMs : 0,
-            rushCost: repairRemainingMs > 0 ? pirateRepairRushCost(power, repairRemainingMs) : 0
+            rushGemCost: pirateRepairRushGemCost(repairRemainingMs)
         }
     }
 })

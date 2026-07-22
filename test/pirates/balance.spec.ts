@@ -8,6 +8,7 @@ import {
   pirateAverageRunPayoutEstimate,
   pirateCompletionBonus,
   pirateMaxPayoutForRun,
+  pirateRepairRushGemCost,
   pirateNormalizeDifficulty,
   piratePowerLevel,
   pirateRecommendedDifficulty,
@@ -16,6 +17,7 @@ import {
   PIRATE_DOUBLE_BOSS_DIFFICULTY,
   PIRATE_ENEMY_TIERS,
   PIRATE_RUN_DURATION_MS,
+  PIRATE_REPAIR_RUSH_MS_PER_GEM,
   pirateInitialEnemyCount,
   pirateMaxConcurrentEnemies,
   pirateRollEnemyTier,
@@ -107,9 +109,16 @@ describe('pirate selectable difficulty and premium ammo', () => {
 
   it('compresses the voyage to six minutes without reducing full-run rewards', () => {
     expect(PIRATE_RUN_DURATION_MS).toBe(6 * 60_000)
-    expect(pirateAverageRunPayoutEstimate(0)).toBe(96_000)
-    expect(pirateMaxPayoutForRun(PIRATE_RUN_DURATION_MS, 0)).toBe(172_800)
-    expect(pirateCompletionBonus(0)).toBe(38_400)
+    expect(pirateAverageRunPayoutEstimate(0)).toBe(144_000)
+    expect(pirateMaxPayoutForRun(PIRATE_RUN_DURATION_MS, 0)).toBe(259_200)
+    expect(pirateCompletionBonus(0)).toBe(57_600)
+  })
+
+  it('charges one gem per started ten minutes to rush dry-dock repairs', () => {
+    expect(pirateRepairRushGemCost(0)).toBe(0)
+    expect(pirateRepairRushGemCost(1)).toBe(1)
+    expect(pirateRepairRushGemCost(PIRATE_REPAIR_RUSH_MS_PER_GEM)).toBe(1)
+    expect(pirateRepairRushGemCost(PIRATE_REPAIR_RUSH_MS_PER_GEM + 1)).toBe(2)
   })
 
   it('doubles magazine capacity and cuts premium prices by 75 percent', () => {
