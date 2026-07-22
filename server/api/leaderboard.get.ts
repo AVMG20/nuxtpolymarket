@@ -1,4 +1,4 @@
-import { count, eq, inArray, sql } from 'drizzle-orm'
+import { count, countDistinct, eq, inArray, sql } from 'drizzle-orm'
 import { db } from '#server/database'
 import { getSessionUserId } from '#server/utils/auth'
 import { user, minerState, bankState, colonyState, colonyBugResearch, xenoPlantsUnlocked, xenoGridSlots, xenoBreederSlots, aiMessages, hackAgents, hackItems, gemOrders } from '#server/database/schema'
@@ -65,7 +65,7 @@ export default defineEventHandler(async (event) => {
       .from(colonyBugResearch)
       .groupBy(colonyBugResearch.userId),
     db
-      .select({ userId: xenoPlantsUnlocked.userId, n: count() })
+      .select({ userId: xenoPlantsUnlocked.userId, n: countDistinct(xenoPlantsUnlocked.typeId) })
       .from(xenoPlantsUnlocked)
       .where(inArray(xenoPlantsUnlocked.typeId, xenoSpeciesIds))
       .groupBy(xenoPlantsUnlocked.userId),

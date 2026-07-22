@@ -131,10 +131,13 @@ export async function addPlants(
   await db.insert(xenoPlants).values(
     Array.from({ length: quantity }, () => ({ userId, typeId, speed, yield: yield_ })),
   )
-  // Permanently mark this plant type as unlocked for the user (idempotent).
-  await db.insert(xenoPlantsUnlocked)
-    .values({ userId, typeId })
-    .onConflictDoNothing()
+  // This table has no compound unique constraint, so onConflictDoNothing()
+  // would only handle duplicate row IDs. Check the permanent unlock first to
+  // keep repeated harvests or purchases from creating duplicate unlock rows.
+  const existingUnlock = await db.query.xenoPlantsUnlocked.findFirst({
+    where: and(eq(xenoPlantsUnlocked.userId, userId), eq(xenoPlantsUnlocked.typeId, typeId))
+  })
+  if (!existingUnlock) await db.insert(xenoPlantsUnlocked).values({ userId, typeId })
 }
 
 /**
