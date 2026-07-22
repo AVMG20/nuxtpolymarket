@@ -303,6 +303,18 @@ const visibleTrades = computed(() => {
   return showMineTradesOnly.value ? trades.filter(trade => trade.mine) : trades
 })
 
+function tradeActor(trade: typeof visibleTrades.value[number]) {
+  return trade.takerSide === 'sell'
+    ? { name: trade.sellerName, emblem: trade.sellerEmblem, action: 'sold to', mine: trade.iSold }
+    : { name: trade.buyerName, emblem: trade.buyerEmblem, action: 'bought from', mine: trade.iBought }
+}
+
+function tradeCounterparty(trade: typeof visibleTrades.value[number]) {
+  return trade.takerSide === 'sell'
+    ? { name: trade.buyerName, emblem: trade.buyerEmblem }
+    : { name: trade.sellerName, emblem: trade.sellerEmblem }
+}
+
 // ---- Order book depth bars ----
 const maxBidDepth = computed(() => Math.max(1, ...(data.value?.book.bids ?? []).map(l => l.quantity)))
 const maxAskDepth = computed(() => Math.max(1, ...(data.value?.book.asks ?? []).map(l => l.quantity)))
@@ -828,14 +840,14 @@ const maxAskDepth = computed(() => Math.max(1, ...(data.value?.book.asks ?? []).
                 class="flex items-center gap-3 px-4 py-2.5 hover:bg-elevated/50 transition-colors"
             >
               <div class="flex shrink-0 -space-x-2.5">
-                <ProfileEmblem :emblem="trade.buyerEmblem" :name="trade.buyerName" class="size-8 ring-2 ring-(--ui-bg)" />
-                <ProfileEmblem :emblem="trade.sellerEmblem" :name="trade.sellerName" class="size-8 ring-2 ring-(--ui-bg)" />
+                <ProfileEmblem :emblem="tradeActor(trade).emblem" :name="tradeActor(trade).name" class="size-8 ring-2 ring-(--ui-bg)" />
+                <ProfileEmblem :emblem="tradeCounterparty(trade).emblem" :name="tradeCounterparty(trade).name" class="size-8 ring-2 ring-(--ui-bg)" />
               </div>
               <div class="flex-1 min-w-0">
                 <p class="text-sm truncate">
-                  <span class="font-semibold" :class="showMineTradesOnly && trade.iBought ? 'text-success' : ''">{{ trade.buyerName ?? 'Unknown' }}</span>
-                  <span class="text-muted"> bought from </span>
-                  <span class="font-semibold" :class="showMineTradesOnly && trade.iSold ? 'text-error' : ''">{{ trade.sellerName ?? 'Unknown' }}</span>
+                  <span class="font-semibold" :class="showMineTradesOnly && tradeActor(trade).mine ? (trade.takerSide === 'buy' ? 'text-success' : 'text-error') : ''">{{ tradeActor(trade).name ?? 'Unknown' }}</span>
+                  <span class="text-muted mx-1">{{ tradeActor(trade).action }}</span>
+                  <span class="font-semibold">{{ tradeCounterparty(trade).name ?? 'Unknown' }}</span>
                   <UBadge
                       v-if="showMineTradesOnly"
                       :label="trade.iBought ? 'bought' : 'sold'"

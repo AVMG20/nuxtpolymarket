@@ -203,6 +203,7 @@ async function applyFill(
     await tx.insert(gemTrades).values({
         buyerId: takerSide === 'buy' ? takerId : fill.userId,
         sellerId: takerSide === 'buy' ? fill.userId : takerId,
+        takerId,
         price: fill.price.toFixed(4),
         quantity: fill.quantity
     })

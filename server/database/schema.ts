@@ -257,6 +257,7 @@ export const gemTrades = pgTable('gem_trades', {
   id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
   buyerId: text('buyer_id').references(() => user.id, { onDelete: 'set null' }),
   sellerId: text('seller_id').references(() => user.id, { onDelete: 'set null' }),
+  takerId: text('taker_id').references(() => user.id, { onDelete: 'set null' }),
   price: numeric('price', { precision: 19, scale: 4 }).notNull(),
   quantity: integer('quantity').notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull()
