@@ -4,7 +4,8 @@ import { format, formatDistance } from 'date-fns'
 import {
   GEM_EXCHANGE_MAX_QUANTITY,
   GEM_EXCHANGE_MIN_PRICE,
-  gemOrderTotal
+  gemOrderTotal,
+  getGemBookLevelOrder
 } from '#shared/utils/gamelogic/gem-exchange'
 
 const { data, refresh } = await useFetch('/api/gem-exchange/state')
@@ -76,6 +77,7 @@ const quantity = ref(1)
 const price = ref(0)
 const loading = ref(false)
 const priceTouched = ref(false)
+const tradeTerminal = useTemplateRef<HTMLElement>('tradeTerminal')
 
 function round2(value: number) {
   return Math.round(value * 100) / 100
@@ -88,12 +90,39 @@ const defaultPrice = computed(() => {
   return round2(smart ?? guidePrice.value)
 })
 
-// Follow the smart default until the user edits the price themselves;
-// switching between buy and sell snaps back to the smart default.
-watch(tradeMode, () => { priceTouched.value = false })
+// Follow the smart default until the user edits the price themselves.
 watchEffect(() => {
   if (!priceTouched.value && defaultPrice.value > 0) price.value = defaultPrice.value
 })
+
+function setTradeMode(mode: 'buy' | 'sell') {
+  if (tradeMode.value === mode) return
+  tradeMode.value = mode
+  priceTouched.value = false
+}
+
+function bookLevelOrder(restingSide: 'buy' | 'sell', index: number) {
+  const levels = restingSide === 'sell' ? (data.value?.book.asks ?? []) : (data.value?.book.bids ?? [])
+  return getGemBookLevelOrder(restingSide, levels, index)
+}
+
+function selectBookLevel(restingSide: 'buy' | 'sell', index: number) {
+  const order = bookLevelOrder(restingSide, index)
+  if (!order) return
+
+  tradeMode.value = order.side
+  priceTouched.value = true
+  price.value = order.price
+  setQuantity(order.quantity)
+  nextTick(() => tradeTerminal.value?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
+}
+
+function bookLevelLabel(restingSide: 'buy' | 'sell', index: number) {
+  const order = bookLevelOrder(restingSide, index)
+  if (!order) return undefined
+  const action = order.side === 'buy' ? 'Buy' : 'Sell'
+  return `${action} ${formatNumber(order.quantity, false)} gems through ${formatNumber(order.price, false)} coins each`
+}
 
 function nudgePrice(pct: number) {
   priceTouched.value = true
@@ -352,7 +381,8 @@ const maxAskDepth = computed(() => Math.max(1, ...(data.value?.book.asks ?? []).
 
     <!-- Trade terminal (primary) -->
     <div
-        class="rounded-xl border p-5 sm:p-6 transition-colors"
+        ref="tradeTerminal"
+        class="scroll-mt-4 rounded-xl border p-5 sm:p-6 transition-colors"
         :class="tradeMode === 'buy'
           ? 'border-success/30 bg-gradient-to-br from-success/8 via-transparent to-cyan-500/5'
           : 'border-error/30 bg-gradient-to-br from-error/8 via-transparent to-cyan-500/5'"
@@ -367,7 +397,7 @@ const maxAskDepth = computed(() => Math.max(1, ...(data.value?.book.asks ?? []).
                 :class="tradeMode === 'buy'
                   ? 'border-success bg-success text-white shadow-lg shadow-success/25'
                   : 'border-default text-muted hover:border-success/50 hover:text-success'"
-                @click="tradeMode = 'buy'"
+                @click="setTradeMode('buy')"
             >
               <UIcon name="i-lucide-trending-up" class="size-5" />
               Buy Gems
@@ -377,7 +407,7 @@ const maxAskDepth = computed(() => Math.max(1, ...(data.value?.book.asks ?? []).
                 :class="tradeMode === 'sell'
                   ? 'border-error bg-error text-white shadow-lg shadow-error/25'
                   : 'border-default text-muted hover:border-error/50 hover:text-error'"
-                @click="tradeMode = 'sell'"
+                @click="setTradeMode('sell')"
             >
               <UIcon name="i-lucide-trending-down" class="size-5" />
               Sell Gems
@@ -606,13 +636,17 @@ const maxAskDepth = computed(() => Math.max(1, ...(data.value?.book.asks ?? []).
               <span>Qty</span>
               <span class="text-success">Buying at</span>
             </div>
-            <div
-                v-for="level in data.book.bids"
+            <button
+                v-for="(level, index) in data.book.bids"
                 :key="`bid-${level.price}`"
-                class="relative flex justify-between px-4 py-1.5 text-sm tabular-nums"
+                type="button"
+                class="relative flex w-full cursor-pointer justify-between px-4 py-1.5 text-sm tabular-nums transition-colors hover:bg-success/10 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-success"
+                :aria-label="bookLevelLabel('buy', index)"
+                title="Prefill a sell through this bid"
+                @click="selectBookLevel('buy', index)"
             >
               <div
-                  class="absolute inset-y-0 right-0 bg-success/10"
+                  class="pointer-events-none absolute inset-y-0 right-0 bg-success/10"
                   :style="{ width: `${Math.round(level.quantity / maxBidDepth * 100)}%` }"
               />
               <span class="relative text-muted flex items-center gap-1">
@@ -621,7 +655,7 @@ const maxAskDepth = computed(() => Math.max(1, ...(data.value?.book.asks ?? []).
               <span class="relative font-medium text-success flex items-center gap-1">
                 <UIcon name="i-lucide-coins" class="size-3 text-yellow-400" />{{ formatNumber(level.price) }}
               </span>
-            </div>
+            </button>
           </div>
           <!-- Asks -->
           <div>
@@ -629,13 +663,17 @@ const maxAskDepth = computed(() => Math.max(1, ...(data.value?.book.asks ?? []).
               <span class="text-error">Selling at</span>
               <span>Qty</span>
             </div>
-            <div
-                v-for="level in data.book.asks"
+            <button
+                v-for="(level, index) in data.book.asks"
                 :key="`ask-${level.price}`"
-                class="relative flex justify-between px-4 py-1.5 text-sm tabular-nums"
+                type="button"
+                class="relative flex w-full cursor-pointer justify-between px-4 py-1.5 text-sm tabular-nums transition-colors hover:bg-error/10 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-error"
+                :aria-label="bookLevelLabel('sell', index)"
+                title="Prefill a buy through this ask"
+                @click="selectBookLevel('sell', index)"
             >
               <div
-                  class="absolute inset-y-0 left-0 bg-error/10"
+                  class="pointer-events-none absolute inset-y-0 left-0 bg-error/10"
                   :style="{ width: `${Math.round(level.quantity / maxAskDepth * 100)}%` }"
               />
               <span class="relative font-medium text-error flex items-center gap-1">
@@ -644,7 +682,7 @@ const maxAskDepth = computed(() => Math.max(1, ...(data.value?.book.asks ?? []).
               <span class="relative text-muted flex items-center gap-1">
                 <UIcon name="i-lucide-gem" class="size-3 text-cyan-400" />{{ formatNumber(level.quantity) }}
               </span>
-            </div>
+            </button>
           </div>
         </div>
       </UCard>

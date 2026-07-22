@@ -5,6 +5,7 @@ import {
     isValidGemQuantity,
     isValidGemOrderTotal,
     gemOrderTotal,
+    getGemBookLevelOrder,
     matchGemOrder,
     type RestingGemOrder
 } from '../../shared/utils/gamelogic/gem-exchange'
@@ -64,6 +65,46 @@ describe('gemOrderTotal', () => {
         expect(gemOrderTotal(289.55, 3)).toBe(868.65)
         expect(gemOrderTotal(0.01, 10_000)).toBe(100)
         expect(gemOrderTotal(0.29, 3)).toBe(0.87)
+    })
+})
+
+describe('getGemBookLevelOrder', () => {
+    const asks = [
+        { price: 290, quantity: 5 },
+        { price: 295, quantity: 10 },
+        { price: 300, quantity: 20 }
+    ]
+
+    it('buys the best ask quantity at its price', () => {
+        expect(getGemBookLevelOrder('sell', asks, 0)).toEqual({
+            side: 'buy',
+            price: 290,
+            quantity: 5
+        })
+    })
+
+    it('includes every better ask when buying through a deeper level', () => {
+        expect(getGemBookLevelOrder('sell', asks, 2)).toEqual({
+            side: 'buy',
+            price: 300,
+            quantity: 35
+        })
+    })
+
+    it('sells through bids and caps the quantity at the order limit', () => {
+        const bids = [
+            { price: 320, quantity: GEM_EXCHANGE_MAX_QUANTITY },
+            { price: 310, quantity: 10 }
+        ]
+        expect(getGemBookLevelOrder('buy', bids, 1)).toEqual({
+            side: 'sell',
+            price: 310,
+            quantity: GEM_EXCHANGE_MAX_QUANTITY
+        })
+    })
+
+    it('returns null for a missing level', () => {
+        expect(getGemBookLevelOrder('sell', asks, 10)).toBeNull()
     })
 })
 

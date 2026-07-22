@@ -59,6 +59,31 @@ export function gemOrderTotal(price: number, quantity: number): number {
     return gemPriceCents(price) * quantity / 100
 }
 
+export interface GemBookLevel {
+    price: number
+    quantity: number
+}
+
+/** Build the marketable limit order needed to trade through a book level. */
+export function getGemBookLevelOrder(
+    restingSide: 'buy' | 'sell',
+    levels: GemBookLevel[],
+    index: number
+): { side: 'buy' | 'sell', price: number, quantity: number } | null {
+    const level = levels[index]
+    if (!level) return null
+
+    const quantity = levels
+        .slice(0, index + 1)
+        .reduce((total, current) => total + current.quantity, 0)
+
+    return {
+        side: restingSide === 'sell' ? 'buy' : 'sell',
+        price: level.price,
+        quantity: Math.min(quantity, GEM_EXCHANGE_MAX_QUANTITY)
+    }
+}
+
 // ─── Matching engine ──────────────────────────────────────────────────────────
 
 export interface RestingGemOrder {
