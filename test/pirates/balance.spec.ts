@@ -8,10 +8,12 @@ import {
   pirateAverageRunPayoutEstimate,
   pirateCompletionBonus,
   pirateMaxPayoutForRun,
+  pirateRewardMultiplier,
   pirateRepairRushGemCost,
   pirateNormalizeDifficulty,
   piratePowerLevel,
   pirateRecommendedDifficulty,
+  pirateRunPayoutProgress,
   PIRATE_BOSS_ABILITY_COOLDOWN_MAX_MS,
   PIRATE_BOSS_DAMAGE_MULT,
   PIRATE_DOUBLE_BOSS_DIFFICULTY,
@@ -25,6 +27,7 @@ import {
   pirateSpawnBatchSize,
   pirateSpawnIntervalMs
 } from '../../shared/utils/gamelogic/pirates'
+import { shapezzMaxPayoutForRun } from '../../shared/utils/gamelogic/shapezz'
 
 const TEST_DIFFICULTY = 366
 
@@ -107,11 +110,35 @@ describe('pirate selectable difficulty and premium ammo', () => {
     expect(pirateAverageRunPayoutEstimate(350)).toBeGreaterThan(pirateAverageRunPayoutEstimate(50) * 4)
   })
 
-  it('compresses the voyage to six minutes without reducing full-run rewards', () => {
+  it('keeps the six-minute voyage near a comparable Shapezz payout', () => {
     expect(PIRATE_RUN_DURATION_MS).toBe(6 * 60_000)
-    expect(pirateAverageRunPayoutEstimate(0)).toBe(144_000)
-    expect(pirateMaxPayoutForRun(PIRATE_RUN_DURATION_MS, 0)).toBe(259_200)
-    expect(pirateCompletionBonus(0)).toBe(57_600)
+    expect(pirateAverageRunPayoutEstimate(0)).toBe(122_880)
+    expect(pirateMaxPayoutForRun(PIRATE_RUN_DURATION_MS, 0)).toBe(196_608)
+    expect(pirateCompletionBonus(0)).toBe(110_592)
+
+    const piratePower200Clear = pirateAverageRunPayoutEstimate(200) + pirateCompletionBonus(200)
+    const shapezzOverdriveSixMinutes = shapezzMaxPayoutForRun(PIRATE_RUN_DURATION_MS, 'overdrive')
+    expect(piratePower200Clear).toBeGreaterThan(shapezzOverdriveSixMinutes)
+    expect(piratePower200Clear).toBeLessThan(shapezzOverdriveSixMinutes * 1.3)
+  })
+
+  it('back-loads loot headroom instead of rewarding brief oversized voyages', () => {
+    const fullRunCap = pirateMaxPayoutForRun(PIRATE_RUN_DURATION_MS, 200)
+
+    expect(pirateRunPayoutProgress(60_000)).toBeLessThan(0.05)
+    expect(pirateRunPayoutProgress(120_000)).toBeLessThan(0.13)
+    expect(pirateMaxPayoutForRun(60_000, 200)).toBeLessThan(fullRunCap * 0.05)
+    expect(pirateMaxPayoutForRun(120_000, 200)).toBeLessThan(fullRunCap * 0.13)
+    expect(pirateMaxPayoutForRun(300_000, 200)).toBeLessThan(fullRunCap * 0.7)
+  })
+
+  it('phases the selected difficulty premium into the late voyage', () => {
+    const earlyPremium = pirateRewardMultiplier(60_000, 350) / pirateRewardMultiplier(60_000, 0)
+    const latePremium = pirateRewardMultiplier(PIRATE_RUN_DURATION_MS, 350) / pirateRewardMultiplier(PIRATE_RUN_DURATION_MS, 0)
+
+    expect(earlyPremium).toBeLessThan(1.15)
+    expect(latePremium).toBeGreaterThan(2)
+    expect(pirateCompletionBonus(200)).toBeGreaterThan(pirateAverageRunPayoutEstimate(200) * 0.85)
   })
 
   it('charges one gem per started ten minutes to rush dry-dock repairs', () => {

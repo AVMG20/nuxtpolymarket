@@ -387,11 +387,9 @@ export interface PirateEnemyTier {
   sniper?: boolean
 }
 
-// Kill payouts got bumped again (roughly another 2x on top of the earlier
-// order-of-magnitude increase) now that hull damage gates how often you can
-// go back out (see the repair system below) — a run can no longer be
-// repeated back-to-back indefinitely, so it's fine for each one to pay out
-// more without turning into an infinite money farm.
+// Hull damage gates how often a captain can sail again (see the repair system
+// below), so individual kills can remain meaningful without making short,
+// deliberately over-tiered voyages the best source of income.
 export const PIRATE_ENEMY_TIERS: PirateEnemyTier[] = [
   { id: 'sloop', name: 'Sloop', unlockAtMs: 0, hp: 30, defense: 5, attackRating: 14, maxDamage: 10, range: 160, speed: 90, reloadMs: 2300, coinMin: 300, coinMax: 500, color: 0x8b8f96, weight: 10, sizeScale: 0.82 },
   { id: 'razorskiff', name: 'Razor Skiff', unlockAtMs: pirateTimelineMs(25_000), hp: 55, defense: 8, attackRating: 28, maxDamage: 12, range: 145, speed: 390, reloadMs: 1750, coinMin: 650, coinMax: 950, color: 0xf97316, weight: 3.5, sizeScale: 0.76 },
@@ -471,20 +469,23 @@ export function pirateEnemyReloadMultiplier(elapsedMs: number, difficulty: numbe
   return Math.max(0.66, 0.96 - pT * 0.1 - t * 0.12)
 }
 
-// Global multiplier on the coins earned *during* a run (kill rewards, treasure
-// and the anti-cheat payout cap all key off it). Set to 3.75x; surviving the
-// full voyage adds a separate completion bonus on top (see pirateCompletionBonus)
-// that lifts a finished run to roughly 5.25x of the original baseline.
-export const PIRATE_PAYOUT_SCALE = 3.75
+// Global multiplier on coins earned during a run. The late-weighted functions
+// below do most of the progression work; this modest reduction keeps Pirate
+// income near a comparable six-minute Shapezz run.
+export const PIRATE_PAYOUT_SCALE = 3.2
 
 /**
- * Loot inflation — kill rewards (and treasure) climb with run time and selected
- * difficulty so the risk of harder voyages keeps paying.
+ * Kill value is deliberately back-loaded. Selected difficulty adds almost
+ * nothing to an opening kill, then becomes valuable as the voyage reaches the
+ * dangerous fleet and boss phases. This prevents starting an oversized voyage,
+ * surviving briefly, and cashing its full difficulty premium.
  */
 export function pirateRewardMultiplier(elapsedMs: number, difficulty: number) {
-  const t = Math.min(1.05, elapsedMs / PIRATE_RUN_DURATION_MS)
+  const t = Math.min(1, Math.max(0, elapsedMs / PIRATE_RUN_DURATION_MS))
   const overBase = Math.max(0, difficulty - PIRATE_BASE_POWER)
-  return (1 + t * 1.6 + overBase * 0.01) * PIRATE_PAYOUT_SCALE
+  const timeValue = 0.75 + Math.pow(t, 1.6) * 1.85
+  const difficultyValue = overBase * 0.009 * Math.pow(t, 1.8)
+  return (timeValue + difficultyValue) * PIRATE_PAYOUT_SCALE
 }
 
 /**
@@ -579,8 +580,9 @@ export const PIRATE_TREASURE_MAX_INTERVAL_MS = pirateTimelineMs(40_000)
 export const PIRATE_TREASURE_LIFESPAN_MS = pirateTimelineMs(20_000)
 
 export function pirateTreasureReward(elapsedMs: number, difficulty = 0, rng: () => number = randomFloat) {
-  const t = Math.min(1, elapsedMs / PIRATE_RUN_DURATION_MS)
-  const base = (1600 + t * 1400) * (1 + Math.max(0, difficulty - PIRATE_BASE_POWER) * 0.005)
+  const t = Math.min(1, Math.max(0, elapsedMs / PIRATE_RUN_DURATION_MS))
+  const difficultyValue = 1 + Math.max(0, difficulty - PIRATE_BASE_POWER) * 0.006 * Math.pow(t, 1.8)
+  const base = (1600 + t * 1400) * difficultyValue
   const variance = 0.8 + rng() * 0.4
   return Math.round(base * variance * PIRATE_PAYOUT_SCALE)
 }
@@ -592,31 +594,39 @@ export function pirateTreasureReward(elapsedMs: number, difficulty = 0, rng: () 
 // level snapshotted at run start, with generous slack over the expected
 // average haul so skilled/lucky runs are never clipped in practice.
 
-/** Plausible average coins-per-second at this selected difficulty. */
+/** Full-voyage average rate used for estimates and the anti-cheat ceiling. */
 function pirateRunPayoutRatePerSecond(difficulty: number) {
-  return (80 + pirateNormalizeDifficulty(difficulty) * 6.8) * PIRATE_PAYOUT_SCALE / PIRATE_TIMELINE_SCALE
+  return (80 + pirateNormalizeDifficulty(difficulty) * 2.4) * PIRATE_PAYOUT_SCALE / PIRATE_TIMELINE_SCALE
+}
+
+/**
+ * Cumulative share of a full voyage's earning headroom. Only about 4% is
+ * available after one minute, 13% after two, and 69% after five.
+ */
+export function pirateRunPayoutProgress(elapsedMs: number) {
+  const t = Math.min(1, Math.max(0, elapsedMs / PIRATE_RUN_DURATION_MS))
+  return t * 0.15 + Math.pow(t, 2.2) * 0.85
 }
 
 export function pirateMaxPayoutForRun(elapsedMs: number, difficulty: number, gemAmmoUsed = 0) {
-  const seconds = Math.max(0, elapsedMs / 1000)
+  const fullRunSeconds = PIRATE_RUN_DURATION_MS / 1000
+  const fullRunHeadroom = pirateRunPayoutRatePerSecond(difficulty) * fullRunSeconds * 1.6
   // Gem shots noticeably accelerate the kill rate, so each one spent raises
-  // the plausible-haul ceiling a little (combo bonuses and the late-run
-  // reward multiplier live inside the 1.8 slack factor).
-  return Math.round(pirateRunPayoutRatePerSecond(difficulty) * seconds * 1.8 + gemAmmoUsed * 100)
+  // the plausible-haul ceiling a little. Ordinary loot headroom follows the
+  // same late-weighted curve as the live kill rewards.
+  return Math.round(fullRunHeadroom * pirateRunPayoutProgress(elapsedMs) + gemAmmoUsed * 100)
 }
 
-/** Rough expected average haul for one full voyage — the payout cap above is this same rate with generous slack layered on top, so dividing that slack back out gives a reasonable "typical run" estimate. */
+/** Rough expected in-run haul for one full voyage, before its completion bonus. */
 export function pirateAverageRunPayoutEstimate(difficulty: number) {
   return Math.round(pirateRunPayoutRatePerSecond(difficulty) * (PIRATE_RUN_DURATION_MS / 1000))
 }
 
 // Surviving the whole six-minute voyage pays a lump completion bonus on top of
-// the coins collected during it. It's sized as a fraction of a typical haul so
-// that a finished run earns roughly 3.5x the original baseline (2.5x in-run take
-// + ~1x bonus), turning "just survive to the end" into a real payoff rather than
-// bailing early with a partial bag. Awarded server-side, so it's never clipped
-// by the anti-cheat cap.
-export const PIRATE_COMPLETION_BONUS_RATE = 0.4
+// the coins collected during it. At 90% of a typical haul it nearly doubles a
+// clean clear, making the dangerous final minute worth finishing. Awarded
+// server-side, so it is never clipped by the anti-cheat cap.
+export const PIRATE_COMPLETION_BONUS_RATE = 0.9
 
 /** Flat coin bonus for completing a full voyage at this difficulty. */
 export function pirateCompletionBonus(difficulty: number) {

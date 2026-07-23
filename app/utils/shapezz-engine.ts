@@ -1,10 +1,10 @@
 import {
-    SHAPEZZ_COIN_PAYOUT_SCALE,
     SHAPEZZ_CHECKPOINT_MS,
     SHAPEZZ_COMBAT_LIMITS,
     SHAPEZZ_RUN_UPGRADES,
     shapezzCheckpointPressure,
     shapezzDifficulty,
+    shapezzEnemyCoinValue,
     shapezzEnemyHealthMultiplier,
     shapezzExecutionThreshold,
     shapezzExplosionDamageMultiplier,
@@ -492,7 +492,7 @@ export class ShapezzEngine {
             shooter: { radius: 21, hp: 52, damage: 10, speed: 92, reward: 22, color: '#fbbf24' },
             tank: { radius: 31, hp: 155, damage: 22, speed: 62, reward: 50, color: '#a78bfa' },
             dasher: { radius: 16, hp: 62, damage: 18, speed: 205, reward: 30, color: '#34d399' },
-            boss: { radius: 74, hp: 2200, damage: 28, speed: 68, reward: 750, color: '#e879f9' }
+            boss: { radius: 74, hp: 2200, damage: 28, speed: 68, reward: 250, color: '#e879f9' }
         }[type]
         this.enemies.push({
             id: this.enemyId++, type,
@@ -503,7 +503,7 @@ export class ShapezzEngine {
             maxHp: config.hp * healthMultiplier * pressure.health,
             damage: config.damage * difficulty.enemyDamage * (1 + minutes * 0.1) * pressure.damage,
             speed: config.speed * difficulty.enemySpeed,
-            reward: Math.round(config.reward * SHAPEZZ_COIN_PAYOUT_SCALE * difficulty.reward * pressure.reward * (1 + minutes * 0.04)),
+            reward: shapezzEnemyCoinValue(config.reward, this.elapsedMs, this.difficultyId),
             color: config.color,
             fireCooldown: randomBetween(0.3, 1.4), contactCooldown: 0,
             phase: Math.random() * Math.PI * 2,

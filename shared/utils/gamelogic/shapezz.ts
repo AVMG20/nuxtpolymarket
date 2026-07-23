@@ -2,7 +2,7 @@ export const SHAPEZZ_CHECKPOINT_MS = 45_000
 // SHAPEZZ used to pay its raw arcade-score values as coins, leaving a clean
 // six-minute run far behind a completed Pirate voyage. Keep score tuning
 // readable in the engine and convert it into the shared game economy here.
-export const SHAPEZZ_COIN_PAYOUT_SCALE = 37.5
+export const SHAPEZZ_COIN_PAYOUT_SCALE = 31.25
 export const SHAPEZZ_MAX_PERMANENT_LEVEL = 20
 export const SHAPEZZ_MAX_KILL_HEAL_LEVEL = 4
 export const SHAPEZZ_WEAPON_REFUND_RATE = 0.25
@@ -348,9 +348,24 @@ export function shapezzCheckpointPressure(checkpoint: number) {
     return {
         health: Math.pow(1.28, acceptedUpgrades),
         damage: Math.pow(1.055, acceptedUpgrades),
-        population: Math.min(1.7, 1 + acceptedUpgrades * 0.045),
-        reward: 1 + acceptedUpgrades * 0.12
+        population: Math.min(2.2, 1 + acceptedUpgrades * 0.08),
+        reward: Math.min(3, 0.3 + acceptedUpgrades * 0.2)
     }
+}
+
+/** Coin value carried by one enemy. Later mutations increase both this value and enemy density. */
+export function shapezzEnemyCoinValue(baseReward: number, elapsedMs: number, difficultyId: ShapezzDifficultyId) {
+    const checkpoint = shapezzCheckpointCount(elapsedMs)
+    const pressure = shapezzCheckpointPressure(checkpoint)
+    const difficulty = shapezzDifficulty(difficultyId)
+    const minutes = Math.max(0, elapsedMs) / 60_000
+    return Math.max(1, Math.round(
+        Math.max(0, baseReward)
+        * SHAPEZZ_COIN_PAYOUT_SCALE
+        * difficulty.reward
+        * pressure.reward
+        * (1 + minutes * 0.025)
+    ))
 }
 
 export function shapezzIntensity(elapsedMs: number, difficultyId: ShapezzDifficultyId) {
@@ -375,12 +390,12 @@ export function shapezzEnemyHealthMultiplier(elapsedMs: number, difficultyId: Sh
  * Annihilation reaches ~1M+ on a long, clean run.
  */
 export function shapezzMaxPayoutForRun(elapsedMs: number, difficultyId: ShapezzDifficultyId) {
-    const seconds = Math.max(0, Math.min(elapsedMs, 24 * 60 * 60 * 1000)) / 1000
+    const boundedElapsedMs = Math.max(0, Math.min(elapsedMs, 24 * 60 * 60 * 1000))
+    const roundProgress = boundedElapsedMs / SHAPEZZ_CHECKPOINT_MS
     const difficulty = shapezzDifficulty(difficultyId)
-    const checkpoints = shapezzCheckpointCount(elapsedMs)
-    // Keep server settlement aligned with the boosted client-side coin drops.
-    // Later checkpoints add modest headroom for increasingly dense waves.
-    return Math.floor(seconds * 1500 * difficulty.reward * (1 + checkpoints * 0.04))
+    // Quadratic cumulative headroom makes each 45-second mutation materially
+    // more valuable: on Surge this is ~9k, 38k, 84k, 150k, 234k, 338k.
+    return Math.floor(9_375 * roundProgress * roundProgress * difficulty.reward)
 }
 
 /**
