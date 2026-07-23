@@ -120,11 +120,14 @@ function startAmbience() {
 }
 
 function scheduleSeagulls() {
-    if (!import.meta.client || !soundEnabled.value || seagullTimer) return
+    if (!import.meta.client || !soundEnabled.value || !ambienceWanted || seagullTimer) return
     const delay = 18_000 + Math.random() * 17_000
     seagullTimer = setTimeout(() => {
         seagullTimer = null
-        if (!soundEnabled.value) return
+        // A timer can become ready just as the game page is being torn down.
+        // Check the requested ambience state again so it cannot restart itself
+        // after leaving Pirate Raid.
+        if (!soundEnabled.value || !ambienceWanted) return
         const gulls = new Audio(pick(['/pirates/sounds/seagull-ambience.mp3', '/pirates/sounds/seagull-ambience-2.mp3']))
         gulls.volume = Math.min(1, masterLevel() * 0.07)
         activeEffects.add(gulls)
@@ -148,9 +151,11 @@ function pauseAmbience() {
 
 function stopAmbience() {
     ambienceWanted = false
-    if (!ambience) return
-    ambience.pause()
-    ambience.currentTime = 0
+    pauseAmbientPlayback()
+    if (ambience) {
+        ambience.pause()
+        ambience.currentTime = 0
+    }
 }
 
 function startKrakenLoop() {

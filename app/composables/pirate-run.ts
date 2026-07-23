@@ -285,7 +285,10 @@ export function usePirateRun() {
         if (game && running.value) {
             game.pause()
             pirateSound.stopEffects()
-            pirateSound.pauseAmbience()
+            // The page owns the sea ambience. Tear it down rather than merely
+            // pausing it so a pending seagull callback cannot survive a route
+            // change and play on unrelated pages.
+            pirateSound.stopAmbience()
             pirateSound.pauseKrakenLoop()
             running.value = false
             paused.value = true
