@@ -61,18 +61,18 @@ describe('SHAPEZZ checkpoint pacing', () => {
   })
 
   it('gives a first cashout meaningful value while high difficulties pay several times more', () => {
-    // A first cashout has enough headroom for the 25x drop conversion.
-    expect(SHAPEZZ_COIN_PAYOUT_SCALE).toBe(25)
-    expect(shapezzMaxPayoutForRun(45_000, 'surge')).toBeGreaterThan(46_000)
-    expect(shapezzMaxPayoutForRun(45_000, 'surge')).toBeLessThan(48_000)
+    // The additional 50% income buff applies to both drops and settlement headroom.
+    expect(SHAPEZZ_COIN_PAYOUT_SCALE).toBe(37.5)
+    expect(shapezzMaxPayoutForRun(45_000, 'surge')).toBeGreaterThan(70_000)
+    expect(shapezzMaxPayoutForRun(45_000, 'surge')).toBeLessThan(71_000)
     expect(shapezzMaxPayoutForRun(45_000, 'annihilation')).toBeGreaterThan(shapezzMaxPayoutForRun(45_000, 'surge') * 4)
   })
 
   it('gives risky long runs substantially more upside than guaranteed-payout games', () => {
-    expect(shapezzMaxPayoutForRun(6 * 60_000, 'surge')).toBeGreaterThan(450_000)
-    expect(shapezzMaxPayoutForRun(6 * 60_000, 'surge')).toBeLessThan(500_000)
-    expect(shapezzMaxPayoutForRun(10 * 60_000, 'annihilation')).toBeGreaterThan(5_000_000)
-    expect(shapezzMaxPayoutForRun(10 * 60_000, 'annihilation')).toBeLessThan(6_250_000)
+    expect(shapezzMaxPayoutForRun(6 * 60_000, 'surge')).toBeGreaterThan(700_000)
+    expect(shapezzMaxPayoutForRun(6 * 60_000, 'surge')).toBeLessThan(725_000)
+    expect(shapezzMaxPayoutForRun(10 * 60_000, 'annihilation')).toBeGreaterThan(7_500_000)
+    expect(shapezzMaxPayoutForRun(10 * 60_000, 'annihilation')).toBeLessThan(7_550_000)
     // Lower difficulties stay an order of magnitude below the top end.
     expect(shapezzMaxPayoutForRun(10 * 60_000, 'surge')).toBeLessThan(shapezzMaxPayoutForRun(10 * 60_000, 'annihilation') / 4)
   })
@@ -202,6 +202,14 @@ describe('SHAPEZZ new run upgrades', () => {
     expect(ids.has('executioner')).toBe(true)
     expect(ids.has('overkillDividend')).toBe(true)
     expect(ids.has('ceilingBattery')).toBe(true)
+  })
+
+  it('makes Ceiling Battery a rare full-weapon clone', () => {
+    const ceilingBattery = SHAPEZZ_RUN_UPGRADES.find(upgrade => upgrade.id === 'ceilingBattery')
+
+    expect(ceilingBattery?.rarity).toBe('cataclysmic')
+    expect(ceilingBattery?.description).toContain('82% fire rate')
+    expect(ceilingBattery?.stackText).toContain('full-power')
   })
 
   it('scales Executioner modestly from a 12% starting threshold', () => {

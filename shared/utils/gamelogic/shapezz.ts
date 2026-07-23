@@ -2,7 +2,7 @@ export const SHAPEZZ_CHECKPOINT_MS = 45_000
 // SHAPEZZ used to pay its raw arcade-score values as coins, leaving a clean
 // six-minute run far behind a completed Pirate voyage. Keep score tuning
 // readable in the engine and convert it into the shared game economy here.
-export const SHAPEZZ_COIN_PAYOUT_SCALE = 25
+export const SHAPEZZ_COIN_PAYOUT_SCALE = 37.5
 export const SHAPEZZ_MAX_PERMANENT_LEVEL = 20
 export const SHAPEZZ_MAX_KILL_HEAL_LEVEL = 4
 export const SHAPEZZ_WEAPON_REFUND_RATE = 0.25
@@ -308,7 +308,7 @@ export const SHAPEZZ_RUN_UPGRADES: ShapezzRunUpgrade[] = [
     { id: 'killShockwave', name: 'KILLQUAKE', description: 'Every 18 kills, emit a growing shockwave that damages nearby enemies.', stackText: 'Triggers sooner, grows larger and hits harder', icon: 'i-lucide-waves', rarity: 'unstable', accent: '#22d3ee' },
     { id: 'executioner', name: 'EXECUTIONER', description: 'Enemies below 12% health are instantly destroyed.', stackText: '+2.5% execution threshold', icon: 'i-lucide-skull', rarity: 'cataclysmic', accent: '#fb7185' },
     { id: 'overkillDividend', name: 'OVERKILL DIVIDEND', description: 'Excess lethal damage erupts from the victim as a compact shockwave.', stackText: 'Larger wave, converts more excess damage', icon: 'i-lucide-circle-dollar-sign', rarity: 'unstable', accent: '#fbbf24' },
-    { id: 'ceilingBattery', name: 'CEILING BATTERY', description: 'Mount a top-center auto-turret that deals moderate damage across the arena.', stackText: '+1 ceiling turret', icon: 'i-lucide-cctv', rarity: 'unstable', accent: '#a3e635' }
+    { id: 'ceilingBattery', name: 'CEILING BATTERY', description: 'Mount a top-center turret that copies your weapon, projectiles and offensive upgrades at 82% fire rate.', stackText: '+1 full-power ceiling turret', icon: 'i-lucide-cctv', rarity: 'cataclysmic', accent: '#a3e635' }
 ]
 
 export function shapezzExecutionThreshold(stacks: number) {
@@ -380,7 +380,7 @@ export function shapezzMaxPayoutForRun(elapsedMs: number, difficultyId: ShapezzD
     const checkpoints = shapezzCheckpointCount(elapsedMs)
     // Keep server settlement aligned with the boosted client-side coin drops.
     // Later checkpoints add modest headroom for increasingly dense waves.
-    return Math.floor(seconds * 1000 * difficulty.reward * (1 + checkpoints * 0.04))
+    return Math.floor(seconds * 1500 * difficulty.reward * (1 + checkpoints * 0.04))
 }
 
 /**

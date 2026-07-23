@@ -64,7 +64,7 @@ interface Shockwave extends Point { radius: number, maxRadius: number, life: num
 interface Beam { from: Point, to: Point, life: number, maxLife: number, color: string, width: number }
 interface DamageText extends Point { text: string, color: string, life: number, maxLife: number, size: number, vx: number, vy: number }
 interface Pickup extends Point { vx: number, vy: number, value: number, life: number, kind: 'coin' | 'health' }
-interface Singularity extends Point { life: number, maxLife: number, radius: number, damageTick: number }
+interface Singularity extends Point { life: number, maxLife: number, radius: number, damageTick: number, triggersHealing: boolean }
 interface Turret extends Point { life: number, fireCooldown: number, angle: number }
 
 interface Bullet extends Point {
@@ -87,6 +87,7 @@ interface Bullet extends Point {
     minFalloffDamage: number
     visualIntensity: number
     secondaryEffects: boolean
+    triggersHealing: boolean
     hitIds: Set<number>
 }
 
@@ -166,6 +167,7 @@ export class ShapezzEngine {
     private player: Player
     private keys = new Set<string>()
     private aim = { x: WIDTH * 0.75, y: HEIGHT * 0.45 }
+    private aimVisible = false
     private firing = false
     private dropThroughTimer = 0
     private running = false
@@ -184,6 +186,7 @@ export class ShapezzEngine {
     private shotCounter = 0
     private bossCheckpoint = 0
     private kills = 0
+    private healingKills = 0
     private coins = 0
     private combo = 0
     private maxCombo = 0
@@ -235,6 +238,11 @@ export class ShapezzEngine {
         const rect = this.canvas.getBoundingClientRect()
         this.aim.x = (event.clientX - rect.left) / rect.width * WIDTH
         this.aim.y = (event.clientY - rect.top) / rect.height * HEIGHT
+        this.aimVisible = event.pointerType !== 'touch'
+    }
+
+    private pointerleave = () => {
+        this.aimVisible = false
     }
 
     private pointerdown = (event: PointerEvent) => {
@@ -264,6 +272,7 @@ export class ShapezzEngine {
         window.addEventListener('pointerup', this.pointerup)
         window.addEventListener('blur', this.windowBlur)
         canvas.addEventListener('pointermove', this.pointermove)
+        canvas.addEventListener('pointerleave', this.pointerleave)
         canvas.addEventListener('pointerdown', this.pointerdown)
         canvas.addEventListener('contextmenu', event => event.preventDefault())
         this.raf = requestAnimationFrame(this.frame)
@@ -291,6 +300,7 @@ export class ShapezzEngine {
         window.removeEventListener('pointerup', this.pointerup)
         window.removeEventListener('blur', this.windowBlur)
         this.canvas.removeEventListener('pointermove', this.pointermove)
+        this.canvas.removeEventListener('pointerleave', this.pointerleave)
         this.canvas.removeEventListener('pointerdown', this.pointerdown)
     }
 
@@ -569,7 +579,7 @@ export class ShapezzEngine {
             radius: enemy.boss ? 9 : 6, life: 6, pierce: 0, bounces: 0,
             color: enemy.color, accentColor: enemy.color, friendly: false, homing: false, trail: true,
             explosionRadius: 0, traveled: 0, falloffStart: 9999, falloffEnd: 10_000,
-            minFalloffDamage: 1, visualIntensity: enemy.boss ? 3 : 1, secondaryEffects: false, hitIds: new Set()
+            minFalloffDamage: 1, visualIntensity: enemy.boss ? 3 : 1, secondaryEffects: false, triggersHealing: false, hitIds: new Set()
         })
         this.callbacks.onSfx?.('enemy-shoot')
         this.burst(enemy.x, enemy.y, enemy.color, enemy.boss ? 12 : 5, 150)
@@ -588,8 +598,18 @@ export class ShapezzEngine {
         this.shake = Math.max(this.shake, 8)
     }
 
-    private firePlayerVolley(x: number, y: number, angle: number, damageMultiplier = 1) {
-        if (this.weapon.type === 'arcCoil') return this.fireArcCoil(x, y, angle, damageMultiplier)
+    private firePlayerVolley(
+        x: number,
+        y: number,
+        angle: number,
+        damageMultiplier = 1,
+        triggersHealing = true,
+        targetPoint: Point = this.aim,
+        arcAcquisitionRange = this.weapon.chainRange
+    ) {
+        if (this.weapon.type === 'arcCoil') {
+            return this.fireArcCoil(x, y, angle, damageMultiplier, triggersHealing, targetPoint, arcAcquisitionRange)
+        }
 
         const twinFang = this.upgrades.twinFang ?? 0
         const effectiveTwinStacks = Math.min(this.weapon.type === 'shotgun' ? 3 : 4, twinFang)
@@ -603,12 +623,12 @@ export class ShapezzEngine {
         for (let i = 0; i < count; i++) {
             const offset = count === 1 ? 0 : -spread / 2 + i / (count - 1) * spread
             const secondaryEffects = secondaryProcLimit > 0 && i % Math.max(1, Math.ceil(count / secondaryProcLimit)) === 0
-            this.createPlayerBullet(x, y, angle + offset, damageMultiplier * overflowDamage, false, secondaryEffects)
+            this.createPlayerBullet(x, y, angle + offset, damageMultiplier * overflowDamage, false, secondaryEffects, triggersHealing)
         }
         this.shotCounter++
         const singularityEvery = Math.max(5, 14 - (this.upgrades.blackHole ?? 0) * 3)
         if ((this.upgrades.blackHole ?? 0) > 0 && this.shotCounter % singularityEvery === 0) {
-            this.singularities.push({ x: this.aim.x, y: this.aim.y, life: 2.6, maxLife: 2.6, radius: 125 + Math.min(4, this.upgrades.blackHole ?? 1) * 18, damageTick: 0 })
+            this.singularities.push({ x: targetPoint.x, y: targetPoint.y, life: 2.6, maxLife: 2.6, radius: 125 + Math.min(4, this.upgrades.blackHole ?? 1) * 18, damageTick: 0, triggersHealing })
             this.singularities = this.singularities.slice(-SHAPEZZ_COMBAT_LIMITS.singularities)
             this.callbacks.onSfx?.('singularity')
         }
@@ -626,7 +646,15 @@ export class ShapezzEngine {
         return true
     }
 
-    private fireArcCoil(x: number, y: number, angle: number, damageMultiplier: number) {
+    private fireArcCoil(
+        x: number,
+        y: number,
+        angle: number,
+        damageMultiplier: number,
+        triggersHealing: boolean,
+        targetPoint: Point,
+        acquisitionRange: number
+    ) {
         const twinFang = this.upgrades.twinFang ?? 0
         const effectiveTwinStacks = Math.min(2, twinFang)
         const primaryCount = 1 + effectiveTwinStacks * 2
@@ -647,7 +675,7 @@ export class ShapezzEngine {
         let fired = false
 
         for (let primaryIndex = 0; primaryIndex < primaryCount; primaryIndex++) {
-            const primary = this.aimedEnemy({ x, y }, angle, this.weapon.chainRange, hit)
+            const primary = this.aimedEnemy({ x, y }, angle, acquisitionRange, hit)
             if (!primary) break
             fired = true
             let source: Point = { x, y }
@@ -665,8 +693,8 @@ export class ShapezzEngine {
                     color: hop === 0 ? this.weapon.primaryColor : this.weapon.accentColor,
                     width: 3 + this.weapon.visualIntensity * 0.65 + giant * 1.5
                 })
-                this.hitEnemy(currentTarget, hopDamage, this.weapon.primaryColor, currentTarget.x, currentTarget.y)
-                if (hop === 0) this.triggerArcPrimaryImpact(currentTarget, hopDamage)
+                this.hitEnemy(currentTarget, hopDamage, this.weapon.primaryColor, currentTarget.x, currentTarget.y, true, triggersHealing)
+                if (hop === 0) this.triggerArcPrimaryImpact(currentTarget, hopDamage, triggersHealing)
                 source = { x: currentTarget.x, y: currentTarget.y }
                 target = this.nearestEnemy(source, this.weapon.chainRange, undefined, hit)
                 hopDamage *= decay
@@ -677,7 +705,7 @@ export class ShapezzEngine {
         this.shotCounter++
         const singularityEvery = Math.max(5, 14 - (this.upgrades.blackHole ?? 0) * 3)
         if ((this.upgrades.blackHole ?? 0) > 0 && this.shotCounter % singularityEvery === 0) {
-            this.singularities.push({ x: this.aim.x, y: this.aim.y, life: 2.6, maxLife: 2.6, radius: 125 + Math.min(4, this.upgrades.blackHole ?? 1) * 18, damageTick: 0 })
+            this.singularities.push({ x: targetPoint.x, y: targetPoint.y, life: 2.6, maxLife: 2.6, radius: 125 + Math.min(4, this.upgrades.blackHole ?? 1) * 18, damageTick: 0, triggersHealing })
             this.singularities = this.singularities.slice(-SHAPEZZ_COMBAT_LIMITS.singularities)
             this.callbacks.onSfx?.('singularity')
         }
@@ -685,7 +713,7 @@ export class ShapezzEngine {
         return true
     }
 
-    private triggerArcPrimaryImpact(enemy: Enemy, impactDamage: number) {
+    private triggerArcPrimaryImpact(enemy: Enemy, impactDamage: number, triggersHealing: boolean) {
         const explosive = Math.min(4, this.upgrades.explosive ?? 0)
         if (explosive > 0) {
             const radius = 64 + explosive * 24
@@ -694,7 +722,7 @@ export class ShapezzEngine {
             this.shockwaves.push({ x: enemy.x, y: enemy.y, radius: 8, maxRadius: radius, life: 0.3, maxLife: 0.3, color: '#fb7185', width: 5 + this.weapon.visualIntensity })
             for (const target of this.enemies) {
                 if (target.id !== enemy.id && distance(target, enemy) < radius) {
-                    this.hitEnemy(target, blastDamage, '#fb7185', target.x, target.y)
+                    this.hitEnemy(target, blastDamage, '#fb7185', target.x, target.y, true, triggersHealing)
                 }
             }
         }
@@ -708,12 +736,20 @@ export class ShapezzEngine {
             if (!target) break
             hit.add(target.id)
             this.beams.push({ from: { x: source.x, y: source.y }, to: { x: target.x, y: target.y }, life: 0.18, maxLife: 0.18, color: '#c4b5fd', width: 4 + chains })
-            this.hitEnemy(target, impactDamage * 0.5, '#c4b5fd', target.x, target.y)
+            this.hitEnemy(target, impactDamage * 0.5, '#c4b5fd', target.x, target.y, true, triggersHealing)
             source = target
         }
     }
 
-    private createPlayerBullet(x: number, y: number, angle: number, damageMultiplier = 1, homing = false, secondaryEffects = false) {
+    private createPlayerBullet(
+        x: number,
+        y: number,
+        angle: number,
+        damageMultiplier = 1,
+        homing = false,
+        secondaryEffects = false,
+        triggersHealing = true
+    ) {
         if (this.bullets.length >= SHAPEZZ_COMBAT_LIMITS.bullets) return
         const giantStacks = this.upgrades.giantRounds ?? 0
         const giant = Math.min(3, giantStacks)
@@ -740,6 +776,7 @@ export class ShapezzEngine {
             minFalloffDamage: this.weapon.minFalloffDamage,
             visualIntensity: this.weapon.visualIntensity,
             secondaryEffects,
+            triggersHealing,
             hitIds: new Set()
         })
     }
@@ -793,7 +830,7 @@ export class ShapezzEngine {
                     if (bullet.hitIds.has(enemy.id) || distanceToSegment(enemy, previousPosition, bullet) > bullet.radius + enemy.radius) continue
                     bullet.hitIds.add(enemy.id)
                     const impactDamage = this.bulletImpactDamage(bullet)
-                    this.hitEnemy(enemy, impactDamage, bullet.color, bullet.x, bullet.y)
+                    this.hitEnemy(enemy, impactDamage, bullet.color, bullet.x, bullet.y, true, bullet.triggersHealing)
                     this.triggerImpact(enemy, bullet, impactDamage)
                     if (bullet.pierce > 0) bullet.pierce--
                     else if (bullet.bounces > 0) {
@@ -855,7 +892,7 @@ export class ShapezzEngine {
                     const damageMultiplier = bullet.explosionRadius > 0
                         ? shapezzExplosionDamageMultiplier(targetDistance, radius)
                         : 1
-                    this.hitEnemy(target, blastDamage * damageMultiplier, explosionColor, target.x, target.y)
+                    this.hitEnemy(target, blastDamage * damageMultiplier, explosionColor, target.x, target.y, true, bullet.triggersHealing)
                 }
             }
             this.shake = Math.max(this.shake, 4 + explosive * 2 + bullet.visualIntensity)
@@ -871,13 +908,21 @@ export class ShapezzEngine {
                 if (!target) break
                 hit.add(target.id)
                 this.beams.push({ from: { x: source.x, y: source.y }, to: { x: target.x, y: target.y }, life: 0.18, maxLife: 0.18, color: '#c4b5fd', width: 4 + chains })
-                this.hitEnemy(target, impactDamage * 0.5, '#c4b5fd', target.x, target.y)
+                this.hitEnemy(target, impactDamage * 0.5, '#c4b5fd', target.x, target.y, true, bullet.triggersHealing)
                 source = target
             }
         }
     }
 
-    private hitEnemy(enemy: Enemy, damage: number, color: string, x: number, y: number, allowOverkillDividend = true) {
+    private hitEnemy(
+        enemy: Enemy,
+        damage: number,
+        color: string,
+        x: number,
+        y: number,
+        allowOverkillDividend = true,
+        triggersHealing = true
+    ) {
         if (enemy.hp <= 0) return
         const previousHp = enemy.hp
         const dealt = Math.min(enemy.hp, damage)
@@ -887,8 +932,8 @@ export class ShapezzEngine {
             this.damageTexts.push({ x, y, text: Math.round(dealt).toString(), color, life: 0.65, maxLife: 0.65, size: clamp(12 + Math.log2(Math.max(2, damage)) * 2, 14, 34), vx: randomBetween(-25, 25), vy: randomBetween(-120, -75) })
         }
         if (enemy.hp <= 0) {
-            this.killEnemy(enemy)
-            if (allowOverkillDividend) this.triggerOverkillDividend(enemy, Math.max(0, damage - previousHp))
+            this.killEnemy(enemy, triggersHealing)
+            if (allowOverkillDividend) this.triggerOverkillDividend(enemy, Math.max(0, damage - previousHp), triggersHealing)
             return
         }
 
@@ -898,11 +943,11 @@ export class ShapezzEngine {
                 this.damageTexts.push({ x: enemy.x, y: enemy.y - enemy.radius, text: 'EXECUTE', color: '#fb7185', life: 0.75, maxLife: 0.75, size: 19, vx: 0, vy: -95 })
             }
             enemy.hp = 0
-            this.killEnemy(enemy)
+            this.killEnemy(enemy, triggersHealing)
         }
     }
 
-    private triggerOverkillDividend(enemy: Enemy, excessDamage: number) {
+    private triggerOverkillDividend(enemy: Enemy, excessDamage: number, triggersHealing: boolean) {
         const stacks = this.upgrades.overkillDividend ?? 0
         if (stacks <= 0 || excessDamage <= 0) return
         const stats = shapezzOverkillDividendStats(stacks)
@@ -911,13 +956,14 @@ export class ShapezzEngine {
         this.shockwaves.push({ x: enemy.x, y: enemy.y, radius: 5, maxRadius: stats.radius, life: 0.28, maxLife: 0.28, color: '#fbbf24', width: 5 + Math.min(5, stacks) })
         for (const target of this.enemies) {
             if (target.id !== enemy.id && distance(target, enemy) <= stats.radius) {
-                this.hitEnemy(target, damage, '#fbbf24', target.x, target.y, false)
+                this.hitEnemy(target, damage, '#fbbf24', target.x, target.y, false, triggersHealing)
             }
         }
     }
 
-    private killEnemy(enemy: Enemy) {
+    private killEnemy(enemy: Enemy, triggersHealing = true) {
         this.kills++
+        if (triggersHealing) this.healingKills++
         this.combo++
         this.maxCombo = Math.max(this.maxCombo, this.combo)
         this.comboTimer = 2.6
@@ -927,14 +973,16 @@ export class ShapezzEngine {
         this.burst(enemy.x, enemy.y, enemy.color, enemy.boss ? 180 : 16 + Math.floor(enemy.radius * 0.5), enemy.boss ? 920 : 430)
         this.shockwaves.push({ x: enemy.x, y: enemy.y, radius: 5, maxRadius: enemy.radius * (enemy.boss ? 5 : 2.7), life: enemy.boss ? 0.75 : 0.35, maxLife: enemy.boss ? 0.75 : 0.35, color: enemy.color, width: enemy.boss ? 12 : 5 })
 
-        const previousHp = this.player.hp
-        this.player.hp = Math.min(this.stats.maxHp, this.player.hp + this.stats.healthPerKill)
-        const healed = Math.round(this.player.hp - previousHp)
-        if (healed > 0) {
-            if (this.damageTexts.length < SHAPEZZ_COMBAT_LIMITS.damageTexts) {
-                this.damageTexts.push({ x: this.player.x, y: this.player.y - 42, text: `+${healed} HP`, color: '#34d399', life: 0.8, maxLife: 0.8, size: 16 + this.stats.healthPerKill, vx: randomBetween(-12, 12), vy: -75 })
+        if (triggersHealing) {
+            const previousHp = this.player.hp
+            this.player.hp = Math.min(this.stats.maxHp, this.player.hp + this.stats.healthPerKill)
+            const healed = Math.round(this.player.hp - previousHp)
+            if (healed > 0) {
+                if (this.damageTexts.length < SHAPEZZ_COMBAT_LIMITS.damageTexts) {
+                    this.damageTexts.push({ x: this.player.x, y: this.player.y - 42, text: `+${healed} HP`, color: '#34d399', life: 0.8, maxLife: 0.8, size: 16 + this.stats.healthPerKill, vx: randomBetween(-12, 12), vy: -75 })
+                }
+                this.burst(this.player.x, this.player.y, '#34d399', 2 + this.stats.healthPerKill, 120 + this.stats.healthPerKill * 18)
             }
-            this.burst(this.player.x, this.player.y, '#34d399', 2 + this.stats.healthPerKill, 120 + this.stats.healthPerKill * 18)
         }
 
         const pickupCount = enemy.boss ? 12 : 1
@@ -955,18 +1003,18 @@ export class ShapezzEngine {
         const shardCount = 2 + visibleSplitstorm * 3
         if (splitstorm > 0) {
             const shardDamage = 0.62 * (1 + Math.max(0, splitstorm - visibleSplitstorm) * 0.12)
-            for (let i = 0; i < shardCount; i++) this.createPlayerBullet(enemy.x, enemy.y, i / shardCount * Math.PI * 2, shardDamage, true)
+            for (let i = 0; i < shardCount; i++) this.createPlayerBullet(enemy.x, enemy.y, i / shardCount * Math.PI * 2, shardDamage, true, false, triggersHealing)
         }
 
         const deathNova = this.upgrades.deathNova ?? 0
         const visibleDeathNova = Math.min(3, deathNova)
         const novaCount = deathNova > 0 ? 6 + visibleDeathNova * 6 : 0
         const novaDamage = 0.5 * (1 + Math.max(0, deathNova - visibleDeathNova) * 0.1)
-        for (let i = 0; i < novaCount; i++) this.createPlayerBullet(enemy.x, enemy.y, i / novaCount * Math.PI * 2, novaDamage)
+        for (let i = 0; i < novaCount; i++) this.createPlayerBullet(enemy.x, enemy.y, i / novaCount * Math.PI * 2, novaDamage, false, false, triggersHealing)
 
         const vampire = Math.min(4, this.upgrades.vampireBurst ?? 0)
         const triggerKills = Math.max(8, 24 - vampire * 4)
-        if (vampire > 0 && this.kills % triggerKills === 0) {
+        if (triggersHealing && vampire > 0 && this.healingKills % triggerKills === 0) {
             const healed = this.stats.maxHp * 0.25
             this.player.hp = Math.min(this.stats.maxHp, this.player.hp + healed)
             if (this.damageTexts.length < SHAPEZZ_COMBAT_LIMITS.damageTexts) {
@@ -984,7 +1032,7 @@ export class ShapezzEngine {
                 this.burst(this.player.x, this.player.y, '#67e8f9', 24 + Math.min(6, killShockwaveStacks) * 5, 470)
                 for (const target of this.enemies) {
                     if (distance(target, this.player) <= stats.radius) {
-                        this.hitEnemy(target, damage, '#22d3ee', target.x, target.y)
+                        this.hitEnemy(target, damage, '#22d3ee', target.x, target.y, true, triggersHealing)
                     }
                 }
                 this.shake = Math.max(this.shake, 9)
@@ -1027,16 +1075,27 @@ export class ShapezzEngine {
     private updateCompanions(dt: number) {
         const ceilingBatteries = Math.min(6, this.upgrades.ceilingBattery ?? 0)
         if (ceilingBatteries > 0 && this.ceilingBatteryCooldown <= 0 && this.enemies.length) {
+            let fired = false
             for (let i = 0; i < ceilingBatteries; i++) {
                 const origin = this.ceilingBatteryPosition(i, ceilingBatteries)
                 const target = this.nearestEnemy(origin, 920)
                 if (!target) continue
-                const moderateDamage = 0.55 / this.weapon.damageMultiplier
-                this.createPlayerBullet(origin.x, origin.y, Math.atan2(target.y - origin.y, target.x - origin.x), moderateDamage, true)
-                this.callbacks.onSfx?.('drone-shoot')
-                this.beams.push({ from: origin, to: { x: target.x, y: target.y }, life: 0.07, maxLife: 0.07, color: '#a3e635', width: 2 })
+                fired = this.firePlayerVolley(
+                    origin.x,
+                    origin.y,
+                    Math.atan2(target.y - origin.y, target.x - origin.x),
+                    1,
+                    false,
+                    target,
+                    this.weapon.type === 'arcCoil' ? 920 : this.weapon.chainRange
+                ) || fired
             }
-            this.ceilingBatteryCooldown = 0.72
+            if (fired) this.callbacks.onSfx?.('drone-shoot')
+            const frenzy = Math.min(3, this.upgrades.frenzy ?? 0)
+            const fireMultiplier = this.combo > 0 && frenzy > 0 ? 2 + (frenzy - 1) * 0.35 : 1
+            const requestedFireRate = this.stats.fireRate * this.weapon.fireRateMultiplier * fireMultiplier
+            const clonedFireRate = Math.min(shapezzWeaponFireRateCap(this.weapon.type), requestedFireRate) * 0.82
+            this.ceilingBatteryCooldown = 1 / Math.max(0.1, clonedFireRate)
         }
 
         const orbitals = Math.min(6, (this.upgrades.orbitals ?? 0) * 2)
@@ -1094,7 +1153,9 @@ export class ShapezzEngine {
                 const pull = (1 - clamp(dist / (singularity.radius * 1.8), 0, 1)) * 1000
                 enemy.vx += direction.x * pull * dt
                 enemy.vy += direction.y * pull * dt
-                if (singularity.damageTick <= 0 && dist < singularity.radius) this.hitEnemy(enemy, this.stats.damage * 0.48, '#e879f9', enemy.x, enemy.y)
+                if (singularity.damageTick <= 0 && dist < singularity.radius) {
+                    this.hitEnemy(enemy, this.stats.damage * 0.48, '#e879f9', enemy.x, enemy.y, true, singularity.triggersHealing)
+                }
             }
             if (singularity.damageTick <= 0) singularity.damageTick = 0.16
             if (singularity.life > 0) kept.push(singularity)
@@ -1240,6 +1301,54 @@ export class ShapezzEngine {
         vignette.addColorStop(1, 'rgba(0,0,0,0.58)')
         ctx.fillStyle = vignette
         ctx.fillRect(0, 0, WIDTH, HEIGHT)
+        if (this.running && this.aimVisible) this.renderAimCursor(time)
+    }
+
+    private renderAimCursor(time: number) {
+        const ctx = this.ctx
+        const { x, y } = this.aim
+        const radius = this.firing ? 9 : 11
+        const gap = radius + 5
+        const arm = gap + 10
+        const pulse = 0.82 + Math.sin(time * 7) * 0.12
+
+        ctx.save()
+        ctx.translate(x, y)
+        ctx.lineCap = 'round'
+
+        // A dark under-stroke keeps the reticle readable over bright effects.
+        ctx.strokeStyle = 'rgba(0, 0, 0, 0.9)'
+        ctx.lineWidth = 6
+        ctx.beginPath()
+        ctx.moveTo(-arm, 0)
+        ctx.lineTo(-gap, 0)
+        ctx.moveTo(gap, 0)
+        ctx.lineTo(arm, 0)
+        ctx.moveTo(0, -arm)
+        ctx.lineTo(0, -gap)
+        ctx.moveTo(0, gap)
+        ctx.lineTo(0, arm)
+        ctx.stroke()
+
+        ctx.shadowColor = '#22d3ee'
+        ctx.shadowBlur = 10
+        ctx.strokeStyle = '#ecfeff'
+        ctx.lineWidth = 2.5
+        ctx.stroke()
+
+        ctx.globalAlpha = pulse
+        ctx.strokeStyle = '#22d3ee'
+        ctx.lineWidth = 2
+        ctx.beginPath()
+        ctx.arc(0, 0, radius, 0, Math.PI * 2)
+        ctx.stroke()
+
+        ctx.globalAlpha = 1
+        ctx.fillStyle = '#ffffff'
+        ctx.beginPath()
+        ctx.arc(0, 0, 2.75, 0, Math.PI * 2)
+        ctx.fill()
+        ctx.restore()
     }
 
     private renderBackground(time: number) {

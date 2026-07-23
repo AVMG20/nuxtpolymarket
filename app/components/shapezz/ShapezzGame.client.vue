@@ -335,7 +335,7 @@ onUnmounted(() => {
     <template v-else>
       <UCard class="overflow-hidden" :ui="{ body: 'p-0 sm:p-0' }">
         <div class="shapezz-arena relative aspect-video min-h-[360px] w-full overflow-hidden bg-background">
-          <canvas ref="canvas" class="absolute inset-0 size-full touch-none" />
+          <canvas ref="canvas" class="absolute inset-0 size-full touch-none" :class="{ 'cursor-none': running }" />
 
           <div v-if="running" class="pointer-events-none absolute inset-x-0 top-0 p-3 sm:p-4">
             <div class="flex items-start justify-between gap-3">
