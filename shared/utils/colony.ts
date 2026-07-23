@@ -40,16 +40,16 @@ export interface ItemType {
 // This keeps late-tier income climbing by roughly 2.3-3x per tier instead
 // of leaving T4 flat and then jumping almost 6x at T5.
 export const ITEM_TYPES: ItemType[] = [
-  { id: 'silk', name: 'Silk Scrap', emoji: '🧵', tier: 1, sellValue: 50 },
-  { id: 'loam', name: 'Rich Loam', emoji: '🧱', tier: 1, sellValue: 140 },
-  { id: 'chitin', name: 'Chitin Shard', emoji: '🦴', tier: 2, sellValue: 375 },
-  { id: 'shell_fragment', name: 'Shell Fragment', emoji: '🐚', tier: 2, sellValue: 500 },
-  { id: 'resin', name: 'Amber Resin', emoji: '🟠', tier: 3, sellValue: 1500 },
-  { id: 'pheromone', name: 'Pheromone Vial', emoji: '🧪', tier: 3, sellValue: 2400 },
-  { id: 'venom', name: 'Venom Sac', emoji: '☠️', tier: 4, sellValue: 5500 },
-  { id: 'carapace', name: 'Hardened Carapace', emoji: '🛡️', tier: 4, sellValue: 8500 },
-  { id: 'ember_dust', name: 'Ember Dust', emoji: '🔥', tier: 5, sellValue: 28_000 },
-  { id: 'royal_jelly', name: 'Royal Jelly', emoji: '🍯', tier: 6, sellValue: 90_000 }
+  { id: 'silk', name: 'Silk Scrap', emoji: '🧵', tier: 1, sellValue: 42.5 },
+  { id: 'loam', name: 'Rich Loam', emoji: '🧱', tier: 1, sellValue: 119 },
+  { id: 'chitin', name: 'Chitin Shard', emoji: '🦴', tier: 2, sellValue: 318.75 },
+  { id: 'shell_fragment', name: 'Shell Fragment', emoji: '🐚', tier: 2, sellValue: 425 },
+  { id: 'resin', name: 'Amber Resin', emoji: '🟠', tier: 3, sellValue: 1275 },
+  { id: 'pheromone', name: 'Pheromone Vial', emoji: '🧪', tier: 3, sellValue: 2040 },
+  { id: 'venom', name: 'Venom Sac', emoji: '☠️', tier: 4, sellValue: 4675 },
+  { id: 'carapace', name: 'Hardened Carapace', emoji: '🛡️', tier: 4, sellValue: 7225 },
+  { id: 'ember_dust', name: 'Ember Dust', emoji: '🔥', tier: 5, sellValue: 23_800 },
+  { id: 'royal_jelly', name: 'Royal Jelly', emoji: '🍯', tier: 6, sellValue: 76_500 }
 ]
 
 export function getItem(id: string): ItemType | undefined {
@@ -542,19 +542,21 @@ const EARLIER_TIER_COST_DECAY = 0.55
  * Cost to build a track up TO `level` (i.e. level = currentLevel + 1).
  * Coins are the real wall — 100k at level 1, ×1.55 per level (~30M by 14,
  * ~400M at 20). Item quantities are sized off the demanded tier's foraging
- * rate: early levels ≈ a few hours of one bug's output, late levels ≈ days
- * of a whole squad's. Every level also splinters in a smaller helping of
+ * rate, then multiplied from 5× at level 1 up to 10× at level 11+: early
+ * levels require a meaningful stockpile and late levels require sustained
+ * production from a whole squad. Every level also splinters in a smaller helping of
  * every EARLIER tier's items too (see EARLIER_TIER_COST_DECAY), so reaching
  * a high-tier upgrade still requires having kept earlier-tier bugs foraging
  * along the way, not just the current tier's squad.
  */
 export function trackLevelCost(level: number): Price {
   const tier = trackItemTier(level)
+  const itemMultiplier = Math.min(10, 5 + (level - 1) * 0.5)
   const items: ItemCost[] = []
   for (let t = 1; t <= tier; t++) {
     const rate = TIER_ITEM_HOURLY_RATE[t] ?? 10
     const decay = Math.pow(EARLIER_TIER_COST_DECAY, tier - t)
-    const quantity = Math.max(10, Math.round(rate * 3 * Math.pow(1.3, level - 1) * decay / 5) * 5)
+    const quantity = Math.max(10, Math.round(rate * 3 * Math.pow(1.3, level - 1) * decay * itemMultiplier / 5) * 5)
     for (const item of itemsByTier(t)) items.push({ itemTypeId: item.id, quantity })
   }
   const coins = Math.round(100_000 * Math.pow(1.55, level - 1) / 1000) * 1000
