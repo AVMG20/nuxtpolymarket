@@ -216,6 +216,8 @@ export const shapezzState = pgTable('shapezz_state', {
   launcherPurchasePrice: integer('launcher_purchase_price').notNull().default(0),
   shotgunRarity: text('shotgun_rarity'), // null = not owned
   shotgunPurchasePrice: integer('shotgun_purchase_price').notNull().default(0),
+  arcCoilRarity: text('arc_coil_rarity'), // null = not owned
+  arcCoilPurchasePrice: integer('arc_coil_purchase_price').notNull().default(0),
   runsPlayed: integer('runs_played').notNull().default(0),
   totalCoinsEarned: integer('total_coins_earned').notNull().default(0),
   bestSurvivalMs: integer('best_survival_ms').notNull().default(0),

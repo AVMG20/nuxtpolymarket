@@ -60,7 +60,7 @@ export interface ShapezzPermanentLevels {
     killHeal: number
 }
 
-export const SHAPEZZ_WEAPON_TYPES = ['blaster', 'launcher', 'shotgun'] as const
+export const SHAPEZZ_WEAPON_TYPES = ['blaster', 'launcher', 'shotgun', 'arcCoil'] as const
 export type ShapezzWeaponType = typeof SHAPEZZ_WEAPON_TYPES[number]
 export const SHAPEZZ_WEAPON_RARITIES = ['common', 'rare', 'epic', 'legendary', 'mythic'] as const
 export type ShapezzWeaponRarity = typeof SHAPEZZ_WEAPON_RARITIES[number]
@@ -85,6 +85,8 @@ export interface ShapezzWeapon {
     falloffStart: number
     falloffEnd: number
     minFalloffDamage: number
+    chainRange: number
+    chainCount: number
     primaryColor: string
     accentColor: string
     visualIntensity: number
@@ -121,22 +123,29 @@ const WEAPON_TYPE_META: Record<ShapezzWeaponType, {
     falloffStart: number
     falloffEnd: number
     minFalloffDamage: number
+    chainRange: number
+    chainCount: number
     prices: Record<ShapezzWeaponRarity, number>
 }> = {
     blaster: {
         name: 'Pulse Carbine', description: 'Fast, precise and dependable. One shot goes exactly where you point it.', icon: 'i-lucide-crosshair',
-        damage: 1, fireRate: 1, speed: 1, size: 1, pellets: 1, spread: 0, explosionRadius: 0, falloffStart: 9999, falloffEnd: 10_000, minFalloffDamage: 1,
+        damage: 1, fireRate: 1, speed: 1, size: 1, pellets: 1, spread: 0, explosionRadius: 0, falloffStart: 9999, falloffEnd: 10_000, minFalloffDamage: 1, chainRange: 0, chainCount: 0,
         prices: { common: 0, rare: 20_000, epic: 300_000, legendary: 4_000_000, mythic: 36_000_000 }
     },
     launcher: {
         name: 'Nova Mortar', description: 'Slow plasma shells with a devastating core and a wide, weakening blast.', icon: 'i-lucide-bomb',
-        damage: 2.4, fireRate: 0.24, speed: 0.72, size: 1.65, pellets: 1, spread: 0, explosionRadius: 125, falloffStart: 9999, falloffEnd: 10_000, minFalloffDamage: 1,
+        damage: 2.4, fireRate: 0.24, speed: 0.72, size: 1.65, pellets: 1, spread: 0, explosionRadius: 125, falloffStart: 9999, falloffEnd: 10_000, minFalloffDamage: 1, chainRange: 0, chainCount: 0,
         prices: { common: 12_000, rare: 75_000, epic: 800_000, legendary: 8_000_000, mythic: 50_000_000 }
     },
     shotgun: {
         name: 'Scatter Array', description: 'A violent wall of full-power pellets. Devastating when you land the whole spread.', icon: 'i-lucide-chevrons-right',
-        damage: 0.24, fireRate: 0.46, speed: 0.9, size: 0.74, pellets: 7, spread: 0.3, explosionRadius: 0, falloffStart: 9999, falloffEnd: 10_000, minFalloffDamage: 1,
+        damage: 0.24, fireRate: 0.46, speed: 0.9, size: 0.74, pellets: 7, spread: 0.3, explosionRadius: 0, falloffStart: 9999, falloffEnd: 10_000, minFalloffDamage: 1, chainRange: 0, chainCount: 0,
         prices: { common: 8_000, rare: 50_000, epic: 600_000, legendary: 6_000_000, mythic: 45_000_000 }
+    },
+    arcCoil: {
+        name: 'Arc Coil', description: 'A close-range lightning weapon. Each discharge leaps between nearby shapes within the same short range.', icon: 'i-lucide-git-branch',
+        damage: 0.82, fireRate: 0.7, speed: 1, size: 1, pellets: 1, spread: 0, explosionRadius: 0, falloffStart: 9999, falloffEnd: 10_000, minFalloffDamage: 1, chainRange: 235, chainCount: 1,
+        prices: { common: 10_000, rare: 65_000, epic: 700_000, legendary: 7_000_000, mythic: 48_000_000 }
     }
 }
 
@@ -155,7 +164,7 @@ export function shapezzWeapon(type: unknown, rarity: unknown): ShapezzWeapon {
         description: typeMeta.description,
         icon: typeMeta.icon,
         cost: typeMeta.prices[weaponRarity],
-        power: rank * 18 + (weaponType === 'launcher' ? 8 : weaponType === 'shotgun' ? 5 : 0),
+        power: rank * 18 + (weaponType === 'launcher' ? 8 : weaponType === 'shotgun' ? 5 : weaponType === 'arcCoil' ? 6 : 0),
         damageMultiplier: typeMeta.damage * rarityMeta.damage,
         fireRateMultiplier: typeMeta.fireRate * rarityMeta.fireRate,
         projectileSpeedMultiplier: typeMeta.speed * rarityMeta.speed,
@@ -166,6 +175,8 @@ export function shapezzWeapon(type: unknown, rarity: unknown): ShapezzWeapon {
         falloffStart: typeMeta.falloffStart,
         falloffEnd: typeMeta.falloffEnd,
         minFalloffDamage: typeMeta.minFalloffDamage,
+        chainRange: typeMeta.chainRange,
+        chainCount: typeMeta.chainCount + (weaponType === 'arcCoil' ? rank : 0),
         primaryColor: rarityMeta.primaryColor,
         accentColor: rarityMeta.accentColor,
         visualIntensity: rank + 1
@@ -176,6 +187,7 @@ export function shapezzWeapon(type: unknown, rarity: unknown): ShapezzWeapon {
 export function shapezzWeaponFireRateCap(type: ShapezzWeaponType) {
     if (type === 'shotgun') return 4.5
     if (type === 'launcher') return 3
+    if (type === 'arcCoil') return 7
     return 18
 }
 
@@ -261,7 +273,8 @@ export function shapezzPower(levels: ShapezzPermanentLevels, weapon: ShapezzWeap
 export const SHAPEZZ_RUN_UPGRADE_IDS = [
     'twinFang', 'splitstorm', 'railPierce', 'ricochet', 'explosive', 'chainLightning',
     'orbitals', 'droneSwarm', 'blackHole', 'bulletTime', 'giantRounds', 'vampireBurst',
-    'afterimage', 'deathNova', 'frenzy', 'hyperVelocity'
+    'afterimage', 'deathNova', 'frenzy', 'hyperVelocity', 'killShockwave', 'executioner',
+    'overkillDividend', 'ceilingBattery'
 ] as const
 export type ShapezzRunUpgradeId = typeof SHAPEZZ_RUN_UPGRADE_IDS[number]
 
@@ -291,8 +304,35 @@ export const SHAPEZZ_RUN_UPGRADES: ShapezzRunUpgrade[] = [
     { id: 'afterimage', name: 'AFTERIMAGE TURRETS', description: 'Jumping leaves a temporary auto-firing turret.', stackText: '+1 turret per jump', icon: 'i-lucide-copy', rarity: 'unstable', accent: '#2dd4bf' },
     { id: 'deathNova', name: 'CORPSE NOVA', description: 'Dead enemies fire a 12-shot radial burst for you.', stackText: '+6 nova shots', icon: 'i-lucide-sun', rarity: 'cataclysmic', accent: '#facc15' },
     { id: 'frenzy', name: 'NO BRAKES', description: 'Fire rate doubles while your combo is alive.', stackText: '+35% frenzy fire rate', icon: 'i-lucide-flame', rarity: 'unstable', accent: '#f97316' },
-    { id: 'hyperVelocity', name: 'HYPERVELOCITY', description: 'Projectiles move 50% faster and leave damaging trails.', stackText: '+50% speed, hotter trails', icon: 'i-lucide-chevrons-right', rarity: 'wild', accent: '#38bdf8' }
+    { id: 'hyperVelocity', name: 'HYPERVELOCITY', description: 'Projectiles move 50% faster and leave damaging trails.', stackText: '+50% speed, hotter trails', icon: 'i-lucide-chevrons-right', rarity: 'wild', accent: '#38bdf8' },
+    { id: 'killShockwave', name: 'KILLQUAKE', description: 'Every 18 kills, emit a growing shockwave that damages nearby enemies.', stackText: 'Triggers sooner, grows larger and hits harder', icon: 'i-lucide-waves', rarity: 'unstable', accent: '#22d3ee' },
+    { id: 'executioner', name: 'EXECUTIONER', description: 'Enemies below 12% health are instantly destroyed.', stackText: '+2.5% execution threshold', icon: 'i-lucide-skull', rarity: 'cataclysmic', accent: '#fb7185' },
+    { id: 'overkillDividend', name: 'OVERKILL DIVIDEND', description: 'Excess lethal damage erupts from the victim as a compact shockwave.', stackText: 'Larger wave, converts more excess damage', icon: 'i-lucide-circle-dollar-sign', rarity: 'unstable', accent: '#fbbf24' },
+    { id: 'ceilingBattery', name: 'CEILING BATTERY', description: 'Mount a top-center auto-turret that deals moderate damage across the arena.', stackText: '+1 ceiling turret', icon: 'i-lucide-cctv', rarity: 'unstable', accent: '#a3e635' }
 ]
+
+export function shapezzExecutionThreshold(stacks: number) {
+    if (stacks <= 0) return 0
+    return Math.min(0.24, 0.12 + (stacks - 1) * 0.025)
+}
+
+export function shapezzKillShockwaveStats(stacks: number) {
+    const bounded = Math.max(1, Math.min(6, stacks))
+    return {
+        kills: Math.max(8, 20 - bounded * 2),
+        radius: 155 + bounded * 35,
+        damageMultiplier: 0.85 + bounded * 0.25
+    }
+}
+
+export function shapezzOverkillDividendStats(stacks: number) {
+    const bounded = Math.max(1, Math.min(5, stacks))
+    return {
+        radius: 58 + bounded * 12,
+        conversion: 0.21 + bounded * 0.07,
+        damageCapMultiplier: 1.5 + bounded * 0.3
+    }
+}
 
 export function shapezzRunUpgrade(id: ShapezzRunUpgradeId) {
     return SHAPEZZ_RUN_UPGRADES.find(upgrade => upgrade.id === id)!

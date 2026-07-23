@@ -16,8 +16,12 @@ import {
   shapezzMaxPayoutForRun,
   shapezzPayoutForRun,
   SHAPEZZ_RUN_COOLDOWN_MS,
+  SHAPEZZ_RUN_UPGRADES,
   shapezzPermanentUpgradeCost,
   shapezzPlayerStats,
+  shapezzExecutionThreshold,
+  shapezzKillShockwaveStats,
+  shapezzOverkillDividendStats,
   shapezzRunCooldownRemainingMs,
   shapezzWeapon,
   shapezzWeaponPointBlankDps,
@@ -110,9 +114,9 @@ describe('SHAPEZZ permanent progression', () => {
 })
 
 describe('SHAPEZZ weapons', () => {
-  it('offers three weapon archetypes across five rarity tiers', () => {
-    expect(SHAPEZZ_WEAPONS).toHaveLength(15)
-    expect(new Set(SHAPEZZ_WEAPONS.map(weapon => weapon.type))).toEqual(new Set(['blaster', 'launcher', 'shotgun']))
+  it('offers four weapon archetypes across five rarity tiers', () => {
+    expect(SHAPEZZ_WEAPONS).toHaveLength(20)
+    expect(new Set(SHAPEZZ_WEAPONS.map(weapon => weapon.type))).toEqual(new Set(['blaster', 'launcher', 'shotgun', 'arcCoil']))
     expect(new Set(SHAPEZZ_WEAPONS.map(weapon => weapon.rarity))).toEqual(new Set(['common', 'rare', 'epic', 'legendary', 'mythic']))
   })
 
@@ -155,6 +159,19 @@ describe('SHAPEZZ weapons', () => {
     }
   })
 
+  it('keeps Arc Coil short-ranged while higher rarities add chains and DPS', () => {
+    const baseFireRate = shapezzPlayerStats({ core: 0, overclock: 0, armor: 0, thrusters: 0, magnet: 0, killHeal: 0 }).fireRate
+    const common = shapezzWeapon('arcCoil', 'common')
+    const mythic = shapezzWeapon('arcCoil', 'mythic')
+
+    expect(common.chainRange).toBe(235)
+    expect(mythic.chainRange).toBe(common.chainRange)
+    expect(common.chainCount).toBe(1)
+    expect(mythic.chainCount).toBe(5)
+    expect(shapezzWeaponPointBlankDps(mythic, baseFireRate)).toBeGreaterThan(shapezzWeaponPointBlankDps(common, baseFireRate) * 2.5)
+    expect(shapezzWeaponPointBlankDps(common, baseFireRate)).toBeLessThan(shapezzWeaponPointBlankDps(shapezzWeapon('blaster', 'common'), baseFireRate))
+  })
+
   it('makes higher rarities visually louder as well as stronger', () => {
     const common = shapezzWeapon('blaster', 'common')
     const mythic = shapezzWeapon('blaster', 'mythic')
@@ -174,6 +191,43 @@ describe('SHAPEZZ weapons', () => {
     expect(SHAPEZZ_COMBAT_LIMITS.bullets).toBeLessThanOrEqual(520)
     expect(SHAPEZZ_COMBAT_LIMITS.particles).toBeLessThanOrEqual(700)
     expect(SHAPEZZ_COMBAT_LIMITS.enemies).toBeLessThanOrEqual(100)
+  })
+})
+
+describe('SHAPEZZ new run upgrades', () => {
+  it('registers every requested upgrade in the checkpoint pool', () => {
+    const ids = new Set(SHAPEZZ_RUN_UPGRADES.map(upgrade => upgrade.id))
+
+    expect(ids.has('killShockwave')).toBe(true)
+    expect(ids.has('executioner')).toBe(true)
+    expect(ids.has('overkillDividend')).toBe(true)
+    expect(ids.has('ceilingBattery')).toBe(true)
+  })
+
+  it('scales Executioner modestly from a 12% starting threshold', () => {
+    expect(shapezzExecutionThreshold(0)).toBe(0)
+    expect(shapezzExecutionThreshold(1)).toBe(0.12)
+    expect(shapezzExecutionThreshold(3)).toBeCloseTo(0.17)
+    expect(shapezzExecutionThreshold(99)).toBe(0.24)
+  })
+
+  it('makes repeated KILLQUAKE stacks trigger sooner with a larger, harder blast', () => {
+    const first = shapezzKillShockwaveStats(1)
+    const stacked = shapezzKillShockwaveStats(4)
+
+    expect(first.kills).toBe(18)
+    expect(stacked.kills).toBeLessThan(first.kills)
+    expect(stacked.radius).toBeGreaterThan(first.radius)
+    expect(stacked.damageMultiplier).toBeGreaterThan(first.damageMultiplier)
+  })
+
+  it('caps Overkill Dividend conversion and radius growth', () => {
+    const first = shapezzOverkillDividendStats(1)
+    const capped = shapezzOverkillDividendStats(99)
+
+    expect(capped.radius).toBeGreaterThan(first.radius)
+    expect(capped.conversion).toBeGreaterThan(first.conversion)
+    expect(capped).toEqual(shapezzOverkillDividendStats(5))
   })
 })
 

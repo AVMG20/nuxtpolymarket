@@ -30,7 +30,8 @@ onMounted(async () => {
 const weaponTabs = [
     { label: 'Pulse Carbine', value: 'blaster', icon: 'i-lucide-crosshair' },
     { label: 'Nova Mortar', value: 'launcher', icon: 'i-lucide-bomb' },
-    { label: 'Scatter Array', value: 'shotgun', icon: 'i-lucide-chevrons-right' }
+    { label: 'Scatter Array', value: 'shotgun', icon: 'i-lucide-chevrons-right' },
+    { label: 'Arc Coil', value: 'arcCoil', icon: 'i-lucide-git-branch' }
 ]
 const visibleWeapons = computed(() => state.value?.weapons.filter(weapon => weapon.type === activeWeaponType.value) ?? [])
 
@@ -175,6 +176,8 @@ async function buyWeapon(weapon: NonNullable<typeof state.value>['weapons'][numb
                 <div class="flex justify-between"><span class="text-muted">Fire speed</span><span class="font-bold">{{ weapon.fireRateMultiplier.toFixed(2) }}×</span></div>
                 <div v-if="weapon.type === 'launcher'" class="flex justify-between"><span class="text-muted">Blast radius</span><span class="font-bold">{{ weapon.explosionRadius }}</span></div>
                 <div v-if="weapon.type === 'shotgun'" class="flex justify-between"><span class="text-muted">Pellets</span><span class="font-bold">{{ weapon.pellets }}</span></div>
+                <div v-if="weapon.type === 'arcCoil'" class="flex justify-between"><span class="text-muted">Range</span><span class="font-bold">{{ weapon.chainRange }}</span></div>
+                <div v-if="weapon.type === 'arcCoil'" class="flex justify-between"><span class="text-muted">Chain jumps</span><span class="font-bold">{{ weapon.chainCount }}</span></div>
               </div>
 
               <div v-if="!weapon.owned && weapon.refund > 0" class="mt-3 rounded-md bg-success/8 px-2 py-1.5 text-[10px] text-success">

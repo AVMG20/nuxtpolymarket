@@ -24,6 +24,8 @@ export interface ShapezzArsenalState {
     launcherPurchasePrice: number
     shotgunRarity: string | null
     shotgunPurchasePrice: number
+    arcCoilRarity: string | null
+    arcCoilPurchasePrice: number
 }
 
 /** Owned rarity and stored purchase price per weapon type. `rarity: null` means the type is not owned. */
@@ -31,14 +33,19 @@ export function shapezzArsenal(state: ShapezzArsenalState): Record<ShapezzWeapon
     return {
         blaster: { rarity: state.blasterRarity, purchasePrice: state.blasterPurchasePrice },
         launcher: { rarity: state.launcherRarity, purchasePrice: state.launcherPurchasePrice },
-        shotgun: { rarity: state.shotgunRarity, purchasePrice: state.shotgunPurchasePrice }
+        shotgun: { rarity: state.shotgunRarity, purchasePrice: state.shotgunPurchasePrice },
+        arcCoil: { rarity: state.arcCoilRarity, purchasePrice: state.arcCoilPurchasePrice }
     }
 }
 
-export const SHAPEZZ_WEAPON_COLUMNS: Record<ShapezzWeaponType, { rarity: 'blasterRarity' | 'launcherRarity' | 'shotgunRarity', price: 'blasterPurchasePrice' | 'launcherPurchasePrice' | 'shotgunPurchasePrice' }> = {
+export const SHAPEZZ_WEAPON_COLUMNS: Record<ShapezzWeaponType, {
+    rarity: 'blasterRarity' | 'launcherRarity' | 'shotgunRarity' | 'arcCoilRarity'
+    price: 'blasterPurchasePrice' | 'launcherPurchasePrice' | 'shotgunPurchasePrice' | 'arcCoilPurchasePrice'
+}> = {
     blaster: { rarity: 'blasterRarity', price: 'blasterPurchasePrice' },
     launcher: { rarity: 'launcherRarity', price: 'launcherPurchasePrice' },
-    shotgun: { rarity: 'shotgunRarity', price: 'shotgunPurchasePrice' }
+    shotgun: { rarity: 'shotgunRarity', price: 'shotgunPurchasePrice' },
+    arcCoil: { rarity: 'arcCoilRarity', price: 'arcCoilPurchasePrice' }
 }
 
 export interface ShapezzSettlementState {
