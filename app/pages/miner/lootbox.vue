@@ -255,7 +255,7 @@ const cashPrizes = computed(() => LOOTBOX_REWARDS.slice().sort((a, b) => a.amoun
                   class="size-6"
                   :class="RARITY_CLASSES[item.rarity].text"
                 />
-                <span class="text-sm font-bold leading-none">{{ cellPrimary(item, i) }}</span>
+                <span class="text-sm font-bold leading-none">{{ cellPrimary(item) }}</span>
                 <span class="text-[11px] text-muted leading-none">{{ cellSecondary(item, i) }}</span>
               </div>
             </div>

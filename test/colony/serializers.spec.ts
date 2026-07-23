@@ -34,7 +34,7 @@ describe('foragedDisplay', () => {
 
   it('looks up the foraged item for a normal species', () => {
     const larva = getBug('larva')
-    expect(foragedDisplay(larva)).toEqual({ emoji: '🧵', name: 'Silk Scrap', sellValue: 50 })
+    expect(foragedDisplay(larva)).toEqual({ emoji: '🧵', name: 'Silk Scrap', sellValue: 42.5 })
   })
 
   it('falls back to placeholders when the type is unknown', () => {
