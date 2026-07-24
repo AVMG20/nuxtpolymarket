@@ -1,0 +1,4 @@
+interface:
+  display_name: "Playwright Game Debug"
+  short_description: "Debug canvas games through Playwright"
+  default_prompt: "Use $playwright-game-debug to inspect and debug this canvas game in a browser."

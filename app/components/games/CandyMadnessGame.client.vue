@@ -628,7 +628,7 @@ onMounted(async () => {
     REELS = reels
     GSAP = gsapMod.gsap ?? gsapMod.default
 
-    app = await initSlotPixiApp(PIXI.Application, { width: APP_W, height: APP_H }, () => destroyed)
+    app = await initSlotPixiApp(PIXI.Application, { width: APP_W, height: APP_H }, () => destroyed, 'candy-madness')
     if (!app) return
     canvasWrap.value?.appendChild(app.canvas)
 

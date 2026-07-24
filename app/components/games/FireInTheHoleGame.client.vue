@@ -384,7 +384,7 @@ async function initPixi() {
     }
   }
 
-  pixiApp = await initSlotPixiApp(Application, { width: CANVAS_DESIGN_SIZE, height: CANVAS_DESIGN_SIZE }, () => destroyed)
+  pixiApp = await initSlotPixiApp(Application, { width: CANVAS_DESIGN_SIZE, height: CANVAS_DESIGN_SIZE }, () => destroyed, 'fire-in-the-hole')
   if (!pixiApp) return
 
   pixiApp.canvas.classList.add('h-full', 'w-full')
