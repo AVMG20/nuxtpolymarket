@@ -1,4 +1,4 @@
-export const SHAPEZZ_CHECKPOINT_MS = 45_000
+export const SHAPEZZ_CHECKPOINT_MS = import.meta.dev ? 15_000 : 45_000
 // SHAPEZZ used to pay its raw arcade-score values as coins, leaving a clean
 // six-minute run far behind a completed Pirate voyage. Keep score tuning
 // readable in the engine and convert it into the shared game economy here.

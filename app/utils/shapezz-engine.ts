@@ -24,6 +24,12 @@ const FLOOR_Y = 662
 const GRAVITY = 1900
 const COIN_COLOR = '#22d3ee'
 const COIN_GRAVITY = 1100
+const ENEMY_GRID_SIZE = 160
+const ENEMY_GRID_COLUMNS = 10
+const ENEMY_GRID_ROWS = 6
+const MAX_ENEMY_RADIUS = 74
+const FRAME_HISTORY_SIZE = 120
+const FRAME_BUDGET_MS = 1000 / 60
 
 export interface ShapezzPlayerStats {
     maxHp: number
@@ -55,6 +61,8 @@ export interface ShapezzEngineCallbacks {
     onSfx?: (event: ShapezzSoundEvent) => void
     /** Fired when the pause state changes (button or P/Escape key). */
     onPause?: (paused: boolean) => void
+    /** Production HUD update; development renders the full graph on canvas. */
+    onFps?: (fps: number) => void
 }
 
 interface Point { x: number, y: number }
@@ -89,7 +97,7 @@ interface Bullet extends Point {
     secondaryEffects: boolean
     triggersHealing: boolean
     weakVsBoss: boolean
-    hitIds: Set<number>
+    hitIds: Set<number> | null
 }
 
 type EnemyType = 'melee' | 'shooter' | 'tank' | 'dasher' | 'boss'
@@ -128,13 +136,23 @@ function distance(a: Point, b: Point) {
     return Math.hypot(a.x - b.x, a.y - b.y)
 }
 
-function distanceToSegment(point: Point, start: Point, end: Point) {
-    const dx = end.x - start.x
-    const dy = end.y - start.y
+function distanceSquared(a: Point, b: Point) {
+    const dx = a.x - b.x
+    const dy = a.y - b.y
+    return dx * dx + dy * dy
+}
+
+function distanceToSegmentSquared(point: Point, startX: number, startY: number, end: Point) {
+    const dx = end.x - startX
+    const dy = end.y - startY
     const lengthSquared = dx * dx + dy * dy
-    if (lengthSquared === 0) return distance(point, start)
-    const projection = clamp(((point.x - start.x) * dx + (point.y - start.y) * dy) / lengthSquared, 0, 1)
-    return Math.hypot(point.x - (start.x + projection * dx), point.y - (start.y + projection * dy))
+    if (lengthSquared === 0) return distanceSquared(point, end)
+    const projection = clamp(((point.x - startX) * dx + (point.y - startY) * dy) / lengthSquared, 0, 1)
+    const nearestX = startX + projection * dx
+    const nearestY = startY + projection * dy
+    const distanceX = point.x - nearestX
+    const distanceY = point.y - nearestY
+    return distanceX * distanceX + distanceY * distanceY
 }
 
 function normalized(dx: number, dy: number) {
@@ -193,6 +211,16 @@ export class ShapezzEngine {
     private maxCombo = 0
     private comboTimer = 0
     private lastHudAt = 0
+    private renderDpr = 0
+    private frameIntervalAverage = 1000 / 60
+    private frameCostAverage = 0
+    private qualityFrames = 0
+    private qualityStalled = false
+    private reducedEffects = false
+    private denseVisuals = false
+    private frameTimes = new Float32Array(FRAME_HISTORY_SIZE)
+    private frameTimeIndex = 0
+    private frameTimeCount = 0
     private enemyId = 1
     private shake = 0
     private flash = 0
@@ -206,6 +234,10 @@ export class ShapezzEngine {
     private pickups: Pickup[] = []
     private singularities: Singularity[] = []
     private turrets: Turret[] = []
+    private enemyGrid = new Map<number, Enemy[]>()
+    private backgroundGradient: CanvasGradient | null = null
+    private vignetteGradient: CanvasGradient | null = null
+    private platformGradients: CanvasGradient[] = []
     private platforms: Platform[] = [
         { x: 0, y: FLOOR_Y, width: WIDTH, height: HEIGHT - FLOOR_Y },
         { x: 125, y: 520, width: 250, height: 18 },
@@ -256,6 +288,8 @@ export class ShapezzEngine {
         if (event.button === 0) this.firing = false
     }
 
+    private preventContextMenu = (event: Event) => event.preventDefault()
+
     constructor(canvas: HTMLCanvasElement, stats: ShapezzPlayerStats, weapon: ShapezzWeapon, difficultyId: ShapezzDifficultyId, callbacks: ShapezzEngineCallbacks) {
         this.canvas = canvas
         const ctx = canvas.getContext('2d')
@@ -275,14 +309,34 @@ export class ShapezzEngine {
         canvas.addEventListener('pointermove', this.pointermove)
         canvas.addEventListener('pointerleave', this.pointerleave)
         canvas.addEventListener('pointerdown', this.pointerdown)
-        canvas.addEventListener('contextmenu', event => event.preventDefault())
+        canvas.addEventListener('contextmenu', this.preventContextMenu)
         this.raf = requestAnimationFrame(this.frame)
     }
 
     private resize = () => {
-        const dpr = Math.min(2, window.devicePixelRatio || 1)
-        this.canvas.width = Math.round(WIDTH * dpr)
-        this.canvas.height = Math.round(HEIGHT * dpr)
+        const deviceDpr = Math.min(2, window.devicePixelRatio || 1)
+        if (this.renderDpr === 0) this.renderDpr = Math.min(1.5, deviceDpr)
+        this.renderDpr = Math.min(this.renderDpr, deviceDpr)
+        const targetWidth = Math.round(WIDTH * this.renderDpr)
+        const targetHeight = Math.round(HEIGHT * this.renderDpr)
+        if (this.canvas.width === targetWidth && this.canvas.height === targetHeight && this.backgroundGradient) return
+        this.canvas.width = targetWidth
+        this.canvas.height = targetHeight
+        this.ctx.setTransform(this.renderDpr, 0, 0, this.renderDpr, 0, 0)
+        this.backgroundGradient = this.ctx.createLinearGradient(0, 0, 0, HEIGHT)
+        this.backgroundGradient.addColorStop(0, '#06031a')
+        this.backgroundGradient.addColorStop(0.55, '#0a1029')
+        this.backgroundGradient.addColorStop(1, '#071119')
+        this.vignetteGradient = this.ctx.createRadialGradient(WIDTH / 2, HEIGHT / 2, 210, WIDTH / 2, HEIGHT / 2, 760)
+        this.vignetteGradient.addColorStop(0, 'rgba(0,0,0,0)')
+        this.vignetteGradient.addColorStop(1, 'rgba(0,0,0,0.58)')
+        this.platformGradients = this.platforms.map((platform) => {
+            const gradient = this.ctx.createLinearGradient(0, platform.y, 0, platform.y + platform.height)
+            gradient.addColorStop(0, '#67e8f9')
+            gradient.addColorStop(0.16, '#164e63')
+            gradient.addColorStop(1, '#07131d')
+            return gradient
+        })
     }
 
     start() {
@@ -303,6 +357,7 @@ export class ShapezzEngine {
         this.canvas.removeEventListener('pointermove', this.pointermove)
         this.canvas.removeEventListener('pointerleave', this.pointerleave)
         this.canvas.removeEventListener('pointerdown', this.pointerdown)
+        this.canvas.removeEventListener('contextmenu', this.preventContextMenu)
     }
 
     chooseUpgrade(id: ShapezzRunUpgradeId) {
@@ -329,12 +384,44 @@ export class ShapezzEngine {
 
     private frame = (now: number) => {
         if (this.destroyed) return
-        const dt = Math.min(0.033, Math.max(0, (now - (this.lastFrame || now)) / 1000))
+        const frameInterval = now - (this.lastFrame || now)
+        const dt = Math.min(0.033, Math.max(0, frameInterval / 1000))
         this.lastFrame = now
+        const workStartedAt = performance.now()
         if (this.running && !this.paused) this.update(dt)
         else if (!this.paused) this.updateEffects(dt)
+        if (this.running && !this.paused) this.recordFrameTime(frameInterval)
         this.render(now / 1000)
+        if (this.running && !this.paused) this.updateRenderQuality(frameInterval, performance.now() - workStartedAt)
         this.raf = requestAnimationFrame(this.frame)
+    }
+
+    private updateRenderQuality(frameInterval: number, frameCost: number) {
+        if (frameInterval <= 0) return
+        const intervalSample = Math.min(100, frameInterval)
+        this.frameIntervalAverage += (intervalSample - this.frameIntervalAverage) * 0.04
+        this.frameCostAverage += (frameCost - this.frameCostAverage) * 0.04
+        if (frameInterval > 50) this.qualityStalled = true
+        if (++this.qualityFrames < 45) return
+        this.qualityFrames = 0
+
+        let nextDpr = this.renderDpr
+        if (this.qualityStalled || this.frameIntervalAverage > 18.5 || this.frameCostAverage > 13) {
+            this.reducedEffects = true
+            nextDpr = Math.max(1, this.renderDpr - 0.25)
+        }
+        if (!import.meta.dev) this.callbacks.onFps?.(Math.min(999, Math.round(1000 / this.frameIntervalAverage)))
+        this.qualityStalled = false
+        if (nextDpr === this.renderDpr) return
+        this.renderDpr = nextDpr
+        this.resize()
+    }
+
+    private recordFrameTime(frameInterval: number) {
+        if (frameInterval <= 0) return
+        this.frameTimes[this.frameTimeIndex] = frameInterval
+        this.frameTimeIndex = (this.frameTimeIndex + 1) % FRAME_HISTORY_SIZE
+        this.frameTimeCount = Math.min(FRAME_HISTORY_SIZE, this.frameTimeCount + 1)
     }
 
     private snapshot(): ShapezzSnapshot {
@@ -534,23 +621,27 @@ export class ShapezzEngine {
             enemy.fireCooldown -= dt
             enemy.contactCooldown -= dt
             enemy.phase += dt
-            const toPlayer = normalized(this.player.x - enemy.x, this.player.y - enemy.y)
-            const dist = distance(enemy, this.player)
+            const playerDx = this.player.x - enemy.x
+            const playerDy = this.player.y - enemy.y
+            const dist = Math.hypot(playerDx, playerDy)
+            const inverseDistance = 1 / (dist || 1)
+            const playerDirectionX = playerDx * inverseDistance
+            const playerDirectionY = playerDy * inverseDistance
 
             if (enemy.type === 'melee' || enemy.type === 'tank' || enemy.type === 'dasher') {
                 let speed = enemy.speed
                 if (enemy.type === 'dasher') speed *= 0.7 + Math.max(0, Math.sin(enemy.phase * 3.8)) * 2.5
-                enemy.vx += (toPlayer.x * speed - enemy.vx) * Math.min(1, dt * 4)
-                enemy.vy += (toPlayer.y * speed - enemy.vy) * Math.min(1, dt * 4)
+                enemy.vx += (playerDirectionX * speed - enemy.vx) * Math.min(1, dt * 4)
+                enemy.vy += (playerDirectionY * speed - enemy.vy) * Math.min(1, dt * 4)
             } else {
                 const desired = enemy.type === 'boss' ? 330 : 410
                 const direction = dist < desired - 60 ? -1 : dist > desired + 90 ? 1 : 0
                 const tangent = Math.sin(enemy.phase * 0.8)
-                enemy.vx += (toPlayer.x * enemy.speed * direction - toPlayer.y * tangent * enemy.speed * 0.55 - enemy.vx) * Math.min(1, dt * 2.5)
-                enemy.vy += (toPlayer.y * enemy.speed * direction + toPlayer.x * tangent * enemy.speed * 0.55 - enemy.vy) * Math.min(1, dt * 2.5)
+                enemy.vx += (playerDirectionX * enemy.speed * direction - playerDirectionY * tangent * enemy.speed * 0.55 - enemy.vx) * Math.min(1, dt * 2.5)
+                enemy.vy += (playerDirectionY * enemy.speed * direction + playerDirectionX * tangent * enemy.speed * 0.55 - enemy.vy) * Math.min(1, dt * 2.5)
                 if (enemy.fireCooldown <= 0) {
                     if (enemy.type === 'boss') this.fireBossPattern(enemy)
-                    else this.fireEnemyBullet(enemy, toPlayer.x, toPlayer.y)
+                    else this.fireEnemyBullet(enemy, playerDirectionX, playerDirectionY)
                     enemy.fireCooldown = enemy.type === 'boss' ? 1.15 : randomBetween(1.2, 2.1)
                 }
             }
@@ -563,13 +654,26 @@ export class ShapezzEngine {
             if (dist < enemy.radius + this.player.size * 0.48 && enemy.contactCooldown <= 0) {
                 this.damagePlayer(enemy.damage * 0.62)
                 enemy.contactCooldown = 0.75
-                enemy.vx -= toPlayer.x * 280
-                enemy.vy -= toPlayer.y * 280
+                enemy.vx -= playerDirectionX * 280
+                enemy.vy -= playerDirectionY * 280
             }
 
             if (enemy.hp > 0) next.push(enemy)
         }
         this.enemies = next
+        this.rebuildEnemyGrid()
+    }
+
+    private rebuildEnemyGrid() {
+        this.enemyGrid.clear()
+        for (const enemy of this.enemies) {
+            const column = Math.floor((enemy.x + ENEMY_GRID_SIZE) / ENEMY_GRID_SIZE)
+            const row = Math.floor((enemy.y + ENEMY_GRID_SIZE) / ENEMY_GRID_SIZE)
+            const key = column + row * ENEMY_GRID_COLUMNS
+            const cell = this.enemyGrid.get(key)
+            if (cell) cell.push(enemy)
+            else this.enemyGrid.set(key, [enemy])
+        }
     }
 
     private fireEnemyBullet(enemy: Enemy, dx: number, dy: number) {
@@ -580,7 +684,8 @@ export class ShapezzEngine {
             radius: enemy.boss ? 9 : 6, life: 6, pierce: 0, bounces: 0,
             color: enemy.color, accentColor: enemy.color, friendly: false, homing: false, trail: true,
             explosionRadius: 0, traveled: 0, falloffStart: 9999, falloffEnd: 10_000,
-            minFalloffDamage: 1, visualIntensity: enemy.boss ? 3 : 1, secondaryEffects: false, triggersHealing: false, hitIds: new Set()
+            minFalloffDamage: 1, visualIntensity: enemy.boss ? 3 : 1, secondaryEffects: false,
+            triggersHealing: false, weakVsBoss: false, hitIds: null
         })
         this.callbacks.onSfx?.('enemy-shoot')
         this.burst(enemy.x, enemy.y, enemy.color, enemy.boss ? 12 : 5, 150)
@@ -788,11 +893,12 @@ export class ShapezzEngine {
     private updateBullets(dt: number) {
         const activeBullets = this.bullets
         this.bullets = []
-        const kept: Bullet[] = []
+        let keptCount = 0
         for (const bullet of activeBullets) {
             bullet.life -= dt
             if (bullet.life <= 0) continue
-            const previousPosition = { x: bullet.x, y: bullet.y }
+            const previousX = bullet.x
+            const previousY = bullet.y
 
             if (bullet.friendly && bullet.homing && this.enemies.length) {
                 const target = this.nearestEnemy(bullet, 480)
@@ -830,29 +936,41 @@ export class ShapezzEngine {
 
             let remove = false
             if (bullet.friendly) {
-                for (const enemy of this.enemies) {
-                    if (bullet.hitIds.has(enemy.id) || distanceToSegment(enemy, previousPosition, bullet) > bullet.radius + enemy.radius) continue
-                    bullet.hitIds.add(enemy.id)
-                    let impactDamage = this.bulletImpactDamage(bullet)
-                    if (bullet.weakVsBoss && enemy.boss) impactDamage *= 0.01
-                    this.hitEnemy(enemy, impactDamage, bullet.color, bullet.x, bullet.y, true, bullet.triggersHealing)
-                    this.triggerImpact(enemy, bullet, impactDamage)
-                    if (bullet.pierce > 0) bullet.pierce--
-                    else if (bullet.bounces > 0) {
-                        bullet.bounces--
-                        bullet.hitIds.clear()
-                        const target = this.nearestEnemy(enemy, 520, enemy.id)
-                        if (target) {
-                            const direction = normalized(target.x - bullet.x, target.y - bullet.y)
-                            const speed = Math.hypot(bullet.vx, bullet.vy)
-                            bullet.vx = direction.x * speed
-                            bullet.vy = direction.y * speed
-                            this.beams.push({ from: { x: enemy.x, y: enemy.y }, to: { x: target.x, y: target.y }, life: 0.12, maxLife: 0.12, color: '#fde047', width: 3 })
-                        } else bullet.vx *= -1
-                    } else remove = true
-                    break
+                const padding = bullet.radius + MAX_ENEMY_RADIUS
+                const minColumn = clamp(Math.floor((Math.min(previousX, bullet.x) - padding + ENEMY_GRID_SIZE) / ENEMY_GRID_SIZE), 0, ENEMY_GRID_COLUMNS - 1)
+                const maxColumn = clamp(Math.floor((Math.max(previousX, bullet.x) + padding + ENEMY_GRID_SIZE) / ENEMY_GRID_SIZE), 0, ENEMY_GRID_COLUMNS - 1)
+                const minRow = clamp(Math.floor((Math.min(previousY, bullet.y) - padding + ENEMY_GRID_SIZE) / ENEMY_GRID_SIZE), 0, ENEMY_GRID_ROWS - 1)
+                const maxRow = clamp(Math.floor((Math.max(previousY, bullet.y) + padding + ENEMY_GRID_SIZE) / ENEMY_GRID_SIZE), 0, ENEMY_GRID_ROWS - 1)
+                collision: for (let row = minRow; row <= maxRow; row++) {
+                    for (let column = minColumn; column <= maxColumn; column++) {
+                        const enemies = this.enemyGrid.get(column + row * ENEMY_GRID_COLUMNS)
+                        if (!enemies) continue
+                        for (const enemy of enemies) {
+                            const collisionRadius = bullet.radius + enemy.radius
+                            if (enemy.hp <= 0 || bullet.hitIds!.has(enemy.id) || distanceToSegmentSquared(enemy, previousX, previousY, bullet) > collisionRadius * collisionRadius) continue
+                            bullet.hitIds!.add(enemy.id)
+                            let impactDamage = this.bulletImpactDamage(bullet)
+                            if (bullet.weakVsBoss && enemy.boss) impactDamage *= 0.01
+                            this.hitEnemy(enemy, impactDamage, bullet.color, bullet.x, bullet.y, true, bullet.triggersHealing)
+                            this.triggerImpact(enemy, bullet, impactDamage)
+                            if (bullet.pierce > 0) bullet.pierce--
+                            else if (bullet.bounces > 0) {
+                                bullet.bounces--
+                                bullet.hitIds!.clear()
+                                const target = this.nearestEnemy(enemy, 520, enemy.id)
+                                if (target) {
+                                    const direction = normalized(target.x - bullet.x, target.y - bullet.y)
+                                    const speed = Math.hypot(bullet.vx, bullet.vy)
+                                    bullet.vx = direction.x * speed
+                                    bullet.vy = direction.y * speed
+                                    this.beams.push({ from: { x: enemy.x, y: enemy.y }, to: { x: target.x, y: target.y }, life: 0.12, maxLife: 0.12, color: '#fde047', width: 3 })
+                                } else bullet.vx *= -1
+                            } else remove = true
+                            break collision
+                        }
+                    }
                 }
-            } else if (distance(bullet, this.player) < bullet.radius + this.player.size * 0.45) {
+            } else if (distanceSquared(bullet, this.player) < Math.pow(bullet.radius + this.player.size * 0.45, 2)) {
                 this.damagePlayer(bullet.damage)
                 remove = true
             }
@@ -864,12 +982,15 @@ export class ShapezzEngine {
                     bullet.x = clamp(bullet.x, 2, WIDTH - 2)
                     bullet.y = clamp(bullet.y, 2, HEIGHT - 2)
                     bullet.bounces--
-                    bullet.hitIds.clear()
+                    bullet.hitIds!.clear()
                 } else remove = true
             }
-            if (!remove) kept.push(bullet)
+            if (!remove) activeBullets[keptCount++] = bullet
         }
-        this.bullets = [...kept, ...this.bullets].slice(-SHAPEZZ_COMBAT_LIMITS.bullets)
+        activeBullets.length = keptCount
+        for (const bullet of this.bullets) activeBullets.push(bullet)
+        if (activeBullets.length > SHAPEZZ_COMBAT_LIMITS.bullets) activeBullets.splice(0, activeBullets.length - SHAPEZZ_COMBAT_LIMITS.bullets)
+        this.bullets = activeBullets
     }
 
     private bulletImpactDamage(bullet: Bullet) {
@@ -1046,7 +1167,7 @@ export class ShapezzEngine {
     }
 
     private updatePickups(dt: number) {
-        const kept: Pickup[] = []
+        let keptCount = 0
         for (const pickup of this.pickups) {
             pickup.life -= dt
             pickup.vy += (pickup.kind === 'coin' ? COIN_GRAVITY : 720) * dt
@@ -1060,10 +1181,10 @@ export class ShapezzEngine {
             }
             const dist = distance(pickup, this.player)
             if (dist < this.stats.magnetRange) {
-                const direction = normalized(this.player.x - pickup.x, this.player.y - pickup.y)
+                const inverseDistance = 1 / (dist || 1)
                 const pull = 500 + (this.stats.magnetRange - dist) * 12
-                pickup.vx += direction.x * pull * dt
-                pickup.vy += direction.y * pull * dt
+                pickup.vx += (this.player.x - pickup.x) * inverseDistance * pull * dt
+                pickup.vy += (this.player.y - pickup.y) * inverseDistance * pull * dt
             }
             if (dist < 28) {
                 if (pickup.kind === 'coin') this.coins += pickup.value
@@ -1072,9 +1193,9 @@ export class ShapezzEngine {
                 this.burst(pickup.x, pickup.y, pickup.kind === 'coin' ? COIN_COLOR : '#34d399', 7, 190)
                 continue
             }
-            if (pickup.life > 0) kept.push(pickup)
+            if (pickup.life > 0) this.pickups[keptCount++] = pickup
         }
-        this.pickups = kept.slice(-SHAPEZZ_COMBAT_LIMITS.pickups)
+        this.pickups.length = keptCount
     }
 
     private updateCompanions(dt: number) {
@@ -1130,7 +1251,7 @@ export class ShapezzEngine {
             this.droneCooldown = 0.42
         }
 
-        const turrets: Turret[] = []
+        let keptTurrets = 0
         for (const turret of this.turrets) {
             turret.life -= dt
             turret.fireCooldown -= dt
@@ -1141,56 +1262,72 @@ export class ShapezzEngine {
                 this.callbacks.onSfx?.('drone-shoot')
                 turret.fireCooldown = 0.4
             }
-            if (turret.life > 0) turrets.push(turret)
+            if (turret.life > 0) this.turrets[keptTurrets++] = turret
         }
-        this.turrets = turrets.slice(-SHAPEZZ_COMBAT_LIMITS.turrets)
+        this.turrets.length = keptTurrets
     }
 
     private updateSingularities(dt: number) {
-        const kept: Singularity[] = []
+        let keptCount = 0
         for (const singularity of this.singularities) {
             singularity.life -= dt
             singularity.damageTick -= dt
             for (const enemy of this.enemies) {
                 const dist = distance(singularity, enemy)
                 if (dist > singularity.radius * 1.8) continue
-                const direction = normalized(singularity.x - enemy.x, singularity.y - enemy.y)
+                const inverseDistance = 1 / (dist || 1)
                 const pull = (1 - clamp(dist / (singularity.radius * 1.8), 0, 1)) * 1000
-                enemy.vx += direction.x * pull * dt
-                enemy.vy += direction.y * pull * dt
+                enemy.vx += (singularity.x - enemy.x) * inverseDistance * pull * dt
+                enemy.vy += (singularity.y - enemy.y) * inverseDistance * pull * dt
                 if (singularity.damageTick <= 0 && dist < singularity.radius) {
                     this.hitEnemy(enemy, this.stats.damage * 0.48, '#e879f9', enemy.x, enemy.y, true, singularity.triggersHealing)
                 }
             }
             if (singularity.damageTick <= 0) singularity.damageTick = 0.16
-            if (singularity.life > 0) kept.push(singularity)
+            if (singularity.life > 0) this.singularities[keptCount++] = singularity
         }
-        this.singularities = kept
+        this.singularities.length = keptCount
     }
 
     private updateEffects(dt: number) {
         this.shake = Math.max(0, this.shake - dt * 34)
         this.flash = Math.max(0, this.flash - dt * 2.8)
-        this.particles = this.particles.filter((particle) => {
+        let keptCount = 0
+        for (const particle of this.particles) {
             particle.life -= dt
             particle.vy += particle.gravity * dt
             particle.x += particle.vx * dt
             particle.y += particle.vy * dt
-            return particle.life > 0
-        }).slice(-SHAPEZZ_COMBAT_LIMITS.particles)
-        this.shockwaves = this.shockwaves.filter((wave) => {
+            if (particle.life > 0) this.particles[keptCount++] = particle
+        }
+        this.particles.length = keptCount
+
+        keptCount = 0
+        for (const wave of this.shockwaves) {
             wave.life -= dt
             wave.radius += (wave.maxRadius - wave.radius) * Math.min(1, dt * 10)
-            return wave.life > 0
-        }).slice(-SHAPEZZ_COMBAT_LIMITS.shockwaves)
-        this.beams = this.beams.filter((beam) => (beam.life -= dt) > 0).slice(-SHAPEZZ_COMBAT_LIMITS.beams)
-        this.damageTexts = this.damageTexts.filter((text) => {
+            if (wave.life > 0) this.shockwaves[keptCount++] = wave
+        }
+        this.shockwaves.length = keptCount
+        if (this.shockwaves.length > SHAPEZZ_COMBAT_LIMITS.shockwaves) this.shockwaves.splice(0, this.shockwaves.length - SHAPEZZ_COMBAT_LIMITS.shockwaves)
+
+        keptCount = 0
+        for (const beam of this.beams) {
+            beam.life -= dt
+            if (beam.life > 0) this.beams[keptCount++] = beam
+        }
+        this.beams.length = keptCount
+        if (this.beams.length > SHAPEZZ_COMBAT_LIMITS.beams) this.beams.splice(0, this.beams.length - SHAPEZZ_COMBAT_LIMITS.beams)
+
+        keptCount = 0
+        for (const text of this.damageTexts) {
             text.life -= dt
             text.x += text.vx * dt
             text.y += text.vy * dt
             text.vy += 70 * dt
-            return text.life > 0
-        }).slice(-SHAPEZZ_COMBAT_LIMITS.damageTexts)
+            if (text.life > 0) this.damageTexts[keptCount++] = text
+        }
+        this.damageTexts.length = keptCount
     }
 
     private damagePlayer(amount: number) {
@@ -1227,15 +1364,25 @@ export class ShapezzEngine {
         this.callbacks.onCheckpoint(offers, this.snapshot())
     }
 
-    private nearestEnemy(from: Point, range: number, excludeId?: number, exclude = new Set<number>()) {
+    private nearestEnemy(from: Point, range: number, excludeId?: number, exclude?: Set<number>) {
         let result: Enemy | null = null
-        let closest = range
-        for (const enemy of this.enemies) {
-            if (enemy.hp <= 0 || enemy.id === excludeId || exclude.has(enemy.id)) continue
-            const dist = distance(from, enemy)
-            if (dist < closest) {
-                closest = dist
-                result = enemy
+        let closestSquared = range * range
+        const minColumn = clamp(Math.floor((from.x - range + ENEMY_GRID_SIZE) / ENEMY_GRID_SIZE), 0, ENEMY_GRID_COLUMNS - 1)
+        const maxColumn = clamp(Math.floor((from.x + range + ENEMY_GRID_SIZE) / ENEMY_GRID_SIZE), 0, ENEMY_GRID_COLUMNS - 1)
+        const minRow = clamp(Math.floor((from.y - range + ENEMY_GRID_SIZE) / ENEMY_GRID_SIZE), 0, ENEMY_GRID_ROWS - 1)
+        const maxRow = clamp(Math.floor((from.y + range + ENEMY_GRID_SIZE) / ENEMY_GRID_SIZE), 0, ENEMY_GRID_ROWS - 1)
+        for (let row = minRow; row <= maxRow; row++) {
+            for (let column = minColumn; column <= maxColumn; column++) {
+                const enemies = this.enemyGrid.get(column + row * ENEMY_GRID_COLUMNS)
+                if (!enemies) continue
+                for (const enemy of enemies) {
+                    if (enemy.hp <= 0 || enemy.id === excludeId || exclude?.has(enemy.id)) continue
+                    const distSquared = distanceSquared(from, enemy)
+                    if (distSquared < closestSquared) {
+                        closestSquared = distSquared
+                        result = enemy
+                    }
+                }
             }
         }
         return result
@@ -1279,6 +1426,16 @@ export class ShapezzEngine {
     private render(time: number) {
         const ctx = this.ctx
         const dpr = this.canvas.width / WIDTH
+        const denseLoad = this.pickups.length > 70
+            || this.particles.length > 300
+            || this.damageTexts.length > 35
+            || this.bullets.length > 180
+        const sparseLoad = this.pickups.length < 50
+            && this.particles.length < 210
+            && this.damageTexts.length < 24
+            && this.bullets.length < 125
+        if (this.reducedEffects || denseLoad) this.denseVisuals = true
+        else if (sparseLoad) this.denseVisuals = false
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
         ctx.clearRect(0, 0, WIDTH, HEIGHT)
 
@@ -1301,12 +1458,10 @@ export class ShapezzEngine {
             ctx.fillStyle = `rgba(255,255,255,${Math.min(0.35, this.flash * 0.28)})`
             ctx.fillRect(0, 0, WIDTH, HEIGHT)
         }
-        const vignette = ctx.createRadialGradient(WIDTH / 2, HEIGHT / 2, 210, WIDTH / 2, HEIGHT / 2, 760)
-        vignette.addColorStop(0, 'rgba(0,0,0,0)')
-        vignette.addColorStop(1, 'rgba(0,0,0,0.58)')
-        ctx.fillStyle = vignette
+        ctx.fillStyle = this.vignetteGradient ?? '#000000'
         ctx.fillRect(0, 0, WIDTH, HEIGHT)
         if (this.running && this.aimVisible) this.renderAimCursor(time)
+        if (import.meta.dev) this.renderFrameProfiler()
     }
 
     private renderAimCursor(time: number) {
@@ -1356,30 +1511,78 @@ export class ShapezzEngine {
         ctx.restore()
     }
 
+    private renderFrameProfiler() {
+        if (this.frameTimeCount === 0) return
+        const ctx = this.ctx
+        const x = WIDTH - 238
+        const y = HEIGHT - 108
+        const width = 220
+        const height = 90
+        const graphX = x + 10
+        const graphY = y + 29
+        const graphWidth = width - 20
+        const graphHeight = height - 39
+        const graphBottom = graphY + graphHeight
+        const graphMaxMs = 50
+        const fps = Math.min(999, Math.round(1000 / this.frameIntervalAverage))
+        const color = fps >= 55 ? '#34d399' : fps >= 40 ? '#fbbf24' : '#fb7185'
+
+        ctx.fillStyle = 'rgba(0,0,0,0.76)'
+        ctx.fillRect(x, y, width, height)
+        ctx.strokeStyle = 'rgba(255,255,255,0.18)'
+        ctx.lineWidth = 1
+        ctx.strokeRect(x + 0.5, y + 0.5, width - 1, height - 1)
+
+        ctx.font = '800 13px ui-monospace, SFMono-Regular, Menlo, monospace'
+        ctx.textAlign = 'left'
+        ctx.textBaseline = 'top'
+        ctx.fillStyle = color
+        ctx.fillText(`${fps} FPS`, x + 10, y + 8)
+        ctx.textAlign = 'right'
+        ctx.fillStyle = 'rgba(255,255,255,0.72)'
+        ctx.fillText(`${this.frameIntervalAverage.toFixed(1)} ms`, x + width - 10, y + 8)
+
+        ctx.lineWidth = 1
+        ctx.strokeStyle = 'rgba(251,191,36,0.35)'
+        ctx.beginPath()
+        const budgetY = graphBottom - FRAME_BUDGET_MS / graphMaxMs * graphHeight
+        ctx.moveTo(graphX, budgetY)
+        ctx.lineTo(graphX + graphWidth, budgetY)
+        ctx.stroke()
+
+        ctx.strokeStyle = color
+        ctx.lineWidth = 1.5
+        ctx.beginPath()
+        const firstIndex = (this.frameTimeIndex - this.frameTimeCount + FRAME_HISTORY_SIZE) % FRAME_HISTORY_SIZE
+        for (let i = 0; i < this.frameTimeCount; i++) {
+            const sample = this.frameTimes[(firstIndex + i) % FRAME_HISTORY_SIZE]!
+            const sampleX = graphX + i / (FRAME_HISTORY_SIZE - 1) * graphWidth
+            const sampleY = graphBottom - Math.min(graphMaxMs, sample) / graphMaxMs * graphHeight
+            if (i === 0) ctx.moveTo(sampleX, sampleY)
+            else ctx.lineTo(sampleX, sampleY)
+        }
+        ctx.stroke()
+        ctx.textBaseline = 'alphabetic'
+    }
+
     private renderBackground(time: number) {
         const ctx = this.ctx
-        const gradient = ctx.createLinearGradient(0, 0, 0, HEIGHT)
-        gradient.addColorStop(0, '#06031a')
-        gradient.addColorStop(0.55, '#0a1029')
-        gradient.addColorStop(1, '#071119')
-        ctx.fillStyle = gradient
+        ctx.fillStyle = this.backgroundGradient ?? '#06031a'
         ctx.fillRect(-40, -40, WIDTH + 80, HEIGHT + 80)
 
         ctx.lineWidth = 1
         ctx.strokeStyle = 'rgba(103,232,249,0.075)'
         const offset = time * 18 % 40
+        ctx.beginPath()
         for (let x = -40 + offset; x < WIDTH + 40; x += 40) {
-            ctx.beginPath()
             ctx.moveTo(x, 0)
             ctx.lineTo(x, HEIGHT)
-            ctx.stroke()
         }
         for (let y = 0; y < HEIGHT; y += 40) {
-            ctx.beginPath()
             ctx.moveTo(0, y)
             ctx.lineTo(WIDTH, y)
-            ctx.stroke()
         }
+        ctx.stroke()
         for (let i = 0; i < 45; i++) {
             const x = (i * 193 + time * (8 + i % 5)) % WIDTH
             const y = (i * 97) % 590
@@ -1390,14 +1593,11 @@ export class ShapezzEngine {
 
     private renderPlatforms() {
         const ctx = this.ctx
-        for (const platform of this.platforms) {
+        for (let i = 0; i < this.platforms.length; i++) {
+            const platform = this.platforms[i]!
             ctx.shadowColor = '#22d3ee'
             ctx.shadowBlur = 16
-            const gradient = ctx.createLinearGradient(0, platform.y, 0, platform.y + platform.height)
-            gradient.addColorStop(0, '#67e8f9')
-            gradient.addColorStop(0.16, '#164e63')
-            gradient.addColorStop(1, '#07131d')
-            ctx.fillStyle = gradient
+            ctx.fillStyle = this.platformGradients[i] ?? '#164e63'
             ctx.fillRect(platform.x, platform.y, platform.width, platform.height)
             ctx.shadowBlur = 0
             ctx.fillStyle = 'rgba(103,232,249,0.55)'
@@ -1472,8 +1672,10 @@ export class ShapezzEngine {
             ctx.save()
             ctx.translate(enemy.x, enemy.y)
             ctx.rotate(enemy.phase * (enemy.type === 'dasher' ? 2.2 : 0.35))
-            ctx.shadowColor = enemy.color
-            ctx.shadowBlur = enemy.boss ? 35 : 16
+            if (!this.denseVisuals || enemy.boss) {
+                ctx.shadowColor = enemy.color
+                ctx.shadowBlur = enemy.boss ? 35 : 16
+            }
             ctx.fillStyle = `${enemy.color}30`
             ctx.strokeStyle = enemy.color
             ctx.lineWidth = enemy.boss ? 7 : 4
@@ -1502,7 +1704,7 @@ export class ShapezzEngine {
 
     private renderBullets() {
         const ctx = this.ctx
-        const dense = this.bullets.length > 220
+        const dense = this.denseVisuals || this.bullets.length > 120
         ctx.globalCompositeOperation = 'lighter'
         for (const bullet of this.bullets) {
             if (!dense) {
@@ -1526,6 +1728,31 @@ export class ShapezzEngine {
 
     private renderPickups(time: number) {
         const ctx = this.ctx
+        if (this.denseVisuals) {
+            ctx.shadowBlur = 0
+            ctx.fillStyle = COIN_COLOR
+            ctx.strokeStyle = '#ecfeff'
+            ctx.lineWidth = 1.5
+            ctx.beginPath()
+            for (const pickup of this.pickups) {
+                if (pickup.kind !== 'coin') continue
+                ctx.moveTo(pickup.x + 7, pickup.y)
+                ctx.arc(pickup.x, pickup.y, 7, 0, Math.PI * 2)
+            }
+            ctx.fill()
+            ctx.stroke()
+
+            ctx.fillStyle = '#34d399'
+            ctx.beginPath()
+            for (const pickup of this.pickups) {
+                if (pickup.kind !== 'health') continue
+                ctx.rect(pickup.x - 3, pickup.y - 9, 6, 18)
+                ctx.rect(pickup.x - 9, pickup.y - 3, 18, 6)
+            }
+            ctx.fill()
+            return
+        }
+
         for (const pickup of this.pickups) {
             const color = pickup.kind === 'coin' ? COIN_COLOR : '#34d399'
             ctx.shadowColor = color
@@ -1635,11 +1862,11 @@ export class ShapezzEngine {
 
     private renderEffects() {
         const ctx = this.ctx
-        ctx.globalCompositeOperation = 'lighter'
+        ctx.globalCompositeOperation = this.denseVisuals ? 'source-over' : 'lighter'
         for (const particle of this.particles) {
             ctx.globalAlpha = clamp(particle.life / particle.maxLife, 0, 1)
             ctx.fillStyle = particle.color
-            if (particle.square) ctx.fillRect(particle.x - particle.size / 2, particle.y - particle.size / 2, particle.size, particle.size)
+            if (this.denseVisuals || particle.square) ctx.fillRect(particle.x - particle.size / 2, particle.y - particle.size / 2, particle.size, particle.size)
             else {
                 ctx.beginPath()
                 ctx.arc(particle.x, particle.y, particle.size, 0, Math.PI * 2)
@@ -1667,13 +1894,21 @@ export class ShapezzEngine {
             ctx.stroke()
         }
         ctx.globalCompositeOperation = 'source-over'
-        for (const text of this.damageTexts) {
+        const firstText = this.denseVisuals ? Math.max(0, this.damageTexts.length - 24) : 0
+        if (this.denseVisuals) {
+            ctx.font = '800 16px ui-sans-serif, system-ui, sans-serif'
+            ctx.shadowBlur = 0
+        }
+        for (let i = firstText; i < this.damageTexts.length; i++) {
+            const text = this.damageTexts[i]!
             ctx.globalAlpha = clamp(text.life / text.maxLife, 0, 1)
             ctx.fillStyle = text.color
-            ctx.font = `900 ${text.size}px ui-sans-serif, system-ui, sans-serif`
+            if (!this.denseVisuals) ctx.font = `900 ${text.size}px ui-sans-serif, system-ui, sans-serif`
             ctx.textAlign = 'center'
-            ctx.shadowColor = '#000000'
-            ctx.shadowBlur = 5
+            if (!this.denseVisuals) {
+                ctx.shadowColor = '#000000'
+                ctx.shadowBlur = 5
+            }
             ctx.fillText(text.text, text.x, text.y)
         }
         ctx.globalAlpha = 1
