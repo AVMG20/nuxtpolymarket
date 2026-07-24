@@ -34,6 +34,8 @@ const starting = ref(false)
 const settling = ref(false)
 const running = ref(false)
 const paused = ref(false)
+const fps = ref(60)
+const showProductionFps = !import.meta.dev
 const checkpointOffers = ref<ShapezzRunUpgradeId[]>([])
 const snapshot = ref<ShapezzSnapshot>({ hp: 0, maxHp: 1, coins: 0, kills: 0, elapsedMs: 0, checkpoint: 0, combo: 0, upgrades: {} })
 const result = ref<null | {
@@ -55,6 +57,7 @@ const difficultyItems = computed(() => (state.value?.difficulties ?? []).map(dif
     value: difficulty.id
 })))
 const nextMutationMs = computed(() => Math.max(0, (snapshot.value.checkpoint + 1) * SHAPEZZ_CHECKPOINT_MS - snapshot.value.elapsedMs))
+const checkpointSeconds = SHAPEZZ_CHECKPOINT_MS / 1000
 const activeUpgrades = computed(() => Object.entries(snapshot.value.upgrades)
     .filter((entry): entry is [ShapezzRunUpgradeId, number] => Number(entry[1]) > 0)
     .map(([id, stacks]) => ({ ...shapezzRunUpgrade(id), stacks })))
@@ -163,7 +166,8 @@ async function startRun() {
             },
             onGameOver: (value) => { settleDefeat(value) },
             onSfx: event => sound.play(event),
-            onPause: (value) => { paused.value = value }
+            onPause: (value) => { paused.value = value },
+            onFps: value => { fps.value = value }
         })
         running.value = true
         paused.value = false
@@ -310,7 +314,7 @@ onUnmounted(() => {
           <UBadge label="ENDLESS" color="secondary" variant="subtle" />
         </div>
         <p class="mt-1 max-w-2xl text-sm text-muted">
-          Turn a cube with a gun into a screen-clearing catastrophe. Every 45 seconds: mutate or take the money and run.
+          Turn a cube with a gun into a screen-clearing catastrophe. Every {{ checkpointSeconds }} seconds: mutate or take the money and run.
         </p>
       </div>
       <div v-if="state" class="flex flex-wrap gap-2">
@@ -350,6 +354,11 @@ onUnmounted(() => {
               </div>
 
               <div class="flex gap-2">
+                <span
+                  v-if="showProductionFps"
+                  class="self-start rounded-md border border-white/10 bg-black/55 px-2 py-1 font-mono text-xs font-black tabular-nums text-white/70"
+                  :aria-label="`${fps} frames per second`"
+                >{{ fps }}</span>
                 <div class="rounded-lg border border-white/10 bg-black/55 px-3 py-2 text-center backdrop-blur-sm">
                   <p class="text-[9px] font-black uppercase tracking-widest text-white/50">Cash offer</p>
                   <p class="text-lg font-black tabular-nums text-warning">{{ formatNumber(cashOffer) }}</p>
@@ -406,7 +415,7 @@ onUnmounted(() => {
               <div class="mb-5 text-center">
                 <p class="text-xs font-black uppercase tracking-[0.35em] text-secondary">Checkpoint {{ snapshot.checkpoint }}</p>
                 <h2 class="mt-1 text-2xl font-black text-white sm:text-4xl">GET STRONGER OR GET PAID</h2>
-                <p class="mt-2 text-sm text-white/60">The arena is frozen. Taking a mutation starts the next 45 seconds with enemies at {{ currentPressure.health.toFixed(1) }}× health and {{ currentPressure.damage.toFixed(1) }}× mutation damage.</p>
+                <p class="mt-2 text-sm text-white/60">The arena is frozen. Taking a mutation starts the next {{ checkpointSeconds }} seconds with enemies at {{ currentPressure.health.toFixed(1) }}× health and {{ currentPressure.damage.toFixed(1) }}× mutation damage.</p>
               </div>
 
               <div class="grid gap-3 md:grid-cols-3">
