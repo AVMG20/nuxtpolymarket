@@ -30,6 +30,7 @@ const ENEMY_GRID_ROWS = 6
 const MAX_ENEMY_RADIUS = 74
 const FRAME_HISTORY_SIZE = 120
 const FRAME_BUDGET_MS = 1000 / 60
+const JUMP_RELEASE_MULTIPLIER = 0.45
 
 export interface ShapezzPlayerStats {
     maxHp: number
@@ -257,7 +258,13 @@ export class ShapezzEngine {
     }
 
     private keyup = (event: KeyboardEvent) => {
-        this.keys.delete(event.key.toLowerCase())
+        const key = event.key.toLowerCase()
+        this.keys.delete(key)
+        const releasedVariableJump = key === ' ' || key === 'w'
+        const jumpStillHeld = this.keys.has(' ') || this.keys.has('w')
+        if (releasedVariableJump && !jumpStillHeld && this.running && !this.paused && this.player.vy < 0) {
+            this.player.vy *= JUMP_RELEASE_MULTIPLIER
+        }
     }
 
     // Without this, enemies keep attacking while the player has no input.
