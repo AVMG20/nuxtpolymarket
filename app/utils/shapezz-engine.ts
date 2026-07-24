@@ -1211,6 +1211,12 @@ export class ShapezzEngine {
     private openCheckpoint() {
         this.running = false
         this.checkpointOpen = true
+        this.shake = 16
+        this.flash = 0.8
+        this.callbacks.onCheckpoint(this.rollUpgradeOffers(), this.snapshot())
+    }
+
+    rollUpgradeOffers(): ShapezzRunUpgradeId[] {
         const pool = [...SHAPEZZ_RUN_UPGRADES]
         const offers: ShapezzRunUpgradeId[] = []
         while (offers.length < 3 && pool.length) {
@@ -1222,9 +1228,11 @@ export class ShapezzEngine {
             offers.push(picked.id)
             pool.splice(pool.findIndex(upgrade => upgrade.id === picked.id), 1)
         }
-        this.shake = 16
-        this.flash = 0.8
-        this.callbacks.onCheckpoint(offers, this.snapshot())
+        return offers
+    }
+
+    applyStartingUpgrade(id: ShapezzRunUpgradeId) {
+        this.upgrades[id] = (this.upgrades[id] ?? 0) + 1
     }
 
     private nearestEnemy(from: Point, range: number, excludeId?: number, exclude = new Set<number>()) {

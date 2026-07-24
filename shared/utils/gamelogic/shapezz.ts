@@ -247,6 +247,15 @@ export function shapezzPermanentUpgradeCost(id: ShapezzPermanentUpgradeId, level
     return Math.round(base * 700 * Math.pow(1.35, level - 10))
 }
 
+/** Gem-bought pre-run bonus: each level grants one free upgrade pick before the run starts. Consumed on start. */
+export const SHAPEZZ_HEAD_START_MAX_LEVEL = 1
+export const SHAPEZZ_HEAD_START_COSTS = [2, 10, 50]
+
+export function shapezzHeadStartCost(level: number) {
+    if (level >= SHAPEZZ_HEAD_START_MAX_LEVEL) return null
+    return SHAPEZZ_HEAD_START_COSTS[level] ?? null
+}
+
 export function shapezzPlayerStats(levels: ShapezzPermanentLevels) {
     return {
         maxHp: 120 + levels.armor * 18,

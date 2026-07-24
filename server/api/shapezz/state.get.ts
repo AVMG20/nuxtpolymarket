@@ -6,6 +6,7 @@ import { getBalance } from '#server/utils/balance'
 import { shapezzArsenal } from '#server/utils/shapezz'
 import {
     SHAPEZZ_DIFFICULTIES,
+    SHAPEZZ_HEAD_START_MAX_LEVEL,
     SHAPEZZ_MAX_PERMANENT_LEVEL,
     SHAPEZZ_RUN_COOLDOWN_MS,
     SHAPEZZ_PERMANENT_UPGRADE_IDS,
@@ -13,6 +14,7 @@ import {
     SHAPEZZ_WEAPONS,
     shapezzPermanentUpgradeCost,
     shapezzCooldownRushCost,
+    shapezzHeadStartCost,
     shapezzPlayerStats,
     shapezzPower,
     shapezzWeapon,
@@ -72,6 +74,9 @@ export default defineEventHandler(async (event) => {
             valueLabel: id === 'killHeal' ? `${shapezzPlayerStats(levels).healthPerKill} HP / kill` : null,
             cost: shapezzPermanentUpgradeCost(id, levels[id])
         })),
+        headStartLevel: state.headStartLevel,
+        headStartMaxLevel: SHAPEZZ_HEAD_START_MAX_LEVEL,
+        headStartCost: shapezzHeadStartCost(state.headStartLevel),
         difficulties: SHAPEZZ_DIFFICULTIES,
         runsPlayed: state.runsPlayed,
         totalCoinsEarned: state.totalCoinsEarned,
