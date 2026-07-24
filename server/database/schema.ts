@@ -209,6 +209,8 @@ export const shapezzState = pgTable('shapezz_state', {
   thrustersLevel: integer('thrusters_level').notNull().default(0),
   magnetLevel: integer('magnet_level').notNull().default(0),
   killHealLevel: integer('kill_heal_level').notNull().default(0),
+  // Gem-bought, consumed the moment a run starts (see shapezzHeadStartCost) — not a permanent chassis level.
+  headStartLevel: integer('head_start_level').notNull().default(0),
   weaponType: text('weapon_type').notNull().default('blaster'), // equipped weapon type
   blasterRarity: text('blaster_rarity').notNull().default('common'),
   blasterPurchasePrice: integer('blaster_purchase_price').notNull().default(0),

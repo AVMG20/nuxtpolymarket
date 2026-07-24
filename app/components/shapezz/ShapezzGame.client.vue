@@ -37,6 +37,9 @@ const paused = ref(false)
 const fps = ref(60)
 const showProductionFps = !import.meta.dev
 const checkpointOffers = ref<ShapezzRunUpgradeId[]>([])
+const headStartOffers = ref<ShapezzRunUpgradeId[]>([])
+const headStartPicksRemaining = ref(0)
+const buyingHeadStart = ref(false)
 const snapshot = ref<ShapezzSnapshot>({ hp: 0, maxHp: 1, coins: 0, kills: 0, elapsedMs: 0, checkpoint: 0, combo: 0, upgrades: {} })
 const result = ref<null | {
     reason: 'cashout' | 'defeat'
@@ -81,6 +84,9 @@ const isCoolingDown = computed(() => cooldownRemainingMs.value > 0)
 const cooldownRushCost = computed(() => state.value?.runCooldown?.rushCost ?? 0)
 const gems = computed(() => user.value?.gems ?? 0)
 const rushingCooldown = ref(false)
+const headStartLevel = computed(() => state.value?.headStartLevel ?? 0)
+const headStartActive = computed(() => headStartLevel.value >= (state.value?.headStartMaxLevel ?? 1))
+const headStartCost = computed(() => state.value?.headStartCost ?? null)
 const cooldownLabel = computed(() => {
     const totalSeconds = Math.ceil(cooldownRemainingMs.value / 1000)
     const hours = Math.floor(totalSeconds / 3600)
@@ -136,6 +142,7 @@ async function startRun() {
     sound.preload()
     result.value = null
     checkpointOffers.value = []
+    headStartOffers.value = []
     try {
         const run = await $fetch('/api/shapezz/start-run', {
             method: 'POST',
@@ -169,14 +176,59 @@ async function startRun() {
             onPause: (value) => { paused.value = value },
             onFps: value => { fps.value = value }
         })
-        running.value = true
-        paused.value = false
-        engine.start()
-        sound.play('run-start')
+        // Fetch already reset headStartLevel server-side — the picks bought for
+        // this run must be resolved before the simulation itself starts.
+        headStartPicksRemaining.value = run.headStartLevel
+        if (headStartPicksRemaining.value > 0) {
+            headStartOffers.value = engine.rollUpgradeOffers()
+        } else {
+            beginRun()
+        }
     } catch (error: unknown) {
         toast.add({ title: apiErrorMessage(error, 'Could not start SHAPEZZ'), color: 'error' })
     } finally {
         starting.value = false
+    }
+}
+
+function beginRun() {
+    if (!engine) return
+    running.value = true
+    paused.value = false
+    engine.start()
+    sound.play('run-start')
+}
+
+function chooseHeadStartUpgrade(upgradeId: ShapezzRunUpgradeId) {
+    if (!engine) return
+    engine.applyStartingUpgrade(upgradeId)
+    headStartPicksRemaining.value -= 1
+    sound.play('upgrade')
+    toast.add({
+        title: `${shapezzRunUpgrade(upgradeId).name} ONLINE`,
+        description: shapezzRunUpgrade(upgradeId).stackText,
+        color: 'success',
+        duration: 1800
+    })
+    if (headStartPicksRemaining.value > 0) {
+        headStartOffers.value = engine.rollUpgradeOffers()
+    } else {
+        headStartOffers.value = []
+        beginRun()
+    }
+}
+
+async function buyHeadStart() {
+    if (buyingHeadStart.value || headStartActive.value) return
+    buyingHeadStart.value = true
+    try {
+        await $fetch('/api/shapezz/head-start', { method: 'POST' })
+        await Promise.all([refresh(), fetchSession()])
+        toast.add({ title: 'Head start unlocked', description: 'Choose a run upgrade before your next run begins.', color: 'success' })
+    } catch (error: unknown) {
+        toast.add({ title: apiErrorMessage(error, 'Could not buy head start'), color: 'error' })
+    } finally {
+        buyingHeadStart.value = false
     }
 }
 
@@ -291,10 +343,12 @@ onUnmounted(() => {
     sound.stop()
     if (clockTimer) clearInterval(clockTimer)
     if (bossWarningTimer) clearTimeout(bossWarningTimer)
-    // Leaving mid-run forfeits it — settle server-side so the workshop and
-    // the next visit aren't blocked by a run that no longer exists.
-    if (running.value) {
+    // Leaving mid-run (or mid head-start pick, which already started the run
+    // server-side) forfeits it — settle server-side so the workshop and the
+    // next visit aren't blocked by a run that no longer exists.
+    if (running.value || headStartOffers.value.length > 0) {
         running.value = false
+        headStartOffers.value = []
         void $fetch('/api/shapezz/finish-run', {
             method: 'POST',
             body: { reason: 'abandoned', elapsedMs: 0, coins: 0, kills: 0 }
@@ -361,7 +415,7 @@ onUnmounted(() => {
                 >{{ fps }}</span>
                 <div class="rounded-lg border border-white/10 bg-black/55 px-3 py-2 text-center backdrop-blur-sm">
                   <p class="text-[9px] font-black uppercase tracking-widest text-white/50">Cash offer</p>
-                  <p class="text-lg font-black tabular-nums text-warning">{{ formatNumber(cashOffer) }}</p>
+                  <p class="text-lg font-black tabular-nums text-warning">{{ formatNumber(cashOffer, false, 2) }}</p>
                 </div>
                 <div class="rounded-lg border border-white/10 bg-black/55 px-3 py-2 text-center backdrop-blur-sm">
                   <p class="text-[9px] font-black uppercase tracking-widest text-white/50">Next mutation</p>
@@ -452,8 +506,42 @@ onUnmounted(() => {
                   <p class="mt-0.5 text-sm text-white/55">End this run and permanently add the offer to your balance.</p>
                 </div>
                 <UButton color="warning" size="xl" icon="i-lucide-banknote-arrow-down" :loading="settling" @click="cashOut">
-                  Cash out {{ formatNumber(cashOffer) }}
+                  Cash out {{ formatNumber(cashOffer, false, 2) }}
                 </UButton>
+              </div>
+            </div>
+          </div>
+
+          <div v-else-if="headStartOffers.length" class="absolute inset-0 z-20 overflow-y-auto bg-black/80 p-4 backdrop-blur-md sm:p-6">
+            <div class="mx-auto flex min-h-full max-w-5xl flex-col justify-center">
+              <div class="mb-5 text-center">
+                <p class="text-xs font-black uppercase tracking-[0.35em] text-primary">Head start</p>
+                <h2 class="mt-1 text-2xl font-black text-white sm:text-4xl">CHOOSE YOUR OPENING MOVE</h2>
+                <p class="mt-2 text-sm text-white/60">Pick a mutation before the fight begins. {{ headStartPicksRemaining }} pick{{ headStartPicksRemaining === 1 ? '' : 's' }} left.</p>
+              </div>
+
+              <div class="grid gap-3 md:grid-cols-3">
+                <button
+                  v-for="upgradeId in headStartOffers"
+                  :key="upgradeId"
+                  type="button"
+                  class="shapezz-upgrade group relative overflow-hidden rounded-xl border border-white/15 bg-white/6 p-4 text-left transition duration-200 hover:-translate-y-1 hover:border-white/40 hover:bg-white/10 sm:p-5"
+                  :style="{ '--upgrade-accent': shapezzRunUpgrade(upgradeId).accent }"
+                  @click="chooseHeadStartUpgrade(upgradeId)"
+                >
+                  <div class="absolute inset-x-0 top-0 h-1 bg-[var(--upgrade-accent)] shadow-[0_0_24px_var(--upgrade-accent)]" />
+                  <div class="flex items-start justify-between gap-3">
+                    <div class="flex size-11 items-center justify-center rounded-lg border border-white/10 bg-black/35">
+                      <UIcon :name="shapezzRunUpgrade(upgradeId).icon" class="size-6" :style="{ color: shapezzRunUpgrade(upgradeId).accent }" />
+                    </div>
+                    <p class="text-[9px] font-black tracking-[0.2em]" :class="rarityClass(upgradeId)">{{ rarityLabel(upgradeId) }}</p>
+                  </div>
+                  <h3 class="mt-4 text-lg font-black text-white">{{ shapezzRunUpgrade(upgradeId).name }}</h3>
+                  <p class="mt-1.5 min-h-10 text-sm leading-relaxed text-white/65">{{ shapezzRunUpgrade(upgradeId).description }}</p>
+                  <p class="mt-4 flex items-center gap-1.5 text-xs font-black text-white">
+                    <UIcon name="i-lucide-layers-3" class="size-3.5" /> {{ shapezzRunUpgrade(upgradeId).stackText }}
+                  </p>
+                </button>
               </div>
             </div>
           </div>
@@ -468,7 +556,7 @@ onUnmounted(() => {
                 <p class="mt-1 text-sm text-muted">{{ result.reason === 'cashout' ? 'You left before the shapes could take it back.' : 'Defeat burns the uncashed offer. Greed has a shape.' }}</p>
               </div>
               <div class="mt-5 grid grid-cols-3 gap-2">
-                <div class="rounded-lg bg-elevated p-3 text-center"><p class="text-[10px] font-bold uppercase text-muted">Paid</p><p class="mt-1 font-black text-warning">{{ formatNumber(result.awarded) }}</p></div>
+                <div class="rounded-lg bg-elevated p-3 text-center"><p class="text-[10px] font-bold uppercase text-muted">Paid</p><p class="mt-1 font-black text-warning">{{ formatNumber(result.awarded, false, 2) }}</p></div>
                 <div class="rounded-lg bg-elevated p-3 text-center"><p class="text-[10px] font-bold uppercase text-muted">Time</p><p class="mt-1 font-black">{{ formatTime(result.elapsedMs) }}</p></div>
                 <div class="rounded-lg bg-elevated p-3 text-center"><p class="text-[10px] font-bold uppercase text-muted">Kills</p><p class="mt-1 font-black">{{ formatNumber(result.kills) }}</p></div>
               </div>
@@ -498,6 +586,24 @@ onUnmounted(() => {
                 <div class="rounded-lg bg-elevated p-2.5"><p class="text-muted">Weapon</p><p class="mt-0.5 truncate font-black" :style="{ color: state.currentWeapon.primaryColor }">{{ state.currentWeapon.name }}</p></div>
                 <div class="rounded-lg bg-elevated p-2.5"><p class="text-muted">Output</p><p class="mt-0.5 font-black">{{ Math.round(state.stats.damage * state.currentWeapon.damageMultiplier) }}</p></div>
                 <div class="rounded-lg bg-elevated p-2.5"><p class="text-muted">Starting HP</p><p class="mt-0.5 font-black">{{ state.stats.maxHp }}</p></div>
+              </div>
+
+              <div v-if="headStartActive" class="mt-5 flex items-center justify-center gap-2 rounded-lg border border-primary/30 bg-primary/10 px-4 py-3 text-center text-sm font-black text-primary">
+                <UIcon name="i-lucide-check-circle-2" class="size-4" /> HEAD START READY · {{ headStartLevel }} pick{{ headStartLevel === 1 ? '' : 's' }}
+              </div>
+              <div v-else class="mt-5 space-y-2">
+                <p v-if="headStartLevel > 0" class="text-center text-xs font-bold text-primary">{{ headStartLevel }} head start pick{{ headStartLevel === 1 ? '' : 's' }} banked for your next run</p>
+                <UButton
+                  class="w-full justify-center"
+                  color="primary"
+                  variant="subtle"
+                  icon="i-lucide-rocket"
+                  :loading="buyingHeadStart"
+                  :disabled="headStartCost === null || gems < headStartCost"
+                  @click="buyHeadStart"
+                >
+                  {{ headStartLevel > 0 ? 'Unlock next head start pick' : 'Unlock head start' }} · {{ headStartCost }} gem{{ headStartCost === 1 ? '' : 's' }}
+                </UButton>
               </div>
 
               <div v-if="isCoolingDown" class="mt-5 rounded-lg border border-warning/25 bg-warning/10 p-4 text-center">

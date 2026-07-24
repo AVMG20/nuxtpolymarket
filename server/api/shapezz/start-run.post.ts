@@ -43,11 +43,14 @@ export default defineEventHandler(async (event) => {
         const weapon = shapezzWeapon(equippedType, arsenal[equippedType]?.rarity ?? 'common')
         const power = shapezzPower(levels, weapon)
         const startedAt = new Date()
+        const headStartLevel = state.headStartLevel
 
         await tx.update(shapezzState).set({
             runStartedAt: startedAt,
             runDifficultySnapshot: difficultyId,
-            runPowerSnapshot: power
+            runPowerSnapshot: power,
+            // A bought head start is consumed by the run it was bought for, not banked across runs.
+            headStartLevel: 0
         }).where(eq(shapezzState.userId, userId))
 
         return {
@@ -56,7 +59,8 @@ export default defineEventHandler(async (event) => {
             checkpointMs: SHAPEZZ_CHECKPOINT_MS,
             power,
             stats: shapezzPlayerStats(levels),
-            weapon
+            weapon,
+            headStartLevel
         }
     })
 })
