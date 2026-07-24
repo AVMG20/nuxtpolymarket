@@ -88,6 +88,7 @@ interface Bullet extends Point {
     visualIntensity: number
     secondaryEffects: boolean
     triggersHealing: boolean
+    weakVsBoss: boolean
     hitIds: Set<number>
 }
 
@@ -748,7 +749,8 @@ export class ShapezzEngine {
         damageMultiplier = 1,
         homing = false,
         secondaryEffects = false,
-        triggersHealing = true
+        triggersHealing = true,
+        weakVsBoss = false
     ) {
         if (this.bullets.length >= SHAPEZZ_COMBAT_LIMITS.bullets) return
         const giantStacks = this.upgrades.giantRounds ?? 0
@@ -777,6 +779,7 @@ export class ShapezzEngine {
             visualIntensity: this.weapon.visualIntensity,
             secondaryEffects,
             triggersHealing,
+            weakVsBoss,
             hitIds: new Set()
         })
     }
@@ -829,7 +832,8 @@ export class ShapezzEngine {
                 for (const enemy of this.enemies) {
                     if (bullet.hitIds.has(enemy.id) || distanceToSegment(enemy, previousPosition, bullet) > bullet.radius + enemy.radius) continue
                     bullet.hitIds.add(enemy.id)
-                    const impactDamage = this.bulletImpactDamage(bullet)
+                    let impactDamage = this.bulletImpactDamage(bullet)
+                    if (bullet.weakVsBoss && enemy.boss) impactDamage *= 0.01
                     this.hitEnemy(enemy, impactDamage, bullet.color, bullet.x, bullet.y, true, bullet.triggersHealing)
                     this.triggerImpact(enemy, bullet, impactDamage)
                     if (bullet.pierce > 0) bullet.pierce--
@@ -1105,11 +1109,11 @@ export class ShapezzEngine {
                 const origin = { x: this.player.x + Math.cos(angle) * 72, y: this.player.y + Math.sin(angle) * 72 }
                 const target = this.nearestEnemy(origin, 650)
                 if (target) {
-                    this.createPlayerBullet(origin.x, origin.y, Math.atan2(target.y - origin.y, target.x - origin.x), 0.5, true)
+                    this.createPlayerBullet(origin.x, origin.y, Math.atan2(target.y - origin.y, target.x - origin.x), 1, true, false, true, true)
                     this.callbacks.onSfx?.('drone-shoot')
                 }
             }
-            this.orbitalCooldown = 0.72
+            this.orbitalCooldown = 0.85
         }
 
         const drones = Math.min(6, (this.upgrades.droneSwarm ?? 0) * 2)
@@ -1132,9 +1136,9 @@ export class ShapezzEngine {
             const target = this.nearestEnemy(turret, 620)
             if (target) turret.angle = Math.atan2(target.y - turret.y, target.x - turret.x)
             if (target && turret.fireCooldown <= 0) {
-                this.createPlayerBullet(turret.x, turret.y, turret.angle, 0.48)
+                this.createPlayerBullet(turret.x, turret.y, turret.angle, 1, false, false, true, true)
                 this.callbacks.onSfx?.('drone-shoot')
-                turret.fireCooldown = 0.32
+                turret.fireCooldown = 0.4
             }
             if (turret.life > 0) turrets.push(turret)
         }
