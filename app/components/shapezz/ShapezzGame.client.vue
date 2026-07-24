@@ -278,27 +278,30 @@ function closeResult() {
     snapshot.value = { hp: 0, maxHp: 1, coins: 0, kills: 0, elapsedMs: 0, checkpoint: 0, combo: 0, upgrades: {} }
 }
 
-onMounted(() => {
+onMounted(async () => {
     clockTimer = setInterval(() => { now.value = Date.now() }, 1000)
-    unregisterDevBridge = registerGameDevBridge({
-        id: 'shapezz',
-        kind: 'canvas',
-        canvas: () => canvas.value,
-        state: () => ({
-            running: running.value,
-            paused: paused.value,
-            settling: settling.value,
-            difficulty: activeDifficultyId.value,
-            snapshot: snapshot.value,
-            checkpointOffers: checkpointOffers.value
-        }),
-        actions: {
-            togglePause: {
-                description: 'Pause or resume the active run',
-                run: () => togglePause()
+    if (import.meta.dev) {
+        const { registerGameDevBridge } = await import('~/utils/game-dev-bridge')
+        unregisterDevBridge = registerGameDevBridge({
+            id: 'shapezz',
+            kind: 'canvas',
+            canvas: () => canvas.value,
+            state: () => ({
+                running: running.value,
+                paused: paused.value,
+                settling: settling.value,
+                difficulty: activeDifficultyId.value,
+                snapshot: snapshot.value,
+                checkpointOffers: checkpointOffers.value
+            }),
+            actions: {
+                togglePause: {
+                    description: 'Pause or resume the active run',
+                    run: () => togglePause()
+                }
             }
-        }
-    })
+        })
+    }
     void clearStaleRun()
 })
 onUnmounted(() => {

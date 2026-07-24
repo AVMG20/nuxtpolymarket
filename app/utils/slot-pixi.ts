@@ -3,7 +3,6 @@
 // much per theme to generalise — but every game creates its Application with
 // the same options and guards the same way against unmounting mid-init.
 import type { Application } from 'pixi.js'
-import { registerPixiDevBridge } from '~/utils/game-dev-bridge'
 
 interface SlotPixiSize {
   width: number
@@ -30,7 +29,8 @@ export async function initSlotPixiApp(ApplicationCtor: typeof Application, size:
     return null
   }
 
-  if (devBridgeId) {
+  if (import.meta.dev && devBridgeId) {
+    const { registerPixiDevBridge } = await import('~/utils/game-dev-bridge')
     const unregister = registerPixiDevBridge(app, { id: devBridgeId })
     const destroy = app.destroy.bind(app)
     app.destroy = ((...args: Parameters<Application['destroy']>) => {

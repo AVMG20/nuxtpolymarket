@@ -76,6 +76,8 @@ Register non-Pixi games with `registerGameDevBridge` from `app/utils/game-dev-br
 
 Shared slot games should pass their ID to `initSlotPixiApp`; registration and cleanup are handled there.
 
+Guard every integration with `import.meta.dev` and dynamically import `game-dev-bridge.ts` inside that guard. Do not statically import the bridge from game code. This keeps the entire bridge module out of production bundles and ensures production execution never patches a Pixi lifecycle or registers debug state.
+
 Never expose secrets, session tokens, arbitrary code execution, database mutation helpers, or production-only state through the bridge.
 
 ## Test expectations
