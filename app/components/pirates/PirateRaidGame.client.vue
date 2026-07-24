@@ -154,6 +154,7 @@ async function handleStartVoyage() {
 }
 
 let resizeObserverConnected = false
+let unregisterDevBridge = () => {}
 
 onMounted(async () => {
     clockTimer = setInterval(() => { now.value = Date.now() }, 1000)
@@ -161,9 +162,37 @@ onMounted(async () => {
     if (!host || !state.value) return
     await attachCanvas(host, state, refresh)
     resizeObserverConnected = true
+    unregisterDevBridge = registerGameDevBridge({
+        id: 'pirate-raid',
+        kind: 'pixi',
+        canvas: () => host.querySelector('canvas'),
+        state: () => ({
+            running: running.value,
+            paused: paused.value,
+            hp: hp.value,
+            maxHp: maxHp.value,
+            coins: coins.value,
+            ammo: ammo.value,
+            gemAmmo: gemAmmo.value,
+            combo: combo.value,
+            remainingMs: remainingMs.value,
+            activePowerUps: activePowerUps.value
+        }),
+        actions: {
+            pause: {
+                description: 'Pause the active voyage',
+                run: () => pauseVoyage()
+            },
+            resume: {
+                description: 'Resume the paused voyage',
+                run: () => resumeVoyage()
+            }
+        }
+    })
 })
 
 onUnmounted(() => {
+    unregisterDevBridge()
     if (clockTimer) clearInterval(clockTimer)
     if (resizeObserverConnected) detachCanvas()
 })

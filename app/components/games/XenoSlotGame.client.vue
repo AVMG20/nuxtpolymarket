@@ -600,7 +600,7 @@ onMounted(async () => {
     GSAP = gsapMod.gsap ?? gsapMod.default
 
     // Transparent canvas so the jungle board panel shows through behind the tiles.
-    app = await initSlotPixiApp(PIXI.Application, { width: APP_W, height: APP_H }, () => destroyed)
+    app = await initSlotPixiApp(PIXI.Application, { width: APP_W, height: APP_H }, () => destroyed, 'xeno-slot')
     if (!app) return
     app.stage.sortableChildren = true
     canvasWrap.value?.appendChild(app.canvas)

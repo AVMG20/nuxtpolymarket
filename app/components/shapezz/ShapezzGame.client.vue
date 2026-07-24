@@ -47,6 +47,7 @@ const result = ref<null | {
 const bossWarning = ref('')
 let bossWarningTimer: ReturnType<typeof setTimeout> | null = null
 let engine: ShapezzEngine | null = null
+let unregisterDevBridge = () => {}
 
 const hpPercent = computed(() => clampPercent(snapshot.value.hp / Math.max(1, snapshot.value.maxHp) * 100))
 const selectedDifficulty = computed(() => state.value?.difficulties.find(difficulty => difficulty.id === selectedDifficultyId.value))
@@ -279,9 +280,29 @@ function closeResult() {
 
 onMounted(() => {
     clockTimer = setInterval(() => { now.value = Date.now() }, 1000)
+    unregisterDevBridge = registerGameDevBridge({
+        id: 'shapezz',
+        kind: 'canvas',
+        canvas: () => canvas.value,
+        state: () => ({
+            running: running.value,
+            paused: paused.value,
+            settling: settling.value,
+            difficulty: activeDifficultyId.value,
+            snapshot: snapshot.value,
+            checkpointOffers: checkpointOffers.value
+        }),
+        actions: {
+            togglePause: {
+                description: 'Pause or resume the active run',
+                run: () => togglePause()
+            }
+        }
+    })
     void clearStaleRun()
 })
 onUnmounted(() => {
+    unregisterDevBridge()
     engine?.destroy()
     engine = null
     sound.stop()
