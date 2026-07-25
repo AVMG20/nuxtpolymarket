@@ -110,6 +110,14 @@ const arcadeGames = [
     to: '/pirates',
     gradient: 'from-sky-950 to-slate-900',
     iconColor: 'text-sky-300'
+  },
+  {
+    name: 'Void Runner',
+    description: 'Mine asteroids, fight patrols and dock before the ion storm eats the sector',
+    icon: 'i-lucide-rocket',
+    to: '/void',
+    gradient: 'from-indigo-950 via-purple-950 to-slate-950',
+    iconColor: 'text-indigo-300'
   }
 ]
 

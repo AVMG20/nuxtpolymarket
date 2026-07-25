@@ -26,6 +26,8 @@ export default defineNuxtConfig({
         '/gem-market': { redirect: '/gem-exchange' },
         '/games/**': { ssr: false },
         '/pirates/**': { ssr: false },
+        '/void': { ssr: false },
+        '/void/**': { ssr: false },
         '/shapezz': { ssr: false },
         '/shapezz/**': { ssr: false }
     },

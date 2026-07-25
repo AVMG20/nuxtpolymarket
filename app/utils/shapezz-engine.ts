@@ -11,6 +11,9 @@ import {
     shapezzIntensity,
     shapezzKillShockwaveStats,
     shapezzOverkillDividendStats,
+    shapezzShieldStats,
+    shapezzTurretDamageFraction,
+    shapezzVampireBurstStats,
     shapezzWeaponFireRateCap,
     type ShapezzDifficultyId,
     type ShapezzRunUpgradeId,
@@ -28,8 +31,6 @@ const ENEMY_GRID_SIZE = 160
 const ENEMY_GRID_COLUMNS = 10
 const ENEMY_GRID_ROWS = 6
 const MAX_ENEMY_RADIUS = 74
-const FRAME_HISTORY_SIZE = 120
-const FRAME_BUDGET_MS = 1000 / 60
 const JUMP_RELEASE_MULTIPLIER = 0.45
 
 export interface ShapezzPlayerStats {
@@ -45,6 +46,8 @@ export interface ShapezzPlayerStats {
 export interface ShapezzSnapshot {
     hp: number
     maxHp: number
+    shield: number
+    shieldCapacity: number
     coins: number
     kills: number
     elapsedMs: number
@@ -62,7 +65,7 @@ export interface ShapezzEngineCallbacks {
     onSfx?: (event: ShapezzSoundEvent) => void
     /** Fired when the pause state changes (button or P/Escape key). */
     onPause?: (paused: boolean) => void
-    /** Production HUD update; development renders the full graph on canvas. */
+    /** HUD frame rate readout, sampled from the render-quality averager. */
     onFps?: (fps: number) => void
 }
 
@@ -97,7 +100,8 @@ interface Bullet extends Point {
     visualIntensity: number
     secondaryEffects: boolean
     triggersHealing: boolean
-    weakVsBoss: boolean
+    /** Fired by a companion turret — damage is a share of the target's max health, not of `damage`. */
+    turretShot: boolean
     hitIds: Set<number> | null
 }
 
@@ -125,6 +129,7 @@ interface Player extends Point {
     vy: number
     size: number
     hp: number
+    shield: number
     onGround: boolean
     invulnerable: number
 }
@@ -206,7 +211,11 @@ export class ShapezzEngine {
     private shotCounter = 0
     private bossCheckpoint = 0
     private kills = 0
-    private healingKills = 0
+    private vampireKills = 0
+    private vampireCooldown = 0
+    private vampireRegenRemaining = 0
+    private vampireRegenRate = 0
+    private shieldKills = 0
     private coins = 0
     private combo = 0
     private maxCombo = 0
@@ -219,9 +228,6 @@ export class ShapezzEngine {
     private qualityStalled = false
     private reducedEffects = false
     private denseVisuals = false
-    private frameTimes = new Float32Array(FRAME_HISTORY_SIZE)
-    private frameTimeIndex = 0
-    private frameTimeCount = 0
     private enemyId = 1
     private shake = 0
     private flash = 0
@@ -306,7 +312,7 @@ export class ShapezzEngine {
         this.weapon = weapon
         this.difficultyId = difficultyId
         this.callbacks = callbacks
-        this.player = { x: WIDTH / 2, y: FLOOR_Y - 50, vx: 0, vy: 0, size: 36, hp: stats.maxHp, onGround: false, invulnerable: 0 }
+        this.player = { x: WIDTH / 2, y: FLOOR_Y - 50, vx: 0, vy: 0, size: 36, hp: stats.maxHp, shield: 0, onGround: false, invulnerable: 0 }
         this.resize()
         window.addEventListener('resize', this.resize)
         window.addEventListener('keydown', this.keydown, { passive: false })
@@ -397,7 +403,6 @@ export class ShapezzEngine {
         const workStartedAt = performance.now()
         if (this.running && !this.paused) this.update(dt)
         else if (!this.paused) this.updateEffects(dt)
-        if (this.running && !this.paused) this.recordFrameTime(frameInterval)
         this.render(now / 1000)
         if (this.running && !this.paused) this.updateRenderQuality(frameInterval, performance.now() - workStartedAt)
         this.raf = requestAnimationFrame(this.frame)
@@ -417,24 +422,19 @@ export class ShapezzEngine {
             this.reducedEffects = true
             nextDpr = Math.max(1, this.renderDpr - 0.25)
         }
-        if (!import.meta.dev) this.callbacks.onFps?.(Math.min(999, Math.round(1000 / this.frameIntervalAverage)))
+        this.callbacks.onFps?.(Math.min(999, Math.round(1000 / this.frameIntervalAverage)))
         this.qualityStalled = false
         if (nextDpr === this.renderDpr) return
         this.renderDpr = nextDpr
         this.resize()
     }
 
-    private recordFrameTime(frameInterval: number) {
-        if (frameInterval <= 0) return
-        this.frameTimes[this.frameTimeIndex] = frameInterval
-        this.frameTimeIndex = (this.frameTimeIndex + 1) % FRAME_HISTORY_SIZE
-        this.frameTimeCount = Math.min(FRAME_HISTORY_SIZE, this.frameTimeCount + 1)
-    }
-
     private snapshot(): ShapezzSnapshot {
         return {
             hp: Math.max(0, this.player.hp),
             maxHp: this.stats.maxHp,
+            shield: Math.max(0, this.player.shield),
+            shieldCapacity: this.upgrades.aegisPlating ? shapezzShieldStats(this.upgrades.aegisPlating).capacity : 0,
             coins: this.coins,
             kills: this.kills,
             elapsedMs: this.elapsedMs,
@@ -453,6 +453,13 @@ export class ShapezzEngine {
         this.spawnCooldown -= dt
         this.comboTimer -= dt
         this.player.invulnerable -= dt
+        this.vampireCooldown -= dt
+
+        if (this.vampireRegenRemaining > 0) {
+            const tick = Math.min(dt, this.vampireRegenRemaining)
+            this.vampireRegenRemaining -= tick
+            this.player.hp = Math.min(this.stats.maxHp, this.player.hp + this.vampireRegenRate * tick)
+        }
 
         if (this.comboTimer <= 0) this.combo = 0
         this.updatePlayer(dt)
@@ -692,7 +699,7 @@ export class ShapezzEngine {
             color: enemy.color, accentColor: enemy.color, friendly: false, homing: false, trail: true,
             explosionRadius: 0, traveled: 0, falloffStart: 9999, falloffEnd: 10_000,
             minFalloffDamage: 1, visualIntensity: enemy.boss ? 3 : 1, secondaryEffects: false,
-            triggersHealing: false, weakVsBoss: false, hitIds: null
+            triggersHealing: false, turretShot: false, hitIds: null
         })
         this.callbacks.onSfx?.('enemy-shoot')
         this.burst(enemy.x, enemy.y, enemy.color, enemy.boss ? 12 : 5, 150)
@@ -862,11 +869,13 @@ export class ShapezzEngine {
         homing = false,
         secondaryEffects = false,
         triggersHealing = true,
-        weakVsBoss = false,
+        turretShot = false,
         independentVisual?: { color: string, radius?: number }
     ) {
         if (this.bullets.length >= SHAPEZZ_COMBAT_LIMITS.bullets) return
-        const giantStacks = independentVisual ? 0 : (this.upgrades.giantRounds ?? 0)
+        // `independentVisual` only opts out of the *look* of the shot. Damage scaling still applies —
+        // zeroing giantStacks here is what silently gutted orbitals and afterimage turrets.
+        const giantStacks = this.upgrades.giantRounds ?? 0
         const giant = Math.min(3, giantStacks)
         const velocity = independentVisual ? 0 : Math.min(4, this.upgrades.hyperVelocity ?? 0)
         const speed = independentVisual ? 620 : 780 * this.weapon.projectileSpeedMultiplier * Math.pow(1.5, velocity)
@@ -892,7 +901,7 @@ export class ShapezzEngine {
             visualIntensity: independentVisual ? 0 : this.weapon.visualIntensity,
             secondaryEffects,
             triggersHealing,
-            weakVsBoss,
+            turretShot,
             hitIds: new Set()
         })
     }
@@ -956,8 +965,11 @@ export class ShapezzEngine {
                             const collisionRadius = bullet.radius + enemy.radius
                             if (enemy.hp <= 0 || bullet.hitIds!.has(enemy.id) || distanceToSegmentSquared(enemy, previousX, previousY, bullet) > collisionRadius * collisionRadius) continue
                             bullet.hitIds!.add(enemy.id)
-                            let impactDamage = this.bulletImpactDamage(bullet)
-                            if (bullet.weakVsBoss && enemy.boss) impactDamage *= 0.01
+                            // Turret shots ignore the player's damage stat entirely and bite a fixed
+                            // slice off the target's max health, so they stay relevant as enemies scale.
+                            const impactDamage = bullet.turretShot
+                                ? enemy.maxHp * shapezzTurretDamageFraction(enemy.type, enemy.boss)
+                                : this.bulletImpactDamage(bullet)
                             this.hitEnemy(enemy, impactDamage, bullet.color, bullet.x, bullet.y, true, bullet.triggersHealing)
                             this.triggerImpact(enemy, bullet, impactDamage)
                             if (bullet.pierce > 0) bullet.pierce--
@@ -1096,7 +1108,6 @@ export class ShapezzEngine {
 
     private killEnemy(enemy: Enemy, triggersHealing = true) {
         this.kills++
-        if (triggersHealing) this.healingKills++
         this.combo++
         this.maxCombo = Math.max(this.maxCombo, this.combo)
         this.comboTimer = 2.6
@@ -1146,14 +1157,40 @@ export class ShapezzEngine {
         for (let i = 0; i < novaCount; i++) this.createPlayerBullet(enemy.x, enemy.y, i / novaCount * Math.PI * 2, novaDamage, false, false, triggersHealing, false, { color: '#facc15', radius: 4.5 })
 
         const vampire = Math.min(4, this.upgrades.vampireBurst ?? 0)
-        const triggerKills = Math.max(8, 24 - vampire * 4)
-        if (triggersHealing && vampire > 0 && this.healingKills % triggerKills === 0) {
-            const healed = this.stats.maxHp * 0.25
-            this.player.hp = Math.min(this.stats.maxHp, this.player.hp + healed)
-            if (this.damageTexts.length < SHAPEZZ_COMBAT_LIMITS.damageTexts) {
-                this.damageTexts.push({ x: this.player.x, y: this.player.y - 40, text: `+${Math.round(healed)} HP`, color: '#34d399', life: 1.1, maxLife: 1.1, size: 24, vx: 0, vy: -90 })
+        if (triggersHealing && vampire > 0) {
+            // Counted explicitly rather than with `kills % triggerKills`: taking a stack mid-run
+            // changes the threshold, and the modulo phase shift made the trigger fire early or skip.
+            this.vampireKills++
+            const stats = shapezzVampireBurstStats(vampire)
+            if (this.vampireKills >= stats.kills && this.vampireCooldown <= 0) {
+                this.vampireKills = 0
+                this.vampireCooldown = stats.cooldown
+                this.vampireRegenRemaining = stats.duration
+                this.vampireRegenRate = this.stats.maxHp * stats.healFraction / stats.duration
+                if (this.damageTexts.length < SHAPEZZ_COMBAT_LIMITS.damageTexts) {
+                    this.damageTexts.push({ x: this.player.x, y: this.player.y - 40, text: 'REGEN', color: '#34d399', life: 1.1, maxLife: 1.1, size: 22, vx: 0, vy: -90 })
+                }
+                this.shockwaves.push({ x: this.player.x, y: this.player.y, radius: 8, maxRadius: 150, life: 0.5, maxLife: 0.5, color: '#34d399', width: 7 })
             }
-            this.shockwaves.push({ x: this.player.x, y: this.player.y, radius: 8, maxRadius: 150, life: 0.5, maxLife: 0.5, color: '#34d399', width: 7 })
+        }
+
+        const aegis = Math.min(4, this.upgrades.aegisPlating ?? 0)
+        if (aegis > 0) {
+            this.shieldKills++
+            const stats = shapezzShieldStats(aegis)
+            if (this.shieldKills >= stats.kills) {
+                this.shieldKills = 0
+                const previousShield = this.player.shield
+                this.player.shield = Math.min(stats.capacity, this.player.shield + stats.amount)
+                const gained = Math.round(this.player.shield - previousShield)
+                if (gained > 0) {
+                    this.callbacks.onSfx?.('pickup-health')
+                    if (this.damageTexts.length < SHAPEZZ_COMBAT_LIMITS.damageTexts) {
+                        this.damageTexts.push({ x: this.player.x, y: this.player.y - 52, text: `+${gained} SHIELD`, color: '#38bdf8', life: 1, maxLife: 1, size: 20, vx: 0, vy: -80 })
+                    }
+                    this.shockwaves.push({ x: this.player.x, y: this.player.y, radius: 8, maxRadius: 110, life: 0.4, maxLife: 0.4, color: '#38bdf8', width: 5 })
+                }
+            }
         }
 
         const killShockwaveStacks = this.upgrades.killShockwave ?? 0
@@ -1238,7 +1275,7 @@ export class ShapezzEngine {
                 const origin = { x: this.player.x + Math.cos(angle) * 72, y: this.player.y + Math.sin(angle) * 72 }
                 const target = this.nearestEnemy(origin, 650)
                 if (target) {
-                    this.createPlayerBullet(origin.x, origin.y, Math.atan2(target.y - origin.y, target.x - origin.x), 1, true, false, true, true, { color: '#f0abfc', radius: 3.5 })
+                    this.createPlayerBullet(origin.x, origin.y, Math.atan2(target.y - origin.y, target.x - origin.x), 1, true, false, true, true, { color: '#f0abfc', radius: 4.5 })
                     this.callbacks.onSfx?.('drone-shoot')
                 }
             }
@@ -1251,11 +1288,11 @@ export class ShapezzEngine {
                 const origin = { x: this.player.x + (i - (drones - 1) / 2) * 38, y: this.player.y - 65 - Math.sin(this.elapsedMs / 330 + i) * 15 }
                 const target = this.nearestEnemy(origin, 760)
                 if (!target) continue
-                this.createPlayerBullet(origin.x, origin.y, Math.atan2(target.y - origin.y, target.x - origin.x), 0.42, true, false, true, false, { color: '#34d399', radius: 3 })
+                this.createPlayerBullet(origin.x, origin.y, Math.atan2(target.y - origin.y, target.x - origin.x), 1, true, false, true, true, { color: '#34d399', radius: 3 })
                 this.callbacks.onSfx?.('drone-shoot')
                 this.beams.push({ from: origin, to: { x: target.x, y: target.y }, life: 0.08, maxLife: 0.08, color: '#34d399', width: 2 })
             }
-            this.droneCooldown = 0.42
+            this.droneCooldown = 0.6
         }
 
         let keptTurrets = 0
@@ -1265,9 +1302,9 @@ export class ShapezzEngine {
             const target = this.nearestEnemy(turret, 620)
             if (target) turret.angle = Math.atan2(target.y - turret.y, target.x - turret.x)
             if (target && turret.fireCooldown <= 0) {
-                this.createPlayerBullet(turret.x, turret.y, turret.angle, 1, false, false, true, true, { color: '#2dd4bf', radius: 3.5 })
+                this.createPlayerBullet(turret.x, turret.y, turret.angle, 1, false, false, true, true, { color: '#2dd4bf', radius: 4 })
                 this.callbacks.onSfx?.('drone-shoot')
-                turret.fireCooldown = 0.4
+                turret.fireCooldown = 0.55
             }
             if (turret.life > 0) this.turrets[keptTurrets++] = turret
         }
@@ -1339,8 +1376,14 @@ export class ShapezzEngine {
 
     private damagePlayer(amount: number) {
         if (this.player.invulnerable > 0 || !this.running) return
-        this.player.hp -= amount
+        const absorbed = Math.min(this.player.shield, amount)
+        this.player.shield -= absorbed
+        this.player.hp -= amount - absorbed
         this.player.invulnerable = 0.58
+        if (absorbed > 0) {
+            this.shockwaves.push({ x: this.player.x, y: this.player.y, radius: 6, maxRadius: 74, life: 0.28, maxLife: 0.28, color: '#38bdf8', width: 4 })
+            this.burst(this.player.x, this.player.y, '#38bdf8', 12, 300)
+        }
         this.callbacks.onSfx?.('player-hurt')
         this.combo = 0
         this.comboTimer = 0
@@ -1348,7 +1391,8 @@ export class ShapezzEngine {
         this.flash = Math.max(this.flash, 0.4)
         this.burst(this.player.x, this.player.y, '#fb7185', 24, 470)
         if (this.damageTexts.length < SHAPEZZ_COMBAT_LIMITS.damageTexts) {
-            this.damageTexts.push({ x: this.player.x, y: this.player.y - 35, text: `-${Math.ceil(amount)}`, color: '#fb7185', life: 0.8, maxLife: 0.8, size: 25, vx: 0, vy: -100 })
+            const fullyAbsorbed = absorbed >= amount
+            this.damageTexts.push({ x: this.player.x, y: this.player.y - 35, text: `-${Math.ceil(amount)}`, color: fullyAbsorbed ? '#38bdf8' : '#fb7185', life: 0.8, maxLife: 0.8, size: 25, vx: 0, vy: -100 })
         }
     }
 
@@ -1476,7 +1520,6 @@ export class ShapezzEngine {
         ctx.fillStyle = this.vignetteGradient ?? '#000000'
         ctx.fillRect(0, 0, WIDTH, HEIGHT)
         if (this.running && this.aimVisible) this.renderAimCursor(time)
-        if (import.meta.dev) this.renderFrameProfiler()
     }
 
     private renderAimCursor(time: number) {
@@ -1524,60 +1567,6 @@ export class ShapezzEngine {
         ctx.arc(0, 0, 2.75, 0, Math.PI * 2)
         ctx.fill()
         ctx.restore()
-    }
-
-    private renderFrameProfiler() {
-        if (this.frameTimeCount === 0) return
-        const ctx = this.ctx
-        const x = WIDTH - 238
-        const y = HEIGHT - 108
-        const width = 220
-        const height = 90
-        const graphX = x + 10
-        const graphY = y + 29
-        const graphWidth = width - 20
-        const graphHeight = height - 39
-        const graphBottom = graphY + graphHeight
-        const graphMaxMs = 50
-        const fps = Math.min(999, Math.round(1000 / this.frameIntervalAverage))
-        const color = fps >= 55 ? '#34d399' : fps >= 40 ? '#fbbf24' : '#fb7185'
-
-        ctx.fillStyle = 'rgba(0,0,0,0.76)'
-        ctx.fillRect(x, y, width, height)
-        ctx.strokeStyle = 'rgba(255,255,255,0.18)'
-        ctx.lineWidth = 1
-        ctx.strokeRect(x + 0.5, y + 0.5, width - 1, height - 1)
-
-        ctx.font = '800 13px ui-monospace, SFMono-Regular, Menlo, monospace'
-        ctx.textAlign = 'left'
-        ctx.textBaseline = 'top'
-        ctx.fillStyle = color
-        ctx.fillText(`${fps} FPS`, x + 10, y + 8)
-        ctx.textAlign = 'right'
-        ctx.fillStyle = 'rgba(255,255,255,0.72)'
-        ctx.fillText(`${this.frameIntervalAverage.toFixed(1)} ms`, x + width - 10, y + 8)
-
-        ctx.lineWidth = 1
-        ctx.strokeStyle = 'rgba(251,191,36,0.35)'
-        ctx.beginPath()
-        const budgetY = graphBottom - FRAME_BUDGET_MS / graphMaxMs * graphHeight
-        ctx.moveTo(graphX, budgetY)
-        ctx.lineTo(graphX + graphWidth, budgetY)
-        ctx.stroke()
-
-        ctx.strokeStyle = color
-        ctx.lineWidth = 1.5
-        ctx.beginPath()
-        const firstIndex = (this.frameTimeIndex - this.frameTimeCount + FRAME_HISTORY_SIZE) % FRAME_HISTORY_SIZE
-        for (let i = 0; i < this.frameTimeCount; i++) {
-            const sample = this.frameTimes[(firstIndex + i) % FRAME_HISTORY_SIZE]!
-            const sampleX = graphX + i / (FRAME_HISTORY_SIZE - 1) * graphWidth
-            const sampleY = graphBottom - Math.min(graphMaxMs, sample) / graphMaxMs * graphHeight
-            if (i === 0) ctx.moveTo(sampleX, sampleY)
-            else ctx.lineTo(sampleX, sampleY)
-        }
-        ctx.stroke()
-        ctx.textBaseline = 'alphabetic'
     }
 
     private renderBackground(time: number) {
@@ -1633,6 +1622,20 @@ export class ShapezzEngine {
             ctx.lineDashOffset = -time * (20 + this.weapon.visualIntensity * 8)
             ctx.beginPath()
             ctx.arc(0, 0, 27 + this.weapon.visualIntensity * 3, 0, Math.PI * 2)
+            ctx.stroke()
+            ctx.restore()
+        }
+        if (this.player.shield > 0) {
+            const capacity = this.upgrades.aegisPlating ? shapezzShieldStats(this.upgrades.aegisPlating).capacity : this.player.shield
+            ctx.save()
+            ctx.translate(this.player.x, this.player.y)
+            ctx.strokeStyle = '#38bdf8'
+            ctx.shadowColor = '#38bdf8'
+            ctx.shadowBlur = 12
+            ctx.globalAlpha = 0.35 + clamp(this.player.shield / Math.max(1, capacity), 0, 1) * 0.45
+            ctx.lineWidth = 3
+            ctx.beginPath()
+            ctx.arc(0, 0, this.player.size * 0.85, 0, Math.PI * 2)
             ctx.stroke()
             ctx.restore()
         }
