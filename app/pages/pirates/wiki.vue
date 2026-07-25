@@ -2,9 +2,12 @@
 import {
     PIRATE_ENEMY_TIERS,
     PIRATE_POWER_UPS,
+    PIRATE_ABILITIES,
+    PIRATE_ABILITY_MAX_LEVEL,
     PIRATE_MAX_STAT_LEVEL,
     PIRATE_REGEN_MAX_LEVEL,
     PIRATE_REGEN_DELAY_MS,
+    PIRATE_REGEN_CYCLE_MS,
     pirateMaxHp, pirateShipSpeed, pirateDefenseRating, pirateAmmoCapacity, pirateRegenRate,
     type PiratePowerUpId
 } from '#shared/utils/gamelogic/pirates'
@@ -51,15 +54,30 @@ const shipSystems = [
         name: 'Life Regen',
         icon: 'i-lucide-heart-pulse',
         accent: 'text-rose-400 bg-rose-400/10',
-        range: `+${pirateRegenRate(1)} → +${pirateRegenRate(PIRATE_REGEN_MAX_LEVEL)} HP/s`,
+        range: `+${pirateRegenRate(1)} → +${pirateRegenRate(PIRATE_REGEN_MAX_LEVEL)} HP / ${PIRATE_REGEN_CYCLE_MS / 1000}s`,
         levels: `${PIRATE_REGEN_MAX_LEVEL} levels`,
-        description: `Passive hull repair. Every captain owns level 1 (+${pirateRegenRate(1)} HP/sec) for free, upgrading up to +${pirateRegenRate(PIRATE_REGEN_MAX_LEVEL)} HP/sec. Regen only kicks in once your ship has been out of combat for ${PIRATE_REGEN_DELAY_MS / 1000} seconds — taking any hit or firing a single cannon shot resets the timer — so it tops you back up between fights while you disengage and reposition, never during a firefight.`
+        description: `Slow passive hull repair. Every captain owns level 1 (+${pirateRegenRate(1)} hull every ${PIRATE_REGEN_CYCLE_MS / 1000} seconds) for free, upgrading to +${pirateRegenRate(PIRATE_REGEN_MAX_LEVEL)} — at max that works out to roughly one hull per second, because each cycle's healing is spread evenly across it rather than arriving in a lump. Regen kicks in once you have gone ${PIRATE_REGEN_DELAY_MS / 1000} seconds without *taking* a hit; firing your own cannons no longer resets the timer, so you can keep shooting while you repair as long as nothing connects with you.`
     }
 ]
 
 definePageMeta({
     title: 'Pirate Raid Wiki'
 })
+
+// What each ability's damage actually keys off, so players can see why the
+// upgrade track matters rather than just being told that it does.
+const ABILITY_SCALING: Record<string, string> = {
+    bomb: 'Single wide blast — scales with power & level',
+    seekers: '8 warheads, one every 2s — heaviest single-target hit',
+    consort: 'Escort deals 60% → 80% of your cannon damage',
+    maelstrom: '7 pulses to everything caught — highest total area damage',
+    firestorm: '7 shells scattered at random — highest risk, highest ceiling'
+}
+
+const playerAbilities = PIRATE_ABILITIES.map(ability => ({
+    ...ability,
+    scaling: ABILITY_SCALING[ability.id] ?? ''
+}))
 
 const wildPowerUps = new Set<PiratePowerUpId>([
     'razor-orbit',
@@ -213,6 +231,7 @@ function unlockLabel(unlockAtMs: number, boss?: boolean) {
       </div>
       <div class="flex flex-wrap gap-2">
         <UButton size="sm" color="neutral" variant="subtle" to="#ship-systems" icon="i-lucide-ship" label="Ship systems" />
+        <UButton size="sm" color="neutral" variant="subtle" to="#abilities" icon="i-lucide-wand-sparkles" label="Abilities" />
         <UButton size="sm" color="neutral" variant="subtle" to="#power-ups" icon="i-lucide-sparkles" label="Power-ups" />
         <UButton size="sm" color="neutral" variant="subtle" to="#enemy-abilities" icon="i-lucide-bomb" label="Enemy abilities" />
         <UButton size="sm" color="neutral" variant="subtle" to="#bestiary" icon="i-lucide-skull" label="Bestiary" />
@@ -252,6 +271,49 @@ function unlockLabel(unlockAtMs: number, boss?: boolean) {
           </p>
           <div class="mt-3 flex gap-2 border-t border-default pt-3">
             <UBadge color="neutral" variant="subtle" size="sm" icon="i-lucide-trending-up" :label="system.levels" />
+          </div>
+        </UCard>
+      </div>
+    </section>
+
+    <section id="abilities" class="scroll-mt-6 space-y-4">
+      <div>
+        <p class="text-xs font-bold uppercase tracking-wider text-primary">
+          Captain's arsenal
+        </p>
+        <h2 class="mt-1 text-xl font-bold">
+          Right-click abilities
+        </h2>
+        <p class="mt-1 text-sm text-muted">
+          One ability may be equipped per voyage, fired by right-clicking the sea. Every ability has its own
+          {{ PIRATE_ABILITY_MAX_LEVEL }}-level upgrade track bought with coins in the Armory. Levels raise damage
+          <em>and</em> cut the cooldown, so a fully upgraded technique still deletes opening waves at the highest
+          difficulty instead of falling off. The cooldown floors are deliberately long — no ability is meant to have
+          anywhere near permanent uptime.
+        </p>
+      </div>
+
+      <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+        <UCard v-for="ability in playerAbilities" :key="ability.id" :ui="{ body: 'p-4' }">
+          <div class="flex items-start gap-3">
+            <div class="flex size-11 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+              <UIcon :name="ability.icon" class="size-5" />
+            </div>
+            <div class="min-w-0 flex-1">
+              <h3 class="font-bold">
+                {{ ability.name }}
+              </h3>
+              <p class="mt-0.5 text-xs font-semibold text-primary">
+                {{ ability.scaling }}
+              </p>
+            </div>
+          </div>
+          <p class="mt-3 text-xs leading-relaxed text-muted">
+            {{ ability.description }}
+          </p>
+          <div class="mt-3 flex flex-wrap gap-2 border-t border-default pt-3">
+            <UBadge color="neutral" variant="subtle" size="sm" icon="i-lucide-timer" :label="`${ability.cooldownMs / 1000}s → ${ability.minCooldownMs / 1000}s cooldown`" />
+            <UBadge color="neutral" variant="subtle" size="sm" icon="i-lucide-trending-up" :label="`${PIRATE_ABILITY_MAX_LEVEL} levels`" />
           </div>
         </UCard>
       </div>

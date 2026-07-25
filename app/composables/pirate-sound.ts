@@ -1,7 +1,7 @@
 export type PirateSoundEvent =
     | 'cannon-fire' | 'cannon-impact' | 'ship-hit' | 'enemy-sunk' | 'treasure-pickup' | 'power-up' | 'speed-boost' | 'menu'
     | 'powder-keg-throw' | 'powder-keg-explosion' | 'hunter-salvo-launch' | 'hunter-salvo-hit'
-    | 'stormchain-call' | 'stormchain-hit' | 'kraken-open' | 'hellfire-barrage' | 'hellfire-multi'
+    | 'consort-summon' | 'kraken-open' | 'hellfire-barrage' | 'hellfire-multi'
 
 const soundEnabled = ref(true)
 const soundVolume = ref(70)
@@ -28,8 +28,9 @@ const SOUND_FILES: Record<PirateSoundEvent, string[]> = {
     'powder-keg-explosion': ['/pirates/sounds/powder-keg-explosion.mp3', '/pirates/sounds/powder-keg-explosion-2.mp3'],
     'hunter-salvo-launch': ['/pirates/sounds/hunter-salvo-launch.mp3'],
     'hunter-salvo-hit': ['/pirates/sounds/hunter-salvo-hit.mp3', '/pirates/sounds/hunter-salvo-hit-2.mp3'],
-    'stormchain-call': ['/pirates/sounds/stormchain-call.mp3', '/pirates/sounds/stormchain-call-2.mp3'],
-    'stormchain-hit': ['/pirates/sounds/stormchain-hit.mp3', '/pirates/sounds/stormchain-hit-2.mp3'],
+    // The escort arrives on a thunderclap — reusing the old storm call keeps
+    // the summon punchy without shipping a new asset.
+    'consort-summon': ['/pirates/sounds/stormchain-call.mp3', '/pirates/sounds/stormchain-call-2.mp3'],
     'kraken-open': ['/pirates/sounds/kraken-open.mp3', '/pirates/sounds/kraken-open-2.mp3'],
     'hellfire-barrage': ['/pirates/sounds/hellfire-barrage.mp3'],
     'hellfire-multi': ['/pirates/sounds/hellfire-barage-multi.mp3']
@@ -50,8 +51,7 @@ const SOUND_LEVELS: Record<PirateSoundEvent, number> = {
     'powder-keg-explosion': 0.44,
     'hunter-salvo-launch': 0.34,
     'hunter-salvo-hit': 0.3,
-    'stormchain-call': 0.32,
-    'stormchain-hit': 0.26,
+    'consort-summon': 0.32,
     'kraken-open': 0.34,
     'hellfire-barrage': 0.32,
     'hellfire-multi': 0.38
@@ -61,8 +61,7 @@ const SOUND_COOLDOWNS: Partial<Record<PirateSoundEvent, number>> = {
     'cannon-fire': 140,
     'cannon-impact': 100,
     'ship-hit': 180,
-    'hunter-salvo-hit': 120,
-    'stormchain-hit': 120
+    'hunter-salvo-hit': 120
 }
 
 const lastPlayedAt = new Map<PirateSoundEvent, number>()

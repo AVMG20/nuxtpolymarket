@@ -5,7 +5,8 @@ import { requireUserId } from '#server/utils/auth'
 import {
     PIRATE_RUN_DURATION_MS, piratePowerLevel,
     PIRATE_MAX_DIFFICULTY, PIRATE_DIFFICULTY_STEP,
-    pirateMaxHp, pirateShipSpeed, pirateDefenseRating, pirateAmmoCapacity, pirateCannonTier, pirateAbility, pirateRegenRate
+    pirateMaxHp, pirateShipSpeed, pirateDefenseRating, pirateAmmoCapacity, pirateCannonTier, pirateAbility, pirateRegenRate,
+    pirateClampAbilityLevel
 } from '#shared/utils/gamelogic/pirates'
 
 export default defineEventHandler(async (event) => {
@@ -47,6 +48,7 @@ export default defineEventHandler(async (event) => {
         difficulty,
         skinId: s.equippedSkinId,
         abilityId: pirateAbility(s.equippedAbilityId).id,
+        abilityLevel: pirateClampAbilityLevel((s.abilityLevels ?? {})[pirateAbility(s.equippedAbilityId).id] ?? 1),
         runDurationMs: PIRATE_RUN_DURATION_MS,
         stats: {
             maxHp: pirateMaxHp(s.hullLevel),

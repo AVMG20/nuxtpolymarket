@@ -18,13 +18,15 @@ export interface PirateShipStats {
     maxHp: number
     speed: number
     defenseRating: number
-    /** Passive hull regen in HP/sec, applied only after PIRATE_REGEN_DELAY_MS without a hit. */
+    /** Hull repaired per regen cycle, applied only after PIRATE_REGEN_DELAY_MS without taking a hit. */
     regenRate: number
     cannons: PirateCannonRuntime[]
     ammo: number
     gemAmmo: number
     skinId: string
     abilityId: PirateAbilityId
+    /** Upgrade level (1-5) of the equipped right-click ability. */
+    abilityLevel: number
 }
 
 export interface PirateGameOverResult {
@@ -57,7 +59,7 @@ export interface PirateActivePowerUp {
 export type PirateAbilitySound =
     | 'powder-keg-throw' | 'powder-keg-explosion'
     | 'hunter-salvo-launch' | 'hunter-salvo-hit'
-    | 'stormchain-call' | 'stormchain-hit'
+    | 'consort-summon'
     | 'kraken-open' | 'kraken-loop-start' | 'kraken-loop-stop'
     | 'hellfire-barrage' | 'hellfire-multi'
 
@@ -65,7 +67,8 @@ export interface PirateGameCallbacks {
     onHpChange: (hp: number, maxHp: number) => void
     onCoinsChange: (coins: number) => void
     onAmmoChange: (ammo: number, gemAmmo: number) => void
-    onAbilityCooldownChange: (remainingMs: number, totalMs: number) => void
+    /** `locked` marks an ability that is unavailable but not counting down — the consort while its escort is still afloat. */
+    onAbilityCooldownChange: (remainingMs: number, totalMs: number, locked?: boolean) => void
     onTimeChange: (elapsedMs: number, remainingMs: number) => void
     onGameOver: (result: PirateGameOverResult) => void
     onCannonFire?: () => void
@@ -96,6 +99,10 @@ export interface PlayerShotProfile {
     massive: boolean
     cannonColor: number
     tierTrail: boolean
+    /** Top-three cannon tiers leave a soft blooming plasma wake. */
+    mutatedTrail?: boolean
+    /** Consort fire uses the same bloom shape in a cold slate/blue palette. */
+    consortTrail?: boolean
 }
 
 export interface Island {
@@ -131,6 +138,32 @@ export interface Enemy {
     root: Container
     visual: ShipVisual
     targetRing: Graphics
+    hpBarFill: Graphics
+    hpBarWidth: number
+    dead: boolean
+}
+
+/**
+ * A summoned escort. It mirrors the captain's loadout (same defense rating,
+ * speed, and copies of their best cannon) on a much smaller hull, holds
+ * station off the player's beam, and can be shot down by the fleet.
+ */
+export interface AllyShip {
+    id: number
+    hp: number
+    maxHp: number
+    x: number
+    y: number
+    angle: number
+    speed: number
+    defenseRating: number
+    cannons: Cannon[]
+    fireGapMs: number
+    maxRange: number
+    /** Phase offset so multiple escorts hold different stations around the player. */
+    stationAngle: number
+    root: Container
+    visual: ShipVisual
     hpBarFill: Graphics
     hpBarWidth: number
     dead: boolean

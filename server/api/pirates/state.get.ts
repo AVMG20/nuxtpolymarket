@@ -11,6 +11,7 @@ import {
     pirateMaxHp, pirateShipSpeed, pirateDefenseRating, pirateAmmoCapacity,
     pirateSlotUnlockCost, pirateCannonTier, piratePowerLevel, pirateRepairRushGemCost, pirateAmmoPricePerUnit,
     PIRATE_SHIP_SKINS, PIRATE_ABILITIES, pirateAbility,
+    PIRATE_ABILITY_MAX_LEVEL, pirateAbilityUpgradeCost, pirateClampAbilityLevel, pirateAbilityCooldownMs,
     pirateRecommendedDifficulty, pirateDifficultyOptions, pirateAverageRunPayoutEstimate, pirateCompletionBonus
 } from '#shared/utils/gamelogic/pirates'
 
@@ -65,6 +66,7 @@ export default defineEventHandler(async (event) => {
     const ownedSkinIds = Array.from(new Set(['starter', ...(s.ownedSkinIds ?? [])]))
     const ownedAbilityIds = Array.from(new Set(['bomb', ...(s.ownedAbilityIds ?? [])]))
     const equippedAbilityId = pirateAbility(s.equippedAbilityId).id
+    const abilityLevels = s.abilityLevels ?? {}
     const recommendedDifficulty = pirateRecommendedDifficulty(s.highestCompletedDifficulty)
     const difficultyOptions = pirateDifficultyOptions(Math.max(power, recommendedDifficulty))
 
@@ -111,8 +113,23 @@ export default defineEventHandler(async (event) => {
         })),
         skins: PIRATE_SHIP_SKINS.map(skin => ({ ...skin, owned: ownedSkinIds.includes(skin.id), equipped: skin.id === s.equippedSkinId })),
         equippedSkinId: s.equippedSkinId,
-        abilities: PIRATE_ABILITIES.map(ability => ({ ...ability, owned: ownedAbilityIds.includes(ability.id), equipped: ability.id === equippedAbilityId })),
+        abilities: PIRATE_ABILITIES.map((ability) => {
+            const level = pirateClampAbilityLevel(abilityLevels[ability.id] ?? 1)
+            return {
+                ...ability,
+                owned: ownedAbilityIds.includes(ability.id),
+                equipped: ability.id === equippedAbilityId,
+                level,
+                maxLevel: PIRATE_ABILITY_MAX_LEVEL,
+                upgradeCost: pirateAbilityUpgradeCost(level),
+                // Cooldown at the current level, plus the floor it reaches at
+                // max, so the Armory can show what an upgrade actually buys.
+                currentCooldownMs: pirateAbilityCooldownMs(ability.id, level),
+                bestCooldownMs: pirateAbilityCooldownMs(ability.id, PIRATE_ABILITY_MAX_LEVEL)
+            }
+        }),
         equippedAbilityId,
+        equippedAbilityLevel: pirateClampAbilityLevel(abilityLevels[equippedAbilityId] ?? 1),
         runDurationMs: PIRATE_RUN_DURATION_MS,
         activeRun: s.runStartedAt ? { startedAt: s.runStartedAt } : null,
         repair: {

@@ -10,7 +10,7 @@ const { fetchSession } = useAuth()
 const { data: state, refresh } = await useFetch('/api/pirates/state')
 
 const {
-    hp, maxHp, coins, ammo, gemAmmo, preferGem, abilityCooldownMs, abilityCooldownTotalMs, remainingMs,
+    hp, maxHp, coins, ammo, gemAmmo, preferGem, abilityCooldownMs, abilityCooldownTotalMs, abilityLocked, remainingMs,
     running, paused, starting,
     combo, comboVisible, bossName, bossVisible,
     activePowerUps, nextPowerUpMs, nextHealthPackMs,
@@ -35,8 +35,17 @@ const timerLabel = computed(() => {
 const nextPowerUpLabel = computed(() => `${Math.max(0, Math.ceil(nextPowerUpMs.value / 1000))}s`)
 const nextHealthPackLabel = computed(() => `${Math.max(0, Math.ceil(nextHealthPackMs.value / 1000))}s`)
 const equippedAbility = computed(() => state.value?.abilities.find(ability => ability.equipped) ?? state.value?.abilities[0])
-const abilityCooldownLabel = computed(() => abilityCooldownMs.value > 0 ? `${Math.ceil(abilityCooldownMs.value / 1000)}s` : 'Ready')
-const abilityCooldownPercent = computed(() => abilityCooldownTotalMs.value > 0 ? Math.max(0, Math.min(100, abilityCooldownMs.value / abilityCooldownTotalMs.value * 100)) : 0)
+// The consort is unavailable while its escort is alive, but nothing is
+// counting down — showing a stale number there would just read as a stuck timer.
+const abilityCooldownLabel = computed(() => {
+    if (abilityLocked.value) return 'At sea'
+    return abilityCooldownMs.value > 0 ? `${Math.ceil(abilityCooldownMs.value / 1000)}s` : 'Ready'
+})
+const abilityReady = computed(() => abilityCooldownMs.value <= 0 && !abilityLocked.value)
+const abilityCooldownPercent = computed(() => {
+    if (abilityLocked.value) return 100
+    return abilityCooldownTotalMs.value > 0 ? Math.max(0, Math.min(100, abilityCooldownMs.value / abilityCooldownTotalMs.value * 100)) : 0
+})
 const selectedDifficulty = ref(0)
 const difficultySelectItems = computed(() => (state.value?.difficultyOptions ?? []).map(option => ({
     label: `Difficulty ${option.difficulty}${option.completed ? ' · cleared' : option.difficulty === state.value?.recommendedDifficulty ? ' · recommended' : ''}`,
@@ -297,6 +306,7 @@ onUnmounted(() => {
                   </p>
                   <p class="mt-1 truncate text-sm font-black">
                     {{ equippedAbility?.name ?? 'Powder Keg' }}
+                    <span v-if="equippedAbility" class="text-primary">Lv {{ equippedAbility.level }}</span>
                   </p>
                 </div>
                 <div class="rounded-lg border border-default bg-elevated p-3">
@@ -466,7 +476,7 @@ onUnmounted(() => {
             <section class="flex items-center justify-center gap-2 lg:flex-col">
               <div
                 class="w-full min-w-30 overflow-hidden rounded-lg border px-2.5 py-2 text-center transition-colors"
-                :class="abilityCooldownMs <= 0 ? 'border-primary/50 bg-primary/10 text-primary' : 'border-default bg-default text-muted'"
+                :class="abilityReady ? 'border-primary/50 bg-primary/10 text-primary' : 'border-default bg-default text-muted'"
               >
                 <div class="flex items-center justify-center gap-1.5 text-xs font-bold">
                   <UIcon :name="equippedAbility?.icon ?? 'i-lucide-bomb'" class="size-4" />

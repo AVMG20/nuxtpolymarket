@@ -35,7 +35,7 @@ const STAT_META: Record<PirateShipStatId, { label: string, icon: string, color: 
     speed: { label: 'Speed', icon: 'i-lucide-wind', color: 'text-cyan-400 bg-cyan-400/15', value: l => pirateShipSpeed(l), unit: 'spd' },
     defense: { label: 'Defense', icon: 'i-lucide-shield', color: 'text-blue-400 bg-blue-400/15', value: l => pirateDefenseRating(l), unit: 'def' },
     ammoCapacity: { label: 'Ammo Hold', icon: 'i-lucide-package', color: 'text-amber-400 bg-amber-400/15', value: l => pirateAmmoCapacity(l), unit: 'cap' },
-    regen: { label: 'Life Regen', icon: 'i-lucide-heart-pulse', color: 'text-rose-400 bg-rose-400/15', value: l => pirateRegenRate(l), unit: 'HP/s' }
+    regen: { label: 'Life Regen', icon: 'i-lucide-heart-pulse', color: 'text-rose-400 bg-rose-400/15', value: l => pirateRegenRate(l), unit: 'HP/5s' }
 }
 
 const statMaxLevel = (statId: PirateShipStatId) => pirateStatMaxLevel(statId)
@@ -268,6 +268,20 @@ async function selectAbility(ability: NonNullable<typeof state.value>['abilities
         abilityAction.value = null
     }
 }
+
+async function upgradeAbility(ability: NonNullable<typeof state.value>['abilities'][number]) {
+    if (!ability.owned || ability.upgradeCost === null || abilityAction.value) return
+    abilityAction.value = ability.id
+    try {
+        const res = await $fetch('/api/pirates/abilities/upgrade', { method: 'POST', body: { abilityId: ability.id } })
+        toast.add({ title: `${ability.name} upgraded to level ${res.newLevel}`, color: 'success' })
+        await Promise.all([refresh(), fetchSession()])
+    } catch (e: any) {
+        toast.add({ title: apiErrorMessage(e, 'Failed to upgrade ability'), color: 'error' })
+    } finally {
+        abilityAction.value = null
+    }
+}
 </script>
 
 <template>
@@ -358,7 +372,8 @@ async function selectAbility(ability: NonNullable<typeof state.value>['abilities
               Captain's Arsenal — Right-click Ability
             </p>
             <p class="mt-0.5 text-xs text-muted">
-              Permanently unlock techniques, then equip exactly one before setting sail.
+              Permanently unlock techniques, then equip exactly one before setting sail. Each can be upgraded five
+              times — a maxed ability keeps pace with the highest difficulty brackets.
             </p>
           </div>
           <UBadge color="neutral" variant="subtle">
@@ -388,8 +403,25 @@ async function selectAbility(ability: NonNullable<typeof state.value>['abilities
             </p>
             <div class="mt-2 flex items-center gap-1 text-[11px] text-muted">
               <UIcon name="i-lucide-timer" class="size-3.5" />
-              {{ ability.cooldownMs / 1000 }}s cooldown
+              <span>{{ ability.currentCooldownMs / 1000 }}s cooldown</span>
+              <span v-if="ability.currentCooldownMs > ability.bestCooldownMs" class="text-primary">
+                → {{ ability.bestCooldownMs / 1000 }}s
+              </span>
             </div>
+
+            <!-- Upgrade track: five pips showing how far this ability is levelled. -->
+            <div v-if="ability.owned" class="mt-2 flex items-center gap-1.5">
+              <span class="text-[11px] font-semibold text-muted">Lv {{ ability.level }}</span>
+              <div class="flex flex-1 gap-0.5">
+                <span
+                  v-for="pip in ability.maxLevel"
+                  :key="pip"
+                  class="h-1.5 flex-1 rounded-full"
+                  :class="pip <= ability.level ? 'bg-primary' : 'bg-elevated'"
+                />
+              </div>
+            </div>
+
             <UButton
               block
               size="sm"
@@ -404,6 +436,24 @@ async function selectAbility(ability: NonNullable<typeof state.value>['abilities
               <span v-else-if="ability.owned">Equip</span>
               <span v-else-if="ability.cost === 0">Free</span>
               <CoinBalance v-else :value="ability.cost" />
+            </UButton>
+
+            <UButton
+              v-if="ability.owned"
+              block
+              size="sm"
+              class="mt-1.5"
+              color="primary"
+              variant="soft"
+              :disabled="!!state.activeRun || ability.upgradeCost === null || balance < ability.upgradeCost"
+              :loading="abilityAction === ability.id"
+              @click="upgradeAbility(ability)"
+            >
+              <span v-if="ability.upgradeCost === null">Max level</span>
+              <template v-else>
+                <UIcon name="i-lucide-arrow-big-up-dash" class="size-4" />
+                <CoinBalance :value="ability.upgradeCost" />
+              </template>
             </UButton>
           </UCard>
         </div>

@@ -6,7 +6,13 @@ import {
     PIRATE_POWER_UP_INTERVAL_MS, PIRATE_POWER_UP_LIFESPAN_MS,
     PIRATE_HEALTH_PACK_INTERVAL_MS, PIRATE_HEALTH_PACK_LIFESPAN_MS,
     PIRATE_SEA_MINE_INTERVAL_MS, PIRATE_SEA_MINE_LIFESPAN_MS,
-    PIRATE_REGEN_DELAY_MS,
+    PIRATE_REGEN_DELAY_MS, pirateRegenTickIntervalMs,
+    PIRATE_HUNTER_CHAIN_COUNT, PIRATE_HUNTER_CHAIN_INTERVAL_MS, pirateHunterChainDamage,
+    pirateBombDamage, pirateMaelstromPulseDamage, pirateClampAbilityLevel, pirateAbilityCooldownMs,
+    PIRATE_CONSORT_FOLLOW_DISTANCE, pirateConsortStatFraction, pirateConsortHpFraction, pirateConsortCannonCount,
+    pirateConsortDamageFraction,
+    PIRATE_HELLFIRE_ZONE_RADIUS, PIRATE_HELLFIRE_SHELL_COUNT, PIRATE_HELLFIRE_BLAST_RADIUS, pirateHellfireShellDamage,
+    PIRATE_CANNON_TIERS,
     PIRATE_AMMO_RANGE_MULT, PIRATE_AMMO_DAMAGE_MULT,
     PIRATE_GEM_AMMO_ATTACK_MULT, PIRATE_GEM_AMMO_DAMAGE_MULT,
     PIRATE_COMBO_WINDOW_MS, PIRATE_COMBO_BONUS_PER_STACK, PIRATE_COMBO_MAX_STACKS,
@@ -16,7 +22,7 @@ import {
     pirateSpawnIntervalMs, pirateMaxConcurrentEnemies, pirateRollEnemyTier, pirateDifficultyMultiplier,
     pirateTreasureReward, pirateRollAttack, pirateRewardMultiplier, pirateBossFirstSpawnMs,
     pirateInitialEnemyCount, pirateSpawnBatchSize,
-    pirateSeaMineDamageFraction,
+    pirateSeaMineDamageFraction, pirateCannonTier,
     pirateEnemyReloadMultiplier, pirateMaxPayoutForRun,
     PIRATE_SHIP_SKINS, PIRATE_POWER_UPS, pirateAbility,
     type PirateEnemyTier, type PiratePowerUpId
@@ -30,7 +36,7 @@ import { dist, randRange, lerpAngle, segPointDist } from './math'
 import { PirateNavGrid, generateIslandLayout } from './nav-grid'
 import * as fx from './sprite-fx'
 import type {
-    AmmoKind, Cannon, PlayerShotProfile, ShipVisual, Enemy, Treasure, PowerUpPickup, HealthPackPickup, SeaMine,
+    AmmoKind, Cannon, PlayerShotProfile, ShipVisual, Enemy, AllyShip, Treasure, PowerUpPickup, HealthPackPickup, SeaMine,
     EnemyAbility, PirateShipStats, PirateGameCallbacks, PirateActivePowerUp
 } from './types'
 
@@ -57,9 +63,10 @@ export class PirateGame {
     private elapsedMs = 0
     private timeSec = 0
     private playerHp = 100
-    // Passive regen: once the ship has been out of combat (no hit taken and no
-    // shot fired) for PIRATE_REGEN_DELAY_MS, it heals on a fixed 1-second tick.
-    private msOutOfCombat = 0
+    // Passive regen: once the ship has gone PIRATE_REGEN_DELAY_MS without
+    // TAKING a hit (firing freely is fine), it repairs regenRate hull per
+    // PIRATE_REGEN_CYCLE_MS, delivered as +1 ticks spread across the cycle.
+    private msSinceHit = 0
     private regenTickMs = 0
     private coins = 0
     private rawCoins = 0
@@ -88,6 +95,9 @@ export class PirateGame {
     private powerUpHudTimerMs = 0
     private nextEnemyId = 1
     private enemies = new Map<number, Enemy>()
+    private allies: AllyShip[] = []
+    private nextAllyId = 1
+    private allyLayer = new Container()
     private treasure: Treasure | null = null
     private powerUpPickups: PowerUpPickup[] = []
     private healthPackPickups: HealthPackPickup[] = []
@@ -102,6 +112,10 @@ export class PirateGame {
     private playerHealthBarFill = new Graphics()
     private razorOrbit = new Container()
     private ghostArmada = new Container()
+    // Hunter's Chain — warheads parked in orbit, fired one at a time.
+    private hunterChainOrbit = new Container()
+    private hunterChainTimerMs = 0
+    private hunterChainRotation = 0
     private razorVisualStacks = 0
     private ghostVisualStacks = 0
     private razorDamageTimerMs = 0
@@ -182,6 +196,7 @@ export class PirateGame {
         this.world.addChild(this.obstacleLayer)
         this.world.addChild(this.treasureLayer)
         this.world.addChild(this.enemyLayer)
+        this.world.addChild(this.allyLayer)
         this.world.addChild(this.playerLayer)
         this.world.addChild(this.effectsLayer)
         this.app.stage.addChild(this.world)
@@ -231,7 +246,7 @@ export class PirateGame {
         this.playerHealthBar.position.set(this.playerX, this.playerY - 58)
         this.playerHealthBar.alpha = 0
         this.playerLayer.addChild(this.playerHealthBar)
-        this.playerLayer.addChild(this.razorOrbit, this.ghostArmada)
+        this.playerLayer.addChild(this.razorOrbit, this.ghostArmada, this.hunterChainOrbit)
         this.updatePlayerHealthBar()
 
         this.generateIslands()
@@ -262,7 +277,7 @@ export class PirateGame {
         this.power = power
         this.difficulty = difficulty
         this.playerHp = stats.maxHp
-        this.msOutOfCombat = 0
+        this.msSinceHit = 0
         this.regenTickMs = 0
         this.coins = 0
         this.rawCoins = 0
@@ -283,7 +298,7 @@ export class PirateGame {
         this.sunkByType.clear()
         this.playerAbilityCooldownMs = 0
         this.abilityHudTimerMs = 0
-        this.callbacks.onAbilityCooldownChange(0, pirateAbility(stats.abilityId).cooldownMs)
+        this.callbacks.onAbilityCooldownChange(0, this.abilityCooldownMs)
         this.combo = 0
         this.maxCombo = 0
         this.lastKillAt = -Infinity
@@ -304,6 +319,9 @@ export class PirateGame {
         this.starburstTimerMs = 0
         this.tempestTimerMs = 0
         this.ghostFireTimerMs = 0
+        this.hunterChainTimerMs = 0
+        this.hunterChainRotation = 0
+        this.clearHunterChain()
         this.syncRoguePowerVisuals()
         this.playerX = WORLD_W / 2
         this.playerY = WORLD_H / 2
@@ -342,6 +360,16 @@ export class PirateGame {
     /** Toggle whether cannons draw from the gem magazine first. */
     setPreferGemAmmo(prefer: boolean) {
         this.preferGem = prefer
+    }
+
+    /** Upgrade level of the equipped right-click ability, clamped to 1-5. */
+    private get abilityLevel() {
+        return pirateClampAbilityLevel(this.stats.abilityLevel ?? 1)
+    }
+
+    /** Full cooldown of the equipped ability at its current upgrade level. */
+    private get abilityCooldownMs() {
+        return pirateAbilityCooldownMs(this.stats.abilityId, this.abilityLevel)
     }
 
     get isRunning() {
@@ -467,7 +495,7 @@ export class PirateGame {
             this.playerAbilityCooldownMs = Math.max(0, this.playerAbilityCooldownMs - deltaMS)
             this.abilityHudTimerMs -= deltaMS
             if (this.abilityHudTimerMs <= 0 || this.playerAbilityCooldownMs === 0) {
-                this.callbacks.onAbilityCooldownChange(this.playerAbilityCooldownMs, pirateAbility(this.stats.abilityId).cooldownMs)
+                this.callbacks.onAbilityCooldownChange(this.playerAbilityCooldownMs, this.abilityCooldownMs)
                 this.abilityHudTimerMs = 100
             }
         }
@@ -476,6 +504,8 @@ export class PirateGame {
         this.updateRegen(deltaMS)
         this.updatePlayer(dt, deltaMS)
         this.updateCannons(deltaMS)
+        this.updateHunterChain(dt, deltaMS)
+        this.updateAllies(dt, deltaMS)
         this.updateEnemies(dt, deltaMS)
         this.updateTreasure(dt, deltaMS)
         this.updatePowerUps(dt, deltaMS)
@@ -509,36 +539,43 @@ export class PirateGame {
         return this.coins - previouslyBanked
     }
 
-    /** Reset the out-of-combat timer — call on any combat action (taking a hit or firing a shot). */
+    /**
+     * Reset the regen timer. Only *taking* damage counts — firing your own
+     * cannons no longer interrupts repairs, so a captain who keeps clear of
+     * incoming fire can heal while still shooting back.
+     */
     private enterCombat() {
-        this.msOutOfCombat = 0
+        this.msSinceHit = 0
         this.regenTickMs = 0
     }
 
     /**
-     * Passive hull regen. Once the ship has been out of combat (no hit taken
-     * and no shot fired) for PIRATE_REGEN_DELAY_MS, it heals regenRate HP once
-     * per second, spawning a floating heal popup on each tick.
+     * Passive hull regen. Once PIRATE_REGEN_DELAY_MS has passed without taking
+     * a hit, the ship repairs regenRate hull per PIRATE_REGEN_CYCLE_MS. The
+     * cycle's healing is spread evenly into +1 ticks rather than arriving as a
+     * lump, so regen 5 reads as a steady one hull per second.
      */
     private updateRegen(deltaMS: number) {
-        this.msOutOfCombat += deltaMS
+        this.msSinceHit += deltaMS
         const rate = this.stats.regenRate
         if (rate <= 0 || this.playerHp <= 0 || this.playerHp >= this.stats.maxHp) {
             this.regenTickMs = 0
             return
         }
-        if (this.msOutOfCombat < PIRATE_REGEN_DELAY_MS) return
+        if (this.msSinceHit < PIRATE_REGEN_DELAY_MS) return
 
+        const tickIntervalMs = pirateRegenTickIntervalMs(rate)
         this.regenTickMs += deltaMS
-        if (this.regenTickMs < 1000) return
-        this.regenTickMs -= 1000
+        if (this.regenTickMs < tickIntervalMs) return
+        this.regenTickMs -= tickIntervalMs
 
-        const healed = Math.min(rate, this.stats.maxHp - this.playerHp)
+        const healed = Math.min(1, this.stats.maxHp - this.playerHp)
         if (healed <= 0) return
         this.playerHp += healed
         this.callbacks.onHpChange(this.playerHp, this.stats.maxHp)
         this.updatePlayerHealthBar()
         this.showPlayerHealthBar()
+        this.spawnRegenSparkle()
         this.spawnDamagePopup('regen', this.playerX, this.playerY - 46, `+${healed}`, 0xfb7185, false)
     }
 
@@ -602,6 +639,9 @@ export class PirateGame {
         this.playerHealthBar.position.set(this.playerX, this.playerY - 58)
         this.razorOrbit.position.set(this.playerX, this.playerY)
         this.ghostArmada.position.set(this.playerX, this.playerY)
+        // The Hunter's Chain warheads are positioned in orbit-local space, so
+        // this container has to track the ship or they orbit the world origin.
+        this.hunterChainOrbit.position.set(this.playerX, this.playerY)
         this.player.hull.rotation = this.playerAngle
     }
 
@@ -663,7 +703,6 @@ export class PirateGame {
             const reloadMult = Math.max(0.35, 1 - this.powerUpStack('quick-fuse') * 0.2 - this.powerUpStack('rapid-loader') * 0.1)
             cannon.reloadTimer = cannon.reloadMs * reloadMult * PIRATE_TIMELINE_SCALE
             this.cannonFireGapMs = PLAYER_CANNON_FIRE_GAP_MS
-            this.enterCombat()
             this.fireCannonAtEnemy(cannon, target)
         }
     }
@@ -700,8 +739,9 @@ export class PirateGame {
                     ? randRange(PIRATE_BOSS_ABILITY_COOLDOWN_MIN_MS, PIRATE_BOSS_ABILITY_COOLDOWN_MAX_MS)
                     : randRange(7600 * PIRATE_TIMELINE_SCALE, 11_500 * PIRATE_TIMELINE_SCALE)
             }
-            const d = dist(enemy.x, enemy.y, this.playerX, this.playerY)
-            const desiredAngle = Math.atan2(this.playerY - enemy.y, this.playerX - enemy.x)
+            const engaged = this.enemyTarget(enemy)
+            const d = dist(enemy.x, enemy.y, engaged.x, engaged.y)
+            const desiredAngle = Math.atan2(engaged.y - enemy.y, engaged.x - enemy.x)
 
             if (d > enemy.tier.range) {
                 // Steering with island repulsion — cheap, and with sparse round
@@ -852,7 +892,8 @@ export class PirateGame {
             explosive: this.hasPowerUp('blast-powder') && this.blastShotCount % blastEvery === 0,
             massive: this.hasPowerUp('titan-shot') && this.titanShotCount % titanEvery === 0,
             cannonColor: cannon.shotColor,
-            tierTrail: cannon.shotTrail
+            tierTrail: cannon.shotTrail,
+            mutatedTrail: pirateCannonTier(cannon.tierId).mutatedTrail ?? false
         }
         if (profile.explosive || profile.massive) this.emitPowerUpState()
 
@@ -882,19 +923,33 @@ export class PirateGame {
         }, profile)
     }
 
+    /** True while a summoned escort is still afloat, which locks out a recast. */
+    private get consortAtSea() {
+        return this.stats.abilityId === 'consort' && this.allies.length > 0
+    }
+
     private castPlayerAbility(targetX: number, targetY: number) {
         if (this.playerAbilityCooldownMs > 0) {
             this.spawnDamagePopup('player-ability-cooldown', targetX, targetY - 20, `${Math.ceil(this.playerAbilityCooldownMs / 1000)}s`, 0xfde68a, false)
             return
         }
+        if (this.consortAtSea) {
+            this.spawnDamagePopup('player-ability-cooldown', targetX, targetY - 20, 'CONSORT AT SEA', 0xbfdbfe, false)
+            return
+        }
         const ability = pirateAbility(this.stats.abilityId)
-        this.playerAbilityCooldownMs = ability.cooldownMs
+        const cooldownMs = this.abilityCooldownMs
+        // The consort defers its cooldown: it stays locked out for as long as
+        // the escort survives, and only starts counting down once it sinks
+        // (see sinkAlly). Keeping a consort alive is therefore the reward for
+        // protecting it, rather than something the timer hands you anyway.
+        if (ability.id !== 'consort') this.playerAbilityCooldownMs = cooldownMs
         this.abilityHudTimerMs = 100
         this.abilitiesUsed += 1
-        this.callbacks.onAbilityCooldownChange(this.playerAbilityCooldownMs, ability.cooldownMs)
+        this.callbacks.onAbilityCooldownChange(this.playerAbilityCooldownMs, cooldownMs, ability.id === 'consort')
 
-        if (ability.id === 'seekers') this.castSeekerSalvo(targetX, targetY)
-        else if (ability.id === 'stormchain') this.castStormchain(targetX, targetY)
+        if (ability.id === 'seekers') this.castHunterChain()
+        else if (ability.id === 'consort') this.castGhostlyConsort()
         else if (ability.id === 'maelstrom') this.castMaelstrom(targetX, targetY)
         else if (ability.id === 'firestorm') this.castHellfireBarrage(targetX, targetY)
         else this.castPlayerBomb(targetX, targetY)
@@ -943,7 +998,7 @@ export class PirateGame {
 
     private detonatePlayerBomb(x: number, y: number) {
         this.callbacks.onAbilitySound?.('powder-keg-explosion')
-        const damage = Math.max(25, Math.round(20 + this.power * 0.75))
+        const damage = pirateBombDamage(this.power, this.abilityLevel)
         const ring = new Graphics()
         ring.circle(0, 0, 18).fill({ color: 0xfef3c7, alpha: 0.65 }).stroke({ width: 6, color: 0xfacc15, alpha: 0.95 })
         ring.position.set(x, y)
@@ -1005,97 +1060,396 @@ export class PirateGame {
             .sort((a, b) => dist(x, y, a.x, a.y) - dist(x, y, b.x, b.y))[0]
     }
 
-    private castSeekerSalvo(targetX: number, targetY: number) {
-        const picked = [...this.enemies.values()]
-            .filter(enemy => !enemy.dead)
-            .sort((a, b) => dist(targetX, targetY, a.x, a.y) - dist(targetX, targetY, b.x, b.y))
-            .slice(0, 3)
-        const damage = Math.max(18, Math.round(12 + this.power * 0.24))
-        this.spawnDamagePopup('seeker-cast', this.playerX, this.playerY - 55, "HUNTER'S SALVO", 0xfca5a5, true)
-        this.callbacks.onAbilitySound?.('hunter-salvo-launch')
-
-        for (let i = 0; i < 3; i++) {
-            const initialTarget = picked[i] ?? picked[i % Math.max(1, picked.length)]
-            const root = new Container()
-            root.position.set(this.playerX, this.playerY)
-            const missile = new Graphics()
-            missile.moveTo(15, 0).lineTo(-9, -7).lineTo(-5, 0).lineTo(-9, 7).closePath()
-                .fill({ color: 0xf8fafc }).stroke({ width: 2, color: 0xef4444 })
-            const glow = new Graphics()
-            glow.circle(-10, 0, 6).fill({ color: 0xfb7185, alpha: 0.5 })
-            root.addChild(glow, missile)
-            this.effectsLayer.addChild(root)
-            const flight = { progress: 0 }
-            let lastTrail = 0
-            gsap.delayedCall(i * 0.13, () => {
-                if (!this.running || root.destroyed) return
-                gsap.to(flight, {
-                    progress: 1,
-                    duration: 1.15,
-                    ease: 'power1.in',
-                    onUpdate: () => {
-                        const target = (initialTarget && this.enemies.get(initialTarget.id)) || this.closestEnemy(root.x, root.y)
-                        const aimX = target?.x ?? targetX
-                        const aimY = target?.y ?? targetY
-                        const angle = Math.atan2(aimY - root.y, aimX - root.x)
-                        const step = Math.min(28, dist(root.x, root.y, aimX, aimY) * 0.16 + 3)
-                        root.x += Math.cos(angle) * step
-                        root.y += Math.sin(angle) * step
-                        root.rotation = angle
-                        const now = performance.now()
-                        if (now - lastTrail > 28) {
-                            lastTrail = now
-                            this.spawnTrailParticle(root.x, root.y, i % 2 ? 0xf97316 : 0xef4444, 1.2)
-                        }
-                    },
-                    onComplete: () => {
-                        const target = (initialTarget && this.enemies.get(initialTarget.id)) || this.closestEnemy(root.x, root.y)
-                        const hitX = target?.x ?? root.x
-                        const hitY = target?.y ?? root.y
-                        if (!root.destroyed) root.destroy({ children: true })
-                        if (!this.running) return
-                        this.callbacks.onAbilitySound?.('hunter-salvo-hit')
-                        this.spawnExplosion(hitX, hitY, 0xef4444, true)
-                        if (target && dist(hitX, hitY, target.x, target.y) < 65) this.damageEnemyWithAbility(target, damage, 'SEEKER', 0xfca5a5, true)
-                    }
-                })
-            })
-        }
-    }
-
     private drawLightningArc(fromX: number, fromY: number, toX: number, toY: number) {
         fx.drawLightningArc(this.effectsLayer, fromX, fromY, toX, toY)
     }
 
-    private castStormchain(targetX: number, targetY: number) {
-        const first = this.closestEnemy(targetX, targetY)
-        if (!first || dist(targetX, targetY, first.x, first.y) > 280) {
-            this.spawnDamagePopup('stormchain-empty', targetX, targetY - 20, 'NO CONDUCTOR', 0x7dd3fc, false)
+    // ─── Hunter's Chain ─────────────────────────────────────────────────────
+    // Eight warheads latch into a slow orbit around the ship and peel off one
+    // at a time, every two seconds, at whatever is nearest. It's pure
+    // single-target damage delivered over a long window, so each warhead hits
+    // far harder than the old three-missile salvo did.
+
+    private clearHunterChain() {
+        gsap.killTweensOf(this.hunterChainOrbit.children)
+        this.hunterChainOrbit.removeChildren().forEach(child => child.destroy({ children: true }))
+        this.hunterChainOrbit.rotation = 0
+    }
+
+    private castHunterChain() {
+        this.spawnDamagePopup('hunter-chain-cast', this.playerX, this.playerY - 62, "HUNTER'S CHAIN", 0xfca5a5, true)
+        this.callbacks.onAbilitySound?.('hunter-salvo-launch')
+        // Recasting tops the orbit back up to a full set rather than stacking.
+        const missing = PIRATE_HUNTER_CHAIN_COUNT - this.hunterChainOrbit.children.length
+        for (let i = 0; i < missing; i++) {
+            const warhead = fx.createHunterWarhead()
+            const angle = Math.random() * Math.PI * 2
+            warhead.position.set(Math.cos(angle) * 78, Math.sin(angle) * 78)
+            warhead.scale.set(0)
+            this.hunterChainOrbit.addChild(warhead)
+            gsap.to(warhead.scale, { x: 1, y: 1, duration: 0.3, delay: i * 0.05, ease: 'back.out(2.4)' })
+        }
+        this.layoutHunterChain()
+        // Fire the first one promptly so the cast reads as immediate.
+        this.hunterChainTimerMs = Math.min(this.hunterChainTimerMs, 350)
+        for (let i = 0; i < 14; i++) {
+            const angle = (i / 14) * Math.PI * 2
+            this.spawnTrailParticle(this.playerX + Math.cos(angle) * 78, this.playerY + Math.sin(angle) * 78, 0xfb7185, 1.5)
+        }
+    }
+
+    /** Evenly redistribute the surviving warheads around the orbit ring. */
+    private layoutHunterChain() {
+        const children = this.hunterChainOrbit.children
+        children.forEach((warhead, index) => {
+            const angle = (index / Math.max(1, children.length)) * Math.PI * 2
+            gsap.to(warhead.position, {
+                x: Math.cos(angle) * 78,
+                y: Math.sin(angle) * 78,
+                duration: 0.35,
+                ease: 'power2.out'
+            })
+            warhead.rotation = angle + Math.PI / 2
+        })
+    }
+
+    private updateHunterChain(dt: number, deltaMS: number) {
+        const loaded = this.hunterChainOrbit.children.length
+        this.hunterChainOrbit.visible = loaded > 0
+        if (loaded === 0) {
+            this.hunterChainTimerMs = 0
             return
         }
-        const chain: Enemy[] = [first]
-        const used = new Set([first.id])
-        while (chain.length < 6) {
-            const previous = chain[chain.length - 1]!
-            const next = this.closestEnemy(previous.x, previous.y, used)
-            if (!next || dist(previous.x, previous.y, next.x, next.y) > 285) break
-            chain.push(next)
-            used.add(next.id)
+        this.hunterChainRotation += dt * 0.9
+        this.hunterChainOrbit.rotation = this.hunterChainRotation
+        // Each warhead sheds the occasional ember while it waits its turn, so
+        // the loaded chain reads as live ordnance rather than static decoration.
+        for (const warhead of this.hunterChainOrbit.children) {
+            const emberChance = deltaMS / 1000 * 1.4
+            if (Math.random() < emberChance) {
+                const worldX = this.playerX + warhead.x * Math.cos(this.hunterChainRotation) - warhead.y * Math.sin(this.hunterChainRotation)
+                const worldY = this.playerY + warhead.x * Math.sin(this.hunterChainRotation) + warhead.y * Math.cos(this.hunterChainRotation)
+                this.spawnTrailParticle(worldX, worldY, 0xfb7185, 0.8, 0.55)
+            }
         }
-        this.spawnDamagePopup('stormchain-cast', targetX, targetY - 70, 'STORMCHAIN', 0x7dd3fc, true)
-        this.callbacks.onAbilitySound?.('stormchain-call')
-        chain.forEach((enemy, index) => {
-            gsap.delayedCall(index * 0.11, () => {
-                if (!this.running || enemy.dead) return
-                const previous = index === 0 ? { x: targetX, y: targetY - 170 } : chain[index - 1]!
-                this.drawLightningArc(previous.x, previous.y, enemy.x, enemy.y)
-                this.callbacks.onAbilitySound?.('stormchain-hit')
-                const damage = Math.max(12, Math.round((18 + this.power * 0.32) * Math.pow(0.84, index)))
-                this.damageEnemyWithAbility(enemy, damage, 'SHOCK', 0x7dd3fc, index === 0)
-                for (let spark = 0; spark < 5; spark++) this.spawnTrailParticle(enemy.x + randRange(-22, 22), enemy.y + randRange(-22, 22), 0x38bdf8, 1.2)
-                if (index === 0) this.shake(6)
-            })
+
+        this.hunterChainTimerMs -= deltaMS
+        if (this.hunterChainTimerMs > 0) return
+
+        const target = this.closestEnemy(this.playerX, this.playerY)
+        if (!target) {
+            // Nothing to shoot — hold the orbit and check again shortly.
+            this.hunterChainTimerMs = 300
+            return
+        }
+        this.hunterChainTimerMs = PIRATE_HUNTER_CHAIN_INTERVAL_MS
+        this.launchHunterWarhead(target)
+    }
+
+    private launchHunterWarhead(target: Enemy) {
+        const orbiting = this.hunterChainOrbit.children[0]
+        if (!orbiting) return
+        // Convert the warhead's orbit-local position into world space so it
+        // launches from exactly where it was drawn.
+        const cos = Math.cos(this.hunterChainRotation)
+        const sin = Math.sin(this.hunterChainRotation)
+        const fromX = this.playerX + orbiting.x * cos - orbiting.y * sin
+        const fromY = this.playerY + orbiting.x * sin + orbiting.y * cos
+        gsap.killTweensOf(orbiting.position)
+        gsap.killTweensOf(orbiting.scale)
+        this.hunterChainOrbit.removeChild(orbiting)
+        orbiting.destroy({ children: true })
+        this.layoutHunterChain()
+
+        this.callbacks.onAbilitySound?.('hunter-salvo-launch')
+        const damage = pirateHunterChainDamage(this.power, this.abilityLevel)
+        const targetId = target.id
+
+        const root = new Container()
+        root.position.set(fromX, fromY)
+        root.addChild(fx.createHunterWarhead())
+        this.effectsLayer.addChild(root)
+        this.spawnMuzzleFlash(fromX, fromY, Math.atan2(target.y - fromY, target.x - fromX), 'gem', 0xfb7185)
+
+        const flight = { t: 0 }
+        let lastTrail = 0
+        gsap.to(flight, {
+            t: 1,
+            duration: 1.05,
+            ease: 'power1.in',
+            onUpdate: () => {
+                if (this.destroyed || root.destroyed) return
+                const current = this.enemies.get(targetId) ?? this.closestEnemy(root.x, root.y)
+                const aimX = current?.x ?? target.x
+                const aimY = current?.y ?? target.y
+                const angle = Math.atan2(aimY - root.y, aimX - root.x)
+                const step = Math.min(34, dist(root.x, root.y, aimX, aimY) * 0.2 + 4)
+                root.x += Math.cos(angle) * step
+                root.y += Math.sin(angle) * step
+                root.rotation = angle
+                const now = performance.now()
+                if (now - lastTrail < 20) return
+                lastTrail = now
+                this.spawnTrailParticle(root.x, root.y, Math.random() < 0.5 ? 0xfb7185 : 0xf97316, 1.4, 0.9)
+                this.spawnTrailParticle(root.x + randRange(-6, 6), root.y + randRange(-6, 6), 0xfecdd3, 0.7, 0.5)
+            },
+            onComplete: () => {
+                const hitX = root.x
+                const hitY = root.y
+                if (!root.destroyed) root.destroy({ children: true })
+                if (!this.running || this.destroyed) return
+                this.callbacks.onAbilitySound?.('hunter-salvo-hit')
+                this.spawnExplosion(hitX, hitY, 0xfb7185, true)
+                this.spawnExplosion(hitX + randRange(-14, 14), hitY + randRange(-14, 14), 0xf97316, false)
+                fx.spawnShockRing(this.effectsLayer, hitX, hitY, 70, 0xfecdd3)
+                this.shake(6)
+                const current = this.enemies.get(targetId)
+                if (current && !current.dead && dist(hitX, hitY, current.x, current.y) < 70) {
+                    this.damageEnemyWithAbility(current, damage, 'HUNTER', 0xfca5a5, true)
+                } else {
+                    this.spawnSplash(hitX, hitY)
+                }
+            }
         })
+    }
+
+    // ─── Ghostly Consort ────────────────────────────────────────────────────
+
+    private castGhostlyConsort() {
+        // Only one escort may be at sea — castPlayerAbility gates the recast on
+        // consortAtSea, so reaching here means the previous one has sunk.
+        this.callbacks.onAbilitySound?.('consort-summon')
+        this.spawnDamagePopup('consort-cast', this.playerX, this.playerY - 62, 'GHOSTLY CONSORT', 0x93c5fd, true)
+        const stationAngle = this.playerAngle + Math.PI / 2
+        const spawnX = Math.max(50, Math.min(WORLD_W - 50, this.playerX + Math.cos(stationAngle) * PIRATE_CONSORT_FOLLOW_DISTANCE))
+        const spawnY = Math.max(50, Math.min(WORLD_H - 50, this.playerY + Math.sin(stationAngle) * PIRATE_CONSORT_FOLLOW_DISTANCE))
+        this.spawnAlly(spawnX, spawnY, stationAngle)
+    }
+
+    /**
+     * The strongest cannon in the hold, which is what the escort arms itself
+     * with. Ranked by position in PIRATE_CANNON_TIERS (the array is ordered
+     * weakest to strongest), not by slot order — arming the escort with
+     * whatever happened to sit in slot 0 would make it near-useless on a mixed
+     * loadout.
+     */
+    private bestCannonTemplate(): Cannon | null {
+        let best: Cannon | null = null
+        let bestRank = -1
+        for (const cannon of this.cannons) {
+            const rank = PIRATE_CANNON_TIERS.findIndex(tier => tier.id === cannon.tierId)
+            if (rank > bestRank) {
+                bestRank = rank
+                best = cannon
+            }
+        }
+        return best
+    }
+
+    private spawnAlly(x: number, y: number, stationAngle: number) {
+        const template = this.bestCannonTemplate()
+        if (!template) return
+        const level = this.abilityLevel
+
+        // A smaller, spectral copy of the captain's own ship — instantly
+        // readable as friendly rather than as another raider.
+        const visual = this.createShipVisual(0x93c5fd, true, 0.72, undefined, this.stats.skinId)
+        visual.body.alpha = 0.82
+        const aura = new Graphics()
+        aura.circle(0, 0, 42).fill({ color: 0x60a5fa, alpha: 0.14 })
+        aura.circle(0, 0, 42).stroke({ width: 2, color: 0xbfdbfe, alpha: 0.6 })
+        visual.root.addChildAt(aura, 0)
+        gsap.to(aura.scale, { x: 1.14, y: 1.14, duration: 1.1, ease: 'sine.inOut', yoyo: true, repeat: -1 })
+        gsap.to(aura, { alpha: 0.45, duration: 1.1, ease: 'sine.inOut', yoyo: true, repeat: -1 })
+
+        const hpBar = fx.createHpBar(44, -42)
+        visual.root.addChild(hpBar.container)
+        visual.root.position.set(x, y)
+        visual.root.scale.set(0.001)
+        this.allyLayer.addChild(visual.root)
+        gsap.to(visual.root.scale, { x: 1, y: 1, duration: 0.4, ease: 'back.out(2)' })
+        fx.spawnSummonBurst(this.effectsLayer, x, y, 0x93c5fd)
+        this.spawnSplash(x, y)
+
+        // Accuracy and armour scale 50% → 100% of the captain's across the five
+        // levels, but raw damage is capped far lower (60% → 80%) so the escort
+        // never reads as a free second broadside. Sailing speed deliberately
+        // does not scale at all: the escort has to match the player to hold
+        // station, so a half-speed level-1 consort would simply be left behind.
+        const statFraction = pirateConsortStatFraction(level)
+        const damageFraction = pirateConsortDamageFraction(level)
+        const maxHp = Math.max(1, Math.round(this.stats.maxHp * pirateConsortHpFraction(level)))
+        const cannons: Cannon[] = []
+        for (let i = 0; i < pirateConsortCannonCount(level); i++) {
+            cannons.push({
+                ...template,
+                slotIndex: i,
+                attackRating: Math.max(1, Math.round(template.attackRating * statFraction)),
+                maxDamage: Math.max(1, Math.round(template.maxDamage * damageFraction)),
+                reloadTimer: randRange(0, template.reloadMs * 0.5)
+            })
+        }
+
+        this.allies.push({
+            id: this.nextAllyId++,
+            hp: maxHp,
+            maxHp,
+            x,
+            y,
+            angle: this.playerAngle,
+            speed: this.stats.speed * 1.06,
+            defenseRating: Math.max(1, Math.round(this.stats.defenseRating * statFraction)),
+            cannons,
+            fireGapMs: 0,
+            maxRange: template.range,
+            stationAngle,
+            root: visual.root,
+            visual,
+            hpBarFill: hpBar.fill,
+            hpBarWidth: hpBar.width,
+            dead: false
+        })
+    }
+
+    /**
+     * Escorts hold station relative to the player, then break off to engage
+     * anything inside their cannon range. They never chase past their station
+     * radius, so they cannot be kited away from the captain.
+     */
+    private updateAllies(dt: number, deltaMS: number) {
+        for (const ally of [...this.allies]) {
+            if (ally.dead) continue
+
+            const stationX = this.playerX + Math.cos(ally.stationAngle) * PIRATE_CONSORT_FOLLOW_DISTANCE
+            const stationY = this.playerY + Math.sin(ally.stationAngle) * PIRATE_CONSORT_FOLLOW_DISTANCE
+            const toStation = dist(ally.x, ally.y, stationX, stationY)
+            if (toStation > 14) {
+                const angle = Math.atan2(stationY - ally.y, stationX - ally.x)
+                // Sprint when trailing badly so it never falls out of the fight.
+                const urgency = toStation > 220 ? 1.9 : 1
+                const step = Math.min(ally.speed * urgency * dt, toStation)
+                const nx = ally.x + Math.cos(angle) * step
+                const ny = ally.y + Math.sin(angle) * step
+                if (!this.pointInIsland(nx, ny, SHIP_RADIUS - 10)) {
+                    ally.x = nx
+                    ally.y = ny
+                }
+                ally.angle = lerpAngle(ally.angle, angle, ROTATE_LERP)
+            }
+
+            const target = this.closestEnemy(ally.x, ally.y)
+            if (target && dist(ally.x, ally.y, target.x, target.y) <= ally.maxRange) {
+                ally.angle = lerpAngle(ally.angle, Math.atan2(target.y - ally.y, target.x - ally.x), ROTATE_LERP)
+            }
+
+            ally.root.position.set(ally.x, ally.y)
+            ally.visual.hull.rotation = ally.angle
+            ally.visual.body.position.y = Math.sin(this.timeSec * 2 + ally.visual.phase) * 1.4
+
+            ally.fireGapMs = Math.max(0, ally.fireGapMs - deltaMS)
+            for (const cannon of ally.cannons) {
+                cannon.reloadTimer -= deltaMS
+                if (cannon.reloadTimer > 0 || ally.fireGapMs > 0) continue
+                const victim = this.closestEnemy(ally.x, ally.y)
+                if (!victim || dist(ally.x, ally.y, victim.x, victim.y) > cannon.range) continue
+                cannon.reloadTimer = cannon.reloadMs * PIRATE_TIMELINE_SCALE
+                ally.fireGapMs = PLAYER_CANNON_FIRE_GAP_MS
+                this.fireAllyCannon(ally, cannon, victim)
+            }
+        }
+    }
+
+    private fireAllyCannon(ally: AllyShip, cannon: Cannon, target: Enemy) {
+        const fireAngle = Math.atan2(target.y - ally.y, target.x - ally.x)
+        const fromX = ally.x + Math.cos(fireAngle) * 26
+        const fromY = ally.y + Math.sin(fireAngle) * 26
+        this.spawnMuzzleFlash(fromX, fromY, fireAngle, 'free', 0x64748b)
+        fx.spawnConsortTrail(this.effectsLayer, fromX, fromY, 1.2)
+        const id = target.id
+        this.spawnCannonball(fromX, fromY, target.x, target.y, 'free', (hitX, hitY) => {
+            const enemy = this.enemies.get(id)
+            if (!enemy || enemy.dead) {
+                this.spawnSplash(hitX, hitY)
+                return
+            }
+            const roll = pirateRollAttack(cannon.attackRating, enemy.defense, cannon.maxDamage)
+            if (!roll.hit) {
+                this.spawnSplash(hitX, hitY)
+                this.spawnDamagePopup(`enemy-${enemy.id}`, hitX, hitY - 24, 'MISS', 0x9ca3af, false)
+                return
+            }
+            this.callbacks.onCannonImpact?.()
+            this.damageEnemyWithAbility(enemy, roll.dmg, 'CONSORT', 0xbfdbfe, roll.crit)
+        }, { explosive: false, massive: false, cannonColor: 0x93c5fd, tierTrail: true, consortTrail: true })
+    }
+
+    /** Resolve an incoming enemy shot against an escort. */
+    private hitAlly(ally: AllyShip, roll: { hit: boolean, dmg: number, crit: boolean }, x: number, y: number) {
+        if (ally.dead) return
+        if (!roll.hit) {
+            this.spawnSplash(x, y)
+            this.spawnDamagePopup(`ally-${ally.id}`, x, y - 24, 'MISS', 0x9ca3af, false)
+            return
+        }
+        ally.hp = Math.max(0, ally.hp - roll.dmg)
+        this.flashShip(ally.visual)
+        this.spawnExplosion(ally.x, ally.y, 0x60a5fa, roll.crit)
+        this.spawnDamagePopup(`ally-${ally.id}`, ally.x, ally.y - 34, `-${roll.dmg}`, 0xbfdbfe, roll.crit)
+        fx.updateBarFill(ally.hpBarFill, ally.hpBarWidth, ally.hp / ally.maxHp)
+        if (ally.hp <= 0) this.sinkAlly(ally)
+    }
+
+    /** `announce` is false when the voyage itself is ending — no death fanfare then. */
+    private sinkAlly(ally: AllyShip, announce = true) {
+        ally.dead = true
+        this.allies = this.allies.filter(active => active !== ally)
+        if (announce) {
+            this.spawnExplosion(ally.x, ally.y, 0x60a5fa, true)
+            this.spawnSinkBubbles(ally.x, ally.y)
+            this.spawnDamagePopup('consort-lost', ally.x, ally.y - 50, 'CONSORT LOST', 0x93c5fd, true)
+            // Losing the escort is what actually starts the clock. Until now
+            // the ability was locked out rather than cooling down.
+            if (this.stats.abilityId === 'consort' && !this.allies.length) {
+                this.playerAbilityCooldownMs = this.abilityCooldownMs
+                this.abilityHudTimerMs = 100
+                this.callbacks.onAbilityCooldownChange(this.playerAbilityCooldownMs, this.abilityCooldownMs)
+            }
+        }
+        // Scale down relative to the escort's own size rather than to an
+        // absolute value, which would make the smaller hull grow as it sank.
+        const v = ally.visual
+        const sunkScale = v.body.scale.x * 0.55
+        gsap.to(v.body, { rotation: randRange(0.5, 0.9) * (Math.random() < 0.5 ? -1 : 1), duration: 0.9, ease: 'power1.in' })
+        gsap.to(v.body.scale, { x: sunkScale, y: sunkScale, duration: 0.95, ease: 'power2.in' })
+        gsap.to(ally.root, {
+            alpha: 0,
+            duration: 1,
+            ease: 'power2.in',
+            onComplete: () => {
+                if (this.destroyed) return
+                ally.root.destroy({ children: true })
+            }
+        })
+    }
+
+    /**
+     * What an enemy is currently shooting at. Escorts genuinely pull aggro —
+     * an enemy engages whichever friendly hull is closest, with a small bias
+     * toward the captain so the consort is a partial decoy, not a full one.
+     */
+    private enemyTarget(enemy: Enemy): { x: number, y: number, ally: AllyShip | null } {
+        let best: AllyShip | null = null
+        let bestDist = dist(enemy.x, enemy.y, this.playerX, this.playerY) - 50
+        for (const ally of this.allies) {
+            if (ally.dead) continue
+            const d = dist(enemy.x, enemy.y, ally.x, ally.y)
+            if (d < bestDist) {
+                best = ally
+                bestDist = d
+            }
+        }
+        if (best) return { x: best.x, y: best.y, ally: best }
+        return { x: this.playerX, y: this.playerY, ally: null }
     }
 
     private castMaelstrom(targetX: number, targetY: number) {
@@ -1115,7 +1469,7 @@ export class PirateGame {
         gsap.fromTo(root.scale, { x: 0.15, y: 0.15 }, { x: 1, y: 1, duration: 0.45, ease: 'back.out(2)' })
         gsap.to(inner, { rotation: Math.PI * 4, duration: 4.2, ease: 'none' })
         gsap.to(outer, { alpha: 0.35, duration: 0.35, yoyo: true, repeat: 9 })
-        const pulseDamage = Math.max(8, Math.round(5 + this.power * 0.09))
+        const pulseDamage = pirateMaelstromPulseDamage(this.power, this.abilityLevel)
         for (let pulse = 0; pulse < 7; pulse++) {
             gsap.delayedCall(0.35 + pulse * 0.52, () => {
                 if (!this.running || root.destroyed) return
@@ -1137,42 +1491,84 @@ export class PirateGame {
         })
     }
 
+    /**
+     * A deliberate gamble. The marked zone is enormous — far wider than any
+     * other ability — but the seven shells land at genuinely random points
+     * inside it rather than in a tidy pattern. A lucky cluster erases a fleet;
+     * an unlucky spread throws up a lot of seawater. Damage per shell is high
+     * enough to make that trade worth taking.
+     */
     private castHellfireBarrage(targetX: number, targetY: number) {
-        this.spawnDamagePopup('hellfire-cast', targetX, targetY - 145, 'HELLFIRE INBOUND', 0xfdba74, true)
+        this.spawnDamagePopup('hellfire-cast', targetX, targetY - PIRATE_HELLFIRE_ZONE_RADIUS - 30, 'HELLFIRE INBOUND', 0xfdba74, true)
         this.callbacks.onAbilitySound?.('hellfire-barrage')
-        const damage = Math.max(16, Math.round(10 + this.power * 0.18))
-        for (let i = 0; i < 7; i++) {
-            const angle = i / 7 * Math.PI * 2 + randRange(-0.35, 0.35)
-            const radius = i === 0 ? 0 : randRange(35, 125)
+        const damage = pirateHellfireShellDamage(this.power, this.abilityLevel)
+
+        // The full danger zone, drawn once so the player can read the gamble.
+        const zone = fx.drawHellfireZone(this.effectsLayer, targetX, targetY, PIRATE_HELLFIRE_ZONE_RADIUS)
+        gsap.delayedCall(2.6, () => {
+            if (zone.destroyed) return
+            gsap.to(zone, { alpha: 0, duration: 0.45, onComplete: () => zone.destroy({ children: true }) })
+        })
+
+        let hitsLanded = 0
+        for (let i = 0; i < PIRATE_HELLFIRE_SHELL_COUNT; i++) {
+            // Uniform over the disc (sqrt keeps it from clumping in the middle).
+            const angle = randRange(0, Math.PI * 2)
+            const radius = Math.sqrt(Math.random()) * PIRATE_HELLFIRE_ZONE_RADIUS
             const x = Math.max(45, Math.min(WORLD_W - 45, targetX + Math.cos(angle) * radius))
             const y = Math.max(45, Math.min(WORLD_H - 45, targetY + Math.sin(angle) * radius))
-            gsap.delayedCall(i * 0.22, () => {
+            gsap.delayedCall(i * 0.19 + randRange(0, 0.12), () => {
                 if (!this.running) return
                 const warning = new Graphics()
-                warning.circle(0, 0, 72).fill({ color: 0xef4444, alpha: 0.08 }).stroke({ width: 3, color: 0xfb923c, alpha: 0.8 })
+                warning.circle(0, 0, PIRATE_HELLFIRE_BLAST_RADIUS).fill({ color: 0xef4444, alpha: 0.1 })
+                warning.circle(0, 0, PIRATE_HELLFIRE_BLAST_RADIUS).stroke({ width: 3, color: 0xfb923c, alpha: 0.85 })
+                warning.circle(0, 0, PIRATE_HELLFIRE_BLAST_RADIUS * 0.55).stroke({ width: 2, color: 0xfed7aa, alpha: 0.6 })
                 warning.position.set(x, y)
                 this.effectsLayer.addChild(warning)
-                gsap.fromTo(warning.scale, { x: 0.25, y: 0.25 }, { x: 1, y: 1, duration: 0.62, ease: 'power1.out' })
+                gsap.fromTo(warning.scale, { x: 0.25, y: 0.25 }, { x: 1, y: 1, duration: 0.6, ease: 'power1.out' })
+                gsap.to(warning, { alpha: 0.4, duration: 0.16, yoyo: true, repeat: 3 })
+
                 const shell = new Graphics()
-                shell.circle(0, 0, 12).fill({ color: 0x431407 }).stroke({ width: 3, color: 0xfde68a })
-                shell.position.set(x - 75, y - 210)
+                shell.circle(0, 0, 14).fill({ color: 0x431407 }).stroke({ width: 3.5, color: 0xfde68a })
+                shell.circle(-4, -4, 4).fill({ color: 0xfef3c7, alpha: 0.85 })
+                shell.position.set(x - 90, y - 260)
                 this.effectsLayer.addChild(shell)
+                gsap.to(shell, { rotation: Math.PI * 1.5, duration: 0.7, ease: 'none' })
                 gsap.to(shell.position, {
                     x,
                     y,
-                    duration: 0.65,
+                    duration: 0.7,
                     ease: 'power2.in',
-                    onUpdate: () => this.spawnTrailParticle(shell.x, shell.y, 0xf97316, 1.15),
+                    onUpdate: () => {
+                        this.spawnTrailParticle(shell.x, shell.y, 0xf97316, 1.5, 0.95)
+                        this.spawnTrailParticle(shell.x + randRange(-8, 8), shell.y + randRange(-8, 8), 0x7c2d12, 1.9, 0.4)
+                    },
                     onComplete: () => {
                         if (!shell.destroyed) shell.destroy()
                         if (!warning.destroyed) warning.destroy()
                         if (!this.running) return
                         if (i === 0) this.callbacks.onAbilitySound?.('hellfire-multi')
                         this.spawnExplosion(x, y, 0xf97316, true)
-                        this.destroySeaMinesInRadius(x, y, 72)
-                        this.shake(5)
+                        this.spawnExplosion(x + randRange(-26, 26), y + randRange(-26, 26), 0xfbbf24, true)
+                        fx.spawnShockRing(this.effectsLayer, x, y, PIRATE_HELLFIRE_BLAST_RADIUS, 0xfb923c)
+                        fx.spawnEmberBurst(this.effectsLayer, x, y, 16, [0xfde047, 0xfb923c, 0xdc2626])
+                        this.destroySeaMinesInRadius(x, y, PIRATE_HELLFIRE_BLAST_RADIUS)
+                        this.shake(9)
+                        let struck = 0
                         for (const enemy of [...this.enemies.values()]) {
-                            if (!enemy.dead && dist(x, y, enemy.x, enemy.y) <= 72) this.damageEnemyWithAbility(enemy, damage, 'FIRE', 0xfdba74, true)
+                            if (enemy.dead || dist(x, y, enemy.x, enemy.y) > PIRATE_HELLFIRE_BLAST_RADIUS) continue
+                            struck += 1
+                            this.damageEnemyWithAbility(enemy, damage, 'HELLFIRE', 0xfdba74, true)
+                        }
+                        hitsLanded += struck
+                        if (!struck) this.spawnSplash(x, y)
+                        // Call the gamble once the last shell has landed.
+                        if (i === PIRATE_HELLFIRE_SHELL_COUNT - 1) {
+                            this.spawnDamagePopup(
+                                'hellfire-result', targetX, targetY - PIRATE_HELLFIRE_ZONE_RADIUS - 60,
+                                hitsLanded ? `${hitsLanded} SHELL${hitsLanded === 1 ? '' : 'S'} ON TARGET` : 'ALL WATER',
+                                hitsLanded ? 0xfef08a : 0x9ca3af, true
+                            )
                         }
                     }
                 })
@@ -1184,12 +1580,23 @@ export class PirateGame {
         const volley = enemy.tier.volley ?? 1
         const fireOne = () => {
             if (!this.running || enemy.dead || this.destroyed) return
-            const fireAngle = Math.atan2(this.playerY - enemy.y, this.playerX - enemy.x)
+            const engaged = this.enemyTarget(enemy)
+            const allyId = engaged.ally?.id ?? null
+            const fireAngle = Math.atan2(engaged.y - enemy.y, engaged.x - enemy.x)
             const fromX = enemy.x + Math.cos(fireAngle) * 30
             const fromY = enemy.y + Math.sin(fireAngle) * 30
             this.spawnMuzzleFlash(fromX, fromY, fireAngle, 'enemy')
-            this.spawnCannonball(fromX, fromY, this.playerX, this.playerY, 'enemy', (hitX, hitY) => {
+            this.spawnCannonball(fromX, fromY, engaged.x, engaged.y, 'enemy', (hitX, hitY) => {
                 if (!this.running) return
+                if (allyId !== null) {
+                    const ally = this.allies.find(active => active.id === allyId && !active.dead)
+                    if (!ally) {
+                        this.spawnSplash(hitX, hitY)
+                        return
+                    }
+                    this.hitAlly(ally, pirateRollAttack(enemy.attackRating, ally.defenseRating, enemy.maxDamage), hitX, hitY)
+                    return
+                }
                 const defenseRating = Math.round(this.stats.defenseRating * (1 + this.powerUpStack('iron-plating') * 0.3))
                 const roll = pirateRollAttack(enemy.attackRating, defenseRating, enemy.maxDamage)
                 this.hitPlayer(roll, hitX, hitY)
@@ -1237,10 +1644,31 @@ export class PirateGame {
         impact.moveTo(0, -14).lineTo(0, 14).stroke({ width: 2, color: 0xfef2f2, alpha: 0.9 })
         impact.position.set(targetX, targetY)
         telegraph.addChild(impact)
+        // A tightening outer reticle sells the "you have a moment to move" beat
+        // far better than a static circle.
+        const reticle = new Graphics()
+        for (let i = 0; i < 4; i++) {
+            const a = (i / 4) * Math.PI * 2 + Math.PI / 4
+            reticle.moveTo(Math.cos(a) * 92, Math.sin(a) * 92)
+                .lineTo(Math.cos(a) * 66, Math.sin(a) * 66)
+                .stroke({ width: 3, color: 0xf0abfc, alpha: 0.85 })
+        }
+        reticle.position.set(targetX, targetY)
+        telegraph.addChild(reticle)
         this.effectsLayer.addChild(telegraph)
 
         gsap.fromTo(impact.scale, { x: 0.55, y: 0.55 }, { x: 1, y: 1, duration: 0.32, ease: 'power2.out' })
         gsap.to(impact, { alpha: 0.35, duration: 0.22, ease: 'sine.inOut', yoyo: true, repeat: 3 })
+        gsap.fromTo(reticle.scale, { x: 1.8, y: 1.8 }, { x: 0.85, y: 0.85, duration: 0.9, ease: 'power2.in' })
+        gsap.to(reticle, { rotation: Math.PI / 2, duration: 0.9, ease: 'none' })
+        // Charge-up motes drawn into the barrel while the shot is lined up.
+        for (let i = 0; i < 10; i++) {
+            gsap.delayedCall(i * 0.07, () => {
+                if (!this.running || enemy.dead) return
+                const a = Math.random() * Math.PI * 2
+                this.spawnTrailParticle(enemy.x + Math.cos(a) * 34, enemy.y + Math.sin(a) * 34, 0xf0abfc, 1.1, 0.8)
+            })
+        }
 
         gsap.delayedCall(0.9, () => {
             if (telegraph.destroyed) return
@@ -1289,9 +1717,12 @@ export class PirateGame {
                 previousX = root.x
                 previousY = root.y
                 const now = performance.now()
-                if (now - lastTrail < 32) return
+                if (now - lastTrail < 22) return
                 lastTrail = now
-                this.spawnTrailParticle(root.x, root.y, 0xe879f9, 1.5)
+                // A dense twin-strand wake — the sniper round is the single
+                // most dangerous projectile, so it gets the loudest trail.
+                fx.spawnMutatedTrail(this.effectsLayer, root.x, root.y, 0xe879f9, 1.1)
+                this.spawnTrailParticle(root.x + randRange(-7, 7), root.y + randRange(-7, 7), 0xfdf4ff, 0.8, 0.7)
             },
             onComplete: () => {
                 if (collided) return
@@ -1361,9 +1792,11 @@ export class PirateGame {
                 previousX = root.x
                 previousY = root.y
                 const now = performance.now()
-                if (now - lastTrail < 45) return
+                if (now - lastTrail < 30) return
                 lastTrail = now
-                this.spawnTrailParticle(root.x, root.y, 0x60a5fa, 1.1)
+                // Mines leave a bubbling wake rather than a smoke trail.
+                this.spawnTrailParticle(root.x, root.y, 0x60a5fa, 1.2)
+                this.spawnTrailParticle(root.x + randRange(-9, 9), root.y + randRange(-9, 9), 0xdbeafe, 0.7, 0.55)
             },
             onComplete: () => {
                 if (collided) return
@@ -1408,9 +1841,12 @@ export class PirateGame {
             ease: 'none',
             onUpdate: () => {
                 const now = performance.now()
-                if (now - lastTrail < 35) return
+                if (now - lastTrail < 24) return
                 lastTrail = now
+                // Lit fuse: a bright spark core wrapped in dark powder smoke.
                 this.spawnTrailParticle(root.x, root.y + bomb.y, 0xfb923c, 1.4)
+                this.spawnTrailParticle(root.x + randRange(-7, 7), root.y + bomb.y + randRange(-7, 7), 0x7c2d12, 1.7, 0.4)
+                if (Math.random() < 0.4) this.spawnTrailParticle(root.x, root.y + bomb.y, 0xfef08a, 0.7, 0.9)
             },
             onComplete: () => {
                 if (!root.destroyed) root.destroy({ children: true })
@@ -1469,9 +1905,11 @@ export class PirateGame {
                     previousX = skiff.x
                     previousY = skiff.y
                     const now = performance.now()
-                    if (now - wakeTimer < 55) return
+                    if (now - wakeTimer < 38) return
                     wakeTimer = now
-                    this.spawnTrailParticle(skiff.x, skiff.y, 0x67e8f9, 0.7, 0.55)
+                    // Ramming skiffs throw a proper bow wake as they charge.
+                    this.spawnWake(skiff.x, skiff.y, skiff.rotation)
+                    this.spawnTrailParticle(skiff.x, skiff.y, 0x67e8f9, 0.8, 0.6)
                 },
                 onComplete: () => {
                     if (collided) return
@@ -1486,8 +1924,13 @@ export class PirateGame {
 
     private resolveEnemyAreaAttack(x: number, y: number, radius: number, damage: number, label: string, color: number, heavy = true) {
         this.spawnExplosion(x, y, color, heavy)
+        // The ring is drawn at the attack's real radius, so the player can read
+        // exactly how close they were to being caught.
+        fx.spawnShockRing(this.effectsLayer, x, y, radius, color)
+        fx.spawnEmberBurst(this.effectsLayer, x, y, heavy ? 16 : 8, [color, 0xfef3c7, 0xf97316])
         if (heavy) {
             this.spawnExplosion(x + randRange(-20, 20), y + randRange(-20, 20), 0xfbbf24, false)
+            fx.spawnSmokePuffs(this.effectsLayer, x, y, 5, 0x475569)
             this.shake(8)
         }
         if (dist(this.playerX, this.playerY, x, y) > radius) {
@@ -1540,7 +1983,21 @@ export class PirateGame {
         } else {
             const ballColor = profile?.explosive ? 0xea580c : profile?.massive ? 0x7c3aed : kind === 'enemy' ? 0x1c1917 : 0x44403c
             const strokeColor = profile?.massive ? 0xc4b5fd : profile?.cannonColor ?? 0x000000
-            ball.circle(0, 0, 5 * ballScale).fill({ color: ballColor }).stroke({ width: profile?.massive ? 2.5 : 1.5, color: strokeColor, alpha: 0.8 })
+            // Charged end-game rounds glow from within rather than reading as
+            // a plain iron ball.
+            if (profile?.consortTrail) {
+                // A shadowed round with a cold blue rim rather than a glow.
+                ball.circle(0, 0, 10 * ballScale).fill({ color: 0x1e293b, alpha: 0.2 })
+                ball.circle(0, 0, 6.5 * ballScale).fill({ color: 0x475569, alpha: 0.35 })
+                ball.circle(0, 0, 4.5 * ballScale).fill({ color: 0x0f172a }).stroke({ width: 1.5, color: 0x93c5fd, alpha: 0.85 })
+            } else {
+                if (profile?.mutatedTrail) {
+                    ball.circle(0, 0, 10 * ballScale).fill({ color: profile.cannonColor, alpha: 0.11 })
+                    ball.circle(0, 0, 7 * ballScale).fill({ color: profile.cannonColor, alpha: 0.24 })
+                }
+                ball.circle(0, 0, 5 * ballScale).fill({ color: ballColor }).stroke({ width: profile?.massive ? 2.5 : 1.5, color: strokeColor, alpha: 0.8 })
+                if (profile?.mutatedTrail) ball.circle(-1.5, -1.5, 1.8 * ballScale).fill({ color: 0xffffff, alpha: 0.45 })
+            }
         }
         ballRoot.addChild(ball)
         this.effectsLayer.addChild(ballRoot)
@@ -1557,11 +2014,25 @@ export class PirateGame {
             onUpdate: () => {
                 if (this.destroyed || (kind !== 'gem' && !profile?.explosive && !profile?.massive && !profile?.tierTrail)) return
                 const now = performance.now()
-                if (now - lastTrail < (profile?.tierTrail ? 48 : 36)) return
+                // Mutated shot emits a little denser than a plain tier trail so
+                // the wake reads as continuous, but not so dense that it turns
+                // into a solid rope of particles.
+                const interval = profile?.consortTrail || profile?.mutatedTrail ? 34 : profile?.tierTrail ? 48 : 36
+                if (now - lastTrail < interval) return
                 lastTrail = now
+                const trailX = ballRoot.position.x
+                const trailY = ballRoot.position.y + ball.position.y
+                if (profile?.consortTrail) {
+                    fx.spawnConsortTrail(this.effectsLayer, trailX, trailY)
+                    return
+                }
+                if (profile?.mutatedTrail) {
+                    fx.spawnMutatedTrail(this.effectsLayer, trailX, trailY, profile.cannonColor, profile.massive ? 1.6 : 1)
+                    return
+                }
                 const trailColor = profile?.tierTrail ? profile.cannonColor : profile?.explosive ? 0xfb923c : profile?.massive ? 0xa78bfa : 0x7dd3fc
                 const trailScale = profile?.massive ? 1.8 : profile?.tierTrail ? 0.85 : 1
-                this.spawnTrailParticle(ballRoot.position.x, ballRoot.position.y + ball.position.y, trailColor, trailScale, profile?.tierTrail ? 0.38 : 0.85)
+                this.spawnTrailParticle(trailX, trailY, trailColor, trailScale, profile?.tierTrail ? 0.38 : 0.85)
             },
             onComplete: () => {
                 if (this.destroyed) return
@@ -1585,7 +2056,16 @@ export class PirateGame {
         this.applyLifesteal(Math.min(damage, enemy.hp))
         enemy.hp -= damage
         const impactColor = profile.explosive ? 0xef4444 : profile.massive ? 0x8b5cf6 : profile.cannonColor
-        this.spawnExplosion(enemy.x, enemy.y, impactColor, roll.crit || profile.explosive || profile.massive)
+        const heavy = roll.crit || profile.explosive || profile.massive
+        this.spawnExplosion(enemy.x, enemy.y, impactColor, heavy)
+        // Splintering debris and smoke on every connecting shot, scaled up for
+        // crits and empowered rounds.
+        fx.spawnEmberBurst(this.effectsLayer, x, y, heavy ? 12 : 6, [impactColor, 0xfef3c7, 0x78350f])
+        fx.spawnSmokePuffs(this.effectsLayer, enemy.x, enemy.y, heavy ? 4 : 2)
+        // Only the empowered/crit hits get a ring — on an eight-port broadside
+        // one per shot would be a constant strobe.
+        if (profile.mutatedTrail && heavy) fx.spawnShockRing(this.effectsLayer, x, y, 84, profile.cannonColor)
+        if (roll.crit) fx.spawnShockRing(this.effectsLayer, enemy.x, enemy.y, 66, 0xfacc15)
         if (profile.explosive) this.explodeAround(enemy, Math.max(1, Math.round(baseDamage * 0.5)))
         if (profile.massive) this.shake(9)
         this.flashShip(enemy.visual)
@@ -1652,6 +2132,9 @@ export class PirateGame {
             this.spawnDamagePopup(`combo`, enemy.x, enemy.y - 62, `COMBO x${this.combo}`, 0xf97316, true)
         }
         this.spawnExplosion(enemy.x, enemy.y, 0xfb923c, true)
+        // A sinking hull throws burning wreckage and a lingering smoke column.
+        fx.spawnEmberBurst(this.effectsLayer, enemy.x, enemy.y, 14, [0xfb923c, 0x78350f, 0xfef3c7])
+        fx.spawnSmokePuffs(this.effectsLayer, enemy.x, enemy.y, 6, 0x44403c)
         this.spawnSinkBubbles(enemy.x, enemy.y)
 
         if (Math.random() < ENEMY_POWER_UP_DROP_CHANCE) {
@@ -1709,6 +2192,11 @@ export class PirateGame {
         this.callbacks.onHpChange(this.playerHp, this.stats.maxHp)
         this.showPlayerHealthBar()
         this.spawnExplosion(this.playerX, this.playerY, 0xef4444, roll.crit)
+        // Taking a hit throws splinters off the hull and leaves smoke behind,
+        // so damage is legible even when the health bar is off-screen.
+        fx.spawnEmberBurst(this.effectsLayer, x, y, roll.crit ? 12 : 7, [0xef4444, 0xfed7aa, 0x7c2d12])
+        fx.spawnSmokePuffs(this.effectsLayer, this.playerX, this.playerY, roll.crit ? 5 : 3, 0x475569)
+        fx.spawnShockRing(this.effectsLayer, this.playerX, this.playerY, roll.crit ? 74 : 48, 0xf87171)
         this.flashShip(this.player)
         this.spawnDamagePopup('player', this.playerX, this.playerY - 34, `-${hullDamage}`, 0xff6b6b, roll.crit)
         this.shake(roll.crit ? 9 : 5)
@@ -2511,6 +2999,11 @@ export class PirateGame {
         fx.spawnTrailParticle(this.effectsLayer, x, y, color, scale, alpha)
     }
 
+    /** Small rising motes marking a passive repair tick. */
+    private spawnRegenSparkle() {
+        fx.spawnRegenSparkle(this.effectsLayer, this.playerX, this.playerY)
+    }
+
     private spawnPowerUpBurst(x: number, y: number, color: number) {
         fx.spawnPowerUpBurst(this.effectsLayer, this.world, x, y, color)
     }
@@ -2545,6 +3038,16 @@ export class PirateGame {
             enemy.root.destroy({ children: true })
         }
         this.enemies.clear()
+        for (const ally of this.allies) {
+            gsap.killTweensOf(ally.root)
+            gsap.killTweensOf(ally.root.scale)
+            gsap.killTweensOf(ally.visual.body)
+            gsap.killTweensOf(ally.visual.body.scale)
+            gsap.killTweensOf(ally.root.children)
+            ally.root.destroy({ children: true })
+        }
+        this.allies = []
+        this.clearHunterChain()
         if (this.treasure) {
             gsap.killTweensOf(this.treasure.root)
             this.treasure.root.destroy({ children: true })
@@ -2582,6 +3085,8 @@ export class PirateGame {
         this.emitPowerUpState()
         this.attackTargetId = null
         this.playerPath = []
+        this.clearHunterChain()
+        for (const ally of [...this.allies]) this.sinkAlly(ally, false)
         if (!survived && reason === 'defeat') {
             const v = this.player
             this.spawnExplosion(this.playerX, this.playerY, 0xef4444, true)

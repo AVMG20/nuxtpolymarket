@@ -31,13 +31,141 @@ export function pirateShipSkin(id: string) {
 
 // One right-click ability may be equipped at a time. The powder keg remains
 // the free starter option; the other techniques are permanent coin unlocks.
+//
+// Cooldowns are absolute wall-clock milliseconds (deliberately NOT run through
+// pirateTimelineMs) and are quoted as a level-1 → level-5 pair. Levels buy
+// damage *and* frequency, but the floor is what actually keeps an ability
+// honest: Hunter's Chain takes ~14s to empty its orbit, so anything under ~30s
+// would hand it permanent uptime.
 export const PIRATE_ABILITIES = [
-  { id: 'bomb', name: 'Powder Keg', cost: 0, cooldownMs: pirateTimelineMs(15_000), icon: 'i-lucide-bomb', accent: 'warning', description: 'Lob a heavy keg that explodes in a wide area.' },
-  { id: 'seekers', name: "Hunter's Salvo", cost: 250_000, cooldownMs: pirateTimelineMs(18_000), icon: 'i-lucide-rocket', accent: 'error', description: 'Launch three spectral missiles that hunt down separate enemy ships.' },
-  { id: 'stormchain', name: 'Stormchain', cost: 250_000, cooldownMs: pirateTimelineMs(20_000), icon: 'i-lucide-zap', accent: 'info', description: 'Call lightning onto the nearest target, then chain it through the fleet.' },
-  { id: 'maelstrom', name: "Kraken's Maw", cost: 250_000, cooldownMs: pirateTimelineMs(24_000), icon: 'i-lucide-tornado', accent: 'primary', description: 'Open a damaging whirlpool that drags nearby ships toward its center.' },
-  { id: 'firestorm', name: 'Hellfire Barrage', cost: 250_000, cooldownMs: pirateTimelineMs(22_000), icon: 'i-lucide-flame', accent: 'warning', description: 'Rain seven explosive cannon shells across the targeted area.' }
+  { id: 'bomb', name: 'Powder Keg', cost: 0, cooldownMs: 30_000, minCooldownMs: 20_000, icon: 'i-lucide-bomb', accent: 'warning', description: 'Lob a heavy keg that explodes in a wide area.' },
+  { id: 'seekers', name: "Hunter's Chain", cost: 250_000, cooldownMs: 46_000, minCooldownMs: 32_000, icon: 'i-lucide-rocket', accent: 'error', description: 'Bind eight spectral warheads into orbit; one launches every two seconds at your nearest foe for heavy single-target damage.' },
+  { id: 'consort', name: 'Ghostly Consort', cost: 250_000, cooldownMs: 42_000, minCooldownMs: 28_000, icon: 'i-lucide-ship', accent: 'info', description: 'Summon an allied escort that shadows your ship and fires your best cannon at reduced damage. It can be shot down — and the cooldown only starts once it sinks.' },
+  { id: 'maelstrom', name: "Kraken's Maw", cost: 250_000, cooldownMs: 56_000, minCooldownMs: 36_000, icon: 'i-lucide-tornado', accent: 'primary', description: 'Open a damaging whirlpool that drags nearby ships toward its center.' },
+  { id: 'firestorm', name: 'Hellfire Barrage', cost: 250_000, cooldownMs: 48_000, minCooldownMs: 33_000, icon: 'i-lucide-flame', accent: 'warning', description: 'Saturate a huge stretch of sea with seven devastating shells. Each lands somewhere random inside the zone — a gamble that can wipe a fleet or hit nothing but water.' }
 ] as const
+
+// ─── Hellfire Barrage ───────────────────────────────────────────────────────
+// A deliberate gamble. The marked zone is enormous, but the seven shells
+// scatter randomly inside it, so a lucky cluster deletes a fleet while an
+// unlucky spread mostly geysers seawater. Damage per shell is correspondingly
+// high to make the gamble worth taking.
+export const PIRATE_HELLFIRE_ZONE_RADIUS = 330
+export const PIRATE_HELLFIRE_SHELL_COUNT = 7
+export const PIRATE_HELLFIRE_BLAST_RADIUS = 96
+
+/** Damage of a single Hellfire shell. */
+export function pirateHellfireShellDamage(power: number, level = 1) {
+  return Math.max(28, Math.round((22 + power * 0.29) * pirateAbilityLevelMultiplier(level)))
+}
+
+// ─── Ability levels ─────────────────────────────────────────────────────────
+// Every right-click ability has its own five-level upgrade track. Without one,
+// a flat power coefficient meant abilities were excellent early and irrelevant
+// by the time enemy hulls carried a difficulty-1000 multiplier. Levels are the
+// lever that keeps them relevant into the top brackets — a fully upgraded
+// ability should comfortably delete the opening waves of a max-difficulty
+// voyage, which is exactly what its ~11m total investment is paying for.
+export const PIRATE_ABILITY_MAX_LEVEL = 5
+export const PIRATE_ABILITY_UPGRADE_BASE_COST = 400_000
+export const PIRATE_ABILITY_UPGRADE_GROWTH = 2.6
+
+/** Coin cost to take an ability from `level` to `level + 1`. Null at max. */
+export function pirateAbilityUpgradeCost(level: number): number | null {
+  if (level >= PIRATE_ABILITY_MAX_LEVEL) return null
+  return Math.round(PIRATE_ABILITY_UPGRADE_BASE_COST * Math.pow(PIRATE_ABILITY_UPGRADE_GROWTH, Math.max(0, level - 1)))
+}
+
+export function pirateClampAbilityLevel(level: number) {
+  const finite = Number.isFinite(level) ? Math.floor(level) : 1
+  return Math.max(1, Math.min(PIRATE_ABILITY_MAX_LEVEL, finite))
+}
+
+/**
+ * Damage multiplier for an ability at a given level — 1x at level 1 rising to
+ * 3.2x at level 5. Combined with the per-ability power coefficients below,
+ * level 5 on a maxed ship lands in the 1000-1200 range per hit, enough to
+ * one-shot the common hulls of an opening difficulty-1000 wave.
+ */
+export function pirateAbilityLevelMultiplier(level: number) {
+  return 1 + (pirateClampAbilityLevel(level) - 1) * 0.55
+}
+
+/**
+ * Cooldown for an ability at a given level, interpolated linearly from its
+ * level-1 ceiling down to its level-5 floor. Upgrades therefore buy both a
+ * bigger hit and a faster one — but the floors stay long enough that no
+ * ability approaches permanent uptime.
+ */
+export function pirateAbilityCooldownMs(id: string, level = 1) {
+  const ability = pirateAbility(id)
+  const t = (pirateClampAbilityLevel(level) - 1) / (PIRATE_ABILITY_MAX_LEVEL - 1)
+  return Math.round(ability.cooldownMs + (ability.minCooldownMs - ability.cooldownMs) * t)
+}
+
+// ─── Hunter's Chain ─────────────────────────────────────────────────────────
+// Eight warheads latch into orbit and fire one at a time. It is pure
+// single-target damage with a long total delivery window (14s for the full
+// set), so each warhead hits considerably harder than a seeker used to.
+export const PIRATE_HUNTER_CHAIN_COUNT = 8
+export const PIRATE_HUNTER_CHAIN_INTERVAL_MS = 2000
+
+/** Damage per Hunter's Chain warhead. */
+export function pirateHunterChainDamage(power: number, level = 1) {
+  return Math.max(30, Math.round((25 + power * 0.32) * pirateAbilityLevelMultiplier(level)))
+}
+
+// ─── Powder Keg ─────────────────────────────────────────────────────────────
+// The free starter ability. It keeps a wide blast and the shortest cooldown,
+// so its per-hit number sits below the paid abilities at equal level.
+
+/** Powder Keg blast damage. */
+export function pirateBombDamage(power: number, level = 1) {
+  return Math.max(25, Math.round((18 + power * 0.24) * pirateAbilityLevelMultiplier(level)))
+}
+
+// ─── Kraken's Maw ───────────────────────────────────────────────────────────
+// Seven pulses over ~4 seconds, each hitting everything in the whirlpool while
+// dragging it inward. Per-pulse damage is small; the total across a packed
+// fleet is the largest of any ability.
+
+/** Damage of a single Kraken's Maw pulse. */
+export function pirateMaelstromPulseDamage(power: number, level = 1) {
+  return Math.max(10, Math.round((8 + power * 0.10) * pirateAbilityLevelMultiplier(level)))
+}
+
+// ─── Ghostly Consort ────────────────────────────────────────────────────────
+// The escort starts as a half-strength shadow of the captain and grows into a
+// full mirror of their accuracy and armour. Its hull stays deliberately thin at
+// every level, so it is always something the fleet can shoot down — and unlike
+// the other abilities its cooldown does not start on cast, it starts when the
+// escort sinks. Only one may be at sea at a time.
+export const PIRATE_CONSORT_FOLLOW_DISTANCE = 88
+
+/** Fraction of the captain's attack rating and defense the escort inherits. */
+export function pirateConsortStatFraction(level = 1) {
+  return 0.5 + (pirateClampAbilityLevel(level) - 1) * 0.125
+}
+
+/**
+ * Fraction of the captain's cannon damage the escort actually deals. Held well
+ * below its accuracy scaling on purpose: the consort is meant to be a durable
+ * second angle of fire and a decoy that soaks aggro, never a straight
+ * doubling of the player's broadside.
+ */
+export function pirateConsortDamageFraction(level = 1) {
+  return 0.6 + (pirateClampAbilityLevel(level) - 1) * 0.05
+}
+
+/** Fraction of the captain's max hull the escort is built with. */
+export function pirateConsortHpFraction(level = 1) {
+  return 0.075 + (pirateClampAbilityLevel(level) - 1) * 0.01875
+}
+
+/** Gun ports on the escort — a second one opens up at level 3. */
+export function pirateConsortCannonCount(level = 1) {
+  return pirateClampAbilityLevel(level) >= 3 ? 2 : 1
+}
 
 export type PirateAbilityId = typeof PIRATE_ABILITIES[number]['id']
 export const PIRATE_STARTER_ABILITY_ID: PirateAbilityId = 'bomb'
@@ -109,12 +237,16 @@ export const PIRATE_SHIP_STAT_IDS = ['hull', 'speed', 'defense', 'ammoCapacity',
 export type PirateShipStatId = typeof PIRATE_SHIP_STAT_IDS[number]
 
 export const PIRATE_MAX_STAT_LEVEL = 10
-// Life regen is a shorter track than the other stats: it starts at +1 hull/sec
-// (every captain owns level 1 for free) and tops out at +5 hull/sec.
+// Life regen is a shorter track than the other stats: it starts at +1 hull per
+// regen cycle (every captain owns level 1 for free) and tops out at +5.
 export const PIRATE_REGEN_MAX_LEVEL = 5
-// Regen only kicks in once the ship has been out of combat this long — no hits
-// taken and no cannon shots fired.
+// Regen kicks in once the ship has gone this long without TAKING a hit. Firing
+// your own cannons no longer resets it — a captain who keeps their distance
+// and never gets touched should still be topping up.
 export const PIRATE_REGEN_DELAY_MS = 6000
+// Repairs are slow: one full cycle heals `regenRate` hull, and each cycle is
+// this long. Level 1 is therefore +1 hull every 5s rather than the old +1/sec.
+export const PIRATE_REGEN_CYCLE_MS = 5000
 
 /** Max upgrade level for a given ship stat — regen caps early, everything else at 10. */
 export function pirateStatMaxLevel(statId: PirateShipStatId) {
@@ -159,9 +291,18 @@ function clampLevel(level: number) {
   return Math.max(1, Math.min(level, PIRATE_MAX_STAT_LEVEL))
 }
 
-/** Passive hull regeneration in HP/sec at a given regen level (level 1 = +1, max = +5). */
+/**
+ * Hull repaired per PIRATE_REGEN_CYCLE_MS at a given regen level (level 1 =
+ * +1 per cycle, max = +5). The engine spreads a cycle's healing evenly across
+ * its duration, so level 5 reads as one hull per second rather than a lump.
+ */
 export function pirateRegenRate(level: number) {
   return Math.max(1, Math.min(level, PIRATE_REGEN_MAX_LEVEL))
+}
+
+/** Seconds between individual +1 hull ticks at a given regen level. */
+export function pirateRegenTickIntervalMs(level: number) {
+  return PIRATE_REGEN_CYCLE_MS / pirateRegenRate(level)
 }
 
 export function pirateMaxHp(level: number) {
@@ -201,6 +342,12 @@ export interface PirateCannonTier {
   shotColor: number
   /** Top-tier cannonballs leave a subtle colored trail. */
   shotTrail?: boolean
+  /**
+   * The three highest tiers fire charged shot that leaves a soft, blooming
+   * "mutated" plasma wake instead of a plain trail — a purely visual marker
+   * that the captain is running end-game hardware.
+   */
+  mutatedTrail?: boolean
 }
 
 // Costs step up ~2.6x per tier, topping out at 14m for the Leviathan's Wrath
@@ -213,9 +360,9 @@ export const PIRATE_CANNON_TIERS: PirateCannonTier[] = [
   { id: 'culverin', name: 'Iron Culverin', cost: 110_000, attackRating: 32, maxDamage: 26, reloadMs: 1800, range: 280, powerRating: 7, shotColor: 0xcbd5e1 },
   { id: 'longgun', name: 'Steel Long Gun', cost: 290_000, attackRating: 45, maxDamage: 36, reloadMs: 1600, range: 320, powerRating: 11, shotColor: 0x38bdf8 },
   { id: 'basilisk', name: 'Reinforced Basilisk', cost: 765_000, attackRating: 60, maxDamage: 48, reloadMs: 1400, range: 360, powerRating: 16, shotColor: 0xa78bfa },
-  { id: 'mythril', name: 'Mythril Broadside', cost: 2_020_000, attackRating: 80, maxDamage: 65, reloadMs: 1200, range: 400, powerRating: 24, shotColor: 0x34d399 },
-  { id: 'adamantite', name: 'Adamantite Bombard', cost: 5_320_000, attackRating: 100, maxDamage: 85, reloadMs: 1050, range: 440, powerRating: 36, shotColor: 0xe879f9, shotTrail: true },
-  { id: 'leviathan', name: "Leviathan's Wrath", cost: 14_000_000, attackRating: 130, maxDamage: 115, reloadMs: 900, range: 480, powerRating: 55, shotColor: 0xfb7185, shotTrail: true }
+  { id: 'mythril', name: 'Mythril Broadside', cost: 2_020_000, attackRating: 80, maxDamage: 65, reloadMs: 1200, range: 400, powerRating: 24, shotColor: 0x34d399, shotTrail: true, mutatedTrail: true },
+  { id: 'adamantite', name: 'Adamantite Bombard', cost: 5_320_000, attackRating: 100, maxDamage: 85, reloadMs: 1050, range: 440, powerRating: 36, shotColor: 0xe879f9, shotTrail: true, mutatedTrail: true },
+  { id: 'leviathan', name: "Leviathan's Wrath", cost: 14_000_000, attackRating: 130, maxDamage: 115, reloadMs: 900, range: 480, powerRating: 55, shotColor: 0xfb7185, shotTrail: true, mutatedTrail: true }
 ]
 
 export function pirateCannonTier(id: string): PirateCannonTier {

@@ -297,9 +297,14 @@ export function createHpBar(width = 52, offsetY = -50) {
 }
 
 export function updateEnemyHpBar(enemy: Enemy) {
-    const frac = Math.max(0, enemy.hp / enemy.maxHp)
-    enemy.hpBarFill.clear()
-    enemy.hpBarFill.roundRect(0, 0, enemy.hpBarWidth * frac, 7, 3)
+    updateBarFill(enemy.hpBarFill, enemy.hpBarWidth, enemy.hp / enemy.maxHp)
+}
+
+/** Shared health-bar repaint used by both enemy hulls and friendly escorts. */
+export function updateBarFill(fill: Graphics, width: number, fraction: number) {
+    const frac = Math.max(0, Math.min(1, fraction))
+    fill.clear()
+    fill.roundRect(0, 0, width * frac, 7, 3)
         .fill({ color: frac > 0.5 ? 0x4ade80 : frac > 0.25 ? 0xfbbf24 : 0xef4444 })
 }
 
@@ -344,16 +349,26 @@ export function spawnDamagePopup(
 }
 
 export function spawnSplash(effectsLayer: Container, x: number, y: number) {
-    for (let i = 0; i < 6; i++) {
+    for (let i = 0; i < 11; i++) {
         const p = new Graphics()
-        p.circle(0, 0, 2 + Math.random() * 2).fill({ color: 0xdbeafe, alpha: 0.8 })
+        p.circle(0, 0, 2 + Math.random() * 2.4).fill({ color: 0xdbeafe, alpha: 0.8 })
         p.position.set(x, y)
         effectsLayer.addChild(p)
         const ang = Math.random() * Math.PI * 2
-        const r = 18 + Math.random() * 22
-        gsap.to(p.position, { x: x + Math.cos(ang) * r, y: y + Math.sin(ang) * r, duration: 0.4, ease: 'power2.out' })
-        gsap.to(p, { alpha: 0, duration: 0.4, ease: 'power2.in', onComplete: () => p.destroy() })
+        const r = 18 + Math.random() * 26
+        // Droplets arc: out and up first, then fall back toward the surface.
+        gsap.to(p.position, { x: x + Math.cos(ang) * r, duration: 0.45, ease: 'power2.out' })
+        gsap.to(p.position, { y: y + Math.sin(ang) * r - 14, duration: 0.22, ease: 'power2.out' })
+        gsap.to(p.position, { y: y + Math.sin(ang) * r + 4, duration: 0.24, delay: 0.22, ease: 'power2.in' })
+        gsap.to(p, { alpha: 0, duration: 0.46, ease: 'power2.in', onComplete: () => p.destroy() })
     }
+    // A brief column of spray at the point of entry.
+    const column = new Graphics()
+    column.ellipse(0, 0, 7, 15).fill({ color: 0xeff6ff, alpha: 0.55 })
+    column.position.set(x, y)
+    effectsLayer.addChild(column)
+    gsap.to(column.scale, { x: 1.7, y: 0.35, duration: 0.4, ease: 'power2.out' })
+    gsap.to(column, { alpha: 0, duration: 0.4, ease: 'power2.in', onComplete: () => column.destroy() })
     const ring = new Graphics()
     ring.circle(0, 0, 8).stroke({ width: 2, color: 0xbfdbfe, alpha: 0.7 })
     ring.position.set(x, y)
@@ -363,23 +378,46 @@ export function spawnSplash(effectsLayer: Container, x: number, y: number) {
 }
 
 export function spawnExplosion(effectsLayer: Container, x: number, y: number, color: number, big: boolean) {
-    const count = big ? 10 : 6
+    const count = big ? 18 : 10
     for (let i = 0; i < count; i++) {
         const p = new Graphics()
-        p.circle(0, 0, big ? 3 + Math.random() * 3 : 2 + Math.random() * 2).fill({ color, alpha: 0.9 })
+        p.circle(0, 0, big ? 3 + Math.random() * 3.5 : 2 + Math.random() * 2.5).fill({ color, alpha: 0.9 })
         p.position.set(x, y)
         effectsLayer.addChild(p)
         const ang = Math.random() * Math.PI * 2
-        const r = (big ? 30 : 20) + Math.random() * 26
+        const r = (big ? 34 : 22) + Math.random() * 30
         gsap.to(p.position, { x: x + Math.cos(ang) * r, y: y + Math.sin(ang) * r - 10, duration: 0.45, ease: 'power3.out' })
+        gsap.to(p.scale, { x: 0.25, y: 0.25, duration: 0.45, ease: 'power2.in' })
         gsap.to(p, { alpha: 0, duration: 0.45, ease: 'power2.in', onComplete: () => p.destroy() })
     }
+
+    // Sharp radiating shards read as force rather than just a puff of dots.
+    const shardCount = big ? 8 : 4
+    for (let i = 0; i < shardCount; i++) {
+        const shard = new Graphics()
+        const len = big ? randRange(14, 26) : randRange(8, 15)
+        shard.moveTo(0, 0).lineTo(len, -2).lineTo(len + 5, 0).lineTo(len, 2).closePath()
+            .fill({ color: 0xfef3c7, alpha: 0.9 })
+        shard.position.set(x, y)
+        shard.rotation = (i / shardCount) * Math.PI * 2 + randRange(-0.25, 0.25)
+        effectsLayer.addChild(shard)
+        const push = big ? randRange(30, 58) : randRange(18, 34)
+        gsap.to(shard.position, { x: x + Math.cos(shard.rotation) * push, y: y + Math.sin(shard.rotation) * push, duration: 0.34, ease: 'power3.out' })
+        gsap.to(shard, { alpha: 0, duration: 0.34, ease: 'power2.in', onComplete: () => shard.destroy() })
+    }
+
     const flash = new Graphics()
     flash.circle(0, 0, big ? 18 : 12).fill({ color: 0xffffff, alpha: 0.85 })
+    flash.circle(0, 0, big ? 26 : 17).fill({ color, alpha: 0.35 })
     flash.position.set(x, y)
     effectsLayer.addChild(flash)
-    gsap.to(flash.scale, { x: 1.8, y: 1.8, duration: 0.18, ease: 'power2.out' })
-    gsap.to(flash, { alpha: 0, duration: 0.18, ease: 'power2.out', onComplete: () => flash.destroy() })
+    gsap.to(flash.scale, { x: 2, y: 2, duration: 0.18, ease: 'power2.out' })
+    gsap.to(flash, { alpha: 0, duration: 0.2, ease: 'power2.out', onComplete: () => flash.destroy() })
+
+    if (big) {
+        spawnShockRing(effectsLayer, x, y, 58, color)
+        spawnSmokePuffs(effectsLayer, x, y, 4, 0x57534e)
+    }
 }
 
 export function spawnMuzzleFlash(
@@ -391,7 +429,29 @@ export function spawnMuzzleFlash(
     flash.position.set(x, y)
     flash.rotation = angle
     effectsLayer.addChild(flash)
+    gsap.to(flash.scale, { x: 1.4, y: 1.4, duration: 0.14, ease: 'power2.out' })
     gsap.to(flash, { alpha: 0, duration: 0.14, ease: 'power2.out', onComplete: () => flash.destroy() })
+
+    // Muzzle bloom: a short-lived halo right at the gun port.
+    const bloom = new Graphics()
+    bloom.circle(0, 0, 9).fill({ color: 0xffffff, alpha: 0.8 })
+    bloom.circle(0, 0, 14).fill({ color, alpha: 0.3 })
+    bloom.position.set(x, y)
+    effectsLayer.addChild(bloom)
+    gsap.to(bloom.scale, { x: 1.9, y: 1.9, duration: 0.16, ease: 'power2.out' })
+    gsap.to(bloom, { alpha: 0, duration: 0.16, ease: 'power2.out', onComplete: () => bloom.destroy() })
+
+    // Burning grains kicked forward out of the barrel.
+    for (let i = 0; i < 5; i++) {
+        const spark = new Graphics()
+        spark.circle(0, 0, randRange(1, 2.2)).fill({ color: 0xfef08a, alpha: 0.95 })
+        spark.position.set(x, y)
+        effectsLayer.addChild(spark)
+        const sparkAngle = angle + randRange(-0.42, 0.42)
+        const reach = randRange(18, 42)
+        gsap.to(spark.position, { x: x + Math.cos(sparkAngle) * reach, y: y + Math.sin(sparkAngle) * reach, duration: 0.28, ease: 'power3.out' })
+        gsap.to(spark, { alpha: 0, duration: 0.28, ease: 'power2.in', onComplete: () => spark.destroy() })
+    }
 
     for (let i = 0; i < 3; i++) {
         const smoke = new Graphics()
@@ -513,6 +573,206 @@ export function drawLightningArc(effectsLayer: Container, fromX: number, fromY: 
     bolt.lineTo(toX, toY).stroke({ width: 2.5, color: 0xe0f2fe, alpha: 1 })
     effectsLayer.addChild(bolt)
     gsap.to(bolt, { alpha: 0, duration: 0.32, ease: 'power2.in', onComplete: () => bolt.destroy() })
+}
+
+/**
+ * A repair tick. Deliberately small and quiet — regen fires often enough that
+ * anything showier would clutter the screen.
+ */
+export function spawnRegenSparkle(effectsLayer: Container, x: number, y: number) {
+    for (let i = 0; i < 4; i++) {
+        const mote = new Graphics()
+        mote.circle(0, 0, randRange(1.5, 3)).fill({ color: 0xfda4af, alpha: 0.85 })
+        mote.position.set(x + randRange(-24, 24), y + randRange(-12, 12))
+        effectsLayer.addChild(mote)
+        gsap.to(mote.position, { y: mote.y - randRange(22, 38), duration: randRange(0.6, 0.95), ease: 'power1.out' })
+        gsap.to(mote, { alpha: 0, duration: randRange(0.6, 0.95), ease: 'power1.in', onComplete: () => mote.destroy() })
+    }
+}
+
+/** A single Hunter's Chain warhead — used both in orbit and as the projectile. */
+export function createHunterWarhead() {
+    const warhead = new Container()
+    const glow = new Graphics()
+    glow.circle(0, 0, 11).fill({ color: 0xfb7185, alpha: 0.3 })
+    glow.circle(0, 0, 6).fill({ color: 0xf43f5e, alpha: 0.45 })
+    const body = new Graphics()
+    body.moveTo(14, 0).lineTo(-8, -6).lineTo(-4, 0).lineTo(-8, 6).closePath()
+        .fill({ color: 0xfff1f2 }).stroke({ width: 2, color: 0xe11d48 })
+    body.circle(2, 0, 2.2).fill({ color: 0xfb7185 })
+    warhead.addChild(glow, body)
+    gsap.to(glow.scale, { x: 1.35, y: 1.35, duration: 0.6, ease: 'sine.inOut', yoyo: true, repeat: -1 })
+    return warhead
+}
+
+/** Expanding pressure ring — the readable "something big just landed" beat. */
+export function spawnShockRing(effectsLayer: Container, x: number, y: number, radius: number, color: number) {
+    const ring = new Graphics()
+    ring.circle(0, 0, 20).stroke({ width: 6, color, alpha: 0.9 })
+    ring.position.set(x, y)
+    effectsLayer.addChild(ring)
+    gsap.to(ring.scale, { x: radius / 20, y: radius / 20, duration: 0.42, ease: 'power3.out' })
+    gsap.to(ring, { alpha: 0, duration: 0.48, ease: 'power2.out', onComplete: () => ring.destroy() })
+}
+
+/** Tumbling embers thrown outward — layered on top of explosions for weight. */
+export function spawnEmberBurst(effectsLayer: Container, x: number, y: number, count: number, colors: number[]) {
+    for (let i = 0; i < count; i++) {
+        const ember = new Graphics()
+        const color = colors[i % colors.length]!
+        ember.star(0, 0, 4, randRange(2.5, 6), randRange(1, 2.4)).fill({ color, alpha: 0.95 })
+        ember.position.set(x, y)
+        effectsLayer.addChild(ember)
+        const angle = (i / count) * Math.PI * 2 + randRange(-0.3, 0.3)
+        const radius = randRange(40, 110)
+        gsap.to(ember.position, {
+            x: x + Math.cos(angle) * radius,
+            y: y + Math.sin(angle) * radius - randRange(0, 18),
+            duration: randRange(0.45, 0.75),
+            ease: 'power3.out'
+        })
+        gsap.to(ember.scale, { x: 0.2, y: 0.2, duration: 0.7, ease: 'power2.in' })
+        gsap.to(ember, { alpha: 0, rotation: randRange(-Math.PI, Math.PI), duration: 0.7, ease: 'power2.in', onComplete: () => ember.destroy() })
+    }
+}
+
+/** Drifting smoke puffs — soft, slow, and cheap. Sells the aftermath of a hit. */
+export function spawnSmokePuffs(effectsLayer: Container, x: number, y: number, count: number, color = 0x94a3b8) {
+    for (let i = 0; i < count; i++) {
+        const puff = new Graphics()
+        puff.circle(0, 0, randRange(4, 9)).fill({ color, alpha: 0.35 })
+        puff.position.set(x + randRange(-10, 10), y + randRange(-10, 10))
+        effectsLayer.addChild(puff)
+        gsap.to(puff.position, {
+            x: puff.x + randRange(-26, 26),
+            y: puff.y - randRange(14, 38),
+            duration: randRange(0.8, 1.3),
+            ease: 'power1.out'
+        })
+        gsap.to(puff.scale, { x: 2.4, y: 2.4, duration: 1.2, ease: 'power1.out' })
+        gsap.to(puff, { alpha: 0, duration: randRange(0.8, 1.3), ease: 'power1.in', onComplete: () => puff.destroy() })
+    }
+}
+
+/**
+ * The soft mutated plasma trail left by the three highest cannon tiers. Rather
+ * than a plain fading dot it wobbles outward and blooms, so a Leviathan volley
+ * reads instantly as end-game hardware.
+ */
+export function spawnMutatedTrail(effectsLayer: Container, x: number, y: number, color: number, scale = 1) {
+    // Kept deliberately soft — a hazy wake that suggests the shot rather than
+    // a hard string of beads chasing it.
+    const core = new Graphics()
+    core.circle(0, 0, randRange(2, 3.4) * scale).fill({ color, alpha: 0.4 })
+    core.circle(0, 0, randRange(5, 7.5) * scale).fill({ color, alpha: 0.09 })
+    core.position.set(x + randRange(-2, 2), y + randRange(-2, 2))
+    effectsLayer.addChild(core)
+    const drift = randRange(0, Math.PI * 2)
+    gsap.to(core.position, {
+        x: core.x + Math.cos(drift) * randRange(5, 14),
+        y: core.y + Math.sin(drift) * randRange(5, 14),
+        duration: 0.55,
+        ease: 'sine.out'
+    })
+    gsap.to(core.scale, { x: 1.7, y: 1.7, duration: 0.55, ease: 'power1.out' })
+    gsap.to(core, { alpha: 0, duration: 0.55, ease: 'power1.in', onComplete: () => core.destroy() })
+
+    // An occasional pale mote gives the trail its "mutated" shimmer without
+    // making the whole wake read as sparkles.
+    if (Math.random() < 0.22) {
+        const mote = new Graphics()
+        mote.star(0, 0, 3, randRange(1.6, 2.6) * scale, 1).fill({ color: 0xffffff, alpha: 0.35 })
+        mote.position.set(x, y)
+        effectsLayer.addChild(mote)
+        gsap.to(mote.position, { x: x - Math.cos(drift) * randRange(6, 15), y: y - Math.sin(drift) * randRange(6, 15), duration: 0.45, ease: 'sine.out' })
+        gsap.to(mote, { alpha: 0, rotation: Math.PI, duration: 0.45, ease: 'power1.in', onComplete: () => mote.destroy() })
+    }
+}
+
+/**
+ * The Ghostly Consort's gunfire wake. Same soft bloom shape as the top-tier
+ * mutated trail so it reads as heavy ordnance, but in a cold slate-and-blue
+ * palette with a dark shadow underlay — unmistakably the escort's shot rather
+ * than one of the captain's own.
+ */
+export function spawnConsortTrail(effectsLayer: Container, x: number, y: number, scale = 1) {
+    const shadow = new Graphics()
+    shadow.circle(0, 0, randRange(5, 8) * scale).fill({ color: 0x1e293b, alpha: 0.22 })
+    shadow.circle(0, 0, randRange(2.2, 3.6) * scale).fill({ color: 0x64748b, alpha: 0.5 })
+    shadow.position.set(x + randRange(-2, 2), y + randRange(-2, 2))
+    effectsLayer.addChild(shadow)
+    const drift = randRange(0, Math.PI * 2)
+    gsap.to(shadow.position, {
+        x: shadow.x + Math.cos(drift) * randRange(5, 13),
+        y: shadow.y + Math.sin(drift) * randRange(5, 13),
+        duration: 0.6,
+        ease: 'sine.out'
+    })
+    gsap.to(shadow.scale, { x: 1.8, y: 1.8, duration: 0.6, ease: 'power1.out' })
+    gsap.to(shadow, { alpha: 0, duration: 0.6, ease: 'power1.in', onComplete: () => shadow.destroy() })
+
+    // A cold blue spark riding inside the smoke.
+    if (Math.random() < 0.4) {
+        const spark = new Graphics()
+        spark.circle(0, 0, randRange(1.4, 2.6) * scale).fill({ color: 0x93c5fd, alpha: 0.7 })
+        spark.position.set(x, y)
+        effectsLayer.addChild(spark)
+        gsap.to(spark.position, { x: x - Math.cos(drift) * randRange(6, 14), y: y - Math.sin(drift) * randRange(6, 14), duration: 0.45, ease: 'sine.out' })
+        gsap.to(spark, { alpha: 0, duration: 0.45, ease: 'power1.in', onComplete: () => spark.destroy() })
+    }
+}
+
+/** Spectral rings and motes marking a summoned escort arriving. */
+export function spawnSummonBurst(effectsLayer: Container, x: number, y: number, color: number) {
+    for (let ring = 0; ring < 3; ring++) {
+        const glyph = new Graphics()
+        glyph.circle(0, 0, 26 + ring * 10).stroke({ width: 3, color, alpha: 0.8 })
+        glyph.position.set(x, y)
+        effectsLayer.addChild(glyph)
+        gsap.fromTo(glyph.scale, { x: 0.2, y: 0.2 }, { x: 1.6, y: 1.6, duration: 0.55 + ring * 0.1, ease: 'power2.out' })
+        gsap.to(glyph, { alpha: 0, duration: 0.55 + ring * 0.1, ease: 'power2.out', onComplete: () => glyph.destroy() })
+    }
+    for (let i = 0; i < 14; i++) {
+        const mote = new Graphics()
+        mote.circle(0, 0, randRange(2, 4)).fill({ color: 0xdbeafe, alpha: 0.9 })
+        const angle = (i / 14) * Math.PI * 2
+        mote.position.set(x + Math.cos(angle) * 60, y + Math.sin(angle) * 60)
+        effectsLayer.addChild(mote)
+        gsap.to(mote.position, { x, y, duration: 0.5, ease: 'power2.in' })
+        gsap.to(mote, { alpha: 0, duration: 0.5, ease: 'power2.in', onComplete: () => mote.destroy() })
+    }
+}
+
+/**
+ * The Hellfire danger zone. It is intentionally huge and only loosely
+ * predictive — the shells scatter randomly inside it — so it is drawn as a
+ * sweeping targeting reticle rather than a precise blast circle.
+ */
+export function drawHellfireZone(effectsLayer: Container, x: number, y: number, radius: number) {
+    const zone = new Container()
+    zone.position.set(x, y)
+
+    const field = new Graphics()
+    field.circle(0, 0, radius).fill({ color: 0xdc2626, alpha: 0.07 })
+    field.circle(0, 0, radius).stroke({ width: 4, color: 0xfb923c, alpha: 0.8 })
+    field.circle(0, 0, radius * 0.66).stroke({ width: 2, color: 0xfdba74, alpha: 0.45 })
+    field.circle(0, 0, radius * 0.33).stroke({ width: 2, color: 0xfed7aa, alpha: 0.35 })
+    zone.addChild(field)
+
+    const ticks = new Graphics()
+    for (let i = 0; i < 12; i++) {
+        const angle = (i / 12) * Math.PI * 2
+        ticks.moveTo(Math.cos(angle) * (radius - 26), Math.sin(angle) * (radius - 26))
+            .lineTo(Math.cos(angle) * radius, Math.sin(angle) * radius)
+            .stroke({ width: 3, color: 0xfb923c, alpha: 0.7 })
+    }
+    zone.addChild(ticks)
+
+    effectsLayer.addChild(zone)
+    gsap.fromTo(zone.scale, { x: 0.35, y: 0.35 }, { x: 1, y: 1, duration: 0.45, ease: 'power3.out' })
+    gsap.to(field, { alpha: 0.45, duration: 0.3, yoyo: true, repeat: 7 })
+    gsap.to(ticks, { rotation: Math.PI / 2, duration: 3, ease: 'none' })
+    return zone
 }
 
 export function shake(world: Container, amount: number) {

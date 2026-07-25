@@ -18,6 +18,7 @@ interface PirateStateSnapshot {
     activeRun: unknown
     equippedSkinId: string
     equippedAbilityId: PirateAbilityId
+    equippedAbilityLevel: number
     stats: { maxHp: number, speed: number, defenseRating: number, regenRate: number }
     ammo: { count: number }
     gemAmmo: { count: number }
@@ -50,6 +51,9 @@ const gemAmmo = ref(0)
 const preferGem = ref(false)
 const abilityCooldownMs = ref(0)
 const abilityCooldownTotalMs = ref(15_000)
+// Unavailable but not ticking down — the consort holds this while its escort
+// is still alive, since its cooldown only starts once the escort sinks.
+const abilityLocked = ref(false)
 const remainingMs = ref(0)
 const running = ref(false)
 const paused = ref(false)
@@ -175,9 +179,10 @@ function buildCallbacks() {
         onHpChange: (h: number, mh: number) => { hp.value = h; maxHp.value = mh },
         onCoinsChange: (c: number) => { coins.value = c },
         onAmmoChange: (a: number, g: number) => { ammo.value = a; gemAmmo.value = g },
-        onAbilityCooldownChange: (remaining: number, total: number) => {
+        onAbilityCooldownChange: (remaining: number, total: number, locked?: boolean) => {
             abilityCooldownMs.value = remaining
             abilityCooldownTotalMs.value = total
+            abilityLocked.value = locked ?? false
         },
         onTimeChange: (_elapsed: number, remaining: number) => { remainingMs.value = remaining },
         onGameOver: (result: Parameters<typeof handleGameOver>[0]) => { handleGameOver(result) },
@@ -270,6 +275,7 @@ export function usePirateRun() {
             gemAmmo: state.gemAmmo.count,
             skinId: state.equippedSkinId,
             abilityId: state.equippedAbilityId,
+            abilityLevel: state.equippedAbilityLevel ?? 1,
             cannons: state.cannons.map(c => ({ slotIndex: c.slotIndex, tierId: c.tierId, attackRating: c.attackRating, maxDamage: c.maxDamage, reloadMs: c.reloadMs, range: c.range, shotColor: c.shotColor, shotTrail: c.shotTrail }))
         } satisfies PirateShipStats)
 
@@ -308,6 +314,7 @@ export function usePirateRun() {
             gemAmmo.value = res.gemAmmo
             preferGem.value = false
             abilityCooldownMs.value = 0
+            abilityLocked.value = false
             remainingMs.value = res.runDurationMs
             killFeed.value = []
             activePowerUps.value = []
@@ -327,6 +334,7 @@ export function usePirateRun() {
                 gemAmmo: res.gemAmmo,
                 skinId: res.skinId,
                 abilityId: res.abilityId,
+                abilityLevel: res.abilityLevel ?? 1,
                 cannons: res.cannons
             }, res.power, res.difficulty)
             pirateSound.startAmbience()
@@ -378,6 +386,7 @@ export function usePirateRun() {
         preferGem,
         abilityCooldownMs,
         abilityCooldownTotalMs,
+        abilityLocked,
         remainingMs,
         running,
         paused,
