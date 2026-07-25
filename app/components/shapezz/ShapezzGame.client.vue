@@ -15,6 +15,7 @@ const canvas = ref<HTMLCanvasElement | null>(null)
 const toast = useToast()
 const { user, fetchSession } = useAuth()
 const sound = useShapezzSound()
+const music = useShapezzMusic()
 const { soundEnabled, soundVolume } = sound
 
 function togglePause() {
@@ -35,12 +36,11 @@ const settling = ref(false)
 const running = ref(false)
 const paused = ref(false)
 const fps = ref(60)
-const showProductionFps = !import.meta.dev
 const checkpointOffers = ref<ShapezzRunUpgradeId[]>([])
 const headStartOffers = ref<ShapezzRunUpgradeId[]>([])
 const headStartPicksRemaining = ref(0)
 const buyingHeadStart = ref(false)
-const snapshot = ref<ShapezzSnapshot>({ hp: 0, maxHp: 1, coins: 0, kills: 0, elapsedMs: 0, checkpoint: 0, combo: 0, upgrades: {} })
+const snapshot = ref<ShapezzSnapshot>({ hp: 0, maxHp: 1, shield: 0, shieldCapacity: 0, coins: 0, kills: 0, elapsedMs: 0, checkpoint: 0, combo: 0, upgrades: {} })
 const result = ref<null | {
     reason: 'cashout' | 'defeat'
     awarded: number
@@ -54,6 +54,7 @@ let bossWarningTimer: ReturnType<typeof setTimeout> | null = null
 let engine: ShapezzEngine | null = null
 
 const hpPercent = computed(() => clampPercent(snapshot.value.hp / Math.max(1, snapshot.value.maxHp) * 100))
+const shieldPercent = computed(() => clampPercent(snapshot.value.shield / Math.max(1, snapshot.value.shieldCapacity) * 100))
 const selectedDifficulty = computed(() => state.value?.difficulties.find(difficulty => difficulty.id === selectedDifficultyId.value))
 const difficultyItems = computed(() => (state.value?.difficulties ?? []).map(difficulty => ({
     label: `${difficulty.name} · ${difficulty.reward.toFixed(2)}x loot`,
@@ -197,7 +198,14 @@ function beginRun() {
     paused.value = false
     engine.start()
     sound.play('run-start')
+    music.play()
 }
+
+// Power-up selection (checkpoint mutation or head-start pick) ducks the
+// background music so it doesn't compete with reading upgrade choices.
+watch(() => checkpointOffers.value.length > 0 || headStartOffers.value.length > 0, (selecting) => {
+    music.duck(selecting)
+})
 
 function chooseHeadStartUpgrade(upgradeId: ShapezzRunUpgradeId) {
     if (!engine) return
@@ -264,6 +272,7 @@ async function cashOut() {
         running.value = false
         paused.value = false
         checkpointOffers.value = []
+        music.stop()
         sound.play('cash-out')
         result.value = {
             reason: 'cashout',
@@ -324,13 +333,14 @@ async function settleDefeat(finalSnapshot: ShapezzSnapshot) {
         running.value = false
         paused.value = false
         checkpointOffers.value = []
+        music.stop()
         settling.value = false
     }
 }
 
 function closeResult() {
     result.value = null
-    snapshot.value = { hp: 0, maxHp: 1, coins: 0, kills: 0, elapsedMs: 0, checkpoint: 0, combo: 0, upgrades: {} }
+    snapshot.value = { hp: 0, maxHp: 1, shield: 0, shieldCapacity: 0, coins: 0, kills: 0, elapsedMs: 0, checkpoint: 0, combo: 0, upgrades: {} }
 }
 
 onMounted(() => {
@@ -341,6 +351,7 @@ onUnmounted(() => {
     engine?.destroy()
     engine = null
     sound.stop()
+    music.stop()
     if (clockTimer) clearInterval(clockTimer)
     if (bossWarningTimer) clearTimeout(bossWarningTimer)
     // Leaving mid-run (or mid head-start pick, which already started the run
@@ -405,17 +416,25 @@ onUnmounted(() => {
                 <div class="h-2.5 overflow-hidden rounded-full bg-white/10">
                   <div class="h-full bg-success shadow-[0_0_14px_var(--ui-success)] transition-[width] duration-100" :style="{ width: `${hpPercent}%` }" />
                 </div>
+                <template v-if="snapshot.shieldCapacity > 0">
+                  <div class="mb-1 mt-2 flex items-center justify-between text-[10px] font-black uppercase tracking-widest text-info">
+                    <span>Aegis plating</span>
+                    <span>{{ Math.ceil(snapshot.shield) }} / {{ snapshot.shieldCapacity }}</span>
+                  </div>
+                  <div class="h-1.5 overflow-hidden rounded-full bg-white/10">
+                    <div class="h-full bg-info shadow-[0_0_14px_var(--ui-info)] transition-[width] duration-100" :style="{ width: `${shieldPercent}%` }" />
+                  </div>
+                </template>
               </div>
 
               <div class="flex gap-2">
                 <span
-                  v-if="showProductionFps"
                   class="self-start rounded-md border border-white/10 bg-black/55 px-2 py-1 font-mono text-xs font-black tabular-nums text-white/70"
                   :aria-label="`${fps} frames per second`"
                 >{{ fps }}</span>
                 <div class="rounded-lg border border-white/10 bg-black/55 px-3 py-2 text-center backdrop-blur-sm">
                   <p class="text-[9px] font-black uppercase tracking-widest text-white/50">Cash offer</p>
-                  <p class="text-lg font-black tabular-nums text-warning">{{ formatNumber(cashOffer, false, 2) }}</p>
+                  <p class="text-lg font-black tabular-nums text-warning" :title="formatNumber(cashOffer, false, 2)">{{ formatNumber(cashOffer) }}</p>
                 </div>
                 <div class="rounded-lg border border-white/10 bg-black/55 px-3 py-2 text-center backdrop-blur-sm">
                   <p class="text-[9px] font-black uppercase tracking-widest text-white/50">Next mutation</p>
