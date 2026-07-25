@@ -1,4 +1,4 @@
-export const SHAPEZZ_CHECKPOINT_MS = import.meta.dev ? 15_000 : 45_000
+export const SHAPEZZ_CHECKPOINT_MS = 45_000
 // SHAPEZZ used to pay its raw arcade-score values as coins, leaving a clean
 // six-minute run far behind a completed Pirate voyage. Keep score tuning
 // readable in the engine and convert it into the shared game economy here.
@@ -283,7 +283,7 @@ export const SHAPEZZ_RUN_UPGRADE_IDS = [
     'twinFang', 'splitstorm', 'railPierce', 'ricochet', 'explosive', 'chainLightning',
     'orbitals', 'droneSwarm', 'blackHole', 'bulletTime', 'giantRounds', 'vampireBurst',
     'afterimage', 'deathNova', 'frenzy', 'hyperVelocity', 'killShockwave', 'executioner',
-    'overkillDividend', 'ceilingBattery'
+    'overkillDividend', 'ceilingBattery', 'aegisPlating'
 ] as const
 export type ShapezzRunUpgradeId = typeof SHAPEZZ_RUN_UPGRADE_IDS[number]
 
@@ -304,21 +304,64 @@ export const SHAPEZZ_RUN_UPGRADES: ShapezzRunUpgrade[] = [
     { id: 'ricochet', name: 'PINBALL MURDER', description: 'Shots bounce twice and retarget nearby shapes.', stackText: '+2 bounces per stack', icon: 'i-lucide-zap', rarity: 'unstable', accent: '#fde047' },
     { id: 'explosive', name: 'EVERYTHING EXPLODES', description: 'Bullet impacts detonate an area blast.', stackText: 'Larger, harder blasts', icon: 'i-lucide-bomb', rarity: 'cataclysmic', accent: '#fb7185' },
     { id: 'chainLightning', name: 'CHAIN REACTION', description: 'Hits arc lightning through 3 nearby enemies.', stackText: '+2 chain targets', icon: 'i-lucide-radio-tower', rarity: 'cataclysmic', accent: '#c4b5fd' },
-    { id: 'orbitals', name: 'ORBITAL ARMORY', description: 'Gain 2 orbiting guns that fire independently.', stackText: '+2 orbital guns', icon: 'i-lucide-orbit', rarity: 'cataclysmic', accent: '#f0abfc' },
-    { id: 'droneSwarm', name: 'DRONE SWARM', description: 'Deploy 2 hunter drones with rapid lasers.', stackText: '+2 drones', icon: 'i-lucide-bot', rarity: 'unstable', accent: '#34d399' },
+    { id: 'orbitals', name: 'ORBITAL ARMORY', description: 'Gain 2 orbiting guns. Turret shots delete any small enemy outright, halve a tank, and chip 1% off a boss.', stackText: '+2 orbital guns', icon: 'i-lucide-orbit', rarity: 'cataclysmic', accent: '#f0abfc' },
+    { id: 'droneSwarm', name: 'DRONE SWARM', description: 'Deploy 2 hunter drones. Turret shots delete any small enemy outright, halve a tank, and chip 1% off a boss.', stackText: '+2 drones', icon: 'i-lucide-bot', rarity: 'unstable', accent: '#34d399' },
     { id: 'blackHole', name: 'POCKET SINGULARITY', description: 'Every 14th shot creates a crushing black hole.', stackText: 'Triggers 3 shots sooner', icon: 'i-lucide-circle-dot', rarity: 'cataclysmic', accent: '#e879f9' },
     { id: 'bulletTime', name: 'PANIC FIELD', description: 'Enemy projectiles crawl when they get close.', stackText: 'Slower hostile bullets', icon: 'i-lucide-clock-3', rarity: 'wild', accent: '#60a5fa' },
     { id: 'giantRounds', name: 'ABSURD CALIBER', description: 'Projectiles become 70% larger and hit much harder.', stackText: '+70% size, +35% damage', icon: 'i-lucide-maximize-2', rarity: 'unstable', accent: '#fb923c' },
-    { id: 'vampireBurst', name: 'BLOOD CIRCUIT', description: 'Every 20 kills restores 25% max health.', stackText: 'Triggers 4 kills sooner', icon: 'i-lucide-heart-pulse', rarity: 'wild', accent: '#f43f5e' },
-    { id: 'afterimage', name: 'AFTERIMAGE TURRETS', description: 'Jumping leaves a temporary auto-firing turret.', stackText: '+1 turret per jump', icon: 'i-lucide-copy', rarity: 'unstable', accent: '#2dd4bf' },
+    { id: 'vampireBurst', name: 'BLOOD CIRCUIT', description: 'Every 20 kills, regenerate 15% max health over 2.5s. 7s cooldown.', stackText: '+3% healing, 2 kills sooner, -0.8s cooldown', icon: 'i-lucide-heart-pulse', rarity: 'wild', accent: '#f43f5e' },
+    { id: 'afterimage', name: 'AFTERIMAGE TURRETS', description: 'Jumping leaves a temporary turret. Turret shots delete any small enemy outright, halve a tank, and chip 1% off a boss.', stackText: '+1 turret per jump', icon: 'i-lucide-copy', rarity: 'unstable', accent: '#2dd4bf' },
     { id: 'deathNova', name: 'CORPSE NOVA', description: 'Dead enemies fire a 12-shot radial burst for you.', stackText: '+6 nova shots', icon: 'i-lucide-sun', rarity: 'cataclysmic', accent: '#facc15' },
     { id: 'frenzy', name: 'NO BRAKES', description: 'Fire rate doubles while your combo is alive.', stackText: '+35% frenzy fire rate', icon: 'i-lucide-flame', rarity: 'unstable', accent: '#f97316' },
     { id: 'hyperVelocity', name: 'HYPERVELOCITY', description: 'Projectiles move 50% faster and leave damaging trails.', stackText: '+50% speed, hotter trails', icon: 'i-lucide-chevrons-right', rarity: 'wild', accent: '#38bdf8' },
     { id: 'killShockwave', name: 'KILLQUAKE', description: 'Every 18 kills, emit a growing shockwave that damages nearby enemies.', stackText: 'Triggers sooner, grows larger and hits harder', icon: 'i-lucide-waves', rarity: 'unstable', accent: '#22d3ee' },
     { id: 'executioner', name: 'EXECUTIONER', description: 'Enemies below 12% health are instantly destroyed.', stackText: '+2.5% execution threshold', icon: 'i-lucide-skull', rarity: 'cataclysmic', accent: '#fb7185' },
     { id: 'overkillDividend', name: 'OVERKILL DIVIDEND', description: 'Excess lethal damage erupts from the victim as a compact shockwave.', stackText: 'Larger wave, converts more excess damage', icon: 'i-lucide-circle-dollar-sign', rarity: 'unstable', accent: '#fbbf24' },
-    { id: 'ceilingBattery', name: 'CEILING BATTERY', description: 'Mount a top-center turret that copies your weapon, projectiles and offensive upgrades at 82% fire rate.', stackText: '+1 full-power ceiling turret', icon: 'i-lucide-cctv', rarity: 'cataclysmic', accent: '#a3e635' }
+    { id: 'ceilingBattery', name: 'CEILING BATTERY', description: 'Mount a top-center turret that copies your weapon, projectiles and offensive upgrades at 82% fire rate.', stackText: '+1 full-power ceiling turret', icon: 'i-lucide-cctv', rarity: 'cataclysmic', accent: '#a3e635' },
+    { id: 'aegisPlating', name: 'AEGIS PLATING', description: 'Every 20 kills, gain a 25 point shield that soaks damage before your hull. Holds up to 75.', stackText: '+15 per plate, +50 capacity, 2 kills sooner', icon: 'i-lucide-shield', rarity: 'wild', accent: '#38bdf8' }
 ]
+
+/**
+ * Blood Circuit. Deliberately a regen-over-time on an internal cooldown rather than an instant burst:
+ * the trigger is kill-gated, and late builds kill fast enough that an instant heal made the player
+ * unkillable. The cooldown decouples the heal from kill rate; the ramp lets spike damage still land.
+ */
+export function shapezzVampireBurstStats(stacks: number) {
+    const bounded = Math.max(1, Math.min(4, stacks))
+    return {
+        kills: Math.max(14, 20 - (bounded - 1) * 2),
+        healFraction: 0.15 + (bounded - 1) * 0.03,
+        duration: 2.5,
+        cooldown: Math.max(3.4, 7 - (bounded - 1) * 0.8)
+    }
+}
+
+/**
+ * Aegis Plating. Flat, capped shield on purpose — it stays relevant early and fades naturally as
+ * max HP scales, so it can never become a percentage-based immortality engine like Blood Circuit was.
+ */
+export function shapezzShieldStats(stacks: number) {
+    const bounded = Math.max(1, Math.min(4, stacks))
+    return {
+        kills: Math.max(12, 20 - (bounded - 1) * 2),
+        amount: 25 + (bounded - 1) * 15,
+        capacity: 75 + (bounded - 1) * 50
+    }
+}
+
+/**
+ * Companion turrets (orbitals, afterimage turrets, drones) deal a fraction of the target's **max
+ * health**, not a fraction of the player's damage stat. One shot clears any small enemy, two clear a
+ * tank, and bosses take 100 hits. Because it is health-relative it never falls behind the enemy health
+ * ramp, which is what made orbitals feel worthless deep into a run.
+ *
+ * The ceiling battery is exempt — it intentionally mirrors the player's own weapon and upgrades.
+ */
+export function shapezzTurretDamageFraction(enemyType: string, boss: boolean) {
+    if (boss) return 0.01
+    if (enemyType === 'tank') return 0.5
+    return 1
+}
 
 export function shapezzExecutionThreshold(stacks: number) {
     if (stacks <= 0) return 0
