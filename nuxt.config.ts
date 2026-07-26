@@ -1,8 +1,7 @@
 export default defineNuxtConfig({
     modules: [
         '@nuxt/eslint',
-        '@nuxt/ui',
-        '@sentry/nuxt/module'
+        '@nuxt/ui'
     ],
 
     devtools: {
@@ -111,14 +110,5 @@ export default defineNuxtConfig({
                 braceStyle: '1tbs'
             }
         }
-    },
-
-    sentry: {
-        // Bugsink receives SDK events directly; source-map uploads require a
-        // separate Bugsink upload configuration and are intentionally opt-in.
-        sourcemaps: {
-            disable: true
-        },
-        telemetry: false
     },
 })
