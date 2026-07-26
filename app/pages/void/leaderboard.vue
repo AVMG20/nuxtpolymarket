@@ -11,7 +11,7 @@ const { data: rows } = await useFetch('/api/void/leaderboard')
         Deepest runners
       </h1>
       <p class="mt-0.5 text-sm text-muted">
-        Ranked by the deepest sector successfully extracted from, then by best banked run.
+        Ranked by the deepest sector successfully extracted from, then by the most valuable haul ever brought home.
       </p>
     </div>
 
@@ -49,7 +49,7 @@ const { data: rows } = await useFetch('/api/void/leaderboard')
           <div class="flex flex-wrap items-center gap-1.5">
             <UBadge color="primary" variant="subtle" :label="`Sector ${row.sector} · ${row.sectorName}`" icon="i-lucide-radar" />
             <UBadge color="neutral" variant="subtle" :label="`${row.bestUnits} units`" icon="i-lucide-package" />
-            <UBadge color="warning" variant="subtle">
+            <UBadge color="warning" variant="subtle" icon="i-lucide-hand-coins">
               <CoinBalance :value="row.bestCredits" />
             </UBadge>
           </div>

@@ -31,7 +31,7 @@ const reasonLabel: Record<string, string> = {
         Run log
       </h1>
       <p class="mt-0.5 text-sm text-muted">
-        Your last fifty sorties.
+        Your last fifty sorties. The coin figure is what each haul was worth at market rates, not a payout — you sell it at the dock.
       </p>
     </div>
 
@@ -74,7 +74,7 @@ const reasonLabel: Record<string, string> = {
               :icon="line.def.icon"
               :label="String(line.amount)"
             />
-            <UBadge color="warning" variant="subtle">
+            <UBadge color="warning" variant="subtle" icon="i-lucide-hand-coins" :title="'Market value of the haul'">
               <CoinBalance :value="run.credits" />
             </UBadge>
           </div>

@@ -1,10 +1,14 @@
 import { and, eq, isNotNull } from 'drizzle-orm'
+import { randomChance } from '#shared/utils/random'
 import { db } from '#server/database'
-import { voidRunHistory, voidState } from '#server/database/schema'
+import { voidRunHistory, voidState, voidWeapons } from '#server/database/schema'
 import { requireUserId } from '#server/utils/auth'
-import { credit } from '#server/utils/balance'
-import { getLockedVoidState, settleVoidRun } from '#server/utils/void'
-import { VOID_RESOURCE_IDS, type VoidResourceBundle } from '#shared/utils/gamelogic/void'
+import { getLockedVoidState, settleVoidRun, plausibleBossKills } from '#server/utils/void'
+import {
+    VOID_RESOURCE_IDS, VOID_BOSS_MODULE_DROP_CHANCE,
+    rollVoidWeapon, voidRollBossModuleRarity, voidRarity, voidSpecial, voidAffix,
+    type VoidResourceBundle, type VoidAffixId
+} from '#shared/utils/gamelogic/void'
 
 const REASONS = ['extracted', 'destroyed', 'timeout', 'cancelled']
 
@@ -12,8 +16,8 @@ export default defineEventHandler(async (event) => {
     const userId = await requireUserId(event)
 
     const body = await readBody(event)
-    const reportedCredits = Math.max(0, Math.floor(Number(body?.credits) || 0))
     const reportedKills = Math.min(5000, Math.max(0, Math.floor(Number(body?.kills) || 0)))
+    const reportedBossKills = Math.min(50, Math.max(0, Math.floor(Number(body?.bossKills) || 0)))
     const reportedRocksMined = Math.min(500, Math.max(0, Math.floor(Number(body?.rocksMined) || 0)))
     // The client's own counter only advances while the run is actually
     // simulating, so a tab left in the background reports its real playtime
@@ -41,7 +45,6 @@ export default defineEventHandler(async (event) => {
             extracted,
             reason,
             reportedElapsedMs,
-            reportedCredits,
             reportedHaul,
             reportedKills,
             reportedRocksMined
@@ -74,7 +77,9 @@ export default defineEventHandler(async (event) => {
                 sector: result.tier,
                 power: result.power,
                 durationMs: result.elapsedMs,
-                credits: result.awarded,
+                // The history column records what the haul was worth, not a
+                // payout — nothing in a run pays coins.
+                credits: result.haulValue,
                 units: result.units,
                 haul: result.haul as Record<string, number>,
                 extracted: result.extracted,
@@ -85,13 +90,43 @@ export default defineEventHandler(async (event) => {
             })
         }
 
-        if (result.awarded > 0) await credit(userId, result.awarded.toFixed(4), 'void', tx)
+        // Capital drops are rolled here, not on the client: the client only
+        // reports how many capitals it downed, and even that is clamped to what
+        // the run's real elapsed time could plausibly have produced. Rarity
+        // follows the sector, which is the whole reason to push deeper.
+        const bossKills = abandoned ? 0 : plausibleBossKills(reportedBossKills, result.elapsedMs)
+        const moduleDrops: {
+            id: string, name: string, rarityId: string, rarityName: string, hex: string,
+            special: string | null, lines: string[]
+        }[] = []
+        for (let i = 0; i < bossKills; i++) {
+            if (!randomChance(VOID_BOSS_MODULE_DROP_CHANCE)) continue
+            const rarityId = voidRollBossModuleRarity(result.tier)
+            const rolled = rollVoidWeapon(rarityId)
+            const [created] = await tx.insert(voidWeapons).values({
+                userId,
+                rarityId: rolled.rarityId,
+                name: rolled.name,
+                affixes: rolled.affixes as Record<string, number>,
+                specialId: rolled.specialId,
+                slotIndex: null
+            }).returning()
+            const rarity = voidRarity(rarityId)
+            moduleDrops.push({
+                id: created!.id,
+                name: rolled.name,
+                rarityId,
+                rarityName: rarity.name,
+                hex: rarity.hex,
+                special: voidSpecial(rolled.specialId)?.name ?? null,
+                lines: (Object.entries(rolled.affixes) as [VoidAffixId, number][])
+                    .map(([id, value]) => voidAffix(id).describe(value))
+            })
+        }
 
         return {
-            awarded: result.awarded,
-            runCredits: result.runCredits,
-            extractionBonus: result.extractionBonus,
-            capped: result.capped,
+            moduleDrops,
+            haulValue: result.haulValue,
             elapsedMs: result.elapsedMs,
             extracted: result.extracted,
             reason,

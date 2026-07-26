@@ -1,13 +1,14 @@
 <script setup lang="ts">
-import { VOID_STORM_START_MS, VOID_RUN_DURATION_MS, voidResource } from '#shared/utils/gamelogic/void'
+import { VOID_STORM_START_MS, VOID_RUN_DURATION_MS, VOID_MIDBOSS_SPAWN_MS, voidResource } from '#shared/utils/gamelogic/void'
+import VoidResourceChip from '~/components/void/VoidResourceChip.vue'
 
 const canvasHost = ref<HTMLDivElement | null>(null)
 
 const { data: state, refresh } = await useFetch('/api/void/state')
 
 const {
-    hull, maxHull, shield, maxShield, credits, cargo,
-    elapsedMs, stormPhase, miningProgress, miningLabel,
+    hull, maxHull, shield, maxShield, cargo,
+    elapsedMs, stormPhase, threat, miningProgress, miningLabel,
     extractProgress, extractInRange, boostMs, boostCapacityMs,
     running, paused, launching, summaryVisible, summary,
     bossName, bossVisible, notices,
@@ -20,11 +21,15 @@ watch(() => state.value?.recommendedSector, (tier) => {
     if (tier !== undefined && !running.value) selectedSector.value = tier
 }, { immediate: true })
 
-const sectorOptions = computed(() => (state.value?.sectors ?? []).map(sector => ({
-    label: `${sector.tier}. ${sector.name}${sector.cleared ? ' · cleared' : ''}`,
-    value: sector.tier,
-    disabled: !sector.unlocked
-})))
+// Annotated so `value` widens to `number`: the sector tiers are literal types
+// on the shared config, which would otherwise force the v-model ref into a
+// `1 | 2 | 3 | 4` union.
+const sectorOptions = computed<{ label: string, value: number, disabled: boolean }[]>(() =>
+    (state.value?.sectors ?? []).map(sector => ({
+        label: `${sector.tier}. ${sector.name}${sector.cleared ? ' · cleared' : ''}`,
+        value: sector.tier,
+        disabled: !sector.unlocked
+    })))
 const selectedSectorInfo = computed(() => state.value?.sectors.find(s => s.tier === selectedSector.value))
 const sectorTooHot = computed(() => {
     const info = selectedSectorInfo.value
@@ -62,6 +67,11 @@ const stormColor = computed(() => {
     return stormPhase.value >= 1 ? 'error' as const : 'warning' as const
 })
 const timeLeftLabel = computed(() => clockLabel(Math.max(0, VOID_RUN_DURATION_MS - elapsedMs.value)))
+const threatLabel = computed(() => `Threat ${threat.value.toFixed(2)}x`)
+const threatColor = computed(() => threat.value >= 1.6 ? 'error' as const : threat.value >= 1.25 ? 'warning' as const : 'neutral' as const)
+const midBossLabel = computed(() => elapsedMs.value < VOID_MIDBOSS_SPAWN_MS
+    ? `Cruiser in ${clockLabel(VOID_MIDBOSS_SPAWN_MS - elapsedMs.value)}`
+    : null)
 
 const summaryIcon = computed(() => {
     if (!summary.value) return 'i-lucide-rocket'
@@ -78,9 +88,9 @@ const summaryTitle = computed(() => {
 })
 const summaryMessage = computed(() => {
     if (!summary.value) return ''
-    if (summary.value.extracted) return 'Everything in the hold is now in your stores.'
-    if (summary.value.reason === 'cancelled') return 'You pulled the plug. Credits earned in flight are still yours; the hold is not.'
-    return 'The hold went down with the ship. Credits picked up in flight survived the wreck.'
+    if (summary.value.extracted) return 'Everything in the hold is now in your stores, ready to sell.'
+    if (summary.value.reason === 'cancelled') return 'You pulled the plug before docking, so the hold is gone.'
+    return 'The hold went down with the ship. Nothing out there converts to money until it is docked.'
 })
 const summaryHaulLines = computed(() => bundleLines(summary.value?.bankedHaul ?? {}))
 
@@ -107,8 +117,15 @@ onUnmounted(() => detachCanvas())
   <UContainer class="space-y-6">
     <div class="flex flex-wrap items-center justify-between gap-3">
       <div>
-        <h1 class="text-2xl font-bold">
+        <h1 class="flex flex-wrap items-center gap-2 text-2xl font-bold">
           Void Runner
+          <UBadge
+            color="warning"
+            variant="subtle"
+            size="sm"
+            icon="i-lucide-flask-conical"
+            label="OPEN BETA · all progress can be deleted"
+          />
         </h1>
         <p class="mt-0.5 text-sm text-muted">
           Undock, cut rocks, kill patrols — and be back at the mothership before the ion storm closes.
@@ -216,7 +233,7 @@ onUnmounted(() => detachCanvas())
                 </div>
                 <div class="rounded-lg border border-default bg-elevated p-3">
                   <p class="text-[10px] font-semibold uppercase tracking-wide text-muted">
-                    Turrets
+                    Modules
                   </p>
                   <p class="mt-1 text-lg font-black tabular-nums">
                     {{ state.weapons.filter(w => w.slotIndex !== null).length }} / {{ state.turretSlots }}
@@ -272,6 +289,9 @@ onUnmounted(() => detachCanvas())
               <p class="mt-2 text-center text-[11px] text-muted">
                 WASD to thrust · Space to boost · mouse to aim · hold left click to fire or mine
               </p>
+              <p class="mt-1 text-center text-[11px] text-muted">
+                Patrols get stronger every minute. A strike cruiser arrives at 3:00 and the storm starts closing at 5:00.
+              </p>
             </UCard>
           </div>
         </div>
@@ -311,6 +331,7 @@ onUnmounted(() => detachCanvas())
               <div class="mb-2 flex items-center justify-between text-xs">
                 <span class="flex items-center gap-1.5 font-semibold">
                   <UIcon name="i-lucide-package" class="size-4" :class="cargoFull ? 'text-error' : 'text-primary'" /> Cargo hold
+                  <span class="font-normal text-muted">· worth <CoinBalance :value="cargo.value" class="inline-flex" /></span>
                 </span>
                 <span class="tabular-nums" :class="cargoFull ? 'font-bold text-error' : 'text-muted'">
                   {{ cargo.units }} / {{ cargo.capacity }}
@@ -320,13 +341,13 @@ onUnmounted(() => detachCanvas())
                 <div class="h-full rounded-full transition-[width] duration-200" :class="cargoFull ? 'bg-error' : 'bg-primary'" :style="{ width: `${cargoPercent}%` }" />
               </div>
               <div v-if="cargoLines.length" class="flex flex-wrap gap-1.5">
-                <UBadge
+                <VoidResourceChip
                   v-for="line in cargoLines"
                   :key="line.id"
-                  color="neutral"
-                  variant="subtle"
-                  :icon="line.def.icon"
-                  :label="`${line.def.name} ${line.amount}`"
+                  :resource="line.id"
+                  :amount="line.amount"
+                  :compact="false"
+                  size="sm"
                 />
               </div>
               <p v-else class="text-xs text-muted">
@@ -344,10 +365,12 @@ onUnmounted(() => detachCanvas())
                 </p>
               </div>
               <UBadge :color="stormColor" variant="subtle" :label="stormCountdown" icon="i-lucide-wind" />
-              <div class="flex items-center justify-center gap-1.5">
-                <UBadge color="warning" variant="subtle">
-                  <CoinBalance :value="credits" />
+              <div class="flex flex-wrap items-center justify-center gap-1.5">
+                <UBadge color="warning" variant="subtle" icon="i-lucide-hand-coins">
+                  <CoinBalance :value="cargo.value" />
                 </UBadge>
+                <UBadge :color="threatColor" variant="subtle" :label="threatLabel" icon="i-lucide-trending-up" />
+                <UBadge v-if="midBossLabel" color="neutral" variant="subtle" :label="midBossLabel" icon="i-lucide-crosshair" />
                 <UBadge color="neutral" variant="subtle" :label="`${timeLeftLabel} left`" />
               </div>
             </section>
@@ -386,11 +409,11 @@ onUnmounted(() => detachCanvas())
 
           <div class="rounded-xl border border-warning/30 bg-warning/10 p-4 text-center">
             <p class="text-[10px] font-bold uppercase tracking-[0.18em] text-muted">
-              Credits banked
+              Haul value
             </p>
-            <CoinBalance :value="summary.awarded" class="mt-1 justify-center text-3xl font-black" />
-            <p v-if="summary.extractionBonus > 0" class="mt-2 text-xs font-bold text-primary">
-              Includes +{{ formatNumber(summary.extractionBonus) }} docking bonus
+            <CoinBalance :value="summary.bankedValue" class="mt-1 justify-center text-3xl font-black" />
+            <p class="mt-2 text-xs text-muted">
+              {{ summary.bankedValue > 0 ? 'Sell it at the dock market whenever you like.' : 'Nothing came home.' }}
             </p>
           </div>
 
@@ -399,13 +422,13 @@ onUnmounted(() => detachCanvas())
               <UIcon name="i-lucide-package-check" class="size-4 text-success" /> Added to stores
             </p>
             <div class="flex flex-wrap gap-1.5">
-              <UBadge
+              <VoidResourceChip
                 v-for="line in summaryHaulLines"
                 :key="line.id"
-                color="success"
-                variant="subtle"
-                :icon="line.def.icon"
-                :label="`${line.def.name} +${line.amount}`"
+                :resource="line.id"
+                :amount="line.amount"
+                :compact="false"
+                size="sm"
               />
             </div>
           </div>
@@ -452,6 +475,36 @@ onUnmounted(() => detachCanvas())
             </div>
           </div>
 
+          <div v-if="summary.moduleDrops.length" class="rounded-xl border border-primary/40 bg-primary/5 p-3">
+            <p class="mb-2 flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide text-muted">
+              <UIcon name="i-lucide-package-plus" class="size-4 text-primary" /> Recovered from the wreckage
+            </p>
+            <div class="space-y-1.5">
+              <div
+                v-for="module in summary.moduleDrops"
+                :key="module.id"
+                class="rounded-lg border p-2.5"
+                :style="{ borderColor: `${module.hex}66`, background: `${module.hex}0f` }"
+              >
+                <p class="text-sm font-bold" :style="{ color: module.hex }">
+                  {{ module.name }}
+                  <span class="ml-1 text-[10px] font-medium uppercase tracking-wide opacity-70">{{ module.rarityName }}</span>
+                </p>
+                <ul class="mt-1 space-y-0.5 text-[11px] text-muted">
+                  <li v-for="line in module.lines" :key="line">
+                    {{ line }}
+                  </li>
+                </ul>
+                <p v-if="module.special" class="mt-1 text-[11px] font-bold text-error">
+                  {{ module.special }}
+                </p>
+              </div>
+            </div>
+            <p class="mt-2 text-[11px] text-muted">
+              Waiting for you in the module inventory.
+            </p>
+          </div>
+
           <div v-if="summary.killsByType.length" class="rounded-xl border border-default bg-elevated/50 p-3">
             <p class="mb-2 flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide text-muted">
               <UIcon name="i-lucide-list-collapse" class="size-4" /> Downed by class
@@ -465,12 +518,8 @@ onUnmounted(() => detachCanvas())
             Sector {{ summary.sectorUnlocked }} is now open.
           </div>
 
-          <p v-if="summary.capped" class="text-xs text-muted">
-            Credit payout was capped for this run's duration.
-          </p>
-
           <div class="flex gap-2 border-t border-default pt-4">
-            <UButton block color="neutral" variant="subtle" label="Hangar" to="/void/hangar" @click="handleCloseSummary" />
+            <UButton block color="neutral" variant="subtle" label="Sell haul" to="/void/market" @click="handleCloseSummary" />
             <UButton block icon="i-lucide-rocket" label="Back to the pad" @click="handleCloseSummary" />
           </div>
         </div>

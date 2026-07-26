@@ -5,12 +5,12 @@ import { requireUserId } from '#server/utils/auth'
 import { debit } from '#server/utils/balance'
 import { getLockedVoidState } from '#server/utils/void'
 import {
-    VOID_RARITIES, VOID_SPECIALS, rollVoidWeapon, voidAffix, voidCanAfford, voidSubtractBundle,
+    VOID_RARITIES, VOID_SPECIALS, rollVoidWeapon, voidAffix, voidCanAfford, voidSubtractBundle, voidModuleScore,
     type VoidAffixId, type VoidRarityId
 } from '#shared/utils/gamelogic/void'
 
-/** A runner can only physically store so many turrets before the hangar objects. */
-const VOID_MAX_OWNED_WEAPONS = 60
+/** A runner can only physically store so many modules before the hangar objects. */
+const VOID_MAX_OWNED_WEAPONS = 120
 
 export default defineEventHandler(async (event) => {
     const userId = await requireUserId(event)
@@ -25,7 +25,7 @@ export default defineEventHandler(async (event) => {
 
         const owned = await tx.query.voidWeapons.findMany({ where: eq(voidWeapons.userId, userId) })
         if (owned.length >= VOID_MAX_OWNED_WEAPONS) {
-            throw createError({ statusCode: 400, statusMessage: 'Turret storage is full — strip something first' })
+            throw createError({ statusCode: 400, statusMessage: 'Module storage is full — scrap something first' })
         }
 
         const held = s.resources ?? {}
@@ -53,8 +53,12 @@ export default defineEventHandler(async (event) => {
                 ...created!,
                 rarity,
                 special: VOID_SPECIALS.find(sp => sp.id === rolled.specialId) ?? null,
+                score: voidModuleScore({ ...rolled, id: created!.id, slotIndex: null }),
                 affixLines: (Object.entries(rolled.affixes) as [VoidAffixId, number][])
-                    .map(([id, value]) => ({ id, name: voidAffix(id).name, text: voidAffix(id).describe(value), value }))
+                    .map(([id, value]) => {
+                        const def = voidAffix(id)
+                        return { id, name: def.name, group: def.group, text: def.describe(value), value }
+                    })
             }
         }
     })

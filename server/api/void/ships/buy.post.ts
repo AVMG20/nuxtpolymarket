@@ -1,6 +1,6 @@
-import { and, eq, gte } from 'drizzle-orm'
+import { and, eq, gte, sql } from 'drizzle-orm'
 import { db } from '#server/database'
-import { voidState, voidWeapons } from '#server/database/schema'
+import { user, voidState, voidWeapons } from '#server/database/schema'
 import { requireUserId } from '#server/utils/auth'
 import { debit } from '#server/utils/balance'
 import { getLockedVoidState } from '#server/utils/void'
@@ -11,7 +11,10 @@ export default defineEventHandler(async (event) => {
 
     const body = await readBody(event)
     const ship = VOID_SHIPS.find(s => s.id === body?.shipId)
-    if (!ship || ship.cost.credits <= 0) throw createError({ statusCode: 400, statusMessage: 'Invalid ship' })
+    if (!ship || (ship.cost.credits <= 0 && !ship.cost.gems)) {
+        throw createError({ statusCode: 400, statusMessage: 'Invalid ship' })
+    }
+    const gemCost = Math.max(0, Math.floor(ship.cost.gems ?? 0))
 
     return db.transaction(async (tx) => {
         const s = await getLockedVoidState(tx, userId)
@@ -26,7 +29,17 @@ export default defineEventHandler(async (event) => {
         const held = s.resources ?? {}
         if (!voidCanAfford(held, ship.cost.resources)) throw createError({ statusCode: 400, statusMessage: 'Not enough resources' })
 
-        await debit(userId, ship.cost.credits.toFixed(4), 'void', tx)
+        if (gemCost > 0) {
+            // The gte in the WHERE is the guard — a conditional UPDATE, not a
+            // read-then-write, so parallel purchases can't both pass the check.
+            const [charged] = await tx.update(user)
+                .set({ gems: sql`${user.gems} - ${gemCost}` })
+                .where(and(eq(user.id, userId), gte(user.gems, gemCost)))
+                .returning({ gems: user.gems })
+            if (!charged) throw createError({ statusCode: 400, statusMessage: `Need ${gemCost} gems` })
+        }
+
+        if (ship.cost.credits > 0) await debit(userId, ship.cost.credits.toFixed(4), 'void', tx)
 
         await tx.update(voidState).set({
             ownedShipIds: [...owned, ship.id],
@@ -42,6 +55,6 @@ export default defineEventHandler(async (event) => {
             .set({ slotIndex: null })
             .where(and(eq(voidWeapons.userId, userId), gte(voidWeapons.slotIndex, ship.turretSlots)))
 
-        return { shipId: ship.id, equipped: true }
+        return { shipId: ship.id, equipped: true, gemsSpent: gemCost }
     })
 })

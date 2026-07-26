@@ -10,22 +10,23 @@ import { VOID_BOOST_CAPACITY_MS, type VoidResourceBundle } from '#shared/utils/g
 // path below clears the stale server lock next time /void mounts.
 
 export interface VoidSummary extends VoidRunResult {
-    awarded: number
-    extractionBonus: number
-    capped: boolean
+    /** What the banked haul is worth at market rates. It is not paid out here. */
+    bankedValue: number
     sectorName: string
     bankedHaul: VoidResourceBundle
     sectorUnlocked: number | null
+    /** Modules prised out of downed capitals, rolled server-side. */
+    moduleDrops: { id: string, name: string, rarityId: string, hex: string, rarityName: string, special: string | null, lines: string[] }[]
 }
 
 const hull = ref(0)
 const maxHull = ref(0)
 const shield = ref(0)
 const maxShield = ref(0)
-const credits = ref(0)
-const cargo = ref<VoidHudCargo>({ units: 0, capacity: 0, bundle: {} })
+const cargo = ref<VoidHudCargo>({ units: 0, capacity: 0, bundle: {}, value: 0 })
 const elapsedMs = ref(0)
 const stormPhase = ref(0)
+const threat = ref(1)
 const miningProgress = ref(0)
 const miningLabel = ref<string | null>(null)
 const extractProgress = ref(0)
@@ -75,9 +76,9 @@ async function handleRunEnd(result: VoidRunResult) {
         const response = await $fetch('/api/void/finish-run', {
             method: 'POST',
             body: {
-                credits: result.credits,
                 haul: result.haul,
                 kills: result.kills,
+                bossKills: result.bossesKilled,
                 rocksMined: result.rocksMined,
                 elapsedMs: result.elapsedMs,
                 reason: result.reason
@@ -85,17 +86,19 @@ async function handleRunEnd(result: VoidRunResult) {
         })
         summary.value = {
             ...result,
-            awarded: response.awarded,
-            extractionBonus: response.extractionBonus,
-            capped: response.capped,
+            bankedValue: response.haulValue,
             sectorName: response.sectorName,
             bankedHaul: response.haul,
-            sectorUnlocked: response.sectorUnlocked
+            sectorUnlocked: response.sectorUnlocked,
+            moduleDrops: response.moduleDrops
         }
         summaryVisible.value = true
         await Promise.all([currentRefresh?.(), currentFetchSession?.()])
         if (response.sectorUnlocked) {
             currentToast?.add({ title: `Sector ${response.sectorUnlocked} unlocked`, color: 'success', icon: 'i-lucide-unlock' })
+        }
+        for (const module of response.moduleDrops) {
+            currentToast?.add({ title: `${module.rarityName} module recovered — ${module.name}`, color: 'success', icon: 'i-lucide-package-plus' })
         }
     } catch (error: unknown) {
         currentToast?.add({ title: apiErrorMessage(error, 'Failed to settle the run'), color: 'error' })
@@ -110,11 +113,11 @@ function buildGame() {
             shield.value = s
             maxShield.value = ms
         },
-        onCreditsChange: (value) => { credits.value = value },
         onCargoChange: (value) => { cargo.value = value },
-        onTimeChange: (elapsed, phase) => {
+        onTimeChange: (elapsed, phase, currentThreat) => {
             elapsedMs.value = elapsed
             stormPhase.value = phase
+            threat.value = currentThreat
         },
         onMiningProgress: (progress, label) => {
             miningProgress.value = progress
@@ -160,6 +163,8 @@ export function useVoidRun() {
         }
 
         if (!game) game = buildGame()
+        // `mount` is idempotent — on a remount it re-parents the existing
+        // canvas rather than building a second renderer and ticker.
         if (mountedHost !== host) {
             await game.mount(host)
             mountedHost = host
@@ -171,21 +176,56 @@ export function useVoidRun() {
         if (game && running.value) game.pause()
     }
 
+    /**
+     * The server refuses a launch while it still has a run locked. That lock
+     * outlives a tab that was closed mid-flight, so rather than dead-ending the
+     * player, clear the stale lock once and try again.
+     */
+    async function requestLaunch(sector: number) {
+        try {
+            return await $fetch('/api/void/launch', { method: 'POST', body: { sector } })
+        } catch (error: unknown) {
+            if (!apiErrorMessage(error, '').includes('already in progress')) throw error
+            await $fetch('/api/void/finish-run', { method: 'POST', body: { abandoned: true, reason: 'cancelled' } })
+            return await $fetch('/api/void/launch', { method: 'POST', body: { sector } })
+        }
+    }
+
     async function launch(sector: number) {
         if (!game || launching.value || running.value) return
         launching.value = true
         try {
-            const config = await $fetch('/api/void/launch', { method: 'POST', body: { sector } })
+            const config = await requestLaunch(sector)
+
+            // Wipe every scrap of the previous run's HUD before the new one can
+            // paint, so nothing (an extraction bar sitting at 100%, most of all)
+            // can survive into a fresh launch.
             summaryVisible.value = false
             summary.value = null
             notices.value = []
-            game.start({
+            threat.value = 1
+            extractProgress.value = 0
+            extractInRange.value = false
+            miningProgress.value = 0
+            miningLabel.value = null
+            elapsedMs.value = 0
+            stormPhase.value = 0
+
+            // If the renderer isn't ready the engine will not tick, and flipping
+            // `running` anyway would leave a live-looking HUD over a dead game.
+            const started = game.start({
                 sector: config.sector,
                 stats: config.stats,
                 shipId: config.shipId,
                 turrets: config.turrets,
                 power: config.power
             })
+            if (!started) {
+                await $fetch('/api/void/finish-run', { method: 'POST', body: { abandoned: true, reason: 'cancelled' } })
+                currentToast?.add({ title: 'The viewport was not ready — try again', color: 'error' })
+                return
+            }
+
             running.value = true
             paused.value = false
             pushNotice(`${config.sectorConfig.name} — undocked.`, 'info')
@@ -229,8 +269,8 @@ export function useVoidRun() {
     }
 
     return {
-        hull, maxHull, shield, maxShield, credits, cargo,
-        elapsedMs, stormPhase, miningProgress, miningLabel,
+        hull, maxHull, shield, maxShield, cargo,
+        elapsedMs, stormPhase, threat, miningProgress, miningLabel,
         extractProgress, extractInRange, boostMs, boostCapacityMs,
         running, paused, launching, summaryVisible, summary,
         bossName, bossVisible, notices,

@@ -17,9 +17,10 @@ export interface VoidLaunchConfig {
 export interface VoidRunResult {
     reason: 'extracted' | 'destroyed' | 'timeout' | 'cancelled'
     extracted: boolean
-    credits: number
     haul: VoidResourceBundle
     units: number
+    /** Market value of the hold at the moment the run ended, for the summary. */
+    haulValue: number
     kills: number
     rocksMined: number
     shotsFired: number
@@ -33,13 +34,15 @@ export interface VoidHudCargo {
     units: number
     capacity: number
     bundle: VoidResourceBundle
+    /** What the hold is worth at market rates — the run's real score. */
+    value: number
 }
 
 export interface VoidGameCallbacks {
     onHullChange: (hull: number, maxHull: number, shield: number, maxShield: number) => void
-    onCreditsChange: (credits: number) => void
     onCargoChange: (cargo: VoidHudCargo) => void
-    onTimeChange: (elapsedMs: number, stormPhase: number) => void
+    /** `threat` is the current per-minute difficulty multiplier, shown in the HUD. */
+    onTimeChange: (elapsedMs: number, stormPhase: number, threat: number) => void
     onMiningProgress: (progress: number, label: string | null) => void
     onExtractProgress: (progress: number, inRange: boolean) => void
     onBoostChange: (chargeMs: number, capacityMs: number) => void
@@ -133,6 +136,8 @@ export interface EnemyEntity {
     dead: boolean
     boss: boolean
     flashMs: number
+    /** Set on hunter-killers so their carrier can respect a launch cap. */
+    carrierId: number | null
 }
 
 export interface ShockwaveEntity {
@@ -160,6 +165,19 @@ export interface RailbeamEntity {
     fired: boolean
 }
 
+export interface MineEntity {
+    root: Container
+    ring: Graphics
+    x: number
+    y: number
+    age: number
+    armMs: number
+    life: number
+    radius: number
+    damage: number
+    triggered: boolean
+}
+
 export interface SingularityEntity {
     gfx: Container
     x: number
@@ -183,8 +201,7 @@ export interface PickupEntity {
     vx: number
     vy: number
     age: number
-    kind: 'credits' | 'resource'
-    resource: VoidResourceId | null
+    resource: VoidResourceId
     amount: number
 }
 
@@ -195,10 +212,15 @@ export interface SpecialFlags {
     drones: boolean
     siphon: boolean
     singularity: boolean
+    harvester: boolean
+    prospectorsEye: boolean
 }
 
 export function emptySpecialFlags(): SpecialFlags {
-    return { rocket: false, chain: false, railgun: false, drones: false, siphon: false, singularity: false }
+    return {
+        rocket: false, chain: false, railgun: false, drones: false,
+        siphon: false, singularity: false, harvester: false, prospectorsEye: false
+    }
 }
 
 export function specialFlagKey(id: VoidSpecialId): keyof SpecialFlags {
@@ -209,5 +231,7 @@ export function specialFlagKey(id: VoidSpecialId): keyof SpecialFlags {
         case 'swarm-drones': return 'drones'
         case 'void-siphon': return 'siphon'
         case 'singularity': return 'singularity'
+        case 'harvester': return 'harvester'
+        case 'prospectors-eye': return 'prospectorsEye'
     }
 }

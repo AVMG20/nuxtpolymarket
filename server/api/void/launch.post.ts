@@ -62,7 +62,7 @@ export default defineEventHandler(async (event) => {
             power,
             stats,
             shipId: ship.id,
-            turrets: equipped.map(w => voidTurretRuntime(w, stats.damage)),
+            turrets: equipped.map(w => voidTurretRuntime(w, stats)),
             timings: {
                 runDurationMs: VOID_RUN_DURATION_MS,
                 stormStartMs: VOID_STORM_START_MS,

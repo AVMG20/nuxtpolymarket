@@ -4,6 +4,8 @@ const route = useRoute()
 const tabs = [
   { label: 'Launch', to: '/void', icon: 'i-lucide-rocket' },
   { label: 'Hangar', to: '/void/hangar', icon: 'i-lucide-wrench' },
+  { label: 'Modules', to: '/void/inventory', icon: 'i-lucide-boxes' },
+  { label: 'Market', to: '/void/market', icon: 'i-lucide-hand-coins' },
   { label: 'Log', to: '/void/history', icon: 'i-lucide-scroll-text' },
   { label: 'Wiki', to: '/void/wiki', icon: 'i-lucide-book-open' },
   { label: 'Leaderboard', to: '/void/leaderboard', icon: 'i-lucide-trophy' }

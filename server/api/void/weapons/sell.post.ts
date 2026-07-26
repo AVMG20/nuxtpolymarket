@@ -1,10 +1,10 @@
-import { and, eq } from 'drizzle-orm'
+import { and, eq, isNull } from 'drizzle-orm'
 import { db } from '#server/database'
 import { voidState, voidWeapons } from '#server/database/schema'
 import { requireUserId } from '#server/utils/auth'
 import { credit } from '#server/utils/balance'
 import { getLockedVoidState } from '#server/utils/void'
-import { voidAddBundles, voidWeaponSellValue, type VoidRarityId } from '#shared/utils/gamelogic/void'
+import { voidAddBundles, voidSalvageValue, type VoidRarityId } from '#shared/utils/gamelogic/void'
 
 export default defineEventHandler(async (event) => {
     const userId = await requireUserId(event)
@@ -18,17 +18,18 @@ export default defineEventHandler(async (event) => {
         if (s.runStartedAt) throw createError({ statusCode: 400, statusMessage: 'Dock before refitting' })
 
         // Conditional DELETE ... RETURNING is the guard: only the request that
-        // actually removes the row gets paid for it, so N parallel sells of the
-        // same turret refund exactly once.
+        // actually removes the row gets paid for it, so N parallel salvages of
+        // the same module refund exactly once. The `slotIndex IS NULL` clause
+        // also makes "unmount before you scrap it" impossible to race around.
         const [removed] = await tx.delete(voidWeapons)
-            .where(and(eq(voidWeapons.id, weaponId), eq(voidWeapons.userId, userId)))
+            .where(and(eq(voidWeapons.id, weaponId), eq(voidWeapons.userId, userId), isNull(voidWeapons.slotIndex)))
             .returning()
-        if (!removed) throw createError({ statusCode: 404, statusMessage: 'Turret not found' })
+        if (!removed) throw createError({ statusCode: 400, statusMessage: 'Unmount the module before scrapping it' })
 
         const remaining = await tx.query.voidWeapons.findMany({ where: eq(voidWeapons.userId, userId) })
-        if (remaining.length === 0) throw createError({ statusCode: 400, statusMessage: 'You need at least one turret' })
+        if (remaining.length === 0) throw createError({ statusCode: 400, statusMessage: 'You need at least one module' })
 
-        const refund = voidWeaponSellValue(removed.rarityId as VoidRarityId)
+        const refund = voidSalvageValue(removed.rarityId as VoidRarityId)
         await tx.update(voidState)
             .set({ resources: voidAddBundles(s.resources ?? {}, refund.resources) as Record<string, number> })
             .where(eq(voidState.userId, userId))
