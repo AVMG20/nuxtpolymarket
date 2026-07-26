@@ -31,6 +31,11 @@ export default defineNuxtConfig({
     },
 
 
+    // Sourcemaps are the single largest contributor to build memory here, and
+    // nothing consumes them now that error tracking is gone. Disabling them
+    // drops the Nitro step's peak by ~0.8 GB.
+    sourcemap: { server: false, client: false },
+
     compatibilityDate: '2025-01-15',
 
     nitro: {
