@@ -1,4 +1,4 @@
-import { relations } from 'drizzle-orm'
+import { relations, sql } from 'drizzle-orm'
 import { pgTable, text, timestamp, boolean, index, numeric, integer, unique, jsonb } from 'drizzle-orm/pg-core'
 
 export const user = pgTable('user', {
@@ -160,7 +160,7 @@ export const pirateState = pgTable('pirate_state', {
   runDifficultySnapshot: integer('run_difficulty_snapshot'),
   // Only full six-minute clears advance this value. Difficulty 0 is the
   // universal starting tier, so -50 means a new captain has no clear yet.
-  highestCompletedDifficulty: integer('highest_completed_difficulty').notNull().default(-50),
+  highestCompletedDifficulty: integer('highest_completed_difficulty').notNull().default(sql`'-50'`),
   bestCompletedLoot: integer('best_completed_loot').notNull().default(0),
   bestCompletedPower: integer('best_completed_power').notNull().default(0),
   bestCompletedSkinId: text('best_completed_skin_id').notNull().default('starter'),
@@ -457,7 +457,7 @@ export const colonyLoot = pgTable('colony_loot', {
   quantity: integer('quantity').notNull().default(0)
 }, t => [
   index('colony_loot_userId_idx').on(t.userId),
-  unique('colony_loot_unique').on(t.userId, t.itemTypeId)
+  unique('colony_loot_unique').on(t.itemTypeId, t.userId)
 ])
 
 /** Claimed item inventory — spendable in the market and toward item-gated upgrades. */
@@ -468,7 +468,7 @@ export const colonyItems = pgTable('colony_items', {
   quantity: integer('quantity').notNull().default(0)
 }, t => [
   index('colony_items_userId_idx').on(t.userId),
-  unique('colony_items_unique').on(t.userId, t.itemTypeId)
+  unique('colony_items_unique').on(t.itemTypeId, t.userId)
 ])
 
 /** Leveled builder upgrade tracks (capacity, yield, speed, nutrition storage/efficiency). One row per track. */
@@ -479,7 +479,7 @@ export const colonyUpgrades = pgTable('colony_upgrades', {
   level: integer('level').notNull().default(0)
 }, t => [
   index('colony_upgrades_userId_idx').on(t.userId),
-  unique('colony_upgrades_unique').on(t.userId, t.trackId)
+  unique('colony_upgrades_unique').on(t.trackId, t.userId)
 ])
 
 /**
@@ -496,7 +496,7 @@ export const colonyBugResearch = pgTable('colony_bug_research', {
   level: integer('level').notNull().default(0)
 }, t => [
   index('colony_bug_research_userId_idx').on(t.userId),
-  unique('colony_bug_research_unique').on(t.userId, t.typeId)
+  unique('colony_bug_research_unique').on(t.typeId, t.userId)
 ])
 
 // ─── Hack Ops ─────────────────────────────────────────────────────────────────
