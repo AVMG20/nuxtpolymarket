@@ -15,10 +15,7 @@ export default defineNuxtConfig({
         databaseUrl: process.env.DATABASE_URL,
         openRouterApiKey: process.env.OPENROUTER_API_KEY,
         betterAuthUrl: process.env.BETTER_AUTH_URL || 'http://localhost:3000',
-        devMode: false,
-        public: {
-            sentryDsn: process.env.NUXT_PUBLIC_SENTRY_DSN || process.env.SENTRY_DSN || 'https://76a14877f7ab4fed933e5c2034fd1750@bugsink.avmg.nl/1'
-        }
+        devMode: false
     },
     // The casino and pirate raid are canvas-heavy, interactive experiences.
     // Serving their route shells client-only avoids SSR work and keeps their
