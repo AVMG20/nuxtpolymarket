@@ -1,0 +1,18 @@
+# Dependencies and build output are produced inside the image. Without this,
+# `COPY . .` overwrites the Alpine node_modules installed above with the host's
+# (on macOS, darwin binaries) and breaks the build.
+node_modules
+.nuxt
+.output
+dist
+
+.git
+.github
+.idea
+.claude
+.agents
+
+.env
+.env.*
+
+.DS_Store
