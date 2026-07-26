@@ -1,7 +1,8 @@
 export default defineNuxtConfig({
     modules: [
         '@nuxt/eslint',
-        '@nuxt/ui'
+        '@nuxt/ui',
+        '@sentry/nuxt/module'
     ],
 
     devtools: {
@@ -16,6 +17,9 @@ export default defineNuxtConfig({
         openRouterApiKey: process.env.OPENROUTER_API_KEY,
         betterAuthUrl: process.env.BETTER_AUTH_URL || 'http://localhost:3000',
         devMode: false,
+        public: {
+            sentryDsn: process.env.NUXT_PUBLIC_SENTRY_DSN || process.env.SENTRY_DSN || 'https://76a14877f7ab4fed933e5c2034fd1750@bugsink.avmg.nl/1'
+        }
     },
     // The casino and pirate raid are canvas-heavy, interactive experiences.
     // Serving their route shells client-only avoids SSR work and keeps their
@@ -107,5 +111,14 @@ export default defineNuxtConfig({
                 braceStyle: '1tbs'
             }
         }
+    },
+
+    sentry: {
+        // Bugsink receives SDK events directly; source-map uploads require a
+        // separate Bugsink upload configuration and are intentionally opt-in.
+        sourcemaps: {
+            disable: true
+        },
+        telemetry: false
     },
 })
