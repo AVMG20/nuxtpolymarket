@@ -201,6 +201,42 @@ The room-world implementation is committed on
 `feature/pathwarden-room-world-generation`. Playwright output and standalone QA
 captures are intentionally untracked; preserve them unless the user asks to
 remove them.
+
+## 2026-07-27 compact roads, overview camera, and balance lab
+
+- Generator version 3 constrains non-castle room footprints to at most 8 cells
+  on either axis and 36 bounding-box cells total. This accepts shapes such as
+  6×6 and 8×4 while rejecting 9×3 corridors.
+- Terminal exits own six immutable continuation cells under the mist.
+  Generator version 4 uses six cells so the two-cell terrain reveal
+  halo cannot expose a terminal cap. Validation rejects omitted approaches,
+  wrong first steps, missing links, self-revisiting paths, room collisions, and
+  any unexplained degree-one road endpoint.
+- The principal route contains six junction rooms across thirteen depths.
+  Optional branches can also use Y-junction, T-junction, and crossroad grammar,
+  and persist for two to three rooms. Smaller junction templates and short
+  connector offsets prevent the map from becoming a few oversized road
+  stretches.
+- Generator version 5 makes the first room beyond the castle a crossroads and
+  guarantees junction grammar on the mandatory third reveal. Terminal branches
+  remain distinct from expansion choices, and the `SPAWN` label is reserved for
+  debug visual guides rather than normal gameplay rendering.
+- River crossings replace the sandy road stroke with a layered brown timber
+  deck and perpendicular plank seams.
+- The wheel zoom floor is calculated from the revealed realm bounds, so the
+  complete discovered map always fits. At closer zoom levels a circular canvas
+  minimap shows revealed roads, the keep, viewport, and live enemy dots.
+- Enemy health now receives a capped, sub-linear route-length multiplier
+  (roughly +12% around ten cells and capped at +55%). Long approaches can
+  survive several firing positions without making short roads unfair.
+- `pathwarden-simulator.ts` is DOM/canvas independent and runs 1,000 randomized
+  marches using live defense blueprints. Difficulty 1–5 and five spending/relic
+  doctrines feed a modal with aggregate cards, a per-wave graph, and table.
+  The calibrated balanced success curve is approximately 83%, 45%, 18%, 4%,
+  and 1% across difficulties 1–5 for a fixed 1,000-run sample.
+- Verification: 18 focused tests passed, including 1,000 generated map seeds;
+  Nuxt typecheck passed; the simulator modal completed 1,000 runs in-browser
+  without console errors.
 # 2026-07-25 visual inspection framework
 
 - Pathwarden now has a development-only `toggleVisualGuides` bridge action.

@@ -17,12 +17,49 @@ import {
   pathwardenBoostEffects,
   pathwardenMaxAetherAtCheckpoint
 } from '#shared/utils/gamelogic/pathwarden'
+import {
+  runPathwardenSimulations,
+  type PathwardenSimulationDifficulty,
+  type PathwardenSimulationResult,
+  type PathwardenSimulationStrategy,
+  type PathwardenSimulationWaveResult
+} from '#shared/utils/gamelogic/pathwarden-simulator'
+
+const introStory = [
+  {
+    kicker: 'Before the mist',
+    title: 'A kingdom in bloom',
+    body: 'Pathwarden prospered beneath a watchful god. Its fields were full, its granaries deep, and its people safe behind the keep.'
+  },
+  {
+    kicker: 'The temple flame',
+    title: 'Protected by grace',
+    body: 'Farmers worked in peace while the wardens watched the roads. The temple guarded every harvest, every child, every stone.'
+  },
+  {
+    kicker: 'The court forgets',
+    title: 'Arrogance takes root',
+    body: 'Prosperity made the court careless. They decided the kingdom no longer needed the god who protected it.'
+  },
+  {
+    kicker: 'The king’s decree',
+    title: 'Defile the temple',
+    body: 'The king ordered the temple stripped and remade as his own pleasure palace. The first stone was lifted. The sky went dark.'
+  }
+] as const
 
 definePageMeta({ title: 'Pathwarden' })
 
 const canvas = ref<HTMLCanvasElement | null>(null)
 const snapshot = ref<PathwardenSnapshot>({
   phase: 'planning',
+  introStoryActive: false,
+  introStoryIndex: 0,
+  introStoryOpacity: 1,
+  activeRunScene: false,
+  activeRunSceneProgress: 0,
+  openingCinematic: false,
+  openingCinematicProgress: 0,
   wave: 0,
   lives: 20,
   aether: 205,
@@ -46,11 +83,17 @@ const snapshot = ref<PathwardenSnapshot>({
 const upgradeChoices = ref<PathwardenRelic[]>([])
 const boostShopOpen = ref(false)
 const abandonOpen = ref(false)
+const simulatorOpen = ref(false)
+const simulatorRunning = ref(false)
+const simulationDifficulty = ref<PathwardenSimulationDifficulty>(1)
+const simulationStrategy = ref<PathwardenSimulationStrategy>('balanced')
+const simulationResult = ref<PathwardenSimulationResult | null>(null)
 const abandoning = ref(false)
 const buyingBoost = ref<string | null>(null)
 const buyingSurge = ref(false)
 const buyingDefense = ref<string | null>(null)
 const buyingSkin = ref<string | null>(null)
+const clearingDebugCache = ref(false)
 const useSurge = ref(false)
 const hintsEnabled = ref(true)
 const runActive = ref(false)
@@ -60,6 +103,50 @@ const nowMs = ref(Date.now())
 const toast = useToast()
 const { fetchSession } = useAuth()
 const isDev = import.meta.dev
+const devGuidesEnabled = ref(false)
+const selectedIdleStoryId = ref(1)
+const simulationStrategies = [
+  { label: 'Balanced', value: 'balanced' },
+  { label: 'Max Aether preserve', value: 'aether-reserve' },
+  { label: 'Max life preserve', value: 'life-preserve' },
+  { label: 'Damage rush', value: 'damage-rush' },
+  { label: 'Crowd control', value: 'control' }
+]
+const idleStoryFamilies = [
+  'Market day',
+  'Hunter and deer',
+  'Lovers’ picnic',
+  'Travelling musician',
+  'Children at play',
+  'Shepherd’s crossing',
+  'Guard patrol',
+  'Peddler',
+  'Construction crew',
+  'Cat business',
+  'Bird life',
+  'Dog and courier',
+  'Bakers’ delivery',
+  'Fisher’s tale',
+  'Lost chicken',
+  'Knight training',
+  'Herbalist',
+  'Pilgrim procession',
+  'Rainy scramble',
+  'Festival rehearsal',
+  'Scholar and apprentice',
+  'Beekeeper',
+  'Tiny creatures',
+  'Royal inspection',
+  'Midnight oddities'
+]
+const idleStoryItems = idleStoryFamilies.flatMap((family, familyIndex) =>
+  Array.from({ length: 10 }, (_, variantIndex) => {
+    const storyId = familyIndex * 10 + variantIndex + 1
+    return {
+      label: `${String(storyId).padStart(3, '0')} · ${family} · variant ${variantIndex + 1}`,
+      value: storyId
+    }
+  }))
 const { data: boostState, refresh: refreshBoosts } = await useFetch('/api/pathwarden/state')
 let engine: PathwardenEngine | null = null
 let unregisterDevBridge = () => {}
@@ -137,29 +224,123 @@ function triggerRandomIdleStory() {
   engine?.debugTriggerAmbient()
 }
 
+function toggleDevGuides() {
+  engine?.debugToggleVisuals()
+  devGuidesEnabled.value = !devGuidesEnabled.value
+}
+
+function revealEntireMap() {
+  engine?.debugRevealFullMap()
+}
+
+function playSelectedIdleStory() {
+  engine?.debugTriggerAmbient(selectedIdleStoryId.value)
+}
+
+function previewSelectedIdleStory() {
+  engine?.debugPreviewAmbientStory(selectedIdleStoryId.value, 0.55)
+}
+
+async function clearDebugCache() {
+  if (!isDev || clearingDebugCache.value) return
+  clearingDebugCache.value = true
+  try {
+    await $fetch('/api/pathwarden/debug-clear-cache', { method: 'POST' })
+    runActive.value = false
+    restoredRun = undefined
+    saveRevision = 0
+    saveDirty = false
+    saveInFlight = false
+    if (saveTimer) clearTimeout(saveTimer)
+    saveTimer = null
+    localStorage.removeItem('pathwarden-hints')
+    hintsEnabled.value = true
+    await refreshBoosts()
+    restart()
+    toast.add({
+      title: 'Pathwarden cache cleared',
+      description: 'The persisted active march was removed for this profile.',
+      color: 'warning'
+    })
+  } catch (error: unknown) {
+    toast.add({ title: apiErrorMessage(error, 'Could not clear the Pathwarden cache'), color: 'error' })
+  } finally {
+    clearingDebugCache.value = false
+  }
+}
+
+async function runSimulator() {
+  if (simulatorRunning.value) return
+  simulatorRunning.value = true
+  await new Promise(resolve => setTimeout(resolve, 20))
+  simulationResult.value = runPathwardenSimulations({
+    difficulty: simulationDifficulty.value,
+    strategy: simulationStrategy.value,
+    runs: 1000,
+    seed: Date.now()
+  })
+  simulatorRunning.value = false
+}
+
+const simulationChartX = (wave: PathwardenSimulationWaveResult) => wave.wave
+const simulationChartY = (wave: PathwardenSimulationWaveResult) => wave.averageProgress * 100
+const simulationChartTick = (wave: number) => `W${wave}`
+const simulationChartTooltip = (wave: PathwardenSimulationWaveResult) =>
+  `Wave ${wave.wave}: ${(wave.averageProgress * 100).toFixed(1)}% advance`
+
 async function startWave() {
   upgradeChoices.value = []
-  if (snapshot.value.wave === 0 && !runActive.value) {
-    try {
-      await $fetch('/api/pathwarden/start-run', {
-        method: 'POST',
-        body: {
-          realm: selectedRealm.value,
-          useSurge: useSurge.value,
-          seed: engine?.exportMapPlan().seed
-        }
-      })
-      runActive.value = true
-      saveRevision = 0
-      scheduleSave()
-      await refreshBoosts()
-    } catch (error: unknown) {
-      toast.add({ title: apiErrorMessage(error, 'Could not start the run'), color: 'error' })
-      return
-    }
-  }
+  if (!await ensureRunStarted()) return
   engine?.startWave()
 }
+
+async function ensureRunStarted() {
+  if (runActive.value) return true
+  try {
+    await $fetch('/api/pathwarden/start-run', {
+      method: 'POST',
+      body: {
+        realm: selectedRealm.value,
+        useSurge: useSurge.value,
+        seed: engine?.exportMapPlan().seed
+      }
+    })
+    runActive.value = true
+    saveRevision = 0
+    scheduleSave()
+    await refreshBoosts()
+    return true
+  } catch (error: unknown) {
+    toast.add({ title: apiErrorMessage(error, 'Could not start the run'), color: 'error' })
+    return false
+  }
+}
+
+async function defileTemple() {
+  upgradeChoices.value = []
+  if (!await ensureRunStarted()) return
+  engine?.defileTemple()
+}
+
+function continueDefense() {
+  engine?.continueDefense()
+}
+
+function nextIntroStory() {
+  engine?.nextIntroStory()
+}
+
+function previousIntroStory() {
+  engine?.previousIntroStory()
+}
+
+const introStorySlide = computed(() => {
+  const index = Number.isFinite(snapshot.value.introStoryIndex)
+    ? Math.max(0, Math.min(snapshot.value.introStoryIndex, introStory.length - 1))
+    : 0
+  return introStory[index]!
+})
+const showDefileTemple = computed(() => snapshot.value.introStoryIndex === introStory.length - 1 && snapshot.value.introStoryOpacity > 0.35)
 
 async function rushCooldown() {
   if (rushingCooldown.value) return
@@ -484,6 +665,8 @@ onMounted(async () => {
         selectBallista: { description: 'Select the Ballista tower', run: () => engine?.selectTower('bolt') },
         inspectFrontier: { description: 'Enter frontier selection for development inspection', run: () => engine?.debugOpenFrontier() },
         claimFrontier: { description: 'Claim a preplanned frontier by index', run: input => engine?.debugClaimFrontier(Number(input) || 0) },
+        revealFullMap: { description: 'Reveal the full planned map in development', run: () => engine?.debugRevealFullMap() },
+        clearCache: { description: 'Clear the persisted active Pathwarden run in development', run: () => clearDebugCache() },
         toggleVisualGuides: { description: 'Toggle geometry, road, and trajectory guides', run: () => engine?.debugToggleVisuals() },
         spawnCrew: { description: 'Spawn a construction crew for development inspection', run: () => engine?.debugSpawnCrew() },
         populateVillage: { description: 'Populate every ambient village vignette', run: () => engine?.debugPopulateVillage() },
@@ -550,6 +733,41 @@ watch(hintsEnabled, enabled => localStorage.setItem('pathwarden-hints', enabled 
           <UButton to="/pathwarden/leaderboard" size="sm" color="neutral" variant="soft" icon="i-lucide-trophy">
             Rankings
           </UButton>
+          <UButton size="sm" color="neutral" variant="soft" icon="i-lucide-flask-conical" @click="simulatorOpen = true">
+            Battle simulator
+          </UButton>
+        </div>
+        <div v-if="isDev" class="mt-3 flex flex-wrap items-center gap-2">
+          <UButton size="xs" color="error" variant="soft" icon="i-lucide-trash-2" :loading="clearingDebugCache" @click="clearDebugCache">
+            Clear cache
+          </UButton>
+          <UButton size="xs" color="warning" variant="soft" icon="i-lucide-map" @click="revealEntireMap">
+            Reveal map
+          </UButton>
+          <UButton
+            size="xs"
+            color="neutral"
+            :variant="devGuidesEnabled ? 'solid' : 'soft'"
+            icon="i-lucide-ruler"
+            @click="toggleDevGuides"
+          >
+            Toggle guides
+          </UButton>
+          <div class="flex min-w-[20rem] flex-1 flex-wrap items-center gap-2">
+            <USelect
+              v-model="selectedIdleStoryId"
+              :items="idleStoryItems"
+              value-key="value"
+              class="min-w-[18rem] flex-1"
+              size="xs"
+            />
+            <UButton size="xs" color="neutral" variant="soft" icon="i-lucide-clapperboard" @click="previewSelectedIdleStory">
+              Preview idle
+            </UButton>
+            <UButton size="xs" color="neutral" variant="soft" icon="i-lucide-trees" @click="playSelectedIdleStory">
+              Play idle
+            </UButton>
+          </div>
         </div>
       </div>
       <div class="grid grid-cols-3 gap-2 text-center sm:grid-cols-6">
@@ -591,6 +809,49 @@ watch(hintsEnabled, enabled => localStorage.setItem('pathwarden-hints', enabled 
           @dragover.prevent
           @drop.prevent="dropRelic"
         />
+        <div
+          v-if="snapshot.introStoryActive"
+          class="pointer-events-auto absolute inset-0 z-30 flex items-end justify-center bg-slate-950/20 p-4 sm:p-8"
+        >
+          <div
+            class="w-full max-w-2xl rounded-2xl border border-amber-200/30 bg-slate-950/90 p-5 text-center shadow-2xl backdrop-blur-md sm:p-7"
+          >
+            <div :style="{ opacity: snapshot.introStoryOpacity }">
+              <p class="text-[10px] font-black uppercase tracking-[0.24em] text-amber-200/80">{{ introStorySlide.kicker }}</p>
+              <h2 class="mt-2 font-serif text-2xl font-black tracking-wide text-amber-100 sm:text-4xl">{{ introStorySlide.title }}</h2>
+              <p class="mx-auto mt-3 max-w-xl text-sm leading-6 text-slate-200 sm:text-base">{{ introStorySlide.body }}</p>
+            </div>
+            <div class="mt-5 flex flex-wrap items-center justify-center gap-2">
+              <UButton color="neutral" variant="outline" :disabled="snapshot.introStoryIndex === 0" @click.stop="previousIntroStory">
+                Previous
+              </UButton>
+              <UButton
+                v-if="showDefileTemple"
+                color="warning"
+                size="lg"
+                icon="i-lucide-flame"
+                @click.stop="defileTemple"
+              >
+                Defile the Temple
+              </UButton>
+              <UButton v-else color="neutral" variant="outline" @click.stop="nextIntroStory">
+                Next
+              </UButton>
+            </div>
+          </div>
+        </div>
+        <div
+          v-if="snapshot.activeRunScene"
+          class="pointer-events-auto absolute inset-0 z-30 flex items-end justify-center bg-transparent p-4 sm:p-8"
+        >
+          <div class="w-full max-w-md rounded-2xl border border-violet-200/30 bg-slate-950/75 p-5 text-center shadow-2xl backdrop-blur-md">
+            <p class="text-[10px] font-black uppercase tracking-[0.24em] text-violet-200/80">The defense continues</p>
+            <p class="mt-2 text-sm leading-6 text-slate-200">The keep is under assault. Farmers shelter inside while the wardens hold the gate beneath the god’s furious gaze.</p>
+            <UButton class="mt-4" color="primary" size="lg" icon="i-lucide-shield" @click.stop="continueDefense">
+              Continue the Defense
+            </UButton>
+          </div>
+        </div>
         <div class="pointer-events-none absolute left-3 top-3 flex items-center gap-2 rounded-xl border border-primary/40 bg-background/85 px-3 py-2 shadow-xl backdrop-blur-md">
           <span class="relative flex size-9 items-center justify-center rounded-lg border border-primary/40 bg-primary/15 shadow-[0_0_18px_rgba(34,211,238,0.2)]">
             <UIcon name="i-lucide-gem" class="size-6 rotate-12 text-primary drop-shadow-[0_0_5px_currentColor]" />
@@ -797,10 +1058,10 @@ watch(hintsEnabled, enabled => localStorage.setItem('pathwarden-hints', enabled 
             block
             class="mt-3"
             icon="i-lucide-swords"
-            :disabled="snapshot.towers === 0 || (snapshot.wave === 0 && coolingDown)"
+            :disabled="snapshot.introStoryActive || snapshot.activeRunScene || snapshot.openingCinematic || snapshot.towers === 0 || (snapshot.wave === 0 && coolingDown)"
             @click="startWave"
           >
-            Call wave {{ snapshot.wave + 1 }}
+            {{ snapshot.openingCinematic ? 'The mist is gathering…' : `Call wave ${snapshot.wave + 1}` }}
           </UButton>
           <UAlert
             v-if="snapshot.wave === 0 && coolingDown"
@@ -1080,6 +1341,115 @@ watch(hintsEnabled, enabled => localStorage.setItem('pathwarden-hints', enabled 
           </div>
         </div>
         <USkeleton v-else class="h-96 w-full rounded-xl" />
+      </template>
+    </UModal>
+    <UModal
+      v-model:open="simulatorOpen"
+      title="Pathwarden battle simulator"
+      description="Run 1,000 software-only randomized defenses without changing your active march."
+      :ui="{ content: 'sm:max-w-5xl' }"
+    >
+      <template #body>
+        <div class="space-y-5">
+          <div class="grid gap-3 rounded-xl border border-default bg-elevated/60 p-4 sm:grid-cols-[10rem_1fr_auto] sm:items-end">
+            <UFormField label="Difficulty" description="Realm pressure, 1–5">
+              <UInputNumber v-model="simulationDifficulty" :min="1" :max="5" />
+            </UFormField>
+            <UFormField label="Doctrine" description="Controls spending reserves and relic priorities">
+              <USelect v-model="simulationStrategy" :items="simulationStrategies" class="w-full" />
+            </UFormField>
+            <UButton
+              icon="i-lucide-play"
+              :loading="simulatorRunning"
+              :disabled="simulatorRunning"
+              @click="runSimulator"
+            >
+              Run 1,000 marches
+            </UButton>
+          </div>
+
+          <template v-if="simulationResult">
+            <div class="grid gap-3 sm:grid-cols-4">
+              <div class="rounded-xl border border-primary/30 bg-primary/5 p-3">
+                <p class="text-xs uppercase tracking-wide text-muted">Run success</p>
+                <p class="mt-1 text-2xl font-black text-primary">{{ (simulationResult.successRate * 100).toFixed(1) }}%</p>
+              </div>
+              <div class="rounded-xl border border-default bg-elevated/60 p-3">
+                <p class="text-xs uppercase tracking-wide text-muted">Final hearts</p>
+                <p class="mt-1 text-2xl font-black">{{ simulationResult.averageFinalLives.toFixed(1) }}</p>
+              </div>
+              <div class="rounded-xl border border-default bg-elevated/60 p-3">
+                <p class="text-xs uppercase tracking-wide text-muted">Aether preserved</p>
+                <p class="mt-1 text-2xl font-black">{{ formatNumber(simulationResult.averageAetherPreserved, false) }}</p>
+              </div>
+              <div class="rounded-xl border border-default bg-elevated/60 p-3">
+                <p class="text-xs uppercase tracking-wide text-muted">Enemy advance</p>
+                <p class="mt-1 text-2xl font-black text-error">{{ (simulationResult.averageEnemyProgress * 100).toFixed(1) }}%</p>
+              </div>
+            </div>
+
+            <div class="rounded-xl border border-default bg-elevated/40 p-4">
+              <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <h3 class="font-bold">Average enemy advance by wave</h3>
+                  <p class="text-xs text-muted">Higher percentages mean enemies travelled closer to the keep.</p>
+                </div>
+                <div class="flex flex-wrap gap-1">
+                  <UBadge v-for="priority in simulationResult.upgradePriorities" :key="priority" color="primary" variant="subtle">
+                    {{ priority }}
+                  </UBadge>
+                </div>
+              </div>
+              <div class="overflow-x-auto">
+                <ChartLine
+                  :data="simulationResult.waves"
+                  :x="simulationChartX"
+                  :y="simulationChartY"
+                  color="var(--ui-primary)"
+                  :width="840"
+                  height="h-56"
+                  :tick-format="simulationChartTick"
+                  :tooltip-template="simulationChartTooltip"
+                />
+              </div>
+            </div>
+
+            <div class="max-h-80 overflow-auto rounded-xl border border-default">
+              <table class="w-full text-sm">
+                <thead class="sticky top-0 bg-elevated text-left text-xs uppercase tracking-wide text-muted">
+                  <tr>
+                    <th class="px-3 py-2">Wave</th>
+                    <th class="px-3 py-2">Survival</th>
+                    <th class="px-3 py-2">Hearts</th>
+                    <th class="px-3 py-2">Aether</th>
+                    <th class="px-3 py-2">Damage</th>
+                    <th class="px-3 py-2">Advance</th>
+                    <th class="px-3 py-2">Leaks</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-default">
+                  <tr v-for="wave in simulationResult.waves" :key="wave.wave">
+                    <td class="px-3 py-2 font-bold">{{ wave.wave }}</td>
+                    <td class="px-3 py-2">{{ (wave.survivalRate * 100).toFixed(1) }}%</td>
+                    <td class="px-3 py-2">{{ wave.averageLives.toFixed(1) }}</td>
+                    <td class="px-3 py-2">{{ formatNumber(wave.averageAether, false) }}</td>
+                    <td class="px-3 py-2">{{ formatNumber(wave.averageDamage) }}</td>
+                    <td class="px-3 py-2">{{ (wave.averageProgress * 100).toFixed(1) }}%</td>
+                    <td class="px-3 py-2">{{ wave.averageLeaks.toFixed(2) }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </template>
+          <UAlert
+            v-else
+            color="info"
+            variant="subtle"
+            icon="i-lucide-cpu"
+            title="Ready for a software-only run"
+            description="Each run randomizes road length, defense placement, enemy profiles, and attack exposure using live defense stats."
+          />
+        </div>
       </template>
     </UModal>
     <UModal v-model:open="abandonOpen" title="Abandon this march?">

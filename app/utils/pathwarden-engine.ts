@@ -7,6 +7,7 @@ import {
   createPathwardenMapPlan,
   hashPathwardenMapPlan
 } from '#shared/utils/gamelogic/pathwarden-map'
+import { pathwardenRouteHealthMultiplier } from '#shared/utils/gamelogic/pathwarden-simulator'
 import { validatePathwardenMapPlan } from '#shared/utils/gamelogic/pathwarden-map-validation'
 import type {
   PathwardenFeatureKind,
@@ -110,6 +111,7 @@ interface PathChoice {
   revealCells?: GridPoint[]
   roomId?: string
   exitCells?: GridPoint[]
+  previewCells?: GridPoint[]
 }
 interface RoadLink { from: GridPoint, to: GridPoint }
 interface Tower extends GridPoint {
@@ -266,6 +268,13 @@ const AMBIENT_STORY_COUNT = AMBIENT_FAMILIES.length * 10
 
 export interface PathwardenSnapshot {
   phase: PathwardenPhase
+  introStoryActive: boolean
+  introStoryIndex: number
+  introStoryOpacity: number
+  activeRunScene: boolean
+  activeRunSceneProgress: number
+  openingCinematic: boolean
+  openingCinematicProgress: number
   wave: number
   lives: number
   aether: number
@@ -501,6 +510,18 @@ export class PathwardenEngine {
   private ambientActors: AmbientActor[] = []
   private ambientEvacuation = 0
   private pendingWaveStart = false
+  private introStoryActive = false
+  private introStoryIndex = 0
+  private introStoryTime = 0
+  private introStoryPaused = false
+  private readonly introStorySlideDuration = 5
+  private readonly introStorySlideCount = 4
+  private activeRunSceneTime = 0
+  private readonly activeRunSceneDuration = 5.5
+  private openingCinematicActive = false
+  private openingCinematicPlayed = false
+  private openingCinematicTime = 0
+  private readonly openingCinematicDuration = 8.8
   private camera = { x: 0, y: 0 }
   private zoom = DEFAULT_WORLD_SCALE
   private pointerCanvas: Point | null = null
@@ -526,6 +547,7 @@ export class PathwardenEngine {
     if (!context) throw new Error('Canvas 2D context is unavailable')
     this.ctx = context
     this.callbacks = callbacks
+    this.introStoryActive = !restore
     this.realm = clamp(Math.floor(restore?.mapPlan.realm ?? realm), 1, 5)
     this.skinId = skinId
     if (!restore) {
@@ -548,6 +570,7 @@ export class PathwardenEngine {
       this.bountyMultiplier = boosts.bountyMultiplier
     }
     if (restore) {
+      this.activeRunSceneTime = this.activeRunSceneDuration
       this.mapSeed = restore.mapPlan.seed
       this.mapRandomState = restore.gameState.combatRandomState
       this.mapPlan = restore.mapPlan
@@ -569,8 +592,9 @@ export class PathwardenEngine {
     if (restore) this.restoreGameState(restore.gameState)
     else {
       this.activatePlannedChoices(this.mapPlan.castleRoomId)
-      this.revealAround(this.path)
+      this.revealAround(this.initialRevealCells())
     }
+    this.seedCastleCrossroads()
     this.refreshChoiceAnchors()
     this.emitState()
     this.render()
@@ -592,7 +616,29 @@ export class PathwardenEngine {
 
   private castlePath() {
     const castle = this.mapPlan.rooms.find(room => room.id === this.mapPlan.castleRoomId)!
-    return [{ ...castle.origin }, ...castle.roadCells.map(cell => ({ ...cell }))]
+    const mainExit = castle.ports.find(port => port.id === 'port-castle-main')!
+    const aligned = castle.roadCells.filter(cell =>
+      mainExit.direction === 'north' || mainExit.direction === 'south'
+        ? cell.col === castle.origin.col
+        : cell.row === castle.origin.row)
+    return [{ ...castle.origin }, ...aligned.map(cell => ({ ...cell }))]
+  }
+
+  private initialRevealCells() {
+    const castle = this.mapPlan.rooms.find(room => room.id === this.mapPlan.castleRoomId)!
+    return [{ ...castle.origin }, ...castle.revealCells.map(cell => ({ ...cell }))]
+  }
+
+  private seedCastleCrossroads() {
+    const castleLinks = this.mapPlan.roadLinks.filter(link => link.roomId === this.mapPlan.castleRoomId)
+    for (const link of castleLinks) {
+      this.addCommittedRoadLink(link.from, link.to)
+      for (const cell of [link.from, link.to]) {
+        if (!this.branchRoads.some(road => cellKey(road) === cellKey(cell))) {
+          this.branchRoads.push({ ...cell })
+        }
+      }
+    }
   }
 
   exportGameState(): PathwardenGameState {
@@ -611,8 +657,8 @@ export class PathwardenEngine {
       spawnTimer: this.spawnTimer,
       combatRandomState: this.mapRandomState,
       path: this.path.map(point => ({ ...point })),
-      claimedRoomIds: [...this.claimedSections].flatMap(choice => choice.roomId ? [choice.roomId] : []),
-      activeRoomIds: this.pathChoices.flatMap(choice => choice.roomId ? [choice.roomId] : []),
+      claimedRoomIds: [...this.claimedSections].map(choice => choice.roomId ?? choice.id),
+      activeRoomIds: this.pathChoices.map(choice => choice.roomId ?? choice.id),
       selectedTower: this.selectedTower,
       towerPurchases: { ...this.towerPurchases },
       relicRanks: { ...this.relicRanks },
@@ -660,12 +706,14 @@ export class PathwardenEngine {
   private restoreGameState(state: PathwardenGameState) {
     const claimed = new Set(state.claimedRoomIds)
     const active = new Set(state.activeRoomIds)
-    this.claimedSections = new Set(this.plannedSections.filter(choice => choice.roomId && claimed.has(choice.roomId)))
-    this.pathChoices = this.plannedSections.filter(choice => choice.roomId && active.has(choice.roomId))
+    this.claimedSections = new Set(this.plannedSections.filter(choice =>
+      claimed.has(choice.roomId ?? choice.id)))
+    this.pathChoices = this.plannedSections.filter(choice =>
+      active.has(choice.roomId ?? choice.id))
     this.branchRoads = []
     this.branchLinks = []
     this.revealed.clear()
-    this.revealAround(this.initialPath)
+    this.revealAround(this.initialRevealCells())
     for (const choice of this.claimedSections) {
       for (const link of choice.links ?? []) this.addCommittedRoadLink(link.from, link.to)
       for (const cell of choice.cells) {
@@ -767,6 +815,11 @@ export class PathwardenEngine {
 
   startWave() {
     if (this.phase !== 'planning' || this.pendingWaveStart) return
+    if (this.introStoryActive || this.openingCinematicActive) return
+    if (this.wave === 0 && !this.openingCinematicPlayed) {
+      this.startOpeningCinematic()
+      return
+    }
     if (this.ambientActors.some(actor => actor.kind !== 'bird')) {
       this.pendingWaveStart = true
       this.ambientEvacuation = 1.35
@@ -775,6 +828,40 @@ export class PathwardenEngine {
       return
     }
     this.beginWave()
+  }
+
+  defileTemple() {
+    if (!this.introStoryActive || this.phase !== 'planning') return
+    this.introStoryActive = false
+    this.startOpeningCinematic()
+  }
+
+  nextIntroStory() {
+    if (!this.introStoryActive) return
+    this.introStoryPaused = true
+    this.introStoryIndex = Math.min(this.introStorySlideCount - 1, this.introStoryIndex + 1)
+    this.introStoryTime = this.introStorySlideDuration
+    this.emitState()
+  }
+
+  previousIntroStory() {
+    if (!this.introStoryActive) return
+    this.introStoryPaused = true
+    this.introStoryIndex = Math.max(0, this.introStoryIndex - 1)
+    this.introStoryTime = this.introStorySlideDuration
+    this.emitState()
+  }
+
+  continueDefense() {
+    this.activeRunSceneTime = 0
+    this.emitState()
+  }
+
+  private startOpeningCinematic() {
+    this.openingCinematicActive = true
+    this.openingCinematicTime = 0
+    this.message = 'The old god descends. Hold fast while the mist is summoned.'
+    this.emitState()
   }
 
   private beginWave() {
@@ -821,6 +908,7 @@ export class PathwardenEngine {
     if (!import.meta.dev || this.phase !== 'planning') return
     this.phase = 'path'
     this.message = 'Development frontier inspection.'
+    this.focusFrontierChoices()
     this.emitState()
   }
 
@@ -926,6 +1014,11 @@ export class PathwardenEngine {
     this.idleTime = 30
     this.ambientSpawnTimer = 300
     this.message = `Ambient preview · ${family.name} · ${Math.round(progress * 100)}%`
+    const [col, row] = this.ambientBlockKey(normalized).split(':').map(Number)
+    const focus = this.gridToScreen({ col: col!, row: row! })
+    const bounds = this.cameraBounds()
+    this.camera.x = clamp(focus.x - WORLD_VIEW_CENTER.x, bounds.minX, bounds.maxX)
+    this.camera.y = clamp(focus.y - WORLD_VIEW_CENTER.y, bounds.minY, bounds.maxY)
     this.emitState()
   }
 
@@ -935,6 +1028,34 @@ export class PathwardenEngine {
     if (!choice) return
     this.phase = 'path'
     this.extendPath(choice)
+  }
+
+  debugRevealFullMap() {
+    if (!import.meta.dev || this.phase === 'wave') return
+    this.persistCurrentPathLinks()
+    const orderedSections = [...this.plannedSections].sort((left, right) => left.depth - right.depth)
+    for (const choice of orderedSections) {
+      const links = choice.links ?? choice.cells.map((cell, index) => ({
+        from: index === 0 ? choice.source : choice.cells[index - 1]!,
+        to: cell
+      }))
+      for (const link of links) {
+        this.addCommittedRoadLink(link.from, link.to)
+        for (const cell of [link.from, link.to]) {
+          if (!this.branchRoads.some(road => cellKey(road) === cellKey(cell))) this.branchRoads.push({ ...cell })
+        }
+      }
+      this.claimedSections.add(choice)
+      this.revealAround(choice.revealCells ?? choice.cells)
+    }
+    this.pathChoices = []
+    this.phase = 'planning'
+    this.message = 'Development atlas revealed · the full march is visible.'
+    this.zoom = this.minimumZoom()
+    const bounds = this.cameraBounds()
+    this.camera.x = clamp((bounds.minX + bounds.maxX) / 2, bounds.minX, bounds.maxX)
+    this.camera.y = clamp((bounds.minY + bounds.maxY) / 2, bounds.minY, bounds.maxY)
+    this.emitState()
   }
 
   debugToggleSandbox() {
@@ -954,6 +1075,8 @@ export class PathwardenEngine {
   debugToggleVisuals() {
     if (!import.meta.dev) return
     this.debugVisuals = !this.debugVisuals
+    this.message = this.debugVisuals ? 'Visual guides enabled.' : 'Visual guides hidden.'
+    this.emitState()
   }
 
   debugGrantAether(amount = 1000) {
@@ -1231,6 +1354,13 @@ export class PathwardenEngine {
     const selected = this.towers.find(tower => tower.id === this.selectedTowerId)
     return {
       phase: this.phase,
+      introStoryActive: this.introStoryActive,
+      introStoryIndex: this.introStoryIndex,
+      introStoryOpacity: this.introStoryOpacity(),
+      activeRunScene: this.activeRunSceneTime > 0,
+      activeRunSceneProgress: clamp(this.activeRunSceneTime / this.activeRunSceneDuration, 0, 1),
+      openingCinematic: this.openingCinematicActive,
+      openingCinematicProgress: clamp(this.openingCinematicTime / this.openingCinematicDuration, 0, 1),
       wave: this.wave,
       lives: this.lives,
       aether: this.aether,
@@ -1325,6 +1455,7 @@ export class PathwardenEngine {
     const roadValidation = this.validateExpansionPlan()
     return {
       ...this.getSnapshot(),
+      debugVisuals: this.debugVisuals,
       paused: this.paused,
       camera: {
         x: Number(this.camera.x.toFixed(1)),
@@ -1570,7 +1701,7 @@ export class PathwardenEngine {
     const delta = Math.min(0.05, (now - this.lastFrame) / 1000)
     const simulationDelta = Math.min(0.05, delta * this.debugTimeScale)
     this.lastFrame = now
-    this.updateCamera(delta)
+    if (!this.introStoryActive && !this.openingCinematicActive) this.updateCamera(delta)
     if (!this.paused) this.updateEffects(simulationDelta)
     if (!this.paused && this.phase === 'wave') this.updateCombat(simulationDelta)
     this.render()
@@ -1597,20 +1728,75 @@ export class PathwardenEngine {
   }
 
   private cameraBounds() {
+    const bounds = this.revealedScreenBounds()
+    if (!bounds) return { minX: 0, maxX: 0, minY: 0, maxY: 0 }
+    const halfWidth = WIDTH / (2 * this.zoom)
+    const halfHeight = HEIGHT / (2 * this.zoom)
+    const left = bounds.minX - WORLD_VIEW_CENTER.x + halfWidth - TILE_WIDTH
+    const right = bounds.maxX - WORLD_VIEW_CENTER.x - halfWidth + TILE_WIDTH
+    const top = bounds.minY - WORLD_VIEW_CENTER.y + halfHeight - TILE_HEIGHT
+    const bottom = bounds.maxY - WORLD_VIEW_CENTER.y - halfHeight + TILE_HEIGHT
+    return {
+      minX: Math.min(left, right),
+      maxX: Math.max(left, right),
+      minY: Math.min(top, bottom),
+      maxY: Math.max(top, bottom)
+    }
+  }
+
+  private revealedScreenBounds() {
     const points = [...this.revealed].map((key) => {
       const [col, row] = key.split(':').map(Number)
       return this.gridToScreen({ col: col!, row: row! })
     })
-    if (!points.length) return { minX: 0, maxX: 0, minY: 0, maxY: 0 }
+    if (!points.length) return null
     return {
-      minX: Math.min(...points.map(point => point.x)) - WORLD_VIEW_CENTER.x,
-      maxX: Math.max(...points.map(point => point.x)) - WORLD_VIEW_CENTER.x,
-      minY: Math.min(...points.map(point => point.y)) - WORLD_VIEW_CENTER.y,
-      maxY: Math.max(...points.map(point => point.y)) - WORLD_VIEW_CENTER.y
+      minX: Math.min(...points.map(point => point.x)),
+      maxX: Math.max(...points.map(point => point.x)),
+      minY: Math.min(...points.map(point => point.y)),
+      maxY: Math.max(...points.map(point => point.y))
     }
   }
 
+  private minimumZoom() {
+    const bounds = this.revealedScreenBounds()
+    if (!bounds) return DEFAULT_WORLD_SCALE
+    const width = bounds.maxX - bounds.minX + TILE_WIDTH * 1.8
+    const height = bounds.maxY - bounds.minY + TILE_HEIGHT * 2.5
+    return clamp(Math.min((WIDTH - 48) / width, (HEIGHT - 48) / height), 0.12, DEFAULT_WORLD_SCALE)
+  }
+
   private updateEffects(delta: number) {
+    if (this.activeRunSceneTime > 0) this.activeRunSceneTime = Math.max(0, this.activeRunSceneTime - delta)
+    if (this.introStoryActive) {
+      if (!this.introStoryPaused) {
+        this.introStoryTime += delta
+        if (this.introStoryTime >= this.introStorySlideDuration) {
+          if (this.introStoryIndex < this.introStorySlideCount - 1) {
+            this.introStoryIndex++
+            this.introStoryTime = 0
+          } else {
+            this.introStoryTime = this.introStorySlideDuration
+            this.introStoryPaused = true
+          }
+        }
+      }
+      this.emitState()
+      return
+    }
+    if (this.openingCinematicActive) {
+      this.openingCinematicTime += delta
+      if (this.openingCinematicTime >= this.openingCinematicDuration) {
+        this.openingCinematicActive = false
+        this.openingCinematicPlayed = true
+        this.phase = 'planning'
+        this.message = 'The mist has settled. Raise your defenses, then call the first wave.'
+        this.emitState()
+      } else {
+        this.emitState()
+      }
+      return
+    }
     this.shake = Math.max(0, this.shake - delta * 24)
     this.redFlash = Math.max(0, this.redFlash - delta * 2.8)
     this.waveBanner = Math.max(0, this.waveBanner - delta)
@@ -1663,6 +1849,14 @@ export class PathwardenEngine {
       shockwave.radius += delta * shockwave.maxRadius * 2.8
       if (shockwave.life <= 0) this.shockwaves.splice(this.shockwaves.indexOf(shockwave), 1)
     }
+  }
+
+  private introStoryOpacity() {
+    if (!this.introStoryActive) return 1
+    if (this.introStoryPaused || this.introStoryIndex === this.introStorySlideCount - 1) return 1
+    const localTime = this.introStoryTime % this.introStorySlideDuration
+    const fadeDuration = 0.7
+    return clamp(Math.min(localTime / fadeDuration, (this.introStorySlideDuration - localTime) / fadeDuration), 0.2, 1)
   }
 
   private updateCombat(delta: number) {
@@ -1890,7 +2084,10 @@ export class PathwardenEngine {
     const realmHealth = 1 + (this.realm - 1) * 0.22
     const realmSpeed = 1 + (this.realm - 1) * 0.04
     const realmBounty = 1 + (this.realm - 1) * 0.12
-    const maxHp = (95 + this.wave * 28) * profile.hp * realmHealth
+    const maxHp = (95 + this.wave * 28)
+      * profile.hp
+      * realmHealth
+      * pathwardenRouteHealthMultiplier(exit.route.length)
     this.enemies.push({
       id: this.enemyId++,
       type,
@@ -2075,10 +2272,11 @@ export class PathwardenEngine {
 
   private focusFrontierChoices() {
     if (!this.pathChoices.length) return
-    const viewportCenter = { x: WORLD_VIEW_CENTER.x + this.camera.x, y: WORLD_VIEW_CENTER.y + this.camera.y }
-    const focus = this.pathChoices
-      .map(choice => this.gridToScreen(choice.anchor))
-      .sort((a, b) => distance(a, viewportCenter) - distance(b, viewportCenter))[0]!
+    const points = this.pathChoices.map(choice => this.gridToScreen(choice.anchor))
+    const focus = {
+      x: (Math.min(...points.map(point => point.x)) + Math.max(...points.map(point => point.x))) / 2,
+      y: (Math.min(...points.map(point => point.y)) + Math.max(...points.map(point => point.y))) / 2
+    }
     const bounds = this.cameraBounds()
     this.camera.x = clamp(focus.x - WORLD_VIEW_CENTER.x, bounds.minX, bounds.maxX)
     this.camera.y = clamp(focus.y - WORLD_VIEW_CENTER.y, bounds.minY, bounds.maxY)
@@ -2253,7 +2451,7 @@ export class PathwardenEngine {
       throw new Error(`Pathwarden plan depth ${this.mapPlan.metrics.maxDepth} does not match ${rounds}`)
     }
     const roomById = new Map(this.mapPlan.rooms.map(room => [room.id, room]))
-    this.plannedSections = this.mapPlan.connections
+    const expansionSections = this.mapPlan.connections
       .filter(connection => connection.kind === 'expansion')
       .map((connection): PathChoice => {
         const room = roomById.get(connection.toRoomId)!
@@ -2270,12 +2468,39 @@ export class PathwardenEngine {
           depth: room.depth,
           source: { ...source },
           anchor: { ...firstLink.to },
-          cells: room.roadCells.map(cell => ({ ...cell })),
+          cells: [
+            ...room.roadCells,
+            ...(room.terminalApproaches ?? []).flatMap(approach => approach.cells)
+          ]
+            .map(cell => ({ ...cell })),
           links,
           revealCells: room.revealCells.map(cell => ({ ...cell })),
-          exitCells: room.ports.filter(port => port.kind === 'exit').map(port => ({ ...port.cell }))
+          exitCells: room.ports.filter(port => port.kind === 'exit').map(port => ({ ...port.cell })),
+          previewCells: room.roadCells.map(cell => ({ ...cell }))
         }
       })
+    const terminalSections = this.mapPlan.rooms
+      .filter(room => room.depth + 1 < this.mapPlan.metrics.maxDepth)
+      .flatMap(room => (room.terminalApproaches ?? []).map((approach): PathChoice => {
+        const port = room.ports.find(candidate => candidate.id === approach.portId)!
+        const cells = approach.cells.map(cell => ({ ...cell }))
+        const links = cells.map((cell, index) => ({
+          from: index === 0 ? { ...port.cell } : { ...cells[index - 1]! },
+          to: { ...cell }
+        }))
+        return {
+          id: `terminal:${room.id}:${approach.portId}`,
+          parentId: room.id,
+          depth: room.depth + 1,
+          source: { ...port.cell },
+          anchor: { ...cells[0]! },
+          cells,
+          links,
+          revealCells: cells.map(cell => ({ ...cell })),
+          previewCells: cells.map(cell => ({ ...cell }))
+        }
+      }))
+    this.plannedSections = [...expansionSections, ...terminalSections]
     const validation = this.validateExpansionPlan()
     if (!validation.valid) {
       throw new Error(`Unable to load Pathwarden room plan: ${validation.errors.join(', ')}`)
@@ -2488,12 +2713,16 @@ export class PathwardenEngine {
     this.message = this.debugSandbox
       ? `${choice.cells.length} road tiles revealed. Choose another frontier.`
       : `${choice.cells.length} road tiles revealed. Claim a relic.`
-    const end = this.gridToScreen(newEndpoint)
     if (this.debugSandbox) {
-      const bounds = this.cameraBounds()
-      this.camera.x = clamp(end.x - WORLD_VIEW_CENTER.x, bounds.minX, bounds.maxX)
-      this.camera.y = clamp(end.y - WORLD_VIEW_CENTER.y, bounds.minY, bounds.maxY)
+      if (this.pathChoices.length) this.focusFrontierChoices()
+      else {
+        const end = this.gridToScreen(newEndpoint)
+        const bounds = this.cameraBounds()
+        this.camera.x = clamp(end.x - WORLD_VIEW_CENTER.x, bounds.minX, bounds.maxX)
+        this.camera.y = clamp(end.y - WORLD_VIEW_CENTER.y, bounds.minY, bounds.maxY)
+      }
     }
+    const end = this.gridToScreen(newEndpoint)
     this.burst(end, '#67e8f9', 28, 240)
     this.shockwaves.push({ ...end, radius: 8, maxRadius: 90, life: 0.85, color: '#67e8f9' })
     this.emitState()
@@ -2799,6 +3028,7 @@ export class PathwardenEngine {
   }
 
   private onPointerMove = (event: PointerEvent) => {
+    if (this.introStoryActive || this.openingCinematicActive) return
     const bounds = this.canvas.getBoundingClientRect()
     this.pointerCanvas = {
       x: (event.clientX - bounds.left) / bounds.width * WIDTH,
@@ -2818,6 +3048,10 @@ export class PathwardenEngine {
   }
 
   private onWheel = (event: WheelEvent) => {
+    if (this.introStoryActive || this.openingCinematicActive) {
+      event.preventDefault()
+      return
+    }
     event.preventDefault()
     const bounds = this.canvas.getBoundingClientRect()
     const pointer = {
@@ -2828,7 +3062,7 @@ export class PathwardenEngine {
       x: WORLD_VIEW_CENTER.x + this.camera.x + (pointer.x - WORLD_VIEW_CENTER.x) / this.zoom,
       y: WORLD_VIEW_CENTER.y + this.camera.y + (pointer.y - WORLD_VIEW_CENTER.y) / this.zoom
     }
-    this.zoom = clamp(this.zoom * Math.exp(-event.deltaY * 0.0012), 0.72, 2.35)
+    this.zoom = clamp(this.zoom * Math.exp(-event.deltaY * 0.0012), this.minimumZoom(), 2.35)
     this.camera.x = worldUnderPointer.x - WORLD_VIEW_CENTER.x - (pointer.x - WORLD_VIEW_CENTER.x) / this.zoom
     this.camera.y = worldUnderPointer.y - WORLD_VIEW_CENTER.y - (pointer.y - WORLD_VIEW_CENTER.y) / this.zoom
     const cameraBounds = this.cameraBounds()
@@ -2837,6 +3071,7 @@ export class PathwardenEngine {
   }
 
   private onPointerDown = (event: PointerEvent) => {
+    if (this.introStoryActive || this.openingCinematicActive) return
     this.noteActivity()
     if (this.phase !== 'planning') return
     const tower = this.pointerTower(event)
@@ -2846,6 +3081,10 @@ export class PathwardenEngine {
   }
 
   private onPointerUp = (event: PointerEvent) => {
+    if (this.introStoryActive || this.openingCinematicActive) {
+      this.towerDrag = null
+      return
+    }
     if (!this.towerDrag) return
     const drag = this.towerDrag
     const tower = this.towers.find(candidate => candidate.id === drag.towerId)
@@ -2910,6 +3149,7 @@ export class PathwardenEngine {
   }
 
   private onClick = (event: MouseEvent) => {
+    if (this.introStoryActive || this.openingCinematicActive) return
     this.noteActivity()
     if (this.suppressClick) {
       this.suppressClick = false
@@ -3020,6 +3260,10 @@ export class PathwardenEngine {
     if (import.meta.dev && this.debugVisuals) this.drawVisualGuides()
     ctx.restore()
 
+    this.drawMinimap()
+    if (this.introStoryActive) this.drawIntroKingdomScene()
+    if (this.activeRunSceneTime > 0) this.drawActiveRunScene()
+    if (this.openingCinematicActive) this.drawOpeningCinematic()
     if (this.redFlash > 0) {
       ctx.fillStyle = `rgba(244,63,94,${this.redFlash * 0.28})`
       ctx.fillRect(0, 0, WIDTH, HEIGHT)
@@ -3028,6 +3272,414 @@ export class PathwardenEngine {
     if (this.pendingWaveStart) this.drawEvacuationBanner()
     if (this.phase === 'defeat') this.drawDefeatScene()
     if (this.paused) this.drawPauseOverlay()
+  }
+
+  private drawIntroKingdomScene() {
+    const ctx = this.ctx
+    const centerX = WIDTH * 0.52
+    const centerY = HEIGHT * 0.53
+    const sway = Math.sin(this.introStoryTime * 2.1) * 3
+
+    ctx.save()
+    ctx.fillStyle = 'rgba(8, 19, 28, 0.985)'
+    ctx.fillRect(0, 0, WIDTH, HEIGHT)
+
+    const drawField = (x: number, y: number, width: number, height: number, rotation: number) => {
+      ctx.save()
+      ctx.translate(x, y)
+      ctx.rotate(rotation)
+      ctx.fillStyle = '#6f8f55'
+      ctx.strokeStyle = '#b8a56a'
+      ctx.lineWidth = 3
+      ctx.beginPath()
+      ctx.roundRect(-width / 2, -height / 2, width, height, 16)
+      ctx.fill()
+      ctx.stroke()
+      ctx.strokeStyle = 'rgba(224, 201, 120, 0.7)'
+      ctx.lineWidth = 2
+      for (let row = -height / 2 + 15; row < height / 2; row += 16) {
+        ctx.beginPath()
+        ctx.moveTo(-width / 2 + 12, row)
+        ctx.lineTo(width / 2 - 12, row)
+        ctx.stroke()
+      }
+      ctx.restore()
+    }
+
+    drawField(centerX - 205, centerY + 92, 230, 118, -0.1)
+    drawField(centerX + 210, centerY + 105, 250, 126, 0.12)
+    drawField(centerX - 235, centerY - 100, 190, 100, 0.16)
+    drawField(centerX + 220, centerY - 88, 185, 98, -0.14)
+
+    const drawPerson = (x: number, y: number, color: string, scale = 1) => {
+      ctx.save()
+      ctx.translate(x, y)
+      ctx.scale(scale, scale)
+      ctx.fillStyle = '#e9c39b'
+      ctx.beginPath()
+      ctx.arc(0, -12 + sway * 0.15, 6, 0, Math.PI * 2)
+      ctx.fill()
+      ctx.fillStyle = color
+      ctx.beginPath()
+      ctx.roundRect(-7, -6, 14, 20, 5)
+      ctx.fill()
+      ctx.strokeStyle = '#3b2b28'
+      ctx.lineWidth = 3
+      ctx.beginPath()
+      ctx.moveTo(-3, 14)
+      ctx.lineTo(-5, 24)
+      ctx.moveTo(3, 14)
+      ctx.lineTo(6, 24)
+      ctx.stroke()
+      ctx.restore()
+    }
+
+    drawPerson(centerX - 270, centerY + 76 + sway, '#d8a447', 1.1)
+    drawPerson(centerX - 145, centerY + 123 - sway, '#7aa0b8', 0.9)
+    drawPerson(centerX + 145, centerY + 130 + sway, '#c7774e', 1.05)
+    drawPerson(centerX + 285, centerY + 75 - sway, '#d8a447', 0.95)
+    drawPerson(centerX - 230, centerY - 93 - sway, '#b97845', 0.85)
+    drawPerson(centerX + 240, centerY - 80 + sway, '#7aa0b8', 0.9)
+
+    ctx.fillStyle = '#544133'
+    ctx.fillRect(centerX - 132, centerY - 5, 264, 128)
+    ctx.fillStyle = '#826245'
+    ctx.fillRect(centerX - 174, centerY - 64, 72, 187)
+    ctx.fillRect(centerX + 102, centerY - 64, 72, 187)
+    ctx.fillStyle = '#a77d4d'
+    ctx.beginPath()
+    ctx.moveTo(centerX - 190, centerY - 64)
+    ctx.lineTo(centerX - 138, centerY - 122)
+    ctx.lineTo(centerX - 86, centerY - 64)
+    ctx.moveTo(centerX + 86, centerY - 64)
+    ctx.lineTo(centerX + 138, centerY - 122)
+    ctx.lineTo(centerX + 190, centerY - 64)
+    ctx.fill()
+    ctx.fillStyle = '#2b2020'
+    ctx.fillRect(centerX - 26, centerY + 43, 52, 80)
+    ctx.fillStyle = '#d5aa57'
+    ctx.fillRect(centerX - 78, centerY + 10, 32, 42)
+    ctx.fillRect(centerX + 46, centerY + 10, 32, 42)
+    ctx.fillStyle = '#d8b45b'
+    ctx.fillRect(centerX - 3, centerY - 157, 6, 35)
+    ctx.fillStyle = '#c9575a'
+    ctx.beginPath()
+    ctx.moveTo(centerX + 3, centerY - 155)
+    ctx.lineTo(centerX + 35, centerY - 145)
+    ctx.lineTo(centerX + 3, centerY - 135)
+    ctx.fill()
+
+    drawPerson(centerX - 205, centerY + 70, '#395b73', 1.25)
+    drawPerson(centerX + 205, centerY + 70, '#395b73', 1.25)
+    ctx.fillStyle = '#e7c467'
+    ctx.fillRect(centerX - 208, centerY + 21, 5, 45)
+    ctx.fillRect(centerX + 202, centerY + 21, 5, 45)
+
+    const vignette = ctx.createRadialGradient(centerX, centerY, 160, centerX, centerY, 620)
+    vignette.addColorStop(0, 'rgba(8, 19, 28, 0)')
+    vignette.addColorStop(1, 'rgba(8, 19, 28, 0.68)')
+    ctx.fillStyle = vignette
+    ctx.fillRect(0, 0, WIDTH, HEIGHT)
+    ctx.restore()
+  }
+
+  private drawActiveRunScene() {
+    const ctx = this.ctx
+    const progress = clamp(this.activeRunSceneTime / this.activeRunSceneDuration, 0, 1)
+    const opacity = Math.min(0.86, progress * 1.8)
+    const centerX = WIDTH * 0.52
+    const centerY = HEIGHT * 0.56
+    const pulse = Math.sin((this.activeRunSceneDuration - this.activeRunSceneTime) * 7) * 4
+
+    ctx.save()
+    ctx.fillStyle = `rgba(19, 13, 28, ${opacity * 0.38})`
+    ctx.fillRect(0, 0, WIDTH, HEIGHT)
+
+    ctx.fillStyle = `rgba(37, 20, 57, ${opacity * 0.62})`
+    ctx.beginPath()
+    ctx.arc(centerX, 116, 106 + pulse, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.fillStyle = `rgba(126, 63, 177, ${opacity * 0.72})`
+    ctx.beginPath()
+    ctx.moveTo(centerX - 54, 140)
+    ctx.lineTo(centerX, 238)
+    ctx.lineTo(centerX + 54, 140)
+    ctx.closePath()
+    ctx.fill()
+
+    ctx.fillStyle = `rgba(88, 61, 51, ${opacity * 0.95})`
+    ctx.fillRect(centerX - 122, centerY - 38, 244, 130)
+    ctx.fillStyle = `rgba(124, 77, 59, ${opacity})`
+    ctx.fillRect(centerX - 164, centerY - 92, 64, 184)
+    ctx.fillRect(centerX + 100, centerY - 92, 64, 184)
+    ctx.fillStyle = `rgba(31, 23, 31, ${opacity})`
+    ctx.fillRect(centerX - 24, centerY + 14, 48, 78)
+    ctx.fillStyle = `rgba(201, 169, 80, ${opacity})`
+    ctx.fillRect(centerX - 3, centerY - 144, 6, 38)
+
+    const drawFigure = (x: number, y: number, color: string, crouched = false) => {
+      ctx.fillStyle = `rgba(232, 191, 145, ${opacity})`
+      ctx.beginPath()
+      ctx.arc(x, y - (crouched ? 8 : 16), 6, 0, Math.PI * 2)
+      ctx.fill()
+      ctx.fillStyle = color
+      ctx.beginPath()
+      ctx.roundRect(x - 8, y - (crouched ? 4 : 10), 16, crouched ? 13 : 24, 5)
+      ctx.fill()
+      ctx.strokeStyle = `rgba(27, 24, 35, ${opacity})`
+      ctx.lineWidth = 3
+      ctx.beginPath()
+      ctx.moveTo(x - 3, y + 9)
+      ctx.lineTo(x - 10, y + (crouched ? 13 : 24))
+      ctx.moveTo(x + 3, y + 9)
+      ctx.lineTo(x + 10, y + (crouched ? 13 : 24))
+      ctx.stroke()
+    }
+
+    drawFigure(centerX - 215, centerY + 96, '#9e704f', true)
+    drawFigure(centerX - 178, centerY + 110, '#c48855', true)
+    drawFigure(centerX + 184, centerY + 108, '#9e704f', true)
+    drawFigure(centerX + 222, centerY + 96, '#c48855', true)
+    drawFigure(centerX - 82, centerY + 58, '#41657e')
+    drawFigure(centerX + 82, centerY + 58, '#41657e')
+    ctx.strokeStyle = `rgba(232, 196, 102, ${opacity})`
+    ctx.lineWidth = 4
+    ctx.beginPath()
+    ctx.moveTo(centerX - 88, centerY + 48)
+    ctx.lineTo(centerX - 122, centerY + 8)
+    ctx.moveTo(centerX + 88, centerY + 48)
+    ctx.lineTo(centerX + 122, centerY + 8)
+    ctx.stroke()
+
+    ctx.fillStyle = `rgba(245, 220, 255, ${opacity})`
+    ctx.font = '900 18px Cinzel, Georgia, serif'
+    ctx.textAlign = 'center'
+    ctx.fillText('THE KEEP HOLDS', centerX, HEIGHT - 48)
+    ctx.restore()
+  }
+
+  private drawOpeningCinematic() {
+    const ctx = this.ctx
+    const time = this.openingCinematicTime
+    const progress = clamp(time / this.openingCinematicDuration, 0, 1)
+    const castle = this.worldToCanvas(this.gridToScreen(this.path[0]!))
+    const gate = this.worldToCanvas(this.castleGatePosition())
+    const descent = clamp((time - 0.65) / 1.8, 0, 1)
+    const curse = clamp((time - 1.85) / 2.2, 0, 1)
+    const departure = clamp((time - 4.1) / 1.7, 0, 1)
+    const fogClosing = clamp((time - 2.2) / 2.8, 0, 1)
+    const reveal = clamp((time - 6.7) / 2.1, 0, 1)
+    const fogOpacity = reveal > 0 ? 0.94 * (1 - reveal) : 0.1 + fogClosing * 0.84
+
+    ctx.save()
+    ctx.fillStyle = `rgba(8, 15, 32, ${fogOpacity})`
+    ctx.fillRect(0, 0, WIDTH, HEIGHT)
+    const clearRadius = Math.max(0, 190 * (1 - fogClosing))
+    if (clearRadius > 0) {
+      ctx.globalCompositeOperation = 'destination-out'
+      const clear = ctx.createRadialGradient(castle.x, castle.y - 26, 0, castle.x, castle.y - 26, clearRadius)
+      clear.addColorStop(0, 'rgba(0,0,0,.9)')
+      clear.addColorStop(1, 'rgba(0,0,0,0)')
+      ctx.fillStyle = clear
+      ctx.beginPath()
+      ctx.arc(castle.x, castle.y - 26, clearRadius, 0, Math.PI * 2)
+      ctx.fill()
+      ctx.globalCompositeOperation = 'source-over'
+    }
+    this.drawCinematicVillagers(gate, curse)
+    this.drawCinematicGod(descent, departure, curse)
+    if (fogClosing > 0.15 && reveal < 0.9) {
+      ctx.globalAlpha = clamp(fogClosing * 1.25, 0, 1)
+      for (let index = 0; index < 14; index++) {
+        const angle = index * Math.PI * 2 / 14 + time * 0.08
+        const radius = 120 + (index % 4) * 76
+        const x = castle.x + Math.cos(angle) * radius
+        const y = castle.y + Math.sin(angle) * radius * 0.58
+        const mist = ctx.createRadialGradient(x, y, 4, x, y, 130 + (index % 3) * 30)
+        mist.addColorStop(0, 'rgba(157, 174, 204, .48)')
+        mist.addColorStop(0.55, 'rgba(118, 139, 174, .18)')
+        mist.addColorStop(1, 'rgba(87, 106, 140, 0)')
+        ctx.fillStyle = mist
+        ctx.beginPath()
+        ctx.arc(x, y, 150, 0, Math.PI * 2)
+        ctx.fill()
+      }
+    }
+    if (progress < 0.25) {
+      ctx.globalAlpha = clamp(1 - progress * 3, 0, 1)
+      ctx.textAlign = 'center'
+      ctx.fillStyle = '#f8fafc'
+      ctx.font = '900 26px sans-serif'
+      ctx.fillText('THE OLD GOD DESCENDS', WIDTH / 2, 78)
+      ctx.fillStyle = '#cbd5e1'
+      ctx.font = '600 13px sans-serif'
+      ctx.fillText('The land remembers its curse', WIDTH / 2, 102)
+    }
+    ctx.restore()
+  }
+
+  private drawCinematicVillagers(gate: Point, curse: number) {
+    const ctx = this.ctx
+    const origins = [
+      { x: gate.x - 230, y: gate.y + 70 },
+      { x: gate.x + 190, y: gate.y + 50 },
+      { x: gate.x - 150, y: gate.y - 55 },
+      { x: gate.x + 250, y: gate.y - 25 },
+      { x: gate.x + 20, y: gate.y + 125 }
+    ]
+    const flee = clamp((this.openingCinematicTime - 2.0) / 2.5, 0, 1)
+    for (const [index, origin] of origins.entries()) {
+      const travel = clamp((flee - index * 0.08) / (1 - index * 0.08), 0, 1)
+      const ease = travel * travel * (3 - 2 * travel)
+      const x = origin.x + (gate.x - origin.x) * ease
+      const y = origin.y + (gate.y - origin.y) * ease
+      ctx.save()
+      ctx.globalAlpha = clamp(1 - (curse - 0.7) * 2.2, 0.2, 1)
+      ctx.translate(x, y)
+      ctx.fillStyle = index % 2 ? '#f59e0b' : '#60a5fa'
+      ctx.fillRect(-6, -15, 12, 16)
+      ctx.fillStyle = '#e7c39b'
+      ctx.beginPath()
+      ctx.arc(0, -21, 5, 0, Math.PI * 2)
+      ctx.fill()
+      ctx.strokeStyle = '#172033'
+      ctx.lineWidth = 2
+      const stride = Math.sin(this.openingCinematicTime * 15 + index) * 4
+      ctx.beginPath()
+      ctx.moveTo(-3, 1)
+      ctx.lineTo(-5 + stride, 9)
+      ctx.moveTo(3, 1)
+      ctx.lineTo(5 - stride, 9)
+      ctx.stroke()
+      ctx.restore()
+    }
+  }
+
+  private drawCinematicGod(descent: number, departure: number, curse: number) {
+    const ctx = this.ctx
+    const x = WIDTH / 2 + Math.sin(this.openingCinematicTime * 0.9) * 110
+    const y = -100 + descent * 285 - departure * 330
+    ctx.save()
+    ctx.globalAlpha = clamp(1 - departure, 0, 1)
+    ctx.translate(x, y)
+    ctx.fillStyle = 'rgba(226, 232, 240, .95)'
+    ctx.beginPath()
+    ctx.ellipse(0, 30, 94, 25, 0, 0, Math.PI * 2)
+    ctx.ellipse(-55, 34, 48, 18, 0, 0, Math.PI * 2)
+    ctx.ellipse(57, 34, 48, 18, 0, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.fillStyle = '#ddd6fe'
+    ctx.beginPath()
+    ctx.moveTo(-27, 18)
+    ctx.lineTo(27, 18)
+    ctx.lineTo(18, -72)
+    ctx.lineTo(-18, -72)
+    ctx.closePath()
+    ctx.fill()
+    ctx.fillStyle = '#f4d0b0'
+    ctx.beginPath()
+    ctx.arc(0, -84, 16, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.fillStyle = '#312e81'
+    ctx.beginPath()
+    ctx.moveTo(-20, -94)
+    ctx.lineTo(0, -119)
+    ctx.lineTo(20, -94)
+    ctx.lineTo(13, -88)
+    ctx.lineTo(-13, -88)
+    ctx.closePath()
+    ctx.fill()
+    ctx.fillStyle = '#fde68a'
+    ctx.beginPath()
+    ctx.arc(0, -117, 4, 0, Math.PI * 2)
+    ctx.fill()
+    if (curse > 0 && curse < 1) {
+      ctx.globalAlpha = clamp(curse * 1.2, 0, 1)
+      const beam = ctx.createLinearGradient(0, 15, 0, 360)
+      beam.addColorStop(0, 'rgba(196, 181, 253, .9)')
+      beam.addColorStop(0.45, 'rgba(129, 140, 248, .32)')
+      beam.addColorStop(1, 'rgba(71, 85, 160, 0)')
+      ctx.fillStyle = beam
+      ctx.beginPath()
+      ctx.moveTo(-13, 16)
+      ctx.lineTo(13, 16)
+      ctx.lineTo(92, 360)
+      ctx.lineTo(-92, 360)
+      ctx.closePath()
+      ctx.fill()
+    }
+    ctx.restore()
+  }
+
+  private drawMinimap() {
+    const minimumZoom = this.minimumZoom()
+    if (this.zoom <= minimumZoom * 1.16) return
+    const bounds = this.revealedScreenBounds()
+    if (!bounds) return
+    const ctx = this.ctx
+    const radius = 70
+    const center = { x: WIDTH - radius - 18, y: HEIGHT - radius - 18 }
+    const padding = 12
+    const spanX = Math.max(1, bounds.maxX - bounds.minX)
+    const spanY = Math.max(1, bounds.maxY - bounds.minY)
+    const scale = Math.min((radius * 2 - padding * 2) / spanX, (radius * 2 - padding * 2) / spanY)
+    const mapPoint = (point: Point) => ({
+      x: center.x + (point.x - (bounds.minX + bounds.maxX) / 2) * scale,
+      y: center.y + (point.y - (bounds.minY + bounds.maxY) / 2) * scale
+    })
+
+    ctx.save()
+    ctx.beginPath()
+    ctx.arc(center.x, center.y, radius, 0, Math.PI * 2)
+    ctx.clip()
+    ctx.fillStyle = 'rgba(8, 15, 28, .88)'
+    ctx.fillRect(center.x - radius, center.y - radius, radius * 2, radius * 2)
+    ctx.strokeStyle = 'rgba(250, 204, 21, .48)'
+    ctx.lineWidth = 2
+    for (const link of this.mapPlan.roadLinks) {
+      if (!this.revealed.has(cellKey(link.from)) || !this.revealed.has(cellKey(link.to))) continue
+      const from = mapPoint(this.gridToScreen(link.from))
+      const to = mapPoint(this.gridToScreen(link.to))
+      ctx.beginPath()
+      ctx.moveTo(from.x, from.y)
+      ctx.lineTo(to.x, to.y)
+      ctx.stroke()
+    }
+    const castle = this.mapPlan.rooms.find(room => room.id === this.mapPlan.castleRoomId)
+    if (castle) {
+      const position = mapPoint(this.gridToScreen(castle.origin))
+      ctx.fillStyle = '#67e8f9'
+      ctx.beginPath()
+      ctx.arc(position.x, position.y, 4, 0, Math.PI * 2)
+      ctx.fill()
+    }
+    for (const enemy of this.enemies) {
+      const position = mapPoint(this.enemyScreenPosition(enemy))
+      ctx.fillStyle = enemy.type === 'boss' ? '#facc15' : '#fb7185'
+      ctx.beginPath()
+      ctx.arc(position.x, position.y, enemy.type === 'boss' ? 3.6 : 2.3, 0, Math.PI * 2)
+      ctx.fill()
+    }
+    const viewportHalfWidth = WIDTH / (2 * this.zoom)
+    const viewportHalfHeight = HEIGHT / (2 * this.zoom)
+    const viewportCenter = {
+      x: WORLD_VIEW_CENTER.x + this.camera.x,
+      y: WORLD_VIEW_CENTER.y + this.camera.y
+    }
+    const topLeft = mapPoint({
+      x: viewportCenter.x - viewportHalfWidth,
+      y: viewportCenter.y - viewportHalfHeight
+    })
+    ctx.strokeStyle = 'rgba(255, 255, 255, .72)'
+    ctx.lineWidth = 1
+    ctx.strokeRect(topLeft.x, topLeft.y, viewportHalfWidth * 2 * scale, viewportHalfHeight * 2 * scale)
+    ctx.restore()
+
+    ctx.strokeStyle = 'rgba(103, 232, 249, .72)'
+    ctx.lineWidth = 3
+    ctx.beginPath()
+    ctx.arc(center.x, center.y, radius, 0, Math.PI * 2)
+    ctx.stroke()
   }
 
   private drawDefeatScene() {
@@ -3248,12 +3900,47 @@ export class PathwardenEngine {
     }
     this.drawUndiscoveredMistField()
     this.drawMapEdgeFog()
+    this.drawActiveRoadMouthFog()
 
     renderables.sort((a, b) => a.y - b.y)
     for (const renderable of renderables) renderable.draw()
 
     for (const bird of this.ambientActors.filter(actor => actor.kind === 'bird')) this.drawBird(bird)
+    if (import.meta.dev && this.debugVisuals) this.drawTerminalSpawnMarkers()
     this.drawPathChoices()
+  }
+
+  private drawTerminalSpawnMarkers() {
+    const claimedRoomIds = new Set([...this.claimedSections]
+      .map(section => section.roomId)
+      .filter(roomId => roomId !== undefined))
+    const approaches = this.mapPlan.rooms
+      .filter(room => room.id === this.mapPlan.castleRoomId || claimedRoomIds.has(room.id))
+      .flatMap(room => room.terminalApproaches ?? [])
+    const ctx = this.ctx
+    for (const approach of approaches) {
+      const firstHidden = approach.cells.find(cell => !this.revealed.has(cellKey(cell)))
+      if (!firstHidden) continue
+      const screen = this.gridToScreen(firstHidden)
+      ctx.save()
+      ctx.translate(screen.x, screen.y - 7)
+      ctx.fillStyle = 'rgba(127,29,29,.82)'
+      ctx.strokeStyle = '#fca5a5'
+      ctx.lineWidth = 2.5
+      ctx.beginPath()
+      ctx.moveTo(0, -14)
+      ctx.lineTo(22, 0)
+      ctx.lineTo(0, 14)
+      ctx.lineTo(-22, 0)
+      ctx.closePath()
+      ctx.fill()
+      ctx.stroke()
+      ctx.fillStyle = '#fff1f2'
+      ctx.font = '900 8px ui-monospace, SFMono-Regular, Menlo, monospace'
+      ctx.textAlign = 'center'
+      ctx.fillText('SPAWN', 0, 3)
+      ctx.restore()
+    }
   }
 
   private drawUndiscoveredMistField() {
@@ -4224,24 +4911,51 @@ export class PathwardenEngine {
       .flatMap(feature => feature.cells)
       .filter(point => this.revealed.has(cellKey(point)) && roadKeys.has(cellKey(point)))
     if (!bridgeCells.length) return
+    const bridgeKeys = new Set(bridgeCells.map(cellKey))
+    const bridgeLinks = this.mapPlan.roadLinks.filter(link =>
+      bridgeKeys.has(cellKey(link.from)) || bridgeKeys.has(cellKey(link.to)))
     ctx.save()
     this.clipToRevealedTerrain()
+    ctx.lineCap = 'butt'
+    ctx.lineJoin = 'round'
+    const strokeBridgeLinks = (color: string, width: number) => {
+      ctx.strokeStyle = color
+      ctx.lineWidth = width
+      ctx.beginPath()
+      for (const link of bridgeLinks) {
+        const from = this.gridToScreen(link.from)
+        const to = this.gridToScreen(link.to)
+        ctx.moveTo(from.x, from.y + 4)
+        ctx.lineTo(to.x, to.y + 4)
+      }
+      ctx.stroke()
+    }
+    strokeBridgeLinks('#4b2d1b', 38)
+    strokeBridgeLinks('#8a572f', 32)
+    strokeBridgeLinks('#a86e3d', 25)
     for (const point of bridgeCells) {
       const screen = this.gridToScreen(point)
-      ctx.strokeStyle = '#7c4f2b'
-      ctx.lineWidth = 4
-      ctx.beginPath()
-      ctx.moveTo(screen.x - TILE_WIDTH * 0.34, screen.y - TILE_HEIGHT * 0.22)
-      ctx.lineTo(screen.x + TILE_WIDTH * 0.34, screen.y + TILE_HEIGHT * 0.22)
-      ctx.moveTo(screen.x - TILE_WIDTH * 0.34, screen.y + TILE_HEIGHT * 0.22)
-      ctx.lineTo(screen.x + TILE_WIDTH * 0.34, screen.y - TILE_HEIGHT * 0.22)
-      ctx.stroke()
-      ctx.strokeStyle = 'rgba(92,51,23,.62)'
-      ctx.lineWidth = 2
-      for (const offset of [-18, 0, 18]) {
+      const link = bridgeLinks.find(candidate =>
+        cellKey(candidate.from) === cellKey(point) || cellKey(candidate.to) === cellKey(point))
+      if (!link) continue
+      const neighbour = cellKey(link.from) === cellKey(point) ? link.to : link.from
+      const neighbourScreen = this.gridToScreen(neighbour)
+      const length = Math.hypot(neighbourScreen.x - screen.x, neighbourScreen.y - screen.y) || 1
+      const along = {
+        x: (neighbourScreen.x - screen.x) / length,
+        y: (neighbourScreen.y - screen.y) / length
+      }
+      const across = { x: -along.y, y: along.x }
+      ctx.strokeStyle = 'rgba(62,34,18,.72)'
+      ctx.lineWidth = 2.4
+      for (const offset of [-18, -9, 0, 9, 18]) {
+        const center = {
+          x: screen.x + along.x * offset,
+          y: screen.y + 4 + along.y * offset
+        }
         ctx.beginPath()
-        ctx.moveTo(screen.x + offset - 10, screen.y - 7)
-        ctx.lineTo(screen.x + offset + 10, screen.y + 7)
+        ctx.moveTo(center.x - across.x * 15, center.y - across.y * 15)
+        ctx.lineTo(center.x + across.x * 15, center.y + across.y * 15)
         ctx.stroke()
       }
     }
@@ -4553,25 +5267,13 @@ export class PathwardenEngine {
       ctx.restore()
     }
 
-    // Walk every real descendant of the currently available exits. Terrain
-    // reveal has a wider shoulder than one road section, so stopping after one
-    // child generation can expose that child's rounded endpoint before its
-    // known continuation is painted.
-    const visiblePlan = new Map<string, PathChoice>()
-    const queue = [...this.pathChoices]
-    while (queue.length) {
-      const section = queue.shift()!
-      if (visiblePlan.has(section.id) || this.claimedSections.has(section)) continue
-      visiblePlan.set(section.id, section)
-      queue.push(...this.plannedSections.filter(candidate => candidate.parentId === section.id))
-    }
-    const plannedPaths = [...visiblePlan.values()].map(section => [
+    const plannedPaths = this.pathChoices.map(section => [
       this.gridToScreen(section.source),
-      ...section.cells.map(cell => this.gridToScreen(cell))
+      ...(section.previewCells ?? section.cells).map(cell => this.gridToScreen(cell))
     ])
     const frontierNodes = new Set<string>()
-    for (const section of visiblePlan.values()) {
-      const cells = [section.source, ...section.cells]
+    for (const section of this.pathChoices) {
+      const cells = [section.source, ...(section.previewCells ?? section.cells)]
       for (let index = 1; index < cells.length; index++) {
         const from = cells[index - 1]!
         const to = cells[index]!
@@ -4638,6 +5340,17 @@ export class PathwardenEngine {
     fog.addColorStop(1, 'rgba(100,116,139,0)')
     ctx.fillStyle = fog
     ctx.fillRect(boundary.x - 74, boundary.y - 74, 148, 148)
+  }
+
+  private drawActiveRoadMouthFog() {
+    for (const choice of this.pathChoices) {
+      const cells = [choice.source, ...choice.cells]
+      const hiddenIndex = cells.findIndex(cell => !this.revealed.has(cellKey(cell)))
+      if (hiddenIndex <= 0) continue
+      const lastRevealed = cells[hiddenIndex - 1]!
+      const firstHidden = cells[hiddenIndex]!
+      this.drawRoadMouthFog(this.roadMouthRay(lastRevealed, firstHidden).boundary)
+    }
   }
 
   private clipToRevealedTerrain() {
@@ -5866,7 +6579,7 @@ export class PathwardenEngine {
       ctx.strokeStyle = shockwave.color
       ctx.lineWidth = 4
       ctx.beginPath()
-      ctx.arc(shockwave.x, shockwave.y, shockwave.radius, 0, Math.PI * 2)
+      ctx.arc(shockwave.x, shockwave.y, Math.max(0, shockwave.radius), 0, Math.PI * 2)
       ctx.stroke()
     }
     for (const particle of this.particles) {

@@ -66,7 +66,31 @@ function move(point: PathwardenGridPoint, direction: PathwardenCardinalDirection
 function castleRoom(direction: PathwardenCardinalDirection, approachLength: number): PathwardenMapRoom {
     const origin = { col: DEFAULT_CASTLE_CELL, row: DEFAULT_CASTLE_CELL }
     const gate = move(origin, direction, 1)
-    const roadCells = Array.from({ length: approachLength }, (_, index) => move(gate, direction, index))
+    const approach = Array.from({ length: approachLength }, (_, index) => move(gate, direction, index))
+    const junction = approach[approach.length - 1]!
+    const sideDirections: PathwardenCardinalDirection[] = direction === 'north' || direction === 'south'
+        ? ['east', 'west']
+        : ['north', 'south']
+    const mainArm = [move(junction, direction, 1), move(junction, direction, 2)]
+    const sideArms = sideDirections.map(side => [
+        move(junction, side, 1),
+        move(junction, side, 2)
+    ])
+    const roadCells = [...approach, ...mainArm, ...sideArms.flat()]
+    const ports = [
+        {
+            id: 'port-castle-main',
+            cell: mainArm[1]!,
+            direction,
+            kind: 'exit' as const
+        },
+        ...sideArms.map((arm, index) => ({
+            id: `port-castle-side-${index}`,
+            cell: arm[1]!,
+            direction: sideDirections[index]!,
+            kind: 'exit' as const
+        }))
+    ]
     return {
         id: 'room-castle',
         archetype: 'castle',
@@ -90,14 +114,9 @@ function castleRoom(direction: PathwardenCardinalDirection, approachLength: numb
         revealCells: [...roadCells],
         buildableCells: [],
         roadCells,
-        roadLinkIds: roadCells.slice(1).map((_, index) => `road-castle-${index}`),
+        roadLinkIds: [],
         featureIds: [],
-        ports: [{
-            id: 'port-castle-exit',
-            cell: roadCells[roadCells.length - 1]!,
-            direction,
-            kind: 'exit'
-        }]
+        ports
     }
 }
 
@@ -114,12 +133,24 @@ export function createPathwardenMapPlan(options: PathwardenMapPlanOptions): Path
     const direction = random.pick(INITIAL_DIRECTIONS)
     const approachLength = random.integer(3, 6)
     const castle = castleRoom(direction, approachLength)
-    const roadLinks = castle.roadCells.slice(1).map((cell, index) => ({
-        id: castle.roadLinkIds[index]!,
-        from: castle.roadCells[index]!,
-        to: cell,
-        roomId: castle.id
-    }))
+    const roadLinks: PathwardenMapPlan['roadLinks'] = []
+    const addCastleRoute = (route: PathwardenGridPoint[]) => {
+        for (let index = 1; index < route.length; index++) {
+            const id = `road-castle-${roadLinks.length}`
+            roadLinks.push({
+                id,
+                from: route[index - 1]!,
+                to: route[index]!,
+                roomId: castle.id
+            })
+            castle.roadLinkIds.push(id)
+        }
+    }
+    const junction = castle.roadCells[approachLength - 1]!
+    addCastleRoute([castle.origin, ...castle.roadCells.slice(0, approachLength + 2)])
+    for (const port of castle.ports.slice(1)) {
+        addCastleRoute([junction, move(junction, port.direction, 1), port.cell])
+    }
 
     return generatePathwardenMapPlan({
         generatorVersion,

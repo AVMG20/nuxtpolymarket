@@ -6,6 +6,8 @@ const email = ref('')
 const password = ref('')
 const error = ref('')
 const loading = ref(false)
+const devLoginLoading = ref(false)
+const showDevLogin = import.meta.dev
 
 async function signInDiscord() {
   await client.signIn.social({ provider: 'discord', callbackURL: '/' })
@@ -27,6 +29,17 @@ async function signIn() {
   // middleware resolves the session cleanly (avoids the client-side fetch race).
   window.location.href = '/'
 }
+async function signInDev() {
+  error.value = ''
+  devLoginLoading.value = true
+  try {
+    await $fetch('/api/dev-login', {method: 'POST'})
+    window.location.href = '/'
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : 'Development login failed'
+    devLoginLoading.value = false
+  }
+}
 </script>
 
 <template>
@@ -45,6 +58,17 @@ async function signIn() {
         <UAlert v-if="error" color="error" :description="error" />
         <UButton type="submit" class="w-full justify-center" :loading="loading">
           Sign in
+        </UButton>
+        <UButton
+          v-if="showDevLogin"
+          type="button"
+          color="warning"
+          variant="soft"
+          class="w-full justify-center"
+          :loading="devLoginLoading"
+          @click="signInDev"
+        >
+          Sign in as development user
         </UButton>
         <USeparator label="or" />
         <UButton class="w-full justify-center" color="neutral" variant="outline" icon="i-simple-icons-discord" @click="signInDiscord">

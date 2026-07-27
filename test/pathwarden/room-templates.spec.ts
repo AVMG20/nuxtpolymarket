@@ -9,6 +9,14 @@ function key(point: { col: number, row: number }) {
 }
 
 describe('Pathwarden room templates', () => {
+    it('keeps every template within a compact 6x6-equivalent footprint', () => {
+        for (const template of PATHWARDEN_ROOM_TEMPLATES) {
+            expect(template.width, template.id).toBeLessThanOrEqual(8)
+            expect(template.height, template.id).toBeLessThanOrEqual(8)
+            expect(template.width * template.height, template.id).toBeLessThanOrEqual(36)
+        }
+    })
+
     it('keeps every road edge cardinal and inside its transformed bounds', () => {
         for (const template of PATHWARDEN_ROOM_TEMPLATES) {
             for (const rotation of [0, 90, 180, 270] as const) {

@@ -1,4 +1,4 @@
-export const PATHWARDEN_GENERATOR_VERSION = 2
+export const PATHWARDEN_GENERATOR_VERSION = 5
 export const PATHWARDEN_SAVE_VERSION = 1
 
 export type PathwardenCardinalDirection = 'north' | 'east' | 'south' | 'west'
@@ -19,6 +19,7 @@ export type PathwardenRoomArchetype =
     | 'corner'
     | 'u-bend'
     | 'switchback'
+    | 'y-junction'
     | 't-junction'
     | 'crossroads'
     | 'road-island'
@@ -83,6 +84,10 @@ export interface PathwardenMapRoom {
     revealCells: PathwardenGridPoint[]
     buildableCells: PathwardenGridPoint[]
     roadCells: PathwardenGridPoint[]
+    terminalApproaches?: Array<{
+        portId: string
+        cells: PathwardenGridPoint[]
+    }>
     roadLinkIds: string[]
     featureIds: string[]
     ports: PathwardenRoomPort[]
