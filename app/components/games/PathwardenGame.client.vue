@@ -106,6 +106,26 @@ function selectTower(type: PathwardenTowerType) {
   engine?.selectTower(type)
 }
 
+function towerName(type: PathwardenTowerType) {
+  return PATHWARDEN_TOWERS[type]?.name ?? type
+}
+
+function sellRelic(instanceId: number) {
+  engine?.sellRelic(instanceId)
+}
+
+function togglePause() {
+  engine?.togglePause()
+}
+
+function toggleRoadLaboratory() {
+  engine?.debugToggleSandbox()
+}
+
+function triggerRandomIdleStory() {
+  engine?.debugTriggerAmbient()
+}
+
 async function startWave() {
   upgradeChoices.value = []
   if (snapshot.value.wave === 0 && !runActive.value) {
@@ -516,7 +536,7 @@ watch(hintsEnabled, enabled => localStorage.setItem('pathwarden-hints', enabled 
                 type="button"
                 class="absolute -right-1 -top-1 hidden size-5 items-center justify-center rounded-full bg-warning text-[9px] font-black text-inverted shadow group-hover:flex"
                 :title="`Sell for ${relic.sellValue} Aether`"
-                @click="engine?.sellRelic(relic.instanceId)"
+                @click="sellRelic(relic.instanceId)"
               >
                 {{ relic.sellValue }}
               </button>
@@ -786,7 +806,7 @@ watch(hintsEnabled, enabled => localStorage.setItem('pathwarden-hints', enabled 
                 />
               </span>
               <span class="min-w-0 flex-1">
-                <strong class="block text-sm">{{ PATHWARDEN_TOWERS[type].name }}</strong>
+                <strong class="block text-sm">{{ towerName(type) }}</strong>
                 <span class="block text-xs text-muted">
                   {{ type === 'bolt' ? 'Rapid star bolts' : type === 'mortar' ? 'Explosive sunfire' : type === 'frost' ? 'Freezing control' : type === 'ember' ? 'Burning siege shells' : type === 'storm' ? 'Jumping lightning' : 'Radiant formation bursts' }}
                 </span>
@@ -797,7 +817,7 @@ watch(hintsEnabled, enabled => localStorage.setItem('pathwarden-hints', enabled 
           <p class="mt-3 text-xs text-muted">Click to inspect. Drag to move; drop equal defenses together to fuse them. Higher terrain amplifies range and damage. Move the cursor to a battlefield edge to pan.</p>
         </div>
 
-        <UButton color="neutral" variant="ghost" block :icon="snapshot.paused ? 'i-lucide-play' : 'i-lucide-pause'" :disabled="snapshot.phase !== 'wave'" @click="engine?.togglePause()">
+        <UButton color="neutral" variant="ghost" block :icon="snapshot.paused ? 'i-lucide-play' : 'i-lucide-pause'" :disabled="snapshot.phase !== 'wave'" @click="togglePause">
           {{ snapshot.paused ? 'Resume battle' : 'Pause battle' }}
         </UButton>
         <UButton to="/pathwarden/shop" color="primary" variant="soft" block icon="i-lucide-store">
@@ -813,7 +833,7 @@ watch(hintsEnabled, enabled => localStorage.setItem('pathwarden-hints', enabled 
           variant="outline"
           block
           icon="i-lucide-flask-conical"
-          @click="engine?.debugToggleSandbox()"
+          @click="toggleRoadLaboratory"
         >
           Toggle road laboratory
         </UButton>
@@ -823,7 +843,7 @@ watch(hintsEnabled, enabled => localStorage.setItem('pathwarden-hints', enabled 
           variant="outline"
           block
           icon="i-lucide-trees"
-          @click="engine?.debugTriggerAmbient()"
+          @click="triggerRandomIdleStory"
         >
           Trigger random idle story
         </UButton>
