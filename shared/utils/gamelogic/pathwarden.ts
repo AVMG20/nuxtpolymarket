@@ -3,6 +3,7 @@ export type PathwardenBoostId = typeof PATHWARDEN_BOOST_IDS[number]
 export type PathwardenBoostCurrency = 'coins' | 'gems'
 export type PathwardenBoostLevels = Record<PathwardenBoostId, number>
 export const PATHWARDEN_CHECKPOINT_WAVES = [4, 8, 12] as const
+export const PATHWARDEN_ABANDON_COST_GEMS = 3
 export const PATHWARDEN_SURGE_COST_GEMS = 5
 
 export type PathwardenDefenseArchetype = 'ballista' | 'mortar' | 'spire'

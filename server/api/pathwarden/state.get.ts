@@ -3,9 +3,11 @@ import { db } from '#server/database'
 import { pathwardenState, user } from '#server/database/schema'
 import { requireUserId } from '#server/utils/auth'
 import { getBalance } from '#server/utils/balance'
+import { getGemGuidePrice } from '#server/utils/gem-exchange'
 import { pathwardenLevels } from '#server/utils/pathwarden'
 import {
     PATHWARDEN_BOOST_IDS,
+    PATHWARDEN_ABANDON_COST_GEMS,
     PATHWARDEN_BOOSTS,
     PATHWARDEN_DEFENSE_BLUEPRINTS,
     PATHWARDEN_SKINS,
@@ -21,10 +23,11 @@ import {
 export default defineEventHandler(async (event) => {
     const userId = await requireUserId(event)
     const debugMode = import.meta.dev || Boolean(useRuntimeConfig(event).devMode)
-    const [balance, currentUser, existing] = await Promise.all([
+    const [balance, currentUser, existing, gemGuidePrice] = await Promise.all([
         getBalance(userId),
         db.query.user.findFirst({ where: eq(user.id, userId), columns: { gems: true } }),
-        db.query.pathwardenState.findFirst({ where: eq(pathwardenState.userId, userId) })
+        db.query.pathwardenState.findFirst({ where: eq(pathwardenState.userId, userId) }),
+        getGemGuidePrice()
     ])
     const state = existing
         ?? (await db.insert(pathwardenState).values({ userId }).onConflictDoNothing().returning())[0]
@@ -34,6 +37,10 @@ export default defineEventHandler(async (event) => {
     return {
         balance,
         gems: currentUser?.gems ?? 0,
+        abandonCost: {
+            gems: PATHWARDEN_ABANDON_COST_GEMS,
+            coins: Math.max(1, Math.ceil(gemGuidePrice * PATHWARDEN_ABANDON_COST_GEMS))
+        },
         debugMode,
         levels,
         effects: pathwardenBoostEffects(levels),

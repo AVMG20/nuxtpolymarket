@@ -3,12 +3,14 @@ import {
   PATHWARDEN_TOWERS,
   PathwardenEngine,
   type PathwardenInventoryRelic,
+  type PathwardenEngineRestore,
   type PathwardenRelic,
   type PathwardenRelicRarity,
   type PathwardenSnapshot,
   type PathwardenTargeting,
   type PathwardenTowerType
 } from '~/utils/pathwarden-engine'
+import type { PathwardenGameState, PathwardenMapPlan } from '#shared/types/pathwarden-save'
 import {
   pathwardenCashoutCoins,
   pathwardenCheckpointRate,
@@ -43,6 +45,8 @@ const snapshot = ref<PathwardenSnapshot>({
 })
 const upgradeChoices = ref<PathwardenRelic[]>([])
 const boostShopOpen = ref(false)
+const abandonOpen = ref(false)
+const abandoning = ref(false)
 const buyingBoost = ref<string | null>(null)
 const buyingSurge = ref(false)
 const buyingDefense = ref<string | null>(null)
@@ -60,12 +64,19 @@ const { data: boostState, refresh: refreshBoosts } = await useFetch('/api/pathwa
 let engine: PathwardenEngine | null = null
 let unregisterDevBridge = () => {}
 let cooldownClock: ReturnType<typeof setInterval> | null = null
+let saveTimer: ReturnType<typeof setTimeout> | null = null
+let saveRevision = 0
+let saveInFlight = false
+let saveDirty = false
+let restoredRun: { mapPlan: PathwardenMapPlan, gameState: PathwardenGameState } | undefined
 
 const towerTypes = computed(() => (Object.keys(PATHWARDEN_TOWERS) as PathwardenTowerType[])
   .filter(type => boostState.value?.defenses?.some(defense => defense.id === type && defense.owned)
     ?? ['bolt', 'mortar', 'frost'].includes(type)))
 const targetingModes: PathwardenTargeting[] = ['first', 'strong', 'fast']
 const permanentBalance = computed(() => Number(boostState.value?.balance ?? 0))
+const canAbandon = computed(() => runActive.value
+  && ['planning', 'checkpoint', 'path', 'upgrade'].includes(snapshot.value.phase))
 const selectedRealm = ref(1)
 const unlockedRealm = ref(1)
 const checkpointOffer = computed(() => pathwardenCashoutCoins(
@@ -132,9 +143,15 @@ async function startWave() {
     try {
       await $fetch('/api/pathwarden/start-run', {
         method: 'POST',
-        body: { realm: selectedRealm.value, useSurge: useSurge.value }
+        body: {
+          realm: selectedRealm.value,
+          useSurge: useSurge.value,
+          seed: engine?.exportMapPlan().seed
+        }
       })
       runActive.value = true
+      saveRevision = 0
+      scheduleSave()
       await refreshBoosts()
     } catch (error: unknown) {
       toast.add({ title: apiErrorMessage(error, 'Could not start the run'), color: 'error' })
@@ -159,6 +176,33 @@ async function rushCooldown() {
     toast.add({ title: apiErrorMessage(error, 'Could not rush recovery'), color: 'error' })
   } finally {
     rushingCooldown.value = false
+  }
+}
+
+async function abandonRun(currency: 'gems' | 'coins') {
+  if (!canAbandon.value || abandoning.value) return
+  abandoning.value = true
+  try {
+    const result = await $fetch('/api/pathwarden/abandon', {
+      method: 'POST',
+      body: { currency }
+    })
+    runActive.value = false
+    saveDirty = false
+    if (saveTimer) clearTimeout(saveTimer)
+    saveTimer = null
+    abandonOpen.value = false
+    await Promise.all([refreshBoosts(), fetchSession()])
+    restart()
+    toast.add({
+      title: 'March abandoned',
+      description: `${formatNumber(result.cost, false)} ${result.currency === 'gems' ? 'Gems' : 'Coins'} paid. A fresh map is ready.`,
+      color: 'warning'
+    })
+  } catch (error: unknown) {
+    toast.add({ title: apiErrorMessage(error, 'Could not abandon the march'), color: 'error' })
+  } finally {
+    abandoning.value = false
   }
 }
 
@@ -290,7 +334,7 @@ async function equipSkin(skinId: string) {
   }
 }
 
-async function settleRun(reason: 'cashout' | 'victory' | 'defeat' | 'abandoned') {
+async function settleRun(reason: 'cashout' | 'victory' | 'defeat') {
   if (!runActive.value || settling.value) return null
   settling.value = true
   try {
@@ -316,7 +360,7 @@ async function settleRun(reason: 'cashout' | 'victory' | 'defeat' | 'abandoned')
     await Promise.all([refreshBoosts(), fetchSession()])
     return response
   } catch (error: unknown) {
-    if (reason !== 'abandoned') toast.add({ title: apiErrorMessage(error, 'Run settlement failed'), color: 'error' })
+    toast.add({ title: apiErrorMessage(error, 'Run settlement failed'), color: 'error' })
     return null
   } finally {
     settling.value = false
@@ -337,10 +381,50 @@ function continueCheckpoint() {
   engine?.continueCheckpoint()
 }
 
-function createGame() {
+function scheduleSave() {
+  if (!runActive.value || !engine) return
+  saveDirty = true
+  if (saveTimer) return
+  saveTimer = setTimeout(() => {
+    saveTimer = null
+    void saveRun()
+  }, 750)
+}
+
+async function saveRun() {
+  if (!runActive.value || !engine || saveInFlight || !saveDirty) return
+  saveInFlight = true
+  saveDirty = false
+  const gameState = engine.exportGameState()
+  try {
+    const saved = await $fetch('/api/pathwarden/run', {
+      method: 'PUT',
+      body: { revision: saveRevision, gameState }
+    })
+    saveRevision = saved.revision
+  } catch (error: unknown) {
+    saveDirty = true
+    if ((error as { statusCode?: number }).statusCode === 409) {
+      toast.add({
+        title: 'March opened elsewhere',
+        description: 'This tab stopped saving to protect the newer Pathwarden state.',
+        color: 'warning'
+      })
+      runActive.value = false
+    }
+  } finally {
+    saveInFlight = false
+    if (saveDirty && runActive.value) scheduleSave()
+  }
+}
+
+function createGame(restore?: PathwardenEngineRestore) {
   if (!canvas.value) return
   engine = new PathwardenEngine(canvas.value, {
-    onState: state => { snapshot.value = state },
+    onState: (state) => {
+      snapshot.value = state
+      scheduleSave()
+    },
     onUpgrade: choices => { upgradeChoices.value = choices },
     onAmbientStoryComplete: async (storyId) => {
       try {
@@ -365,7 +449,7 @@ function createGame() {
     }
   }, boostState.value
     ? pathwardenBoostEffects(boostState.value.levels, useSurge.value)
-    : undefined, selectedRealm.value, boostState.value?.equippedSkinId ?? 'warden-stone')
+    : undefined, selectedRealm.value, boostState.value?.equippedSkinId ?? 'warden-stone', restore)
   engine.start()
 }
 
@@ -375,11 +459,19 @@ onMounted(async () => {
   }, 1000)
   hintsEnabled.value = localStorage.getItem('pathwarden-hints') !== 'off'
   if (boostState.value?.activeRun) {
-    runActive.value = true
-    await settleRun('abandoned')
+    const response = await $fetch('/api/pathwarden/run')
+    if (response.run?.gameState) {
+      runActive.value = true
+      saveRevision = response.run.revision
+      selectedRealm.value = response.run.realm
+      restoredRun = {
+        mapPlan: response.run.mapPlan,
+        gameState: response.run.gameState
+      }
+    }
   }
   unlockedRealm.value = boostState.value?.progression.maxUnlockedRealm ?? 1
-  createGame()
+  createGame(restoredRun)
   if (import.meta.dev) {
     const { registerGameDevBridge } = await import('~/utils/game-dev-bridge')
     unregisterDevBridge = registerGameDevBridge({
@@ -425,8 +517,9 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   if (cooldownClock) clearInterval(cooldownClock)
+  if (saveTimer) clearTimeout(saveTimer)
+  void saveRun()
   unregisterDevBridge()
-  if (runActive.value) void settleRun('abandoned')
   engine?.destroy()
 })
 
@@ -823,6 +916,17 @@ watch(hintsEnabled, enabled => localStorage.setItem('pathwarden-hints', enabled 
         <UButton to="/pathwarden/shop" color="primary" variant="soft" block icon="i-lucide-store">
           Open Reliquary shop
         </UButton>
+        <UButton
+          v-if="runActive"
+          color="error"
+          variant="soft"
+          block
+          icon="i-lucide-flag"
+          :disabled="!canAbandon"
+          @click="abandonOpen = true"
+        >
+          {{ canAbandon ? 'Abandon march' : 'Retreat locked during battle' }}
+        </UButton>
         <div class="flex items-center justify-between px-2">
           <span class="text-xs text-muted">Optional hints</span>
           <USwitch v-model="hintsEnabled" size="sm" />
@@ -976,6 +1080,37 @@ watch(hintsEnabled, enabled => localStorage.setItem('pathwarden-hints', enabled 
           </div>
         </div>
         <USkeleton v-else class="h-96 w-full rounded-xl" />
+      </template>
+    </UModal>
+    <UModal v-model:open="abandonOpen" title="Abandon this march?">
+      <template #body>
+        <div class="space-y-4">
+          <p class="text-sm text-muted">
+            The current map, buildings, Aether, and wave progress will be lost. Retreat is only available during a strategic phase.
+          </p>
+          <div class="grid gap-2 sm:grid-cols-2">
+            <UButton
+              color="primary"
+              variant="soft"
+              icon="i-lucide-gem"
+              :loading="abandoning"
+              :disabled="!boostState || boostState.gems < (boostState.abandonCost?.gems ?? 3)"
+              @click="abandonRun('gems')"
+            >
+              Pay {{ boostState?.abandonCost?.gems ?? 3 }} Gems
+            </UButton>
+            <UButton
+              color="warning"
+              variant="soft"
+              icon="i-lucide-coins"
+              :loading="abandoning"
+              :disabled="!boostState || permanentBalance < (boostState.abandonCost?.coins ?? 0)"
+              @click="abandonRun('coins')"
+            >
+              Pay {{ formatNumber(boostState?.abandonCost?.coins ?? 0, false) }} Coins
+            </UButton>
+          </div>
+        </div>
       </template>
     </UModal>
     </div>

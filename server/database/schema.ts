@@ -1,5 +1,9 @@
 import { relations, sql } from 'drizzle-orm'
-import { pgTable, text, timestamp, boolean, index, numeric, integer, unique, jsonb } from 'drizzle-orm/pg-core'
+import { pgTable, text, timestamp, boolean, index, numeric, integer, unique, jsonb, bigint } from 'drizzle-orm/pg-core'
+import type {
+  PathwardenGameState,
+  PathwardenMapPlan
+} from '#shared/types/pathwarden-save'
 
 export const user = pgTable('user', {
   id: text('id').primaryKey(),
@@ -265,6 +269,20 @@ export const pathwardenState = pgTable('pathwarden_state', {
   runPowerSnapshot: integer('run_power_snapshot'),
   runSurgedSnapshot: boolean('run_surged_snapshot'),
   lastRunFinishedAt: timestamp('last_run_finished_at')
+})
+
+export const pathwardenRuns = pgTable('pathwarden_runs', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().unique().references(() => user.id, { onDelete: 'cascade' }),
+  revision: integer('revision').notNull().default(0),
+  saveVersion: integer('save_version').notNull(),
+  generatorVersion: integer('generator_version').notNull(),
+  seed: bigint('seed', { mode: 'number' }).notNull(),
+  realm: integer('realm').notNull(),
+  mapPlan: jsonb('map_plan').$type<PathwardenMapPlan>().notNull(),
+  gameState: jsonb('game_state').$type<PathwardenGameState>(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().$onUpdate(() => new Date()).notNull()
 })
 
 /**

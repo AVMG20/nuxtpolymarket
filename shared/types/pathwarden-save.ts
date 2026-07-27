@@ -1,4 +1,4 @@
-export const PATHWARDEN_GENERATOR_VERSION = 1
+export const PATHWARDEN_GENERATOR_VERSION = 2
 export const PATHWARDEN_SAVE_VERSION = 1
 
 export type PathwardenCardinalDirection = 'north' | 'east' | 'south' | 'west'
@@ -159,16 +159,37 @@ export interface PathwardenSavedEnemy {
 
 export interface PathwardenSavedProjectile {
     type: string
+    relicFamily?: string
+    relicPower: number
+    echo: boolean
     targetId: number
     x: number
     y: number
     damage: number
     speed: number
     splash: number
+    splashFactor: number
     slow: number
+    color: string
+    size: number
+    trail: PathwardenGridPoint[]
+    origin: PathwardenGridPoint
     age: number
     duration: number
     arcHeight: number
+}
+
+export interface PathwardenSavedRelic {
+    instanceId: number
+    id: string
+    family: string
+    rarity: string
+    name: string
+    description: string
+    towerSpecific: boolean
+    iconIndex: number
+    power: number
+    sellValue: number
 }
 
 export interface PathwardenGameState {
@@ -185,8 +206,15 @@ export interface PathwardenGameState {
     spawnTotal: number
     spawnTimer: number
     combatRandomState: number
+    path: PathwardenGridPoint[]
     claimedRoomIds: string[]
     activeRoomIds: string[]
+    selectedTower: string
+    towerPurchases: Record<string, number>
+    relicRanks: Record<string, number>
+    relicInventory: PathwardenSavedRelic[]
+    interest: number
+    canSellRelics: boolean
     towers: PathwardenSavedTower[]
     enemies: PathwardenSavedEnemy[]
     projectiles: PathwardenSavedProjectile[]

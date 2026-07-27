@@ -10,6 +10,7 @@ import {
 import { validatePathwardenMapPlan } from '#shared/utils/gamelogic/pathwarden-map-validation'
 import type {
   PathwardenFeatureKind,
+  PathwardenGameState,
   PathwardenMapPlan
 } from '#shared/types/pathwarden-save'
 
@@ -313,6 +314,11 @@ export interface PathwardenCallbacks {
   onAmbientStoryComplete?: (storyId: number) => void
 }
 
+export interface PathwardenEngineRestore {
+  mapPlan: PathwardenMapPlan
+  gameState: PathwardenGameState
+}
+
 export interface PathwardenBoostEffects {
   startingLives: number
   startingAether: number
@@ -464,22 +470,9 @@ export class PathwardenEngine {
     maxDepth: EXPANSION_DEPTH
   })
 
-  private elevations = Array.from({ length: ROWS }, (_, row) =>
-    Array.from({ length: COLS }, (_, col) => {
-      const seedX = (this.mapSeed % 997) / 997 * Math.PI * 2
-      const seedY = (this.mapSeed % 613) / 613 * Math.PI * 2
-      const broadHill = Math.sin(col * 0.48 + seedX)
-        + Math.cos(row * 0.44 + seedY)
-        + Math.sin((col - row) * 0.26 + seedX * 0.5)
-      const center = Math.floor(COLS / 2)
-      const centerRise = Math.max(0, 1 - Math.hypot(col - center, row - center) / 18)
-      return clamp(Math.round(1.55 + broadHill * 0.3 + centerRise * 0.55), 1, 3)
-    }))
+  private elevations = this.createElevations()
 
-  private path: GridPoint[] = (() => {
-    const castle = this.mapPlan.rooms.find(room => room.id === this.mapPlan.castleRoomId)!
-    return [{ ...castle.origin }, ...castle.roadCells.map(cell => ({ ...cell }))]
-  })()
+  private path: GridPoint[] = this.castlePath()
 
   private initialPath = this.path.map(point => ({ ...point }))
 
@@ -520,14 +513,31 @@ export class PathwardenEngine {
   private killRepairPercent = 0
   private canSellRelics = false
 
-  constructor(canvas: HTMLCanvasElement, callbacks: PathwardenCallbacks, boosts?: PathwardenBoostEffects, realm = 1, skinId = 'warden-stone') {
+  constructor(
+    canvas: HTMLCanvasElement,
+    callbacks: PathwardenCallbacks,
+    boosts?: PathwardenBoostEffects,
+    realm = 1,
+    skinId = 'warden-stone',
+    restore?: PathwardenEngineRestore
+  ) {
     this.canvas = canvas
     const context = canvas.getContext('2d')
     if (!context) throw new Error('Canvas 2D context is unavailable')
     this.ctx = context
     this.callbacks = callbacks
-    this.realm = clamp(Math.floor(realm), 1, 5)
+    this.realm = clamp(Math.floor(restore?.mapPlan.realm ?? realm), 1, 5)
     this.skinId = skinId
+    if (!restore) {
+      this.mapPlan = createPathwardenMapPlan({
+        seed: this.mapSeed,
+        realm: this.realm,
+        maxDepth: EXPANSION_DEPTH
+      })
+      this.elevations = this.createElevations()
+      this.path = this.castlePath()
+      this.initialPath = this.path.map(point => ({ ...point }))
+    }
     if (boosts) {
       this.lives = boosts.startingLives
       this.maxLives = boosts.startingLives
@@ -536,6 +546,14 @@ export class PathwardenEngine {
       this.rangeMultiplier = boosts.rangeMultiplier
       this.rateMultiplier = boosts.rateMultiplier
       this.bountyMultiplier = boosts.bountyMultiplier
+    }
+    if (restore) {
+      this.mapSeed = restore.mapPlan.seed
+      this.mapRandomState = restore.gameState.combatRandomState
+      this.mapPlan = restore.mapPlan
+      this.elevations = this.createElevations()
+      this.path = this.castlePath()
+      this.initialPath = this.path.map(point => ({ ...point }))
     }
     this.canvas.width = WIDTH
     this.canvas.height = HEIGHT
@@ -548,11 +566,159 @@ export class PathwardenEngine {
     this.canvas.addEventListener('wheel', this.onWheel, { passive: false })
     this.loadAssets()
     this.precalculateExpansionPlan(EXPANSION_DEPTH)
-    this.activatePlannedChoices(this.mapPlan.castleRoomId)
-    this.revealAround(this.path)
+    if (restore) this.restoreGameState(restore.gameState)
+    else {
+      this.activatePlannedChoices(this.mapPlan.castleRoomId)
+      this.revealAround(this.path)
+    }
     this.refreshChoiceAnchors()
     this.emitState()
     this.render()
+  }
+
+  private createElevations() {
+    return Array.from({ length: ROWS }, (_, row) =>
+      Array.from({ length: COLS }, (_, col) => {
+        const seedX = (this.mapSeed % 997) / 997 * Math.PI * 2
+        const seedY = (this.mapSeed % 613) / 613 * Math.PI * 2
+        const broadHill = Math.sin(col * 0.48 + seedX)
+          + Math.cos(row * 0.44 + seedY)
+          + Math.sin((col - row) * 0.26 + seedX * 0.5)
+        const center = Math.floor(COLS / 2)
+        const centerRise = Math.max(0, 1 - Math.hypot(col - center, row - center) / 18)
+        return clamp(Math.round(1.55 + broadHill * 0.3 + centerRise * 0.55), 1, 3)
+      }))
+  }
+
+  private castlePath() {
+    const castle = this.mapPlan.rooms.find(room => room.id === this.mapPlan.castleRoomId)!
+    return [{ ...castle.origin }, ...castle.roadCells.map(cell => ({ ...cell }))]
+  }
+
+  exportGameState(): PathwardenGameState {
+    return {
+      phase: this.phase,
+      paused: this.paused,
+      wave: this.wave,
+      lives: this.lives,
+      maxLives: this.maxLives,
+      aether: this.aether,
+      score: this.score,
+      streak: this.streak,
+      flawlessWaves: this.flawlessWaves,
+      spawnLeft: this.spawnLeft,
+      spawnTotal: this.spawnTotal,
+      spawnTimer: this.spawnTimer,
+      combatRandomState: this.mapRandomState,
+      path: this.path.map(point => ({ ...point })),
+      claimedRoomIds: [...this.claimedSections].flatMap(choice => choice.roomId ? [choice.roomId] : []),
+      activeRoomIds: this.pathChoices.flatMap(choice => choice.roomId ? [choice.roomId] : []),
+      selectedTower: this.selectedTower,
+      towerPurchases: { ...this.towerPurchases },
+      relicRanks: { ...this.relicRanks },
+      relicInventory: this.relicInventory.map(relic => ({ ...relic })),
+      interest: this.interest,
+      canSellRelics: this.canSellRelics,
+      towers: this.towers.map(({ recoil: _recoil, ...tower }) => ({ ...tower })),
+      enemies: this.enemies.map(({
+        radius: _radius,
+        color: _color,
+        hitFlash: _hitFlash,
+        ...enemy
+      }) => ({ ...enemy, route: enemy.route.map(point => ({ ...point })) })),
+      projectiles: this.projectiles.map(projectile => ({
+        type: projectile.type,
+        relicFamily: projectile.relicFamily,
+        relicPower: projectile.relicPower,
+        echo: projectile.echo,
+        targetId: projectile.targetId,
+        x: projectile.x,
+        y: projectile.y,
+        damage: projectile.damage,
+        speed: projectile.speed,
+        splash: projectile.splash,
+        splashFactor: projectile.splashFactor,
+        slow: projectile.slow,
+        color: projectile.color,
+        size: projectile.size,
+        trail: projectile.trail.map(point => ({ col: point.x, row: point.y })),
+        origin: { col: projectile.origin.x, row: projectile.origin.y },
+        age: projectile.age,
+        duration: projectile.duration,
+        arcHeight: projectile.arcHeight
+      })),
+      towerId: this.towerId,
+      enemyId: this.enemyId,
+      relicInstanceId: this.relicInstanceId
+    }
+  }
+
+  exportMapPlan() {
+    return this.mapPlan
+  }
+
+  private restoreGameState(state: PathwardenGameState) {
+    const claimed = new Set(state.claimedRoomIds)
+    const active = new Set(state.activeRoomIds)
+    this.claimedSections = new Set(this.plannedSections.filter(choice => choice.roomId && claimed.has(choice.roomId)))
+    this.pathChoices = this.plannedSections.filter(choice => choice.roomId && active.has(choice.roomId))
+    this.branchRoads = []
+    this.branchLinks = []
+    this.revealed.clear()
+    this.revealAround(this.initialPath)
+    for (const choice of this.claimedSections) {
+      for (const link of choice.links ?? []) this.addCommittedRoadLink(link.from, link.to)
+      for (const cell of choice.cells) {
+        if (!this.branchRoads.some(road => cellKey(road) === cellKey(cell))) this.branchRoads.push({ ...cell })
+      }
+      this.revealAround(choice.revealCells ?? choice.cells)
+    }
+    this.path = state.path.map(point => ({ ...point }))
+    this.phase = state.phase as PathwardenPhase
+    this.paused = state.paused
+    this.wave = state.wave
+    this.lives = state.lives
+    this.maxLives = state.maxLives
+    this.aether = state.aether
+    this.score = state.score
+    this.streak = state.streak
+    this.flawlessWaves = state.flawlessWaves
+    this.spawnLeft = state.spawnLeft
+    this.spawnTotal = state.spawnTotal
+    this.spawnTimer = state.spawnTimer
+    this.selectedTower = state.selectedTower
+    this.towerPurchases = { ...state.towerPurchases }
+    this.relicRanks = { ...this.relicRanks, ...state.relicRanks }
+    this.relicInventory = state.relicInventory as PathwardenInventoryRelic[]
+    this.interest = state.interest
+    this.canSellRelics = state.canSellRelics
+    this.towerId = state.towerId
+    this.enemyId = state.enemyId
+    this.relicInstanceId = state.relicInstanceId
+    this.towers = state.towers.map(tower => ({
+      ...tower,
+      type: tower.type,
+      recoil: 0,
+      relicFamily: tower.relicFamily as PathwardenRelicFamily | undefined
+    }))
+    const enemyVisual = {
+      raider: { radius: 13, color: '#fb923c' },
+      runner: { radius: 10, color: '#c4b5fd' },
+      brute: { radius: 18, color: '#fb7185' },
+      shaman: { radius: 15, color: '#4ade80' },
+      boss: { radius: 29, color: '#facc15' }
+    }
+    this.enemies = state.enemies.map((enemy) => {
+      const type = enemy.type as EnemyType
+      return { ...enemy, type, ...enemyVisual[type], hitFlash: 0 }
+    })
+    this.projectiles = state.projectiles.map(projectile => ({
+      ...projectile,
+      type: projectile.type,
+      relicFamily: projectile.relicFamily as PathwardenRelicFamily | undefined,
+      trail: projectile.trail.map(point => ({ x: point.col, y: point.row })),
+      origin: { x: projectile.origin.col, y: projectile.origin.row }
+    }))
   }
 
   start() {
@@ -617,7 +783,7 @@ export class PathwardenEngine {
     this.waveStartingLives = this.lives
     this.phase = 'wave'
     this.canSellRelics = false
-    this.spawnTotal = 8 + this.wave * 3
+    this.spawnTotal = this.waveEnemyCount(this.wave)
     this.spawnLeft = this.spawnTotal
     this.spawnTimer = 0
     this.waveBanner = 1.4
@@ -1133,11 +1299,18 @@ export class PathwardenEngine {
     if (wave % 4 === 0) threats.push('Guardian')
     return {
       number: wave,
-      enemies: 8 + wave * 3,
+      enemies: this.waveEnemyCount(wave),
       exits: this.enemyExitRoutes().length,
       checkpoint: wave % 4 === 0,
       threats
     }
+  }
+
+  private waveEnemyCount(wave: number) {
+    const exits = Math.max(1, this.enemyExitRoutes().length)
+    const mistVolume = (exits - 1) * (2 + Math.ceil(wave / 3))
+    const realmVolume = (this.realm - 1) * (2 + wave)
+    return 7 + wave * 3 + mistVolume + realmVolume
   }
 
   private salvageValue(tower: Tower) {
@@ -1406,17 +1579,21 @@ export class PathwardenEngine {
 
   private updateCamera(delta: number) {
     if (!this.pointerCanvas || this.towerDrag?.active) return
-    const edge = 54
-    const speed = 330
-    let xDirection = 0
-    let yDirection = 0
-    if (this.pointerCanvas.x < edge) xDirection = -1
-    else if (this.pointerCanvas.x > WIDTH - edge) xDirection = 1
-    if (this.pointerCanvas.y < edge) yDirection = -1
-    else if (this.pointerCanvas.y > HEIGHT - edge) yDirection = 1
+    const edge = 170
+    const minimumSpeed = 120
+    const maximumSpeed = 920
+    const edgeVelocity = (position: number, size: number) => {
+      const distance = Math.min(position, size - position)
+      if (distance >= edge) return 0
+      const direction = position < size / 2 ? -1 : 1
+      const pressure = clamp((edge - distance) / edge, 0, 1)
+      return direction * (minimumSpeed + (maximumSpeed - minimumSpeed) * pressure * pressure)
+    }
+    const xVelocity = edgeVelocity(this.pointerCanvas.x, WIDTH)
+    const yVelocity = edgeVelocity(this.pointerCanvas.y, HEIGHT)
     const bounds = this.cameraBounds()
-    this.camera.x = clamp(this.camera.x + xDirection * speed * delta, bounds.minX, bounds.maxX)
-    this.camera.y = clamp(this.camera.y + yDirection * speed * delta, bounds.minY, bounds.maxY)
+    this.camera.x = clamp(this.camera.x + xVelocity * delta, bounds.minX, bounds.maxX)
+    this.camera.y = clamp(this.camera.y + yVelocity * delta, bounds.minY, bounds.maxY)
   }
 
   private cameraBounds() {
@@ -1494,7 +1671,12 @@ export class PathwardenEngine {
       if (this.spawnTimer <= 0) {
         this.spawnEnemy()
         this.spawnLeft--
-        this.spawnTimer = Math.max(0.25, 0.76 - this.wave * 0.028)
+        const exitPressure = Math.max(0, this.enemyExitRoutes().length - 1)
+        const realmPressure = 1 - (this.realm - 1) * 0.07
+        this.spawnTimer = Math.max(
+          0.16,
+          (0.76 - this.wave * 0.028) * realmPressure / (1 + exitPressure * 0.08)
+        )
       }
     }
 

@@ -1,6 +1,6 @@
 import { eq, sql } from 'drizzle-orm'
 import { db } from '#server/database'
-import { pathwardenState } from '#server/database/schema'
+import { pathwardenRuns, pathwardenState } from '#server/database/schema'
 import { requireUserId } from '#server/utils/auth'
 import { credit } from '#server/utils/balance'
 import { getLockedPathwardenState, pathwardenLevels } from '#server/utils/pathwarden'
@@ -10,7 +10,7 @@ import {
     pathwardenMaxAetherAtCheckpoint
 } from '#shared/utils/gamelogic/pathwarden'
 
-type FinishReason = 'cashout' | 'victory' | 'defeat' | 'abandoned'
+type FinishReason = 'cashout' | 'victory' | 'defeat'
 
 export default defineEventHandler(async (event) => {
     const userId = await requireUserId(event)
@@ -22,7 +22,7 @@ export default defineEventHandler(async (event) => {
         flawless?: number
     }>(event)
     const reason = body.reason
-    if (!reason || !['cashout', 'victory', 'defeat', 'abandoned'].includes(reason)) {
+    if (!reason || !['cashout', 'victory', 'defeat'].includes(reason)) {
         throw createError({ statusCode: 400, statusMessage: 'Invalid run result' })
     }
 
@@ -54,7 +54,6 @@ export default defineEventHandler(async (event) => {
         const maxScore = 50_000_000 * state.runRealmSnapshot
         const score = Math.max(0, Math.min(maxScore, Math.floor(Number(body.score) || 0)))
         const flawless = Math.max(0, Math.min(wave, Math.floor(Number(body.flawless) || 0)))
-        const ranked = reason !== 'abandoned'
         const completedRealm = reason === 'victory'
             ? Math.max(state.highestCompletedRealm, state.runRealmSnapshot)
             : state.highestCompletedRealm
@@ -63,18 +62,19 @@ export default defineEventHandler(async (event) => {
             .set({
                 runsPlayed: sql`${pathwardenState.runsPlayed} + 1`,
                 totalCoinsEarned: sql`${pathwardenState.totalCoinsEarned} + ${coins.toFixed(4)}::numeric`,
-                bestWave: ranked ? Math.max(state.bestWave, wave) : state.bestWave,
-                bestScore: ranked ? Math.max(state.bestScore, score) : state.bestScore,
-                bestRealm: ranked ? Math.max(state.bestRealm, state.runRealmSnapshot) : state.bestRealm,
-                bestFlawless: ranked ? Math.max(state.bestFlawless, flawless) : state.bestFlawless,
+                bestWave: Math.max(state.bestWave, wave),
+                bestScore: Math.max(state.bestScore, score),
+                bestRealm: Math.max(state.bestRealm, state.runRealmSnapshot),
+                bestFlawless: Math.max(state.bestFlawless, flawless),
                 highestCompletedRealm: completedRealm,
                 runStartedAt: null,
                 runRealmSnapshot: null,
                 runPowerSnapshot: null,
                 runSurgedSnapshot: null,
-                ...(reason === 'abandoned' ? {} : { lastRunFinishedAt: new Date() })
+                lastRunFinishedAt: new Date()
             })
             .where(eq(pathwardenState.userId, userId))
+        await tx.delete(pathwardenRuns).where(eq(pathwardenRuns.userId, userId))
         if (coins > 0) {
             await credit(userId, coins.toFixed(4), 'pathwarden:cashout', tx)
         }
