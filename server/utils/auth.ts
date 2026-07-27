@@ -1,4 +1,5 @@
 import type {H3Event} from 'h3'
+import * as Sentry from '@sentry/nuxt'
 import {APIError, betterAuth} from 'better-auth'
 import {drizzleAdapter} from 'better-auth/adapters/drizzle'
 import {db} from '../database'
@@ -16,6 +17,16 @@ const BASE_URL = process.env.BETTER_AUTH_URL || 'http://localhost:3000'
 
 export const auth = betterAuth({
     baseURL: BASE_URL,
+    // better-auth catches failures inside its own handler and turns them into a
+    // response, so they never reach Nitro's `error` hook and never reach Sentry
+    // on their own. Forward them here. Rejected logins and other 4xx APIErrors
+    // are normal traffic, not incidents — only report real failures.
+    onAPIError: {
+        onError: (error) => {
+            if (error instanceof APIError && Number(error.statusCode) < 500) return
+            Sentry.captureException(error)
+        }
+    },
     trustedOrigins: [BASE_URL, 'http://localhost:3000', 'http://127.0.0.1:3000'],
     database: drizzleAdapter(db, {
         provider: 'pg',

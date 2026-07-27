@@ -1,7 +1,8 @@
 export default defineNuxtConfig({
     modules: [
         '@nuxt/eslint',
-        '@nuxt/ui'
+        '@nuxt/ui',
+        '@sentry/nuxt/module'
     ],
 
     devtools: {
@@ -15,7 +16,12 @@ export default defineNuxtConfig({
         databaseUrl: process.env.DATABASE_URL,
         openRouterApiKey: process.env.OPENROUTER_API_KEY,
         betterAuthUrl: process.env.BETTER_AUTH_URL || 'http://localhost:3000',
-        devMode: false
+        devMode: false,
+        public: {
+            // Read by both SDKs — the browser via useRuntimeConfig(), the
+            // server straight from process.env in sentry.server.config.ts.
+            sentryDsn: process.env.NUXT_PUBLIC_SENTRY_DSN || ''
+        }
     },
     // The casino and pirate raid are canvas-heavy, interactive experiences.
     // Serving their route shells client-only avoids SSR work and keeps their
@@ -31,9 +37,9 @@ export default defineNuxtConfig({
     },
 
 
-    // Sourcemaps are the single largest contributor to build memory here, and
-    // nothing consumes them now that error tracking is gone. Disabling them
-    // drops the Nitro step's peak by ~0.8 GB.
+    // Sourcemaps are the single largest contributor to build memory here.
+    // Disabling them drops the Nitro step's peak by ~0.8 GB, at the cost of
+    // minified frames in Sentry stack traces.
     sourcemap: { server: false, client: false },
 
     compatibilityDate: '2025-01-15',
@@ -112,5 +118,17 @@ export default defineNuxtConfig({
                 braceStyle: '1tbs'
             }
         }
+    },
+
+    sentry: {
+        // The production runtime is Bun, which does not support Node's ESM
+        // `--import` customization hooks that the SDK uses by default. A
+        // top-level import in the built server entry works on any runtime; the
+        // cost is shallower automatic tracing of server-side libraries.
+        autoInjectServerSentry: 'top-level-import',
+        // Uploading source maps also switches sourcemap generation back on,
+        // which is what pushed the Nitro build over the memory limit before.
+        // Leave both off — traces are minified, but the build fits.
+        sourceMapsUploadOptions: { enabled: false }
     },
 })
