@@ -53,14 +53,14 @@ const MAIN_ARCHETYPES: ReadonlyArray<PathwardenRoomArchetype | null> = [
     't-junction',
     'bridge-river',
     'road-island',
-    'mountain-pass',
-    null,
-    'lake-shore',
-    'forest-road',
-    'switchback',
-    'u-bend',
     'crossroads',
-    'straight'
+    'mountain-pass',
+    'u-bend',
+    't-junction',
+    'lake-shore',
+    'switchback',
+    'crossroads',
+    'forest-road'
 ]
 
 function key(point: PathwardenGridPoint) {
@@ -296,8 +296,8 @@ function connectorPath(
 
 function placementOptions(frontier: OpenFrontier, random: RandomSource) {
     const compact = [{ forward: 1, lateral: 0 }]
-    const translated = [4, 6, 8, 10, 14, 20, 28, 40].flatMap(forward =>
-        [0, 4, -4, 7, -7, 12, -12, 20, -20].map(lateral => ({ forward, lateral })))
+    const translated = [2, 3, 4, 6, 8, 12, 16].flatMap(forward =>
+        [0, 2, -2, 4, -4, 7, -7, 10, -10].map(lateral => ({ forward, lateral })))
     return [...compact, ...shuffle(translated, random)].map(option => ({
         ...option,
         connectorCells: connectorPath(
@@ -342,7 +342,7 @@ function nextFrontiers(
             depth: room.depth + 1,
             targetDepth: main
                 ? maxDepth
-                : Math.min(maxDepth, room.depth + random.integer(2, 4)),
+                : Math.min(maxDepth, room.depth + random.integer(1, 2)),
             main,
             specialPressure: special ? 1 : previous.specialPressure + 1
         }

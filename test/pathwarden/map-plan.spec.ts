@@ -62,6 +62,8 @@ describe('Pathwarden seeded map model', () => {
             expect(plan.metrics.archetypeCounts['mountain-pass']).toBeGreaterThanOrEqual(1)
             expect(plan.metrics.archetypeCounts['lake-shore']).toBeGreaterThanOrEqual(1)
             expect(plan.metrics.archetypeCounts['forest-road']).toBeGreaterThanOrEqual(1)
+            expect(plan.metrics.archetypeCounts['t-junction']).toBeGreaterThanOrEqual(2)
+            expect(plan.metrics.archetypeCounts.crossroads).toBeGreaterThanOrEqual(2)
         }
     }, 60_000)
 })

@@ -100,10 +100,10 @@ function template(
     }
 }
 
-const straight = line(point(0, 2), point(8, 2))
+const straight = line(point(0, 2), point(6, 2))
 const corner = [
-    ...line(point(0, 1), point(5, 1)),
-    ...line(point(5, 2), point(5, 6))
+    ...line(point(0, 1), point(4, 1)),
+    ...line(point(4, 2), point(4, 5))
 ]
 const uBend = [
     ...line(point(0, 1), point(6, 1)),
@@ -117,36 +117,36 @@ const switchback = [
     ...line(point(2, 5), point(2, 8)),
     ...line(point(3, 8), point(8, 8))
 ]
-const junctionStem = line(point(0, 4), point(4, 4))
-const junctionNorth = [point(4, 4), ...line(point(4, 3), point(4, 0))]
-const junctionSouth = [point(4, 4), ...line(point(4, 5), point(4, 8))]
-const junctionEast = [point(4, 4), ...line(point(5, 4), point(8, 4))]
-const islandStem = line(point(0, 4), point(3, 4))
+const junctionStem = line(point(0, 3), point(3, 3))
+const junctionNorth = [point(3, 3), ...line(point(3, 2), point(3, 0))]
+const junctionSouth = [point(3, 3), ...line(point(3, 4), point(3, 6))]
+const junctionEast = [point(3, 3), ...line(point(4, 3), point(6, 3))]
+const islandStem = line(point(0, 3), point(2, 3))
 const islandTop = [
-    point(3, 4),
-    ...line(point(3, 3), point(3, 2)),
-    ...line(point(4, 2), point(9, 2)),
-    ...line(point(9, 3), point(9, 4))
+    point(2, 3),
+    ...line(point(2, 2), point(2, 1)),
+    ...line(point(3, 1), point(7, 1)),
+    ...line(point(7, 2), point(7, 3))
 ]
 const islandBottom = [
-    point(3, 4),
-    ...line(point(3, 5), point(3, 6)),
-    ...line(point(4, 6), point(9, 6)),
-    ...line(point(9, 5), point(9, 4))
+    point(2, 3),
+    ...line(point(2, 4), point(2, 5)),
+    ...line(point(3, 5), point(7, 5)),
+    ...line(point(7, 4), point(7, 3))
 ]
-const islandExit = line(point(9, 4), point(12, 4))
+const islandExit = line(point(7, 3), point(9, 3))
 
 export const PATHWARDEN_ROOM_TEMPLATES: readonly PathwardenRoomTemplate[] = [
     template({
         id: 'straight-long',
         archetype: 'straight',
-        width: 9,
+        width: 7,
         height: 5,
         entrance: { id: 'entrance', cell: point(0, 2), direction: 'west', kind: 'entrance' },
-        exits: [{ id: 'exit', cell: point(8, 2), direction: 'east', kind: 'exit' }],
+        exits: [{ id: 'exit', cell: point(6, 2), direction: 'east', kind: 'exit' }],
         roadCells: [],
         routes: [straight],
-        buildableCells: [...rectangle(2, 6, 0, 0), ...rectangle(2, 6, 4, 4)],
+        buildableCells: [...rectangle(2, 4, 0, 0), ...rectangle(2, 4, 4, 4)],
         features: [],
         weight: 12,
         minimumDepth: 1
@@ -154,13 +154,13 @@ export const PATHWARDEN_ROOM_TEMPLATES: readonly PathwardenRoomTemplate[] = [
     template({
         id: 'corner-long',
         archetype: 'corner',
-        width: 7,
-        height: 7,
+        width: 6,
+        height: 6,
         entrance: { id: 'entrance', cell: point(0, 1), direction: 'west', kind: 'entrance' },
-        exits: [{ id: 'exit', cell: point(5, 6), direction: 'south', kind: 'exit' }],
+        exits: [{ id: 'exit', cell: point(4, 5), direction: 'south', kind: 'exit' }],
         roadCells: [],
         routes: [corner],
-        buildableCells: rectangle(1, 3, 3, 5),
+        buildableCells: rectangle(1, 2, 3, 4),
         features: [],
         weight: 10,
         minimumDepth: 1
@@ -196,16 +196,16 @@ export const PATHWARDEN_ROOM_TEMPLATES: readonly PathwardenRoomTemplate[] = [
     template({
         id: 't-junction-wide',
         archetype: 't-junction',
-        width: 9,
-        height: 9,
-        entrance: { id: 'entrance', cell: point(0, 4), direction: 'west', kind: 'entrance' },
+        width: 7,
+        height: 7,
+        entrance: { id: 'entrance', cell: point(0, 3), direction: 'west', kind: 'entrance' },
         exits: [
-            { id: 'exit-north', cell: point(4, 0), direction: 'north', kind: 'exit' },
-            { id: 'exit-south', cell: point(4, 8), direction: 'south', kind: 'exit' }
+            { id: 'exit-north', cell: point(3, 0), direction: 'north', kind: 'exit' },
+            { id: 'exit-south', cell: point(3, 6), direction: 'south', kind: 'exit' }
         ],
         roadCells: [],
         routes: [junctionStem, junctionNorth, junctionSouth],
-        buildableCells: [...rectangle(1, 2, 1, 2), ...rectangle(1, 2, 6, 7)],
+        buildableCells: [...rectangle(1, 1, 1, 2), ...rectangle(1, 1, 4, 5)],
         features: [],
         weight: 4,
         minimumDepth: 2
@@ -213,21 +213,21 @@ export const PATHWARDEN_ROOM_TEMPLATES: readonly PathwardenRoomTemplate[] = [
     template({
         id: 'crossroads-wide',
         archetype: 'crossroads',
-        width: 9,
-        height: 9,
-        entrance: { id: 'entrance', cell: point(0, 4), direction: 'west', kind: 'entrance' },
+        width: 7,
+        height: 7,
+        entrance: { id: 'entrance', cell: point(0, 3), direction: 'west', kind: 'entrance' },
         exits: [
-            { id: 'exit-north', cell: point(4, 0), direction: 'north', kind: 'exit' },
-            { id: 'exit-east', cell: point(8, 4), direction: 'east', kind: 'exit' },
-            { id: 'exit-south', cell: point(4, 8), direction: 'south', kind: 'exit' }
+            { id: 'exit-north', cell: point(3, 0), direction: 'north', kind: 'exit' },
+            { id: 'exit-east', cell: point(6, 3), direction: 'east', kind: 'exit' },
+            { id: 'exit-south', cell: point(3, 6), direction: 'south', kind: 'exit' }
         ],
         roadCells: [],
         routes: [junctionStem, junctionNorth, junctionEast, junctionSouth],
         buildableCells: [
-            ...rectangle(1, 2, 1, 2),
-            ...rectangle(6, 7, 1, 2),
-            ...rectangle(1, 2, 6, 7),
-            ...rectangle(6, 7, 6, 7)
+            point(1, 1),
+            point(5, 1),
+            point(1, 5),
+            point(5, 5)
         ],
         features: [],
         weight: 2,
@@ -236,13 +236,13 @@ export const PATHWARDEN_ROOM_TEMPLATES: readonly PathwardenRoomTemplate[] = [
     template({
         id: 'road-island-wide',
         archetype: 'road-island',
-        width: 13,
-        height: 9,
-        entrance: { id: 'entrance', cell: point(0, 4), direction: 'west', kind: 'entrance' },
-        exits: [{ id: 'exit', cell: point(12, 4), direction: 'east', kind: 'exit' }],
+        width: 10,
+        height: 7,
+        entrance: { id: 'entrance', cell: point(0, 3), direction: 'west', kind: 'entrance' },
+        exits: [{ id: 'exit', cell: point(9, 3), direction: 'east', kind: 'exit' }],
         roadCells: [],
         routes: [islandStem, islandTop, islandBottom, islandExit],
-        buildableCells: rectangle(5, 7, 4, 4),
+        buildableCells: rectangle(4, 6, 3, 3),
         features: [],
         weight: 3,
         minimumDepth: 4
