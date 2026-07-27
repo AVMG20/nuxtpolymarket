@@ -262,28 +262,6 @@ const cashPrizes = computed(() => LOOTBOX_REWARDS.slice().sort((a, b) => a.amoun
           </div>
         </div>
 
-        <!-- Result banner -->
-        <div
-          v-if="result"
-          class="mt-4 rounded-xl border-2 p-4 flex items-center justify-between"
-          :class="[RARITY_CLASSES[result.reward.rarity].border, RARITY_CLASSES[result.reward.rarity].bg]"
-        >
-          <div class="flex items-center gap-3">
-            <UIcon
-              name="i-lucide-coins"
-              class="size-7"
-              :class="RARITY_CLASSES[result.reward.rarity].text"
-            />
-            <div>
-              <p class="font-bold text-lg leading-tight">
-                +${{ formatNumber(result.cashValue, true) }}
-              </p>
-              <p class="text-xs text-muted capitalize">{{ result.reward.rarity }} reward</p>
-            </div>
-          </div>
-          <UBadge :label="result.paid ? 'Paid open' : 'Free open'" color="neutral" variant="subtle" />
-        </div>
-
         <!-- Actions -->
         <div class="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
           <UButton
@@ -309,6 +287,28 @@ const cashPrizes = computed(() => LOOTBOX_REWARDS.slice().sort((a, b) => a.amoun
               <span class="text-sm opacity-80">· ${{ formatNumber(state.lootboxOpenPrice, true) }}</span>
             </template>
           </UButton>
+        </div>
+
+        <!-- Result banner -->
+        <div
+          v-if="result"
+          class="mt-4 rounded-xl border-2 p-4 flex items-center justify-between"
+          :class="[RARITY_CLASSES[result.reward.rarity].border, RARITY_CLASSES[result.reward.rarity].bg]"
+        >
+          <div class="flex items-center gap-3">
+            <UIcon
+              name="i-lucide-coins"
+              class="size-7"
+              :class="RARITY_CLASSES[result.reward.rarity].text"
+            />
+            <div>
+              <p class="font-bold text-lg leading-tight">
+                +${{ formatNumber(result.cashValue, true) }}
+              </p>
+              <p class="text-xs text-muted capitalize">{{ result.reward.rarity }} reward</p>
+            </div>
+          </div>
+          <UBadge :label="result.paid ? 'Paid open' : 'Free open'" color="neutral" variant="subtle" />
         </div>
       </UCard>
 
