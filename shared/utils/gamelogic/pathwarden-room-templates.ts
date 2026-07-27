@@ -118,9 +118,9 @@ const switchback = [
     ...line(point(3, 8), point(8, 8))
 ]
 const junctionStem = line(point(0, 4), point(4, 4))
-const junctionNorth = line(point(4, 3), point(4, 0))
-const junctionSouth = line(point(4, 5), point(4, 8))
-const junctionEast = line(point(5, 4), point(8, 4))
+const junctionNorth = [point(4, 4), ...line(point(4, 3), point(4, 0))]
+const junctionSouth = [point(4, 4), ...line(point(4, 5), point(4, 8))]
+const junctionEast = [point(4, 4), ...line(point(5, 4), point(8, 4))]
 const islandStem = line(point(0, 4), point(3, 4))
 const islandTop = [
     point(3, 4),
@@ -275,7 +275,8 @@ export const PATHWARDEN_ROOM_TEMPLATES: readonly PathwardenRoomTemplate[] = [
         routes: [line(point(0, 4), point(10, 4))],
         buildableCells: [...rectangle(1, 3, 2, 2), ...rectangle(7, 9, 6, 6)],
         features: [
-            { kind: 'mountain', cells: [...rectangle(2, 8, 0, 1), ...rectangle(2, 8, 7, 8)] }
+            { kind: 'mountain', cells: rectangle(2, 8, 0, 1) },
+            { kind: 'mountain', cells: rectangle(2, 8, 7, 8) }
         ],
         weight: 3,
         minimumDepth: 3

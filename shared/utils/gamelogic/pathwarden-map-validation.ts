@@ -21,6 +21,27 @@ function duplicateIds(ids: string[]) {
     })
 }
 
+function connectedCells(cells: PathwardenGridPoint[]) {
+    if (!cells.length) return true
+    const remaining = new Set(cells.map(key))
+    const queue = [cells[0]!]
+    remaining.delete(key(cells[0]!))
+    while (queue.length) {
+        const cell = queue.shift()!
+        const neighbours = [
+            { col: cell.col + 1, row: cell.row },
+            { col: cell.col - 1, row: cell.row },
+            { col: cell.col, row: cell.row + 1 },
+            { col: cell.col, row: cell.row - 1 }
+        ]
+        for (const neighbour of neighbours) {
+            if (!remaining.delete(key(neighbour))) continue
+            queue.push(neighbour)
+        }
+    }
+    return remaining.size === 0
+}
+
 export function validatePathwardenMapPlan(plan: PathwardenMapPlan): PathwardenMapValidation {
     const errors: string[] = []
     const rooms = new Map(plan.rooms.map(room => [room.id, room]))
@@ -65,6 +86,7 @@ export function validatePathwardenMapPlan(plan: PathwardenMapPlan): PathwardenMa
             if (!footprint.has(key(cell))) errors.push(`room ${room.id} owns a cell outside its footprint`)
         }
         const roads = new Set(room.roadCells.map(key))
+        const buildable = new Set(room.buildableCells.map(key))
         for (const cell of room.buildableCells) {
             if (roads.has(key(cell))) errors.push(`room ${room.id} marks road ${key(cell)} buildable`)
         }
@@ -73,6 +95,49 @@ export function validatePathwardenMapPlan(plan: PathwardenMapPlan): PathwardenMa
         }
         for (const featureId of room.featureIds) {
             if (!features.has(featureId)) errors.push(`room ${room.id} references missing feature ${featureId}`)
+        }
+        const roomFeatures = room.featureIds
+            .map(featureId => features.get(featureId))
+            .filter(feature => feature !== undefined)
+        for (const feature of roomFeatures) {
+            for (const cell of feature.cells) {
+                if (!footprint.has(key(cell))) errors.push(`feature ${feature.id} leaves room ${room.id}`)
+                if (buildable.has(key(cell))) errors.push(`feature ${feature.id} occupies buildable cell ${key(cell)}`)
+            }
+            if (['river', 'lake', 'mountain'].includes(feature.kind) && !connectedCells(feature.cells)) {
+                errors.push(`feature ${feature.id} is disconnected`)
+            }
+        }
+        if (room.archetype === 'road-island') {
+            const degree = new Map<string, number>()
+            for (const linkId of room.roadLinkIds) {
+                const link = links.get(linkId)
+                if (!link) continue
+                degree.set(key(link.from), (degree.get(key(link.from)) ?? 0) + 1)
+                degree.set(key(link.to), (degree.get(key(link.to)) ?? 0) + 1)
+            }
+            if ([...degree.values()].filter(value => value >= 3).length < 2) {
+                errors.push(`road island ${room.id} does not split and reconnect`)
+            }
+        }
+        if (room.archetype === 'bridge-river') {
+            const river = new Set(roomFeatures
+                .filter(feature => feature.kind === 'river')
+                .flatMap(feature => feature.cells)
+                .map(key))
+            const bridge = new Set(roomFeatures
+                .filter(feature => feature.kind === 'bridge')
+                .flatMap(feature => feature.cells)
+                .map(key))
+            if (!river.size || !bridge.size) errors.push(`river room ${room.id} lacks river or bridge geometry`)
+            for (const cell of room.roadCells) {
+                if (river.has(key(cell)) && !bridge.has(key(cell))) {
+                    errors.push(`river room ${room.id} has an unbridged road crossing`)
+                }
+            }
+        }
+        if (room.id !== plan.castleRoomId && room.buildableCells.length < 2) {
+            errors.push(`room ${room.id} has insufficient defense space`)
         }
     }
 

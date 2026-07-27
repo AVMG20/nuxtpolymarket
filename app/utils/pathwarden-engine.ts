@@ -3,16 +3,25 @@ import {
   type PathwardenDefenseArchetype,
   type PathwardenDefenseBlueprint
 } from '#shared/utils/gamelogic/pathwarden'
+import {
+  createPathwardenMapPlan,
+  hashPathwardenMapPlan
+} from '#shared/utils/gamelogic/pathwarden-map'
+import { validatePathwardenMapPlan } from '#shared/utils/gamelogic/pathwarden-map-validation'
+import type {
+  PathwardenFeatureKind,
+  PathwardenMapPlan
+} from '#shared/types/pathwarden-save'
 
 const WIDTH = 1200
 const HEIGHT = 760
-const COLS = 59
-const ROWS = 59
+const COLS = 161
+const ROWS = 161
 const TILE_WIDTH = 108
 const TILE_HEIGHT = 58
 const WORLD_CELL = 80
 const ORIGIN_X = WIDTH / 2
-const ORIGIN_Y = -1266
+const ORIGIN_Y = HEIGHT * 0.55 - Math.floor(ROWS / 2) * TILE_HEIGHT
 const DEFAULT_WORLD_SCALE = 1.42
 const WORLD_VIEW_CENTER = { x: WIDTH / 2, y: HEIGHT * 0.49 }
 const EXPANSION_DEPTH = 13
@@ -96,6 +105,10 @@ interface PathChoice {
   source: GridPoint
   anchor: GridPoint
   cells: GridPoint[]
+  links?: RoadLink[]
+  revealCells?: GridPoint[]
+  roomId?: string
+  exitCells?: GridPoint[]
 }
 interface RoadLink { from: GridPoint, to: GridPoint }
 interface Tower extends GridPoint {
@@ -445,6 +458,12 @@ export class PathwardenEngine {
   private waveBanner = 0
   private mapSeed = globalThis.crypto?.getRandomValues(new Uint32Array(1))[0] ?? Date.now()
   private mapRandomState = this.mapSeed
+  private mapPlan: PathwardenMapPlan = createPathwardenMapPlan({
+    seed: this.mapSeed,
+    realm: 1,
+    maxDepth: EXPANSION_DEPTH
+  })
+
   private elevations = Array.from({ length: ROWS }, (_, row) =>
     Array.from({ length: COLS }, (_, col) => {
       const seedX = (this.mapSeed % 997) / 997 * Math.PI * 2
@@ -452,15 +471,15 @@ export class PathwardenEngine {
       const broadHill = Math.sin(col * 0.48 + seedX)
         + Math.cos(row * 0.44 + seedY)
         + Math.sin((col - row) * 0.26 + seedX * 0.5)
-      const centerRise = Math.max(0, 1 - Math.hypot(col - 29.5, row - 29.5) / 18)
+      const center = Math.floor(COLS / 2)
+      const centerRise = Math.max(0, 1 - Math.hypot(col - center, row - center) / 18)
       return clamp(Math.round(1.55 + broadHill * 0.3 + centerRise * 0.55), 1, 3)
     }))
 
-  private path: GridPoint[] = [
-    { col: 29, row: 29 },
-    { col: 30, row: 29 },
-    { col: 31, row: 29 }
-  ]
+  private path: GridPoint[] = (() => {
+    const castle = this.mapPlan.rooms.find(room => room.id === this.mapPlan.castleRoomId)!
+    return [{ ...castle.origin }, ...castle.roadCells.map(cell => ({ ...cell }))]
+  })()
 
   private initialPath = this.path.map(point => ({ ...point }))
 
@@ -529,7 +548,7 @@ export class PathwardenEngine {
     this.canvas.addEventListener('wheel', this.onWheel, { passive: false })
     this.loadAssets()
     this.precalculateExpansionPlan(EXPANSION_DEPTH)
-    this.activatePlannedChoices(this.path[this.path.length - 1]!)
+    this.activatePlannedChoices(this.mapPlan.castleRoomId)
     this.revealAround(this.path)
     this.refreshChoiceAnchors()
     this.emitState()
@@ -1190,6 +1209,14 @@ export class PathwardenEngine {
         active: this.pathChoices.includes(section),
         claimed: this.claimedSections.has(section)
       })),
+      mapPlanHash: hashPathwardenMapPlan(this.mapPlan),
+      mapRooms: this.mapPlan.rooms.map(room => ({
+        id: room.id,
+        archetype: room.archetype,
+        depth: room.depth,
+        claimed: this.plannedSections.some(section =>
+          section.roomId === room.id && this.claimedSections.has(section))
+      })),
       roadValidation,
       futureExitClearance: this.futureExitClearanceCells().map(point => ({
         ...point,
@@ -1718,8 +1745,7 @@ export class PathwardenEngine {
       }
     })
     const represented = new Set(this.pathChoices.map((choice) => {
-      const visible = choice.cells.filter(cell => this.revealed.has(cellKey(cell)))
-      return cellKey(visible[visible.length - 1] ?? choice.source)
+      return cellKey(choice.source)
     }))
     const links: RoadLink[] = []
     const linkKeys = new Set<string>()
@@ -1760,15 +1786,15 @@ export class PathwardenEngine {
   }
 
   private concealedApproachFor(choice: PathChoice) {
-    const approach = choice.cells.map(cell => ({ ...cell }))
+    const approach = this.plannedChoiceRoute(choice)
     let section = choice
     const visited = new Set([choice.id])
     while (approach.filter(cell => !this.revealed.has(cellKey(cell))).length < 4) {
       const child = this.plannedSections.find(candidate =>
-        candidate.parentId === section.id && !visited.has(candidate.id))
+        candidate.parentId === (section.roomId ?? section.id) && !visited.has(candidate.id))
       if (!child) break
       visited.add(child.id)
-      approach.push(...child.cells.map(cell => ({ ...cell })))
+      approach.push(...this.plannedChoiceRoute(child))
       section = child
     }
 
@@ -1788,6 +1814,43 @@ export class PathwardenEngine {
       }
     }
     return approach
+  }
+
+  private plannedChoiceRoute(choice: PathChoice) {
+    if (!choice.links?.length) return choice.cells.map(cell => ({ ...cell }))
+    const target = choice.exitCells?.[0] ?? choice.cells[choice.cells.length - 1]
+    if (!target) return []
+    const graph = new Map<string, GridPoint[]>()
+    const points = new Map<string, GridPoint>()
+    const add = (from: GridPoint, to: GridPoint) => {
+      points.set(cellKey(from), from)
+      points.set(cellKey(to), to)
+      graph.set(cellKey(from), [...(graph.get(cellKey(from)) ?? []), to])
+      graph.set(cellKey(to), [...(graph.get(cellKey(to)) ?? []), from])
+    }
+    for (const link of choice.links) add(link.from, link.to)
+    const startKey = cellKey(choice.source)
+    const targetKey = cellKey(target)
+    const queue = [startKey]
+    const previous = new Map<string, string | null>([[startKey, null]])
+    while (queue.length) {
+      const current = queue.shift()!
+      if (current === targetKey) break
+      for (const neighbour of graph.get(current) ?? []) {
+        const neighbourKey = cellKey(neighbour)
+        if (previous.has(neighbourKey)) continue
+        previous.set(neighbourKey, current)
+        queue.push(neighbourKey)
+      }
+    }
+    if (!previous.has(targetKey)) return choice.cells.map(cell => ({ ...cell }))
+    const route: GridPoint[] = []
+    let cursor: string | null = targetKey
+    while (cursor && cursor !== startKey) {
+      route.unshift({ ...points.get(cursor)! })
+      cursor = previous.get(cursor) ?? null
+    }
+    return route
   }
 
   private finishWave() {
@@ -2004,15 +2067,37 @@ export class PathwardenEngine {
   }
 
   private precalculateExpansionPlan(rounds: number) {
-    let lastErrors: string[] = []
-    for (let attempt = 0; attempt < 80; attempt++) {
-      this.plannedSections = []
-      this.generateExpansionPlan(rounds)
-      const validation = this.validateExpansionPlan()
-      if (validation.valid) return
-      lastErrors = validation.errors
+    if (rounds !== this.mapPlan.metrics.maxDepth) {
+      throw new Error(`Pathwarden plan depth ${this.mapPlan.metrics.maxDepth} does not match ${rounds}`)
     }
-    throw new Error(`Unable to create a valid ${EXPANSION_DEPTH}-expansion Pathwarden road plan: ${lastErrors.join(', ')}`)
+    const roomById = new Map(this.mapPlan.rooms.map(room => [room.id, room]))
+    this.plannedSections = this.mapPlan.connections
+      .filter(connection => connection.kind === 'expansion')
+      .map((connection): PathChoice => {
+        const room = roomById.get(connection.toRoomId)!
+        const sourceRoom = roomById.get(connection.fromRoomId)!
+        const source = sourceRoom.ports.find(port => port.id === connection.fromPortId)!.cell
+        const links = this.mapPlan.roadLinks
+          .filter(link => link.roomId === room.id)
+          .map(link => ({ from: { ...link.from }, to: { ...link.to } }))
+        const firstLink = links.find(link => cellKey(link.from) === cellKey(source)) ?? links[0]!
+        return {
+          id: connection.id,
+          parentId: connection.fromRoomId,
+          roomId: room.id,
+          depth: room.depth,
+          source: { ...source },
+          anchor: { ...firstLink.to },
+          cells: room.roadCells.map(cell => ({ ...cell })),
+          links,
+          revealCells: room.revealCells.map(cell => ({ ...cell })),
+          exitCells: room.ports.filter(port => port.kind === 'exit').map(port => ({ ...port.cell }))
+        }
+      })
+    const validation = this.validateExpansionPlan()
+    if (!validation.valid) {
+      throw new Error(`Unable to load Pathwarden room plan: ${validation.errors.join(', ')}`)
+    }
   }
 
   private planRandom() {
@@ -2154,63 +2239,15 @@ export class PathwardenEngine {
   }
 
   private validateExpansionPlan() {
-    const errors: string[] = []
-    const occupied = new Set(this.initialPath.map(cellKey))
-    const availableSources = new Set([cellKey(this.initialPath[this.initialPath.length - 1]!)])
-    const children = new Map<string, PathChoice[]>()
-    for (const [sectionIndex, section] of this.plannedSections.entries()) {
-      if (!availableSources.has(cellKey(section.source))) errors.push(`section ${sectionIndex} has no planned parent`)
-      let previous = section.source
-      for (const [cellIndex, cell] of section.cells.entries()) {
-        const step = Math.abs(cell.col - previous.col) + Math.abs(cell.row - previous.row)
-        if (step !== 1) errors.push(`section ${sectionIndex} contains a disconnected step`)
-        const keep = this.path[0]!
-        const previousDistance = Math.abs(previous.col - keep.col) + Math.abs(previous.row - keep.row)
-        const cellDistance = Math.abs(cell.col - keep.col) + Math.abs(cell.row - keep.row)
-        const lateralBranchStep = section.depth >= 2 && cellIndex === 0 && cellDistance === previousDistance
-        if (cellDistance < previousDistance || (cellDistance === previousDistance && !lateralBranchStep)) {
-          errors.push(`section ${sectionIndex} folds inward`)
-        }
-        if (occupied.has(cellKey(cell))) errors.push(`section ${sectionIndex} overlaps ${cellKey(cell)}`)
-        const unrelatedNeighbour = [
-          { col: cell.col + 1, row: cell.row },
-          { col: cell.col - 1, row: cell.row },
-          { col: cell.col, row: cell.row + 1 },
-          { col: cell.col, row: cell.row - 1 }
-        ].some(neighbour => cellKey(neighbour) !== cellKey(previous) && occupied.has(cellKey(neighbour)))
-        if (unrelatedNeighbour) errors.push(`section ${sectionIndex} runs beside another road`)
-        occupied.add(cellKey(cell))
-        previous = cell
-      }
-      const endpoint = section.cells[section.cells.length - 1]
-      if (endpoint) availableSources.add(cellKey(endpoint))
-      if (section.parentId) {
-        const siblings = children.get(section.parentId) ?? []
-        siblings.push(section)
-        children.set(section.parentId, siblings)
-      }
-    }
-    const roots = this.plannedSections.filter(section => section.parentId === null)
-    if (roots.length < 3) errors.push('opening crossroads has fewer than three exits')
-    let tJunctions = 0
-    for (const section of this.plannedSections) {
-      const sectionChildren = children.get(section.id) ?? []
-      if (sectionChildren.length >= 2) tJunctions++
-      if (section.depth < EXPANSION_DEPTH && !sectionChildren.length) {
-        errors.push(`section ${section.id} dead-ends at reveal ${section.depth}`)
-      }
-    }
-    if (tJunctions < 9) errors.push(`only ${tJunctions} T-junctions were planned`)
-    if (!this.plannedSections.some(section => section.depth === EXPANSION_DEPTH)) {
-      errors.push(`no branch reaches reveal ${EXPANSION_DEPTH}`)
-    }
-    return { valid: errors.length === 0, errors }
+    return validatePathwardenMapPlan(this.mapPlan)
   }
 
-  private activatePlannedChoices(source: GridPoint) {
+  private activatePlannedChoices(source: GridPoint | string) {
     for (const section of this.plannedSections) {
       if (this.claimedSections.has(section) || this.pathChoices.includes(section)) continue
-      if (cellKey(section.source) === cellKey(source)) this.pathChoices.push(section)
+      if (typeof source === 'string'
+        ? section.parentId === source
+        : cellKey(section.source) === cellKey(source)) this.pathChoices.push(section)
     }
   }
 
@@ -2248,24 +2285,28 @@ export class PathwardenEngine {
   private extendPath(choice: PathChoice) {
     if (this.phase !== 'path' || !this.pathChoices.includes(choice)) return
     this.persistCurrentPathLinks()
-    let previous = choice.source
-    for (const cell of choice.cells) {
-      this.addCommittedRoadLink(previous, cell)
+    const links = choice.links ?? choice.cells.map((cell, index) => ({
+      from: index === 0 ? choice.source : choice.cells[index - 1]!,
+      to: cell
+    }))
+    for (const link of links) {
+      this.addCommittedRoadLink(link.from, link.to)
+      for (const cell of [link.from, link.to]) {
       if (!this.branchRoads.some(road => cellKey(road) === cellKey(cell))) this.branchRoads.push({ ...cell })
-      previous = cell
+      }
     }
     this.pathChoices.splice(this.pathChoices.indexOf(choice), 1)
     this.claimedSections.add(choice)
-    const newEndpoint = choice.cells[choice.cells.length - 1]!
+    const newEndpoint = choice.exitCells?.[0] ?? choice.cells[choice.cells.length - 1]!
     this.path = this.findRoadRoute(this.path[0]!, newEndpoint)
-    this.revealAround(choice.cells)
-    this.activatePlannedChoices(newEndpoint)
+    this.revealAround(choice.revealCells ?? choice.cells)
+    this.activatePlannedChoices(choice.roomId ?? newEndpoint)
     this.refreshChoiceAnchors()
     this.phase = this.debugSandbox ? 'path' : 'upgrade'
     this.message = this.debugSandbox
       ? `${choice.cells.length} road tiles revealed. Choose another frontier.`
       : `${choice.cells.length} road tiles revealed. Claim a relic.`
-    const end = this.gridToScreen(choice.cells[choice.cells.length - 1]!)
+    const end = this.gridToScreen(newEndpoint)
     if (this.debugSandbox) {
       const bounds = this.cameraBounds()
       this.camera.x = clamp(end.x - WORLD_VIEW_CENTER.x, bounds.minX, bounds.maxX)
@@ -2421,8 +2462,19 @@ export class PathwardenEngine {
     }
     return [
       ...this.allReservedRoadCells(),
-      ...keepClearance
+      ...keepClearance,
+      ...this.mapPlan.features
+        .filter(feature => !['bridge', 'ford', 'clearing'].includes(feature.kind))
+        .flatMap(feature => feature.cells)
     ]
+  }
+
+  private blockingFeatureAt(point: GridPoint) {
+    const key = cellKey(point)
+    return this.mapPlan.features.find(feature =>
+      !['bridge', 'ford', 'clearing'].includes(feature.kind)
+      && feature.cells.some(cell => cellKey(cell) === key)
+    )
   }
 
   private placementStatus(point: GridPoint) {
@@ -2444,6 +2496,18 @@ export class PathwardenEngine {
         && screen.y - keepScreen.y > -178
         && screen.y - keepScreen.y < 58)) {
       return { allowed: false, reason: 'The castle courtyard must remain clear.' }
+    }
+    const feature = this.blockingFeatureAt(point)
+    if (feature) {
+      const reason: Partial<Record<PathwardenFeatureKind, string>> = {
+        river: 'The river is too deep to support a defense.',
+        lake: 'Defenses cannot be built in the lake.',
+        canyon: 'The canyon floor cannot support a defense.',
+        mountain: 'The mountain ridge blocks construction.',
+        cliff: 'The cliff face blocks construction.',
+        forest: 'The dense forest must remain impassable.'
+      }
+      return { allowed: false, reason: reason[feature.kind] ?? 'The landscape blocks construction here.' }
     }
     if (this.hasDecoration(point)) return { allowed: false, reason: 'Clear ground is required; rocks and trees cannot hold a defense.' }
     return { allowed: true, reason: 'Open ground.' }
@@ -2941,13 +3005,25 @@ export class PathwardenEngine {
       }
     }
 
+    this.drawGroundFeatures()
     this.drawRoad()
+    this.drawBridgeDetails()
     this.drawFrostFields()
     this.drawHover()
 
     // Every object shares a single painter's-order queue. A tower south-east
     // of the keep must cover it; a tower north-west must pass behind it.
     const renderables: Array<{ y: number, draw: () => void }> = []
+    for (const feature of this.mapPlan.features) {
+      if (!['mountain', 'cliff', 'forest'].includes(feature.kind)) continue
+      for (const point of feature.cells) {
+        if (!this.revealed.has(cellKey(point))) continue
+        renderables.push({
+          y: this.gridToScreen(point).y,
+          draw: () => this.drawRaisedFeature(point, feature.kind)
+        })
+      }
+    }
     for (let row = 0; row < ROWS; row++) {
       for (let col = 0; col < COLS; col++) {
         const point = { col, row }
@@ -3931,6 +4007,109 @@ export class PathwardenEngine {
     ctx.restore()
   }
 
+  private drawGroundFeatures() {
+    const ctx = this.ctx
+    const roadKeys = new Set(this.allRoadCells().map(cellKey))
+    ctx.save()
+    this.clipToRevealedTerrain()
+    for (const feature of this.mapPlan.features) {
+      if (!['river', 'lake', 'canyon'].includes(feature.kind)) continue
+      for (const point of feature.cells) {
+        if (!this.revealed.has(cellKey(point)) || roadKeys.has(cellKey(point))) continue
+        const screen = this.gridToScreen(point)
+        const water = feature.kind !== 'canyon'
+        ctx.fillStyle = water
+          ? feature.kind === 'lake' ? '#256b9c' : '#2f83b8'
+          : '#60443c'
+        this.diamondPath(screen, 2)
+        ctx.fill()
+        ctx.strokeStyle = water ? 'rgba(186,230,253,.58)' : 'rgba(30,20,18,.48)'
+        ctx.lineWidth = water ? 2 : 3
+        ctx.beginPath()
+        ctx.moveTo(screen.x - TILE_WIDTH * 0.3, screen.y + (point.col % 2 ? 3 : -2))
+        ctx.quadraticCurveTo(screen.x, screen.y - 5, screen.x + TILE_WIDTH * 0.3, screen.y + 2)
+        ctx.stroke()
+      }
+    }
+    ctx.restore()
+  }
+
+  private drawBridgeDetails() {
+    const ctx = this.ctx
+    const roadKeys = new Set(this.allRoadCells().map(cellKey))
+    const bridgeCells = this.mapPlan.features
+      .filter(feature => feature.kind === 'bridge')
+      .flatMap(feature => feature.cells)
+      .filter(point => this.revealed.has(cellKey(point)) && roadKeys.has(cellKey(point)))
+    if (!bridgeCells.length) return
+    ctx.save()
+    this.clipToRevealedTerrain()
+    for (const point of bridgeCells) {
+      const screen = this.gridToScreen(point)
+      ctx.strokeStyle = '#7c4f2b'
+      ctx.lineWidth = 4
+      ctx.beginPath()
+      ctx.moveTo(screen.x - TILE_WIDTH * 0.34, screen.y - TILE_HEIGHT * 0.22)
+      ctx.lineTo(screen.x + TILE_WIDTH * 0.34, screen.y + TILE_HEIGHT * 0.22)
+      ctx.moveTo(screen.x - TILE_WIDTH * 0.34, screen.y + TILE_HEIGHT * 0.22)
+      ctx.lineTo(screen.x + TILE_WIDTH * 0.34, screen.y - TILE_HEIGHT * 0.22)
+      ctx.stroke()
+      ctx.strokeStyle = 'rgba(92,51,23,.62)'
+      ctx.lineWidth = 2
+      for (const offset of [-18, 0, 18]) {
+        ctx.beginPath()
+        ctx.moveTo(screen.x + offset - 10, screen.y - 7)
+        ctx.lineTo(screen.x + offset + 10, screen.y + 7)
+        ctx.stroke()
+      }
+    }
+    ctx.restore()
+  }
+
+  private drawRaisedFeature(point: GridPoint, kind: PathwardenFeatureKind) {
+    const ctx = this.ctx
+    const screen = this.gridToScreen(point)
+    const variation = (point.col * 13 + point.row * 7) % 5
+    ctx.save()
+    ctx.fillStyle = 'rgba(15,23,42,.2)'
+    ctx.beginPath()
+    ctx.ellipse(screen.x, screen.y + 5, 30, 8, 0, 0, Math.PI * 2)
+    ctx.fill()
+    if (kind === 'forest') {
+      const height = 42 + variation * 3
+      ctx.fillStyle = '#235c38'
+      ctx.fillRect(screen.x - 4, screen.y - 13, 8, 19)
+      ctx.fillStyle = variation % 2 ? '#257449' : '#2f8553'
+      for (const offset of [-14, 0, 14]) {
+        ctx.beginPath()
+        ctx.moveTo(screen.x + offset, screen.y - height)
+        ctx.lineTo(screen.x + offset + 18, screen.y - 5)
+        ctx.lineTo(screen.x + offset - 18, screen.y - 5)
+        ctx.closePath()
+        ctx.fill()
+      }
+    } else {
+      const height = kind === 'cliff' ? 38 : 48 + variation * 4
+      ctx.fillStyle = kind === 'cliff' ? '#6b625a' : '#7b807d'
+      ctx.beginPath()
+      ctx.moveTo(screen.x - 37, screen.y + 5)
+      ctx.lineTo(screen.x - 8, screen.y - height)
+      ctx.lineTo(screen.x + 5, screen.y - height * 0.55)
+      ctx.lineTo(screen.x + 19, screen.y - height * 0.82)
+      ctx.lineTo(screen.x + 38, screen.y + 5)
+      ctx.closePath()
+      ctx.fill()
+      ctx.fillStyle = 'rgba(241,245,249,.44)'
+      ctx.beginPath()
+      ctx.moveTo(screen.x - 8, screen.y - height)
+      ctx.lineTo(screen.x + 5, screen.y - height * 0.55)
+      ctx.lineTo(screen.x - 2, screen.y - height * 0.45)
+      ctx.closePath()
+      ctx.fill()
+    }
+    ctx.restore()
+  }
+
   private diamondPath(screen: Point, inset = 0) {
     const halfWidth = TILE_WIDTH / 2 - inset
     const halfHeight = TILE_HEIGHT / 2 - inset * 0.54
@@ -4029,14 +4208,18 @@ export class PathwardenEngine {
     for (const link of this.branchLinks) addLink(link)
     const frontierNodes = new Set<string>()
     for (const choice of this.pathChoices) {
-      let previous = choice.source
-      for (const cell of choice.cells) {
-        addLink({ from: previous, to: cell })
-        if (!this.revealed.has(cellKey(cell))) {
-          frontierNodes.add(cellKey(previous))
-          break
+      const choiceLinks = choice.links ?? choice.cells.map((cell, index) => ({
+        from: index === 0 ? choice.source : choice.cells[index - 1]!,
+        to: cell
+      }))
+      for (const link of choiceLinks) {
+        const fromVisible = this.revealed.has(cellKey(link.from))
+        const toVisible = this.revealed.has(cellKey(link.to))
+        if (!fromVisible && !toVisible) continue
+        addLink(link)
+        if (fromVisible !== toVisible) {
+          frontierNodes.add(cellKey(fromVisible ? link.from : link.to))
         }
-        previous = cell
       }
     }
     const roadNodes = new Map<string, Point>()

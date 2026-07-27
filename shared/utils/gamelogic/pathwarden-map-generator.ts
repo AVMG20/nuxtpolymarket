@@ -296,8 +296,8 @@ function connectorPath(
 
 function placementOptions(frontier: OpenFrontier, random: RandomSource) {
     const compact = [{ forward: 1, lateral: 0 }]
-    const translated = [4, 6, 8, 10, 14, 20, 28, 40, 60, 80].flatMap(forward =>
-        [0, 4, -4, 7, -7, 12, -12, 20, -20, 32, -32].map(lateral => ({ forward, lateral })))
+    const translated = [4, 6, 8, 10, 14, 20, 28, 40].flatMap(forward =>
+        [0, 4, -4, 7, -7, 12, -12, 20, -20].map(lateral => ({ forward, lateral })))
     return [...compact, ...shuffle(translated, random)].map(option => ({
         ...option,
         connectorCells: connectorPath(

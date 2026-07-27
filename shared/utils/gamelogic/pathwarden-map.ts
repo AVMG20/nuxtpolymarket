@@ -7,8 +7,8 @@ import {
 } from '#shared/types/pathwarden-save'
 import { generatePathwardenMapPlan } from '#shared/utils/gamelogic/pathwarden-map-generator'
 
-const DEFAULT_MAP_SIZE = 321
-const DEFAULT_CASTLE_CELL = 160
+const DEFAULT_MAP_SIZE = 161
+const DEFAULT_CASTLE_CELL = 80
 
 export interface PathwardenMapPlanOptions {
     seed: number
@@ -65,7 +65,7 @@ function move(point: PathwardenGridPoint, direction: PathwardenCardinalDirection
 
 function castleRoom(direction: PathwardenCardinalDirection, approachLength: number): PathwardenMapRoom {
     const origin = { col: DEFAULT_CASTLE_CELL, row: DEFAULT_CASTLE_CELL }
-    const gate = move(origin, direction, 2)
+    const gate = move(origin, direction, 1)
     const roadCells = Array.from({ length: approachLength }, (_, index) => move(gate, direction, index))
     return {
         id: 'room-castle',

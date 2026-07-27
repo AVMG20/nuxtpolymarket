@@ -50,6 +50,27 @@ describe('Pathwarden room templates', () => {
         }
     })
 
+    it('connects every exit to its entrance through road edges', () => {
+        for (const template of PATHWARDEN_ROOM_TEMPLATES) {
+            const graph = new Map<string, string[]>()
+            for (const [from, to] of template.roadEdges) {
+                graph.set(key(from), [...(graph.get(key(from)) ?? []), key(to)])
+                graph.set(key(to), [...(graph.get(key(to)) ?? []), key(from)])
+            }
+            const visited = new Set([key(template.entrance.cell)])
+            const queue = [key(template.entrance.cell)]
+            while (queue.length) {
+                const current = queue.shift()!
+                for (const neighbour of graph.get(current) ?? []) {
+                    if (visited.has(neighbour)) continue
+                    visited.add(neighbour)
+                    queue.push(neighbour)
+                }
+            }
+            for (const exit of template.exits) expect(visited.has(key(exit.cell)), template.id).toBe(true)
+        }
+    })
+
     it('provides a true split-and-rejoin road island', () => {
         const island = PATHWARDEN_ROOM_TEMPLATES.find(template => template.archetype === 'road-island')!
         const degree = new Map<string, number>()
