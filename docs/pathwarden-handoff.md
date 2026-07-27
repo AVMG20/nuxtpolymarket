@@ -1,6 +1,6 @@
 # Pathwarden handoff
 
-Last updated: 2026-07-25
+Last updated: 2026-07-27
 
 ## Current objective
 
@@ -161,15 +161,27 @@ mortar arcs, and the compact wave ribbon.
 
 ## Validation status
 
-Latest static verification passed:
+Final room-world verification passed under resource-limited cgroups:
 
-- ESLint for `pathwarden-engine.ts`
-- Nuxt typecheck
+- Focused ESLint and Nuxt typecheck.
+- Twelve room-template/map-plan tests, including the 1,000-world deterministic
+  corpus and every supported room transform.
+- Four expanded visual seeds with valid graphs, compact room progression,
+  persistent exits, bridges, road islands, T-junctions, and crossroads.
+- Original-resolution desktop and responsive captures, pointer zoom,
+  progressive edge scrolling, and first-click expansion after pan and zoom.
+- A live three-wave run after the room/persistence changes with 20/20 keep
+  health, ordinary wave/relic controls, and a valid graph. The established
+  ten-wave ordinary and adversarial combat audits remain valid because the
+  branch does not change tower combat mechanics.
+- Exact save/reload and navigation restoration, two-writer optimistic locking,
+  a full Nuxt server restart, and queued offline-save recovery.
+- Successful Coin and Gem abandonment with exact debit and atomic run removal;
+  combat abandonment rejection; capped checkpoint cash-out; zero-reward defeat;
+  timed victory settlement and Realm unlock.
+- Unsupported save-version fixture rejection.
 
-Rerun the ten-round audit after economy changes and remove
-`.tmp-pathwarden-ten-rounds.mjs` before final handoff.
-
-Rerun all three after the final mortar and road-plan edits.
+The durable `pathwarden-room-world-generation` plan is complete.
 
 ## Important visual invariants
 
@@ -185,7 +197,10 @@ Rerun all three after the final mortar and road-plan edits.
 
 ## Working tree
 
-The Pathwarden work is uncommitted. Existing modified/untracked files include the game implementation, page/component registration, assets, package changes, and QA documentation. Preserve unrelated user changes and do not reset the worktree.
+The room-world implementation is committed on
+`feature/pathwarden-room-world-generation`. Playwright output and standalone QA
+captures are intentionally untracked; preserve them unless the user asks to
+remove them.
 # 2026-07-25 visual inspection framework
 
 - Pathwarden now has a development-only `toggleVisualGuides` bridge action.
