@@ -39,6 +39,17 @@ describe('Pathwarden room templates', () => {
         }
     })
 
+    it('places every port on the boundary it faces', () => {
+        for (const template of PATHWARDEN_ROOM_TEMPLATES) {
+            for (const port of [template.entrance, ...template.exits]) {
+                if (port.direction === 'north') expect(port.cell.row).toBe(0)
+                if (port.direction === 'east') expect(port.cell.col).toBe(template.width - 1)
+                if (port.direction === 'south') expect(port.cell.row).toBe(template.height - 1)
+                if (port.direction === 'west') expect(port.cell.col).toBe(0)
+            }
+        }
+    })
+
     it('provides a true split-and-rejoin road island', () => {
         const island = PATHWARDEN_ROOM_TEMPLATES.find(template => template.archetype === 'road-island')!
         const degree = new Map<string, number>()

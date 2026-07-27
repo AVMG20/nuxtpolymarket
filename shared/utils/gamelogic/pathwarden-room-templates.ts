@@ -108,7 +108,7 @@ const corner = [
 const uBend = [
     ...line(point(0, 1), point(6, 1)),
     ...line(point(6, 2), point(6, 6)),
-    ...line(point(5, 6), point(1, 6))
+    ...line(point(5, 6), point(0, 6))
 ]
 const switchback = [
     ...line(point(0, 1), point(7, 1)),
@@ -171,7 +171,7 @@ export const PATHWARDEN_ROOM_TEMPLATES: readonly PathwardenRoomTemplate[] = [
         width: 8,
         height: 8,
         entrance: { id: 'entrance', cell: point(0, 1), direction: 'west', kind: 'entrance' },
-        exits: [{ id: 'exit', cell: point(1, 6), direction: 'west', kind: 'exit' }],
+        exits: [{ id: 'exit', cell: point(0, 6), direction: 'west', kind: 'exit' }],
         roadCells: [],
         routes: [uBend],
         buildableCells: rectangle(2, 4, 3, 4),

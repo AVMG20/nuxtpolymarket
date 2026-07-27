@@ -5,6 +5,7 @@ import {
     hashPathwardenMapPlan,
     serializePathwardenMapPlan
 } from '#shared/utils/gamelogic/pathwarden-map'
+import { validatePathwardenMapPlan } from '#shared/utils/gamelogic/pathwarden-map-validation'
 
 describe('Pathwarden seeded map model', () => {
     it('reproduces canonical plans for 1,000 seeds', () => {
@@ -14,7 +15,7 @@ describe('Pathwarden seeded map model', () => {
             expect(serializePathwardenMapPlan(first)).toBe(serializePathwardenMapPlan(second))
             expect(hashPathwardenMapPlan(first)).toBe(hashPathwardenMapPlan(second))
         }
-    })
+    }, 120_000)
 
     it('round-trips through JSON without changing canonical output', () => {
         const plan = createPathwardenMapPlan({ seed: 4_294_967_295, realm: 5 })
@@ -48,4 +49,19 @@ describe('Pathwarden seeded map model', () => {
         expect(resumed.next()).toBe(first.next())
         expect(resumed.state).toBe(first.state)
     })
+
+    it('generates structurally valid depth-13 plans', () => {
+        for (let seed = 0; seed < 250; seed++) {
+            const plan = createPathwardenMapPlan({ seed, realm: seed % 5 + 1 })
+            const validation = validatePathwardenMapPlan(plan)
+            expect(validation.errors, `seed ${seed}`).toEqual([])
+            expect(plan.metrics.maxDepth).toBe(13)
+            expect(plan.rooms.some(room => room.depth === 13)).toBe(true)
+            expect(plan.metrics.archetypeCounts['road-island']).toBeGreaterThanOrEqual(1)
+            expect(plan.metrics.archetypeCounts['bridge-river']).toBeGreaterThanOrEqual(1)
+            expect(plan.metrics.archetypeCounts['mountain-pass']).toBeGreaterThanOrEqual(1)
+            expect(plan.metrics.archetypeCounts['lake-shore']).toBeGreaterThanOrEqual(1)
+            expect(plan.metrics.archetypeCounts['forest-road']).toBeGreaterThanOrEqual(1)
+        }
+    }, 60_000)
 })

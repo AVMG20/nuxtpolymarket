@@ -2,13 +2,13 @@ import {
     PATHWARDEN_GENERATOR_VERSION,
     type PathwardenCardinalDirection,
     type PathwardenGridPoint,
-    type PathwardenMapMetrics,
     type PathwardenMapPlan,
     type PathwardenMapRoom
 } from '#shared/types/pathwarden-save'
+import { generatePathwardenMapPlan } from '#shared/utils/gamelogic/pathwarden-map-generator'
 
-const DEFAULT_MAP_SIZE = 59
-const DEFAULT_CASTLE_CELL = 29
+const DEFAULT_MAP_SIZE = 321
+const DEFAULT_CASTLE_CELL = 160
 
 export interface PathwardenMapPlanOptions {
     seed: number
@@ -101,18 +101,6 @@ function castleRoom(direction: PathwardenCardinalDirection, approachLength: numb
     }
 }
 
-function initialMetrics(room: PathwardenMapRoom, maxDepth: number): PathwardenMapMetrics {
-    return {
-        maxDepth,
-        roomCount: 1,
-        roadCellCount: room.roadCells.length,
-        buildableCellCount: 0,
-        frontierCountByDepth: [1, ...Array.from({ length: maxDepth }, () => 0)],
-        archetypeCounts: { castle: 1 },
-        featureCounts: {}
-    }
-}
-
 export function createPathwardenMapPlan(options: PathwardenMapPlanOptions): PathwardenMapPlan {
     const seed = normalizeSeed(options.seed)
     const realm = Math.max(1, Math.min(5, Math.floor(options.realm)))
@@ -133,18 +121,13 @@ export function createPathwardenMapPlan(options: PathwardenMapPlanOptions): Path
         roomId: castle.id
     }))
 
-    return {
+    return generatePathwardenMapPlan({
         generatorVersion,
         seed,
         realm,
         size: { cols: DEFAULT_MAP_SIZE, rows: DEFAULT_MAP_SIZE },
-        castleRoomId: castle.id,
-        rooms: [castle],
-        connections: [],
-        roadLinks,
-        features: [],
-        metrics: initialMetrics(castle, maxDepth)
-    }
+        castleRoomId: castle.id
+    }, castle, roadLinks, maxDepth, random)
 }
 
 function canonicalize(value: unknown): unknown {
