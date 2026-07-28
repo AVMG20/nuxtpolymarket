@@ -1,7 +1,8 @@
 import {
   PATHWARDEN_DEFENSE_BLUEPRINTS,
   type PathwardenDefenseArchetype,
-  type PathwardenDefenseBlueprint
+  type PathwardenDefenseBlueprint,
+  type PathwardenDefenseFamily
 } from '#shared/utils/gamelogic/pathwarden'
 import {
   createPathwardenMapPlan,
@@ -35,6 +36,7 @@ export type PathwardenRelicFamily =
   | 'fire' | 'frost' | 'storm' | 'venom' | 'blast'
   | 'leech' | 'pierce' | 'chain' | 'gale' | 'radiant'
   | 'heart' | 'repair' | 'bounty' | 'haste' | 'range'
+type PathwardenGlobalRelicFamily = 'heart' | 'repair' | 'bounty' | 'haste' | 'range'
 export type PathwardenPhase = 'planning' | 'wave' | 'checkpoint' | 'path' | 'upgrade' | 'cashout' | 'victory' | 'defeat'
 export type PathwardenTargeting = 'first' | 'strong' | 'fast'
 
@@ -52,6 +54,13 @@ export interface PathwardenRelic {
 
 export interface PathwardenInventoryRelic extends PathwardenRelic {
   instanceId: number
+}
+
+export interface PathwardenRelicProfile {
+  family: PathwardenRelicFamily
+  name: string
+  description: string
+  iconIndex: number
 }
 
 const RELIC_RARITIES: Array<{ id: PathwardenRelicRarity, label: string, power: number, sell: number }> = [
@@ -98,6 +107,17 @@ export const PATHWARDEN_RELICS: PathwardenRelic[] = RELIC_FAMILIES.flatMap((fami
     sellValue: rarity.sell
   })))
 
+export function pathwardenRelicProfile(family: PathwardenRelicFamily, power: number): PathwardenRelicProfile {
+  const familyIndex = RELIC_FAMILIES.findIndex(candidate => candidate.id === family)
+  const definition = RELIC_FAMILIES[familyIndex] ?? RELIC_FAMILIES[0]!
+  return {
+    family,
+    name: definition.name,
+    description: definition.description(power),
+    iconIndex: familyIndex >= 0 ? familyIndex : 0
+  }
+}
+
 interface Point { x: number, y: number }
 interface GridPoint { col: number, row: number }
 interface PathChoice {
@@ -121,6 +141,7 @@ interface Tower extends GridPoint {
   cooldown: number
   angle: number
   level: number
+  merges: number
   recoil: number
   targeting: PathwardenTargeting
   relicFamily?: PathwardenRelicFamily
@@ -307,6 +328,12 @@ export interface PathwardenBuilding {
   type: PathwardenTowerType
   name: string
   level: number
+  merges: number
+  invested: number
+  archetype: PathwardenDefenseArchetype
+  family: PathwardenDefenseFamily
+  tier: number
+  elevation: number
   damage: number
   range: number
   rate: number
@@ -314,6 +341,18 @@ export interface PathwardenBuilding {
   targeting: PathwardenTargeting
   relicFamily?: PathwardenRelicFamily
   relicStacks: number
+  relicPower: number
+  relicName: string
+  relicDescription: string
+  relicIconIndex: number
+  globalRelics: Array<{
+    family: PathwardenRelicFamily
+    name: string
+    description: string
+    level: number
+    power: number
+    iconIndex: number
+  }>
 }
 
 export interface PathwardenCallbacks {
@@ -457,6 +496,8 @@ export class PathwardenEngine {
     bounty: 0
   }
 
+  private globalRelics: Partial<Record<PathwardenGlobalRelicFamily, { level: number, power: number }>> = {}
+
   private message = 'Raise your first defenses, then summon the horde.'
   private towerId = 1
   private enemyId = 1
@@ -502,6 +543,7 @@ export class PathwardenEngine {
   private hoverCell: GridPoint | null = null
   private hoverPathChoice: PathChoice | null = null
   private selectedTowerId: number | null = null
+  private placementMode = false
   private towerDrag: TowerDrag | null = null
   private suppressClick = false
   private idleTime = 0
@@ -540,14 +582,16 @@ export class PathwardenEngine {
     boosts?: PathwardenBoostEffects,
     realm = 1,
     skinId = 'warden-stone',
-    restore?: PathwardenEngineRestore
+    restore?: PathwardenEngineRestore,
+    skipIntro = false
   ) {
     this.canvas = canvas
     const context = canvas.getContext('2d')
     if (!context) throw new Error('Canvas 2D context is unavailable')
     this.ctx = context
     this.callbacks = callbacks
-    this.introStoryActive = !restore
+    this.introStoryActive = !restore && !skipIntro
+    this.openingCinematicPlayed = skipIntro
     this.realm = clamp(Math.floor(restore?.mapPlan.realm ?? realm), 1, 5)
     this.skinId = skinId
     if (!restore) {
@@ -616,12 +660,22 @@ export class PathwardenEngine {
 
   private castlePath() {
     const castle = this.mapPlan.rooms.find(room => room.id === this.mapPlan.castleRoomId)!
-    const mainExit = castle.ports.find(port => port.id === 'port-castle-main')!
+    const mainExit = this.castleMainExit()
     const aligned = castle.roadCells.filter(cell =>
       mainExit.direction === 'north' || mainExit.direction === 'south'
         ? cell.col === castle.origin.col
         : cell.row === castle.origin.row)
-    return [{ ...castle.origin }, ...aligned.map(cell => ({ ...cell }))]
+    const firstStep = aligned.find(cell =>
+      Math.abs(cell.col - castle.origin.col) + Math.abs(cell.row - castle.origin.row) === 1)
+    const route = firstStep
+      ? [firstStep, ...aligned.filter(cell => cell !== firstStep)]
+      : aligned
+    return [{ ...castle.origin }, ...route.map(cell => ({ ...cell }))]
+  }
+
+  private castleMainExit() {
+    const castle = this.mapPlan.rooms.find(room => room.id === this.mapPlan.castleRoomId)!
+    return castle.ports.find(port => port.id === 'port-castle-main')!
   }
 
   private initialRevealCells() {
@@ -662,6 +716,7 @@ export class PathwardenEngine {
       selectedTower: this.selectedTower,
       towerPurchases: { ...this.towerPurchases },
       relicRanks: { ...this.relicRanks },
+      globalRelics: { ...this.globalRelics },
       relicInventory: this.relicInventory.map(relic => ({ ...relic })),
       interest: this.interest,
       canSellRelics: this.canSellRelics,
@@ -737,6 +792,7 @@ export class PathwardenEngine {
     this.selectedTower = state.selectedTower
     this.towerPurchases = { ...state.towerPurchases }
     this.relicRanks = { ...this.relicRanks, ...state.relicRanks }
+    this.globalRelics = { ...this.globalRelics, ...(state.globalRelics ?? {}) }
     this.relicInventory = state.relicInventory as PathwardenInventoryRelic[]
     this.interest = state.interest
     this.canSellRelics = state.canSellRelics
@@ -746,6 +802,7 @@ export class PathwardenEngine {
     this.towers = state.towers.map(tower => ({
       ...tower,
       type: tower.type,
+      merges: tower.merges ?? 0,
       recoil: 0,
       relicFamily: tower.relicFamily as PathwardenRelicFamily | undefined
     }))
@@ -809,7 +866,15 @@ export class PathwardenEngine {
     this.noteActivity()
     this.selectedTowerId = null
     this.selectedTower = type
+    this.placementMode = true
     this.message = `${towerStats(type).name} selected · ${this.towerCost(type)} Aether`
+    this.emitState()
+  }
+
+  enterPlacementMode() {
+    if (this.phase !== 'planning') return
+    this.selectedTowerId = null
+    this.placementMode = true
     this.emitState()
   }
 
@@ -838,17 +903,17 @@ export class PathwardenEngine {
 
   nextIntroStory() {
     if (!this.introStoryActive) return
-    this.introStoryPaused = true
+    this.introStoryPaused = false
     this.introStoryIndex = Math.min(this.introStorySlideCount - 1, this.introStoryIndex + 1)
-    this.introStoryTime = this.introStorySlideDuration
+    this.introStoryTime = 0
     this.emitState()
   }
 
   previousIntroStory() {
     if (!this.introStoryActive) return
-    this.introStoryPaused = true
+    this.introStoryPaused = false
     this.introStoryIndex = Math.max(0, this.introStoryIndex - 1)
-    this.introStoryTime = this.introStorySlideDuration
+    this.introStoryTime = 0
     this.emitState()
   }
 
@@ -858,6 +923,10 @@ export class PathwardenEngine {
   }
 
   private startOpeningCinematic() {
+    // Mark the one-shot sequence as consumed when it starts. Wave 1 may be
+    // called again after the overlay closes, and must transition directly to
+    // combat instead of re-entering the god animation.
+    this.openingCinematicPlayed = true
     this.openingCinematicActive = true
     this.openingCinematicTime = 0
     this.message = 'The old god descends. Hold fast while the mist is summoned.'
@@ -1114,6 +1183,7 @@ export class PathwardenEngine {
         cooldown: 0,
         angle: 0,
         level: 1,
+        merges: 0,
         recoil: 0,
         targeting: type === 'mortar' ? 'strong' : type === 'frost' ? 'fast' : 'first',
         relicStacks: 0,
@@ -1162,6 +1232,7 @@ export class PathwardenEngine {
         cooldown: 0,
         angle: 0,
         level: 1,
+        merges: 0,
         recoil: 0,
         targeting: affordable.type === 'mortar' ? 'strong' : affordable.type === 'frost' ? 'fast' : 'first',
         relicStacks: 0,
@@ -1240,7 +1311,6 @@ export class PathwardenEngine {
     tower.relicStacks++
     tower.relicPower += relic.power
     this.relicInventory.splice(this.relicInventory.indexOf(relic), 1)
-    this.selectedTowerId = tower.id
     const position = this.gridToScreen(tower)
     this.burst(position, this.relicColor(relic.family), 24, 190)
     this.shockwaves.push({ ...position, radius: 6, maxRadius: 62, life: 0.65, color: this.relicColor(relic.family) })
@@ -1338,6 +1408,14 @@ export class PathwardenEngine {
     } else if (relic.family === 'range') {
       this.rangeMultiplier *= 1 + 0.07 * relic.power
     }
+    if (!relic.towerSpecific) {
+      const family = relic.family as PathwardenGlobalRelicFamily
+      const current = this.globalRelics[family]
+      this.globalRelics[family] = {
+        level: (current?.level ?? 0) + 1,
+        power: (current?.power ?? 0) + relic.power
+      }
+    }
     this.aether += Math.floor(this.aether * this.interest)
     this.phase = this.wave >= 12 ? 'victory' : 'planning'
     this.message = this.phase === 'victory'
@@ -1399,16 +1477,35 @@ export class PathwardenEngine {
     this.emitState()
   }
 
+  clearSelectedBuilding() {
+    this.selectedTowerId = null
+    this.placementMode = false
+    this.emitState()
+  }
+
   private buildingSnapshot(tower: Tower): PathwardenBuilding {
     const stats = towerStats(tower.type)
     const elevation = this.elevations[tower.row]![tower.col]!
     const relicFamily = this.towerRelicFamily(tower)
     const relicPower = this.towerRelicPower(tower)
+    const relicProfile = relicFamily ? pathwardenRelicProfile(relicFamily, relicPower) : null
+    const globalRelics = (['haste', 'range'] as const).flatMap(family => {
+      const global = this.globalRelics[family]
+      if (!global) return []
+      const profile = pathwardenRelicProfile(family, global.power)
+      return [{ ...profile, level: global.level, power: global.power }]
+    })
     return {
       id: tower.id,
       type: tower.type,
       name: stats.name,
       level: tower.level,
+      merges: tower.merges,
+      invested: tower.invested,
+      archetype: this.towerBlueprint(tower.type).archetype,
+      family: this.towerBlueprint(tower.type).family,
+      tier: this.towerBlueprint(tower.type).tier,
+      elevation,
       damage: Math.round(stats.damage * this.damageMultiplier * (1 + (elevation - 1) * 0.16)
         * towerLevelPower(tower.level) * (1 + this.relicDirectDamageBonus(relicFamily, relicPower))),
       range: Math.round(stats.range * this.rangeMultiplier * (1 + (elevation - 1) * 0.09) * (1 + (tower.level - 1) * 0.05)),
@@ -1416,7 +1513,12 @@ export class PathwardenEngine {
       salvage: this.salvageValue(tower),
       targeting: tower.targeting,
       relicFamily,
-      relicStacks: tower.relicFamily ? tower.relicStacks : relicFamily ? 1 : 0
+      relicStacks: tower.relicFamily ? tower.relicStacks : relicFamily ? 1 : 0,
+      relicPower,
+      relicName: relicProfile?.name ?? '',
+      relicDescription: relicProfile?.description ?? '',
+      relicIconIndex: relicProfile?.iconIndex ?? 0,
+      globalRelics
     }
   }
 
@@ -1776,8 +1878,7 @@ export class PathwardenEngine {
             this.introStoryIndex++
             this.introStoryTime = 0
           } else {
-            this.introStoryTime = this.introStorySlideDuration
-            this.introStoryPaused = true
+            this.introStoryPaused = false
           }
         }
       }
@@ -2949,7 +3050,7 @@ export class PathwardenEngine {
 
   private castleGatePosition() {
     const center = this.gridToScreen(this.path[0]!)
-    const road = this.gridToScreen(this.path[1]!)
+    const road = this.gridToScreen(this.castleMainExit().cell)
     const gap = Math.hypot(road.x - center.x, road.y - center.y) || 1
     return {
       x: center.x + (road.x - center.x) / gap * 25,
@@ -3098,6 +3199,7 @@ export class PathwardenEngine {
     if (!tower) return
     if (!drag.active) {
       this.selectedTowerId = tower.id
+      this.placementMode = false
       this.message = `${towerStats(tower.type).name} selected. Drag it to move or combine it.`
       this.emitState()
       return
@@ -3123,6 +3225,7 @@ export class PathwardenEngine {
       } else {
         this.towers.splice(this.towers.indexOf(tower), 1)
         target.level++
+        target.merges += tower.merges + 1
         target.invested += tower.invested
         target.relicStacks += tower.relicStacks
         target.relicPower += tower.relicPower
@@ -3166,6 +3269,7 @@ export class PathwardenEngine {
     const existing = this.towers.find(tower => tower.col === cell.col && tower.row === cell.row)
     if (existing) {
       this.selectedTowerId = existing.id
+      this.placementMode = false
       this.message = `${towerStats(existing.type).name} selected. Inspect, combine, or dismantle it.`
       this.emitState()
       return
@@ -3208,6 +3312,7 @@ export class PathwardenEngine {
         cooldown: 0,
         angle: 0,
         level: 1,
+        merges: 0,
         recoil: 0,
         targeting: 'first',
         relicStacks: 0,
@@ -3276,26 +3381,27 @@ export class PathwardenEngine {
 
   private drawIntroKingdomScene() {
     const ctx = this.ctx
-    const centerX = WIDTH * 0.52
-    const centerY = HEIGHT * 0.53
     const sway = Math.sin(this.introStoryTime * 2.1) * 3
+    const right = WIDTH * 0.72
 
     ctx.save()
-    ctx.fillStyle = 'rgba(8, 19, 28, 0.985)'
+    ctx.fillStyle = '#091523'
     ctx.fillRect(0, 0, WIDTH, HEIGHT)
+    ctx.fillStyle = 'rgba(12, 24, 35, .94)'
+    ctx.fillRect(WIDTH * 0.51, 22, WIDTH * 0.43, HEIGHT - 44)
 
     const drawField = (x: number, y: number, width: number, height: number, rotation: number) => {
       ctx.save()
       ctx.translate(x, y)
       ctx.rotate(rotation)
       ctx.fillStyle = '#6f8f55'
-      ctx.strokeStyle = '#b8a56a'
+      ctx.strokeStyle = '#8f7949'
       ctx.lineWidth = 3
       ctx.beginPath()
       ctx.roundRect(-width / 2, -height / 2, width, height, 16)
       ctx.fill()
       ctx.stroke()
-      ctx.strokeStyle = 'rgba(224, 201, 120, 0.7)'
+      ctx.strokeStyle = 'rgba(224, 201, 120, .62)'
       ctx.lineWidth = 2
       for (let row = -height / 2 + 15; row < height / 2; row += 16) {
         ctx.beginPath()
@@ -3306,81 +3412,633 @@ export class PathwardenEngine {
       ctx.restore()
     }
 
-    drawField(centerX - 205, centerY + 92, 230, 118, -0.1)
-    drawField(centerX + 210, centerY + 105, 250, 126, 0.12)
-    drawField(centerX - 235, centerY - 100, 190, 100, 0.16)
-    drawField(centerX + 220, centerY - 88, 185, 98, -0.14)
-
-    const drawPerson = (x: number, y: number, color: string, scale = 1) => {
+    const drawSeeder = (x: number, y: number, color: string) => {
       ctx.save()
-      ctx.translate(x, y)
-      ctx.scale(scale, scale)
+      ctx.translate(x, y + Math.sin(this.introStoryTime * 3.2) * 2)
       ctx.fillStyle = '#e9c39b'
       ctx.beginPath()
-      ctx.arc(0, -12 + sway * 0.15, 6, 0, Math.PI * 2)
+      ctx.arc(0, -25, 6, 0, Math.PI * 2)
       ctx.fill()
       ctx.fillStyle = color
       ctx.beginPath()
-      ctx.roundRect(-7, -6, 14, 20, 5)
+      ctx.roundRect(-8, -19, 16, 22, 5)
       ctx.fill()
       ctx.strokeStyle = '#3b2b28'
       ctx.lineWidth = 3
       ctx.beginPath()
-      ctx.moveTo(-3, 14)
-      ctx.lineTo(-5, 24)
-      ctx.moveTo(3, 14)
-      ctx.lineTo(6, 24)
+      ctx.moveTo(-3, 3)
+      ctx.lineTo(-7, 14)
+      ctx.moveTo(3, 3)
+      ctx.lineTo(8, 14)
+      ctx.moveTo(5, -9)
+      ctx.lineTo(25, 8)
+      ctx.stroke()
+      ctx.fillStyle = '#e8c66b'
+      for (let index = 0; index < 4; index++) {
+        const seedX = 20 + index * 9 + Math.sin(this.introStoryTime * 4 + index) * 3
+        const seedY = 12 + (index % 2) * 7
+        ctx.beginPath()
+        ctx.arc(seedX, seedY, 2, 0, Math.PI * 2)
+        ctx.fill()
+      }
+      ctx.restore()
+    }
+
+    const drawCow = (x: number, y: number, facing: 1 | -1) => {
+      ctx.save()
+      ctx.translate(x, y + Math.sin(this.introStoryTime * 1.7 + x) * 2)
+      ctx.scale(facing, 1)
+      ctx.fillStyle = '#eadfc5'
+      ctx.beginPath()
+      ctx.ellipse(0, 0, 24, 13, 0, 0, Math.PI * 2)
+      ctx.fill()
+      ctx.fillStyle = '#6f5948'
+      ctx.beginPath()
+      ctx.arc(22, 1, 9, 0, Math.PI * 2)
+      ctx.fill()
+      ctx.fillStyle = '#302426'
+      ctx.beginPath()
+      ctx.arc(-8, -4, 5, 0, Math.PI * 2)
+      ctx.arc(8, 4, 4, 0, Math.PI * 2)
+      ctx.fill()
+      ctx.strokeStyle = '#4b3a31'
+      ctx.lineWidth = 3
+      ctx.beginPath()
+      ctx.moveTo(-13, 9)
+      ctx.lineTo(-15, 20)
+      ctx.moveTo(12, 9)
+      ctx.lineTo(14, 20)
+      ctx.moveTo(25, -5)
+      ctx.lineTo(31, -12)
+      ctx.stroke()
+      ctx.fillStyle = '#6f8f55'
+      ctx.beginPath()
+      ctx.moveTo(30, 3)
+      ctx.lineTo(46, 8)
+      ctx.lineTo(30, 11)
+      ctx.fill()
+      ctx.restore()
+    }
+
+    const drawHarvestedPatch = (x: number, y: number, width: number, height: number, rotation: number) => {
+      ctx.save()
+      ctx.translate(x, y)
+      ctx.rotate(rotation)
+      ctx.beginPath()
+      ctx.roundRect(-width / 2, -height / 2, width, height, 16)
+      ctx.clip()
+      ctx.fillStyle = '#9a7142'
+      ctx.fillRect(-width / 2, -height / 2, width * 0.48, height)
+      ctx.strokeStyle = 'rgba(239, 194, 94, .8)'
+      ctx.lineWidth = 2
+      for (let index = 0; index < 12; index++) {
+        const stubbleX = -width / 2 + 18 + (index % 6) * 15
+        const stubbleY = -height / 2 + 18 + Math.floor(index / 6) * 22
+        ctx.beginPath()
+        ctx.moveTo(stubbleX, stubbleY + 7)
+        ctx.lineTo(stubbleX + 3, stubbleY)
+        ctx.stroke()
+      }
+      ctx.restore()
+    }
+
+    const drawScytheFarmer = (x: number, y: number) => {
+      ctx.save()
+      const swing = Math.sin(this.introStoryTime * 3.5) * 0.35
+      ctx.translate(x, y)
+      ctx.fillStyle = '#e9c39b'
+      ctx.beginPath()
+      ctx.arc(0, -26, 6, 0, Math.PI * 2)
+      ctx.fill()
+      ctx.fillStyle = '#d8a447'
+      ctx.beginPath()
+      ctx.roundRect(-8, -20, 16, 23, 5)
+      ctx.fill()
+      ctx.strokeStyle = '#3b2b28'
+      ctx.lineWidth = 3
+      ctx.beginPath()
+      ctx.moveTo(-3, 3)
+      ctx.lineTo(-7, 15)
+      ctx.moveTo(3, 3)
+      ctx.lineTo(8, 15)
+      ctx.stroke()
+      ctx.save()
+      ctx.translate(7, -9)
+      ctx.rotate(swing)
+      ctx.strokeStyle = '#704d2f'
+      ctx.lineWidth = 3
+      ctx.beginPath()
+      ctx.moveTo(0, 0)
+      ctx.lineTo(34, 20)
+      ctx.stroke()
+      ctx.strokeStyle = '#d7d0aa'
+      ctx.lineWidth = 4
+      ctx.beginPath()
+      ctx.arc(36, 16, 19, 0.15, 1.25)
+      ctx.stroke()
+      ctx.restore()
+      ctx.restore()
+    }
+
+    const drawGuard = (x: number, y: number, offset: number) => {
+      ctx.save()
+      ctx.translate(x, y + Math.sin(this.introStoryTime * 10 + offset) * 2)
+      ctx.fillStyle = '#e9c39b'
+      ctx.beginPath()
+      ctx.arc(0, -20, 5, 0, Math.PI * 2)
+      ctx.fill()
+      ctx.fillStyle = '#395b73'
+      ctx.fillRect(-7, -14, 14, 20)
+      ctx.strokeStyle = '#263746'
+      ctx.lineWidth = 3
+      ctx.beginPath()
+      ctx.moveTo(-3, 6)
+      ctx.lineTo(-6, 16)
+      ctx.moveTo(3, 6)
+      ctx.lineTo(7, 16)
+      ctx.stroke()
+      ctx.strokeStyle = '#c3a05f'
+      ctx.lineWidth = 3
+      ctx.beginPath()
+      ctx.moveTo(8, 4)
+      ctx.lineTo(8, -43)
+      ctx.stroke()
+      ctx.fillStyle = '#d8b45b'
+      ctx.beginPath()
+      ctx.moveTo(8, -43)
+      ctx.lineTo(22, -37)
+      ctx.lineTo(8, -31)
+      ctx.fill()
+      ctx.restore()
+    }
+
+    const drawGranary = (x: number, y: number) => {
+      ctx.save()
+      ctx.fillStyle = '#9d7247'
+      ctx.fillRect(x - 34, y - 58, 68, 68)
+      ctx.fillStyle = '#c39a5b'
+      ctx.beginPath()
+      ctx.moveTo(x - 44, y - 58)
+      ctx.lineTo(x, y - 91)
+      ctx.lineTo(x + 44, y - 58)
+      ctx.fill()
+      ctx.fillStyle = '#4a342b'
+      ctx.fillRect(x - 10, y - 30, 20, 40)
+      ctx.fillStyle = '#e1ba68'
+      ctx.fillRect(x - 25, y - 47, 14, 13)
+      ctx.fillRect(x + 11, y - 47, 14, 13)
+      ctx.restore()
+    }
+
+    const drawPriest = (x: number, y: number, offset: number) => {
+      ctx.save()
+      ctx.translate(x, y + Math.sin(this.introStoryTime * 12 + offset) * 2)
+      ctx.fillStyle = '#e9c39b'
+      ctx.beginPath()
+      ctx.arc(0, -30, 6, 0, Math.PI * 2)
+      ctx.fill()
+      ctx.fillStyle = '#f4f1df'
+      ctx.beginPath()
+      ctx.moveTo(-13, 5)
+      ctx.lineTo(-8, -23)
+      ctx.lineTo(8, -23)
+      ctx.lineTo(13, 5)
+      ctx.closePath()
+      ctx.fill()
+      ctx.strokeStyle = '#b7ad91'
+      ctx.lineWidth = 2
+      ctx.beginPath()
+      ctx.moveTo(-7, 4)
+      ctx.lineTo(-13, 17)
+      ctx.moveTo(7, 4)
+      ctx.lineTo(13, 17)
+      ctx.stroke()
+      ctx.strokeStyle = '#8b7046'
+      ctx.lineWidth = 2
+      ctx.beginPath()
+      ctx.moveTo(8, -17)
+      ctx.lineTo(8, -49)
+      ctx.moveTo(3, -44)
+      ctx.lineTo(13, -44)
       ctx.stroke()
       ctx.restore()
     }
 
-    drawPerson(centerX - 270, centerY + 76 + sway, '#d8a447', 1.1)
-    drawPerson(centerX - 145, centerY + 123 - sway, '#7aa0b8', 0.9)
-    drawPerson(centerX + 145, centerY + 130 + sway, '#c7774e', 1.05)
-    drawPerson(centerX + 285, centerY + 75 - sway, '#d8a447', 0.95)
-    drawPerson(centerX - 230, centerY - 93 - sway, '#b97845', 0.85)
-    drawPerson(centerX + 240, centerY - 80 + sway, '#7aa0b8', 0.9)
+    const drawJeerer = (x: number, y: number, color: string, offset: number) => {
+      ctx.save()
+      ctx.translate(x, y + Math.sin(this.introStoryTime * 4 + offset) * 2)
+      ctx.fillStyle = '#e9c39b'
+      ctx.beginPath()
+      ctx.arc(0, -22, 6, 0, Math.PI * 2)
+      ctx.fill()
+      ctx.fillStyle = color
+      ctx.beginPath()
+      ctx.moveTo(-11, 17)
+      ctx.lineTo(-8, -16)
+      ctx.lineTo(8, -16)
+      ctx.lineTo(13, 17)
+      ctx.closePath()
+      ctx.fill()
+      ctx.fillStyle = '#e7bd45'
+      ctx.fillRect(-8, -16, 16, 5)
+      ctx.fillStyle = '#f4f1df'
+      ctx.fillRect(-4, -11, 8, 8)
+      ctx.strokeStyle = '#3b2b28'
+      ctx.lineWidth = 3
+      ctx.beginPath()
+      ctx.moveTo(-6, -5)
+      ctx.lineTo(-23, -23)
+      ctx.moveTo(6, -5)
+      ctx.lineTo(23, -23)
+      ctx.moveTo(-4, 17)
+      ctx.lineTo(-8, 28)
+      ctx.moveTo(4, 17)
+      ctx.lineTo(9, 28)
+      ctx.stroke()
+      ctx.fillStyle = '#fff8df'
+      ctx.beginPath()
+      ctx.roundRect(-25, -65, 50, 23, 7)
+      ctx.fill()
+      ctx.fillStyle = '#8d3e3e'
+      ctx.font = '900 12px Georgia, serif'
+      ctx.textAlign = 'center'
+      ctx.fillText('BOO!', 0, -49)
+      ctx.restore()
+    }
 
-    ctx.fillStyle = '#544133'
-    ctx.fillRect(centerX - 132, centerY - 5, 264, 128)
-    ctx.fillStyle = '#826245'
-    ctx.fillRect(centerX - 174, centerY - 64, 72, 187)
-    ctx.fillRect(centerX + 102, centerY - 64, 72, 187)
-    ctx.fillStyle = '#a77d4d'
-    ctx.beginPath()
-    ctx.moveTo(centerX - 190, centerY - 64)
-    ctx.lineTo(centerX - 138, centerY - 122)
-    ctx.lineTo(centerX - 86, centerY - 64)
-    ctx.moveTo(centerX + 86, centerY - 64)
-    ctx.lineTo(centerX + 138, centerY - 122)
-    ctx.lineTo(centerX + 190, centerY - 64)
-    ctx.fill()
-    ctx.fillStyle = '#2b2020'
-    ctx.fillRect(centerX - 26, centerY + 43, 52, 80)
-    ctx.fillStyle = '#d5aa57'
-    ctx.fillRect(centerX - 78, centerY + 10, 32, 42)
-    ctx.fillRect(centerX + 46, centerY + 10, 32, 42)
-    ctx.fillStyle = '#d8b45b'
-    ctx.fillRect(centerX - 3, centerY - 157, 6, 35)
-    ctx.fillStyle = '#c9575a'
-    ctx.beginPath()
-    ctx.moveTo(centerX + 3, centerY - 155)
-    ctx.lineTo(centerX + 35, centerY - 145)
-    ctx.lineTo(centerX + 3, centerY - 135)
-    ctx.fill()
+    const drawTreasureChest = (x: number, y: number) => {
+      ctx.save()
+      ctx.fillStyle = '#704326'
+      ctx.fillRect(x - 45, y - 28, 90, 40)
+      ctx.strokeStyle = '#c58b2f'
+      ctx.lineWidth = 4
+      ctx.strokeRect(x - 45, y - 28, 90, 40)
+      ctx.fillStyle = '#f4c84e'
+      ctx.beginPath()
+      ctx.moveTo(x - 42, y - 28)
+      ctx.lineTo(x - 34, y - 70)
+      ctx.lineTo(x + 45, y - 57)
+      ctx.lineTo(x + 45, y - 28)
+      ctx.closePath()
+      ctx.fill()
+      ctx.fillStyle = '#f8d66b'
+      for (let index = 0; index < 5; index++) {
+        ctx.beginPath()
+        ctx.arc(x - 24 + index * 13, y - 42 - (index % 2) * 6, 6, 0, Math.PI * 2)
+        ctx.fill()
+      }
+      ctx.fillStyle = '#e6b83e'
+      ctx.fillRect(x - 4, y - 17, 8, 13)
+      ctx.restore()
+    }
 
-    drawPerson(centerX - 205, centerY + 70, '#395b73', 1.25)
-    drawPerson(centerX + 205, centerY + 70, '#395b73', 1.25)
-    ctx.fillStyle = '#e7c467'
-    ctx.fillRect(centerX - 208, centerY + 21, 5, 45)
-    ctx.fillRect(centerX + 202, centerY + 21, 5, 45)
+    const drawCrownedRuler = (x: number, y: number) => {
+      ctx.save()
+      ctx.translate(x, y)
+      ctx.rotate(-0.12)
+      ctx.fillStyle = '#e9c39b'
+      ctx.beginPath()
+      ctx.arc(-3, -48, 7, 0, Math.PI * 2)
+      ctx.fill()
+      ctx.fillStyle = '#9b4b43'
+      ctx.fillRect(-13, -40, 22, 31)
+      ctx.fillStyle = '#e7bd45'
+      ctx.beginPath()
+      ctx.moveTo(-16, -53)
+      ctx.lineTo(-11, -70)
+      ctx.lineTo(-3, -58)
+      ctx.lineTo(6, -70)
+      ctx.lineTo(12, -51)
+      ctx.closePath()
+      ctx.fill()
+      ctx.strokeStyle = '#3b2b28'
+      ctx.lineWidth = 3
+      ctx.beginPath()
+      ctx.moveTo(-7, -28)
+      ctx.lineTo(-34, -57)
+      ctx.moveTo(7, -29)
+      ctx.lineTo(-1, -3)
+      ctx.stroke()
+      ctx.strokeStyle = '#3b2b28'
+      ctx.beginPath()
+      ctx.moveTo(-7, -9)
+      ctx.lineTo(-14, 7)
+      ctx.moveTo(7, -9)
+      ctx.lineTo(12, 7)
+      ctx.stroke()
+      const coinCycle = (this.introStoryTime % 1.8) / 1.8
+      const coinY = -78 - coinCycle * 34
+      ctx.fillStyle = '#f4c84e'
+      ctx.globalAlpha = 1 - coinCycle
+      ctx.beginPath()
+      ctx.arc(23, coinY, 9, 0, Math.PI * 2)
+      ctx.fill()
+      ctx.fillStyle = '#f4c84e'
+      ctx.font = '900 14px Georgia, serif'
+      ctx.textAlign = 'left'
+      ctx.fillText('+1', 38, coinY + 5)
+      ctx.restore()
+    }
 
-    const vignette = ctx.createRadialGradient(centerX, centerY, 160, centerX, centerY, 620)
-    vignette.addColorStop(0, 'rgba(8, 19, 28, 0)')
-    vignette.addColorStop(1, 'rgba(8, 19, 28, 0.68)')
-    ctx.fillStyle = vignette
-    ctx.fillRect(0, 0, WIDTH, HEIGHT)
+    const drawStandingKing = (x: number, y: number) => {
+      ctx.save()
+      ctx.translate(x, y)
+      ctx.fillStyle = '#e9c39b'
+      ctx.beginPath()
+      ctx.arc(0, -46, 7, 0, Math.PI * 2)
+      ctx.fill()
+      ctx.fillStyle = '#e7bd45'
+      ctx.beginPath()
+      ctx.moveTo(-15, -51)
+      ctx.lineTo(-9, -68)
+      ctx.lineTo(0, -57)
+      ctx.lineTo(9, -68)
+      ctx.lineTo(15, -51)
+      ctx.closePath()
+      ctx.fill()
+      ctx.fillStyle = '#9b4b43'
+      ctx.fillRect(-12, -38, 24, 34)
+      ctx.strokeStyle = '#3b2b28'
+      ctx.lineWidth = 3
+      ctx.beginPath()
+      ctx.moveTo(-7, -4)
+      ctx.lineTo(-12, 12)
+      ctx.moveTo(7, -4)
+      ctx.lineTo(12, 12)
+      ctx.moveTo(-9, -28)
+      ctx.lineTo(-25, -11)
+      ctx.moveTo(9, -28)
+      ctx.lineTo(25, -15)
+      ctx.stroke()
+      ctx.restore()
+    }
+
+    const drawBuilder = (x: number, y: number, offset: number) => {
+      ctx.save()
+      ctx.translate(x, y)
+      const hammer = Math.sin(this.introStoryTime * 7 + offset) * 0.35
+      ctx.fillStyle = '#e9c39b'
+      ctx.beginPath()
+      ctx.arc(0, -25, 5, 0, Math.PI * 2)
+      ctx.fill()
+      ctx.fillStyle = '#496b70'
+      ctx.fillRect(-7, -19, 14, 22)
+      ctx.strokeStyle = '#3b2b28'
+      ctx.lineWidth = 3
+      ctx.beginPath()
+      ctx.moveTo(-3, 3)
+      ctx.lineTo(-7, 14)
+      ctx.moveTo(3, 3)
+      ctx.lineTo(7, 14)
+      ctx.stroke()
+      ctx.save()
+      ctx.translate(6, -10)
+      ctx.rotate(hammer)
+      ctx.strokeStyle = '#704d2f'
+      ctx.lineWidth = 3
+      ctx.beginPath()
+      ctx.moveTo(0, 0)
+      ctx.lineTo(18, -22)
+      ctx.stroke()
+      ctx.fillStyle = '#9a9da0'
+      ctx.fillRect(13, -28, 13, 8)
+      ctx.restore()
+      ctx.restore()
+    }
+
+    const drawPleasureWorker = (x: number, y: number, color: string, offset: number) => {
+      ctx.save()
+      const bending = x > right + 55 && x < right + 145
+      ctx.translate(x, y + Math.sin(this.introStoryTime * 5 + offset) * 2)
+      if (bending) ctx.rotate(0.32)
+      ctx.fillStyle = '#e9c39b'
+      ctx.beginPath()
+      ctx.arc(0, -30, 6, 0, Math.PI * 2)
+      ctx.fill()
+      ctx.fillStyle = '#382b3f'
+      ctx.beginPath()
+      ctx.arc(-1, -34, 10, Math.PI, Math.PI * 2)
+      ctx.arc(-8, -28, 5, 0.5, Math.PI * 1.5)
+      ctx.fill()
+      ctx.fillStyle = color
+      ctx.beginPath()
+      ctx.moveTo(-9, 7)
+      ctx.lineTo(-7, -22)
+      ctx.lineTo(7, -22)
+      ctx.lineTo(11, 7)
+      ctx.closePath()
+      ctx.fill()
+      ctx.fillStyle = 'rgba(104, 54, 72, .68)'
+      ctx.beginPath()
+      ctx.moveTo(-6, -16)
+      ctx.lineTo(-1, -9)
+      ctx.lineTo(-9, -9)
+      ctx.moveTo(2, -9)
+      ctx.lineTo(7, -16)
+      ctx.lineTo(10, -9)
+      ctx.closePath()
+      ctx.fill()
+      ctx.strokeStyle = '#3b2b28'
+      ctx.lineWidth = 3
+      ctx.beginPath()
+      ctx.moveTo(-3, 6)
+      ctx.lineTo(-6, 18)
+      ctx.moveTo(3, 6)
+      ctx.lineTo(7, 18)
+      ctx.moveTo(-6, -10)
+      ctx.lineTo(-19, -1)
+      ctx.moveTo(6, -10)
+      ctx.lineTo(19, -1)
+      ctx.stroke()
+      ctx.restore()
+    }
+
+    const drawKiss = (x: number, y: number, progress: number) => {
+      ctx.save()
+      ctx.globalAlpha = Math.max(0, 1 - progress)
+      ctx.fillStyle = '#f38ba8'
+      ctx.font = '900 18px Georgia, serif'
+      ctx.textAlign = 'center'
+      ctx.fillText('♡', x, y - progress * 48)
+      ctx.restore()
+    }
+
+    const drawStoryRoad = () => {
+      ctx.save()
+      ctx.strokeStyle = '#3b302b'
+      ctx.lineWidth = 22
+      ctx.lineCap = 'round'
+      ctx.beginPath()
+      ctx.moveTo(right, 338)
+      ctx.lineTo(right, 540)
+      ctx.moveTo(right - 190, 452)
+      ctx.lineTo(right + 190, 452)
+      ctx.stroke()
+      ctx.strokeStyle = '#9b774d'
+      ctx.lineWidth = 14
+      ctx.beginPath()
+      ctx.moveTo(right, 338)
+      ctx.lineTo(right, 540)
+      ctx.moveTo(right - 190, 452)
+      ctx.lineTo(right + 190, 452)
+      ctx.stroke()
+      ctx.strokeStyle = 'rgba(226, 194, 122, .42)'
+      ctx.lineWidth = 2
+      for (let y = 360; y < 535; y += 24) {
+        ctx.beginPath()
+        ctx.moveTo(right - 5, y)
+        ctx.lineTo(right + 5, y + 8)
+        ctx.stroke()
+      }
+      ctx.restore()
+    }
+
+    if (this.introStoryIndex === 0) {
+      drawStoryRoad()
+      drawField(right - 135, 405, 120, 78, -0.12)
+      drawField(right + 135, 405, 120, 78, 0.12)
+      drawField(right - 135, 500, 120, 78, -0.12)
+      drawField(right + 135, 500, 120, 78, 0.12)
+      this.drawStoryCastle(right, 330, '#8a6746', 0.76)
+      drawSeeder(right - 135, 412, '#d8a447')
+      drawSeeder(right - 135, 507, '#c7774e')
+      drawCow(right + 135, 405, -1)
+      drawCow(right + 135, 500, 1)
+    } else if (this.introStoryIndex === 1) {
+      drawStoryRoad()
+      drawField(right - 118, 380, 200, 90, -0.1)
+      drawHarvestedPatch(right - 118, 380, 200, 90, -0.1)
+      this.drawStoryTemple(right, 272, false)
+      drawGranary(right + 112, 405)
+      drawScytheFarmer(right - 118, 414)
+      const march = (this.introStoryTime * 34) % 250
+      drawGuard(right - 175 + march, 466, 0)
+      drawGuard(right - 95 + march, 466, 1.8)
+    } else if (this.introStoryIndex === 2) {
+      this.drawStoryTemple(right, 285, true)
+      ctx.fillStyle = 'rgba(64, 42, 36, .7)'
+      ctx.fillRect(right - 116, 398, 232, 35)
+      const chase = (this.introStoryTime * 38) % 230
+      const courtChase = Math.min(chase * 0.7, 135)
+      drawPriest(right - 15 - chase, 375, 0)
+      drawPriest(right + 30 - chase, 390, 1.5)
+      drawJeerer(right + 45 - courtChase, 398, '#7b3f59', 0)
+      drawJeerer(right + 105 - courtChase, 398, '#315c78', 1.2)
+      drawCrownedRuler(right + 140, 414)
+      drawTreasureChest(right + 105, 448)
+      ctx.fillStyle = '#76512f'
+      ctx.fillRect(right - 4, 220, 8, 120)
+      ctx.fillStyle = '#bd4d52'
+      ctx.beginPath()
+      ctx.moveTo(right + 4, 222)
+      ctx.lineTo(right + 46, 234)
+      ctx.lineTo(right + 4, 247)
+      ctx.fill()
+    } else {
+      this.drawStoryTemple(right, 294, true)
+      ctx.fillStyle = '#a9a28d'
+      for (const pillarX of [right - 92, right - 48, right + 48, right + 92]) {
+        ctx.fillRect(pillarX - 8, 190, 16, 150)
+        ctx.fillStyle = '#d5c9a4'
+        ctx.fillRect(pillarX - 13, 184, 26, 10)
+        ctx.fillRect(pillarX - 13, 338, 26, 10)
+        ctx.fillStyle = '#a9a28d'
+      }
+      ctx.fillStyle = '#b9b09a'
+      ctx.beginPath()
+      ctx.arc(right, 135, 13, 0, Math.PI * 2)
+      ctx.fill()
+      ctx.fillStyle = '#c9c0aa'
+      ctx.beginPath()
+      ctx.moveTo(right - 20, 153)
+      ctx.lineTo(right, 126)
+      ctx.lineTo(right + 20, 153)
+      ctx.lineTo(right + 13, 187)
+      ctx.lineTo(right - 13, 187)
+      ctx.closePath()
+      ctx.fill()
+      ctx.fillStyle = '#7b5b3b'
+      ctx.fillRect(right - 24, 390, 48, 22)
+      ctx.fillStyle = '#f0c95d'
+      ctx.beginPath()
+      ctx.arc(right, 386, 10, 0, Math.PI * 2)
+      ctx.fill()
+      drawBuilder(right - 112, 390, 0)
+      drawBuilder(right - 62, 372, 1.3)
+      drawBuilder(right + 67, 374, 2.6)
+      drawStandingKing(right + 125, 520)
+      const attendantSpeed = 48
+      const attendantOffsets = [0, 72, 144, 216, 288]
+      const attendantColors = ['#bf6f83', '#8c5b76', '#c28c55', '#a8626b', '#6c668f']
+      for (const [index, offset] of attendantOffsets.entries()) {
+        const pass = (this.introStoryTime * attendantSpeed + offset) % 360
+        const x = right - 205 + pass
+        const y = 500 + (index % 2) * 18
+        drawPleasureWorker(x, y, attendantColors[index]!, index * 1.1)
+        if (pass > 242 && pass < 292) {
+          drawKiss(right + 98, 475, (pass - 242) / 50)
+        }
+      }
+      ctx.fillStyle = 'rgba(31, 41, 55, .72)'
+      ctx.beginPath()
+      ctx.arc(right - 114, 108, 48 + sway, 0, Math.PI * 2)
+      ctx.arc(right - 40, 92, 58 - sway, 0, Math.PI * 2)
+      ctx.arc(right + 46, 108, 50 + sway, 0, Math.PI * 2)
+      ctx.fill()
+      ctx.fillStyle = '#d2a24c'
+      ctx.font = '900 18px Georgia, serif'
+      ctx.fillText('THE KING HAS SPOKEN', right, 555)
+    }
     ctx.restore()
+  }
+
+  private drawStoryCastle(centerX: number, baseY: number, color: string, scale = 1) {
+    const ctx = this.ctx
+    ctx.save()
+    ctx.translate(centerX, baseY)
+    ctx.scale(scale, scale)
+    ctx.translate(-centerX, -baseY)
+    ctx.fillStyle = color
+    ctx.fillRect(centerX - 90, baseY - 70, 180, 96)
+    ctx.fillRect(centerX - 122, baseY - 124, 48, 150)
+    ctx.fillRect(centerX + 74, baseY - 124, 48, 150)
+    ctx.beginPath()
+    ctx.moveTo(centerX - 136, baseY - 124)
+    ctx.lineTo(centerX - 98, baseY - 170)
+    ctx.lineTo(centerX - 60, baseY - 124)
+    ctx.moveTo(centerX + 60, baseY - 124)
+    ctx.lineTo(centerX + 98, baseY - 170)
+    ctx.lineTo(centerX + 136, baseY - 124)
+    ctx.fill()
+    ctx.fillStyle = '#302426'
+    ctx.fillRect(centerX - 20, baseY - 7, 40, 33)
+    ctx.fillStyle = '#d8b45b'
+    ctx.fillRect(centerX - 4, baseY - 202, 8, 38)
+    ctx.restore()
+  }
+
+  private drawStoryTemple(centerX: number, baseY: number, damaged: boolean) {
+    const ctx = this.ctx
+    ctx.fillStyle = damaged ? '#756049' : '#a47f50'
+    ctx.fillRect(centerX - 92, baseY - 76, 184, 104)
+    ctx.fillStyle = damaged ? '#5a483d' : '#c39b5d'
+    ctx.fillRect(centerX - 112, baseY - 108, 224, 20)
+    ctx.beginPath()
+    ctx.moveTo(centerX - 125, baseY - 108)
+    ctx.lineTo(centerX, baseY - 182)
+    ctx.lineTo(centerX + 125, baseY - 108)
+    ctx.fill()
+    ctx.fillStyle = '#34272b'
+    ctx.fillRect(centerX - 22, baseY - 40, 44, 68)
+    ctx.fillStyle = damaged ? '#5e463a' : '#e9c46a'
+    ctx.fillRect(centerX - 62, baseY - 70, 25, 35)
+    ctx.fillRect(centerX + 37, baseY - 70, 25, 35)
+    if (!damaged) {
+      ctx.fillStyle = '#ed8b3d'
+      ctx.beginPath()
+      ctx.arc(centerX, baseY - 155 + Math.sin(this.introStoryTime * 8) * 4, 12, 0, Math.PI * 2)
+      ctx.fill()
+    }
   }
 
   private drawActiveRunScene() {
@@ -3461,9 +4119,8 @@ export class PathwardenEngine {
   private drawOpeningCinematic() {
     const ctx = this.ctx
     const time = this.openingCinematicTime
-    const progress = clamp(time / this.openingCinematicDuration, 0, 1)
-    const castle = this.worldToCanvas(this.gridToScreen(this.path[0]!))
-    const gate = this.worldToCanvas(this.castleGatePosition())
+    const castle = { x: WIDTH * 0.72, y: HEIGHT * 0.57 }
+    const gate = { x: castle.x, y: castle.y + 58 }
     const descent = clamp((time - 0.65) / 1.8, 0, 1)
     const curse = clamp((time - 1.85) / 2.2, 0, 1)
     const departure = clamp((time - 4.1) / 1.7, 0, 1)
@@ -3472,6 +4129,13 @@ export class PathwardenEngine {
     const fogOpacity = reveal > 0 ? 0.94 * (1 - reveal) : 0.1 + fogClosing * 0.84
 
     ctx.save()
+    ctx.fillStyle = '#091523'
+    ctx.fillRect(0, 0, WIDTH, HEIGHT)
+    ctx.fillStyle = '#e8d29b'
+    ctx.font = '900 13px Georgia, serif'
+    ctx.textAlign = 'center'
+    ctx.fillText('THE TEMPLE IS BROKEN', WIDTH * 0.72, 72)
+    this.drawStoryCastle(castle.x, castle.y + 28, '#765843')
     ctx.fillStyle = `rgba(8, 15, 32, ${fogOpacity})`
     ctx.fillRect(0, 0, WIDTH, HEIGHT)
     const clearRadius = Math.max(0, 190 * (1 - fogClosing))
@@ -3504,16 +4168,6 @@ export class PathwardenEngine {
         ctx.arc(x, y, 150, 0, Math.PI * 2)
         ctx.fill()
       }
-    }
-    if (progress < 0.25) {
-      ctx.globalAlpha = clamp(1 - progress * 3, 0, 1)
-      ctx.textAlign = 'center'
-      ctx.fillStyle = '#f8fafc'
-      ctx.font = '900 26px sans-serif'
-      ctx.fillText('THE OLD GOD DESCENDS', WIDTH / 2, 78)
-      ctx.fillStyle = '#cbd5e1'
-      ctx.font = '600 13px sans-serif'
-      ctx.fillText('The land remembers its curse', WIDTH / 2, 102)
     }
     ctx.restore()
   }
@@ -3553,11 +4207,21 @@ export class PathwardenEngine {
       ctx.stroke()
       ctx.restore()
     }
+    ctx.save()
+    ctx.globalAlpha = clamp((flee - 0.65) * 2, 0, 1)
+    const fog = ctx.createRadialGradient(gate.x, gate.y - 12, 8, gate.x, gate.y - 12, 92)
+    fog.addColorStop(0, 'rgba(200, 215, 235, .82)')
+    fog.addColorStop(1, 'rgba(120, 145, 180, 0)')
+    ctx.fillStyle = fog
+    ctx.beginPath()
+    ctx.arc(gate.x, gate.y - 12, 92, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.restore()
   }
 
   private drawCinematicGod(descent: number, departure: number, curse: number) {
     const ctx = this.ctx
-    const x = WIDTH / 2 + Math.sin(this.openingCinematicTime * 0.9) * 110
+    const x = WIDTH * 0.72 + Math.sin(this.openingCinematicTime * 0.9) * 52
     const y = -100 + descent * 285 - departure * 330
     ctx.save()
     ctx.globalAlpha = clamp(1 - departure, 0, 1)
@@ -3843,6 +4507,7 @@ export class PathwardenEngine {
     this.drawRoad()
     this.drawBridgeDetails()
     this.drawFrostFields()
+    this.drawTowerRangePreview()
     this.drawHover()
 
     // Every object shares a single painter's-order queue. A tower south-east
@@ -3872,6 +4537,16 @@ export class PathwardenEngine {
         ? this.hoverCell
         : tower
       renderables.push({ y: this.gridToScreen(renderPoint).y + 2, draw: () => this.drawTower(tower, renderPoint) })
+    }
+    if (this.placementMode
+      && this.hoverCell
+      && this.revealed.has(cellKey(this.hoverCell))
+      && !this.towers.some(tower => tower.col === this.hoverCell!.col && tower.row === this.hoverCell!.row)) {
+      const placementCell = { ...this.hoverCell }
+      renderables.push({
+        y: this.gridToScreen(placementCell).y + 3,
+        draw: () => this.drawPlacementPreview(placementCell)
+      })
     }
     if (this.failedPlacement) {
       const failed = this.failedPlacement
@@ -5738,6 +6413,56 @@ export class PathwardenEngine {
     ctx.restore()
   }
 
+  private drawPlacementPreview(point: GridPoint) {
+    const ctx = this.ctx
+    const preview: Tower = {
+      id: -1,
+      ...point,
+      type: this.selectedTower,
+      invested: 0,
+      cooldown: 0,
+      angle: -Math.PI / 2,
+      level: 1,
+      merges: 0,
+      recoil: 0,
+      targeting: 'first',
+      relicStacks: 0,
+      relicPower: 0,
+      relicShots: 0
+    }
+    const geometry = this.towerGeometry(preview)
+    const allowed = this.placementStatus(point).allowed
+    const cost = this.towerCost(preview.type)
+    const affordable = this.aether >= cost
+    const color = allowed && affordable ? '#facc15' : '#fb7185'
+
+    ctx.save()
+    ctx.globalAlpha = 0.46
+    ctx.shadowColor = color
+    ctx.shadowBlur = 18
+    this.drawTowerStructure(preview, geometry.screen.x, geometry.foot.y, geometry.width, geometry.height)
+    ctx.shadowBlur = 0
+    this.drawTowerWeapon(preview, geometry.weaponPivot.x, geometry.weaponPivot.y)
+    ctx.restore()
+
+    ctx.save()
+    const label = `${cost} AETHER`
+    const labelY = geometry.foot.y - geometry.height - 15
+    ctx.font = '900 12px sans-serif'
+    ctx.textAlign = 'center'
+    const labelWidth = ctx.measureText(label).width + 18
+    ctx.fillStyle = 'rgba(15,23,42,.88)'
+    ctx.strokeStyle = color
+    ctx.lineWidth = 2
+    ctx.beginPath()
+    ctx.roundRect(geometry.screen.x - labelWidth / 2, labelY - 15, labelWidth, 22, 7)
+    ctx.fill()
+    ctx.stroke()
+    ctx.fillStyle = color
+    ctx.fillText(label, geometry.screen.x, labelY)
+    ctx.restore()
+  }
+
   private drawTowerStructure(tower: Tower, x: number, footY: number, width: number, height: number) {
     const ctx = this.ctx
     const blueprint = this.towerBlueprint(tower.type)
@@ -6185,6 +6910,55 @@ export class PathwardenEngine {
       ctx.lineWidth = 2
       ctx.stroke()
     }
+    ctx.restore()
+  }
+
+  private drawTowerRangePreview() {
+    if (this.phase !== 'planning') return
+    const selectedTower = this.towers.find(tower => tower.id === this.selectedTowerId)
+    if (selectedTower) {
+      const renderPoint = this.towerDrag?.active && this.towerDrag.towerId === selectedTower.id && this.hoverCell
+        ? this.hoverCell
+        : selectedTower
+      this.drawTowerRange(selectedTower.type, renderPoint, selectedTower.level)
+      return
+    }
+    if (!this.hoverCell || !this.revealed.has(cellKey(this.hoverCell))) return
+    this.drawTowerRange(this.selectedTower, this.hoverCell, 1)
+  }
+
+  private drawTowerRange(type: PathwardenTowerType, point: GridPoint, level: number) {
+    const ctx = this.ctx
+    const screen = this.gridToScreen(point)
+    const elevation = this.elevations[point.row]![point.col]!
+    const range = towerStats(type).range
+      * this.rangeMultiplier
+      * (1 + (elevation - 1) * 0.09)
+      * (1 + (level - 1) * 0.05)
+    const radiusCells = range / WORLD_CELL
+    const radiusX = radiusCells * TILE_WIDTH * 0.52
+    const radiusY = radiusCells * TILE_HEIGHT * 0.52
+    const pulse = 0.98 + Math.sin(performance.now() / 460) * 0.02
+
+    ctx.save()
+    ctx.translate(screen.x, screen.y + 2)
+    ctx.scale(radiusX * pulse, radiusY * pulse)
+    const glow = ctx.createRadialGradient(0, 0, 0.05, 0, 0, 1)
+    glow.addColorStop(0, 'rgba(250,204,21,.2)')
+    glow.addColorStop(0.58, 'rgba(250,204,21,.11)')
+    glow.addColorStop(0.86, 'rgba(250,204,21,.05)')
+    glow.addColorStop(1, 'rgba(250,204,21,0)')
+    ctx.fillStyle = glow
+    ctx.beginPath()
+    ctx.arc(0, 0, 1, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.strokeStyle = 'rgba(250,204,21,.82)'
+    ctx.lineWidth = 1.8 / Math.max(radiusX, radiusY)
+    ctx.setLineDash([0.035, 0.025])
+    ctx.beginPath()
+    ctx.arc(0, 0, 0.92, 0, Math.PI * 2)
+    ctx.stroke()
+    ctx.setLineDash([])
     ctx.restore()
   }
 

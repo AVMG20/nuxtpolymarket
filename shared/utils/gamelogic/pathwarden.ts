@@ -216,13 +216,23 @@ export function pathwardenCheckpointRate(wave: number, realm: number) {
 export function pathwardenCheckpointBaseCoins(wave: number, realm: number) {
     const checkpoint = wave >= 12 ? 3 : wave >= 8 ? 2 : wave >= 4 ? 1 : 0
     if (!checkpoint) return 0
-    const base = [0, 4_000, 25_000, 125_000][checkpoint]!
+    const base = [0, 75_000, 150_000, 300_000][checkpoint]!
     return Math.round(base * (1 + (Math.max(1, realm) - 1) * 0.5))
 }
 
-export function pathwardenCashoutCoins(aether: number, wave: number, realm: number) {
+/** Guaranteed account reward for reaching a checkpoint. Realm difficulty scales this payout. */
+export function pathwardenCheckpointReward(wave: number, realm: number) {
+    return pathwardenCheckpointBaseCoins(wave, realm)
+}
+
+/** Optional bonus from converting the Aether carried into a checkpoint. */
+export function pathwardenAetherCashoutBonus(aether: number, wave: number, realm: number) {
     const boundedAether = Math.max(0, Math.floor(Number.isFinite(aether) ? aether : 0))
-    return pathwardenCheckpointBaseCoins(wave, realm) + boundedAether * pathwardenCheckpointRate(wave, realm)
+    return boundedAether * pathwardenCheckpointRate(wave, realm)
+}
+
+export function pathwardenCashoutCoins(aether: number, wave: number, realm: number) {
+    return pathwardenCheckpointReward(wave, realm) + pathwardenAetherCashoutBonus(aether, wave, realm)
 }
 
 /** Client reports are capped generously; debug Aether can never become real coins. */

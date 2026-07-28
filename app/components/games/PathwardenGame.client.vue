@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import {
-  PATHWARDEN_TOWERS,
   PathwardenEngine,
   type PathwardenInventoryRelic,
   type PathwardenEngineRestore,
@@ -12,8 +11,11 @@ import {
 } from '~/utils/pathwarden-engine'
 import type { PathwardenGameState, PathwardenMapPlan } from '#shared/types/pathwarden-save'
 import {
-  pathwardenCashoutCoins,
+  PATHWARDEN_DEFENSE_BLUEPRINTS,
+  type PathwardenDefenseArchetype,
+  pathwardenAetherCashoutBonus,
   pathwardenCheckpointRate,
+  pathwardenCheckpointReward,
   pathwardenBoostEffects,
   pathwardenMaxAetherAtCheckpoint
 } from '#shared/utils/gamelogic/pathwarden'
@@ -80,8 +82,30 @@ const snapshot = ref<PathwardenSnapshot>({
   relicInventory: [],
   canSellRelics: false
 })
+const inspectedUpgradeFamily = ref<string | null>(null)
+
+const selectedUpgrade = computed(() => {
+  const building = snapshot.value.selectedBuilding
+  if (!building) return null
+  const upgrades = [
+    ...(building.relicFamily
+      ? [{
+          family: building.relicFamily,
+          name: building.relicName,
+          description: building.relicDescription,
+          level: building.relicStacks,
+          power: building.relicPower,
+          iconIndex: building.relicIconIndex,
+          global: false
+        }]
+      : []),
+    ...building.globalRelics.map(relic => ({ ...relic, global: true }))
+  ]
+  return upgrades.find(upgrade => upgrade.family === inspectedUpgradeFamily.value) ?? null
+})
 const upgradeChoices = ref<PathwardenRelic[]>([])
 const boostShopOpen = ref(false)
+const defenseInventoryOpen = ref(false)
 const abandonOpen = ref(false)
 const simulatorOpen = ref(false)
 const simulatorRunning = ref(false)
@@ -97,6 +121,8 @@ const clearingDebugCache = ref(false)
 const useSurge = ref(false)
 const hintsEnabled = ref(true)
 const runActive = ref(false)
+const claimedCheckpointWaves = new Set<number>()
+const checkpointClaims = new Map<number, Promise<void>>()
 const settling = ref(false)
 const rushingCooldown = ref(false)
 const nowMs = ref(Date.now())
@@ -105,6 +131,77 @@ const { fetchSession } = useAuth()
 const isDev = import.meta.dev
 const devGuidesEnabled = ref(false)
 const selectedIdleStoryId = ref(1)
+type DefenseInventoryTab = 'all' | PathwardenDefenseArchetype
+type DefenseInventorySort = 'power' | 'cost'
+const defenseInventoryTab = ref<DefenseInventoryTab>('all')
+const defenseInventorySort = ref<DefenseInventorySort>('power')
+const defenseInventoryTabs = [
+  { label: 'All defenses', value: 'all', icon: 'i-lucide-layout-grid' },
+  { label: 'Ballista', value: 'ballista', icon: 'i-lucide-crosshair' },
+  { label: 'Mortar', value: 'mortar', icon: 'i-lucide-bomb' },
+  { label: 'Spire', value: 'spire', icon: 'i-lucide-tower-control' }
+]
+const defenseInventorySorts = [
+  { label: 'Strongest first', value: 'power' },
+  { label: 'Lowest Aether cost', value: 'cost' }
+]
+const defenseArchetypeLabels: Record<PathwardenDefenseArchetype, string> = {
+  ballista: 'Ballista',
+  mortar: 'Mortar',
+  spire: 'Spire'
+}
+const defenseLore: Record<string, string> = {
+  bolt: 'The first Star Ballista was made from a fallen constellation’s pinion: simple, honest, and deadly when a single raider matters.',
+  'star-2': 'Comet Repeaters added a second firing rail after wardens learned that one marked target is rarely alone at a frontier breach.',
+  'star-3': 'Astral Arbalests carry mirrored sights cut by the observatory, keeping their aim true through bends and broken ground.',
+  'star-4': 'Celestial Scorpions are fortress-grade ballistae whose counterweights let them punish commanders before the rank-and-file.',
+  'star-5': 'Heavenpiercers are reserved for the keep’s final oath: every bolt is named, fletched, and loosed as if it were the last shot of the realm.',
+  mortar: 'The first Sun Mortar was a temple brazier turned inside out, teaching the wardens that one well-placed shell can answer an entire crowd.',
+  'sun-2': 'Solar Bombards use mirrored plates to hold the noon heat longer, making every blast a brighter warning to enemies on a shared road.',
+  'sun-3': 'Helios Howitzers were cast from bell bronze and tuned to the keep’s alarm, their shells arriving like a second thunderclap.',
+  'sun-4': 'Daystar Cannons carry a lens of captive dawn, burning through the haze where ordinary bombard crews lose their target.',
+  'sun-5': 'Noonfall Engines are the reliquary’s great sun: too magnificent for a village wall, and precisely why the oldest wardens still build them.',
+  frost: 'The Winter Spire began as a shepherd’s marker that could freeze a boot to the road, buying the keep its first precious breaths.',
+  'winter-2': 'Rime Monoliths draw cold from deep stone, widening the hush around them so a whole patrol feels the season change.',
+  'winter-3': 'Glacier Beacons preserve the names of every frozen pass; their crystal cores make haste itself seem foolish to an invader.',
+  'winter-4': 'Permafrost Crowns are crowned with ice that never melts, turning their ground into a patient trap for the swiftest horde.',
+  'winter-5': 'Whiteout Sanctums do not merely slow an army—they make the road forget where forward was, until the keep chooses who may pass.',
+  ember: 'Ember Bastions were raised above the old furnace vents, where their first wardens learned that stubborn armor fears a hotter argument.',
+  'ember-2': 'Cinder Redoubts line their chambers with slag from the temple purge, holding enough heat to keep fighting after the torches fail.',
+  'ember-3': 'Furnace Keeps were designed by smiths who lost a city gate; each shell carries their answer to every shield that once held.',
+  'ember-4': 'Caldera Citadels vent through twin chimneys, feeding a controlled inferno that makes prolonged engagements their natural theatre.',
+  'ember-5': 'Worldfire Bastions are living foundries, their ammunition forged between waves so the enemy faces an ever-renewed furnace.',
+  storm: 'The Tempest Obelisk was first struck by lightning during a coronation and has never stopped humming for the king it outlived.',
+  'storm-2': 'Thunder Pylons split the first charge across a braided copper crown, letting one crackle leap from a mistake to its neighbours.',
+  'storm-3': 'Stormcall Needles were tuned by sailors who read weather in rigging, finding the exact instant a formation becomes a conductor.',
+  'storm-4': 'Skybreaker Coils bottle pressure from high clouds, releasing it in disciplined bursts rather than the wild fury of a natural storm.',
+  'storm-5': 'Godspark Obelisks are the wardens’ most audacious theft from the heavens: a controlled tempest that makes clustering an act of surrender.',
+  radiant: 'The Dawn Chapel was built around a single clear window, giving tired defenders a place where one ray could still mean morning.',
+  'dawn-2': 'Aurora Shrines lace that window with colored glass, spreading their blessing across a wider road without losing its gentle precision.',
+  'dawn-3': 'Radiant Basilicas house choirs whose bells keep the light aligned, cleansing formations that would overwhelm a lone chapel.',
+  'dawn-4': 'Seraphic Lanterns were carried through the plague years and learned to shine beyond smoke, ash, and the fear beneath both.',
+  'dawn-5': 'Firstlight Cathedrals open their roofs to the horizon, making the first beam of every morning a weapon with the reach of a prayer.',
+  venom: 'The Briar Slinger began as a hunter’s bow strung with living vine, meant to make a dangerous beast reconsider its next step.',
+  'venom-2': 'Adder Nests cultivate two strains of poison: one finds the blood, the other waits for the armor to crack.',
+  'venom-3': 'Nightshade Bowerys are tended like orchards, with each dark blossom bred for a different enemy temperament.',
+  'venom-4': 'Basilisk Roosts keep their venom in cold glass and release it only at the moment a champion believes itself safe.',
+  'venom-5': 'Widowmaker Groves are silent gardens of accumulated grudges, where every dart carries generations of patient instruction.',
+  gale: 'The Gale Fan was built from a mill wheel and proved that a gentle wind, aimed well, could turn a road into a wall.',
+  'gale-2': 'Zephyr Mills add counter-rotating sails, shaping the air so fast attackers spend their strength before reaching the gate.',
+  'gale-3': 'Cyclone Turrets were engineered by bridgewrights who learned to make pressure hold a span; their bursts hold a formation just as surely.',
+  'gale-4': 'Hurricane Looms weave several currents together, punishing every enemy that tries to exploit an opening beside its companion.',
+  'gale-5': 'Worldwind Engines make the battlefield feel larger than it is, folding distance back on every enemy who thought speed was victory.',
+  prism: 'The Prism Ward was a glassmaker’s experiment that found enemies hiding beyond the reach of ordinary watchtowers.',
+  'prism-2': 'Glasslight Lenses grind three colors into one sightline, making distant armor show its seams before it reaches the road bend.',
+  'prism-3': 'Spectrum Towers were raised after the first mist eclipse; their refracted beams keep working when the sky refuses to give a true horizon.',
+  'prism-4': 'Aurora Arrays use suspended crystal plates to divide one judgment across multiple lanes without diluting its purpose.',
+  'prism-5': 'Thousand-Ray Prisms are less a tower than a treaty with light, seeing through distance, weather, and the lies of heavy armor.',
+  siege: 'The Iron Bombard was dragged from a ruined gate and taught the keep that a road can be defended by making its far end afraid.',
+  'siege-2': 'Castle Crackers gained a longer chamber and heavier shot after the first siege beasts learned to shrug off ordinary shells.',
+  'siege-3': 'Titan Culverins require a foundation of black stone, but repay the effort with impacts that reshape the enemy’s entire approach.',
+  'siege-4': 'Kingfall Cannons were built for tyrants who trusted walls; their crews aim past the vanguard and speak directly to whatever commands it.',
+  'siege-5': 'Dreadnought Batteries are mobile legends assembled from five conquered fortresses, a final argument no ordinary road can carry quietly.'
+}
 const simulationStrategies = [
   { label: 'Balanced', value: 'balanced' },
   { label: 'Max Aether preserve', value: 'aether-reserve' },
@@ -148,6 +245,8 @@ const idleStoryItems = idleStoryFamilies.flatMap((family, familyIndex) =>
     }
   }))
 const { data: boostState, refresh: refreshBoosts } = await useFetch('/api/pathwarden/state')
+const skipIntro = ref(Boolean(boostState.value?.skipIntro))
+const savingPreferences = ref(false)
 let engine: PathwardenEngine | null = null
 let unregisterDevBridge = () => {}
 let cooldownClock: ReturnType<typeof setInterval> | null = null
@@ -157,16 +256,17 @@ let saveInFlight = false
 let saveDirty = false
 let restoredRun: { mapPlan: PathwardenMapPlan, gameState: PathwardenGameState } | undefined
 
-const towerTypes = computed(() => (Object.keys(PATHWARDEN_TOWERS) as PathwardenTowerType[])
-  .filter(type => boostState.value?.defenses?.some(defense => defense.id === type && defense.owned)
-    ?? ['bolt', 'mortar', 'frost'].includes(type)))
+const towerTypes = computed(() => (boostState.value?.defenses
+  ?.filter(defense => defense.owned)
+  .map(defense => defense.id) ?? ['bolt', 'mortar', 'frost']) as PathwardenTowerType[])
 const targetingModes: PathwardenTargeting[] = ['first', 'strong', 'fast']
 const permanentBalance = computed(() => Number(boostState.value?.balance ?? 0))
 const canAbandon = computed(() => runActive.value
   && ['planning', 'checkpoint', 'path', 'upgrade'].includes(snapshot.value.phase))
 const selectedRealm = ref(1)
 const unlockedRealm = ref(1)
-const checkpointOffer = computed(() => pathwardenCashoutCoins(
+const checkpointReward = computed(() => pathwardenCheckpointReward(snapshot.value.wave, snapshot.value.realm))
+const checkpointAetherBonus = computed(() => pathwardenAetherCashoutBonus(
   Math.min(
     snapshot.value.aether,
     boostState.value
@@ -176,6 +276,7 @@ const checkpointOffer = computed(() => pathwardenCashoutCoins(
   snapshot.value.wave,
   snapshot.value.realm
 ))
+const checkpointOffer = checkpointAetherBonus
 const checkpointRate = computed(() => pathwardenCheckpointRate(snapshot.value.wave, snapshot.value.realm))
 const cooldownRemainingMs = computed(() => {
   const until = boostState.value?.runCooldown?.until
@@ -204,8 +305,64 @@ function selectTower(type: PathwardenTowerType) {
   engine?.selectTower(type)
 }
 
-function towerName(type: PathwardenTowerType) {
-  return PATHWARDEN_TOWERS[type]?.name ?? type
+function openBuildingInventory() {
+  engine?.enterPlacementMode()
+  defenseInventoryOpen.value = true
+}
+
+function towerBlueprint(type: PathwardenTowerType) {
+  return PATHWARDEN_DEFENSE_BLUEPRINTS.find(defense => defense.id === type)
+    ?? PATHWARDEN_DEFENSE_BLUEPRINTS[0]!
+}
+
+const defenseBoostEffects = computed(() => boostState.value?.effects ?? {
+  damageMultiplier: 1,
+  rangeMultiplier: 1,
+  rateMultiplier: 1,
+  startingAether: 205,
+  startingLives: 20,
+  bountyMultiplier: 1
+})
+
+function defensePower(defense: typeof PATHWARDEN_DEFENSE_BLUEPRINTS[number]) {
+  const effects = defenseBoostEffects.value
+  const damage = defense.damage * effects.damageMultiplier
+  const rate = defense.rate / effects.rateMultiplier
+  return damage / rate + defense.splash * 0.35 + defense.slow * 100 + defense.range * 0.08
+}
+
+const inventoryDefenses = computed(() => {
+  const defenses = towerTypes.value
+    .map(type => towerBlueprint(type))
+    .filter(defense => defenseInventoryTab.value === 'all' || defense.archetype === defenseInventoryTab.value)
+  return [...defenses].sort((a, b) => defenseInventorySort.value === 'cost'
+    ? (snapshot.value.towerCosts[a.id] ?? a.aetherCost) - (snapshot.value.towerCosts[b.id] ?? b.aetherCost)
+    : defensePower(b) - defensePower(a))
+})
+
+const selectedInventoryDefense = computed(() => towerBlueprint(snapshot.value.selectedTower))
+
+const selectedInventoryStats = computed(() => {
+  const defense = selectedInventoryDefense.value
+  const effects = defenseBoostEffects.value
+  return {
+    damage: Math.round(defense.damage * effects.damageMultiplier),
+    range: Math.round(defense.range * effects.rangeMultiplier),
+    rate: Number((defense.rate / effects.rateMultiplier).toFixed(2)),
+    dps: (defense.damage * effects.damageMultiplier / (defense.rate / effects.rateMultiplier)).toFixed(1),
+    cost: snapshot.value.towerCosts[defense.id] ?? defense.aetherCost
+  }
+})
+
+function defenseAdvice(defense: typeof PATHWARDEN_DEFENSE_BLUEPRINTS[number]) {
+  if (defense.archetype === 'ballista') return 'Place near a long straight or a priority lane. Its reliable single-target fire is strongest when it can keep one dangerous enemy in sight.'
+  if (defense.archetype === 'mortar') return 'Place beside a junction or bend. Splash damage compounds when several roads overlap, while the slower reload rewards patient placement.'
+  return 'Place where routes remain in range for a long time. Control and reach matter more than raw damage, especially before a crowded wave.'
+}
+
+function chooseInventoryDefense(type: PathwardenTowerType) {
+  selectTower(type)
+  defenseInventoryOpen.value = false
 }
 
 function sellRelic(instanceId: number) {
@@ -267,6 +424,52 @@ async function clearDebugCache() {
   } finally {
     clearingDebugCache.value = false
   }
+}
+
+async function setSkipIntro(enabled: boolean) {
+  if (savingPreferences.value || enabled === skipIntro.value) return
+  const previous = skipIntro.value
+  skipIntro.value = enabled
+  savingPreferences.value = true
+  try {
+    await $fetch('/api/pathwarden/preferences', { method: 'PUT', body: { skipIntro: enabled } })
+  } catch (error: unknown) {
+    skipIntro.value = previous
+    toast.add({ title: 'Could not save intro preference', description: apiErrorMessage(error, 'Try again in a moment.'), color: 'error' })
+  } finally {
+    savingPreferences.value = false
+  }
+}
+
+function claimCheckpointReward(wave: number) {
+  if (!([4, 8, 12] as number[]).includes(wave) || claimedCheckpointWaves.has(wave)) return Promise.resolve()
+  const existing = checkpointClaims.get(wave)
+  if (existing) return existing
+
+  const request = (async () => {
+    try {
+      await saveRun()
+      const result = await $fetch('/api/pathwarden/checkpoint', {
+        method: 'POST',
+        body: { wave }
+      })
+      claimedCheckpointWaves.add(wave)
+      if (!result.alreadyClaimed && result.reward > 0) {
+        toast.add({
+          title: `Checkpoint ${wave / 4} reward secured`,
+          description: `${formatNumber(result.reward, false)} Coins added. Aether cash-out is still available as a bonus.`,
+          color: 'success'
+        })
+      }
+      await Promise.all([refreshBoosts(), fetchSession()])
+    } catch (error: unknown) {
+      toast.add({ title: 'Checkpoint reward pending', description: apiErrorMessage(error, 'We will retry when you choose a checkpoint action.'), color: 'warning' })
+    } finally {
+      checkpointClaims.delete(wave)
+    }
+  })()
+  checkpointClaims.set(wave, request)
+  return request
 }
 
 async function runSimulator() {
@@ -392,7 +595,7 @@ function chooseUpgrade(upgrade: PathwardenRelic) {
   engine?.chooseUpgrade(upgrade)
 }
 
-function relicIconStyle(relic: PathwardenRelic | PathwardenInventoryRelic) {
+function relicIconStyle(relic: { iconIndex: number }) {
   const col = relic.iconIndex % 5
   const row = Math.floor(relic.iconIndex / 5)
   return {
@@ -400,6 +603,10 @@ function relicIconStyle(relic: PathwardenRelic | PathwardenInventoryRelic) {
     backgroundSize: '500% 300%',
     backgroundPosition: `${col * 25}% ${row * 50}%`
   }
+}
+
+function inspectUpgrade(family: string) {
+  inspectedUpgradeFamily.value = family
 }
 
 function rarityClass(rarity: PathwardenRelicRarity) {
@@ -413,6 +620,7 @@ function rarityClass(rarity: PathwardenRelicRarity) {
 }
 
 function dragRelic(event: DragEvent, relic: PathwardenInventoryRelic) {
+  closeBuildingProfile()
   event.dataTransfer?.setData('application/x-pathwarden-relic', String(relic.instanceId))
   if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move'
 }
@@ -445,6 +653,10 @@ function toggleSurge(enabled: boolean) {
 
 function salvageBuilding() {
   engine?.salvageSelectedBuilding()
+}
+
+function closeBuildingProfile() {
+  engine?.clearSelectedBuilding()
 }
 
 function setTargeting(targeting: PathwardenTargeting) {
@@ -549,6 +761,7 @@ async function settleRun(reason: 'cashout' | 'victory' | 'defeat') {
 }
 
 async function cashOut() {
+  await claimCheckpointReward(snapshot.value.wave)
   const result = await settleRun('cashout')
   if (!result) return
   toast.add({
@@ -558,7 +771,8 @@ async function cashOut() {
   })
 }
 
-function continueCheckpoint() {
+async function continueCheckpoint() {
+  await claimCheckpointReward(snapshot.value.wave)
   engine?.continueCheckpoint()
 }
 
@@ -630,7 +844,7 @@ function createGame(restore?: PathwardenEngineRestore) {
     }
   }, boostState.value
     ? pathwardenBoostEffects(boostState.value.levels, useSurge.value)
-    : undefined, selectedRealm.value, boostState.value?.equippedSkinId ?? 'warden-stone', restore)
+    : undefined, selectedRealm.value, boostState.value?.equippedSkinId ?? 'warden-stone', restore, skipIntro.value)
   engine.start()
 }
 
@@ -707,6 +921,9 @@ onBeforeUnmount(() => {
 })
 
 watch(hintsEnabled, enabled => localStorage.setItem('pathwarden-hints', enabled ? 'on' : 'off'))
+watch(() => [snapshot.value.phase, snapshot.value.wave] as const, ([phase, wave]) => {
+  if (phase === 'checkpoint') void claimCheckpointReward(wave)
+})
 </script>
 
 <template>
@@ -775,16 +992,12 @@ watch(hintsEnabled, enabled => localStorage.setItem('pathwarden-hints', enabled 
           <p class="text-xs text-muted">Wave</p>
           <p class="font-bold tabular-nums">{{ snapshot.wave }}/12</p>
         </div>
-        <div class="hud-stat rounded-lg border border-default bg-elevated/90 px-3 py-2">
-          <p class="text-xs text-muted">Hearts</p>
-          <p class="font-bold tabular-nums text-error">{{ snapshot.lives }}</p>
-        </div>
-        <div class="hud-stat rounded-lg border border-primary/40 bg-primary/10 px-3 py-2">
+        <div v-if="!snapshot.introStoryActive && !snapshot.openingCinematic" class="hud-stat rounded-lg border border-primary/40 bg-primary/10 px-3 py-2">
           <p class="text-xs text-muted">Aether</p>
           <p class="font-bold tabular-nums text-primary">{{ formatNumber(snapshot.aether, false) }}</p>
         </div>
         <div class="hud-stat rounded-lg border border-warning/40 bg-warning/10 px-3 py-2">
-          <p class="text-xs text-muted">Cash-out</p>
+          <p class="text-xs text-muted">Aether bonus</p>
           <p class="font-bold tabular-nums text-warning">{{ formatNumber(checkpointOffer) }}</p>
         </div>
         <div class="hud-stat rounded-lg border border-default bg-elevated/90 px-3 py-2">
@@ -809,35 +1022,51 @@ watch(hintsEnabled, enabled => localStorage.setItem('pathwarden-hints', enabled 
           @dragover.prevent
           @drop.prevent="dropRelic"
         />
-        <div
-          v-if="snapshot.introStoryActive"
-          class="pointer-events-auto absolute inset-0 z-30 flex items-end justify-center bg-slate-950/20 p-4 sm:p-8"
-        >
-          <div
-            class="w-full max-w-2xl rounded-2xl border border-amber-200/30 bg-slate-950/90 p-5 text-center shadow-2xl backdrop-blur-md sm:p-7"
-          >
-            <div :style="{ opacity: snapshot.introStoryOpacity }">
-              <p class="text-[10px] font-black uppercase tracking-[0.24em] text-amber-200/80">{{ introStorySlide.kicker }}</p>
-              <h2 class="mt-2 font-serif text-2xl font-black tracking-wide text-amber-100 sm:text-4xl">{{ introStorySlide.title }}</h2>
-              <p class="mx-auto mt-3 max-w-xl text-sm leading-6 text-slate-200 sm:text-base">{{ introStorySlide.body }}</p>
-            </div>
-            <div class="mt-5 flex flex-wrap items-center justify-center gap-2">
-              <UButton color="neutral" variant="outline" :disabled="snapshot.introStoryIndex === 0" @click.stop="previousIntroStory">
-                Previous
-              </UButton>
-              <UButton
-                v-if="showDefileTemple"
-                color="warning"
-                size="lg"
-                icon="i-lucide-flame"
+        <div v-if="snapshot.introStoryActive || snapshot.openingCinematic" class="story-book pointer-events-auto absolute inset-0 z-30 p-3 sm:p-8">
+          <div class="story-book-pages mx-auto grid h-full max-w-5xl grid-cols-1 overflow-hidden rounded-[1.4rem] border border-amber-200/35 shadow-2xl sm:grid-cols-2">
+            <article class="story-page relative flex flex-col justify-center px-7 py-10 sm:px-12">
+              <div v-if="snapshot.openingCinematic" class="story-page-text">
+                <p class="text-[10px] font-black uppercase tracking-[0.24em] text-amber-700/80">The holy war</p>
+                <h2 class="mt-3 font-serif text-3xl font-black leading-tight tracking-wide text-amber-950 sm:text-5xl">The god descends in fury</h2>
+                <p class="mt-5 max-w-md text-sm leading-7 text-amber-950/80 sm:text-base">He covered the lands in fog and summoned loyal armies to carry his judgment beyond the temple walls.</p>
+              </div>
+              <div v-else class="story-page-text">
+                <p class="text-[10px] font-black uppercase tracking-[0.24em] text-amber-700/80">{{ introStorySlide.kicker }}</p>
+                <h2 class="mt-3 font-serif text-3xl font-black leading-tight tracking-wide text-amber-950 sm:text-5xl">{{ introStorySlide.title }}</h2>
+                <p class="mt-5 max-w-md text-sm leading-7 text-amber-950/80 sm:text-base">{{ introStorySlide.body }}</p>
+              </div>
+              <button
+                v-if="snapshot.introStoryActive && snapshot.introStoryIndex > 0"
+                type="button"
+                aria-label="Previous story page"
+                class="page-ear page-ear-left bottom-0 left-0"
+                @click.stop="previousIntroStory"
+              >
+                <span class="sr-only">Turn to the previous page</span>
+              </button>
+            </article>
+            <article class="story-page story-illustration relative min-h-52">
+              <div :key="snapshot.introStoryIndex" class="page-turn-leaf" aria-hidden="true" />
+              <span v-if="!snapshot.openingCinematic" class="absolute right-5 top-5 z-10 text-[9px] font-black uppercase tracking-[0.24em] text-amber-900/45">Illustration {{ snapshot.introStoryIndex + 1 }}/{{ introStory.length }}</span>
+              <button
+                v-if="snapshot.introStoryActive && !showDefileTemple"
+                type="button"
+                aria-label="Next story page"
+                class="page-ear page-ear-right bottom-0 right-0"
+                @click.stop="nextIntroStory"
+              >
+                <span class="sr-only">Turn to the next page</span>
+              </button>
+              <button
+                v-if="snapshot.introStoryActive && showDefileTemple"
+                type="button"
+                aria-label="Defile the Temple"
+                class="page-ear page-ear-right page-ear-action bottom-0 right-0"
                 @click.stop="defileTemple"
               >
-                Defile the Temple
-              </UButton>
-              <UButton v-else color="neutral" variant="outline" @click.stop="nextIntroStory">
-                Next
-              </UButton>
-            </div>
+                <UIcon name="i-lucide-flame" class="size-5" />
+              </button>
+            </article>
           </div>
         </div>
         <div
@@ -852,15 +1081,31 @@ watch(hintsEnabled, enabled => localStorage.setItem('pathwarden-hints', enabled 
             </UButton>
           </div>
         </div>
-        <div class="pointer-events-none absolute left-3 top-3 flex items-center gap-2 rounded-xl border border-primary/40 bg-background/85 px-3 py-2 shadow-xl backdrop-blur-md">
+        <div v-if="!snapshot.introStoryActive && !snapshot.openingCinematic" class="pointer-events-none absolute left-3 top-3 flex items-center gap-2 rounded-xl border border-primary/40 bg-background/85 px-3 py-2 shadow-xl backdrop-blur-md">
           <span class="relative flex size-9 items-center justify-center rounded-lg border border-primary/40 bg-primary/15 shadow-[0_0_18px_rgba(34,211,238,0.2)]">
-            <UIcon name="i-lucide-gem" class="size-6 rotate-12 text-primary drop-shadow-[0_0_5px_currentColor]" />
-            <span class="absolute left-2 top-1 size-1 rounded-full bg-white/90" />
+            <PathwardenAetherIcon class="size-7 text-primary drop-shadow-[0_0_5px_currentColor]" />
           </span>
           <span>
             <span class="block text-[10px] font-black uppercase tracking-[0.18em] text-muted">Aether</span>
             <strong class="block text-lg leading-none tabular-nums text-primary">{{ formatNumber(snapshot.aether, false) }}</strong>
           </span>
+        </div>
+        <div v-if="!snapshot.introStoryActive && !snapshot.openingCinematic" class="pointer-events-auto absolute left-3 top-[4.75rem] z-20">
+          <UTooltip text="Open building inventory">
+            <UButton
+              class="building-shop-button relative gap-2 shadow-lg"
+              :class="{ 'building-shop-button-active': snapshot.phase === 'planning' }"
+              :color="snapshot.phase === 'planning' ? 'warning' : 'neutral'"
+              :variant="snapshot.phase === 'planning' ? 'solid' : 'soft'"
+              size="sm"
+              icon="i-lucide-hammer"
+              aria-label="Open building inventory"
+              @click.stop="openBuildingInventory"
+            >
+              Open shop
+              <UIcon v-if="snapshot.phase === 'planning'" name="i-lucide-sparkles" class="size-3.5" />
+            </UButton>
+          </UTooltip>
         </div>
         <div
           v-if="snapshot.relicInventory.length"
@@ -898,18 +1143,130 @@ watch(hintsEnabled, enabled => localStorage.setItem('pathwarden-hints', enabled 
           </div>
         </div>
         <div
+          v-if="snapshot.selectedBuilding"
+          class="pointer-events-auto absolute right-3 top-3 z-20 max-h-[calc(100%-1.5rem)] w-[min(22rem,calc(100%-1.5rem))] overflow-y-auto rounded-xl border border-primary/40 bg-elevated/95 p-4 shadow-2xl backdrop-blur-md"
+        >
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              <p class="text-xs font-bold uppercase tracking-wider text-primary">Building profile</p>
+              <h3 class="mt-1 font-black">{{ snapshot.selectedBuilding.name }}</h3>
+            </div>
+            <div class="flex items-center gap-2">
+              <UBadge color="primary" variant="subtle">★ {{ snapshot.selectedBuilding.level }}</UBadge>
+              <UButton
+                size="xs"
+                color="neutral"
+                variant="ghost"
+                icon="i-lucide-x"
+                aria-label="Close building profile"
+                @click.stop="closeBuildingProfile"
+              />
+            </div>
+          </div>
+          <p class="mt-1 text-xs text-muted">Drag to move, or drop onto an equal defense to fuse.</p>
+          <div class="mt-3 grid grid-cols-2 gap-2 text-[11px]">
+            <div class="rounded-md bg-background/70 p-2"><span class="block text-muted">Type</span><strong class="capitalize">{{ snapshot.selectedBuilding.archetype }}</strong></div>
+            <div class="rounded-md bg-background/70 p-2"><span class="block text-muted">Blueprint tier</span><strong>Tier {{ snapshot.selectedBuilding.tier }}</strong></div>
+            <div class="rounded-md bg-background/70 p-2"><span class="block text-muted">Merges</span><strong>{{ snapshot.selectedBuilding.merges }}</strong></div>
+            <div class="rounded-md bg-background/70 p-2"><span class="block text-muted">Invested</span><strong class="text-primary">{{ snapshot.selectedBuilding.invested }} Aether</strong></div>
+            <div class="rounded-md bg-background/70 p-2"><span class="block text-muted">Elevation</span><strong>+{{ snapshot.selectedBuilding.elevation }}</strong></div>
+            <div class="rounded-md bg-background/70 p-2"><span class="block text-muted">Family</span><strong class="capitalize">{{ snapshot.selectedBuilding.family }}</strong></div>
+          </div>
+          <div v-if="snapshot.selectedBuilding.relicFamily" class="mt-3 rounded-md border border-primary/30 bg-primary/10 p-2">
+            <p class="mb-1 text-[10px] font-black uppercase tracking-wider text-primary">Bound upgrade</p>
+            <button
+              type="button"
+              class="flex w-full items-center gap-2 rounded-md p-1 text-left transition hover:bg-primary/10"
+              :class="inspectedUpgradeFamily === snapshot.selectedBuilding.relicFamily ? 'bg-primary/15' : ''"
+              @click="inspectUpgrade(snapshot.selectedBuilding.relicFamily)"
+            >
+              <span
+                class="block size-10 shrink-0 rounded-lg border-2 border-primary/50 bg-elevated bg-no-repeat shadow-lg"
+                :style="relicIconStyle({ iconIndex: snapshot.selectedBuilding.relicIconIndex })"
+              />
+              <span class="min-w-0">
+                <strong class="block truncate text-xs text-primary">{{ snapshot.selectedBuilding.relicName }}</strong>
+                <span class="block text-[11px] text-muted">Level {{ snapshot.selectedBuilding.relicStacks }} · power {{ snapshot.selectedBuilding.relicPower.toFixed(2) }}</span>
+              </span>
+            </button>
+          </div>
+          <div v-if="snapshot.selectedBuilding.globalRelics.length" class="mt-3 rounded-md border border-info/30 bg-info/10 p-2">
+            <p class="mb-1 text-[10px] font-black uppercase tracking-wider text-info">Global relics affecting defenses</p>
+            <div class="flex flex-wrap gap-2">
+              <button
+                v-for="relic in snapshot.selectedBuilding.globalRelics"
+                :key="relic.family"
+                type="button"
+                class="rounded-lg border-2 border-info/50 bg-elevated bg-no-repeat p-1 shadow-lg transition hover:-translate-y-0.5"
+                :class="inspectedUpgradeFamily === relic.family ? 'ring-2 ring-info' : ''"
+                :style="relicIconStyle(relic)"
+                :title="`${relic.name} · level ${relic.level}`"
+                :aria-label="`Inspect ${relic.name}`"
+                @click="inspectUpgrade(relic.family)"
+              >
+                <span class="block size-8" />
+              </button>
+            </div>
+          </div>
+          <div v-if="selectedUpgrade" class="mt-3 rounded-md border border-default bg-background/70 p-3">
+            <div class="flex items-start gap-2">
+              <span
+                class="block size-11 shrink-0 rounded-lg border-2 border-primary/50 bg-elevated bg-no-repeat shadow-lg"
+                :style="relicIconStyle(selectedUpgrade)"
+              />
+              <div class="min-w-0">
+                <p class="text-[10px] font-black uppercase tracking-wider text-muted">{{ selectedUpgrade.global ? 'Global effect' : 'Tower upgrade' }}</p>
+                <strong class="block text-sm">{{ selectedUpgrade.name }}</strong>
+                <p class="text-[11px] text-muted">Level {{ selectedUpgrade.level }} · total boost power {{ selectedUpgrade.power.toFixed(2) }}</p>
+              </div>
+            </div>
+            <p class="mt-2 text-xs leading-5 text-default">{{ selectedUpgrade.description }}</p>
+          </div>
+          <div class="mt-3 grid grid-cols-3 gap-2 text-center text-xs">
+            <div class="rounded-md bg-background/70 p-2"><span class="block text-muted">Damage</span><strong>{{ snapshot.selectedBuilding.damage }}</strong></div>
+            <div class="rounded-md bg-background/70 p-2"><span class="block text-muted">Range</span><strong>{{ snapshot.selectedBuilding.range }}</strong></div>
+            <div class="rounded-md bg-background/70 p-2"><span class="block text-muted">Cooldown</span><strong>{{ snapshot.selectedBuilding.rate }}s</strong></div>
+          </div>
+          <div class="mt-3">
+            <p class="mb-1 text-xs font-bold uppercase tracking-wider text-muted">Target priority</p>
+            <div class="grid grid-cols-3 gap-1">
+              <UButton
+                v-for="targeting in targetingModes"
+                :key="targeting"
+                size="xs"
+                :color="snapshot.selectedBuilding.targeting === targeting ? 'primary' : 'neutral'"
+                :variant="snapshot.selectedBuilding.targeting === targeting ? 'solid' : 'soft'"
+                :disabled="snapshot.phase !== 'planning'"
+                @click="setTargeting(targeting)"
+              >
+                {{ targeting === 'first' ? 'First' : targeting === 'strong' ? 'Strong' : 'Fast' }}
+              </UButton>
+            </div>
+          </div>
+          <UButton class="mt-3" color="neutral" variant="outline" block icon="i-lucide-hammer" :disabled="snapshot.phase !== 'planning'" @click="salvageBuilding">
+            Dismantle · +{{ snapshot.selectedBuilding.salvage }} Aether
+          </UButton>
+        </div>
+        <div
           v-if="snapshot.phase === 'checkpoint'"
           class="absolute inset-0 flex items-center justify-center bg-background/80 p-4 backdrop-blur-md"
         >
           <UCard class="w-full max-w-xl border-warning/40 bg-elevated/95 text-center">
             <UIcon name="i-lucide-landmark" class="mx-auto size-11 text-warning" />
             <p class="mt-3 text-xs font-black uppercase tracking-[0.3em] text-warning">Checkpoint {{ snapshot.wave / 4 }}</p>
-            <h2 class="mt-1 text-3xl font-black">{{ snapshot.wave === 12 ? 'THE REALM STANDS' : 'CASH OUT OR CONTINUE?' }}</h2>
-            <p class="mx-auto mt-3 max-w-md text-sm text-muted">
-              Your {{ formatNumber(snapshot.aether, false) }} remaining Aether is worth
-              <strong class="text-warning">{{ formatNumber(checkpointOffer, false) }} Coins</strong>
-              at {{ formatNumber(checkpointRate, false) }} Coins per Aether. Continuing risks this entire payout.
-            </p>
+            <h2 class="mt-1 text-3xl font-black">{{ snapshot.wave === 12 ? 'THE REALM STANDS' : 'CHECKPOINT SECURED' }}</h2>
+            <div class="mx-auto mt-3 max-w-md space-y-2 text-sm text-muted">
+              <p class="rounded-lg border border-success/30 bg-success/10 px-3 py-2">
+                <strong class="text-success">{{ formatNumber(checkpointReward, false) }} Coins</strong>
+                checkpoint reward secured for reaching this milestone.
+              </p>
+              <p>
+                Your {{ formatNumber(snapshot.aether, false) }} remaining Aether can add
+                <strong class="text-warning">{{ formatNumber(checkpointAetherBonus, false) }} bonus Coins</strong>
+                at {{ formatNumber(checkpointRate, false) }} Coins per Aether.
+              </p>
+              <p class="text-xs">Continuing risks only the Aether bonus; the checkpoint reward is yours.</p>
+            </div>
             <div class="mt-5 grid gap-2 sm:grid-cols-2">
               <UButton
                 v-if="snapshot.wave < 12"
@@ -920,7 +1277,7 @@ watch(hintsEnabled, enabled => localStorage.setItem('pathwarden-hints', enabled 
                 :loading="settling"
                 @click="cashOut"
               >
-                Cash out {{ formatNumber(checkpointOffer) }}
+                Cash out Aether bonus · {{ formatNumber(checkpointAetherBonus) }}
               </UButton>
               <UButton
                 color="primary"
@@ -1094,83 +1451,6 @@ watch(hintsEnabled, enabled => localStorage.setItem('pathwarden-hints', enabled 
           />
         </div>
 
-        <div
-          v-if="snapshot.selectedBuilding"
-          class="rounded-xl border border-primary/40 bg-elevated/95 p-4 shadow-lg"
-        >
-          <div class="flex items-start justify-between gap-3">
-            <div>
-              <p class="text-xs font-bold uppercase tracking-wider text-primary">Selected defense</p>
-              <h3 class="mt-1 font-black">{{ snapshot.selectedBuilding.name }}</h3>
-            </div>
-            <UBadge color="primary" variant="subtle">★ {{ snapshot.selectedBuilding.level }}</UBadge>
-          </div>
-          <p class="mt-1 text-xs text-muted">Drag to move, or drop onto an equal defense to fuse.</p>
-          <div
-            v-if="snapshot.selectedBuilding.relicFamily"
-            class="mt-2 rounded-md border border-primary/30 bg-primary/10 px-2 py-1 text-xs text-primary"
-          >
-            {{ snapshot.selectedBuilding.relicFamily }} relic · {{ snapshot.selectedBuilding.relicStacks }} stack{{ snapshot.selectedBuilding.relicStacks === 1 ? '' : 's' }}
-          </div>
-          <div class="mt-3 grid grid-cols-3 gap-2 text-center text-xs">
-            <div class="rounded-md bg-background/70 p-2"><span class="block text-muted">Damage</span><strong>{{ snapshot.selectedBuilding.damage }}</strong></div>
-            <div class="rounded-md bg-background/70 p-2"><span class="block text-muted">Range</span><strong>{{ snapshot.selectedBuilding.range }}</strong></div>
-            <div class="rounded-md bg-background/70 p-2"><span class="block text-muted">Cooldown</span><strong>{{ snapshot.selectedBuilding.rate }}s</strong></div>
-          </div>
-          <div class="mt-3">
-            <p class="mb-1 text-xs font-bold uppercase tracking-wider text-muted">Target priority</p>
-            <div class="grid grid-cols-3 gap-1">
-              <UButton
-                v-for="targeting in targetingModes"
-                :key="targeting"
-                size="xs"
-                :color="snapshot.selectedBuilding.targeting === targeting ? 'primary' : 'neutral'"
-                :variant="snapshot.selectedBuilding.targeting === targeting ? 'solid' : 'soft'"
-                :disabled="snapshot.phase !== 'planning'"
-                @click="setTargeting(targeting)"
-              >
-                {{ targeting === 'first' ? 'First' : targeting === 'strong' ? 'Strong' : 'Fast' }}
-              </UButton>
-            </div>
-          </div>
-          <UButton class="mt-3" color="neutral" variant="outline" block icon="i-lucide-hammer" :disabled="snapshot.phase !== 'planning'" @click="salvageBuilding">
-            Dismantle · +{{ snapshot.selectedBuilding.salvage }} Aether
-          </UButton>
-        </div>
-
-        <div class="rounded-xl border border-default bg-elevated/90 p-4 shadow-lg">
-          <div class="mb-3 flex items-center justify-between">
-            <p class="text-sm font-bold uppercase tracking-wider text-muted">Warden arsenal</p>
-            <span class="text-xs text-primary">Aether</span>
-          </div>
-          <div class="space-y-2">
-            <button
-              v-for="type in towerTypes"
-              :key="type"
-              type="button"
-              class="tower-button flex w-full items-center gap-3 rounded-lg border p-3 text-left transition"
-              :class="snapshot.selectedTower === type ? 'border-primary bg-primary/10' : 'border-default hover:border-primary/50'"
-              :disabled="snapshot.phase !== 'planning'"
-              @click="selectTower(type)"
-            >
-              <span class="flex size-9 items-center justify-center rounded-md bg-background">
-                <UIcon
-                  :name="type === 'bolt' ? 'i-lucide-crosshair' : type === 'mortar' ? 'i-lucide-bomb' : type === 'frost' ? 'i-lucide-snowflake' : type === 'ember' ? 'i-lucide-flame' : type === 'storm' ? 'i-lucide-zap' : 'i-lucide-sun'"
-                  class="size-5 text-primary"
-                />
-              </span>
-              <span class="min-w-0 flex-1">
-                <strong class="block text-sm">{{ towerName(type) }}</strong>
-                <span class="block text-xs text-muted">
-                  {{ type === 'bolt' ? 'Rapid star bolts' : type === 'mortar' ? 'Explosive sunfire' : type === 'frost' ? 'Freezing control' : type === 'ember' ? 'Burning siege shells' : type === 'storm' ? 'Jumping lightning' : 'Radiant formation bursts' }}
-                </span>
-              </span>
-              <span class="text-sm font-bold text-primary">{{ snapshot.towerCosts[type] }} Aether</span>
-            </button>
-          </div>
-          <p class="mt-3 text-xs text-muted">Click to inspect. Drag to move; drop equal defenses together to fuse them. Higher terrain amplifies range and damage. Move the cursor to a battlefield edge to pan.</p>
-        </div>
-
         <UButton color="neutral" variant="ghost" block :icon="snapshot.paused ? 'i-lucide-play' : 'i-lucide-pause'" :disabled="snapshot.phase !== 'wave'" @click="togglePause">
           {{ snapshot.paused ? 'Resume battle' : 'Pause battle' }}
         </UButton>
@@ -1191,6 +1471,10 @@ watch(hintsEnabled, enabled => localStorage.setItem('pathwarden-hints', enabled 
         <div class="flex items-center justify-between px-2">
           <span class="text-xs text-muted">Optional hints</span>
           <USwitch v-model="hintsEnabled" size="sm" />
+        </div>
+        <div class="flex items-center justify-between px-2">
+          <span class="text-xs text-muted">Skip intro on new marches</span>
+          <USwitch :model-value="skipIntro" :loading="savingPreferences" size="sm" @update:model-value="setSkipIntro" />
         </div>
         <UButton
           v-if="isDev"
@@ -1217,6 +1501,110 @@ watch(hintsEnabled, enabled => localStorage.setItem('pathwarden-hints', enabled 
         </p>
       </aside>
     </div>
+
+    <UModal
+      v-model:open="defenseInventoryOpen"
+      title="Warden’s building inventory"
+      description="Choose a defense, compare its battlefield role, and inspect the effects of your permanent upgrades."
+      :ui="{ content: 'sm:max-w-6xl' }"
+    >
+      <template #body>
+        <div class="grid gap-5 lg:grid-cols-[minmax(0,1fr)_22rem]">
+          <div class="min-w-0">
+            <div class="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p class="text-xs font-black uppercase tracking-[.18em] text-primary">Arm the frontier</p>
+                <p class="mt-1 text-sm text-muted">Owned defenses are sorted by their current march performance.</p>
+              </div>
+              <USelect
+                v-model="defenseInventorySort"
+                :items="defenseInventorySorts"
+                value-key="value"
+                class="w-48"
+                size="sm"
+              />
+            </div>
+            <UTabs v-model="defenseInventoryTab" :items="defenseInventoryTabs" class="mt-4" />
+            <div v-if="inventoryDefenses.length" class="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+              <div
+                v-for="defense in inventoryDefenses"
+                :key="defense.id"
+                role="button"
+                tabindex="0"
+                class="tower-button rounded-xl border p-2 text-left transition"
+                :class="snapshot.selectedTower === defense.id ? 'border-primary bg-primary/10' : 'border-default hover:border-primary/50'"
+                @click="selectTower(defense.id)"
+                @keydown.enter="selectTower(defense.id)"
+                @keydown.space.prevent="selectTower(defense.id)"
+              >
+                <div class="arsenal-preview h-28 overflow-hidden rounded-lg bg-background">
+                  <PathwardenDefensePreview :defense="defense" compact />
+                </div>
+                <div class="mt-2 flex items-start justify-between gap-2">
+                  <div class="min-w-0">
+                    <strong class="block truncate text-sm">{{ defense.name }}</strong>
+                    <span class="text-[11px] text-muted">{{ defenseArchetypeLabels[defense.archetype] }} · Tier {{ defense.tier }}</span>
+                  </div>
+                </div>
+                <UButton
+                  class="mt-2"
+                  block
+                  size="xs"
+                  color="primary"
+                  variant="soft"
+                  :disabled="snapshot.phase !== 'planning'"
+                  @click.stop="chooseInventoryDefense(defense.id)"
+                >
+                  Place for
+                  <PathwardenAetherIcon class="size-3.5" />
+                  {{ snapshot.towerCosts[defense.id] ?? defense.aetherCost }}
+                </UButton>
+              </div>
+            </div>
+            <UAlert
+              v-else
+              class="mt-4"
+              color="info"
+              variant="soft"
+              icon="i-lucide-lock-keyhole"
+              title="No defenses in this category"
+              description="Unlock another blueprint in the Reliquary to expand this tab."
+            />
+          </div>
+
+          <UCard class="h-fit border-primary/30 bg-elevated/80" :ui="{ body: 'p-4 sm:p-4' }">
+            <div class="flex items-start justify-between gap-3">
+              <div>
+                <p class="text-xs font-black uppercase tracking-[.18em] text-primary">Side profile</p>
+                <h3 class="mt-1 text-xl font-black">{{ selectedInventoryDefense.name }}</h3>
+                <p class="mt-1 text-xs text-muted">{{ defenseArchetypeLabels[selectedInventoryDefense.archetype] }} · Tier {{ selectedInventoryDefense.tier }}</p>
+              </div>
+              <UIcon name="i-lucide-hammer" class="size-6 shrink-0 text-primary" />
+            </div>
+            <div class="mt-3 overflow-hidden rounded-xl bg-background">
+              <PathwardenDefensePreview :defense="selectedInventoryDefense" />
+            </div>
+            <p class="mt-3 text-sm leading-6 text-muted">{{ defenseLore[selectedInventoryDefense.id] }}</p>
+            <p class="mt-3 rounded-lg border border-primary/20 bg-primary/5 p-3 text-xs leading-5 text-default">
+              <strong class="text-primary">Warden’s advice:</strong> {{ defenseAdvice(selectedInventoryDefense) }}
+            </p>
+            <div class="mt-4 grid grid-cols-2 gap-2 text-center text-xs">
+              <div class="rounded-lg bg-background/70 p-2"><span class="block text-muted">Damage</span><strong class="text-base">{{ selectedInventoryStats.damage }}</strong><span class="block text-[10px] text-primary">{{ Math.round((defenseBoostEffects.damageMultiplier - 1) * 100) }}% boost</span></div>
+              <div class="rounded-lg bg-background/70 p-2"><span class="block text-muted">Range</span><strong class="text-base">{{ selectedInventoryStats.range }}</strong><span class="block text-[10px] text-primary">{{ Math.round((defenseBoostEffects.rangeMultiplier - 1) * 100) }}% boost</span></div>
+              <div class="rounded-lg bg-background/70 p-2"><span class="block text-muted">Reload</span><strong class="text-base">{{ selectedInventoryStats.rate }}s</strong><span class="block text-[10px] text-primary">{{ Math.round((defenseBoostEffects.rateMultiplier - 1) * 100) }}% faster</span></div>
+              <div class="rounded-lg bg-background/70 p-2"><span class="block text-muted">Sustained DPS</span><strong class="text-base">{{ selectedInventoryStats.dps }}</strong><span class="block text-[10px] text-muted">before relics</span></div>
+              <div class="rounded-lg bg-background/70 p-2"><span class="block text-muted">Splash</span><strong class="text-base">{{ selectedInventoryDefense.splash || '—' }}</strong><span class="block text-[10px] text-muted">impact radius</span></div>
+              <div class="rounded-lg bg-background/70 p-2"><span class="block text-muted">Slow</span><strong class="text-base">{{ selectedInventoryDefense.slow ? `${Math.round(selectedInventoryDefense.slow * 100)}%` : '—' }}</strong><span class="block text-[10px] text-muted">control effect</span></div>
+            </div>
+            <div class="mt-4 space-y-2 border-t border-default pt-3 text-xs">
+              <div class="flex justify-between gap-3"><span class="text-muted">Base profile</span><span class="tabular-nums">{{ selectedInventoryDefense.damage }} damage · {{ selectedInventoryDefense.range }} range</span></div>
+              <div class="flex justify-between gap-3"><span class="text-muted">Current cost</span><strong class="text-primary tabular-nums">{{ selectedInventoryStats.cost }} Aether</strong></div>
+              <div class="flex justify-between gap-3"><span class="text-muted">Available now</span><span class="tabular-nums" :class="snapshot.aether >= selectedInventoryStats.cost ? 'text-success' : 'text-error'">{{ snapshot.aether >= selectedInventoryStats.cost ? 'Affordable' : 'Save more Aether' }}</span></div>
+            </div>
+          </UCard>
+        </div>
+      </template>
+    </UModal>
 
     <UModal v-model:open="boostShopOpen" title="Warden’s Reliquary" description="Permanent upgrades bought with account Coins or Gems.">
       <template #body>
@@ -1518,6 +1906,52 @@ watch(hintsEnabled, enabled => localStorage.setItem('pathwarden-hints', enabled 
   box-shadow: 0 10px 28px color-mix(in srgb, var(--ui-primary) 12%, transparent);
 }
 
+.arsenal-preview :deep(.defense-preview) {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  border-radius: 0;
+}
+
+.arsenal-preview :deep(svg) {
+  min-height: 0;
+}
+
+.arsenal-preview :deep(.preview-tier) {
+  right: .2rem;
+  top: .2rem;
+  padding: .1rem .25rem;
+  font-size: .5rem;
+}
+
+.building-shop-button-active {
+  box-shadow: 0 0 0 1px rgb(251 191 36 / .45), 0 8px 24px rgb(251 191 36 / .2);
+  animation: building-shop-glow 3.2s ease-in-out infinite;
+}
+
+.building-shop-button-active::after {
+  position: absolute;
+  top: .2rem;
+  right: .2rem;
+  width: .28rem;
+  height: .28rem;
+  border-radius: 9999px;
+  background: rgb(254 243 199 / .95);
+  box-shadow: 0 0 7px rgb(254 243 199 / .95);
+  content: '';
+  animation: building-shop-spark 2.4s ease-in-out infinite;
+}
+
+@keyframes building-shop-glow {
+  0%, 100% { filter: brightness(1); }
+  50% { filter: brightness(1.08); }
+}
+
+@keyframes building-shop-spark {
+  0%, 100% { opacity: .25; transform: scale(.7) translate(0, 0); }
+  50% { opacity: 1; transform: scale(1.2) translate(-.1rem, .1rem); }
+}
+
 .boost-sprite {
   background-repeat: no-repeat;
 }
@@ -1526,5 +1960,112 @@ watch(hintsEnabled, enabled => localStorage.setItem('pathwarden-hints', enabled 
   background:
     radial-gradient(circle at 16% 10%, color-mix(in srgb, var(--ui-primary) 12%, transparent), transparent 42%),
     var(--ui-bg-elevated);
+}
+
+.story-book {
+  background: rgb(8 15 28 / .18);
+}
+
+.story-book-pages {
+  background: transparent;
+  box-shadow: inset 0 0 0 5px rgb(91 60 28 / .22), 0 24px 60px rgb(2 6 23 / .5);
+}
+
+.story-page {
+  background:
+    radial-gradient(circle at 20% 12%, rgb(255 248 214 / .6), transparent 38%),
+    linear-gradient(135deg, #f3e2b4, #d7b56f);
+}
+
+.story-page:first-child {
+  border-right: 1px solid rgb(91 60 28 / .28);
+}
+
+.story-illustration {
+  background: transparent;
+}
+
+.story-illustration-copy {
+  max-width: 23rem;
+  text-shadow: 0 2px 12px rgb(2 6 23 / .8);
+}
+
+.story-page-text {
+  opacity: 1 !important;
+}
+
+.page-turn-leaf {
+  position: absolute;
+  inset: 0;
+  z-index: 15;
+  pointer-events: none;
+  transform-origin: left center;
+  background:
+    linear-gradient(90deg, rgb(255 248 214 / .95), rgb(224 193 126 / .92) 78%, rgb(131 88 43 / .78)),
+    #d9bd7b;
+  box-shadow: -12px 0 22px rgb(68 42 18 / .22), inset 5px 0 12px rgb(255 255 255 / .22);
+  animation: page-turn-leaf .62s cubic-bezier(.22, .72, .24, 1) both;
+}
+
+.page-ear {
+  position: absolute;
+  z-index: 20;
+  display: flex;
+  height: 4.25rem;
+  width: 4.25rem;
+  align-items: center;
+  justify-content: center;
+  color: rgb(77 48 23 / .72);
+  background: transparent;
+  box-shadow: none;
+  transition: transform .2s ease, background-color .2s ease;
+}
+
+.page-ear-left {
+  transform-origin: bottom left;
+}
+
+.page-ear::before {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 3.75rem;
+  height: 3.75rem;
+  content: '';
+  background: linear-gradient(135deg, #b98c4f 0%, #d9bd7b 48%, #8d6339 49%, #6e4928 100%);
+  box-shadow: 0 8px 18px rgb(35 22 10 / .2);
+  clip-path: polygon(100% 0, 0 100%, 100% 100%);
+}
+
+.page-ear-left::before {
+  right: auto;
+  left: 0;
+  background: linear-gradient(45deg, #b98c4f 0%, #d9bd7b 48%, #8d6339 49%, #6e4928 100%);
+  clip-path: polygon(0 0, 0 100%, 100% 100%);
+}
+
+.page-ear:hover {
+  transform: scale(1.08);
+}
+
+.page-ear-action {
+  color: #271805;
+}
+
+.page-ear-action::before {
+  background: linear-gradient(135deg, #f1bb34 0%, #f8d979 48%, #b77913 49%, #8a5707 100%);
+}
+
+.page-ear-action > * {
+  position: absolute;
+  right: .7rem;
+  bottom: .7rem;
+  z-index: 1;
+}
+
+@keyframes page-turn-leaf {
+  0% { opacity: .98; transform: perspective(1400px) rotateY(0deg); }
+  72% { opacity: .94; transform: perspective(1400px) rotateY(-76deg); }
+  100% { opacity: 0; transform: perspective(1400px) rotateY(-90deg); }
 }
 </style>

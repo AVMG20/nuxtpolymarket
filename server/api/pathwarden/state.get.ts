@@ -46,6 +46,7 @@ export default defineEventHandler(async (event) => {
         effects: pathwardenBoostEffects(levels),
         power: pathwardenPower(levels),
         surgeCharges: state.surgeCharges,
+        skipIntro: state.skipIntro,
         ambientProgress: {
             seen: state.ambientStoryIds.length,
             total: 250,

@@ -7,6 +7,7 @@
     "build": "nuxt build",
     "dev": "bun --bun nuxt dev",
     "db:push": "drizzle-kit push",
+    "db:seed": "bun scripts/seed-hack-test.ts",
     "preview": "nuxt preview",
     "postinstall": "nuxt prepare",
     "lint": "eslint .",

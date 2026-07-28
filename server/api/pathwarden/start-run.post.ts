@@ -75,7 +75,8 @@ export default defineEventHandler(async (event) => {
                 runStartedAt: new Date(),
                 runRealmSnapshot: realm,
                 runPowerSnapshot: power,
-                runSurgedSnapshot: surged
+                runSurgedSnapshot: surged,
+                claimedCheckpointWaves: []
             })
             .where(eq(pathwardenState.userId, userId))
         return {

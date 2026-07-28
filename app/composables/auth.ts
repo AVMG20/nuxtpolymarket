@@ -13,8 +13,16 @@ export function useAuth() {
   const url = useRequestURL()
   const headers = import.meta.server ? useRequestHeaders() : undefined
 
+  // SSR performs the session lookup from inside the Nuxt process. Resolve
+  // localhost consistently with the dev server's IPv4 binding instead of
+  // allowing Node's localhost resolution to choose an unavailable IPv6
+  // loopback address.
+  const authBaseURL = import.meta.server && ['localhost', '::1'].includes(url.hostname)
+    ? `http://127.0.0.1${url.port ? `:${url.port}` : ''}`
+    : url.origin
+
   const client = createAuthClient({
-    baseURL: url.origin,
+    baseURL: authBaseURL,
     fetchOptions: {
       headers,
     },

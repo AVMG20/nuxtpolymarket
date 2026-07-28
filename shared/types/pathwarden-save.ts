@@ -136,6 +136,7 @@ export interface PathwardenSavedTower {
     cooldown: number
     angle: number
     level: number
+    merges?: number
     targeting: 'first' | 'strong' | 'fast'
     relicFamily?: string
     relicStacks: number
@@ -217,6 +218,7 @@ export interface PathwardenGameState {
     selectedTower: string
     towerPurchases: Record<string, number>
     relicRanks: Record<string, number>
+    globalRelics?: Record<string, { level: number, power: number }>
     relicInventory: PathwardenSavedRelic[]
     interest: number
     canSellRelics: boolean

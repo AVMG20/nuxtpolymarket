@@ -251,6 +251,8 @@ export const pathwardenState = pgTable('pathwarden_state', {
   bannerLevel: integer('banner_level').notNull().default(0),
   bountyLevel: integer('bounty_level').notNull().default(0),
   surgeCharges: integer('surge_charges').notNull().default(0),
+  skipIntro: boolean('skip_intro').notNull().default(false),
+  claimedCheckpointWaves: jsonb('claimed_checkpoint_waves').$type<number[]>().notNull().default([]),
   ambientStoryIds: jsonb('ambient_story_ids').$type<number[]>().notNull().default([]),
   ambientRewardClaimed: boolean('ambient_reward_claimed').notNull().default(false),
   freeBoostCredits: integer('free_boost_credits').notNull().default(0),
