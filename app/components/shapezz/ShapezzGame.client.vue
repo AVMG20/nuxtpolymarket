@@ -643,7 +643,7 @@ onUnmounted(() => {
                 <p v-else class="mt-2 text-xs text-muted">1 gem per started 10 minutes remaining.</p>
               </div>
               <UButton v-else class="mt-5 w-full justify-center" size="xl" icon="i-lucide-play" label="START THE VIOLENCE" :loading="starting" @click="startRun" />
-              <p class="mt-3 text-center text-xs text-muted">Move: WASD / arrows · Jump: W / Space · Drop: S / Down · Aim: mouse · Fire: hold left click</p>
+              <p class="mt-3 text-center text-xs text-muted">Move: WASD / arrows · Jump: W / Space · Drop: hold S / Down · Aim: mouse · Fire: hold left click</p>
             </UCard>
           </div>
         </div>
