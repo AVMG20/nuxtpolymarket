@@ -490,6 +490,9 @@ export class ShapezzEngine {
         const left = this.keys.has('a') || this.keys.has('arrowleft')
         const right = this.keys.has('d') || this.keys.has('arrowright')
         this.dropThroughTimer = Math.max(0, this.dropThroughTimer - dt)
+        // Holding down keeps every elevated platform pass-through, so the player falls all the way
+        // to the floor. The timer only covers a tap that is released before the next frame.
+        const dropping = this.dropThroughTimer > 0 || this.keys.has('s') || this.keys.has('arrowdown')
         const targetVx = (Number(right) - Number(left)) * this.stats.moveSpeed
         const acceleration = this.player.onGround ? 16 : 8
         this.player.vx += (targetVx - this.player.vx) * Math.min(1, dt * acceleration)
@@ -503,7 +506,7 @@ export class ShapezzEngine {
 
         const bottom = this.player.y + this.player.size / 2
         for (const platform of this.platforms) {
-            if (this.dropThroughTimer > 0 && platform.y < FLOOR_Y) continue
+            if (dropping && platform.y < FLOOR_Y) continue
             const withinX = this.player.x + this.player.size * 0.35 > platform.x && this.player.x - this.player.size * 0.35 < platform.x + platform.width
             if (withinX && this.player.vy >= 0 && previousBottom <= platform.y + 4 && bottom >= platform.y) {
                 this.player.y = platform.y - this.player.size / 2
