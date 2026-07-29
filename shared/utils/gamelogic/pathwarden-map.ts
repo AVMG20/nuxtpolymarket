@@ -54,7 +54,10 @@ export function createPathwardenSeededRandom(seed: number): PathwardenSeededRand
     }
 }
 
-const INITIAL_DIRECTIONS: readonly PathwardenCardinalDirection[] = ['north', 'east', 'south', 'west']
+// The keep artwork presents its entrance on the south-facing isometric wall.
+// East and south grid exits render as south-east and south-west roads; north
+// and west exits would make the immutable road leave through the keep's back.
+const INITIAL_DIRECTIONS: readonly PathwardenCardinalDirection[] = ['east', 'south']
 
 function move(point: PathwardenGridPoint, direction: PathwardenCardinalDirection, distance: number) {
     if (direction === 'north') return { col: point.col, row: point.row - distance }

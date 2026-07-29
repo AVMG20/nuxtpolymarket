@@ -4,6 +4,9 @@ import {
   type PathwardenInventoryRelic,
   type PathwardenEngineRestore,
   type PathwardenRelic,
+  type PathwardenRelicSwapPreview,
+  type PathwardenRelicSwapResult,
+  type PathwardenRelicSwapFocus,
   type PathwardenRelicRarity,
   type PathwardenSnapshot,
   type PathwardenTargeting,
@@ -53,6 +56,8 @@ const introStory = [
 definePageMeta({ title: 'Pathwarden' })
 
 const canvas = ref<HTMLCanvasElement | null>(null)
+const mapGenerating = ref(false)
+const mapGenerationProgress = ref(0)
 const snapshot = ref<PathwardenSnapshot>({
   phase: 'planning',
   introStoryActive: false,
@@ -106,6 +111,39 @@ const selectedUpgrade = computed(() => {
 const upgradeChoices = ref<PathwardenRelic[]>([])
 const boostShopOpen = ref(false)
 const defenseInventoryOpen = ref(false)
+const arcanistWorkbenchOpen = ref(false)
+const arcanistPreview = ref<PathwardenRelicSwapPreview | null>(null)
+const arcanistResult = ref<PathwardenRelicSwapResult | null>(null)
+const arcanistCanvas = ref<HTMLCanvasElement | null>(null)
+const arcanistOddsCanvas = ref<HTMLCanvasElement | null>(null)
+let arcanistRainUntil = 0
+const arcanistInvestment = ref(0)
+const arcanistOfferBonus = ref(0)
+const arcanistFocus = ref<PathwardenRelicSwapFocus>('both')
+const arcanistFocusOptions = [
+  { label: 'Improve binding odds', value: 'binding' },
+  { label: 'Improve preservation odds', value: 'preservation' },
+  { label: 'Split between both', value: 'both' }
+]
+const arcanistInvestmentTiers = [
+  { amount: 5, bonus: 0.05, label: 'Use 5 Aether', result: '+5% odds' },
+  { amount: 15, bonus: 0.10, label: 'Use 15 Aether', result: '+10% odds' },
+  { amount: 30, bonus: 0.15, label: 'Use 30 Aether', result: '+15% odds' },
+  { amount: 50, bonus: 0.20, label: 'Use 50 Aether', result: '+20% odds' }
+]
+const arcanistInvestmentBonus = computed(() => arcanistOfferBonus.value)
+const arcanistBindingChance = computed(() => {
+  const preview = arcanistPreview.value
+  if (!preview) return 0
+  const bonus = arcanistFocus.value === 'preservation' ? 0 : arcanistInvestmentBonus.value * (arcanistFocus.value === 'both' ? 0.5 : 1)
+  return Math.min(0.98, preview.bindChance + bonus)
+})
+const arcanistPreserveChance = computed(() => {
+  const preview = arcanistPreview.value
+  if (!preview) return 0
+  const bonus = arcanistFocus.value === 'binding' ? 0 : arcanistInvestmentBonus.value * (arcanistFocus.value === 'both' ? 0.5 : 1)
+  return Math.min(0.98, preview.preserveChance + bonus)
+})
 const abandonOpen = ref(false)
 const simulatorOpen = ref(false)
 const simulatorRunning = ref(false)
@@ -309,6 +347,175 @@ function openBuildingInventory() {
   defenseInventoryOpen.value = true
 }
 
+function openArcanistWorkbench(preview: PathwardenRelicSwapPreview) {
+  arcanistPreview.value = preview
+  arcanistResult.value = null
+  arcanistInvestment.value = 0
+  arcanistOfferBonus.value = 0
+  arcanistFocus.value = 'both'
+  arcanistWorkbenchOpen.value = true
+  void nextTick(() => {
+    drawArcanistWorkbench()
+    drawArcanistOdds()
+  })
+}
+
+function drawArcanistWorkbench() {
+  const canvas = arcanistOddsCanvas.value
+  const preview = arcanistPreview.value
+  if (!canvas || !preview) return
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return
+  const width = canvas.width
+  const height = canvas.height
+  const center = { x: width / 2, y: height / 2 + 6 }
+  const gradient = ctx.createLinearGradient(0, 0, 0, height)
+  gradient.addColorStop(0, '#172554')
+  gradient.addColorStop(1, '#0f172a')
+  ctx.fillStyle = gradient
+  ctx.fillRect(0, 0, width, height)
+  ctx.fillStyle = 'rgba(14, 116, 144, 0.18)'
+  ctx.fillRect(0, height * 0.68, width, height * 0.32)
+  ctx.strokeStyle = 'rgba(125, 211, 252, 0.72)'
+  ctx.lineWidth = 3
+  ctx.beginPath()
+  ctx.arc(center.x, center.y, 72, 0, Math.PI * 2)
+  ctx.stroke()
+  ctx.strokeStyle = 'rgba(250, 204, 21, 0.7)'
+  ctx.lineWidth = 2
+  for (let index = 0; index < 8; index++) {
+    const angle = index * Math.PI / 4
+    ctx.beginPath()
+    ctx.moveTo(center.x + Math.cos(angle) * 78, center.y + Math.sin(angle) * 78)
+    ctx.lineTo(center.x + Math.cos(angle) * 94, center.y + Math.sin(angle) * 94)
+    ctx.stroke()
+  }
+  ctx.fillStyle = '#a16207'
+  ctx.fillRect(52, height * 0.68, width - 104, 36)
+  ctx.fillStyle = '#d6a15d'
+  ctx.fillRect(52, height * 0.66, width - 104, 9)
+  ctx.fillStyle = '#fef3c7'
+  ctx.font = '900 22px Georgia, serif'
+  ctx.textAlign = 'center'
+  ctx.fillText('ARCANIST WORKBENCH', center.x, 42)
+  ctx.font = '700 13px sans-serif'
+  ctx.fillStyle = '#bae6fd'
+  ctx.fillText('The old binding is tested before the new one takes hold.', center.x, 64)
+  ctx.font = '900 15px sans-serif'
+  ctx.fillStyle = '#fecaca'
+  ctx.fillText(preview.existingName, 170, height * 0.79)
+  ctx.fillStyle = '#bbf7d0'
+  ctx.fillText(preview.incomingName, width - 170, height * 0.79)
+  ctx.strokeStyle = '#facc15'
+  ctx.lineWidth = 4
+  ctx.beginPath()
+  ctx.moveTo(270, height * 0.76)
+  ctx.quadraticCurveTo(center.x, height * 0.42, width - 270, height * 0.76)
+  ctx.stroke()
+  ctx.fillStyle = '#facc15'
+  ctx.font = '900 26px serif'
+  ctx.fillText('✦', center.x, center.y + 9)
+}
+
+function confirmArcanistSwap() {
+  const preview = arcanistPreview.value
+  if (!preview) return
+  arcanistResult.value = engine?.resolveRelicSwap(preview.towerId, preview.relicInstanceId, {
+    amount: arcanistInvestment.value,
+    focus: arcanistFocus.value,
+    bonus: arcanistOfferBonus.value
+  }) ?? null
+}
+
+function selectArcanistOffering(tier: typeof arcanistInvestmentTiers[number]) {
+  if (!arcanistPreview.value || tier.amount > arcanistPreview.value.availableAether) return
+  arcanistInvestment.value = tier.amount
+  arcanistOfferBonus.value = tier.bonus
+  void nextTick(animateArcanistCrystals)
+}
+
+function drawArcanistOdds() {
+  const canvas = arcanistOddsCanvas.value
+  const preview = arcanistPreview.value
+  if (!canvas || !preview) return
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return
+  ctx.clearRect(0, 0, canvas.width, canvas.height)
+  ctx.fillStyle = '#0f172a'
+  ctx.fillRect(0, 0, canvas.width, canvas.height)
+  const drawScale = (x: number, label: string, odds: number, color: string) => {
+    ctx.strokeStyle = 'rgba(148, 163, 184, 0.8)'
+    ctx.lineWidth = 5
+    ctx.beginPath()
+    ctx.arc(x, 174, 74, Math.PI, Math.PI * 2)
+    ctx.stroke()
+    ctx.strokeStyle = color
+    ctx.lineWidth = 8
+    ctx.beginPath()
+    ctx.arc(x, 174, 74, Math.PI, Math.PI + Math.PI * odds)
+    ctx.stroke()
+    const angle = Math.PI + Math.PI * odds
+    ctx.strokeStyle = '#f8fafc'
+    ctx.lineWidth = 4
+    ctx.beginPath()
+    ctx.moveTo(x, 174)
+    ctx.lineTo(x + Math.cos(angle) * 62, 174 + Math.sin(angle) * 62)
+    ctx.stroke()
+    ctx.fillStyle = '#f8fafc'
+    ctx.beginPath()
+    ctx.arc(x, 174, 8, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.font = '900 15px sans-serif'
+    ctx.textAlign = 'center'
+    ctx.fillStyle = '#f8fafc'
+    ctx.fillText(label, x, 30)
+    ctx.font = '900 26px sans-serif'
+    ctx.fillStyle = color
+    ctx.fillText(`${Math.round(odds * 100)}%`, x, 78)
+    ctx.font = '700 11px sans-serif'
+    ctx.fillStyle = '#94a3b8'
+    ctx.fillText('failure', x - 76, 205)
+    ctx.fillText('SUCCESS', x + 76, 205)
+  }
+  drawScale(225, 'BINDING', arcanistBindingChance.value, '#38bdf8')
+  drawScale(675, 'PRESERVE OLD RELIC', arcanistPreserveChance.value, '#86efac')
+  ctx.font = '700 12px sans-serif'
+  ctx.fillStyle = '#facc15'
+  ctx.fillText('AETHER SCALES · CRYSTALS TIP THE NEEDLE TOWARD SUCCESS', 450, 238)
+  const rainProgress = Math.max(0, Math.min(1, 1 - (arcanistRainUntil - performance.now()) / 900))
+  if (rainProgress > 0 && rainProgress < 1) {
+    for (let index = 0; index < 12; index++) {
+      const x = 105 + (index * 71) % 690
+      const y = 92 + ((rainProgress * 250 + index * 31) % 88)
+      ctx.fillStyle = index % 2 ? '#67e8f9' : '#fde68a'
+      ctx.save()
+      ctx.translate(x, y)
+      ctx.rotate(index * 0.6)
+      ctx.fillRect(-5, -8, 10, 16)
+      ctx.restore()
+    }
+  }
+}
+
+function animateArcanistCrystals() {
+  arcanistRainUntil = performance.now() + 900
+  const frame = () => {
+    drawArcanistOdds()
+    if (performance.now() < arcanistRainUntil) requestAnimationFrame(frame)
+  }
+  requestAnimationFrame(frame)
+}
+
+watch([arcanistFocus, arcanistOfferBonus], () => {
+  if (arcanistWorkbenchOpen.value) void nextTick(drawArcanistOdds)
+})
+
+function closeArcanistWorkbench() {
+  arcanistWorkbenchOpen.value = false
+  arcanistPreview.value = null
+  arcanistResult.value = null
+}
+
 function towerBlueprint(type: PathwardenTowerType) {
   return PATHWARDEN_DEFENSE_BLUEPRINTS.find(defense => defense.id === type)
     ?? PATHWARDEN_DEFENSE_BLUEPRINTS[0]!
@@ -320,7 +527,8 @@ const defenseBoostEffects = computed(() => boostState.value?.effects ?? {
   rateMultiplier: 1,
   startingAether: 205,
   startingLives: 20,
-  bountyMultiplier: 1
+  bountyMultiplier: 1,
+  arcanistLevel: 0
 })
 
 function defensePower(defense: typeof PATHWARDEN_DEFENSE_BLUEPRINTS[number]) {
@@ -812,7 +1020,7 @@ async function saveRun() {
   }
 }
 
-function createGame(restore?: PathwardenEngineRestore) {
+function createGame(restore?: PathwardenEngineRestore, startEngine = true) {
   if (!canvas.value) return
   engine = new PathwardenEngine(canvas.value, {
     onState: (state) => {
@@ -820,6 +1028,8 @@ function createGame(restore?: PathwardenEngineRestore) {
       scheduleSave()
     },
     onUpgrade: choices => { upgradeChoices.value = choices },
+    onOpenBuildingInventory: openBuildingInventory,
+    onOpenArcanistWorkbench: openArcanistWorkbench,
     onAmbientStoryComplete: async (storyId) => {
       try {
         const progress = await $fetch('/api/pathwarden/ambient', {
@@ -844,7 +1054,36 @@ function createGame(restore?: PathwardenEngineRestore) {
   }, boostState.value
     ? pathwardenBoostEffects(boostState.value.levels, useSurge.value)
     : undefined, selectedRealm.value, boostState.value?.equippedSkinId ?? 'warden-stone', restore, skipIntro.value)
-  engine.start()
+  if (startEngine) engine.start()
+}
+
+async function createFreshMapWithLoading() {
+  mapGenerating.value = true
+  mapGenerationProgress.value = 0
+  const slowStart = performance.now()
+  await new Promise<void>(resolve => {
+    const tick = () => {
+      const progress = Math.min(0.25, (performance.now() - slowStart) / 2400 * 0.25)
+      mapGenerationProgress.value = progress
+      if (progress >= 0.25) resolve()
+      else requestAnimationFrame(tick)
+    }
+    requestAnimationFrame(tick)
+  })
+
+  createGame(undefined, false)
+  const fastStart = performance.now()
+  await new Promise<void>(resolve => {
+    const tick = () => {
+      const progress = Math.min(1, 0.25 + (performance.now() - fastStart) / 2000 * 0.75)
+      mapGenerationProgress.value = progress
+      if (progress >= 1) resolve()
+      else requestAnimationFrame(tick)
+    }
+    requestAnimationFrame(tick)
+  })
+  mapGenerating.value = false
+  engine?.start()
 }
 
 onMounted(async () => {
@@ -865,7 +1104,8 @@ onMounted(async () => {
     }
   }
   unlockedRealm.value = boostState.value?.progression.maxUnlockedRealm ?? 1
-  createGame(restoredRun)
+  if (!restoredRun && skipIntro.value) await createFreshMapWithLoading()
+  else createGame(restoredRun)
 })
 
 onBeforeUnmount(() => {
@@ -915,6 +1155,9 @@ watch(() => [snapshot.value.phase, snapshot.value.wave] as const, ([phase, wave]
           </UButton>
           <UButton size="xs" color="warning" variant="soft" icon="i-lucide-map" @click="revealEntireMap">
             Reveal map
+          </UButton>
+          <UButton v-if="boostState?.debugMode" to="/pathwarden/debug" size="xs" color="error" variant="soft" icon="i-lucide-panels-top-left">
+            Open debug showcase
           </UButton>
           <UButton
             size="xs"
@@ -977,6 +1220,50 @@ watch(() => [snapshot.value.phase, snapshot.value.wave] as const, ([phase, wave]
           @dragover.prevent
           @drop.prevent="dropRelic"
         />
+        <div v-if="mapGenerating" class="map-generation-overlay absolute inset-0 z-40 flex items-center justify-center p-5 sm:p-10">
+          <div class="map-generation-panel w-full max-w-2xl rounded-[1.4rem] border border-violet-200/30 bg-slate-950/80 p-5 text-center shadow-2xl backdrop-blur-md sm:p-8">
+            <svg class="mx-auto h-56 w-full max-w-lg" viewBox="0 0 640 300" role="img" aria-label="An angry god attacks the castle with fog while the map is generated">
+              <defs>
+                <linearGradient id="map-loading-sky" x1="0" x2="0" y1="0" y2="1">
+                  <stop offset="0" stop-color="#11152e" />
+                  <stop offset="1" stop-color="#283657" />
+                </linearGradient>
+                <linearGradient id="map-loading-fog" x1="0" x2="1">
+                  <stop offset="0" stop-color="#c4b5fd" stop-opacity=".05" />
+                  <stop offset=".5" stop-color="#a5b4fc" stop-opacity=".7" />
+                  <stop offset="1" stop-color="#c4b5fd" stop-opacity=".05" />
+                </linearGradient>
+              </defs>
+              <rect width="640" height="300" rx="22" fill="url(#map-loading-sky)" />
+              <path class="map-loading-fog map-loading-fog-one" d="M40 224 C170 166 206 250 330 202 S500 158 612 211" fill="none" stroke="url(#map-loading-fog)" stroke-width="20" stroke-linecap="round" />
+              <path class="map-loading-fog map-loading-fog-two" d="M26 254 C160 205 218 274 342 230 S506 194 626 246" fill="none" stroke="url(#map-loading-fog)" stroke-width="12" stroke-linecap="round" />
+              <g transform="translate(320 218)">
+                <path d="M-74 0 L-62-84 L-34-84 L-34-62 L-11-62 L-11-102 L14-102 L14-62 L38-62 L38-84 L65-84 L77 0 Z" fill="#64748b" stroke="#cbd5e1" stroke-width="4" />
+                <path d="M-88 0 H88 L0 40 Z" fill="#475569" stroke="#1e293b" stroke-width="4" />
+                <path d="M-13 0 V-31 H13 V0" fill="#1e293b" stroke="#fbbf24" stroke-width="4" />
+                <path d="M-48-57h14v20h-14zm31-10h14v30h-14zm31 10h14v20h-14z" fill="#dbeafe" />
+              </g>
+              <g class="map-loading-god" transform="translate(320 70)">
+                <path d="M-92 34 Q-66 4-34 13 H34 Q66 4 92 34 L58 55 H-58 Z" fill="#cbd5e1" opacity=".92" />
+                <path d="M-35 22 H35 L24-48 H-24 Z" fill="#8b5cf6" opacity=".88" />
+                <circle cx="0" cy="-62" r="19" fill="#f1c7ac" />
+                <path d="M-24-67 L0-94 L24-67 L15-61 H-15 Z" fill="#312e81" />
+                <path d="M-13-64 L-4-67 M13-64 L4-67" stroke="#4c0519" stroke-width="5" stroke-linecap="round" />
+                <circle cx="-9" cy="-60" r="3" fill="#ef4444" />
+                <circle cx="9" cy="-60" r="3" fill="#ef4444" />
+                <path d="M-8-50 Q0-43 8-50" fill="none" stroke="#7f1d1d" stroke-width="4" stroke-linecap="round" />
+                <path class="map-loading-attack" d="M-20 34 L-68 143" stroke="#a5b4fc" stroke-width="9" stroke-linecap="round" />
+                <path class="map-loading-attack map-loading-attack-delay" d="M20 34 L68 143" stroke="#c4b5fd" stroke-width="9" stroke-linecap="round" />
+              </g>
+            </svg>
+            <p class="mt-2 text-[10px] font-black uppercase tracking-[0.3em] text-violet-200/70">The god stirs beneath the broken temple</p>
+            <p class="mt-2 text-lg font-black text-white">Forging a new realm</p>
+            <div class="mx-auto mt-5 h-3 max-w-lg overflow-hidden rounded-full border border-violet-200/40 bg-slate-900/90 p-0.5">
+              <div class="h-full rounded-full bg-gradient-to-r from-violet-500 via-fuchsia-400 to-amber-300 transition-[width] duration-100" :style="{ width: `${mapGenerationProgress * 100}%` }" />
+            </div>
+            <p class="mt-2 text-xs font-bold tabular-nums text-violet-100/70">{{ Math.round(mapGenerationProgress * 100) }}%</p>
+          </div>
+        </div>
         <div v-if="snapshot.introStoryActive || snapshot.openingCinematic" class="story-book pointer-events-auto absolute inset-0 z-30 p-3 sm:p-8">
           <div class="story-book-pages mx-auto grid h-full max-w-5xl grid-cols-1 overflow-hidden rounded-[1.4rem] border border-amber-200/35 shadow-2xl sm:grid-cols-2">
             <article class="story-page relative flex flex-col justify-center px-7 py-10 sm:px-12">
@@ -1179,7 +1466,7 @@ watch(() => [snapshot.value.phase, snapshot.value.wave] as const, ([phase, wave]
           </div>
           <div class="mt-3 grid grid-cols-3 gap-2 text-center text-xs">
             <div class="rounded-md bg-background/70 p-2"><span class="block text-muted">Damage</span><strong>{{ snapshot.selectedBuilding.damage }}</strong></div>
-            <div class="rounded-md bg-background/70 p-2"><span class="block text-muted">Range</span><strong>{{ snapshot.selectedBuilding.range }}</strong></div>
+            <div class="rounded-md bg-background/70 p-2"><span class="block text-muted">Range</span><strong>{{ snapshot.selectedBuilding.range }} feet</strong></div>
             <div class="rounded-md bg-background/70 p-2"><span class="block text-muted">Cooldown</span><strong>{{ snapshot.selectedBuilding.rate }}s</strong></div>
           </div>
           <div class="mt-3">
@@ -1545,18 +1832,138 @@ watch(() => [snapshot.value.phase, snapshot.value.wave] as const, ([phase, wave]
             </p>
             <div class="mt-4 grid grid-cols-2 gap-2 text-center text-xs">
               <div class="rounded-lg bg-background/70 p-2"><span class="block text-muted">Damage</span><strong class="text-base">{{ selectedInventoryStats.damage }}</strong><span class="block text-[10px] text-primary">{{ Math.round((defenseBoostEffects.damageMultiplier - 1) * 100) }}% boost</span></div>
-              <div class="rounded-lg bg-background/70 p-2"><span class="block text-muted">Range</span><strong class="text-base">{{ selectedInventoryStats.range }}</strong><span class="block text-[10px] text-primary">{{ Math.round((defenseBoostEffects.rangeMultiplier - 1) * 100) }}% boost</span></div>
+              <div class="rounded-lg bg-background/70 p-2"><span class="block text-muted">Range</span><strong class="text-base">{{ selectedInventoryStats.range }} feet</strong><span class="block text-[10px] text-primary">{{ Math.round((defenseBoostEffects.rangeMultiplier - 1) * 100) }}% boost</span></div>
               <div class="rounded-lg bg-background/70 p-2"><span class="block text-muted">Reload</span><strong class="text-base">{{ selectedInventoryStats.rate }}s</strong><span class="block text-[10px] text-primary">{{ Math.round((defenseBoostEffects.rateMultiplier - 1) * 100) }}% faster</span></div>
               <div class="rounded-lg bg-background/70 p-2"><span class="block text-muted">Sustained DPS</span><strong class="text-base">{{ selectedInventoryStats.dps }}</strong><span class="block text-[10px] text-muted">before relics</span></div>
               <div class="rounded-lg bg-background/70 p-2"><span class="block text-muted">Splash</span><strong class="text-base">{{ selectedInventoryDefense.splash || '—' }}</strong><span class="block text-[10px] text-muted">impact radius</span></div>
               <div class="rounded-lg bg-background/70 p-2"><span class="block text-muted">Slow</span><strong class="text-base">{{ selectedInventoryDefense.slow ? `${Math.round(selectedInventoryDefense.slow * 100)}%` : '—' }}</strong><span class="block text-[10px] text-muted">control effect</span></div>
             </div>
             <div class="mt-4 space-y-2 border-t border-default pt-3 text-xs">
-              <div class="flex justify-between gap-3"><span class="text-muted">Base profile</span><span class="tabular-nums">{{ selectedInventoryDefense.damage }} damage · {{ selectedInventoryDefense.range }} range</span></div>
+              <div class="flex justify-between gap-3"><span class="text-muted">Base profile</span><span class="tabular-nums">{{ selectedInventoryDefense.damage }} damage · {{ selectedInventoryDefense.range }} feet</span></div>
               <div class="flex justify-between gap-3"><span class="text-muted">Current cost</span><strong class="text-primary tabular-nums">{{ selectedInventoryStats.cost }} Aether</strong></div>
               <div class="flex justify-between gap-3"><span class="text-muted">Available now</span><span class="tabular-nums" :class="snapshot.aether >= selectedInventoryStats.cost ? 'text-success' : 'text-error'">{{ snapshot.aether >= selectedInventoryStats.cost ? 'Affordable' : 'Save more Aether' }}</span></div>
             </div>
           </UCard>
+        </div>
+      </template>
+    </UModal>
+
+    <UModal
+      v-model:open="arcanistWorkbenchOpen"
+      title="The Arcanist’s workbench"
+      description="Rebind a defense to a different relic family. The ritual may preserve the displaced relic, weaken its stack, or destroy it."
+      :ui="{ content: 'sm:max-w-4xl' }"
+    >
+      <template #body>
+        <div v-if="arcanistPreview" class="space-y-4">
+          <canvas
+            ref="arcanistCanvas"
+            width="900"
+            height="260"
+            class="h-auto w-full rounded-xl border border-primary/30 bg-background shadow-inner"
+            aria-label="An Arcanist workbench with two relics circling a binding rune"
+          />
+          <canvas
+            ref="arcanistOddsCanvas"
+            width="900"
+            height="260"
+            class="h-auto w-full rounded-xl border border-primary/30 bg-background shadow-inner"
+            aria-label="Arcanist binding and preservation odds scales"
+          />
+          <div class="grid gap-3 sm:grid-cols-2">
+            <UCard class="border-error/30 bg-error/5" :ui="{ body: 'p-3 sm:p-3' }">
+              <div class="flex items-center gap-3">
+                <span
+                  class="block size-12 shrink-0 rounded-lg border-2 border-error/40 bg-elevated bg-no-repeat shadow-lg"
+                  :style="relicIconStyle({ iconIndex: arcanistPreview.existingIconIndex })"
+                />
+                <div class="min-w-0">
+                  <p class="text-[10px] font-black uppercase tracking-[.16em] text-error">Current binding</p>
+                  <strong class="block truncate text-sm">{{ arcanistPreview.existingName }}</strong>
+                  <span class="text-xs text-muted">{{ arcanistPreview.existingStacks }} stack{{ arcanistPreview.existingStacks === 1 ? '' : 's' }} · {{ arcanistPreview.existingPower.toFixed(2) }} power</span>
+                </div>
+              </div>
+            </UCard>
+            <UCard class="border-success/30 bg-success/5" :ui="{ body: 'p-3 sm:p-3' }">
+              <div class="flex items-center gap-3">
+                <span
+                  class="block size-12 shrink-0 rounded-lg border-2 border-success/40 bg-elevated bg-no-repeat shadow-lg"
+                  :style="relicIconStyle({ iconIndex: arcanistPreview.incomingIconIndex })"
+                />
+                <div class="min-w-0">
+                  <p class="text-[10px] font-black uppercase tracking-[.16em] text-success">Incoming binding</p>
+                  <strong class="block truncate text-sm">{{ arcanistPreview.incomingName }}</strong>
+                  <span class="text-xs text-muted">{{ arcanistPreview.incomingPower.toFixed(2) }} power · {{ arcanistPreview.incomingElement }} element · {{ arcanistPreview.incomingFamily }} effect</span>
+                </div>
+              </div>
+            </UCard>
+          </div>
+          <div class="grid gap-2 text-center text-xs sm:grid-cols-3">
+            <div class="rounded-lg border border-primary/20 bg-primary/5 p-3">
+              <span class="block text-muted">Binding chance</span>
+              <strong class="mt-1 block text-lg text-primary">{{ Math.round(arcanistBindingChance * 100) }}%</strong>
+              <span class="block text-[10px] text-muted">Tower level {{ arcanistPreview.towerLevel }} · Arcanist {{ boostState?.levels.arcanist ?? 0 }}</span>
+            </div>
+            <div class="rounded-lg border border-success/20 bg-success/5 p-3">
+              <span class="block text-muted">Old relic preserved</span>
+              <strong class="mt-1 block text-lg text-success">{{ Math.round(arcanistPreserveChance * 100) }}%</strong>
+              <span class="block text-[10px] text-muted">A recovered fragment returns to the belt</span>
+            </div>
+            <div class="rounded-lg border border-warning/20 bg-warning/5 p-3">
+              <span class="block text-muted">Stack loss risk</span>
+              <strong class="mt-1 block text-lg text-warning">{{ Math.round(arcanistPreview.stackedLossChance * 100) }}%</strong>
+              <span class="block text-[10px] text-muted">Per extra stacked arrow</span>
+            </div>
+          </div>
+          <UCard v-if="!arcanistResult" class="border-primary/30 bg-primary/5" :ui="{ body: 'p-3 sm:p-3' }">
+            <div class="flex flex-wrap items-end gap-3">
+              <UFormField label="Spend it toward" class="min-w-56 flex-1">
+                <USelect v-model="arcanistFocus" :items="arcanistFocusOptions" class="w-full" />
+              </UFormField>
+            </div>
+            <div class="mt-3 grid gap-2 sm:grid-cols-4">
+              <UButton
+                v-for="tier in arcanistInvestmentTiers"
+                :key="tier.amount"
+                color="warning"
+                :variant="arcanistInvestment === tier.amount ? 'solid' : 'soft'"
+                :disabled="tier.amount > arcanistPreview.availableAether"
+                @click="selectArcanistOffering(tier)"
+              >
+                <span class="flex flex-col items-center"><span>{{ tier.label }}</span><span class="text-[10px] opacity-80">{{ tier.result }}</span></span>
+              </UButton>
+            </div>
+            <p class="mt-2 text-xs text-muted">Aether pile: {{ formatNumber(arcanistPreview.availableAether, false) }} available. Each higher offer costs more crystals for the next 5% improvement.</p>
+          </UCard>
+          <UAlert
+            v-if="!arcanistResult"
+            color="warning"
+            variant="soft"
+            icon="i-lucide-flask-conical"
+            title="The ritual cannot be undone"
+            description="If the binding succeeds, the new relic takes the tower’s place. The old relic may return weakened—or vanish into the aether."
+          />
+          <UAlert
+            v-else
+            :color="arcanistResult.success ? (arcanistResult.preserved ? 'success' : 'warning') : 'error'"
+            variant="soft"
+            :icon="arcanistResult.success ? (arcanistResult.preserved ? 'i-lucide-shield-check' : 'i-lucide-triangle-alert') : 'i-lucide-x-circle'"
+            :title="arcanistResult.success ? (arcanistResult.preserved ? 'Rebinding succeeded · old relic recovered' : 'Rebinding succeeded · old relic lost') : 'Rebinding failed · nothing changed'"
+            :description="arcanistResult.message"
+          >
+            <template #description>
+              <span>{{ arcanistResult.message }}</span>
+              <span v-if="arcanistResult.success && arcanistResult.preserved" class="mt-1 block font-semibold">
+                {{ arcanistResult.recoveredStacks }} of {{ arcanistResult.oldStacks }} old stack{{ arcanistResult.oldStacks === 1 ? '' : 's' }} returned to the reliquary.
+              </span>
+              <span v-else-if="arcanistResult.success" class="mt-1 block font-semibold">The displaced relic was destroyed in the workbench.</span>
+              <span class="mt-1 block">{{ arcanistResult.aetherSpent }} Aether spent · {{ Math.round(arcanistResult.bindingChance * 100) }}% binding · {{ Math.round(arcanistResult.preserveChance * 100) }}% preservation.</span>
+            </template>
+          </UAlert>
+          <div class="flex justify-end gap-2">
+            <UButton color="neutral" variant="outline" @click="closeArcanistWorkbench">{{ arcanistResult ? 'Close the workbench' : 'Leave the bench' }}</UButton>
+            <UButton v-if="!arcanistResult" color="warning" icon="i-lucide-wand-sparkles" @click="confirmArcanistSwap">Attempt the rebind</UButton>
+          </div>
         </div>
       </template>
     </UModal>
@@ -1847,6 +2254,50 @@ watch(() => [snapshot.value.phase, snapshot.value.wave] as const, ([phase, wave]
     0 24px 70px rgb(2 6 23 / .48),
     0 0 0 1px color-mix(in srgb, var(--ui-primary) 15%, transparent),
     inset 0 0 40px rgb(2 6 23 / .35);
+}
+
+.map-generation-overlay {
+  background: radial-gradient(circle at 50% 28%, rgb(99 102 241 / .22), rgb(2 6 23 / .82) 68%);
+}
+
+.map-generation-panel {
+  box-shadow: 0 0 55px rgb(99 102 241 / .2), inset 0 0 30px rgb(15 23 42 / .65);
+}
+
+.map-loading-god {
+  animation: map-loading-god-pulse 4.5s ease-in-out infinite;
+}
+
+.map-loading-fog {
+  animation: map-loading-fog-drift 5s ease-in-out infinite;
+}
+
+.map-loading-fog-two {
+  animation-delay: -2.2s;
+}
+
+.map-loading-attack {
+  transform-origin: 50% 0;
+  animation: map-loading-attack-pulse 2.8s ease-in-out infinite;
+}
+
+.map-loading-attack-delay {
+  animation-delay: -1.4s;
+}
+
+@keyframes map-loading-god-pulse {
+  0%, 100% { opacity: .82; }
+  50% { opacity: 1; }
+}
+
+@keyframes map-loading-fog-drift {
+  0%, 100% { transform: translateX(-8px); opacity: .55; }
+  50% { transform: translateX(10px); opacity: 1; }
+}
+
+@keyframes map-loading-attack-pulse {
+  0%, 100% { opacity: .35; stroke-width: 6; }
+  50% { opacity: 1; stroke-width: 12; }
 }
 
 .hud-stat,

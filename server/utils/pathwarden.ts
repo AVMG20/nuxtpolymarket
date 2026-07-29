@@ -12,7 +12,8 @@ export function pathwardenLevels(state: LockedPathwardenState): PathwardenBoostL
         lens: state.lensLevel,
         reservoir: state.reservoirLevel,
         banner: state.bannerLevel,
-        bounty: state.bountyLevel
+        bounty: state.bountyLevel,
+        arcanist: state.arcanistLevel
     }
 }
 

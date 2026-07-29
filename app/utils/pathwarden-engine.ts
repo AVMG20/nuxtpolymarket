@@ -36,6 +36,7 @@ export type PathwardenRelicFamily =
   | 'fire' | 'frost' | 'storm' | 'venom' | 'blast'
   | 'leech' | 'pierce' | 'chain' | 'gale' | 'radiant'
   | 'heart' | 'repair' | 'bounty' | 'haste' | 'range'
+export type PathwardenRelicElement = 'fire' | 'frost' | 'lightning' | 'poison' | 'sun' | 'arcane'
 type PathwardenGlobalRelicFamily = 'heart' | 'repair' | 'bounty' | 'haste' | 'range'
 export type PathwardenPhase = 'planning' | 'wave' | 'checkpoint' | 'path' | 'upgrade' | 'cashout' | 'victory' | 'defeat'
 export type PathwardenTargeting = 'first' | 'strong' | 'fast'
@@ -43,6 +44,7 @@ export type PathwardenTargeting = 'first' | 'strong' | 'fast'
 export interface PathwardenRelic {
   id: string
   family: PathwardenRelicFamily
+  element: PathwardenRelicElement
   rarity: PathwardenRelicRarity
   name: string
   description: string
@@ -73,31 +75,33 @@ const RELIC_RARITIES: Array<{ id: PathwardenRelicRarity, label: string, power: n
 
 const RELIC_FAMILIES: Array<{
   id: PathwardenRelicFamily
+  element: PathwardenRelicElement
   name: string
   towerSpecific: boolean
   description: (power: number) => string
 }> = [
-  { id: 'fire', name: 'Ember Arrows', towerSpecific: true, description: power => `Burns for ${Math.round(18 * power)}% base damage over 3s · +${Math.round(6 * power)}% direct damage.` },
-  { id: 'frost', name: 'Rime Arrows', towerSpecific: true, description: power => `Slows by ${Math.round(22 + 4 * power)}% for 2s · +${Math.round(4 * power)}% direct damage.` },
-  { id: 'storm', name: 'Storm Bolts', towerSpecific: true, description: power => `Jumps to ${Math.min(5, 1 + Math.floor(power))} nearby foes; each jump retains ${Math.round(58 - power * 2)}% power.` },
-  { id: 'venom', name: 'Venom Heads', towerSpecific: true, description: power => `Poisons for ${Math.round(24 * power)}% base damage over 4s · +${Math.round(3 * power)}% direct damage.` },
-  { id: 'blast', name: 'Blast Cores', towerSpecific: true, description: power => `${Math.round(46 + power * 8)}px impact burst · +${Math.round(6 * power)}% direct damage.` },
-  { id: 'leech', name: 'Sanguine Tips', towerSpecific: true, description: power => `Each hit repairs ${(0.12 * power).toFixed(2)}% keep health · +${Math.round(4 * power)}% damage.` },
-  { id: 'pierce', name: 'Kingsbane Heads', towerSpecific: true, description: power => `Ignores armor and deals +${Math.round(10 * power)}% damage; double bonus against brutes and bosses.` },
-  { id: 'chain', name: 'Echo Sigil', towerSpecific: true, description: power => `Every fourth shot echoes at ${Math.round(42 + power * 6)}% power.` },
-  { id: 'gale', name: 'Gale Fletching', towerSpecific: true, description: power => `This defense attacks ${Math.round(7 * power)}% faster and deals +${Math.round(2 * power)}% damage.` },
-  { id: 'radiant', name: 'Dawn Arrows', towerSpecific: true, description: power => `Radiant hit bursts for ${Math.round(28 * power)}% damage to foes within ${Math.round(52 + power * 7)}px.` },
-  { id: 'heart', name: 'Keepheart', towerSpecific: false, description: power => `Immediately restore ${Math.round(3 * power)} keep hearts.` },
-  { id: 'repair', name: 'Restorer’s Oath', towerSpecific: false, description: power => `Kills permanently restore ${(0.1 * power).toFixed(2)}% keep health.` },
-  { id: 'bounty', name: 'Verdant Bounty', towerSpecific: false, description: power => `Gain +${Math.round(12 * power)}% Aether from defeated enemies.` },
-  { id: 'haste', name: 'Hourglass Sigil', towerSpecific: false, description: power => `All defenses attack ${Math.round(8 * power)}% faster.` },
-  { id: 'range', name: 'Mistglass Lens', towerSpecific: false, description: power => `All defenses gain ${Math.round(7 * power)}% range.` }
+  { id: 'fire', element: 'fire', name: 'Flame Arrows', towerSpecific: true, description: power => `Burns for ${Math.round(18 * power)}% base damage over 3s · +${Math.round(6 * power)}% direct damage.` },
+  { id: 'frost', element: 'frost', name: 'Rime Arrows', towerSpecific: true, description: power => `Slows by ${Math.round(22 + 4 * power)}% for 2s · +${Math.round(4 * power)}% direct damage.` },
+  { id: 'storm', element: 'lightning', name: 'Lightning Arc Arrows', towerSpecific: true, description: power => `Jumps to ${Math.min(5, 1 + Math.floor(power))} nearby foes; each jump retains ${Math.round(58 - power * 2)}% power.` },
+  { id: 'venom', element: 'poison', name: 'Venom Heads', towerSpecific: true, description: power => `Poisons for ${Math.round(24 * power)}% base damage over 4s · +${Math.round(3 * power)}% direct damage.` },
+  { id: 'blast', element: 'fire', name: 'Explosive Arrows', towerSpecific: true, description: power => `${Math.round(46 + power * 8)} feet impact burst · +${Math.round(6 * power)}% direct damage.` },
+  { id: 'leech', element: 'arcane', name: 'Sanguine Tips', towerSpecific: true, description: power => `Each hit repairs ${(0.12 * power).toFixed(2)}% keep health · +${Math.round(4 * power)}% damage.` },
+  { id: 'pierce', element: 'arcane', name: 'Kingsbane Heads', towerSpecific: true, description: power => `Ignores armor and deals +${Math.round(10 * power)}% damage; double bonus against brutes and bosses.` },
+  { id: 'chain', element: 'lightning', name: 'Lightning Paralysis Arrows', towerSpecific: true, description: power => `Every fourth shot echoes at ${Math.round(42 + power * 6)}% power.` },
+  { id: 'gale', element: 'arcane', name: 'Gale Fletching', towerSpecific: true, description: power => `This defense attacks ${Math.round(7 * power)}% faster and deals +${Math.round(2 * power)}% damage.` },
+  { id: 'radiant', element: 'sun', name: 'Sun Ray Arrows', towerSpecific: true, description: power => `Radiant hit bursts for ${Math.round(28 * power)}% damage to foes within ${Math.round(52 + power * 7)} feet.` },
+  { id: 'heart', element: 'arcane', name: 'Keepheart', towerSpecific: false, description: power => `Immediately restore ${Math.round(3 * power)} keep hearts.` },
+  { id: 'repair', element: 'arcane', name: 'Restorer’s Oath', towerSpecific: false, description: power => `Kills permanently restore ${(0.1 * power).toFixed(2)}% keep health.` },
+  { id: 'bounty', element: 'arcane', name: 'Verdant Bounty', towerSpecific: false, description: power => `Gain +${Math.round(12 * power)}% Aether from defeated enemies.` },
+  { id: 'haste', element: 'arcane', name: 'Hourglass Sigil', towerSpecific: false, description: power => `All defenses attack ${Math.round(8 * power)}% faster.` },
+  { id: 'range', element: 'arcane', name: 'Mistglass Lens', towerSpecific: false, description: power => `All defenses gain ${Math.round(7 * power)}% range.` }
 ]
 
 export const PATHWARDEN_RELICS: PathwardenRelic[] = RELIC_FAMILIES.flatMap((family, iconIndex) =>
   RELIC_RARITIES.map(rarity => ({
     id: `${family.id}-${rarity.id}`,
     family: family.id,
+    element: family.element,
     rarity: rarity.id,
     name: `${rarity.label} ${family.name}`,
     description: family.description(rarity.power),
@@ -122,6 +126,7 @@ interface Point { x: number, y: number }
 interface GridPoint { col: number, row: number }
 interface PathChoice {
   id: string
+  terminal?: boolean
   parentId: string | null
   depth: number
   source: GridPoint
@@ -133,6 +138,7 @@ interface PathChoice {
   exitCells?: GridPoint[]
   previewCells?: GridPoint[]
 }
+export type PathwardenGalleryCategory = 'environment' | 'scene' | 'defense' | 'enemy' | 'idle'
 interface RoadLink { from: GridPoint, to: GridPoint }
 interface Tower extends GridPoint {
   id: number
@@ -145,6 +151,7 @@ interface Tower extends GridPoint {
   recoil: number
   targeting: PathwardenTargeting
   relicFamily?: PathwardenRelicFamily
+  relicId?: string
   relicStacks: number
   relicPower: number
   relicShots: number
@@ -170,9 +177,12 @@ interface Enemy {
   dotDamage: number
   dotTimer: number
   dotTick: number
+  debugWorldPosition?: Point
+  debugScreenPosition?: Point
 }
 interface Projectile extends Point {
   type: PathwardenTowerType
+  targetPosition?: Point
   relicFamily?: PathwardenRelicFamily
   relicPower: number
   echo: boolean
@@ -340,6 +350,7 @@ export interface PathwardenBuilding {
   salvage: number
   targeting: PathwardenTargeting
   relicFamily?: PathwardenRelicFamily
+  relicId?: string
   relicStacks: number
   relicPower: number
   relicName: string
@@ -355,11 +366,63 @@ export interface PathwardenBuilding {
   }>
 }
 
+export interface PathwardenRelicSwapPreview {
+  towerId: number
+  relicInstanceId: number
+  towerLevel: number
+  existingFamily: PathwardenRelicFamily
+  incomingFamily: PathwardenRelicFamily
+  existingElement: PathwardenRelicElement
+  incomingElement: PathwardenRelicElement
+  existingName: string
+  incomingName: string
+  existingPower: number
+  incomingPower: number
+  existingIconIndex: number
+  incomingIconIndex: number
+  existingStacks: number
+  bindChance: number
+  preserveChance: number
+  stackedLossChance: number
+  availableAether: number
+}
+
+export interface PathwardenRelicSwapResult {
+  success: boolean
+  bindingSucceeded: boolean
+  incomingName: string
+  oldRelicName: string
+  oldStacks: number
+  recoveredStacks: number
+  preserved: boolean
+  message: string
+  aetherSpent: number
+  bindingChance: number
+  preserveChance: number
+}
+
+export type PathwardenRelicSwapFocus = 'binding' | 'preservation' | 'both'
+
+export interface PathwardenRelicSwapInvestment {
+  amount: number
+  focus: PathwardenRelicSwapFocus
+  bonus: number
+}
+
+export interface PathwardenRelicSwapDebugScenario {
+  existingRelicId: string
+  incomingRelicId: string
+  towerLevel: number
+  stacks: number
+}
+
 export interface PathwardenCallbacks {
   onState: (state: PathwardenSnapshot) => void
   onUpgrade: (choices: PathwardenRelic[]) => void
   onGameOver: (won: boolean, state: PathwardenSnapshot) => void
   onAmbientStoryComplete?: (storyId: number) => void
+  onOpenBuildingInventory?: () => void
+  onOpenArcanistWorkbench?: (preview: PathwardenRelicSwapPreview) => void
 }
 
 export interface PathwardenEngineRestore {
@@ -374,6 +437,7 @@ export interface PathwardenBoostEffects {
   rangeMultiplier: number
   rateMultiplier: number
   bountyMultiplier: number
+  arcanistLevel: number
 }
 
 interface PathwardenTowerStats {
@@ -509,6 +573,7 @@ export class PathwardenEngine {
   private rateMultiplier = 1
   private interest = 0
   private bountyMultiplier = 1
+  private arcanistLevel = 0
   private shake = 0
   private redFlash = 0
   private waveBanner = 0
@@ -571,10 +636,18 @@ export class PathwardenEngine {
   private debugTimeScale = 1
   private debugSandbox = false
   private skinId = 'warden-stone'
+  private debugDefenseTier = 1
+  private debugIdleVariation = 0
+  private debugDefenseTarget: Point | null = null
+  private debugDefenseShot: Projectile & { startedAt: number } | null = null
+  private debugDefenseNextShotAt = 0
   private relicInventory: PathwardenInventoryRelic[] = []
   private relicInstanceId = 1
   private killRepairPercent = 0
   private canSellRelics = false
+  private debugGallery: { category: PathwardenGalleryCategory, index: number } | null = null
+  private debugRelicSwapTowerId: number | null = null
+  private debugForceRelicSwap = false
 
   constructor(
     canvas: HTMLCanvasElement,
@@ -612,6 +685,7 @@ export class PathwardenEngine {
       this.rangeMultiplier = boosts.rangeMultiplier
       this.rateMultiplier = boosts.rateMultiplier
       this.bountyMultiplier = boosts.bountyMultiplier
+      this.arcanistLevel = boosts.arcanistLevel
     }
     if (restore) {
       this.activeRunSceneTime = this.activeRunSceneDuration
@@ -630,6 +704,7 @@ export class PathwardenEngine {
     this.canvas.addEventListener('pointercancel', this.onPointerCancel)
     this.canvas.addEventListener('pointerleave', this.onPointerLeave)
     this.canvas.addEventListener('click', this.onClick)
+    this.canvas.addEventListener('contextmenu', this.onContextMenu)
     this.canvas.addEventListener('wheel', this.onWheel, { passive: false })
     this.loadAssets()
     this.precalculateExpansionPlan(EXPANSION_DEPTH)
@@ -640,6 +715,10 @@ export class PathwardenEngine {
     }
     this.seedCastleCrossroads()
     this.refreshChoiceAnchors()
+    if (this.phase === 'planning') {
+      this.placementMode = true
+      this.hoverCell = this.placementPreviewCell()
+    }
     this.emitState()
     this.render()
   }
@@ -804,7 +883,8 @@ export class PathwardenEngine {
       type: tower.type,
       merges: tower.merges ?? 0,
       recoil: 0,
-      relicFamily: tower.relicFamily as PathwardenRelicFamily | undefined
+      relicFamily: tower.relicFamily as PathwardenRelicFamily | undefined,
+      relicId: tower.relicId ?? (tower.relicFamily ? `${tower.relicFamily}-common` : undefined)
     }))
     const enemyVisual = {
       raider: { radius: 13, color: '#fb923c' },
@@ -843,6 +923,7 @@ export class PathwardenEngine {
     this.canvas.removeEventListener('pointercancel', this.onPointerCancel)
     this.canvas.removeEventListener('pointerleave', this.onPointerLeave)
     this.canvas.removeEventListener('click', this.onClick)
+    this.canvas.removeEventListener('contextmenu', this.onContextMenu)
     this.canvas.removeEventListener('wheel', this.onWheel)
   }
 
@@ -867,6 +948,7 @@ export class PathwardenEngine {
     this.selectedTowerId = null
     this.selectedTower = type
     this.placementMode = true
+    this.hoverCell = this.placementPreviewCell()
     this.message = `${towerStats(type).name} selected · ${this.towerCost(type)} Aether`
     this.emitState()
   }
@@ -875,6 +957,7 @@ export class PathwardenEngine {
     if (this.phase !== 'planning') return
     this.selectedTowerId = null
     this.placementMode = true
+    this.hoverCell = this.placementPreviewCell()
     this.emitState()
   }
 
@@ -938,6 +1021,7 @@ export class PathwardenEngine {
     this.wave++
     this.waveStartingLives = this.lives
     this.phase = 'wave'
+    this.placementMode = false
     this.canSellRelics = false
     this.spawnTotal = this.waveEnemyCount(this.wave)
     this.spawnLeft = this.spawnTotal
@@ -998,7 +1082,7 @@ export class PathwardenEngine {
 
   debugPopulateVillage() {
     if (!import.meta.dev || this.phase !== 'planning') return
-    const kinds: AmbientKind[] = ['market', 'picnic', 'hunt', 'musician', 'children', 'shepherd', 'patrol', 'cat', 'bird']
+    const kinds: AmbientKind[] = ['market', 'picnic', 'hunt', 'musician', 'children', 'shepherd', 'patrol', 'peddler', 'crew', 'cat', 'bird']
     this.ambientActors = kinds.map((kind, index) => ({
       id: this.ambientId++,
       storyId: index * 10 + 1,
@@ -1011,6 +1095,18 @@ export class PathwardenEngine {
     }))
     this.idleTime = 12
     this.ambientSpawnTimer = 2
+  }
+
+  debugPrepareShowcase() {
+    if (!import.meta.dev) return
+    this.debugRevealFullMap()
+    this.aether = Math.max(this.aether, 5_000)
+    this.debugBuildLoadout()
+    this.debugPopulateVillage()
+    this.wave = 7
+    this.beginWave()
+    this.message = 'Development showcase active · structures, villagers, defenses, and a guardian wave are visible.'
+    this.emitState()
   }
 
   debugPreviewAmbient(kind: 'market' | 'hunt', progress: number, success = true) {
@@ -1141,6 +1237,172 @@ export class PathwardenEngine {
     this.emitState()
   }
 
+  debugSetGallery(category: PathwardenGalleryCategory, index = 0) {
+    if (!import.meta.dev) return
+    if (category === 'defense') this.debugClearDefenseTarget()
+    if (category === 'scene' && this.pathChoices.length) this.debugRevealFullMap()
+    this.debugGallery = { category, index: Math.max(0, Math.floor(index)) }
+    this.render()
+  }
+
+  debugSetDefenseGalleryOptions(tier = 1, skinId = 'warden-stone') {
+    if (!import.meta.dev) return
+    this.debugClearDefenseTarget()
+    this.debugDefenseTier = clamp(Math.floor(tier), 1, 5)
+    this.skinId = skinId
+    if (this.debugGallery?.category === 'defense') this.render()
+  }
+
+  private debugClearDefenseTarget() {
+    this.phase = 'planning'
+    this.towers = []
+    this.enemies = []
+    this.projectiles = []
+    this.debugDefenseTarget = null
+    this.debugDefenseShot = null
+  }
+
+  debugSetIdleGalleryVariation(variation = 0) {
+    if (!import.meta.dev) return
+    this.debugIdleVariation = Math.max(0, Math.floor(variation))
+    if (this.debugGallery?.category === 'idle') this.render()
+  }
+
+  private debugFireDefenseAt(event: MouseEvent) {
+    const bounds = this.canvas.getBoundingClientRect()
+    const canvasPoint = {
+      x: (event.clientX - bounds.left) / bounds.width * WIDTH,
+      y: (event.clientY - bounds.top) / bounds.height * HEIGHT
+    }
+    const galleryAnchor = this.gridToScreen({ col: this.path[3]!.col, row: this.path[3]!.row + 2 })
+    const galleryCenter = { x: WIDTH / 2, y: HEIGHT / 2 + 34 }
+    const target = {
+      x: galleryAnchor.x + (canvasPoint.x - galleryCenter.x) / 2.4,
+      y: galleryAnchor.y + (canvasPoint.y - galleryCenter.y) / 2.4
+    }
+    const inverseX = (target.x - ORIGIN_X) / (TILE_WIDTH / 2)
+    const inverseY = (target.y - ORIGIN_Y) / (TILE_HEIGHT / 2)
+    const targetCell = {
+      col: clamp(Math.round((inverseX + inverseY) / 2), 0, COLS - 1),
+      row: clamp(Math.round((inverseY - inverseX) / 2), 0, ROWS - 1)
+    }
+    const targetWorld = {
+      x: (targetCell.col + 0.5) * WORLD_CELL,
+      y: (targetCell.row + 0.5) * WORLD_CELL
+    }
+    this.revealed.add(cellKey(targetCell))
+    this.debugDefenseTarget = target
+    this.debugDefenseNextShotAt = 0
+    this.debugDefenseShot = null
+    this.projectiles = []
+    this.phase = 'wave'
+    this.spawnLeft = 0
+    const families: PathwardenDefenseFamily[] = ['star', 'sun', 'winter', 'ember', 'storm', 'dawn']
+    const family = families[(this.debugGallery?.index ?? 0) % families.length]!
+    const blueprint = PATHWARDEN_DEFENSE_BLUEPRINTS.find(defense =>
+      defense.family === family && defense.tier === this.debugDefenseTier
+    ) ?? PATHWARDEN_DEFENSE_BLUEPRINTS.find(defense => defense.family === family)!
+    this.towers = [{
+      id: -1,
+      col: this.path[3]!.col,
+      row: this.path[3]!.row + 2,
+      type: blueprint.id,
+      invested: 0,
+      cooldown: 0,
+      angle: 0,
+      level: 1,
+      merges: 0,
+      recoil: 0,
+      targeting: 'first',
+      relicStacks: 0,
+      relicPower: 0,
+      relicShots: 0
+    }]
+    this.enemies = [{
+      id: -1,
+      type: 'raider',
+      route: [targetCell, targetCell],
+      progress: 2,
+      hp: 1000,
+      maxHp: 1000,
+      speed: 0,
+      reward: 0,
+      radius: 13,
+      slow: 0,
+      slowTimer: 0,
+      healTimer: 0,
+      color: '#fb923c',
+      hitFlash: 0,
+      attackTimer: 0,
+      dotDamage: 0,
+      dotTimer: 0,
+      dotTick: 0,
+      debugWorldPosition: targetWorld,
+      debugScreenPosition: target
+    }]
+    this.render()
+  }
+
+  private debugStartDefenseShot(target: Point) {
+    const point = { col: this.path[3]!.col, row: this.path[3]!.row + 2 }
+    const families: PathwardenDefenseFamily[] = ['star', 'sun', 'winter', 'ember', 'storm', 'dawn']
+    const family = families[(this.debugGallery?.index ?? 0) % families.length]!
+    const blueprint = PATHWARDEN_DEFENSE_BLUEPRINTS.find(defense =>
+      defense.family === family && defense.tier === this.debugDefenseTier
+    ) ?? PATHWARDEN_DEFENSE_BLUEPRINTS.find(defense => defense.family === family)!
+    const tower: Tower = {
+      id: -1,
+      ...point,
+      type: blueprint.id,
+      invested: 0,
+      cooldown: 0,
+      angle: this.debugDefenseAimAngle(point, target),
+      level: 1,
+      merges: 0,
+      recoil: 0,
+      targeting: 'first',
+      relicStacks: 0,
+      relicPower: 0,
+      relicShots: 0
+    }
+    const geometry = this.towerGeometry(tower, point)
+    const stats = towerStats(blueprint.id)
+    const flightDistance = distance(geometry.muzzle, target)
+    const archetype = this.towerArchetype(blueprint.id)
+    this.debugDefenseShot = {
+      x: geometry.muzzle.x,
+      y: geometry.muzzle.y - 42 - (this.elevations[point.row]! - 1) * 11,
+      type: blueprint.id,
+      targetPosition: target,
+      relicPower: 0,
+      echo: false,
+      targetId: -1,
+      damage: stats.damage,
+      speed: stats.projectileSpeed,
+      splash: stats.splash,
+      splashFactor: 1,
+      slow: stats.slow,
+      color: stats.color,
+      size: archetype === 'mortar' ? 8 : 5,
+      trail: [],
+      origin: { x: geometry.muzzle.x, y: geometry.muzzle.y - 42 - (this.elevations[point.row]! - 1) * 11 },
+      age: 0,
+      duration: archetype === 'mortar'
+        ? clamp(flightDistance / 260, 0.55, 1.15)
+        : Math.max(0.08, flightDistance / stats.projectileSpeed),
+      arcHeight: archetype === 'mortar' ? clamp(70 + flightDistance * 0.18, 78, 150) : 0,
+      startedAt: performance.now()
+    }
+  }
+
+  private debugDefenseAimAngle(point: GridPoint, target: Point) {
+    const origin = this.gridToScreen(point)
+    const screenAngle = Math.atan2(target.y - origin.y, target.x - origin.x)
+    const vertical = Math.sin(screenAngle) / (TILE_HEIGHT / TILE_WIDTH)
+    const horizontal = Math.cos(screenAngle)
+    return Math.atan2(vertical - horizontal, horizontal + vertical)
+  }
+
   debugToggleVisuals() {
     if (!import.meta.dev) return
     this.debugVisuals = !this.debugVisuals
@@ -1268,6 +1530,71 @@ export class PathwardenEngine {
     this.emitState()
   }
 
+  debugSetArcanistLevel(level: number) {
+    if (!import.meta.dev) return
+    this.arcanistLevel = clamp(Math.floor(level), 0, 20)
+    this.emitState()
+  }
+
+  debugPrepareRelicSwapScenario(scenario: PathwardenRelicSwapDebugScenario) {
+    if (!import.meta.dev) return null
+    this.phase = 'planning'
+    this.revealed.clear()
+    this.revealAround(this.initialPath.slice(0, 4))
+    this.pathChoices = []
+    this.zoom = DEFAULT_WORLD_SCALE
+    this.camera = { x: 0, y: 0 }
+    const existing = PATHWARDEN_RELICS.find(relic => relic.id === scenario.existingRelicId)
+    const incoming = PATHWARDEN_RELICS.find(relic => relic.id === scenario.incomingRelicId)
+    if (!existing || !incoming) return null
+    const cell = [...this.revealed]
+      .map(key => {
+        const [col, row] = key.split(':').map(Number)
+        return { col: col!, row: row! }
+      })
+      .filter(point => this.placementStatus(point).allowed)
+      .sort((a, b) => a.row - b.row || a.col - b.col)[0]
+    if (!cell) return null
+    const towerLevel = clamp(Math.floor(scenario.towerLevel), 1, 5)
+    const stacks = clamp(Math.floor(scenario.stacks), 1, 5)
+    const tower: Tower = {
+      id: this.towerId++,
+      ...cell,
+      type: 'bolt',
+      invested: 100,
+      cooldown: 0,
+      angle: 0,
+      level: towerLevel,
+      merges: towerLevel - 1,
+      recoil: 0,
+      targeting: 'first',
+      relicFamily: existing.family,
+      relicId: existing.id,
+      relicStacks: stacks,
+      relicPower: existing.power * stacks,
+      relicShots: 0
+    }
+    this.towers = [tower]
+    this.selectedTowerId = tower.id
+    this.debugRelicSwapTowerId = tower.id
+    this.debugForceRelicSwap = true
+    this.relicInventory = [{ ...incoming, instanceId: this.relicInstanceId++ }]
+    this.canSellRelics = true
+    this.message = `Debug scenario ready · ${existing.name} on a level ${towerLevel} tower.`
+    this.emitState()
+    return this.relicSwapPreview(tower, this.relicInventory[0]!)
+  }
+
+  debugOpenRelicSwapWorkbench() {
+    if (!import.meta.dev || this.debugRelicSwapTowerId === null) return null
+    const tower = this.towers.find(candidate => candidate.id === this.debugRelicSwapTowerId)
+    const relic = this.relicInventory[0]
+    if (!tower || !relic || !tower.relicFamily || (tower.relicId === relic.id && !this.debugForceRelicSwap)) return null
+    const preview = this.relicSwapPreview(tower, relic)
+    this.callbacks.onOpenArcanistWorkbench?.(preview)
+    return preview
+  }
+
   setSelectedTargeting(targeting: PathwardenTargeting) {
     if (this.phase !== 'planning') return
     const tower = this.towers.find(candidate => candidate.id === this.selectedTowerId)
@@ -1276,6 +1603,66 @@ export class PathwardenEngine {
     const label = targeting === 'first' ? 'the closest invader' : targeting === 'strong' ? 'the strongest invader' : 'the fastest invader'
     this.message = `${towerStats(tower.type).name} now targets ${label}.`
     this.emitState()
+  }
+
+  private relicSwapPreview(tower: Tower, relic: PathwardenInventoryRelic): PathwardenRelicSwapPreview {
+    const existingFamily = tower.relicFamily!
+    const existingRelic = PATHWARDEN_RELICS.find(candidate => candidate.id === tower.relicId)
+      ?? PATHWARDEN_RELICS.find(candidate => candidate.family === existingFamily)!
+    const sameElement = existingRelic.element === relic.element
+    const stackPenalty = Math.max(0, tower.relicStacks - 1)
+    const bindChance = clamp(
+      (sameElement ? 0.78 : 0.34)
+        + (tower.level - 1) * (sameElement ? 0.045 : 0.08)
+        + this.arcanistLevel * (sameElement ? 0.035 : 0.045)
+        - stackPenalty * (sameElement ? 0.045 : 0.08),
+      0.08,
+      0.96
+    )
+    const preserveChance = clamp(
+      (sameElement ? 0.82 : 0.38)
+        + (tower.level - 1) * (sameElement ? 0.04 : 0.07)
+        + this.arcanistLevel * (sameElement ? 0.04 : 0.05)
+        - stackPenalty * (sameElement ? 0.08 : 0.12),
+      0.05,
+      0.94
+    )
+    const stackedLossChance = clamp(0.16 + stackPenalty * 0.08 - this.arcanistLevel * 0.02, 0.04, 0.6)
+    return {
+      towerId: tower.id,
+      relicInstanceId: relic.instanceId,
+      towerLevel: tower.level,
+      existingFamily,
+      incomingFamily: relic.family,
+      existingElement: existingRelic.element,
+      incomingElement: relic.element,
+      existingName: `${existingRelic.name}`,
+      incomingName: relic.name,
+      existingPower: tower.relicPower,
+      incomingPower: relic.power,
+      existingIconIndex: existingRelic.iconIndex,
+      incomingIconIndex: relic.iconIndex,
+      existingStacks: tower.relicStacks,
+      bindChance,
+      preserveChance,
+      stackedLossChance,
+      availableAether: Math.max(0, this.aether)
+    }
+  }
+
+  private recoverRelic(family: PathwardenRelicFamily, power: number, relicId?: string) {
+    const candidates = PATHWARDEN_RELICS.filter(relic => relic.id === relicId || relic.family === family)
+    const template = candidates.reduce((closest, candidate) =>
+      Math.abs(candidate.power - power) < Math.abs(closest.power - power) ? candidate : closest
+    )
+    return {
+      ...template,
+      instanceId: this.relicInstanceId++,
+      name: `Recovered ${template.name}`,
+      description: 'A relic fragment rescued from the Arcanist’s workbench. Its power is diminished.',
+      power: Number(power.toFixed(2)),
+      sellValue: Math.max(1, Math.round(template.sellValue * power / template.power))
+    }
   }
 
   applyRelicToTowerAt(instanceId: number, clientX: number, clientY: number) {
@@ -1303,11 +1690,12 @@ export class PathwardenEngine {
       this.emitState()
       return
     }
-    if (tower.relicFamily && tower.relicFamily !== relic.family) {
-      tower.relicStacks = 0
-      tower.relicPower = 0
+    if (tower.relicFamily && (tower.relicId !== relic.id || (this.debugForceRelicSwap && tower.id === this.debugRelicSwapTowerId))) {
+      this.callbacks.onOpenArcanistWorkbench?.(this.relicSwapPreview(tower, relic))
+      return
     }
     tower.relicFamily = relic.family
+    tower.relicId = relic.id
     tower.relicStacks++
     tower.relicPower += relic.power
     this.relicInventory.splice(this.relicInventory.indexOf(relic), 1)
@@ -1316,6 +1704,87 @@ export class PathwardenEngine {
     this.shockwaves.push({ ...position, radius: 6, maxRadius: 62, life: 0.65, color: this.relicColor(relic.family) })
     this.message = `${relic.name} bound to ${towerStats(tower.type).name} · stack ${tower.relicStacks}.`
     this.emitState()
+  }
+
+  resolveRelicSwap(towerId: number, relicInstanceId: number, investment: PathwardenRelicSwapInvestment = { amount: 0, focus: 'both', bonus: 0 }): PathwardenRelicSwapResult | null {
+    if (this.phase !== 'planning') return null
+    const tower = this.towers.find(candidate => candidate.id === towerId)
+    const relic = this.relicInventory.find(candidate => candidate.instanceId === relicInstanceId)
+    if (!tower || !relic || !tower.relicFamily || (tower.relicId === relic.id && !this.debugForceRelicSwap)) return null
+    const preview = this.relicSwapPreview(tower, relic)
+    const requestedAether = Number.isFinite(investment.amount) ? investment.amount : 0
+    const aetherSpent = clamp(Math.floor(requestedAether), 0, Math.max(0, this.aether))
+    const investmentBonus = clamp(investment.bonus, 0, 0.2)
+    const bindingChance = clamp(
+      preview.bindChance + (investment.focus === 'preservation' ? 0 : investmentBonus * (investment.focus === 'both' ? 0.5 : 1)),
+      0.08,
+      0.98
+    )
+    const preserveChance = clamp(
+      preview.preserveChance + (investment.focus === 'binding' ? 0 : investmentBonus * (investment.focus === 'both' ? 0.5 : 1)),
+      0.05,
+      0.98
+    )
+    this.aether -= aetherSpent
+    if (this.planRandom() > bindingChance) {
+      const message = 'The Arcanist could not align the new relic. Nothing was changed.'
+      this.message = message
+      this.emitState()
+      return {
+        success: false,
+        bindingSucceeded: false,
+        incomingName: relic.name,
+        oldRelicName: preview.existingName,
+        oldStacks: preview.existingStacks,
+        recoveredStacks: 0,
+        preserved: false,
+        message,
+        aetherSpent,
+        bindingChance,
+        preserveChance
+      }
+    }
+
+    const oldFamily = tower.relicFamily
+    const oldRelicId = tower.relicId
+    const oldPower = tower.relicPower
+    const oldStacks = tower.relicStacks
+    this.relicInventory.splice(this.relicInventory.indexOf(relic), 1)
+    let recovered = 0
+    if (this.planRandom() <= preserveChance) {
+      let recoveredStacks = oldStacks
+      for (let stack = 1; stack < oldStacks; stack++) {
+        if (this.planRandom() < preview.stackedLossChance) recoveredStacks--
+      }
+      const recoveredPower = oldPower * recoveredStacks / Math.max(1, oldStacks)
+      this.relicInventory.push(this.recoverRelic(oldFamily, recoveredPower, oldRelicId))
+      recovered = recoveredStacks
+    }
+    tower.relicFamily = relic.family
+    tower.relicId = relic.id
+    tower.relicStacks = 1
+    tower.relicPower = relic.power
+    const position = this.gridToScreen(tower)
+    this.burst(position, this.relicColor(relic.family), 30, 220)
+    this.shockwaves.push({ ...position, radius: 7, maxRadius: 68, life: 0.72, color: this.relicColor(relic.family) })
+    const message = recovered
+      ? `${relic.name} replaced the old relic. ${recovered === oldStacks ? 'The original was preserved.' : 'A weakened fragment was recovered.'}`
+      : `${relic.name} replaced the old relic. The original was lost in the ritual.`
+    this.message = message
+    this.emitState()
+    return {
+      success: true,
+      bindingSucceeded: true,
+      incomingName: relic.name,
+      oldRelicName: preview.existingName,
+      oldStacks,
+      recoveredStacks: recovered,
+      preserved: recovered > 0,
+      message,
+      aetherSpent,
+      bindingChance,
+      preserveChance
+    }
   }
 
   sellRelic(instanceId: number) {
@@ -1715,7 +2184,8 @@ export class PathwardenEngine {
       ember: 'mortar.png',
       storm: 'ballista.png',
       radiant: 'frost.png',
-      keep: 'keep.png'
+      keep: 'keep.png',
+      relics: '../relics.png'
     }
     for (const [name, file] of Object.entries(files)) {
       const image = new Image()
@@ -2384,6 +2854,7 @@ export class PathwardenEngine {
   }
 
   private enemyWorldPosition(enemy: Enemy): Point {
+    if (enemy.debugWorldPosition) return enemy.debugWorldPosition
     const reversed = [...enemy.route].reverse()
     const segment = Math.min(reversed.length - 2, Math.floor(enemy.progress))
     const fraction = enemy.progress - segment
@@ -2398,6 +2869,7 @@ export class PathwardenEngine {
   }
 
   private enemyScreenPosition(enemy: Enemy): Point {
+    if (enemy.debugScreenPosition) return enemy.debugScreenPosition
     const grid = this.enemyGridPosition(enemy)
     const elevation = this.interpolatedElevation(grid.x, grid.y)
     return {
@@ -2591,6 +3063,7 @@ export class PathwardenEngine {
         }))
         return {
           id: `terminal:${room.id}:${approach.portId}`,
+          terminal: true,
           parentId: room.id,
           depth: room.depth + 1,
           source: { ...port.cell },
@@ -2760,7 +3233,7 @@ export class PathwardenEngine {
   }
 
   private refreshChoiceAnchors() {
-    for (const choice of this.pathChoices) {
+    for (const choice of this.pathChoices.filter(candidate => !candidate.terminal)) {
       const firstHiddenRoadCell = choice.cells.find(cell => !this.revealed.has(cellKey(cell)))
       if (firstHiddenRoadCell) {
         // The control belongs at the discovered/undiscovered transition—not
@@ -2989,6 +3462,22 @@ export class PathwardenEngine {
     )
   }
 
+  private placementPreviewCell() {
+    if (this.hoverCell
+      && this.revealed.has(cellKey(this.hoverCell))
+      && !this.towers.some(tower => tower.col === this.hoverCell!.col && tower.row === this.hoverCell!.row)
+      && this.placementStatus(this.hoverCell).allowed) {
+      return { ...this.hoverCell }
+    }
+    for (const key of this.revealed) {
+      const [col, row] = key.split(':').map(Number)
+      const point = { col: col!, row: row! }
+      if (!this.towers.some(tower => tower.col === point.col && tower.row === point.row)
+        && this.placementStatus(point).allowed) return point
+    }
+    return null
+  }
+
   private placementStatus(point: GridPoint) {
     if (!this.revealed.has(cellKey(point))) return { allowed: false, reason: 'The mist still covers that ground.' }
     if (this.allReservedRoadCells().some(road => cellKey(road) === cellKey(point))) {
@@ -3050,7 +3539,7 @@ export class PathwardenEngine {
 
   private castleGatePosition() {
     const center = this.gridToScreen(this.path[0]!)
-    const road = this.gridToScreen(this.castleMainExit().cell)
+    const road = this.gridToScreen(this.path[1] ?? this.castleMainExit().cell)
     const gap = Math.hypot(road.x - center.x, road.y - center.y) || 1
     return {
       x: center.x + (road.x - center.x) / gap * 25,
@@ -3119,7 +3608,7 @@ export class PathwardenEngine {
   private pointerPathChoice(event: MouseEvent | PointerEvent) {
     const pointer = this.canvasPoint(event)
     let closest: { choice: PathChoice, distance: number } | null = null
-    for (const choice of this.pathChoices) {
+    for (const choice of this.pathChoices.filter(candidate => !candidate.terminal)) {
       const screen = this.gridToScreen(choice.anchor)
       const distance = Math.abs(pointer.x - screen.x) / (TILE_WIDTH * 0.62)
         + Math.abs(pointer.y - (screen.y - 8)) / (TILE_HEIGHT * 0.72)
@@ -3173,6 +3662,7 @@ export class PathwardenEngine {
 
   private onPointerDown = (event: PointerEvent) => {
     if (this.introStoryActive || this.openingCinematicActive) return
+    if (event.button !== 0) return
     this.noteActivity()
     if (this.phase !== 'planning') return
     const tower = this.pointerTower(event)
@@ -3182,6 +3672,7 @@ export class PathwardenEngine {
   }
 
   private onPointerUp = (event: PointerEvent) => {
+    if (event.button !== 0) return
     if (this.introStoryActive || this.openingCinematicActive) {
       this.towerDrag = null
       return
@@ -3198,13 +3689,22 @@ export class PathwardenEngine {
     if (this.canvas.hasPointerCapture(event.pointerId)) this.canvas.releasePointerCapture(event.pointerId)
     if (!tower) return
     if (!drag.active) {
-      this.selectedTowerId = tower.id
+      const closeProfile = this.selectedTowerId === tower.id
+      this.selectedTowerId = closeProfile ? null : tower.id
       this.placementMode = false
-      this.message = `${towerStats(tower.type).name} selected. Drag it to move or combine it.`
+      this.message = closeProfile
+        ? 'Building profile closed.'
+        : `${towerStats(tower.type).name} selected. Drag it to move or combine it.`
       this.emitState()
       return
     }
     this.dropTower(tower, targetCell)
+  }
+
+  private onContextMenu = (event: MouseEvent) => {
+    event.preventDefault()
+    if (this.phase !== 'planning') return
+    this.callbacks.onOpenBuildingInventory?.()
   }
 
   private onPointerCancel = () => {
@@ -3258,6 +3758,10 @@ export class PathwardenEngine {
       this.suppressClick = false
       return
     }
+    if (import.meta.dev && this.debugGallery?.category === 'defense') {
+      this.debugFireDefenseAt(event)
+      return
+    }
     if (this.phase === 'path') {
       const choice = this.pointerPathChoice(event)
       if (choice) this.extendPath(choice)
@@ -3268,9 +3772,12 @@ export class PathwardenEngine {
     if (this.phase !== 'planning' || !this.revealed.has(cellKey(cell))) return
     const existing = this.towers.find(tower => tower.col === cell.col && tower.row === cell.row)
     if (existing) {
-      this.selectedTowerId = existing.id
+      const closeProfile = this.selectedTowerId === existing.id
+      this.selectedTowerId = closeProfile ? null : existing.id
       this.placementMode = false
-      this.message = `${towerStats(existing.type).name} selected. Inspect, combine, or dismantle it.`
+      this.message = closeProfile
+        ? 'Building profile closed.'
+        : `${towerStats(existing.type).name} selected. Inspect, combine, or dismantle it.`
       this.emitState()
       return
     }
@@ -3344,7 +3851,349 @@ export class PathwardenEngine {
     }
   }
 
+  private drawDebugGallery(category: PathwardenGalleryCategory, index: number) {
+    const ctx = this.ctx
+    const sky = ctx.createLinearGradient(0, 0, 0, HEIGHT)
+    sky.addColorStop(0, '#7d8ba8')
+    sky.addColorStop(1, '#293852')
+    ctx.fillStyle = sky
+    ctx.fillRect(0, 0, WIDTH, HEIGHT)
+    const center = { x: WIDTH / 2, y: HEIGHT / 2 + 34 }
+    const galleryRoadPoint = this.path[Math.min(3, this.path.length - 1)]!
+    const idleActor = category === 'idle' ? this.debugIdleActor(index) : null
+    const idleAnchor = idleActor ? this.debugIdleAnchor(idleActor) : null
+    const sceneAnchor = category === 'scene' && index < 4
+      ? { col: this.path[this.path.length - 1]!.col + 1, row: this.path[this.path.length - 1]!.row }
+      : this.path[0]!
+    const galleryAnchor = category === 'defense'
+      ? { col: galleryRoadPoint.col, row: galleryRoadPoint.row + 2 }
+      : category === 'scene'
+        ? sceneAnchor
+        : category === 'idle'
+          ? idleAnchor ?? galleryRoadPoint
+        : galleryRoadPoint
+    const anchor = category === 'idle' && idleAnchor
+      ? idleAnchor
+      : this.gridToScreen(galleryAnchor)
+    const scale = category === 'environment' ? 1.35 : category === 'scene' ? 1.7 : 2.4
+    ctx.save()
+    ctx.translate(center.x, center.y)
+    ctx.scale(scale, scale)
+    ctx.translate(-anchor.x, -anchor.y)
+
+    if (category === 'defense' || category === 'idle') this.drawDebugGrasslandBoard(galleryRoadPoint)
+    if (idleActor && ['patrol', 'peddler', 'bird'].includes(idleActor.kind)) this.drawRoad()
+
+    if (category === 'defense') {
+      const families: PathwardenDefenseFamily[] = ['star', 'sun', 'winter', 'ember', 'storm', 'dawn']
+      const family = families[index % families.length]!
+      const blueprint = PATHWARDEN_DEFENSE_BLUEPRINTS.find(defense =>
+        defense.family === family && defense.tier === this.debugDefenseTier
+      ) ?? PATHWARDEN_DEFENSE_BLUEPRINTS.find(defense => defense.family === family)!
+      const point = { col: this.path[3]!.col, row: this.path[3]!.row + 2 }
+      const angle = this.debugDefenseTarget ? this.debugDefenseAimAngle(point, this.debugDefenseTarget) : -Math.PI / 4
+      const tower: Tower = {
+        id: -1,
+        ...point,
+        type: blueprint.id,
+        invested: 0,
+        cooldown: 0,
+        angle,
+        level: 1,
+        merges: 2,
+        recoil: 0,
+        targeting: 'first',
+        relicStacks: 0,
+        relicPower: 0,
+        relicShots: 0
+      }
+      this.drawTower(tower, point)
+      if (this.debugDefenseTarget) {
+        const ctx = this.ctx
+        ctx.save()
+        ctx.strokeStyle = '#fef08a'
+        ctx.fillStyle = 'rgba(250,204,21,.16)'
+        ctx.lineWidth = 2
+        ctx.beginPath()
+        ctx.arc(this.debugDefenseTarget.x, this.debugDefenseTarget.y, 13, 0, Math.PI * 2)
+        ctx.fill()
+        ctx.stroke()
+        ctx.beginPath()
+        ctx.moveTo(this.debugDefenseTarget.x - 19, this.debugDefenseTarget.y)
+        ctx.lineTo(this.debugDefenseTarget.x + 19, this.debugDefenseTarget.y)
+        ctx.moveTo(this.debugDefenseTarget.x, this.debugDefenseTarget.y - 19)
+        ctx.lineTo(this.debugDefenseTarget.x, this.debugDefenseTarget.y + 19)
+        ctx.stroke()
+        ctx.restore()
+      }
+      for (const enemy of this.enemies) this.drawEnemy(enemy)
+      this.drawProjectiles()
+    } else if (category === 'enemy') {
+      const types: EnemyType[] = ['raider', 'runner', 'brute', 'shaman', 'boss']
+      const enemyType = types[index % types.length]!
+      const visuals = {
+        raider: { radius: 13, color: '#fb923c' },
+        runner: { radius: 10, color: '#c4b5fd' },
+        brute: { radius: 18, color: '#fb7185' },
+        shaman: { radius: 15, color: '#4ade80' },
+        boss: { radius: 29, color: '#facc15' }
+      }
+      const visual = visuals[enemyType]
+      this.drawEnemy({
+        id: -1,
+        type: enemyType,
+        route: this.path,
+        progress: Math.min(this.path.length - 1, 3),
+        hp: 100,
+        maxHp: 100,
+        speed: 0,
+        reward: 0,
+        radius: visual.radius,
+        slow: 0,
+        slowTimer: 0,
+        healTimer: 0,
+        color: visual.color,
+        hitFlash: 0,
+        attackTimer: 0,
+        dotDamage: 0,
+        dotTimer: 0,
+        dotTick: 0
+      })
+    } else if (category === 'idle') {
+      if (idleActor?.kind === 'crew' && !this.towers.length) {
+        const savedTowers = this.towers
+        this.towers = [{
+          id: -1,
+          col: this.path[3]!.col,
+          row: this.path[3]!.row + 2,
+          type: 'bolt',
+          invested: 0,
+          cooldown: 0,
+          angle: -Math.PI / 4,
+          level: 1,
+          merges: 0,
+          targeting: 'first',
+          relicStacks: 0,
+          relicPower: 0,
+          relicShots: 0
+        }]
+        this.drawAmbientActor(idleActor)
+        this.towers = savedTowers
+      } else if (idleActor) {
+        this.drawAmbientActor(idleActor)
+      }
+    } else if (category === 'environment') {
+      this.drawEnvironmentGallery(index, galleryRoadPoint)
+    } else {
+      this.revealed.clear()
+      this.revealAround(this.path)
+      if (index === 4) this.drawKeep()
+      else {
+        const savedPath = this.path
+        const savedBranchLinks = this.branchLinks
+        this.path = [savedPath[0]!, savedPath[savedPath.length - 1]!]
+        this.branchLinks = []
+        this.revealed.clear()
+        this.revealAround(this.path)
+        this.drawDeadEndSites(index)
+        this.path = savedPath
+        this.branchLinks = savedBranchLinks
+      }
+    }
+    ctx.restore()
+    ctx.fillStyle = 'rgba(8,15,32,.76)'
+    ctx.fillRect(24, HEIGHT - 58, WIDTH - 48, 34)
+    ctx.fillStyle = '#f8fafc'
+    ctx.font = '900 15px sans-serif'
+    ctx.textAlign = 'center'
+    const label = category === 'defense'
+      ? `${category.toUpperCase()} · ${index + 1} · TIER ${this.debugDefenseTier}`
+      : category === 'idle'
+        ? `${category.toUpperCase()} · ${index + 1} · VARIATION ${this.debugIdleVariation + 1}`
+      : `${category.toUpperCase()} · ${index + 1}`
+    ctx.fillText(label, WIDTH / 2, HEIGHT - 36)
+  }
+
+  private drawDebugGrasslandBoard(center: GridPoint) {
+    const tiles: GridPoint[] = []
+    for (let row = -6; row <= 6; row++) {
+      for (let col = -6; col <= 6; col++) tiles.push({ col: center.col + col, row: center.row + row })
+    }
+    const savedPath = this.path
+    const savedBranchLinks = this.branchLinks
+    const savedBranchRoads = this.branchRoads
+    const savedPathChoices = this.pathChoices
+    const savedRevealed = this.revealed
+    this.path = [center]
+    this.branchLinks = []
+    this.branchRoads = []
+    this.pathChoices = []
+    this.revealed = new Set(tiles.map(cellKey))
+    try {
+      for (const tile of tiles) this.drawTile(tile, true, false)
+      for (const tile of tiles) {
+        if (this.hasDecoration(tile)) this.drawDecoration(tile)
+      }
+    } finally {
+      this.path = savedPath
+      this.branchLinks = savedBranchLinks
+      this.branchRoads = savedBranchRoads
+      this.pathChoices = savedPathChoices
+      this.revealed = savedRevealed
+    }
+  }
+
+  private drawDebugDefenseShot() {
+    const shot = this.debugDefenseShot
+    if (!shot) {
+      if (this.debugDefenseTarget && performance.now() >= this.debugDefenseNextShotAt) this.debugStartDefenseShot(this.debugDefenseTarget)
+      return
+    }
+    const progress = clamp((performance.now() - shot.startedAt) / 1000 / shot.duration, 0, 1)
+    if (progress >= 1) {
+      this.debugDefenseShot = null
+      this.debugDefenseNextShotAt = performance.now() + towerStats(shot.type).rate * 1000
+      return
+    }
+    const target = shot.targetPosition ?? shot
+    shot.trail.unshift({ x: shot.x, y: shot.y })
+    if (shot.trail.length > 7) shot.trail.pop()
+    shot.age = progress * shot.duration
+    shot.x = shot.origin.x + (target.x - shot.origin.x) * progress
+    shot.y = shot.origin.y + (target.y - shot.origin.y) * progress
+      - Math.sin(Math.PI * progress) * shot.arcHeight
+    this.projectiles.push(shot)
+    this.drawProjectiles()
+    this.projectiles.pop()
+  }
+
+  private debugIdleActor(index: number): AmbientActor {
+    const kinds: AmbientKind[] = ['market', 'picnic', 'hunt', 'musician', 'children', 'shepherd', 'patrol', 'peddler', 'crew', 'cat', 'bird']
+    const kind = kinds[index % kinds.length]!
+    const duration = kind === 'bird' ? 18 : 36
+    return {
+      id: -1,
+      storyId: index + 1,
+      blockKey: cellKey(this.path[3]!),
+      kind,
+      age: (performance.now() / 1000 + this.debugIdleVariation * 3.5) % duration,
+      duration,
+      seed: this.debugIdleVariation * 17 + 11,
+      countsForProgress: false
+    }
+  }
+
+  private debugIdleAnchor(actor: AmbientActor) {
+    if (['market', 'picnic', 'hunt', 'musician', 'children', 'shepherd'].includes(actor.kind)) {
+      return this.ambientMeadowPoint(actor.seed, 0, actor.blockKey)
+    }
+    if (['patrol', 'peddler', 'bird'].includes(actor.kind)) {
+      const progress = actor.kind === 'peddler'
+        ? 1 - actor.age / actor.duration
+        : 1 - Math.abs((actor.age / actor.duration * 2) % 2 - 1)
+      return this.ambientRoadPosition(progress)
+    }
+    if (actor.kind === 'cat') return this.ambientMeadowPoint(actor.seed, 0, actor.blockKey)
+    return this.gridToScreen(this.path[3]!)
+  }
+
+  private drawEnvironmentGallery(index: number, center: GridPoint) {
+    type EnvironmentVariant = 'grassland' | 'river' | 'lake' | 'canyon' | 'forest' | 'mountain' | 'junction' | 'mist'
+    const variants: EnvironmentVariant[] = ['grassland', 'river', 'lake', 'canyon', 'forest', 'mountain', 'junction', 'mist']
+    const variant = variants[index % variants.length]!
+    const roadPath = Array.from({ length: 5 }, (_, offset) => ({ col: center.col - 2 + offset, row: center.row }))
+    const branchLinks: RoadLink[] = variant === 'junction'
+      ? [
+          { from: center, to: { col: center.col, row: center.row - 2 } },
+          { from: center, to: { col: center.col, row: center.row + 2 } }
+        ]
+      : []
+    const roadLinks = [
+      ...roadPath.slice(1).map((point, offset) => ({ from: roadPath[offset]!, to: point })),
+      ...branchLinks
+    ]
+    const featureKind = variant === 'lake' ? 'lake' : variant === 'canyon' ? 'canyon' : variant === 'forest' ? 'forest' : variant === 'mountain' ? 'mountain' : null
+    const featureCells = featureKind === 'lake'
+      ? [
+          { col: center.col - 1, row: center.row - 1 },
+          { col: center.col, row: center.row - 1 },
+          { col: center.col + 1, row: center.row - 1 },
+          { col: center.col - 1, row: center.row },
+          { col: center.col + 1, row: center.row }
+        ]
+      : featureKind
+          ? [{ col: center.col, row: center.row - 1 }, { col: center.col + 1, row: center.row - 1 }]
+          : []
+    const features: PathwardenMapPlan['features'] = featureKind
+      ? [{ id: `debug-${variant}`, kind: featureKind, roomIds: [], cells: featureCells, ports: [] }]
+      : []
+    if (variant === 'river') {
+      const bridgeCells = [center, { col: center.col + 1, row: center.row }]
+      const riverCells: GridPoint[] = []
+      for (let col = center.col; col <= center.col + 1; col++) {
+        for (let row = center.row - 2; row <= center.row + 1; row++) riverCells.push({ col, row })
+      }
+      features.push(
+        {
+          id: 'debug-river',
+          kind: 'river',
+          roomIds: [],
+          cells: riverCells,
+          ports: []
+        },
+        { id: 'debug-bridge', kind: 'bridge', roomIds: [], cells: bridgeCells, ports: [] }
+      )
+    }
+    const tiles: GridPoint[] = []
+    for (let row = -3; row <= 3; row++) {
+      for (let col = -3; col <= 3; col++) tiles.push({ col: center.col + col, row: center.row + row })
+    }
+    const savedPath = this.path
+    const savedBranchLinks = this.branchLinks
+    const savedBranchRoads = this.branchRoads
+    const savedPathChoices = this.pathChoices
+    const savedRoadLinks = this.mapPlan.roadLinks
+    const savedFeatures = this.mapPlan.features
+    const savedRevealed = this.revealed
+    this.path = roadPath
+    this.branchLinks = branchLinks
+    this.branchRoads = []
+    this.pathChoices = []
+    this.mapPlan.roadLinks = roadLinks
+    this.mapPlan.features = features
+    this.revealed = new Set(tiles.map(cellKey))
+    try {
+      const roadKeys = new Set(this.allRoadCells().map(cellKey))
+      for (const tile of tiles) this.drawTile(tile, true, roadKeys.has(cellKey(tile)))
+      this.drawGroundFeatures()
+      this.drawRoad()
+      this.drawBridgeDetails()
+      for (const feature of features.filter(candidate => ['mountain', 'forest'].includes(candidate.kind))) {
+        for (const point of feature.cells) this.drawRaisedFeature(point, feature.kind)
+      }
+      const decorationRoadKeys = new Set(this.allRoadCells().map(cellKey))
+      for (const tile of tiles) {
+        if (!decorationRoadKeys.has(cellKey(tile)) && this.hasDecoration(tile)) this.drawDecoration(tile)
+      }
+      if (variant === 'mist') {
+        this.drawUndiscoveredMistField()
+      }
+    } finally {
+      this.path = savedPath
+      this.branchLinks = savedBranchLinks
+      this.branchRoads = savedBranchRoads
+      this.pathChoices = savedPathChoices
+      this.mapPlan.roadLinks = savedRoadLinks
+      this.mapPlan.features = savedFeatures
+      this.revealed = savedRevealed
+    }
+  }
+
   private render() {
+    if (import.meta.dev && this.debugGallery) {
+      this.drawDebugGallery(this.debugGallery.category, this.debugGallery.index)
+      return
+    }
     const ctx = this.ctx
     const sky = ctx.createLinearGradient(0, 0, 0, HEIGHT)
     sky.addColorStop(0, '#7d8ba8')
@@ -4505,6 +5354,7 @@ export class PathwardenEngine {
 
     this.drawGroundFeatures()
     this.drawRoad()
+    this.drawDeadEndSites()
     this.drawBridgeDetails()
     this.drawFrostFields()
     this.drawTowerRangePreview()
@@ -4538,7 +5388,8 @@ export class PathwardenEngine {
         : tower
       renderables.push({ y: this.gridToScreen(renderPoint).y + 2, draw: () => this.drawTower(tower, renderPoint) })
     }
-    if (this.placementMode
+    if (this.phase === 'planning'
+      && this.placementMode
       && this.hoverCell
       && this.revealed.has(cellKey(this.hoverCell))
       && !this.towers.some(tower => tower.col === this.hoverCell!.col && tower.row === this.hoverCell!.row)) {
@@ -5578,6 +6429,274 @@ export class PathwardenEngine {
     ctx.restore()
   }
 
+  private drawDeadEndSites(onlyVariant?: number) {
+    const roadLinks: RoadLink[] = []
+    const linkKeys = new Set<string>()
+    const addLink = (from: GridPoint, to: GridPoint) => {
+      const key = [cellKey(from), cellKey(to)].sort().join('|')
+      if (linkKeys.has(key)) return
+      linkKeys.add(key)
+      roadLinks.push({ from, to })
+    }
+    for (let index = 1; index < this.path.length; index++) addLink(this.path[index - 1]!, this.path[index]!)
+    for (const link of this.branchLinks) addLink(link.from, link.to)
+
+    const degrees = new Map<string, number>()
+    for (const link of roadLinks) {
+      degrees.set(cellKey(link.from), (degrees.get(cellKey(link.from)) ?? 0) + 1)
+      degrees.set(cellKey(link.to), (degrees.get(cellKey(link.to)) ?? 0) + 1)
+    }
+    const keepKey = cellKey(this.initialPath[0]!)
+    const activeSources = new Set(this.pathChoices.map(choice => cellKey(choice.source)))
+    const roadKeys = new Set(this.allRoadCells().map(cellKey))
+    const ctx = this.ctx
+    let renderedSite = false
+
+    for (const [key, degree] of degrees) {
+      if (degree !== 1 || key === keepKey || activeSources.has(key)) continue
+      const [col, row] = key.split(':').map(Number)
+      const endpoint = { col: col!, row: row! }
+      if (!this.revealed.has(key)) continue
+      const neighbours = [
+        { col: endpoint.col + 1, row: endpoint.row },
+        { col: endpoint.col - 1, row: endpoint.row },
+        { col: endpoint.col, row: endpoint.row + 1 },
+        { col: endpoint.col, row: endpoint.row - 1 }
+      ].filter(point => {
+        const pointKey = cellKey(point)
+        return this.revealed.has(pointKey)
+          && !roadKeys.has(pointKey)
+          && !this.blockingFeatureAt(point)
+          && !this.hasDecoration(point)
+      })
+      const site = neighbours[0]
+      if (!site) continue
+      const screen = this.gridToScreen(site)
+      const variant = onlyVariant ?? (endpoint.col * 17 + endpoint.row * 11) % 4
+      if (renderedSite) continue
+      ctx.save()
+      ctx.globalAlpha = 0.96
+
+      if (variant === 0) {
+        ctx.fillStyle = '#9a7142'
+        this.diamondPath(screen, 3)
+        ctx.fill()
+        const roofY = screen.y - 54
+        ctx.fillStyle = '#70482f'
+        ctx.beginPath()
+        ctx.moveTo(screen.x - 27, roofY + 13)
+        ctx.lineTo(screen.x, roofY)
+        ctx.lineTo(screen.x, screen.y)
+        ctx.lineTo(screen.x - 27, screen.y - 11)
+        ctx.closePath()
+        ctx.fill()
+        ctx.fillStyle = '#8b5a38'
+        ctx.beginPath()
+        ctx.moveTo(screen.x, roofY)
+        ctx.lineTo(screen.x + 27, roofY + 13)
+        ctx.lineTo(screen.x + 27, screen.y - 11)
+        ctx.lineTo(screen.x, screen.y)
+        ctx.closePath()
+        ctx.fill()
+        ctx.fillStyle = '#b9824c'
+        ctx.beginPath()
+        ctx.moveTo(screen.x - 35, roofY + 14)
+        ctx.lineTo(screen.x - 8, roofY - 16)
+        ctx.lineTo(screen.x + 3, roofY - 10)
+        ctx.lineTo(screen.x + 16, roofY - 14)
+        ctx.lineTo(screen.x + 35, roofY + 14)
+        ctx.lineTo(screen.x + 28, roofY + 21)
+        ctx.lineTo(screen.x + 12, roofY - 4)
+        ctx.lineTo(screen.x + 2, roofY - 1)
+        ctx.lineTo(screen.x - 9, roofY - 6)
+        ctx.lineTo(screen.x - 28, roofY + 21)
+        ctx.closePath()
+        ctx.fill()
+        ctx.strokeStyle = '#6b4228'
+        ctx.lineWidth = 2
+        ctx.stroke()
+        ctx.strokeStyle = '#d6a15d'
+        ctx.lineWidth = 1.5
+        for (let index = -2; index <= 2; index++) {
+          ctx.beginPath()
+          ctx.moveTo(screen.x + index * 11 - 24, roofY + 11 + (index % 2) * 3)
+          ctx.lineTo(screen.x + index * 10 - (index % 2) * 3, roofY - 7 - (index === 0 ? 5 : 0))
+          ctx.stroke()
+        }
+        ctx.fillStyle = '#3b241b'
+        ctx.fillRect(screen.x - 18, screen.y - 19, 10, 19)
+        ctx.fillStyle = '#dbeafe'
+        ctx.fillRect(screen.x - 20, screen.y - 29, 8, 10)
+        ctx.strokeStyle = '#334155'
+        ctx.strokeRect(screen.x - 20, screen.y - 29, 8, 10)
+      } else if (variant === 1) {
+        ctx.fillStyle = '#789451'
+        this.diamondPath(screen, 3)
+        ctx.fill()
+        ctx.strokeStyle = '#d6c28b'
+        ctx.lineWidth = 2
+        for (const offset of [-16, 0, 16]) {
+          ctx.beginPath()
+          ctx.moveTo(screen.x + offset - 13, screen.y - 3)
+          ctx.lineTo(screen.x + offset + 13, screen.y + 9)
+          ctx.stroke()
+        }
+        ctx.strokeStyle = '#d6c28b'
+        ctx.strokeRect(screen.x - 22, screen.y - 25, 44, 25)
+        ctx.fillStyle = '#eadfc5'
+        ctx.beginPath()
+        ctx.ellipse(screen.x + 8, screen.y - 13, 11, 7, 0, 0, Math.PI * 2)
+        ctx.fill()
+        ctx.fillStyle = '#6f5948'
+        ctx.beginPath()
+        ctx.arc(screen.x + 18, screen.y - 14, 5, 0, Math.PI * 2)
+        ctx.fill()
+        const farm = neighbours[1]
+        if (farm) {
+          const farmScreen = this.gridToScreen(farm)
+          const farmTop = farmScreen.y - 43
+          ctx.fillStyle = '#70482f'
+          ctx.beginPath()
+          ctx.moveTo(farmScreen.x - 18, farmTop + 8)
+          ctx.lineTo(farmScreen.x, farmTop)
+          ctx.lineTo(farmScreen.x, farmScreen.y)
+          ctx.lineTo(farmScreen.x - 18, farmScreen.y - 7)
+          ctx.closePath()
+          ctx.fill()
+          ctx.fillStyle = '#8b5a38'
+          ctx.beginPath()
+          ctx.moveTo(farmScreen.x, farmTop)
+          ctx.lineTo(farmScreen.x + 18, farmTop + 8)
+          ctx.lineTo(farmScreen.x + 18, farmScreen.y - 7)
+          ctx.lineTo(farmScreen.x, farmScreen.y)
+          ctx.closePath()
+          ctx.fill()
+          ctx.fillStyle = '#b9824c'
+          ctx.beginPath()
+          ctx.moveTo(farmScreen.x - 23, farmTop + 8)
+          ctx.lineTo(farmScreen.x - 3, farmTop - 10)
+          ctx.lineTo(farmScreen.x + 23, farmTop + 8)
+          ctx.lineTo(farmScreen.x + 17, farmTop + 14)
+          ctx.lineTo(farmScreen.x - 3, farmTop - 3)
+          ctx.lineTo(farmScreen.x - 17, farmTop + 14)
+          ctx.closePath()
+          ctx.fill()
+          ctx.fillStyle = '#3b241b'
+          ctx.fillRect(farmScreen.x - 13, farmScreen.y - 16, 8, 16)
+          ctx.fillStyle = '#dbeafe'
+          ctx.fillRect(farmScreen.x + 6, farmScreen.y - 25, 7, 8)
+        }
+      } else if (variant === 2) {
+        ctx.fillStyle = '#7c5a3d'
+        this.diamondPath(screen, 3)
+        ctx.fill()
+        ctx.fillStyle = '#8b5a38'
+        ctx.beginPath()
+        ctx.moveTo(screen.x - 16, screen.y - 5)
+        ctx.lineTo(screen.x - 11, screen.y - 58)
+        ctx.lineTo(screen.x + 11, screen.y - 58)
+        ctx.lineTo(screen.x + 16, screen.y - 5)
+        ctx.closePath()
+        ctx.fill()
+        ctx.fillStyle = '#b7794b'
+        ctx.beginPath()
+        ctx.moveTo(screen.x - 11, screen.y - 58)
+        ctx.lineTo(screen.x, screen.y - 72)
+        ctx.lineTo(screen.x + 11, screen.y - 58)
+        ctx.closePath()
+        ctx.fill()
+        ctx.fillStyle = '#3b241b'
+        ctx.fillRect(screen.x - 5, screen.y - 24, 10, 19)
+        ctx.fillStyle = '#dbeafe'
+        ctx.fillRect(screen.x - 8, screen.y - 49, 7, 9)
+        ctx.strokeStyle = '#334155'
+        ctx.strokeRect(screen.x - 8, screen.y - 49, 7, 9)
+        const vaneAngle = performance.now() / 1800
+        ctx.save()
+        ctx.translate(screen.x, screen.y - 57)
+        ctx.rotate(vaneAngle)
+        ctx.strokeStyle = '#6b4228'
+        ctx.lineWidth = 4
+        for (let index = 0; index < 4; index++) {
+          ctx.rotate(Math.PI / 2)
+          ctx.beginPath()
+          ctx.moveTo(0, 0)
+          ctx.lineTo(0, -31)
+          ctx.stroke()
+          ctx.fillStyle = '#d9a45f'
+          ctx.beginPath()
+          ctx.moveTo(-3, -8)
+          ctx.lineTo(3, -8)
+          ctx.lineTo(8, -30)
+          ctx.lineTo(-8, -30)
+          ctx.closePath()
+          ctx.fill()
+        }
+        ctx.fillStyle = '#f4c95d'
+        ctx.beginPath()
+        ctx.arc(0, 0, 5, 0, Math.PI * 2)
+        ctx.fill()
+        ctx.restore()
+      } else {
+        ctx.fillStyle = '#6b4b3a'
+        this.diamondPath(screen, 3)
+        ctx.fill()
+        ctx.fillStyle = '#895b43'
+        ctx.beginPath()
+        ctx.moveTo(screen.x - 22, screen.y - 50)
+        ctx.lineTo(screen.x, screen.y - 42)
+        ctx.lineTo(screen.x, screen.y)
+        ctx.lineTo(screen.x - 22, screen.y - 9)
+        ctx.closePath()
+        ctx.fill()
+        ctx.fillStyle = '#a66f4e'
+        ctx.beginPath()
+        ctx.moveTo(screen.x, screen.y - 42)
+        ctx.lineTo(screen.x + 22, screen.y - 50)
+        ctx.lineTo(screen.x + 22, screen.y - 9)
+        ctx.lineTo(screen.x, screen.y)
+        ctx.closePath()
+        ctx.fill()
+        ctx.fillStyle = '#dbeafe'
+        ctx.fillRect(screen.x - 12, screen.y - 27, 7, 9)
+        ctx.fillRect(screen.x + 5, screen.y - 27, 7, 9)
+        ctx.fillRect(screen.x - 12, screen.y - 43, 7, 9)
+        ctx.fillRect(screen.x + 5, screen.y - 43, 7, 9)
+        ctx.fillStyle = '#e6b86a'
+        ctx.beginPath()
+        ctx.moveTo(screen.x - 30, screen.y - 50)
+        ctx.lineTo(screen.x - 7, screen.y - 72)
+        ctx.lineTo(screen.x + 4, screen.y - 67)
+        ctx.lineTo(screen.x + 28, screen.y - 52)
+        ctx.lineTo(screen.x + 21, screen.y - 43)
+        ctx.lineTo(screen.x, screen.y - 59)
+        ctx.lineTo(screen.x - 22, screen.y - 42)
+        ctx.closePath()
+        ctx.fill()
+        ctx.fillStyle = '#3b241b'
+        ctx.fillRect(screen.x - 5, screen.y - 17, 10, 16)
+        ctx.strokeStyle = '#6b4228'
+        ctx.lineWidth = 2
+        ctx.beginPath()
+        ctx.moveTo(screen.x - 5, screen.y - 25)
+        ctx.lineTo(screen.x - 25, screen.y - 37)
+        ctx.stroke()
+        ctx.fillStyle = '#f4c95d'
+        ctx.beginPath()
+        ctx.roundRect(screen.x - 42, screen.y - 51, 28, 15, 3)
+        ctx.fill()
+        ctx.strokeStyle = '#7c4a2b'
+        ctx.stroke()
+        ctx.fillStyle = '#5b3926'
+        ctx.font = '900 8px Georgia, serif'
+        ctx.textAlign = 'center'
+        ctx.fillText('INN', screen.x - 28, screen.y - 40)
+      }
+      ctx.restore()
+      renderedSite = true
+    }
+  }
+
   private drawBridgeDetails() {
     const ctx = this.ctx
     const roadKeys = new Set(this.allRoadCells().map(cellKey))
@@ -6281,7 +7400,7 @@ export class PathwardenEngine {
   private drawPathChoices() {
     if (this.phase !== 'path') return
     const ctx = this.ctx
-    for (const choice of this.pathChoices) {
+    for (const choice of this.pathChoices.filter(choice => !choice.terminal)) {
       const screen = this.gridToScreen(choice.anchor)
       const hovered = this.hoverPathChoice === choice
       const pulse = 1 + Math.sin(performance.now() / 230 + choice.anchor.col) * 0.08
@@ -6354,17 +7473,58 @@ export class PathwardenEngine {
       ctx.fillText(`★${tower.level}`, screen.x, footY - 8)
     }
     if (tower.relicFamily) {
+      const relicProfile = pathwardenRelicProfile(tower.relicFamily, tower.relicPower)
+      const badgeX = screen.x
+      const badgeY = footY - height - 12
+      const badgeRadius = 11
+      const relics = this.assets.relics
       ctx.fillStyle = this.relicColor(tower.relicFamily)
       ctx.strokeStyle = '#0f172a'
       ctx.lineWidth = 2
       ctx.beginPath()
-      ctx.arc(screen.x + width * 0.34, footY - height + 7, 9, 0, Math.PI * 2)
+      ctx.arc(badgeX, badgeY, badgeRadius, 0, Math.PI * 2)
       ctx.fill()
       ctx.stroke()
-      ctx.fillStyle = '#0f172a'
-      ctx.font = '900 8px sans-serif'
-      ctx.textAlign = 'center'
-      ctx.fillText(`${tower.relicStacks}`, screen.x + width * 0.34, footY - height + 10)
+      if (relics?.complete && relics.naturalWidth > 0) {
+        const sourceWidth = relics.naturalWidth / 5
+        const sourceHeight = relics.naturalHeight / 3
+        const sourceCol = relicProfile.iconIndex % 5
+        const sourceRow = Math.floor(relicProfile.iconIndex / 5)
+        ctx.save()
+        ctx.beginPath()
+        ctx.arc(badgeX, badgeY, badgeRadius - 2, 0, Math.PI * 2)
+        ctx.clip()
+        ctx.drawImage(
+          relics,
+          sourceCol * sourceWidth,
+          sourceRow * sourceHeight,
+          sourceWidth,
+          sourceHeight,
+          badgeX - 9,
+          badgeY - 9,
+          18,
+          18
+        )
+        ctx.restore()
+      } else {
+        ctx.fillStyle = '#0f172a'
+        ctx.font = '900 12px sans-serif'
+        ctx.textAlign = 'center'
+        ctx.fillText('✦', badgeX, badgeY + 4)
+      }
+      if (tower.relicStacks > 1) {
+        ctx.fillStyle = '#0f172a'
+        ctx.strokeStyle = '#f8fafc'
+        ctx.lineWidth = 1
+        ctx.beginPath()
+        ctx.arc(badgeX + 8, badgeY + 8, 6, 0, Math.PI * 2)
+        ctx.fill()
+        ctx.stroke()
+        ctx.fillStyle = '#f8fafc'
+        ctx.font = '900 7px sans-serif'
+        ctx.textAlign = 'center'
+        ctx.fillText(`${tower.relicStacks}`, badgeX + 8, badgeY + 10)
+      }
     }
     ctx.restore()
   }
@@ -7300,7 +8460,7 @@ export class PathwardenEngine {
       }
       ctx.globalAlpha = 1
       const target = this.enemies.find(enemy => enemy.id === projectile.targetId)
-      const targetPosition = target ? this.enemyScreenPosition(target) : projectile
+      const targetPosition = projectile.targetPosition ?? (target ? this.enemyScreenPosition(target) : projectile)
       const angle = Math.atan2(targetPosition.y - projectile.y, targetPosition.x - projectile.x)
       ctx.save()
       ctx.translate(projectile.x, projectile.y)

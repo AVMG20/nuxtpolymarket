@@ -1,4 +1,4 @@
-export const PATHWARDEN_BOOST_IDS = ['bulwark', 'artificer', 'lens', 'reservoir', 'banner', 'bounty'] as const
+export const PATHWARDEN_BOOST_IDS = ['bulwark', 'artificer', 'lens', 'reservoir', 'banner', 'bounty', 'arcanist'] as const
 export type PathwardenBoostId = typeof PATHWARDEN_BOOST_IDS[number]
 export type PathwardenBoostCurrency = 'coins' | 'gems'
 export type PathwardenBoostLevels = Record<PathwardenBoostId, number>
@@ -173,6 +173,14 @@ export const PATHWARDEN_BOOSTS: Record<PathwardenBoostId, {
         baseCost: 5,
         maxLevel: 10,
         sprite: { col: 2, row: 1 }
+    },
+    arcanist: {
+        name: 'Arcanist’s Workbench',
+        description: 'Improves relic swaps: same-family binding, different-family binding, and preserving the displaced relic.',
+        currency: 'coins',
+        baseCost: 48_000,
+        maxLevel: 20,
+        sprite: { col: 2, row: 0 }
     }
 }
 
@@ -192,7 +200,8 @@ export function pathwardenBoostEffects(levels: PathwardenBoostLevels, surged = f
         damageMultiplier: (1 + levels.artificer * 0.03) * surge,
         rangeMultiplier: 1 + levels.lens * 0.03,
         rateMultiplier: (1 + levels.banner * 0.02) * (surged ? 1.05 : 1),
-        bountyMultiplier: 1 + levels.bounty * 0.03
+        bountyMultiplier: 1 + levels.bounty * 0.03,
+        arcanistLevel: levels.arcanist
     }
 }
 
@@ -204,6 +213,7 @@ export function pathwardenPower(levels: PathwardenBoostLevels) {
         + levels.reservoir * 3
         + levels.banner * 4
         + levels.bounty * 3
+        + levels.arcanist * 5
 }
 
 export function pathwardenCheckpointRate(wave: number, realm: number) {

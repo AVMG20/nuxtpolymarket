@@ -139,6 +139,7 @@ export interface PathwardenSavedTower {
     merges?: number
     targeting: 'first' | 'strong' | 'fast'
     relicFamily?: string
+    relicId?: string
     relicStacks: number
     relicPower: number
     relicShots: number

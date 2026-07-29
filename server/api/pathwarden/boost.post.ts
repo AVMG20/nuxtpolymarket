@@ -11,13 +11,14 @@ import {
 } from '#shared/utils/gamelogic/pathwarden'
 
 const LEVEL_COLUMN: Record<PathwardenBoostId,
-    'bulwarkLevel' | 'artificerLevel' | 'lensLevel' | 'reservoirLevel' | 'bannerLevel' | 'bountyLevel'> = {
+    'bulwarkLevel' | 'artificerLevel' | 'lensLevel' | 'reservoirLevel' | 'bannerLevel' | 'bountyLevel' | 'arcanistLevel'> = {
         bulwark: 'bulwarkLevel',
         artificer: 'artificerLevel',
         lens: 'lensLevel',
         reservoir: 'reservoirLevel',
         banner: 'bannerLevel',
-        bounty: 'bountyLevel'
+        bounty: 'bountyLevel',
+        arcanist: 'arcanistLevel'
     }
 
 export default defineEventHandler(async (event) => {
