@@ -7,7 +7,6 @@
     "build": "nuxt build",
     "dev": "bun --bun nuxt dev",
     "db:push": "drizzle-kit push",
-    "db:seed": "bun scripts/seed-hack-test.ts",
     "preview": "nuxt preview",
     "postinstall": "nuxt prepare",
     "lint": "eslint .",
@@ -18,10 +17,10 @@
     "balance:colony": "bun scripts/colony-income.ts"
   },
   "dependencies": {
-    "@elevenlabs/elevenlabs-js": "^2.57.0",
     "@iconify-json/lucide": "^1.2.98",
     "@iconify-json/simple-icons": "^1.2.74",
     "@nuxt/ui": "^4.8.2",
+    "@sentry/nuxt": "^10.68.0",
     "@unovis/vue": "^1.6.4",
     "better-auth": "^1.6.24",
     "date-fns": "^4.1.0",
@@ -29,19 +28,18 @@
     "gsap": "^3.15.0",
     "marked": "^18.0.5",
     "nuxt": "^4.4.2",
-    "openai": "^6.46.0",
     "pg": "^8.20.0",
     "pixi-reels": "^1.1.0",
     "pixi.js": "^8.19.0",
-    "tailwindcss": "^4.2.1",
-    "zod": "^4.3.6"
+    "tailwindcss": "^4.2.1"
   },
   "devDependencies": {
+    "@elevenlabs/elevenlabs-js": "^2.59.0",
     "@nuxt/eslint": "^1.15.2",
     "@types/pg": "^8.18.0",
     "drizzle-kit": "^0.31.10",
     "eslint": "^10.0.3",
-    "playwright": "^1.61.1",
+    "openai": "^6.49.0",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3",
     "vitest": "^4.1.9",
