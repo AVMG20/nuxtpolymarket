@@ -16,6 +16,7 @@ const sections = [
   { id: 'roads', label: 'Roads', icon: 'i-lucide-route' },
   { id: 'checkpoints', label: 'Checkpoints', icon: 'i-lucide-landmark' },
   { id: 'relics', label: 'Relics', icon: 'i-lucide-sparkles' },
+  { id: 'workbench', label: 'Arcanist workbench', icon: 'i-lucide-scale' },
   { id: 'permanent', label: 'Permanent power', icon: 'i-lucide-gem' },
   { id: 'realms', label: 'Realms & rank', icon: 'i-lucide-trophy' }
 ]
@@ -170,6 +171,42 @@ const gemBoosts = Object.entries(PATHWARDEN_BOOSTS).filter(([, boost]) => boost.
       <UAlert color="warning" variant="subtle" icon="i-lucide-scale" title="Checkpoint salvage">
         After choosing Continue at a checkpoint, hover a stored weapon relic and dissolve it for Aether. Selling is
         unavailable before the commitment, so the checkpoint choice cannot be used as a free price check.
+      </UAlert>
+    </section>
+
+    <section id="workbench" class="scroll-mt-24 space-y-4">
+      <h2 class="text-2xl font-black">The Arcanist workbench</h2>
+      <p class="max-w-4xl text-muted">
+        A rebinding ritual puts every participating relic into the maelstrom. The incoming relic and the relics already
+        bound to the defense are all exposed to the same danger: each individual relic gets its own chance to survive,
+        return weakened, or be burned completely to dust. A stack is not one roll; every relic in that stack is tested.
+      </p>
+      <div class="grid gap-3 md:grid-cols-3">
+        <UCard>
+          <h3 class="font-black text-warning">Arcane pressure</h3>
+          <p class="mt-2 text-sm text-muted">
+            The binding and preservation percentages show the ritual’s two competing outcomes. A successful ritual can
+            still consume relics that lose their individual survival rolls.
+          </p>
+        </UCard>
+        <UCard>
+          <h3 class="font-black text-primary">Affinity matters</h3>
+          <p class="mt-2 text-sm text-muted">
+            Using relics with the same affinity lessens the arcane pressure, improving the ritual’s chance to hold its
+            shape while the new binding forms.
+          </p>
+        </UCard>
+        <UCard>
+          <h3 class="font-black text-success">Stabilizing crystals</h3>
+          <p class="mt-2 text-sm text-muted">
+            Spend Aether to place stabilizing crystals on the binding side, the preservation side, or split them between
+            both. More crystals improve the chosen odds, but the ritual remains risky and irreversible.
+          </p>
+        </UCard>
+      </div>
+      <UAlert color="error" variant="subtle" icon="i-lucide-flame" title="Dust is a real outcome">
+        A relic that fails its individual survival roll is not returned to the belt. It is scorched into an ash pile, and
+        a weakened relic visibly retains the damage in its final stats and presentation.
       </UAlert>
     </section>
 

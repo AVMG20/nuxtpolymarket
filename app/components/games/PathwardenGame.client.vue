@@ -5,8 +5,6 @@ import {
   type PathwardenEngineRestore,
   type PathwardenRelic,
   type PathwardenRelicSwapPreview,
-  type PathwardenRelicSwapResult,
-  type PathwardenRelicSwapFocus,
   type PathwardenRelicRarity,
   type PathwardenSnapshot,
   type PathwardenTargeting,
@@ -29,6 +27,7 @@ import {
   type PathwardenSimulationStrategy,
   type PathwardenSimulationWaveResult
 } from '#shared/utils/gamelogic/pathwarden-simulator'
+import RelicSwapDebug from '~/components/pathwarden/RelicSwapDebug.client.vue'
 
 const introStory = [
   {
@@ -111,39 +110,7 @@ const selectedUpgrade = computed(() => {
 const upgradeChoices = ref<PathwardenRelic[]>([])
 const boostShopOpen = ref(false)
 const defenseInventoryOpen = ref(false)
-const arcanistWorkbenchOpen = ref(false)
-const arcanistPreview = ref<PathwardenRelicSwapPreview | null>(null)
-const arcanistResult = ref<PathwardenRelicSwapResult | null>(null)
-const arcanistCanvas = ref<HTMLCanvasElement | null>(null)
-const arcanistOddsCanvas = ref<HTMLCanvasElement | null>(null)
-let arcanistRainUntil = 0
-const arcanistInvestment = ref(0)
-const arcanistOfferBonus = ref(0)
-const arcanistFocus = ref<PathwardenRelicSwapFocus>('both')
-const arcanistFocusOptions = [
-  { label: 'Improve binding odds', value: 'binding' },
-  { label: 'Improve preservation odds', value: 'preservation' },
-  { label: 'Split between both', value: 'both' }
-]
-const arcanistInvestmentTiers = [
-  { amount: 5, bonus: 0.05, label: 'Use 5 Aether', result: '+5% odds' },
-  { amount: 15, bonus: 0.10, label: 'Use 15 Aether', result: '+10% odds' },
-  { amount: 30, bonus: 0.15, label: 'Use 30 Aether', result: '+15% odds' },
-  { amount: 50, bonus: 0.20, label: 'Use 50 Aether', result: '+20% odds' }
-]
-const arcanistInvestmentBonus = computed(() => arcanistOfferBonus.value)
-const arcanistBindingChance = computed(() => {
-  const preview = arcanistPreview.value
-  if (!preview) return 0
-  const bonus = arcanistFocus.value === 'preservation' ? 0 : arcanistInvestmentBonus.value * (arcanistFocus.value === 'both' ? 0.5 : 1)
-  return Math.min(0.98, preview.bindChance + bonus)
-})
-const arcanistPreserveChance = computed(() => {
-  const preview = arcanistPreview.value
-  if (!preview) return 0
-  const bonus = arcanistFocus.value === 'binding' ? 0 : arcanistInvestmentBonus.value * (arcanistFocus.value === 'both' ? 0.5 : 1)
-  return Math.min(0.98, preview.preserveChance + bonus)
-})
+const liveRelicWorkbench = ref<{ openLiveWorkbench: (preview: PathwardenRelicSwapPreview, engine: PathwardenEngine | null) => void } | null>(null)
 const abandonOpen = ref(false)
 const simulatorOpen = ref(false)
 const simulatorRunning = ref(false)
@@ -348,172 +315,7 @@ function openBuildingInventory() {
 }
 
 function openArcanistWorkbench(preview: PathwardenRelicSwapPreview) {
-  arcanistPreview.value = preview
-  arcanistResult.value = null
-  arcanistInvestment.value = 0
-  arcanistOfferBonus.value = 0
-  arcanistFocus.value = 'both'
-  arcanistWorkbenchOpen.value = true
-  void nextTick(() => {
-    drawArcanistWorkbench()
-    drawArcanistOdds()
-  })
-}
-
-function drawArcanistWorkbench() {
-  const canvas = arcanistOddsCanvas.value
-  const preview = arcanistPreview.value
-  if (!canvas || !preview) return
-  const ctx = canvas.getContext('2d')
-  if (!ctx) return
-  const width = canvas.width
-  const height = canvas.height
-  const center = { x: width / 2, y: height / 2 + 6 }
-  const gradient = ctx.createLinearGradient(0, 0, 0, height)
-  gradient.addColorStop(0, '#172554')
-  gradient.addColorStop(1, '#0f172a')
-  ctx.fillStyle = gradient
-  ctx.fillRect(0, 0, width, height)
-  ctx.fillStyle = 'rgba(14, 116, 144, 0.18)'
-  ctx.fillRect(0, height * 0.68, width, height * 0.32)
-  ctx.strokeStyle = 'rgba(125, 211, 252, 0.72)'
-  ctx.lineWidth = 3
-  ctx.beginPath()
-  ctx.arc(center.x, center.y, 72, 0, Math.PI * 2)
-  ctx.stroke()
-  ctx.strokeStyle = 'rgba(250, 204, 21, 0.7)'
-  ctx.lineWidth = 2
-  for (let index = 0; index < 8; index++) {
-    const angle = index * Math.PI / 4
-    ctx.beginPath()
-    ctx.moveTo(center.x + Math.cos(angle) * 78, center.y + Math.sin(angle) * 78)
-    ctx.lineTo(center.x + Math.cos(angle) * 94, center.y + Math.sin(angle) * 94)
-    ctx.stroke()
-  }
-  ctx.fillStyle = '#a16207'
-  ctx.fillRect(52, height * 0.68, width - 104, 36)
-  ctx.fillStyle = '#d6a15d'
-  ctx.fillRect(52, height * 0.66, width - 104, 9)
-  ctx.fillStyle = '#fef3c7'
-  ctx.font = '900 22px Georgia, serif'
-  ctx.textAlign = 'center'
-  ctx.fillText('ARCANIST WORKBENCH', center.x, 42)
-  ctx.font = '700 13px sans-serif'
-  ctx.fillStyle = '#bae6fd'
-  ctx.fillText('The old binding is tested before the new one takes hold.', center.x, 64)
-  ctx.font = '900 15px sans-serif'
-  ctx.fillStyle = '#fecaca'
-  ctx.fillText(preview.existingName, 170, height * 0.79)
-  ctx.fillStyle = '#bbf7d0'
-  ctx.fillText(preview.incomingName, width - 170, height * 0.79)
-  ctx.strokeStyle = '#facc15'
-  ctx.lineWidth = 4
-  ctx.beginPath()
-  ctx.moveTo(270, height * 0.76)
-  ctx.quadraticCurveTo(center.x, height * 0.42, width - 270, height * 0.76)
-  ctx.stroke()
-  ctx.fillStyle = '#facc15'
-  ctx.font = '900 26px serif'
-  ctx.fillText('✦', center.x, center.y + 9)
-}
-
-function confirmArcanistSwap() {
-  const preview = arcanistPreview.value
-  if (!preview) return
-  arcanistResult.value = engine?.resolveRelicSwap(preview.towerId, preview.relicInstanceId, {
-    amount: arcanistInvestment.value,
-    focus: arcanistFocus.value,
-    bonus: arcanistOfferBonus.value
-  }) ?? null
-}
-
-function selectArcanistOffering(tier: typeof arcanistInvestmentTiers[number]) {
-  if (!arcanistPreview.value || tier.amount > arcanistPreview.value.availableAether) return
-  arcanistInvestment.value = tier.amount
-  arcanistOfferBonus.value = tier.bonus
-  void nextTick(animateArcanistCrystals)
-}
-
-function drawArcanistOdds() {
-  const canvas = arcanistOddsCanvas.value
-  const preview = arcanistPreview.value
-  if (!canvas || !preview) return
-  const ctx = canvas.getContext('2d')
-  if (!ctx) return
-  ctx.clearRect(0, 0, canvas.width, canvas.height)
-  ctx.fillStyle = '#0f172a'
-  ctx.fillRect(0, 0, canvas.width, canvas.height)
-  const drawScale = (x: number, label: string, odds: number, color: string) => {
-    ctx.strokeStyle = 'rgba(148, 163, 184, 0.8)'
-    ctx.lineWidth = 5
-    ctx.beginPath()
-    ctx.arc(x, 174, 74, Math.PI, Math.PI * 2)
-    ctx.stroke()
-    ctx.strokeStyle = color
-    ctx.lineWidth = 8
-    ctx.beginPath()
-    ctx.arc(x, 174, 74, Math.PI, Math.PI + Math.PI * odds)
-    ctx.stroke()
-    const angle = Math.PI + Math.PI * odds
-    ctx.strokeStyle = '#f8fafc'
-    ctx.lineWidth = 4
-    ctx.beginPath()
-    ctx.moveTo(x, 174)
-    ctx.lineTo(x + Math.cos(angle) * 62, 174 + Math.sin(angle) * 62)
-    ctx.stroke()
-    ctx.fillStyle = '#f8fafc'
-    ctx.beginPath()
-    ctx.arc(x, 174, 8, 0, Math.PI * 2)
-    ctx.fill()
-    ctx.font = '900 15px sans-serif'
-    ctx.textAlign = 'center'
-    ctx.fillStyle = '#f8fafc'
-    ctx.fillText(label, x, 30)
-    ctx.font = '900 26px sans-serif'
-    ctx.fillStyle = color
-    ctx.fillText(`${Math.round(odds * 100)}%`, x, 78)
-    ctx.font = '700 11px sans-serif'
-    ctx.fillStyle = '#94a3b8'
-    ctx.fillText('failure', x - 76, 205)
-    ctx.fillText('SUCCESS', x + 76, 205)
-  }
-  drawScale(225, 'BINDING', arcanistBindingChance.value, '#38bdf8')
-  drawScale(675, 'PRESERVE OLD RELIC', arcanistPreserveChance.value, '#86efac')
-  ctx.font = '700 12px sans-serif'
-  ctx.fillStyle = '#facc15'
-  ctx.fillText('AETHER SCALES · CRYSTALS TIP THE NEEDLE TOWARD SUCCESS', 450, 238)
-  const rainProgress = Math.max(0, Math.min(1, 1 - (arcanistRainUntil - performance.now()) / 900))
-  if (rainProgress > 0 && rainProgress < 1) {
-    for (let index = 0; index < 12; index++) {
-      const x = 105 + (index * 71) % 690
-      const y = 92 + ((rainProgress * 250 + index * 31) % 88)
-      ctx.fillStyle = index % 2 ? '#67e8f9' : '#fde68a'
-      ctx.save()
-      ctx.translate(x, y)
-      ctx.rotate(index * 0.6)
-      ctx.fillRect(-5, -8, 10, 16)
-      ctx.restore()
-    }
-  }
-}
-
-function animateArcanistCrystals() {
-  arcanistRainUntil = performance.now() + 900
-  const frame = () => {
-    drawArcanistOdds()
-    if (performance.now() < arcanistRainUntil) requestAnimationFrame(frame)
-  }
-  requestAnimationFrame(frame)
-}
-
-watch([arcanistFocus, arcanistOfferBonus], () => {
-  if (arcanistWorkbenchOpen.value) void nextTick(drawArcanistOdds)
-})
-
-function closeArcanistWorkbench() {
-  arcanistWorkbenchOpen.value = false
-  arcanistPreview.value = null
-  arcanistResult.value = null
+  liveRelicWorkbench.value?.openLiveWorkbench(preview, engine)
 }
 
 function towerBlueprint(type: PathwardenTowerType) {
@@ -839,6 +641,7 @@ function dropRelic(event: DragEvent) {
 }
 
 function restart() {
+  engine?.clearRunRelicState()
   engine?.destroy()
   upgradeChoices.value = []
   useSurge.value = false
@@ -854,6 +657,7 @@ function chooseRealm(realm: number) {
 function toggleSurge(enabled: boolean) {
   if (snapshot.value.wave > 0 || runActive.value) return
   useSurge.value = enabled
+  engine?.clearRunRelicState()
   engine?.destroy()
   createGame()
 }
@@ -957,6 +761,7 @@ async function settleRun(reason: 'cashout' | 'victory' | 'defeat') {
         : undefined,
       reason === 'cashout'
     )
+    engine?.clearRunRelicState()
     await Promise.all([refreshBoosts(), fetchSession()])
     return response
   } catch (error: unknown) {
@@ -1848,126 +1653,7 @@ watch(() => [snapshot.value.phase, snapshot.value.wave] as const, ([phase, wave]
       </template>
     </UModal>
 
-    <UModal
-      v-model:open="arcanistWorkbenchOpen"
-      title="The Arcanist’s workbench"
-      description="Rebind a defense to a different relic family. The ritual may preserve the displaced relic, weaken its stack, or destroy it."
-      :ui="{ content: 'sm:max-w-4xl' }"
-    >
-      <template #body>
-        <div v-if="arcanistPreview" class="space-y-4">
-          <canvas
-            ref="arcanistCanvas"
-            width="900"
-            height="260"
-            class="h-auto w-full rounded-xl border border-primary/30 bg-background shadow-inner"
-            aria-label="An Arcanist workbench with two relics circling a binding rune"
-          />
-          <canvas
-            ref="arcanistOddsCanvas"
-            width="900"
-            height="260"
-            class="h-auto w-full rounded-xl border border-primary/30 bg-background shadow-inner"
-            aria-label="Arcanist binding and preservation odds scales"
-          />
-          <div class="grid gap-3 sm:grid-cols-2">
-            <UCard class="border-error/30 bg-error/5" :ui="{ body: 'p-3 sm:p-3' }">
-              <div class="flex items-center gap-3">
-                <span
-                  class="block size-12 shrink-0 rounded-lg border-2 border-error/40 bg-elevated bg-no-repeat shadow-lg"
-                  :style="relicIconStyle({ iconIndex: arcanistPreview.existingIconIndex })"
-                />
-                <div class="min-w-0">
-                  <p class="text-[10px] font-black uppercase tracking-[.16em] text-error">Current binding</p>
-                  <strong class="block truncate text-sm">{{ arcanistPreview.existingName }}</strong>
-                  <span class="text-xs text-muted">{{ arcanistPreview.existingStacks }} stack{{ arcanistPreview.existingStacks === 1 ? '' : 's' }} · {{ arcanistPreview.existingPower.toFixed(2) }} power</span>
-                </div>
-              </div>
-            </UCard>
-            <UCard class="border-success/30 bg-success/5" :ui="{ body: 'p-3 sm:p-3' }">
-              <div class="flex items-center gap-3">
-                <span
-                  class="block size-12 shrink-0 rounded-lg border-2 border-success/40 bg-elevated bg-no-repeat shadow-lg"
-                  :style="relicIconStyle({ iconIndex: arcanistPreview.incomingIconIndex })"
-                />
-                <div class="min-w-0">
-                  <p class="text-[10px] font-black uppercase tracking-[.16em] text-success">Incoming binding</p>
-                  <strong class="block truncate text-sm">{{ arcanistPreview.incomingName }}</strong>
-                  <span class="text-xs text-muted">{{ arcanistPreview.incomingPower.toFixed(2) }} power · {{ arcanistPreview.incomingElement }} element · {{ arcanistPreview.incomingFamily }} effect</span>
-                </div>
-              </div>
-            </UCard>
-          </div>
-          <div class="grid gap-2 text-center text-xs sm:grid-cols-3">
-            <div class="rounded-lg border border-primary/20 bg-primary/5 p-3">
-              <span class="block text-muted">Binding chance</span>
-              <strong class="mt-1 block text-lg text-primary">{{ Math.round(arcanistBindingChance * 100) }}%</strong>
-              <span class="block text-[10px] text-muted">Tower level {{ arcanistPreview.towerLevel }} · Arcanist {{ boostState?.levels.arcanist ?? 0 }}</span>
-            </div>
-            <div class="rounded-lg border border-success/20 bg-success/5 p-3">
-              <span class="block text-muted">Old relic preserved</span>
-              <strong class="mt-1 block text-lg text-success">{{ Math.round(arcanistPreserveChance * 100) }}%</strong>
-              <span class="block text-[10px] text-muted">A recovered fragment returns to the belt</span>
-            </div>
-            <div class="rounded-lg border border-warning/20 bg-warning/5 p-3">
-              <span class="block text-muted">Stack loss risk</span>
-              <strong class="mt-1 block text-lg text-warning">{{ Math.round(arcanistPreview.stackedLossChance * 100) }}%</strong>
-              <span class="block text-[10px] text-muted">Per extra stacked arrow</span>
-            </div>
-          </div>
-          <UCard v-if="!arcanistResult" class="border-primary/30 bg-primary/5" :ui="{ body: 'p-3 sm:p-3' }">
-            <div class="flex flex-wrap items-end gap-3">
-              <UFormField label="Spend it toward" class="min-w-56 flex-1">
-                <USelect v-model="arcanistFocus" :items="arcanistFocusOptions" class="w-full" />
-              </UFormField>
-            </div>
-            <div class="mt-3 grid gap-2 sm:grid-cols-4">
-              <UButton
-                v-for="tier in arcanistInvestmentTiers"
-                :key="tier.amount"
-                color="warning"
-                :variant="arcanistInvestment === tier.amount ? 'solid' : 'soft'"
-                :disabled="tier.amount > arcanistPreview.availableAether"
-                @click="selectArcanistOffering(tier)"
-              >
-                <span class="flex flex-col items-center"><span>{{ tier.label }}</span><span class="text-[10px] opacity-80">{{ tier.result }}</span></span>
-              </UButton>
-            </div>
-            <p class="mt-2 text-xs text-muted">Aether pile: {{ formatNumber(arcanistPreview.availableAether, false) }} available. Each higher offer costs more crystals for the next 5% improvement.</p>
-          </UCard>
-          <UAlert
-            v-if="!arcanistResult"
-            color="warning"
-            variant="soft"
-            icon="i-lucide-flask-conical"
-            title="The ritual cannot be undone"
-            description="If the binding succeeds, the new relic takes the tower’s place. The old relic may return weakened—or vanish into the aether."
-          />
-          <UAlert
-            v-else
-            :color="arcanistResult.success ? (arcanistResult.preserved ? 'success' : 'warning') : 'error'"
-            variant="soft"
-            :icon="arcanistResult.success ? (arcanistResult.preserved ? 'i-lucide-shield-check' : 'i-lucide-triangle-alert') : 'i-lucide-x-circle'"
-            :title="arcanistResult.success ? (arcanistResult.preserved ? 'Rebinding succeeded · old relic recovered' : 'Rebinding succeeded · old relic lost') : 'Rebinding failed · nothing changed'"
-            :description="arcanistResult.message"
-          >
-            <template #description>
-              <span>{{ arcanistResult.message }}</span>
-              <span v-if="arcanistResult.success && arcanistResult.preserved" class="mt-1 block font-semibold">
-                {{ arcanistResult.recoveredStacks }} of {{ arcanistResult.oldStacks }} old stack{{ arcanistResult.oldStacks === 1 ? '' : 's' }} returned to the reliquary.
-              </span>
-              <span v-else-if="arcanistResult.success" class="mt-1 block font-semibold">The displaced relic was destroyed in the workbench.</span>
-              <span class="mt-1 block">{{ arcanistResult.aetherSpent }} Aether spent · {{ Math.round(arcanistResult.bindingChance * 100) }}% binding · {{ Math.round(arcanistResult.preserveChance * 100) }}% preservation.</span>
-            </template>
-          </UAlert>
-          <div class="flex justify-end gap-2">
-            <UButton color="neutral" variant="outline" @click="closeArcanistWorkbench">{{ arcanistResult ? 'Close the workbench' : 'Leave the bench' }}</UButton>
-            <UButton v-if="!arcanistResult" color="warning" icon="i-lucide-wand-sparkles" @click="confirmArcanistSwap">Attempt the rebind</UButton>
-          </div>
-        </div>
-      </template>
-    </UModal>
-
+    <RelicSwapDebug ref="liveRelicWorkbench" live-mode :live-engine="engine" />
     <UModal v-model:open="boostShopOpen" title="Warden’s Reliquary" description="Permanent upgrades bought with account Coins or Gems.">
       <template #body>
         <div v-if="boostState" class="space-y-4">

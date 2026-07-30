@@ -1,5 +1,5 @@
 export const PATHWARDEN_GENERATOR_VERSION = 5
-export const PATHWARDEN_SAVE_VERSION = 1
+export const PATHWARDEN_SAVE_VERSION = 2
 
 export type PathwardenCardinalDirection = 'north' | 'east' | 'south' | 'west'
 
@@ -143,6 +143,8 @@ export interface PathwardenSavedTower {
     relicStacks: number
     relicPower: number
     relicShots: number
+    relicEntity?: PathwardenSavedRelic
+    relicEntities?: PathwardenSavedRelic[]
 }
 
 export interface PathwardenSavedEnemy {
@@ -168,6 +170,7 @@ export interface PathwardenSavedProjectile {
     type: string
     relicFamily?: string
     relicPower: number
+    relicEffects?: PathwardenSavedRelicEffects
     echo: boolean
     targetId: number
     x: number
@@ -197,6 +200,41 @@ export interface PathwardenSavedRelic {
     iconIndex: number
     power: number
     sellValue: number
+    color?: string
+    variationSeed?: number
+    damageFactor?: number
+    baseEffects?: PathwardenSavedRelicEffects
+    effects?: PathwardenSavedRelicEffects
+}
+
+export interface PathwardenSavedRelicEffects {
+    directDamagePct: number
+    burnPct: number
+    burnDuration: number
+    slowPct: number
+    slowDuration: number
+    chainCount: number
+    chainRetentionPct: number
+    impactRadius: number
+    impactDamagePct: number
+    repairPct: number
+    armorPiercePct: number
+    echoEveryShots: number
+    echoPowerPct: number
+    attackSpeedPct: number
+    rangePct: number
+    aetherBonusPct: number
+    keepHealPct: number
+}
+
+export interface PathwardenSavedAshPile {
+    id: number
+    sourceRelicId: string
+    sourceFamily: string
+    sourceRarity: string
+    sourceName: string
+    createdWave: number
+    flakesGenerated: number
 }
 
 export interface PathwardenGameState {
@@ -219,8 +257,9 @@ export interface PathwardenGameState {
     selectedTower: string
     towerPurchases: Record<string, number>
     relicRanks: Record<string, number>
-    globalRelics?: Record<string, { level: number, power: number }>
+    globalRelics?: Record<string, { level: number, power: number, effects?: PathwardenSavedRelicEffects, color?: string }>
     relicInventory: PathwardenSavedRelic[]
+    ashPiles?: PathwardenSavedAshPile[]
     interest: number
     canSellRelics: boolean
     towers: PathwardenSavedTower[]

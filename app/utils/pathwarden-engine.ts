@@ -41,6 +41,26 @@ type PathwardenGlobalRelicFamily = 'heart' | 'repair' | 'bounty' | 'haste' | 'ra
 export type PathwardenPhase = 'planning' | 'wave' | 'checkpoint' | 'path' | 'upgrade' | 'cashout' | 'victory' | 'defeat'
 export type PathwardenTargeting = 'first' | 'strong' | 'fast'
 
+export interface PathwardenRelicEffects {
+  directDamagePct: number
+  burnPct: number
+  burnDuration: number
+  slowPct: number
+  slowDuration: number
+  chainCount: number
+  chainRetentionPct: number
+  impactRadius: number
+  impactDamagePct: number
+  repairPct: number
+  armorPiercePct: number
+  echoEveryShots: number
+  echoPowerPct: number
+  attackSpeedPct: number
+  rangePct: number
+  aetherBonusPct: number
+  keepHealPct: number
+}
+
 export interface PathwardenRelic {
   id: string
   family: PathwardenRelicFamily
@@ -52,10 +72,15 @@ export interface PathwardenRelic {
   iconIndex: number
   power: number
   sellValue: number
+  color: string
+  effects: PathwardenRelicEffects
 }
 
 export interface PathwardenInventoryRelic extends PathwardenRelic {
   instanceId: number
+  variationSeed: number
+  damageFactor: number
+  baseEffects: PathwardenRelicEffects
 }
 
 export interface PathwardenRelicProfile {
@@ -97,6 +122,141 @@ const RELIC_FAMILIES: Array<{
   { id: 'range', element: 'arcane', name: 'Mistglass Lens', towerSpecific: false, description: power => `All defenses gain ${Math.round(7 * power)}% range.` }
 ]
 
+export const PATHWARDEN_RARITY_COLORS: Record<PathwardenRelicRarity, string> = {
+  common: '#94a3b8',
+  uncommon: '#60a5fa',
+  rare: '#c084fc',
+  epic: '#f59e0b',
+  mythic: '#fef08a'
+}
+
+const emptyRelicEffects = (): PathwardenRelicEffects => ({
+  directDamagePct: 0,
+  burnPct: 0,
+  burnDuration: 0,
+  slowPct: 0,
+  slowDuration: 0,
+  chainCount: 0,
+  chainRetentionPct: 0,
+  impactRadius: 0,
+  impactDamagePct: 0,
+  repairPct: 0,
+  armorPiercePct: 0,
+  echoEveryShots: 0,
+  echoPowerPct: 0,
+  attackSpeedPct: 0,
+  rangePct: 0,
+  aetherBonusPct: 0,
+  keepHealPct: 0
+})
+
+function relicEffectsFor(family: PathwardenRelicFamily, power: number, variation = 1): PathwardenRelicEffects {
+  const effects = emptyRelicEffects()
+  const directDamageRates: Partial<Record<PathwardenRelicFamily, number>> = { fire: 6, frost: 4, storm: 3, venom: 3, blast: 6, leech: 4, pierce: 10, chain: 2, gale: 2, radiant: 4 }
+  effects.directDamagePct = (directDamageRates[family] ?? 0) * power * variation
+  if (family === 'fire') {
+    effects.burnPct = 18 * power * variation
+    effects.burnDuration = 3 * variation
+  } else if (family === 'frost') {
+    effects.slowPct = (22 + 4 * power) * variation
+    effects.slowDuration = 2 * variation
+  } else if (family === 'storm') {
+    effects.chainCount = Math.min(5, 1 + Math.floor(power * variation))
+    effects.chainRetentionPct = (58 - power * 2) * variation
+  } else if (family === 'venom') {
+    effects.burnPct = 24 * power * variation
+    effects.burnDuration = 4 * variation
+  } else if (family === 'blast') {
+    effects.impactRadius = 46 + power * 8 * variation
+    effects.impactDamagePct = 6 * power * variation
+  } else if (family === 'leech') {
+    effects.repairPct = 0.12 * power * variation
+  } else if (family === 'pierce') {
+    effects.armorPiercePct = 100 * variation
+  } else if (family === 'chain') {
+    effects.echoEveryShots = 4
+    effects.echoPowerPct = (42 + power * 6) * variation
+  } else if (family === 'gale') {
+    effects.attackSpeedPct = 7 * power * variation
+  } else if (family === 'radiant') {
+    effects.impactDamagePct = 28 * power * variation
+    effects.impactRadius = 52 + power * 7 * variation
+  } else if (family === 'heart') {
+    effects.keepHealPct = 3 * power * variation
+  } else if (family === 'repair') {
+    effects.repairPct = 0.1 * power * variation
+  } else if (family === 'bounty') {
+    effects.aetherBonusPct = 12 * power * variation
+  } else if (family === 'haste') {
+    effects.attackSpeedPct = 8 * power * variation
+  } else if (family === 'range') {
+    effects.rangePct = 7 * power * variation
+  }
+  return effects
+}
+
+function relicColorFor(family: PathwardenRelicFamily, rarity: PathwardenRelicRarity) {
+  const familyColor: Partial<Record<PathwardenRelicFamily, string>> = {
+    fire: '#fb7185',
+    frost: '#a5f3fc',
+    storm: '#fde047',
+    venom: '#86efac',
+    blast: '#fb923c',
+    leech: '#f0abfc',
+    pierce: '#c4b5fd',
+    chain: '#facc15',
+    gale: '#99f6e4',
+    radiant: '#fef3c7',
+    heart: '#fda4af',
+    repair: '#86efac',
+    bounty: '#bef264',
+    haste: '#93c5fd',
+    range: '#c4b5fd'
+  }
+  const base = familyColor[family] ?? PATHWARDEN_RARITY_COLORS[rarity]
+  return base
+}
+
+function cloneRelicEffects(effects: PathwardenRelicEffects): PathwardenRelicEffects {
+  return { ...effects }
+}
+
+function scaleRelicEffects(effects: PathwardenRelicEffects, factor: number): PathwardenRelicEffects {
+  return Object.fromEntries(Object.entries(effects).map(([key, value]) => [key, value * factor])) as unknown as PathwardenRelicEffects
+}
+
+function addRelicEffects(target: PathwardenRelicEffects, source: PathwardenRelicEffects) {
+  for (const key of Object.keys(target) as Array<keyof PathwardenRelicEffects>) {
+    target[key] += source[key]
+  }
+  return target
+}
+
+function variedRelicEffects(template: PathwardenRelic, variationSeed: number) {
+  const variation = 0.94 + (Math.abs(Math.sin(variationSeed * 12.9898)) % 0.12)
+  return relicEffectsFor(template.family, template.power, variation)
+}
+
+export function describeRelicEffects(effects: PathwardenRelicEffects) {
+  const parts: string[] = []
+  const pct = (value: number) => `${value.toFixed(1)}%`
+  if (effects.directDamagePct) parts.push(`+${pct(effects.directDamagePct)} direct damage`)
+  if (effects.burnPct) parts.push(`+${pct(effects.burnPct)} burn for ${effects.burnDuration.toFixed(1)}s`)
+  if (effects.slowPct) parts.push(`-${pct(effects.slowPct)} speed for ${effects.slowDuration.toFixed(1)}s`)
+  if (effects.chainCount) parts.push(`${Math.round(effects.chainCount)} chain target${effects.chainCount === 1 ? '' : 's'}`)
+  if (effects.chainRetentionPct) parts.push(`${pct(effects.chainRetentionPct)} chain retention`)
+  if (effects.impactRadius) parts.push(`${Math.round(effects.impactRadius)} impact radius`)
+  if (effects.impactDamagePct) parts.push(`+${pct(effects.impactDamagePct)} impact damage`)
+  if (effects.repairPct) parts.push(`+${pct(effects.repairPct)} repair`)
+  if (effects.armorPiercePct) parts.push(`${pct(effects.armorPiercePct)} armor pierce`)
+  if (effects.echoEveryShots) parts.push(`echo every ${Math.round(effects.echoEveryShots)} shots at ${pct(effects.echoPowerPct)}`)
+  if (effects.attackSpeedPct) parts.push(`+${pct(effects.attackSpeedPct)} attack speed`)
+  if (effects.rangePct) parts.push(`+${pct(effects.rangePct)} range`)
+  if (effects.aetherBonusPct) parts.push(`+${pct(effects.aetherBonusPct)} Aether`)
+  if (effects.keepHealPct) parts.push(`+${pct(effects.keepHealPct)} keep healing`)
+  return parts.join(' · ')
+}
+
 export const PATHWARDEN_RELICS: PathwardenRelic[] = RELIC_FAMILIES.flatMap((family, iconIndex) =>
   RELIC_RARITIES.map(rarity => ({
     id: `${family.id}-${rarity.id}`,
@@ -108,7 +268,9 @@ export const PATHWARDEN_RELICS: PathwardenRelic[] = RELIC_FAMILIES.flatMap((fami
     towerSpecific: family.towerSpecific,
     iconIndex,
     power: rarity.power,
-    sellValue: rarity.sell
+    sellValue: rarity.sell,
+    color: relicColorFor(family.id, rarity.id),
+    effects: relicEffectsFor(family.id, rarity.power)
   })))
 
 export function pathwardenRelicProfile(family: PathwardenRelicFamily, power: number): PathwardenRelicProfile {
@@ -155,6 +317,8 @@ interface Tower extends GridPoint {
   relicStacks: number
   relicPower: number
   relicShots: number
+  relicEntity?: PathwardenInventoryRelic
+  relicEntities?: PathwardenInventoryRelic[]
 }
 type EnemyType = 'raider' | 'runner' | 'brute' | 'shaman' | 'boss'
 interface Enemy {
@@ -185,6 +349,7 @@ interface Projectile extends Point {
   targetPosition?: Point
   relicFamily?: PathwardenRelicFamily
   relicPower: number
+  relicEffects?: PathwardenRelicEffects
   echo: boolean
   targetId: number
   damage: number
@@ -230,6 +395,17 @@ interface Shockwave extends Point {
   maxRadius: number
   life: number
   color: string
+}
+interface Ashflake {
+  x: number
+  y: number
+  vx: number
+  vy: number
+  size: number
+  life: number
+  maxLife: number
+  rotation: number
+  spin: number
 }
 interface TowerDrag {
   towerId: number
@@ -356,6 +532,10 @@ export interface PathwardenBuilding {
   relicName: string
   relicDescription: string
   relicIconIndex: number
+  relicEntity?: PathwardenInventoryRelic
+  relicEntities?: PathwardenInventoryRelic[]
+  relicEffects: PathwardenRelicEffects
+  relicColor: string
   globalRelics: Array<{
     family: PathwardenRelicFamily
     name: string
@@ -363,6 +543,8 @@ export interface PathwardenBuilding {
     level: number
     power: number
     iconIndex: number
+    effects: PathwardenRelicEffects
+    color: string
   }>
 }
 
@@ -394,6 +576,8 @@ export interface PathwardenRelicSwapResult {
   oldRelicName: string
   oldStacks: number
   recoveredStacks: number
+  recoveredRelicPower: number
+  preservedRelicIndices: number[]
   preserved: boolean
   message: string
   aetherSpent: number
@@ -560,7 +744,7 @@ export class PathwardenEngine {
     bounty: 0
   }
 
-  private globalRelics: Partial<Record<PathwardenGlobalRelicFamily, { level: number, power: number }>> = {}
+  private globalRelics: Partial<Record<PathwardenGlobalRelicFamily, { level: number, power: number, effects: PathwardenRelicEffects, color: string }>> = {}
 
   private message = 'Raise your first defenses, then summon the horde.'
   private towerId = 1
@@ -642,6 +826,19 @@ export class PathwardenEngine {
   private debugDefenseShot: Projectile & { startedAt: number } | null = null
   private debugDefenseNextShotAt = 0
   private relicInventory: PathwardenInventoryRelic[] = []
+  private ashPiles: Array<{
+    id: number
+    sourceRelicId: string
+    sourceFamily: PathwardenRelicFamily
+    sourceRarity: PathwardenRelicRarity
+    sourceName: string
+    createdWave: number
+    flakesGenerated: number
+  }> = []
+
+  private ashPileId = 1
+  private ashflakeAccumulator = 0
+  private ashflakes: Ashflake[] = []
   private relicInstanceId = 1
   private killRepairPercent = 0
   private canSellRelics = false
@@ -797,6 +994,7 @@ export class PathwardenEngine {
       relicRanks: { ...this.relicRanks },
       globalRelics: { ...this.globalRelics },
       relicInventory: this.relicInventory.map(relic => ({ ...relic })),
+      ashPiles: this.ashPiles.map(pile => ({ ...pile })),
       interest: this.interest,
       canSellRelics: this.canSellRelics,
       towers: this.towers.map(({ recoil: _recoil, ...tower }) => ({ ...tower })),
@@ -810,6 +1008,7 @@ export class PathwardenEngine {
         type: projectile.type,
         relicFamily: projectile.relicFamily,
         relicPower: projectile.relicPower,
+        relicEffects: projectile.relicEffects,
         echo: projectile.echo,
         targetId: projectile.targetId,
         x: projectile.x,
@@ -871,21 +1070,54 @@ export class PathwardenEngine {
     this.selectedTower = state.selectedTower
     this.towerPurchases = { ...state.towerPurchases }
     this.relicRanks = { ...this.relicRanks, ...state.relicRanks }
-    this.globalRelics = { ...this.globalRelics, ...(state.globalRelics ?? {}) }
-    this.relicInventory = state.relicInventory as PathwardenInventoryRelic[]
+    this.globalRelics = Object.fromEntries(Object.entries(state.globalRelics ?? {}).map(([family, global]) => [family, {
+      ...global,
+      effects: (global as { effects?: PathwardenRelicEffects }).effects ?? relicEffectsFor(family as PathwardenGlobalRelicFamily, global.power),
+      color: (global as { color?: string }).color ?? this.relicColor(family as PathwardenGlobalRelicFamily)
+    }])) as typeof this.globalRelics
+    this.relicInventory = (state.relicInventory ?? []).map(relic => this.hydrateRelic(relic))
+    this.ashPiles = (state.ashPiles ?? []).map(pile => ({
+      id: pile.id,
+      sourceRelicId: pile.sourceRelicId,
+      sourceFamily: pile.sourceFamily as PathwardenRelicFamily,
+      sourceRarity: pile.sourceRarity as PathwardenRelicRarity,
+      sourceName: pile.sourceName,
+      createdWave: pile.createdWave,
+      flakesGenerated: pile.flakesGenerated
+    }))
+    this.ashPileId = Math.max(1, ...this.ashPiles.map(pile => pile.id + 1))
+    this.ashflakes = []
+    this.ashflakeAccumulator = 0
     this.interest = state.interest
     this.canSellRelics = state.canSellRelics
     this.towerId = state.towerId
     this.enemyId = state.enemyId
     this.relicInstanceId = state.relicInstanceId
-    this.towers = state.towers.map(tower => ({
-      ...tower,
-      type: tower.type,
-      merges: tower.merges ?? 0,
-      recoil: 0,
-      relicFamily: tower.relicFamily as PathwardenRelicFamily | undefined,
-      relicId: tower.relicId ?? (tower.relicFamily ? `${tower.relicFamily}-common` : undefined)
-    }))
+    this.towers = state.towers.map(tower => {
+      const template = PATHWARDEN_RELICS.find(candidate => candidate.id === tower.relicId)
+        ?? PATHWARDEN_RELICS.find(candidate => candidate.family === tower.relicFamily)
+      const relicEntities = tower.relicEntities?.map(relic => this.hydrateRelic(relic))
+        ?? (template && tower.relicStacks > 0
+          ? Array.from({ length: tower.relicStacks }, (_, index) => this.materializeRelic(
+            template,
+            state.combatRandomState + tower.id * 53 + index,
+            tower.relicPower / Math.max(0.01, template.power * Math.max(1, tower.relicStacks))
+          ))
+          : undefined)
+      const relicEntity = tower.relicEntity
+        ? this.hydrateRelic(tower.relicEntity)
+        : relicEntities?.[0]
+      return {
+        ...tower,
+        type: tower.type,
+        merges: tower.merges ?? 0,
+        recoil: 0,
+        relicFamily: tower.relicFamily as PathwardenRelicFamily | undefined,
+        relicId: tower.relicId ?? (tower.relicFamily ? `${tower.relicFamily}-common` : undefined),
+        relicEntity,
+        relicEntities
+      }
+    })
     const enemyVisual = {
       raider: { radius: 13, color: '#fb923c' },
       runner: { radius: 10, color: '#c4b5fd' },
@@ -901,6 +1133,7 @@ export class PathwardenEngine {
       ...projectile,
       type: projectile.type,
       relicFamily: projectile.relicFamily as PathwardenRelicFamily | undefined,
+      relicEffects: projectile.relicEffects,
       trail: projectile.trail.map(point => ({ x: point.col, y: point.row })),
       origin: { x: projectile.origin.col, y: projectile.origin.row }
     }))
@@ -1321,6 +1554,7 @@ export class PathwardenEngine {
     this.enemies = [{
       id: -1,
       type: 'raider',
+      exitKey: 'debug',
       route: [targetCell, targetCell],
       progress: 2,
       hp: 1000,
@@ -1371,7 +1605,7 @@ export class PathwardenEngine {
     const archetype = this.towerArchetype(blueprint.id)
     this.debugDefenseShot = {
       x: geometry.muzzle.x,
-      y: geometry.muzzle.y - 42 - (this.elevations[point.row]! - 1) * 11,
+      y: geometry.muzzle.y - 42 - (this.elevations[point.row]![point.col]! - 1) * 11,
       type: blueprint.id,
       targetPosition: target,
       relicPower: 0,
@@ -1385,7 +1619,7 @@ export class PathwardenEngine {
       color: stats.color,
       size: archetype === 'mortar' ? 8 : 5,
       trail: [],
-      origin: { x: geometry.muzzle.x, y: geometry.muzzle.y - 42 - (this.elevations[point.row]! - 1) * 11 },
+      origin: { x: geometry.muzzle.x, y: geometry.muzzle.y - 42 - (this.elevations[point.row]![point.col]! - 1) * 11 },
       age: 0,
       duration: archetype === 'mortar'
         ? clamp(flightDistance / 260, 0.55, 1.15)
@@ -1414,6 +1648,13 @@ export class PathwardenEngine {
     if (!import.meta.dev) return
     this.aether += clamp(Math.floor(amount), 0, 10000)
     this.message = 'Development treasury opened.'
+    this.emitState()
+  }
+
+  debugSetAether(amount = 0) {
+    if (!import.meta.dev) return
+    this.aether = clamp(Math.floor(amount), 0, 10000)
+    this.message = `Development Aether set to ${this.aether}.`
     this.emitState()
   }
 
@@ -1522,9 +1763,9 @@ export class PathwardenEngine {
     if (!import.meta.dev || this.phase === 'wave') return
     this.phase = 'upgrade'
     this.callbacks.onUpgrade([
-      PATHWARDEN_RELICS.find(relic => relic.id === 'fire-common')!,
-      PATHWARDEN_RELICS.find(relic => relic.id === 'frost-rare')!,
-      PATHWARDEN_RELICS.find(relic => relic.id === 'repair-epic')!
+      this.materializeRelic(PATHWARDEN_RELICS.find(relic => relic.id === 'fire-common')!, 101, 1),
+      this.materializeRelic(PATHWARDEN_RELICS.find(relic => relic.id === 'frost-rare')!, 202, 1),
+      this.materializeRelic(PATHWARDEN_RELICS.find(relic => relic.id === 'repair-epic')!, 303, 1)
     ])
     this.message = 'Development relic draft opened.'
     this.emitState()
@@ -1557,6 +1798,8 @@ export class PathwardenEngine {
     if (!cell) return null
     const towerLevel = clamp(Math.floor(scenario.towerLevel), 1, 5)
     const stacks = clamp(Math.floor(scenario.stacks), 1, 5)
+    const existingEntities = Array.from({ length: stacks }, (_, index) =>
+      this.materializeRelic(existing, this.relicInstanceId * 37 + index + 1, 1))
     const tower: Tower = {
       id: this.towerId++,
       ...cell,
@@ -1572,13 +1815,15 @@ export class PathwardenEngine {
       relicId: existing.id,
       relicStacks: stacks,
       relicPower: existing.power * stacks,
-      relicShots: 0
+      relicShots: 0,
+      relicEntity: existingEntities[0],
+      relicEntities: existingEntities
     }
     this.towers = [tower]
     this.selectedTowerId = tower.id
     this.debugRelicSwapTowerId = tower.id
     this.debugForceRelicSwap = true
-    this.relicInventory = [{ ...incoming, instanceId: this.relicInstanceId++ }]
+    this.relicInventory = [this.materializeRelic(incoming, this.relicInstanceId * 31 + scenario.stacks, 1)]
     this.canSellRelics = true
     this.message = `Debug scenario ready · ${existing.name} on a level ${towerLevel} tower.`
     this.emitState()
@@ -1655,13 +1900,66 @@ export class PathwardenEngine {
     const template = candidates.reduce((closest, candidate) =>
       Math.abs(candidate.power - power) < Math.abs(closest.power - power) ? candidate : closest
     )
+    return this.materializeRelic(template, this.relicInstanceId * 17 + Math.round(power * 100), power / Math.max(0.01, template.power), true)
+  }
+
+  private recoverRelicEntity(source: PathwardenInventoryRelic, damageFactor: number) {
+    const factor = clamp(damageFactor, 0.05, 1)
+    return {
+      ...source,
+      instanceId: this.relicInstanceId++,
+      name: `Recovered ${source.name}`,
+      power: Number((source.power * factor).toFixed(2)),
+      damageFactor: source.damageFactor * factor,
+      effects: scaleRelicEffects(source.effects, factor),
+      baseEffects: cloneRelicEffects(source.baseEffects),
+      sellValue: Math.max(1, Math.round(source.sellValue * factor)),
+      description: describeRelicEffects(scaleRelicEffects(source.effects, factor))
+    }
+  }
+
+  private materializeRelic(template: PathwardenRelic, variationSeed: number, damageFactor = 1, recovered = false): PathwardenInventoryRelic {
+    const baseEffects = variedRelicEffects(template, variationSeed)
+    const currentEffects = scaleRelicEffects(baseEffects, clamp(damageFactor, 0.05, 1))
+    const power = Number((template.power * clamp(damageFactor, 0.05, 1)).toFixed(2))
     return {
       ...template,
       instanceId: this.relicInstanceId++,
-      name: `Recovered ${template.name}`,
-      description: 'A relic fragment rescued from the Arcanist’s workbench. Its power is diminished.',
-      power: Number(power.toFixed(2)),
-      sellValue: Math.max(1, Math.round(template.sellValue * power / template.power))
+      variationSeed,
+      damageFactor: clamp(damageFactor, 0.05, 1),
+      baseEffects: cloneRelicEffects(baseEffects),
+      effects: currentEffects,
+      name: recovered ? `Recovered ${template.name}` : template.name,
+      description: describeRelicEffects(currentEffects),
+      power,
+      sellValue: Math.max(1, Math.round(template.sellValue * clamp(damageFactor, 0.05, 1)))
+    }
+  }
+
+  private hydrateRelic(saved: Omit<Partial<PathwardenInventoryRelic>, 'family' | 'rarity'> & { id: string, family: string, rarity: string, power: number }): PathwardenInventoryRelic {
+    const family = saved.family as PathwardenRelicFamily
+    const rarity = saved.rarity as PathwardenRelicRarity
+    const template = PATHWARDEN_RELICS.find(candidate => candidate.id === saved.id)
+      ?? PATHWARDEN_RELICS.find(candidate => candidate.family === family && candidate.rarity === rarity)
+      ?? PATHWARDEN_RELICS.find(candidate => candidate.family === family)
+      ?? PATHWARDEN_RELICS[0]!
+    const variationSeed = saved.variationSeed ?? saved.instanceId ?? 1
+    const generated = this.materializeRelic(template, variationSeed, 1)
+    const baseEffects = saved.baseEffects ?? generated.baseEffects
+    const effects = saved.effects ?? scaleRelicEffects(baseEffects, saved.damageFactor ?? (saved.power / Math.max(0.01, template.power)))
+    return {
+      ...generated,
+      ...saved,
+      family,
+      rarity,
+      instanceId: saved.instanceId ?? generated.instanceId,
+      color: saved.color ?? generated.color,
+      variationSeed,
+      damageFactor: saved.damageFactor ?? (saved.power / Math.max(0.01, template.power)),
+      baseEffects: cloneRelicEffects(baseEffects),
+      effects,
+      power: saved.power ?? generated.power,
+      sellValue: saved.sellValue ?? generated.sellValue
     }
   }
 
@@ -1698,6 +1996,8 @@ export class PathwardenEngine {
     tower.relicId = relic.id
     tower.relicStacks++
     tower.relicPower += relic.power
+    tower.relicEntity = relic
+    tower.relicEntities = [...(tower.relicEntities ?? []), relic]
     this.relicInventory.splice(this.relicInventory.indexOf(relic), 1)
     const position = this.gridToScreen(tower)
     this.burst(position, this.relicColor(relic.family), 24, 190)
@@ -1725,19 +2025,57 @@ export class PathwardenEngine {
       0.05,
       0.98
     )
+    const oldFamily = tower.relicFamily
+    const oldRelicId = tower.relicId
+    const oldPower = tower.relicPower
+    const oldStacks = tower.relicStacks
+    const oldEntities = tower.relicEntities?.length
+      ? tower.relicEntities
+      : Array.from({ length: oldStacks }, (_, index) => this.materializeRelic(
+        PATHWARDEN_RELICS.find(candidate => candidate.id === oldRelicId)
+          ?? PATHWARDEN_RELICS.find(candidate => candidate.family === oldFamily)!,
+        this.relicInstanceId * 41 + index,
+        1
+      ))
+    const preservedRelicIndices: number[] = []
+    for (let stack = 0; stack < oldStacks; stack++) {
+      if (this.planRandom() <= preserveChance) preservedRelicIndices.push(stack)
+    }
+    const recovered = preservedRelicIndices.length
+    const recoveredRelicPower = recovered
+      ? oldPower / Math.max(1, oldStacks) * (recovered === oldStacks ? 1 : 0.7 + 0.3 * recovered / Math.max(1, oldStacks))
+      : 0
     this.aether -= aetherSpent
     if (this.planRandom() > bindingChance) {
-      const message = 'The Arcanist could not align the new relic. Nothing was changed.'
+      this.relicInventory.splice(this.relicInventory.indexOf(relic), 1)
+      this.createAshPile(relic)
+      for (let index = 0; index < oldStacks; index++) {
+        if (!preservedRelicIndices.includes(index)) this.createAshPile(oldEntities[index]!)
+      }
+      tower.relicStacks = recovered
+      tower.relicEntities = preservedRelicIndices.map(index => oldEntities[index]!)
+      tower.relicEntity = tower.relicEntities[0]
+      tower.relicPower = tower.relicEntities.reduce((total, entity) => total + entity.power, 0)
+      if (!recovered) {
+        tower.relicFamily = undefined
+        tower.relicId = undefined
+      }
+      const message = recovered
+        ? `The Arcanist could not align the new relic. ${recovered} of ${oldStacks} old relic${oldStacks === 1 ? '' : 's'} survived; ${oldStacks - recovered} were destroyed.`
+        : 'The Arcanist could not align the new relic. Every relic was lost in the ritual.'
       this.message = message
+      this.clearDebugRelicSwapState(towerId)
       this.emitState()
       return {
         success: false,
         bindingSucceeded: false,
         incomingName: relic.name,
         oldRelicName: preview.existingName,
-        oldStacks: preview.existingStacks,
-        recoveredStacks: 0,
-        preserved: false,
+        oldStacks,
+        recoveredStacks: recovered,
+        recoveredRelicPower,
+        preservedRelicIndices,
+        preserved: recovered > 0,
         message,
         aetherSpent,
         bindingChance,
@@ -1745,32 +2083,27 @@ export class PathwardenEngine {
       }
     }
 
-    const oldFamily = tower.relicFamily
-    const oldRelicId = tower.relicId
-    const oldPower = tower.relicPower
-    const oldStacks = tower.relicStacks
     this.relicInventory.splice(this.relicInventory.indexOf(relic), 1)
-    let recovered = 0
-    if (this.planRandom() <= preserveChance) {
-      let recoveredStacks = oldStacks
-      for (let stack = 1; stack < oldStacks; stack++) {
-        if (this.planRandom() < preview.stackedLossChance) recoveredStacks--
-      }
-      const recoveredPower = oldPower * recoveredStacks / Math.max(1, oldStacks)
-      this.relicInventory.push(this.recoverRelic(oldFamily, recoveredPower, oldRelicId))
-      recovered = recoveredStacks
+    for (let index = 0; index < oldStacks; index++) {
+      if (!preservedRelicIndices.includes(index)) this.createAshPile(oldEntities[index]!)
+    }
+    for (const index of preservedRelicIndices) {
+      this.relicInventory.push(this.recoverRelicEntity(oldEntities[index]!, recovered === oldStacks ? 1 : 0.7 + 0.3 * recovered / Math.max(1, oldStacks)))
     }
     tower.relicFamily = relic.family
     tower.relicId = relic.id
     tower.relicStacks = 1
     tower.relicPower = relic.power
+    tower.relicEntity = relic
+    tower.relicEntities = [relic]
     const position = this.gridToScreen(tower)
     this.burst(position, this.relicColor(relic.family), 30, 220)
     this.shockwaves.push({ ...position, radius: 7, maxRadius: 68, life: 0.72, color: this.relicColor(relic.family) })
     const message = recovered
-      ? `${relic.name} replaced the old relic. ${recovered === oldStacks ? 'The original was preserved.' : 'A weakened fragment was recovered.'}`
+      ? `${relic.name} replaced the old relic. ${recovered === oldStacks ? 'The original stack was fully preserved.' : `${recovered} of ${oldStacks} old relic${oldStacks === 1 ? '' : 's'} survived; ${oldStacks - recovered} were destroyed.`}`
       : `${relic.name} replaced the old relic. The original was lost in the ritual.`
     this.message = message
+    this.clearDebugRelicSwapState(towerId)
     this.emitState()
     return {
       success: true,
@@ -1779,12 +2112,48 @@ export class PathwardenEngine {
       oldRelicName: preview.existingName,
       oldStacks,
       recoveredStacks: recovered,
+      recoveredRelicPower,
+      preservedRelicIndices,
       preserved: recovered > 0,
       message,
       aetherSpent,
       bindingChance,
       preserveChance
     }
+  }
+
+  private clearDebugRelicSwapState(towerId: number) {
+    if (this.debugRelicSwapTowerId !== towerId) return
+    this.debugRelicSwapTowerId = null
+    this.debugForceRelicSwap = false
+  }
+
+  private createAshPile(relic: PathwardenRelic) {
+    this.ashPiles.push({
+      id: this.ashPileId++,
+      sourceRelicId: relic.id,
+      sourceFamily: relic.family,
+      sourceRarity: relic.rarity,
+      sourceName: relic.name,
+      createdWave: this.wave,
+      flakesGenerated: 0
+    })
+  }
+
+  clearRunRelicState() {
+    this.relicInventory = []
+    this.ashPiles = []
+    this.ashflakes = []
+    this.ashflakeAccumulator = 0
+    for (const tower of this.towers) {
+      tower.relicFamily = undefined
+      tower.relicId = undefined
+      tower.relicStacks = 0
+      tower.relicPower = 0
+      tower.relicEntity = undefined
+      tower.relicEntities = undefined
+    }
+    this.emitState()
   }
 
   sellRelic(instanceId: number) {
@@ -1797,7 +2166,8 @@ export class PathwardenEngine {
     this.emitState()
   }
 
-  private relicColor(family: PathwardenRelicFamily) {
+  private relicColor(family?: PathwardenRelicFamily) {
+    if (!family) return '#c4b5fd'
     if (family === 'fire' || family === 'blast') return '#fb7185'
     if (family === 'frost') return '#a5f3fc'
     if (family === 'storm' || family === 'chain') return '#fde047'
@@ -1834,6 +2204,19 @@ export class PathwardenEngine {
     return tower.relicFamily ? tower.relicPower : this.towerRelicFamily(tower) ? 1 : 0
   }
 
+  private towerRelicEffects(tower: Tower) {
+    const effects = emptyRelicEffects()
+    const entities = tower.relicEntities ?? (tower.relicEntity ? [tower.relicEntity] : [])
+    for (const entity of entities) addRelicEffects(effects, entity.effects)
+    if (entities.length) return effects
+    const family = this.towerRelicFamily(tower)
+    return family ? relicEffectsFor(family, this.towerRelicPower(tower)) : effects
+  }
+
+  private towerRelicColor(tower: Tower) {
+    return tower.relicEntity?.color ?? tower.relicEntities?.[0]?.color ?? this.relicColor(this.towerRelicFamily(tower))
+  }
+
   private skinPalette() {
     if (this.skinId === 'ember-court') return { dark: '#450a0a', mid: '#991b1b', light: '#f97316', trim: '#fed7aa', accent: '#ef4444' }
     if (this.skinId === 'verdant-crown') return { dark: '#064e3b', mid: '#047857', light: '#34d399', trim: '#fde68a', accent: '#facc15' }
@@ -1862,27 +2245,32 @@ export class PathwardenEngine {
   chooseUpgrade(relic: PathwardenRelic) {
     if (this.phase !== 'upgrade') return
     this.noteActivity()
+    const entity = 'instanceId' in relic
+      ? relic as PathwardenInventoryRelic
+      : this.materializeRelic(relic, this.relicInstanceId * 31 + this.wave, 1)
     if (relic.towerSpecific) {
-      this.relicInventory.push({ ...relic, instanceId: this.relicInstanceId++ })
+      this.relicInventory.push(entity)
     } else if (relic.family === 'heart') {
-      const hearts = Math.max(1, Math.round(3 * relic.power))
+      const hearts = Math.max(1, Math.round(3 * entity.power))
       this.maxLives = Math.max(this.maxLives, this.lives + hearts)
       this.lives = Math.min(this.maxLives, this.lives + hearts)
     } else if (relic.family === 'repair') {
-      this.killRepairPercent += 0.001 * relic.power
+      this.killRepairPercent += entity.effects.repairPct / 100
     } else if (relic.family === 'bounty') {
-      this.bountyMultiplier *= 1 + 0.12 * relic.power
+      this.bountyMultiplier *= 1 + entity.effects.aetherBonusPct / 100
     } else if (relic.family === 'haste') {
-      this.rateMultiplier *= 1 + 0.08 * relic.power
+      this.rateMultiplier *= 1 + entity.effects.attackSpeedPct / 100
     } else if (relic.family === 'range') {
-      this.rangeMultiplier *= 1 + 0.07 * relic.power
+      this.rangeMultiplier *= 1 + entity.effects.rangePct / 100
     }
     if (!relic.towerSpecific) {
       const family = relic.family as PathwardenGlobalRelicFamily
       const current = this.globalRelics[family]
       this.globalRelics[family] = {
         level: (current?.level ?? 0) + 1,
-        power: (current?.power ?? 0) + relic.power
+        power: (current?.power ?? 0) + entity.power,
+        effects: addRelicEffects(current?.effects ? cloneRelicEffects(current.effects) : emptyRelicEffects(), entity.effects),
+        color: entity.color
       }
     }
     this.aether += Math.floor(this.aether * this.interest)
@@ -1957,12 +2345,14 @@ export class PathwardenEngine {
     const elevation = this.elevations[tower.row]![tower.col]!
     const relicFamily = this.towerRelicFamily(tower)
     const relicPower = this.towerRelicPower(tower)
+    const relicEffects = this.towerRelicEffects(tower)
+    const relicColor = this.towerRelicColor(tower)
     const relicProfile = relicFamily ? pathwardenRelicProfile(relicFamily, relicPower) : null
     const globalRelics = (['haste', 'range'] as const).flatMap(family => {
       const global = this.globalRelics[family]
       if (!global) return []
       const profile = pathwardenRelicProfile(family, global.power)
-      return [{ ...profile, level: global.level, power: global.power }]
+      return [{ ...profile, level: global.level, power: global.power, effects: global.effects, color: global.color }]
     })
     return {
       id: tower.id,
@@ -1976,9 +2366,10 @@ export class PathwardenEngine {
       tier: this.towerBlueprint(tower.type).tier,
       elevation,
       damage: Math.round(stats.damage * this.damageMultiplier * (1 + (elevation - 1) * 0.16)
-        * towerLevelPower(tower.level) * (1 + this.relicDirectDamageBonus(relicFamily, relicPower))),
-      range: Math.round(stats.range * this.rangeMultiplier * (1 + (elevation - 1) * 0.09) * (1 + (tower.level - 1) * 0.05)),
-      rate: Number((stats.rate / this.rateMultiplier).toFixed(2)),
+        * towerLevelPower(tower.level) * (1 + relicEffects.directDamagePct / 100)),
+      range: Math.round(stats.range * this.rangeMultiplier * (1 + (elevation - 1) * 0.09) * (1 + (tower.level - 1) * 0.05)
+        * (1 + relicEffects.rangePct / 100)),
+      rate: Number((stats.rate / this.rateMultiplier / (1 + relicEffects.attackSpeedPct / 100)).toFixed(2)),
       salvage: this.salvageValue(tower),
       targeting: tower.targeting,
       relicFamily,
@@ -1987,6 +2378,10 @@ export class PathwardenEngine {
       relicName: relicProfile?.name ?? '',
       relicDescription: relicProfile?.description ?? '',
       relicIconIndex: relicProfile?.iconIndex ?? 0,
+      relicEntity: tower.relicEntity,
+      relicEntities: tower.relicEntities,
+      relicEffects,
+      relicColor,
       globalRelics
     }
   }
@@ -2371,6 +2766,33 @@ export class PathwardenEngine {
     this.shake = Math.max(0, this.shake - delta * 24)
     this.redFlash = Math.max(0, this.redFlash - delta * 2.8)
     this.waveBanner = Math.max(0, this.waveBanner - delta)
+    const ashflakeCap = 96
+    this.ashflakeAccumulator += delta * this.ashPiles.length
+    while (this.ashflakeAccumulator >= 1) {
+      this.ashflakeAccumulator -= 1
+      if (this.ashflakes.length >= ashflakeCap || !this.ashPiles.length) break
+      const pile = this.ashPiles[Math.floor(Math.random() * this.ashPiles.length)]!
+      pile.flakesGenerated++
+      const maxLife = 7 + Math.random() * 5
+      this.ashflakes.push({
+        x: Math.random() * WIDTH,
+        y: 80 + Math.random() * (HEIGHT - 100),
+        vx: -12 + Math.random() * 24,
+        vy: 8 + Math.random() * 18,
+        size: 1.5 + Math.random() * 2.5,
+        life: maxLife,
+        maxLife,
+        rotation: Math.random() * Math.PI * 2,
+        spin: -1.2 + Math.random() * 2.4
+      })
+    }
+    for (const flake of [...this.ashflakes]) {
+      flake.life -= delta
+      flake.x += flake.vx * delta + Math.sin(flake.life * 1.3) * 3 * delta
+      flake.y += flake.vy * delta
+      flake.rotation += flake.spin * delta
+      if (flake.life <= 0 || flake.y > HEIGHT + 12) this.ashflakes.splice(this.ashflakes.indexOf(flake), 1)
+    }
     this.streakTimer -= delta
     if (this.streakTimer <= 0) this.streak = 0
     if (this.ambientEvacuation > 0) {
@@ -2450,11 +2872,13 @@ export class PathwardenEngine {
       const origin = worldCenter(tower)
       const stats = towerStats(tower.type)
       const elevation = this.elevations[tower.row]![tower.col]!
+      const relicEffects = this.towerRelicEffects(tower)
       const range = stats.range * this.rangeMultiplier * (1 + (elevation - 1) * 0.09) * (1 + (tower.level - 1) * 0.05)
+        * (1 + relicEffects.rangePct / 100)
       if (this.towerBlueprint(tower.type).family === 'winter') {
         for (const enemy of this.enemies) {
           if (this.enemyHasExitedMist(enemy) && distance(origin, this.enemyWorldPosition(enemy)) <= range) {
-            enemy.slow = Math.max(enemy.slow, stats.slow)
+            enemy.slow = Math.max(enemy.slow, stats.slow, relicEffects.slowPct / 100)
             enemy.slowTimer = Math.max(enemy.slowTimer, 0.16)
           }
         }
@@ -2479,16 +2903,15 @@ export class PathwardenEngine {
       const archetype = this.towerArchetype(tower.type)
       const relicFamily = this.towerRelicFamily(tower)
       const relicPower = this.towerRelicPower(tower)
+      const relicColor = this.towerRelicColor(tower)
       const duration = archetype === 'mortar'
         ? clamp(flightDistance / 260, 0.55, 1.15)
         : Math.max(0.08, flightDistance / stats.projectileSpeed)
       tower.relicShots++
-      const echo = relicFamily === 'chain' && tower.relicShots % 4 === 0
-      const relicSplash = relicFamily === 'blast'
-        ? 46 + relicPower * 8
-        : relicFamily === 'radiant' ? 52 + relicPower * 7 : 0
+      const echo = relicFamily === 'chain' && relicEffects.echoEveryShots > 0 && tower.relicShots % Math.max(1, Math.round(relicEffects.echoEveryShots)) === 0
+      const relicSplash = relicEffects.impactRadius
       let splashFactor = 1
-      if (relicFamily === 'radiant') splashFactor = stats.splash > 0 ? 0.34 : Math.min(0.75, 0.28 * relicPower)
+      if (relicFamily === 'radiant') splashFactor = stats.splash > 0 ? 0.34 : Math.min(0.75, relicEffects.impactDamagePct / 100)
       else if (relicFamily === 'blast') splashFactor = 0.55
       this.projectiles.push({
         x: start.x,
@@ -2496,15 +2919,16 @@ export class PathwardenEngine {
         type: tower.type,
         relicFamily,
         relicPower,
+        relicEffects,
         echo,
         targetId: target.id,
         damage: stats.damage * this.damageMultiplier * (1 + (elevation - 1) * 0.16) * towerLevelPower(tower.level)
-          * (1 + this.relicDirectDamageBonus(relicFamily, relicPower)),
+          * (1 + relicEffects.directDamagePct / 100),
         speed: stats.projectileSpeed,
         splash: Math.max(stats.splash, relicSplash),
         splashFactor,
-        slow: Math.max(stats.slow, relicFamily === 'frost' ? Math.min(0.62, 0.22 + 0.04 * relicPower) : 0),
-        color: relicFamily ? this.relicColor(relicFamily) : stats.color,
+        slow: Math.max(stats.slow, relicEffects.slowPct / 100),
+        color: relicFamily ? relicColor : stats.color,
         size: archetype === 'mortar' ? 8 : 5,
         trail: [],
         origin: { ...start },
@@ -2512,8 +2936,7 @@ export class PathwardenEngine {
         duration,
         arcHeight: archetype === 'mortar' ? clamp(70 + flightDistance * 0.18, 78, 150) : 0
       })
-      tower.cooldown = stats.rate / this.rateMultiplier
-        / (relicFamily === 'gale' ? 1 + 0.07 * relicPower : 1)
+      tower.cooldown = stats.rate / this.rateMultiplier / (1 + relicEffects.attackSpeedPct / 100)
       tower.recoil = 1
       this.burst(start, stats.color, 4, 80)
     }
@@ -2912,9 +3335,10 @@ export class PathwardenEngine {
       ? this.enemies.filter(enemy => distance(this.enemyWorldPosition(enemy), this.enemyWorldPosition(target)) <= projectile.splash)
       : [target]
     for (const enemy of targets) {
+      const relicEffects = projectile.relicEffects ?? relicEffectsFor(projectile.relicFamily ?? 'fire', projectile.relicPower)
       const splashScale = enemy === target ? 1 : projectile.splashFactor
       const armoredBonus = projectile.relicFamily === 'pierce' && (enemy.type === 'brute' || enemy.type === 'boss')
-        ? 1 + 0.1 * projectile.relicPower
+        ? 1 + relicEffects.armorPiercePct / 100
         : 1
       const damage = Math.round(projectile.damage * splashScale * armoredBonus)
       enemy.hp -= damage
@@ -2924,9 +3348,8 @@ export class PathwardenEngine {
         enemy.slowTimer = 1.9
       }
       if (enemy === target && (projectile.relicFamily === 'fire' || projectile.relicFamily === 'venom')) {
-        const duration = projectile.relicFamily === 'fire' ? 3 : 4
-        const totalRatio = projectile.relicFamily === 'fire' ? 0.18 : 0.24
-        enemy.dotDamage = Math.max(enemy.dotDamage, projectile.damage * totalRatio * projectile.relicPower / (duration * 2))
+        const duration = relicEffects.burnDuration
+        enemy.dotDamage = Math.max(enemy.dotDamage, projectile.damage * relicEffects.burnPct / 100 / Math.max(1, duration * 2))
         enemy.dotTimer = Math.max(enemy.dotTimer, duration)
         enemy.dotTick = Math.min(enemy.dotTick || 0.5, 0.5)
       }
@@ -2942,13 +3365,14 @@ export class PathwardenEngine {
       })
       if (enemy.hp <= 0) this.killEnemy(enemy)
     }
+    const relicEffects = projectile.relicEffects ?? relicEffectsFor(projectile.relicFamily ?? 'fire', projectile.relicPower)
     if (projectile.relicFamily === 'storm') {
-      const jumps = Math.min(5, 1 + Math.floor(projectile.relicPower))
+      const jumps = Math.min(5, Math.max(0, Math.round(relicEffects.chainCount)))
       const nearby = this.enemies
         .filter(enemy => enemy !== target && this.enemyHasExitedMist(enemy)
           && distance(this.enemyWorldPosition(enemy), this.enemyWorldPosition(target)) <= 145)
         .slice(0, jumps)
-      let retained = 0.58 - projectile.relicPower * 0.02
+      let retained = relicEffects.chainRetentionPct / 100
       let from = impact
       for (const enemy of nearby) {
         const jumpDamage = Math.max(1, Math.round(projectile.damage * retained))
@@ -2969,11 +3393,11 @@ export class PathwardenEngine {
         })
         if (enemy.hp <= 0) this.killEnemy(enemy)
         from = position
-        retained *= 0.58 - projectile.relicPower * 0.02
+        retained *= relicEffects.chainRetentionPct / 100
       }
     }
     if (projectile.echo && target.hp > 0) {
-      const echoDamage = Math.round(projectile.damage * Math.min(0.8, 0.42 + projectile.relicPower * 0.06))
+      const echoDamage = Math.round(projectile.damage * Math.min(0.8, relicEffects.echoPowerPct / 100))
       target.hp -= echoDamage
       this.shockwaves.push({ ...impact, radius: 5, maxRadius: 34, life: 0.35, color: '#c4b5fd' })
       if (target.hp <= 0) this.killEnemy(target)
@@ -3526,7 +3950,8 @@ export class PathwardenEngine {
     const pool = PATHWARDEN_RELICS.filter(relic =>
       relic.rarity === rarity
       && (this.lives < this.maxLives || relic.family !== 'heart'))
-    this.callbacks.onUpgrade(shuffle(pool).slice(0, 3))
+    this.callbacks.onUpgrade(shuffle(pool).slice(0, 3).map((relic, index) =>
+      this.materializeRelic(relic, this.wave * 97 + index * 31 + Math.floor(rarityRoll * 1000), 1)))
   }
 
   private gridToScreen(point: GridPoint): Point {
@@ -3874,7 +4299,7 @@ export class PathwardenEngine {
         : galleryRoadPoint
     const anchor = category === 'idle' && idleAnchor
       ? idleAnchor
-      : this.gridToScreen(galleryAnchor)
+      : this.gridToScreen(galleryAnchor as GridPoint)
     const scale = category === 'environment' ? 1.35 : category === 'scene' ? 1.7 : 2.4
     ctx.save()
     ctx.translate(center.x, center.y)
@@ -3942,6 +4367,7 @@ export class PathwardenEngine {
       this.drawEnemy({
         id: -1,
         type: enemyType,
+        exitKey: 'debug',
         route: this.path,
         progress: Math.min(this.path.length - 1, 3),
         hp: 100,
@@ -3967,6 +4393,7 @@ export class PathwardenEngine {
           col: this.path[3]!.col,
           row: this.path[3]!.row + 2,
           type: 'bolt',
+          recoil: 0,
           invested: 0,
           cooldown: 0,
           angle: -Math.PI / 4,
@@ -4159,7 +4586,7 @@ export class PathwardenEngine {
     this.branchLinks = branchLinks
     this.branchRoads = []
     this.pathChoices = []
-    this.mapPlan.roadLinks = roadLinks
+    this.mapPlan.roadLinks = roadLinks as unknown as PathwardenMapPlan['roadLinks']
     this.mapPlan.features = features
     this.revealed = new Set(tiles.map(cellKey))
     try {
@@ -5334,6 +5761,23 @@ export class PathwardenEngine {
     glow.addColorStop(1, 'rgba(71,85,105,0)')
     ctx.fillStyle = glow
     ctx.fillRect(0, 0, WIDTH, HEIGHT)
+    ctx.save()
+    ctx.globalAlpha = 0.42
+    ctx.fillStyle = '#d6d3d1'
+    for (const flake of this.ashflakes) {
+      ctx.save()
+      ctx.translate(flake.x, flake.y)
+      ctx.rotate(flake.rotation)
+      ctx.beginPath()
+      ctx.moveTo(0, -flake.size)
+      ctx.lineTo(flake.size * 0.65, 0)
+      ctx.lineTo(0, flake.size)
+      ctx.lineTo(-flake.size * 0.65, 0)
+      ctx.closePath()
+      ctx.fill()
+      ctx.restore()
+    }
+    ctx.restore()
   }
 
   private drawBoard() {
@@ -7478,7 +7922,7 @@ export class PathwardenEngine {
       const badgeY = footY - height - 12
       const badgeRadius = 11
       const relics = this.assets.relics
-      ctx.fillStyle = this.relicColor(tower.relicFamily)
+      ctx.fillStyle = this.towerRelicColor(tower)
       ctx.strokeStyle = '#0f172a'
       ctx.lineWidth = 2
       ctx.beginPath()
