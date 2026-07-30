@@ -961,7 +961,7 @@ watch(() => [snapshot.value.phase, snapshot.value.wave] as const, ([phase, wave]
           <UButton size="xs" color="warning" variant="soft" icon="i-lucide-map" @click="revealEntireMap">
             Reveal map
           </UButton>
-          <UButton v-if="boostState?.debugMode" to="/pathwarden/debug" size="xs" color="error" variant="soft" icon="i-lucide-panels-top-left">
+          <UButton v-if="isDev && boostState?.debugMode" to="/pathwarden/debug" size="xs" color="error" variant="soft" icon="i-lucide-panels-top-left">
             Open debug showcase
           </UButton>
           <UButton

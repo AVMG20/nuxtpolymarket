@@ -12,6 +12,7 @@ const buyingDefense = ref<string | null>(null)
 const buyingSkin = ref<string | null>(null)
 const buyingBoost = ref<PathwardenBoostId | null>(null)
 const buyingSurge = ref(false)
+const isDev = import.meta.dev
 const balance = computed(() => Number(state.value?.balance ?? 0))
 const families = computed(() => [
   { label: 'All families', value: 'all' },
@@ -133,7 +134,7 @@ function boostSpriteStyle(sprite: { col: number, row: number }) {
 
       <div v-if="state && activeTab === 'defenses'" class="mt-7">
         <UAlert
-          v-if="state.debugMode"
+          v-if="isDev && state.debugMode"
           class="mb-5"
           color="warning"
           variant="soft"
