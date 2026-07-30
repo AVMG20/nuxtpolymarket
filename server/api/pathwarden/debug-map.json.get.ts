@@ -6,6 +6,7 @@ import {
 } from '#server/utils/pathwarden-debug-map-plan'
 
 export default defineEventHandler((event) => {
+    if (!import.meta.dev) throw createError({ statusCode: 404, statusMessage: 'Not found' })
     const query = getQuery(event)
     const seed = Number(query.seed ?? 1)
     const realm = Number(query.realm ?? 1)
