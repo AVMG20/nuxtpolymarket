@@ -463,7 +463,7 @@ export const UPGRADE_TRACKS: UpgradeTrackType[] = [
     name: 'Foraging Yield',
     icon: 'i-lucide-trending-up',
     description: 'Every bug\'s yield level rises, colony-wide.',
-    maxLevel: 12,
+    maxLevel: 14,
     effectLabel: level => `+${level * YIELD_TRACK_LEVELS_PER_LEVEL} yield levels`
   },
   {
