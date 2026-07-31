@@ -1567,7 +1567,7 @@ watch(() => [snapshot.value.phase, snapshot.value.wave] as const, ([phase, wave]
             </div>
             <USwitch :model-value="skipIntro" :loading="savingPreferences" size="sm" @update:model-value="setSkipIntro" />
           </div>
-          <div v-if="!hintsOpen" class="flex items-center justify-between border-t border-default px-4 py-2">
+          <div v-if="!hintsOpen && hintsEnabled" class="flex items-center justify-between border-t border-default px-4 py-2">
             <div class="flex items-center gap-2 text-xs text-muted">
               <UIcon name="i-lucide-lightbulb" class="size-4 text-warning" />
               <span>Optional hints</span>
