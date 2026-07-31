@@ -133,7 +133,7 @@ const useSurge = ref(false)
 const hintsEnabled = ref(true)
 const hintsOpen = ref(true)
 const activeHintIndex = ref(0)
-const hints = [
+const hints = computed(() => [
   {
     title: 'Open the shop quickly',
     body: 'Right-click the battlefield to open the Aether shop without leaving the map.'
@@ -142,10 +142,15 @@ const hints = [
     title: 'Scroll to zoom',
     body: 'Use the mouse wheel or trackpad scroll over the battlefield to zoom in and out.'
   },
-  {
-    title: 'Pan from the edges',
-    body: 'Move the pointer toward the battlefield edges to pan the view and inspect more of the realm.'
-  },
+  keyboardPan.value
+    ? {
+        title: 'Pan with the keyboard',
+        body: 'Hold WASD or the arrow keys to pan the view and inspect more of the realm.'
+      }
+    : {
+        title: 'Pan from the edges',
+        body: 'Move the pointer toward the battlefield edges to pan the view and inspect more of the realm.'
+      },
   {
     title: 'Build a pair of defenses',
     body: 'Start with two complementary defenses. Fast single-target fire handles runners while area damage controls crowded bends.'
@@ -246,8 +251,8 @@ const hints = [
     title: 'Recover after a loss',
     body: 'A failed march still teaches you which lane or enemy type broke the defense. Rebuild around that weakness on the next attempt.'
   },
-]
-const activeHint = computed(() => hints[activeHintIndex.value]!)
+])
+const activeHint = computed(() => hints.value[activeHintIndex.value]!)
 const runActive = ref(false)
 const claimedCheckpointWaves = new Set<number>()
 const checkpointClaims = new Map<number, Promise<void>>()
@@ -374,7 +379,9 @@ const idleStoryItems = idleStoryFamilies.flatMap((family, familyIndex) =>
   }))
 const { data: boostState, refresh: refreshBoosts } = await useFetch('/api/pathwarden/state')
 const skipIntro = ref(Boolean(boostState.value?.skipIntro))
-const savingPreferences = ref(false)
+const keyboardPan = ref(Boolean(boostState.value?.keyboardPan))
+const savingSkipIntro = ref(false)
+const savingKeyboardPan = ref(false)
 let engine: PathwardenEngine | null = null
 const SAVE_DEBOUNCE_MS = 2500
 let cooldownClock: ReturnType<typeof setInterval> | null = null
@@ -563,17 +570,34 @@ async function clearDebugCache() {
 }
 
 async function setSkipIntro(enabled: boolean) {
-  if (savingPreferences.value || enabled === skipIntro.value) return
+  if (savingSkipIntro.value || enabled === skipIntro.value) return
   const previous = skipIntro.value
   skipIntro.value = enabled
-  savingPreferences.value = true
+  savingSkipIntro.value = true
   try {
     await $fetch('/api/pathwarden/preferences', { method: 'PUT', body: { skipIntro: enabled } })
   } catch (error: unknown) {
     skipIntro.value = previous
     toast.add({ title: 'Could not save intro preference', description: apiErrorMessage(error, 'Try again in a moment.'), color: 'error' })
   } finally {
-    savingPreferences.value = false
+    savingSkipIntro.value = false
+  }
+}
+
+async function setKeyboardPan(enabled: boolean) {
+  if (savingKeyboardPan.value || enabled === keyboardPan.value) return
+  const previous = keyboardPan.value
+  keyboardPan.value = enabled
+  engine?.setKeyboardPan(enabled)
+  savingKeyboardPan.value = true
+  try {
+    await $fetch('/api/pathwarden/preferences', { method: 'PUT', body: { keyboardPan: enabled } })
+  } catch (error: unknown) {
+    keyboardPan.value = previous
+    engine?.setKeyboardPan(previous)
+    toast.add({ title: 'Could not save movement preference', description: apiErrorMessage(error, 'Try again in a moment.'), color: 'error' })
+  } finally {
+    savingKeyboardPan.value = false
   }
 }
 
@@ -684,11 +708,11 @@ async function skipIntroStory() {
 }
 
 function nextHint() {
-  activeHintIndex.value = (activeHintIndex.value + 1) % hints.length
+  activeHintIndex.value = (activeHintIndex.value + 1) % hints.value.length
 }
 
 function previousHint() {
-  activeHintIndex.value = (activeHintIndex.value - 1 + hints.length) % hints.length
+  activeHintIndex.value = (activeHintIndex.value - 1 + hints.value.length) % hints.value.length
 }
 
 const introStorySlide = computed(() => {
@@ -1009,6 +1033,7 @@ function createGame(restore?: PathwardenEngineRestore, startEngine = true) {
   }, boostState.value
     ? pathwardenBoostEffects(boostState.value.levels, useSurge.value)
     : undefined, selectedRealm.value, boostState.value?.equippedSkinId ?? 'warden-stone', restore, skipIntro.value)
+  engine.setKeyboardPan(keyboardPan.value)
   if (startEngine) engine.start()
 }
 
@@ -1564,7 +1589,20 @@ watch(() => [snapshot.value.phase, snapshot.value.wave] as const, ([phase, wave]
               <UIcon name="i-lucide-book-open" class="size-4 text-primary" />
               <span>Skip intro on new marches</span>
             </div>
-            <USwitch :model-value="skipIntro" :loading="savingPreferences" size="sm" @update:model-value="setSkipIntro" />
+            <USwitch :model-value="skipIntro" :loading="savingSkipIntro" size="sm" @update:model-value="setSkipIntro" />
+          </div>
+          <div class="flex items-center justify-between border-t border-default px-4 py-3">
+            <div class="flex items-center gap-2 text-xs text-muted">
+              <UIcon :name="keyboardPan ? 'i-lucide-keyboard' : 'i-lucide-mouse-pointer-2'" class="size-4 text-primary" />
+              <span>{{ keyboardPan ? 'Pan the map with WASD' : 'Pan the map from the edges' }}</span>
+            </div>
+            <USwitch
+              :model-value="keyboardPan"
+              :loading="savingKeyboardPan"
+              size="sm"
+              aria-label="Pan the map with the keyboard"
+              @update:model-value="setKeyboardPan"
+            />
           </div>
           <div v-if="!hintsOpen && hintsEnabled" class="flex items-center justify-between border-t border-default px-4 py-2">
             <div class="flex items-center gap-2 text-xs text-muted">
