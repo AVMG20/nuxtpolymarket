@@ -401,7 +401,29 @@ function transformPort(
     }
 }
 
+// A template has only eight orientations and the generator re-derives the same
+// ones thousands of times per plan, so each is built once and shared. Callers
+// treat transformed templates as read-only.
+const transformCache = new WeakMap<PathwardenRoomTemplate, Map<number, PathwardenTransformedTemplate>>()
+
 export function transformPathwardenRoomTemplate(
+    template: PathwardenRoomTemplate,
+    transform: PathwardenTemplateTransform
+): PathwardenTransformedTemplate {
+    let cached = transformCache.get(template)
+    if (!cached) {
+        cached = new Map()
+        transformCache.set(template, cached)
+    }
+    const cacheKey = transform.rotation + (transform.reflected ? 1 : 0)
+    const hit = cached.get(cacheKey)
+    if (hit) return hit
+    const built = buildTransformedTemplate(template, transform)
+    cached.set(cacheKey, built)
+    return built
+}
+
+function buildTransformedTemplate(
     template: PathwardenRoomTemplate,
     transform: PathwardenTemplateTransform
 ): PathwardenTransformedTemplate {

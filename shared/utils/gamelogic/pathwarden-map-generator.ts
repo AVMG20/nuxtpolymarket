@@ -17,7 +17,6 @@ import {
     type PathwardenRoomTemplate,
     type PathwardenTransformedTemplate
 } from '#shared/utils/gamelogic/pathwarden-room-templates'
-import { isCompactPathwardenRoomFootprint } from '#shared/utils/gamelogic/pathwarden-map-validation'
 
 interface RandomSource {
     next: () => number
@@ -38,10 +37,16 @@ interface OpenFrontier {
 interface PlanState {
     rooms: PathwardenMapRoom[]
     connections: PathwardenMapConnection[]
+    // Id-indexed views of rooms/connections, kept in step with the arrays above,
+    // so ancestor walks are O(depth) lookups instead of O(rooms) scans per
+    // placement attempt.
+    roomsById: Map<string, PathwardenMapRoom>
+    connectionsById: Map<string, PathwardenMapConnection>
     roadLinks: PathwardenRoadLink[]
     features: PathwardenMapFeature[]
-    occupied: Set<string>
-    reservedExits: Map<string, string>
+    occupied: Set<number>
+    roadCells: Set<number>
+    reservedExits: Map<number, string>
     roomSequence: number
     connectionSequence: number
     roadSequence: number
@@ -74,9 +79,20 @@ const JUNCTION_ARCHETYPES: readonly PathwardenRoomArchetype[] = [
 const ROOM_CLEARANCE_CELLS = 12
 const ORIGIN_AVOIDANCE_DEPTH = 5
 
+// Cell keys are hashed millions of times per plan, so they pack into a small
+// integer instead of a string. The +2 bias keeps single-cell probes off the
+// grid edge non-negative; the stride bounds the map at 1022 cells per side.
+const KEY_STRIDE = 1024
+
 function key(point: PathwardenGridPoint) {
-    return `${point.col}:${point.row}`
+    return (point.col + 2) * KEY_STRIDE + (point.row + 2)
 }
+
+const scratchGraph = new Map<number, number[]>()
+const neighbourPool: number[][] = []
+const scratchVisited = new Set<number>()
+const scratchQueue: number[] = []
+const scratchConnectorKeys = new Set<number>()
 
 function move(point: PathwardenGridPoint, direction: PathwardenCardinalDirection) {
     if (direction === 'north') return { col: point.col, row: point.row - 1 }
@@ -129,8 +145,16 @@ function weightedTemplates(
         const pressureWeight = special ? Math.max(1, frontier.specialPressure) : 1
         return Array.from({ length: template.weight * pressureWeight }, () => template)
     })
-    return shuffle(pool.length ? pool : eligible, random)
-        .filter((template, index, values) => values.indexOf(template) === index)
+    // Dedupe the weighted, shuffled pool to first occurrence — a Set preserves
+    // that order without the quadratic indexOf scan.
+    const seen = new Set<PathwardenRoomTemplate>()
+    const ordered: PathwardenRoomTemplate[] = []
+    for (const template of shuffle(pool.length ? pool : eligible, random)) {
+        if (seen.has(template)) continue
+        seen.add(template)
+        ordered.push(template)
+    }
+    return ordered
 }
 
 function matchingTransforms(
@@ -156,29 +180,38 @@ function footprint(candidate: PathwardenTransformedTemplate, origin: PathwardenG
     return cells
 }
 
+interface FootprintBounds {
+    minCol: number
+    maxCol: number
+    minRow: number
+    maxRow: number
+}
+
+// Footprint arrays are created once per room and never mutated, so their
+// bounding box can be memoised instead of recomputed for every pair test.
+const footprintBounds = new WeakMap<PathwardenGridPoint[], FootprintBounds>()
+
+function boundsOf(cells: PathwardenGridPoint[]): FootprintBounds {
+    const cached = footprintBounds.get(cells)
+    if (cached) return cached
+    let minCol = Number.POSITIVE_INFINITY
+    let maxCol = Number.NEGATIVE_INFINITY
+    let minRow = Number.POSITIVE_INFINITY
+    let maxRow = Number.NEGATIVE_INFINITY
+    for (const cell of cells) {
+        if (cell.col < minCol) minCol = cell.col
+        if (cell.col > maxCol) maxCol = cell.col
+        if (cell.row < minRow) minRow = cell.row
+        if (cell.row > maxRow) maxRow = cell.row
+    }
+    const bounds = { minCol, maxCol, minRow, maxRow }
+    footprintBounds.set(cells, bounds)
+    return bounds
+}
+
 function roomDistance(left: PathwardenGridPoint[], right: PathwardenGridPoint[]) {
-    const leftBounds = left.reduce((bounds, cell) => ({
-        minCol: Math.min(bounds.minCol, cell.col),
-        maxCol: Math.max(bounds.maxCol, cell.col),
-        minRow: Math.min(bounds.minRow, cell.row),
-        maxRow: Math.max(bounds.maxRow, cell.row)
-    }), {
-        minCol: Number.POSITIVE_INFINITY,
-        maxCol: Number.NEGATIVE_INFINITY,
-        minRow: Number.POSITIVE_INFINITY,
-        maxRow: Number.NEGATIVE_INFINITY
-    })
-    const rightBounds = right.reduce((bounds, cell) => ({
-        minCol: Math.min(bounds.minCol, cell.col),
-        maxCol: Math.max(bounds.maxCol, cell.col),
-        minRow: Math.min(bounds.minRow, cell.row),
-        maxRow: Math.max(bounds.maxRow, cell.row)
-    }), {
-        minCol: Number.POSITIVE_INFINITY,
-        maxCol: Number.NEGATIVE_INFINITY,
-        minRow: Number.POSITIVE_INFINITY,
-        maxRow: Number.NEGATIVE_INFINITY
-    })
+    const leftBounds = boundsOf(left)
+    const rightBounds = boundsOf(right)
     const horizontal = Math.max(
         0,
         leftBounds.minCol - rightBounds.maxCol - 1,
@@ -194,12 +227,12 @@ function roomDistance(left: PathwardenGridPoint[], right: PathwardenGridPoint[])
 
 function upstreamRoomIds(frontier: OpenFrontier, state: PlanState) {
     const ids = new Set([frontier.roomId])
-    let room = state.rooms.find(candidate => candidate.id === frontier.roomId)
+    let room = state.roomsById.get(frontier.roomId)
     while (room?.parentConnectionId) {
-        const connection = state.connections.find(candidate => candidate.id === room!.parentConnectionId)
+        const connection = state.connectionsById.get(room.parentConnectionId)
         if (!connection) break
         ids.add(connection.fromRoomId)
-        room = state.rooms.find(candidate => candidate.id === connection!.fromRoomId)
+        room = state.roomsById.get(connection.fromRoomId)
     }
     return ids
 }
@@ -243,46 +276,63 @@ function canPlace(
     state: PlanState,
     size: number
 ) {
-    const roomFootprint = footprint(candidate, origin)
-    const completeFootprint = [
-        ...connectorCells.slice(0, -1),
-        ...roomFootprint
-    ]
-    if (!isCompactPathwardenRoomFootprint(completeFootprint)) return false
-    const roomKeys = new Set(roomFootprint.map(key))
-    const freeRoom = roomFootprint.every(cell =>
-        cell.col >= 2
-        && cell.row >= 2
-        && cell.col < size - 2
-        && cell.row < size - 2
-        && !state.occupied.has(key(cell))
-        && (!state.reservedExits.has(key(cell))
-            || state.reservedExits.get(key(cell)) === frontier.portId))
-    if (!freeRoom) return false
-    const freeConnector = connectorCells.every((cell, index) =>
-        cell.col >= 2
-        && cell.row >= 2
-        && cell.col < size - 2
-        && cell.row < size - 2
-        && (index === connectorCells.length - 1 || !roomKeys.has(key(cell)))
-        && !state.occupied.has(key(cell))
-        && (!state.reservedExits.has(key(cell))
-            || state.reservedExits.get(key(cell)) === frontier.portId))
-    if (!freeConnector) return false
+    // The room footprint is the solid rectangle [origin, origin + size), so its
+    // extent, its cells and membership tests are all arithmetic. Most candidates
+    // are rejected, and none of this path allocates.
+    const minCol = origin.col
+    const minRow = origin.row
+    const maxCol = origin.col + candidate.width - 1
+    const maxRow = origin.row + candidate.height - 1
+    if (minCol < 2 || minRow < 2 || maxCol >= size - 2 || maxRow >= size - 2) return false
 
-    const prospectiveReservations = new Set<string>()
-    for (const exit of candidate.exits) {
-        let previous = translate(exit.cell, origin)
-        for (let step = 0; step < 1; step++) {
-            const cell = move(previous, exit.direction)
-            const cellKey = key(cell)
-            if (cell.col < 2 || cell.row < 2 || cell.col >= size - 2 || cell.row >= size - 2) return false
-            if (roomKeys.has(cellKey) || state.occupied.has(cellKey) || prospectiveReservations.has(cellKey)) return false
+    let boundsMinCol = minCol
+    let boundsMaxCol = maxCol
+    let boundsMinRow = minRow
+    let boundsMaxRow = maxRow
+    for (let index = 0; index < connectorCells.length - 1; index++) {
+        const cell = connectorCells[index]!
+        if (cell.col < boundsMinCol) boundsMinCol = cell.col
+        if (cell.col > boundsMaxCol) boundsMaxCol = cell.col
+        if (cell.row < boundsMinRow) boundsMinRow = cell.row
+        if (cell.row > boundsMaxRow) boundsMaxRow = cell.row
+    }
+    const width = boundsMaxCol - boundsMinCol + 1
+    const height = boundsMaxRow - boundsMinRow + 1
+    if (width > 8 || height > 8 || width * height > 36) return false
+
+    const inRoom = (col: number, row: number) =>
+        col >= minCol && col <= maxCol && row >= minRow && row <= maxRow
+
+    for (let row = minRow; row <= maxRow; row++) {
+        for (let col = minCol; col <= maxCol; col++) {
+            const cellKey = (col + 2) * KEY_STRIDE + (row + 2)
+            if (state.occupied.has(cellKey)) return false
             const reservation = state.reservedExits.get(cellKey)
-            if (reservation && reservation !== frontier.portId) return false
-            prospectiveReservations.add(cellKey)
-            previous = cell
+            if (reservation !== undefined && reservation !== frontier.portId) return false
         }
+    }
+
+    for (let index = 0; index < connectorCells.length; index++) {
+        const cell = connectorCells[index]!
+        if (cell.col < 2 || cell.row < 2 || cell.col >= size - 2 || cell.row >= size - 2) return false
+        if (index !== connectorCells.length - 1 && inRoom(cell.col, cell.row)) return false
+        const cellKey = key(cell)
+        if (state.occupied.has(cellKey)) return false
+        const reservation = state.reservedExits.get(cellKey)
+        if (reservation !== undefined && reservation !== frontier.portId) return false
+    }
+
+    let prospectiveReservations: Set<number> | null = null
+    for (const exit of candidate.exits) {
+        const cell = move(translate(exit.cell, origin), exit.direction)
+        const cellKey = key(cell)
+        if (cell.col < 2 || cell.row < 2 || cell.col >= size - 2 || cell.row >= size - 2) return false
+        if (inRoom(cell.col, cell.row) || state.occupied.has(cellKey)) return false
+        if (prospectiveReservations?.has(cellKey)) return false
+        const reservation = state.reservedExits.get(cellKey)
+        if (reservation && reservation !== frontier.portId) return false
+        prospectiveReservations ??= new Set()
+        prospectiveReservations.add(cellKey)
     }
     return true
 }
@@ -296,68 +346,93 @@ function roadShapeIsSafe(
 ) {
     const entrance = translate(candidate.entrance.cell, origin)
     const exits = candidate.exits.map(port => translate(port.cell, origin))
-    const links: Array<[PathwardenGridPoint, PathwardenGridPoint]> = []
-    let previous = frontier.cell
-    for (const cell of connectorCells) {
-        links.push([previous, cell])
-        previous = cell
-    }
-    for (const [from, to] of candidate.roadEdges) {
-        links.push([translate(from, origin), translate(to, origin)])
-    }
-    const graph = new Map<string, Set<string>>()
-    const points = new Map<string, PathwardenGridPoint>()
-    const connect = (from: PathwardenGridPoint, to: PathwardenGridPoint) => {
-        const fromKey = key(from)
-        const toKey = key(to)
-        points.set(fromKey, from)
-        points.set(toKey, to)
-        graph.set(fromKey, new Set([...(graph.get(fromKey) ?? []), toKey]))
-        graph.set(toKey, new Set([...(graph.get(toKey) ?? []), fromKey]))
-    }
-    for (const [from, to] of links) connect(from, to)
 
-    const allowedEndpoints = new Set([key(frontier.cell), ...exits.map(key)])
-    for (const [point, neighbours] of graph) {
-        if (neighbours.size === 1 && !allowedEndpoints.has(point)) return false
-    }
-    const entranceKey = key(entrance)
-    for (const exit of exits) {
-        const exitKey = key(exit)
-        const visited = new Set([entranceKey])
-        const queue = [entranceKey]
-        while (queue.length) {
-            const current = queue.shift()!
-            for (const neighbour of graph.get(current) ?? []) {
-                if (visited.has(neighbour)) continue
-                visited.add(neighbour)
-                queue.push(neighbour)
-            }
-        }
-        if (!visited.has(exitKey)) return false
-    }
-
-    const existingRoads = new Set(state.roadLinks.flatMap(link => [key(link.from), key(link.to)]))
-    const connectorKeys = new Set([key(frontier.cell), ...connectorCells.map(key)])
-    for (const point of points.values()) {
-        const pointKey = key(point)
-        if (connectorKeys.has(pointKey)) continue
-        const neighbours = [
-            { col: point.col - 1, row: point.row },
-            { col: point.col + 1, row: point.row },
-            { col: point.col, row: point.row - 1 },
-            { col: point.col, row: point.row + 1 }
-        ]
-        if (neighbours.some(neighbour => existingRoads.has(key(neighbour)))) return false
-    }
-
+    // Pure arithmetic over at most three exits, so it is the cheapest way to
+    // reject a candidate — run it before building any road graph.
     const directionVector = move({ col: 0, row: 0 }, frontier.direction)
     const nextDirection = (port: PathwardenLocalPort, cell: PathwardenGridPoint) => {
         const next = move(cell, port.direction)
         return (next.col - frontier.cell.col) * directionVector.col
             + (next.row - frontier.cell.row) * directionVector.row
     }
-    return candidate.exits.every((port, index) => nextDirection(port, exits[index]!) >= -1)
+    if (!candidate.exits.every((port, index) => nextDirection(port, exits[index]!) >= -1)) return false
+
+    // The candidate road graph is rebuilt for every placement tried, so its
+    // structures are reused across calls. Generation is synchronous and this
+    // function never recurses, so a single scratch set is safe.
+    const graph = scratchGraph
+    for (const neighbours of graph.values()) {
+        neighbours.length = 0
+        neighbourPool.push(neighbours)
+    }
+    graph.clear()
+    const connect = (fromKey: number, toKey: number) => {
+        let fromNeighbours = graph.get(fromKey)
+        if (!fromNeighbours) graph.set(fromKey, fromNeighbours = neighbourPool.pop() ?? [])
+        if (!fromNeighbours.includes(toKey)) fromNeighbours.push(toKey)
+        let toNeighbours = graph.get(toKey)
+        if (!toNeighbours) graph.set(toKey, toNeighbours = neighbourPool.pop() ?? [])
+        if (!toNeighbours.includes(fromKey)) toNeighbours.push(fromKey)
+    }
+    let previousKey = key(frontier.cell)
+    for (const cell of connectorCells) {
+        const cellKey = key(cell)
+        connect(previousKey, cellKey)
+        previousKey = cellKey
+    }
+    const originKeyOffset = (origin.col + 2) * KEY_STRIDE + (origin.row + 2)
+    for (const [from, to] of candidate.roadEdges) {
+        connect(
+            originKeyOffset + from.col * KEY_STRIDE + from.row,
+            originKeyOffset + to.col * KEY_STRIDE + to.row
+        )
+    }
+
+    const frontierKey = key(frontier.cell)
+    const entranceKey = key(entrance)
+    for (const [point, neighbours] of graph) {
+        if (neighbours.length !== 1 || point === frontierKey) continue
+        let allowed = false
+        for (const exit of exits) {
+            if (key(exit) === point) { allowed = true; break }
+        }
+        if (!allowed) return false
+    }
+    // One traversal from the entrance answers reachability for every exit.
+    const visited = scratchVisited
+    const queue = scratchQueue
+    visited.clear()
+    queue.length = 0
+    visited.add(entranceKey)
+    queue.push(entranceKey)
+    for (let head = 0; head < queue.length; head++) {
+        const neighbours = graph.get(queue[head]!)
+        if (!neighbours) continue
+        for (const neighbour of neighbours) {
+            if (visited.has(neighbour)) continue
+            visited.add(neighbour)
+            queue.push(neighbour)
+        }
+    }
+    for (const exit of exits) {
+        if (!visited.has(key(exit))) return false
+    }
+
+    const existingRoads = state.roadCells
+    const connectorKeys = scratchConnectorKeys
+    connectorKeys.clear()
+    connectorKeys.add(frontierKey)
+    for (const cell of connectorCells) connectorKeys.add(key(cell))
+    // Neighbour probes are key arithmetic: +/-KEY_STRIDE steps a column, +/-1 a row.
+    for (const pointKey of graph.keys()) {
+        if (connectorKeys.has(pointKey)) continue
+        if (existingRoads.has(pointKey - KEY_STRIDE)
+            || existingRoads.has(pointKey + KEY_STRIDE)
+            || existingRoads.has(pointKey - 1)
+            || existingRoads.has(pointKey + 1)) return false
+    }
+
+    return true
 }
 
 function addRoom(
@@ -389,18 +464,24 @@ function addRoom(
             to: { ...cell },
             roomId
         })
+        state.roadCells.add(key(previous))
+        state.roadCells.add(key(cell))
         roadLinkIds.push(id)
         connectionRoadLinkIds.push(id)
         previous = cell
     }
     for (const [from, to] of candidate.roadEdges) {
         const id = `road-${state.roadSequence++}`
+        const fromCell = translate(from, origin)
+        const toCell = translate(to, origin)
         state.roadLinks.push({
             id,
-            from: translate(from, origin),
-            to: translate(to, origin),
+            from: fromCell,
+            to: toCell,
             roomId
         })
+        state.roadCells.add(key(fromCell))
+        state.roadCells.add(key(toCell))
         roadLinkIds.push(id)
     }
 
@@ -455,7 +536,8 @@ function addRoom(
         ports
     }
     state.rooms.push(room)
-    state.connections.push({
+    state.roomsById.set(roomId, room)
+    const connection: PathwardenMapConnection = {
         id: connectionId,
         fromRoomId: frontier.roomId,
         fromPortId: frontier.portId,
@@ -464,7 +546,9 @@ function addRoom(
         kind: 'expansion',
         depth: frontier.depth,
         roadLinkIds: connectionRoadLinkIds
-    })
+    }
+    state.connections.push(connection)
+    state.connectionsById.set(connectionId, connection)
     for (const cell of roomFootprint) state.occupied.add(key(cell))
     return room
 }
@@ -573,9 +657,12 @@ function createState(castle: PathwardenMapRoom, castleLinks: PathwardenRoadLink[
     return {
         rooms: [castle],
         connections: [],
+        roomsById: new Map([[castle.id, castle]]),
+        connectionsById: new Map(),
         roadLinks: [...castleLinks],
         features: [],
         occupied: new Set(castle.footprint.map(key)),
+        roadCells: new Set(castleLinks.flatMap(link => [key(link.from), key(link.to)])),
         reservedExits: new Map(),
         roomSequence: 1,
         connectionSequence: 0,
@@ -615,7 +702,7 @@ function terminalApproachPath(
     port: PathwardenMapRoom['ports'][number],
     state: PlanState,
     size: number,
-    roadCells: Set<string>
+    roadCells: Set<number>
 ) {
     const search = (
         previous: PathwardenGridPoint,
@@ -644,7 +731,7 @@ function terminalApproachPath(
 
 function addTerminalApproaches(state: PlanState, size: number) {
     const connectedPortIds = new Set(state.connections.map(connection => connection.fromPortId))
-    const roadCells = new Set(state.roadLinks.flatMap(link => [key(link.from), key(link.to)]))
+    const roadCells = state.roadCells
     for (const room of state.rooms) {
         for (const port of room.ports.filter(port =>
             port.kind === 'exit' && !connectedPortIds.has(port.id))) {

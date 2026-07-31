@@ -51,10 +51,18 @@ function connectedCells(cells: PathwardenGridPoint[]) {
 
 export function pathwardenRoomFootprintDimensions(cells: PathwardenGridPoint[]) {
     if (!cells.length) return { width: 0, height: 0, area: 0 }
-    const columns = cells.map(cell => cell.col)
-    const rows = cells.map(cell => cell.row)
-    const width = Math.max(...columns) - Math.min(...columns) + 1
-    const height = Math.max(...rows) - Math.min(...rows) + 1
+    let minCol = Infinity
+    let maxCol = -Infinity
+    let minRow = Infinity
+    let maxRow = -Infinity
+    for (const cell of cells) {
+        if (cell.col < minCol) minCol = cell.col
+        if (cell.col > maxCol) maxCol = cell.col
+        if (cell.row < minRow) minRow = cell.row
+        if (cell.row > maxRow) maxRow = cell.row
+    }
+    const width = maxCol - minCol + 1
+    const height = maxRow - minRow + 1
     return { width, height, area: width * height }
 }
 
