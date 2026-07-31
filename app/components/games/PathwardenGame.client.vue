@@ -57,6 +57,12 @@ definePageMeta({ title: 'Pathwarden' })
 const canvas = ref<HTMLCanvasElement | null>(null)
 const mapGenerating = ref(false)
 const mapGenerationProgress = ref(0)
+
+// Map generation takes single-digit milliseconds, so the forge screen is a
+// transition flourish rather than a progress report — without a floor it would
+// strobe. The loader always waits for the real work as well, so a slow device
+// holds the screen for as long as it actually needs.
+const MAP_LOADER_MINIMUM_MS = 450
 const snapshot = ref<PathwardenSnapshot>({
   phase: 'planning',
   introStoryActive: false,
@@ -674,19 +680,7 @@ function previousIntroStory() {
 
 async function skipIntroStory() {
   engine?.skipIntro()
-  mapGenerating.value = true
-  mapGenerationProgress.value = 0
-  const loaderStart = performance.now()
-  await new Promise<void>(resolve => {
-    const tick = () => {
-      const progress = Math.min(1, (performance.now() - loaderStart) / 900)
-      mapGenerationProgress.value = progress
-      if (progress >= 1) resolve()
-      else requestAnimationFrame(tick)
-    }
-    requestAnimationFrame(tick)
-  })
-  mapGenerating.value = false
+  await runMapLoader()
 }
 
 function nextHint() {
@@ -1018,25 +1012,20 @@ function createGame(restore?: PathwardenEngineRestore, startEngine = true) {
   if (startEngine) engine.start()
 }
 
-async function createFreshMapWithLoading() {
+// Runs `work` behind the forge screen, holding it for whichever takes longer:
+// the work itself or the minimum flourish.
+async function runMapLoader(work?: () => void) {
   mapGenerating.value = true
   mapGenerationProgress.value = 0
-  const slowStart = performance.now()
+  const start = performance.now()
+  // A single frame callback still runs before paint, so wait for the frame
+  // after it: generation is synchronous and would otherwise block the thread
+  // before the screen it is meant to sit behind ever appears.
+  await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
+  work?.()
   await new Promise<void>(resolve => {
     const tick = () => {
-      const progress = Math.min(0.25, (performance.now() - slowStart) / 2400 * 0.25)
-      mapGenerationProgress.value = progress
-      if (progress >= 0.25) resolve()
-      else requestAnimationFrame(tick)
-    }
-    requestAnimationFrame(tick)
-  })
-
-  createGame(undefined, false)
-  const fastStart = performance.now()
-  await new Promise<void>(resolve => {
-    const tick = () => {
-      const progress = Math.min(1, 0.25 + (performance.now() - fastStart) / 2000 * 0.75)
+      const progress = Math.min(1, (performance.now() - start) / MAP_LOADER_MINIMUM_MS)
       mapGenerationProgress.value = progress
       if (progress >= 1) resolve()
       else requestAnimationFrame(tick)
@@ -1044,6 +1033,10 @@ async function createFreshMapWithLoading() {
     requestAnimationFrame(tick)
   })
   mapGenerating.value = false
+}
+
+async function createFreshMapWithLoading() {
+  await runMapLoader(() => createGame(undefined, false))
   engine?.start()
 }
 
