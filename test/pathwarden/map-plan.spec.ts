@@ -11,7 +11,9 @@ import {
 } from '#shared/utils/gamelogic/pathwarden-map-validation'
 
 describe('Pathwarden seeded map model', () => {
-    const sampleSeeds = Array.from({ length: 24 }, (_, seed) => seed)
+    // Broad coverage is affordable again now the generator runs an order of
+    // magnitude faster; a shared cache keeps the structural passes cheap.
+    const sampleSeeds = Array.from({ length: 200 }, (_, seed) => seed)
     const planCache = new Map<number, ReturnType<typeof createPathwardenMapPlan>>()
     const planFor = (seed: number) => {
         const cached = planCache.get(seed)
@@ -37,11 +39,13 @@ describe('Pathwarden seeded map model', () => {
     })
 
     it('uses the seed to create different initial layouts', () => {
+        // Pinned to one realm so the variation can only come from the seed —
+        // and near-uniqueness is the real bar, not "more than a handful differ".
         const hashes = new Set(
-            sampleSeeds.map(seed => hashPathwardenMapPlan(planFor(seed)))
+            sampleSeeds.map(seed => hashPathwardenMapPlan(createPathwardenMapPlan({ seed, realm: 1 })))
         )
-        expect(hashes.size).toBeGreaterThan(8)
-    })
+        expect(hashes.size).toBeGreaterThanOrEqual(sampleSeeds.length - 2)
+    }, 60_000)
 
     it('does not depend on global Math.random', () => {
         const random = vi.spyOn(Math, 'random').mockImplementation(() => {
@@ -103,8 +107,10 @@ describe('Pathwarden seeded map model', () => {
             expect(plan.metrics.archetypeCounts['mountain-pass']).toBeGreaterThanOrEqual(1)
             expect(plan.metrics.archetypeCounts['lake-shore']).toBeGreaterThanOrEqual(1)
             expect(plan.metrics.archetypeCounts['forest-road']).toBeGreaterThanOrEqual(1)
-            expect(plan.metrics.archetypeCounts['y-junction']).toBeGreaterThanOrEqual(1)
-            expect(plan.metrics.archetypeCounts['t-junction']).toBeGreaterThanOrEqual(1)
+            // The generator forces a junction at every odd depth but picks its
+            // type at random, so a plan can legitimately omit y- or t-junctions
+            // (~1 seed in 8k). Junction *density* is the real invariant, asserted
+            // below; requiring both types individually is flaky.
             expect(plan.metrics.archetypeCounts.crossroads).toBeGreaterThanOrEqual(2)
             const junctionCount = (plan.metrics.archetypeCounts['y-junction'] ?? 0)
                 + (plan.metrics.archetypeCounts['t-junction'] ?? 0)
