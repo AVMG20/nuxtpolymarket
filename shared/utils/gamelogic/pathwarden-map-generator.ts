@@ -12,8 +12,7 @@ import type {
 } from '#shared/types/pathwarden-save'
 import {
     PATHWARDEN_ROOM_TEMPLATES,
-    transformPathwardenRoomTemplate,
-    type PathwardenLocalPort,
+    pathwardenTemplateTransforms,
     type PathwardenRoomTemplate,
     type PathwardenTransformedTemplate
 } from '#shared/utils/gamelogic/pathwarden-room-templates'
@@ -32,6 +31,7 @@ interface OpenFrontier {
     targetDepth: number
     main: boolean
     specialPressure: number
+    distance: number
 }
 
 interface PlanState {
@@ -44,16 +44,21 @@ interface PlanState {
     connectionsById: Map<string, PathwardenMapConnection>
     roadLinks: PathwardenRoadLink[]
     features: PathwardenMapFeature[]
-    occupied: Set<number>
-    roadCells: Set<number>
+    // Cell-key-indexed byte grids: one probe is a plain array read, and the
+    // backing buffers are module scratch reused across attempts.
+    occupied: Uint8Array
+    roadCells: Uint8Array
+    // reservedGrid mirrors reservedExits' keys, minus the active frontier's
+    // own reservation, so canPlace probes bytes instead of the map.
+    reservedGrid: Uint8Array
     reservedExits: Map<number, string>
+    reservedExitCellByPort: Map<string, number>
     roomSequence: number
     connectionSequence: number
     roadSequence: number
     featureSequence: number
 }
 
-const ROTATIONS = [0, 90, 180, 270] as const
 const MAIN_ARCHETYPES: ReadonlyArray<PathwardenRoomArchetype | null> = [
     null,
     'straight',
@@ -88,11 +93,20 @@ function key(point: PathwardenGridPoint) {
     return (point.col + 2) * KEY_STRIDE + (point.row + 2)
 }
 
-const scratchGraph = new Map<number, number[]>()
-const neighbourPool: number[][] = []
-const scratchVisited = new Set<number>()
-const scratchQueue: number[] = []
-const scratchConnectorKeys = new Set<number>()
+const DIRECTION_VECTORS = {
+    north: { col: 0, row: -1 },
+    east: { col: 1, row: 0 },
+    south: { col: 0, row: 1 },
+    west: { col: -1, row: 0 }
+} as const
+
+const COMMON_ARCHETYPES: ReadonlySet<PathwardenRoomArchetype> = new Set(['straight', 'corner'])
+
+// Generation is synchronous and attempts run one at a time, so the cell grids
+// are module scratch buffers zeroed per attempt instead of fresh allocations.
+let scratchOccupied = new Uint8Array(0)
+let scratchRoads = new Uint8Array(0)
+let scratchReserved = new Uint8Array(0)
 
 function move(point: PathwardenGridPoint, direction: PathwardenCardinalDirection) {
     if (direction === 'north') return { col: point.col, row: point.row - 1 }
@@ -115,21 +129,30 @@ function translate(point: PathwardenGridPoint, origin: PathwardenGridPoint) {
     }
 }
 
-function shuffle<T>(values: readonly T[], random: RandomSource) {
-    const copy = [...values]
-    for (let index = copy.length - 1; index > 0; index--) {
+// Shuffles values[start..] as if it were its own array, consuming the same
+// random stream a whole-array shuffle of that suffix would.
+function shuffleSuffix<T>(values: T[], start: number, random: RandomSource) {
+    for (let index = values.length - 1 - start; index > 0; index--) {
         const swap = random.integer(0, index)
-        const value = copy[index]!
-        copy[index] = copy[swap]!
-        copy[swap] = value
+        const value = values[start + index]!
+        values[start + index] = values[start + swap]!
+        values[start + swap] = value
     }
-    return copy
+    return values
 }
 
-function weightedTemplates(
-    frontier: OpenFrontier,
-    random: RandomSource
-) {
+function shuffleInPlace<T>(values: T[], random: RandomSource) {
+    return shuffleSuffix(values, 0, random)
+}
+
+// Depth and mainness fully determine the eligible template list, so the filter
+// runs once per combination instead of once per frontier.
+const eligibleCache = new Map<number, readonly PathwardenRoomTemplate[]>()
+
+function eligibleTemplates(frontier: OpenFrontier) {
+    const cacheKey = frontier.depth * 2 + (frontier.main ? 1 : 0)
+    const cached = eligibleCache.get(cacheKey)
+    if (cached) return cached
     const forced = frontier.depth === 1
         ? ['crossroads']
         : frontier.depth % 2 === 1
@@ -140,16 +163,40 @@ function weightedTemplates(
     const eligible = PATHWARDEN_ROOM_TEMPLATES.filter(template =>
         template.minimumDepth <= frontier.depth
         && (!forced || forced.includes(template.archetype)))
-    const pool = eligible.flatMap((template) => {
-        const special = !['straight', 'corner'].includes(template.archetype)
-        const pressureWeight = special ? Math.max(1, frontier.specialPressure) : 1
-        return Array.from({ length: template.weight * pressureWeight }, () => template)
-    })
+    eligibleCache.set(cacheKey, eligible)
+    return eligible
+}
+
+// Per-frontier scratch: weightedTemplates runs once per frontier and its
+// result is fully consumed before the next frontier, so the arrays persist
+// across calls instead of reallocating. Generation never runs reentrantly.
+const scratchPool: PathwardenRoomTemplate[] = []
+const scratchOrdered: PathwardenRoomTemplate[] = []
+const scratchSeen = new Set<PathwardenRoomTemplate>()
+
+function weightedTemplates(
+    frontier: OpenFrontier,
+    random: RandomSource
+) {
+    const eligible = eligibleTemplates(frontier)
+    const pressure = Math.max(1, frontier.specialPressure)
+    const pool = scratchPool
+    pool.length = 0
+    for (const template of eligible) {
+        const count = COMMON_ARCHETYPES.has(template.archetype)
+            ? template.weight
+            : template.weight * pressure
+        for (let copy = 0; copy < count; copy++) pool.push(template)
+    }
+    if (!pool.length) for (const template of eligible) pool.push(template)
+    shuffleInPlace(pool, random)
     // Dedupe the weighted, shuffled pool to first occurrence — a Set preserves
     // that order without the quadratic indexOf scan.
-    const seen = new Set<PathwardenRoomTemplate>()
-    const ordered: PathwardenRoomTemplate[] = []
-    for (const template of shuffle(pool.length ? pool : eligible, random)) {
+    const seen = scratchSeen
+    const ordered = scratchOrdered
+    seen.clear()
+    ordered.length = 0
+    for (const template of pool) {
         if (seen.has(template)) continue
         seen.add(template)
         ordered.push(template)
@@ -157,17 +204,29 @@ function weightedTemplates(
     return ordered
 }
 
+// Mirrors the canonical orientation order in pathwardenTemplateTransforms;
+// shuffling indices consumes the same random stream as shuffling the
+// transforms themselves. Scratch arrays are safe for the same reason as the
+// template pool: each result is consumed before the next call.
+const scratchTransformOrder = [0, 1, 2, 3, 4, 5, 6, 7]
+const scratchMatches: PathwardenTransformedTemplate[] = []
+
 function matchingTransforms(
     template: PathwardenRoomTemplate,
     entranceDirection: PathwardenCardinalDirection,
     random: RandomSource
 ) {
-    return shuffle(
-        ROTATIONS.flatMap(rotation => [false, true].map(reflected => ({ rotation, reflected } as const))),
-        random
-    )
-        .map(transform => transformPathwardenRoomTemplate(template, transform))
-        .filter(candidate => candidate.entrance.direction === entranceDirection)
+    const transforms = pathwardenTemplateTransforms(template)
+    const order = scratchTransformOrder
+    for (let index = 0; index < 8; index++) order[index] = index
+    shuffleInPlace(order, random)
+    const matches = scratchMatches
+    matches.length = 0
+    for (let position = 0; position < 8; position++) {
+        const candidate = transforms[order[position]!]!
+        if (candidate.entrance.direction === entranceDirection) matches.push(candidate)
+    }
+    return matches
 }
 
 function footprint(candidate: PathwardenTransformedTemplate, origin: PathwardenGridPoint) {
@@ -209,22 +268,6 @@ function boundsOf(cells: PathwardenGridPoint[]): FootprintBounds {
     return bounds
 }
 
-function roomDistance(left: PathwardenGridPoint[], right: PathwardenGridPoint[]) {
-    const leftBounds = boundsOf(left)
-    const rightBounds = boundsOf(right)
-    const horizontal = Math.max(
-        0,
-        leftBounds.minCol - rightBounds.maxCol - 1,
-        rightBounds.minCol - leftBounds.maxCol - 1
-    )
-    const vertical = Math.max(
-        0,
-        leftBounds.minRow - rightBounds.maxRow - 1,
-        rightBounds.minRow - leftBounds.maxRow - 1
-    )
-    return horizontal + vertical
-}
-
 function upstreamRoomIds(frontier: OpenFrontier, state: PlanState) {
     const ids = new Set([frontier.roomId])
     let room = state.roomsById.get(frontier.roomId)
@@ -237,54 +280,171 @@ function upstreamRoomIds(frontier: OpenFrontier, state: PlanState) {
     return ids
 }
 
-function prefersRoomPlacement(
-    roomFootprint: PathwardenGridPoint[],
-    frontier: OpenFrontier,
-    state: PlanState,
-    size: number
-) {
-    const upstream = upstreamRoomIds(frontier, state)
-    const hasClearance = state.rooms
-        .filter(room => !upstream.has(room.id))
-        .every(room => roomDistance(roomFootprint, room.footprint) >= ROOM_CLEARANCE_CELLS)
-    if (!hasClearance) return false
-    if (frontier.depth > ORIGIN_AVOIDANCE_DEPTH) return true
-
-    const center = { col: Math.floor(size / 2), row: Math.floor(size / 2) }
-    const centerOfRoom = roomFootprint.reduce((total, cell) => ({
-        col: total.col + cell.col,
-        row: total.row + cell.row
-    }), { col: 0, row: 0 })
-    centerOfRoom.col /= roomFootprint.length
-    centerOfRoom.row /= roomFootprint.length
-    const outward = {
-        col: frontier.cell.col - center.col,
-        row: frontier.cell.row - center.row
+// Bounds of every non-upstream room, flattened once per frontier so each
+// candidate's clearance test is arithmetic over a plain array.
+function clearanceBounds(upstream: Set<string>, state: PlanState) {
+    const bounds: FootprintBounds[] = []
+    for (const room of state.rooms) {
+        if (!upstream.has(room.id)) bounds.push(boundsOf(room.footprint))
     }
-    const movement = {
-        col: centerOfRoom.col - frontier.cell.col,
-        row: centerOfRoom.row - frontier.cell.row
-    }
-    return outward.col * movement.col + outward.row * movement.row >= 0
+    return bounds
 }
 
-function canPlace(
+// The candidate footprint is the solid rectangle [origin, origin + size), so
+// its bounds and centroid are arithmetic — no cell array is ever materialised
+// on this path.
+function prefersRoomPlacement(
     candidate: PathwardenTransformedTemplate,
-    origin: PathwardenGridPoint,
-    connectorCells: PathwardenGridPoint[],
+    originCol: number,
+    originRow: number,
     frontier: OpenFrontier,
+    others: FootprintBounds[],
+    size: number
+) {
+    const minCol = originCol
+    const maxCol = originCol + candidate.width - 1
+    const minRow = originRow
+    const maxRow = originRow + candidate.height - 1
+    for (const bounds of others) {
+        const horizontal = Math.max(
+            0,
+            minCol - bounds.maxCol - 1,
+            bounds.minCol - maxCol - 1
+        )
+        const vertical = Math.max(
+            0,
+            minRow - bounds.maxRow - 1,
+            bounds.minRow - maxRow - 1
+        )
+        if (horizontal + vertical < ROOM_CLEARANCE_CELLS) return false
+    }
+    if (frontier.depth > ORIGIN_AVOIDANCE_DEPTH) return true
+
+    const center = Math.floor(size / 2)
+    const outwardCol = frontier.cell.col - center
+    const outwardRow = frontier.cell.row - center
+    const movementCol = originCol + (candidate.width - 1) / 2 - frontier.cell.col
+    const movementRow = originRow + (candidate.height - 1) / 2 - frontier.cell.row
+    return outwardCol * movementCol + outwardRow * movementRow >= 0
+}
+
+// Connector paths are probed for every placement but only survive when a
+// placement is accepted, so the path is written into pooled cells and copied
+// by the caller on acceptance. Maximum length is forward (3) + lateral (2).
+const connectorCellPool: PathwardenGridPoint[] = [
+    { col: 0, row: 0 },
+    { col: 0, row: 0 },
+    { col: 0, row: 0 },
+    { col: 0, row: 0 },
+    { col: 0, row: 0 }
+]
+const scratchConnector: PathwardenGridPoint[] = []
+
+function connectorPath(
+    from: PathwardenGridPoint,
+    direction: PathwardenCardinalDirection,
+    forwardDistance: number,
+    lateralDistance: number
+) {
+    const cells = scratchConnector
+    cells.length = 0
+    const forward = DIRECTION_VECTORS[direction]
+    const firstForward = lateralDistance === 0
+        ? forwardDistance
+        : Math.min(2, forwardDistance)
+    let col = from.col
+    let row = from.row
+    for (let step = 0; step < firstForward; step++) {
+        col += forward.col
+        row += forward.row
+        const cell = connectorCellPool[cells.length]!
+        cell.col = col
+        cell.row = row
+        cells.push(cell)
+    }
+    if (lateralDistance !== 0) {
+        const lateralDirection = direction === 'north' || direction === 'south'
+            ? lateralDistance > 0 ? 'east' : 'west'
+            : lateralDistance > 0 ? 'south' : 'north'
+        const lateral = DIRECTION_VECTORS[lateralDirection]
+        for (let step = 0, count = Math.abs(lateralDistance); step < count; step++) {
+            col += lateral.col
+            row += lateral.row
+            const cell = connectorCellPool[cells.length]!
+            cell.col = col
+            cell.row = row
+            cells.push(cell)
+        }
+        for (let step = firstForward; step < forwardDistance; step++) {
+            col += forward.col
+            row += forward.row
+            const cell = connectorCellPool[cells.length]!
+            cell.col = col
+            cell.row = row
+            cells.push(cell)
+        }
+    }
+    return cells
+}
+
+// Successful probes leave their results here; the values are consumed by the
+// caller before the next probe runs.
+const placementProbe = {
+    originCol: 0,
+    originRow: 0,
+    connectorCells: scratchConnector
+}
+
+function probePlacement(
+    candidate: PathwardenTransformedTemplate,
+    frontier: OpenFrontier,
+    forwardDistance: number,
+    lateralDistance: number,
     state: PlanState,
     size: number
 ) {
-    // The room footprint is the solid rectangle [origin, origin + size), so its
-    // extent, its cells and membership tests are all arithmetic. Most candidates
-    // are rejected, and none of this path allocates.
-    const minCol = origin.col
-    const minRow = origin.row
-    const maxCol = origin.col + candidate.width - 1
-    const maxRow = origin.row + candidate.height - 1
+    // The connector's total displacement is direction arithmetic, so the room
+    // rectangle is known — and usually rejected — before the connector path is
+    // ever materialised. The room footprint is the solid rectangle
+    // [origin, origin + size), so its extent, its cells and membership tests
+    // are all arithmetic. None of this path allocates.
+    const forward = DIRECTION_VECTORS[frontier.direction]
+    let targetCol = frontier.cell.col + forward.col * forwardDistance
+    let targetRow = frontier.cell.row + forward.row * forwardDistance
+    if (lateralDistance !== 0) {
+        const lateralDirection = frontier.direction === 'north' || frontier.direction === 'south'
+            ? lateralDistance > 0 ? 'east' : 'west'
+            : lateralDistance > 0 ? 'south' : 'north'
+        const lateral = DIRECTION_VECTORS[lateralDirection]
+        const lateralSteps = Math.abs(lateralDistance)
+        targetCol += lateral.col * lateralSteps
+        targetRow += lateral.row * lateralSteps
+    }
+    const originCol = targetCol - candidate.entrance.cell.col
+    const originRow = targetRow - candidate.entrance.cell.row
+    const minCol = originCol
+    const minRow = originRow
+    const maxCol = originCol + candidate.width - 1
+    const maxRow = originRow + candidate.height - 1
     if (minCol < 2 || minRow < 2 || maxCol >= size - 2 || maxRow >= size - 2) return false
 
+    // The reserved grid has the active frontier's own reservation masked out,
+    // so a set byte always means a foreign reservation.
+    const occupied = state.occupied
+    const reserved = state.reservedGrid
+    for (let col = minCol; col <= maxCol; col++) {
+        const colKey = (col + 2) * KEY_STRIDE + 2
+        for (let row = minRow; row <= maxRow; row++) {
+            if (occupied[colKey + row] !== 0 || reserved[colKey + row] !== 0) return false
+        }
+    }
+
+    const connectorCells = connectorPath(
+        frontier.cell,
+        frontier.direction,
+        forwardDistance,
+        lateralDistance
+    )
     let boundsMinCol = minCol
     let boundsMaxCol = maxCol
     let boundsMinRow = minRow
@@ -300,136 +460,141 @@ function canPlace(
     const height = boundsMaxRow - boundsMinRow + 1
     if (width > 8 || height > 8 || width * height > 36) return false
 
-    const inRoom = (col: number, row: number) =>
-        col >= minCol && col <= maxCol && row >= minRow && row <= maxRow
-
-    for (let row = minRow; row <= maxRow; row++) {
-        for (let col = minCol; col <= maxCol; col++) {
-            const cellKey = (col + 2) * KEY_STRIDE + (row + 2)
-            if (state.occupied.has(cellKey)) return false
-            const reservation = state.reservedExits.get(cellKey)
-            if (reservation !== undefined && reservation !== frontier.portId) return false
-        }
-    }
-
+    const lastIndex = connectorCells.length - 1
     for (let index = 0; index < connectorCells.length; index++) {
         const cell = connectorCells[index]!
         if (cell.col < 2 || cell.row < 2 || cell.col >= size - 2 || cell.row >= size - 2) return false
-        if (index !== connectorCells.length - 1 && inRoom(cell.col, cell.row)) return false
-        const cellKey = key(cell)
-        if (state.occupied.has(cellKey)) return false
-        const reservation = state.reservedExits.get(cellKey)
-        if (reservation !== undefined && reservation !== frontier.portId) return false
+        if (index !== lastIndex
+            && cell.col >= minCol && cell.col <= maxCol
+            && cell.row >= minRow && cell.row <= maxRow) return false
+        const cellKey = (cell.col + 2) * KEY_STRIDE + (cell.row + 2)
+        if (occupied[cellKey] !== 0 || reserved[cellKey] !== 0) return false
     }
 
-    let prospectiveReservations: Set<number> | null = null
-    for (const exit of candidate.exits) {
-        const cell = move(translate(exit.cell, origin), exit.direction)
-        const cellKey = key(cell)
-        if (cell.col < 2 || cell.row < 2 || cell.col >= size - 2 || cell.row >= size - 2) return false
-        if (inRoom(cell.col, cell.row) || state.occupied.has(cellKey)) return false
-        if (prospectiveReservations?.has(cellKey)) return false
-        const reservation = state.reservedExits.get(cellKey)
-        if (reservation && reservation !== frontier.portId) return false
-        prospectiveReservations ??= new Set()
-        prospectiveReservations.add(cellKey)
+    const exits = candidate.exits
+    for (let index = 0; index < exits.length; index++) {
+        const exit = exits[index]!
+        const step = DIRECTION_VECTORS[exit.direction]
+        const col = originCol + exit.cell.col + step.col
+        const row = originRow + exit.cell.row + step.row
+        if (col < 2 || row < 2 || col >= size - 2 || row >= size - 2) return false
+        if (col >= minCol && col <= maxCol && row >= minRow && row <= maxRow) return false
+        const cellKey = (col + 2) * KEY_STRIDE + (row + 2)
+        if (occupied[cellKey] !== 0 || reserved[cellKey] !== 0) return false
+        for (let prior = 0; prior < index; prior++) {
+            const priorExit = exits[prior]!
+            const priorStep = DIRECTION_VECTORS[priorExit.direction]
+            if (cellKey === (originCol + priorExit.cell.col + priorStep.col + 2) * KEY_STRIDE
+                + (originRow + priorExit.cell.row + priorStep.row + 2)) return false
+        }
     }
+    placementProbe.originCol = originCol
+    placementProbe.originRow = originRow
     return true
+}
+
+interface TemplateTopology {
+    valid: boolean
+    probeCells: PathwardenGridPoint[]
+}
+
+// The road graph a placement builds is the template's own road edges plus a
+// straight connector chain frontier -> entrance. The chain cannot change
+// entrance->exit reachability (every chain path re-enters through the
+// entrance) and its interior cells always have degree 2, so leaf-validity and
+// reachability collapse to template-local facts computed once per orientation.
+// Local coordinates fit 4 bits per axis (templates are at most 8 wide).
+const templateTopologyCache = new WeakMap<PathwardenTransformedTemplate, TemplateTopology>()
+
+function templateTopology(candidate: PathwardenTransformedTemplate): TemplateTopology {
+    const cached = templateTopologyCache.get(candidate)
+    if (cached) return cached
+
+    const localKey = (cell: PathwardenGridPoint) => cell.col * 16 + cell.row
+    const adjacency = new Map<number, number[]>()
+    const connect = (fromKey: number, toKey: number) => {
+        let fromNeighbours = adjacency.get(fromKey)
+        if (!fromNeighbours) adjacency.set(fromKey, fromNeighbours = [])
+        if (!fromNeighbours.includes(toKey)) fromNeighbours.push(toKey)
+        let toNeighbours = adjacency.get(toKey)
+        if (!toNeighbours) adjacency.set(toKey, toNeighbours = [])
+        if (!toNeighbours.includes(fromKey)) toNeighbours.push(fromKey)
+    }
+    const probeCells: PathwardenGridPoint[] = []
+    const seen = new Set<number>()
+    const entranceKey = localKey(candidate.entrance.cell)
+    for (const [from, to] of candidate.roadEdges) {
+        connect(localKey(from), localKey(to))
+        for (const cell of [from, to]) {
+            const cellKey = localKey(cell)
+            if (cellKey === entranceKey || seen.has(cellKey)) continue
+            seen.add(cellKey)
+            probeCells.push(cell)
+        }
+    }
+
+    const exitKeys = candidate.exits.map(exit => localKey(exit.cell))
+    let valid = true
+    for (const [point, neighbours] of adjacency) {
+        const degree = neighbours.length + (point === entranceKey ? 1 : 0)
+        if (degree === 1 && !exitKeys.includes(point)) {
+            valid = false
+            break
+        }
+    }
+    if (valid) {
+        const visited = new Set([entranceKey])
+        const queue = [entranceKey]
+        for (let head = 0; head < queue.length; head++) {
+            const neighbours = adjacency.get(queue[head]!)
+            if (!neighbours) continue
+            for (const neighbour of neighbours) {
+                if (visited.has(neighbour)) continue
+                visited.add(neighbour)
+                queue.push(neighbour)
+            }
+        }
+        valid = exitKeys.every(exitKey => visited.has(exitKey))
+    }
+    const topology = { valid, probeCells }
+    templateTopologyCache.set(candidate, topology)
+    return topology
 }
 
 function roadShapeIsSafe(
     candidate: PathwardenTransformedTemplate,
-    origin: PathwardenGridPoint,
+    originCol: number,
+    originRow: number,
     frontier: OpenFrontier,
-    connectorCells: PathwardenGridPoint[],
     state: PlanState
 ) {
-    const entrance = translate(candidate.entrance.cell, origin)
-    const exits = candidate.exits.map(port => translate(port.cell, origin))
-
     // Pure arithmetic over at most three exits, so it is the cheapest way to
-    // reject a candidate — run it before building any road graph.
-    const directionVector = move({ col: 0, row: 0 }, frontier.direction)
-    const nextDirection = (port: PathwardenLocalPort, cell: PathwardenGridPoint) => {
-        const next = move(cell, port.direction)
-        return (next.col - frontier.cell.col) * directionVector.col
-            + (next.row - frontier.cell.row) * directionVector.row
-    }
-    if (!candidate.exits.every((port, index) => nextDirection(port, exits[index]!) >= -1)) return false
-
-    // The candidate road graph is rebuilt for every placement tried, so its
-    // structures are reused across calls. Generation is synchronous and this
-    // function never recurses, so a single scratch set is safe.
-    const graph = scratchGraph
-    for (const neighbours of graph.values()) {
-        neighbours.length = 0
-        neighbourPool.push(neighbours)
-    }
-    graph.clear()
-    const connect = (fromKey: number, toKey: number) => {
-        let fromNeighbours = graph.get(fromKey)
-        if (!fromNeighbours) graph.set(fromKey, fromNeighbours = neighbourPool.pop() ?? [])
-        if (!fromNeighbours.includes(toKey)) fromNeighbours.push(toKey)
-        let toNeighbours = graph.get(toKey)
-        if (!toNeighbours) graph.set(toKey, toNeighbours = neighbourPool.pop() ?? [])
-        if (!toNeighbours.includes(fromKey)) toNeighbours.push(fromKey)
-    }
-    let previousKey = key(frontier.cell)
-    for (const cell of connectorCells) {
-        const cellKey = key(cell)
-        connect(previousKey, cellKey)
-        previousKey = cellKey
-    }
-    const originKeyOffset = (origin.col + 2) * KEY_STRIDE + (origin.row + 2)
-    for (const [from, to] of candidate.roadEdges) {
-        connect(
-            originKeyOffset + from.col * KEY_STRIDE + from.row,
-            originKeyOffset + to.col * KEY_STRIDE + to.row
-        )
+    // reject a candidate — run it before anything else.
+    const forward = DIRECTION_VECTORS[frontier.direction]
+    const frontierCol = frontier.cell.col
+    const frontierRow = frontier.cell.row
+    for (const port of candidate.exits) {
+        const step = DIRECTION_VECTORS[port.direction]
+        const nextCol = originCol + port.cell.col + step.col
+        const nextRow = originRow + port.cell.row + step.row
+        if ((nextCol - frontierCol) * forward.col + (nextRow - frontierRow) * forward.row < -1) return false
     }
 
-    const frontierKey = key(frontier.cell)
-    const entranceKey = key(entrance)
-    for (const [point, neighbours] of graph) {
-        if (neighbours.length !== 1 || point === frontierKey) continue
-        let allowed = false
-        for (const exit of exits) {
-            if (key(exit) === point) { allowed = true; break }
-        }
-        if (!allowed) return false
-    }
-    // One traversal from the entrance answers reachability for every exit.
-    const visited = scratchVisited
-    const queue = scratchQueue
-    visited.clear()
-    queue.length = 0
-    visited.add(entranceKey)
-    queue.push(entranceKey)
-    for (let head = 0; head < queue.length; head++) {
-        const neighbours = graph.get(queue[head]!)
-        if (!neighbours) continue
-        for (const neighbour of neighbours) {
-            if (visited.has(neighbour)) continue
-            visited.add(neighbour)
-            queue.push(neighbour)
-        }
-    }
-    for (const exit of exits) {
-        if (!visited.has(key(exit))) return false
-    }
+    const topology = templateTopology(candidate)
+    if (!topology.valid) return false
 
-    const existingRoads = state.roadCells
-    const connectorKeys = scratchConnectorKeys
-    connectorKeys.clear()
-    connectorKeys.add(frontierKey)
-    for (const cell of connectorCells) connectorKeys.add(key(cell))
+    // Connector cells are exempt from the adjacency test (they extend the
+    // existing road), and canPlace already guarantees they stay outside the
+    // room, so only the template's own road cells need probing.
     // Neighbour probes are key arithmetic: +/-KEY_STRIDE steps a column, +/-1 a row.
-    for (const pointKey of graph.keys()) {
-        if (connectorKeys.has(pointKey)) continue
-        if (existingRoads.has(pointKey - KEY_STRIDE)
-            || existingRoads.has(pointKey + KEY_STRIDE)
-            || existingRoads.has(pointKey - 1)
-            || existingRoads.has(pointKey + 1)) return false
+    const existingRoads = state.roadCells
+    const originKeyOffset = (originCol + 2) * KEY_STRIDE + (originRow + 2)
+    for (const cell of topology.probeCells) {
+        const cellKey = originKeyOffset + cell.col * KEY_STRIDE + cell.row
+        if (existingRoads[cellKey - KEY_STRIDE] !== 0
+            || existingRoads[cellKey + KEY_STRIDE] !== 0
+            || existingRoads[cellKey - 1] !== 0
+            || existingRoads[cellKey + 1] !== 0) return false
     }
 
     return true
@@ -464,8 +629,8 @@ function addRoom(
             to: { ...cell },
             roomId
         })
-        state.roadCells.add(key(previous))
-        state.roadCells.add(key(cell))
+        state.roadCells[key(previous)] = 1
+        state.roadCells[key(cell)] = 1
         roadLinkIds.push(id)
         connectionRoadLinkIds.push(id)
         previous = cell
@@ -480,8 +645,8 @@ function addRoom(
             to: toCell,
             roomId
         })
-        state.roadCells.add(key(fromCell))
-        state.roadCells.add(key(toCell))
+        state.roadCells[key(fromCell)] = 1
+        state.roadCells[key(toCell)] = 1
         roadLinkIds.push(id)
     }
 
@@ -508,15 +673,17 @@ function addRoom(
             cell: translate(exit.cell, origin)
         }))
     ]
-    for (const [cell, portId] of state.reservedExits) {
-        if (portId === frontier.portId) state.reservedExits.delete(cell)
+    const reservedCell = state.reservedExitCellByPort.get(frontier.portId)
+    if (reservedCell !== undefined) {
+        state.reservedExits.delete(reservedCell)
+        state.reservedExitCellByPort.delete(frontier.portId)
     }
-    for (const port of ports.filter(port => port.kind === 'exit')) {
-        let previous = port.cell
-        for (let step = 0; step < 1; step++) {
-            previous = move(previous, port.direction)
-            state.reservedExits.set(key(previous), port.id)
-        }
+    for (const port of ports) {
+        if (port.kind !== 'exit') continue
+        const cellKey = key(move(port.cell, port.direction))
+        state.reservedExits.set(cellKey, port.id)
+        state.reservedExitCellByPort.set(port.id, cellKey)
+        state.reservedGrid[cellKey] = 1
     }
     const room: PathwardenMapRoom = {
         id: roomId,
@@ -549,67 +716,35 @@ function addRoom(
     }
     state.connections.push(connection)
     state.connectionsById.set(connectionId, connection)
-    for (const cell of roomFootprint) state.occupied.add(key(cell))
+    for (const cell of roomFootprint) state.occupied[key(cell)] = 1
     return room
 }
 
-function connectorPath(
-    from: PathwardenGridPoint,
-    direction: PathwardenCardinalDirection,
-    forwardDistance: number,
-    lateralDistance: number
-) {
-    const cells: PathwardenGridPoint[] = []
-    const firstForward = lateralDistance === 0
-        ? forwardDistance
-        : Math.min(2, forwardDistance)
-    let current = { ...from }
-    for (let step = 0; step < firstForward; step++) {
-        current = move(current, direction)
-        cells.push(current)
-    }
-    if (lateralDistance !== 0) {
-        const lateralDirection = direction === 'north' || direction === 'south'
-            ? lateralDistance > 0 ? 'east' : 'west'
-            : lateralDistance > 0 ? 'south' : 'north'
-        for (let step = 0; step < Math.abs(lateralDistance); step++) {
-            current = move(current, lateralDirection)
-            cells.push(current)
-        }
-        for (let step = firstForward; step < forwardDistance; step++) {
-            current = move(current, direction)
-            cells.push(current)
-        }
-    }
-    return cells
+interface PlacementOption {
+    forward: number
+    lateral: number
 }
 
+// Shared, read-only option descriptors; the connector path is derived lazily
+// by the placement loop so rejected candidates never pay for it.
+const DEPTH_ONE_PLACEMENTS: readonly PlacementOption[] = [1, 2, 3].flatMap(forward =>
+    [0, 1, -1].map(lateral => ({ forward, lateral })))
+const COMPACT_PLACEMENT: PlacementOption = { forward: 1, lateral: 0 }
+const TRANSLATED_PLACEMENTS: readonly PlacementOption[] = [2, 3].flatMap(forward =>
+    [0, 1, -1, 2, -2].map(lateral => ({ forward, lateral })))
+
+const scratchOptions: PlacementOption[] = []
+
 function placementOptions(frontier: OpenFrontier, random: RandomSource) {
+    const options = scratchOptions
+    options.length = 0
     if (frontier.depth === 1) {
-        const initial = [1, 2, 3].flatMap(forward =>
-            [0, 1, -1].map(lateral => ({ forward, lateral })))
-        return shuffle(initial, random).map(option => ({
-            ...option,
-            connectorCells: connectorPath(
-                frontier.cell,
-                frontier.direction,
-                option.forward,
-                option.lateral
-            )
-        }))
+        for (const option of DEPTH_ONE_PLACEMENTS) options.push(option)
+        return shuffleInPlace(options, random)
     }
-    const compact = [{ forward: 1, lateral: 0 }]
-    const translated = [2, 3].flatMap(forward =>
-        [0, 1, -1, 2, -2].map(lateral => ({ forward, lateral })))
-    return [...compact, ...shuffle(translated, random)].map(option => ({
-        ...option,
-        connectorCells: connectorPath(
-            frontier.cell,
-            frontier.direction,
-            option.forward,
-            option.lateral
-        )
-    }))
+    options.push(COMPACT_PLACEMENT)
+    for (const option of TRANSLATED_PLACEMENTS) options.push(option)
+    return shuffleSuffix(options, 1, random)
 }
 
 function exitScore(
@@ -618,8 +753,10 @@ function exitScore(
     center: number,
     random: RandomSource
 ) {
-    const next = move(cell, direction)
-    return Math.abs(next.col - center) + Math.abs(next.row - center) + random.next() * 5
+    const step = DIRECTION_VECTORS[direction]
+    return Math.abs(cell.col + step.col - center)
+        + Math.abs(cell.row + step.row - center)
+        + random.next() * 5
 }
 
 function nextFrontiers(
@@ -627,14 +764,15 @@ function nextFrontiers(
     previous: OpenFrontier,
     maxDepth: number,
     center: number,
+    castleOrigin: PathwardenGridPoint,
     random: RandomSource
 ) {
     const exits = room.ports.filter(port => port.kind === 'exit')
     if (room.depth >= maxDepth || !exits.length) return []
-    const ranked = [...exits].sort((left, right) =>
+    const ranked = exits.sort((left, right) =>
         exitScore(right.cell, right.direction, center, random)
         - exitScore(left.cell, left.direction, center, random))
-    const special = !['straight', 'corner'].includes(room.archetype)
+    const special = !COMMON_ARCHETYPES.has(room.archetype)
     return ranked.map((port, index): OpenFrontier => {
         const main = previous.main && index === 0
         const branchTargetDepth = previous.main
@@ -648,12 +786,37 @@ function nextFrontiers(
             depth: room.depth + 1,
             targetDepth: main ? maxDepth : branchTargetDepth,
             main,
-            specialPressure: special ? 1 : previous.specialPressure + 1
+            specialPressure: special ? 1 : previous.specialPressure + 1,
+            distance: Math.abs(port.cell.col - castleOrigin.col)
+                + Math.abs(port.cell.row - castleOrigin.row)
         }
     })
 }
 
-function createState(castle: PathwardenMapRoom, castleLinks: PathwardenRoadLink[]): PlanState {
+function compareFrontiers(left: OpenFrontier, right: OpenFrontier) {
+    return left.distance - right.distance
+        || left.depth - right.depth
+        || Number(right.main) - Number(left.main)
+}
+
+function createState(castle: PathwardenMapRoom, castleLinks: PathwardenRoadLink[], size: number): PlanState {
+    const gridLength = (size + 4) * KEY_STRIDE
+    if (scratchOccupied.length < gridLength) {
+        scratchOccupied = new Uint8Array(gridLength)
+        scratchRoads = new Uint8Array(gridLength)
+        scratchReserved = new Uint8Array(gridLength)
+    } else {
+        scratchOccupied.fill(0)
+        scratchRoads.fill(0)
+        scratchReserved.fill(0)
+    }
+    const occupied = scratchOccupied
+    const roadCells = scratchRoads
+    for (const cell of castle.footprint) occupied[key(cell)] = 1
+    for (const link of castleLinks) {
+        roadCells[key(link.from)] = 1
+        roadCells[key(link.to)] = 1
+    }
     return {
         rooms: [castle],
         connections: [],
@@ -661,9 +824,11 @@ function createState(castle: PathwardenMapRoom, castleLinks: PathwardenRoadLink[
         connectionsById: new Map(),
         roadLinks: [...castleLinks],
         features: [],
-        occupied: new Set(castle.footprint.map(key)),
-        roadCells: new Set(castleLinks.flatMap(link => [key(link.from), key(link.to)])),
+        occupied,
+        roadCells,
+        reservedGrid: scratchReserved,
         reservedExits: new Map(),
+        reservedExitCellByPort: new Map(),
         roomSequence: 1,
         connectionSequence: 0,
         roadSequence: castleLinks.length,
@@ -682,11 +847,20 @@ function buildMetrics(state: PlanState, maxDepth: number): PathwardenMapMetrics 
     for (const feature of state.features) {
         featureCounts[feature.kind] = (featureCounts[feature.kind] ?? 0) + 1
     }
+    const roadCellKeys = new Set<number>()
+    for (const link of state.roadLinks) {
+        roadCellKeys.add(key(link.from))
+        roadCellKeys.add(key(link.to))
+    }
+    const buildableCellKeys = new Set<number>()
+    for (const room of state.rooms) {
+        for (const cell of room.buildableCells) buildableCellKeys.add(key(cell))
+    }
     return {
         maxDepth,
         roomCount: state.rooms.length,
-        roadCellCount: new Set(state.roadLinks.flatMap(link => [link.from, link.to]).map(key)).size,
-        buildableCellCount: new Set(state.rooms.flatMap(room => room.buildableCells).map(key)).size,
+        roadCellCount: roadCellKeys.size,
+        buildableCellCount: buildableCellKeys.size,
         frontierCountByDepth,
         archetypeCounts,
         featureCounts
@@ -702,7 +876,7 @@ function terminalApproachPath(
     port: PathwardenMapRoom['ports'][number],
     state: PlanState,
     size: number,
-    roadCells: Set<number>
+    roadCells: Uint8Array
 ) {
     const search = (
         previous: PathwardenGridPoint,
@@ -716,10 +890,11 @@ function terminalApproachPath(
         for (const nextDirection of directions) {
             const cell = move(previous, nextDirection)
             if (cell.col < 2 || cell.row < 2 || cell.col >= size - 2 || cell.row >= size - 2) continue
-            const reservation = state.reservedExits.get(key(cell))
-            if (state.occupied.has(key(cell))
-                || roadCells.has(key(cell))
-                || cells.some(existing => key(existing) === key(cell))
+            const cellKey = key(cell)
+            const reservation = state.reservedExits.get(cellKey)
+            if (state.occupied[cellKey] !== 0
+                || roadCells[cellKey] !== 0
+                || cells.some(existing => key(existing) === cellKey)
                 || (reservation && reservation !== port.id)) continue
             const result = search(cell, nextDirection, [...cells, cell])
             if (result) return result
@@ -742,15 +917,17 @@ function addTerminalApproaches(state: PlanState, size: number) {
                 const id = `road-${state.roadSequence++}`
                 state.roadLinks.push({ id, from: { ...previous }, to: cell, roomId: room.id })
                 room.roadLinkIds.push(id)
-                roadCells.add(key(cell))
+                roadCells[key(cell)] = 1
                 previous = cell
             }
             room.terminalApproaches = [
                 ...(room.terminalApproaches ?? []),
                 { portId: port.id, cells: approach }
             ]
-            for (const [cell, portId] of state.reservedExits) {
-                if (portId === port.id) state.reservedExits.delete(cell)
+            const reservedCell = state.reservedExitCellByPort.get(port.id)
+            if (reservedCell !== undefined) {
+                state.reservedExits.delete(reservedCell)
+                state.reservedExitCellByPort.delete(port.id)
             }
         }
     }
@@ -763,7 +940,8 @@ function generatePathwardenMapPlanAttempt(
     maxDepth: number,
     random: RandomSource
 ): PathwardenMapPlan {
-    const state = createState(castle, castleLinks)
+    const state = createState(castle, castleLinks, base.size.cols)
+    const origin = castle.origin
     const castleExits = castle.ports.filter(port => port.kind === 'exit')
     const queue: OpenFrontier[] = castleExits.map((port, index) => ({
         roomId: castle.id,
@@ -775,69 +953,70 @@ function generatePathwardenMapPlanAttempt(
             ? maxDepth
             : Math.min(maxDepth, 1 + random.integer(2, 3)),
         main: index === 0,
-        specialPressure: 1
+        specialPressure: 1,
+        distance: Math.abs(port.cell.col - origin.col) + Math.abs(port.cell.row - origin.row)
     }))
     const center = Math.floor(base.size.cols / 2)
-    const origin = castle.origin
-    const frontierDistance = (frontier: OpenFrontier) =>
-        Math.abs(frontier.cell.col - origin.col) + Math.abs(frontier.cell.row - origin.row)
-    const prioritizeFrontiers = () => {
-        queue.sort((left, right) =>
-            frontierDistance(left) - frontierDistance(right)
-            || left.depth - right.depth
-            || Number(right.main) - Number(left.main))
-    }
 
+    const size = base.size.cols
     while (queue.length) {
-        prioritizeFrontiers()
+        queue.sort(compareFrontiers)
         const frontier = queue.shift()!
         if (frontier.depth > frontier.targetDepth) continue
+        // Mask the frontier's own reservation so canPlace grid probes treat it
+        // as free; restored below if no room consumes it.
+        const ownReservedKey = state.reservedExitCellByPort.get(frontier.portId)
+        if (ownReservedKey !== undefined) state.reservedGrid[ownReservedKey] = 0
         let room: PathwardenMapRoom | null = null
         let candidateCount = 0
         let placementCount = 0
+        let others: FootprintBounds[] | null = null
         let fallback: {
             candidate: PathwardenTransformedTemplate
             origin: PathwardenGridPoint
             connectorCells: PathwardenGridPoint[]
         } | null = null
-        for (const template of weightedTemplates(frontier, random)) {
-            for (const candidate of matchingTransforms(template, opposite(frontier.direction), random)) {
+        const entranceDirection = opposite(frontier.direction)
+        const templates = weightedTemplates(frontier, random)
+        for (let templateIndex = 0; templateIndex < templates.length && !room; templateIndex++) {
+            const matches = matchingTransforms(templates[templateIndex]!, entranceDirection, random)
+            for (let matchIndex = 0; matchIndex < matches.length && !room; matchIndex++) {
+                const candidate = matches[matchIndex]!
                 candidateCount++
-                for (const placement of placementOptions(frontier, random)) {
+                const options = placementOptions(frontier, random)
+                for (let optionIndex = 0; optionIndex < options.length; optionIndex++) {
+                    const placement = options[optionIndex]!
                     placementCount++
-                    const entranceTarget = placement.connectorCells[placement.connectorCells.length - 1]!
-                    const origin = {
-                        col: entranceTarget.col - candidate.entrance.cell.col,
-                        row: entranceTarget.row - candidate.entrance.cell.row
-                    }
-                    if (!canPlace(
-                        candidate,
-                        origin,
-                        placement.connectorCells,
-                        frontier,
-                        state,
-                        base.size.cols
-                    ) || !roadShapeIsSafe(candidate, origin, frontier, placement.connectorCells, state)) continue
-                    const roomFootprint = footprint(candidate, origin)
-                    if (!prefersRoomPlacement(roomFootprint, frontier, state, base.size.cols)) {
+                    if (!probePlacement(candidate, frontier, placement.forward, placement.lateral, state, size)) continue
+                    const originCol = placementProbe.originCol
+                    const originRow = placementProbe.originRow
+                    const connectorCells = placementProbe.connectorCells
+                    if (!roadShapeIsSafe(candidate, originCol, originRow, frontier, state)) continue
+                    others ??= clearanceBounds(upstreamRoomIds(frontier, state), state)
+                    if (!prefersRoomPlacement(candidate, originCol, originRow, frontier, others, size)) {
                         fallback ??= {
                             candidate,
-                            origin,
-                            connectorCells: placement.connectorCells
+                            origin: { col: originCol, row: originRow },
+                            connectorCells: connectorCells.map(cell => ({ ...cell }))
                         }
                         continue
                     }
-                    room = addRoom(state, candidate, origin, frontier, placement.connectorCells)
+                    room = addRoom(
+                        state,
+                        candidate,
+                        { col: originCol, row: originRow },
+                        frontier,
+                        connectorCells.map(cell => ({ ...cell }))
+                    )
                     break
                 }
-                if (room) break
             }
-            if (room) break
         }
         if (!room && fallback) {
             room = addRoom(state, fallback.candidate, fallback.origin, frontier, fallback.connectorCells)
         }
         if (!room) {
+            if (ownReservedKey !== undefined) state.reservedGrid[ownReservedKey] = 1
             if (frontier.main || frontier.roomId === castle.id) {
                 throw new Error(
                     `Pathwarden room solver blocked on main depth ${frontier.depth}`
@@ -847,7 +1026,7 @@ function generatePathwardenMapPlanAttempt(
             }
             continue
         }
-        queue.unshift(...nextFrontiers(room, frontier, maxDepth, center, random))
+        queue.unshift(...nextFrontiers(room, frontier, maxDepth, center, origin, random))
         if (state.rooms.length > 256) throw new Error('Pathwarden room solver exceeded its room budget')
     }
 
@@ -872,32 +1051,29 @@ export function generatePathwardenMapPlan(
     maxDepth: number,
     random: RandomSource
 ): PathwardenMapPlan {
+    // Attempts never mutate the castle or its links (terminal approaches only
+    // touch per-attempt rooms), so one defensive copy serves every retry.
+    const attemptCastle: PathwardenMapRoom = {
+        ...castle,
+        origin: { ...castle.origin },
+        footprint: castle.footprint.map(cell => ({ ...cell })),
+        revealCells: castle.revealCells.map(cell => ({ ...cell })),
+        buildableCells: castle.buildableCells.map(cell => ({ ...cell })),
+        roadCells: castle.roadCells.map(cell => ({ ...cell })),
+        terminalApproaches: [],
+        roadLinkIds: [...castle.roadLinkIds],
+        featureIds: [...castle.featureIds],
+        ports: castle.ports.map(port => ({ ...port, cell: { ...port.cell } }))
+    }
+    const attemptLinks = castleLinks.map(link => ({
+        ...link,
+        from: { ...link.from },
+        to: { ...link.to }
+    }))
     let lastError: unknown
     for (let attempt = 0; attempt < 120; attempt++) {
         try {
-            const attemptCastle: PathwardenMapRoom = {
-                ...castle,
-                origin: { ...castle.origin },
-                footprint: castle.footprint.map(cell => ({ ...cell })),
-                revealCells: castle.revealCells.map(cell => ({ ...cell })),
-                buildableCells: castle.buildableCells.map(cell => ({ ...cell })),
-                roadCells: castle.roadCells.map(cell => ({ ...cell })),
-                terminalApproaches: [],
-                roadLinkIds: [...castle.roadLinkIds],
-                featureIds: [...castle.featureIds],
-                ports: castle.ports.map(port => ({ ...port, cell: { ...port.cell } }))
-            }
-            return generatePathwardenMapPlanAttempt(
-                base,
-                attemptCastle,
-                castleLinks.map(link => ({
-                    ...link,
-                    from: { ...link.from },
-                    to: { ...link.to }
-                })),
-                maxDepth,
-                random
-            )
+            return generatePathwardenMapPlanAttempt(base, attemptCastle, attemptLinks, maxDepth, random)
         } catch (error) {
             lastError = error
         }
