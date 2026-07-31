@@ -129,6 +129,18 @@ const hintsOpen = ref(true)
 const activeHintIndex = ref(0)
 const hints = [
   {
+    title: 'Open the shop quickly',
+    body: 'Right-click the battlefield to open the Aether shop without leaving the map.'
+  },
+  {
+    title: 'Scroll to zoom',
+    body: 'Use the mouse wheel or trackpad scroll over the battlefield to zoom in and out.'
+  },
+  {
+    title: 'Pan from the edges',
+    body: 'Move the pointer toward the battlefield edges to pan the view and inspect more of the realm.'
+  },
+  {
     title: 'Build a pair of defenses',
     body: 'Start with two complementary defenses. Fast single-target fire handles runners while area damage controls crowded bends.'
   },
@@ -228,18 +240,6 @@ const hints = [
     title: 'Recover after a loss',
     body: 'A failed march still teaches you which lane or enemy type broke the defense. Rebuild around that weakness on the next attempt.'
   },
-  {
-    title: 'Open the shop quickly',
-    body: 'Right-click the battlefield to open the Aether shop without leaving the map.'
-  },
-  {
-    title: 'Scroll to zoom',
-    body: 'Use the mouse wheel or trackpad scroll over the battlefield to zoom in and out.'
-  },
-  {
-    title: 'Pan from the edges',
-    body: 'Move the pointer toward the battlefield edges to pan the view and inspect more of the realm.'
-  }
 ]
 const activeHint = computed(() => hints[activeHintIndex.value]!)
 const runActive = ref(false)
