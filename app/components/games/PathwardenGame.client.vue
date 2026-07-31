@@ -147,6 +147,86 @@ const hints = [
   {
     title: 'Relics change defenses',
     body: 'Relic families and individual effects alter tower projectiles. Inspect a defense to see its current power, range, and special effects.'
+  },
+  {
+    title: 'Cover different ranges',
+    body: 'Pair a long-range defense with a control or splash defense so enemies are pressured before and during the busiest part of the road.'
+  },
+  {
+    title: 'Protect the approach',
+    body: 'The first bend is often safer than the keep gate. Early damage gives every later defense more time to fire.'
+  },
+  {
+    title: 'Use bends for splash',
+    body: 'Place area defenses where multiple enemies overlap or turn together. Straight road sections spread targets too far apart.'
+  },
+  {
+    title: 'Slow before striking',
+    body: 'Control effects are strongest when damage dealers can repeatedly hit the same slowed group.'
+  },
+  {
+    title: 'Watch exits',
+    body: 'Multiple exits split enemy pressure. Prioritize a defense that can cover the shared approach or move your strongest tower toward the threatened lane.'
+  },
+  {
+    title: 'Spend before calling',
+    body: 'During planning, use spare Aether on a defense when it meaningfully improves coverage. A keep without defenses earns no reward.'
+  },
+  {
+    title: 'Bank for the checkpoint',
+    body: 'Checkpoint rewards scale with saved Aether, but never sacrifice the defense needed to survive the current wave.'
+  },
+  {
+    title: 'Compare the next wave',
+    body: 'Runners punish slow firing lanes, brutes need sustained damage, and dense raider groups reward splash coverage.'
+  },
+  {
+    title: 'Upgrade with purpose',
+    body: 'Choose a relic that improves the tower’s job. Range helps a lane defender; splash, slow, or poison helps against groups.'
+  },
+  {
+    title: 'Inspect individual relics',
+    body: 'Relics can have different power and effect values. Click a defense to inspect the actual relics assigned to it.'
+  },
+  {
+    title: 'Affinity reduces pressure',
+    body: 'Matching affinities in a ritual reduce arcane pressure, making a risky rebind more forgiving.'
+  },
+  {
+    title: 'Crystals protect relics',
+    body: 'Stabilizing crystals improve protection odds in the workbench. Spend them when preserving a valuable stack matters.'
+  },
+  {
+    title: 'Stacked relics roll separately',
+    body: 'A stack is made of individual relics. Ritual risk is resolved per relic, so a damaged stack can still return partially intact.'
+  },
+  {
+    title: 'Sell only between waves',
+    body: 'Relics can be managed during planning and checkpoint phases. Prepare before the next wave locks the battlefield.'
+  },
+  {
+    title: 'Roads create firing lanes',
+    body: 'When choosing a frontier section, look for new buildable cells that overlook bends rather than isolated dead ends.'
+  },
+  {
+    title: 'Keep one flexible slot',
+    body: 'Aether reserves let you respond to a new exit, checkpoint threat, or enemy type instead of committing everything immediately.'
+  },
+  {
+    title: 'Read the message',
+    body: 'The phase message explains what the keep needs next: build, choose a road, claim a relic, or prepare for a checkpoint.'
+  },
+  {
+    title: 'Flawless waves compound',
+    body: 'Avoiding damage builds a flawless streak and improves your run’s rewards. A safe control tower can be worth more than raw damage.'
+  },
+  {
+    title: 'Use the pause safely',
+    body: 'Pause during a wave to inspect towers and plan your next placement without letting enemies advance.'
+  },
+  {
+    title: 'Recover after a loss',
+    body: 'A failed march still teaches you which lane or enemy type broke the defense. Rebuild around that weakness on the next attempt.'
   }
 ]
 const activeHint = computed(() => hints[activeHintIndex.value]!)
@@ -1545,7 +1625,8 @@ watch(() => [snapshot.value.phase, snapshot.value.wave] as const, ([phase, wave]
               <div class="flex items-center justify-between gap-2">
                 <span>{{ hintsEnabled && hintsOpen ? activeHint.title : 'Optional hints' }}</span>
                 <div class="flex shrink-0 items-center gap-1">
-                  <USwitch v-model="hintsEnabled" size="xs" aria-label="Enable optional hints" />
+                  <span class="text-[10px] font-bold text-muted">Show hints</span>
+                  <USwitch v-model="hintsEnabled" size="xs" aria-label="Show hints" />
                   <UButton
                     v-if="hintsOpen"
                     size="xs"
@@ -1570,7 +1651,7 @@ watch(() => [snapshot.value.phase, snapshot.value.wave] as const, ([phase, wave]
             <template #description>
               <div v-if="hintsEnabled && hintsOpen">
                 <p>{{ activeHint.body }}</p>
-                <div class="mt-2 flex items-center justify-between gap-2">
+                <div class="-ml-6 mt-2 flex items-center justify-between gap-2">
                   <UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-chevron-left" aria-label="Previous hint" @click="previousHint">
                     Previous
                   </UButton>
