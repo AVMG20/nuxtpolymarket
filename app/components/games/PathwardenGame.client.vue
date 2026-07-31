@@ -370,11 +370,12 @@ const { data: boostState, refresh: refreshBoosts } = await useFetch('/api/pathwa
 const skipIntro = ref(Boolean(boostState.value?.skipIntro))
 const savingPreferences = ref(false)
 let engine: PathwardenEngine | null = null
+const SAVE_DEBOUNCE_MS = 2500
 let cooldownClock: ReturnType<typeof setInterval> | null = null
 let saveTimer: ReturnType<typeof setTimeout> | null = null
 let saveRevision = 0
-let saveInFlight = false
 let saveDirty = false
+let activeSave: Promise<void> | null = null
 let restoredRun: { mapPlan: PathwardenMapPlan, gameState: PathwardenGameState } | undefined
 
 const towerTypes = computed(() => (boostState.value?.defenses
@@ -536,7 +537,7 @@ async function clearDebugCache() {
     restoredRun = undefined
     saveRevision = 0
     saveDirty = false
-    saveInFlight = false
+    activeSave = null
     if (saveTimer) clearTimeout(saveTimer)
     saveTimer = null
     localStorage.removeItem('pathwarden-hints')
@@ -582,7 +583,7 @@ function claimCheckpointReward(wave: number) {
 
   const request = (async () => {
     try {
-      await saveRun()
+      await flushSave()
       const result = await $fetch('/api/pathwarden/checkpoint', {
         method: 'POST',
         body: { wave }
@@ -861,6 +862,8 @@ async function buyDefense(defenseId: string) {
   try {
     await $fetch('/api/pathwarden/defenses/buy', { method: 'POST', body: { defenseId } })
     await Promise.all([refreshBoosts(), fetchSession()])
+  } catch (error) {
+    toast.add({ title: apiErrorMessage(error, 'Blueprint purchase failed'), color: 'error' })
   } finally {
     buyingDefense.value = null
   }
@@ -872,6 +875,8 @@ async function buySkin(skinId: string) {
     await $fetch('/api/pathwarden/skins/buy', { method: 'POST', body: { skinId } })
     await Promise.all([refreshBoosts(), fetchSession()])
     restart()
+  } catch (error) {
+    toast.add({ title: apiErrorMessage(error, 'Skin purchase failed'), color: 'error' })
   } finally {
     buyingSkin.value = null
   }
@@ -892,15 +897,12 @@ async function settleRun(reason: 'cashout' | 'victory' | 'defeat') {
   if (!runActive.value || settling.value) return null
   settling.value = true
   try {
+    // The server settles from the persisted save, so make sure the final state
+    // has landed before finishing — the request body only carries the reason.
+    await flushSave()
     const response = await $fetch('/api/pathwarden/finish-run', {
       method: 'POST',
-      body: {
-        reason,
-        wave: snapshot.value.wave,
-        aether: snapshot.value.aether,
-        score: snapshot.value.score,
-        flawless: snapshot.value.flawlessWaves
-      }
+      body: { reason }
     })
     runActive.value = false
     unlockedRealm.value = response.maxUnlockedRealm
@@ -944,13 +946,12 @@ function scheduleSave() {
   if (saveTimer) return
   saveTimer = setTimeout(() => {
     saveTimer = null
-    void saveRun()
-  }, 750)
+    void flushSave()
+  }, SAVE_DEBOUNCE_MS)
 }
 
-async function saveRun() {
-  if (!runActive.value || !engine || saveInFlight || !saveDirty) return
-  saveInFlight = true
+async function persistSave(): Promise<void> {
+  if (!runActive.value || !engine || !saveDirty) return
   saveDirty = false
   const gameState = engine.exportGameState()
   try {
@@ -969,10 +970,15 @@ async function saveRun() {
       })
       runActive.value = false
     }
-  } finally {
-    saveInFlight = false
-    if (saveDirty && runActive.value) scheduleSave()
   }
+}
+
+// Serializes writes onto a single chain, so awaiting a flush always waits for
+// the latest state to reach the server. A checkpoint claim or settlement can
+// depend on the save it just triggered actually landing first.
+function flushSave(): Promise<void> {
+  activeSave = (activeSave ?? Promise.resolve()).catch(() => {}).then(persistSave)
+  return activeSave
 }
 
 function createGame(restore?: PathwardenEngineRestore, startEngine = true) {
@@ -1066,7 +1072,7 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   if (cooldownClock) clearInterval(cooldownClock)
   if (saveTimer) clearTimeout(saveTimer)
-  void saveRun()
+  void flushSave()
   engine?.destroy()
 })
 

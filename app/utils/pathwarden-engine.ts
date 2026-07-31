@@ -702,17 +702,6 @@ function towerLevelPower(level: number) {
   return level === 3 ? 3.35 : level === 2 ? 1.85 : 1
 }
 
-function shuffle<T>(values: T[]) {
-  const copy = [...values]
-  for (let index = copy.length - 1; index > 0; index--) {
-    const swap = Math.floor(Math.random() * (index + 1))
-    const current = copy[index]!
-    copy[index] = copy[swap]!
-    copy[swap] = current
-  }
-  return copy
-}
-
 export class PathwardenEngine {
   private canvas: HTMLCanvasElement
   private ctx: CanvasRenderingContext2D
@@ -3947,7 +3936,10 @@ export class PathwardenEngine {
   }
 
   private offerUpgrades() {
-    const rarityRoll = Math.random()
+    // Relic rarity and the offered picks decide the run's power, so they draw
+    // from the persisted seeded stream (like the rest of combat), not the
+    // process-shared Math.random() a patched client could bias.
+    const rarityRoll = this.planRandom()
     const rarity: PathwardenRelicRarity = this.wave >= 10 && rarityRoll > 0.9
       ? 'mythic'
       : this.wave >= 7 && rarityRoll > 0.72
@@ -3958,7 +3950,7 @@ export class PathwardenEngine {
     const pool = PATHWARDEN_RELICS.filter(relic =>
       relic.rarity === rarity
       && (this.lives < this.maxLives || relic.family !== 'heart'))
-    this.callbacks.onUpgrade(shuffle(pool).slice(0, 3).map((relic, index) =>
+    this.callbacks.onUpgrade(this.shufflePlan(pool).slice(0, 3).map((relic, index) =>
       this.materializeRelic(relic, this.wave * 97 + index * 31 + Math.floor(rarityRoll * 1000), 1)))
   }
 
