@@ -8,6 +8,11 @@ export const PATHWARDEN_SURGE_COST_GEMS = 5
 export const PATHWARDEN_MAX_WAVE = 12
 export const PATHWARDEN_AMBIENT_STORY_COUNT = 250
 
+// Ambient stories surface on a 45-300s in-game timer, so a real player never
+// records two within 20s. Enforcing that floor server-side turns the "POST
+// storyId 1..250 in a loop" forge into a many-hour grind against an active run.
+export const PATHWARDEN_AMBIENT_MIN_INTERVAL_MS = 20_000
+
 // A real march spends most of its wall-clock spawning and clearing enemies:
 // spawn timing alone forces well over two minutes for a full 12-wave victory.
 // This floor is deliberately far below honest play (so it never rejects a real

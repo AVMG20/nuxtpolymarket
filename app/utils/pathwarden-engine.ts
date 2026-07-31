@@ -1,4 +1,5 @@
 import {
+  PATHWARDEN_AMBIENT_STORY_COUNT,
   PATHWARDEN_DEFENSE_BLUEPRINTS,
   type PathwardenDefenseArchetype,
   type PathwardenDefenseBlueprint,
@@ -471,7 +472,10 @@ const AMBIENT_FAMILIES: Array<{ name: string, kind: AmbientKind }> = [
   { name: 'Midnight oddities', kind: 'bird' }
 ]
 
-const AMBIENT_STORY_COUNT = AMBIENT_FAMILIES.length * 10
+// Canonical count lives in shared so the server, the achievement and the engine
+// agree; every family here contributes ten stories, so this list stays at
+// AMBIENT_STORY_COUNT / 10 entries.
+const AMBIENT_STORY_COUNT = PATHWARDEN_AMBIENT_STORY_COUNT
 
 export interface PathwardenSnapshot {
   phase: PathwardenPhase
