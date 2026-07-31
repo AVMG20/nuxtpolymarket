@@ -574,8 +574,21 @@ function previousIntroStory() {
   engine?.previousIntroStory()
 }
 
-function skipIntroStory() {
+async function skipIntroStory() {
   engine?.skipIntro()
+  mapGenerating.value = true
+  mapGenerationProgress.value = 0
+  const loaderStart = performance.now()
+  await new Promise<void>(resolve => {
+    const tick = () => {
+      const progress = Math.min(1, (performance.now() - loaderStart) / 900)
+      mapGenerationProgress.value = progress
+      if (progress >= 1) resolve()
+      else requestAnimationFrame(tick)
+    }
+    requestAnimationFrame(tick)
+  })
+  mapGenerating.value = false
 }
 
 function nextHint() {
