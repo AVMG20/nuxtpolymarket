@@ -26,6 +26,7 @@ function state(overrides: Partial<LockedPathwardenState> = {}): LockedPathwarden
         arcanistLevel: 0,
         surgeCharges: 0,
         skipIntro: false,
+        keyboardPan: false,
         claimedCheckpointWaves: [],
         ambientStoryIds: [],
         ambientRewardClaimed: false,

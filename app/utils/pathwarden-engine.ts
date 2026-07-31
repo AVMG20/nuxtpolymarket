@@ -29,6 +29,17 @@ const ORIGIN_Y = HEIGHT * 0.55 - Math.floor(ROWS / 2) * TILE_HEIGHT
 const DEFAULT_WORLD_SCALE = 1.42
 const WORLD_VIEW_CENTER = { x: WIDTH / 2, y: HEIGHT * 0.49 }
 const EXPANSION_DEPTH = 13
+const KEYBOARD_PAN_SPEED = 760
+const KEYBOARD_PAN_DIRECTIONS: Record<string, Point> = {
+  w: { x: 0, y: -1 },
+  s: { x: 0, y: 1 },
+  a: { x: -1, y: 0 },
+  d: { x: 1, y: 0 },
+  arrowup: { x: 0, y: -1 },
+  arrowdown: { x: 0, y: 1 },
+  arrowleft: { x: -1, y: 0 },
+  arrowright: { x: 1, y: 0 }
+}
 
 export type PathwardenTowerType = string
 export type PathwardenUpgrade = 'damage' | 'range' | 'interest' | 'fortify' | 'haste' | 'bounty'
@@ -809,6 +820,8 @@ export class PathwardenEngine {
   private camera = { x: 0, y: 0 }
   private zoom = DEFAULT_WORLD_SCALE
   private pointerCanvas: Point | null = null
+  private keyboardPan = false
+  private heldPanKeys = new Set<string>()
   private debugVisuals = false
   private debugTimeScale = 1
   private debugSandbox = false
@@ -896,6 +909,9 @@ export class PathwardenEngine {
     this.canvas.addEventListener('click', this.onClick)
     this.canvas.addEventListener('contextmenu', this.onContextMenu)
     this.canvas.addEventListener('wheel', this.onWheel, { passive: false })
+    window.addEventListener('keydown', this.onKeyDown)
+    window.addEventListener('keyup', this.onKeyUp)
+    window.addEventListener('blur', this.onWindowBlur)
     this.loadAssets()
     this.precalculateExpansionPlan(EXPANSION_DEPTH)
     if (restore) this.restoreGameState(restore.gameState)
@@ -1151,6 +1167,14 @@ export class PathwardenEngine {
     this.canvas.removeEventListener('click', this.onClick)
     this.canvas.removeEventListener('contextmenu', this.onContextMenu)
     this.canvas.removeEventListener('wheel', this.onWheel)
+    window.removeEventListener('keydown', this.onKeyDown)
+    window.removeEventListener('keyup', this.onKeyUp)
+    window.removeEventListener('blur', this.onWindowBlur)
+  }
+
+  setKeyboardPan(enabled: boolean) {
+    this.keyboardPan = enabled
+    this.heldPanKeys.clear()
   }
 
   togglePause() {
@@ -2673,7 +2697,16 @@ export class PathwardenEngine {
   }
 
   private updateCamera(delta: number) {
-    if (!this.pointerCanvas || this.towerDrag?.active) return
+    if (this.towerDrag?.active) return
+    const velocity = this.keyboardPan ? this.keyboardPanVelocity() : this.edgePanVelocity()
+    if (!velocity.x && !velocity.y) return
+    const bounds = this.cameraBounds()
+    this.camera.x = clamp(this.camera.x + velocity.x * delta, bounds.minX, bounds.maxX)
+    this.camera.y = clamp(this.camera.y + velocity.y * delta, bounds.minY, bounds.maxY)
+  }
+
+  private edgePanVelocity(): Point {
+    if (!this.pointerCanvas) return { x: 0, y: 0 }
     const edge = 170
     const minimumSpeed = 120
     const maximumSpeed = 920
@@ -2684,11 +2717,24 @@ export class PathwardenEngine {
       const pressure = clamp((edge - distance) / edge, 0, 1)
       return direction * (minimumSpeed + (maximumSpeed - minimumSpeed) * pressure * pressure)
     }
-    const xVelocity = edgeVelocity(this.pointerCanvas.x, WIDTH)
-    const yVelocity = edgeVelocity(this.pointerCanvas.y, HEIGHT)
-    const bounds = this.cameraBounds()
-    this.camera.x = clamp(this.camera.x + xVelocity * delta, bounds.minX, bounds.maxX)
-    this.camera.y = clamp(this.camera.y + yVelocity * delta, bounds.minY, bounds.maxY)
+    return {
+      x: edgeVelocity(this.pointerCanvas.x, WIDTH),
+      y: edgeVelocity(this.pointerCanvas.y, HEIGHT)
+    }
+  }
+
+  private keyboardPanVelocity(): Point {
+    let x = 0
+    let y = 0
+    for (const key of this.heldPanKeys) {
+      const direction = KEYBOARD_PAN_DIRECTIONS[key]
+      if (!direction) continue
+      x += direction.x
+      y += direction.y
+    }
+    const length = Math.hypot(x, y)
+    if (!length) return { x: 0, y: 0 }
+    return { x: x / length * KEYBOARD_PAN_SPEED, y: y / length * KEYBOARD_PAN_SPEED }
   }
 
   private cameraBounds() {
@@ -4060,6 +4106,23 @@ export class PathwardenEngine {
     this.pointerCanvas = null
     this.hoverPathChoice = null
     if (!this.towerDrag) this.hoverCell = null
+  }
+
+  private onKeyDown = (event: KeyboardEvent) => {
+    if (!this.keyboardPan || event.ctrlKey || event.metaKey || event.altKey) return
+    const target = event.target as HTMLElement | null
+    if (target?.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target?.tagName ?? '')) return
+    if (!(event.key.toLowerCase() in KEYBOARD_PAN_DIRECTIONS)) return
+    event.preventDefault()
+    this.heldPanKeys.add(event.key.toLowerCase())
+  }
+
+  private onKeyUp = (event: KeyboardEvent) => {
+    this.heldPanKeys.delete(event.key.toLowerCase())
+  }
+
+  private onWindowBlur = () => {
+    this.heldPanKeys.clear()
   }
 
   private onWheel = (event: WheelEvent) => {

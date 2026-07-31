@@ -48,6 +48,7 @@ export default defineEventHandler(async (event) => {
         power: pathwardenPower(levels),
         surgeCharges: state.surgeCharges,
         skipIntro: state.skipIntro,
+        keyboardPan: state.keyboardPan,
         ambientProgress: {
             seen: state.ambientStoryIds.length,
             total: PATHWARDEN_AMBIENT_STORY_COUNT,
