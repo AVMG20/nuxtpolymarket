@@ -16,3 +16,19 @@ dist
 .env.*
 
 .DS_Store
+
+# Not consumed by the image build — keeping them out of the context means
+# edits to them don't invalidate the COPY . . layer and rerun the Nuxt build.
+docs
+test
+scripts
+AGENTS.md
+CLAUDE.md
+README.md
+LICENSE
+renovate.json
+skills-lock.json
+vitest.config.ts
+Dockerfile
+docker-compose.yml
+.dockerignore
