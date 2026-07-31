@@ -227,6 +227,18 @@ const hints = [
   {
     title: 'Recover after a loss',
     body: 'A failed march still teaches you which lane or enemy type broke the defense. Rebuild around that weakness on the next attempt.'
+  },
+  {
+    title: 'Open the shop quickly',
+    body: 'Right-click the battlefield to open the Aether shop without leaving the map.'
+  },
+  {
+    title: 'Scroll to zoom',
+    body: 'Use the mouse wheel or trackpad scroll over the battlefield to zoom in and out.'
+  },
+  {
+    title: 'Pan from the edges',
+    body: 'Move the pointer toward the battlefield edges to pan the view and inspect more of the realm.'
   }
 ]
 const activeHint = computed(() => hints[activeHintIndex.value]!)
@@ -1282,7 +1294,7 @@ watch(() => [snapshot.value.phase, snapshot.value.wave] as const, ([phase, wave]
           </span>
         </div>
         <div v-if="!snapshot.introStoryActive && !snapshot.openingCinematic" class="pointer-events-auto absolute left-3 top-[4.75rem] z-20">
-          <UTooltip text="Open building inventory">
+          <UTooltip text="Open Aether shop">
             <UButton
               class="building-shop-button relative gap-2 shadow-lg"
               :class="{ 'building-shop-button-active': snapshot.phase === 'planning' }"
@@ -1290,11 +1302,11 @@ watch(() => [snapshot.value.phase, snapshot.value.wave] as const, ([phase, wave]
               :variant="snapshot.phase === 'planning' ? 'solid' : 'soft'"
               size="sm"
               icon="i-lucide-hammer"
-              aria-label="Open building inventory"
+              aria-label="Open Aether shop"
               @click.stop="openBuildingInventory"
             >
-              Open shop
-              <UIcon v-if="snapshot.phase === 'planning'" name="i-lucide-sparkles" class="size-3.5" />
+              Aether shop
+              <PathwardenAetherIcon v-if="snapshot.phase === 'planning'" class="size-4 text-current" />
             </UButton>
           </UTooltip>
         </div>
