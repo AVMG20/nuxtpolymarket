@@ -513,7 +513,7 @@ export class VoidGame {
 
     private spawnRockField() {
         const sector = voidSector(this.sectorTier)
-        const count = randomInt(sector.rockCountMin, sector.rockCountMax)
+        const count = randomInt(sector.rockCountMin, sector.rockCountMax) * 5
         for (let i = 0; i < count; i++) this.spawnRock()
     }
 
@@ -544,7 +544,7 @@ export class VoidGame {
 
     private spawnInitialEnemies() {
         const sector = voidSector(this.sectorTier)
-        for (let i = 0; i < sector.baseEnemies; i++) this.spawnEnemy(voidRollEnemy(this.sectorTier), true)
+        for (let i = 0; i < sector.baseEnemies * 3; i++) this.spawnEnemy(voidRollEnemy(this.sectorTier), true)
     }
 
     private findOpenPoint(minFromCentre: number) {

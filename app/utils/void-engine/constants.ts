@@ -1,10 +1,9 @@
-// The sector is authored at 2x the visible viewport in each axis — four
-// screens of space — and the camera pans over it. The `view` container is
-// scaled to fit the host element on resize, exactly like the pirate raid.
+// The sector is authored at 10x the visible viewport in each axis — 5 times
+// bigger than original 2x in each axis — and the camera pans over it.
 export const VIEW_W = 1400
 export const VIEW_H = 820
-export const WORLD_W = VIEW_W * 2
-export const WORLD_H = VIEW_H * 2
+export const WORLD_W = VIEW_W * 10
+export const WORLD_H = VIEW_H * 10
 
 export const MOTHERSHIP_RADIUS = 120
 
@@ -40,11 +39,12 @@ export const MINE_TRIGGER_RADIUS = 78
 export const MINE_BLAST_RADIUS = 130
 
 export const STAR_LAYERS = [
-    { count: 300, parallax: 0.2, radius: 1, alpha: 0.45, tint: 0x93c5fd },
-    { count: 190, parallax: 0.45, radius: 1.5, alpha: 0.65, tint: 0xe0f2fe },
-    { count: 95, parallax: 0.75, radius: 2.2, alpha: 0.9, tint: 0xffffff }
+    { count: 1500, parallax: 0.2, radius: 1, alpha: 0.45, tint: 0x93c5fd },
+    { count: 950, parallax: 0.45, radius: 1.5, alpha: 0.65, tint: 0xe0f2fe },
+    { count: 475, parallax: 0.75, radius: 2.2, alpha: 0.9, tint: 0xffffff }
 ] as const
 
 export const NEBULA_COLORS = [0x1e1b4b, 0x312e81, 0x0f766e, 0x581c87, 0x7f1d1d, 0x155e75] as const
 
-export const DUST_MOTE_COUNT = 90
+export const DUST_MOTE_COUNT = 450
+

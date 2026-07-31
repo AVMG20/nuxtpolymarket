@@ -101,49 +101,8 @@ export function drawNebula(gfx: Graphics) {
  * few muted constellations. None of it moves, so it never competes with the
  * things you actually have to track.
  */
-export function drawStaticBackdrop(gfx: Graphics, tint: number) {
+export function drawStaticBackdrop(gfx: Graphics, _tint: number) {
     gfx.clear()
-
-    // Very soft corner glows in the sector's colour, so each sector still reads
-    // differently without washing the playfield.
-    gfx.circle(VIEW_W * 0.08, VIEW_H * 0.08, 420).fill({ color: tint, alpha: 0.035 })
-    gfx.circle(VIEW_W * 0.95, VIEW_H * 0.9, 520).fill({ color: tint, alpha: 0.03 })
-
-    drawDistantPlanet(gfx, VIEW_W * 0.86, VIEW_H * 0.82, 145, 0x3b1d5e, 0xa855f7)
-    drawDistantPlanet(gfx, VIEW_W * 0.13, VIEW_H * 0.16, 54, 0x1e293b, 0x64748b)
-
-    // Faint constellations — a handful of dots with hairline joins.
-    const constellations = [
-        [[0.3, 0.12], [0.36, 0.2], [0.44, 0.17], [0.5, 0.26]],
-        [[0.06, 0.62], [0.12, 0.7], [0.19, 0.66], [0.17, 0.78]],
-        [[0.62, 0.06], [0.69, 0.13], [0.76, 0.09]]
-    ]
-    for (const points of constellations) {
-        for (let i = 0; i < points.length; i++) {
-            const [px, py] = points[i]!
-            const x = px! * VIEW_W
-            const y = py! * VIEW_H
-            gfx.circle(x, y, 1.8).fill({ color: 0xe2e8f0, alpha: 0.28 })
-            const next = points[i + 1]
-            if (!next) continue
-            gfx.moveTo(x, y).lineTo(next[0]! * VIEW_W, next[1]! * VIEW_H)
-                .stroke({ width: 1, color: 0xe2e8f0, alpha: 0.08 })
-        }
-    }
-}
-
-/** A banded, side-lit world. Purely scenic — nothing collides with it. */
-function drawDistantPlanet(gfx: Graphics, x: number, y: number, radius: number, body: number, rim: number) {
-    gfx.circle(x, y, radius * 1.7).fill({ color: rim, alpha: 0.05 })
-    gfx.circle(x, y, radius).fill({ color: body, alpha: 0.85 })
-    for (let i = 0; i < 5; i++) {
-        const oy = -radius + (i / 5) * radius * 2 + radius * 0.2
-        gfx.ellipse(x, y + oy, radius * Math.sqrt(Math.max(0, 1 - (oy / radius) ** 2)) * 0.98, radius * 0.07)
-            .fill({ color: shade(body, i % 2 === 0 ? 0.14 : -0.2), alpha: 0.5 })
-    }
-    // Terminator wedge, so it reads as lit from one side rather than as a disc.
-    gfx.circle(x + radius * 0.35, y + radius * 0.2, radius * 0.92).fill({ color: 0x04050c, alpha: 0.45 })
-    gfx.circle(x, y, radius).stroke({ width: 2, color: rim, alpha: 0.35 })
 }
 
 /** Slow-drifting dust motes so empty space still has parallax cues up close. */
