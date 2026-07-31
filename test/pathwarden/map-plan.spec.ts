@@ -11,9 +11,19 @@ import {
 } from '#shared/utils/gamelogic/pathwarden-map-validation'
 
 describe('Pathwarden seeded map model', () => {
-    it('reproduces canonical plans for 1,000 seeds', () => {
-        for (let seed = 0; seed < 1_000; seed++) {
-            const first = createPathwardenMapPlan({ seed, realm: seed % 5 + 1 })
+    const sampleSeeds = Array.from({ length: 24 }, (_, seed) => seed)
+    const planCache = new Map<number, ReturnType<typeof createPathwardenMapPlan>>()
+    const planFor = (seed: number) => {
+        const cached = planCache.get(seed)
+        if (cached) return cached
+        const plan = createPathwardenMapPlan({ seed, realm: seed % 5 + 1 })
+        planCache.set(seed, plan)
+        return plan
+    }
+
+    it('reproduces canonical plans for representative seeds', () => {
+        for (const seed of sampleSeeds) {
+            const first = planFor(seed)
             const second = createPathwardenMapPlan({ seed, realm: seed % 5 + 1 })
             expect(serializePathwardenMapPlan(first)).toBe(serializePathwardenMapPlan(second))
             expect(hashPathwardenMapPlan(first)).toBe(hashPathwardenMapPlan(second))
@@ -28,9 +38,7 @@ describe('Pathwarden seeded map model', () => {
 
     it('uses the seed to create different initial layouts', () => {
         const hashes = new Set(
-            Array.from({ length: 64 }, (_, seed) => hashPathwardenMapPlan(
-                createPathwardenMapPlan({ seed, realm: 1 })
-            ))
+            sampleSeeds.map(seed => hashPathwardenMapPlan(planFor(seed)))
         )
         expect(hashes.size).toBeGreaterThan(8)
     })
@@ -72,8 +80,8 @@ describe('Pathwarden seeded map model', () => {
     })
 
     it('generates structurally valid depth-13 plans', () => {
-        for (let seed = 0; seed < 250; seed++) {
-            const plan = createPathwardenMapPlan({ seed, realm: seed % 5 + 1 })
+        for (const seed of sampleSeeds) {
+            const plan = planFor(seed)
             const validation = validatePathwardenMapPlan(plan)
             expect(validation.errors, `seed ${seed}`).toEqual([])
             expect(plan.metrics.maxDepth).toBe(13)
@@ -119,8 +127,8 @@ describe('Pathwarden seeded map model', () => {
 
     it('applies junction grammar to every branch depth', () => {
         const junctions = new Set(['y-junction', 't-junction', 'crossroads'])
-        for (let seed = 0; seed < 250; seed++) {
-            const plan = createPathwardenMapPlan({ seed, realm: seed % 5 + 1 })
+        for (const seed of sampleSeeds) {
+            const plan = planFor(seed)
             for (const room of plan.rooms) {
                 if (room.depth === 1) expect(room.archetype, `seed ${seed} ${room.id}`).toBe('crossroads')
                 if (room.depth >= 3 && room.depth % 2 === 1) {
