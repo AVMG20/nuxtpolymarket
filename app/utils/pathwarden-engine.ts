@@ -1197,10 +1197,6 @@ export class PathwardenEngine {
   startWave() {
     if (this.phase !== 'planning' || this.pendingWaveStart) return
     if (this.introStoryActive || this.openingCinematicActive) return
-    if (this.wave === 0 && !this.openingCinematicPlayed) {
-      this.startOpeningCinematic()
-      return
-    }
     if (this.ambientActors.some(actor => actor.kind !== 'bird')) {
       this.pendingWaveStart = true
       this.ambientEvacuation = 1.35
