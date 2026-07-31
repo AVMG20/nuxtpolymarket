@@ -2,6 +2,7 @@
 const route = useRoute()
 const tabs = [
   { label: 'Defend', to: '/pathwarden', icon: 'i-lucide-castle' },
+  { label: 'Shop', to: '/pathwarden/shop', icon: 'i-lucide-store' },
   { label: 'Field Guide', to: '/pathwarden/wiki', icon: 'i-lucide-book-open' },
   { label: 'Rankings', to: '/pathwarden/leaderboard', icon: 'i-lucide-trophy' }
 ]

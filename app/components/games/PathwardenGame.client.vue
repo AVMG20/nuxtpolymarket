@@ -281,6 +281,9 @@ const checkpointAetherBonus = computed(() => pathwardenAetherCashoutBonus(
   snapshot.value.realm
 ))
 const checkpointOffer = checkpointAetherBonus
+function formatOneDecimal(value: number) {
+  return Number(value).toLocaleString(undefined, { maximumFractionDigits: 1 })
+}
 const checkpointRate = computed(() => pathwardenCheckpointRate(snapshot.value.wave, snapshot.value.realm))
 const cooldownRemainingMs = computed(() => {
   const until = boostState.value?.runCooldown?.until
@@ -940,7 +943,7 @@ watch(() => [snapshot.value.phase, snapshot.value.wave] as const, ([phase, wave]
         <p class="mt-1 max-w-2xl text-sm text-muted">
           Reveal the frontier. Bend the road. Break the horde.
         </p>
-        <div class="mt-3 flex flex-wrap gap-2">
+        <div v-if="isDev" class="mt-3 flex flex-wrap gap-2">
           <UButton to="/pathwarden/wiki" size="sm" color="neutral" variant="soft" icon="i-lucide-book-open">
             Wiki
           </UButton>
@@ -988,30 +991,6 @@ watch(() => [snapshot.value.phase, snapshot.value.wave] as const, ([phase, wave]
               Play idle
             </UButton>
           </div>
-        </div>
-      </div>
-      <div class="grid grid-cols-3 gap-2 text-center sm:grid-cols-6">
-        <div class="hud-stat rounded-lg border border-default bg-elevated/90 px-3 py-2">
-          <p class="text-xs text-muted">Wave</p>
-          <p class="font-bold tabular-nums">{{ snapshot.wave }}/12</p>
-        </div>
-        <div v-if="!snapshot.introStoryActive && !snapshot.openingCinematic" class="hud-stat rounded-lg border border-primary/40 bg-primary/10 px-3 py-2">
-          <p class="text-xs text-muted">Aether</p>
-          <p class="font-bold tabular-nums text-primary">{{ formatNumber(snapshot.aether, false) }}</p>
-        </div>
-        <div class="hud-stat rounded-lg border border-warning/40 bg-warning/10 px-3 py-2">
-          <p class="text-xs text-muted">Aether bonus</p>
-          <p class="font-bold tabular-nums text-warning">{{ formatNumber(checkpointOffer) }}</p>
-        </div>
-        <div class="hud-stat rounded-lg border border-default bg-elevated/90 px-3 py-2">
-          <p class="text-xs text-muted">Enemies</p>
-          <p class="font-bold tabular-nums">{{ snapshot.enemies }}</p>
-        </div>
-        <div class="hud-stat rounded-lg border border-default bg-elevated/90 px-3 py-2">
-          <p class="text-xs text-muted">{{ snapshot.streak > 1 ? 'Streak' : 'Score' }}</p>
-          <p class="font-bold tabular-nums" :class="{ 'text-warning': snapshot.streak > 1 }">
-            {{ snapshot.streak > 1 ? `${snapshot.streak}×` : formatNumber(snapshot.score) }}
-          </p>
         </div>
       </div>
     </div>
@@ -1324,7 +1303,7 @@ watch(() => [snapshot.value.phase, snapshot.value.wave] as const, ([phase, wave]
                 :loading="settling"
                 @click="cashOut"
               >
-                Cash out Aether bonus · {{ formatNumber(checkpointAetherBonus) }}
+                Cash out Aether bonus · {{ formatOneDecimal(checkpointAetherBonus) }}
               </UButton>
               <UButton
                 color="primary"
@@ -1397,8 +1376,42 @@ watch(() => [snapshot.value.phase, snapshot.value.wave] as const, ([phase, wave]
         </div>
       </div>
 
-      <aside class="space-y-3">
-        <div v-if="snapshot.wave === 0 && snapshot.phase === 'planning'" class="rounded-xl border border-warning/30 bg-elevated/90 p-4 shadow-lg">
+      <aside class="flex flex-col gap-3">
+        <div class="grid grid-cols-2 gap-2 text-center">
+          <div class="hud-stat rounded-lg border border-default bg-elevated/90 px-3 py-2">
+            <p class="text-xs text-muted">Wave</p>
+            <p class="font-bold tabular-nums">{{ snapshot.wave }}/12</p>
+          </div>
+          <div v-if="!snapshot.introStoryActive && !snapshot.openingCinematic" class="hud-stat rounded-lg border border-primary/40 bg-primary/10 px-3 py-2">
+            <p class="text-xs text-muted">Aether</p>
+            <p class="font-bold tabular-nums text-primary">{{ formatNumber(snapshot.aether, false) }}</p>
+          </div>
+          <div class="hud-stat rounded-lg border border-warning/40 bg-warning/10 px-3 py-2">
+            <p class="text-xs text-muted">Aether bonus</p>
+            <p class="font-bold tabular-nums text-warning">{{ formatOneDecimal(checkpointOffer) }}</p>
+          </div>
+          <div class="hud-stat rounded-lg border border-default bg-elevated/90 px-3 py-2">
+            <p class="text-xs text-muted">Enemies</p>
+            <p class="font-bold tabular-nums">{{ snapshot.enemies }}</p>
+          </div>
+          <div class="hud-stat col-span-2 rounded-lg border border-default bg-elevated/90 px-3 py-2">
+            <p class="text-xs text-muted">{{ snapshot.streak > 1 ? 'Streak' : 'Score' }}</p>
+            <p class="font-bold tabular-nums" :class="{ 'text-warning': snapshot.streak > 1 }">
+              {{ snapshot.streak > 1 ? `${snapshot.streak}×` : formatNumber(snapshot.score) }}
+            </p>
+          </div>
+        </div>
+
+        <div class="order-3 flex items-center justify-between rounded-xl border border-default bg-elevated/90 px-4 py-3 shadow-lg">
+          <span class="text-xs text-muted">Optional hints</span>
+          <USwitch v-model="hintsEnabled" size="sm" />
+        </div>
+        <div class="order-3 flex items-center justify-between rounded-xl border border-default bg-elevated/90 px-4 py-3 shadow-lg">
+          <span class="text-xs text-muted">Skip intro on new marches</span>
+          <USwitch :model-value="skipIntro" :loading="savingPreferences" size="sm" @update:model-value="setSkipIntro" />
+        </div>
+
+        <div v-if="snapshot.wave === 0 && snapshot.phase === 'planning'" class="order-2 rounded-xl border border-warning/30 bg-elevated/90 p-4 shadow-lg">
           <div class="flex items-center justify-between">
             <p class="text-xs font-black uppercase tracking-wider text-warning">Realm challenge</p>
             <span class="text-xs text-muted">Unlocked {{ unlockedRealm }}/5</span>
@@ -1431,7 +1444,7 @@ watch(() => [snapshot.value.phase, snapshot.value.wave] as const, ([phase, wave]
           </div>
         </div>
 
-        <div class="rounded-xl border border-primary/30 bg-elevated/90 p-4 shadow-lg">
+        <div class="order-1 rounded-xl border border-primary/30 bg-elevated/90 p-4 shadow-lg">
           <div class="flex items-center justify-between gap-2">
             <p class="font-bold">{{ phaseLabel }}</p>
             <UBadge :color="snapshot.phase === 'wave' ? 'error' : 'primary'" variant="subtle">
@@ -1467,6 +1480,9 @@ watch(() => [snapshot.value.phase, snapshot.value.wave] as const, ([phase, wave]
           >
             {{ snapshot.openingCinematic ? 'The mist is gathering…' : `Call wave ${snapshot.wave + 1}` }}
           </UButton>
+          <UButton color="neutral" variant="ghost" block class="mt-2" :icon="snapshot.paused ? 'i-lucide-play' : 'i-lucide-pause'" :disabled="snapshot.phase !== 'wave'" @click="togglePause">
+            {{ snapshot.paused ? 'Resume battle' : 'Pause battle' }}
+          </UButton>
           <UAlert
             v-if="snapshot.wave === 0 && coolingDown"
             class="mt-3"
@@ -1498,36 +1514,24 @@ watch(() => [snapshot.value.phase, snapshot.value.wave] as const, ([phase, wave]
           />
         </div>
 
-        <UButton color="neutral" variant="ghost" block :icon="snapshot.paused ? 'i-lucide-play' : 'i-lucide-pause'" :disabled="snapshot.phase !== 'wave'" @click="togglePause">
-          {{ snapshot.paused ? 'Resume battle' : 'Pause battle' }}
-        </UButton>
-        <UButton to="/pathwarden/shop" color="primary" variant="soft" block icon="i-lucide-store">
-          Open Reliquary shop
-        </UButton>
         <UButton
           v-if="runActive"
           color="error"
           variant="soft"
           block
+          class="order-4"
           icon="i-lucide-flag"
           :disabled="!canAbandon"
           @click="abandonOpen = true"
         >
           {{ canAbandon ? 'Abandon march' : 'Retreat locked during battle' }}
         </UButton>
-        <div class="flex items-center justify-between px-2">
-          <span class="text-xs text-muted">Optional hints</span>
-          <USwitch v-model="hintsEnabled" size="sm" />
-        </div>
-        <div class="flex items-center justify-between px-2">
-          <span class="text-xs text-muted">Skip intro on new marches</span>
-          <USwitch :model-value="skipIntro" :loading="savingPreferences" size="sm" @update:model-value="setSkipIntro" />
-        </div>
         <UButton
           v-if="isDev"
           color="warning"
           variant="outline"
           block
+          class="order-5"
           icon="i-lucide-flask-conical"
           @click="toggleRoadLaboratory"
         >
@@ -1538,12 +1542,13 @@ watch(() => [snapshot.value.phase, snapshot.value.wave] as const, ([phase, wave]
           color="primary"
           variant="outline"
           block
+          class="order-5"
           icon="i-lucide-trees"
           @click="triggerRandomIdleStory"
         >
           Trigger random idle story
         </UButton>
-        <p class="px-2 text-center text-[10px] text-muted">
+        <p class="order-6 px-2 text-center text-[10px] text-muted">
           Isometric environment and character assets by Kenney · CC0
         </p>
       </aside>
