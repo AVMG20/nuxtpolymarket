@@ -1501,7 +1501,7 @@ watch(() => [snapshot.value.phase, snapshot.value.wave] as const, ([phase, wave]
         </div>
         <div
           v-if="snapshot.phase === 'upgrade'"
-          class="absolute inset-0 flex items-center justify-center bg-background/75 p-4 backdrop-blur-md"
+          class="absolute inset-0 z-30 flex items-center justify-center bg-background/75 p-4 backdrop-blur-md"
         >
           <div class="w-full max-w-3xl">
             <p class="mb-1 text-center text-xs font-bold uppercase tracking-[0.3em] text-primary">The road remembers</p>
