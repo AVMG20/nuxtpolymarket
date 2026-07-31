@@ -254,12 +254,24 @@ export class PirateGame {
         this.app.ticker.add(ticker => this.update(ticker.deltaMS))
     }
 
-    resize(clientWidth: number) {
+    resize(clientWidth: number, clientHeight?: number) {
         if (!this.app) return
-        const w = Math.max(360, Math.round(clientWidth))
-        const h = Math.round(w * WORLD_H / WORLD_W)
+        const targetRatio = WORLD_W / WORLD_H
+        let w = Math.max(360, Math.round(clientWidth))
+        let h = Math.round(w / targetRatio)
+        let scale = w / WORLD_W
+
+        if (clientHeight && clientHeight > 0) {
+            const containerRatio = clientWidth / clientHeight
+            if (containerRatio > targetRatio) {
+                h = Math.round(clientHeight)
+                w = Math.round(h * targetRatio)
+                scale = h / WORLD_H
+            }
+        }
+
         this.app.renderer.resize(w, h)
-        this.world.scale.set(w / WORLD_W)
+        this.world.scale.set(scale)
     }
 
     setPlayerSkin(skinId: string) {
