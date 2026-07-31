@@ -1043,6 +1043,30 @@ watch(() => [snapshot.value.phase, snapshot.value.wave] as const, ([phase, wave]
           </div>
         </div>
       </div>
+      <div class="grid w-full grid-cols-2 gap-2 text-center lg:max-w-2xl lg:grid-cols-5 lg:self-start">
+        <div class="hud-stat rounded-lg border border-default bg-elevated/90 px-3 py-2">
+          <p class="text-xs text-muted">Wave</p>
+          <p class="font-bold tabular-nums">{{ snapshot.wave }}/12</p>
+        </div>
+        <div v-if="!snapshot.introStoryActive && !snapshot.openingCinematic" class="hud-stat rounded-lg border border-primary/40 bg-primary/10 px-3 py-2">
+          <p class="text-xs text-muted">Aether</p>
+          <p class="font-bold tabular-nums text-primary">{{ formatNumber(snapshot.aether, false) }}</p>
+        </div>
+        <div class="hud-stat rounded-lg border border-warning/40 bg-warning/10 px-3 py-2">
+          <p class="text-xs text-muted">Aether bonus</p>
+          <p class="font-bold tabular-nums text-warning">{{ formatOneDecimal(checkpointOffer) }}</p>
+        </div>
+        <div class="hud-stat rounded-lg border border-default bg-elevated/90 px-3 py-2">
+          <p class="text-xs text-muted">{{ snapshot.phase === 'planning' ? 'Next enemies' : 'Enemies' }}</p>
+          <p class="font-bold tabular-nums">{{ snapshot.phase === 'planning' ? snapshot.nextWave.enemies : snapshot.enemies }}</p>
+        </div>
+        <div class="hud-stat rounded-lg border border-default bg-elevated/90 px-3 py-2">
+          <p class="text-xs text-muted">{{ snapshot.streak > 1 ? 'Streak' : 'Score' }}</p>
+          <p class="font-bold tabular-nums" :class="{ 'text-warning': snapshot.streak > 1 }">
+            {{ snapshot.streak > 1 ? `${snapshot.streak}×` : formatNumber(snapshot.score) }}
+          </p>
+        </div>
+      </div>
     </div>
 
     <div class="grid gap-4 xl:grid-cols-[minmax(0,1fr)_292px]">
@@ -1438,81 +1462,12 @@ watch(() => [snapshot.value.phase, snapshot.value.wave] as const, ([phase, wave]
       </div>
 
       <aside class="flex flex-col gap-3">
-        <div class="grid grid-cols-2 gap-2 text-center">
-          <div class="hud-stat rounded-lg border border-default bg-elevated/90 px-3 py-2">
-            <p class="text-xs text-muted">Wave</p>
-            <p class="font-bold tabular-nums">{{ snapshot.wave }}/12</p>
-          </div>
-          <div v-if="!snapshot.introStoryActive && !snapshot.openingCinematic" class="hud-stat rounded-lg border border-primary/40 bg-primary/10 px-3 py-2">
-            <p class="text-xs text-muted">Aether</p>
-            <p class="font-bold tabular-nums text-primary">{{ formatNumber(snapshot.aether, false) }}</p>
-          </div>
-          <div class="hud-stat rounded-lg border border-warning/40 bg-warning/10 px-3 py-2">
-            <p class="text-xs text-muted">Aether bonus</p>
-            <p class="font-bold tabular-nums text-warning">{{ formatOneDecimal(checkpointOffer) }}</p>
-          </div>
-          <div class="hud-stat rounded-lg border border-default bg-elevated/90 px-3 py-2">
-            <p class="text-xs text-muted">{{ snapshot.phase === 'planning' ? 'Next enemies' : 'Enemies' }}</p>
-            <p class="font-bold tabular-nums">{{ snapshot.phase === 'planning' ? snapshot.nextWave.enemies : snapshot.enemies }}</p>
-          </div>
-          <div class="hud-stat col-span-2 rounded-lg border border-default bg-elevated/90 px-3 py-2">
-            <p class="text-xs text-muted">{{ snapshot.streak > 1 ? 'Streak' : 'Score' }}</p>
-            <p class="font-bold tabular-nums" :class="{ 'text-warning': snapshot.streak > 1 }">
-              {{ snapshot.streak > 1 ? `${snapshot.streak}×` : formatNumber(snapshot.score) }}
-            </p>
-          </div>
-        </div>
-
         <div class="order-3 flex items-center justify-between rounded-xl border border-default bg-elevated/90 px-4 py-3 shadow-lg">
           <div class="flex items-center gap-2 text-xs text-muted">
             <UIcon name="i-lucide-book-open" class="size-4 text-primary" />
             <span>Skip intro on new marches</span>
           </div>
           <USwitch :model-value="skipIntro" :loading="savingPreferences" size="sm" @update:model-value="setSkipIntro" />
-        </div>
-
-        <div class="order-3 rounded-xl border border-default bg-elevated/90 p-3 shadow-lg">
-          <div class="flex items-center justify-between gap-2">
-            <div class="flex items-center gap-2">
-              <UIcon name="i-lucide-lightbulb" class="size-4 text-warning" />
-              <span class="text-xs font-bold text-muted">Optional hints</span>
-            </div>
-            <div class="flex items-center gap-1">
-              <USwitch v-model="hintsEnabled" size="xs" aria-label="Enable optional hints" />
-              <UButton
-                v-if="hintsOpen"
-                size="xs"
-                color="neutral"
-                variant="ghost"
-                icon="i-lucide-x"
-                aria-label="Close hint"
-                @click="hintsOpen = false"
-              />
-              <UButton
-                v-else
-                size="xs"
-                color="neutral"
-                variant="ghost"
-                icon="i-lucide-eye"
-                aria-label="Show hint"
-                @click="hintsOpen = true"
-              />
-            </div>
-          </div>
-          <div v-if="hintsOpen && hintsEnabled" class="mt-2 rounded-lg border border-info/30 bg-info/5 p-2">
-            <p class="text-xs font-bold text-info">{{ activeHint.title }}</p>
-            <p class="mt-1 text-xs leading-5 text-muted">{{ activeHint.body }}</p>
-            <div class="mt-2 flex items-center justify-between gap-2">
-              <UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-chevron-left" aria-label="Previous hint" @click="previousHint">
-                Previous
-              </UButton>
-              <span class="text-[10px] tabular-nums text-muted">{{ activeHintIndex + 1 }}/{{ hints.length }}</span>
-              <UButton size="xs" color="neutral" variant="ghost" trailing-icon="i-lucide-chevron-right" aria-label="Next hint" @click="nextHint">
-                Next
-              </UButton>
-            </div>
-          </div>
-          <p v-else-if="hintsOpen" class="mt-2 text-xs text-muted">Hints are disabled.</p>
         </div>
 
         <div v-if="snapshot.wave === 0 && snapshot.phase === 'planning'" class="order-2 rounded-xl border border-warning/30 bg-elevated/90 p-4 shadow-lg">
@@ -1580,13 +1535,54 @@ watch(() => [snapshot.value.phase, snapshot.value.wave] as const, ([phase, wave]
           </div>
           <p class="mt-2 min-h-10 text-sm text-muted">{{ snapshot.message }}</p>
           <UAlert
-            v-if="hintsEnabled && snapshot.wave === 0"
+            v-if="snapshot.wave === 0"
             class="mt-2"
             color="info"
             variant="subtle"
             icon="i-lucide-lightbulb"
-            title="Start with two complementary defenses. Saving Aether improves checkpoint value, but an undefended keep earns nothing."
-          />
+          >
+            <template #title>
+              <div class="flex items-center justify-between gap-2">
+                <span>{{ hintsEnabled && hintsOpen ? activeHint.title : 'Optional hints' }}</span>
+                <div class="flex shrink-0 items-center gap-1">
+                  <USwitch v-model="hintsEnabled" size="xs" aria-label="Enable optional hints" />
+                  <UButton
+                    v-if="hintsOpen"
+                    size="xs"
+                    color="neutral"
+                    variant="ghost"
+                    icon="i-lucide-x"
+                    aria-label="Close hint"
+                    @click="hintsOpen = false"
+                  />
+                  <UButton
+                    v-else
+                    size="xs"
+                    color="neutral"
+                    variant="ghost"
+                    icon="i-lucide-eye"
+                    aria-label="Show hint"
+                    @click="hintsOpen = true"
+                  />
+                </div>
+              </div>
+            </template>
+            <template #description>
+              <div v-if="hintsEnabled && hintsOpen">
+                <p>{{ activeHint.body }}</p>
+                <div class="mt-2 flex items-center justify-between gap-2">
+                  <UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-chevron-left" aria-label="Previous hint" @click="previousHint">
+                    Previous
+                  </UButton>
+                  <span class="text-[10px] tabular-nums text-muted">{{ activeHintIndex + 1 }}/{{ hints.length }}</span>
+                  <UButton size="xs" color="neutral" variant="ghost" trailing-icon="i-lucide-chevron-right" aria-label="Next hint" @click="nextHint">
+                    Next
+                  </UButton>
+                </div>
+              </div>
+              <span v-else>Hints are disabled.</span>
+            </template>
+          </UAlert>
           <div v-if="snapshot.phase === 'planning'" class="rounded-lg border border-default bg-background/60 p-2 text-xs">
             <div class="flex items-center justify-between gap-2">
               <strong :class="snapshot.nextWave.checkpoint ? 'text-warning' : 'text-primary'">
