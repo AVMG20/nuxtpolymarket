@@ -15,6 +15,16 @@ const {
     attachCanvas, detachCanvas, launch, pauseRun, resumeRun, abortRun, closeSummary
 } = useVoidRun()
 
+const sound = useVoidSound()
+const { soundEnabled, soundVolume } = sound
+
+// Audible confirmation when flipping sound on (play() is a no-op while off).
+function onSoundToggle() {
+    sound.unlock()
+    sound.preload()
+    sound.play('pickup')
+}
+
 const selectedSector = ref(1)
 
 watch(() => state.value?.recommendedSector, (tier) => {
@@ -131,10 +141,18 @@ onUnmounted(() => detachCanvas())
           Undock, cut rocks, kill patrols — and be back at the mothership before the ion storm closes.
         </p>
       </div>
-      <div v-if="state" class="flex flex-wrap items-center gap-2">
-        <UBadge color="primary" variant="subtle" :label="`Power ${state.power}`" icon="i-lucide-gauge" />
-        <UBadge color="neutral" variant="subtle" :label="`${state.extractions} extractions`" icon="i-lucide-badge-check" />
-        <UBadge color="neutral" variant="subtle" :label="`${state.rocksMined} rocks cut`" icon="i-lucide-pickaxe" />
+      <div class="flex flex-wrap items-center gap-2">
+        <template v-if="state">
+          <UBadge color="primary" variant="subtle" :label="`Power ${state.power}`" icon="i-lucide-gauge" />
+          <UBadge color="neutral" variant="subtle" :label="`${state.extractions} extractions`" icon="i-lucide-badge-check" />
+          <UBadge color="neutral" variant="subtle" :label="`${state.rocksMined} rocks cut`" icon="i-lucide-pickaxe" />
+        </template>
+        <div class="flex items-center gap-2 rounded-lg border border-default bg-elevated px-3 py-1.5">
+          <UIcon :name="soundEnabled ? 'i-lucide-volume-2' : 'i-lucide-volume-x'" class="size-4 text-primary" />
+          <USwitch v-model="soundEnabled" size="sm" aria-label="Enable Void Runner sound" @click="onSoundToggle" />
+          <USlider v-model="soundVolume" :min="0" :max="100" :disabled="!soundEnabled" size="xs" class="w-24" aria-label="Sound volume" />
+          <span class="w-8 text-right text-[10px] font-bold tabular-nums text-muted">{{ soundVolume }}%</span>
+        </div>
       </div>
     </div>
 

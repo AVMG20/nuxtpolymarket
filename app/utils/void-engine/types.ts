@@ -3,6 +3,7 @@ import type {
     VoidDerivedStats, VoidEnemyDefinition, VoidResourceBundle, VoidResourceId,
     VoidRockDefinition, VoidTurretRuntime, VoidSpecialId
 } from '#shared/utils/gamelogic/void'
+import type { VoidSoundEvent } from '~/utils/void-sounds'
 
 // ─── Public API ─────────────────────────────────────────────────────────────
 
@@ -50,10 +51,8 @@ export interface VoidGameCallbacks {
     onNotice?: (text: string, kind: 'good' | 'bad' | 'info') => void
     onBossSpawn?: (name: string) => void
     onStormPhase?: (phase: 'closing' | 'engulfed') => void
-    onShoot?: () => void
-    onHit?: () => void
-    onExplosion?: (big: boolean) => void
-    onMineComplete?: (resource: VoidResourceId, amount: number) => void
+    /** Fired at every sound-worthy moment; the composable routes it to playback. */
+    onSfx?: (event: VoidSoundEvent) => void
 }
 
 // ─── Internal runtime ───────────────────────────────────────────────────────

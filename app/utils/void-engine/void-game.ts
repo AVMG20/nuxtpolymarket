@@ -345,6 +345,7 @@ export class VoidGame {
         this.callbacks.onMiningProgress(0, null)
         this.callbacks.onTimeChange(0, 0, 1)
         this.callbacks.onBoostChange(this.boostMs, VOID_BOOST_CAPACITY_MS)
+        this.callbacks.onSfx?.('undock')
         return true
     }
 
@@ -620,6 +621,7 @@ export class VoidGame {
 
         if (enemy.boss) {
             this.callbacks.onBossSpawn?.(def.name)
+            this.callbacks.onSfx?.('boss-spawn')
             gsap.fromTo(built.root.scale, { x: 0.2, y: 0.2 }, { x: 1, y: 1, duration: 0.7, ease: 'back.out(2)' })
             this.burst(x, y, def.accentColor, 40, 420)
         }
@@ -690,6 +692,9 @@ export class VoidGame {
         if (wantsBoost) {
             this.boostMs = Math.max(0, this.boostMs - dtMs)
             if (randomChance(0.55)) this.emitThrusterParticle(true)
+            // Cooldown-gated in the manifest, so holding boost pulses the
+            // afterburner rather than retriggering it every frame.
+            this.callbacks.onSfx?.('boost')
         } else {
             this.boostMs = Math.min(VOID_BOOST_CAPACITY_MS, this.boostMs + VOID_BOOST_RECHARGE_PER_SEC * dt)
         }
@@ -809,7 +814,7 @@ export class VoidGame {
             this.spawnParticle({ x: muzzleX, y: muzzleY, vx: 0, vy: 0, color: 0xe0f2fe, radius: 8, life: 110, alpha: 0.8 })
         }
         this.shotsFired += lanes
-        this.callbacks.onShoot?.()
+        this.callbacks.onSfx?.('player-shoot')
     }
 
     // ─── Mining ──────────────────────────────────────────────────────────────
@@ -886,6 +891,9 @@ export class VoidGame {
                 .stroke({ width: 1.6, color: 0xffffff, alpha: 0.9 })
             this.miningRing.position.set(rock.x, rock.y)
             fx.drawMiningRing(this.miningRing, rock.radius, rock.progress, color)
+            // Cooldown-gated so the primary beam reads as a continuous crunchy
+            // cut rather than one long dead sample.
+            this.callbacks.onSfx?.('mine-cut')
         }
 
         if (randomChance(0.6 * rate)) {
@@ -936,8 +944,11 @@ export class VoidGame {
             }
         }
 
-        this.callbacks.onMineComplete?.(rock.def.resource, stored)
-        if (stored < amount) this.callbacks.onNotice?.('Cargo hold is full — dock to unload.', 'bad')
+        this.callbacks.onSfx?.('mine-complete')
+        if (stored < amount) {
+            this.callbacks.onNotice?.('Cargo hold is full — dock to unload.', 'bad')
+            this.callbacks.onSfx?.('cargo-full')
+        }
     }
 
     /** Returns how much actually fit. */
@@ -1017,6 +1028,7 @@ export class VoidGame {
                 size: crit ? 1.15 : 0.9
             })
             this.shotsFired++
+            this.callbacks.onSfx?.('turret-shoot')
         }
     }
 
@@ -1051,6 +1063,7 @@ export class VoidGame {
                 range: 460,
                 size: 0.75
             })
+            this.callbacks.onSfx?.('drone-shoot')
         }
     }
 
@@ -1179,6 +1192,7 @@ export class VoidGame {
                 size: enemy.boss ? 1.4 : 1
             })
         }
+        this.callbacks.onSfx?.('enemy-shoot')
     }
 
     private castEnemyAbility(enemy: EnemyEntity) {
@@ -1280,6 +1294,7 @@ export class VoidGame {
                 wave.fired = true
                 this.shake(240, 9)
                 this.burst(wave.x, wave.y, 0xf87171, 22, 340)
+                this.callbacks.onSfx?.('shockwave')
             }
             if (expand > 0 && !wave.hitPlayer) {
                 const ring = wave.radius * expand
@@ -1309,6 +1324,7 @@ export class VoidGame {
             if (active > 0 && !beam.fired) {
                 beam.fired = true
                 this.shake(200, 7)
+                this.callbacks.onSfx?.('railbeam')
                 const ex = beam.x + Math.cos(beam.angle) * RAILBEAM_LENGTH
                 const ey = beam.y + Math.sin(beam.angle) * RAILBEAM_LENGTH
                 if (segPointDist(beam.x, beam.y, ex, ey, this.px, this.py) < RAILBEAM_WIDTH) {
@@ -1371,6 +1387,7 @@ export class VoidGame {
             this.damagePlayer(mine.damage)
             this.burst(mine.x, mine.y, 0xfacc15, 30, 420)
             this.shake(280, 11)
+            this.callbacks.onSfx?.('mine-explode')
             // Mines are indiscriminate: whatever laid them can eat one too.
             for (const enemy of this.enemies) {
                 if (enemy.dead) continue
@@ -1502,7 +1519,7 @@ export class VoidGame {
     private resolveHit(bullet: Bullet, enemy: EnemyEntity) {
         this.damageEnemy(enemy, bullet.damage, bullet.x, bullet.y, bullet.lifesteal)
         this.burst(bullet.x, bullet.y, bullet.color, bullet.rocket ? 16 : 6, bullet.rocket ? 280 : 160)
-        this.callbacks.onHit?.()
+        this.callbacks.onSfx?.('hit-enemy')
 
         if (bullet.splash > 0) {
             for (const other of this.enemies) {
@@ -1575,7 +1592,7 @@ export class VoidGame {
 
         this.burst(enemy.x, enemy.y, enemy.def.color, enemy.boss ? 70 : 22, enemy.boss ? 620 : 300)
         this.shake(enemy.boss ? 520 : 160, enemy.boss ? 18 : 5)
-        this.callbacks.onExplosion?.(enemy.boss)
+        this.callbacks.onSfx?.(enemy.boss ? 'boss-explode' : 'enemy-explode')
 
         // Wrecks drop material, never money — the dock is the only place
         // anything turns into coins. Later kills drop more, matching how much
@@ -1615,6 +1632,7 @@ export class VoidGame {
         root.position.set(x, y)
         this.effectLayer.addChild(root)
         this.singularities.push({ gfx: root, x, y, age: 0, life: 2000, damage: this.config!.stats.damage * 0.4, tickMs: 250 })
+        this.callbacks.onSfx?.('singularity')
     }
 
     // ─── Pickups ─────────────────────────────────────────────────────────────
@@ -1659,6 +1677,7 @@ export class VoidGame {
                 const stored = this.addCargo(pickup.resource, pickup.amount)
                 if (stored > 0) {
                     fx.floatingText(this.textLayer, pickup.x, pickup.y, `+${stored} ${voidResource(pickup.resource).name}`, voidResource(pickup.resource).color, 13)
+                    this.callbacks.onSfx?.('pickup')
                 }
             }
         }
@@ -1699,6 +1718,7 @@ export class VoidGame {
             this.announced.add('closing')
             this.callbacks.onStormPhase?.('closing')
             this.callbacks.onNotice?.('Ion storm closing in — head for the mothership.', 'bad')
+            this.callbacks.onSfx?.('storm-warning')
         }
         if (p >= 1 && !this.announced.has('engulfed')) {
             this.announced.add('engulfed')
@@ -1802,10 +1822,12 @@ export class VoidGame {
             this.shield -= absorbed
             remaining -= absorbed
             this.burst(this.px, this.py, 0x38bdf8, 10, 200)
+            this.callbacks.onSfx?.('shield-hit')
         }
         if (remaining > 0) {
             this.hull -= remaining
             this.invulnMs = 180
+            this.callbacks.onSfx?.('player-hurt')
             if (this.playerBody) {
                 this.playerBody.tint = 0xff6b6b
                 gsap.delayedCall(0.12, () => { if (this.playerBody && !this.playerBody.destroyed) this.playerBody.tint = 0xffffff })
@@ -1994,10 +2016,12 @@ export class VoidGame {
             this.burst(this.px, this.py, 0xf87171, 60, 620)
             this.shake(600, 20)
             this.playerRoot.visible = false
+            // A clean abort is a decision, not a death — spare the explosion sting.
+            if (reason !== 'cancelled') this.callbacks.onSfx?.('player-death')
         } else {
             this.burst(this.px, this.py, 0x22d3ee, 40, 420)
+            this.callbacks.onSfx?.('extract-success')
         }
-        this.callbacks.onExplosion?.(true)
 
         const result: VoidRunResult = {
             reason,

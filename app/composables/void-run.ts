@@ -50,6 +50,10 @@ let noticeSeq = 0
 let game: VoidGame | null = null
 let mountedHost: HTMLDivElement | null = null
 
+// Bound on every useVoidRun() call (component setup, client-only) so engine
+// callbacks firing after a page swap still reach live playback.
+let voidSound: ReturnType<typeof useVoidSound> | null = null
+
 // Rebound on every usePlayerRun() call so an engine callback firing after a
 // page swap always reaches the currently-mounted page's toast and refresh.
 let currentToast: ReturnType<typeof useToast> | null = null
@@ -132,6 +136,7 @@ function buildGame() {
             boostCapacityMs.value = capacity
         },
         onRunEnd: (result) => { void handleRunEnd(result) },
+        onSfx: event => voidSound?.play(event),
         onNotice: pushNotice,
         onBossSpawn: showBoss,
         onStormPhase: (phase) => {
@@ -142,6 +147,7 @@ function buildGame() {
 
 export function useVoidRun() {
     currentToast = useToast()
+    voidSound = useVoidSound()
 
     async function attachCanvas(
         host: HTMLDivElement,
@@ -194,6 +200,10 @@ export function useVoidRun() {
     async function launch(sector: number) {
         if (!game || launching.value || running.value) return
         launching.value = true
+        // Launching is a user gesture — the one reliable moment to lift the
+        // browser autoplay block and warm the sample cache before undock.
+        voidSound?.unlock()
+        voidSound?.preload()
         try {
             const config = await requestLaunch(sector)
 
@@ -261,6 +271,7 @@ export function useVoidRun() {
 
     function teardown() {
         if (!game) return
+        voidSound?.stop()
         game.destroy()
         game = null
         mountedHost = null
