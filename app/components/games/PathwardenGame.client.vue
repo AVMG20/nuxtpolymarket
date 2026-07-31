@@ -1625,8 +1625,6 @@ watch(() => [snapshot.value.phase, snapshot.value.wave] as const, ([phase, wave]
               <div class="flex items-center justify-between gap-2">
                 <span>{{ hintsEnabled && hintsOpen ? activeHint.title : 'Optional hints' }}</span>
                 <div class="flex shrink-0 items-center gap-1">
-                  <span class="text-[10px] font-bold text-muted">Show hints</span>
-                  <USwitch v-model="hintsEnabled" size="xs" aria-label="Show hints" />
                   <UButton
                     v-if="hintsOpen"
                     size="xs"
@@ -1656,12 +1654,19 @@ watch(() => [snapshot.value.phase, snapshot.value.wave] as const, ([phase, wave]
                     Previous
                   </UButton>
                   <span class="text-[10px] tabular-nums text-muted">{{ activeHintIndex + 1 }}/{{ hints.length }}</span>
-                  <UButton size="xs" color="neutral" variant="ghost" trailing-icon="i-lucide-chevron-right" aria-label="Next hint" @click="nextHint">
-                    Next
-                  </UButton>
+                  <div class="flex items-center gap-2">
+                    <span class="text-[10px] font-bold text-muted">Show hints</span>
+                    <USwitch v-model="hintsEnabled" size="xs" aria-label="Show hints" />
+                    <UButton size="xs" color="neutral" variant="ghost" trailing-icon="i-lucide-chevron-right" aria-label="Next hint" @click="nextHint">
+                      Next
+                    </UButton>
+                  </div>
                 </div>
               </div>
-              <span v-else>Hints are disabled.</span>
+              <div v-else class="flex items-center justify-end gap-2">
+                <span class="text-[10px] font-bold text-muted">Show hints</span>
+                <USwitch v-model="hintsEnabled" size="xs" aria-label="Show hints" />
+              </div>
             </template>
           </UAlert>
           <div v-if="snapshot.phase === 'planning'" class="rounded-lg border border-default bg-background/60 p-2 text-xs">
