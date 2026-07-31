@@ -96,6 +96,14 @@ const casinoGames = [
 
 const arcadeGames = [
   {
+    name: 'Pathwarden',
+    description: 'Shape an expanding road and build a roguelike tower defense',
+    icon: 'i-lucide-castle',
+    to: '/pathwarden',
+    gradient: 'from-teal-950 via-slate-950 to-indigo-950',
+    iconColor: 'text-teal-300'
+  },
+  {
     name: 'SHAPEZZ',
     description: 'Endless platform-shooter mayhem with stackable mutations and 45-second cash-outs',
     icon: 'i-lucide-shapes',

@@ -26,6 +26,12 @@ logs
 # Network captures
 *.har
 
+# Playwright visual QA output
+.playwright-mcp/
+playwright-report/
+test-results/
+blob-report/
+
 # Game design docs & prototype art — kept local, not versioned
 docs/games
 
