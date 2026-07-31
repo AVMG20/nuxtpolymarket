@@ -1445,11 +1445,34 @@ watch(() => [snapshot.value.phase, snapshot.value.wave] as const, ([phase, wave]
         </div>
 
         <div class="order-1 rounded-xl border border-primary/30 bg-elevated/90 p-4 shadow-lg">
-          <div class="flex items-center justify-between gap-2">
-            <p class="font-bold">{{ phaseLabel }}</p>
-            <UBadge :color="snapshot.phase === 'wave' ? 'error' : 'primary'" variant="subtle">
-              {{ snapshot.phase === 'wave' ? 'HORDE' : snapshot.phase === 'path' ? 'FRONTIER' : 'READY' }}
-            </UBadge>
+          <div class="flex items-start justify-between gap-2">
+            <div class="min-w-0">
+              <p class="font-bold">{{ phaseLabel }}</p>
+              <UBadge class="mt-1" :color="snapshot.phase === 'wave' ? 'error' : 'primary'" variant="subtle">
+                {{ snapshot.phase === 'wave' ? 'HORDE' : snapshot.phase === 'path' ? 'FRONTIER' : 'READY' }}
+              </UBadge>
+            </div>
+            <div class="flex shrink-0 flex-col items-stretch gap-1">
+              <UButton
+                v-if="snapshot.phase === 'planning'"
+                size="xs"
+                icon="i-lucide-swords"
+                :disabled="snapshot.introStoryActive || snapshot.activeRunScene || snapshot.openingCinematic || snapshot.towers === 0 || (snapshot.wave === 0 && coolingDown)"
+                @click="startWave"
+              >
+                {{ snapshot.openingCinematic ? 'Gathering…' : `Call wave ${snapshot.wave + 1}` }}
+              </UButton>
+              <UButton
+                size="xs"
+                color="neutral"
+                variant="ghost"
+                :icon="snapshot.paused ? 'i-lucide-play' : 'i-lucide-pause'"
+                :disabled="snapshot.phase !== 'wave'"
+                @click="togglePause"
+              >
+                {{ snapshot.paused ? 'Resume' : 'Pause' }}
+              </UButton>
+            </div>
           </div>
           <p class="mt-2 min-h-10 text-sm text-muted">{{ snapshot.message }}</p>
           <UAlert
@@ -1470,19 +1493,6 @@ watch(() => [snapshot.value.phase, snapshot.value.wave] as const, ([phase, wave]
             <p class="mt-1 truncate text-muted">{{ snapshot.nextWave.threats.join(' · ') }}</p>
             <p class="mt-1 text-primary">{{ snapshot.flawlessWaves }} flawless wave{{ snapshot.flawlessWaves === 1 ? '' : 's' }}</p>
           </div>
-          <UButton
-            v-if="snapshot.phase === 'planning'"
-            block
-            class="mt-3"
-            icon="i-lucide-swords"
-            :disabled="snapshot.introStoryActive || snapshot.activeRunScene || snapshot.openingCinematic || snapshot.towers === 0 || (snapshot.wave === 0 && coolingDown)"
-            @click="startWave"
-          >
-            {{ snapshot.openingCinematic ? 'The mist is gathering…' : `Call wave ${snapshot.wave + 1}` }}
-          </UButton>
-          <UButton color="neutral" variant="ghost" block class="mt-2" :icon="snapshot.paused ? 'i-lucide-play' : 'i-lucide-pause'" :disabled="snapshot.phase !== 'wave'" @click="togglePause">
-            {{ snapshot.paused ? 'Resume battle' : 'Pause battle' }}
-          </UButton>
           <UAlert
             v-if="snapshot.wave === 0 && coolingDown"
             class="mt-3"
