@@ -125,6 +125,31 @@ const buyingSkin = ref<string | null>(null)
 const clearingDebugCache = ref(false)
 const useSurge = ref(false)
 const hintsEnabled = ref(true)
+const hintsOpen = ref(true)
+const activeHintIndex = ref(0)
+const hints = [
+  {
+    title: 'Build a pair of defenses',
+    body: 'Start with two complementary defenses. Fast single-target fire handles runners while area damage controls crowded bends.'
+  },
+  {
+    title: 'Save Aether for checkpoints',
+    body: 'Unspent Aether improves checkpoint rewards. Build enough to hold the road, then bank the rest for a stronger payout.'
+  },
+  {
+    title: 'Read the next wave',
+    body: 'The planning panel shows the next wave’s enemy count, threats, and exits. Use it to place defenses before calling the wave.'
+  },
+  {
+    title: 'Shape the road',
+    body: 'Road expansions reveal new buildable ground and can create better firing lanes. Prefer bends that keep enemies in range.'
+  },
+  {
+    title: 'Relics change defenses',
+    body: 'Relic families and individual effects alter tower projectiles. Inspect a defense to see its current power, range, and special effects.'
+  }
+]
+const activeHint = computed(() => hints[activeHintIndex.value]!)
 const runActive = ref(false)
 const claimedCheckpointWaves = new Set<number>()
 const checkpointClaims = new Map<number, Promise<void>>()
@@ -547,6 +572,18 @@ function nextIntroStory() {
 
 function previousIntroStory() {
   engine?.previousIntroStory()
+}
+
+function skipIntroStory() {
+  engine?.skipIntro()
+}
+
+function nextHint() {
+  activeHintIndex.value = (activeHintIndex.value + 1) % hints.length
+}
+
+function previousHint() {
+  activeHintIndex.value = (activeHintIndex.value - 1 + hints.length) % hints.length
 }
 
 const introStorySlide = computed(() => {
@@ -1050,6 +1087,17 @@ watch(() => [snapshot.value.phase, snapshot.value.wave] as const, ([phase, wave]
         </div>
         <div v-if="snapshot.introStoryActive || snapshot.openingCinematic" class="story-book pointer-events-auto absolute inset-0 z-30 p-3 sm:p-8">
           <div class="story-book-pages mx-auto grid h-full max-w-5xl grid-cols-1 overflow-hidden rounded-[1.4rem] border border-amber-200/35 shadow-2xl sm:grid-cols-2">
+            <UButton
+              v-if="snapshot.introStoryActive"
+              class="absolute right-5 top-5 z-40"
+              size="sm"
+              color="neutral"
+              variant="soft"
+              icon="i-lucide-book-open"
+              @click.stop="skipIntroStory"
+            >
+              Skip intro
+            </UButton>
             <article class="story-page relative flex flex-col justify-center px-7 py-10 sm:px-12">
               <div v-if="snapshot.openingCinematic" class="story-page-text">
                 <p class="text-[10px] font-black uppercase tracking-[0.24em] text-amber-700/80">The holy war</p>
@@ -1391,8 +1439,8 @@ watch(() => [snapshot.value.phase, snapshot.value.wave] as const, ([phase, wave]
             <p class="font-bold tabular-nums text-warning">{{ formatOneDecimal(checkpointOffer) }}</p>
           </div>
           <div class="hud-stat rounded-lg border border-default bg-elevated/90 px-3 py-2">
-            <p class="text-xs text-muted">Enemies</p>
-            <p class="font-bold tabular-nums">{{ snapshot.enemies }}</p>
+            <p class="text-xs text-muted">{{ snapshot.phase === 'planning' ? 'Next enemies' : 'Enemies' }}</p>
+            <p class="font-bold tabular-nums">{{ snapshot.phase === 'planning' ? snapshot.nextWave.enemies : snapshot.enemies }}</p>
           </div>
           <div class="hud-stat col-span-2 rounded-lg border border-default bg-elevated/90 px-3 py-2">
             <p class="text-xs text-muted">{{ snapshot.streak > 1 ? 'Streak' : 'Score' }}</p>
@@ -1403,12 +1451,55 @@ watch(() => [snapshot.value.phase, snapshot.value.wave] as const, ([phase, wave]
         </div>
 
         <div class="order-3 flex items-center justify-between rounded-xl border border-default bg-elevated/90 px-4 py-3 shadow-lg">
-          <span class="text-xs text-muted">Optional hints</span>
-          <USwitch v-model="hintsEnabled" size="sm" />
-        </div>
-        <div class="order-3 flex items-center justify-between rounded-xl border border-default bg-elevated/90 px-4 py-3 shadow-lg">
-          <span class="text-xs text-muted">Skip intro on new marches</span>
+          <div class="flex items-center gap-2 text-xs text-muted">
+            <UIcon name="i-lucide-book-open" class="size-4 text-primary" />
+            <span>Skip intro on new marches</span>
+          </div>
           <USwitch :model-value="skipIntro" :loading="savingPreferences" size="sm" @update:model-value="setSkipIntro" />
+        </div>
+
+        <div class="order-3 rounded-xl border border-default bg-elevated/90 p-3 shadow-lg">
+          <div class="flex items-center justify-between gap-2">
+            <div class="flex items-center gap-2">
+              <UIcon name="i-lucide-lightbulb" class="size-4 text-warning" />
+              <span class="text-xs font-bold text-muted">Optional hints</span>
+            </div>
+            <div class="flex items-center gap-1">
+              <USwitch v-model="hintsEnabled" size="xs" aria-label="Enable optional hints" />
+              <UButton
+                v-if="hintsOpen"
+                size="xs"
+                color="neutral"
+                variant="ghost"
+                icon="i-lucide-x"
+                aria-label="Close hint"
+                @click="hintsOpen = false"
+              />
+              <UButton
+                v-else
+                size="xs"
+                color="neutral"
+                variant="ghost"
+                icon="i-lucide-eye"
+                aria-label="Show hint"
+                @click="hintsOpen = true"
+              />
+            </div>
+          </div>
+          <div v-if="hintsOpen && hintsEnabled" class="mt-2 rounded-lg border border-info/30 bg-info/5 p-2">
+            <p class="text-xs font-bold text-info">{{ activeHint.title }}</p>
+            <p class="mt-1 text-xs leading-5 text-muted">{{ activeHint.body }}</p>
+            <div class="mt-2 flex items-center justify-between gap-2">
+              <UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-chevron-left" aria-label="Previous hint" @click="previousHint">
+                Previous
+              </UButton>
+              <span class="text-[10px] tabular-nums text-muted">{{ activeHintIndex + 1 }}/{{ hints.length }}</span>
+              <UButton size="xs" color="neutral" variant="ghost" trailing-icon="i-lucide-chevron-right" aria-label="Next hint" @click="nextHint">
+                Next
+              </UButton>
+            </div>
+          </div>
+          <p v-else-if="hintsOpen" class="mt-2 text-xs text-muted">Hints are disabled.</p>
         </div>
 
         <div v-if="snapshot.wave === 0 && snapshot.phase === 'planning'" class="order-2 rounded-xl border border-warning/30 bg-elevated/90 p-4 shadow-lg">

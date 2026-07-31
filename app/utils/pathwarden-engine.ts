@@ -1217,6 +1217,14 @@ export class PathwardenEngine {
     this.startOpeningCinematic()
   }
 
+  skipIntro() {
+    if (!this.introStoryActive || this.phase !== 'planning') return
+    this.introStoryActive = false
+    this.openingCinematicPlayed = true
+    this.message = 'The keep is ready. Raise your defenses before the horde arrives.'
+    this.emitState()
+  }
+
   nextIntroStory() {
     if (!this.introStoryActive) return
     this.introStoryPaused = false
