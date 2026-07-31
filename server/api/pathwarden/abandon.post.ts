@@ -44,7 +44,11 @@ export default defineEventHandler(async (event) => {
                 runStartedAt: null,
                 runRealmSnapshot: null,
                 runPowerSnapshot: null,
-                runSurgedSnapshot: null
+                runSurgedSnapshot: null,
+                // Abandoning ends the march, so it puts the wardens on the same
+                // recovery cooldown a finished run does — otherwise a retreat is
+                // a free reset that bypasses the cooldown entirely.
+                lastRunFinishedAt: new Date()
             })
             .where(eq(pathwardenState.userId, userId))
         return {

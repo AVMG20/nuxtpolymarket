@@ -4,7 +4,11 @@ import { pathwardenRuns, pathwardenState } from '#server/database/schema'
 import { requireUserId } from '#server/utils/auth'
 import { credit } from '#server/utils/balance'
 import { getLockedPathwardenState } from '#server/utils/pathwarden'
-import { PATHWARDEN_CHECKPOINT_WAVES, pathwardenCheckpointReward } from '#shared/utils/gamelogic/pathwarden'
+import {
+    PATHWARDEN_CHECKPOINT_WAVES,
+    pathwardenCheckpointReward,
+    pathwardenMaxWaveForElapsedMs
+} from '#shared/utils/gamelogic/pathwarden'
 
 export default defineEventHandler(async (event) => {
     const userId = await requireUserId(event)
@@ -24,6 +28,12 @@ export default defineEventHandler(async (event) => {
             .where(eq(pathwardenRuns.userId, userId))
             .for('update')
         if (!run?.gameState || run.gameState.wave < wave || run.gameState.phase !== 'checkpoint') {
+            throw createError({ statusCode: 409, statusMessage: 'Checkpoint has not been reached yet' })
+        }
+        // The wall-clock has to allow reaching this wave, so a save forged to
+        // wave 12 seconds into a run cannot unlock the late checkpoints.
+        const elapsedMs = Date.now() - state.runStartedAt.getTime()
+        if (wave > pathwardenMaxWaveForElapsedMs(elapsedMs)) {
             throw createError({ statusCode: 409, statusMessage: 'Checkpoint has not been reached yet' })
         }
         const claimed = state.claimedCheckpointWaves ?? []
