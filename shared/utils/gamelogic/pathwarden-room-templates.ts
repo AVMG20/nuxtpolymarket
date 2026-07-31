@@ -401,7 +401,48 @@ function transformPort(
     }
 }
 
+// A template has only eight orientations and the generator re-derives the same
+// ones thousands of times per plan, so each is built once and shared. Callers
+// treat transformed templates as read-only.
+const transformCache = new WeakMap<PathwardenRoomTemplate, Map<number, PathwardenTransformedTemplate>>()
+
+// Canonical orientation order: rotations ascending, unreflected before
+// reflected. The generator's shuffle relies on this exact order to keep its
+// random stream unchanged.
+const CANONICAL_TRANSFORMS: readonly PathwardenTemplateTransform[] = ([0, 90, 180, 270] as const)
+    .flatMap(rotation => [false, true].map(reflected => ({ rotation, reflected })))
+
+const templateTransformsCache = new WeakMap<PathwardenRoomTemplate, readonly PathwardenTransformedTemplate[]>()
+
+export function pathwardenTemplateTransforms(
+    template: PathwardenRoomTemplate
+): readonly PathwardenTransformedTemplate[] {
+    let transforms = templateTransformsCache.get(template)
+    if (!transforms) {
+        transforms = CANONICAL_TRANSFORMS.map(transform => transformPathwardenRoomTemplate(template, transform))
+        templateTransformsCache.set(template, transforms)
+    }
+    return transforms
+}
+
 export function transformPathwardenRoomTemplate(
+    template: PathwardenRoomTemplate,
+    transform: PathwardenTemplateTransform
+): PathwardenTransformedTemplate {
+    let cached = transformCache.get(template)
+    if (!cached) {
+        cached = new Map()
+        transformCache.set(template, cached)
+    }
+    const cacheKey = transform.rotation + (transform.reflected ? 1 : 0)
+    const hit = cached.get(cacheKey)
+    if (hit) return hit
+    const built = buildTransformedTemplate(template, transform)
+    cached.set(cacheKey, built)
+    return built
+}
+
+function buildTransformedTemplate(
     template: PathwardenRoomTemplate,
     transform: PathwardenTemplateTransform
 ): PathwardenTransformedTemplate {

@@ -271,7 +271,8 @@ export const pathwardenState = pgTable('pathwarden_state', {
   runRealmSnapshot: integer('run_realm_snapshot'),
   runPowerSnapshot: integer('run_power_snapshot'),
   runSurgedSnapshot: boolean('run_surged_snapshot'),
-  lastRunFinishedAt: timestamp('last_run_finished_at')
+  lastRunFinishedAt: timestamp('last_run_finished_at'),
+  lastAmbientStoryAt: timestamp('last_ambient_story_at')
 })
 
 export const pathwardenRuns = pgTable('pathwarden_runs', {

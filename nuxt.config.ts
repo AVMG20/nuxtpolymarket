@@ -33,7 +33,9 @@ export default defineNuxtConfig({
         '/games/**': { ssr: false },
         '/pirates/**': { ssr: false },
         '/shapezz': { ssr: false },
-        '/shapezz/**': { ssr: false }
+        '/shapezz/**': { ssr: false },
+        '/pathwarden': { ssr: false },
+        '/pathwarden/**': { ssr: false }
     },
 
 

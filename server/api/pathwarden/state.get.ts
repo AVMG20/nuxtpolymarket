@@ -6,6 +6,7 @@ import { getBalance } from '#server/utils/balance'
 import { getGemGuidePrice } from '#server/utils/gem-exchange'
 import { pathwardenLevels } from '#server/utils/pathwarden'
 import {
+    PATHWARDEN_AMBIENT_STORY_COUNT,
     PATHWARDEN_BOOST_IDS,
     PATHWARDEN_ABANDON_COST_GEMS,
     PATHWARDEN_BOOSTS,
@@ -49,7 +50,7 @@ export default defineEventHandler(async (event) => {
         skipIntro: state.skipIntro,
         ambientProgress: {
             seen: state.ambientStoryIds.length,
-            total: 250,
+            total: PATHWARDEN_AMBIENT_STORY_COUNT,
             achievementUnlocked: state.ambientRewardClaimed,
             freeBoostCredits: state.freeBoostCredits
         },

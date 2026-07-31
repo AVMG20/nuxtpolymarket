@@ -8,6 +8,27 @@ export interface PathwardenMapValidation {
     errors: string[]
 }
 
+// Set and Map probes dominate validation, so cells pack into small integers
+// the same way the generator packs them; strings are only built on the error
+// paths. The stride caps coordinates at 1022 per axis — far beyond any plan
+// that passes the bounds checks, which report absurd coordinates loudly.
+const KEY_STRIDE = 1024
+
+function cellKey(point: PathwardenGridPoint) {
+    return (point.col + 2) * KEY_STRIDE + (point.row + 2)
+}
+
+function pairKey(left: number, right: number) {
+    return left < right
+        ? left * KEY_STRIDE * KEY_STRIDE + right
+        : right * KEY_STRIDE * KEY_STRIDE + left
+}
+
+function formatCellKey(packed: number) {
+    const colPart = Math.floor(packed / KEY_STRIDE)
+    return `${colPart - 2}:${packed - colPart * KEY_STRIDE - 2}`
+}
+
 function key(point: PathwardenGridPoint) {
     return `${point.col}:${point.row}`
 }
@@ -30,31 +51,34 @@ function duplicateIds(ids: string[]) {
 
 function connectedCells(cells: PathwardenGridPoint[]) {
     if (!cells.length) return true
-    const remaining = new Set(cells.map(key))
-    const queue = [cells[0]!]
-    remaining.delete(key(cells[0]!))
-    while (queue.length) {
-        const cell = queue.shift()!
-        const neighbours = [
-            { col: cell.col + 1, row: cell.row },
-            { col: cell.col - 1, row: cell.row },
-            { col: cell.col, row: cell.row + 1 },
-            { col: cell.col, row: cell.row - 1 }
-        ]
-        for (const neighbour of neighbours) {
-            if (!remaining.delete(key(neighbour))) continue
-            queue.push(neighbour)
-        }
+    const remaining = new Set<number>()
+    for (const cell of cells) remaining.add(cellKey(cell))
+    const queue = [cellKey(cells[0]!)]
+    remaining.delete(queue[0]!)
+    for (let head = 0; head < queue.length; head++) {
+        const current = queue[head]!
+        if (remaining.delete(current - KEY_STRIDE)) queue.push(current - KEY_STRIDE)
+        if (remaining.delete(current + KEY_STRIDE)) queue.push(current + KEY_STRIDE)
+        if (remaining.delete(current - 1)) queue.push(current - 1)
+        if (remaining.delete(current + 1)) queue.push(current + 1)
     }
     return remaining.size === 0
 }
 
 export function pathwardenRoomFootprintDimensions(cells: PathwardenGridPoint[]) {
     if (!cells.length) return { width: 0, height: 0, area: 0 }
-    const columns = cells.map(cell => cell.col)
-    const rows = cells.map(cell => cell.row)
-    const width = Math.max(...columns) - Math.min(...columns) + 1
-    const height = Math.max(...rows) - Math.min(...rows) + 1
+    let minCol = Infinity
+    let maxCol = -Infinity
+    let minRow = Infinity
+    let maxRow = -Infinity
+    for (const cell of cells) {
+        if (cell.col < minCol) minCol = cell.col
+        if (cell.col > maxCol) maxCol = cell.col
+        if (cell.row < minRow) minRow = cell.row
+        if (cell.row > maxRow) maxRow = cell.row
+    }
+    const width = maxCol - minCol + 1
+    const height = maxRow - minRow + 1
     return { width, height, area: width * height }
 }
 
@@ -63,9 +87,11 @@ export function isCompactPathwardenRoomFootprint(cells: PathwardenGridPoint[]) {
     return width <= 8 && height <= 8 && area <= 36
 }
 
+const JUNCTION_ARCHETYPES = new Set(['y-junction', 't-junction', 'crossroads'])
+const CONNECTED_FEATURE_KINDS = new Set(['river', 'lake', 'mountain'])
+
 export function validatePathwardenMapPlan(plan: PathwardenMapPlan): PathwardenMapValidation {
     const errors: string[] = []
-    const junctionArchetypes = new Set(['y-junction', 't-junction', 'crossroads'])
     const rooms = new Map(plan.rooms.map(room => [room.id, room]))
     const links = new Map(plan.roadLinks.map(link => [link.id, link]))
     const connections = new Map(plan.connections.map(connection => [connection.id, connection]))
@@ -88,13 +114,13 @@ export function validatePathwardenMapPlan(plan: PathwardenMapPlan): PathwardenMa
         errors.push(`no room reaches depth ${plan.metrics.maxDepth}`)
     }
 
-    const occupied = new Map<string, string>()
+    const occupied = new Map<number, string>()
     for (const room of plan.rooms) {
         if (room.id !== plan.castleRoomId && room.depth === 1 && room.archetype !== 'crossroads') {
             errors.push(`depth-1 room ${room.id} is ${room.archetype}, expected crossroads`)
         }
         if (room.id !== plan.castleRoomId && room.depth >= 3 && room.depth % 2 === 1
-            && !junctionArchetypes.has(room.archetype)) {
+            && !JUNCTION_ARCHETYPES.has(room.archetype)) {
             errors.push(`odd-depth room ${room.id} is ${room.archetype}, expected a junction`)
         }
         if (room.id !== plan.castleRoomId) {
@@ -106,22 +132,29 @@ export function validatePathwardenMapPlan(plan: PathwardenMapPlan): PathwardenMa
                 errors.push(`room ${room.id} footprint ${width}x${height} (${area}) is too large`)
             }
         }
+        const footprint = new Set<number>()
         for (const cell of room.footprint) {
             if (cell.col < 0 || cell.row < 0 || cell.col >= plan.size.cols || cell.row >= plan.size.rows) {
                 errors.push(`room ${room.id} leaves map bounds at ${key(cell)}`)
             }
-            const owner = occupied.get(key(cell))
+            const packed = cellKey(cell)
+            const owner = occupied.get(packed)
             if (owner && owner !== room.id) errors.push(`rooms ${owner} and ${room.id} overlap at ${key(cell)}`)
-            occupied.set(key(cell), room.id)
+            occupied.set(packed, room.id)
+            footprint.add(packed)
         }
-        const footprint = new Set(room.footprint.map(key))
-        for (const cell of [...room.roadCells, ...room.buildableCells]) {
-            if (!footprint.has(key(cell))) errors.push(`room ${room.id} owns a cell outside its footprint`)
+        const roads = new Set<number>()
+        for (const cell of room.roadCells) {
+            if (!footprint.has(cellKey(cell))) errors.push(`room ${room.id} owns a cell outside its footprint`)
+            roads.add(cellKey(cell))
         }
-        const roads = new Set(room.roadCells.map(key))
-        const buildable = new Set(room.buildableCells.map(key))
+        const buildable = new Set<number>()
         for (const cell of room.buildableCells) {
-            if (roads.has(key(cell))) errors.push(`room ${room.id} marks road ${key(cell)} buildable`)
+            if (!footprint.has(cellKey(cell))) errors.push(`room ${room.id} owns a cell outside its footprint`)
+            buildable.add(cellKey(cell))
+        }
+        for (const cell of room.buildableCells) {
+            if (roads.has(cellKey(cell))) errors.push(`room ${room.id} marks road ${key(cell)} buildable`)
         }
         for (const linkId of room.roadLinkIds) {
             if (!links.has(linkId)) errors.push(`room ${room.id} references missing road link ${linkId}`)
@@ -129,32 +162,41 @@ export function validatePathwardenMapPlan(plan: PathwardenMapPlan): PathwardenMa
         const roomLinks = room.roadLinkIds
             .map(linkId => links.get(linkId))
             .filter(link => link !== undefined)
-        const roomRoadKeys = new Set(roomLinks.flatMap(link => [key(link.from), key(link.to)]))
-        for (const cell of room.roadCells) {
-            if (!roomRoadKeys.has(key(cell))) errors.push(`room ${room.id} has unlinked road cell ${key(cell)}`)
-        }
-        const roomDegrees = new Map<string, number>()
+        const roomRoadKeys = new Set<number>()
+        const roomDegrees = new Map<number, number>()
         for (const link of roomLinks) {
-            roomDegrees.set(key(link.from), (roomDegrees.get(key(link.from)) ?? 0) + 1)
-            roomDegrees.set(key(link.to), (roomDegrees.get(key(link.to)) ?? 0) + 1)
+            const fromKey = cellKey(link.from)
+            const toKey = cellKey(link.to)
+            roomRoadKeys.add(fromKey)
+            roomRoadKeys.add(toKey)
+            roomDegrees.set(fromKey, (roomDegrees.get(fromKey) ?? 0) + 1)
+            roomDegrees.set(toKey, (roomDegrees.get(toKey) ?? 0) + 1)
         }
-        const roomExitKeys = new Set(room.ports.filter(port => port.kind === 'exit').map(port => key(port.cell)))
-        const roomEntranceKeys = new Set(room.ports.filter(port => port.kind === 'entrance').map(port => key(port.cell)))
+        for (const cell of room.roadCells) {
+            if (!roomRoadKeys.has(cellKey(cell))) errors.push(`room ${room.id} has unlinked road cell ${key(cell)}`)
+        }
+        const roomExitKeys = new Set<number>()
+        const roomEntranceKeys = new Set<number>()
+        for (const port of room.ports) {
+            if (port.kind === 'exit') roomExitKeys.add(cellKey(port.cell))
+            if (port.kind === 'entrance') roomEntranceKeys.add(cellKey(port.cell))
+        }
         const parentConnection = room.parentConnectionId ? connections.get(room.parentConnectionId) : undefined
         const parentRoom = parentConnection ? rooms.get(parentConnection.fromRoomId) : undefined
         const parentPort = parentConnection
             ? parentRoom?.ports.find(port => port.id === parentConnection.fromPortId)
             : undefined
-        const parentSourceKeys = parentPort ? new Set([key(parentPort.cell)]) : new Set<string>()
-        const terminalEndKeys = new Set((room.terminalApproaches ?? [])
-            .map(approach => approach.cells.at(-1))
-            .filter(cell => cell !== undefined)
-            .map(key))
+        const parentSourceKey = parentPort ? cellKey(parentPort.cell) : null
+        const terminalEndKeys = new Set<number>()
+        for (const approach of room.terminalApproaches ?? []) {
+            const end = approach.cells.at(-1)
+            if (end !== undefined) terminalEndKeys.add(cellKey(end))
+        }
         for (const [cell, degree] of roomDegrees) {
             if (degree === 1 && !roomExitKeys.has(cell) && !roomEntranceKeys.has(cell)
-                && !parentSourceKeys.has(cell) && !terminalEndKeys.has(cell)
+                && cell !== parentSourceKey && !terminalEndKeys.has(cell)
                 && room.id !== plan.castleRoomId) {
-                errors.push(`room ${room.id} has an interior road endpoint at ${cell}`)
+                errors.push(`room ${room.id} has an interior road endpoint at ${formatCellKey(cell)}`)
             }
         }
         for (const featureId of room.featureIds) {
@@ -165,37 +207,35 @@ export function validatePathwardenMapPlan(plan: PathwardenMapPlan): PathwardenMa
             .filter(feature => feature !== undefined)
         for (const feature of roomFeatures) {
             for (const cell of feature.cells) {
-                if (!footprint.has(key(cell))) errors.push(`feature ${feature.id} leaves room ${room.id}`)
-                if (buildable.has(key(cell))) errors.push(`feature ${feature.id} occupies buildable cell ${key(cell)}`)
+                const packed = cellKey(cell)
+                if (!footprint.has(packed)) errors.push(`feature ${feature.id} leaves room ${room.id}`)
+                if (buildable.has(packed)) errors.push(`feature ${feature.id} occupies buildable cell ${key(cell)}`)
             }
-            if (['river', 'lake', 'mountain'].includes(feature.kind) && !connectedCells(feature.cells)) {
+            if (CONNECTED_FEATURE_KINDS.has(feature.kind) && !connectedCells(feature.cells)) {
                 errors.push(`feature ${feature.id} is disconnected`)
             }
         }
         if (room.archetype === 'road-island') {
-            const degree = new Map<string, number>()
-            for (const linkId of room.roadLinkIds) {
-                const link = links.get(linkId)
-                if (!link) continue
-                degree.set(key(link.from), (degree.get(key(link.from)) ?? 0) + 1)
-                degree.set(key(link.to), (degree.get(key(link.to)) ?? 0) + 1)
+            let splits = 0
+            for (const degree of roomDegrees.values()) {
+                if (degree >= 3) splits++
             }
-            if ([...degree.values()].filter(value => value >= 3).length < 2) {
+            if (splits < 2) {
                 errors.push(`road island ${room.id} does not split and reconnect`)
             }
         }
         if (room.archetype === 'bridge-river') {
-            const river = new Set(roomFeatures
-                .filter(feature => feature.kind === 'river')
-                .flatMap(feature => feature.cells)
-                .map(key))
-            const bridge = new Set(roomFeatures
-                .filter(feature => feature.kind === 'bridge')
-                .flatMap(feature => feature.cells)
-                .map(key))
+            const river = new Set<number>()
+            const bridge = new Set<number>()
+            for (const feature of roomFeatures) {
+                if (feature.kind !== 'river' && feature.kind !== 'bridge') continue
+                const target = feature.kind === 'river' ? river : bridge
+                for (const cell of feature.cells) target.add(cellKey(cell))
+            }
             if (!river.size || !bridge.size) errors.push(`river room ${room.id} lacks river or bridge geometry`)
             for (const cell of room.roadCells) {
-                if (river.has(key(cell)) && !bridge.has(key(cell))) {
+                const packed = cellKey(cell)
+                if (river.has(packed) && !bridge.has(packed)) {
                     errors.push(`river room ${room.id} has an unbridged road crossing`)
                 }
             }
@@ -206,7 +246,7 @@ export function validatePathwardenMapPlan(plan: PathwardenMapPlan): PathwardenMa
     }
 
     const connectedExitPortIds = new Set(plan.connections.map(connection => connection.fromPortId))
-    const legalTerminalEnds = new Set<string>()
+    const legalTerminalEnds = new Set<number>()
     for (const room of plan.rooms) {
         const terminalPorts = room.ports.filter(port =>
             port.kind === 'exit' && !connectedExitPortIds.has(port.id))
@@ -215,6 +255,12 @@ export function validatePathwardenMapPlan(plan: PathwardenMapPlan): PathwardenMa
             if (!terminalPorts.some(port => port.id === approach.portId)) {
                 errors.push(`room ${room.id} has unexpected terminal approach ${approach.portId}`)
             }
+        }
+        if (!terminalPorts.length) continue
+        const linkPairs = new Set<number>()
+        for (const linkId of room.roadLinkIds) {
+            const link = links.get(linkId)
+            if (link) linkPairs.add(pairKey(cellKey(link.from), cellKey(link.to)))
         }
         for (const port of terminalPorts) {
             const approach = approaches.find(candidate => candidate.portId === port.id)
@@ -225,43 +271,47 @@ export function validatePathwardenMapPlan(plan: PathwardenMapPlan): PathwardenMa
             if (approach.cells.length !== 6) {
                 errors.push(`terminal approach from ${port.id} has ${approach.cells.length} cells instead of 6`)
             }
-            const uniqueApproachCells = new Set(approach.cells.map(key))
+            const uniqueApproachCells = new Set<number>()
+            for (const cell of approach.cells) uniqueApproachCells.add(cellKey(cell))
             if (uniqueApproachCells.size !== approach.cells.length) {
                 errors.push(`terminal approach from ${port.id} revisits a road cell`)
             }
-            let previous = port.cell
-            for (const [index, cell] of approach.cells.entries()) {
-                if (index === 0 && key(cell) !== key(move(port.cell, port.direction))) {
+            const expectedFirstKey = cellKey(move(port.cell, port.direction))
+            let previous = cellKey(port.cell)
+            for (let index = 0; index < approach.cells.length; index++) {
+                const cell = approach.cells[index]!
+                const packed = cellKey(cell)
+                if (index === 0 && packed !== expectedFirstKey) {
                     errors.push(`terminal approach from ${port.id} does not leave through its port`)
                 }
-                if (occupied.has(key(cell))) {
+                if (occupied.has(packed)) {
                     errors.push(`terminal approach from ${port.id} enters room terrain at ${key(cell)}`)
                 }
-                const ownsLink = room.roadLinkIds
-                    .map(linkId => links.get(linkId))
-                    .some(link => link
-                        && [key(link.from), key(link.to)].sort().join('|')
-                        === [key(previous), key(cell)].sort().join('|'))
-                if (!ownsLink) {
+                if (!linkPairs.has(pairKey(previous, packed))) {
                     errors.push(`terminal approach from ${port.id} lacks link to ${key(cell)}`)
                 }
-                previous = cell
+                previous = packed
             }
-            legalTerminalEnds.add(key(previous))
+            legalTerminalEnds.add(previous)
         }
     }
 
-    const roadDegrees = new Map<string, number>()
+    const roadDegrees = new Map<number, number>()
     for (const link of plan.roadLinks) {
-        roadDegrees.set(key(link.from), (roadDegrees.get(key(link.from)) ?? 0) + 1)
-        roadDegrees.set(key(link.to), (roadDegrees.get(key(link.to)) ?? 0) + 1)
+        const fromKey = cellKey(link.from)
+        const toKey = cellKey(link.to)
+        roadDegrees.set(fromKey, (roadDegrees.get(fromKey) ?? 0) + 1)
+        roadDegrees.set(toKey, (roadDegrees.get(toKey) ?? 0) + 1)
     }
-    const castleRoadEnds = new Set(plan.roadLinks
-        .filter(link => link.roomId === plan.castleRoomId)
-        .flatMap(link => [key(link.from), key(link.to)]))
+    const castleRoadEnds = new Set<number>()
+    for (const link of plan.roadLinks) {
+        if (link.roomId !== plan.castleRoomId) continue
+        castleRoadEnds.add(cellKey(link.from))
+        castleRoadEnds.add(cellKey(link.to))
+    }
     for (const [cell, degree] of roadDegrees) {
         if (degree !== 1 || castleRoadEnds.has(cell) || legalTerminalEnds.has(cell)) continue
-        errors.push(`road has an illegal hard endpoint at ${cell}`)
+        errors.push(`road has an illegal hard endpoint at ${formatCellKey(cell)}`)
     }
 
     for (const link of plan.roadLinks) {
@@ -294,10 +344,10 @@ export function validatePathwardenMapPlan(plan: PathwardenMapPlan): PathwardenMa
         if (connection.kind === 'expansion' && sourcePort && destinationPort) {
             const first = connectionLinks[0]
             const last = connectionLinks[connectionLinks.length - 1]
-            if (!first || key(first.from) !== key(sourcePort.cell)) {
+            if (!first || first.from.col !== sourcePort.cell.col || first.from.row !== sourcePort.cell.row) {
                 errors.push(`connection ${connection.id} does not leave its source port`)
             }
-            if (!last || key(last.to) !== key(destinationPort.cell)) {
+            if (!last || last.to.col !== destinationPort.cell.col || last.to.row !== destinationPort.cell.row) {
                 errors.push(`connection ${connection.id} does not reach its destination port`)
             }
         }

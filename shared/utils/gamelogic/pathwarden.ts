@@ -5,6 +5,33 @@ export type PathwardenBoostLevels = Record<PathwardenBoostId, number>
 export const PATHWARDEN_CHECKPOINT_WAVES = [4, 8, 12] as const
 export const PATHWARDEN_ABANDON_COST_GEMS = 3
 export const PATHWARDEN_SURGE_COST_GEMS = 5
+export const PATHWARDEN_MAX_WAVE = 12
+export const PATHWARDEN_AMBIENT_STORY_COUNT = 250
+
+// Ambient stories surface on a 45-300s in-game timer, so a real player never
+// records two within 20s. Enforcing that floor server-side turns the "POST
+// storyId 1..250 in a loop" forge into a many-hour grind against an active run.
+export const PATHWARDEN_AMBIENT_MIN_INTERVAL_MS = 20_000
+
+// A real march spends most of its wall-clock spawning and clearing enemies:
+// spawn timing alone forces well over two minutes for a full 12-wave victory.
+// This floor is deliberately far below honest play (so it never rejects a real
+// run) yet far above a scripted finish, and it is what caps every wave-derived
+// payout against the clock. The client can claim no more waves than the elapsed
+// time plausibly allows.
+export const PATHWARDEN_MIN_SECONDS_PER_WAVE = 8
+
+/** Highest wave the elapsed wall-clock could plausibly have reached. */
+export function pathwardenMaxWaveForElapsedMs(elapsedMs: number) {
+    if (!Number.isFinite(elapsedMs) || elapsedMs <= 0) return 0
+    return Math.floor(elapsedMs / 1000 / PATHWARDEN_MIN_SECONDS_PER_WAVE)
+}
+
+/** Plausible score ceiling for a run, scaled by the waves actually reached. */
+export function pathwardenMaxScore(wave: number, realm: number) {
+    const boundedWave = Math.max(0, Math.min(PATHWARDEN_MAX_WAVE, Math.floor(wave)))
+    return Math.round(50_000_000 * Math.max(1, realm) * (boundedWave / PATHWARDEN_MAX_WAVE))
+}
 
 export type PathwardenDefenseArchetype = 'ballista' | 'mortar' | 'spire'
 export type PathwardenDefenseFamily = 'star' | 'sun' | 'winter' | 'ember' | 'storm' | 'dawn' | 'venom' | 'gale' | 'prism' | 'siege'
