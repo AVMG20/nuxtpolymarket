@@ -570,6 +570,11 @@ async function setSkipIntro(enabled: boolean) {
   }
 }
 
+function setHintsEnabled(enabled: boolean) {
+  hintsEnabled.value = enabled
+  hintsOpen.value = true
+}
+
 function claimCheckpointReward(wave: number) {
   if (!([4, 8, 12] as number[]).includes(wave) || claimedCheckpointWaves.has(wave)) return Promise.resolve()
   const existing = checkpointClaims.get(wave)
@@ -1554,12 +1559,26 @@ watch(() => [snapshot.value.phase, snapshot.value.wave] as const, ([phase, wave]
       </div>
 
       <aside class="flex flex-col gap-3">
-        <div class="order-3 flex items-center justify-between rounded-xl border border-default bg-elevated/90 px-4 py-3 shadow-lg">
-          <div class="flex items-center gap-2 text-xs text-muted">
-            <UIcon name="i-lucide-book-open" class="size-4 text-primary" />
-            <span>Skip intro on new marches</span>
+        <div class="order-3 rounded-xl border border-default bg-elevated/90 shadow-lg">
+          <div class="flex items-center justify-between px-4 py-3">
+            <div class="flex items-center gap-2 text-xs text-muted">
+              <UIcon name="i-lucide-book-open" class="size-4 text-primary" />
+              <span>Skip intro on new marches</span>
+            </div>
+            <USwitch :model-value="skipIntro" :loading="savingPreferences" size="sm" @update:model-value="setSkipIntro" />
           </div>
-          <USwitch :model-value="skipIntro" :loading="savingPreferences" size="sm" @update:model-value="setSkipIntro" />
+          <div v-if="!hintsOpen" class="flex items-center justify-between border-t border-default px-4 py-2">
+            <div class="flex items-center gap-2 text-xs text-muted">
+              <UIcon name="i-lucide-lightbulb" class="size-4 text-warning" />
+              <span>Optional hints</span>
+            </div>
+            <USwitch
+              :model-value="hintsEnabled"
+              size="xs"
+              aria-label="Show hints"
+              @update:model-value="setHintsEnabled"
+            />
+          </div>
         </div>
 
         <div v-if="snapshot.wave === 0 && snapshot.phase === 'planning'" class="order-2 rounded-xl border border-warning/30 bg-elevated/90 p-4 shadow-lg">
@@ -1627,7 +1646,7 @@ watch(() => [snapshot.value.phase, snapshot.value.wave] as const, ([phase, wave]
           </div>
           <p class="mt-2 min-h-10 text-sm text-muted">{{ snapshot.message }}</p>
           <UAlert
-            v-if="snapshot.wave === 0"
+            v-if="snapshot.wave === 0 && hintsOpen"
             class="mt-2"
             color="info"
             variant="subtle"
@@ -1635,31 +1654,19 @@ watch(() => [snapshot.value.phase, snapshot.value.wave] as const, ([phase, wave]
           >
             <template #title>
               <div class="flex items-center justify-between gap-2">
-                <span>{{ hintsEnabled && hintsOpen ? activeHint.title : 'Optional hints' }}</span>
-                <div class="flex shrink-0 items-center gap-1">
-                  <UButton
-                    v-if="hintsOpen"
-                    size="xs"
-                    color="neutral"
-                    variant="ghost"
-                    icon="i-lucide-x"
-                    aria-label="Close hint"
-                    @click="hintsOpen = false"
-                  />
-                  <UButton
-                    v-else
-                    size="xs"
-                    color="neutral"
-                    variant="ghost"
-                    icon="i-lucide-eye"
-                    aria-label="Show hint"
-                    @click="hintsOpen = true"
-                  />
-                </div>
+                <span>{{ hintsEnabled ? activeHint.title : 'Optional hints' }}</span>
+                <UButton
+                  size="xs"
+                  color="neutral"
+                  variant="ghost"
+                  icon="i-lucide-x"
+                  aria-label="Close hint"
+                  @click="hintsOpen = false"
+                />
               </div>
             </template>
             <template #description>
-              <div v-if="hintsEnabled && hintsOpen">
+              <div v-if="hintsEnabled">
                 <p>{{ activeHint.body }}</p>
                 <div class="-ml-6 mt-2 flex items-center justify-between gap-2">
                   <UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-chevron-left" aria-label="Previous hint" @click="previousHint">
@@ -1672,12 +1679,12 @@ watch(() => [snapshot.value.phase, snapshot.value.wave] as const, ([phase, wave]
                 </div>
                 <div class="-ml-6 mt-1 flex items-center justify-end gap-2">
                   <span class="text-[10px] font-bold text-muted">Show hints</span>
-                  <USwitch v-model="hintsEnabled" size="xs" aria-label="Show hints" />
+                  <USwitch :model-value="hintsEnabled" size="xs" aria-label="Show hints" @update:model-value="setHintsEnabled" />
                 </div>
               </div>
               <div v-else class="-ml-6 flex items-center justify-end gap-2">
                 <span class="text-[10px] font-bold text-muted">Show hints</span>
-                <USwitch v-model="hintsEnabled" size="xs" aria-label="Show hints" />
+                <USwitch :model-value="hintsEnabled" size="xs" aria-label="Show hints" @update:model-value="setHintsEnabled" />
               </div>
             </template>
           </UAlert>
