@@ -1654,16 +1654,16 @@ watch(() => [snapshot.value.phase, snapshot.value.wave] as const, ([phase, wave]
                     Previous
                   </UButton>
                   <span class="text-[10px] tabular-nums text-muted">{{ activeHintIndex + 1 }}/{{ hints.length }}</span>
-                  <div class="flex items-center gap-2">
-                    <span class="text-[10px] font-bold text-muted">Show hints</span>
-                    <USwitch v-model="hintsEnabled" size="xs" aria-label="Show hints" />
-                    <UButton size="xs" color="neutral" variant="ghost" trailing-icon="i-lucide-chevron-right" aria-label="Next hint" @click="nextHint">
-                      Next
-                    </UButton>
-                  </div>
+                  <UButton size="xs" color="neutral" variant="ghost" trailing-icon="i-lucide-chevron-right" aria-label="Next hint" @click="nextHint">
+                    Next
+                  </UButton>
+                </div>
+                <div class="-ml-6 mt-1 flex items-center justify-end gap-2">
+                  <span class="text-[10px] font-bold text-muted">Show hints</span>
+                  <USwitch v-model="hintsEnabled" size="xs" aria-label="Show hints" />
                 </div>
               </div>
-              <div v-else class="flex items-center justify-end gap-2">
+              <div v-else class="-ml-6 flex items-center justify-end gap-2">
                 <span class="text-[10px] font-bold text-muted">Show hints</span>
                 <USwitch v-model="hintsEnabled" size="xs" aria-label="Show hints" />
               </div>
