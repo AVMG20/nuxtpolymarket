@@ -18,7 +18,7 @@ COPY . .
 # Node sizes its default heap from host RAM, which lands too small on modest
 # build machines. Pin it: 3 GB is enough for this build (measured ~4 GB peak
 # RSS including Vite's native side) while leaving the box some headroom.
-ENV NODE_OPTIONS=--max-old-space-size=3072
+ENV NODE_OPTIONS=--max-old-space-size=6072
 RUN node node_modules/nuxt/bin/nuxt.mjs build
 
 
