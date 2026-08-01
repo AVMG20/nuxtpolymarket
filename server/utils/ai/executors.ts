@@ -1,10 +1,11 @@
-import type { H3Event } from 'h3'
+import { createError } from 'nitro/h3'
+import type { H3Event } from 'nitro/h3'
 import { MIN_DEPLOY_SUCCESS, opSuccessChance } from '#shared/utils/hack-config'
 import { ARTIFACT_TYPES, effectiveGrowTime, getPlant, MUTATIONS, PLANT_TYPES } from '#shared/utils/xeno'
 import { AI_CASINO_MAX_BET, AI_MAX_ROUNDS, BANK_MAX_AMOUNT } from '#shared/utils/limits'
 import type { AiToolCall } from '#shared/utils/ai'
 import { playCasinoRounds, playNamedCasinoRounds } from './casino'
-import { getErrorMessage, toolHeaders } from './helpers'
+import { getErrorMessage, toolFetch, toolHeaders } from './helpers'
 
 interface XenoStack {
     typeId: string
@@ -145,11 +146,11 @@ function parseArguments(raw: string): Record<string, unknown> {
 async function getOverview(event: H3Event) {
     const headers = toolHeaders(event)
     const [xeno, colony, hack, miner, gemExchange] = await Promise.all([
-        event.$fetch<XenoState>('/api/xeno/state', { headers }),
-        event.$fetch<ColonyState>('/api/colony/state', { headers }),
-        event.$fetch<HackState>('/api/hack/state', { headers }),
-        event.$fetch<MinerState>('/api/miner/state', { headers }),
-        event.$fetch<GemExchangeState>('/api/gem-exchange/state', { headers })
+        toolFetch<XenoState>('/api/xeno/state', { headers }),
+        toolFetch<ColonyState>('/api/colony/state', { headers }),
+        toolFetch<HackState>('/api/hack/state', { headers }),
+        toolFetch<MinerState>('/api/miner/state', { headers }),
+        toolFetch<GemExchangeState>('/api/gem-exchange/state', { headers })
     ])
 
     const colonyCoinsPerHour = colony.bugs.reduce((sum, bug) => sum + bug.itemsPerHour * bug.itemSellValue, 0)
@@ -268,14 +269,14 @@ async function getOverview(event: H3Event) {
 
 async function runXenoDailies(event: H3Event, keepPerPlantType: number) {
     const headers = toolHeaders(event)
-    const initial = await event.$fetch<XenoState>('/api/xeno/state', { headers })
+    const initial = await toolFetch<XenoState>('/api/xeno/state', { headers })
     const ready = initial.grid.slots.filter((slot): slot is XenoSlot & { plant: NonNullable<XenoSlot['plant']> } =>
         Boolean(slot.plant && Date.parse(slot.plant.completesAt) <= Date.now())
     )
     const harvested: Array<{ slotId: string, result: unknown }> = []
 
     for (const slot of ready) {
-        const result = await event.$fetch('/api/xeno/grid/harvest', {
+        const result = await toolFetch('/api/xeno/grid/harvest', {
             method: 'POST',
             headers,
             body: { slotId: slot.id }
@@ -289,14 +290,14 @@ async function runXenoDailies(event: H3Event, keepPerPlantType: number) {
     ])).values()]
     const replanted: unknown[] = []
     for (const stack of harvestedStacks) {
-        replanted.push(await event.$fetch('/api/xeno/grid/plant-all', {
+        replanted.push(await toolFetch('/api/xeno/grid/plant-all', {
             method: 'POST',
             headers,
             body: stack
         }))
     }
 
-    const afterPlanting = await event.$fetch<XenoState>('/api/xeno/state', { headers })
+    const afterPlanting = await toolFetch<XenoState>('/api/xeno/state', { headers })
     const byType = new Map<string, XenoStack[]>()
     for (const stack of afterPlanting.inventory) {
         const entries = byType.get(stack.typeId) ?? []
@@ -313,7 +314,7 @@ async function runXenoDailies(event: H3Event, keepPerPlantType: number) {
             keepRemaining -= retained
             const quantity = stack.quantity - retained
             if (quantity <= 0) continue
-            const result = await event.$fetch('/api/xeno/market/sell', {
+            const result = await toolFetch('/api/xeno/market/sell', {
                 method: 'POST',
                 headers,
                 body: { typeId, speed: stack.speed, yield: stack.yield, quantity }
@@ -392,15 +393,15 @@ async function manageXenoGarden(event: H3Event, args: Record<string, unknown>) {
     if (!requestedPlants.size) throw createError({ statusCode: 400, statusMessage: 'Choose at least one Xeno plant to prioritize' })
 
     const headers = toolHeaders(event)
-    let state = await event.$fetch<XenoState>('/api/xeno/state', { headers })
+    let state = await toolFetch<XenoState>('/api/xeno/state', { headers })
     const ready = state.grid.slots.filter((slot): slot is XenoSlot & { plant: NonNullable<XenoSlot['plant']> } =>
         Boolean(slot.plant && Date.parse(slot.plant.completesAt) <= Date.now())
     )
     if (args.harvestReady === true) {
         for (const slot of ready) {
-            await event.$fetch('/api/xeno/grid/harvest', { method: 'POST', headers, body: { slotId: slot.id } })
+            await toolFetch('/api/xeno/grid/harvest', { method: 'POST', headers, body: { slotId: slot.id } })
         }
-        state = await event.$fetch<XenoState>('/api/xeno/state', { headers })
+        state = await toolFetch<XenoState>('/api/xeno/state', { headers })
     }
 
     const inventory = state.inventory.map(stack => ({ ...stack }))
@@ -424,7 +425,7 @@ async function manageXenoGarden(event: H3Event, args: Record<string, unknown>) {
             if (slotIndex < 0) break
             const slot = slots.splice(slotIndex, 1)[0]!
             const stack = takeStack(slot, typeId)!
-            await event.$fetch('/api/xeno/grid/plant', {
+            await toolFetch('/api/xeno/grid/plant', {
                 method: 'POST', headers, body: { slotId: slot.id, typeId: stack.typeId, speed: stack.speed, yield: stack.yield }
             })
             stack.quantity--
@@ -447,7 +448,7 @@ async function manageXenoGarden(event: H3Event, args: Record<string, unknown>) {
             if (!candidate) break
             const slot = slots.splice(candidate.slotIndex, 1)[0]!
             const { stack } = candidate
-            await event.$fetch('/api/xeno/grid/plant', {
+            await toolFetch('/api/xeno/grid/plant', {
                 method: 'POST', headers, body: { slotId: slot.id, typeId: stack.typeId, speed: stack.speed, yield: stack.yield }
             })
             stack.quantity--
@@ -472,14 +473,14 @@ async function manageXenoGarden(event: H3Event, args: Record<string, unknown>) {
 
 async function runHackOpsDailies(event: H3Event) {
     const headers = toolHeaders(event)
-    const initial = await event.$fetch<HackState>('/api/hack/state', { headers })
+    const initial = await toolFetch<HackState>('/api/hack/state', { headers })
     const completed = initial.activeOps.filter(op => op.done || Date.parse(op.completesAt) <= Date.now())
     const collected: Array<{ opId: string, result?: unknown, error?: string }> = []
     const redeployed: Array<{ previousOpId: string, result?: unknown, error?: string }> = []
 
     for (const op of completed) {
         try {
-            const result = await event.$fetch('/api/hack/ops/collect', {
+            const result = await toolFetch('/api/hack/ops/collect', {
                 method: 'POST',
                 headers,
                 body: { opId: op.id }
@@ -491,7 +492,7 @@ async function runHackOpsDailies(event: H3Event) {
         }
 
         try {
-            const dispatch = await event.$fetch('/api/hack/ops/dispatch', {
+            const dispatch = await toolFetch('/api/hack/ops/dispatch', {
                 method: 'POST',
                 headers,
                 body: { templateId: op.templateId, agentIds: op.agentIds }
@@ -514,13 +515,13 @@ async function runColonyDailies(event: H3Event, feedMethod: 'coins' | 'gems') {
     }
 
     try {
-        result.collected = await event.$fetch('/api/colony/loot/collect', { method: 'POST', headers })
+        result.collected = await toolFetch('/api/colony/loot/collect', { method: 'POST', headers })
     } catch (error) {
         result.errors.push({ action: 'collect_colony_loot', error: getErrorMessage(error) })
     }
 
     try {
-        result.fed = await event.$fetch('/api/colony/feed', {
+        result.fed = await toolFetch('/api/colony/feed', {
             method: 'POST',
             headers,
             body: { method: feedMethod }
@@ -539,7 +540,7 @@ async function sellColonyResources(event: H3Event, args: Record<string, unknown>
     }
     const itemTypeId = typeof args.itemTypeId === 'string' ? args.itemTypeId : undefined
     const headers = toolHeaders(event)
-    const colony = await event.$fetch<ColonyState>('/api/colony/state', { headers })
+    const colony = await toolFetch<ColonyState>('/api/colony/state', { headers })
     const resources = itemTypeId
         ? colony.inventory.filter(item => item.id === itemTypeId)
         : colony.inventory
@@ -552,7 +553,7 @@ async function sellColonyResources(event: H3Event, args: Record<string, unknown>
     for (const resource of resources) {
         const quantity = resource.quantity - keepQuantity
         if (quantity <= 0) continue
-        const result = await event.$fetch('/api/colony/market/sell', {
+        const result = await toolFetch('/api/colony/market/sell', {
             method: 'POST',
             headers,
             body: { itemTypeId: resource.id, quantity }
@@ -569,13 +570,13 @@ async function startColonyUpgrade(event: H3Event, args: Record<string, unknown>)
     const headers = toolHeaders(event)
 
     if (upgradeType === 'habitat') {
-        return event.$fetch('/api/colony/habitat/upgrade', { method: 'POST', headers })
+        return toolFetch('/api/colony/habitat/upgrade', { method: 'POST', headers })
     }
     if (upgradeType === 'track' && id) {
-        return event.$fetch('/api/colony/upgrades/start', { method: 'POST', headers, body: { trackId: id } })
+        return toolFetch('/api/colony/upgrades/start', { method: 'POST', headers, body: { trackId: id } })
     }
     if (upgradeType === 'research' && id) {
-        return event.$fetch('/api/colony/research/sacrifice', { method: 'POST', headers, body: { typeId: id } })
+        return toolFetch('/api/colony/research/sacrifice', { method: 'POST', headers, body: { typeId: id } })
     }
 
     throw createError({ statusCode: 400, statusMessage: 'Choose habitat, or provide an upgrade ID for a track or research upgrade' })
@@ -590,7 +591,7 @@ async function dispatchHackOpsMission(event: H3Event, args: Record<string, unkno
         throw createError({ statusCode: 400, statusMessage: 'Choose one mission template and one to four unique agent IDs' })
     }
 
-    return event.$fetch('/api/hack/ops/dispatch', {
+    return toolFetch('/api/hack/ops/dispatch', {
         method: 'POST',
         headers: toolHeaders(event),
         body: { templateId, agentIds }
@@ -598,7 +599,7 @@ async function dispatchHackOpsMission(event: H3Event, args: Record<string, unkno
 }
 
 async function findBestHackOpsMission(event: H3Event) {
-    const hack = await event.$fetch<HackState>('/api/hack/state', { headers: toolHeaders(event) })
+    const hack = await toolFetch<HackState>('/api/hack/state', { headers: toolHeaders(event) })
     const freeAgents = hack.agents
         .filter(agent => !agent.onOp)
         .sort((a, b) => b.power - a.power)
@@ -638,7 +639,7 @@ async function findBestHackOpsMission(event: H3Event) {
 
 async function runMinerDailies(event: H3Event) {
     const headers = toolHeaders(event)
-    const initial = await event.$fetch<MinerState>('/api/miner/state', { headers })
+    const initial = await toolFetch<MinerState>('/api/miner/state', { headers })
     const result: {
         minerCash: unknown | null
         factoryGems: unknown | null
@@ -653,7 +654,7 @@ async function runMinerDailies(event: H3Event) {
 
     if (initial.pendingCash >= 0.01) {
         try {
-            result.minerCash = await event.$fetch('/api/miner/collect', { method: 'POST', headers })
+            result.minerCash = await toolFetch('/api/miner/collect', { method: 'POST', headers })
         } catch (error) {
             result.errors.push({ action: 'collect_miner_cash', error: getErrorMessage(error) })
         }
@@ -661,7 +662,7 @@ async function runMinerDailies(event: H3Event) {
 
     if (Math.floor(initial.pendingGems) >= 1) {
         try {
-            result.factoryGems = await event.$fetch('/api/miner/collect-gems', { method: 'POST', headers })
+            result.factoryGems = await toolFetch('/api/miner/collect-gems', { method: 'POST', headers })
         } catch (error) {
             result.errors.push({ action: 'collect_factory_gems', error: getErrorMessage(error) })
         }
@@ -669,7 +670,7 @@ async function runMinerDailies(event: H3Event) {
 
     for (let open = 0; open < initial.lootboxFreeOpensRemaining; open++) {
         try {
-            result.freeLootboxes.push(await event.$fetch('/api/miner/lootbox/open', {
+            result.freeLootboxes.push(await toolFetch('/api/miner/lootbox/open', {
                 method: 'POST',
                 headers,
                 body: { mode: 'free' }
@@ -716,7 +717,7 @@ async function purchaseMinerUpgrades(event: H3Event, args: Record<string, unknow
     let stoppedReason: string | null = null
     for (let level = 0; level < levels; level++) {
         try {
-            purchases.push(await event.$fetch(endpoint, { method: 'POST', headers }))
+            purchases.push(await toolFetch(endpoint, { method: 'POST', headers }))
         } catch (error) {
             stoppedReason = getErrorMessage(error)
             break
@@ -744,12 +745,12 @@ async function tradeGems(event: H3Event, args: Record<string, unknown>) {
     if (price === null) {
         // Default to the price most likely to fill instantly: cross the spread
         // when the opposite side of the book has offers, otherwise the guide.
-        const state = await event.$fetch<GemExchangeState>('/api/gem-exchange/state', { headers })
+        const state = await toolFetch<GemExchangeState>('/api/gem-exchange/state', { headers })
         price = (action === 'buy' ? state.bestAsk : state.bestBid) ?? state.guidePrice
         price = Math.round(price * 100) / 100
     }
 
-    return event.$fetch('/api/gem-exchange/place', {
+    return toolFetch('/api/gem-exchange/place', {
         method: 'POST',
         headers,
         body: { side: action, quantity: gems, price }
@@ -787,7 +788,7 @@ async function playBlackjackRounds(event: H3Event, args: Record<string, unknown>
     for (let round = 1; round <= rounds; round++) {
         let hand: BlackjackPlayResponse
         try {
-            hand = await event.$fetch<BlackjackPlayResponse>('/api/games/blackjack/play', { method: 'POST', headers, body: { bet } })
+            hand = await toolFetch<BlackjackPlayResponse>('/api/games/blackjack/play', { method: 'POST', headers, body: { bet } })
         } catch (error) {
             stoppedReason = getErrorMessage(error)
             break
@@ -815,30 +816,30 @@ export async function executeAiTool(event: H3Event, toolCall: AiToolCall): Promi
         case 'get_player_overview':
             return getOverview(event)
         case 'get_bank_status':
-            return event.$fetch('/api/bank/state', { headers })
+            return toolFetch('/api/bank/state', { headers })
         case 'deposit_to_bank': {
             const amount = Number(args.amount)
             if (!Number.isFinite(amount) || amount <= 0 || amount > BANK_MAX_AMOUNT) {
                 throw createError({ statusCode: 400, statusMessage: 'Enter a valid positive bank deposit amount' })
             }
-            return event.$fetch('/api/bank/deposit', { method: 'POST', headers, body: { amount } })
+            return toolFetch('/api/bank/deposit', { method: 'POST', headers, body: { amount } })
         }
         case 'withdraw_from_bank': {
             const amount = Number(args.amount)
             if (!Number.isFinite(amount) || amount <= 0 || amount > BANK_MAX_AMOUNT) {
                 throw createError({ statusCode: 400, statusMessage: 'Enter a valid positive bank withdrawal amount' })
             }
-            return event.$fetch('/api/bank/withdraw', { method: 'POST', headers, body: { amount } })
+            return toolFetch('/api/bank/withdraw', { method: 'POST', headers, body: { amount } })
         }
         case 'repay_bank_debt':
-            return event.$fetch('/api/bank/deposit', { method: 'POST', headers, body: { repayDebt: true } })
+            return toolFetch('/api/bank/deposit', { method: 'POST', headers, body: { repayDebt: true } })
         case 'collect_colony_loot':
-            return event.$fetch('/api/colony/loot/collect', { method: 'POST', headers })
+            return toolFetch('/api/colony/loot/collect', { method: 'POST', headers })
         case 'run_colony_dailies':
             return runColonyDailies(event, args.feedMethod === 'gems' ? 'gems' : 'coins')
         case 'feed_colony': {
             const method = args.method === 'gems' ? 'gems' : 'coins'
-            return event.$fetch('/api/colony/feed', { method: 'POST', headers, body: { method } })
+            return toolFetch('/api/colony/feed', { method: 'POST', headers, body: { method } })
         }
         case 'sell_colony_resources':
             return sellColonyResources(event, args)
@@ -883,22 +884,22 @@ export async function executeAiTool(event: H3Event, toolCall: AiToolCall): Promi
         case 'play_blackjack': {
             const bet = Number(args.bet)
             if (!Number.isFinite(bet) || bet < 1 || bet > AI_CASINO_MAX_BET) throw createError({ statusCode: 400, statusMessage: 'Invalid blackjack bet' })
-            return event.$fetch('/api/games/blackjack/play', { method: 'POST', headers, body: { bet } })
+            return toolFetch('/api/games/blackjack/play', { method: 'POST', headers, body: { bet } })
         }
         case 'play_blackjack_rounds':
             return playBlackjackRounds(event, args)
         case 'get_blackjack_state':
-            return event.$fetch('/api/games/blackjack/resume', { headers })
+            return toolFetch('/api/games/blackjack/resume', { headers })
         case 'start_blackjack': {
             const bet = Number(args.bet)
             if (!Number.isFinite(bet) || bet < 1 || bet > AI_CASINO_MAX_BET) throw createError({ statusCode: 400, statusMessage: 'Invalid blackjack bet' })
-            return event.$fetch('/api/games/blackjack/start', { method: 'POST', headers, body: { bet } })
+            return toolFetch('/api/games/blackjack/start', { method: 'POST', headers, body: { bet } })
         }
         case 'blackjack_action': {
             const allowed = new Set(['hit', 'stand', 'double', 'split', 'surrender', 'insurance', 'no-insurance'])
             const action = typeof args.action === 'string' ? args.action : ''
             if (!allowed.has(action)) throw createError({ statusCode: 400, statusMessage: 'Invalid blackjack action' })
-            return event.$fetch('/api/games/blackjack/action', { method: 'POST', headers, body: { action } })
+            return toolFetch('/api/games/blackjack/action', { method: 'POST', headers, body: { action } })
         }
         case 'call_game_api': {
             const path = typeof args.path === 'string' ? args.path : ''
@@ -910,7 +911,7 @@ export async function executeAiTool(event: H3Event, toolCall: AiToolCall): Promi
             const body = args.body && typeof args.body === 'object' && !Array.isArray(args.body)
                 ? args.body as Record<string, unknown>
                 : undefined
-            return event.$fetch(path, { method, headers, ...(method === 'POST' ? { body } : {}) })
+            return toolFetch(path, { method, headers, ...(method === 'POST' ? { body } : {}) })
         }
         default:
             throw createError({ statusCode: 400, statusMessage: 'This AI tool is not allowlisted' })

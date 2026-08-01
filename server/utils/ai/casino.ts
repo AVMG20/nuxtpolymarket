@@ -1,6 +1,7 @@
-import type { H3Event } from 'h3'
+import { createError } from 'nitro/h3'
+import type { H3Event } from 'nitro/h3'
 import { AI_CASINO_MAX_BET, AI_MAX_ROUNDS } from '#shared/utils/limits'
-import { getErrorMessage, toolHeaders } from './helpers'
+import { getErrorMessage, toolFetch, toolHeaders } from './helpers'
 
 const CASINO_GAMES = new Set([
     'dice', 'limbo', 'wheel', 'magichands', 'xenoslot',
@@ -141,7 +142,7 @@ export async function playCasinoRounds(event: H3Event, args: Record<string, unkn
     for (let round = 1; round <= rounds; round++) {
         let response: PlayGameResponse
         try {
-            response = await event.$fetch<PlayGameResponse, string>('/api/games/play-game', {
+            response = await toolFetch<PlayGameResponse>('/api/games/play-game', {
                 method: 'POST',
                 headers,
                 body: { game, bet, options }

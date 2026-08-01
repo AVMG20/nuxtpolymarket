@@ -1,5 +1,7 @@
+import { useRuntimeConfig } from 'nitro/runtime-config'
+import { createError } from 'nitro/h3'
 import { and, eq } from 'drizzle-orm'
-import type { H3Event } from 'h3'
+import type { H3Event } from 'nitro/h3'
 import { db } from '#server/database'
 import { aiMessages } from '#server/database/schema'
 import type { AiToolCall } from '#shared/utils/ai'
@@ -31,7 +33,7 @@ async function openRouterStream(
     messages: OpenRouterMessage[],
     onText?: (content: string) => void | Promise<void>
 ) {
-    const config = useRuntimeConfig(event)
+    const config = useRuntimeConfig()
     if (!config.openRouterApiKey) {
         throw createError({ statusCode: 503, statusMessage: 'The AI assistant is not configured' })
     }
