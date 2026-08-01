@@ -46,3 +46,10 @@ jobs:
 
       - name: Test
         run: bun run test
+
+      # Typecheck and tests both pass against a broken bundle: the ELOOP in
+      # Nitro's externals tracing only surfaces here, on a clean install.
+      - name: Build
+        run: bun run build
+        env:
+          NODE_OPTIONS: --max-old-space-size=6072
