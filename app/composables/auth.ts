@@ -13,18 +13,8 @@ export function useAuth() {
   const url = useRequestURL()
   const headers = import.meta.server ? useRequestHeaders() : undefined
 
-  // In local dev, SSR does the session lookup from inside the Nuxt process, and
-  // Node may resolve "localhost" to an IPv6 loopback the dev server isn't bound
-  // to. Pin those requests to IPv4. URL.hostname wraps IPv6 in brackets, so the
-  // literal must be matched with them stripped. Scoped to dev so a proxied
-  // production Host header can never redirect the lookup at 127.0.0.1.
-  const loopbackHost = url.hostname.replace(/^\[|\]$/g, '')
-  const authBaseURL = import.meta.dev && import.meta.server && ['localhost', '::1'].includes(loopbackHost)
-    ? `http://127.0.0.1${url.port ? `:${url.port}` : ''}`
-    : url.origin
-
   const client = createAuthClient({
-    baseURL: authBaseURL,
+    baseURL: url.origin,
     fetchOptions: {
       headers,
     },
