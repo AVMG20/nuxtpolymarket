@@ -2,6 +2,7 @@ export const useColony = () => {
   const toast = useToast()
 
   const { data: state, refresh, pending } = useFetch('/api/colony/state', {
+    headers: useRequestHeaders(['cookie']),
     key: 'colony-state',
     default: () => null
   })

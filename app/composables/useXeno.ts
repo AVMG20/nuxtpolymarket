@@ -4,6 +4,7 @@ export const useXeno = () => {
   const toast = useToast()
 
   const { data: state, refresh, pending } = useFetch('/api/xeno/state', {
+    headers: useRequestHeaders(['cookie']),
     key: 'xeno-state',
     default: () => null,
   })

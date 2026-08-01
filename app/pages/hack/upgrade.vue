@@ -41,7 +41,7 @@ const route = useRoute()
 const router = useRouter()
 const toast = useToast()
 const audio = useAudio('hack')
-const { data: state, refresh } = await useFetch('/api/hack/state')
+const { data: state, refresh } = await useFetch('/api/hack/state', { headers: useRequestHeaders(['cookie']) })
 
 let barkHandle: VoiceHandle | null = null
 function relayBark(entry: VoiceEntry) {

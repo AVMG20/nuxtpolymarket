@@ -27,7 +27,7 @@ function onSoundToggle() {
     sound.unlock()
     sound.play('pickup-coin')
 }
-const { data: state, refresh } = await useFetch('/api/shapezz/state')
+const { data: state, refresh } = await useFetch('/api/shapezz/state', { headers: useRequestHeaders(['cookie']) })
 
 const selectedDifficultyId = ref<ShapezzDifficultyId>('surge')
 const activeDifficultyId = ref<ShapezzDifficultyId>('surge')

@@ -78,6 +78,7 @@ function commitMaxBet() {
 }
 
 const { data: listData, refresh: refreshConversations } = await useFetch<ConversationListResponse>('/api/ai/conversations', {
+  headers: useRequestHeaders(['cookie']),
   default: () => ({ conversations: [], usage: { used: 0, limit: 300, resetsAt: '' } })
 })
 

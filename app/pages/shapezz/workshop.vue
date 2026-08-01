@@ -5,7 +5,7 @@ definePageMeta({ title: 'SHAPEZZ Workshop' })
 
 const toast = useToast()
 const { fetchSession } = useAuth()
-const { data: state, refresh } = await useFetch('/api/shapezz/state')
+const { data: state, refresh } = await useFetch('/api/shapezz/state', { headers: useRequestHeaders(['cookie']) })
 const activeWeaponType = ref<ShapezzWeaponType>('blaster')
 const buyingUpgrade = ref<ShapezzPermanentUpgradeId | null>(null)
 const buyingWeaponId = ref<string | null>(null)

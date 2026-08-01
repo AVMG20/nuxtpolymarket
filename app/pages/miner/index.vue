@@ -1,7 +1,7 @@
 <script setup lang="ts">
 const { fetchSession, user } = useAuth()
 const balance = computed(() => parseFloat(user.value?.balance ?? '0'))
-const { data: state, refresh } = await useFetch('/api/miner/state')
+const { data: state, refresh } = await useFetch('/api/miner/state', { headers: useRequestHeaders(['cookie']) })
 
 // Real-time accumulation: interpolate locally since last fetch
 const fetchedAt = ref(Date.now())

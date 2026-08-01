@@ -377,7 +377,7 @@ const idleStoryItems = idleStoryFamilies.flatMap((family, familyIndex) =>
       value: storyId
     }
   }))
-const { data: boostState, refresh: refreshBoosts } = await useFetch('/api/pathwarden/state')
+const { data: boostState, refresh: refreshBoosts } = await useFetch('/api/pathwarden/state', { headers: useRequestHeaders(['cookie']) })
 const skipIntro = ref(Boolean(boostState.value?.skipIntro))
 const keyboardPan = ref(Boolean(boostState.value?.keyboardPan))
 const savingSkipIntro = ref(false)

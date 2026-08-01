@@ -3,7 +3,7 @@ import '~/assets/css/hack.css'
 
 const route = useRoute()
 const { user } = useAuth()
-const { data: state } = await useFetch('/api/hack/state')
+const { data: state } = await useFetch('/api/hack/state', { headers: useRequestHeaders(['cookie']) })
 
 const displayName = computed(() => {
   const name = user.value?.name

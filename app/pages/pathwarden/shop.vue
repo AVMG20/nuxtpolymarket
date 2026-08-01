@@ -5,7 +5,7 @@ definePageMeta({ title: 'Warden’s Reliquary' })
 
 const toast = useToast()
 const { fetchSession } = useAuth()
-const { data: state, refresh } = await useFetch('/api/pathwarden/state')
+const { data: state, refresh } = await useFetch('/api/pathwarden/state', { headers: useRequestHeaders(['cookie']) })
 const activeTab = ref('defenses')
 const familyFilter = ref('all')
 const buyingDefense = ref<string | null>(null)

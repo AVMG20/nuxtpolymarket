@@ -18,7 +18,7 @@ type HistoryOp = {
   createdAt: string
 }
 
-const { data, pending } = await useFetch('/api/hack/history')
+const { data, pending } = await useFetch('/api/hack/history', { headers: useRequestHeaders(['cookie']) })
 
 const templateMap = new Map(OP_TEMPLATES.map(t => [t.id, t]))
 function template(id: string) {

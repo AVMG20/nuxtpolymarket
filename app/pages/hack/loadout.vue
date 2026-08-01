@@ -29,7 +29,7 @@ const route = useRoute()
 const router = useRouter()
 const toast = useToast()
 const audio = useAudio('hack')
-const { data: state, refresh } = await useFetch('/api/hack/state')
+const { data: state, refresh } = await useFetch('/api/hack/state', { headers: useRequestHeaders(['cookie']) })
 
 // RELAY's spoken reaction on equip/unequip — audio-only, no-immediate-repeat,
 // single-tracked so back-to-back swaps cut the previous line instead of stacking.

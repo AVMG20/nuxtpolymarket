@@ -7,7 +7,7 @@ const canvasHost = ref<HTMLDivElement | null>(null)
 const toast = useToast()
 const { fetchSession } = useAuth()
 
-const { data: state, refresh } = await useFetch('/api/pirates/state')
+const { data: state, refresh } = await useFetch('/api/pirates/state', { headers: useRequestHeaders(['cookie']) })
 
 const {
     hp, maxHp, coins, ammo, gemAmmo, preferGem, abilityCooldownMs, abilityCooldownTotalMs, abilityLocked, remainingMs,

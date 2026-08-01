@@ -6,6 +6,7 @@ import { useElementSize } from '@vueuse/core'
 const selectedCategory = ref<string | null>(null)
 
 const { data, pending } = useFetch('/api/analytics/transactions', {
+  headers: useRequestHeaders(['cookie']),
   lazy: true,
   query: computed(() => ({ category: selectedCategory.value ?? undefined }))
 })

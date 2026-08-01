@@ -3,7 +3,7 @@ definePageMeta({
     title: 'Pirate Raid Leaderboard'
 })
 
-const { data: captains, pending } = await useFetch('/api/pirates/leaderboard')
+const { data: captains, pending } = await useFetch('/api/pirates/leaderboard', { headers: useRequestHeaders(['cookie']) })
 
 const rankStyles = [
     'border-warning/40 bg-warning/10',

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 definePageMeta({ title: 'Pathwarden Rankings' })
-const { data, pending } = await useFetch('/api/pathwarden/leaderboard')
+const { data, pending } = await useFetch('/api/pathwarden/leaderboard', { headers: useRequestHeaders(['cookie']) })
 </script>
 
 <template>

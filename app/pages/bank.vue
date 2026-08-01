@@ -10,8 +10,8 @@ type BankData = {
 }
 type ChartRange = '1d' | '7d' | '30d'
 
-const { data, refresh } = await useFetch<BankData>('/api/bank/state')
-const { data: chartHistory, refresh: refreshChartHistory } = await useFetch<{ points: BankPoint[], earliestAt: string | null }>('/api/bank/chart')
+const { data, refresh } = await useFetch<BankData>('/api/bank/state', { headers: useRequestHeaders(['cookie']) })
+const { data: chartHistory, refresh: refreshChartHistory } = await useFetch<{ points: BankPoint[], earliestAt: string | null }>('/api/bank/chart', { headers: useRequestHeaders(['cookie']) })
 const { user, fetchSession } = useAuth()
 const toast = useToast()
 const now = ref(Date.now())

@@ -17,7 +17,7 @@ const atPowerCap = (agent: any) => agent.power >= agentCap(agent)
 
 const { fetchSession, user } = useAuth()
 const balance = computed(() => parseFloat(user.value?.balance ?? '0'))
-const { data: state, refresh } = await useFetch('/api/hack/state')
+const { data: state, refresh } = await useFetch('/api/hack/state', { headers: useRequestHeaders(['cookie']) })
 const toast = useToast()
 const audio = useAudio('hack')
 

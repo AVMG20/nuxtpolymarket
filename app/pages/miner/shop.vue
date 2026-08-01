@@ -5,7 +5,7 @@ import { RAKEBACK_UNLOCK_COST } from '#shared/utils/profile'
 const { fetchSession, user } = useAuth()
 const gems = computed(() => user.value?.gems ?? 0)
 const rakebackUnlocked = computed(() => !!user.value?.rakebackUnlocked)
-const { data: state, refresh } = await useFetch('/api/miner/state')
+const { data: state, refresh } = await useFetch('/api/miner/state', { headers: useRequestHeaders(['cookie']) })
 
 const toast = useToast()
 const buying = ref<string | null>(null)

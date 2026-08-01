@@ -6,7 +6,7 @@ import {
 } from '#shared/utils/hack-config'
 
 const { fetchSession } = useAuth()
-const { data: state, refresh } = await useFetch('/api/hack/state')
+const { data: state, refresh } = await useFetch('/api/hack/state', { headers: useRequestHeaders(['cookie']) })
 const toast = useToast()
 const audio = useAudio('hack')
 

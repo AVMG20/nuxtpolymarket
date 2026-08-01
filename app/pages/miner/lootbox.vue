@@ -18,7 +18,7 @@ const RARITY_CLASSES: Record<LootboxRarity, { border: string, borderSoft: string
 
 const { fetchSession, user } = useAuth()
 const balance = computed(() => parseFloat(user.value?.balance ?? '0'))
-const { data: state, refresh } = await useFetch('/api/miner/state')
+const { data: state, refresh } = await useFetch('/api/miner/state', { headers: useRequestHeaders(['cookie']) })
 const toast = useToast()
 
 const cap = computed(() => state.value?.cap ?? 0)

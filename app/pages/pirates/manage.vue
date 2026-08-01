@@ -15,7 +15,7 @@ const toast = useToast()
 const balance = computed(() => parseFloat(user.value?.balance ?? '0'))
 const gems = computed(() => user.value?.gems ?? 0)
 
-const { data: state, refresh } = await useFetch('/api/pirates/state')
+const { data: state, refresh } = await useFetch('/api/pirates/state', { headers: useRequestHeaders(['cookie']) })
 
 const repairRemainingLabel = computed(() => {
     const ms = state.value?.repair?.remainingMs ?? 0

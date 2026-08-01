@@ -8,7 +8,7 @@ import {
   getGemBookLevelOrder
 } from '#shared/utils/gamelogic/gem-exchange'
 
-const { data, refresh } = await useFetch('/api/gem-exchange/state')
+const { data, refresh } = await useFetch('/api/gem-exchange/state', { headers: useRequestHeaders(['cookie']) })
 const { user, fetchSession } = useAuth()
 const toast = useToast()
 

@@ -10,7 +10,7 @@ import type { VoiceHandle } from '~/composables/useAudio'
 
 const { fetchSession, user } = useAuth()
 const gems = computed(() => user.value?.gems ?? 0)
-const { data: state, refresh } = await useFetch('/api/hack/state')
+const { data: state, refresh } = await useFetch('/api/hack/state', { headers: useRequestHeaders(['cookie']) })
 const toast = useToast()
 const audio = useAudio('hack')
 

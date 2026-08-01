@@ -12,7 +12,7 @@ const { user, fetchSession, signOut: authSignOut } = useAuth()
 const toast = useToast()
 const route = useRoute()
 
-const { data: history, pending: historyPending, refresh: refreshHistory } = await useFetch<EmblemHistoryEntry[]>('/api/user/emblem/history')
+const { data: history, pending: historyPending, refresh: refreshHistory } = await useFetch<EmblemHistoryEntry[]>('/api/user/emblem/history', { headers: useRequestHeaders(['cookie']) })
 
 const draftEmblem = ref<string | null>(null)
 const sharedByName = ref<string | null>(null)
