@@ -1,5 +1,6 @@
 // shared/utils/gamelogic/wheel.ts
 
+import { createError } from '../../http-error'
 import { randomFloat } from '../random'
 
 export type WheelDifficulty = 'easy' | 'medium' | 'hard'

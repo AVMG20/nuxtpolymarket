@@ -28,6 +28,7 @@
 //   7.8, giving RTP ≈ 0.125 × 7.8 ≈ 0.98 (verified ≈ 97.5% by Monte Carlo, flat across
 //   1/5/10/40 hands, never above 100%).
 
+import { createError } from '../../http-error'
 import { randomFloat } from '../random'
 
 const COLS = 5

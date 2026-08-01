@@ -35,6 +35,7 @@
 //   Weights and the bonus probabilities below are tuned by Monte-Carlo to ~96%
 //   RTP.
 
+import { createError } from '../../http-error'
 import { randomFloat } from '../random'
 
 export const XENOSLOT_COLS = 5

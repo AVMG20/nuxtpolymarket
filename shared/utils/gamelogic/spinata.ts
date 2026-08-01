@@ -25,6 +25,7 @@
 // ── Fairness ────────────────────────────────────────────────────────────────
 //   Total win is capped at SPN_MAX_WIN_MULT × bet.
 
+import { createError } from '../../http-error'
 import { randomFloat } from '../random'
 
 export const SPN_COLS = 5

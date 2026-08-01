@@ -29,6 +29,7 @@
 // to BONUS_WILD and stays that way (sticky) for the rest of the bonus.
 // BONUS_WILD is also a wild, so it substitutes into ordinary paylines too.
 
+import { createError } from '../../http-error'
 import { randomFloat } from '../random'
 
 export const BOS_COLS = 5

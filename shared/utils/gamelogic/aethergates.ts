@@ -42,6 +42,7 @@
 //   paytable, relic-value odds and the buy-feature costs are tuned by
 //   Monte-Carlo to ~96–97% RTP (see the measured figures next to each cost).
 
+import { createError } from '../../http-error'
 import { randomFloat } from '../random'
 
 export const AG_COLS = 6

@@ -1,3 +1,4 @@
+import { createError } from '../../http-error'
 import { randomFloat } from '../random'
 
 export interface DiceResult {

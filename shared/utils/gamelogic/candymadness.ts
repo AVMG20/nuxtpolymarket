@@ -34,6 +34,7 @@
 //   Total win (base + bonus) is capped at MAX_WIN_MULT × bet. Weights and the
 //   paytable are tuned by Monte-Carlo to ~98% RTP.
 
+import { createError } from '../../http-error'
 import { randomFloat } from '../random'
 
 export const CM_COLS = 7
