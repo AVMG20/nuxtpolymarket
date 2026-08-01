@@ -7,7 +7,7 @@ const canvasHost = ref<HTMLDivElement | null>(null)
 const { data: state, refresh } = await useFetch('/api/void/state')
 
 const {
-    hull, maxHull, shield, maxShield, cargo,
+    hull, maxHull, shield, maxShield, cargo, survey,
     elapsedMs, stormPhase, threat, miningProgress, miningLabel,
     extractProgress, extractInRange, boostMs, boostCapacityMs,
     running, paused, launching, summaryVisible, summary,
@@ -47,7 +47,10 @@ const sectorTooHot = computed(() => {
 })
 
 const hullPercent = computed(() => maxHull.value > 0 ? Math.max(0, Math.min(100, hull.value / maxHull.value * 100)) : 0)
-const hullBarColor = computed(() => hullPercent.value > 50 ? 'bg-success' : hullPercent.value > 25 ? 'bg-warning' : 'bg-error')
+// The gauges are lit from a fixed palette rather than theme tokens: they sit
+// against the canvas and have to read as the same instrument as the ship's own
+// hull bar, which is drawn in exactly these colours.
+const hullColor = computed(() => hullPercent.value > 50 ? '#4ade80' : hullPercent.value > 25 ? '#fbbf24' : '#f87171')
 const shieldPercent = computed(() => maxShield.value > 0 ? Math.max(0, Math.min(100, shield.value / maxShield.value * 100)) : 0)
 const cargoPercent = computed(() => cargo.value.capacity > 0 ? Math.min(100, cargo.value.units / cargo.value.capacity * 100) : 0)
 const cargoFull = computed(() => cargo.value.capacity > 0 && cargo.value.units >= cargo.value.capacity)
@@ -66,21 +69,25 @@ function clockLabel(ms: number) {
     return `${Math.floor(total / 60)}:${(total % 60).toString().padStart(2, '0')}`
 }
 
+/** World units are metres; anything past a kilometre reads better as one. */
+function rangeLabel(metres: number) {
+    return metres >= 1000 ? `${(metres / 1000).toFixed(1)} km` : `${Math.round(metres)} m`
+}
+
 const runClock = computed(() => clockLabel(elapsedMs.value))
 const stormCountdown = computed(() => {
     if (elapsedMs.value < VOID_STORM_START_MS) return `Storm in ${clockLabel(VOID_STORM_START_MS - elapsedMs.value)}`
     if (stormPhase.value >= 1) return 'Sector engulfed'
     return `Closing · ${Math.round(stormPhase.value * 100)}%`
 })
-const stormColor = computed(() => {
-    if (elapsedMs.value < VOID_STORM_START_MS) return 'neutral' as const
-    return stormPhase.value >= 1 ? 'error' as const : 'warning' as const
+const stormTone = computed(() => {
+    if (elapsedMs.value < VOID_STORM_START_MS) return 'calm'
+    return stormPhase.value >= 1 ? 'bad' : 'warn'
 })
 const timeLeftLabel = computed(() => clockLabel(Math.max(0, VOID_RUN_DURATION_MS - elapsedMs.value)))
-const threatLabel = computed(() => `Threat ${threat.value.toFixed(2)}x`)
-const threatColor = computed(() => threat.value >= 1.6 ? 'error' as const : threat.value >= 1.25 ? 'warning' as const : 'neutral' as const)
+const threatTone = computed(() => threat.value >= 1.6 ? 'bad' : threat.value >= 1.25 ? 'warn' : 'calm')
 const midBossLabel = computed(() => elapsedMs.value < VOID_MIDBOSS_SPAWN_MS
-    ? `Cruiser in ${clockLabel(VOID_MIDBOSS_SPAWN_MS - elapsedMs.value)}`
+    ? clockLabel(VOID_MIDBOSS_SPAWN_MS - elapsedMs.value)
     : null)
 
 const summaryIcon = computed(() => {
@@ -124,7 +131,7 @@ onUnmounted(() => detachCanvas())
 </script>
 
 <template>
-  <UContainer class="space-y-6">
+  <UContainer class="space-y-5">
     <div class="flex flex-wrap items-center justify-between gap-3">
       <div>
         <h1 class="flex flex-wrap items-center gap-2 text-2xl font-bold">
@@ -161,8 +168,15 @@ onUnmounted(() => detachCanvas())
     </div>
 
     <template v-else>
-      <UCard :ui="{ body: 'p-0 sm:p-0' }">
-        <div class="relative w-full overflow-hidden rounded-lg" style="aspect-ratio: 1400 / 820;">
+      <!--
+        Canvas and deck share one shell. The deck is not a card sitting under a
+        game — it is the bottom of the same instrument, so it carries the same
+        backdrop, the same hairlines and the same cyan the dock ring is drawn in.
+      -->
+      <div class="console">
+        <div class="console__scan" />
+
+        <div class="relative w-full overflow-hidden" style="aspect-ratio: 1400 / 820;">
           <div ref="canvasHost" class="absolute inset-0" />
 
           <!-- In-flight overlays live on top of the canvas so the control deck below never jumps -->
@@ -172,47 +186,53 @@ onUnmounted(() => detachCanvas())
                 <div
                   v-for="notice in notices"
                   :key="notice.id"
-                  class="rounded-full px-3 py-1 text-xs font-semibold backdrop-blur"
-                  :class="notice.kind === 'bad' ? 'bg-error/25 text-red-100' : notice.kind === 'good' ? 'bg-success/25 text-emerald-100' : 'bg-black/40 text-white/90'"
+                  class="notice"
+                  :class="`notice--${notice.kind}`"
                 >
                   {{ notice.text }}
                 </div>
               </TransitionGroup>
             </div>
 
-            <div v-if="bossVisible" class="absolute left-1/2 top-16 -translate-x-1/2 animate-pulse rounded-lg border border-error/50 bg-error/20 px-4 py-1.5 text-sm font-black uppercase tracking-wide text-red-100 backdrop-blur">
-              Capital contact — {{ bossName }}
-            </div>
-
-            <div v-if="miningLabel" class="absolute bottom-4 left-1/2 w-64 -translate-x-1/2 rounded-lg bg-black/55 px-3 py-2 backdrop-blur">
-              <div class="mb-1 flex items-center justify-between text-[11px] font-bold uppercase tracking-wide text-white/80">
-                <span>Cutting {{ miningLabel }}</span>
-                <span class="tabular-nums">{{ Math.round(miningProgress * 100) }}%</span>
-              </div>
-              <div class="h-1.5 overflow-hidden rounded-full bg-white/15">
-                <div class="h-full rounded-full bg-primary" :style="{ width: `${miningProgress * 100}%` }" />
+            <div v-if="bossVisible" class="absolute left-1/2 top-16 -translate-x-1/2 animate-pulse">
+              <div class="hud-plate hud-plate--danger px-4 py-1.5 text-sm font-black uppercase tracking-[0.2em]">
+                Capital contact — {{ bossName }}
               </div>
             </div>
 
-            <div v-if="extractInRange" class="absolute bottom-4 right-4 w-56 rounded-lg border border-info/40 bg-black/60 px-3 py-2 backdrop-blur">
-              <div class="mb-1 flex items-center justify-between text-[11px] font-bold uppercase tracking-wide text-info">
-                <span>Docking</span>
-                <span class="tabular-nums">{{ Math.round(extractProgress * 100) }}%</span>
+            <div v-if="miningLabel" class="absolute bottom-4 left-1/2 w-72 -translate-x-1/2">
+              <div class="hud-plate px-3 py-2">
+                <div class="mb-1.5 flex items-center justify-between">
+                  <span class="lbl">Cutting {{ miningLabel }}</span>
+                  <span class="num text-[11px] text-white/80">{{ Math.round(miningProgress * 100) }}%</span>
+                </div>
+                <div class="gauge">
+                  <div class="gauge__fill" :style="{ 'width': `${miningProgress * 100}%`, '--c': '#67e8f9' }" />
+                </div>
               </div>
-              <div class="h-1.5 overflow-hidden rounded-full bg-white/15">
-                <div class="h-full rounded-full bg-info transition-[width] duration-100" :style="{ width: `${extractProgress * 100}%` }" />
+            </div>
+
+            <div v-if="extractInRange" class="absolute bottom-4 right-4 w-60">
+              <div class="hud-plate hud-plate--dock px-3 py-2">
+                <div class="mb-1.5 flex items-center justify-between">
+                  <span class="lbl" style="color: #67e8f9">Docking</span>
+                  <span class="num text-[11px] text-white/80">{{ Math.round(extractProgress * 100) }}%</span>
+                </div>
+                <div class="gauge">
+                  <div class="gauge__fill gauge__fill--fast" :style="{ 'width': `${extractProgress * 100}%`, '--c': '#22d3ee' }" />
+                </div>
               </div>
             </div>
           </div>
 
           <!-- Paused -->
-          <div v-if="paused" class="absolute inset-0 flex items-center justify-center bg-black/60 backdrop-blur-[2px]">
+          <div v-if="paused" class="absolute inset-0 flex items-center justify-center bg-black/70 backdrop-blur-[2px]">
             <div class="space-y-3 px-4 text-center">
               <UIcon name="i-lucide-pause-circle" class="mx-auto size-10 text-primary" />
               <p class="text-lg font-semibold text-white">
                 Run paused
               </p>
-              <p class="text-sm text-white/70">
+              <p class="num text-sm text-white/70">
                 {{ Math.ceil(hull) }} / {{ maxHull }} hull · {{ cargo.units }} / {{ cargo.capacity }} cargo · {{ runClock }} elapsed
               </p>
               <div class="flex items-center justify-center gap-2">
@@ -223,70 +243,71 @@ onUnmounted(() => detachCanvas())
           </div>
 
           <!-- Pre-launch -->
-          <div v-else-if="!running" class="absolute inset-0 flex items-center justify-center bg-black/60 p-4 backdrop-blur-[2px]">
-            <UCard class="w-full max-w-xl bg-default/95 shadow-2xl" :ui="{ body: 'p-5 sm:p-6' }">
+          <div v-else-if="!running" class="absolute inset-0 flex items-center justify-center bg-black/70 p-4 backdrop-blur-[2px]">
+            <div class="launch w-full max-w-xl">
               <div class="mb-4 flex items-center justify-center gap-2">
-                <UIcon name="i-lucide-rocket" class="size-6 text-primary" />
-                <p class="text-lg font-bold">
+                <UIcon name="i-lucide-rocket" class="size-5 text-primary" />
+                <p class="text-sm font-black uppercase tracking-[0.28em] text-cyan-200">
                   Launch sequence
                 </p>
               </div>
 
-              <div class="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
-                <div class="rounded-lg border border-default bg-elevated p-3">
-                  <p class="text-[10px] font-semibold uppercase tracking-wide text-muted">
+              <div class="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                <div class="stat">
+                  <p class="lbl">
                     Hull
                   </p>
-                  <p class="mt-1 text-lg font-black tabular-nums">
+                  <p class="num mt-1 text-lg font-black text-white">
                     {{ state.stats.maxHull }}
                   </p>
                 </div>
-                <div class="rounded-lg border border-default bg-elevated p-3">
-                  <p class="text-[10px] font-semibold uppercase tracking-wide text-muted">
+                <div class="stat">
+                  <p class="lbl">
                     Cargo
                   </p>
-                  <p class="mt-1 text-lg font-black tabular-nums">
+                  <p class="num mt-1 text-lg font-black text-white">
                     {{ state.stats.cargoCapacity }}
                   </p>
                 </div>
-                <div class="rounded-lg border border-default bg-elevated p-3">
-                  <p class="text-[10px] font-semibold uppercase tracking-wide text-muted">
+                <div class="stat">
+                  <p class="lbl">
                     Modules
                   </p>
-                  <p class="mt-1 text-lg font-black tabular-nums">
+                  <p class="num mt-1 text-lg font-black text-white">
                     {{ state.weapons.filter(w => w.slotIndex !== null).length }} / {{ state.turretSlots }}
                   </p>
                 </div>
-                <div class="rounded-lg border border-default bg-elevated p-3">
-                  <p class="text-[10px] font-semibold uppercase tracking-wide text-muted">
+                <div class="stat">
+                  <p class="lbl">
                     Power
                   </p>
-                  <p class="mt-1 text-lg font-black tabular-nums">
+                  <p class="num mt-1 text-lg font-black text-white">
                     {{ state.power }}
                   </p>
                 </div>
               </div>
 
-              <div class="mt-3 rounded-lg border border-primary/30 bg-primary/5 p-3 text-left">
+              <div class="mt-3 rounded-sm border border-cyan-400/25 bg-cyan-400/5 p-3 text-left">
                 <div class="flex items-center justify-between gap-3">
                   <div>
-                    <p class="flex items-center gap-1.5 text-xs font-bold">
+                    <p class="flex items-center gap-1.5 text-xs font-bold text-white">
                       <UIcon name="i-lucide-radar" class="size-4 text-primary" /> Destination sector
                     </p>
-                    <p class="mt-0.5 text-[10px] text-muted">
-                      Deeper sectors have rarer ore, tougher patrols, and slower cuts.
+                    <p class="mt-0.5 text-[10px] text-white/50">
+                      Deeper sectors have richer deposits, tougher garrisons, and slower cuts.
                     </p>
                   </div>
                   <UBadge v-if="selectedSector === state.recommendedSector" color="primary" variant="subtle" label="Recommended" />
                 </div>
                 <USelect v-model="selectedSector" :items="sectorOptions" value-key="value" class="mt-2 w-full" />
-                <p v-if="selectedSectorInfo" class="mt-2 text-xs text-muted">
+                <p v-if="selectedSectorInfo" class="mt-2 text-xs text-white/60">
                   {{ selectedSectorInfo.description }}
                 </p>
                 <div v-if="selectedSectorInfo" class="mt-2 flex flex-wrap items-center gap-1.5">
                   <UBadge color="neutral" variant="subtle" :label="`${selectedSectorInfo.threat.toFixed(1)}x threat`" />
                   <UBadge color="success" variant="subtle" :label="`${selectedSectorInfo.reward.toFixed(1)}x reward`" />
-                  <UBadge color="neutral" variant="subtle" :label="`${selectedSectorInfo.mineTimeMult.toFixed(2)}x cut time`" />
+                  <UBadge color="primary" variant="subtle" :label="`${selectedSectorInfo.depositSites} rich deposits`" />
+                  <UBadge color="neutral" variant="subtle" :label="`${selectedSectorInfo.depositGuards} guards each`" />
                 </div>
                 <p v-if="sectorTooHot" class="mt-2 flex items-center gap-1.5 text-xs text-warning">
                   <UIcon name="i-lucide-triangle-alert" class="size-3.5" />
@@ -304,61 +325,62 @@ onUnmounted(() => detachCanvas())
                 :disabled="!selectedSectorInfo?.unlocked"
                 @click="handleLaunch"
               />
-              <p class="mt-2 text-center text-[11px] text-muted">
+              <p class="mt-2 text-center text-[11px] text-white/45">
                 WASD to thrust · Space to boost · mouse to aim · hold left click to fire or mine
               </p>
-              <p class="mt-1 text-center text-[11px] text-muted">
-                Patrols get stronger every minute. A strike cruiser arrives at 3:00 and the storm starts closing at 5:00.
+              <p class="mt-1 text-center text-[11px] text-white/45">
+                The scan marks every rich deposit at undock. They are a long way out and something is sitting on each of them.
               </p>
-            </UCard>
+            </div>
           </div>
         </div>
 
         <!-- Control deck -->
-        <div v-if="running" class="border-t border-default bg-elevated/80 p-3 sm:p-4">
-          <div class="grid gap-3 lg:grid-cols-[minmax(240px,1.1fr)_minmax(220px,1fr)_minmax(200px,0.8fr)_auto]">
-            <section class="space-y-2.5 rounded-lg border border-default bg-default p-3">
-              <div class="flex items-center justify-between text-xs">
-                <span class="flex items-center gap-1.5 font-semibold"><UIcon name="i-lucide-heart" class="size-4 text-error" /> Hull</span>
-                <span class="tabular-nums text-muted">{{ Math.ceil(hull) }} / {{ maxHull }}</span>
+        <div v-if="running" class="deck">
+          <div class="grid gap-2.5 xl:grid-cols-[minmax(210px,0.95fr)_minmax(210px,1fr)_minmax(200px,1fr)_minmax(150px,0.7fr)_auto]">
+            <section class="panel space-y-2">
+              <div class="flex items-baseline justify-between">
+                <span class="lbl">Hull</span>
+                <span class="num text-[11px] text-white/70">{{ Math.ceil(hull) }} / {{ maxHull }}</span>
               </div>
-              <div class="h-2 overflow-hidden rounded-full bg-accented">
-                <div class="h-full rounded-full transition-[width] duration-200" :class="hullBarColor" :style="{ width: `${hullPercent}%` }" />
+              <div class="gauge gauge--tall">
+                <div class="gauge__fill" :style="{ 'width': `${hullPercent}%`, '--c': hullColor }" />
               </div>
 
               <template v-if="maxShield > 0">
-                <div class="flex items-center justify-between text-xs">
-                  <span class="flex items-center gap-1.5 font-semibold"><UIcon name="i-lucide-shield" class="size-4 text-info" /> Shield</span>
-                  <span class="tabular-nums text-muted">{{ Math.ceil(shield) }} / {{ maxShield }}</span>
+                <div class="flex items-baseline justify-between">
+                  <span class="lbl">Shield</span>
+                  <span class="num text-[11px] text-white/70">{{ Math.ceil(shield) }} / {{ maxShield }}</span>
                 </div>
-                <div class="h-1.5 overflow-hidden rounded-full bg-accented">
-                  <div class="h-full rounded-full bg-info transition-[width] duration-200" :style="{ width: `${shieldPercent}%` }" />
+                <div class="gauge">
+                  <div class="gauge__fill" :style="{ 'width': `${shieldPercent}%`, '--c': '#38bdf8' }" />
                 </div>
               </template>
 
-              <div class="flex items-center justify-between text-xs">
-                <span class="flex items-center gap-1.5 font-semibold"><UIcon name="i-lucide-zap" class="size-4 text-warning" /> Boost</span>
-                <span class="tabular-nums text-muted">{{ Math.round(boostPercent) }}%</span>
+              <div class="flex items-baseline justify-between">
+                <span class="lbl">Burn</span>
+                <span class="num text-[11px] text-white/70">{{ Math.round(boostPercent) }}%</span>
               </div>
-              <div class="h-1.5 overflow-hidden rounded-full bg-accented">
-                <div class="h-full rounded-full bg-warning" :style="{ width: `${boostPercent}%` }" />
+              <div class="gauge">
+                <div class="gauge__fill gauge__fill--fast" :style="{ 'width': `${boostPercent}%`, '--c': '#fbbf24' }" />
               </div>
             </section>
 
-            <section class="rounded-lg border border-default bg-default p-3">
-              <div class="mb-2 flex items-center justify-between text-xs">
-                <span class="flex items-center gap-1.5 font-semibold">
-                  <UIcon name="i-lucide-package" class="size-4" :class="cargoFull ? 'text-error' : 'text-primary'" /> Cargo hold
-                  <span class="font-normal text-muted">· worth <CoinBalance :value="cargo.value" class="inline-flex" /></span>
-                </span>
-                <span class="tabular-nums" :class="cargoFull ? 'font-bold text-error' : 'text-muted'">
+            <section class="panel space-y-2">
+              <div class="flex items-baseline justify-between">
+                <span class="lbl">Cargo hold</span>
+                <span class="num text-[11px]" :class="cargoFull ? 'text-red-300' : 'text-white/70'">
                   {{ cargo.units }} / {{ cargo.capacity }}
                 </span>
               </div>
-              <div class="mb-2 h-2 overflow-hidden rounded-full bg-accented">
-                <div class="h-full rounded-full transition-[width] duration-200" :class="cargoFull ? 'bg-error' : 'bg-primary'" :style="{ width: `${cargoPercent}%` }" />
+              <div class="gauge gauge--tall">
+                <div class="gauge__fill" :style="{ 'width': `${cargoPercent}%`, '--c': cargoFull ? '#f87171' : '#22d3ee' }" />
               </div>
-              <div v-if="cargoLines.length" class="flex flex-wrap gap-1.5">
+              <div class="flex items-center gap-1.5">
+                <span class="lbl">Worth</span>
+                <CoinBalance :value="cargo.value" class="num text-xs font-bold text-amber-300" />
+              </div>
+              <div v-if="cargoLines.length" class="flex flex-wrap gap-1">
                 <VoidResourceChip
                   v-for="line in cargoLines"
                   :key="line.id"
@@ -368,38 +390,66 @@ onUnmounted(() => detachCanvas())
                   size="sm"
                 />
               </div>
-              <p v-else class="text-xs text-muted">
-                Hold empty — hold left click on a rock to start cutting.
+              <p v-else class="text-[11px] text-white/40">
+                Empty. Hold left click on a rock to cut it.
               </p>
             </section>
 
-            <section class="flex flex-col justify-center gap-2 rounded-lg border border-default bg-default p-3 text-center">
-              <div>
-                <p class="text-[10px] font-bold uppercase tracking-[0.18em] text-muted">
-                  Elapsed
-                </p>
-                <p class="text-3xl font-black leading-tight tabular-nums">
-                  {{ runClock }}
-                </p>
+            <!--
+              The survey is the deck's most important panel. The sector is ten
+              viewports across and everything expensive is parked at the far
+              edges of it, so "which deposit, and can I still get home from it"
+              is the decision the whole run turns on.
+            -->
+            <section class="panel space-y-1.5">
+              <div class="flex items-baseline justify-between">
+                <span class="lbl">Deposit survey</span>
+                <span class="num text-[10px] text-white/40">{{ survey.length }} sites</span>
               </div>
-              <UBadge :color="stormColor" variant="subtle" :label="stormCountdown" icon="i-lucide-wind" />
-              <div class="flex flex-wrap items-center justify-center gap-1.5">
-                <UBadge color="warning" variant="subtle" icon="i-lucide-hand-coins">
-                  <CoinBalance :value="cargo.value" />
-                </UBadge>
-                <UBadge :color="threatColor" variant="subtle" :label="threatLabel" icon="i-lucide-trending-up" />
-                <UBadge v-if="midBossLabel" color="neutral" variant="subtle" :label="midBossLabel" icon="i-lucide-crosshair" />
-                <UBadge color="neutral" variant="subtle" :label="`${timeLeftLabel} left`" />
+              <div v-if="survey.length" class="space-y-1">
+                <div
+                  v-for="site in survey"
+                  :key="site.id"
+                  class="survey-row"
+                  :class="{ 'survey-row--inside': site.inside, 'survey-row--spent': site.remaining === 0 }"
+                >
+                  <span class="survey-row__dot" :style="{ '--c': site.hex }" />
+                  <span class="truncate text-[11px] font-semibold" :style="{ color: site.hex }">{{ site.name }}</span>
+                  <span class="num ml-auto shrink-0 text-[10px] text-white/45">×{{ site.remaining }}</span>
+                  <span class="num shrink-0 text-[11px] font-bold text-white/75">
+                    {{ site.inside ? 'ON SITE' : rangeLabel(site.distance) }}
+                  </span>
+                </div>
+              </div>
+              <p v-else class="text-[11px] text-white/40">
+                Scanning…
+              </p>
+            </section>
+
+            <section class="panel flex flex-col justify-center gap-1.5 text-center">
+              <p class="lbl">
+                Elapsed
+              </p>
+              <p class="num text-3xl font-black leading-none text-white">
+                {{ runClock }}
+              </p>
+              <p class="chip" :class="`chip--${stormTone}`">
+                {{ stormCountdown }}
+              </p>
+              <div class="flex flex-wrap justify-center gap-1">
+                <span class="chip" :class="`chip--${threatTone}`">Threat {{ threat.toFixed(2) }}x</span>
+                <span v-if="midBossLabel" class="chip chip--calm">Cruiser {{ midBossLabel }}</span>
+                <span class="chip chip--calm">{{ timeLeftLabel }} left</span>
               </div>
             </section>
 
-            <section class="flex items-center justify-center gap-2 lg:flex-col">
+            <section class="flex items-center justify-center gap-2 xl:flex-col">
               <UButton color="neutral" variant="subtle" icon="i-lucide-pause" label="Pause" @click="pauseRun" />
               <UButton color="error" variant="subtle" icon="i-lucide-flag" label="Abort" @click="abortRun" />
             </section>
           </div>
         </div>
-      </UCard>
+      </div>
     </template>
 
     <UModal
@@ -547,6 +597,226 @@ onUnmounted(() => detachCanvas())
 </template>
 
 <style scoped>
+/*
+  The console is deliberately not themed. Everything in here sits directly
+  against a canvas that is drawn in fixed colours — deep-space navy, dock cyan,
+  the same green/amber/red the ship's own hull bar uses — and a panel that
+  followed the site's light theme would read as a web page bolted under a game
+  rather than the bottom half of the same instrument.
+*/
+.console {
+  --edge: rgb(34 211 238 / 0.22);
+  --edge-soft: rgb(34 211 238 / 0.1);
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--edge);
+  border-radius: 0.5rem;
+  background:
+    radial-gradient(130% 90% at 50% 0%, #0b1524 0%, #05070f 62%, #04050c 100%);
+  box-shadow:
+    0 0 70px -30px rgb(34 211 238 / 0.55),
+    inset 0 0 140px -70px rgb(34 211 238 / 0.4);
+}
+
+/* A single scanline wash across the whole shell, canvas included, so the two
+   halves are visibly under the same piece of glass. */
+.console__scan {
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  opacity: 0.35;
+  background: repeating-linear-gradient(
+    180deg,
+    rgb(255 255 255 / 0.022) 0 1px,
+    transparent 1px 3px
+  );
+}
+
+.deck {
+  position: relative;
+  padding: 0.75rem;
+  background:
+    linear-gradient(180deg, rgb(34 211 238 / 0.07) 0%, transparent 32%),
+    linear-gradient(180deg, #060a14 0%, #04060e 100%);
+}
+
+/* The hairline where the image stops. It glows, so the canvas reads as bleeding
+   into the deck instead of being cropped off above it. */
+.deck::before {
+  content: '';
+  position: absolute;
+  inset-inline: 0;
+  top: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgb(34 211 238 / 0.7) 20%, rgb(34 211 238 / 0.7) 80%, transparent);
+  box-shadow: 0 0 12px rgb(34 211 238 / 0.55);
+}
+
+.panel {
+  position: relative;
+  padding: 0.7rem 0.75rem;
+  border: 1px solid rgb(34 211 238 / 0.16);
+  background: linear-gradient(180deg, rgb(9 16 30 / 0.9), rgb(4 8 18 / 0.9));
+  /* Cut corners rather than rounded ones — the canvas instruments use the same
+     bevel, and it is what stops the panels reading as web cards. */
+  clip-path: polygon(9px 0, 100% 0, 100% calc(100% - 9px), calc(100% - 9px) 100%, 0 100%, 0 9px);
+}
+
+.panel::after {
+  content: '';
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 12px;
+  height: 12px;
+  border-top: 1px solid rgb(103 232 249 / 0.5);
+  border-right: 1px solid rgb(103 232 249 / 0.5);
+}
+
+.lbl {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: rgb(125 211 252 / 0.65);
+}
+
+.num {
+  font-variant-numeric: tabular-nums;
+  font-family: ui-monospace, 'SFMono-Regular', 'Cascadia Mono', Menlo, monospace;
+}
+
+/* ── Gauges ─────────────────────────────────────────────────────────────── */
+
+.gauge {
+  position: relative;
+  height: 6px;
+  overflow: hidden;
+  background: rgb(148 163 184 / 0.14);
+  clip-path: polygon(3px 0, 100% 0, calc(100% - 3px) 100%, 0 100%);
+}
+
+.gauge--tall {
+  height: 9px;
+}
+
+.gauge__fill {
+  height: 100%;
+  background: var(--c);
+  box-shadow: 0 0 10px -1px var(--c);
+  transition: width 0.2s ease;
+}
+
+/* Burn and docking move fast enough that a 200 ms ease reads as lag. */
+.gauge__fill--fast {
+  transition: width 0.08s linear;
+}
+
+/* Notches over the top of the fill, so a bar reads as a segmented readout. */
+.gauge::after {
+  content: '';
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(90deg, transparent 0 5px, rgb(4 6 14 / 0.9) 5px 7px);
+}
+
+/* ── Chips ──────────────────────────────────────────────────────────────── */
+
+.chip {
+  display: inline-block;
+  padding: 2px 7px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  font-variant-numeric: tabular-nums;
+  border: 1px solid currentcolor;
+  clip-path: polygon(4px 0, 100% 0, calc(100% - 4px) 100%, 0 100%);
+}
+
+.chip--calm { color: rgb(148 163 184 / 0.9); }
+.chip--warn { color: #fbbf24; }
+.chip--bad { color: #f87171; }
+
+/* ── Survey rows ────────────────────────────────────────────────────────── */
+
+.survey-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 2px 4px;
+  border-left: 2px solid transparent;
+}
+
+.survey-row--inside {
+  border-left-color: currentcolor;
+  background: rgb(34 211 238 / 0.08);
+}
+
+.survey-row--spent {
+  opacity: 0.4;
+}
+
+.survey-row__dot {
+  width: 6px;
+  height: 6px;
+  flex-shrink: 0;
+  rotate: 45deg;
+  background: var(--c);
+  box-shadow: 0 0 7px var(--c);
+}
+
+/* ── In-canvas plates ───────────────────────────────────────────────────── */
+
+.hud-plate {
+  border: 1px solid rgb(34 211 238 / 0.28);
+  background: rgb(3 7 18 / 0.72);
+  backdrop-filter: blur(4px);
+  clip-path: polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px);
+  color: rgb(255 255 255 / 0.9);
+}
+
+.hud-plate--danger {
+  border-color: rgb(248 113 113 / 0.55);
+  background: rgb(69 10 10 / 0.55);
+  color: #fecaca;
+}
+
+.hud-plate--dock {
+  border-color: rgb(34 211 238 / 0.5);
+}
+
+.notice {
+  padding: 4px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  border: 1px solid transparent;
+  backdrop-filter: blur(4px);
+  clip-path: polygon(6px 0, 100% 0, calc(100% - 6px) 100%, 0 100%);
+}
+
+.notice--bad { border-color: rgb(248 113 113 / 0.5); background: rgb(127 29 29 / 0.45); color: #fecaca; }
+.notice--good { border-color: rgb(74 222 128 / 0.5); background: rgb(6 78 59 / 0.45); color: #bbf7d0; }
+.notice--info { border-color: rgb(34 211 238 / 0.4); background: rgb(3 7 18 / 0.6); color: rgb(255 255 255 / 0.9); }
+
+/* ── Launch panel ───────────────────────────────────────────────────────── */
+
+.launch {
+  padding: 1.25rem;
+  border: 1px solid rgb(34 211 238 / 0.3);
+  background: linear-gradient(180deg, rgb(8 15 30 / 0.97), rgb(4 7 16 / 0.97));
+  box-shadow: 0 0 60px -20px rgb(34 211 238 / 0.6);
+  clip-path: polygon(16px 0, 100% 0, 100% calc(100% - 16px), calc(100% - 16px) 100%, 0 100%, 0 16px);
+}
+
+.stat {
+  padding: 0.5rem 0.6rem;
+  border: 1px solid rgb(34 211 238 / 0.14);
+  background: rgb(255 255 255 / 0.03);
+  clip-path: polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px);
+}
+
 .notice-enter-active,
 .notice-leave-active {
   transition: all 0.25s ease;

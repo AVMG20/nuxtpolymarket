@@ -1,4 +1,4 @@
-import { VoidGame, type VoidHudCargo, type VoidRunResult } from '~/utils/void-engine'
+import { VoidGame, type VoidHudCargo, type VoidHudDeposit, type VoidRunResult } from '~/utils/void-engine'
 import { VOID_BOOST_CAPACITY_MS, type VoidResourceBundle } from '#shared/utils/gamelogic/void'
 
 // ─── Shared run state ───────────────────────────────────────────────────────
@@ -24,6 +24,7 @@ const maxHull = ref(0)
 const shield = ref(0)
 const maxShield = ref(0)
 const cargo = ref<VoidHudCargo>({ units: 0, capacity: 0, bundle: {}, value: 0 })
+const survey = ref<VoidHudDeposit[]>([])
 const elapsedMs = ref(0)
 const stormPhase = ref(0)
 const threat = ref(1)
@@ -127,6 +128,7 @@ function buildGame() {
             miningProgress.value = progress
             miningLabel.value = label
         },
+        onSurveyChange: (deposits) => { survey.value = deposits },
         onExtractProgress: (progress, inRange) => {
             extractProgress.value = progress
             extractInRange.value = inRange
@@ -220,6 +222,7 @@ export function useVoidRun() {
             miningLabel.value = null
             elapsedMs.value = 0
             stormPhase.value = 0
+            survey.value = []
 
             // If the renderer isn't ready the engine will not tick, and flipping
             // `running` anyway would leave a live-looking HUD over a dead game.
@@ -280,7 +283,7 @@ export function useVoidRun() {
     }
 
     return {
-        hull, maxHull, shield, maxShield, cargo,
+        hull, maxHull, shield, maxShield, cargo, survey,
         elapsedMs, stormPhase, threat, miningProgress, miningLabel,
         extractProgress, extractInRange, boostMs, boostCapacityMs,
         running, paused, launching, summaryVisible, summary,

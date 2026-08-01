@@ -1,7 +1,7 @@
 import type { Container, Graphics } from 'pixi.js'
 import type {
     VoidDerivedStats, VoidEnemyDefinition, VoidResourceBundle, VoidResourceId,
-    VoidRockDefinition, VoidTurretRuntime, VoidSpecialId
+    VoidRockDefinition, VoidTurretRuntime, VoidSpecialId, VoidSpecialStacks
 } from '#shared/utils/gamelogic/void'
 import type { VoidSoundEvent } from '~/utils/void-sounds'
 
@@ -31,6 +31,20 @@ export interface VoidRunResult {
     bossesKilled: number
 }
 
+/** One surveyed deposit, as the control deck sees it. */
+export interface VoidHudDeposit {
+    id: number
+    name: string
+    /** CSS hex of the ore's glow, so the deck and the canvas use one palette. */
+    hex: string
+    /** Rocks still standing on the site. */
+    remaining: number
+    /** Straight-line distance from the ship, in world units. */
+    distance: number
+    /** True while the ship is inside the survey ring. */
+    inside: boolean
+}
+
 export interface VoidHudCargo {
     units: number
     capacity: number
@@ -45,6 +59,8 @@ export interface VoidGameCallbacks {
     /** `threat` is the current per-minute difficulty multiplier, shown in the HUD. */
     onTimeChange: (elapsedMs: number, stormPhase: number, threat: number) => void
     onMiningProgress: (progress: number, label: string | null) => void
+    /** Throttled — the deck only needs the survey a couple of times a second. */
+    onSurveyChange?: (deposits: VoidHudDeposit[]) => void
     onExtractProgress: (progress: number, inRange: boolean) => void
     onBoostChange: (chargeMs: number, capacityMs: number) => void
     onRunEnd: (result: VoidRunResult) => void
@@ -106,6 +122,42 @@ export interface RockEntity {
     breakGraceMs: number
     depleted: boolean
     respawnMs: number
+    /**
+     * The cluster or deposit this rock belongs to. A depleted rock reseeds near
+     * its own site rather than anywhere in the sector, so a rich deposit stays a
+     * rich deposit and a cleared one stays cleared for a while.
+     */
+    siteId: number
+    siteX: number
+    siteY: number
+    siteRadius: number
+    respawnDelayMs: number
+}
+
+/**
+ * A surveyed rich deposit. Everything expensive in the sector is inside one of
+ * these, all of them are a long flight out, and each has ships sitting on it
+ * that wake up the moment you put a beam on the ore.
+ */
+export interface DepositSite {
+    id: number
+    x: number
+    y: number
+    radius: number
+    def: VoidRockDefinition
+    marker: Container
+    /** Flips the first time the player enters the ring — drives the one-off warning. */
+    discovered: boolean
+    /** Counts down only while the player is inside, then jumps another wing in. */
+    reinforceMs: number
+    /**
+     * Whether anything anchored to this site is still alive. Tracked frame to
+     * frame so the moment the last guard dies can be spotted and the reinforce
+     * timer restarted from full.
+     */
+    garrisoned: boolean
+    /** Rocks still standing here, refreshed each frame for the HUD and minimap. */
+    remaining: number
 }
 
 export type EnemyState = 'drift' | 'chase' | 'strafe'
@@ -137,6 +189,13 @@ export interface EnemyEntity {
     flashMs: number
     /** Set on hunter-killers so their carrier can respect a launch cap. */
     carrierId: number | null
+    /**
+     * Garrison ships hold station on their deposit: they drift around the anchor
+     * instead of wandering the sector, so a site you flew past stays guarded
+     * when you come back for it.
+     */
+    anchorX: number | null
+    anchorY: number | null
 }
 
 export interface ShockwaveEntity {
@@ -185,6 +244,8 @@ export interface SingularityEntity {
     life: number
     damage: number
     tickMs: number
+    /** Pull and damage reach — widens with every extra Collapse Core mounted. */
+    radius: number
 }
 
 export interface DroneEntity {
@@ -202,35 +263,25 @@ export interface PickupEntity {
     age: number
     resource: VoidResourceId
     amount: number
+    /** Tractor Array holds salvage in place indefinitely instead of letting it rot. */
+    permanent: boolean
 }
 
-export interface SpecialFlags {
-    rocket: boolean
-    chain: boolean
-    railgun: boolean
-    drones: boolean
-    siphon: boolean
-    singularity: boolean
-    harvester: boolean
-    prospectorsEye: boolean
+/**
+ * Specials are counted, not flagged. Two modules with the same effect stack it,
+ * so the runtime always asks "how many copies" rather than "is it on".
+ */
+export type SpecialCounts = VoidSpecialStacks
+
+export function specialCount(stacks: SpecialCounts, id: VoidSpecialId) {
+    return stacks[id] ?? 0
 }
 
-export function emptySpecialFlags(): SpecialFlags {
-    return {
-        rocket: false, chain: false, railgun: false, drones: false,
-        siphon: false, singularity: false, harvester: false, prospectorsEye: false
-    }
-}
-
-export function specialFlagKey(id: VoidSpecialId): keyof SpecialFlags {
-    switch (id) {
-        case 'rocket-conversion': return 'rocket'
-        case 'chain-arc': return 'chain'
-        case 'railgun': return 'railgun'
-        case 'swarm-drones': return 'drones'
-        case 'void-siphon': return 'siphon'
-        case 'singularity': return 'singularity'
-        case 'harvester': return 'harvester'
-        case 'prospectors-eye': return 'prospectorsEye'
-    }
+/** A screen-edge contact arrow: something worth flying to that is off camera. */
+export interface MarkerTarget {
+    x: number
+    y: number
+    color: number
+    kind: 'deposit' | 'boss' | 'dock'
+    label: string
 }

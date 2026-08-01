@@ -1,10 +1,26 @@
-import { Container, Graphics, Text, TextStyle } from 'pixi.js'
+import { Container, Graphics, Rectangle, Text, TilingSprite } from 'pixi.js'
+import type { Renderer, TextStyleOptions } from 'pixi.js'
 import gsap from 'gsap'
-import { MOTHERSHIP_RADIUS, STAR_LAYERS, VIEW_H, VIEW_W, WORLD_H, WORLD_W } from './constants'
+import {
+    MOTHERSHIP_RADIUS, NEBULA_BLOBS, NEBULA_TILE, STAR_LAYERS, STAR_TILE,
+    VIEW_H, VIEW_W, WORLD_H, WORLD_W
+} from './constants'
 import { randRange } from './math'
 import type { VoidEnemyDefinition, VoidRockDefinition } from '#shared/utils/gamelogic/void'
 
-const LABEL_STYLE = new TextStyle({ fontFamily: 'system-ui, sans-serif', fontSize: 13, fontWeight: '700', fill: 0xffffff })
+/**
+ * Deliberately a plain options object rather than a `TextStyle` instance.
+ * Pixi keeps a `TextStyle` you hand it *by reference* — every Text built from
+ * one shared instance shares it, so setting `label.style.fill` on a damage
+ * number silently restyles every other label on screen. Spreading this into a
+ * fresh object per label gives each one its own style.
+ */
+const LABEL_STYLE: TextStyleOptions = {
+    fontFamily: 'system-ui, sans-serif',
+    fontSize: 13,
+    fontWeight: '700',
+    fill: 0xffffff
+}
 
 /**
  * Every looping tween this module starts is recorded here. Display objects get
@@ -60,49 +76,97 @@ function shade(color: number, amount: number) {
 
 // ─── Backdrop ───────────────────────────────────────────────────────────────
 
+export interface ParallaxLayer {
+    sprite: TilingSprite
+    parallax: number
+}
+
+/** Bakes one Graphics into a square texture of exactly `size`. */
+function bakeTile(renderer: Renderer, draw: (gfx: Graphics) => void, size: number) {
+    const gfx = new Graphics()
+    draw(gfx)
+    const texture = renderer.generateTexture({
+        target: gfx,
+        frame: new Rectangle(0, 0, size, size),
+        resolution: 1,
+        antialias: true
+    })
+    gfx.destroy()
+    return texture
+}
+
 /**
- * Three parallax star layers, each baked into a single Graphics — thousands of
- * dots that never change are far cheaper as one geometry than as sprites.
+ * Three parallax star layers, each a single repeating tile that covers the
+ * viewport and scrolls its own offset.
+ *
+ * The obvious implementation — scatter N stars across the world and let the
+ * camera pan over them — collapses at this sector size. The world is ten
+ * viewports on each axis, so a screen shows one percent of it; any star count
+ * cheap enough to bake ends up as a dozen visible dots and space reads as flat
+ * grey. Tiling decouples density from world size entirely: constant geometry,
+ * constant cost, and a field that stays dense however far the sector is
+ * stretched.
  */
-export function buildStarfield() {
+export function buildStarfield(renderer: Renderer): ParallaxLayer[] {
     return STAR_LAYERS.map((layer) => {
-        const container = new Container()
-        const gfx = new Graphics()
-        for (let i = 0; i < layer.count; i++) {
-            const x = Math.random() * WORLD_W * 1.6 - WORLD_W * 0.3
-            const y = Math.random() * WORLD_H * 1.6 - WORLD_H * 0.3
-            const r = layer.radius * randRange(0.5, 1.6)
-            const alpha = layer.alpha * randRange(0.4, 1)
-            gfx.circle(x, y, r).fill({ color: layer.tint, alpha })
-            // A handful of the brightest stars get a soft bloom and cross flare.
-            if (layer.parallax > 0.6 && Math.random() < 0.06) {
-                gfx.circle(x, y, r * 4).fill({ color: layer.tint, alpha: alpha * 0.14 })
-                gfx.rect(x - r * 6, y - r * 0.22, r * 12, r * 0.44).fill({ color: 0xffffff, alpha: alpha * 0.28 })
-                gfx.rect(x - r * 0.22, y - r * 6, r * 0.44, r * 12).fill({ color: 0xffffff, alpha: alpha * 0.28 })
+        const texture = bakeTile(renderer, (gfx) => {
+            for (let i = 0; i < layer.count; i++) {
+                const r = layer.radius * randRange(0.5, 1.7)
+                // Keep bright stars off the tile seam so their bloom never clips.
+                const margin = r * 7
+                const x = randRange(margin, STAR_TILE - margin)
+                const y = randRange(margin, STAR_TILE - margin)
+                const alpha = layer.alpha * randRange(0.35, 1)
+                gfx.circle(x, y, r).fill({ color: layer.tint, alpha })
+                if (layer.parallax > 0.6 && Math.random() < 0.09) {
+                    gfx.circle(x, y, r * 4).fill({ color: layer.tint, alpha: alpha * 0.16 })
+                    gfx.rect(x - r * 6, y - r * 0.22, r * 12, r * 0.44).fill({ color: 0xffffff, alpha: alpha * 0.3 })
+                    gfx.rect(x - r * 0.22, y - r * 6, r * 0.44, r * 12).fill({ color: 0xffffff, alpha: alpha * 0.3 })
+                }
             }
-        }
-        container.addChild(gfx)
-        return { container, parallax: layer.parallax }
+        }, STAR_TILE)
+
+        const sprite = new TilingSprite({ texture, width: VIEW_W, height: VIEW_H })
+        return { sprite, parallax: layer.parallax }
     })
 }
 
 /**
- * Flat deep-space fill, drawn in screen space and never moved. Anything large
- * that slides with the camera reads as sheets of fog sweeping over the sector,
- * so the backdrop is deliberately inert — the parallax comes from the stars.
+ * The gas the sector sits in: soft overlapping clouds on their own very slow
+ * parallax layer, tinted to whichever sector you launched into. It moves just
+ * enough to sell depth behind the stars without ever competing with anything
+ * you have to track.
  */
+export function buildNebulaLayer(renderer: Renderer): ParallaxLayer {
+    const texture = bakeTile(renderer, (gfx) => {
+        for (let i = 0; i < NEBULA_BLOBS; i++) {
+            const radius = randRange(NEBULA_TILE * 0.16, NEBULA_TILE * 0.4)
+            // Keep every blob fully inside the tile, the same way the starfield
+            // keeps bright stars off its seam. The bake clips at the frame, so a
+            // blob straddling an edge loses the half that should reappear on the
+            // opposite edge — and once the tile repeats, that mismatch is a hard
+            // vertical step in brightness running the full height of the screen.
+            const cx = randRange(radius, NEBULA_TILE - radius)
+            const cy = randRange(radius, NEBULA_TILE - radius)
+            // No gradient fills in this renderer path, so a soft edge is a stack
+            // of shrinking discs at low alpha.
+            const rings = 16
+            for (let ring = rings; ring > 0; ring--) {
+                const t = ring / rings
+                gfx.circle(cx, cy, radius * t).fill({ color: 0xffffff, alpha: 0.012 * (1 - t) + 0.004 })
+            }
+        }
+    }, NEBULA_TILE)
+
+    const sprite = new TilingSprite({ texture, width: VIEW_W, height: VIEW_H })
+    sprite.blendMode = 'add'
+    return { sprite, parallax: 0 }
+}
+
+/** Flat deep-space fill, drawn in screen space and never moved. */
 export function drawNebula(gfx: Graphics) {
     gfx.clear()
     gfx.rect(0, 0, VIEW_W, VIEW_H).fill({ color: 0x04050c })
-}
-
-/**
- * Static set dressing pinned to the viewport: a couple of distant worlds and a
- * few muted constellations. None of it moves, so it never competes with the
- * things you actually have to track.
- */
-export function drawStaticBackdrop(gfx: Graphics, _tint: number) {
-    gfx.clear()
 }
 
 /** Slow-drifting dust motes so empty space still has parallax cues up close. */
@@ -209,6 +273,140 @@ export function buildMothership() {
     track(gsap.to(dockRing.scale, { x: 1.035, y: 1.035, duration: 3.2, yoyo: true, repeat: -1, ease: 'sine.inOut' }))
 
     return root
+}
+
+/**
+ * The survey ring around a rich deposit. It is drawn far larger than anything
+ * else in the sector on purpose: the whole point of a deposit is that you can
+ * pick it out from a long way off and commit to the flight, so the ring has to
+ * resolve before the rocks inside it do.
+ */
+export function buildDepositMarker(def: VoidRockDefinition, radius: number) {
+    const root = new Container()
+
+    const haze = new Graphics()
+    haze.circle(0, 0, radius * 1.15).fill({ color: def.glow, alpha: 0.035 })
+    haze.circle(0, 0, radius * 0.72).fill({ color: def.glow, alpha: 0.03 })
+    root.addChild(haze)
+
+    const ring = new Graphics()
+    // A dashed perimeter reads as "surveyed boundary" rather than "solid object".
+    const segments = 48
+    for (let i = 0; i < segments; i++) {
+        if (i % 2 === 1) continue
+        const a = (i / segments) * Math.PI * 2
+        const a2 = ((i + 0.85) / segments) * Math.PI * 2
+        ring.arc(0, 0, radius, a, a2).stroke({ width: 3, color: def.glow, alpha: 0.4 })
+    }
+    ring.circle(0, 0, radius * 0.98).stroke({ width: 1, color: def.glow, alpha: 0.16 })
+    root.addChild(ring)
+
+    // Four counter-rotating survey brackets on the perimeter.
+    const brackets = new Graphics()
+    for (let i = 0; i < 4; i++) {
+        const a = (i / 4) * Math.PI * 2
+        const cos = Math.cos(a)
+        const sin = Math.sin(a)
+        const nx = -sin
+        const ny = cos
+        const bx = cos * radius
+        const by = sin * radius
+        brackets.poly([
+            bx + nx * 46, by + ny * 46,
+            bx + nx * 46 - cos * 26, by + ny * 46 - sin * 26,
+            bx - nx * 46 - cos * 26, by - ny * 46 - sin * 26,
+            bx - nx * 46, by - ny * 46
+        ]).stroke({ width: 4, color: def.glow, alpha: 0.75 })
+    }
+    root.addChild(brackets)
+
+    const label = new Text({
+        text: def.name.toUpperCase(),
+        style: { ...LABEL_STYLE, fontSize: 34, fill: def.glow, letterSpacing: 6 }
+    })
+    label.anchor.set(0.5)
+    label.position.set(0, -radius - 54)
+    label.alpha = 0.55
+    root.addChild(label)
+
+    track(gsap.to(brackets, { rotation: Math.PI * 2, duration: 90, repeat: -1, ease: 'none' }))
+    track(gsap.to(ring, { rotation: -Math.PI * 2, duration: 150, repeat: -1, ease: 'none' }))
+    track(gsap.to(haze, { alpha: 0.45, duration: 3.4, yoyo: true, repeat: -1, ease: 'sine.inOut' }))
+
+    return root
+}
+
+// ─── Instruments ────────────────────────────────────────────────────────────
+
+/**
+ * The minimap's static chrome — bezel, corner cuts and header. Only the
+ * contacts inside it are redrawn per frame.
+ */
+export function buildMinimapChrome(width: number, height: number) {
+    const root = new Container()
+    const frame = new Graphics()
+    const cut = 12
+
+    frame.poly([
+        cut, 0, width, 0, width, height - cut, width - cut, height, 0, height, 0, cut
+    ]).fill({ color: 0x030812, alpha: 0.82 })
+    frame.poly([
+        cut, 0, width, 0, width, height - cut, width - cut, height, 0, height, 0, cut
+    ]).stroke({ width: 1.5, color: 0x22d3ee, alpha: 0.45 })
+
+    // Corner ticks, so the panel reads as an instrument rather than a rectangle.
+    for (const [cx, cy, sx, sy] of [[0, 0, 1, 1], [width, 0, -1, 1], [0, height, 1, -1], [width, height, -1, -1]] as const) {
+        frame.moveTo(cx + sx * 4, cy + sy * 18).lineTo(cx + sx * 4, cy + sy * 4).lineTo(cx + sx * 18, cy + sy * 4)
+            .stroke({ width: 2, color: 0x67e8f9, alpha: 0.75 })
+    }
+
+    const header = new Text({
+        text: 'SECTOR SCAN',
+        style: { ...LABEL_STYLE, fontSize: 9, fill: 0x67e8f9, letterSpacing: 3 }
+    })
+    header.position.set(8, -14)
+    header.alpha = 0.7
+
+    root.addChild(frame, header)
+    return root
+}
+
+/** A single off-screen contact arrow, pointing outward at `angle`. */
+export function drawContactArrow(gfx: Graphics, x: number, y: number, angle: number, color: number, scale: number) {
+    const cos = Math.cos(angle)
+    const sin = Math.sin(angle)
+    const nx = -sin
+    const ny = cos
+    const tipX = x + cos * 11 * scale
+    const tipY = y + sin * 11 * scale
+    gfx.poly([
+        tipX, tipY,
+        x - cos * 5 * scale + nx * 8 * scale, y - sin * 5 * scale + ny * 8 * scale,
+        x - cos * 1 * scale, y - sin * 1 * scale,
+        x - cos * 5 * scale - nx * 8 * scale, y - sin * 5 * scale - ny * 8 * scale
+    ]).fill({ color, alpha: 0.9 })
+    gfx.circle(x, y, 15 * scale).stroke({ width: 1.5, color, alpha: 0.28 })
+}
+
+/**
+ * A soft frame burned into the edges of the viewport. It is what stops the
+ * canvas ending in a hard rectangle against the HTML deck below it — the image
+ * falls off into the console instead of being cut out of it.
+ */
+export function drawViewportVignette(gfx: Graphics) {
+    gfx.clear()
+    const bands = 26
+    for (let i = 0; i < bands; i++) {
+        const t = i / bands
+        const inset = t * 74
+        const alpha = 0.055 * (1 - t) ** 1.4
+        gfx.rect(inset, inset, VIEW_W - inset * 2, VIEW_H - inset * 2).stroke({ width: 4, color: 0x000000, alpha })
+    }
+    // Instrument brackets in the four corners of the viewport itself.
+    for (const [cx, cy, sx, sy] of [[0, 0, 1, 1], [VIEW_W, 0, -1, 1], [0, VIEW_H, 1, -1], [VIEW_W, VIEW_H, -1, -1]] as const) {
+        gfx.moveTo(cx + sx * 10, cy + sy * 52).lineTo(cx + sx * 10, cy + sy * 10).lineTo(cx + sx * 52, cy + sy * 10)
+            .stroke({ width: 2, color: 0x22d3ee, alpha: 0.3 })
+    }
 }
 
 // ─── Ship construction helpers ──────────────────────────────────────────────
@@ -779,9 +977,7 @@ export function drawPlayerHealthBar(
 }
 
 export function floatingText(layer: Container, x: number, y: number, text: string, color: number, size = 13) {
-    const label = new Text({ text, style: LABEL_STYLE })
-    label.style.fontSize = size
-    label.style.fill = color
+    const label = new Text({ text, style: { ...LABEL_STYLE, fontSize: size, fill: color } })
     label.anchor.set(0.5)
     label.position.set(x, y)
     layer.addChild(label)

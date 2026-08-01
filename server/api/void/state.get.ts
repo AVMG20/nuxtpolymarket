@@ -28,12 +28,15 @@ export default defineEventHandler(async (event) => {
     if (!s) {
         s = (await db.insert(voidState).values({ userId }).returning())[0]!
         // Nobody undocks unarmed — the loaner skiff comes with a common module
-        // already in its single hardpoint.
+        // already in its single hardpoint. It carries an effect like everything
+        // else does, because "a module changes how the ship plays" is the first
+        // thing the mode has to teach and a blank starter teaches the opposite.
         rows = await db.insert(voidWeapons).values({
             userId,
             rarityId: 'common',
             name: 'Halcyon Cutter',
             affixes: { damage: 2.2, miningSpeed: 6 },
+            specialId: 'harvester',
             slotIndex: 0
         }).returning()
     }

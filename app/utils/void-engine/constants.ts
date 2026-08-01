@@ -16,7 +16,19 @@ export const PLAYER_SHOT_LIFE_MS = 1400
 export const ENEMY_SHOT_SPEED = 430
 
 export const MINING_BREAK_GRACE_MS = 900
-export const ROCK_RESPAWN_MS = 26_000
+/**
+ * Loose field rock reseeds fairly quickly so a cluster is worth circling back
+ * to; deposit rock takes long enough that clearing a site means moving on to
+ * the next one rather than parking on it.
+ */
+export const ROCK_RESPAWN_MS = 34_000
+export const DEPOSIT_ROCK_RESPAWN_MS = 78_000
+
+/** Rich deposits are placed at least this far from the dock, and from each other. */
+export const DEPOSIT_MIN_FROM_DOCK = 2600
+export const DEPOSIT_MIN_SEPARATION = 2400
+/** Field clusters keep clear of the dock ring and of the deposits. */
+export const FIELD_MIN_FROM_DOCK = 900
 
 export const CAMERA_LERP = 0.12
 export const CAMERA_LOOKAHEAD = 0.22
@@ -38,13 +50,31 @@ export const MINE_LIFE_MS = 26_000
 export const MINE_TRIGGER_RADIUS = 78
 export const MINE_BLAST_RADIUS = 130
 
+/**
+ * Star layers are tiled, not baked across the world. A sector is 10x the
+ * viewport on each axis — 115 million square pixels — so a fixed pile of dots
+ * spread over all of it works out to about a dozen stars on screen, which reads
+ * as an empty grey void. One repeating tile per layer gives a dense field at a
+ * constant cost, and scrolls the tile offset for parallax.
+ */
+export const STAR_TILE = 900
 export const STAR_LAYERS = [
-    { count: 1500, parallax: 0.2, radius: 1, alpha: 0.45, tint: 0x93c5fd },
-    { count: 950, parallax: 0.45, radius: 1.5, alpha: 0.65, tint: 0xe0f2fe },
-    { count: 475, parallax: 0.75, radius: 2.2, alpha: 0.9, tint: 0xffffff }
+    { count: 260, parallax: 0.18, radius: 1, alpha: 0.5, tint: 0x93c5fd },
+    { count: 130, parallax: 0.42, radius: 1.5, alpha: 0.7, tint: 0xe0f2fe },
+    { count: 55, parallax: 0.72, radius: 2.2, alpha: 0.95, tint: 0xffffff }
 ] as const
 
-export const NEBULA_COLORS = [0x1e1b4b, 0x312e81, 0x0f766e, 0x581c87, 0x7f1d1d, 0x155e75] as const
+/** The drifting gas behind everything, tinted to the sector and barely moving. */
+export const NEBULA_TILE = 1200
+export const NEBULA_PARALLAX = 0.08
+export const NEBULA_BLOBS = 9
 
-export const DUST_MOTE_COUNT = 450
+export const DUST_MOTE_COUNT = 260
+
+/** Screen-space instrument sizes. */
+export const MINIMAP_W = 320
+export const MINIMAP_H = 188
+export const MINIMAP_MARGIN = 22
+/** Radius of the ring the off-screen contact arrows sit on, as a fraction of the viewport. */
+export const MARKER_INSET = 46
 

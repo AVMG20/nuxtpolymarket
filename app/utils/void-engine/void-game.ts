@@ -8,26 +8,34 @@ import {
     VOID_BOOST_MULT, VOID_BOOST_CAPACITY_MS, VOID_BOOST_RECHARGE_PER_SEC, VOID_SHIELD_RECHARGE_DELAY_MS,
     VOID_BOSS_ID, VOID_MIDBOSS_ID, VOID_MIDBOSS_SPAWN_MS, VOID_BOSS_RESPAWN_MS,
     VOID_DRONE_ID, VOID_WARDEN_DRONE_COUNT, VOID_WARDEN_MAX_DRONES, VOID_LANE_SPACING,
+    VOID_DEPOSIT_RADIUS, VOID_DEPOSIT_ROCKS_MIN, VOID_DEPOSIT_ROCKS_MAX,
+    VOID_FIELD_RADIUS, VOID_FIELD_ROCKS_MIN, VOID_FIELD_ROCKS_MAX, VOID_DEPOSIT_REINFORCE_MS,
+    VOID_DEPOSIT_ARRIVAL_RING, VOID_DEPOSIT_ARRIVAL_CLEARANCE,
     voidSector, voidRollRock, voidRollEnemy, voidEnemy, voidShip, voidResource, voidBundleUnits,
-    voidBundleValue, voidVolley,
+    voidBundleValue, voidVolley, voidSpecialValue, voidHex, voidTaper,
     voidRampMultiplier, voidRampSpawnIntervalMult, voidRampExtraEnemies, voidRampMinute,
-    type VoidResourceBundle, type VoidResourceId, type VoidEnemyDefinition
+    type VoidResourceBundle, type VoidResourceId, type VoidEnemyDefinition,
+    type VoidRockDefinition, type VoidSpecialId
 } from '#shared/utils/gamelogic/void'
 import {
     VIEW_W, VIEW_H, WORLD_W, WORLD_H, MOTHERSHIP_RADIUS, DUST_MOTE_COUNT,
     THRUST_ACCEL, LINEAR_DRAG, PLAYER_SHOT_LIFE_MS, ENEMY_SHOT_SPEED,
-    MINING_BREAK_GRACE_MS, ROCK_RESPAWN_MS, CAMERA_LERP, CAMERA_LOOKAHEAD,
+    MINING_BREAK_GRACE_MS, ROCK_RESPAWN_MS, DEPOSIT_ROCK_RESPAWN_MS,
+    DEPOSIT_MIN_FROM_DOCK, DEPOSIT_MIN_SEPARATION, FIELD_MIN_FROM_DOCK,
+    CAMERA_LERP, CAMERA_LOOKAHEAD,
     SHOCKWAVE_TELEGRAPH_MS, SHOCKWAVE_RADIUS, SHOCKWAVE_EXPAND_MS,
     RAILBEAM_CHARGE_MS, RAILBEAM_LENGTH, RAILBEAM_WIDTH, RAILBEAM_ACTIVE_MS,
-    BOSS_REINFORCE_COUNT, MINE_ARM_MS, MINE_LIFE_MS, MINE_TRIGGER_RADIUS, MINE_BLAST_RADIUS
+    BOSS_REINFORCE_COUNT, MINE_ARM_MS, MINE_LIFE_MS, MINE_TRIGGER_RADIUS, MINE_BLAST_RADIUS,
+    MINIMAP_W, MINIMAP_H, MINIMAP_MARGIN, MARKER_INSET, NEBULA_PARALLAX
 } from './constants'
 import { clamp, dist, distSq, randRange, segPointDist, stepAngle } from './math'
 import * as fx from './fx'
 import {
-    emptySpecialFlags, specialFlagKey,
-    type Bullet, type DroneEntity, type EnemyEntity, type MineEntity, type Particle, type PickupEntity,
+    specialCount,
+    type Bullet, type DepositSite, type DroneEntity, type EnemyEntity, type MarkerTarget,
+    type MineEntity, type Particle, type PickupEntity,
     type RailbeamEntity, type RockEntity, type ShockwaveEntity, type SingularityEntity,
-    type SpecialFlags, type VoidGameCallbacks, type VoidLaunchConfig, type VoidRunResult
+    type SpecialCounts, type VoidGameCallbacks, type VoidLaunchConfig, type VoidRunResult
 } from './types'
 
 interface TurretMount {
@@ -44,12 +52,13 @@ export class VoidGame {
 
     // ── Layers ──
     private nebula = new Graphics()
-    private backdrop = new Graphics()
-    private starLayers: { container: Container, parallax: number }[] = []
+    private starLayers: fx.ParallaxLayer[] = []
+    private nebulaLayer: fx.ParallaxLayer | null = null
     private worldRoot = new Container()
     private boundsLayer = new Graphics()
     private dustLayer = new Container()
     private bgLayer = new Container()
+    private depositLayer = new Container()
     private rockLayer = new Container()
     private pickupLayer = new Container()
     private enemyLayer = new Container()
@@ -58,6 +67,8 @@ export class VoidGame {
     private effectLayer = new Container()
     private textLayer = new Container()
     private stormLayer = new Graphics()
+    private vignette = new Graphics()
+    private markerLayer = new Graphics()
     private minimap = new Container()
     private minimapDots = new Graphics()
 
@@ -109,6 +120,7 @@ export class VoidGame {
     private listeners: (() => void)[] = []
 
     // ── Entities ──
+    private deposits: DepositSite[] = []
     private rocks: RockEntity[] = []
     private enemies: EnemyEntity[] = []
     private bullets: Bullet[] = []
@@ -133,6 +145,7 @@ export class VoidGame {
     // extraction it just finished, which reads as a game frozen at "100%".
     private dockArmed = false
     private stormTickMs = 0
+    private surveyTimer = 0
     private announced = new Set<string>()
 
     // ── Mining ──
@@ -147,7 +160,9 @@ export class VoidGame {
     private shakeMag = 0
 
     // ── Specials ──
-    private specials: SpecialFlags = emptySpecialFlags()
+    // Counted rather than flagged: mounting the same effect twice compounds it.
+    private specials: SpecialCounts = {}
+    private pointDefenceTimer = 0
 
     // ── Stats ──
     private kills = 0
@@ -201,20 +216,29 @@ export class VoidGame {
         host.appendChild(this.app.canvas)
 
         fx.drawNebula(this.nebula)
-        this.app.stage.addChild(this.nebula, this.backdrop)
+        this.app.stage.addChild(this.nebula)
 
-        this.starLayers = fx.buildStarfield()
-        for (const layer of this.starLayers) this.app.stage.addChild(layer.container)
+        this.nebulaLayer = fx.buildNebulaLayer(this.app.renderer)
+        this.app.stage.addChild(this.nebulaLayer.sprite)
+
+        this.starLayers = fx.buildStarfield(this.app.renderer)
+        for (const layer of this.starLayers) this.app.stage.addChild(layer.sprite)
 
         this.worldRoot.addChild(
-            this.boundsLayer, this.dustLayer, this.bgLayer, this.rockLayer, this.pickupLayer,
+            this.boundsLayer, this.dustLayer, this.bgLayer, this.depositLayer, this.rockLayer, this.pickupLayer,
             this.enemyLayer, this.bulletLayer, this.playerLayer, this.effectLayer, this.textLayer
         )
         this.app.stage.addChild(this.worldRoot)
         this.app.stage.addChild(this.stormLayer)
 
+        // Screen-space instruments, drawn over the sector and under nothing.
+        fx.drawViewportVignette(this.vignette)
+        this.app.stage.addChild(this.vignette)
+        this.app.stage.addChild(this.markerLayer)
+
+        this.minimap.addChild(fx.buildMinimapChrome(MINIMAP_W, MINIMAP_H))
         this.minimap.addChild(this.minimapDots)
-        this.minimap.position.set(VIEW_W - 224, VIEW_H - 152)
+        this.minimap.position.set(VIEW_W - MINIMAP_W - MINIMAP_MARGIN, VIEW_H - MINIMAP_H - MINIMAP_MARGIN)
         this.app.stage.addChild(this.minimap)
 
         fx.drawWorldBounds(this.boundsLayer)
@@ -321,13 +345,13 @@ export class VoidGame {
         this.shield = config.stats.maxShield
         this.cargoCapacity = config.stats.cargoCapacity
 
-        this.specials = emptySpecialFlags()
-        for (const id of config.stats.specialIds) this.specials[specialFlagKey(id)] = true
+        this.specials = { ...config.stats.specialStacks }
 
         this.buildPlayer()
         this.buildTurrets()
-        if (this.specials.drones) this.buildDrones()
-        this.spawnRockField()
+        this.buildDrones()
+        this.spawnDeposits()
+        this.spawnFieldClusters()
         this.spawnInitialEnemies()
 
         const sector = voidSector(this.sectorTier)
@@ -343,9 +367,20 @@ export class VoidGame {
         // from the previous run — a stale extraction bar in particular.
         this.callbacks.onExtractProgress(0, false)
         this.callbacks.onMiningProgress(0, null)
+        this.surveyTimer = 0
         this.callbacks.onTimeChange(0, 0, 1)
         this.callbacks.onBoostChange(this.boostMs, VOID_BOOST_CAPACITY_MS)
         this.callbacks.onSfx?.('undock')
+
+        // The survey is the run's opening decision: the money is out at the
+        // deposits, and the scan tells you how far you have to commit for it.
+        const names = Array.from(new Set(this.deposits.map(site => site.def.name)))
+        if (names.length > 0) {
+            this.callbacks.onNotice?.(
+                `Survey: ${this.deposits.length} rich deposit${this.deposits.length === 1 ? '' : 's'} — ${names.join(', ')}. Guarded.`,
+                'info'
+            )
+        }
         return true
     }
 
@@ -364,7 +399,7 @@ export class VoidGame {
         gsap.killTweensOf(this.playerRoot)
 
         const layers = [
-            this.dustLayer, this.bgLayer, this.rockLayer, this.pickupLayer,
+            this.dustLayer, this.bgLayer, this.depositLayer, this.rockLayer, this.pickupLayer,
             this.enemyLayer, this.bulletLayer, this.playerLayer, this.textLayer
         ]
         for (const layer of layers) {
@@ -377,14 +412,15 @@ export class VoidGame {
         this.miningRing.clear()
         this.effectLayer.addChild(this.miningBeam, this.miningRing)
 
-        // The static backdrop is re-tinted per sector; it never moves, so it
-        // costs nothing to redraw and never drags across the playfield.
-        fx.drawStaticBackdrop(this.backdrop, voidSector(tier).color)
+        // The gas is tinted to whichever sector this run is going to, which is
+        // the cheapest way to make four sectors feel like four places.
+        if (this.nebulaLayer) this.nebulaLayer.sprite.tint = voidSector(tier).color
         fx.buildDustField(this.dustLayer, DUST_MOTE_COUNT)
         const mothership = fx.buildMothership()
         mothership.position.set(WORLD_W / 2, WORLD_H / 2)
         this.bgLayer.addChild(mothership)
 
+        this.deposits = []
         this.rocks = []
         this.enemies = []
         this.bullets = []
@@ -412,6 +448,7 @@ export class VoidGame {
         this.miningRockId = null
         this.extractMs = 0
         this.invulnMs = 0
+        this.pointDefenceTimer = 0
         this.boostMs = VOID_BOOST_CAPACITY_MS
         this.msSinceHit = 0
         this.ended = false
@@ -505,22 +542,86 @@ export class VoidGame {
     }
 
     private buildDrones() {
-        for (let i = 0; i < 3; i++) {
+        const count = voidSpecialValue(this.specials, 'swarm-drones')
+        for (let i = 0; i < count; i++) {
             const gfx = fx.buildDrone(0xf43f5e)
             this.playerLayer.addChild(gfx)
-            this.drones.push({ gfx, angle: (i / 3) * Math.PI * 2, fireTimer: randRange(0, 700) })
+            this.drones.push({ gfx, angle: (i / count) * Math.PI * 2, fireTimer: randRange(0, 700) })
         }
     }
 
-    private spawnRockField() {
+    // ─── The rock field ──────────────────────────────────────────────────────
+    //
+    // Two very different things are being placed here, and the split is the
+    // geography of the whole mode. Loose clusters of cheap ore are scattered
+    // thinly so that most of the sector is empty and crossing it costs you
+    // clock. Everything actually worth money is inside a handful of rich
+    // deposits parked at the far edges with ships sitting on them, so the
+    // expensive ore is a decision — fly out, fight for it, and still make it
+    // home — rather than something you trip over on the way past.
+
+    private spawnDeposits() {
         const sector = voidSector(this.sectorTier)
-        const count = randomInt(sector.rockCountMin, sector.rockCountMax) * 5
-        for (let i = 0; i < count; i++) this.spawnRock()
+        for (let i = 0; i < sector.depositSites; i++) {
+            const point = this.findDepositPoint()
+            if (!point) break
+            const def = voidRollRock(this.sectorTier, 'deposit')
+            const radius = VOID_DEPOSIT_RADIUS * randRange(0.85, 1.15)
+
+            const marker = fx.buildDepositMarker(def, radius)
+            marker.position.set(point.x, point.y)
+            this.depositLayer.addChild(marker)
+
+            const site: DepositSite = {
+                id: this.nextId++,
+                x: point.x,
+                y: point.y,
+                radius,
+                def,
+                marker,
+                discovered: false,
+                reinforceMs: VOID_DEPOSIT_REINFORCE_MS,
+                garrisoned: false,
+                remaining: 0
+            }
+            this.deposits.push(site)
+
+            const rocks = randomInt(VOID_DEPOSIT_ROCKS_MIN, VOID_DEPOSIT_ROCKS_MAX)
+            for (let r = 0; r < rocks; r++) {
+                this.spawnRock(def, site.id, point.x, point.y, radius * 0.72, DEPOSIT_ROCK_RESPAWN_MS)
+            }
+
+            // The garrison is drawn from the sector's heavier roster and holds
+            // station on the site rather than wandering off into the dark.
+            for (let g = 0; g < sector.depositGuards; g++) {
+                this.spawnGuard(site)
+            }
+        }
     }
 
-    private spawnRock() {
-        const def = voidRollRock(this.sectorTier)
-        const point = this.findOpenPoint(MOTHERSHIP_RADIUS * 2.8)
+    private spawnFieldClusters() {
+        const sector = voidSector(this.sectorTier)
+        for (let i = 0; i < sector.rockFields; i++) {
+            const point = this.findFieldPoint()
+            const siteId = this.nextId++
+            const count = randomInt(VOID_FIELD_ROCKS_MIN, VOID_FIELD_ROCKS_MAX)
+            for (let r = 0; r < count; r++) {
+                // Rolled per rock, so a cluster can be mixed ferrite and cobalt.
+                const def = voidRollRock(this.sectorTier, 'field')
+                this.spawnRock(def, siteId, point.x, point.y, VOID_FIELD_RADIUS, ROCK_RESPAWN_MS)
+            }
+        }
+    }
+
+    private spawnRock(
+        def: VoidRockDefinition,
+        siteId: number,
+        siteX: number,
+        siteY: number,
+        siteRadius: number,
+        respawnDelayMs: number
+    ) {
+        const point = this.scatterInSite(siteX, siteY, siteRadius)
         const radius = def.radius * randRange(0.82, 1.28)
         const built = fx.buildRock(def, radius)
         built.root.position.set(point.x, point.y)
@@ -539,24 +640,106 @@ export class VoidGame {
             progress: 0,
             breakGraceMs: 0,
             depleted: false,
-            respawnMs: 0
+            respawnMs: 0,
+            siteId,
+            siteX,
+            siteY,
+            siteRadius,
+            respawnDelayMs
         })
+    }
+
+    /** A spot inside a site that isn't already occupied by one of its own rocks. */
+    private scatterInSite(siteX: number, siteY: number, siteRadius: number) {
+        for (let attempt = 0; attempt < 24; attempt++) {
+            const a = randomFloat() * Math.PI * 2
+            // Square-root the radial term so rocks spread evenly over the disc
+            // rather than piling up in the middle.
+            const d = Math.sqrt(randomFloat()) * siteRadius
+            const x = clamp(siteX + Math.cos(a) * d, 200, WORLD_W - 200)
+            const y = clamp(siteY + Math.sin(a) * d, 200, WORLD_H - 200)
+            if (this.rocks.some(rock => distSq(rock.x, rock.y, x, y) < (rock.radius + 150) ** 2)) continue
+            return { x, y }
+        }
+        return {
+            x: clamp(siteX + randRange(-siteRadius, siteRadius), 200, WORLD_W - 200),
+            y: clamp(siteY + randRange(-siteRadius, siteRadius), 200, WORLD_H - 200)
+        }
+    }
+
+    /** Far from the dock, and far from every deposit already placed. */
+    private findDepositPoint() {
+        for (let attempt = 0; attempt < 120; attempt++) {
+            const x = randRange(900, WORLD_W - 900)
+            const y = randRange(900, WORLD_H - 900)
+            if (dist(x, y, WORLD_W / 2, WORLD_H / 2) < DEPOSIT_MIN_FROM_DOCK) continue
+            if (this.deposits.some(site => dist(site.x, site.y, x, y) < DEPOSIT_MIN_SEPARATION)) continue
+            return { x, y }
+        }
+        return null
+    }
+
+    private findFieldPoint() {
+        for (let attempt = 0; attempt < 60; attempt++) {
+            const x = randRange(400, WORLD_W - 400)
+            const y = randRange(400, WORLD_H - 400)
+            if (dist(x, y, WORLD_W / 2, WORLD_H / 2) < MOTHERSHIP_RADIUS * 2 + FIELD_MIN_FROM_DOCK) continue
+            // Cheap ore drifting through a rich deposit would undercut the trip.
+            if (this.deposits.some(site => dist(site.x, site.y, x, y) < site.radius + VOID_FIELD_RADIUS)) continue
+            return { x, y }
+        }
+        return { x: randRange(400, WORLD_W - 400), y: randRange(400, WORLD_H - 400) }
+    }
+
+    /**
+     * A garrison ship. Weighted toward the sector's heavier hulls, because a
+     * deposit that a Stinger can hold is not a deposit worth defending.
+     */
+    private spawnGuard(site: DepositSite, arriving = false) {
+        const heavies = ['bulwark', 'lancer', 'warden', 'nettle']
+        const def = randomChance(0.62)
+            ? voidEnemy(heavies[randomInt(0, heavies.length - 1)]!)
+            : voidRollEnemy(this.sectorTier)
+        const enemy = this.spawnEnemy(def, true)
+        let x: number
+        let y: number
+        if (arriving) {
+            // A wing called in mid-fight drops outside the ring and burns in, so
+            // it is something you watch close rather than something that is
+            // suddenly already inside your guns. Bearings are random, but any
+            // that would put the wing in the player's lap is rerolled.
+            const [near, far] = VOID_DEPOSIT_ARRIVAL_RING
+            // Last resort: dead opposite the player, which is always clear.
+            const away = Math.atan2(site.y - this.py, site.x - this.px)
+            const attempts = 24
+            for (let attempt = 1; ; attempt++) {
+                const last = attempt >= attempts
+                const a = last ? away : randomFloat() * Math.PI * 2
+                const d = site.radius * randRange(near, far)
+                x = clamp(site.x + Math.cos(a) * d, 140, WORLD_W - 140)
+                y = clamp(site.y + Math.sin(a) * d, 140, WORLD_H - 140)
+                if (last || dist(x, y, this.px, this.py) >= VOID_DEPOSIT_ARRIVAL_CLEARANCE) break
+            }
+        } else {
+            // The garrison that is there when you arrive is sitting on the ore.
+            const a = randomFloat() * Math.PI * 2
+            const d = randRange(site.radius * 0.3, site.radius * 0.95)
+            x = clamp(site.x + Math.cos(a) * d, 140, WORLD_W - 140)
+            y = clamp(site.y + Math.sin(a) * d, 140, WORLD_H - 140)
+        }
+        enemy.x = x
+        enemy.y = y
+        enemy.root.position.set(enemy.x, enemy.y)
+        enemy.anchorX = site.x
+        enemy.anchorY = site.y
+        return enemy
     }
 
     private spawnInitialEnemies() {
         const sector = voidSector(this.sectorTier)
-        for (let i = 0; i < sector.baseEnemies * 3; i++) this.spawnEnemy(voidRollEnemy(this.sectorTier), true)
-    }
-
-    private findOpenPoint(minFromCentre: number) {
-        for (let attempt = 0; attempt < 40; attempt++) {
-            const x = randRange(160, WORLD_W - 160)
-            const y = randRange(160, WORLD_H - 160)
-            if (dist(x, y, WORLD_W / 2, WORLD_H / 2) < minFromCentre) continue
-            if (this.rocks.some(rock => distSq(rock.x, rock.y, x, y) < (rock.radius + 140) ** 2)) continue
-            return { x, y }
-        }
-        return { x: randRange(160, WORLD_W - 160), y: randRange(160, WORLD_H - 160) }
+        // Ambient patrols are deliberately thinner than they were: the sector's
+        // threat now lives on the deposits, not smeared evenly over empty space.
+        for (let i = 0; i < sector.baseEnemies * 2; i++) this.spawnEnemy(voidRollEnemy(this.sectorTier), true)
     }
 
     private spawnEnemy(def: VoidEnemyDefinition, anywhere = false, carrierId: number | null = null) {
@@ -613,7 +796,9 @@ export class VoidGame {
             dead: false,
             boss: Boolean(def.boss),
             flashMs: 0,
-            carrierId
+            carrierId,
+            anchorX: null,
+            anchorY: null
         }
         this.drawEnemyHpBar(enemy)
         this.enemyLayer.addChild(built.root)
@@ -661,15 +846,33 @@ export class VoidGame {
         this.updateSingularities(dt, dtMs)
         this.updatePickups(dt, dtMs)
         this.updateRocks(dt, dtMs)
+        this.updateDeposits(dtMs)
         this.updateParticles(dt, dtMs)
         this.updateStorm(dt, dtMs)
         this.updateExtraction(dtMs)
         this.updateHealthBar(dtMs)
         this.updateCamera(dt, dtMs)
         this.updateMinimap()
+        this.updateContactMarkers()
 
         this.callbacks.onTimeChange(this.elapsedMs, this.stormProgress(), voidRampMultiplier(this.elapsedMs))
         this.callbacks.onBoostChange(this.boostMs, VOID_BOOST_CAPACITY_MS)
+    }
+
+    // ─── Specials ────────────────────────────────────────────────────────────
+
+    /** How many mounted modules carry this effect. */
+    private stacks(id: VoidSpecialId) {
+        return specialCount(this.specials, id)
+    }
+
+    /**
+     * The effect's headline magnitude at the current stack count, straight off
+     * the shared definition — so the number on the module card in the hangar is
+     * literally the number the ship uses.
+     */
+    private power(id: VoidSpecialId) {
+        return voidSpecialValue(this.specials, id)
     }
 
     // ─── Player ──────────────────────────────────────────────────────────────
@@ -688,18 +891,29 @@ export class VoidGame {
         const mag = Math.hypot(ax, ay)
         if (mag > 0) { ax /= mag; ay /= mag }
 
+        const afterburner = this.stacks('afterburner')
         const wantsBoost = this.keys.has(' ') && this.boostMs > 0 && mag > 0
         if (wantsBoost) {
-            this.boostMs = Math.max(0, this.boostMs - dtMs)
+            // Afterburner Tap makes the burn cheaper rather than stronger, which
+            // is what a sector this wide actually wants.
+            this.boostMs = Math.max(0, this.boostMs - dtMs * (afterburner > 0 ? this.power('afterburner') : 1))
             if (randomChance(0.55)) this.emitThrusterParticle(true)
             // Cooldown-gated in the manifest, so holding boost pulses the
             // afterburner rather than retriggering it every frame.
             this.callbacks.onSfx?.('boost')
         } else {
-            this.boostMs = Math.min(VOID_BOOST_CAPACITY_MS, this.boostMs + VOID_BOOST_RECHARGE_PER_SEC * dt)
+            this.boostMs = Math.min(
+                VOID_BOOST_CAPACITY_MS,
+                this.boostMs + VOID_BOOST_RECHARGE_PER_SEC * (1 + afterburner * 0.6) * dt
+            )
         }
 
-        const topSpeed = stats.speed * (wantsBoost ? VOID_BOOST_MULT : 1)
+        // Ghost Drive dumps the phase-shift into the drive, so the window it
+        // buys you is also the window you use to get out.
+        const ghosting = this.stacks('ghost-drive') > 0 && this.invulnMs > 0
+        const topSpeed = stats.speed
+            * (wantsBoost ? VOID_BOOST_MULT : 1)
+            * (ghosting ? 1 + voidTaper(this.stacks('ghost-drive'), 0.3, 0.9) : 1)
         this.pvx += ax * topSpeed * THRUST_ACCEL * dt
         this.pvy += ay * topSpeed * THRUST_ACCEL * dt
 
@@ -750,6 +964,19 @@ export class VoidGame {
             this.emitHull()
         }
 
+        // Repair Nanites run on a much shorter fuse than the shield, so they are
+        // the thing that lets you finish a deposit instead of turning for home.
+        const nanites = this.power('nanites')
+        if (nanites > 0 && this.msSinceHit > 3000 && this.hull < this.maxHull) {
+            this.hull = Math.min(this.maxHull, this.hull + this.maxHull * (nanites / 100) * dt)
+            this.emitHull()
+        }
+
+        this.updatePointDefence(dtMs)
+        // Phased hulls read as half-there; without it the invulnerability window
+        // is invisible and may as well not exist.
+        this.playerRoot.alpha = ghosting ? 0.55 : 1
+
         // Firing resolves to mining when the cursor is on a rock in range,
         // otherwise it's the primary cannon. Same hardware, two jobs.
         this.fireTimer -= dtMs
@@ -775,9 +1002,43 @@ export class VoidGame {
         })
     }
 
+    /**
+     * The close-in battery. It swats hostile bolts out of the air on a fixed
+     * cadence — it cannot touch a rail beam or a shockwave, which keeps the
+     * telegraphed attacks as the things you still have to physically dodge.
+     */
+    private updatePointDefence(dtMs: number) {
+        const rate = this.power('point-defence')
+        if (rate <= 0) return
+        const radius = 170 + this.stacks('point-defence') * 40
+
+        this.pointDefenceTimer -= dtMs
+        if (this.pointDefenceTimer > 0) return
+        this.pointDefenceTimer = 1000 / rate
+
+        let best: Bullet | null = null
+        let bestDist = radius
+        for (const bullet of this.bullets) {
+            if (!bullet.hostile || bullet.life <= 0) continue
+            const d = dist(bullet.x, bullet.y, this.px, this.py)
+            if (d < bestDist) { bestDist = d; best = bullet }
+        }
+        if (!best) return
+
+        best.life = 0
+        this.burst(best.x, best.y, 0x7dd3fc, 5, 130)
+
+        // A brief tracer so the intercept is visible; anything longer would read
+        // as a beam weapon rather than a flak burst.
+        const tracer = new Graphics()
+        tracer.moveTo(this.px, this.py).lineTo(best.x, best.y).stroke({ width: 1.6, color: 0x7dd3fc, alpha: 0.7 })
+        this.effectLayer.addChild(tracer)
+        gsap.to(tracer, { alpha: 0, duration: 0.14, onComplete: () => { if (!tracer.destroyed) tracer.destroy() } })
+    }
+
     private firePrimary() {
         const stats = this.config!.stats
-        const rocket = this.specials.rocket
+        const rocket = this.stacks('rocket-conversion') > 0
         this.fireTimer = stats.fireGapMs * (rocket ? 1.25 : 1)
 
         // Barrels fire parallel lanes rather than a cone — a triple-barrel hull
@@ -798,15 +1059,15 @@ export class VoidGame {
                 x: muzzleX,
                 y: muzzleY,
                 angle: this.pAngle,
-                speed: stats.projectileSpeed * (this.specials.railgun ? 1.6 : 1),
-                damage: damagePerShot * (crit ? stats.critDamage : 1) * (rocket ? 1.6 : 1),
+                speed: stats.projectileSpeed * this.railgunSpeedMult(),
+                damage: damagePerShot * (crit ? stats.critDamage : 1) * this.shotDamageMult(),
                 color: crit ? 0xfde047 : rocket ? 0xfb923c : 0x67e8f9,
-                pierce: this.specials.railgun ? 99 : stats.pierce,
-                splash: rocket ? Math.max(70, stats.splash) : stats.splash,
-                lifesteal: this.specials.siphon ? Math.max(0.1, stats.lifesteal) : stats.lifesteal,
+                pierce: this.stacks('railgun') > 0 ? 99 : stats.pierce,
+                splash: rocket ? Math.max(this.rocketSplash(), stats.splash) : stats.splash,
+                lifesteal: Math.max(this.power('void-siphon'), stats.lifesteal),
                 homing: stats.homing,
                 rocket,
-                chain: this.specials.chain,
+                chain: this.stacks('chain-arc') > 0,
                 hostile: false,
                 range: stats.weaponRange,
                 size: crit ? 1.3 : 1.1
@@ -815,6 +1076,26 @@ export class VoidGame {
         }
         this.shotsFired += lanes
         this.callbacks.onSfx?.('player-shoot')
+    }
+
+    // Every gun on the ship — spinal mount and hardpoint turrets alike — fires
+    // through the same three modifiers, so a stacked build behaves identically
+    // whichever barrel the round came out of.
+
+    private shotDamageMult() {
+        const warhead = this.stacks('rocket-conversion') > 0 ? this.power('rocket-conversion') : 1
+        // Mass Driver's extra copies trade nothing for flat damage; the first
+        // copy is already paying for itself in pierce.
+        const driver = 1 + Math.max(0, this.stacks('railgun') - 1) * 0.12
+        return warhead * driver
+    }
+
+    private railgunSpeedMult() {
+        return this.stacks('railgun') > 0 ? this.power('railgun') : 1
+    }
+
+    private rocketSplash() {
+        return 70 + Math.max(0, this.stacks('rocket-conversion') - 1) * 34
     }
 
     // ─── Mining ──────────────────────────────────────────────────────────────
@@ -855,13 +1136,17 @@ export class VoidGame {
 
         this.cutRock(target, dtMs, 1)
 
-        // Harvest Protocol strips a second rock in range at half rate — the
-        // beam splits rather than moving.
-        if (this.specials.harvester) {
-            const secondary = this.rocks.find(rock =>
-                !rock.depleted && rock.id !== target.id
-                && dist(rock.x, rock.y, this.px, this.py) - rock.radius <= this.config!.stats.miningRange)
-            if (secondary) {
+        // Harvest Protocol splits the beam across extra rocks in range at half
+        // rate each — one more rock per stack, which is what turns clearing a
+        // deposit from a two-minute job into something you can do and leave.
+        const extraRocks = this.stacks('harvester')
+        if (extraRocks > 0) {
+            const range = this.config!.stats.miningRange
+            const secondaries = this.rocks
+                .filter(rock => !rock.depleted && rock.id !== target.id
+                    && dist(rock.x, rock.y, this.px, this.py) - rock.radius <= range)
+                .slice(0, extraRocks)
+            for (const secondary of secondaries) {
                 this.cutRock(secondary, dtMs, 0.5)
                 this.miningBeam
                     .moveTo(this.px, this.py)
@@ -921,7 +1206,9 @@ export class VoidGame {
 
         rock.depleted = true
         rock.progress = 0
-        rock.respawnMs = ROCK_RESPAWN_MS
+        // Deposit rock takes far longer to reseed than loose field rock, so
+        // clearing a site means moving to the next one rather than parking.
+        rock.respawnMs = rock.respawnDelayMs
         rock.root.visible = false
         this.rocksMined++
 
@@ -935,7 +1222,7 @@ export class VoidGame {
         )
 
         // Prospector's Eye occasionally kicks out a unit of the next ore up.
-        if (this.specials.prospectorsEye && randomChance(0.3)) {
+        if (this.stacks('prospectors-eye') > 0 && randomChance(this.power('prospectors-eye'))) {
             const ladder: VoidResourceId[] = ['ferrite', 'cobalt', 'iridium', 'xenite']
             const index = ladder.indexOf(rock.def.resource)
             const upgraded = index >= 0 && index < ladder.length - 1 ? ladder[index + 1]! : rock.def.resource
@@ -970,9 +1257,10 @@ export class VoidGame {
             if (!rock.depleted) continue
             rock.respawnMs -= dtMs
             if (rock.respawnMs > 0) continue
-            // Respawn somewhere else entirely so the field keeps reshaping and
-            // the player has a reason to keep moving.
-            const point = this.findOpenPoint(MOTHERSHIP_RADIUS * 2.8)
+            // Rock reseeds inside its own cluster or deposit, not anywhere in
+            // the sector. A rich deposit has to stay where the survey said it
+            // was, or the trip out to it means nothing.
+            const point = this.scatterInSite(rock.siteX, rock.siteY, rock.siteRadius)
             rock.x = point.x
             rock.y = point.y
             rock.depleted = false
@@ -980,6 +1268,79 @@ export class VoidGame {
             rock.root.visible = true
             rock.root.scale.set(0.1)
             gsap.to(rock.root.scale, { x: 1, y: 1, duration: 0.5, ease: 'back.out(2)' })
+        }
+    }
+
+    /**
+     * Deposits are the only places in the sector that fight back on their own
+     * terms: arriving wakes the garrison, and staying keeps pulling more of it
+     * in. The clock the storm is already running means the site is a question of
+     * how long you dare stand on it, not whether you can eventually clear it.
+     */
+    private updateDeposits(dtMs: number) {
+        this.surveyTimer -= dtMs
+        if (this.surveyTimer <= 0) {
+            this.surveyTimer = 400
+            this.callbacks.onSurveyChange?.(
+                this.deposits
+                    .map(site => ({
+                        id: site.id,
+                        name: site.def.name,
+                        hex: voidHex(site.def.glow),
+                        remaining: site.remaining,
+                        distance: dist(this.px, this.py, site.x, site.y),
+                        inside: dist(this.px, this.py, site.x, site.y) < site.radius
+                    }))
+                    .sort((a, b) => a.distance - b.distance)
+            )
+        }
+
+        for (const site of this.deposits) {
+            site.remaining = this.rocks.filter(rock => rock.siteId === site.id && !rock.depleted).length
+
+            // Anchors are assigned straight from the site's own coordinates, so
+            // matching on them identifies this garrison without a second field.
+            const garrisoned = this.enemies.some(enemy => !enemy.dead
+                && enemy.anchorX === site.x && enemy.anchorY === site.y)
+            if (site.garrisoned && !garrisoned) {
+                // The site just went quiet. Restart the countdown from full
+                // rather than letting it keep running off whatever was left:
+                // the timer ticks the whole time you are fighting, so clearing
+                // a garrison late in a cycle used to drop the next wing on you
+                // seconds later, which reads as an instant respawn.
+                site.reinforceMs = VOID_DEPOSIT_REINFORCE_MS
+            }
+            site.garrisoned = garrisoned
+
+            const inside = dist(this.px, this.py, site.x, site.y) < site.radius
+            if (!inside) {
+                site.reinforceMs = VOID_DEPOSIT_REINFORCE_MS
+                continue
+            }
+
+            if (!site.discovered) {
+                site.discovered = true
+                this.callbacks.onNotice?.(`${site.def.name} deposit — the garrison has you.`, 'bad')
+                this.callbacks.onSfx?.('boss-spawn')
+                // Everything sitting on the site turns at once, so walking in
+                // is an event rather than a slow trickle of aggro.
+                for (const enemy of this.enemies) {
+                    if (enemy.dead || enemy.anchorX === null) continue
+                    if (dist(enemy.x, enemy.y, site.x, site.y) > site.radius * 1.4) continue
+                    enemy.state = 'chase'
+                }
+            }
+
+            site.reinforceMs -= dtMs
+            if (site.reinforceMs > 0) continue
+            site.reinforceMs = VOID_DEPOSIT_REINFORCE_MS
+            const wing = randomInt(2, 3)
+            for (let i = 0; i < wing; i++) {
+                const enemy = this.spawnGuard(site, true)
+                enemy.state = 'chase'
+                this.burst(enemy.x, enemy.y, enemy.def.accentColor, 10, 200)
+            }
+            this.callbacks.onNotice?.('Another wing is inbound on the deposit.', 'bad')
         }
     }
 
@@ -1007,22 +1368,23 @@ export class VoidGame {
 
             mount.gfx.rotation = Math.atan2(target.y - origin.y, target.x - origin.x)
             if (mount.fireTimer > 0) continue
-            mount.fireTimer = runtime.fireGapMs * (this.specials.rocket ? 1.25 : 1)
+            const rocket = this.stacks('rocket-conversion') > 0
+            mount.fireTimer = runtime.fireGapMs * (rocket ? 1.25 : 1)
 
             const crit = stats.critChance > 0 && randomChance(stats.critChance)
             this.spawnBullet({
                 x: origin.x,
                 y: origin.y,
                 angle: mount.gfx.rotation,
-                speed: stats.projectileSpeed * 0.8 * (this.specials.railgun ? 1.6 : 1),
-                damage: runtime.damage * (crit ? stats.critDamage : 1) * (this.specials.rocket ? 1.6 : 1),
+                speed: stats.projectileSpeed * 0.8 * this.railgunSpeedMult(),
+                damage: runtime.damage * (crit ? stats.critDamage : 1) * this.shotDamageMult(),
                 color: crit ? 0xfde047 : runtime.color,
-                pierce: this.specials.railgun ? 99 : stats.pierce,
-                splash: this.specials.rocket ? Math.max(70, stats.splash) : stats.splash,
-                lifesteal: this.specials.siphon ? Math.max(0.1, stats.lifesteal) : stats.lifesteal,
+                pierce: this.stacks('railgun') > 0 ? 99 : stats.pierce,
+                splash: rocket ? Math.max(this.rocketSplash(), stats.splash) : stats.splash,
+                lifesteal: Math.max(this.power('void-siphon'), stats.lifesteal),
                 homing: stats.homing,
-                rocket: this.specials.rocket,
-                chain: this.specials.chain,
+                rocket,
+                chain: this.stacks('chain-arc') > 0,
                 hostile: false,
                 range: runtime.range,
                 size: crit ? 1.15 : 0.9
@@ -1114,6 +1476,14 @@ export class VoidGame {
                     if (enemy.driftTimer <= 0) {
                         enemy.driftTimer = randRange(2200, 5200)
                         enemy.driftAngle = randomFloat() * Math.PI * 2
+                    }
+                    // A garrison ship that has drifted off its deposit turns
+                    // back toward it. Without this the guards slowly diffuse
+                    // across the sector and a site you flew past an hour ago is
+                    // sitting there undefended when you finally come for it.
+                    if (enemy.anchorX !== null && enemy.anchorY !== null
+                        && dist(enemy.x, enemy.y, enemy.anchorX, enemy.anchorY) > VOID_DEPOSIT_RADIUS) {
+                        enemy.driftAngle = Math.atan2(enemy.anchorY - enemy.y, enemy.anchorX - enemy.x)
                     }
                     this.moveEnemy(enemy, enemy.driftAngle, enemy.speed * 0.32, dt)
                 }
@@ -1414,8 +1784,8 @@ export class VoidGame {
             for (const enemy of this.enemies) {
                 if (enemy.dead) continue
                 const d = dist(enemy.x, enemy.y, hole.x, hole.y)
-                if (d > 260) continue
-                const pull = (1 - d / 260) * 210 * dt
+                if (d > hole.radius) continue
+                const pull = (1 - d / hole.radius) * 210 * dt
                 const a = Math.atan2(hole.y - enemy.y, hole.x - enemy.x)
                 enemy.x += Math.cos(a) * pull
                 enemy.y += Math.sin(a) * pull
@@ -1536,15 +1906,18 @@ export class VoidGame {
         }
 
         if (bullet.chain) {
-            // Two forks at 55%, never back into something this bullet already hit.
+            // Two forks per stack, never back into something this bullet has
+            // already hit, each fork biting harder the more racks you carry.
+            const maxForks = this.power('chain-arc')
+            const forkDamage = 0.55 + Math.max(0, this.stacks('chain-arc') - 1) * 0.12
             let forks = 0
             for (const other of this.enemies) {
-                if (forks >= 2) break
+                if (forks >= maxForks) break
                 if (other.dead || bullet.hitIds.has(other.id)) continue
                 if (dist(other.x, other.y, enemy.x, enemy.y) > 260) continue
                 forks++
                 bullet.hitIds.add(other.id)
-                this.damageEnemy(other, bullet.damage * 0.55, other.x, other.y, bullet.lifesteal)
+                this.damageEnemy(other, bullet.damage * forkDamage, other.x, other.y, bullet.lifesteal)
                 const arc = new Graphics()
                 arc.moveTo(enemy.x, enemy.y).lineTo(other.x, other.y).stroke({ width: 3, color: 0x67e8f9, alpha: 0.9 })
                 this.effectLayer.addChild(arc)
@@ -1612,26 +1985,63 @@ export class VoidGame {
                 drop.resource, amount, enemy.boss
             )
         }
-        if (this.specials.siphon && randomChance(0.35)) {
+        if (this.stacks('void-siphon') > 0 && randomChance(0.35)) {
             this.spawnPickup(enemy.x, enemy.y, 'ferrite', 1, false)
         }
+        // Salvage Claw strips the wreck properly rather than scooping what
+        // floats free, and heavier hulls start giving up their boards.
+        const claw = this.stacks('salvage-claw')
+        if (claw > 0 && randomChance(Math.min(0.75, claw * 0.2))) {
+            this.spawnPickup(enemy.x, enemy.y, 'circuitry', 1, false)
+        }
 
-        if (this.specials.singularity) this.spawnSingularity(enemy.x, enemy.y)
+        if (this.stacks('singularity') > 0) this.spawnSingularity(enemy.x, enemy.y)
+
+        // Fracture Rounds turn the corpse into the next attack. Scaled off the
+        // victim's own hull, so it clears swarms without trivialising capitals.
+        const fracture = this.power('fracture')
+        if (fracture > 0) {
+            const radius = 170 + this.stacks('fracture') * 40
+            const blast = enemy.maxHp * fracture
+            this.burst(enemy.x, enemy.y, 0xfda4af, 18, 320)
+            const ring = new Graphics()
+            ring.circle(0, 0, radius).stroke({ width: 4, color: 0xfda4af, alpha: 0.8 })
+            ring.position.set(enemy.x, enemy.y)
+            this.effectLayer.addChild(ring)
+            gsap.to(ring.scale, { x: 1.2, y: 1.2, duration: 0.3, ease: 'power2.out' })
+            gsap.to(ring, { alpha: 0, duration: 0.3, onComplete: () => { if (!ring.destroyed) ring.destroy() } })
+            for (const other of this.enemies) {
+                if (other.dead || other.id === enemy.id) continue
+                if (dist(other.x, other.y, enemy.x, enemy.y) > radius) continue
+                this.damageEnemy(other, blast, other.x, other.y, 0)
+            }
+        }
     }
 
     private spawnSingularity(x: number, y: number) {
+        const count = this.stacks('singularity')
+        const radius = 260 + Math.max(0, count - 1) * 70
+        const scale = radius / 260
+
         const root = new Container()
         const gfx = new Graphics()
-        gfx.circle(0, 0, 58).fill({ color: 0x1e1b4b, alpha: 0.55 })
-        gfx.circle(0, 0, 34).fill({ color: 0x000000, alpha: 0.85 })
+        gfx.circle(0, 0, 58 * scale).fill({ color: 0x1e1b4b, alpha: 0.55 })
+        gfx.circle(0, 0, 34 * scale).fill({ color: 0x000000, alpha: 0.85 })
         for (let i = 0; i < 3; i++) {
             const a = (i / 3) * Math.PI * 2
-            gfx.arc(0, 0, 70 + i * 12, a, a + 1.6).stroke({ width: 3, color: 0xa78bfa, alpha: 0.7 })
+            gfx.arc(0, 0, (70 + i * 12) * scale, a, a + 1.6).stroke({ width: 3, color: 0xa78bfa, alpha: 0.7 })
         }
         root.addChild(gfx)
         root.position.set(x, y)
         this.effectLayer.addChild(root)
-        this.singularities.push({ gfx: root, x, y, age: 0, life: 2000, damage: this.config!.stats.damage * 0.4, tickMs: 250 })
+        this.singularities.push({
+            gfx: root, x, y,
+            age: 0,
+            life: 2000,
+            damage: this.config!.stats.damage * 0.4 * count,
+            tickMs: 250,
+            radius
+        })
         this.callbacks.onSfx?.('singularity')
     }
 
@@ -1648,7 +2058,10 @@ export class VoidGame {
             vy: Math.sin(a) * randRange(30, 110),
             age: 0,
             resource,
-            amount
+            amount,
+            // A Tractor Array holds salvage indefinitely, so a long fight no
+            // longer rots the drops you earned at the start of it.
+            permanent: this.stacks('tractor-array') > 0
         })
     }
 
@@ -1682,7 +2095,10 @@ export class VoidGame {
             }
         }
         this.pickups = this.pickups.filter((pickup) => {
-            if (pickup.age < 45_000) return true
+            // Collection sets age to Infinity, which has to outrank `permanent`
+            // — otherwise a tractored pickup is banked and then never cleaned up.
+            const collected = !Number.isFinite(pickup.age)
+            if (!collected && (pickup.permanent || pickup.age < 45_000)) return true
             gsap.killTweensOf(pickup.gfx)
             gsap.killTweensOf(pickup.gfx.scale)
             pickup.gfx.destroy({ children: true })
@@ -1813,9 +2229,12 @@ export class VoidGame {
 
     // ─── Damage ──────────────────────────────────────────────────────────────
 
-    private damagePlayer(amount: number) {
+    private damagePlayer(rawAmount: number) {
         if (this.invulnMs > 0 || this.ended) return
         this.msSinceHit = 0
+        // Bulwark Field is flat mitigation applied before anything else, so it
+        // stacks multiplicatively with the shield rather than competing with it.
+        const amount = rawAmount * (1 - this.power('bulwark-field'))
         let remaining = amount
         if (this.shield > 0) {
             const absorbed = Math.min(this.shield, remaining)
@@ -1826,7 +2245,10 @@ export class VoidGame {
         }
         if (remaining > 0) {
             this.hull -= remaining
-            this.invulnMs = 180
+            // Ghost Drive turns the usual 180 ms of hit protection into a real
+            // window — long enough to actually break contact with what hit you.
+            const ghost = this.power('ghost-drive')
+            this.invulnMs = ghost > 0 ? ghost * 1000 : 180
             this.callbacks.onSfx?.('player-hurt')
             if (this.playerBody) {
                 this.playerBody.tint = 0xff6b6b
@@ -1948,23 +2370,34 @@ export class VoidGame {
         }
 
         this.worldRoot.position.set(-clampedX + VIEW_W / 2 + shakeX, -clampedY + VIEW_H / 2 + shakeY)
+        // Tiled layers scroll their own texture offset rather than moving, so
+        // the parallax is free and never runs out of sky.
+        if (this.nebulaLayer) this.nebulaLayer.sprite.tilePosition.set(-clampedX * NEBULA_PARALLAX, -clampedY * NEBULA_PARALLAX)
         for (const layer of this.starLayers) {
-            layer.container.position.set(
-                -clampedX * layer.parallax + VIEW_W / 2,
-                -clampedY * layer.parallax + VIEW_H / 2
-            )
+            layer.sprite.tilePosition.set(-clampedX * layer.parallax, -clampedY * layer.parallax)
         }
     }
 
+    /**
+     * The scan is the primary navigation instrument now that the sector is ten
+     * viewports across and the ore worth having is concentrated in a few places
+     * on it. It shows where the deposits are from the moment you undock — the
+     * decision the run is built around is "is that one worth the flight", and
+     * you cannot make it if you cannot see them.
+     */
     private updateMinimap() {
-        const w = 200
-        const h = 118
+        const w = MINIMAP_W
+        const h = MINIMAP_H
         const sx = w / WORLD_W
         const sy = h / WORLD_H
         const g = this.minimapDots
         g.clear()
-        g.rect(0, 0, w, h).fill({ color: 0x020617, alpha: 0.75 })
-        g.rect(0, 0, w, h).stroke({ width: 1.5, color: 0x334155, alpha: 0.9 })
+
+        // Faint grid, so distances on the scan are readable rather than vibes.
+        for (let i = 1; i < 5; i++) {
+            g.moveTo((w / 5) * i, 0).lineTo((w / 5) * i, h).stroke({ width: 1, color: 0x1e293b, alpha: 0.55 })
+            g.moveTo(0, (h / 5) * i).lineTo(w, (h / 5) * i).stroke({ width: 1, color: 0x1e293b, alpha: 0.55 })
+        }
 
         const p = this.stormProgress()
         if (p > 0) {
@@ -1975,16 +2408,94 @@ export class VoidGame {
             ).stroke({ width: 1.5, color: 0xbef264, alpha: 0.9 })
         }
 
-        g.circle(WORLD_W / 2 * sx, WORLD_H / 2 * sy, 4.5).fill({ color: 0x22d3ee })
+        // Deposits first and largest — they are what the scan is for.
+        for (const site of this.deposits) {
+            const cleared = site.remaining <= 0
+            g.circle(site.x * sx, site.y * sy, 7).stroke({
+                width: 1.5,
+                color: site.def.glow,
+                alpha: cleared ? 0.25 : 0.85
+            })
+            if (!cleared) {
+                g.poly([
+                    site.x * sx, site.y * sy - 4.6,
+                    site.x * sx + 4.6, site.y * sy,
+                    site.x * sx, site.y * sy + 4.6,
+                    site.x * sx - 4.6, site.y * sy
+                ]).fill({ color: site.def.glow, alpha: 0.95 })
+            }
+        }
+
         for (const rock of this.rocks) {
             if (rock.depleted) continue
-            g.circle(rock.x * sx, rock.y * sy, 1.6).fill({ color: rock.def.glow, alpha: 0.75 })
+            g.circle(rock.x * sx, rock.y * sy, 1.5).fill({ color: rock.def.glow, alpha: 0.6 })
         }
         for (const enemy of this.enemies) {
             if (enemy.dead) continue
-            g.circle(enemy.x * sx, enemy.y * sy, enemy.boss ? 4 : 2.1).fill({ color: enemy.boss ? 0xfbbf24 : 0xf87171 })
+            g.circle(enemy.x * sx, enemy.y * sy, enemy.boss ? 4.5 : 2).fill({ color: enemy.boss ? 0xfbbf24 : 0xf87171 })
         }
-        g.circle(this.px * sx, this.py * sy, 3).fill({ color: 0xffffff })
+
+        // The dock, then the camera frame, then you.
+        g.circle(WORLD_W / 2 * sx, WORLD_H / 2 * sy, 5).fill({ color: 0x22d3ee })
+        g.circle(WORLD_W / 2 * sx, WORLD_H / 2 * sy, 8.5).stroke({ width: 1, color: 0x22d3ee, alpha: 0.5 })
+
+        const viewW = VIEW_W * sx
+        const viewH = VIEW_H * sy
+        g.rect(
+            clamp(this.camX * sx - viewW / 2, 0, w - viewW),
+            clamp(this.camY * sy - viewH / 2, 0, h - viewH),
+            viewW, viewH
+        ).stroke({ width: 1, color: 0xffffff, alpha: 0.35 })
+
+        g.circle(this.px * sx, this.py * sy, 3.2).fill({ color: 0xffffff })
+    }
+
+    /**
+     * Arrows pinned to the edge of the viewport for anything worth flying to
+     * that is currently off camera. On a sector this size the scan alone means
+     * constantly looking away from the fight to work out which way is out; the
+     * arrows put the same answer in your peripheral vision.
+     */
+    private updateContactMarkers() {
+        const g = this.markerLayer
+        g.clear()
+
+        const targets: MarkerTarget[] = []
+        for (const site of this.deposits) {
+            if (site.remaining <= 0) continue
+            targets.push({ x: site.x, y: site.y, color: site.def.glow, kind: 'deposit', label: site.def.name })
+        }
+        for (const enemy of this.enemies) {
+            if (enemy.dead || !enemy.boss) continue
+            targets.push({ x: enemy.x, y: enemy.y, color: 0xfbbf24, kind: 'boss', label: enemy.def.name })
+        }
+        // The way home only matters once the storm has started making it matter.
+        if (this.stormProgress() > 0 || this.cargoUnits >= this.cargoCapacity * 0.6) {
+            targets.push({ x: WORLD_W / 2, y: WORLD_H / 2, color: 0x22d3ee, kind: 'dock', label: 'Mothership' })
+        }
+
+        const originX = -this.worldRoot.position.x
+        const originY = -this.worldRoot.position.y
+        const halfW = VIEW_W / 2 - MARKER_INSET
+        const halfH = VIEW_H / 2 - MARKER_INSET
+
+        for (const target of targets) {
+            const screenX = target.x - originX
+            const screenY = target.y - originY
+            // On screen already: the thing itself is the marker.
+            if (screenX > 0 && screenX < VIEW_W && screenY > 0 && screenY < VIEW_H) continue
+
+            const dx = screenX - VIEW_W / 2
+            const dy = screenY - VIEW_H / 2
+            const angle = Math.atan2(dy, dx)
+            // Project onto the edge rectangle rather than a circle, so an arrow
+            // sits directly between you and the target on both axes.
+            const scale = Math.min(halfW / Math.abs(dx || 1e-6), halfH / Math.abs(dy || 1e-6))
+            const ex = VIEW_W / 2 + dx * scale
+            const ey = VIEW_H / 2 + dy * scale
+
+            fx.drawContactArrow(g, ex, ey, angle, target.color, target.kind === 'boss' ? 1.25 : 1)
+        }
     }
 
     // ─── HUD plumbing ────────────────────────────────────────────────────────

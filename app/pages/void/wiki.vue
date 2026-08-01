@@ -2,10 +2,11 @@
 import {
   VOID_RESOURCES, VOID_SECTORS, VOID_ROCKS, VOID_ENEMIES, VOID_SHIPS,
   VOID_RARITIES, VOID_AFFIXES, VOID_SPECIALS, VOID_UPGRADES, VOID_AFFIX_GROUP_LABEL,
+  VOID_SPECIAL_GROUP_LABEL, VOID_DEPOSIT_REINFORCE_MS,
   VOID_STORM_START_MS, VOID_STORM_FULL_MS, VOID_RUN_DURATION_MS, VOID_MIDBOSS_SPAWN_MS,
   VOID_STORM_DPS_FRACTION, VOID_STORM_ENEMY_MULT, VOID_RAMP_PER_MINUTE, VOID_SALVAGE_RATE,
-  VOID_MARKET_PRICES, VOID_BOSS_MODULE_DROP_CHANCE,
-  type VoidAffixGroup
+  VOID_MARKET_PRICES, VOID_BOSS_MODULE_DROP_CHANCE, VOID_BOOST_CAPACITY_MS, VOID_BOOST_MULT,
+  type VoidAffixGroup, type VoidSpecialGroup
 } from '#shared/utils/gamelogic/void'
 
 definePageMeta({ title: 'Void Wiki' })
@@ -19,6 +20,15 @@ const affixGroups = computed(() => {
     group,
     label: VOID_AFFIX_GROUP_LABEL[group],
     affixes: VOID_AFFIXES.filter(a => a.group === group)
+  }))
+})
+
+const specialGroups = computed(() => {
+  const groups: VoidSpecialGroup[] = ['offence', 'defence', 'mining', 'haul', 'mobility']
+  return groups.map(group => ({
+    group,
+    label: VOID_SPECIAL_GROUP_LABEL[group],
+    specials: VOID_SPECIALS.filter(s => s.group === group)
   }))
 })
 </script>
@@ -42,7 +52,7 @@ const affixGroups = computed(() => {
       </template>
       <ul class="space-y-1.5 text-sm">
         <li><UKbd value="W" /> <UKbd value="A" /> <UKbd value="S" /> <UKbd value="D" /> — thrust. You're in space; expect to drift.</li>
-        <li><UKbd value="Space" /> — burn. Roughly 1.85× top speed for about 2.6 seconds, then it recharges.</li>
+        <li><UKbd value="Space" /> — burn. Roughly {{ VOID_BOOST_MULT }}× top speed for about {{ (VOID_BOOST_CAPACITY_MS / 1000).toFixed(1) }} seconds, then it recharges. On a sector this wide it is a travel tool, not just a dodge.</li>
         <li>Mouse — your hull turns toward the cursor at its own turn rate. Heavy hulls lag badly.</li>
         <li>Hold left click — fires the weapon, or runs the mining beam if the cursor is on a rock inside beam range. Same hardware, two jobs.</li>
       </ul>
@@ -173,10 +183,24 @@ const affixGroups = computed(() => {
         </p>
       </template>
       <div class="space-y-2">
+        <p class="text-sm">
+          Ore comes in two shapes and the difference is the geography of the entire run.
+          <strong>Field rock</strong> drifts loose in small clusters anywhere in the sector — cheap, thin on the ground,
+          and what you cut on the way somewhere. <strong>Deposit rock</strong> only exists inside a surveyed rich
+          deposit: a handful of sites per sector, all of them a long flight from the dock, each with a garrison already
+          sitting on it that wakes the moment your beam touches the ore. Iridium and xenite cannot be found any other
+          way.
+        </p>
         <div v-for="rock in VOID_ROCKS" :key="rock.id" class="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-default bg-elevated p-3">
           <div>
-            <p class="font-bold" :style="{ color: hex(rock.glow) }">
+            <p class="flex items-center gap-1.5 font-bold" :style="{ color: hex(rock.glow) }">
               {{ rock.name }}
+              <UBadge
+                size="sm"
+                :color="rock.rockClass === 'deposit' ? 'error' : 'neutral'"
+                variant="subtle"
+                :label="rock.rockClass === 'deposit' ? 'Guarded deposit only' : 'Loose field clusters'"
+              />
             </p>
             <p class="text-xs text-muted">
               Yields {{ rock.yieldMin }}–{{ rock.yieldMax }} units before refinery bonuses
@@ -187,6 +211,13 @@ const affixGroups = computed(() => {
         <p class="text-xs text-muted">
           Cut time is base × sector modifier × Weapon Core level × hull modifier × your modules' mining rolls. Rarer ore takes
           longer, which is exactly how it gets you killed.
+        </p>
+        <p class="text-xs text-muted">
+          Every deposit is on the scan from the moment you undock, and stays on it once cleared so you know not to go
+          back. Standing on a contested site keeps pulling fresh wings in every
+          {{ Math.round(VOID_DEPOSIT_REINFORCE_MS / 1000) }} seconds — the site is a question of how long you dare hold
+          it, not whether you can eventually empty it. Wings burn in from outside the ring, and wiping the garrison
+          buys you the full timer again before the next one arrives.
         </p>
       </div>
     </UCard>
@@ -268,16 +299,33 @@ const affixGroups = computed(() => {
 
         <div>
           <p class="mb-1 text-xs font-bold uppercase tracking-wide text-muted">
-            Unique specials
+            Effects
           </p>
-          <div class="space-y-1.5">
-            <div v-for="special in VOID_SPECIALS" :key="special.id" class="rounded-lg border border-error/25 bg-error/5 p-2.5">
-              <p class="flex items-center gap-1.5 text-sm font-bold text-error">
-                <UIcon :name="special.icon" class="size-4" /> {{ special.name }}
-              </p>
-              <p class="mt-0.5 text-xs text-muted">
-                {{ special.description }}
-              </p>
+          <p class="mb-2 text-xs text-muted">
+            Every module rolls one of these, whatever it cost — a common is simply the cheap way to try a build. They
+            <strong>stack</strong>: mounting the same effect on two hardpoints compounds it, and unrelated effects
+            combine freely, so what a four-hardpoint hull is carrying is a build rather than four copies of the best
+            drop.
+          </p>
+          <div v-for="group in specialGroups" :key="group.group" class="mb-2">
+            <p class="mb-1 text-[10px] font-bold uppercase tracking-[0.18em] text-muted">
+              {{ group.label }}
+            </p>
+            <div class="space-y-1.5">
+              <div v-for="special in group.specials" :key="special.id" class="rounded-lg border border-primary/25 bg-primary/5 p-2.5">
+                <p class="flex items-center gap-1.5 text-sm font-bold text-primary">
+                  <UIcon :name="special.icon" class="size-4" /> {{ special.name }}
+                </p>
+                <p class="mt-0.5 text-xs text-muted">
+                  {{ special.description }}
+                </p>
+                <p class="mt-1 text-[11px]">
+                  <span class="font-bold text-muted">×1</span> {{ special.describe(1) }}
+                </p>
+                <p class="text-[11px] text-muted">
+                  <span class="font-bold">×3</span> {{ special.describe(3) }}
+                </p>
+              </div>
             </div>
           </div>
         </div>

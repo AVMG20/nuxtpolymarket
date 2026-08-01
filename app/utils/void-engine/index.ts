@@ -4,5 +4,6 @@ export type {
     VoidGameCallbacks,
     VoidLaunchConfig,
     VoidRunResult,
-    VoidHudCargo
+    VoidHudCargo,
+    VoidHudDeposit
 } from './types'
