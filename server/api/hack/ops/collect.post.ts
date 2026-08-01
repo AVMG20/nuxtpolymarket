@@ -1,3 +1,4 @@
+import { createError, defineEventHandler, readBody } from 'nitro/h3'
 import { eq, and, inArray, sql } from 'drizzle-orm'
 import { db } from '#server/database'
 import { hackAgents, hackArtifacts, hackItems, hackOps, hackHistory, hackState } from '#server/database/schema'

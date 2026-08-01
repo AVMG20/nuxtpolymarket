@@ -1,3 +1,4 @@
+import { definePlugin } from 'nitro'
 import * as Sentry from '@sentry/nuxt'
 
 // In a production build the SDK is initialised by a top-level import injected
@@ -6,7 +7,7 @@ import * as Sentry from '@sentry/nuxt'
 // so server-side errors went unreported in development. Initialising here as a
 // fallback covers dev; the guard keeps production on the earlier, deeper
 // instrumentation instead of initialising twice.
-export default defineNitroPlugin(async () => {
+export default definePlugin(async () => {
     if (Sentry.getClient()) return
 
     try {

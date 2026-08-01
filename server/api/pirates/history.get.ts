@@ -1,3 +1,4 @@
+import { defineEventHandler } from 'nitro/h3'
 import { desc, eq } from 'drizzle-orm'
 import { db } from '#server/database'
 import { pirateRunHistory } from '#server/database/schema'

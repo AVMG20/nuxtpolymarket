@@ -1,3 +1,4 @@
+import { defineEventHandler } from 'nitro/h3'
 import { requireUserId } from '#server/utils/auth'
 import { getBankChartHistory } from '#server/utils/bank'
 

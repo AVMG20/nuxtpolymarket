@@ -1,3 +1,4 @@
+import { createError, defineEventHandler, getRouterParam } from 'nitro/h3'
 import { and, asc, eq, isNull } from 'drizzle-orm'
 import { db } from '#server/database'
 import { aiConversations, aiMessages } from '#server/database/schema'

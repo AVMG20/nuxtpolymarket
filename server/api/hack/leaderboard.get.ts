@@ -1,3 +1,4 @@
+import { defineEventHandler } from 'nitro/h3'
 import { eq, inArray } from 'drizzle-orm'
 import { db } from '#server/database'
 import { getSessionUserId } from '#server/utils/auth'

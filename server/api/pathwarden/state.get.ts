@@ -1,3 +1,5 @@
+import { useRuntimeConfig } from 'nitro/runtime-config'
+import { defineEventHandler } from 'nitro/h3'
 import { eq } from 'drizzle-orm'
 import { db } from '#server/database'
 import { pathwardenState, user } from '#server/database/schema'
@@ -23,7 +25,7 @@ import {
 
 export default defineEventHandler(async (event) => {
     const userId = await requireUserId(event)
-    const debugMode = import.meta.dev || Boolean(useRuntimeConfig(event).devMode)
+    const debugMode = import.meta.dev || Boolean(useRuntimeConfig().devMode)
     const [balance, currentUser, existing, gemGuidePrice] = await Promise.all([
         getBalance(userId),
         db.query.user.findFirst({ where: eq(user.id, userId), columns: { gems: true } }),

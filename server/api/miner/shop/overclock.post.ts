@@ -1,3 +1,4 @@
+import { defineEventHandler } from 'nitro/h3'
 import { db } from '#server/database'
 import { requireUserId } from '#server/utils/auth'
 import { overclockUpgradeCost, OVERCLOCK_MAX_LEVEL } from '#shared/utils/miner-config'

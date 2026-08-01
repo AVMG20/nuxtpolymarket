@@ -1,3 +1,4 @@
+import { createError, defineEventHandler, getQuery } from 'nitro/h3'
 import { desc, eq, lt } from 'drizzle-orm'
 import { db } from '#server/database'
 import { chatMessages, user } from '#server/database/schema'

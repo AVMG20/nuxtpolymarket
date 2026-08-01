@@ -1,3 +1,5 @@
+import { useRuntimeConfig } from 'nitro/runtime-config'
+import { createError, defineEventHandler } from 'nitro/h3'
 import { eq } from 'drizzle-orm'
 import { db } from '#server/database'
 import { pathwardenState } from '#server/database/schema'
@@ -11,7 +13,7 @@ import {
 
 export default defineEventHandler(async (event) => {
     const userId = await requireUserId(event)
-    const debugMode = import.meta.dev || Boolean(useRuntimeConfig(event).devMode)
+    const debugMode = import.meta.dev || Boolean(useRuntimeConfig().devMode)
 
     return db.transaction(async (tx) => {
         const state = await getLockedPathwardenState(tx, userId)

@@ -1,4 +1,5 @@
-import type {H3Event} from 'h3'
+import { createError } from 'nitro/h3'
+import type {H3Event} from 'nitro/h3'
 import * as Sentry from '@sentry/nuxt'
 import {APIError, betterAuth} from 'better-auth'
 import {drizzleAdapter} from 'better-auth/adapters/drizzle'

@@ -1,3 +1,5 @@
+import { useRuntimeConfig } from 'nitro/runtime-config'
+import { createError, defineEventHandler, readBody } from 'nitro/h3'
 import { eq, and, inArray } from 'drizzle-orm'
 import { db } from '#server/database'
 import { hackAgents, hackItems, hackOps } from '#server/database/schema'
@@ -57,7 +59,7 @@ export default defineEventHandler(async (event) => {
   const totalPower = agents.reduce((sum, agent, i) =>
     sum + agentPower({ level: agent.level, class: agent.class as AgentClass, rarity: agent.rarity as HackRarity }, agentLoadouts[i]!.items, (agent.traits ?? []) as AgentTrait[]), 0)
 
-  const durationMs = useRuntimeConfig(event).devMode
+  const durationMs = useRuntimeConfig().devMode
     ? 1000
     : effectiveDurationMs(template, agentLoadouts)
   const successChance = opSuccessChance(totalPower, template.minPower)

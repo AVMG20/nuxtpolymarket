@@ -1,3 +1,4 @@
+import { defineEventHandler } from 'nitro/h3'
 import { eq, desc, sql, count } from 'drizzle-orm'
 import { db } from '#server/database'
 import { hackHistory } from '#server/database/schema'

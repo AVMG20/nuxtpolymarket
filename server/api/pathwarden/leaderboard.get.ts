@@ -1,3 +1,4 @@
+import { defineEventHandler } from 'nitro/h3'
 import { and, desc, eq, gt } from 'drizzle-orm'
 import { db } from '#server/database'
 import { pathwardenState, user } from '#server/database/schema'

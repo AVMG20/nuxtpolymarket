@@ -1,3 +1,4 @@
+import { defineEventHandler } from 'nitro/h3'
 import { asc } from 'drizzle-orm'
 import { db } from '#server/database'
 import { user } from '#server/database/schema'

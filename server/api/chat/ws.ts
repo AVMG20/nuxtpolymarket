@@ -1,3 +1,4 @@
+import { createError, defineWebSocketHandler } from 'nitro/h3'
 import type { Peer } from 'crossws'
 import { and, eq, inArray } from 'drizzle-orm'
 import { auth } from '#server/utils/auth'

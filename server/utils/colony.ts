@@ -1,3 +1,4 @@
+import { createError } from 'nitro/h3'
 import { eq, and, sql } from 'drizzle-orm'
 import { db, type DbExecutor } from '#server/database'
 import { colonyState, colonyBugs, colonyUpgrades, colonyBugResearch, colonyLoot, colonyItems } from '#server/database/schema'

@@ -1,3 +1,5 @@
+import { useRuntimeConfig } from 'nitro/runtime-config'
+import { createError, defineEventHandler } from 'nitro/h3'
 import { eq } from 'drizzle-orm'
 import { db } from '#server/database'
 import { pathwardenRuns, pathwardenState } from '#server/database/schema'
@@ -5,7 +7,7 @@ import { requireUserId } from '#server/utils/auth'
 import { getLockedPathwardenState } from '#server/utils/pathwarden'
 
 export default defineEventHandler(async (event) => {
-    if (!import.meta.dev && !useRuntimeConfig(event).devMode) {
+    if (!import.meta.dev && !useRuntimeConfig().devMode) {
         throw createError({ statusCode: 404, statusMessage: 'Not found' })
     }
 

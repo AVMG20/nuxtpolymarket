@@ -1,3 +1,4 @@
+import { defineEventHandler } from 'nitro/h3'
 import { eq } from 'drizzle-orm'
 import { db } from '#server/database'
 import { xenoGridSlots, xenoBreederSlots } from '#server/database/schema'

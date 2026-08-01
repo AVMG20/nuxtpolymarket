@@ -1,5 +1,5 @@
 import { and, eq, isNull } from 'drizzle-orm'
-import { createEventStream } from 'h3'
+import { createError, createEventStream, defineEventHandler, readBody } from 'nitro/h3'
 import { db } from '#server/database'
 import { aiConversations } from '#server/database/schema'
 import { getErrorMessage } from '#server/utils/ai/helpers'

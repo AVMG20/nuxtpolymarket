@@ -1,3 +1,4 @@
+import { createError } from 'nitro/h3'
 import { and, count, eq, gte, lt } from 'drizzle-orm'
 import { db } from '#server/database'
 import { aiMessages, user } from '#server/database/schema'

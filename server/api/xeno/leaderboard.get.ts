@@ -1,3 +1,4 @@
+import { defineEventHandler } from 'nitro/h3'
 import { db } from '#server/database'
 import { getSessionUserId } from '#server/utils/auth'
 import { user, xenoPlants, xenoPlantsUnlocked, xenoArtifacts, xenoGridSlots, xenoBreederSlots } from '#server/database/schema'

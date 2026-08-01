@@ -1,4 +1,4 @@
-import { getQuery } from 'h3'
+import { defineEventHandler, getQuery } from 'nitro/h3'
 import { requireUserId } from '#server/utils/auth'
 import { getBankHistory } from '#server/utils/bank'
 

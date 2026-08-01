@@ -1,3 +1,4 @@
+import { defineEventHandler } from 'nitro/h3'
 import { eq, and } from 'drizzle-orm'
 import { db } from '#server/database'
 import { hackState, hackAgents, hackArtifacts, hackItems, hackOps } from '#server/database/schema'

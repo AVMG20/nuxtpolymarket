@@ -1,3 +1,4 @@
+import { defineEventHandler } from 'nitro/h3'
 import { eq } from 'drizzle-orm'
 import { requireUserId } from '#server/utils/auth'
 import { getBalance } from '#server/utils/balance'

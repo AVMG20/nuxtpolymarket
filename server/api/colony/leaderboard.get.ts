@@ -1,3 +1,4 @@
+import { defineEventHandler } from 'nitro/h3'
 import { inArray } from 'drizzle-orm'
 /* eslint-disable @stylistic/indent */
 import { db } from '#server/database'

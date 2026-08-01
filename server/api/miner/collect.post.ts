@@ -1,3 +1,4 @@
+import { createError, defineEventHandler } from 'nitro/h3'
 import { eq } from 'drizzle-orm'
 import { db } from '#server/database'
 import { minerState } from '#server/database/schema'

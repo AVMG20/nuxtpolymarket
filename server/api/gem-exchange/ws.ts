@@ -1,3 +1,4 @@
+import { defineWebSocketHandler } from 'nitro/h3'
 import { registerGemExchangePeer, unregisterGemExchangePeer } from '#server/utils/gem-exchange-live'
 
 // Public read-only ticker: the exchange state is visible to signed-out

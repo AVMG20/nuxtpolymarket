@@ -1,3 +1,5 @@
+import { useRuntimeConfig } from 'nitro/runtime-config'
+import { createError, defineEventHandler, readBody } from 'nitro/h3'
 import { eq } from 'drizzle-orm'
 import { db } from '#server/database'
 import { pathwardenRuns, pathwardenState } from '#server/database/schema'
@@ -35,7 +37,7 @@ function generateValidatedPlan(seed: number, realm: number, allowRegeneration: b
 
 export default defineEventHandler(async (event) => {
     const userId = await requireUserId(event)
-    const debugMode = import.meta.dev || Boolean(useRuntimeConfig(event).devMode)
+    const debugMode = import.meta.dev || Boolean(useRuntimeConfig().devMode)
     const body = await readBody<{ realm?: number, useSurge?: boolean, seed?: number }>(event)
     const realm = Math.floor(Number(body.realm))
     if (!Number.isInteger(realm) || realm < 1 || realm > 5) {

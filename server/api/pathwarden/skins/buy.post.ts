@@ -1,3 +1,5 @@
+import { useRuntimeConfig } from 'nitro/runtime-config'
+import { createError, defineEventHandler, readBody } from 'nitro/h3'
 import { and, eq, gte, sql } from 'drizzle-orm'
 import { db } from '#server/database'
 import { pathwardenState, user } from '#server/database/schema'
@@ -6,7 +8,7 @@ import { PATHWARDEN_SKINS } from '#shared/utils/gamelogic/pathwarden'
 
 export default defineEventHandler(async (event) => {
     const userId = await requireUserId(event)
-    const debugMode = import.meta.dev || Boolean(useRuntimeConfig(event).devMode)
+    const debugMode = import.meta.dev || Boolean(useRuntimeConfig().devMode)
     const body = await readBody(event)
     const skin = PATHWARDEN_SKINS.find(item => item.id === body?.skinId)
     if (!skin || skin.gemCost <= 0) throw createError({ statusCode: 400, statusMessage: 'Invalid premium skin' })

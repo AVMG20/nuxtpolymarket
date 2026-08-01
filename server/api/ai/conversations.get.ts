@@ -1,3 +1,4 @@
+import { defineEventHandler } from 'nitro/h3'
 import { and, desc, eq, isNull } from 'drizzle-orm'
 import { db } from '#server/database'
 import { aiConversations } from '#server/database/schema'

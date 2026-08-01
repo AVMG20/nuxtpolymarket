@@ -1,3 +1,4 @@
+import { defineEventHandler } from 'nitro/h3'
 import { db } from '#server/database'
 import { aiConversations } from '#server/database/schema'
 import { requireAiUser } from '#server/utils/ai-auth'

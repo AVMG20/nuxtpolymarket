@@ -1,3 +1,4 @@
+import { createError } from 'nitro/h3'
 import { eq, and, gte, lt, desc } from 'drizzle-orm'
 import { db } from '#server/database'
 import { bankHistory, bankState } from '#server/database/schema'

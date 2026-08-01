@@ -1,3 +1,4 @@
+import { createError } from 'nitro/h3'
 import { and, asc, desc, eq, gte, lte, sql } from 'drizzle-orm'
 import { db, type DbExecutor } from '../database'
 import { gemOrders, gemTrades } from '../database/schema'

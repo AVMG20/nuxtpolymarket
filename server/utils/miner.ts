@@ -1,3 +1,4 @@
+import { createError } from 'nitro/h3'
 import { and, eq } from 'drizzle-orm'
 import type { DbExecutor } from '#server/database'
 import { minerState } from '#server/database/schema'

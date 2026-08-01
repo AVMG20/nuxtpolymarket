@@ -1,3 +1,4 @@
+import { createError } from 'nitro/h3'
 import { eq } from 'drizzle-orm'
 import type { DbExecutor } from '#server/database'
 import { pirateState } from '#server/database/schema'

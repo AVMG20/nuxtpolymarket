@@ -1,3 +1,5 @@
+import { useRuntimeConfig } from 'nitro/runtime-config'
+import { createError, defineEventHandler, readBody } from 'nitro/h3'
 import { and, eq } from 'drizzle-orm'
 import { db } from '#server/database'
 import { pathwardenState } from '#server/database/schema'
@@ -23,7 +25,7 @@ const LEVEL_COLUMN: Record<PathwardenBoostId,
 
 export default defineEventHandler(async (event) => {
     const userId = await requireUserId(event)
-    const debugMode = import.meta.dev || Boolean(useRuntimeConfig(event).devMode)
+    const debugMode = import.meta.dev || Boolean(useRuntimeConfig().devMode)
     const body = await readBody<{ boostId?: PathwardenBoostId }>(event)
     const boostId = body.boostId
     if (!boostId || !PATHWARDEN_BOOST_IDS.includes(boostId)) {

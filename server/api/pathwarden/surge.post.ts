@@ -1,3 +1,5 @@
+import { useRuntimeConfig } from 'nitro/runtime-config'
+import { createError, defineEventHandler, readBody } from 'nitro/h3'
 import { eq, sql } from 'drizzle-orm'
 import { db } from '#server/database'
 import { pathwardenState } from '#server/database/schema'
@@ -8,7 +10,7 @@ import { PATHWARDEN_SURGE_COST_GEMS } from '#shared/utils/gamelogic/pathwarden'
 
 export default defineEventHandler(async (event) => {
     const userId = await requireUserId(event)
-    const debugMode = import.meta.dev || Boolean(useRuntimeConfig(event).devMode)
+    const debugMode = import.meta.dev || Boolean(useRuntimeConfig().devMode)
     const body = await readBody<{ count?: number }>(event)
     const count = Math.floor(Number(body.count ?? 1))
     if (!Number.isInteger(count) || count < 1 || count > 100) {

@@ -1,3 +1,4 @@
+import { createError, defineEventHandler } from 'nitro/h3'
 import { db } from '#server/database'
 import { requireUserId } from '#server/utils/auth'
 import { rigUpgradeCost, RIG_MAX_LEVEL } from '#shared/utils/miner-config'

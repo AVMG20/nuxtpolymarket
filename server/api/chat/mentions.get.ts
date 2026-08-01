@@ -1,3 +1,4 @@
+import { defineEventHandler } from 'nitro/h3'
 import { and, asc, eq } from 'drizzle-orm'
 import { db } from '#server/database'
 import { chatMentions } from '#server/database/schema'

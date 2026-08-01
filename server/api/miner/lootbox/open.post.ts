@@ -1,5 +1,5 @@
 import { eq } from 'drizzle-orm'
-import { readBody } from 'h3'
+import { createError, defineEventHandler, readBody } from 'nitro/h3'
 import { db } from '#server/database'
 import { minerState } from '#server/database/schema'
 import { requireUserId } from '#server/utils/auth'

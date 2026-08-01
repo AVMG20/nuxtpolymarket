@@ -1,4 +1,4 @@
-import { getQuery, setHeader } from 'h3'
+import { createError, defineEventHandler, getQuery, setHeader } from 'nitro/h3'
 import { getPathwardenDebugExpansionMarkers } from '#server/utils/pathwarden-debug-map'
 import {
     getPathwardenDebugMapPlan,

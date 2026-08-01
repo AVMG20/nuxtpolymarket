@@ -1,3 +1,5 @@
+import { useRuntimeConfig } from 'nitro/runtime-config'
+import { createError, defineEventHandler, readBody } from 'nitro/h3'
 import { eq, sql } from 'drizzle-orm'
 import { db } from '#server/database'
 import { pathwardenState } from '#server/database/schema'
@@ -7,7 +9,7 @@ import { PATHWARDEN_DEFENSE_BLUEPRINTS } from '#shared/utils/gamelogic/pathwarde
 
 export default defineEventHandler(async (event) => {
     const userId = await requireUserId(event)
-    const debugMode = import.meta.dev || Boolean(useRuntimeConfig(event).devMode)
+    const debugMode = import.meta.dev || Boolean(useRuntimeConfig().devMode)
     const body = await readBody(event)
     const blueprint = PATHWARDEN_DEFENSE_BLUEPRINTS.find(item => item.id === body?.defenseId)
     if (!blueprint || blueprint.coinCost <= 0) {

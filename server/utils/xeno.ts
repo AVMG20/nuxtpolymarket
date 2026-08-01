@@ -1,3 +1,5 @@
+import { useRuntimeConfig } from 'nitro/runtime-config'
+import { createError } from 'nitro/h3'
 import { eq, and, inArray } from 'drizzle-orm'
 import { db, type DbExecutor } from '#server/database'
 import { xenoPlants, xenoPlantsUnlocked, xenoArtifacts, xenoGridSlots, xenoBreederSlots, xenoUpgrades } from '#server/database/schema'
