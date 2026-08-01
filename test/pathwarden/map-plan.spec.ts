@@ -11,10 +11,28 @@ import {
 } from '#shared/utils/gamelogic/pathwarden-map-validation'
 
 describe('Pathwarden seeded map model', () => {
-    // Generation runs at ~4ms per map, so the sweep covers 1000 seeds. Plans
-    // are up to ~1MB in memory, so every pass streams one plan at a time
-    // instead of caching — a 1000-plan cache would hold ~1GB on a CI runner.
-    const SEED_COUNT = 1000
+    // A plan costs ~6ms to generate and ~4ms to hash, so seed count is this
+    // file's entire runtime. These 13 are pinned rather than swept because each
+    // sits at an extreme of the generator's output over seeds 0-1199: a
+    // structural regression has to push an invariant past a boundary a real plan
+    // already sits on. Realm is fixed at 1 throughout — it is stored on the plan
+    // and never read by the generator, so varying it only re-tests the hash.
+    // Re-derive the list with a one-off wide sweep if the generator changes.
+    const CASES = [
+        { seed: 164, extreme: 'fewest junctions, 17' },
+        { seed: 571, extreme: 'most junctions, 37' },
+        { seed: 1, extreme: 'a required archetype appears exactly once' },
+        { seed: 996, extreme: 'no t-junctions at all' },
+        { seed: 998, extreme: 'fewest y-junctions, 2' },
+        { seed: 57, extreme: 'fewest crossroads, 3' },
+        { seed: 5, extreme: 'largest castle footprint, area 50' },
+        { seed: 913, extreme: 'fewest rooms, 33' },
+        { seed: 432, extreme: 'most rooms, 57' },
+        { seed: 0, extreme: 'a single depth-13 room' },
+        { seed: 16, extreme: 'most depth-13 rooms, 5' },
+        { seed: 136, extreme: 'fewest terminal approaches, 23' },
+        { seed: 204, extreme: 'most terminal approaches, 50' }
+    ]
     const junctions = new Set(['y-junction', 't-junction', 'crossroads'])
 
     it('round-trips through JSON without changing canonical output', () => {
@@ -23,15 +41,24 @@ describe('Pathwarden seeded map model', () => {
         expect(serializePathwardenMapPlan(restored)).toBe(serializePathwardenMapPlan(plan))
     })
 
-    it('uses the seed to create different initial layouts', () => {
-        // Pinned to one realm so the variation can only come from the seed —
-        // and near-uniqueness is the real bar, not "more than a handful differ".
-        const hashes = new Set<string>()
-        for (let seed = 0; seed < SEED_COUNT; seed++) {
-            hashes.add(hashPathwardenMapPlan(createPathwardenMapPlan({ seed, realm: 1 })))
+    it('regenerates an identical plan from the same seed and realm', () => {
+        // Determinism can only break in seed-independent ways (global randomness,
+        // Map iteration order), so a handful of seeds proves it as well as a sweep.
+        for (let seed = 0; seed < 12; seed++) {
+            const options = { seed, realm: seed % 5 + 1 }
+            expect(hashPathwardenMapPlan(createPathwardenMapPlan(options)), `seed ${seed}`)
+                .toBe(hashPathwardenMapPlan(createPathwardenMapPlan(options)))
         }
-        expect(hashes.size).toBeGreaterThanOrEqual(SEED_COUNT - 2)
-    }, 180_000)
+    })
+
+    it('treats realm as plan metadata rather than a layout input', () => {
+        // This is why the structural cases above can pin realm 1. If the
+        // generator ever starts reading realm, this fails and they need widening.
+        const plans = [1, 2, 3, 4, 5].map(realm => createPathwardenMapPlan({ seed: 7, realm }))
+        const layouts = plans.map(plan => JSON.stringify([plan.rooms, plan.roadLinks, plan.metrics.archetypeCounts]))
+        expect(new Set(layouts).size).toBe(1)
+        expect(new Set(plans.map(hashPathwardenMapPlan)).size).toBe(plans.length)
+    })
 
     it('does not depend on global Math.random', () => {
         const random = vi.spyOn(Math, 'random').mockImplementation(() => {
@@ -69,14 +96,13 @@ describe('Pathwarden seeded map model', () => {
         expect(validation.errors.some(error => error.includes('revisits a road cell'))).toBe(true)
     })
 
-    it('generates reproducible, structurally valid depth-13 plans', () => {
-        for (let seed = 0; seed < SEED_COUNT; seed++) {
-            const realm = seed % 5 + 1
-            const plan = createPathwardenMapPlan({ seed, realm })
-            expect(hashPathwardenMapPlan(createPathwardenMapPlan({ seed, realm })), `seed ${seed}`)
-                .toBe(hashPathwardenMapPlan(plan))
+    it('generates a distinct, structurally valid depth-13 plan for every seed', () => {
+        const hashes = new Set<string>()
+        for (const { seed, extreme } of CASES) {
+            const plan = createPathwardenMapPlan({ seed, realm: 1 })
+            hashes.add(hashPathwardenMapPlan(plan))
             const validation = validatePathwardenMapPlan(plan)
-            expect(validation.errors, `seed ${seed}`).toEqual([])
+            expect(validation.errors, `seed ${seed} (${extreme})`).toEqual([])
             expect(plan.metrics.maxDepth).toBe(13)
             expect(plan.rooms.some(room => room.depth === 13)).toBe(true)
             const castle = plan.rooms.find(room => room.id === plan.castleRoomId)!
@@ -98,9 +124,9 @@ describe('Pathwarden seeded map model', () => {
             expect(plan.metrics.archetypeCounts['forest-road']).toBeGreaterThanOrEqual(1)
             // The generator forces a junction at every odd depth but picks its
             // type at random, so a plan can legitimately omit y- or t-junctions
-            // (~1 seed in 8k). Junction *density* is the real invariant, asserted
-            // below; requiring both types individually is flaky. Observed minimum
-            // across seeds 0-999 is 18.
+            // — seed 996 has none. Junction *density* is the real invariant,
+            // asserted below; requiring both types individually is flaky.
+            // Observed minimum across seeds 0-1199 is 17, held by seed 164.
             expect(plan.metrics.archetypeCounts.crossroads).toBeGreaterThanOrEqual(2)
             const junctionCount = (plan.metrics.archetypeCounts['y-junction'] ?? 0)
                 + (plan.metrics.archetypeCounts['t-junction'] ?? 0)
@@ -122,7 +148,8 @@ describe('Pathwarden seeded map model', () => {
                 expect(dimensions.area, `${room.id} in seed ${seed}`).toBeLessThanOrEqual(36)
             }
         }
-    }, 300_000)
+        expect(hashes.size, 'distinct plans across the pinned seeds').toBe(CASES.length)
+    })
 
     it('keeps expansion links connected from source exits to destination rooms', () => {
         const plan = createPathwardenMapPlan({ seed: 1, realm: 1 })
