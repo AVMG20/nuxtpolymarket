@@ -21,7 +21,9 @@ const DEALER_POS = { x: 800, y: 196 }
 // the shoe/count readouts, which are DOM panels layered over this canvas.
 const SHOE_POS = { x: 1462, y: 344 }
 const DISCARD_POS = { x: 138, y: 344 }
-const RACK_Y = 902
+// Pushed to the very bottom edge so the betting controls have a clear band
+// between the seat nameplates and the chips.
+const RACK_Y = 928
 
 const SEAT_LAYOUT = [
     { x: 252, y: 536 },
@@ -209,8 +211,8 @@ export class LiveBlackjackScene {
 
     private buildRack() {
         const plate = new this.PIXI.Graphics()
-        plate.roundRect(STAGE_W / 2 - 430, RACK_Y - 62, 860, 124, 62).fill({ color: 0x1b1109, alpha: 0.92 })
-        plate.roundRect(STAGE_W / 2 - 430, RACK_Y - 62, 860, 124, 62).stroke({ width: 2, color: GOLD, alpha: 0.35 })
+        plate.roundRect(STAGE_W / 2 - 430, RACK_Y - 54, 860, 108, 54).fill({ color: 0x1b1109, alpha: 0.92 })
+        plate.roundRect(STAGE_W / 2 - 430, RACK_Y - 54, 860, 108, 54).stroke({ width: 2, color: GOLD, alpha: 0.35 })
         this.rackLayer.addChild(plate)
     }
 

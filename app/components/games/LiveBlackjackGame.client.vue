@@ -231,32 +231,38 @@ onBeforeUnmount(() => {
       </form>
     </div>
 
-    <!-- Insurance sits above the rail so it never lands on top of a hand -->
+    <!--
+      One control zone for everything. While chips are on the rail it sits in the
+      band above them; every other phase hides the rail and it drops into its
+      place, so controls and chips can never share the same space.
+    -->
     <div
-      v-if="needsInsurance"
-      class="absolute bottom-[19%] left-1/2 w-[52%] min-w-75 -translate-x-1/2 rounded-xl bg-amber-500/15 p-2.5 text-center ring-2 ring-amber-400/70 backdrop-blur-sm"
+      class="absolute left-1/2 w-[54%] min-w-75 -translate-x-1/2"
+      :class="isBetting ? 'bottom-[14%]' : 'bottom-[4%]'"
     >
-      <p class="mb-2 text-sm font-bold text-amber-200">
-        Dealer shows an Ace — insure for {{ formatNumber(insuranceCost) }}?
-      </p>
-      <div class="mx-auto flex max-w-90 gap-2">
-        <button class="lb-tile lb-tile-amber flex-1" @click="table.insurance(true)">
-          Insurance
-        </button>
-        <button class="lb-tile lb-tile-slate flex-1" @click="table.insurance(false)">
-          No thanks
-        </button>
-      </div>
-    </div>
-
-    <!-- The one control zone: it swaps with the phase, always in the same place -->
-    <div class="absolute bottom-[4%] left-1/2 w-[54%] min-w-75 -translate-x-1/2">
       <div v-if="!connected" class="rounded-xl bg-black/70 py-3 text-center text-sm text-muted backdrop-blur-sm">
         <UIcon name="i-lucide-loader-circle" class="animate-spin" /> Connecting…
       </div>
 
       <div v-else-if="!mySeat" class="rounded-xl bg-black/60 py-3 text-center text-sm text-muted backdrop-blur-sm">
         Click an open <span class="font-bold text-default">SIT</span> spot to join the table
+      </div>
+
+      <div
+        v-else-if="needsInsurance"
+        class="rounded-xl bg-amber-500/15 p-2.5 text-center ring-2 ring-amber-400/70 backdrop-blur-sm"
+      >
+        <p class="mb-2 text-sm font-bold text-amber-200">
+          Dealer shows an Ace — insure for {{ formatNumber(insuranceCost) }}?
+        </p>
+        <div class="mx-auto flex max-w-90 gap-2">
+          <button class="lb-tile lb-tile-amber flex-1" @click="table.insurance(true)">
+            Insurance
+          </button>
+          <button class="lb-tile lb-tile-slate flex-1" @click="table.insurance(false)">
+            No thanks
+          </button>
+        </div>
       </div>
 
       <div v-else-if="isMyTurn" class="flex gap-2">
