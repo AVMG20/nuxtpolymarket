@@ -201,9 +201,13 @@ const ownedWeapons = computed(() =>
 
 // ─── Engine wiring ──────────────────────────────────────────────────────────
 
+const firewallSound = useFirewallSound()
+const { soundEnabled, soundVolume } = firewallSound
+
 let game: FirewallGame | null = null
 
 onMounted(async () => {
+  firewallSound.preload()
   game = new FirewallGame({
     onWall: (hp, maxHp, sh, shMax) => {
       wallHp.value = hp
@@ -238,7 +242,8 @@ onMounted(async () => {
       settleRun('defeat')
     },
     onBoss: name => pushNotice(`${name} detected`, 'bad'),
-    onNotice: pushNotice
+    onNotice: pushNotice,
+    onSound: (event) => firewallSound.play(event)
   })
   if (host.value) await game.mount(host.value)
 
@@ -252,6 +257,7 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+  firewallSound.stop()
   document.removeEventListener('visibilitychange', onVisibility)
   document.removeEventListener('fullscreenchange', syncFullscreen)
   window.removeEventListener('keydown', onHotkey)
@@ -581,6 +587,13 @@ async function toggleFullscreen() {
         </p>
       </div>
       <div class="flex items-center gap-2">
+        <UButton
+          :icon="soundEnabled ? 'i-lucide-volume-2' : 'i-lucide-volume-x'"
+          color="neutral"
+          variant="subtle"
+          :title="soundEnabled ? 'Mute audio' : 'Unmute audio'"
+          @click="soundEnabled = !soundEnabled; if (soundEnabled) firewallSound.unlock()"
+        />
         <UButton
           v-if="phase === 'wave'"
           :icon="paused ? 'i-lucide-play' : 'i-lucide-pause'"

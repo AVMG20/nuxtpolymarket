@@ -80,7 +80,10 @@ export const FIREWALL_DIFFICULTIES: readonly FirewallDifficulty[] = [
         tagline: 'Learn the field. Pays accordingly.',
         enemyHp: 0.68,
         enemyDamage: 0.7,
-        budget: 0.85,
+        // Probe is easy because the bodies are soft and hit for less, not because
+        // there are fewer of them — a near-empty field teaches nothing about the
+        // game the other four difficulties are playing.
+        budget: 1.2,
         reward: 0.2,
         requiredBestWave: 0,
         color: '#22d3ee'
@@ -91,7 +94,7 @@ export const FIREWALL_DIFFICULTIES: readonly FirewallDifficulty[] = [
         tagline: 'The intended first run.',
         enemyHp: 1,
         enemyDamage: 1,
-        budget: 1,
+        budget: 1.15,
         reward: 0.6,
         requiredBestWave: 0,
         color: '#a3e635'
@@ -102,7 +105,7 @@ export const FIREWALL_DIFFICULTIES: readonly FirewallDifficulty[] = [
         tagline: 'Plating everywhere. Bring the right gun.',
         enemyHp: 1.9,
         enemyDamage: 1.35,
-        budget: 1.14,
+        budget: 1.3,
         reward: 2.4,
         requiredBestWave: 10,
         color: '#fbbf24'
@@ -113,7 +116,7 @@ export const FIREWALL_DIFFICULTIES: readonly FirewallDifficulty[] = [
         tagline: 'The wall stops being enough on its own.',
         enemyHp: 3.4,
         enemyDamage: 1.9,
-        budget: 1.3,
+        budget: 1.45,
         reward: 9,
         requiredBestWave: 15,
         color: '#fb7185'
@@ -124,7 +127,7 @@ export const FIREWALL_DIFFICULTIES: readonly FirewallDifficulty[] = [
         tagline: 'Everything you own, and it is close.',
         enemyHp: 6,
         enemyDamage: 2.5,
-        budget: 1.5,
+        budget: 1.65,
         reward: 34,
         requiredBestWave: 20,
         color: '#e879f9'
@@ -469,9 +472,18 @@ export function firewallBountyMultiplier(wave: number) {
     return 1 + Math.max(0, wave - 1) * 0.055
 }
 
-/** Total enemy cost a wave may spend. */
+/**
+ * Total enemy cost a wave may spend.
+ *
+ * The flat term is doing more work than it looks like it should. A wave is 45
+ * seconds and the spawn window is 38 of them, so the opening waves were handing
+ * out one body every three seconds — technically a wave, but nothing to shoot
+ * at for most of it. The floor is what stops the first few waves reading as dead
+ * air; the linear term is the actual ramp, and the exponent is the late-wave
+ * tail that the health multiplier is already fighting you on.
+ */
 export function firewallWaveBudget(wave: number, difficulty: FirewallDifficulty) {
-    const base = 34 + (wave - 1) * 21 + Math.pow(wave, 1.7)
+    const base = 72 + (wave - 1) * 30 + Math.pow(wave, 1.7)
     return Math.max(1, Math.round(base * difficulty.budget))
 }
 
