@@ -1287,7 +1287,7 @@ export class ShapezzEngine {
                 this.callbacks.onSfx?.('drone-shoot')
                 this.beams.push({ from: origin, to: { x: target.x, y: target.y }, life: 0.08, maxLife: 0.08, color: '#34d399', width: 2 })
             }
-            this.droneCooldown = 0.42
+            this.droneCooldown = 0.6
         }
 
         let keptTurrets = 0
@@ -1299,7 +1299,7 @@ export class ShapezzEngine {
             if (target && turret.fireCooldown <= 0) {
                 this.createPlayerBullet(turret.x, turret.y, turret.angle, SHAPEZZ_TURRET_DAMAGE_MULTIPLIER, false, false, true, { color: '#2dd4bf', radius: 4 })
                 this.callbacks.onSfx?.('drone-shoot')
-                turret.fireCooldown = 0.4
+                turret.fireCooldown = 0.55
             }
             if (turret.life > 0) this.turrets[keptTurrets++] = turret
         }

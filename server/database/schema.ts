@@ -206,6 +206,71 @@ export const pirateRunHistory = pgTable('pirate_run_history', {
   index('pirate_run_history_userId_createdAt_idx').on(t.userId, t.createdAt)
 ])
 
+// ─── Void Runner ──────────────────────────────────────────────────────────
+
+export const voidState = pgTable('void_state', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().unique().references(() => user.id, { onDelete: 'cascade' }),
+  // Every upgrade track, keyed by id. A missing key means level 0 — the map
+  // only stores what has actually been paid for.
+  upgradeLevels: jsonb('upgrade_levels').$type<Record<string, number>>().notNull().default({}),
+  ownedShipIds: jsonb('owned_ship_ids').$type<string[]>().notNull().default(['skiff']),
+  equippedShipId: text('equipped_ship_id').notNull().default('skiff'),
+  // Banked resources, keyed by resource id. Cargo carried mid-run is NOT here
+  // — it only lands in this map when the player docks with the mothership.
+  resources: jsonb('resources').$type<Record<string, number>>().notNull().default({}),
+  runsPlayed: integer('runs_played').notNull().default(0),
+  extractions: integer('extractions').notNull().default(0),
+  totalCreditsEarned: integer('total_credits_earned').notNull().default(0),
+  rocksMined: integer('rocks_mined').notNull().default(0),
+  kills: integer('kills').notNull().default(0),
+  // 0 means no successful extraction yet, so only sector 1 is open.
+  highestSectorExtracted: integer('highest_sector_extracted').notNull().default(0),
+  bestRunCredits: integer('best_run_credits').notNull().default(0),
+  bestRunUnits: integer('best_run_units').notNull().default(0),
+  bestRunSector: integer('best_run_sector').notNull().default(0),
+  // Set when a launch is authorised, cleared on finish. Elapsed time comes
+  // from this rather than the client, and the snapshots stop a mid-run hangar
+  // visit from raising the payout ceiling for a run already in progress.
+  runStartedAt: timestamp('run_started_at'),
+  runSectorSnapshot: integer('run_sector_snapshot'),
+  runPowerSnapshot: integer('run_power_snapshot'),
+  runCargoSnapshot: integer('run_cargo_snapshot')
+})
+
+// One row per owned turret. slotIndex is null while it sits in storage, and
+// 0..turretSlots-1 once it's bolted to a hardpoint. Rolled stats live in
+// `affixes` because two turrets of the same rarity are never the same gun.
+export const voidWeapons = pgTable('void_weapons', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  rarityId: text('rarity_id').notNull(),
+  name: text('name').notNull(),
+  affixes: jsonb('affixes').$type<Record<string, number>>().notNull().default({}),
+  specialId: text('special_id'),
+  slotIndex: integer('slot_index'),
+  createdAt: timestamp('created_at').defaultNow().notNull()
+}, t => [index('void_weapons_userId_idx').on(t.userId)])
+
+export const voidRunHistory = pgTable('void_run_history', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  sector: integer('sector').notNull().default(1),
+  power: integer('power').notNull().default(0),
+  durationMs: integer('duration_ms').notNull().default(0),
+  credits: integer('credits').notNull().default(0),
+  units: integer('units').notNull().default(0),
+  haul: jsonb('haul').$type<Record<string, number>>().notNull().default({}),
+  extracted: boolean('extracted').notNull().default(false),
+  reason: text('reason').notNull(),
+  kills: integer('kills').notNull().default(0),
+  rocksMined: integer('rocks_mined').notNull().default(0),
+  shipId: text('ship_id').notNull().default('skiff'),
+  createdAt: timestamp('created_at').defaultNow().notNull()
+}, t => [
+  index('void_run_history_userId_createdAt_idx').on(t.userId, t.createdAt)
+])
+
 // ─── SHAPEZZ ─────────────────────────────────────────────────────────────
 
 export const shapezzState = pgTable('shapezz_state', {
@@ -698,7 +763,10 @@ export const userRelations = relations(user, ({ many, one }) => ({
   pirateCannons: many(pirateCannons),
   pirateRunHistory: many(pirateRunHistory),
   shapezzState: one(shapezzState),
-  pathwardenState: one(pathwardenState)
+  pathwardenState: one(pathwardenState),
+  voidWeapons: many(voidWeapons),
+  voidState: one(voidState),
+  voidRunHistory: many(voidRunHistory),
 }))
 
 export const minerStateRelations = relations(minerState, ({ one }) => ({
@@ -715,6 +783,18 @@ export const pirateCannonsRelations = relations(pirateCannons, ({ one }) => ({
 
 export const pirateRunHistoryRelations = relations(pirateRunHistory, ({ one }) => ({
   user: one(user, { fields: [pirateRunHistory.userId], references: [user.id] })
+}))
+
+export const voidStateRelations = relations(voidState, ({ one }) => ({
+  user: one(user, { fields: [voidState.userId], references: [user.id] })
+}))
+
+export const voidWeaponsRelations = relations(voidWeapons, ({ one }) => ({
+  user: one(user, { fields: [voidWeapons.userId], references: [user.id] })
+}))
+
+export const voidRunHistoryRelations = relations(voidRunHistory, ({ one }) => ({
+  user: one(user, { fields: [voidRunHistory.userId], references: [user.id] })
 }))
 
 export const shapezzStateRelations = relations(shapezzState, ({ one }) => ({
