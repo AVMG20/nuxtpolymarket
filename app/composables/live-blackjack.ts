@@ -163,6 +163,7 @@ export function useLiveBlackjack() {
         undoBet: () => send({ t: 'undoBet' }),
         clearBet: () => send({ t: 'clearBet' }),
         repeatBet: () => send({ t: 'repeatBet' }),
+        voteStart: () => send({ t: 'voteStart' }),
         act: (action: LbAction) => send({ t: 'action', action }),
         insurance: (take: boolean) => send({ t: 'insurance', take }),
         chat: (text: string) => send({ t: 'chat', text })

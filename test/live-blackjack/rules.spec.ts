@@ -8,6 +8,7 @@ import {
     handScore,
     hiLoValue,
     isBlackjack,
+    LB_RULES,
     settleHand
 } from '#shared/utils/live-blackjack/rules'
 import type { LbCard, LbHand, LbRank } from '#shared/utils/live-blackjack/types'
@@ -157,21 +158,28 @@ describe('action availability', () => {
         expect(canSplit(hand(['9', '8']), [hand(['9', '8'])])).toBe(false)
     })
 
-    it('stops splitting at four hands', () => {
-        const hands = [hand(['8', '8']), hand(['8', '8']), hand(['8', '8']), hand(['8', '8'])]
-        expect(canSplit(hands[0]!, hands)).toBe(false)
+    it('keeps splitting past four hands, up to the table cap', () => {
+        const four = Array.from({ length: 4 }, () => hand(['8', '8']))
+        expect(canSplit(four[0]!, four)).toBe(true)
+
+        const atCap = Array.from({ length: LB_RULES.maxHands }, () => hand(['8', '8']))
+        expect(canSplit(atCap[0]!, atCap)).toBe(false)
     })
 
-    it('never resplits aces', () => {
+    it('resplits aces', () => {
         const split = hand(['A', 'A'], { fromSplit: true })
-        expect(canSplit(split, [split, hand(['A', '5'])])).toBe(false)
+        expect(canSplit(split, [split, hand(['A', '5'])])).toBe(true)
     })
 
-    it('surrenders only on an untouched first hand', () => {
+    it('surrenders any fresh two-card hand, including after a split', () => {
         expect(canSurrender(hand(['10', '6']), [hand(['10', '6'])])).toBe(true)
         expect(canSurrender(hand(['10', '6', '2']), [hand(['10', '6', '2'])])).toBe(false)
         const pair = hand(['8', '8'], { fromSplit: true })
-        expect(canSurrender(pair, [pair, hand(['8', '3'])])).toBe(false)
+        expect(canSurrender(pair, [pair, hand(['8', '3'])])).toBe(true)
+    })
+
+    it('doubles a split ace, which the one-card rule would forbid', () => {
+        expect(canDouble(hand(['A', '7'], { fromSplit: true }))).toBe(true)
     })
 })
 

@@ -49,6 +49,8 @@ export interface LbSeat {
     connected: boolean
     /** Asked to stand up while a hand was live; the seat frees once it settles. */
     leaving: boolean
+    /** Voted to deal early rather than wait out the betting clock. */
+    votedStart: boolean
     /** Chips placed during the betting phase, not yet staked. */
     pendingBet: number
     /** Last staked bet, so the client can offer to re-place it. */
@@ -109,6 +111,8 @@ export interface LbTableState {
     phase: LbPhase
     /** Epoch ms the current phase's timer expires, or null when untimed. */
     phaseEndsAt: number | null
+    /** How long that timer ran for, so a client can draw it without guessing. */
+    phaseDuration: number | null
     /** Server clock at snapshot time, so clients can correct for drift. */
     now: number
     seats: (LbSeat | null)[]
@@ -130,6 +134,7 @@ export type LbClientMessage =
     | { t: 'undoBet' }
     | { t: 'clearBet' }
     | { t: 'repeatBet' }
+    | { t: 'voteStart' }
     | { t: 'action', action: LbAction }
     | { t: 'insurance', take: boolean }
     | { t: 'chat', text: string }

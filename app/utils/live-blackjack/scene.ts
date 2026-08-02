@@ -1,7 +1,6 @@
 import gsap from 'gsap'
 import type { Application, Container, Graphics, Sprite, Text } from 'pixi.js'
 import { chipStack } from '#shared/utils/live-blackjack/chips'
-import { LB_TIMERS } from '#shared/utils/live-blackjack/rules'
 import type { LbAction, LbHand, LbTableState } from '#shared/utils/live-blackjack/types'
 import formatNumber from '~/utils/format-number'
 import { CARD_W, cardKey, type LbTextures } from './art'
@@ -333,12 +332,10 @@ export class LiveBlackjackScene {
         this.countdownText.visible = false
         if (!state?.phaseEndsAt) return
 
-        const total = state.phase === 'betting'
-            ? LB_TIMERS.betting
-            : state.phase === 'insurance'
-                ? LB_TIMERS.insurance
-                : state.phase === 'playing' ? LB_TIMERS.turn : 0
-        if (!total) return
+        // The server sends how long the phase runs, so this no longer has to
+        // keep its own copy of every timer.
+        const total = state.phaseDuration ?? 0
+        if (total <= 0 || state.phase === 'dealing') return
         const left = Math.max(0, state.phaseEndsAt - (Date.now() + this.clockSkew))
         const frac = Math.max(0, Math.min(1, left / total))
         if (frac <= 0) return
@@ -352,14 +349,13 @@ export class LiveBlackjackScene {
         this.countdownText.scale.set(pulse)
 
         const seat = state.activeSeat !== null ? SEAT_LAYOUT[state.activeSeat] : null
-        const center = seat
-            ? { x: seat.x, y: seat.y + BET_Y_OFFSET }
-            : { x: DEALER_POS.x, y: 362 }
-        const radius = seat ? 62 : 210
+        if (!seat) return
+        const center = { x: seat.x, y: seat.y + BET_Y_OFFSET }
+        const radius = 62
         const color = frac < 0.28 ? 0xef4444 : GOLD
 
         this.timerArc.arc(center.x, center.y, radius, -Math.PI / 2, -Math.PI / 2 + frac * Math.PI * 2)
-        this.timerArc.stroke({ width: seat ? 6 : 4, color, alpha: 0.9, cap: 'round' })
+        this.timerArc.stroke({ width: 6, color, alpha: 0.9, cap: 'round' })
     }
 
     // ─── state application ─────────────────────────────────────────────────

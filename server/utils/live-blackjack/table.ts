@@ -83,6 +83,7 @@ class LiveBlackjackTable {
     private dealerCards: LbCard[] = []
     private phase: LbPhase = 'idle'
     private phaseEndsAt: number | null = null
+    private phaseDuration: number | null = null
     private phaseToken = 0
     private timer: ReturnType<typeof setTimeout> | null = null
     private shoe = new Shoe()
@@ -121,6 +122,7 @@ class LiveBlackjackTable {
     private setPhase(phase: LbPhase, durationMs: number | null) {
         this.phaseToken++
         this.phase = phase
+        this.phaseDuration = durationMs
         this.phaseEndsAt = durationMs === null ? null : Date.now() + durationMs
         if (this.timer) {
             clearTimeout(this.timer)
@@ -215,6 +217,7 @@ class LiveBlackjackTable {
             disconnectedAt: null,
             releaseTimer: null,
             leaving: false,
+            votedStart: false,
             wagerIds: []
         }
         this.scores.set(userId, {
@@ -328,12 +331,30 @@ class LiveBlackjackTable {
         seat.betChips.push(amount)
     }
 
+    /**
+     * Skip the rest of the betting clock. Everyone still seated has to have both
+     * placed a bet and voted, so one player cannot deal the table out from under
+     * someone who is still choosing chips.
+     */
+    voteStart(userId: string) {
+        const seat = this.requireSeat(userId)
+        if (this.phase !== 'betting') fail('Betting is closed')
+        if (seat.pendingBet <= 0) fail('Place a bet first')
+        seat.votedStart = true
+
+        const seated = this.activeSeats()
+        if (seated.every(s => s.pendingBet > 0 && s.votedStart)) {
+            void this.closeBetting()
+        }
+    }
+
     undoBet(userId: string) {
         const seat = this.requireSeat(userId)
         if (this.phase !== 'betting') fail('Betting is closed')
         const last = seat.betChips.pop()
         if (!last) return
         seat.pendingBet = round4(Math.max(0, seat.pendingBet - last))
+        if (!seat.pendingBet) seat.votedStart = false
     }
 
     clearBet(userId: string) {
@@ -341,6 +362,7 @@ class LiveBlackjackTable {
         if (this.phase !== 'betting') fail('Betting is closed')
         seat.pendingBet = 0
         seat.betChips = []
+        seat.votedStart = false
     }
 
     async repeatBet(userId: string) {
@@ -370,6 +392,7 @@ class LiveBlackjackTable {
             seat.insuranceDecided = false
             seat.pendingBet = 0
             seat.betChips = []
+            seat.votedStart = false
             // Anything still here means last round's escrow never closed; drop it
             // so the recovery sweep refunds it rather than a later settle
             // marking it paid.
@@ -681,7 +704,6 @@ class LiveBlackjackTable {
         await this.stake(seat, hand.bet, 'split')
 
         const moved = hand.cards.pop()!
-        const splitAces = moved.rank === 'A'
         const sibling = this.newHand(hand.bet, true)
         sibling.cards.push(moved)
         hand.fromSplit = true
@@ -690,13 +712,6 @@ class LiveBlackjackTable {
         sibling.cards.push(this.drawUp())
         seat.hands.splice(this.activeHand! + 1, 0, sibling)
 
-        // Split aces draw exactly one card each and are done.
-        if (splitAces) {
-            hand.status = 'stood'
-            sibling.status = 'stood'
-            this.advanceAfterBeat()
-            return
-        }
         if (handScore(hand.cards).total === 21) {
             hand.status = 'stood'
             this.advanceAfterBeat()
@@ -776,9 +791,14 @@ class LiveBlackjackTable {
             broadcast({ t: 'event', kind: 'settled', seat: seat.index, net })
         }
 
-        this.message = 'Round over'
-        this.setPhase('payout', LB_TIMERS.payout)
-        this.schedule(LB_TIMERS.payout, () => this.enterBetting())
+        const players = this.activeSeats().length
+        const wait = Math.min(
+            LB_TIMERS.payoutMax,
+            LB_TIMERS.payoutBase + Math.max(0, players - 1) * LB_TIMERS.payoutPerExtraPlayer
+        )
+        this.message = 'Next round in'
+        this.setPhase('payout', wait)
+        this.schedule(wait, () => this.enterBetting())
     }
 
     // ─── chat ──────────────────────────────────────────────────────────────
@@ -870,6 +890,7 @@ class LiveBlackjackTable {
             emblem: seat.emblem,
             connected: seat.connected,
             leaving: seat.leaving,
+            votedStart: seat.votedStart,
             pendingBet: seat.pendingBet,
             lastBet: seat.lastBet,
             insurance: seat.insurance,
@@ -905,6 +926,7 @@ class LiveBlackjackTable {
             roundId: this.roundId,
             phase: this.phase,
             phaseEndsAt: this.phaseEndsAt,
+            phaseDuration: this.phaseDuration,
             now: Date.now(),
             seats: this.seats.map(s => (s ? this.wireSeat(s) : null)),
             dealer: this.wireDealer(),

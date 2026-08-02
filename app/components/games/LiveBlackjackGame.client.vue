@@ -34,6 +34,13 @@ const cardsLeft = computed(() => {
 const pendingBet = computed(() => mySeat.value?.pendingBet ?? 0)
 const isBetting = computed(() => state.value?.phase === 'betting' && !!mySeat.value)
 
+const seatedPlayers = computed(() => state.value?.seats.filter(Boolean) ?? [])
+// Offered once you have chips down; the round only starts early when every
+// seated player has bet and agreed.
+const canVoteStart = computed(() => isBetting.value && pendingBet.value > 0 && !mySeat.value?.votedStart)
+const startVotes = computed(() => seatedPlayers.value.filter(s => s!.votedStart).length)
+const showVotePanel = computed(() => isBetting.value && pendingBet.value > 0)
+
 const needsInsurance = computed(() =>
     state.value?.phase === 'insurance' && !!mySeat.value?.hands.length && !mySeat.value.insuranceDecided)
 const insuranceCost = computed(() => (mySeat.value?.hands[0]?.bet ?? 0) / 2)
@@ -150,6 +157,26 @@ onBeforeUnmount(() => {
           >{{ entry.net > 0 ? '+' : entry.net < 0 ? '−' : '' }}{{ formatNumber(Math.abs(entry.net)) }}</span>
         </li>
       </ul>
+    </div>
+
+    <!-- Deal-now vote, centred on the felt where the round is about to happen -->
+    <div
+      v-if="showVotePanel"
+      class="absolute bottom-[27%] left-1/2 -translate-x-1/2 text-center"
+    >
+      <button
+        v-if="canVoteStart"
+        class="lb-tile lb-tile-green px-5 shadow-lg"
+        @click="table.voteStart()"
+      >
+        DEAL NOW
+        <span v-if="seatedPlayers.length > 1" class="ml-1 font-normal opacity-80">
+          ({{ startVotes }}/{{ seatedPlayers.length }})
+        </span>
+      </button>
+      <div v-else class="rounded-xl bg-black/70 px-4 py-2 text-xs font-semibold text-emerald-300 backdrop-blur-sm">
+        Ready — waiting for {{ seatedPlayers.length - startVotes }} more
+      </div>
     </div>
 
     <!-- Live feed + table chat -->

@@ -9,11 +9,22 @@ export const LB_RULES = {
     blackjackPays: 1.5,
     /** Dealer stands on all 17s, soft included. */
     dealerStandsSoft17: true,
-    maxHands: 4,
+    /**
+     * Deliberately generous house rules, carried over from the solo table
+     * because they make the game more fun to play: split aces are live hands you
+     * can draw to and resplit, and surrender stays available on any fresh
+     * two-card hand including after a split.
+     *
+     * The cap exists only so one player cannot stall a five-seat table forever;
+     * splitting past four hands is already rare enough that it costs nothing.
+     */
+    maxHands: 8,
     doubleAfterSplit: true,
-    /** Split aces receive exactly one card each and cannot be resplit. */
-    resplitAces: false,
+    /** Split aces play on like any other hand rather than getting one card. */
+    splitAcesDrawCards: true,
+    resplitAces: true,
     lateSurrender: true,
+    surrenderAfterSplit: true,
     insurancePays: 2
 } as const
 
@@ -31,7 +42,14 @@ export const LB_TIMERS = {
      * last one did.
      */
     actionBeat: 1_100,
-    payout: 5_000,
+    /**
+     * The gap between rounds scales with how many people have to watch it: a
+     * lone player wants to be dealt again immediately, a full table needs a beat
+     * to read everyone's result.
+     */
+    payoutBase: 3_000,
+    payoutPerExtraPlayer: 1_000,
+    payoutMax: 7_000,
     /**
      * How long a seat is held after its player's socket drops, with money still
      * on the table — long enough to survive a refresh and still be paid out.
@@ -78,7 +96,6 @@ export function isBusted(hand: LbHand): boolean {
     return handScore(hand.cards).total > 21
 }
 
-// Split aces never reach here: the engine deals them one card and stands them.
 export function canDouble(hand: LbHand): boolean {
     if (hand.status !== 'playing' || hand.doubled) return false
     if (hand.cards.length !== 2) return false
@@ -98,8 +115,10 @@ export function canSplit(hand: LbHand, seatHands: LbHand[]): boolean {
 
 export function canSurrender(hand: LbHand, seatHands: LbHand[]): boolean {
     if (!LB_RULES.lateSurrender) return false
-    if (hand.status !== 'playing' || hand.fromSplit) return false
-    return hand.cards.length === 2 && seatHands.length === 1
+    if (hand.status !== 'playing') return false
+    if (hand.fromSplit && !LB_RULES.surrenderAfterSplit) return false
+    if (!LB_RULES.surrenderAfterSplit && seatHands.length > 1) return false
+    return hand.cards.length === 2
 }
 
 export function canHit(hand: LbHand): boolean {
