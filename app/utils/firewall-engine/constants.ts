@@ -29,6 +29,29 @@ export const MUZZLE_X = 1044
 export const MUZZLE_Y = 236
 export const BARREL_LENGTH = 62
 
+/**
+ * Every Ramparts level lifts the whole structure by this much and opens one
+ * more mount, so a taller base is visibly a stronger one.
+ */
+export const RAMPART_RISE = 22
+
+/**
+ * Where turrets bolt on, in mount order. Authored rather than generated: a row
+ * along the parapet reads as one clumped battery, so the line climbs the tower
+ * face and crown instead, which also spreads the muzzles over the field.
+ * `y` is the unraised position; Ramparts shifts the whole set up.
+ */
+export const TURRET_MOUNTS: readonly { x: number, y: number }[] = [
+    { x: 986, y: 288 },
+    { x: 1252, y: 288 },
+    { x: 1016, y: 214 },
+    { x: 1016, y: 148 },
+    { x: 1108, y: 166 },
+    { x: 1240, y: 166 },
+    { x: 1108, y: 104 },
+    { x: 1240, y: 104 }
+] as const
+
 /** Enemies enter from off-screen left so they never pop into existence. */
 export const SPAWN_X = -80
 /** Anything that drifts past this (knocked back, mostly) is culled. */

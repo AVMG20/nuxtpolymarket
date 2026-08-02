@@ -2,12 +2,15 @@ import { Container, Graphics, Text } from 'pixi.js'
 import type { TextStyleOptions } from 'pixi.js'
 import gsap from 'gsap'
 import {
-    GRID_COLS, GRID_ROWS, HORIZON_Y, LANE_FAR_Y, LANE_NEAR_Y, MUZZLE_X, MUZZLE_Y, RIDGE_LAYERS,
-    SPIKE_BAND, STAR_COUNT, TOWER_TOP_Y, TOWER_X, VIEW_H, VIEW_W, WALL_X
+    GRID_COLS, GRID_ROWS, HORIZON_Y, LANE_FAR_Y, LANE_NEAR_Y, MUZZLE_X, MUZZLE_Y,
+    RAMPART_RISE, RIDGE_LAYERS, SPIKE_BAND, STAR_COUNT, TOWER_TOP_Y, TOWER_X,
+    TURRET_MOUNTS, VIEW_H, VIEW_W, WALL_X
 } from './constants'
 import { clamp, lerp, mixHex, randRange, shadeHex } from './math'
 import type { FigureRig } from './types'
-import type { FirewallEnemyDefinition } from '#shared/utils/gamelogic/firewall'
+import type {
+    FirewallEnemyDefinition, FirewallProjectile, FirewallTurretId
+} from '#shared/utils/gamelogic/firewall'
 
 /**
  * Nothing here is an image. Every figure, panel and spark is Graphics geometry
@@ -173,76 +176,99 @@ export interface BastionParts {
     hitFlash: Graphics
 }
 
-export function buildBastion(): BastionParts {
+/** How far a given Ramparts level lifts the whole structure. */
+export function rampartRise(rampart: number) {
+    return rampart * RAMPART_RISE
+}
+
+/**
+ * The bastion, built for a Ramparts level. Every level lifts the parapet, the
+ * tower and the rail by a fixed amount and exposes another mount, so buying
+ * base upgrades visibly grows the thing you are defending rather than just
+ * moving a number in the HUD.
+ */
+export function buildBastion(rampart: number): BastionParts {
     const root = new Container()
+    const rise = rampartRise(rampart)
+    /** Top of the wall face — everything structural hangs off this. */
+    const topY = HORIZON_Y - rise
+    const towerTop = TOWER_TOP_Y - rise
 
     // Body of the wall: face, then the tower block behind it.
     const body = new Graphics()
     const groundY = VIEW_H + 10
-    body.rect(WALL_X, HORIZON_Y - 4, VIEW_W - WALL_X, groundY - HORIZON_Y)
+    body.rect(WALL_X, topY - 4, VIEW_W - WALL_X, groundY - topY)
         .fill({ color: 0x131c2c })
-    body.rect(WALL_X, HORIZON_Y - 4, 26, groundY - HORIZON_Y)
+    body.rect(WALL_X, topY - 4, 26, groundY - topY)
         .fill({ color: 0x1d2a40 })
     // Panel seams down the face.
-    for (let y = HORIZON_Y + 26; y < VIEW_H; y += 54) {
+    for (let y = topY + 26; y < VIEW_H; y += 54) {
         body.moveTo(WALL_X, y).lineTo(VIEW_W, y).stroke({ width: 2, color: 0x0a111c, alpha: 0.9 })
     }
     for (let x = WALL_X + 60; x < VIEW_W; x += 74) {
-        body.moveTo(x, HORIZON_Y).lineTo(x, VIEW_H).stroke({ width: 2, color: 0x0a111c, alpha: 0.6 })
+        body.moveTo(x, topY).lineTo(x, VIEW_H).stroke({ width: 2, color: 0x0a111c, alpha: 0.6 })
     }
     // Lit conduits running up the face — the only warm thing in the scene.
     for (let x = WALL_X + 34; x < VIEW_W; x += 74) {
-        body.rect(x, HORIZON_Y + 40, 3, VIEW_H - HORIZON_Y - 40).fill({ color: CYAN, alpha: 0.18 })
+        body.rect(x, topY + 40, 3, VIEW_H - topY - 40).fill({ color: CYAN, alpha: 0.18 })
     }
 
-    // Parapet the sentries stand on.
-    body.rect(WALL_X - 12, HORIZON_Y - 22, VIEW_W - WALL_X + 12, 26).fill({ color: 0x24334c })
+    // Parapet the mounts bolt onto.
+    body.rect(WALL_X - 12, topY - 22, VIEW_W - WALL_X + 12, 26).fill({ color: 0x24334c })
     for (let x = WALL_X - 8; x < VIEW_W; x += 40) {
-        body.rect(x, HORIZON_Y - 40, 22, 20).fill({ color: 0x1d2a40 })
+        body.rect(x, topY - 40, 22, 20).fill({ color: 0x1d2a40 })
     }
 
     // The core tower rising behind the parapet.
-    body.rect(TOWER_X + 78, TOWER_TOP_Y, 176, HORIZON_Y - TOWER_TOP_Y + 6).fill({ color: 0x18243a })
-    body.rect(TOWER_X + 78, TOWER_TOP_Y, 176, 10).fill({ color: 0x2b3d5c })
+    body.rect(TOWER_X + 78, towerTop, 176, topY - towerTop + 6).fill({ color: 0x18243a })
+    body.rect(TOWER_X + 78, towerTop, 176, 10).fill({ color: 0x2b3d5c })
     for (let i = 0; i < 5; i++) {
-        body.rect(TOWER_X + 96, TOWER_TOP_Y + 24 + i * 20, 140, 8)
+        body.rect(TOWER_X + 96, towerTop + 24 + i * 20, 140, 8)
             .fill({ color: CYAN, alpha: 0.1 + i * 0.03 })
     }
     // Mast and beacon.
-    body.rect(TOWER_X + 162, TOWER_TOP_Y - 54, 6, 56).fill({ color: 0x2b3d5c })
+    body.rect(TOWER_X + 162, towerTop - 54, 6, 56).fill({ color: 0x2b3d5c })
     const beacon = new Graphics()
-    beacon.circle(TOWER_X + 165, TOWER_TOP_Y - 58, 6).fill({ color: RED })
-    beacon.circle(TOWER_X + 165, TOWER_TOP_Y - 58, 14).fill({ color: RED, alpha: 0.2 })
+    beacon.circle(TOWER_X + 165, towerTop - 58, 6).fill({ color: RED })
+    beacon.circle(TOWER_X + 165, towerTop - 58, 14).fill({ color: RED, alpha: 0.2 })
     track(gsap.to(beacon, { alpha: 0.25, duration: 1.1, repeat: -1, yoyo: true, ease: 'sine.inOut' }))
 
-    // Turret platform.
-    body.rect(TOWER_X + 10, HORIZON_Y - 76, 84, 54).fill({ color: 0x24334c })
-    body.rect(TOWER_X + 10, HORIZON_Y - 76, 84, 8).fill({ color: 0x334a6e })
+    // Rail platform, and a gantry spine the upper mounts stand on.
+    body.rect(TOWER_X + 10, topY - 76, 84, 54).fill({ color: 0x24334c })
+    body.rect(TOWER_X + 10, topY - 76, 84, 8).fill({ color: 0x334a6e })
+    body.rect(TOWER_X + 6, towerTop + 10, 14, topY - towerTop - 76).fill({ color: 0x1d2a40 })
+
+    // Mount pads, so an empty mount still reads as a place a turret goes.
+    const pads = new Graphics()
+    for (const anchor of TURRET_MOUNTS) {
+        pads.rect(anchor.x - 16, anchor.y - rise, 32, 9).fill({ color: 0x24334c })
+        pads.rect(anchor.x - 16, anchor.y - rise, 32, 3).fill({ color: 0x334a6e, alpha: 0.8 })
+    }
 
     const damage = new Graphics()
     const core = new Graphics()
     const shield = new Graphics()
     const hitFlash = new Graphics()
-    hitFlash.rect(WALL_X - 14, HORIZON_Y - 44, VIEW_W - WALL_X + 14, VIEW_H - HORIZON_Y + 44)
+    hitFlash.rect(WALL_X - 14, topY - 44, VIEW_W - WALL_X + 14, VIEW_H - topY + 44)
         .fill({ color: 0xffffff })
     hitFlash.alpha = 0
     hitFlash.blendMode = 'add'
 
     const rail = buildRail()
-    rail.root.position.set(MUZZLE_X, MUZZLE_Y)
+    rail.root.position.set(MUZZLE_X, MUZZLE_Y - rise)
 
-    root.addChild(body, damage, core, beacon, rail.root, shield, hitFlash)
-    drawCore(core, 1)
+    root.addChild(body, pads, damage, core, beacon, rail.root, shield, hitFlash)
+    drawCore(core, 1, rise)
     track(gsap.to(core.scale, { x: 1.06, y: 1.06, duration: 1.5, repeat: -1, yoyo: true, ease: 'sine.inOut' }))
 
     return { root, damage, core, shield, turret: rail.root, barrel: rail.barrel, hitFlash }
 }
 
 /** The diamond behind the tower glass. Colour is the integrity readout. */
-export function drawCore(gfx: Graphics, integrity: number) {
+export function drawCore(gfx: Graphics, integrity: number, rise = 0) {
     const hex = integrity > 0.55 ? CYAN : integrity > 0.25 ? AMBER : RED
     const cx = TOWER_X + 166
-    const cy = TOWER_TOP_Y + 118
+    const cy = TOWER_TOP_Y + 118 - rise
     gfx.clear()
     gfx.poly([cx, cy - 40, cx + 30, cy, cx, cy + 40, cx - 30, cy]).fill({ color: hex, alpha: 0.22 })
     gfx.poly([cx, cy - 26, cx + 19, cy, cx, cy + 26, cx - 19, cy]).fill({ color: hex, alpha: 0.55 })
@@ -255,42 +281,60 @@ export function drawCore(gfx: Graphics, integrity: number) {
  * Damage decals, drawn in buckets rather than continuously — a redraw per hit
  * on a full-height Graphics is wasted work nobody can see.
  */
-export function drawWallDamage(gfx: Graphics, integrity: number) {
+export function drawWallDamage(gfx: Graphics, integrity: number, rise = 0) {
     gfx.clear()
     if (integrity >= 0.98) return
     const severity = 1 - integrity
-    const cracks = Math.round(severity * 16)
+    const topY = HORIZON_Y - rise
+    // Many short fractures rather than a few long ones. Two big zigzags on a
+    // dark wall read as stray glyphs; a spread of small ones reads as damage.
+    const cracks = Math.max(4, Math.round(severity * 34))
     for (let i = 0; i < cracks; i++) {
-        // Deterministic-ish scatter: seeded off the index so the same damage
-        // level always draws the same cracks and the wall does not fizz.
+        // Deterministic scatter seeded off the index, so a given damage level
+        // always draws the same cracks and the wall does not fizz frame to frame.
         const seed = i * 97.13
-        const x = WALL_X + 20 + ((seed * 7.7) % (VIEW_W - WALL_X - 40))
-        const y = HORIZON_Y + 10 + ((seed * 13.3) % (VIEW_H - HORIZON_Y - 30))
-        const len = 20 + ((seed * 3.1) % 46)
-        gfx.moveTo(x, y)
-            .lineTo(x + len * 0.4, y + len * 0.6)
-            .lineTo(x - len * 0.2, y + len)
-            .stroke({ width: 2, color: 0x000000, alpha: 0.75 })
+        const x = WALL_X + 16 + ((seed * 7.7) % (VIEW_W - WALL_X - 32))
+        const y = topY + 8 + ((seed * 13.3) % (VIEW_H - topY - 24))
+        const len = 10 + ((seed * 3.1) % 22)
+        const lean = ((seed * 1.7) % 2) - 1
+        const path: [number, number][] = [
+            [x, y],
+            [x + len * 0.34 * lean, y + len * 0.4],
+            [x - len * 0.22 * lean, y + len * 0.72],
+            [x + len * 0.18 * lean, y + len]
+        ]
+        const trace = (dx: number, dy: number) => {
+            gfx.moveTo(path[0]![0] + dx, path[0]![1] + dy)
+            for (const [px, py] of path.slice(1)) gfx.lineTo(px + dx, py + dy)
+        }
+        // A dark fracture with a lit edge one pixel off it — the highlight is
+        // what makes a scratch on a near-black surface visible at all.
+        trace(0, 0)
+        gfx.stroke({ width: 2.5, color: 0x000000, alpha: 0.8 })
+        trace(1, -1)
+        gfx.stroke({ width: 1, color: 0x64748b, alpha: 0.35 })
         if (severity > 0.5) {
-            gfx.circle(x, y + len * 0.5, 3 + (seed % 4)).fill({ color: RED, alpha: 0.25 * severity })
+            gfx.circle(x, y + len * 0.5, 2 + (seed % 3)).fill({ color: RED, alpha: 0.25 * severity })
         }
     }
     if (severity > 0.35) {
-        gfx.rect(WALL_X, HORIZON_Y - 4, VIEW_W - WALL_X, VIEW_H - HORIZON_Y)
+        gfx.rect(WALL_X, topY - 4, VIEW_W - WALL_X, VIEW_H - topY)
             .fill({ color: 0x450a0a, alpha: (severity - 0.35) * 0.5 })
     }
 }
 
 /** The overshield dome, wrapping the wall face. */
-export function drawShieldDome(gfx: Graphics, fraction: number) {
+export function drawShieldDome(gfx: Graphics, fraction: number, rise = 0) {
     gfx.clear()
     if (fraction <= 0) return
     const alpha = 0.12 + fraction * 0.3
+    const cy = HORIZON_Y + 190 - rise * 0.5
+    const ry = 300 + rise * 0.5
     for (let i = 0; i < 3; i++) {
-        gfx.ellipse(WALL_X + 40, HORIZON_Y + 190, 92 + i * 12, 300 + i * 16)
+        gfx.ellipse(WALL_X + 40, cy, 92 + i * 12, ry + i * 16)
             .stroke({ width: 3 - i, color: 0x67e8f9, alpha: alpha * (1 - i * 0.28) })
     }
-    gfx.ellipse(WALL_X + 40, HORIZON_Y + 190, 92, 300).fill({ color: 0x22d3ee, alpha: alpha * 0.12 })
+    gfx.ellipse(WALL_X + 40, cy, 92, ry).fill({ color: 0x22d3ee, alpha: alpha * 0.12 })
 }
 
 /** Player's rail cannon: a yoke that pivots and a barrel that recoils. */
@@ -315,20 +359,50 @@ function buildRail() {
     return { root, barrel }
 }
 
-/** Sentries share one silhouette — a squat autoloader on a post. */
-export function buildSentry(): { root: Container, barrel: Container } {
+/**
+ * One silhouette per turret type. They have to be told apart at a glance from
+ * across the field, so each gets a different barrel mass rather than a recolour.
+ */
+export function buildTurret(kind: FirewallTurretId, hex: number): { root: Container, barrel: Container } {
     const root = new Container()
     const post = new Graphics()
-    post.rect(-5, 0, 10, 26).fill({ color: 0x1d2a40 })
+    post.rect(-5, 0, 10, 24).fill({ color: 0x1d2a40 })
     post.circle(0, 0, 11).fill({ color: 0x24334c })
-    post.circle(0, 0, 11).stroke({ width: 1.5, color: LIME, alpha: 0.45 })
+    post.circle(0, 0, 11).stroke({ width: 1.5, color: hex, alpha: 0.5 })
 
     const barrel = new Container()
-    const barrelGfx = new Graphics()
-    barrelGfx.rect(-4, -4, 34, 8).fill({ color: 0x2b3d5c })
-    barrelGfx.rect(24, -5, 8, 10).fill({ color: 0x334a6e })
-    barrelGfx.rect(6, -1.5, 16, 3).fill({ color: LIME, alpha: 0.6 })
-    barrel.addChild(barrelGfx)
+    const gfx = new Graphics()
+    switch (kind) {
+        case 'needler':
+            // Three thin barrels: reads as "spits a lot of small things".
+            for (let i = -1; i <= 1; i++) {
+                gfx.rect(-3, i * 4 - 1.2, 30, 2.4).fill({ color: 0x2b3d5c })
+            }
+            gfx.rect(24, -5, 6, 10).fill({ color: 0x334a6e })
+            gfx.rect(4, -1, 14, 2).fill({ color: hex, alpha: 0.7 })
+            break
+        case 'warhead':
+            // A boxy rack of tubes.
+            gfx.rect(-6, -9, 26, 18).fill({ color: 0x2b3d5c })
+            gfx.rect(-6, -9, 26, 4).fill({ color: 0x486590 })
+            for (let i = -1; i <= 1; i++) {
+                gfx.circle(20, i * 6, 2.6).fill({ color: hex, alpha: 0.85 })
+            }
+            break
+        case 'lance':
+            // One long spine with a coil pack — the heavy single-target look.
+            gfx.rect(-8, -3.5, 52, 7).fill({ color: 0x2b3d5c })
+            gfx.rect(-8, -3.5, 52, 2).fill({ color: 0x486590 })
+            gfx.rect(-10, -7, 12, 14).fill({ color: 0x334a6e })
+            gfx.rect(8, -1.2, 28, 2.4).fill({ color: hex, alpha: 0.8 })
+            break
+        default:
+            gfx.rect(-4, -4, 34, 8).fill({ color: 0x2b3d5c })
+            gfx.rect(24, -5, 8, 10).fill({ color: 0x334a6e })
+            gfx.rect(6, -1.5, 16, 3).fill({ color: hex, alpha: 0.6 })
+            break
+    }
+    barrel.addChild(gfx)
 
     root.addChild(barrel, post)
     return { root, barrel }
@@ -587,6 +661,150 @@ export function buildFigure(def: FirewallEnemyDefinition): FigureRig {
             root.addChild(legBack, torso, legFront)
             break
         }
+        case 'tank': {
+            // Tracked, so the "legs" are road wheels that spin instead of swing.
+            for (const [leg, dx] of [[legBack, -h * 0.22], [legFront, h * 0.16]] as const) {
+                const wheel = new Graphics()
+                wheel.circle(0, 0, h * 0.11).fill({ color: INK })
+                wheel.circle(0, 0, h * 0.11).stroke({ width: 1.6, color: hex, alpha: 0.6 })
+                wheel.moveTo(-h * 0.11, 0).lineTo(h * 0.11, 0).stroke({ width: 1.4, color: hex, alpha: 0.5 })
+                wheel.moveTo(0, -h * 0.11).lineTo(0, h * 0.11).stroke({ width: 1.4, color: hex, alpha: 0.5 })
+                leg.addChild(wheel)
+                leg.position.set(dx, -h * 0.12)
+            }
+            const hull = new Graphics()
+            rimPoly(hull, [
+                -h * 0.44, -h * 0.06, h * 0.42, -h * 0.06, h * 0.46, -h * 0.3,
+                h * 0.1, -h * 0.42, -h * 0.38, -h * 0.36
+            ], hex, 0.85)
+            hull.rect(-h * 0.46, -h * 0.24, h * 0.92, h * 0.05).fill({ color: hex, alpha: 0.2 })
+            const cannon = new Graphics()
+            cannon.rect(0, -h * 0.045, h * 0.66, h * 0.09).fill({ color: INK })
+            cannon.rect(0, -h * 0.045, h * 0.66, h * 0.09).stroke({ width: 1.6, color: hex, alpha: 0.8 })
+            cannon.rect(h * 0.58, -h * 0.07, h * 0.08, h * 0.14).fill({ color: INK })
+            cannon.rect(h * 0.58, -h * 0.07, h * 0.08, h * 0.14).stroke({ width: 1.4, color: hex, alpha: 0.8 })
+            cannon.position.set(h * 0.12, -h * 0.42)
+            torso.addChild(hull, cannon, glow(-h * 0.2, -h * 0.36, h * 0.05, hex))
+            torso.position.set(0, -h * 0.06)
+            root.addChild(legBack, torso, legFront)
+            break
+        }
+        case 'warden': {
+            const hipY = -h * 0.44
+            for (const [leg, dx] of [[legBack, -h * 0.11], [legFront, h * 0.09]] as const) {
+                leg.addChild(limb(h * 0.17, h * 0.44, hex, 0.5))
+                leg.position.set(dx, hipY)
+            }
+            const chest = new Graphics()
+            rimPoly(chest, [-h * 0.24, 0, h * 0.26, -h * 0.04, h * 0.3, -h * 0.32, -h * 0.28, -h * 0.28], hex, 0.85)
+            const head = new Graphics()
+            rimPoly(head, [-h * 0.04, -h * 0.32, h * 0.16, -h * 0.34, h * 0.14, -h * 0.48, -h * 0.02, -h * 0.46], hex, 0.85)
+            // Pauldrons: the plating tell, before you even see a damage number.
+            for (const sx of [-1, 1]) {
+                const pad = new Graphics()
+                rimPoly(pad, [
+                    sx * h * 0.16, -h * 0.34, sx * h * 0.34, -h * 0.3,
+                    sx * h * 0.32, -h * 0.16, sx * h * 0.14, -h * 0.2
+                ], hex, 0.9)
+                chest.addChild(pad)
+            }
+            torso.addChild(chest, head, glow(h * 0.1, -h * 0.41, h * 0.04, hex))
+            const arm = limb(h * 0.13, h * 0.3, hex, 0.5)
+            arm.position.set(h * 0.2, -h * 0.26)
+            armFront.addChild(arm)
+            const armB = limb(h * 0.12, h * 0.28, hex, 0.35)
+            armB.position.set(-h * 0.16, -h * 0.26)
+            armBack.addChild(armB)
+            torso.addChild(armBack, armFront)
+            torso.position.set(0, hipY)
+            root.addChild(legBack, torso, legFront)
+            break
+        }
+        case 'artillery': {
+            // Squat carriage, gun raised — it never gets close, so read it by
+            // silhouette from across the field.
+            for (const [leg, dx] of [[legBack, -h * 0.2], [legFront, h * 0.18]] as const) {
+                const wheel = new Graphics()
+                wheel.circle(0, 0, h * 0.13).fill({ color: INK })
+                wheel.circle(0, 0, h * 0.13).stroke({ width: 1.6, color: hex, alpha: 0.6 })
+                leg.addChild(wheel)
+                leg.position.set(dx, -h * 0.14)
+            }
+            const carriage = new Graphics()
+            rimPoly(carriage, [-h * 0.34, -h * 0.08, h * 0.34, -h * 0.08, h * 0.26, -h * 0.34, -h * 0.26, -h * 0.3], hex, 0.85)
+            const tube = new Graphics()
+            tube.rect(0, -h * 0.05, h * 0.72, h * 0.1).fill({ color: INK })
+            tube.rect(0, -h * 0.05, h * 0.72, h * 0.1).stroke({ width: 1.6, color: hex, alpha: 0.85 })
+            tube.circle(h * 0.7, 0, h * 0.07).fill({ color: hex, alpha: 0.35 })
+            tube.rotation = -0.5
+            tube.position.set(h * 0.04, -h * 0.34)
+            torso.addChild(carriage, tube, glow(-h * 0.16, -h * 0.28, h * 0.05, hex))
+            torso.position.set(0, -h * 0.08)
+            root.addChild(legBack, torso, legFront)
+            break
+        }
+        case 'gunship': {
+            const body2 = new Graphics()
+            rimPoly(body2, [
+                -h * 0.7, 0, -h * 0.3, -h * 0.34, h * 0.5, -h * 0.3,
+                h * 0.8, 0, h * 0.4, h * 0.24, -h * 0.4, h * 0.22
+            ], hex, 0.85)
+            body2.rect(-h * 0.2, -h * 0.16, h * 0.5, h * 0.07).fill({ color: hex, alpha: 0.4 })
+            // Chin guns, which is what makes it read as a shooter not a drone.
+            for (const dy of [-0.06, 0.1]) {
+                body2.rect(h * 0.5, h * dy, h * 0.42, h * 0.06).fill({ color: INK })
+                body2.rect(h * 0.5, h * dy, h * 0.42, h * 0.06).stroke({ width: 1.3, color: hex, alpha: 0.8 })
+            }
+            torso.addChild(body2, glow(h * 0.34, -h * 0.14, h * 0.09, hex))
+            const rotorTop = limb(h * 0.14, h * 0.5, hex, 0.55)
+            rotorTop.rotation = Math.PI
+            rotorTop.position.set(-h * 0.12, -h * 0.28)
+            const rotorLow = limb(h * 0.14, h * 0.5, hex, 0.55)
+            rotorLow.position.set(-h * 0.12, h * 0.2)
+            armBack.addChild(rotorTop)
+            armFront.addChild(rotorLow)
+            torso.addChild(armBack, armFront)
+            root.addChild(torso)
+            break
+        }
+        case 'leviathan': {
+            // The heavy boss: a walking bunker. Same read as the ROOTKIT but
+            // plated, wider, and lit colder.
+            const hipY = -h * 0.4
+            for (const [leg, dx] of [[legBack, -h * 0.16], [legFront, h * 0.14]] as const) {
+                const thigh = limb(h * 0.2, h * 0.22, hex, 0.55)
+                const shin = limb(h * 0.17, h * 0.2, hex, 0.55)
+                shin.position.set(0, h * 0.22)
+                thigh.addChild(shin)
+                const foot = new Graphics()
+                foot.roundRect(-h * 0.13, h * 0.2, h * 0.3, h * 0.06, 3).fill({ color: INK })
+                foot.roundRect(-h * 0.13, h * 0.2, h * 0.3, h * 0.06, 3).stroke({ width: 1.5, color: hex, alpha: 0.55 })
+                shin.addChild(foot)
+                leg.position.set(dx, hipY)
+                leg.addChild(thigh)
+            }
+            const chest = new Graphics()
+            rimPoly(chest, [
+                -h * 0.4, 0, h * 0.4, -h * 0.04, h * 0.44, -h * 0.3,
+                h * 0.12, -h * 0.44, -h * 0.36, -h * 0.38
+            ], hex, 0.9)
+            for (let i = 0; i < 3; i++) {
+                chest.rect(-h * 0.3, -h * 0.34 + i * h * 0.1, h * 0.6, h * 0.04).fill({ color: hex, alpha: 0.3 })
+            }
+            const visor = new Graphics()
+            rimPoly(visor, [-h * 0.18, -h * 0.44, h * 0.2, -h * 0.48, h * 0.18, -h * 0.6, -h * 0.14, -h * 0.56], hex, 0.95)
+            torso.addChild(chest, visor, glow(h * 0.06, -h * 0.53, h * 0.05, hex), glow(0, -h * 0.26, h * 0.09, hex))
+            const cannonR = limb(h * 0.18, h * 0.38, hex, 0.65)
+            cannonR.position.set(h * 0.34, -h * 0.36)
+            const cannonL = limb(h * 0.16, h * 0.34, hex, 0.5)
+            cannonL.position.set(-h * 0.32, -h * 0.34)
+            armFront.addChild(cannonR)
+            armBack.addChild(cannonL)
+            torso.position.set(0, hipY)
+            torso.addChild(armBack, armFront)
+            root.addChild(legBack, torso, legFront)
+            break
+        }
         default: {
             // grunt — the baseline humanoid every other shape is read against.
             const hipY = -h * 0.46
@@ -619,6 +837,22 @@ export function buildFigure(def: FirewallEnemyDefinition): FigureRig {
         }
     }
 
+    // Plated units carry a chevron badge. Armour is invisible until you shoot it
+    // and see a grey number, and by then the wave is already on the wall.
+    if (def.armor >= 0.35) {
+        const badge = new Graphics()
+        const by = -h - 22
+        badge.poly([0, by - 7, 8, by - 2, 8, by + 5, 0, by + 9, -8, by + 5, -8, by - 2])
+            .fill({ color: 0x0b1220, alpha: 0.9 })
+        badge.poly([0, by - 7, 8, by - 2, 8, by + 5, 0, by + 9, -8, by + 5, -8, by - 2])
+            .stroke({ width: 1.5, color: hex, alpha: 0.9 })
+        badge.moveTo(-3.5, by + 2).lineTo(0, by - 2).lineTo(3.5, by + 2)
+            .stroke({ width: 1.5, color: hex, alpha: 0.95 })
+        // Undo the body scale so the badge stays legible on far-lane units.
+        badge.scale.set(1)
+        root.addChild(badge)
+    }
+
     // Hit flash: an additive blob over the body's footprint. A silhouette-shaped
     // copy would be prettier but doubles the geometry of every figure on screen.
     const flash = new Graphics()
@@ -627,18 +861,30 @@ export function buildFigure(def: FirewallEnemyDefinition): FigureRig {
     flash.alpha = 0
     root.addChild(flash)
 
+    const gait: FigureRig['gait'] = def.id === 'tank' || def.id === 'artillery'
+        ? 'roll'
+        : def.kind === 'flyer' || def.id === 'gunship' ? 'hover' : 'walk'
+
     return {
-        root, torso, legFront, legBack, armFront, armBack, flash,
+        root, torso, legFront, legBack, armFront, armBack, flash, gait,
         height: h, torsoBaseY: torso.position.y
     }
 }
 
-/** Advances a figure's walk cycle. `stride` is radians accumulated from distance. */
-export function poseFigure(rig: FigureRig, stride: number, kind: string, attacking: boolean) {
-    if (kind === 'flyer') {
+/** Advances a figure's gait. `stride` is radians accumulated from distance. */
+export function poseFigure(rig: FigureRig, stride: number, attacking: boolean) {
+    if (rig.gait === 'hover') {
         rig.armFront.rotation = Math.sin(stride * 0.8) * 0.35
         rig.armBack.rotation = Math.PI - Math.sin(stride * 0.8) * 0.35
         rig.torso.rotation = Math.sin(stride * 0.5) * 0.08
+        return
+    }
+    if (rig.gait === 'roll') {
+        // Wheels turn with distance travelled; the hull just rocks a little.
+        rig.legFront.rotation = stride
+        rig.legBack.rotation = stride
+        rig.torso.rotation = Math.sin(stride * 0.5) * 0.02
+        rig.torso.position.y = rig.torsoBaseY + Math.sin(stride) * rig.height * 0.006
         return
     }
     const swing = Math.sin(stride)
@@ -800,16 +1046,77 @@ export function screenFlash(layer: Container, hex: number, strength = 0.5, ms = 
     gsap.to(gfx, { alpha: 0, duration: ms / 1000, onComplete: () => { if (!gfx.destroyed) gfx.destroy() } })
 }
 
-/** Bullet tracer: a stretched capsule that fades behind the round. */
-export function makeTracer(hex: number, crit: boolean, fromSentry: boolean) {
+/**
+ * Round in flight. Each projectile type gets its own shape — at these speeds
+ * the round itself is the only readout you get of what your weapon is doing.
+ */
+export function makeProjectile(
+    kind: FirewallProjectile,
+    hex: number,
+    crit: boolean,
+    fromTurret: boolean
+) {
     const gfx = new Graphics()
-    const len = fromSentry ? 16 : crit ? 34 : 26
-    const w = fromSentry ? 2.4 : crit ? 5 : 3.6
-    gfx.rect(-len, -w / 2, len * 2, w).fill({ color: 0xffffff, alpha: 0.95 })
-    gfx.rect(-len * 2.4, -w * 0.35, len * 2.4, w * 0.7).fill({ color: hex, alpha: 0.55 })
-    gfx.circle(len * 0.6, 0, w * 1.3).fill({ color: hex, alpha: 0.8 })
+    switch (kind) {
+        case 'missile': {
+            gfx.poly([14, 0, -6, -5, -10, 0, -6, 5]).fill({ color: 0xf8fafc, alpha: 0.95 })
+            gfx.poly([-6, -5, -14, -9, -12, -2]).fill({ color: hex, alpha: 0.8 })
+            gfx.poly([-6, 5, -14, 9, -12, 2]).fill({ color: hex, alpha: 0.8 })
+            gfx.circle(-14, 0, 7).fill({ color: hex, alpha: 0.45 })
+            gfx.circle(-22, 0, 4).fill({ color: hex, alpha: 0.2 })
+            break
+        }
+        case 'pellet': {
+            gfx.circle(0, 0, 3.4).fill({ color: 0xffffff, alpha: 0.95 })
+            gfx.rect(-16, -1.1, 16, 2.2).fill({ color: hex, alpha: 0.5 })
+            break
+        }
+        case 'arc': {
+            // A jagged bolt rather than a bar, so a chain reads as lightning.
+            gfx.moveTo(-22, 0).lineTo(-10, -5).lineTo(-2, 3).lineTo(10, -4).lineTo(20, 0)
+                .stroke({ width: 3, color: 0xffffff, alpha: 0.95 })
+            gfx.moveTo(-22, 0).lineTo(-10, -5).lineTo(-2, 3).lineTo(10, -4).lineTo(20, 0)
+                .stroke({ width: 8, color: hex, alpha: 0.28 })
+            break
+        }
+        case 'slug': {
+            gfx.rect(-46, -2.6, 92, 5.2).fill({ color: 0xffffff, alpha: 0.95 })
+            gfx.rect(-96, -1.4, 96, 2.8).fill({ color: hex, alpha: 0.6 })
+            gfx.circle(40, 0, 6).fill({ color: hex, alpha: 0.8 })
+            break
+        }
+        default: {
+            const len = fromTurret ? 16 : crit ? 34 : 26
+            const w = fromTurret ? 2.4 : crit ? 5 : 3.6
+            gfx.rect(-len, -w / 2, len * 2, w).fill({ color: 0xffffff, alpha: 0.95 })
+            gfx.rect(-len * 2.4, -w * 0.35, len * 2.4, w * 0.7).fill({ color: hex, alpha: 0.55 })
+            gfx.circle(len * 0.6, 0, w * 1.3).fill({ color: hex, alpha: 0.8 })
+            break
+        }
+    }
     gfx.blendMode = 'add'
     return gfx
+}
+
+/** A lightning jump between two points, drawn once and faded out. */
+export function chainArc(layer: Container, x1: number, y1: number, x2: number, y2: number, hex: number) {
+    const gfx = new Graphics()
+    const steps = 6
+    gfx.moveTo(x1, y1)
+    for (let i = 1; i < steps; i++) {
+        const t = i / steps
+        const jitter = (i % 2 ? 1 : -1) * randRange(6, 18)
+        const nx = -(y2 - y1)
+        const ny = x2 - x1
+        const len = Math.hypot(nx, ny) || 1
+        gfx.lineTo(x1 + (x2 - x1) * t + (nx / len) * jitter, y1 + (y2 - y1) * t + (ny / len) * jitter)
+    }
+    gfx.lineTo(x2, y2)
+    gfx.stroke({ width: 7, color: hex, alpha: 0.3 })
+    gfx.stroke({ width: 2.5, color: 0xffffff, alpha: 0.9 })
+    gfx.blendMode = 'add'
+    layer.addChild(gfx)
+    gsap.to(gfx, { alpha: 0, duration: 0.18, onComplete: () => { if (!gfx.destroyed) gfx.destroy() } })
 }
 
 export function makeSpitGfx(hex: number) {
@@ -821,12 +1128,19 @@ export function makeSpitGfx(hex: number) {
     return gfx
 }
 
-/** Health pip above a wounded enemy. Rebuilt cheaply — it is two rects. */
-export function drawEnemyHealth(gfx: Graphics, fraction: number, width: number, hex: number) {
+/** Health pip above a wounded enemy. Rebuilt cheaply — it is a few rects. */
+export function drawEnemyHealth(gfx: Graphics, fraction: number, width: number, hex: number, armored = false) {
     gfx.clear()
     if (fraction >= 1 || fraction <= 0) return
     gfx.rect(-width / 2, 0, width, 4).fill({ color: 0x000000, alpha: 0.6 })
     gfx.rect(-width / 2, 0, width * fraction, 4).fill({ color: hex, alpha: 0.95 })
+    // Plated units get a hatched bar, so "why is this not dying" has an answer
+    // on screen the whole time it is not dying.
+    if (!armored) return
+    for (let x = -width / 2; x < width / 2; x += 6) {
+        gfx.rect(x, 0, 2, 4).fill({ color: 0x0b1220, alpha: 0.55 })
+    }
+    gfx.rect(-width / 2, -1, width, 6).stroke({ width: 1, color: 0xe2e8f0, alpha: 0.5 })
 }
 
 /** Ground scorch left where something died. Fades on its own. */

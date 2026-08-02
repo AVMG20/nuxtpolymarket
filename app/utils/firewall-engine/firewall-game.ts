@@ -2,27 +2,43 @@ import { Application, Container, Graphics } from 'pixi.js'
 import { randomChance, randomFloat } from '#shared/utils/random'
 import {
     FIREWALL_PURGE_BOUNTY, FIREWALL_SHIELD_DELAY_MS, FIREWALL_SPAWN_WINDOW_MS, FIREWALL_WAVE_MS,
-    firewallBountyMultiplier, firewallClearBonus, firewallEnemy, firewallHpMultiplier,
-    firewallIsBossWave, firewallWaveBudget, firewallWavePool,
-    type FirewallEnemyDefinition, type FirewallLoadout
+    firewallArmorScale, firewallBossFor, firewallBountyMultiplier, firewallClearBonus, firewallEnemy,
+    firewallHpMultiplier, firewallIsAirborne, firewallIsBossWave, firewallWaveBudget, firewallWavePool,
+    type FirewallEnemyDefinition, type FirewallLoadout, type FirewallWeaponRuntime
 } from '#shared/utils/gamelogic/firewall'
 import {
-    BARREL_LENGTH, BULLET_LIFE_MS, BULLET_RADIUS, BULLET_SPEED, CROWD_PUSH, DESPAWN_X,
+    BARREL_LENGTH, BULLET_LIFE_MS, BULLET_RADIUS, CROWD_PUSH, DESPAWN_X,
     HORIZON_Y, LANE_FAR_SCALE, LANE_FAR_Y, LANE_NEAR_SCALE, LANE_NEAR_Y, MAX_SHAKE,
-    MUZZLE_X, MUZZLE_Y, PULSE_KNOCKBACK, PULSE_RADIUS, SENTRY_BULLET_SPEED, SENTRY_RANGE,
-    SHAKE_DECAY, SPAWN_X, SPIKE_BAND, SPIT_GRAVITY, SPIT_SPEED, VIEW_H, VIEW_W, WALL_X
+    MUZZLE_X, MUZZLE_Y, PULSE_KNOCKBACK, PULSE_RADIUS, SPAWN_X, SPIKE_BAND,
+    SHAKE_DECAY, SPIT_GRAVITY, SPIT_SPEED, TURRET_MOUNTS, VIEW_H, VIEW_W, WALL_X
 } from './constants'
 import { clamp, dist, lerp, randRange, segPointDist } from './math'
 import * as fx from './fx'
 import type {
-    BulletEntity, EnemyEntity, FirewallCallbacks, ParticleEntity, SentryMount, SpitEntity
+    BulletEntity, EnemyEntity, FirewallCallbacks, ParticleEntity, SpitEntity, TurretMount
 } from './types'
 
 /** A spawn the wave scheduler has already decided on. */
 interface ScheduledSpawn {
     atMs: number
     def: FirewallEnemyDefinition
-    boss: boolean
+}
+
+/** What a projectile carries, whoever fired it. */
+interface ShotSpec {
+    damage: number
+    pierce: number
+    armorPiercing: boolean
+    splashRadius: number
+    splashDamage: number
+    homing: boolean
+    chain: number
+    chainFalloff: number
+    speed: number
+    hex: number
+    projectile: FirewallWeaponRuntime['projectile']
+    crit: boolean
+    fromTurret: boolean
 }
 
 export class FirewallGame {
@@ -35,8 +51,9 @@ export class FirewallGame {
     private bgLayer = new Container()
     private spikeGfx = new Graphics()
     private fieldLayer = new Container()
+    private bastionRoot = new Container()
     private bastion: ReturnType<typeof fx.buildBastion> | null = null
-    private sentryLayer = new Container()
+    private turretLayer = new Container()
     private bulletLayer = new Container()
     private fxLayer = new Container()
     private textLayer = new Container()
@@ -54,6 +71,8 @@ export class FirewallGame {
 
     // ── Run state ──
     private loadout: FirewallLoadout | null = null
+    private weapon: FirewallWeaponRuntime | null = null
+    private rampart = -1
     private wave = 0
     private waveElapsed = 0
     private schedule: ScheduledSpawn[] = []
@@ -78,13 +97,15 @@ export class FirewallGame {
     private fireTimer = 0
     private reloadTimer = 0
     private pulseCharge = 0
+    private overclockCharge = 0
+    private overclockLeft = 0
 
     // ── Entities ──
     private enemies: EnemyEntity[] = []
     private bullets: BulletEntity[] = []
     private spits: SpitEntity[] = []
     private particles: ParticleEntity[] = []
-    private sentries: SentryMount[] = []
+    private turrets: TurretMount[] = []
 
     // ── Input ──
     private aimX = 400
@@ -140,14 +161,14 @@ export class FirewallGame {
         fx.drawGround(ground)
         this.bgLayer.addChild(sky, fx.buildStars(), fx.buildRidges(), ground)
 
-        this.bastion = fx.buildBastion()
         // Enemies sort against each other by lane depth; the layer above them is
         // the wall, which everything on the field is in front of.
         this.fieldLayer.sortableChildren = true
+        this.rebuildBastion(0)
 
         this.world.addChild(
             this.bgLayer, this.spikeGfx, this.fieldLayer,
-            this.bastion.root, this.sentryLayer, this.bulletLayer, this.fxLayer, this.textLayer
+            this.bastionRoot, this.turretLayer, this.bulletLayer, this.fxLayer, this.textLayer
         )
         this.app.stage.addChild(this.world)
 
@@ -213,6 +234,7 @@ export class FirewallGame {
                 if (this.running) event.preventDefault()
                 this.firePulse()
             }
+            if (key === 'q') this.fireOverclock()
         }
 
         canvas.addEventListener('pointermove', onPointerMove)
@@ -244,6 +266,7 @@ export class FirewallGame {
         if (!this.mounted) return false
         this.clearField()
         this.loadout = loadout
+        this.weapon = loadout.weapon
         this.wave = 0
         this.waveElapsed = 0
         this.totalKills = 0
@@ -255,17 +278,20 @@ export class FirewallGame {
         this.shieldMax = loadout.shieldMax
         this.shield = loadout.shieldMax
         this.pulseCharge = loadout.pulseCooldownMs
-        this.magSize = Math.round(loadout.magazine)
+        this.overclockCharge = loadout.overclockCooldownMs
+        this.overclockLeft = 0
+        this.magSize = Math.round(loadout.weapon.magazine)
         this.mag = this.magSize
         this.reloadTimer = 0
-        this.syncSentries()
+        this.rebuildBastion(loadout.rampart)
+        this.syncTurrets()
         this.emitWall()
         this.emitAmmo()
         return true
     }
 
     /**
-     * Applies the shop's new loadout and releases the next wave.
+     * Applies the uplink's new loadout and releases the next wave.
      *
      * Max-health upgrades are handed out as healing rather than as headroom —
      * buying Integrity mid-run should feel like reinforcing the wall, not like
@@ -275,17 +301,21 @@ export class FirewallGame {
         if (!this.mounted || this.gameOver) return false
         const previousMax = this.wallMaxHp
         this.loadout = loadout
+        this.weapon = loadout.weapon
         this.wallMaxHp = loadout.wallMaxHp
         if (loadout.wallMaxHp > previousMax) this.wallHp += loadout.wallMaxHp - previousMax
         this.wallHp = clamp(this.wallHp, 1, this.wallMaxHp)
         this.shieldMax = loadout.shieldMax
         this.shield = loadout.shieldMax
-        this.magSize = Math.round(loadout.magazine)
+        this.magSize = Math.round(loadout.weapon.magazine)
         this.mag = this.magSize
         this.reloadTimer = 0
         this.fireTimer = 0
         this.pulseCharge = loadout.pulseCooldownMs
-        this.syncSentries()
+        this.overclockCharge = loadout.overclockCooldownMs
+        this.overclockLeft = 0
+        this.rebuildBastion(loadout.rampart)
+        this.syncTurrets()
 
         this.wave = wave
         this.waveElapsed = 0
@@ -299,13 +329,31 @@ export class FirewallGame {
         this.paused = false
 
         fx.banner(this.overlayLayer, `WAVE ${wave}`, firewallIsBossWave(wave) ? fx.RED : fx.CYAN,
-            firewallIsBossWave(wave) ? 'ROOTKIT INBOUND' : `${this.schedule.length} hostiles queued`)
+            `${this.schedule.length} hostiles queued`)
         this.emitWall()
         this.emitAmmo()
+        this.emitPulse()
+        this.emitOverclock()
         return true
     }
 
-    /** Shop purchase — patches the wall back to full between waves. */
+    /**
+     * Hot-swaps the active weapon mid-wave. The magazine comes back full but the
+     * swap costs a short reload, so switching is a decision rather than free.
+     */
+    swapWeapon(weapon: FirewallWeaponRuntime) {
+        if (!this.loadout) return
+        this.loadout = { ...this.loadout, weapon }
+        this.weapon = weapon
+        this.magSize = Math.round(weapon.magazine)
+        this.mag = this.magSize
+        this.reloadTimer = this.running ? Math.min(600, weapon.reloadMs) : 0
+        this.fireTimer = 0
+        this.callbacks.onWeapon(weapon.id)
+        this.emitAmmo()
+    }
+
+    /** Uplink purchase — patches the wall back to full between waves. */
     repairWall() {
         this.wallHp = this.wallMaxHp
         // Force the decal layer to redraw on the next tick, otherwise a repaired
@@ -327,6 +375,46 @@ export class FirewallGame {
         return this.running
     }
 
+    // ─── Bastion assembly ────────────────────────────────────────────────────
+
+    /** Rebuilt only when Ramparts changes — it is a full geometry rebuild. */
+    private rebuildBastion(rampart: number) {
+        if (this.bastion && this.rampart === rampart) return
+        this.rampart = rampart
+        this.bastionRoot.removeChildren().forEach(child => child.destroy({ children: true }))
+        this.bastion = fx.buildBastion(rampart)
+        this.bastionRoot.addChild(this.bastion.root)
+        this.damageBucket = -1
+    }
+
+    private get rise() {
+        return fx.rampartRise(this.rampart)
+    }
+
+    /** Rebuilds the mounted turrets to match what the uplink installed. */
+    private syncTurrets() {
+        for (const mount of this.turrets) mount.root.destroy({ children: true })
+        this.turrets = []
+        const wanted = this.loadout?.turrets ?? []
+        for (const runtime of wanted) {
+            const anchor = TURRET_MOUNTS[runtime.slot % TURRET_MOUNTS.length]!
+            const built = fx.buildTurret(runtime.id, runtime.hex)
+            const x = anchor.x
+            const y = anchor.y - this.rise
+            built.root.position.set(x, y)
+            this.turretLayer.addChild(built.root)
+            this.turrets.push({
+                runtime,
+                root: built.root,
+                barrel: built.barrel,
+                x,
+                y,
+                cooldown: randRange(0, 400),
+                kick: 0
+            })
+        }
+    }
+
     // ─── Wave scheduling ─────────────────────────────────────────────────────
 
     /**
@@ -339,7 +427,7 @@ export class FirewallGame {
         let budget = firewallWaveBudget(wave)
         const picks: FirewallEnemyDefinition[] = []
 
-        let guard = 400
+        let guard = 600
         while (budget > 0 && guard-- > 0) {
             const affordable = pool.filter(def => def.cost <= budget)
             if (!affordable.length) break
@@ -357,14 +445,14 @@ export class FirewallGame {
         // Spread across the window, then jitter so the rhythm is not metronomic.
         const spawns: ScheduledSpawn[] = picks.map((def, index) => {
             const slot = picks.length <= 1 ? 0 : (index / (picks.length - 1)) * FIREWALL_SPAWN_WINDOW_MS
-            const jitter = randRange(-900, 900)
-            return { atMs: clamp(slot + jitter, 0, FIREWALL_SPAWN_WINDOW_MS), def, boss: false }
+            const jitter = randRange(-1400, 1400)
+            return { atMs: clamp(slot + jitter, 0, FIREWALL_SPAWN_WINDOW_MS), def }
         })
 
         if (firewallIsBossWave(wave)) {
             // The boss walks in early — it is slow, and a boss purged before it
             // ever reached the wall would be a wave with no climax.
-            spawns.push({ atMs: 600, def: firewallEnemy('titan'), boss: true })
+            spawns.push({ atMs: 900, def: firewallEnemy(firewallBossFor(wave)) })
         }
 
         return spawns.sort((a, b) => a.atMs - b.atMs)
@@ -381,8 +469,8 @@ export class FirewallGame {
         this.elapsedTotal += dtMs
 
         this.updateCamera(dt)
-        if (this.bastion) fx.drawSpikeBand(this.spikeGfx, this.loadout?.spikeDps ?? 0, this.elapsedTotal)
-        this.updateTurretAim()
+        fx.drawSpikeBand(this.spikeGfx, this.loadout?.spikeDps ?? 0, this.elapsedTotal)
+        this.updateRailAim()
 
         if (this.paused || this.gameOver) return
 
@@ -390,14 +478,14 @@ export class FirewallGame {
             this.waveElapsed += dtMs
             this.releaseScheduled()
             this.updateWeapon(dtMs)
-            this.updatePulse(dtMs)
+            this.updateAbilities(dtMs)
             if (this.waveElapsed >= FIREWALL_WAVE_MS) this.beginPurge()
         }
 
         this.updateEnemies(dt, dtMs)
         this.updateBullets(dt)
         this.updateSpits(dt)
-        this.updateSentries(dtMs)
+        this.updateTurrets(dtMs)
         this.updateParticles(dt, dtMs)
         this.updateBastion(dt, dtMs)
 
@@ -432,7 +520,7 @@ export class FirewallGame {
     private spawn(def: FirewallEnemyDefinition) {
         const laneT = randomFloat()
         const laneY = lerp(LANE_FAR_Y, LANE_NEAR_Y, laneT)
-        // Bosses ignore the lane scale — a ROOTKIT rendered small because it drew
+        // Bosses ignore the lane scale — a capital rendered small because it drew
         // a far lane would undercut the one moment a wave is supposed to land.
         const scale = def.boss ? 1.05 : lerp(LANE_FAR_SCALE, LANE_NEAR_SCALE, laneT)
 
@@ -460,8 +548,10 @@ export class FirewallGame {
             speed: def.speed * lerp(0.86, 1.08, laneT),
             damage: def.damage * (1 + (this.wave - 1) * 0.04),
             bounty: def.bounty * firewallBountyMultiplier(this.wave),
+            armor: def.armor,
             stride: randomFloat() * Math.PI * 2,
             attackTimer: 0,
+            burstLeft: 0,
             pushVx: 0,
             hover: randomFloat() * Math.PI * 2,
             flashMs: 0,
@@ -481,8 +571,7 @@ export class FirewallGame {
     // ─── Enemies ─────────────────────────────────────────────────────────────
 
     private updateEnemies(dt: number, dtMs: number) {
-        const loadout = this.loadout
-        const spikeDps = loadout?.spikeDps ?? 0
+        const spikeDps = this.loadout?.spikeDps ?? 0
 
         for (let i = this.enemies.length - 1; i >= 0; i--) {
             const enemy = this.enemies[i] as EnemyEntity
@@ -500,7 +589,10 @@ export class FirewallGame {
                 enemy.stride += dt * 6
                 enemy.attackTimer -= dtMs
                 if (enemy.attackTimer <= 0) {
-                    enemy.attackTimer = enemy.def.attackMs
+                    // Burst types fire a short volley, then take the full gap.
+                    if (enemy.burstLeft <= 0) enemy.burstLeft = enemy.def.burst ?? 1
+                    enemy.burstLeft--
+                    enemy.attackTimer = enemy.burstLeft > 0 ? 260 : enemy.def.attackMs
                     this.enemyStrike(enemy)
                     if (enemy.def.kind === 'bomber') continue
                 }
@@ -519,8 +611,8 @@ export class FirewallGame {
             }
 
             // Grid trap: ground units only, and only inside the band.
-            if (spikeDps > 0 && enemy.def.kind !== 'flyer' && enemy.x > WALL_X - SPIKE_BAND) {
-                this.damageEnemy(enemy, spikeDps * dt, false, false)
+            if (spikeDps > 0 && !firewallIsAirborne(enemy.def) && enemy.x > WALL_X - SPIKE_BAND) {
+                this.damageEnemy(enemy, spikeDps * dt, false, false, false, false)
                 if (enemy.hp <= 0) {
                     this.killEnemy(i, 1)
                     continue
@@ -530,7 +622,7 @@ export class FirewallGame {
                 }
             }
 
-            if (enemy.def.kind === 'flyer') {
+            if (firewallIsAirborne(enemy.def)) {
                 enemy.hover += dt * 2.4
                 enemy.y = enemy.laneY - (enemy.def.altitude ?? 0) * enemy.scale + Math.sin(enemy.hover) * 9
             }
@@ -540,7 +632,7 @@ export class FirewallGame {
                 enemy.rig.flash.alpha = Math.max(0, enemy.flashMs / 90) * 0.6
             }
 
-            fx.poseFigure(enemy.rig, enemy.stride, enemy.def.kind, atStop)
+            fx.poseFigure(enemy.rig, enemy.stride, atStop)
             enemy.rig.root.position.set(enemy.x, enemy.y)
         }
 
@@ -572,24 +664,29 @@ export class FirewallGame {
     private enemyStrike(enemy: EnemyEntity) {
         switch (enemy.def.kind) {
             case 'ranged': {
+                const heavy = enemy.def.id === 'artillery'
                 const originX = enemy.x + enemy.def.height * 0.5 * enemy.scale
                 const originY = enemy.y - enemy.def.height * 0.7 * enemy.scale
                 const gfx = fx.makeSpitGfx(enemy.def.hex)
+                if (heavy) gfx.scale.set(1.6)
                 gfx.position.set(originX, originY)
                 this.bulletLayer.addChild(gfx)
                 // Aimed at the middle of the wall face; the arc does the rest.
                 const targetX = WALL_X + 10
-                const targetY = HORIZON_Y + 90
-                const flightTime = Math.max(0.35, (targetX - originX) / SPIT_SPEED)
+                const targetY = HORIZON_Y + 90 - this.rise
+                const speed = heavy ? SPIT_SPEED * 1.5 : SPIT_SPEED
+                const flightTime = Math.max(0.35, (targetX - originX) / speed)
                 this.spits.push({
                     gfx,
                     x: originX,
                     y: originY,
                     vx: (targetX - originX) / flightTime,
                     vy: (targetY - originY) / flightTime - 0.5 * SPIT_GRAVITY * flightTime,
-                    damage: enemy.damage
+                    damage: enemy.damage,
+                    hex: enemy.def.hex,
+                    heavy
                 })
-                fx.muzzleFlash(this.fxLayer, originX, originY, 0, enemy.def.hex, 0.5)
+                fx.muzzleFlash(this.fxLayer, originX, originY, 0, enemy.def.hex, heavy ? 1 : 0.5)
                 break
             }
             case 'bomber': {
@@ -611,19 +708,34 @@ export class FirewallGame {
         }
     }
 
-    private damageEnemy(enemy: EnemyEntity, amount: number, flash: boolean, showNumber: boolean, crit = false) {
-        enemy.hp -= amount
+    /**
+     * Applies damage through plating. A non-AP round against a Siege Tank loses
+     * most of itself and says so with a dim grey number — the armour mechanic is
+     * invisible unless the feedback spells it out.
+     */
+    private damageEnemy(
+        enemy: EnemyEntity,
+        amount: number,
+        flash: boolean,
+        showNumber: boolean,
+        crit = false,
+        armorPiercing = false
+    ) {
+        const scale = firewallArmorScale(enemy.armor, armorPiercing)
+        const dealt = amount * scale
+        enemy.hp -= dealt
         if (flash) {
             enemy.flashMs = 90
             enemy.rig.flash.alpha = 0.6
         }
         if (showNumber) {
             const y = enemy.y - enemy.def.height * enemy.scale - 8
+            const resisted = scale < 0.9
             fx.floatingText(
                 this.textLayer, enemy.x, y,
-                crit ? `${Math.round(amount)}!` : `${Math.round(amount)}`,
-                crit ? 0xfde047 : 0xe2e8f0,
-                crit ? 1.5 : 1
+                crit ? `${Math.round(dealt)}!` : `${Math.round(dealt)}`,
+                crit ? 0xfde047 : resisted ? 0x94a3b8 : 0xe2e8f0,
+                crit ? 1.5 : resisted ? 0.85 : 1
             )
         }
         if (enemy.hp < enemy.maxHp && !enemy.healthBar) {
@@ -634,7 +746,10 @@ export class FirewallGame {
             enemy.healthBar = bar
         }
         if (enemy.healthBar) {
-            fx.drawEnemyHealth(enemy.healthBar, enemy.hp / enemy.maxHp, enemy.def.height * 0.7, enemy.def.hex)
+            fx.drawEnemyHealth(
+                enemy.healthBar, enemy.hp / enemy.maxHp,
+                enemy.def.height * 0.7, enemy.def.hex, enemy.armor >= 0.35
+            )
         }
     }
 
@@ -675,17 +790,18 @@ export class FirewallGame {
 
     // ─── Player weapon ───────────────────────────────────────────────────────
 
-    private updateTurretAim() {
+    private updateRailAim() {
         if (!this.bastion) return
         // Unclamped on purpose. The field is to the left, so aim angles live near
         // ±π — and any clamp expressed in atan2 space folds those onto the wrong
         // side, which pointed the barrel back into its own tower.
-        this.bastion.barrel.rotation = Math.atan2(this.aimY - MUZZLE_Y, this.aimX - MUZZLE_X)
+        const muzzleY = MUZZLE_Y - this.rise
+        this.bastion.barrel.rotation = Math.atan2(this.aimY - muzzleY, this.aimX - MUZZLE_X)
     }
 
     private updateWeapon(dtMs: number) {
-        const loadout = this.loadout
-        if (!loadout) return
+        const weapon = this.weapon
+        if (!weapon) return
 
         if (this.reloadTimer > 0) {
             this.reloadTimer -= dtMs
@@ -700,75 +816,136 @@ export class FirewallGame {
         if (this.firing && this.reloadTimer <= 0 && this.fireTimer <= 0) {
             if (this.mag > 0) {
                 this.shoot()
-                this.fireTimer = loadout.fireIntervalMs
+                this.fireTimer = weapon.fireIntervalMs / (this.overclockLeft > 0 ? this.overclockRate : 1)
             } else {
                 this.beginReload()
             }
         }
     }
 
+    private get overclockRate() {
+        return this.loadout?.overclockMultiplier ?? 1
+    }
+
     private beginReload() {
-        if (!this.loadout || this.reloadTimer > 0 || this.mag >= this.magSize) return
+        if (!this.weapon || this.reloadTimer > 0 || this.mag >= this.magSize) return
         if (!this.running || this.purging) return
-        this.reloadTimer = this.loadout.reloadMs
+        this.reloadTimer = this.weapon.reloadMs
         this.emitAmmo()
     }
 
     private shoot() {
+        const weapon = this.weapon
         const loadout = this.loadout
-        if (!loadout || !this.bastion) return
+        if (!weapon || !loadout || !this.bastion) return
         this.mag--
         this.emitAmmo()
 
         const angle = this.bastion.barrel.rotation
+        const muzzleY = MUZZLE_Y - this.rise
         const originX = MUZZLE_X + Math.cos(angle) * BARREL_LENGTH
-        const originY = MUZZLE_Y + Math.sin(angle) * BARREL_LENGTH
+        const originY = muzzleY + Math.sin(angle) * BARREL_LENGTH
 
         const crit = randomChance(loadout.critChance)
-        const damage = loadout.damage * (crit ? loadout.critMultiplier : 1)
+        const overclocked = this.overclockLeft > 0
+        const damage = weapon.damage
+            * (crit ? loadout.critMultiplier : 1)
+            * (overclocked ? 1.25 : 1)
 
-        const gfx = fx.makeTracer(crit ? 0xfde047 : fx.CYAN, crit, false)
-        gfx.position.set(originX, originY)
+        const spec: ShotSpec = {
+            damage,
+            pierce: weapon.pierce,
+            armorPiercing: weapon.armorPiercing,
+            splashRadius: weapon.splashRadius,
+            splashDamage: weapon.splashDamage,
+            homing: weapon.homing,
+            chain: weapon.chain,
+            chainFalloff: weapon.chainFalloff,
+            speed: weapon.speed,
+            hex: crit ? 0xfde047 : weapon.hex,
+            projectile: weapon.projectile,
+            crit,
+            fromTurret: false
+        }
+
+        for (let i = 0; i < weapon.pellets; i++) {
+            const spreadAngle = weapon.pellets > 1
+                ? angle + randRange(-weapon.spread, weapon.spread)
+                : angle
+            this.spawnBullet(originX, originY, spreadAngle, spec)
+        }
+
+        fx.muzzleFlash(this.fxLayer, originX, originY, angle, spec.hex, weapon.projectile === 'slug' ? 1.5 : 1)
+        // Recoil: the barrel kicks back along its own axis and springs home.
+        this.bastion.barrel.position.set(weapon.projectile === 'slug' ? -12 : -7, 0)
+        this.addShake(weapon.projectile === 'slug' ? 5 : crit ? 3 : 1.6)
+    }
+
+    private spawnBullet(x: number, y: number, angle: number, spec: ShotSpec) {
+        const gfx = fx.makeProjectile(spec.projectile, spec.hex, spec.crit, spec.fromTurret)
+        gfx.position.set(x, y)
         gfx.rotation = angle
         this.bulletLayer.addChild(gfx)
-
         this.bullets.push({
             gfx,
-            x: originX,
-            y: originY,
-            prevX: originX,
-            prevY: originY,
-            vx: Math.cos(angle) * BULLET_SPEED,
-            vy: Math.sin(angle) * BULLET_SPEED,
-            damage,
-            pierce: loadout.pierce,
+            x,
+            y,
+            prevX: x,
+            prevY: y,
+            vx: Math.cos(angle) * spec.speed,
+            vy: Math.sin(angle) * spec.speed,
+            damage: spec.damage,
+            pierce: spec.pierce,
             hit: new Set(),
-            lifeMs: BULLET_LIFE_MS,
-            crit,
-            fromSentry: false
+            // Missiles are slow and steer, so they need a far longer leash than
+            // a rail slug that crosses the screen in half a second.
+            lifeMs: BULLET_LIFE_MS * (spec.homing ? 3.5 : 1),
+            crit: spec.crit,
+            fromTurret: spec.fromTurret,
+            armorPiercing: spec.armorPiercing,
+            splashRadius: spec.splashRadius,
+            splashDamage: spec.splashDamage,
+            homing: spec.homing,
+            target: spec.homing ? this.pickHomingTarget(x, y) : null,
+            chain: spec.chain,
+            chainFalloff: spec.chainFalloff,
+            hex: spec.hex
         })
+    }
 
-        fx.muzzleFlash(this.fxLayer, originX, originY, angle, crit ? 0xfde047 : fx.CYAN)
-        // Recoil: the barrel kicks back along its own axis and springs home.
-        this.bastion.barrel.position.set(-7, 0)
-        this.addShake(crit ? 3 : 1.6)
+    /** Missiles lock the enemy closest to the wall — the one that matters. */
+    private pickHomingTarget(x: number, y: number) {
+        let best: EnemyEntity | null = null
+        let bestScore = -Infinity
+        for (const enemy of this.enemies) {
+            const score = enemy.x - dist(x, y, enemy.x, enemy.y) * 0.25
+            if (score > bestScore) {
+                bestScore = score
+                best = enemy
+            }
+        }
+        return best
     }
 
     private updateBullets(dt: number) {
         if (this.bastion) {
-            // Spring the recoil out, framerate-independently enough for 6 pixels.
+            // Spring the recoil out, framerate-independently enough for 12 pixels.
             const barrel = this.bastion.barrel
             barrel.position.x += (0 - barrel.position.x) * Math.min(1, dt * 18)
         }
 
         for (let i = this.bullets.length - 1; i >= 0; i--) {
             const bullet = this.bullets[i] as BulletEntity
+
+            if (bullet.homing) this.steerMissile(bullet, dt)
+
             bullet.prevX = bullet.x
             bullet.prevY = bullet.y
             bullet.x += bullet.vx * dt
             bullet.y += bullet.vy * dt
             bullet.lifeMs -= dt * 1000
             bullet.gfx.position.set(bullet.x, bullet.y)
+            if (bullet.homing) bullet.gfx.rotation = Math.atan2(bullet.vy, bullet.vx)
 
             let consumed = false
             for (let e = this.enemies.length - 1; e >= 0; e--) {
@@ -777,19 +954,24 @@ export class FirewallGame {
                 if (!this.sweepHits(bullet, enemy)) continue
 
                 bullet.hit.add(enemy)
-                this.damageEnemy(enemy, bullet.damage, true, true, bullet.crit)
+                this.damageEnemy(enemy, bullet.damage, true, true, bullet.crit, bullet.armorPiercing)
                 fx.impactSpark(this.fxLayer, bullet.x, bullet.y, enemy.def.hex)
                 this.emitSparks(bullet.x, bullet.y, bullet.crit ? 5 : 3, enemy.def.hex)
+
+                if (bullet.splashRadius > 0) this.detonate(bullet, enemy)
+                if (bullet.chain > 0) this.chainFrom(bullet, enemy)
 
                 if (enemy.hp <= 0) {
                     this.killEnemy(e, 1)
                 } else if (!enemy.def.boss) {
                     // A little shove on hit — the feedback that sells the shot
                     // even when the target survives it.
-                    enemy.pushVx -= bullet.fromSentry ? 12 : 30
+                    enemy.pushVx -= bullet.fromTurret ? 12 : 30
                 }
 
-                if (bullet.pierce > 0) {
+                // A warhead is spent on the first thing it touches, whatever its
+                // pierce says; the splash is the multi-target part.
+                if (bullet.pierce > 0 && bullet.splashRadius === 0) {
                     bullet.pierce--
                 } else {
                     consumed = true
@@ -802,6 +984,78 @@ export class FirewallGame {
                 bullet.gfx.destroy()
                 this.bullets.splice(i, 1)
             }
+        }
+    }
+
+    /** Missiles turn at a fixed rate, so a bad lock is still a miss. */
+    private steerMissile(bullet: BulletEntity, dt: number) {
+        const target = bullet.target
+        if (!target || target.hp <= 0 || !this.enemies.includes(target)) {
+            bullet.target = this.pickHomingTarget(bullet.x, bullet.y)
+            return
+        }
+        const speed = Math.hypot(bullet.vx, bullet.vy) || 1
+        const desired = Math.atan2(
+            target.y - target.def.height * target.scale * 0.5 - bullet.y,
+            target.x - bullet.x
+        )
+        const current = Math.atan2(bullet.vy, bullet.vx)
+        let diff = ((desired - current + Math.PI) % (Math.PI * 2)) - Math.PI
+        if (diff < -Math.PI) diff += Math.PI * 2
+        const angle = current + clamp(diff, -4.5 * dt, 4.5 * dt)
+        bullet.vx = Math.cos(angle) * speed
+        bullet.vy = Math.sin(angle) * speed
+        if (randomChance(dt * 30)) {
+            this.emitSparks(bullet.x - Math.cos(angle) * 14, bullet.y - Math.sin(angle) * 14, 1, bullet.hex)
+        }
+    }
+
+    /** Splash from a warhead. The direct target has already been hit. */
+    private detonate(bullet: BulletEntity, epicentre: EnemyEntity) {
+        fx.shockRing(this.fxLayer, bullet.x, bullet.y, bullet.hex, bullet.splashRadius * 1.6, 380)
+        fx.impactSpark(this.fxLayer, bullet.x, bullet.y, bullet.hex, true)
+        this.emitSparks(bullet.x, bullet.y, 10, bullet.hex)
+        this.addShake(3)
+        for (let e = this.enemies.length - 1; e >= 0; e--) {
+            const enemy = this.enemies[e] as EnemyEntity
+            if (enemy === epicentre) continue
+            const ey = enemy.y - enemy.def.height * enemy.scale * 0.5
+            if (dist(bullet.x, bullet.y, enemy.x, ey) > bullet.splashRadius) continue
+            this.damageEnemy(enemy, bullet.splashDamage, true, false, false, bullet.armorPiercing)
+            if (enemy.hp <= 0) this.killEnemy(e, 1)
+        }
+    }
+
+    /** Arc rounds jump to nearby enemies for a shrinking share of the damage. */
+    private chainFrom(bullet: BulletEntity, source: EnemyEntity) {
+        let fromX = source.x
+        let fromY = source.y - source.def.height * source.scale * 0.5
+        let damage = bullet.damage * bullet.chainFalloff
+
+        for (let jump = 0; jump < bullet.chain; jump++) {
+            let best: EnemyEntity | null = null
+            let bestDist = 260
+            for (const enemy of this.enemies) {
+                if (bullet.hit.has(enemy)) continue
+                const ey = enemy.y - enemy.def.height * enemy.scale * 0.5
+                const d = dist(fromX, fromY, enemy.x, ey)
+                if (d < bestDist) {
+                    bestDist = d
+                    best = enemy
+                }
+            }
+            if (!best) return
+            const targetY = best.y - best.def.height * best.scale * 0.5
+            fx.chainArc(this.fxLayer, fromX, fromY, best.x, targetY, bullet.hex)
+            bullet.hit.add(best)
+            this.damageEnemy(best, damage, true, true, false, bullet.armorPiercing)
+            if (best.hp <= 0) {
+                const index = this.enemies.indexOf(best)
+                if (index >= 0) this.killEnemy(index, 1)
+            }
+            fromX = best.x
+            fromY = targetY
+            damage *= bullet.chainFalloff
         }
     }
 
@@ -820,79 +1074,59 @@ export class FirewallGame {
         return false
     }
 
-    // ─── Sentries ────────────────────────────────────────────────────────────
+    // ─── Turrets ─────────────────────────────────────────────────────────────
 
-    /** Rebuilds the parapet line to match the purchased sentry count. */
-    private syncSentries() {
-        const wanted = this.loadout?.sentryCount ?? 0
-        while (this.sentries.length > wanted) {
-            const mount = this.sentries.pop()
-            mount?.root.destroy({ children: true })
-        }
-        while (this.sentries.length < wanted) {
-            const index = this.sentries.length
-            const built = fx.buildSentry()
-            const x = WALL_X + 34 + index * 46
-            const y = HORIZON_Y - 44
-            built.root.position.set(x, y)
-            this.sentryLayer.addChild(built.root)
-            this.sentries.push({ root: built.root, barrel: built.barrel, x, y, cooldown: randRange(0, 400), kick: 0 })
-        }
-    }
-
-    private updateSentries(dtMs: number) {
-        const loadout = this.loadout
-        if (!loadout) return
-
-        for (const sentry of this.sentries) {
-            const target = this.pickSentryTarget(sentry)
+    private updateTurrets(dtMs: number) {
+        const overclocked = this.overclockLeft > 0
+        for (const mount of this.turrets) {
+            const target = this.pickTurretTarget(mount)
             if (target) {
                 const ty = target.y - target.def.height * target.scale * 0.55
-                const angle = Math.atan2(ty - sentry.y, target.x - sentry.x)
-                sentry.barrel.rotation = angle
+                mount.barrel.rotation = Math.atan2(ty - mount.y, target.x - mount.x)
             }
 
-            sentry.kick += (0 - sentry.kick) * Math.min(1, dtMs / 60)
-            sentry.barrel.position.x = -sentry.kick
+            mount.kick += (0 - mount.kick) * Math.min(1, dtMs / 60)
+            mount.barrel.position.x = -mount.kick
 
             if (!this.running || this.purging) continue
-            sentry.cooldown -= dtMs
-            if (!target || sentry.cooldown > 0) continue
-            sentry.cooldown = loadout.sentryIntervalMs
+            mount.cooldown -= dtMs * (overclocked ? this.overclockRate : 1)
+            if (!target || mount.cooldown > 0) continue
+            mount.cooldown = mount.runtime.intervalMs
 
-            const angle = sentry.barrel.rotation
-            const originX = sentry.x + Math.cos(angle) * 30
-            const originY = sentry.y + Math.sin(angle) * 30
-            const gfx = fx.makeTracer(fx.LIME, false, true)
-            gfx.position.set(originX, originY)
-            gfx.rotation = angle
-            this.bulletLayer.addChild(gfx)
-            this.bullets.push({
-                gfx,
-                x: originX,
-                y: originY,
-                prevX: originX,
-                prevY: originY,
-                vx: Math.cos(angle) * SENTRY_BULLET_SPEED,
-                vy: Math.sin(angle) * SENTRY_BULLET_SPEED,
-                damage: loadout.sentryDamage,
-                pierce: 0,
-                hit: new Set(),
-                lifeMs: BULLET_LIFE_MS,
+            const angle = mount.barrel.rotation
+            const originX = mount.x + Math.cos(angle) * 30
+            const originY = mount.y + Math.sin(angle) * 30
+            const isMissile = mount.runtime.splashRadius > 0
+            this.spawnBullet(originX, originY, angle, {
+                damage: mount.runtime.damage,
+                pierce: mount.runtime.pierce,
+                armorPiercing: mount.runtime.armorPiercing,
+                splashRadius: mount.runtime.splashRadius,
+                splashDamage: mount.runtime.splashDamage,
+                homing: isMissile,
+                chain: 0,
+                chainFalloff: 0,
+                speed: isMissile ? 780 : 1700,
+                hex: mount.runtime.hex,
+                projectile: isMissile ? 'missile' : mount.runtime.pierce > 0 ? 'slug' : 'rail',
                 crit: false,
-                fromSentry: true
+                fromTurret: true
             })
-            fx.muzzleFlash(this.fxLayer, originX, originY, angle, fx.LIME, 0.45)
-            sentry.kick = 5
+            fx.muzzleFlash(this.fxLayer, originX, originY, angle, mount.runtime.hex, 0.45)
+            mount.kick = 5
         }
     }
 
-    /** Sentries shoot whatever is closest to the wall — the actual threat order. */
-    private pickSentryTarget(sentry: SentryMount) {
+    /**
+     * Turrets shoot whatever is closest to the wall and inside their range — the
+     * actual threat order, and the reason a long-range Lance earns its price
+     * against Howitzers that outrange everything else you own.
+     */
+    private pickTurretTarget(mount: TurretMount) {
         let best: EnemyEntity | null = null
         for (const enemy of this.enemies) {
             if (enemy.dying) continue
-            if (dist(sentry.x, sentry.y, enemy.x, enemy.y) > SENTRY_RANGE) continue
+            if (dist(mount.x, mount.y, enemy.x, enemy.y) > mount.runtime.range) continue
             if (!best || enemy.x > best.x) best = enemy
         }
         return best
@@ -912,20 +1146,35 @@ export class FirewallGame {
             if (!done) continue
             if (spit.x >= WALL_X) {
                 this.damageWall(spit.damage, spit.x, spit.y)
-                fx.impactSpark(this.fxLayer, spit.x, spit.y, 0xc084fc)
+                fx.impactSpark(this.fxLayer, spit.x, spit.y, spit.hex, spit.heavy)
+                if (spit.heavy) {
+                    fx.shockRing(this.fxLayer, spit.x, spit.y, spit.hex, 220, 420)
+                    this.addShake(8)
+                }
             }
             spit.gfx.destroy()
             this.spits.splice(i, 1)
         }
     }
 
-    // ─── ICE pulse ───────────────────────────────────────────────────────────
+    // ─── Abilities ───────────────────────────────────────────────────────────
 
-    private updatePulse(dtMs: number) {
+    private updateAbilities(dtMs: number) {
         const loadout = this.loadout
-        if (!loadout?.pulseUnlocked) return
-        this.pulseCharge = Math.min(loadout.pulseCooldownMs, this.pulseCharge + dtMs)
-        this.callbacks.onPulse(this.pulseCharge, loadout.pulseCooldownMs)
+        if (!loadout) return
+
+        if (loadout.pulseUnlocked) {
+            this.pulseCharge = Math.min(loadout.pulseCooldownMs, this.pulseCharge + dtMs)
+            this.emitPulse()
+        }
+        if (loadout.overclockUnlocked) {
+            if (this.overclockLeft > 0) {
+                this.overclockLeft = Math.max(0, this.overclockLeft - dtMs)
+            } else {
+                this.overclockCharge = Math.min(loadout.overclockCooldownMs, this.overclockCharge + dtMs)
+            }
+            this.emitOverclock()
+        }
     }
 
     private firePulse() {
@@ -933,20 +1182,35 @@ export class FirewallGame {
         if (!loadout?.pulseUnlocked || !this.running || this.purging || this.paused) return
         if (this.pulseCharge < loadout.pulseCooldownMs) return
         this.pulseCharge = 0
-        this.callbacks.onPulse(0, loadout.pulseCooldownMs)
+        this.emitPulse()
 
-        fx.shockRing(this.fxLayer, WALL_X, HORIZON_Y + 180, fx.CYAN, PULSE_RADIUS, 700)
+        fx.shockRing(this.fxLayer, WALL_X, HORIZON_Y + 180 - this.rise, fx.CYAN, PULSE_RADIUS, 700)
         fx.screenFlash(this.overlayLayer, 0x22d3ee, 0.4)
         this.addShake(16)
 
         for (let i = this.enemies.length - 1; i >= 0; i--) {
             const enemy = this.enemies[i] as EnemyEntity
             const falloff = clamp(1 - (WALL_X - enemy.x) / PULSE_RADIUS, 0.25, 1)
-            this.damageEnemy(enemy, loadout.pulseDamage * falloff, true, true)
+            // The pulse burns straight through plating; it is the panic button,
+            // and a panic button armour ignores is not one.
+            this.damageEnemy(enemy, loadout.pulseDamage * falloff, true, true, false, true)
             enemy.pushVx -= PULSE_KNOCKBACK * falloff * (enemy.def.boss ? 0.25 : 1)
             if (enemy.hp <= 0) this.killEnemy(i, 1)
         }
         this.callbacks.onNotice('ICE pulse discharged.', 'info')
+    }
+
+    /** Q — a burst of fire rate across the rail and every mounted turret. */
+    private fireOverclock() {
+        const loadout = this.loadout
+        if (!loadout?.overclockUnlocked || !this.running || this.purging || this.paused) return
+        if (this.overclockLeft > 0 || this.overclockCharge < loadout.overclockCooldownMs) return
+        this.overclockCharge = 0
+        this.overclockLeft = loadout.overclockMs
+        this.emitOverclock()
+        fx.screenFlash(this.overlayLayer, 0xf97316, 0.28)
+        fx.banner(this.overlayLayer, 'OVERCLOCK', fx.AMBER)
+        this.callbacks.onNotice('Overclock engaged.', 'good')
     }
 
     // ─── Bastion ─────────────────────────────────────────────────────────────
@@ -1005,10 +1269,10 @@ export class FirewallGame {
         const bucket = Math.floor(integrity * 20)
         if (bucket !== this.damageBucket) {
             this.damageBucket = bucket
-            fx.drawWallDamage(bastion.damage, integrity)
-            fx.drawCore(bastion.core, integrity)
+            fx.drawWallDamage(bastion.damage, integrity, this.rise)
+            fx.drawCore(bastion.core, integrity, this.rise)
         }
-        fx.drawShieldDome(bastion.shield, this.shieldMax > 0 ? this.shield / this.shieldMax : 0)
+        fx.drawShieldDome(bastion.shield, this.shieldMax > 0 ? this.shield / this.shieldMax : 0, this.rise)
     }
 
     // ─── Particles ───────────────────────────────────────────────────────────
@@ -1111,10 +1375,11 @@ export class FirewallGame {
 
     private finishWave() {
         // A wall that fell during the sweep has already ended the run; do not
-        // hand the shop a wave it can deploy out of.
+        // hand the uplink a wave it can deploy out of.
         if (this.gameOver) return
         this.running = false
         this.purging = false
+        this.overclockLeft = 0
 
         // Anything left (a boss knocked past the sweep's start, say) goes too.
         while (this.enemies.length) this.killEnemy(this.enemies.length - 1, FIREWALL_PURGE_BOUNTY)
@@ -1146,7 +1411,7 @@ export class FirewallGame {
         fx.screenFlash(this.overlayLayer, fx.RED, 0.6, 900)
         fx.banner(this.overlayLayer, 'BREACHED', fx.RED, `wave ${this.wave}`)
         this.addShake(MAX_SHAKE)
-        if (this.bastion) fx.drawCore(this.bastion.core, 0)
+        if (this.bastion) fx.drawCore(this.bastion.core, 0, this.rise)
         for (let i = 0; i < 6; i++) {
             fx.shockRing(this.fxLayer, WALL_X + randRange(0, 240), HORIZON_Y + randRange(40, 320), fx.RED, 300, 800)
         }
@@ -1174,9 +1439,21 @@ export class FirewallGame {
     }
 
     private emitAmmo() {
-        const progress = this.reloadTimer > 0 && this.loadout
-            ? 1 - this.reloadTimer / this.loadout.reloadMs
+        const progress = this.reloadTimer > 0 && this.weapon
+            ? 1 - this.reloadTimer / this.weapon.reloadMs
             : 1
         this.callbacks.onAmmo(this.mag, this.magSize, progress)
+    }
+
+    private emitPulse() {
+        this.callbacks.onPulse(this.pulseCharge, this.loadout?.pulseCooldownMs ?? 1)
+    }
+
+    private emitOverclock() {
+        this.callbacks.onOverclock(
+            this.overclockCharge,
+            this.loadout?.overclockCooldownMs ?? 1,
+            this.overclockLeft
+        )
     }
 }

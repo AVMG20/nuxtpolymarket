@@ -1,5 +1,7 @@
 import type { Container, Graphics } from 'pixi.js'
-import type { FirewallEnemyDefinition, FirewallLoadout } from '#shared/utils/gamelogic/firewall'
+import type {
+    FirewallEnemyDefinition, FirewallLoadout, FirewallTurretRuntime, FirewallWeaponId
+} from '#shared/utils/gamelogic/firewall'
 
 /** The animated parts of a silhouette, rotated per frame for the walk cycle. */
 export interface FigureRig {
@@ -9,12 +11,14 @@ export interface FigureRig {
     legBack: Container
     armFront: Container
     armBack: Container
-    /** Overlaid white copy of the body, flashed to 1 when hit. */
+    /** Overlaid additive blob, flashed when hit. */
     flash: Graphics
     /** Height of the drawn body, for hitboxes and floating text anchors. */
     height: number
     /** Rest position of the torso, bobbed around during the walk cycle. */
     torsoBaseY: number
+    /** Which animation the limbs run: striding, spinning wheels, or hovering. */
+    gait: 'walk' | 'roll' | 'hover'
 }
 
 export interface EnemyEntity {
@@ -23,7 +27,7 @@ export interface EnemyEntity {
     x: number
     /** Ground line the figure stands on — also its depth sort key. */
     laneY: number
-    /** Drawn feet position; equals `laneY` minus the flyer's altitude. */
+    /** Drawn feet position; equals `laneY` minus any altitude. */
     y: number
     scale: number
     hp: number
@@ -31,12 +35,16 @@ export interface EnemyEntity {
     speed: number
     damage: number
     bounty: number
+    /** Fraction of non-AP damage shrugged off. */
+    armor: number
     /** Radians of leg swing, advanced by distance walked. */
     stride: number
     attackTimer: number
+    /** Shots left in the current volley, for burst-firing types. */
+    burstLeft: number
     /** Horizontal velocity from knockback, decaying to zero. */
     pushVx: number
-    /** Vertical bob for flyers. */
+    /** Vertical bob for airborne units. */
     hover: number
     flashMs: number
     dying: boolean
@@ -59,11 +67,21 @@ export interface BulletEntity {
     hit: Set<EnemyEntity>
     lifeMs: number
     crit: boolean
-    /** Sentry rounds are dimmer and never crit, so they read as not-yours. */
-    fromSentry: boolean
+    /** Turret rounds are dimmer and never crit, so they read as not-yours. */
+    fromTurret: boolean
+    armorPiercing: boolean
+    splashRadius: number
+    splashDamage: number
+    /** Missiles steer toward this target while it lives. */
+    homing: boolean
+    target: EnemyEntity | null
+    /** Arc rounds jump to this many extra enemies on impact. */
+    chain: number
+    chainFalloff: number
+    hex: number
 }
 
-/** Lancer plasma, arcing toward the wall under gravity. */
+/** Enemy ordnance, arcing toward the wall under gravity. */
 export interface SpitEntity {
     gfx: Graphics
     x: number
@@ -71,6 +89,9 @@ export interface SpitEntity {
     vx: number
     vy: number
     damage: number
+    hex: number
+    /** Howitzer shells land heavy and shake the frame. */
+    heavy: boolean
 }
 
 export interface ParticleEntity {
@@ -86,7 +107,8 @@ export interface ParticleEntity {
     drag: number
 }
 
-export interface SentryMount {
+export interface TurretMount {
+    runtime: FirewallTurretRuntime
     root: Container
     barrel: Container
     x: number
@@ -106,19 +128,14 @@ export interface FirewallWaveSummary {
     wallMaxHp: number
 }
 
-export interface FirewallRunStats {
-    wave: number
-    kills: number
-    creditsEarned: number
-    creditsSpent: number
-}
-
 export interface FirewallCallbacks {
     onWall: (hp: number, maxHp: number, shield: number, maxShield: number) => void
     onAmmo: (mag: number, magSize: number, reloadProgress: number) => void
     onWaveTime: (msRemaining: number, alive: number) => void
     onCredits: (delta: number, reason: 'kill' | 'purge' | 'clear') => void
     onPulse: (chargeMs: number, cooldownMs: number) => void
+    onOverclock: (chargeMs: number, cooldownMs: number, activeMs: number) => void
+    onWeapon: (id: FirewallWeaponId) => void
     onWaveEnd: (summary: FirewallWaveSummary) => void
     onGameOver: (stats: { wave: number, kills: number }) => void
     onBoss: (name: string) => void
