@@ -222,7 +222,7 @@ function buildCallbacks() {
 function setupResizeObserver(host: HTMLDivElement) {
     resizeObserver?.disconnect()
     resizeObserver = new ResizeObserver(() => {
-        if (game) game.resize(host.clientWidth)
+        if (game) game.resize(host.clientWidth, host.clientHeight)
     })
     resizeObserver.observe(host)
 }

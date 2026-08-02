@@ -59,6 +59,14 @@ watch(() => state.value?.recommendedDifficulty, (difficulty) => {
     if (difficulty !== undefined && !running.value && !paused.value) selectedDifficulty.value = difficulty
 }, { immediate: true })
 
+watch(gameOverVisible, (visible) => {
+    if (visible && document.fullscreenElement) {
+        document.exitFullscreen().catch(() => {
+            isFullscreen.value = false
+        })
+    }
+})
+
 function powerUpStatus(powerUp: typeof activePowerUps.value[number]) {
     const stack = powerUp.stacks > 1 ? `x${powerUp.stacks}` : ''
     let status = ''
@@ -162,9 +170,29 @@ async function handleStartVoyage() {
     await startVoyage(s, selectedDifficulty.value)
 }
 
+const gameContainer = ref<HTMLDivElement | null>(null)
+const isFullscreen = ref(false)
+
+function toggleFullscreen() {
+    if (!document.fullscreenElement) {
+        gameContainer.value?.requestFullscreen().catch(() => {
+            isFullscreen.value = !isFullscreen.value
+        })
+    } else {
+        document.exitFullscreen().catch(() => {
+            isFullscreen.value = false
+        })
+    }
+}
+
+function handleFullscreenChange() {
+    isFullscreen.value = !!document.fullscreenElement
+}
+
 let resizeObserverConnected = false
 
 onMounted(async () => {
+    document.addEventListener('fullscreenchange', handleFullscreenChange)
     clockTimer = setInterval(() => { now.value = Date.now() }, 1000)
     const host = canvasHost.value
     if (!host || !state.value) return
@@ -173,6 +201,7 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+    document.removeEventListener('fullscreenchange', handleFullscreenChange)
     if (clockTimer) clearInterval(clockTimer)
     if (resizeObserverConnected) detachCanvas()
 })
@@ -196,11 +225,20 @@ onUnmounted(() => {
         <UBadge color="neutral" variant="subtle" :label="`${state.runsPlayed} voyages`" icon="i-lucide-map" />
         <UBadge v-if="isRepairing" color="warning" variant="subtle" :label="`Dry dock ${repairRemainingLabel}`" icon="i-lucide-wrench" />
       </div>
-      <div class="flex w-full items-center gap-2 rounded-lg border border-default bg-elevated px-3 py-2 sm:w-64">
+      <div class="flex w-full items-center gap-2 rounded-lg border border-default bg-elevated px-3 py-2 sm:w-auto">
         <UIcon :name="soundEnabled ? 'i-lucide-volume-2' : 'i-lucide-volume-x'" class="size-4 text-primary" />
         <USwitch v-model="soundEnabled" size="sm" aria-label="Enable pirate game sound" @click="playMenuSound" />
-        <USlider v-model="soundVolume" :min="0" :max="100" :disabled="!soundEnabled" size="xs" aria-label="Sound volume" />
+        <USlider v-model="soundVolume" :min="0" :max="100" :disabled="!soundEnabled" size="xs" aria-label="Sound volume" class="w-24 sm:w-32" />
         <span class="w-8 text-right text-[10px] font-bold tabular-nums text-muted">{{ soundVolume }}%</span>
+        <div class="h-4 w-px bg-default mx-1" />
+        <UButton
+          :icon="isFullscreen ? 'i-lucide-minimize' : 'i-lucide-maximize'"
+          color="neutral"
+          variant="subtle"
+          size="xs"
+          :aria-label="isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'"
+          @click="toggleFullscreen"
+        />
       </div>
     </div>
 
@@ -209,10 +247,22 @@ onUnmounted(() => {
     </div>
 
     <template v-else>
-      <!-- Game viewport -->
-      <UCard :ui="{ body: 'p-0 sm:p-0' }">
-        <div class="relative w-full overflow-hidden rounded-lg" style="aspect-ratio: 1400 / 820;">
-          <div ref="canvasHost" class="absolute inset-0" />
+      <div ref="gameContainer" class="pirate-game-container flex flex-col min-h-0" :class="{ 'is-fullscreen': isFullscreen }">
+        <!-- Game viewport -->
+        <UCard class="pirate-card-wrapper flex flex-col flex-1 min-h-0" :ui="{ body: 'p-0 sm:p-0 flex flex-col flex-1 min-h-0' }">
+          <div class="game-viewport relative w-full overflow-hidden rounded-lg min-h-0 flex-1" :style="isFullscreen ? '' : 'aspect-ratio: 1400 / 820;'">
+            <div ref="canvasHost" class="absolute inset-0 flex items-center justify-center overflow-hidden" />
+
+            <!-- Floating in-game Fullscreen toggle button -->
+            <UButton
+              class="absolute top-3 right-3 z-30 opacity-70 hover:opacity-100 transition-opacity"
+              :icon="isFullscreen ? 'i-lucide-minimize' : 'i-lucide-maximize'"
+              color="neutral"
+              variant="subtle"
+              size="xs"
+              :aria-label="isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'"
+              @click="toggleFullscreen"
+            />
 
           <!-- Paused overlay -->
           <div v-if="paused" class="absolute inset-0 flex items-center justify-center bg-black/55 backdrop-blur-[2px]">
@@ -331,7 +381,7 @@ onUnmounted(() => {
                   </div>
                   <UBadge v-if="selectedDifficulty === state.recommendedDifficulty" color="primary" variant="subtle" label="Recommended" />
                 </div>
-                <USelect v-model="selectedDifficulty" :items="difficultySelectItems" value-key="value" class="mt-2 w-full" />
+                <USelect v-model="selectedDifficulty" :items="difficultySelectItems" value-key="value" :portal="isFullscreen && gameContainer ? gameContainer : true" class="mt-2 w-full" />
                 <div class="mt-2 flex items-center justify-between text-xs">
                   <span class="text-muted">Estimated in-run loot</span>
                   <span class="flex items-center gap-2 font-bold">
@@ -374,7 +424,7 @@ onUnmounted(() => {
         </div>
 
         <!-- Reserved control deck: normal document flow keeps every stat off the sea. -->
-        <div v-if="running" class="border-t border-default bg-elevated/80 p-3 sm:p-4">
+        <div v-if="running" class="control-deck shrink-0 border-t border-default bg-elevated/80 p-3 sm:p-4">
           <div class="grid gap-3 lg:grid-cols-[minmax(250px,1.2fr)_minmax(180px,0.8fr)_minmax(300px,1.5fr)_auto]">
             <!-- Hull and magazines -->
             <section class="rounded-lg border border-default bg-default p-3 space-y-2.5">
@@ -435,41 +485,45 @@ onUnmounted(() => {
                   <UBadge v-if="comboVisible" color="error" variant="subtle" :label="`Combo x${combo}`" icon="i-lucide-flame" />
                 </Transition>
               </div>
-              <Transition name="boss">
-                <div v-if="bossVisible" class="rounded-md border border-error/40 bg-error/10 px-2 py-1 text-xs text-error animate-pulse">
-                  <span class="font-black uppercase">Flagship:</span> {{ bossName }}
-                </div>
-              </Transition>
+              <div class="h-6 flex items-center justify-center shrink-0">
+                <Transition name="boss">
+                  <div v-if="bossVisible" class="w-full rounded-md border border-error/40 bg-error/10 px-2 py-0.5 text-xs text-error animate-pulse">
+                    <span class="font-black uppercase">Flagship:</span> {{ bossName }}
+                  </div>
+                </Transition>
+              </div>
             </section>
 
             <!-- Power-up rack -->
-            <section class="rounded-lg border border-default bg-default p-3">
-              <div class="mb-2 flex flex-wrap items-center justify-between gap-1 text-[10px] font-bold uppercase tracking-wide text-muted">
+            <section class="rounded-lg border border-default bg-default p-3 flex flex-col">
+              <div class="mb-2 flex flex-wrap items-center justify-between gap-1 text-[10px] font-bold uppercase tracking-wide text-muted shrink-0">
                 <span class="flex items-center gap-1"><UIcon name="i-lucide-sparkles" class="size-3.5 text-primary" /> Active powers</span>
                 <span class="tabular-nums">Drop {{ nextPowerUpLabel }} · Repair {{ nextHealthPackLabel }}</span>
               </div>
-              <div v-if="activePowerUps.length" class="grid gap-1.5 sm:grid-cols-2">
-                <div
-                  v-for="powerUp in activePowerUps"
-                  :key="powerUp.id"
-                  class="flex min-w-0 items-center gap-2 rounded-md bg-elevated px-2 py-1.5"
-                  :title="powerUp.description"
-                >
-                  <span class="text-base leading-none">{{ powerUp.icon }}</span>
-                  <div class="min-w-0 flex-1">
-                    <p class="truncate text-[11px] font-bold leading-tight">
-                      {{ powerUp.name }}
-                    </p>
-                    <p class="truncate text-[9px] leading-tight text-muted">
-                      {{ powerUp.description }}
-                    </p>
+              <div class="h-[76px] overflow-y-auto pr-0.5">
+                <div v-if="activePowerUps.length" class="grid gap-1.5 sm:grid-cols-2">
+                  <div
+                    v-for="powerUp in activePowerUps"
+                    :key="powerUp.id"
+                    class="flex min-w-0 items-center gap-2 rounded-md bg-elevated px-2 py-1.5"
+                    :title="powerUp.description"
+                  >
+                    <span class="text-base leading-none">{{ powerUp.icon }}</span>
+                    <div class="min-w-0 flex-1">
+                      <p class="truncate text-[11px] font-bold leading-tight">
+                        {{ powerUp.name }}
+                      </p>
+                      <p class="truncate text-[9px] leading-tight text-muted">
+                        {{ powerUp.description }}
+                      </p>
+                    </div>
+                    <span class="shrink-0 text-[10px] font-black tabular-nums text-primary">{{ powerUpStatus(powerUp) }}</span>
                   </div>
-                  <span class="shrink-0 text-[10px] font-black tabular-nums text-primary">{{ powerUpStatus(powerUp) }}</span>
                 </div>
+                <p v-else class="flex h-full items-center justify-center text-xs text-muted">
+                  Watch the sea for a glowing supply buoy.
+                </p>
               </div>
-              <p v-else class="flex min-h-11 items-center justify-center text-xs text-muted">
-                Watch the sea for a glowing supply buoy.
-              </p>
             </section>
 
             <!-- Voyage controls -->
@@ -495,6 +549,7 @@ onUnmounted(() => {
           </div>
         </div>
       </UCard>
+      </div>
     </template>
 
     <UModal
@@ -502,6 +557,7 @@ onUnmounted(() => {
       :title="gameOverTitle"
       :dismissible="false"
       :close="false"
+      :portal="isFullscreen && gameContainer ? gameContainer : true"
       scrollable
       :ui="{ content: 'max-w-2xl' }"
     >
@@ -670,5 +726,41 @@ onUnmounted(() => {
 .power-up-leave-to {
   opacity: 0;
   transform: translate(-50%, -8px) scale(0.9);
+}
+
+.pirate-game-container:fullscreen,
+.pirate-game-container.is-fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  width: 100vw;
+  height: 100vh;
+  background-color: var(--ui-bg, #090d16);
+  padding: 0.75rem;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.pirate-game-container:fullscreen :deep(.pirate-card-wrapper),
+.pirate-game-container.is-fullscreen :deep(.pirate-card-wrapper),
+.pirate-game-container:fullscreen .pirate-card-wrapper,
+.pirate-game-container.is-fullscreen .pirate-card-wrapper {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 0%;
+  height: 100%;
+  min-height: 0;
+}
+
+.pirate-game-container:fullscreen .game-viewport,
+.pirate-game-container.is-fullscreen .game-viewport {
+  flex: 1 1 0%;
+  min-height: 0;
+  aspect-ratio: auto !important;
+}
+
+.pirate-game-container:fullscreen .control-deck,
+.pirate-game-container.is-fullscreen .control-deck {
+  flex-shrink: 0;
 }
 </style>
