@@ -7,8 +7,9 @@
  *     --seat 1 --bet 500 --rounds 20 --strategy basic
  */
 import { chipStack } from '../shared/utils/live-blackjack/chips'
-import { canDouble, canSplit, handScore, rankValue } from '../shared/utils/live-blackjack/rules'
-import type { LbAction, LbHand, LbRank, LbServerMessage, LbTableState } from '../shared/utils/live-blackjack/types'
+import { handScore } from '../shared/utils/live-blackjack/rules'
+import { basicStrategy } from '../shared/utils/live-blackjack/strategy'
+import type { LbAction, LbServerMessage, LbTableState } from '../shared/utils/live-blackjack/types'
 
 type Strategy = 'basic' | 'counter' | 'wild' | 'always-stand'
 
@@ -59,65 +60,6 @@ async function signIn(): Promise<string> {
     const cookie = cookies.map(c => c.split(';')[0]).join('; ')
     if (!cookie) throw new Error('sign-in returned no session cookie')
     return cookie
-}
-
-// ─── basic strategy (6 decks, dealer stands soft 17, double after split) ────
-
-function pairAdvice(rank: LbRank, up: number): LbAction | null {
-    const pair = rankValue(rank)
-    if (rank === 'A' || pair === 8) return 'split'
-    if (pair === 10) return 'stand'
-    if (pair === 9) return up === 7 || up >= 10 ? 'stand' : 'split'
-    if (pair === 7) return up <= 7 ? 'split' : null
-    if (pair === 6) return up <= 6 ? 'split' : null
-    if (pair === 4) return up === 5 || up === 6 ? 'split' : null
-    if (pair === 2 || pair === 3) return up <= 7 ? 'split' : null
-    return null
-}
-
-function softAdvice(total: number, up: number): LbAction {
-    if (total >= 19) return 'stand'
-    if (total === 18) {
-        if (up >= 3 && up <= 6) return 'double'
-        return up <= 8 ? 'stand' : 'hit'
-    }
-    if (total === 17) return up >= 3 && up <= 6 ? 'double' : 'hit'
-    if (total >= 15) return up >= 4 && up <= 6 ? 'double' : 'hit'
-    return up >= 5 && up <= 6 ? 'double' : 'hit'
-}
-
-function hardAdvice(total: number, up: number): LbAction {
-    if (total >= 17) return 'stand'
-    if (total >= 13) return up <= 6 ? 'stand' : 'hit'
-    if (total === 12) return up >= 4 && up <= 6 ? 'stand' : 'hit'
-    if (total === 11) return 'double'
-    if (total === 10) return up <= 9 ? 'double' : 'hit'
-    if (total === 9) return up >= 3 && up <= 6 ? 'double' : 'hit'
-    return 'hit'
-}
-
-function decide(hand: LbHand, upcard: LbRank, hands: LbHand[], balance: number): LbAction {
-    const up = rankValue(upcard)
-    const { total, soft } = handScore(hand.cards)
-
-    if (hand.cards.length === 2 && hand.cards[0]!.rank && hand.cards[1]!.rank) {
-        const a = hand.cards[0]!.rank
-        const b = hand.cards[1]!.rank
-        if (rankValue(a) === rankValue(b)) {
-            const advice = pairAdvice(a, up)
-            if (advice === 'split' && canSplit(hand, hands) && balance >= hand.bet) return 'split'
-            if (advice === 'stand') return 'stand'
-        }
-    }
-
-    const want = soft ? softAdvice(total, up) : hardAdvice(total, up)
-    // Fall back the way the strategy card says to when doubling is off the table.
-    if (want === 'double' && !(canDouble(hand) && balance >= hand.bet)) {
-        if (soft && total === 18) return up <= 8 ? 'stand' : 'hit'
-        if (!soft && total >= 12) return up <= 6 ? 'stand' : 'hit'
-        return 'hit'
-    }
-    return want
 }
 
 // ─── bot loop ──────────────────────────────────────────────────────────────
@@ -183,7 +125,7 @@ function playTurn(state: LbTableState, seat: NonNullable<LbTableState['seats'][n
         ? 'stand'
         : opts.strategy === 'wild'
             ? (handScore(hand.cards).total < 19 ? 'hit' : 'stand')
-            : decide(hand, upcard, seat.hands, balance)
+            : basicStrategy(hand, upcard, seat.hands, balance)
 
     log(`round ${state.roundId} hand ${state.activeHand}: ${handScore(hand.cards).total}${handScore(hand.cards).soft ? 's' : ''} vs ${upcard} → ${action}`)
     send({ t: 'action', action })
