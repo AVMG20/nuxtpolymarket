@@ -7,7 +7,7 @@ import type {
 
 export interface LbFeedItem {
     id: number
-    kind: 'sit' | 'leave' | 'shuffle' | 'settled' | 'chat' | 'error' | 'action'
+    kind: 'sit' | 'leave' | 'shuffle' | 'settled' | 'chat' | 'error' | 'action' | 'watch'
     text: string
     tone: 'neutral' | 'win' | 'loss'
     name?: string
@@ -92,6 +92,13 @@ export function useLiveBlackjack() {
                     pushFeed({ kind: 'sit', text: `${message.name} sat down`, tone: 'neutral', name: message.name })
                 } else if (message.kind === 'leave') {
                     pushFeed({ kind: 'leave', text: `${message.name} left the table`, tone: 'neutral', name: message.name })
+                } else if (message.kind === 'watch') {
+                    pushFeed({
+                        kind: 'watch',
+                        text: `${message.name} ${message.joined ? 'is watching' : 'stopped watching'}`,
+                        tone: 'neutral',
+                        name: message.name
+                    })
                 } else if (message.kind === 'action') {
                     actionPulse.value = { id: ++feedSeq, seat: message.seat, action: message.action }
                     pushFeed({

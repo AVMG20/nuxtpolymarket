@@ -146,6 +146,7 @@ export type LbEvent =
     | { t: 'event', kind: 'shuffle' }
     | { t: 'event', kind: 'sit', name: string, seat: number }
     | { t: 'event', kind: 'leave', name: string, seat: number }
+    | { t: 'event', kind: 'watch', name: string, joined: boolean }
     | { t: 'event', kind: 'action', name: string, seat: number, action: LbAction }
     | { t: 'event', kind: 'settled', seat: number, net: number }
     | { t: 'event', kind: 'chat', name: string, seat: number, text: string }

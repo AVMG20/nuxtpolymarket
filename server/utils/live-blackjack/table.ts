@@ -253,10 +253,22 @@ class LiveBlackjackTable {
         if (record) record.leftAt = Date.now()
         this.pruneScores()
         broadcast({ t: 'event', kind: 'leave', name: seat.name, seat: seat.index })
-        if (!this.activeSeats().length && this.phase === 'betting') {
-            this.setPhase('idle', null)
-            this.message = 'Waiting for players'
+        if (!this.activeSeats().length) {
+            this.endSession()
+            if (this.phase === 'betting') {
+                this.setPhase('idle', null)
+                this.message = 'Waiting for players'
+            }
         }
+    }
+
+    /**
+     * A table session runs from the first player sitting down to the last one
+     * leaving. The board tracks that session, so an empty table starts everyone
+     * back at zero rather than carrying yesterday's figures forever.
+     */
+    private endSession() {
+        this.scores.clear()
     }
 
     /**

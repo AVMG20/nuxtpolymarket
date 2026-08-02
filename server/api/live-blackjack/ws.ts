@@ -2,7 +2,7 @@ import { eq } from 'drizzle-orm'
 import { db } from '#server/database'
 import { user } from '#server/database/schema'
 import { auth } from '#server/utils/auth'
-import { addPeer, getPeerInfo, isUserConnected, removePeer, sendTo } from '#server/utils/live-blackjack/bus'
+import { addPeer, broadcast, getPeerInfo, isUserConnected, removePeer, sendTo } from '#server/utils/live-blackjack/bus'
 import { liveBlackjackTable } from '#server/utils/live-blackjack/table'
 import type { LbClientMessage } from '#shared/utils/live-blackjack/types'
 
@@ -11,6 +11,15 @@ const ACTIONS = new Set(['hit', 'stand', 'double', 'split', 'surrender'])
 function errorMessage(error: unknown): string {
     const e = error as { statusMessage?: string, message?: string }
     return e?.statusMessage || e?.message || 'Something went wrong'
+}
+
+// Only the last tab closing counts as leaving the table.
+function departed(peer: Parameters<typeof removePeer>[0]) {
+    const info = getPeerInfo(peer)
+    removePeer(peer)
+    if (!info || isUserConnected(info.userId)) return
+    broadcast({ t: 'event', kind: 'watch', name: info.name, joined: false })
+    void liveBlackjackTable.run(() => liveBlackjackTable.setConnected(info.userId, false))
 }
 
 // Auth is enforced in `open` rather than `upgrade`: throwing out of the upgrade
@@ -35,6 +44,11 @@ export default defineWebSocketHandler({
             return
         }
 
+        // Announced to the room before this peer is registered, so the arrival
+        // is news to everyone already here and not to the person arriving.
+        if (!isUserConnected(session.user.id)) {
+            broadcast({ t: 'event', kind: 'watch', name: row.name, joined: true })
+        }
         addPeer(peer, { userId: session.user.id, name: row.name, emblem: row.emblem })
         sendTo(peer, {
             t: 'you',
@@ -90,19 +104,10 @@ export default defineWebSocketHandler({
     },
 
     close(peer) {
-        const info = getPeerInfo(peer)
-        removePeer(peer)
-        // Only the last tab closing counts as leaving the table.
-        if (info && !isUserConnected(info.userId)) {
-            void liveBlackjackTable.run(() => liveBlackjackTable.setConnected(info.userId, false))
-        }
+        departed(peer)
     },
 
     error(peer) {
-        const info = getPeerInfo(peer)
-        removePeer(peer)
-        if (info && !isUserConnected(info.userId)) {
-            void liveBlackjackTable.run(() => liveBlackjackTable.setConnected(info.userId, false))
-        }
+        departed(peer)
     }
 })
