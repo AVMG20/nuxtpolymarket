@@ -394,15 +394,6 @@ export const bankHistory = pgTable('bank_history', {
   createdAt: timestamp('created_at').defaultNow().notNull()
 }, t => [index('bank_history_userId_createdAt_idx').on(t.userId, t.createdAt)])
 
-export const blackjackSessions = pgTable('blackjack_sessions', {
-  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
-  userId: text('user_id').notNull().unique().references(() => user.id, { onDelete: 'cascade' }),
-  state: jsonb('state').notNull(),
-  bet: numeric('bet', { precision: 19, scale: 4 }).notNull(),
-  createdAt: timestamp('created_at').defaultNow().notNull(),
-  updatedAt: timestamp('updated_at').defaultNow().$onUpdate(() => new Date()).notNull()
-})
-
 /**
  * Escrow for the live table. Every stake — opening bet, double, split, insurance
  * — writes a row in the same transaction as its debit, and settlement marks the

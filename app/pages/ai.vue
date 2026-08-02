@@ -304,12 +304,6 @@ function toolDescription(call: AiToolCall) {
     const rounds = Number(args.rounds ?? 0)
     return `${casinoGame}: ${rounds} round${rounds === 1 ? '' : 's'} × ${formatNumber(bet, false)} coins (base stake ${formatNumber(bet * rounds, false)})`
   }
-  if (call.function.name === 'play_blackjack') return `Play and fully resolve one blackjack hand with a ${formatNumber(Number(args.bet ?? 0), false)} coin base stake. Basic strategy may double or split when affordable.`
-  if (call.function.name === 'play_blackjack_rounds') {
-    const bet = Number(args.bet ?? 0)
-    const rounds = Number(args.rounds ?? 0)
-    return `Play ${rounds} blackjack hand${rounds === 1 ? '' : 's'} at ${formatNumber(bet, false)} coins each with basic strategy (base stake ${formatNumber(bet * rounds, false)}).`
-  }
   if (call.function.name === 'manage_xeno_garden') {
     const requested = Array.isArray(args.requestedPlants) ? args.requestedPlants : []
     const mix = requested.map(plant => `${(plant as Record<string, unknown>).quantity ?? 0} × ${(plant as Record<string, unknown>).typeId ?? 'plant'}`).join(', ')
@@ -356,10 +350,6 @@ function toolResultSummary(result: Record<string, unknown>) {
   }
   if (result.action === 'buy' && typeof result.cost === 'number') return `Bought ${result.gems} gem(s) for ${formatNumber(result.cost, false)} coins`
   if (result.action === 'sell' && typeof result.revenue === 'number') return `Sold ${result.gems} gem(s) for ${formatNumber(result.revenue, false)} coins`
-  if (result.game === 'blackjack' && typeof result.playedRounds === 'number') {
-    const net = Number(result.net)
-    return `${result.playedRounds} hand(s) · ${result.wins}W/${result.pushes}P/${result.losses}L · Net ${net >= 0 ? '+' : ''}${formatNumber(net, false)} coins`
-  }
   if (typeof result.net === 'number') return `Completed · Net ${result.net >= 0 ? '+' : ''}${formatNumber(result.net, false)} coins`
   return 'Completed successfully'
 }
