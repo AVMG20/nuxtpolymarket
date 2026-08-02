@@ -10,6 +10,7 @@ const { state, actionPulse, youId, balance, connected, feed, mySeat, myHand, isM
 
 const canvasWrap = ref<HTMLDivElement | null>(null)
 const showHints = useCookie<boolean>('lb-show-hint', { default: () => false })
+const autoPlay = ref(false)
 const chatDraft = ref('')
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -58,6 +59,53 @@ const hintAction = computed(() => {
     const up = state.value?.dealer.cards[0]?.rank
     if (!showHints.value || !isMyTurn.value || !myHand.value || !up) return null
     return basicStrategy(myHand.value, up, seatHands.value, balance.value)
+})
+
+// Auto-play needs a previous bet to repeat, so it stays off until you make one.
+const canAutoPlay = computed(() => !!mySeat.value && (mySeat.value.lastBet > 0 || pendingBet.value > 0))
+
+// Losing the seat stops it; it must never keep acting on a seat you no longer hold.
+watch(mySeat, (seat) => {
+    if (!seat) autoPlay.value = false
+})
+
+/**
+ * Plays your seat from the same strategy the hints draw. Keyed on the hand
+ * state so a re-broadcast cannot act twice, and delayed a beat so the table
+ * reads as a player thinking rather than a script.
+ */
+let lastAutoKey = ''
+function auto(key: string, act: () => void) {
+    if (key === lastAutoKey) return
+    lastAutoKey = key
+    setTimeout(() => {
+        if (autoPlay.value) act()
+    }, 450)
+}
+
+watch(state, (snapshot) => {
+    if (!autoPlay.value || !snapshot) return
+    const seat = mySeat.value
+    if (!seat) return
+
+    if (snapshot.phase === 'betting' && seat.pendingBet === 0 && seat.lastBet > 0) {
+        auto(`bet:${snapshot.roundId}`, () => {
+            table.repeatBet()
+            table.voteStart()
+        })
+        return
+    }
+    if (snapshot.phase === 'insurance' && seat.hands.length && !seat.insuranceDecided) {
+        auto(`ins:${snapshot.roundId}`, () => table.insurance(false))
+        return
+    }
+    if (snapshot.phase === 'playing' && myHand.value) {
+        const up = snapshot.dealer.cards[0]?.rank
+        const hand = myHand.value
+        if (!up || hand.status !== 'playing') return
+        const key = `act:${snapshot.roundId}:${snapshot.activeHand}:${hand.cards.map(c => c.id).join()}`
+        auto(key, () => table.act(basicStrategy(hand, up, seatHands.value, balance.value)))
+    }
 })
 
 const visibleFeed = computed(() => feed.value.slice(-7))
@@ -162,7 +210,7 @@ onBeforeUnmount(() => {
     <!-- Deal-now vote, centred on the felt where the round is about to happen -->
     <div
       v-if="showVotePanel"
-      class="absolute bottom-[27%] left-1/2 -translate-x-1/2 text-center"
+      class="absolute bottom-[50%] left-1/2 -translate-x-1/2 text-center"
     >
       <button
         v-if="canVoteStart"
@@ -309,6 +357,20 @@ onBeforeUnmount(() => {
       >
         <UIcon :name="showHints ? 'i-lucide-lightbulb' : 'i-lucide-lightbulb-off'" />
         Hints {{ showHints ? 'on' : 'off' }}
+      </button>
+
+      <button
+        v-if="mySeat"
+        class="mt-1.5 flex w-full items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-[11px] font-semibold transition disabled:cursor-not-allowed disabled:opacity-40"
+        :class="autoPlay
+          ? 'bg-sky-500/25 text-sky-200 ring-1 ring-sky-400/60'
+          : 'bg-white/5 text-muted hover:bg-white/10 hover:text-default'"
+        :disabled="!canAutoPlay"
+        :title="canAutoPlay ? 'Play this seat with basic strategy' : 'Place a bet first'"
+        @click="autoPlay = !autoPlay"
+      >
+        <UIcon :name="autoPlay ? 'i-lucide-circle-pause' : 'i-lucide-circle-play'" />
+        Auto-play {{ autoPlay ? 'on' : 'off' }}
       </button>
 
       <div v-if="mySeat" class="mt-2 flex items-center justify-between border-t border-white/10 pt-1.5">
