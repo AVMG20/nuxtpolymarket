@@ -763,7 +763,7 @@ export const userRelations = relations(user, ({ many, one }) => ({
   pirateCannons: many(pirateCannons),
   pirateRunHistory: many(pirateRunHistory),
   shapezzState: one(shapezzState),
-  pathwardenState: one(pathwardenState)
+  pathwardenState: one(pathwardenState),
   voidWeapons: many(voidWeapons),
   voidState: one(voidState),
   voidRunHistory: many(voidRunHistory),
