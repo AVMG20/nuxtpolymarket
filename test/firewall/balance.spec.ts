@@ -4,16 +4,20 @@ import {
   FIREWALL_MAINFRAME,
   FIREWALL_MAX_SLOTS,
   FIREWALL_MAX_WAVE,
+  FIREWALL_RUN_COOLDOWN_MS,
+  FIREWALL_COOLDOWN_RUSH_MS_PER_GEM,
   FIREWALL_TURRETS,
   FIREWALL_TYPE_BONUS,
   FIREWALL_UPGRADES,
   FIREWALL_WEAPONS,
   firewallCoinValue,
+  firewallCooldownRushCost,
   firewallDifficulty,
   firewallMainframeCost,
   firewallMainframeEffects,
   firewallMaxPayout,
   firewallPayoutForRun,
+  firewallRunCooldownRemainingMs,
   firewallSlots,
   firewallTypeMultiplier,
   firewallUpgradeCost,
@@ -218,3 +222,28 @@ describe('coin economy', () => {
     }
   })
 })
+
+describe('FIREWALL uplink cooldown', () => {
+  it('charges one gem per started ten minutes to rush uplink recharge', () => {
+    expect(firewallCooldownRushCost(0)).toBe(0)
+    expect(firewallCooldownRushCost(1)).toBe(1)
+    expect(firewallCooldownRushCost(FIREWALL_COOLDOWN_RUSH_MS_PER_GEM)).toBe(1)
+    expect(firewallCooldownRushCost(FIREWALL_COOLDOWN_RUSH_MS_PER_GEM + 1)).toBe(2)
+    expect(firewallCooldownRushCost(FIREWALL_RUN_COOLDOWN_MS)).toBe(12)
+  })
+
+  it('locks the uplink for 2 hours after a settled run', () => {
+    expect(FIREWALL_RUN_COOLDOWN_MS).toBe(2 * 60 * 60 * 1000)
+    const finishedAt = new Date('2026-08-02T12:00:00Z')
+    expect(firewallRunCooldownRemainingMs(finishedAt, finishedAt.getTime())).toBe(FIREWALL_RUN_COOLDOWN_MS)
+    expect(firewallRunCooldownRemainingMs(finishedAt, finishedAt.getTime() + 30 * 60 * 1000)).toBe(90 * 60 * 1000)
+  })
+
+  it('is fully open once the cooldown elapses or when no run ever finished', () => {
+    const finishedAt = new Date('2026-08-02T12:00:00Z')
+    expect(firewallRunCooldownRemainingMs(finishedAt, finishedAt.getTime() + FIREWALL_RUN_COOLDOWN_MS)).toBe(0)
+    expect(firewallRunCooldownRemainingMs(finishedAt, finishedAt.getTime() + FIREWALL_RUN_COOLDOWN_MS + 1)).toBe(0)
+    expect(firewallRunCooldownRemainingMs(null, Date.now())).toBe(0)
+  })
+})
+

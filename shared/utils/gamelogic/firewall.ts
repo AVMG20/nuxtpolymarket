@@ -1433,3 +1433,18 @@ export function firewallValidateSave(save: unknown): save is FirewallRunSave {
 export function firewallMaxWaveForElapsedMs(elapsedMs: number) {
     return Math.max(0, Math.floor(Math.max(0, elapsedMs) / FIREWALL_WAVE_MS))
 }
+
+/** Uplink recharge after a settled run — 2 hours. */
+export const FIREWALL_RUN_COOLDOWN_MS = 2 * 60 * 60 * 1000
+export const FIREWALL_COOLDOWN_RUSH_MS_PER_GEM = 10 * 60 * 1000
+
+export function firewallRunCooldownRemainingMs(lastRunFinishedAt: Date | null, now: number) {
+    if (!lastRunFinishedAt) return 0
+    return Math.max(0, lastRunFinishedAt.getTime() + FIREWALL_RUN_COOLDOWN_MS - now)
+}
+
+/** One gem clears each started ten-minute block of uplink recharge time. */
+export function firewallCooldownRushCost(remainingMs: number) {
+    return Math.max(0, Math.ceil(Math.max(0, remainingMs) / FIREWALL_COOLDOWN_RUSH_MS_PER_GEM))
+}
+

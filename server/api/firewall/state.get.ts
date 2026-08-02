@@ -9,7 +9,9 @@ import {
     FIREWALL_DIFFICULTIES,
     FIREWALL_MAINFRAME,
     FIREWALL_MAX_WAVE,
+    FIREWALL_RUN_COOLDOWN_MS,
     FIREWALL_SAVE_VERSION,
+    firewallCooldownRushCost,
     firewallDifficultyUnlocked,
     firewallMainframeCost,
     firewallMainframeEffects,
@@ -76,6 +78,16 @@ export default defineEventHandler(async (event) => {
                 save: resumable?.runState ?? null,
                 savedAt: resumable?.updatedAt ?? null
             }
+            : null,
+        runCooldown: state.lastRunFinishedAt
+            ? (() => {
+                const until = new Date(state.lastRunFinishedAt.getTime() + FIREWALL_RUN_COOLDOWN_MS)
+                return {
+                    until,
+                    rushCost: firewallCooldownRushCost(until.getTime() - Date.now())
+                }
+            })()
             : null
     }
 })
+

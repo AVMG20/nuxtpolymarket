@@ -12,6 +12,7 @@ import {
     firewallLoadout,
     firewallMainframeEffects,
     firewallPower,
+    firewallRunCooldownRemainingMs,
     type FirewallDifficultyId,
     type FirewallRunSave
 } from '#shared/utils/gamelogic/firewall'
@@ -27,6 +28,11 @@ export default defineEventHandler(async (event) => {
     return db.transaction(async (tx) => {
         const state = await getLockedFirewallState(tx, userId)
         if (state.runStartedAt) throw createError({ statusCode: 400, statusMessage: 'A FIREWALL run is already active' })
+
+        if (firewallRunCooldownRemainingMs(state.lastRunFinishedAt, Date.now()) > 0) {
+            throw createError({ statusCode: 400, statusMessage: 'FIREWALL uplink is cooling down' })
+        }
+
 
         const difficulty = firewallDifficulty(difficultyId)
         if (!firewallDifficultyUnlocked(difficulty, state.bestWave)) {

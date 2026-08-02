@@ -327,7 +327,8 @@ export const firewallState = pgTable('firewall_state', {
   runPowerSnapshot: integer('run_power_snapshot'),
   // Salvage Rig is snapshotted at deploy so a level bought mid-run cannot
   // retroactively multiply coins the run already banked.
-  runCoinMultiplierSnapshot: numeric('run_coin_multiplier_snapshot', { precision: 10, scale: 4 })
+  runCoinMultiplierSnapshot: numeric('run_coin_multiplier_snapshot', { precision: 10, scale: 4 }),
+  lastRunFinishedAt: timestamp('last_run_finished_at')
 })
 
 // One saved run per user, replaced wholesale on every uplink. `revision` is a

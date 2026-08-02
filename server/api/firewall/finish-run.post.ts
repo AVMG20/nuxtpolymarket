@@ -43,6 +43,7 @@ export default defineEventHandler(async (event) => {
             reportedKills: runState?.kills ?? 0
         })
 
+        const now = Date.now()
         // Clearing the active-run lock *is* the claim: a second request in flight
         // finds it already null, throws, and pays nothing.
         const [claimed] = await tx.update(firewallState).set({
@@ -50,6 +51,7 @@ export default defineEventHandler(async (event) => {
             runDifficultySnapshot: null,
             runPowerSnapshot: null,
             runCoinMultiplierSnapshot: null,
+            lastRunFinishedAt: new Date(now),
             runsPlayed: result.runsPlayed,
             totalCoinsEarned: result.totalCoinsEarned,
             bestWave: result.bestWave,
