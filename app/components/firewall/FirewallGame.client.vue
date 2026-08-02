@@ -309,6 +309,9 @@ function deployNextWave() {
 
 async function onWaveEnd(summary: FirewallWaveSummary) {
   lastSummary.value = summary
+  // The engine reports kills per wave and seeds its own running total from the
+  // save, so accumulating here is what keeps the two in step across a resume.
+  totalKills.value += summary.kills
   phase.value = 'shop'
   await saveRun()
   if (summary.victory) await settleRun('victory')
