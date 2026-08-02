@@ -14,7 +14,7 @@ import {
 } from '~/utils/firewall-sounds'
 
 const soundEnabled = ref(true)
-const soundVolume = ref(70)
+const soundVolume = ref(50)
 
 let ctx: AudioContext | null = null
 const loading = new Map<string, Promise<AudioBuffer | null>>()
@@ -30,6 +30,9 @@ function ensureContext(): AudioContext | null {
     const Ctx = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
     if (!Ctx) return null
     ctx = new Ctx()
+  }
+  if (ctx.state === 'suspended') {
+    void ctx.resume().catch(() => {})
   }
   return ctx
 }
@@ -116,13 +119,37 @@ function preload() {
   }
 }
 
+let gestureListenersAdded = false
+
+function attachGestureUnlock() {
+  if (!import.meta.client || gestureListenersAdded) return
+  gestureListenersAdded = true
+  const onGesture = () => {
+    unlock()
+    if (ctx && ctx.state === 'running') {
+      window.removeEventListener('pointerdown', onGesture, true)
+      window.removeEventListener('keydown', onGesture, true)
+      window.removeEventListener('click', onGesture, true)
+    }
+  }
+  window.addEventListener('pointerdown', onGesture, { capture: true, passive: true })
+  window.addEventListener('keydown', onGesture, { capture: true, passive: true })
+  window.addEventListener('click', onGesture, { capture: true, passive: true })
+}
+
 function initialize() {
   if (!import.meta.client || initialized) return
   initialized = true
+  attachGestureUnlock()
   const storedEnabled = localStorage.getItem('firewall-sound-enabled')
-  const storedVolume = Number(localStorage.getItem('firewall-sound-volume'))
+  const rawVolume = localStorage.getItem('firewall-sound-volume')
   if (storedEnabled !== null) soundEnabled.value = storedEnabled === 'true'
-  if (Number.isFinite(storedVolume)) soundVolume.value = Math.max(0, Math.min(100, storedVolume))
+  if (rawVolume !== null) {
+    const storedVolume = Number(rawVolume)
+    if (Number.isFinite(storedVolume)) soundVolume.value = Math.max(0, Math.min(100, storedVolume))
+  } else {
+    soundVolume.value = 50
+  }
   watch(soundEnabled, enabled => localStorage.setItem('firewall-sound-enabled', String(enabled)))
   watch(soundVolume, volume => localStorage.setItem('firewall-sound-volume', String(volume)))
 }

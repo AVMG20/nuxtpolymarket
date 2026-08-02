@@ -586,14 +586,27 @@ async function toggleFullscreen() {
           Hold the core for {{ FIREWALL_MAX_WAVE }} waves. The uplink opens between each one — and saves.
         </p>
       </div>
-      <div class="flex items-center gap-2">
-        <UButton
-          :icon="soundEnabled ? 'i-lucide-volume-2' : 'i-lucide-volume-x'"
-          color="neutral"
-          variant="subtle"
-          :title="soundEnabled ? 'Mute audio' : 'Unmute audio'"
-          @click="soundEnabled = !soundEnabled; if (soundEnabled) firewallSound.unlock()"
-        />
+      <div class="flex items-center gap-3">
+        <div class="flex items-center gap-2 rounded-lg border border-default bg-elevated px-2.5 py-1.5 text-xs">
+          <UButton
+            :icon="soundEnabled ? 'i-lucide-volume-2' : 'i-lucide-volume-x'"
+            color="neutral"
+            variant="ghost"
+            size="xs"
+            :title="soundEnabled ? 'Mute audio' : 'Unmute audio'"
+            @click="soundEnabled = !soundEnabled; if (soundEnabled) firewallSound.unlock()"
+          />
+          <USlider
+            v-model="soundVolume"
+            :min="0"
+            :max="100"
+            :disabled="!soundEnabled"
+            size="xs"
+            class="w-20 sm:w-28"
+            aria-label="Sound volume"
+          />
+          <span class="w-8 text-right font-mono text-[11px] text-muted">{{ soundVolume }}%</span>
+        </div>
         <UButton
           v-if="phase === 'wave'"
           :icon="paused ? 'i-lucide-play' : 'i-lucide-pause'"
