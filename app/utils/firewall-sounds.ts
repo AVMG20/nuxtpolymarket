@@ -157,7 +157,7 @@ export const FIREWALL_SOUND_MANIFEST: Record<FirewallSoundEvent, FirewallSoundSp
 
 /** Per-event mix levels relative to the player's volume setting. */
 export const FIREWALL_SOUND_LEVELS: Record<FirewallSoundEvent, number> = {
-  'shoot-rail': 0.55,
+  'shoot-rail': 0.35,
   'shoot-flak': 0.65,
   'shoot-arc': 0.6,
   'shoot-missile': 0.75,
