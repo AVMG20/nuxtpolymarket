@@ -19,38 +19,62 @@ export const LANE_FAR_Y = 432
 export const LANE_NEAR_SCALE = 1.12
 export const LANE_FAR_SCALE = 0.62
 
-/** The wall face enemies stop at, and the tower behind it. */
+/** The wall face enemies stop at. Fixed — only the tower on top of it grows. */
 export const WALL_X = 962
-export const TOWER_X = 1000
-export const TOWER_TOP_Y = 176
+export const WALL_TOP_Y = 336
 
-/** Muzzle of the player's rail — on the tower's crown. */
-export const MUZZLE_X = 1044
-export const MUZZLE_Y = 236
+// ─── The tower ──────────────────────────────────────────────────────────────
+
+/**
+ * The tower is built out of floors, and a floor is two turret mounts.
+ *
+ * It starts as a single storey barely clearing the parapet and gains one storey
+ * per pair of mounts, so the silhouette on screen *is* the readout of how much
+ * has been spent on it — a maxed spire is four times the building a fresh run
+ * deploys with. Mounts sit on balconies at the two outer edges of each storey
+ * rather than in a row along the parapet: a clumped battery reads as one gun,
+ * and spreading them across the tower's width also spreads their fire over the
+ * field.
+ */
+export const TOWER_X = 1000
+export const TOWER_W = 236
+export const TOWER_FLOOR_H = 62
+export const TOWER_ROOF_H = 26
+export const TOWER_MAX_FLOORS = 4
+/** Mounts per storey. Slots fill left, right, then up. */
+export const MOUNTS_PER_FLOOR = 2
+
+export function towerFloors(slots: number) {
+    return Math.max(1, Math.min(TOWER_MAX_FLOORS, Math.ceil(slots / MOUNTS_PER_FLOOR)))
+}
+
+/** Top of the roof slab, which everything crowning the tower hangs off. */
+export function towerTopY(slots: number) {
+    return WALL_TOP_Y - towerFloors(slots) * TOWER_FLOOR_H - TOWER_ROOF_H
+}
+
+/** Where mount `slot` bolts on. Balconies alternate left edge, right edge, going up. */
+export function mountPosition(slot: number) {
+    const floor = Math.floor(slot / MOUNTS_PER_FLOOR)
+    const side = slot % MOUNTS_PER_FLOOR
+    return {
+        x: side === 0 ? TOWER_X - 2 : TOWER_X + TOWER_W + 2,
+        y: WALL_TOP_Y - floor * TOWER_FLOOR_H - TOWER_FLOOR_H * 0.5,
+        /** -1 for a balcony hanging off the left face, +1 for the right. */
+        facing: side === 0 ? -1 : 1
+    }
+}
+
+/** Muzzle of the player's rail — dead centre of the roof, so it rises with the tower. */
+export const MUZZLE_X = TOWER_X + TOWER_W * 0.5
+export function muzzleY(slots: number) {
+    return towerTopY(slots) - 16
+}
 export const BARREL_LENGTH = 62
 
-/**
- * Every Ramparts level lifts the whole structure by this much and opens one
- * more mount, so a taller base is visibly a stronger one.
- */
-export const RAMPART_RISE = 22
-
-/**
- * Where turrets bolt on, in mount order. Authored rather than generated: a row
- * along the parapet reads as one clumped battery, so the line climbs the tower
- * face and crown instead, which also spreads the muzzles over the field.
- * `y` is the unraised position; Ramparts shifts the whole set up.
- */
-export const TURRET_MOUNTS: readonly { x: number, y: number }[] = [
-    { x: 986, y: 288 },
-    { x: 1252, y: 288 },
-    { x: 1016, y: 214 },
-    { x: 1016, y: 148 },
-    { x: 1108, y: 166 },
-    { x: 1240, y: 166 },
-    { x: 1108, y: 104 },
-    { x: 1240, y: 104 }
-] as const
+/** Centre of the core diamond behind the tower glass, on the ground storey. */
+export const CORE_X = TOWER_X + TOWER_W * 0.5
+export const CORE_Y = WALL_TOP_Y - TOWER_FLOOR_H * 0.52
 
 /** Enemies enter from off-screen left so they never pop into existence. */
 export const SPAWN_X = -80
@@ -62,7 +86,6 @@ export const BULLET_LIFE_MS = 900
 /** Fat enough to feel fair on the small fast movers without auto-aiming. */
 export const BULLET_RADIUS = 9
 
-export const SENTRY_RANGE = 900
 export const SENTRY_BULLET_SPEED = 1700
 
 /** Lancer plasma arcs in under gravity, so it has to be a slow lob. */
@@ -81,6 +104,9 @@ export const CROWD_PUSH = 46
 
 export const SHAKE_DECAY = 7.5
 export const MAX_SHAKE = 22
+
+/** Dropped coins fly to the wall on this arc before they bank. */
+export const COIN_FLIGHT_MS = 620
 
 /** Cosmetic layers behind the action. */
 export const STAR_COUNT = 90

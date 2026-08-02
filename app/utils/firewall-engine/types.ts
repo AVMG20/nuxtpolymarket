@@ -1,6 +1,6 @@
 import type { Container, Graphics } from 'pixi.js'
 import type {
-    FirewallEnemyDefinition, FirewallLoadout, FirewallTurretRuntime, FirewallWeaponId
+    FirewallDamageType, FirewallEnemyDefinition, FirewallLoadout, FirewallTurretRuntime, FirewallWeaponId
 } from '#shared/utils/gamelogic/firewall'
 
 /** The animated parts of a silhouette, rotated per frame for the walk cycle. */
@@ -35,8 +35,10 @@ export interface EnemyEntity {
     speed: number
     damage: number
     bounty: number
-    /** Fraction of non-AP damage shrugged off. */
-    armor: number
+    /** Site coins this drops when it dies, already scaled for wave and difficulty. */
+    coinValue: number
+    /** Plated: kinetic sources hit it for 25% more. Nothing hits it for less. */
+    armored: boolean
     /** Radians of leg swing, advanced by distance walked. */
     stride: number
     attackTimer: number
@@ -69,7 +71,7 @@ export interface BulletEntity {
     crit: boolean
     /** Turret rounds are dimmer and never crit, so they read as not-yours. */
     fromTurret: boolean
-    armorPiercing: boolean
+    damageType: FirewallDamageType
     splashRadius: number
     splashDamage: number
     /** Missiles steer toward this target while it lives. */
@@ -92,6 +94,24 @@ export interface SpitEntity {
     hex: number
     /** Howitzer shells land heavy and shake the frame. */
     heavy: boolean
+}
+
+/**
+ * A coin shed by a dead enemy, arcing to the wall before it banks. Coins are
+ * site currency, so the flight is deliberately a beat long — the payout of a
+ * good wave should be something you watch arrive.
+ */
+export interface CoinEntity {
+    gfx: Graphics
+    x: number
+    y: number
+    /** Launch point and apex, for the bezier the coin rides in on. */
+    fromX: number
+    fromY: number
+    arcY: number
+    /** 0 → 1 across `COIN_FLIGHT_MS`. */
+    t: number
+    value: number
 }
 
 export interface ParticleEntity {
@@ -123,9 +143,13 @@ export interface FirewallWaveSummary {
     kills: number
     /** Credits banked from kills during the wave, purge included. */
     credits: number
+    /** Site coins banked from drops during the wave. */
+    coins: number
     leaked: number
     wallHp: number
     wallMaxHp: number
+    /** The last wave was just cleared — the run is a win rather than a shop trip. */
+    victory: boolean
 }
 
 export interface FirewallCallbacks {
@@ -133,6 +157,7 @@ export interface FirewallCallbacks {
     onAmmo: (mag: number, magSize: number, reloadProgress: number) => void
     onWaveTime: (msRemaining: number, alive: number) => void
     onCredits: (delta: number, reason: 'kill' | 'purge' | 'clear') => void
+    onCoins: (delta: number) => void
     onPulse: (chargeMs: number, cooldownMs: number) => void
     onOverclock: (chargeMs: number, cooldownMs: number, activeMs: number) => void
     onWeapon: (id: FirewallWeaponId) => void
@@ -142,7 +167,10 @@ export interface FirewallCallbacks {
     onNotice: (text: string, kind: 'good' | 'bad' | 'info') => void
 }
 
+/** What `startRun` needs to put a resumed run back on the field. */
 export interface FirewallStartConfig {
-    wave: number
     loadout: FirewallLoadout
+    /** Wall health to resume with. Omitted on a fresh run — it starts full. */
+    wallHp?: number
+    kills?: number
 }

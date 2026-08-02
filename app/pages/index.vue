@@ -121,7 +121,7 @@ const arcadeGames = [
   },
   {
     name: 'Firewall',
-    description: 'Lane defence — hold the core for 25 seconds a wave, then spend the credits on the wall',
+    description: 'Lane defence over 30 waves — five difficulties, a save between every wave, and a coin-bought Mainframe',
     icon: 'i-lucide-shield-half',
     to: '/firewall',
     gradient: 'from-cyan-950 via-slate-900 to-slate-950',

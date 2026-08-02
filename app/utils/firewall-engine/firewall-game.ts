@@ -1,21 +1,26 @@
 import { Application, Container, Graphics } from 'pixi.js'
 import { randomChance, randomFloat } from '#shared/utils/random'
 import {
-    FIREWALL_PURGE_BOUNTY, FIREWALL_SHIELD_DELAY_MS, FIREWALL_SPAWN_WINDOW_MS, FIREWALL_WAVE_MS,
-    firewallArmorScale, firewallBossFor, firewallBountyMultiplier, firewallClearBonus, firewallEnemy,
-    firewallHpMultiplier, firewallIsAirborne, firewallIsBossWave, firewallWaveBudget, firewallWavePool,
-    type FirewallEnemyDefinition, type FirewallLoadout, type FirewallWeaponRuntime
+    FIREWALL_MAX_WAVE, FIREWALL_PURGE_BOUNTY, FIREWALL_SHIELD_DELAY_MS, FIREWALL_SPAWN_WINDOW_MS,
+    FIREWALL_TYPE_HEX, FIREWALL_WAVE_MS,
+    firewallBossFor, firewallBountyMultiplier, firewallClearBonus, firewallCoinValue,
+    firewallDamageMultiplier, firewallEnemy, firewallHpMultiplier, firewallIsAirborne,
+    firewallIsBossWave, firewallTypeMultiplier, firewallWaveBudget, firewallWavePool,
+    type FirewallDamageType, type FirewallEnemyDefinition, type FirewallLoadout,
+    type FirewallWeaponRuntime
 } from '#shared/utils/gamelogic/firewall'
 import {
-    BARREL_LENGTH, BULLET_LIFE_MS, BULLET_RADIUS, CROWD_PUSH, DESPAWN_X,
-    HORIZON_Y, LANE_FAR_SCALE, LANE_FAR_Y, LANE_NEAR_SCALE, LANE_NEAR_Y, MAX_SHAKE,
-    MUZZLE_X, MUZZLE_Y, PULSE_KNOCKBACK, PULSE_RADIUS, SPAWN_X, SPIKE_BAND,
-    SHAKE_DECAY, SPIT_GRAVITY, SPIT_SPEED, TURRET_MOUNTS, VIEW_H, VIEW_W, WALL_X
+    BARREL_LENGTH, BULLET_LIFE_MS, BULLET_RADIUS, COIN_FLIGHT_MS, CROWD_PUSH, DESPAWN_X,
+    LANE_FAR_SCALE, LANE_FAR_Y, LANE_NEAR_SCALE, LANE_NEAR_Y, MAX_SHAKE,
+    MUZZLE_X, PULSE_KNOCKBACK, PULSE_RADIUS, SPAWN_X, SPIKE_BAND,
+    SHAKE_DECAY, SPIT_GRAVITY, SPIT_SPEED, VIEW_H, VIEW_W, WALL_TOP_Y, WALL_X,
+    mountPosition, muzzleY
 } from './constants'
 import { clamp, dist, lerp, randRange, segPointDist } from './math'
 import * as fx from './fx'
 import type {
-    BulletEntity, EnemyEntity, FirewallCallbacks, ParticleEntity, SpitEntity, TurretMount
+    BulletEntity, CoinEntity, EnemyEntity, FirewallCallbacks, FirewallStartConfig,
+    ParticleEntity, SpitEntity, TurretMount
 } from './types'
 
 /** A spawn the wave scheduler has already decided on. */
@@ -28,7 +33,7 @@ interface ScheduledSpawn {
 interface ShotSpec {
     damage: number
     pierce: number
-    armorPiercing: boolean
+    damageType: FirewallDamageType
     splashRadius: number
     splashDamage: number
     homing: boolean
@@ -72,19 +77,21 @@ export class FirewallGame {
     // ── Run state ──
     private loadout: FirewallLoadout | null = null
     private weapon: FirewallWeaponRuntime | null = null
-    private rampart = -1
+    /** Mount count the tower geometry was last built for. */
+    private slots = -1
     private wave = 0
     private waveElapsed = 0
     private schedule: ScheduledSpawn[] = []
     private scheduleIndex = 0
     private waveKills = 0
     private waveCredits = 0
+    private waveCoins = 0
     private waveLeaks = 0
     private totalKills = 0
 
     // ── Bastion state ──
-    private wallHp = 900
-    private wallMaxHp = 900
+    private wallHp = 1000
+    private wallMaxHp = 1000
     private shield = 0
     private shieldMax = 0
     private msSinceWallHit = 99_999
@@ -105,6 +112,7 @@ export class FirewallGame {
     private bullets: BulletEntity[] = []
     private spits: SpitEntity[] = []
     private particles: ParticleEntity[] = []
+    private coins: CoinEntity[] = []
     private turrets: TurretMount[] = []
 
     // ── Input ──
@@ -164,7 +172,7 @@ export class FirewallGame {
         // Enemies sort against each other by lane depth; the layer above them is
         // the wall, which everything on the field is in front of.
         this.fieldLayer.sortableChildren = true
-        this.rebuildBastion(0)
+        this.rebuildBastion(2)
 
         this.world.addChild(
             this.bgLayer, this.spikeGfx, this.fieldLayer,
@@ -261,20 +269,27 @@ export class FirewallGame {
 
     // ─── Run control ─────────────────────────────────────────────────────────
 
-    /** Wipes the field and the bastion back to a fresh run. */
-    startRun(loadout: FirewallLoadout) {
+    /**
+     * Wipes the field and the bastion back to the start of a run.
+     *
+     * `wallHp` and `kills` are how a saved run comes back: the save is only ever
+     * written between waves, so restoring one is restoring the bastion and the
+     * armoury and nothing else.
+     */
+    startRun(config: FirewallStartConfig) {
         if (!this.mounted) return false
+        const { loadout } = config
         this.clearField()
         this.loadout = loadout
         this.weapon = loadout.weapon
         this.wave = 0
         this.waveElapsed = 0
-        this.totalKills = 0
+        this.totalKills = config.kills ?? 0
         this.gameOver = false
         this.purging = false
         this.running = false
         this.wallMaxHp = loadout.wallMaxHp
-        this.wallHp = loadout.wallMaxHp
+        this.wallHp = clamp(config.wallHp ?? loadout.wallMaxHp, 1, loadout.wallMaxHp)
         this.shieldMax = loadout.shieldMax
         this.shield = loadout.shieldMax
         this.pulseCharge = loadout.pulseCooldownMs
@@ -283,7 +298,7 @@ export class FirewallGame {
         this.magSize = Math.round(loadout.weapon.magazine)
         this.mag = this.magSize
         this.reloadTimer = 0
-        this.rebuildBastion(loadout.rampart)
+        this.rebuildBastion(loadout.slots)
         this.syncTurrets()
         this.emitWall()
         this.emitAmmo()
@@ -314,13 +329,14 @@ export class FirewallGame {
         this.pulseCharge = loadout.pulseCooldownMs
         this.overclockCharge = loadout.overclockCooldownMs
         this.overclockLeft = 0
-        this.rebuildBastion(loadout.rampart)
+        this.rebuildBastion(loadout.slots)
         this.syncTurrets()
 
         this.wave = wave
         this.waveElapsed = 0
         this.waveKills = 0
         this.waveCredits = 0
+        this.waveCoins = 0
         this.waveLeaks = 0
         this.scheduleIndex = 0
         this.schedule = this.buildSchedule(wave)
@@ -328,8 +344,13 @@ export class FirewallGame {
         this.purging = false
         this.paused = false
 
-        fx.banner(this.overlayLayer, `WAVE ${wave}`, firewallIsBossWave(wave) ? fx.RED : fx.CYAN,
-            `${this.schedule.length} hostiles queued`)
+        const final = wave >= FIREWALL_MAX_WAVE
+        fx.banner(
+            this.overlayLayer,
+            final ? 'FINAL WAVE' : `WAVE ${wave}`,
+            final || firewallIsBossWave(wave) ? fx.RED : fx.CYAN,
+            `${this.schedule.length} hostiles queued`
+        )
         this.emitWall()
         this.emitAmmo()
         this.emitPulse()
@@ -375,40 +396,38 @@ export class FirewallGame {
         return this.running
     }
 
-    // ─── Bastion assembly ────────────────────────────────────────────────────
-
-    /** Rebuilt only when Ramparts changes — it is a full geometry rebuild. */
-    private rebuildBastion(rampart: number) {
-        if (this.bastion && this.rampart === rampart) return
-        this.rampart = rampart
-        this.bastionRoot.removeChildren().forEach(child => child.destroy({ children: true }))
-        this.bastion = fx.buildBastion(rampart)
-        this.bastionRoot.addChild(this.bastion.root)
-        this.damageBucket = -1
+    /** Current wall health, for a save written from the uplink. */
+    get currentWallHp() {
+        return Math.round(this.wallHp)
     }
 
-    private get rise() {
-        return fx.rampartRise(this.rampart)
+    // ─── Bastion assembly ────────────────────────────────────────────────────
+
+    /** Rebuilt only when the mount count changes — it is a full geometry rebuild. */
+    private rebuildBastion(slots: number) {
+        if (this.bastion && this.slots === slots) return
+        this.slots = slots
+        this.bastionRoot.removeChildren().forEach(child => child.destroy({ children: true }))
+        this.bastion = fx.buildBastion(slots)
+        this.bastionRoot.addChild(this.bastion.root)
+        this.damageBucket = -1
     }
 
     /** Rebuilds the mounted turrets to match what the uplink installed. */
     private syncTurrets() {
         for (const mount of this.turrets) mount.root.destroy({ children: true })
         this.turrets = []
-        const wanted = this.loadout?.turrets ?? []
-        for (const runtime of wanted) {
-            const anchor = TURRET_MOUNTS[runtime.slot % TURRET_MOUNTS.length]!
+        for (const runtime of this.loadout?.turrets ?? []) {
+            const anchor = mountPosition(runtime.slot)
             const built = fx.buildTurret(runtime.id, runtime.hex)
-            const x = anchor.x
-            const y = anchor.y - this.rise
-            built.root.position.set(x, y)
+            built.root.position.set(anchor.x, anchor.y)
             this.turretLayer.addChild(built.root)
             this.turrets.push({
                 runtime,
                 root: built.root,
                 barrel: built.barrel,
-                x,
-                y,
+                x: anchor.x,
+                y: anchor.y,
                 cooldown: randRange(0, 400),
                 kick: 0
             })
@@ -423,11 +442,13 @@ export class FirewallGame {
      * is what lets the HUD promise a hostile count the wave actually delivers.
      */
     private buildSchedule(wave: number): ScheduledSpawn[] {
+        const difficulty = this.loadout?.difficulty
+        if (!difficulty) return []
         const pool = firewallWavePool(wave)
-        let budget = firewallWaveBudget(wave)
+        let budget = firewallWaveBudget(wave, difficulty)
         const picks: FirewallEnemyDefinition[] = []
 
-        let guard = 600
+        let guard = 900
         while (budget > 0 && guard-- > 0) {
             const affordable = pool.filter(def => def.cost <= budget)
             if (!affordable.length) break
@@ -487,6 +508,7 @@ export class FirewallGame {
         this.updateSpits(dt)
         this.updateTurrets(dtMs)
         this.updateParticles(dt, dtMs)
+        this.updateCoins(dtMs)
         this.updateBastion(dt, dtMs)
 
         if (this.running) {
@@ -518,6 +540,9 @@ export class FirewallGame {
     }
 
     private spawn(def: FirewallEnemyDefinition) {
+        const loadout = this.loadout
+        if (!loadout) return
+        const difficulty = loadout.difficulty
         const laneT = randomFloat()
         const laneY = lerp(LANE_FAR_Y, LANE_NEAR_Y, laneT)
         // Bosses ignore the lane scale — a capital rendered small because it drew
@@ -531,8 +556,8 @@ export class FirewallGame {
         rig.root.zIndex = Math.round(laneY)
         this.fieldLayer.addChild(rig.root)
 
-        const hpMult = firewallHpMultiplier(this.wave)
-        const maxHp = def.hp * hpMult
+        const maxHp = def.hp * firewallHpMultiplier(this.wave) * difficulty.enemyHp
+        const bounty = def.bounty * firewallBountyMultiplier(this.wave)
         const altitude = def.altitude ?? 0
 
         const enemy: EnemyEntity = {
@@ -546,9 +571,10 @@ export class FirewallGame {
             maxHp,
             // Perspective: the far lanes cross the screen a little slower.
             speed: def.speed * lerp(0.86, 1.08, laneT),
-            damage: def.damage * (1 + (this.wave - 1) * 0.04),
-            bounty: def.bounty * firewallBountyMultiplier(this.wave),
-            armor: def.armor,
+            damage: def.damage * firewallDamageMultiplier(this.wave) * difficulty.enemyDamage,
+            bounty,
+            coinValue: firewallCoinValue(bounty, this.wave, difficulty, loadout.coinMultiplier),
+            armored: def.armored,
             stride: randomFloat() * Math.PI * 2,
             attackTimer: 0,
             burstLeft: 0,
@@ -610,15 +636,16 @@ export class FirewallGame {
                 }
             }
 
-            // Grid trap: ground units only, and only inside the band.
+            // Grid trap: ground units only, and only inside the band. The trap is
+            // kinetic — it is the answer to a plated wave walking the last 168px.
             if (spikeDps > 0 && !firewallIsAirborne(enemy.def) && enemy.x > WALL_X - SPIKE_BAND) {
-                this.damageEnemy(enemy, spikeDps * dt, false, false, false, false)
+                this.damageEnemy(enemy, spikeDps * dt, 'kinetic', false, false, false)
                 if (enemy.hp <= 0) {
                     this.killEnemy(i, 1)
                     continue
                 }
-                if (randomChance(dt * 6)) {
-                    this.emitSparks(enemy.x, enemy.laneY - 6, 1, 0x67e8f9)
+                if (randomChance(dt * 4)) {
+                    fx.trapZap(this.fxLayer, enemy.x, enemy.laneY)
                 }
             }
 
@@ -673,7 +700,7 @@ export class FirewallGame {
                 this.bulletLayer.addChild(gfx)
                 // Aimed at the middle of the wall face; the arc does the rest.
                 const targetX = WALL_X + 10
-                const targetY = HORIZON_Y + 90 - this.rise
+                const targetY = WALL_TOP_Y + 90
                 const speed = heavy ? SPIT_SPEED * 1.5 : SPIT_SPEED
                 const flightTime = Math.max(0.35, (targetX - originX) / speed)
                 this.spits.push({
@@ -709,20 +736,24 @@ export class FirewallGame {
     }
 
     /**
-     * Applies damage through plating. A non-AP round against a Siege Tank loses
-     * most of itself and says so with a dim grey number — the armour mechanic is
-     * invisible unless the feedback spells it out.
+     * Applies damage.
+     *
+     * There is no resistance term here on purpose — a source that is not the
+     * type an enemy is weak to deals its full damage, and one that is deals a
+     * quarter more. The floating number is coloured by the damage type either
+     * way, and the bonus hit is drawn larger with its type name, so the whole
+     * mechanic is legible from the field without a tooltip.
      */
     private damageEnemy(
         enemy: EnemyEntity,
         amount: number,
+        damageType: FirewallDamageType,
         flash: boolean,
         showNumber: boolean,
-        crit = false,
-        armorPiercing = false
+        crit = false
     ) {
-        const scale = firewallArmorScale(enemy.armor, armorPiercing)
-        const dealt = amount * scale
+        const bonus = firewallTypeMultiplier(damageType, enemy.armored)
+        const dealt = amount * bonus
         enemy.hp -= dealt
         if (flash) {
             enemy.flashMs = 90
@@ -730,12 +761,12 @@ export class FirewallGame {
         }
         if (showNumber) {
             const y = enemy.y - enemy.def.height * enemy.scale - 8
-            const resisted = scale < 0.9
+            const effective = bonus > 1
             fx.floatingText(
                 this.textLayer, enemy.x, y,
-                crit ? `${Math.round(dealt)}!` : `${Math.round(dealt)}`,
-                crit ? 0xfde047 : resisted ? 0x94a3b8 : 0xe2e8f0,
-                crit ? 1.5 : resisted ? 0.85 : 1
+                crit ? `${Math.round(dealt)}!` : effective ? `${Math.round(dealt)}+` : `${Math.round(dealt)}`,
+                crit ? 0xfde047 : FIREWALL_TYPE_HEX[damageType],
+                crit ? 1.5 : effective ? 1.2 : 0.95
             )
         }
         if (enemy.hp < enemy.maxHp && !enemy.healthBar) {
@@ -748,16 +779,17 @@ export class FirewallGame {
         if (enemy.healthBar) {
             fx.drawEnemyHealth(
                 enemy.healthBar, enemy.hp / enemy.maxHp,
-                enemy.def.height * 0.7, enemy.def.hex, enemy.armor >= 0.35
+                enemy.def.height * 0.7, enemy.def.hex, enemy.armored
             )
         }
     }
 
-    /** Removes an enemy and pays its bounty. `payout` scales it (the purge pays less). */
+    /** Removes an enemy and pays out. `payout` scales it (the purge pays less). */
     private killEnemy(index: number, payout: number) {
         const enemy = this.enemies[index]
         if (!enemy) return
-        const credits = Math.round(enemy.bounty * (this.loadout?.bountyMultiplier ?? 1) * payout)
+        const credits = Math.round(enemy.bounty * payout)
+        const coins = Math.round(enemy.coinValue * payout)
 
         this.emitShards(enemy, enemy.def.boss ? 42 : 8)
         fx.impactSpark(this.fxLayer, enemy.x, enemy.y - enemy.def.height * 0.45 * enemy.scale, enemy.def.hex, enemy.def.boss)
@@ -765,6 +797,7 @@ export class FirewallGame {
         if (credits > 0) {
             fx.floatingText(this.textLayer, enemy.x, enemy.y - enemy.def.height * enemy.scale - 20, `+${credits}`, fx.LIME, 1.1)
         }
+        if (coins > 0) this.dropCoins(enemy, coins)
         if (enemy.def.boss) {
             fx.shockRing(this.fxLayer, enemy.x, enemy.laneY, fx.RED, 520, 700)
             fx.screenFlash(this.overlayLayer, 0xffffff, 0.35)
@@ -788,6 +821,78 @@ export class FirewallGame {
         this.enemies.splice(index, 1)
     }
 
+    // ─── Coins ───────────────────────────────────────────────────────────────
+
+    /**
+     * Sheds an enemy's coin value as physical coins that fly to the wall.
+     *
+     * Split across a few discs rather than one so a boss reads as a payday, but
+     * capped hard: the value is what matters and forty sprites per kill on a
+     * late wave is a framerate problem, not a feeling.
+     */
+    private dropCoins(enemy: EnemyEntity, total: number) {
+        const count = enemy.def.boss ? 7 : total > 400 ? 3 : total > 80 ? 2 : 1
+        const share = Math.floor(total / count)
+        for (let i = 0; i < count; i++) {
+            // The last coin carries the rounding remainder, so the drop always
+            // banks exactly what the kill was worth.
+            const value = i === count - 1 ? total - share * (count - 1) : share
+            const gfx = fx.makeCoin(enemy.def.boss ? 1.5 : 1)
+            const fromX = enemy.x + randRange(-16, 16)
+            const fromY = enemy.y - enemy.def.height * enemy.scale * randRange(0.3, 0.8)
+            gfx.position.set(fromX, fromY)
+            this.fxLayer.addChild(gfx)
+            this.coins.push({
+                gfx,
+                x: fromX,
+                y: fromY,
+                fromX,
+                fromY,
+                // Apex above the straight line, so coins arc rather than slide.
+                arcY: Math.min(fromY, WALL_TOP_Y) - randRange(60, 150),
+                t: -i * 0.12,
+                value
+            })
+        }
+    }
+
+    private updateCoins(dtMs: number) {
+        const targetX = WALL_X + 46
+        const targetY = WALL_TOP_Y + 40
+        for (let i = this.coins.length - 1; i >= 0; i--) {
+            const coin = this.coins[i] as CoinEntity
+            coin.t += dtMs / COIN_FLIGHT_MS
+            if (coin.t < 0) continue
+            if (coin.t >= 1) {
+                this.bankCoin(coin, targetX, targetY)
+                this.coins.splice(i, 1)
+                continue
+            }
+            // Quadratic bezier through the apex — one lerp pair, no physics.
+            const t = coin.t
+            const inv = 1 - t
+            coin.x = inv * inv * coin.fromX + 2 * inv * t * ((coin.fromX + targetX) / 2) + t * t * targetX
+            coin.y = inv * inv * coin.fromY + 2 * inv * t * coin.arcY + t * t * targetY
+            coin.gfx.position.set(coin.x, coin.y)
+            // Squash on the horizontal axis so the disc reads as tumbling.
+            coin.gfx.scale.x = Math.cos(t * Math.PI * 5)
+            coin.gfx.alpha = t > 0.88 ? (1 - t) / 0.12 : 1
+        }
+    }
+
+    private bankCoin(coin: CoinEntity, x: number, y: number) {
+        coin.gfx.destroy()
+        fx.coinLanded(this.fxLayer, x, y)
+        this.waveCoins += coin.value
+        this.callbacks.onCoins(coin.value)
+    }
+
+    /** Banks everything still in flight — called when a wave settles. */
+    private flushCoins() {
+        for (const coin of this.coins) this.bankCoin(coin, WALL_X + 46, WALL_TOP_Y + 40)
+        this.coins = []
+    }
+
     // ─── Player weapon ───────────────────────────────────────────────────────
 
     private updateRailAim() {
@@ -795,8 +900,7 @@ export class FirewallGame {
         // Unclamped on purpose. The field is to the left, so aim angles live near
         // ±π — and any clamp expressed in atan2 space folds those onto the wrong
         // side, which pointed the barrel back into its own tower.
-        const muzzleY = MUZZLE_Y - this.rise
-        this.bastion.barrel.rotation = Math.atan2(this.aimY - muzzleY, this.aimX - MUZZLE_X)
+        this.bastion.barrel.rotation = Math.atan2(this.aimY - muzzleY(this.slots), this.aimX - MUZZLE_X)
     }
 
     private updateWeapon(dtMs: number) {
@@ -842,9 +946,8 @@ export class FirewallGame {
         this.emitAmmo()
 
         const angle = this.bastion.barrel.rotation
-        const muzzleY = MUZZLE_Y - this.rise
         const originX = MUZZLE_X + Math.cos(angle) * BARREL_LENGTH
-        const originY = muzzleY + Math.sin(angle) * BARREL_LENGTH
+        const originY = muzzleY(this.slots) + Math.sin(angle) * BARREL_LENGTH
 
         const crit = randomChance(loadout.critChance)
         const overclocked = this.overclockLeft > 0
@@ -855,7 +958,7 @@ export class FirewallGame {
         const spec: ShotSpec = {
             damage,
             pierce: weapon.pierce,
-            armorPiercing: weapon.armorPiercing,
+            damageType: weapon.damageType,
             splashRadius: weapon.splashRadius,
             splashDamage: weapon.splashDamage,
             homing: weapon.homing,
@@ -902,7 +1005,7 @@ export class FirewallGame {
             lifeMs: BULLET_LIFE_MS * (spec.homing ? 3.5 : 1),
             crit: spec.crit,
             fromTurret: spec.fromTurret,
-            armorPiercing: spec.armorPiercing,
+            damageType: spec.damageType,
             splashRadius: spec.splashRadius,
             splashDamage: spec.splashDamage,
             homing: spec.homing,
@@ -954,7 +1057,7 @@ export class FirewallGame {
                 if (!this.sweepHits(bullet, enemy)) continue
 
                 bullet.hit.add(enemy)
-                this.damageEnemy(enemy, bullet.damage, true, true, bullet.crit, bullet.armorPiercing)
+                this.damageEnemy(enemy, bullet.damage, bullet.damageType, true, true, bullet.crit)
                 fx.impactSpark(this.fxLayer, bullet.x, bullet.y, enemy.def.hex)
                 this.emitSparks(bullet.x, bullet.y, bullet.crit ? 5 : 3, enemy.def.hex)
 
@@ -1021,7 +1124,7 @@ export class FirewallGame {
             if (enemy === epicentre) continue
             const ey = enemy.y - enemy.def.height * enemy.scale * 0.5
             if (dist(bullet.x, bullet.y, enemy.x, ey) > bullet.splashRadius) continue
-            this.damageEnemy(enemy, bullet.splashDamage, true, false, false, bullet.armorPiercing)
+            this.damageEnemy(enemy, bullet.splashDamage, bullet.damageType, true, false, false)
             if (enemy.hp <= 0) this.killEnemy(e, 1)
         }
     }
@@ -1048,7 +1151,7 @@ export class FirewallGame {
             const targetY = best.y - best.def.height * best.scale * 0.5
             fx.chainArc(this.fxLayer, fromX, fromY, best.x, targetY, bullet.hex)
             bullet.hit.add(best)
-            this.damageEnemy(best, damage, true, true, false, bullet.armorPiercing)
+            this.damageEnemy(best, damage, bullet.damageType, true, true, false)
             if (best.hp <= 0) {
                 const index = this.enemies.indexOf(best)
                 if (index >= 0) this.killEnemy(index, 1)
@@ -1100,7 +1203,7 @@ export class FirewallGame {
             this.spawnBullet(originX, originY, angle, {
                 damage: mount.runtime.damage,
                 pierce: mount.runtime.pierce,
-                armorPiercing: mount.runtime.armorPiercing,
+                damageType: mount.runtime.damageType,
                 splashRadius: mount.runtime.splashRadius,
                 splashDamage: mount.runtime.splashDamage,
                 homing: isMissile,
@@ -1184,16 +1287,16 @@ export class FirewallGame {
         this.pulseCharge = 0
         this.emitPulse()
 
-        fx.shockRing(this.fxLayer, WALL_X, HORIZON_Y + 180 - this.rise, fx.CYAN, PULSE_RADIUS, 700)
+        fx.shockRing(this.fxLayer, WALL_X, WALL_TOP_Y + 180, fx.CYAN, PULSE_RADIUS, 700)
         fx.screenFlash(this.overlayLayer, 0x22d3ee, 0.4)
         this.addShake(16)
 
         for (let i = this.enemies.length - 1; i >= 0; i--) {
             const enemy = this.enemies[i] as EnemyEntity
             const falloff = clamp(1 - (WALL_X - enemy.x) / PULSE_RADIUS, 0.25, 1)
-            // The pulse burns straight through plating; it is the panic button,
-            // and a panic button armour ignores is not one.
-            this.damageEnemy(enemy, loadout.pulseDamage * falloff, true, true, false, true)
+            // The pulse is kinetic: it is the panic button, and the thing you
+            // panic about is a plated wave already inside the trap band.
+            this.damageEnemy(enemy, loadout.pulseDamage * falloff, 'kinetic', true, true, false)
             enemy.pushVx -= PULSE_KNOCKBACK * falloff * (enemy.def.boss ? 0.25 : 1)
             if (enemy.hp <= 0) this.killEnemy(i, 1)
         }
@@ -1225,7 +1328,13 @@ export class FirewallGame {
             const absorbed = Math.min(this.shield, remaining)
             this.shield -= absorbed
             remaining -= absorbed
-            fx.impactSpark(this.fxLayer, WALL_X + 6, sourceY, 0x67e8f9)
+            // The barrier lights up where it was struck, which is the only thing
+            // that distinguishes a soaked hit from one the wall took.
+            fx.shieldImpact(this.fxLayer, sourceY, absorbed > 40)
+            if (this.shield <= 0) {
+                fx.screenFlash(this.overlayLayer, 0x67e8f9, 0.18)
+                this.callbacks.onNotice('Barrier collapsed.', 'bad')
+            }
         }
         if (remaining > 0) {
             this.wallHp = Math.max(0, this.wallHp - remaining)
@@ -1269,10 +1378,14 @@ export class FirewallGame {
         const bucket = Math.floor(integrity * 20)
         if (bucket !== this.damageBucket) {
             this.damageBucket = bucket
-            fx.drawWallDamage(bastion.damage, integrity, this.rise)
-            fx.drawCore(bastion.core, integrity, this.rise)
+            fx.drawWallDamage(bastion.damage, integrity)
+            fx.drawCore(bastion.core, integrity)
         }
-        fx.drawShieldDome(bastion.shield, this.shieldMax > 0 ? this.shield / this.shieldMax : 0, this.rise)
+        fx.drawShieldDome(
+            bastion.shield,
+            this.shieldMax > 0 ? this.shield / this.shieldMax : 0,
+            this.elapsedTotal
+        )
     }
 
     // ─── Particles ───────────────────────────────────────────────────────────
@@ -1385,19 +1498,31 @@ export class FirewallGame {
         while (this.enemies.length) this.killEnemy(this.enemies.length - 1, FIREWALL_PURGE_BOUNTY)
         for (const spit of this.spits) spit.gfx.destroy()
         this.spits = []
+        // Coins still mid-flight belong to the wave that dropped them, so they
+        // bank before the summary rather than after it.
+        this.flushCoins()
 
         const integrity = this.wallMaxHp > 0 ? this.wallHp / this.wallMaxHp : 0
         const bonus = firewallClearBonus(this.wave, integrity)
         this.waveCredits += bonus
         this.callbacks.onCredits(bonus, 'clear')
 
+        const victory = this.wave >= FIREWALL_MAX_WAVE
+        if (victory) {
+            this.gameOver = true
+            fx.banner(this.overlayLayer, 'INTRUSION REPELLED', fx.LIME, `${FIREWALL_MAX_WAVE} waves held`)
+            fx.screenFlash(this.overlayLayer, 0xffffff, 0.4, 700)
+        }
+
         this.callbacks.onWaveEnd({
             wave: this.wave,
             kills: this.waveKills,
             credits: this.waveCredits,
+            coins: this.waveCoins,
             leaked: this.waveLeaks,
             wallHp: Math.round(this.wallHp),
-            wallMaxHp: this.wallMaxHp
+            wallMaxHp: this.wallMaxHp,
+            victory
         })
     }
 
@@ -1407,13 +1532,15 @@ export class FirewallGame {
         this.running = false
         this.purging = false
         this.firing = false
+        // Coins in the air when the wall fell were still earned.
+        this.flushCoins()
 
         fx.screenFlash(this.overlayLayer, fx.RED, 0.6, 900)
         fx.banner(this.overlayLayer, 'BREACHED', fx.RED, `wave ${this.wave}`)
         this.addShake(MAX_SHAKE)
-        if (this.bastion) fx.drawCore(this.bastion.core, 0, this.rise)
+        if (this.bastion) fx.drawCore(this.bastion.core, 0)
         for (let i = 0; i < 6; i++) {
-            fx.shockRing(this.fxLayer, WALL_X + randRange(0, 240), HORIZON_Y + randRange(40, 320), fx.RED, 300, 800)
+            fx.shockRing(this.fxLayer, WALL_X + randRange(0, 240), WALL_TOP_Y + randRange(40, 320), fx.RED, 300, 800)
         }
         this.callbacks.onGameOver({ wave: this.wave, kills: this.totalKills })
     }
@@ -1428,6 +1555,9 @@ export class FirewallGame {
         this.spits = []
         for (const particle of this.particles) particle.gfx.destroy()
         this.particles = []
+        // Dropped without banking: a cleared field is a run that is restarting.
+        for (const coin of this.coins) coin.gfx.destroy()
+        this.coins = []
         this.textLayer.removeChildren().forEach(child => child.destroy())
         this.shake = 0
         this.world.position.set(0, 0)

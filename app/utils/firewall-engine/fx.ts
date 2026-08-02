@@ -2,9 +2,10 @@ import { Container, Graphics, Text } from 'pixi.js'
 import type { TextStyleOptions } from 'pixi.js'
 import gsap from 'gsap'
 import {
-    GRID_COLS, GRID_ROWS, HORIZON_Y, LANE_FAR_Y, LANE_NEAR_Y, MUZZLE_X, MUZZLE_Y,
-    RAMPART_RISE, RIDGE_LAYERS, SPIKE_BAND, STAR_COUNT, TOWER_TOP_Y, TOWER_X,
-    TURRET_MOUNTS, VIEW_H, VIEW_W, WALL_X
+    CORE_X, CORE_Y, GRID_COLS, GRID_ROWS, HORIZON_Y, LANE_FAR_Y, LANE_NEAR_Y,
+    MOUNTS_PER_FLOOR, MUZZLE_X, RIDGE_LAYERS, SPIKE_BAND, STAR_COUNT,
+    TOWER_FLOOR_H, TOWER_ROOF_H, TOWER_W, TOWER_X, VIEW_H, VIEW_W, WALL_TOP_Y, WALL_X,
+    mountPosition, muzzleY, towerFloors, towerTopY
 } from './constants'
 import { clamp, lerp, mixHex, randRange, shadeHex } from './math'
 import type { FigureRig } from './types'
@@ -167,7 +168,7 @@ export interface BastionParts {
     damage: Graphics
     /** The core diamond, recoloured by integrity and pulsed continuously. */
     core: Graphics
-    /** Overshield dome, alpha driven by remaining shield. */
+    /** Overshield dome, redrawn per frame while it is up. */
     shield: Graphics
     /** Player's rail, rotated to the aim vector. */
     turret: Container
@@ -176,116 +177,138 @@ export interface BastionParts {
     hitFlash: Graphics
 }
 
-/** How far a given Ramparts level lifts the whole structure. */
-export function rampartRise(rampart: number) {
-    return rampart * RAMPART_RISE
-}
-
 /**
- * The bastion, built for a Ramparts level. Every level lifts the parapet, the
- * tower and the rail by a fixed amount and exposes another mount, so buying
- * base upgrades visibly grows the thing you are defending rather than just
- * moving a number in the HUD.
+ * The bastion, built for a mount count.
+ *
+ * The wall never moves; the tower on top of it does. One storey per pair of
+ * mounts means the building on screen is a direct readout of how much has been
+ * spent on it, and the mounts spread across each storey's outer edges instead of
+ * lining up along the parapet — a row of guns in one place reads as one gun.
  */
-export function buildBastion(rampart: number): BastionParts {
+export function buildBastion(slots: number): BastionParts {
     const root = new Container()
-    const rise = rampartRise(rampart)
-    /** Top of the wall face — everything structural hangs off this. */
-    const topY = HORIZON_Y - rise
-    const towerTop = TOWER_TOP_Y - rise
+    const floors = towerFloors(slots)
+    const towerTop = towerTopY(slots)
+    const shaftTop = towerTop + TOWER_ROOF_H
 
-    // Body of the wall: face, then the tower block behind it.
     const body = new Graphics()
     const groundY = VIEW_H + 10
-    body.rect(WALL_X, topY - 4, VIEW_W - WALL_X, groundY - topY)
-        .fill({ color: 0x131c2c })
-    body.rect(WALL_X, topY - 4, 26, groundY - topY)
-        .fill({ color: 0x1d2a40 })
-    // Panel seams down the face.
-    for (let y = topY + 26; y < VIEW_H; y += 54) {
+
+    // ── The wall ──
+    body.rect(WALL_X, WALL_TOP_Y - 4, VIEW_W - WALL_X, groundY - WALL_TOP_Y).fill({ color: 0x131c2c })
+    body.rect(WALL_X, WALL_TOP_Y - 4, 26, groundY - WALL_TOP_Y).fill({ color: 0x1d2a40 })
+    for (let y = WALL_TOP_Y + 26; y < VIEW_H; y += 54) {
         body.moveTo(WALL_X, y).lineTo(VIEW_W, y).stroke({ width: 2, color: 0x0a111c, alpha: 0.9 })
     }
     for (let x = WALL_X + 60; x < VIEW_W; x += 74) {
-        body.moveTo(x, topY).lineTo(x, VIEW_H).stroke({ width: 2, color: 0x0a111c, alpha: 0.6 })
+        body.moveTo(x, WALL_TOP_Y).lineTo(x, VIEW_H).stroke({ width: 2, color: 0x0a111c, alpha: 0.6 })
     }
     // Lit conduits running up the face — the only warm thing in the scene.
     for (let x = WALL_X + 34; x < VIEW_W; x += 74) {
-        body.rect(x, topY + 40, 3, VIEW_H - topY - 40).fill({ color: CYAN, alpha: 0.18 })
+        body.rect(x, WALL_TOP_Y + 40, 3, VIEW_H - WALL_TOP_Y - 40).fill({ color: CYAN, alpha: 0.18 })
     }
-
-    // Parapet the mounts bolt onto.
-    body.rect(WALL_X - 12, topY - 22, VIEW_W - WALL_X + 12, 26).fill({ color: 0x24334c })
+    // Parapet and crenellations.
+    body.rect(WALL_X - 12, WALL_TOP_Y - 20, VIEW_W - WALL_X + 12, 24).fill({ color: 0x24334c })
     for (let x = WALL_X - 8; x < VIEW_W; x += 40) {
-        body.rect(x, topY - 40, 22, 20).fill({ color: 0x1d2a40 })
+        body.rect(x, WALL_TOP_Y - 36, 22, 18).fill({ color: 0x1d2a40 })
     }
 
-    // The core tower rising behind the parapet.
-    body.rect(TOWER_X + 78, towerTop, 176, topY - towerTop + 6).fill({ color: 0x18243a })
-    body.rect(TOWER_X + 78, towerTop, 176, 10).fill({ color: 0x2b3d5c })
-    for (let i = 0; i < 5; i++) {
-        body.rect(TOWER_X + 96, towerTop + 24 + i * 20, 140, 8)
-            .fill({ color: CYAN, alpha: 0.1 + i * 0.03 })
+    // ── The tower shaft ──
+    body.rect(TOWER_X, shaftTop, TOWER_W, WALL_TOP_Y - shaftTop).fill({ color: 0x18243a })
+    body.rect(TOWER_X, shaftTop, 10, WALL_TOP_Y - shaftTop).fill({ color: 0x1f2d46 })
+    body.rect(TOWER_X + TOWER_W - 10, shaftTop, 10, WALL_TOP_Y - shaftTop).fill({ color: 0x111a2a })
+
+    for (let floor = 0; floor < floors; floor++) {
+        const floorTop = WALL_TOP_Y - (floor + 1) * TOWER_FLOOR_H
+        // Slab between storeys, so the count is countable at a glance.
+        body.rect(TOWER_X - 6, floorTop, TOWER_W + 12, 7).fill({ color: 0x2b3d5c })
+        body.rect(TOWER_X - 6, floorTop, TOWER_W + 12, 2).fill({ color: 0x486590, alpha: 0.9 })
+        // Glass band. Higher storeys are lit a little brighter, which gives the
+        // tower a top rather than reading as an extruded rectangle.
+        body.rect(TOWER_X + 22, floorTop + 18, TOWER_W - 44, TOWER_FLOOR_H - 32)
+            .fill({ color: 0x0b1220, alpha: 0.85 })
+        body.rect(TOWER_X + 22, floorTop + 18, TOWER_W - 44, TOWER_FLOOR_H - 32)
+            .stroke({ width: 1.5, color: CYAN, alpha: 0.14 + floor * 0.05 })
+        for (let i = 0; i < 3; i++) {
+            body.rect(TOWER_X + 34 + i * ((TOWER_W - 68) / 3), floorTop + 26, 10, TOWER_FLOOR_H - 48)
+                .fill({ color: CYAN, alpha: 0.08 + floor * 0.03 })
+        }
     }
-    // Mast and beacon.
-    body.rect(TOWER_X + 162, towerTop - 54, 6, 56).fill({ color: 0x2b3d5c })
-    const beacon = new Graphics()
-    beacon.circle(TOWER_X + 165, towerTop - 58, 6).fill({ color: RED })
-    beacon.circle(TOWER_X + 165, towerTop - 58, 14).fill({ color: RED, alpha: 0.2 })
-    track(gsap.to(beacon, { alpha: 0.25, duration: 1.1, repeat: -1, yoyo: true, ease: 'sine.inOut' }))
 
-    // Rail platform, and a gantry spine the upper mounts stand on.
-    body.rect(TOWER_X + 10, topY - 76, 84, 54).fill({ color: 0x24334c })
-    body.rect(TOWER_X + 10, topY - 76, 84, 8).fill({ color: 0x334a6e })
-    body.rect(TOWER_X + 6, towerTop + 10, 14, topY - towerTop - 76).fill({ color: 0x1d2a40 })
-
-    // Mount pads, so an empty mount still reads as a place a turret goes.
+    // ── Balconies ──
+    // Every mount the tower *could* hold gets its pad, so an empty one still
+    // reads as a place a turret goes rather than as a missing piece of building.
     const pads = new Graphics()
-    for (const anchor of TURRET_MOUNTS) {
-        pads.rect(anchor.x - 16, anchor.y - rise, 32, 9).fill({ color: 0x24334c })
-        pads.rect(anchor.x - 16, anchor.y - rise, 32, 3).fill({ color: 0x334a6e, alpha: 0.8 })
+    for (let slot = 0; slot < floors * MOUNTS_PER_FLOOR; slot++) {
+        const mount = mountPosition(slot)
+        const inner = mount.x - mount.facing * 4
+        const outer = mount.x + mount.facing * 26
+        pads.poly([
+            inner, mount.y - 6,
+            outer, mount.y - 2,
+            outer, mount.y + 9,
+            inner, mount.y + 13
+        ]).fill({ color: 0x24334c })
+        pads.poly([inner, mount.y - 6, outer, mount.y - 2, outer, mount.y + 1, inner, mount.y - 3])
+            .fill({ color: 0x486590, alpha: 0.8 })
+        // Strut back to the shaft, so the balcony is carried by something.
+        pads.poly([inner, mount.y + 13, outer, mount.y + 9, inner, mount.y + 26])
+            .fill({ color: 0x141e30 })
     }
+
+    // ── Roof and beacon ──
+    body.rect(TOWER_X - 12, towerTop, TOWER_W + 24, TOWER_ROOF_H).fill({ color: 0x24334c })
+    body.rect(TOWER_X - 12, towerTop, TOWER_W + 24, 5).fill({ color: 0x486590 })
+    body.rect(TOWER_X + 16, towerTop - 9, TOWER_W - 32, 10).fill({ color: 0x1d2a40 })
+
+    const beacon = new Graphics()
+    const beaconY = towerTop - 15
+    beacon.circle(TOWER_X + TOWER_W - 26, beaconY, 5).fill({ color: RED })
+    beacon.circle(TOWER_X + TOWER_W - 26, beaconY, 13).fill({ color: RED, alpha: 0.2 })
+    track(gsap.to(beacon, { alpha: 0.25, duration: 1.1, repeat: -1, yoyo: true, ease: 'sine.inOut' }))
 
     const damage = new Graphics()
     const core = new Graphics()
     const shield = new Graphics()
     const hitFlash = new Graphics()
-    hitFlash.rect(WALL_X - 14, topY - 44, VIEW_W - WALL_X + 14, VIEW_H - topY + 44)
+    hitFlash.rect(WALL_X - 14, WALL_TOP_Y - 40, VIEW_W - WALL_X + 14, VIEW_H - WALL_TOP_Y + 40)
         .fill({ color: 0xffffff })
     hitFlash.alpha = 0
     hitFlash.blendMode = 'add'
 
     const rail = buildRail()
-    rail.root.position.set(MUZZLE_X, MUZZLE_Y - rise)
+    rail.root.position.set(MUZZLE_X, muzzleY(slots))
 
     root.addChild(body, pads, damage, core, beacon, rail.root, shield, hitFlash)
-    drawCore(core, 1, rise)
+    drawCore(core, 1)
     track(gsap.to(core.scale, { x: 1.06, y: 1.06, duration: 1.5, repeat: -1, yoyo: true, ease: 'sine.inOut' }))
 
     return { root, damage, core, shield, turret: rail.root, barrel: rail.barrel, hitFlash }
 }
 
-/** The diamond behind the tower glass. Colour is the integrity readout. */
-export function drawCore(gfx: Graphics, integrity: number, rise = 0) {
+/** The diamond behind the ground-storey glass. Colour is the integrity readout. */
+export function drawCore(gfx: Graphics, integrity: number) {
     const hex = integrity > 0.55 ? CYAN : integrity > 0.25 ? AMBER : RED
-    const cx = TOWER_X + 166
-    const cy = TOWER_TOP_Y + 118 - rise
     gfx.clear()
-    gfx.poly([cx, cy - 40, cx + 30, cy, cx, cy + 40, cx - 30, cy]).fill({ color: hex, alpha: 0.22 })
-    gfx.poly([cx, cy - 26, cx + 19, cy, cx, cy + 26, cx - 19, cy]).fill({ color: hex, alpha: 0.55 })
-    gfx.poly([cx, cy - 12, cx + 9, cy, cx, cy + 12, cx - 9, cy]).fill({ color: 0xffffff, alpha: 0.85 })
-    gfx.pivot.set(cx, cy)
-    gfx.position.set(cx, cy)
+    gfx.poly([CORE_X, CORE_Y - 26, CORE_X + 20, CORE_Y, CORE_X, CORE_Y + 26, CORE_X - 20, CORE_Y])
+        .fill({ color: hex, alpha: 0.22 })
+    gfx.poly([CORE_X, CORE_Y - 17, CORE_X + 13, CORE_Y, CORE_X, CORE_Y + 17, CORE_X - 13, CORE_Y])
+        .fill({ color: hex, alpha: 0.55 })
+    gfx.poly([CORE_X, CORE_Y - 8, CORE_X + 6, CORE_Y, CORE_X, CORE_Y + 8, CORE_X - 6, CORE_Y])
+        .fill({ color: 0xffffff, alpha: 0.85 })
+    gfx.pivot.set(CORE_X, CORE_Y)
+    gfx.position.set(CORE_X, CORE_Y)
 }
 
 /**
  * Damage decals, drawn in buckets rather than continuously — a redraw per hit
  * on a full-height Graphics is wasted work nobody can see.
  */
-export function drawWallDamage(gfx: Graphics, integrity: number, rise = 0) {
+export function drawWallDamage(gfx: Graphics, integrity: number) {
     gfx.clear()
     if (integrity >= 0.98) return
     const severity = 1 - integrity
-    const topY = HORIZON_Y - rise
+    const topY = WALL_TOP_Y
     // Many short fractures rather than a few long ones. Two big zigzags on a
     // dark wall read as stray glyphs; a spread of small ones reads as damage.
     const cracks = Math.max(4, Math.round(severity * 34))
@@ -323,18 +346,106 @@ export function drawWallDamage(gfx: Graphics, integrity: number, rise = 0) {
     }
 }
 
-/** The overshield dome, wrapping the wall face. */
-export function drawShieldDome(gfx: Graphics, fraction: number, rise = 0) {
+// ─── Barrier ────────────────────────────────────────────────────────────────
+
+/** Geometry of the barrier dome, shared by the drawing and the impact ripples. */
+const DOME_CX = WALL_X + 34
+const DOME_CY = (WALL_TOP_Y + VIEW_H) * 0.5
+const DOME_RX = 116
+const DOME_RY = (VIEW_H - WALL_TOP_Y) * 0.62
+
+/**
+ * The overshield dome.
+ *
+ * Redrawn per frame rather than built once, because a static translucent ellipse
+ * in front of a dark wall is genuinely invisible — players could not tell a full
+ * barrier from a dead one. What sells it is motion the wall does not have: a
+ * hexagonal cell lattice that scrolls, a scanline travelling up the face, and a
+ * rim whose brightness tracks the charge left. All three run off the clock, so
+ * the whole thing is one Graphics rebuild a frame and no tweens to leak.
+ */
+export function drawShieldDome(gfx: Graphics, fraction: number, timeMs: number) {
     gfx.clear()
     if (fraction <= 0) return
-    const alpha = 0.12 + fraction * 0.3
-    const cy = HORIZON_Y + 190 - rise * 0.5
-    const ry = 300 + rise * 0.5
-    for (let i = 0; i < 3; i++) {
-        gfx.ellipse(WALL_X + 40, cy, 92 + i * 12, ry + i * 16)
-            .stroke({ width: 3 - i, color: 0x67e8f9, alpha: alpha * (1 - i * 0.28) })
+
+    const charge = clamp(fraction, 0, 1)
+    // A barrier about to fail flickers and pulls in, so "nearly gone" is legible
+    // without reading the meter.
+    const flicker = charge < 0.3 ? 0.72 + Math.sin(timeMs / 42) * 0.28 : 1
+    const alpha = (0.16 + charge * 0.34) * flicker
+    const rx = DOME_RX * (0.82 + charge * 0.18)
+    const ry = DOME_RY * (0.9 + charge * 0.1)
+    const hex = charge > 0.35 ? 0x67e8f9 : AMBER
+
+    gfx.ellipse(DOME_CX, DOME_CY, rx, ry).fill({ color: hex, alpha: alpha * 0.14 })
+
+    // Cell lattice: chords across the dome at a scrolling offset. Cheap, and it
+    // gives the surface something for the eye to track as it moves.
+    const cells = 9
+    const scroll = (timeMs / 2600) % 1
+    for (let i = 0; i < cells; i++) {
+        const t = ((i / cells) + scroll) % 1
+        const y = DOME_CY - ry + ry * 2 * t
+        // Half-width of the ellipse at this height, so the lattice hugs the shell.
+        const k = 1 - Math.pow((y - DOME_CY) / ry, 2)
+        if (k <= 0) continue
+        const half = rx * Math.sqrt(k)
+        gfx.moveTo(DOME_CX - half, y).lineTo(DOME_CX + half, y)
+            .stroke({ width: 1, color: hex, alpha: alpha * 0.35 })
+        gfx.moveTo(DOME_CX - half * 0.5, y - 9).lineTo(DOME_CX - half, y)
+            .lineTo(DOME_CX - half * 0.5, y + 9)
+            .stroke({ width: 1, color: hex, alpha: alpha * 0.22 })
     }
-    gfx.ellipse(WALL_X + 40, cy, 92, ry).fill({ color: 0x22d3ee, alpha: alpha * 0.12 })
+
+    // Travelling scanline — one bright band climbing the shell.
+    const scanT = (timeMs / 1500) % 1
+    const scanY = DOME_CY + ry - ry * 2 * scanT
+    const scanK = 1 - Math.pow((scanY - DOME_CY) / ry, 2)
+    if (scanK > 0) {
+        const half = rx * Math.sqrt(scanK)
+        gfx.moveTo(DOME_CX - half, scanY).lineTo(DOME_CX + half, scanY)
+            .stroke({ width: 3, color: 0xffffff, alpha: alpha * 0.5 })
+    }
+
+    // Rim, brightest on the leading (left) edge where hits land.
+    for (let i = 0; i < 3; i++) {
+        gfx.ellipse(DOME_CX, DOME_CY, rx + i * 7, ry + i * 9)
+            .stroke({ width: 3 - i * 0.8, color: hex, alpha: alpha * (1 - i * 0.3) })
+    }
+    gfx.blendMode = 'add'
+}
+
+/**
+ * A hit on the barrier: a hexagonal cell lights up where the round landed and a
+ * ripple runs out from it along the shell. This is the feedback that tells you
+ * the barrier ate the hit rather than the wall — without it, a shielded hit and
+ * an unshielded one look identical.
+ */
+export function shieldImpact(layer: Container, y: number, strong = false) {
+    const clampedY = clamp(y, DOME_CY - DOME_RY + 6, DOME_CY + DOME_RY - 6)
+    const k = Math.max(0.05, 1 - Math.pow((clampedY - DOME_CY) / DOME_RY, 2))
+    const x = DOME_CX - DOME_RX * Math.sqrt(k)
+
+    const gfx = new Graphics()
+    const r = strong ? 30 : 20
+    // The lit cell.
+    const cell: number[] = []
+    for (let i = 0; i < 6; i++) {
+        const a = (i / 6) * Math.PI * 2
+        cell.push(Math.cos(a) * r * 0.5, Math.sin(a) * r * 0.85)
+    }
+    gfx.poly(cell).fill({ color: 0xffffff, alpha: 0.5 })
+    gfx.poly(cell).stroke({ width: 2.5, color: 0x67e8f9, alpha: 0.95 })
+    // Two ripple rings, flattened onto the shell's curve.
+    for (let i = 1; i <= 2; i++) {
+        gfx.ellipse(0, 0, r * i * 0.7, r * i * 1.15)
+            .stroke({ width: 2 / i, color: 0xa5f3fc, alpha: 0.6 / i })
+    }
+    gfx.blendMode = 'add'
+    gfx.position.set(x, clampedY)
+    layer.addChild(gfx)
+    gsap.to(gfx.scale, { x: strong ? 2.4 : 1.8, y: strong ? 2.4 : 1.8, duration: 0.34, ease: 'power2.out' })
+    gsap.to(gfx, { alpha: 0, duration: 0.34, onComplete: () => { if (!gfx.destroyed) gfx.destroy() } })
 }
 
 /** Player's rail cannon: a yoke that pivots and a barrel that recoils. */
@@ -408,36 +519,130 @@ export function buildTurret(kind: FirewallTurretId, hex: number): { root: Contai
     return { root, barrel }
 }
 
+// ─── Grid trap ──────────────────────────────────────────────────────────────
+
+const TRAP_TOP = LANE_FAR_Y - 30
+const TRAP_BOTTOM = LANE_NEAR_Y + 34
+
+/** Deterministic hash, so the trap's "random" arcs are stable frame to frame. */
+function noise(seed: number) {
+    const x = Math.sin(seed * 127.1) * 43758.5453
+    return x - Math.floor(x)
+}
+
 /**
- * The electrified band in front of the wall. Redrawn per frame because the arcs
- * are the whole point — a static trap field reads as scenery and players stop
- * noticing it is doing damage.
+ * The electrified band in front of the wall.
+ *
+ * Redrawn per frame because the motion is the whole point — the old version was
+ * two sine waves crossing a flat rectangle, and once it stopped being new the
+ * eye filed it as scenery and stopped registering that it was doing damage. This
+ * one is built out of things that read as apparatus: emitter pylons down both
+ * edges with charge caps that pulse on a shared clock, a floor that brightens
+ * between discharges, and forked bolts that jump pylon-to-pylon on a stagger.
+ * Intensity scales every one of those with the level bought, so upgrading the
+ * trap is visible on the field and not only in the shop.
  */
 export function drawSpikeBand(gfx: Graphics, dps: number, timeMs: number) {
     gfx.clear()
     if (dps <= 0) return
-    const intensity = clamp(0.3 + dps / 300, 0, 1)
-    const left = WALL_X - SPIKE_BAND
-    gfx.rect(left, LANE_FAR_Y - 30, SPIKE_BAND, LANE_NEAR_Y - LANE_FAR_Y + 60)
-        .fill({ color: 0x22d3ee, alpha: 0.05 + intensity * 0.06 })
 
-    for (let lane = 0; lane <= 6; lane++) {
-        const y = lerp(LANE_FAR_Y - 20, LANE_NEAR_Y + 30, lane / 6)
+    const intensity = clamp(0.25 + dps / 340, 0, 1)
+    const left = WALL_X - SPIKE_BAND
+    const height = TRAP_BOTTOM - TRAP_TOP
+    const pylons = 6
+    // Charge cycle: the floor swells, then the bolts fire on the discharge.
+    const cycle = (timeMs / 900) % 1
+    const charge = Math.pow(Math.sin(cycle * Math.PI), 2)
+
+    // Floor glow, brightest at the wall end where the field is anchored.
+    for (let i = 0; i < 4; i++) {
+        const t = i / 4
+        gfx.rect(lerp(left, WALL_X, t), TRAP_TOP, SPIKE_BAND * 0.25 + 2, height)
+            .fill({ color: 0x0ea5e9, alpha: (0.03 + intensity * 0.05) * (0.5 + t * 0.9) * (0.6 + charge * 0.6) })
+    }
+
+    // Conductor rails running the length of the band, one per lane row.
+    for (let lane = 0; lane <= pylons; lane++) {
+        const y = lerp(TRAP_TOP, TRAP_BOTTOM, lane / pylons)
         gfx.moveTo(left, y).lineTo(WALL_X, y)
-            .stroke({ width: 1.5, color: 0x0ea5e9, alpha: 0.2 + intensity * 0.2 })
+            .stroke({ width: 1.5, color: 0x0ea5e9, alpha: 0.16 + intensity * 0.22 })
     }
-    // Two travelling arcs, phase-offset, walking up the band.
-    for (let a = 0; a < 2; a++) {
-        const phase = ((timeMs / 620) + a * 0.5) % 1
-        const x = left + SPIKE_BAND * phase
-        gfx.moveTo(x, LANE_FAR_Y - 26)
-        for (let s = 1; s <= 8; s++) {
-            const t = s / 8
-            const y = lerp(LANE_FAR_Y - 26, LANE_NEAR_Y + 30, t)
-            gfx.lineTo(x + Math.sin(t * 9 + timeMs / 90) * 12, y)
+
+    // Emitter pylons down both edges, caps lit on the charge cycle.
+    for (let lane = 0; lane <= pylons; lane++) {
+        const y = lerp(TRAP_TOP, TRAP_BOTTOM, lane / pylons)
+        // Nearer lanes are drawn lower and read larger, so the band has depth.
+        const size = lerp(5, 9, lane / pylons)
+        for (const x of [left, WALL_X - 4]) {
+            gfx.rect(x - 2, y - size * 1.6, 4, size * 1.6).fill({ color: 0x1d2a40 })
+            gfx.circle(x, y - size * 1.7, size * 0.42)
+                .fill({ color: 0x67e8f9, alpha: 0.35 + charge * 0.55 * intensity })
         }
-        gfx.stroke({ width: 2.5, color: 0x67e8f9, alpha: 0.35 + intensity * 0.4 })
     }
+
+    // Bolts. Each jumps the band at its own lane on its own stagger, and forks
+    // once — a straight line reads as a wire, a forked one reads as a discharge.
+    const bolts = 2 + Math.round(intensity * 3)
+    for (let b = 0; b < bolts; b++) {
+        const phase = (timeMs / 620 + b * 0.37) % 1
+        // Only alive for the front half of its own phase: the gaps are what make
+        // the discharges read as discrete events rather than as a running hum.
+        if (phase > 0.45) continue
+        const life = 1 - phase / 0.45
+        const lane = Math.floor(noise(b * 3.7 + Math.floor(timeMs / 620 + b * 0.37)) * (pylons + 1))
+        const y = lerp(TRAP_TOP, TRAP_BOTTOM, lane / pylons)
+        const alpha = (0.4 + intensity * 0.5) * life
+
+        const steps = 7
+        const points: [number, number][] = []
+        for (let s = 0; s <= steps; s++) {
+            const t = s / steps
+            const jitter = s === 0 || s === steps
+                ? 0
+                : (noise(b * 11.3 + s + Math.floor(timeMs / 620)) - 0.5) * 26
+            points.push([lerp(left, WALL_X, t), y + jitter])
+        }
+        const trace = () => {
+            gfx.moveTo(points[0]![0], points[0]![1])
+            for (const [px, py] of points.slice(1)) gfx.lineTo(px, py)
+        }
+        trace()
+        gfx.stroke({ width: 7, color: 0x22d3ee, alpha: alpha * 0.25 })
+        trace()
+        gfx.stroke({ width: 2, color: 0xe0f2fe, alpha })
+
+        // The fork, branching off the middle of the run.
+        const mid = points[Math.floor(steps / 2)]!
+        gfx.moveTo(mid[0], mid[1])
+            .lineTo(mid[0] + 24, mid[1] + (lane > pylons / 2 ? -22 : 22))
+            .lineTo(mid[0] + 52, mid[1] + (lane > pylons / 2 ? -14 : 14))
+            .stroke({ width: 1.5, color: 0xa5f3fc, alpha: alpha * 0.75 })
+    }
+}
+
+/**
+ * A single enemy taking a tick of trap damage: the bolt earths through it. Fired
+ * sparingly by the engine so the band stays readable when a crowd is standing
+ * in it.
+ */
+export function trapZap(layer: Container, x: number, y: number) {
+    const gfx = new Graphics()
+    const height = randRange(26, 44)
+    gfx.moveTo(0, 0)
+    for (let i = 1; i <= 4; i++) {
+        gfx.lineTo(randRange(-9, 9), -height * (i / 4))
+    }
+    gfx.stroke({ width: 6, color: 0x22d3ee, alpha: 0.3 })
+    gfx.moveTo(0, 0)
+    for (let i = 1; i <= 4; i++) {
+        gfx.lineTo(randRange(-7, 7), -height * (i / 4))
+    }
+    gfx.stroke({ width: 1.8, color: 0xe0f2fe, alpha: 0.9 })
+    gfx.ellipse(0, 0, 13, 4).fill({ color: 0x67e8f9, alpha: 0.55 })
+    gfx.blendMode = 'add'
+    gfx.position.set(x, y)
+    layer.addChild(gfx)
+    gsap.to(gfx, { alpha: 0, duration: 0.16, onComplete: () => { if (!gfx.destroyed) gfx.destroy() } })
 }
 
 // ─── Enemy figures ──────────────────────────────────────────────────────────
@@ -837,19 +1042,17 @@ export function buildFigure(def: FirewallEnemyDefinition): FigureRig {
         }
     }
 
-    // Plated units carry a chevron badge. Armour is invisible until you shoot it
-    // and see a grey number, and by then the wave is already on the wall.
-    if (def.armor >= 0.35) {
+    // Plated units carry a chevron badge in the kinetic colour, which is the
+    // same amber the damage numbers use when a kinetic source lands on one. The
+    // badge is the promise; the number is the payoff.
+    if (def.armored) {
         const badge = new Graphics()
         const by = -h - 22
-        badge.poly([0, by - 7, 8, by - 2, 8, by + 5, 0, by + 9, -8, by + 5, -8, by - 2])
-            .fill({ color: 0x0b1220, alpha: 0.9 })
-        badge.poly([0, by - 7, 8, by - 2, 8, by + 5, 0, by + 9, -8, by + 5, -8, by - 2])
-            .stroke({ width: 1.5, color: hex, alpha: 0.9 })
+        const plate = [0, by - 7, 8, by - 2, 8, by + 5, 0, by + 9, -8, by + 5, -8, by - 2]
+        badge.poly(plate).fill({ color: 0x0b1220, alpha: 0.9 })
+        badge.poly(plate).stroke({ width: 1.5, color: AMBER, alpha: 0.9 })
         badge.moveTo(-3.5, by + 2).lineTo(0, by - 2).lineTo(3.5, by + 2)
-            .stroke({ width: 1.5, color: hex, alpha: 0.95 })
-        // Undo the body scale so the badge stays legible on far-lane units.
-        badge.scale.set(1)
+            .stroke({ width: 1.5, color: AMBER, alpha: 0.95 })
         root.addChild(badge)
     }
 
@@ -1141,6 +1344,32 @@ export function drawEnemyHealth(gfx: Graphics, fraction: number, width: number, 
         gfx.rect(x, 0, 2, 4).fill({ color: 0x0b1220, alpha: 0.55 })
     }
     gfx.rect(-width / 2, -1, width, 6).stroke({ width: 1, color: 0xe2e8f0, alpha: 0.5 })
+}
+
+/**
+ * A coin shed by something that died. The engine flies it to the wall and banks
+ * it; this is only the look — a spinning disc, drawn as a squashing ellipse so
+ * it reads as a coin tumbling rather than as a dot.
+ */
+export function makeCoin(size = 1) {
+    const gfx = new Graphics()
+    gfx.circle(0, 0, 11 * size).fill({ color: AMBER, alpha: 0.22 })
+    gfx.circle(0, 0, 6.5 * size).fill({ color: 0xfde047 })
+    gfx.circle(0, 0, 6.5 * size).stroke({ width: 1.4, color: 0xa16207, alpha: 0.9 })
+    gfx.circle(-1.6 * size, -1.6 * size, 2.1 * size).fill({ color: 0xfffbeb, alpha: 0.85 })
+    return gfx
+}
+
+/** The bank flash when a coin reaches the wall. */
+export function coinLanded(layer: Container, x: number, y: number) {
+    const gfx = new Graphics()
+    gfx.circle(0, 0, 9).fill({ color: 0xfde047, alpha: 0.8 })
+    gfx.circle(0, 0, 20).stroke({ width: 2, color: AMBER, alpha: 0.5 })
+    gfx.blendMode = 'add'
+    gfx.position.set(x, y)
+    layer.addChild(gfx)
+    gsap.to(gfx.scale, { x: 1.9, y: 1.9, duration: 0.26, ease: 'power2.out' })
+    gsap.to(gfx, { alpha: 0, duration: 0.26, onComplete: () => { if (!gfx.destroyed) gfx.destroy() } })
 }
 
 /** Ground scorch left where something died. Fades on its own. */

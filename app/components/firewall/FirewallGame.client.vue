@@ -2,35 +2,113 @@
 import { FirewallGame } from '~/utils/firewall-engine'
 import type { FirewallWaveSummary } from '~/utils/firewall-engine'
 import {
-  FIREWALL_TURRETS, FIREWALL_TURRET_REFUND, FIREWALL_UPGRADES, FIREWALL_WAVE_MS, FIREWALL_WEAPONS,
-  firewallEmptyArmoury, firewallIsBossWave, firewallLoadout, firewallRepairCost, firewallSlots,
-  firewallTurret, firewallUpgradeCost, firewallWeapon, firewallWeaponRuntime,
-  type FirewallArmoury, type FirewallTab, type FirewallTurretId,
-  type FirewallUpgradeId, type FirewallWeaponId
+  FIREWALL_MAX_WAVE, FIREWALL_TURRETS, FIREWALL_TURRET_REFUND, FIREWALL_UPGRADES,
+  FIREWALL_WAVE_MS, FIREWALL_WEAPONS, FIREWALL_SAVE_VERSION,
+  firewallDifficulty, firewallEmptyArmoury, firewallIsBossWave, firewallLoadout,
+  firewallMainframeEffects, firewallRepairCost, firewallSlots, firewallTurret,
+  firewallUpgradeCost, firewallWeapon, firewallWeaponRuntime, firewallWeaponUnlockWave,
+  type FirewallArmoury, type FirewallDifficultyId, type FirewallMainframeId,
+  type FirewallMainframeLevels, type FirewallRunSave, type FirewallTab,
+  type FirewallTurretId, type FirewallUpgradeId, type FirewallWeaponId
 } from '#shared/utils/gamelogic/firewall'
 
-type Phase = 'briefing' | 'wave' | 'shop' | 'over'
+type Phase = 'loading' | 'lobby' | 'wave' | 'shop' | 'over' | 'won'
+
+const { fetchSession } = useAuth()
+const toast = useToast()
 
 const host = ref<HTMLDivElement | null>(null)
 const shell = ref<HTMLDivElement | null>(null)
 
-const phase = ref<Phase>('briefing')
+const phase = ref<Phase>('loading')
 const paused = ref(false)
 
-// ─── Meta state ─────────────────────────────────────────────────────────────
+// ─── Account state ──────────────────────────────────────────────────────────
+// The Mainframe and the difficulty gate live on the server; everything below is
+// a mirror of the last `state.get`, refreshed after anything that mutates it.
+
+type FirewallStateResponse = Awaited<ReturnType<typeof loadState>>
+
+const account = ref<FirewallStateResponse | null>(null)
+const mainframeLevels = computed<FirewallMainframeLevels>(() =>
+  account.value?.levels ?? {
+    bulwark: 0, munitions: 0, foundry: 0, grant: 0, salvage: 0, capacitor: 0, charter: 0, arsenal: 0
+  })
+const effects = computed(() => firewallMainframeEffects(mainframeLevels.value))
+const bestWave = computed(() => account.value?.stats.bestWave ?? 0)
+const busy = ref(false)
+
+function loadState() {
+  return $fetch('/api/firewall/state')
+}
+
+async function refreshState() {
+  account.value = await loadState()
+}
+
+// ─── Run state ──────────────────────────────────────────────────────────────
 // Credits and the armoury live here rather than in the engine: the engine runs
 // a wave, the uplink runs the economy, and the only thing that crosses between
 // them is a derived loadout.
 
+const difficultyId = ref<FirewallDifficultyId>('breach')
 const armoury = ref<FirewallArmoury>(firewallEmptyArmoury())
 const credits = ref(0)
-const earned = ref(0)
+const coins = ref(0)
 const wave = ref(0)
 const totalKills = ref(0)
 const lastSummary = ref<FirewallWaveSummary | null>(null)
+const payout = ref<{
+  awarded: number
+  capped: boolean
+  victory: boolean
+  /** Deepest wave the *save* reached — see `settleRun`. */
+  wave: number
+  kills: number
+  /** The fatal wave banked coins the save never got to store. */
+  lostWave: boolean
+} | null>(null)
 
-const loadout = computed(() => firewallLoadout(armoury.value))
+const difficulty = computed(() => firewallDifficulty(difficultyId.value))
+const loadout = computed(() => firewallLoadout(armoury.value, mainframeLevels.value, difficultyId.value))
 const levels = computed(() => armoury.value.levels)
+
+// ─── Saving ─────────────────────────────────────────────────────────────────
+
+const revision = ref(0)
+const saveState = ref<'idle' | 'saving' | 'saved' | 'error'>('idle')
+const savedAt = ref<Date | null>(null)
+
+/**
+ * Freezes the run. Only ever called from the uplink, which is the one moment the
+ * game has no wave in flight and is therefore the one moment worth storing.
+ */
+async function saveRun() {
+  if (phase.value !== 'shop' || !game) return
+  saveState.value = 'saving'
+  const save: FirewallRunSave = {
+    version: FIREWALL_SAVE_VERSION,
+    difficulty: difficultyId.value,
+    wave: wave.value,
+    credits: Math.round(credits.value),
+    coins: Math.round(coins.value),
+    kills: totalKills.value,
+    wallHp: game.currentWallHp,
+    armoury: armoury.value
+  }
+  try {
+    const result = await $fetch('/api/firewall/run', {
+      method: 'PUT',
+      body: { revision: revision.value, save }
+    })
+    revision.value = result.revision
+    savedAt.value = new Date(result.updatedAt)
+    saveState.value = 'saved'
+  } catch {
+    saveState.value = 'error'
+    pushNotice('Could not reach the uplink — progress is not saved.', 'bad')
+  }
+}
 
 // ─── Live HUD state ─────────────────────────────────────────────────────────
 
@@ -99,10 +177,8 @@ onMounted(async () => {
       waveMsLeft.value = msLeft
       alive.value = count
     },
-    onCredits: (delta) => {
-      credits.value += delta
-      earned.value += delta
-    },
+    onCredits: (delta) => { credits.value += delta },
+    onCoins: (delta) => { coins.value += delta },
     onPulse: (charge, cooldown) => {
       pulseCharge.value = charge
       pulseCooldown.value = cooldown
@@ -113,14 +189,10 @@ onMounted(async () => {
       overclockLeft.value = activeMs
     },
     onWeapon: (id) => { armoury.value = { ...armoury.value, active: id } },
-    onWaveEnd: (summary) => {
-      lastSummary.value = summary
-      totalKills.value += summary.kills
-      phase.value = 'shop'
-    },
+    onWaveEnd: onWaveEnd,
     onGameOver: (stats) => {
       totalKills.value = stats.kills
-      phase.value = 'over'
+      settleRun('defeat')
     },
     onBoss: name => pushNotice(`${name} detected`, 'bad'),
     onNotice: pushNotice
@@ -130,6 +202,9 @@ onMounted(async () => {
   document.addEventListener('visibilitychange', onVisibility)
   document.addEventListener('fullscreenchange', syncFullscreen)
   window.addEventListener('keydown', onHotkey)
+
+  await refreshState()
+  phase.value = 'lobby'
 })
 
 onBeforeUnmount(() => {
@@ -161,7 +236,7 @@ function onHotkey(event: KeyboardEvent) {
 function selectWeapon(id: FirewallWeaponId) {
   if (!armoury.value.owned.includes(id) || armoury.value.active === id) return
   armoury.value = { ...armoury.value, active: id }
-  game?.swapWeapon(firewallWeaponRuntime(id, levels.value))
+  game?.swapWeapon(firewallWeaponRuntime(id, levels.value, effects.value))
 }
 
 function togglePause() {
@@ -173,19 +248,54 @@ function togglePause() {
 
 // ─── Run flow ───────────────────────────────────────────────────────────────
 
-function startRun() {
-  if (!game) return
-  armoury.value = firewallEmptyArmoury()
-  credits.value = 150
-  earned.value = 0
-  totalKills.value = 0
+/** Loads a save — fresh from `start-run` or resumed — onto the field. */
+function hydrate(save: FirewallRunSave, rev: number) {
+  difficultyId.value = save.difficulty
+  armoury.value = save.armoury
+  credits.value = save.credits
+  coins.value = save.coins
+  wave.value = save.wave
+  totalKills.value = save.kills
+  revision.value = rev
   lastSummary.value = null
+  payout.value = null
   notices.value = []
-  wave.value = 1
   paused.value = false
-  game.startRun(loadout.value)
-  game.startWave(1, loadout.value)
-  phase.value = 'wave'
+  activeTab.value = 'rail'
+  game?.startRun({ loadout: loadout.value, wallHp: save.wallHp, kills: save.kills })
+  // Every run — new or resumed — lands in the uplink. A fresh deploy gets to
+  // spend its starting credits before wave one, which is also what makes the
+  // resume path exactly the same code path as the start path.
+  phase.value = 'shop'
+  saveState.value = 'saved'
+}
+
+async function startRun() {
+  if (busy.value) return
+  busy.value = true
+  try {
+    const result = await $fetch('/api/firewall/start-run', {
+      method: 'POST',
+      body: { difficultyId: difficultyId.value }
+    })
+    hydrate(result.save, result.revision)
+    await refreshState()
+  } catch (error) {
+    toast.add({
+      title: 'Could not deploy',
+      description: (error as { statusMessage?: string }).statusMessage ?? 'The uplink refused the run.',
+      color: 'error'
+    })
+  } finally {
+    busy.value = false
+  }
+}
+
+function resumeRun() {
+  const active = account.value?.activeRun
+  if (!active?.save) return
+  hydrate(active.save, active.revision ?? 0)
+  savedAt.value = active.savedAt ? new Date(active.savedAt) : null
 }
 
 function deployNextWave() {
@@ -197,8 +307,52 @@ function deployNextWave() {
   phase.value = 'wave'
 }
 
-function restart() {
-  startRun()
+async function onWaveEnd(summary: FirewallWaveSummary) {
+  lastSummary.value = summary
+  phase.value = 'shop'
+  await saveRun()
+  if (summary.victory) await settleRun('victory')
+}
+
+/**
+ * Ends the run for good and banks the coins.
+ *
+ * The server settles from the stored save, not from anything sent here, so a run
+ * that dies mid-wave banks what the last uplink saved and forfeits the wave it
+ * was on. That is the stake the save points buy: retiring from the uplink is
+ * always safe, and pushing one more wave is always a bet.
+ */
+async function settleRun(reason: 'victory' | 'defeat' | 'retire') {
+  if (busy.value) return
+  busy.value = true
+  try {
+    const result = await $fetch('/api/firewall/finish-run', { method: 'POST', body: { reason } })
+    payout.value = {
+      awarded: result.awarded,
+      capped: result.capped,
+      victory: result.victory,
+      wave: result.wave,
+      kills: result.kills,
+      lostWave: reason === 'defeat' && coins.value > result.awarded && !result.capped
+    }
+    phase.value = result.victory ? 'won' : 'over'
+    // The balance moved server-side, so the header has to be told.
+    await Promise.all([fetchSession(), refreshState()])
+  } catch (error) {
+    toast.add({
+      title: 'Could not settle the run',
+      description: (error as { statusMessage?: string }).statusMessage ?? 'Try again in a moment.',
+      color: 'error'
+    })
+    phase.value = 'over'
+  } finally {
+    busy.value = false
+  }
+}
+
+function backToLobby() {
+  phase.value = 'lobby'
+  payout.value = null
 }
 
 // ─── Uplink ─────────────────────────────────────────────────────────────────
@@ -238,10 +392,10 @@ function buy(id: FirewallUpgradeId) {
   credits.value -= cost
 
   const next = { ...armoury.value, levels: { ...levels.value, [id]: level + 1 } }
-  // Ramparts adds a mount, so the slot array has to grow with it or the new
+  // A Spire level adds a mount, so the slot array has to grow with it or the new
   // mount exists in the shop and nowhere else.
-  if (id === 'ramparts') {
-    const slots = firewallSlots(level + 1)
+  if (id === 'spire') {
+    const slots = firewallSlots(level + 1, effects.value.startingMounts)
     next.turrets = Array.from({ length: slots }, (_, i) => next.turrets[i] ?? null)
   }
   armoury.value = next
@@ -249,25 +403,39 @@ function buy(id: FirewallUpgradeId) {
 
 // ── Weapons ──
 
+/**
+ * The next wave is what a purchase is for, so gates read against it — buying the
+ * Longbore in the uplink before wave 14 puts it on the wall *for* wave 14.
+ */
+const nextWave = computed(() => wave.value + 1)
+const nextIsBoss = computed(() => firewallIsBossWave(nextWave.value))
+const isFinalWave = computed(() => nextWave.value >= FIREWALL_MAX_WAVE)
+
 const weaponRows = computed(() => FIREWALL_WEAPONS.map((def) => {
   const owned = armoury.value.owned.includes(def.id)
-  const runtime = firewallWeaponRuntime(def.id, levels.value)
+  const runtime = firewallWeaponRuntime(def.id, levels.value, effects.value)
+  const unlockWave = firewallWeaponUnlockWave(def, effects.value.arsenal)
+  const locked = !owned && nextWave.value < unlockWave
   return {
     def,
     owned,
+    locked,
+    unlockWave,
     active: armoury.value.active === def.id,
-    affordable: !owned && credits.value >= def.cost,
+    affordable: !owned && !locked && credits.value >= def.cost,
     dps: runtime.damage * runtime.pellets / (runtime.fireIntervalMs / 1000),
     runtime
   }
 }))
 
 function buyWeapon(id: FirewallWeaponId) {
-  const def = firewallWeapon(id)
-  if (armoury.value.owned.includes(id)) {
+  const row = weaponRows.value.find(r => r.def.id === id)
+  if (!row || row.locked) return
+  if (row.owned) {
     selectWeapon(id)
     return
   }
+  const def = firewallWeapon(id)
   if (credits.value < def.cost) return
   credits.value -= def.cost
   armoury.value = { ...armoury.value, owned: [...armoury.value.owned, id], active: id }
@@ -275,13 +443,20 @@ function buyWeapon(id: FirewallWeaponId) {
 
 // ── Turret mounts ──
 
+const turretRows = computed(() => FIREWALL_TURRETS.map(def => ({
+  def,
+  locked: nextWave.value < def.unlockWave
+})))
+
 const mountRows = computed(() => armoury.value.turrets.map((id, slot) => ({
   slot,
   installed: id ? firewallTurret(id) : null
 })))
 
 function installTurret(slot: number, id: FirewallTurretId) {
-  const def = firewallTurret(id)
+  const row = turretRows.value.find(r => r.def.id === id)
+  if (!row || row.locked) return
+  const def = row.def
   const current = armoury.value.turrets[slot] ?? null
   if (current === id) return
   const refund = current ? Math.round(firewallTurret(current).cost * FIREWALL_TURRET_REFUND) : 0
@@ -311,8 +486,24 @@ function buyRepair() {
   game.repairWall()
 }
 
-const nextWave = computed(() => wave.value + 1)
-const nextIsBoss = computed(() => firewallIsBossWave(nextWave.value))
+// ─── Mainframe ──────────────────────────────────────────────────────────────
+
+async function buyMainframe(id: FirewallMainframeId) {
+  if (busy.value) return
+  busy.value = true
+  try {
+    await $fetch('/api/firewall/upgrade', { method: 'POST', body: { upgradeId: id } })
+    await Promise.all([fetchSession(), refreshState()])
+  } catch (error) {
+    toast.add({
+      title: 'Purchase failed',
+      description: (error as { statusMessage?: string }).statusMessage ?? 'Not enough coins.',
+      color: 'error'
+    })
+  } finally {
+    busy.value = false
+  }
+}
 
 // ─── Fullscreen ─────────────────────────────────────────────────────────────
 
@@ -338,7 +529,7 @@ async function toggleFullscreen() {
           FIREWALL
         </h1>
         <p class="text-sm text-muted mt-0.5">
-          Hold the core. Fifty seconds a wave, then the uplink opens.
+          Hold the core for {{ FIREWALL_MAX_WAVE }} waves. The uplink opens between each one — and saves.
         </p>
       </div>
       <div class="flex items-center gap-2">
@@ -371,7 +562,7 @@ async function toggleFullscreen() {
 
       <!-- ── HUD ─────────────────────────────────────────────────────────── -->
       <div
-        v-if="phase !== 'briefing'"
+        v-if="phase === 'wave' || phase === 'shop'"
         class="pointer-events-none absolute inset-0 p-3 sm:p-4 flex flex-col justify-between"
       >
         <div class="flex items-start justify-between gap-3">
@@ -397,7 +588,7 @@ async function toggleFullscreen() {
 
           <div class="rounded-lg bg-black/55 backdrop-blur-sm border border-white/10 px-3 py-2 text-center">
             <div class="text-[11px] uppercase tracking-widest text-white/50">
-              Wave {{ wave }}
+              Wave {{ wave }} / {{ FIREWALL_MAX_WAVE }}
             </div>
             <div class="font-mono text-2xl font-bold" :class="secondsLeft <= 8 ? 'text-amber-300' : 'text-white'">
               {{ phase === 'wave' ? secondsLeft : 0 }}s
@@ -417,14 +608,22 @@ async function toggleFullscreen() {
             <div class="font-mono text-xl font-bold text-lime-300">
               {{ formatNumber(credits, false) }}
             </div>
+            <div class="mt-1 flex items-center justify-end gap-1 text-[11px] text-amber-300/90">
+              <UIcon name="i-lucide-coins" class="size-3" />
+              <span class="font-mono">{{ formatNumber(coins) }}</span>
+            </div>
           </div>
         </div>
 
         <div class="flex items-end justify-between gap-3">
           <div class="flex items-end gap-2">
             <div class="rounded-lg bg-black/55 backdrop-blur-sm border border-white/10 px-3 py-2">
-              <div class="text-[11px] uppercase tracking-widest text-white/50">
+              <div class="flex items-center gap-1.5 text-[11px] uppercase tracking-widest text-white/50">
                 {{ loadout.weapon.name }}
+                <span
+                  class="font-mono"
+                  :class="loadout.weapon.damageType === 'kinetic' ? 'text-amber-300' : 'text-cyan-300'"
+                >{{ loadout.weapon.damageType }}</span>
               </div>
               <div v-if="reloading" class="mt-1 w-32">
                 <div class="text-xs text-amber-300 font-mono">
@@ -533,67 +732,215 @@ async function toggleFullscreen() {
         </div>
       </div>
 
-      <!-- ── Briefing ────────────────────────────────────────────────────── -->
+      <!-- ── Loading ─────────────────────────────────────────────────────── -->
+      <div v-if="phase === 'loading'" class="absolute inset-0 grid place-items-center bg-black/85">
+        <UIcon name="i-lucide-loader-circle" class="size-8 animate-spin text-cyan-300" />
+      </div>
+
+      <!-- ── Lobby: difficulty, Mainframe, resume ────────────────────────── -->
       <div
-        v-if="phase === 'briefing'"
-        class="absolute inset-0 grid place-items-center bg-gradient-to-b from-black/85 via-black/75 to-black/90 p-6"
+        v-else-if="phase === 'lobby'"
+        class="absolute inset-0 flex flex-col bg-gradient-to-b from-black/92 via-black/88 to-black/95"
       >
-        <div class="max-w-xl text-center">
-          <div class="text-4xl sm:text-5xl font-black tracking-[0.2em] text-cyan-300">
-            FIREWALL
+        <div class="flex items-center justify-between gap-4 border-b border-white/10 px-4 py-3">
+          <div>
+            <div class="text-2xl font-black tracking-[0.2em] text-cyan-300">
+              FIREWALL
+            </div>
+            <p class="text-[11px] text-white/50 mt-0.5">
+              LMB fire · R reload · 1-5 swap · Space pulse · Q overclock
+            </p>
           </div>
-          <p class="mt-3 text-sm text-white/70">
-            Fifty seconds a wave. Plated units shrug off anything that is not
-            armour-piercing, so buy the right gun before the tanks arrive.
-          </p>
-          <div class="mt-5 grid grid-cols-4 gap-2 text-left text-[11px] text-white/60">
-            <div class="rounded-lg border border-white/10 bg-white/5 p-2.5">
-              <div class="font-mono text-cyan-300 mb-0.5">
-                LMB
+          <div class="flex items-center gap-4 text-right">
+            <div>
+              <div class="text-[10px] uppercase tracking-widest text-white/40">
+                Best wave
               </div>
-              Fire
+              <div class="font-mono text-lg font-bold text-white">
+                {{ bestWave }}
+              </div>
             </div>
-            <div class="rounded-lg border border-white/10 bg-white/5 p-2.5">
-              <div class="font-mono text-cyan-300 mb-0.5">
-                R
+            <div>
+              <div class="text-[10px] uppercase tracking-widest text-white/40">
+                Banked
               </div>
-              Reload
-            </div>
-            <div class="rounded-lg border border-white/10 bg-white/5 p-2.5">
-              <div class="font-mono text-cyan-300 mb-0.5">
-                1-5
+              <div class="font-mono text-lg font-bold text-amber-300">
+                {{ formatNumber(Number(account?.stats.totalCoinsEarned ?? 0)) }}
               </div>
-              Swap weapon
-            </div>
-            <div class="rounded-lg border border-white/10 bg-white/5 p-2.5">
-              <div class="font-mono text-cyan-300 mb-0.5">
-                SPACE / Q
-              </div>
-              Pulse · overclock
             </div>
           </div>
-          <UButton class="mt-6" size="xl" icon="i-lucide-power" color="primary" @click="startRun">
-            Boot firewall
-          </UButton>
+        </div>
+
+        <div class="flex-1 overflow-y-auto p-4 space-y-4">
+          <!-- A run in progress takes priority over starting a new one. -->
+          <div
+            v-if="account?.activeRun?.save"
+            class="rounded-lg border border-cyan-400/40 bg-cyan-400/10 p-3 flex items-center justify-between gap-4"
+          >
+            <div>
+              <div class="flex items-center gap-2 text-sm font-semibold text-cyan-200">
+                <UIcon name="i-lucide-save" class="size-4" />
+                Run in progress — wave {{ account.activeRun.save.wave }} cleared
+              </div>
+              <div class="mt-0.5 font-mono text-[11px] text-white/50">
+                {{ firewallDifficulty(account.activeRun.save.difficulty).name }} ·
+                {{ formatNumber(account.activeRun.save.credits, false) }} credits ·
+                {{ formatNumber(account.activeRun.save.coins) }} coins banked
+              </div>
+            </div>
+            <UButton color="primary" size="lg" icon="i-lucide-play" @click="resumeRun">
+              Resume
+            </UButton>
+          </div>
+
+          <div v-else>
+            <div class="text-[11px] uppercase tracking-widest text-white/40 mb-2">
+              Difficulty — coins scale with it, and so does everything trying to get in
+            </div>
+            <div class="grid gap-2 sm:grid-cols-3 lg:grid-cols-5">
+              <button
+                v-for="entry in account?.difficulties ?? []"
+                :key="entry.id"
+                type="button"
+                :disabled="!entry.unlocked"
+                class="rounded-lg border p-3 text-left transition-colors"
+                :class="difficultyId === entry.id
+                  ? 'border-cyan-400 bg-cyan-400/15'
+                  : entry.unlocked
+                    ? 'border-white/15 bg-white/5 hover:bg-white/10 cursor-pointer'
+                    : 'border-white/10 bg-white/5 opacity-45 cursor-not-allowed'"
+                @click="difficultyId = entry.id"
+              >
+                <div class="flex items-center justify-between gap-2">
+                  <span class="text-sm font-bold" :style="{ color: entry.color }">{{ entry.name }}</span>
+                  <span v-if="!entry.unlocked" class="font-mono text-[10px] text-white/40">
+                    <UIcon name="i-lucide-lock" class="size-3" /> w{{ entry.requiredBestWave }}
+                  </span>
+                </div>
+                <p class="mt-1 text-[11px] text-white/50 leading-snug">
+                  {{ entry.tagline }}
+                </p>
+                <div class="mt-2 font-mono text-[11px] text-white/60">
+                  <span class="text-amber-300">×{{ entry.reward }} coins</span>
+                  · ×{{ entry.enemyHp }} HP
+                </div>
+              </button>
+            </div>
+            <UButton
+              class="mt-4"
+              size="xl"
+              icon="i-lucide-power"
+              color="primary"
+              :loading="busy"
+              @click="startRun"
+            >
+              Deploy — {{ difficulty.name }}
+            </UButton>
+          </div>
+
+          <!-- The Mainframe: permanent, coin-bought, offline during a run. -->
+          <div>
+            <div class="flex items-baseline justify-between gap-3 mb-2">
+              <div class="text-[11px] uppercase tracking-widest text-white/40">
+                Mainframe — permanent, bought with coins
+              </div>
+              <div class="font-mono text-sm font-bold text-amber-300">
+                {{ formatNumber(Number(account?.balance ?? 0)) }}
+              </div>
+            </div>
+            <p v-if="account?.activeRun" class="mb-2 text-[11px] text-white/40">
+              Offline while a run is in progress. Finish or retire first.
+            </p>
+            <div class="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+              <button
+                v-for="entry in account?.mainframe ?? []"
+                :key="entry.id"
+                type="button"
+                :disabled="busy || !!account?.activeRun || entry.cost === null
+                  || Number(account?.balance ?? 0) < entry.cost"
+                class="rounded-lg border p-3 text-left transition-colors"
+                :class="entry.cost === null
+                  ? 'border-white/10 bg-white/5 opacity-60 cursor-default'
+                  : !account?.activeRun && Number(account?.balance ?? 0) >= entry.cost
+                    ? 'border-amber-400/40 bg-amber-400/5 hover:bg-amber-400/15 cursor-pointer'
+                    : 'border-white/10 bg-white/5 opacity-55 cursor-not-allowed'"
+                @click="buyMainframe(entry.id)"
+              >
+                <div class="flex items-center gap-2">
+                  <UIcon :name="entry.icon" class="size-4 shrink-0 text-amber-300" />
+                  <span class="text-sm font-semibold text-white truncate">{{ entry.name }}</span>
+                  <span class="ml-auto font-mono text-[11px] shrink-0 text-amber-300">
+                    {{ entry.cost === null ? 'MAX' : formatNumber(entry.cost) }}
+                  </span>
+                </div>
+                <p class="mt-1 text-[11px] text-white/45 leading-snug">
+                  {{ entry.description }}
+                </p>
+                <div class="mt-1.5 flex items-center gap-2">
+                  <span class="font-mono text-[10px] text-white/40">{{ entry.level }}/{{ entry.max }}</span>
+                  <div class="h-1 flex-1 rounded-full bg-white/10 overflow-hidden">
+                    <div class="h-full bg-amber-400" :style="{ width: `${entry.level / entry.max * 100}%` }" />
+                  </div>
+                </div>
+                <div class="mt-1 font-mono text-[11px] text-white/60 truncate">
+                  {{ entry.next ?? entry.current }}
+                </div>
+              </button>
+            </div>
+          </div>
         </div>
       </div>
 
       <!-- ── Uplink ──────────────────────────────────────────────────────── -->
       <div
-        v-if="phase === 'shop'"
+        v-else-if="phase === 'shop'"
         class="absolute inset-0 flex flex-col bg-black/90 backdrop-blur-sm"
       >
         <div class="flex items-center justify-between gap-4 border-b border-white/10 px-4 py-2.5">
           <div class="flex items-center gap-3">
             <span class="text-lg font-bold tracking-widest text-cyan-300">UPLINK</span>
             <span v-if="lastSummary" class="text-xs text-white/45 font-mono">
-              w{{ lastSummary.wave }} · {{ lastSummary.kills }} kills · +{{ lastSummary.credits }}
+              w{{ lastSummary.wave }} · {{ lastSummary.kills }} kills · +{{ lastSummary.credits }}c
+              · +{{ formatNumber(lastSummary.coins) }} coins
+            </span>
+            <!-- The whole point of the uplink phase: it is where the run is safe. -->
+            <span
+              class="flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] font-medium"
+              :class="saveState === 'saved'
+                ? 'border-lime-500/40 bg-lime-950/60 text-lime-200'
+                : saveState === 'saving'
+                  ? 'border-white/15 bg-black/60 text-white/60'
+                  : 'border-red-500/40 bg-red-950/60 text-red-200'"
+            >
+              <UIcon
+                :name="saveState === 'saving' ? 'i-lucide-loader-circle'
+                  : saveState === 'saved' ? 'i-lucide-check' : 'i-lucide-triangle-alert'"
+                class="size-3.5"
+                :class="saveState === 'saving' ? 'animate-spin' : ''"
+              />
+              {{ saveState === 'saved' ? 'Progress saved — you can leave'
+                : saveState === 'saving' ? 'Saving…' : 'Not saved' }}
             </span>
           </div>
           <div class="flex items-center gap-3">
-            <div class="font-mono text-xl font-bold text-lime-300 leading-none">
-              {{ formatNumber(credits, false) }}
+            <div class="text-right leading-none">
+              <div class="font-mono text-xl font-bold text-lime-300">
+                {{ formatNumber(credits, false) }}
+              </div>
+              <div class="font-mono text-[11px] text-amber-300/90">
+                {{ formatNumber(coins) }} coins
+              </div>
             </div>
+            <UButton
+              color="neutral"
+              variant="subtle"
+              size="sm"
+              icon="i-lucide-door-open"
+              :loading="busy"
+              @click="settleRun('retire')"
+            >
+              Retire
+            </UButton>
             <UButton
               :color="canRepair ? 'warning' : 'neutral'"
               variant="subtle"
@@ -606,11 +953,11 @@ async function toggleFullscreen() {
             </UButton>
             <UButton
               size="lg"
-              :color="nextIsBoss ? 'error' : 'primary'"
+              :color="isFinalWave || nextIsBoss ? 'error' : 'primary'"
               trailing-icon="i-lucide-chevron-right"
               @click="deployNextWave"
             >
-              Wave {{ nextWave }}{{ nextIsBoss ? ' · BOSS' : '' }}
+              Wave {{ nextWave }}{{ isFinalWave ? ' · FINAL' : nextIsBoss ? ' · BOSS' : '' }}
             </UButton>
           </div>
         </div>
@@ -645,9 +992,11 @@ async function toggleFullscreen() {
                   ? 'border-cyan-400 bg-cyan-400/15'
                   : row.owned
                     ? 'border-white/15 bg-white/5 hover:bg-white/10 cursor-pointer'
-                    : row.affordable
-                      ? 'border-lime-400/40 bg-lime-400/5 hover:bg-lime-400/15 cursor-pointer'
-                      : 'border-white/10 bg-white/5 opacity-50 cursor-not-allowed'"
+                    : row.locked
+                      ? 'border-white/10 bg-white/5 opacity-40 cursor-not-allowed'
+                      : row.affordable
+                        ? 'border-lime-400/40 bg-lime-400/5 hover:bg-lime-400/15 cursor-pointer'
+                        : 'border-white/10 bg-white/5 opacity-50 cursor-not-allowed'"
                 @click="buyWeapon(row.def.id)"
               >
                 <div class="flex items-center justify-between gap-2">
@@ -657,9 +1006,9 @@ async function toggleFullscreen() {
                   </div>
                   <span
                     class="font-mono text-[11px] shrink-0"
-                    :class="row.active ? 'text-cyan-300' : row.owned ? 'text-white/40' : 'text-lime-300'"
+                    :class="row.active ? 'text-cyan-300' : row.owned ? 'text-white/40' : row.locked ? 'text-white/40' : 'text-lime-300'"
                   >
-                    {{ row.active ? 'ACTIVE' : row.owned ? 'OWNED' : `${row.def.cost}` }}
+                    {{ row.active ? 'ACTIVE' : row.owned ? 'OWNED' : row.locked ? `W${row.unlockWave}` : `${row.def.cost}` }}
                   </span>
                 </div>
                 <div class="mt-1 font-mono text-[11px] text-white/60">
@@ -667,11 +1016,18 @@ async function toggleFullscreen() {
                   <span v-if="row.runtime.pellets > 1">×{{ row.runtime.pellets }}</span>
                   · {{ Math.round(row.dps) }} dps
                 </div>
-                <div class="mt-0.5 text-[10px] uppercase tracking-wider" :class="row.def.armorPiercing ? 'text-orange-300' : 'text-white/35'">
-                  {{ row.def.armorPiercing ? 'AP · ' : '' }}{{ row.def.tag }}
+                <div class="mt-0.5 flex items-center gap-1.5 text-[10px] uppercase tracking-wider">
+                  <span :class="row.def.damageType === 'kinetic' ? 'text-amber-300' : 'text-cyan-300'">
+                    {{ row.def.damageType }}
+                  </span>
+                  <span class="text-white/35">· {{ row.def.tag }}</span>
                 </div>
               </button>
             </div>
+            <p class="mt-2 text-[11px] text-white/35">
+              Kinetic deals +25% to plated targets, energy +25% to unarmoured. Neither is ever
+              penalised — the wrong type still deals full damage.
+            </p>
           </div>
 
           <!-- Mounts: pick a turret per slot. -->
@@ -686,21 +1042,29 @@ async function toggleFullscreen() {
               </div>
               <div class="flex flex-1 flex-wrap gap-1.5">
                 <button
-                  v-for="turret in FIREWALL_TURRETS"
-                  :key="turret.id"
+                  v-for="turret in turretRows"
+                  :key="turret.def.id"
                   type="button"
+                  :disabled="turret.locked"
                   class="flex items-center gap-1.5 rounded-md border px-2 py-1.5 text-[11px] transition-colors"
-                  :class="mount.installed?.id === turret.id
+                  :class="mount.installed?.id === turret.def.id
                     ? 'border-cyan-400 bg-cyan-400/15 text-cyan-200'
-                    : credits >= turret.cost
-                      ? 'border-white/15 bg-black/40 text-white/70 hover:bg-white/10 cursor-pointer'
-                      : 'border-white/10 bg-black/30 text-white/30 cursor-not-allowed'"
-                  @click="installTurret(mount.slot, turret.id)"
+                    : turret.locked
+                      ? 'border-white/10 bg-black/30 text-white/25 cursor-not-allowed'
+                      : credits >= turret.def.cost
+                        ? 'border-white/15 bg-black/40 text-white/70 hover:bg-white/10 cursor-pointer'
+                        : 'border-white/10 bg-black/30 text-white/30 cursor-not-allowed'"
+                  @click="installTurret(mount.slot, turret.def.id)"
                 >
-                  <UIcon :name="turret.icon" class="size-3.5" />
-                  <span class="font-semibold">{{ turret.name }}</span>
-                  <span class="font-mono opacity-70">{{ turret.cost }}</span>
-                  <span v-if="turret.armorPiercing" class="text-orange-300 font-mono">AP</span>
+                  <UIcon :name="turret.def.icon" class="size-3.5" />
+                  <span class="font-semibold">{{ turret.def.name }}</span>
+                  <span class="font-mono opacity-70">
+                    {{ turret.locked ? `W${turret.def.unlockWave}` : turret.def.cost }}
+                  </span>
+                  <span
+                    class="font-mono"
+                    :class="turret.def.damageType === 'kinetic' ? 'text-amber-300' : 'text-cyan-300'"
+                  >{{ turret.def.damageType === 'kinetic' ? 'KIN' : 'NRG' }}</span>
                 </button>
               </div>
               <UButton
@@ -713,7 +1077,7 @@ async function toggleFullscreen() {
               />
             </div>
             <p class="text-[11px] text-white/35">
-              Ramparts opens more mounts. Swapping refunds half.
+              Spire opens more mounts and builds the tower another storey taller. Swapping refunds half.
             </p>
           </div>
 
@@ -765,25 +1129,30 @@ async function toggleFullscreen() {
         </div>
       </div>
 
-      <!-- ── Game over ───────────────────────────────────────────────────── -->
+      <!-- ── Run over ────────────────────────────────────────────────────── -->
       <div
-        v-if="phase === 'over'"
+        v-else-if="phase === 'over' || phase === 'won'"
         class="absolute inset-0 grid place-items-center bg-black/85 backdrop-blur-sm p-6"
       >
         <div class="max-w-md w-full text-center">
-          <div class="text-4xl font-black tracking-[0.2em] text-red-400">
-            BREACHED
+          <div
+            class="text-4xl font-black tracking-[0.2em]"
+            :class="phase === 'won' ? 'text-lime-300' : 'text-red-400'"
+          >
+            {{ phase === 'won' ? 'REPELLED' : 'BREACHED' }}
           </div>
           <p class="mt-2 text-sm text-white/60">
-            They were through the wall on wave {{ wave }}.
+            {{ phase === 'won'
+              ? `All ${FIREWALL_MAX_WAVE} waves held on ${difficulty.name}.`
+              : `They were through the wall on wave ${wave}.` }}
           </p>
           <div class="mt-5 grid grid-cols-3 gap-3">
             <div class="rounded-lg border border-white/10 bg-white/5 p-3">
               <div class="text-[10px] uppercase tracking-widest text-white/40">
-                Waves
+                Waves held
               </div>
               <div class="font-mono text-xl font-bold text-white">
-                {{ Math.max(0, wave - 1) }}
+                {{ payout?.wave ?? 0 }}
               </div>
             </div>
             <div class="rounded-lg border border-white/10 bg-white/5 p-3">
@@ -791,20 +1160,27 @@ async function toggleFullscreen() {
                 Purged
               </div>
               <div class="font-mono text-xl font-bold text-white">
-                {{ totalKills }}
+                {{ payout?.kills ?? totalKills }}
               </div>
             </div>
             <div class="rounded-lg border border-white/10 bg-white/5 p-3">
               <div class="text-[10px] uppercase tracking-widest text-white/40">
-                Credits
+                Paid out
               </div>
-              <div class="font-mono text-xl font-bold text-lime-300">
-                {{ formatNumber(earned, false) }}
+              <div class="font-mono text-xl font-bold text-amber-300">
+                {{ formatNumber(payout?.awarded ?? 0) }}
               </div>
             </div>
           </div>
-          <UButton class="mt-6" size="xl" icon="i-lucide-rotate-ccw" color="primary" @click="restart">
-            Reboot
+          <p v-if="payout?.lostWave" class="mt-3 text-[11px] text-white/40">
+            The wall fell mid-wave, so wave {{ wave }}'s coins went with it. Only waves that
+            reached the uplink were banked.
+          </p>
+          <p v-else-if="payout?.capped" class="mt-3 text-[11px] text-white/40">
+            Payout capped at the ceiling for the depth this run reached.
+          </p>
+          <UButton class="mt-6" size="xl" icon="i-lucide-rotate-ccw" color="primary" @click="backToLobby">
+            Back to the Mainframe
           </UButton>
         </div>
       </div>
