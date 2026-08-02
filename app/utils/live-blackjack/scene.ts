@@ -2,7 +2,7 @@ import gsap from 'gsap'
 import type { Application, Container, Graphics, Sprite, Text } from 'pixi.js'
 import { chipStack } from '#shared/utils/live-blackjack/chips'
 import { LB_TIMERS } from '#shared/utils/live-blackjack/rules'
-import type { LbHand, LbTableState } from '#shared/utils/live-blackjack/types'
+import type { LbAction, LbHand, LbTableState } from '#shared/utils/live-blackjack/types'
 import formatNumber from '~/utils/format-number'
 import { CARD_W, cardKey, type LbTextures } from './art'
 
@@ -60,6 +60,15 @@ export interface LbSceneCallbacks {
     onChip: (value: number) => void
 }
 
+/** Colour-coded so a glance across the table tells you what someone did. */
+const ACTION_FLASH: Record<LbAction, { text: string, color: number }> = {
+    hit: { text: 'HIT', color: 0x2563eb },
+    stand: { text: 'STAND', color: 0x475569 },
+    double: { text: 'DOUBLE', color: 0x15803d },
+    split: { text: 'SPLIT', color: 0x7c3aed },
+    surrender: { text: 'SURRENDER', color: 0xb45309 }
+}
+
 const label = (PIXI: Pixi, text: string, size: number, color: number, weight: '400' | '600' | '700' | '800' = '600') =>
     new PIXI.Text({
         text,
@@ -77,6 +86,7 @@ export class LiveBlackjackScene {
     private chipLayer: Container
     private uiLayer: Container
     private rackLayer: Container
+    private flashLayer: Container
 
     private cards = new Map<string, LiveCard>()
     private seatNodes: SeatNode[] = []
@@ -103,7 +113,12 @@ export class LiveBlackjackScene {
         this.cardLayer = new PIXI.Container()
         this.uiLayer = new PIXI.Container()
         this.rackLayer = new PIXI.Container()
-        app.stage.addChild(this.felt, this.chipLayer, this.cardLayer, this.uiLayer, this.rackLayer)
+        // Above everything: seat badges are rebuilt on every snapshot and would
+        // otherwise be drawn over the flash mid-animation.
+        this.flashLayer = new PIXI.Container()
+        app.stage.addChild(
+            this.felt, this.chipLayer, this.cardLayer, this.uiLayer, this.rackLayer, this.flashLayer
+        )
 
         this.drawTable()
         this.seatNodes = SEAT_LAYOUT.map((pos, i) => new SeatNode(PIXI, this.uiLayer, this.chipLayer, i, pos, callbacks))
@@ -428,6 +443,34 @@ export class LiveBlackjackScene {
             })
             gsap.to(live.sprite.scale, { x: 0.55, y: 0.55, duration: 0.4 })
         }
+    }
+
+    /**
+     * Stamp what a player just did over their hand. Fires for every seat, so the
+     * table can follow each other's decisions rather than only seeing the cards
+     * that result from them.
+     */
+    flashAction(seatIndex: number, action: LbAction) {
+        const pos = SEAT_LAYOUT[seatIndex]
+        const style = ACTION_FLASH[action]
+        if (!pos || !style) return
+
+        const box = new this.PIXI.Container()
+        const text = label(this.PIXI, style.text, 19, 0xffffff, '800')
+        text.anchor.set(0.5)
+        const w = text.width + 30
+        const bg = new this.PIXI.Graphics()
+        bg.roundRect(-w / 2, -18, w, 36, 18).fill(style.color)
+        bg.roundRect(-w / 2, -18, w, 36, 18).stroke({ width: 2, color: 0xffffff, alpha: 0.7 })
+        box.addChild(bg, text)
+        box.position.set(pos.x, pos.y + 32)
+        box.scale.set(0.4)
+        this.flashLayer.addChild(box)
+
+        gsap.timeline({ onComplete: () => box.destroy({ children: true }) })
+            .to(box.scale, { x: 1, y: 1, duration: 0.24, ease: 'back.out(3)' })
+            .to(box, { y: pos.y - 4, duration: 1.1, ease: 'power1.out' }, 0)
+            .to(box, { alpha: 0, duration: 0.32 }, 0.86)
     }
 
     destroy() {

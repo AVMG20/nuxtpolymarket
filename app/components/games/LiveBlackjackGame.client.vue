@@ -5,7 +5,7 @@ import { buildTextures } from '~/utils/live-blackjack/art'
 import { LiveBlackjackScene, STAGE_H, STAGE_W } from '~/utils/live-blackjack/scene'
 
 const table = useLiveBlackjack()
-const { state, youId, balance, connected, feed, mySeat, myHand, isMyTurn } = table
+const { state, actionPulse, youId, balance, connected, feed, mySeat, myHand, isMyTurn } = table
 
 const canvasWrap = ref<HTMLDivElement | null>(null)
 const showCount = ref(false)
@@ -73,6 +73,10 @@ function sendChat() {
 watch([state, balance], () => {
     if (!scene || !state.value) return
     scene.update(state.value, youId.value, balance.value, rack.value)
+})
+
+watch(actionPulse, (pulse) => {
+    if (pulse) scene?.flashAction(pulse.seat, pulse.action)
 })
 
 onMounted(async () => {

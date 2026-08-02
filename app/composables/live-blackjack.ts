@@ -31,6 +31,9 @@ export function useLiveBlackjack() {
     const { balanceNum, setBalance } = useAuth()
 
     const state = ref<LbTableState | null>(null)
+    // Bumped per action so the renderer can stamp it on the seat; the id makes
+    // two identical actions in a row still register as two separate events.
+    const actionPulse = ref<{ id: number, seat: number, action: LbAction } | null>(null)
     const youId = ref<string | null>(null)
     const balance = ref(balanceNum.value)
     const connected = ref(false)
@@ -90,6 +93,7 @@ export function useLiveBlackjack() {
                 } else if (message.kind === 'leave') {
                     pushFeed({ kind: 'leave', text: `${message.name} left the table`, tone: 'neutral', name: message.name })
                 } else if (message.kind === 'action') {
+                    actionPulse.value = { id: ++feedSeq, seat: message.seat, action: message.action }
                     pushFeed({
                         kind: 'action',
                         text: `${message.name} ${ACTION_VERB[message.action] ?? message.action}`,
@@ -144,6 +148,7 @@ export function useLiveBlackjack() {
 
     return {
         state,
+        actionPulse,
         youId,
         balance,
         connected,

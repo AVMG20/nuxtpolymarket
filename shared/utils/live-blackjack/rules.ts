@@ -27,6 +27,12 @@ export const LB_TIMERS = {
     turn: 22_000,
     /** Delay between each dealer draw so the reveal is readable. */
     dealerDraw: 900,
+    /**
+     * Beat held after a hand finishes, before the turn passes on. Without it the
+     * table jumps to the next player faster than anyone can register what the
+     * last one did.
+     */
+    actionBeat: 1_100,
     payout: 5_000,
     /** Grace period a seat is held after its player's socket drops. */
     disconnectGrace: 45_000

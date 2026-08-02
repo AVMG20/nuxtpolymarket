@@ -545,11 +545,12 @@ class LiveBlackjackTable {
         }
         this.activeSeat = next.seat
         this.activeHand = next.hand
-        this.message = 'Player turn'
         this.startTurnTimer()
     }
 
     private startTurnTimer() {
+        const seat = this.currentSeat()
+        this.message = seat ? `${seat.name} to act` : 'Player turn'
         this.setPhase('playing', LB_TIMERS.turn)
         this.schedule(LB_TIMERS.turn, () => this.autoPlay())
     }
@@ -558,7 +559,7 @@ class LiveBlackjackTable {
     private autoPlay() {
         const hand = this.currentHand()
         if (hand) hand.status = 'stood'
-        this.advance()
+        this.advanceAfterBeat()
     }
 
     private findNextHand(fromSeat: number, fromHand: number): { seat: number, hand: number } | null {
@@ -581,6 +582,16 @@ class LiveBlackjackTable {
         const seat = this.currentSeat()
         if (!seat || this.activeHand === null) return null
         return seat.hands[this.activeHand] ?? null
+    }
+
+    /**
+     * Hold the table on the hand that just finished before passing the turn on.
+     * The clock is cleared for the beat so the countdown ring does not keep
+     * running against a player who has already acted.
+     */
+    private advanceAfterBeat() {
+        this.setPhase('playing', null)
+        this.schedule(LB_TIMERS.actionBeat, () => this.advance())
     }
 
     private advance() {
@@ -614,7 +625,7 @@ class LiveBlackjackTable {
                 return this.doHit(hand)
             case 'stand':
                 hand.status = 'stood'
-                return this.advance()
+                return this.advanceAfterBeat()
             case 'double':
                 return this.doDouble(seat, hand)
             case 'split':
@@ -622,7 +633,7 @@ class LiveBlackjackTable {
             case 'surrender':
                 if (!canSurrender(hand, seat.hands)) fail('Cannot surrender now')
                 hand.status = 'surrendered'
-                return this.advance()
+                return this.advanceAfterBeat()
         }
     }
 
@@ -631,14 +642,14 @@ class LiveBlackjackTable {
         const { total } = handScore(hand.cards)
         if (total > 21) {
             hand.status = 'busted'
-            this.advance()
+            this.advanceAfterBeat()
             return
         }
         // Nothing can improve a 21, so move the table on rather than making
         // everyone wait out the clock.
         if (total === 21) {
             hand.status = 'stood'
-            this.advance()
+            this.advanceAfterBeat()
             return
         }
         this.startTurnTimer()
@@ -651,7 +662,7 @@ class LiveBlackjackTable {
         hand.doubled = true
         hand.cards.push(this.drawUp())
         hand.status = handScore(hand.cards).total > 21 ? 'busted' : 'stood'
-        this.advance()
+        this.advanceAfterBeat()
     }
 
     private async doSplit(seat: SeatState, hand: LbHand) {
@@ -672,12 +683,12 @@ class LiveBlackjackTable {
         if (splitAces) {
             hand.status = 'stood'
             sibling.status = 'stood'
-            this.advance()
+            this.advanceAfterBeat()
             return
         }
         if (handScore(hand.cards).total === 21) {
             hand.status = 'stood'
-            this.advance()
+            this.advanceAfterBeat()
             return
         }
         this.startTurnTimer()
