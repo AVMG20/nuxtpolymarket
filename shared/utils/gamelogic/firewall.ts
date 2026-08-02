@@ -797,8 +797,8 @@ export const FIREWALL_UPGRADES: readonly FirewallUpgradeDefinition[] = [
         icon: 'i-lucide-zap',
         tab: 'rail',
         max: 10,
-        baseCost: 120,
-        growth: 1.34,
+        baseCost: 160,
+        growth: 1.48,
         value: level => `×${(1 + level * 0.3).toFixed(2)} dmg`
     },
     {
@@ -807,8 +807,8 @@ export const FIREWALL_UPGRADES: readonly FirewallUpgradeDefinition[] = [
         icon: 'i-lucide-gauge',
         tab: 'rail',
         max: 10,
-        baseCost: 140,
-        growth: 1.36,
+        baseCost: 180,
+        growth: 1.50,
         value: level => `×${(1 / Math.pow(0.93, level)).toFixed(2)} rate`
     },
     {
@@ -817,8 +817,8 @@ export const FIREWALL_UPGRADES: readonly FirewallUpgradeDefinition[] = [
         icon: 'i-lucide-layers',
         tab: 'rail',
         max: 8,
-        baseCost: 110,
-        growth: 1.32,
+        baseCost: 150,
+        growth: 1.44,
         value: level => `×${(1 + level * 0.25).toFixed(2)} mag · ×${Math.pow(0.9, level).toFixed(2)} reload`
     },
     {
@@ -827,8 +827,8 @@ export const FIREWALL_UPGRADES: readonly FirewallUpgradeDefinition[] = [
         icon: 'i-lucide-crosshair',
         tab: 'rail',
         max: 8,
-        baseCost: 180,
-        growth: 1.4,
+        baseCost: 240,
+        growth: 1.54,
         value: level => `${Math.round((0.04 + level * 0.04) * 100)}% · ${(2 + level * 0.15).toFixed(1)}x`
     },
     {
@@ -837,8 +837,8 @@ export const FIREWALL_UPGRADES: readonly FirewallUpgradeDefinition[] = [
         icon: 'i-lucide-brick-wall',
         tab: 'bastion',
         max: 14,
-        baseCost: 110,
-        growth: 1.3,
+        baseCost: 150,
+        growth: 1.44,
         value: level => `+${level * 380} HP`
     },
     {
@@ -847,8 +847,8 @@ export const FIREWALL_UPGRADES: readonly FirewallUpgradeDefinition[] = [
         icon: 'i-lucide-building-2',
         tab: 'bastion',
         max: 6,
-        baseCost: 320,
-        growth: 1.6,
+        baseCost: 500,
+        growth: 1.95,
         value: level => `+${level} mount${level === 1 ? '' : 's'}`
     },
     {
@@ -857,8 +857,8 @@ export const FIREWALL_UPGRADES: readonly FirewallUpgradeDefinition[] = [
         icon: 'i-lucide-wrench',
         tab: 'bastion',
         max: 10,
-        baseCost: 140,
-        growth: 1.34,
+        baseCost: 180,
+        growth: 1.48,
         value: level => `${(level * 8).toFixed(0)} HP/s`
     },
     {
@@ -867,8 +867,8 @@ export const FIREWALL_UPGRADES: readonly FirewallUpgradeDefinition[] = [
         icon: 'i-lucide-shield',
         tab: 'bastion',
         max: 8,
-        baseCost: 200,
-        growth: 1.4,
+        baseCost: 260,
+        growth: 1.55,
         value: level => level === 0 ? 'offline' : `+${level * 90} · ${level * 4}/s`
     },
     {
@@ -877,8 +877,8 @@ export const FIREWALL_UPGRADES: readonly FirewallUpgradeDefinition[] = [
         icon: 'i-lucide-grid-2x2',
         tab: 'bastion',
         max: 8,
-        baseCost: 220,
-        growth: 1.42,
+        baseCost: 290,
+        growth: 1.58,
         value: level => level === 0 ? 'offline' : `${level * 42} dmg/s`
     },
     {
@@ -887,8 +887,8 @@ export const FIREWALL_UPGRADES: readonly FirewallUpgradeDefinition[] = [
         icon: 'i-lucide-microchip',
         tab: 'turrets',
         max: 10,
-        baseCost: 240,
-        growth: 1.4,
+        baseCost: 320,
+        growth: 1.55,
         value: level => `×${(1 + level * 0.28).toFixed(2)} dmg · ×${(1 / Math.pow(0.945, level)).toFixed(2)} rate`
     },
     {
@@ -897,8 +897,8 @@ export const FIREWALL_UPGRADES: readonly FirewallUpgradeDefinition[] = [
         icon: 'i-lucide-radio',
         tab: 'systems',
         max: 6,
-        baseCost: 300,
-        growth: 1.5,
+        baseCost: 450,
+        growth: 1.80,
         value: level => level === 0
             ? 'locked'
             : `${90 + level * 110} dmg · ${(30 * Math.pow(0.86, level - 1)).toFixed(0)}s`
@@ -909,8 +909,8 @@ export const FIREWALL_UPGRADES: readonly FirewallUpgradeDefinition[] = [
         icon: 'i-lucide-flame',
         tab: 'systems',
         max: 5,
-        baseCost: 480,
-        growth: 1.6,
+        baseCost: 650,
+        growth: 1.95,
         value: level => level === 0 ? 'locked' : `${(3 + level).toFixed(0)}s ×${(1.6 + level * 0.25).toFixed(2)}`
     }
 ] as const
@@ -989,7 +989,7 @@ export const FIREWALL_MAINFRAME: readonly FirewallMainframeDefinition[] = [
         color: 'success',
         max: 12,
         baseCost: 100_000,
-        growth: 2.15,
+        growth: 2.45,
         value: level => `+${level * 6}% wall HP`
     },
     {
@@ -999,8 +999,8 @@ export const FIREWALL_MAINFRAME: readonly FirewallMainframeDefinition[] = [
         icon: 'i-lucide-zap',
         color: 'error',
         max: 12,
-        baseCost: 150_000,
-        growth: 2.25,
+        baseCost: 200_000,
+        growth: 2.65,
         value: level => `+${level * 5}% weapon damage`
     },
     {
@@ -1010,8 +1010,8 @@ export const FIREWALL_MAINFRAME: readonly FirewallMainframeDefinition[] = [
         icon: 'i-lucide-factory',
         color: 'warning',
         max: 12,
-        baseCost: 150_000,
-        growth: 2.25,
+        baseCost: 200_000,
+        growth: 2.65,
         value: level => `+${level * 5}% turret damage`
     },
     {
@@ -1022,7 +1022,7 @@ export const FIREWALL_MAINFRAME: readonly FirewallMainframeDefinition[] = [
         color: 'info',
         max: 10,
         baseCost: 100_000,
-        growth: 2.1,
+        growth: 2.45,
         value: level => `+${level * 200} starting credits`
     },
     {
@@ -1032,8 +1032,8 @@ export const FIREWALL_MAINFRAME: readonly FirewallMainframeDefinition[] = [
         icon: 'i-lucide-coins',
         color: 'secondary',
         max: 13,
-        baseCost: 220_000,
-        growth: 2.45,
+        baseCost: 300_000,
+        growth: 2.85,
         value: level => `+${level * 8}% coin drops`
     },
     {
@@ -1043,8 +1043,8 @@ export const FIREWALL_MAINFRAME: readonly FirewallMainframeDefinition[] = [
         icon: 'i-lucide-shield',
         color: 'primary',
         max: 10,
-        baseCost: 120_000,
-        growth: 2.2,
+        baseCost: 180_000,
+        growth: 2.55,
         value: level => `+${level * 45} shield · +${level * 3}/s`
     },
     {
@@ -1054,8 +1054,8 @@ export const FIREWALL_MAINFRAME: readonly FirewallMainframeDefinition[] = [
         icon: 'i-lucide-building-2',
         color: 'warning',
         max: 4,
-        baseCost: 400_000,
-        growth: 3.2,
+        baseCost: 750_000,
+        growth: 6.5,
         value: level => `+${level} starting mount${level === 1 ? '' : 's'}`
     },
     {
@@ -1065,8 +1065,8 @@ export const FIREWALL_MAINFRAME: readonly FirewallMainframeDefinition[] = [
         icon: 'i-lucide-swords',
         color: 'error',
         max: 4,
-        baseCost: 500_000,
-        growth: 3.5,
+        baseCost: 1_000_000,
+        growth: 7.5,
         value: (level) => {
             const unlocked = FIREWALL_WEAPONS.slice(1, level + 1).map(w => w.name)
             return unlocked.length ? unlocked.join(', ') : 'nothing yet'
@@ -1148,7 +1148,7 @@ export function firewallPower(levels: FirewallMainframeLevels) {
  * value superlinear in the wave number means depth is the only thing that pays,
  * which is also the thing the difficulty gate is protecting.
  */
-export const FIREWALL_COIN_SCALE = 1.15
+export const FIREWALL_COIN_SCALE = 2.3
 
 export function firewallCoinValue(
     bounty: number,
