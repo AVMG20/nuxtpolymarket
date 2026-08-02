@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { chipRackFor } from '#shared/utils/live-blackjack/chips'
 import { canDouble, canSplit, canSurrender } from '#shared/utils/live-blackjack/rules'
+import { basicStrategy } from '#shared/utils/live-blackjack/strategy'
 import { buildTextures } from '~/utils/live-blackjack/art'
 import { LiveBlackjackScene, STAGE_H, STAGE_W } from '~/utils/live-blackjack/scene'
 
@@ -8,7 +9,7 @@ const table = useLiveBlackjack()
 const { state, actionPulse, youId, balance, connected, feed, mySeat, myHand, isMyTurn } = table
 
 const canvasWrap = ref<HTMLDivElement | null>(null)
-const showCount = ref(false)
+const showHints = useCookie<boolean>('lb-show-hint', { default: () => false })
 const chatDraft = ref('')
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -24,26 +25,11 @@ const decksLeft = computed(() => {
     return Math.max(0.5, (shoe.total - shoe.dealt) / 52)
 })
 
-const trueCount = computed(() => {
+const cardsLeft = computed(() => {
     const shoe = state.value?.shoe
     if (!shoe) return 0
-    return shoe.runningCount / decksLeft.value
+    return Math.max(0, shoe.total - shoe.dealt)
 })
-
-const phaseLabel = computed(() => {
-    switch (state.value?.phase) {
-        case 'betting': return 'Place your bets'
-        case 'dealing': return 'Dealing'
-        case 'insurance': return 'Insurance'
-        case 'playing': return 'In play'
-        case 'dealer': return 'Dealer'
-        case 'payout': return 'Paying out'
-        default: return 'Waiting'
-    }
-})
-
-const secondsLeft = ref(0)
-let clockTimer: ReturnType<typeof setInterval> | null = null
 
 const pendingBet = computed(() => mySeat.value?.pendingBet ?? 0)
 const isBetting = computed(() => state.value?.phase === 'betting' && !!mySeat.value)
@@ -59,6 +45,13 @@ const canSplitNow = computed(() =>
     !!myHand.value && canSplit(myHand.value, seatHands.value) && balance.value >= myHand.value.bet)
 const canSurrenderNow = computed(() =>
     !!myHand.value && canSurrender(myHand.value, seatHands.value))
+
+// Only ever the play basic strategy calls for, and only while it is your turn.
+const hintAction = computed(() => {
+    const up = state.value?.dealer.cards[0]?.rank
+    if (!showHints.value || !isMyTurn.value || !myHand.value || !up) return null
+    return basicStrategy(myHand.value, up, seatHands.value, balance.value)
+})
 
 const visibleFeed = computed(() => feed.value.slice(-7))
 
@@ -109,21 +102,10 @@ onMounted(async () => {
         onChip: value => table.bet(value)
     })
     if (state.value) scene.update(state.value, youId.value, balance.value, rack.value)
-
-    clockTimer = setInterval(() => {
-        const endsAt = state.value?.phaseEndsAt
-        if (!endsAt) {
-            secondsLeft.value = 0
-            return
-        }
-        const skew = (state.value?.now ?? Date.now()) - Date.now()
-        secondsLeft.value = Math.max(0, Math.ceil((endsAt - Date.now() - skew) / 1000))
-    }, 200)
 })
 
 onBeforeUnmount(() => {
     destroyed = true
-    if (clockTimer) clearInterval(clockTimer)
     scene?.destroy()
     scene = null
     app?.destroy(true, { children: true, texture: true })
@@ -158,52 +140,16 @@ onBeforeUnmount(() => {
             :class="entry.seated ? 'text-default' : 'text-muted line-through decoration-white/30'"
           >{{ entry.name }}</span>
           <span
+            v-if="entry.winStreak >= 2"
+            class="shrink-0 rounded-full bg-amber-600/90 px-1.5 text-[9px] font-extrabold text-amber-50"
+            :title="`${entry.winStreak} wins in a row`"
+          >W{{ entry.winStreak }}</span>
+          <span
             class="ml-auto shrink-0 font-mono text-[11px] font-bold tabular-nums"
             :class="entry.net > 0 ? 'text-green-400' : entry.net < 0 ? 'text-red-400' : 'text-muted'"
           >{{ entry.net > 0 ? '+' : entry.net < 0 ? '−' : '' }}{{ formatNumber(Math.abs(entry.net)) }}</span>
         </li>
       </ul>
-    </div>
-
-    <!-- Shoe, penetration and the count, for anyone who wants to keep one -->
-    <div class="absolute right-2 top-2 w-[19%] min-w-41 rounded-xl bg-black/70 p-2.5 backdrop-blur-sm ring-1 ring-white/10">
-      <div class="flex items-center justify-between text-[11px]">
-        <span class="font-bold uppercase tracking-wider text-amber-300/80">{{ phaseLabel }}</span>
-        <span v-if="secondsLeft > 0" class="font-mono font-bold tabular-nums text-default">{{ secondsLeft }}s</span>
-      </div>
-      <div class="mt-1.5 flex items-center justify-between text-[11px] text-muted">
-        <span>Decks left</span>
-        <span class="font-mono tabular-nums text-default">{{ decksLeft.toFixed(1) }} / {{ state?.shoe.decks ?? 6 }}</span>
-      </div>
-      <div class="mt-1 h-1 overflow-hidden rounded-full bg-white/10">
-        <div
-          class="h-full bg-amber-400/70 transition-[width] duration-500"
-          :style="{ width: `${Math.round((decksLeft / (state?.shoe.decks ?? 6)) * 100)}%` }"
-        />
-      </div>
-      <button
-        class="mt-2 w-full rounded-md bg-white/5 px-2 py-1 text-[11px] font-semibold text-muted transition hover:bg-white/10 hover:text-default"
-        @click="showCount = !showCount"
-      >
-        {{ showCount ? 'Hide' : 'Show' }} count
-      </button>
-      <div v-if="showCount" class="mt-1.5 grid grid-cols-2 gap-1 text-center">
-        <div class="rounded bg-white/5 py-1">
-          <div class="text-[9px] uppercase text-muted">Running</div>
-          <div class="font-mono text-sm font-bold tabular-nums text-default">
-            {{ (state?.shoe.runningCount ?? 0) > 0 ? '+' : '' }}{{ state?.shoe.runningCount ?? 0 }}
-          </div>
-        </div>
-        <div class="rounded bg-white/5 py-1">
-          <div class="text-[9px] uppercase text-muted">True</div>
-          <div
-            class="font-mono text-sm font-bold tabular-nums"
-            :class="trueCount >= 2 ? 'text-green-400' : trueCount <= -2 ? 'text-red-400' : 'text-default'"
-          >
-            {{ trueCount > 0 ? '+' : '' }}{{ trueCount.toFixed(1) }}
-          </div>
-        </div>
-      </div>
     </div>
 
     <!-- Live feed + table chat -->
@@ -266,19 +212,24 @@ onBeforeUnmount(() => {
       </div>
 
       <div v-else-if="isMyTurn" class="flex gap-2">
-        <button class="lb-tile lb-tile-green flex-1" @click="table.act('hit')">
+        <button class="lb-tile lb-tile-green flex-1" :class="{ 'lb-hint': hintAction === 'hit' }" @click="table.act('hit')">
           HIT
         </button>
-        <button class="lb-tile lb-tile-blue flex-1" @click="table.act('stand')">
+        <button class="lb-tile lb-tile-blue flex-1" :class="{ 'lb-hint': hintAction === 'stand' }" @click="table.act('stand')">
           STAND
         </button>
-        <button class="lb-tile lb-tile-amber flex-1" :disabled="!canDoubleNow" @click="table.act('double')">
+        <button class="lb-tile lb-tile-amber flex-1" :disabled="!canDoubleNow" :class="{ 'lb-hint': hintAction === 'double' }" @click="table.act('double')">
           DOUBLE
         </button>
-        <button class="lb-tile lb-tile-yellow flex-1" :disabled="!canSplitNow" @click="table.act('split')">
+        <button class="lb-tile lb-tile-yellow flex-1" :disabled="!canSplitNow" :class="{ 'lb-hint': hintAction === 'split' }" @click="table.act('split')">
           SPLIT
         </button>
-        <button v-if="canSurrenderNow" class="lb-tile lb-tile-red flex-1" @click="table.act('surrender')">
+        <button
+          v-if="canSurrenderNow"
+          class="lb-tile lb-tile-red flex-1"
+          :class="{ 'lb-hint': hintAction === 'surrender' }"
+          @click="table.act('surrender')"
+        >
           FOLD
         </button>
       </div>
@@ -306,28 +257,39 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
-    <!-- Seat controls, out of the way of the action -->
-    <div v-if="mySeat" class="absolute bottom-2 right-2 rounded-xl bg-black/70 px-2 py-1.5 backdrop-blur-sm ring-1 ring-white/10">
-      <p v-if="mySeat.leaving" class="mb-1 text-center text-[10px] text-amber-300">
-        Standing up after this hand
-      </p>
-      <div class="flex items-center gap-1.5">
+    <!-- Shoe depth and hints; counting the cards is left to the player -->
+    <div class="absolute bottom-2 right-2 w-[19%] min-w-41 rounded-xl bg-black/70 p-2.5 backdrop-blur-sm ring-1 ring-white/10">
+      <div class="flex items-baseline justify-between text-[11px]">
+        <span class="font-bold uppercase tracking-wider text-amber-300/80">Shoe</span>
+        <span class="font-mono tabular-nums text-default">{{ cardsLeft }} cards</span>
+      </div>
+      <div class="mt-1 h-1.5 overflow-hidden rounded-full bg-white/10">
+        <div
+          class="h-full bg-amber-400/70 transition-[width] duration-500"
+          :style="{ width: `${Math.round((cardsLeft / (state?.shoe.total || 312)) * 100)}%` }"
+        />
+      </div>
+      <div class="mt-1 text-right text-[10px] text-muted">
+        {{ decksLeft.toFixed(1) }} of {{ state?.shoe.decks ?? 6 }} decks left
+      </div>
+
+      <button
+        class="mt-2 flex w-full items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-[11px] font-semibold transition"
+        :class="showHints
+          ? 'bg-emerald-500/25 text-emerald-200 ring-1 ring-emerald-400/60'
+          : 'bg-white/5 text-muted hover:bg-white/10 hover:text-default'"
+        @click="showHints = !showHints"
+      >
+        <UIcon :name="showHints ? 'i-lucide-lightbulb' : 'i-lucide-lightbulb-off'" />
+        Hints {{ showHints ? 'on' : 'off' }}
+      </button>
+
+      <div v-if="mySeat" class="mt-2 flex items-center justify-between border-t border-white/10 pt-1.5">
         <span class="text-[10px] text-muted">Seat {{ mySeat.index + 1 }}</span>
-        <UButton
-          v-if="mySeat.away || mySeat.leaving"
-          size="xs"
-          color="warning"
-          variant="ghost"
-          @click="table.setAway(false)"
-        >
-          {{ mySeat.leaving ? 'Stay' : 'Sit in' }}
-        </UButton>
-        <UButton v-else size="xs" color="neutral" variant="ghost" @click="table.setAway(true)">
-          Sit out
-        </UButton>
         <UButton v-if="!mySeat.leaving" size="xs" color="error" variant="ghost" @click="table.leave()">
           Leave
         </UButton>
+        <span v-else class="text-[10px] text-amber-300">Standing up</span>
       </div>
     </div>
   </div>
@@ -380,6 +342,15 @@ onBeforeUnmount(() => {
 .lb-tile-red {
   background: rgb(239 68 68 / 0.28);
   border-color: rgb(248 113 113 / 0.75);
+}
+.lb-hint {
+  box-shadow: 0 0 0 3px rgb(255 255 255 / 0.85), 0 0 18px 2px rgb(255 255 255 / 0.45);
+  animation: lb-hint-pulse 1.1s ease-in-out infinite;
+}
+@keyframes lb-hint-pulse {
+  50% {
+    box-shadow: 0 0 0 3px rgb(255 255 255 / 0.5), 0 0 10px 1px rgb(255 255 255 / 0.25);
+  }
 }
 .lb-tile-slate {
   background: rgb(100 116 139 / 0.3);

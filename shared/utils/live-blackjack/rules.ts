@@ -14,12 +14,7 @@ export const LB_RULES = {
     /** Split aces receive exactly one card each and cannot be resplit. */
     resplitAces: false,
     lateSurrender: true,
-    insurancePays: 2,
-    /**
-     * Miss one betting window and the seat is shown as sitting out. Placing a
-     * chip brings it straight back in, so there is nothing to undo.
-     */
-    idleRoundsBeforeAway: 1
+    insurancePays: 2
 } as const
 
 export const LB_TIMERS = {
@@ -37,8 +32,16 @@ export const LB_TIMERS = {
      */
     actionBeat: 1_100,
     payout: 5_000,
-    /** Grace period a seat is held after its player's socket drops. */
-    disconnectGrace: 45_000
+    /**
+     * How long a seat is held after its player's socket drops, with money still
+     * on the table — long enough to survive a refresh and still be paid out.
+     */
+    disconnectGrace: 45_000,
+    /**
+     * With nothing staked there is nothing to come back for, so a closed tab
+     * gives the seat up almost immediately instead of blocking it.
+     */
+    disconnectGraceIdle: 10_000
 } as const
 
 const TEN_RANKS: LbRank[] = ['10', 'J', 'Q', 'K']

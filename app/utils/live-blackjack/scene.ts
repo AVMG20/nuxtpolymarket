@@ -17,10 +17,11 @@ const RAIL = 0x3b2416
 const GOLD = 0xd9b167
 
 const DEALER_POS = { x: 800, y: 196 }
-// Shoe and tray sit at mid-height: the top corners belong to the scoreboard and
-// the shoe/count readouts, which are DOM panels layered over this canvas.
-const SHOE_POS = { x: 1462, y: 344 }
-const DISCARD_POS = { x: 138, y: 344 }
+// The shoe is a side-on block of cards so the stack visibly drains toward the
+// cut card; the discard tray opposite it fills by the same amount.
+const SHOE_POS = { x: 1444, y: 268 }
+const SHOE_STACK = { width: 96, height: 188 }
+const DISCARD_POS = { x: 156, y: 268 }
 // Pushed to the very bottom edge so the betting controls have a clear band
 // between the seat nameplates and the chips.
 const RACK_Y = 928
@@ -97,6 +98,8 @@ export class LiveBlackjackScene {
     private dealerScoreText!: Text
     private timerArc: Graphics
     private phaseText: Text
+    private countdownText!: Text
+    private shoeStack!: Graphics
 
     private state: LbTableState | null = null
     private balance = 0
@@ -134,8 +137,16 @@ export class LiveBlackjackScene {
 
         this.phaseText = label(PIXI, '', 26, 0xf7f3e8, '700')
         this.phaseText.anchor.set(0.5)
-        this.phaseText.position.set(DEALER_POS.x, 362)
+        this.phaseText.position.set(DEALER_POS.x, 348)
         this.uiLayer.addChild(this.phaseText)
+
+        // A shrinking ring alone is hard to read across the table; the seconds
+        // are what players actually watch.
+        this.countdownText = label(PIXI, '', 42, GOLD, '800')
+        this.countdownText.anchor.set(0.5)
+        this.countdownText.position.set(DEALER_POS.x, 394)
+        this.countdownText.visible = false
+        this.uiLayer.addChild(this.countdownText)
 
         this.buildRack()
         app.ticker.add(this.tick)
@@ -163,35 +174,79 @@ export class LiveBlackjackScene {
             g.circle(seat.x, seat.y + BET_Y_OFFSET, 41).stroke({ width: 1, color: GOLD, alpha: 0.22 })
         }
 
-        // Shoe and discard tray, so the count has somewhere to visibly live.
-        g.roundRect(SHOE_POS.x - 52, SHOE_POS.y - 44, 104, 88, 10).fill(0x24160e).stroke({ width: 2, color: GOLD, alpha: 0.5 })
-        g.roundRect(DISCARD_POS.x - 52, DISCARD_POS.y - 44, 104, 88, 10).fill(0x1b1009).stroke({ width: 2, color: GOLD, alpha: 0.3 })
+        // Empty trays; the card stacks inside them are redrawn as the shoe drains.
+        for (const pos of [SHOE_POS, DISCARD_POS]) {
+            g.roundRect(
+                pos.x - SHOE_STACK.width / 2 - 8,
+                pos.y - SHOE_STACK.height / 2 - 8,
+                SHOE_STACK.width + 16,
+                SHOE_STACK.height + 16,
+                8
+            ).fill(0x1b1009).stroke({ width: 2, color: GOLD, alpha: 0.45 })
+        }
 
         this.felt.addChild(g)
 
-        const rules = label(this.PIXI, 'BLACKJACK PAYS 3 TO 2', 22, GOLD, '700')
+        // Single legend line: the countdown now owns the space the second one had.
+        const rules = label(this.PIXI, 'BLACKJACK PAYS 3 TO 2  ·  DEALER STANDS ON ALL 17', 19, GOLD, '700')
         rules.anchor.set(0.5)
-        rules.alpha = 0.75
-        rules.position.set(DEALER_POS.x, 396)
+        rules.alpha = 0.7
+        rules.position.set(DEALER_POS.x, 432)
         this.felt.addChild(rules)
 
-        const stands = label(this.PIXI, 'Dealer must stand on all 17  ·  Insurance pays 2 to 1', 16, 0xe8dcc0, '600')
-        stands.anchor.set(0.5)
-        stands.alpha = 0.5
-        stands.position.set(DEALER_POS.x, 424)
-        this.felt.addChild(stands)
-
-        const shoeLabel = label(this.PIXI, 'SHOE', 13, GOLD, '700')
+        const labelY = SHOE_POS.y + SHOE_STACK.height / 2 + 26
+        const shoeLabel = label(this.PIXI, 'SHOE', 14, GOLD, '700')
         shoeLabel.anchor.set(0.5)
-        shoeLabel.alpha = 0.7
-        shoeLabel.position.set(SHOE_POS.x, SHOE_POS.y + 58)
+        shoeLabel.alpha = 0.75
+        shoeLabel.position.set(SHOE_POS.x, labelY)
         this.felt.addChild(shoeLabel)
 
-        const discardLabel = label(this.PIXI, 'DISCARD', 13, GOLD, '700')
+        const discardLabel = label(this.PIXI, 'DISCARD', 14, GOLD, '700')
         discardLabel.anchor.set(0.5)
-        discardLabel.alpha = 0.55
-        discardLabel.position.set(DISCARD_POS.x, DISCARD_POS.y + 58)
+        discardLabel.alpha = 0.6
+        discardLabel.position.set(DISCARD_POS.x, labelY)
         this.felt.addChild(discardLabel)
+
+        this.shoeStack = new this.PIXI.Graphics()
+        this.uiLayer.addChild(this.shoeStack)
+    }
+
+    /**
+     * The shoe drawn as the block of cards still in it, draining down to the red
+     * cut card. The discard tray opposite grows by whatever has left the shoe.
+     */
+    private drawShoe(dealt: number, total: number, untilShuffle: number) {
+        const g = this.shoeStack
+        g.clear()
+
+        const remaining = Math.max(0, total - dealt)
+        const half = SHOE_STACK.width / 2
+        const bottom = SHOE_POS.y + SHOE_STACK.height / 2
+
+        const drawBlock = (x: number, cards: number, tint: number) => {
+            const h = Math.round((cards / total) * SHOE_STACK.height)
+            if (h <= 0) return
+            g.roundRect(x - half, bottom - h, SHOE_STACK.width, h, 3).fill(tint)
+            // One line per few cards reads as a stack rather than a solid slab.
+            const step = SHOE_STACK.height / 42
+            for (let y = bottom - h + step; y < bottom - 1; y += step) {
+                g.moveTo(x - half + 4, y)
+                g.lineTo(x + half - 4, y)
+            }
+            g.stroke({ width: 1, color: 0x000000, alpha: 0.22 })
+        }
+
+        drawBlock(SHOE_POS.x, remaining, 0x8f1230)
+        drawBlock(DISCARD_POS.x, dealt, 0x4a3520)
+
+        // Cut card: once the stack drains past it the shoe is reshuffled.
+        const cutHeight = Math.round((Math.max(0, remaining - untilShuffle) / total) * SHOE_STACK.height)
+        if (remaining > 0) {
+            const y = bottom - cutHeight
+            g.moveTo(SHOE_POS.x - half - 6, y)
+            g.lineTo(SHOE_POS.x + half + 6, y)
+            g.stroke({ width: 4, color: 0xf1c40f, alpha: 0.95 })
+        }
     }
 
     private buildDealerBadge(): Container {
@@ -275,6 +330,7 @@ export class LiveBlackjackScene {
     private tick = () => {
         const state = this.state
         this.timerArc.clear()
+        this.countdownText.visible = false
         if (!state?.phaseEndsAt) return
 
         const total = state.phase === 'betting'
@@ -286,6 +342,14 @@ export class LiveBlackjackScene {
         const left = Math.max(0, state.phaseEndsAt - (Date.now() + this.clockSkew))
         const frac = Math.max(0, Math.min(1, left / total))
         if (frac <= 0) return
+
+        const seconds = Math.ceil(left / 1000)
+        this.countdownText.visible = true
+        this.countdownText.text = String(seconds)
+        this.countdownText.style.fill = seconds <= 5 ? 0xef4444 : GOLD
+        // A last-seconds pulse, so a player looking at their cards still notices.
+        const pulse = seconds <= 5 ? 1 + 0.08 * Math.sin(Date.now() / 90) : 1
+        this.countdownText.scale.set(pulse)
 
         const seat = state.activeSeat !== null ? SEAT_LAYOUT[state.activeSeat] : null
         const center = seat
@@ -306,6 +370,8 @@ export class LiveBlackjackScene {
         this.state = state
         this.balance = balance
 
+        this.drawShoe(state.shoe.dealt, state.shoe.total, state.shoe.untilShuffle)
+
         this.phaseText.text = state.message
         this.dealerScore.visible = state.dealer.cards.length > 0
         this.dealerScoreText.text = `${state.dealer.score}${state.dealer.soft ? '/S' : ''}`
@@ -323,7 +389,7 @@ export class LiveBlackjackScene {
         // rest of the time the action controls take it over.
         const betting = state.phase === 'betting'
         const seated = state.seats.find(s => s?.userId === youId)
-        const canBet = betting && !!seated && !seated.away
+        const canBet = betting && !!seated
         this.rackLayer.visible = canBet
         this.syncRack(rack, canBet)
     }
@@ -491,6 +557,8 @@ class SeatNode {
     private plate: Container
     private nameText: Text
     private netText: Text
+    private streakBadge: Container
+    private streakText: Text
     private sitPrompt: Container
     private badges: Container[] = []
     private chipSprites: Sprite[] = []
@@ -524,6 +592,18 @@ class SeatNode {
         this.netText.anchor.set(0.5)
         this.netText.position.set(0, 12)
         this.plate.addChild(this.netText)
+
+        // Sits beside the name and only appears on a run of two or more.
+        this.streakBadge = new PIXI.Container()
+        const streakBg = new PIXI.Graphics()
+        streakBg.roundRect(-19, -12, 38, 24, 12).fill(0xd97706)
+        streakBg.roundRect(-19, -12, 38, 24, 12).stroke({ width: 1.5, color: 0xfde68a, alpha: 0.9 })
+        this.streakText = label(PIXI, '', 14, 0xfffbeb, '800')
+        this.streakText.anchor.set(0.5)
+        this.streakBadge.addChild(streakBg, this.streakText)
+        this.streakBadge.position.set(0, -9)
+        this.streakBadge.visible = false
+        this.plate.addChild(this.streakBadge)
 
         this.plate.position.set(pos.x, pos.y + PLATE_Y_OFFSET)
         this.plate.visible = false
@@ -559,13 +639,25 @@ class SeatNode {
         if (!seat) return
 
         const isYou = seat.userId === youId
-        this.nameText.text = seat.name.length > 15 ? `${seat.name.slice(0, 14)}…` : seat.name
+        const streaking = seat.winStreak >= 2
+        // A shorter name when the badge is showing keeps both inside the plate.
+        const maxName = streaking ? 11 : 15
+        this.nameText.text = seat.name.length > maxName ? `${seat.name.slice(0, maxName - 1)}…` : seat.name
         this.nameText.style.fill = isYou ? GOLD : seat.connected ? 0xf7f3e8 : 0x64748b
 
+        this.streakBadge.visible = streaking
+        if (streaking) {
+            this.streakText.text = `W${seat.winStreak}`
+            // Shifted off the centred name rather than a fixed offset, so it
+            // tracks however wide that player's name renders.
+            this.nameText.x = -20
+            this.streakBadge.x = this.nameText.x + this.nameText.width / 2 + 24
+        } else {
+            this.nameText.x = 0
+        }
+
         const net = seat.sessionNet
-        this.netText.text = seat.away && !seat.hands.length
-            ? 'sitting out'
-            : net === 0 ? '—' : `${net > 0 ? '+' : '−'}${formatNumber(Math.abs(net))}`
+        this.netText.text = net === 0 ? '—' : `${net > 0 ? '+' : '−'}${formatNumber(Math.abs(net))}`
         this.netText.style.fill = net > 0 ? 0x4ade80 : net < 0 ? 0xf87171 : 0x94a3b8
 
         const stakeSpots: { x: number, amount: number }[] = []
