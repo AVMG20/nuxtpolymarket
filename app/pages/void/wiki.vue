@@ -164,10 +164,11 @@ const specialGroups = computed(() => {
           extraction first. Die with a full hold and you earn exactly nothing.
         </p>
         <p class="text-muted">
-          Prices are flat but wildly top-heavy: ferrite is close to worthless, while xenite is worth two hundred times
-          as much per unit and warp cores more again. Both only exist in the deep sectors, so the fastest money is
-          always the tier that can kill you. Refinery levels and <strong>Profiteering</strong> module rolls raise every
-          price you're offered.
+          Prices are flat but top-heavy: roughly four times per ore tier, so xenite is worth about seventy-five ferrite
+          per unit and warp cores more again. The expensive ore only exists in the deep sectors, and it also cuts
+          slower — a rock is worth about four times more per second of held laser each tier down, not seventy-five, so
+          pushing deeper is a real raise rather than a different game. Refinery levels and <strong>Profiteering</strong>
+          module rolls raise every price you're offered.
         </p>
         <p class="text-muted">
           Capitals have a {{ Math.round(VOID_BOSS_MODULE_DROP_CHANCE * 100) }}% chance to drop a whole module on death,

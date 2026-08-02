@@ -1969,7 +1969,9 @@ export class VoidGame {
 
         // Wrecks drop material, never money — the dock is the only place
         // anything turns into coins. Later kills drop more, matching how much
-        // harder they hit back by then.
+        // harder they hit back by then. The sector multiplier is damped hard:
+        // salvage is cheap per unit but costs the same hold space as xenite, so
+        // an undamped deep-sector wreck would bury a full hold in scrap.
         const sector = voidSector(this.sectorTier)
         const stats = this.config!.stats
         const ramp = voidRampMultiplier(this.elapsedMs)
@@ -1977,7 +1979,7 @@ export class VoidGame {
             if (drop.chance !== undefined && !randomChance(drop.chance)) continue
             const rolled = randomInt(drop.min, drop.max)
             const amount = Math.max(1, Math.round(
-                rolled * (1 + (sector.reward - 1) * 0.25) * ramp * stats.salvageYieldMult * randRange(0.9, 1.15)
+                rolled * (1 + (sector.reward - 1) * 0.15) * ramp * stats.salvageYieldMult * randRange(0.9, 1.15)
             ))
             this.spawnPickup(
                 enemy.x + randRange(-24, 24),

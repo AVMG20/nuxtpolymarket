@@ -3,6 +3,7 @@ import { VOID_STORM_START_MS, VOID_RUN_DURATION_MS, VOID_MIDBOSS_SPAWN_MS, voidR
 import VoidResourceChip from '~/components/void/VoidResourceChip.vue'
 
 const canvasHost = ref<HTMLDivElement | null>(null)
+const consoleShell = ref<HTMLDivElement | null>(null)
 
 const { data: state, refresh } = await useFetch('/api/void/state')
 
@@ -111,6 +112,57 @@ const summaryMessage = computed(() => {
 })
 const summaryHaulLines = computed(() => bundleLines(summary.value?.bankedHaul ?? {}))
 
+// ─── Fullscreen ─────────────────────────────────────────────────────────────
+// The whole console goes fullscreen, deck included — the survey and the cargo
+// worth are how you decide when to turn back, so a fullscreen mode that showed
+// only the canvas would be strictly worse to play in than the windowed one.
+
+const isFullscreen = ref(false)
+const deckEl = ref<HTMLDivElement | null>(null)
+// The stage is sized off the screen height minus the deck, so the canvas keeps
+// its exact 1400x820 ratio instead of being stretched to the display. The deck
+// wraps at narrow widths, so its height is measured rather than assumed.
+const deckHeight = ref(0)
+let deckObserver: ResizeObserver | null = null
+
+watch(deckEl, (el) => {
+    deckObserver?.disconnect()
+    if (!el) {
+        deckHeight.value = 0
+        return
+    }
+    deckObserver = new ResizeObserver(() => { deckHeight.value = el.offsetHeight })
+    deckObserver.observe(el)
+    deckHeight.value = el.offsetHeight
+})
+
+function syncFullscreen() {
+    isFullscreen.value = document.fullscreenElement === consoleShell.value
+}
+
+/**
+ * Only ever drops the console's own fullscreen. Keyed off `isFullscreen` rather
+ * than the element identity because the template ref is already null by the
+ * time the unmount hook runs.
+ */
+async function exitFullscreen() {
+    if (isFullscreen.value) await document.exitFullscreen().catch(() => {})
+}
+
+async function toggleFullscreen() {
+    // Either call rejects if the browser doesn't like the gesture it came from,
+    // and a rejected promise here is noise, not something the player can act on.
+    if (isFullscreen.value) await exitFullscreen()
+    else await consoleShell.value?.requestFullscreen().catch(() => {})
+}
+
+// The summary modal is teleported to <body>, which is outside the fullscreen
+// element and so would be invisible — and it is the one screen a run must end
+// on. Drop back to the page as the run settles.
+watch(summaryVisible, (open) => {
+    if (open) exitFullscreen()
+})
+
 async function handleLaunch() {
     if (!state.value) return
     await launch(selectedSector.value)
@@ -122,12 +174,20 @@ async function handleCloseSummary() {
 }
 
 onMounted(async () => {
+    document.addEventListener('fullscreenchange', syncFullscreen)
     const host = canvasHost.value
     if (!host || !state.value) return
     await attachCanvas(host, Boolean(state.value.activeRun), refresh)
 })
 
-onUnmounted(() => detachCanvas())
+onUnmounted(() => {
+    document.removeEventListener('fullscreenchange', syncFullscreen)
+    deckObserver?.disconnect()
+    // Navigating away with the console still fullscreen would leave the next
+    // page rendered inside a detached element.
+    exitFullscreen()
+    detachCanvas()
+})
 </script>
 
 <template>
@@ -173,11 +233,28 @@ onUnmounted(() => detachCanvas())
         game — it is the bottom of the same instrument, so it carries the same
         backdrop, the same hairlines and the same cyan the dock ring is drawn in.
       -->
-      <div class="console">
+      <div ref="consoleShell" class="console" :style="{ '--deck-h': `${deckHeight}px` }">
         <div class="console__scan" />
 
-        <div class="relative w-full overflow-hidden" style="aspect-ratio: 1400 / 820;">
+        <div class="stage">
           <div ref="canvasHost" class="absolute inset-0" />
+
+          <!--
+            Sits above the scanline and every overlay so it stays reachable from
+            the pause screen too. Only offered mid-run: the launch panel's sector
+            select renders in a teleported popover that a fullscreen console
+            cannot show.
+          -->
+          <UButton
+            v-if="running"
+            class="absolute right-3 top-3 z-30"
+            color="neutral"
+            variant="subtle"
+            size="xs"
+            :icon="isFullscreen ? 'i-lucide-minimize' : 'i-lucide-maximize'"
+            :aria-label="isFullscreen ? 'Leave fullscreen' : 'Play fullscreen'"
+            @click="toggleFullscreen"
+          />
 
           <!-- In-flight overlays live on top of the canvas so the control deck below never jumps -->
           <div v-if="running" class="pointer-events-none absolute inset-0">
@@ -336,7 +413,7 @@ onUnmounted(() => detachCanvas())
         </div>
 
         <!-- Control deck -->
-        <div v-if="running" class="deck">
+        <div v-if="running" ref="deckEl" class="deck">
           <div class="grid gap-2.5 xl:grid-cols-[minmax(210px,0.95fr)_minmax(210px,1fr)_minmax(200px,1fr)_minmax(150px,0.7fr)_auto]">
             <section class="panel space-y-2">
               <div class="flex items-baseline justify-between">
@@ -616,6 +693,40 @@ onUnmounted(() => detachCanvas())
   box-shadow:
     0 0 70px -30px rgb(34 211 238 / 0.55),
     inset 0 0 140px -70px rgb(34 211 238 / 0.4);
+}
+
+.stage {
+  position: relative;
+  width: 100%;
+  overflow: hidden;
+  aspect-ratio: 1400 / 820;
+}
+
+/*
+  Fullscreen stacks the same two halves in a column: the stage takes the screen
+  height the deck leaves it, and keeps its aspect ratio rather than stretching
+  to the display. The canvas is a fixed 1400x820 render target scaled by CSS and
+  aiming is resolved from its bounding box, so a stretched stage would put the
+  crosshair off the cursor. Width is driven off the leftover height (and capped
+  at the screen width for tall displays) so the ratio holds in one direction
+  only, which is the well-behaved way to use aspect-ratio.
+*/
+.console:fullscreen {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 0;
+}
+
+.console:fullscreen .stage {
+  flex: 0 0 auto;
+  width: min(100%, calc((100dvh - var(--deck-h, 0px)) * 1400 / 820));
+}
+
+.console:fullscreen .deck {
+  width: 100%;
 }
 
 /* A single scanline wash across the whole shell, canvas included, so the two

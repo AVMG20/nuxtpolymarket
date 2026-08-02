@@ -106,18 +106,23 @@ export function voidResourceHex(id: string) {
 // the only way either becomes money is selling it at the dock — which means
 // every coin you earn had to survive an extraction first.
 //
-// Prices are deliberately top-heavy. Ferrite is close to worthless by the
-// standards of this site; xenite and warp cores are where the money is, and
-// both only exist in the deep sectors.
+// Prices are top-heavy, but only about seventy-five times from the cheap ore to
+// the expensive one — enough that pushing a tier deeper is always the right
+// ambition, not so much that clearing sector 4 once makes every earlier sector
+// worthless. The ladder is roughly four times per ore tier, against cut times
+// that only rise three-fold, so deep ore pays for the garrison sitting on it.
+//
+// Salvage is deliberately the cheap half. Wrecks are what funds the guns in
+// resource terms; they are not supposed to out-earn a rock.
 
 export const VOID_MARKET_PRICES: Record<VoidResourceId, number> = {
-    ferrite: 1_000,
-    scrap: 1_500,
-    cobalt: 11_000,
-    circuitry: 28_000,
-    iridium: 80_000,
-    xenite: 280_000,
-    warpCore: 800_000
+    ferrite: 400,
+    scrap: 300,
+    cobalt: 1_800,
+    circuitry: 3_200,
+    iridium: 8_000,
+    xenite: 30_000,
+    warpCore: 75_000
 }
 
 export function voidUnitPrice(id: string) {
@@ -311,25 +316,28 @@ export interface VoidRockDefinition {
     weights: readonly number[]
 }
 
+// Yields fall as the ore gets expensive, on top of the longer cut, so the value
+// of a rock per second of held laser climbs by roughly the same four-fold step
+// the price ladder does rather than the twenty-fold one raw price would imply.
 export const VOID_ROCKS: readonly VoidRockDefinition[] = [
     {
         id: 'ferrite-node', name: 'Ferrite Node', resource: 'ferrite', rockClass: 'field',
-        color: 0x6b7280, shade: 0x3f4552, glow: 0xd7dee6, mineMs: 7000, yieldMin: 5, yieldMax: 10, radius: 36,
+        color: 0x6b7280, shade: 0x3f4552, glow: 0xd7dee6, mineMs: 7000, yieldMin: 3, yieldMax: 5, radius: 36,
         weights: [70, 40, 20, 9]
     },
     {
         id: 'cobalt-seam', name: 'Cobalt Seam', resource: 'cobalt', rockClass: 'field',
-        color: 0x334d78, shade: 0x1e2f4d, glow: 0x7cb6ff, mineMs: 11_500, yieldMin: 4, yieldMax: 8, radius: 40,
+        color: 0x334d78, shade: 0x1e2f4d, glow: 0x7cb6ff, mineMs: 11_500, yieldMin: 2, yieldMax: 4, radius: 40,
         weights: [13, 40, 33, 20]
     },
     {
         id: 'iridium-cluster', name: 'Iridium Cluster', resource: 'iridium', rockClass: 'deposit',
-        color: 0x4c2f78, shade: 0x2e1a4d, glow: 0xd8b4fe, mineMs: 17_000, yieldMin: 3, yieldMax: 6, radius: 44,
+        color: 0x4c2f78, shade: 0x2e1a4d, glow: 0xd8b4fe, mineMs: 17_000, yieldMin: 2, yieldMax: 4, radius: 44,
         weights: [3, 15, 33, 32]
     },
     {
         id: 'xenite-bloom', name: 'Xenite Bloom', resource: 'xenite', rockClass: 'deposit',
-        color: 0x134e4a, shade: 0x0b2f2c, glow: 0x5eead4, mineMs: 23_000, yieldMin: 2, yieldMax: 5, radius: 48,
+        color: 0x134e4a, shade: 0x0b2f2c, glow: 0x5eead4, mineMs: 23_000, yieldMin: 1, yieldMax: 3, radius: 48,
         weights: [0, 2, 13, 39]
     }
 ]
@@ -406,7 +414,7 @@ export const VOID_ENEMIES: readonly VoidEnemyDefinition[] = [
         color: 0xb91c1c, accentColor: 0xfca5a5, trimColor: 0x7f1d1d, radius: 17,
         hp: 52, speed: 156, damage: 7, fireGapMs: 1150, range: 400, vision: 430, turnRate: 2.6,
         credits: 16,
-        drops: [{ resource: 'scrap', min: 2, max: 4 }],
+        drops: [{ resource: 'scrap', min: 2, max: 3 }],
         abilities: [], abilityCooldownMs: 0,
         weights: [52, 42, 32, 24]
     },
@@ -417,7 +425,7 @@ export const VOID_ENEMIES: readonly VoidEnemyDefinition[] = [
         color: 0xea580c, accentColor: 0xfed7aa, trimColor: 0x9a3412, radius: 13,
         hp: 30, speed: 272, damage: 5.5, fireGapMs: 720, range: 300, vision: 560, turnRate: 4.4,
         credits: 18,
-        drops: [{ resource: 'scrap', min: 2, max: 4 }],
+        drops: [{ resource: 'scrap', min: 2, max: 3 }],
         abilities: [], abilityCooldownMs: 0,
         weights: [26, 26, 26, 24]
     },
@@ -428,7 +436,7 @@ export const VOID_ENEMIES: readonly VoidEnemyDefinition[] = [
         color: 0x475569, accentColor: 0xe2e8f0, trimColor: 0x1e293b, radius: 26,
         hp: 165, speed: 96, damage: 13, fireGapMs: 1500, range: 340, vision: 380, turnRate: 1.3,
         credits: 38,
-        drops: [{ resource: 'scrap', min: 4, max: 8 }, { resource: 'circuitry', min: 1, max: 3, chance: 0.55 }],
+        drops: [{ resource: 'scrap', min: 3, max: 5 }, { resource: 'circuitry', min: 1, max: 2, chance: 0.55 }],
         abilities: ['shockwave'], abilityCooldownMs: 7800,
         weights: [14, 18, 22, 24]
     },
@@ -439,7 +447,7 @@ export const VOID_ENEMIES: readonly VoidEnemyDefinition[] = [
         color: 0x7c3aed, accentColor: 0xddd6fe, trimColor: 0x4c1d95, radius: 15,
         hp: 38, speed: 120, damage: 17, fireGapMs: 2400, range: 760, vision: 780, turnRate: 1.9,
         credits: 34,
-        drops: [{ resource: 'scrap', min: 3, max: 5 }, { resource: 'circuitry', min: 1, max: 2, chance: 0.45 }],
+        drops: [{ resource: 'scrap', min: 2, max: 4 }, { resource: 'circuitry', min: 1, max: 2, chance: 0.45 }],
         abilities: ['railbeam'], abilityCooldownMs: 9500,
         weights: [8, 14, 20, 28]
     },
@@ -450,7 +458,7 @@ export const VOID_ENEMIES: readonly VoidEnemyDefinition[] = [
         color: 0x0d9488, accentColor: 0x99f6e4, trimColor: 0x134e4a, radius: 30,
         hp: 235, speed: 84, damage: 9, fireGapMs: 1900, range: 320, vision: 520, turnRate: 1,
         credits: 46,
-        drops: [{ resource: 'scrap', min: 4, max: 8 }, { resource: 'circuitry', min: 1, max: 3, chance: 0.55 }],
+        drops: [{ resource: 'scrap', min: 3, max: 5 }, { resource: 'circuitry', min: 1, max: 2, chance: 0.55 }],
         abilities: ['drones'], abilityCooldownMs: 9500,
         weights: [6, 13, 18, 20]
     },
@@ -486,8 +494,8 @@ export const VOID_ENEMIES: readonly VoidEnemyDefinition[] = [
         hp: 520, speed: 118, damage: 15, fireGapMs: 950, range: 500, vision: 950, turnRate: 1.15,
         credits: 150,
         drops: [
-            { resource: 'scrap', min: 8, max: 16 },
-            { resource: 'circuitry', min: 2, max: 5 },
+            { resource: 'scrap', min: 5, max: 9 },
+            { resource: 'circuitry', min: 2, max: 3 },
             { resource: 'warpCore', min: 1, max: 1, chance: 0.3 }
         ],
         abilities: ['shockwave', 'burst', 'reinforce'], abilityCooldownMs: 6500,
@@ -502,9 +510,9 @@ export const VOID_ENEMIES: readonly VoidEnemyDefinition[] = [
         hp: 1100, speed: 76, damage: 22, fireGapMs: 850, range: 580, vision: 1150, turnRate: 0.85,
         credits: 320,
         drops: [
-            { resource: 'scrap', min: 16, max: 30 },
-            { resource: 'circuitry', min: 5, max: 11 },
-            { resource: 'warpCore', min: 1, max: 3, chance: 0.7 }
+            { resource: 'scrap', min: 9, max: 15 },
+            { resource: 'circuitry', min: 3, max: 6 },
+            { resource: 'warpCore', min: 1, max: 2, chance: 0.7 }
         ],
         abilities: ['shockwave', 'railbeam', 'reinforce', 'burst'], abilityCooldownMs: 5800,
         weights: [0, 0, 0, 0],
@@ -574,35 +582,35 @@ export const VOID_SHIPS: readonly VoidShipDefinition[] = [
         description: 'A hauler chassis with the cargo braces cut out. Quick, roomy enough, thin in a fight.',
         speedMult: 1.14, turnMult: 1.1, cargoMult: 1.3, hullMult: 0.95, miningMult: 1,
         turretSlots: 2, barrels: 2, radius: 19, color: 0x3b82f6, accent: 0xbfdbfe, trim: 0x1e3a8a,
-        cost: { credits: 1_500_000, resources: { ferrite: 180, cobalt: 30 }, gems: 15 }, requiresSector: 1
+        cost: { credits: 250_000, resources: { ferrite: 120, cobalt: 20 }, gems: 15 }, requiresSector: 1
     },
     {
         id: 'prospector', name: 'Prospector',
         description: 'Purpose-built rock cutter. Twin laser heads shave a fifth off every cut and the hold is deep.',
         speedMult: 0.9, turnMult: 0.88, cargoMult: 1.9, hullMult: 1.2, miningMult: 0.8,
         turretSlots: 2, barrels: 2, radius: 23, color: 0xf59e0b, accent: 0xfef3c7, trim: 0x92400e,
-        cost: { credits: 6_000_000, resources: { ferrite: 520, cobalt: 150 }, gems: 40 }, requiresSector: 1
+        cost: { credits: 1_000_000, resources: { ferrite: 350, cobalt: 90 }, gems: 40 }, requiresSector: 1
     },
     {
         id: 'vanguard', name: 'Vanguard',
         description: 'Military surplus. Three hardpoints, a triple-barrel spinal mount, and real armour.',
         speedMult: 1, turnMult: 0.95, cargoMult: 1.35, hullMult: 1.55, miningMult: 1,
         turretSlots: 3, barrels: 3, radius: 25, color: 0xef4444, accent: 0xfecaca, trim: 0x7f1d1d,
-        cost: { credits: 45_000_000, resources: { ferrite: 1250, cobalt: 460, iridium: 80 }, gems: 90 }, requiresSector: 2
+        cost: { credits: 8_000_000, resources: { ferrite: 800, cobalt: 300, iridium: 50 }, gems: 90 }, requiresSector: 2
     },
     {
         id: 'leviathan', name: 'Leviathan',
         description: 'A mobile refinery with guns. Nothing about it is fast, but nothing empties its hold either.',
         speedMult: 0.64, turnMult: 0.54, cargoMult: 3.1, hullMult: 2.2, miningMult: 0.88,
         turretSlots: 4, barrels: 3, radius: 36, color: 0x8b5cf6, accent: 0xede9fe, trim: 0x4c1d95,
-        cost: { credits: 250_000_000, resources: { ferrite: 2900, cobalt: 1250, iridium: 380 }, gems: 160 }, requiresSector: 3
+        cost: { credits: 60_000_000, resources: { ferrite: 1800, cobalt: 800, iridium: 240 }, gems: 160 }, requiresSector: 3
     },
     {
         id: 'wraith', name: 'Wraith',
         description: 'Prototype hull with no plating worth the name. Fastest thing in the sector, and it knows it.',
         speedMult: 1.52, turnMult: 1.45, cargoMult: 0.95, hullMult: 0.8, miningMult: 0.95,
         turretSlots: 3, barrels: 2, radius: 18, color: 0x10b981, accent: 0xd1fae5, trim: 0x064e3b,
-        cost: { credits: 900_000_000, resources: { cobalt: 2400, iridium: 1000, xenite: 210 }, gems: 250 }, requiresSector: 3
+        cost: { credits: 150_000_000, resources: { cobalt: 1500, iridium: 600, xenite: 120 }, gems: 250 }, requiresSector: 3
     },
     {
         id: 'aurelian', name: 'Aurelian Crown',
@@ -610,8 +618,8 @@ export const VOID_SHIPS: readonly VoidShipDefinition[] = [
         speedMult: 1.32, turnMult: 1.26, cargoMult: 2.3, hullMult: 1.85, miningMult: 0.72,
         turretSlots: 4, barrels: 3, radius: 27, color: 0x0b1020, accent: 0xfbbf24, trim: 0x1d4ed8,
         cost: {
-            credits: 100_000_000_000,
-            resources: { iridium: 6000, xenite: 2500, warpCore: 400 },
+            credits: 10_000_000_000,
+            resources: { iridium: 4000, xenite: 1600, warpCore: 250 },
             gems: 500
         }, requiresSector: 0,
         premium: true
@@ -695,7 +703,7 @@ export const VOID_UPGRADES: readonly VoidUpgradeDefinition[] = [
         // Deliberately scrap-only: the core track is the spine of the build and
         // should never be gated behind a drop that only heavies carry.
         funding: 'salvage', maxLevel: 20,
-        baseCredits: 100_000, creditGrowth: 1.62, resourceStep: { scrap: 18 },
+        baseCredits: 25_000, creditGrowth: 1.55, resourceStep: { scrap: 20 },
         format: level => [
             `${voidDamageFor(level).toFixed(1)} dmg`,
             `${Math.round(voidFireGapFor(level))} ms cycle`,
@@ -706,7 +714,7 @@ export const VOID_UPGRADES: readonly VoidUpgradeDefinition[] = [
         id: 'targeting', name: 'Targeting Suite', icon: 'i-lucide-scan-line',
         description: 'Reach and precision. Longer weapon and beam range means cutting a rock from outside a Lancer\'s comfort zone.',
         funding: 'salvage', maxLevel: 14,
-        baseCredits: 140_000, creditGrowth: 1.95, resourceStep: { scrap: 16, circuitry: 4 },
+        baseCredits: 40_000, creditGrowth: 1.78, resourceStep: { scrap: 16, circuitry: 5 },
         format: level => [
             `${Math.round(voidWeaponRangeFor(level))} m weapon`,
             `${Math.round(voidMiningRangeFor(level))} m beam`,
@@ -717,21 +725,21 @@ export const VOID_UPGRADES: readonly VoidUpgradeDefinition[] = [
         id: 'thrusters', name: 'Ion Thrusters', icon: 'i-lucide-rocket',
         description: 'Cruise and burn speed. The cheapest way to stop dying to things you could simply have left behind.',
         funding: 'salvage', maxLevel: 16,
-        baseCredits: 100_000, creditGrowth: 1.76, resourceStep: { scrap: 13 },
+        baseCredits: 25_000, creditGrowth: 1.62, resourceStep: { scrap: 14 },
         format: level => [`${Math.round(voidSpeedFor(level))} m/s`]
     },
     {
         id: 'plating', name: 'Hull Plating', icon: 'i-lucide-shield-half',
         description: 'Raw hit points. The storm burns a percentage of max hull, so plating buys time in the gas too.',
         funding: 'ore', maxLevel: 20,
-        baseCredits: 100_000, creditGrowth: 1.6, resourceStep: { ferrite: 24 },
+        baseCredits: 25_000, creditGrowth: 1.55, resourceStep: { ferrite: 9 },
         format: level => [`${voidHullFor(level)} hp`]
     },
     {
         id: 'deflector', name: 'Deflector Lattice', icon: 'i-lucide-shield',
         description: 'A regenerating buffer that soaks hits first and recharges after four seconds without being touched.',
         funding: 'ore', maxLevel: 14,
-        baseCredits: 200_000, creditGrowth: 1.95, resourceStep: { ferrite: 18, cobalt: 7 },
+        baseCredits: 45_000, creditGrowth: 1.78, resourceStep: { ferrite: 10, cobalt: 8 },
         format: level => level === 0
             ? ['No shield']
             : [`${voidShieldFor(level)} shield`, `${voidShieldRegenFor(level).toFixed(1)}/s regen`]
@@ -740,14 +748,14 @@ export const VOID_UPGRADES: readonly VoidUpgradeDefinition[] = [
         id: 'hold', name: 'Cargo Braces', icon: 'i-lucide-package',
         description: 'How much you can carry before the hold locks out. A full hold means every rock you cut is wasted.',
         funding: 'ore', maxLevel: 16,
-        baseCredits: 150_000, creditGrowth: 1.78, resourceStep: { ferrite: 20, cobalt: 5 },
+        baseCredits: 30_000, creditGrowth: 1.62, resourceStep: { ferrite: 12, cobalt: 6 },
         format: level => [`${voidCargoFor(level)} units`]
     },
     {
         id: 'refinery', name: 'Refinery Module', icon: 'i-lucide-flask-conical',
         description: 'Pulls more out of everything you break — ore per rock, salvage per wreck — and squeezes a better price out of the dock.',
         funding: 'ore', maxLevel: 14,
-        baseCredits: 240_000, creditGrowth: 2, resourceStep: { cobalt: 12, iridium: 3 },
+        baseCredits: 50_000, creditGrowth: 1.82, resourceStep: { cobalt: 10, iridium: 4 },
         format: level => [
             `+${Math.round((voidOreYieldFor(level) - 1) * 100)}% ore`,
             `+${Math.round((voidSalvageYieldFor(level) - 1) * 100)}% salvage`,
@@ -794,14 +802,25 @@ export function voidNormalizeLevels(levels: Partial<Record<string, number>> | nu
     return out
 }
 
-/** `null` once the track is maxed. */
+/**
+ * `null` once the track is maxed.
+ *
+ * Credits grow geometrically, roughly in step with what a run is worth once you
+ * are deep enough to want the level — the first level of anything is one good
+ * sector-1 haul, the last is a handful of sector-4 ones.
+ *
+ * Resources grow far more gently than that. Income in coins climbs with sector,
+ * cargo and market rolls all at once, but the *units* you can physically carry
+ * home only climb with the hold, so a resource cost that tracked the credit
+ * curve would turn every late level into a dedicated farming week.
+ */
 export function voidUpgradeCost(id: VoidUpgradeId, level: number): { credits: number, resources: VoidResourceBundle } | null {
     const def = voidUpgrade(id)
     if (level >= def.maxLevel) return null
     const credits = Math.round(def.baseCredits * def.creditGrowth ** level)
     const resources: VoidResourceBundle = {}
     for (const [resourceId, step] of Object.entries(def.resourceStep) as [VoidResourceId, number][]) {
-        resources[resourceId] = Math.round(step * (level + 1) * (1 + level * 0.3))
+        resources[resourceId] = Math.round(step * (level + 1) * (1 + level * 0.15))
     }
     return { credits, resources }
 }
@@ -831,32 +850,32 @@ export interface VoidRarityDefinition {
 export const VOID_RARITIES = [
     {
         id: 'common', name: 'Common', color: 0x94a3b8, hex: '#94a3b8', affixCount: 2, power: 1,
-        cost: { credits: 250_000, resources: { scrap: 22 } },
+        cost: { credits: 60_000, resources: { scrap: 22 } },
         pitch: 'Cheap enough to roll for the effect alone. Two stats attached.'
     },
     {
         id: 'uncommon', name: 'Uncommon', color: 0x4ade80, hex: '#4ade80', affixCount: 3, power: 1.5,
-        cost: { credits: 900_000, resources: { scrap: 75 } },
+        cost: { credits: 250_000, resources: { scrap: 75 } },
         pitch: 'The workhorse roll. Half again the stat weight of a common.'
     },
     {
         id: 'rare', name: 'Rare', color: 0x60a5fa, hex: '#60a5fa', affixCount: 4, power: 2.2,
-        cost: { credits: 4_000_000, resources: { scrap: 190, circuitry: 22 } },
+        cost: { credits: 1_200_000, resources: { scrap: 190, circuitry: 22 } },
         pitch: 'First tier that can roll pierce, splash and extra projectiles.'
     },
     {
         id: 'epic', name: 'Epic', color: 0xc084fc, hex: '#c084fc', affixCount: 5, power: 3.2,
-        cost: { credits: 20_000_000, resources: { scrap: 400, circuitry: 85 } },
+        cost: { credits: 6_000_000, resources: { scrap: 400, circuitry: 85 } },
         pitch: 'Five rolls at triple weight. Where builds stop being theoretical.'
     },
     {
         id: 'legendary', name: 'Legendary', color: 0xfbbf24, hex: '#fbbf24', affixCount: 6, power: 4.5,
-        cost: { credits: 90_000_000, resources: { circuitry: 240, warpCore: 5 } },
+        cost: { credits: 30_000_000, resources: { circuitry: 240, warpCore: 5 } },
         pitch: 'Six rolls. You are now hunting for the right six, not for any six.'
     },
     {
         id: 'unique', name: 'Unique', color: 0xf43f5e, hex: '#f43f5e', affixCount: 7, power: 6.2,
-        cost: { credits: 400_000_000, resources: { circuitry: 650, warpCore: 28 } },
+        cost: { credits: 140_000_000, resources: { circuitry: 650, warpCore: 28 } },
         pitch: 'Seven rolls at six times weight. The ceiling, and priced like it.'
     }
 ] as const satisfies readonly VoidRarityDefinition[]
