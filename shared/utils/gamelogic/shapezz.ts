@@ -8,6 +8,13 @@ export const SHAPEZZ_MAX_KILL_HEAL_LEVEL = 4
 export const SHAPEZZ_WEAPON_REFUND_RATE = 0.25
 export const SHAPEZZ_LAUNCHER_CORE_RADIUS_RATIO = 0.45
 export const SHAPEZZ_LAUNCHER_EDGE_DAMAGE_MULTIPLIER = 0.2
+/**
+ * Companion turrets (orbitals, afterimage turrets, drones) hit for this much of the player's damage.
+ * Deliberately a plain multiple of `stats.damage` rather than a share of enemy max health: health-relative
+ * turret damage ignored the player's build entirely and scaled without any ceiling. The ceiling battery is
+ * exempt — it already mirrors the player's weapon and upgrades at its own fire rate.
+ */
+export const SHAPEZZ_TURRET_DAMAGE_MULTIPLIER = 2.5
 
 export const SHAPEZZ_COMBAT_LIMITS = {
     enemies: 100,
@@ -304,13 +311,13 @@ export const SHAPEZZ_RUN_UPGRADES: ShapezzRunUpgrade[] = [
     { id: 'ricochet', name: 'PINBALL MURDER', description: 'Shots bounce twice and retarget nearby shapes.', stackText: '+2 bounces per stack', icon: 'i-lucide-zap', rarity: 'unstable', accent: '#fde047' },
     { id: 'explosive', name: 'EVERYTHING EXPLODES', description: 'Bullet impacts detonate an area blast.', stackText: 'Larger, harder blasts', icon: 'i-lucide-bomb', rarity: 'cataclysmic', accent: '#fb7185' },
     { id: 'chainLightning', name: 'CHAIN REACTION', description: 'Hits arc lightning through 3 nearby enemies.', stackText: '+2 chain targets', icon: 'i-lucide-radio-tower', rarity: 'cataclysmic', accent: '#c4b5fd' },
-    { id: 'orbitals', name: 'ORBITAL ARMORY', description: 'Gain 2 orbiting guns. Turret shots delete any small enemy outright, halve a tank, and chip 1% off a boss.', stackText: '+2 orbital guns', icon: 'i-lucide-orbit', rarity: 'cataclysmic', accent: '#f0abfc' },
-    { id: 'droneSwarm', name: 'DRONE SWARM', description: 'Deploy 2 hunter drones. Turret shots delete any small enemy outright, halve a tank, and chip 1% off a boss.', stackText: '+2 drones', icon: 'i-lucide-bot', rarity: 'unstable', accent: '#34d399' },
+    { id: 'orbitals', name: 'ORBITAL ARMORY', description: 'Gain 2 orbiting guns that fire independently for 250% of your damage.', stackText: '+2 orbital guns', icon: 'i-lucide-orbit', rarity: 'cataclysmic', accent: '#f0abfc' },
+    { id: 'droneSwarm', name: 'DRONE SWARM', description: 'Deploy 2 hunter drones with rapid lasers that hit for 250% of your damage.', stackText: '+2 drones', icon: 'i-lucide-bot', rarity: 'unstable', accent: '#34d399' },
     { id: 'blackHole', name: 'POCKET SINGULARITY', description: 'Every 14th shot creates a crushing black hole.', stackText: 'Triggers 3 shots sooner', icon: 'i-lucide-circle-dot', rarity: 'cataclysmic', accent: '#e879f9' },
     { id: 'bulletTime', name: 'PANIC FIELD', description: 'Enemy projectiles crawl when they get close.', stackText: 'Slower hostile bullets', icon: 'i-lucide-clock-3', rarity: 'wild', accent: '#60a5fa' },
     { id: 'giantRounds', name: 'ABSURD CALIBER', description: 'Projectiles become 70% larger and hit much harder.', stackText: '+70% size, +35% damage', icon: 'i-lucide-maximize-2', rarity: 'unstable', accent: '#fb923c' },
     { id: 'vampireBurst', name: 'BLOOD CIRCUIT', description: 'Every 20 kills, regenerate 15% max health over 2.5s. 7s cooldown.', stackText: '+3% healing, 2 kills sooner, -0.8s cooldown', icon: 'i-lucide-heart-pulse', rarity: 'wild', accent: '#f43f5e' },
-    { id: 'afterimage', name: 'AFTERIMAGE TURRETS', description: 'Jumping leaves a temporary turret. Turret shots delete any small enemy outright, halve a tank, and chip 1% off a boss.', stackText: '+1 turret per jump', icon: 'i-lucide-copy', rarity: 'unstable', accent: '#2dd4bf' },
+    { id: 'afterimage', name: 'AFTERIMAGE TURRETS', description: 'Jumping leaves a temporary auto-firing turret that hits for 250% of your damage.', stackText: '+1 turret per jump', icon: 'i-lucide-copy', rarity: 'unstable', accent: '#2dd4bf' },
     { id: 'deathNova', name: 'CORPSE NOVA', description: 'Dead enemies fire a 12-shot radial burst for you.', stackText: '+6 nova shots', icon: 'i-lucide-sun', rarity: 'cataclysmic', accent: '#facc15' },
     { id: 'frenzy', name: 'NO BRAKES', description: 'Fire rate doubles while your combo is alive.', stackText: '+35% frenzy fire rate', icon: 'i-lucide-flame', rarity: 'unstable', accent: '#f97316' },
     { id: 'hyperVelocity', name: 'HYPERVELOCITY', description: 'Projectiles move 50% faster and leave damaging trails.', stackText: '+50% speed, hotter trails', icon: 'i-lucide-chevrons-right', rarity: 'wild', accent: '#38bdf8' },
@@ -347,20 +354,6 @@ export function shapezzShieldStats(stacks: number) {
         amount: 25 + (bounded - 1) * 15,
         capacity: 75 + (bounded - 1) * 50
     }
-}
-
-/**
- * Companion turrets (orbitals, afterimage turrets, drones) deal a fraction of the target's **max
- * health**, not a fraction of the player's damage stat. One shot clears any small enemy, two clear a
- * tank, and bosses take 100 hits. Because it is health-relative it never falls behind the enemy health
- * ramp, which is what made orbitals feel worthless deep into a run.
- *
- * The ceiling battery is exempt — it intentionally mirrors the player's own weapon and upgrades.
- */
-export function shapezzTurretDamageFraction(enemyType: string, boss: boolean) {
-    if (boss) return 0.01
-    if (enemyType === 'tank') return 0.5
-    return 1
 }
 
 export function shapezzExecutionThreshold(stacks: number) {

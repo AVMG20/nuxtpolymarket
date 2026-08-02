@@ -2,6 +2,7 @@ import {
     SHAPEZZ_CHECKPOINT_MS,
     SHAPEZZ_COMBAT_LIMITS,
     SHAPEZZ_RUN_UPGRADES,
+    SHAPEZZ_TURRET_DAMAGE_MULTIPLIER,
     shapezzCheckpointPressure,
     shapezzDifficulty,
     shapezzEnemyCoinValue,
@@ -12,7 +13,6 @@ import {
     shapezzKillShockwaveStats,
     shapezzOverkillDividendStats,
     shapezzShieldStats,
-    shapezzTurretDamageFraction,
     shapezzVampireBurstStats,
     shapezzWeaponFireRateCap,
     type ShapezzDifficultyId,
@@ -100,8 +100,6 @@ interface Bullet extends Point {
     visualIntensity: number
     secondaryEffects: boolean
     triggersHealing: boolean
-    /** Fired by a companion turret — damage is a share of the target's max health, not of `damage`. */
-    turretShot: boolean
     hitIds: Set<number> | null
 }
 
@@ -504,6 +502,9 @@ export class ShapezzEngine {
         const left = this.keys.has('a') || this.keys.has('arrowleft')
         const right = this.keys.has('d') || this.keys.has('arrowright')
         this.dropThroughTimer = Math.max(0, this.dropThroughTimer - dt)
+        // Holding down keeps every elevated platform pass-through, so the player falls all the way
+        // to the floor. The timer only covers a tap that is released before the next frame.
+        const dropping = this.dropThroughTimer > 0 || this.keys.has('s') || this.keys.has('arrowdown')
         const targetVx = (Number(right) - Number(left)) * this.stats.moveSpeed
         const acceleration = this.player.onGround ? 16 : 8
         this.player.vx += (targetVx - this.player.vx) * Math.min(1, dt * acceleration)
@@ -517,7 +518,7 @@ export class ShapezzEngine {
 
         const bottom = this.player.y + this.player.size / 2
         for (const platform of this.platforms) {
-            if (this.dropThroughTimer > 0 && platform.y < FLOOR_Y) continue
+            if (dropping && platform.y < FLOOR_Y) continue
             const withinX = this.player.x + this.player.size * 0.35 > platform.x && this.player.x - this.player.size * 0.35 < platform.x + platform.width
             if (withinX && this.player.vy >= 0 && previousBottom <= platform.y + 4 && bottom >= platform.y) {
                 this.player.y = platform.y - this.player.size / 2
@@ -699,7 +700,7 @@ export class ShapezzEngine {
             color: enemy.color, accentColor: enemy.color, friendly: false, homing: false, trail: true,
             explosionRadius: 0, traveled: 0, falloffStart: 9999, falloffEnd: 10_000,
             minFalloffDamage: 1, visualIntensity: enemy.boss ? 3 : 1, secondaryEffects: false,
-            triggersHealing: false, turretShot: false, hitIds: null
+            triggersHealing: false, hitIds: null
         })
         this.callbacks.onSfx?.('enemy-shoot')
         this.burst(enemy.x, enemy.y, enemy.color, enemy.boss ? 12 : 5, 150)
@@ -869,7 +870,6 @@ export class ShapezzEngine {
         homing = false,
         secondaryEffects = false,
         triggersHealing = true,
-        turretShot = false,
         independentVisual?: { color: string, radius?: number }
     ) {
         if (this.bullets.length >= SHAPEZZ_COMBAT_LIMITS.bullets) return
@@ -901,7 +901,6 @@ export class ShapezzEngine {
             visualIntensity: independentVisual ? 0 : this.weapon.visualIntensity,
             secondaryEffects,
             triggersHealing,
-            turretShot,
             hitIds: new Set()
         })
     }
@@ -965,11 +964,7 @@ export class ShapezzEngine {
                             const collisionRadius = bullet.radius + enemy.radius
                             if (enemy.hp <= 0 || bullet.hitIds!.has(enemy.id) || distanceToSegmentSquared(enemy, previousX, previousY, bullet) > collisionRadius * collisionRadius) continue
                             bullet.hitIds!.add(enemy.id)
-                            // Turret shots ignore the player's damage stat entirely and bite a fixed
-                            // slice off the target's max health, so they stay relevant as enemies scale.
-                            const impactDamage = bullet.turretShot
-                                ? enemy.maxHp * shapezzTurretDamageFraction(enemy.type, enemy.boss)
-                                : this.bulletImpactDamage(bullet)
+                            const impactDamage = this.bulletImpactDamage(bullet)
                             this.hitEnemy(enemy, impactDamage, bullet.color, bullet.x, bullet.y, true, bullet.triggersHealing)
                             this.triggerImpact(enemy, bullet, impactDamage)
                             if (bullet.pierce > 0) bullet.pierce--
@@ -1147,14 +1142,14 @@ export class ShapezzEngine {
         const shardCount = 2 + visibleSplitstorm * 3
         if (splitstorm > 0) {
             const shardDamage = 0.62 * (1 + Math.max(0, splitstorm - visibleSplitstorm) * 0.12)
-            for (let i = 0; i < shardCount; i++) this.createPlayerBullet(enemy.x, enemy.y, i / shardCount * Math.PI * 2, shardDamage, true, false, triggersHealing, false, { color: '#a78bfa', radius: 4 })
+            for (let i = 0; i < shardCount; i++) this.createPlayerBullet(enemy.x, enemy.y, i / shardCount * Math.PI * 2, shardDamage, true, false, triggersHealing, { color: '#a78bfa', radius: 4 })
         }
 
         const deathNova = this.upgrades.deathNova ?? 0
         const visibleDeathNova = Math.min(3, deathNova)
         const novaCount = deathNova > 0 ? 6 + visibleDeathNova * 6 : 0
         const novaDamage = 0.5 * (1 + Math.max(0, deathNova - visibleDeathNova) * 0.1)
-        for (let i = 0; i < novaCount; i++) this.createPlayerBullet(enemy.x, enemy.y, i / novaCount * Math.PI * 2, novaDamage, false, false, triggersHealing, false, { color: '#facc15', radius: 4.5 })
+        for (let i = 0; i < novaCount; i++) this.createPlayerBullet(enemy.x, enemy.y, i / novaCount * Math.PI * 2, novaDamage, false, false, triggersHealing, { color: '#facc15', radius: 4.5 })
 
         const vampire = Math.min(4, this.upgrades.vampireBurst ?? 0)
         if (triggersHealing && vampire > 0) {
@@ -1275,7 +1270,7 @@ export class ShapezzEngine {
                 const origin = { x: this.player.x + Math.cos(angle) * 72, y: this.player.y + Math.sin(angle) * 72 }
                 const target = this.nearestEnemy(origin, 650)
                 if (target) {
-                    this.createPlayerBullet(origin.x, origin.y, Math.atan2(target.y - origin.y, target.x - origin.x), 1, true, false, true, true, { color: '#f0abfc', radius: 4.5 })
+                    this.createPlayerBullet(origin.x, origin.y, Math.atan2(target.y - origin.y, target.x - origin.x), SHAPEZZ_TURRET_DAMAGE_MULTIPLIER, true, false, true, { color: '#f0abfc', radius: 4.5 })
                     this.callbacks.onSfx?.('drone-shoot')
                 }
             }
@@ -1288,7 +1283,7 @@ export class ShapezzEngine {
                 const origin = { x: this.player.x + (i - (drones - 1) / 2) * 38, y: this.player.y - 65 - Math.sin(this.elapsedMs / 330 + i) * 15 }
                 const target = this.nearestEnemy(origin, 760)
                 if (!target) continue
-                this.createPlayerBullet(origin.x, origin.y, Math.atan2(target.y - origin.y, target.x - origin.x), 1, true, false, true, true, { color: '#34d399', radius: 3 })
+                this.createPlayerBullet(origin.x, origin.y, Math.atan2(target.y - origin.y, target.x - origin.x), SHAPEZZ_TURRET_DAMAGE_MULTIPLIER, true, false, true, { color: '#34d399', radius: 3 })
                 this.callbacks.onSfx?.('drone-shoot')
                 this.beams.push({ from: origin, to: { x: target.x, y: target.y }, life: 0.08, maxLife: 0.08, color: '#34d399', width: 2 })
             }
@@ -1302,7 +1297,7 @@ export class ShapezzEngine {
             const target = this.nearestEnemy(turret, 620)
             if (target) turret.angle = Math.atan2(target.y - turret.y, target.x - turret.x)
             if (target && turret.fireCooldown <= 0) {
-                this.createPlayerBullet(turret.x, turret.y, turret.angle, 1, false, false, true, true, { color: '#2dd4bf', radius: 4 })
+                this.createPlayerBullet(turret.x, turret.y, turret.angle, SHAPEZZ_TURRET_DAMAGE_MULTIPLIER, false, false, true, { color: '#2dd4bf', radius: 4 })
                 this.callbacks.onSfx?.('drone-shoot')
                 turret.fireCooldown = 0.55
             }

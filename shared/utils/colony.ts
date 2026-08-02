@@ -40,16 +40,16 @@ export interface ItemType {
 // This keeps late-tier income climbing by roughly 2.3-3x per tier instead
 // of leaving T4 flat and then jumping almost 6x at T5.
 export const ITEM_TYPES: ItemType[] = [
-  { id: 'silk', name: 'Silk Scrap', emoji: '🧵', tier: 1, sellValue: 42.5 },
-  { id: 'loam', name: 'Rich Loam', emoji: '🧱', tier: 1, sellValue: 119 },
-  { id: 'chitin', name: 'Chitin Shard', emoji: '🦴', tier: 2, sellValue: 318.75 },
-  { id: 'shell_fragment', name: 'Shell Fragment', emoji: '🐚', tier: 2, sellValue: 425 },
-  { id: 'resin', name: 'Amber Resin', emoji: '🟠', tier: 3, sellValue: 1275 },
-  { id: 'pheromone', name: 'Pheromone Vial', emoji: '🧪', tier: 3, sellValue: 2040 },
-  { id: 'venom', name: 'Venom Sac', emoji: '☠️', tier: 4, sellValue: 4675 },
-  { id: 'carapace', name: 'Hardened Carapace', emoji: '🛡️', tier: 4, sellValue: 7225 },
-  { id: 'ember_dust', name: 'Ember Dust', emoji: '🔥', tier: 5, sellValue: 23_800 },
-  { id: 'royal_jelly', name: 'Royal Jelly', emoji: '🍯', tier: 6, sellValue: 76_500 }
+  { id: 'silk', name: 'Silk Scrap', emoji: '🧵', tier: 1, sellValue: 22.3125 },
+  { id: 'loam', name: 'Rich Loam', emoji: '🧱', tier: 1, sellValue: 62.475 },
+  { id: 'chitin', name: 'Chitin Shard', emoji: '🦴', tier: 2, sellValue: 167.34375 },
+  { id: 'shell_fragment', name: 'Shell Fragment', emoji: '🐚', tier: 2, sellValue: 223.125 },
+  { id: 'resin', name: 'Amber Resin', emoji: '🟠', tier: 3, sellValue: 669.375 },
+  { id: 'pheromone', name: 'Pheromone Vial', emoji: '🧪', tier: 3, sellValue: 1071 },
+  { id: 'venom', name: 'Venom Sac', emoji: '☠️', tier: 4, sellValue: 2454.375 },
+  { id: 'carapace', name: 'Hardened Carapace', emoji: '🛡️', tier: 4, sellValue: 3793.125 },
+  { id: 'ember_dust', name: 'Ember Dust', emoji: '🔥', tier: 5, sellValue: 12_495 },
+  { id: 'royal_jelly', name: 'Royal Jelly', emoji: '🍯', tier: 6, sellValue: 40_162.5 }
 ]
 
 export function getItem(id: string): ItemType | undefined {
@@ -463,7 +463,7 @@ export const UPGRADE_TRACKS: UpgradeTrackType[] = [
     name: 'Foraging Yield',
     icon: 'i-lucide-trending-up',
     description: 'Every bug\'s yield level rises, colony-wide.',
-    maxLevel: 12,
+    maxLevel: 14,
     effectLabel: level => `+${level * YIELD_TRACK_LEVELS_PER_LEVEL} yield levels`
   },
   {

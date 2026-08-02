@@ -1,0 +1,4 @@
+interface:
+  display_name: "Temporary Screenshot Output"
+  short_description: "Keep screenshots and browser artifacts out of Git"
+  default_prompt: "Use $temporary-screenshot-output to capture temporary visual QA artifacts outside the repository."

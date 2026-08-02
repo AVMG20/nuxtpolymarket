@@ -5,6 +5,12 @@ const route = useRoute()
 const { user } = useAuth()
 const { data: state } = await useFetch('/api/hack/state')
 
+const displayName = computed(() => {
+  const name = user.value?.name
+  if (!name) return 'OPERATOR'
+  return name.length > 30 ? `${name.slice(0, 30)}…` : name
+})
+
 const tabs = [
   { label: 'Ops', to: '/hack', icon: 'i-lucide-terminal' },
   { label: 'Black Market', to: '/hack/market', icon: 'i-lucide-store' },
@@ -51,7 +57,7 @@ onMounted(() => {
     <HackRarityDuotone />
     <div class="hack-statbar border-b border-default">
       <div class="flex items-center gap-5 flex-wrap">
-        <span class="hack-stat"><span class="hack-dot" />{{ user?.name ?? 'OPERATOR' }}</span>
+        <span class="hack-stat"><span class="hack-dot" />{{ displayName }}</span>
         <span class="hack-stat hack-stat-hero">
           <UIcon
             name="i-lucide-zap"
