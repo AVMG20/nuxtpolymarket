@@ -152,6 +152,8 @@ export interface FirewallWaveSummary {
     victory: boolean
 }
 
+import type { FirewallSoundEvent } from '../firewall-sounds'
+
 export interface FirewallCallbacks {
     onWall: (hp: number, maxHp: number, shield: number, maxShield: number) => void
     onAmmo: (mag: number, magSize: number, reloadProgress: number) => void
@@ -165,6 +167,7 @@ export interface FirewallCallbacks {
     onGameOver: (stats: { wave: number, kills: number }) => void
     onBoss: (name: string) => void
     onNotice: (text: string, kind: 'good' | 'bad' | 'info') => void
+    onSound?: (event: FirewallSoundEvent) => void
 }
 
 /** What `startRun` needs to put a resumed run back on the field. */

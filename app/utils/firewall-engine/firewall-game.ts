@@ -22,6 +22,7 @@ import type {
     BulletEntity, CoinEntity, EnemyEntity, FirewallCallbacks, FirewallStartConfig,
     ParticleEntity, SpitEntity, TurretMount
 } from './types'
+import type { FirewallSoundEvent } from '../firewall-sounds'
 
 /** A spawn the wave scheduler has already decided on. */
 interface ScheduledSpawn {
@@ -355,6 +356,7 @@ export class FirewallGame {
         this.emitAmmo()
         this.emitPulse()
         this.emitOverclock()
+        this.callbacks.onSound?.('wave-start')
         return true
     }
 
@@ -372,6 +374,7 @@ export class FirewallGame {
         this.fireTimer = 0
         this.callbacks.onWeapon(weapon.id)
         this.emitAmmo()
+        this.callbacks.onSound?.('weapon-swap')
     }
 
     /** Uplink purchase — patches the wall back to full between waves. */
@@ -589,6 +592,7 @@ export class FirewallGame {
 
         if (def.boss) {
             this.callbacks.onBoss(def.name)
+            this.callbacks.onSound?.('boss-spawn')
             fx.banner(this.overlayLayer, def.name, fx.RED, 'kernel-level intrusion')
             this.addShake(10)
         }
@@ -806,6 +810,7 @@ export class FirewallGame {
         }
 
         this.removeEnemy(index)
+        this.callbacks.onSound?.(enemy.def.boss ? 'boss-death' : 'enemy-death')
         this.waveKills++
         this.totalKills++
         if (credits > 0) {
@@ -885,6 +890,7 @@ export class FirewallGame {
         fx.coinLanded(this.fxLayer, x, y)
         this.waveCoins += coin.value
         this.callbacks.onCoins(coin.value)
+        this.callbacks.onSound?.('coin-pickup')
     }
 
     /** Banks everything still in flight — called when a wave settles. */
@@ -936,6 +942,7 @@ export class FirewallGame {
         if (!this.running || this.purging) return
         this.reloadTimer = this.weapon.reloadMs
         this.emitAmmo()
+        this.callbacks.onSound?.('weapon-reload')
     }
 
     private shoot() {
@@ -944,6 +951,11 @@ export class FirewallGame {
         if (!weapon || !loadout || !this.bastion) return
         this.mag--
         this.emitAmmo()
+        if (weapon.id === 'rail') this.callbacks.onSound?.('shoot-rail')
+        else if (weapon.id === 'flak') this.callbacks.onSound?.('shoot-flak')
+        else if (weapon.id === 'arc') this.callbacks.onSound?.('shoot-arc')
+        else if (weapon.id === 'missile') this.callbacks.onSound?.('shoot-missile')
+        else if (weapon.id === 'sniper') this.callbacks.onSound?.('shoot-sniper')
 
         const angle = this.bastion.barrel.rotation
         const originX = MUZZLE_X + Math.cos(angle) * BARREL_LENGTH
@@ -1058,6 +1070,7 @@ export class FirewallGame {
 
                 bullet.hit.add(enemy)
                 this.damageEnemy(enemy, bullet.damage, bullet.damageType, true, true, bullet.crit)
+                this.callbacks.onSound?.('hit-enemy')
                 fx.impactSpark(this.fxLayer, bullet.x, bullet.y, enemy.def.hex)
                 this.emitSparks(bullet.x, bullet.y, bullet.crit ? 5 : 3, enemy.def.hex)
 
@@ -1217,6 +1230,10 @@ export class FirewallGame {
             })
             fx.muzzleFlash(this.fxLayer, originX, originY, angle, mount.runtime.hex, 0.45)
             mount.kick = 5
+            if (mount.runtime.id === 'gun') this.callbacks.onSound?.('turret-gun')
+            else if (mount.runtime.id === 'needler') this.callbacks.onSound?.('turret-needler')
+            else if (mount.runtime.id === 'warhead') this.callbacks.onSound?.('turret-warhead')
+            else if (mount.runtime.id === 'lance') this.callbacks.onSound?.('turret-lance')
         }
     }
 
@@ -1286,6 +1303,7 @@ export class FirewallGame {
         if (this.pulseCharge < loadout.pulseCooldownMs) return
         this.pulseCharge = 0
         this.emitPulse()
+        this.callbacks.onSound?.('ability-pulse')
 
         fx.shockRing(this.fxLayer, WALL_X, WALL_TOP_Y + 180, fx.CYAN, PULSE_RADIUS, 700)
         fx.screenFlash(this.overlayLayer, 0x22d3ee, 0.4)
@@ -1311,6 +1329,7 @@ export class FirewallGame {
         this.overclockCharge = 0
         this.overclockLeft = loadout.overclockMs
         this.emitOverclock()
+        this.callbacks.onSound?.('ability-overclock')
         fx.screenFlash(this.overlayLayer, 0xf97316, 0.28)
         fx.banner(this.overlayLayer, 'OVERCLOCK', fx.AMBER)
         this.callbacks.onNotice('Overclock engaged.', 'good')
@@ -1346,6 +1365,7 @@ export class FirewallGame {
         this.addShake(clamp(amount * 0.16, 1.5, 12))
         this.emitSparks(Math.max(WALL_X, sourceX), sourceY, 4, remaining > 0 ? fx.RED : 0x67e8f9)
         this.emitWall()
+        this.callbacks.onSound?.('wall-hurt')
 
         if (this.wallHp <= 0) this.endRun()
     }
@@ -1524,6 +1544,7 @@ export class FirewallGame {
             wallMaxHp: this.wallMaxHp,
             victory
         })
+        this.callbacks.onSound?.('wave-win')
     }
 
     private endRun() {
@@ -1532,6 +1553,7 @@ export class FirewallGame {
         this.running = false
         this.purging = false
         this.firing = false
+        this.callbacks.onSound?.('game-over')
         // Coins in the air when the wall fell were still earned.
         this.flushCoins()
 
