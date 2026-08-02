@@ -91,6 +91,14 @@ const casinoGames = [
     to: '/games/blackjack',
     gradient: 'from-rose-950 to-slate-900',
     iconColor: 'text-rose-400'
+  },
+  {
+    name: 'Live Blackjack',
+    description: 'A real table — five seats, one shoe, everyone sees every card',
+    icon: 'i-lucide-users',
+    to: '/games/live-blackjack',
+    gradient: 'from-emerald-950 to-slate-900',
+    iconColor: 'text-emerald-400'
   }
 ]
 
