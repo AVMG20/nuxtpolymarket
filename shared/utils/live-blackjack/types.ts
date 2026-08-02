@@ -53,6 +53,8 @@ export interface LbSeat {
     leaving: boolean
     /** Chips placed during the betting phase, not yet staked. */
     pendingBet: number
+    /** Last staked bet, so the client can offer to re-place it. */
+    lastBet: number
     hands: LbHand[]
     insurance: number
     insuranceDecided: boolean

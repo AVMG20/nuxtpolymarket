@@ -50,6 +50,7 @@ const isBetting = computed(() => state.value?.phase === 'betting' && !!mySeat.va
 
 const needsInsurance = computed(() =>
     state.value?.phase === 'insurance' && !!mySeat.value?.hands.length && !mySeat.value.insuranceDecided)
+const insuranceCost = computed(() => (mySeat.value?.hands[0]?.bet ?? 0) / 2)
 
 const seatHands = computed(() => mySeat.value?.hands ?? [])
 const canDoubleNow = computed(() =>
@@ -230,111 +231,152 @@ onBeforeUnmount(() => {
       </form>
     </div>
 
-    <!-- Controls -->
-    <div class="absolute bottom-2 right-2 w-[20%] min-w-50 rounded-xl bg-black/70 p-2.5 backdrop-blur-sm ring-1 ring-white/10">
-      <div v-if="!connected" class="py-3 text-center text-xs text-muted">
+    <!-- Insurance sits above the rail so it never lands on top of a hand -->
+    <div
+      v-if="needsInsurance"
+      class="absolute bottom-[19%] left-1/2 w-[52%] min-w-75 -translate-x-1/2 rounded-xl bg-amber-500/15 p-2.5 text-center ring-2 ring-amber-400/70 backdrop-blur-sm"
+    >
+      <p class="mb-2 text-sm font-bold text-amber-200">
+        Dealer shows an Ace — insure for {{ formatNumber(insuranceCost) }}?
+      </p>
+      <div class="mx-auto flex max-w-90 gap-2">
+        <button class="lb-tile lb-tile-amber flex-1" @click="table.insurance(true)">
+          Insurance
+        </button>
+        <button class="lb-tile lb-tile-slate flex-1" @click="table.insurance(false)">
+          No thanks
+        </button>
+      </div>
+    </div>
+
+    <!-- The one control zone: it swaps with the phase, always in the same place -->
+    <div class="absolute bottom-[4%] left-1/2 w-[54%] min-w-75 -translate-x-1/2">
+      <div v-if="!connected" class="rounded-xl bg-black/70 py-3 text-center text-sm text-muted backdrop-blur-sm">
         <UIcon name="i-lucide-loader-circle" class="animate-spin" /> Connecting…
       </div>
 
-      <template v-else-if="!mySeat">
-        <p class="py-2 text-center text-xs text-muted">
-          Click an open <span class="font-bold text-default">SIT</span> spot to join the table.
-        </p>
-      </template>
+      <div v-else-if="!mySeat" class="rounded-xl bg-black/60 py-3 text-center text-sm text-muted backdrop-blur-sm">
+        Click an open <span class="font-bold text-default">SIT</span> spot to join the table
+      </div>
 
-      <template v-else-if="needsInsurance">
-        <p class="mb-1.5 text-center text-[11px] text-amber-300">
-          Dealer shows an Ace — insurance costs half your bet.
-        </p>
-        <div class="grid grid-cols-2 gap-1.5">
-          <UButton size="sm" color="warning" block @click="table.insurance(true)">
-            Insure
-          </UButton>
-          <UButton size="sm" color="neutral" variant="soft" block @click="table.insurance(false)">
-            No
-          </UButton>
-        </div>
-      </template>
+      <div v-else-if="isMyTurn" class="flex gap-2">
+        <button class="lb-tile lb-tile-green flex-1" @click="table.act('hit')">
+          HIT
+        </button>
+        <button class="lb-tile lb-tile-blue flex-1" @click="table.act('stand')">
+          STAND
+        </button>
+        <button class="lb-tile lb-tile-amber flex-1" :disabled="!canDoubleNow" @click="table.act('double')">
+          DOUBLE
+        </button>
+        <button class="lb-tile lb-tile-yellow flex-1" :disabled="!canSplitNow" @click="table.act('split')">
+          SPLIT
+        </button>
+        <button v-if="canSurrenderNow" class="lb-tile lb-tile-red flex-1" @click="table.act('surrender')">
+          FOLD
+        </button>
+      </div>
 
-      <template v-else-if="isMyTurn">
-        <div class="grid grid-cols-2 gap-1.5">
-          <UButton size="sm" color="primary" block @click="table.act('hit')">
-            Hit
-          </UButton>
-          <UButton size="sm" color="neutral" block @click="table.act('stand')">
-            Stand
-          </UButton>
-          <UButton size="sm" color="success" variant="soft" block :disabled="!canDoubleNow" @click="table.act('double')">
-            Double
-          </UButton>
-          <UButton size="sm" color="info" variant="soft" block :disabled="!canSplitNow" @click="table.act('split')">
-            Split
-          </UButton>
-          <UButton
-            v-if="canSurrenderNow"
-            size="xs"
-            color="neutral"
-            variant="ghost"
-            block
-            class="col-span-2"
-            @click="table.act('surrender')"
-          >
-            Surrender
-          </UButton>
-        </div>
-      </template>
-
-      <template v-else-if="isBetting">
-        <div class="mb-1.5 flex items-baseline justify-between">
-          <span class="text-[11px] uppercase tracking-wide text-muted">Your bet</span>
-          <span class="font-mono text-sm font-bold tabular-nums text-amber-300">{{ formatNumber(pendingBet) }}</span>
-        </div>
-        <div class="grid grid-cols-3 gap-1.5">
-          <UButton size="xs" color="neutral" variant="soft" block :disabled="!pendingBet" @click="table.undoBet()">
-            Undo
-          </UButton>
-          <UButton size="xs" color="neutral" variant="soft" block :disabled="!pendingBet" @click="table.clearBet()">
-            Clear
-          </UButton>
-          <UButton size="xs" color="warning" variant="soft" block @click="table.repeatBet()">
-            Repeat
-          </UButton>
-        </div>
-        <p class="mt-1.5 text-center text-[10px] text-muted">
-          Click chips on the rail to add them
-        </p>
-      </template>
-
-      <template v-else>
-        <p class="py-2 text-center text-xs text-muted">{{ state?.message }}</p>
-      </template>
-
-      <div v-if="mySeat" class="mt-2 border-t border-white/10 pt-1.5">
-        <p v-if="mySeat.leaving" class="mb-1 text-center text-[10px] text-amber-300">
-          Standing up once this hand settles
-        </p>
-        <div class="flex items-center justify-between">
-          <span class="text-[10px] text-muted">Seat {{ mySeat.index + 1 }}</span>
-          <div class="flex gap-1">
-            <UButton
-              size="xs"
-              color="neutral"
-              variant="ghost"
-              :class="mySeat.away || mySeat.leaving ? 'text-amber-300' : ''"
-              @click="table.setAway(false)"
-              v-if="mySeat.away || mySeat.leaving"
-            >
-              {{ mySeat.leaving ? 'Stay' : 'Sit in' }}
-            </UButton>
-            <UButton v-else size="xs" color="neutral" variant="ghost" @click="table.setAway(true)">
-              Sit out
-            </UButton>
-            <UButton v-if="!mySeat.leaving" size="xs" color="error" variant="ghost" @click="table.leave()">
-              Leave
-            </UButton>
+      <div v-else-if="isBetting" class="flex items-center gap-2">
+        <div class="rounded-xl bg-black/70 px-3 py-2 text-center backdrop-blur-sm ring-1 ring-white/10">
+          <div class="text-[9px] uppercase tracking-wider text-muted">Your bet</div>
+          <div class="font-mono text-lg font-bold leading-tight tabular-nums text-amber-300">
+            {{ formatNumber(pendingBet) }}
           </div>
         </div>
+        <button class="lb-tile lb-tile-amber flex-1" :disabled="!mySeat.lastBet" @click="table.repeatBet()">
+          REPEAT
+        </button>
+        <button class="lb-tile lb-tile-slate flex-1" :disabled="!pendingBet" @click="table.undoBet()">
+          UNDO
+        </button>
+        <button class="lb-tile lb-tile-red flex-1" :disabled="!pendingBet" @click="table.clearBet()">
+          CLEAR
+        </button>
+      </div>
+
+      <div v-else class="rounded-xl bg-black/60 py-3 text-center text-sm font-semibold text-default backdrop-blur-sm">
+        {{ state?.message }}
+      </div>
+    </div>
+
+    <!-- Seat controls, out of the way of the action -->
+    <div v-if="mySeat" class="absolute bottom-2 right-2 rounded-xl bg-black/70 px-2 py-1.5 backdrop-blur-sm ring-1 ring-white/10">
+      <p v-if="mySeat.leaving" class="mb-1 text-center text-[10px] text-amber-300">
+        Standing up after this hand
+      </p>
+      <div class="flex items-center gap-1.5">
+        <span class="text-[10px] text-muted">Seat {{ mySeat.index + 1 }}</span>
+        <UButton
+          v-if="mySeat.away || mySeat.leaving"
+          size="xs"
+          color="warning"
+          variant="ghost"
+          @click="table.setAway(false)"
+        >
+          {{ mySeat.leaving ? 'Stay' : 'Sit in' }}
+        </UButton>
+        <UButton v-else size="xs" color="neutral" variant="ghost" @click="table.setAway(true)">
+          Sit out
+        </UButton>
+        <UButton v-if="!mySeat.leaving" size="xs" color="error" variant="ghost" @click="table.leave()">
+          Leave
+        </UButton>
       </div>
     </div>
   </div>
 </template>
+
+<style scoped>
+/* Translucent so the felt reads through, but with a solid colour edge that
+   stays legible over cards, chips and the dark rail alike. */
+.lb-tile {
+  padding: 0.7rem 0.5rem;
+  border-radius: 0.75rem;
+  border-width: 2px;
+  border-style: solid;
+  font-size: 0.9rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  color: #f8fafc;
+  backdrop-filter: blur(6px);
+  text-shadow: 0 1px 3px rgb(0 0 0 / 0.7);
+  transition: transform 0.12s ease, filter 0.12s ease;
+}
+.lb-tile:hover:not(:disabled) {
+  transform: translateY(-2px);
+  filter: brightness(1.3);
+}
+.lb-tile:active:not(:disabled) {
+  transform: translateY(1px);
+}
+.lb-tile:disabled {
+  opacity: 0.32;
+  cursor: not-allowed;
+}
+.lb-tile-green {
+  background: rgb(34 197 94 / 0.28);
+  border-color: rgb(74 222 128 / 0.75);
+}
+.lb-tile-blue {
+  background: rgb(59 130 246 / 0.28);
+  border-color: rgb(96 165 250 / 0.75);
+}
+.lb-tile-amber {
+  background: rgb(245 158 11 / 0.28);
+  border-color: rgb(251 191 36 / 0.75);
+}
+.lb-tile-yellow {
+  background: rgb(234 179 8 / 0.3);
+  border-color: rgb(253 224 71 / 0.8);
+  color: #fefce8;
+}
+.lb-tile-red {
+  background: rgb(239 68 68 / 0.28);
+  border-color: rgb(248 113 113 / 0.75);
+}
+.lb-tile-slate {
+  background: rgb(100 116 139 / 0.3);
+  border-color: rgb(148 163 184 / 0.7);
+}
+</style>

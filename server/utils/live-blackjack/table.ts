@@ -40,8 +40,6 @@ const SCOREBOARD_ALUMNI = 12
 interface SeatState extends LbSeat {
     /** Chips in placement order so a single click can be taken back. */
     betChips: number[]
-    /** Bet to re-place when the player hits repeat. */
-    lastBet: number
     /** Consecutive betting windows this seat sat out. */
     idleRounds: number
     disconnectedAt: number | null
@@ -885,6 +883,7 @@ class LiveBlackjackTable {
             away: seat.away,
             leaving: seat.leaving,
             pendingBet: seat.pendingBet,
+            lastBet: seat.lastBet,
             insurance: seat.insurance,
             insuranceDecided: seat.insuranceDecided,
             lastNet: seat.lastNet,

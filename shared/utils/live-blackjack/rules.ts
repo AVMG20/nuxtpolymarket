@@ -15,8 +15,11 @@ export const LB_RULES = {
     resplitAces: false,
     lateSurrender: true,
     insurancePays: 2,
-    /** Betting windows a seat may skip before it is parked as sitting out. */
-    idleRoundsBeforeAway: 3
+    /**
+     * Miss one betting window and the seat is shown as sitting out. Placing a
+     * chip brings it straight back in, so there is nothing to undo.
+     */
+    idleRoundsBeforeAway: 1
 } as const
 
 export const LB_TIMERS = {

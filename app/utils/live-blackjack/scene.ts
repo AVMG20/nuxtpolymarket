@@ -317,9 +317,13 @@ export class LiveBlackjackScene {
         }
         this.syncCards(targets)
 
+        // The rail only earns its space while you can actually place chips; the
+        // rest of the time the action controls take it over.
         const betting = state.phase === 'betting'
         const seated = state.seats.find(s => s?.userId === youId)
-        this.syncRack(rack, betting && !!seated)
+        const canBet = betting && !!seated && !seated.away
+        this.rackLayer.visible = canBet
+        this.syncRack(rack, canBet)
     }
 
     private layoutDealer(state: LbTableState, out: CardTarget[]) {
