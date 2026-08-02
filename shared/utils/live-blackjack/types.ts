@@ -47,8 +47,6 @@ export interface LbSeat {
     name: string
     emblem: string | null
     connected: boolean
-    /** Sitting out: keeps the seat but skips the round. */
-    away: boolean
     /** Asked to stand up while a hand was live; the seat frees once it settles. */
     leaving: boolean
     /** Chips placed during the betting phase, not yet staked. */
@@ -62,6 +60,8 @@ export interface LbSeat {
     lastNet: number | null
     /** Running profit/loss for this player since they joined the table. */
     sessionNet: number
+    /** Consecutive winning rounds. A push holds the streak rather than ending it. */
+    winStreak: number
     roundsPlayed: number
 }
 
@@ -98,6 +98,7 @@ export interface LbScoreEntry {
     name: string
     emblem: string | null
     net: number
+    winStreak: number
     seated: boolean
     lastNet: number | null
 }
@@ -129,7 +130,6 @@ export type LbClientMessage =
     | { t: 'undoBet' }
     | { t: 'clearBet' }
     | { t: 'repeatBet' }
-    | { t: 'away', away: boolean }
     | { t: 'action', action: LbAction }
     | { t: 'insurance', take: boolean }
     | { t: 'chat', text: string }

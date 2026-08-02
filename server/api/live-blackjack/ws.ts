@@ -73,8 +73,6 @@ export default defineWebSocketHandler({
                         return liveBlackjackTable.clearBet(info.userId)
                     case 'repeatBet':
                         return liveBlackjackTable.repeatBet(info.userId)
-                    case 'away':
-                        return liveBlackjackTable.setAway(info.userId, !!data.away)
                     case 'insurance':
                         return liveBlackjackTable.takeInsurance(info.userId, !!data.take)
                     case 'chat':

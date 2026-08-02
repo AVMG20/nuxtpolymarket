@@ -40,8 +40,6 @@ const SCOREBOARD_ALUMNI = 12
 interface SeatState extends LbSeat {
     /** Chips in placement order so a single click can be taken back. */
     betChips: number[]
-    /** Consecutive betting windows this seat sat out. */
-    idleRounds: number
     disconnectedAt: number | null
     releaseTimer: ReturnType<typeof setTimeout> | null
     /** Escrow rows for everything staked this round, closed out at settlement. */
@@ -52,6 +50,7 @@ interface ScoreRecord {
     name: string
     emblem: string | null
     net: number
+    winStreak: number
     lastNet: number | null
     leftAt: number | null
 }
@@ -187,7 +186,6 @@ class LiveBlackjackTable {
             if (existing.index !== index) fail('You are already seated')
             // Clicking your own seat again takes back a pending stand-up.
             existing.leaving = false
-            existing.away = false
             return
         }
         if (this.seats[index]) fail('Seat is taken')
@@ -204,17 +202,16 @@ class LiveBlackjackTable {
             name,
             emblem,
             connected: true,
-            away: false,
             pendingBet: 0,
             hands: [],
             insurance: 0,
             insuranceDecided: false,
             lastNet: record?.lastNet ?? null,
             sessionNet: record?.net ?? 0,
+            winStreak: record?.winStreak ?? 0,
             roundsPlayed: 0,
             betChips: [],
             lastBet: 0,
-            idleRounds: 0,
             disconnectedAt: null,
             releaseTimer: null,
             leaving: false,
@@ -224,6 +221,7 @@ class LiveBlackjackTable {
             name,
             emblem,
             net: record?.net ?? 0,
+            winStreak: record?.winStreak ?? 0,
             lastNet: record?.lastNet ?? null,
             leftAt: null
         })
@@ -238,7 +236,6 @@ class LiveBlackjackTable {
         // once the round is settled.
         if (seat.hands.length > 0 && this.phase !== 'payout') {
             seat.leaving = true
-            seat.away = true
             return
         }
         this.releaseSeat(seat)
@@ -259,6 +256,14 @@ class LiveBlackjackTable {
         }
     }
 
+    /**
+     * Unsettled escrow is the only reason to hold a seat for someone who is
+     * gone: it means real money is still riding on the current round.
+     */
+    private graceFor(seat: SeatState): number {
+        return seat.wagerIds.length ? LB_TIMERS.disconnectGrace : LB_TIMERS.disconnectGraceIdle
+    }
+
     setConnected(userId: string, connected: boolean) {
         const seat = this.seatOf(userId)
         if (!seat) return
@@ -272,29 +277,16 @@ class LiveBlackjackTable {
             return
         }
         seat.disconnectedAt = Date.now()
+        const grace = this.graceFor(seat)
         seat.releaseTimer = setTimeout(() => {
             void this.run(() => {
                 const current = this.seats[seat.index]
                 if (current?.userId !== seat.userId || current.connected) return
                 this.leave(seat.userId)
-                this.publish()
             })
-        }, LB_TIMERS.disconnectGrace)
+        }, grace)
     }
 
-    setAway(userId: string, away: boolean) {
-        const seat = this.requireSeat(userId)
-        seat.away = away
-        if (away) {
-            seat.pendingBet = 0
-            seat.betChips = []
-        } else {
-            // Sitting back in is also how a player calls off a mid-round leave;
-            // without this the seat would still be swept away after the round.
-            seat.leaving = false
-            seat.idleRounds = 0
-        }
-    }
 
     /**
      * Take money off a player for this round. The debit, the rake and the escrow
@@ -334,8 +326,6 @@ class LiveBlackjackTable {
 
         seat.pendingBet = next
         seat.betChips.push(amount)
-        seat.away = false
-        seat.idleRounds = 0
     }
 
     undoBet(userId: string) {
@@ -361,8 +351,6 @@ class LiveBlackjackTable {
         if (seat.lastBet > balance) fail('Not enough balance')
         seat.pendingBet = seat.lastBet
         seat.betChips = [seat.lastBet]
-        seat.away = false
-        seat.idleRounds = 0
     }
 
     private enterBetting() {
@@ -402,14 +390,14 @@ class LiveBlackjackTable {
                 this.releaseSeat(seat)
                 continue
             }
-            if (!seat.connected && seat.disconnectedAt && now - seat.disconnectedAt >= LB_TIMERS.disconnectGrace) {
+            if (!seat.connected && seat.disconnectedAt && now - seat.disconnectedAt >= this.graceFor(seat)) {
                 this.releaseSeat(seat)
             }
         }
     }
 
     private async closeBetting() {
-        const wagering = this.activeSeats().filter(s => s.pendingBet > 0 && !s.away && s.connected)
+        const wagering = this.activeSeats().filter(s => s.pendingBet > 0 && s.connected)
 
         for (const seat of wagering) {
             const bet = seat.pendingBet
@@ -433,13 +421,9 @@ class LiveBlackjackTable {
             seat.betChips = []
         }
 
+        // No bet, no seat. A player who wants back in clicks the seat again.
         for (const seat of this.activeSeats()) {
-            if (seat.hands.length) {
-                seat.idleRounds = 0
-                continue
-            }
-            seat.idleRounds++
-            if (seat.idleRounds >= LB_RULES.idleRoundsBeforeAway) seat.away = true
+            if (!seat.hands.length) this.releaseSeat(seat)
         }
 
         if (!this.seatsInPlay().length) {
@@ -780,10 +764,14 @@ class LiveBlackjackTable {
 
             seat.lastNet = net
             seat.sessionNet = round4(seat.sessionNet + net)
+            // A push is not a loss, so it holds the streak where it is.
+            if (net > 0) seat.winStreak++
+            else if (net < 0) seat.winStreak = 0
             const record = this.scores.get(seat.userId)
             if (record) {
                 record.net = seat.sessionNet
                 record.lastNet = net
+                record.winStreak = seat.winStreak
             }
             broadcast({ t: 'event', kind: 'settled', seat: seat.index, net })
         }
@@ -867,6 +855,7 @@ class LiveBlackjackTable {
                 name: r.name,
                 emblem: r.emblem,
                 net: r.net,
+                winStreak: r.winStreak,
                 seated: seated.has(userId),
                 lastNet: r.lastNet
             }))
@@ -880,7 +869,6 @@ class LiveBlackjackTable {
             name: seat.name,
             emblem: seat.emblem,
             connected: seat.connected,
-            away: seat.away,
             leaving: seat.leaving,
             pendingBet: seat.pendingBet,
             lastBet: seat.lastBet,
@@ -888,6 +876,7 @@ class LiveBlackjackTable {
             insuranceDecided: seat.insuranceDecided,
             lastNet: seat.lastNet,
             sessionNet: seat.sessionNet,
+            winStreak: seat.winStreak,
             roundsPlayed: seat.roundsPlayed,
             hands: seat.hands.map((hand) => {
                 const { total, soft } = handScore(hand.cards)
