@@ -403,6 +403,27 @@ export const blackjackSessions = pgTable('blackjack_sessions', {
   updatedAt: timestamp('updated_at').defaultNow().$onUpdate(() => new Date()).notNull()
 })
 
+/**
+ * Escrow for the live table. Every stake — opening bet, double, split, insurance
+ * — writes a row in the same transaction as its debit, and settlement marks the
+ * row settled in the same transaction as the payout. A process that dies
+ * mid-round therefore leaves its unsettled stakes visible, and the recovery
+ * sweep in server/plugins refunds them instead of pocketing the player's money.
+ */
+export const liveBlackjackWagers = pgTable(
+  'live_blackjack_wagers',
+  {
+    id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+    userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+    roundId: integer('round_id').notNull(),
+    amount: numeric('amount', { precision: 19, scale: 4 }).notNull(),
+    kind: text('kind').notNull(),
+    settled: boolean('settled').notNull().default(false),
+    createdAt: timestamp('created_at').defaultNow().notNull()
+  },
+  table => [index('live_blackjack_wagers_settled_createdAt_idx').on(table.settled, table.createdAt)]
+)
+
 // ─── Xeno ──────────────────────────────────────────────────────────────────
 
 /**
