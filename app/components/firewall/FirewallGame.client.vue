@@ -4,7 +4,7 @@ import type { FirewallWaveSummary } from '~/utils/firewall-engine'
 import {
   FIREWALL_MAX_WAVE, FIREWALL_TURRETS, FIREWALL_TURRET_REFUND, FIREWALL_UPGRADES,
   FIREWALL_WAVE_MS, FIREWALL_WEAPONS, FIREWALL_SAVE_VERSION,
-  firewallDifficulty, firewallEmptyArmoury, firewallIsBossWave, firewallLoadout,
+  firewallCooldownRushCost, firewallDifficulty, firewallEmptyArmoury, firewallIsBossWave, firewallLoadout,
   firewallMainframeEffects, firewallRepairCost, firewallSlots, firewallTurret,
   firewallUpgradeCost, firewallWeapon, firewallWeaponRuntime, firewallWeaponUnlockWave,
   type FirewallArmoury, type FirewallDifficultyId, type FirewallMainframeId,
@@ -14,8 +14,9 @@ import {
 
 type Phase = 'loading' | 'lobby' | 'wave' | 'shop' | 'over' | 'won'
 
-const { fetchSession } = useAuth()
+const { user, fetchSession } = useAuth()
 const toast = useToast()
+
 
 const host = ref<HTMLDivElement | null>(null)
 const shell = ref<HTMLDivElement | null>(null)
@@ -45,6 +46,48 @@ function loadState() {
 async function refreshState() {
   account.value = await loadState()
 }
+
+// Uplink recharge cooldown — ticks once a second while visible.
+const now = ref(Date.now())
+let clockTimer: ReturnType<typeof setInterval> | null = null
+
+const cooldownRemainingMs = computed(() => {
+  const until = account.value?.runCooldown?.until
+  return until ? Math.max(0, new Date(until).getTime() - now.value) : 0
+})
+const isCoolingDown = computed(() => cooldownRemainingMs.value > 0)
+const cooldownRushCost = computed(() => firewallCooldownRushCost(cooldownRemainingMs.value))
+const gems = computed(() => user.value?.gems ?? 0)
+const rushingCooldown = ref(false)
+
+const cooldownLabel = computed(() => {
+  const totalSeconds = Math.ceil(cooldownRemainingMs.value / 1000)
+  const hours = Math.floor(totalSeconds / 3600)
+  const minutes = Math.floor((totalSeconds % 3600) / 60)
+  const seconds = totalSeconds % 60
+  if (hours > 0) return `${hours}h ${minutes.toString().padStart(2, '0')}m`
+  if (minutes > 0) return `${minutes}m ${seconds.toString().padStart(2, '0')}s`
+  return `${seconds}s`
+})
+
+async function rushCooldown() {
+  if (rushingCooldown.value || !isCoolingDown.value) return
+  rushingCooldown.value = true
+  try {
+    const response = await $fetch('/api/firewall/rush-cooldown', { method: 'POST' })
+    toast.add({ title: `Uplink recharge cleared for ${response.cost} gem${response.cost === 1 ? '' : 's'}`, color: 'success' })
+    await Promise.all([refreshState(), fetchSession()])
+  } catch (error: unknown) {
+    toast.add({
+      title: 'Could not clear uplink recharge',
+      description: (error as { statusMessage?: string }).statusMessage ?? 'Try again in a moment.',
+      color: 'error'
+    })
+  } finally {
+    rushingCooldown.value = false
+  }
+}
+
 
 // ─── Run state ──────────────────────────────────────────────────────────────
 // Credits and the armoury live here rather than in the engine: the engine runs
@@ -202,6 +245,7 @@ onMounted(async () => {
   document.addEventListener('visibilitychange', onVisibility)
   document.addEventListener('fullscreenchange', syncFullscreen)
   window.addEventListener('keydown', onHotkey)
+  clockTimer = setInterval(() => { now.value = Date.now() }, 1000)
 
   await refreshState()
   phase.value = 'lobby'
@@ -211,6 +255,7 @@ onBeforeUnmount(() => {
   document.removeEventListener('visibilitychange', onVisibility)
   document.removeEventListener('fullscreenchange', syncFullscreen)
   window.removeEventListener('keydown', onHotkey)
+  if (clockTimer) clearInterval(clockTimer)
   game?.destroy()
   game = null
 })
@@ -271,7 +316,7 @@ function hydrate(save: FirewallRunSave, rev: number) {
 }
 
 async function startRun() {
-  if (busy.value) return
+  if (busy.value || isCoolingDown.value) return
   busy.value = true
   try {
     const result = await $fetch('/api/firewall/start-run', {
@@ -747,8 +792,17 @@ async function toggleFullscreen() {
       >
         <div class="flex items-center justify-between gap-4 border-b border-white/10 px-4 py-3">
           <div>
-            <div class="text-2xl font-black tracking-[0.2em] text-cyan-300">
-              FIREWALL
+            <div class="flex items-center gap-2">
+              <div class="text-2xl font-black tracking-[0.2em] text-cyan-300">
+                FIREWALL
+              </div>
+              <UBadge
+                v-if="isCoolingDown"
+                :label="`Recharging ${cooldownLabel}`"
+                icon="i-lucide-battery-charging"
+                color="warning"
+                variant="subtle"
+              />
             </div>
             <p class="text-[11px] text-white/50 mt-0.5">
               LMB fire · R reload · 1-5 swap · Space pulse · Q overclock
@@ -794,6 +848,32 @@ async function toggleFullscreen() {
             <UButton color="primary" size="lg" icon="i-lucide-play" @click="resumeRun">
               Resume
             </UButton>
+          </div>
+
+          <div v-else-if="isCoolingDown" class="rounded-lg border border-warning/25 bg-warning/10 p-4 text-center">
+            <p class="flex items-center justify-center gap-2 font-black text-warning">
+              <UIcon name="i-lucide-battery-charging" class="size-5" /> UPLINK RECHARGING
+            </p>
+            <p class="mt-1 text-sm text-muted">
+              The uplink is recharging after your last run. Next run in <span class="font-black tabular-nums text-highlighted">{{ cooldownLabel }}</span>.
+            </p>
+            <UButton
+              class="mt-3"
+              color="secondary"
+              variant="subtle"
+              icon="i-lucide-gem"
+              :loading="rushingCooldown"
+              :disabled="gems < cooldownRushCost"
+              @click="rushCooldown"
+            >
+              Clear recharge · {{ cooldownRushCost }} gem{{ cooldownRushCost === 1 ? '' : 's' }}
+            </UButton>
+            <p v-if="gems < cooldownRushCost" class="mt-2 text-xs text-muted">
+              Need {{ cooldownRushCost }} gems; you have {{ gems }}.
+            </p>
+            <p v-else class="mt-2 text-xs text-muted">
+              1 gem per started 10 minutes remaining.
+            </p>
           </div>
 
           <div v-else>
