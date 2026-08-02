@@ -4,6 +4,7 @@ import type {
   PathwardenGameState,
   PathwardenMapPlan
 } from '#shared/types/pathwarden-save'
+import type { FirewallRunSave } from '#shared/utils/gamelogic/firewall'
 
 export const user = pgTable('user', {
   id: text('id').primaryKey(),
@@ -298,6 +299,49 @@ export const pathwardenRuns = pgTable('pathwarden_runs', {
  * a Postgres advisory lock (see server/utils/gem-exchange.ts) so the book is
  * only ever mutated by one request at a time.
  */
+// ─── FIREWALL ────────────────────────────────────────────────────────────
+
+// Permanent, coin-bought Mainframe levels plus the account records the
+// difficulty gate reads. A run in progress is the `runStartedAt` lock here and
+// the save blob in `firewallRuns` — the two are always written together.
+export const firewallState = pgTable('firewall_state', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().unique().references(() => user.id, { onDelete: 'cascade' }),
+  bulwarkLevel: integer('bulwark_level').notNull().default(0),
+  munitionsLevel: integer('munitions_level').notNull().default(0),
+  foundryLevel: integer('foundry_level').notNull().default(0),
+  grantLevel: integer('grant_level').notNull().default(0),
+  salvageLevel: integer('salvage_level').notNull().default(0),
+  capacitorLevel: integer('capacitor_level').notNull().default(0),
+  charterLevel: integer('charter_level').notNull().default(0),
+  arsenalLevel: integer('arsenal_level').notNull().default(0),
+  runsPlayed: integer('runs_played').notNull().default(0),
+  totalCoinsEarned: numeric('total_coins_earned', { precision: 19, scale: 4 }).notNull().default('0'),
+  // Gates the higher difficulties. Only ever raised by a settled run.
+  bestWave: integer('best_wave').notNull().default(0),
+  bestKills: integer('best_kills').notNull().default(0),
+  bestPayout: integer('best_payout').notNull().default(0),
+  victories: integer('victories').notNull().default(0),
+  runStartedAt: timestamp('run_started_at'),
+  runDifficultySnapshot: text('run_difficulty_snapshot'),
+  runPowerSnapshot: integer('run_power_snapshot'),
+  // Salvage Rig is snapshotted at deploy so a level bought mid-run cannot
+  // retroactively multiply coins the run already banked.
+  runCoinMultiplierSnapshot: numeric('run_coin_multiplier_snapshot', { precision: 10, scale: 4 })
+})
+
+// One saved run per user, replaced wholesale on every uplink. `revision` is a
+// compare-and-swap guard so two tabs cannot interleave saves.
+export const firewallRuns = pgTable('firewall_runs', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().unique().references(() => user.id, { onDelete: 'cascade' }),
+  revision: integer('revision').notNull().default(0),
+  saveVersion: integer('save_version').notNull(),
+  runState: jsonb('run_state').$type<FirewallRunSave>().notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().$onUpdate(() => new Date()).notNull()
+})
+
 export const gemOrders = pgTable('gem_orders', {
   id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
   userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
@@ -698,7 +742,8 @@ export const userRelations = relations(user, ({ many, one }) => ({
   pirateCannons: many(pirateCannons),
   pirateRunHistory: many(pirateRunHistory),
   shapezzState: one(shapezzState),
-  pathwardenState: one(pathwardenState)
+  pathwardenState: one(pathwardenState),
+  firewallState: one(firewallState)
 }))
 
 export const minerStateRelations = relations(minerState, ({ one }) => ({
@@ -723,6 +768,14 @@ export const shapezzStateRelations = relations(shapezzState, ({ one }) => ({
 
 export const pathwardenStateRelations = relations(pathwardenState, ({ one }) => ({
   user: one(user, { fields: [pathwardenState.userId], references: [user.id] })
+}))
+
+export const firewallStateRelations = relations(firewallState, ({ one }) => ({
+  user: one(user, { fields: [firewallState.userId], references: [user.id] })
+}))
+
+export const firewallRunsRelations = relations(firewallRuns, ({ one }) => ({
+  user: one(user, { fields: [firewallRuns.userId], references: [user.id] })
 }))
 
 export const sessionRelations = relations(session, ({ one }) => ({

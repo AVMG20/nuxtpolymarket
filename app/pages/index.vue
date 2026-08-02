@@ -118,6 +118,14 @@ const arcadeGames = [
     to: '/pirates',
     gradient: 'from-sky-950 to-slate-900',
     iconColor: 'text-sky-300'
+  },
+  {
+    name: 'Firewall',
+    description: 'Lane defence over 30 waves — five difficulties, a save between every wave, and a coin-bought Mainframe',
+    icon: 'i-lucide-shield-half',
+    to: '/firewall',
+    gradient: 'from-cyan-950 via-slate-900 to-slate-950',
+    iconColor: 'text-cyan-300'
   }
 ]
 

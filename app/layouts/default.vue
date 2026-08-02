@@ -41,7 +41,8 @@ const idleGameItems: NavigationMenuItem[] = [
 const activeGameItems: NavigationMenuItem[] = [
   { label: 'Pathwarden', class: 'mb-1', icon: 'i-lucide-castle', to: '/pathwarden' },
   { label: 'Pirate Raid', class: 'mb-1', icon: 'i-lucide-anchor', to: '/pirates' },
-  { label: 'SHAPEZZ', class: 'mb-1', icon: 'i-lucide-shapes', to: '/shapezz' }
+  { label: 'SHAPEZZ', class: 'mb-1', icon: 'i-lucide-shapes', to: '/shapezz' },
+  { label: 'Firewall', class: 'mb-1', icon: 'i-lucide-shield-half', to: '/firewall' }
 ]
 
 const slotItems: NavigationMenuItem[] = [
