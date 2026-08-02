@@ -37,10 +37,16 @@ async function sweep() {
     }
 }
 
+// A sweep that throws is usually the escrow table missing entirely, which also
+// breaks every bet at the table — so it is logged rather than swallowed.
+function runSweep() {
+    void sweep().catch((error) => {
+        console.error('[live-blackjack] wager recovery sweep failed', error)
+    })
+}
+
 export default defineNitroPlugin(() => {
-    void sweep().catch(() => { /* a failed sweep retries on the next interval */ })
-    const timer = setInterval(() => {
-        void sweep().catch(() => { /* same */ })
-    }, SWEEP_INTERVAL_MS)
+    runSweep()
+    const timer = setInterval(runSweep, SWEEP_INTERVAL_MS)
     timer.unref?.()
 })

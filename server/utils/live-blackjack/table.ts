@@ -1,3 +1,4 @@
+import * as Sentry from '@sentry/nuxt'
 import { and, eq, inArray } from 'drizzle-orm'
 import { db } from '#server/database'
 import { liveBlackjackWagers } from '#server/database/schema'
@@ -59,6 +60,25 @@ interface ScoreRecord {
 
 function fail(message: string): never {
     throw createError({ statusCode: 400, statusMessage: message })
+}
+
+/** `debit` throws a 400 when the balance genuinely will not cover the stake. */
+function isInsufficientBalance(error: unknown): boolean {
+    const e = error as { statusCode?: number, statusMessage?: string }
+    return e?.statusCode === 400 && /insufficient/i.test(e.statusMessage ?? '')
+}
+
+function stakeErrorMessage(error: unknown): string {
+    return isInsufficientBalance(error)
+        ? 'Bet skipped — not enough balance'
+        : 'Bet could not be placed — the table had a problem, your money was not taken'
+}
+
+/** A stake failing for any reason other than funds is a server fault worth seeing. */
+function reportStakeFailure(error: unknown, userId: string, amount: number) {
+    if (isInsufficientBalance(error)) return
+    console.error('[live-blackjack] stake failed', { userId, amount, error })
+    Sentry.captureException(error, { extra: { userId, amount, game: 'live-blackjack' } })
 }
 
 class LiveBlackjackTable {
@@ -162,7 +182,7 @@ class LiveBlackjackTable {
         return this.activeSeats().filter(s => s.hands.length > 0)
     }
 
-    sit(userId: string, name: string, emblem: string | null, index: number) {
+    async sit(userId: string, name: string, emblem: string | null, index: number) {
         if (!Number.isInteger(index) || index < 0 || index >= LB_RULES.seats) fail('Invalid seat')
         const existing = this.seatOf(userId)
         if (existing) {
@@ -173,6 +193,11 @@ class LiveBlackjackTable {
             return
         }
         if (this.seats[index]) fail('Seat is taken')
+        // Turning a broke player away at the seat beats letting them sit through
+        // rounds they can never bet in.
+        if (Number(await getBalance(userId)) < LB_MIN_BET) {
+            fail(`You need at least ${LB_MIN_BET} to take a seat`)
+        }
 
         const record = this.scores.get(userId)
         this.seats[index] = {
@@ -392,8 +417,12 @@ class LiveBlackjackTable {
             const bet = seat.pendingBet
             try {
                 await this.stake(seat, bet, 'bet')
-            } catch {
-                sendToUser(seat.userId, { t: 'error', message: 'Bet skipped — not enough balance' })
+            } catch (error) {
+                // Only an actual failed debit means the player was short. Anything
+                // else is our fault, and reporting it as "not enough balance" sent
+                // every seat at the table chasing a problem they do not have.
+                sendToUser(seat.userId, { t: 'error', message: stakeErrorMessage(error) })
+                reportStakeFailure(error, seat.userId, bet)
                 seat.pendingBet = 0
                 seat.betChips = []
                 continue
