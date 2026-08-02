@@ -3,7 +3,7 @@ import type { Application, Container, Graphics, Sprite, Text } from 'pixi.js'
 import { chipStack } from '#shared/utils/live-blackjack/chips'
 import type { LbAction, LbHand, LbTableState } from '#shared/utils/live-blackjack/types'
 import formatNumber from '~/utils/format-number'
-import { CARD_W, cardKey, type LbTextures } from './art'
+import { CARD_H, CARD_W, cardKey, type LbTextures } from './art'
 
 type Pixi = typeof import('pixi.js')
 
@@ -46,6 +46,7 @@ interface CardTarget {
     rotation: number
     scale: number
     order: number
+    alpha: number
 }
 
 interface LiveCard {
@@ -55,6 +56,7 @@ interface LiveCard {
     y: number
     rotation: number
     scale: number
+    alpha: number
 }
 
 export interface LbSceneCallbacks {
@@ -69,6 +71,16 @@ const ACTION_FLASH: Record<LbAction, { text: string, color: number }> = {
     double: { text: 'DOUBLE', color: 0x15803d },
     split: { text: 'SPLIT', color: 0x7c3aed },
     surrender: { text: 'SURRENDER', color: 0xb45309 }
+}
+
+/** Hands share a seat's width, so more of them means smaller cards. */
+function handScale(handCount: number): number {
+    return handCount === 1 ? 0.92 : handCount === 2 ? 0.66 : 0.48
+}
+
+/** Width a fanned hand occupies, matching how layoutSeat places the cards. */
+function handWidth(cardCount: number, scale: number): number {
+    return CARD_W * scale + Math.max(0, cardCount - 1) * 30 * scale
 }
 
 const label = (PIXI: Pixi, text: string, size: number, color: number, weight: '400' | '600' | '700' | '800' = '600') =>
@@ -403,7 +415,8 @@ export class LiveBlackjackScene {
                 y: DEALER_POS.y,
                 rotation: 0,
                 scale: 1,
-                order: i
+                order: i,
+                alpha: 1
             })
         })
     }
@@ -413,13 +426,17 @@ export class LiveBlackjackScene {
         if (!seat?.hands.length) return
         const pos = SEAT_LAYOUT[index]!
         const hands = seat.hands
-        const scale = hands.length === 1 ? 0.92 : hands.length === 2 ? 0.66 : 0.48
+        const scale = handScale(hands.length)
         const slot = SEAT_WIDTH / hands.length
+        // With split hands it has to be obvious which one the buttons apply to,
+        // so the hand in play keeps full colour and its siblings fade back.
+        const activeHand = state.activeSeat === index ? state.activeHand : null
+        const dimSiblings = activeHand !== null && hands.length > 1
 
         hands.forEach((hand, h) => {
             const centerX = pos.x + (h - (hands.length - 1) / 2) * slot
             const gap = 30 * scale
-            const width = CARD_W * scale + (hand.cards.length - 1) * gap
+            const width = handWidth(hand.cards.length, scale)
             const startX = centerX - width / 2 + (CARD_W * scale) / 2
             hand.cards.forEach((card, i) => {
                 out.push({
@@ -429,7 +446,8 @@ export class LiveBlackjackScene {
                     y: pos.y + HAND_Y_OFFSET - i * 4 * scale,
                     rotation: (i - (hand.cards.length - 1) / 2) * 0.026,
                     scale,
-                    order: 10 + index + h * 5 + i * 5
+                    order: 10 + index + h * 5 + i * 5,
+                    alpha: dimSiblings && h !== activeHand ? 0.45 : 1
                 })
             })
         })
@@ -449,6 +467,7 @@ export class LiveBlackjackScene {
                 sprite.position.set(SHOE_POS.x, SHOE_POS.y)
                 sprite.scale.set(target.scale)
                 sprite.rotation = -0.5
+                sprite.alpha = target.alpha
                 this.cardLayer.addChild(sprite)
                 this.cards.set(target.id, { sprite, ...target })
 
@@ -481,6 +500,10 @@ export class LiveBlackjackScene {
                         gsap.to(existing.sprite.scale, { x: target.scale, duration: 0.2, ease: 'back.out(2)' })
                     }
                 })
+            }
+
+            if (existing.alpha !== target.alpha) {
+                gsap.to(existing.sprite, { alpha: target.alpha, duration: 0.2 })
             }
 
             if (existing.x !== target.x || existing.y !== target.y || existing.scale !== target.scale) {
@@ -659,10 +682,13 @@ class SeatNode {
         const stakeSpots: { x: number, amount: number }[] = []
         if (seat.hands.length) {
             const slot = SEAT_WIDTH / seat.hands.length
+            const activeHand = state.activeSeat === this.index ? state.activeHand : null
             seat.hands.forEach((hand, h) => {
                 const x = this.pos.x + (h - (seat.hands.length - 1) / 2) * slot
                 stakeSpots.push({ x, amount: hand.doubled ? hand.bet * 2 : hand.bet })
-                this.addHandBadge(hand, x, state)
+                const active = activeHand === h && seat.hands.length > 1
+                if (active) this.addActiveHandMarker(x, hand.cards.length, seat.hands.length)
+                this.addHandBadge(hand, x, state, active)
             })
         } else if (seat.pendingBet > 0) {
             stakeSpots.push({ x: this.pos.x, amount: seat.pendingBet })
@@ -672,7 +698,23 @@ class SeatNode {
         if (seat.insurance > 0) this.addInsuranceBadge(seat.insurance)
     }
 
-    private addHandBadge(hand: LbHand, x: number, state: LbTableState) {
+    /**
+     * A lit frame around the hand currently being played. Without it, a player
+     * holding three split hands has no way to tell which one the buttons act on.
+     */
+    private addActiveHandMarker(x: number, cardCount: number, handCount: number) {
+        const scale = handScale(handCount)
+        const w = handWidth(cardCount, scale) + 22
+        const h = CARD_H * scale + 26
+        const box = new this.PIXI.Graphics()
+        box.roundRect(x - w / 2, this.pos.y + HAND_Y_OFFSET - h / 2, w, h, 12)
+            .fill({ color: GOLD, alpha: 0.12 })
+            .stroke({ width: 3, color: GOLD, alpha: 0.95 })
+        this.uiLayer.addChild(box)
+        this.badges.push(box)
+    }
+
+    private addHandBadge(hand: LbHand, x: number, state: LbTableState, active = false) {
         const done = hand.net !== undefined && state.phase === 'payout'
         const text = done
             ? `${hand.net! > 0 ? '+' : hand.net! < 0 ? '−' : ''}${formatNumber(Math.abs(hand.net!))}`
@@ -698,7 +740,11 @@ class SeatNode {
         const w = Math.max(58, value.width + 22)
         const bg = new this.PIXI.Graphics()
         bg.roundRect(-w / 2, -15, w, 30, 15).fill({ color: tone, alpha: 0.94 })
-        bg.roundRect(-w / 2, -15, w, 30, 15).stroke({ width: 1.4, color: GOLD, alpha: 0.5 })
+        bg.roundRect(-w / 2, -15, w, 30, 15).stroke({
+            width: active ? 3 : 1.4,
+            color: active ? 0xffffff : GOLD,
+            alpha: active ? 0.95 : 0.5
+        })
         box.addChild(bg, value)
         box.position.set(x, this.pos.y + 32)
         this.uiLayer.addChild(box)
