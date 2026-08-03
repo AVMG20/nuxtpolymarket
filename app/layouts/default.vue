@@ -103,6 +103,8 @@ function setNeutral(color: string) {
   themeNeutral.value = color
   appConfig.ui.colors.neutral = color
 }
+
+const globalSearch = useGlobalSearch()
 </script>
 
 <template>
@@ -113,36 +115,71 @@ function setNeutral(color: string) {
       collapsible="icon"
       rail
       :ui="{
-        header: 'px-3 min-h-14',
+        header: 'px-3 pt-3 pb-3 flex-col items-stretch gap-2.5 min-h-14',
         body: 'p-3 gap-0',
         footer: 'flex-col items-stretch gap-2 p-3'
       }"
     >
       <!-- Header -->
       <template #header="{ state, close }">
-        <UIcon
-          class="size-5 shrink-0 text-primary"
-          name="i-lucide-gamepad-2"
-        />
-        <span
-          v-if="state !== 'collapsed'"
-          class="flex-1 truncate text-lg font-bold text-primary"
-        >
-          Polynux
-        </span>
-        <!-- Mobile close -->
-        <UButton
-          class="lg:hidden shrink-0"
-          color="neutral"
-          icon="i-lucide-x"
-          size="sm"
-          variant="ghost"
-          @click="close()"
-        />
+        <div class="flex items-center justify-between gap-2 w-full">
+          <div class="flex items-center gap-2 min-w-0">
+            <UIcon
+              class="size-5 shrink-0 text-primary"
+              name="i-lucide-gamepad-2"
+            />
+            <span
+              v-if="state !== 'collapsed'"
+              class="flex-1 truncate text-lg font-bold text-primary"
+            >
+              Polynux
+            </span>
+          </div>
+          <!-- Mobile close -->
+          <UButton
+            class="lg:hidden shrink-0"
+            color="neutral"
+            icon="i-lucide-x"
+            size="sm"
+            variant="ghost"
+            @click="close()"
+          />
+        </div>
+
+        <!-- Search button inside header div -->
+        <div class="w-full">
+          <UButton
+            v-if="state !== 'collapsed'"
+            block
+            color="neutral"
+            variant="outline"
+            class="justify-between text-muted hover:text-default bg-elevated/40 border-default/80 cursor-pointer"
+            icon="i-lucide-search"
+            @click="globalSearch.open()"
+          >
+            <span class="truncate text-xs font-medium">Search pages...</span>
+            <span class="flex items-center gap-0.5 text-[10px] opacity-80">
+              <UKbd size="sm">⌘</UKbd>
+              <UKbd size="sm">K</UKbd>
+            </span>
+          </UButton>
+          <UTooltip v-else text="Search pages (⌘K)" :content="{ side: 'right' }">
+            <UButton
+              square
+              block
+              color="neutral"
+              variant="outline"
+              icon="i-lucide-search"
+              class="bg-elevated/40 border-default/80 cursor-pointer mx-auto"
+              @click="globalSearch.open()"
+            />
+          </UTooltip>
+        </div>
       </template>
 
       <!-- Nav content -->
       <template #default="{ state }">
+
         <p
           v-if="state !== 'collapsed'"
           class="text-xs font-semibold text-muted uppercase tracking-wider px-2 mb-1"
@@ -382,15 +419,24 @@ function setNeutral(color: string) {
     <!-- Main content -->
     <div class="flex flex-1 flex-col overflow-hidden min-w-0">
       <!-- Mobile header -->
-      <header class="flex h-14 shrink-0 items-center gap-2 border-b border-default px-4 lg:hidden">
+      <header class="flex h-14 shrink-0 items-center justify-between border-b border-default px-4 lg:hidden">
+        <div class="flex items-center gap-2">
+          <UButton
+            aria-label="Open sidebar"
+            color="neutral"
+            icon="i-lucide-panel-left"
+            variant="ghost"
+            @click="open = true"
+          />
+          <span class="font-semibold text-primary">Polynux</span>
+        </div>
         <UButton
-          aria-label="Open sidebar"
+          aria-label="Search pages"
           color="neutral"
-          icon="i-lucide-panel-left"
+          icon="i-lucide-search"
           variant="ghost"
-          @click="open = true"
+          @click="globalSearch.open()"
         />
-        <span class="font-semibold text-primary">Polynux</span>
       </header>
 
       <main class="flex-1 overflow-auto">
@@ -398,5 +444,7 @@ function setNeutral(color: string) {
         <ChatWidget v-if="user" />
       </main>
     </div>
+
+    <GlobalSearchModal />
   </div>
 </template>
