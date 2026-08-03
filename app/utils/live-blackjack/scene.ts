@@ -21,14 +21,18 @@ const RAIL = 0x3b2416
 const GOLD = 0xd9b167
 
 const DEALER_POS = { x: 800, y: 196 }
-// The shoe is a side-on block of cards so the stack visibly drains toward the
-// cut card; the discard tray opposite it fills by the same amount.
-const SHOE_POS = { x: 1444, y: 268 }
-const SHOE_STACK = { width: 96, height: 188 }
-const DISCARD_POS = { x: 156, y: 268 }
-// Left of the dealer's fan, which is centred on DEALER_POS and grows both ways
-// — eight cards reach x=583, and the discard tray ends at x=212.
-const DEALER_BANK_POS = { x: 400, y: 246 }
+/**
+ * The shoe is a side-on block of cards, laid along the top rail so it drains
+ * toward the cut card horizontally; the discard tray opposite fills by the same
+ * amount. Both used to sit at mid-table height, where the outermost seats' cards
+ * reached them.
+ */
+const SHOE_POS = { x: 1330, y: 140 }
+const SHOE_STACK = { width: 188, height: 96 }
+const DISCARD_POS = { x: 270, y: 140 }
+// Below the discard tray and left of the dealer's fan, which is centred on
+// DEALER_POS and grows both ways — seven cards reach x=606.
+const DEALER_BANK_POS = { x: 400, y: 320 }
 // Pushed to the very bottom edge so the betting controls have a clear band
 // between the seat nameplates and the chips.
 const RACK_Y = 1048
@@ -366,31 +370,32 @@ export class LiveBlackjackScene {
         g.clear()
 
         const remaining = Math.max(0, total - dealt)
-        const half = SHOE_STACK.width / 2
-        const bottom = SHOE_POS.y + SHOE_STACK.height / 2
+        const half = SHOE_STACK.height / 2
+        const step = SHOE_STACK.width / 42
 
-        const drawBlock = (x: number, cards: number, tint: number) => {
-            const h = Math.round((cards / total) * SHOE_STACK.height)
-            if (h <= 0) return
-            g.roundRect(x - half, bottom - h, SHOE_STACK.width, h, 3).fill(tint)
+        const drawBlock = (pos: { x: number, y: number }, cards: number, tint: number) => {
+            const w = Math.round((cards / total) * SHOE_STACK.width)
+            if (w <= 0) return
+            const left = pos.x - SHOE_STACK.width / 2
+            const top = pos.y - half
+            g.roundRect(left, top, w, SHOE_STACK.height, 3).fill(tint)
             // One line per few cards reads as a stack rather than a solid slab.
-            const step = SHOE_STACK.height / 42
-            for (let y = bottom - h + step; y < bottom - 1; y += step) {
-                g.moveTo(x - half + 4, y)
-                g.lineTo(x + half - 4, y)
+            for (let x = left + step; x < left + w - 1; x += step) {
+                g.moveTo(x, top + 4)
+                g.lineTo(x, top + SHOE_STACK.height - 4)
             }
             g.stroke({ width: 1, color: 0x000000, alpha: 0.22 })
         }
 
-        drawBlock(SHOE_POS.x, remaining, 0x8f1230)
-        drawBlock(DISCARD_POS.x, dealt, 0x4a3520)
+        drawBlock(SHOE_POS, remaining, 0x8f1230)
+        drawBlock(DISCARD_POS, dealt, 0x4a3520)
 
         // Cut card: once the stack drains past it the shoe is reshuffled.
-        const cutHeight = Math.round((Math.max(0, remaining - untilShuffle) / total) * SHOE_STACK.height)
+        const cutWidth = Math.round((Math.max(0, remaining - untilShuffle) / total) * SHOE_STACK.width)
         if (remaining > 0) {
-            const y = bottom - cutHeight
-            g.moveTo(SHOE_POS.x - half - 6, y)
-            g.lineTo(SHOE_POS.x + half + 6, y)
+            const x = SHOE_POS.x - SHOE_STACK.width / 2 + cutWidth
+            g.moveTo(x, SHOE_POS.y - half - 6)
+            g.lineTo(x, SHOE_POS.y + half + 6)
             g.stroke({ width: 4, color: 0xf1c40f, alpha: 0.95 })
         }
     }
