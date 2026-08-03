@@ -20,7 +20,8 @@ export default defineNuxtConfig({
         public: {
             // Read by both SDKs — the browser via useRuntimeConfig(), the
             // server straight from process.env in sentry.server.config.ts.
-            sentryDsn: process.env.NUXT_PUBLIC_SENTRY_DSN || ''
+            // PROJECT_DSN is the name Argus issues its DSNs under; either sets it.
+            sentryDsn: process.env.NUXT_PUBLIC_SENTRY_DSN || process.env.PROJECT_DSN || ''
         }
     },
     // The casino and pirate raid are canvas-heavy, interactive experiences.
