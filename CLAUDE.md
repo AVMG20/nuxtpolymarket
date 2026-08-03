@@ -153,6 +153,21 @@ Format: `type/short-description-kebab-case`
 Types: `bugfix/`, `feature/`  
 Always branch from an up-to-date `main`.
 
+## Before committing
+
+Both must be green before any commit or push:
+
+```bash
+bun run typecheck
+bun run test
+```
+
+Fix what they report. Type errors and failing tests get fixed, not committed around and not left for CI to catch. If a failure is genuinely pre-existing and unrelated, say so explicitly rather than staying quiet about a red check.
+
+`nuxt build` does **not** typecheck (`typescript.typeCheck` is not enabled), so a passing build proves nothing about types — run `typecheck` separately.
+
+This matters more than usual here: `main` is shared and a type error that lands on it fails CI for every other open branch until someone fixes it, and blocks all deploys (`checks` gates `image` gates `deploy` in `.github/workflows/ci.yml`).
+
 ## Commits
 
 - Short, imperative subject line describing the actual change
