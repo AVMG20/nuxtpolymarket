@@ -105,7 +105,11 @@ function placeBet(state: LbTableState) {
     const stack = chipStack(want, 12)
     for (const chip of stack) send({ t: 'bet', amount: chip.value })
     betForRound = state.roundId
-    log(`round ${state.roundId}: betting ${stack.reduce((sum, c) => sum + c.value, 0)}`)
+    // Bots never need the full betting clock, and a table of them waiting it
+    // out makes live testing crawl. Voting only starts the round once every
+    // seated player has voted, so a human at the table still sets the pace.
+    send({ t: 'voteStart' })
+    log(`round ${state.roundId}: betting ${stack.reduce((sum, c) => sum + c.value, 0)}, voted to deal`)
 }
 
 function playTurn(state: LbTableState, seat: NonNullable<LbTableState['seats'][number]>) {
