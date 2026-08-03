@@ -48,9 +48,11 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted, onUnmounted, computed } from 'vue'
+import { ref, shallowRef, reactive, markRaw, onMounted, onUnmounted, computed, type Raw } from 'vue'
 import * as PIXI from 'pixi.js'
 
+// Pixi display objects are mutated every frame and hold cyclic scene-graph
+// references, so they are kept raw rather than wrapped in a reactive proxy.
 interface Tower {
     x: number
     y: number
@@ -59,7 +61,7 @@ interface Tower {
     lastShot: number
     damage: number
     level: number
-    graphics: PIXI.Graphics
+    graphics: Raw<PIXI.Graphics>
 }
 
 interface Enemy {
@@ -71,7 +73,7 @@ interface Enemy {
     maxHealth: number
     speed: number
     radius: number
-    graphics: PIXI.Graphics
+    graphics: Raw<PIXI.Graphics>
 }
 
 interface Projectile {
@@ -82,15 +84,25 @@ interface Projectile {
     radius: number
     damage: number
     targetId: number
-    graphics: PIXI.Graphics
+    graphics: Raw<PIXI.Graphics>
 }
 
+interface UpgradeBase {
+    name: string
+    description: string
+    cost: number
+    count: number
+}
+
+type Upgrade =
+    | (UpgradeBase & { id: 'tower1' | 'tower2', damage: number, fireRate: number, radius: number })
+    | (UpgradeBase & { id: 'health', health: number })
+    | (UpgradeBase & { id: 'upgrade-towers', damage: number })
+
 const gameContainer = ref<HTMLElement | null>(null)
-const app = ref<PIXI.Application | null>(null)
+const app = shallowRef<PIXI.Application | null>(null)
 let gameRunning = true
 let lastEnemySpawn = 0
-let tower1Count = 0
-let tower2Count = 0
 
 const gameState = reactive({
     gold: 200,
@@ -103,18 +115,18 @@ const gameState = reactive({
 
 const isPaused = ref(false)
 const pauseCountdown = ref(0)
-let waveTimer = 0
+const waveTimer = ref(0)
 let pauseTimer = 0
 
-const waveCountdown = computed(() => Math.max(0, 25 - (waveTimer % 25)))
+const waveCountdown = computed(() => Math.max(0, 25 - (waveTimer.value % 25)))
 
-const upgrades = ref([
+const upgrades = ref<Upgrade[]>([
     {
         id: 'tower1',
         name: 'Stone Tower',
         description: 'Basic defensive tower',
         cost: 50,
-        count: computed(() => tower1Count),
+        count: 0,
         damage: 10,
         fireRate: 0.5,
         radius: 150
@@ -124,7 +136,7 @@ const upgrades = ref([
         name: 'Cannon',
         description: 'Slower, stronger shots',
         cost: 100,
-        count: computed(() => tower2Count),
+        count: 0,
         damage: 25,
         fireRate: 0.3,
         radius: 200
@@ -152,18 +164,15 @@ function buyUpgrade(id: string) {
     if (!upgrade || gameState.gold < upgrade.cost) return
 
     gameState.gold -= upgrade.cost
+    upgrade.count++
 
-    if (id === 'tower1') {
-        tower1Count++
+    if (upgrade.id === 'tower1' || upgrade.id === 'tower2') {
         placeRandomTower(upgrade.damage, upgrade.fireRate, upgrade.radius)
-    } else if (id === 'tower2') {
-        tower2Count++
-        placeRandomTower(upgrade.damage, upgrade.fireRate, upgrade.radius)
-    } else if (id === 'health') {
-        gameState.health = Math.min(100, gameState.health + (upgrade.health || 0))
-    } else if (id === 'upgrade-towers') {
+    } else if (upgrade.id === 'health') {
+        gameState.health = Math.min(100, gameState.health + upgrade.health)
+    } else {
         gameState.towers.forEach(tower => {
-            tower.damage += upgrade.damage || 0
+            tower.damage += upgrade.damage
         })
     }
 }
@@ -182,7 +191,7 @@ function placeRandomTower(damage: number, fireRate: number, radius: number) {
         lastShot: Date.now(),
         damage,
         level: 1,
-        graphics: new PIXI.Graphics()
+        graphics: markRaw(new PIXI.Graphics())
     }
 
     drawTower(tower)
@@ -203,13 +212,6 @@ function drawTower(tower: Tower) {
 function spawnEnemy() {
     if (!app.value || !gameRunning) return
 
-    const path = [
-        { x: -20, y: 100 },
-        { x: 200, y: 50 },
-        { x: 600, y: 80 },
-        { x: 850, y: 200 }
-    ]
-
     const speed = 1 + (gameState.wave * 0.1)
     const enemy: Enemy = {
         x: -20,
@@ -220,7 +222,7 @@ function spawnEnemy() {
         maxHealth: 20 + gameState.wave * 5,
         speed,
         radius: 8,
-        graphics: new PIXI.Graphics()
+        graphics: markRaw(new PIXI.Graphics())
     }
 
     drawEnemy(enemy)
@@ -255,7 +257,7 @@ function createProjectile(fromTower: Tower, toEnemy: Enemy) {
         radius: 4,
         damage: fromTower.damage,
         targetId: -1,
-        graphics: new PIXI.Graphics()
+        graphics: markRaw(new PIXI.Graphics())
     }
 
     projectile.graphics.beginFill(0xffff00)
@@ -274,13 +276,13 @@ function update() {
         if (pauseTimer >= 25) {
             isPaused.value = false
             pauseTimer = 0
-            waveTimer = 0
+            waveTimer.value = 0
             gameState.wave++
         }
         return
     }
 
-    waveTimer += 1 / 60
+    waveTimer.value += 1 / 60
 
     // Spawn enemies every 1s
     lastEnemySpawn += 1 / 60
@@ -290,7 +292,7 @@ function update() {
     }
 
     // Pause every 25 seconds
-    if (waveTimer >= 25) {
+    if (waveTimer.value >= 25) {
         isPaused.value = true
         pauseTimer = 0
     }
@@ -315,6 +317,8 @@ function update() {
     // Update projectiles
     for (let i = gameState.projectiles.length - 1; i >= 0; i--) {
         const proj = gameState.projectiles[i]
+        if (!proj) continue
+
         proj.x += proj.vx
         proj.y += proj.vy
         proj.graphics.x = proj.x
@@ -324,6 +328,8 @@ function update() {
         let hit = false
         for (let j = gameState.enemies.length - 1; j >= 0; j--) {
             const enemy = gameState.enemies[j]
+            if (!enemy) continue
+
             const dx = enemy.x - proj.x
             const dy = enemy.y - proj.y
             if (Math.sqrt(dx * dx + dy * dy) < proj.radius + enemy.radius) {
@@ -349,11 +355,13 @@ function update() {
     // Update enemies
     for (let i = gameState.enemies.length - 1; i >= 0; i--) {
         const enemy = gameState.enemies[i]
+        if (!enemy) continue
+
         enemy.x += enemy.vx
         enemy.y += enemy.vy
 
         // Wobble movement
-        enemy.y += Math.sin(waveTimer * 2 + i) * 0.3
+        enemy.y += Math.sin(waveTimer.value * 2 + i) * 0.3
 
         drawEnemy(enemy)
         enemy.graphics.x = enemy.x
@@ -377,24 +385,36 @@ function update() {
     }
 }
 
+let destroyed = false
+
 onMounted(async () => {
     if (!gameContainer.value) return
 
-    app.value = new PIXI.Application({
-        width: gameContainer.value.clientWidth,
-        height: gameContainer.value.clientHeight,
+    const width = gameContainer.value.clientWidth
+    const height = gameContainer.value.clientHeight
+
+    const pixiApp = new PIXI.Application()
+    await pixiApp.init({
+        width,
+        height,
         backgroundColor: 0x1a1a2e,
         antialias: true
     })
 
-    gameContainer.value.appendChild(app.value.canvas)
+    if (destroyed) {
+        pixiApp.destroy(true)
+        return
+    }
+
+    app.value = pixiApp
+    gameContainer.value.appendChild(pixiApp.canvas)
 
     // Draw background
     const background = new PIXI.Graphics()
     background.beginFill(0x0f3460)
-    background.drawRect(0, 0, app.value.width, app.value.height)
+    background.drawRect(0, 0, width, height)
     background.endFill()
-    app.value.stage.addChild(background)
+    pixiApp.stage.addChild(background)
 
     // Draw path
     const path = new PIXI.Graphics()
@@ -403,24 +423,19 @@ onMounted(async () => {
     path.lineTo(200, 50)
     path.lineTo(600, 80)
     path.lineTo(850, 200)
-    app.value.stage.addChild(path)
+    pixiApp.stage.addChild(path)
 
     // Game loop
-    const ticker = app.value.ticker
-    ticker.add(() => {
+    pixiApp.ticker.add(() => {
         update()
-    })
-
-    // Click to place towers (debug)
-    gameContainer.value.addEventListener('click', (e) => {
-        if (isPaused.value) return
-        // Commented out for now - upgrades only via UI
     })
 })
 
 onUnmounted(() => {
+    destroyed = true
     if (app.value) {
         app.value.destroy(true)
+        app.value = null
     }
 })
 </script>
