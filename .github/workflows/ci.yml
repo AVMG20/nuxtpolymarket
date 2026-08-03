@@ -1,13 +1,39 @@
 name: ci
 
-on: push
+on:
+  push:
+  pull_request:
+    types: [closed]
 
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
+  # Which pull request, if any, this push belongs to. Publishing an image is
+  # only worth it for main and for branches someone is actually reviewing.
+  context:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      pr: ${{ steps.pr.outputs.number }}
+
+    steps:
+      - name: Find the open pull request for this branch
+        id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          number=$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$GITHUB_REF_NAME" \
+            --state open --json number --jq '.[0].number // empty')
+          echo "number=$number" >> "$GITHUB_OUTPUT"
+          echo "$GITHUB_REF_NAME -> pr ${number:-none}"
+
   checks:
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
 
     # The balance concurrency tests exercise real Postgres row locking, so they
@@ -52,14 +78,19 @@ jobs:
         run: bun run test
 
   # The image build is the build check: it compiles the app exactly as it will
-  # ship. Branches build without publishing, so a broken bundle fails the run
-  # without putting anything in the registry.
+  # ship. Branches without a pull request build without publishing, so a broken
+  # bundle fails the run without putting anything in the registry.
   image:
-    needs: checks
+    needs: [context, checks]
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
+
+    env:
+      # Previews run the image built here rather than rebuilding on the Coolify
+      # host, so a pull request has to publish too — not just main.
+      PUBLISH: ${{ github.ref == 'refs/heads/main' || needs.context.outputs.pr != '' }}
 
     steps:
       - name: Checkout
@@ -69,7 +100,7 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Log in to the registry
-        if: github.ref == 'refs/heads/main'
+        if: env.PUBLISH == 'true'
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
@@ -89,7 +120,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          push: ${{ github.ref == 'refs/heads/main' }}
+          push: ${{ env.PUBLISH == 'true' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
@@ -117,3 +148,71 @@ jobs:
           echo "coolify responded $code"
           cat /tmp/deploy.out
           [ "$code" -ge 200 ] && [ "$code" -lt 300 ]
+
+  # A preview is the same published image pointed at a per-pull-request domain.
+  # Coolify used to build these itself, which meant a second full Nuxt build on
+  # the deploy host — the step that needs ~6 GB and gets OOM-killed when other
+  # previews are already resident.
+  preview:
+    needs: [context, image]
+    if: needs.context.outputs.pr != '' && github.ref != 'refs/heads/main'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy the preview
+        env:
+          WEBHOOK: ${{ secrets.COOLIFY_WEBHOOK }}
+          TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+          PR: ${{ needs.context.outputs.pr }}
+        run: |
+          if [ -z "$WEBHOOK" ]; then
+            echo "COOLIFY_WEBHOOK is not set — image published, preview not deployed."
+            exit 0
+          fi
+          # The webhook already carries both halves we need, so a preview costs
+          # no extra secrets: https://coolify.host/api/v1/deploy?uuid=xxx&...
+          base=${WEBHOOK%%/api/v1/deploy*}
+          uuid=$(printf '%s' "$WEBHOOK" | sed -n 's/.*[?&]uuid=\([^&]*\).*/\1/p')
+          if [ "$base" = "$WEBHOOK" ] || [ -z "$uuid" ]; then
+            echo "Could not read a base URL and uuid out of COOLIFY_WEBHOOK."
+            exit 1
+          fi
+
+          code=$(curl -s -o /tmp/preview.out -w '%{http_code}' -X POST \
+            "$base/api/v1/deploy?uuid=$uuid&pull_request_id=$PR&docker_tag=sha-$GITHUB_SHA" \
+            -H "Authorization: Bearer $TOKEN")
+          echo "coolify responded $code for pr $PR (sha-$GITHUB_SHA)"
+          cat /tmp/preview.out
+          [ "$code" -ge 200 ] && [ "$code" -lt 300 ]
+
+  # Closing the pull request takes the preview's containers, volumes and network
+  # with it. Without this the deploy host keeps every preview ever opened.
+  preview-teardown:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Remove the preview
+        env:
+          WEBHOOK: ${{ secrets.COOLIFY_WEBHOOK }}
+          TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+          PR: ${{ github.event.number }}
+        run: |
+          if [ -z "$WEBHOOK" ]; then
+            echo "COOLIFY_WEBHOOK is not set — nothing to tear down."
+            exit 0
+          fi
+          base=${WEBHOOK%%/api/v1/deploy*}
+          uuid=$(printf '%s' "$WEBHOOK" | sed -n 's/.*[?&]uuid=\([^&]*\).*/\1/p')
+          if [ "$base" = "$WEBHOOK" ] || [ -z "$uuid" ]; then
+            echo "Could not read a base URL and uuid out of COOLIFY_WEBHOOK."
+            exit 1
+          fi
+
+          code=$(curl -s -o /tmp/teardown.out -w '%{http_code}' -X DELETE \
+            "$base/api/v1/applications/$uuid/previews/$PR" \
+            -H "Authorization: Bearer $TOKEN")
+          echo "coolify responded $code for pr $PR"
+          cat /tmp/teardown.out
+          # A preview that was never created is already in the state we want.
+          [ "$code" -lt 300 ] || [ "$code" -eq 404 ]
