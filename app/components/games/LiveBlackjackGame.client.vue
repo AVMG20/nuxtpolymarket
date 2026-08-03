@@ -11,6 +11,10 @@ const { state, actionPulse, youId, balance, connected, feed, mySeat, myHand, isM
 const canvasWrap = ref<HTMLDivElement | null>(null)
 const showHints = useCookie<boolean>('lb-show-hint', { default: () => false })
 const autoPlay = ref(false)
+// Auto-play is a testing aid rather than a feature, so the control only exists
+// for someone who has deliberately opted in from the console:
+//   localStorage.setItem('BLACKJACK_AUTOPLAY', 'true')
+const autoPlayUnlocked = import.meta.client && localStorage.getItem('BLACKJACK_AUTOPLAY') === 'true'
 const chatDraft = ref('')
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -360,7 +364,7 @@ onBeforeUnmount(() => {
       </button>
 
       <button
-        v-if="mySeat"
+        v-if="mySeat && autoPlayUnlocked"
         class="mt-1.5 flex w-full items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-[11px] font-semibold transition disabled:cursor-not-allowed disabled:opacity-40"
         :class="autoPlay
           ? 'bg-sky-500/25 text-sky-200 ring-1 ring-sky-400/60'
