@@ -112,6 +112,83 @@ watch(state, (snapshot) => {
     }
 })
 
+// Sound is derived from the same state the scene renders, so no individual
+// action has to remember to make a noise.
+const { play: playSound, unlock: unlockSound, preload: preloadSound, stop: stopSound, soundEnabled } = useLiveBlackjackSound()
+
+type Snapshot = NonNullable<typeof state.value>
+
+/** Cards on the felt, and how many of those are still face down. */
+function cardTally(snapshot: Snapshot) {
+    let total = snapshot.dealer.cards.length
+    for (const seat of snapshot.seats) {
+        if (!seat) continue
+        for (const hand of seat.hands) total += hand.cards.length
+    }
+    return { total, hidden: snapshot.dealer.cards.filter(c => c.hidden).length }
+}
+
+let clockSkew = 0
+let lastTally = { total: 0, hidden: 0 }
+let lastPhase = ''
+let lastPending = 0
+let lastBusted = 0
+let wasMyTurn = false
+
+watch(state, (snapshot) => {
+    if (!snapshot) return
+    clockSkew = snapshot.now - Date.now()
+
+    const tally = cardTally(snapshot)
+    // A card arriving and the hole card turning over are the same total, so
+    // only a drop in face-down cards distinguishes the flip.
+    if (tally.total > lastTally.total) playSound('card-deal')
+    else if (tally.total === lastTally.total && tally.hidden < lastTally.hidden) playSound('card-flip')
+    lastTally = tally
+
+    const seat = mySeat.value
+    const busted = seat?.hands.filter(h => h.status === 'busted').length ?? 0
+    if (busted > lastBusted) playSound('bust')
+    lastBusted = busted
+
+    const pending = seat?.pendingBet ?? 0
+    if (pending > lastPending) playSound('chip-place')
+    else if (pending < lastPending && pending > 0) playSound('chip-undo')
+    lastPending = pending
+
+    const myTurn = !!seat && snapshot.activeSeat === seat.index
+    if (myTurn && !wasMyTurn) playSound('turn-start')
+    wasMyTurn = myTurn
+
+    if (snapshot.phase !== lastPhase) {
+        lastPhase = snapshot.phase
+        if (snapshot.phase === 'payout' && seat && seat.lastNet !== null) {
+            const net = seat.lastNet
+            if (seat.hands.some(h => h.status === 'blackjack')) playSound('blackjack')
+            else if (net > 0) playSound('win')
+            // The bust already announced itself when the hand died.
+            else if (net < 0 && !seat.hands.some(h => h.status === 'busted')) playSound('lose')
+            else if (net === 0) playSound('push')
+
+            if (net > 0) playSound('chip-payout')
+            else if (net < 0) playSound('chip-collect')
+        }
+    }
+})
+
+watch(() => feed.value.length, () => {
+    const latest = feed.value[feed.value.length - 1]
+    if (latest?.kind === 'shuffle') playSound('shuffle')
+    else if (latest?.kind === 'sit') playSound('player-join')
+})
+
+// Browsers keep an AudioContext suspended until a gesture, so the first click
+// anywhere on the table is what makes everything after it audible.
+function onTableClick(event: MouseEvent) {
+    unlockSound()
+    if ((event.target as HTMLElement | null)?.closest('button')) playSound('button-press')
+}
+
 const visibleFeed = computed(() => feed.value.slice(-7))
 
 const scoreboard = computed(() => state.value?.scoreboard ?? [])
@@ -132,7 +209,21 @@ watch(actionPulse, (pulse) => {
     if (pulse) scene?.flashAction(pulse.seat, pulse.action)
 })
 
+let warningTimer: ReturnType<typeof setInterval> | null = null
+
 onMounted(async () => {
+    preloadSound()
+    // Only the clocks you can act on tick — the dealer drawing does not need
+    // a countdown over the top of it.
+    warningTimer = setInterval(() => {
+        const snapshot = state.value
+        const seat = mySeat.value
+        if (!snapshot?.phaseEndsAt || !seat) return
+        if (!isMyTurn.value && !(snapshot.phase === 'betting' && seat.pendingBet === 0)) return
+        const left = snapshot.phaseEndsAt - (Date.now() + clockSkew)
+        if (left > 0 && left <= 5000) playSound('timer-warning')
+    }, 1000)
+
     const PIXI = await import('pixi.js')
     if (destroyed) return
 
@@ -165,6 +256,8 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
     destroyed = true
+    if (warningTimer) clearInterval(warningTimer)
+    stopSound()
     scene?.destroy()
     scene = null
     app?.destroy(true, { children: true, texture: true })
@@ -173,7 +266,10 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="relative w-full overflow-hidden rounded-2xl bg-[#0b0806] ring-1 ring-white/10">
+  <div
+    class="relative w-full overflow-hidden rounded-2xl bg-[#0b0806] ring-1 ring-white/10"
+    @click.capture="onTableClick"
+  >
     <div ref="canvasWrap" class="w-full" style="aspect-ratio: 8 / 5;" />
 
     <!-- Table results: biggest winners first, biggest losers last -->
@@ -361,6 +457,17 @@ onBeforeUnmount(() => {
       >
         <UIcon :name="showHints ? 'i-lucide-lightbulb' : 'i-lucide-lightbulb-off'" />
         Hints {{ showHints ? 'on' : 'off' }}
+      </button>
+
+      <button
+        class="mt-1.5 flex w-full items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-[11px] font-semibold transition"
+        :class="soundEnabled
+          ? 'bg-amber-500/25 text-amber-200 ring-1 ring-amber-400/60'
+          : 'bg-white/5 text-muted hover:bg-white/10 hover:text-default'"
+        @click="soundEnabled = !soundEnabled"
+      >
+        <UIcon :name="soundEnabled ? 'i-lucide-volume-2' : 'i-lucide-volume-x'" />
+        Sound {{ soundEnabled ? 'on' : 'off' }}
       </button>
 
       <button
