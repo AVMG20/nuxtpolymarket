@@ -57,6 +57,12 @@ interface LiveCard {
     rotation: number
     scale: number
     alpha: number
+    /**
+     * The move currently in flight, cleared when it lands. gsap.isTweening()
+     * cannot stand in for this: it reports false both in the frame a tween is
+     * created and for the whole of a staggered deal's delay.
+     */
+    moving: gsap.core.Tween | null
 }
 
 export interface LbSceneCallbacks {
@@ -103,6 +109,8 @@ export class LiveBlackjackScene {
     private flashLayer: Container
 
     private cards = new Map<string, LiveCard>()
+    /** Sprites on their way to the discard tray, already out of `cards`. */
+    private discarding = new Set<Sprite>()
     private seatNodes: SeatNode[] = []
     private rackChips: { value: number, sprite: Sprite, glow: Graphics }[] = []
     private dealerScore: Container
@@ -469,20 +477,26 @@ export class LiveBlackjackScene {
                 sprite.rotation = -0.5
                 sprite.alpha = target.alpha
                 this.cardLayer.addChild(sprite)
-                this.cards.set(target.id, { sprite, ...target })
+                const card: LiveCard = { sprite, ...target, moving: null }
+                this.cards.set(target.id, card)
 
                 // Only the opening deal is staggered; a mid-turn hit should land
                 // the instant the player asked for it.
                 const delay = this.state?.phase === 'dealing'
                     ? Math.min(0.55, this.dealtOrder++ * 0.1)
                     : 0
-                gsap.to(sprite, {
+                card.moving = gsap.to(sprite, {
                     x: target.x,
                     y: target.y,
                     rotation: target.rotation,
                     duration: 0.42,
                     delay,
-                    ease: 'power2.out'
+                    ease: 'power2.out',
+                    overwrite: 'auto',
+                    // A tween killed by a later one never completes, so the
+                    // in-flight marker has to clear on both endings.
+                    onComplete: () => { card.moving = null },
+                    onInterrupt: () => { card.moving = null }
                 })
                 continue
             }
@@ -496,6 +510,8 @@ export class LiveBlackjackScene {
                     duration: 0.16,
                     ease: 'power1.in',
                     onComplete: () => {
+                        // The round can end mid-flip, taking the sprite with it.
+                        if (existing.sprite.destroyed) return
                         existing.sprite.texture = texture
                         gsap.to(existing.sprite.scale, { x: target.scale, duration: 0.2, ease: 'back.out(2)' })
                     }
@@ -506,33 +522,66 @@ export class LiveBlackjackScene {
                 gsap.to(existing.sprite, { alpha: target.alpha, duration: 0.2 })
             }
 
-            if (existing.x !== target.x || existing.y !== target.y || existing.scale !== target.scale) {
-                gsap.to(existing.sprite, {
+            // Compare against where the sprite actually is, not only against the
+            // target it was last given: a tween that was interrupted — by a
+            // round ending mid-deal, or by a reconnect swapping the state out
+            // from under it — otherwise leaves the card stranded at the shoe it
+            // spawned on, and nothing ever moves it again.
+            const moved = existing.x !== target.x || existing.y !== target.y || existing.scale !== target.scale
+            const stranded = !existing.moving
+                && (Math.abs(existing.sprite.x - target.x) > 0.5 || Math.abs(existing.sprite.y - target.y) > 0.5)
+
+            if (stranded) {
+                existing.sprite.position.set(target.x, target.y)
+                existing.sprite.rotation = target.rotation
+                existing.sprite.scale.set(target.scale)
+            } else if (moved) {
+                existing.moving = gsap.to(existing.sprite, {
                     x: target.x,
                     y: target.y,
                     rotation: target.rotation,
                     duration: 0.26,
-                    ease: 'power2.out'
+                    ease: 'power2.out',
+                    overwrite: 'auto',
+                    onComplete: () => { existing.moving = null },
+                    onInterrupt: () => { existing.moving = null }
                 })
                 if (existing.scale !== target.scale) {
                     gsap.to(existing.sprite.scale, { x: target.scale, y: target.scale, duration: 0.26 })
                 }
             }
-            Object.assign(existing, target)
+            const { moving } = existing
+            Object.assign(existing, target, { moving })
         }
 
         for (const [id, live] of this.cards.entries()) {
             if (seen.has(id)) continue
             this.cards.delete(id)
+            this.discarding.add(live.sprite)
             gsap.to(live.sprite, {
                 x: DISCARD_POS.x,
                 y: DISCARD_POS.y,
                 rotation: 0.4,
                 duration: 0.4,
                 ease: 'power2.in',
-                onComplete: () => live.sprite.destroy()
+                overwrite: 'auto',
+                onComplete: () => {
+                    this.discarding.delete(live.sprite)
+                    if (!live.sprite.destroyed) live.sprite.destroy()
+                }
             })
             gsap.to(live.sprite.scale, { x: 0.55, y: 0.55, duration: 0.4 })
+        }
+
+        // Removal takes a card out of the map before animating it away, so a
+        // discard tween that never finishes leaves a sprite nothing is tracking
+        // — not the map, not the targets. Only a sweep of the layer reaches
+        // those, and without it they sit on the felt for the rest of the session.
+        const tracked = new Set([...this.cards.values()].map(c => c.sprite))
+        for (const child of [...this.cardLayer.children]) {
+            const sprite = child as Sprite
+            if (tracked.has(sprite) || this.discarding.has(sprite)) continue
+            sprite.destroy()
         }
     }
 
@@ -566,8 +615,11 @@ export class LiveBlackjackScene {
 
     destroy() {
         this.app.ticker.remove(this.tick)
-        gsap.killTweensOf([...this.cards.values()].map(c => c.sprite))
+        // Cards on their way to the discard tray are already out of the map, so
+        // the layer — not the map — is what holds every sprite still tweening.
+        gsap.killTweensOf(this.cardLayer.children)
         this.cards.clear()
+        this.discarding.clear()
     }
 }
 
