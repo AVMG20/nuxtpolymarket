@@ -229,7 +229,9 @@ class LiveBlackjackTable {
             insurance: 0,
             insuranceDecided: false,
             lastNet: record?.lastNet ?? null,
-            sessionNet: record?.net ?? 0,
+            // Counted from this sit-down, not from the last one: it is the
+            // figure on the nameplate, and standing up ends that session.
+            sessionNet: 0,
             dailyNet,
             winStreak: record?.winStreak ?? 0,
             roundsPlayed: 0,
@@ -931,7 +933,9 @@ class LiveBlackjackTable {
             else if (net < 0) seat.winStreak = 0
             const record = this.scores.get(seat.userId)
             if (record) {
-                record.net = seat.sessionNet
+                // Accumulated rather than copied from the seat: the board spans
+                // the whole table session, across leaving and sitting back down.
+                record.net = round4(record.net + net)
                 record.lastNet = net
                 record.winStreak = seat.winStreak
             }
