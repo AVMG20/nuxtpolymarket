@@ -37,6 +37,10 @@ const cardsLeft = computed(() => {
 })
 
 const pendingBet = computed(() => mySeat.value?.pendingBet ?? 0)
+const pendingSideTotal = computed(() =>
+    (mySeat.value?.pendingSide?.perfectPairs ?? 0) + (mySeat.value?.pendingSide?.twentyOnePlusThree ?? 0))
+/** Anything on the layout, so undo and clear stay live for a side-bet-only board. */
+const staked = computed(() => pendingBet.value + pendingSideTotal.value)
 const isBetting = computed(() => state.value?.phase === 'betting' && !!mySeat.value)
 
 const seatedPlayers = computed(() => state.value?.seats.filter(Boolean) ?? [])
@@ -151,7 +155,11 @@ watch(state, (snapshot) => {
     if (busted > lastBusted) playSound('bust')
     lastBusted = busted
 
-    const pending = seat?.pendingBet ?? 0
+    // Side bets share the click sound: the chip landing is the same gesture
+    // wherever on the layout it lands.
+    const pending = (seat?.pendingBet ?? 0)
+        + (seat?.pendingSide?.perfectPairs ?? 0)
+        + (seat?.pendingSide?.twentyOnePlusThree ?? 0)
     if (pending > lastPending) playSound('chip-place')
     else if (pending < lastPending && pending > 0) playSound('chip-undo')
     lastPending = pending
@@ -178,6 +186,7 @@ watch(state, (snapshot) => {
 
 watch(() => feed.value.length, () => {
     const latest = feed.value[feed.value.length - 1]
+    if (latest?.kind === 'sideBet') playSound('chip-payout')
     if (latest?.kind === 'shuffle') playSound('shuffle')
     else if (latest?.kind === 'sit') playSound('player-join')
 })
@@ -249,7 +258,8 @@ onMounted(async () => {
     const textures = buildTextures(PIXI, app.renderer)
     scene = new LiveBlackjackScene(PIXI, app, textures, {
         onSit: seat => table.sit(seat),
-        onChip: value => table.bet(value)
+        onChip: () => {},
+        onPlace: (spot, amount) => table.bet(amount, spot)
     })
     if (state.value) scene.update(state.value, youId.value, balance.value, rack.value)
 })
@@ -415,14 +425,17 @@ onBeforeUnmount(() => {
           <div class="font-mono text-lg font-bold leading-tight tabular-nums text-amber-300">
             {{ formatNumber(pendingBet) }}
           </div>
+          <div v-if="pendingSideTotal" class="text-[9px] leading-tight text-muted">
+            +{{ formatNumber(pendingSideTotal) }} side
+          </div>
         </div>
         <button class="lb-tile lb-tile-amber flex-1" :disabled="!mySeat.lastBet" @click="table.repeatBet()">
           REPEAT
         </button>
-        <button class="lb-tile lb-tile-slate flex-1" :disabled="!pendingBet" @click="table.undoBet()">
+        <button class="lb-tile lb-tile-slate flex-1" :disabled="!staked" @click="table.undoBet()">
           UNDO
         </button>
-        <button class="lb-tile lb-tile-red flex-1" :disabled="!pendingBet" @click="table.clearBet()">
+        <button class="lb-tile lb-tile-red flex-1" :disabled="!staked" @click="table.clearBet()">
           CLEAR
         </button>
       </div>

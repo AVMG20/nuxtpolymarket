@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import LiveBlackjackGame from '~/components/games/LiveBlackjackGame.client.vue'
 import { LB_RULES } from '#shared/utils/live-blackjack/rules'
+import { LB_21P3_PAYS, LB_PERFECT_PAIRS_PAYS } from '#shared/utils/live-blackjack/sidebets'
 
 useHead({ title: 'Blackjack' })
 
@@ -28,6 +29,22 @@ const houseRules = [
     {
         label: 'Double after split',
         detail: 'Doubling is allowed on any fresh two-card hand, split or not.'
+    },
+    {
+        label: 'Perfect Pairs side bet',
+        detail: `Pick up a chip, then click the small PP circle. Pays on your first two cards being a pair: `
+            + `${LB_PERFECT_PAIRS_PAYS.perfect} to 1 for a perfect pair (same rank and suit), `
+            + `${LB_PERFECT_PAIRS_PAYS.coloured} to 1 for a coloured pair (same rank and colour), `
+            + `${LB_PERFECT_PAIRS_PAYS.mixed} to 1 for a mixed pair. Settled off the deal, win or lose the hand.`
+    },
+    {
+        label: '21+3 side bet',
+        detail: `Your two cards plus the dealer's upcard, scored as a three-card poker hand: `
+            + `${LB_21P3_PAYS.suitedTrips} to 1 suited three of a kind, `
+            + `${LB_21P3_PAYS.straightFlush} to 1 straight flush, `
+            + `${LB_21P3_PAYS.trips} to 1 three of a kind, `
+            + `${LB_21P3_PAYS.straight} to 1 straight, `
+            + `${LB_21P3_PAYS.flush} to 1 flush. Aces play high or low in a straight.`
     },
     {
         label: 'Surrender any two-card hand',

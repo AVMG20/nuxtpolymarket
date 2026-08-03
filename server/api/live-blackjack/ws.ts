@@ -80,7 +80,7 @@ export default defineWebSocketHandler({
                     case 'leave':
                         return liveBlackjackTable.leave(info.userId)
                     case 'bet':
-                        return liveBlackjackTable.placeBet(info.userId, Number(data.amount))
+                        return liveBlackjackTable.placeBet(info.userId, Number(data.amount), data.spot)
                     case 'undoBet':
                         return liveBlackjackTable.undoBet(info.userId)
                     case 'clearBet':

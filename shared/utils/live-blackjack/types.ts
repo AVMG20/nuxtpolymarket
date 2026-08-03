@@ -15,6 +15,22 @@ export interface LbCard {
     hidden?: boolean
 }
 
+export type LbSideBetKey = 'perfectPairs' | 'twentyOnePlusThree'
+
+/** The three places a chip can land. */
+export type LbBetSpot = 'main' | LbSideBetKey
+
+export interface LbSideBetResult {
+    key: LbSideBetKey
+    stake: number
+    tier: string | null
+    /** Human-readable winning combination, null when the bet lost. */
+    label: string | null
+    multiplier: number
+    /** Stake plus winnings, or zero on a loss. */
+    payout: number
+}
+
 export type LbHandStatus =
     | 'playing'
     | 'stood'
@@ -55,6 +71,15 @@ export interface LbSeat {
     pendingBet: number
     /** Last staked bet, so the client can offer to re-place it. */
     lastBet: number
+    /** Side bet chips placed this betting phase, not yet staked. */
+    pendingSide: Record<LbSideBetKey, number>
+    /** Last staked side bets, so repeat puts the whole layout back. */
+    lastSide: Record<LbSideBetKey, number>
+    /**
+     * Side bets resolved off the opening deal, null until the cards are out.
+     * They settle with the round even though they are decided before it plays.
+     */
+    sideResults: LbSideBetResult[] | null
     hands: LbHand[]
     insurance: number
     insuranceDecided: boolean
@@ -132,7 +157,7 @@ export interface LbTableState {
 export type LbClientMessage =
     | { t: 'sit', seat: number }
     | { t: 'leave' }
-    | { t: 'bet', amount: number }
+    | { t: 'bet', amount: number, spot?: LbBetSpot }
     | { t: 'undoBet' }
     | { t: 'clearBet' }
     | { t: 'repeatBet' }
@@ -151,6 +176,7 @@ export type LbEvent =
     | { t: 'event', kind: 'watch', name: string, joined: boolean }
     | { t: 'event', kind: 'action', name: string, seat: number, action: LbAction }
     | { t: 'event', kind: 'settled', seat: number, net: number }
+    | { t: 'event', kind: 'sideBet', seat: number, name: string, label: string, payout: number }
     | { t: 'event', kind: 'chat', name: string, seat: number, text: string }
 
 export type LbServerMessage =

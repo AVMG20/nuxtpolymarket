@@ -18,14 +18,17 @@ import {
     round4,
     settleHand
 } from '#shared/utils/live-blackjack/rules'
+import { LB_SIDE_BETS, LB_SIDE_BET_LABELS, settleSideBets } from '#shared/utils/live-blackjack/sidebets'
 import type {
     LbAction,
+    LbBetSpot,
     LbCard,
     LbDealer,
     LbHand,
     LbPhase,
     LbScoreEntry,
     LbSeat,
+    LbSideBetKey,
     LbTableState
 } from '#shared/utils/live-blackjack/types'
 import { broadcast, isUserConnected, peerCount, sendToUser } from './bus'
@@ -33,13 +36,14 @@ import { Shoe } from './shoe'
 
 const CATEGORY = 'live-blackjack'
 const CHIP_VALUES = new Set(LB_CHIPS.map(c => c.value))
+const noSideBets = (): Record<LbSideBetKey, number> => ({ perfectPairs: 0, twentyOnePlusThree: 0 })
 const CHAT_MAX_LENGTH = 120
 /** Scoreboard rows kept for players who have left the table. */
 const SCOREBOARD_ALUMNI = 12
 
 interface SeatState extends LbSeat {
-    /** Chips in placement order so a single click can be taken back. */
-    betChips: number[]
+    /** Chips in placement order so a single click can be taken back, spot included. */
+    betChips: { spot: LbBetSpot, amount: number }[]
     disconnectedAt: number | null
     releaseTimer: ReturnType<typeof setTimeout> | null
     /** Escrow rows for everything staked this round, closed out at settlement. */
@@ -86,6 +90,8 @@ class LiveBlackjackTable {
     private phaseDuration: number | null = null
     private phaseToken = 0
     private timer: ReturnType<typeof setTimeout> | null = null
+    /** Held across closeBetting's awaits so the betting timer cannot deal a second round. */
+    private closing = false
     private shoe = new Shoe()
     private runningCount = 0
     private activeSeat: number | null = null
@@ -209,6 +215,9 @@ class LiveBlackjackTable {
             emblem,
             connected: true,
             pendingBet: 0,
+            pendingSide: noSideBets(),
+            lastSide: noSideBets(),
+            sideResults: null,
             hands: [],
             insurance: 0,
             insuranceDecided: false,
@@ -331,21 +340,30 @@ class LiveBlackjackTable {
 
     // ─── betting ───────────────────────────────────────────────────────────
 
-    async placeBet(userId: string, amount: number) {
+    async placeBet(userId: string, amount: number, spot: LbBetSpot = 'main') {
         const seat = this.requireSeat(userId)
         if (this.phase !== 'betting') fail('Betting is closed')
         if (!CHIP_VALUES.has(amount)) fail('Invalid chip')
+        // A side bet rides on a hand, so there has to be one to ride on —
+        // otherwise the seat is dropped at lock-in and the chips just vanish.
+        if (spot !== 'main' && seat.pendingBet <= 0) fail('Place your main bet first')
 
-        const next = round4(seat.pendingBet + amount)
+        const next = round4((spot === 'main' ? seat.pendingBet : seat.pendingSide[spot]) + amount)
         if (next > LB_MAX_BET) fail('Table maximum reached')
 
         // Advisory only — the atomic debit at lock-in is what actually enforces
         // affordability, this just stops the player stacking chips they can't cover.
         const balance = Number(await getBalance(userId))
-        if (next > balance) fail('Not enough balance')
+        if (round4(this.committed(seat) + amount) > balance) fail('Not enough balance')
 
-        seat.pendingBet = next
-        seat.betChips.push(amount)
+        if (spot === 'main') seat.pendingBet = next
+        else seat.pendingSide[spot] = next
+        seat.betChips.push({ spot, amount })
+    }
+
+    /** Everything this seat has on the layout right now, main and sides together. */
+    private committed(seat: SeatState): number {
+        return round4(seat.pendingBet + LB_SIDE_BETS.reduce((sum, key) => sum + seat.pendingSide[key], 0))
     }
 
     /**
@@ -361,7 +379,11 @@ class LiveBlackjackTable {
 
         const seated = this.activeSeats()
         if (seated.every(s => s.pendingBet > 0 && s.votedStart)) {
-            void this.closeBetting()
+            // Through run(), not bare: it is what publishes the dealing snapshot
+            // once the stakes land. Called directly, the phase would flip to
+            // 'dealing' with nothing broadcast, and the table would sit on a dead
+            // countdown until afterDeal fired — cards then all appearing at once.
+            void this.run(() => this.closeBetting())
         }
     }
 
@@ -370,7 +392,11 @@ class LiveBlackjackTable {
         if (this.phase !== 'betting') fail('Betting is closed')
         const last = seat.betChips.pop()
         if (!last) return
-        seat.pendingBet = round4(Math.max(0, seat.pendingBet - last))
+        if (last.spot === 'main') {
+            seat.pendingBet = round4(Math.max(0, seat.pendingBet - last.amount))
+        } else {
+            seat.pendingSide[last.spot] = round4(Math.max(0, seat.pendingSide[last.spot] - last.amount))
+        }
         if (!seat.pendingBet) seat.votedStart = false
     }
 
@@ -378,6 +404,7 @@ class LiveBlackjackTable {
         const seat = this.requireSeat(userId)
         if (this.phase !== 'betting') fail('Betting is closed')
         seat.pendingBet = 0
+        seat.pendingSide = noSideBets()
         seat.betChips = []
         seat.votedStart = false
     }
@@ -386,10 +413,18 @@ class LiveBlackjackTable {
         const seat = this.requireSeat(userId)
         if (this.phase !== 'betting') fail('Betting is closed')
         if (!seat.lastBet) fail('No previous bet')
+
+        const total = round4(seat.lastBet + LB_SIDE_BETS.reduce((sum, key) => sum + seat.lastSide[key], 0))
         const balance = Number(await getBalance(userId))
-        if (seat.lastBet > balance) fail('Not enough balance')
+        if (total > balance) fail('Not enough balance')
+
         seat.pendingBet = seat.lastBet
-        seat.betChips = [seat.lastBet]
+        seat.pendingSide = { ...seat.lastSide }
+        seat.betChips = [
+            { spot: 'main' as LbBetSpot, amount: seat.lastBet },
+            ...LB_SIDE_BETS.filter(key => seat.lastSide[key] > 0)
+                .map(key => ({ spot: key as LbBetSpot, amount: seat.lastSide[key] }))
+        ]
     }
 
     private enterBetting() {
@@ -408,6 +443,8 @@ class LiveBlackjackTable {
             seat.insurance = 0
             seat.insuranceDecided = false
             seat.pendingBet = 0
+            seat.pendingSide = noSideBets()
+            seat.sideResults = null
             seat.betChips = []
             seat.votedStart = false
             // Anything still here means last round's escrow never closed; drop it
@@ -437,29 +474,32 @@ class LiveBlackjackTable {
     }
 
     private async closeBetting() {
+        // voteStart fires this without awaiting it, so the betting timer can
+        // land while the stakes below are still in flight. Both callers would
+        // otherwise deal a full round each and every hand would get two cards
+        // too many. The guard is taken synchronously, before the first await,
+        // which is what makes it airtight.
+        if (this.closing) return
+        this.closing = true
+        if (this.timer) {
+            clearTimeout(this.timer)
+            this.timer = null
+        }
+        try {
+            await this.runCloseBetting()
+        } finally {
+            this.closing = false
+        }
+    }
+
+    private async runCloseBetting() {
         const wagering = this.activeSeats().filter(s => s.pendingBet > 0 && s.connected)
 
-        for (const seat of wagering) {
-            const bet = seat.pendingBet
-            try {
-                await this.stake(seat, bet, 'bet')
-            } catch (error) {
-                // Only an actual failed debit means the player was short. Anything
-                // else is our fault, and reporting it as "not enough balance" sent
-                // every seat at the table chasing a problem they do not have.
-                sendToUser(seat.userId, { t: 'error', message: stakeErrorMessage(error) })
-                reportStakeFailure(error, seat.userId, bet)
-                seat.pendingBet = 0
-                seat.betChips = []
-                continue
-            }
-            seat.hands = [this.newHand(bet, false)]
-            seat.lastBet = bet
-            seat.lastNet = null
-            seat.roundsPlayed++
-            seat.pendingBet = 0
-            seat.betChips = []
-        }
+        // Seats stake in parallel because every one of these is a round trip to
+        // the database, and the table cannot deal until the last of them lands.
+        // Run in series, a full table on a slow database spends that whole time
+        // sitting on an expired countdown before a single card moves.
+        await Promise.all(wagering.map(seat => this.stakeSeat(seat)))
 
         // No bet, no seat. A player who wants back in clicks the seat again.
         for (const seat of this.activeSeats()) {
@@ -471,6 +511,49 @@ class LiveBlackjackTable {
             return
         }
         this.deal()
+    }
+
+    /**
+     * Stakes one seat's whole layout. The main bet goes first and alone: a seat
+     * that cannot cover it has no hand, and side bets on no hand are meaningless.
+     * The two side spots stay in series behind it because both hit the same
+     * user row, so running them together only moves the contention.
+     */
+    private async stakeSeat(seat: SeatState) {
+        const bet = seat.pendingBet
+        try {
+            await this.stake(seat, bet, 'bet')
+        } catch (error) {
+            // Only an actual failed debit means the player was short. Anything
+            // else is our fault, and reporting it as "not enough balance" sent
+            // every seat at the table chasing a problem they do not have.
+            sendToUser(seat.userId, { t: 'error', message: stakeErrorMessage(error) })
+            reportStakeFailure(error, seat.userId, bet)
+            seat.pendingBet = 0
+            seat.pendingSide = noSideBets()
+            seat.betChips = []
+            return
+        }
+
+        for (const key of LB_SIDE_BETS) {
+            const side = seat.pendingSide[key]
+            if (side <= 0) continue
+            try {
+                await this.stake(seat, side, `side:${key}`)
+            } catch (error) {
+                sendToUser(seat.userId, { t: 'error', message: stakeErrorMessage(error) })
+                reportStakeFailure(error, seat.userId, side)
+                seat.pendingSide[key] = 0
+            }
+        }
+
+        seat.hands = [this.newHand(bet, false)]
+        seat.lastBet = bet
+        seat.lastSide = { ...seat.pendingSide }
+        seat.lastNet = null
+        seat.roundsPlayed++
+        seat.pendingBet = 0
+        seat.betChips = []
     }
 
     // ─── dealing ───────────────────────────────────────────────────────────
@@ -533,8 +616,35 @@ class LiveBlackjackTable {
 
     // A dealer blackjack needs an ace or a ten showing, so every other upcard
     // goes straight to play without a peek.
+    /**
+     * Side bets are decided by the opening three cards alone, so they resolve
+     * here — before insurance, before the peek, before anyone acts. The money
+     * still moves at settlement so the round keeps one escrow close-out.
+     */
+    private resolveSideBets() {
+        const upcard = this.dealerCards[0]!
+        for (const seat of this.seatsInPlay()) {
+            if (!LB_SIDE_BETS.some(key => seat.pendingSide[key] > 0)) continue
+
+            const results = settleSideBets(seat.pendingSide, seat.hands[0]!.cards, upcard)
+            seat.sideResults = results
+            for (const result of results) {
+                if (result.stake <= 0 || result.payout <= 0) continue
+                broadcast({
+                    t: 'event',
+                    kind: 'sideBet',
+                    seat: seat.index,
+                    name: seat.name,
+                    label: `${LB_SIDE_BET_LABELS[result.key]} — ${result.label}`,
+                    payout: result.payout
+                })
+            }
+        }
+    }
+
     private afterDeal() {
         const upcard = this.dealerCards[0]!
+        this.resolveSideBets()
 
         if (upcard.rank === 'A') {
             this.message = 'Insurance?'
@@ -779,6 +889,11 @@ class LiveBlackjackTable {
                 if (dealerBj) payout = round4(payout + seat.insurance * (1 + LB_RULES.insurancePays))
             }
 
+            for (const result of seat.sideResults ?? []) {
+                staked = round4(staked + result.stake)
+                payout = round4(payout + result.payout)
+            }
+
             const net = round4(payout - staked)
             // Payout and escrow close-out share a transaction: the round is
             // either fully settled or still recoverable, never half of each.
@@ -911,6 +1026,9 @@ class LiveBlackjackTable {
             votedStart: seat.votedStart,
             pendingBet: seat.pendingBet,
             lastBet: seat.lastBet,
+            pendingSide: { ...seat.pendingSide },
+            lastSide: { ...seat.lastSide },
+            sideResults: seat.sideResults,
             insurance: seat.insurance,
             insuranceDecided: seat.insuranceDecided,
             lastNet: seat.lastNet,

@@ -1,7 +1,10 @@
 import gsap from 'gsap'
 import type { Application, Container, Graphics, Sprite, Text } from 'pixi.js'
 import { chipStack } from '#shared/utils/live-blackjack/chips'
-import type { LbAction, LbHand, LbTableState } from '#shared/utils/live-blackjack/types'
+import { LB_SIDE_BETS } from '#shared/utils/live-blackjack/sidebets'
+import type {
+    LbAction, LbBetSpot, LbHand, LbSideBetKey, LbTableState
+} from '#shared/utils/live-blackjack/types'
 import formatNumber from '~/utils/format-number'
 import { CARD_H, CARD_W, cardKey, type LbTextures } from './art'
 
@@ -67,8 +70,24 @@ interface LiveCard {
 
 export interface LbSceneCallbacks {
     onSit: (seat: number) => void
+    /** A rack chip was picked up; it stays selected until another is chosen. */
     onChip: (value: number) => void
+    onPlace: (spot: LbBetSpot, amount: number) => void
 }
+
+/** Short caps that fit inside a 28px spot. */
+const SIDE_SPOT_LABELS: Record<LbSideBetKey, string> = {
+    perfectPairs: 'PP',
+    twentyOnePlusThree: '21+3'
+}
+
+/** Flanking the main circle, clear of it at r=28 and inside the seat's width. */
+const SIDE_SPOT_X: Record<LbSideBetKey, number> = {
+    perfectPairs: -96,
+    twentyOnePlusThree: 96
+}
+
+const SIDE_SPOT_R = 28
 
 /** Colour-coded so a glance across the table tells you what someone did. */
 const ACTION_FLASH: Record<LbAction, { text: string, color: number }> = {
@@ -122,6 +141,8 @@ export class LiveBlackjackScene {
 
     private state: LbTableState | null = null
     private balance = 0
+    /** The chip the player has picked up, placed on whichever spot they click. */
+    private selectedChip: number | null = null
     private dealtOrder = 0
     /** serverNow - clientNow, so countdowns stay honest on a drifting clock. */
     private clockSkew = 0
@@ -145,7 +166,8 @@ export class LiveBlackjackScene {
         )
 
         this.drawTable()
-        this.seatNodes = SEAT_LAYOUT.map((pos, i) => new SeatNode(PIXI, this.uiLayer, this.chipLayer, i, pos, callbacks))
+        this.seatNodes = SEAT_LAYOUT.map((pos, i) =>
+            new SeatNode(PIXI, this.uiLayer, this.chipLayer, i, pos, callbacks, spot => this.placeOnSpot(spot)))
 
         this.dealerScore = this.buildDealerBadge()
         this.dealerScore.position.set(DEALER_POS.x, DEALER_POS.y + 118)
@@ -283,6 +305,17 @@ export class LiveBlackjackScene {
 
     // ─── chip rack ─────────────────────────────────────────────────────────
 
+    /**
+     * Falls back to the smallest chip the player can cover, so the very first
+     * click on a spot places something rather than doing nothing silently.
+     */
+    private placeOnSpot(spot: LbBetSpot) {
+        const fallback = this.rackChips.find(c => c.value <= this.balance)?.value
+        const amount = this.selectedChip ?? fallback
+        if (!amount || amount > this.balance) return
+        this.callbacks.onPlace(spot, amount)
+    }
+
     private buildRack() {
         const plate = new this.PIXI.Graphics()
         plate.roundRect(STAGE_W / 2 - 430, RACK_Y - 54, 860, 108, 54).fill({ color: 0x1b1109, alpha: 0.92 })
@@ -323,12 +356,15 @@ export class LiveBlackjackScene {
                     gsap.to(sprite.scale, { x: 1.12, y: 1.12, duration: 0.16 })
                 })
                 sprite.on('pointerout', () => {
-                    glow.visible = false
-                    gsap.to(sprite.scale, { x: 1, y: 1, duration: 0.16 })
+                    // The selected chip keeps its glow after the pointer leaves.
+                    glow.visible = this.selectedChip === value
+                    gsap.to(sprite.scale, { x: this.selectedChip === value ? 1.12 : 1, y: this.selectedChip === value ? 1.12 : 1, duration: 0.16 })
                 })
                 sprite.on('pointerdown', () => {
                     if (sprite.alpha < 0.9) return
                     gsap.fromTo(sprite.scale, { x: 0.86, y: 0.86 }, { x: 1.12, y: 1.12, duration: 0.24, ease: 'back.out(3)' })
+                    this.selectedChip = value
+                    this.syncSelection()
                     this.callbacks.onChip(value)
                 })
                 this.rackLayer.addChild(sprite)
@@ -341,6 +377,22 @@ export class LiveBlackjackScene {
             chip.sprite.alpha = affordable ? 1 : 0.32
             chip.sprite.cursor = affordable ? 'pointer' : 'default'
             if (!affordable) chip.glow.visible = false
+        }
+
+        // A chip that fell out of the rack window, or off the end of the
+        // bankroll, cannot stay picked up.
+        if (this.selectedChip !== null
+            && !this.rackChips.some(c => c.value === this.selectedChip && c.value <= this.balance)) {
+            this.selectedChip = null
+        }
+        this.syncSelection()
+    }
+
+    private syncSelection() {
+        for (const chip of this.rackChips) {
+            const picked = chip.value === this.selectedChip
+            chip.glow.visible = picked
+            chip.sprite.scale.set(picked ? 1.12 : 1)
         }
     }
 
@@ -634,6 +686,8 @@ class SeatNode {
     private badges: Container[] = []
     private chipSprites: Sprite[] = []
     private ring: Graphics
+    private mainSpot!: Container
+    private sideSpots: { key: LbSideBetKey, node: Container, ring: Graphics, x: number }[] = []
 
     constructor(
         private PIXI: Pixi,
@@ -641,7 +695,8 @@ class SeatNode {
         private chipLayer: Container,
         private index: number,
         private pos: { readonly x: number, readonly y: number },
-        callbacks: LbSceneCallbacks
+        callbacks: LbSceneCallbacks,
+        onSpot: (spot: LbBetSpot) => void
     ) {
         this.ring = new PIXI.Graphics()
         this.ring.circle(pos.x, pos.y + BET_Y_OFFSET, 56).stroke({ width: 4, color: GOLD, alpha: 0.9 })
@@ -695,6 +750,35 @@ class SeatNode {
         this.sitPrompt.on('pointerover', () => gsap.to(this.sitPrompt.scale, { x: 1.1, y: 1.1, duration: 0.15 }))
         this.sitPrompt.on('pointerout', () => gsap.to(this.sitPrompt.scale, { x: 1, y: 1, duration: 0.15 }))
         uiLayer.addChild(this.sitPrompt)
+
+        for (const key of LB_SIDE_BETS) {
+            const x = pos.x + SIDE_SPOT_X[key]
+            const y = pos.y + BET_Y_OFFSET
+            const node = new PIXI.Container()
+
+            const ring = new PIXI.Graphics()
+            ring.circle(0, 0, SIDE_SPOT_R).fill({ color: 0x000000, alpha: 0.28 })
+            ring.circle(0, 0, SIDE_SPOT_R).stroke({ width: 2, color: GOLD, alpha: 0.5 })
+            const caption = label(PIXI, SIDE_SPOT_LABELS[key], 13, GOLD, '800')
+            caption.anchor.set(0.5)
+            node.addChild(ring, caption)
+            node.position.set(x, y)
+            node.visible = false
+            node.on('pointerdown', () => onSpot(key))
+            node.on('pointerover', () => gsap.to(node.scale, { x: 1.14, y: 1.14, duration: 0.14 }))
+            node.on('pointerout', () => gsap.to(node.scale, { x: 1, y: 1, duration: 0.14 }))
+            uiLayer.addChild(node)
+            this.sideSpots.push({ key, node, ring, x })
+        }
+
+        // The main bet circle doubles as a drop target once you are seated.
+        this.mainSpot = new PIXI.Container()
+        const mainHit = new PIXI.Graphics()
+        mainHit.circle(pos.x, pos.y + BET_Y_OFFSET, 56).fill({ color: 0xffffff, alpha: 0.001 })
+        this.mainSpot.addChild(mainHit)
+        this.mainSpot.visible = false
+        this.mainSpot.on('pointerdown', () => onSpot('main'))
+        uiLayer.addChild(this.mainSpot)
     }
 
     update(state: LbTableState, seat: LbTableState['seats'][number], youId: string | null, tex: LbTextures) {
@@ -707,7 +791,11 @@ class SeatNode {
         for (const chip of this.chipSprites) chip.destroy()
         this.chipSprites = []
 
-        if (!seat) return
+        if (!seat) {
+            for (const spot of this.sideSpots) spot.node.visible = false
+            this.mainSpot.visible = false
+            return
+        }
 
         const isYou = seat.userId === youId
         const streaking = seat.winStreak >= 2
@@ -748,6 +836,65 @@ class SeatNode {
 
         for (const spot of stakeSpots) this.addChips(spot.x, spot.amount, tex)
         if (seat.insurance > 0) this.addInsuranceBadge(seat.insurance)
+        this.updateSideSpots(state, seat, isYou, tex)
+    }
+
+    /**
+     * Side spots disappear the moment the hand splits: that is exactly when the
+     * main stake fans out across the seat's width and would sit on top of them.
+     * By then the side bets are long since decided, so nothing is lost.
+     */
+    private updateSideSpots(
+        state: LbTableState,
+        seat: NonNullable<LbTableState['seats'][number]>,
+        isYou: boolean,
+        tex: LbTextures
+    ) {
+        const split = seat.hands.length > 1
+        const betting = state.phase === 'betting'
+
+        for (const spot of this.sideSpots) {
+            const stake = seat.pendingSide?.[spot.key] ?? 0
+            const result = seat.sideResults?.find(r => r.key === spot.key) ?? null
+            const show = !split && (betting || stake > 0)
+
+            spot.node.visible = show
+            spot.node.eventMode = isYou && betting ? 'static' : 'none'
+            spot.node.cursor = isYou && betting ? 'pointer' : 'default'
+            if (!show) continue
+
+            spot.ring.tint = result?.payout ? 0x4ade80 : 0xffffff
+            if (stake > 0) this.addChips(spot.x, stake, tex, 0.4)
+            if (result && stake > 0) this.addSideResultBadge(spot.x, result)
+        }
+
+        this.mainSpot.visible = isYou && betting
+        this.mainSpot.eventMode = isYou && betting ? 'static' : 'none'
+        this.mainSpot.cursor = isYou && betting ? 'pointer' : 'default'
+    }
+
+    private addSideResultBadge(x: number, result: { payout: number, label: string | null }) {
+        const won = result.payout > 0
+        const box = new this.PIXI.Container()
+        const text = label(
+            this.PIXI,
+            won ? `+${formatNumber(result.payout)}` : 'no pair',
+            won ? 15 : 12,
+            won ? 0x052e16 : 0x94a3b8,
+            '800'
+        )
+        text.anchor.set(0.5)
+        const w = text.width + 16
+        const bg = new this.PIXI.Graphics()
+        bg.roundRect(-w / 2, -11, w, 22, 11).fill({ color: won ? 0x4ade80 : 0x0b0806, alpha: won ? 1 : 0.8 })
+        box.addChild(bg, text)
+        box.position.set(x, this.pos.y + BET_Y_OFFSET - 46)
+        this.uiLayer.addChild(box)
+        this.badges.push(box)
+
+        if (won) {
+            gsap.fromTo(box.scale, { x: 0.4, y: 0.4 }, { x: 1, y: 1, duration: 0.42, ease: 'back.out(2.4)' })
+        }
     }
 
     /**
@@ -816,19 +963,20 @@ class SeatNode {
         this.badges.push(box)
     }
 
-    private addChips(x: number, amount: number, tex: LbTextures) {
+    private addChips(x: number, amount: number, tex: LbTextures, scale = 0.62) {
         if (amount <= 0) return
         const stack = chipStack(amount, 9)
         stack.forEach((chip, i) => {
             const sprite = new this.PIXI.Sprite(tex.chip.get(chip.value)!)
             sprite.anchor.set(0.5)
-            sprite.scale.set(0.62)
-            sprite.position.set(x + (i % 2 ? 2 : -2), this.pos.y + BET_Y_OFFSET - i * 7)
+            sprite.scale.set(scale)
+            sprite.position.set(x + (i % 2 ? 2 : -2), this.pos.y + BET_Y_OFFSET - i * 7 * (scale / 0.62))
             this.chipLayer.addChild(sprite)
             this.chipSprites.push(sprite)
         })
 
-        const total = label(this.PIXI, formatNumber(amount), 16, 0xf7f3e8, '800')
+        const size = scale < 0.5 ? 13 : 16
+        const total = label(this.PIXI, formatNumber(amount), size, 0xf7f3e8, '800')
         total.anchor.set(0.5)
         total.position.set(x, this.pos.y + BET_Y_OFFSET + 34)
         const box = new this.PIXI.Container()

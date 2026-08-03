@@ -1,5 +1,6 @@
 import type {
     LbAction,
+    LbBetSpot,
     LbClientMessage,
     LbServerMessage,
     LbTableState
@@ -7,7 +8,7 @@ import type {
 
 export interface LbFeedItem {
     id: number
-    kind: 'sit' | 'leave' | 'shuffle' | 'settled' | 'chat' | 'error' | 'action' | 'watch'
+    kind: 'sit' | 'leave' | 'shuffle' | 'settled' | 'chat' | 'error' | 'action' | 'watch' | 'sideBet'
     text: string
     tone: 'neutral' | 'win' | 'loss'
     name?: string
@@ -34,6 +35,7 @@ export function useLiveBlackjack() {
     // Bumped per action so the renderer can stamp it on the seat; the id makes
     // two identical actions in a row still register as two separate events.
     const actionPulse = ref<{ id: number, seat: number, action: LbAction } | null>(null)
+    const sideBetPulse = ref<{ id: number, seat: number, label: string, payout: number } | null>(null)
     const youId = ref<string | null>(null)
     const balance = ref(balanceNum.value)
     const connected = ref(false)
@@ -109,6 +111,14 @@ export function useLiveBlackjack() {
                     })
                 } else if (message.kind === 'chat') {
                     pushFeed({ kind: 'chat', text: message.text, tone: 'neutral', name: message.name })
+                } else if (message.kind === 'sideBet') {
+                    sideBetPulse.value = { id: ++feedSeq, seat: message.seat, label: message.label, payout: message.payout }
+                    pushFeed({
+                        kind: 'sideBet',
+                        name: message.name,
+                        tone: 'win',
+                        text: `${message.name} hit ${message.label} for ${formatNumber(message.payout)}`
+                    })
                 } else if (message.kind === 'settled' && message.net !== 0) {
                     const seat = state.value?.seats[message.seat]
                     pushFeed({
@@ -156,6 +166,7 @@ export function useLiveBlackjack() {
     return {
         state,
         actionPulse,
+        sideBetPulse,
         youId,
         balance,
         connected,
@@ -166,7 +177,7 @@ export function useLiveBlackjack() {
         isMyTurn,
         sit: (seat: number) => send({ t: 'sit', seat }),
         leave: () => send({ t: 'leave' }),
-        bet: (amount: number) => send({ t: 'bet', amount }),
+        bet: (amount: number, spot: LbBetSpot = 'main') => send({ t: 'bet', amount, spot }),
         undoBet: () => send({ t: 'undoBet' }),
         clearBet: () => send({ t: 'clearBet' }),
         repeatBet: () => send({ t: 'repeatBet' }),
