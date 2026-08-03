@@ -330,6 +330,10 @@ export class LiveBlackjackScene {
 
         if (!same) {
             for (const chip of this.rackChips) {
+                // Hover and pickup tweens outlive the rack when the bankroll
+                // shifts the chip window under them.
+                gsap.killTweensOf(chip.sprite)
+                gsap.killTweensOf(chip.sprite.scale)
                 chip.sprite.destroy()
                 chip.glow.destroy()
             }
@@ -688,6 +692,9 @@ class SeatNode {
     private ring: Graphics
     private mainSpot!: Container
     private sideSpots: { key: LbSideBetKey, node: Container, ring: Graphics, x: number }[] = []
+    /** Side bet results already announced, so the pop fires once and not every frame. */
+    private popped = new Set<string>()
+    private poppedRound = -1
 
     constructor(
         private PIXI: Pixi,
@@ -786,9 +793,21 @@ class SeatNode {
         this.plate.visible = !!seat
         this.ring.visible = state.activeSeat === this.index
 
-        for (const badge of this.badges) badge.destroy({ children: true })
+        // Tweens have to die with their target. Pixi nulls a destroyed object's
+        // transform, so a tween still holding one writes into null on its next
+        // tick — and a backgrounded tab pauses the ticker while snapshots keep
+        // arriving, so they pile up and all throw at once when it resumes.
+        for (const badge of this.badges) {
+            gsap.killTweensOf(badge)
+            gsap.killTweensOf(badge.scale)
+            badge.destroy({ children: true })
+        }
         this.badges = []
-        for (const chip of this.chipSprites) chip.destroy()
+        for (const chip of this.chipSprites) {
+            gsap.killTweensOf(chip)
+            gsap.killTweensOf(chip.scale)
+            chip.destroy()
+        }
         this.chipSprites = []
 
         if (!seat) {
@@ -852,6 +871,10 @@ class SeatNode {
     ) {
         const split = seat.hands.length > 1
         const betting = state.phase === 'betting'
+        if (state.roundId !== this.poppedRound) {
+            this.popped.clear()
+            this.poppedRound = state.roundId
+        }
 
         for (const spot of this.sideSpots) {
             const stake = seat.pendingSide?.[spot.key] ?? 0
@@ -865,7 +888,13 @@ class SeatNode {
 
             spot.ring.tint = result?.payout ? 0x4ade80 : 0xffffff
             if (stake > 0) this.addChips(spot.x, stake, tex, 0.4)
-            if (result && stake > 0) this.addSideResultBadge(spot.x, result)
+            if (result && stake > 0) {
+                // The badge is rebuilt on every snapshot, so the pop has to be
+                // tied to the result rather than the rebuild or it restarts for
+                // the whole payout phase.
+                this.addSideResultBadge(spot.x, result, !this.popped.has(spot.key))
+                this.popped.add(spot.key)
+            }
         }
 
         this.mainSpot.visible = isYou && betting
@@ -873,7 +902,7 @@ class SeatNode {
         this.mainSpot.cursor = isYou && betting ? 'pointer' : 'default'
     }
 
-    private addSideResultBadge(x: number, result: { payout: number, label: string | null }) {
+    private addSideResultBadge(x: number, result: { payout: number, label: string | null }, pop: boolean) {
         const won = result.payout > 0
         const box = new this.PIXI.Container()
         const text = label(
@@ -892,7 +921,7 @@ class SeatNode {
         this.uiLayer.addChild(box)
         this.badges.push(box)
 
-        if (won) {
+        if (won && pop) {
             gsap.fromTo(box.scale, { x: 0.4, y: 0.4 }, { x: 1, y: 1, duration: 0.42, ease: 'back.out(2.4)' })
         }
     }
