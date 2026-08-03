@@ -44,6 +44,13 @@ const SCOREBOARD_ALUMNI = 12
 interface SeatState extends LbSeat {
     /** Chips in placement order so a single click can be taken back, spot included. */
     betChips: { spot: LbBetSpot, amount: number }[]
+    /**
+     * Last known balance, refreshed whenever one is pushed to the client. Placing
+     * a chip checks this instead of the database — the check is advisory, and on
+     * a remote database a read per chip is the difference between a rack that
+     * responds to a click and one that lags a second behind it.
+     */
+    balanceHint: number
     disconnectedAt: number | null
     releaseTimer: ReturnType<typeof setTimeout> | null
     /** Escrow rows for everything staked this round, closed out at settlement. */
@@ -227,6 +234,7 @@ class LiveBlackjackTable {
             winStreak: record?.winStreak ?? 0,
             roundsPlayed: 0,
             betChips: [],
+            balanceHint: Number(balance),
             lastBet: 0,
             disconnectedAt: null,
             releaseTimer: null,
@@ -352,9 +360,14 @@ class LiveBlackjackTable {
         if (next > LB_MAX_BET) fail('Table maximum reached')
 
         // Advisory only — the atomic debit at lock-in is what actually enforces
-        // affordability, this just stops the player stacking chips they can't cover.
-        const balance = Number(await getBalance(userId))
-        if (round4(this.committed(seat) + amount) > balance) fail('Not enough balance')
+        // affordability, this just stops the player stacking chips they can't
+        // cover. The cached figure carries the common case; only a chip that
+        // looks unaffordable pays for a round trip to confirm it.
+        const wanted = round4(this.committed(seat) + amount)
+        if (wanted > seat.balanceHint) {
+            seat.balanceHint = Number(await getBalance(userId))
+            if (wanted > seat.balanceHint) fail('Not enough balance')
+        }
 
         if (spot === 'main') seat.pendingBet = next
         else seat.pendingSide[spot] = next
@@ -987,6 +1000,8 @@ class LiveBlackjackTable {
     async pushBalance(userId: string) {
         if (!isUserConnected(userId)) return
         const balance = Number(await getBalance(userId))
+        const seat = this.seatOf(userId)
+        if (seat) seat.balanceHint = balance
         sendToUser(userId, { t: 'balance', balance })
     }
 
