@@ -7,6 +7,7 @@
  *     --seat 1 --bet 500 --rounds 20 --strategy basic
  */
 import { chipStack } from '../shared/utils/live-blackjack/chips'
+import { LB_SIDE_BETS } from '../shared/utils/live-blackjack/sidebets'
 import { handScore } from '../shared/utils/live-blackjack/rules'
 import { basicStrategy } from '../shared/utils/live-blackjack/strategy'
 import type { LbAction, LbServerMessage, LbTableState } from '../shared/utils/live-blackjack/types'
@@ -21,6 +22,7 @@ interface Options {
     bet: number
     rounds: number
     strategy: Strategy
+    side: number
     quiet: boolean
 }
 
@@ -40,6 +42,8 @@ function parseArgs(): Options {
         bet: Number(get('bet', '100')),
         rounds: Number(get('rounds', '10')),
         strategy: get('strategy', 'basic') as Strategy,
+        /** Fraction of the main bet put on each side spot; 0 leaves them empty. */
+        side: Number(get('side', '0')),
         quiet: args.includes('--quiet')
     }
 }
@@ -104,6 +108,19 @@ function placeBet(state: LbTableState) {
     if (want < state.minBet) return
     const stack = chipStack(want, 12)
     for (const chip of stack) send({ t: 'bet', amount: chip.value })
+
+    // Side spots only accept chips once the main bet is down, so this has to
+    // follow the stack above rather than interleave with it.
+    if (opts.side > 0) {
+        for (const spot of LB_SIDE_BETS) {
+            const sideWant = Math.max(state.minBet, Math.floor(want * opts.side))
+            if (sideWant > balance) continue
+            for (const chip of chipStack(sideWant, 4)) {
+                send({ t: 'bet', amount: chip.value, spot })
+            }
+        }
+    }
+
     betForRound = state.roundId
     // Bots never need the full betting clock, and a table of them waiting it
     // out makes live testing crawl. Voting only starts the round once every
