@@ -2,7 +2,7 @@ import * as Sentry from '@sentry/nuxt'
 import { and, eq, inArray } from 'drizzle-orm'
 import { db } from '#server/database'
 import { liveBlackjackWagers } from '#server/database/schema'
-import { accumulateRake, credit, debit, getBalance } from '#server/utils/balance'
+import { accumulateRake, credit, debit, getBalance, getDailyNet } from '#server/utils/balance'
 import { LB_CHIPS, LB_MAX_BET, LB_MIN_BET } from '#shared/utils/live-blackjack/chips'
 import {
     canDouble,
@@ -191,9 +191,13 @@ class LiveBlackjackTable {
             return
         }
         if (this.seats[index]) fail('Seat is taken')
+        const [balance, dailyNet] = await Promise.all([
+            getBalance(userId),
+            getDailyNet(userId, CATEGORY)
+        ])
         // Turning a broke player away at the seat beats letting them sit through
         // rounds they can never bet in.
-        if (Number(await getBalance(userId)) < LB_MIN_BET) {
+        if (Number(balance) < LB_MIN_BET) {
             fail(`You need at least ${LB_MIN_BET} to take a seat`)
         }
 
@@ -210,6 +214,7 @@ class LiveBlackjackTable {
             insuranceDecided: false,
             lastNet: record?.lastNet ?? null,
             sessionNet: record?.net ?? 0,
+            dailyNet,
             winStreak: record?.winStreak ?? 0,
             roundsPlayed: 0,
             betChips: [],
@@ -791,6 +796,7 @@ class LiveBlackjackTable {
 
             seat.lastNet = net
             seat.sessionNet = round4(seat.sessionNet + net)
+            seat.dailyNet = round4(seat.dailyNet + net)
             // A push is not a loss, so it holds the streak where it is.
             if (net > 0) seat.winStreak++
             else if (net < 0) seat.winStreak = 0
@@ -909,6 +915,7 @@ class LiveBlackjackTable {
             insuranceDecided: seat.insuranceDecided,
             lastNet: seat.lastNet,
             sessionNet: seat.sessionNet,
+            dailyNet: seat.dailyNet,
             winStreak: seat.winStreak,
             roundsPlayed: seat.roundsPlayed,
             hands: seat.hands.map((hand) => {

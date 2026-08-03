@@ -675,7 +675,7 @@ class SeatNode {
             this.nameText.x = 0
         }
 
-        const net = seat.sessionNet
+        const net = seat.dailyNet
         this.netText.text = net === 0 ? '—' : `${net > 0 ? '+' : '−'}${formatNumber(Math.abs(net))}`
         this.netText.style.fill = net > 0 ? 0x4ade80 : net < 0 ? 0xf87171 : 0x94a3b8
 

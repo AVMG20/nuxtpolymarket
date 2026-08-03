@@ -62,6 +62,8 @@ export interface LbSeat {
     lastNet: number | null
     /** Running profit/loss for this player since they joined the table. */
     sessionNet: number
+    /** Profit/loss across every blackjack round this player has played today. */
+    dailyNet: number
     /** Consecutive winning rounds. A push holds the streak rather than ending it. */
     winStreak: number
     roundsPlayed: number
