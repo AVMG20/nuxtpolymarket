@@ -98,6 +98,24 @@ const ACTION_FLASH: Record<LbAction, { text: string, color: number }> = {
     surrender: { text: 'SURRENDER', color: 0xb45309 }
 }
 
+/**
+ * Pixi nulls a destroyed object's transform, so any tween still pointing at one
+ * writes into null on its next tick. Two tweens on the same sprite is the usual
+ * way in — one finishes and destroys it while the other is still running — and a
+ * hidden tab makes it certain, because the ticker stops while snapshots keep
+ * arriving and the orphans all resume at once.
+ */
+function killAndDestroy(target: Container, options?: boolean | { children?: boolean }) {
+    if (target.destroyed) return
+    gsap.killTweensOf(target)
+    gsap.killTweensOf(target.scale)
+    gsap.killTweensOf(target.position)
+    target.destroy(options)
+}
+
+/** A hidden tab gets no animation: nothing is watching, and every queued tween is a liability. */
+const animating = () => typeof document === 'undefined' || !document.hidden
+
 /** Hands share a seat's width, so more of them means smaller cards. */
 function handScale(handCount: number): number {
     return handCount === 1 ? 0.92 : handCount === 2 ? 0.66 : 0.48
@@ -330,12 +348,8 @@ export class LiveBlackjackScene {
 
         if (!same) {
             for (const chip of this.rackChips) {
-                // Hover and pickup tweens outlive the rack when the bankroll
-                // shifts the chip window under them.
-                gsap.killTweensOf(chip.sprite)
-                gsap.killTweensOf(chip.sprite.scale)
-                chip.sprite.destroy()
-                chip.glow.destroy()
+                killAndDestroy(chip.sprite)
+                killAndDestroy(chip.glow)
             }
             this.rackChips = []
 
@@ -536,6 +550,12 @@ export class LiveBlackjackScene {
                 const card: LiveCard = { sprite, ...target, moving: null }
                 this.cards.set(target.id, card)
 
+                if (!animating()) {
+                    sprite.position.set(target.x, target.y)
+                    sprite.rotation = target.rotation
+                    continue
+                }
+
                 // Only the opening deal is staggered; a mid-turn hit should land
                 // the instant the player asked for it.
                 const delay = this.state?.phase === 'dealing'
@@ -561,21 +581,26 @@ export class LiveBlackjackScene {
             if (existing.key !== target.key) {
                 existing.key = target.key
                 const texture = target.key ? this.tex.card.get(target.key)! : this.tex.back
-                gsap.to(existing.sprite.scale, {
-                    x: 0,
-                    duration: 0.16,
-                    ease: 'power1.in',
-                    onComplete: () => {
-                        // The round can end mid-flip, taking the sprite with it.
-                        if (existing.sprite.destroyed) return
-                        existing.sprite.texture = texture
-                        gsap.to(existing.sprite.scale, { x: target.scale, duration: 0.2, ease: 'back.out(2)' })
-                    }
-                })
+                if (!animating()) {
+                    existing.sprite.texture = texture
+                } else {
+                    gsap.to(existing.sprite.scale, {
+                        x: 0,
+                        duration: 0.16,
+                        ease: 'power1.in',
+                        onComplete: () => {
+                            // The round can end mid-flip, taking the sprite with it.
+                            if (existing.sprite.destroyed) return
+                            existing.sprite.texture = texture
+                            gsap.to(existing.sprite.scale, { x: target.scale, duration: 0.2, ease: 'back.out(2)' })
+                        }
+                    })
+                }
             }
 
             if (existing.alpha !== target.alpha) {
-                gsap.to(existing.sprite, { alpha: target.alpha, duration: 0.2 })
+                if (animating()) gsap.to(existing.sprite, { alpha: target.alpha, duration: 0.2 })
+                else existing.sprite.alpha = target.alpha
             }
 
             // Compare against where the sprite actually is, not only against the
@@ -587,10 +612,14 @@ export class LiveBlackjackScene {
             const stranded = !existing.moving
                 && (Math.abs(existing.sprite.x - target.x) > 0.5 || Math.abs(existing.sprite.y - target.y) > 0.5)
 
-            if (stranded) {
+            if (stranded || !animating()) {
+                gsap.killTweensOf(existing.sprite)
+                gsap.killTweensOf(existing.sprite.scale)
+                existing.moving = null
                 existing.sprite.position.set(target.x, target.y)
                 existing.sprite.rotation = target.rotation
                 existing.sprite.scale.set(target.scale)
+                existing.sprite.alpha = target.alpha
             } else if (moved) {
                 existing.moving = gsap.to(existing.sprite, {
                     x: target.x,
@@ -613,6 +642,14 @@ export class LiveBlackjackScene {
         for (const [id, live] of this.cards.entries()) {
             if (seen.has(id)) continue
             this.cards.delete(id)
+
+            // Nobody is watching a hidden tab, and a discard that cannot finish
+            // leaves the sprite on the felt with a tween still pointing at it.
+            if (!animating()) {
+                killAndDestroy(live.sprite)
+                continue
+            }
+
             this.discarding.add(live.sprite)
             gsap.to(live.sprite, {
                 x: DISCARD_POS.x,
@@ -621,9 +658,11 @@ export class LiveBlackjackScene {
                 duration: 0.4,
                 ease: 'power2.in',
                 overwrite: 'auto',
+                // killAndDestroy takes the sibling scale tween below with it,
+                // which is the one that used to outlive the sprite.
                 onComplete: () => {
                     this.discarding.delete(live.sprite)
-                    if (!live.sprite.destroyed) live.sprite.destroy()
+                    killAndDestroy(live.sprite)
                 }
             })
             gsap.to(live.sprite.scale, { x: 0.55, y: 0.55, duration: 0.4 })
@@ -637,7 +676,7 @@ export class LiveBlackjackScene {
         for (const child of [...this.cardLayer.children]) {
             const sprite = child as Sprite
             if (tracked.has(sprite) || this.discarding.has(sprite)) continue
-            sprite.destroy()
+            killAndDestroy(sprite)
         }
     }
 
@@ -663,7 +702,7 @@ export class LiveBlackjackScene {
         box.scale.set(0.4)
         this.flashLayer.addChild(box)
 
-        gsap.timeline({ onComplete: () => box.destroy({ children: true }) })
+        gsap.timeline({ onComplete: () => killAndDestroy(box, { children: true }) })
             .to(box.scale, { x: 1, y: 1, duration: 0.24, ease: 'back.out(3)' })
             .to(box, { y: pos.y - 4, duration: 1.1, ease: 'power1.out' }, 0)
             .to(box, { alpha: 0, duration: 0.32 }, 0.86)
@@ -797,17 +836,9 @@ class SeatNode {
         // transform, so a tween still holding one writes into null on its next
         // tick — and a backgrounded tab pauses the ticker while snapshots keep
         // arriving, so they pile up and all throw at once when it resumes.
-        for (const badge of this.badges) {
-            gsap.killTweensOf(badge)
-            gsap.killTweensOf(badge.scale)
-            badge.destroy({ children: true })
-        }
+        for (const badge of this.badges) killAndDestroy(badge, { children: true })
         this.badges = []
-        for (const chip of this.chipSprites) {
-            gsap.killTweensOf(chip)
-            gsap.killTweensOf(chip.scale)
-            chip.destroy()
-        }
+        for (const chip of this.chipSprites) killAndDestroy(chip)
         this.chipSprites = []
 
         if (!seat) {
