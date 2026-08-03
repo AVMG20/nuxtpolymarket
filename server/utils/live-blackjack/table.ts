@@ -18,7 +18,7 @@ import {
     round4,
     settleHand
 } from '#shared/utils/live-blackjack/rules'
-import { LB_SIDE_BETS, LB_SIDE_BET_LABELS, settleSideBets } from '#shared/utils/live-blackjack/sidebets'
+import { isBetSpot, LB_SIDE_BETS, LB_SIDE_BET_LABELS, settleSideBets } from '#shared/utils/live-blackjack/sidebets'
 import type {
     LbAction,
     LbBetSpot,
@@ -352,6 +352,7 @@ class LiveBlackjackTable {
         const seat = this.requireSeat(userId)
         if (this.phase !== 'betting') fail('Betting is closed')
         if (!CHIP_VALUES.has(amount)) fail('Invalid chip')
+        if (!isBetSpot(spot)) fail('Invalid bet spot')
         // A side bet rides on a hand, so there has to be one to ride on —
         // otherwise the seat is dropped at lock-in and the chips just vanish.
         if (spot !== 'main' && seat.pendingBet <= 0) fail('Place your main bet first')

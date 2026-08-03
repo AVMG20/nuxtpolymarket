@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+    isBetSpot,
     LB_21P3_PAYS,
     LB_PERFECT_PAIRS_PAYS,
     perfectPairsTier,
@@ -76,6 +77,20 @@ describe('twentyOnePlusThreeTier', () => {
         expect(twentyOnePlusThreeTier(
             card('2', 'diamonds'), card('7', 'clubs'), up('J', 'spades')
         )).toBeNull()
+    })
+})
+
+describe('isBetSpot', () => {
+    it('accepts the three real spots', () => {
+        expect(isBetSpot('main')).toBe(true)
+        expect(isBetSpot('perfectPairs')).toBe(true)
+        expect(isBetSpot('twentyOnePlusThree')).toBe(true)
+    })
+
+    it('rejects anything else a socket might send', () => {
+        for (const junk of ['HACKED', '__proto__', 'constructor', 'toString', '', 'Main', null, undefined, 7, {}]) {
+            expect(isBetSpot(junk)).toBe(false)
+        }
     })
 })
 

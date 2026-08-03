@@ -1,4 +1,4 @@
-import type { LbCard, LbRank, LbSideBetKey, LbSideBetResult, LbSuit } from './types'
+import type { LbBetSpot, LbCard, LbRank, LbSideBetKey, LbSideBetResult, LbSuit } from './types'
 
 /**
  * Side bets settle off the opening deal alone — the player's two cards and the
@@ -12,6 +12,15 @@ export const LB_SIDE_BETS: LbSideBetKey[] = ['perfectPairs', 'twentyOnePlusThree
 export const LB_SIDE_BET_LABELS: Record<LbSideBetKey, string> = {
     perfectPairs: 'Perfect Pairs',
     twentyOnePlusThree: '21+3'
+}
+
+/**
+ * The spot a chip is going on arrives off a socket, where its type guarantees
+ * nothing. Anything else would be written straight onto the seat's side bets as
+ * a key nobody ever reads back.
+ */
+export function isBetSpot(value: unknown): value is LbBetSpot {
+    return value === 'main' || (LB_SIDE_BETS as string[]).includes(value as string)
 }
 
 export type LbPerfectPairsTier = 'perfect' | 'coloured' | 'mixed'
