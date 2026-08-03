@@ -92,7 +92,7 @@ const houseRules = [
     <ClientOnly>
       <LiveBlackjackGame />
       <template #fallback>
-        <div class="w-full animate-pulse rounded-2xl bg-elevated" style="aspect-ratio: 8 / 5;" />
+        <div class="w-full animate-pulse rounded-2xl bg-elevated" style="aspect-ratio: 1600 / 1120;" />
       </template>
     </ClientOnly>
 

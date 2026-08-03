@@ -200,7 +200,27 @@ function onTableClick(event: MouseEvent) {
 
 const visibleFeed = computed(() => feed.value.slice(-7))
 
-const scoreboard = computed(() => state.value?.scoreboard ?? [])
+/**
+ * What each seat made on the round that just ended, best first. Only lives for
+ * the payout phase — the running session figure is on each player's nameplate.
+ */
+const roundResults = computed(() => {
+    const seats = state.value?.seats ?? []
+    return seats
+        .filter(seat => !!seat && seat.lastNet !== null)
+        .map(seat => ({
+            userId: seat!.userId,
+            name: seat!.name,
+            emblem: seat!.emblem,
+            net: seat!.lastNet!,
+            blackjack: seat!.hands.some(hand => hand.status === 'blackjack'),
+            sideWins: (seat!.sideResults ?? []).filter(result => result.payout > 0)
+        }))
+        .sort((a, b) => b.net - a.net)
+})
+
+const showRoundResults = computed(() =>
+    state.value?.phase === 'payout' && roundResults.value.length > 0)
 
 function sendChat() {
     const text = chatDraft.value.trim()
@@ -280,42 +300,55 @@ onBeforeUnmount(() => {
     class="relative w-full overflow-hidden rounded-2xl bg-[#0b0806] ring-1 ring-white/10"
     @click.capture="onTableClick"
   >
-    <div ref="canvasWrap" class="w-full" style="aspect-ratio: 8 / 5;" />
+    <div ref="canvasWrap" class="w-full" style="aspect-ratio: 1600 / 1120;" />
 
-    <!-- Table results: biggest winners first, biggest losers last -->
-    <div class="absolute left-2 top-2 w-[22%] min-w-46.5 rounded-xl bg-black/70 p-2.5 backdrop-blur-sm ring-1 ring-white/10">
-      <div class="mb-1.5 flex items-center justify-between">
-        <span class="text-[11px] font-bold uppercase tracking-wider text-amber-300/80">Table results</span>
-        <span class="text-[10px] text-muted">{{ state?.watching ?? 0 }} watching</span>
+    <!-- What the round just paid. Up between hands only, so it can afford the room. -->
+    <Transition
+      enter-active-class="transition duration-300 ease-out"
+      enter-from-class="-translate-x-3 opacity-0"
+      leave-active-class="transition duration-200 ease-in"
+      leave-to-class="-translate-x-3 opacity-0"
+    >
+      <div
+        v-if="showRoundResults"
+        class="absolute left-3 top-3 w-[28%] min-w-60 rounded-xl bg-black/80 p-3 backdrop-blur-sm ring-1 ring-amber-400/25"
+      >
+        <div class="mb-2 flex items-center justify-between border-b border-white/10 pb-1.5">
+          <span class="text-xs font-bold uppercase tracking-wider text-amber-300">Round results</span>
+          <span class="text-[10px] text-muted">Hand {{ state?.roundId }}</span>
+        </div>
+        <ul class="space-y-1">
+          <li
+            v-for="entry in roundResults"
+            :key="entry.userId"
+            class="flex items-center gap-2 rounded-md px-1.5 py-1"
+            :class="entry.userId === youId ? 'bg-amber-400/10 ring-1 ring-amber-400/30' : ''"
+          >
+            <ProfileEmblem :emblem="entry.emblem" :name="entry.name" class="size-5 shrink-0 text-[9px]" />
+            <div class="min-w-0 flex-1">
+              <div class="truncate text-[13px] font-semibold text-default">
+                {{ entry.name }}
+              </div>
+              <div v-if="entry.blackjack || entry.sideWins.length" class="flex flex-wrap gap-1 pt-0.5">
+                <span
+                  v-if="entry.blackjack"
+                  class="rounded-sm bg-amber-500/20 px-1 text-[9px] font-bold uppercase text-amber-300"
+                >Blackjack</span>
+                <span
+                  v-for="win in entry.sideWins"
+                  :key="win.key"
+                  class="rounded-sm bg-emerald-500/20 px-1 text-[9px] font-bold text-emerald-300"
+                >{{ win.label }}</span>
+              </div>
+            </div>
+            <span
+              class="shrink-0 font-mono text-sm font-bold tabular-nums"
+              :class="entry.net > 0 ? 'text-green-400' : entry.net < 0 ? 'text-red-400' : 'text-muted'"
+            >{{ entry.net > 0 ? '+' : entry.net < 0 ? '−' : '' }}{{ formatNumber(Math.abs(entry.net)) }}</span>
+          </li>
+        </ul>
       </div>
-      <div v-if="!scoreboard.length" class="py-2 text-center text-[11px] text-muted">
-        No hands played yet
-      </div>
-      <ul v-else class="space-y-0.5">
-        <li
-          v-for="(entry, i) in scoreboard"
-          :key="entry.userId"
-          class="flex items-center gap-1.5 rounded px-1 py-0.5 text-xs"
-          :class="entry.userId === youId ? 'bg-amber-400/10' : ''"
-        >
-          <span class="w-3 shrink-0 text-[10px] text-muted">{{ i + 1 }}</span>
-          <ProfileEmblem :emblem="entry.emblem" :name="entry.name" class="size-4 shrink-0 text-[8px]" />
-          <span
-            class="truncate font-medium"
-            :class="entry.seated ? 'text-default' : 'text-muted line-through decoration-white/30'"
-          >{{ entry.name }}</span>
-          <span
-            v-if="entry.winStreak >= 2"
-            class="shrink-0 rounded-full bg-amber-600/90 px-1.5 text-[9px] font-extrabold text-amber-50"
-            :title="`${entry.winStreak} wins in a row`"
-          >W{{ entry.winStreak }}</span>
-          <span
-            class="ml-auto shrink-0 font-mono text-[11px] font-bold tabular-nums"
-            :class="entry.net > 0 ? 'text-green-400' : entry.net < 0 ? 'text-red-400' : 'text-muted'"
-          >{{ entry.net > 0 ? '+' : entry.net < 0 ? '−' : '' }}{{ formatNumber(Math.abs(entry.net)) }}</span>
-        </li>
-      </ul>
-    </div>
+    </Transition>
 
     <!-- Deal-now vote, centred on the felt where the round is about to happen -->
     <div
@@ -457,8 +490,9 @@ onBeforeUnmount(() => {
           :style="{ width: `${Math.round((cardsLeft / (state?.shoe.total || 312)) * 100)}%` }"
         />
       </div>
-      <div class="mt-1 text-right text-[10px] text-muted">
-        {{ decksLeft.toFixed(1) }} of {{ state?.shoe.decks ?? 6 }} decks left
+      <div class="mt-1 flex items-center justify-between text-[10px] text-muted">
+        <span>{{ state?.watching ?? 0 }} watching</span>
+        <span>{{ decksLeft.toFixed(1) }} of {{ state?.shoe.decks ?? 6 }} decks left</span>
       </div>
 
       <button
