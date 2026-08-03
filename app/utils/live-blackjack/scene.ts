@@ -52,16 +52,21 @@ const HAND_Y_OFFSET = -100
 /** Between the cards and the chips, clear of a full stack of either. */
 const HAND_BADGE_Y = 0
 const BET_Y_OFFSET = 106
+/**
+ * Split hands are drawn smaller, which frees a band above them. The stakes and
+ * score badges rise into it so they are not crowding the side bet spots.
+ */
+const SPLIT_LIFT = 24
 /** A taller stack than this reaches up into the hand's score badge. */
 const MAX_STAKE_CHIPS = 8
 // Dropped far enough to leave a clear row between the main stake's total and
 // the plate, which is where a side bet's outcome goes.
-const PLATE_Y_OFFSET = 216
+const PLATE_Y_OFFSET = 226
 /**
  * Side bet outcomes and insurance. Directly under the spot they belong to, and
  * below the split stakes' totals so a three-way split cannot reach them.
  */
-const RESULT_Y_OFFSET = 172
+const RESULT_Y_OFFSET = 180
 
 interface CardTarget {
     id: string
@@ -113,6 +118,8 @@ const SIDE_SPOT_X: Record<LbSideBetKey, number> = {
 }
 
 const SIDE_SPOT_R = 28
+/** Below the main circle's row, so each spot sits close to its own result. */
+const SIDE_SPOT_Y_OFFSET = 134
 
 /** Colour-coded so a glance across the table tells you what someone did. */
 const ACTION_FLASH: Record<LbAction, { text: string, color: number }> = {
@@ -207,8 +214,9 @@ export class LiveBlackjackScene {
     /** The chip the player has picked up, placed on whichever spot they click. */
     private selectedChip: number | null = null
     private dealtOrder = 0
-    /** Round whose payout chips have already flown, so they fly once. */
+    /** Rounds whose chips have already flown, so each settlement fires once. */
     private settledRound = -1
+    private sideSettledRound = -1
     /** serverNow - clientNow, so countdowns stay honest on a drifting clock. */
     private clockSkew = 0
 
@@ -242,8 +250,10 @@ export class LiveBlackjackScene {
         this.dealerScore.position.set(DEALER_POS.x, DEALER_POS.y + 118)
         this.uiLayer.addChild(this.dealerScore)
 
+        // Under the chips: a split fans its stacks out across the ring, and a
+        // gold stroke cutting through them reads as the chips being clipped.
         this.timerArc = new PIXI.Graphics()
-        this.uiLayer.addChild(this.timerArc)
+        this.spotLayer.addChild(this.timerArc)
 
         this.phaseText = label(PIXI, '', 26, 0xf7f3e8, '700')
         this.phaseText.anchor.set(0.5)
@@ -564,6 +574,7 @@ export class LiveBlackjackScene {
             this.layoutSeat(state, i, targets)
         }
         this.syncCards(targets)
+        this.settleSideChips(state)
         this.settleChips(state)
 
         // The rail only earns its space while you can actually place chips; the
@@ -776,6 +787,28 @@ export class LiveBlackjackScene {
     }
 
     /**
+     * Side bets are decided by the deal, not by how the hand plays, so the
+     * house settles them right there — long before the main stake resolves.
+     */
+    private settleSideChips(state: LbTableState) {
+        if (state.roundId === this.sideSettledRound) return
+        if (!state.seats.some(seat => seat?.sideResults)) return
+        this.sideSettledRound = state.roundId
+        if (!animating()) return
+
+        for (const seat of state.seats) {
+            if (!seat?.sideResults) continue
+            const pos = SEAT_LAYOUT[seat.index]!
+            for (const side of seat.sideResults) {
+                if (!side.stake) continue
+                const spot = { x: pos.x + SIDE_SPOT_X[side.key], y: pos.y + SIDE_SPOT_Y_OFFSET }
+                if (side.payout > 0) this.flyChips(DEALER_BANK_POS, spot, side.payout - side.stake)
+                else this.flyChips(spot, DEALER_BANK_POS, side.stake)
+            }
+        }
+    }
+
+    /**
      * Chips crossing the felt at payout: the house pays winners, and sweeps the
      * losers. Fires once per round on the way into the payout phase.
      */
@@ -787,24 +820,18 @@ export class LiveBlackjackScene {
         for (const seat of state.seats) {
             if (!seat) continue
             const pos = SEAT_LAYOUT[seat.index]!
-            const main = { x: pos.x, y: pos.y + BET_Y_OFFSET }
+            const lift = seat.hands.length > 1 ? SPLIT_LIFT : 0
+            const main = { x: pos.x, y: pos.y + BET_Y_OFFSET - lift }
 
             // Winnings and losses are two separate journeys, not one netted
-            // arrow: a hand that loses while its side bet pays still has money
-            // coming, and the player has to see it arrive.
+            // arrow: a player can lose one split hand and win another, and both
+            // have to be seen to happen.
             let won = 0
             let lost = 0
             for (const hand of seat.hands) {
                 if (hand.net === undefined || hand.net === 0) continue
                 if (hand.net > 0) won += hand.net
                 else lost -= hand.net
-            }
-            for (const side of seat.sideResults ?? []) {
-                if (!side.stake) continue
-                // A lost side stake leaves from its own spot, which is where the
-                // player can see it sitting.
-                if (side.payout > 0) won += side.payout - side.stake
-                else this.flyChips({ x: pos.x + SIDE_SPOT_X[side.key], y: main.y }, DEALER_BANK_POS, side.stake)
             }
 
             if (lost > 0) this.flyChips(main, DEALER_BANK_POS, lost)
@@ -919,7 +946,7 @@ class SeatNode {
         this.ring = new PIXI.Graphics()
         this.ring.circle(pos.x, pos.y + BET_Y_OFFSET, 56).stroke({ width: 4, color: GOLD, alpha: 0.9 })
         this.ring.visible = false
-        uiLayer.addChild(this.ring)
+        spotLayer.addChild(this.ring)
 
         this.plate = new PIXI.Container()
         const bg = new PIXI.Graphics()
@@ -971,7 +998,7 @@ class SeatNode {
 
         for (const key of LB_SIDE_BETS) {
             const x = pos.x + SIDE_SPOT_X[key]
-            const y = pos.y + BET_Y_OFFSET
+            const y = pos.y + SIDE_SPOT_Y_OFFSET
             const node = new PIXI.Container()
 
             const ring = new PIXI.Graphics()
@@ -1043,26 +1070,26 @@ class SeatNode {
         this.netText.style.fill = net > 0 ? 0x4ade80 : net < 0 ? 0xf87171 : 0x94a3b8
 
         const stakeSpots: { x: number, amount: number }[] = []
+        const lift = seat.hands.length > 1 ? SPLIT_LIFT : 0
         if (seat.hands.length) {
             const slot = SEAT_WIDTH / seat.hands.length
             const activeHand = state.activeSeat === this.index ? state.activeHand : null
-            const paid = state.phase === 'payout'
             seat.hands.forEach((hand, h) => {
                 const x = this.pos.x + (h - (seat.hands.length - 1) / 2) * slot
-                // A losing stake has gone to the house, and the chips flying
-                // there are the only ones that should still be on the felt.
-                const swept = paid && hand.net !== undefined && hand.net < 0
-                const stake = hand.doubled ? hand.bet * 2 : hand.bet
-                stakeSpots.push({ x, amount: swept ? 0 : stake })
+                // Once settled the stack is what the hand returns, not what it
+                // staked: a winning bet is paid beside itself, so 25K back on
+                // 25K down stands as 50K. A losing one returns nothing and goes.
+                const amount = hand.payout ?? (hand.doubled ? hand.bet * 2 : hand.bet)
+                stakeSpots.push({ x, amount })
                 const active = activeHand === h && seat.hands.length > 1
                 if (active) this.addActiveHandMarker(x, hand.cards.length, seat.hands.length)
-                this.addHandBadge(hand, x, state, active)
+                this.addHandBadge(hand, x, state, active, lift)
             })
         } else if (seat.pendingBet > 0) {
             stakeSpots.push({ x: this.pos.x, amount: seat.pendingBet })
         }
 
-        const betY = this.pos.y + BET_Y_OFFSET
+        const betY = this.pos.y + BET_Y_OFFSET - lift
         for (const spot of stakeSpots) this.addChips(spot.x, betY, spot.amount, tex)
         if (seat.insurance > 0) this.addInsuranceBadge(seat.insurance)
         this.updateSideSpots(state, seat, isYou, tex)
@@ -1094,11 +1121,12 @@ class SeatNode {
             spot.node.eventMode = isYou && betting ? 'static' : 'none'
             spot.node.cursor = isYou && betting ? 'pointer' : 'default'
 
-            // The stake rides its spot until the round settles, the same as the
-            // main bet — settling is when the dealer pays it or takes it, and
-            // that is the moment the chips have somewhere to go.
-            if (stake > 0 && state.phase !== 'payout') {
-                this.addChips(spot.x, this.pos.y + BET_Y_OFFSET, stake, tex, 0.42, 6, this.spotLayer)
+            // Side bets are settled off the deal, so they are paid or taken
+            // there and then: a loser's chips go and leave the bare spot, a
+            // winner's grow to what the bet returns.
+            const chips = result ? result.payout : stake
+            if (chips > 0) {
+                this.addChips(spot.x, this.pos.y + SIDE_SPOT_Y_OFFSET, chips, tex, 0.42, 6, this.spotLayer)
             }
             if (result && stake > 0) {
                 // The badge is rebuilt on every snapshot, so the pop has to be
@@ -1169,7 +1197,7 @@ class SeatNode {
         this.badges.push(box)
     }
 
-    private addHandBadge(hand: LbHand, x: number, state: LbTableState, active = false) {
+    private addHandBadge(hand: LbHand, x: number, state: LbTableState, active = false, lift = 0) {
         const done = hand.net !== undefined && state.phase === 'payout'
         const text = done
             ? `${hand.net! > 0 ? '+' : hand.net! < 0 ? '−' : ''}${formatNumber(Math.abs(hand.net!))}`
@@ -1201,7 +1229,7 @@ class SeatNode {
             alpha: active ? 0.95 : 0.5
         })
         box.addChild(bg, value)
-        box.position.set(x, this.pos.y + HAND_BADGE_Y)
+        box.position.set(x, this.pos.y + HAND_BADGE_Y - lift)
         this.uiLayer.addChild(box)
         this.badges.push(box)
     }
