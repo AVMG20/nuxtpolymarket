@@ -86,11 +86,11 @@ const casinoGames = [
   },
   {
     name: 'Blackjack',
-    description: 'Classic 21 — beat the dealer with a 6-deck shoe',
+    description: 'A real table — five seats, one shoe, everyone sees every card',
     icon: 'i-lucide-spade',
-    to: '/games/blackjack',
-    gradient: 'from-rose-950 to-slate-900',
-    iconColor: 'text-rose-400'
+    to: '/games/live-blackjack',
+    gradient: 'from-emerald-950 to-slate-900',
+    iconColor: 'text-emerald-400'
   }
 ]
 

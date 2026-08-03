@@ -1,4 +1,4 @@
-import { eq, and, gte, sql, desc } from 'drizzle-orm'
+import { eq, and, gte, like, sql, desc } from 'drizzle-orm'
 import { db, type DbExecutor } from '../database'
 import { user, transactions } from '../database/schema'
 import { RAKEBACK_RATE } from '../../shared/utils/profile'
@@ -83,6 +83,23 @@ export async function getBalance(userId: string) {
     columns: { balance: true },
   })
   return result?.balance ?? '0'
+}
+
+// Today's profit or loss across one game's ledger rows, matched on a category
+// prefix so a game's sub-categories ('foo:double', 'foo:refund') all count. The
+// day boundary is the database's, so every player rolls over at the same moment.
+export async function getDailyNet(userId: string, categoryPrefix: string) {
+  const [row] = await db
+    .select({
+      net: sql<string>`coalesce(sum(case when ${transactions.type} = 'credit' then ${transactions.amount} else -${transactions.amount} end), 0)`,
+    })
+    .from(transactions)
+    .where(and(
+      eq(transactions.userId, userId),
+      like(transactions.category, `${categoryPrefix}%`),
+      sql`${transactions.createdAt} >= date_trunc('day', localtimestamp)`
+    ))
+  return Number(row?.net ?? 0)
 }
 
 export async function getHistory(userId: string, limit = 50) {
