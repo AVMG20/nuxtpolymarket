@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { chipRackFor } from '#shared/utils/live-blackjack/chips'
+import { BAC_BET_KEYS, BAC_PAYOUTS, totalStaked } from '#shared/utils/baccarat/payouts'
 import { bigEyeBoyMarks, bigRoadCells, bigRoadColumns } from '#shared/utils/baccarat/roadmap'
 import type { BacAction, BacBetKey, BacSeatState, BacSharedState } from '#shared/utils/baccarat/types'
 import type { LtSeat } from '#shared/utils/live-table/types'
@@ -7,32 +8,57 @@ import { cardBack, cardFace, chip, chipStack } from '~/utils/live-table/art'
 import type { LtFeedItem } from '~/composables/live-table'
 
 const SEAT_POS = [
-    { x: 208, y: 546 },
-    { x: 504, y: 604 },
-    { x: 800, y: 630 },
-    { x: 1096, y: 604 },
-    { x: 1392, y: 546 }
+    { x: 222, y: 546 },
+    { x: 541, y: 604 },
+    { x: 860, y: 630 },
+    { x: 1179, y: 604 },
+    { x: 1498, y: 546 }
+]
+
+/** Shared across the whole live-table suite so a layout reads the same on every game's felt. */
+const SHOE_POS = { x: 1431, y: 140 }
+const DISCARD_POS = { x: 289, y: 140 }
+const PLAYER_HAND_POS = { x: 688, y: 196 }
+const BANKER_HAND_POS = { x: 1032, y: 196 }
+
+/** Mirrors live-table.css's --lt-chip-size-spot / --lt-chip-size-side -- inline SVG art can't read a CSS custom property. */
+const CHIP_SPOT = 84
+const CHIP_SIDE = 64
+
+/**
+ * Player/Banker/Tie are the three real outcomes and share the main spot chip
+ * size; the pair side bets get their own smaller cluster above the side they
+ * ride on. The 10px gap between the three main spots and the 14px gap between
+ * a pair spot and its own main spot are sized for their *current* radii, not
+ * carried over from a smaller table -- both grew along with the chips they
+ * now have to hold legibly.
+ *
+ * A label is only drawn inside the ring when it actually fits one; PLAYER,
+ * TIE and BANKER print below their spot instead, since a bet sitting in the
+ * circle would otherwise cover the label.
+ */
+const SPOT_DEFS: { key: BacBetKey, dx: number, dy: number, r: number, chip: number, label: string, labelBelow: boolean }[] = [
+    { key: 'playerPair', dx: -96, dy: -98, r: 38, chip: CHIP_SIDE, label: 'PR', labelBelow: false },
+    { key: 'player', dx: -96, dy: 0, r: 46, chip: CHIP_SPOT, label: 'PLAYER', labelBelow: true },
+    { key: 'tie', dx: 0, dy: 0, r: 40, chip: CHIP_SPOT, label: 'TIE', labelBelow: true },
+    { key: 'banker', dx: 96, dy: 0, r: 46, chip: CHIP_SPOT, label: 'BANKER', labelBelow: true },
+    { key: 'bankerPair', dx: 96, dy: -98, r: 38, chip: CHIP_SIDE, label: 'PR', labelBelow: false }
 ]
 
 /**
- * Player/Banker/Tie are the real bets and get the felt: r=40-44, sized to
- * carry a full --lt-chip-size-spot (56px) chip legibly, the same scale Live
- * Blackjack gives its one main spot. Player Pair/Banker Pair are demoted to
- * small satellites tucked directly above their side's main spot rather than
- * squeezed into the same row -- five same-size spots across 296px of seat
- * spacing is what made the old layout unreadable.
- *
- * A label is only drawn inside the ring when it actually fits one; PLAYER,
- * TIE and BANKER print below their spot instead; once a bet sits in the
- * circle, the label would otherwise sit on top of the chip.
+ * Cards animate between the shoe and a hand's own resting spot rather than
+ * each card's exact fanned-out position -- the fan spread (a few tens of
+ * pixels) is trivial next to the few hundred pixels of travel from the shoe,
+ * so every card in a hand sharing one vector still reads as dealt from there.
  */
-const SPOT_DEFS: { key: BacBetKey, dx: number, dy: number, r: number, chip: number, label: string, labelBelow: boolean }[] = [
-    { key: 'playerPair', dx: -94, dy: -72, r: 20, chip: 20, label: 'PR', labelBelow: false },
-    { key: 'player', dx: -94, dy: 0, r: 44, chip: 56, label: 'PLAYER', labelBelow: true },
-    { key: 'tie', dx: 0, dy: 0, r: 40, chip: 48, label: 'TIE', labelBelow: true },
-    { key: 'banker', dx: 94, dy: 0, r: 44, chip: 56, label: 'BANKER', labelBelow: true },
-    { key: 'bankerPair', dx: 94, dy: -72, r: 20, chip: 20, label: 'PR', labelBelow: false }
-]
+function handStyle(pos: { x: number, y: number }) {
+    return {
+        left: `${pos.x}px`,
+        top: `${pos.y}px`,
+        '--deal-from': `translate(${SHOE_POS.x - pos.x}px, ${SHOE_POS.y - pos.y}px) scale(0.55)`,
+        '--discard-to': `translate(${DISCARD_POS.x - pos.x}px, ${DISCARD_POS.y - pos.y}px) scale(0.55)`
+    }
+}
 
 const SPOT_LABEL: Record<BacBetKey, string> = {
     player: 'Player',
@@ -47,7 +73,7 @@ let localFeedSeq = 0
 
 function onGameEvent(payload: unknown) {
     if (!feedRef) return
-    const data = payload as { type: string, name?: string, spot?: BacBetKey, amount?: number }
+    const data = payload as { type: string, name?: string, spot?: BacBetKey, amount?: number, verb?: string }
     if (data.type === 'shuffle') {
         feedRef.value.push({ id: -(++localFeedSeq), kind: 'game', tone: 'neutral', text: 'Shoe reshuffled · 6 decks in play' })
     } else if (data.type === 'bet' && data.name && data.spot && data.amount) {
@@ -56,6 +82,13 @@ function onGameEvent(payload: unknown) {
             kind: 'game',
             tone: 'neutral',
             text: `${data.name} bet ${formatNumber(data.amount)} on ${SPOT_LABEL[data.spot]}`
+        })
+    } else if (data.type === 'rebet' && data.name && data.verb && data.amount) {
+        feedRef.value.push({
+            id: -(++localFeedSeq),
+            kind: 'game',
+            tone: 'neutral',
+            text: `${data.name} ${data.verb} their bet (${formatNumber(data.amount)})`
         })
     }
 }
@@ -72,6 +105,31 @@ watch(() => feed.value.length, () => {
     if (latest?.kind === 'error') toast.add({ title: latest.text, color: 'error' })
 })
 
+// settle() -- and so a fresh lastNet -- only lands the instant the phase
+// becomes 'payout'; during 'resolve' the hand total is already known but the
+// money has not moved yet. A player who sat out the round keeps lastNet null.
+watch(() => state.value?.phase, (phase, previous) => {
+    if (phase !== 'payout' || previous === 'payout') return
+    const seat = mySeat.value
+    const net = seat?.lastNet
+    if (net === null || net === undefined) return
+    if (net > 0) {
+        // Which spots actually paid, so "you won" reads as more than a number.
+        const wins = BAC_BET_KEYS
+            .filter(key => seat!.game.bets[key] > 0 && spotWins(key))
+            .map(key => `${SPOT_LABEL[key]} +${formatNumber(seat!.game.bets[key] * BAC_PAYOUTS[key])}`)
+        toast.add({
+            title: `You won ${formatNumber(net)}`,
+            description: wins.join(' · ') || undefined,
+            color: 'success'
+        })
+    } else if (net < 0) {
+        toast.add({ title: `You lost ${formatNumber(Math.abs(net))}`, color: 'error' })
+    } else {
+        toast.add({ title: 'Push — bet returned', color: 'neutral' })
+    }
+})
+
 const round = computed(() => state.value?.game.round ?? null)
 const history = computed(() => state.value?.game.history ?? [])
 const bigRoad = computed(() => bigRoadCells(history.value))
@@ -86,16 +144,24 @@ watch(rack, (values) => {
     if (!values.includes(selectedChip.value)) selectedChip.value = values[Math.min(3, values.length - 1)] ?? values[0] ?? 25
 })
 
-const myTotalBet = computed(() => {
-    const bets = mySeat.value?.game.bets
-    if (!bets) return 0
-    return Object.values(bets).reduce((sum, amount) => sum + amount, 0)
-})
+const myTotalBet = computed(() => mySeat.value ? totalStaked(mySeat.value.game.bets) : 0)
+const hasLastBet = computed(() => !!mySeat.value && totalStaked(mySeat.value.game.lastBets) > 0)
+const canRepeat = computed(() => isBetting.value && hasLastBet.value)
+const canScale = computed(() => isBetting.value && (myTotalBet.value > 0 || hasLastBet.value))
+const canClear = computed(() => isBetting.value && myTotalBet.value > 0)
+
+// Offered once you have chips down, same as Live Blackjack -- voting with
+// nothing staked would let an empty seat skip the clock for everyone else.
+const seatedPlayers = computed(() => state.value?.seats.filter(Boolean) ?? [])
+const startVotes = computed(() => seatedPlayers.value.filter(s => s!.votedStart).length)
+const canVoteStart = computed(() => isBetting.value && myTotalBet.value > 0 && !mySeat.value?.votedStart)
+const showVotePanel = computed(() => isBetting.value && myTotalBet.value > 0)
 
 const cardsRemaining = computed(() => {
     const shoe = state.value?.game.shoe
     return shoe ? Math.max(0, shoe.total - shoe.dealt) : 0
 })
+const hasDiscards = computed(() => (state.value?.game.shoe.dealt ?? 0) > 0)
 const untilShuffle = computed(() => state.value?.game.shoe.untilShuffle ?? 0)
 
 const clockTick = ref(Date.now())
@@ -152,6 +218,10 @@ function placeBet(spot: BacBetKey) {
 function clearBets() {
     table.act({ kind: 'clear' })
 }
+
+function scaleBets(factor: number) {
+    table.act({ kind: 'scale', factor })
+}
 </script>
 
 <template>
@@ -159,19 +229,37 @@ function clearBets() {
     <div class="min-w-0 flex-1">
       <LiveTableStage>
         <template v-if="round">
-          <TransitionGroup name="lt-deal" tag="div" class="lt-hand" style="left:640px;top:196px">
-            <span v-for="card in round.playerCards" :key="card.id" v-html="cardFace(card.rank!, card.suit!)" />
+          <TransitionGroup name="lt-deal" tag="div" class="lt-hand" :style="handStyle(PLAYER_HAND_POS)">
+            <span
+              v-for="(card, idx) in round.playerCards"
+              :key="card.id"
+              :style="{ transitionDelay: `${idx * 130}ms` }"
+              v-html="cardFace(card.rank!, card.suit!)"
+            />
           </TransitionGroup>
-          <TransitionGroup name="lt-deal" tag="div" class="lt-hand" style="left:960px;top:196px">
-            <span v-for="card in round.bankerCards" :key="card.id" v-html="cardFace(card.rank!, card.suit!)" />
+          <TransitionGroup name="lt-deal" tag="div" class="lt-hand" :style="handStyle(BANKER_HAND_POS)">
+            <span
+              v-for="(card, idx) in round.bankerCards"
+              :key="card.id"
+              :style="{ transitionDelay: `${idx * 130}ms` }"
+              v-html="cardFace(card.rank!, card.suit!)"
+            />
           </TransitionGroup>
         </template>
 
         <template v-if="showTotals && round">
-          <div class="lt-badge" :class="badgeClass('player')" style="left:640px;top:300px;font-size:24px;padding:6px 18px">
+          <div
+            class="lt-badge"
+            :class="badgeClass('player')"
+            :style="{ left: `${PLAYER_HAND_POS.x}px`, top: '300px', fontSize: '24px', padding: '6px 18px' }"
+          >
             PLAYER {{ round.playerTotal }}<span v-if="round.playerNatural"> · NATURAL</span>
           </div>
-          <div class="lt-badge" :class="badgeClass('banker')" style="left:960px;top:300px;font-size:24px;padding:6px 18px">
+          <div
+            class="lt-badge"
+            :class="badgeClass('banker')"
+            :style="{ left: `${BANKER_HAND_POS.x}px`, top: '300px', fontSize: '24px', padding: '6px 18px' }"
+          >
             BANKER {{ round.bankerTotal }}<span v-if="round.bankerNatural"> · NATURAL</span>
           </div>
         </template>
@@ -185,12 +273,36 @@ function clearBets() {
           <span v-if="secondsLeft !== null" class="count" :class="{ urgent: secondsLeft <= 5 }">{{ secondsLeft }}</span>
         </div>
 
+        <!-- Betting is the only phase with no cards on the felt, so the empty
+             dealer area is where a vote to skip the rest of the clock lives. -->
+        <div v-if="showVotePanel" class="bac-vote" style="top:270px">
+          <button v-if="canVoteStart" class="bac-vote-btn" @click="table.voteStart()">
+            DEAL NOW
+            <span v-if="seatedPlayers.length > 1" class="bac-vote-count">({{ startVotes }}/{{ seatedPlayers.length }})</span>
+          </button>
+          <div v-else class="bac-vote-waiting">
+            Ready — waiting for {{ seatedPlayers.length - startVotes }} more
+          </div>
+          <div v-if="seatedPlayers.length > 1" class="bac-vote-list">
+            <span
+              v-for="s in seatedPlayers"
+              :key="s!.userId"
+              class="bac-vote-chip"
+              :class="{ voted: s!.votedStart }"
+            >
+              {{ s!.name }}
+              <UIcon v-if="s!.votedStart" name="i-lucide-check" class="size-3" />
+            </span>
+          </div>
+        </div>
+
         <template v-for="(pos, i) in SEAT_POS" :key="i">
           <div
-            v-if="!seatAt(i) && !mySeat"
+            v-if="!seatAt(i)"
             class="lt-sit"
+            :class="{ 'bac-sit-taken': mySeat }"
             :style="{ left: `${pos.x}px`, top: `${pos.y + 106}px` }"
-            @click="table.sit(i)"
+            @click="!mySeat && table.sit(i)"
           >
             <span class="lbl">SIT</span>
           </div>
@@ -213,7 +325,7 @@ function clearBets() {
               }"
               @click="canBetHere(seatAt(i)) && placeBet(def.key)"
             >
-              <span v-if="!def.labelBelow" class="lt-spot-label" :style="{ fontSize: `${def.r >= 30 ? 11 : 9}px` }">{{ def.label }}</span>
+              <span v-if="!def.labelBelow" class="lt-spot-label" style="font-size:12px">{{ def.label }}</span>
               <div
                 v-if="seatAt(i)!.game.bets[def.key] > 0"
                 style="position:absolute;bottom:6px"
@@ -243,90 +355,121 @@ function clearBets() {
           </template>
         </template>
 
-        <div v-if="mySeat && isBetting" class="lt-rack">
-          <span
-            v-for="value in rack"
-            :key="value"
-            :class="{ sel: value === selectedChip }"
-            @click="selectedChip = value"
-            v-html="chip(value)"
-          />
-        </div>
-        <div v-if="mySeat && isBetting" class="bac-bet-readout">
-          <span class="lt-mono">Bet {{ formatNumber(myTotalBet) }}</span>
-          <button class="bac-clear-btn" :disabled="!myTotalBet" @click="clearBets">
-            Clear
-          </button>
-        </div>
-        <div v-else-if="mySeat" class="bac-bet-readout">
-          <span class="lt-mono">Seat {{ mySeat.index + 1 }}</span>
-          <button v-if="!mySeat.leaving" class="bac-clear-btn" @click="table.leave()">
-            Leave
-          </button>
-          <span v-else class="text-amber-300">Standing up</span>
-        </div>
-        <div v-else-if="connected" class="bac-bet-readout">
-          Click an open <span class="bac-sit-word">SIT</span> spot to join the table
-        </div>
+        <LiveTableCorner title="Roadmap">
+          <div style="width:340px">
+            <div class="bac-road-label">
+              Bead Plate
+            </div>
+            <div class="bac-grid" style="--cell:18px">
+              <span
+                v-for="(entry, idx) in history"
+                :key="idx"
+                class="bac-dot"
+                :class="`bac-fill-${entry.winner}`"
+              >{{ entry.winner === 'tie' ? 'T' : entry.winner === 'player' ? 'P' : 'B' }}</span>
+            </div>
+            <div class="bac-road-label">
+              Big Road
+            </div>
+            <div class="bac-grid" style="--cell:16px">
+              <span
+                v-for="(cell, idx) in bigRoad"
+                :key="idx"
+                class="bac-dot"
+                :class="cell.result ? `bac-ring bac-ring-${cell.result} ${cell.tie ? 'tie' : ''}` : 'empty'"
+              />
+            </div>
+            <div class="bac-road-label">
+              Big Eye Boy
+            </div>
+            <div class="bac-eye-row">
+              <span v-for="(mark, idx) in eyeBoy" :key="idx" class="bac-eye" :class="mark" />
+              <span v-if="!eyeBoy.length" class="text-[10px] text-muted">Not enough hands yet</span>
+            </div>
+          </div>
+        </LiveTableCorner>
 
-        <div class="lt-overlay" style="left:56px;top:78px;width:400px">
-          <h4>Roadmap</h4>
-          <div class="bac-road-label">
-            Bead Plate
+        <template v-if="!connected">
+          <div class="lt-status">
+            <UIcon name="i-lucide-loader-circle" class="animate-spin" /> Connecting&hellip;
           </div>
-          <div class="bac-grid" style="--cell:18px">
+        </template>
+        <template v-else-if="mySeat">
+          <LiveTableBetBar
+            :can-repeat="canRepeat"
+            :can-scale="canScale"
+            :can-clear="canClear"
+            :show-undo="false"
+            @repeat="table.act({ kind: 'repeat' })"
+            @scale="scaleBets"
+            @clear="clearBets"
+          />
+          <div class="lt-rack" :class="{ 'bac-rack-muted': !isBetting }">
             <span
-              v-for="(entry, idx) in history"
-              :key="idx"
-              class="bac-dot"
-              :class="`bac-fill-${entry.winner}`"
-            >{{ entry.winner === 'tie' ? 'T' : entry.winner === 'player' ? 'P' : 'B' }}</span>
-          </div>
-          <div class="bac-road-label">
-            Big Road
-          </div>
-          <div class="bac-grid" style="--cell:16px">
-            <span
-              v-for="(cell, idx) in bigRoad"
-              :key="idx"
-              class="bac-dot"
-              :class="cell.result ? `bac-ring bac-ring-${cell.result} ${cell.tie ? 'tie' : ''}` : 'empty'"
+              v-for="value in rack"
+              :key="value"
+              :class="{ sel: value === selectedChip }"
+              @click="selectedChip = value"
+              v-html="chip(value)"
             />
           </div>
-          <div class="bac-road-label">
-            Big Eye Boy
+          <div class="lt-panel lt-panel-l">
+            <span class="lt-panel-label">Your bet</span>
+            <span class="lt-panel-value lt-mono">{{ formatNumber(myTotalBet) }}</span>
           </div>
-          <div class="bac-eye-row">
-            <span v-for="(mark, idx) in eyeBoy" :key="idx" class="bac-eye" :class="mark" />
-            <span v-if="!eyeBoy.length" class="text-[10px] text-muted">Not enough hands yet</span>
+          <div class="lt-panel lt-panel-r">
+            <div class="flex items-center justify-between">
+              <span class="lt-panel-label">Seat {{ mySeat.index + 1 }}</span>
+              <span class="bac-watching">{{ state?.watching ?? 0 }} watching</span>
+            </div>
+            <button v-if="!mySeat.leaving" class="bac-clear-btn self-start" @click="table.leave()">
+              Leave
+            </button>
+            <span v-else class="self-start text-xs text-amber-300">Standing up</span>
           </div>
+        </template>
+        <template v-else>
+          <div class="lt-status">
+            Click an open <span class="bac-sit-word">SIT</span> spot to join the table
+          </div>
+        </template>
+
+        <!-- Discard pile: purely presentational, collects the cards the felt
+             animates away at the end of a round. Aligned to the coordinate
+             every game in this suite discards to, so a layout reads the same
+             on the Pixi blackjack table as it does here. -->
+        <div class="bac-tray" :style="{ left: `${DISCARD_POS.x}px`, top: `${DISCARD_POS.y}px` }">
+          <template v-if="hasDiscards">
+            <span class="bac-tray-card" style="left:6px;top:4px" v-html="cardBack()" />
+            <span class="bac-tray-card" style="left:3px;top:2px" v-html="cardBack()" />
+          </template>
+        </div>
+        <div class="bac-tray-label" :style="{ left: `${DISCARD_POS.x}px`, top: `${DISCARD_POS.y + 66}px` }">
+          Discard
         </div>
 
-        <div class="lt-overlay" style="left:1300px;top:64px;width:222px">
-          <h4>Shoe</h4>
-          <div class="flex items-center gap-3">
-            <div class="bac-shoe-stack">
-              <span class="bac-shoe-card" style="left:6px;top:4px" v-html="cardBack()" />
-              <span class="bac-shoe-card" style="left:3px;top:2px" v-html="cardBack()" />
-              <span class="bac-shoe-card" style="left:0;top:0" v-html="cardBack()" />
-              <div class="bac-shoe-cut" />
-            </div>
-            <div>
-              <div class="lt-mono text-2xl font-extrabold leading-none" style="color:var(--lt-gold)">
-                {{ cardsRemaining }}
-              </div>
-              <div class="mt-0.5 text-[10px] text-muted">
-                cards remaining
-              </div>
-              <div class="mt-1.5 text-[10px]" style="color:var(--lt-gold)">
-                cut card &middot; {{ untilShuffle }} to go
-              </div>
-            </div>
-          </div>
+        <!-- Shoe: the actual draw point every dealt card animates out from,
+             aligned to the coordinate the Pixi blackjack table also uses. -->
+        <div class="bac-tray" :style="{ left: `${SHOE_POS.x}px`, top: `${SHOE_POS.y}px` }">
+          <span class="bac-tray-card" style="left:6px;top:4px" v-html="cardBack()" />
+          <span class="bac-tray-card" style="left:3px;top:2px" v-html="cardBack()" />
+          <span class="bac-tray-card" style="left:0;top:0" v-html="cardBack()" />
+          <div class="bac-shoe-cut" />
+        </div>
+        <div class="bac-tray-label" :style="{ left: `${SHOE_POS.x}px`, top: `${SHOE_POS.y + 66}px` }">
+          Shoe
         </div>
 
-        <div v-if="!connected" class="bac-connecting">
-          <UIcon name="i-lucide-loader-circle" class="animate-spin" /> Connecting&hellip;
+        <div class="lt-overlay" :style="{ left: `${SHOE_POS.x - 120}px`, top: '240px', width: '240px' }">
+          <div class="lt-mono text-2xl font-extrabold leading-none" style="color:var(--lt-gold)">
+            {{ cardsRemaining }}
+          </div>
+          <div class="mt-0.5 text-[10px] text-muted">
+            cards remaining
+          </div>
+          <div class="mt-1.5 text-[10px]" style="color:var(--lt-gold)">
+            cut card &middot; {{ untilShuffle }} to go
+          </div>
         </div>
       </LiveTableStage>
     </div>
@@ -340,27 +483,85 @@ function clearBets() {
 </template>
 
 <style scoped>
-.bac-bet-readout {
-  position: absolute;
-  left: 50%;
-  top: 972px;
-  transform: translate(-50%, -100%);
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  background: color-mix(in srgb, var(--lt-shell) 80%, transparent);
-  border: 1.5px solid rgba(217, 177, 103, 0.35);
-  border-radius: 999px;
-  padding: 6px 14px;
-  font-size: 13px;
-  font-weight: 700;
-  color: #f7f3e8;
-  white-space: nowrap;
-}
 .bac-sit-word {
   color: var(--lt-gold);
   font-weight: 800;
 }
+/* A seated player still sees which other seats are open, just dimmed and
+   inert -- clicking another seat while you already hold one only earns a
+   rejection toast. */
+.bac-sit-taken {
+  opacity: 0.4;
+  animation: none;
+  cursor: default;
+}
+.bac-sit-taken:hover {
+  transform: none;
+  background: rgba(0, 0, 0, 0.4);
+}
+
+.bac-vote {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  text-align: center;
+}
+.bac-vote-btn {
+  background: rgba(34, 197, 94, 0.28);
+  border: 2px solid rgba(74, 222, 128, 0.75);
+  border-radius: 999px;
+  padding: 10px 22px;
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  color: #f8fafc;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(4px);
+  cursor: pointer;
+  transition: transform 0.12s ease, filter 0.12s ease;
+}
+.bac-vote-btn:hover {
+  transform: translateY(-2px);
+  filter: brightness(1.25);
+}
+.bac-vote-count {
+  font-weight: 600;
+  opacity: 0.85;
+}
+.bac-vote-waiting {
+  background: rgba(0, 0, 0, 0.7);
+  border-radius: 999px;
+  padding: 8px 18px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ui-success);
+  backdrop-filter: blur(4px);
+}
+.bac-vote-list {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 5px;
+  margin-top: 8px;
+  max-width: 420px;
+}
+.bac-vote-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  background: rgba(0, 0, 0, 0.55);
+  border: 1px solid rgba(217, 177, 103, 0.3);
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 11px;
+  font-weight: 700;
+  color: rgba(247, 243, 232, 0.7);
+}
+.bac-vote-chip.voted {
+  border-color: var(--ui-success);
+  color: var(--ui-success);
+}
+
 .bac-clear-btn {
   background: rgba(239, 68, 68, 0.25);
   border: 1.5px solid rgba(248, 113, 113, 0.7);
@@ -371,23 +572,48 @@ function clearBets() {
   color: #fecaca;
   cursor: pointer;
 }
-.bac-clear-btn:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
+.bac-watching {
+  font-size: 11px;
+  color: rgba(247, 243, 232, 0.55);
 }
 
-.bac-shoe-stack {
-  position: relative;
+/* Dimmed rather than swapped out once betting closes, so the layout does not
+   jump between phases -- only how lit and clickable the rack is changes. */
+.lt-rack {
+  transition: opacity 0.25s ease;
+}
+.bac-rack-muted {
+  opacity: 0.3;
+  pointer-events: none;
+}
+
+/* Centred exactly on its (x,y) stage coordinate -- the shoe and discard tray
+   both anchor here so the card-dealing animation's start/end point lines up
+   with where the sprite actually sits. */
+.bac-tray {
+  position: absolute;
   width: 60px;
   height: 78px;
-  flex-shrink: 0;
+  transform: translate(-50%, -50%);
 }
-.bac-shoe-card {
+.bac-tray-card {
   position: absolute;
 }
-.bac-shoe-card :deep(.lt-card) {
+.bac-tray-card :deep(.lt-card) {
   width: 50px;
   height: 70px;
+}
+.bac-tray-label {
+  position: absolute;
+  transform: translate(-50%, 0);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--lt-gold);
+  opacity: 0.75;
+  white-space: nowrap;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
 }
 .bac-shoe-cut {
   position: absolute;
@@ -397,22 +623,6 @@ function clearBets() {
   height: 3px;
   background: var(--lt-gold);
   box-shadow: 0 0 6px var(--lt-gold);
-}
-
-.bac-connecting {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%);
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  background: rgba(0, 0, 0, 0.7);
-  border-radius: 12px;
-  padding: 10px 18px;
-  font-size: 14px;
-  color: #f7f3e8;
-  backdrop-filter: blur(4px);
 }
 
 .bac-spot-caption {
@@ -435,14 +645,15 @@ function clearBets() {
   text-transform: uppercase;
   color: var(--lt-gold);
   opacity: 0.8;
-  margin: 8px 0 4px;
+  margin: 6px 0 3px;
 }
 .bac-grid {
   display: grid;
   grid-auto-flow: column;
   grid-template-rows: repeat(6, var(--cell, 18px));
   grid-auto-columns: var(--cell, 18px);
-  gap: 3px;
+  gap: 2px;
+  overflow: hidden;
 }
 .bac-dot {
   width: 100%;
@@ -509,11 +720,25 @@ function clearBets() {
   background: var(--ui-info);
 }
 
+/* --deal-from and --discard-to are set per-hand (see handStyle()) and
+   inherited from the .lt-hand container onto each card span they animate. */
 .lt-deal-enter-active {
-  transition: opacity 0.25s ease, transform 0.25s ease;
+  transition: opacity 0.3s ease, transform 0.3s ease;
 }
 .lt-deal-enter-from {
   opacity: 0;
-  transform: translateY(-14px) scale(0.9);
+  transform: var(--deal-from);
+}
+/* position:absolute takes the leaving card out of the fan's flex flow while
+   keeping its just-computed spot as the static position CSS falls back to
+   when left/top are unset -- it starts the discard animation exactly where
+   the card was sitting instead of snapping to the hand's own corner. */
+.lt-deal-leave-active {
+  position: absolute;
+  transition: opacity 0.4s ease, transform 0.4s ease;
+}
+.lt-deal-leave-to {
+  opacity: 0;
+  transform: var(--discard-to);
 }
 </style>

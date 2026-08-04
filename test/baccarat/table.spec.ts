@@ -170,6 +170,72 @@ describe.skipIf(SKIP)('BaccaratTable', () => {
         expect(await getBalance(P1)).toBe('50.0000')
     })
 
+    it('repeats last round\'s bets exactly, staking fresh money', async () => {
+        await seedUser(P1, { balance: '1000.0000' })
+        await table.sit(P1, 'p1', null, 0)
+
+        await bet(P1, { player: 60, banker: 0, tie: 10, playerPair: 5, bankerPair: 0 })
+        await table.forcePhaseEnd('betting')
+        await table.forcePhaseEnd('dealing')
+        await table.forcePhaseEnd('resolve')
+        await table.forcePhaseEnd('payout')
+
+        expect(table.snapshot().seats[0]?.game.bets).toEqual({ player: 0, banker: 0, tie: 0, playerPair: 0, bankerPair: 0 })
+        const before = Number(await getBalance(P1))
+
+        await table.action(P1, { kind: 'repeat' })
+
+        expect(table.snapshot().seats[0]?.game.bets).toEqual({ player: 60, banker: 0, tie: 10, playerPair: 5, bankerPair: 0 })
+        expect(await getBalance(P1)).toBe(round4(before - 75).toFixed(4))
+    })
+
+    it('rejects repeat with no previous bet', async () => {
+        await seedUser(P1, { balance: '1000.0000' })
+        await table.sit(P1, 'p1', null, 0)
+
+        await expect(table.action(P1, { kind: 'repeat' }))
+            .rejects.toThrow(/no previous bet/i)
+    })
+
+    it('halves every current bet, refunding the difference and rounding to a whole chip', async () => {
+        await seedUser(P1, { balance: '1000.0000' })
+        await table.sit(P1, 'p1', null, 0)
+        await bet(P1, { player: 41, banker: 0, tie: 0, playerPair: 9, bankerPair: 0 })
+
+        await table.action(P1, { kind: 'scale', factor: 0.5 })
+
+        // 41 * 0.5 = 20.5 -> 21 (chips are whole numbers), 9 * 0.5 = 4.5 -> 5
+        expect(table.snapshot().seats[0]?.game.bets).toEqual({ player: 21, banker: 0, tie: 0, playerPair: 5, bankerPair: 0 })
+        expect(await getBalance(P1)).toBe('974.0000')
+    })
+
+    it('doubles last round\'s bet when nothing is staked yet this round', async () => {
+        await seedUser(P1, { balance: '10000.0000' })
+        await table.sit(P1, 'p1', null, 0)
+
+        await bet(P1, { player: 0, banker: 30, tie: 0, playerPair: 0, bankerPair: 0 })
+        await table.forcePhaseEnd('betting')
+        await table.forcePhaseEnd('dealing')
+        await table.forcePhaseEnd('resolve')
+        await table.forcePhaseEnd('payout')
+
+        await table.action(P1, { kind: 'scale', factor: 2 })
+
+        expect(table.snapshot().seats[0]?.game.bets).toEqual({ player: 0, banker: 60, tie: 0, playerPair: 0, bankerPair: 0 })
+    })
+
+    it('refuses a scale that would breach the table maximum, leaving the original bet in place', async () => {
+        await seedUser(P1, { balance: '10000000.0000' })
+        await table.sit(P1, 'p1', null, 0)
+        await bet(P1, { player: 900_000, banker: 0, tie: 0, playerPair: 0, bankerPair: 0 })
+
+        await expect(table.action(P1, { kind: 'scale', factor: 2 }))
+            .rejects.toThrow(/maximum bet/i)
+
+        expect(table.snapshot().seats[0]?.game.bets).toEqual({ player: 900_000, banker: 0, tie: 0, playerPair: 0, bankerPair: 0 })
+        expect(await getBalance(P1)).toBe('9100000.0000')
+    })
+
     it('rejects an action from someone who has never sat', async () => {
         await seedUser(P1, { balance: '1000.0000' })
 

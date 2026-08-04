@@ -7,6 +7,8 @@ export type { BacBetKey }
 
 export interface BacSeatState {
     bets: BacBets
+    /** Snapshot of the most recent round this seat actually staked -- REPEAT and a scale with nothing on the felt both fall back to it. */
+    lastBets: BacBets
 }
 
 /** Mirrors LtShoeInfo without importing the server module into the shared layer. */
@@ -46,3 +48,5 @@ export interface BacSharedState {
 export type BacAction =
     | { kind: 'bet', spot: BacBetKey, amount: number }
     | { kind: 'clear' }
+    | { kind: 'repeat' }
+    | { kind: 'scale', factor: number }

@@ -29,6 +29,10 @@ export function emptyBets(): BacBets {
     return { player: 0, banker: 0, tie: 0, playerPair: 0, bankerPair: 0 }
 }
 
+export function totalStaked(bets: BacBets): number {
+    return BAC_BET_KEYS.reduce((sum, key) => sum + bets[key], 0)
+}
+
 export interface BacOutcome {
     winner: BacWinner
     playerPair: boolean
