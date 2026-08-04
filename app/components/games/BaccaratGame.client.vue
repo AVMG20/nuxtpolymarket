@@ -64,6 +64,14 @@ const table = useLiveTable<BacSeatState, BacSharedState, BacAction>('baccarat', 
 const { state, youId, balance, connected, feed, chat, mySeat } = table
 feedRef = feed
 
+// Rejections (seat taken, can't afford it) only otherwise land as a line in
+// the sidebar feed, easy to miss right after a click that visibly did nothing.
+const toast = useToast()
+watch(() => feed.value.length, () => {
+    const latest = feed.value[feed.value.length - 1]
+    if (latest?.kind === 'error') toast.add({ title: latest.text, color: 'error' })
+})
+
 const round = computed(() => state.value?.game.round ?? null)
 const history = computed(() => state.value?.game.history ?? [])
 const bigRoad = computed(() => bigRoadCells(history.value))
@@ -257,6 +265,9 @@ function clearBets() {
           </button>
           <span v-else class="text-amber-300">Standing up</span>
         </div>
+        <div v-else-if="connected" class="bac-bet-readout">
+          Click an open <span class="bac-sit-word">SIT</span> spot to join the table
+        </div>
 
         <div class="lt-overlay" style="left:56px;top:78px;width:400px">
           <h4>Roadmap</h4>
@@ -345,6 +356,10 @@ function clearBets() {
   font-weight: 700;
   color: #f7f3e8;
   white-space: nowrap;
+}
+.bac-sit-word {
+  color: var(--lt-gold);
+  font-weight: 800;
 }
 .bac-clear-btn {
   background: rgba(239, 68, 68, 0.25);
