@@ -117,10 +117,12 @@ None of these block review; all were reported rather than found later.
 
 ## Unresolved, needs a human decision
 
-`server/utils/live-blackjack/table.ts` has an uncommitted edit that nobody has claimed. It replaces
-the insufficient-funds message with `"You think you can gamble without money? Loser. Go get some
-cash from the bank."` It has been left uncommitted through several rounds rather than reverted, in
-case it is intentional — but it ships to real players if it lands.
+`server/utils/live-blackjack/table.ts` carried an unclaimed edit replacing the insufficient-funds
+message with `"You think you can gamble without money? Loser. Go get some cash from the bank."` It
+sat uncommitted through several rounds, then got swept into a merge commit by an `add -A` while
+resolving conflicts. It has been reverted on the integration branch — that text ships to real
+players otherwise, and nobody has claimed it. If it was intentional it is a one-line change to put
+back, deliberately this time.
 
 `scripts/blackjack-card-counter.js` is untracked in the main checkout — a browser-console card
 counter for the blackjack table. Left alone; it looks hand-written rather than generated.
