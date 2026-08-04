@@ -223,11 +223,11 @@ export class RouletteTable extends LiveTable<RouletteSeatState, RouletteSharedSt
      * A bet is the entry fee for a vote — otherwise a table full of watchers
      * could deal a round nobody staked anything on.
      */
-    override voteStart(userId: string) {
+    override async voteStart(userId: string) {
         const player = this.requirePlayer(userId)
         if (this.phase !== 'betting') fail('Betting is closed')
         if (!Object.keys(player.game.bets).length) fail('Place a bet first')
-        super.voteStart(userId)
+        await super.voteStart(userId)
     }
 
     protected onPhaseEnd(phase: string): void | Promise<void> {

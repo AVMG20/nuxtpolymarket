@@ -240,7 +240,7 @@ export class ThreeCardPokerTable extends LiveTable<TcpSeatState, TcpSharedState,
      * publishes the result. A nested run() is what closeBetting does on the
      * blackjack table for the same reason.
      */
-    protected override onVoteStart() {
+    protected override async onVoteStart() {
         if (this.everyoneVoted()) void this.run(() => this.dealRound())
     }
 
