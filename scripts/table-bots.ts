@@ -18,10 +18,12 @@ import { eq, sql } from 'drizzle-orm'
 import { db } from '../server/database'
 import { user } from '../server/database/schema'
 import type { BacAction, BacSeatState, BacSharedState } from '../shared/utils/baccarat/types'
+import type { ChSeatState, ChSharedState } from '../shared/utils/casino-holdem/types'
 import type { LtServerMessage, LtSeat, LtTableState } from '../shared/utils/live-table/types'
 import type { RouletteAction } from '../shared/utils/roulette/types'
 import type { TcpAction, TcpSeatState } from '../shared/utils/three-card-poker/types'
 import { randomChance, randomInt } from '../shared/utils/random'
+import { shouldCall } from '../shared/utils/casino-holdem/strategy'
 import { shouldPlay } from '../shared/utils/three-card-poker/strategy'
 
 interface Args {
@@ -75,6 +77,49 @@ const STRATEGIES: Record<string, BotStrategy> = {}
 export function registerStrategy(game: string, strategy: BotStrategy) {
     STRATEGIES[game] = strategy
 }
+
+const HOLDEM_ANTES = [100, 500, 1_000, 5_000]
+
+/**
+ * Snapshots land faster than a bot's own action comes back in one, so acting on
+ * "have I bet yet" alone fires the same bet several times. Each bot remembers
+ * the round it last acted in instead.
+ */
+const holdemActed = new WeakMap<BotContext, { bet: number, decided: number }>()
+
+registerStrategy('casino-holdem', {
+    onState(state, ctx) {
+        const seat = state.seats.find(s => s?.userId === ctx.userId) as
+            { game: ChSeatState } | undefined
+        if (!seat) return
+
+        let acted = holdemActed.get(ctx)
+        if (!acted) {
+            acted = { bet: -1, decided: -1 }
+            holdemActed.set(ctx, acted)
+        }
+
+        const game = seat.game
+        if (state.phase === 'betting' && acted.bet !== state.roundId && game.pendingAnte === 0) {
+            acted.bet = state.roundId
+            const ante = HOLDEM_ANTES[ctx.index % HOLDEM_ANTES.length]!
+            const actions: unknown[] = [{ t: 'bet', spot: 'ante', amount: ante }]
+            // Every other bot backs the bonus, so both escrow legs get exercised.
+            if (ctx.index % 2 === 0) actions.push({ t: 'bet', spot: 'aa', amount: 100 })
+            return actions
+        }
+
+        if (state.phase === 'decision' && acted.decided !== state.roundId
+            && game.cards.length === 2 && !game.decision) {
+            const board = (state.game as ChSharedState).board.slice(0, 3)
+            if (board.length < 3) return
+            acted.decided = state.roundId
+            const hole = game.cards.map(c => ({ rank: c.rank!, suit: c.suit! }))
+            const flop = board.map(c => ({ rank: c.rank!, suit: c.suit! }))
+            return [{ t: 'decide', decision: shouldCall(hole, flop) ? 'call' : 'fold' }]
+        }
+    }
+})
 
 const watchOnly: BotStrategy = { onState: () => undefined }
 
