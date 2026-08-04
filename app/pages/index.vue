@@ -107,6 +107,14 @@ const casinoGames = [
     to: '/games/baccarat',
     gradient: 'from-rose-950 to-slate-900',
     iconColor: 'text-rose-400'
+  },
+  {
+    name: 'Three Card Poker',
+    description: 'Ante up, play or fold — one decision against the dealer, and a straight beats a flush',
+    icon: 'i-lucide-diamond',
+    to: '/games/three-card-poker',
+    gradient: 'from-rose-950 to-slate-900',
+    iconColor: 'text-rose-400'
   }
 ]
 
