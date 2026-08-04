@@ -494,10 +494,10 @@ export abstract class LiveTable<TSeat, TShared, TAction> {
      * Skip the rest of the betting clock. Games decide what counts as ready by
      * overriding `onVoteStart`; the base only records the vote and tallies it.
      */
-    voteStart(userId: string) {
+    async voteStart(userId: string) {
         const player = this.requirePlayer(userId)
         player.votedStart = true
-        this.onVoteStart()
+        await this.onVoteStart()
     }
 
     /** Everyone who could still act has asked to get on with it. */
@@ -510,9 +510,21 @@ export abstract class LiveTable<TSeat, TShared, TAction> {
         for (const player of this.everyone()) player.votedStart = false
     }
 
-    /** Default: start as soon as the table is unanimous. */
-    protected onVoteStart() {
-        if (this.everyoneVoted()) this.onPhaseEnd(this.phase)
+    /**
+     * Default: start as soon as the table is unanimous.
+     *
+     * Awaited, or `run()` publishes the snapshot before the transition the vote
+     * triggered has happened and the phase change is lost until the next
+     * mutation. The pending timer is dropped first so a game whose `onPhaseEnd`
+     * does not itself change phase cannot then advance the round twice.
+     */
+    protected async onVoteStart() {
+        if (!this.everyoneVoted()) return
+        if (this.timer) {
+            clearTimeout(this.timer)
+            this.timer = null
+        }
+        await this.onPhaseEnd(this.phase)
     }
 
     // ─── actions ───────────────────────────────────────────────────────────
