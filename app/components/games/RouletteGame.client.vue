@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import '~/assets/css/live-table.css'
 import { LB_CHIPS, chipRackFor } from '#shared/utils/live-blackjack/chips'
-import { betKey, describeBet, getBet, numberAt } from '#shared/utils/roulette/layout'
+import { describeBet, getBet, numberAt } from '#shared/utils/roulette/layout'
 import type {
     RouletteAction,
     RouletteGameEvent,
@@ -10,6 +10,7 @@ import type {
 } from '#shared/utils/roulette/types'
 import { pocketColor, WHEEL_ORDER, type PocketColor } from '#shared/utils/roulette/wheel'
 import { chip, chipStack } from '~/utils/live-table/art'
+import { wheelRotationFor } from '~/utils/roulette/wheel-spin'
 import type { LtFeedItem } from '~/composables/live-table'
 
 // Matches the server's own SPINNING_MS in server/utils/live-table/roulette.ts —
@@ -17,31 +18,38 @@ import type { LtFeedItem } from '~/composables/live-table'
 // the constant off the table itself.
 const SPIN_ANIMATION_MS = 5000
 
-// ─── felt geometry — a 1600x1120 stage ─────────────────────────────────────
+// ─── felt geometry — a 1720x1200 stage ─────────────────────────────────────
 // Classic layout: wheel and betting layout side by side, centred on the same
-// horizontal axis, occupying roughly equal width. Outside bets run along the
-// top of the number grid, dozens along the bottom, 0 full-height on the left,
-// 2-to-1 columns full-height on the right.
-const CENTER_Y = 640
+// horizontal axis. Outside bets run along the top of the number grid, dozens
+// along the bottom, 0 full-height on the left, 2-to-1 columns full-height on
+// the right. Raised 80px off the old centre (620) so the block clears the felt
+// with room to spare below it — the bet bar, rack and side panels now live
+// under the felt rather than sharing it, per the shared control band.
+const CENTER_Y = 540
 
-const WHEEL_SIZE = 620
-const WHEEL_LEFT = 60
+const COL_W = 60
+const ROW_H = 92
+const ZERO_WIDTH = 66
+const COLBET_WIDTH = 94
+const GRID_WIDTH = 12 * COL_W
+const OUTSIDE_HEIGHT = 82
+const DOZEN_HEIGHT = 82
+const BETTING_HEIGHT = OUTSIDE_HEIGHT + 3 * ROW_H + DOZEN_HEIGHT
+const BETTING_WIDTH = ZERO_WIDTH + GRID_WIDTH + COLBET_WIDTH
+
+// Shrunk from 620 (and 520 before that) — a smaller outer size next to the
+// same 80px number band leaves the digits a bigger share of the wheel, on
+// top of the bigger font below.
+const WHEEL_SIZE = 460
+const WHEEL_GAP = 60
+const CONTENT_WIDTH = WHEEL_SIZE + WHEEL_GAP + BETTING_WIDTH
+const WHEEL_LEFT = (1720 - CONTENT_WIDTH) / 2
 const WHEEL_TOP = CENTER_Y - WHEEL_SIZE / 2
 
-const COL_W = 58
-const ROW_H = 88
-const ZERO_WIDTH = 64
-const COLBET_WIDTH = 90
-const GRID_WIDTH = 12 * COL_W
-const OUTSIDE_HEIGHT = 78
-const DOZEN_HEIGHT = 78
-const BETTING_HEIGHT = OUTSIDE_HEIGHT + 3 * ROW_H + DOZEN_HEIGHT
-
-const ZERO_LEFT = WHEEL_LEFT + WHEEL_SIZE + 40
+const ZERO_LEFT = WHEEL_LEFT + WHEEL_SIZE + WHEEL_GAP
 const NUM_LEFT = ZERO_LEFT + ZERO_WIDTH
 const COLBET_LEFT = NUM_LEFT + GRID_WIDTH
 const BETTING_LEFT = ZERO_LEFT
-const BETTING_WIDTH = COLBET_LEFT + COLBET_WIDTH - ZERO_LEFT
 
 const BETTING_TOP = CENTER_Y - BETTING_HEIGHT / 2
 const OUTSIDE_TOP = BETTING_TOP
@@ -50,14 +58,13 @@ const DOZENS_TOP = GRID_TOP + 3 * ROW_H
 const OUTSIDE_WIDTH = GRID_WIDTH / 6
 const DOZEN_WIDTH = GRID_WIDTH / 3
 
-const BUTTON_ROW_TOP = DOZENS_TOP + DOZEN_HEIGHT + 45
-
-function streetNumbers(col: number): number[] {
-    return [numberAt(0, col), numberAt(1, col), numberAt(2, col)]
-}
+// The phase banner and chip legend stack directly above the betting area
+// (feedback: "NO MORE BETS" used to float independently of it), narrower than
+// the wheel+betting block so they read as belonging to the layout below them.
+const LEGEND_TOP = BETTING_TOP - 76
+const PHASE_TOP = LEGEND_TOP - 62
 
 interface FeltBox { key: string, x: number, y: number, w: number, h: number, label?: string, diamond?: string, cls: string }
-interface FeltDot { key: string, x: number, y: number }
 
 const zeroBox: FeltBox = { key: 'straight:0', x: ZERO_LEFT, y: GRID_TOP, w: ZERO_WIDTH, h: ROW_H * 3, label: '0', cls: 'green zero' }
 
@@ -122,42 +129,11 @@ const outsideBoxes = computed<FeltBox[]>(() => outsideBets.map((b, i) => ({
     cls: 'outside'
 })))
 
-// Corners, streets and lines are too fiddly to click as a full box, so they
-// get a small marker at the junction they actually sit on.
-const cornerMarkers = computed<FeltDot[]>(() => {
-    const dots: FeltDot[] = []
-    for (let col = 0; col < 11; col++) {
-        for (let row = 0; row < 2; row++) {
-            const numbers = [numberAt(row, col), numberAt(row, col + 1), numberAt(row + 1, col), numberAt(row + 1, col + 1)]
-            dots.push({ key: `corner:${betKey(numbers)}`, x: NUM_LEFT + (col + 1) * COL_W, y: GRID_TOP + (row + 1) * ROW_H })
-        }
-    }
-    return dots
-})
-
-const streetMarkers = computed<FeltDot[]>(() => Array.from({ length: 12 }, (_, col) => ({
-    key: `street:${betKey(streetNumbers(col))}`,
-    x: NUM_LEFT + col * COL_W + COL_W / 2,
-    y: GRID_TOP + 3 * ROW_H
-})))
-
-const lineMarkers = computed<FeltDot[]>(() => {
-    const dots: FeltDot[] = []
-    for (let col = 0; col < 11; col++) {
-        const numbers = [...streetNumbers(col), ...streetNumbers(col + 1)]
-        dots.push({ key: `line:${betKey(numbers)}`, x: NUM_LEFT + (col + 1) * COL_W, y: GRID_TOP + 3 * ROW_H })
-    }
-    return dots
-})
-
-/** Centre point of every bet key on the felt, for both markers and chip piles. */
+/** Centre point of every bet key on the felt, for both cells and chip piles. */
 const spotPositions = computed<Record<string, { x: number, y: number }>>(() => {
     const positions: Record<string, { x: number, y: number }> = {}
     for (const box of [zeroBox, ...numberBoxes.value, ...columnBoxes.value, ...dozenBoxes.value, ...outsideBoxes.value]) {
         positions[box.key] = { x: box.x + box.w / 2, y: box.y + box.h / 2 }
-    }
-    for (const dot of [...cornerMarkers.value, ...streetMarkers.value, ...lineMarkers.value]) {
-        positions[dot.key] = { x: dot.x, y: dot.y }
     }
     return positions
 })
@@ -179,17 +155,12 @@ const wheelRotation = ref(0)
 const ballRotation = ref(0)
 
 function spinTo(number: number) {
-    const idx = WHEEL_ORDER.indexOf(number)
-    const step = 360 / WHEEL_ORDER.length
-    const targetWithinTurn = (((360 - idx * step) % 360) + 360) % 360
-    const currentWithinTurn = ((wheelRotation.value % 360) + 360) % 360
-    let delta = targetWithinTurn - currentWithinTurn
-    if (delta <= 0) delta += 360
-    wheelRotation.value += delta + 360 * 3
+    wheelRotation.value = wheelRotationFor(wheelRotation.value, number)
 
     // The ball always settles at the fixed pointer (angle 0) — exactly where
-    // the wheel's own rotation is bringing the winning pocket to — but spins
-    // backward and faster, the way a ball runs against the wheel's spin.
+    // the wheel's own rotation is bringing the winning pocket's centre to —
+    // but spins backward and faster, the way a ball runs against the wheel's
+    // spin.
     const ballWithinTurn = ((ballRotation.value % 360) + 360) % 360
     ballRotation.value -= ballWithinTurn + 360 * 5
 }
@@ -250,6 +221,10 @@ watch(feed, (list) => {
 const isBettingOpen = computed(() => state.value?.phase === 'betting' || state.value?.phase === 'idle')
 const hasOwnBet = computed(() => (state.value?.game.bets ?? []).some(b => b.userId === table.youId.value))
 
+const yourTotal = computed(() => (state.value?.game.bets ?? [])
+    .filter(b => b.userId === table.youId.value)
+    .reduce((sum, b) => sum + b.amount, 0))
+
 const rack = computed(() => chipRackFor(balance.value).map(c => c.value))
 const selectedChip = ref(LB_CHIPS[0]!.value)
 watch(rack, (values) => {
@@ -266,9 +241,31 @@ function repeatBet() {
     act({ type: 'repeat' })
 }
 
+function scaleBet(factor: number) {
+    if (!isBettingOpen.value || (factor !== 0.5 && factor !== 2)) return
+    act({ type: 'scale', factor })
+}
+
 function undoBet() {
     if (!isBettingOpen.value || !hasOwnBet.value) return
     act({ type: 'undo' })
+}
+
+function clearBets() {
+    if (!isBettingOpen.value || !hasOwnBet.value) return
+    act({ type: 'clear' })
+}
+
+// Roulette is seatless, so `state.seats` is always empty and votedStart never
+// reaches the client that way — the table's own gameState carries it instead.
+const votes = computed(() => state.value?.game.votes ?? [])
+const votesTotal = computed(() => state.value?.game.votesTotal ?? 0)
+const hasVoted = computed(() => votes.value.some(v => v.userId === table.youId.value))
+const canVoteStart = computed(() => state.value?.phase === 'betting' && hasOwnBet.value && !hasVoted.value)
+
+function voteStart() {
+    if (!canVoteStart.value) return
+    table.voteStart()
 }
 
 interface ChipRing { color: string, spread: number }
@@ -336,9 +333,11 @@ const wheelSvg = computed(() => buildWheelSvg(WHEEL_SIZE))
 
 function buildWheelSvg(size: number): string {
     const r = size / 2
-    const rimWidth = 14
+    const rimWidth = 12
     const outerR = r - rimWidth
-    const innerR = outerR - 62
+    // Kept at the old wheel's absolute width while the wheel itself shrank
+    // around it, so the number band is a bigger share of a smaller wheel.
+    const innerR = outerR - 80
     const hubR = innerR - 8
     const n = WHEEL_ORDER.length
     const step = 360 / n
@@ -363,7 +362,7 @@ function buildWheelSvg(size: number): string {
         const lx = Math.cos(mid) * labelR
         const ly = Math.sin(mid) * labelR
         const deg = mid * 180 / Math.PI + 90
-        labels += `<text x="${lx.toFixed(2)}" y="${ly.toFixed(2)}" transform="rotate(${deg.toFixed(2)} ${lx.toFixed(2)} ${ly.toFixed(2)})" text-anchor="middle" dominant-baseline="central" font-size="13" font-weight="800" fill="#f7f3e8" font-family="system-ui,sans-serif">${num}</text>`
+        labels += `<text x="${lx.toFixed(2)}" y="${ly.toFixed(2)}" transform="rotate(${deg.toFixed(2)} ${lx.toFixed(2)} ${ly.toFixed(2)})" text-anchor="middle" dominant-baseline="central" font-size="20" font-weight="800" fill="#f7f3e8" font-family="system-ui,sans-serif">${num}</text>`
     })
     for (let i = 0; i < 8; i++) {
         const a = (i / 8) * Math.PI * 2
@@ -387,25 +386,30 @@ function buildWheelSvg(size: number): string {
     <div class="rl-wrap">
         <div class="rl-main">
             <LiveTableStage>
-                <div class="lt-rules" style="top:64px">
-                    SINGLE ZERO &middot; {{ Number(state?.watching ?? 0) }} WATCHING
+                <div class="lt-rules" style="top:52px">
+                    SINGLE ZERO EUROPEAN WHEEL
                 </div>
 
-                <div class="lt-phase" style="top:112px">
-                    <span class="label">{{ phaseLabel }}</span>
-                    <span v-if="secondsLeft !== null" class="count" :class="{ urgent: secondsLeft <= 5 }">{{ secondsLeft }}</span>
-                </div>
-
-                <div class="rl-history" :style="{ left: `${WHEEL_LEFT}px`, top: '182px', width: `${WHEEL_SIZE}px` }">
+                <!-- top centre of the table, not tied to the wheel's column -->
+                <div class="rl-history" style="left:50%;top:96px;transform:translateX(-50%)">
                     <span class="rl-history-label">LAST</span>
                     <span v-for="(n, i) in lastNumbers.slice(0, 10)" :key="i" class="rl-pill" :class="pocketLabel(n)">{{ n }}</span>
                     <span v-if="!lastNumbers.length" class="rl-history-empty">No spins yet</span>
                 </div>
 
+                <!-- directly above the betting area, not floating over the whole table -->
+                <div
+                    class="lt-phase"
+                    :style="{ left: `${BETTING_LEFT + BETTING_WIDTH / 2}px`, top: `${PHASE_TOP}px` }"
+                >
+                    <span class="label">{{ phaseLabel }}</span>
+                    <span v-if="secondsLeft !== null" class="count" :class="{ urgent: secondsLeft <= 5 }">{{ secondsLeft }}</span>
+                </div>
+
                 <!-- legend sits above the betting area, sized to match it -->
                 <div
                     class="lt-overlay rl-legend"
-                    :style="{ left: `${BETTING_LEFT}px`, top: '350px', width: `${BETTING_WIDTH}px` }"
+                    :style="{ left: `${BETTING_LEFT}px`, top: `${LEGEND_TOP}px`, width: `${BETTING_WIDTH}px` }"
                 >
                     <h4>Chip colours</h4>
                     <div class="rl-legend-rows">
@@ -446,7 +450,7 @@ function buildWheelSvg(size: number): string {
                     v-for="box in outsideBoxes"
                     :key="box.key"
                     class="rl-cell outside"
-                    :style="{ left: `${box.x}px`, top: `${box.y}px`, width: `${box.w}px`, height: `${box.h}px`, fontSize: '15px' }"
+                    :style="{ left: `${box.x}px`, top: `${box.y}px`, width: `${box.w}px`, height: `${box.h}px`, fontSize: '17px' }"
                     @click="placeBet(box.key)"
                 >
                     <span v-if="box.diamond" class="rl-diamond" :style="{ background: box.diamond }" />
@@ -455,7 +459,7 @@ function buildWheelSvg(size: number): string {
 
                 <div
                     class="rl-cell zero"
-                    :style="{ left: `${zeroBox.x}px`, top: `${zeroBox.y}px`, width: `${zeroBox.w}px`, height: `${zeroBox.h}px`, fontSize: '28px' }"
+                    :style="{ left: `${zeroBox.x}px`, top: `${zeroBox.y}px`, width: `${zeroBox.w}px`, height: `${zeroBox.h}px`, fontSize: '30px' }"
                     @click="placeBet(zeroBox.key)"
                 >
                     {{ zeroBox.label }}
@@ -492,31 +496,6 @@ function buildWheelSvg(size: number): string {
                     {{ box.label }}
                 </div>
 
-                <div
-                    v-for="dot in cornerMarkers"
-                    :key="dot.key"
-                    class="rl-dot corner"
-                    :style="{ left: `${dot.x}px`, top: `${dot.y}px` }"
-                    :title="`Corner ${dot.key.split(':')[1]}`"
-                    @click="placeBet(dot.key)"
-                />
-                <div
-                    v-for="dot in streetMarkers"
-                    :key="dot.key"
-                    class="rl-dot street"
-                    :style="{ left: `${dot.x}px`, top: `${dot.y}px` }"
-                    :title="`Street ${dot.key.split(':')[1]}`"
-                    @click="placeBet(dot.key)"
-                />
-                <div
-                    v-for="dot in lineMarkers"
-                    :key="dot.key"
-                    class="rl-dot line"
-                    :style="{ left: `${dot.x}px`, top: `${dot.y}px` }"
-                    :title="`Line ${dot.key.split(':')[1]}`"
-                    @click="placeBet(dot.key)"
-                />
-
                 <!-- chips: rendered after the layout so they always sit on top of it,
                      with pointer-events off so a second click reaches the cell below
                      and raises the bet instead of hitting the chip pile. -->
@@ -537,15 +516,33 @@ function buildWheelSvg(size: number): string {
                     </span>
                 </div>
 
-                <div
-                    class="rl-actions"
-                    :style="{ top: `${BUTTON_ROW_TOP}px`, left: `${BETTING_LEFT + BETTING_WIDTH / 2}px` }"
-                >
-                    <button class="lb-tile lb-tile-amber" :disabled="!isBettingOpen" @click="repeatBet">
-                        REPEAT BET
-                    </button>
-                    <button class="lb-tile lb-tile-slate" :disabled="!isBettingOpen || !hasOwnBet" @click="undoBet">
-                        UNDO LAST BET
+                <LiveTableBetBar
+                    :can-repeat="isBettingOpen"
+                    :can-scale="isBettingOpen"
+                    :can-undo="isBettingOpen && hasOwnBet"
+                    :can-clear="isBettingOpen && hasOwnBet"
+                    @repeat="repeatBet"
+                    @scale="scaleBet"
+                    @undo="undoBet"
+                    @clear="clearBets"
+                />
+
+                <div class="lt-panel lt-panel-l">
+                    <span class="lt-panel-label">Your bets this round</span>
+                    <span class="lt-panel-value">{{ formatNumber(yourTotal) }}</span>
+                </div>
+
+                <div class="lt-panel lt-panel-r rl-panel-start">
+                    <span class="lt-panel-label">{{ Number(state?.watching ?? 0) }} watching</span>
+                    <button
+                        class="lb-tile lb-tile-green rl-vote-btn"
+                        :disabled="!canVoteStart"
+                        :title="votes.length ? `Voted: ${votes.map(v => v.name).join(', ')}` : ''"
+                        @click="voteStart"
+                    >
+                        <template v-if="hasVoted">VOTED</template>
+                        <template v-else>START EARLY</template>
+                        <span v-if="votesTotal > 1" class="rl-vote-count">({{ votes.length }}/{{ votesTotal }})</span>
                     </button>
                 </div>
 
@@ -599,7 +596,9 @@ function buildWheelSvg(size: number): string {
     display: flex;
     flex-direction: column;
     gap: 12px;
-    height: min(820px, calc(100vh - 140px));
+    /* Matches .lt-stage-wrap's own sizing so the rail grows with the felt
+       rather than leaving it looking small next to a taller table. */
+    height: min(1100px, calc(100vh - 84px));
 }
 .rl-rail > :first-child { flex: 2; min-height: 0; }
 .rl-rail > :last-child { flex: 1; min-height: 0; }
@@ -620,7 +619,7 @@ function buildWheelSvg(size: number): string {
     color: #f7f3e8;
     border: 1px solid rgba(217, 177, 103, 0.35);
     box-sizing: border-box;
-    font-size: 19px;
+    font-size: 21px;
     cursor: pointer;
     user-select: none;
     z-index: 2;
@@ -629,7 +628,7 @@ function buildWheelSvg(size: number): string {
 .rl-cell.red { background: rgba(176, 32, 46, 0.88); }
 .rl-cell.black { background: rgba(15, 18, 24, 0.88); }
 .rl-cell.green { background: rgba(13, 99, 54, 0.88); }
-.rl-cell.outside { background: rgba(217, 177, 103, 0.14); font-size: 14px; }
+.rl-cell.outside { background: rgba(217, 177, 103, 0.14); font-size: 15px; }
 .rl-cell.zero { border-radius: 10px 0 0 10px; }
 
 .rl-diamond {
@@ -650,19 +649,6 @@ function buildWheelSvg(size: number): string {
     transition: opacity 0.2s;
 }
 .rl-layout.closed { opacity: 0.55; }
-
-.rl-dot {
-    position: absolute;
-    width: 20px;
-    height: 20px;
-    margin: -10px 0 0 -10px;
-    border-radius: 999px;
-    background: rgba(247, 243, 232, 0.18);
-    border: 1.5px solid rgba(217, 177, 103, 0.55);
-    cursor: pointer;
-    z-index: 3;
-}
-.rl-dot:hover { background: rgba(247, 243, 232, 0.55); }
 
 .lt-rules {
     position: absolute;
@@ -799,34 +785,9 @@ function buildWheelSvg(size: number): string {
 .rl-legend-dot { width: 10px; height: 10px; border-radius: 999px; display: inline-block; }
 .rl-legend-empty { font-size: 12px; color: #9a8f7a; }
 
-.rl-actions {
-    position: absolute;
-    transform: translateX(-50%);
-    display: flex;
-    gap: 16px;
-}
-.rl-actions .lb-tile { width: 190px; }
-
-/* Ported from LiveBlackjackGame's own button treatment for visual parity. */
-.lb-tile {
-    padding: 0.7rem 0.5rem;
-    border-radius: 0.75rem;
-    border-width: 2px;
-    border-style: solid;
-    font-size: 0.85rem;
-    font-weight: 800;
-    letter-spacing: 0.05em;
-    color: #f8fafc;
-    backdrop-filter: blur(6px);
-    text-shadow: 0 1px 3px rgb(0 0 0 / 0.7);
-    transition: transform 0.12s ease, filter 0.12s ease;
-    cursor: pointer;
-}
-.lb-tile:hover:not(:disabled) { transform: translateY(-2px); filter: brightness(1.3); }
-.lb-tile:active:not(:disabled) { transform: translateY(1px); }
-.lb-tile:disabled { opacity: 0.32; cursor: not-allowed; }
-.lb-tile-amber { background: rgb(245 158 11 / 0.28); border-color: rgb(251 191 36 / 0.75); }
-.lb-tile-slate { background: rgb(100 116 139 / 0.3); border-color: rgb(148 163 184 / 0.7); }
+.rl-panel-start { align-items: stretch; }
+.rl-vote-btn { width: 100%; box-sizing: border-box; text-align: center; }
+.rl-vote-count { display: block; font-size: 0.7rem; font-weight: 700; opacity: 0.85; margin-top: 2px; }
 
 .rl-result { text-align: center; padding: 0.5rem 0 1rem; }
 .rl-result-label { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--ui-text-muted); margin-bottom: 0.75rem; }

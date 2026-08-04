@@ -61,12 +61,14 @@ export class RouletteTable extends LiveTable<RouletteSeatState, RouletteSharedSt
 
     protected gameState(): RouletteSharedState {
         const bets: RouletteFeltBet[] = []
+        const waiting = this.everyone().filter(p => !p.leaving)
         for (const player of this.everyone()) {
             for (const [key, amount] of Object.entries(player.game.bets)) {
                 bets.push({ userId: player.userId, name: player.name, color: colorForPlayer(player.userId), key, amount })
             }
         }
-        return { lastNumbers: this.history, result: this.result, bets }
+        const votes = waiting.filter(p => p.votedStart).map(p => ({ userId: p.userId, name: p.name }))
+        return { lastNumbers: this.history, result: this.result, bets, votes, votesTotal: waiting.length }
     }
 
     private async registerPlayer(userId: string): Promise<LtPlayer<RouletteSeatState>> {
@@ -80,8 +82,8 @@ export class RouletteTable extends LiveTable<RouletteSeatState, RouletteSharedSt
         return this.join(userId, row.name, row.emblem)
     }
 
-    /** Stakes one bet and logs it, shared by a direct bet and each leg of a repeat. */
-    private async placeSingleBet(player: LtPlayer<RouletteSeatState>, key: string, amount: number) {
+    /** Stakes one bet and logs it, shared by a direct bet and each leg of a repeat or scale. */
+    private async placeSingleBet(player: LtPlayer<RouletteSeatState>, key: string, amount: number): Promise<string> {
         await this.stake(player, amount, 'bet')
         const wagerId = player.wagerIds[player.wagerIds.length - 1]!
         const log = this.betLog.get(player.userId) ?? []
@@ -95,6 +97,41 @@ export class RouletteTable extends LiveTable<RouletteSeatState, RouletteSharedSt
             kind: 'game',
             payload: { type: 'bet', name: player.name, color: colorForPlayer(player.userId), key, amount }
         })
+        return wagerId
+    }
+
+    /**
+     * Reverses one leg placed by placeSingleBet — the shared undo behind the
+     * UNDO button, CLEAR, a halving scale tearing up its old stakes, and the
+     * rollback below when a repeat or scale-up fails partway through.
+     */
+    private async retractBet(player: LtPlayer<RouletteSeatState>, wagerId: string) {
+        const log = this.betLog.get(player.userId) ?? []
+        const idx = log.findIndex(l => l.wagerId === wagerId)
+        if (idx === -1) return
+        const [entry] = log.splice(idx, 1)
+        this.betLog.set(player.userId, log)
+        player.wagerIds = player.wagerIds.filter(id => id !== wagerId)
+        const remaining = round4((player.game.bets[entry!.key] ?? 0) - entry!.amount)
+        if (remaining > 0) player.game.bets[entry!.key] = remaining
+        else delete player.game.bets[entry!.key]
+        await this.refund(player.userId, [wagerId])
+    }
+
+    /**
+     * Applies every leg of a repeat or a scale-up as one unit. A leg that fails
+     * partway — a limit crossed, balance spent by another table in between —
+     * unwinds every leg already staked, so a round never carries half the
+     * intended bet.
+     */
+    private async placeBetSet(player: LtPlayer<RouletteSeatState>, entries: { key: string, amount: number }[]) {
+        const placed: string[] = []
+        try {
+            for (const { key, amount } of entries) placed.push(await this.placeSingleBet(player, key, amount))
+        } catch (error) {
+            for (const wagerId of placed) await this.retractBet(player, wagerId)
+            throw error
+        }
     }
 
     private validateBet(key: string, rawAmount: unknown): number {
@@ -107,18 +144,24 @@ export class RouletteTable extends LiveTable<RouletteSeatState, RouletteSharedSt
     }
 
     protected async onAction(userId: string, action: RouletteAction) {
-        if (action.type !== 'bet' && action.type !== 'undo' && action.type !== 'repeat') fail('Unknown action')
         if (this.phase !== 'idle' && this.phase !== 'betting') fail('Betting is closed')
 
         if (action.type === 'undo') {
             const player = this.requirePlayer(userId)
-            const last = this.betLog.get(userId)?.pop()
+            const last = this.betLog.get(userId)?.at(-1)
             if (!last) fail('Nothing to undo')
-            player.wagerIds = player.wagerIds.filter(id => id !== last.wagerId)
-            const remaining = round4((player.game.bets[last.key] ?? 0) - last.amount)
-            if (remaining > 0) player.game.bets[last.key] = remaining
-            else delete player.game.bets[last.key]
-            await this.refund(userId, [last.wagerId])
+            await this.retractBet(player, last.wagerId)
+            // A vote to start early was a promise made on the strength of a bet
+            // that no longer exists.
+            if (!Object.keys(player.game.bets).length) player.votedStart = false
+            return
+        }
+
+        if (action.type === 'clear') {
+            const player = this.requirePlayer(userId)
+            if (!player.wagerIds.length) fail('Nothing to clear')
+            for (const wagerId of [...player.wagerIds]) await this.retractBet(player, wagerId)
+            player.votedStart = false
             return
         }
 
@@ -127,10 +170,41 @@ export class RouletteTable extends LiveTable<RouletteSeatState, RouletteSharedSt
             if (!previous?.length) fail('No previous bet to repeat')
             const player = await this.registerPlayer(userId)
             if (this.phase === 'idle') this.onTableActive()
-            for (const { key, amount } of previous) await this.placeSingleBet(player, key, amount)
+            await this.placeBetSet(player, previous)
             return
         }
 
+        if (action.type === 'scale') {
+            const player = this.requirePlayer(userId)
+            const current = Object.entries(player.game.bets).map(([key, amount]) => ({ key, amount }))
+            const base = current.length ? current : this.lastRoundBets.get(userId)
+            if (!base?.length) fail('No bets to scale')
+
+            const scaled = base.map(({ key, amount }) => ({ key, amount: round4(amount * action.factor) }))
+            for (const { amount } of scaled) {
+                if (amount < this.config.minBet) fail(`Minimum bet is ${this.config.minBet}`)
+                if (amount > this.config.maxBet) fail(`Maximum bet is ${this.config.maxBet}`)
+            }
+
+            if (this.phase === 'idle') this.onTableActive()
+            if (!current.length) {
+                // Nothing at risk yet — sizing last round's slip up or down is a fresh stake.
+                await this.placeBetSet(player, scaled)
+            } else if (action.factor > 1) {
+                // Doubling what is already staked is staking the same amounts again —
+                // the escrow rows already down do not need to move for that.
+                await this.placeBetSet(player, current)
+            } else {
+                // Halving can only shrink a stake by tearing up its escrow rows and
+                // restaking the smaller total: there is no such thing as a partial
+                // refund of a single wager row.
+                for (const wagerId of [...player.wagerIds]) await this.retractBet(player, wagerId)
+                await this.placeBetSet(player, scaled)
+            }
+            return
+        }
+
+        if (action.type !== 'bet') fail('Unknown action')
         const amount = this.validateBet(action.key, action.amount)
         const player = await this.registerPlayer(userId)
         // Before staking, so the very first bet of a fresh round is recorded
@@ -142,7 +216,19 @@ export class RouletteTable extends LiveTable<RouletteSeatState, RouletteSharedSt
     protected onTableActive() {
         this.roundId++
         this.message = 'Place your bets'
+        this.clearVotes()
         this.advance('betting', BETTING_MS)
+    }
+
+    /**
+     * A bet is the entry fee for a vote — otherwise a table full of watchers
+     * could deal a round nobody staked anything on.
+     */
+    override voteStart(userId: string) {
+        const player = this.requirePlayer(userId)
+        if (this.phase !== 'betting') fail('Betting is closed')
+        if (!Object.keys(player.game.bets).length) fail('Place a bet first')
+        super.voteStart(userId)
     }
 
     protected onPhaseEnd(phase: string): void | Promise<void> {

@@ -11,7 +11,7 @@ import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { and, eq } from 'drizzle-orm'
 import { db } from '#server/database'
 import { tableWagers } from '#server/database/schema'
-import { getBalance } from '#server/utils/balance'
+import { debit, getBalance } from '#server/utils/balance'
 import { RouletteTable } from '#server/utils/live-table/roulette'
 import { resolveBets } from '#shared/utils/roulette/resolve'
 import type { RouletteSeatState } from '#shared/utils/roulette/types'
@@ -51,6 +51,14 @@ async function undo(table: TestRouletteTable, userId: string) {
 
 async function repeat(table: TestRouletteTable, userId: string) {
     await table.run(() => table.action(userId, { type: 'repeat' }))
+}
+
+async function scale(table: TestRouletteTable, userId: string, factor: 0.5 | 2) {
+    await table.run(() => table.action(userId, { type: 'scale', factor }))
+}
+
+async function clear(table: TestRouletteTable, userId: string) {
+    await table.run(() => table.action(userId, { type: 'clear' }))
 }
 
 async function endPhase(table: TestRouletteTable, phase: string) {
@@ -217,5 +225,92 @@ describe.skipIf(SKIP)('RouletteTable', () => {
 
         expect(table.seatOf(USER_A)?.bets).toEqual({ 'straight:17': 100, red: 50 })
         expect(await getBalance(USER_A)).toBe((balanceAfterFirstRound - 150).toFixed(4))
+    })
+
+    it('doubles every current bet by staking the same amounts again', async () => {
+        await bet(table, USER_A, 'red', 100)
+        await bet(table, USER_A, 'black', 50)
+
+        await scale(table, USER_A, 2)
+
+        expect(table.seatOf(USER_A)?.bets).toEqual({ red: 200, black: 100 })
+        expect(await getBalance(USER_A)).toBe('9700.0000')
+    })
+
+    it('halves every current bet, refunding exactly the difference', async () => {
+        await bet(table, USER_A, 'red', 100)
+        await bet(table, USER_A, 'black', 50)
+
+        await scale(table, USER_A, 0.5)
+
+        expect(table.seatOf(USER_A)?.bets).toEqual({ red: 50, black: 25 })
+        expect(await getBalance(USER_A)).toBe('9925.0000')
+    })
+
+    it('refuses to halve a bet below the table minimum, leaving the slip untouched', async () => {
+        await bet(table, USER_A, 'red', 25)
+
+        await expect(scale(table, USER_A, 0.5)).rejects.toThrow(/minimum/i)
+
+        expect(table.seatOf(USER_A)?.bets).toEqual({ red: 25 })
+        expect(await getBalance(USER_A)).toBe('9975.0000')
+    })
+
+    it('scales last round\'s bet when nothing is staked yet this round', async () => {
+        await bet(table, USER_A, 'red', 100)
+        await endPhase(table, 'betting')
+        await endPhase(table, 'nomorebets')
+        await endPhase(table, 'spinning')
+        await endPhase(table, 'payout')
+
+        const balanceAfterFirstRound = Number(await getBalance(USER_A))
+        await scale(table, USER_A, 2)
+
+        expect(table.seatOf(USER_A)?.bets).toEqual({ red: 200 })
+        expect(await getBalance(USER_A)).toBe((balanceAfterFirstRound - 200).toFixed(4))
+    })
+
+    it('rejects scale with no current or previous bet to size', async () => {
+        // Registered but empty, rather than never having bet at all, so the
+        // failure exercises the "nothing to scale" check and not "not at this table".
+        await bet(table, USER_A, 'red', 100)
+        await undo(table, USER_A)
+
+        await expect(scale(table, USER_A, 2)).rejects.toThrow(/no bets to scale/i)
+    })
+
+    it('clears every staked bet and refunds all of it', async () => {
+        await bet(table, USER_A, 'red', 100)
+        await bet(table, USER_A, 'black', 50)
+
+        await clear(table, USER_A)
+
+        expect(table.seatOf(USER_A)?.bets).toEqual({})
+        expect(await getBalance(USER_A)).toBe('10000.0000')
+    })
+
+    it('rejects clear with nothing staked', async () => {
+        await bet(table, USER_A, 'red', 100)
+        await undo(table, USER_A)
+
+        await expect(clear(table, USER_A)).rejects.toThrow(/nothing to clear/i)
+    })
+
+    it('rolls back every leg of a repeat that runs out of balance partway through', async () => {
+        await bet(table, USER_A, 'red', 60)
+        await bet(table, USER_A, 'black', 60)
+        await endPhase(table, 'betting')
+        await endPhase(table, 'nomorebets')
+        await endPhase(table, 'spinning')
+        await endPhase(table, 'payout')
+
+        // Enough for one leg of the 120 total repeat, not both.
+        const remaining = Number(await getBalance(USER_A))
+        await debit(USER_A, (remaining - 90).toFixed(4), 'test-drain')
+
+        await expect(repeat(table, USER_A)).rejects.toThrow(/insufficient/i)
+
+        expect(await getBalance(USER_A)).toBe('90.0000')
+        expect(table.seatOf(USER_A)?.bets).toEqual({})
     })
 })
