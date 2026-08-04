@@ -14,12 +14,24 @@ const SEAT_POS = [
     { x: 1392, y: 546 }
 ]
 
-const SPOT_DEFS: { key: BacBetKey, dx: number, r: number, chip: number, label: string }[] = [
-    { key: 'playerPair', dx: -126, r: 16, chip: 16, label: 'PR' },
-    { key: 'player', dx: -68, r: 36, chip: 26, label: 'PLAYER' },
-    { key: 'tie', dx: 0, r: 26, chip: 22, label: 'TIE' },
-    { key: 'banker', dx: 68, r: 36, chip: 26, label: 'BANKER' },
-    { key: 'bankerPair', dx: 126, r: 16, chip: 16, label: 'PR' }
+/**
+ * Player/Banker/Tie are the real bets and get the felt: r=40-44, sized to
+ * carry a full --lt-chip-size-spot (56px) chip legibly, the same scale Live
+ * Blackjack gives its one main spot. Player Pair/Banker Pair are demoted to
+ * small satellites tucked directly above their side's main spot rather than
+ * squeezed into the same row -- five same-size spots across 296px of seat
+ * spacing is what made the old layout unreadable.
+ *
+ * A label is only drawn inside the ring when it actually fits one; PLAYER,
+ * TIE and BANKER print below their spot instead; once a bet sits in the
+ * circle, the label would otherwise sit on top of the chip.
+ */
+const SPOT_DEFS: { key: BacBetKey, dx: number, dy: number, r: number, chip: number, label: string, labelBelow: boolean }[] = [
+    { key: 'playerPair', dx: -94, dy: -72, r: 20, chip: 20, label: 'PR', labelBelow: false },
+    { key: 'player', dx: -94, dy: 0, r: 44, chip: 56, label: 'PLAYER', labelBelow: true },
+    { key: 'tie', dx: 0, dy: 0, r: 40, chip: 48, label: 'TIE', labelBelow: true },
+    { key: 'banker', dx: 94, dy: 0, r: 44, chip: 56, label: 'BANKER', labelBelow: true },
+    { key: 'bankerPair', dx: 94, dy: -72, r: 20, chip: 20, label: 'PR', labelBelow: false }
 ]
 
 const SPOT_LABEL: Record<BacBetKey, string> = {
@@ -185,7 +197,7 @@ function clearBets() {
               }"
               :style="{
                 left: `${pos.x + def.dx}px`,
-                top: `${pos.y + 106}px`,
+                top: `${pos.y + 106 + def.dy}px`,
                 width: `${def.r * 2}px`,
                 height: `${def.r * 2}px`,
                 margin: `${-def.r}px 0 0 ${-def.r}px`,
@@ -193,12 +205,20 @@ function clearBets() {
               }"
               @click="canBetHere(seatAt(i)) && placeBet(def.key)"
             >
-              <span class="lt-spot-label" :style="{ fontSize: `${def.r >= 30 ? 11 : 9}px` }">{{ def.label }}</span>
+              <span v-if="!def.labelBelow" class="lt-spot-label" :style="{ fontSize: `${def.r >= 30 ? 11 : 9}px` }">{{ def.label }}</span>
               <div
                 v-if="seatAt(i)!.game.bets[def.key] > 0"
                 style="position:absolute;bottom:6px"
                 v-html="chipStack(seatAt(i)!.game.bets[def.key], { size: def.chip })"
               />
+            </div>
+            <div
+              v-for="def in SPOT_DEFS.filter(d => d.labelBelow)"
+              :key="`${def.key}-caption`"
+              class="bac-spot-caption"
+              :style="{ left: `${pos.x + def.dx}px`, top: `${pos.y + 106 + def.dy + def.r + 10}px` }"
+            >
+              {{ def.label }}
             </div>
             <div
               class="lt-plate"
@@ -300,7 +320,7 @@ function clearBets() {
       </LiveTableStage>
     </div>
 
-    <div class="flex h-[min(780px,calc(100vh-300px))] w-full shrink-0 flex-col gap-2 lg:w-80">
+    <div class="flex h-[min(820px,calc(100vh-140px))] w-full shrink-0 flex-col gap-2 lg:w-80">
       <LiveTableFeed :items="feed" title="Table feed" class="min-h-0 flex-[3]" />
       <LiveTableChat :messages="chat" class="min-h-0 flex-[4]" @send="table.chatSend($event)" />
       <LiveTableScoreboard :entries="state?.scoreboard ?? []" :you-id="youId" class="min-h-0 flex-[3]" />
@@ -397,6 +417,19 @@ function clearBets() {
   font-size: 14px;
   color: #f7f3e8;
   backdrop-filter: blur(4px);
+}
+
+.bac-spot-caption {
+  position: absolute;
+  transform: translate(-50%, 0);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  color: var(--lt-gold);
+  opacity: 0.85;
+  white-space: nowrap;
+  pointer-events: none;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
 }
 
 .bac-road-label {
