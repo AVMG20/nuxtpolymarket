@@ -15,8 +15,11 @@ import type { LtConfig, LtPlayer } from '#server/utils/live-table/table'
 import type { LtPayout } from '#shared/utils/live-table/types'
 import { SKIP, cleanupUser, seedUser } from '../setup/db-helpers'
 
-const USER_ID = 'test-live-table-user'
-const GAME = 'test-table-game'
+// Unique per run: several worktrees run this suite against the same local
+// Postgres at once, and a fixed id makes them collide on the seed insert.
+const RUN = crypto.randomUUID().slice(0, 8)
+const USER_ID = `test-live-table-user-${RUN}`
+const GAME = `test-table-game-${RUN}`
 
 interface SeatState {
     bet: number
