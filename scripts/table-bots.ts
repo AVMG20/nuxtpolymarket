@@ -18,6 +18,7 @@ import { eq, sql } from 'drizzle-orm'
 import { db } from '../server/database'
 import { user } from '../server/database/schema'
 import type { LtServerMessage, LtTableState } from '../shared/utils/live-table/types'
+import type { RouletteAction } from '../shared/utils/roulette/types'
 
 interface Args {
     game: string
@@ -72,6 +73,31 @@ export function registerStrategy(game: string, strategy: BotStrategy) {
 }
 
 const watchOnly: BotStrategy = { onState: () => undefined }
+
+/**
+ * A spread across bet types every fresh betting round: a straight number, an
+ * outside colour, and a dozen — enough to exercise every payout tier and the
+ * felt's chip stacking without hammering the socket every snapshot.
+ */
+const betRounds = new Map<string, number>()
+registerStrategy('roulette', {
+    onState(state, ctx) {
+        // An idle table has never rolled its first roundId — that first bet is
+        // what activates it, so idle counts as a biddable phase too.
+        if (state.phase !== 'betting' && state.phase !== 'idle') return undefined
+        if (betRounds.get(ctx.userId) === state.roundId) return undefined
+        betRounds.set(ctx.userId, state.roundId)
+
+        const straightNumber = (ctx.index * 7 + 3) % 37
+        const dozens = ['dozen:0', 'dozen:1', 'dozen:2']
+        const actions: RouletteAction[] = [
+            { type: 'bet', key: `straight:${straightNumber}`, amount: 25 },
+            { type: 'bet', key: ctx.index % 2 === 0 ? 'red' : 'black', amount: 50 },
+            { type: 'bet', key: dozens[ctx.index % 3]!, amount: 100 }
+        ]
+        return actions
+    }
+})
 
 async function signIn(base: string, email: string, name: string): Promise<string> {
     const body = JSON.stringify({ email, password: PASSWORD, name })
