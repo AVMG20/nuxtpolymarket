@@ -40,16 +40,16 @@ export interface ItemType {
 // This keeps late-tier income climbing by roughly 2.3-3x per tier instead
 // of leaving T4 flat and then jumping almost 6x at T5.
 export const ITEM_TYPES: ItemType[] = [
-  { id: 'silk', name: 'Silk Scrap', emoji: '🧵', tier: 1, sellValue: 22.3125 },
-  { id: 'loam', name: 'Rich Loam', emoji: '🧱', tier: 1, sellValue: 62.475 },
-  { id: 'chitin', name: 'Chitin Shard', emoji: '🦴', tier: 2, sellValue: 167.34375 },
-  { id: 'shell_fragment', name: 'Shell Fragment', emoji: '🐚', tier: 2, sellValue: 223.125 },
-  { id: 'resin', name: 'Amber Resin', emoji: '🟠', tier: 3, sellValue: 669.375 },
-  { id: 'pheromone', name: 'Pheromone Vial', emoji: '🧪', tier: 3, sellValue: 1071 },
-  { id: 'venom', name: 'Venom Sac', emoji: '☠️', tier: 4, sellValue: 2454.375 },
-  { id: 'carapace', name: 'Hardened Carapace', emoji: '🛡️', tier: 4, sellValue: 3793.125 },
-  { id: 'ember_dust', name: 'Ember Dust', emoji: '🔥', tier: 5, sellValue: 12_495 },
-  { id: 'royal_jelly', name: 'Royal Jelly', emoji: '🍯', tier: 6, sellValue: 40_162.5 }
+  { id: 'silk', name: 'Silk Scrap', emoji: '🧵', tier: 1, sellValue: 13.3875 },
+  { id: 'loam', name: 'Rich Loam', emoji: '🧱', tier: 1, sellValue: 37.485 },
+  { id: 'chitin', name: 'Chitin Shard', emoji: '🦴', tier: 2, sellValue: 100.40625 },
+  { id: 'shell_fragment', name: 'Shell Fragment', emoji: '🐚', tier: 2, sellValue: 133.875 },
+  { id: 'resin', name: 'Amber Resin', emoji: '🟠', tier: 3, sellValue: 401.625 },
+  { id: 'pheromone', name: 'Pheromone Vial', emoji: '🧪', tier: 3, sellValue: 642.6 },
+  { id: 'venom', name: 'Venom Sac', emoji: '☠️', tier: 4, sellValue: 1472.625 },
+  { id: 'carapace', name: 'Hardened Carapace', emoji: '🛡️', tier: 4, sellValue: 2275.875 },
+  { id: 'ember_dust', name: 'Ember Dust', emoji: '🔥', tier: 5, sellValue: 7497 },
+  { id: 'royal_jelly', name: 'Royal Jelly', emoji: '🍯', tier: 6, sellValue: 24_097.5 }
 ]
 
 export function getItem(id: string): ItemType | undefined {
