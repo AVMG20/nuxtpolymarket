@@ -364,9 +364,18 @@
     backdrop-filter: blur(4px);
     white-space: nowrap;
 }
-.lt-betbar .lb-tile { min-width: 108px; }
+/* Fixed height rather than padding-driven: the ½ and 2× glyphs are set larger
+   than the word buttons beside them and would otherwise sit taller. */
+.lt-betbar .lb-tile {
+    min-width: 108px;
+    height: 48px;
+    padding: 0 18px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
 /* Reads as a maths operator, so the glyphs stay unambiguous next to REPEAT. */
-.lt-betbar .op { font-size: 24px; letter-spacing: 0.02em; }
+.lt-betbar .op { font-size: 24px; line-height: 1; letter-spacing: 0.02em; }
 
 /* The two panels flanking the rack. */
 .lt-panel {
@@ -432,6 +441,7 @@
     border-color: rgb(148 163 184 / 0.7);
     backdrop-filter: blur(6px);
     text-shadow: 0 1px 3px rgb(0 0 0 / 0.7);
+    cursor: pointer;
     transition: transform 0.12s ease, filter 0.12s ease;
 }
 .lb-tile:hover:not(:disabled) { transform: translateY(-2px); filter: brightness(1.3); }
