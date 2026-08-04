@@ -179,14 +179,14 @@ function clearBets() {
 
         <template v-for="(pos, i) in SEAT_POS" :key="i">
           <div
-            v-if="!seatAt(i)"
-            class="lt-plate bac-sit"
-            :style="{ left: `${pos.x}px`, top: `${pos.y + 226}px` }"
+            v-if="!seatAt(i) && !mySeat"
+            class="lt-sit"
+            :style="{ left: `${pos.x}px`, top: `${pos.y + 106}px` }"
             @click="table.sit(i)"
           >
-            <span class="nm">SIT HERE</span>
+            <span class="lbl">SIT</span>
           </div>
-          <template v-else>
+          <template v-if="seatAt(i)">
             <div
               v-for="def in SPOT_DEFS"
               :key="def.key"
@@ -329,25 +329,6 @@ function clearBets() {
 </template>
 
 <style scoped>
-.bac-sit {
-  cursor: pointer;
-  justify-content: center;
-  border-style: dashed;
-  opacity: 0.65;
-  transition: opacity 0.15s ease, border-color 0.15s ease;
-}
-.bac-sit:hover {
-  opacity: 1;
-  border-color: var(--lt-gold);
-}
-.bac-sit .nm {
-  flex: none;
-  text-align: center;
-  width: 100%;
-  letter-spacing: 0.08em;
-  font-size: 12px;
-}
-
 .bac-bet-readout {
   position: absolute;
   left: 50%;

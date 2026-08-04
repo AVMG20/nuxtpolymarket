@@ -212,7 +212,9 @@
     line-height: 1.15;
 }
 
-/* Sit prompt drawn at every empty seat, mirroring the Pixi table's SIT spot. */
+/* Sit prompt: an empty seat's whole betting cluster collapses into one big
+   invite, at the same +106 felt offset the main spots occupy once seated —
+   the DOM equivalent of scene.ts's own SIT circle. */
 .lt-sit {
     position: absolute;
     width: 124px;

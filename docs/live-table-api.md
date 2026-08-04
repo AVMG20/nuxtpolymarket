@@ -109,7 +109,7 @@ Art comes from `~/utils/live-table/art` — `cardFace(rank, suit)`, `cardBack()`
 geometry-exact ports of the Pixi table's own art.
 
 Furniture classes, all in `app/assets/css/live-table.css`: `lt-felt`, `lt-arc`, `lt-spot`
-(`.lit` `.you`), `lt-plate` (`.you`), `lt-badge` (`.win` `.lose` `.push` `.gold`), `lt-hand`
+(`.lit` `.you`), `lt-sit`, `lt-plate` (`.you`), `lt-badge` (`.win` `.lose` `.push` `.gold`), `lt-hand`
 (`.tight`), `lt-rack`, `lt-betbar`, `lt-panel` (`.lt-panel-l` `.lt-panel-r`), `lt-status`,
 `lt-phase`, `lt-rules`, `lt-strip`, `lt-overlay` (`.amber`), `lt-streak`, `lt-stack`, `lt-mono`,
 and the `lb-tile` button family (`.lb-tile-green` `-blue` `-amber` `-yellow` `-red` `-slate`),
@@ -121,6 +121,10 @@ the current bet, or last round's when nothing is staked, and side bets scale wit
 `<LiveTableCorner>` (dimmed, collapsible top-left panel for paytables and roadmaps) and
 `<LiveTablePaytable>` (label / worked card example / odds — pass the odds through from your rules
 module so a printed payout can never drift from what the server pays).
+
+`lt-sit` is a big gold-ringed invite for an empty seat — render one at every free seat
+whenever the local player holds no seat, positioned at that seat's own coordinates
+(`+106`, same offset as the main spot), and hide all of them once the player sits.
 
 Rail panels: `<LiveTableChat>`, `<LiveTableFeed>`, `<LiveTableScoreboard>`.
 
