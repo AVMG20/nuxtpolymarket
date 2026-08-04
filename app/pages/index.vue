@@ -99,6 +99,14 @@ const casinoGames = [
     to: '/games/roulette',
     gradient: 'from-red-950 to-slate-900',
     iconColor: 'text-red-400'
+  },
+  {
+    name: 'Baccarat',
+    description: 'Punto banco off a shared six-deck shoe — five seats, fixed drawing rules, zero decisions',
+    icon: 'i-lucide-diamond',
+    to: '/games/baccarat',
+    gradient: 'from-rose-950 to-slate-900',
+    iconColor: 'text-rose-400'
   }
 ]
 
