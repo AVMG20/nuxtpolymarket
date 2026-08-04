@@ -91,12 +91,18 @@ const table = useLiveTable<SeatState, SharedState, RouletteAction>('roulette')
 </LiveTableStage>
 ```
 
-**The stage is a real 1600×1120 coordinate space.** Position everything in those coordinates; the
-stage scales itself to fit. This is the same space `scene.ts` uses, so a layout transfers between
-this and the Pixi blackjack table without being re-derived.
+**The stage is a real 1720×1200 coordinate space.** Position everything in those coordinates; the
+stage scales itself to fit. It started as `scene.ts`'s 1600×1120 and was widened to make room for
+the bet bar between the felt and the rack — felt y coordinates were left untouched so blackjack
+layouts still transfer; only x moved, scaled about the new centre 860 by `1672/1552`.
 
-Reference coordinates: seats `(208,546) (504,604) (800,630) (1096,604) (1392,546)`, bet spot at
-seat `+106`, hand at `−100`, nameplate at `+226`, dealer `(800,196)`, chip rack `y=1048`.
+Reference coordinates: seats `(222,546) (541,604) (860,630) (1179,604) (1498,546)`, bet spot at
+seat `+106`, hand at `−100`, nameplate at `+226`, dealer `(860,196)`, shoe `(1431,140)`, discard
+`(289,140)`, bet bar `y=968`, chip rack `(410,1052,900,116)`.
+
+Everything below the felt is the shared control band, and every table lays it out the same way:
+bet bar centred above the rack, the seat's own totals in `.lt-panel.lt-panel-l` at `(40,1052)`,
+and seat/watching/hints/leave in `.lt-panel.lt-panel-r` at `(1330,1052)`.
 
 Art comes from `~/utils/live-table/art` — `cardFace(rank, suit)`, `cardBack()`, `chip(value)`,
 `chipStack(amount, { size })`, `chipsFor(amount)`. **Never hand-draw a card or a chip**; these are
@@ -104,8 +110,17 @@ geometry-exact ports of the Pixi table's own art.
 
 Furniture classes, all in `app/assets/css/live-table.css`: `lt-felt`, `lt-arc`, `lt-spot`
 (`.lit` `.you`), `lt-plate` (`.you`), `lt-badge` (`.win` `.lose` `.push` `.gold`), `lt-hand`
-(`.tight`), `lt-rack`, `lt-phase`, `lt-rules`, `lt-strip`, `lt-overlay` (`.amber`), `lt-streak`,
-`lt-stack`, `lt-mono`. Chip size is `--lt-chip-size` (72px rack) and `--lt-chip-size-spot` (56px).
+(`.tight`), `lt-rack`, `lt-betbar`, `lt-panel` (`.lt-panel-l` `.lt-panel-r`), `lt-status`,
+`lt-phase`, `lt-rules`, `lt-strip`, `lt-overlay` (`.amber`), `lt-streak`, `lt-stack`, `lt-mono`,
+and the `lb-tile` button family (`.lb-tile-green` `-blue` `-amber` `-yellow` `-red` `-slate`),
+which every table uses so its controls read the same. Chip size is `--lt-chip-size` (96px rack),
+`--lt-chip-size-spot` (84px) and `--lt-chip-size-side` (64px for side-bet spots).
+
+In-stage components: `<LiveTableBetBar>` (repeat / ½ / 2× / undo / clear — halve and double act on
+the current bet, or last round's when nothing is staked, and side bets scale with the main bet),
+`<LiveTableCorner>` (dimmed, collapsible top-left panel for paytables and roadmaps) and
+`<LiveTablePaytable>` (label / worked card example / odds — pass the odds through from your rules
+module so a printed payout can never drift from what the server pays).
 
 Rail panels: `<LiveTableChat>`, `<LiveTableFeed>`, `<LiveTableScoreboard>`.
 

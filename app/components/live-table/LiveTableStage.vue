@@ -2,13 +2,12 @@
 import '~/assets/css/live-table.css'
 
 /**
- * The table surface every game shares: felt, rail, gold arcs, and the 1600x1120
+ * The table surface every game shares: felt, rail, gold arcs, and the 1720x1200
  * coordinate space furniture is positioned in.
  *
  * Games put their own absolutely-positioned elements in the default slot using
- * those coordinates directly — seats sit at (208,546) (504,604) (800,630)
- * (1096,604) (1392,546), the rack at y=1048 — so a layout transfers between
- * this and the Pixi blackjack scene without being re-derived.
+ * those coordinates directly — seats sit at (222,546) (541,604) (860,630)
+ * (1179,604) (1498,546), the bet bar at y=968 and the rack at y=1052.
  */
 withDefaults(defineProps<{ felt?: boolean }>(), { felt: true })
 
@@ -23,7 +22,7 @@ onMounted(() => {
     if (!wrap.value) return
     observer = new ResizeObserver(([entry]) => {
         const width = entry?.contentRect.width ?? 0
-        if (width > 0) scale.value = width / 1600
+        if (width > 0) scale.value = width / 1720
     })
     observer.observe(wrap.value)
 })
