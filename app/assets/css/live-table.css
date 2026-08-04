@@ -1,0 +1,341 @@
+/* Live-table chrome — shared felt/stage/furniture for the DOM-rendered table
+   games (crash, roulette, baccarat, ...), ported from a verified mockup kit
+   that itself ports app/utils/live-blackjack/scene.ts and the real .lb-tile
+   buttons. Not registered in nuxt.config's global css — import it, same as
+   hack.css, from the page or component that needs it.
+
+   The fixed felt/rail/gold palette is intentionally NOT tied to the user's
+   Nuxt UI theme: this is the one casino-table look shared by every game,
+   independent of primary/neutral colour picks. Generic chrome (borders, win/
+   loss/urgent accents) does track the theme via var(--ui-*). */
+
+.lt-table {
+    --lt-felt: #0f5132;
+    --lt-felt-edge: #0a3a24;
+    --lt-rail: #3b2416;
+    --lt-rail-edge: #1c1109;
+    --lt-gold: #d9b167;
+    --lt-table-bg: #120c08;
+    --lt-shell: #0b0806;
+
+    /* Deliberately larger than the old blackjack table's chips — the brief's
+       whole point is that those read too small. */
+    --lt-chip-size: 72px;
+    --lt-chip-size-spot: 56px;
+}
+
+.lt-mono {
+    font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+    font-variant-numeric: tabular-nums;
+}
+
+/* ---- the table stage ---------------------------------------------------- */
+
+/*
+ * The stage is a real 1600x1120 coordinate space, matching scene.ts, scaled to
+ * fit by the wrapper. Furniture is positioned in those coordinates — seats at
+ * (208,546) (504,604) (800,630) (1096,604) (1392,546), rack at y=1048 — so a
+ * layout reads the same here as in the Pixi table and transfers between them
+ * without re-deriving anything. Percentages would not do: a chip, a card and a
+ * label all have to scale by the same factor as the felt, and font sizes do not
+ * follow a percentage box.
+ *
+ * The wrapper is height-driven so the whole table fits a 1080p screen with the
+ * right sidebar visible and no vertical scroll. `width: fit-content` is what
+ * makes aspect-ratio compute width from height on a block box.
+ */
+.lt-stage-wrap {
+    position: relative;
+    height: min(780px, calc(100vh - 300px));
+    aspect-ratio: 1600 / 1120;
+    width: fit-content;
+    max-width: 100%;
+    margin-inline: auto;
+    overflow: hidden;
+    border-radius: 24px;
+    background: var(--lt-table-bg);
+    box-shadow: inset 0 0 0 1px var(--ui-border);
+}
+
+.lt-stage {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 1600px;
+    height: 1120px;
+    transform-origin: top left;
+    /* Set by LiveTableStage's ResizeObserver. CSS cannot derive it: scale()
+       needs a unitless ratio and calc() will not divide a length by a length. */
+    transform: scale(var(--lt-scale, 1));
+}
+
+/*
+ * Felt geometry, straight out of scene.ts drawFelt() in stage pixels:
+ *   rail      roundRect(24, 34, 1552, 920, 190)
+ *   feltEdge  roundRect(46, 56, 1508, 876, 172)
+ *   felt      roundRect(54, 64, 1492, 860, 166)
+ * The two inner layers are offset from the rail's own box, not the stage.
+ */
+.lt-felt {
+    position: absolute;
+    left: 24px;
+    top: 34px;
+    width: 1552px;
+    height: 920px;
+    border-radius: 190px;
+    background: var(--lt-rail);
+    box-shadow: 0 0 0 3px var(--lt-rail-edge);
+}
+.lt-felt::before {
+    content: '';
+    position: absolute;
+    left: 22px;
+    top: 22px;
+    width: 1508px;
+    height: 876px;
+    border-radius: 172px;
+    background: var(--lt-felt-edge);
+}
+.lt-felt::after {
+    content: '';
+    position: absolute;
+    left: 30px;
+    top: 30px;
+    width: 1492px;
+    height: 860px;
+    border-radius: 166px;
+    background: radial-gradient(ellipse at 50% 38%, #14663f 0%, var(--lt-felt) 46%, #0c4128 100%);
+    box-shadow: inset 0 0 90px rgba(0, 0, 0, 0.5);
+}
+/* Anything laid on the felt goes in here so it sits above the ::after layer. */
+.lt-felt-inner {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+}
+
+/* The two gold arcs the real felt draws inside the rail. */
+.lt-arc {
+    position: absolute;
+    left: 84px;
+    top: 94px;
+    width: 1432px;
+    height: 800px;
+    border-radius: 156px;
+    border: 3px solid rgba(217, 177, 103, 0.35);
+    pointer-events: none;
+}
+.lt-arc.inner {
+    left: 104px;
+    top: 114px;
+    width: 1392px;
+    height: 760px;
+    border-radius: 146px;
+    border-width: 1.5px;
+    border-color: rgba(217, 177, 103, 0.2);
+}
+
+.lt-rules {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 19px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    color: var(--lt-gold);
+}
+
+/* ---- felt furniture ------------------------------------------------------ */
+
+/* Bet spot: circle r48 gold/.4 + inner r41 gold/.22 (scene.ts drawFelt) */
+.lt-spot {
+    position: absolute;
+    width: 96px;
+    height: 96px;
+    margin: -48px 0 0 -48px;
+    border-radius: 999px;
+    border: 2.5px solid rgba(217, 177, 103, 0.4);
+    display: grid;
+    place-items: center;
+}
+.lt-spot::before {
+    content: '';
+    position: absolute;
+    inset: 7px;
+    border-radius: 999px;
+    border: 1px solid rgba(217, 177, 103, 0.22);
+}
+.lt-spot.lit { border-color: var(--lt-gold); box-shadow: 0 0 22px rgba(217, 177, 103, 0.45); }
+.lt-spot.you { border-color: var(--ui-success); box-shadow: 0 0 0 4px color-mix(in srgb, var(--ui-success) 25%, transparent); }
+.lt-spot-label {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 13px;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    color: var(--lt-gold);
+    opacity: 0.8;
+    text-align: center;
+    line-height: 1.15;
+}
+
+/* Nameplate: roundRect(-116, -25, 232, 50, 12), shell/.86 + gold/.4 */
+.lt-plate {
+    position: absolute;
+    width: 232px;
+    height: 50px;
+    margin-left: -116px;
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--lt-shell) 86%, transparent);
+    border: 1.5px solid rgba(217, 177, 103, 0.4);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 10px;
+}
+.lt-plate .nm {
+    font-size: 15px;
+    font-weight: 700;
+    color: #f7f3e8;
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.lt-plate.you .nm { color: var(--lt-gold); }
+.lt-plate .net { font-size: 14px; font-weight: 800; }
+.lt-plate .net.up { color: var(--ui-success); }
+.lt-plate .net.down { color: var(--ui-error); }
+.lt-streak {
+    background: #d97706;
+    border: 1.5px solid rgba(253, 230, 138, 0.9);
+    border-radius: 12px;
+    padding: 1px 7px;
+    font-size: 12px;
+    font-weight: 800;
+    color: #fff;
+}
+
+/* Result badge over a hand: roundRect(-w/2,-15,w,30,15) tone/.94 */
+.lt-badge {
+    position: absolute;
+    transform: translate(-50%, -50%);
+    border-radius: 15px;
+    padding: 5px 13px;
+    font-size: 15px;
+    font-weight: 800;
+    letter-spacing: 0.03em;
+    background: color-mix(in srgb, var(--lt-shell) 94%, transparent);
+    border: 2px solid rgba(217, 177, 103, 0.9);
+    color: #f7f3e8;
+    white-space: nowrap;
+}
+.lt-badge.win { background: color-mix(in srgb, var(--ui-success) 94%, transparent); border-color: #fff; color: #052e16; }
+.lt-badge.lose { background: rgba(127, 29, 29, 0.94); border-color: rgba(248, 113, 113, 0.8); color: #fecaca; }
+.lt-badge.push { background: rgba(30, 41, 59, 0.94); border-color: rgba(148, 163, 184, 0.7); }
+.lt-badge.gold { background: var(--lt-gold); border-color: #fff; color: #1c1109; }
+
+/* Dealer/house caption strip: roundRect(x-104, y+26, 208, 16, 8) */
+.lt-strip {
+    position: absolute;
+    height: 16px;
+    border-radius: 8px;
+    background: #1b1009;
+    border: 2px solid rgba(217, 177, 103, 0.4);
+}
+
+/* Rack plate: roundRect(370, 994, 860, 108, 54) shell/.92 + gold/.35 */
+.lt-rack {
+    position: absolute;
+    left: 370px;
+    top: 994px;
+    width: 860px;
+    height: 108px;
+    border-radius: 54px;
+    background: color-mix(in srgb, var(--lt-shell) 92%, transparent);
+    border: 2px solid rgba(217, 177, 103, 0.35);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+}
+.lt-rack .lt-chip { width: var(--lt-chip-size); height: var(--lt-chip-size); cursor: pointer; }
+.lt-rack .sel { position: relative; }
+.lt-rack .sel::after {
+    content: '';
+    position: absolute;
+    inset: -5px;
+    border-radius: 999px;
+    box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.85), 0 0 18px 2px rgba(255, 255, 255, 0.45);
+}
+
+/* ---- cards --------------------------------------------------------------- */
+
+.lt-card {
+    display: block;
+    filter: drop-shadow(0 6px 10px rgba(0, 0, 0, 0.55));
+    border-radius: 9px;
+}
+/* Hands are laid out as an overlapping fan. */
+.lt-hand { position: absolute; display: flex; transform: translate(-50%, -50%); }
+/* Reveal has to clear the corner index, or a fanned hand hides its own ranks. */
+.lt-hand > * + * { margin-left: -50px; }
+.lt-hand.tight > * + * { margin-left: -70px; }
+
+.lt-stack { position: relative; display: inline-block; }
+.lt-stack .lt-chip { width: 100%; height: 100%; display: block; }
+
+/* ---- overlays and the phase/countdown banner ------------------------------ */
+
+.lt-overlay {
+    position: absolute;
+    border-radius: 12px;
+    background: rgba(0, 0, 0, 0.72);
+    backdrop-filter: blur(4px);
+    box-shadow: inset 0 0 0 1px var(--ui-border);
+    padding: 12px 14px;
+}
+.lt-overlay.amber { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ui-warning) 25%, transparent); background: rgba(0, 0, 0, 0.8); }
+.lt-overlay h4 {
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ui-warning);
+    border-bottom: 1px solid var(--ui-border);
+    padding-bottom: 6px;
+    margin-bottom: 8px;
+}
+
+.lt-phase {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    background: color-mix(in srgb, var(--lt-shell) 72%, transparent);
+    border: 1.5px solid rgba(217, 177, 103, 0.4);
+    border-radius: 999px;
+    padding: 6px 22px;
+    backdrop-filter: blur(4px);
+    white-space: nowrap;
+}
+.lt-phase .label {
+    font-size: 22px;
+    font-weight: 800;
+    letter-spacing: 0.14em;
+    color: var(--lt-gold);
+    text-shadow: 0 2px 8px rgba(0, 0, 0, 0.8);
+}
+.lt-phase .count {
+    font-size: 30px;
+    font-weight: 800;
+    color: var(--lt-gold);
+    font-family: ui-monospace, Menlo, monospace;
+    font-variant-numeric: tabular-nums;
+}
+.lt-phase .count.urgent { color: var(--ui-error); }
