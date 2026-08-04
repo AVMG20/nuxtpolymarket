@@ -13,9 +13,41 @@ untouched. Every branch below is local.
 | `feature/live-three-card-poker` | `../pnx-three-card-poker` | 3203 |
 | `feature/live-casino-holdem` | `../pnx-casino-holdem` | 3204 |
 
-The foundation branch is the parent of all four. Merge it into a game branch to pick up shared
-fixes; the only file that ever conflicts is `app/assets/css/live-table.css`, and the foundation
-copy is the one to keep.
+The foundation branch is the parent of all four. Shared files are **copied** from the foundation
+checkout into each worktree rather than merged — `app/assets/css/live-table.css` is edited by
+every game and merging it conflicts every time. The foundation copy is always the one to keep.
+
+## The shared control band (round four)
+
+The stage coordinate space changed from **1600x1120 to 1720x1200**. Height alone could not pay
+for the bet bar: the wrapper is width-driven off a height budget, so a taller coordinate space at
+a fixed viewport height renders everything *smaller*. Width had to grow with it to hold the aspect
+roughly constant — which is also the "make the table slightly wider" the review asked for, since
+the page had ~100px of unused width beside the stage.
+
+Migration rule: **felt y coordinates are unchanged**; x scales about the new centre,
+`x_new = round(860 + (x_old - 800) * 1.0773)`. Landmarks: seats (222,546) (541,604) (860,630)
+(1179,604) (1498,546), bet bar y=968, rack (410,1052,900,116), panels (40,1052) and (1330,1052),
+shoe (1431,140), discard (289,140).
+
+Every table now lays the area under the felt out identically — bet bar centred above the chip
+rack, the seat's own totals left of them, seat/watching/hints/leave to the right:
+
+- `LiveTableBetBar` — REPEAT / ½ / 2× / UNDO / CLEAR. Halve and double act on the current bet, or
+  on last round's when nothing is staked yet; side bets scale with the main bet. Enforced
+  server-side through the escrow path, never `credit`/`debit`.
+- `LiveTableCorner` — top-left panel for paytables and roadmaps. Dimmed to 55%, collapsed by
+  default, `z-index: 6` so it clears the cards.
+- `LiveTablePaytable` — label / worked card example / odds, red suits in red, after the reference
+  photo of a real side-bet panel. Games pass odds read from their own rules module.
+- `.lb-tile` promoted out of `LiveBlackjackGame`'s scoped block, sized in stage pixels, so all
+  four tables share one button rule instead of four copies that drifted.
+- Chips up from 72/56 to `--lt-chip-size: 96px`, `--lt-chip-size-spot: 84px`, and a new
+  `--lt-chip-size-side: 64px`.
+- `.lt-stage-wrap` is width-driven off the height budget. Fixing the height and letting
+  `fit-content` find the width let the two disagree on a narrow column: the height held while the
+  width, and the scale derived from it, shrank, leaving dead space under a table that never grew
+  into its own box.
 
 ## Done and committed
 
@@ -67,7 +99,33 @@ limit hit. **The work is on disk and is not lost, but none of it has been screen
 
 Verify each with `bun run typecheck` and `bun run test` before trusting it.
 
-## Outstanding review feedback
+## Rounds three and four — applied, awaiting visual sign-off
+
+All four games are migrated to the shared control band and all four servers are up with two bots
+each on 3201-3204. Everything in the two lists below this section has been applied; they are kept
+as the record of what was asked for. Nothing has been signed off by the human yet.
+
+Bugs the round found, both real and both pre-existing:
+
+- **`CH_AA_TABLE` was missing its "Two pair" row** while `aaPayMultiplier` paid two pair at 7:1 —
+  the AA bonus was paying a hand the printed paytable never listed. Found only because
+  `LiveTablePaytable` takes its odds from the rules module instead of hardcoded display values.
+- **Roulette's `repeat` applied partially.** If the balance ran out partway through re-staking a
+  slip it left the earlier legs staked. Now rolls back every leg on failure, and that rollback is
+  covered by a test.
+
+Known gaps, all reported honestly by the agents rather than found later:
+
+- Hold'em's ½ button was never clicked in a live browser (betting closed too fast); same code path
+  as 2×, unit-tested but not seen end to end.
+- No table has been checked at a full five seats, or at any viewport other than ~1920 wide.
+- Card deal/discard animations were confirmed to land on the right coordinates at each phase
+  boundary, but never captured mid-motion.
+- Roulette's layout was re-derived within the new felt rather than transformed coordinate by
+  coordinate — its component computes geometry parametrically, so the migration formula did not
+  apply mechanically.
+
+## The feedback these rounds were working from
 
 **Roulette**
 - **The ball lands exactly between two pockets every round** — a systematic half-pocket offset. It
