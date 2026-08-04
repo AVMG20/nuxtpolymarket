@@ -17,8 +17,10 @@
 import { eq, sql } from 'drizzle-orm'
 import { db } from '../server/database'
 import { user } from '../server/database/schema'
-import type { LtServerMessage, LtTableState } from '../shared/utils/live-table/types'
+import type { BacAction, BacSeatState, BacSharedState } from '../shared/utils/baccarat/types'
+import type { LtServerMessage, LtSeat, LtTableState } from '../shared/utils/live-table/types'
 import type { RouletteAction } from '../shared/utils/roulette/types'
+import { randomChance, randomInt } from '../shared/utils/random'
 
 interface Args {
     game: string
@@ -184,6 +186,33 @@ async function runBot(args: Args, index: number) {
 
     return ws
 }
+
+/**
+ * Sits, bets a plausible spread across Player/Banker/Tie (with an occasional
+ * pair side bet) and repeats every round -- "repeats" needs no extra state
+ * here, since a fresh round always clears every seat's bets back to zero.
+ */
+registerStrategy('baccarat', {
+    onState(rawState, ctx) {
+        const state = rawState as unknown as LtTableState<BacSeatState, BacSharedState>
+        if (ctx.seat === null || state.phase !== 'betting') return
+
+        const seat = state.seats[ctx.seat] as LtSeat<BacSeatState> | null
+        if (!seat || Object.values(seat.game.bets).some(amount => amount > 0)) return
+
+        const unit = 25 * randomInt(1, 8)
+        const actions: BacAction[] = []
+        const roll = randomInt(1, 100)
+        if (roll <= 45) actions.push({ kind: 'bet', spot: 'player', amount: unit })
+        else if (roll <= 90) actions.push({ kind: 'bet', spot: 'banker', amount: unit })
+        else actions.push({ kind: 'bet', spot: 'tie', amount: Math.max(5, Math.round(unit / 4)) })
+
+        if (randomChance(0.25)) actions.push({ kind: 'bet', spot: 'playerPair', amount: Math.max(5, Math.round(unit / 5)) })
+        if (randomChance(0.25)) actions.push({ kind: 'bet', spot: 'bankerPair', amount: Math.max(5, Math.round(unit / 5)) })
+
+        return actions
+    }
+})
 
 const args = parseArgs()
 console.log(`Seating ${args.bots} bot(s) at ${args.game} on port ${args.port}`)
