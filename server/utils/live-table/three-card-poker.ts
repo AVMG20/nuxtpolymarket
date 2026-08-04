@@ -1,6 +1,6 @@
 import { LtShoe } from '#server/utils/live-table/shoe'
 import { LiveTable, fail, round4, type LtConfig, type LtPlayer } from '#server/utils/live-table/table'
-import { LB_MAX_BET, LB_MIN_BET } from '#shared/utils/live-blackjack/chips'
+import { LB_MIN_BET } from '#shared/utils/live-blackjack/chips'
 import { dealerQualifies, evaluateHand, type TcpCard, type TcpHand } from '#shared/utils/three-card-poker/hand'
 import { resolveHand } from '#shared/utils/three-card-poker/payouts'
 import type {
@@ -47,7 +47,8 @@ export class ThreeCardPokerTable extends LiveTable<TcpSeatState, TcpSharedState,
         game: 'three-card-poker',
         seats: 5,
         minBet: LB_MIN_BET,
-        maxBet: LB_MAX_BET,
+        // No table maximum by design; the player's own balance is the ceiling.
+        maxBet: Number.MAX_SAFE_INTEGER,
         disconnectGrace: TIMERS.disconnectGrace,
         disconnectGraceIdle: TIMERS.disconnectGraceIdle
     }
@@ -162,7 +163,6 @@ export class ThreeCardPokerTable extends LiveTable<TcpSeatState, TcpSharedState,
 
         const seat = player.game
         const next = (spot === 'ante' ? seat.pendingAnte : seat.pendingPairPlus) + amount
-        if (next > this.config.maxBet) fail('Over the table maximum')
         // Playing costs a second ante, so the seat has to be able to cover both
         // or it is committing to a bet it will be unable to finish.
         const committed = seat.pendingAnte * 2 + seat.pendingPairPlus
@@ -221,7 +221,6 @@ export class ThreeCardPokerTable extends LiveTable<TcpSeatState, TcpSharedState,
         const nextAnte = round4(baseAnte * factor)
         const nextPairPlus = basePairPlus ? round4(basePairPlus * factor) : 0
         if (nextAnte < this.config.minBet) fail('Below the table minimum')
-        if (nextAnte > this.config.maxBet || nextPairPlus > this.config.maxBet) fail('Over the table maximum')
         if (nextAnte * 2 + nextPairPlus > player.balanceHint) fail('Not enough chips')
 
         this.clearBet(player)
