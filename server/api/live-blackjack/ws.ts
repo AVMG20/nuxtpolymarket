@@ -35,7 +35,7 @@ export default defineWebSocketHandler({
         }
 
         const [row] = await db
-            .select({ name: user.name, emblem: user.emblem, balance: user.balance })
+            .select({ name: user.name, emblem: user.emblem, prestige: user.prestige, balance: user.balance })
             .from(user)
             .where(eq(user.id, session.user.id))
             .limit(1)
@@ -49,7 +49,7 @@ export default defineWebSocketHandler({
         if (!isUserConnected(session.user.id)) {
             broadcast({ t: 'event', kind: 'watch', name: row.name, joined: true })
         }
-        addPeer(peer, { userId: session.user.id, name: row.name, emblem: row.emblem })
+        addPeer(peer, { userId: session.user.id, name: row.name, emblem: row.emblem, prestige: row.prestige })
         sendTo(peer, {
             t: 'you',
             userId: session.user.id,
@@ -76,7 +76,7 @@ export default defineWebSocketHandler({
             await liveBlackjackTable.run(() => {
                 switch (data.t) {
                     case 'sit':
-                        return liveBlackjackTable.sit(info.userId, info.name, info.emblem, data.seat)
+                        return liveBlackjackTable.sit(info.userId, info.name, info.emblem, info.prestige, data.seat)
                     case 'leave':
                         return liveBlackjackTable.leave(info.userId)
                     case 'bet':

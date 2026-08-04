@@ -7,6 +7,7 @@ interface ChatMessage {
   userId: string
   name: string
   emblem: string | null
+  prestige: number
   content: string
   createdAt: string
 }
@@ -687,7 +688,7 @@ function deleteMessage(id: string) {
             :data-msg-id="m.id"
           >
             <div class="flex items-start gap-2">
-              <ProfileEmblem :emblem="m.emblem" :name="m.name" class="mt-0.5 size-7 text-[10px]" />
+              <ProfileEmblem :emblem="m.emblem" :name="m.name" :prestige="m.prestige" class="mt-0.5 size-7 text-[10px]" />
               <div class="min-w-0 flex-1">
                 <div class="flex items-baseline gap-2">
                   <span

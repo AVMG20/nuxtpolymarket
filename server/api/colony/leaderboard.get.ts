@@ -16,7 +16,7 @@ export default defineEventHandler(async (event) => {
 
     const userIds = states.map(state => state.userId)
     const [users, bugs, items, upgrades, research] = await Promise.all([
-        db.select({ id: user.id, name: user.name }).from(user).where(inArray(user.id, userIds)),
+        db.select({ id: user.id, name: user.name, prestige: user.prestige }).from(user).where(inArray(user.id, userIds)),
         db.select({ userId: colonyBugs.userId, typeId: colonyBugs.typeId, inTerrarium: colonyBugs.inTerrarium }).from(colonyBugs).where(inArray(colonyBugs.userId, userIds)),
         db.select({ userId: colonyItems.userId, itemTypeId: colonyItems.itemTypeId, quantity: colonyItems.quantity }).from(colonyItems).where(inArray(colonyItems.userId, userIds)),
         db.select({ userId: colonyUpgrades.userId, level: colonyUpgrades.level }).from(colonyUpgrades).where(inArray(colonyUpgrades.userId, userIds)),
@@ -40,6 +40,7 @@ export default defineEventHandler(async (event) => {
             return {
                 isCurrentUser: state.userId === sessionUserId,
                 name: player.name,
+                prestige: player.prestige,
                 habitatLevel: state.habitatLevel,
                 bugCount: playerBugs.length,
                 placedBugCount: playerBugs.filter(bug => bug.inTerrarium).length,

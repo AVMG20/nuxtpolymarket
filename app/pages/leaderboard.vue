@@ -3,6 +3,7 @@ interface LeaderboardUser {
   isCurrentUser: boolean
   name: string
   emblem: string | null
+  prestige: number
   balance: string
   bankBalance: number
   gems: number
@@ -95,7 +96,7 @@ function openDetails(user: LeaderboardUser) {
               </td>
               <td class="px-3 py-3">
                 <div class="flex items-center gap-2.5">
-                  <ProfileEmblem :emblem="u.emblem" :name="u.name" class="size-9 text-sm" />
+                  <ProfileEmblem :emblem="u.emblem" :name="u.name" :prestige="u.prestige" class="size-9 text-sm" />
                   <p class="max-w-40 truncate font-semibold">{{ u.name }}</p>
                   <LeaderboardYouBadge :show="u.isCurrentUser" />
                 </div>
@@ -150,7 +151,8 @@ function openDetails(user: LeaderboardUser) {
       <template v-if="selectedUser" #body>
         <div class="space-y-5">
           <div class="flex items-center gap-3">
-            <ProfileEmblem :emblem="selectedUser.emblem" :name="selectedUser.name" class="size-12 text-lg" />
+            <ProfileEmblem :emblem="selectedUser.emblem" :name="selectedUser.name" :prestige="selectedUser.prestige" class="size-12 text-lg" />
+            <PrestigeBadge :level="selectedUser.prestige" size="md" />
             <p class="min-w-0 truncate font-semibold">{{ selectedUser.name }}</p>
           </div>
 

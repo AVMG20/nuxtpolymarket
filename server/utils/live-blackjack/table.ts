@@ -60,6 +60,7 @@ interface SeatState extends LbSeat {
 interface ScoreRecord {
     name: string
     emblem: string | null
+    prestige: number
     net: number
     winStreak: number
     lastNet: number | null
@@ -194,7 +195,7 @@ class LiveBlackjackTable {
         return this.activeSeats().filter(s => s.hands.length > 0)
     }
 
-    async sit(userId: string, name: string, emblem: string | null, index: number) {
+    async sit(userId: string, name: string, emblem: string | null, prestige: number, index: number) {
         if (!Number.isInteger(index) || index < 0 || index >= LB_RULES.seats) fail('Invalid seat')
         const existing = this.seatOf(userId)
         if (existing) {
@@ -220,6 +221,7 @@ class LiveBlackjackTable {
             userId,
             name,
             emblem,
+            prestige,
             connected: true,
             pendingBet: 0,
             pendingSide: noSideBets(),
@@ -247,6 +249,7 @@ class LiveBlackjackTable {
         this.scores.set(userId, {
             name,
             emblem,
+            prestige,
             net: record?.net ?? 0,
             winStreak: record?.winStreak ?? 0,
             lastNet: record?.lastNet ?? null,
@@ -1027,6 +1030,7 @@ class LiveBlackjackTable {
                 userId,
                 name: r.name,
                 emblem: r.emblem,
+                prestige: r.prestige,
                 net: r.net,
                 winStreak: r.winStreak,
                 seated: seated.has(userId),
@@ -1041,6 +1045,7 @@ class LiveBlackjackTable {
             userId: seat.userId,
             name: seat.name,
             emblem: seat.emblem,
+            prestige: seat.prestige,
             connected: seat.connected,
             leaving: seat.leaving,
             votedStart: seat.votedStart,

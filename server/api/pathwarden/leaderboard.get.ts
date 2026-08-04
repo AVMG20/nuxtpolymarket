@@ -9,6 +9,7 @@ export default defineEventHandler(async (event) => {
         userId: pathwardenState.userId,
         name: user.name,
         emblem: user.emblem,
+        prestige: user.prestige,
         completedRealm: pathwardenState.highestCompletedRealm,
         bestRealm: pathwardenState.bestRealm,
         bestWave: pathwardenState.bestWave,

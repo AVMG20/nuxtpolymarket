@@ -17,6 +17,11 @@ export const user = pgTable('user', {
   rake: numeric('rake', { precision: 19, scale: 4 }).notNull().default('0'),
   rakebackUnlocked: boolean('rakeback_unlocked').notNull().default(false),
   gems: integer('gems').notNull().default(0),
+  // Account-wide reset tier, 0-4. Raised only by server/utils/prestige.ts,
+  // which wipes every game table in the same transaction.
+  prestige: integer('prestige').notNull().default(0),
+  // Paid out on each ascent (5/10/15/20) and spent in the prestige shop.
+  prestigeTokens: integer('prestige_tokens').notNull().default(0),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at')
     .defaultNow()
@@ -607,6 +612,31 @@ export const colonyBugResearch = pgTable('colony_bug_research', {
 }, t => [
   index('colony_bug_research_userId_idx').on(t.userId),
   unique('colony_bug_research_unique').on(t.typeId, t.userId)
+])
+
+// ─── Prestige shop ────────────────────────────────────────────────────────────
+
+/**
+ * How many times this run has bought each prestige shop item. One row per
+ * (user, item); missing means zero owned.
+ *
+ * This carries a `user_id` and is deliberately NOT on the prestige preserve
+ * list, so ascending wipes it along with everything else the tokens bought.
+ * That is what makes the token refund honest: the perks die in the same
+ * transaction that hands the allowance back (see server/utils/prestige.ts).
+ *
+ * Some items apply their effect once, at purchase (plants, bugs, agents,
+ * levels); others are read live from this count (the miner level ceilings,
+ * see minerRigMaxLevel). Both kinds vanish here.
+ */
+export const prestigePurchases = pgTable('prestige_purchases', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  itemId: text('item_id').notNull(),
+  count: integer('count').notNull().default(0)
+}, t => [
+  index('prestige_purchases_userId_idx').on(t.userId),
+  unique('prestige_purchases_unique').on(t.userId, t.itemId)
 ])
 
 // ─── Hack Ops ─────────────────────────────────────────────────────────────────

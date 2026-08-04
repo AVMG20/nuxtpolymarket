@@ -5,20 +5,23 @@ import { requireUserId } from '#server/utils/auth'
 import {
   vaultCap, rigUpgradeCost, vaultUpgradeCost,
   factoryCap, factoryUpgradeCost, computePending,
-  RIG_MAX_LEVEL, VAULT_MAX_LEVEL, FACTORY_MAX_LEVEL,
   lootboxSlotCost, LOOTBOX_MAX_SLOTS, lootboxExpectedValue, lootboxOpenPrice,
   effectiveRigIncome, effectiveFactoryRate, overclockMultiplier, catalystMultiplier,
   overclockUpgradeCost, catalystUpgradeCost, OVERCLOCK_MAX_LEVEL, CATALYST_MAX_LEVEL,
 } from '#shared/utils/miner-config'
 import { getGemGuidePrice } from '#server/utils/gem-exchange'
+import { getPrestigePurchaseCount } from '#server/utils/prestige-shop'
+import { minerFactoryMaxLevel, minerRigMaxLevel, minerVaultMaxLevel } from '#shared/utils/prestige-shop'
 
 export default defineEventHandler(async (event) => {
   const userId = await requireUserId(event)
 
-  const [currentUser, state, gemPrice] = await Promise.all([
+  const [currentUser, state, gemPrice, coreOwned] = await Promise.all([
     db.query.user.findFirst({ where: eq(user.id, userId), columns: { balance: true, gems: true } }),
     db.query.minerState.findFirst({ where: eq(minerState.userId, userId) }),
     getGemGuidePrice(),
+    // Deep Core Calibration raises all three ceilings for this run.
+    getPrestigePurchaseCount(userId, 'miner-core'),
   ])
 
   // Auto-create state on first visit
@@ -38,17 +41,17 @@ export default defineEventHandler(async (event) => {
   return {
     walletBalance: parseFloat(currentUser?.balance ?? '0'),
     rigLevel: s.rigLevel,
-    rigMaxLevel: RIG_MAX_LEVEL,
+    rigMaxLevel: minerRigMaxLevel(coreOwned),
     income,
     rigUpgradeCost: rigUpgradeCost(s.rigLevel),
     vaultLevel: s.vaultLevel,
-    vaultMaxLevel: VAULT_MAX_LEVEL,
+    vaultMaxLevel: minerVaultMaxLevel(coreOwned),
     cap,
     vaultUpgradeCost: vaultUpgradeCost(s.vaultLevel),
     pendingCash,
     lastCollectedAt: s.lastCollectedAt,
     factoryLevel: s.factoryLevel,
-    factoryMaxLevel: FACTORY_MAX_LEVEL,
+    factoryMaxLevel: minerFactoryMaxLevel(coreOwned),
     rate,
     gemCap,
     factoryUpgradeCost: factoryUpgradeCost(s.factoryLevel),

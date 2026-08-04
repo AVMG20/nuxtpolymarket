@@ -586,7 +586,7 @@ const starterPrompts = [
               :variant="message.role === 'user' ? 'soft' : 'naked'"
             >
               <template #leading>
-                <ProfileEmblem v-if="message.role === 'user'" :emblem="user?.emblem" :name="user?.name" class="size-8 text-xs" />
+                <ProfileEmblem v-if="message.role === 'user'" :emblem="user?.emblem" :name="user?.name" :prestige="user?.prestige" class="size-8 text-xs" />
                 <UAvatar v-else icon="i-lucide-bot" size="md" />
               </template>
               <template #content>
@@ -645,7 +645,7 @@ const starterPrompts = [
               variant="soft"
             >
               <template #leading>
-                <ProfileEmblem :emblem="user?.emblem" :name="user?.name" class="size-8 text-xs" />
+                <ProfileEmblem :emblem="user?.emblem" :name="user?.name" :prestige="user?.prestige" class="size-8 text-xs" />
               </template>
               <template #content>
                 <p class="whitespace-pre-wrap break-words leading-7">{{ pendingUserContent }}</p>

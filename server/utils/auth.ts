@@ -93,6 +93,18 @@ export const auth = betterAuth({
                 required: false,
                 input: false,
             },
+            prestige: {
+                type: 'number',
+                required: false,
+                defaultValue: 0,
+                input: false,
+            },
+            prestigeTokens: {
+                type: 'number',
+                required: false,
+                defaultValue: 0,
+                input: false,
+            },
         }
     }
 })

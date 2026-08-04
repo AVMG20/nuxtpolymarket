@@ -305,14 +305,14 @@ const visibleTrades = computed(() => {
 
 function tradeActor(trade: typeof visibleTrades.value[number]) {
   return trade.takerSide === 'sell'
-    ? { name: trade.sellerName, emblem: trade.sellerEmblem, action: 'sold to', mine: trade.iSold }
-    : { name: trade.buyerName, emblem: trade.buyerEmblem, action: 'bought from', mine: trade.iBought }
+    ? { name: trade.sellerName, emblem: trade.sellerEmblem, prestige: trade.sellerPrestige, action: 'sold to', mine: trade.iSold }
+    : { name: trade.buyerName, emblem: trade.buyerEmblem, prestige: trade.buyerPrestige, action: 'bought from', mine: trade.iBought }
 }
 
 function tradeCounterparty(trade: typeof visibleTrades.value[number]) {
   return trade.takerSide === 'sell'
-    ? { name: trade.buyerName, emblem: trade.buyerEmblem }
-    : { name: trade.sellerName, emblem: trade.sellerEmblem }
+    ? { name: trade.buyerName, emblem: trade.buyerEmblem, prestige: trade.buyerPrestige }
+    : { name: trade.sellerName, emblem: trade.sellerEmblem, prestige: trade.sellerPrestige }
 }
 
 // ---- Order book depth bars ----
@@ -757,10 +757,11 @@ const maxAskDepth = computed(() => Math.max(1, ...(data.value?.book.asks ?? []).
                 :key="order.id"
                 class="flex items-center gap-3 px-4 py-2.5 hover:bg-elevated/50 transition-colors"
             >
-              <ProfileEmblem :emblem="order.userEmblem" :name="order.userName" class="size-8 shrink-0" />
+              <ProfileEmblem :emblem="order.userEmblem" :name="order.userName" :prestige="order.userPrestige" class="size-8 shrink-0" />
 
               <div class="flex-1 min-w-0">
                 <div class="flex items-center gap-1.5 flex-wrap">
+                  <PrestigeBadge :level="order.userPrestige" size="xs" />
                   <span class="text-sm font-semibold truncate">{{ order.userName ?? 'Unknown' }}</span>
                   <UBadge v-if="order.mine" label="You" color="primary" variant="subtle" size="sm" />
                   <span class="text-sm font-semibold" :class="order.side === 'buy' ? 'text-success' : 'text-error'">
@@ -840,8 +841,8 @@ const maxAskDepth = computed(() => Math.max(1, ...(data.value?.book.asks ?? []).
                 class="flex items-center gap-3 px-4 py-2.5 hover:bg-elevated/50 transition-colors"
             >
               <div class="flex shrink-0 -space-x-2.5">
-                <ProfileEmblem :emblem="tradeActor(trade).emblem" :name="tradeActor(trade).name" class="size-8 ring-2 ring-(--ui-bg)" />
-                <ProfileEmblem :emblem="tradeCounterparty(trade).emblem" :name="tradeCounterparty(trade).name" class="size-8 ring-2 ring-(--ui-bg)" />
+                <ProfileEmblem :emblem="tradeActor(trade).emblem" :name="tradeActor(trade).name" :prestige="tradeActor(trade).prestige" class="size-8 ring-2 ring-(--ui-bg)" />
+                <ProfileEmblem :emblem="tradeCounterparty(trade).emblem" :name="tradeCounterparty(trade).name" :prestige="tradeCounterparty(trade).prestige" class="size-8 ring-2 ring-(--ui-bg)" />
               </div>
               <div class="flex-1 min-w-0">
                 <p class="text-sm truncate">
