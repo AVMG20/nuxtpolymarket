@@ -111,11 +111,21 @@
     background: radial-gradient(ellipse at 50% 38%, #14663f 0%, var(--lt-felt) 46%, #0c4128 100%);
     box-shadow: inset 0 0 90px rgba(0, 0, 0, 0.5);
 }
-/* Anything laid on the felt goes in here so it sits above the ::after layer. */
+/*
+ * Anything laid on the felt goes in here so it sits above the ::after layer.
+ *
+ * `pointer-events: none` is load-bearing, not tidiness. `.lt-stage` has a
+ * transform, so it opens a stacking context in which this z-index:1 layer
+ * paints above every control in the stage's slot — which all sit at z-index
+ * auto. Left clickable, this empty 1552x920 div swallowed every click on the
+ * felt: seats could not be taken and bets could not be placed, while the same
+ * actions worked fine over the socket.
+ */
 .lt-felt-inner {
     position: absolute;
     inset: 0;
     z-index: 1;
+    pointer-events: none;
 }
 
 /* The two gold arcs the real felt draws inside the rail. */
