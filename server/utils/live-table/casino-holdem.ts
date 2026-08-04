@@ -5,7 +5,6 @@ import { bestHand, evaluateFive } from '#shared/utils/casino-holdem/evaluator'
 import type { ChCard, ChHandValue } from '#shared/utils/casino-holdem/evaluator'
 import {
     CH_CALL_MULTIPLIER,
-    CH_MAX_BET,
     CH_MIN_BET,
     CH_TIMERS,
     dealerQualifies,
@@ -33,11 +32,13 @@ interface BetLog {
  * call-or-fold decision per seat, all of them on the same clock.
  */
 export class CasinoHoldemTable extends LiveTable<ChSeatState, ChSharedState, ChAction> {
+    // LtConfig still carries maxBet for the wire contract shared with other games;
+    // this table never reads it back — a player's own balance is the only ceiling.
     protected readonly config: LtConfig = {
         game: 'casino-holdem',
         seats: 5,
         minBet: CH_MIN_BET,
-        maxBet: CH_MAX_BET,
+        maxBet: Number.MAX_SAFE_INTEGER,
         disconnectGrace: 60_000,
         disconnectGraceIdle: 15_000
     }
@@ -165,7 +166,6 @@ export class CasinoHoldemTable extends LiveTable<ChSeatState, ChSharedState, ChA
         if (seat.pendingAnte + seat.pendingAa + amount > player.balanceHint) fail('Not enough chips')
 
         if (spot === 'ante') {
-            if (seat.pendingAnte + amount > CH_MAX_BET) fail('Table maximum reached')
             seat.pendingAnte += amount
         } else {
             if (seat.pendingAnte <= 0) fail('Place an ante first')
@@ -230,7 +230,6 @@ export class CasinoHoldemTable extends LiveTable<ChSeatState, ChSharedState, ChA
         const ante = round4(baseAnte * factor)
         const aa = round4(baseAa * factor)
         if (ante < this.config.minBet) fail('Below the table minimum')
-        if (ante > this.config.maxBet) fail('Table maximum reached')
         if (ante + aa > player.balanceHint) fail('Not enough chips')
 
         seat.pendingAnte = ante

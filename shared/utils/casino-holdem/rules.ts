@@ -6,6 +6,7 @@
 import { compareHands, rankValue } from './evaluator'
 import type { ChHandValue } from './evaluator'
 import type { ChOutcome } from './types'
+import { LB_MIN_BET } from '#shared/utils/live-blackjack/chips'
 
 export interface ChPayRow {
     label: string
@@ -35,8 +36,8 @@ export const CH_AA_TABLE: readonly ChPayRow[] = [
     { label: 'Pair of aces', pays: 7 }
 ]
 
-export const CH_MIN_BET = 25
-export const CH_MAX_BET = 1_000_000
+/** The floor is the smallest chip in the ladder — there is no table maximum. */
+export const CH_MIN_BET = LB_MIN_BET
 /** The call bet is fixed at twice the ante — there is nothing to size. */
 export const CH_CALL_MULTIPLIER = 2
 /** The dealer plays with a pair of fours or better. */

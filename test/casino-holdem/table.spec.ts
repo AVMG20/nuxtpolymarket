@@ -336,9 +336,14 @@ describe.skipIf(SKIP)("Casino Hold'em table", () => {
     it('refuses to scale below the table minimum or with nothing to scale', async () => {
         expect(() => table.action(ALICE, { t: 'scale', factor: 2 })).toThrow(/No bet to scale/)
 
-        await table.action(ALICE, { t: 'bet', spot: 'ante', amount: 25 })
+        await table.action(ALICE, { t: 'bet', spot: 'ante', amount: 1 })
         table.freeze()
         expect(() => table.action(ALICE, { t: 'scale', factor: 0.5 })).toThrow(/minimum/)
+    })
+
+    it('refuses a bet over the seat\'s own balance, with no table maximum to hit', async () => {
+        expect(() => table.action(ALICE, { t: 'bet', spot: 'ante', amount: 100_000_000_000 }))
+            .toThrow(/Not enough chips/)
     })
 
     it('deals nobody in when no ante is down', async () => {

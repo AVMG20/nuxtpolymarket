@@ -348,10 +348,10 @@ function badgeFor(seat: ChSeatState): { text: string, tone: string } | null {
           <span>{{ SLOT_LABEL[board.length + i - 1] }}</span>
         </div>
 
-        <div class="lt-rules" style="top: 372px">
+        <div class="lt-rules" style="top: 380px">
           DEALER QUALIFIES WITH A PAIR OF FOURS OR BETTER
         </div>
-        <div class="lt-phase" style="top: 398px">
+        <div class="lt-phase" style="top: 412px">
           <span class="label">{{ PHASE_LABEL[phase] ?? phase.toUpperCase() }}</span>
           <span v-if="countdown !== null" class="count" :class="{ urgent: countdown <= 5 }">{{ countdown }}</span>
         </div>
@@ -380,7 +380,7 @@ function badgeFor(seat: ChSeatState): { text: string, tone: string } | null {
               class="lt-hand"
               :style="{
                 left: `${spot.x}px`,
-                top: `${spot.y - 100}px`,
+                top: `${spot.y - 90}px`,
                 opacity: seats[index]!.game.decision === 'fold' ? 0.4 : 1
               }"
             >
@@ -423,7 +423,7 @@ function badgeFor(seat: ChSeatState): { text: string, tone: string } | null {
               class="ch-readout"
               :style="{
                 left: `${spot.x}px`,
-                top: `${spot.y + 52}px`,
+                top: `${spot.y + 202}px`,
                 opacity: seats[index]!.game.decision === 'fold' ? 0.55 : 1
               }"
             >
@@ -466,6 +466,13 @@ function badgeFor(seat: ChSeatState): { text: string, tone: string } | null {
                 class="ch-chips"
                 v-html="stackFor(seats[index]!.game.ante || seats[index]!.game.pendingAnte, CHIP_SPOT)"
               />
+            </div>
+            <div
+              v-if="seats[index]!.game.ante || seats[index]!.game.pendingAnte"
+              class="ch-bet-total"
+              :style="{ left: `${spot.x - 22}px`, top: `${spot.y + 56}px` }"
+            >
+              {{ formatNumber(seats[index]!.game.ante || seats[index]!.game.pendingAnte) }}
             </div>
 
             <div class="ch-spotlabel" :style="{ left: `${spot.x + 97}px`, top: `${spot.y + 70}px` }">
@@ -713,10 +720,29 @@ function badgeFor(seat: ChSeatState): { text: string, tone: string } | null {
   color: var(--ui-success);
 }
 
-/* Chips sit on the floor of a spot rather than centred, the way a real pile does. */
+/* The combined value of a chip stack — three 5K chips read as chips, not as 15K. */
+.ch-bet-total {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  white-space: nowrap;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--lt-shell) 88%, transparent);
+  border: 1.5px solid rgba(217, 177, 103, 0.55);
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--lt-gold);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Chips sit on the floor of a spot rather than centred, the way a real pile does.
+   Each chip in the stack carries its own z-index to layer above the one below it —
+   isolate contains that layering here, or it leaks past .lt-spot and climbs above
+   a later sibling like .ch-bet-total regardless of DOM order. */
 .ch-chips {
   position: absolute;
   bottom: 8px;
+  isolation: isolate;
 }
 
 .ch-spot-small {
