@@ -35,6 +35,7 @@ RUN bun add drizzle-kit@^0.31.10 drizzle-orm@^0.45.1 pg@^8.20.0 dotenv@^17
 COPY drizzle.config.ts ./
 COPY drizzle ./drizzle
 COPY server/database/schema.ts ./server/database/schema.ts
+COPY scripts/ensure-preview-db.ts ./scripts/ensure-preview-db.ts
 COPY --chmod=755 docker-entrypoint.sh ./
 COPY --from=builder /app/.output ./.output
 
