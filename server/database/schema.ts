@@ -428,6 +428,27 @@ export const liveBlackjackWagers = pgTable(
   table => [index('live_blackjack_wagers_settled_createdAt_idx').on(table.settled, table.createdAt)]
 )
 
+/**
+ * Escrow for every table game built on the shared LiveTable base — roulette,
+ * baccarat, three card poker, casino hold'em. Same contract as the blackjack
+ * table above, with a `game` column instead of a table per game, so one
+ * recovery sweep covers all of them.
+ */
+export const tableWagers = pgTable(
+  'table_wagers',
+  {
+    id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+    game: text('game').notNull(),
+    userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+    roundId: integer('round_id').notNull(),
+    amount: numeric('amount', { precision: 19, scale: 4 }).notNull(),
+    kind: text('kind').notNull(),
+    settled: boolean('settled').notNull().default(false),
+    createdAt: timestamp('created_at').defaultNow().notNull()
+  },
+  table => [index('table_wagers_settled_createdAt_idx').on(table.settled, table.createdAt)]
+)
+
 // ─── Xeno ──────────────────────────────────────────────────────────────────
 
 /**
