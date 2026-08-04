@@ -20,7 +20,9 @@ import { user } from '../server/database/schema'
 import type { BacAction, BacSeatState, BacSharedState } from '../shared/utils/baccarat/types'
 import type { LtServerMessage, LtSeat, LtTableState } from '../shared/utils/live-table/types'
 import type { RouletteAction } from '../shared/utils/roulette/types'
+import type { TcpAction, TcpSeatState } from '../shared/utils/three-card-poker/types'
 import { randomChance, randomInt } from '../shared/utils/random'
+import { shouldPlay } from '../shared/utils/three-card-poker/strategy'
 
 interface Args {
     game: string
@@ -98,6 +100,32 @@ registerStrategy('roulette', {
             { type: 'bet', key: dozens[ctx.index % 3]!, amount: 100 }
         ]
         return actions
+    }
+})
+
+// Snapshots arrive faster than a bot's own action lands in one, so acting off
+// the seat state alone would fire the same bet or decision several times.
+const acted = new Set<string>()
+const once = (key: string) => (acted.has(key) ? false : !!acted.add(key))
+
+registerStrategy('three-card-poker', {
+    onState(state, ctx) {
+        const seat = state.seats.find(s => s?.userId === ctx.userId) as LtSeat<TcpSeatState> | undefined
+        if (!seat) return
+
+        if (state.phase === 'betting' && once(`bet:${ctx.userId}:${state.roundId}`)) {
+            const ante = [500, 1_000, 2_500, 5_000][ctx.index % 4]!
+            const bets: TcpAction[] = [{ t: 'bet', spot: 'ante', amount: ante }]
+            // Only some bots take the side bet, so both paths get exercised.
+            if (ctx.index % 2 === 0) bets.push({ t: 'bet', spot: 'pairPlus', amount: ante / 5 })
+            return bets
+        }
+
+        if (state.phase === 'decision' && seat.game.cards.length === 3
+            && once(`act:${ctx.userId}:${state.roundId}`)) {
+            const cards = seat.game.cards.map(card => ({ rank: card.rank!, suit: card.suit! }))
+            return [{ t: 'decide', play: shouldPlay(cards) } satisfies TcpAction]
+        }
     }
 })
 
