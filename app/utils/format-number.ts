@@ -5,5 +5,12 @@ export default function (value: number | bigint | Intl.StringNumericLiteral, com
     maximumFractionDigits: 2
   })
 
-  return formatNumber(value)
+  const formatted = formatNumber(value)
+  if (!compact) return formatted
+
+  return formatted
+    .replace(/[\s\u00a0]*mln\.?/gi, 'm')
+    .replace(/[\s\u00a0]*mld\.?/gi, 'B')
+    .replace(/[\s\u00a0]*bln\.?/gi, 'T')
 }
+
