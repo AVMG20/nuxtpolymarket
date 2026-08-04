@@ -91,6 +91,14 @@ const casinoGames = [
     to: '/games/live-blackjack',
     gradient: 'from-emerald-950 to-slate-900',
     iconColor: 'text-emerald-400'
+  },
+  {
+    name: 'Roulette',
+    description: 'Single-zero European wheel — no seats, everyone bets the same layout',
+    icon: 'i-lucide-circle-dot',
+    to: '/games/roulette',
+    gradient: 'from-red-950 to-slate-900',
+    iconColor: 'text-red-400'
   }
 ]
 
