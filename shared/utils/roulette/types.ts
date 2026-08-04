@@ -1,6 +1,11 @@
 import type { PocketColor } from '#shared/utils/roulette/wheel'
 
-/** A player's current-round bet slip: bet key -> amount staked on it. */
+/**
+ * A player's current-round bet slip: bet key -> amount staked on it.
+ * Never reaches a client directly — a seatless table's `seats` array is
+ * always empty, so this only exists server-side. The client's view of who
+ * has bet what comes entirely from `RouletteSharedState.bets` below.
+ */
 export interface RouletteSeatState {
     bets: Record<string, number>
 }
@@ -22,10 +27,13 @@ export interface RouletteSharedState {
     bets: RouletteFeltBet[]
 }
 
-export type RouletteAction = { type: 'bet', key: string, amount: number }
+export type RouletteAction =
+    | { type: 'bet', key: string, amount: number }
+    | { type: 'undo' }
+    | { type: 'repeat' }
 
 /** One-shot events for the sidebar feed — the only place a roulette player's name appears. */
 export type RouletteGameEvent =
     | { type: 'bet', name: string, color: string, key: string, amount: number }
     | { type: 'spin', number: number, color: PocketColor }
-    | { type: 'result', winningNumber: number, results: { name: string, net: number }[] }
+    | { type: 'result', winningNumber: number, results: { userId: string, name: string, net: number }[] }

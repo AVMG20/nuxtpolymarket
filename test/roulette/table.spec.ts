@@ -14,6 +14,7 @@ import { tableWagers } from '#server/database/schema'
 import { getBalance } from '#server/utils/balance'
 import { RouletteTable } from '#server/utils/live-table/roulette'
 import { resolveBets } from '#shared/utils/roulette/resolve'
+import type { RouletteSeatState } from '#shared/utils/roulette/types'
 import { SKIP, cleanupUser, seedUser } from '../setup/db-helpers'
 
 const USER_A = 'test-roulette-user-a'
@@ -29,6 +30,10 @@ class TestRouletteTable extends RouletteTable {
         return this.phase
     }
 
+    seatOf(userId: string): RouletteSeatState | undefined {
+        return this.playerOf(userId)?.game
+    }
+
     // Cancels whatever real setTimeout the last advance() left running, so a
     // stale timer cannot fire into a closed database pool once the test ends.
     stop() {
@@ -38,6 +43,14 @@ class TestRouletteTable extends RouletteTable {
 
 async function bet(table: TestRouletteTable, userId: string, key: string, amount: number) {
     await table.run(() => table.action(userId, { type: 'bet', key, amount }))
+}
+
+async function undo(table: TestRouletteTable, userId: string) {
+    await table.run(() => table.action(userId, { type: 'undo' }))
+}
+
+async function repeat(table: TestRouletteTable, userId: string) {
+    await table.run(() => table.action(userId, { type: 'repeat' }))
 }
 
 async function endPhase(table: TestRouletteTable, phase: string) {
@@ -158,5 +171,51 @@ describe.skipIf(SKIP)('RouletteTable', () => {
         table.leave(USER_A)
 
         expect(table.currentPhase()).toBe('idle')
+    })
+
+    it('undoes the most recent bet and refunds exactly that stake', async () => {
+        await bet(table, USER_A, 'red', 100)
+        await bet(table, USER_A, 'black', 50)
+
+        await undo(table, USER_A)
+
+        expect(await getBalance(USER_A)).toBe('9900.0000')
+        expect(table.seatOf(USER_A)?.bets).toEqual({ red: 100 })
+    })
+
+    it('only undoes the amount of the last bet when the same spot was raised twice', async () => {
+        await bet(table, USER_A, 'red', 100)
+        await bet(table, USER_A, 'red', 50)
+
+        await undo(table, USER_A)
+
+        expect(await getBalance(USER_A)).toBe('9900.0000')
+        expect(table.seatOf(USER_A)?.bets).toEqual({ red: 100 })
+    })
+
+    it('rejects undo once every bet this round is already undone', async () => {
+        await bet(table, USER_A, 'red', 100)
+        await undo(table, USER_A)
+
+        await expect(undo(table, USER_A)).rejects.toThrow(/nothing to undo/i)
+    })
+
+    it('rejects repeat with no previous round to draw from', async () => {
+        await expect(repeat(table, USER_A)).rejects.toThrow(/no previous bet/i)
+    })
+
+    it('repeats the exact bet slip from the last round a player bet in', async () => {
+        await bet(table, USER_A, 'straight:17', 100)
+        await bet(table, USER_A, 'red', 50)
+        await endPhase(table, 'betting')
+        await endPhase(table, 'nomorebets')
+        await endPhase(table, 'spinning')
+        await endPhase(table, 'payout')
+
+        const balanceAfterFirstRound = Number(await getBalance(USER_A))
+        await repeat(table, USER_A)
+
+        expect(table.seatOf(USER_A)?.bets).toEqual({ 'straight:17': 100, red: 50 })
+        expect(await getBalance(USER_A)).toBe((balanceAfterFirstRound - 150).toFixed(4))
     })
 })
