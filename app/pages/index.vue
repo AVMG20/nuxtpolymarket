@@ -115,6 +115,14 @@ const casinoGames = [
     to: '/games/three-card-poker',
     gradient: 'from-rose-950 to-slate-900',
     iconColor: 'text-rose-400'
+  },
+  {
+    name: 'Casino Hold\'em',
+    description: 'Five seats, one board — call or fold your two cards against the dealer',
+    icon: 'i-lucide-club',
+    to: '/games/casino-holdem',
+    gradient: 'from-teal-950 to-slate-900',
+    iconColor: 'text-teal-400'
   }
 ]
 
