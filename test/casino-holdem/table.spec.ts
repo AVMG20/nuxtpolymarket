@@ -301,6 +301,46 @@ describe.skipIf(SKIP)("Casino Hold'em table", () => {
         expect(await getBalance(ALICE)).toBe('10000.0000')
     })
 
+    it('doubles or halves the layout, keeping the AA bonus proportional', async () => {
+        await table.action(ALICE, { t: 'bet', spot: 'ante', amount: 100 })
+        await table.action(ALICE, { t: 'bet', spot: 'aa', amount: 100 })
+        table.freeze()
+
+        await table.action(ALICE, { t: 'scale', factor: 2 })
+        table.freeze()
+        expect(table.seat(ALICE).pendingAnte).toBe(200)
+        expect(table.seat(ALICE).pendingAa).toBe(200)
+
+        await table.action(ALICE, { t: 'scale', factor: 0.5 })
+        table.freeze()
+        expect(table.seat(ALICE).pendingAnte).toBe(100)
+        expect(table.seat(ALICE).pendingAa).toBe(100)
+
+        expect(() => table.action(ALICE, { t: 'scale', factor: 3 })).toThrow(/Invalid bet scale/)
+    })
+
+    it('scales last round\'s bet when nothing is staked yet', async () => {
+        table.setStack('As 7d Qh Ks 2c 9h Ah 9c 4s 3d 6s')
+        await bet(ALICE, 100)
+        await bet(BOB, 100)
+        await playTo('settled')
+        await table.step('payout')
+        table.freeze()
+
+        expect(table.seat(ALICE).pendingAnte).toBe(0)
+        await table.action(ALICE, { t: 'scale', factor: 2 })
+        table.freeze()
+        expect(table.seat(ALICE).pendingAnte).toBe(200)
+    })
+
+    it('refuses to scale below the table minimum or with nothing to scale', async () => {
+        expect(() => table.action(ALICE, { t: 'scale', factor: 2 })).toThrow(/No bet to scale/)
+
+        await table.action(ALICE, { t: 'bet', spot: 'ante', amount: 25 })
+        table.freeze()
+        expect(() => table.action(ALICE, { t: 'scale', factor: 0.5 })).toThrow(/minimum/)
+    })
+
     it('deals nobody in when no ante is down', async () => {
         table.setStack('As 7d Qh Ks 2c 9h Ah 9c 4s 3d 6s')
         await table.step('betting')

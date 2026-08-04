@@ -45,7 +45,7 @@ const houseRules = [
 </script>
 
 <template>
-  <div class="mx-auto w-full max-w-[1500px] px-2 py-3 sm:px-4">
+  <div class="mx-auto w-full max-w-[1800px] px-2 py-3 sm:px-4">
     <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
       <div>
         <h1 class="flex items-center gap-2 text-xl font-bold text-highlighted sm:text-2xl">
@@ -71,7 +71,7 @@ const houseRules = [
     <ClientOnly>
       <CasinoHoldemGame />
       <template #fallback>
-        <div class="w-full animate-pulse rounded-2xl bg-elevated" style="aspect-ratio: 1600 / 1120;" />
+        <div class="w-full animate-pulse rounded-2xl bg-elevated" style="aspect-ratio: 1720 / 1200;" />
       </template>
     </ClientOnly>
 

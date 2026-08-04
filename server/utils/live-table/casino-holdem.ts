@@ -97,6 +97,7 @@ export class CasinoHoldemTable extends LiveTable<ChSeatState, ChSharedState, ChA
             case 'undo': return this.undoBet(player)
             case 'clear': return this.clearBet(player)
             case 'repeat': return this.repeatBet(player)
+            case 'scale': return this.scaleBet(player, Number(action.factor))
             case 'decide': return this.decide(player, action.decision)
             default: fail('Unknown action')
         }
@@ -206,6 +207,34 @@ export class CasinoHoldemTable extends LiveTable<ChSeatState, ChSharedState, ChA
 
         seat.pendingAnte = seat.lastAnte
         seat.pendingAa = seat.lastAa
+        this.betLog.set(player.userId, [])
+        this.maybeCutBetting()
+    }
+
+    /**
+     * Halve or double the layout. Scales whatever is already down; with nothing
+     * staked yet it scales last round's bet instead, so a player can size up
+     * before committing. The AA bonus rides the same factor as the ante, which
+     * keeps it inside its cap for free since it started there.
+     */
+    private scaleBet(player: LtPlayer<ChSeatState>, factor: number) {
+        if (this.phase !== 'betting') fail('Betting is closed')
+        if (factor !== 0.5 && factor !== 2) fail('Invalid bet scale')
+
+        const seat = player.game
+        const onLayout = seat.pendingAnte > 0
+        const baseAnte = onLayout ? seat.pendingAnte : seat.lastAnte
+        const baseAa = onLayout ? seat.pendingAa : seat.lastAa
+        if (baseAnte <= 0) fail('No bet to scale')
+
+        const ante = round4(baseAnte * factor)
+        const aa = round4(baseAa * factor)
+        if (ante < this.config.minBet) fail('Below the table minimum')
+        if (ante > this.config.maxBet) fail('Table maximum reached')
+        if (ante + aa > player.balanceHint) fail('Not enough chips')
+
+        seat.pendingAnte = ante
+        seat.pendingAa = aa
         this.betLog.set(player.userId, [])
         this.maybeCutBetting()
     }

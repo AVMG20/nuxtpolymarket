@@ -13,6 +13,11 @@ export const CARD_W = 112
 export const CARD_H = 156
 export const CHIP_R = 46
 
+/** Where the deal comes from and the discard pile collects to, in the table's
+ *  1720x1200 stage coordinates. */
+export const LT_SHOE_POS = { x: 1431, y: 140 }
+export const LT_DISCARD_POS = { x: 289, y: 140 }
+
 export const FELT = '#0f5132'
 export const FELT_EDGE = '#0a3a24'
 export const RAIL = '#3b2416'

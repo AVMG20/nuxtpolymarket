@@ -31,6 +31,7 @@ export const CH_AA_TABLE: readonly ChPayRow[] = [
     { label: 'Flush', pays: 20 },
     { label: 'Straight', pays: 7 },
     { label: 'Three of a kind', pays: 7 },
+    { label: 'Two pair', pays: 7 },
     { label: 'Pair of aces', pays: 7 }
 ]
 
@@ -47,7 +48,7 @@ export const CH_TIMERS = {
     bettingCut: 3_500,
     /** Beat after the deal so the hole cards and flop land before anyone acts. */
     deal: 2_400,
-    decision: 15_000,
+    decision: 22_000,
     /** The same beat once every seat has called or folded. */
     decisionCut: 800,
     board: 2_800,

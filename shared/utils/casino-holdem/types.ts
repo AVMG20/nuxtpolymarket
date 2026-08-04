@@ -44,4 +44,5 @@ export type ChAction =
     | { t: 'undo' }
     | { t: 'clear' }
     | { t: 'repeat' }
+    | { t: 'scale', factor: number }
     | { t: 'decide', decision: ChDecision }
