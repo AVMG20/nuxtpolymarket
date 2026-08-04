@@ -13,21 +13,9 @@ describe('ROULETTE_BETS catalog', () => {
         expect(getBet('straight:-1')).toBeUndefined()
     })
 
-    it('builds a split only between numbers that are actually adjacent on the felt', () => {
-        // 17 sits between 16/18 (horizontal) and 14/20 (vertical) on the grid.
-        expect(getBet('split:16-17')).toBeDefined()
-        expect(getBet('split:17-18')).toBeDefined()
-        expect(getBet('split:14-17')).toBeDefined()
-        expect(getBet('split:17-20')).toBeDefined()
-        // 1 and 36 are opposite corners of the board, never adjacent.
-        expect(getBet('split:1-36')).toBeUndefined()
-    })
-
-    it('gives zero splits only with the three numbers in the first column', () => {
-        expect(getBet('split:0-1')).toBeDefined()
-        expect(getBet('split:0-2')).toBeDefined()
-        expect(getBet('split:0-3')).toBeDefined()
-        expect(getBet('split:0-4')).toBeUndefined()
+    it('has no split bets — dropped from the catalog entirely', () => {
+        expect([...ROULETTE_BETS.values()].some(b => (b.type as string) === 'split')).toBe(false)
+        expect(getBet('split:16-17')).toBeUndefined()
     })
 
     it('groups a street as the three numbers in one grid column', () => {

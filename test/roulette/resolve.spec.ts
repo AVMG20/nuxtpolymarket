@@ -15,9 +15,10 @@ describe('resolveBets', () => {
         expect(result.bets[0]).toMatchObject({ won: false, payout: 0 })
     })
 
-    it('pays a split 17:1', () => {
+    it('no longer recognises a split key — dropped from the catalog', () => {
         const result = resolveBets([{ key: 'split:16-17', amount: 100 }], 17)
-        expect(result.totalPayout).toBe(1800)
+        expect(result.totalStaked).toBe(0)
+        expect(result.totalPayout).toBe(0)
     })
 
     it('pays a street 11:1', () => {
@@ -62,12 +63,6 @@ describe('resolveBets', () => {
 
     it('pays a straight bet on zero itself', () => {
         expect(resolveBets([{ key: 'straight:0', amount: 100 }], 0).totalPayout).toBe(3600)
-    })
-
-    it('a zero split pays out when zero hits', () => {
-        expect(resolveBets([{ key: 'split:0-1', amount: 100 }], 0).totalPayout).toBe(1800)
-        expect(resolveBets([{ key: 'split:0-1', amount: 100 }], 1).totalPayout).toBe(1800)
-        expect(resolveBets([{ key: 'split:0-1', amount: 100 }], 2).totalPayout).toBe(0)
     })
 
     it('settles every bet on the slip independently in one round', () => {

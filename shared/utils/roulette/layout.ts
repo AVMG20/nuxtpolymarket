@@ -1,14 +1,14 @@
 /**
  * The betting layout: the 3x12 number grid plus the outside boxes, expressed
  * as a catalog of every legal bet. A client-submitted bet key is checked
- * against this rather than trusted blindly — it is what stops a "split"
- * between two opposite corners of the board paying out on adjacency that
- * does not exist.
+ * against this rather than trusted blindly — it is what stops a "corner"
+ * between cells that are not actually adjacent from paying out on adjacency
+ * that does not exist.
  */
 import { RED_NUMBERS } from '#shared/utils/roulette/wheel'
 
 export type RouletteBetType =
-    | 'straight' | 'split' | 'street' | 'corner' | 'line'
+    | 'straight' | 'street' | 'corner' | 'line'
     | 'column' | 'dozen' | 'red' | 'black' | 'odd' | 'even' | 'low' | 'high'
 
 export interface RouletteBet {
@@ -21,7 +21,6 @@ export interface RouletteBet {
 /** Multiplier paid on top of the stake — a 35:1 win returns 36x the bet. */
 export const ROULETTE_PAYOUTS: Record<RouletteBetType, number> = {
     straight: 35,
-    split: 17,
     street: 11,
     corner: 8,
     line: 5,
@@ -70,25 +69,6 @@ function buildCatalog(): Map<string, RouletteBet> {
             const n = numberAt(row, col)
             add('straight', [n], `straight:${n}`)
         }
-    }
-
-    // Splits: adjacent cells horizontally and vertically, plus zero against
-    // the three numbers in the first column — the only splits it touches.
-    for (let row = 0; row < GRID_ROWS; row++) {
-        for (let col = 0; col < GRID_COLS - 1; col++) {
-            const numbers = [numberAt(row, col), numberAt(row, col + 1)]
-            add('split', numbers, `split:${betKey(numbers)}`)
-        }
-    }
-    for (let col = 0; col < GRID_COLS; col++) {
-        for (let row = 0; row < GRID_ROWS - 1; row++) {
-            const numbers = [numberAt(row, col), numberAt(row + 1, col)]
-            add('split', numbers, `split:${betKey(numbers)}`)
-        }
-    }
-    for (let row = 0; row < GRID_ROWS; row++) {
-        const numbers = [0, numberAt(row, 0)]
-        add('split', numbers, `split:${betKey(numbers)}`)
     }
 
     // Streets: the three numbers in one grid column.
@@ -150,7 +130,6 @@ const DOZEN_NAMES = ['1st', '2nd', '3rd']
 export function describeBet(bet: RouletteBet): string {
     switch (bet.type) {
         case 'straight': return `straight ${bet.numbers[0]}`
-        case 'split': return `split ${bet.numbers.join('-')}`
         case 'street': return `street ${bet.numbers.join('-')}`
         case 'corner': return `corner ${bet.numbers.join('-')}`
         case 'line': return `line ${bet.numbers.join('-')}`
