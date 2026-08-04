@@ -46,7 +46,11 @@
  */
 .lt-stage-wrap {
     position: relative;
-    height: min(780px, calc(100vh - 300px));
+    /* 100vh is already the viewport, so the only allowance needed is the page's
+       own chrome above the stage (~80px) plus breathing room under it — not the
+       browser's toolbars. Subtracting for those too left the table rendering
+       ~160px short of the space it had on a real 1080p screen. */
+    height: min(820px, calc(100vh - 140px));
     aspect-ratio: 1600 / 1120;
     width: fit-content;
     max-width: 100%;
