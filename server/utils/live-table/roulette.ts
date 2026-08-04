@@ -39,7 +39,8 @@ export class RouletteTable extends LiveTable<RouletteSeatState, RouletteSharedSt
         game: 'roulette',
         seats: 0,
         minBet: 25,
-        maxBet: 1_000_000,
+        // No table maximum by design; the player's own balance is the ceiling.
+        maxBet: Number.MAX_SAFE_INTEGER,
         disconnectGrace: 60_000,
         disconnectGraceIdle: 15_000
     }
@@ -139,7 +140,6 @@ export class RouletteTable extends LiveTable<RouletteSeatState, RouletteSharedSt
         if (!bet) fail('Invalid bet')
         const amount = round4(Number(rawAmount))
         if (!Number.isFinite(amount) || amount < this.config.minBet) fail(`Minimum bet is ${this.config.minBet}`)
-        if (amount > this.config.maxBet) fail(`Maximum bet is ${this.config.maxBet}`)
         return amount
     }
 
@@ -183,7 +183,6 @@ export class RouletteTable extends LiveTable<RouletteSeatState, RouletteSharedSt
             const scaled = base.map(({ key, amount }) => ({ key, amount: round4(amount * action.factor) }))
             for (const { amount } of scaled) {
                 if (amount < this.config.minBet) fail(`Minimum bet is ${this.config.minBet}`)
-                if (amount > this.config.maxBet) fail(`Maximum bet is ${this.config.maxBet}`)
             }
 
             if (this.phase === 'idle') this.onTableActive()
