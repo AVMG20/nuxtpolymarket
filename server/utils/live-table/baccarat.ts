@@ -31,7 +31,8 @@ export class BaccaratTable extends LiveTable<BacSeatState, BacSharedState, BacAc
         game: 'baccarat',
         seats: 5,
         minBet: 5,
-        maxBet: 1_000_000,
+        // No table maximum by design; the player's own balance is the ceiling.
+        maxBet: Number.MAX_SAFE_INTEGER,
         disconnectGrace: 60_000,
         disconnectGraceIdle: 15_000
     }
@@ -83,7 +84,6 @@ export class BaccaratTable extends LiveTable<BacSeatState, BacSharedState, BacAc
         if (!Number.isFinite(amount) || amount <= 0) fail('Invalid stake')
         if (amount < this.config.minBet) fail(`Minimum bet is ${this.config.minBet}`)
         const total = round4(player.game.bets[spot] + amount)
-        if (total > this.config.maxBet) fail(`Maximum bet is ${this.config.maxBet}`)
 
         await this.stake(player, amount, spot)
         player.game.bets[spot] = total
@@ -137,7 +137,6 @@ export class BaccaratTable extends LiveTable<BacSeatState, BacSharedState, BacAc
         for (const key of BAC_BET_KEYS) {
             if (target[key] <= 0) continue
             if (target[key] < this.config.minBet) fail(`Minimum bet is ${this.config.minBet}`)
-            if (target[key] > this.config.maxBet) fail(`Maximum bet is ${this.config.maxBet}`)
         }
         const balance = Number(await getBalance(player.userId))
         if (total > balance) fail('Not enough balance')
