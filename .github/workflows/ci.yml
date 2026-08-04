@@ -2,8 +2,12 @@ name: ci
 
 on:
   push:
+  # Opening a pull request is what turns an already-pushed branch into
+  # something worth previewing, and no push follows it — without this the
+  # branch keeps whatever it had, which for a branch pushed before the pull
+  # request existed is no published image and no preview at all.
   pull_request:
-    types: [closed]
+    types: [opened, reopened, closed]
 
 env:
   REGISTRY: ghcr.io
@@ -13,7 +17,7 @@ jobs:
   # Which pull request, if any, this push belongs to. Publishing an image is
   # only worth it for main and for branches someone is actually reviewing.
   context:
-    if: github.event_name == 'push'
+    if: github.event.action != 'closed'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -26,14 +30,18 @@ jobs:
         id: pr
         env:
           GH_TOKEN: ${{ github.token }}
+          EVENT_PR: ${{ github.event.number }}
         run: |
-          number=$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$GITHUB_REF_NAME" \
-            --state open --json number --jq '.[0].number // empty')
+          number=$EVENT_PR
+          if [ -z "$number" ]; then
+            number=$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$GITHUB_REF_NAME" \
+              --state open --json number --jq '.[0].number // empty')
+          fi
           echo "number=$number" >> "$GITHUB_OUTPUT"
           echo "$GITHUB_REF_NAME -> pr ${number:-none}"
 
   checks:
-    if: github.event_name == 'push'
+    if: github.event.action != 'closed'
     runs-on: ubuntu-latest
 
     # The balance concurrency tests exercise real Postgres row locking, so they
@@ -59,6 +67,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          # The head commit, not the merge commit a pull_request event checks
+          # out by default, so opening a pull request builds and tags exactly
+          # what pushing the branch would have.
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Install bun
         uses: oven-sh/setup-bun@v2
@@ -95,6 +108,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Set up Buildx
         uses: docker/setup-buildx-action@v3
@@ -164,6 +179,9 @@ jobs:
           WEBHOOK: ${{ secrets.COOLIFY_WEBHOOK }}
           TOKEN: ${{ secrets.COOLIFY_TOKEN }}
           PR: ${{ needs.context.outputs.pr }}
+          # Matches what docker/metadata-action tagged, which on a pull_request
+          # event is the head sha rather than GITHUB_SHA's merge commit.
+          SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           if [ -z "$WEBHOOK" ]; then
             echo "COOLIFY_WEBHOOK is not set — image published, preview not deployed."
@@ -179,16 +197,16 @@ jobs:
           fi
 
           code=$(curl -s -o /tmp/preview.out -w '%{http_code}' -X POST \
-            "$base/api/v1/deploy?uuid=$uuid&pull_request_id=$PR&docker_tag=sha-$GITHUB_SHA" \
+            "$base/api/v1/deploy?uuid=$uuid&pull_request_id=$PR&docker_tag=sha-$SHA" \
             -H "Authorization: Bearer $TOKEN")
-          echo "coolify responded $code for pr $PR (sha-$GITHUB_SHA)"
+          echo "coolify responded $code for pr $PR (sha-$SHA)"
           cat /tmp/preview.out
           [ "$code" -ge 200 ] && [ "$code" -lt 300 ]
 
   # Closing the pull request takes the preview's containers, volumes and network
   # with it. Without this the deploy host keeps every preview ever opened.
   preview-teardown:
-    if: github.event_name == 'pull_request'
+    if: github.event.action == 'closed'
     runs-on: ubuntu-latest
 
     steps:
