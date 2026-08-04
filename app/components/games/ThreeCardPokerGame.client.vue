@@ -44,6 +44,14 @@ const showHints = useCookie<boolean>('tcp-show-hint', { default: () => false })
 const selected = ref(0)
 const now = ref(Date.now())
 
+// Rejections (seat taken, insufficient balance, ...) land in the feed as a new
+// item every time, even on a repeated message — a toast is the surface a
+// player actually sees, the sidebar feed is easy to miss.
+const toast = useToast()
+watch(() => feed.value.at(-1), (item) => {
+    if (item?.kind === 'error') toast.add({ title: item.text, color: 'error' })
+})
+
 const phase = computed(() => state.value?.phase ?? 'idle')
 const isBetting = computed(() => phase.value === 'betting')
 const isShowdown = computed(() => phase.value === 'reveal' || phase.value === 'payout')
