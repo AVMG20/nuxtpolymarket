@@ -22,6 +22,10 @@ dist
 docs
 test
 scripts
+# Except the one the entrypoint runs. Editing it does invalidate the Nuxt build
+# layer, which is the trade the rest of this block exists to avoid — worth it
+# for a single file that changes about never.
+!scripts/ensure-preview-db.ts
 AGENTS.md
 CLAUDE.md
 README.md
