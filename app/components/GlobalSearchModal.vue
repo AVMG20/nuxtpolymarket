@@ -591,7 +591,7 @@ const rawGroups: CommandPaletteGroup[] = [
         label: 'Blackjack',
         description: 'Classic 21 blackjack table - hit, stand, double down, or split',
         icon: 'i-lucide-spade',
-        to: '/games/blackjack',
+        to: '/games/live-blackjack',
         keywords: ['blackjack', 'cards', '21', 'table', 'casino', 'gamble', 'dealer']
       },
       {
