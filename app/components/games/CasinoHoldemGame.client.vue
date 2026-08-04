@@ -35,6 +35,15 @@ const showHints = useCookie<boolean>('ch-show-hint', { default: () => true })
 const selectedChip = ref(0)
 const now = ref(Date.now())
 
+// The feed already carries every rejection, but it sits in a rail the player
+// is not looking at right after a click — a toast is what puts a "seat taken"
+// or "insufficient balance" in front of the thing they just clicked.
+const toast = useToast()
+watch(() => feed.value.length, () => {
+    const latest = feed.value[feed.value.length - 1]
+    if (latest?.kind === 'error') toast.add({ title: latest.text, color: 'error' })
+})
+
 let ticker: ReturnType<typeof setInterval> | null = null
 onMounted(() => {
     ticker = setInterval(() => {
@@ -318,9 +327,9 @@ function badgeFor(seat: ChSeatState): { text: string, tone: string } | null {
           </template>
 
           <div
-            v-else
+            v-else-if="!mySeat"
             class="lt-spot ch-sit"
-            :style="{ left: `${spot.x - 20}px`, top: `${spot.y + 132}px` }"
+            :style="{ left: `${spot.x}px`, top: `${spot.y + 106}px` }"
             @click="table.sit(index)"
           >
             <span class="lt-spot-label">SIT</span>
@@ -338,7 +347,9 @@ function badgeFor(seat: ChSeatState): { text: string, tone: string } | null {
           />
         </div>
         <div v-else class="ch-status">
-          {{ connected ? state?.message : 'Connecting…' }}
+          <template v-if="!connected">Connecting…</template>
+          <template v-else-if="!mySeat">Click an open <span class="ch-status-sit">SIT</span> spot to join the table</template>
+          <template v-else>{{ state?.message }}</template>
         </div>
 
         <div v-if="isBetting && mySeat" class="ch-panel" style="left: 40px; top: 986px; width: 300px">
@@ -511,13 +522,36 @@ function badgeFor(seat: ChSeatState): { text: string, tone: string } | null {
   cursor: pointer;
 }
 
+/* Wider than a bet spot and pulsing so an empty seat reads as clickable
+   furniture rather than a stray circle on the felt. */
 .ch-sit {
+  width: 116px;
+  height: 116px;
+  margin: -58px 0 0 -58px;
   cursor: pointer;
-  border-style: dashed;
+  border-width: 3px;
+  border-color: rgba(217, 177, 103, 0.75);
+  background: rgba(217, 177, 103, 0.08);
+  animation: ch-sit-pulse 1.8s ease-in-out infinite;
+}
+.ch-sit .lt-spot-label {
+  font-size: 16px;
+  opacity: 1;
 }
 .ch-sit:hover {
   border-color: #d9b167;
-  box-shadow: 0 0 22px rgba(217, 177, 103, 0.45);
+  background: rgba(217, 177, 103, 0.16);
+  box-shadow: 0 0 26px rgba(217, 177, 103, 0.55);
+}
+@keyframes ch-sit-pulse {
+  50% {
+    box-shadow: 0 0 18px rgba(217, 177, 103, 0.4);
+  }
+}
+
+.ch-status-sit {
+  font-weight: 800;
+  color: #d9b167;
 }
 
 .ch-decision {
