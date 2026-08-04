@@ -124,5 +124,7 @@ resolving conflicts. It has been reverted on the integration branch — that tex
 players otherwise, and nobody has claimed it. If it was intentional it is a one-line change to put
 back, deliberately this time.
 
-`scripts/blackjack-card-counter.js` is untracked in the main checkout — a browser-console card
-counter for the blackjack table. Left alone; it looks hand-written rather than generated.
+`scripts/blackjack-card-counter.js` — a browser-console card counter for the blackjack table — was
+untracked in the main checkout at the start of this session and is now gone from disk. It was never
+committed to any branch, so it is not recoverable from git. Cause unknown; it was not deliberately
+deleted. If it mattered it will need writing again.
