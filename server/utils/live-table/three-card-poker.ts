@@ -1,5 +1,5 @@
 import { LtShoe } from '#server/utils/live-table/shoe'
-import { LiveTable, fail, type LtConfig, type LtPlayer } from '#server/utils/live-table/table'
+import { LiveTable, fail, round4, type LtConfig, type LtPlayer } from '#server/utils/live-table/table'
 import { LB_MAX_BET, LB_MIN_BET } from '#shared/utils/live-blackjack/chips'
 import { dealerQualifies, evaluateHand, type TcpCard, type TcpHand } from '#shared/utils/three-card-poker/hand'
 import { resolveHand } from '#shared/utils/three-card-poker/payouts'
@@ -16,7 +16,7 @@ const TIMERS = {
     betting: 20_000,
     /** Held long enough for the client to slide three cards into every seat. */
     dealing: 1_800,
-    decision: 15_000,
+    decision: 24_000,
     reveal: 3_200,
     payoutBase: 4_000,
     payoutPerExtraPlayer: 700,
@@ -105,6 +105,8 @@ export class ThreeCardPokerTable extends LiveTable<TcpSeatState, TcpSharedState,
                 return this.clearBet(player)
             case 'repeat':
                 return this.repeatBet(player)
+            case 'scale':
+                return this.scaleBets(player, Number(action.factor))
             case 'decide':
                 return this.decide(player, !!action.play)
             default:
@@ -138,6 +140,7 @@ export class ThreeCardPokerTable extends LiveTable<TcpSeatState, TcpSharedState,
         this.roundId++
         this.dealerCards = []
         this.dealerHand = null
+        this.clearVotes()
         for (const player of this.everyone()) {
             const { lastAnte, lastPairPlus } = player.game
             player.game = this.createSeatState()
@@ -177,6 +180,8 @@ export class ThreeCardPokerTable extends LiveTable<TcpSeatState, TcpSharedState,
         if (!last) return
         if (last.spot === 'ante') player.game.pendingAnte -= last.amount
         else player.game.pendingPairPlus -= last.amount
+        // A vote only means something while it stakes the seat to the round.
+        if (!player.game.pendingAnte) player.votedStart = false
     }
 
     private clearBet(player: LtPlayer<TcpSeatState>) {
@@ -184,6 +189,7 @@ export class ThreeCardPokerTable extends LiveTable<TcpSeatState, TcpSharedState,
         player.game.pendingAnte = 0
         player.game.pendingPairPlus = 0
         player.game.placed = []
+        player.votedStart = false
     }
 
     private repeatBet(player: LtPlayer<TcpSeatState>) {
@@ -193,6 +199,50 @@ export class ThreeCardPokerTable extends LiveTable<TcpSeatState, TcpSharedState,
         this.clearBet(player)
         this.placeBet(player, 'ante', seat.lastAnte)
         if (seat.lastPairPlus) this.placeBet(player, 'pairPlus', seat.lastPairPlus)
+    }
+
+    /**
+     * Halve or double every bet on the layout, pair plus riding along with the
+     * ante at the same factor. Scales last round's bet instead when nothing is
+     * staked yet, so a player can size up before committing to a fresh ante.
+     * Validated in full before anything is mutated — a bet that cannot legally
+     * scale is refused outright rather than applied to just one spot.
+     */
+    private scaleBets(player: LtPlayer<TcpSeatState>, factor: number) {
+        this.requireBetting()
+        if (factor !== 0.5 && factor !== 2) fail('Invalid scale')
+
+        const seat = player.game
+        const fromLayout = seat.pendingAnte > 0
+        const baseAnte = fromLayout ? seat.pendingAnte : seat.lastAnte
+        const basePairPlus = fromLayout ? seat.pendingPairPlus : seat.lastPairPlus
+        if (!baseAnte) fail('Nothing to scale')
+
+        const nextAnte = round4(baseAnte * factor)
+        const nextPairPlus = basePairPlus ? round4(basePairPlus * factor) : 0
+        if (nextAnte < this.config.minBet) fail('Below the table minimum')
+        if (nextAnte > this.config.maxBet || nextPairPlus > this.config.maxBet) fail('Over the table maximum')
+        if (nextAnte * 2 + nextPairPlus > player.balanceHint) fail('Not enough chips')
+
+        this.clearBet(player)
+        this.placeBet(player, 'ante', nextAnte)
+        if (nextPairPlus) this.placeBet(player, 'pairPlus', nextPairPlus)
+    }
+
+    /** A vote only counts once the seat has an ante down — nothing to deal early otherwise. */
+    protected override everyoneVoted(): boolean {
+        const waiting = this.everyone().filter(p => !p.leaving)
+        return waiting.length > 0 && waiting.every(p => p.game.pendingAnte > 0 && p.votedStart)
+    }
+
+    /**
+     * The default fires `onPhaseEnd` inline, but `dealRound` is async — called
+     * bare, its stake and shuffle would run detached from the run() chain that
+     * publishes the result. A nested run() is what closeBetting does on the
+     * blackjack table for the same reason.
+     */
+    protected override onVoteStart() {
+        if (this.everyoneVoted()) void this.run(() => this.dealRound())
     }
 
     // ─── the deal ──────────────────────────────────────────────────────────

@@ -55,4 +55,5 @@ export type TcpAction =
     | { t: 'undo' }
     | { t: 'clear' }
     | { t: 'repeat' }
+    | { t: 'scale', factor: number }
     | { t: 'decide', play: boolean }

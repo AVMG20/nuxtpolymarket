@@ -66,6 +66,20 @@ class TestTable extends ThreeCardPokerTable {
         return this.playerOf(userId)!.game
     }
 
+    vote(userId: string) {
+        return this.run(() => this.voteStart(userId))
+    }
+
+    /** A vote that closes the table deals through a nested, un-awaited run() —
+     *  queuing a no-op behind it is how a caller outside the table waits for it. */
+    flush() {
+        return this.run(() => {})
+    }
+
+    currentPhase() {
+        return this.phase
+    }
+
     /** Drops the pending phase timer so a finished test leaves nothing running. */
     stop() {
         this.setPhase('idle', null)
@@ -236,5 +250,105 @@ describe.skipIf(SKIP)('ThreeCardPokerTable', () => {
         await table.step('betting')
 
         expect(await getBalance(ALICE)).toBe('10000.0000')
+    })
+
+    it('doubles every bet on the layout, side bets included', async () => {
+        await seedUser(ALICE, { balance: '10000.0000' })
+        await table.sit(ALICE, 'Alice', null, 0)
+
+        await table.send(ALICE, { t: 'bet', spot: 'ante', amount: 100 })
+        await table.send(ALICE, { t: 'bet', spot: 'pairPlus', amount: 50 })
+        await table.send(ALICE, { t: 'scale', factor: 2 })
+
+        expect(table.seat(ALICE).pendingAnte).toBe(200)
+        expect(table.seat(ALICE).pendingPairPlus).toBe(100)
+    })
+
+    it('halves last round\'s bet when nothing is staked yet', async () => {
+        await seedUser(ALICE, { balance: '10000.0000' })
+        await table.sit(ALICE, 'Alice', null, 0)
+        table.stack('2s Qs 3h 4h 5d 2d')
+
+        await table.send(ALICE, { t: 'bet', spot: 'ante', amount: 100 })
+        await table.send(ALICE, { t: 'bet', spot: 'pairPlus', amount: 40 })
+        await table.step('betting')
+        await table.step('dealing')
+        await table.send(ALICE, { t: 'decide', play: false })
+        await table.step('reveal')
+        await table.step('payout')
+
+        await table.send(ALICE, { t: 'scale', factor: 0.5 })
+
+        expect(table.seat(ALICE).pendingAnte).toBe(50)
+        expect(table.seat(ALICE).pendingPairPlus).toBe(20)
+    })
+
+    it('refuses to scale a bet below the table minimum, leaving it untouched', async () => {
+        await seedUser(ALICE, { balance: '10000.0000' })
+        await table.sit(ALICE, 'Alice', null, 0)
+
+        await table.send(ALICE, { t: 'bet', spot: 'ante', amount: 1 })
+        await expect(table.send(ALICE, { t: 'scale', factor: 0.5 })).rejects.toThrow(/minimum/i)
+        expect(table.seat(ALICE).pendingAnte).toBe(1)
+    })
+
+    it('refuses to scale past the seat\'s balance, leaving the bet untouched', async () => {
+        await seedUser(ALICE, { balance: '250.0000' })
+        await table.sit(ALICE, 'Alice', null, 0)
+
+        await table.send(ALICE, { t: 'bet', spot: 'ante', amount: 100 })
+        await expect(table.send(ALICE, { t: 'scale', factor: 2 })).rejects.toThrow(/enough chips/i)
+        expect(table.seat(ALICE).pendingAnte).toBe(100)
+    })
+
+    it('deals early once every anted seat votes to start', async () => {
+        await seedUser(ALICE, { balance: '10000.0000' })
+        await seedUser(BOB, { balance: '10000.0000' })
+        await table.sit(ALICE, 'Alice', null, 0)
+        await table.sit(BOB, 'Bob', null, 1)
+        table.stack('As 2s Qs Kd 3h 4h 6c 5d 2d')
+
+        await table.send(ALICE, { t: 'bet', spot: 'ante', amount: 100 })
+        await table.send(BOB, { t: 'bet', spot: 'ante', amount: 100 })
+
+        await table.vote(ALICE)
+        expect(table.currentPhase()).toBe('betting')
+        await table.vote(BOB)
+        await table.flush()
+        expect(table.currentPhase()).toBe('dealing')
+    })
+
+    it('does not count a vote from a seat with nothing staked', async () => {
+        await seedUser(ALICE, { balance: '10000.0000' })
+        await seedUser(BOB, { balance: '10000.0000' })
+        await table.sit(ALICE, 'Alice', null, 0)
+        await table.sit(BOB, 'Bob', null, 1)
+
+        // Bob never antes, so his own vote can never close a betting round he
+        // is not risking anything on.
+        await table.send(ALICE, { t: 'bet', spot: 'ante', amount: 100 })
+        await table.vote(ALICE)
+        await table.vote(BOB)
+
+        expect(table.currentPhase()).toBe('betting')
+    })
+
+    it('drops a vote when the ante behind it is undone', async () => {
+        await seedUser(ALICE, { balance: '10000.0000' })
+        await seedUser(BOB, { balance: '10000.0000' })
+        await table.sit(ALICE, 'Alice', null, 0)
+        await table.sit(BOB, 'Bob', null, 1)
+
+        await table.send(ALICE, { t: 'bet', spot: 'ante', amount: 100 })
+        await table.vote(ALICE)
+        await table.send(ALICE, { t: 'undo' })
+        // Restaking without voting again must not inherit the vote the undo dropped.
+        await table.send(ALICE, { t: 'bet', spot: 'ante', amount: 100 })
+
+        await table.send(BOB, { t: 'bet', spot: 'ante', amount: 100 })
+        await table.vote(BOB)
+        await table.flush()
+
+        expect(table.currentPhase()).toBe('betting')
     })
 })
