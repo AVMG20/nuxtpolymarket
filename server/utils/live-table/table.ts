@@ -54,6 +54,7 @@ export interface LtPlayer<TSeat> {
     seatIndex: number | null
     connected: boolean
     leaving: boolean
+    votedStart: boolean
     lastNet: number | null
     sessionNet: number
     dailyNet: number
@@ -232,6 +233,7 @@ export abstract class LiveTable<TSeat, TShared, TAction> {
             seatIndex,
             connected: true,
             leaving: false,
+            votedStart: false,
             lastNet: record?.lastNet ?? null,
             // Counted from this sit-down rather than the last one: it is the
             // figure on the nameplate, and standing up ends that session.
@@ -486,6 +488,33 @@ export abstract class LiveTable<TSeat, TShared, TAction> {
         })
     }
 
+    // ─── vote to start ─────────────────────────────────────────────────────
+
+    /**
+     * Skip the rest of the betting clock. Games decide what counts as ready by
+     * overriding `onVoteStart`; the base only records the vote and tallies it.
+     */
+    voteStart(userId: string) {
+        const player = this.requirePlayer(userId)
+        player.votedStart = true
+        this.onVoteStart()
+    }
+
+    /** Everyone who could still act has asked to get on with it. */
+    protected everyoneVoted(): boolean {
+        const waiting = this.everyone().filter(p => !p.leaving)
+        return waiting.length > 0 && waiting.every(p => p.votedStart)
+    }
+
+    protected clearVotes() {
+        for (const player of this.everyone()) player.votedStart = false
+    }
+
+    /** Default: start as soon as the table is unanimous. */
+    protected onVoteStart() {
+        if (this.everyoneVoted()) this.onPhaseEnd(this.phase)
+    }
+
     // ─── actions ───────────────────────────────────────────────────────────
 
     action(userId: string, payload: TAction) {
@@ -523,6 +552,7 @@ export abstract class LiveTable<TSeat, TShared, TAction> {
             emblem: player.emblem,
             connected: player.connected,
             leaving: player.leaving,
+            votedStart: player.votedStart,
             lastNet: player.lastNet,
             sessionNet: player.sessionNet,
             dailyNet: player.dailyNet,

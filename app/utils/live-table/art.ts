@@ -255,3 +255,14 @@ export function chipStack(amount: number, options: ChipStackOptions = {}): strin
     s += '</div>'
     return s
 }
+
+/**
+ * Stable colour per player name, so the same person reads the same in the feed,
+ * on their chips and on their nameplate across every table. Hue-only so every
+ * name stays legible on the dark rail.
+ */
+export function nameColor(name: string): string {
+    let hash = 0
+    for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) | 0
+    return `hsl(${Math.abs(hash) % 360} 70% 68%)`
+}

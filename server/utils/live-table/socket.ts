@@ -88,6 +88,8 @@ export function defineTableSocket<TSeat, TShared, TAction>(
                             return table.sit(info.userId, info.name, info.emblem, Number(data.seat))
                         case 'leave':
                             return table.leave(info.userId)
+                        case 'voteStart':
+                            return table.voteStart(info.userId)
                         case 'chat':
                             return table.chat(info.userId, info.name, String(data.text ?? ''))
                         case 'action':

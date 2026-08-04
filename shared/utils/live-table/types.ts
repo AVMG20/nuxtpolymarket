@@ -22,6 +22,8 @@ export interface LtSeat<TSeat = unknown> {
     connected: boolean
     /** Asked to stand up while a stake was live; the seat frees once it settles. */
     leaving: boolean
+    /** Voted to start the round early rather than wait out the betting clock. */
+    votedStart: boolean
     /** Net result of the round that just resolved, for the flash badge. */
     lastNet: number | null
     /** Running profit or loss since this player sat down. */
@@ -67,6 +69,7 @@ export interface LtTableState<TSeat = unknown, TShared = unknown> {
 export type LtClientMessage<TAction = unknown> =
     | { t: 'sit', seat: number }
     | { t: 'leave' }
+    | { t: 'voteStart' }
     | { t: 'chat', text: string }
     | { t: 'action', action: TAction }
 

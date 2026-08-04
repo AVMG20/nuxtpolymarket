@@ -49,8 +49,10 @@
     /* 100vh is already the viewport, so the only allowance needed is the page's
        own chrome above the stage (~80px) plus breathing room under it — not the
        browser's toolbars. Subtracting for those too left the table rendering
-       ~160px short of the space it had on a real 1080p screen. */
-    height: min(820px, calc(100vh - 140px));
+       ~160px short of the space it had on a real 1080p screen. The cap is
+       deliberately above what 1080p can use so bigger monitors get a bigger
+       table rather than a fixed one floating in space. */
+    height: min(900px, calc(100vh - 110px));
     aspect-ratio: 1600 / 1120;
     width: fit-content;
     max-width: 100%;

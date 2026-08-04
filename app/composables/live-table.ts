@@ -156,6 +156,7 @@ export function useLiveTable<TSeat, TShared, TAction>(
         skew,
         sit: (seat: number) => send({ t: 'sit', seat }),
         leave: () => send({ t: 'leave' }),
+        voteStart: () => send({ t: 'voteStart' }),
         chatSend: (text: string) => send({ t: 'chat', text }),
         act: (action: TAction) => send({ t: 'action', action })
     }
