@@ -197,6 +197,37 @@
     line-height: 1.15;
 }
 
+/* Sit prompt drawn at every empty seat, mirroring the Pixi table's SIT spot. */
+.lt-sit {
+    position: absolute;
+    width: 124px;
+    height: 124px;
+    margin: -62px 0 0 -62px;
+    border-radius: 999px;
+    background: rgba(0, 0, 0, 0.4);
+    border: 3px solid var(--lt-gold);
+    display: grid;
+    place-items: center;
+    cursor: pointer;
+    animation: lt-sit-pulse 1.8s ease-in-out infinite;
+    transition: transform 0.15s ease, background-color 0.15s ease;
+}
+.lt-sit:hover {
+    transform: scale(1.08);
+    background: rgba(0, 0, 0, 0.6);
+}
+.lt-sit .lbl {
+    font-size: 21px;
+    font-weight: 800;
+    letter-spacing: 0.1em;
+    color: var(--lt-gold);
+    text-shadow: 0 2px 6px rgba(0, 0, 0, 0.85);
+}
+@keyframes lt-sit-pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(217, 177, 103, 0.5); }
+    50% { box-shadow: 0 0 0 12px rgba(217, 177, 103, 0); }
+}
+
 /* Nameplate: roundRect(-116, -25, 232, 50, 12), shell/.86 + gold/.4 */
 .lt-plate {
     position: absolute;
