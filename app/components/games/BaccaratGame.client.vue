@@ -130,6 +130,21 @@ watch(() => state.value?.phase, (phase, previous) => {
 })
 
 const round = computed(() => state.value?.game.round ?? null)
+/**
+ * Read off the round rather than gated behind a v-if on it: the hands have to
+ * stay mounted for their TransitionGroup to animate at all. A group that mounts
+ * with its cards already in it runs no enter transition, and one unmounted with
+ * the round runs no leave transition, which left the whole deal instant.
+ */
+const playerCards = computed(() => round.value?.playerCards ?? [])
+const bankerCards = computed(() => round.value?.bankerCards ?? [])
+
+/** Player and banker alternate on a real deal, so banker rides half a beat behind. */
+const DEAL_STAGGER_MS = 130
+function dealDelay(index: number, banker = false): string {
+    return `${index * DEAL_STAGGER_MS + (banker ? DEAL_STAGGER_MS / 2 : 0)}ms`
+}
+
 const history = computed(() => state.value?.game.history ?? [])
 const bigRoad = computed(() => bigRoadCells(history.value))
 const eyeBoy = computed(() => bigEyeBoyMarks(bigRoadColumns(history.value)))
@@ -226,24 +241,22 @@ function scaleBets(factor: number) {
   <div class="flex flex-col gap-3 lg:flex-row lg:items-start">
     <div class="min-w-0 flex-1">
       <LiveTableStage>
-        <template v-if="round">
-          <TransitionGroup name="lt-deal" tag="div" class="lt-hand" :style="handStyle(PLAYER_HAND_POS)">
-            <span
-              v-for="(card, idx) in round.playerCards"
-              :key="card.id"
-              :style="{ transitionDelay: `${idx * 130}ms` }"
-              v-html="cardFace(card.rank!, card.suit!)"
-            />
-          </TransitionGroup>
-          <TransitionGroup name="lt-deal" tag="div" class="lt-hand" :style="handStyle(BANKER_HAND_POS)">
-            <span
-              v-for="(card, idx) in round.bankerCards"
-              :key="card.id"
-              :style="{ transitionDelay: `${idx * 130}ms` }"
-              v-html="cardFace(card.rank!, card.suit!)"
-            />
-          </TransitionGroup>
-        </template>
+        <TransitionGroup name="lt-deal" tag="div" class="lt-hand" :style="handStyle(PLAYER_HAND_POS)">
+          <span
+            v-for="(card, idx) in playerCards"
+            :key="card.id"
+            :style="{ transitionDelay: dealDelay(idx) }"
+            v-html="cardFace(card.rank!, card.suit!)"
+          />
+        </TransitionGroup>
+        <TransitionGroup name="lt-deal" tag="div" class="lt-hand" :style="handStyle(BANKER_HAND_POS)">
+          <span
+            v-for="(card, idx) in bankerCards"
+            :key="card.id"
+            :style="{ transitionDelay: dealDelay(idx, true) }"
+            v-html="cardFace(card.rank!, card.suit!)"
+          />
+        </TransitionGroup>
 
         <template v-if="showTotals && round">
           <div
