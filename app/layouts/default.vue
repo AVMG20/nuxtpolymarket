@@ -254,7 +254,7 @@ const globalSearch = useGlobalSearch()
         <!-- Balance: full row when expanded -->
         <div
           v-if="state !== 'collapsed'"
-          class="flex items-center justify-between px-1"
+          class="flex items-center justify-between px-3"
         >
           <span class="font-semibold text-sm">
             <CoinBalance :value="user?.balance" />
@@ -293,18 +293,19 @@ const globalSearch = useGlobalSearch()
             variant="ghost"
           >
             <template #leading>
-              <ProfileEmblem :emblem="user?.emblem" :name="user?.name" class="size-6" />
+              <ProfileEmblem :emblem="user?.emblem" :name="user?.name" :prestige="user?.prestige" class="size-6" />
+            </template>
+            <template v-if="state !== 'collapsed'" #trailing>
+              <UIcon name="i-lucide-chevrons-up-down" class="ml-auto size-4 shrink-0" />
             </template>
           </UButton>
 
           <template #content>
             <div class="w-56 py-1.5">
               <div class="flex items-center gap-3 px-3 py-2">
-                <ProfileEmblem :emblem="user?.emblem" :name="user?.name" class="size-8 text-sm" />
+                <ProfileEmblem :emblem="user?.emblem" :name="user?.name" :prestige="user?.prestige" class="size-8 text-sm" />
                 <div class="min-w-0">
-                  <p class="text-sm font-semibold truncate">
-                    {{ user?.name ?? 'Account' }}
-                  </p>
+                  <p class="truncate text-sm font-semibold">{{ user?.name ?? 'Account' }}</p>
                   <p class="text-xs text-muted truncate">
                     {{ user?.email }}
                   </p>
@@ -401,18 +402,6 @@ const globalSearch = useGlobalSearch()
           </template>
         </UPopover>
 
-        <p
-          v-if="state !== 'collapsed'"
-          class="px-2 text-xs text-muted"
-        >
-          {{ siteVersion }}
-        </p>
-        <UIcon
-          v-else
-          :title="siteVersion"
-          class="mx-auto size-3.5 text-muted"
-          name="i-lucide-git-commit-horizontal"
-        />
       </template>
     </USidebar>
 

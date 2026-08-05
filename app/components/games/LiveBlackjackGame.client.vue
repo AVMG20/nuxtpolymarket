@@ -212,6 +212,7 @@ const roundResults = computed(() => {
             userId: seat!.userId,
             name: seat!.name,
             emblem: seat!.emblem,
+            prestige: seat!.prestige,
             net: seat!.lastNet!,
             blackjack: seat!.hands.some(hand => hand.status === 'blackjack'),
             sideWins: (seat!.sideResults ?? []).filter(result => result.payout > 0)
@@ -324,10 +325,11 @@ onBeforeUnmount(() => {
             class="flex items-center gap-2 rounded-md px-1.5 py-1"
             :class="entry.userId === youId ? 'bg-amber-400/10 ring-1 ring-amber-400/30' : ''"
           >
-            <ProfileEmblem :emblem="entry.emblem" :name="entry.name" class="size-5 shrink-0 text-[9px]" />
+            <ProfileEmblem :emblem="entry.emblem" :name="entry.name" :prestige="entry.prestige" class="size-5 shrink-0 text-[9px]" />
             <div class="min-w-0 flex-1">
-              <div class="truncate text-[13px] font-semibold text-default">
-                {{ entry.name }}
+              <div class="flex items-center gap-1 text-[13px] font-semibold text-default">
+                <PrestigeBadge :level="entry.prestige" size="xs" />
+                <span class="truncate">{{ entry.name }}</span>
               </div>
               <div v-if="entry.blackjack || entry.sideWins.length" class="flex flex-wrap gap-1 pt-0.5">
                 <span

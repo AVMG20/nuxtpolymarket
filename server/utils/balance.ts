@@ -61,6 +61,21 @@ export async function debitGems(userId: string, cost: number, tx: DbExecutor = d
   return updated.gems
 }
 
+// Same shape as debitGems: the `gte` guard is part of the UPDATE, so the check
+// and the decrement cannot be separated by a concurrent purchase. Prestige
+// tokens are never credited here — the only thing that raises them is an
+// ascent, which SETS them to the tier allowance (see server/utils/prestige.ts).
+export async function debitPrestigeTokens(userId: string, cost: number, tx: DbExecutor = db) {
+  if (!Number.isInteger(cost) || cost < 0) throw createError({ statusCode: 400, statusMessage: 'Invalid token amount' })
+
+  const [updated] = await tx.update(user)
+    .set({ prestigeTokens: sql`${user.prestigeTokens} - ${cost}` })
+    .where(and(eq(user.id, userId), gte(user.prestigeTokens, cost)))
+    .returning({ prestigeTokens: user.prestigeTokens })
+  if (!updated) throw createError({ statusCode: 400, statusMessage: 'Not enough prestige tokens' })
+  return updated.prestigeTokens
+}
+
 export async function creditGems(userId: string, count: number, tx: DbExecutor = db) {
   if (!Number.isInteger(count) || count < 0) throw createError({ statusCode: 400, statusMessage: 'Invalid gem amount' })
   if (count === 0) return

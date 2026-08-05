@@ -161,9 +161,12 @@ async function handleSignOut() {
       <!-- Avatar card -->
       <UCard>
         <div class="flex items-center gap-5">
-          <ProfileEmblem :emblem="user?.emblem" :name="user?.name" class="size-16 text-2xl" />
+          <ProfileEmblem :emblem="user?.emblem" :name="user?.name" :prestige="user?.prestige" class="size-16 text-2xl" />
           <div class="min-w-0 flex-1">
-            <p class="font-semibold text-xl truncate">{{ user?.name }}</p>
+            <div class="flex items-center gap-2">
+              <PrestigeBadge :level="user?.prestige" size="md" />
+              <p class="font-semibold text-xl truncate">{{ user?.name }}</p>
+            </div>
             <p class="text-sm text-muted truncate mt-0.5">{{ user?.email }}</p>
           </div>
           <UButton
@@ -228,6 +231,9 @@ async function handleSignOut() {
         </div>
       </UCard>
     </div>
+
+    <!-- Prestige -->
+    <PrestigeCard />
 
     <!-- Unlock rakeback modal -->
     <UModal v-model:open="unlockModalOpen" title="Unlock Rakeback">

@@ -5,6 +5,7 @@ interface LbPeerInfo {
     userId: string
     name: string
     emblem: string | null
+    prestige: number
 }
 
 const peers = new Map<Peer, LbPeerInfo>()

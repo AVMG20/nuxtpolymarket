@@ -4,6 +4,7 @@
 withDefaults(defineProps<{
   rank: number
   name: string
+  prestige?: number | null
   isCurrentUser: boolean
   rankBg: string[]
   medalColors?: string[]
@@ -32,6 +33,7 @@ withDefaults(defineProps<{
 
     <div class="min-w-0 shrink-0" :class="nameWidth">
       <div class="flex items-center gap-1.5">
+        <PrestigeBadge :level="prestige" size="xs" />
         <p class="font-bold truncate">{{ name }}</p>
         <LeaderboardYouBadge :show="isCurrentUser" :variant="youBadgeVariant" :size="youBadgeSize" />
       </div>

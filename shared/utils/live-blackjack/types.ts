@@ -62,6 +62,8 @@ export interface LbSeat {
     userId: string
     name: string
     emblem: string | null
+    /** Prestige level 0-4, worn as a ring and crown next to the name. */
+    prestige: number
     connected: boolean
     /** Asked to stand up while a hand was live; the seat frees once it settles. */
     leaving: boolean
@@ -126,6 +128,8 @@ export interface LbScoreEntry {
     userId: string
     name: string
     emblem: string | null
+    /** Prestige level 0-4, worn as a ring and crown next to the name. */
+    prestige: number
     net: number
     winStreak: number
     seated: boolean
