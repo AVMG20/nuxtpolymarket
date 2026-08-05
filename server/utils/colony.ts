@@ -1,11 +1,13 @@
 import { eq, and, sql } from 'drizzle-orm'
 import { db, type DbExecutor } from '#server/database'
-import { colonyState, colonyBugs, colonyUpgrades, colonyBugResearch, colonyLoot, colonyItems } from '#server/database/schema'
+import { colonyState, colonyBuilderJobs, colonyBugs, colonyUpgrades, colonyBugResearch, colonyLoot, colonyItems, user } from '#server/database/schema'
 import { creditGems, debit } from '#server/utils/balance'
+import { getPrestigePurchaseCount } from '#server/utils/prestige-shop'
+import { colonyBuilderCount } from '#shared/utils/prestige-shop'
 import {
   getBug,
   getItem,
-  BUG_TYPES,
+  PURCHASABLE_BUG_TYPES,
   UPGRADE_TRACKS,
   effectiveTickMs,
   effectiveEatPerTick,
@@ -42,6 +44,64 @@ export async function ensureColonyState(userId: string) {
   if (existing) return existing
   const [created] = await db.insert(colonyState).values({ userId }).returning()
   return created!
+}
+
+/** Every builder job currently in flight for this user. */
+export async function getBuilderJobs(userId: string, ex: DbExecutor = db) {
+  return ex.select().from(colonyBuilderJobs).where(eq(colonyBuilderJobs.userId, userId))
+}
+
+/**
+ * How many builders this run has: the free one plus every Labour Contract
+ * bought from the prestige shop. Derived from the purchase count rather than
+ * stored, so an ascent wiping prestige_purchases takes the extra builders
+ * with it for free.
+ */
+export async function getBuilderCount(userId: string, ex: DbExecutor = db): Promise<number> {
+  return colonyBuilderCount(await getPrestigePurchaseCount(userId, 'colony-builder', ex))
+}
+
+/**
+ * Claim a builder for `trackId`, or throw explaining why not. Must be called
+ * inside the caller's transaction, and that transaction must also carry
+ * whatever the job costs — see start.post.ts.
+ *
+ * Two guards, because there are two different ways to cheat this:
+ *   - same track twice → the unique (user, track) constraint on the insert.
+ *   - more jobs than builders → a `FOR UPDATE` lock on the USER row taken
+ *     before the busy count is read (pattern B). Locking the job rows would
+ *     not work: with none in flight there is nothing to lock, so two
+ *     simultaneous starts on two different tracks would both read "0 busy".
+ */
+export async function claimBuilder(userId: string, trackId: string, tx: DbExecutor) {
+  const [locked] = await tx.select({ id: user.id }).from(user).where(eq(user.id, userId)).for('update')
+  if (!locked) throw createError({ statusCode: 404, statusMessage: 'User not found' })
+
+  const busy = await tx.select({ trackId: colonyBuilderJobs.trackId })
+    .from(colonyBuilderJobs)
+    .where(eq(colonyBuilderJobs.userId, userId))
+
+  if (busy.some(job => job.trackId === trackId)) {
+    throw createError({ statusCode: 400, statusMessage: 'A builder is already working on this' })
+  }
+
+  const builderCount = await getBuilderCount(userId, tx)
+  if (busy.length >= builderCount) {
+    throw createError({
+      statusCode: 400,
+      statusMessage: builderCount === 1
+        ? 'The builder is already busy'
+        : `All ${builderCount} builders are busy`
+    })
+  }
+
+  const [claimed] = await tx.insert(colonyBuilderJobs)
+    .values({ userId, trackId, startedAt: new Date() })
+    .onConflictDoNothing()
+    .returning()
+  if (!claimed) throw createError({ statusCode: 409, statusMessage: 'A builder was just assigned to this — try again' })
+
+  return claimed
 }
 
 /** Every upgrade track's current level, keyed by trackId (0 if never started). */
@@ -387,17 +447,22 @@ export async function creditItems(userId: string, itemTypeId: string, quantity: 
 }
 
 /** Whether the user's claimed item inventory covers every line of a cost. */
-export async function hasItems(userId: string, items: ItemCost[]): Promise<boolean> {
+export async function hasItems(userId: string, items: ItemCost[], ex: DbExecutor = db): Promise<boolean> {
   if (items.length === 0) return true
-  const owned = await db.query.colonyItems.findMany({ where: eq(colonyItems.userId, userId) })
+  const owned = await ex.select().from(colonyItems).where(eq(colonyItems.userId, userId))
   const ownedMap = new Map(owned.map(o => [o.itemTypeId, o.quantity]))
   return items.every(need => (ownedMap.get(need.itemTypeId) ?? 0) >= need.quantity)
 }
 
-/** Deduct item quantities from the claimed inventory. Throws 400 if anything is short. */
-export async function consumeItems(userId: string, items: ItemCost[]) {
+/**
+ * Deduct item quantities from the claimed inventory. The `quantity >=` in the
+ * WHERE is the guard, not the hasItems() call in front of it — two concurrent
+ * builds spending the same stack both pass that read, and only one matches
+ * this UPDATE.
+ */
+export async function consumeItems(userId: string, items: ItemCost[], ex: DbExecutor = db) {
   for (const need of items) {
-    const res = await db.update(colonyItems)
+    const res = await ex.update(colonyItems)
       .set({ quantity: sql`${colonyItems.quantity} - ${need.quantity}` })
       .where(and(
         eq(colonyItems.userId, userId),
@@ -411,13 +476,19 @@ export async function consumeItems(userId: string, items: ItemCost[]) {
   }
 }
 
-/** Pay a {coins, items} price: checks + deducts items first, then debits coins. Throws 400 if short on either. */
-export async function payPrice(userId: string, price: Price) {
-  if (!(await hasItems(userId, price.items))) {
+/**
+ * Pay a {coins, items} price: checks + deducts items first, then debits coins.
+ * Throws 400 if short on either. Pass `ex` when the caller already holds a
+ * transaction — with parallel builders, claiming a builder and paying for the
+ * level it builds have to commit or roll back together, or a failed payment
+ * leaves a builder occupied by a job nobody bought.
+ */
+export async function payPrice(userId: string, price: Price, ex: DbExecutor = db) {
+  if (!(await hasItems(userId, price.items, ex))) {
     throw createError({ statusCode: 400, statusMessage: 'Not enough items for this upgrade' })
   }
-  if (price.items.length > 0) await consumeItems(userId, price.items)
-  if (price.coins > 0) await debit(userId, price.coins.toFixed(4), 'colony')
+  if (price.items.length > 0) await consumeItems(userId, price.items, ex)
+  if (price.coins > 0) await debit(userId, price.coins.toFixed(4), 'colony', ex)
 }
 
 // ─── state.get.ts DTO serializers ──────────────────────────────────────────
@@ -428,6 +499,7 @@ export async function payPrice(userId: string, price: Price) {
 type TrackModifiers = ReturnType<typeof deriveTrackModifiers>
 type ColonyBugRow = typeof colonyBugs.$inferSelect
 type ColonyStateRow = typeof colonyState.$inferSelect
+type ColonyBuilderJobRow = typeof colonyBuilderJobs.$inferSelect
 
 /** Gem-producing species don't forage a real ITEM_TYPES entry (itemId is ''), so display info is special-cased here instead of via getItem(). */
 export function foragedDisplay(type: BugType | undefined) {
@@ -608,37 +680,44 @@ export function serializeUpgradeTracks(levels: Record<string, number>, habitatLe
   })
 }
 
-/** The single builder's current job (track level-up or habitat level-up), or null if idle. */
-export function serializeBuilder(state: ColonyStateRow, levels: Record<string, number>) {
-  if (!state.builderTrackId || !state.builderStartedAt) return null
-
-  if (state.builderTrackId === HABITAT_BUILDER_JOB_ID) {
+/** One builder's in-flight job (track level-up or habitat level-up). */
+export function serializeBuilderJob(job: ColonyBuilderJobRow, state: ColonyStateRow, levels: Record<string, number>) {
+  if (job.trackId === HABITAT_BUILDER_JOB_ID) {
     return {
       kind: 'habitat' as const,
-      trackId: state.builderTrackId,
+      id: job.id,
+      trackId: job.trackId,
       trackName: 'Habitat',
       level: state.habitatLevel + 1,
-      startedAt: state.builderStartedAt.toISOString(),
-      completesAt: new Date(state.builderStartedAt.getTime() + habitatLevelUpDurationMs(state.habitatLevel)).toISOString()
+      startedAt: job.startedAt.toISOString(),
+      completesAt: new Date(job.startedAt.getTime() + habitatLevelUpDurationMs(state.habitatLevel)).toISOString()
     }
   }
 
-  const track = UPGRADE_TRACKS.find(t => t.id === state.builderTrackId)
-  const nextLevel = (levels[state.builderTrackId] ?? 0) + 1
+  const track = UPGRADE_TRACKS.find(t => t.id === job.trackId)
+  const nextLevel = (levels[job.trackId] ?? 0) + 1
   const durationMs = trackLevelDurationMs(nextLevel)
   return {
     kind: 'track' as const,
-    trackId: state.builderTrackId,
-    trackName: track?.name ?? state.builderTrackId,
+    id: job.id,
+    trackId: job.trackId,
+    trackName: track?.name ?? job.trackId,
     level: nextLevel,
-    startedAt: state.builderStartedAt.toISOString(),
-    completesAt: new Date(state.builderStartedAt.getTime() + durationMs).toISOString()
+    startedAt: job.startedAt.toISOString(),
+    completesAt: new Date(job.startedAt.getTime() + durationMs).toISOString()
   }
+}
+
+/** Every in-flight builder job, oldest first so the list doesn't reshuffle on refresh. */
+export function serializeBuilders(jobs: ColonyBuilderJobRow[], state: ColonyStateRow, levels: Record<string, number>) {
+  return [...jobs]
+    .sort((a, b) => a.startedAt.getTime() - b.startedAt.getTime())
+    .map(job => serializeBuilderJob(job, state, levels))
 }
 
 /** Every species' Research DTO: current roll range, next range, and coin cost to advance. */
 export function serializeResearch(researchLevels: Record<string, number>) {
-  return BUG_TYPES.map((t) => {
+  return PURCHASABLE_BUG_TYPES.map((t) => {
     const researchLevel = researchLevels[t.id] ?? 0
     const atMax = researchLevel >= MAX_RESEARCH_LEVEL
     const [speedMin, speedMax] = researchSpeedRange(researchLevel)
@@ -665,7 +744,7 @@ export function serializeResearch(researchLevels: Record<string, number>) {
 
 /** Every species' catalog entry: current roll range (from Research), buyability, and owned count. */
 export function serializeSpeciesCatalog(bugs: ColonyBugRow[], researchLevels: Record<string, number>, habitatLevel: number) {
-  return BUG_TYPES.map((t) => {
+  return PURCHASABLE_BUG_TYPES.map((t) => {
     const display = foragedDisplay(t)
     const researchLevel = researchLevels[t.id] ?? 0
     const [speedMin, speedMax] = researchSpeedRange(researchLevel)

@@ -32,7 +32,13 @@ export default defineEventHandler(async (event) => {
 
             const playerBugs = bugs.filter(bug => bug.userId === state.userId)
             const playerItems = items.filter(item => item.userId === state.userId)
-            const bugValue = playerBugs.reduce((sum, bug) => sum + (getBug(bug.typeId)?.spawnCost ?? 0), 0)
+            // colonyValue is what the colony cost to build, so prestige-only
+            // grants score nothing: nobody paid their spawnCost, and counting
+            // it would sell 20M of standing for one prestige token.
+            const bugValue = playerBugs.reduce((sum, bug) => {
+                const type = getBug(bug.typeId)
+                return sum + (type && !type.prestigeOnly ? type.spawnCost : 0)
+            }, 0)
             const inventoryValue = playerItems.reduce((sum, item) => {
                 return sum + Math.max(0, item.quantity) * (getItem(item.itemTypeId)?.sellValue ?? 0)
             }, 0)

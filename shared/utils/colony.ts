@@ -92,6 +92,13 @@ export interface BugType {
    * capped at MAX_GEMS_PER_DAY.
    */
   producesGems?: boolean
+  /**
+   * Species that exist only as a prestige-shop grant. They never appear in the
+   * market catalog, the research page or the encyclopedia, and the buy
+   * endpoint refuses them — the only way one enters a colony is via
+   * server/utils/prestige-shop.ts. Filtered out by PURCHASABLE_BUG_TYPES.
+   */
+  prestigeOnly?: boolean
 }
 
 export const TIER_NAMES: Record<number, string> = {
@@ -150,18 +157,35 @@ export const BUG_TYPES: BugType[] = [
   // (~1 gem/24h) and only reaches its MAX_GEMS_PER_DAY cap with real
   // investment in those tracks.
   { id: 'gem_snail', name: 'Gem Snail', tier: 3, emoji: '🐌', color: 0x4cc9f0, baseTickMs: 24 * 60 * 60_000, yieldMin: 1, yieldMax: 2, eatMin: 8, eatMax: 12, itemId: '', spawnCost: 4_000_000, description: 'A reclusive gem-forager — one per terrarium is plenty. Crowd it with its own kind and it slows to a crawl. Upgrading Foraging Yield or Foraging Speed lets it distill more per cycle.', social: false, producesGems: true },
+  // Prestige-only variant of the Gem Snail. Identical in every respect except
+  // that it is SOCIAL, which for a gem bug means exactly one thing: it is not
+  // PENALISED for crowding. gemTickMs clamps the social multiplier at 1
+  // (`Math.min(1, ...)`), so being social can never shorten the 24h cycle —
+  // it only removes the solitary penalty five ordinary snails would inflict
+  // on each other (24h each, rather than 28.2h each). effectiveGemsPerDay
+  // ignores the social trait entirely, so per-cycle output is unchanged.
+  // Not buyable, not researchable, not in the encyclopedia — see prestigeOnly.
+  { id: 'social_gem_snail', name: 'Hive Snail', tier: 3, emoji: '🐌', color: 0xb5179e, baseTickMs: 24 * 60 * 60_000, yieldMin: 1, yieldMax: 2, eatMin: 8, eatMax: 12, itemId: '', spawnCost: 4_000_000, description: 'A gem-forager bred to tolerate company. It gains nothing from a crowd, but unlike its reclusive cousin it loses nothing either — a whole brood holds the full 24h cycle in one terrarium.', social: true, producesGems: true, prestigeOnly: true },
   { id: 'spider', name: 'Spider', tier: 4, emoji: '🕷️', color: 0x9d4edd, baseTickMs: 15 * 60_000, yieldMin: 1, yieldMax: 2, eatMin: 14, eatMax: 20, itemId: 'venom', spawnCost: 7_000_000, description: 'A patient, territorial predator. Does not share well.', social: false },
   { id: 'scorpion', name: 'Scorpion', tier: 4, emoji: '🦂', color: 0xf77f00, baseTickMs: 20 * 60_000, yieldMin: 1, yieldMax: 2, eatMin: 14, eatMax: 20, itemId: 'carapace', spawnCost: 9_000_000, description: 'Armored, dangerous, and fiercely solitary.', social: false },
   { id: 'ember_roach', name: 'Ember Roach', tier: 5, emoji: '🪳', color: 0xff006e, baseTickMs: 24 * 60_000, yieldMin: 1, yieldMax: 2, eatMin: 22, eatMax: 30, itemId: 'ember_dust', spawnCost: 25_000_000, description: 'Legendary and nearly indestructible.', social: true },
   { id: 'hive_empress', name: 'Hive Empress', tier: 6, emoji: '🐝', color: 0xffd60a, baseTickMs: 30 * 60_000, yieldMin: 1, yieldMax: 2, eatMin: 32, eatMax: 44, itemId: 'royal_jelly', spawnCost: 80_000_000, description: 'A mythic queen. The absolute pinnacle of the colony.', social: true }
 ]
 
+/**
+ * Every species a player can actually acquire through normal play. Use this
+ * — not BUG_TYPES — for anything player-facing (market catalog, research,
+ * encyclopedia, balance sweeps). BUG_TYPES additionally carries prestige-only
+ * grants that must never show up as something to buy or research.
+ */
+export const PURCHASABLE_BUG_TYPES: BugType[] = BUG_TYPES.filter(b => !b.prestigeOnly)
+
 export function getBug(id: string): BugType | undefined {
   return BUG_TYPES.find(b => b.id === id)
 }
 
 export function bugsByTier(tier: number): BugType[] {
-  return BUG_TYPES.filter(b => b.tier === tier)
+  return PURCHASABLE_BUG_TYPES.filter(b => b.tier === tier)
 }
 
 // ─── Traits ─────────────────────────────────────────────────────────────────
@@ -428,14 +452,16 @@ export interface Price {
   items: ItemCost[]
 }
 
-// ─── Upgrade tracks (single-builder queue) ──────────────────────────────────
+// ─── Upgrade tracks (builder queue) ─────────────────────────────────────────
 // Everything that makes the colony objectively better — more slots, faster
 // bugs, bigger yields, a deeper nutrition tank, leaner eating — is one of a
 // handful of leveled tracks. Each level costs coins + items (the required
 // item tier climbs as the track levels up) and takes real time to build.
-// There is exactly one builder: only one track can be under construction at
-// a time. Habitat Level (which gates which bug tiers are purchasable) only
-// advances once every track has reached a required level.
+// A colony starts with exactly one builder, so only one track can be under
+// construction at a time; the prestige shop's Labour Contract adds up to two
+// more (see BASE_BUILDER_COUNT). Habitat Level (which gates which bug tiers
+// are purchasable) only advances once every track has reached a required
+// level.
 
 export type UpgradeTrackId = 'capacity' | 'yield_boost' | 'speed_boost' | 'nutrition_storage' | 'nutrition_efficiency'
 
@@ -624,8 +650,20 @@ export function habitatLevelUpDurationMs(level: number): number {
   return 12 * 3600_000 * Math.pow(2, Math.max(0, level - 1))
 }
 
-/** Sentinel stored in colonyState.builderTrackId while the builder raises the habitat itself. */
+/** Sentinel stored as a builder job's trackId while a builder raises the habitat itself. */
 export const HABITAT_BUILDER_JOB_ID = 'habitat_level'
+
+/**
+ * Builders every colony has for free. Extra ones are a prestige-shop perk
+ * (see COLONY_BUILDER_MAX_OWNED in prestige-shop.ts) and therefore die with
+ * the run, so the base game's ~82-day critical path is unchanged.
+ *
+ * Builders work in parallel but never on the same job: at most one builder
+ * can be on a given upgrade track, and at most one on the habitat itself.
+ * Without that rule two builders on `capacity` would both collect "level
+ * N+1", paying once for a level twice.
+ */
+export const BASE_BUILDER_COUNT = 1
 
 /** Gem cost bounds for habitat level-ups: the first step costs the least, the final step (to Level 6) costs the most. */
 export const HABITAT_GEM_COST_MIN = 20

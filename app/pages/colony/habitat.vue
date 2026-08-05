@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { getItem, BUG_TYPES } from '#shared/utils/colony'
+import { getItem, BUG_TYPES, HABITAT_BUILDER_JOB_ID } from '#shared/utils/colony'
 import { tierColor } from '#shared/utils/xeno'
 import { formatDuration, progressPct } from '~/lib/colony-format'
 
@@ -14,7 +14,7 @@ function foragedBy(itemId: string) {
 }
 
 const colony = useColony()
-const { upgrades, builder, builderCount, inventory, habitatLevel, maxTier, habitatLevelUpCost, habitatLevelUpDurationMs, habitatLevelUpGemCost } = colony
+const { upgrades, builders, builderCount, buildersFree, busyTrackIds, inventory, habitatLevel, maxTier, habitatLevelUpCost, habitatLevelUpDurationMs, habitatLevelUpGemCost } = colony
 
 const { user } = useAuth()
 const balance = computed(() => parseFloat(user.value?.balance ?? '0'))
@@ -31,10 +31,20 @@ onUnmounted(() => {
   if (interval) clearInterval(interval)
 })
 
-const builderReady = computed(() => {
-  if (!builder.value) return false
-  return now.value >= new Date(builder.value.completesAt).getTime()
-})
+// Both derived from the API payload rather than re-declared, so renaming a
+// field on the server surfaces here as a type error instead of a blank card.
+type BuilderJob = typeof builders.value[number]
+type UpgradeTrack = typeof upgrades.value[number]
+
+function jobReady(job: BuilderJob) {
+  return now.value >= new Date(job.completesAt).getTime()
+}
+
+/** One card per builder — busy ones first, then an idle card for each free builder. */
+const builderSlots = computed<{ key: string, job: BuilderJob | null }[]>(() => [
+  ...builders.value.map(job => ({ key: job.id, job })),
+  ...Array.from({ length: buildersFree.value }, (_, i) => ({ key: `idle-${i}`, job: null }))
+])
 
 const tracksMeetingRequirement = computed(() => upgrades.value.filter((t: any) => t.meetsHabitatRequirement).length)
 const habitatUpgradeReady = computed(() => tracksMeetingRequirement.value === upgrades.value.length && upgrades.value.length > 0)
@@ -43,7 +53,21 @@ const canAffordHabitatLevelUp = computed(() =>
   && balance.value >= habitatLevelUpCost.value
   && gems.value >= (habitatLevelUpGemCost.value ?? 0)
 )
-const canStartHabitatLevelUp = computed(() => habitatUpgradeReady.value && canAffordHabitatLevelUp.value && !builder.value)
+const habitatUnderConstruction = computed(() => busyTrackIds.value.has(HABITAT_BUILDER_JOB_ID))
+const canStartHabitatLevelUp = computed(() =>
+  habitatUpgradeReady.value
+  && canAffordHabitatLevelUp.value
+  && !habitatUnderConstruction.value
+  && buildersFree.value > 0
+)
+
+/** Why a track's Build button is disabled, or null when it can be started. */
+function buildBlockedReason(track: UpgradeTrack): string | null {
+  if (busyTrackIds.value.has(track.id)) return 'Under construction'
+  if (buildersFree.value === 0) return builderCount.value === 1 ? 'Builder busy' : 'All builders busy'
+  if (!affordCost(track.nextCost)) return 'Not enough resources'
+  return null
+}
 
 function ownedQty(itemTypeId: string) {
   const owned = inventory.value.find((i: any) => i.id === itemTypeId)
@@ -82,7 +106,7 @@ function affordCost(cost: { coins: number, items: { itemTypeId: string, quantity
           name="i-lucide-hammer"
           class="size-4"
         />
-        {{ builder ? 1 : 0 }} / {{ builderCount }} builders busy
+        {{ builders.length }} / {{ builderCount }} builder{{ builderCount === 1 ? '' : 's' }} busy
       </UBadge>
     </div>
 
@@ -141,7 +165,8 @@ function affordCost(cost: { coins: number, items: { itemTypeId: string, quantity
             @click="colony.upgradeHabitatLevel"
           >
             <span v-if="!habitatUpgradeReady">Requirements not met</span>
-            <span v-else-if="builder">Builder busy</span>
+            <span v-else-if="habitatUnderConstruction">Under construction</span>
+            <span v-else-if="buildersFree === 0">{{ builderCount === 1 ? 'Builder busy' : 'All builders busy' }}</span>
             <span
               v-else
               class="flex items-center gap-1 flex-wrap justify-center"
@@ -161,51 +186,61 @@ function affordCost(cost: { coins: number, items: { itemTypeId: string, quantity
         </p>
       </UCard>
 
-      <!-- Builder -->
-      <UCard>
-        <div class="flex items-center gap-2 mb-2">
-          <UIcon
-            name="i-lucide-hammer"
-            class="text-primary size-4"
-          />
-          <span class="text-sm font-medium text-muted">Builder</span>
-        </div>
-        <template v-if="builder">
-          <p class="text-sm font-medium mb-1.5">
-            Building {{ builder.trackName }} → Level {{ builder.level }}
-          </p>
-          <div class="h-2 rounded-full bg-elevated overflow-hidden mb-1.5">
-            <div
-              class="h-full bg-primary transition-all"
-              :style="{ width: progressPct(builder.startedAt, builder.completesAt, now) + '%' }"
-            />
-          </div>
-          <p class="text-xs text-muted mb-3">
-            {{ builderReady ? 'Ready to collect!' : formatDuration(new Date(builder.completesAt).getTime() - now) + ' remaining' }}
-          </p>
-          <UButton
-            block
-            size="sm"
-            color="primary"
-            :disabled="!builderReady"
-            @click="colony.collectUpgrade"
-          >
-            Collect
-          </UButton>
-        </template>
-        <div
-          v-else
-          class="flex flex-col items-center justify-center py-4 gap-1.5 text-center"
+      <!-- Builders — one card per builder, busy first then idle -->
+      <div class="space-y-3">
+        <UCard
+          v-for="slot in builderSlots"
+          :key="slot.key"
         >
-          <UIcon
-            name="i-lucide-coffee"
-            class="size-6 text-muted"
-          />
-          <p class="text-sm text-muted">
-            Idle — start an upgrade below.
-          </p>
-        </div>
-      </UCard>
+          <div class="flex items-center gap-2 mb-2">
+            <UIcon
+              name="i-lucide-hammer"
+              class="text-primary size-4"
+            />
+            <!-- No number: builders are interchangeable and the cards are
+                 ordered by job start, so "Builder 2" would rename itself
+                 every time a job finishes or a new one starts. -->
+            <span class="text-sm font-medium text-muted">
+              Builder
+            </span>
+          </div>
+          <template v-if="slot.job">
+            <p class="text-sm font-medium mb-1.5">
+              Building {{ slot.job.trackName }} → Level {{ slot.job.level }}
+            </p>
+            <div class="h-2 rounded-full bg-elevated overflow-hidden mb-1.5">
+              <div
+                class="h-full bg-primary transition-all"
+                :style="{ width: progressPct(slot.job.startedAt, slot.job.completesAt, now) + '%' }"
+              />
+            </div>
+            <p class="text-xs text-muted mb-3">
+              {{ jobReady(slot.job) ? 'Ready to collect!' : formatDuration(new Date(slot.job.completesAt).getTime() - now) + ' remaining' }}
+            </p>
+            <UButton
+              block
+              size="sm"
+              color="primary"
+              :disabled="!jobReady(slot.job)"
+              @click="colony.collectUpgrade(slot.job.trackId)"
+            >
+              Collect
+            </UButton>
+          </template>
+          <div
+            v-else
+            class="flex flex-col items-center justify-center py-4 gap-1.5 text-center"
+          >
+            <UIcon
+              name="i-lucide-coffee"
+              class="size-6 text-muted"
+            />
+            <p class="text-sm text-muted">
+              Idle — start an upgrade below.
+            </p>
+          </div>
+        </UCard>
+      </div>
     </div>
 
     <!-- Tracks -->
@@ -347,10 +382,10 @@ function affordCost(cost: { coins: number, items: { itemTypeId: string, quantity
                 block
                 size="sm"
                 color="primary"
-                :disabled="!!builder || !affordCost(track.nextCost)"
+                :disabled="!!buildBlockedReason(track)"
                 @click="colony.startUpgrade(track.id)"
               >
-                {{ builder ? 'Builder busy' : !affordCost(track.nextCost) ? 'Not enough resources' : 'Build' }}
+                {{ buildBlockedReason(track) ?? 'Build' }}
               </UButton>
             </div>
           </template>

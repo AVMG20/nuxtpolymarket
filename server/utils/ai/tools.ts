@@ -161,7 +161,7 @@ const AI_TOOL_DEFINITIONS: OpenRouterTool[] = [
         type: 'function',
         function: {
             name: 'start_colony_upgrade',
-            description: 'Start one Colony builder upgrade: an upgrade track, the habitat level-up, or species research. Read the player overview first to compare every upgrade, its prerequisites, costs, and whether the builder is busy.',
+            description: 'Start one Colony builder upgrade: an upgrade track, the habitat level-up, or species research. Read the player overview first to compare every upgrade, its prerequisites, costs, and which builders are free.',
             parameters: {
                 type: 'object',
                 properties: {

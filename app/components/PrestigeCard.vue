@@ -22,14 +22,36 @@ const affordable = computed(() =>
   !!next.value && balance.value >= next.value.coinCost && gems.value >= next.value.gemCost
 )
 
-/** Worst-case fraction of the next tier's price already banked, 0-1. */
-const readiness = computed(() => {
-  if (!next.value) return 1
-  return Math.min(
-    balance.value / next.value.coinCost,
-    gems.value / next.value.gemCost,
-    1
-  )
+/**
+ * One bar per currency. A single worst-case bar hid which of the two was
+ * actually short — at 18M coins against 11 gems both read as "0%", and a
+ * player sitting on the full gem price still saw an empty bar.
+ */
+const progressBars = computed(() => {
+  if (!next.value) return []
+  return [
+    {
+      key: 'coins',
+      label: 'coins',
+      icon: 'i-lucide-coins',
+      have: balance.value,
+      need: next.value.coinCost,
+      color: 'warning' as const
+    },
+    {
+      key: 'gems',
+      label: 'gems',
+      icon: 'i-lucide-gem',
+      have: gems.value,
+      need: next.value.gemCost,
+      color: 'info' as const
+    }
+  ].map(bar => ({
+    ...bar,
+    met: bar.have >= bar.need,
+    // Clamped so an overshoot renders as a full bar, not an overflowing one.
+    pct: Math.min(100, (bar.have / bar.need) * 100)
+  }))
 })
 
 function tierState(tierLevel: number) {
@@ -206,15 +228,36 @@ async function ascend() {
         />
       </div>
 
-      <div class="space-y-1.5">
-        <UProgress :model-value="readiness * 100" size="sm" />
-        <div class="flex flex-wrap gap-x-4 gap-y-1 text-xs">
-          <span :class="balance >= next.coinCost ? 'text-success' : 'text-muted'">
-            {{ formatNumber(balance) }} / {{ formatNumber(next.coinCost) }} coins
-          </span>
-          <span :class="gems >= next.gemCost ? 'text-success' : 'text-muted'">
-            {{ formatNumber(gems) }} / {{ formatNumber(next.gemCost) }} gems
-          </span>
+      <!-- One bar per currency: both have to be full to ascend, and a shared
+           bar could not show which of the two was the one holding you back. -->
+      <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div
+          v-for="bar in progressBars"
+          :key="bar.key"
+          class="space-y-1.5"
+        >
+          <div class="flex items-center justify-between gap-2 text-xs">
+            <span class="flex items-center gap-1.5 text-muted">
+              <UIcon :name="bar.icon" class="size-3.5" />
+              {{ bar.label }}
+            </span>
+            <span
+              class="font-mono tabular-nums"
+              :class="bar.met ? 'text-success' : 'text-muted'"
+            >
+              {{ formatNumber(bar.have) }} / {{ formatNumber(bar.need) }}
+              <UIcon
+                v-if="bar.met"
+                name="i-lucide-check"
+                class="ml-0.5 size-3.5 align-[-2px]"
+              />
+            </span>
+          </div>
+          <UProgress
+            :model-value="bar.pct"
+            size="sm"
+            :color="bar.met ? 'success' : bar.color"
+          />
         </div>
       </div>
 

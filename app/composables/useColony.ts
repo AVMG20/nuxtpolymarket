@@ -14,8 +14,11 @@ export const useColony = () => {
   const pendingLoot = computed(() => state.value?.pendingLoot ?? [])
   const upgrades = computed(() => state.value?.upgrades ?? [])
   const research = computed(() => state.value?.research ?? [])
-  const builder = computed(() => state.value?.builder ?? null)
+  const builders = computed(() => state.value?.builders ?? [])
   const builderCount = computed(() => state.value?.builderCount ?? 1)
+  const buildersFree = computed(() => Math.max(0, builderCount.value - builders.value.length))
+  /** trackIds a builder is already on — those tracks can't be started again. */
+  const busyTrackIds = computed(() => new Set(builders.value.map(b => b.trackId)))
   const capacity = computed(() => state.value?.capacity ?? 0)
   const habitatLevel = computed(() => state.value?.habitatLevel ?? 1)
   const maxTier = computed(() => state.value?.maxTier ?? 6)
@@ -105,8 +108,8 @@ export const useColony = () => {
     return res
   }
 
-  async function collectUpgrade() {
-    const res = await call('/api/colony/upgrades/collect', {}, 'Upgrade complete!')
+  async function collectUpgrade(trackId?: string) {
+    const res = await call('/api/colony/upgrades/collect', { trackId }, 'Upgrade complete!')
     return res
   }
 
@@ -137,8 +140,10 @@ export const useColony = () => {
     pendingLoot,
     upgrades,
     research,
-    builder,
+    builders,
     builderCount,
+    buildersFree,
+    busyTrackIds,
     capacity,
     habitatLevel,
     maxTier,

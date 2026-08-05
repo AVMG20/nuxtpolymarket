@@ -8,7 +8,10 @@ export default defineEventHandler(async (event) => {
   const userId = await requireUserId(event)
 
   const type = getBug(body.typeId)
-  if (!type) throw createError({ statusCode: 400, statusMessage: `Unknown bug type: ${body.typeId}` })
+  // prestigeOnly species are shop grants, not merchandise — getBug still
+  // resolves them (placed bugs have to serialize) but they are not for sale
+  // at any habitat level or price.
+  if (!type || type.prestigeOnly) throw createError({ statusCode: 400, statusMessage: `Unknown bug type: ${body.typeId}` })
 
   const state = await settleColony(userId)
 

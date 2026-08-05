@@ -15,6 +15,13 @@
       "when": 1785868770269,
       "tag": "0001_strong_zarek",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1785921801378,
+      "tag": "0002_zippy_randall",
+      "breakpoints": true
     }
   ]
 }
