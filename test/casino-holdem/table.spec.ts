@@ -17,6 +17,7 @@ import { SKIP, cleanupUser, seedUser } from '../setup/db-helpers'
 
 const ALICE = 'test-holdem-alice'
 const BOB = 'test-holdem-bob'
+const CARL = 'test-holdem-carl'
 
 const SUITS: Record<string, LtSuit> = { s: 'spades', h: 'hearts', d: 'diamonds', c: 'clubs' }
 
@@ -73,7 +74,7 @@ class TestTable extends CasinoHoldemTable {
 }
 
 async function cleanup() {
-    for (const userId of [ALICE, BOB]) {
+    for (const userId of [ALICE, BOB, CARL]) {
         await db.delete(tableWagers).where(eq(tableWagers.userId, userId))
         await cleanupUser(userId)
     }
@@ -116,6 +117,33 @@ describe.skipIf(SKIP)("Casino Hold'em table", () => {
         await table.step('board')
         await table.step('reveal')
     }
+
+    it('rejects an ante that leaves too little for the 2x call', async () => {
+        await seedUser(CARL, { balance: '1000.0000' })
+        await table.sit(CARL, 'carl', null, 2)
+        table.freeze()
+
+        expect(() => table.action(CARL, { t: 'bet', spot: 'ante', amount: 500 }))
+            .toThrow(/call costs/)
+        expect(table.seat(CARL).pendingAnte).toBe(0)
+
+        await table.action(CARL, { t: 'bet', spot: 'ante', amount: 100 })
+        expect(table.seat(CARL).pendingAnte).toBe(100)
+    })
+
+    it('counts the AA bonus against the room left for the call', async () => {
+        await seedUser(CARL, { balance: '1000.0000' })
+        await table.sit(CARL, 'carl', null, 2)
+        table.freeze()
+
+        // 100 ante + 100 AA commits 200 and reserves a 200 call, inside 1000.
+        await table.action(CARL, { t: 'bet', spot: 'ante', amount: 100 })
+        await table.action(CARL, { t: 'bet', spot: 'aa', amount: 100 })
+
+        // Raising the ante to 500 would need 500 + 100 + 1000.
+        expect(() => table.action(CARL, { t: 'bet', spot: 'ante', amount: 500 }))
+            .toThrow(/call costs/)
+    })
 
     it('deals two hole cards to every seat that anted, plus a three-card flop', async () => {
         table.setStack('As 7d Qh Ks 2c 9h Ah 9c 4s 3d 6s')

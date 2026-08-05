@@ -158,20 +158,34 @@ export class CasinoHoldemTable extends LiveTable<ChSeatState, ChSharedState, ChA
         return log
     }
 
+    /**
+     * The call is not a real choice: a seat that cannot cover it can only fold
+     * and forfeit its ante. So the layout has to leave room for the call while
+     * the bet is still being placed, rather than failing at the decision.
+     */
+    private requireBankroll(player: LtPlayer<ChSeatState>, ante: number, aa: number) {
+        if (ante + aa > player.balanceHint) fail('Not enough chips')
+        if (ante + aa + round4(ante * CH_CALL_MULTIPLIER) > player.balanceHint) {
+            fail(`Not enough chips — the call costs ${CH_CALL_MULTIPLIER}x your ante, so keep some back`)
+        }
+    }
+
     private placeBet(player: LtPlayer<ChSeatState>, spot: ChBetSpot, amount: number) {
         if (this.phase !== 'betting') fail('Betting is closed')
         if (!CHIP_VALUES.has(amount)) fail('Invalid chip')
 
         const seat = player.game
-        if (seat.pendingAnte + seat.pendingAa + amount > player.balanceHint) fail('Not enough chips')
+        const ante = spot === 'ante' ? seat.pendingAnte + amount : seat.pendingAnte
+        const aa = spot === 'ante' ? seat.pendingAa : seat.pendingAa + amount
 
-        if (spot === 'ante') {
-            seat.pendingAnte += amount
-        } else {
+        if (spot !== 'ante') {
             if (seat.pendingAnte <= 0) fail('Place an ante first')
-            if (seat.pendingAa + amount > seat.pendingAnte) fail('The AA bonus cannot exceed your ante')
-            seat.pendingAa += amount
+            if (aa > seat.pendingAnte) fail('The AA bonus cannot exceed your ante')
         }
+        this.requireBankroll(player, ante, aa)
+
+        seat.pendingAnte = ante
+        seat.pendingAa = aa
 
         this.logFor(player.userId).push({ spot, amount })
         this.maybeCutBetting()
@@ -203,7 +217,7 @@ export class CasinoHoldemTable extends LiveTable<ChSeatState, ChSharedState, ChA
         if (this.phase !== 'betting') fail('Betting is closed')
         const seat = player.game
         if (seat.lastAnte <= 0) fail('No previous bet to repeat')
-        if (seat.lastAnte + seat.lastAa > player.balanceHint) fail('Not enough chips')
+        this.requireBankroll(player, seat.lastAnte, seat.lastAa)
 
         seat.pendingAnte = seat.lastAnte
         seat.pendingAa = seat.lastAa
@@ -230,7 +244,7 @@ export class CasinoHoldemTable extends LiveTable<ChSeatState, ChSharedState, ChA
         const ante = round4(baseAnte * factor)
         const aa = round4(baseAa * factor)
         if (ante < this.config.minBet) fail('Below the table minimum')
-        if (ante + aa > player.balanceHint) fail('Not enough chips')
+        this.requireBankroll(player, ante, aa)
 
         seat.pendingAnte = ante
         seat.pendingAa = aa
