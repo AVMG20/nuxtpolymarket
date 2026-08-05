@@ -412,6 +412,9 @@
     height: 116px;
     display: flex;
     align-items: center;
+    /* Flex drops the whitespace between items, so a status that highlights a
+       word or leads with an icon would otherwise run them together. */
+    gap: 0.3em;
     font-size: 24px;
     font-weight: 700;
     color: rgba(247, 243, 232, 0.75);
@@ -593,6 +596,14 @@
     font-variant-numeric: tabular-nums;
 }
 .lt-phase .count.urgent { color: var(--ui-error); }
+
+/* Tailwind v4's preflight dropped the browser's `button { cursor: pointer }`,
+   so every control on the felt has to ask for it. Rack chips carry their click
+   on the wrapper span, which is wider than the chip art inside it. */
+.lt-stage button:not(:disabled),
+.lt-rack > * {
+    cursor: pointer;
+}
 /* Sits between the outcome and its number, so the count reads as a wait rather
    than another clock the player has to act against. */
 .lt-phase .next {

@@ -47,7 +47,7 @@ watch(() => props.messages.length, async () => {
                 placeholder="Say something…"
                 class="min-w-0 flex-1 rounded-md bg-default px-2 py-1 text-xs text-default placeholder:text-muted focus:ring-1 focus:ring-primary focus:outline-none"
             >
-            <UButton type="submit" size="xs" color="neutral" variant="soft" icon="i-lucide-send" />
+            <UButton type="submit" size="xs" color="neutral" variant="soft" icon="i-lucide-send" class="cursor-pointer" />
         </form>
     </div>
 </template>
