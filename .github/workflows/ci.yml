@@ -21,15 +21,22 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      pull-requests: read
+      pull-requests: write
     outputs:
       pr: ${{ steps.pr.outputs.number }}
 
+    env:
+      GH_TOKEN: ${{ github.token }}
+
     steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          sparse-checkout: .github/scripts
+
       - name: Find the open pull request for this branch
         id: pr
         env:
-          GH_TOKEN: ${{ github.token }}
           EVENT_PR: ${{ github.event.number }}
         run: |
           number=$EVENT_PR
@@ -39,6 +46,20 @@ jobs:
           fi
           echo "number=$number" >> "$GITHUB_OUTPUT"
           echo "$GITHUB_REF_NAME -> pr ${number:-none}"
+
+      # The image has to build before Coolify hears about the preview at all,
+      # so claim the comment now rather than leaving the pull request silent
+      # for the length of a build.
+      - name: Claim the preview comment
+        if: steps.pr.outputs.number != '' && github.ref != 'refs/heads/main'
+        env:
+          PR: ${{ steps.pr.outputs.number }}
+          RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          printf '%s\n' \
+            "### Preview deployment" "" \
+            "Building the image — [ci run]($RUN)" \
+            | .github/scripts/pr-preview-comment.sh "$PR"
 
   checks:
     if: github.event.action != 'closed'
@@ -187,16 +208,27 @@ jobs:
     needs: [context, image]
     if: needs.context.outputs.pr != '' && github.ref != 'refs/heads/main'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+
+    env:
+      WEBHOOK: ${{ secrets.COOLIFY_WEBHOOK }}
+      TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+      GH_TOKEN: ${{ github.token }}
+      PR: ${{ needs.context.outputs.pr }}
+      # Matches what docker/metadata-action tagged, which on a pull_request
+      # event is the head sha rather than GITHUB_SHA's merge commit.
+      SHA: ${{ github.event.pull_request.head.sha || github.sha }}
 
     steps:
-      - name: Deploy the preview
-        env:
-          WEBHOOK: ${{ secrets.COOLIFY_WEBHOOK }}
-          TOKEN: ${{ secrets.COOLIFY_TOKEN }}
-          PR: ${{ needs.context.outputs.pr }}
-          # Matches what docker/metadata-action tagged, which on a pull_request
-          # event is the head sha rather than GITHUB_SHA's merge commit.
-          SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          sparse-checkout: .github/scripts
+
+      - name: Read the Coolify endpoint out of the webhook
+        id: coolify
         run: |
           if [ -z "$WEBHOOK" ]; then
             echo "COOLIFY_WEBHOOK is not set — image published, preview not deployed."
@@ -210,26 +242,114 @@ jobs:
             echo "Could not read a base URL and uuid out of COOLIFY_WEBHOOK."
             exit 1
           fi
+          echo "base=$base" >> "$GITHUB_OUTPUT"
+          echo "uuid=$uuid" >> "$GITHUB_OUTPUT"
 
+      - name: Deploy the preview
+        id: deploy
+        if: steps.coolify.outputs.base != ''
+        env:
+          BASE: ${{ steps.coolify.outputs.base }}
+          UUID: ${{ steps.coolify.outputs.uuid }}
+        run: |
           code=$(curl -s -o /tmp/preview.out -w '%{http_code}' -X POST \
-            "$base/api/v1/deploy?uuid=$uuid&pull_request_id=$PR&docker_tag=sha-$SHA" \
+            "$BASE/api/v1/deploy?uuid=$UUID&pull_request_id=$PR&docker_tag=sha-$SHA" \
             -H "Authorization: Bearer $TOKEN")
           echo "coolify responded $code for pr $PR (sha-$SHA)"
           cat /tmp/preview.out
           [ "$code" -ge 200 ] && [ "$code" -lt 300 ]
+
+          deployment=$(jq -r '.deployments[0].deployment_uuid // empty' /tmp/preview.out)
+          echo "deployment=$deployment" >> "$GITHUB_OUTPUT"
+
+          # Only the deployment record knows its own dashboard path, which is
+          # nested under the project and environment rather than the app uuid.
+          log=$(curl -s "$BASE/api/v1/deployments/$deployment" \
+            -H "Authorization: Bearer $TOKEN" | jq -r '.deployment_url // empty')
+          echo "log=$log" >> "$GITHUB_OUTPUT"
+
+          printf '%s\n' \
+            "### Preview deployment" "" \
+            "Building \`sha-${SHA:0:7}\`${log:+ — [deployment log]($log)}" \
+            | .github/scripts/pr-preview-comment.sh "$PR"
+
+      # Coolify queues the deploy and answers immediately, so the comment can
+      # only carry a URL once the container is actually up.
+      - name: Wait for the deployment
+        id: wait
+        if: steps.deploy.outputs.deployment != ''
+        env:
+          BASE: ${{ steps.coolify.outputs.base }}
+          UUID: ${{ steps.coolify.outputs.uuid }}
+          DEPLOYMENT: ${{ steps.deploy.outputs.deployment }}
+        run: |
+          status=unknown
+          for _ in $(seq 1 90); do
+            status=$(curl -s "$BASE/api/v1/deployments/$DEPLOYMENT" \
+              -H "Authorization: Bearer $TOKEN" | jq -r '.status // "unknown"')
+            case "$status" in
+              queued|in_progress|unknown) sleep 10 ;;
+              *) break ;;
+            esac
+          done
+          echo "deployment $DEPLOYMENT finished as $status"
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+
+          # No endpoint lists a preview's generated domain, so rebuild it from
+          # the template the application deploys previews with.
+          app=$(curl -s "$BASE/api/v1/applications/$UUID" -H "Authorization: Bearer $TOKEN")
+          template=$(printf '%s' "$app" | jq -r '.preview_url_template // empty')
+          domain=$(printf '%s' "$app" | jq -r '.fqdn // empty' | cut -d, -f1 | sed -E 's#^https?://##; s#/.*##')
+          url=${template//\{\{pr_id\}\}/$PR}
+          url=${url//\{\{domain\}\}/$domain}
+          # A template holding {{random}} names a domain only Coolify knows.
+          case "$url" in
+            *'{{'* | '') url='' ;;
+            http*) ;;
+            *) url="https://$url" ;;
+          esac
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+
+      - name: Report the preview on the pull request
+        if: always() && steps.deploy.outputs.deployment != ''
+        env:
+          LOG: ${{ steps.deploy.outputs.log }}
+          STATUS: ${{ steps.wait.outputs.status }}
+          URL: ${{ steps.wait.outputs.url }}
+        run: |
+          case "$STATUS" in
+            finished) state="Ready — ${URL:-open it from the Coolify dashboard}" ;;
+            queued | in_progress) state="Still building after 15 minutes" ;;
+            *) state="Failed (\`${STATUS:-unknown}\`)" ;;
+          esac
+          printf '%s\n' \
+            "### Preview deployment" "" \
+            "$state" "" \
+            "\`sha-${SHA:0:7}\`${LOG:+ — [deployment log]($LOG)}" \
+            | .github/scripts/pr-preview-comment.sh "$PR"
 
   # Closing the pull request takes the preview's containers, volumes and network
   # with it. Without this the deploy host keeps every preview ever opened.
   preview-teardown:
     if: github.event.action == 'closed'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+
+    env:
+      WEBHOOK: ${{ secrets.COOLIFY_WEBHOOK }}
+      TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+      GH_TOKEN: ${{ github.token }}
+      PR: ${{ github.event.number }}
 
     steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          sparse-checkout: .github/scripts
+
       - name: Remove the preview
-        env:
-          WEBHOOK: ${{ secrets.COOLIFY_WEBHOOK }}
-          TOKEN: ${{ secrets.COOLIFY_TOKEN }}
-          PR: ${{ github.event.number }}
         run: |
           if [ -z "$WEBHOOK" ]; then
             echo "COOLIFY_WEBHOOK is not set — nothing to tear down."
@@ -249,3 +369,11 @@ jobs:
           cat /tmp/teardown.out
           # A preview that was never created is already in the state we want.
           [ "$code" -lt 300 ] || [ "$code" -eq 404 ]
+
+      # The comment outlives the preview, and its link stops resolving the
+      # moment the containers go away.
+      - name: Retire the pull request comment
+        if: env.WEBHOOK != ''
+        run: |
+          printf '%s\n' "### Preview deployment" "" "Torn down with this pull request." \
+            | .github/scripts/pr-preview-comment.sh "$PR" --edit-only
