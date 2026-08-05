@@ -1,3 +1,9 @@
+-- The two ADD COLUMNs below take ACCESS EXCLUSIVE on "user", and the foreign
+-- key locks it too. A migration that waits for those locks also queues every
+-- request behind itself, so a busy moment turns a deploy into an outage rather
+-- than a failed deploy. Giving up instead leaves the previous container serving.
+SET lock_timeout = '15s';
+--> statement-breakpoint
 CREATE TABLE "prestige_purchases" (
 	"id" text PRIMARY KEY NOT NULL,
 	"user_id" text NOT NULL,
