@@ -1,18 +1,19 @@
 name: ci
 
 on:
+  # Branch work is covered entirely by the pull_request event. Listening for
+  # pushes on branches too meant every pull request opened seconds after its
+  # push, which cancelled the push run — and a cancelled run is attached to the
+  # head commit, so a green pull request still showed a red X for a run that
+  # was superseded rather than broken.
   push:
-  # Opening a pull request is what turns an already-pushed branch into
-  # something worth previewing, and no push follows it — without this the
-  # branch keeps whatever it had, which for a branch pushed before the pull
-  # request existed is no published image and no preview at all.
+    branches: [main]
   pull_request:
-    types: [opened, reopened, closed]
+    types: [opened, reopened, synchronize, closed]
 
-# A push and the pull_request event for the same branch share a group, so the
-# newest run owns both the image tag and the preview comment. Without it a
-# superseded run keeps building for a commit nobody is reviewing any more, and
-# its 15-minute deployment poll writes a stale comment over a fresher one.
+# One run per branch: a new push to an open pull request supersedes the run
+# still going for the commit nobody is reviewing any more, whose 15-minute
+# deployment poll would otherwise write a stale comment over a fresher one.
 concurrency:
   group: ci-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
@@ -135,8 +136,9 @@ jobs:
         run: bun run test
 
   # The image build is the build check: it compiles the app exactly as it will
-  # ship. Branches without a pull request build without publishing, so a broken
-  # bundle fails the run without putting anything in the registry.
+  # ship. Publishing is still conditional so a run that somehow reaches here
+  # without a pull request fails on a broken bundle without putting anything in
+  # the registry.
   image:
     needs: [context, checks]
     runs-on: ubuntu-latest
