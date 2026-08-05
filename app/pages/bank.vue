@@ -1,23 +1,38 @@
 <script setup lang="ts">
 import { format, formatDistanceToNow } from 'date-fns'
 import { useElementSize, useIntervalFn } from '@vueuse/core'
-import { LOAN_DAILY_RATE, bankDailyRate, growBankBalance } from '#shared/utils/gamelogic/bank'
+import {
+  BAILOUT_GARNISH_RATE,
+  BAILOUT_LOCKOUT_DAYS,
+  DEBT_CEILING_MULTIPLIER,
+  DEBT_GARNISH_RATE,
+  LOAN_DAILY_RATE,
+  LOAN_MULTIPLIER,
+  bankDailyRate,
+  growBankBalance
+} from '#shared/utils/gamelogic/bank'
 
 type BankPoint = { id: string, balance: string, action: string, amount: string, createdAt: string }
 type BankData = {
   balance: number, principal: number, totalDeposited: number, loanLimit: number, loanPrincipal: number
   loanAvailable: number, debtLimit: number, lastSettledAt: string, history: BankPoint[]
+  garnishRate: number, canBailOut: boolean, bailoutThreshold: number, bailoutActive: boolean
+  bailoutAt: string | null, bailoutUntil: string | null
+  bailoutDebt: number, bailoutRepaid: number, bailoutRemaining: number
 }
 type ChartRange = '1d' | '7d' | '30d'
 
 const { data, refresh } = await useFetch<BankData>('/api/bank/state')
 const { data: chartHistory, refresh: refreshChartHistory } = await useFetch<{ points: BankPoint[], earliestAt: string | null }>('/api/bank/chart')
 const { user, fetchSession } = useAuth()
+const { refresh: refreshBankStatus } = useBankStatus()
 const toast = useToast()
 const now = ref(Date.now())
 const chartNow = ref(Date.now())
 const amount = ref<number | null>(null)
 const loading = ref<'deposit' | 'withdraw' | null>(null)
+const bailoutLoading = ref<'bailout' | 'repay' | null>(null)
+const bailoutConfirmOpen = ref(false)
 const history = ref<BankPoint[]>([])
 const historyLoading = ref(false)
 const historyHasMore = ref(false)
@@ -30,11 +45,25 @@ useIntervalFn(() => { now.value = Date.now() }, 500)
 useIntervalFn(() => { chartNow.value = Date.now() }, 1_000)
 useIntervalFn(() => refresh(), 30_000)
 
+const bailout = computed(() => ({
+  until: data.value?.bailoutUntil ? new Date(data.value.bailoutUntil) : null,
+  debt: data.value?.bailoutDebt ?? 0,
+  repaid: data.value?.bailoutRepaid ?? 0
+}))
 const liveBalance = computed(() => data.value
-  ? growBankBalance(data.value.balance, new Date(data.value.lastSettledAt), new Date(now.value))
+  ? growBankBalance(data.value.balance, new Date(data.value.lastSettledAt), new Date(now.value), bailout.value)
   : 0
 )
 const isInDebt = computed(() => liveBalance.value < 0)
+const bailoutActive = computed(() => !!data.value?.bailoutActive)
+const bailoutRemaining = computed(() => data.value?.bailoutRemaining ?? 0)
+const bailoutProgress = computed(() => {
+  const debt = data.value?.bailoutDebt ?? 0
+  return debt > 0 ? Math.min(100, ((data.value?.bailoutRepaid ?? 0) / debt) * 100) : 0
+})
+const bailoutEndsAt = computed(() => data.value?.bailoutUntil ? new Date(data.value.bailoutUntil) : null)
+const canRepayBailout = computed(() => bailoutActive.value && walletBalance.value >= bailoutRemaining.value)
+const garnishPercent = computed(() => Math.round((data.value?.garnishRate ?? 0) * 100))
 const bankProfitLoss = computed(() => liveBalance.value - (data.value?.principal ?? 0))
 const walletBalance = computed(() => parseFloat(user.value?.balance ?? '0'))
 // Match the server settlement rate exactly between refreshes. The amount itself
@@ -74,7 +103,7 @@ const chartData = computed((): ChartPoint[] => {
 
     for (let step = 0; step <= steps; step++) {
       const time = new Date(segmentStart.getTime() + ((segmentEnd.getTime() - segmentStart.getTime()) * step / steps))
-      points.push({ date: time, balance: growBankBalance(from.balance, from.date, time) })
+      points.push({ date: time, balance: growBankBalance(from.balance, from.date, time, bailout.value) })
     }
     if (to.getTime() > chartNow.value) break
   }
@@ -83,7 +112,7 @@ const chartData = computed((): ChartPoint[] => {
   const last = points.at(-1)
   if (!last || last.date.getTime() !== current.getTime()) {
     const anchor = history.at(-1)!
-    points.push({ date: current, balance: growBankBalance(anchor.balance, anchor.date, current) })
+    points.push({ date: current, balance: growBankBalance(anchor.balance, anchor.date, current, bailout.value) })
   }
   const zeroCrossingPoints: ChartPoint[] = []
   for (const point of points) {
@@ -131,8 +160,34 @@ watch(chartRange, range => {
   if (!chartRangeAvailable(range)) chartRange.value = '1d'
 })
 
+const HISTORY_STYLES: Record<string, { label: string, icon: string, wrapper: string, amount: string, sign: string }> = {
+  deposit: { label: 'Deposit', icon: 'i-lucide-arrow-down-to-line', wrapper: 'bg-primary/10 text-primary', amount: 'text-primary', sign: '+' },
+  withdraw: { label: 'Withdraw', icon: 'i-lucide-arrow-up-from-line', wrapper: 'bg-error/10 text-error', amount: 'text-error', sign: '−' },
+  bailout: { label: 'Bail-out accepted', icon: 'i-lucide-life-buoy', wrapper: 'bg-warning/10 text-warning', amount: 'text-warning', sign: '' },
+  'bailout-settled': { label: 'Bail-out settled', icon: 'i-lucide-check', wrapper: 'bg-success/10 text-success', amount: 'text-success', sign: '' }
+}
+const historyStyle = (action: string) => HISTORY_STYLES[action] ?? HISTORY_STYLES.withdraw!
+
 function setAmount(value: number) {
   amount.value = Math.max(0, Math.floor(value * 10_000) / 10_000)
+}
+
+async function runBailout(action: 'bailout' | 'repay') {
+  bailoutLoading.value = action
+  try {
+    await $fetch(action === 'bailout' ? '/api/bank/bailout' : '/api/bank/bailout-repay', { method: 'POST' })
+    bailoutConfirmOpen.value = false
+    await Promise.all([refresh(), refreshChartHistory(), fetchSession(), loadHistory(true), refreshBankStatus()])
+    toast.add({
+      title: action === 'bailout' ? 'Bail-out accepted — your debt is lifted' : 'Bail-out repaid, penalty lifted',
+      color: 'success',
+      icon: action === 'bailout' ? 'i-lucide-life-buoy' : 'i-lucide-check'
+    })
+  } catch (error: unknown) {
+    toast.add({ title: apiErrorMessage(error, 'Bail-out failed'), color: 'error' })
+  } finally {
+    bailoutLoading.value = null
+  }
 }
 
 async function submit(action: 'deposit' | 'withdraw', overrideAmount?: number, repayDebt = false) {
@@ -162,6 +217,100 @@ async function submit(action: 'deposit' | 'withdraw', overrideAmount?: number, r
       <UBadge :color="isInDebt ? 'error' : 'success'" variant="subtle" :icon="isInDebt ? 'i-lucide-triangle-alert' : 'i-lucide-landmark'" :label="isInDebt ? 'Debt accruing' : 'Savings account'" />
     </div>
 
+    <!-- Bail-out: the offer while the debt spiral is running, the ledger once it's taken. -->
+    <section v-if="bailoutActive" class="overflow-hidden rounded-xl border border-warning/50 bg-warning/5">
+      <div class="flex flex-wrap items-center justify-between gap-3 border-b border-warning/30 px-5 py-3 sm:px-6">
+        <div class="flex items-center gap-2.5">
+          <UIcon name="i-lucide-life-buoy" class="size-5 text-warning" />
+          <h2 class="text-lg font-bold tracking-tight">Bail-out in progress</h2>
+        </div>
+        <UBadge color="warning" variant="subtle" :label="bailoutEndsAt ? `Ends ${formatDistanceToNow(bailoutEndsAt, { addSuffix: true })}` : 'Penalty running'" />
+      </div>
+      <div class="p-5 sm:p-6 space-y-4">
+        <div class="grid gap-4 sm:grid-cols-3">
+          <div>
+            <p class="text-xs text-muted">Debt lifted</p>
+            <CoinBalance :value="data?.bailoutDebt" :compact="false" :minimum-fraction-digits="2" class="mt-1 text-lg font-bold tabular-nums" />
+          </div>
+          <div>
+            <p class="text-xs text-muted">Levied back so far</p>
+            <CoinBalance :value="data?.bailoutRepaid" :compact="false" :minimum-fraction-digits="2" class="mt-1 text-lg font-bold tabular-nums text-warning" />
+          </div>
+          <div>
+            <p class="text-xs text-muted">Still outstanding</p>
+            <CoinBalance :value="bailoutRemaining" :compact="false" :minimum-fraction-digits="2" class="mt-1 text-lg font-bold tabular-nums" />
+          </div>
+        </div>
+        <UProgress :model-value="bailoutProgress" color="warning" size="sm" />
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <p class="max-w-xl text-xs text-muted">
+            {{ garnishPercent }}% of everything you earn is taken at the source until the debt is cleared or the
+            {{ BAILOUT_LOCKOUT_DAYS }} days run out. No loans and no interest on savings until then. Repay the
+            remainder now to end the penalty immediately.
+          </p>
+          <UButton
+            color="warning"
+            icon="i-lucide-hand-coins"
+            :loading="bailoutLoading === 'repay'"
+            :disabled="!canRepayBailout || !!bailoutLoading"
+            :label="`Repay ${formatNumber(bailoutRemaining, true, 2)} and end penalty`"
+            @click="runBailout('repay')"
+          />
+        </div>
+        <p v-if="!canRepayBailout" class="-mt-2 text-xs text-error">Your wallet is short of the outstanding amount.</p>
+      </div>
+    </section>
+
+    <section v-else-if="data?.canBailOut" class="overflow-hidden rounded-xl border border-error/50 bg-error/5">
+      <div class="flex flex-wrap items-center justify-between gap-3 border-b border-error/30 px-5 py-3 sm:px-6">
+        <div class="flex items-center gap-2.5">
+          <UIcon name="i-lucide-life-buoy" class="size-5 text-error" />
+          <h2 class="text-lg font-bold tracking-tight">BAIL OUT</h2>
+        </div>
+        <UBadge color="error" variant="subtle" label="Debt spiral escape" />
+      </div>
+      <div class="p-5 sm:p-6 space-y-4">
+        <p class="max-w-3xl text-sm text-muted">
+          Your debt has outgrown what you borrowed. A bail-out wipes it off your account instantly — but for
+          {{ BAILOUT_LOCKOUT_DAYS }} days you cannot take a loan, your savings earn no interest, and
+          {{ Math.round(BAILOUT_GARNISH_RATE * 100) }}% of everything you earn is levied back toward what was lifted
+          (instead of the usual {{ Math.round(DEBT_GARNISH_RATE * 100) }}%). Clear it early and the penalty ends early.
+        </p>
+        <div class="grid gap-4 sm:grid-cols-3">
+          <div>
+            <p class="text-xs text-muted">Debt to be lifted</p>
+            <CoinBalance :value="Math.abs(liveBalance)" :compact="false" :minimum-fraction-digits="2" class="mt-1 text-lg font-bold tabular-nums text-error" />
+          </div>
+          <div>
+            <p class="text-xs text-muted">Borrowed</p>
+            <CoinBalance :value="data?.loanPrincipal" :compact="false" :minimum-fraction-digits="2" class="mt-1 text-lg font-bold tabular-nums" />
+          </div>
+          <div>
+            <p class="text-xs text-muted">Levy while it lasts</p>
+            <p class="mt-1 text-lg font-bold tabular-nums text-warning">{{ Math.round(BAILOUT_GARNISH_RATE * 100) }}% / earning</p>
+          </div>
+        </div>
+        <UButton
+          block
+          color="error"
+          icon="i-lucide-life-buoy"
+          size="lg"
+          :disabled="!!bailoutLoading"
+          label="Accept bail-out"
+          @click="bailoutConfirmOpen = true"
+        />
+      </div>
+    </section>
+
+    <UModal v-model:open="bailoutConfirmOpen" title="Accept the bail-out?" :description="`Your debt is cleared now. For ${BAILOUT_LOCKOUT_DAYS} days you cannot borrow, earn no bank interest, and ${Math.round(BAILOUT_GARNISH_RATE * 100)}% of every payout goes to the bank until the lifted debt is repaid.`">
+      <template #footer>
+        <div class="flex w-full justify-end gap-2">
+          <UButton color="neutral" variant="ghost" label="Cancel" @click="bailoutConfirmOpen = false" />
+          <UButton color="error" icon="i-lucide-life-buoy" :loading="bailoutLoading === 'bailout'" label="Accept bail-out" @click="runBailout('bailout')" />
+        </div>
+      </template>
+    </UModal>
+
     <section class="overflow-hidden rounded-xl border border-default bg-elevated/40">
       <div class="grid lg:grid-cols-[1.35fr_0.65fr]">
         <div class="p-6 sm:p-8" :class="isInDebt ? 'bg-error/5' : 'bg-primary/5'">
@@ -179,8 +328,13 @@ async function submit(action: 'deposit' | 'withdraw', overrideAmount?: number, r
             </div>
           </div>
           <div class="mt-3 text-sm text-muted">
-            <span v-if="isInDebt">Debt grows by <CoinBalance :value="interestToday" :compact="false" :minimum-fraction-digits="2" class="inline-flex align-middle" /> over the next 24 hours.</span>
+            <span v-if="bailoutActive">Savings earn no interest while the bail-out penalty is running.</span>
+            <span v-else-if="isInDebt">Debt grows by <CoinBalance :value="interestToday" :compact="false" :minimum-fraction-digits="2" class="inline-flex align-middle" /> over the next 24 hours.</span>
             <span v-else>Earns about <CoinBalance :value="interestToday" :compact="false" :minimum-fraction-digits="2" class="inline-flex align-middle" /> over the next 24 hours.</span>
+          </div>
+          <div v-if="garnishPercent > 0" class="mt-3 flex items-start gap-2 rounded-lg border border-error/30 bg-error/5 px-3 py-2 text-xs text-muted">
+            <UIcon name="i-lucide-triangle-alert" class="mt-0.5 size-4 shrink-0 text-error" />
+            <span><span class="font-semibold text-error">{{ garnishPercent }}% of everything you earn</span> is taken automatically and paid to the bank until this is cleared.</span>
           </div>
         </div>
         <div class="border-t border-default p-5 sm:p-6 lg:border-t-0 lg:border-l">
@@ -278,7 +432,12 @@ async function submit(action: 'deposit' | 'withdraw', overrideAmount?: number, r
             <span>Maximum withdrawal</span>
             <CoinBalance :value="maxWithdrawal" :compact="false" :minimum-fraction-digits="2" class="font-medium text-default tabular-nums" />
           </div>
-          <p class="mt-2">Any amount beyond your savings becomes a loan at 7% daily. Debt cannot exceed 10× the amount borrowed.</p>
+          <p class="mt-2">
+            Any amount beyond your savings becomes a loan at 7% daily, up to {{ LOAN_MULTIPLIER }}× everything you have
+            ever deposited. Debt cannot exceed {{ DEBT_CEILING_MULTIPLIER }}× the amount borrowed, and while you owe
+            anything {{ Math.round(DEBT_GARNISH_RATE * 100) }}% of your earnings is taken to repay it.
+          </p>
+          <p v-if="bailoutActive" class="mt-2 text-warning">Loans are blocked until your bail-out penalty ends.</p>
         </div>
       </UCard>
     </div>
@@ -291,6 +450,7 @@ async function submit(action: 'deposit' | 'withdraw', overrideAmount?: number, r
       <div class="rounded-lg border border-default px-4 py-3">
         <p class="text-xs text-muted">Maximum loan</p>
         <CoinBalance :value="data?.loanLimit" :compact="false" :minimum-fraction-digits="2" class="mt-1 font-semibold tabular-nums" />
+        <p class="mt-0.5 text-[11px] text-muted">{{ LOAN_MULTIPLIER }}× total deposited</p>
       </div>
     </div>
 
@@ -314,16 +474,16 @@ async function submit(action: 'deposit' | 'withdraw', overrideAmount?: number, r
       </div>
       <div v-else class="divide-y divide-default">
         <div v-for="entry in history" :key="entry.id" class="flex items-center gap-3 px-4 py-3">
-          <div class="size-8 rounded-full flex items-center justify-center shrink-0" :class="entry.action === 'deposit' ? 'bg-primary/10 text-primary' : 'bg-error/10 text-error'">
-            <UIcon :name="entry.action === 'deposit' ? 'i-lucide-arrow-down-to-line' : 'i-lucide-arrow-up-from-line'" class="size-4" />
+          <div class="size-8 rounded-full flex items-center justify-center shrink-0" :class="historyStyle(entry.action).wrapper">
+            <UIcon :name="historyStyle(entry.action).icon" class="size-4" />
           </div>
           <div class="min-w-0 flex-1">
-            <p class="text-sm font-medium capitalize">{{ entry.action }}</p>
+            <p class="text-sm font-medium">{{ historyStyle(entry.action).label }}</p>
             <p class="text-xs text-muted">{{ formatDistanceToNow(new Date(entry.createdAt), { addSuffix: true }) }}</p>
           </div>
           <div class="text-right">
-            <div class="flex justify-end items-center text-sm font-semibold tabular-nums" :class="entry.action === 'deposit' ? 'text-primary' : 'text-error'">
-              <span>{{ entry.action === 'deposit' ? '+' : '−' }}</span><CoinBalance :value="entry.amount" :compact="false" :minimum-fraction-digits="2" class="inline-flex" />
+            <div class="flex justify-end items-center text-sm font-semibold tabular-nums" :class="historyStyle(entry.action).amount">
+              <span>{{ historyStyle(entry.action).sign }}</span><CoinBalance :value="entry.amount" :compact="false" :minimum-fraction-digits="2" class="inline-flex" />
             </div>
             <div class="flex justify-end gap-1 text-xs tabular-nums" :class="parseFloat(entry.balance) < 0 ? 'text-error' : 'text-muted'"><span>Bank:</span><CoinBalance :value="entry.balance" :compact="false" :minimum-fraction-digits="2" /></div>
           </div>
