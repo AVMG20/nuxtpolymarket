@@ -4,7 +4,7 @@ import { getSessionUserId } from '#server/utils/auth'
 import { user, minerState, bankState, colonyState, colonyBugResearch, xenoPlantsUnlocked, xenoGridSlots, xenoBreederSlots, aiMessages, hackAgents, hackItems, gemOrders } from '#server/database/schema'
 import { getGemGuidePrice } from '#server/utils/gem-exchange'
 import { overclockMultiplier, catalystMultiplier } from '#shared/utils/miner-config'
-import { debtFloor, growBankBalance } from '#shared/utils/gamelogic/bank'
+import { bailoutRemaining, debtFloor, growBankBalance, isBailoutActive } from '#shared/utils/gamelogic/bank'
 import { PLANT_TYPES } from '#shared/utils/xeno'
 import { equippedAgentPower, type EquippableItemRow } from '#server/utils/hack'
 
@@ -28,6 +28,9 @@ export default defineEventHandler(async (event) => {
         bankBalance: bankState.balance,
         bankLastSettledAt: bankState.lastSettledAt,
         bankLoanPrincipal: bankState.loanPrincipal,
+        bailoutUntil: bankState.bailoutUntil,
+        bailoutDebt: bankState.bailoutDebt,
+        bailoutRepaid: bankState.bailoutRepaid,
       })
       .from(user)
       .leftJoin(minerState, eq(minerState.userId, user.id))
@@ -108,10 +111,16 @@ export default defineEventHandler(async (event) => {
       const gemValue = gems * gemGuidePrice
       const storedBankBalance = parseFloat(u.bankBalance ?? '0')
       const loanPrincipal = parseFloat(u.bankLoanPrincipal ?? '0')
+      const bailout = {
+        until: u.bailoutUntil,
+        debt: parseFloat(u.bailoutDebt ?? '0'),
+        repaid: parseFloat(u.bailoutRepaid ?? '0')
+      }
       let bankBalance = u.bankLastSettledAt
-        ? growBankBalance(storedBankBalance, u.bankLastSettledAt)
+        ? growBankBalance(storedBankBalance, u.bankLastSettledAt, new Date(), bailout)
         : storedBankBalance
       if (bankBalance < 0 && loanPrincipal > 0) bankBalance = Math.max(bankBalance, debtFloor(loanPrincipal))
+      const bailoutActive = isBailoutActive(bailout)
       const totalWealth = balance + gemValue + bankBalance
       const totalLevels = (u.rigLevel ?? 1) + (u.vaultLevel ?? 1) + (u.factoryLevel ?? 1)
       const itemMap = itemsByUser.get(u.id) ?? new Map<string, EquippableItemRow>()
@@ -138,6 +147,10 @@ export default defineEventHandler(async (event) => {
         prestige: u.prestige,
         balance: u.balance,
         bankBalance,
+        // A running bail-out is still a debt until it is levied back or bought out.
+        inDebt: bankBalance < 0 || bailoutActive,
+        bailoutActive,
+        bailoutRemaining: bailoutActive ? bailoutRemaining(bailout) : 0,
         gems,
         gemValue,
         rigLevel: u.rigLevel ?? 1,
