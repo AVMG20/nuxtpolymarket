@@ -125,6 +125,7 @@ export class CasinoHoldemTable extends LiveTable<ChSeatState, ChSharedState, ChA
         this.dealerQualified = null
         this.revealed = false
         this.bettingCut = false
+        this.nextRoundAt = null
         this.betLog.clear()
         this.shoe.shuffle()
 
@@ -377,6 +378,9 @@ export class CasinoHoldemTable extends LiveTable<ChSeatState, ChSharedState, ChA
         this.message = this.dealerQualified
             ? `Dealer: ${this.dealerHand.label}`
             : `Dealer does not qualify — ${this.dealerHand.label}`
+
+        const inHand = this.seated().filter(p => p.game.cards.length > 0).length
+        this.nextRoundAt = Date.now() + CH_TIMERS.reveal + this.payoutHold(inHand)
         this.advance('reveal', CH_TIMERS.reveal)
     }
 
@@ -411,12 +415,19 @@ export class CasinoHoldemTable extends LiveTable<ChSeatState, ChSharedState, ChA
 
         await this.settle(payouts)
 
-        const extra = Math.max(0, payouts.length - 1)
-        this.message = 'Round complete'
-        this.advance('payout', CH_TIMERS.payoutBase + extra * CH_TIMERS.payoutPerExtraSeat)
+        // The dealer's result set at showdown stays up: it is what the felt is
+        // being read for, and it outlives the phase that produced it.
+        const hold = this.payoutHold(payouts.length)
+        this.nextRoundAt = Date.now() + hold
+        this.advance('payout', hold)
+    }
+
+    private payoutHold(inHand: number) {
+        return CH_TIMERS.payoutBase + Math.max(0, inHand - 1) * CH_TIMERS.payoutPerExtraSeat
     }
 
     private nextRound() {
+        this.nextRoundAt = null
         if (!this.seated().length) {
             this.setPhase('idle', null)
             this.message = 'Waiting for players'

@@ -55,6 +55,11 @@ export interface LtTableState<TSeat = unknown, TShared = unknown> {
     phaseEndsAt: number | null
     /** How long that timer ran for, so a client can draw it without guessing. */
     phaseDuration: number | null
+    /**
+     * Epoch ms the next round's betting opens, published once the hand is over
+     * so a client can run one countdown across the phases that settle it.
+     */
+    nextRoundAt: number | null
     /** Server clock at snapshot time, so clients can correct for drift. */
     now: number
     seats: (LtSeat<TSeat> | null)[]

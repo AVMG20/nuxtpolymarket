@@ -129,6 +129,22 @@ const secondsLeft = computed(() => {
     return Math.max(0, Math.ceil((snapshot.phaseEndsAt - (now.value + skew.value)) / 1000))
 })
 
+/**
+ * Settling a hand spans two phases, so counting the current one down would
+ * reset halfway. The server publishes when betting reopens instead.
+ */
+const nextRoundIn = computed(() => {
+    const at = state.value?.nextRoundAt
+    if (!at) return null
+    return Math.max(0, Math.ceil((at - (now.value + skew.value)) / 1000))
+})
+
+/** Once the dealer is up, the result is worth more than the phase's name. */
+const phaseLabel = computed(() => {
+    if (isShowdown.value && state.value?.message) return state.value.message.toUpperCase()
+    return PHASE_LABELS[phase.value] ?? phase.value.toUpperCase()
+})
+
 const pairPlusRows = (Object.keys(TCP_PAIR_PLUS_PAYS) as TcpPairPlusTier[])
     .map(tier => ({
         label: TCP_PAIR_PLUS_LABELS[tier],
@@ -301,12 +317,16 @@ onBeforeUnmount(() => {
         </div>
 
         <div class="lt-rules" style="top: 338px">
-          {{ isShowdown ? state?.message : 'DEALER QUALIFIES WITH QUEEN HIGH OR BETTER' }}
+          DEALER QUALIFIES WITH QUEEN HIGH OR BETTER
         </div>
 
         <div class="lt-phase" style="top: 386px">
-          <span class="label">{{ PHASE_LABELS[phase] ?? phase.toUpperCase() }}</span>
-          <span v-if="secondsLeft !== null" class="count" :class="{ urgent: secondsLeft <= 5 }">
+          <span class="label">{{ phaseLabel }}</span>
+          <template v-if="nextRoundIn !== null">
+            <span class="next">NEW ROUND IN</span>
+            <span class="count">{{ nextRoundIn }}</span>
+          </template>
+          <span v-else-if="secondsLeft !== null" class="count" :class="{ urgent: secondsLeft <= 5 }">
             {{ secondsLeft }}
           </span>
         </div>

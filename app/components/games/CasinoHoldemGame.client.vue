@@ -99,6 +99,23 @@ const countdown = computed(() => {
     return Math.max(0, Math.ceil((ends - (now.value + skew.value)) / 1000))
 })
 
+/**
+ * Settling a hand spans two phases, so counting the current one down would
+ * reset halfway. The server publishes when betting reopens instead.
+ */
+const nextRoundIn = computed(() => {
+    const at = state.value?.nextRoundAt
+    if (!at) return null
+    return Math.max(0, Math.ceil((at - (now.value + skew.value)) / 1000))
+})
+
+/** Once the dealer is up, the result is worth more than the phase's name. */
+const phaseLabel = computed(() => {
+    const settling = phase.value === 'reveal' || phase.value === 'payout'
+    if (settling && state.value?.message) return state.value.message.toUpperCase()
+    return PHASE_LABEL[phase.value] ?? phase.value.toUpperCase()
+})
+
 const myAnte = computed(() => mySeat.value?.game.pendingAnte ?? 0)
 const myAa = computed(() => mySeat.value?.game.pendingAa ?? 0)
 const staked = computed(() => myAnte.value + myAa.value)
@@ -352,8 +369,12 @@ function badgeFor(seat: ChSeatState): { text: string, tone: string } | null {
           DEALER QUALIFIES WITH A PAIR OF FOURS OR BETTER
         </div>
         <div class="lt-phase" style="top: 412px">
-          <span class="label">{{ PHASE_LABEL[phase] ?? phase.toUpperCase() }}</span>
-          <span v-if="countdown !== null" class="count" :class="{ urgent: countdown <= 5 }">{{ countdown }}</span>
+          <span class="label">{{ phaseLabel }}</span>
+          <template v-if="nextRoundIn !== null">
+            <span class="next">NEW ROUND IN</span>
+            <span class="count">{{ nextRoundIn }}</span>
+          </template>
+          <span v-else-if="countdown !== null" class="count" :class="{ urgent: countdown <= 5 }">{{ countdown }}</span>
         </div>
 
         <!-- Side-bet paytables: top-left corner, dimmed and collapsed until asked for,

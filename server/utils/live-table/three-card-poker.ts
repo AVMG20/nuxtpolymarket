@@ -133,6 +133,7 @@ export class ThreeCardPokerTable extends LiveTable<TcpSeatState, TcpSharedState,
     // ─── betting ───────────────────────────────────────────────────────────
 
     private startBetting() {
+        this.nextRoundAt = null
         if (!this.seated().length) {
             this.setPhase('idle', null)
             this.message = 'Waiting for players'
@@ -329,9 +330,24 @@ export class ThreeCardPokerTable extends LiveTable<TcpSeatState, TcpSharedState,
         this.reveal()
     }
 
+    /**
+     * Showing the dealer here rather than at payout keeps one result on the
+     * felt for the whole settle window, which is what the countdown to the
+     * next round is measured against.
+     */
     private reveal() {
-        this.message = 'Showdown'
+        const dealer = this.dealerHand
+        this.message = dealer
+            ? (dealerQualifies(dealer) ? `Dealer: ${dealer.label}` : `Dealer does not qualify — ${dealer.label}`)
+            : 'Showdown'
+
+        this.nextRoundAt = Date.now() + TIMERS.reveal + this.payoutHold(this.inRound().length)
         this.advance('reveal', TIMERS.reveal)
+    }
+
+    private payoutHold(inRound: number) {
+        const extra = Math.max(0, inRound - 1)
+        return Math.min(TIMERS.payoutMax, TIMERS.payoutBase + extra * TIMERS.payoutPerExtraPlayer)
     }
 
     // ─── settlement ────────────────────────────────────────────────────────
@@ -365,11 +381,8 @@ export class ThreeCardPokerTable extends LiveTable<TcpSeatState, TcpSharedState,
             payouts.push({ userId: player.userId, staked: result.staked, payout: result.payout })
         }
 
-        const extra = Math.max(0, payouts.length - 1)
-        const hold = Math.min(TIMERS.payoutMax, TIMERS.payoutBase + extra * TIMERS.payoutPerExtraPlayer)
-        this.message = dealerQualifies(dealer)
-            ? `Dealer: ${dealer.label}`
-            : `Dealer does not qualify — ${dealer.label}`
+        const hold = this.payoutHold(payouts.length)
+        this.nextRoundAt = Date.now() + hold
         this.advance('payout', hold)
         await this.settle(payouts)
     }

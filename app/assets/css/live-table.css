@@ -592,3 +592,12 @@
     font-variant-numeric: tabular-nums;
 }
 .lt-phase .count.urgent { color: var(--ui-error); }
+/* Sits between the outcome and its number, so the count reads as a wait rather
+   than another clock the player has to act against. */
+.lt-phase .next {
+    font-size: 13px;
+    font-weight: 800;
+    letter-spacing: 0.12em;
+    color: color-mix(in srgb, var(--lt-gold) 65%, transparent);
+    margin-right: -8px;
+}

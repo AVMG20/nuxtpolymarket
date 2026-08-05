@@ -100,6 +100,7 @@ export abstract class LiveTable<TSeat, TShared, TAction> {
     protected phase = 'idle'
     protected phaseEndsAt: number | null = null
     protected phaseDuration: number | null = null
+    protected nextRoundAt: number | null = null
     protected phaseToken = 0
     protected roundId = 0
     protected message = 'Waiting for players'
@@ -586,6 +587,7 @@ export abstract class LiveTable<TSeat, TShared, TAction> {
             phase: this.phase,
             phaseEndsAt: this.phaseEndsAt,
             phaseDuration: this.phaseDuration,
+            nextRoundAt: this.nextRoundAt,
             now: Date.now(),
             seats,
             message: this.message,
