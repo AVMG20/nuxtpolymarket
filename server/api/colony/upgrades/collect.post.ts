@@ -10,7 +10,9 @@ export default defineEventHandler(async (event) => {
   const userId = await requireUserId(event)
 
   const state = await settleColony(userId)
-  const jobs = await db.select().from(colonyBuilderJobs).where(eq(colonyBuilderJobs.userId, userId))
+  // Ordered by startedAt so the unnamed-collect path below picks the same job
+  // every time, and picks it in the order serializeBuilders lists them in.
+  const jobs = await db.select().from(colonyBuilderJobs).where(eq(colonyBuilderJobs.userId, userId)).orderBy(colonyBuilderJobs.startedAt)
   const levels = await getUpgradeLevels(userId)
 
   function completesAtOf(job: typeof jobs[number]) {

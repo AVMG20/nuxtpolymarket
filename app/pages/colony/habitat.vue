@@ -189,7 +189,7 @@ function affordCost(cost: { coins: number, items: { itemTypeId: string, quantity
       <!-- Builders — one card per builder, busy first then idle -->
       <div class="space-y-3">
         <UCard
-          v-for="(slot, i) in builderSlots"
+          v-for="slot in builderSlots"
           :key="slot.key"
         >
           <div class="flex items-center gap-2 mb-2">
@@ -197,8 +197,11 @@ function affordCost(cost: { coins: number, items: { itemTypeId: string, quantity
               name="i-lucide-hammer"
               class="text-primary size-4"
             />
+            <!-- No number: builders are interchangeable and the cards are
+                 ordered by job start, so "Builder 2" would rename itself
+                 every time a job finishes or a new one starts. -->
             <span class="text-sm font-medium text-muted">
-              Builder{{ builderCount > 1 ? ` ${i + 1}` : '' }}
+              Builder
             </span>
           </div>
           <template v-if="slot.job">
