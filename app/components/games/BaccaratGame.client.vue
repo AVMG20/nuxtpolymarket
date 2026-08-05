@@ -16,14 +16,13 @@ const SEAT_POS = [
 ]
 
 /** Shared across the whole live-table suite so a layout reads the same on every game's felt. */
-const SHOE_POS = { x: 1431, y: 140 }
-const DISCARD_POS = { x: 289, y: 140 }
+const SHOE_POS = { x: 1431, y: 196 }
+const DISCARD_POS = { x: 289, y: 196 }
 const PLAYER_HAND_POS = { x: 688, y: 196 }
 const BANKER_HAND_POS = { x: 1032, y: 196 }
 
-/** Mirrors live-table.css's --lt-chip-size-spot / --lt-chip-size-side -- inline SVG art can't read a CSS custom property. */
-const CHIP_SPOT = 84
-const CHIP_SIDE = 64
+/** Matches the chip size Three Card Poker lays on its spots, so the two felts read the same. */
+const CHIP_SIZE = 56
 
 /**
  * Player/Banker/Tie are the three real outcomes and share the main spot chip
@@ -38,11 +37,11 @@ const CHIP_SIDE = 64
  * circle would otherwise cover the label.
  */
 const SPOT_DEFS: { key: BacBetKey, dx: number, dy: number, r: number, chip: number, label: string, labelBelow: boolean }[] = [
-    { key: 'playerPair', dx: -96, dy: -98, r: 38, chip: CHIP_SIDE, label: 'PR', labelBelow: false },
-    { key: 'player', dx: -96, dy: 0, r: 46, chip: CHIP_SPOT, label: 'PLAYER', labelBelow: true },
-    { key: 'tie', dx: 0, dy: 0, r: 40, chip: CHIP_SPOT, label: 'TIE', labelBelow: true },
-    { key: 'banker', dx: 96, dy: 0, r: 46, chip: CHIP_SPOT, label: 'BANKER', labelBelow: true },
-    { key: 'bankerPair', dx: 96, dy: -98, r: 38, chip: CHIP_SIDE, label: 'PR', labelBelow: false }
+    { key: 'playerPair', dx: -96, dy: -98, r: 38, chip: CHIP_SIZE, label: 'PR', labelBelow: false },
+    { key: 'player', dx: -96, dy: 0, r: 46, chip: CHIP_SIZE, label: 'PLAYER', labelBelow: true },
+    { key: 'tie', dx: 0, dy: 0, r: 40, chip: CHIP_SIZE, label: 'TIE', labelBelow: true },
+    { key: 'banker', dx: 96, dy: 0, r: 46, chip: CHIP_SIZE, label: 'BANKER', labelBelow: true },
+    { key: 'bankerPair', dx: 96, dy: -98, r: 38, chip: CHIP_SIZE, label: 'PR', labelBelow: false }
 ]
 
 /**
@@ -55,8 +54,8 @@ function handStyle(pos: { x: number, y: number }) {
     return {
         left: `${pos.x}px`,
         top: `${pos.y}px`,
-        '--deal-from': `translate(${SHOE_POS.x - pos.x}px, ${SHOE_POS.y - pos.y}px) scale(0.55)`,
-        '--discard-to': `translate(${DISCARD_POS.x - pos.x}px, ${DISCARD_POS.y - pos.y}px) scale(0.55)`
+        '--deal-from': `translate(${SHOE_POS.x - pos.x}px, ${SHOE_POS.y - pos.y}px)`,
+        '--discard-to': `translate(${DISCARD_POS.x - pos.x}px, ${DISCARD_POS.y - pos.y}px)`
     }
 }
 
@@ -94,7 +93,7 @@ function onGameEvent(payload: unknown) {
 }
 
 const table = useLiveTable<BacSeatState, BacSharedState, BacAction>('baccarat', onGameEvent)
-const { state, youId, balance, connected, feed, chat, mySeat } = table
+const { state, youId, balance, connected, feed, chat, mySeat, skew } = table
 feedRef = feed
 
 // Rejections (seat taken, can't afford it) only otherwise land as a line in
@@ -164,16 +163,15 @@ const cardsRemaining = computed(() => {
 const hasDiscards = computed(() => (state.value?.game.shoe.dealt ?? 0) > 0)
 const untilShuffle = computed(() => state.value?.game.shoe.untilShuffle ?? 0)
 
-const clockTick = ref(Date.now())
+const now = ref(Date.now())
 let clockTimer: ReturnType<typeof setInterval> | null = null
-onMounted(() => { clockTimer = setInterval(() => { clockTick.value = Date.now() }, 250) })
+onMounted(() => { clockTimer = setInterval(() => { now.value = Date.now() }, 250) })
 onBeforeUnmount(() => { if (clockTimer) clearInterval(clockTimer) })
 
 const secondsLeft = computed(() => {
     const snapshot = state.value
     if (!snapshot?.phaseEndsAt) return null
-    const skewed = clockTick.value + (snapshot.now - Date.now())
-    return Math.max(0, Math.ceil((snapshot.phaseEndsAt - skewed) / 1000))
+    return Math.max(0, Math.ceil((snapshot.phaseEndsAt - (now.value + skew.value)) / 1000))
 })
 
 const phaseLabel = computed(() => {
@@ -329,7 +327,7 @@ function scaleBets(factor: number) {
               <div
                 v-if="seatAt(i)!.game.bets[def.key] > 0"
                 style="position:absolute;bottom:6px"
-                v-html="chipStack(seatAt(i)!.game.bets[def.key], { size: def.chip })"
+                v-html="chipStack(seatAt(i)!.game.bets[def.key], { size: def.chip, max: 3 })"
               />
             </div>
             <div
@@ -440,27 +438,27 @@ function scaleBets(factor: number) {
              on the Pixi blackjack table as it does here. -->
         <div class="bac-tray" :style="{ left: `${DISCARD_POS.x}px`, top: `${DISCARD_POS.y}px` }">
           <template v-if="hasDiscards">
+            <span class="bac-tray-card" style="left:12px;top:8px" v-html="cardBack()" />
             <span class="bac-tray-card" style="left:6px;top:4px" v-html="cardBack()" />
-            <span class="bac-tray-card" style="left:3px;top:2px" v-html="cardBack()" />
           </template>
         </div>
-        <div class="bac-tray-label" :style="{ left: `${DISCARD_POS.x}px`, top: `${DISCARD_POS.y + 66}px` }">
+        <div class="bac-tray-label" :style="{ left: `${DISCARD_POS.x}px`, top: `${DISCARD_POS.y + 96}px` }">
           Discard
         </div>
 
         <!-- Shoe: the actual draw point every dealt card animates out from,
              aligned to the coordinate the Pixi blackjack table also uses. -->
         <div class="bac-tray" :style="{ left: `${SHOE_POS.x}px`, top: `${SHOE_POS.y}px` }">
+          <span class="bac-tray-card" style="left:12px;top:8px" v-html="cardBack()" />
           <span class="bac-tray-card" style="left:6px;top:4px" v-html="cardBack()" />
-          <span class="bac-tray-card" style="left:3px;top:2px" v-html="cardBack()" />
           <span class="bac-tray-card" style="left:0;top:0" v-html="cardBack()" />
           <div class="bac-shoe-cut" />
         </div>
-        <div class="bac-tray-label" :style="{ left: `${SHOE_POS.x}px`, top: `${SHOE_POS.y + 66}px` }">
+        <div class="bac-tray-label" :style="{ left: `${SHOE_POS.x}px`, top: `${SHOE_POS.y + 96}px` }">
           Shoe
         </div>
 
-        <div class="lt-overlay" :style="{ left: `${SHOE_POS.x - 120}px`, top: '240px', width: '240px' }">
+        <LiveTableCorner title="Shoe" side="right" open>
           <div class="lt-mono text-2xl font-extrabold leading-none" style="color:var(--lt-gold)">
             {{ cardsRemaining }}
           </div>
@@ -470,7 +468,7 @@ function scaleBets(factor: number) {
           <div class="mt-1.5 text-[10px]" style="color:var(--lt-gold)">
             cut card &middot; {{ untilShuffle }} to go
           </div>
-        </div>
+        </LiveTableCorner>
       </LiveTableStage>
     </div>
 
@@ -590,18 +588,16 @@ function scaleBets(factor: number) {
 /* Centred exactly on its (x,y) stage coordinate -- the shoe and discard tray
    both anchor here so the card-dealing animation's start/end point lines up
    with where the sprite actually sits. */
+/* Sized off the cards themselves: the tray holds them at the same size they are
+   dealt at, so the shoe reads as the stack the hands actually came out of. */
 .bac-tray {
   position: absolute;
-  width: 60px;
-  height: 78px;
+  width: 124px;
+  height: 164px;
   transform: translate(-50%, -50%);
 }
 .bac-tray-card {
   position: absolute;
-}
-.bac-tray-card :deep(.lt-card) {
-  width: 50px;
-  height: 70px;
 }
 .bac-tray-label {
   position: absolute;
@@ -617,10 +613,10 @@ function scaleBets(factor: number) {
 }
 .bac-shoe-cut {
   position: absolute;
-  left: -4px;
-  top: 34px;
-  width: 66px;
-  height: 3px;
+  left: -8px;
+  top: 76px;
+  width: 132px;
+  height: 4px;
   background: var(--lt-gold);
   box-shadow: 0 0 6px var(--lt-gold);
 }

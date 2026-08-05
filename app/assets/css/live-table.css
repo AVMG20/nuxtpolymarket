@@ -487,6 +487,7 @@
    grows a column per round, and an absolutely positioned panel has no parent
    width to be constrained by. Without this it grows across the felt. */
 .lt-corner { max-width: 460px; }
+.lt-corner-r { left: auto; right: 44px; }
 .lt-corner:hover, .lt-corner.open { opacity: 1; }
 .lt-corner-head {
     display: flex;
