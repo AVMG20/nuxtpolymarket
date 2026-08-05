@@ -9,6 +9,14 @@ on:
   pull_request:
     types: [opened, reopened, closed]
 
+# A push and the pull_request event for the same branch share a group, so the
+# newest run owns both the image tag and the preview comment. Without it a
+# superseded run keeps building for a commit nobody is reviewing any more, and
+# its 15-minute deployment poll writes a stale comment over a fresher one.
+concurrency:
+  group: ci-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
@@ -314,7 +322,9 @@ jobs:
           echo "url=$url" >> "$GITHUB_OUTPUT"
 
       - name: Report the preview on the pull request
-        if: always() && steps.deploy.outputs.deployment != ''
+        # A cancelled run has been replaced by a newer one, which owns the
+        # comment now.
+        if: ${{ !cancelled() && steps.deploy.outputs.deployment != '' }}
         env:
           LOG: ${{ steps.deploy.outputs.log }}
           STATUS: ${{ steps.wait.outputs.status }}
