@@ -81,6 +81,21 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      # `migrate` only applies what is committed, so schema.ts running ahead of
+      # drizzle/ ships a stale database and the app boots against tables it does
+      # not have. A clean tree after `generate` proves they agree; `check`
+      # catches two branches both claiming the next migration number.
+      - name: Require committed migrations for schema changes
+        run: |
+          bunx drizzle-kit check
+          bunx drizzle-kit generate --name ci_drift_probe < /dev/null
+          if [ -n "$(git status --porcelain drizzle)" ]; then
+            git status --porcelain drizzle
+            echo "server/database/schema.ts changed without a committed migration."
+            echo "Run 'bun run db:generate' and commit the drizzle/ output."
+            exit 1
+          fi
+
       - name: Apply database migrations
         run: bunx drizzle-kit migrate
 
