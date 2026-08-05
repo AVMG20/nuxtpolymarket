@@ -266,6 +266,9 @@ jobs:
           # nested under the project and environment rather than the app uuid.
           log=$(curl -s "$BASE/api/v1/deployments/$deployment" \
             -H "Authorization: Bearer $TOKEN" | jq -r '.deployment_url // empty')
+          # Coolify answers with a path, which a comment renders relative to
+          # github.com.
+          case "$log" in /*) log="$BASE$log" ;; esac
           echo "log=$log" >> "$GITHUB_OUTPUT"
 
           printf '%s\n' \
