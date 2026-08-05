@@ -71,8 +71,13 @@ function showLadder(item: PrestigeShopItem) {
   return item.maxOwned > 1 && prestigeShopItemEscalates(item)
 }
 
-/** Price of the purchase AFTER the next one, for flat-list items with room left. */
+/**
+ * Price of the purchase AFTER the next one. Only for items that do NOT render
+ * the ladder — when the ladder is up it already shows every remaining price,
+ * so repeating one of them below it is just noise.
+ */
 function laterCost(item: PrestigeShopItem): number | null {
+  if (showLadder(item)) return null
   const owned = stateById.value.get(item.id)?.owned ?? 0
   if (owned + 1 >= item.maxOwned) return null
   return item.cost(owned + 1)

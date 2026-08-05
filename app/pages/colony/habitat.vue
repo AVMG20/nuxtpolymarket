@@ -31,13 +31,18 @@ onUnmounted(() => {
   if (interval) clearInterval(interval)
 })
 
-function jobReady(job: { completesAt: string }) {
+// Both derived from the API payload rather than re-declared, so renaming a
+// field on the server surfaces here as a type error instead of a blank card.
+type BuilderJob = typeof builders.value[number]
+type UpgradeTrack = typeof upgrades.value[number]
+
+function jobReady(job: BuilderJob) {
   return now.value >= new Date(job.completesAt).getTime()
 }
 
 /** One card per builder — busy ones first, then an idle card for each free builder. */
-const builderSlots = computed<{ key: string, job: any | null }[]>(() => [
-  ...builders.value.map((job: any) => ({ key: String(job.id), job })),
+const builderSlots = computed<{ key: string, job: BuilderJob | null }[]>(() => [
+  ...builders.value.map(job => ({ key: job.id, job })),
   ...Array.from({ length: buildersFree.value }, (_, i) => ({ key: `idle-${i}`, job: null }))
 ])
 
@@ -57,7 +62,7 @@ const canStartHabitatLevelUp = computed(() =>
 )
 
 /** Why a track's Build button is disabled, or null when it can be started. */
-function buildBlockedReason(track: any): string | null {
+function buildBlockedReason(track: UpgradeTrack): string | null {
   if (busyTrackIds.value.has(track.id)) return 'Under construction'
   if (buildersFree.value === 0) return builderCount.value === 1 ? 'Builder busy' : 'All builders busy'
   if (!affordCost(track.nextCost)) return 'Not enough resources'

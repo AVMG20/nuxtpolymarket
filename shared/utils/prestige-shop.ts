@@ -18,7 +18,7 @@
  * HACKOPS — which is coin-gated, not time-gated — is the cheap lane.
  */
 import { CATALYST_MAX_LEVEL, FACTORY_MAX_LEVEL, OVERCLOCK_MAX_LEVEL, RIG_MAX_LEVEL, VAULT_MAX_LEVEL } from './miner-config'
-import { BASE_BUILDER_COUNT, MAX_TIER as COLONY_MAX_TIER, getBug } from './colony'
+import { BASE_BUILDER_COUNT, MAX_GEMS_PER_DAY, MAX_TIER as COLONY_MAX_TIER, getBug } from './colony'
 
 export type PrestigeShopGame = 'miner' | 'xeno' | 'colony' | 'hack' | 'account'
 
@@ -159,10 +159,13 @@ export function colonyBroodCost(owned: number) {
 export const COLONY_UPLINK_MAX_OWNED = COLONY_MAX_TIER - 1
 
 /**
- * Gem Snails are solitary, so a pack of ordinary ones would crowd each other
- * into the slowest cycle in the game. The Hive Snail is a prestige-only
- * SOCIAL variant (see PURCHASABLE_BUG_TYPES) that keeps its full 24h cycle
- * however many share the terrarium.
+ * Gem Snails are solitary, so a pack of ordinary ones crowds itself: five in
+ * one terrarium tick at 28.2h each instead of 24h. The Hive Snail is a
+ * prestige-only SOCIAL variant (see PURCHASABLE_BUG_TYPES), and for a gem bug
+ * social buys exactly one thing — immunity to that penalty. gemTickMs clamps
+ * the social multiplier at 1, so it is never FASTER than a lone snail, and
+ * effectiveGemsPerDay ignores social entirely, so per-cycle output is
+ * unchanged. The perk is five snails at full rate, not five fast snails.
  */
 export const COLONY_HIVE_SNAIL_MAX_OWNED = 1
 export const COLONY_HIVE_SNAILS_PER_PURCHASE = 5
@@ -281,8 +284,8 @@ export const PRESTIGE_SHOP_ITEMS: PrestigeShopItem[] = [
         summary: 'A gem-snail pack that does not sabotage itself — the only social gem forager in the game.',
         grants: [
             `${COLONY_HIVE_SNAILS_PER_PURCHASE} Hive Snails — Gem Snails with the Social trait instead of Solitary`,
-            'They keep the full 24h cycle sharing one terrarium; 5 ordinary snails would slow each other to a crawl',
-            'Up to 15 gems a day once the Foraging tracks are up, on top of your normal snail'
+            'All five hold the full 24h cycle in one terrarium; five ordinary snails crowd each other out to 28.2h',
+            `Up to ${COLONY_HIVE_SNAILS_PER_PURCHASE * MAX_GEMS_PER_DAY} gems a day once the Foraging tracks are up, on top of your normal snail`
         ],
         maxOwned: COLONY_HIVE_SNAIL_MAX_OWNED,
         cost: () => 1

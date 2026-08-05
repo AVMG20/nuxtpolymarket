@@ -42,6 +42,7 @@ import {
 } from '#shared/utils/prestige-shop'
 import {
     MAX_TIER as COLONY_MAX_TIER,
+    HABITAT_BUILDER_JOB_ID,
     UPGRADE_TRACKS,
     getBug,
     habitatTrackRequirement,
@@ -211,10 +212,23 @@ const colonyUplink: Effect = async (tx, userId) => {
         throw createError({ statusCode: 400, statusMessage: `Habitat is already at level ${COLONY_MAX_TIER}` })
     }
 
+    // Read the levels BEFORE writing any: "was this track raised?" cannot be
+    // recovered from the post-update row, which looks identical whether the
+    // uplink moved the track up to the requirement or the player was already
+    // sitting exactly on it.
+    const before = await tx.select({ trackId: colonyUpgrades.trackId, level: colonyUpgrades.level })
+        .from(colonyUpgrades)
+        .where(eq(colonyUpgrades.userId, userId))
+    const levelBefore = new Map(before.map(row => [row.trackId, row.level]))
+
     // Every track has to clear its own requirement for this step before the
-    // habitat can rise — the uplink pays all of them at once.
+    // habitat can rise — the uplink pays all of them at once. `greatest` means
+    // a track the player already pushed PAST the requirement is left alone.
+    const raised: string[] = []
     for (const track of UPGRADE_TRACKS) {
         const required = habitatTrackRequirement(track.id, habitatLevel)
+        if ((levelBefore.get(track.id) ?? 0) >= required) continue
+
         await tx.insert(colonyUpgrades)
             .values({ userId, trackId: track.id, level: required })
             .onConflictDoUpdate({
@@ -222,12 +236,23 @@ const colonyUplink: Effect = async (tx, userId) => {
                 target: [colonyUpgrades.trackId, colonyUpgrades.userId],
                 set: { level: sql`greatest(${colonyUpgrades.level}, ${required})` }
             })
+        raised.push(track.id)
     }
 
-    // Cancelling every in-flight builder job is deliberate: whatever they were
-    // mid-way through is at or below the level just granted, so leaving them
-    // running would let the player collect a level they already have.
-    await tx.delete(colonyBuilderJobs).where(eq(colonyBuilderJobs.userId, userId))
+    // Cancel only the builds this uplink actually invalidated.
+    //
+    // A builder targets "current level + 1", resolved at COLLECT time — so
+    // raising a track's level under a running job silently retargets it at a
+    // level the player never paid for, and the job has to go. But a track the
+    // player had already pushed past the requirement was not touched by the
+    // loop above, so its job is still building exactly what it was sold: it
+    // keeps running. Cancelling those too (as this used to) burned the coins
+    // and items already spent on them, with no refund.
+    //
+    // The habitat job always goes: this grants the level it was building.
+    const doomed = [...raised, HABITAT_BUILDER_JOB_ID]
+    await tx.delete(colonyBuilderJobs)
+        .where(and(eq(colonyBuilderJobs.userId, userId), inArray(colonyBuilderJobs.trackId, doomed)))
 
     await tx.update(colonyState)
         .set({ habitatLevel: habitatLevel + 1 })

@@ -40,7 +40,7 @@ import { LOAN_MULTIPLIER } from '#shared/utils/gamelogic/bank'
 import { CATALYST_MAX_LEVEL, OVERCLOCK_MAX_LEVEL } from '#shared/utils/miner-config'
 import { PRESTIGE_TIERS } from '#shared/utils/prestige'
 import { PLANT_TYPES } from '#shared/utils/xeno'
-import { BASE_BUILDER_COUNT, UPGRADE_TRACKS, getBug, habitatTrackRequirement, socialMultiplier } from '#shared/utils/colony'
+import { BASE_BUILDER_COUNT, HABITAT_BUILDER_JOB_ID, UPGRADE_TRACKS, gemTickMs, getBug, habitatTrackRequirement } from '#shared/utils/colony'
 import { getBuilderCount } from '#server/utils/colony'
 import { SKIP, burst, cleanupUser, seedUser } from '../setup/db-helpers'
 
@@ -214,9 +214,14 @@ describe.skipIf(SKIP)('prestige shop', () => {
         const bugs = await db.select().from(colonyBugs).where(eq(colonyBugs.userId, USER_ID))
         expect(bugs.length).toBe(COLONY_HIVE_SNAILS_PER_PURCHASE)
         expect(bugs.every(bug => bug.typeId === COLONY_HIVE_SNAIL_TYPE_ID)).toBe(true)
-        // The whole point: social, so a pack of five keeps its full cycle.
-        expect(getBug(COLONY_HIVE_SNAIL_TYPE_ID)?.social).toBe(true)
-        expect(socialMultiplier(COLONY_HIVE_SNAIL_TYPE_ID, COLONY_HIVE_SNAILS_PER_PURCHASE)).toBeGreaterThanOrEqual(1)
+        // The whole point: five of them hold the base cycle, where five
+        // ordinary Gem Snails crowd each other into a longer one. Social does
+        // NOT make them faster — gemTickMs clamps the multiplier at 1.
+        const hive = { typeId: COLONY_HIVE_SNAIL_TYPE_ID }
+        const base = getBug(COLONY_HIVE_SNAIL_TYPE_ID)!.baseTickMs
+        expect(gemTickMs(hive, COLONY_HIVE_SNAILS_PER_PURCHASE)).toBe(base)
+        expect(gemTickMs(hive, 1)).toBe(base)
+        expect(gemTickMs({ typeId: 'gem_snail' }, COLONY_HIVE_SNAILS_PER_PURCHASE)).toBeGreaterThan(base)
     })
 
     it('sells the gem tracks in two halves, cheap half first', async () => {
@@ -263,6 +268,37 @@ describe.skipIf(SKIP)('prestige shop', () => {
         expect(await getBuilderCount(USER_ID)).toBe(BASE_BUILDER_COUNT + 2)
 
         await expect(buyPrestigeShopItem(USER_ID, 'colony-builder')).rejects.toThrow(/fully bought/i)
+    })
+
+    // The uplink retargets any track it raises — a builder on that track would
+    // collect a level nobody paid for — but a track the player already pushed
+    // PAST the requirement is untouched, so cancelling its build would burn
+    // the coins and items already spent on it.
+    it('cancels only the builds the uplink actually invalidated', async () => {
+        await seedPrestiged(5)
+        await db.insert(colonyState).values({ userId: USER_ID })
+
+        // capacity needs level 2 for habitat 1→2; put the player well past it.
+        const required = habitatTrackRequirement('capacity', 1)
+        await db.insert(colonyUpgrades).values({ userId: USER_ID, trackId: 'capacity', level: required + 3 })
+        await db.insert(colonyBuilderJobs).values([
+            { userId: USER_ID, trackId: 'capacity' },
+            { userId: USER_ID, trackId: 'speed_boost' },
+            { userId: USER_ID, trackId: HABITAT_BUILDER_JOB_ID }
+        ])
+
+        await buyPrestigeShopItem(USER_ID, 'colony-uplink')
+
+        const jobs = await db.select().from(colonyBuilderJobs).where(eq(colonyBuilderJobs.userId, USER_ID))
+        // capacity was above the requirement, so its build still targets the
+        // level it was sold and survives. speed_boost was raised, and the
+        // habitat job built the level just granted — both go.
+        expect(jobs.map(job => job.trackId)).toEqual(['capacity'])
+
+        // ...and the untouched track keeps the level it already had.
+        const [capacity] = await db.select().from(colonyUpgrades)
+            .where(and(eq(colonyUpgrades.userId, USER_ID), eq(colonyUpgrades.trackId, 'capacity')))
+        expect(capacity?.level).toBe(required + 3)
     })
 
     it('delivers a whole HackOps package of agents and items', async () => {

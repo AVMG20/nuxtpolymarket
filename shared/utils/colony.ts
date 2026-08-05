@@ -158,11 +158,14 @@ export const BUG_TYPES: BugType[] = [
   // investment in those tracks.
   { id: 'gem_snail', name: 'Gem Snail', tier: 3, emoji: '🐌', color: 0x4cc9f0, baseTickMs: 24 * 60 * 60_000, yieldMin: 1, yieldMax: 2, eatMin: 8, eatMax: 12, itemId: '', spawnCost: 4_000_000, description: 'A reclusive gem-forager — one per terrarium is plenty. Crowd it with its own kind and it slows to a crawl. Upgrading Foraging Yield or Foraging Speed lets it distill more per cycle.', social: false, producesGems: true },
   // Prestige-only variant of the Gem Snail. Identical in every respect except
-  // that it is SOCIAL: the whole point of the shop grant is that five of them
-  // share a terrarium and speed each other up instead of crowding each other
-  // into the solitary penalty a normal snail pack would suffer. Not buyable,
-  // not researchable, not in the encyclopedia — see prestigeOnly.
-  { id: 'social_gem_snail', name: 'Hive Snail', tier: 3, emoji: '🐌', color: 0xb5179e, baseTickMs: 24 * 60 * 60_000, yieldMin: 1, yieldMax: 2, eatMin: 8, eatMax: 12, itemId: '', spawnCost: 4_000_000, description: 'A gem-forager bred for company. Unlike its reclusive cousin it speeds UP in a crowd of its own kind — keep the whole brood together.', social: true, producesGems: true, prestigeOnly: true },
+  // that it is SOCIAL, which for a gem bug means exactly one thing: it is not
+  // PENALISED for crowding. gemTickMs clamps the social multiplier at 1
+  // (`Math.min(1, ...)`), so being social can never shorten the 24h cycle —
+  // it only removes the solitary penalty five ordinary snails would inflict
+  // on each other (24h each, rather than 28.2h each). effectiveGemsPerDay
+  // ignores the social trait entirely, so per-cycle output is unchanged.
+  // Not buyable, not researchable, not in the encyclopedia — see prestigeOnly.
+  { id: 'social_gem_snail', name: 'Hive Snail', tier: 3, emoji: '🐌', color: 0xb5179e, baseTickMs: 24 * 60 * 60_000, yieldMin: 1, yieldMax: 2, eatMin: 8, eatMax: 12, itemId: '', spawnCost: 4_000_000, description: 'A gem-forager bred to tolerate company. It gains nothing from a crowd, but unlike its reclusive cousin it loses nothing either — a whole brood holds the full 24h cycle in one terrarium.', social: true, producesGems: true, prestigeOnly: true },
   { id: 'spider', name: 'Spider', tier: 4, emoji: '🕷️', color: 0x9d4edd, baseTickMs: 15 * 60_000, yieldMin: 1, yieldMax: 2, eatMin: 14, eatMax: 20, itemId: 'venom', spawnCost: 7_000_000, description: 'A patient, territorial predator. Does not share well.', social: false },
   { id: 'scorpion', name: 'Scorpion', tier: 4, emoji: '🦂', color: 0xf77f00, baseTickMs: 20 * 60_000, yieldMin: 1, yieldMax: 2, eatMin: 14, eatMax: 20, itemId: 'carapace', spawnCost: 9_000_000, description: 'Armored, dangerous, and fiercely solitary.', social: false },
   { id: 'ember_roach', name: 'Ember Roach', tier: 5, emoji: '🪳', color: 0xff006e, baseTickMs: 24 * 60_000, yieldMin: 1, yieldMax: 2, eatMin: 22, eatMax: 30, itemId: 'ember_dust', spawnCost: 25_000_000, description: 'Legendary and nearly indestructible.', social: true },
