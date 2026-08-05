@@ -5,7 +5,7 @@ import { avgTickYield } from '#shared/utils/colony'
 import { formatDuration, traitTextColor } from '~/lib/colony-format'
 
 const colony = useColony()
-const { bugs, bugInventory, inventory, capacity, placedCount, nutrition, nutritionMax, nutritionDrainPerHour, feedCost, gemNutrition, gemBuffActive, gemFeedCost, gemFeedNutritionPerGem, initialized, pending, pendingLoot, serverNow } = colony
+const { bugs, bugInventory, inventory, capacity, placedCount, upgrades, habitatLevel, nutrition, nutritionMax, nutritionDrainPerHour, feedCost, gemNutrition, gemBuffActive, gemFeedCost, gemFeedNutritionPerGem, initialized, pending, pendingLoot, serverNow } = colony
 
 const { user } = useAuth()
 const balance = computed(() => parseFloat(user.value?.balance ?? '0'))
@@ -424,6 +424,8 @@ function bugYieldPerCycle(bug: any): string {
               :bugs="bugs"
               :is-starving="isStarving"
               :has-spare-bugs="!!bugInventory.length"
+              :upgrades="upgrades"
+              :habitat-level="habitatLevel"
               @produced="handleBugProduced"
             />
             <template #fallback>

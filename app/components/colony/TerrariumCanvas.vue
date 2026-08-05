@@ -1,11 +1,33 @@
 <script setup lang="ts">
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
+import { deriveTrackModifiers } from '#shared/utils/colony'
+
 const props = defineProps<{
   bugs: any[]
   isStarving: boolean
   hasSpareBugs: boolean
+  upgrades: any[]
+  habitatLevel: number
 }>()
+
+// Habitat stat readout (top-left overlay) — mirrors the Foraging Yield /
+// Foraging Speed / Nutrition Efficiency tracks on /colony/habitat so the
+// terrarium visibly reflects what has been upgraded. Zero-level tracks are
+// still rendered (as +0 / 0%) rather than hidden, so the panel reads as a
+// full stat block from level 0 onward.
+const trackLevels = computed<Record<string, number>>(() =>
+  Object.fromEntries((props.upgrades ?? []).map((t: any) => [t.id, t.level ?? 0]))
+)
+
+const habitatStats = computed(() => {
+  const { yieldLevelBonus, speedBonusPct, feedMultiplier } = deriveTrackModifiers(trackLevels.value)
+  return [
+    { key: 'yield', icon: 'i-lucide-trending-up', label: 'Yield', value: `+${yieldLevelBonus}`, color: 'text-info' },
+    { key: 'speed', icon: 'i-lucide-zap', label: 'Speed', value: `${Math.round(speedBonusPct)}%`, color: 'text-warning' },
+    { key: 'nutrition', icon: 'i-lucide-leaf', label: 'Nutrition', value: `-${Math.round((1 - feedMultiplier) * 100)}%`, color: 'text-success' }
+  ]
+})
 
 const emit = defineEmits<{
   produced: []
@@ -742,11 +764,28 @@ onUnmounted(() => {
     @pointerdown="onPointerDown"
   >
     <div
-      v-if="bugs.length"
-      class="pointer-events-none absolute top-3 left-3 z-10 flex items-center gap-1.5 rounded-full border border-default/70 bg-default/65 px-2.5 py-1 text-[10px] font-semibold text-muted backdrop-blur-sm"
+      class="pointer-events-none absolute top-3 left-3 z-10 flex flex-col gap-1 rounded-xl border border-default/70 bg-default/65 px-2.5 py-1.5 text-[10px] font-semibold text-muted backdrop-blur-sm"
     >
-      <span class="size-1.5 rounded-full bg-success animate-pulse" />
-      Living habitat
+      <span class="flex items-center gap-1.5">
+        <UIcon
+          name="i-lucide-castle"
+          class="size-3 shrink-0 text-primary"
+        />
+        <span class="text-highlighted">Habitat Lv {{ habitatLevel }}</span>
+      </span>
+      <span
+        v-for="stat in habitatStats"
+        :key="stat.key"
+        class="flex items-center gap-1.5"
+      >
+        <UIcon
+          :name="stat.icon"
+          class="size-3 shrink-0"
+          :class="stat.color"
+        />
+        <span class="flex-1">{{ stat.label }}</span>
+        <span class="font-mono text-highlighted">{{ stat.value }}</span>
+      </span>
     </div>
     <div
       v-if="bugs.length"
