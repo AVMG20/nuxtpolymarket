@@ -386,13 +386,12 @@ function badgeFor(seat: ChSeatState): { text: string, tone: string } | null {
           </div>
         </LiveTableCorner>
 
-        <div class="lt-overlay amber" style="left: 1248px; top: 236px; width: 388px">
-          <h4>Simultaneous action</h4>
-          <p class="text-[15px] leading-relaxed text-[#f7f3e8]">
+        <LiveTableCorner title="Simultaneous action" side="right">
+          <p class="text-[15px] leading-relaxed text-[#f7f3e8]" style="width: 340px">
             Every seat plays the dealer, never each other, and all five decide on one shared clock.
             Several seats can win the same hand.
           </p>
-        </div>
+        </LiveTableCorner>
 
         <!-- Seats -->
         <template v-for="(spot, index) in SEATS" :key="index">
