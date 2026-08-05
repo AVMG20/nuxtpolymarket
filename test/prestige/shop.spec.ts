@@ -10,6 +10,7 @@ import { and, eq } from 'drizzle-orm'
 import { db } from '#server/database'
 import {
     bankState,
+    colonyBuilderJobs,
     colonyBugs,
     colonyState,
     colonyUpgrades,
@@ -24,6 +25,10 @@ import {
 import { buyPrestigeShopItem, getPrestigePurchaseCount } from '#server/utils/prestige-shop'
 import { prestigeUser } from '#server/utils/prestige'
 import {
+    COLONY_BROOD_PACKS,
+    COLONY_HIVE_SNAILS_PER_PURCHASE,
+    COLONY_HIVE_SNAIL_TYPE_ID,
+    CREDIT_LINE_PER_PURCHASE,
     HACK_DARKNET_AGENTS,
     HACK_DARKNET_ITEMS,
     MINER_CORE_RIG_GRANT,
@@ -31,9 +36,12 @@ import {
     minerRigMaxLevel,
     prestigeShopItem
 } from '#shared/utils/prestige-shop'
+import { LOAN_MULTIPLIER } from '#shared/utils/gamelogic/bank'
+import { CATALYST_MAX_LEVEL, OVERCLOCK_MAX_LEVEL } from '#shared/utils/miner-config'
 import { PRESTIGE_TIERS } from '#shared/utils/prestige'
 import { PLANT_TYPES } from '#shared/utils/xeno'
-import { UPGRADE_TRACKS, habitatTrackRequirement } from '#shared/utils/colony'
+import { BASE_BUILDER_COUNT, UPGRADE_TRACKS, getBug, habitatTrackRequirement, socialMultiplier } from '#shared/utils/colony'
+import { getBuilderCount } from '#server/utils/colony'
 import { SKIP, burst, cleanupUser, seedUser } from '../setup/db-helpers'
 
 const USER_ID = 'test-prestige-shop-user'
@@ -171,7 +179,8 @@ describe.skipIf(SKIP)('prestige shop', () => {
 
         const [state] = await db.select().from(colonyState).where(eq(colonyState.userId, USER_ID))
         expect(state?.habitatLevel).toBe(2)
-        expect(state?.builderTrackId).toBeNull()
+        const jobs = await db.select().from(colonyBuilderJobs).where(eq(colonyBuilderJobs.userId, USER_ID))
+        expect(jobs).toEqual([])
 
         const levels = await db.select().from(colonyUpgrades).where(eq(colonyUpgrades.userId, USER_ID))
         for (const track of UPGRADE_TRACKS) {
@@ -179,6 +188,81 @@ describe.skipIf(SKIP)('prestige shop', () => {
             // Requirements are indexed by the level being left behind — 1 here.
             expect(row?.level).toBe(habitatTrackRequirement(track.id, 1))
         }
+    })
+
+    it('hands over the escalating Brood Seed packs, not the same one twice', async () => {
+        await seedPrestiged(5)
+
+        const first = await buyPrestigeShopItem(USER_ID, 'colony-brood')
+        expect(first.spent).toBe(1)
+        const afterFirst = await db.select().from(colonyBugs).where(eq(colonyBugs.userId, USER_ID))
+        expect(afterFirst.length).toBe(COLONY_BROOD_PACKS[0]!.reduce((n, e) => n + e.quantity, 0))
+
+        const second = await buyPrestigeShopItem(USER_ID, 'colony-brood')
+        expect(second.spent).toBe(3)
+        const afterSecond = await db.select().from(colonyBugs).where(eq(colonyBugs.userId, USER_ID))
+        // Pack 2 is the T2/T3 scale-up — it must contain species pack 1 did not.
+        expect(afterSecond.filter(bug => bug.typeId === 'cricket').length).toBe(1)
+        expect(afterSecond.filter(bug => bug.typeId === 'ant').length).toBe(1)
+    })
+
+    it('grants social Hive Snails, which are not otherwise obtainable', async () => {
+        await seedPrestiged(5)
+
+        await buyPrestigeShopItem(USER_ID, 'colony-hive-snail')
+
+        const bugs = await db.select().from(colonyBugs).where(eq(colonyBugs.userId, USER_ID))
+        expect(bugs.length).toBe(COLONY_HIVE_SNAILS_PER_PURCHASE)
+        expect(bugs.every(bug => bug.typeId === COLONY_HIVE_SNAIL_TYPE_ID)).toBe(true)
+        // The whole point: social, so a pack of five keeps its full cycle.
+        expect(getBug(COLONY_HIVE_SNAIL_TYPE_ID)?.social).toBe(true)
+        expect(socialMultiplier(COLONY_HIVE_SNAIL_TYPE_ID, COLONY_HIVE_SNAILS_PER_PURCHASE)).toBeGreaterThanOrEqual(1)
+    })
+
+    it('sells the gem tracks in two halves, cheap half first', async () => {
+        await seedPrestiged(6)
+
+        const first = await buyPrestigeShopItem(USER_ID, 'miner-overclock')
+        expect(first.spent).toBe(1)
+        let [state] = await db.select().from(minerState).where(eq(minerState.userId, USER_ID))
+        expect(state?.overclockLevel).toBe(5)
+
+        const second = await buyPrestigeShopItem(USER_ID, 'miner-overclock')
+        expect(second.spent).toBe(2)
+        ;[state] = await db.select().from(minerState).where(eq(minerState.userId, USER_ID))
+        expect(state?.overclockLevel).toBe(OVERCLOCK_MAX_LEVEL)
+
+        await buyPrestigeShopItem(USER_ID, 'miner-catalyst')
+        ;[state] = await db.select().from(minerState).where(eq(minerState.userId, USER_ID))
+        expect(state?.catalystLevel).toBe(5)
+        await buyPrestigeShopItem(USER_ID, 'miner-catalyst')
+        ;[state] = await db.select().from(minerState).where(eq(minerState.userId, USER_ID))
+        expect(state?.catalystLevel).toBe(CATALYST_MAX_LEVEL)
+    })
+
+    // A player who ground the gem shop up to level 8 must not be knocked back
+    // to 5 by buying the cheap half.
+    it('never lowers a gem track a player already paid gems for', async () => {
+        await seedPrestiged(5)
+        await db.insert(minerState).values({ userId: USER_ID, overclockLevel: 8 })
+
+        await buyPrestigeShopItem(USER_ID, 'miner-overclock')
+
+        const [state] = await db.select().from(minerState).where(eq(minerState.userId, USER_ID))
+        expect(state?.overclockLevel).toBe(8)
+    })
+
+    it('raises the builder count without writing colony state', async () => {
+        await seedPrestiged(20)
+        expect(await getBuilderCount(USER_ID)).toBe(BASE_BUILDER_COUNT)
+
+        await buyPrestigeShopItem(USER_ID, 'colony-builder')
+        expect(await getBuilderCount(USER_ID)).toBe(BASE_BUILDER_COUNT + 1)
+
+        await buyPrestigeShopItem(USER_ID, 'colony-builder')
+        expect(await getBuilderCount(USER_ID)).toBe(BASE_BUILDER_COUNT + 2)
+
+        await expect(buyPrestigeShopItem(USER_ID, 'colony-builder')).rejects.toThrow(/fully bought/i)
     })
 
     it('delivers a whole HackOps package of agents and items', async () => {
@@ -198,8 +282,9 @@ describe.skipIf(SKIP)('prestige shop', () => {
         await buyPrestigeShopItem(USER_ID, 'account-credit')
 
         const [bank] = await db.select().from(bankState).where(eq(bankState.userId, USER_ID))
-        // maxPrincipal x LOAN_MULTIPLIER (10) is the loan allowance.
-        expect(parseFloat(bank!.maxPrincipal)).toBe(50_000)
+        // maxPrincipal x LOAN_MULTIPLIER is the loan allowance, so the row
+        // holds a tenth of what the player can actually borrow.
+        expect(parseFloat(bank!.maxPrincipal) * LOAN_MULTIPLIER).toBe(CREDIT_LINE_PER_PURCHASE)
     })
 
     it('unlocks rakeback on the user row', async () => {

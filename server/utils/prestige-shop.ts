@@ -2,6 +2,7 @@ import { and, eq, inArray, sql } from 'drizzle-orm'
 import { db, type DbExecutor } from '#server/database'
 import {
     bankState,
+    colonyBuilderJobs,
     colonyBugResearch,
     colonyBugs,
     colonyState,
@@ -17,14 +18,19 @@ import {
 } from '#server/database/schema'
 import { debitPrestigeTokens } from '#server/utils/balance'
 import {
+    COLONY_BROOD_PACKS,
+    COLONY_HIVE_SNAILS_PER_PURCHASE,
+    COLONY_HIVE_SNAIL_TYPE_ID,
     CREDIT_LINE_PER_PURCHASE,
     HACK_DARKNET_AGENTS,
     HACK_DARKNET_ITEMS,
     HACK_GHOST_AGENTS,
     HACK_GHOST_ITEMS,
+    MINER_CATALYST_STEPS,
     MINER_CORE_FACTORY_GRANT,
     MINER_CORE_RIG_GRANT,
     MINER_CORE_VAULT_GRANT,
+    MINER_OVERCLOCK_STEPS,
     XENO_LEAP_FIRST_TIER,
     XENO_LEAP_PLANTS_PER_TYPE,
     minerFactoryMaxLevel,
@@ -43,7 +49,6 @@ import {
     rollTraitPct,
     rollYieldLevel
 } from '#shared/utils/colony'
-import { CATALYST_MAX_LEVEL, OVERCLOCK_MAX_LEVEL } from '#shared/utils/miner-config'
 import {
     AGENT_PULL_TIERS,
     ITEM_PULL_TIERS,
@@ -84,17 +89,22 @@ const minerCore: Effect = async (tx, userId, owned) => {
         .where(eq(minerState.userId, userId))
 }
 
-const minerOverclock: Effect = async (tx, userId) => {
+// Both gem tracks are sold in two halves. `greatest` means a player who
+// already bought levels with real gems keeps them — the perk raises the floor
+// to this half's step, it never rolls anyone backwards.
+const minerOverclock: Effect = async (tx, userId, owned) => {
+    const level = MINER_OVERCLOCK_STEPS[owned - 1] ?? MINER_OVERCLOCK_STEPS.at(-1)!
     await ensureMinerState(tx, userId)
     await tx.update(minerState)
-        .set({ overclockLevel: sql`greatest(${minerState.overclockLevel}, ${OVERCLOCK_MAX_LEVEL})` })
+        .set({ overclockLevel: sql`greatest(${minerState.overclockLevel}, ${level})` })
         .where(eq(minerState.userId, userId))
 }
 
-const minerCatalyst: Effect = async (tx, userId) => {
+const minerCatalyst: Effect = async (tx, userId, owned) => {
+    const level = MINER_CATALYST_STEPS[owned - 1] ?? MINER_CATALYST_STEPS.at(-1)!
     await ensureMinerState(tx, userId)
     await tx.update(minerState)
-        .set({ catalystLevel: sql`greatest(${minerState.catalystLevel}, ${CATALYST_MAX_LEVEL})` })
+        .set({ catalystLevel: sql`greatest(${minerState.catalystLevel}, ${level})` })
         .where(eq(minerState.userId, userId))
 }
 
@@ -141,7 +151,13 @@ async function ensureColonyState(tx: DbExecutor, userId: string) {
     await tx.insert(colonyState).values({ userId }).onConflictDoNothing()
 }
 
-const colonyBrood: Effect = async (tx, userId) => {
+/**
+ * Insert `quantity` bugs of each listed species, rolling traits exactly as a
+ * bought bug would — against the player's own Research level for that species,
+ * so a run that has already invested in Research gets better bugs out of the
+ * same grant.
+ */
+async function grantBugs(tx: DbExecutor, userId: string, pack: { typeId: string, quantity: number }[]) {
     await ensureColonyState(tx, userId)
 
     const research = await tx.select({ typeId: colonyBugResearch.typeId, level: colonyBugResearch.level })
@@ -149,19 +165,39 @@ const colonyBrood: Effect = async (tx, userId) => {
         .where(eq(colonyBugResearch.userId, userId))
     const levelFor = new Map(research.map(row => [row.typeId, row.level]))
 
-    const rows = ['larva', 'grub'].flatMap((typeId) => {
-        const type = getBug(typeId)
+    const rows = pack.flatMap((entry) => {
+        const type = getBug(entry.typeId)
         if (!type) return []
-        const level = levelFor.get(typeId) ?? 0
-        return [{
+        const level = levelFor.get(entry.typeId) ?? 0
+        return Array.from({ length: entry.quantity }, () => ({
             userId,
-            typeId,
+            typeId: entry.typeId,
             speed: rollTraitPct(level),
             yield: rollYieldLevel(level),
             eat: rollEatRate(type)
-        }]
+        }))
     })
     if (rows.length) await tx.insert(colonyBugs).values(rows)
+}
+
+const colonyBrood: Effect = async (tx, userId, owned) => {
+    const pack = COLONY_BROOD_PACKS[owned - 1]
+    if (!pack) throw createError({ statusCode: 500, statusMessage: 'No Brood Seed pack for this purchase' })
+    await grantBugs(tx, userId, pack)
+}
+
+const colonyHiveSnail: Effect = async (tx, userId) => {
+    await grantBugs(tx, userId, [{ typeId: COLONY_HIVE_SNAIL_TYPE_ID, quantity: COLONY_HIVE_SNAILS_PER_PURCHASE }])
+}
+
+/**
+ * Extra builders are not a row anywhere — how many a colony has is derived
+ * from the purchase count itself (colonyBuilderCount), which the endpoints
+ * read live. Nothing to write, and nothing to clean up on ascent beyond the
+ * prestige_purchases row the wipe already clears.
+ */
+const colonyBuilder: Effect = async (tx, userId) => {
+    await ensureColonyState(tx, userId)
 }
 
 const colonyUplink: Effect = async (tx, userId) => {
@@ -188,11 +224,13 @@ const colonyUplink: Effect = async (tx, userId) => {
             })
     }
 
-    // Cancelling the builder is deliberate: whatever it was mid-way through is
-    // at or below the level just granted, so leaving it running would let the
-    // player collect a level they already have.
+    // Cancelling every in-flight builder job is deliberate: whatever they were
+    // mid-way through is at or below the level just granted, so leaving them
+    // running would let the player collect a level they already have.
+    await tx.delete(colonyBuilderJobs).where(eq(colonyBuilderJobs.userId, userId))
+
     await tx.update(colonyState)
-        .set({ habitatLevel: habitatLevel + 1, builderTrackId: null, builderStartedAt: null })
+        .set({ habitatLevel: habitatLevel + 1 })
         .where(eq(colonyState.userId, userId))
 }
 
@@ -295,6 +333,8 @@ const EFFECTS: Record<string, Effect> = {
     'miner-catalyst': minerCatalyst,
     'xeno-leap': xenoLeap,
     'colony-brood': colonyBrood,
+    'colony-hive-snail': colonyHiveSnail,
+    'colony-builder': colonyBuilder,
     'colony-uplink': colonyUplink,
     'hack-ghost': hackGhost,
     'hack-darknet': hackDarknet,

@@ -4,7 +4,7 @@ import {
   serializePlacedBugs,
   serializeBugInventory,
   serializeUpgradeTracks,
-  serializeBuilder
+  serializeBuilders
 } from '../../server/utils/colony'
 import { deriveTrackModifiers, getBug, habitatLevelUpDurationMs, trackLevelDurationMs } from '../../shared/utils/colony'
 
@@ -121,22 +121,38 @@ describe('serializeUpgradeTracks', () => {
   })
 })
 
-describe('serializeBuilder', () => {
+describe('serializeBuilders', () => {
   const startedAt = new Date('2026-01-01T00:00:00Z')
 
-  it('is null when no job is running', () => {
-    expect(serializeBuilder({ builderTrackId: null, builderStartedAt: null, habitatLevel: 1 } as never, {})).toBeNull()
+  function job(trackId: string, at = startedAt) {
+    return { id: `job-${trackId}`, userId: 'u', trackId, startedAt: at }
+  }
+
+  it('is empty when no builder is working', () => {
+    expect(serializeBuilders([], { habitatLevel: 1 } as never, {})).toEqual([])
   })
 
   it('builds a habitat job DTO, one level above the current habitat level', () => {
-    const builder = serializeBuilder({ builderTrackId: 'habitat_level', builderStartedAt: startedAt, habitatLevel: 3 } as never, {})
+    const [builder] = serializeBuilders([job('habitat_level')] as never, { habitatLevel: 3 } as never, {})
     expect(builder).toMatchObject({ kind: 'habitat', trackName: 'Habitat', level: 4 })
     expect(builder!.completesAt).toBe(new Date(startedAt.getTime() + habitatLevelUpDurationMs(3)).toISOString())
   })
 
   it('builds a track job DTO, one level above the track\'s current level', () => {
-    const builder = serializeBuilder({ builderTrackId: 'capacity', builderStartedAt: startedAt, habitatLevel: 1 } as never, { capacity: 2 })
+    const [builder] = serializeBuilders([job('capacity')] as never, { habitatLevel: 1 } as never, { capacity: 2 })
     expect(builder).toMatchObject({ kind: 'track', trackId: 'capacity', trackName: 'Terrarium Capacity', level: 3 })
     expect(builder!.completesAt).toBe(new Date(startedAt.getTime() + trackLevelDurationMs(3)).toISOString())
+  })
+
+  // Three builders on three tracks is the whole point of the Labour Contract;
+  // the list has to stay in a stable order so the cards don't reshuffle.
+  it('returns every in-flight job, oldest first', () => {
+    const later = new Date(startedAt.getTime() + 60_000)
+    const builders = serializeBuilders(
+      [job('speed_boost', later), job('capacity'), job('habitat_level', later)] as never,
+      { habitatLevel: 2 } as never,
+      {}
+    )
+    expect(builders.map(b => b.trackId)).toEqual(['capacity', 'speed_boost', 'habitat_level'])
   })
 })

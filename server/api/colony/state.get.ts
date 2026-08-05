@@ -10,11 +10,14 @@ import {
   serializePlacedBugs,
   serializeBugInventory,
   serializeUpgradeTracks,
-  serializeBuilder,
+  serializeBuilders,
+  getBuilderJobs,
+  getBuilderCount,
   serializeResearch,
   serializeSpeciesCatalog
 } from '#server/utils/colony'
 import {
+  BASE_BUILDER_COUNT,
   ITEM_TYPES,
   MAX_TIER,
   MAX_TRAIT_PCT,
@@ -65,19 +68,21 @@ export default defineEventHandler(async (event) => {
       pendingLoot: [],
       upgrades: [],
       research: [],
-      builder: null,
-      builderCount: 1
+      builders: [],
+      builderCount: BASE_BUILDER_COUNT
     }
   }
 
   const state = await settleColony(userId)
 
-  const [bugs, items, loot, levels, researchLevels] = await Promise.all([
+  const [bugs, items, loot, levels, researchLevels, builderJobs, builderCount] = await Promise.all([
     db.query.colonyBugs.findMany({ where: eq(colonyBugs.userId, userId) }),
     db.query.colonyItems.findMany({ where: eq(colonyItems.userId, userId) }),
     db.query.colonyLoot.findMany({ where: eq(colonyLoot.userId, userId) }),
     getUpgradeLevels(userId),
-    getResearchLevels(userId)
+    getResearchLevels(userId),
+    getBuilderJobs(userId),
+    getBuilderCount(userId)
   ])
 
   const placedBugs = bugs.filter(b => b.inTerrarium)
@@ -132,7 +137,7 @@ export default defineEventHandler(async (event) => {
     pendingLoot,
     upgrades: serializeUpgradeTracks(levels, state.habitatLevel),
     research: serializeResearch(researchLevels),
-    builder: serializeBuilder(state, levels),
-    builderCount: 1
+    builders: serializeBuilders(builderJobs, state, levels),
+    builderCount
   }
 })

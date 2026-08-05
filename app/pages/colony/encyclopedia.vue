@@ -134,7 +134,7 @@ import {
             One builder
           </p>
           <p class="text-xs text-muted mt-1">
-            Track upgrades and Habitat levels share one builder. Keep early bugs working because later construction still needs their materials.
+            Track upgrades and Habitat levels share one builder — the Prestige Shop's Labour Contract adds more. Keep early bugs working because later construction still needs their materials.
           </p>
         </UCard>
       </div>

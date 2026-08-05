@@ -530,11 +530,30 @@ export const colonyState = pgTable('colony_state', {
    * nutrition <= nutritionMax).
    */
   gemNutrition: integer('gem_nutrition').notNull().default(0),
-  lastSettledAt: timestamp('last_settled_at').defaultNow().notNull(),
-  /** The single builder's current job, if any — cleared on collect. */
-  builderTrackId: text('builder_track_id'),
-  builderStartedAt: timestamp('builder_started_at')
+  lastSettledAt: timestamp('last_settled_at').defaultNow().notNull()
 })
+
+/**
+ * One row = one builder currently working. A colony has BASE_BUILDER_COUNT
+ * builders plus whatever the prestige shop's Labour Contract granted, so the
+ * number of concurrent rows is capped by the caller, not the schema.
+ *
+ * The unique (user, track) constraint is the real guard, not a convenience:
+ * two builders on the same track would each collect "level N+1" and the
+ * player would pay once for a level they got twice. HABITAT_BUILDER_JOB_ID
+ * occupies the same namespace, so the habitat can also only ever have one
+ * builder on it.
+ */
+export const colonyBuilderJobs = pgTable('colony_builder_jobs', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  /** An UpgradeTrackId, or HABITAT_BUILDER_JOB_ID for a habitat level-up. */
+  trackId: text('track_id').notNull(),
+  startedAt: timestamp('started_at').defaultNow().notNull()
+}, t => [
+  index('colony_builder_jobs_userId_idx').on(t.userId),
+  unique('colony_builder_jobs_unique').on(t.userId, t.trackId)
+])
 
 /**
  * One row = one bug instance. Buying a bug puts it in the player's inventory

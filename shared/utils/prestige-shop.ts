@@ -6,7 +6,7 @@
  * perks it bought are wiped by that same ascent. So there is never a reason to
  * hoard: spend the run's budget on the run you are playing.
  *
- * The catalog deliberately costs ~93 tokens in full against a 20-token
+ * The catalog deliberately costs ~105 tokens in full against a 20-token
  * ceiling. Nobody ever buys all of it — every run is a choice of which two or
  * three lanes to accelerate, and the four runs play differently because of it.
  *
@@ -17,8 +17,8 @@
  * behind breeding RNG. So colony/xeno/miner skips cost real tokens, while
  * HACKOPS — which is coin-gated, not time-gated — is the cheap lane.
  */
-import { FACTORY_MAX_LEVEL, RIG_MAX_LEVEL, VAULT_MAX_LEVEL } from './miner-config'
-import { MAX_TIER as COLONY_MAX_TIER } from './colony'
+import { CATALYST_MAX_LEVEL, FACTORY_MAX_LEVEL, OVERCLOCK_MAX_LEVEL, RIG_MAX_LEVEL, VAULT_MAX_LEVEL } from './miner-config'
+import { BASE_BUILDER_COUNT, MAX_TIER as COLONY_MAX_TIER, getBug } from './colony'
 
 export type PrestigeShopGame = 'miner' | 'xeno' | 'colony' | 'hack' | 'account'
 
@@ -81,6 +81,23 @@ export function minerFactoryMaxLevel(coreOwned: number) {
     return FACTORY_MAX_LEVEL + coreOwned * MINER_CORE_FACTORY_STEP
 }
 
+// ─── Miner gem tracks ─────────────────────────────────────────────────────────
+// Overclock and Catalyst are each sold in two halves rather than one lump: the
+// first token buys the cheap half of the gem curve (levels 1-5, ~90 gems), and
+// the expensive half (6-10, ~600 gems) costs two more. Both tracks grow their
+// gem price at ~1.5x per level, so a flat single price either massively
+// overpaid for the front half or was unaffordable for the back half.
+
+export const MINER_GEM_TRACK_MAX_OWNED = 2
+/** Level each purchase takes the track to — 5, then the track's own max. */
+export const MINER_OVERCLOCK_STEPS = [5, OVERCLOCK_MAX_LEVEL]
+export const MINER_CATALYST_STEPS = [5, CATALYST_MAX_LEVEL]
+
+/** Token price of the NEXT half: 1 for levels 1-5, 2 for 6-10. */
+export function minerGemTrackCost(owned: number) {
+    return owned === 0 ? 1 : 2
+}
+
 // ─── Xeno ─────────────────────────────────────────────────────────────────────
 
 export const XENO_LEAP_MAX_OWNED = 7
@@ -93,11 +110,77 @@ export function xenoLeapTier(owned: number) {
     return XENO_LEAP_FIRST_TIER + owned
 }
 
+/** Highest tier a run can reach by buying every leap — T3, then one per leap. */
+export const XENO_LEAP_FINAL_TIER = xenoLeapTier(XENO_LEAP_MAX_OWNED - 1)
+
 // ─── Colony ───────────────────────────────────────────────────────────────────
 
-export const COLONY_BROOD_MAX_OWNED = 3
+/**
+ * Brood Seed is two escalating packs, not three identical ones. The old
+ * version handed over a Larva and a Grub — 300k against a habitat whose
+ * FIRST level-up costs 250k, i.e. nothing. Each pack is now sized in coins
+ * against what it actually saves you buying: ~1.9M for one token, ~8.7M for
+ * three. Both are checked against BUG_TYPES' real spawn costs by
+ * broodSeedValue below, so drifting the bug prices shows up in the shop copy.
+ */
+export const COLONY_BROOD_MAX_OWNED = 2
+
+/** Species (and how many of each) the Nth Brood Seed purchase hands over. */
+export const COLONY_BROOD_PACKS: { typeId: string, quantity: number }[][] = [
+    // Pack 1 — a real T1+T2 opening hand, ~1.85M.
+    [
+        { typeId: 'larva', quantity: 2 },
+        { typeId: 'grub', quantity: 2 },
+        { typeId: 'beetle', quantity: 1 },
+        { typeId: 'ladybug', quantity: 1 }
+    ],
+    // Pack 2 — T2/T3 scale-up, ~8.7M. Deliberately no Gem Snail; that's what
+    // the Hive Brood buys.
+    [
+        { typeId: 'beetle', quantity: 2 },
+        { typeId: 'ladybug', quantity: 2 },
+        { typeId: 'cricket', quantity: 1 },
+        { typeId: 'ant', quantity: 1 }
+    ]
+]
+
+/** Coin value of a Brood Seed pack at current spawn costs, for the shop copy. */
+export function broodSeedValue(purchaseIndex: number): number {
+    const pack = COLONY_BROOD_PACKS[purchaseIndex] ?? []
+    return pack.reduce((sum, entry) => sum + (getBug(entry.typeId)?.spawnCost ?? 0) * entry.quantity, 0)
+}
+
+/** Token price of the NEXT Brood Seed: 1 for the starter pack, 3 for the scale-up. */
+export function colonyBroodCost(owned: number) {
+    return owned === 0 ? 1 : 3
+}
+
 /** Habitat starts at 1 and MAX_TIER is 6, so five uplinks reach the ceiling. */
 export const COLONY_UPLINK_MAX_OWNED = COLONY_MAX_TIER - 1
+
+/**
+ * Gem Snails are solitary, so a pack of ordinary ones would crowd each other
+ * into the slowest cycle in the game. The Hive Snail is a prestige-only
+ * SOCIAL variant (see PURCHASABLE_BUG_TYPES) that keeps its full 24h cycle
+ * however many share the terrarium.
+ */
+export const COLONY_HIVE_SNAIL_MAX_OWNED = 1
+export const COLONY_HIVE_SNAILS_PER_PURCHASE = 5
+export const COLONY_HIVE_SNAIL_TYPE_ID = 'social_gem_snail'
+
+/**
+ * Extra builders. Priced at 5 — the steepest thing in the shop — because it
+ * is the only perk that compounds against COLONY's ~82-day critical path
+ * rather than skipping a fixed chunk of it: two extra builders run three
+ * tracks at once for the whole run.
+ */
+export const COLONY_BUILDER_MAX_OWNED = 2
+export const COLONY_BUILDER_COST = 5
+
+/** How many builders a run has, given how many Labour Contracts it bought. */
+export function colonyBuilderCount(owned: number) {
+    return BASE_BUILDER_COUNT + Math.min(owned, COLONY_BUILDER_MAX_OWNED)
+}
 
 // ─── HackOps ──────────────────────────────────────────────────────────────────
 
@@ -111,8 +194,13 @@ export const HACK_DARKNET_ITEMS = 5
 // ─── Account ──────────────────────────────────────────────────────────────────
 
 export const CREDIT_LINE_MAX_OWNED = 10
-/** Borrowing power one token buys. Implemented as maxPrincipal ÷ LOAN_MULTIPLIER. */
-export const CREDIT_LINE_PER_PURCHASE = 500_000
+/**
+ * Borrowing power one token buys. Implemented as maxPrincipal ÷
+ * LOAN_MULTIPLIER. 500k was not worth a token next to anything else on this
+ * page — a single Beetle costs more than it lent. 1M per token, 10M for the
+ * lot, is a real opening position.
+ */
+export const CREDIT_LINE_PER_PURCHASE = 1_000_000
 
 export const PRESTIGE_SHOP_ITEMS: PrestigeShopItem[] = [
     {
@@ -134,38 +222,38 @@ export const PRESTIGE_SHOP_ITEMS: PrestigeShopItem[] = [
         game: 'miner',
         name: 'Rig Overclock',
         icon: 'i-lucide-gauge',
-        summary: 'The whole Overclock track, maxed, without spending a gem on it.',
+        summary: 'The Overclock track, in two halves — take the cheap half or buy the whole thing.',
         grants: [
-            'Rig Overclock straight to level 10 (+20% mining and lootbox cash)',
-            'Skips roughly 700 gems of Gem Shop grinding'
+            `1 token: Overclock to level ${MINER_OVERCLOCK_STEPS[0]} (+${MINER_OVERCLOCK_STEPS[0]! * 2}% mining and lootbox cash) — about 90 gems saved`,
+            `2 more: Overclock to level ${OVERCLOCK_MAX_LEVEL} (+${OVERCLOCK_MAX_LEVEL * 2}%) — about 600 more gems saved`
         ],
-        maxOwned: 1,
-        cost: () => 3
+        maxOwned: MINER_GEM_TRACK_MAX_OWNED,
+        cost: minerGemTrackCost
     },
     {
         id: 'miner-catalyst',
         game: 'miner',
         name: 'Factory Catalyst',
         icon: 'i-lucide-flask-conical',
-        summary: 'The whole Catalyst track, maxed, without spending a gem on it.',
+        summary: 'The Catalyst track, in two halves — take the cheap half or buy the whole thing.',
         grants: [
-            'Factory Catalyst straight to level 10 (+80% gem production rate)',
-            'Skips roughly 700 gems of Gem Shop grinding'
+            `1 token: Catalyst to level ${MINER_CATALYST_STEPS[0]} (+${MINER_CATALYST_STEPS[0]! * 8}% gem production rate) — about 90 gems saved`,
+            `2 more: Catalyst to level ${CATALYST_MAX_LEVEL} (+${CATALYST_MAX_LEVEL * 8}%) — about 600 more gems saved`
         ],
-        maxOwned: 1,
-        cost: () => 3
+        maxOwned: MINER_GEM_TRACK_MAX_OWNED,
+        cost: minerGemTrackCost
     },
     {
         id: 'xeno-leap',
         game: 'xeno',
         name: 'Xenogenesis Leap',
         icon: 'i-lucide-dna',
-        summary: 'Skip the breeding RNG entirely and jump a whole plant tier.',
+        summary: `Unlock plant tiers outright instead of breeding for them. First leap → T${XENO_LEAP_FIRST_TIER}, every leap after that → one tier higher.`,
         grants: [
-            `The first leap unlocks T${XENO_LEAP_FIRST_TIER} and stocks every plant from T1 up to it`,
-            `Each leap after that unlocks the next tier and stocks that tier only`,
-            `${XENO_LEAP_PLANTS_PER_TYPE} plants of every type unlocked`,
-            'Costs one more token every time — 1, 2, 3, … so a full run reaches about T7'
+            `1st leap (1 token) — unlocks T1, T2 and T${XENO_LEAP_FIRST_TIER}, and stocks all three`,
+            `2nd leap (2 tokens) — unlocks T${XENO_LEAP_FIRST_TIER + 1}. 3rd (3 tokens) — T${XENO_LEAP_FIRST_TIER + 2}. And so on, one tier per leap.`,
+            `Every leap stocks ${XENO_LEAP_PLANTS_PER_TYPE} of each plant in the tier it unlocks`,
+            `All ${XENO_LEAP_MAX_OWNED} leaps cost ${(XENO_LEAP_MAX_OWNED * (XENO_LEAP_MAX_OWNED + 1)) / 2} tokens and reach T${XENO_LEAP_FINAL_TIER}`
         ],
         maxOwned: XENO_LEAP_MAX_OWNED,
         cost: owned => owned + 1
@@ -175,13 +263,43 @@ export const PRESTIGE_SHOP_ITEMS: PrestigeShopItem[] = [
         game: 'colony',
         name: 'Brood Seed',
         icon: 'i-lucide-egg',
-        summary: 'A founding pair of bugs, worth about 300k you do not have yet.',
+        summary: 'A real founding colony — bugs you would otherwise spend hours of XENO income buying.',
         grants: [
-            '1 Larva and 1 Grub, traits rolled as normal',
+            `1 token: 2 Larva, 2 Grub, 1 Beetle, 1 Ladybug — about ${Math.round(broodSeedValue(0) / 100_000) / 10}M of bugs`,
+            `3 tokens: 2 Beetle, 2 Ladybug, 1 Cricket, 1 Ant — about ${Math.round(broodSeedValue(1) / 100_000) / 10}M more`,
+            'Traits roll against your current Research level, exactly like a bought bug',
             'Lands in inventory ready to place in the terrarium'
         ],
         maxOwned: COLONY_BROOD_MAX_OWNED,
+        cost: colonyBroodCost
+    },
+    {
+        id: 'colony-hive-snail',
+        game: 'colony',
+        name: 'Hive Brood',
+        icon: 'i-lucide-gem',
+        summary: 'A gem-snail pack that does not sabotage itself — the only social gem forager in the game.',
+        grants: [
+            `${COLONY_HIVE_SNAILS_PER_PURCHASE} Hive Snails — Gem Snails with the Social trait instead of Solitary`,
+            'They keep the full 24h cycle sharing one terrarium; 5 ordinary snails would slow each other to a crawl',
+            'Up to 15 gems a day once the Foraging tracks are up, on top of your normal snail'
+        ],
+        maxOwned: COLONY_HIVE_SNAIL_MAX_OWNED,
         cost: () => 1
+    },
+    {
+        id: 'colony-builder',
+        game: 'colony',
+        name: 'Labour Contract',
+        icon: 'i-lucide-hammer',
+        summary: 'A second — and third — builder. The habitat queue stops being one thing at a time.',
+        grants: [
+            '+1 builder, so another upgrade track can be under construction in parallel',
+            `Both contracts take the colony to ${colonyBuilderCount(COLONY_BUILDER_MAX_OWNED)} builders`,
+            'One builder per track — they work on different jobs, never the same one twice'
+        ],
+        maxOwned: COLONY_BUILDER_MAX_OWNED,
+        cost: () => COLONY_BUILDER_COST
     },
     {
         id: 'colony-uplink',
@@ -259,4 +377,23 @@ export function prestigeShopItemTotalCost(item: PrestigeShopItem): number {
     let total = 0
     for (let owned = 0; owned < item.maxOwned; owned++) total += item.cost(owned)
     return total
+}
+
+/**
+ * The full price ladder for an item, cheapest purchase first — [1, 2, 3, …]
+ * for the Xenogenesis Leap, [1, 3] for the Brood Seed.
+ *
+ * Most multi-buy items escalate, and the shop used to show only the price of
+ * the next one, so "Buy · 1" on a card whose second unit costs 3 read as a
+ * flat price. The card renders this whole ladder with the already-bought
+ * entries struck through.
+ */
+export function prestigeShopItemCostLadder(item: PrestigeShopItem): number[] {
+    return Array.from({ length: item.maxOwned }, (_, owned) => item.cost(owned))
+}
+
+/** Whether an item's price changes between purchases — flat items skip the ladder. */
+export function prestigeShopItemEscalates(item: PrestigeShopItem): boolean {
+    const ladder = prestigeShopItemCostLadder(item)
+    return ladder.some(cost => cost !== ladder[0])
 }

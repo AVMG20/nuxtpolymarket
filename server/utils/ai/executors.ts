@@ -88,7 +88,8 @@ interface ColonyState {
         nextYieldRange: [number, number] | null
         cost: unknown
     }>
-    builder: { kind: 'track' | 'habitat', trackName: string, completesAt: string } | null
+    builders: { kind: 'track' | 'habitat', trackId: string, trackName: string, completesAt: string }[]
+    builderCount: number
 }
 
 interface MinerState {
@@ -193,7 +194,8 @@ async function getOverview(event: H3Event) {
             estimatedHoursUntilStarving: starvationHours,
             pendingLoot: colony.pendingLoot,
             inventory: colony.inventory,
-            builder: colony.builder,
+            builders: colony.builders,
+            builderCount: colony.builderCount,
             upgrades: colony.upgrades,
             research: colony.research,
             placedBugs: colony.bugs.map(bug => ({

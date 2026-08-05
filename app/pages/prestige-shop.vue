@@ -3,7 +3,10 @@ import { PRESTIGE_TIERS, prestigeTier, prestigeTokenAllowance } from '#shared/ut
 import {
   PRESTIGE_SHOP_ITEMS,
   PRESTIGE_SHOP_SECTIONS,
-  prestigeShopItemTotalCost
+  prestigeShopItemCostLadder,
+  prestigeShopItemEscalates,
+  prestigeShopItemTotalCost,
+  type PrestigeShopItem
 } from '#shared/utils/prestige-shop'
 
 const { user, fetchSession } = useAuth()
@@ -47,6 +50,32 @@ function shortfall(itemId: string) {
   const state = stateById.value.get(itemId)
   if (!state || state.soldOut || state.nextCost === null) return 0
   return Math.max(0, state.nextCost - tokens.value)
+}
+
+/**
+ * The item's whole price ladder, with each rung tagged as bought / next / later.
+ * Most multi-buy items get more expensive with each purchase, and showing only
+ * the next price made a "Buy · 1" button on a 1-3 item read as a flat price.
+ */
+function priceLadder(item: PrestigeShopItem) {
+  const owned = stateById.value.get(item.id)?.owned ?? 0
+  return prestigeShopItemCostLadder(item).map((cost, index) => ({
+    cost,
+    index,
+    state: index < owned ? 'bought' as const : index === owned ? 'next' as const : 'later' as const
+  }))
+}
+
+/** Only worth rendering the ladder when the price actually moves. */
+function showLadder(item: PrestigeShopItem) {
+  return item.maxOwned > 1 && prestigeShopItemEscalates(item)
+}
+
+/** Price of the purchase AFTER the next one, for flat-list items with room left. */
+function laterCost(item: PrestigeShopItem): number | null {
+  const owned = stateById.value.get(item.id)?.owned ?? 0
+  if (owned + 1 >= item.maxOwned) return null
+  return item.cost(owned + 1)
 }
 
 async function buy(itemId: string, name: string) {
@@ -192,13 +221,46 @@ async function buy(itemId: string, name: string) {
             </li>
           </ul>
 
-          <div class="flex items-center justify-between gap-3 border-t border-default pt-3">
+          <!-- Price ladder — every purchase's price, so an escalating item
+               never looks like a flat one. Struck through once bought. -->
+          <div
+            v-if="showLadder(item)"
+            class="flex flex-wrap items-center gap-1.5 border-t border-default pt-3 text-xs"
+          >
+            <span class="text-muted">Prices</span>
+            <template v-for="rung in priceLadder(item)" :key="rung.index">
+              <UIcon
+                v-if="rung.index > 0"
+                name="i-lucide-chevron-right"
+                class="size-3 text-muted/60"
+              />
+              <span
+                class="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 font-mono font-semibold"
+                :class="{
+                  'text-muted line-through': rung.state === 'bought',
+                  'bg-elevated text-highlighted ring-1 ring-default': rung.state === 'next',
+                  'text-muted': rung.state === 'later'
+                }"
+              >
+                <UIcon name="i-lucide-crown" class="size-3" />
+                {{ rung.cost }}
+              </span>
+            </template>
+          </div>
+
+          <div
+            class="flex items-center justify-between gap-3 pt-3"
+            :class="showLadder(item) ? '' : 'border-t border-default'"
+          >
             <div class="min-w-0 text-xs">
               <span v-if="stateById.get(item.id)?.soldOut" class="text-muted">
                 Fully bought for this run
               </span>
               <span v-else-if="shortfall(item.id) > 0" class="text-warning">
                 {{ shortfall(item.id) }} more token{{ shortfall(item.id) === 1 ? '' : 's' }} needed
+              </span>
+              <span v-else-if="laterCost(item) !== null" class="text-muted">
+                Then {{ laterCost(item) }} for the next · {{ prestigeShopItemTotalCost(item) }} for all {{ item.maxOwned }}
               </span>
               <span v-else-if="item.maxOwned > 1" class="text-muted">
                 {{ prestigeShopItemTotalCost(item) }} tokens for all {{ item.maxOwned }}
