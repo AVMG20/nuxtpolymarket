@@ -171,9 +171,13 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          # type=sha derives from github.sha, which a pull_request event sets to
+          # the merge commit — a sha nothing else in this workflow refers to,
+          # and one the preview then cannot pull. Tag the commit that was
+          # actually checked out and built.
           tags: |
             type=raw,value=latest,enable={{is_default_branch}}
-            type=sha,format=long
+            type=raw,value=sha-${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Build and publish
         uses: docker/build-push-action@v6
@@ -225,8 +229,7 @@ jobs:
       TOKEN: ${{ secrets.COOLIFY_TOKEN }}
       GH_TOKEN: ${{ github.token }}
       PR: ${{ needs.context.outputs.pr }}
-      # Matches what docker/metadata-action tagged, which on a pull_request
-      # event is the head sha rather than GITHUB_SHA's merge commit.
+      # The same expression the image job tags with.
       SHA: ${{ github.event.pull_request.head.sha || github.sha }}
 
     steps:
