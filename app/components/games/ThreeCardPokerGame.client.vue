@@ -6,7 +6,6 @@ import LiveTableFeed from '~/components/live-table/LiveTableFeed.vue'
 import LiveTablePaytable from '~/components/live-table/LiveTablePaytable.vue'
 import LiveTableScoreboard from '~/components/live-table/LiveTableScoreboard.vue'
 import LiveTableStage from '~/components/live-table/LiveTableStage.vue'
-import { chipRackFor } from '#shared/utils/live-blackjack/chips'
 import {
     TCP_ANTE_BONUS_LABELS,
     TCP_ANTE_BONUS_PAYS,
@@ -22,7 +21,7 @@ import type {
     TcpSpot
 } from '#shared/utils/three-card-poker/types'
 import type { LtCard } from '#shared/utils/live-table/types'
-import { cardBack, cardFace, chip, chipStack } from '~/utils/live-table/art'
+import { cardBack, cardFace, chipStack } from '~/utils/live-table/art'
 
 /** Stage coordinates, shared with every live-table game — seats at (222,546) (541,604) (860,630) (1179,604) (1498,546). */
 const SEAT_POSITIONS = [
@@ -85,12 +84,6 @@ const phase = computed(() => state.value?.phase ?? 'idle')
 const isBetting = computed(() => phase.value === 'betting')
 const isShowdown = computed(() => phase.value === 'reveal' || phase.value === 'payout')
 const dealer = computed(() => state.value?.game.dealer ?? null)
-
-const rack = computed(() => chipRackFor(balance.value))
-watch(rack, (chips) => {
-    if (chips.some(c => c.value === selected.value)) return
-    selected.value = chips[Math.max(0, chips.length - 4)]?.value ?? 0
-}, { immediate: true })
 
 function badgeFor(game: TcpSeatState) {
     const result = game.result
@@ -519,15 +512,7 @@ onBeforeUnmount(() => {
             @undo="table.act({ t: 'undo' })"
             @clear="table.act({ t: 'clear' })"
           />
-          <div class="lt-rack">
-            <span
-              v-for="c in rack"
-              :key="c.value"
-              :class="{ sel: c.value === selected }"
-              @click="selected = c.value"
-              v-html="chip(c.value)"
-            />
-          </div>
+          <LiveTableRack v-model="selected" :balance="balance" :default-index="3" />
         </template>
         <div v-else class="lt-status">
           {{ state?.message ?? 'Waiting for players' }}

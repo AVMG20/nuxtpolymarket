@@ -1,10 +1,9 @@
 <script setup lang="ts">
-import { chipRackFor } from '#shared/utils/live-blackjack/chips'
 import { BAC_BET_KEYS, BAC_PAYOUTS, totalStaked } from '#shared/utils/baccarat/payouts'
 import { bigEyeBoyMarks, bigRoadCells, bigRoadColumns } from '#shared/utils/baccarat/roadmap'
 import type { BacAction, BacBetKey, BacSeatState, BacSharedState } from '#shared/utils/baccarat/types'
 import type { LtSeat } from '#shared/utils/live-table/types'
-import { cardBack, cardFace, chip, chipStack } from '~/utils/live-table/art'
+import { cardBack, cardFace, chipStack } from '~/utils/live-table/art'
 import type { LtFeedItem } from '~/composables/live-table'
 
 const SEAT_POS = [
@@ -152,11 +151,7 @@ const eyeBoy = computed(() => bigEyeBoyMarks(bigRoadColumns(history.value)))
 const showTotals = computed(() => state.value?.phase === 'resolve' || state.value?.phase === 'payout')
 const isBetting = computed(() => state.value?.phase === 'betting')
 
-const rack = computed(() => chipRackFor(balance.value).map(c => c.value))
-const selectedChip = ref(rack.value[3] ?? rack.value[0] ?? 25)
-watch(rack, (values) => {
-    if (!values.includes(selectedChip.value)) selectedChip.value = values[Math.min(3, values.length - 1)] ?? values[0] ?? 25
-})
+const selectedChip = ref(0)
 
 const myTotalBet = computed(() => mySeat.value ? totalStaked(mySeat.value.game.bets) : 0)
 const hasLastBet = computed(() => !!mySeat.value && totalStaked(mySeat.value.game.lastBets) > 0)
@@ -415,15 +410,7 @@ function scaleBets(factor: number) {
             @scale="scaleBets"
             @clear="clearBets"
           />
-          <div class="lt-rack" :class="{ 'bac-rack-muted': !isBetting }">
-            <span
-              v-for="value in rack"
-              :key="value"
-              :class="{ sel: value === selectedChip }"
-              @click="selectedChip = value"
-              v-html="chip(value)"
-            />
-          </div>
+          <LiveTableRack v-model="selectedChip" :balance="balance" :muted="!isBetting" />
           <div class="lt-panel lt-panel-l">
             <span class="lt-panel-label">Your bet</span>
             <span class="lt-panel-value lt-mono">{{ formatNumber(myTotalBet) }}</span>
@@ -593,7 +580,7 @@ function scaleBets(factor: number) {
 .lt-rack {
   transition: opacity 0.25s ease;
 }
-.bac-rack-muted {
+.lt-rack-muted {
   opacity: 0.3;
   pointer-events: none;
 }

@@ -1,11 +1,10 @@
 <script setup lang="ts">
 import { CH_AA_TABLE, CH_ANTE_TABLE, CH_CALL_MULTIPLIER } from '#shared/utils/casino-holdem/rules'
 import { shouldCall } from '#shared/utils/casino-holdem/strategy'
+import type { LtCard } from '#shared/utils/live-table/types'
 import type { ChCard } from '#shared/utils/casino-holdem/evaluator'
 import type { ChAction, ChBetSpot, ChSeatState, ChSharedState } from '#shared/utils/casino-holdem/types'
-import { chipRackFor } from '#shared/utils/live-blackjack/chips'
-import type { LtCard } from '#shared/utils/live-table/types'
-import { LT_DISCARD_POS, LT_SHOE_POS, cardBack, cardFace, chip, chipStack } from '~/utils/live-table/art'
+import { LT_DISCARD_POS, LT_SHOE_POS, cardBack, cardFace, chipStack } from '~/utils/live-table/art'
 
 const table = useLiveTable<ChSeatState, ChSharedState, ChAction>('casino-holdem')
 const { state, youId, balance, connected, feed, chat, mySeat, skew } = table
@@ -81,11 +80,6 @@ onMounted(() => {
 onBeforeUnmount(() => {
     if (ticker) clearInterval(ticker)
 })
-
-const rack = computed(() => chipRackFor(balance.value).map(c => c.value))
-watch(rack, (values) => {
-    if (!values.includes(selectedChip.value)) selectedChip.value = values[Math.min(2, values.length - 1)] ?? 0
-}, { immediate: true })
 
 const phase = computed(() => state.value?.phase ?? 'idle')
 const isBetting = computed(() => phase.value === 'betting')
@@ -548,15 +542,7 @@ function badgeFor(seat: ChSeatState): { text: string, tone: string } | null {
           @clear="table.act({ t: 'clear' })"
         />
 
-        <div v-if="isBetting && mySeat" class="lt-rack">
-          <span
-            v-for="value in rack"
-            :key="value"
-            :class="{ sel: value === selectedChip }"
-            @click="selectedChip = value"
-            v-html="chip(value)"
-          />
-        </div>
+        <LiveTableRack v-if="isBetting && mySeat" v-model="selectedChip" :balance="balance" :default-index="2" />
         <div v-else class="lt-status">
           <template v-if="!connected">Connecting…</template>
           <template v-else-if="!mySeat">Click an open <span class="ch-status-sit">SIT</span> spot to join the table</template>
