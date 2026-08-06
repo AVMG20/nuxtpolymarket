@@ -248,6 +248,10 @@ export class ThreeCardPokerTable extends LiveTable<TcpSeatState, TcpSharedState,
     // ─── the deal ──────────────────────────────────────────────────────────
 
     private async dealRound() {
+        for (const player of this.seated()) {
+            if (player.game.pendingAnte <= 0) this.leave(player.userId)
+        }
+
         if (this.shoe.needsShuffle) this.shoe.shuffle()
 
         for (const player of this.seated()) {

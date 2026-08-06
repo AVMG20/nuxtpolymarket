@@ -268,6 +268,10 @@ export class CasinoHoldemTable extends LiveTable<ChSeatState, ChSharedState, ChA
     // ─── the deal ──────────────────────────────────────────────────────────
 
     private async dealHand() {
+        for (const player of this.seated()) {
+            if (player.game.pendingAnte <= 0) this.leave(player.userId)
+        }
+
         const entrants: LtPlayer<ChSeatState>[] = []
 
         for (const player of this.seated()) {
