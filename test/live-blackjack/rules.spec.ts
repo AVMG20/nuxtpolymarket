@@ -214,8 +214,15 @@ describe('chips', () => {
 
     it('moves the rack up for a billionaire', () => {
         const rack = chipRackFor(50_000_000_000)
-        expect(rack[rack.length - 1]!.value).toBe(100_000_000_000)
+        expect(rack[rack.length - 1]!.value).toBe(25_000_000_000)
         expect(rack[0]!.value).toBeGreaterThanOrEqual(5_000_000)
+    })
+
+    it('never shows chips above the player balance', () => {
+        const rack = chipRackFor(76_000_000_000)
+        for (const c of rack) {
+            expect(c.value).toBeLessThanOrEqual(76_000_000_000)
+        }
     })
 
     it('never leaves a chip without art or a label', () => {

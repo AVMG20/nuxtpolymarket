@@ -52,13 +52,14 @@ export const LB_RACK_SIZE = 7
  * anchors the right-hand end, so a billionaire never has to click 1s and a
  * player with 3,000 still sees chips they can actually place.
  */
-export function chipRackFor(balance: number): LbChip[] {
+export function chipRackFor(balance: number, offset = 0): LbChip[] {
     let top = 0
     for (let i = 0; i < LB_CHIPS.length; i++) {
         if (LB_CHIPS[i]!.value <= balance) top = i
     }
-    const end = Math.min(LB_CHIPS.length, Math.max(LB_RACK_SIZE, top + 2))
-    return LB_CHIPS.slice(Math.max(0, end - LB_RACK_SIZE), end)
+    const end = Math.min(LB_CHIPS.length, Math.max(LB_RACK_SIZE, top + 1))
+    const start = Math.max(0, Math.min(end - LB_RACK_SIZE + offset, LB_CHIPS.length - LB_RACK_SIZE))
+    return LB_CHIPS.slice(start, start + LB_RACK_SIZE)
 }
 
 /** Break an amount into a stack of chips, largest first, for rendering a bet spot. */

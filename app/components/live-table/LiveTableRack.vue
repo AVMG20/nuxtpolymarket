@@ -1,109 +1,105 @@
 <script setup lang="ts">
-import { LB_CHIPS, LB_RACK_SIZE } from '#shared/utils/live-blackjack/chips'
+import { chipRackFor, LB_CHIPS, LB_RACK_SIZE } from '#shared/utils/live-blackjack/chips'
 import { chip } from '~/utils/live-table/art'
 
-const props = withDefaults(defineProps<{
-    modelValue: number
+const props = defineProps<{
     balance: number
-    /** Which chip in the visible window to default-select on init (0-indexed). */
-    defaultIndex?: number
+    modelValue: number
     muted?: boolean
-}>(), {
-    defaultIndex: 3
-})
+}>()
 
 const emit = defineEmits<{
     'update:modelValue': [value: number]
 }>()
 
 const offset = ref(0)
-let initialized = false
 
-/**
- * Anchor the rack window to the player's bankroll — same logic as
- * chipRackFor() — so the largest affordable chip sits near the right end
- * and a billionaire never starts on 1s.
- */
-function defaultOffset(balance: number): number {
-    let top = 0
-    for (let i = 0; i < LB_CHIPS.length; i++) {
-        if (LB_CHIPS[i]!.value <= balance) top = i
-    }
-    const end = Math.min(LB_CHIPS.length, Math.max(LB_RACK_SIZE, top + 2))
-    return Math.max(0, end - LB_RACK_SIZE)
-}
+watch(() => props.balance, () => { offset.value = 0 }, { immediate: true })
 
-const window = computed(() => {
-    const start = Math.max(0, Math.min(offset.value, LB_CHIPS.length - LB_RACK_SIZE))
-    return LB_CHIPS.slice(start, start + LB_RACK_SIZE)
+const rack = computed(() => chipRackFor(props.balance, offset.value))
+
+const canScrollLeft = computed(() => {
+    const base = chipRackFor(props.balance, 0)
+    return base[0]!.value !== LB_CHIPS[0]!.value || offset.value > 0
 })
 
-const canGoLeft = computed(() => offset.value > 0)
-const canGoRight = computed(() => offset.value < LB_CHIPS.length - LB_RACK_SIZE)
+const canScrollRight = computed(() => {
+    const base = chipRackFor(props.balance, 0)
+    return base[LB_RACK_SIZE - 1]!.value !== LB_CHIPS[LB_CHIPS.length - 1]!.value || offset.value < 0
+})
 
-function shiftLeft() {
-    if (canGoLeft.value) offset.value--
-}
-function shiftRight() {
-    if (canGoRight.value) offset.value++
+function scrollLeft() {
+    offset.value = Math.min(offset.value + 1, LB_RACK_SIZE)
 }
 
-function affordable(value: number): boolean {
-    return value <= props.balance
+function scrollRight() {
+    offset.value = Math.max(offset.value - 1, -(LB_CHIPS.length - LB_RACK_SIZE))
 }
 
 function select(value: number) {
-    if (!affordable(value)) return
+    if (value > props.balance) return
     emit('update:modelValue', value)
 }
-
-watch(() => props.balance, (bal) => {
-    offset.value = defaultOffset(bal)
-
-    if (!initialized) {
-        initialized = true
-        if (!props.modelValue || props.modelValue > bal) {
-            const win = window.value
-            const idx = Math.min(props.defaultIndex, win.length - 1)
-            const target = win[idx]
-            if (target && target.value <= bal) {
-                emit('update:modelValue', target.value)
-            } else {
-                const fallback = [...win].reverse().find(c => c.value <= bal)
-                if (fallback) emit('update:modelValue', fallback.value)
-            }
-        }
-    } else if (props.modelValue > bal) {
-        const fallback = LB_CHIPS.find(c => c.value <= bal)
-        if (fallback) emit('update:modelValue', fallback.value)
-    }
-}, { immediate: true })
 </script>
 
 <template>
-  <div class="lt-rack" :class="{ 'lt-rack-muted': muted }">
-    <button
-      class="lt-rack-arrow"
-      :disabled="!canGoLeft"
-      aria-label="Lower chips"
-      @click="shiftLeft"
-    >
-      <UIcon name="i-lucide-chevron-left" />
-    </button>
-    <span
-      v-for="c in window"
-      :key="c.value"
-      :class="{ 'sel': c.value === modelValue, 'lt-chip-disabled': !affordable(c.value) }"
-      @click="select(c.value)"
-      v-html="chip(c.value)"
-    />
-    <button
-      class="lt-rack-arrow"
-      :disabled="!canGoRight"
-      aria-label="Higher chips"
-      @click="shiftRight"
-    >
-      <UIcon name="i-lucide-chevron-right" />
-    </button>
-  </div>
+    <div class="lt-rack" :class="{ 'lt-rack-muted': muted }">
+        <button
+            v-if="canScrollLeft"
+            class="lt-rack-arrow lt-rack-arrow-l"
+            @click.stop="scrollLeft"
+        >
+            <UIcon name="i-lucide-chevron-left" class="size-5" />
+        </button>
+        <span
+            v-for="c in rack"
+            :key="c.value"
+            :class="{ 'sel': c.value === modelValue, 'lt-chip-disabled': c.value > balance }"
+            v-html="chip(c.value)"
+            @click="select(c.value)"
+        />
+        <button
+            v-if="canScrollRight"
+            class="lt-rack-arrow lt-rack-arrow-r"
+            @click.stop="scrollRight"
+        >
+            <UIcon name="i-lucide-chevron-right" class="size-5" />
+        </button>
+    </div>
 </template>
+
+<style scoped>
+.lt-rack-arrow {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 999px;
+    background: rgba(0, 0, 0, 0.55);
+    border: 1.5px solid rgba(217, 177, 103, 0.4);
+    color: rgba(217, 177, 103, 0.85);
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: background 0.15s, border-color 0.15s;
+}
+.lt-rack-arrow:hover {
+    background: rgba(0, 0, 0, 0.75);
+    border-color: rgba(217, 177, 103, 0.7);
+}
+.lt-rack-arrow-l {
+    margin-right: 2px;
+}
+.lt-rack-arrow-r {
+    margin-left: 2px;
+}
+.lt-chip-disabled {
+    opacity: 0.3;
+    pointer-events: none;
+    filter: grayscale(0.8);
+}
+.lt-rack.lt-rack-muted {
+    opacity: 0.3;
+    pointer-events: none;
+}
+</style>
