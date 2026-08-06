@@ -5,6 +5,15 @@ import type {
   PathwardenMapPlan
 } from '#shared/types/pathwarden-save'
 import type { FirewallRunSave } from '#shared/utils/gamelogic/firewall'
+import type {
+  TcgSheetLayout,
+  TcgPackTemplateSlot,
+  TcgPackCut,
+  TcgRestockEntry,
+  TcgCardRaw,
+  TcgCondition
+} from '#shared/types/tcg-db'
+import type { RateTemplate } from '#shared/utils/tcg/rate-fitter'
 
 export const user = pgTable('user', {
   id: text('id').primaryKey(),
@@ -16,6 +25,7 @@ export const user = pgTable('user', {
   balance: numeric('balance', { precision: 19, scale: 4 }).notNull().default('0'),
   rake: numeric('rake', { precision: 19, scale: 4 }).notNull().default('0'),
   rakebackUnlocked: boolean('rakeback_unlocked').notNull().default(false),
+  isPokemonAdmin: boolean('is_pokemon_admin').notNull().default(false),
   gems: integer('gems').notNull().default(0),
   // Account-wide reset tier, 0-4. Raised only by server/utils/prestige.ts,
   // which wipes every game table in the same transaction.
@@ -809,6 +819,214 @@ export const aiMessages = pgTable('ai_messages', {
 }, t => [
   index('ai_messages_conversationId_createdAt_idx').on(t.conversationId, t.createdAt),
   index('ai_messages_userId_role_createdAt_idx').on(t.userId, t.role, t.createdAt)
+])
+
+// ─── TCG Collector ────────────────────────────────────────────────────────────
+
+/**
+ * One authored set. Lifecycle: 'draft' (checklist/sheets/template editable) →
+ * 'committed' (secretKey generated, commitmentDigest published, everything
+ * frozen; packs become purchasable). `secretKey` is server-only and must NEVER
+ * be serialized to any client, admin included. Pack purchase is guarded by a
+ * conditional UPDATE on packsSold (mutation-is-the-guard) — packsSold only ever
+ * moves forward and never exceeds targetPackCount.
+ */
+export const tcgSet = pgTable('tcg_sets', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  name: text('name').notNull(),
+  code: text('code').notNull(),
+  plaatjesSetCode: text('plaatjes_set_code'),
+  /** Pricedex rate-template code this set was created from, null for manual sets. */
+  templateCode: text('template_code'),
+  /** The full scraped rate template — provenance for diagnostics and god fitting. */
+  publishedRates: jsonb('published_rates').$type<RateTemplate>(),
+  releaseDate: text('release_date'),
+  status: text('status').notNull().default('draft'), // 'draft' | 'committed'
+  /** N — total packs this print run can ever sell. Set before commit. */
+  targetPackCount: integer('target_pack_count'),
+  /** Published god-pack rate ("1 in X"). Null = the set has no god packs. */
+  godPackOneIn: integer('god_pack_one_in'),
+  /** G — exact god pack count, derived and frozen at commit. */
+  godPackCount: integer('god_pack_count'),
+  /** Hex CSPRNG key generated at commit. Server-only — never serialized. */
+  secretKey: text('secret_key'),
+  /** sha256 over canonical layouts + k + N + G + key, published at commit. */
+  commitmentDigest: text('commitment_digest'),
+  packsSold: integer('packs_sold').notNull().default(0),
+  basePacksSold: integer('base_packs_sold').notNull().default(0),
+  godPacksSold: integer('god_packs_sold').notNull().default(0),
+  /**
+   * Returned reservations awaiting random re-surfacing (admin debug returns).
+   * Read-modify-write only under the set row lock (lockSetForUpdate).
+   */
+  restockPool: jsonb('restock_pool').$type<TcgRestockEntry[]>().notNull().default([]),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().$onUpdate(() => new Date()).notNull()
+})
+
+/**
+ * One checklist entry (variant suffixes stripped — `plaatjesBaseId` is the
+ * suffix-free id). Imported from the pokemonplaatjes sidecar; read-only after
+ * import, replaced wholesale on re-import while the set is still a draft.
+ */
+export const tcgCard = pgTable('tcg_cards', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  setId: text('set_id').notNull().references(() => tcgSet.id, { onDelete: 'cascade' }),
+  plaatjesBaseId: text('plaatjes_base_id').notNull(),
+  number: text('number').notNull(),
+  setTotal: integer('set_total'),
+  name: text('name').notNull(),
+  rarity: text('rarity'),
+  rarityCode: text('rarity_code'),
+  category: text('category'),
+  sortOrder: integer('sort_order').notNull().default(0),
+  raw: jsonb('raw').$type<TcgCardRaw>().notNull()
+}, t => [
+  index('tcg_cards_setId_sortOrder_idx').on(t.setId, t.sortOrder),
+  unique('tcg_cards_setId_plaatjesBaseId_unique').on(t.setId, t.plaatjesBaseId)
+])
+
+/**
+ * One printable variant of a card (`plaatjesCardId` keeps the variant suffix,
+ * e.g. `_ph`). Carries everything the WebGL foil renderer needs so pack-open
+ * responses never have to re-derive render refs. Referenced by id from sheet
+ * layouts; read-only after import.
+ */
+export const tcgPrinting = pgTable('tcg_printings', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  setId: text('set_id').notNull().references(() => tcgSet.id, { onDelete: 'cascade' }),
+  cardId: text('card_id').notNull().references(() => tcgCard.id, { onDelete: 'cascade' }),
+  plaatjesCardId: text('plaatjes_card_id').notNull(),
+  finish: text('finish').notNull(), // 'nonholo' | 'holo' | 'reverse'
+  pattern: text('pattern'), // e.g. 'pokeball' | 'masterball'
+  printRunLabel: text('print_run_label').notNull().default('1st'),
+  bundle: text('bundle'),
+  assetNumber: text('asset_number'),
+  maskKind: text('mask_kind'),
+  foilEffect: text('foil_effect'),
+  foilMask: text('foil_mask')
+}, t => [
+  index('tcg_printings_setId_idx').on(t.setId),
+  index('tcg_printings_cardId_idx').on(t.cardId),
+  unique('tcg_printings_setId_plaatjesCardId_unique').on(t.setId, t.plaatjesCardId)
+])
+
+/**
+ * One print sheet: `layout` is the full circular slot order (length M, entries
+ * are tcgPrinting ids), authored and validated as one value. Runtime fields are
+ * frozen at commit: `impressions` (R), `cursorLimit` (base sheets: N−G packs;
+ * god sheet: G). `cursor` counts cuts served and only ever advances via a
+ * conditional UPDATE `WHERE cursor < cursor_limit` — the mutation is the guard,
+ * so a sheet can never over-serve.
+ */
+export const tcgSheet = pgTable('tcg_sheets', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  setId: text('set_id').notNull().references(() => tcgSet.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  role: text('role').notNull().default('base'), // 'base' | 'god'
+  /** k — how many consecutive slots one pack cut takes from this sheet. */
+  packSlots: integer('pack_slots').notNull().default(1),
+  layout: jsonb('layout').$type<TcgSheetLayout>().notNull().default([]),
+  sortOrder: integer('sort_order').notNull().default(0),
+  /** R — impressions printed, derived and frozen at commit. */
+  impressions: integer('impressions'),
+  cursor: integer('cursor').notNull().default(0),
+  cursorLimit: integer('cursor_limit')
+}, t => [index('tcg_sheets_setId_idx').on(t.setId)])
+
+/**
+ * Pack recipe: ordered slot groups, each pulling `count` cards from one sheet
+ * (`count` must equal that sheet's packSlots). One template per set+kind;
+ * kind 'god' is required before commit iff godPackOneIn is set.
+ */
+export const tcgPackTemplate = pgTable('tcg_pack_templates', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  setId: text('set_id').notNull().references(() => tcgSet.id, { onDelete: 'cascade' }),
+  kind: text('kind').notNull(), // 'base' | 'god'
+  slots: jsonb('slots').$type<TcgPackTemplateSlot[]>().notNull().default([])
+}, t => [unique('tcg_pack_templates_setId_kind_unique').on(t.setId, t.kind)])
+
+/**
+ * One row per (user, Amsterdam-day) tracking packs bought toward the global
+ * daily cap. The conditional upsert on this row IS the daily-cap guard
+ * (mutation-is-the-guard): `INSERT … ON CONFLICT DO UPDATE SET packs_bought =
+ * packs_bought + N WHERE packs_bought + N <= cap RETURNING` — no returned row
+ * means the cap is hit. Old rows are simply never touched again; no reset job
+ * exists or is needed.
+ */
+export const tcgAllowance = pgTable('tcg_allowances', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  /** Amsterdam-local 'YYYY-MM-DD' (see shared/utils/tcg/time.ts). */
+  dateKey: text('date_key').notNull(),
+  packsBought: integer('packs_bought').notNull().default(0)
+}, t => [unique('tcg_allowances_user_date_unique').on(t.userId, t.dateKey)])
+
+/**
+ * One claimed Friday bundle. The insert under the (ownerId, weekKey) unique
+ * constraint IS the one-claim-per-week guard: `onConflictDoNothing().returning()`
+ * hands back no row for a second claim in the same window. The bundle's 36
+ * packs link back via tcgPack.bundleId.
+ */
+export const tcgBundle = pgTable('tcg_bundles', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  setId: text('set_id').notNull().references(() => tcgSet.id, { onDelete: 'cascade' }),
+  ownerId: text('owner_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  /** The opening Friday's Amsterdam dateKey (see bundleWindow). */
+  weekKey: text('week_key').notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull()
+}, t => [unique('tcg_bundles_owner_week_unique').on(t.ownerId, t.weekKey)])
+
+/**
+ * One sold pack. Contents are fully reserved at purchase — `cuts` stores the
+ * exact sheet cuts drawn — so opening only reveals, never rolls. `isGod` must
+ * NOT be serialized to non-admins while state is 'sealed'. Opening is
+ * claim-then-reward: conditional UPDATE state 'sealed' → 'opened'.
+ */
+export const tcgPack = pgTable('tcg_packs', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  setId: text('set_id').notNull().references(() => tcgSet.id, { onDelete: 'cascade' }),
+  ownerId: text('owner_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  /** Set when the pack was sold as part of a Friday bundle; null for loose packs. */
+  bundleId: text('bundle_id').references(() => tcgBundle.id, { onDelete: 'set null' }),
+  /** 0-based sell-order index within the set — feeds the god permutation. */
+  packIndex: integer('pack_index').notNull(),
+  isGod: boolean('is_god').notNull().default(false),
+  cuts: jsonb('cuts').$type<TcgPackCut[]>().notNull(),
+  state: text('state').notNull().default('sealed'), // 'sealed' | 'opened'
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  openedAt: timestamp('opened_at')
+}, t => [
+  index('tcg_packs_ownerId_idx').on(t.ownerId),
+  index('tcg_packs_bundleId_idx').on(t.bundleId),
+  unique('tcg_packs_setId_packIndex_unique').on(t.setId, t.packIndex)
+])
+
+/**
+ * One physical copy pulled from a pack. (sheetId, cutIndex, slotOffset) is the
+ * copy's serial provenance — globally unique, so every copy is traceable to
+ * the exact sheet slot it was cut from. `lifecycle` vocabulary reserved:
+ * 'raw' | 'slabbed' | 'sealed' | 'destroyed' (only 'raw' is used in slice 1).
+ * `condition` is rolled at mint (openPack) and immutable from then on (§6.1);
+ * it must NEVER be serialized to any client — no endpoint may select it into
+ * a payload. Nullable only because pre-slice-3 copies predate the column.
+ */
+export const tcgCopy = pgTable('tcg_copies', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  printingId: text('printing_id').notNull().references(() => tcgPrinting.id, { onDelete: 'cascade' }),
+  setId: text('set_id').notNull().references(() => tcgSet.id, { onDelete: 'cascade' }),
+  ownerId: text('owner_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  packId: text('pack_id').notNull().references(() => tcgPack.id, { onDelete: 'cascade' }),
+  sheetId: text('sheet_id').notNull().references(() => tcgSheet.id, { onDelete: 'cascade' }),
+  cutIndex: integer('cut_index').notNull(),
+  slotOffset: integer('slot_offset').notNull(),
+  lifecycle: text('lifecycle').notNull().default('raw'),
+  condition: jsonb('condition').$type<TcgCondition>(),
+  createdAt: timestamp('created_at').defaultNow().notNull()
+}, t => [
+  index('tcg_copies_ownerId_idx').on(t.ownerId),
+  index('tcg_copies_printingId_idx').on(t.printingId),
+  unique('tcg_copies_serial_unique').on(t.sheetId, t.cutIndex, t.slotOffset)
 ])
 
 export const chatMessagesRelations = relations(chatMessages, ({ one }) => ({
