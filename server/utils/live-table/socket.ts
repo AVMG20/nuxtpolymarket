@@ -37,37 +37,42 @@ export function defineTableSocket<TSeat, TShared, TAction>(
     return defineWebSocketHandler({
         async open(peer) {
             const headers = new Headers(peer.request?.headers as HeadersInit | undefined)
-            const session = await auth.api.getSession({ headers })
-            if (!session?.user?.id) {
-                peer.close(4401, 'Unauthorized')
-                return
-            }
+            try {
+                const session = await auth.api.getSession({ headers })
+                if (!session?.user?.id) {
+                    peer.close(4401, 'Unauthorized')
+                    return
+                }
 
-            const [row] = await db
-                .select({ name: user.name, emblem: user.emblem, balance: user.balance })
-                .from(user)
-                .where(eq(user.id, session.user.id))
-                .limit(1)
-            if (!row) {
-                peer.close(4401, 'Unauthorized')
-                return
-            }
+                const [row] = await db
+                    .select({ name: user.name, emblem: user.emblem, balance: user.balance })
+                    .from(user)
+                    .where(eq(user.id, session.user.id))
+                    .limit(1)
+                if (!row) {
+                    peer.close(4401, 'Unauthorized')
+                    return
+                }
 
-            // Announced before this peer is registered, so the arrival is news
-            // to everyone already here and not to the person arriving.
-            if (!bus.isUserConnected(session.user.id)) {
-                bus.broadcast({ t: 'event', kind: 'watch', name: row.name, joined: true })
+                // Announced before this peer is registered, so the arrival is news
+                // to everyone already here and not to the person arriving.
+                if (!bus.isUserConnected(session.user.id)) {
+                    bus.broadcast({ t: 'event', kind: 'watch', name: row.name, joined: true })
+                }
+                bus.add(peer, { userId: session.user.id, name: row.name, emblem: row.emblem })
+                bus.sendTo(peer, {
+                    t: 'you',
+                    userId: session.user.id,
+                    seat: table.seatIndexOf(session.user.id),
+                    balance: Number(row.balance)
+                })
+                // Reconnecting clears the disconnect grace timer, and the publish
+                // this queues delivers the joining client its first snapshot.
+                await table.run(() => table.setConnected(session.user.id, true))
+            } catch (err) {
+                console.error('[WS] open error', err)
+                peer.close(4401, 'Error')
             }
-            bus.add(peer, { userId: session.user.id, name: row.name, emblem: row.emblem })
-            bus.sendTo(peer, {
-                t: 'you',
-                userId: session.user.id,
-                seat: table.seatIndexOf(session.user.id),
-                balance: Number(row.balance)
-            })
-            // Reconnecting clears the disconnect grace timer, and the publish
-            // this queues delivers the joining client its first snapshot.
-            await table.run(() => table.setConnected(session.user.id, true))
         },
 
         async message(peer, raw) {
