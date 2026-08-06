@@ -29,6 +29,13 @@
       "when": 1785957464813,
       "tag": "0003_burly_wolfsbane",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1785993995286,
+      "tag": "0004_table_wagers",
+      "breakpoints": true
     }
   ]
 }

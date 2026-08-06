@@ -91,6 +91,38 @@ const casinoGames = [
     to: '/games/live-blackjack',
     gradient: 'from-emerald-950 to-slate-900',
     iconColor: 'text-emerald-400'
+  },
+  {
+    name: 'Roulette',
+    description: 'Single-zero European wheel — no seats, everyone bets the same layout',
+    icon: 'i-lucide-circle-dot',
+    to: '/games/roulette',
+    gradient: 'from-red-950 to-slate-900',
+    iconColor: 'text-red-400'
+  },
+  {
+    name: 'Baccarat',
+    description: 'Punto banco off a shared six-deck shoe — five seats, fixed drawing rules, zero decisions',
+    icon: 'i-lucide-diamond',
+    to: '/games/baccarat',
+    gradient: 'from-rose-950 to-slate-900',
+    iconColor: 'text-rose-400'
+  },
+  {
+    name: 'Three Card Poker',
+    description: 'Ante up, play or fold — one decision against the dealer, and a straight beats a flush',
+    icon: 'i-lucide-diamond',
+    to: '/games/three-card-poker',
+    gradient: 'from-rose-950 to-slate-900',
+    iconColor: 'text-rose-400'
+  },
+  {
+    name: 'Casino Hold\'em',
+    description: 'Five seats, one board — call or fold your two cards against the dealer',
+    icon: 'i-lucide-club',
+    to: '/games/casino-holdem',
+    gradient: 'from-teal-950 to-slate-900',
+    iconColor: 'text-teal-400'
   }
 ]
 

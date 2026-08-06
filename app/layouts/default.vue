@@ -64,7 +64,11 @@ const casinoItems: NavigationMenuItem[] = [
   { label: 'Limbo', class: 'mb-1', icon: 'i-lucide-trending-up', to: '/games/limbo' },
   { label: 'Wheel', class: 'mb-1', icon: 'i-lucide-loader-pinwheel', to: '/games/wheel' },
   { label: 'Magic Hands', class: 'mb-1', icon: 'i-lucide-hand', to: '/games/magichands' },
-  { label: 'Live Blackjack', class: 'mb-1', icon: 'i-lucide-spade', to: '/games/live-blackjack' }
+  { label: 'Live Blackjack', class: 'mb-1', icon: 'i-lucide-spade', to: '/games/live-blackjack' },
+  { label: 'Roulette', class: 'mb-1', icon: 'i-lucide-circle-dot', to: '/games/roulette' },
+  { label: 'Baccarat', class: 'mb-1', icon: 'i-lucide-diamond', to: '/games/baccarat' },
+  { label: 'Three Card Poker', class: 'mb-1', icon: 'i-lucide-gem', to: '/games/three-card-poker' },
+  { label: 'Casino Hold\'em', class: 'mb-1', icon: 'i-lucide-club', to: '/games/casino-holdem' }
 ]
 
 const primaryColors = [

@@ -1,0 +1,615 @@
+/* Live-table chrome — shared felt/stage/furniture for the DOM-rendered table
+   games (crash, roulette, baccarat, ...), ported from a verified mockup kit
+   that itself ports app/utils/live-blackjack/scene.ts and the real .lb-tile
+   buttons. Not registered in nuxt.config's global css — import it, same as
+   hack.css, from the page or component that needs it.
+
+   The fixed felt/rail/gold palette is intentionally NOT tied to the user's
+   Nuxt UI theme: this is the one casino-table look shared by every game,
+   independent of primary/neutral colour picks. Generic chrome (borders, win/
+   loss/urgent accents) does track the theme via var(--ui-*). */
+
+.lt-table {
+    --lt-felt: #0f5132;
+    --lt-felt-edge: #0a3a24;
+    --lt-rail: #3b2416;
+    --lt-rail-edge: #1c1109;
+    --lt-gold: #d9b167;
+    --lt-table-bg: #120c08;
+    --lt-shell: #0b0806;
+
+    /* Chips read small on a table that is itself scaled down to fit a 1080p
+       viewport, so these are sized against the *rendered* result, not the
+       coordinate space: at a typical 0.74 scale a 96px rack chip lands at ~71
+       real pixels. Raising them was explicit review feedback, twice. */
+    --lt-chip-size: 96px;
+    --lt-chip-size-spot: 84px;
+    /* Side-bet spots sit inside or beside a main spot and would collide at the
+       full size; they get their own token rather than a magic number per game. */
+    --lt-chip-size-side: 64px;
+}
+
+.lt-mono {
+    font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+    font-variant-numeric: tabular-nums;
+}
+
+/* ---- the table stage ---------------------------------------------------- */
+
+/*
+ * The stage is a real 1720x1200 coordinate space, scaled to fit by the wrapper.
+ * Furniture is positioned in those coordinates — seats at (222,546) (541,604)
+ * (860,630) (1179,604) (1498,546) — so a chip, a card and a label all scale by
+ * the same factor as the felt. Percentages would not do that, and font sizes do
+ * not follow a percentage box at all.
+ *
+ * It grew from the original 1600x1120 (which mirrored scene.ts one-to-one) to
+ * make room for the bet bar between the felt and the rack. Height alone could
+ * not pay for it: the wrapper is height-driven, so a taller coordinate space at
+ * a fixed viewport height renders everything *smaller*. Width had to grow with
+ * it to hold the aspect roughly constant — which is also the "make the table
+ * slightly wider" the review asked for, since the page had ~100px of unused
+ * width beside the stage. Seat y coordinates are unchanged from scene.ts; only
+ * x moved, scaled about the new centre 860 by 1672/1552.
+ *
+ * The wrapper sizes so the whole table fits a 1080p screen with the right
+ * sidebar visible and no vertical scroll. Width is the driven dimension and
+ * height comes from aspect-ratio: fixing the height and letting `fit-content`
+ * find the width lets the two disagree whenever the column is narrower than
+ * the height wants — the height holds at its full value while the width, and
+ * the scale derived from it, shrink to fit, leaving a band of dead space under
+ * a table that never grows into its own box.
+ */
+.lt-stage-wrap {
+    position: relative;
+    /* 100vh is already the viewport, so the only allowance needed is the page's
+       own chrome above the stage plus breathing room under it — not the
+       browser's toolbars. Subtracting for those too left the table rendering
+       ~160px short of the space it had on a real 1080p screen. The cap is
+       deliberately above what 1080p can use so bigger monitors get a bigger
+       table rather than a fixed one floating in space. */
+    width: min(100%, calc(min(1100px, calc(100vh - 84px)) * 1720 / 1200));
+    aspect-ratio: 1720 / 1200;
+    margin-inline: auto;
+    overflow: hidden;
+    border-radius: 24px;
+    background: var(--lt-table-bg);
+    box-shadow: inset 0 0 0 1px var(--ui-border);
+}
+
+.lt-stage {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 1720px;
+    height: 1200px;
+    transform-origin: top left;
+    /* Set by LiveTableStage's ResizeObserver. CSS cannot derive it: scale()
+       needs a unitless ratio and calc() will not divide a length by a length. */
+    transform: scale(var(--lt-scale, 1));
+}
+
+/*
+ * Felt geometry, scene.ts drawFelt() widened to the 1720 stage, in stage pixels:
+ *   rail      roundRect(24, 34, 1672, 920, 190)
+ *   feltEdge  roundRect(46, 56, 1628, 876, 172)
+ *   felt      roundRect(54, 64, 1612, 860, 166)
+ * The two inner layers are offset from the rail's own box, not the stage. The
+ * felt bottom edge is y=954; everything below that is the control band.
+ */
+.lt-felt {
+    position: absolute;
+    left: 24px;
+    top: 34px;
+    width: 1672px;
+    height: 920px;
+    border-radius: 190px;
+    background: var(--lt-rail);
+    box-shadow: 0 0 0 3px var(--lt-rail-edge);
+}
+.lt-felt::before {
+    content: '';
+    position: absolute;
+    left: 22px;
+    top: 22px;
+    width: 1628px;
+    height: 876px;
+    border-radius: 172px;
+    background: var(--lt-felt-edge);
+}
+.lt-felt::after {
+    content: '';
+    position: absolute;
+    left: 30px;
+    top: 30px;
+    width: 1612px;
+    height: 860px;
+    border-radius: 166px;
+    background: radial-gradient(ellipse at 50% 38%, #14663f 0%, var(--lt-felt) 46%, #0c4128 100%);
+    box-shadow: inset 0 0 90px rgba(0, 0, 0, 0.5);
+}
+/*
+ * Anything laid on the felt goes in here so it sits above the ::after layer.
+ *
+ * `pointer-events: none` is load-bearing, not tidiness. `.lt-stage` has a
+ * transform, so it opens a stacking context in which this z-index:1 layer
+ * paints above every control in the stage's slot — which all sit at z-index
+ * auto. Left clickable, this empty 1552x920 div swallowed every click on the
+ * felt: seats could not be taken and bets could not be placed, while the same
+ * actions worked fine over the socket.
+ */
+.lt-felt-inner {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    pointer-events: none;
+}
+
+/* The two gold arcs the real felt draws inside the rail. */
+.lt-arc {
+    position: absolute;
+    left: 84px;
+    top: 94px;
+    width: 1552px;
+    height: 800px;
+    border-radius: 156px;
+    border: 3px solid rgba(217, 177, 103, 0.35);
+    pointer-events: none;
+}
+.lt-arc.inner {
+    left: 104px;
+    top: 114px;
+    width: 1512px;
+    height: 760px;
+    border-radius: 146px;
+    border-width: 1.5px;
+    border-color: rgba(217, 177, 103, 0.2);
+}
+
+.lt-rules {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 19px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    color: var(--lt-gold);
+}
+
+/* ---- felt furniture ------------------------------------------------------ */
+
+/* Bet spot: circle r48 gold/.4 + inner r41 gold/.22 (scene.ts drawFelt) */
+.lt-spot {
+    position: absolute;
+    width: 96px;
+    height: 96px;
+    margin: -48px 0 0 -48px;
+    border-radius: 999px;
+    border: 2.5px solid rgba(217, 177, 103, 0.4);
+    display: grid;
+    place-items: center;
+}
+.lt-spot::before {
+    content: '';
+    position: absolute;
+    inset: 7px;
+    border-radius: 999px;
+    border: 1px solid rgba(217, 177, 103, 0.22);
+}
+.lt-spot.lit { border-color: var(--lt-gold); box-shadow: 0 0 22px rgba(217, 177, 103, 0.45); }
+.lt-spot.you { border-color: var(--ui-success); box-shadow: 0 0 0 4px color-mix(in srgb, var(--ui-success) 25%, transparent); }
+.lt-spot-label {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 13px;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    color: var(--lt-gold);
+    opacity: 0.8;
+    text-align: center;
+    line-height: 1.15;
+}
+
+/* Sit prompt: an empty seat's whole betting cluster collapses into one big
+   invite, at the same +106 felt offset the main spots occupy once seated —
+   the DOM equivalent of scene.ts's own SIT circle. */
+.lt-sit {
+    position: absolute;
+    width: 124px;
+    height: 124px;
+    margin: -62px 0 0 -62px;
+    border-radius: 999px;
+    background: rgba(0, 0, 0, 0.4);
+    border: 3px solid var(--lt-gold);
+    display: grid;
+    place-items: center;
+    cursor: pointer;
+    animation: lt-sit-pulse 1.8s ease-in-out infinite;
+    transition: transform 0.15s ease, background-color 0.15s ease;
+}
+.lt-sit:hover {
+    transform: scale(1.08);
+    background: rgba(0, 0, 0, 0.6);
+}
+.lt-sit .lbl {
+    font-size: 21px;
+    font-weight: 800;
+    letter-spacing: 0.1em;
+    color: var(--lt-gold);
+    text-shadow: 0 2px 6px rgba(0, 0, 0, 0.85);
+}
+@keyframes lt-sit-pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(217, 177, 103, 0.5); }
+    50% { box-shadow: 0 0 0 12px rgba(217, 177, 103, 0); }
+}
+
+/* Nameplate: roundRect(-116, -25, 232, 50, 12), shell/.86 + gold/.4 */
+.lt-plate {
+    position: absolute;
+    width: 232px;
+    height: 50px;
+    margin-left: -116px;
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--lt-shell) 86%, transparent);
+    border: 1.5px solid rgba(217, 177, 103, 0.4);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 10px;
+}
+.lt-plate .nm {
+    font-size: 15px;
+    font-weight: 700;
+    color: #f7f3e8;
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.lt-plate.you .nm { color: var(--lt-gold); }
+.lt-plate .net { font-size: 14px; font-weight: 800; }
+.lt-plate .net.up { color: var(--ui-success); }
+.lt-plate .net.down { color: var(--ui-error); }
+.lt-streak {
+    background: #d97706;
+    border: 1.5px solid rgba(253, 230, 138, 0.9);
+    border-radius: 12px;
+    padding: 1px 7px;
+    font-size: 12px;
+    font-weight: 800;
+    color: #fff;
+}
+
+/* Result badge over a hand: roundRect(-w/2,-15,w,30,15) tone/.94 */
+.lt-badge {
+    position: absolute;
+    transform: translate(-50%, -50%);
+    border-radius: 15px;
+    padding: 5px 13px;
+    font-size: 15px;
+    font-weight: 800;
+    letter-spacing: 0.03em;
+    background: color-mix(in srgb, var(--lt-shell) 94%, transparent);
+    border: 2px solid rgba(217, 177, 103, 0.9);
+    color: #f7f3e8;
+    white-space: nowrap;
+}
+.lt-badge.win { background: color-mix(in srgb, var(--ui-success) 94%, transparent); border-color: #fff; color: #052e16; }
+.lt-badge.lose { background: rgba(127, 29, 29, 0.94); border-color: rgba(248, 113, 113, 0.8); color: #fecaca; }
+.lt-badge.push { background: rgba(30, 41, 59, 0.94); border-color: rgba(148, 163, 184, 0.7); }
+.lt-badge.gold { background: var(--lt-gold); border-color: #fff; color: #1c1109; }
+
+/* Dealer/house caption strip: roundRect(x-104, y+26, 208, 16, 8) */
+.lt-strip {
+    position: absolute;
+    height: 16px;
+    border-radius: 8px;
+    background: #1b1009;
+    border: 2px solid rgba(217, 177, 103, 0.4);
+}
+
+/* ---- the control band ----------------------------------------------------
+ *
+ * Every game lays the area under the felt out the same way, because the review
+ * asked for exactly that: bet bar centred above the chip rack, the seat's own
+ * bet totals on the left beside them, seat/watching/hints/leave on the right.
+ * Games position these with the shared coordinates below and vary only what
+ * goes inside the two side panels.
+ *
+ *   bet bar   centred, top 968, height 68
+ *   rack      (410, 1052, 900, 116, r58)
+ *   left      (40, 1052, 350, 116)
+ *   right     (1330, 1052, 350, 116)
+ */
+
+.lt-rack {
+    position: absolute;
+    left: 410px;
+    top: 1052px;
+    width: 900px;
+    height: 116px;
+    border-radius: 58px;
+    background: color-mix(in srgb, var(--lt-shell) 92%, transparent);
+    border: 2px solid rgba(217, 177, 103, 0.35);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+}
+.lt-rack .lt-chip { width: var(--lt-chip-size); height: var(--lt-chip-size); cursor: pointer; }
+.lt-rack .sel { position: relative; }
+.lt-rack .sel::after {
+    content: '';
+    position: absolute;
+    inset: -5px;
+    border-radius: 999px;
+    box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.85), 0 0 18px 2px rgba(255, 255, 255, 0.45);
+}
+
+/* Bet bar — repeat / half / double / clear, identical at every table. */
+.lt-betbar {
+    position: absolute;
+    left: 50%;
+    top: 968px;
+    transform: translateX(-50%);
+    height: 68px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 0 14px;
+    border-radius: 34px;
+    background: color-mix(in srgb, var(--lt-shell) 78%, transparent);
+    border: 1.5px solid rgba(217, 177, 103, 0.3);
+    backdrop-filter: blur(4px);
+    white-space: nowrap;
+}
+/* Fixed height rather than padding-driven: the ½ and 2× glyphs are set larger
+   than the word buttons beside them and would otherwise sit taller. */
+.lt-betbar .lb-tile {
+    min-width: 108px;
+    height: 48px;
+    padding: 0 18px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+/* Reads as a maths operator, so the glyphs stay unambiguous next to REPEAT. */
+.lt-betbar .op { font-size: 24px; line-height: 1; letter-spacing: 0.02em; }
+
+/* The two panels flanking the rack. */
+.lt-panel {
+    position: absolute;
+    border-radius: 14px;
+    background: rgba(0, 0, 0, 0.55);
+    box-shadow: inset 0 0 0 1px rgba(217, 177, 103, 0.22);
+    backdrop-filter: blur(4px);
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 4px;
+}
+.lt-panel-l { left: 40px; top: 1052px; width: 350px; height: 116px; }
+.lt-panel-r { left: 1330px; top: 1052px; width: 350px; height: 116px; }
+.lt-panel-label {
+    font-size: 15px;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: rgba(247, 243, 232, 0.65);
+}
+.lt-panel-value { font-size: 22px; font-weight: 800; color: var(--lt-gold); }
+
+/* Status line shown in the rack's place once betting closes. */
+.lt-status {
+    position: absolute;
+    left: 50%;
+    top: 1052px;
+    transform: translateX(-50%);
+    height: 116px;
+    display: flex;
+    align-items: center;
+    /* Flex drops the whitespace between items, so a status that highlights a
+       word or leads with an icon would otherwise run them together. */
+    gap: 0.3em;
+    font-size: 24px;
+    font-weight: 700;
+    color: rgba(247, 243, 232, 0.75);
+    text-align: center;
+}
+
+/* ---- shared buttons ------------------------------------------------------
+ *
+ * Promoted out of LiveBlackjackGame's scoped block so every table's controls
+ * are literally the same rule, not four copies that drifted apart. Translucent
+ * so the felt reads through, with a solid colour edge that stays legible over
+ * cards, chips and the dark rail alike.
+ *
+ * Sized in stage pixels, not rem: these live inside .lt-stage's 1720x1200
+ * space, so their measurements have to read on the same ruler as the felt
+ * furniture beside them.
+ */
+.lb-tile {
+    padding: 10px 18px;
+    border-radius: 10px;
+    border-width: 2px;
+    border-style: solid;
+    font-size: 18px;
+    white-space: nowrap;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    color: #f8fafc;
+    background: rgb(100 116 139 / 0.3);
+    border-color: rgb(148 163 184 / 0.7);
+    backdrop-filter: blur(6px);
+    text-shadow: 0 1px 3px rgb(0 0 0 / 0.7);
+    cursor: pointer;
+    transition: transform 0.12s ease, filter 0.12s ease;
+}
+.lb-tile:hover:not(:disabled) { transform: translateY(-2px); filter: brightness(1.3); }
+.lb-tile:active:not(:disabled) { transform: translateY(1px); }
+.lb-tile:disabled { opacity: 0.32; cursor: not-allowed; }
+.lb-tile-green { background: rgb(34 197 94 / 0.28); border-color: rgb(74 222 128 / 0.75); }
+.lb-tile-blue { background: rgb(59 130 246 / 0.28); border-color: rgb(96 165 250 / 0.75); }
+.lb-tile-amber { background: rgb(245 158 11 / 0.28); border-color: rgb(251 191 36 / 0.75); }
+.lb-tile-yellow { background: rgb(234 179 8 / 0.3); border-color: rgb(253 224 71 / 0.8); color: #fefce8; }
+.lb-tile-red { background: rgb(239 68 68 / 0.28); border-color: rgb(248 113 113 / 0.75); }
+.lb-tile-slate { background: rgb(100 116 139 / 0.3); border-color: rgb(148 163 184 / 0.7); }
+.lb-hint {
+    box-shadow: 0 0 0 3px rgb(255 255 255 / 0.85), 0 0 18px 2px rgb(255 255 255 / 0.45);
+    animation: lb-hint-pulse 1.1s ease-in-out infinite;
+}
+@keyframes lb-hint-pulse {
+    50% { box-shadow: 0 0 0 3px rgb(255 255 255 / 0.5), 0 0 10px 1px rgb(255 255 255 / 0.25); }
+}
+
+/* ---- top-left corner panel ------------------------------------------------
+ *
+ * Paytables, roadmaps and rule reminders all live in the same place at every
+ * table: the top-left of the felt, dimmed so it never competes with the cards,
+ * and collapsed to its header until it is asked for. z-index keeps it over the
+ * hands — it is the one piece of chrome allowed to overlap them.
+ */
+.lt-corner {
+    position: absolute;
+    left: 44px;
+    top: 62px;
+    z-index: 6;
+    border-radius: 12px;
+    background: rgba(0, 0, 0, 0.62);
+    box-shadow: inset 0 0 0 1px rgba(217, 177, 103, 0.28);
+    backdrop-filter: blur(5px);
+    opacity: 0.55;
+    transition: opacity 0.15s ease;
+    overflow: hidden;
+}
+/* Bounded here rather than per game: the content is a paytable or a road that
+   grows a column per round, and an absolutely positioned panel has no parent
+   width to be constrained by. Without this it grows across the felt. */
+.lt-corner { max-width: 460px; }
+.lt-corner-r { left: auto; right: 44px; }
+.lt-corner:hover, .lt-corner.open { opacity: 1; }
+.lt-corner-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 14px;
+    cursor: pointer;
+    font-size: 15px;
+    font-weight: 800;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--lt-gold);
+    user-select: none;
+}
+.lt-corner-body { padding: 0 14px 12px; }
+
+/* Paytable rows: label, an optional worked card example, and the odds. */
+.lt-paytable { display: grid; grid-template-columns: auto 1fr auto; gap: 5px 16px; align-items: center; }
+.lt-paytable .pt-label { font-size: 17px; font-weight: 600; color: #f7f3e8; }
+.lt-paytable .pt-eg { display: flex; gap: 3px; justify-content: flex-end; }
+.lt-paytable .pt-odds { font-size: 17px; font-weight: 800; color: var(--lt-gold); font-variant-numeric: tabular-nums; }
+.lt-paytable .pt-head { font-size: 14px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: rgba(247, 243, 232, 0.55); }
+
+/* A rank+suit example glyph, e.g. K♣ — red suits red, as on a real paytable. */
+.lt-eg-card {
+    display: inline-flex;
+    align-items: center;
+    gap: 1px;
+    padding: 1px 4px;
+    border-radius: 3px;
+    background: rgba(247, 243, 232, 0.94);
+    color: #111;
+    font-size: 15px;
+    font-weight: 900;
+    line-height: 1.2;
+}
+.lt-eg-card.red { color: #c02026; }
+
+/* ---- cards --------------------------------------------------------------- */
+
+.lt-card {
+    display: block;
+    filter: drop-shadow(0 6px 10px rgba(0, 0, 0, 0.55));
+    border-radius: 9px;
+}
+/* Hands are laid out as an overlapping fan. */
+.lt-hand { position: absolute; display: flex; transform: translate(-50%, -50%); }
+/* Reveal has to clear the corner index, or a fanned hand hides its own ranks. */
+.lt-hand > * + * { margin-left: -50px; }
+.lt-hand.tight > * + * { margin-left: -70px; }
+
+.lt-stack { position: relative; display: inline-block; }
+.lt-stack .lt-chip { width: 100%; height: 100%; display: block; }
+
+/* ---- overlays and the phase/countdown banner ------------------------------ */
+
+.lt-overlay {
+    position: absolute;
+    border-radius: 12px;
+    background: rgba(0, 0, 0, 0.72);
+    backdrop-filter: blur(4px);
+    box-shadow: inset 0 0 0 1px var(--ui-border);
+    padding: 12px 14px;
+}
+.lt-overlay.amber { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ui-warning) 25%, transparent); background: rgba(0, 0, 0, 0.8); }
+.lt-overlay h4 {
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ui-warning);
+    border-bottom: 1px solid var(--ui-border);
+    padding-bottom: 6px;
+    margin-bottom: 8px;
+}
+
+.lt-phase {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    background: color-mix(in srgb, var(--lt-shell) 72%, transparent);
+    border: 1.5px solid rgba(217, 177, 103, 0.4);
+    border-radius: 999px;
+    padding: 6px 22px;
+    backdrop-filter: blur(4px);
+    white-space: nowrap;
+}
+.lt-phase .label {
+    font-size: 22px;
+    font-weight: 800;
+    letter-spacing: 0.14em;
+    color: var(--lt-gold);
+    text-shadow: 0 2px 8px rgba(0, 0, 0, 0.8);
+}
+.lt-phase .count {
+    font-size: 30px;
+    font-weight: 800;
+    color: var(--lt-gold);
+    font-family: ui-monospace, Menlo, monospace;
+    font-variant-numeric: tabular-nums;
+}
+.lt-phase .count.urgent { color: var(--ui-error); }
+
+/* Tailwind v4's preflight dropped the browser's `button { cursor: pointer }`,
+   so every control on the felt has to ask for it. Rack chips carry their click
+   on the wrapper span, which is wider than the chip art inside it. */
+.lt-stage button:not(:disabled),
+.lt-rack > * {
+    cursor: pointer;
+}
+/* Sits between the outcome and its number, so the count reads as a wait rather
+   than another clock the player has to act against. */
+.lt-phase .next {
+    font-size: 13px;
+    font-weight: 800;
+    letter-spacing: 0.12em;
+    color: color-mix(in srgb, var(--lt-gold) 65%, transparent);
+    margin-right: -8px;
+}

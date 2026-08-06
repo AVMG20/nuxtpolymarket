@@ -1148,7 +1148,7 @@ class SeatNode {
      */
     private addSideResultBadge(
         x: number,
-        result: { key: LbSideBetKey, payout: number },
+        result: { key: LbSideBetKey, payout: number, multiplier: number },
         pop: boolean
     ) {
         const won = result.payout > 0
@@ -1156,9 +1156,12 @@ class SeatNode {
         // Which bet it was, in front of what it did — two spots side by side
         // both saying only "MISS" tell you nothing about which one lost.
         const tag = label(this.PIXI, SIDE_SPOT_LABELS[result.key], 11, won ? 0x14532d : 0x64748b, '800')
+        // The multiple is what the bet did; the amount alone reads as a payout
+        // without saying whether it was a 6x pair or a 101x suited trips. Odds
+        // are quoted to-one on the paytable, so the chip comes back as 1 + them.
         const value = label(
             this.PIXI,
-            won ? `+${formatNumber(result.payout)}` : 'MISS',
+            won ? `${1 + result.multiplier}x (${formatNumber(result.payout)})` : 'MISS',
             won ? 15 : 12,
             won ? 0x052e16 : 0x94a3b8,
             '800'

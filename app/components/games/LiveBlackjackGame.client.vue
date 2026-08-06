@@ -1,6 +1,13 @@
 <script setup lang="ts">
 import { chipRackFor } from '#shared/utils/live-blackjack/chips'
 import { canDouble, canSplit, canSurrender } from '#shared/utils/live-blackjack/rules'
+import type { LbPerfectPairsTier, LbTwentyOnePlusThreeTier } from '#shared/utils/live-blackjack/sidebets'
+import {
+    LB_21P3_LABELS,
+    LB_21P3_PAYS,
+    LB_PERFECT_PAIRS_LABELS,
+    LB_PERFECT_PAIRS_PAYS
+} from '#shared/utils/live-blackjack/sidebets'
 import { basicStrategy } from '#shared/utils/live-blackjack/strategy'
 import { buildTextures } from '~/utils/live-blackjack/art'
 import { LiveBlackjackScene, STAGE_H, STAGE_W } from '~/utils/live-blackjack/scene'
@@ -16,6 +23,7 @@ const autoPlay = ref(false)
 //   localStorage.setItem('BLACKJACK_AUTOPLAY', 'true')
 const autoPlayUnlocked = import.meta.client && localStorage.getItem('BLACKJACK_AUTOPLAY') === 'true'
 const chatDraft = ref('')
+const showSideBets = ref(false)
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let app: any = null
@@ -198,6 +206,61 @@ function onTableClick(event: MouseEvent) {
     if ((event.target as HTMLElement | null)?.closest('button')) playSound('button-press')
 }
 
+/**
+ * Worked examples for the side-bet panel, best tier first — the tier names alone
+ * ("coloured pair", "suited trips") mean nothing to someone who has not played
+ * them before. Written as `rank + suit letter`; the pays come off the settlement
+ * constants so the panel cannot drift from what actually gets paid.
+ */
+const PERFECT_PAIRS_EXAMPLES: Record<LbPerfectPairsTier, string> = {
+    perfect: 'Qh Qh',
+    coloured: 'Qh Qd',
+    mixed: 'Qh Qs'
+}
+
+const TWENTY_ONE_PLUS_THREE_EXAMPLES: Record<LbTwentyOnePlusThreeTier, string> = {
+    suitedTrips: '7h 7h 7h',
+    straightFlush: '9s 10s Js',
+    trips: '7h 7d 7s',
+    straight: '9s 10h Jd',
+    flush: '2c 7c Kc'
+}
+
+const SUIT_GLYPH: Record<string, { pip: string, red: boolean }> = {
+    s: { pip: '♠', red: false },
+    c: { pip: '♣', red: false },
+    h: { pip: '♥', red: true },
+    d: { pip: '♦', red: true }
+}
+
+const sideBetTables = [
+    {
+        title: 'Perfect Pairs',
+        note: 'Your first two cards',
+        rows: (Object.keys(PERFECT_PAIRS_EXAMPLES) as LbPerfectPairsTier[]).map(tier => ({
+            label: LB_PERFECT_PAIRS_LABELS[tier],
+            example: PERFECT_PAIRS_EXAMPLES[tier],
+            pays: `${LB_PERFECT_PAIRS_PAYS[tier]}:1`
+        }))
+    },
+    {
+        title: '21+3',
+        note: 'Your two cards + dealer upcard',
+        rows: (Object.keys(TWENTY_ONE_PLUS_THREE_EXAMPLES) as LbTwentyOnePlusThreeTier[]).map(tier => ({
+            label: LB_21P3_LABELS[tier],
+            example: TWENTY_ONE_PLUS_THREE_EXAMPLES[tier],
+            pays: `${LB_21P3_PAYS[tier]}:1`
+        }))
+    }
+]
+
+function exampleCards(example: string) {
+    return example.split(' ').filter(Boolean).map((token, i) => {
+        const suit = SUIT_GLYPH[token.slice(-1)] ?? SUIT_GLYPH.s!
+        return { key: `${token}-${i}`, rank: token.slice(0, -1), pip: suit.pip, red: suit.red }
+    })
+}
+
 const visibleFeed = computed(() => feed.value.slice(-7))
 
 /**
@@ -303,6 +366,43 @@ onBeforeUnmount(() => {
   >
     <div ref="canvasWrap" class="w-full" style="aspect-ratio: 1600 / 1120;" />
 
+    <!-- Side-bet reference, as at the other tables: top corner, dimmed and
+         collapsed to its header so it never competes with the felt. -->
+    <div
+      class="lb-corner absolute right-2 top-2 max-w-[54%] rounded-xl bg-black/80 backdrop-blur-sm ring-1 ring-amber-400/25"
+      :class="{ open: showSideBets }"
+    >
+      <button
+        class="flex w-full items-center gap-2 px-3.5 py-2.5 text-[15px] font-bold uppercase tracking-wider text-amber-300"
+        @click="showSideBets = !showSideBets"
+      >
+        <UIcon :name="showSideBets ? 'i-lucide-chevron-down' : 'i-lucide-chevron-right'" class="size-4.5" />
+        Side bets
+      </button>
+      <div v-if="showSideBets" class="space-y-3.5 px-3.5 pb-3.5">
+        <div v-for="paytable in sideBetTables" :key="paytable.title">
+          <div class="mb-1.5 flex items-baseline justify-between gap-5 border-b border-white/10 pb-1.5">
+            <span class="text-[15px] font-bold text-default">{{ paytable.title }}</span>
+            <span class="text-[11px] uppercase tracking-wider text-muted">{{ paytable.note }}</span>
+          </div>
+          <div class="grid grid-cols-[auto_1fr_auto] items-center gap-x-4 gap-y-1.5">
+            <template v-for="row in paytable.rows" :key="row.label">
+              <span class="text-[14px] leading-tight text-default">{{ row.label }}</span>
+              <span class="flex justify-end gap-0.5">
+                <span
+                  v-for="card in exampleCards(row.example)"
+                  :key="card.key"
+                  class="lb-eg-card"
+                  :class="{ red: card.red }"
+                >{{ card.rank }}{{ card.pip }}</span>
+              </span>
+              <span class="font-mono text-[14px] font-bold tabular-nums text-amber-300">{{ row.pays }}</span>
+            </template>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- What the round just paid. Up between hands only, so it can afford the room. -->
     <Transition
       enter-active-class="transition duration-300 ease-out"
@@ -373,11 +473,15 @@ onBeforeUnmount(() => {
     </div>
 
     <!-- Live feed + table chat -->
-    <div class="absolute bottom-2 left-2 w-[20%] min-w-46.5 rounded-xl bg-black/70 p-2 backdrop-blur-sm ring-1 ring-white/10">
-      <ul class="mb-1.5 h-26 space-y-0.5 overflow-hidden text-[11px] leading-tight">
+    <div class="absolute bottom-2 left-2 w-[20%] min-w-46.5 rounded-xl bg-black/70 p-2.5 backdrop-blur-sm ring-1 ring-white/10">
+      <!-- Bottom-anchored: the box is a fixed height and a wrapped line or two
+           overruns it, so the overflow has to fall off the old end, not clip the
+           message that just arrived. -->
+      <ul class="mb-2 flex h-28 flex-col justify-end gap-0.5 overflow-hidden text-[11px] leading-snug">
         <li
           v-for="item in visibleFeed"
           :key="item.id"
+          class="shrink-0"
           :class="item.tone === 'win' ? 'text-green-400' : item.tone === 'loss' ? 'text-red-400' : 'text-muted'"
         >
           <span v-if="item.kind === 'chat'" class="text-default">
@@ -545,6 +649,33 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+/* Dimmed until it is asked for, so reference material never pulls the eye off
+   the hand in play. Same behaviour as the corner panels at the other tables. */
+.lb-corner {
+  opacity: 0.55;
+  transition: opacity 0.15s ease;
+}
+.lb-corner:hover,
+.lb-corner.open {
+  opacity: 1;
+}
+
+/* A rank+suit example glyph, e.g. K♣ — red suits red, as on a real paytable. */
+.lb-eg-card {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: rgb(247 243 232 / 0.94);
+  color: #111;
+  font-size: 13px;
+  font-weight: 900;
+  line-height: 1.4;
+}
+.lb-eg-card.red {
+  color: #b3261e;
+}
+
 /* Translucent so the felt reads through, but with a solid colour edge that
    stays legible over cards, chips and the dark rail alike. */
 .lb-tile {
