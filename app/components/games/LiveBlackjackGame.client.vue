@@ -473,11 +473,15 @@ onBeforeUnmount(() => {
     </div>
 
     <!-- Live feed + table chat -->
-    <div class="absolute bottom-2 left-2 w-[20%] min-w-46.5 rounded-xl bg-black/70 p-2 backdrop-blur-sm ring-1 ring-white/10">
-      <ul class="mb-1.5 h-26 space-y-0.5 overflow-hidden text-[11px] leading-tight">
+    <div class="absolute bottom-2 left-2 w-[20%] min-w-46.5 rounded-xl bg-black/70 p-2.5 backdrop-blur-sm ring-1 ring-white/10">
+      <!-- Bottom-anchored: the box is a fixed height and a wrapped line or two
+           overruns it, so the overflow has to fall off the old end, not clip the
+           message that just arrived. -->
+      <ul class="mb-2 flex h-28 flex-col justify-end gap-0.5 overflow-hidden text-[11px] leading-snug">
         <li
           v-for="item in visibleFeed"
           :key="item.id"
+          class="shrink-0"
           :class="item.tone === 'win' ? 'text-green-400' : item.tone === 'loss' ? 'text-red-400' : 'text-muted'"
         >
           <span v-if="item.kind === 'chat'" class="text-default">
