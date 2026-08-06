@@ -4,6 +4,11 @@ import packageJson from '../../package.json'
 
 const { user, signOut: authSignOut, fetchSession } = useAuth()
 await fetchSession()
+
+// The bank's cut follows the player around the app, so the wallet in the footer
+// turns red wherever they are — the tooltip is the only place it's explained.
+const { inDebt: bankGarnishing, refresh: refreshBankStatus } = useBankStatus()
+if (user.value) await refreshBankStatus()
 const appConfig = useAppConfig()
 const open = ref(true)
 const menuOpen = ref(false)
@@ -257,7 +262,7 @@ const globalSearch = useGlobalSearch()
           class="flex items-center justify-between px-3"
         >
           <span class="font-semibold text-sm">
-            <CoinBalance :value="user?.balance" />
+            <CoinBalance :value="user?.balance" :danger="bankGarnishing" :tooltip="BANK_DEBT_WARNING" />
           </span>
           <span class="font-semibold text-sm">
             <GemBalance :value="user?.gems" />
@@ -268,7 +273,18 @@ const globalSearch = useGlobalSearch()
           v-else
           class="flex flex-col items-center gap-2"
         >
+          <UTooltip
+            v-if="bankGarnishing"
+            :text="BANK_DEBT_WARNING"
+            :ui="{ content: 'h-auto max-w-64 whitespace-normal' }"
+          >
+            <UIcon
+              class="size-4 text-error"
+              name="i-lucide-coins"
+            />
+          </UTooltip>
           <UIcon
+            v-else
             class="size-4 text-yellow-400"
             name="i-lucide-coins"
           />

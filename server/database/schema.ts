@@ -386,7 +386,15 @@ export const bankState = pgTable('bank_state', {
   principal: numeric('principal', { precision: 19, scale: 4 }).notNull().default('0'),
   maxPrincipal: numeric('max_principal', { precision: 19, scale: 4 }).notNull().default('0'),
   loanPrincipal: numeric('loan_principal', { precision: 19, scale: 4 }).notNull().default('0'),
-  lastSettledAt: timestamp('last_settled_at').defaultNow().notNull()
+  lastSettledAt: timestamp('last_settled_at').defaultNow().notNull(),
+  // Bail-out ledger. The debt is lifted off `balance` and parked here: the 40%
+  // levy pays it down into `bailoutRepaid`, and the penalty ends at whichever
+  // comes first — `bailoutUntil` lapsing or the two meeting. `bailoutUntil` is
+  // nulled the moment it is settled, which is also the flag for "no penalty".
+  bailoutAt: timestamp('bailout_at'),
+  bailoutUntil: timestamp('bailout_until'),
+  bailoutDebt: numeric('bailout_debt', { precision: 19, scale: 4 }).notNull().default('0'),
+  bailoutRepaid: numeric('bailout_repaid', { precision: 19, scale: 4 }).notNull().default('0')
 })
 
 /** Snapshot only at bank actions; the UI projects the latest point in real time. */

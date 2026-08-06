@@ -22,6 +22,13 @@
       "when": 1785921801378,
       "tag": "0002_zippy_randall",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1785957464813,
+      "tag": "0003_burly_wolfsbane",
+      "breakpoints": true
     }
   ]
 }
