@@ -15,6 +15,15 @@
 --
 -- Re-runnable: once converted no gem_bonus/gem_chance rows remain, so every WHERE below
 -- matches nothing on a second pass.
+--
+-- Deliberately carries NO breakpoint markers, unlike the generated schema migrations
+-- either side of it. Drizzle splits a file on those markers and runs each piece
+-- separately; with none, the whole file goes as one simple query, which Postgres
+-- executes as a single implicit transaction — so a failure part way through rolls the
+-- entire conversion back instead of leaving half the gear rewritten and half on the old
+-- keys. Adding breakpoints here would silently trade that away. Do not write the marker
+-- text out even inside a comment: the splitter matches it anywhere in the file and will
+-- cut this migration in half.
 
 -- ─── Item mods: old bands gem_bonus [1,3] and gem_chance [0.001,0.02] → [25,40] ──────
 WITH legacy AS (

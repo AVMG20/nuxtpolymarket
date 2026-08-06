@@ -20,6 +20,8 @@ const MIGRATION = readFileSync('drizzle/0005_hack_gem_yield.sql', 'utf8')
 type Entry = { type: string, value: number }
 const find = (rows: Entry[], type: string) => rows.find(r => r.type === type)
 
+const BREAKPOINT = ['-->', ' statement-breakpoint'].join('')
+
 async function runMigration() {
     await db.execute(sql.raw(MIGRATION))
 }
@@ -79,6 +81,14 @@ describe.skipIf(SKIP)('0005_hack_gem_yield migration', () => {
         await db.delete(hackAgents).where(eq(hackAgents.userId, USER_ID))
         await db.delete(hackArtifacts).where(eq(hackArtifacts.userId, USER_ID))
         await cleanupUser(USER_ID)
+    })
+
+    it('carries no breakpoint marker, so it runs as one atomic statement', async () => {
+        // Drizzle's migrator splits on this marker wherever it appears — including inside
+        // a comment, which once cut this file mid-sentence and failed the deploy on a
+        // syntax error. Splitting also costs the all-or-nothing rollback the conversion
+        // relies on, so the marker must not appear at all.
+        expect(MIGRATION).not.toContain(BREAKPOINT)
     })
 
     it('leaves no legacy gem key anywhere, which is what stops the pages 500ing', async () => {
