@@ -657,14 +657,17 @@ export function effectiveDurationMs(template: OpTemplate, agents: AgentLoadout[]
   return Math.round(template.durationMs * Math.max(factor, 1 - MAX_TOTAL_SPEED))
 }
 
+// Success chance IS the power ratio: minPower means what it says, so meeting it
+// exactly is a guaranteed run and half of it is a coin flip. The old curve
+// ((ratio - 0.1) / 1.3) paid only 69% at the listed requirement and needed 140% of
+// it for certainty, which made every minPower on the ladder a lie.
 export function opSuccessChance(totalPower: number, minPower: number): number {
   if (minPower === 0) return 1.0
-  const ratio = totalPower / minPower
-  return Math.min(1.0, Math.max(0, (ratio - 0.1) / 1.3))
+  return Math.min(1.0, Math.max(0, totalPower / minPower))
 }
 
 /** Ops below this success chance can't be deployed (but are still shown). */
-export const MIN_DEPLOY_SUCCESS = 0.01
+export const MIN_DEPLOY_SUCCESS = 0.5
 
 export interface OpReward { success: boolean; cash: number; gems: number; item: HackItemDef | null; inventoryFull: boolean; artifacts: ArtifactRoll[] }
 

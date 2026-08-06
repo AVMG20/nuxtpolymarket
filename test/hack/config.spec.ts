@@ -20,6 +20,7 @@ import {
     agentLootPercent,
     agentXpGain,
     opSuccessChance,
+    MIN_DEPLOY_SUCCESS,
     effectiveCashRange,
     effectiveGemChance,
     effectiveItemDropChance,
@@ -229,13 +230,21 @@ describe('opSuccessChance', () => {
     })
 
     it('clamps to [0, 1] around the power ratio', () => {
-        expect(opSuccessChance(10, 1000)).toBe(0)
+        expect(opSuccessChance(0, 1000)).toBe(0)
         expect(opSuccessChance(100_000, 100)).toBe(1)
     })
 
-    it('scales linearly between the floor and ceiling ratios', () => {
-        // ratio 0.75 → (0.75 - 0.1) / 1.3 = 0.5
-        expect(opSuccessChance(75, 100)).toBeCloseTo(0.5, 5)
+    it('is exactly the power ratio, so minPower means what it says', () => {
+        expect(opSuccessChance(50, 100)).toBeCloseTo(0.5, 5)
+        expect(opSuccessChance(75, 100)).toBeCloseTo(0.75, 5)
+        expect(opSuccessChance(100, 100)).toBe(1)
+    })
+
+    it('deploys nothing below half the op power', () => {
+        // The floor is what stops a squad being thrown at an op it can't clear; it
+        // has to line up with the curve, or the two disagree about what is runnable.
+        expect(opSuccessChance(49, 100)).toBeLessThan(MIN_DEPLOY_SUCCESS)
+        expect(opSuccessChance(50, 100)).toBeGreaterThanOrEqual(MIN_DEPLOY_SUCCESS)
     })
 })
 
