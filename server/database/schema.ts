@@ -1022,11 +1022,45 @@ export const tcgCopy = pgTable('tcg_copies', {
   slotOffset: integer('slot_offset').notNull(),
   lifecycle: text('lifecycle').notNull().default('raw'),
   condition: jsonb('condition').$type<TcgCondition>(),
+  // Grading result (§6.4) — set when lifecycle is 'slabbed', cleared by a
+  // crack. `grade` is text ('9.5') because it is an identity in popKey, not a
+  // number to sum. What is populated depends on the service's report tier:
+  // PSI grade only; CCC/BRK gradeSubs (4); GAG gradeSubs (8) + score + flaws.
+  gradeService: text('grade_service'),
+  grade: text('grade'),
+  gradeScore: integer('grade_score'),
+  gradeDesignation: text('grade_designation'),
+  gradeSubs: jsonb('grade_subs').$type<Record<string, number>>(),
+  gradeFlaws: jsonb('grade_flaws').$type<Array<{ id: string, category: number, severity: number }>>(),
+  certNumber: text('cert_number').unique(),
+  gradedAt: timestamp('graded_at'),
   createdAt: timestamp('created_at').defaultNow().notNull()
 }, t => [
   index('tcg_copies_ownerId_idx').on(t.ownerId),
   index('tcg_copies_printingId_idx').on(t.printingId),
   unique('tcg_copies_serial_unique').on(t.sheetId, t.cutIndex, t.slotOffset)
+])
+
+/**
+ * A grading submission (§6.4): the fee is debited on submit, the copy's
+ * lifecycle claim (raw → grading) is the double-submit guard, and the grade
+ * is computed at collection time — the wait is part of the design. The
+ * player's own predicted grade is recorded for §6.3's lossiness telemetry.
+ */
+export const tcgSubmission = pgTable('tcg_submissions', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  copyId: text('copy_id').notNull().references(() => tcgCopy.id, { onDelete: 'cascade' }),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  service: text('service').notNull(),
+  /** Coins paid on submission. */
+  fee: numeric('fee', { precision: 19, scale: 4 }).notNull(),
+  predictedGrade: text('predicted_grade'),
+  state: text('state').notNull().default('pending'),
+  submittedAt: timestamp('submitted_at').defaultNow().notNull(),
+  returnsAt: timestamp('returns_at').notNull()
+}, t => [
+  index('tcg_submissions_userId_idx').on(t.userId),
+  index('tcg_submissions_copyId_idx').on(t.copyId)
 ])
 
 export const chatMessagesRelations = relations(chatMessages, ({ one }) => ({

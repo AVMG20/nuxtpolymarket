@@ -22,6 +22,19 @@ export interface TcgCondition {
     subs: number[]
 }
 
+export type TcgServiceKey = 'PSI' | 'CCC' | 'GAG' | 'BRK'
+
+/** What submit() returns — fields beyond `grade` depend on the service's
+ *  report tier: PSI nothing, CCC/BRK subGrades (4), GAG everything. */
+export interface TcgGradeResult {
+    service: TcgServiceKey
+    grade: number
+    designation: string | null
+    score: number | null
+    subGrades: Record<string, number> | null
+    flaws: Array<{ id: string, category: number, severity: number }> | null
+}
+
 export interface TcgConditionParams {
     floor: number
     centering: { shape: number, scale: number }

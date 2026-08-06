@@ -205,6 +205,10 @@ export interface TcgCopySummary {
     cutIndex: number
     slotOffset: number
     createdAt: string
+    /** 'raw' | 'grading' | 'slabbed' — drives what the inspector offers. */
+    lifecycle: string
+    /** Present when lifecycle is 'slabbed'. */
+    grade: TcgGradePayload | null
 }
 
 // ── Player collection payload ───────────────────────────────────────────────
@@ -338,4 +342,66 @@ export interface TcgSetDetailPayload {
     printings: TcgAdminPrinting[]
     sheets: TcgAdminSheet[]
     templates: TcgAdminTemplate[]
+}
+
+// ── Grading (§6.4 / §6.5) ───────────────────────────────────────────────────
+
+export interface TcgGradePayload {
+    service: string
+    grade: string
+    score: number | null
+    designation: string | null
+    /** CCC/BRK: 4 category grades; GAG: 8 face grades. Absent for PSI. */
+    subGrades: Record<string, number> | null
+    /** GAG only: the defect map — flaws whose healing would raise the grade. */
+    flaws: Array<{ id: string, category: number, severity: number }> | null
+    certNumber: string
+    gradedAt: string
+}
+
+export interface TcgSubmissionSummary {
+    id: string
+    copyId: string
+    service: string
+    /** Coins paid on submission. */
+    fee: number
+    predictedGrade: string | null
+    state: string
+    submittedAt: string
+    returnsAt: string
+    /** Turnaround elapsed — the collect button lights up. */
+    ready: boolean
+    serial: string
+    card: {
+        name: string
+        rarity: string | null
+        number: string
+        setTotal: number | null
+        setName: string
+        setCode: string
+        releaseDate: string | null
+    }
+    render: {
+        bundle: string | null
+        assetNumber: string | null
+        maskKind: string | null
+        foilEffect: string | null
+        pattern: string | null
+        finish: string
+        plaatjesCardId: string
+    }
+    /** Present once collected. */
+    grade: TcgGradePayload | null
+}
+
+export interface TcgPopReportRow {
+    printingId: string
+    cardName: string
+    finish: string
+    pattern: string | null
+    rarity: string | null
+    service: string
+    grade: string
+    designation: string | null
+    count: number
 }
