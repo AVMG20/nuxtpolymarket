@@ -5,7 +5,9 @@ const { user } = useAuth()
 const tabs = [
   { label: 'Shop', to: '/tcg', icon: 'i-lucide-store' },
   { label: 'My packs', to: '/tcg/packs', icon: 'i-lucide-package' },
-  { label: 'Collection', to: '/tcg/collection', icon: 'i-lucide-library-big' }
+  { label: 'Collection', to: '/tcg/collection', icon: 'i-lucide-library-big' },
+  { label: 'Grading', to: '/tcg/grading', icon: 'i-lucide-medal' },
+  { label: 'Pop report', to: '/tcg/pops', icon: 'i-lucide-chart-column' }
 ]
 </script>
 

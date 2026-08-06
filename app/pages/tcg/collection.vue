@@ -28,6 +28,7 @@ watch(sets, (list) => {
 }, { immediate: true })
 
 const stats = computed(() => collection.value?.stats ?? null)
+const currentSet = computed(() => sets.value.find(s => s.id === selectedSetId.value) ?? null)
 
 function pct(owned: number, total: number) {
   return total > 0 ? Math.round((owned / total) * 100) : 0
@@ -61,6 +62,14 @@ function openLightbox(card: CollectionCard, printing: CollectionPrinting, event:
     rarity: card.rarity,
     pattern: printing.pattern,
     finishLabel: finishLabel(printing.finish, printing.pattern),
+    // For the slab label when a graded copy of this printing is inspected.
+    slabMeta: {
+      number: card.number,
+      setTotal: card.setTotal,
+      setName: currentSet.value?.name ?? null,
+      setCode: currentSet.value?.code ?? null,
+      releaseDate: currentSet.value?.releaseDate ?? null
+    },
     // Owned printings get the copy picker + wear inspection; unowned ones
     // stay a clean render of what the printing looks like.
     printingId: printing.id,
