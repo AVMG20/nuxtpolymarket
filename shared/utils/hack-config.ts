@@ -567,9 +567,12 @@ export function rollItemFromTier(tier: ItemPullTier): HackItemDef {
 // Cost to expand roster from current size to next (index = currentSlots - 2).
 // This is the main long-term cash sink — each extra agent slot multiplies how many
 // ops you can run in parallel, so it scales hard against the op income ladder.
-// 2→3: 150k · 3→4: 1.2M · 4→5: 10M · 5→6: 60M
-export const ROSTER_EXPAND_COSTS = [150_000, 1_200_000, 10_000_000, 60_000_000]
-export const MAX_ROSTER_SLOTS = 6
+// 2→3: 150k · 3→4: 1.2M · 4→5: 10M · 5→6: 60M · 6→7: 150M · 7→8: 600M
+// Slot 7 is priced as a cheap stepping stone rather than on the curve: no op takes
+// 7 agents, so on its own it buys no extra concurrency. Slot 8 is the real prize —
+// it's what lets two 4-agent squads run the endgame ops at once.
+export const ROSTER_EXPAND_COSTS = [150_000, 1_200_000, 10_000_000, 60_000_000, 150_000_000, 600_000_000]
+export const MAX_ROSTER_SLOTS = 8
 export const MAX_INVENTORY_SLOTS = 30
 // Total agents a player can own (active roster + storage combined). Only up to
 // `rosterSlots` of them may be active at once.
