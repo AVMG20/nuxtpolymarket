@@ -1,0 +1,200 @@
+<script setup lang="ts">
+import type { OpenedPackResult, SealedPackSummary } from '#shared/types/tcg'
+
+const toast = useToast()
+const { setById, refreshState, refreshSets } = useTcg()
+const { fetchSession } = useAuth()
+
+const { data, pending, refresh } = useFetch('/api/tcg/packs', { key: 'tcg-packs' })
+
+const packs = computed(() => data.value?.packs ?? [])
+const bundles = computed(() => data.value?.bundles ?? [])
+
+const loosePacks = computed(() => packs.value.filter(p => !p.bundleId))
+const looseSealed = computed(() => loosePacks.value.filter(p => p.state === 'sealed'))
+const looseOpened = computed(() => loosePacks.value.filter(p => p.state === 'opened'))
+
+const expandedBundle = ref<string | null>(null)
+function bundlePacks(bundleId: string) {
+  return packs.value.filter(p => p.bundleId === bundleId)
+}
+
+function setName(setId: string) {
+  return setById(setId)?.name ?? 'Unknown set'
+}
+
+// ── Opening ─────────────────────────────────────────────────────────────────
+const opening = ref<string | null>(null)
+const openResult = ref<OpenedPackResult | null>(null)
+const openSetCode = ref<string | null>(null)
+
+async function openPack(pack: Pick<SealedPackSummary, 'id' | 'setId'>) {
+  if (opening.value || openResult.value) return
+  opening.value = pack.id
+  try {
+    const result = await $fetch<OpenedPackResult>('/api/tcg/open-pack', {
+      method: 'POST',
+      body: { packId: pack.id }
+    })
+    openSetCode.value = setById(pack.setId)?.plaatjesSetCode ?? null
+    openResult.value = result
+  } catch (e) {
+    toast.add({ title: apiErrorMessage(e, 'Could not open pack'), color: 'error' })
+  } finally {
+    opening.value = null
+  }
+}
+
+async function onCeremonyClose() {
+  openResult.value = null
+  openSetCode.value = null
+  // The pack is opened and copies are minted — pull the pack list and the
+  // set/collection-adjacent state back in sync.
+  await Promise.all([refresh(), refreshState(), refreshSets(), fetchSession()])
+}
+</script>
+
+<template>
+  <div class="mx-auto w-full max-w-4xl space-y-4 p-4">
+    <!-- Bundles -->
+    <template v-if="bundles.length">
+      <h2 class="text-sm font-semibold uppercase tracking-wider text-muted">
+        Bundles
+      </h2>
+      <UCard
+        v-for="bundle in bundles"
+        :key="bundle.id"
+      >
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <div class="flex items-center gap-3">
+            <UIcon
+              name="i-lucide-gift"
+              class="size-5 text-primary"
+            />
+            <div>
+              <p class="font-medium text-highlighted">
+                {{ setName(bundle.setId) }} bundle
+              </p>
+              <p class="text-xs text-muted">
+                Week of {{ bundle.weekKey }} · {{ bundle.sealedCount }} sealed · {{ bundle.openedCount }} opened
+              </p>
+            </div>
+          </div>
+          <UButton
+            size="xs"
+            variant="ghost"
+            color="neutral"
+            :icon="expandedBundle === bundle.id ? 'i-lucide-chevron-up' : 'i-lucide-chevron-down'"
+            @click="expandedBundle = expandedBundle === bundle.id ? null : bundle.id"
+          >
+            {{ expandedBundle === bundle.id ? 'Hide packs' : 'Show packs' }}
+          </UButton>
+        </div>
+
+        <div
+          v-if="expandedBundle === bundle.id"
+          class="mt-3 grid gap-2 border-t border-default pt-3 sm:grid-cols-2 md:grid-cols-3"
+        >
+          <div
+            v-for="pack in bundlePacks(bundle.id)"
+            :key="pack.id"
+            class="flex items-center justify-between gap-2 rounded-md bg-elevated px-3 py-2"
+          >
+            <span class="text-sm tabular-nums text-highlighted">Pack #{{ pack.packIndex + 1 }}</span>
+            <UButton
+              v-if="pack.state === 'sealed'"
+              size="xs"
+              icon="i-lucide-package-open"
+              :loading="opening === pack.id"
+              :disabled="!!opening"
+              @click="openPack(pack)"
+            >
+              Open
+            </UButton>
+            <UBadge
+              v-else
+              color="neutral"
+              variant="subtle"
+              size="sm"
+            >
+              Opened
+            </UBadge>
+          </div>
+        </div>
+      </UCard>
+    </template>
+
+    <!-- Loose sealed packs -->
+    <h2 class="text-sm font-semibold uppercase tracking-wider text-muted">
+      Sealed packs
+    </h2>
+    <div
+      v-if="looseSealed.length"
+      class="grid gap-3 sm:grid-cols-2 md:grid-cols-3"
+    >
+      <UCard
+        v-for="pack in looseSealed"
+        :key="pack.id"
+      >
+        <div class="flex items-center justify-between gap-2">
+          <div>
+            <p class="text-sm font-medium text-highlighted">
+              {{ setName(pack.setId) }}
+            </p>
+            <p class="text-xs tabular-nums text-muted">
+              Pack #{{ pack.packIndex + 1 }}
+            </p>
+          </div>
+          <UButton
+            size="sm"
+            icon="i-lucide-package-open"
+            :loading="opening === pack.id"
+            :disabled="!!opening"
+            @click="openPack(pack)"
+          >
+            Open
+          </UButton>
+        </div>
+      </UCard>
+    </div>
+    <UCard v-else>
+      <p class="text-sm text-muted">
+        {{ pending ? 'Loading…' : 'No sealed packs — grab some in the shop.' }}
+      </p>
+    </UCard>
+
+    <!-- Opened packs (compact) -->
+    <template v-if="looseOpened.length">
+      <h2 class="text-sm font-semibold uppercase tracking-wider text-muted">
+        Opened packs
+      </h2>
+      <UCard>
+        <ul class="divide-y divide-default">
+          <li
+            v-for="pack in looseOpened"
+            :key="pack.id"
+            class="flex items-center justify-between gap-2 py-1.5 text-sm"
+          >
+            <span class="text-muted">{{ setName(pack.setId) }} · Pack #{{ pack.packIndex + 1 }}</span>
+            <UBadge
+              v-if="pack.isGod"
+              color="warning"
+              variant="subtle"
+              size="sm"
+              icon="i-lucide-sparkles"
+            >
+              God pack
+            </UBadge>
+          </li>
+        </ul>
+      </UCard>
+    </template>
+
+    <TcgPackOpen
+      v-if="openResult"
+      :result="openResult"
+      :plaatjes-set-code="openSetCode"
+      @close="onCeremonyClose"
+    />
+  </div>
+</template>
