@@ -12,6 +12,10 @@
 // trip in reverse and emits `close` when the wrapper is back on the tile.
 
 import type { TcgCopySummary, TcgWearSpec } from '#shared/types/tcg'
+import type { TcgServiceKey } from '~/utils/tcg/slab'
+import { buildSlabInfo, type SlabCardMeta } from '~/utils/tcg/slab-info'
+import { isTcgService } from '#shared/utils/tcg/grading-fees'
+import { SERVICES } from '#shared/utils/tcg/grading-model'
 
 export interface LightboxCard {
     bundle: string | null
@@ -38,6 +42,8 @@ export interface LightboxCard {
     /** Viewport rect of the clicked tile — plain object, not a DOMRect, so it
      * survives being put in reactive state. Absent → fade+scale from center. */
     origin?: { x: number, y: number, width: number, height: number }
+    /** Set/number metadata for the slab label when a graded copy is shown. */
+    slabMeta?: Omit<SlabCardMeta, 'name' | 'rarity'>
 }
 
 const props = defineProps<{ card: LightboxCard | null }>()
@@ -196,6 +202,124 @@ const activeSerial = computed(() => {
     const fromList = copies.value?.find(c => c.id === activeCopyId.value)?.serial
     return fromList ?? props.card?.serial ?? null
 })
+
+/* ---- grading (§6.4) --------------------------------------------------- */
+
+const activeCopy = computed(() =>
+    copies.value?.find(c => c.id === activeCopyId.value) ?? null)
+const activeGrade = computed(() => activeCopy.value?.grade ?? null)
+
+const slabInfo = computed(() => {
+    const grade = activeGrade.value
+    if (!grade || !props.card) return null
+    return buildSlabInfo({
+        name: props.card.name,
+        rarity: props.card.rarity,
+        ...props.card.slabMeta
+    }, grade)
+})
+const slabService = computed<TcgServiceKey>(() =>
+    (isTcgService(activeGrade.value?.service ?? '') ? activeGrade.value!.service : 'PSI') as TcgServiceKey)
+
+function refetchCopies() {
+    if (!props.card?.printingId) return
+    const t = ++copiesToken
+    $fetch<TcgCopySummary[]>('/api/tcg/copies', { query: { printingId: props.card.printingId } })
+        .then((list) => {
+            if (t !== copiesToken) return
+            copies.value = list
+        })
+        .catch(() => {})
+}
+
+const toast = useToast()
+const { fetchSession } = useAuth()
+
+// Submit form. Fees are coins, anchored to the gem exchange's guide price —
+// fetched when the panel opens so the preview matches what submit charges.
+const gradePanel = ref(false)
+const gradeService = ref<TcgServiceKey>('PSI')
+const predicted = ref<string | undefined>(undefined)
+const submitting = ref(false)
+const gradeOptions = ['10', '9.5', '9', '8.5', '8', '7', '6', '5', '4', '3', '2', '1']
+const serviceItems = computed(() => (Object.keys(SERVICES) as TcgServiceKey[]).map(key => ({
+    label: `${key} — ${(SERVICES as Record<string, { name: string }>)[key]!.name}`,
+    value: key
+})))
+const fees = ref<Record<TcgServiceKey, number> | null>(null)
+watch(gradePanel, (open) => {
+    if (!open || fees.value) return
+    $fetch<Record<TcgServiceKey, number>>('/api/tcg/grading/fees')
+        .then((res) => {
+            fees.value = res
+        })
+        .catch(() => {})
+})
+const feePreview = computed(() => fees.value?.[gradeService.value] ?? null)
+
+async function sendToGrading() {
+    const copyId = activeCopyId.value
+    if (!copyId || submitting.value) return
+    submitting.value = true
+    try {
+        await $fetch('/api/tcg/grading/submit', {
+            method: 'POST',
+            body: {
+                copyId,
+                service: gradeService.value,
+                predictedGrade: predicted.value ?? null
+            }
+        })
+        toast.add({ title: 'Sent to the grader — back in 24 hours', color: 'success' })
+        gradePanel.value = false
+        predicted.value = undefined
+        refetchCopies()
+        await fetchSession()
+    } catch (e) {
+        toast.add({ title: apiErrorMessage(e, 'Could not submit'), color: 'error' })
+    } finally {
+        submitting.value = false
+    }
+}
+
+// Crack: two-step arm, because it cannot be undone and it can go wrong.
+const crackArmed = ref(false)
+const cracking = ref(false)
+watch(activeCopyId, () => {
+    crackArmed.value = false
+})
+
+async function crack() {
+    const copyId = activeCopyId.value
+    if (!copyId || cracking.value) return
+    if (!crackArmed.value) {
+        crackArmed.value = true
+        return
+    }
+    cracking.value = true
+    try {
+        const res = await $fetch('/api/tcg/grading/crack', {
+            method: 'POST',
+            body: { copyId }
+        })
+        toast.add(res.damaged
+            ? { title: 'Cracked — the tools slipped. New damage.', color: 'error' }
+            : { title: 'Cracked clean. The card is raw again.', color: 'success' })
+        crackArmed.value = false
+        refetchCopies()
+        // The wear may have changed if the crack damaged the card.
+        const t = ++wearToken
+        $fetch<{ wear: TcgWearSpec | null }>('/api/tcg/copy-render', { query: { copyId } })
+            .then((r) => {
+                if (t === wearToken) wear.value = r.wear
+            })
+            .catch(() => {})
+    } catch (e) {
+        toast.add({ title: apiErrorMessage(e, 'Could not crack'), color: 'error' })
+    } finally {
+        cracking.value = false
+    }
+}
 
 /* Centering readout: dx/dy are EXACT print offsets as fractions of the card's
  * dimensions. Against a nominal border of 6% per side, an offset of +dx makes
@@ -397,16 +521,35 @@ onBeforeUnmount(() => {
                 @transitionend="onWrapperTransitionEnd"
             >
                 <img
-                    v-if="!imgGone"
+                    v-if="!imgGone && !activeGrade"
                     :src="flatSrc"
                     :alt="card.name"
                     class="absolute inset-0 h-full w-full rounded-xl object-cover"
                 >
+                <!-- A graded copy shows as its slab, not as a bare card. -->
+                <div
+                    v-if="phase === 'open' && activeGrade && slabInfo"
+                    class="absolute inset-0 flex items-center justify-center"
+                >
+                    <TcgSlab
+                        :key="`slab-${activeCopyId}-${effHeight}`"
+                        :service="slabService"
+                        :info="slabInfo"
+                        :bundle="card.bundle ?? ''"
+                        :asset-number="String(card.assetNumber ?? '')"
+                        :mask-kind="card.maskKind ?? 'wp'"
+                        :foil-effect="card.foilEffect"
+                        :pattern="card.pattern"
+                        :legacy-set="card.legacySet ?? null"
+                        :holo="card.holo ?? false"
+                        :height="effHeight"
+                    />
+                </div>
                 <!-- Keyed on identity + height: TcgCard sizes its renderer at
                      mount, so a resize or card swap needs a fresh mount. It
                      sits over the flat print until the print is retired. -->
                 <div
-                    v-if="phase === 'open'"
+                    v-if="phase === 'open' && !activeGrade"
                     class="absolute inset-0 transition-opacity duration-300"
                     :class="shaderIn ? 'opacity-100' : 'opacity-0'"
                 >
@@ -429,7 +572,7 @@ onBeforeUnmount(() => {
                      ratios. Pointer events pass through, so the tilt still
                      works with the ruler up. -->
                 <div
-                    v-if="ruler && rulerGuides && phase === 'open'"
+                    v-if="ruler && rulerGuides && phase === 'open' && !activeGrade"
                     class="pointer-events-none absolute inset-0"
                 >
                     <svg
@@ -531,9 +674,88 @@ onBeforeUnmount(() => {
                             : 'border-neutral-700 bg-neutral-900/70 text-neutral-400 hover:text-neutral-100'"
                         @click="activeCopyId = copy.id"
                     >
-                        {{ copy.serial }}
+                        {{ copy.serial }}<template v-if="copy.grade"> · {{ copy.grade.service }} {{ copy.grade.grade }}</template>
+                        <template v-else-if="copy.lifecycle === 'grading'"> · at grader</template>
                     </button>
                 </div>
+
+            </div>
+
+            <!-- Grading (§6.4), docked right where there is vertical room:
+                 send the copy under the glass to a grader, or crack the slab
+                 it came back in. -->
+            <div
+                v-if="phase === 'open' && activeCopy"
+                class="absolute right-4 top-36 flex w-[300px] flex-col items-stretch gap-2"
+            >
+                    <template v-if="activeGrade">
+                        <div class="font-mono text-xs tabular-nums text-neutral-500">
+                            {{ activeGrade.certNumber }}
+                        </div>
+                        <UButton
+                            :color="crackArmed ? 'error' : 'neutral'"
+                            variant="subtle"
+                            size="xs"
+                            icon="i-lucide-hammer"
+                            :loading="cracking"
+                            :label="crackArmed ? 'Really crack it? This can damage the card' : 'Crack slab'"
+                            @click="crack"
+                        />
+                    </template>
+                    <template v-else-if="activeCopy.lifecycle === 'grading'">
+                        <div class="text-xs text-neutral-400">
+                            This copy is at the grader — see the Grading tab.
+                        </div>
+                    </template>
+                    <template v-else>
+                        <UButton
+                            v-if="!gradePanel"
+                            color="neutral"
+                            variant="subtle"
+                            size="xs"
+                            icon="i-lucide-medal"
+                            label="Send to grading"
+                            @click="gradePanel = true"
+                        />
+                        <div
+                            v-else
+                            class="flex flex-col gap-2 rounded-lg border border-neutral-800 bg-neutral-950/90 p-3"
+                        >
+                            <USelect
+                                v-model="gradeService"
+                                :items="serviceItems"
+                                size="sm"
+                            />
+                            <USelect
+                                v-model="predicted"
+                                :items="gradeOptions"
+                                placeholder="your call on the grade"
+                                size="sm"
+                            />
+                            <div class="flex items-center justify-between">
+                                <span class="text-xs text-neutral-400">
+                                    <b class="font-mono tabular-nums text-neutral-200">{{ feePreview === null ? '…' : formatNumber(feePreview) }}</b>
+                                    coins · back in 24h
+                                </span>
+                                <div class="flex gap-1.5">
+                                    <UButton
+                                        color="neutral"
+                                        variant="ghost"
+                                        size="xs"
+                                        label="Cancel"
+                                        @click="gradePanel = false"
+                                    />
+                                    <UButton
+                                        color="primary"
+                                        size="xs"
+                                        :loading="submitting"
+                                        label="Submit"
+                                        @click="sendToGrading"
+                                    />
+                                </div>
+                            </div>
+                        </div>
+                    </template>
             </div>
         </div>
     </Teleport>
