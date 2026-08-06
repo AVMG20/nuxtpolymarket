@@ -4,7 +4,11 @@ import { shouldCall } from '#shared/utils/casino-holdem/strategy'
 import type { LtCard } from '#shared/utils/live-table/types'
 import type { ChCard } from '#shared/utils/casino-holdem/evaluator'
 import type { ChAction, ChBetSpot, ChSeatState, ChSharedState } from '#shared/utils/casino-holdem/types'
+import { LB_CHIPS } from '#shared/utils/live-blackjack/chips'
 import { LT_DISCARD_POS, LT_SHOE_POS, cardBack, cardFace, chipStack } from '~/utils/live-table/art'
+import { useLiveTableSound } from '~/composables/live-table-sound'
+
+const { play: playSfx, preload: preloadSfx, unlock: unlockSfx, stop: stopSfx } = useLiveTableSound()
 
 const table = useLiveTable<ChSeatState, ChSharedState, ChAction>('casino-holdem')
 const { state, youId, balance, connected, feed, chat, mySeat, skew } = table
@@ -60,6 +64,12 @@ const aaPayRows = CH_AA_TABLE.map(row => ({ label: row.label, example: AA_EXAMPL
 
 const showHints = useCookie<boolean>('ch-show-hint', { default: () => true })
 const selectedChip = ref(0)
+watch(() => balance.value, () => {
+    if (selectedChip.value > balance.value) {
+        const affordable = LB_CHIPS.filter(c => c.value <= balance.value)
+        selectedChip.value = affordable[Math.min(2, affordable.length - 1)]?.value ?? 0
+    }
+}, { immediate: true })
 const now = ref(Date.now())
 
 // The feed already carries every rejection, but it sits in a rail the player
@@ -76,9 +86,12 @@ onMounted(() => {
     ticker = setInterval(() => {
         now.value = Date.now()
     }, 200)
+    preloadSfx()
+    unlockSfx()
 })
 onBeforeUnmount(() => {
     if (ticker) clearInterval(ticker)
+    stopSfx()
 })
 
 const phase = computed(() => state.value?.phase ?? 'idle')
@@ -86,6 +99,18 @@ const isBetting = computed(() => phase.value === 'betting')
 const seats = computed(() => state.value?.seats ?? [])
 const board = computed(() => state.value?.game.board ?? [])
 const dealer = computed(() => state.value?.game.dealer ?? { cards: [], label: null, qualified: null })
+
+watch(phase, (newPhase) => {
+    if (newPhase === 'deal') playSfx('shuffle')
+    if (newPhase === 'reveal') playSfx('card-flip')
+    if (newPhase === 'payout') {
+        const outcome = mySeat.value?.game.outcome
+        const net = mySeat.value?.game.net ?? 0
+        if (outcome === 'win' || (outcome === 'folded' && net >= 0)) playSfx('win')
+        else if (outcome === 'lose' || (outcome === 'folded' && net < 0)) playSfx('lose')
+        else if (outcome === 'push') playSfx('push')
+    }
+})
 
 const countdown = computed(() => {
     const ends = state.value?.phaseEndsAt
@@ -184,9 +209,9 @@ const DISCARD_STAGGER = 35
 const DISCARD_STAGGER_CAP = 320
 const DISCARD_DURATION = 380
 
-/** A fanned hand overlaps its 112px-wide cards by 50px, so 62px separates centres. */
+/** A fanned hand overlaps its 112px-wide cards by 40px, so 72px separates centres. */
 function fanOffset(index: number, total: number, scale = 1): number {
-    return (index - (total - 1) / 2) * 62 * scale
+    return (index - (total - 1) / 2) * 72 * scale
 }
 
 function collectLocations(snapshot: NonNullable<typeof state.value>): ChCardLoc[] {
@@ -211,6 +236,7 @@ let flightSeq = 0
 
 function spawnDeal(loc: ChCardLoc, order: number) {
     pendingDeal.add(loc.card.id)
+    playSfx('card-deal')
     const delay = Math.min(DEAL_STAGGER_CAP, order * DEAL_STAGGER)
     const key = `deal:${loc.card.id}`
     flights.value.push({
@@ -271,6 +297,7 @@ watch(state, (snapshot) => {
 function place(spot: ChBetSpot) {
     if (!isBetting.value || !mySeat.value || !selectedChip.value) return
     table.act({ t: 'bet', spot, amount: selectedChip.value })
+    playSfx('chip-place')
 }
 
 function badgeFor(seat: ChSeatState): { text: string, tone: string } | null {
@@ -295,7 +322,7 @@ function badgeFor(seat: ChSeatState): { text: string, tone: string } | null {
       <LiveTableStage>
         <!-- Dealer, scaled down so the hole cards clear the board row below them -->
         <div
-          class="lt-hand"
+          class="lt-hand ch-hand"
           style="left: 860px; top: 142px; transform: translate(-50%, -50%) scale(0.82)"
         >
           <template v-for="card in dealer.cards" :key="card.id">
@@ -391,7 +418,7 @@ function badgeFor(seat: ChSeatState): { text: string, tone: string } | null {
         <template v-for="(spot, index) in SEATS" :key="index">
           <template v-if="seats[index]">
             <div
-              class="lt-hand"
+              class="lt-hand ch-hand"
               :style="{
                 left: `${spot.x}px`,
                 top: `${spot.y - 90}px`,
@@ -414,19 +441,19 @@ function badgeFor(seat: ChSeatState): { text: string, tone: string } | null {
             <div
               v-else-if="needsDecision && seats[index]!.userId === youId"
               class="ch-decision"
-              :style="{ left: `${spot.x}px`, top: `${spot.y + 14}px` }"
+              :style="{ left: `${spot.x}px`, top: `${spot.y + 60}px` }"
             >
               <button
                 class="lb-tile lb-tile-green"
                 :class="{ 'lb-hint': hint === 'call' }"
-                @click="table.act({ t: 'decide', decision: 'call' })"
+                @click="table.act({ t: 'decide', decision: 'call' }); playSfx('call')"
               >
                 CALL {{ formatNumber(callCost) }}
               </button>
               <button
                 class="lb-tile lb-tile-red"
                 :class="{ 'lb-hint': hint === 'fold' }"
-                @click="table.act({ t: 'decide', decision: 'fold' })"
+                @click="table.act({ t: 'decide', decision: 'fold' }); playSfx('fold')"
               >
                 FOLD
               </button>
@@ -437,7 +464,7 @@ function badgeFor(seat: ChSeatState): { text: string, tone: string } | null {
               class="ch-readout"
               :style="{
                 left: `${spot.x}px`,
-                top: `${spot.y + 202}px`,
+                top: `${spot.y + 280}px`,
                 opacity: seats[index]!.game.decision === 'fold' ? 0.55 : 1
               }"
             >
@@ -536,13 +563,17 @@ function badgeFor(seat: ChSeatState): { text: string, tone: string } | null {
           :can-scale="canScale"
           :can-undo="!!staked"
           :can-clear="!!staked"
-          @repeat="table.act({ t: 'repeat' })"
-          @scale="scaleBet"
-          @undo="table.act({ t: 'undo' })"
-          @clear="table.act({ t: 'clear' })"
+          @repeat="table.act({ t: 'repeat' }); playSfx('chip-place')"
+          @scale="(f: number) => { scaleBet(f); playSfx('chip-place') }"
+          @undo="table.act({ t: 'undo' }); playSfx('chip-undo')"
+          @clear="table.act({ t: 'clear' }); playSfx('chip-collect')"
         />
 
-        <LiveTableRack v-if="isBetting && mySeat" v-model="selectedChip" :balance="balance" :default-index="2" />
+        <LiveTableRack
+          v-if="isBetting && mySeat"
+          :balance="balance"
+          v-model="selectedChip"
+        />
         <div v-else class="lt-status">
           <template v-if="!connected">Connecting…</template>
           <template v-else-if="!mySeat">Click an open <span class="ch-status-sit">SIT</span> spot to join the table</template>
@@ -774,5 +805,8 @@ function badgeFor(seat: ChSeatState): { text: string, tone: string } | null {
   transform: translate(-50%, -50%);
   display: flex;
   gap: 10px;
+}
+.ch-hand > * + * {
+  margin-left: -40px;
 }
 </style>

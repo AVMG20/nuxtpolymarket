@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import '~/assets/css/live-table.css'
-import { LB_CHIPS, chipRackFor } from '#shared/utils/live-blackjack/chips'
+import { LB_CHIPS } from '#shared/utils/live-blackjack/chips'
 import { describeBet, getBet, numberAt } from '#shared/utils/roulette/layout'
 import type {
     RouletteAction,
@@ -9,9 +9,12 @@ import type {
     RouletteSharedState
 } from '#shared/utils/roulette/types'
 import { pocketColor, WHEEL_ORDER, type PocketColor } from '#shared/utils/roulette/wheel'
-import { chip, chipStack } from '~/utils/live-table/art'
+import { chipStack } from '~/utils/live-table/art'
 import { wheelRotationFor } from '~/utils/roulette/wheel-spin'
 import type { LtFeedItem } from '~/composables/live-table'
+import { useLiveTableSound } from '~/composables/live-table-sound'
+
+const { play: playSfx, preload: preloadSfx, unlock: unlockSfx, stop: stopSfx } = useLiveTableSound()
 
 // Matches the server's own SPINNING_MS in server/utils/live-table/roulette.ts —
 // the animation only plays back the server's result, so it has no way to read
@@ -155,14 +158,21 @@ const wheelRotation = ref(0)
 const ballRotation = ref(0)
 
 function spinTo(number: number) {
-    wheelRotation.value = wheelRotationFor(wheelRotation.value, number)
+    // The ball can land at any angle on the wheel — not just the top — so
+    // each spin picks a random landing angle. The wheel rotates to bring the
+    // winning pocket to that same angle, and the ball settles there too.
+    const landingAngle = Math.random() * 360
+    wheelRotation.value = wheelRotationFor(wheelRotation.value, number, landingAngle)
 
-    // The ball always settles at the fixed pointer (angle 0) — exactly where
-    // the wheel's own rotation is bringing the winning pocket's centre to —
-    // but spins backward and faster, the way a ball runs against the wheel's
-    // spin.
+    // The ball settles at `landingAngle` — spinning backward and faster, the
+    // way a ball runs against the wheel's spin.
     const ballWithinTurn = ((ballRotation.value % 360) + 360) % 360
-    ballRotation.value -= ballWithinTurn + 360 * 5
+    let ballDelta = landingAngle - ballWithinTurn
+    if (ballDelta >= 0) ballDelta -= 360
+    ballRotation.value += ballDelta - 360 * 5
+
+    playSfx('roulette-spin')
+    setTimeout(() => playSfx('roulette-ball-drop'), SPIN_ANIMATION_MS - 600)
 }
 
 const table = useLiveTable<RouletteSeatState, RouletteSharedState, RouletteAction>('roulette', onGameEvent)
@@ -203,6 +213,12 @@ function onGameEvent(payload: unknown) {
 // The popup is presentation of the same phase the felt already mutes on —
 // closing it when payout ends is a read of server state, not a new timer.
 watch(() => state.value?.phase, (phase) => {
+    if (phase === 'nomorebets') playSfx('roulette-no-bets')
+    if (phase === 'payout') {
+        playSfx('roulette-result')
+        if (resultNet.value > 0) playSfx('win')
+        else if (resultNet.value < 0) playSfx('lose')
+    }
     if (phase !== 'payout') showResult.value = false
 })
 
@@ -225,15 +241,24 @@ const yourTotal = computed(() => (state.value?.game.bets ?? [])
     .filter(b => b.userId === table.youId.value)
     .reduce((sum, b) => sum + b.amount, 0))
 
-const rack = computed(() => chipRackFor(balance.value).map(c => c.value))
 const selectedChip = ref(LB_CHIPS[0]!.value)
-watch(rack, (values) => {
-    if (!values.includes(selectedChip.value)) selectedChip.value = values[values.length - 1] ?? values[0]!
+watch(() => balance.value, () => {
+    if (selectedChip.value > balance.value) {
+        const affordable = LB_CHIPS.filter(c => c.value <= balance.value)
+        selectedChip.value = affordable[affordable.length - 1]?.value ?? LB_CHIPS[0]!.value
+    }
 }, { immediate: true })
 
 function placeBet(key: string) {
     if (!isBettingOpen.value) return
     act({ type: 'bet', key, amount: selectedChip.value })
+    playSfx('chip-place')
+}
+
+function removeBet(_key: string) {
+    if (!isBettingOpen.value || !hasOwnBet.value) return
+    act({ type: 'undo' })
+    playSfx('chip-undo')
 }
 
 function repeatBet() {
@@ -249,11 +274,13 @@ function scaleBet(factor: number) {
 function undoBet() {
     if (!isBettingOpen.value || !hasOwnBet.value) return
     act({ type: 'undo' })
+    playSfx('chip-undo')
 }
 
 function clearBets() {
     if (!isBettingOpen.value || !hasOwnBet.value) return
     act({ type: 'clear' })
+    playSfx('chip-collect')
 }
 
 // Roulette is seatless, so `state.seats` is always empty and votedStart never
@@ -266,6 +293,7 @@ const canVoteStart = computed(() => state.value?.phase === 'betting' && hasOwnBe
 function voteStart() {
     if (!canVoteStart.value) return
     table.voteStart()
+    playSfx('button-press')
 }
 
 interface ChipRing { color: string, spread: number }
@@ -306,8 +334,15 @@ const lastNumbers = computed(() => state.value?.game.lastNumbers ?? [])
 
 const now = ref(Date.now())
 let clockTimer: ReturnType<typeof setInterval> | null = null
-onMounted(() => { clockTimer = setInterval(() => { now.value = Date.now() }, 250) })
-onBeforeUnmount(() => { if (clockTimer) clearInterval(clockTimer) })
+onMounted(() => {
+    clockTimer = setInterval(() => { now.value = Date.now() }, 250)
+    preloadSfx()
+    unlockSfx()
+})
+onBeforeUnmount(() => {
+    if (clockTimer) clearInterval(clockTimer)
+    stopSfx()
+})
 
 const secondsLeft = computed(() => {
     const endsAt = state.value?.phaseEndsAt
@@ -436,7 +471,6 @@ function buildWheelSvg(size: number): string {
                     >
                         <div class="rl-ball" />
                     </div>
-                    <div class="rl-wheel-pointer" />
                 </div>
 
                 <!-- betting layout backdrop -->
@@ -452,6 +486,7 @@ function buildWheelSvg(size: number): string {
                     class="rl-cell outside"
                     :style="{ left: `${box.x}px`, top: `${box.y}px`, width: `${box.w}px`, height: `${box.h}px`, fontSize: '17px' }"
                     @click="placeBet(box.key)"
+                    @contextmenu.prevent="removeBet(box.key)"
                 >
                     <span v-if="box.diamond" class="rl-diamond" :style="{ background: box.diamond }" />
                     <template v-else>{{ box.label }}</template>
@@ -461,6 +496,7 @@ function buildWheelSvg(size: number): string {
                     class="rl-cell zero"
                     :style="{ left: `${zeroBox.x}px`, top: `${zeroBox.y}px`, width: `${zeroBox.w}px`, height: `${zeroBox.h}px`, fontSize: '30px' }"
                     @click="placeBet(zeroBox.key)"
+                    @contextmenu.prevent="removeBet(zeroBox.key)"
                 >
                     {{ zeroBox.label }}
                 </div>
@@ -472,6 +508,7 @@ function buildWheelSvg(size: number): string {
                     :class="box.cls"
                     :style="{ left: `${box.x}px`, top: `${box.y}px`, width: `${box.w}px`, height: `${box.h}px` }"
                     @click="placeBet(box.key)"
+                    @contextmenu.prevent="removeBet(box.key)"
                 >
                     {{ box.label }}
                 </div>
@@ -482,6 +519,7 @@ function buildWheelSvg(size: number): string {
                     class="rl-cell outside"
                     :style="{ left: `${box.x}px`, top: `${box.y}px`, width: `${box.w}px`, height: `${box.h}px` }"
                     @click="placeBet(box.key)"
+                    @contextmenu.prevent="removeBet(box.key)"
                 >
                     {{ box.label }}
                 </div>
@@ -492,8 +530,19 @@ function buildWheelSvg(size: number): string {
                     class="rl-cell outside"
                     :style="{ left: `${box.x}px`, top: `${box.y}px`, width: `${box.w}px`, height: `${box.h}px`, fontSize: '16px' }"
                     @click="placeBet(box.key)"
+                    @contextmenu.prevent="removeBet(box.key)"
                 >
                     {{ box.label }}
+                </div>
+
+                <!-- Total bet display, below the dozens row -->
+                <div
+                    v-if="yourTotal > 0"
+                    class="rl-total-bet"
+                    :style="{ left: `${NUM_LEFT + GRID_WIDTH / 2}px`, top: `${DOZENS_TOP + DOZEN_HEIGHT + 28}px` }"
+                >
+                    <span class="rl-total-bet-label">TOTAL BET</span>
+                    <span class="rl-total-bet-value">{{ formatNumber(yourTotal) }}</span>
                 </div>
 
                 <!-- chips: rendered after the layout so they always sit on top of it,
@@ -546,15 +595,12 @@ function buildWheelSvg(size: number): string {
                     </button>
                 </div>
 
-                <div class="lt-rack">
-                    <span
-                        v-for="value in rack"
-                        :key="value"
-                        :class="{ sel: value === selectedChip }"
-                        v-html="chip(value)"
-                        @click="selectedChip = value"
-                    />
-                </div>
+                <LiveTableRack
+                    v-if="isBettingOpen"
+                    :balance="balance"
+                    v-model="selectedChip"
+                />
+                <div v-else class="lt-status">{{ state?.message ?? 'Waiting' }}</div>
             </LiveTableStage>
         </div>
 
@@ -712,35 +758,31 @@ function buildWheelSvg(size: number): string {
     background: radial-gradient(circle at 35% 30%, #ffffff, #d6d6d6 60%, #8c8c8c 100%);
     box-shadow: 0 2px 5px rgba(0, 0, 0, 0.65);
 }
-/* The pointer must never share the rim's gold, or the landing spot vanishes
-   into it — a dark outline behind a white triangle reads against both the
-   gold rim and the dark rail. */
-.rl-wheel-pointer {
+
+.rl-total-bet {
     position: absolute;
-    left: 50%;
-    top: -8px;
-    width: 0;
-    height: 0;
-    transform: translateX(-50%);
-    z-index: 5;
+    transform: translate(-50%, -50%);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 18px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--lt-shell) 88%, transparent);
+    border: 1.5px solid rgba(217, 177, 103, 0.55);
+    white-space: nowrap;
+    z-index: 3;
 }
-.rl-wheel-pointer::before {
-    content: '';
-    position: absolute;
-    left: -12px;
-    top: 0;
-    border-left: 12px solid transparent;
-    border-right: 12px solid transparent;
-    border-top: 22px solid #0b0806;
+.rl-total-bet-label {
+    font-size: 13px;
+    font-weight: 800;
+    letter-spacing: 0.1em;
+    color: rgba(217, 177, 103, 0.8);
 }
-.rl-wheel-pointer::after {
-    content: '';
-    position: absolute;
-    left: -8px;
-    top: 3px;
-    border-left: 8px solid transparent;
-    border-right: 8px solid transparent;
-    border-top: 15px solid #ffffff;
+.rl-total-bet-value {
+    font-size: 18px;
+    font-weight: 800;
+    color: var(--lt-gold);
+    font-variant-numeric: tabular-nums;
 }
 
 .rl-spot-chip {

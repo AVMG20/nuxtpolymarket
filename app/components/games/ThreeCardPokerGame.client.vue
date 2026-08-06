@@ -6,6 +6,7 @@ import LiveTableFeed from '~/components/live-table/LiveTableFeed.vue'
 import LiveTablePaytable from '~/components/live-table/LiveTablePaytable.vue'
 import LiveTableScoreboard from '~/components/live-table/LiveTableScoreboard.vue'
 import LiveTableStage from '~/components/live-table/LiveTableStage.vue'
+import { LB_CHIPS } from '#shared/utils/live-blackjack/chips'
 import {
     TCP_ANTE_BONUS_LABELS,
     TCP_ANTE_BONUS_PAYS,
@@ -22,6 +23,9 @@ import type {
 } from '#shared/utils/three-card-poker/types'
 import type { LtCard } from '#shared/utils/live-table/types'
 import { cardBack, cardFace, chipStack } from '~/utils/live-table/art'
+import { useLiveTableSound } from '~/composables/live-table-sound'
+
+const { play: playSfx, preload: preloadSfx, unlock: unlockSfx, stop: stopSfx } = useLiveTableSound()
 
 /** Stage coordinates, shared with every live-table game — seats at (222,546) (541,604) (860,630) (1179,604) (1498,546). */
 const SEAT_POSITIONS = [
@@ -70,6 +74,12 @@ const { state, youId, balance, connected, feed, chat, mySeat, skew } = table
 
 const showHints = useCookie<boolean>('tcp-show-hint', { default: () => false })
 const selected = ref(0)
+watch(() => balance.value, () => {
+    if (selected.value > balance.value) {
+        const affordable = LB_CHIPS.filter(c => c.value <= balance.value)
+        selected.value = affordable[affordable.length - 1]?.value ?? 0
+    }
+}, { immediate: true })
 const now = ref(Date.now())
 
 // Rejections (seat taken, insufficient balance, ...) land in the feed as a new
@@ -84,6 +94,19 @@ const phase = computed(() => state.value?.phase ?? 'idle')
 const isBetting = computed(() => phase.value === 'betting')
 const isShowdown = computed(() => phase.value === 'reveal' || phase.value === 'payout')
 const dealer = computed(() => state.value?.game.dealer ?? null)
+
+watch(phase, (newPhase) => {
+    if (newPhase === 'dealing') playSfx('shuffle')
+    if (newPhase === 'reveal') playSfx('card-flip')
+    if (newPhase === 'payout') {
+        const result = myGame.value?.result
+        if (result) {
+            if (result.net > 0) playSfx('win')
+            else if (result.net < 0) playSfx('lose')
+            else playSfx('push')
+        }
+    }
+})
 
 function badgeFor(game: TcpSeatState) {
     const result = game.result
@@ -216,6 +239,7 @@ function cardStyle(cardId: string, index: number, targetX: number, targetY: numb
 
 function dealIn(cards: LtCard[]) {
     for (const card of cards) flyingIds.value.add(card.id)
+    playSfx('card-deal')
     // Two frames, so the browser paints the offset once before it is dropped —
     // drop it in the same frame it was set and there is nothing to transition from.
     requestAnimationFrame(() => requestAnimationFrame(() => {
@@ -266,6 +290,7 @@ function onSpot(index: number, spot: TcpSpot) {
     const seat = state.value?.seats[index]
     if (!seat || seat.userId !== youId.value || !isBetting.value || !selected.value) return
     table.act({ t: 'bet', spot, amount: selected.value })
+    playSfx('chip-place')
 }
 
 let ticker: ReturnType<typeof setInterval> | null = null
@@ -273,9 +298,12 @@ onMounted(() => {
     ticker = setInterval(() => {
         now.value = Date.now()
     }, 200)
+    preloadSfx()
+    unlockSfx()
 })
 onBeforeUnmount(() => {
     if (ticker) clearInterval(ticker)
+    stopSfx()
 })
 </script>
 
@@ -296,7 +324,7 @@ onBeforeUnmount(() => {
         </LiveTableCorner>
 
         <!-- Dealer -->
-        <div v-if="dealer?.cards.length" class="lt-hand" style="left: 860px; top: 196px">
+        <div v-if="dealer?.cards.length" class="lt-hand tcp-hand" style="left: 860px; top: 196px">
           <div
             v-for="(card, i) in dealer.cards"
             :key="card.id"
@@ -358,7 +386,7 @@ onBeforeUnmount(() => {
           <template v-if="s.seat">
             <div
               v-if="s.seat.game.cards.length"
-              class="lt-hand"
+              class="lt-hand tcp-hand"
               :class="{ 'tcp-folded': s.seat.game.decision === 'fold' }"
               :style="pos(s.x, s.y - 100)"
             >
@@ -379,23 +407,27 @@ onBeforeUnmount(() => {
               {{ s.seat.game.hand.label }}
             </div>
 
-            <div v-if="canDecide && s.mine" class="tcp-decide" :style="pos(s.x, s.y + 26)">
+            <div v-else-if="canDecide && s.mine" class="tcp-strength tcp-strength-placeholder lt-mono" :style="pos(s.x, s.y - 8)">
+              &nbsp;
+            </div>
+
+            <div v-if="canDecide && s.mine" class="tcp-decide" :style="pos(s.x, s.y + 280)">
               <button
                 class="lb-tile lb-tile-green"
                 :class="{ 'lb-hint': hint === true }"
-                @click="table.act({ t: 'decide', play: true })"
+                @click="table.act({ t: 'decide', play: true }); playSfx('call')"
               >
                 PLAY {{ formatNumber(s.seat.game.ante) }}
               </button>
               <button
                 class="lb-tile lb-tile-red"
                 :class="{ 'lb-hint': hint === false }"
-                @click="table.act({ t: 'decide', play: false })"
+                @click="table.act({ t: 'decide', play: false }); playSfx('fold')"
               >
                 FOLD
               </button>
             </div>
-            <div v-else-if="s.badge" class="lt-badge" :class="s.badge.tone" :style="pos(s.x, s.y + 26)">
+            <div v-else-if="s.badge" class="lt-badge" :class="s.badge.tone" :style="pos(s.x, s.y + 280)">
               {{ s.badge.text }}
             </div>
 
@@ -507,12 +539,15 @@ onBeforeUnmount(() => {
             :can-scale="canScaleBet"
             :can-undo="canUndoBet"
             :can-clear="canUndoBet"
-            @repeat="table.act({ t: 'repeat' })"
-            @scale="factor => table.act({ t: 'scale', factor })"
-            @undo="table.act({ t: 'undo' })"
-            @clear="table.act({ t: 'clear' })"
+            @repeat="table.act({ t: 'repeat' }); playSfx('chip-place')"
+            @scale="factor => { table.act({ t: 'scale', factor }); playSfx('chip-place') }"
+            @undo="table.act({ t: 'undo' }); playSfx('chip-undo')"
+            @clear="table.act({ t: 'clear' }); playSfx('chip-collect')"
           />
-          <LiveTableRack v-model="selected" :balance="balance" :default-index="3" />
+          <LiveTableRack
+            :balance="balance"
+            v-model="selected"
+          />
         </template>
         <div v-else class="lt-status">
           {{ state?.message ?? 'Waiting for players' }}
@@ -593,6 +628,12 @@ onBeforeUnmount(() => {
     color: var(--lt-gold);
     text-shadow: 0 1px 4px rgba(0, 0, 0, 0.85);
     white-space: nowrap;
+}
+.tcp-strength-placeholder {
+    visibility: hidden;
+}
+.tcp-hand > * + * {
+    margin-left: -30px;
 }
 .tcp-nq {
     color: #fca5a5;
