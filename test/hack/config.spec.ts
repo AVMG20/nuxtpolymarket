@@ -22,7 +22,7 @@ import {
     opSuccessChance,
     MIN_DEPLOY_SUCCESS,
     effectiveCashRange,
-    effectiveGemChance,
+    effectiveGemRange,
     effectiveItemDropChance,
     collectBonuses,
     rollOpReward,
@@ -255,10 +255,25 @@ describe('effective reward ranges & clamps', () => {
         expect(effectiveCashRange(OP, bonuses)).toEqual(OP.baseCash)
     })
 
-    it('caps gem chance at 0.95', () => {
+    it('gem range echoes the base ladder when there are no bonuses', () => {
         const gemOp = OP_TEMPLATES.find(t => t.id === 'project_zero')!
-        const inflated = { ...bonuses, gemChance: 5 }
-        expect(effectiveGemChance(gemOp, inflated)).toBe(0.95)
+        expect(effectiveGemRange(gemOp, bonuses)).toEqual(gemOp.baseGemCount)
+    })
+
+    it('scales the gem range by squad gem yield rather than adding a flat amount', () => {
+        // The multiplier is what keeps gems/hour climbing with op tier: a flat squad
+        // bonus divided by duration always favours the shortest op on the ladder.
+        const low = OP_TEMPLATES.find(t => t.id === 'bank_skim')!
+        const high = OP_TEMPLATES.find(t => t.id === 'project_zero')!
+        const geared = { ...bonuses, gemYield: 700 }
+        expect(effectiveGemRange(low, geared)).toEqual([8, 8])
+        expect(effectiveGemRange(high, geared)).toEqual([56, 80])
+    })
+
+    it('never yields a fractional gem from a partially-stacked gem yield trait', () => {
+        const geared = { ...bonuses, gemYield: 33.3 }
+        const gemOp = OP_TEMPLATES.find(t => t.id === 'central_bank')!
+        for (const n of effectiveGemRange(gemOp, geared)) expect(Number.isInteger(n)).toBe(true)
     })
 
     it('caps item drop chance at 0.9', () => {
@@ -319,11 +334,11 @@ describe('itemSellPrice', () => {
 describe('sortModsByPriority', () => {
     it('orders mods by the global stat priority', () => {
         const mods: ItemMod[] = [
-            { type: 'gem_chance', value: 0.01 },
+            { type: 'gem_yield', value: 20 },
             { type: 'power_flat', value: 10 },
             { type: 'loot_percent', value: 5 }
         ]
-        expect(sortModsByPriority(mods).map(m => m.type)).toEqual(['power_flat', 'loot_percent', 'gem_chance'])
+        expect(sortModsByPriority(mods).map(m => m.type)).toEqual(['power_flat', 'loot_percent', 'gem_yield'])
     })
 })
 
@@ -334,14 +349,14 @@ describe('agentBonusStats', () => {
                 class: 'bruteforce', // +15 power passive
                 traits: [
                     { type: 'speed_percent', value: 10 },
-                    { type: 'gem_chance', value: 0.02 }
+                    { type: 'gem_yield', value: 20 }
                 ],
                 gear: {
                     tool: { mods: [{ type: 'loot_percent', value: 5 }, { type: 'item_chance', value: 0.03 }] }
                 }
             }
         ])
-        expect(stats.map(s => s.label)).toEqual(['Power', 'Op Speed', 'Loot', 'Item Find', 'Gem Chance'])
+        expect(stats.map(s => s.label)).toEqual(['Power', 'Op Speed', 'Loot', 'Item Find', 'Gem Yield'])
     })
 
     it('sums the same stat across sources', () => {

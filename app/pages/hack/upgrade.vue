@@ -28,13 +28,12 @@ type Artifact = {
 type AgentTrait = { type: AgentTraitType; value: number }
 
 const ALL_TRAIT_TYPES: AgentTraitType[] = [
-  'gem_chance',
+  'gem_yield',
   'speed_percent',
   'loot_percent',
   'xp_boost',
   'power_flat',
   'power_percent',
-  'gem_bonus',
 ]
 
 const route = useRoute()
@@ -100,7 +99,7 @@ function isMaxed(type: AgentTraitType, current: number | null) {
 
 const sortedTraits = computed(() => {
   if (!selectedAgent.value) return [] as AgentTrait[]
-  const priority: AgentTraitType[] = ['power_flat', 'power_percent', 'xp_boost', 'speed_percent', 'loot_percent', 'gem_chance', 'gem_bonus']
+  const priority: AgentTraitType[] = ['power_flat', 'power_percent', 'xp_boost', 'speed_percent', 'loot_percent', 'gem_yield']
   const traits = [...selectedAgent.value.traits]
   traits.sort((a, b) => priority.indexOf(a.type) - priority.indexOf(b.type))
   return traits
