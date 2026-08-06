@@ -12,8 +12,29 @@
     {
       "idx": 1,
       "version": "7",
+      "when": 1785868770269,
+      "tag": "0001_strong_zarek",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1785921801378,
+      "tag": "0002_zippy_randall",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1785957464813,
+      "tag": "0003_burly_wolfsbane",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
       "when": 1785831069921,
-      "tag": "0001_tiny_bloodscream",
+      "tag": "0004_tiny_bloodscream",
       "breakpoints": true
     }
   ]
