@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import {
   RARITY_COLOR, RARITY_LABEL, RARITY_ACCENT,
-  collectBonuses, effectiveCashRange, effectiveGemChance, effectiveItemDropChance, opSuccessChance,
+  collectBonuses, effectiveCashRange, effectiveGemRange, effectiveItemDropChance, opSuccessChance,
   type HackRarity, type AgentClass, type AgentTrait, type ItemMod, type ItemSlot
 } from '#shared/utils/hack-config'
 
@@ -188,8 +188,8 @@ const activeOpsPreview = computed(() =>
       preview: {
         successChance: opSuccessChance(power, template.minPower),
         cashRange: effectiveCashRange(template, bonuses),
-        gemChance: effectiveGemChance(template, bonuses),
-        gemBonus: bonuses.gemBonus,
+        gemChance: template.baseGemChance,
+        gemRange: effectiveGemRange(template, bonuses),
         itemDropChance: effectiveItemDropChance(template, bonuses)
       }
     }
@@ -294,7 +294,7 @@ const thumbFailed = ref<Record<string, boolean>>({})
               v-if="preview.gemChance > 0 && template"
               class="text-cyan-400 tabular-nums"
             >
-              {{ gemLabel(preview.gemChance, [template.baseGemCount[1] + preview.gemBonus, template.baseGemCount[1] + preview.gemBonus]) }}
+              {{ gemLabel(preview.gemChance, preview.gemRange) }}
             </span>
             <span
               v-if="template"

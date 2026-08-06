@@ -17,7 +17,8 @@
     "test:integration": "vitest run --reporter=verbose",
     "sentry:check": "bun scripts/sentry-check.ts",
     "balance:xeno": "bun scripts/xeno-income.ts",
-    "balance:colony": "bun scripts/colony-income.ts"
+    "balance:colony": "bun scripts/colony-income.ts",
+    "balance:hack": "bun scripts/hack-income.ts"
   },
   "dependencies": {
     "@iconify-json/lucide": "^1.2.98",

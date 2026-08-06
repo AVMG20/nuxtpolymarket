@@ -2,7 +2,7 @@
 import {
   RARITY_COLOR, RARITY_LABEL, RARITY_STYLE, CLASS_LABEL,
   agentBonusStats,
-  effectiveDurationMs, collectBonuses, effectiveCashRange, effectiveGemChance, effectiveItemDropChance, opSuccessChance, MIN_DEPLOY_SUCCESS,
+  effectiveDurationMs, collectBonuses, effectiveCashRange, effectiveGemRange, effectiveItemDropChance, opSuccessChance, MIN_DEPLOY_SUCCESS,
   type HackRarity, type AgentClass, type AgentTrait, type ItemMod
 } from '#shared/utils/hack-config'
 import type { VoiceHandle } from '~/composables/useAudio'
@@ -46,9 +46,7 @@ function gemLabel(chance: number, count: [number, number]) {
   const countLabel = count[0] === count[1] ? `${count[0]}` : `${count[0]} – ${count[1]}`
   return `${Math.round(chance * 100)}% chance · ${countLabel} gem${count[1] > 1 ? 's' : ''}`
 }
-function gemAmountLabel(count: [number, number], bonus: number) {
-  const lo = count[0] + bonus
-  const hi = count[1] + bonus
+function gemAmountLabel([lo, hi]: [number, number]) {
   return lo === hi ? String(lo) : `${lo} – ${hi}`
 }
 
@@ -153,14 +151,13 @@ const modalStats = computed(() => {
   }))
   const bonuses = collectBonuses(rewardAgents)
   const cashRange = effectiveCashRange(t, bonuses)
-  const gemChance = effectiveGemChance(t, bonuses)
-  const gemBonus = bonuses.gemBonus
+  const gemRange = effectiveGemRange(t, bonuses)
   const itemDropChance = effectiveItemDropChance(t, bonuses)
   const durationMs = effectiveDurationMs(t, rewardAgents)
   // Full squad bonuses (class passives + traits + gear), summed by category — same
   // source of truth as the agent card's Total Bonuses, so the two always agree.
   const combinedMods = agentBonusStats(agents).map(s => ({ label: s.label, value: s.fmt(s.value) }))
-  return { power, successChance, cashRange, gemChance, gemBonus, itemDropChance, durationMs, combinedMods }
+  return { power, successChance, cashRange, gemRange, itemDropChance, durationMs, combinedMods }
 })
 
 const thumbFailed = ref(false)
@@ -336,8 +333,8 @@ const thumbFailed = ref(false)
                   </p>
                   <p class="hack-stat-value-lg text-cyan-400 mt-1 tabular-nums">
                     <template v-if="template.baseGemChance > 0">
-                      {{ gemAmountLabel(template.baseGemCount, modalStats.gemBonus) }}
-                      <span class="text-cyan-400/60 text-xs font-normal">({{ Math.round(modalStats.gemChance * 100) }}%)</span>
+                      {{ gemAmountLabel(modalStats.gemRange) }}
+                      <span class="text-cyan-400/60 text-xs font-normal">({{ Math.round(template.baseGemChance * 100) }}%)</span>
                     </template>
                     <template v-else>
                       None

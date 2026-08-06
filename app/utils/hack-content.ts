@@ -88,13 +88,12 @@ const RARITY_CLAUSE: Record<HackRarity, string> = {
   phantom: 'Doesn\'t officially exist. Neither do the people who\'ve tried to stop them.'
 }
 const TRAIT_CLOSER: Record<AgentTraitType, string> = {
-  gem_chance: 'Has a nose for the job that pays out in more than cash.',
+  gem_yield: 'Somehow always finds the safe behind the safe.',
   speed_percent: 'In and out before the coffee\'s cold.',
   loot_percent: 'Never leaves a job with less than what\'s on the table.',
   xp_boost: 'Learns faster than the last op should\'ve allowed.',
   power_flat: 'Overqualified for half the jobs on the board, and it shows.',
-  power_percent: 'Overqualified for half the jobs on the board, and it shows.',
-  gem_bonus: 'Somehow always finds the safe behind the safe.'
+  power_percent: 'Overqualified for half the jobs on the board, and it shows.'
 }
 
 /** The agent's dominant trait — highest value relative to its own range, so a small
