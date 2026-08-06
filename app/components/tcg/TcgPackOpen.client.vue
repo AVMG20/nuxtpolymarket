@@ -534,7 +534,7 @@ onMounted(() => {
                     card: c.bundle.split('_en_')[0] ?? c.bundle,
                     num: c.assetNumber,
                     mask: c.maskKind ?? 'wp',
-                    effect: (c.foilEffect ?? '').toLowerCase(),
+                    effect: ((c.pattern || c.foilEffect) ?? '').toLowerCase(),
                     alt: c.bundle.endsWith('_alt')
                 })
                 : resolveLegacy({
@@ -1243,6 +1243,7 @@ const caption = computed(() => {
                                 :asset-number="String(card.assetNumber)"
                                 :mask-kind="card.maskKind ?? 'wp'"
                                 :foil-effect="card.foilEffect"
+                                :pattern="card.pattern"
                                 :legacy-set="card.bundle ? null : legacySetOf(card.plaatjesCardId)"
                                 :holo="card.finish === 'holo'"
                                 :height="260"

@@ -59,7 +59,8 @@ function openLightbox(card: CollectionCard, printing: CollectionPrinting, event:
     holo: printing.finish === 'holo',
     name: card.name,
     rarity: card.rarity,
-    pattern: finishLabel(printing.finish, printing.pattern),
+    pattern: printing.pattern,
+    finishLabel: finishLabel(printing.finish, printing.pattern),
     // Owned printings get the copy picker + wear inspection; unowned ones
     // stay a clean render of what the printing looks like.
     printingId: printing.id,

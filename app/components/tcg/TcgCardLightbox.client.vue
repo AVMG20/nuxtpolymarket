@@ -22,7 +22,11 @@ export interface LightboxCard {
     holo?: boolean
     name: string
     rarity?: string | null
+    /** Raw pattern-variant key ('pokeball' | 'masterball') — drives the foil
+     * effect in the renderer. */
     pattern?: string | null
+    /** Human finish label for the badge ("Reverse (masterball)"). */
+    finishLabel?: string | null
     serial?: string | null
     /** A specific owned copy to inspect — its wear spec is fetched once the
      * zoom settles. Absent → clean render. */
@@ -412,6 +416,7 @@ onBeforeUnmount(() => {
                         :asset-number="String(card.assetNumber ?? '')"
                         :mask-kind="card.maskKind ?? 'wp'"
                         :foil-effect="card.foilEffect"
+                        :pattern="card.pattern"
                         :legacy-set="card.legacySet ?? null"
                         :holo="card.holo ?? false"
                         :height="effHeight"
@@ -491,12 +496,12 @@ onBeforeUnmount(() => {
                         {{ card.rarity }}
                     </UBadge>
                     <UBadge
-                        v-if="card.pattern"
+                        v-if="card.finishLabel ?? card.pattern"
                         color="warning"
                         variant="subtle"
                         size="sm"
                     >
-                        {{ card.pattern }}
+                        {{ card.finishLabel ?? card.pattern }}
                     </UBadge>
                 </div>
                 <div

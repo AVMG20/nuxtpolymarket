@@ -270,6 +270,47 @@ export const EFFECTS = {
     sparklegain: 2.5, sparklewhite: 0.85,
     verified: "xy12_011 Charizard",
   },
+  pokeball: {                                 // SV pattern parallels, 259 cards
+    // The same treatment as masterball, with its own ball. Both are a single
+    // mark on the card rather than a repeating field — a tiled pattern was my
+    // assumption, and it was wrong.
+    // Stronger than an ordinary reverse holo, because these are: the whole
+    // card body is shattered foil rather than a light wash. Measured on
+    // rsv10-5 001, the default intensity puts the entire foil at 2.7 levels of
+    // 255 on a pale card — the shatter was working and moving two thirds of
+    // that, which is still nothing anyone can see. The facets need foil to
+    // modulate before they can read.
+    pattern: "none", dir: -1, bands: 3, chroma: 0.3, dropout: 0, intensity: 3.0,
+    etch: true, overlay: "/demo/patterns/pokeball.png",
+    // etchmix is the one to reach for: it scales how much of the mark shows,
+    // while the shatter still keeps clear of the whole shape. Both balls sit at
+    // the same value — the solid dome no longer needs holding back separately
+    // once the mark is this quiet.
+    etchwarp: 1.2, etchboost: 0.9, etchgate: 0, etchmix: 0.15,
+    shatter: 0.55, shatterscale: 15,
+    verified: "not yet — awaiting the drawn mark",
+  },
+  masterball: {                               // SV pattern parallels, 211 cards
+    // A reverse holo underneath — these are reverse slots, and the game gives
+    // them FlatSilver — with two things on top: the shattered-glass facets that
+    // cover the whole card, and the single Master Ball pressed into the middle.
+    //
+    // The ball is an overlay rather than a scraped mask because the game draws
+    // it in its own shader: the wp_sph and wp_mph plates for a card are
+    // byte-identical, so nothing in the scraped data says which of the two a
+    // card is. Only foilMask does.
+    // Stronger than an ordinary reverse holo, because these are: the whole
+    // card body is shattered foil rather than a light wash. Measured on
+    // rsv10-5 001, the default intensity puts the entire foil at 2.7 levels of
+    // 255 on a pale card — the shatter was working and moving two thirds of
+    // that, which is still nothing anyone can see. The facets need foil to
+    // modulate before they can read.
+    pattern: "none", dir: -1, bands: 3, chroma: 0.3, dropout: 0, intensity: 3.0,
+    etch: true, overlay: "/demo/patterns/masterball.png",
+    etchwarp: 1.2, etchboost: 0.9, etchgate: 0, etchmix: 0.15,
+    shatter: 0.55, shatterscale: 15,
+    verified: "not yet — drawn from a scan of PRE 002/131",
+  },
   crackedice: {                               // SWSH-era rares and energies
     // Angular shards averaging 7.8px, so this reads as facets rather than as
     // sparkle — the decal handling is the same as cosmos, just much coarser.
@@ -319,6 +360,7 @@ export const VERTEX = /* glsl */`
 `;
 
 export const FRAGMENT = /* glsl */`
+  #define ASPECT_R 0.718
   precision highp float;
   varying vec2 vUv;
   varying vec3 vView;
@@ -331,8 +373,10 @@ export const FRAGMENT = /* glsl */`
   uniform float uBands, uDir, uSaturate, uInk, uContrast, uDuty, uDropout, uDirX;
   uniform float uDirX2, uDir2, uBands2, uLayer2, uLight2, uLayerMul;
   uniform float uRampMix, uTime, uSpeed, uRampStart, uRampSpan, uHueJitter;
+  uniform float uShatter, uShatterScale, uShatterEdge, uShatterLine;
+  uniform float uShatterClear, uShatterGain;
   uniform float uHueTravel;
-  uniform float uHasEtch, uEtchWarp, uEtchBoost, uEtchGate;
+  uniform float uHasEtch, uEtchWarp, uEtchBoost, uEtchGate, uEtchMix;
   // Pointer position on this card, 0..1 in its own uv — not the page. Each
   // card in a grid gets its own, so the one under the pointer responds and the
   // rest do not.
@@ -392,6 +436,46 @@ export const FRAGMENT = /* glsl */`
     return spectrum * env;
   }
 
+  /* Shattered glass: a voronoi tessellation, every pixel in a facet.
+   *
+   * The SV-era pattern parallels break the whole card into irregular shards
+   * that each catch the light their own way. That last part is why this is
+   * generated rather than sampled: a crackle texture is a picture of shards,
+   * fixed for good, while a tessellation gives every cell an identity, and an
+   * identity can offset the spectrum. Tilt the card and every facet shifts hue
+   * on its own — which is the whole effect.
+   *
+   * It also costs no asset, has no seam, and its scale is a uniform.
+   */
+  vec2 cellHash(vec2 p) {
+    p = vec2(dot(p, vec2(127.1, 311.7)), dot(p, vec2(269.5, 183.3)));
+    return fract(sin(p) * 43758.5453);
+  }
+
+  /* Nearest cell, its identity, and how much closer it is than the runner-up.
+   *
+   * That last number draws the edges: where two cells are equally near you are
+   * on the seam between two shards, and real shattered foil is brightest along
+   * exactly those cuts.
+   */
+  vec4 shatter(vec2 p) {
+    vec2 n = floor(p), f = fract(p);
+    vec2 id = vec2(0.0);
+    float first = 8.0, second = 8.0;
+    for (int j = -1; j <= 1; j++) {
+      for (int i = -1; i <= 1; i++) {
+        vec2 g = vec2(float(i), float(j));
+        // Cells pulled off their lattice points, or the shards come out as a
+        // grid of near-identical lozenges rather than as broken glass.
+        vec2 o = cellHash(n + g);
+        float d = length(g + o - f);
+        if (d < first) { second = first; first = d; id = n + g + o; }
+        else if (d < second) { second = d; }
+      }
+    }
+    return vec4(id, first, second - first);
+  }
+
   void main() {
     // Map the plane's UV onto the card's region of the square texture.
     // No y-flip here: three.js already uploads textures with flipY, so
@@ -413,6 +497,74 @@ export const FRAGMENT = /* glsl */`
     if (uMode < 0.5) warp = pat.rg * 2.0 - 1.0;          // R,G offset
     else if (uMode > 2.5) warp = vec2(pat.a, pat.g) * 2.0 - 1.0;  // DXT5nm
 
+    // Every shard displaces the spectrum by its own fixed amount, so the card
+    // reads as a field of small facets rather than one sheet. Aspect-corrected,
+    // or the cells come out as tall rectangles on a card that is not square.
+    //
+    // Kept out of the warp vector, which is scaled by uWarp — and an effect
+    // with no pattern texture sets uWarp to zero, which cancelled the shatter
+    // completely. Only the seams showed, which is not the effect.
+    // Sampled here rather than further down, because the shatter below has to
+    // know where the relief is in order to keep off it.
+    /* One knob for how present the relief is, rather than three.
+     *
+     * Turning the light down alone does not make a mark go away: it still
+     * shifts the spectrum, still gates the foil, and — for a card with the
+     * shatter on — still keeps the facets off itself, which leaves the shape
+     * plainly visible as a smooth patch in a broken field even at zero
+     * brightness. Blending the sampled relief itself is the honest control,
+     * because every term downstream is derived from it: at 0 the card is
+     * exactly as if there were no overlay at all.
+     */
+    // The mark's shape and how strongly it shows are separate questions.
+    //
+    // etchShape is where the relief is, at full strength, whatever the blend.
+    // etch is how much of it is seen. Scaling the shape by the blend meant that
+    // turning the ball down also let the facets back through it — at a blend of
+    // 0.4 the shatter was cutting the ball into pieces at 60% strength, which
+    // is not a fainter ball, it is a broken one.
+    float etchShape = luma(texture2D(uEtch, uv).rgb) * uHasEtch;
+    float etch = etchShape * uEtchMix;
+
+    float shardEdge = 0.0;
+    float shardPhase = 0.0;
+    float shardTilt = 0.0;
+    float shardGain = 0.0;
+    if (uShatter > 0.0) {
+      vec4 cell = shatter(vec2(uv.x / ASPECT_R, uv.y) * uShatterScale);
+      vec2 h = cellHash(cell.xy + 17.0);
+      // Where this facet sits in the band pattern, and how steeply it lies.
+      // The first shifts its colour; the second decides *when* it catches —
+      // a shard tilted differently to its neighbours reaches its bright point
+      // at a different angle, so they light one after another as the card
+      // turns rather than all at once.
+      shardPhase = (h.x - 0.5) * 2.0 * uShatter;
+      shardTilt = (h.y - 0.5) * 2.0 * uShatter;
+      // How much foil this facet shows at all.
+      //
+      // Phase and tilt only move the colour about, and on a pale card the foil
+      // is a couple of levels of brightness to begin with — measured on
+      // rsv10-5 001, turning the foil off entirely changes the card body by 2.4
+      // of 255. Shifting the hue of something that faint is invisible. Real
+      // shattered glass differs facet to facet in how much it catches, not just
+      // in what colour, so each cell gets its own gain.
+      shardGain = (cellHash(cell.xy + 91.0).x - 0.5) * 2.0 * uShatterGain;
+      shardEdge = 1.0 - smoothstep(0.0, max(uShatterEdge, 0.001), cell.w);
+      // The relief sits on top of the shattering, not inside it. On a real card
+      // the ball is pressed into the surface as one piece and catches the light
+      // as one piece; letting the facets cut through it broke it into a mosaic
+      // of unrelated colours and lost the shape.
+      // Keyed to the shape, so a faint ball is still one whole ball. Gated by
+      // whether there is an overlay at all: at a blend of zero there is no
+      // mark, and the facets should run straight through where it would be.
+      float present = step(0.001, uEtchMix);
+      float clear = 1.0 - clamp(etchShape * uShatterClear * present, 0.0, 1.0);
+      shardPhase *= clear;
+      shardTilt *= clear;
+      shardEdge *= clear;
+      shardGain *= clear;
+    }
+
     // Sample the spectrum at a coordinate driven by viewing angle and position.
     // Tilting the card sweeps this, so the hue travels across the surface the
     // way a real diffraction foil does.
@@ -426,14 +578,18 @@ export const FRAGMENT = /* glsl */`
     // pinned at 1, as it was, horizontal could not be expressed at all. A second
     // layer has its own weights and pitch — SvHolo lays two about 20 degrees
     // either side of horizontal, and their crossings draw its lattice.
-    float warpTerm = (warp.x + warp.y) * 0.5 * uWarp;
+    float warpTerm = (warp.x + warp.y) * 0.5 * uWarp + shardPhase;
     float spatial  = (uv.x * uDirX  + uv.y * uDir ) * 0.5 * uBands  + warpTerm;
     float spatial2 = (uv.x * uDirX2 + uv.y * uDir2) * 0.5 * uBands2 + warpTerm;
 
     // Where you are on the card is fixed to the print; where the light is moves
     // with tilt, pointer and time.
+    // shardTilt stands in for the facet's own angle: it rides the tilt term, so
+    // as the angle sweeps with the card, each shard passes through its bright
+    // point at a different moment instead of the whole field flaring together.
     float lightPos = (uPointer.x - 0.5) * uSpread
-                   + (1.0 - angle) * uSpread * 2.0
+                   + (1.0 - angle) * uSpread * 2.0 * (1.0 + shardTilt)
+                   + shardTilt * uSpread
                    + uTime * uSpeed;
     // Engraving is relief, not a region: the lines sit at a different angle to
     // the flat plate around them, so they pick up a different part of the
@@ -446,7 +602,6 @@ export const FRAGMENT = /* glsl */`
     // colour rather than taking part in it. Centred, each line pushes the
     // spectrum lookup either side of its neighbours, so the grain is coloured
     // by the rainbow instead of laid on top of it.
-    float etch = luma(texture2D(uEtch, uv).rgb) * uHasEtch;
     float etchTerm = (etch - 0.5) * 2.0 * uEtchWarp;
 
     // Motifs modulate the foil rather than displacing it.
@@ -510,6 +665,7 @@ export const FRAGMENT = /* glsl */`
     float ink = mix(1.0, luma(card.rgb), uInk);
 
     structure *= 1.0 + (etch - 0.5) * 2.0 * uEtchBoost;
+    structure *= 1.0 + shardGain;
 
     // Specks can have a shine of their own rather than only amplifying the band
     // they sit on. Multiplying, which is what structure does, ties a star to
@@ -556,6 +712,12 @@ export const FRAGMENT = /* glsl */`
     // the more foil it had, which is backwards.
     vec3 metal = hue * (0.10 + 0.95 * luma(card.rgb) + 0.55 * luma(foil));
     outc = mix(outc, metal, clamp(plate * lines * uFoilOver, 0.0, 1.0));
+
+    // The cuts themselves. Shattered foil is brightest along the seams, where
+    // the facets meet and the edge catches — without them the tessellation
+    // reads as blotches of colour rather than as broken glass. Gated by the
+    // plate, so the cuts stop where the foil does.
+    outc += vec3(shardEdge * uShatterLine * plate * lines);
 
     // A screen blend pushes every channel toward white, so wherever the foil is
     // strong it drains colour — the brighter the highlight, the greyer it gets.
@@ -636,6 +798,9 @@ export function makeUniforms(mode, patternName) {
     // Confine the foil to the engraving's dark lines. 0 lets it cover the
     // whole plate, as it did before.
     uEtchGate: { value: 0.0 },
+    // How much of the relief is there at all. 1 leaves the scraped engravings
+    // exactly as they were.
+    uEtchMix: { value: 1.0 },
     // 0 is the even rainbow ramp, 1 is the blotchy one with per-band colour.
     // Tuned to 0: the even ramp won once contrast and chroma were raised.
     uRampMix: { value: 0.0 },
@@ -724,6 +889,26 @@ export function makeUniforms(mode, patternName) {
     // entirely (the old behaviour); 1 ties reflection fully to its luminance.
     uInk: { value: 0.6 },
     uCrop: { value: CROP },
+
+    /* Shattered glass, off unless an effect asks for it.
+     *
+     * uShatter      how far each facet displaces the spectrum — the hue spread
+     * uShatterScale cells across the card's width
+     * uShatterEdge  how wide the seam between two facets reads
+     * uShatterLine  how bright that seam is
+     */
+    uShatter: { value: 0.0 },
+    uShatterScale: { value: 14.0 },
+    uShatterEdge: { value: 0.06 },
+    // Off: real shattered foil has no drawn lines between facets — the shards
+    // are told apart by catching the light differently, not by an outline.
+    uShatterLine: { value: 0.0 },
+    // How completely the relief keeps the shattering off itself. At 1 the ball
+    // is untouched by the facets; at 0 they run straight through it.
+    uShatterClear: { value: 1.0 },
+    // Brightness spread between facets, which is what makes them visible on a
+    // pale card where a hue shift alone is not.
+    uShatterGain: { value: 0.7 },
   };
 }
 
@@ -756,6 +941,11 @@ export function resolve({ card, num, mask, effect, alt, face, pattern, etch }) {
     face: face || `${card}_en_${num}` + (alt ? "_alt" : ""),
     maskName: `${card}_${mask}_en_${num}`,
     etchName: `${card}_${mask.replace(/^wp/, "etch")}_en_${num}`,
+    // Some effects carry their own relief rather than a per-card one. The SV
+    // pattern parallels are the case in point: the game draws their ball in its
+    // shader, so there is no texture to scrape, and every card in the set
+    // shares the identical mark. One image, named by the preset.
+    overlay: preset.overlay || null,
   };
 }
 
@@ -868,8 +1058,9 @@ export async function loadCard(load, r, base = "") {
     // No mipmaps on the engraving: its lines are about two screen pixels wide
     // at normal card size, and a filtered mip averages them into flat grey —
     // the structure disappears exactly where it is wanted.
-    r.useEtch ? optional(`${base}/images/masks/${r.etchName}.png`, flat, true)
-              : Promise.resolve(flat),
+    r.overlay ? optional(`${base}${r.overlay}`, flat, true)
+    : r.useEtch ? optional(`${base}/images/masks/${r.etchName}.png`, flat, true)
+                : Promise.resolve(flat),
   ]);
   const u = r.uniforms;
   u.uCard.value = card;
@@ -880,6 +1071,6 @@ export async function loadCard(load, r, base = "") {
   u.uEtch.value = etch;
   // `flat` coming back means the engraving was not there, whatever the card
   // data claimed — gating on it would stencil the foil against solid white.
-  u.uHasEtch.value = r.useEtch && etch !== flat ? 1.0 : 0.0;
+  u.uHasEtch.value = (r.useEtch || r.overlay) && etch !== flat ? 1.0 : 0.0;
   return r;
 }
