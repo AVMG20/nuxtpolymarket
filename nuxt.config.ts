@@ -17,11 +17,15 @@ export default defineNuxtConfig({
         openRouterApiKey: process.env.OPENROUTER_API_KEY,
         betterAuthUrl: process.env.BETTER_AUTH_URL || 'http://localhost:3000',
         devMode: false,
+        // pokemonplaatjes Rust sidecar — checklist data + card textures.
+        pokemonApiBase: 'http://127.0.0.1:8080',
         public: {
             // Read by both SDKs — the browser via useRuntimeConfig(), the
             // server straight from process.env in sentry.server.config.ts.
             // PROJECT_DSN is the name Argus issues its DSNs under; either sets it.
-            sentryDsn: process.env.NUXT_PUBLIC_SENTRY_DSN || process.env.PROJECT_DSN || ''
+            sentryDsn: process.env.NUXT_PUBLIC_SENTRY_DSN || process.env.PROJECT_DSN || '',
+            // The browser fetches card textures straight from the sidecar.
+            pokemonApiBase: 'http://127.0.0.1:8080'
         }
     },
     // The casino and pirate raid are canvas-heavy, interactive experiences.
@@ -36,7 +40,9 @@ export default defineNuxtConfig({
         '/shapezz': { ssr: false },
         '/shapezz/**': { ssr: false },
         '/pathwarden': { ssr: false },
-        '/pathwarden/**': { ssr: false }
+        '/pathwarden/**': { ssr: false },
+        // WebGL foil renderer + admin-only tooling — no SSR value.
+        '/tcg-admin/**': { ssr: false }
     },
 
 

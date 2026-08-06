@@ -35,12 +35,14 @@
     "pg": "^8.20.0",
     "pixi-reels": "^1.1.0",
     "pixi.js": "^8.19.0",
-    "tailwindcss": "^4.2.1"
+    "tailwindcss": "^4.2.1",
+    "three": "0.180.0"
   },
   "devDependencies": {
     "@elevenlabs/elevenlabs-js": "^2.59.0",
     "@nuxt/eslint": "^1.15.2",
     "@types/pg": "^8.18.0",
+    "@types/three": "0.180.0",
     "drizzle-kit": "^0.31.10",
     "eslint": "^10.0.3",
     "openai": "^6.49.0",
