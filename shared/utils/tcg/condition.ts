@@ -17,6 +17,17 @@ export function gammaSample(shape: number, scale: number, rng: () => number = ra
 }
 
 /**
+ * Standard normal draw (Box–Muller), CSPRNG-backed. The grading model's
+ * measurement noise (§6.4) — injectable rng for tests.
+ */
+export function gaussSample(rng: () => number = randomFloat): number {
+    // 1 - rng() maps [0, 1) to (0, 1], keeping log() away from -Infinity
+    const u1 = 1 - rng()
+    const u2 = rng()
+    return Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2)
+}
+
+/**
  * Centering render constants, shared so the admin wear harness can mirror
  * exactly what the server derives for real copies (§6.2): magnitude =
  * severity^curve * maxOffset, as a fraction of card size. maxOffset is

@@ -22,7 +22,16 @@ export default defineEventHandler(async (event): Promise<TcgCopySummary[]> => {
         slotOffset: tcgCopy.slotOffset,
         createdAt: tcgCopy.createdAt,
         sheetName: tcgSheet.name,
-        packSlots: tcgSheet.packSlots
+        packSlots: tcgSheet.packSlots,
+        lifecycle: tcgCopy.lifecycle,
+        gradeService: tcgCopy.gradeService,
+        grade: tcgCopy.grade,
+        gradeScore: tcgCopy.gradeScore,
+        gradeDesignation: tcgCopy.gradeDesignation,
+        gradeSubs: tcgCopy.gradeSubs,
+        gradeFlaws: tcgCopy.gradeFlaws,
+        certNumber: tcgCopy.certNumber,
+        gradedAt: tcgCopy.gradedAt
     })
         .from(tcgCopy)
         .innerJoin(tcgSheet, eq(tcgCopy.sheetId, tcgSheet.id))
@@ -35,6 +44,19 @@ export default defineEventHandler(async (event): Promise<TcgCopySummary[]> => {
         serial: `${row.sheetName} #${row.cutIndex * row.packSlots + row.slotOffset + 1}`,
         cutIndex: row.cutIndex,
         slotOffset: row.slotOffset,
-        createdAt: row.createdAt.toISOString()
+        createdAt: row.createdAt.toISOString(),
+        lifecycle: row.lifecycle,
+        grade: row.grade && row.gradeService && row.certNumber && row.gradedAt
+            ? {
+                    service: row.gradeService,
+                    grade: row.grade,
+                    score: row.gradeScore,
+                    designation: row.gradeDesignation,
+                    subGrades: row.gradeSubs,
+                    flaws: row.gradeFlaws,
+                    certNumber: row.certNumber,
+                    gradedAt: row.gradedAt.toISOString()
+                }
+            : null
     }))
 })
