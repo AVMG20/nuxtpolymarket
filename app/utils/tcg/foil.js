@@ -281,7 +281,7 @@ export const EFFECTS = {
     // that, which is still nothing anyone can see. The facets need foil to
     // modulate before they can read.
     pattern: "none", dir: -1, bands: 3, chroma: 0.3, dropout: 0, intensity: 3.0,
-    etch: true, overlay: "/demo/patterns/pokeball.png",
+    etch: true, overlay: "/images/shared/pokeball.png",
     // etchmix is the one to reach for: it scales how much of the mark shows,
     // while the shatter still keeps clear of the whole shape. Both balls sit at
     // the same value — the solid dome no longer needs holding back separately
@@ -306,7 +306,7 @@ export const EFFECTS = {
     // that, which is still nothing anyone can see. The facets need foil to
     // modulate before they can read.
     pattern: "none", dir: -1, bands: 3, chroma: 0.3, dropout: 0, intensity: 3.0,
-    etch: true, overlay: "/demo/patterns/masterball.png",
+    etch: true, overlay: "/images/shared/masterball.png",
     etchwarp: 1.2, etchboost: 0.9, etchgate: 0, etchmix: 0.15,
     shatter: 0.55, shatterscale: 15,
     verified: "not yet — drawn from a scan of PRE 002/131",
