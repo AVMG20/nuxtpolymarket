@@ -321,6 +321,7 @@ function formatDate(iso: string): string {
                                     :asset-number="String(card.assetNumber)"
                                     :mask-kind="card.maskKind ?? 'wp'"
                                     :foil-effect="card.foilEffect"
+                                    :pattern="card.pattern"
                                     :legacy-set="card.bundle ? null : legacySetOf(card.plaatjesCardId)"
                                     :holo="card.finish === 'holo'"
                                     :height="300"

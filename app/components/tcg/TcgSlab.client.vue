@@ -19,11 +19,13 @@ const props = withDefaults(defineProps<{
     assetNumber: string
     maskKind: string
     foilEffect?: string | null
+    pattern?: string | null
     legacySet?: string | null
     holo?: boolean
     height?: number
 }>(), {
     foilEffect: null,
+    pattern: null,
     legacySet: null,
     holo: false,
     height: 560
@@ -101,7 +103,7 @@ onMounted(async () => {
             card: family,
             num: props.assetNumber,
             mask: props.maskKind,
-            effect: (props.foilEffect ?? '').toLowerCase(),
+            effect: ((props.pattern || props.foilEffect) ?? '').toLowerCase(),
             alt: props.bundle.endsWith('_alt')
         })
     const cardMat = makeMaterial(r.uniforms)

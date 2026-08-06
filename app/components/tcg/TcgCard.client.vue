@@ -9,6 +9,9 @@ const props = withDefaults(defineProps<{
     assetNumber: string
     maskKind: string
     foilEffect?: string | null
+    /** Reverse-pattern variant ('pokeball' | 'masterball') — overrides the
+     *  effect, since these parallels have their own foil treatment. */
+    pattern?: string | null
     /** Legacy scan folder ('base1'); when set the card renders via resolveLegacy. */
     legacySet?: string | null
     holo?: boolean
@@ -21,6 +24,7 @@ const props = withDefaults(defineProps<{
     wear?: TcgWearSpec | null
 }>(), {
     foilEffect: null,
+    pattern: null,
     legacySet: null,
     holo: false,
     height: 420,
@@ -85,7 +89,7 @@ onMounted(async () => {
             card: family,
             num: props.assetNumber,
             mask: props.maskKind,
-            effect: (props.foilEffect ?? '').toLowerCase(),
+            effect: ((props.pattern || props.foilEffect) ?? '').toLowerCase(),
             // Alternate-art faces are `<family>_en_<num>_alt` with the marker
             // carried on the stored bundle; resolve() re-appends it.
             alt: props.bundle.endsWith('_alt')
