@@ -369,25 +369,25 @@ onBeforeUnmount(() => {
     <!-- Side-bet reference, as at the other tables: top corner, dimmed and
          collapsed to its header so it never competes with the felt. -->
     <div
-      class="lb-corner absolute right-2 top-2 max-w-[46%] rounded-xl bg-black/80 backdrop-blur-sm ring-1 ring-amber-400/25"
+      class="lb-corner absolute right-2 top-2 max-w-[54%] rounded-xl bg-black/80 backdrop-blur-sm ring-1 ring-amber-400/25"
       :class="{ open: showSideBets }"
     >
       <button
-        class="flex w-full items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-bold uppercase tracking-wider text-amber-300"
+        class="flex w-full items-center gap-2 px-3.5 py-2.5 text-[15px] font-bold uppercase tracking-wider text-amber-300"
         @click="showSideBets = !showSideBets"
       >
-        <UIcon :name="showSideBets ? 'i-lucide-chevron-down' : 'i-lucide-chevron-right'" class="size-3.5" />
+        <UIcon :name="showSideBets ? 'i-lucide-chevron-down' : 'i-lucide-chevron-right'" class="size-4.5" />
         Side bets
       </button>
-      <div v-if="showSideBets" class="space-y-2.5 px-2.5 pb-2.5">
+      <div v-if="showSideBets" class="space-y-3.5 px-3.5 pb-3.5">
         <div v-for="paytable in sideBetTables" :key="paytable.title">
-          <div class="mb-1 flex items-baseline justify-between gap-4 border-b border-white/10 pb-1">
-            <span class="text-[11px] font-bold text-default">{{ paytable.title }}</span>
-            <span class="text-[9px] uppercase tracking-wider text-muted">{{ paytable.note }}</span>
+          <div class="mb-1.5 flex items-baseline justify-between gap-5 border-b border-white/10 pb-1.5">
+            <span class="text-[15px] font-bold text-default">{{ paytable.title }}</span>
+            <span class="text-[11px] uppercase tracking-wider text-muted">{{ paytable.note }}</span>
           </div>
-          <div class="grid grid-cols-[auto_1fr_auto] items-center gap-x-3 gap-y-1">
+          <div class="grid grid-cols-[auto_1fr_auto] items-center gap-x-4 gap-y-1.5">
             <template v-for="row in paytable.rows" :key="row.label">
-              <span class="text-[11px] leading-tight text-default">{{ row.label }}</span>
+              <span class="text-[14px] leading-tight text-default">{{ row.label }}</span>
               <span class="flex justify-end gap-0.5">
                 <span
                   v-for="card in exampleCards(row.example)"
@@ -396,7 +396,7 @@ onBeforeUnmount(() => {
                   :class="{ red: card.red }"
                 >{{ card.rank }}{{ card.pip }}</span>
               </span>
-              <span class="font-mono text-[11px] font-bold tabular-nums text-amber-300">{{ row.pays }}</span>
+              <span class="font-mono text-[14px] font-bold tabular-nums text-amber-300">{{ row.pays }}</span>
             </template>
           </div>
         </div>
@@ -664,11 +664,11 @@ onBeforeUnmount(() => {
 .lb-eg-card {
   display: inline-flex;
   align-items: center;
-  padding: 0 3px;
+  padding: 1px 4px;
   border-radius: 3px;
   background: rgb(247 243 232 / 0.94);
   color: #111;
-  font-size: 10px;
+  font-size: 13px;
   font-weight: 900;
   line-height: 1.4;
 }
