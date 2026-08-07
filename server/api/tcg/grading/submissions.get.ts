@@ -19,6 +19,9 @@ export default defineEventHandler(async (event): Promise<TcgSubmissionSummary[]>
         fee: tcgSubmission.fee,
         predictedGrade: tcgSubmission.predictedGrade,
         state: tcgSubmission.state,
+        result: tcgSubmission.gradeResult,
+        submissionCertNumber: tcgSubmission.certNumber,
+        submissionGradedAt: tcgSubmission.gradedAt,
         submittedAt: tcgSubmission.submittedAt,
         returnsAt: tcgSubmission.returnsAt,
         ready: sql<boolean>`${tcgSubmission.returnsAt} <= now()`,
@@ -88,7 +91,18 @@ export default defineEventHandler(async (event): Promise<TcgSubmissionSummary[]>
             finish: row.finish,
             plaatjesCardId: row.plaatjesCardId
         },
-        grade: row.state === 'graded' && row.grade && row.gradeService && row.certNumber && row.gradedAt
+        grade: row.state === 'graded' && row.result && row.submissionCertNumber && row.submissionGradedAt
+            ? {
+                    service: row.result.service,
+                    grade: String(row.result.grade),
+                    score: row.result.score,
+                    designation: row.result.designation,
+                    subGrades: row.result.subGrades,
+                    flaws: row.result.flaws,
+                    certNumber: row.submissionCertNumber,
+                    gradedAt: row.submissionGradedAt.toISOString()
+                }
+            : row.state === 'graded' && row.grade && row.gradeService && row.certNumber && row.gradedAt
             ? {
                     service: row.gradeService,
                     grade: row.grade,

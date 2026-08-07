@@ -249,15 +249,24 @@ describe.skipIf(SKIP)('tcg grading integration', () => {
 
     it('a cracked copy can be resubmitted and re-rolls its grade', async () => {
         const copyId = await seedCopy(USERS.main)
-        const first = await submitForGrading(USERS.main, copyId, 'PSI', null)
+        const first = await submitForGrading(USERS.main, copyId, 'GAG', null)
         await forceReturnable(first.id)
-        await collectSubmission(USERS.main, first.id)
+        const firstResult = await collectSubmission(USERS.main, first.id)
         const safeRng: CrackRng = { chance: () => false, pick: items => items[0]!, float: () => 0 }
         await crackSlab(USERS.main, copyId, safeRng)
         const second = await submitForGrading(USERS.main, copyId, 'PSI', null)
         await forceReturnable(second.id)
         const collected = await collectSubmission(USERS.main, second.id)
         expect(collected.result.grade).toBeGreaterThanOrEqual(1)
+
+        const submissions = await db.select().from(tcgSubmission)
+            .where(eq(tcgSubmission.copyId, copyId))
+            .orderBy(tcgSubmission.submittedAt)
+        expect(submissions).toHaveLength(2)
+        expect(submissions[0]!.gradeResult?.service).toBe('GAG')
+        expect(submissions[0]!.certNumber).toBe(firstResult.certNumber)
+        expect(submissions[1]!.gradeResult?.service).toBe('PSI')
+        expect(submissions[1]!.certNumber).toBe(collected.certNumber)
     })
 
     it('GAG reads centering stricter; the other services do not', () => {

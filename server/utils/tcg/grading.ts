@@ -161,6 +161,7 @@ export async function collectSubmission(userId: string, submissionId: string): P
             certNumber = mintCertNumber(service)
         }
 
+        const gradedAt = new Date()
         await tx.update(tcgCopy)
             .set({
                 lifecycle: 'slabbed',
@@ -171,9 +172,13 @@ export async function collectSubmission(userId: string, submissionId: string): P
                 gradeSubs: result.subGrades,
                 gradeFlaws: result.flaws,
                 certNumber,
-                gradedAt: new Date()
+                gradedAt
             })
             .where(eq(tcgCopy.id, copy!.id))
+
+        await tx.update(tcgSubmission)
+            .set({ gradeResult: result, certNumber, gradedAt })
+            .where(eq(tcgSubmission.id, submissionId))
 
         return { submissionId, copyId: copy!.id, result, certNumber }
     })

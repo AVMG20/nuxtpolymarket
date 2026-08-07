@@ -14,6 +14,7 @@ import type {
   TcgCondition
 } from '#shared/types/tcg-db'
 import type { RateTemplate } from '#shared/utils/tcg/rate-fitter'
+import type { TcgGradeResult } from '#shared/utils/tcg/grading-model-types'
 
 export const user = pgTable('user', {
   id: text('id').primaryKey(),
@@ -1056,6 +1057,10 @@ export const tcgSubmission = pgTable('tcg_submissions', {
   fee: numeric('fee', { precision: 19, scale: 4 }).notNull(),
   predictedGrade: text('predicted_grade'),
   state: text('state').notNull().default('pending'),
+  /** Immutable result snapshot; the copy may later be cracked or regraded. */
+  gradeResult: jsonb('grade_result').$type<TcgGradeResult>(),
+  certNumber: text('cert_number'),
+  gradedAt: timestamp('graded_at'),
   submittedAt: timestamp('submitted_at').defaultNow().notNull(),
   returnsAt: timestamp('returns_at').notNull()
 }, t => [
