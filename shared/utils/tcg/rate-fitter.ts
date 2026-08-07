@@ -136,8 +136,10 @@ function isEnergyPrinting(p: FitPrinting): boolean {
  * their printed rarity maps to.
  *
  * WOTC-era scans carry no rarity code and print the name as just
- * '<Type> Energy', so those exact names are matched too — the list
- * deliberately leaves out Double Colorless (a special energy).
+ * '<Type> Energy', so those exact names are matched too — but only at
+ * Common: the era's basics were all Commons, and the same names appear as
+ * RARE special energies (Neo Genesis' Metal Energy is the set's holo,
+ * Darkness Energy a plain Rare) that belong to their rarity's tier.
  */
 const WOTC_BASIC_ENERGY_NAMES = new Set([
     'Grass Energy', 'Fire Energy', 'Water Energy', 'Lightning Energy',
@@ -145,10 +147,11 @@ const WOTC_BASIC_ENERGY_NAMES = new Set([
     'Fairy Energy'
 ])
 
-export function isBasicEnergy(p: Pick<FitPrinting, 'rarityCode' | 'name'>): boolean {
+export function isBasicEnergy(p: Pick<FitPrinting, 'rarityCode' | 'name' | 'rarity'>): boolean {
     if (p.rarityCode != null && /BE$/i.test(p.rarityCode)) return true
     if (p.name == null) return false
-    return p.name.startsWith('Basic ') || WOTC_BASIC_ENERGY_NAMES.has(p.name)
+    if (p.name.startsWith('Basic ')) return true
+    return WOTC_BASIC_ENERGY_NAMES.has(p.name) && !/rare/i.test(p.rarity ?? '')
 }
 
 function matchesRarityLabel(p: FitPrinting, label: string | null): boolean {
