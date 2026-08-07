@@ -1,4 +1,4 @@
-import { and, asc, eq } from 'drizzle-orm'
+import { and, asc, eq, ne } from 'drizzle-orm'
 import { db } from '#server/database'
 import { tcgCopy, tcgSheet, tcgListing } from '#server/database/schema'
 import { requireUserId } from '#server/utils/auth'
@@ -38,7 +38,12 @@ export default defineEventHandler(async (event): Promise<TcgCopySummary[]> => {
         .from(tcgCopy)
         .innerJoin(tcgSheet, eq(tcgCopy.sheetId, tcgSheet.id))
         .leftJoin(tcgListing, and(eq(tcgListing.copyId, tcgCopy.id), eq(tcgListing.state, 'active')))
-        .where(and(eq(tcgCopy.ownerId, userId), eq(tcgCopy.printingId, printingId)))
+        .where(and(
+            eq(tcgCopy.ownerId, userId),
+            eq(tcgCopy.printingId, printingId),
+            // Vendored copies are gone (§7.4) — the row survives for history.
+            ne(tcgCopy.lifecycle, 'destroyed')
+        ))
         .orderBy(asc(tcgCopy.createdAt), asc(tcgCopy.id))
 
     return rows.map(row => ({
