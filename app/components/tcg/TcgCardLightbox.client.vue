@@ -11,10 +11,11 @@
 // Once settled the live TcgCard mounts over the image; closing runs the same
 // trip in reverse and emits `close` when the wrapper is back on the tile.
 
-import type { TcgCopySummary, TcgWearSpec } from '#shared/types/tcg'
+import type { TcgCopySummary, TcgWearSpec, TcgChainEntry, TcgSaleRow, TcgGradePayload } from '#shared/types/tcg'
 import type { TcgServiceKey } from '~/utils/tcg/slab'
 import { buildSlabInfo, type SlabCardMeta } from '~/utils/tcg/slab-info'
 import { isTcgService } from '#shared/utils/tcg/grading-fees'
+import { sellerProceeds } from '#shared/utils/tcg/market'
 import { SERVICES } from '#shared/utils/tcg/grading-model'
 
 export interface LightboxCard {
@@ -44,6 +45,17 @@ export interface LightboxCard {
     origin?: { x: number, y: number, width: number, height: number }
     /** Set/number metadata for the slab label when a graded copy is shown. */
     slabMeta?: Omit<SlabCardMeta, 'name' | 'rarity'>
+    /** Market mode: the listing this card was opened from. */
+    listing?: {
+        id: string
+        price: number
+        sellerName: string
+        note: string | null
+        /** The caller's own listing — offer cancel, not buy. */
+        mine: boolean
+        /** Grade payload of the listed copy, when slabbed. */
+        grade?: TcgGradePayload | null
+    }
 }
 
 const props = defineProps<{ card: LightboxCard | null }>()
@@ -207,7 +219,8 @@ const activeSerial = computed(() => {
 
 const activeCopy = computed(() =>
     copies.value?.find(c => c.id === activeCopyId.value) ?? null)
-const activeGrade = computed(() => activeCopy.value?.grade ?? null)
+const activeGrade = computed(() =>
+    activeCopy.value?.grade ?? props.card?.listing?.grade ?? null)
 
 const slabInfo = computed(() => {
     const grade = activeGrade.value
@@ -319,6 +332,99 @@ async function crack() {
     } finally {
         cracking.value = false
     }
+}
+
+/* ---- marketplace (§7) -------------------------------------------------- */
+
+const emitClose = () => emit('close')
+
+// Ownership chain + recent sales, fetched once the zoom settles.
+const chain = ref<TcgChainEntry[] | null>(null)
+const sales = ref<TcgSaleRow[] | null>(null)
+watch([phase, () => props.card], ([ph]) => {
+    if (ph !== 'open' || !props.card) return
+    chain.value = null
+    sales.value = null
+    const copyId = props.card.copyId ?? activeCopyId.value
+    if (props.card.listing && copyId) {
+        $fetch<TcgChainEntry[]>('/api/tcg/market/chain', { query: { copyId } })
+            .then((res) => {
+                chain.value = res
+            })
+            .catch(() => {})
+    }
+    if (props.card.printingId) {
+        $fetch<TcgSaleRow[]>('/api/tcg/market/history', { query: { printingId: props.card.printingId } })
+            .then((res) => {
+                sales.value = res.slice(0, 5)
+            })
+            .catch(() => {})
+    }
+})
+
+// Buy: two-step arm, real money moves.
+const buyArmed = ref(false)
+const buying = ref(false)
+async function buy() {
+    const listing = props.card?.listing
+    if (!listing || buying.value) return
+    if (!buyArmed.value) {
+        buyArmed.value = true
+        return
+    }
+    buying.value = true
+    try {
+        await $fetch('/api/tcg/market/buy', { method: 'POST', body: { listingId: listing.id } })
+        toast.add({ title: 'Bought — the card is yours', color: 'success' })
+        await fetchSession()
+        emitClose()
+    } catch (e) {
+        toast.add({ title: apiErrorMessage(e, 'Could not buy'), color: 'error' })
+        buyArmed.value = false
+    } finally {
+        buying.value = false
+    }
+}
+
+async function cancelMyListing(listingId: string) {
+    try {
+        await $fetch('/api/tcg/market/cancel', { method: 'POST', body: { listingId } })
+        toast.add({ title: 'Listing cancelled', color: 'success' })
+        if (props.card?.listing) emitClose()
+        else refetchCopies()
+    } catch (e) {
+        toast.add({ title: apiErrorMessage(e, 'Could not cancel'), color: 'error' })
+    }
+}
+
+// Sell form for an owned copy.
+const sellPanel = ref(false)
+const sellPrice = ref(1000)
+const sellNote = ref('')
+const sellSubmitting = ref(false)
+async function listForSale() {
+    const copyId = activeCopyId.value
+    if (!copyId || sellSubmitting.value) return
+    sellSubmitting.value = true
+    try {
+        await $fetch('/api/tcg/market/list', {
+            method: 'POST',
+            body: { copyId, price: Number(sellPrice.value), note: sellNote.value || null }
+        })
+        toast.add({ title: 'Listed on the market', color: 'success' })
+        sellPanel.value = false
+        sellNote.value = ''
+        refetchCopies()
+    } catch (e) {
+        toast.add({ title: apiErrorMessage(e, 'Could not list'), color: 'error' })
+    } finally {
+        sellSubmitting.value = false
+    }
+}
+
+function saleLabel(row: TcgSaleRow): string {
+    const grade = row.grade ? `${row.gradeService} ${row.grade}` : 'condition unknown'
+    return `${grade} · ${formatNumber(row.price)}`
 }
 
 /* Centering readout: dx/dy are EXACT print offsets as fractions of the card's
@@ -707,18 +813,89 @@ onBeforeUnmount(() => {
                             This copy is at the grader — see the Grading tab.
                         </div>
                     </template>
-                    <template v-else>
+                    <template v-else-if="activeCopy.listingId">
+                        <div class="text-xs text-neutral-400">
+                            Listed at
+                            <b class="font-mono tabular-nums text-neutral-200">{{ formatNumber(activeCopy.listedPrice ?? 0) }}</b>
+                            coins
+                        </div>
                         <UButton
-                            v-if="!gradePanel"
                             color="neutral"
                             variant="subtle"
                             size="xs"
-                            icon="i-lucide-medal"
-                            label="Send to grading"
-                            @click="gradePanel = true"
+                            icon="i-lucide-tag"
+                            label="Cancel listing"
+                            @click="cancelMyListing(activeCopy.listingId)"
                         />
+                    </template>
+                    <template v-else>
                         <div
-                            v-else
+                            v-if="!gradePanel && !sellPanel"
+                            class="flex gap-1.5"
+                        >
+                            <UButton
+                                color="neutral"
+                                variant="subtle"
+                                size="xs"
+                                icon="i-lucide-medal"
+                                label="Send to grading"
+                                @click="gradePanel = true"
+                            />
+                            <UButton
+                                color="neutral"
+                                variant="subtle"
+                                size="xs"
+                                icon="i-lucide-tag"
+                                label="List for sale"
+                                @click="sellPanel = true"
+                            />
+                        </div>
+                        <div
+                            v-if="sellPanel"
+                            class="flex flex-col gap-2 rounded-lg border border-neutral-800 bg-neutral-950/90 p-3"
+                        >
+                            <UInput
+                                v-model.number="sellPrice"
+                                type="number"
+                                size="sm"
+                                :min="1"
+                            >
+                                <template #leading>
+                                    <span class="text-xs text-neutral-500">coins</span>
+                                </template>
+                            </UInput>
+                            <UInput
+                                v-model="sellNote"
+                                size="sm"
+                                placeholder="condition claim (optional, unverified)"
+                                :maxlength="280"
+                            />
+                            <div class="flex items-center justify-between">
+                                <span class="text-xs text-neutral-400">
+                                    you receive
+                                    <b class="font-mono tabular-nums text-neutral-200">{{ formatNumber(sellerProceeds(Number(sellPrice) || 0)) }}</b>
+                                    · 5% burned
+                                </span>
+                                <div class="flex gap-1.5">
+                                    <UButton
+                                        color="neutral"
+                                        variant="ghost"
+                                        size="xs"
+                                        label="Cancel"
+                                        @click="sellPanel = false"
+                                    />
+                                    <UButton
+                                        color="primary"
+                                        size="xs"
+                                        :loading="sellSubmitting"
+                                        label="List"
+                                        @click="listForSale"
+                                    />
+                                </div>
+                            </div>
+                        </div>
+                        <div
+                            v-if="gradePanel"
                             class="flex flex-col gap-2 rounded-lg border border-neutral-800 bg-neutral-950/90 p-3"
                         >
                             <USelect
@@ -756,6 +933,88 @@ onBeforeUnmount(() => {
                             </div>
                         </div>
                     </template>
+            </div>
+
+            <!-- Market mode (§7.1): the listing this card was opened from —
+                 buy or cancel, the seller's unverified claim, the ownership
+                 chain, and recent sales for the printing. -->
+            <div
+                v-if="phase === 'open' && (card.listing || sales?.length)"
+                class="absolute left-4 top-36 flex w-[280px] flex-col gap-3"
+            >
+                <div
+                    v-if="card.listing"
+                    class="flex flex-col gap-2 rounded-lg border border-neutral-800 bg-neutral-950/90 p-3"
+                >
+                    <div class="flex items-baseline justify-between">
+                        <span class="font-mono text-lg tabular-nums text-neutral-100">{{ formatNumber(card.listing.price) }}</span>
+                        <span class="text-xs text-neutral-500">coins</span>
+                    </div>
+                    <div class="text-xs text-neutral-400">
+                        sold by <b class="text-neutral-200">{{ card.listing.sellerName }}</b>
+                    </div>
+                    <div
+                        v-if="card.listing.note"
+                        class="rounded bg-neutral-900 px-2 py-1.5 text-xs italic text-neutral-300"
+                    >
+                        “{{ card.listing.note }}”
+                        <span class="not-italic text-neutral-500"> — seller's claim, unverified</span>
+                    </div>
+                    <UButton
+                        v-if="!card.listing.mine"
+                        :color="buyArmed ? 'error' : 'primary'"
+                        size="sm"
+                        icon="i-lucide-shopping-cart"
+                        :loading="buying"
+                        :label="buyArmed ? `Pay ${formatNumber(card.listing.price)} coins?` : 'Buy'"
+                        @click="buy"
+                    />
+                    <UButton
+                        v-else
+                        color="neutral"
+                        variant="subtle"
+                        size="sm"
+                        icon="i-lucide-tag"
+                        label="Cancel listing"
+                        @click="cancelMyListing(card.listing.id)"
+                    />
+                </div>
+
+                <div
+                    v-if="card.listing && chain?.length"
+                    class="rounded-lg border border-neutral-800 bg-neutral-950/90 p-3"
+                >
+                    <div class="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-neutral-500">Ownership chain</div>
+                    <div
+                        v-for="(entry, i) in chain"
+                        :key="i"
+                        class="flex items-center justify-between py-0.5 text-xs"
+                    >
+                        <span class="text-neutral-300">
+                            {{ entry.kind === 'mint' ? 'pulled by' : 'sold to' }}
+                            <b class="text-neutral-100">{{ entry.userName }}</b>
+                        </span>
+                        <span
+                            v-if="entry.price !== null"
+                            class="font-mono tabular-nums text-neutral-500"
+                        >{{ formatNumber(entry.price) }}</span>
+                    </div>
+                </div>
+
+                <div
+                    v-if="sales?.length"
+                    class="rounded-lg border border-neutral-800 bg-neutral-950/90 p-3"
+                >
+                    <div class="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-neutral-500">Recent sales</div>
+                    <div
+                        v-for="(row, i) in sales"
+                        :key="i"
+                        class="py-0.5 text-xs"
+                        :class="row.grade ? 'text-neutral-300' : 'text-neutral-500'"
+                    >
+                        {{ saleLabel(row) }}
+                    </div>
+                </div>
             </div>
         </div>
     </Teleport>
