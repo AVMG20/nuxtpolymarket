@@ -177,6 +177,18 @@ const sortedInventory = computed(() => {
   })
 })
 
+// ── Seed search ─────────────────────────────────────────────────────────────
+const seedSearch = ref('')
+
+const visibleInventory = computed(() => {
+  const q = seedSearch.value.trim().toLowerCase()
+  if (!q) return sortedInventory.value
+  return sortedInventory.value.filter((item: any) =>
+    String(item.name).toLowerCase().includes(q)
+    || (item.resources ?? []).some((r: any) => String(r.name).toLowerCase().includes(q)),
+  )
+})
+
 function artifactSortValue(stack: { typeId: string; chargesRemaining: number; gemCrafted: boolean; count: number }, key: string): number {
   switch (key) {
     case 'qty': return stack.count
@@ -276,6 +288,29 @@ onUnmounted(() => { if (deleteConfirmTimer) clearTimeout(deleteConfirmTimer) })
     />
   </div>
 
+  <!-- Seed search -->
+  <div v-if="activeTab === 'seeds'" class="px-2.5 py-2 border-b border-default shrink-0">
+    <UInput
+      v-model="seedSearch"
+      placeholder="Search plants…"
+      icon="i-lucide-search"
+      size="xs"
+      class="w-full"
+      :ui="{ trailing: 'pe-1' }"
+    >
+      <template v-if="seedSearch" #trailing>
+        <UButton
+          color="neutral"
+          variant="link"
+          size="xs"
+          icon="i-lucide-x"
+          aria-label="Clear search"
+          @click="seedSearch = ''"
+        />
+      </template>
+    </UInput>
+  </div>
+
   <!-- ── Seeds tab ─────────────────────────────────────────── -->
   <div v-if="activeTab === 'seeds'" class="flex-1 overflow-y-auto">
     <div v-if="!inventory.length" class="py-12 text-center px-4">
@@ -284,9 +319,14 @@ onUnmounted(() => { if (deleteConfirmTimer) clearTimeout(deleteConfirmTimer) })
       <p class="text-xs text-muted/50 mt-1">Harvest from the grid first.</p>
     </div>
 
+    <div v-else-if="!visibleInventory.length" class="py-12 text-center px-4">
+      <UIcon name="i-lucide-search-x" class="size-8 text-muted/30 mx-auto mb-2" />
+      <p class="text-sm text-muted">No plants match “{{ seedSearch }}”.</p>
+    </div>
+
     <div v-else class="p-2 grid grid-cols-3 gap-1.5">
       <UTooltip
-        v-for="item in sortedInventory"
+        v-for="item in visibleInventory"
         :key="`${item.typeId}:${item.speed}:${item.yield}`"
         :delay-duration="300"
         :content="{ side: 'left', sideOffset: 8 }"
