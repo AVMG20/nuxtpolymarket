@@ -5,35 +5,35 @@ import { chip } from '~/utils/live-table/art'
 const props = defineProps<{
     balance: number
     modelValue: number
+    offset?: number
     muted?: boolean
 }>()
 
 const emit = defineEmits<{
     'update:modelValue': [value: number]
+    'update:offset': [value: number]
 }>()
 
-const offset = ref(0)
-
-watch(() => props.balance, () => { offset.value = 0 }, { immediate: true })
+// The rack itself unmounts between rounds — every game gates it behind
+// isBetting, hiding it for the decision/reveal/payout phases — so an offset
+// held as this component's own state resets to 0 on every remount no matter
+// what. The caller owns it instead, in a ref that survives right alongside
+// selectedChip. chipRackFor() clamps the resulting window to valid bounds for
+// whatever the balance now is, so there is no stale-offset case to guard
+// against.
+const offset = computed(() => props.offset ?? 0)
 
 const rack = computed(() => chipRackFor(props.balance, offset.value))
 
-const canScrollLeft = computed(() => {
-    const base = chipRackFor(props.balance, 0)
-    return base[0]!.value !== LB_CHIPS[0]!.value || offset.value > 0
-})
-
-const canScrollRight = computed(() => {
-    const base = chipRackFor(props.balance, 0)
-    return base[LB_RACK_SIZE - 1]!.value !== LB_CHIPS[LB_CHIPS.length - 1]!.value || offset.value < 0
-})
+const canScrollLeft = computed(() => rack.value[0]!.value !== LB_CHIPS[0]!.value)
+const canScrollRight = computed(() => rack.value[LB_RACK_SIZE - 1]!.value !== LB_CHIPS[LB_CHIPS.length - 1]!.value)
 
 function scrollLeft() {
-    offset.value = Math.min(offset.value + 1, LB_RACK_SIZE)
+    emit('update:offset', Math.max(offset.value - 1, -(LB_CHIPS.length - LB_RACK_SIZE)))
 }
 
 function scrollRight() {
-    offset.value = Math.max(offset.value - 1, -(LB_CHIPS.length - LB_RACK_SIZE))
+    emit('update:offset', Math.min(offset.value + 1, LB_CHIPS.length - LB_RACK_SIZE))
 }
 
 function select(value: number) {

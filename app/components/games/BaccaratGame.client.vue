@@ -162,6 +162,7 @@ const showTotals = computed(() => state.value?.phase === 'resolve' || state.valu
 const isBetting = computed(() => state.value?.phase === 'betting')
 
 const selectedChip = ref(25)
+const chipOffset = ref(0)
 watch(() => balance.value, () => {
     if (selectedChip.value > balance.value) {
         const affordable = LB_CHIPS.filter(c => c.value <= balance.value)
@@ -439,6 +440,7 @@ function scaleBets(factor: number) {
           <LiveTableRack
             :balance="balance"
             v-model="selectedChip"
+            v-model:offset="chipOffset"
             :muted="!isBetting"
           />
           <div class="lt-panel lt-panel-l">

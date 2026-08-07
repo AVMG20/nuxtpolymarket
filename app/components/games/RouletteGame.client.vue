@@ -242,6 +242,10 @@ const yourTotal = computed(() => (state.value?.game.bets ?? [])
     .reduce((sum, b) => sum + b.amount, 0))
 
 const selectedChip = ref(LB_CHIPS[0]!.value)
+// Lifted out of LiveTableRack itself: that component unmounts between rounds
+// (gated behind isBettingOpen below), so state living inside it resets every
+// time regardless — this ref is what actually survives.
+const chipOffset = ref(0)
 watch(() => balance.value, () => {
     if (selectedChip.value > balance.value) {
         const affordable = LB_CHIPS.filter(c => c.value <= balance.value)
@@ -599,6 +603,7 @@ function buildWheelSvg(size: number): string {
                     v-if="isBettingOpen"
                     :balance="balance"
                     v-model="selectedChip"
+                    v-model:offset="chipOffset"
                 />
                 <div v-else class="lt-status">{{ state?.message ?? 'Waiting' }}</div>
             </LiveTableStage>
