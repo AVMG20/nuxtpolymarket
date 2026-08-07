@@ -1,4 +1,4 @@
-import { and, asc, count, eq } from 'drizzle-orm'
+import { and, asc, count, eq, ne } from 'drizzle-orm'
 import { db } from '#server/database'
 import { tcgSet, tcgCard, tcgPrinting, tcgCopy } from '#server/database/schema'
 import { requireUserId } from '#server/utils/auth'
@@ -24,7 +24,12 @@ export default defineEventHandler(async (event): Promise<CollectionPayload> => {
         db.select().from(tcgPrinting).where(eq(tcgPrinting.setId, setId)),
         db.select({ printingId: tcgCopy.printingId, owned: count() })
             .from(tcgCopy)
-            .where(and(eq(tcgCopy.ownerId, userId), eq(tcgCopy.setId, setId)))
+            .where(and(
+                eq(tcgCopy.ownerId, userId),
+                eq(tcgCopy.setId, setId),
+                // Vendored copies no longer count as owned (§7.4).
+                ne(tcgCopy.lifecycle, 'destroyed')
+            ))
             .groupBy(tcgCopy.printingId)
     ])
     const ownedByPrinting = new Map(ownedRows.map(row => [row.printingId, row.owned]))
