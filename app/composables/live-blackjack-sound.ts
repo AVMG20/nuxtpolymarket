@@ -130,8 +130,13 @@ function initialize() {
     if (storedVolume !== null && Number.isFinite(Number(storedVolume))) {
         soundVolume.value = Math.max(0, Math.min(100, Number(storedVolume)))
     }
-    watch(soundEnabled, enabled => localStorage.setItem('lb-sound-enabled', String(enabled)))
-    watch(soundVolume, volume => localStorage.setItem('lb-sound-volume', String(volume)))
+    // Detached: see the matching comment in live-table-sound.ts — otherwise these
+    // watchers die with whichever component's effect scope happens to be active
+    // on this first call, and persistence silently stops after that page unmounts.
+    effectScope(true).run(() => {
+        watch(soundEnabled, enabled => localStorage.setItem('lb-sound-enabled', String(enabled)))
+        watch(soundVolume, volume => localStorage.setItem('lb-sound-volume', String(volume)))
+    })
 }
 
 export function useLiveBlackjackSound() {
