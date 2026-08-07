@@ -112,8 +112,8 @@ function maskKindOf(cardId: string, foilMask: string | null): string {
  *   Reverse treatment ('Reverse', 'ReverseLaminatePokeBall', …)
  * - 'holo' when foilEffect names a real effect (non-empty, not 'NonFoil'/'None'),
  *   or — for legacy records, which carry no foilEffect — when the rarity label
- *   contains 'Holo' (e.g. 'Rare Holo'); legacy rarity is expected to arrive
- *   later API-side, so this lights up automatically on re-import
+ *   says the printing is foiled: 'Rare Holo', and the WOTC-era secret labels
+ *   ('Shining Rare', 'Secret Rare'), which were all holo printings
  * - 'nonholo' otherwise
  */
 function finishOf(cardId: string, foilEffect: string | null, foilMask: string | null, rarity: string | null = null): string {
@@ -121,7 +121,7 @@ function finishOf(cardId: string, foilEffect: string | null, foilMask: string | 
     if ((foilMask ?? '').toLowerCase().startsWith('reverse')) return 'reverse'
     const effect = (foilEffect ?? '').toLowerCase()
     if (effect && effect !== 'nonfoil' && effect !== 'none') return 'holo'
-    if ((rarity ?? '').toLowerCase().includes('holo')) return 'holo'
+    if (/holo|shining|secret/.test((rarity ?? '').toLowerCase())) return 'holo'
     return 'nonholo'
 }
 

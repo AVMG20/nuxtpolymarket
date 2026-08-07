@@ -61,7 +61,7 @@ export default defineEventHandler(async (event) => {
     // has printings to fit from.
     const energyWarnings: string[] = []
     const energyTier = template.tiers.find(t => t.group === 'energy')
-    const hasBasicEnergy = cardRows.some(card => isBasicEnergy({ rarityCode: card.rarityCode ?? null, name: card.name }))
+    const hasBasicEnergy = cardRows.some(card => isBasicEnergy({ rarityCode: card.rarityCode ?? null, name: card.name, rarity: card.rarity ?? null }))
     if (energyTier != null && !hasBasicEnergy) {
         const seriesCode = String((cardRows[0]?.raw as PlaatjesCard | undefined)?.seriesCode ?? '')
         const era = await fetchEraBasicEnergies(
