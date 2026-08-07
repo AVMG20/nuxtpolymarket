@@ -174,6 +174,7 @@ export async function listingsFor(setId: string): Promise<TcgListingSummary[]> {
         pattern: tcgPrinting.pattern,
         finish: tcgPrinting.finish,
         plaatjesCardId: tcgPrinting.plaatjesCardId,
+        printRunLabel: tcgPrinting.printRunLabel,
         gradeService: tcgCopy.gradeService,
         grade: tcgCopy.grade,
         gradeScore: tcgCopy.gradeScore,
@@ -220,7 +221,8 @@ export async function listingsFor(setId: string): Promise<TcgListingSummary[]> {
             foilEffect: row.foilEffect,
             pattern: row.pattern,
             finish: row.finish,
-            plaatjesCardId: row.plaatjesCardId
+            plaatjesCardId: row.plaatjesCardId,
+            printRunLabel: row.printRunLabel
         },
         grade: row.grade && row.gradeService && row.certNumber && row.gradedAt
             ? {

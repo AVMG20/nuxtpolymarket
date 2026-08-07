@@ -157,6 +157,7 @@ export interface OpenedPackCard {
     assetNumber: string
     maskKind: string | null
     foilEffect: string | null
+    printRunLabel: string
 }
 
 export interface SealedPackSummary {
@@ -430,6 +431,7 @@ export interface TcgPopReportRow {
     cardName: string
     finish: string
     pattern: string | null
+    printRunLabel: string
     rarity: string | null
     service: string
     grade: string
@@ -467,6 +469,7 @@ export interface TcgListingSummary {
         pattern: string | null
         finish: string
         plaatjesCardId: string
+        printRunLabel: string
     }
     /** Present when the listed copy is slabbed. */
     grade: TcgGradePayload | null

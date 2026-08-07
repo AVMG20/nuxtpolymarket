@@ -485,14 +485,30 @@ export async function createTemplateSet(
 ): Promise<void> {
     await db.transaction(async (tx) => {
         await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${'tcg-create-' + setValues.templateCode}))`)
-        const [existing] = await tx.select({ id: tcgSet.id }).from(tcgSet)
-            .where(and(
-                eq(tcgSet.templateCode, setValues.templateCode),
-                inArray(tcgSet.status, ['draft', 'committed'])
-            ))
-            .limit(1)
+        // A reprint (§3.6) is deliberately a second set on the same template —
+        // the duplicate guard only protects the plain create path. Reprints
+        // instead guard against a concurrent duplicate reprint of the SAME
+        // parent still in draft.
+        const [existing] = setValues.reprintOfSetId
+            ? await tx.select({ id: tcgSet.id }).from(tcgSet)
+                .where(and(
+                    eq(tcgSet.reprintOfSetId, setValues.reprintOfSetId),
+                    eq(tcgSet.status, 'draft')
+                ))
+                .limit(1)
+            : await tx.select({ id: tcgSet.id }).from(tcgSet)
+                .where(and(
+                    eq(tcgSet.templateCode, setValues.templateCode),
+                    inArray(tcgSet.status, ['draft', 'committed'])
+                ))
+                .limit(1)
         if (existing) {
-            throw createError({ statusCode: 409, statusMessage: 'Set already exists for this template' })
+            throw createError({
+                statusCode: 409,
+                statusMessage: setValues.reprintOfSetId
+                    ? 'A reprint of this set is already in draft'
+                    : 'Set already exists for this template'
+            })
         }
         await tx.insert(tcgSet).values(setValues)
         await applyChecklist(tx, setValues.id, cardRows, printingRows)

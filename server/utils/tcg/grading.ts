@@ -253,6 +253,7 @@ export interface PopReportRow {
     cardName: string
     finish: string
     pattern: string | null
+    printRunLabel: string
     rarity: string | null
     service: TcgServiceKey
     grade: string
@@ -271,6 +272,7 @@ export async function popReport(setId: string): Promise<PopReportRow[]> {
         cardName: tcgCard.name,
         finish: tcgPrinting.finish,
         pattern: tcgPrinting.pattern,
+        printRunLabel: tcgPrinting.printRunLabel,
         rarity: tcgCard.rarity,
         service: tcgCopy.gradeService,
         grade: tcgCopy.grade,
@@ -282,7 +284,7 @@ export async function popReport(setId: string): Promise<PopReportRow[]> {
         .innerJoin(tcgCard, eq(tcgPrinting.cardId, tcgCard.id))
         .where(and(eq(tcgCopy.setId, setId), isNotNull(tcgCopy.grade)))
         .groupBy(tcgCopy.printingId, tcgCard.name, tcgPrinting.finish, tcgPrinting.pattern,
-            tcgCard.rarity, tcgCopy.gradeService, tcgCopy.grade, tcgCopy.gradeDesignation)
+            tcgPrinting.printRunLabel, tcgCard.rarity, tcgCopy.gradeService, tcgCopy.grade, tcgCopy.gradeDesignation)
         .orderBy(tcgCard.name, desc(sql`count(*)`))
     return rows as PopReportRow[]
 }
