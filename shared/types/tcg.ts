@@ -347,6 +347,34 @@ export interface TcgSetDetailPayload {
     templates: TcgAdminTemplate[]
 }
 
+// ── Sidecar catalogue (admin harnesses) ─────────────────────────────────────
+// The pokemonplaatjes sidecar knows every set it can render, imported or not.
+// These are read-only previews — nothing behind them writes to the database.
+
+/** One set from GET /api/tcg/admin/plaatjes/sets. */
+export interface TcgPlaatjesSet {
+    setCode: string
+    /** Falls back to `setCode` when pull-rates has no name for it. */
+    name: string
+    seriesCode: string | null
+    cards: number | null
+}
+
+export interface TcgPlaatjesSetsPayload {
+    sets: TcgPlaatjesSet[]
+    /** Present only when the sidecar could not be reached. */
+    sidecarUnavailable?: true
+}
+
+/**
+ * GET /api/tcg/admin/plaatjes/checklist — the same row shapes the admin set
+ * detail serves, carrying a placeholder setId because nothing was inserted.
+ */
+export interface TcgPlaatjesChecklistPayload {
+    cards: TcgAdminCard[]
+    printings: TcgAdminPrinting[]
+}
+
 // ── Grading (§6.4 / §6.5) ───────────────────────────────────────────────────
 
 export interface TcgGradePayload {
