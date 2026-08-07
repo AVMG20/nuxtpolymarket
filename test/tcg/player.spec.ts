@@ -9,9 +9,12 @@ import { and, eq, inArray } from 'drizzle-orm'
 import { db } from '#server/database'
 import { user, tcgSet, tcgCard, tcgPrinting, tcgSheet, tcgPackTemplate, tcgPack, tcgAllowance, tcgBundle } from '#server/database/schema'
 import { commitSet } from '#server/utils/tcg/engine'
-import { playerBuyPacks, claimBundle, PACKS_PER_DAY, BUNDLE_PACKS, BUNDLE_GEMS } from '#server/utils/tcg/player'
+import { playerBuyPacks, claimBundle } from '#server/utils/tcg/player'
+import { TCG_SHOP_DEFAULTS } from '#server/utils/tcg/settings'
 import { amsterdamDateKey } from '#shared/utils/tcg/time'
 import { SKIP, burst, cleanupUser, seedUser } from '../setup/db-helpers'
+
+const { packsPerDay: PACKS_PER_DAY, bundlePacks: BUNDLE_PACKS, bundleGems: BUNDLE_GEMS } = TCG_SHOP_DEFAULTS
 
 // 2026-08-01 is a Saturday in Amsterdam — inside the Fri→Mon bundle window.
 const IN_WINDOW = new Date('2026-08-01T12:00:00Z')

@@ -2,12 +2,13 @@ import { and, eq } from 'drizzle-orm'
 import { db } from '#server/database'
 import { tcgAllowance, tcgBundle } from '#server/database/schema'
 import { requireUserId } from '#server/utils/auth'
-import { PACKS_PER_PAIR, GEMS_PER_PAIR, PACKS_PER_DAY, BUNDLE_PACKS, BUNDLE_GEMS } from '#server/utils/tcg/player'
+import { getShopSettings } from '#server/utils/tcg/settings'
 import { amsterdamDateKey, amsterdamMidnightAfter, bundleWindow } from '#shared/utils/tcg/time'
 
 export default defineEventHandler(async (event) => {
     const userId = await requireUserId(event)
     const now = new Date()
+    const shop = await getShopSettings()
 
     const [allowanceRow] = await db.select().from(tcgAllowance)
         .where(and(eq(tcgAllowance.userId, userId), eq(tcgAllowance.dateKey, amsterdamDateKey(now))))
@@ -27,7 +28,7 @@ export default defineEventHandler(async (event) => {
     return {
         allowance: {
             boughtToday,
-            remaining: Math.max(PACKS_PER_DAY - boughtToday, 0),
+            remaining: Math.max(shop.packsPerDay - boughtToday, 0),
             resetsAt: amsterdamMidnightAfter(now).toISOString()
         },
         bundle: {
@@ -37,11 +38,11 @@ export default defineEventHandler(async (event) => {
             nextWindowAt: win.nextWindowAt.toISOString()
         },
         prices: {
-            gemsPerPair: GEMS_PER_PAIR,
-            packsPerPair: PACKS_PER_PAIR,
-            dailyPacks: PACKS_PER_DAY,
-            bundlePacks: BUNDLE_PACKS,
-            bundleGems: BUNDLE_GEMS
+            gemsPerPair: shop.gemsPerPair,
+            packsPerPair: shop.packsPerPair,
+            dailyPacks: shop.packsPerDay,
+            bundlePacks: shop.bundlePacks,
+            bundleGems: shop.bundleGems
         }
     }
 })
