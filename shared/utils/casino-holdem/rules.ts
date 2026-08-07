@@ -53,7 +53,10 @@ export const CH_TIMERS = {
     /** The same beat once every seat has called or folded. */
     decisionCut: 800,
     board: 2_800,
-    reveal: 3_200,
+    /** Long enough for the dealer's own flip animation (650ms) to land with a
+     *  beat to read the result. Was 3200 — the client used to sit on a plain
+     *  card swap for that whole window with nothing changing on screen. */
+    reveal: 1_500,
     /**
      * The gap after a payout scales with how many results there are to read: a
      * lone player wants the next hand now, a full table needs a moment.

@@ -51,6 +51,8 @@ export class CasinoHoldemTable extends LiveTable<ChSeatState, ChSharedState, ChA
     private dealerHand: ChHandValue | null = null
     private dealerQualified: boolean | null = null
     private revealed = false
+    /** Computed in showdown(), paid out in payRound() — see the comment there. */
+    private pendingPayouts: LtPayout[] = []
     private bettingCut = false
     private betLog = new Map<string, BetLog[]>()
 
@@ -365,6 +367,14 @@ export class CasinoHoldemTable extends LiveTable<ChSeatState, ChSharedState, ChA
         this.advance('board', CH_TIMERS.board)
     }
 
+    /**
+     * The win/lose result is worked out here too, not at payout — resolveSeat()
+     * only needs the cards, which are already final, so there is no reason to
+     * make a player wait out the whole reveal timer to learn an outcome the
+     * server already knows. Only the money itself waits for payRound(); the
+     * payouts computed here are cached in pendingPayouts so it doesn't redo
+     * this work.
+     */
     private showdown() {
         for (const card of this.dealerCards) card.hidden = undefined
         this.revealed = true
@@ -373,28 +383,11 @@ export class CasinoHoldemTable extends LiveTable<ChSeatState, ChSharedState, ChA
         this.dealerHand = bestHand([...faces(this.dealerCards), ...board])
         this.dealerQualified = dealerQualifies(this.dealerHand)
 
+        this.pendingPayouts = []
         for (const player of this.seated()) {
             const seat = player.game
             if (!seat.cards.length) continue
             seat.handLabel = bestHand([...faces(seat.cards), ...board]).label
-        }
-
-        this.message = this.dealerQualified
-            ? `Dealer: ${this.dealerHand.label}`
-            : `Dealer does not qualify — ${this.dealerHand.label}`
-
-        const inHand = this.seated().filter(p => p.game.cards.length > 0).length
-        this.nextRoundAt = Date.now() + CH_TIMERS.reveal + this.payoutHold(inHand)
-        this.advance('reveal', CH_TIMERS.reveal)
-    }
-
-    private async payRound() {
-        const board = faces(this.board)
-        const payouts: LtPayout[] = []
-
-        for (const player of this.seated()) {
-            const seat = player.game
-            if (!seat.cards.length) continue
 
             const hole = faces(seat.cards)
             const folded = seat.decision !== 'call'
@@ -414,9 +407,20 @@ export class CasinoHoldemTable extends LiveTable<ChSeatState, ChSharedState, ChA
             seat.net = round4(result.net)
             seat.aaLabel = aaHand?.label ?? null
             seat.aaMultiplier = aaHand ? result.aaMultiplier : null
-            payouts.push({ userId: player.userId, staked: result.staked, payout: result.payout })
+            this.pendingPayouts.push({ userId: player.userId, staked: result.staked, payout: result.payout })
         }
 
+        this.message = this.dealerQualified
+            ? `Dealer: ${this.dealerHand.label}`
+            : `Dealer does not qualify — ${this.dealerHand.label}`
+
+        const inHand = this.seated().filter(p => p.game.cards.length > 0).length
+        this.nextRoundAt = Date.now() + CH_TIMERS.reveal + this.payoutHold(inHand)
+        this.advance('reveal', CH_TIMERS.reveal)
+    }
+
+    private async payRound() {
+        const payouts = this.pendingPayouts
         await this.settle(payouts)
 
         // The dealer's result set at showdown stays up: it is what the felt is

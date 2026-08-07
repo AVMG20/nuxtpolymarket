@@ -17,7 +17,10 @@ const TIMERS = {
     /** Held long enough for the client to slide three cards into every seat. */
     dealing: 1_800,
     decision: 24_000,
-    reveal: 3_200,
+    /** Long enough for the dealer's own flip animation (650ms) to land with a
+     *  beat to read the result. Was 3200 — the client used to sit on a plain
+     *  card swap for that whole window with nothing changing on screen. */
+    reveal: 1_500,
     payoutBase: 4_000,
     payoutPerExtraPlayer: 700,
     payoutMax: 7_000,
@@ -58,6 +61,8 @@ export class ThreeCardPokerTable extends LiveTable<TcpSeatState, TcpSharedState,
     protected shoe = new LtShoe(1, 0)
     private dealerCards: LtCard[] = []
     private dealerHand: TcpHand | null = null
+    /** Computed in reveal(), paid out in payRound() — see the comment there. */
+    private pendingPayouts: LtPayout[] = []
 
     protected createSeatState(): TcpSeatState {
         return {
@@ -338,12 +343,43 @@ export class ThreeCardPokerTable extends LiveTable<TcpSeatState, TcpSharedState,
      * Showing the dealer here rather than at payout keeps one result on the
      * felt for the whole settle window, which is what the countdown to the
      * next round is measured against.
+     *
+     * The win/lose result is worked out here too, not at payout — resolveHand()
+     * only needs the cards, which are already final, so there is no reason to
+     * make a player wait out the whole reveal timer to learn an outcome the
+     * server already knows. Only the money itself waits for payRound(); the
+     * payouts computed here are cached in pendingPayouts so it doesn't redo
+     * this work.
      */
     private reveal() {
         const dealer = this.dealerHand
         this.message = dealer
             ? (dealerQualifies(dealer) ? `Dealer: ${dealer.label}` : `Dealer does not qualify — ${dealer.label}`)
             : 'Showdown'
+
+        this.pendingPayouts = []
+        if (dealer) {
+            for (const player of this.inRound()) {
+                const seat = player.game
+                const hand = evaluateHand(faces(seat.cards))
+                const result = resolveHand(
+                    { ante: seat.ante, pairPlus: seat.pairPlus, played: seat.decision === 'play' },
+                    hand,
+                    dealer
+                )
+                seat.result = {
+                    net: result.net,
+                    dealerQualified: result.dealerQualified,
+                    ante: result.ante,
+                    play: result.play,
+                    anteBonusTier: result.anteBonusTier,
+                    anteBonusPayout: result.anteBonusPayout,
+                    pairPlusTier: result.pairPlusTier,
+                    pairPlusPayout: result.pairPlusPayout
+                }
+                this.pendingPayouts.push({ userId: player.userId, staked: result.staked, payout: result.payout })
+            }
+        }
 
         this.nextRoundAt = Date.now() + TIMERS.reveal + this.payoutHold(this.inRound().length)
         this.advance('reveal', TIMERS.reveal)
@@ -357,34 +393,12 @@ export class ThreeCardPokerTable extends LiveTable<TcpSeatState, TcpSharedState,
     // ─── settlement ────────────────────────────────────────────────────────
 
     private async payRound() {
-        const dealer = this.dealerHand
-        if (!dealer) {
+        if (!this.dealerHand) {
             this.startBetting()
             return
         }
 
-        const payouts: LtPayout[] = []
-        for (const player of this.inRound()) {
-            const seat = player.game
-            const hand = evaluateHand(faces(seat.cards))
-            const result = resolveHand(
-                { ante: seat.ante, pairPlus: seat.pairPlus, played: seat.decision === 'play' },
-                hand,
-                dealer
-            )
-            seat.result = {
-                net: result.net,
-                dealerQualified: result.dealerQualified,
-                ante: result.ante,
-                play: result.play,
-                anteBonusTier: result.anteBonusTier,
-                anteBonusPayout: result.anteBonusPayout,
-                pairPlusTier: result.pairPlusTier,
-                pairPlusPayout: result.pairPlusPayout
-            }
-            payouts.push({ userId: player.userId, staked: result.staked, payout: result.payout })
-        }
-
+        const payouts = this.pendingPayouts
         const hold = this.payoutHold(payouts.length)
         this.nextRoundAt = Date.now() + hold
         this.advance('payout', hold)
