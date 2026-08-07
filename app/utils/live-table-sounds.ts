@@ -35,6 +35,10 @@ export type LtSoundEvent =
     | 'roulette-ball-drop'
     | 'roulette-no-bets'
     | 'roulette-result'
+    | 'ambient-slot'
+    | 'ambient-coins'
+    | 'ambient-crowd'
+    | 'ambient-clatter'
 
 export interface LtSoundSpec {
     /** Text prompt sent to the sound-effects model. */
@@ -134,16 +138,45 @@ export const LT_SOUND_MANIFEST: Record<LtSoundEvent, LtSoundSpec> = {
         cut: 'peak'
     },
     'roulette-no-bets': {
-        prompt: 'Dealer calling no more bets at a roulette table, smooth firm spoken announcement with a slight echo, casino floor atmosphere',
-        trim: 1.2,
-        cut: 'onset'
+        prompt: 'Double brass bell strike signaling betting is closed at a casino table, firm clean ring with a short decay, no speech, no music',
+        trim: 0.5,
+        cut: 'peak'
     },
     'roulette-result': {
         prompt: 'Short bright notification chime for a roulette result, warm single bell strike with a clean decay, casino game interface cue',
         trim: 0.8,
         cut: 'onset'
+    },
+
+    // Ambience stings — played on a random timer under the murmur bed (see
+    // LT_AMBIENT_STING_EVENTS below), not by a game event. Written and mixed
+    // as distant background, not the close-miked table-adjacent cues above.
+    'ambient-slot': {
+        prompt: 'Distant slot machine across a casino floor, muffled reel spin and a faint jackpot chime, far away and roomy, no music, background atmosphere not close-miked',
+        trim: 1.6,
+        cut: 'energy'
+    },
+    'ambient-coins': {
+        prompt: 'Distant coin and chip cascade spilling from a slot machine tray across a casino floor, muffled metallic clatter, far away and roomy, no music, background atmosphere not close-miked',
+        trim: 1.2,
+        cut: 'energy'
+    },
+    'ambient-crowd': {
+        prompt: 'Distant casino crowd reaction, a few people cheering and laughing together far across the room, muffled and roomy, no music, no distinct words, background atmosphere not close-miked',
+        trim: 1.8,
+        cut: 'energy'
+    },
+    'ambient-clatter': {
+        prompt: 'Distant neighboring casino table, muffled chip clatter and a faint card shuffle across the room, far away and roomy, no music, background atmosphere not close-miked',
+        trim: 1.4,
+        cut: 'energy'
     }
 }
+
+/** The pool live-table-sound.ts's ambience scheduler drops in under the
+ *  murmur loop, at random and on a timer — distinct from the events above,
+ *  which are triggered by an actual game action. */
+export const LT_AMBIENT_STING_EVENTS: LtSoundEvent[] = ['ambient-slot', 'ambient-coins', 'ambient-crowd', 'ambient-clatter']
 
 /** Per-event mix levels relative to the player's volume setting. */
 export const LT_SOUND_LEVELS: Record<LtSoundEvent, number> = {
@@ -166,7 +199,14 @@ export const LT_SOUND_LEVELS: Record<LtSoundEvent, number> = {
     'roulette-spin': 0.35,
     'roulette-ball-drop': 0.5,
     'roulette-no-bets': 0.5,
-    'roulette-result': 0.5
+    'roulette-result': 0.5,
+    // Distant, but audible over the murmur bed rather than lost under it —
+    // 0.18-0.22 turned out inaudible in practice. Slot pulled back down a
+    // touch from its first pass at 0.5, which came in louder than the rest.
+    'ambient-slot': 0.38,
+    'ambient-coins': 0.45,
+    'ambient-crowd': 0.5,
+    'ambient-clatter': 0.4
 }
 
 /** Minimum ms between plays of the same event to prevent sound choking/stacking. */
@@ -190,5 +230,35 @@ export const LT_SOUND_COOLDOWNS: Record<LtSoundEvent, number> = {
     'roulette-spin': 1000,
     'roulette-ball-drop': 1000,
     'roulette-no-bets': 1000,
-    'roulette-result': 1000
+    'roulette-result': 1000,
+    // The scheduler already spaces these out over tens of seconds — this is
+    // just a floor against two firing back to back.
+    'ambient-slot': 4000,
+    'ambient-coins': 4000,
+    'ambient-crowd': 4000,
+    'ambient-clatter': 4000
 }
+
+/** The looping base ambience bed — a real seamless loop, not a one-shot, so
+ *  it lives in its own manifest: generation needs trimForLoop()'s crossfade
+ *  rather than trimToOneShot(), see scripts/generate-live-table-ambience.ts.
+ *  Multiple variants exist purely for session-to-session variety; playback
+ *  picks one at random the way it does for one-shot variants. */
+export interface LtMurmurSpec {
+    prompt: string
+    /** Seconds requested from the model before the loop crossfade is cut. */
+    duration: number
+}
+
+export const LT_MURMUR_VARIANTS = 2
+
+export const LT_MURMUR_MANIFEST: LtMurmurSpec[] = [
+    {
+        prompt: 'Busy casino floor room tone, dozens of distant overlapping conversations and a low steady murmur, occasional muffled laughter, no distinct words, no music, no slot machines, continuous and even with no sudden peaks',
+        duration: 20
+    },
+    {
+        prompt: 'Crowded casino lounge background murmur, warm low chatter, distant footsteps and glasses, muffled and steady, no distinct words, no music, continuous and even with no sudden peaks',
+        duration: 20
+    }
+]
