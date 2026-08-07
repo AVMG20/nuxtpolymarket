@@ -1063,6 +1063,52 @@ export const tcgSubmission = pgTable('tcg_submissions', {
   index('tcg_submissions_copyId_idx').on(t.copyId)
 ])
 
+/**
+ * A fixed-price market listing (§7.1). The partial unique index (created in
+ * SQL: one active listing per copy) plus the copy row lock in the engine are
+ * the concurrency guards. Sold rows ARE the sales history — the grade fields
+ * are snapshotted at sale time because the copy can be cracked afterwards
+ * and history must not mutate. The fee is 5%, burned: the buyer pays price,
+ * the seller receives 95%, and nothing is pooled — NEVER route the fee
+ * through accumulateRake (§7.6).
+ */
+export const tcgListing = pgTable('tcg_listings', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  copyId: text('copy_id').notNull().references(() => tcgCopy.id, { onDelete: 'cascade' }),
+  sellerId: text('seller_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  price: numeric('price', { precision: 19, scale: 4 }).notNull(),
+  /** Seller's free-text condition claim — carries no authority (§7.1). */
+  note: text('note'),
+  state: text('state').notNull().default('active'), // 'active' | 'sold' | 'cancelled'
+  buyerId: text('buyer_id').references(() => user.id, { onDelete: 'set null' }),
+  soldGradeService: text('sold_grade_service'),
+  soldGrade: text('sold_grade'),
+  soldDesignation: text('sold_designation'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  soldAt: timestamp('sold_at')
+}, t => [
+  index('tcg_listings_copyId_idx').on(t.copyId),
+  index('tcg_listings_sellerId_idx').on(t.sellerId),
+  index('tcg_listings_state_idx').on(t.state)
+])
+
+/**
+ * The ownership chain (§11.3) — every transfer travels with the copy and is
+ * public. The mint entry is synthesized from the copy's pack (owner + opened
+ * time), so only transfers are stored.
+ */
+export const tcgCopyTransfer = pgTable('tcg_copy_transfers', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  copyId: text('copy_id').notNull().references(() => tcgCopy.id, { onDelete: 'cascade' }),
+  fromUserId: text('from_user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  toUserId: text('to_user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  kind: text('kind').notNull(), // 'sale'
+  price: numeric('price', { precision: 19, scale: 4 }),
+  createdAt: timestamp('created_at').defaultNow().notNull()
+}, t => [
+  index('tcg_copy_transfers_copyId_idx').on(t.copyId)
+])
+
 export const chatMessagesRelations = relations(chatMessages, ({ one }) => ({
   user: one(user, { fields: [chatMessages.userId], references: [user.id] })
 }))

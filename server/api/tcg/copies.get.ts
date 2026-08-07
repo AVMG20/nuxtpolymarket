@@ -1,6 +1,6 @@
 import { and, asc, eq } from 'drizzle-orm'
 import { db } from '#server/database'
-import { tcgCopy, tcgSheet } from '#server/database/schema'
+import { tcgCopy, tcgSheet, tcgListing } from '#server/database/schema'
 import { requireUserId } from '#server/utils/auth'
 import type { TcgCopySummary } from '#shared/types/tcg'
 
@@ -31,10 +31,13 @@ export default defineEventHandler(async (event): Promise<TcgCopySummary[]> => {
         gradeSubs: tcgCopy.gradeSubs,
         gradeFlaws: tcgCopy.gradeFlaws,
         certNumber: tcgCopy.certNumber,
-        gradedAt: tcgCopy.gradedAt
+        gradedAt: tcgCopy.gradedAt,
+        listingId: tcgListing.id,
+        listedPrice: tcgListing.price
     })
         .from(tcgCopy)
         .innerJoin(tcgSheet, eq(tcgCopy.sheetId, tcgSheet.id))
+        .leftJoin(tcgListing, and(eq(tcgListing.copyId, tcgCopy.id), eq(tcgListing.state, 'active')))
         .where(and(eq(tcgCopy.ownerId, userId), eq(tcgCopy.printingId, printingId)))
         .orderBy(asc(tcgCopy.createdAt), asc(tcgCopy.id))
 
@@ -46,6 +49,8 @@ export default defineEventHandler(async (event): Promise<TcgCopySummary[]> => {
         slotOffset: row.slotOffset,
         createdAt: row.createdAt.toISOString(),
         lifecycle: row.lifecycle,
+        listingId: row.listingId,
+        listedPrice: row.listedPrice !== null ? parseFloat(row.listedPrice) : null,
         grade: row.grade && row.gradeService && row.certNumber && row.gradedAt
             ? {
                     service: row.gradeService,
