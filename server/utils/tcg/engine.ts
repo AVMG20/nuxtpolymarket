@@ -280,6 +280,9 @@ export async function buyPack(setId: string, userId: string): Promise<PackRow> {
 export async function buyPackIn(tx: Tx, setId: string, userId: string, bundleId: string | null = null): Promise<PackRow> {
     const set = await lockSetForUpdate(tx, setId)
     if (set.status !== 'committed') badRequest('Sold out')
+    // The announcement gate (§3.6): a reprint is visible from commit but
+    // sells nothing until its published on-sale moment passes.
+    if (set.onSaleAt && set.onSaleAt.getTime() > Date.now()) badRequest('Not on sale yet')
     if (!set.secretKey || !set.targetPackCount) {
         throw createError({ statusCode: 500, statusMessage: 'Committed set is missing its run parameters' })
     }
@@ -509,7 +512,8 @@ export async function openPack(packId: string, userId: string): Promise<OpenedPa
                 bundle: printing.bundle ?? '',
                 assetNumber: printing.assetNumber ?? '',
                 maskKind: printing.maskKind,
-                foilEffect: printing.foilEffect
+                foilEffect: printing.foilEffect,
+                printRunLabel: printing.printRunLabel
             }
         })
 
