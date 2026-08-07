@@ -36,6 +36,13 @@ const SEAT_POSITIONS = [
     { x: 1498, y: 546 }
 ]
 
+/** Distance a seat's hand sits above its spot.y — shared by the deal target,
+ *  the discard-flight anchor and the static render, so a card doesn't jump
+ *  between them. There is a lot of open felt between the hand and the spot
+ *  row below it, so this sits lower than it needs to just to clear the phase
+ *  pill above. */
+const SEAT_HAND_Y_OFFSET = 55
+
 const PHASE_LABELS: Record<string, string> = {
     idle: 'WAITING',
     betting: 'PLACE YOUR BETS',
@@ -74,6 +81,10 @@ const { state, youId, balance, connected, feed, chat, mySeat, skew } = table
 
 const showHints = useCookie<boolean>('tcp-show-hint', { default: () => false })
 const selected = ref(0)
+// Lifted out of LiveTableRack itself: that component unmounts between rounds
+// (gated behind isBetting below), so state living inside it resets every
+// time regardless — this ref is what actually survives.
+const chipOffset = ref(0)
 watch(() => balance.value, () => {
     if (selected.value > balance.value) {
         const affordable = LB_CHIPS.filter(c => c.value <= balance.value)
@@ -113,8 +124,9 @@ function badgeFor(game: TcpSeatState) {
     if (isShowdown.value && result) {
         if (result.ante === 'fold') return { text: 'FOLD', tone: 'lose' }
         if (result.ante === 'push') return { text: 'PUSH', tone: 'push' }
-        if (!result.dealerQualified) return { text: 'NO QUALIFY', tone: 'win' }
-        return result.net >= 0 ? { text: 'WIN', tone: 'win' } : { text: 'LOSE', tone: 'lose' }
+        const amount = `${result.net >= 0 ? '+' : ''}${formatNumber(result.net)}`
+        if (!result.dealerQualified) return { text: `NO QUALIFY ${amount}`, tone: 'win' }
+        return result.net >= 0 ? { text: `WIN ${amount}`, tone: 'win' } : { text: `LOSE ${amount}`, tone: 'lose' }
     }
     if (game.decision === 'play') return { text: 'PLAY', tone: 'win' }
     if (game.decision === 'fold') return { text: 'FOLD', tone: 'lose' }
@@ -175,6 +187,18 @@ const anteBonusRows = (Object.keys(TCP_ANTE_BONUS_PAYS) as TcpAnteBonusTier[])
     }))
 
 const myGame = computed(() => mySeat.value?.game ?? null)
+const myBadge = computed(() => myGame.value ? badgeFor(myGame.value) : null)
+// Separate from myBadge: that also lights up mid-hand for PLAY/FOLD, which
+// would colour the dealer's own hand red/green before the dealer's hand is
+// even settled. This only turns on once the round has an actual result.
+const myOutcomeTone = computed(() => {
+    const result = myGame.value?.result
+    if (!result) return ''
+    if (result.ante === 'fold') return 'tone-lose'
+    if (result.ante === 'push') return ''
+    if (!result.dealerQualified) return 'tone-win'
+    return result.net >= 0 ? 'tone-win' : 'tone-lose'
+})
 const canDecide = computed(() => phase.value === 'decision' && !!myGame.value?.ante && !myGame.value.decision)
 const staked = computed(() => (myGame.value?.pendingAnte ?? 0) + (myGame.value?.pendingPairPlus ?? 0))
 
@@ -225,7 +249,7 @@ let ghostSeq = 0
 function handAnchor(key: string): { x: number, y: number } {
     if (key === 'dealer') return { x: 860, y: 196 }
     const seat = SEAT_POSITIONS[Number(key.slice(5))]!
-    return { x: seat.x, y: seat.y - 100 }
+    return { x: seat.x, y: seat.y - SEAT_HAND_Y_OFFSET }
 }
 
 function cardStyle(cardId: string, index: number, targetX: number, targetY: number) {
@@ -323,17 +347,23 @@ onBeforeUnmount(() => {
           </div>
         </LiveTableCorner>
 
-        <!-- Dealer -->
+        <!-- Dealer — hidden until reveal(), so each card is a real flip rather
+             than a swap: both faces sit in the DOM and a class toggle turns
+             the wrapper over the moment the server sends the real rank/suit. -->
         <div v-if="dealer?.cards.length" class="lt-hand tcp-hand" style="left: 860px; top: 196px">
           <div
             v-for="(card, i) in dealer.cards"
             :key="card.id"
             class="tcp-deal"
             :style="cardStyle(card.id, i, 860, 196)"
-            v-html="faceHtml(card)"
-          />
+          >
+            <div class="lt-flip" :class="{ 'lt-flip-done': !!card.rank }">
+              <div class="lt-flip-face lt-flip-back" v-html="CARD_BACK" />
+              <div class="lt-flip-face lt-flip-front" v-html="card.rank && card.suit ? cardFace(card.rank, card.suit) : ''" />
+            </div>
+          </div>
         </div>
-        <div v-if="dealer?.hand" class="tcp-strength lt-mono" style="left: 860px; top: 300px">
+        <div v-if="dealer?.hand" class="tcp-strength lt-mono" :class="myOutcomeTone" style="left: 860px; top: 300px">
           {{ dealer.hand.label }}<span v-if="!dealer.qualified" class="tcp-nq"> · does not qualify</span>
         </div>
 
@@ -342,7 +372,7 @@ onBeforeUnmount(() => {
         </div>
 
         <div class="lt-phase" style="top: 386px">
-          <span class="label">{{ phaseLabel }}</span>
+          <span class="label" :class="myOutcomeTone">{{ phaseLabel }}</span>
           <template v-if="nextRoundIn !== null">
             <span class="next">NEW ROUND IN</span>
             <span class="count">{{ nextRoundIn }}</span>
@@ -353,7 +383,7 @@ onBeforeUnmount(() => {
         </div>
 
         <!-- Deal-now vote, in the open felt between the phase pill and the seats -->
-        <div v-if="showVotePanel" class="tcp-vote" style="left: 860px; top: 468px">
+        <div v-if="showVotePanel" class="tcp-vote" style="left: 860px; top: 488px">
           <button v-if="canVoteStart" class="lb-tile lb-tile-green tcp-vote-btn" @click="table.voteStart()">
             DEAL NOW
             <span v-if="seatedPlayers.length > 1" class="tcp-vote-count">
@@ -388,13 +418,13 @@ onBeforeUnmount(() => {
               v-if="s.seat.game.cards.length"
               class="lt-hand tcp-hand"
               :class="{ 'tcp-folded': s.seat.game.decision === 'fold' }"
-              :style="pos(s.x, s.y - 100)"
+              :style="pos(s.x, s.y - SEAT_HAND_Y_OFFSET)"
             >
               <div
                 v-for="(card, i) in s.seat.game.cards"
                 :key="card.id"
                 class="tcp-deal"
-                :style="cardStyle(card.id, i, s.x, s.y - 100)"
+                :style="cardStyle(card.id, i, s.x, s.y - SEAT_HAND_Y_OFFSET)"
                 v-html="faceHtml(card)"
               />
             </div>
@@ -403,32 +433,14 @@ onBeforeUnmount(() => {
               {{ s.sideWin.label }} +{{ formatNumber(s.sideWin.amount) }}
             </div>
 
-            <div v-if="s.seat.game.hand" class="tcp-strength lt-mono" :style="pos(s.x, s.y - 8)">
-              {{ s.seat.game.hand.label }}
-            </div>
-
-            <div v-else-if="canDecide && s.mine" class="tcp-strength tcp-strength-placeholder lt-mono" :style="pos(s.x, s.y - 8)">
-              &nbsp;
-            </div>
-
-            <div v-if="canDecide && s.mine" class="tcp-decide" :style="pos(s.x, s.y + 280)">
-              <button
-                class="lb-tile lb-tile-green"
-                :class="{ 'lb-hint': hint === true }"
-                @click="table.act({ t: 'decide', play: true }); playSfx('call')"
-              >
-                PLAY {{ formatNumber(s.seat.game.ante) }}
-              </button>
-              <button
-                class="lb-tile lb-tile-red"
-                :class="{ 'lb-hint': hint === false }"
-                @click="table.act({ t: 'decide', play: false }); playSfx('fold')"
-              >
-                FOLD
-              </button>
-            </div>
-            <div v-else-if="s.badge" class="lt-badge" :class="s.badge.tone" :style="pos(s.x, s.y + 280)">
+            <!-- Mine moves to the control band below, clear of the ante spot
+                 and name plate it used to sit on top of at this position. -->
+            <div v-if="s.badge && !s.mine" class="lt-badge" :class="s.badge.tone" :style="pos(s.x, s.y + 108)">
               {{ s.badge.text }}
+            </div>
+
+            <div v-if="s.seat.game.hand && !s.mine" class="tcp-strength lt-mono" :style="pos(s.x, s.y + 280)">
+              {{ s.seat.game.hand.label }}
             </div>
 
             <div class="tcp-cap" :style="pos(s.x - 96, s.y + 58)">
@@ -547,8 +559,32 @@ onBeforeUnmount(() => {
           <LiveTableRack
             :balance="balance"
             v-model="selected"
+            v-model:offset="chipOffset"
           />
         </template>
+        <!-- The chip rack sits idle for the whole decision phase — same spot
+             takes the play/fold buttons instead of cramming them under the seat. -->
+        <div v-else-if="canDecide" class="tcp-decision-band">
+          <button
+            class="lb-tile lb-tile-green"
+            :class="{ 'lb-hint': hint === true }"
+            @click="table.act({ t: 'decide', play: true }); playSfx('call')"
+          >
+            PLAY {{ formatNumber(myGame?.ante ?? 0) }}
+          </button>
+          <button
+            class="lb-tile lb-tile-red"
+            :class="{ 'lb-hint': hint === false }"
+            @click="table.act({ t: 'decide', play: false }); playSfx('fold')"
+          >
+            FOLD
+          </button>
+        </div>
+        <!-- Mine, once decided or settled — same idle spot as the buttons above. -->
+        <div v-else-if="myBadge" class="tcp-result-band">
+          <span class="tcp-result-badge" :class="myBadge.tone">{{ myBadge.text }}</span>
+          <span v-if="myGame?.hand" class="tcp-result-hand lt-mono">{{ myGame.hand.label }}</span>
+        </div>
         <div v-else class="lt-status">
           {{ state?.message ?? 'Waiting for players' }}
         </div>
@@ -638,6 +674,17 @@ onBeforeUnmount(() => {
 .tcp-nq {
     color: #fca5a5;
 }
+
+/* Once the hand is settled, the dealer's own strength reads as good or bad
+   news for the seat watching it — same colouring the result band uses. */
+.tcp-strength.tone-win,
+.lt-phase .label.tone-win {
+    color: var(--ui-success);
+}
+.tcp-strength.tone-lose,
+.lt-phase .label.tone-lose {
+    color: var(--ui-error);
+}
 .tcp-cap {
     position: absolute;
     transform: translate(-50%, -50%);
@@ -682,11 +729,54 @@ onBeforeUnmount(() => {
     opacity: 0.85;
 }
 
-.tcp-decide {
+/* Same footprint as .lt-rack/.lt-status — the control band under the felt,
+   idle during the decision phase since betting is already closed. */
+.tcp-decision-band {
     position: absolute;
+    left: 50%;
+    top: 1052px;
+    transform: translateX(-50%);
+    height: 116px;
     display: flex;
-    gap: 8px;
-    transform: translate(-50%, -50%);
+    align-items: center;
+    gap: 16px;
+}
+
+/* Same band, once mine has decided or the hand has settled — .lt-badge is
+   built for a felt overlay (absolute + centred transform), so this is its own
+   flow-positioned equivalent rather than fighting that positioning. */
+.tcp-result-band {
+    position: absolute;
+    left: 50%;
+    top: 1052px;
+    transform: translateX(-50%);
+    height: 116px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+}
+.tcp-result-badge {
+    border-radius: 15px;
+    padding: 8px 20px;
+    font-size: 18px;
+    font-weight: 800;
+    letter-spacing: 0.03em;
+    white-space: nowrap;
+    background: color-mix(in srgb, var(--lt-shell) 94%, transparent);
+    border: 2px solid rgba(217, 177, 103, 0.9);
+    color: #f7f3e8;
+}
+.tcp-result-badge.win { background: color-mix(in srgb, var(--ui-success) 94%, transparent); border-color: #fff; color: #052e16; }
+.tcp-result-badge.lose { background: rgba(127, 29, 29, 0.94); border-color: rgba(248, 113, 113, 0.8); color: #fecaca; }
+.tcp-result-badge.push { background: rgba(30, 41, 59, 0.94); border-color: rgba(148, 163, 184, 0.7); }
+.tcp-result-hand {
+    font-size: 20px;
+    font-weight: 800;
+    color: var(--lt-gold);
+    text-shadow: 0 1px 4px rgba(0, 0, 0, 0.85);
+    white-space: nowrap;
 }
 
 .tcp-panel-row {
@@ -741,7 +831,30 @@ onBeforeUnmount(() => {
 /* Dealt from the shoe: cardStyle() sets the offset, dropping it two frames
    later is what the transition below actually animates. */
 .tcp-deal {
+    perspective: 800px;
     transition: transform 480ms cubic-bezier(0.16, 0.85, 0.3, 1), opacity 260ms ease-out;
+}
+
+/* The dealer's own cards: both faces sit stacked in 3D space and the wrapper
+   rotates over, rather than the felt just swapping the back art for the face
+   the instant the server reveals it. */
+.lt-flip {
+    position: relative;
+    width: 112px;
+    height: 156px;
+    transform-style: preserve-3d;
+    transition: transform 650ms cubic-bezier(0.45, 0.05, 0.15, 1);
+}
+.lt-flip.lt-flip-done {
+    transform: rotateY(180deg);
+}
+.lt-flip-face {
+    position: absolute;
+    inset: 0;
+    backface-visibility: hidden;
+}
+.lt-flip-front {
+    transform: rotateY(180deg);
 }
 
 /* A hand snapshotted at the moment it cleared, flying off to the discard pile. */
