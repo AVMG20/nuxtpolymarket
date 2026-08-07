@@ -207,6 +207,9 @@ export interface TcgCopySummary {
     createdAt: string
     /** 'raw' | 'grading' | 'slabbed' — drives what the inspector offers. */
     lifecycle: string
+    /** Active market listing, when this copy is up for sale. */
+    listingId: string | null
+    listedPrice: number | null
     /** Present when lifecycle is 'slabbed'. */
     grade: TcgGradePayload | null
 }
@@ -404,4 +407,57 @@ export interface TcgPopReportRow {
     grade: string
     designation: string | null
     count: number
+}
+
+// ── Marketplace (§7) ────────────────────────────────────────────────────────
+
+export interface TcgListingSummary {
+    id: string
+    copyId: string
+    price: number
+    /** Seller's free-text condition claim — carries no authority (§7.1). */
+    note: string | null
+    sellerId: string
+    sellerName: string
+    createdAt: string
+    serial: string
+    printingId: string
+    card: {
+        name: string
+        rarity: string | null
+        number: string
+        setTotal: number | null
+        setName: string
+        setCode: string
+        releaseDate: string | null
+    }
+    render: {
+        bundle: string | null
+        assetNumber: string | null
+        maskKind: string | null
+        foilEffect: string | null
+        pattern: string | null
+        finish: string
+        plaatjesCardId: string
+    }
+    /** Present when the listed copy is slabbed. */
+    grade: TcgGradePayload | null
+}
+
+export interface TcgSaleRow {
+    price: number
+    soldAt: string
+    /** Grade snapshot at sale time; null = sold raw ("condition unknown"). */
+    gradeService: string | null
+    grade: string | null
+    designation: string | null
+    sellerName: string
+    buyerName: string
+}
+
+export interface TcgChainEntry {
+    kind: 'mint' | 'sale'
+    userName: string
+    price: number | null
+    at: string
 }

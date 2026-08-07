@@ -1,6 +1,6 @@
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import { db } from '#server/database'
-import { tcgCopy } from '#server/database/schema'
+import { tcgCopy, tcgListing } from '#server/database/schema'
 import { requireUserId } from '#server/utils/auth'
 import { deriveWearSpec } from '#server/utils/tcg/condition-render'
 import type { TcgWearSpec } from '#shared/types/tcg'
@@ -29,7 +29,13 @@ export default defineEventHandler(async (event): Promise<{ wear: TcgWearSpec | n
         .from(tcgCopy)
         .where(eq(tcgCopy.id, copyId))
     if (!copy) throw createError({ statusCode: 404, statusMessage: 'Copy not found' })
-    if (copy.ownerId !== userId) throw createError({ statusCode: 403, statusMessage: 'Forbidden' })
+    if (copy.ownerId !== userId) {
+        // Buyers must be able to inspect before purchase (§7.1): a copy with
+        // an active market listing is viewable by anyone signed in.
+        const [listed] = await db.select({ id: tcgListing.id }).from(tcgListing)
+            .where(and(eq(tcgListing.copyId, copy.id), eq(tcgListing.state, 'active')))
+        if (!listed) throw createError({ statusCode: 403, statusMessage: 'Forbidden' })
+    }
 
     return { wear: copy.condition ? deriveWearSpec(copy.id, copy.condition) : null }
 })

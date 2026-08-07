@@ -404,7 +404,10 @@ export async function returnPack(packId: string, userId: string): Promise<{ pack
                 .where(and(
                     eq(tcgCopy.packId, pack.id),
                     eq(tcgCopy.ownerId, userId),
-                    eq(tcgCopy.lifecycle, 'raw')
+                    eq(tcgCopy.lifecycle, 'raw'),
+                    // A listed copy must not be vaporised by a debug return —
+                    // the cascade would silently take the listing with it.
+                    sql`not exists (select 1 from tcg_listings l where l.copy_id = ${tcgCopy.id} and l.state = 'active')`
                 ))
                 .returning({ id: tcgCopy.id })
             if (deleted.length !== cardsPerPack) badRequest('Pack contents are no longer intact')
