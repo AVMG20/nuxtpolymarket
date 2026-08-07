@@ -21,11 +21,13 @@ const { data: collection, pending } = useFetch<CollectionPayload>('/api/tcg/coll
 // useFetch is created, so the watched query ref change actually triggers the
 // fetch. Explicit max(createdAt) rather than list order, so the default
 // doesn't silently depend on how the endpoint happens to sort.
-watch(sets, (list) => {
-  if (selectedSetId.value || !list.length) return
-  const newest = [...list].sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0]!
-  selectedSetId.value = newest.id
-}, { immediate: true })
+onMounted(() => {
+  watch(sets, (list) => {
+    if (selectedSetId.value || !list.length) return
+    const newest = [...list].sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0]!
+    selectedSetId.value = newest.id
+  }, { immediate: true })
+})
 
 const stats = computed(() => collection.value?.stats ?? null)
 const currentSet = computed(() => sets.value.find(s => s.id === selectedSetId.value) ?? null)

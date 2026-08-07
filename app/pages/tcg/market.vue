@@ -22,11 +22,13 @@ const { data: listings, refresh } = useFetch<TcgListingSummary[]>('/api/tcg/mark
 
 // AFTER useFetch is created, so the watched query ref change actually
 // triggers the fetch (same trap as collection.vue).
-watch(sets, (list) => {
-  if (selectedSetId.value || !list.length) return
-  const newest = [...list].sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0]!
-  selectedSetId.value = newest.id
-}, { immediate: true })
+onMounted(() => {
+  watch(sets, (list) => {
+    if (selectedSetId.value || !list.length) return
+    const newest = [...list].sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0]!
+    selectedSetId.value = newest.id
+  }, { immediate: true })
+})
 
 const mine = computed(() => (listings.value ?? []).filter(l => l.sellerId === user.value?.id))
 const others = computed(() => (listings.value ?? []).filter(l => l.sellerId !== user.value?.id))
