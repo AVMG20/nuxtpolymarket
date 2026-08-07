@@ -427,7 +427,7 @@ function growTime(item: any) {
           <!-- Buy buttons -->
           <div class="flex gap-1 shrink-0">
             <UButton
-              v-for="qty in [1, 10]"
+              v-for="qty in [1, 10, 100]"
               :key="qty"
               size="xs"
               variant="soft"
