@@ -1,8 +1,20 @@
 <script setup lang="ts">
 import type { OpenedPackResult, SealedPackSummary } from '#shared/types/tcg'
+import { wrapUrl } from '~/utils/tcg/wrap'
 
 const toast = useToast()
 const { setById, refreshState, refreshSets } = useTcg()
+
+const apiBase = (useRuntimeConfig().public as { pokemonApiBase?: string }).pokemonApiBase
+  ?? 'http://127.0.0.1:8080'
+
+function packArt(setId: string): string | null {
+  return wrapUrl(apiBase, setById(setId)?.plaatjesSetCode)
+}
+
+function hideBrokenArt(e: Event) {
+  (e.target as HTMLImageElement).style.display = 'none'
+}
 const { fetchSession } = useAuth()
 
 const { data, pending, refresh } = useFetch('/api/tcg/packs', { key: 'tcg-packs' })
@@ -137,13 +149,22 @@ async function onCeremonyClose() {
         :key="pack.id"
       >
         <div class="flex items-center justify-between gap-2">
-          <div>
-            <p class="text-sm font-medium text-highlighted">
-              {{ setName(pack.setId) }}
-            </p>
-            <p class="text-xs tabular-nums text-muted">
-              Pack #{{ pack.packIndex + 1 }}
-            </p>
+          <div class="flex items-center gap-3">
+            <img
+              v-if="packArt(pack.setId)"
+              :src="packArt(pack.setId)!"
+              :alt="`${setName(pack.setId)} booster pack`"
+              class="h-16 w-auto shrink-0 drop-shadow"
+              @error="hideBrokenArt"
+            >
+            <div>
+              <p class="text-sm font-medium text-highlighted">
+                {{ setName(pack.setId) }}
+              </p>
+              <p class="text-xs tabular-nums text-muted">
+                Pack #{{ pack.packIndex + 1 }}
+              </p>
+            </div>
           </div>
           <UButton
             size="sm"
