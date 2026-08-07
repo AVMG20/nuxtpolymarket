@@ -374,11 +374,11 @@ describe.skipIf(SKIP)("Casino Hold'em table", () => {
             .toThrow(/Not enough chips/)
     })
 
-    it('deals nobody in when no ante is down', async () => {
+    it('unseats players with no ante when the betting timer expires', async () => {
         table.setStack('As 7d Qh Ks 2c 9h Ah 9c 4s 3d 6s')
         await table.step('betting')
 
-        expect(table.seat(ALICE).cards).toHaveLength(0)
+        expect(table.snapshot().seats[0]).toBeNull()
         expect(await getBalance(ALICE)).toBe('10000.0000')
     })
 })

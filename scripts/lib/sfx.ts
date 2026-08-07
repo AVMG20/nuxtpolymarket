@@ -237,3 +237,66 @@ export function trimToOneShot(wav: WavData, keepSeconds: number, cut: CutMode): 
 
     return { sampleRate, channels, samples: out }
 }
+
+/**
+ * Crossfade a clip's tail into its head so it loops with no seam click,
+ * rather than trimming it down to a single short one-shot. Standard loop
+ * trick: the output is `crossfadeSeconds` shorter than the source, and its
+ * first `crossfadeSeconds` are an equal-power blend of the source's tail
+ * fading out under its head fading in — so repeating the output picks up
+ * exactly where the blend left off instead of jumping back to a hard edge.
+ * Only sounds for content with no fixed rhythm to phase against (murmur,
+ * room tone) — a beat-driven loop would need the crossfade aligned to it.
+ */
+export function trimForLoop(wav: WavData, crossfadeSeconds: number): WavData {
+    const { sampleRate, channels, samples } = wav
+    const frameCount = Math.floor(samples.length / channels)
+    const fadeFrames = Math.min(Math.floor(frameCount / 2), Math.floor(crossfadeSeconds * sampleRate))
+    const outFrames = frameCount - fadeFrames
+    const out = new Float32Array(outFrames * channels)
+
+    // The unchanged middle: source[fadeFrames..frameCount-fadeFrames) becomes
+    // out[fadeFrames..outFrames) — outFrames == frameCount - fadeFrames, so
+    // that source range is exactly as long as the room left for it.
+    out.set(samples.subarray(fadeFrames * channels, (frameCount - fadeFrames) * channels), fadeFrames * channels)
+
+    // The blended head: equal-power crossfade of the tail fading out under
+    // the head fading in.
+    for (let frame = 0; frame < fadeFrames; frame++) {
+        const t = frame / fadeFrames
+        const fadeIn = Math.sin(t * Math.PI * 0.5)
+        const fadeOut = Math.cos(t * Math.PI * 0.5)
+        const tailFrame = frameCount - fadeFrames + frame
+        for (let ch = 0; ch < channels; ch++) {
+            const head = samples[frame * channels + ch]!
+            const tail = samples[tailFrame * channels + ch]!
+            out[frame * channels + ch] = head * fadeIn + tail * fadeOut
+        }
+    }
+
+    let peak = 0
+    for (const sample of out) peak = Math.max(peak, Math.abs(sample))
+    if (peak > 0) {
+        const gain = 0.85 / peak
+        for (let i = 0; i < out.length; i++) out[i]! *= gain
+    }
+
+    return { sampleRate, channels, samples: out }
+}
+
+/**
+ * Drop `seconds` off both ends. Generated ambience clips reliably come back
+ * quieter in their first ~1s (the model ramping up) and often their last ~1s
+ * too (ramping back down) — feeding those edges straight into trimForLoop()
+ * blends two already-quiet moments together and the loop audibly dips once a
+ * cycle. Call this first so the crossfade works on stable, full-volume
+ * material instead.
+ */
+export function trimEdges(wav: WavData, seconds: number): WavData {
+    const { sampleRate, channels, samples } = wav
+    const frameCount = Math.floor(samples.length / channels)
+    const guardFrames = Math.min(Math.floor(frameCount / 2) - 1, Math.floor(seconds * sampleRate))
+    const start = guardFrames
+    const end = frameCount - guardFrames
+    return { sampleRate, channels, samples: samples.subarray(start * channels, end * channels) }
+}

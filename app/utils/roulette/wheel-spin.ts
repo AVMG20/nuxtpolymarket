@@ -17,12 +17,12 @@ export function pocketCenterAngle(number: number): number {
 
 /**
  * Total wheel rotation (CSS `rotate()`, degrees) that brings `number`'s pocket
- * centre to the fixed pointer at the top. Keeps spinning the same direction
- * from wherever the wheel currently sits, plus full extra turns so the
- * animation always spins forward rather than snapping back.
+ * centre to `targetAngle` on screen. Keeps spinning the same direction from
+ * wherever the wheel currently sits, plus full extra turns so the animation
+ * always spins forward rather than snapping back.
  */
-export function wheelRotationFor(currentRotation: number, number: number, extraTurns = 3): number {
-    const targetWithinTurn = (((360 - pocketCenterAngle(number)) % 360) + 360) % 360
+export function wheelRotationFor(currentRotation: number, number: number, targetAngle = 0, extraTurns = 3): number {
+    const targetWithinTurn = (((targetAngle - pocketCenterAngle(number)) % 360) + 360) % 360
     const currentWithinTurn = ((currentRotation % 360) + 360) % 360
     let delta = targetWithinTurn - currentWithinTurn
     if (delta <= 0) delta += 360

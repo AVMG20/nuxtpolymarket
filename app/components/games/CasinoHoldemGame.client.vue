@@ -1,11 +1,14 @@
 <script setup lang="ts">
 import { CH_AA_TABLE, CH_ANTE_TABLE, CH_CALL_MULTIPLIER } from '#shared/utils/casino-holdem/rules'
 import { shouldCall } from '#shared/utils/casino-holdem/strategy'
+import type { LtCard } from '#shared/utils/live-table/types'
 import type { ChCard } from '#shared/utils/casino-holdem/evaluator'
 import type { ChAction, ChBetSpot, ChSeatState, ChSharedState } from '#shared/utils/casino-holdem/types'
-import { chipRackFor } from '#shared/utils/live-blackjack/chips'
-import type { LtCard } from '#shared/utils/live-table/types'
-import { LT_DISCARD_POS, LT_SHOE_POS, cardBack, cardFace, chip, chipStack } from '~/utils/live-table/art'
+import { LB_CHIPS } from '#shared/utils/live-blackjack/chips'
+import { LT_DISCARD_POS, LT_SHOE_POS, cardBack, cardFace, chipStack } from '~/utils/live-table/art'
+import { useLiveTableSound } from '~/composables/live-table-sound'
+
+const { play: playSfx, preload: preloadSfx, unlock: unlockSfx, stop: stopSfx } = useLiveTableSound()
 
 const table = useLiveTable<ChSeatState, ChSharedState, ChAction>('casino-holdem')
 const { state, youId, balance, connected, feed, chat, mySeat, skew } = table
@@ -20,6 +23,12 @@ const SEATS = [
 ]
 const BOARD_X = [584, 722, 860, 998, 1136]
 const SLOT_LABEL = ['FLOP', 'FLOP', 'FLOP', 'TURN', 'RIVER']
+
+/** Distance a seat's hand sits above its spot.y — shared by the static render
+ *  below and collectLocations()'s deal-animation target, so a card doesn't
+ *  jump on landing. Also what keeps the middle seat's hand clear of the phase
+ *  pill above it. */
+const SEAT_HAND_Y_OFFSET = 60
 
 /** Mirrors --lt-chip-size-spot / --lt-chip-size-side in live-table.css — chipStack()
  *  needs a pixel number to compute its stack lift, so it can't read the tokens itself. */
@@ -61,6 +70,16 @@ const aaPayRows = CH_AA_TABLE.map(row => ({ label: row.label, example: AA_EXAMPL
 
 const showHints = useCookie<boolean>('ch-show-hint', { default: () => true })
 const selectedChip = ref(0)
+// Lifted out of LiveTableRack itself: that component unmounts between rounds
+// (gated behind isBetting below), so state living inside it resets every
+// time regardless — this ref is what actually survives.
+const chipOffset = ref(0)
+watch(() => balance.value, () => {
+    if (selectedChip.value > balance.value) {
+        const affordable = LB_CHIPS.filter(c => c.value <= balance.value)
+        selectedChip.value = affordable[Math.min(2, affordable.length - 1)]?.value ?? 0
+    }
+}, { immediate: true })
 const now = ref(Date.now())
 
 // The feed already carries every rejection, but it sits in a rail the player
@@ -77,21 +96,31 @@ onMounted(() => {
     ticker = setInterval(() => {
         now.value = Date.now()
     }, 200)
+    preloadSfx()
+    unlockSfx()
 })
 onBeforeUnmount(() => {
     if (ticker) clearInterval(ticker)
+    stopSfx()
 })
-
-const rack = computed(() => chipRackFor(balance.value).map(c => c.value))
-watch(rack, (values) => {
-    if (!values.includes(selectedChip.value)) selectedChip.value = values[Math.min(2, values.length - 1)] ?? 0
-}, { immediate: true })
 
 const phase = computed(() => state.value?.phase ?? 'idle')
 const isBetting = computed(() => phase.value === 'betting')
 const seats = computed(() => state.value?.seats ?? [])
 const board = computed(() => state.value?.game.board ?? [])
 const dealer = computed(() => state.value?.game.dealer ?? { cards: [], label: null, qualified: null })
+
+watch(phase, (newPhase) => {
+    if (newPhase === 'deal') playSfx('shuffle')
+    if (newPhase === 'reveal') playSfx('card-flip')
+    if (newPhase === 'payout') {
+        const outcome = mySeat.value?.game.outcome
+        const net = mySeat.value?.game.net ?? 0
+        if (outcome === 'win' || (outcome === 'folded' && net >= 0)) playSfx('win')
+        else if (outcome === 'lose' || (outcome === 'folded' && net < 0)) playSfx('lose')
+        else if (outcome === 'push') playSfx('push')
+    }
+})
 
 const countdown = computed(() => {
     const ends = state.value?.phaseEndsAt
@@ -119,9 +148,26 @@ const phaseLabel = computed(() => {
 const myAnte = computed(() => mySeat.value?.game.pendingAnte ?? 0)
 const myAa = computed(() => mySeat.value?.game.pendingAa ?? 0)
 const staked = computed(() => myAnte.value + myAa.value)
+const myTotalBet = computed(() => myAnte.value + myAa.value)
 const needsDecision = computed(() =>
     phase.value === 'decision' && !!mySeat.value?.game.cards.length && !mySeat.value.game.decision)
 const callCost = computed(() => (mySeat.value?.game.ante ?? 0) * CH_CALL_MULTIPLIER)
+const myBadge = computed(() => mySeat.value ? badgeFor(mySeat.value.game) : null)
+// Separate from myBadge: that also lights up mid-hand for CALLED/FOLDED, which
+// would colour the dealer's own hand red/green before the dealer's hand is
+// even settled. This only turns on once the round has an actual outcome.
+const myOutcomeTone = computed(() => {
+    const outcome = mySeat.value?.game.outcome
+    if (outcome === 'win') return 'tone-win'
+    if (outcome === 'lose' || outcome === 'folded') return 'tone-lose'
+    return ''
+})
+
+const seatedPlayers = computed(() => (state.value?.seats ?? []).filter(s => s !== null))
+const startVotes = computed(() => seatedPlayers.value.filter(s => s.votedStart).length)
+const canVoteStart = computed(() => isBetting.value && !!mySeat.value && staked.value > 0 && !mySeat.value.votedStart)
+const showVotePanel = computed(() => isBetting.value && !!mySeat.value && staked.value > 0)
+const waitingOnNames = computed(() => seatedPlayers.value.filter(s => !s.votedStart).map(s => s.name))
 
 const canRepeat = computed(() => !!mySeat.value?.game.lastAnte)
 const canScale = computed(() => myAnte.value > 0 || !!mySeat.value?.game.lastAnte)
@@ -143,14 +189,16 @@ function faces(cards: LtCard[]): ChCard[] {
 // Card backs carry a random clip-path id, so they are memoised per card —
 // re-rolling one on every snapshot would repaint the whole hand.
 const backs = new Map<string, string>()
-function renderCard(card: LtCard): string {
-    if (card.rank && card.suit) return cardFace(card.rank, card.suit)
+function backFor(card: LtCard): string {
     let back = backs.get(card.id)
     if (!back) {
         back = cardBack()
         backs.set(card.id, back)
     }
     return back
+}
+function renderCard(card: LtCard): string {
+    return card.rank && card.suit ? cardFace(card.rank, card.suit) : backFor(card)
 }
 
 function stackFor(amount: number, size: number): string {
@@ -190,9 +238,9 @@ const DISCARD_STAGGER = 35
 const DISCARD_STAGGER_CAP = 320
 const DISCARD_DURATION = 380
 
-/** A fanned hand overlaps its 112px-wide cards by 50px, so 62px separates centres. */
+/** A fanned hand overlaps its 112px-wide cards by 40px, so 72px separates centres. */
 function fanOffset(index: number, total: number, scale = 1): number {
-    return (index - (total - 1) / 2) * 62 * scale
+    return (index - (total - 1) / 2) * 72 * scale
 }
 
 function collectLocations(snapshot: NonNullable<typeof state.value>): ChCardLoc[] {
@@ -203,7 +251,7 @@ function collectLocations(snapshot: NonNullable<typeof state.value>): ChCardLoc[
     snapshot.seats.forEach((seat, si) => {
         if (!seat) return
         const spot = SEATS[si]!
-        seat.game.cards.forEach((card, i, all) => locs.push({ card, x: spot.x + fanOffset(i, all.length), y: spot.y - 100 }))
+        seat.game.cards.forEach((card, i, all) => locs.push({ card, x: spot.x + fanOffset(i, all.length), y: spot.y - SEAT_HAND_Y_OFFSET }))
     })
     return locs
 }
@@ -217,6 +265,7 @@ let flightSeq = 0
 
 function spawnDeal(loc: ChCardLoc, order: number) {
     pendingDeal.add(loc.card.id)
+    playSfx('card-deal')
     const delay = Math.min(DEAL_STAGGER_CAP, order * DEAL_STAGGER)
     const key = `deal:${loc.card.id}`
     flights.value.push({
@@ -277,12 +326,13 @@ watch(state, (snapshot) => {
 function place(spot: ChBetSpot) {
     if (!isBetting.value || !mySeat.value || !selectedChip.value) return
     table.act({ t: 'bet', spot, amount: selectedChip.value })
+    playSfx('chip-place')
 }
 
 function badgeFor(seat: ChSeatState): { text: string, tone: string } | null {
-    if (seat.outcome === 'folded') return { text: 'FOLDED', tone: 'lose' }
+    if (seat.outcome === 'folded') return { text: `FOLDED ${formatNumber(seat.net ?? 0)}`, tone: 'lose' }
     if (seat.outcome === 'push') return { text: 'PUSH', tone: 'push' }
-    if (seat.outcome === 'lose') return { text: 'LOSE', tone: 'lose' }
+    if (seat.outcome === 'lose') return { text: `LOSE ${formatNumber(seat.net ?? 0)}`, tone: 'lose' }
     if (seat.outcome === 'win') {
         const amount = `+${formatNumber(seat.net ?? 0)}`
         return seat.dealerQualified
@@ -299,18 +349,26 @@ function badgeFor(seat: ChSeatState): { text: string, tone: string } | null {
   <div class="flex flex-col gap-3 lg:flex-row">
     <div class="min-w-0 flex-1">
       <LiveTableStage>
-        <!-- Dealer, scaled down so the hole cards clear the board row below them -->
+        <!-- Dealer, scaled down so the hole cards clear the board row below them.
+             Hidden until showdown(), so each card is a real flip rather than a
+             swap: both faces sit in the DOM and a class toggle turns the
+             wrapper over the moment the server sends the real rank/suit. -->
         <div
-          class="lt-hand"
+          class="lt-hand ch-hand"
           style="left: 860px; top: 142px; transform: translate(-50%, -50%) scale(0.82)"
         >
           <template v-for="card in dealer.cards" :key="card.id">
-            <div v-if="arrived.has(card.id)" v-html="renderCard(card)" />
+            <div v-if="arrived.has(card.id)" class="ch-flip-wrap">
+              <div class="lt-flip" :class="{ 'lt-flip-done': !!card.rank }">
+                <div class="lt-flip-face lt-flip-back" v-html="backFor(card)" />
+                <div class="lt-flip-face lt-flip-front" v-html="card.rank && card.suit ? cardFace(card.rank, card.suit) : ''" />
+              </div>
+            </div>
           </template>
         </div>
         <div class="ch-caption" style="left: 957px; top: 142px">
           <span class="ch-caption-tag">DEALER</span>
-          <span v-if="dealer.label">{{ dealer.label }}</span>
+          <span v-if="dealer.label" :class="myOutcomeTone">{{ dealer.label }}</span>
           <span v-else class="opacity-50">two cards down</span>
         </div>
 
@@ -369,12 +427,24 @@ function badgeFor(seat: ChSeatState): { text: string, tone: string } | null {
           DEALER QUALIFIES WITH A PAIR OF FOURS OR BETTER
         </div>
         <div class="lt-phase" style="top: 412px">
-          <span class="label">{{ phaseLabel }}</span>
+          <span class="label" :class="myOutcomeTone">{{ phaseLabel }}</span>
           <template v-if="nextRoundIn !== null">
             <span class="next">NEW ROUND IN</span>
             <span class="count">{{ nextRoundIn }}</span>
           </template>
           <span v-else-if="countdown !== null" class="count" :class="{ urgent: countdown <= 5 }">{{ countdown }}</span>
+        </div>
+
+        <div v-if="showVotePanel" class="ch-vote" style="left: 860px; top: 500px">
+          <button v-if="canVoteStart" class="lb-tile lb-tile-green ch-vote-btn" @click="table.voteStart()">
+            DEAL NOW
+            <span v-if="seatedPlayers.length > 1" class="ch-vote-count">
+              ({{ startVotes }}/{{ seatedPlayers.length }})
+            </span>
+          </button>
+          <div v-else class="ch-vote-ready">
+            Ready — waiting on {{ waitingOnNames.join(', ') }}
+          </div>
         </div>
 
         <!-- Side-bet paytables: top-left corner, dimmed and collapsed until asked for,
@@ -397,10 +467,10 @@ function badgeFor(seat: ChSeatState): { text: string, tone: string } | null {
         <template v-for="(spot, index) in SEATS" :key="index">
           <template v-if="seats[index]">
             <div
-              class="lt-hand"
+              class="lt-hand ch-hand"
               :style="{
                 left: `${spot.x}px`,
-                top: `${spot.y - 90}px`,
+                top: `${spot.y - SEAT_HAND_Y_OFFSET}px`,
                 opacity: seats[index]!.game.decision === 'fold' ? 0.4 : 1
               }"
             >
@@ -409,8 +479,10 @@ function badgeFor(seat: ChSeatState): { text: string, tone: string } | null {
               </template>
             </div>
 
+            <!-- Mine moves to the control band below, clear of the hand and
+                 name plate it used to sit wedged between. -->
             <div
-              v-if="badgeFor(seats[index]!.game)"
+              v-if="badgeFor(seats[index]!.game) && seats[index]!.userId !== youId"
               class="lt-badge"
               :class="badgeFor(seats[index]!.game)!.tone"
               :style="{ left: `${spot.x}px`, top: `${spot.y + 10}px` }"
@@ -418,32 +490,11 @@ function badgeFor(seat: ChSeatState): { text: string, tone: string } | null {
               {{ badgeFor(seats[index]!.game)!.text }}
             </div>
             <div
-              v-else-if="needsDecision && seats[index]!.userId === youId"
-              class="ch-decision"
-              :style="{ left: `${spot.x}px`, top: `${spot.y + 14}px` }"
-            >
-              <button
-                class="lb-tile lb-tile-green"
-                :class="{ 'lb-hint': hint === 'call' }"
-                @click="table.act({ t: 'decide', decision: 'call' })"
-              >
-                CALL {{ formatNumber(callCost) }}
-              </button>
-              <button
-                class="lb-tile lb-tile-red"
-                :class="{ 'lb-hint': hint === 'fold' }"
-                @click="table.act({ t: 'decide', decision: 'fold' })"
-              >
-                FOLD
-              </button>
-            </div>
-
-            <div
               v-if="seats[index]!.game.handLabel"
               class="ch-readout"
               :style="{
                 left: `${spot.x}px`,
-                top: `${spot.y + 202}px`,
+                top: `${spot.y + 310}px`,
                 opacity: seats[index]!.game.decision === 'fold' ? 0.55 : 1
               }"
             >
@@ -490,7 +541,7 @@ function badgeFor(seat: ChSeatState): { text: string, tone: string } | null {
             <div
               v-if="seats[index]!.game.ante || seats[index]!.game.pendingAnte"
               class="ch-bet-total"
-              :style="{ left: `${spot.x - 22}px`, top: `${spot.y + 56}px` }"
+              :style="{ left: `${spot.x - 22}px`, top: `${spot.y + 200}px` }"
             >
               {{ formatNumber(seats[index]!.game.ante || seats[index]!.game.pendingAnte) }}
             </div>
@@ -542,20 +593,40 @@ function badgeFor(seat: ChSeatState): { text: string, tone: string } | null {
           :can-scale="canScale"
           :can-undo="!!staked"
           :can-clear="!!staked"
-          @repeat="table.act({ t: 'repeat' })"
-          @scale="scaleBet"
-          @undo="table.act({ t: 'undo' })"
-          @clear="table.act({ t: 'clear' })"
+          @repeat="table.act({ t: 'repeat' }); playSfx('chip-place')"
+          @scale="(f: number) => { scaleBet(f); playSfx('chip-place') }"
+          @undo="table.act({ t: 'undo' }); playSfx('chip-undo')"
+          @clear="table.act({ t: 'clear' }); playSfx('chip-collect')"
         />
 
-        <div v-if="isBetting && mySeat" class="lt-rack">
-          <span
-            v-for="value in rack"
-            :key="value"
-            :class="{ sel: value === selectedChip }"
-            @click="selectedChip = value"
-            v-html="chip(value)"
-          />
+        <LiveTableRack
+          v-if="isBetting && mySeat"
+          :balance="balance"
+          v-model="selectedChip"
+          v-model:offset="chipOffset"
+        />
+        <!-- The chip rack sits idle for the whole decision phase — same spot
+             takes the call/fold buttons instead of cramming them under the seat. -->
+        <div v-else-if="needsDecision" class="ch-decision-band">
+          <button
+            class="lb-tile lb-tile-green"
+            :class="{ 'lb-hint': hint === 'call' }"
+            @click="table.act({ t: 'decide', decision: 'call' }); playSfx('call')"
+          >
+            CALL {{ formatNumber(callCost) }}
+          </button>
+          <button
+            class="lb-tile lb-tile-red"
+            :class="{ 'lb-hint': hint === 'fold' }"
+            @click="table.act({ t: 'decide', decision: 'fold' }); playSfx('fold')"
+          >
+            FOLD
+          </button>
+        </div>
+        <!-- Mine, once decided or settled — same idle spot as the buttons above. -->
+        <div v-else-if="myBadge" class="ch-result-band">
+          <span class="ch-result-badge" :class="myBadge.tone">{{ myBadge.text }}</span>
+          <span v-if="mySeat!.game.handLabel" class="ch-result-hand lt-mono">{{ mySeat!.game.handLabel }}</span>
         </div>
         <div v-else class="lt-status">
           <template v-if="!connected">Connecting…</template>
@@ -564,6 +635,10 @@ function badgeFor(seat: ChSeatState): { text: string, tone: string } | null {
         </div>
 
         <div v-if="isBetting && mySeat" class="lt-panel lt-panel-l">
+          <div class="flex items-baseline justify-between">
+            <span class="lt-panel-label">Total bet</span>
+            <span class="lt-panel-value lt-mono">{{ formatNumber(myTotalBet) }}</span>
+          </div>
           <div class="flex items-baseline justify-between">
             <span class="lt-panel-label">Ante</span>
             <span class="lt-panel-value lt-mono">{{ formatNumber(myAnte) }}</span>
@@ -622,6 +697,17 @@ function badgeFor(seat: ChSeatState): { text: string, tone: string } | null {
   font-size: 13px;
   letter-spacing: 0.16em;
   color: rgba(217, 177, 103, 0.6);
+}
+
+/* Once the hand is settled, the dealer's own strength reads as good or bad
+   news for the seat watching it — same colouring the result band uses. */
+.ch-caption span.tone-win,
+.lt-phase .label.tone-win {
+  color: var(--ui-success);
+}
+.ch-caption span.tone-lose,
+.lt-phase .label.tone-lose {
+  color: var(--ui-error);
 }
 
 .lt-overlay h4 {
@@ -783,10 +869,103 @@ function badgeFor(seat: ChSeatState): { text: string, tone: string } | null {
   color: #d9b167;
 }
 
-.ch-decision {
+/* Same footprint as .lt-rack/.lt-status — the control band under the felt,
+   idle during the decision phase since betting is already closed. */
+.ch-decision-band {
+  position: absolute;
+  left: 50%;
+  top: 1052px;
+  transform: translateX(-50%);
+  height: 116px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+/* Same band, once mine has decided or the hand has settled — .lt-badge is
+   built for a felt overlay (absolute + centred transform), so this is its own
+   flow-positioned equivalent rather than fighting that positioning. */
+.ch-result-band {
+  position: absolute;
+  left: 50%;
+  top: 1052px;
+  transform: translateX(-50%);
+  height: 116px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+.ch-result-badge {
+  border-radius: 15px;
+  padding: 8px 20px;
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+  background: color-mix(in srgb, var(--lt-shell) 94%, transparent);
+  border: 2px solid rgba(217, 177, 103, 0.9);
+  color: #f7f3e8;
+}
+.ch-result-badge.win { background: color-mix(in srgb, var(--ui-success) 94%, transparent); border-color: #fff; color: #052e16; }
+.ch-result-badge.lose { background: rgba(127, 29, 29, 0.94); border-color: rgba(248, 113, 113, 0.8); color: #fecaca; }
+.ch-result-badge.push { background: rgba(30, 41, 59, 0.94); border-color: rgba(148, 163, 184, 0.7); }
+.ch-result-badge.gold { background: var(--lt-gold); border-color: #fff; color: #1c1109; }
+.ch-result-hand {
+  font-size: 20px;
+  font-weight: 800;
+  color: #d9b167;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.85);
+  white-space: nowrap;
+}
+.ch-vote {
   position: absolute;
   transform: translate(-50%, -50%);
-  display: flex;
-  gap: 10px;
+  text-align: center;
+}
+.ch-vote-btn {
+  padding-inline: 1.1rem;
+}
+.ch-vote-count {
+  margin-left: 2px;
+  font-weight: 600;
+  opacity: 0.85;
+}
+.ch-vote-ready {
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.7);
+  padding: 8px 18px;
+  font-size: 14px;
+  color: #cfc7b6;
+  pointer-events: none;
+}
+.ch-hand > * + * {
+  margin-left: -40px;
+}
+
+.ch-flip-wrap {
+  perspective: 800px;
+}
+/* The dealer's own cards: both faces sit stacked in 3D space and the wrapper
+   rotates over, rather than the felt just swapping the back art for the face
+   the instant the server reveals it. */
+.lt-flip {
+  position: relative;
+  width: 112px;
+  height: 156px;
+  transform-style: preserve-3d;
+  transition: transform 650ms cubic-bezier(0.45, 0.05, 0.15, 1);
+}
+.lt-flip.lt-flip-done {
+  transform: rotateY(180deg);
+}
+.lt-flip-face {
+  position: absolute;
+  inset: 0;
+  backface-visibility: hidden;
+}
+.lt-flip-front {
+  transform: rotateY(180deg);
 }
 </style>

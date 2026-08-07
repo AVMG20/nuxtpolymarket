@@ -109,16 +109,14 @@ describe.skipIf(SKIP)('BaccaratTable', () => {
         }
     })
 
-    it('lets a seat sit out a round with no bet and settles nothing for them', async () => {
+    it('unseats a player who has not bet when the betting timer expires', async () => {
         await seedUser(P1, { balance: '1000.0000' })
         await table.sit(P1, 'p1', null, 0)
 
         await table.forcePhaseEnd('betting')
-        await table.forcePhaseEnd('dealing')
-        await table.forcePhaseEnd('resolve')
 
         expect(await getBalance(P1)).toBe('1000.0000')
-        expect(table.snapshot().seats[0]?.lastNet).toBeNull()
+        expect(table.snapshot().seats[0]).toBeNull()
     })
 
     it('refunds a cleared bet in full', async () => {
@@ -137,6 +135,7 @@ describe.skipIf(SKIP)('BaccaratTable', () => {
     it('rejects a bet once betting has closed', async () => {
         await seedUser(P1, { balance: '1000.0000' })
         await table.sit(P1, 'p1', null, 0)
+        await table.action(P1, { kind: 'bet', spot: 'banker', amount: 50 })
         await table.forcePhaseEnd('betting') // -> dealing
 
         await expect(table.action(P1, { kind: 'bet', spot: 'player', amount: 50 }))

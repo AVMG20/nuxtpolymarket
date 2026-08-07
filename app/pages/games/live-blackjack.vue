@@ -87,6 +87,7 @@ const houseRules = [
       >
         Rules
       </UButton>
+      <LiveTableSoundControl />
     </div>
 
     <ClientOnly>

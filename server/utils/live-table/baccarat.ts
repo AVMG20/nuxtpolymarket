@@ -186,6 +186,11 @@ export class BaccaratTable extends LiveTable<BacSeatState, BacSharedState, BacAc
      * function already knows in full, not three separate decisions.
      */
     private deal() {
+        for (const player of this.seated()) {
+            if (totalStaked(player.game.bets) <= 0) this.leave(player.userId)
+        }
+        if (!this.seated().length) return
+
         const playerCards = [this.shoe.draw(), this.shoe.draw()]
         const bankerCards = [this.shoe.draw(), this.shoe.draw()]
 

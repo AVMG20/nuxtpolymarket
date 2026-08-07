@@ -1,11 +1,14 @@
 <script setup lang="ts">
-import { chipRackFor } from '#shared/utils/live-blackjack/chips'
+import { LB_CHIPS } from '#shared/utils/live-blackjack/chips'
 import { BAC_BET_KEYS, BAC_PAYOUTS, totalStaked } from '#shared/utils/baccarat/payouts'
 import { bigEyeBoyMarks, bigRoadCells, bigRoadColumns } from '#shared/utils/baccarat/roadmap'
 import type { BacAction, BacBetKey, BacSeatState, BacSharedState } from '#shared/utils/baccarat/types'
 import type { LtSeat } from '#shared/utils/live-table/types'
-import { cardBack, cardFace, chip, chipStack } from '~/utils/live-table/art'
+import { cardBack, cardFace, chipStack } from '~/utils/live-table/art'
 import type { LtFeedItem } from '~/composables/live-table'
+import { useLiveTableSound } from '~/composables/live-table-sound'
+
+const { play: playSfx, preload: preloadSfx, unlock: unlockSfx, stop: stopSfx } = useLiveTableSound()
 
 const SEAT_POS = [
     { x: 222, y: 546 },
@@ -108,11 +111,15 @@ watch(() => feed.value.length, () => {
 // becomes 'payout'; during 'resolve' the hand total is already known but the
 // money has not moved yet. A player who sat out the round keeps lastNet null.
 watch(() => state.value?.phase, (phase, previous) => {
+    if (phase === 'dealing') playSfx('card-deal')
+    if (phase === 'resolve') playSfx('card-flip')
     if (phase !== 'payout' || previous === 'payout') return
+    playSfx('roulette-result')
     const seat = mySeat.value
     const net = seat?.lastNet
     if (net === null || net === undefined) return
     if (net > 0) {
+        playSfx('win')
         // Which spots actually paid, so "you won" reads as more than a number.
         const wins = BAC_BET_KEYS
             .filter(key => seat!.game.bets[key] > 0 && spotWins(key))
@@ -123,8 +130,10 @@ watch(() => state.value?.phase, (phase, previous) => {
             color: 'success'
         })
     } else if (net < 0) {
+        playSfx('lose')
         toast.add({ title: `You lost ${formatNumber(Math.abs(net))}`, color: 'error' })
     } else {
+        playSfx('push')
         toast.add({ title: 'Push — bet returned', color: 'neutral' })
     }
 })
@@ -152,11 +161,14 @@ const eyeBoy = computed(() => bigEyeBoyMarks(bigRoadColumns(history.value)))
 const showTotals = computed(() => state.value?.phase === 'resolve' || state.value?.phase === 'payout')
 const isBetting = computed(() => state.value?.phase === 'betting')
 
-const rack = computed(() => chipRackFor(balance.value).map(c => c.value))
-const selectedChip = ref(rack.value[3] ?? rack.value[0] ?? 25)
-watch(rack, (values) => {
-    if (!values.includes(selectedChip.value)) selectedChip.value = values[Math.min(3, values.length - 1)] ?? values[0] ?? 25
-})
+const selectedChip = ref(25)
+const chipOffset = ref(0)
+watch(() => balance.value, () => {
+    if (selectedChip.value > balance.value) {
+        const affordable = LB_CHIPS.filter(c => c.value <= balance.value)
+        selectedChip.value = affordable[Math.min(3, affordable.length - 1)]?.value ?? affordable[0]?.value ?? 25
+    }
+}, { immediate: true })
 
 const myTotalBet = computed(() => mySeat.value ? totalStaked(mySeat.value.game.bets) : 0)
 const hasLastBet = computed(() => !!mySeat.value && totalStaked(mySeat.value.game.lastBets) > 0)
@@ -180,8 +192,15 @@ const untilShuffle = computed(() => state.value?.game.shoe.untilShuffle ?? 0)
 
 const now = ref(Date.now())
 let clockTimer: ReturnType<typeof setInterval> | null = null
-onMounted(() => { clockTimer = setInterval(() => { now.value = Date.now() }, 250) })
-onBeforeUnmount(() => { if (clockTimer) clearInterval(clockTimer) })
+onMounted(() => {
+    clockTimer = setInterval(() => { now.value = Date.now() }, 250)
+    preloadSfx()
+    unlockSfx()
+})
+onBeforeUnmount(() => {
+    if (clockTimer) clearInterval(clockTimer)
+    stopSfx()
+})
 
 const secondsLeft = computed(() => {
     const snapshot = state.value
@@ -226,14 +245,17 @@ function badgeClass(side: 'player' | 'banker'): string {
 function placeBet(spot: BacBetKey) {
     if (!isBetting.value || !mySeat.value) return
     table.act({ kind: 'bet', spot, amount: selectedChip.value })
+    playSfx('chip-place')
 }
 
 function clearBets() {
     table.act({ kind: 'clear' })
+    playSfx('chip-collect')
 }
 
 function scaleBets(factor: number) {
     table.act({ kind: 'scale', factor })
+    playSfx('chip-place')
 }
 </script>
 
@@ -411,19 +433,16 @@ function scaleBets(factor: number) {
             :can-scale="canScale"
             :can-clear="canClear"
             :show-undo="false"
-            @repeat="table.act({ kind: 'repeat' })"
+            @repeat="table.act({ kind: 'repeat' }); playSfx('chip-place')"
             @scale="scaleBets"
             @clear="clearBets"
           />
-          <div class="lt-rack" :class="{ 'bac-rack-muted': !isBetting }">
-            <span
-              v-for="value in rack"
-              :key="value"
-              :class="{ sel: value === selectedChip }"
-              @click="selectedChip = value"
-              v-html="chip(value)"
-            />
-          </div>
+          <LiveTableRack
+            :balance="balance"
+            v-model="selectedChip"
+            v-model:offset="chipOffset"
+            :muted="!isBetting"
+          />
           <div class="lt-panel lt-panel-l">
             <span class="lt-panel-label">Your bet</span>
             <span class="lt-panel-value lt-mono">{{ formatNumber(myTotalBet) }}</span>
@@ -592,10 +611,6 @@ function scaleBets(factor: number) {
    jump between phases -- only how lit and clickable the rack is changes. */
 .lt-rack {
   transition: opacity 0.25s ease;
-}
-.bac-rack-muted {
-  opacity: 0.3;
-  pointer-events: none;
 }
 
 /* Centred exactly on its (x,y) stage coordinate -- the shoe and discard tray
