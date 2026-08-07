@@ -3,6 +3,7 @@ import type { TcgSubmissionSummary, TcgGradePayload } from '#shared/types/tcg'
 import type { TcgServiceKey } from '~/utils/tcg/slab'
 import { buildSlabInfo } from '~/utils/tcg/slab-info'
 import { SERVICES } from '#shared/utils/tcg/grading-model'
+import { legacySetOf } from '#shared/utils/tcg/legacy'
 
 /* The grader's front desk: what's away, what's back, and the reveal.
  * Submitting happens where the card is — the collection lightbox — this page
@@ -223,6 +224,8 @@ function historyGradeLabel(s: TcgSubmissionSummary): string {
               :mask-kind="reveal.submission.render.maskKind ?? 'wp'"
               :foil-effect="reveal.submission.render.foilEffect"
               :pattern="reveal.submission.render.pattern"
+              :legacy-set="reveal.submission.render.bundle ? null : legacySetOf(reveal.submission.render.plaatjesCardId)"
+              :holo="reveal.submission.render.finish === 'holo'"
               :height="revealHeight"
             />
           </ClientOnly>
