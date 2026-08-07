@@ -857,6 +857,19 @@ export const tcgSet = pgTable('tcg_sets', {
   basePacksSold: integer('base_packs_sold').notNull().default(0),
   godPacksSold: integer('god_packs_sold').notNull().default(0),
   /**
+   * Reprints (§3.6): a later print run is its own set row linked to the run
+   * it reprints. Never fungible — its printings, packs and populations are
+   * all its own.
+   */
+  reprintOfSetId: text('reprint_of_set_id'),
+  /** '1st' for original runs; the reprint's stamp text otherwise (§5.4). */
+  printRunLabel: text('print_run_label').notNull().default('1st'),
+  /**
+   * The announcement gate (§3.6): a committed set is visible in the shop but
+   * not buyable until this passes. Null = on sale at commit.
+   */
+  onSaleAt: timestamp('on_sale_at'),
+  /**
    * Returned reservations awaiting random re-surfacing (admin debug returns).
    * Read-modify-write only under the set row lock (lockSetForUpdate).
    */
@@ -948,6 +961,23 @@ export const tcgPackTemplate = pgTable('tcg_pack_templates', {
 }, t => [unique('tcg_pack_templates_setId_kind_unique').on(t.setId, t.kind)])
 
 /**
+ * Admin-tunable shop economics (§7.3): pack pricing, the daily cap and the
+ * weekend bundle. A single row keyed 'shop'; when absent, the launch defaults
+ * in server/utils/tcg/settings.ts apply. Reads happen per purchase, so an
+ * admin edit takes effect immediately — mid-flight buys keep the values they
+ * started with.
+ */
+export const tcgSettings = pgTable('tcg_settings', {
+  id: text('id').primaryKey(),
+  packsPerPair: integer('packs_per_pair').notNull(),
+  gemsPerPair: integer('gems_per_pair').notNull(),
+  packsPerDay: integer('packs_per_day').notNull(),
+  bundlePacks: integer('bundle_packs').notNull(),
+  bundleGems: integer('bundle_gems').notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull()
+})
+
+/**
  * One row per (user, Amsterdam-day) tracking packs bought toward the global
  * daily cap. The conditional upsert on this row IS the daily-cap guard
  * (mutation-is-the-guard): `INSERT … ON CONFLICT DO UPDATE SET packs_bought =
@@ -1006,8 +1036,10 @@ export const tcgPack = pgTable('tcg_packs', {
 /**
  * One physical copy pulled from a pack. (sheetId, cutIndex, slotOffset) is the
  * copy's serial provenance — globally unique, so every copy is traceable to
- * the exact sheet slot it was cut from. `lifecycle` vocabulary reserved:
- * 'raw' | 'slabbed' | 'sealed' | 'destroyed' (only 'raw' is used in slice 1).
+ * the exact sheet slot it was cut from. `lifecycle` vocabulary:
+ * 'raw' | 'grading' | 'slabbed' | 'sealed' | 'destroyed' — 'grading' while a
+ * submission is out (§6.4), 'destroyed' after a vendor sale (§7.4; soft, the
+ * row stays so chains and sale history keep their referents).
  * `condition` is rolled at mint (openPack) and immutable from then on (§6.1);
  * it must NEVER be serialized to any client — no endpoint may select it into
  * a payload. Nullable only because pre-slice-3 copies predate the column.
