@@ -127,8 +127,9 @@ export const useXeno = () => {
     return call('/api/xeno/artifacts/delete', { artifactIds }, 'Artifact deleted')
   }
 
-  async function buyArtifact(artifactTypeId: string, gemCrafted = false) {
-    const res = await call('/api/xeno/artifacts/buy', { artifactTypeId, gemCrafted }, gemCrafted ? 'Gem-crafted artifact created!' : 'Artifact crafted!')
+  async function buyArtifact(artifactTypeId: string, gemCrafted = false, quantity = 1) {
+    const suffix = quantity > 1 ? ` ×${quantity}` : ''
+    const res = await call('/api/xeno/artifacts/buy', { artifactTypeId, gemCrafted, quantity }, gemCrafted ? `Gem-crafted artifact created!${suffix}` : `Artifact crafted!${suffix}`)
     await fetchSession()
     return res
   }
