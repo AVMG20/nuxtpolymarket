@@ -47,6 +47,7 @@ function openLightbox(card: OpenedPackCard, event: MouseEvent) {
         name: card.name,
         rarity: card.rarity,
         pattern: card.pattern,
+        printRunLabel: card.printRunLabel,
         serial: card.serial,
         // Fresh pulls are inspectable immediately: the lightbox fetches this
         // copy's wear spec once its zoom settles.
@@ -1174,7 +1175,7 @@ const caption = computed(() => {
             >
                 <template v-if="shownCard">
                     <b class="text-neutral-100">{{ shownCard.name }}</b>
-                    · {{ shownCard.rarity || '—' }}
+                    · {{ shownCard.rarity || '—' }}<template v-if="shownCard.printRunLabel !== '1st'"> · {{ shownCard.printRunLabel }}</template>
                     <template v-if="cardsLeft > 0"> · swipe or click · {{ cardsLeft }} left</template>
                     <template v-else> · that is the pack</template>
                 </template>
@@ -1255,7 +1256,7 @@ const caption = computed(() => {
                                 <UBadge color="neutral" variant="subtle" size="sm">{{ card.rarity || '—' }}</UBadge>
                                 <UBadge v-if="card.pattern" color="warning" variant="subtle" size="sm">{{ card.pattern }}</UBadge>
                             </div>
-                            <div class="font-mono text-xs tabular-nums text-neutral-400">{{ card.serial }}</div>
+                            <div class="font-mono text-xs tabular-nums text-neutral-400">{{ card.serial }}<template v-if="card.printRunLabel !== '1st'"> · {{ card.printRunLabel }}</template></div>
                         </div>
                     </div>
                 </div>

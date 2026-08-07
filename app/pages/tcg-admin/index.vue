@@ -25,6 +25,40 @@ const { data: sets, pending } = useFetch<TcgAdminSet[]>('/api/tcg/admin/sets', {
   default: () => []
 })
 
+// The emission guard (§7.5): buyback coins against packs sold, on the page
+// an admin actually looks at.
+const { data: vendorStats } = useFetch<{ coinsEmitted: number, payouts: number, packsSold: number }>('/api/tcg/admin/vendor-stats', {
+  key: 'tcg-admin-vendor-stats'
+})
+
+// Shop economics (§7.3): pack pricing, daily cap and bundle, admin-tunable.
+interface ShopSettings {
+  packsPerPair: number
+  gemsPerPair: number
+  packsPerDay: number
+  bundlePacks: number
+  bundleGems: number
+}
+const { data: shopSettings } = useFetch<ShopSettings>('/api/tcg/admin/settings', {
+  key: 'tcg-admin-shop-settings'
+})
+const shopEdit = ref<ShopSettings | null>(null)
+watch(shopSettings, (s) => {
+  if (s) shopEdit.value = { ...s }
+}, { immediate: true })
+const savingSettings = ref(false)
+async function saveShopSettings() {
+  if (!shopEdit.value || savingSettings.value) return
+  savingSettings.value = true
+  try {
+    await call('/api/tcg/admin/settings', { ...shopEdit.value }, 'Shop settings saved')
+  } catch {
+    // toasted by call()
+  } finally {
+    savingSettings.value = false
+  }
+}
+
 // ── New set from template (primary flow) ──────────────────────────
 const templateOpen = ref(false)
 const templateSearch = ref('')
@@ -102,6 +136,47 @@ async function createSet() {
   }
 }
 
+// ── Reprint (§3.6): a new print run of a committed set ────────────
+const reprintOpen = ref(false)
+const reprintParent = ref<TcgAdminSet | null>(null)
+const reprintLabel = ref('Unlimited')
+const reprintOnSaleAt = ref('')
+const reprinting = ref(false)
+
+function openReprint(s: TcgAdminSet) {
+  reprintParent.value = s
+  reprintLabel.value = 'Unlimited'
+  // Default: announced now, on sale in 24 hours.
+  const tomorrow = new Date(Date.now() + 24 * 3600 * 1000)
+  reprintOnSaleAt.value = tomorrow.toISOString().slice(0, 16)
+  reprintOpen.value = true
+}
+
+const reprintParentRemaining = computed(() => {
+  const s = reprintParent.value
+  if (!s?.targetPackCount) return 0
+  return Math.max(s.targetPackCount - s.packsSold, 0)
+})
+
+async function submitReprint() {
+  const parent = reprintParent.value
+  if (!parent || reprinting.value) return
+  reprinting.value = true
+  try {
+    const res = await call<{ setId: string, warnings: string[] }>('/api/tcg/admin/sets/reprint', {
+      setId: parent.id,
+      printRunLabel: reprintLabel.value.trim(),
+      onSaleAt: new Date(reprintOnSaleAt.value).toISOString()
+    }, `Reprint drafted — review and commit it`)
+    reprintOpen.value = false
+    await navigateTo(`/tcg-admin/${res.setId}`)
+  } catch {
+    // toasted by call()
+  } finally {
+    reprinting.value = false
+  }
+}
+
 function soldPct(s: TcgAdminSet): number {
   if (!s.targetPackCount) return 0
   return Math.min(100, (s.packsSold / s.targetPackCount) * 100)
@@ -132,6 +207,13 @@ function formatDate(iso: string): string {
         <div>
           <p class="text-xs font-semibold text-muted uppercase tracking-wider mb-1">TCG Admin</p>
           <h1 class="text-2xl font-bold">Print runs</h1>
+          <p
+            v-if="vendorStats"
+            class="mt-1 text-xs text-muted"
+          >
+            Vendor buyback: <b class="font-mono tabular-nums">{{ formatNumber(vendorStats.coinsEmitted, false) }}</b> coins
+            over {{ vendorStats.payouts }} sale{{ vendorStats.payouts === 1 ? '' : 's' }} · {{ formatNumber(vendorStats.packsSold, false) }} packs sold
+          </p>
         </div>
         <UButton
           icon="i-lucide-plus"
@@ -152,6 +234,7 @@ function formatDate(iso: string): string {
                 <th class="px-4 py-2.5 text-xs font-semibold text-muted uppercase tracking-wider text-right">Target N</th>
                 <th class="px-4 py-2.5 text-xs font-semibold text-muted uppercase tracking-wider w-44">Sold</th>
                 <th class="px-4 py-2.5 text-xs font-semibold text-muted uppercase tracking-wider text-right">Created</th>
+                <th class="px-4 py-2.5" />
               </tr>
             </thead>
             <tbody>
@@ -193,15 +276,27 @@ function formatDate(iso: string): string {
                 <td class="px-4 py-3 text-right text-xs text-muted tabular-nums whitespace-nowrap">
                   {{ formatDate(s.createdAt) }}
                 </td>
+                <td class="px-4 py-3 text-right">
+                  <UButton
+                    v-if="s.status === 'committed'"
+                    size="xs"
+                    color="neutral"
+                    variant="outline"
+                    icon="i-lucide-copy-plus"
+                    label="Reprint"
+                    class="cursor-pointer"
+                    @click.stop="openReprint(s)"
+                  />
+                </td>
               </tr>
               <tr v-if="!pending && sets.length === 0">
-                <td colspan="6" class="px-4 py-12 text-center text-muted">
+                <td colspan="7" class="px-4 py-12 text-center text-muted">
                   <UIcon name="i-lucide-layers" class="size-6 mx-auto mb-2 opacity-60" />
                   <p class="text-sm">No sets yet. Create one to start authoring a print run.</p>
                 </td>
               </tr>
               <tr v-if="pending && sets.length === 0">
-                <td colspan="6" class="px-4 py-4">
+                <td colspan="7" class="px-4 py-4">
                   <div class="space-y-2">
                     <USkeleton class="h-5 w-full" />
                     <USkeleton class="h-5 w-full" />
@@ -213,6 +308,122 @@ function formatDate(iso: string): string {
           </table>
         </div>
       </div>
+
+      <!-- Shop settings: pack pricing, daily cap, weekend bundle -->
+      <div
+        v-if="shopEdit"
+        class="mt-6 border border-default rounded-lg bg-elevated/50 p-4"
+      >
+        <p class="text-xs font-semibold text-muted uppercase tracking-wider mb-3">Shop settings</p>
+        <div class="flex flex-wrap items-end gap-4">
+          <UFormField label="Packs per pair">
+            <UInput
+              v-model.number="shopEdit.packsPerPair"
+              type="number"
+              size="sm"
+              class="w-24"
+              :min="1"
+            />
+          </UFormField>
+          <UFormField label="Gems per pair">
+            <UInput
+              v-model.number="shopEdit.gemsPerPair"
+              type="number"
+              size="sm"
+              class="w-24"
+              :min="1"
+            />
+          </UFormField>
+          <UFormField label="Packs per day">
+            <UInput
+              v-model.number="shopEdit.packsPerDay"
+              type="number"
+              size="sm"
+              class="w-24"
+              :min="1"
+            />
+          </UFormField>
+          <UFormField label="Bundle packs">
+            <UInput
+              v-model.number="shopEdit.bundlePacks"
+              type="number"
+              size="sm"
+              class="w-24"
+              :min="1"
+            />
+          </UFormField>
+          <UFormField label="Bundle gems">
+            <UInput
+              v-model.number="shopEdit.bundleGems"
+              type="number"
+              size="sm"
+              class="w-24"
+              :min="1"
+            />
+          </UFormField>
+          <UButton
+            size="sm"
+            label="Save"
+            :loading="savingSettings"
+            @click="saveShopSettings"
+          />
+        </div>
+      </div>
+
+      <!-- Reprint modal (§3.6) -->
+      <UModal
+        v-model:open="reprintOpen"
+        title="Author a reprint"
+        :description="reprintParent ? `A new print run of ${reprintParent.name} — its own printings, populations and prices, never fungible with the original.` : ''"
+      >
+        <template #body>
+          <div class="space-y-4">
+            <UAlert
+              v-if="reprintParentRemaining > 0"
+              color="warning"
+              variant="subtle"
+              icon="i-lucide-triangle-alert"
+              title="This set has not sold out"
+              :description="`${formatNumber(reprintParentRemaining, false)} packs remain unsold — reprinting now undercuts holders.`"
+            />
+            <UFormField
+              label="Print run label"
+              help="Printed as a stamp on every card of the run — the §3.6 distinguishability mandate."
+            >
+              <UInput
+                v-model="reprintLabel"
+                :maxlength="24"
+                placeholder="Unlimited"
+              />
+            </UFormField>
+            <UFormField
+              label="On sale at"
+              help="The run is announced in the shop at commit and buyable only after this moment."
+            >
+              <UInput
+                v-model="reprintOnSaleAt"
+                type="datetime-local"
+              />
+            </UFormField>
+          </div>
+        </template>
+        <template #footer>
+          <div class="flex w-full justify-end gap-2">
+            <UButton
+              color="neutral"
+              variant="ghost"
+              label="Cancel"
+              @click="reprintOpen = false"
+            />
+            <UButton
+              :loading="reprinting"
+              :disabled="!reprintLabel.trim() || !reprintOnSaleAt"
+              label="Draft reprint"
+              @click="submitReprint"
+            />
+          </div>
+        </template>
+      </UModal>
 
       <!-- New set from template modal -->
       <UModal

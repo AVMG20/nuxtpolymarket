@@ -42,6 +42,12 @@ function formatMs(ms: number) {
   return `${s}s`
 }
 
+// A committed reprint is announced before it lands (§3.6): visible here from
+// commit, buyable only once its published on-sale moment passes.
+function notYetOnSale(set: { onSaleAt?: string | Date | null }): boolean {
+  return !!set.onSaleAt && msLeft(set.onSaleAt as string | Date) > 0
+}
+
 // ── Buying pairs ────────────────────────────────────────────────────────────
 const buying = ref<string | null>(null)
 
@@ -210,22 +216,13 @@ async function claim() {
             @error="hideBrokenArt"
           >
           <div class="min-w-0 flex-1 space-y-3">
-            <div class="flex items-start justify-between gap-2">
-              <div>
-                <p class="font-medium text-highlighted">
-                  {{ set.name }}
-                </p>
-                <p class="text-xs text-muted">
-                  {{ set.cardCount }} cards · {{ set.printingCount }} printings
-                </p>
-              </div>
-              <UBadge
-                color="neutral"
-                variant="subtle"
-                class="font-mono"
-              >
-                {{ set.code }}
-              </UBadge>
+            <div>
+              <p class="font-medium text-highlighted">
+                {{ set.name }}
+              </p>
+              <p class="text-xs text-muted">
+                <span class="font-mono">{{ set.code }}</span> · {{ set.cardCount }} cards · {{ set.printingCount }} printings<template v-if="set.printRunLabel && set.printRunLabel !== '1st'"> · {{ set.printRunLabel }}</template>
+              </p>
             </div>
 
             <div
@@ -245,7 +242,18 @@ async function claim() {
             </div>
 
             <div
-              v-if="prices"
+              v-if="notYetOnSale(set)"
+              class="flex items-center gap-2 text-sm text-muted"
+            >
+              <UIcon
+                name="i-lucide-megaphone"
+                class="size-4 text-warning"
+              />
+              Reprint announced · on sale in
+              <b class="tabular-nums text-highlighted">{{ formatMs(msLeft(set.onSaleAt!)) }}</b>
+            </div>
+            <div
+              v-else-if="prices"
               class="flex gap-2"
             >
               <UTooltip
