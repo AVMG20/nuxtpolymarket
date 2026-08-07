@@ -134,10 +134,21 @@ function isEnergyPrinting(p: FitPrinting): boolean {
  * Energy'. Special energies (Double Colorless, Jet, ACE SPEC energies …)
  * carry ordinary rarities and never match — they belong to whatever tier
  * their printed rarity maps to.
+ *
+ * WOTC-era scans carry no rarity code and print the name as just
+ * '<Type> Energy', so those exact names are matched too — the list
+ * deliberately leaves out Double Colorless (a special energy).
  */
+const WOTC_BASIC_ENERGY_NAMES = new Set([
+    'Grass Energy', 'Fire Energy', 'Water Energy', 'Lightning Energy',
+    'Psychic Energy', 'Fighting Energy', 'Darkness Energy', 'Metal Energy',
+    'Fairy Energy'
+])
+
 export function isBasicEnergy(p: Pick<FitPrinting, 'rarityCode' | 'name'>): boolean {
     if (p.rarityCode != null && /BE$/i.test(p.rarityCode)) return true
-    return p.name != null && p.name.startsWith('Basic ')
+    if (p.name == null) return false
+    return p.name.startsWith('Basic ') || WOTC_BASIC_ENERGY_NAMES.has(p.name)
 }
 
 function matchesRarityLabel(p: FitPrinting, label: string | null): boolean {
