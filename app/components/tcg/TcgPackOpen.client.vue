@@ -6,6 +6,7 @@ import type { LightboxCard } from './TcgCardLightbox.client.vue'
 import { ASPECT, resolve, resolveLegacy, makeLoader, makeMaterial, loadCard } from '~/utils/tcg/foil'
 import type { FoilUniforms } from '~/utils/tcg/foil'
 import { splitRect, roughen } from '~/utils/tcg/tear'
+import { wrapCandidates } from '~/utils/tcg/wrap'
 import type { TearPoint } from '~/utils/tcg/tear'
 
 /* Opening a booster pack — a port of pokemonplaatjes/demo/pack.html.
@@ -1037,8 +1038,7 @@ onMounted(() => {
         // the torn pieces get the right outline for free.
         let tex: THREE.Texture | null = null
         let real = false
-        const code = (props.plaatjesSetCode ?? '').trim()
-        for (const candidate of code ? [...new Set([code, code.toLowerCase()])] : []) {
+        for (const candidate of wrapCandidates(props.plaatjesSetCode)) {
             try {
                 const art = await load(`${apiBase}/images/boosters/${candidate}.png`)
                 const img = art.image as HTMLImageElement

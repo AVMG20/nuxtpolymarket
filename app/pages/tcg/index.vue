@@ -1,6 +1,20 @@
 <script setup lang="ts">
+import { wrapUrl } from '~/utils/tcg/wrap'
+
 const { user } = useAuth()
 const { sets, prices, allowance, bundle, call } = useTcg()
+
+const apiBase = (useRuntimeConfig().public as { pokemonApiBase?: string }).pokemonApiBase
+  ?? 'http://127.0.0.1:8080'
+
+function packArt(plaatjesSetCode: string | null): string | null {
+  return wrapUrl(apiBase, plaatjesSetCode)
+}
+
+// A set whose wrap the sidecar does not have just shows text, like before.
+function hideBrokenArt(e: Event) {
+  (e.target as HTMLImageElement).style.display = 'none'
+}
 
 const gems = computed(() => user.value?.gems ?? 0)
 
@@ -187,62 +201,71 @@ async function claim() {
         v-for="set in sets"
         :key="set.id"
       >
-        <div class="space-y-3">
-          <div class="flex items-start justify-between gap-2">
-            <div>
-              <p class="font-medium text-highlighted">
-                {{ set.name }}
-              </p>
-              <p class="text-xs text-muted">
-                {{ set.cardCount }} cards · {{ set.printingCount }} printings
-              </p>
-            </div>
-            <UBadge
-              color="neutral"
-              variant="subtle"
-              class="font-mono"
-            >
-              {{ set.code }}
-            </UBadge>
-          </div>
-
-          <div
-            v-if="set.targetPackCount"
-            class="flex items-center gap-2"
+        <div class="flex gap-4">
+          <img
+            v-if="packArt(set.plaatjesSetCode)"
+            :src="packArt(set.plaatjesSetCode)!"
+            :alt="`${set.name} booster pack`"
+            class="h-28 w-auto shrink-0 self-center drop-shadow-md"
+            @error="hideBrokenArt"
           >
-            <UProgress
-              :model-value="set.remaining"
-              :max="set.targetPackCount"
-              color="primary"
-              size="sm"
-              class="flex-1"
-            />
-            <span class="whitespace-nowrap text-xs tabular-nums text-muted">
-              {{ formatNumber(set.remaining, false) }} packs left
-            </span>
-          </div>
-
-          <div
-            v-if="prices"
-            class="flex gap-2"
-          >
-            <UTooltip
-              v-for="pairs in [1, 2]"
-              :key="pairs"
-              :text="buyDisabledReason(set, pairs) ?? undefined"
-              :disabled="!buyDisabledReason(set, pairs)"
-            >
-              <UButton
-                size="sm"
-                :variant="pairs === 1 ? 'solid' : 'soft'"
-                icon="i-lucide-package-plus"
-                :disabled="!!buyDisabledReason(set, pairs)"
-                :loading="buying === `${set.id}:${pairs}`"
-                @click="buy(set, pairs)"
+          <div class="min-w-0 flex-1 space-y-3">
+            <div class="flex items-start justify-between gap-2">
+              <div>
+                <p class="font-medium text-highlighted">
+                  {{ set.name }}
+                </p>
+                <p class="text-xs text-muted">
+                  {{ set.cardCount }} cards · {{ set.printingCount }} printings
+                </p>
+              </div>
+              <UBadge
+                color="neutral"
+                variant="subtle"
+                class="font-mono"
               >
-                Buy {{ pairs * prices.packsPerPair }} packs · {{ pairs * prices.gemsPerPair }} gem{{ pairs * prices.gemsPerPair > 1 ? 's' : '' }}
-              </UButton>
-            </UTooltip>
+                {{ set.code }}
+              </UBadge>
+            </div>
+
+            <div
+              v-if="set.targetPackCount"
+              class="flex items-center gap-2"
+            >
+              <UProgress
+                :model-value="set.remaining"
+                :max="set.targetPackCount"
+                color="primary"
+                size="sm"
+                class="flex-1"
+              />
+              <span class="whitespace-nowrap text-xs tabular-nums text-muted">
+                {{ formatNumber(set.remaining, false) }} packs left
+              </span>
+            </div>
+
+            <div
+              v-if="prices"
+              class="flex gap-2"
+            >
+              <UTooltip
+                v-for="pairs in [1, 2]"
+                :key="pairs"
+                :text="buyDisabledReason(set, pairs) ?? undefined"
+                :disabled="!buyDisabledReason(set, pairs)"
+              >
+                <UButton
+                  size="sm"
+                  :variant="pairs === 1 ? 'solid' : 'soft'"
+                  icon="i-lucide-package-plus"
+                  :disabled="!!buyDisabledReason(set, pairs)"
+                  :loading="buying === `${set.id}:${pairs}`"
+                  @click="buy(set, pairs)"
+                >
+                  Buy {{ pairs * prices.packsPerPair }} packs · {{ pairs * prices.gemsPerPair }} gem{{ pairs * prices.gemsPerPair > 1 ? 's' : '' }}
+                </UButton>
+              </UTooltip>
+            </div>
           </div>
         </div>
       </UCard>
