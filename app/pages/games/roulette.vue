@@ -16,6 +16,7 @@ useHead({ title: 'Roulette' })
           Single-zero European wheel — everyone bets the same layout, one spin settles every bet.
         </p>
       </div>
+      <LiveTableSoundControl />
     </div>
 
     <ClientOnly>
