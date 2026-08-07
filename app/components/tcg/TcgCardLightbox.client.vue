@@ -32,6 +32,8 @@ export interface LightboxCard {
     pattern?: string | null
     /** Human finish label for the badge ("Reverse (masterball)"). */
     finishLabel?: string | null
+    /** Print run (§3.6): anything but '1st' renders the run's stamp. */
+    printRunLabel?: string | null
     serial?: string | null
     /** A specific owned copy to inspect — its wear spec is fetched once the
      * zoom settles. Absent → clean render. */
@@ -59,7 +61,10 @@ export interface LightboxCard {
 }
 
 const props = defineProps<{ card: LightboxCard | null }>()
-const emit = defineEmits<{ close: [] }>()
+// `changed` fires after any successful copy mutation (vendor, list, cancel,
+// grade, crack, buy) so the page behind can refresh its counts immediately —
+// the lightbox may stay open on the printing's remaining copies.
+const emit = defineEmits<{ close: [], changed: [] }>()
 
 const ASPECT = 0.718
 const ENTER_MS = 280
@@ -287,6 +292,7 @@ async function sendToGrading() {
         gradePanel.value = false
         predicted.value = undefined
         refetchCopies()
+        emit('changed')
         await fetchSession()
     } catch (e) {
         toast.add({ title: apiErrorMessage(e, 'Could not submit'), color: 'error' })
@@ -300,6 +306,7 @@ const crackArmed = ref(false)
 const cracking = ref(false)
 watch(activeCopyId, () => {
     crackArmed.value = false
+    vendorPanel.value = false
 })
 
 async function crack() {
@@ -320,6 +327,7 @@ async function crack() {
             : { title: 'Cracked clean. The card is raw again.', color: 'success' })
         crackArmed.value = false
         refetchCopies()
+        emit('changed')
         // The wear may have changed if the crack damaged the card.
         const t = ++wearToken
         $fetch<{ wear: TcgWearSpec | null }>('/api/tcg/copy-render', { query: { copyId } })
@@ -376,6 +384,7 @@ async function buy() {
     try {
         await $fetch('/api/tcg/market/buy', { method: 'POST', body: { listingId: listing.id } })
         toast.add({ title: 'Bought — the card is yours', color: 'success' })
+        emit('changed')
         await fetchSession()
         emitClose()
     } catch (e) {
@@ -390,6 +399,7 @@ async function cancelMyListing(listingId: string) {
     try {
         await $fetch('/api/tcg/market/cancel', { method: 'POST', body: { listingId } })
         toast.add({ title: 'Listing cancelled', color: 'success' })
+        emit('changed')
         if (props.card?.listing) emitClose()
         else refetchCopies()
     } catch (e) {
@@ -415,10 +425,59 @@ async function listForSale() {
         sellPanel.value = false
         sellNote.value = ''
         refetchCopies()
+        emit('changed')
     } catch (e) {
         toast.add({ title: apiErrorMessage(e, 'Could not list'), color: 'error' })
     } finally {
         sellSubmitting.value = false
+    }
+}
+
+/* ---- the vendor (§7.4) ------------------------------------------------- */
+
+// The payout is the card's real-world price, read as Coins — pennies, on
+// purpose. Quote fetched when the panel opens; the sell re-prices server-side.
+const vendorPanel = ref(false)
+const vendorQuote = ref<number | null>(null)
+const vendorArmed = ref(false)
+const vendorSubmitting = ref(false)
+watch(vendorPanel, (open) => {
+    vendorQuote.value = null
+    vendorArmed.value = false
+    if (!open || !activeCopyId.value) return
+    $fetch<{ amount: number }>('/api/tcg/vendor/quote', { query: { copyId: activeCopyId.value } })
+        .then((res) => {
+            vendorQuote.value = res.amount
+        })
+        .catch(() => {})
+})
+
+async function sellToVendor() {
+    const copyId = activeCopyId.value
+    if (!copyId || vendorSubmitting.value) return
+    if (!vendorArmed.value) {
+        vendorArmed.value = true
+        return
+    }
+    vendorSubmitting.value = true
+    try {
+        const res = await $fetch<{ amount: number }>('/api/tcg/vendor/sell', {
+            method: 'POST',
+            body: { copyId }
+        })
+        toast.add({
+            title: `The vendor hands you ${formatNumber(res.amount, false)} coin${res.amount === 1 ? '' : 's'}. The card is gone.`,
+            color: 'success'
+        })
+        vendorPanel.value = false
+        refetchCopies()
+        emit('changed')
+        await fetchSession()
+    } catch (e) {
+        toast.add({ title: apiErrorMessage(e, 'Could not sell'), color: 'error' })
+        vendorArmed.value = false
+    } finally {
+        vendorSubmitting.value = false
     }
 }
 
@@ -752,6 +811,10 @@ onBeforeUnmount(() => {
                     >
                         {{ card.finishLabel ?? card.pattern }}
                     </UBadge>
+                    <span
+                        v-if="card.printRunLabel && card.printRunLabel !== '1st'"
+                        class="text-xs text-neutral-400"
+                    >{{ card.printRunLabel }}</span>
                 </div>
                 <div
                     v-if="wear && activeSerial"
@@ -830,7 +893,7 @@ onBeforeUnmount(() => {
                     </template>
                     <template v-else>
                         <div
-                            v-if="!gradePanel && !sellPanel"
+                            v-if="!gradePanel && !sellPanel && !vendorPanel"
                             class="flex gap-1.5"
                         >
                             <UButton
@@ -848,6 +911,14 @@ onBeforeUnmount(() => {
                                 icon="i-lucide-tag"
                                 label="List for sale"
                                 @click="sellPanel = true"
+                            />
+                            <UButton
+                                color="neutral"
+                                variant="subtle"
+                                size="xs"
+                                icon="i-lucide-coins"
+                                label="Vendor"
+                                @click="vendorPanel = true"
                             />
                         </div>
                         <div
@@ -892,6 +963,36 @@ onBeforeUnmount(() => {
                                         @click="listForSale"
                                     />
                                 </div>
+                            </div>
+                        </div>
+                        <div
+                            v-if="vendorPanel"
+                            class="flex flex-col gap-2 rounded-lg border border-neutral-800 bg-neutral-950/90 p-3"
+                        >
+                            <div class="text-xs text-neutral-400">
+                                The vendor offers
+                                <b class="font-mono tabular-nums text-neutral-200">{{ vendorQuote === null ? '…' : formatNumber(vendorQuote, false) }}</b>
+                                coin{{ vendorQuote === 1 ? '' : 's' }} — that is what this card is actually worth.
+                            </div>
+                            <div class="text-xs text-neutral-500">
+                                The card is destroyed. There is no undo.
+                            </div>
+                            <div class="flex items-center justify-end gap-1.5">
+                                <UButton
+                                    color="neutral"
+                                    variant="ghost"
+                                    size="xs"
+                                    label="Cancel"
+                                    @click="vendorPanel = false"
+                                />
+                                <UButton
+                                    :color="vendorArmed ? 'error' : 'primary'"
+                                    size="xs"
+                                    :loading="vendorSubmitting"
+                                    :disabled="vendorQuote === null"
+                                    :label="vendorArmed ? 'Really sell — destroys the card' : 'Sell'"
+                                    @click="sellToVendor"
+                                />
                             </div>
                         </div>
                         <div

@@ -10,7 +10,7 @@ const selectedSetId = ref<string | undefined>(undefined)
 const setOptions = computed(() =>
   sets.value.map(s => ({ label: `${s.name} (${s.code})`, value: s.id })))
 
-const { data: collection, pending } = useFetch<CollectionPayload>('/api/tcg/collection', {
+const { data: collection, pending, refresh } = useFetch<CollectionPayload>('/api/tcg/collection', {
   key: 'tcg-collection',
   query: { setId: selectedSetId },
   immediate: false,
@@ -63,6 +63,7 @@ function openLightbox(card: CollectionCard, printing: CollectionPrinting, event:
     name: card.name,
     rarity: card.rarity,
     pattern: printing.pattern,
+    printRunLabel: printing.printRunLabel,
     finishLabel: finishLabel(printing.finish, printing.pattern),
     // For the slab label when a graded copy of this printing is inspected.
     slabMeta: {
@@ -194,6 +195,7 @@ function openLightbox(card: CollectionCard, printing: CollectionPrinting, event:
     <TcgCardLightbox
       :card="lightboxCard"
       @close="lightboxCard = null"
+      @changed="refresh"
     />
   </div>
 </template>

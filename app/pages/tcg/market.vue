@@ -45,6 +45,7 @@ function openListing(listing: TcgListingSummary, event: MouseEvent) {
     maskKind: listing.render.maskKind,
     foilEffect: listing.render.foilEffect,
     pattern: listing.render.pattern,
+    printRunLabel: listing.render.printRunLabel,
     finishLabel: finishLabel(listing.render.finish, listing.render.pattern),
     legacySet: listing.render.bundle ? null : legacySetOf(listing.render.plaatjesCardId),
     holo: listing.render.finish === 'holo',
@@ -147,7 +148,7 @@ function thumbSrc(listing: TcgListingSummary): string {
           >
           <div class="mt-1.5 truncate text-sm font-medium text-highlighted">{{ listing.card.name }}</div>
           <div class="truncate text-xs text-muted">
-            {{ finishLabel(listing.render.finish, listing.render.pattern) }} · {{ listing.sellerName }}
+            {{ finishLabel(listing.render.finish, listing.render.pattern) }}<template v-if="listing.render.printRunLabel && listing.render.printRunLabel !== '1st'"> · {{ listing.render.printRunLabel }}</template> · {{ listing.sellerName }}
           </div>
           <div class="mt-0.5 flex items-center justify-between">
             <span class="font-mono text-sm tabular-nums text-highlighted">{{ formatNumber(listing.price) }}</span>
@@ -179,6 +180,7 @@ function thumbSrc(listing: TcgListingSummary): string {
     <TcgCardLightbox
       :card="lightboxCard"
       @close="closeLightbox"
+      @changed="refresh"
     />
   </div>
 </template>

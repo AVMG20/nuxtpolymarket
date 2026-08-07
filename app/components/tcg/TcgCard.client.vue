@@ -247,7 +247,7 @@ onMounted(async () => {
             // so the marks sit above the foil, as §8.3's layering requires.
             wearMesh = new THREE.Mesh(wearGeometry, wearMaterial)
             wearMesh.position.z = 0.002
-            wearMesh.renderOrder = 2
+            wearMesh.renderOrder = 3
             mesh.add(wearMesh)
         }
         invalidate()
