@@ -6,7 +6,7 @@
 import { createHash, randomBytes } from 'node:crypto'
 import { and, eq, inArray, lt, sql } from 'drizzle-orm'
 import { db } from '#server/database'
-import { tcgSet, tcgSheet, tcgPackTemplate, tcgPack, tcgCopy, tcgCard, tcgPrinting } from '#server/database/schema'
+import { tcgSet, tcgSheet, tcgPackTemplate, tcgPack, tcgCopy, tcgCard, tcgPrinting, tcgAuction } from '#server/database/schema'
 import { deriveKey, feistelPermute } from '#server/utils/tcg/feistel'
 import { loadFitContext, persistFit } from '#server/utils/tcg/import'
 import { randomInt } from '#shared/utils/random'
@@ -410,7 +410,10 @@ export async function returnPack(packId: string, userId: string): Promise<{ pack
                     eq(tcgCopy.lifecycle, 'raw'),
                     // A listed copy must not be vaporised by a debug return —
                     // the cascade would silently take the listing with it.
-                    sql`not exists (select 1 from tcg_listings l where l.copy_id = ${tcgCopy.id} and l.state = 'active')`
+                    sql`not exists (select 1 from tcg_listings l where l.copy_id = ${tcgCopy.id} and l.state = 'active')
+                        and not exists (select 1 from tcg_lot_items li join tcg_lots lo on lo.id = li.lot_id
+                            where li.copy_id = ${tcgCopy.id} and lo.state = 'active')
+                        and not exists (select 1 from tcg_auctions a where a.copy_id = ${tcgCopy.id} and a.state = 'active')`
                 ))
                 .returning({ id: tcgCopy.id })
             if (deleted.length !== cardsPerPack) badRequest('Pack contents are no longer intact')
@@ -447,9 +450,22 @@ export async function openPack(packId: string, userId: string): Promise<OpenedPa
     return await db.transaction(async (tx) => {
         const [pack] = await tx.update(tcgPack)
             .set({ state: 'opened', openedAt: new Date() })
-            .where(and(eq(tcgPack.id, packId), eq(tcgPack.ownerId, userId), eq(tcgPack.state, 'sealed')))
+            .where(and(
+                eq(tcgPack.id, packId),
+                eq(tcgPack.ownerId, userId),
+                eq(tcgPack.state, 'sealed'),
+                // A pack at auction (§7.1) belongs to the auction until it
+                // settles — its owner must not be able to open it out from
+                // under the bidders.
+                sql`not exists (select 1 from tcg_auctions a where a.pack_id = ${tcgPack.id} and a.state = 'active')`
+            ))
             .returning()
-        if (!pack) badRequest('Already opened')
+        if (!pack) {
+            const [atAuction] = await tx.select({ id: tcgAuction.id })
+                .from(tcgAuction)
+                .where(and(eq(tcgAuction.packId, packId), eq(tcgAuction.state, 'active')))
+            badRequest(atAuction ? 'Pack is at auction' : 'Already opened')
+        }
 
         const sheetIds = [...new Set(pack.cuts.map(cut => cut.sheetId))]
         const sheets = await tx.select().from(tcgSheet).where(inArray(tcgSheet.id, sheetIds))

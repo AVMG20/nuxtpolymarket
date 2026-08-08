@@ -11,9 +11,7 @@ const selectedSetId = ref<string | undefined>(undefined)
 const setOptions = computed(() =>
   sets.value.map(s => ({ label: `${s.name} (${s.code})`, value: s.id })))
 
-const { data: rows, pending } = useFetch<TcgPopReportRow[]>('/api/tcg/pop-report', {
-  key: 'tcg-pop-report',
-  query: { setId: selectedSetId },
+const { data: rows, pending } = useAsyncData('tcg-pop-report', () => apiFetch<TcgPopReportRow[]>('/api/tcg/pop-report', { query: { setId: selectedSetId.value } }), {
   immediate: false,
   watch: [selectedSetId]
 })
@@ -61,6 +59,14 @@ const groups = computed<PopGroup[]>(() => {
   }
   return [...byPrinting.values()].sort((a, b) => b.total - a.total || a.cardName.localeCompare(b.cardName))
 })
+
+// Any line opens its order book: pops double as the shopping catalogue.
+const bookIdentity = ref<TcgPopReportRow | null>(null)
+const bookOpen = ref(false)
+function openBook(line: TcgPopReportRow) {
+  bookIdentity.value = line
+  bookOpen.value = true
+}
 </script>
 
 <template>
@@ -110,18 +116,41 @@ const groups = computed<PopGroup[]>(() => {
         <span class="shrink-0 font-mono text-xs tabular-nums text-muted">pop {{ group.total }}</span>
       </div>
       <div class="grid gap-1">
-        <div
+        <button
           v-for="line in group.lines"
           :key="`${line.service}-${line.grade}-${line.designation ?? ''}`"
-          class="flex items-center justify-between rounded bg-default/60 px-2.5 py-1 text-sm"
+          type="button"
+          class="flex w-full cursor-pointer items-center justify-between rounded bg-default/60 px-2.5 py-1 text-left text-sm hover:bg-default"
+          @click="openBook(line)"
         >
           <span class="text-muted">
             <b class="font-medium text-highlighted">{{ line.service }}</b>
             {{ line.grade }}<template v-if="line.designation"> · {{ line.designation }}</template>
           </span>
           <span class="font-mono tabular-nums text-highlighted">{{ line.count }}</span>
-        </div>
+        </button>
       </div>
     </div>
+
+    <UModal v-model:open="bookOpen">
+      <template #content>
+        <div class="flex flex-col gap-3 p-5">
+          <div v-if="bookIdentity">
+            <h3 class="text-base font-semibold text-highlighted">{{ bookIdentity.cardName }}</h3>
+            <p class="mt-0.5 text-xs text-muted">
+              {{ finishLabel(bookIdentity.finish, bookIdentity.pattern) }}
+              · {{ bookIdentity.service }} {{ bookIdentity.grade }}<template v-if="bookIdentity.designation"> · {{ bookIdentity.designation }}</template>
+            </p>
+          </div>
+          <TcgBookPanel
+            v-if="bookIdentity"
+            :printing-id="bookIdentity.printingId"
+            :grade-service="bookIdentity.service"
+            :grade="bookIdentity.grade"
+            :grade-designation="bookIdentity.designation"
+          />
+        </div>
+      </template>
+    </UModal>
   </div>
 </template>

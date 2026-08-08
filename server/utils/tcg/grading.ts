@@ -8,7 +8,7 @@ import type { TcgGradeResult, TcgServiceKey, TcgCondition } from '#shared/utils/
 import { gaussSample } from '#shared/utils/tcg/condition'
 import { TCG_GRADING, gradingFeeFor, isTcgService, isValidGrade } from '#shared/utils/tcg/grading-fees'
 import { randomInt, randomChance, randomFloat, randomPick } from '#shared/utils/random'
-import { lockCopyForUpdate, hasActiveListing } from '#server/utils/tcg/market'
+import { lockCopyForUpdate, assertUnencumbered } from '#server/utils/tcg/market'
 
 /*
  * Grading (§6.4): submit → wait → collect → (maybe) crack and try again.
@@ -56,7 +56,7 @@ export async function submitForGrading(
         // Copy row lock first: market and grading mutations all queue here,
         // so the listing check below cannot race a concurrent listCopy.
         await lockCopyForUpdate(tx, copyId)
-        if (await hasActiveListing(tx, copyId)) badRequest('Copy is listed on the market')
+        await assertUnencumbered(tx, copyId)
         // The claim: raw → grading. Losing it means the copy is already at a
         // grader, already slabbed, or not this player's to send.
         const [claimed] = await tx.update(tcgCopy)
@@ -207,7 +207,7 @@ const CRACK_RNG: CrackRng = { chance: randomChance, pick: randomPick, float: ran
 export async function crackSlab(userId: string, copyId: string, rng: CrackRng = CRACK_RNG): Promise<CrackResult> {
     return await db.transaction(async (tx) => {
         await lockCopyForUpdate(tx, copyId)
-        if (await hasActiveListing(tx, copyId)) badRequest('Copy is listed on the market')
+        await assertUnencumbered(tx, copyId)
         const [claimed] = await tx.update(tcgCopy)
             .set({
                 lifecycle: 'raw',

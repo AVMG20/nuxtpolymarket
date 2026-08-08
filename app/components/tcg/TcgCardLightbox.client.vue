@@ -191,7 +191,7 @@ function resetInspection(card: LightboxCard | null) {
     // viewer actually owns some. Failure means no strip, nothing louder.
     if (card?.printingId && (card.owned ?? 0) > 0) {
         const t = copiesToken
-        $fetch<TcgCopySummary[]>('/api/tcg/copies', { query: { printingId: card.printingId } })
+        apiFetch<TcgCopySummary[]>('/api/tcg/copies', { query: { printingId: card.printingId } })
             .then((list) => {
                 if (t !== copiesToken || !list.length) return
                 copies.value = list
@@ -206,7 +206,7 @@ function resetInspection(card: LightboxCard | null) {
 watch([phase, activeCopyId], ([ph, id]) => {
     if (ph !== 'open' || !id) return
     const t = ++wearToken
-    $fetch<{ wear: TcgWearSpec | null }>('/api/tcg/copy-render', { query: { copyId: id } })
+    apiFetch<{ wear: TcgWearSpec | null }>('/api/tcg/copy-render', { query: { copyId: id } })
         .then((res) => {
             if (t === wearToken) wear.value = res.wear
         })
@@ -242,7 +242,7 @@ const slabService = computed<TcgServiceKey>(() =>
 function refetchCopies() {
     if (!props.card?.printingId) return
     const t = ++copiesToken
-    $fetch<TcgCopySummary[]>('/api/tcg/copies', { query: { printingId: props.card.printingId } })
+    apiFetch<TcgCopySummary[]>('/api/tcg/copies', { query: { printingId: props.card.printingId } })
         .then((list) => {
             if (t !== copiesToken) return
             copies.value = list
@@ -267,7 +267,7 @@ const serviceItems = computed(() => (Object.keys(SERVICES) as TcgServiceKey[]).m
 const fees = ref<Record<TcgServiceKey, number> | null>(null)
 watch(gradePanel, (open) => {
     if (!open || fees.value) return
-    $fetch<Record<TcgServiceKey, number>>('/api/tcg/grading/fees')
+    apiFetch<Record<TcgServiceKey, number>>('/api/tcg/grading/fees')
         .then((res) => {
             fees.value = res
         })
@@ -280,7 +280,7 @@ async function sendToGrading() {
     if (!copyId || submitting.value) return
     submitting.value = true
     try {
-        await $fetch('/api/tcg/grading/submit', {
+        await apiFetch('/api/tcg/grading/submit', {
             method: 'POST',
             body: {
                 copyId,
@@ -307,6 +307,7 @@ const cracking = ref(false)
 watch(activeCopyId, () => {
     crackArmed.value = false
     vendorPanel.value = false
+    auctionPanel.value = false
 })
 
 async function crack() {
@@ -318,7 +319,7 @@ async function crack() {
     }
     cracking.value = true
     try {
-        const res = await $fetch('/api/tcg/grading/crack', {
+        const res = await apiFetch<import('nitropack/types').InternalApi['/api/tcg/grading/crack']['post']>('/api/tcg/grading/crack', {
             method: 'POST',
             body: { copyId }
         })
@@ -330,7 +331,7 @@ async function crack() {
         emit('changed')
         // The wear may have changed if the crack damaged the card.
         const t = ++wearToken
-        $fetch<{ wear: TcgWearSpec | null }>('/api/tcg/copy-render', { query: { copyId } })
+        apiFetch<{ wear: TcgWearSpec | null }>('/api/tcg/copy-render', { query: { copyId } })
             .then((r) => {
                 if (t === wearToken) wear.value = r.wear
             })
@@ -355,14 +356,14 @@ watch([phase, () => props.card], ([ph]) => {
     sales.value = null
     const copyId = props.card.copyId ?? activeCopyId.value
     if (props.card.listing && copyId) {
-        $fetch<TcgChainEntry[]>('/api/tcg/market/chain', { query: { copyId } })
+        apiFetch<TcgChainEntry[]>('/api/tcg/market/chain', { query: { copyId } })
             .then((res) => {
                 chain.value = res
             })
             .catch(() => {})
     }
     if (props.card.printingId) {
-        $fetch<TcgSaleRow[]>('/api/tcg/market/history', { query: { printingId: props.card.printingId } })
+        apiFetch<TcgSaleRow[]>('/api/tcg/market/history', { query: { printingId: props.card.printingId } })
             .then((res) => {
                 sales.value = res.slice(0, 5)
             })
@@ -382,7 +383,7 @@ async function buy() {
     }
     buying.value = true
     try {
-        await $fetch('/api/tcg/market/buy', { method: 'POST', body: { listingId: listing.id } })
+        await apiFetch('/api/tcg/market/buy', { method: 'POST', body: { listingId: listing.id } })
         toast.add({ title: 'Bought — the card is yours', color: 'success' })
         emit('changed')
         await fetchSession()
@@ -397,7 +398,7 @@ async function buy() {
 
 async function cancelMyListing(listingId: string) {
     try {
-        await $fetch('/api/tcg/market/cancel', { method: 'POST', body: { listingId } })
+        await apiFetch('/api/tcg/market/cancel', { method: 'POST', body: { listingId } })
         toast.add({ title: 'Listing cancelled', color: 'success' })
         emit('changed')
         if (props.card?.listing) emitClose()
@@ -417,7 +418,7 @@ async function listForSale() {
     if (!copyId || sellSubmitting.value) return
     sellSubmitting.value = true
     try {
-        await $fetch('/api/tcg/market/list', {
+        await apiFetch('/api/tcg/market/list', {
             method: 'POST',
             body: { copyId, price: Number(sellPrice.value), note: sellNote.value || null }
         })
@@ -445,7 +446,7 @@ watch(vendorPanel, (open) => {
     vendorQuote.value = null
     vendorArmed.value = false
     if (!open || !activeCopyId.value) return
-    $fetch<{ amount: number }>('/api/tcg/vendor/quote', { query: { copyId: activeCopyId.value } })
+    apiFetch<{ amount: number }>('/api/tcg/vendor/quote', { query: { copyId: activeCopyId.value } })
         .then((res) => {
             vendorQuote.value = res.amount
         })
@@ -461,7 +462,7 @@ async function sellToVendor() {
     }
     vendorSubmitting.value = true
     try {
-        const res = await $fetch<{ amount: number }>('/api/tcg/vendor/sell', {
+        const res = await apiFetch<{ amount: number }>('/api/tcg/vendor/sell', {
             method: 'POST',
             body: { copyId }
         })
@@ -478,6 +479,37 @@ async function sellToVendor() {
         vendorArmed.value = false
     } finally {
         vendorSubmitting.value = false
+    }
+}
+
+/* ---- auction a copy (§7.1) -------------------------------------------- */
+
+const auctionPanel = ref(false)
+const auctionStart = ref(100)
+const auctionDurationMs = ref(3_600_000)
+const auctionDurations = [
+    { label: '1 hour', value: 3_600_000 },
+    { label: '6 hours', value: 21_600_000 },
+    { label: '24 hours', value: 86_400_000 }
+]
+const auctionSubmitting = ref(false)
+async function startAuction() {
+    const copyId = activeCopyId.value
+    if (!copyId || auctionSubmitting.value) return
+    auctionSubmitting.value = true
+    try {
+        await apiFetch('/api/tcg/auctions/create', {
+            method: 'POST',
+            body: { copyId, startPrice: Number(auctionStart.value), durationMs: auctionDurationMs.value }
+        })
+        toast.add({ title: 'Auction started', color: 'success' })
+        auctionPanel.value = false
+        refetchCopies()
+        emit('changed')
+    } catch (e) {
+        toast.add({ title: apiErrorMessage(e, 'Could not start auction'), color: 'error' })
+    } finally {
+        auctionSubmitting.value = false
     }
 }
 
@@ -870,6 +902,15 @@ onBeforeUnmount(() => {
                             :label="crackArmed ? 'Really crack it? This can damage the card' : 'Crack slab'"
                             @click="crack"
                         />
+                        <TcgBookPanel
+                            v-if="card.printingId"
+                            :printing-id="card.printingId"
+                            :grade-service="activeGrade.service"
+                            :grade="activeGrade.grade"
+                            :grade-designation="activeGrade.designation ?? null"
+                            :own-copy-id="activeCopyId"
+                            @changed="refetchCopies(); emit('changed')"
+                        />
                     </template>
                     <template v-else-if="activeCopy.lifecycle === 'grading'">
                         <div class="text-xs text-neutral-400">
@@ -893,7 +934,7 @@ onBeforeUnmount(() => {
                     </template>
                     <template v-else>
                         <div
-                            v-if="!gradePanel && !sellPanel && !vendorPanel"
+                            v-if="!gradePanel && !sellPanel && !vendorPanel && !auctionPanel"
                             class="flex gap-1.5"
                         >
                             <UButton
@@ -919,6 +960,14 @@ onBeforeUnmount(() => {
                                 icon="i-lucide-coins"
                                 label="Vendor"
                                 @click="vendorPanel = true"
+                            />
+                            <UButton
+                                color="neutral"
+                                variant="subtle"
+                                size="xs"
+                                icon="i-lucide-gavel"
+                                label="Auction"
+                                @click="auctionPanel = true"
                             />
                         </div>
                         <div
@@ -961,6 +1010,45 @@ onBeforeUnmount(() => {
                                         :loading="sellSubmitting"
                                         label="List"
                                         @click="listForSale"
+                                    />
+                                </div>
+                            </div>
+                        </div>
+                        <div
+                            v-if="auctionPanel"
+                            class="flex flex-col gap-2 rounded-lg border border-neutral-800 bg-neutral-950/90 p-3"
+                        >
+                            <UInput
+                                v-model.number="auctionStart"
+                                type="number"
+                                size="sm"
+                                :min="1"
+                            >
+                                <template #leading>
+                                    <span class="text-xs text-neutral-500">start</span>
+                                </template>
+                            </UInput>
+                            <USelect
+                                v-model="auctionDurationMs"
+                                :items="auctionDurations"
+                                size="sm"
+                            />
+                            <div class="flex items-center justify-between">
+                                <span class="text-xs text-neutral-400">bids are binding · 5% burned</span>
+                                <div class="flex gap-1.5">
+                                    <UButton
+                                        color="neutral"
+                                        variant="ghost"
+                                        size="xs"
+                                        label="Cancel"
+                                        @click="auctionPanel = false"
+                                    />
+                                    <UButton
+                                        color="primary"
+                                        size="xs"
+                                        :loading="auctionSubmitting"
+                                        label="Start auction"
+                                        @click="startAuction"
                                     />
                                 </div>
                             </div>
@@ -1043,6 +1131,13 @@ onBeforeUnmount(() => {
                 v-if="phase === 'open' && (card.listing || sales?.length)"
                 class="absolute left-4 top-36 flex w-[280px] flex-col gap-3"
             >
+                <TcgBookPanel
+                    v-if="card.listing?.grade && card.printingId"
+                    :printing-id="card.printingId"
+                    :grade-service="card.listing.grade.service"
+                    :grade="card.listing.grade.grade"
+                    :grade-designation="card.listing.grade.designation ?? null"
+                />
                 <div
                     v-if="card.listing"
                     class="flex flex-col gap-2 rounded-lg border border-neutral-800 bg-neutral-950/90 p-3"

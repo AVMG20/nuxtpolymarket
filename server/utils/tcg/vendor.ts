@@ -2,7 +2,7 @@ import { and, eq } from 'drizzle-orm'
 import { db } from '#server/database'
 import { tcgCopy, tcgPrinting } from '#server/database/schema'
 import { credit } from '#server/utils/balance'
-import { lockCopyForUpdate, hasActiveListing } from '#server/utils/tcg/market'
+import { lockCopyForUpdate, assertUnencumbered } from '#server/utils/tcg/market'
 import { vendorPrice, TCG_VENDOR } from '#shared/utils/tcg/vendor'
 
 /*
@@ -28,7 +28,8 @@ interface SidecarPrice {
  */
 export async function fetchVendorQuote(plaatjesCardId: string, apiBase: string): Promise<number> {
     try {
-        const res = await $fetch<SidecarPrice>(
+        const sidecarFetch = $fetch as unknown as <T>(url: string, opts?: Record<string, unknown>) => Promise<T>
+        const res = await sidecarFetch<SidecarPrice>(
             `${apiBase}/cards/${encodeURIComponent(plaatjesCardId)}/price`,
             { timeout: 5000 }
         )
@@ -61,7 +62,7 @@ export async function vendorCopy(userId: string, copyId: string, amount: number)
     return await db.transaction(async (tx) => {
         const copy = await lockCopyForUpdate(tx, copyId)
         if (!copy || copy.ownerId !== userId) badRequest('Copy is not yours to sell')
-        if (await hasActiveListing(tx, copyId)) badRequest('Copy is listed on the market')
+        await assertUnencumbered(tx, copyId)
 
         const [claimed] = await tx.update(tcgCopy)
             .set({ lifecycle: 'destroyed' })
