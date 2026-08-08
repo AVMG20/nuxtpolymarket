@@ -107,8 +107,11 @@ async function startRecruitment() {
         text: AGENT_PULL_CONFIRM_TEXT[props.tier.id] ?? '', delayMs: 100
       })
     }
+    // Route-map index lookup: bare $fetch inference over the grown API union
+    // exceeds TS's instantiation depth (TS2589).
+    const recruitFetch = $fetch as unknown as <T>(url: string, opts?: Record<string, unknown>) => Promise<T>
     const [res] = await Promise.all([
-      $fetch('/api/hack/recruit', { method: 'POST', body: { tierId: props.tier.id } }),
+      recruitFetch<import('nitropack/types').InternalApi['/api/hack/recruit']['post']>('/api/hack/recruit', { method: 'POST', body: { tierId: props.tier.id } }),
       quickOpen.value ? Promise.resolve() : sleep(4600)
     ])
     if (vetTimer) {
@@ -176,7 +179,8 @@ async function reject() {
   if (!result.value) return
   rejecting.value = true
   try {
-    await $fetch('/api/hack/agents/fire', { method: 'POST', body: { agentId: result.value.id } })
+    const fireFetch = $fetch as unknown as (url: string, opts?: Record<string, unknown>) => Promise<unknown>
+    await fireFetch('/api/hack/agents/fire', { method: 'POST', body: { agentId: result.value.id } })
     toast.add({ title: `${result.value.name} rejected`, color: 'neutral' })
     open.value = false
   } catch (e: any) {

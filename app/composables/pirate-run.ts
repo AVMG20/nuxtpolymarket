@@ -136,7 +136,7 @@ async function handleGameOver(result: {
     activePowerUps.value = []
     powerUpNotice.value = null
     try {
-        const res = await $fetch('/api/pirates/finish-run', {
+        const res = await apiFetch<import('nitropack/types').InternalApi['/api/pirates/finish-run']['post']>('/api/pirates/finish-run', {
             method: 'POST',
             body: {
                 coins: result.coins,
@@ -257,7 +257,7 @@ export function usePirateRun() {
 
         if (stateRef.value.activeRun) {
             try {
-                await $fetch('/api/pirates/finish-run', { method: 'POST', body: { coins: 0, survived: false, abandoned: true } })
+                await apiFetch('/api/pirates/finish-run', { method: 'POST', body: { coins: 0, survived: false, abandoned: true } })
                 await refresh()
             } catch {
                 // ignore — state.get will still surface the lock if this failed
@@ -306,7 +306,7 @@ export function usePirateRun() {
         if (state.cannons.length === 0) return
         starting.value = true
         try {
-            const res = await $fetch('/api/pirates/start-run', { method: 'POST', body: { difficulty } })
+            const res = await apiFetch<import('nitropack/types').InternalApi['/api/pirates/start-run']['post']>('/api/pirates/start-run', { method: 'POST', body: { difficulty } })
             hp.value = res.stats.maxHp
             maxHp.value = res.stats.maxHp
             coins.value = 0

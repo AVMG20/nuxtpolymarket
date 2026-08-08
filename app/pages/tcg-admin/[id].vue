@@ -9,10 +9,7 @@ const { user } = useAuth()
 const id = computed(() => String(route.params.id))
 const isAdmin = computed(() => user.value?.isPokemonAdmin === true)
 
-const { data: detail, error, refresh } = useFetch<TcgSetDetailPayload>('/api/tcg/admin/sets/detail', {
-  key: `tcg-admin-set-${id.value}`,
-  query: { id }
-})
+const { data: detail, error, refresh } = useAsyncData(`tcg-admin-set-${id.value}`, () => apiFetch<TcgSetDetailPayload>('/api/tcg/admin/sets/detail', { query: { id: id.value } }))
 
 const set = computed(() => detail.value?.set ?? null)
 

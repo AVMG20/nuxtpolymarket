@@ -10,7 +10,7 @@ import type { VoiceHandle } from '~/composables/useAudio'
 
 const { fetchSession, user } = useAuth()
 const gems = computed(() => user.value?.gems ?? 0)
-const { data: state, refresh } = await useFetch('/api/hack/state')
+const { data: state, refresh } = await useApiState('/api/hack/state')
 const toast = useToast()
 const audio = useAudio('hack')
 
@@ -86,7 +86,7 @@ function requestSell(itemId: string) {
 async function sellItem(itemId: string) {
   selling.value = itemId
   try {
-    const res = await $fetch('/api/hack/items/sell', { method: 'POST', body: { itemId } })
+    const res = await apiFetch<import('nitropack/types').InternalApi['/api/hack/items/sell']['post']>('/api/hack/items/sell', { method: 'POST', body: { itemId } })
     audio.playSfx('purchase')
     toast.add({ title: `Sold for $${formatNumber(res.price, true)}`, color: 'success' })
     await Promise.all([refresh(), fetchSession()])
@@ -139,7 +139,7 @@ async function doUpgrade(levels: number) {
   if (!benchItem.value) return
   upgrading.value = levels
   try {
-    const res = await $fetch('/api/hack/items/upgrade', {
+    const res = await apiFetch<import('nitropack/types').InternalApi['/api/hack/items/upgrade']['post']>('/api/hack/items/upgrade', {
       method: 'POST',
       body: { itemId: benchItem.value.id, levels }
     })
@@ -164,7 +164,7 @@ async function doReroll() {
   rerolling.value = true
   const beforeQuality = rollQuality(benchItem.value.mods)
   try {
-    const res = await $fetch('/api/hack/items/reroll', {
+    const res = await apiFetch<import('nitropack/types').InternalApi['/api/hack/items/reroll']['post']>('/api/hack/items/reroll', {
       method: 'POST',
       body: { itemId: benchItem.value.id, lockedTypes: rerollLocked.value }
     })

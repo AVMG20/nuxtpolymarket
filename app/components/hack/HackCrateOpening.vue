@@ -82,8 +82,11 @@ async function buyAndOpen() {
         text: ITEM_PULL_CONFIRM_TEXT[props.tier.id] ?? '', delayMs: 100
       })
     }
+    // Route-map index lookup: bare $fetch inference over the grown API union
+    // exceeds TS's instantiation depth (TS2589).
+    const pullFetch = $fetch as unknown as <T>(url: string, opts?: Record<string, unknown>) => Promise<T>
     const [res] = await Promise.all([
-      $fetch('/api/hack/items/pull', { method: 'POST', body: { tierId: props.tier.id } }),
+      pullFetch<import('nitropack/types').InternalApi['/api/hack/items/pull']['post']>('/api/hack/items/pull', { method: 'POST', body: { tierId: props.tier.id } }),
       // Sized to let the longest confirm VO finish (~4.1s) before the reveal
       // cuts it off. Quick open skips this entirely.
       quickOpen.value ? Promise.resolve() : sleep(4300)

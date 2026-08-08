@@ -8,7 +8,7 @@ import {
   getGemBookLevelOrder
 } from '#shared/utils/gamelogic/gem-exchange'
 
-const { data, refresh } = await useFetch('/api/gem-exchange/state')
+const { data, refresh } = await useApiState('/api/gem-exchange/state')
 const { user, fetchSession } = useAuth()
 const toast = useToast()
 
@@ -184,7 +184,7 @@ async function placeOrder() {
   if (loading.value) return
   loading.value = true
   try {
-    const result = await $fetch('/api/gem-exchange/place', {
+    const result = await apiFetch<import('nitropack/types').InternalApi['/api/gem-exchange/place']['post']>('/api/gem-exchange/place', {
       method: 'POST',
       body: { side: tradeMode.value, quantity: safeQuantity.value, price: safePrice.value }
     })
@@ -222,7 +222,7 @@ async function cancelOrder(orderId: string) {
   if (cancelling.value) return
   cancelling.value = orderId
   try {
-    await $fetch('/api/gem-exchange/cancel', { method: 'POST', body: { orderId } })
+    await apiFetch('/api/gem-exchange/cancel', { method: 'POST', body: { orderId } })
     await Promise.all([refresh(), fetchSession()])
     toast.add({ title: 'Offer cancelled — escrow returned', color: 'neutral' })
   } catch (e) {

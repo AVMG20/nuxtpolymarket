@@ -3,7 +3,7 @@ definePageMeta({
     title: 'Pirate Raid History'
 })
 
-const { data: voyages, pending, error, refresh } = await useFetch('/api/pirates/history')
+const { data: voyages, pending, error, refresh } = await useApiState('/api/pirates/history')
 
 const totalLoot = computed(() => voyages.value?.reduce((sum, voyage) => sum + voyage.loot, 0) ?? 0)
 const totalKills = computed(() => voyages.value?.reduce((sum, voyage) => sum + voyage.kills, 0) ?? 0)

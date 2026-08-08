@@ -7,7 +7,14 @@ const canvasHost = ref<HTMLDivElement | null>(null)
 const toast = useToast()
 const { fetchSession } = useAuth()
 
-const { data: state, refresh } = await useFetch('/api/pirates/state')
+// Route-map index + useAsyncData: useFetch route inference over the grown
+// API union exceeds TS's instantiation depth (TS2589).
+type PirateStatePayload = import('nitropack/types').InternalApi['/api/pirates/state']['get']
+const pirateFetch = $fetch as unknown as <T = unknown>(url: string, opts?: Record<string, unknown>) => Promise<T>
+const { data: state, refresh } = await useAsyncData(
+    'pirates-state',
+    () => pirateFetch<PirateStatePayload>('/api/pirates/state')
+)
 
 const {
     hp, maxHp, coins, ammo, gemAmmo, preferGem, abilityCooldownMs, abilityCooldownTotalMs, abilityLocked, remainingMs,
@@ -153,7 +160,7 @@ async function rushRepair() {
     if (rushing.value || !isRepairing.value) return
     rushing.value = true
     try {
-        const res = await $fetch('/api/pirates/repair/rush', { method: 'POST' })
+        const res = await pirateFetch<import('nitropack/types').InternalApi['/api/pirates/repair/rush']['post']>('/api/pirates/repair/rush', { method: 'POST' })
         await Promise.all([refresh(), fetchSession()])
         toast.add({ title: `Repairs rushed for ${res.gemCost} gem${res.gemCost === 1 ? '' : 's'}`, color: 'success' })
     } catch (error: unknown) {

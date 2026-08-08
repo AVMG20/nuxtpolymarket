@@ -40,7 +40,7 @@ const route = useRoute()
 const router = useRouter()
 const toast = useToast()
 const audio = useAudio('hack')
-const { data: state, refresh } = await useFetch('/api/hack/state')
+const { data: state, refresh } = await useApiState('/api/hack/state')
 
 let barkHandle: VoiceHandle | null = null
 function relayBark(entry: VoiceEntry) {
@@ -128,7 +128,7 @@ async function confirmApply() {
   if (!selectedAgent.value || !selectedArtifact.value) return
   applying.value = true
   try {
-    await $fetch('/api/hack/artifacts/apply', {
+    await apiFetch('/api/hack/artifacts/apply', {
       method: 'POST',
       body: { agentId: selectedAgent.value.id, artifactId: selectedArtifact.value.id }
     })

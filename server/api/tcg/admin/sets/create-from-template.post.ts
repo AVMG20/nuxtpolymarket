@@ -21,7 +21,8 @@ export default defineEventHandler(async (event) => {
     const config = useRuntimeConfig(event)
     let index: PullRatesIndex
     try {
-        index = await $fetch<PullRatesIndex>(`${config.pokemonApiBase}/pull-rates`, { timeout: 5000 })
+        const sidecarFetch = $fetch as unknown as <T>(url: string, opts?: Record<string, unknown>) => Promise<T>
+        index = await sidecarFetch<PullRatesIndex>(`${config.pokemonApiBase}/pull-rates`, { timeout: 5000 })
     } catch {
         throw createError({
             statusCode: 502,
@@ -37,7 +38,8 @@ export default defineEventHandler(async (event) => {
 
     let template: RateTemplate
     try {
-        template = await $fetch<RateTemplate>(`${config.pokemonApiBase}/sets/${plaatjesSetCode}/pull-rates`, { timeout: 5000 })
+        const sidecarFetch2 = $fetch as unknown as <T>(url: string, opts?: Record<string, unknown>) => Promise<T>
+        template = await sidecarFetch2<RateTemplate>(`${config.pokemonApiBase}/sets/${plaatjesSetCode}/pull-rates`, { timeout: 5000 })
     } catch (error) {
         const status = (error as { statusCode?: number, status?: number }).statusCode
             ?? (error as { status?: number }).status

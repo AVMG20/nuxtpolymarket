@@ -77,7 +77,7 @@ function commitMaxBet() {
   maxBetInput.value = maxBet != null ? String(maxBet) : ''
 }
 
-const { data: listData, refresh: refreshConversations } = await useFetch<ConversationListResponse>('/api/ai/conversations', {
+const { data: listData, refresh: refreshConversations } = await useAsyncData('ai-conversations', () => apiFetch<ConversationListResponse>('/api/ai/conversations'), {
   default: () => ({ conversations: [], usage: { used: 0, limit: 300, resetsAt: '' } })
 })
 
@@ -117,7 +117,7 @@ async function loadMessages(id = selectedId.value, showLoading = true) {
   if (!id) return
   if (showLoading) loadingMessages.value = true
   try {
-    const response = await $fetch<MessagesResponse>(`/api/ai/conversations/${id}/messages`)
+    const response = await apiFetch<MessagesResponse>(`/api/ai/conversations/${id}/messages`)
     messages.value = response.messages
     context.value = response.context
   } catch (error) {
@@ -128,7 +128,7 @@ async function loadMessages(id = selectedId.value, showLoading = true) {
 }
 
 async function newChat() {
-  const conversation = await $fetch<Conversation>('/api/ai/conversations', { method: 'POST' })
+  const conversation = await apiFetch<Conversation>('/api/ai/conversations', { method: 'POST' })
   await refreshConversations()
   selectedId.value = conversation.id
   historyOpen.value = false
@@ -244,7 +244,7 @@ function requestDelete(conversation: Conversation) {
 async function deleteConversation() {
   if (!deleteTarget.value) return
   const id = deleteTarget.value.id
-  await $fetch(`/api/ai/conversations/${id}`, { method: 'DELETE' })
+  await apiFetch(`/api/ai/conversations/${id}`, { method: 'DELETE' })
   deleteOpen.value = false
   deleteTarget.value = null
   if (selectedId.value === id) selectedId.value = ''

@@ -206,7 +206,7 @@ async function play() {
   const stake = totalStake.value
 
   try {
-    const data = await $fetch('/api/games/play-game', {
+    const data = await apiFetch<{ gameData: MagicHandsResult, balance: number }>('/api/games/play-game', {
       method: 'POST',
       body: {
         bet: stake,
@@ -216,7 +216,7 @@ async function play() {
           placements: [...placements.value]
         }
       }
-    }) as { gameData: MagicHandsResult, balance: number }
+    })
 
     result.value = data.gameData
     await runReveal(data)

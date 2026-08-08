@@ -5,7 +5,7 @@ import { AGENT_PULL_CONTACT, ITEM_PULL_SELLER } from '~/utils/hack-content'
 const { user, fetchSession } = useAuth()
 const balance = computed(() => parseFloat(user.value?.balance ?? '0'))
 const gems = computed(() => user.value?.gems ?? 0)
-const { data: state, refresh } = await useFetch('/api/hack/state')
+const { data: state, refresh } = await useApiState('/api/hack/state')
 const audio = useAudio('hack')
 
 const route = useRoute()

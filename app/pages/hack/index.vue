@@ -6,7 +6,7 @@ import {
 } from '#shared/utils/hack-config'
 
 const { fetchSession } = useAuth()
-const { data: state, refresh } = await useFetch('/api/hack/state')
+const { data: state, refresh } = await useApiState('/api/hack/state')
 const toast = useToast()
 const audio = useAudio('hack')
 
@@ -123,7 +123,7 @@ const collectLine = computed(() => {
 async function collect(op: { id: string, templateId: string }) {
   collecting.value = op.id
   try {
-    const res = await $fetch('/api/hack/ops/collect', { method: 'POST', body: { opId: op.id } })
+    const res = await apiFetch<import('nitropack/types').InternalApi['/api/hack/ops/collect']['post']>('/api/hack/ops/collect', { method: 'POST', body: { opId: op.id } })
     const template = state.value?.opTemplates.find(t => t.id === op.templateId)
     collectResult.value = {
       ...res,
@@ -148,7 +148,7 @@ const cancelling = ref<string | null>(null)
 async function cancelOp(op: { id: string }) {
   cancelling.value = op.id
   try {
-    await $fetch('/api/hack/ops/cancel', { method: 'POST', body: { opId: op.id } })
+    await apiFetch('/api/hack/ops/cancel', { method: 'POST', body: { opId: op.id } })
     confirmingCancel.value = null
     await refresh()
   } catch (e: any) {

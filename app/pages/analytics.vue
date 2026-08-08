@@ -5,10 +5,12 @@ import { useElementSize } from '@vueuse/core'
 // ---- Category filter (drives the server query) ----
 const selectedCategory = ref<string | null>(null)
 
-const { data, pending } = useFetch('/api/analytics/transactions', {
-  lazy: true,
-  query: computed(() => ({ category: selectedCategory.value ?? undefined }))
-})
+const query = computed(() => ({ category: selectedCategory.value ?? undefined }))
+const { data, pending } = useAsyncData(
+  'analytics-transactions',
+  () => apiFetch<import('nitropack/types').InternalApi['/api/analytics/transactions']['get']>('/api/analytics/transactions', { query: query.value }),
+  { lazy: true, watch: [query] }
+)
 
 // `data` is retained while a filter change refetches, so only gate the skeletons
 // on the very first load — filter toggles keep the previous view until fresh

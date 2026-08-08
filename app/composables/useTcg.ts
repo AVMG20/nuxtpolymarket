@@ -8,12 +8,8 @@ export const useTcg = () => {
   const toast = useToast()
   const { fetchSession } = useAuth()
 
-  const { data: state, refresh: refreshState } = useFetch('/api/tcg/state', {
-    key: 'tcg-state'
-  })
-  const { data: setsData, refresh: refreshSets } = useFetch('/api/tcg/sets', {
-    key: 'tcg-sets'
-  })
+  const { data: state, refresh: refreshState } = useApiState('/api/tcg/state', 'tcg-state')
+  const { data: setsData, refresh: refreshSets } = useApiState('/api/tcg/sets', 'tcg-sets')
 
   const sets = computed(() => setsData.value?.sets ?? [])
   const prices = computed(() => state.value?.prices ?? setsData.value?.prices ?? null)
@@ -26,7 +22,7 @@ export const useTcg = () => {
 
   async function call<T = unknown>(url: string, body?: Record<string, unknown>, successMsg?: string): Promise<T> {
     try {
-      const res = await $fetch(url, { method: 'POST', body })
+      const res = await apiFetch(url, { method: 'POST', body })
       if (successMsg) toast.add({ title: successMsg, color: 'success' })
       await Promise.all([refreshState(), refreshSets(), fetchSession()])
       return res as T

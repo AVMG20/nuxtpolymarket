@@ -39,8 +39,15 @@ const effects = computed(() => firewallMainframeEffects(mainframeLevels.value))
 const bestWave = computed(() => account.value?.stats.bestWave ?? 0)
 const busy = ref(false)
 
-function loadState() {
-  return $fetch('/api/firewall/state')
+// Direct index into the generated route map: the conditional-type route
+// inference behind a bare $fetch call now exceeds TS's instantiation depth.
+type FirewallStatePayload = import('nitropack/types').InternalApi['/api/firewall/state']['get']
+
+type FirewallApi = import('nitropack/types').InternalApi
+const fwFetch = $fetch as unknown as <T>(url: string, opts?: Record<string, unknown>) => Promise<T>
+
+function loadState(): Promise<FirewallStatePayload> {
+  return fwFetch<FirewallStatePayload>('/api/firewall/state')
 }
 
 async function refreshState() {
@@ -74,7 +81,7 @@ async function rushCooldown() {
   if (rushingCooldown.value || !isCoolingDown.value) return
   rushingCooldown.value = true
   try {
-    const response = await $fetch('/api/firewall/rush-cooldown', { method: 'POST' })
+    const response = await fwFetch<FirewallApi['/api/firewall/rush-cooldown']['post']>('/api/firewall/rush-cooldown', { method: 'POST' })
     toast.add({ title: `Uplink recharge cleared for ${response.cost} gem${response.cost === 1 ? '' : 's'}`, color: 'success' })
     await Promise.all([refreshState(), fetchSession()])
   } catch (error: unknown) {
@@ -140,7 +147,7 @@ async function saveRun() {
     armoury: armoury.value
   }
   try {
-    const result = await $fetch('/api/firewall/run', {
+    const result = await fwFetch<FirewallApi['/api/firewall/run']['put']>('/api/firewall/run', {
       method: 'PUT',
       body: { revision: revision.value, save }
     })
@@ -325,7 +332,7 @@ async function startRun() {
   if (busy.value || isCoolingDown.value) return
   busy.value = true
   try {
-    const result = await $fetch('/api/firewall/start-run', {
+    const result = await fwFetch<FirewallApi['/api/firewall/start-run']['post']>('/api/firewall/start-run', {
       method: 'POST',
       body: { difficultyId: difficultyId.value }
     })
@@ -380,7 +387,7 @@ async function settleRun(reason: 'victory' | 'defeat' | 'retire') {
   if (busy.value) return
   busy.value = true
   try {
-    const result = await $fetch('/api/firewall/finish-run', { method: 'POST', body: { reason } })
+    const result = await fwFetch<FirewallApi['/api/firewall/finish-run']['post']>('/api/firewall/finish-run', { method: 'POST', body: { reason } })
     payout.value = {
       awarded: result.awarded,
       capped: result.capped,
@@ -546,7 +553,7 @@ async function buyMainframe(id: FirewallMainframeId) {
   if (busy.value) return
   busy.value = true
   try {
-    await $fetch('/api/firewall/upgrade', { method: 'POST', body: { upgradeId: id } })
+    await fwFetch('/api/firewall/upgrade', { method: 'POST', body: { upgradeId: id } })
     await Promise.all([fetchSession(), refreshState()])
   } catch (error) {
     toast.add({

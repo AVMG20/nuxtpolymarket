@@ -5,7 +5,7 @@ definePageMeta({
 
 const PAGE_SIZE = 5
 
-const { data: entries } = await useAsyncData('changelog', () => $fetch('/api/changelog'))
+const { data: entries } = await useAsyncData('changelog', () => apiFetch<import('nitropack/types').InternalApi['/api/changelog']['get']>('/api/changelog'))
 
 const visibleCount = ref(PAGE_SIZE)
 const visibleEntries = computed(() => entries.value?.slice(0, visibleCount.value) ?? [])

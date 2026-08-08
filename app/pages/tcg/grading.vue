@@ -12,9 +12,7 @@ import { legacySetOf } from '#shared/utils/tcg/legacy'
 const { fetchSession } = useAuth()
 const toast = useToast()
 
-const { data: submissions, refresh } = useFetch<TcgSubmissionSummary[]>('/api/tcg/grading/submissions', {
-  key: 'tcg-submissions'
-})
+const { data: submissions, refresh } = useAsyncData('tcg-submissions', () => apiFetch<TcgSubmissionSummary[]>('/api/tcg/grading/submissions'))
 
 // 1s ticker for the countdowns.
 const now = ref(Date.now())
@@ -53,7 +51,7 @@ async function collect(submission: TcgSubmissionSummary) {
   if (collecting.value) return
   collecting.value = submission.id
   try {
-    const res = await $fetch('/api/tcg/grading/collect', {
+    const res = await apiFetch<import('nitropack/types').InternalApi['/api/tcg/grading/collect']['post']>('/api/tcg/grading/collect', {
       method: 'POST',
       body: { submissionId: submission.id }
     })

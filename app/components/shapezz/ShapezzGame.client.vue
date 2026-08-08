@@ -27,7 +27,7 @@ function onSoundToggle() {
     sound.unlock()
     sound.play('pickup-coin')
 }
-const { data: state, refresh } = await useFetch('/api/shapezz/state')
+const { data: state, refresh } = await useApiState('/api/shapezz/state')
 
 const selectedDifficultyId = ref<ShapezzDifficultyId>('surge')
 const activeDifficultyId = ref<ShapezzDifficultyId>('surge')
@@ -123,7 +123,7 @@ function rarityClass(id: ShapezzRunUpgradeId) {
 async function clearStaleRun() {
     if (!state.value?.activeRun) return
     try {
-        await $fetch('/api/shapezz/finish-run', {
+        await apiFetch('/api/shapezz/finish-run', {
             method: 'POST',
             body: { reason: 'abandoned', elapsedMs: 0, coins: 0, kills: 0 }
         })
@@ -145,7 +145,7 @@ async function startRun() {
     checkpointOffers.value = []
     headStartOffers.value = []
     try {
-        const run = await $fetch('/api/shapezz/start-run', {
+        const run = await apiFetch<import('nitropack/types').InternalApi['/api/shapezz/start-run']['post']>('/api/shapezz/start-run', {
             method: 'POST',
             body: { difficultyId: selectedDifficultyId.value }
         })
@@ -153,7 +153,7 @@ async function startRun() {
         if (!canvas.value) {
             // Unmounted while the request was in flight — release the run the
             // server just opened instead of leaving it blocking the workshop.
-            void $fetch('/api/shapezz/finish-run', {
+            void apiFetch('/api/shapezz/finish-run', {
                 method: 'POST',
                 body: { reason: 'abandoned', elapsedMs: 0, coins: 0, kills: 0 }
             }).catch(() => {})
@@ -230,7 +230,7 @@ async function buyHeadStart() {
     if (buyingHeadStart.value || headStartActive.value) return
     buyingHeadStart.value = true
     try {
-        await $fetch('/api/shapezz/head-start', { method: 'POST' })
+        await apiFetch('/api/shapezz/head-start', { method: 'POST' })
         await Promise.all([refresh(), fetchSession()])
         toast.add({ title: 'Head start unlocked', description: 'Choose a run upgrade before your next run begins.', color: 'success' })
     } catch (error: unknown) {
@@ -258,7 +258,7 @@ async function cashOut() {
     settling.value = true
     const finalSnapshot = engine.getSnapshot()
     try {
-        const response = await $fetch('/api/shapezz/finish-run', {
+        const response = await apiFetch<import('nitropack/types').InternalApi['/api/shapezz/finish-run']['post']>('/api/shapezz/finish-run', {
             method: 'POST',
             body: {
                 reason: 'cashout',
@@ -294,7 +294,7 @@ async function rushCooldown() {
     if (rushingCooldown.value || !isCoolingDown.value) return
     rushingCooldown.value = true
     try {
-        const response = await $fetch('/api/shapezz/rush-cooldown', { method: 'POST' })
+        const response = await apiFetch<import('nitropack/types').InternalApi['/api/shapezz/rush-cooldown']['post']>('/api/shapezz/rush-cooldown', { method: 'POST' })
         toast.add({ title: `Arena recharge cleared for ${response.cost} gem${response.cost === 1 ? '' : 's'}`, color: 'success' })
         await Promise.all([refresh(), fetchSession()])
     } catch (error: unknown) {
@@ -308,7 +308,7 @@ async function settleDefeat(finalSnapshot: ShapezzSnapshot) {
     if (settling.value) return
     settling.value = true
     try {
-        const response = await $fetch('/api/shapezz/finish-run', {
+        const response = await apiFetch<import('nitropack/types').InternalApi['/api/shapezz/finish-run']['post']>('/api/shapezz/finish-run', {
             method: 'POST',
             body: {
                 reason: 'defeat',
@@ -360,7 +360,7 @@ onUnmounted(() => {
     if (running.value || headStartOffers.value.length > 0) {
         running.value = false
         headStartOffers.value = []
-        void $fetch('/api/shapezz/finish-run', {
+        void apiFetch('/api/shapezz/finish-run', {
             method: 'POST',
             body: { reason: 'abandoned', elapsedMs: 0, coins: 0, kills: 0 }
         }).catch(() => {})

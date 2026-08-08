@@ -38,7 +38,7 @@ export function useCasinoGame<TResult, THistory extends Record<string, unknown> 
     onStart?.()
 
     try {
-      const data = await $fetch('/api/games/play-game', {
+      const data = await apiFetch<import('nitropack/types').InternalApi['/api/games/play-game']['post']>('/api/games/play-game', {
         method: 'POST',
         body: { bet: bet.value, game, options }
       }) as PlayResponse<TResult>

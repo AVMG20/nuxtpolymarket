@@ -1,7 +1,7 @@
 <script setup lang="ts">
 const { fetchSession, user } = useAuth()
 const balance = computed(() => parseFloat(user.value?.balance ?? '0'))
-const { data: state, refresh } = await useFetch('/api/miner/state')
+const { data: state, refresh } = await useApiState('/api/miner/state')
 
 // Real-time accumulation: interpolate locally since last fetch
 const fetchedAt = ref(Date.now())
@@ -36,7 +36,7 @@ const toast = useToast()
 async function collect() {
   collecting.value = true
   try {
-    const res = await $fetch('/api/miner/collect', { method: 'POST' })
+    const res = await apiFetch<import('nitropack/types').InternalApi['/api/miner/collect']['post']>('/api/miner/collect', { method: 'POST' })
     toast.add({ title: `Collected $${formatNumber(res.collected, true)}`, color: 'success' })
     await Promise.all([refresh(), fetchSession()])
   } catch (e: any) {
@@ -49,7 +49,7 @@ async function collect() {
 async function upgradeRig() {
   upgradingRig.value = true
   try {
-    const res = await $fetch('/api/miner/upgrade-rig', { method: 'POST' })
+    const res = await apiFetch<import('nitropack/types').InternalApi['/api/miner/upgrade-rig']['post']>('/api/miner/upgrade-rig', { method: 'POST' })
     toast.add({ title: `Rig upgraded to level ${res.newLevel}`, color: 'success' })
     await Promise.all([refresh(), fetchSession()])
   } catch (e: any) {
@@ -62,7 +62,7 @@ async function upgradeRig() {
 async function upgradeVault() {
   upgradingVault.value = true
   try {
-    const res = await $fetch('/api/miner/upgrade-vault', { method: 'POST' })
+    const res = await apiFetch<import('nitropack/types').InternalApi['/api/miner/upgrade-vault']['post']>('/api/miner/upgrade-vault', { method: 'POST' })
     toast.add({ title: `Vault expanded to level ${res.newLevel}`, color: 'success' })
     await Promise.all([refresh(), fetchSession()])
   } catch (e: any) {
