@@ -2,6 +2,7 @@ import type { Container, Graphics } from 'pixi.js'
 import type {
     FirewallDamageType, FirewallEnemyDefinition, FirewallLoadout, FirewallTurretRuntime, FirewallWeaponId
 } from '#shared/utils/gamelogic/firewall'
+import type { FirewallSoundEvent } from '../firewall-sounds'
 
 /** The animated parts of a silhouette, rotated per frame for the walk cycle. */
 export interface FigureRig {
@@ -151,8 +152,6 @@ export interface FirewallWaveSummary {
     /** The last wave was just cleared — the run is a win rather than a shop trip. */
     victory: boolean
 }
-
-import type { FirewallSoundEvent } from '../firewall-sounds'
 
 export interface FirewallCallbacks {
     onWall: (hp: number, maxHp: number, shield: number, maxShield: number) => void

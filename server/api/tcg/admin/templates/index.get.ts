@@ -21,6 +21,9 @@ interface PlaatjesSetsResponse {
     sets: { setCode: string, cards: number }[]
 }
 
+const sidecarFetch = <T = unknown>(url: string, opts?: Record<string, unknown>): Promise<T> =>
+    ($fetch as (url: string, opts?: Record<string, unknown>) => Promise<T>)(url, opts)
+
 export default defineEventHandler(async (event) => {
     await requirePokemonAdmin(event)
 
@@ -29,8 +32,8 @@ export default defineEventHandler(async (event) => {
     let sidecarSets: { setCode: string, cards: number }[]
     try {
         [index, { sets: sidecarSets }] = await Promise.all([
-            $fetch<PullRatesIndex>(`${config.pokemonApiBase}/pull-rates`, { timeout: 5000 }),
-            $fetch<PlaatjesSetsResponse>(`${config.pokemonApiBase}/sets`, { timeout: 5000 })
+            sidecarFetch<PullRatesIndex>(`${config.pokemonApiBase}/pull-rates`, { timeout: 5000 }),
+            sidecarFetch<PlaatjesSetsResponse>(`${config.pokemonApiBase}/sets`, { timeout: 5000 })
         ])
     } catch {
         return { templates: [], sidecarUnavailable: true as const }

@@ -22,8 +22,8 @@ type BankData = {
 }
 type ChartRange = '1d' | '7d' | '30d'
 
-const { data, refresh } = await useFetch<BankData>('/api/bank/state')
-const { data: chartHistory, refresh: refreshChartHistory } = await useFetch<{ points: BankPoint[], earliestAt: string | null }>('/api/bank/chart')
+const { data, refresh } = await useAsyncData('bank-state', () => apiFetch<BankData>('/api/bank/state'))
+const { data: chartHistory, refresh: refreshChartHistory } = await useAsyncData('bank-chart', () => apiFetch<{ points: BankPoint[], earliestAt: string | null }>('/api/bank/chart'))
 const { user, fetchSession } = useAuth()
 const { refresh: refreshBankStatus } = useBankStatus()
 const toast = useToast()
@@ -146,7 +146,7 @@ async function loadHistory(reset = false) {
   historyLoading.value = true
   try {
     const offset = reset ? 0 : history.value.length
-    const result = await $fetch<{ items: BankPoint[], hasMore: boolean }>('/api/bank/history', { query: { offset } })
+    const result = await apiFetch<{ items: BankPoint[], hasMore: boolean }>('/api/bank/history', { query: { offset } })
     history.value = reset ? result.items : [...history.value, ...result.items]
     historyHasMore.value = result.hasMore
   } finally {
@@ -195,7 +195,7 @@ async function submit(action: 'deposit' | 'withdraw', overrideAmount?: number, r
   if (!repayDebt && (!selectedAmount || selectedAmount <= 0)) return
   loading.value = action
   try {
-    await $fetch(`/api/bank/${action}`, { method: 'POST', body: repayDebt ? { repayDebt: true } : { amount: selectedAmount } })
+    await apiFetch(`/api/bank/${action}`, { method: 'POST', body: repayDebt ? { repayDebt: true } : { amount: selectedAmount } })
     amount.value = null
     await Promise.all([refresh(), refreshChartHistory(), fetchSession(), loadHistory(true)])
     toast.add({ title: repayDebt ? 'Debt repaid exactly' : action === 'deposit' ? 'Money deposited' : 'Money withdrawn', color: 'success', icon: 'i-lucide-check' })

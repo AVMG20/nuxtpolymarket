@@ -25,12 +25,8 @@ const darkBackdrop = ref(false)
 // (often a single set), while the sidecar knows every set it can render —
 // which is what a label harness wants: any card in the catalogue, no import.
 // Player endpoints are no use here at all; they hide anything uncommitted.
-const { data: sets } = useFetch<TcgAdminSet[]>('/api/tcg/admin/sets', {
-    key: 'tcg-slab-test-sets'
-})
-const { data: catalogue } = useFetch<TcgPlaatjesSetsPayload>('/api/tcg/admin/plaatjes/sets', {
-    key: 'tcg-slab-test-catalogue'
-})
+const { data: sets } = useAsyncData('tcg-slab-test-sets', () => apiFetch<TcgAdminSet[]>('/api/tcg/admin/sets'))
+const { data: catalogue } = useAsyncData('tcg-slab-test-catalogue', () => apiFetch<TcgPlaatjesSetsPayload>('/api/tcg/admin/plaatjes/sets'))
 
 // Source-tagged values: 'db:<uuid>' for an imported set, 'px:<CODE>' for a
 // sidecar-only one. Selecting is the same gesture either way.
@@ -73,7 +69,7 @@ const { data: checklist, status: checklistStatus } = useAsyncData<ChecklistView 
         const value = selectedSetId.value
         if (!value) return null
         if (value.startsWith('db:')) {
-            const detail = await $fetch<TcgSetDetailPayload>('/api/tcg/admin/sets/detail', {
+            const detail = await apiFetch<TcgSetDetailPayload>('/api/tcg/admin/sets/detail', {
                 query: { id: value.slice(3) }
             })
             return {
@@ -83,7 +79,7 @@ const { data: checklist, status: checklistStatus } = useAsyncData<ChecklistView 
             }
         }
         const setCode = value.slice(3)
-        const preview = await $fetch<TcgPlaatjesChecklistPayload>('/api/tcg/admin/plaatjes/checklist', {
+        const preview = await apiFetch<TcgPlaatjesChecklistPayload>('/api/tcg/admin/plaatjes/checklist', {
             query: { setCode }
         })
         const known = catalogue.value?.sets.find(s => s.setCode === setCode)

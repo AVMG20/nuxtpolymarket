@@ -29,7 +29,7 @@ const route = useRoute()
 const router = useRouter()
 const toast = useToast()
 const audio = useAudio('hack')
-const { data: state, refresh } = await useFetch('/api/hack/state')
+const { data: state, refresh } = await useApiState('/api/hack/state')
 
 // RELAY's spoken reaction on equip/unequip — audio-only, no-immediate-repeat,
 // single-tracked so back-to-back swaps cut the previous line instead of stacking.
@@ -195,7 +195,7 @@ async function confirmSwap() {
   if (!compareCandidate.value || !selectedAgent.value) return
   equipping.value = true
   try {
-    await $fetch('/api/hack/items/equip', {
+    await apiFetch('/api/hack/items/equip', {
       method: 'POST',
       body: { itemId: compareCandidate.value.id, agentId: selectedAgent.value.id }
     })
@@ -213,7 +213,7 @@ async function confirmSwap() {
 async function unequip(item: InvItem) {
   equipping.value = true
   try {
-    await $fetch('/api/hack/items/equip', { method: 'POST', body: { itemId: item.id, agentId: null } })
+    await apiFetch('/api/hack/items/equip', { method: 'POST', body: { itemId: item.id, agentId: null } })
     audio.playSfx('loadout-lock')
     relayBark(LOADOUT_UNEQUIP)
     toast.add({ title: 'Item unequipped', color: 'neutral' })

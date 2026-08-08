@@ -5,7 +5,7 @@ definePageMeta({ title: 'SHAPEZZ Workshop' })
 
 const toast = useToast()
 const { fetchSession } = useAuth()
-const { data: state, refresh } = await useFetch('/api/shapezz/state')
+const { data: state, refresh } = await useApiState('/api/shapezz/state')
 const activeWeaponType = ref<ShapezzWeaponType>('blaster')
 const buyingUpgrade = ref<ShapezzPermanentUpgradeId | null>(null)
 const buyingWeaponId = ref<string | null>(null)
@@ -18,7 +18,7 @@ const balance = computed(() => parseFloat(state.value?.balance ?? '0'))
 onMounted(async () => {
     if (!state.value?.activeRun) return
     try {
-        await $fetch('/api/shapezz/finish-run', {
+        await apiFetch('/api/shapezz/finish-run', {
             method: 'POST',
             body: { reason: 'abandoned', elapsedMs: 0, coins: 0, kills: 0 }
         })
@@ -43,7 +43,7 @@ async function buyPermanentUpgrade(upgradeId: ShapezzPermanentUpgradeId) {
     if (buyingUpgrade.value) return
     buyingUpgrade.value = upgradeId
     try {
-        const response = await $fetch('/api/shapezz/upgrade', { method: 'POST', body: { upgradeId } })
+        const response = await apiFetch<import('nitropack/types').InternalApi['/api/shapezz/upgrade']['post']>('/api/shapezz/upgrade', { method: 'POST', body: { upgradeId } })
         await Promise.all([refresh(), fetchSession()])
         toast.add({ title: `Workshop level ${response.level} installed`, color: 'success' })
     } catch (error: unknown) {
@@ -58,11 +58,11 @@ async function buyWeapon(weapon: NonNullable<typeof state.value>['weapons'][numb
     buyingWeaponId.value = weapon.id
     try {
         if (weapon.owned) {
-            const response = await $fetch('/api/shapezz/equip', { method: 'POST', body: { weaponType: weapon.type } })
+            const response = await apiFetch<import('nitropack/types').InternalApi['/api/shapezz/equip']['post']>('/api/shapezz/equip', { method: 'POST', body: { weaponType: weapon.type } })
             await refresh()
             toast.add({ title: `${response.weapon.name} equipped`, color: 'success' })
         } else {
-            const response = await $fetch('/api/shapezz/weapon', {
+            const response = await apiFetch<import('nitropack/types').InternalApi['/api/shapezz/weapon']['post']>('/api/shapezz/weapon', {
                 method: 'POST',
                 body: { weaponType: weapon.type, weaponRarity: weapon.rarity }
             })

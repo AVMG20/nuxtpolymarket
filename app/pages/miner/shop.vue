@@ -5,7 +5,7 @@ import { RAKEBACK_UNLOCK_COST } from '#shared/utils/profile'
 const { fetchSession, user } = useAuth()
 const gems = computed(() => user.value?.gems ?? 0)
 const rakebackUnlocked = computed(() => !!user.value?.rakebackUnlocked)
-const { data: state, refresh } = await useFetch('/api/miner/state')
+const { data: state, refresh } = await useApiState('/api/miner/state')
 
 const toast = useToast()
 const buying = ref<string | null>(null)
@@ -44,7 +44,7 @@ const shopItems = computed(() => {
 async function purchase(item: { id: string, label: string, endpoint: string }) {
   buying.value = item.id
   try {
-    await $fetch(item.endpoint, { method: 'POST' })
+    await apiFetch(item.endpoint, { method: 'POST' })
     toast.add({ title: `${item.label} upgraded!`, color: 'success', icon: 'i-lucide-arrow-up' })
     await Promise.all([refresh(), fetchSession()])
   } catch (e: any) {
@@ -57,7 +57,7 @@ async function purchase(item: { id: string, label: string, endpoint: string }) {
 async function unlockRakeback() {
   buying.value = 'rakeback'
   try {
-    await $fetch('/api/user/unlock-rakeback', { method: 'POST' })
+    await apiFetch('/api/user/unlock-rakeback', { method: 'POST' })
     toast.add({ title: 'Rakeback unlocked!', color: 'success', icon: 'i-lucide-lock-open' })
     await fetchSession()
   } catch (e: any) {

@@ -7,6 +7,12 @@ import { tcgSet, tcgCard, tcgPrinting, tcgSheet, tcgPackTemplate } from '#server
 import type { TcgCardRaw, TcgPackTemplateSlot } from '#shared/types/tcg-db'
 import type { FitPrinting, FitSheetSpec, FitSlotSpec } from '#shared/utils/tcg/rate-fitter'
 
+/** Untyped fetch for sidecar URLs — route-type inference over the grown API
+ *  union hits TS2589 even for external template-literal URLs. */
+const sidecarFetch = <T = unknown>(url: string, opts?: Record<string, unknown>): Promise<T> =>
+    ($fetch as (url: string, opts?: Record<string, unknown>) => Promise<T>)(url, opts)
+
+
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0]
 type DbConn = Tx | typeof db
 export type TcgCardInsert = typeof tcgCard.$inferInsert
@@ -163,7 +169,7 @@ export async function fetchPlaatjesChecklist(plaatjesSetCode: string, apiBase: s
     const records: PlaatjesCard[] = []
     try {
         for (let page = 1; ; page++) {
-            const response = await $fetch<PlaatjesCardsPage>(`${apiBase}/cards`, {
+            const response = await sidecarFetch<PlaatjesCardsPage>(`${apiBase}/cards`, {
                 query: { set: plaatjesSetCode, limit: 500, page }
             })
             records.push(...response.items)
@@ -301,12 +307,12 @@ export async function fetchEraBasicEnergies(
     let energySetCode = 'EC'
     let records: PlaatjesCard[]
     try {
-        const index = await $fetch<PlaatjesSetsIndex>(`${apiBase}/sets`)
+        const index = await sidecarFetch<PlaatjesSetsIndex>(`${apiBase}/sets`)
         const candidate = `${seriesCode}E`
         if (seriesCode && index.sets.some(row => row.setCode === candidate)) {
             energySetCode = candidate
         }
-        const page = await $fetch<PlaatjesCardsPage>(`${apiBase}/cards`, {
+        const page = await sidecarFetch<PlaatjesCardsPage>(`${apiBase}/cards`, {
             query: { set: energySetCode, limit: 500 }
         })
         records = page.items

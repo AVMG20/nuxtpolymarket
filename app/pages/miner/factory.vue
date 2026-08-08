@@ -1,7 +1,7 @@
 <script setup lang="ts">
 const { fetchSession, user } = useAuth()
 const balance = computed(() => parseFloat(user.value?.balance ?? '0'))
-const { data: state, refresh } = await useFetch('/api/miner/state')
+const { data: state, refresh } = await useApiState('/api/miner/state')
 
 const fetchedAt = ref(Date.now())
 const now = ref(Date.now())
@@ -36,7 +36,7 @@ const toast = useToast()
 async function collectGems() {
   collecting.value = true
   try {
-    const res = await $fetch('/api/miner/collect-gems', { method: 'POST' })
+    const res = await apiFetch<import('nitropack/types').InternalApi['/api/miner/collect-gems']['post']>('/api/miner/collect-gems', { method: 'POST' })
     toast.add({ title: `Collected ${res.collected} gem${res.collected !== 1 ? 's' : ''}`, color: 'success', icon: 'i-lucide-gem' })
     await Promise.all([refresh(), fetchSession()])
   } catch (e: any) {
@@ -49,7 +49,7 @@ async function collectGems() {
 async function upgradeFactory() {
   upgrading.value = true
   try {
-    const res = await $fetch('/api/miner/upgrade-factory', { method: 'POST' })
+    const res = await apiFetch<import('nitropack/types').InternalApi['/api/miner/upgrade-factory']['post']>('/api/miner/upgrade-factory', { method: 'POST' })
     toast.add({ title: `Factory upgraded to level ${res.newLevel}`, color: 'success' })
     await Promise.all([refresh(), fetchSession()])
   } catch (e: any) {

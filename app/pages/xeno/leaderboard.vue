@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { PLANT_TYPES } from '#shared/utils/xeno'
 
-const { data: players, pending } = await useFetch('/api/xeno/leaderboard')
+const { data: players, pending } = await useApiState('/api/xeno/leaderboard')
 
 const totalSpecies = PLANT_TYPES.length
 

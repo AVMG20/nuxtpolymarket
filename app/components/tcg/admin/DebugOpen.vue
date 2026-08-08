@@ -21,12 +21,9 @@ const { call } = useTcgAdmin()
 const setId = computed(() => props.detail.set.id)
 const committed = computed(() => props.detail.set.status === 'committed')
 
-const { data, pending, refresh: refreshPacks } = useFetch<PacksPayload>(
-    '/api/tcg/admin/debug/packs',
-    {
-        key: `tcg-debug-packs-${props.detail.set.id}`,
-        query: computed(() => ({ setId: props.detail.set.id }))
-    }
+const { data, pending, refresh: refreshPacks } = useAsyncData(
+    `tcg-debug-packs-${props.detail.set.id}`,
+    () => apiFetch<PacksPayload>('/api/tcg/admin/debug/packs', { query: { setId: props.detail.set.id } })
 )
 
 watch(() => props.detail, () => {

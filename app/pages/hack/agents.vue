@@ -17,7 +17,7 @@ const atPowerCap = (agent: any) => agent.power >= agentCap(agent)
 
 const { fetchSession, user } = useAuth()
 const balance = computed(() => parseFloat(user.value?.balance ?? '0'))
-const { data: state, refresh } = await useFetch('/api/hack/state')
+const { data: state, refresh } = await useApiState('/api/hack/state')
 const toast = useToast()
 const audio = useAudio('hack')
 
@@ -53,7 +53,7 @@ function requestFire(agentId: string, name: string) {
 async function fireAgent(agentId: string, name: string) {
   firing.value = agentId
   try {
-    await $fetch('/api/hack/agents/fire', { method: 'POST', body: { agentId } })
+    await apiFetch('/api/hack/agents/fire', { method: 'POST', body: { agentId } })
     relayBark(AGENT_FIRED)
     toast.add({ title: `${name} dismissed`, color: 'neutral' })
     if (detailAgentId.value === agentId) detailAgentId.value = null
@@ -73,7 +73,7 @@ const activeFull = computed(() =>
 async function setActive(agentId: string, active: boolean) {
   togglingActive.value = agentId
   try {
-    await $fetch('/api/hack/agents/active', { method: 'POST', body: { agentId, active } })
+    await apiFetch('/api/hack/agents/active', { method: 'POST', body: { agentId, active } })
     relayBark(active ? AGENT_ACTIVATE : AGENT_DEACTIVATE)
     toast.add({ title: active ? 'Agent activated' : 'Agent moved to storage', color: active ? 'success' : 'neutral' })
     detailAgentId.value = null
@@ -103,7 +103,7 @@ const expanding = ref(false)
 async function expandRoster() {
   expanding.value = true
   try {
-    await $fetch('/api/hack/roster/expand', { method: 'POST' })
+    await apiFetch('/api/hack/roster/expand', { method: 'POST' })
     relayBark(ROSTER_EXPAND)
     toast.add({ title: 'Roster expanded', color: 'success' })
     await Promise.all([refresh(), fetchSession()])

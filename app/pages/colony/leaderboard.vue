@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { MAX_TIER } from '#shared/utils/colony'
 
-const { data: players, pending } = await useFetch('/api/colony/leaderboard')
+const { data: players, pending } = await useApiState('/api/colony/leaderboard')
 
 const medalColors = ['text-yellow-400', 'text-muted', 'text-warning']
 const rankBg = [

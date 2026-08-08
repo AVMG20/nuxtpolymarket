@@ -1,5 +1,5 @@
 <script setup lang="ts">
-const { data: players, pending } = await useFetch('/api/hack/leaderboard')
+const { data: players, pending } = await useApiState('/api/hack/leaderboard')
 
 const rankAccent = ['text-yellow-400', 'text-slate-300', 'text-amber-600']
 const rankRing = ['ring-yellow-400', 'ring-slate-300', 'ring-amber-600']

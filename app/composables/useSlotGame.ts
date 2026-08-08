@@ -38,10 +38,10 @@ export function useSlotGame<TResult, THistory extends Record<string, unknown> = 
     onStart?.()
 
     try {
-      return await $fetch('/api/games/play-game', {
+      return await apiFetch<SpinResponse<TResult>>('/api/games/play-game', {
         method: 'POST',
         body: { bet: bet.value, game, options }
-      }) as SpinResponse<TResult>
+      })
     } catch (e: unknown) {
       isSpinning.value = false
       errorMsg.value = e instanceof Error ? e.message : 'Something went wrong'

@@ -39,7 +39,7 @@ export const useTcgAdmin = () => {
    */
   async function call<T = unknown>(url: string, body?: Record<string, unknown>, successMsg?: string): Promise<T> {
     try {
-      const res = await $fetch(url, { method: 'POST', body })
+      const res = await apiFetch(url, { method: 'POST', body })
       if (successMsg) toast.add({ title: successMsg, color: 'success' })
       return res as T
     } catch (e) {

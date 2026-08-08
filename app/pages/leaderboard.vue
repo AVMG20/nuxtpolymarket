@@ -28,7 +28,7 @@ interface LeaderboardUser {
   totalWealth: number
 }
 
-const { data: users, pending } = await useFetch<LeaderboardUser[]>('/api/leaderboard')
+const { data: users, pending } = await useAsyncData('leaderboard', () => apiFetch<LeaderboardUser[]>('/api/leaderboard'))
 
 const selectedUser = ref<LeaderboardUser | null>(null)
 const detailsOpen = computed({

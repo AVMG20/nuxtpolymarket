@@ -10,9 +10,7 @@ const selectedSetId = ref<string | undefined>(undefined)
 const setOptions = computed(() =>
   sets.value.map(s => ({ label: `${s.name} (${s.code})`, value: s.id })))
 
-const { data: collection, pending, refresh } = useFetch<CollectionPayload>('/api/tcg/collection', {
-  key: 'tcg-collection',
-  query: { setId: selectedSetId },
+const { data: collection, pending, refresh } = useAsyncData('tcg-collection', () => apiFetch<CollectionPayload>('/api/tcg/collection', { query: { setId: selectedSetId.value } }), {
   immediate: false,
   watch: [selectedSetId]
 })

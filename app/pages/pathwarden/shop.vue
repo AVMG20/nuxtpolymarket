@@ -5,7 +5,7 @@ definePageMeta({ title: 'Warden’s Reliquary' })
 
 const toast = useToast()
 const { fetchSession } = useAuth()
-const { data: state, refresh } = await useFetch('/api/pathwarden/state')
+const { data: state, refresh } = await useApiState('/api/pathwarden/state')
 const activeTab = ref('defenses')
 const familyFilter = ref('all')
 const buyingDefense = ref<string | null>(null)
@@ -39,7 +39,7 @@ async function completePurchase(title: string) {
 async function buyDefense(defenseId: string) {
   buyingDefense.value = defenseId
   try {
-    await $fetch('/api/pathwarden/defenses/buy', { method: 'POST', body: { defenseId } })
+    await apiFetch('/api/pathwarden/defenses/buy', { method: 'POST', body: { defenseId } })
     await completePurchase('Blueprint added to your arsenal')
   } catch (error) {
     toast.add({ title: apiMessage(error, 'Could not buy blueprint'), color: 'error' })
@@ -51,7 +51,7 @@ async function buyDefense(defenseId: string) {
 async function buySkin(skinId: string) {
   buyingSkin.value = skinId
   try {
-    await $fetch('/api/pathwarden/skins/buy', { method: 'POST', body: { skinId } })
+    await apiFetch('/api/pathwarden/skins/buy', { method: 'POST', body: { skinId } })
     await completePurchase('Citadel livery purchased and equipped')
   } catch (error) {
     toast.add({ title: apiMessage(error, 'Could not buy livery'), color: 'error' })
@@ -63,7 +63,7 @@ async function buySkin(skinId: string) {
 async function equipSkin(skinId: string) {
   buyingSkin.value = skinId
   try {
-    await $fetch('/api/pathwarden/skins/equip', { method: 'POST', body: { skinId } })
+    await apiFetch('/api/pathwarden/skins/equip', { method: 'POST', body: { skinId } })
     await refresh()
     toast.add({ title: 'Citadel livery equipped', color: 'success' })
   } catch (error) {
@@ -76,7 +76,7 @@ async function equipSkin(skinId: string) {
 async function buyBoost(boostId: PathwardenBoostId) {
   buyingBoost.value = boostId
   try {
-    await $fetch('/api/pathwarden/boost', { method: 'POST', body: { boostId } })
+    await apiFetch('/api/pathwarden/boost', { method: 'POST', body: { boostId } })
     await completePurchase('Permanent upgrade acquired')
   } catch (error) {
     toast.add({ title: apiMessage(error, 'Could not buy upgrade'), color: 'error' })
@@ -88,7 +88,7 @@ async function buyBoost(boostId: PathwardenBoostId) {
 async function buySurge() {
   buyingSurge.value = true
   try {
-    await $fetch('/api/pathwarden/surge', { method: 'POST', body: { count: 1 } })
+    await apiFetch('/api/pathwarden/surge', { method: 'POST', body: { count: 1 } })
     await completePurchase('Mist Surge prepared')
   } catch (error) {
     toast.add({ title: apiMessage(error, 'Could not prepare surge'), color: 'error' })

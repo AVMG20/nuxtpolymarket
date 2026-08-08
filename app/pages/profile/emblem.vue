@@ -12,7 +12,7 @@ const { user, fetchSession, signOut: authSignOut } = useAuth()
 const toast = useToast()
 const route = useRoute()
 
-const { data: history, pending: historyPending, refresh: refreshHistory } = await useFetch<EmblemHistoryEntry[]>('/api/user/emblem/history')
+const { data: history, pending: historyPending, refresh: refreshHistory } = await useAsyncData('emblem-history', () => apiFetch<EmblemHistoryEntry[]>('/api/user/emblem/history'))
 
 const draftEmblem = ref<string | null>(null)
 const sharedByName = ref<string | null>(null)
@@ -58,7 +58,7 @@ onMounted(() => {
 const shareId = route.query.share
 if (typeof shareId === 'string' && shareId) {
   try {
-    const shared = await $fetch<{ emblem: string, name: string }>(`/api/emblem/share/${shareId}`)
+    const shared = await apiFetch<{ emblem: string, name: string }>(`/api/emblem/share/${shareId}`)
     draftEmblem.value = shared.emblem
     sharedByName.value = shared.name
   } catch {
@@ -70,7 +70,7 @@ const emblemLoading = ref(false)
 async function saveEmblem(emblem: EmblemData) {
   emblemLoading.value = true
   try {
-    await $fetch('/api/user/emblem', { method: 'PUT', body: { emblem } })
+    await apiFetch('/api/user/emblem', { method: 'PUT', body: { emblem } })
     await fetchSession()
     await refreshHistory()
     persistDraft(null)

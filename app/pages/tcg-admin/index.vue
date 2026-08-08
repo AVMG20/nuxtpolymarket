@@ -19,17 +19,14 @@ const toast = useToast()
 
 const isAdmin = computed(() => user.value?.isPokemonAdmin === true)
 
-const { data: sets, pending } = useFetch<TcgAdminSet[]>('/api/tcg/admin/sets', {
-  key: 'tcg-admin-sets',
+const { data: sets, pending } = useAsyncData('tcg-admin-sets', () => apiFetch<TcgAdminSet[]>('/api/tcg/admin/sets'), {
   immediate: true,
   default: () => []
 })
 
 // The emission guard (§7.5): buyback coins against packs sold, on the page
 // an admin actually looks at.
-const { data: vendorStats } = useFetch<{ coinsEmitted: number, payouts: number, packsSold: number }>('/api/tcg/admin/vendor-stats', {
-  key: 'tcg-admin-vendor-stats'
-})
+const { data: vendorStats } = useAsyncData('tcg-admin-vendor-stats', () => apiFetch<{ coinsEmitted: number, payouts: number, packsSold: number }>('/api/tcg/admin/vendor-stats'))
 
 // Shop economics (§7.3): pack pricing, daily cap and bundle, admin-tunable.
 interface ShopSettings {
@@ -39,9 +36,7 @@ interface ShopSettings {
   bundlePacks: number
   bundleGems: number
 }
-const { data: shopSettings } = useFetch<ShopSettings>('/api/tcg/admin/settings', {
-  key: 'tcg-admin-shop-settings'
-})
+const { data: shopSettings } = useAsyncData('tcg-admin-shop-settings', () => apiFetch<ShopSettings>('/api/tcg/admin/settings'))
 const shopEdit = ref<ShopSettings | null>(null)
 watch(shopSettings, (s) => {
   if (s) shopEdit.value = { ...s }
@@ -64,8 +59,7 @@ const templateOpen = ref(false)
 const templateSearch = ref('')
 const creatingCode = ref<string | null>(null)
 
-const { data: templateData, pending: templatesPending, error: templatesError, execute: loadTemplates } = useFetch<{ templates: RateTemplateRow[], sidecarUnavailable?: boolean }>('/api/tcg/admin/templates', {
-  key: 'tcg-admin-templates',
+const { data: templateData, pending: templatesPending, error: templatesError, execute: loadTemplates } = useAsyncData('tcg-admin-templates', () => apiFetch<{ templates: RateTemplateRow[], sidecarUnavailable?: boolean }>('/api/tcg/admin/templates'), {
   immediate: false
 })
 

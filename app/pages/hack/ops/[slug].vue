@@ -8,7 +8,7 @@ import {
 import type { VoiceHandle } from '~/composables/useAudio'
 
 const route = useRoute()
-const { data: state, refresh } = await useFetch('/api/hack/state')
+const { data: state, refresh } = await useApiState('/api/hack/state')
 const toast = useToast()
 const audio = useAudio('hack')
 
@@ -109,7 +109,7 @@ async function dispatch() {
   briefingPlaying.value = false
   dispatching.value = true
   try {
-    await $fetch('/api/hack/ops/dispatch', {
+    await apiFetch('/api/hack/ops/dispatch', {
       method: 'POST',
       body: { templateId: template.value.id, agentIds: selectedAgentIds.value }
     })

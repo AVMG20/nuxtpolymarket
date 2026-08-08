@@ -65,12 +65,9 @@ function clearGodRate() {
 
 // ── Preview from the server (authoritative math) ─────────────────────────────
 
-const { data: preview, pending: previewPending, refresh: refreshPreview } = useFetch<PrintRunPreview>(
-    '/api/tcg/admin/print-run/preview',
-    {
-        key: `tcg-print-run-preview-${props.detail.set.id}`,
-        query: computed(() => ({ setId: props.detail.set.id }))
-    }
+const { data: preview, pending: previewPending, refresh: refreshPreview } = useAsyncData(
+    `tcg-print-run-preview-${props.detail.set.id}`,
+    () => apiFetch<PrintRunPreview>('/api/tcg/admin/print-run/preview', { query: { setId: props.detail.set.id } })
 )
 
 watch(() => props.detail, () => {

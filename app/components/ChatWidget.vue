@@ -2,6 +2,12 @@
 import { formatDistanceToNow } from 'date-fns'
 import { CHAT_HISTORY_LIMIT, CHAT_MAX_LENGTH, sanitizeChatContent } from '#shared/utils/chat'
 
+// $fetch's typed-route inference blows TS's instantiation depth now that the
+// API surface is large; this untyped alias opts these calls out of it (the
+// results are cast explicitly at each site).
+const chatFetch = $fetch as unknown as <T = unknown>(url: string, opts?: Record<string, unknown>) => Promise<T>
+
+
 interface ChatMessage {
   id: string
   userId: string
@@ -185,14 +191,14 @@ function connect() {
 onMounted(async () => {
   connect()
   try {
-    const history = await $fetch<ChatMessage[]>('/api/chat/messages')
+    const history = await chatFetch<ChatMessage[]>('/api/chat/messages')
     // prepend history, skipping anything that already arrived over the socket
     const seen = new Set(messages.value.map(m => m.id))
     messages.value = [...history.filter(m => !seen.has(m.id)), ...messages.value]
     hasMore.value = history.length >= CHAT_HISTORY_LIMIT
   } catch { /* history is best-effort; live messages still work */ }
   try {
-    unseenMentions.value = await $fetch<{ messageId: string }[]>('/api/chat/mentions')
+    unseenMentions.value = await chatFetch<{ messageId: string }[]>('/api/chat/mentions')
   } catch { /* mentions are best-effort */ }
 })
 
@@ -212,7 +218,7 @@ async function loadOlder() {
   if (!oldest) return
   loadingOlder.value = true
   try {
-    const older = await $fetch<ChatMessage[]>('/api/chat/messages', {
+    const older = await chatFetch<ChatMessage[]>('/api/chat/messages', {
       query: { before: oldest.createdAt }
     })
     if (older.length < CHAT_HISTORY_LIMIT) hasMore.value = false
@@ -264,7 +270,7 @@ const highlightId = ref<string | null>(null)
 async function markMentionSeen(messageId: string) {
   unseenMentions.value = unseenMentions.value.filter(m => m.messageId !== messageId)
   try {
-    await $fetch('/api/chat/mentions/seen', { method: 'POST', body: { messageId } })
+    await chatFetch('/api/chat/mentions/seen', { method: 'POST', body: { messageId } })
   } catch { /* will show again on next load, better than losing it */ }
 }
 
@@ -452,7 +458,7 @@ function insertGem() {
 
 async function insertBank() {
   try {
-    const bank = await $fetch<{ balance: number }>('/api/bank/state')
+    const bank = await chatFetch<{ balance: number }>('/api/bank/state')
     insertAtCursor(`[[bank:${bank.balance}]]`)
   } catch {
     toast.add({ title: 'Could not load bank balance', color: 'error' })
@@ -461,7 +467,7 @@ async function insertBank() {
 
 async function insertStat(kind: 'profit' | 'loss') {
   try {
-    const stats = await $fetch<{
+    const stats = await chatFetch<{
       best: { category: string, amount: number } | null
       worst: { category: string, amount: number } | null
     }>('/api/chat/stats')
@@ -485,7 +491,7 @@ async function ensureUsers() {
   if (allUsers.value || usersLoading) return
   usersLoading = true
   try {
-    allUsers.value = await $fetch<{ id: string, name: string }[]>('/api/chat/users')
+    allUsers.value = await chatFetch<{ id: string, name: string }[]>('/api/chat/users')
   } catch { /* dropdown just stays empty */ } finally {
     usersLoading = false
   }

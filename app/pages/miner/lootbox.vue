@@ -18,7 +18,7 @@ const RARITY_CLASSES: Record<LootboxRarity, { border: string, borderSoft: string
 
 const { fetchSession, user } = useAuth()
 const balance = computed(() => parseFloat(user.value?.balance ?? '0'))
-const { data: state, refresh } = await useFetch('/api/miner/state')
+const { data: state, refresh } = await useApiState('/api/miner/state')
 const toast = useToast()
 
 const cap = computed(() => state.value?.cap ?? 0)
@@ -75,7 +75,7 @@ async function open(mode: 'free' | 'paid') {
   result.value = null
   winValue.value = null
   try {
-    const res = await $fetch('/api/miner/lootbox/open', { method: 'POST', body: { mode } })
+    const res = await apiFetch<import('nitropack/types').InternalApi['/api/miner/lootbox/open']['post']>('/api/miner/lootbox/open', { method: 'POST', body: { mode } })
     const won = LOOTBOX_REWARDS.find(r => r.id === res.wonId)!
     freeRemaining.value = res.freeOpensRemaining
     winValue.value = { cashValue: res.cashValue }
@@ -113,7 +113,7 @@ async function open(mode: 'free' | 'paid') {
 async function buySlot() {
   buyingSlot.value = true
   try {
-    const res = await $fetch('/api/miner/lootbox/buy-slot', { method: 'POST' })
+    const res = await apiFetch<import('nitropack/types').InternalApi['/api/miner/lootbox/buy-slot']['post']>('/api/miner/lootbox/buy-slot', { method: 'POST' })
     toast.add({ title: `Lootbox slot #${res.newSlots} unlocked!`, color: 'success', icon: 'i-lucide-gift' })
     await Promise.all([refresh(), fetchSession()])
   } catch (e: any) {

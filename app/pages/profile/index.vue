@@ -14,7 +14,7 @@ const unlockLoading = ref(false)
 async function unlockRakeback() {
   unlockLoading.value = true
   try {
-    await $fetch('/api/user/unlock-rakeback', { method: 'POST' })
+    await apiFetch('/api/user/unlock-rakeback', { method: 'POST' })
     await fetchSession()
     unlockModalOpen.value = false
     toast.add({ title: 'Rakeback unlocked!', color: 'success', icon: 'i-lucide-check' })
@@ -30,7 +30,7 @@ const claimLoading = ref(false)
 async function claimRake() {
   claimLoading.value = true
   try {
-    await $fetch('/api/user/claim-rake', { method: 'POST' })
+    await apiFetch('/api/user/claim-rake', { method: 'POST' })
     await fetchSession()
     claimModalOpen.value = false
     toast.add({ title: 'Rakeback claimed!', color: 'success', icon: 'i-lucide-check' })
@@ -113,7 +113,7 @@ async function savePassword() {
     }
   } else {
     try {
-      await $fetch('/api/user/set-password', { method: 'POST', body: { password: newPw.value } })
+      await apiFetch('/api/user/set-password', { method: 'POST', body: { password: newPw.value } })
       newPw.value = ''
       confirmPw.value = ''
       const { data } = await client.listAccounts()
