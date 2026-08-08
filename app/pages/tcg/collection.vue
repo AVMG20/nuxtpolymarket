@@ -1,41 +1,37 @@
 <script setup lang="ts">
-import type { CollectionCard, CollectionPayload, CollectionPrinting } from '#shared/types/tcg'
+import type { GalleryPayload, GalleryPrinting, GallerySet } from '#shared/types/tcg'
 import { legacySetOf } from '#shared/utils/tcg/legacy'
 import type { LightboxCard } from '~/components/tcg/TcgCardLightbox.client.vue'
 
-const { sets } = useTcg()
+/* The collection as a gallery (§10): every set at once, owned cards only,
+ * images first. The per-set completion view with its grey holes lives on as
+ * the secondary Progress view at /tcg/progress.
+ */
+const { data: gallery, pending, refresh } = useAsyncData('tcg-gallery', () => apiFetch<GalleryPayload>('/api/tcg/collection/gallery'))
 
-const selectedSetId = ref<string | undefined>(undefined)
+const search = ref('')
 
-const setOptions = computed(() =>
-  sets.value.map(s => ({ label: `${s.name} (${s.code})`, value: s.id })))
-
-const { data: collection, pending, refresh } = useAsyncData('tcg-collection', () => apiFetch<CollectionPayload>('/api/tcg/collection', { query: { setId: selectedSetId.value } }), {
-  immediate: false,
-  watch: [selectedSetId]
+const visibleSets = computed<GallerySet[]>(() => {
+  const needle = search.value.trim().toLowerCase()
+  if (!needle) return gallery.value ?? []
+  return (gallery.value ?? [])
+    .map(set => ({
+      ...set,
+      printings: set.printings.filter(printing => printing.cardName.toLowerCase().includes(needle))
+    }))
+    .filter(set => set.printings.length > 0)
 })
 
-// Default to the most recently created set once the list arrives — AFTER
-// useFetch is created, so the watched query ref change actually triggers the
-// fetch. Explicit max(createdAt) rather than list order, so the default
-// doesn't silently depend on how the endpoint happens to sort.
-onMounted(() => {
-  watch(sets, (list) => {
-    if (selectedSetId.value || !list.length) return
-    const newest = [...list].sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0]!
-    selectedSetId.value = newest.id
-  }, { immediate: true })
+const totals = computed(() => {
+  const sets = gallery.value ?? []
+  return {
+    cards: sets.reduce((sum, set) => sum + set.printings.reduce((n, p) => n + p.owned, 0), 0),
+    printings: sets.reduce((sum, set) => sum + set.printings.length, 0)
+  }
 })
-
-const stats = computed(() => collection.value?.stats ?? null)
-const currentSet = computed(() => sets.value.find(s => s.id === selectedSetId.value) ?? null)
-
-function pct(owned: number, total: number) {
-  return total > 0 ? Math.round((owned / total) * 100) : 0
-}
 
 /** Thumb props for a printing — legacy scans have no bundle. */
-function thumbProps(printing: CollectionPrinting) {
+function thumbProps(printing: GalleryPrinting) {
   if (printing.bundle) return { bundle: printing.bundle }
   const legacySet = legacySetOf(printing.plaatjesCardId)
   return legacySet && printing.assetNumber
@@ -43,12 +39,10 @@ function thumbProps(printing: CollectionPrinting) {
     : null
 }
 
-// Large single-card viewer. Unowned printings open in full colour too —
-// inspecting what a printing looks like is fine; only the grid tile is dimmed.
 const lightboxCard = ref<LightboxCard | null>(null)
 
-function openLightbox(card: CollectionCard, printing: CollectionPrinting, event: MouseEvent) {
-  if (!thumbProps(printing)) return // nothing renderable for this printing
+function openLightbox(set: GallerySet, printing: GalleryPrinting, event: MouseEvent) {
+  if (!thumbProps(printing)) return
   const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
   lightboxCard.value = {
     origin: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
@@ -58,21 +52,18 @@ function openLightbox(card: CollectionCard, printing: CollectionPrinting, event:
     foilEffect: printing.foilEffect,
     legacySet: printing.bundle ? null : legacySetOf(printing.plaatjesCardId),
     holo: printing.finish === 'holo',
-    name: card.name,
-    rarity: card.rarity,
+    name: printing.cardName,
+    rarity: printing.rarity,
     pattern: printing.pattern,
     printRunLabel: printing.printRunLabel,
     finishLabel: finishLabel(printing.finish, printing.pattern),
-    // For the slab label when a graded copy of this printing is inspected.
     slabMeta: {
-      number: card.number,
-      setTotal: card.setTotal,
-      setName: currentSet.value?.name ?? null,
-      setCode: currentSet.value?.code ?? null,
-      releaseDate: currentSet.value?.releaseDate ?? null
+      number: printing.cardNumber,
+      setTotal: printing.setTotal,
+      setName: set.name,
+      setCode: set.code,
+      releaseDate: set.releaseDate
     },
-    // Owned printings get the copy picker + wear inspection; unowned ones
-    // stay a clean render of what the printing looks like.
     printingId: printing.id,
     owned: printing.owned
   }
@@ -80,115 +71,96 @@ function openLightbox(card: CollectionCard, printing: CollectionPrinting, event:
 </script>
 
 <template>
-  <div class="mx-auto w-full max-w-5xl space-y-4 p-4">
+  <div class="mx-auto w-full max-w-6xl space-y-6 p-4">
     <div class="flex flex-wrap items-center justify-between gap-3">
-      <USelect
-        v-model="selectedSetId"
-        :items="setOptions"
-        placeholder="Choose a set"
-        class="min-w-56"
+      <UInput
+        v-model="search"
+        icon="i-lucide-search"
+        placeholder="Search your cards…"
+        class="w-64"
       />
-      <div
-        v-if="stats"
-        class="flex flex-wrap items-center gap-6"
-      >
-        <div class="w-44">
-          <div class="mb-1 flex justify-between text-xs text-muted">
-            <span>Base set</span>
-            <span class="tabular-nums">{{ stats.cardsOwnedAnyFinish }}/{{ stats.cardsTotal }}</span>
-          </div>
-          <UProgress
-            :model-value="pct(stats.cardsOwnedAnyFinish, stats.cardsTotal)"
-            color="primary"
-            size="sm"
-          />
-        </div>
-        <div class="w-44">
-          <div class="mb-1 flex justify-between text-xs text-muted">
-            <span>Master set</span>
-            <span class="tabular-nums">{{ stats.printingsOwned }}/{{ stats.printingsTotal }}</span>
-          </div>
-          <UProgress
-            :model-value="pct(stats.printingsOwned, stats.printingsTotal)"
-            color="secondary"
-            size="sm"
-          />
-        </div>
+      <div class="flex items-center gap-4">
+        <span
+          v-if="gallery"
+          class="text-xs text-muted"
+        >
+          <b class="tabular-nums text-highlighted">{{ formatNumber(totals.cards, false) }}</b> cards ·
+          <b class="tabular-nums text-highlighted">{{ totals.printings }}</b> printings
+        </span>
+        <UButton
+          color="neutral"
+          variant="subtle"
+          size="sm"
+          icon="i-lucide-goal"
+          label="Progress"
+          to="/tcg/progress"
+        />
       </div>
     </div>
 
-    <UCard v-if="pending && !collection">
+    <UCard v-if="pending && !gallery">
       <p class="text-sm text-muted">
         Loading collection…
       </p>
     </UCard>
 
-    <div
-      v-else-if="collection"
-      class="space-y-2"
+    <UCard v-else-if="gallery && gallery.length === 0">
+      <p class="text-sm text-muted">
+        Nothing here yet — open a pack in the shop and your pulls will show up as a gallery.
+      </p>
+    </UCard>
+
+    <section
+      v-for="set in visibleSets"
+      :key="set.id"
     >
-      <UCard
-        v-for="card in collection.cards"
-        :key="card.id"
-      >
-        <div class="flex flex-wrap items-center gap-4">
-          <div class="w-44 shrink-0">
-            <p class="truncate text-sm font-medium text-highlighted">
-              {{ card.name }}
-            </p>
-            <p class="text-xs tabular-nums text-muted">
-              {{ card.number }}<span v-if="card.setTotal">/{{ card.setTotal }}</span>
-            </p>
+      <div class="mb-3 flex items-baseline justify-between gap-3">
+        <h2 class="text-base font-semibold text-highlighted">
+          {{ set.name }}
+          <span class="ml-1.5 text-xs font-normal text-muted">{{ set.code }}</span>
+        </h2>
+        <span class="text-xs tabular-nums text-muted">{{ set.printings.length }}/{{ set.printingsTotal }} printings</span>
+      </div>
+      <div class="grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6">
+        <div
+          v-for="printing in set.printings"
+          :key="printing.id"
+          :class="thumbProps(printing) && 'cursor-pointer transition hover:scale-[1.02]'"
+          @click="openLightbox(set, printing, $event)"
+        >
+          <div class="relative">
+            <template v-if="thumbProps(printing)">
+              <TcgCardThumb v-bind="thumbProps(printing)!" />
+            </template>
+            <div
+              v-else
+              class="aspect-[0.718] w-full rounded bg-elevated"
+            />
             <UBadge
-              v-if="card.rarity"
-              :color="rarityColor(card.rarity)"
-              variant="subtle"
+              v-if="printing.owned > 1"
+              color="primary"
               size="sm"
-              class="mt-1"
+              class="absolute -right-1.5 -top-1.5 tabular-nums"
             >
-              {{ card.rarity }}
+              ×{{ printing.owned }}
+            </UBadge>
+            <UBadge
+              v-if="printing.topGrade"
+              color="secondary"
+              variant="solid"
+              size="sm"
+              class="absolute -left-1.5 -top-1.5"
+            >
+              {{ printing.topGrade.service }} {{ printing.topGrade.grade }}
             </UBadge>
           </div>
-
-          <div class="flex flex-1 flex-wrap gap-3">
-            <div
-              v-for="printing in card.printings"
-              :key="printing.id"
-              class="w-20"
-              :class="thumbProps(printing) && 'cursor-pointer'"
-              @click="openLightbox(card, printing, $event)"
-            >
-              <div class="relative">
-                <template v-if="thumbProps(printing)">
-                  <TcgCardThumb
-                    v-bind="thumbProps(printing)!"
-                    :class="printing.owned === 0 && 'opacity-40 grayscale'"
-                  />
-                </template>
-                <div
-                  v-else
-                  class="aspect-[0.718] w-full rounded bg-elevated"
-                />
-                <UBadge
-                  v-if="printing.owned > 1"
-                  color="primary"
-                  size="sm"
-                  class="absolute -right-1.5 -top-1.5 tabular-nums"
-                >
-                  ×{{ printing.owned }}
-                </UBadge>
-              </div>
-              <p
-                class="mt-1 truncate text-center text-[10px]"
-                :class="printing.owned > 0 ? 'text-muted' : 'text-dimmed'"
-              >
-                {{ finishLabel(printing.finish, printing.pattern) }}
-              </p>
-            </div>
-          </div>
+          <p class="mt-1 truncate text-center text-[11px] text-muted">
+            {{ printing.cardName }}
+            <span class="text-dimmed">· {{ finishLabel(printing.finish, printing.pattern) }}</span>
+          </p>
         </div>
-      </UCard>
-    </div>
+      </div>
+    </section>
 
     <TcgCardLightbox
       :card="lightboxCard"
