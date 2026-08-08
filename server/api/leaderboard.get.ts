@@ -142,6 +142,7 @@ export default defineEventHandler(async (event) => {
         + xenoBreederSlotsUnlocked
       return {
         isCurrentUser: u.id === sessionUserId,
+        id: u.id,
         name: u.name,
         emblem: u.emblem,
         prestige: u.prestige,
