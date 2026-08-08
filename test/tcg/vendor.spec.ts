@@ -4,7 +4,7 @@
  * market.spec.ts.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { and, eq, inArray } from 'drizzle-orm'
+import { and, eq, inArray, sql } from 'drizzle-orm'
 import { db } from '#server/database'
 import { user, tcgSet, tcgCard, tcgPrinting, tcgSheet, tcgPack, tcgCopy, tcgCopyTransfer, tcgSubmission } from '#server/database/schema'
 import { vendorCopy } from '#server/utils/tcg/vendor'
@@ -125,7 +125,7 @@ describe.skipIf(SKIP)('tcg vendor integration', () => {
         const slabbed = await seedCopy(USERS.owner)
         const submission = await submitForGrading(USERS.owner, slabbed, 'PSI', null)
         await db.update(tcgSubmission)
-            .set({ returnsAt: new Date(Date.now() - 1000) })
+            .set({ returnsAt: sql`now() - interval '1 second'` })
             .where(eq(tcgSubmission.id, submission.id))
         await collectSubmission(USERS.owner, submission.id)
         await expect(vendorCopy(USERS.owner, slabbed, 1))

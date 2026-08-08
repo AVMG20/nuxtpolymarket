@@ -4,7 +4,7 @@
  * while plain duplicates keep 409ing. Real Postgres from .env.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { eq, inArray } from 'drizzle-orm'
+import { eq, inArray, sql } from 'drizzle-orm'
 import { db } from '#server/database'
 import { tcgSet, tcgCard, tcgPrinting, tcgSheet, tcgPackTemplate } from '#server/database/schema'
 import { commitSet, buyPack } from '#server/utils/tcg/engine'
@@ -83,7 +83,7 @@ describe.skipIf(SKIP)('tcg reprints', () => {
         await expect(buyPack(announced, USER))
             .rejects.toMatchObject({ statusCode: 400, statusMessage: 'Not on sale yet' })
 
-        await db.update(tcgSet).set({ onSaleAt: new Date(Date.now() - 1000) }).where(eq(tcgSet.id, announced))
+        await db.update(tcgSet).set({ onSaleAt: sql`now() - interval '1 second'` }).where(eq(tcgSet.id, announced))
         const pack = await buyPack(announced, USER)
         expect(pack.state).toBe('sealed')
 

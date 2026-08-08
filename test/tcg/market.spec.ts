@@ -4,7 +4,7 @@
  * minted condition, same fixture shape as grading.spec.ts.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { and, eq, inArray } from 'drizzle-orm'
+import { and, eq, inArray, sql } from 'drizzle-orm'
 import { db } from '#server/database'
 import { user, tcgSet, tcgCard, tcgPrinting, tcgSheet, tcgPack, tcgCopy, tcgListing, tcgCopyTransfer, tcgSubmission } from '#server/database/schema'
 import { listCopy, cancelListing, buyListing, salesHistory, ownershipChain } from '#server/utils/tcg/market'
@@ -71,7 +71,7 @@ async function seedCopy(ownerId: string): Promise<string> {
 async function slabCopy(ownerId: string, copyId: string): Promise<void> {
     const row = await submitForGrading(ownerId, copyId, 'PSI', null)
     await db.update(tcgSubmission)
-        .set({ returnsAt: new Date(Date.now() - 1000) })
+        .set({ returnsAt: sql`now() - interval '1 second'` })
         .where(eq(tcgSubmission.id, row.id))
     await collectSubmission(ownerId, row.id)
 }
