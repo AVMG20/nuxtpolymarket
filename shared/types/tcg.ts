@@ -252,6 +252,43 @@ export interface CollectionStats {
     cardsTotal: number
 }
 
+// ── Collection gallery (owned-first, all sets) ──────────────────────────────
+
+export interface GalleryPrinting {
+    id: string
+    plaatjesCardId: string
+    finish: TcgFinish
+    pattern: string | null
+    printRunLabel: string
+    bundle: string | null
+    assetNumber: string | null
+    maskKind: string | null
+    foilEffect: string | null
+    cardName: string
+    cardNumber: string
+    setTotal: number | null
+    rarity: string | null
+    sortOrder: number
+    /** Copies the profiled user owns. Never carries condition data. */
+    owned: number
+    slabbed: number
+    /** Best graded copy's full public report — reports are public (§10.4). */
+    topGrade: TcgGradePayload | null
+}
+
+export interface GallerySet {
+    id: string
+    name: string
+    code: string
+    releaseDate: string | null
+    printRunLabel: string
+    printingsTotal: number
+    printings: GalleryPrinting[]
+}
+
+/** Newest set first; only sets where the user owns at least one printing. */
+export type GalleryPayload = GallerySet[]
+
 export interface CollectionPayload {
     cards: CollectionCard[]
     stats: CollectionStats
