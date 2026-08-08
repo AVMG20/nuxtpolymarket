@@ -1265,6 +1265,31 @@ export const tcgTradeItem = pgTable('tcg_trade_items', {
   index('tcg_trade_items_offerId_idx').on(t.offerId)
 ])
 
+// ── TCG display (§10.5): binders for raw cards, shelves for slabs ──────────
+
+export const tcgDisplay = pgTable('tcg_displays', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  kind: text('kind').notNull(), // 'binder' | 'shelf'
+  name: text('name').notNull(),
+  capacity: integer('capacity').notNull(),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow()
+}, t => [
+  index('tcg_displays_userId_idx').on(t.userId)
+])
+
+export const tcgDisplaySlot = pgTable('tcg_display_slots', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  displayId: text('display_id').notNull().references(() => tcgDisplay.id, { onDelete: 'cascade' }),
+  position: integer('position').notNull(),
+  copyId: text('copy_id').notNull().references(() => tcgCopy.id, { onDelete: 'cascade' })
+}, t => [
+  unique('tcg_display_slots_position_unique').on(t.displayId, t.position),
+  // A physical card sits in exactly one pocket, ever.
+  unique('tcg_display_slots_copy_unique').on(t.copyId)
+])
+
 export const chatMessagesRelations = relations(chatMessages, ({ one }) => ({
   user: one(user, { fields: [chatMessages.userId], references: [user.id] })
 }))

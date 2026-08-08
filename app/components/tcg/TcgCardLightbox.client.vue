@@ -47,6 +47,9 @@ export interface LightboxCard {
     origin?: { x: number, y: number, width: number, height: number }
     /** Set/number metadata for the slab label when a graded copy is shown. */
     slabMeta?: Omit<SlabCardMeta, 'name' | 'rarity'>
+    /** Public grade of the shown copy — renders the 3D slab even for copies
+     * the viewer does not own (grade reports are public, §10.4). */
+    grade?: TcgGradePayload | null
     /** Market mode: the listing this card was opened from. */
     listing?: {
         id: string
@@ -225,7 +228,7 @@ const activeSerial = computed(() => {
 const activeCopy = computed(() =>
     copies.value?.find(c => c.id === activeCopyId.value) ?? null)
 const activeGrade = computed(() =>
-    activeCopy.value?.grade ?? props.card?.listing?.grade ?? null)
+    activeCopy.value?.grade ?? props.card?.listing?.grade ?? props.card?.grade ?? null)
 
 const slabInfo = computed(() => {
     const grade = activeGrade.value
