@@ -2,7 +2,8 @@ import { and, asc, desc, eq, sql } from 'drizzle-orm'
 import { alias } from 'drizzle-orm/pg-core'
 import { db } from '#server/database'
 import {
-    tcgListing, tcgCopyTransfer, tcgCopy, tcgPrinting, tcgCard, tcgSet, tcgSheet, tcgPack, user
+    tcgListing, tcgCopyTransfer, tcgCopy, tcgPrinting, tcgCard, tcgSet, tcgSheet, tcgPack, user,
+    tcgLot, tcgLotItem, tcgAuction
 } from '#server/database/schema'
 import { credit, debit } from '#server/utils/balance'
 import { TCG_MARKET, sellerProceeds } from '#shared/utils/tcg/market'
@@ -40,6 +41,40 @@ export async function hasActiveListing(tx: Tx, copyId: string): Promise<boolean>
     return !!row
 }
 
+export type TcgEncumbrance = 'listing' | 'lot' | 'auction'
+
+/**
+ * What, if anything, holds this copy right now. A copy in an active listing,
+ * an active bulk lot or an active auction cannot be listed, lotted,
+ * auctioned, graded, cracked, vendored or debug-returned. Trade offers
+ * deliberately do NOT encumber — they validate at accept time instead.
+ * Call under lockCopyForUpdate: the copy row lock is what serializes all of
+ * these families against each other.
+ */
+export async function copyEncumbrance(tx: Tx, copyId: string): Promise<TcgEncumbrance | null> {
+    if (await hasActiveListing(tx, copyId)) return 'listing'
+    const [lot] = await tx.select({ id: tcgLotItem.id }).from(tcgLotItem)
+        .innerJoin(tcgLot, eq(tcgLotItem.lotId, tcgLot.id))
+        .where(and(eq(tcgLotItem.copyId, copyId), eq(tcgLot.state, 'active')))
+    if (lot) return 'lot'
+    const [auction] = await tx.select({ id: tcgAuction.id }).from(tcgAuction)
+        .where(and(eq(tcgAuction.copyId, copyId), eq(tcgAuction.state, 'active')))
+    if (auction) return 'auction'
+    return null
+}
+
+const ENCUMBRANCE_MESSAGE: Record<TcgEncumbrance, string> = {
+    listing: 'Copy is listed on the market',
+    lot: 'Copy is part of a bulk lot',
+    auction: 'Copy is at auction'
+}
+
+/** Throw the family-specific 400 when the copy is held by anything. */
+export async function assertUnencumbered(tx: Tx, copyId: string): Promise<void> {
+    const held = await copyEncumbrance(tx, copyId)
+    if (held) badRequest(ENCUMBRANCE_MESSAGE[held])
+}
+
 export interface ListingRow {
     id: string
     copyId: string
@@ -60,7 +95,7 @@ export async function listCopy(userId: string, copyId: string, price: number, no
         if (copy!.lifecycle !== 'raw' && copy!.lifecycle !== 'slabbed') {
             badRequest('Copy is not available for listing')
         }
-        if (await hasActiveListing(tx, copyId)) badRequest('Copy is already listed')
+        await assertUnencumbered(tx, copyId)
 
         const [row] = await tx.insert(tcgListing).values({
             copyId,

@@ -1146,6 +1146,125 @@ export const tcgCopyTransfer = pgTable('tcg_copy_transfers', {
   index('tcg_copy_transfers_copyId_idx').on(t.copyId)
 ])
 
+/**
+ * Market slice 2 (§7.1) — the bid side. A standing buy order escrows
+ * price × quantity Coins at placement (debit-on-place, the gem-exchange
+ * convention) and is keyed by the slab identity (printing, service, grade,
+ * designation): buy orders exist ONLY for slabbed cards, which are fungible.
+ * Fills happen when an owner sells into the book; matching is serialized by
+ * a per-book advisory lock in server/utils/tcg/book.ts.
+ */
+export const tcgBuyOrder = pgTable('tcg_buy_orders', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  printingId: text('printing_id').notNull().references(() => tcgPrinting.id, { onDelete: 'cascade' }),
+  gradeService: text('grade_service').notNull(),
+  grade: text('grade').notNull(),
+  gradeDesignation: text('grade_designation'),
+  price: numeric('price', { precision: 19, scale: 4 }).notNull(),
+  quantity: integer('quantity').notNull(),
+  filled: integer('filled').notNull().default(0),
+  status: text('status').notNull().default('open'), // 'open' | 'filled' | 'cancelled'
+  createdAt: timestamp('created_at').defaultNow().notNull()
+}, t => [
+  index('tcg_buy_orders_book_idx').on(t.printingId, t.gradeService, t.grade, t.status),
+  index('tcg_buy_orders_userId_idx').on(t.userId)
+])
+
+/**
+ * A bulk lot (§7.1): raw copies sold explicitly unsorted and uninspected —
+ * buyers never get copy renders, only the count. Copies in an active lot are
+ * encumbered (copyEncumbrance) until it sells or is cancelled.
+ */
+export const tcgLot = pgTable('tcg_lots', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  sellerId: text('seller_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  setId: text('set_id').notNull().references(() => tcgSet.id, { onDelete: 'cascade' }),
+  price: numeric('price', { precision: 19, scale: 4 }).notNull(),
+  note: text('note'),
+  state: text('state').notNull().default('active'), // 'active' | 'sold' | 'cancelled'
+  buyerId: text('buyer_id').references(() => user.id, { onDelete: 'set null' }),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  soldAt: timestamp('sold_at')
+}, t => [
+  index('tcg_lots_setId_state_idx').on(t.setId, t.state),
+  index('tcg_lots_sellerId_idx').on(t.sellerId)
+])
+
+export const tcgLotItem = pgTable('tcg_lot_items', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  lotId: text('lot_id').notNull().references(() => tcgLot.id, { onDelete: 'cascade' }),
+  copyId: text('copy_id').notNull().references(() => tcgCopy.id, { onDelete: 'cascade' })
+}, t => [
+  index('tcg_lot_items_lotId_idx').on(t.lotId),
+  index('tcg_lot_items_copyId_idx').on(t.copyId)
+])
+
+/**
+ * An auction (§7.1): singles (raw or slabbed) and sealed packs. Only the top
+ * bid is escrowed — a displaced bidder is refunded in the same transaction
+ * that replaces them. Settlement is lazy (grading's returnsAt pattern):
+ * a conditional claim gated on endsAt, run from reads and late bids.
+ */
+export const tcgAuction = pgTable('tcg_auctions', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  sellerId: text('seller_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  kind: text('kind').notNull(), // 'copy' | 'pack'
+  copyId: text('copy_id').references(() => tcgCopy.id, { onDelete: 'cascade' }),
+  packId: text('pack_id').references(() => tcgPack.id, { onDelete: 'cascade' }),
+  startPrice: numeric('start_price', { precision: 19, scale: 4 }).notNull(),
+  currentBid: numeric('current_bid', { precision: 19, scale: 4 }),
+  currentBidderId: text('current_bidder_id').references(() => user.id, { onDelete: 'set null' }),
+  endsAt: timestamp('ends_at').notNull(),
+  state: text('state').notNull().default('active'), // 'active' | 'settled' | 'cancelled'
+  settledAt: timestamp('settled_at'),
+  createdAt: timestamp('created_at').defaultNow().notNull()
+}, t => [
+  index('tcg_auctions_state_endsAt_idx').on(t.state, t.endsAt),
+  index('tcg_auctions_sellerId_idx').on(t.sellerId)
+])
+
+export const tcgAuctionBid = pgTable('tcg_auction_bids', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  auctionId: text('auction_id').notNull().references(() => tcgAuction.id, { onDelete: 'cascade' }),
+  bidderId: text('bidder_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  amount: numeric('amount', { precision: 19, scale: 4 }).notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull()
+}, t => [
+  index('tcg_auction_bids_auctionId_idx').on(t.auctionId)
+])
+
+/**
+ * A directed trade offer (§7.1): card-for-card ± Coins, the social heart of
+ * collecting. Offers escrow NOTHING — both collections stay fully usable
+ * while an offer sits — and everything (ownership, lifecycle, encumbrance,
+ * the coin leg) is validated atomically at accept time. At most one of
+ * senderCoins/receiverCoins is nonzero; the 5% burn taxes the coin leg only.
+ */
+export const tcgTradeOffer = pgTable('tcg_trade_offers', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  fromUserId: text('from_user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  toUserId: text('to_user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  senderCoins: numeric('sender_coins', { precision: 19, scale: 4 }).notNull().default('0'),
+  receiverCoins: numeric('receiver_coins', { precision: 19, scale: 4 }).notNull().default('0'),
+  note: text('note'),
+  state: text('state').notNull().default('open'), // 'open' | 'accepted' | 'declined' | 'cancelled'
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  resolvedAt: timestamp('resolved_at')
+}, t => [
+  index('tcg_trade_offers_from_idx').on(t.fromUserId, t.state),
+  index('tcg_trade_offers_to_idx').on(t.toUserId, t.state)
+])
+
+export const tcgTradeItem = pgTable('tcg_trade_items', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  offerId: text('offer_id').notNull().references(() => tcgTradeOffer.id, { onDelete: 'cascade' }),
+  copyId: text('copy_id').notNull().references(() => tcgCopy.id, { onDelete: 'cascade' }),
+  side: text('side').notNull() // 'sender' | 'receiver'
+}, t => [
+  index('tcg_trade_items_offerId_idx').on(t.offerId)
+])
+
 export const chatMessagesRelations = relations(chatMessages, ({ one }) => ({
   user: one(user, { fields: [chatMessages.userId], references: [user.id] })
 }))

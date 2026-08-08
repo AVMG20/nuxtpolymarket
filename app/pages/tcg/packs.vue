@@ -17,7 +17,7 @@ function hideBrokenArt(e: Event) {
 }
 const { fetchSession } = useAuth()
 
-const { data, pending, refresh } = useFetch('/api/tcg/packs', { key: 'tcg-packs' })
+const { data, pending, refresh } = useApiState('/api/tcg/packs', 'tcg-packs')
 
 const packs = computed(() => data.value?.packs ?? [])
 const bundles = computed(() => data.value?.bundles ?? [])
@@ -44,7 +44,7 @@ async function openPack(pack: Pick<SealedPackSummary, 'id' | 'setId'>) {
   if (opening.value || openResult.value) return
   opening.value = pack.id
   try {
-    const result = await $fetch<OpenedPackResult>('/api/tcg/open-pack', {
+    const result = await apiFetch<OpenedPackResult>('/api/tcg/open-pack', {
       method: 'POST',
       body: { packId: pack.id }
     })
@@ -54,6 +54,34 @@ async function openPack(pack: Pick<SealedPackSummary, 'id' | 'setId'>) {
     toast.add({ title: apiErrorMessage(e, 'Could not open pack'), color: 'error' })
   } finally {
     opening.value = null
+  }
+}
+
+// Auction a sealed pack (§7.1) — high-value sealed product is auctionable.
+const auctionPackId = ref<string | null>(null)
+const auctionStart = ref(100)
+const auctionDurationMs = ref(3_600_000)
+const auctionDurations = [
+  { label: '1 hour', value: 3_600_000 },
+  { label: '6 hours', value: 21_600_000 },
+  { label: '24 hours', value: 86_400_000 }
+]
+const auctionSubmitting = ref(false)
+async function startPackAuction() {
+  if (!auctionPackId.value || auctionSubmitting.value) return
+  auctionSubmitting.value = true
+  try {
+    await apiFetch('/api/tcg/auctions/create', {
+      method: 'POST',
+      body: { packId: auctionPackId.value, startPrice: Number(auctionStart.value), durationMs: auctionDurationMs.value }
+    })
+    toast.add({ title: 'Pack auction started — find it on the Market tab', color: 'success' })
+    auctionPackId.value = null
+    await refresh()
+  } catch (e) {
+    toast.add({ title: apiErrorMessage(e, 'Could not start auction'), color: 'error' })
+  } finally {
+    auctionSubmitting.value = false
   }
 }
 
@@ -166,15 +194,24 @@ async function onCeremonyClose() {
               </p>
             </div>
           </div>
-          <UButton
-            size="sm"
-            icon="i-lucide-package-open"
-            :loading="opening === pack.id"
-            :disabled="!!opening"
-            @click="openPack(pack)"
-          >
-            Open
-          </UButton>
+          <div class="flex gap-1.5">
+            <UButton
+              size="sm"
+              icon="i-lucide-package-open"
+              :loading="opening === pack.id"
+              :disabled="!!opening"
+              @click="openPack(pack)"
+            >
+              Open
+            </UButton>
+            <UButton
+              size="sm"
+              color="neutral"
+              variant="subtle"
+              icon="i-lucide-gavel"
+              @click="auctionPackId = pack.id"
+            />
+          </div>
         </div>
       </UCard>
     </div>
@@ -210,6 +247,59 @@ async function onCeremonyClose() {
         </ul>
       </UCard>
     </template>
+
+    <UModal
+      :open="auctionPackId !== null"
+      title="Auction this sealed pack"
+      description="The pack stays sealed and cannot be opened while the auction runs. Bids are binding; the winner takes the pack, you receive 95% of the hammer price."
+      @update:open="value => { if (!value) auctionPackId = null }"
+    >
+      <template #body>
+        <div class="flex items-end gap-3">
+          <UFormField
+            label="Starting price"
+            class="flex-1"
+          >
+            <UInput
+              v-model.number="auctionStart"
+              type="number"
+              :min="1"
+            >
+              <template #leading>
+                <UIcon
+                  name="i-lucide-coins"
+                  class="size-3.5 text-yellow-400"
+                />
+              </template>
+            </UInput>
+          </UFormField>
+          <UFormField
+            label="Duration"
+            class="flex-1"
+          >
+            <USelect
+              v-model="auctionDurationMs"
+              :items="auctionDurations"
+            />
+          </UFormField>
+        </div>
+      </template>
+      <template #footer>
+        <div class="flex w-full justify-end gap-2">
+          <UButton
+            color="neutral"
+            variant="ghost"
+            label="Cancel"
+            @click="auctionPackId = null"
+          />
+          <UButton
+            :loading="auctionSubmitting"
+            label="Start auction"
+            @click="startPackAuction"
+          />
+        </div>
+      </template>
+    </UModal>
 
     <TcgPackOpen
       v-if="openResult"
