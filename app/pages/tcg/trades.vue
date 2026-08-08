@@ -286,6 +286,15 @@ function copyChipLabel(copy: CounterpartCopy) {
               placeholder="Trade with…"
               class="flex-1"
             />
+            <UButton
+              v-if="partnerId"
+              color="neutral"
+              variant="subtle"
+              icon="i-lucide-user"
+              label="Profile"
+              :to="`/players/${partnerId}`"
+              target="_blank"
+            />
             <USelect
               v-model="builderSetId"
               :items="setOptions"

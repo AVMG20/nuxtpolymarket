@@ -1,6 +1,7 @@
 <script setup lang="ts">
 interface LeaderboardUser {
   isCurrentUser: boolean
+  id: string
   name: string
   emblem: string | null
   prestige: number
@@ -98,11 +99,15 @@ function openDetails(user: LeaderboardUser) {
                 <span v-else class="font-mono text-sm text-muted">{{ i + 1 }}</span>
               </td>
               <td class="px-3 py-3">
-                <div class="flex items-center gap-2.5">
+                <NuxtLink
+                  :to="`/players/${u.id}`"
+                  class="flex items-center gap-2.5 hover:underline"
+                  @click.stop
+                >
                   <ProfileEmblem :emblem="u.emblem" :name="u.name" :prestige="u.prestige" class="size-9 text-sm" />
                   <p class="max-w-40 truncate font-semibold">{{ u.name }}</p>
                   <LeaderboardYouBadge :show="u.isCurrentUser" />
-                </div>
+                </NuxtLink>
               </td>
               <td class="px-3 py-3">
                 <UTooltip text="Total upgrades">
