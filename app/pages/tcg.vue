@@ -7,6 +7,7 @@ const tabs = [
   { label: 'My packs', to: '/tcg/packs', icon: 'i-lucide-package' },
   { label: 'Collection', to: '/tcg/collection', icon: 'i-lucide-library-big' },
   { label: 'Display', to: '/tcg/display', icon: 'i-lucide-gallery-horizontal-end' },
+  { label: 'Battle', to: '/tcg/battle', icon: 'i-lucide-swords' },
   { label: 'Market', to: '/tcg/market', icon: 'i-lucide-shopping-cart' },
   { label: 'Trades', to: '/tcg/trades', icon: 'i-lucide-handshake' },
   { label: 'Grading', to: '/tcg/grading', icon: 'i-lucide-medal' },
