@@ -22,25 +22,36 @@ const hoothoot = {
 }
 
 describe('deriveUnit', () => {
-    it('scales hp and damage by /10 and takes charge from cost length', () => {
+    it('scales hp /10 and derives damage from charge x tier, never the text', () => {
+        // No tier given -> unknown prices as plain Rare (1.5/charge).
         const unit = deriveUnit('card-1', hoothoot)!
         expect(unit.hp).toBe(8)
         expect(unit.attacks).toHaveLength(1)
-        expect(unit.attacks[0]).toMatchObject({ name: 'Tackle', damage: 2, charge: 2, attackId: 2 })
+        expect(unit.attacks[0]).toMatchObject({ name: 'Tackle', damage: 3, charge: 2, attackId: 2 })
         expect(unit.retreat).toBe(2)
-    })
 
-    it('excludes ability entries and rejects cards with no usable attack', () => {
-        const abilityOnly = { ...hoothoot, attacks: [hoothoot.attacks[0]] }
-        expect(deriveUnit('card-1', abilityOnly)).toBeNull()
-    })
-
-    it('parses "20+" style damage by its leading figure', () => {
+        // The printed damage text is ignored entirely: "20+", coin-flip
+        // wording and blanks all land on the same charge-derived figure.
         const plus = {
             ...hoothoot,
-            attacks: [{ cost: ['Colorless'], name: 'Rising Lunge', damage: '20+', attackId: 3 }]
+            attacks: [{ cost: ['Colorless', 'Colorless'], name: 'Rising Lunge', damage: '20+', attackId: 3 }]
         }
-        expect(deriveUnit('card-1', plus)!.attacks[0]!.damage).toBe(2)
+        expect(deriveUnit('card-1', plus)!.attacks[0]!.damage).toBe(3)
+    })
+
+    it('scales damage with the pricedex tier', () => {
+        const chase = { ...hoothoot, pullRate: { tier: 'Hyper Rare' } }
+        expect(deriveUnit('card-1', chase)!.attacks[0]!.damage).toBe(6) // 2 charge x 3
+        expect(deriveUnit('card-1', hoothoot, 'Common')!.attacks[0]!.damage).toBe(2) // 2 x 1
+        // raw.pullRate.tier beats the rarity-column fallback.
+        expect(deriveUnit('card-1', chase, 'Common')!.attacks[0]!.damage).toBe(6)
+    })
+
+    it('gives ability-only cards a synthetic Struggle so they still fight', () => {
+        const abilityOnly = { ...hoothoot, attacks: [hoothoot.attacks[0]] }
+        const unit = deriveUnit('card-1', abilityOnly, 'Common')!
+        expect(unit.attacks).toHaveLength(1)
+        expect(unit.attacks[0]).toMatchObject({ name: 'Struggle', damage: 2, charge: 2, attackId: 0 })
     })
 
     it('honours multiplicative and additive modifiers, additive scaled /10', () => {
@@ -82,6 +93,11 @@ describe('deriveUnit', () => {
         expect(unitCostFor('2R')).toBe(6)
         expect(unitCostFor('C')).toBe(3)
         expect(unitCostFor('TCGLFBE')).toBe(4) // unknown → plain Rare
+        // Character-card sidecar codes without a pricedex row.
+        expect(unitCostFor('CHV')).toBe(8)
+        expect(unitCostFor('CSR')).toBe(8)
+        expect(unitCostFor('CHR')).toBe(6)
+        expect(unitCostFor('BWR')).toBe(10)
         expect(unitCostFor(null)).toBe(4)
     })
 

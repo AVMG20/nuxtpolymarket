@@ -12,8 +12,11 @@ export const BATTLER = {
     maxInstances: 6,
     /** Escalating merge thresholds: instances → level (§12.2). */
     levelThresholds: { 2: 3, 3: 6 } as Record<number, number>,
-    /** Sub-linear level multipliers on HP and attack (§12.3). */
-    levelMultiplier: { 1: 1, 2: 1.8, 3: 3.0 } as Record<number, number>,
+    /** Level multipliers on HP and attack. Sim-tuned (2026-08): merging N
+     *  copies must at least match fielding them separately, or stacking is
+     *  a trap — bench bodies all attack, so the merged unit needs to beat
+     *  the spread's summed output. 2.6/5.5 puts merged-vs-spread near 60%. */
+    levelMultiplier: { 1: 1, 2: 2.6, 3: 5.5 } as Record<number, number>,
     /** ₱ per shop phase: min(9 + round, 15) (§12.4). */
     cashFor: (round: number) => Math.min(9 + round, 15),
     /** Unit track width grows as stakes rise (§12.4). */
@@ -52,6 +55,25 @@ const TIER_COST: Record<string, number> = {
     'ACE SPEC Rare': 5
 }
 
+/**
+ * Damage per charge point, keyed by the ₱ cost tier. Printed damage text is
+ * untrustworthy (variable "10+" attacks, coin flips, era inflation), so DPS
+ * follows the card's price tier and burstiness follows the printed energy
+ * cost: same tier, a 1-cost chips every round, a 4-cost lands one nuke.
+ */
+const DAMAGE_PER_CHARGE: Record<number, number> = {
+    3: 1,
+    4: 1.5,
+    5: 1.75,
+    6: 2,
+    8: 2.5,
+    10: 3
+}
+
+export function damagePerChargeFor(tierOrRarity: string | null): number {
+    return DAMAGE_PER_CHARGE[unitCostFor(tierOrRarity)] ?? 1.5
+}
+
 export function unitCostFor(tierOrRarity: string | null): number {
     if (!tierOrRarity) return 4
     // "Reverse Common" and friends price as their base tier.
@@ -59,9 +81,9 @@ export function unitCostFor(tierOrRarity: string | null): number {
     const exact = TIER_COST[label]
     if (exact !== undefined) return exact
     const lowered = label.toLowerCase()
-    if (/hyper|mega|gold|rainbow/.test(lowered)) return 10
-    if (/ultra|illustration|special|full ?art|shining|secret/.test(lowered)) return 8
-    if (/double|^2r$|^rr$|holo v|vmax|vstar/.test(lowered)) return 6
+    if (/hyper|mega|gold|rainbow|^bwr$/.test(lowered)) return 10
+    if (/ultra|illustration|special|full ?art|shining|secret|^chv$|^csr$/.test(lowered)) return 8
+    if (/double|^2r$|^rr$|^chr$|holo v|vmax|vstar/.test(lowered)) return 6
     if (/rare|^r$/.test(lowered)) return 4
     if (/common|uncommon|^c$|^u$/.test(lowered)) return 3
     return 4

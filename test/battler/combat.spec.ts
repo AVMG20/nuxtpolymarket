@@ -66,11 +66,11 @@ describe('simulateBattle', () => {
     })
 
     it('level multipliers apply to hp and attack', () => {
-        const merged = unit('l3', {}, 6) // level 3: ×3.0
+        const merged = unit('l3', {}, 6) // level 3: ×5.5
         const single = unit('l1', {}, 1)
         const replay = simulateBattle([merged], [single], 1)
         const hit = replay.events.find(e => e.kind === 'attack' && e.from === 'l3') as { amount: number }
-        expect(hit.amount).toBe(6) // 2 × 3.0
+        expect(hit.amount).toBe(11) // 2 × 5.5
         expect(replay.result).toBe('a')
     })
 
