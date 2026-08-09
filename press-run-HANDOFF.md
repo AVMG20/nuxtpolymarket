@@ -370,3 +370,32 @@ via its `runSeed` argument.
   pack count, so "Commit new run" regenerated an identical run and appeared to do nothing.
 - **Changing a set's rarity counts invalidates its fitted multiplicities.** They were fitted against
   specific pool sizes. Re-fit rather than assuming they still land.
+
+---
+
+## 13. Battler bench (added 2026-08)
+
+A fourth region, `/* battler bench (§12 rules snapshot) */`, appended after the wiring. It is
+independent of the press engine — separate state, `bt`-prefixed ids — and simulates the
+auto-battler's combat rules as shipped:
+
+- damage = energy cost × tier rate (`BT.dmgPerCharge`: ₱3→1 … ₱10→3 per charge)
+- merge multipliers ×2.6 (3 copies → L2) / ×5.5 (6 → L3), applied to HP and attack
+- active-as-shield combat: simultaneous declarations resolving in order against the enemy's
+  front-most **living** unit (remaining attacks carry to the next unit when the shield falls —
+  no overkill), weakness ×2 then resistance −3 floor 1, bounty prizes (+1 attack, highest
+  attackers first), round cap 30 → higher remaining HP fraction
+- draft-weight table: effective copies = min(owned, deck cap), weight = effective²
+
+**The shipped source of truth is `shared/utils/battler/{shop,unit,combat,draft}.ts`** — if the
+game's constants move, move `BT` to match. The per-tier stat *profiles* (mean HP, charge and
+bounty distributions) are the one authored layer, fitted against the live catalog's 2026-08
+averages; they have no external ground truth, same status as sheet multiplicities (§8).
+
+Units are sampled independently per battle, so same-card comparisons (merge value) read a few
+points lower than a simulation over the real catalog where both boards share one card's exact
+stats — expect L2-vs-3-spread around the low 40s here vs ~61% in the catalog sim.
+
+Testing: the §2 jsdom harness covers it (`#btpresets button`, `#bt-run`, `#bt-cap`), but **run it
+under Node, not bun** — bun's VM rejects jsdom's global proxy ("Proxy is not allowed in the global
+prototype chain") and the page script never executes.
