@@ -125,6 +125,13 @@ async function cleanupRuns() {
     await db.delete(tcgBattlerSnapshot).where(inArray(tcgBattlerSnapshot.userId, Object.values(USERS)))
 }
 
+/** Tests exercise mechanics, not the economy — top the wallet up so seeded
+ *  shop luck (offers and reroll counts differ per run secret) can't starve
+ *  a later step. */
+async function fund(runId: string) {
+    await db.update(tcgBattlerRun).set({ cash: 15 }).where(eq(tcgBattlerRun.id, runId))
+}
+
 async function activeRun(userId: string) {
     const view = await runView(userId)
     if (!view.run) throw new Error('expected an active run')
@@ -194,6 +201,7 @@ describe.skipIf(SKIP)('tcg battler runs integration', () => {
         // Ensure a common offer exists — reroll until one shows.
         let index = commonIndex
         for (let i = 0; index === -1 && i < 10; i++) {
+            await fund(run.id)
             await rerollShop(USERS.player, run.id)
             const rolled = (await activeRun(USERS.player)).runState as RunState
             index = rolled.shop.findIndex(offer =>
@@ -201,6 +209,7 @@ describe.skipIf(SKIP)('tcg battler runs integration', () => {
         }
         expect(index).toBeGreaterThanOrEqual(0)
 
+        await fund(run.id)
         await buyUnit(USERS.player, run.id, index, null, 0)
         let current = (await activeRun(USERS.player)).runState as RunState
         expect(current.board).toHaveLength(1)
@@ -217,10 +226,12 @@ describe.skipIf(SKIP)('tcg battler runs integration', () => {
             let view = (await activeRun(USERS.player)).runState as RunState
             let offerIndex = view.shop.findIndex(offer => offer.cardId === current.board[0]!.cardId)
             while (offerIndex === -1) {
+                await fund(run.id)
                 await rerollShop(USERS.player, run.id)
                 view = (await activeRun(USERS.player)).runState as RunState
                 offerIndex = view.shop.findIndex(offer => offer.cardId === current.board[0]!.cardId)
             }
+            await fund(run.id)
             await buyUnit(USERS.player, run.id, offerIndex, null, null)
         }
         current = (await activeRun(USERS.player)).runState as RunState
@@ -246,6 +257,7 @@ describe.skipIf(SKIP)('tcg battler runs integration', () => {
         expect(state.shop.some(offer => offer.cardId === frozenCard && offer.frozen)).toBe(true)
 
         // Buy one unit to have something to move.
+        await fund(run.id)
         const offerIndex = 0
         await buyUnit(USERS.player, run.id, offerIndex, null, 0)
         state = (await activeRun(USERS.player)).runState as RunState
@@ -260,6 +272,11 @@ describe.skipIf(SKIP)('tcg battler runs integration', () => {
 
     it('fighting advances the ladder, snapshots the board and ends after 3 losses', async () => {
         const run = await activeRun(USERS.player)
+        // A fielded unit is a precondition here, not the thing under test.
+        if ((run.runState as RunState).board.length === 0) {
+            await fund(run.id)
+            await buyUnit(USERS.player, run.id, 0, null, 0)
+        }
         let losses = 0
         let wins = 0
         for (let round = 0; round < 15; round++) {
@@ -285,6 +302,9 @@ describe.skipIf(SKIP)('tcg battler runs integration', () => {
     })
 
     it('abandon releases escrow and frees the claim for a new run', async () => {
+        // The ladder test above may leave its run active if fights errored.
+        const leftover = await runView(USERS.player)
+        if (leftover.run) await abandonRun(USERS.player, leftover.run.id)
         await startRun(USERS.player)
         const run = await activeRun(USERS.player)
         const state = run.runState as RunState
