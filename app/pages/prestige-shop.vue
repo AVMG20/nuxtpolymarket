@@ -12,7 +12,14 @@ import {
 const { user, fetchSession } = useAuth()
 const toast = useToast()
 
-const { data: shop, refresh } = await useFetch('/api/prestige-shop')
+interface PrestigeShopState {
+  level: number
+  tokens: number
+  allowance: number
+  items: { id: string, owned: number, soldOut: boolean, nextCost: number | null, affordable: boolean }[]
+}
+
+const { data: shop, refresh } = await useAsyncData('prestige-shop', () => apiFetch<PrestigeShopState>('/api/prestige-shop'))
 
 const level = computed(() => user.value?.prestige ?? 0)
 const tokens = computed(() => user.value?.prestigeTokens ?? 0)
@@ -86,7 +93,7 @@ function laterCost(item: PrestigeShopItem): number | null {
 async function buy(itemId: string, name: string) {
   buying.value = itemId
   try {
-    const result = await $fetch('/api/prestige-shop/buy', {
+    const result = await apiFetch<{ spent: number, tokensLeft: number }>('/api/prestige-shop/buy', {
       method: 'POST',
       body: { itemId }
     })

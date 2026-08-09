@@ -175,7 +175,7 @@ function setAmount(value: number) {
 async function runBailout(action: 'bailout' | 'repay') {
   bailoutLoading.value = action
   try {
-    await $fetch(action === 'bailout' ? '/api/bank/bailout' : '/api/bank/bailout-repay', { method: 'POST' })
+    await apiFetch(action === 'bailout' ? '/api/bank/bailout' : '/api/bank/bailout-repay', { method: 'POST' })
     bailoutConfirmOpen.value = false
     await Promise.all([refresh(), refreshChartHistory(), fetchSession(), loadHistory(true), refreshBankStatus()])
     toast.add({
