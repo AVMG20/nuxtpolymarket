@@ -211,6 +211,52 @@ export async function fetchPlaatjesChecklist(plaatjesSetCode: string, apiBase: s
 }
 
 /**
+ * Re-pull the sidecar's card records for an already-imported set and update
+ * each card's `raw` snapshot in place (plus category, which legacy imports
+ * originally lacked). Printings, copies and ordering are untouched — this is
+ * for when the SIDECAR's data improved after import, e.g. the TCGdex combat
+ * enrichment landing hp/attacks on legacy sets the battler needs.
+ */
+export async function refreshSetRaw(setId: string, apiBase: string): Promise<{ updated: number, missing: number }> {
+    const [set] = await db.select({ id: tcgSet.id, code: tcgSet.plaatjesSetCode })
+        .from(tcgSet).where(eq(tcgSet.id, setId))
+    if (!set) throw createError({ statusCode: 404, statusMessage: 'Set not found' })
+    if (!set.code) throw createError({ statusCode: 400, statusMessage: 'Set has no sidecar code to refresh from' })
+
+    const records: PlaatjesCard[] = []
+    for (let page = 1; ; page++) {
+        const response = await sidecarFetch<PlaatjesCardsPage>(`${apiBase}/cards`, {
+            query: { set: set.code, limit: 500, page }
+        })
+        records.push(...response.items)
+        if (response.returned === 0 || records.length >= response.total) break
+    }
+    const baseById = new Map<string, PlaatjesCard>()
+    for (const record of records) {
+        if (!record.cardId) continue
+        const { baseId, suffix } = variantOf(record.cardId)
+        if (!suffix || !baseById.has(baseId)) baseById.set(baseId, record)
+    }
+
+    const rows = await db.select({ id: tcgCard.id, plaatjesBaseId: tcgCard.plaatjesBaseId })
+        .from(tcgCard).where(eq(tcgCard.setId, setId))
+    let updated = 0
+    let missing = 0
+    for (const row of rows) {
+        const base = baseById.get(row.plaatjesBaseId)
+        if (!base) {
+            missing += 1
+            continue
+        }
+        await db.update(tcgCard)
+            .set({ raw: base as TcgCardRaw, category: base.category ?? null })
+            .where(eq(tcgCard.id, row.id))
+        updated += 1
+    }
+    return { updated, missing }
+}
+
+/**
  * Map grouped sidecar records to insert-ready card + printing rows. Shared by
  * fetchPlaatjesChecklist and fetchEraBasicEnergies so era basics become
  * ordinary rows through the exact same mapping. `sortOrderStart` lets callers
