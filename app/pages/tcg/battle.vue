@@ -17,8 +17,30 @@ interface RunRow {
     runState: RunState
 }
 
+interface HistoryRow {
+    id: string
+    state: string
+    round: number
+    wins: number
+    losses: number
+    deckName: string | null
+    createdAt: string
+    finishedAt: string | null
+}
+
 const toast = useToast()
 const { data: view, refresh } = useAsyncData('battler-state', () => apiFetch<{ run: RunRow | null, eligibleCards: number | null }>('/api/battler/state'))
+const { data: history, refresh: refreshHistory } = useAsyncData('battler-history', () => apiFetch<HistoryRow[]>('/api/battler/history'))
+const { data: decks, refresh: refreshDecks } = useAsyncData('battler-decks', () => apiFetch<{ id: string, name: string, cards: { cardId: string, copies: number }[] }[]>('/api/battler/decks'))
+const selectedDeck = ref<string | null>(null)
+const deckBuilderOpen = ref(false)
+const deckItems = computed(() => [
+    { label: 'Full collection', value: null as string | null },
+    ...(decks.value ?? []).map(deck => ({ label: `${deck.name} (${deck.cards.length} cards)`, value: deck.id as string | null }))
+])
+watch(decks, (rows) => {
+    if (selectedDeck.value && !rows?.some(deck => deck.id === selectedDeck.value)) selectedDeck.value = null
+})
 const run = computed(() => view.value?.run ?? null)
 const state = computed(() => run.value?.runState ?? null)
 
@@ -26,11 +48,14 @@ function cardOf(cardId: string): RunPoolCard | null {
     return state.value?.pool.find(entry => entry.cardId === cardId) ?? null
 }
 
+function renderThumb(render: RunPoolCard['render']) {
+    if (render.bundle) return { bundle: render.bundle }
+    const legacySet = render.plaatjesCardId ? legacySetOf(render.plaatjesCardId) : null
+    return legacySet && render.assetNumber ? { legacySet, assetNumber: render.assetNumber } : null
+}
+
 function thumbProps(card: RunPoolCard | null) {
-    if (!card) return null
-    if (card.render.bundle) return { bundle: card.render.bundle }
-    const legacySet = card.render.plaatjesCardId ? legacySetOf(card.render.plaatjesCardId) : null
-    return legacySet && card.render.assetNumber ? { legacySet, assetNumber: card.render.assetNumber } : null
+    return card ? renderThumb(card.render) : null
 }
 
 const busy = ref(false)
@@ -54,7 +79,7 @@ async function start() {
     if (starting.value) return
     starting.value = true
     try {
-        await apiFetch('/api/battler/start', { method: 'POST' })
+        await apiFetch('/api/battler/start', { method: 'POST', body: { deckId: selectedDeck.value } })
         await refresh()
     } catch (e) {
         toast.add({ title: apiErrorMessage(e, 'Could not start'), color: 'error' })
@@ -64,7 +89,7 @@ async function start() {
 }
 
 // ── Buying: pick offer → (attack when several) → board slot ────────────────
-const buying = ref<{ offerIndex: number, card: RunPoolCard, attackId: number | null } | null>(null)
+const buying = ref<{ offerIndex: number, card: RunPoolCard, attackId: number | null, pendingPosition?: number } | null>(null)
 
 function beginBuy(offerIndex: number) {
     const offer = state.value?.shop[offerIndex]
@@ -92,6 +117,55 @@ function placeAt(position: number) {
     void act(() => apiFetch('/api/battler/buy', { method: 'POST', body: { runId: run.value!.id, offerIndex, attackId: chosen, position } }))
 }
 
+function pickAttack(attackId: number) {
+    if (!buying.value) return
+    buying.value.attackId = attackId
+    // A drag already chose the slot — complete the purchase right away.
+    if (buying.value.pendingPosition !== undefined) placeAt(buying.value.pendingPosition)
+}
+
+// ── Drag & drop (mirrors the tap flow; taps still work on touch) ───────────
+const dragging = ref<{ type: 'offer', offerIndex: number } | { type: 'unit', key: string } | null>(null)
+
+function dragStart(payload: NonNullable<typeof dragging.value>, event: DragEvent) {
+    dragging.value = payload
+    if (event.dataTransfer) {
+        event.dataTransfer.effectAllowed = 'move'
+        event.dataTransfer.setData('text/plain', '')
+    }
+}
+
+function dropOn(position: number) {
+    const drag = dragging.value
+    dragging.value = null
+    if (!drag || !run.value || !state.value) return
+    if (drag.type === 'unit') {
+        if (unitAt(position)?.key !== drag.key) {
+            void act(() => apiFetch('/api/battler/move', { method: 'POST', body: { runId: run.value!.id, unitKey: drag.key, position } }))
+        }
+        return
+    }
+    const offer = state.value.shop[drag.offerIndex]
+    const card = offer ? cardOf(offer.cardId) : null
+    if (!offer || !card) return
+    if (run.value.cash < card.cost) {
+        toast.add({ title: 'Not enough Pokémon Dollars', color: 'error' })
+        return
+    }
+    const existing = state.value.board.find(unit => unit.cardId === card.cardId)
+    if (existing) {
+        void act(() => apiFetch('/api/battler/buy', { method: 'POST', body: { runId: run.value!.id, offerIndex: drag.offerIndex, attackId: existing.attackId } }))
+        return
+    }
+    if (unitAt(position)) return
+    if (card.spec.attacks.length > 1) {
+        buying.value = { offerIndex: drag.offerIndex, card, attackId: null, pendingPosition: position }
+        return
+    }
+    buying.value = { offerIndex: drag.offerIndex, card, attackId: card.spec.attacks[0]!.attackId }
+    placeAt(position)
+}
+
 // ── Repositioning ──────────────────────────────────────────────────────────
 const movingUnit = ref<string | null>(null)
 function slotClick(position: number) {
@@ -113,6 +187,30 @@ function unitAt(position: number): RunBoardUnit | null {
     return state.value?.board.find(unit => unit.position === position) ?? null
 }
 
+/** SAP-style hover card: current stats and how far the next merge is. */
+function unitInfo(unit: RunBoardUnit) {
+    const card = cardOf(unit.cardId)
+    if (!card) return null
+    const level = levelFor(unit.instances)
+    const multiplier = BATTLER.levelMultiplier[level] ?? 1
+    const attack = card.spec.attacks.find(entry => entry.attackId === unit.attackId) ?? card.spec.attacks[0]!
+    const nextLevel = level < 3 ? level + 1 : null
+    const nextAt = nextLevel ? BATTLER.levelThresholds[nextLevel]! : null
+    return {
+        name: card.name,
+        level,
+        instances: unit.instances,
+        hp: Math.max(1, Math.round(card.spec.hp * multiplier)),
+        damage: Math.max(1, Math.round(attack.damage * multiplier)),
+        attackName: attack.name,
+        charge: attack.charge,
+        retreat: card.spec.retreat,
+        nextLevel,
+        needed: nextAt ? nextAt - unit.instances : 0,
+        inPool: card.instancesLeft
+    }
+}
+
 function sell(unitKey: string) {
     movingUnit.value = null
     void act(() => apiFetch('/api/battler/sell', { method: 'POST', body: { runId: run.value!.id, unitKey } }))
@@ -125,20 +223,90 @@ async function startFight() {
     if (result) fightResult.value = result
 }
 
+/** The ending fight, kept for the run-over screen's final board. */
+const runOver = ref<FightResult | null>(null)
+
 function fightDone() {
+    const last = fightResult.value
     fightResult.value = null
+    if (last && last.run.state !== 'active') {
+        runOver.value = last
+        void refreshHistory()
+    }
     void refresh()
+}
+
+function historyDate(row: HistoryRow): string {
+    return new Date(row.finishedAt ?? row.createdAt).toLocaleDateString()
 }
 
 async function abandon() {
     await act(() => apiFetch('/api/battler/abandon', { method: 'POST', body: { runId: run.value!.id } }))
+    void refreshHistory()
 }
 </script>
 
 <template>
-  <div class="mx-auto w-full max-w-4xl space-y-5 p-4">
+  <div class="mx-auto w-full max-w-7xl space-y-6 p-4">
+    <!-- Run over: the result screen. -->
+    <UCard v-if="runOver && !run">
+      <div class="flex flex-col items-center gap-4 py-6 text-center">
+        <UIcon
+          :name="runOver.result === 'win' || runOver.run.wins >= BATTLER.winsToComplete ? 'i-lucide-trophy' : 'i-lucide-skull'"
+          class="size-12"
+          :class="runOver.run.wins >= BATTLER.winsToComplete ? 'text-warning' : 'text-error'"
+        />
+        <div>
+          <h2 class="text-xl font-bold text-highlighted">
+            {{ runOver.run.wins >= BATTLER.winsToComplete ? 'Run complete!' : 'Run over' }}
+          </h2>
+          <p class="mt-1 text-sm text-muted">
+            {{ runOver.run.wins }} {{ runOver.run.wins === 1 ? 'win' : 'wins' }} ·
+            {{ runOver.run.losses }} {{ runOver.run.losses === 1 ? 'loss' : 'losses' }} ·
+            {{ runOver.run.round }} rounds
+          </p>
+        </div>
+        <div class="flex flex-wrap justify-center gap-2">
+          <div
+            v-for="unit in runOver.myBoard"
+            :key="unit.key"
+            class="relative w-20"
+          >
+            <template v-if="renderThumb(unit.render)">
+              <TcgCardThumb v-bind="renderThumb(unit.render)!" />
+            </template>
+            <UBadge
+              v-if="levelFor(unit.instances) > 1"
+              color="secondary"
+              size="sm"
+              class="absolute -left-1.5 -top-1.5"
+            >
+              L{{ levelFor(unit.instances) }}
+            </UBadge>
+          </div>
+        </div>
+        <p class="text-xs text-muted">Your final board is saved — other players will fight it as an opponent.</p>
+        <div class="flex items-center gap-2">
+          <UButton
+            size="lg"
+            icon="i-lucide-play"
+            label="New run"
+            :loading="starting"
+            @click="runOver = null; start()"
+          />
+          <UButton
+            size="lg"
+            color="neutral"
+            variant="subtle"
+            label="Done"
+            @click="runOver = null"
+          />
+        </div>
+      </div>
+    </UCard>
+
     <!-- No run: the draft gate. -->
-    <UCard v-if="view && !run">
+    <UCard v-else-if="view && !run">
       <div class="flex flex-col items-center gap-3 py-6 text-center">
         <UIcon
           name="i-lucide-swords"
@@ -152,14 +320,29 @@ async function abandon() {
         </p>
         <p class="text-xs text-muted">
           <b class="tabular-nums text-highlighted">{{ view.eligibleCards ?? 0 }}</b> of your cards are battle-ready
-          <span class="text-dimmed">(vintage cards need stats before they can fight)</span>
         </p>
+        <div class="flex flex-wrap items-center justify-center gap-2">
+          <USelect
+            v-model="selectedDeck"
+            :items="deckItems"
+            value-key="value"
+            class="w-56"
+          />
+          <UButton
+            size="lg"
+            icon="i-lucide-play"
+            label="Start a run"
+            :loading="starting"
+            @click="start"
+          />
+        </div>
         <UButton
-          size="lg"
-          icon="i-lucide-play"
-          label="Start a run"
-          :loading="starting"
-          @click="start"
+          size="sm"
+          color="neutral"
+          variant="subtle"
+          icon="i-lucide-layers"
+          label="Manage decks"
+          @click="deckBuilderOpen = true"
         />
       </div>
     </UCard>
@@ -177,7 +360,7 @@ async function abandon() {
               name="i-lucide-badge-dollar-sign"
               class="size-4 text-warning"
             />
-            <b class="tabular-nums text-highlighted">₱{{ run.cash }}</b>
+            <span class="text-muted">₱</span><b class="tabular-nums text-highlighted">{{ run.cash }}</b>
           </span>
           <span class="flex items-center gap-0.5">
             <UIcon
@@ -235,14 +418,17 @@ async function abandon() {
           <div
             v-for="(offer, index) in state.shop"
             :key="`${index}-${offer.cardId}`"
-            class="w-28"
+            class="w-36 lg:w-44"
           >
             <div
-              class="relative cursor-pointer rounded-lg p-1.5 transition"
+              class="relative cursor-grab rounded-lg p-1.5 transition [&_img]:pointer-events-none"
               :class="[
                 offer.frozen ? 'bg-info/15 ring-1 ring-info' : 'bg-elevated hover:ring-1 hover:ring-primary',
                 buying?.offerIndex === index && 'ring-2 ring-primary'
               ]"
+              draggable="true"
+              @dragstart="dragStart({ type: 'offer', offerIndex: index }, $event)"
+              @dragend="dragging = null"
               @click="beginBuy(index)"
             >
               <template v-if="thumbProps(cardOf(offer.cardId))">
@@ -267,14 +453,16 @@ async function abandon() {
               <span class="truncate text-[10px] text-muted">
                 {{ cardOf(offer.cardId)?.spec.hp }}hp · {{ cardOf(offer.cardId)?.spec.attacks[0]?.damage }}atk
               </span>
-              <UButton
-                color="neutral"
-                variant="ghost"
-                size="xs"
-                :icon="offer.frozen ? 'i-lucide-snowflake' : 'i-lucide-snowflake'"
-                :class="offer.frozen ? 'text-info' : 'text-dimmed'"
-                @click.stop="act(() => apiFetch('/api/battler/freeze', { method: 'POST', body: { runId: run!.id, offerIndex: index } }))"
-              />
+              <UTooltip :text="offer.frozen ? 'Unfreeze — this offer rerolls normally again' : 'Freeze — keep this offer through rerolls and the next round'">
+                <UButton
+                  color="neutral"
+                  variant="ghost"
+                  size="xs"
+                  icon="i-lucide-snowflake"
+                  :class="offer.frozen ? 'text-info' : 'text-dimmed'"
+                  @click.stop="act(() => apiFetch('/api/battler/freeze', { method: 'POST', body: { runId: run!.id, offerIndex: index } }))"
+                />
+              </UTooltip>
             </div>
           </div>
         </div>
@@ -291,7 +479,7 @@ async function abandon() {
             color="neutral"
             variant="subtle"
             :label="`${attack.name} — ${attack.damage} dmg, ${attack.charge}⚡`"
-            @click="buying!.attackId = attack.attackId"
+            @click="pickAttack(attack.attackId)"
           />
         </div>
         <p
@@ -308,11 +496,10 @@ async function abandon() {
           <h2 class="text-sm font-semibold uppercase tracking-wider text-muted">Board</h2>
           <span class="text-xs text-muted">moves left: <b class="tabular-nums text-highlighted">{{ state.repositionLeft }}</b></span>
         </div>
-        <div class="flex gap-2">
+        <div class="grid grid-cols-3 gap-3 sm:grid-cols-6">
           <div
             v-for="position in BATTLER.boardSlots"
             :key="position - 1"
-            class="w-24"
           >
             <p class="mb-1 text-center text-[10px] uppercase tracking-wider text-dimmed">
               {{ position - 1 === 0 ? 'Active' : `Bench ${position - 1}` }}
@@ -324,9 +511,56 @@ async function abandon() {
                 position - 1 === 0 && 'ring-1 ring-warning/40'
               ]"
               @click="slotClick(position - 1)"
+              @dragover.prevent
+              @drop.prevent="dropOn(position - 1)"
             >
               <template v-if="unitAt(position - 1)">
-                <div class="relative">
+                <UPopover
+                  mode="hover"
+                  :open-delay="250"
+                  :content="{ side: 'top' }"
+                >
+                  <template #content>
+                    <div
+                      v-if="unitInfo(unitAt(position - 1)!)"
+                      class="w-52 space-y-1.5 p-3 text-xs"
+                    >
+                      <p class="flex items-center justify-between font-semibold text-highlighted">
+                        {{ unitInfo(unitAt(position - 1)!)!.name }}
+                        <UBadge
+                          color="secondary"
+                          variant="subtle"
+                          size="sm"
+                        >L{{ unitInfo(unitAt(position - 1)!)!.level }}</UBadge>
+                      </p>
+                      <p class="text-muted">
+                        {{ unitInfo(unitAt(position - 1)!)!.hp }} HP ·
+                        {{ unitInfo(unitAt(position - 1)!)!.attackName }}
+                        {{ unitInfo(unitAt(position - 1)!)!.damage }} dmg ·
+                        {{ unitInfo(unitAt(position - 1)!)!.charge }}⚡ charge
+                      </p>
+                      <p
+                        v-if="unitInfo(unitAt(position - 1)!)!.nextLevel"
+                        class="text-primary"
+                      >
+                        {{ unitInfo(unitAt(position - 1)!)!.needed }} more
+                        {{ unitInfo(unitAt(position - 1)!)!.needed === 1 ? 'copy' : 'copies' }}
+                        to L{{ unitInfo(unitAt(position - 1)!)!.nextLevel }}
+                        <span class="text-muted">({{ unitInfo(unitAt(position - 1)!)!.inPool }} left in your draft)</span>
+                      </p>
+                      <p
+                        v-else
+                        class="text-warning"
+                      >Max level</p>
+                      <p class="text-dimmed">Retreat {{ unitInfo(unitAt(position - 1)!)!.retreat }} — moving costs that much budget</p>
+                    </div>
+                  </template>
+                <div
+                  class="relative cursor-grab [&_img]:pointer-events-none"
+                  draggable="true"
+                  @dragstart="dragStart({ type: 'unit', key: unitAt(position - 1)!.key }, $event)"
+                  @dragend="dragging = null"
+                >
                   <template v-if="thumbProps(cardOf(unitAt(position - 1)!.cardId))">
                     <TcgCardThumb v-bind="thumbProps(cardOf(unitAt(position - 1)!.cardId))!" />
                   </template>
@@ -352,23 +586,29 @@ async function abandon() {
                   >
                     ×{{ unitAt(position - 1)!.instances }}
                   </UBadge>
-                  <UButton
-                    color="error"
-                    variant="soft"
-                    size="xs"
-                    icon="i-lucide-banknote"
-                    class="absolute bottom-1 right-1"
-                    @click.stop="sell(unitAt(position - 1)!.key)"
-                  />
+                  <UTooltip text="Sell — refund cost − 1 per instance and release the cards">
+                    <UButton
+                      color="error"
+                      variant="soft"
+                      size="xs"
+                      icon="i-lucide-banknote"
+                      class="absolute bottom-1 right-1"
+                      @click.stop="sell(unitAt(position - 1)!.key)"
+                    />
+                  </UTooltip>
                 </div>
+                </UPopover>
               </template>
               <div
                 v-else
                 class="flex aspect-[0.718] w-full items-center justify-center rounded-lg border-2 border-dashed border-default"
-                :class="(buying || movingUnit) && 'hover:border-primary'"
+                :class="(buying || movingUnit || dragging) && 'hover:border-primary [&.drag-over]:border-primary'"
+                @dragenter="($event.currentTarget as HTMLElement).classList.add('drag-over')"
+                @dragleave="($event.currentTarget as HTMLElement).classList.remove('drag-over')"
+                @drop="($event.currentTarget as HTMLElement).classList.remove('drag-over')"
               >
                 <UIcon
-                  v-if="buying || movingUnit"
+                  v-if="buying || movingUnit || dragging"
                   name="i-lucide-plus"
                   class="size-5 text-dimmed"
                 />
@@ -395,10 +635,45 @@ async function abandon() {
       </section>
     </template>
 
+    <!-- Past runs. -->
+    <UCard v-if="!run && history && history.length > 0">
+      <h2 class="mb-3 text-sm font-semibold uppercase tracking-wider text-muted">Past runs</h2>
+      <ul class="divide-y divide-default">
+        <li
+          v-for="row in history"
+          :key="row.id"
+          class="flex items-center justify-between gap-3 py-2 text-sm"
+        >
+          <div class="flex items-center gap-2.5">
+            <UBadge
+              :color="row.state === 'won' ? 'success' : row.state === 'lost' ? 'error' : 'neutral'"
+              variant="subtle"
+              class="w-24 justify-center capitalize"
+            >
+              {{ row.state }}
+            </UBadge>
+            <span class="tabular-nums text-highlighted">{{ row.wins }}–{{ row.losses }}</span>
+            <span class="text-muted">{{ row.round }} {{ row.round === 1 ? 'round' : 'rounds' }}</span>
+            <span
+              v-if="row.deckName"
+              class="text-xs text-dimmed"
+            >· {{ row.deckName }}</span>
+          </div>
+          <span class="text-xs text-dimmed">{{ historyDate(row) }}</span>
+        </li>
+      </ul>
+    </UCard>
+
+    <TcgBattlerDeckBuilder
+      v-model:open="deckBuilderOpen"
+      @saved="refreshDecks"
+    />
+
     <!-- The fight overlay. -->
     <UModal
       :open="fightResult !== null"
       :dismissible="false"
+      :ui="{ content: 'w-[min(96rem,calc(100vw-2rem))] max-w-none' }"
     >
       <template #content>
         <div class="p-5">
