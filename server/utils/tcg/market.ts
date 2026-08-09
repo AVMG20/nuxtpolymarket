@@ -3,7 +3,7 @@ import { alias } from 'drizzle-orm/pg-core'
 import { db } from '#server/database'
 import {
     tcgListing, tcgCopyTransfer, tcgCopy, tcgPrinting, tcgCard, tcgSet, tcgSheet, tcgPack, user,
-    tcgLot, tcgLotItem, tcgAuction
+    tcgLot, tcgLotItem, tcgAuction, tcgBattlerEscrow
 } from '#server/database/schema'
 import { credit, debit } from '#server/utils/balance'
 import { TCG_MARKET, sellerProceeds } from '#shared/utils/tcg/market'
@@ -41,7 +41,7 @@ export async function hasActiveListing(tx: Tx, copyId: string): Promise<boolean>
     return !!row
 }
 
-export type TcgEncumbrance = 'listing' | 'lot' | 'auction'
+export type TcgEncumbrance = 'listing' | 'lot' | 'auction' | 'battler'
 
 /**
  * What, if anything, holds this copy right now. A copy in an active listing,
@@ -60,13 +60,17 @@ export async function copyEncumbrance(tx: Tx, copyId: string): Promise<TcgEncumb
     const [auction] = await tx.select({ id: tcgAuction.id }).from(tcgAuction)
         .where(and(eq(tcgAuction.copyId, copyId), eq(tcgAuction.state, 'active')))
     if (auction) return 'auction'
+    const [escrow] = await tx.select({ id: tcgBattlerEscrow.id }).from(tcgBattlerEscrow)
+        .where(eq(tcgBattlerEscrow.copyId, copyId))
+    if (escrow) return 'battler'
     return null
 }
 
 const ENCUMBRANCE_MESSAGE: Record<TcgEncumbrance, string> = {
     listing: 'Copy is listed on the market',
     lot: 'Copy is part of a bulk lot',
-    auction: 'Copy is at auction'
+    auction: 'Copy is at auction',
+    battler: 'Copy is fielded in a battler run'
 }
 
 /** Throw the family-specific 400 when the copy is held by anything. */

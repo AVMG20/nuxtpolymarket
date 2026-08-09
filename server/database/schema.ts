@@ -1,5 +1,5 @@
 import { relations, sql } from 'drizzle-orm'
-import { pgTable, text, timestamp, boolean, index, numeric, integer, unique, jsonb, bigint } from 'drizzle-orm/pg-core'
+import { pgTable, text, timestamp, boolean, index, uniqueIndex, numeric, integer, unique, jsonb, bigint } from 'drizzle-orm/pg-core'
 import type {
   PathwardenGameState,
   PathwardenMapPlan
@@ -1288,6 +1288,49 @@ export const tcgDisplaySlot = pgTable('tcg_display_slots', {
   unique('tcg_display_slots_position_unique').on(t.displayId, t.position),
   // A physical card sits in exactly one pocket, ever.
   unique('tcg_display_slots_copy_unique').on(t.copyId)
+])
+
+// ── Auto-battler (§12): runs, hard copy escrow, opponent snapshots ─────────
+
+export const tcgBattlerRun = pgTable('tcg_battler_runs', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  state: text('state').notNull().default('active'), // 'active' | 'won' | 'lost' | 'abandoned'
+  // Seeds every draw in the run via deriveKey(secret, label) — server-only,
+  // never serialized (a known seed would let a player scout the shop).
+  secret: text('secret').notNull(),
+  round: integer('round').notNull().default(1),
+  wins: integer('wins').notNull().default(0),
+  losses: integer('losses').notNull().default(0),
+  cash: integer('cash').notNull().default(0),
+  runState: jsonb('run_state').notNull().$type<Record<string, unknown>>(),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+  finishedAt: timestamp('finished_at')
+}, t => [
+  index('tcg_battler_runs_userId_idx').on(t.userId),
+  // One live run per player: the partial unique index IS the start claim.
+  uniqueIndex('tcg_battler_runs_active_unique').on(t.userId).where(sql`state = 'active'`)
+])
+
+export const tcgBattlerEscrow = pgTable('tcg_battler_escrow', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  runId: text('run_id').notNull().references(() => tcgBattlerRun.id, { onDelete: 'cascade' }),
+  // unique: a copy cannot back units in two concurrent runs (§12.10).
+  copyId: text('copy_id').notNull().references(() => tcgCopy.id, { onDelete: 'cascade' }).unique()
+}, t => [
+  index('tcg_battler_escrow_runId_idx').on(t.runId)
+])
+
+export const tcgBattlerSnapshot = pgTable('tcg_battler_snapshots', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  runId: text('run_id').notNull().references(() => tcgBattlerRun.id, { onDelete: 'cascade' }),
+  round: integer('round').notNull(),
+  board: jsonb('board').notNull().$type<Record<string, unknown>[]>(),
+  createdAt: timestamp('created_at').notNull().defaultNow()
+}, t => [
+  index('tcg_battler_snapshots_round_idx').on(t.round)
 ])
 
 export const chatMessagesRelations = relations(chatMessages, ({ one }) => ({
