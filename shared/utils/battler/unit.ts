@@ -3,13 +3,18 @@
  * fields. It must never see condition, grade, printing, stamp or serial
  * (§12.9) — a beaten bulk non-holo plays identically to a gem mint chase
  * variant of the same card.
+ *
+ * Damage is NOT read from the printed damage text — that text is variable
+ * ("10+", coin flips) and era-inflated. Damage = charge × the card's tier
+ * rate, so every Pokémon card with HP fights, including ability-only ones.
  */
+import { damagePerChargeFor } from './shop'
 
 export interface BattlerAttackOption {
     /** Stable id from the import — locked at purchase for the run. */
     attackId: number
     name: string
-    /** Scaled damage (printed / 10). */
+    /** charge × the tier's damage rate — never the printed damage text. */
     damage: number
     /** Charge rounds = printed energy cost length, clamped 1–5. */
     charge: number
@@ -82,26 +87,18 @@ function normalizeModifiers(value: unknown): BattlerModifier[] {
         .filter((entry): entry is BattlerModifier => entry !== null)
 }
 
-/** A usable attack: a real numeric damage figure and a 1–5 energy cost. */
-function parseAttack(entry: RawAttack): BattlerAttackOption | null {
+/** A usable attack: any non-ability entry. Free attacks charge as 1. */
+function parseAttack(entry: RawAttack, perCharge: number): BattlerAttackOption | null {
     const name = typeof entry.name === 'string' ? entry.name : ''
     if (!name || name.startsWith('[Ability]')) return null
-    const damageText = typeof entry.damage === 'string' || typeof entry.damage === 'number'
-        ? String(entry.damage)
-        : ''
-    // "20", "20+", "20×" — the leading integer is the base figure.
-    const match = damageText.match(/^(\d+)/)
-    if (!match) return null
-    const printed = Number(match[1])
-    if (printed < 10) return null
     const cost = Array.isArray(entry.cost) ? entry.cost.length : 0
-    if (cost < 1 || cost > 5) return null
+    const charge = Math.min(5, Math.max(1, cost))
     const attackId = typeof entry.attackId === 'number' ? entry.attackId : 0
     return {
         attackId,
         name,
-        damage: Math.round(printed / 10),
-        charge: cost
+        damage: Math.max(1, Math.round(charge * perCharge)),
+        charge
     }
 }
 
@@ -109,17 +106,25 @@ function parseAttack(entry: RawAttack): BattlerAttackOption | null {
  * Derive a unit from a card's imported raw record. Returns null when the
  * card cannot fight — Trainers, Energy, and legacy imports whose combat
  * fields never arrived (§12.3 scope: they are simply not draftable).
+ *
+ * `rarity` is the DB rarity column, the fallback when raw.pullRate.tier
+ * (thepricedex vocabulary) is absent — same resolution the shop cost uses.
  */
-export function deriveUnit(cardId: string, raw: Record<string, unknown>): BattlerUnitSpec | null {
+export function deriveUnit(cardId: string, raw: Record<string, unknown>, rarity: string | null = null): BattlerUnitSpec | null {
     if (raw.category !== 'Pokemon') return null
     const hp = typeof raw.hp === 'number' ? raw.hp : Number(raw.hp)
     if (!Number.isFinite(hp) || hp <= 0) return null
     const name = typeof raw.name === 'string' ? raw.name : ''
     if (!name) return null
+    const tier = (raw.pullRate as { tier?: string } | undefined)?.tier ?? rarity
+    const perCharge = damagePerChargeFor(tier)
     const attacks = (Array.isArray(raw.attacks) ? raw.attacks : [])
-        .map(entry => parseAttack(entry as RawAttack))
+        .map(entry => parseAttack(entry as RawAttack, perCharge))
         .filter((entry): entry is BattlerAttackOption => entry !== null)
-    if (attacks.length === 0) return null
+    // Ability-only (or attack-less) Pokémon still fight — with a plain move.
+    if (attacks.length === 0) {
+        attacks.push({ attackId: 0, name: 'Struggle', damage: Math.max(1, Math.round(2 * perCharge)), charge: 2 })
+    }
 
     return {
         cardId,
