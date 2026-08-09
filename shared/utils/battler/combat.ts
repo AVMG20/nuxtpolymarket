@@ -104,20 +104,22 @@ export function simulateBattle(a: BattleUnit[], b: BattleUnit[], _seed: number):
                 if (unit.hp > 0) unit.charge += 1
             }
         }
-        // 3–4. Simultaneous declarations at full charge; the enemy active
-        // (front-most living unit) is the shield.
-        const declarations: { attacker: LiveUnit, sideIndex: 0 | 1, target: LiveUnit }[] = []
+        // 3–4. Simultaneous declarations at full charge. Each resolves in
+        // declaration order against the enemy's front-most LIVING unit — when
+        // the shield falls mid-round the remaining declarations carry to the
+        // next unit instead of overkilling the corpse. (A dying attacker
+        // still lands its declared attack: trades are real.)
+        const declarations: { attacker: LiveUnit, sideIndex: 0 | 1 }[] = []
         for (const sideIndex of [0, 1] as const) {
-            const enemies = sides[1 - sideIndex]!
-            const active = enemies.find(unit => unit.hp > 0)
-            if (!active) continue
             for (const unit of sides[sideIndex]!) {
                 if (unit.hp > 0 && unit.charge >= unit.chargeMax) {
-                    declarations.push({ attacker: unit, sideIndex, target: active })
+                    declarations.push({ attacker: unit, sideIndex })
                 }
             }
         }
-        for (const { attacker, sideIndex, target } of declarations) {
+        for (const { attacker, sideIndex } of declarations) {
+            const target = sides[1 - sideIndex]!.find(unit => unit.hp > 0)
+            if (!target) continue
             const amount = applyModifiers(attacker.attack, attacker.spec.type, target.spec)
             target.hp -= amount
             attacker.charge = 0
