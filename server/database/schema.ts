@@ -1333,6 +1333,23 @@ export const tcgDisplaySlot = pgTable('tcg_display_slots', {
 
 // ── Auto-battler (§12): runs, hard copy escrow, opponent snapshots ─────────
 
+/**
+ * A saved deck: up to 30 distinct card identities that narrow the run's
+ * draft pool. Copies are never bound — instances still come from owned raw
+ * copies at run start, and eligibility filters as usual.
+ */
+export const tcgBattlerDeck = pgTable('tcg_battler_decks', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  // { cardId, copies 1–6 }[]; legacy rows may hold bare card-id strings.
+  cards: jsonb('cards').notNull().$type<{ cardId: string, copies: number }[]>(),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow()
+}, t => [
+  index('tcg_battler_decks_userId_idx').on(t.userId)
+])
+
 export const tcgBattlerRun = pgTable('tcg_battler_runs', {
   id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
   userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
@@ -1345,6 +1362,10 @@ export const tcgBattlerRun = pgTable('tcg_battler_runs', {
   losses: integer('losses').notNull().default(0),
   cash: integer('cash').notNull().default(0),
   runState: jsonb('run_state').notNull().$type<Record<string, unknown>>(),
+  // The deck the run drafted from, if any. Name is snapshotted so history
+  // survives deck deletion.
+  deckId: text('deck_id').references(() => tcgBattlerDeck.id, { onDelete: 'set null' }),
+  deckName: text('deck_name'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
   finishedAt: timestamp('finished_at')
