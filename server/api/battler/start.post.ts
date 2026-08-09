@@ -3,6 +3,8 @@ import { startRun, runView } from '#server/utils/battler/run'
 
 export default defineEventHandler(async (event) => {
     const userId = await requireUserId(event)
-    await startRun(userId)
+    const body = await readBody(event).catch(() => null)
+    const deckId = typeof body?.deckId === 'string' && body.deckId ? body.deckId : null
+    await startRun(userId, deckId)
     return await runView(userId)
 })

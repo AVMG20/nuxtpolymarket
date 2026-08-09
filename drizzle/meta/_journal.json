@@ -50,6 +50,13 @@
       "when": 1786257792291,
       "tag": "0006_tcg_display_battler",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1786272312982,
+      "tag": "0007_battler_decks",
+      "breakpoints": true
     }
   ]
 }

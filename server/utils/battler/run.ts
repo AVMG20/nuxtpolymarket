@@ -1,9 +1,10 @@
-import { and, asc, eq, inArray, ne, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, ne, sql } from 'drizzle-orm'
 import { randomBytes } from 'node:crypto'
 import { db } from '#server/database'
 import { tcgBattlerRun, tcgBattlerEscrow, tcgBattlerSnapshot, tcgCopy, tcgCard, tcgPrinting, tcgSet } from '#server/database/schema'
 import { deriveKey } from '#server/utils/tcg/feistel'
 import { lockCopyForUpdate, assertUnencumbered } from '#server/utils/tcg/market'
+import { getDeck } from '#server/utils/battler/deck'
 import { createBattlerRandom } from '#shared/utils/battler/rng'
 import { deriveUnit } from '#shared/utils/battler/unit'
 import type { BattlerUnitSpec } from '#shared/utils/battler/unit'
@@ -111,10 +112,14 @@ function rollShop(state: RunState, secret: string, round: number, keepFrozen: bo
     const kept = keepFrozen ? state.shop.filter(offer => offer.frozen) : []
     const rng = createBattlerRandom(runSeed(secret, `shop:${round}:${state.rollCounter}`))
     state.rollCounter += 1
-    const available = state.pool.filter(card => card.instancesLeft > 0)
     const offers: RunShopOffer[] = [...kept]
-    while (offers.length < width && available.length > 0) {
-        offers.push({ cardId: rng.pick(available).cardId, frozen: false })
+    // Duplicates are fine, but never offer more tiles of a card than the
+    // pool can actually deliver.
+    const offered = (cardId: string) => offers.filter(offer => offer.cardId === cardId).length
+    while (offers.length < width) {
+        const drawable = state.pool.filter(card => card.instancesLeft > offered(card.cardId))
+        if (drawable.length === 0) break
+        offers.push({ cardId: rng.pick(drawable).cardId, frozen: false })
     }
     state.shop = offers
 }
@@ -135,7 +140,7 @@ interface Holding {
  * cards whose imported data can derive a unit (§12.2). Legacy imports whose
  * combat fields never arrived fall out naturally at deriveUnit.
  */
-async function eligibleHoldings(userId: string): Promise<Holding[]> {
+export async function eligibleHoldings(userId: string): Promise<Holding[]> {
     const rows = await db.select({
         cardId: tcgCard.id,
         name: tcgCard.name,
@@ -166,11 +171,11 @@ async function eligibleHoldings(userId: string): Promise<Holding[]> {
             continue
         }
         const raw = row.raw as Record<string, unknown>
-        const spec = deriveUnit(row.cardId, raw)
-        if (!spec) continue
         // thepricedex pull-rate tier is the clean pricing vocabulary; the
         // rarity column mixes labels and sidecar codes across eras.
         const tier = (raw.pullRate as { tier?: string } | undefined)?.tier ?? row.rarity
+        const spec = deriveUnit(row.cardId, raw, tier)
+        if (!spec) continue
         byCard.set(row.cardId, {
             cardId: row.cardId,
             copies: 1,
@@ -183,6 +188,24 @@ async function eligibleHoldings(userId: string): Promise<Holding[]> {
     return [...byCard.values()]
 }
 
+/** Finished runs, newest first — the win/lose history. */
+export async function runHistory(userId: string, limit = 25) {
+    return await db.select({
+        id: tcgBattlerRun.id,
+        state: tcgBattlerRun.state,
+        round: tcgBattlerRun.round,
+        wins: tcgBattlerRun.wins,
+        losses: tcgBattlerRun.losses,
+        deckName: tcgBattlerRun.deckName,
+        createdAt: tcgBattlerRun.createdAt,
+        finishedAt: tcgBattlerRun.finishedAt
+    })
+        .from(tcgBattlerRun)
+        .where(and(eq(tcgBattlerRun.userId, userId), ne(tcgBattlerRun.state, 'active')))
+        .orderBy(desc(tcgBattlerRun.createdAt))
+        .limit(limit)
+}
+
 /** How many draftable cards the caller has — the pre-run screen number. */
 export async function eligibleCount(userId: string): Promise<number> {
     return (await eligibleHoldings(userId)).length
@@ -190,8 +213,22 @@ export async function eligibleCount(userId: string): Promise<number> {
 
 // ── Run lifecycle ──────────────────────────────────────────────────────────
 
-export async function startRun(userId: string) {
-    const holdings = await eligibleHoldings(userId)
+export async function startRun(userId: string, deckId: string | null = null) {
+    let holdings = await eligibleHoldings(userId)
+    let deckName: string | null = null
+    if (deckId) {
+        const deck = await getDeck(userId, deckId)
+        const allowed = new Map(deck.cards.map(card => [card.cardId, card.copies]))
+        // The deck caps copies: both the copies² draft weight and the merge
+        // depth a drafted card enters with.
+        holdings = holdings
+            .filter(holding => allowed.has(holding.cardId))
+            .map(holding => ({ ...holding, copies: Math.min(holding.copies, allowed.get(holding.cardId)!) }))
+        deckName = deck.name
+        if (holdings.length < 3) {
+            badRequest('This deck has fewer than three battle-ready cards you own')
+        }
+    }
     if (holdings.length < 3) {
         badRequest('You need at least three battle-ready cards — open some modern packs first')
     }
@@ -228,6 +265,8 @@ export async function startRun(userId: string) {
             userId,
             secret,
             cash: BATTLER.cashFor(1),
+            deckId,
+            deckName,
             runState: state as unknown as Record<string, unknown>
         }).returning()
         return run!
@@ -310,6 +349,13 @@ export async function buyUnit(userId: string, runId: string, offerIndex: number,
             })
         }
         card!.instancesLeft -= 1
+        // A purchase consumes its shop tile — the slot stays empty until a
+        // reroll or the next round refills the track. A depleted card takes
+        // its duplicate tiles with it.
+        state.shop.splice(offerIndex, 1)
+        if (card!.instancesLeft === 0) {
+            state.shop = state.shop.filter(offer => offer.cardId !== card!.cardId)
+        }
 
         await tx.insert(tcgBattlerEscrow).values({ runId: run.id, copyId: free!.id })
         await saveState(tx, run.id, state, { cash: run.cash - card!.cost })
@@ -406,6 +452,7 @@ async function opponentCatalog(): Promise<{ spec: BattlerUnitSpec, render: RunRe
     const rows = await db.select({
         cardId: tcgCard.id,
         raw: tcgCard.raw,
+        rarity: tcgCard.rarity,
         bundle: tcgPrinting.bundle,
         plaatjesCardId: tcgPrinting.plaatjesCardId,
         assetNumber: tcgPrinting.assetNumber
@@ -420,7 +467,7 @@ async function opponentCatalog(): Promise<{ spec: BattlerUnitSpec, render: RunRe
     for (const row of rows) {
         if (seen.has(row.cardId)) continue
         seen.add(row.cardId)
-        const spec = deriveUnit(row.cardId, row.raw as Record<string, unknown>)
+        const spec = deriveUnit(row.cardId, row.raw as Record<string, unknown>, row.rarity)
         if (!spec) continue
         catalog.push({
             spec,
