@@ -43,6 +43,13 @@
       "when": 1785999600000,
       "tag": "0005_hack_gem_yield",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1786257792291,
+      "tag": "0006_tcg_display_battler",
+      "breakpoints": true
     }
   ]
 }
