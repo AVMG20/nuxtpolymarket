@@ -105,7 +105,7 @@ describe.skipIf(SKIP)('tcg direct trades integration', () => {
         await listCopy(USERS.ann, annCard1, 100, null)
         // …but an encumbered item makes the accept fail cleanly.
         await expect(acceptOffer(USERS.ben, offer.id))
-            .rejects.toMatchObject({ statusCode: 400, statusMessage: 'A card in this trade is held by a listing, lot or auction' })
+            .rejects.toMatchObject({ statusCode: 400, statusMessage: 'A card in this trade is held by a listing, lot, auction or battler run' })
         const [still] = await db.select({ state: tcgTradeOffer.state }).from(tcgTradeOffer)
             .where(eq(tcgTradeOffer.id, offer.id))
         expect(still!.state).toBe('open')

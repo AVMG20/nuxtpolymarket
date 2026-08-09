@@ -155,7 +155,7 @@ export async function acceptOffer(userId: string, offerId: string): Promise<void
                 badRequest('A card in this trade is no longer tradeable')
             }
             if (await copyEncumbrance(tx, item.copyId)) {
-                badRequest('A card in this trade is held by a listing, lot or auction')
+                badRequest('A card in this trade is held by a listing, lot, auction or battler run')
             }
         }
 
