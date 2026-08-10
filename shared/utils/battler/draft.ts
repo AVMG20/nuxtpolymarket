@@ -17,10 +17,10 @@ export interface DraftedCard {
     instances: number
 }
 
-export function draftPool(holdings: DraftHolding[], rng: BattlerRandom): DraftedCard[] {
+export function draftPool(holdings: DraftHolding[], rng: BattlerRandom, count: number = BATTLER.draftUnits, maxInstances: number = BATTLER.maxInstances): DraftedCard[] {
     const remaining = holdings.filter(holding => holding.copies > 0)
     const drafted: DraftedCard[] = []
-    while (drafted.length < BATTLER.draftUnits && remaining.length > 0) {
+    while (drafted.length < count && remaining.length > 0) {
         const total = remaining.reduce((sum, holding) => sum + holding.copies * holding.copies, 0)
         let roll = rng.next() * total
         let index = remaining.length - 1
@@ -34,7 +34,7 @@ export function draftPool(holdings: DraftHolding[], rng: BattlerRandom): Drafted
         const [chosen] = remaining.splice(index, 1)
         drafted.push({
             cardId: chosen!.cardId,
-            instances: Math.min(chosen!.copies, BATTLER.maxInstances)
+            instances: Math.min(chosen!.copies, maxInstances)
         })
     }
     return drafted

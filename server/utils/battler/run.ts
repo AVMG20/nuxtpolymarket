@@ -7,11 +7,13 @@ import { lockCopyForUpdate, assertUnencumbered } from '#server/utils/tcg/market'
 import { getDeck } from '#server/utils/battler/deck'
 import { createBattlerRandom } from '#shared/utils/battler/rng'
 import { deriveUnit } from '#shared/utils/battler/unit'
+import { deriveItem, itemCostFor } from '#shared/utils/battler/items'
+import type { BattlerItemSpec, BattlerStadiumEffect } from '#shared/utils/battler/items'
 import type { BattlerUnitSpec } from '#shared/utils/battler/unit'
 import { BATTLER, unitCostFor } from '#shared/utils/battler/shop'
 import { draftPool } from '#shared/utils/battler/draft'
 import { simulateBattle } from '#shared/utils/battler/combat'
-import type { BattleUnit, BattleReplay } from '#shared/utils/battler/combat'
+import type { BattleUnit, BattleItem, BattleReplay } from '#shared/utils/battler/combat'
 import { generateBoard } from '#shared/utils/battler/generate'
 
 /*
@@ -55,6 +57,18 @@ export interface RunBoardUnit {
     /** 0 is the active shield, 1–5 the bench (§12.5). */
     position: number
     escrowCopyIds: string[]
+    /** Attached tools (§12.6) — at most one per unit. */
+    items: { cardId: string, name: string, escrowCopyId: string }[]
+}
+
+export interface RunItemCard {
+    cardId: string
+    name: string
+    rarity: string | null
+    cost: number
+    instancesLeft: number
+    spec: BattlerItemSpec
+    render: RunRender
 }
 
 export interface RunShopOffer {
@@ -65,12 +79,20 @@ export interface RunShopOffer {
 export interface SerializedOpponent {
     name: string
     board: (BattleUnit & { render: RunRender })[]
+    stadium?: { name: string, effect: BattlerStadiumEffect } | null
 }
 
 export interface RunState {
     pool: RunPoolCard[]
     shop: RunShopOffer[]
     board: RunBoardUnit[]
+    itemPool: RunItemCard[]
+    itemShop: RunShopOffer[]
+    /** One Stadium in play per run (§12.6). */
+    stadium: { cardId: string, name: string, escrowCopyId: string } | null
+    freeRerolls: number
+    /** Team-wide supporter buffs applying to the next battle only. */
+    nextBattle: { atk: number, hp: number }
     repositionLeft: number
     rollCounter: number
     unitCounter: number
@@ -97,7 +119,15 @@ async function lockRun(tx: Tx, userId: string, runId: string) {
 }
 
 function stateOf(run: { runState: unknown }): RunState {
-    return run.runState as RunState
+    const state = run.runState as RunState
+    // Runs from before items existed normalize in place.
+    state.itemPool ??= []
+    state.itemShop ??= []
+    state.stadium ??= null
+    state.freeRerolls ??= 0
+    state.nextBattle ??= { atk: 0, hp: 0 }
+    for (const unit of state.board) unit.items ??= []
+    return state
 }
 
 async function saveState(tx: Tx, runId: string, state: RunState, patch: Partial<{ round: number, wins: number, losses: number, cash: number, state: string, finishedAt: Date }> = {}) {
@@ -122,6 +152,21 @@ function rollShop(state: RunState, secret: string, round: number, keepFrozen: bo
         offers.push({ cardId: rng.pick(drawable).cardId, frozen: false })
     }
     state.shop = offers
+}
+
+/** Fill the item track with seeded draws from the drafted Trainer pool. */
+function rollItemShop(state: RunState, secret: string, round: number, keepFrozen: boolean) {
+    const kept = keepFrozen ? state.itemShop.filter(offer => offer.frozen) : []
+    const rng = createBattlerRandom(runSeed(secret, `itemshop:${round}:${state.rollCounter}`))
+    state.rollCounter += 1
+    const offers: RunShopOffer[] = [...kept]
+    const offered = (cardId: string) => offers.filter(offer => offer.cardId === cardId).length
+    while (offers.length < BATTLER.itemTrackWidth) {
+        const drawable = state.itemPool.filter(card => card.instancesLeft > offered(card.cardId))
+        if (drawable.length === 0) break
+        offers.push({ cardId: rng.pick(drawable).cardId, frozen: false })
+    }
+    state.itemShop = offers
 }
 
 // ── Eligible holdings ──────────────────────────────────────────────────────
@@ -188,6 +233,61 @@ export async function eligibleHoldings(userId: string): Promise<Holding[]> {
     return [...byCard.values()]
 }
 
+interface ItemHolding {
+    cardId: string
+    copies: number
+    name: string
+    rarity: string | null
+    spec: BattlerItemSpec
+    render: RunRender
+}
+
+/** The caller's draftable Trainers (§12.6) — same eligibility as units. */
+export async function eligibleItemHoldings(userId: string): Promise<ItemHolding[]> {
+    const rows = await db.select({
+        cardId: tcgCard.id,
+        name: tcgCard.name,
+        rarity: tcgCard.rarity,
+        raw: tcgCard.raw,
+        copyId: tcgCopy.id,
+        bundle: tcgPrinting.bundle,
+        plaatjesCardId: tcgPrinting.plaatjesCardId,
+        assetNumber: tcgPrinting.assetNumber
+    })
+        .from(tcgCopy)
+        .innerJoin(tcgPrinting, eq(tcgCopy.printingId, tcgPrinting.id))
+        .innerJoin(tcgCard, eq(tcgPrinting.cardId, tcgCard.id))
+        .innerJoin(tcgSet, eq(tcgCopy.setId, tcgSet.id))
+        .leftJoin(tcgBattlerEscrow, eq(tcgBattlerEscrow.copyId, tcgCopy.id))
+        .where(and(
+            eq(tcgCopy.ownerId, userId),
+            eq(tcgCopy.lifecycle, 'raw'),
+            eq(tcgSet.status, 'committed'),
+            sql`${tcgBattlerEscrow.id} is null`
+        ))
+    const byCard = new Map<string, ItemHolding>()
+    for (const row of rows) {
+        const existing = byCard.get(row.cardId)
+        if (existing) {
+            existing.copies += 1
+            continue
+        }
+        const raw = row.raw as Record<string, unknown>
+        const tier = (raw.pullRate as { tier?: string } | undefined)?.tier ?? row.rarity
+        const spec = deriveItem(row.cardId, raw, tier)
+        if (!spec) continue
+        byCard.set(row.cardId, {
+            cardId: row.cardId,
+            copies: 1,
+            name: row.name,
+            rarity: tier,
+            spec,
+            render: { bundle: row.bundle, plaatjesCardId: row.plaatjesCardId, assetNumber: row.assetNumber }
+        })
+    }
+    return [...byCard.values()]
+}
+
 /** Finished runs, newest first — the win/lose history. */
 export async function runHistory(userId: string, limit = 25) {
     return await db.select({
@@ -233,10 +333,25 @@ export async function startRun(userId: string, deckId: string | null = null) {
         badRequest('You need at least three battle-ready cards — open some modern packs first')
     }
 
+    let itemHoldings = await eligibleItemHoldings(userId)
+    if (deckId) {
+        const deck = await getDeck(userId, deckId)
+        const allowed = new Map(deck.cards.map(card => [card.cardId, card.copies]))
+        itemHoldings = itemHoldings
+            .filter(holding => allowed.has(holding.cardId))
+            .map(holding => ({ ...holding, copies: Math.min(holding.copies, allowed.get(holding.cardId)!) }))
+    }
+
     const secret = randomBytes(32).toString('hex')
     const rng = createBattlerRandom(runSeed(secret, 'draft'))
     const drafted = draftPool(holdings.map(holding => ({ cardId: holding.cardId, copies: holding.copies })), rng)
     const byCard = new Map(holdings.map(holding => [holding.cardId, holding]))
+    const itemRng = createBattlerRandom(runSeed(secret, 'draft:items'))
+    const draftedItems = draftPool(
+        itemHoldings.map(holding => ({ cardId: holding.cardId, copies: holding.copies })),
+        itemRng, BATTLER.draftItems, BATTLER.itemInstances
+    )
+    const itemByCard = new Map(itemHoldings.map(holding => [holding.cardId, holding]))
 
     const state: RunState = {
         pool: drafted.map((entry) => {
@@ -253,12 +368,29 @@ export async function startRun(userId: string, deckId: string | null = null) {
         }),
         shop: [],
         board: [],
+        itemPool: draftedItems.map((entry) => {
+            const holding = itemByCard.get(entry.cardId)!
+            return {
+                cardId: entry.cardId,
+                name: holding.name,
+                rarity: holding.rarity,
+                cost: itemCostFor(holding.rarity),
+                instancesLeft: entry.instances,
+                spec: holding.spec,
+                render: holding.render
+            }
+        }),
+        itemShop: [],
+        stadium: null,
+        freeRerolls: 0,
+        nextBattle: { atk: 0, hp: 0 },
         repositionLeft: BATTLER.repositionBudget,
         rollCounter: 0,
         unitCounter: 0,
         lastBattle: null
     }
     rollShop(state, secret, 1, false)
+    rollItemShop(state, secret, 1, false)
 
     try {
         const [run] = await db.insert(tcgBattlerRun).values({
@@ -291,6 +423,33 @@ export async function abandonRun(userId: string, runId: string) {
 
 // ── Shop mutations ─────────────────────────────────────────────────────────
 
+/**
+ * One eligible copy backs each purchased instance (§12.10) — oldest first,
+ * locked, and refused when anything else already holds it. Returns the id;
+ * the caller records it in the escrow table and the run state.
+ */
+async function escrowFreeCopy(tx: Tx, userId: string, cardId: string): Promise<string> {
+    const escrowed = await tx.select({ copyId: tcgBattlerEscrow.copyId }).from(tcgBattlerEscrow)
+    const taken = new Set(escrowed.map(row => row.copyId))
+    const candidates = await tx.select({ id: tcgCopy.id })
+        .from(tcgCopy)
+        .innerJoin(tcgPrinting, eq(tcgCopy.printingId, tcgPrinting.id))
+        .where(and(
+            eq(tcgCopy.ownerId, userId),
+            eq(tcgCopy.lifecycle, 'raw'),
+            eq(tcgPrinting.cardId, cardId)
+        ))
+        .orderBy(asc(tcgCopy.createdAt), asc(tcgCopy.id))
+    const free = candidates.find(candidate => !taken.has(candidate.id))
+    if (!free) badRequest('No free copy of that card to field')
+    const locked = await lockCopyForUpdate(tx, free!.id)
+    if (!locked || locked.ownerId !== userId || locked.lifecycle !== 'raw') {
+        badRequest('No free copy of that card to field')
+    }
+    await assertUnencumbered(tx, free!.id)
+    return free!.id
+}
+
 export async function buyUnit(userId: string, runId: string, offerIndex: number, attackId: number | null, position: number | null) {
     return await db.transaction(async (tx) => {
         const run = await lockRun(tx, userId, runId)
@@ -301,26 +460,7 @@ export async function buyUnit(userId: string, runId: string, offerIndex: number,
         if (!card || card.instancesLeft < 1) badRequest('No copies of that card left in the pool')
         if (run.cash < card!.cost) badRequest('Not enough Pokémon Dollars')
 
-        // One eligible copy backs each instance (§12.10) — oldest first,
-        // locked, and refused when anything else already holds it.
-        const escrowed = await tx.select({ copyId: tcgBattlerEscrow.copyId }).from(tcgBattlerEscrow)
-        const taken = new Set(escrowed.map(row => row.copyId))
-        const candidates = await tx.select({ id: tcgCopy.id })
-            .from(tcgCopy)
-            .innerJoin(tcgPrinting, eq(tcgCopy.printingId, tcgPrinting.id))
-            .where(and(
-                eq(tcgCopy.ownerId, userId),
-                eq(tcgCopy.lifecycle, 'raw'),
-                eq(tcgPrinting.cardId, card!.cardId)
-            ))
-            .orderBy(asc(tcgCopy.createdAt), asc(tcgCopy.id))
-        const free = candidates.find(candidate => !taken.has(candidate.id))
-        if (!free) badRequest('No free copy of that card to field')
-        const locked = await lockCopyForUpdate(tx, free!.id)
-        if (!locked || locked.ownerId !== userId || locked.lifecycle !== 'raw') {
-            badRequest('No free copy of that card to field')
-        }
-        await assertUnencumbered(tx, free!.id)
+        const free = { id: await escrowFreeCopy(tx, userId, card!.cardId) }
 
         const existing = state.board.find(unit => unit.cardId === card!.cardId)
         if (existing) {
@@ -345,7 +485,8 @@ export async function buyUnit(userId: string, runId: string, offerIndex: number,
                 attackId: chosen,
                 instances: 1,
                 position: slot,
-                escrowCopyIds: [free!.id]
+                escrowCopyIds: [free!.id],
+                items: []
             })
         }
         card!.instancesLeft -= 1
@@ -372,11 +513,21 @@ export async function sellUnit(userId: string, runId: string, unitKey: string) {
         const unit = state.board[index]!
         const card = state.pool.find(entry => entry.cardId === unit.cardId)
         if (card) card.instancesLeft += unit.instances
-        const refund = card ? Math.max(0, card.cost - 1) * unit.instances : 0
+        let refund = card ? Math.max(0, card.cost - 1) * unit.instances : 0
+        // Attached tools come off with the unit and refund too.
+        const releasedCopyIds = [...unit.escrowCopyIds]
+        for (const attached of unit.items) {
+            const item = state.itemPool.find(entry => entry.cardId === attached.cardId)
+            if (item) {
+                item.instancesLeft += 1
+                refund += BATTLER.sellRefund(item.cost)
+            }
+            releasedCopyIds.push(attached.escrowCopyId)
+        }
         state.board.splice(index, 1)
-        if (unit.escrowCopyIds.length > 0) {
+        if (releasedCopyIds.length > 0) {
             await tx.delete(tcgBattlerEscrow)
-                .where(and(eq(tcgBattlerEscrow.runId, run.id), inArray(tcgBattlerEscrow.copyId, unit.escrowCopyIds)))
+                .where(and(eq(tcgBattlerEscrow.runId, run.id), inArray(tcgBattlerEscrow.copyId, releasedCopyIds)))
         }
         await saveState(tx, run.id, state, { cash: run.cash + refund })
         return { ok: true as const, refund }
@@ -386,11 +537,86 @@ export async function sellUnit(userId: string, runId: string, unitKey: string) {
 export async function rerollShop(userId: string, runId: string) {
     return await db.transaction(async (tx) => {
         const run = await lockRun(tx, userId, runId)
-        if (run.cash < BATTLER.rerollCost) badRequest('Not enough Pokémon Dollars')
         const state = stateOf(run)
+        const free = state.freeRerolls > 0
+        if (!free && run.cash < BATTLER.rerollCost) badRequest('Not enough Pokémon Dollars')
+        if (free) state.freeRerolls -= 1
         rollShop(state, run.secret, run.round, true)
-        await saveState(tx, run.id, state, { cash: run.cash - BATTLER.rerollCost })
+        rollItemShop(state, run.secret, run.round, true)
+        await saveState(tx, run.id, state, { cash: free ? run.cash : run.cash - BATTLER.rerollCost })
         return { ok: true as const }
+    })
+}
+
+export async function buyItem(userId: string, runId: string, offerIndex: number, targetUnitKey: string | null) {
+    return await db.transaction(async (tx) => {
+        const run = await lockRun(tx, userId, runId)
+        const state = stateOf(run)
+        const offer = state.itemShop[offerIndex]
+        if (!offer) badRequest('No such offer')
+        const item = state.itemPool.find(entry => entry.cardId === offer!.cardId)
+        if (!item || item.instancesLeft < 1) badRequest('No copies of that Trainer left in the pool')
+        if (run.cash < item!.cost) badRequest('Not enough Pokémon Dollars')
+
+        let cash = run.cash - item!.cost
+        const subtype = item!.spec.subtype
+        if (subtype === 'tool') {
+            const unit = state.board.find(entry => entry.key === targetUnitKey)
+            if (!unit) badRequest('Pick a unit to hold the item')
+            if (unit!.items.length >= 1) badRequest('That unit already holds an item')
+            const copyId = await escrowFreeCopy(tx, userId, item!.cardId)
+            await tx.insert(tcgBattlerEscrow).values({ runId: run.id, copyId })
+            unit!.items.push({ cardId: item!.cardId, name: item!.name, escrowCopyId: copyId })
+        } else if (subtype === 'stadium') {
+            if (state.stadium) badRequest('A Stadium is already in play — sell it first')
+            const copyId = await escrowFreeCopy(tx, userId, item!.cardId)
+            await tx.insert(tcgBattlerEscrow).values({ runId: run.id, copyId })
+            state.stadium = { cardId: item!.cardId, name: item!.name, escrowCopyId: copyId }
+        } else {
+            // Supporter: consumed on the spot. The copy stays escrowed until
+            // the run ends — nothing is destroyed (§12.6).
+            const copyId = await escrowFreeCopy(tx, userId, item!.cardId)
+            await tx.insert(tcgBattlerEscrow).values({ runId: run.id, copyId })
+            const effect = item!.spec.consume ?? {}
+            cash += effect.cash ?? 0
+            state.freeRerolls += effect.freeRerolls ?? 0
+            if (effect.reposition) state.repositionLeft = BATTLER.repositionBudget
+            state.nextBattle.atk += effect.teamAtk ?? 0
+            state.nextBattle.hp += effect.teamHp ?? 0
+        }
+
+        item!.instancesLeft -= 1
+        state.itemShop.splice(offerIndex, 1)
+        if (item!.instancesLeft === 0) {
+            state.itemShop = state.itemShop.filter(entry => entry.cardId !== item!.cardId)
+        }
+        await saveState(tx, run.id, state, { cash })
+        return { ok: true as const }
+    })
+}
+
+/** Sell an attached tool (by holder unit) or the Stadium back to the pool. */
+export async function sellItem(userId: string, runId: string, target: { unitKey?: string, stadium?: boolean }) {
+    return await db.transaction(async (tx) => {
+        const run = await lockRun(tx, userId, runId)
+        const state = stateOf(run)
+        let sold: { cardId: string, escrowCopyId: string } | null = null
+        if (target.stadium) {
+            if (!state.stadium) badRequest('No Stadium in play')
+            sold = state.stadium!
+            state.stadium = null
+        } else {
+            const unit = state.board.find(entry => entry.key === target.unitKey)
+            if (!unit || unit.items.length === 0) badRequest('No item to sell there')
+            sold = unit!.items.pop()!
+        }
+        const item = state.itemPool.find(entry => entry.cardId === sold!.cardId)
+        if (item) item.instancesLeft += 1
+        const refund = item ? BATTLER.sellRefund(item.cost) : 0
+        await tx.delete(tcgBattlerEscrow)
+            .where(and(eq(tcgBattlerEscrow.runId, run.id), eq(tcgBattlerEscrow.copyId, sold!.escrowCopyId)))
+        await saveState(tx, run.id, state, { cash: run.cash + refund })
+        return { ok: true as const, refund }
     })
 }
 
@@ -432,19 +658,34 @@ export async function moveUnit(userId: string, runId: string, unitKey: string, p
 
 // ── The fight ──────────────────────────────────────────────────────────────
 
-function boardToBattleUnits(state: RunState): (BattleUnit & { render: RunRender })[] {
+function boardToBattleUnits(state: RunState, withBuffs = false): (BattleUnit & { render: RunRender })[] {
     return [...state.board]
         .sort((a, b) => a.position - b.position)
         .map((unit) => {
+            const items: BattleItem[] = unit.items.map((attached) => {
+                const item = state.itemPool.find(entry => entry.cardId === attached.cardId)
+                return { name: attached.name, effect: item?.spec.attach ?? {} }
+            })
+            if (withBuffs && (state.nextBattle.atk > 0 || state.nextBattle.hp > 0)) {
+                items.push({ name: 'Supporter', effect: { atk: state.nextBattle.atk, hp: state.nextBattle.hp } })
+            }
             const card = state.pool.find(entry => entry.cardId === unit.cardId)!
             return {
                 key: unit.key,
                 spec: card.spec,
                 attackId: unit.attackId,
                 instances: unit.instances,
+                items,
                 render: card.render
             }
         })
+}
+
+/** The stadium effect a run currently fields, if any. */
+function stadiumOf(state: RunState): { name: string, effect: BattlerStadiumEffect } | null {
+    if (!state.stadium) return null
+    const item = state.itemPool.find(entry => entry.cardId === state.stadium!.cardId)
+    return item?.spec.stadium ? { name: item.name, effect: item.spec.stadium } : null
 }
 
 /** Catalog for generated opponents: eligible cards across committed sets. */
@@ -482,6 +723,8 @@ export interface FightResult {
     seed: number
     myBoard: (BattleUnit & { render: RunRender })[]
     opponent: SerializedOpponent
+    /** The stadium that governed the battle — the defender's holds (§12.6). */
+    stadium: { name: string, effect: BattlerStadiumEffect, source: 'mine' | 'theirs' } | null
     replay: BattleReplay
     run: { state: string, round: number, wins: number, losses: number, cash: number }
 }
@@ -507,9 +750,15 @@ export async function fight(userId: string, runId: string): Promise<FightResult>
         const chosen = rng.pick(snapshots)
         const [owner] = await db.select({ name: sql<string>`(select name from "user" where id = ${chosen.userId})` })
             .from(tcgBattlerSnapshot).where(eq(tcgBattlerSnapshot.id, chosen.id))
+        // Snapshots from before items were a bare board array.
+        const raw = chosen.board as unknown
+        const wrapped = Array.isArray(raw)
+            ? { units: raw as (BattleUnit & { render: RunRender })[], stadium: null }
+            : raw as { units: (BattleUnit & { render: RunRender })[], stadium: { name: string, effect: BattlerStadiumEffect } | null }
         opponent = {
             name: owner?.name ?? 'A trainer',
-            board: chosen.board as unknown as (BattleUnit & { render: RunRender })[]
+            board: wrapped.units,
+            stadium: wrapped.stadium ?? null
         }
     } else {
         const catalog = await opponentCatalog()
@@ -529,8 +778,14 @@ export async function fight(userId: string, runId: string): Promise<FightResult>
         if (locked.round !== run.round) badRequest('The round already resolved')
         const state = stateOf(locked)
 
-        const myBoard = boardToBattleUnits(state)
-        const replay = simulateBattle(myBoard, opponent.board, seed)
+        const myBoard = boardToBattleUnits(state, true)
+        const myStadium = stadiumOf(state)
+        // On conflict the defender's Stadium holds (§12.6) — the snapshot is
+        // the defender here.
+        const governing = opponent.stadium
+            ? { ...opponent.stadium, source: 'theirs' as const }
+            : myStadium ? { ...myStadium, source: 'mine' as const } : null
+        const replay = simulateBattle(myBoard, opponent.board, seed, governing?.effect ?? null)
         const result: 'win' | 'loss' | 'draw' = replay.result === 'a' ? 'win' : replay.result === 'b' ? 'loss' : 'draw'
 
         const wins = locked.wins + (result === 'win' ? 1 : 0)
@@ -542,12 +797,16 @@ export async function fight(userId: string, runId: string): Promise<FightResult>
             userId,
             runId: locked.id,
             round: locked.round,
-            board: myBoard as unknown as Record<string, unknown>[]
+            board: { units: myBoard, stadium: myStadium } as unknown as Record<string, unknown>[]
         })
 
         state.lastBattle = { round: locked.round, opponent, seed, result }
+        state.nextBattle = { atk: 0, hp: 0 }
         state.repositionLeft = BATTLER.repositionBudget
-        if (!finished) rollShop(state, locked.secret, nextRound, true)
+        if (!finished) {
+            rollShop(state, locked.secret, nextRound, true)
+            rollItemShop(state, locked.secret, nextRound, true)
+        }
 
         if (finished) {
             await tx.delete(tcgBattlerEscrow).where(eq(tcgBattlerEscrow.runId, locked.id))
@@ -571,6 +830,7 @@ export async function fight(userId: string, runId: string): Promise<FightResult>
             seed,
             myBoard,
             opponent,
+            stadium: governing,
             replay,
             run: {
                 state: finished ? (wins >= BATTLER.winsToComplete ? 'won' : 'lost') : 'active',
@@ -589,7 +849,11 @@ export async function runView(userId: string) {
     const [run] = await db.select().from(tcgBattlerRun)
         .where(and(eq(tcgBattlerRun.userId, userId), eq(tcgBattlerRun.state, 'active')))
     if (!run) {
-        return { run: null, eligibleCards: await eligibleCount(userId) }
+        return {
+            run: null,
+            eligibleCards: await eligibleCount(userId),
+            eligibleItems: (await eligibleItemHoldings(userId)).length
+        }
     }
     // The secret must never leave the server (a known seed scouts the shop).
     const { secret: _secret, ...safe } = run
