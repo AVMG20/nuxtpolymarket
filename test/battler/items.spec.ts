@@ -49,8 +49,8 @@ describe('deriveItem', () => {
     })
 
     it('falls back to a deterministic tool scaled by tier', () => {
-        const a = deriveItem('t5', trainer('Tremendous Bomb'), 'Common')!
-        const b = deriveItem('t5', trainer('Tremendous Bomb'), 'Common')!
+        const a = deriveItem('t5', trainer('Unwritten Gadget'), 'Common')!
+        const b = deriveItem('t5', trainer('Unwritten Gadget'), 'Common')!
         expect(a.subtype).toBe('tool')
         expect(a.attach).toEqual(b.attach) // stable per name
         expect(deriveItem('x', { category: 'Pokemon', name: 'Nope' })).toBeNull()
