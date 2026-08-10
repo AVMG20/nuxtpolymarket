@@ -6,6 +6,12 @@
  */
 import { BATTLER, levelFor } from './shop'
 import type { BattlerUnitSpec, BattlerModifier } from './unit'
+import type { BattlerAttachEffect, BattlerStadiumEffect } from './items'
+
+export interface BattleItem {
+    name: string
+    effect: BattlerAttachEffect
+}
 
 export interface BattleUnit {
     /** Stable identity within the battle, for the replay events. */
@@ -13,6 +19,8 @@ export interface BattleUnit {
     spec: BattlerUnitSpec
     attackId: number
     instances: number
+    /** Attached tools (§12.6) — applied on top of the level multiplier. */
+    items?: BattleItem[]
 }
 
 export type BattleEvent =
@@ -37,23 +45,43 @@ interface LiveUnit {
     hp: number
     maxHp: number
     bounty: number
+    /** Effective modifiers — attachments and the stadium can strip these. */
+    weaknesses: BattlerModifier[]
+    resistances: BattlerModifier[]
 }
 
-function toLive(unit: BattleUnit): LiveUnit {
+function toLive(unit: BattleUnit, stadium: BattlerStadiumEffect | null): LiveUnit {
     const level = levelFor(unit.instances)
     const multiplier = BATTLER.levelMultiplier[level] ?? 1
     const chosen = unit.spec.attacks.find(attack => attack.attackId === unit.attackId)
         ?? unit.spec.attacks[0]!
-    const hp = Math.max(1, Math.round(unit.spec.hp * multiplier))
+    let hp = Math.max(1, Math.round(unit.spec.hp * multiplier))
+    let attack = Math.max(1, Math.round(chosen.damage * multiplier))
+    let chargeMax = chosen.charge
+    let noWeakness = false
+    for (const item of unit.items ?? []) {
+        hp += item.effect.hp ?? 0
+        attack += item.effect.atk ?? 0
+        chargeMax += item.effect.charge ?? 0
+        if (item.effect.noWeakness) noWeakness = true
+    }
+    if (stadium) {
+        hp += stadium.allHp ?? 0
+        attack += stadium.allAtk ?? 0
+        chargeMax += stadium.allCharge ?? 0
+        if (stadium.noWeakness) noWeakness = true
+    }
     return {
         key: unit.key,
         spec: unit.spec,
-        attack: Math.max(1, Math.round(chosen.damage * multiplier)),
+        attack: Math.max(1, attack),
         charge: 0,
-        chargeMax: chosen.charge,
-        hp,
-        maxHp: hp,
-        bounty: unit.spec.bounty
+        chargeMax: Math.max(1, chargeMax),
+        hp: Math.max(1, hp),
+        maxHp: Math.max(1, hp),
+        bounty: unit.spec.bounty,
+        weaknesses: noWeakness ? [] : unit.spec.weaknesses,
+        resistances: unit.spec.resistances
     }
 }
 
@@ -62,7 +90,7 @@ function toLive(unit: BattleUnit): LiveUnit {
  * its operator, then every matching resistance entry, floor at 1. Dual
  * weakness applies once per matching type.
  */
-export function applyModifiers(amount: number, attackerType: string | null, target: BattlerUnitSpec): number {
+export function applyModifiers(amount: number, attackerType: string | null, target: { weaknesses: BattlerModifier[], resistances: BattlerModifier[] }): number {
     let damage = amount
     const applies = (entry: BattlerModifier) => attackerType !== null && entry.type === attackerType
     for (const weakness of target.weaknesses) {
@@ -88,8 +116,8 @@ function awardPrizes(side: LiveUnit[], count: number, round: number, sideIndex: 
     }
 }
 
-export function simulateBattle(a: BattleUnit[], b: BattleUnit[], _seed: number): BattleReplay {
-    const sides: [LiveUnit[], LiveUnit[]] = [a.map(toLive), b.map(toLive)]
+export function simulateBattle(a: BattleUnit[], b: BattleUnit[], _seed: number, stadium: BattlerStadiumEffect | null = null): BattleReplay {
+    const sides: [LiveUnit[], LiveUnit[]] = [a.map(unit => toLive(unit, stadium)), b.map(unit => toLive(unit, stadium))]
     const events: BattleEvent[] = []
 
     const totalHp = (side: LiveUnit[]) => side.reduce((sum, unit) => sum + Math.max(0, unit.hp), 0)
@@ -120,7 +148,7 @@ export function simulateBattle(a: BattleUnit[], b: BattleUnit[], _seed: number):
         for (const { attacker, sideIndex } of declarations) {
             const target = sides[1 - sideIndex]!.find(unit => unit.hp > 0)
             if (!target) continue
-            const amount = applyModifiers(attacker.attack, attacker.spec.type, target.spec)
+            const amount = applyModifiers(attacker.attack, attacker.spec.type, target)
             target.hp -= amount
             attacker.charge = 0
             events.push({ kind: 'attack', round, side: sideIndex, from: attacker.key, to: target.key, amount })

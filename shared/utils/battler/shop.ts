@@ -10,6 +10,10 @@ export const BATTLER = {
     draftUnits: 10,
     /** Instances a drafted card enters with: min(copies, this). */
     maxInstances: 6,
+    /** Trainers drafted alongside units (§12.6): 6 distinct, 4 deep. */
+    draftItems: 6,
+    itemInstances: 4,
+    itemTrackWidth: 2,
     /** Escalating merge thresholds: instances → level (§12.2). */
     levelThresholds: { 2: 3, 3: 6 } as Record<number, number>,
     /** Level multipliers on HP and attack. Sim-tuned (2026-08): merging N
