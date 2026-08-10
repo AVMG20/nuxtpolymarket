@@ -135,7 +135,7 @@ function pickAttack(attackId: number) {
 }
 
 // ── Drag & drop (mirrors the tap flow; taps still work on touch) ───────────
-const dragging = ref<{ type: 'offer', offerIndex: number } | { type: 'item', offerIndex: number } | { type: 'unit', key: string } | null>(null)
+const dragging = ref<{ type: 'offer', offerIndex: number } | { type: 'item', offerIndex: number } | { type: 'unit', key: string } | { type: 'stadium' } | null>(null)
 
 function dragStart(payload: NonNullable<typeof dragging.value>, event: DragEvent) {
     sellMode.value = false
@@ -304,8 +304,12 @@ function sellRefundFor(unitKey: string): number {
     return refund
 }
 
-const sellZoneActive = computed(() => dragging.value?.type === 'unit' || movingUnit.value !== null)
+const sellZoneActive = computed(() => dragging.value?.type === 'unit' || dragging.value?.type === 'stadium' || movingUnit.value !== null)
 const sellZonePreview = computed(() => {
+    if (dragging.value?.type === 'stadium') {
+        const stadium = stadiumInPlay.value
+        return stadium ? Math.max(0, stadium.cost - 1) : null
+    }
     const key = dragging.value?.type === 'unit' ? dragging.value.key : movingUnit.value
     return key ? sellRefundFor(key) : null
 })
@@ -314,6 +318,7 @@ function sellZoneDrop() {
     const drag = dragging.value
     dragging.value = null
     if (drag?.type === 'unit') sell(drag.key)
+    if (drag?.type === 'stadium') sellStadium()
 }
 
 /** Plain-button mode: arm the zone, then tap the unit to sell. */
@@ -483,13 +488,15 @@ async function abandon() {
           </span>
           <UTooltip
             v-if="stadiumInPlay"
-            :text="`${stadiumInPlay.name} — ${stadiumInPlay.spec.text} (both teams). Click to sell.`"
+            :text="`${stadiumInPlay.name} — ${stadiumInPlay.spec.text} (both teams). Drag to the sell zone to remove.`"
           >
             <UBadge
               color="neutral"
               variant="subtle"
-              class="cursor-pointer"
-              @click="sellStadium"
+              class="cursor-grab"
+              draggable="true"
+              @dragstart="dragStart({ type: 'stadium' }, $event)"
+              @dragend="dragging = null"
             >🏟️ {{ stadiumInPlay.name }}</UBadge>
           </UTooltip>
           <UBadge
@@ -527,7 +534,7 @@ async function abandon() {
                 sellMode ? 'cursor-pointer border-error bg-error/15 text-error'
                 : sellZoneActive ? 'cursor-pointer border-error/70 bg-error/5 text-error'
                   : 'cursor-pointer border-default text-dimmed hover:border-error/50 hover:text-error',
-                dragging?.type === 'unit' && 'invisible'
+                (dragging?.type === 'unit' || dragging?.type === 'stadium') && 'invisible'
               ]"
               @click="sellZoneClick"
             >
@@ -548,7 +555,7 @@ async function abandon() {
             <!-- While a unit drags, the target expands to card size so the
                  ghost visibly sits inside the selling frame. -->
             <div
-              v-if="dragging?.type === 'unit'"
+              v-if="dragging?.type === 'unit' || dragging?.type === 'stadium'"
               class="absolute -top-2 right-0 z-30 flex aspect-[0.718] w-40 flex-col items-center justify-center gap-1.5 rounded-xl border-4 border-dashed border-error/70 bg-error/5 text-error shadow-lg transition [&.drag-over]:scale-105 [&.drag-over]:border-solid [&.drag-over]:border-error [&.drag-over]:bg-error/20"
               @dragover.prevent
               @dragenter="($event.currentTarget as HTMLElement).classList.add('drag-over')"
