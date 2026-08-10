@@ -8,7 +8,8 @@
  * Deterministic, so what you watch is exactly what the server scored.
  */
 import { simulateBattle } from '#shared/utils/battler/combat'
-import type { BattleUnit, BattleEvent } from '#shared/utils/battler/combat'
+import type { BattleUnit, BattleItem, BattleEvent } from '#shared/utils/battler/combat'
+import type { BattlerStadiumEffect } from '#shared/utils/battler/items'
 import type { BattlerUnitSpec } from '#shared/utils/battler/unit'
 import { BATTLER, levelFor } from '#shared/utils/battler/shop'
 import { legacySetOf } from '#shared/utils/tcg/legacy'
@@ -23,6 +24,7 @@ const props = defineProps<{
     opponentBoard: RenderedUnit[]
     seed: number
     result: 'win' | 'loss' | 'draw'
+    stadium?: { name: string, effect: BattlerStadiumEffect, source: 'mine' | 'theirs' } | null
 }>()
 const emit = defineEmits<{ done: [] }>()
 
@@ -56,6 +58,8 @@ interface ViewUnit {
     type: string | null
     attackName: string
     attackDamage: number
+    items: BattleItem[]
+    noWeakness: boolean
     fainted: boolean
     flash: 'hit' | 'attack' | null
 }
@@ -64,7 +68,25 @@ function toView(unit: RenderedUnit): ViewUnit {
     const level = levelFor(unit.instances)
     const multiplier = BATTLER.levelMultiplier[level] ?? 1
     const attack = unit.spec.attacks.find(entry => entry.attackId === unit.attackId) ?? unit.spec.attacks[0]!
-    const hp = Math.max(1, Math.round(unit.spec.hp * multiplier))
+    // Mirror the engine's toLive: level multiplier, then items, then stadium.
+    let hp = Math.max(1, Math.round(unit.spec.hp * multiplier))
+    let damage = Math.max(1, Math.round(attack.damage * multiplier))
+    let chargeMax = attack.charge
+    let noWeakness = false
+    const stadium = props.stadium?.effect
+    for (const item of unit.items ?? []) {
+        hp += item.effect.hp ?? 0
+        damage += item.effect.atk ?? 0
+        chargeMax += item.effect.charge ?? 0
+        if (item.effect.noWeakness) noWeakness = true
+    }
+    if (stadium) {
+        hp += stadium.allHp ?? 0
+        damage += stadium.allAtk ?? 0
+        chargeMax += stadium.allCharge ?? 0
+        if (stadium.noWeakness) noWeakness = true
+    }
+    hp = Math.max(1, hp)
     return {
         key: unit.key,
         name: unit.spec.name,
@@ -73,11 +95,13 @@ function toView(unit: RenderedUnit): ViewUnit {
         maxHp: hp,
         hp,
         charge: 0,
-        chargeMax: attack.charge,
+        chargeMax: Math.max(1, chargeMax),
         level,
         type: unit.spec.type,
         attackName: attack.name,
-        attackDamage: Math.max(1, Math.round(attack.damage * multiplier)),
+        attackDamage: Math.max(1, damage),
+        items: unit.items ?? [],
+        noWeakness,
         fainted: false,
         flash: null
     }
@@ -111,7 +135,7 @@ const impacts = ref<{ id: number, key: string, kind: 'hit' | 'super' | 'ko' }[]>
 const splash = ref<string | null>(null)
 const arenaShaking = ref(false)
 
-const replay = computed(() => simulateBattle(props.myBoard, props.opponentBoard, props.seed))
+const replay = computed(() => simulateBattle(props.myBoard, props.opponentBoard, props.seed, props.stadium?.effect ?? null))
 
 function unitByKey(key: string): ViewUnit | undefined {
     return mine.value.find(unit => unit.key === key) ?? theirs.value.find(unit => unit.key === key)
@@ -126,7 +150,7 @@ function thumbProps(render: RenderedUnit['render']) {
 /** The printed matchup, for the impact caption — weakness beats resistance. */
 function effectivenessOf(attackerType: string | null, target: ViewUnit): 'super' | 'resist' | null {
     if (!attackerType) return null
-    if (target.spec.weaknesses.some(entry => entry.type === attackerType)) return 'super'
+    if (!target.noWeakness && target.spec.weaknesses.some(entry => entry.type === attackerType)) return 'super'
     if (target.spec.resistances.some(entry => entry.type === attackerType)) return 'resist'
     return null
 }
@@ -288,6 +312,13 @@ onUnmounted(() => {
             </div>
         </div>
 
+        <p
+            v-if="stadium"
+            class="rounded-lg bg-elevated px-3 py-1.5 text-center text-xs text-muted"
+        >
+            🏟️ <b class="text-highlighted">{{ stadium.name }}</b> is in play ({{ stadium.source === 'mine' ? 'yours' : 'theirs' }}) — it affects both teams.
+        </p>
+
         <!-- The arena: you on the left, them on the right, actives center. -->
         <div
             ref="arenaEl"
@@ -347,6 +378,12 @@ onUnmounted(() => {
                             >
                                 L{{ unit.level }}
                             </UBadge>
+                            <UTooltip
+                                v-if="unit.items.length > 0"
+                                :text="unit.items.map(item => item.name).join(', ')"
+                            >
+                                <span class="absolute -right-1 bottom-9 z-10 text-sm drop-shadow">🔧</span>
+                            </UTooltip>
                             <template
                                 v-for="float in damageFloats.filter(entry => entry.key === unit.key)"
                                 :key="float.id"
@@ -444,6 +481,12 @@ onUnmounted(() => {
                             >
                                 L{{ unit.level }}
                             </UBadge>
+                            <UTooltip
+                                v-if="unit.items.length > 0"
+                                :text="unit.items.map(item => item.name).join(', ')"
+                            >
+                                <span class="absolute -right-1 bottom-9 z-10 text-sm drop-shadow">🔧</span>
+                            </UTooltip>
                             <template
                                 v-for="float in damageFloats.filter(entry => entry.key === unit.key)"
                                 :key="float.id"
