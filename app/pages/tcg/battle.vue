@@ -3,7 +3,8 @@
  * The auto-battler (§12): draft from your collection, build in the shop,
  * fight snapshots. Slice 1 is units only, unranked, escrow live.
  */
-import type { RunState, RunPoolCard, RunBoardUnit, FightResult } from '~~/server/utils/battler/run'
+import type { RunState, RunPoolCard, RunItemCard, RunBoardUnit, FightResult } from '~~/server/utils/battler/run'
+import { ITEM_GLYPH } from '#shared/utils/battler/items'
 import { BATTLER, levelFor } from '#shared/utils/battler/shop'
 import { legacySetOf } from '#shared/utils/tcg/legacy'
 
@@ -29,7 +30,7 @@ interface HistoryRow {
 }
 
 const toast = useToast()
-const { data: view, refresh } = useAsyncData('battler-state', () => apiFetch<{ run: RunRow | null, eligibleCards: number | null }>('/api/battler/state'))
+const { data: view, refresh } = useAsyncData('battler-state', () => apiFetch<{ run: RunRow | null, eligibleCards: number | null, eligibleItems?: number | null }>('/api/battler/state'))
 const { data: history, refresh: refreshHistory } = useAsyncData('battler-history', () => apiFetch<HistoryRow[]>('/api/battler/history'))
 const { data: decks, refresh: refreshDecks } = useAsyncData('battler-decks', () => apiFetch<{ id: string, name: string, cards: { cardId: string, copies: number }[] }[]>('/api/battler/decks'))
 const selectedDeck = ref<string | null>(null)
@@ -47,6 +48,15 @@ const state = computed(() => run.value?.runState ?? null)
 function cardOf(cardId: string): RunPoolCard | null {
     return state.value?.pool.find(entry => entry.cardId === cardId) ?? null
 }
+
+function itemOf(cardId: string): RunItemCard | null {
+    return state.value?.itemPool.find(entry => entry.cardId === cardId) ?? null
+}
+
+const stadiumInPlay = computed(() => {
+    const stadium = state.value?.stadium
+    return stadium ? itemOf(stadium.cardId) : null
+})
 
 function renderThumb(render: RunPoolCard['render']) {
     if (render.bundle) return { bundle: render.bundle }
@@ -125,9 +135,10 @@ function pickAttack(attackId: number) {
 }
 
 // ── Drag & drop (mirrors the tap flow; taps still work on touch) ───────────
-const dragging = ref<{ type: 'offer', offerIndex: number } | { type: 'unit', key: string } | null>(null)
+const dragging = ref<{ type: 'offer', offerIndex: number } | { type: 'item', offerIndex: number } | { type: 'unit', key: string } | null>(null)
 
 function dragStart(payload: NonNullable<typeof dragging.value>, event: DragEvent) {
+    sellMode.value = false
     dragging.value = payload
     if (event.dataTransfer) {
         event.dataTransfer.effectAllowed = 'move'
@@ -139,6 +150,26 @@ function dropOn(position: number) {
     const drag = dragging.value
     dragging.value = null
     if (!drag || !run.value || !state.value) return
+    if (drag.type === 'item') {
+        const offer = state.value.itemShop[drag.offerIndex]
+        const item = offer ? itemOf(offer.cardId) : null
+        if (!offer || !item) return
+        if (run.value.cash < item.cost) {
+            toast.add({ title: 'Not enough Pokémon Dollars', color: 'error' })
+            return
+        }
+        if (item.spec.subtype === 'tool') {
+            const occupant = unitAt(position)
+            if (!occupant) {
+                toast.add({ title: `Drop ${item.name} on a fielded unit`, color: 'error' })
+                return
+            }
+            void act(() => apiFetch('/api/battler/buy-item', { method: 'POST', body: { runId: run.value!.id, offerIndex: drag.offerIndex, unitKey: occupant.key } }))
+            return
+        }
+        void act(() => apiFetch('/api/battler/buy-item', { method: 'POST', body: { runId: run.value!.id, offerIndex: drag.offerIndex } }))
+        return
+    }
     if (drag.type === 'unit') {
         if (unitAt(position)?.key !== drag.key) {
             void act(() => apiFetch('/api/battler/move', { method: 'POST', body: { runId: run.value!.id, unitKey: drag.key, position } }))
@@ -166,9 +197,58 @@ function dropOn(position: number) {
     placeAt(position)
 }
 
+// ── Items: tools target a unit, the rest resolve immediately ───────────────
+const buyingItem = ref<{ offerIndex: number, item: RunItemCard } | null>(null)
+
+function beginBuyItem(offerIndex: number) {
+    const offer = state.value?.itemShop[offerIndex]
+    if (!offer || !run.value) return
+    const item = itemOf(offer.cardId)
+    if (!item) return
+    if (buyingItem.value?.offerIndex === offerIndex) {
+        buyingItem.value = null
+        return
+    }
+    if (run.value.cash < item.cost) {
+        toast.add({ title: 'Not enough Pokémon Dollars', color: 'error' })
+        return
+    }
+    if (item.spec.subtype === 'tool') {
+        buyingItem.value = { offerIndex, item }
+        return
+    }
+    void act(() => apiFetch('/api/battler/buy-item', { method: 'POST', body: { runId: run.value!.id, offerIndex } }))
+}
+
+function attachTo(unitKey: string) {
+    if (!buyingItem.value) return
+    const { offerIndex } = buyingItem.value
+    buyingItem.value = null
+    void act(() => apiFetch('/api/battler/buy-item', { method: 'POST', body: { runId: run.value!.id, offerIndex, unitKey } }))
+}
+
+function sellAttachment(unitKey: string) {
+    void act(() => apiFetch('/api/battler/sell-item', { method: 'POST', body: { runId: run.value!.id, unitKey } }))
+}
+
+function sellStadium() {
+    void act(() => apiFetch('/api/battler/sell-item', { method: 'POST', body: { runId: run.value!.id, stadium: true } }))
+}
+
 // ── Repositioning ──────────────────────────────────────────────────────────
 const movingUnit = ref<string | null>(null)
 function slotClick(position: number) {
+    if (sellMode.value) {
+        const occupant = unitAt(position)
+        sellMode.value = false
+        if (occupant) sell(occupant.key)
+        return
+    }
+    if (buyingItem.value) {
+        const occupant = unitAt(position)
+        if (occupant) attachTo(occupant.key)
+        return
+    }
     if (buying.value) {
         if (!unitAt(position)) placeAt(position)
         return
@@ -209,6 +289,44 @@ function unitInfo(unit: RunBoardUnit) {
         needed: nextAt ? nextAt - unit.instances : 0,
         inPool: card.instancesLeft
     }
+}
+
+/** What the sell zone would pay for a unit, attachments included. */
+function sellRefundFor(unitKey: string): number {
+    const unit = state.value?.board.find(entry => entry.key === unitKey)
+    if (!unit) return 0
+    const card = cardOf(unit.cardId)
+    let refund = card ? Math.max(0, card.cost - 1) * unit.instances : 0
+    for (const attached of unit.items) {
+        const item = itemOf(attached.cardId)
+        if (item) refund += Math.max(0, item.cost - 1)
+    }
+    return refund
+}
+
+const sellZoneActive = computed(() => dragging.value?.type === 'unit' || movingUnit.value !== null)
+const sellZonePreview = computed(() => {
+    const key = dragging.value?.type === 'unit' ? dragging.value.key : movingUnit.value
+    return key ? sellRefundFor(key) : null
+})
+
+function sellZoneDrop() {
+    const drag = dragging.value
+    dragging.value = null
+    if (drag?.type === 'unit') sell(drag.key)
+}
+
+/** Plain-button mode: arm the zone, then tap the unit to sell. */
+const sellMode = ref(false)
+
+function sellZoneClick() {
+    if (movingUnit.value) {
+        const key = movingUnit.value
+        movingUnit.value = null
+        sell(key)
+        return
+    }
+    sellMode.value = !sellMode.value
 }
 
 function sell(unitKey: string) {
@@ -320,6 +438,7 @@ async function abandon() {
         </p>
         <p class="text-xs text-muted">
           <b class="tabular-nums text-highlighted">{{ view.eligibleCards ?? 0 }}</b> of your cards are battle-ready
+          <span v-if="view.eligibleItems"> · <b class="tabular-nums text-highlighted">{{ view.eligibleItems }}</b> Trainers</span>
         </p>
         <div class="flex flex-wrap items-center justify-center gap-2">
           <USelect
@@ -362,6 +481,24 @@ async function abandon() {
             />
             <span class="text-muted">₱</span><b class="tabular-nums text-highlighted">{{ run.cash }}</b>
           </span>
+          <UTooltip
+            v-if="stadiumInPlay"
+            :text="`${stadiumInPlay.name} — ${stadiumInPlay.spec.text} (both teams). Click to sell.`"
+          >
+            <UBadge
+              color="neutral"
+              variant="subtle"
+              class="cursor-pointer"
+              @click="sellStadium"
+            >🏟️ {{ stadiumInPlay.name }}</UBadge>
+          </UTooltip>
+          <UBadge
+            v-if="state.nextBattle && (state.nextBattle.atk > 0 || state.nextBattle.hp > 0)"
+            color="warning"
+            variant="subtle"
+          >
+            Next battle{{ state.nextBattle.atk ? ` +${state.nextBattle.atk} atk` : '' }}{{ state.nextBattle.hp ? ` +${state.nextBattle.hp} HP` : '' }}
+          </UBadge>
           <span class="flex items-center gap-0.5">
             <UIcon
               v-for="w in BATTLER.winsToComplete"
@@ -382,6 +519,53 @@ async function abandon() {
           </span>
         </div>
         <div class="flex items-center gap-2">
+          <!-- The sell zone: drag a unit here, or select one and tap. -->
+          <div class="relative">
+            <div
+              class="flex items-center gap-1.5 rounded-lg border-2 border-dashed px-3 py-1.5 transition"
+              :class="[
+                sellMode ? 'cursor-pointer border-error bg-error/15 text-error'
+                : sellZoneActive ? 'cursor-pointer border-error/70 bg-error/5 text-error'
+                  : 'cursor-pointer border-default text-dimmed hover:border-error/50 hover:text-error',
+                dragging?.type === 'unit' && 'invisible'
+              ]"
+              @click="sellZoneClick"
+            >
+              <UIcon
+                name="i-lucide-banknote"
+                class="size-4"
+              />
+              <span class="text-xs font-semibold uppercase tracking-wider">Sell</span>
+              <span
+                v-if="sellZonePreview !== null"
+                class="text-xs font-bold tabular-nums"
+              >+₱{{ sellZonePreview }}</span>
+              <span
+                v-else-if="sellMode"
+                class="text-[10px]"
+              >tap a unit</span>
+            </div>
+            <!-- While a unit drags, the target expands to card size so the
+                 ghost visibly sits inside the selling frame. -->
+            <div
+              v-if="dragging?.type === 'unit'"
+              class="absolute -top-2 right-0 z-30 flex aspect-[0.718] w-40 flex-col items-center justify-center gap-1.5 rounded-xl border-4 border-dashed border-error/70 bg-error/5 text-error shadow-lg transition [&.drag-over]:scale-105 [&.drag-over]:border-solid [&.drag-over]:border-error [&.drag-over]:bg-error/20"
+              @dragover.prevent
+              @dragenter="($event.currentTarget as HTMLElement).classList.add('drag-over')"
+              @dragleave="($event.currentTarget as HTMLElement).classList.remove('drag-over')"
+              @drop.prevent="($event.currentTarget as HTMLElement).classList.remove('drag-over'); sellZoneDrop()"
+            >
+              <UIcon
+                name="i-lucide-banknote"
+                class="size-8"
+              />
+              <span class="text-sm font-bold uppercase tracking-widest">Sell</span>
+              <span
+                v-if="sellZonePreview !== null"
+                class="text-base font-black tabular-nums"
+              >+₱{{ sellZonePreview }}</span>
+            </div>
+          </div>
           <UButton
             color="neutral"
             variant="ghost"
@@ -409,8 +593,8 @@ async function abandon() {
             variant="subtle"
             size="xs"
             icon="i-lucide-dices"
-            :label="`Reroll ₱${BATTLER.rerollCost}`"
-            :disabled="run.cash < BATTLER.rerollCost || busy"
+            :label="state.freeRerolls > 0 ? `Reroll free (${state.freeRerolls})` : `Reroll ₱${BATTLER.rerollCost}`"
+            :disabled="(state.freeRerolls === 0 && run.cash < BATTLER.rerollCost) || busy"
             @click="act(() => apiFetch('/api/battler/reroll', { method: 'POST', body: { runId: run!.id } }))"
           />
         </div>
@@ -488,6 +672,59 @@ async function abandon() {
         >
           Tap an empty slot to field {{ buying.card.name }} — or tap the offer again to cancel.
         </p>
+        <template v-if="state.itemShop.length > 0">
+          <h2 class="mb-2 mt-4 text-sm font-semibold uppercase tracking-wider text-muted">Trainers</h2>
+          <div class="flex flex-wrap gap-3">
+            <div
+              v-for="(offer, index) in state.itemShop"
+              :key="`${index}-${offer.cardId}`"
+              class="w-32"
+            >
+              <div
+                class="relative cursor-grab rounded-lg p-1.5 transition [&_img]:pointer-events-none"
+                :class="buyingItem?.offerIndex === index ? 'ring-2 ring-primary' : 'bg-elevated hover:ring-1 hover:ring-primary'"
+                draggable="true"
+                @dragstart="dragStart({ type: 'item', offerIndex: index }, $event)"
+                @dragend="dragging = null"
+                @click="beginBuyItem(index)"
+              >
+                <template v-if="itemOf(offer.cardId) && renderThumb(itemOf(offer.cardId)!.render)">
+                  <TcgCardThumb v-bind="renderThumb(itemOf(offer.cardId)!.render)!" />
+                </template>
+                <div
+                  v-else
+                  class="flex aspect-[0.718] w-full items-center justify-center rounded bg-default text-[10px] text-muted"
+                >
+                  {{ itemOf(offer.cardId)?.name }}
+                </div>
+                <UBadge
+                  color="warning"
+                  variant="solid"
+                  size="sm"
+                  class="absolute -left-1.5 -top-1.5 font-mono"
+                >
+                  ₱{{ itemOf(offer.cardId)?.cost }}
+                </UBadge>
+                <UBadge
+                  color="neutral"
+                  size="sm"
+                  class="absolute -right-1.5 -top-1.5"
+                >
+                  {{ ITEM_GLYPH[itemOf(offer.cardId)?.spec.subtype ?? 'tool'] }}
+                </UBadge>
+              </div>
+              <p class="mt-1 truncate px-0.5 text-[10px] text-muted">
+                {{ itemOf(offer.cardId)?.spec.text }}
+              </p>
+            </div>
+          </div>
+          <p
+            v-if="buyingItem"
+            class="mt-2 text-xs text-primary"
+          >
+            Tap a fielded unit to attach {{ buyingItem.item.name }} — or tap the offer again to cancel.
+          </p>
+        </template>
       </section>
 
       <!-- The board: active + bench. -->
@@ -508,6 +745,7 @@ async function abandon() {
               class="relative cursor-pointer rounded-lg transition"
               :class="[
                 movingUnit === unitAt(position - 1)?.key && 'ring-2 ring-primary',
+                dragging?.type === 'item' && unitAt(position - 1) && 'ring-2 ring-primary/60',
                 position - 1 === 0 && 'ring-1 ring-warning/40'
               ]"
               @click="slotClick(position - 1)"
@@ -586,15 +824,17 @@ async function abandon() {
                   >
                     ×{{ unitAt(position - 1)!.instances }}
                   </UBadge>
-                  <UTooltip text="Sell — refund cost − 1 per instance and release the cards">
+                  <UTooltip
+                    v-if="unitAt(position - 1)!.items.length > 0"
+                    :text="`${unitAt(position - 1)!.items[0]!.name} — ${itemOf(unitAt(position - 1)!.items[0]!.cardId)?.spec.text ?? ''}. Click to sell.`"
+                  >
                     <UButton
-                      color="error"
+                      color="neutral"
                       variant="soft"
                       size="xs"
-                      icon="i-lucide-banknote"
-                      class="absolute bottom-1 right-1"
-                      @click.stop="sell(unitAt(position - 1)!.key)"
-                    />
+                      class="absolute bottom-1 left-1"
+                      @click.stop="sellAttachment(unitAt(position - 1)!.key)"
+                    >🔧</UButton>
                   </UTooltip>
                 </div>
                 </UPopover>
@@ -630,6 +870,15 @@ async function abandon() {
             size="sm"
           >
             {{ card.name }} <span class="ml-1 tabular-nums text-dimmed">×{{ card.instancesLeft }}</span>
+          </UBadge>
+          <UBadge
+            v-for="item in state.itemPool"
+            :key="item.cardId"
+            color="neutral"
+            variant="outline"
+            size="sm"
+          >
+            {{ ITEM_GLYPH[item.spec.subtype] }} {{ item.name }} <span class="ml-1 tabular-nums text-dimmed">×{{ item.instancesLeft }}</span>
           </UBadge>
         </div>
       </section>
@@ -684,6 +933,7 @@ async function abandon() {
             :opponent-board="fightResult.opponent.board"
             :seed="fightResult.seed"
             :result="fightResult.result"
+            :stadium="fightResult.stadium"
             @done="fightDone"
           />
         </div>
