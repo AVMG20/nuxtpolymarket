@@ -4,6 +4,8 @@ import type { GalleryPayload, GalleryPrinting, GallerySet } from '#shared/types/
 import type { LightboxCard } from '~/components/tcg/TcgCardLightbox.client.vue'
 import { legacySetOf } from '#shared/utils/tcg/legacy'
 
+import type { BattlerTrophyBoard } from '~~/server/utils/battler/profile'
+
 /* A public player profile (§10.5): who they are, what they've collected, and
  * the binders and shelves they've put together. In a seven-player game there
  * is no privacy tier — every logged-in player can browse every collection.
@@ -11,11 +13,21 @@ import { legacySetOf } from '#shared/utils/tcg/legacy'
 const route = useRoute()
 const playerId = route.params.id as string
 
-const [{ data: player }, { data: gallery }, { data: displays }] = await Promise.all([
+interface BattlerProfile {
+  record: { runsWon: number, runsLost: number, battlesWon: number, battlesLost: number, best: { wins: number, losses: number } | null }
+  boards: BattlerTrophyBoard[]
+}
+
+const [{ data: player }, { data: gallery }, { data: displays }, { data: battler }] = await Promise.all([
   useAsyncData(`player-${playerId}`, () => apiFetch<{ id: string, name: string, emblem: string | null }>(`/api/players/${playerId}`)),
   useAsyncData(`player-gallery-${playerId}`, () => apiFetch<GalleryPayload>('/api/tcg/collection/gallery', { query: { userId: playerId } })),
-  useAsyncData(`player-displays-${playerId}`, () => apiFetch<DisplaySummary[]>('/api/tcg/displays', { query: { userId: playerId } }))
+  useAsyncData(`player-displays-${playerId}`, () => apiFetch<DisplaySummary[]>('/api/tcg/displays', { query: { userId: playerId } })),
+  useAsyncData(`player-battler-${playerId}`, () => apiFetch<BattlerProfile>('/api/battler/profile', { query: { userId: playerId } }))
 ])
+
+function boardDate(board: BattlerTrophyBoard): string {
+  return board.finishedAt ? new Date(board.finishedAt).toLocaleDateString() : ''
+}
 
 const totals = computed(() => {
   const sets = gallery.value ?? []
@@ -115,6 +127,45 @@ function thumbProps(printing: { bundle: string | null, plaatjesCardId: string, a
           >
             {{ printing.topGrade!.service }} {{ printing.topGrade!.grade }}
           </UBadge>
+        </div>
+      </div>
+    </section>
+
+    <section v-if="battler && (battler.record.runsWon > 0 || battler.record.runsLost > 0)">
+      <h2 class="mb-2 text-sm font-semibold uppercase tracking-wider text-muted">Battler</h2>
+      <div class="mb-3 flex flex-wrap items-center gap-2 text-sm">
+        <UBadge
+          color="success"
+          variant="subtle"
+        >{{ battler.record.runsWon }} {{ battler.record.runsWon === 1 ? 'run' : 'runs' }} won</UBadge>
+        <UBadge
+          color="error"
+          variant="subtle"
+        >{{ battler.record.runsLost }} lost</UBadge>
+        <span class="text-muted">
+          {{ battler.record.battlesWon }}–{{ battler.record.battlesLost }} in battles
+          <template v-if="battler.record.best"> · best {{ battler.record.best.wins }}–{{ battler.record.best.losses }}</template>
+        </span>
+      </div>
+      <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <div
+          v-for="board in battler.boards"
+          :key="board.runId"
+          class="rounded-lg bg-elevated/60 p-3"
+        >
+          <p class="mb-2 flex items-center justify-between text-xs">
+            <span
+              class="font-semibold"
+              :class="board.state === 'won' ? 'text-success' : 'text-error'"
+            >
+              {{ board.state === 'won' ? '🏆' : '' }} {{ board.wins }}–{{ board.losses }}{{ board.deckName ? ` · ${board.deckName}` : '' }}
+            </span>
+            <span class="text-dimmed">{{ boardDate(board) }}</span>
+          </p>
+          <TcgBattlerBoardStrip
+            :units="board.units"
+            :stadium="board.stadium"
+          />
         </div>
       </div>
     </section>
