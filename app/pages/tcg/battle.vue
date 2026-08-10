@@ -176,6 +176,7 @@ function dropOn(position: number) {
         }
         return
     }
+    if (drag.type !== 'offer') return
     const offer = state.value.shop[drag.offerIndex]
     const card = offer ? cardOf(offer.cardId) : null
     if (!offer || !card) return

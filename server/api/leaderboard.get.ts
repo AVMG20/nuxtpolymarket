@@ -1,7 +1,7 @@
 import { count, countDistinct, eq, inArray, sql } from 'drizzle-orm'
 import { db } from '#server/database'
 import { getSessionUserId } from '#server/utils/auth'
-import { user, minerState, bankState, colonyState, colonyBugResearch, xenoPlantsUnlocked, xenoGridSlots, xenoBreederSlots, aiMessages, hackAgents, hackItems, gemOrders } from '#server/database/schema'
+import { user, minerState, bankState, colonyState, colonyBugResearch, xenoPlantsUnlocked, xenoGridSlots, xenoBreederSlots, aiMessages, hackAgents, hackItems, gemOrders, tcgBattlerRun } from '#server/database/schema'
 import { getGemGuidePrice } from '#server/utils/gem-exchange'
 import { overclockMultiplier, catalystMultiplier } from '#shared/utils/miner-config'
 import { bailoutRemaining, debtFloor, growBankBalance, isBailoutActive } from '#shared/utils/gamelogic/bank'
@@ -11,7 +11,7 @@ import { equippedAgentPower, type EquippableItemRow } from '#server/utils/hack'
 export default defineEventHandler(async (event) => {
   const sessionUserId = await getSessionUserId(event)
   const xenoSpeciesIds = [...new Set(PLANT_TYPES.map(plant => plant.id))]
-  const [users, gemGuidePrice, gemEscrowRows, hackAgentRows, hackItemRows, colonyHabitatRows, researchTotals, xenoSpeciesCounts, xenoGridCounts, xenoBreederCounts, aiPromptCounts] = await Promise.all([
+  const [users, gemGuidePrice, gemEscrowRows, hackAgentRows, hackItemRows, colonyHabitatRows, researchTotals, xenoSpeciesCounts, xenoGridCounts, xenoBreederCounts, aiPromptCounts, battlerTotals] = await Promise.all([
     db
       .select({
         id: user.id,
@@ -80,6 +80,15 @@ export default defineEventHandler(async (event) => {
       .from(aiMessages)
       .where(eq(aiMessages.role, 'user'))
       .groupBy(aiMessages.userId),
+    db
+      .select({
+        userId: tcgBattlerRun.userId,
+        runsWon: sql<number>`count(*) filter (where ${tcgBattlerRun.state} = 'won')`.mapWith(Number),
+        battlesWon: sql<number>`coalesce(sum(${tcgBattlerRun.wins}), 0)`.mapWith(Number),
+        battlesLost: sql<number>`coalesce(sum(${tcgBattlerRun.losses}), 0)`.mapWith(Number)
+      })
+      .from(tcgBattlerRun)
+      .groupBy(tcgBattlerRun.userId),
   ])
 
   const gemEscrowByUser = new Map(gemEscrowRows.map(row => [row.userId, row]))
@@ -102,6 +111,7 @@ export default defineEventHandler(async (event) => {
   const xenoGridByUser = new Map(xenoGridCounts.map(row => [row.userId, row.n]))
   const xenoBreederByUser = new Map(xenoBreederCounts.map(row => [row.userId, row.n]))
   const aiPromptsByUser = new Map(aiPromptCounts.map(row => [row.userId, row.n]))
+  const battlerByUser = new Map(battlerTotals.map(row => [row.userId, row]))
 
   return users
     .map(u => {
@@ -132,6 +142,7 @@ export default defineEventHandler(async (event) => {
       const xenoGridSlotsUnlocked = xenoGridByUser.get(u.id) ?? 0
       const xenoBreederSlotsUnlocked = xenoBreederByUser.get(u.id) ?? 0
       const aiPromptsUsed = aiPromptsByUser.get(u.id) ?? 0
+      const battler = battlerByUser.get(u.id)
       const totalUpgrades = totalLevels
         + (u.overclockLevel ?? 0)
         + (u.catalystLevel ?? 0)
@@ -166,6 +177,9 @@ export default defineEventHandler(async (event) => {
         xenoGridSlotsUnlocked,
         xenoBreederSlotsUnlocked,
         aiPromptsUsed,
+        battlerRunsWon: battler?.runsWon ?? 0,
+        battlerBattlesWon: battler?.battlesWon ?? 0,
+        battlerBattlesLost: battler?.battlesLost ?? 0,
         totalLevels,
         totalUpgrades,
         totalWealth,
