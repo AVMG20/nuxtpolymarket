@@ -231,6 +231,21 @@ function sellAttachment(unitKey: string) {
     void act(() => apiFetch('/api/battler/sell-item', { method: 'POST', body: { runId: run.value!.id, unitKey } }))
 }
 
+/** The stadium slot accepts stadium Trainers dragged from the shop. */
+function stadiumSlotDrop() {
+    const drag = dragging.value
+    if (drag?.type !== 'item' || !state.value || !run.value) return
+    dragging.value = null
+    const offer = state.value.itemShop[drag.offerIndex]
+    const item = offer ? itemOf(offer.cardId) : null
+    if (!item || item.spec.subtype !== 'stadium') return
+    if (run.value.cash < item.cost) {
+        toast.add({ title: 'Not enough Pokémon Dollars', color: 'error' })
+        return
+    }
+    void act(() => apiFetch('/api/battler/buy-item', { method: 'POST', body: { runId: run.value!.id, offerIndex: drag.offerIndex } }))
+}
+
 function sellStadium() {
     void act(() => apiFetch('/api/battler/sell-item', { method: 'POST', body: { runId: run.value!.id, stadium: true } }))
 }
@@ -486,19 +501,6 @@ async function abandon() {
             />
             <span class="text-muted">₱</span><b class="tabular-nums text-highlighted">{{ run.cash }}</b>
           </span>
-          <UTooltip
-            v-if="stadiumInPlay"
-            :text="`${stadiumInPlay.name} — ${stadiumInPlay.spec.text} (both teams). Drag to the sell zone to remove.`"
-          >
-            <UBadge
-              color="neutral"
-              variant="subtle"
-              class="cursor-grab"
-              draggable="true"
-              @dragstart="dragStart({ type: 'stadium' }, $event)"
-              @dragend="dragging = null"
-            >🏟️ {{ stadiumInPlay.name }}</UBadge>
-          </UTooltip>
           <UBadge
             v-if="state.nextBattle && (state.nextBattle.atk > 0 || state.nextBattle.hp > 0)"
             color="warning"
@@ -740,7 +742,50 @@ async function abandon() {
           <h2 class="text-sm font-semibold uppercase tracking-wider text-muted">Board</h2>
           <span class="text-xs text-muted">moves left: <b class="tabular-nums text-highlighted">{{ state.repositionLeft }}</b></span>
         </div>
-        <div class="grid grid-cols-3 gap-3 sm:grid-cols-6">
+        <div class="grid grid-cols-3 gap-3 sm:grid-cols-7">
+          <!-- The stadium in play, as a card of its own. -->
+          <div>
+            <p class="mb-1 text-center text-[10px] uppercase tracking-wider text-dimmed">Stadium</p>
+            <UTooltip
+              v-if="stadiumInPlay"
+              :text="`${stadiumInPlay.name} — ${stadiumInPlay.spec.text} (both teams). Drag to the sell zone to remove.`"
+            >
+              <div
+                class="relative w-full cursor-grab rounded-lg ring-1 ring-info/60 [&_img]:pointer-events-none"
+                draggable="true"
+                @dragstart="dragStart({ type: 'stadium' }, $event)"
+                @dragend="dragging = null"
+              >
+                <template v-if="renderThumb(stadiumInPlay.render)">
+                  <TcgCardThumb v-bind="renderThumb(stadiumInPlay.render)!" />
+                </template>
+                <div
+                  v-else
+                  class="flex aspect-[0.718] w-full items-center justify-center rounded bg-elevated text-[10px] text-muted"
+                >
+                  {{ stadiumInPlay.name }}
+                </div>
+                <UBadge
+                  color="info"
+                  size="sm"
+                  class="absolute -left-1.5 -top-1.5 z-10"
+                >🏟️</UBadge>
+                <p class="mt-1 truncate rounded bg-info/10 px-1 py-0.5 text-center text-[10px] text-info">
+                  {{ stadiumInPlay.spec.text }}
+                </p>
+              </div>
+            </UTooltip>
+            <div
+              v-else
+              class="flex aspect-[0.718] w-full flex-col items-center justify-center gap-1 rounded-lg border-2 border-dashed border-default text-dimmed"
+              :class="dragging?.type === 'item' && 'border-info/70 text-info'"
+              @dragover.prevent
+              @drop.prevent="stadiumSlotDrop"
+            >
+              <span class="text-lg">🏟️</span>
+              <span class="px-1 text-center text-[9px] uppercase tracking-wider">No stadium</span>
+            </div>
+          </div>
           <div
             v-for="position in BATTLER.boardSlots"
             :key="position - 1"
