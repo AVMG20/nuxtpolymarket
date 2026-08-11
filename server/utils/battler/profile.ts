@@ -1,6 +1,6 @@
 import { and, desc, eq, inArray, ne } from 'drizzle-orm'
 import { db } from '#server/database'
-import { tcgBattlerRun, tcgBattlerSnapshot } from '#server/database/schema'
+import { tcgBattlerRun, tcgBattlerSnapshot, tcgBattlerRating } from '#server/database/schema'
 import type { BattleUnit } from '#shared/utils/battler/combat'
 import type { BattlerStadiumEffect } from '#shared/utils/battler/items'
 import type { RunRender } from './run'
@@ -39,9 +39,12 @@ export async function battlerPublicProfile(userId: string) {
         .where(and(eq(tcgBattlerRun.userId, userId), ne(tcgBattlerRun.state, 'active')))
         .orderBy(desc(tcgBattlerRun.createdAt))
 
+    const [ratingRow] = await db.select().from(tcgBattlerRating).where(eq(tcgBattlerRating.userId, userId))
     const completed = runs.filter(run => run.state === 'won' || run.state === 'lost')
     const best = [...completed].sort((a, b) => b.wins - a.wins || a.losses - b.losses)[0] ?? null
     const record = {
+        rating: ratingRow?.rating ?? null,
+        ratedFights: ratingRow?.fights ?? 0,
         runsWon: completed.filter(run => run.state === 'won').length,
         runsLost: completed.filter(run => run.state === 'lost').length,
         battlesWon: runs.reduce((sum, run) => sum + run.wins, 0),

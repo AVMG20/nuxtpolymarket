@@ -1334,6 +1334,17 @@ export const tcgBattlerRun = pgTable('tcg_battler_runs', {
   uniqueIndex('tcg_battler_runs_active_unique').on(t.userId).where(sql`state = 'active'`)
 ])
 
+/**
+ * One Elo rating per player (§12.11 groundwork). Fights against real
+ * snapshots move both sides; rows are created lazily on first rated fight.
+ */
+export const tcgBattlerRating = pgTable('tcg_battler_ratings', {
+  userId: text('user_id').primaryKey().references(() => user.id, { onDelete: 'cascade' }),
+  rating: integer('rating').notNull().default(1000),
+  fights: integer('fights').notNull().default(0),
+  updatedAt: timestamp('updated_at').notNull().defaultNow()
+})
+
 export const tcgBattlerEscrow = pgTable('tcg_battler_escrow', {
   id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
   runId: text('run_id').notNull().references(() => tcgBattlerRun.id, { onDelete: 'cascade' }),

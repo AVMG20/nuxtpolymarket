@@ -57,6 +57,13 @@
       "when": 1786272312982,
       "tag": "0007_battler_decks",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1786478332976,
+      "tag": "0008_battler_ratings",
+      "breakpoints": true
     }
   ]
 }

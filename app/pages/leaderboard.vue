@@ -25,6 +25,7 @@ interface LeaderboardUser {
   xenoBreederSlotsUnlocked: number
   aiPromptsUsed: number
   battlerRunsWon: number
+  battlerRating: number | null
   battlerBattlesWon: number
   battlerBattlesLost: number
   totalLevels: number
@@ -147,9 +148,9 @@ function openDetails(user: LeaderboardUser) {
                   <UTooltip text="Xeno grid tiles"><span class="inline-flex items-center gap-1 text-success"><UIcon name="i-lucide-grid-2x2" class="size-3.5" />{{ u.xenoGridSlotsUnlocked }}</span></UTooltip>
                   <UTooltip text="Xeno breeder slots"><span class="inline-flex items-center gap-1 text-success"><UIcon name="i-lucide-dna" class="size-3.5" />{{ u.xenoBreederSlotsUnlocked }}</span></UTooltip>
                   <UTooltip text="AI prompts used"><span class="inline-flex items-center gap-1 text-info"><UIcon name="i-lucide-bot" class="size-3.5" />{{ formatNumber(u.aiPromptsUsed, false) }}</span></UTooltip>
-                  <UTooltip :text="`Battler — ${u.battlerRunsWon} runs won, ${u.battlerBattlesWon}–${u.battlerBattlesLost} in battles`">
+                  <UTooltip :text="`Battler — ${u.battlerRating == null ? 'unrated' : `${u.battlerRating} Elo`}, ${u.battlerRunsWon} runs won, ${u.battlerBattlesWon}–${u.battlerBattlesLost} in battles`">
                     <NuxtLink :to="`/players/${u.id}`" class="inline-flex items-center gap-1 text-secondary hover:underline" @click.stop>
-                      <UIcon name="i-lucide-swords" class="size-3.5" />{{ u.battlerRunsWon }}
+                      <UIcon name="i-lucide-swords" class="size-3.5" />{{ u.battlerRating ?? '—' }}
                     </NuxtLink>
                   </UTooltip>
                 </div>
