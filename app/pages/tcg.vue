@@ -11,7 +11,8 @@ const tabs = [
   { label: 'Market', to: '/tcg/market', icon: 'i-lucide-shopping-cart' },
   { label: 'Trades', to: '/tcg/trades', icon: 'i-lucide-handshake' },
   { label: 'Grading', to: '/tcg/grading', icon: 'i-lucide-medal' },
-  { label: 'Pop report', to: '/tcg/pops', icon: 'i-lucide-chart-column' }
+  { label: 'Pop report', to: '/tcg/pops', icon: 'i-lucide-chart-column' },
+  { label: 'Rarities', to: '/tcg/rarities', icon: 'i-lucide-sparkles' }
 ]
 
 // The Shop tab is the /tcg root, so it needs an exact match; every other tab

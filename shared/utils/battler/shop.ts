@@ -2,6 +2,8 @@
  * Battler tuning (§12.2, §12.4). Every number here is a starting value the
  * design doc explicitly expects to move once real players lean on it.
  */
+import { rarityInfo } from '../tcg/rarity'
+
 
 export const BATTLER = {
     /** Board: slot 0 is the active shield, 1–5 the bench artillery (§12.5). */
@@ -37,23 +39,31 @@ export const BATTLER = {
 } as const
 
 /**
- * ₱ cost by tier (§12.4 defaults). The primary vocabulary is thepricedex
- * pull-rate tier the import stores in raw.pullRate.tier — normalized labels
- * that even the legacy sets carry. The regex fallback catches cards whose
- * pull-rate row never arrived and prices unknowns as a plain Rare.
+ * ₱ cost by CANONICAL rarity label (§12.4 defaults). Labels resolve through
+ * the §5.2 rarity registry — thepricedex tiers, sidecar codes and "Reverse "
+ * prefixes all land on one canonical name. The regex fallback below catches
+ * vocabulary the registry has never seen and prices it as a plain Rare.
  */
 const TIER_COST: Record<string, number> = {
+    'Basic Energy': 4,
     'Common': 3,
     'Uncommon': 3,
     'Rare': 4,
     'Rare Holo': 4,
+    'Character Rare': 6,
+    'Character Rare V': 8,
+    'Character Super Rare': 8,
+    'Rare Holo V': 6,
+    'Rare Holo VMAX': 6,
     'Double Rare': 6,
     'Ultra Rare': 8,
     'Illustration Rare': 8,
     'Special Illustration Rare': 8,
     'Shining Rare': 8,
     'Secret Rare': 8,
+    'Rainbow Rare': 10,
     'Hyper Rare': 10,
+    'Black White Rare': 10,
     'Mega Hyper Rare': 10,
     'Mega Attack Rare': 10,
     'ACE SPEC Rare': 5
@@ -80,16 +90,15 @@ export function damagePerChargeFor(tierOrRarity: string | null): number {
 
 export function unitCostFor(tierOrRarity: string | null): number {
     if (!tierOrRarity) return 4
-    // "Reverse Common" and friends price as their base tier.
-    const label = tierOrRarity.replace(/^Reverse /, '')
-    const exact = TIER_COST[label]
-    if (exact !== undefined) return exact
-    const lowered = label.toLowerCase()
-    if (/hyper|mega|gold|rainbow|^bwr$/.test(lowered)) return 10
-    if (/ultra|illustration|special|full ?art|shining|secret|^chv$|^csr$/.test(lowered)) return 8
-    if (/double|^2r$|^rr$|^chr$|holo v|vmax|vstar/.test(lowered)) return 6
-    if (/rare|^r$/.test(lowered)) return 4
-    if (/common|uncommon|^c$|^u$/.test(lowered)) return 3
+    const info = rarityInfo(tierOrRarity)
+    if (info) return TIER_COST[info.label] ?? 4
+    // Unknown vocabulary: guess a band from the words, else plain Rare.
+    const lowered = tierOrRarity.replace(/^Reverse /, '').toLowerCase()
+    if (/hyper|mega|gold|rainbow/.test(lowered)) return 10
+    if (/ultra|illustration|special|full ?art|shining|secret/.test(lowered)) return 8
+    if (/double|holo v|vmax|vstar/.test(lowered)) return 6
+    if (/rare/.test(lowered)) return 4
+    if (/common|uncommon/.test(lowered)) return 3
     return 4
 }
 
