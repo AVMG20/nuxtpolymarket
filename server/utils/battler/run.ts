@@ -1,8 +1,9 @@
 import { and, asc, desc, eq, inArray, ne, sql } from 'drizzle-orm'
 import { randomBytes } from 'node:crypto'
 import { db } from '#server/database'
-import { tcgBattlerRun, tcgBattlerEscrow, tcgBattlerSnapshot, tcgCopy, tcgCard, tcgPrinting, tcgSet } from '#server/database/schema'
+import { tcgBattlerRun, tcgBattlerEscrow, tcgBattlerSnapshot, tcgBattlerRating, tcgCopy, tcgCard, tcgPrinting, tcgSet } from '#server/database/schema'
 import { deriveKey } from '#server/utils/tcg/feistel'
+import { eloDelta } from '#shared/utils/battler/elo'
 import { lockCopyForUpdate, assertUnencumbered } from '#server/utils/tcg/market'
 import { getDeck } from '#server/utils/battler/deck'
 import { createBattlerRandom } from '#shared/utils/battler/rng'
@@ -718,6 +719,32 @@ async function opponentCatalog(): Promise<{ spec: BattlerUnitSpec, render: RunRe
     return catalog
 }
 
+/**
+ * Move both ratings for a fight against a real snapshot. Rows are locked in
+ * user-id order so two concurrent fights over the same players cannot
+ * deadlock; the deltas are negations, so the rating pool is conserved.
+ */
+async function applyElo(tx: Tx, attackerId: string, defenderId: string, result: 'win' | 'loss' | 'draw') {
+    await tx.insert(tcgBattlerRating)
+        .values([{ userId: attackerId }, { userId: defenderId }])
+        .onConflictDoNothing()
+    const rows = await tx.select().from(tcgBattlerRating)
+        .where(inArray(tcgBattlerRating.userId, [attackerId, defenderId]))
+        .orderBy(asc(tcgBattlerRating.userId))
+        .for('update')
+    const mine = rows.find(row => row.userId === attackerId)!
+    const theirs = rows.find(row => row.userId === defenderId)!
+    const score = result === 'win' ? 1 : result === 'draw' ? 0.5 : 0
+    const delta = eloDelta(mine.rating, theirs.rating, score)
+    await tx.update(tcgBattlerRating)
+        .set({ rating: mine.rating + delta, fights: mine.fights + 1, updatedAt: sql`now()` })
+        .where(eq(tcgBattlerRating.userId, attackerId))
+    await tx.update(tcgBattlerRating)
+        .set({ rating: theirs.rating - delta, fights: theirs.fights + 1, updatedAt: sql`now()` })
+        .where(eq(tcgBattlerRating.userId, defenderId))
+    return { rating: mine.rating + delta, delta }
+}
+
 export interface FightResult {
     result: 'win' | 'loss' | 'draw'
     seed: number
@@ -725,6 +752,8 @@ export interface FightResult {
     opponent: SerializedOpponent
     /** The stadium that governed the battle — the defender's holds (§12.6). */
     stadium: { name: string, effect: BattlerStadiumEffect, source: 'mine' | 'theirs' } | null
+    /** Rating movement — null for wild-trainer fights (never rated). */
+    elo: { rating: number, delta: number } | null
     replay: BattleReplay
     run: { state: string, round: number, wins: number, losses: number, cash: number }
 }
@@ -746,8 +775,10 @@ export async function fight(userId: string, runId: string): Promise<FightResult>
         .where(and(eq(tcgBattlerSnapshot.round, run.round), ne(tcgBattlerSnapshot.userId, userId)))
         .limit(50)
     let opponent: SerializedOpponent
+    let defenderId: string | null = null
     if (snapshots.length > 0) {
         const chosen = rng.pick(snapshots)
+        defenderId = chosen.userId
         const [owner] = await db.select({ name: sql<string>`(select name from "user" where id = ${chosen.userId})` })
             .from(tcgBattlerSnapshot).where(eq(tcgBattlerSnapshot.id, chosen.id))
         // Snapshots from before items were a bare board array.
@@ -787,6 +818,7 @@ export async function fight(userId: string, runId: string): Promise<FightResult>
             : myStadium ? { ...myStadium, source: 'mine' as const } : null
         const replay = simulateBattle(myBoard, opponent.board, seed, governing?.effect ?? null)
         const result: 'win' | 'loss' | 'draw' = replay.result === 'a' ? 'win' : replay.result === 'b' ? 'loss' : 'draw'
+        const elo = defenderId ? await applyElo(tx, userId, defenderId, result) : null
 
         const wins = locked.wins + (result === 'win' ? 1 : 0)
         const losses = locked.losses + (result === 'loss' ? 1 : 0)
@@ -831,6 +863,7 @@ export async function fight(userId: string, runId: string): Promise<FightResult>
             myBoard,
             opponent,
             stadium: governing,
+            elo,
             replay,
             run: {
                 state: finished ? (wins >= BATTLER.winsToComplete ? 'won' : 'lost') : 'active',
@@ -848,14 +881,17 @@ export async function fight(userId: string, runId: string): Promise<FightResult>
 export async function runView(userId: string) {
     const [run] = await db.select().from(tcgBattlerRun)
         .where(and(eq(tcgBattlerRun.userId, userId), eq(tcgBattlerRun.state, 'active')))
+    const [ratingRow] = await db.select().from(tcgBattlerRating).where(eq(tcgBattlerRating.userId, userId))
+    const rating = ratingRow ? { rating: ratingRow.rating, fights: ratingRow.fights } : null
     if (!run) {
         return {
             run: null,
+            rating,
             eligibleCards: await eligibleCount(userId),
             eligibleItems: (await eligibleItemHoldings(userId)).length
         }
     }
     // The secret must never leave the server (a known seed scouts the shop).
     const { secret: _secret, ...safe } = run
-    return { run: { ...safe, runState: stateOf(run) }, eligibleCards: null }
+    return { run: { ...safe, runState: stateOf(run) }, rating, eligibleCards: null }
 }

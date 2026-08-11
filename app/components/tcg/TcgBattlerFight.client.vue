@@ -25,6 +25,7 @@ const props = defineProps<{
     seed: number
     result: 'win' | 'loss' | 'draw'
     stadium?: { name: string, effect: BattlerStadiumEffect, source: 'mine' | 'theirs' } | null
+    elo?: { rating: number, delta: number } | null
 }>()
 const emit = defineEmits<{ done: [] }>()
 
@@ -558,10 +559,17 @@ onUnmounted(() => {
             class="flex items-center justify-between rounded-lg bg-elevated px-4 py-3"
         >
             <p
-                class="text-sm font-semibold"
+                class="flex items-center gap-2 text-sm font-semibold"
                 :class="result === 'win' ? 'text-success' : result === 'loss' ? 'text-error' : 'text-muted'"
             >
                 {{ result === 'win' ? 'Victory!' : result === 'loss' ? 'Defeat' : 'Draw' }}
+                <span
+                    v-if="elo"
+                    class="tabular-nums"
+                    :class="elo.delta >= 0 ? 'text-success' : 'text-error'"
+                >
+                    ⚔ {{ elo.rating }} ({{ elo.delta >= 0 ? '+' : '' }}{{ elo.delta }})
+                </span>
             </p>
             <UButton
                 label="Continue"

@@ -14,7 +14,7 @@ const route = useRoute()
 const playerId = route.params.id as string
 
 interface BattlerProfile {
-  record: { runsWon: number, runsLost: number, battlesWon: number, battlesLost: number, best: { wins: number, losses: number } | null }
+  record: { rating: number | null, ratedFights: number, runsWon: number, runsLost: number, battlesWon: number, battlesLost: number, best: { wins: number, losses: number } | null }
   boards: BattlerTrophyBoard[]
 }
 
@@ -134,6 +134,16 @@ function thumbProps(printing: { bundle: string | null, plaatjesCardId: string, a
     <section v-if="battler && (battler.record.runsWon > 0 || battler.record.runsLost > 0)">
       <h2 class="mb-2 text-sm font-semibold uppercase tracking-wider text-muted">Battler</h2>
       <div class="mb-3 flex flex-wrap items-center gap-2 text-sm">
+        <UTooltip
+          v-if="battler.record.rating != null"
+          :text="`Elo over ${battler.record.ratedFights} rated ${battler.record.ratedFights === 1 ? 'fight' : 'fights'}`"
+        >
+          <UBadge
+            color="secondary"
+            variant="subtle"
+            class="tabular-nums"
+          >⚔ {{ battler.record.rating }}</UBadge>
+        </UTooltip>
         <UBadge
           color="success"
           variant="subtle"

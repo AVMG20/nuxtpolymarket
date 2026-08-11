@@ -1,7 +1,7 @@
 import { count, countDistinct, eq, inArray, sql } from 'drizzle-orm'
 import { db } from '#server/database'
 import { getSessionUserId } from '#server/utils/auth'
-import { user, minerState, bankState, colonyState, colonyBugResearch, xenoPlantsUnlocked, xenoGridSlots, xenoBreederSlots, aiMessages, hackAgents, hackItems, gemOrders, tcgBattlerRun } from '#server/database/schema'
+import { user, minerState, bankState, colonyState, colonyBugResearch, xenoPlantsUnlocked, xenoGridSlots, xenoBreederSlots, aiMessages, hackAgents, hackItems, gemOrders, tcgBattlerRun, tcgBattlerRating } from '#server/database/schema'
 import { getGemGuidePrice } from '#server/utils/gem-exchange'
 import { overclockMultiplier, catalystMultiplier } from '#shared/utils/miner-config'
 import { bailoutRemaining, debtFloor, growBankBalance, isBailoutActive } from '#shared/utils/gamelogic/bank'
@@ -11,7 +11,7 @@ import { equippedAgentPower, type EquippableItemRow } from '#server/utils/hack'
 export default defineEventHandler(async (event) => {
   const sessionUserId = await getSessionUserId(event)
   const xenoSpeciesIds = [...new Set(PLANT_TYPES.map(plant => plant.id))]
-  const [users, gemGuidePrice, gemEscrowRows, hackAgentRows, hackItemRows, colonyHabitatRows, researchTotals, xenoSpeciesCounts, xenoGridCounts, xenoBreederCounts, aiPromptCounts, battlerTotals] = await Promise.all([
+  const [users, gemGuidePrice, gemEscrowRows, hackAgentRows, hackItemRows, colonyHabitatRows, researchTotals, xenoSpeciesCounts, xenoGridCounts, xenoBreederCounts, aiPromptCounts, battlerTotals, battlerRatings] = await Promise.all([
     db
       .select({
         id: user.id,
@@ -89,6 +89,7 @@ export default defineEventHandler(async (event) => {
       })
       .from(tcgBattlerRun)
       .groupBy(tcgBattlerRun.userId),
+    db.select({ userId: tcgBattlerRating.userId, rating: tcgBattlerRating.rating }).from(tcgBattlerRating),
   ])
 
   const gemEscrowByUser = new Map(gemEscrowRows.map(row => [row.userId, row]))
@@ -112,6 +113,7 @@ export default defineEventHandler(async (event) => {
   const xenoBreederByUser = new Map(xenoBreederCounts.map(row => [row.userId, row.n]))
   const aiPromptsByUser = new Map(aiPromptCounts.map(row => [row.userId, row.n]))
   const battlerByUser = new Map(battlerTotals.map(row => [row.userId, row]))
+  const battlerRatingByUser = new Map(battlerRatings.map(row => [row.userId, row.rating]))
 
   return users
     .map(u => {
@@ -178,6 +180,7 @@ export default defineEventHandler(async (event) => {
         xenoBreederSlotsUnlocked,
         aiPromptsUsed,
         battlerRunsWon: battler?.runsWon ?? 0,
+        battlerRating: battlerRatingByUser.get(u.id) ?? null,
         battlerBattlesWon: battler?.battlesWon ?? 0,
         battlerBattlesLost: battler?.battlesLost ?? 0,
         totalLevels,

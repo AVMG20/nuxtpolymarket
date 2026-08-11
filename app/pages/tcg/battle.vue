@@ -30,7 +30,7 @@ interface HistoryRow {
 }
 
 const toast = useToast()
-const { data: view, refresh } = useAsyncData('battler-state', () => apiFetch<{ run: RunRow | null, eligibleCards: number | null, eligibleItems?: number | null }>('/api/battler/state'))
+const { data: view, refresh } = useAsyncData('battler-state', () => apiFetch<{ run: RunRow | null, rating: { rating: number, fights: number } | null, eligibleCards: number | null, eligibleItems?: number | null }>('/api/battler/state'))
 const { data: history, refresh: refreshHistory } = useAsyncData('battler-history', () => apiFetch<HistoryRow[]>('/api/battler/history'))
 const { data: decks, refresh: refreshDecks } = useAsyncData('battler-decks', () => apiFetch<{ id: string, name: string, cards: { cardId: string, copies: number }[] }[]>('/api/battler/decks'))
 const selectedDeck = ref<string | null>(null)
@@ -460,6 +460,7 @@ async function abandon() {
         <p class="text-xs text-muted">
           <b class="tabular-nums text-highlighted">{{ view.eligibleCards ?? 0 }}</b> of your cards are battle-ready
           <span v-if="view.eligibleItems"> · <b class="tabular-nums text-highlighted">{{ view.eligibleItems }}</b> Trainers</span>
+          <span v-if="view.rating"> · ⚔ <b class="tabular-nums text-highlighted">{{ view.rating.rating }}</b> Elo</span>
         </p>
         <div class="flex flex-wrap items-center justify-center gap-2">
           <USelect
@@ -987,6 +988,7 @@ async function abandon() {
             :seed="fightResult.seed"
             :result="fightResult.result"
             :stadium="fightResult.stadium"
+            :elo="fightResult.elo"
             @done="fightDone"
           />
         </div>
