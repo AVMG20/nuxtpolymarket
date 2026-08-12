@@ -384,15 +384,7 @@ const idleStoryItems = idleStoryFamilies.flatMap((family, familyIndex) =>
       value: storyId
     }
   }))
-// Direct route-map index + useAsyncData: useFetch's route inference over the
-// grown API union exceeds TS's instantiation depth (TS2589).
-type PathwardenApi = import('nitropack/types').InternalApi
-type PathwardenStatePayload = PathwardenApi['/api/pathwarden/state']['get']
-const pwFetch = $fetch as unknown as <T = unknown>(url: string, opts?: Record<string, unknown>) => Promise<T>
-const { data: boostState, refresh: refreshBoosts } = await useAsyncData(
-  'pathwarden-state',
-  () => pwFetch<PathwardenStatePayload>('/api/pathwarden/state')
-)
+const { data: boostState, refresh: refreshBoosts } = await useFetch('/api/pathwarden/state')
 const skipIntro = ref(Boolean(boostState.value?.skipIntro))
 const keyboardPan = ref(Boolean(boostState.value?.keyboardPan))
 const savingSkipIntro = ref(false)
@@ -563,7 +555,7 @@ async function clearDebugCache() {
   if (!isDev || clearingDebugCache.value) return
   clearingDebugCache.value = true
   try {
-    await pwFetch('/api/pathwarden/debug-clear-cache', { method: 'POST' })
+    await $fetch('/api/pathwarden/debug-clear-cache', { method: 'POST' })
     runActive.value = false
     restoredRun = undefined
     saveRevision = 0
@@ -593,7 +585,7 @@ async function setSkipIntro(enabled: boolean) {
   skipIntro.value = enabled
   savingSkipIntro.value = true
   try {
-    await pwFetch('/api/pathwarden/preferences', { method: 'PUT', body: { skipIntro: enabled } })
+    await $fetch('/api/pathwarden/preferences', { method: 'PUT', body: { skipIntro: enabled } })
   } catch (error: unknown) {
     skipIntro.value = previous
     toast.add({ title: 'Could not save intro preference', description: apiErrorMessage(error, 'Try again in a moment.'), color: 'error' })
@@ -609,7 +601,7 @@ async function setKeyboardPan(enabled: boolean) {
   engine?.setKeyboardPan(enabled)
   savingKeyboardPan.value = true
   try {
-    await pwFetch('/api/pathwarden/preferences', { method: 'PUT', body: { keyboardPan: enabled } })
+    await $fetch('/api/pathwarden/preferences', { method: 'PUT', body: { keyboardPan: enabled } })
   } catch (error: unknown) {
     keyboardPan.value = previous
     engine?.setKeyboardPan(previous)
@@ -632,7 +624,7 @@ function claimCheckpointReward(wave: number) {
   const request = (async () => {
     try {
       await flushSave()
-      const result = await pwFetch<PathwardenApi['/api/pathwarden/checkpoint']['post']>('/api/pathwarden/checkpoint', {
+      const result = await $fetch('/api/pathwarden/checkpoint', {
         method: 'POST',
         body: { wave }
       })
@@ -683,7 +675,7 @@ async function startWave() {
 async function ensureRunStarted() {
   if (runActive.value) return true
   try {
-    const response = await pwFetch<PathwardenApi['/api/pathwarden/start-run']['post']>('/api/pathwarden/start-run', {
+    const response = await $fetch('/api/pathwarden/start-run', {
       method: 'POST',
       body: {
         realm: selectedRealm.value,
@@ -759,7 +751,7 @@ async function rushCooldown() {
   if (rushingCooldown.value) return
   rushingCooldown.value = true
   try {
-    const response = await pwFetch<PathwardenApi['/api/pathwarden/rush-cooldown']['post']>('/api/pathwarden/rush-cooldown', { method: 'POST' })
+    const response = await $fetch('/api/pathwarden/rush-cooldown', { method: 'POST' })
     await Promise.all([refreshBoosts(), fetchSession()])
     toast.add({
       title: 'The wardens are ready',
@@ -777,7 +769,7 @@ async function abandonRun(currency: 'gems' | 'coins') {
   if (!canAbandon.value || abandoning.value) return
   abandoning.value = true
   try {
-    const result = await pwFetch<PathwardenApi['/api/pathwarden/abandon']['post']>('/api/pathwarden/abandon', {
+    const result = await $fetch('/api/pathwarden/abandon', {
       method: 'POST',
       body: { currency }
     })
@@ -889,7 +881,7 @@ function boostSpriteStyle(sprite: { col: number, row: number }) {
 async function buyBoost(boostId: string) {
   buyingBoost.value = boostId
   try {
-    await pwFetch('/api/pathwarden/boost', { method: 'POST', body: { boostId } })
+    await $fetch('/api/pathwarden/boost', { method: 'POST', body: { boostId } })
     await Promise.all([refreshBoosts(), fetchSession()])
   } catch (error) {
     toast.add({ title: apiErrorMessage(error, 'Boost purchase failed'), color: 'error' })
@@ -901,7 +893,7 @@ async function buyBoost(boostId: string) {
 async function buySurge() {
   buyingSurge.value = true
   try {
-    await pwFetch('/api/pathwarden/surge', { method: 'POST', body: { count: 1 } })
+    await $fetch('/api/pathwarden/surge', { method: 'POST', body: { count: 1 } })
     await Promise.all([refreshBoosts(), fetchSession()])
   } catch (error) {
     toast.add({ title: apiErrorMessage(error, 'Could not prepare Mist Surge'), color: 'error' })
@@ -913,7 +905,7 @@ async function buySurge() {
 async function buyDefense(defenseId: string) {
   buyingDefense.value = defenseId
   try {
-    await pwFetch('/api/pathwarden/defenses/buy', { method: 'POST', body: { defenseId } })
+    await $fetch('/api/pathwarden/defenses/buy', { method: 'POST', body: { defenseId } })
     await Promise.all([refreshBoosts(), fetchSession()])
   } catch (error) {
     toast.add({ title: apiErrorMessage(error, 'Blueprint purchase failed'), color: 'error' })
@@ -925,7 +917,7 @@ async function buyDefense(defenseId: string) {
 async function buySkin(skinId: string) {
   buyingSkin.value = skinId
   try {
-    await pwFetch('/api/pathwarden/skins/buy', { method: 'POST', body: { skinId } })
+    await $fetch('/api/pathwarden/skins/buy', { method: 'POST', body: { skinId } })
     await Promise.all([refreshBoosts(), fetchSession()])
     await restart()
   } catch (error) {
@@ -938,7 +930,7 @@ async function buySkin(skinId: string) {
 async function equipSkin(skinId: string) {
   buyingSkin.value = skinId
   try {
-    await pwFetch('/api/pathwarden/skins/equip', { method: 'POST', body: { skinId } })
+    await $fetch('/api/pathwarden/skins/equip', { method: 'POST', body: { skinId } })
     await refreshBoosts()
     await restart()
   } finally {
@@ -953,7 +945,7 @@ async function settleRun(reason: 'cashout' | 'victory' | 'defeat') {
     // The server settles from the persisted save, so make sure the final state
     // has landed before finishing — the request body only carries the reason.
     await flushSave()
-    const response = await pwFetch<PathwardenApi['/api/pathwarden/finish-run']['post']>('/api/pathwarden/finish-run', {
+    const response = await $fetch('/api/pathwarden/finish-run', {
       method: 'POST',
       body: { reason }
     })
@@ -1008,7 +1000,7 @@ async function persistSave(): Promise<void> {
   saveDirty = false
   const gameState = engine.exportGameState()
   try {
-    const saved = await pwFetch<PathwardenApi['/api/pathwarden/run']['put']>('/api/pathwarden/run', {
+    const saved = await $fetch('/api/pathwarden/run', {
       method: 'PUT',
       body: { revision: saveRevision, gameState }
     })
@@ -1047,7 +1039,7 @@ function createGame(restore?: PathwardenEngineRestore, startEngine = true) {
     onOpenArcanistWorkbench: openArcanistWorkbench,
     onAmbientStoryComplete: async (storyId) => {
       try {
-        const progress = await pwFetch<PathwardenApi['/api/pathwarden/ambient']['post']>('/api/pathwarden/ambient', {
+        const progress = await $fetch('/api/pathwarden/ambient', {
           method: 'POST',
           body: { storyId }
         })
@@ -1122,7 +1114,7 @@ onMounted(async () => {
   hintsEnabled.value = localStorage.getItem('pathwarden-hints') !== 'off'
   let marchInProgress = false
   if (boostState.value?.activeRun) {
-    const response = await pwFetch<PathwardenApi['/api/pathwarden/run']['get']>('/api/pathwarden/run')
+    const response = await $fetch('/api/pathwarden/run')
     if (response.run) {
       // A march that has begun owns its map, save or no save. Reloading in the
       // gap before the first autosave used to leave the client believing no

@@ -13,7 +13,7 @@ export function useBankStatus() {
 
   const refresh = async () => {
     try {
-      inDebt.value = (await apiFetch<{ inDebt: boolean }>('/api/bank/status')).inDebt
+      inDebt.value = (await $fetch<{ inDebt: boolean }>('/api/bank/status')).inDebt
     } catch {
       // Signed out or offline: keep the last known answer rather than nagging.
     }
