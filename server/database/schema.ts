@@ -1221,7 +1221,12 @@ export const tcgAuction = pgTable('tcg_auctions', {
   createdAt: timestamp('created_at').defaultNow().notNull()
 }, t => [
   index('tcg_auctions_state_endsAt_idx').on(t.state, t.endsAt),
-  index('tcg_auctions_sellerId_idx').on(t.sellerId)
+  index('tcg_auctions_sellerId_idx').on(t.sellerId),
+  // copyEncumbrance() looks an auction up by the thing it holds, and runs on
+  // every list, grade, crack, trade-accept and battler buy — the hottest read
+  // in the whole copy lifecycle.
+  index('tcg_auctions_copyId_idx').on(t.copyId),
+  index('tcg_auctions_packId_idx').on(t.packId)
 ])
 
 export const tcgAuctionBid = pgTable('tcg_auction_bids', {

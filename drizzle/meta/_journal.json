@@ -64,6 +64,13 @@
       "when": 1786478332976,
       "tag": "0008_battler_ratings",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1786523655342,
+      "tag": "0009_auction_copy_pack_indexes",
+      "breakpoints": true
     }
   ]
 }
