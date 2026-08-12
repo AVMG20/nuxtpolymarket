@@ -42,7 +42,32 @@ const width = computed(() => Math.round(props.height * stageAspect.value))
 let renderer: THREE.WebGLRenderer | null = null
 let pending = 0
 let removeVisibility: (() => void) | null = null
+let sceneRef: THREE.Scene | null = null
 const disposables: Array<{ dispose(): void }> = []
+
+/**
+ * The shell, air panes, inner frame and wordmark are built by helpers that
+ * hand back nothing, so there is no reference here to dispose one by one.
+ * Walking the graph is the only way to reach them — and this component is
+ * remounted on every serial-chip switch and zoom toggle in the lightbox, so
+ * a missed geometry leaks repeatedly inside a single session.
+ *
+ * Textures are safe to take with us: makeLoader builds a fresh TextureLoader
+ * per mount and makeUniforms is explicitly per-card, so nothing here is
+ * shared with another component.
+ */
+function disposeMaterial(material: THREE.Material) {
+    for (const value of Object.values(material)) {
+        if ((value as THREE.Texture)?.isTexture) (value as THREE.Texture).dispose()
+    }
+    const uniforms = (material as THREE.ShaderMaterial).uniforms
+    if (uniforms) {
+        for (const uniform of Object.values(uniforms)) {
+            if ((uniform?.value as THREE.Texture)?.isTexture) (uniform.value as THREE.Texture).dispose()
+        }
+    }
+    material.dispose()
+}
 
 onMounted(async () => {
     if (!stage.value) await nextTick()
@@ -68,6 +93,7 @@ onMounted(async () => {
     el.appendChild(ren.domElement)
 
     const scene = new THREE.Scene()
+    sceneRef = scene
     const camera = new THREE.PerspectiveCamera(24, stageAspect.value, 0.1, 100)
     // Further back than the demo's 1.04: the hover lean and drag spin swing
     // the corners well outside a tight fit, and the canvas edge cuts them off.
@@ -130,6 +156,9 @@ onMounted(async () => {
         uv.needsUpdate = true
     }
     load(`${apiBase}/images/shared/CardBack.png`).then((tex: THREE.Texture) => {
+        // Unmounted while the back was in flight: the graph has already been
+        // walked, so anything added now would never be collected.
+        if (!sceneRef) return tex.dispose()
         tex.colorSpace = THREE.SRGBColorSpace
         tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping
         tex.repeat.set(ASPECT, 1)
@@ -269,6 +298,7 @@ onMounted(async () => {
     }
 
     try { await loadCard(load, r, apiBase) } catch { /* card face missing */ }
+    if (!sceneRef) return disposeMaterial(cardMat)
     loading.value = false
     invalidate()
 })
@@ -280,6 +310,13 @@ onBeforeUnmount(() => {
     }
     removeVisibility?.()
     for (const d of disposables) d.dispose()
+    sceneRef?.traverse((object) => {
+        const mesh = object as THREE.Mesh
+        mesh.geometry?.dispose()
+        if (Array.isArray(mesh.material)) mesh.material.forEach(disposeMaterial)
+        else if (mesh.material) disposeMaterial(mesh.material)
+    })
+    sceneRef = null
     if (renderer) {
         renderer.domElement.remove()
         renderer.dispose()
