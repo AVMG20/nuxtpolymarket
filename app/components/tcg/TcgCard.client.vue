@@ -50,6 +50,8 @@ let pending = 0
 let removeVisibility: (() => void) | null = null
 let wearGeometry: THREE.PlaneGeometry | null = null
 let wearMaterial: THREE.ShaderMaterial | null = null
+let eraserGeometry: THREE.PlaneGeometry | null = null
+let eraserMaterial: THREE.ShaderMaterial | null = null
 
 onMounted(async () => {
     // A .client component hydrating with the page renders once as a stub and
@@ -165,8 +167,6 @@ onMounted(async () => {
     // unshifted UVs and paints a cardstock sliver over the clamped spill.
     let wearMesh: THREE.Mesh | null = null
     let eraserMesh: THREE.Mesh | null = null
-    let eraserGeometry: THREE.PlaneGeometry | null = null
-    let eraserMaterial: THREE.ShaderMaterial | null = null
     let baseUv: Float32Array | null = null
 
     function applyCentering(dx: number, dy: number) {
@@ -308,6 +308,10 @@ onBeforeUnmount(() => {
     wearMaterial = null
     wearGeometry?.dispose()
     wearGeometry = null
+    eraserMaterial?.dispose()
+    eraserMaterial = null
+    eraserGeometry?.dispose()
+    eraserGeometry = null
     if (renderer) {
         renderer.domElement.remove()
         renderer.dispose()
