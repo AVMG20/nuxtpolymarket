@@ -1,4 +1,5 @@
 import { requirePokemonAdmin } from '#server/utils/auth'
+import { SIDECAR_TIMEOUT_MS, sidecarFetch } from '#server/utils/tcg/sidecar'
 
 /**
  * Every set the pokemonplaatjes sidecar can render — not just the ones
@@ -17,10 +18,6 @@ interface PullRatesIndex {
     sets: { name: string, setCode: string | null }[]
 }
 
-/** Untyped fetch for sidecar URLs — route-type inference over the grown API
- *  union hits TS's instantiation depth even for external template URLs. */
-const sidecarFetch = <T = unknown>(url: string, opts?: Record<string, unknown>): Promise<T> =>
-    ($fetch as (url: string, opts?: Record<string, unknown>) => Promise<T>)(url, opts)
 
 export default defineEventHandler(async (event) => {
     await requirePokemonAdmin(event)
@@ -29,7 +26,7 @@ export default defineEventHandler(async (event) => {
 
     let sidecar: PlaatjesSetsResponse
     try {
-        sidecar = await sidecarFetch<PlaatjesSetsResponse>(`${config.pokemonApiBase}/sets`, { timeout: 5000 })
+        sidecar = await sidecarFetch<PlaatjesSetsResponse>(`${config.pokemonApiBase}/sets`, { timeout: SIDECAR_TIMEOUT_MS })
     } catch {
         return { sets: [], sidecarUnavailable: true as const }
     }
@@ -39,7 +36,7 @@ export default defineEventHandler(async (event) => {
     // usable list, just code-labelled.
     let names = new Map<string, string>()
     try {
-        const index = await sidecarFetch<PullRatesIndex>(`${config.pokemonApiBase}/pull-rates`, { timeout: 5000 })
+        const index = await sidecarFetch<PullRatesIndex>(`${config.pokemonApiBase}/pull-rates`, { timeout: SIDECAR_TIMEOUT_MS })
         names = new Map(index.sets
             .filter(entry => entry.setCode)
             .map(entry => [entry.setCode!.toLowerCase(), entry.name]))
