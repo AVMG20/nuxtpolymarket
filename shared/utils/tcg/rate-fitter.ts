@@ -1,6 +1,6 @@
-// Automatic sheet fitter (design doc §4 "slot-true, globally", §3.8 god
-// netting; press-run-HANDOFF §5-§7). Pure shared code: converts a scraped
-// rate template plus an imported checklist into slot-true sheet layouts.
+// Automatic sheet fitter: slot-true globally, with god-pack netting. Pure
+// shared code — converts a scraped rate template plus an imported checklist
+// into slot-true sheet layouts.
 //
 // Published rates are a diagnostic, never a target — the fitter searches for
 // integer tier totals whose derived rates land closest to the published
