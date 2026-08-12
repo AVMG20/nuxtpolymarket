@@ -6,11 +6,7 @@ import { db } from '#server/database'
 import { tcgSet, tcgCard, tcgPrinting, tcgSheet, tcgPackTemplate } from '#server/database/schema'
 import type { TcgCardRaw, TcgPackTemplateSlot } from '#shared/types/tcg-db'
 import type { FitPrinting, FitSheetSpec, FitSlotSpec } from '#shared/utils/tcg/rate-fitter'
-
-/** Untyped fetch for sidecar URLs — route-type inference over the grown API
- *  union hits TS2589 even for external template-literal URLs. */
-const sidecarFetch = <T = unknown>(url: string, opts?: Record<string, unknown>): Promise<T> =>
-    ($fetch as (url: string, opts?: Record<string, unknown>) => Promise<T>)(url, opts)
+import { sidecarFetch, sidecarUnreachable } from '#server/utils/tcg/sidecar'
 
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0]
@@ -178,7 +174,7 @@ export async function fetchPlaatjesChecklist(plaatjesSetCode: string, apiBase: s
     } catch {
         throw createError({
             statusCode: 502,
-            statusMessage: `Could not reach the pokemonplaatjes sidecar at ${apiBase} — is it running?`
+            statusMessage: sidecarUnreachable(apiBase)
         })
     }
     if (records.length === 0) {
@@ -365,7 +361,7 @@ export async function fetchEraBasicEnergies(
     } catch {
         throw createError({
             statusCode: 502,
-            statusMessage: `Could not reach the pokemonplaatjes sidecar at ${apiBase} — is it running?`
+            statusMessage: sidecarUnreachable(apiBase)
         })
     }
 

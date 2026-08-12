@@ -3,6 +3,7 @@ import { db } from '#server/database'
 import { tcgCopy, tcgPrinting } from '#server/database/schema'
 import { credit } from '#server/utils/balance'
 import { lockCopyForUpdate, assertUnencumbered } from '#server/utils/tcg/market'
+import { SIDECAR_TIMEOUT_MS, sidecarFetch } from '#server/utils/tcg/sidecar'
 import { vendorPrice, TCG_VENDOR } from '#shared/utils/tcg/vendor'
 
 /*
@@ -28,10 +29,9 @@ interface SidecarPrice {
  */
 export async function fetchVendorQuote(plaatjesCardId: string, apiBase: string): Promise<number> {
     try {
-        const sidecarFetch = $fetch as unknown as <T>(url: string, opts?: Record<string, unknown>) => Promise<T>
         const res = await sidecarFetch<SidecarPrice>(
             `${apiBase}/cards/${encodeURIComponent(plaatjesCardId)}/price`,
-            { timeout: 5000 }
+            { timeout: SIDECAR_TIMEOUT_MS }
         )
         return vendorPrice(res.price?.usd, res.price?.eur)
     } catch {

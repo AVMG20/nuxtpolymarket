@@ -3,6 +3,7 @@ import { fetchPlaatjesChecklist, fetchEraBasicEnergies, createTemplateSet } from
 import type { PlaatjesCard } from '#server/utils/tcg/import'
 import { fitSet, isBasicEnergy } from '#shared/utils/tcg/rate-fitter'
 import type { RateTemplate, FitPrinting } from '#shared/utils/tcg/rate-fitter'
+import { SIDECAR_TIMEOUT_MS, sidecarFetch, sidecarUnreachable } from '#server/utils/tcg/sidecar'
 
 interface PullRatesIndex {
     total: number
@@ -21,12 +22,11 @@ export default defineEventHandler(async (event) => {
     const config = useRuntimeConfig(event)
     let index: PullRatesIndex
     try {
-        const sidecarFetch = $fetch as unknown as <T>(url: string, opts?: Record<string, unknown>) => Promise<T>
-        index = await sidecarFetch<PullRatesIndex>(`${config.pokemonApiBase}/pull-rates`, { timeout: 5000 })
+        index = await sidecarFetch<PullRatesIndex>(`${config.pokemonApiBase}/pull-rates`, { timeout: SIDECAR_TIMEOUT_MS })
     } catch {
         throw createError({
             statusCode: 502,
-            statusMessage: `Could not reach the pokemonplaatjes sidecar at ${config.pokemonApiBase} — is it running?`
+            statusMessage: sidecarUnreachable(config.pokemonApiBase)
         })
     }
     const entry = index.sets.find(set => set.code === pricedexCode)
@@ -38,8 +38,7 @@ export default defineEventHandler(async (event) => {
 
     let template: RateTemplate
     try {
-        const sidecarFetch2 = $fetch as unknown as <T>(url: string, opts?: Record<string, unknown>) => Promise<T>
-        template = await sidecarFetch2<RateTemplate>(`${config.pokemonApiBase}/sets/${plaatjesSetCode}/pull-rates`, { timeout: 5000 })
+        template = await sidecarFetch<RateTemplate>(`${config.pokemonApiBase}/sets/${plaatjesSetCode}/pull-rates`, { timeout: SIDECAR_TIMEOUT_MS })
     } catch (error) {
         const status = (error as { statusCode?: number, status?: number }).statusCode
             ?? (error as { status?: number }).status
@@ -48,7 +47,7 @@ export default defineEventHandler(async (event) => {
         }
         throw createError({
             statusCode: 502,
-            statusMessage: `Could not reach the pokemonplaatjes sidecar at ${config.pokemonApiBase} — is it running?`
+            statusMessage: sidecarUnreachable(config.pokemonApiBase)
         })
     }
 
