@@ -33,6 +33,7 @@ jobs:
       pull-requests: write
     outputs:
       pr: ${{ steps.pr.outputs.number }}
+      fork: ${{ steps.pr.outputs.fork }}
 
     env:
       GH_TOKEN: ${{ github.token }}
@@ -47,6 +48,7 @@ jobs:
         id: pr
         env:
           EVENT_PR: ${{ github.event.number }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
         run: |
           number=$EVENT_PR
           if [ -z "$number" ]; then
@@ -54,13 +56,23 @@ jobs:
               --state open --json number --jq '.[0].number // empty')
           fi
           echo "number=$number" >> "$GITHUB_OUTPUT"
-          echo "$GITHUB_REF_NAME -> pr ${number:-none}"
+
+          # A pull request from a fork runs with a read-only token no matter what
+          # this file's `permissions:` block asks for, and with no secrets at all.
+          # Commenting, publishing and deploying can therefore only 403 there, so
+          # every step that does one sits the run out rather than failing it.
+          fork=''
+          if [ "$GITHUB_EVENT_NAME" = pull_request ] && [ "$HEAD_REPO" != "$GITHUB_REPOSITORY" ]; then
+            fork=true
+          fi
+          echo "fork=$fork" >> "$GITHUB_OUTPUT"
+          echo "$GITHUB_REF_NAME -> pr ${number:-none}${fork:+ (fork)}"
 
       # The image has to build before Coolify hears about the preview at all,
       # so claim the comment now rather than leaving the pull request silent
       # for the length of a build.
       - name: Claim the preview comment
-        if: steps.pr.outputs.number != '' && github.ref != 'refs/heads/main'
+        if: steps.pr.outputs.number != '' && github.ref != 'refs/heads/main' && steps.pr.outputs.fork != 'true'
         env:
           PR: ${{ steps.pr.outputs.number }}
           RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
@@ -148,8 +160,12 @@ jobs:
 
     env:
       # Previews run the image built here rather than rebuilding on the Coolify
-      # host, so a pull request has to publish too — not just main.
-      PUBLISH: ${{ github.ref == 'refs/heads/main' || needs.context.outputs.pr != '' }}
+      # host, so a pull request has to publish too — not just main. A fork's
+      # pull request cannot write packages, so it builds without publishing:
+      # the build is still the check, there is just nothing to preview from.
+      PUBLISH: >-
+        ${{ github.ref == 'refs/heads/main'
+            || (needs.context.outputs.pr != '' && needs.context.outputs.fork != 'true') }}
 
     steps:
       - name: Checkout
@@ -220,7 +236,13 @@ jobs:
   # previews are already resident.
   preview:
     needs: [context, image]
-    if: needs.context.outputs.pr != '' && github.ref != 'refs/heads/main'
+    # A fork's pull request published no image and holds no Coolify secret, so
+    # there is nothing to deploy and nothing to deploy it with. Skipping says so
+    # outright rather than passing on an empty webhook, which is what it did
+    # while the other two fork guards were the only ones in place.
+    if: >-
+      needs.context.outputs.pr != '' && github.ref != 'refs/heads/main'
+      && needs.context.outputs.fork != 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
