@@ -4,21 +4,10 @@ import { PRESTIGE_TIERS, nextPrestigeTier, prestigeTier } from '#shared/utils/pr
 const { user, fetchSession } = useAuth()
 const toast = useToast()
 
-interface PrestigeState {
-  level: number
-  tokens: number
-  balance: string
-  gems: number
-  blockers: { code: string, message: string }[]
-  systemsCleared: number
-  affordable: boolean
-}
-
 // Lazy so the profile page paints immediately — every field this drives has a
 // null-safe fallback below, and the numbers that gate the button (balance,
-// gems, level) come from the session, not from here. apiFetch instead of
-// useFetch: the typed-route inference blows TS2589 as the API surface grows.
-const { data: state, refresh } = useAsyncData('prestige-state', () => apiFetch<PrestigeState>('/api/prestige'), { lazy: true })
+// gems, level) come from the session, not from here.
+const { data: state, refresh } = useLazyFetch('/api/prestige')
 
 const level = computed(() => user.value?.prestige ?? 0)
 const tokens = computed(() => user.value?.prestigeTokens ?? 0)
@@ -83,7 +72,7 @@ async function ascend() {
   if (!next.value) return
   ascending.value = true
   try {
-    const result = await apiFetch<{ level: number, tokens: number }>('/api/prestige', { method: 'POST' })
+    const result = await $fetch('/api/prestige', { method: 'POST' })
     await Promise.all([fetchSession(), refresh()])
     confirmOpen.value = false
     toast.add({

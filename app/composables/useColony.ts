@@ -1,7 +1,8 @@
 export const useColony = () => {
   const toast = useToast()
 
-  const { data: state, refresh, pending } = useAsyncData('colony-state', () => apiFetch<import('nitropack/types').InternalApi['/api/colony/state']['get']>('/api/colony/state'), {
+  const { data: state, refresh, pending } = useFetch('/api/colony/state', {
+    key: 'colony-state',
     default: () => null
   })
 
@@ -39,7 +40,7 @@ export const useColony = () => {
 
   async function call(url: string, body: Record<string, unknown>, successMsg: string): Promise<any> { // eslint-disable-line @typescript-eslint/no-explicit-any
     try {
-      const res = await apiFetch(url, { method: 'POST', body })
+      const res = await $fetch(url, { method: 'POST', body })
       if (successMsg) toast.add({ title: successMsg, color: 'success' })
       await refresh()
       return res
@@ -50,7 +51,7 @@ export const useColony = () => {
   }
 
   async function initColony() {
-    await apiFetch('/api/colony/init', { method: 'POST' })
+    await $fetch('/api/colony/init', { method: 'POST' })
     await refresh()
   }
 

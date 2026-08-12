@@ -3,7 +3,8 @@ import { PLANT_TYPES, ARTIFACT_TYPES, getPlantDisplay } from '#shared/utils/xeno
 export const useXeno = () => {
   const toast = useToast()
 
-  const { data: state, refresh, pending } = useAsyncData('xeno-state', () => apiFetch<import('nitropack/types').InternalApi['/api/xeno/state']['get']>('/api/xeno/state'), {
+  const { data: state, refresh, pending } = useFetch('/api/xeno/state', {
+    key: 'xeno-state',
     default: () => null,
   })
 
@@ -36,7 +37,7 @@ export const useXeno = () => {
 
   async function call(url: string, body: Record<string, any>, successMsg: string): Promise<any> {
     try {
-      const res = await apiFetch(url, { method: 'POST', body })
+      const res = await $fetch(url, { method: 'POST', body })
       if (successMsg) toast.add({ title: successMsg, color: 'success' })
       await refresh()
       return res
@@ -47,7 +48,7 @@ export const useXeno = () => {
   }
 
   async function initGame() {
-    await apiFetch('/api/xeno/init', { method: 'POST' })
+    await $fetch('/api/xeno/init', { method: 'POST' })
     await refresh()
   }
 
@@ -141,7 +142,7 @@ export const useXeno = () => {
 
   async function rollHybrid() {
     try {
-      const res = await apiFetch<import('nitropack/types').InternalApi['/api/xeno/market/roll-hybrid']['post']>('/api/xeno/market/roll-hybrid', { method: 'POST' })
+      const res = await $fetch('/api/xeno/market/roll-hybrid', { method: 'POST' })
       await refresh()
       await fetchSession()
       return res
