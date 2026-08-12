@@ -64,7 +64,7 @@ function openDetails(user: LeaderboardUser) {
         <UIcon name="i-lucide-trophy" class="size-6 text-yellow-400" />
         Leaderboard
       </h1>
-      <p class="mt-0.5 text-sm text-muted">Top players ranked by total upgrades, then total wealth</p>
+      <p class="mt-0.5 text-sm text-muted">Top players ranked by prestige, then total upgrades, then total wealth</p>
     </div>
 
     <LeaderboardSkeleton v-if="pending" />

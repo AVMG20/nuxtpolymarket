@@ -170,5 +170,10 @@ export default defineEventHandler(async (event) => {
         totalWealth,
       }
     })
-    .sort((a, b) => b.totalUpgrades - a.totalUpgrades || b.totalWealth - a.totalWealth)
+    // Prestige outranks everything: ascending wipes all progress, so a fresh
+    // prestiged account would otherwise sit below the players it just lapped.
+    .sort((a, b) =>
+      (b.prestige ?? 0) - (a.prestige ?? 0)
+      || b.totalUpgrades - a.totalUpgrades
+      || b.totalWealth - a.totalWealth)
 })
