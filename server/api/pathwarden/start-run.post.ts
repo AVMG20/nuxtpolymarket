@@ -13,7 +13,10 @@ import {
     pathwardenRunCooldownRemainingMs
 } from '#shared/utils/gamelogic/pathwarden'
 import { createPathwardenMapPlan } from '#shared/utils/gamelogic/pathwarden-map'
-import { validatePathwardenMapPlan } from '#shared/utils/gamelogic/pathwarden-map-validation'
+import {
+    pathwardenSaveIsHydratable,
+    validatePathwardenMapPlan
+} from '#shared/utils/gamelogic/pathwarden-map-validation'
 
 function randomSeed() {
     return crypto.getRandomValues(new Uint32Array(1))[0]!
@@ -45,17 +48,19 @@ export default defineEventHandler(async (event) => {
     return db.transaction(async (tx) => {
         const state = await getLockedPathwardenState(tx, userId)
         if (state.runStartedAt) {
-            // An active run whose save/generator version no longer matches can
-            // never be resumed, so starting a fresh march overwrites it rather
-            // than trapping the player behind a 409 (this is the recovery path
-            // that used to live, as a write, inside the run.get GET handler).
-            const [existing] = await tx.select({
-                saveVersion: pathwardenRuns.saveVersion,
-                generatorVersion: pathwardenRuns.generatorVersion
-            }).from(pathwardenRuns).where(eq(pathwardenRuns.userId, userId))
+            // An active run whose save cannot be hydrated — a stale save/generator
+            // version, or a save recorded against another map — can never be
+            // resumed, so starting a fresh march overwrites it rather than
+            // trapping the player behind a 409 (this is the recovery path that
+            // used to live, as a write, inside the run.get GET handler).
+            const [existing] = await tx.select()
+                .from(pathwardenRuns)
+                .where(eq(pathwardenRuns.userId, userId))
+                .for('update')
             const resumable = existing
                 && existing.saveVersion === PATHWARDEN_SAVE_VERSION
                 && existing.generatorVersion === PATHWARDEN_GENERATOR_VERSION
+                && (!existing.gameState || pathwardenSaveIsHydratable(existing.mapPlan, existing.gameState))
             if (resumable) {
                 throw createError({ statusCode: 409, statusMessage: 'A Pathwarden run is already active' })
             }

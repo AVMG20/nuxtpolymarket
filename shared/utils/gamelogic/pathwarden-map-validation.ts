@@ -1,6 +1,8 @@
 import type {
+    PathwardenGameState,
     PathwardenGridPoint,
-    PathwardenMapPlan
+    PathwardenMapPlan,
+    PathwardenRoadLink
 } from '#shared/types/pathwarden-save'
 
 export interface PathwardenMapValidation {
@@ -361,4 +363,76 @@ export function validatePathwardenMapPlan(plan: PathwardenMapPlan): PathwardenMa
     if (plan.metrics.roomCount !== plan.rooms.length) errors.push('room metric is stale')
     if (plan.metrics.maxDepth < 1) errors.push('maximum depth is invalid')
     return { valid: errors.length === 0, errors }
+}
+
+interface SavedSection {
+    source: PathwardenGridPoint
+    links: PathwardenRoadLink[]
+}
+
+// The engine rebuilds a restored march by looking its saved room ids up in the
+// plan, so a save only hydrates against the plan it was recorded on. Mirrors
+// PathwardenEngine.restoreGameState: claimed sections lay road, active ones must
+// still be reachable from the keep.
+function savedSections(plan: PathwardenMapPlan) {
+    const sections = new Map<string, SavedSection>()
+    const rooms = new Map(plan.rooms.map(room => [room.id, room]))
+    for (const connection of plan.connections) {
+        if (connection.kind !== 'expansion') continue
+        const parent = rooms.get(connection.fromRoomId)
+        const port = parent?.ports.find(candidate => candidate.id === connection.fromPortId)
+        if (!port) continue
+        sections.set(connection.toRoomId, {
+            source: port.cell,
+            links: plan.roadLinks.filter(link => link.roomId === connection.toRoomId)
+        })
+    }
+    for (const room of plan.rooms) {
+        if (room.depth + 1 >= plan.metrics.maxDepth) continue
+        for (const approach of room.terminalApproaches ?? []) {
+            const port = room.ports.find(candidate => candidate.id === approach.portId)
+            if (!port) continue
+            sections.set(`terminal:${room.id}:${approach.portId}`, {
+                source: port.cell,
+                links: approach.cells.map((cell, index) => ({
+                    id: `${room.id}:${approach.portId}:${index}`,
+                    from: index === 0 ? port.cell : approach.cells[index - 1]!,
+                    to: cell,
+                    roomId: room.id
+                }))
+            })
+        }
+    }
+    return sections
+}
+
+export function pathwardenSaveIsHydratable(plan: PathwardenMapPlan, state: PathwardenGameState) {
+    const start = state.path[0]
+    if (!start) return false
+    const sections = savedSections(plan)
+    const roads = [
+        ...plan.roadLinks.filter(link => link.roomId === plan.castleRoomId),
+        ...state.claimedRoomIds.flatMap(id => sections.get(id)?.links ?? [])
+    ].map(link => [key(link.from), key(link.to)] as const)
+    for (let index = 1; index < state.path.length; index++) {
+        roads.push([key(state.path[index - 1]!), key(state.path[index]!)])
+    }
+    const adjacency = new Map<string, string[]>()
+    for (const [from, to] of roads) {
+        adjacency.set(from, [...(adjacency.get(from) ?? []), to])
+        adjacency.set(to, [...(adjacency.get(to) ?? []), from])
+    }
+    const reached = new Set([key(start)])
+    const queue = [key(start)]
+    for (let head = 0; head < queue.length; head++) {
+        for (const next of adjacency.get(queue[head]!) ?? []) {
+            if (reached.has(next)) continue
+            reached.add(next)
+            queue.push(next)
+        }
+    }
+    return state.activeRoomIds.every((id) => {
+        const section = sections.get(id)
+        return !section || reached.has(key(section.source))
+    })
 }
