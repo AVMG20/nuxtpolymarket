@@ -626,7 +626,9 @@ export interface PathwardenCallbacks {
 
 export interface PathwardenEngineRestore {
   mapPlan: PathwardenMapPlan
-  gameState: PathwardenGameState
+  // Absent for a march that has not been saved yet: the server mints the plan
+  // before the first wave, so the client never plays a map of its own making.
+  gameState?: PathwardenGameState
 }
 
 export interface PathwardenBoostEffects {
@@ -866,9 +868,10 @@ export class PathwardenEngine {
     if (!context) throw new Error('Canvas 2D context is unavailable')
     this.ctx = context
     this.callbacks = callbacks
-    this.introStoryActive = !restore && !skipIntro
+    const saved = restore?.gameState
+    this.introStoryActive = !saved && !skipIntro
     this.openingCinematicPlayed = skipIntro
-    this.realm = clamp(Math.floor(restore?.mapPlan.realm ?? realm), 1, 5)
+    this.realm = clamp(Math.floor(restore?.gameState ? restore.mapPlan.realm : realm), 1, 5)
     this.skinId = skinId
     if (!restore) {
       this.mapPlan = createPathwardenMapPlan({
@@ -891,9 +894,9 @@ export class PathwardenEngine {
       this.arcanistLevel = boosts.arcanistLevel
     }
     if (restore) {
-      this.activeRunSceneTime = this.activeRunSceneDuration
+      if (saved) this.activeRunSceneTime = this.activeRunSceneDuration
       this.mapSeed = restore.mapPlan.seed
-      this.mapRandomState = restore.gameState.combatRandomState
+      this.mapRandomState = saved?.combatRandomState ?? restore.mapPlan.seed
       this.mapPlan = restore.mapPlan
       this.elevations = this.createElevations()
       this.path = this.castlePath()
@@ -914,7 +917,7 @@ export class PathwardenEngine {
     window.addEventListener('blur', this.onWindowBlur)
     this.loadAssets()
     this.precalculateExpansionPlan(EXPANSION_DEPTH)
-    if (restore) this.restoreGameState(restore.gameState)
+    if (saved) this.restoreGameState(saved)
     else {
       this.activatePlannedChoices(this.mapPlan.castleRoomId)
       this.revealAround(this.initialRevealCells())
