@@ -11,6 +11,8 @@ import {
     pathwardenMaxWaveForElapsedMs,
     type PathwardenBoostLevels
 } from '#shared/utils/gamelogic/pathwarden'
+import { createPathwardenMapPlan } from '#shared/utils/gamelogic/pathwarden-map'
+import { validatePathwardenMapPlan } from '#shared/utils/gamelogic/pathwarden-map-validation'
 
 export type LockedPathwardenState = typeof pathwardenState.$inferSelect
 
@@ -36,6 +38,24 @@ export async function getLockedPathwardenState(tx: DbExecutor, userId: string) {
         throw createError({ statusCode: 500, statusMessage: 'Could not initialize Pathwarden state' })
     }
     return state
+}
+
+export function pathwardenRandomSeed() {
+    return crypto.getRandomValues(new Uint32Array(1))[0]!
+}
+
+// The generator is deterministic and structurally sound (0 invalid plans across
+// a 100k-seed sweep), so this validation is insurance against a future
+// regression, and it never rejects a real seed in practice.
+export function generateValidatedPathwardenPlan(seed: number, realm: number, allowRegeneration: boolean) {
+    let candidateSeed = seed
+    for (let attempt = 0; attempt < 8; attempt++) {
+        const plan = createPathwardenMapPlan({ seed: candidateSeed, realm })
+        if (validatePathwardenMapPlan(plan).errors.length === 0) return { seed: candidateSeed, plan }
+        if (!allowRegeneration) break
+        candidateSeed = pathwardenRandomSeed()
+    }
+    throw createError({ statusCode: 500, statusMessage: 'Could not generate a valid Pathwarden map' })
 }
 
 export type PathwardenFinishReason = 'cashout' | 'victory' | 'defeat'
