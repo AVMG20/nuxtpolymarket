@@ -300,7 +300,7 @@ const slabKey = computed(() =>
                     v-if="catalogue?.sidecarUnavailable"
                     class="text-xs text-warning"
                 >
-                    Sidecar unreachable — only imported sets are listed
+                    Sidecar unreachable{{ catalogue?.sidecarError ? ` (${catalogue.sidecarError})` : '' }} — only imported sets are listed
                 </span>
             </div>
             <div
