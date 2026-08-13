@@ -34,8 +34,9 @@ export default defineEventHandler(async (event) => {
             sidecarFetch<PullRatesIndex>(`${config.pokemonApiBase}/pull-rates`, { timeout: SIDECAR_TIMEOUT_MS }),
             sidecarFetch<PlaatjesSetsResponse>(`${config.pokemonApiBase}/sets`, { timeout: SIDECAR_TIMEOUT_MS })
         ])
-    } catch {
-        return { templates: [], sidecarUnavailable: true as const }
+    } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error)
+        return { templates: [], sidecarUnavailable: true as const, sidecarError: `${config.pokemonApiBase} — ${reason}` }
     }
     const cardsBySetCode = new Map(sidecarSets.map(set => [set.setCode.toLowerCase(), set.cards]))
 

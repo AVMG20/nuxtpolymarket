@@ -402,6 +402,8 @@ export interface TcgPlaatjesSetsPayload {
     sets: TcgPlaatjesSet[]
     /** Present only when the sidecar could not be reached. */
     sidecarUnavailable?: true
+    /** The base URL and failure reason, for the admin screens. */
+    sidecarError?: string
 }
 
 /**

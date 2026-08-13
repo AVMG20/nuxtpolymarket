@@ -59,7 +59,7 @@ const templateOpen = ref(false)
 const templateSearch = ref('')
 const creatingCode = ref<string | null>(null)
 
-const { data: templateData, pending: templatesPending, error: templatesError, execute: loadTemplates } = useAsyncData('tcg-admin-templates', () => apiFetch<{ templates: RateTemplateRow[], sidecarUnavailable?: boolean }>('/api/tcg/admin/templates'), {
+const { data: templateData, pending: templatesPending, error: templatesError, execute: loadTemplates } = useAsyncData('tcg-admin-templates', () => apiFetch<{ templates: RateTemplateRow[], sidecarUnavailable?: boolean, sidecarError?: string }>('/api/tcg/admin/templates'), {
   immediate: false
 })
 
@@ -442,7 +442,7 @@ function formatDate(iso: string): string {
               variant="subtle"
               icon="i-lucide-unplug"
               title="Card data sidecar unreachable"
-              description="Checklist coverage could not be checked — every template is shown without card data. Start the pokemonplaatjes sidecar and reopen this dialog."
+              :description="`Checklist coverage could not be checked — every template is shown without card data. Start the pokemonplaatjes sidecar and reopen this dialog.${templateData?.sidecarError ? ` (${templateData.sidecarError})` : ''}`"
             />
 
             <UAlert

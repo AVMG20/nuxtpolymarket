@@ -18,7 +18,13 @@ export const SIDECAR_TIMEOUT_MS = 5000
  */
 export function sidecarFetch<T = unknown>(url: string, opts?: Record<string, unknown>): Promise<T> {
     const request = $fetch as (url: string, opts?: Record<string, unknown>) => Promise<T>
-    return request(url, opts)
+    // Callers own the failure POLICY; the log is unconditional so a degraded
+    // page never hides why the sidecar call failed.
+    return request(url, opts).catch((error) => {
+        const reason = error instanceof Error ? error.message : String(error)
+        console.error(`[sidecar] ${url} failed: ${reason}`)
+        throw error
+    })
 }
 
 /** The message every write path uses when the sidecar cannot be reached. */

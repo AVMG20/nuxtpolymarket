@@ -27,8 +27,9 @@ export default defineEventHandler(async (event) => {
     let sidecar: PlaatjesSetsResponse
     try {
         sidecar = await sidecarFetch<PlaatjesSetsResponse>(`${config.pokemonApiBase}/sets`, { timeout: SIDECAR_TIMEOUT_MS })
-    } catch {
-        return { sets: [], sidecarUnavailable: true as const }
+    } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error)
+        return { sets: [], sidecarUnavailable: true as const, sidecarError: `${config.pokemonApiBase} — ${reason}` }
     }
 
     // Names are a nicety — /sets only carries codes. A pull-rates outage (or a
