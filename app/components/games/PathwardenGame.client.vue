@@ -261,6 +261,13 @@ const rushingCooldown = ref(false)
 const nowMs = ref(Date.now())
 const toast = useToast()
 const { fetchSession } = useAuth()
+const route = useRoute()
+// `?seed=` reproduces an exact layout for testing. It only names the map
+// reserved on load; a march already under way keeps the map it started on.
+const requestedSeed = computed(() => {
+  const seed = Number(route.query.seed)
+  return Number.isInteger(seed) && seed >= 0 && seed <= 0xFFFFFFFF ? seed : undefined
+})
 const isDev = import.meta.dev
 const devGuidesEnabled = ref(false)
 const selectedIdleStoryId = ref(1)
@@ -672,8 +679,7 @@ async function ensureRunStarted() {
       method: 'POST',
       body: {
         realm: selectedRealm.value,
-        useSurge: useSurge.value,
-        seed: engine?.exportMapPlan().seed
+        useSurge: useSurge.value
       }
     })
     pendingMap = response.run.mapPlan
@@ -832,9 +838,9 @@ async function restart() {
   engine?.destroy()
   upgradeChoices.value = []
   useSurge.value = false
-  // Sticky while a march is still unstarted, so switching realm or surge cannot
-  // reroll the layout; a finished run releases its row and this mints the next.
-  await loadPendingMap()
+  // Rebuilding the keep discards whatever was planned on the old layout, so
+  // reserving a fresh map here costs nothing a reload would not already cost.
+  await reserveMap()
   createGame()
 }
 
@@ -1082,9 +1088,12 @@ async function runMapLoader(work?: () => void) {
   mapGenerating.value = false
 }
 
-async function loadPendingMap() {
+async function reserveMap() {
   try {
-    const response = await $fetch('/api/pathwarden/pending-map')
+    const response = await $fetch('/api/pathwarden/pending-map', {
+      method: 'POST',
+      body: { seed: requestedSeed.value }
+    })
     pendingMap = response.mapPlan ?? undefined
   } catch {
     // Without a reserved plan the engine falls back to a local map. The march
@@ -1103,15 +1112,24 @@ onMounted(async () => {
     nowMs.value = Date.now()
   }, 1000)
   hintsEnabled.value = localStorage.getItem('pathwarden-hints') !== 'off'
+  let marchInProgress = false
   if (boostState.value?.activeRun) {
     const response = await $fetch('/api/pathwarden/run')
-    if (response.run?.gameState) {
+    if (response.run) {
+      // A march that has begun owns its map, save or no save. Reloading in the
+      // gap before the first autosave used to leave the client believing no
+      // march existed, so starting wave 1 asked for a second one and was
+      // refused for as long as the run lived.
+      marchInProgress = true
       runActive.value = true
       saveRevision = response.run.revision
       selectedRealm.value = response.run.realm
-      restoredRun = {
-        mapPlan: response.run.mapPlan,
-        gameState: response.run.gameState
+      pendingMap = response.run.mapPlan
+      if (response.run.gameState) {
+        restoredRun = {
+          mapPlan: response.run.mapPlan,
+          gameState: response.run.gameState
+        }
       }
     } else if (response.recovered) {
       toast.add({
@@ -1121,7 +1139,7 @@ onMounted(async () => {
       })
     }
   }
-  if (!restoredRun) await loadPendingMap()
+  if (!marchInProgress) await reserveMap()
   unlockedRealm.value = boostState.value?.progression.maxUnlockedRealm ?? 1
   if (!restoredRun && skipIntro.value) await createFreshMapWithLoading()
   else createGame(restoredRun)

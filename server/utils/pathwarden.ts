@@ -1,6 +1,11 @@
 import { eq } from 'drizzle-orm'
 import type { DbExecutor } from '#server/database'
 import { pathwardenState } from '#server/database/schema'
+import type { PathwardenGameState, PathwardenMapPlan } from '#shared/types/pathwarden-save'
+import {
+    PATHWARDEN_GENERATOR_VERSION,
+    PATHWARDEN_SAVE_VERSION
+} from '#shared/types/pathwarden-save'
 import {
     PATHWARDEN_CHECKPOINT_WAVES,
     PATHWARDEN_MAX_WAVE,
@@ -12,7 +17,10 @@ import {
     type PathwardenBoostLevels
 } from '#shared/utils/gamelogic/pathwarden'
 import { createPathwardenMapPlan } from '#shared/utils/gamelogic/pathwarden-map'
-import { validatePathwardenMapPlan } from '#shared/utils/gamelogic/pathwarden-map-validation'
+import {
+    pathwardenSaveIsHydratable,
+    validatePathwardenMapPlan
+} from '#shared/utils/gamelogic/pathwarden-map-validation'
 
 export type LockedPathwardenState = typeof pathwardenState.$inferSelect
 
@@ -42,6 +50,27 @@ export async function getLockedPathwardenState(tx: DbExecutor, userId: string) {
 
 export function pathwardenRandomSeed() {
     return crypto.getRandomValues(new Uint32Array(1))[0]!
+}
+
+export interface PathwardenResumableRun {
+    saveVersion: number
+    generatorVersion: number
+    mapPlan: PathwardenMapPlan
+    gameState: PathwardenGameState | null
+}
+
+/**
+ * A march can only be resumed from a save that still fits its map. A row with
+ * no save yet is not resumable: it is the ~2.5s window between starting wave 1
+ * and the first autosave landing, and treating it as an active march trapped
+ * anyone who reloaded inside it behind a 409 they could only pay to escape.
+ */
+export function pathwardenRunIsResumable(run: PathwardenResumableRun | undefined) {
+    if (!run) return false
+    if (run.saveVersion !== PATHWARDEN_SAVE_VERSION) return false
+    if (run.generatorVersion !== PATHWARDEN_GENERATOR_VERSION) return false
+    if (!run.gameState) return false
+    return pathwardenSaveIsHydratable(run.mapPlan, run.gameState)
 }
 
 // The generator is deterministic and structurally sound (0 invalid plans across
