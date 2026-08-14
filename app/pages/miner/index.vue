@@ -1,43 +1,39 @@
 <script setup lang="ts">
+import { minerCrewSize, nextMinerAtLevel, storageTierName, nextStorageTierAt } from '~/utils/miner-scene'
+
 const { fetchSession, user } = useAuth()
 const balance = computed(() => parseFloat(user.value?.balance ?? '0'))
-const { data: state, refresh } = await useFetch('/api/miner/state')
+const { state, refresh, displayCash, cashFill } = await useMiner()
 
-// Real-time accumulation: interpolate locally since last fetch
-const fetchedAt = ref(Date.now())
-const now = ref(Date.now())
-
-watch(state, () => { fetchedAt.value = Date.now() })
-
-onMounted(() => {
-  const interval = setInterval(() => { now.value = Date.now() }, 1000)
-  onUnmounted(() => clearInterval(interval))
-})
-
-function elapsedDays() {
-  return (now.value - fetchedAt.value) / 86_400_000
-}
-
-const displayCash = computed(() => {
-  if (!state.value) return 0
-  return Math.min(state.value.pendingCash + state.value.income * elapsedDays(), state.value.cap)
-})
-
-const fillPercent = computed(() => {
-  if (!state.value?.cap) return 0
-  return Math.min((displayCash.value / state.value.cap) * 100, 100)
-})
-
+const scene = ref<{ playCollect: () => void, playUpgrade: (w: 'rig' | 'vault') => void, playReject: (w: 'rig' | 'vault' | 'scaffold') => void } | null>(null)
+const toast = useToast()
 const collecting = ref(false)
 const upgradingRig = ref(false)
 const upgradingVault = ref(false)
-const toast = useToast()
+
+const canCollect = computed(() => displayCash.value >= 0.01)
+const rigMaxed = computed(() => !!state.value && state.value.rigLevel >= state.value.rigMaxLevel)
+const vaultMaxed = computed(() => !!state.value && state.value.vaultLevel >= state.value.vaultMaxLevel)
+const canAffordRig = computed(() => !!state.value && balance.value >= state.value.rigUpgradeCost)
+const canAffordVault = computed(() => !!state.value && balance.value >= state.value.vaultUpgradeCost)
+const vaultFull = computed(() => cashFill.value >= 0.999)
+
+// Copy that tells the player what the next upgrade will visibly change.
+const crew = computed(() => minerCrewSize(state.value?.rigLevel ?? 1))
+const nextMiner = computed(() => nextMinerAtLevel(state.value?.rigLevel ?? 1))
+const storage = computed(() => storageTierName(state.value?.vaultLevel ?? 1))
+const nextStorage = computed(() => nextStorageTierAt(state.value?.vaultLevel ?? 1))
 
 async function collect() {
+  if (!canCollect.value || collecting.value) {
+    scene.value?.playReject('vault')
+    return
+  }
   collecting.value = true
+  scene.value?.playCollect()
   try {
     const res = await $fetch('/api/miner/collect', { method: 'POST' })
-    toast.add({ title: `Collected $${formatNumber(res.collected, true)}`, color: 'success' })
+    toast.add({ title: `Collected $${formatNumber(res.collected, true)}`, color: 'success', icon: 'i-lucide-coins' })
     await Promise.all([refresh(), fetchSession()])
   } catch (e: any) {
     toast.add({ title: apiErrorMessage(e, 'Failed to collect'), color: 'error' })
@@ -47,10 +43,15 @@ async function collect() {
 }
 
 async function upgradeRig() {
+  if (rigMaxed.value || !canAffordRig.value || upgradingRig.value) {
+    scene.value?.playReject('rig')
+    return
+  }
   upgradingRig.value = true
   try {
     const res = await $fetch('/api/miner/upgrade-rig', { method: 'POST' })
-    toast.add({ title: `Rig upgraded to level ${res.newLevel}`, color: 'success' })
+    scene.value?.playUpgrade('rig')
+    toast.add({ title: `Rig upgraded to level ${res.newLevel}`, color: 'success', icon: 'i-lucide-pickaxe' })
     await Promise.all([refresh(), fetchSession()])
   } catch (e: any) {
     toast.add({ title: apiErrorMessage(e, 'Upgrade failed'), color: 'error' })
@@ -60,10 +61,15 @@ async function upgradeRig() {
 }
 
 async function upgradeVault() {
+  if (vaultMaxed.value || !canAffordVault.value || upgradingVault.value) {
+    scene.value?.playReject('scaffold')
+    return
+  }
   upgradingVault.value = true
   try {
     const res = await $fetch('/api/miner/upgrade-vault', { method: 'POST' })
-    toast.add({ title: `Vault expanded to level ${res.newLevel}`, color: 'success' })
+    scene.value?.playUpgrade('vault')
+    toast.add({ title: `Vault expanded to level ${res.newLevel}`, color: 'success', icon: 'i-lucide-vault' })
     await Promise.all([refresh(), fetchSession()])
   } catch (e: any) {
     toast.add({ title: apiErrorMessage(e, 'Upgrade failed'), color: 'error' })
@@ -74,162 +80,110 @@ async function upgradeVault() {
 </script>
 
 <template>
-  <UContainer class="space-y-6">
-
-    <!-- Header -->
-    <div class="flex items-center justify-between">
-      <div>
-        <h1 class="text-2xl font-bold">Money Miner</h1>
-        <p class="text-sm text-muted mt-0.5">Automated resource extraction system.</p>
-      </div>
-    </div>
-
-    <!-- Skeletons -->
-    <div v-if="!state" class="space-y-4">
-      <USkeleton class="h-36 rounded-xl" />
-      <div class="grid grid-cols-2 gap-4">
-        <USkeleton class="h-44 rounded-xl" />
-        <USkeleton class="h-44 rounded-xl" />
-      </div>
-    </div>
+  <UContainer class="space-y-4">
+    <USkeleton v-if="!state" class="h-[62vh] min-h-[420px] rounded-2xl" />
 
     <template v-else>
-      <!-- Storage Unit — full width -->
-      <UCard>
-        <template #header>
-          <div class="flex items-center justify-between">
-            <div class="flex items-center gap-2.5">
-              <div class="size-8 rounded-lg bg-yellow-400/15 flex items-center justify-center">
-                <UIcon name="i-lucide-warehouse" class="size-4 text-yellow-400" />
-              </div>
-              <div>
-                <p class="font-semibold text-sm">Storage Unit</p>
-                <p class="text-xs text-muted">Capacity status and collection interface</p>
-              </div>
-            </div>
-            <div class="text-right">
-              <span class="text-2xl font-bold text-yellow-400">${{ formatNumber(displayCash, true) }}</span>
-              <span class="text-muted"> / ${{ formatNumber(state.cap, false) }}</span>
-            </div>
-          </div>
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
+        <MinerStatTile icon="i-lucide-pickaxe" label="Rig" :value="`Lv ${state.rigLevel}/${state.rigMaxLevel}`" :sub="`$${formatNumber(state.income, true)}/day`" tone="gold" />
+        <MinerStatTile icon="i-lucide-warehouse" label="Vault" :value="`Lv ${state.vaultLevel}/${state.vaultMaxLevel}`" :sub="`${storage} · cap $${formatNumber(state.cap, true)}`" tone="gold" />
+        <MinerStatTile icon="i-lucide-coins" label="Stored" :value="`$${formatNumber(displayCash, true)}`" :sub="`${Math.round(cashFill * 100)}% full`" tone="gold" />
+        <MinerStatTile icon="i-lucide-gauge" label="Overclock" :value="`+${Math.round((state.incomeMultiplier - 1) * 100)}%`" :sub="`Lv ${state.overclockLevel}/${state.overclockMaxLevel}`" tone="gold" />
+      </div>
+      <MinerShaftScene
+        ref="scene"
+        :rig-level="state.rigLevel"
+        :rig-max-level="state.rigMaxLevel"
+        :vault-level="state.vaultLevel"
+        :vault-max-level="state.vaultMaxLevel"
+        :overclock-level="state.overclockLevel"
+        :income-multiplier="state.incomeMultiplier"
+        :fill="cashFill"
+        :busy="collecting || upgradingRig || upgradingVault"
+        @collect="collect"
+        @upgrade-rig="upgradeRig"
+        @upgrade-vault="upgradeVault"
+      >
+        <!-- Vault readout — the number the whole page is about. -->
+        <template #vault>
+          <MinerActionChip
+            :label="canCollect ? `Collect $${formatNumber(displayCash, true)}` : 'Vault empty'"
+            :sub="vaultFull ? 'FULL — overflow is wasted' : `${Math.round(cashFill * 100)}% of $${formatNumber(state.cap, true)}`"
+            icon="i-lucide-coins"
+            tone="gold"
+            :ready="canCollect"
+            :loading="collecting"
+            :disabled="!canCollect"
+            @click="collect"
+          />
         </template>
 
-        <div class="space-y-3">
-          <div class="flex items-center justify-between gap-2 text-sm">
-            <span class="text-muted">Production rate</span>
-            <span class="flex items-center gap-2">
-              <span class="font-semibold text-yellow-400">${{ formatNumber(state.income, true) }}/day</span>
-              <UBadge
-                v-if="state.overclockLevel > 0"
-                color="primary"
-                variant="subtle"
-                :label="`+${Math.round((state.incomeMultiplier - 1) * 100)}% Overclock`"
-              />
-            </span>
+        <template #rig>
+          <MinerActionChip
+            :label="rigMaxed ? 'Rig maxed' : `Upgrade Rig · $${formatNumber(state.rigUpgradeCost, true)}`"
+            :sub="rigMaxed
+              ? `Lv ${state.rigLevel} · ${crew} miners`
+              : nextMiner
+                ? `$${formatNumber(rigIncome(state.rigLevel + 1) * state.incomeMultiplier, true)}/d · miner #${crew + 1} at Lv ${nextMiner}`
+                : `$${formatNumber(rigIncome(state.rigLevel + 1) * state.incomeMultiplier, true)}/d · full crew`"
+            icon="i-lucide-pickaxe"
+            tone="steel"
+            :loading="upgradingRig"
+            :disabled="rigMaxed || !canAffordRig"
+            @click="upgradeRig"
+          />
+        </template>
+
+        <template #scaffold>
+          <MinerActionChip
+            :label="vaultMaxed ? 'Vault maxed' : `Expand · $${formatNumber(state.vaultUpgradeCost, true)}`"
+            :sub="vaultMaxed
+              ? `Lv ${state.vaultLevel} · ${storage}`
+              : nextStorage
+                ? `Cap $${formatNumber(vaultCap(state.vaultLevel + 1), true)} · upgrades at Lv ${nextStorage}`
+                : `Cap → $${formatNumber(vaultCap(state.vaultLevel + 1), true)}`"
+            icon="i-lucide-vault"
+            tone="steel"
+            :loading="upgradingVault"
+            :disabled="vaultMaxed || !canAffordVault"
+            @click="upgradeVault"
+          />
+        </template>
+
+        <!-- Scene overlays -->
+        <div class="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between gap-3 p-4">
+          <div>
+            <h1 class="text-lg font-bold text-white/95 drop-shadow">Mining Shaft</h1>
+            <p class="text-xs text-white/55">{{ crew }} miner{{ crew !== 1 ? 's' : '' }} working the face</p>
           </div>
-          <div class="flex items-center gap-4">
-            <div class="flex-1 h-2 rounded-full bg-elevated overflow-hidden">
-              <div class="h-full bg-yellow-400 rounded-full" :style="{ width: `${fillPercent}%` }" />
+          <div class="flex flex-col items-end gap-1.5">
+            <div class="flex items-center gap-1.5 rounded-lg border border-amber-400/30 bg-black/45 px-2.5 py-1 backdrop-blur-sm">
+              <UIcon name="i-lucide-trending-up" class="size-3.5 text-amber-400" />
+              <span class="text-xs font-semibold text-amber-200 tabular-nums">${{ formatNumber(state.income, true) }}/day</span>
             </div>
-            <UButton
-              label="Collect Cash"
-              icon="i-lucide-coins"
-              :loading="collecting"
-              :disabled="displayCash < 0.01"
-              @click="collect"
-            />
+            <div
+              v-if="state.overclockLevel > 0"
+              class="flex items-center gap-1.5 rounded-lg border border-red-400/30 bg-black/45 px-2.5 py-1 backdrop-blur-sm"
+            >
+              <UIcon name="i-lucide-flame" class="size-3.5 text-red-400" />
+              <span class="text-[11px] font-semibold text-red-200">Overclock +{{ Math.round((state.incomeMultiplier - 1) * 100) }}%</span>
+            </div>
           </div>
         </div>
-      </UCard>
 
-      <!-- Rig + Vault side by side -->
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <!-- Mining Rig -->
-        <UCard class="flex flex-col">
-          <template #header>
-            <div class="flex items-center gap-2.5">
-              <div class="size-8 rounded-lg bg-primary/15 flex items-center justify-center">
-                <UIcon name="i-lucide-pickaxe" class="size-4 text-primary" />
-              </div>
-              <div>
-                <p class="font-semibold text-sm">Mining Rig</p>
-                <p class="text-xs text-muted">Upgrade hardware to increase income rate</p>
-              </div>
-            </div>
-          </template>
-
-          <div class="flex gap-8 mb-6">
-            <div>
-              <p class="text-xs text-muted uppercase tracking-wide font-medium mb-1">Level</p>
-              <p class="text-2xl font-bold">{{ state.rigLevel }}<span class="text-muted text-base font-normal">/{{ state.rigMaxLevel }}</span></p>
-            </div>
-            <div>
-              <p class="text-xs text-muted uppercase tracking-wide font-medium mb-1">Income</p>
-              <p class="text-2xl font-bold">${{ formatNumber(state.income, true) }}<span class="text-muted text-base font-normal">/d</span></p>
-              <p v-if="state.overclockLevel > 0" class="text-xs text-primary font-medium mt-1">
-                ${{ formatNumber(rigIncome(state.rigLevel), true) }} base +{{ Math.round((state.incomeMultiplier - 1) * 100) }}% Overclock
-              </p>
-              <p v-if="state.rigLevel < state.rigMaxLevel" class="text-xs text-muted mt-1">
-                → ${{ formatNumber(rigIncome(state.rigLevel + 1) * state.incomeMultiplier, false) }}/d after upgrade
-              </p>
-            </div>
+        <!-- Vault-full warning: the one state that actively costs the player money. -->
+        <div
+          v-if="vaultFull"
+          class="pointer-events-none absolute inset-x-0 bottom-3 flex justify-center"
+        >
+          <div class="flex items-center gap-2 rounded-full border border-red-400/50 bg-red-950/70 px-3 py-1.5 backdrop-blur-sm">
+            <UIcon name="i-lucide-triangle-alert" class="size-3.5 text-red-300" />
+            <span class="text-xs font-medium text-red-100">Vault is full — production is spilling on the floor</span>
           </div>
-          <UButton
-            label="Upgrade Rig"
-            icon="i-lucide-arrow-up"
-            block
-            :loading="upgradingRig"
-            :disabled="state.rigLevel >= state.rigMaxLevel || balance < state.rigUpgradeCost"
-            @click="upgradeRig"
-          >
-            <template #trailing>
-              <span class="text-xs opacity-70">Cost: ${{ formatNumber(state.rigUpgradeCost, true) }}</span>
-            </template>
-          </UButton>
-        </UCard>
+        </div>
+      </MinerShaftScene>
 
-        <!-- Vault Size -->
-        <UCard class="flex flex-col">
-          <template #header>
-            <div class="flex items-center gap-2.5">
-              <div class="size-8 rounded-lg bg-primary/15 flex items-center justify-center">
-                <UIcon name="i-lucide-vault" class="size-4 text-primary" />
-              </div>
-              <div>
-                <p class="font-semibold text-sm">Vault Size</p>
-                <p class="text-xs text-muted">Expand capacity to store more offline earnings <br/> This increases gem value for install fill perk
-                </p>
-              </div>
-            </div>
-          </template>
-
-          <div class="flex gap-8 mb-6">
-            <div>
-              <p class="text-xs text-muted uppercase tracking-wide font-medium mb-1">Level</p>
-              <p class="text-2xl font-bold">{{ state.vaultLevel }}<span class="text-muted text-base font-normal">/{{ state.vaultMaxLevel }}</span></p>
-            </div>
-            <div>
-              <p class="text-xs text-muted uppercase tracking-wide font-medium mb-1">Cap</p>
-              <p class="text-2xl font-bold">${{ formatNumber(state.cap, true) }}</p>
-              <p v-if="state.vaultLevel < state.vaultMaxLevel" class="text-xs text-muted mt-1">
-                → ${{ formatNumber(vaultCap(state.vaultLevel + 1), true) }} after upgrade
-              </p>
-            </div>
-          </div>
-          <UButton
-            label="Expand Vault"
-            icon="i-lucide-arrow-up"
-            block
-            :loading="upgradingVault"
-            :disabled="state.vaultLevel >= state.vaultMaxLevel || balance < state.vaultUpgradeCost"
-            @click="upgradeVault"
-          >
-            <template #trailing>
-              <span class="text-xs opacity-70">Cost: ${{ formatNumber(state.vaultUpgradeCost, true) }}</span>
-            </template>
-          </UButton>
-        </UCard>
-      </div>
+      <!-- Compact readout rail under the scene. -->
     </template>
   </UContainer>
 </template>

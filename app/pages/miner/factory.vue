@@ -1,40 +1,24 @@
 <script setup lang="ts">
 const { fetchSession, user } = useAuth()
 const balance = computed(() => parseFloat(user.value?.balance ?? '0'))
-const { data: state, refresh } = await useFetch('/api/miner/state')
+const { state, refresh, displayGems, collectableGems, gemFill } = await useMiner()
 
-const fetchedAt = ref(Date.now())
-const now = ref(Date.now())
-
-watch(state, () => { fetchedAt.value = Date.now() })
-
-onMounted(() => {
-  const interval = setInterval(() => { now.value = Date.now() }, 1000)
-  onUnmounted(() => clearInterval(interval))
-})
-
-function elapsedDays() {
-  return (now.value - fetchedAt.value) / 86_400_000
-}
-
-const displayGems = computed(() => {
-  if (!state.value) return 0
-  return Math.min(state.value.pendingGems + state.value.rate * elapsedDays(), state.value.gemCap)
-})
-
-const collectableGems = computed(() => Math.floor(displayGems.value))
-
-const fillPercent = computed(() => {
-  if (!state.value?.gemCap) return 0
-  return Math.min((displayGems.value / state.value.gemCap) * 100, 100)
-})
-
+const scene = ref<{ playCollect: () => void, playUpgrade: () => void, playReject: (w: 'press' | 'rack') => void } | null>(null)
+const toast = useToast()
 const collecting = ref(false)
 const upgrading = ref(false)
-const toast = useToast()
+
+const factoryMaxed = computed(() => !!state.value && state.value.factoryLevel >= state.value.factoryMaxLevel)
+const canAfford = computed(() => !!state.value && balance.value >= state.value.factoryUpgradeCost)
+const rackFull = computed(() => gemFill.value >= 0.999)
 
 async function collectGems() {
+  if (collectableGems.value < 1 || collecting.value) {
+    scene.value?.playReject('rack')
+    return
+  }
   collecting.value = true
+  scene.value?.playCollect()
   try {
     const res = await $fetch('/api/miner/collect-gems', { method: 'POST' })
     toast.add({ title: `Collected ${res.collected} gem${res.collected !== 1 ? 's' : ''}`, color: 'success', icon: 'i-lucide-gem' })
@@ -47,10 +31,15 @@ async function collectGems() {
 }
 
 async function upgradeFactory() {
+  if (factoryMaxed.value || !canAfford.value || upgrading.value) {
+    scene.value?.playReject('press')
+    return
+  }
   upgrading.value = true
   try {
     const res = await $fetch('/api/miner/upgrade-factory', { method: 'POST' })
-    toast.add({ title: `Factory upgraded to level ${res.newLevel}`, color: 'success' })
+    scene.value?.playUpgrade()
+    toast.add({ title: `Factory upgraded to level ${res.newLevel}`, color: 'success', icon: 'i-lucide-factory' })
     await Promise.all([refresh(), fetchSession()])
   } catch (e: any) {
     toast.add({ title: apiErrorMessage(e, 'Upgrade failed'), color: 'error' })
@@ -61,116 +50,82 @@ async function upgradeFactory() {
 </script>
 
 <template>
-  <UContainer class="space-y-6">
-    <!-- Header -->
-    <div class="flex items-center justify-between">
-      <div>
-        <h1 class="text-2xl font-bold">Gem Factory</h1>
-        <p class="text-sm text-muted mt-0.5">Synthesize premium gems for shop upgrades.</p>
-      </div>
-    </div>
-
-    <!-- Skeletons -->
-    <div v-if="!state" class="space-y-4">
-      <USkeleton class="h-24 rounded-xl" />
-      <USkeleton class="h-44 rounded-xl" />
-    </div>
+  <UContainer class="space-y-4">
+    <USkeleton v-if="!state" class="h-[62vh] min-h-[420px] rounded-2xl" />
 
     <template v-else>
-      <!-- Gem Synthesizer — full width -->
-      <UCard>
-        <template #header>
-          <div class="flex items-center justify-between">
-            <div class="flex items-center gap-2.5">
-              <div class="size-8 rounded-lg bg-cyan-400/15 flex items-center justify-center">
-                <UIcon name="i-lucide-gem" class="size-4 text-cyan-400" />
-              </div>
-              <div>
-                <p class="font-semibold text-sm">Gem Synthesizer</p>
-                <p class="text-xs text-muted">Harvest synthesized gems to use in the shop</p>
-              </div>
-            </div>
-            <div class="text-right">
-              <span class="text-2xl font-bold text-cyan-400">{{ collectableGems }}</span>
-              <span class="text-muted"> / {{ state.gemCap }}</span>
-            </div>
-          </div>
+      <div class="grid grid-cols-3 gap-2">
+        <MinerStatTile icon="i-lucide-diamond" label="Geode" :value="`Lv ${state.factoryLevel}/${state.factoryMaxLevel}`" :sub="`${state.rate.toFixed(1)} gems/day`" tone="cyan" />
+        <MinerStatTile icon="i-lucide-package" label="Crate" :value="`${collectableGems}/${state.gemCap}`" :sub="`${Math.round(gemFill * 100)}% full`" tone="cyan" />
+        <MinerStatTile icon="i-lucide-gem" label="Gems" :value="formatNumber(user?.gems ?? 0, true, 0)" sub="in wallet" tone="cyan" />
+      </div>
+      <MinerForgeScene
+        ref="scene"
+        :factory-level="state.factoryLevel"
+        :factory-max-level="state.factoryMaxLevel"
+        :catalyst-level="state.catalystLevel"
+        :gem-rate-multiplier="state.gemRateMultiplier"
+        :gem-cap="state.gemCap"
+        :pending-gems="displayGems"
+        :busy="collecting || upgrading"
+        @collect="collectGems"
+        @upgrade-factory="upgradeFactory"
+      >
+        <template #rack>
+          <MinerActionChip
+            :label="collectableGems >= 1 ? `Collect ${collectableGems} gem${collectableGems !== 1 ? 's' : ''}` : 'Crate empty'"
+            :sub="rackFull ? 'FULL — the crate cannot take more' : `${collectableGems}/${state.gemCap} in the crate`"
+            icon="i-lucide-gem"
+            tone="cyan"
+            :ready="collectableGems >= 1"
+            :loading="collecting"
+            :disabled="collectableGems < 1"
+            @click="collectGems"
+          />
         </template>
 
-        <div class="space-y-3">
-          <div class="flex items-center justify-between gap-2 text-sm">
-            <span class="text-muted">Production rate</span>
-            <span class="flex items-center gap-2">
-              <span class="font-semibold text-cyan-400">{{ state.rate.toFixed(1) }} gems/day</span>
-              <UBadge
-                v-if="state.catalystLevel > 0"
-                color="primary"
-                variant="subtle"
-                :label="`+${Math.round((state.gemRateMultiplier - 1) * 100)}% Catalyst`"
-              />
-            </span>
-          </div>
-          <div class="flex items-center gap-4">
-            <div class="flex-1 h-2 rounded-full bg-elevated overflow-hidden">
-              <div class="h-full bg-cyan-400 rounded-full" :style="{ width: `${fillPercent}%` }" />
-            </div>
-            <UButton
-              :label="collectableGems >= 1 ? `Collect ${collectableGems} Gem${collectableGems !== 1 ? 's' : ''}` : 'Not enough yet'"
-              icon="i-lucide-gem"
-              color="primary"
-              :loading="collecting"
-              :disabled="collectableGems < 1"
-              @click="collectGems"
-            />
-          </div>
-        </div>
-      </UCard>
-
-      <!-- Factory Upgrade -->
-      <UCard class="flex flex-col">
-        <template #header>
-          <div class="flex items-center gap-2.5">
-            <div class="size-8 rounded-lg bg-primary/15 flex items-center justify-center">
-              <UIcon name="i-lucide-factory" class="size-4 text-primary" />
-            </div>
-            <div>
-              <p class="font-semibold text-sm">Factory Upgrade</p>
-              <p class="text-xs text-muted">Enhance synthesis speed and storage capacity</p>
-            </div>
-          </div>
+        <template #press>
+          <MinerActionChip
+            :label="factoryMaxed ? 'Geode maxed' : `Expand geode · $${formatNumber(state.factoryUpgradeCost, true)}`"
+            :sub="factoryMaxed
+              ? `Level ${state.factoryLevel}`
+              : `Lv ${state.factoryLevel} → ${state.factoryLevel + 1} · ${(factoryRate(state.factoryLevel + 1) * state.gemRateMultiplier).toFixed(1)}/d`"
+            icon="i-lucide-diamond"
+            tone="steel"
+            :loading="upgrading"
+            :disabled="factoryMaxed || !canAfford"
+            @click="upgradeFactory"
+          />
         </template>
 
-        <div class="flex gap-8 mb-6">
+        <div class="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between gap-3 p-4">
           <div>
-            <p class="text-xs text-muted uppercase tracking-wide font-medium mb-1">Level</p>
-            <p class="text-2xl font-bold">{{ state.factoryLevel }}<span class="text-muted text-base font-normal">/{{ state.factoryMaxLevel }}</span></p>
+            <h1 class="text-lg font-bold text-white/95 drop-shadow">Gem Forge</h1>
+            <p class="text-xs text-white/55">Your cutter chips gems loose and crates them. Click the crate to collect.</p>
           </div>
-          <div>
-            <p class="text-xs text-muted uppercase tracking-wide font-medium mb-1">Rate</p>
-            <p class="text-2xl font-bold">{{ state.rate.toFixed(1) }}<span class="text-muted text-base font-normal">/d</span></p>
-            <p v-if="state.catalystLevel > 0" class="text-xs text-primary font-medium mt-1">
-              {{ factoryRate(state.factoryLevel).toFixed(1) }} base +{{ Math.round((state.gemRateMultiplier - 1) * 100) }}%
-            </p>
-          </div>
-          <div>
-            <p class="text-xs text-muted uppercase tracking-wide font-medium mb-1">Cap</p>
-            <p class="text-2xl font-bold">{{ state.gemCap }}</p>
+          <div class="flex flex-col items-end gap-1.5">
+            <div class="flex items-center gap-1.5 rounded-lg border border-cyan-400/30 bg-black/45 px-2.5 py-1 backdrop-blur-sm">
+              <UIcon name="i-lucide-activity" class="size-3.5 text-cyan-400" />
+              <span class="text-xs font-semibold text-cyan-200 tabular-nums">{{ state.rate.toFixed(1) }} gems/day</span>
+            </div>
+            <div
+              v-if="state.catalystLevel > 0"
+              class="flex items-center gap-1.5 rounded-lg border border-cyan-400/30 bg-black/45 px-2.5 py-1 backdrop-blur-sm"
+            >
+              <UIcon name="i-lucide-flask-conical" class="size-3.5 text-cyan-300" />
+              <span class="text-[11px] font-semibold text-cyan-200">Catalyst +{{ Math.round((state.gemRateMultiplier - 1) * 100) }}%</span>
+            </div>
           </div>
         </div>
-        <UButton
-          label="Upgrade Factory"
-          icon="i-lucide-arrow-up"
-          block
-          color="primary"
-          :loading="upgrading"
-          :disabled="state.factoryLevel >= state.factoryMaxLevel || balance < state.factoryUpgradeCost"
-          @click="upgradeFactory"
-        >
-          <template #trailing>
-            <span class="text-xs opacity-70">Cost: ${{ formatNumber(state.factoryUpgradeCost, true) }}</span>
-          </template>
-        </UButton>
-      </UCard>
+
+        <div v-if="rackFull" class="pointer-events-none absolute inset-x-0 bottom-3 flex justify-center">
+          <div class="flex items-center gap-2 rounded-full border border-red-400/50 bg-red-950/70 px-3 py-1.5 backdrop-blur-sm">
+            <UIcon name="i-lucide-triangle-alert" class="size-3.5 text-red-300" />
+            <span class="text-xs font-medium text-red-100">Crate is full — no more gems are forming</span>
+          </div>
+        </div>
+      </MinerForgeScene>
+
     </template>
   </UContainer>
 </template>
