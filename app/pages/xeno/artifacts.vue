@@ -10,6 +10,8 @@ const activeTab = ref<'grid' | 'breeder'>('grid')
 const gemCraft = ref(false)
 const buying = ref<Record<string, boolean>>({})
 
+const CRAFT_QUANTITIES = [1, 10, 50] as const
+
 interface ArtifactFamily {
   id: string
   name: string
@@ -54,17 +56,24 @@ function ownedCount(plantTypeId: string): number {
     .reduce((s: number, i: any) => s + i.quantity, 0)
 }
 
-function canAfford(cost: { plantTypeId: string; quantity: number }[]): boolean {
-  return cost.every(c => ownedCount(c.plantTypeId) >= c.quantity)
+function canAfford(cost: { plantTypeId: string; quantity: number }[], count = 1): boolean {
+  return cost.every(c => ownedCount(c.plantTypeId) >= c.quantity * count)
 }
 
-function canAffordGems(art: typeof ARTIFACT_TYPES[0]): boolean {
-  return !gemCraft.value || gems.value >= gemCraftCost(art)
+function canAffordGems(art: typeof ARTIFACT_TYPES[0], count = 1): boolean {
+  return !gemCraft.value || gems.value >= gemCraftCost(art) * count
 }
 
-async function doBuy(art: typeof ARTIFACT_TYPES[0]) {
-  buying.value[art.id] = true
-  try { await buyArtifact(art.id, gemCraft.value) } finally { delete buying.value[art.id] }
+function maxCraftable(art: typeof ARTIFACT_TYPES[0]): number {
+  let max = Math.min(...art.cost.map(c => Math.floor(ownedCount(c.plantTypeId) / c.quantity)))
+  if (gemCraft.value) max = Math.min(max, Math.floor(gems.value / gemCraftCost(art)))
+  return Number.isFinite(max) ? Math.max(0, max) : 0
+}
+
+async function doBuy(art: typeof ARTIFACT_TYPES[0], count = 1) {
+  const key = `${art.id}-${count}`
+  buying.value[key] = true
+  try { await buyArtifact(art.id, gemCraft.value, count) } finally { delete buying.value[key] }
 }
 </script>
 
@@ -208,15 +217,24 @@ async function doBuy(art: typeof ARTIFACT_TYPES[0]) {
 
             <!-- Craft -->
             <div class="px-3.5 pb-3.5">
-              <UButton
-                :label="gemCraft ? 'Gem Craft' : 'Craft'"
-                :icon="gemCraft ? 'i-lucide-sparkles' : 'i-lucide-hammer'"
-                size="sm"
-                :loading="buying[art.id]"
-                :disabled="!canAfford(art.cost) || !canAffordGems(art)"
-                block
-                @click="doBuy(art)"
-              />
+              <p class="text-[10px] font-bold uppercase tracking-widest text-muted mb-1.5">
+                {{ gemCraft ? 'Gem Craft' : 'Craft' }}
+                <span class="ml-1 font-medium normal-case tracking-normal opacity-70">max {{ maxCraftable(art) }}</span>
+              </p>
+              <div class="flex gap-1">
+                <UButton
+                  v-for="qty in CRAFT_QUANTITIES"
+                  :key="qty"
+                  :icon="qty === 1 ? (gemCraft ? 'i-lucide-sparkles' : 'i-lucide-hammer') : undefined"
+                  size="sm"
+                  class="flex-1 justify-center"
+                  :loading="buying[`${art.id}-${qty}`]"
+                  :disabled="!canAfford(art.cost, qty) || !canAffordGems(art, qty)"
+                  @click="doBuy(art, qty)"
+                >
+                  <span class="tabular-nums font-semibold">{{ qty }}×</span>
+                </UButton>
+              </div>
             </div>
           </div>
         </div>
