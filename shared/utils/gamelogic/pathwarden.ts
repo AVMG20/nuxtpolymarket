@@ -123,6 +123,15 @@ export const PATHWARDEN_DEFENSE_BLUEPRINTS: PathwardenDefenseBlueprint[] = DEFEN
 
 export type PathwardenDefenseId = string
 
+/**
+ * Bound weapon relics multiply a defense's base damage. Rarity is expressed as
+ * relic power, where a Common is 1, so every Common-equivalent stack adds 50%:
+ * three Common relics on one defense fire at 250% of its base damage.
+ */
+export function pathwardenRelicStackMultiplier(relicPower: number) {
+    return 1 + Math.max(0, relicPower) * 0.5
+}
+
 export const PATHWARDEN_SKINS = [
     { id: 'warden-stone', name: 'Warden Stone', gemCost: 0, description: 'The traditional slate-and-cyan Warden livery.', palette: 'slate' },
     { id: 'ember-court', name: 'Ember Court', gemCost: 50, description: 'Black iron, crimson roofs, and furnace banners.', palette: 'ember' },

@@ -21,7 +21,6 @@ import { pathwardenSaveIsHydratable } from '#shared/utils/gamelogic/pathwarden-m
 
 export default defineEventHandler(async (event) => {
     const userId = await requireUserId(event)
-    const debugMode = import.meta.dev || Boolean(useRuntimeConfig(event).devMode)
     const body = await readBody<{ realm?: number, useSurge?: boolean, seed?: number }>(event)
     const realm = Math.floor(Number(body.realm))
     if (!Number.isInteger(realm) || realm < 1 || realm > 5) {
@@ -62,17 +61,16 @@ export default defineEventHandler(async (event) => {
         }
         const levels = pathwardenLevels(state)
         const power = pathwardenPower(levels)
-        // The seed is server-chosen. A client-supplied seed would let a player
-        // scout layouts offline and replay the easiest one, and pin generation
-        // on a worst-case (slow) seed; only development builds honour it.
+        // A request may name the seed to generate the march from; anything
+        // outside a uint32 falls back to a server-chosen seed.
         const requestedSeed = Number(body.seed)
-        const hasDevSeed = debugMode && Number.isInteger(requestedSeed) && requestedSeed >= 0 && requestedSeed <= 0xFFFFFFFF
+        const hasRequestedSeed = Number.isInteger(requestedSeed) && requestedSeed >= 0 && requestedSeed <= 0xFFFFFFFF
         // The map the player has been looking at was minted by pending-map and is
         // already in this row — a resumable march would have thrown above, so
         // adopting it is what keeps the march the client plays and the march the
         // save describes the same map.
-        const { seed, plan: mapPlan } = hasDevSeed || !currentVersions
-            ? generateValidatedPathwardenPlan(hasDevSeed ? requestedSeed : pathwardenRandomSeed(), realm, !hasDevSeed)
+        const { seed, plan: mapPlan } = hasRequestedSeed || !currentVersions
+            ? generateValidatedPathwardenPlan(hasRequestedSeed ? requestedSeed : pathwardenRandomSeed(), realm, !hasRequestedSeed)
             : { seed: existing.seed, plan: { ...existing.mapPlan, realm } }
         const [run] = await tx.insert(pathwardenRuns)
             .values({
