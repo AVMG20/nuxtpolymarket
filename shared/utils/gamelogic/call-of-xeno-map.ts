@@ -84,14 +84,6 @@ export const CALL_OF_XENO_REGIONS: CallOfXenoRegion[] = [
     { id: 7, name: 'Service Tunnel', bounds: { minX: 4, maxX: 64, minZ: 24, maxZ: 28 }, ceiling: CALL_OF_XENO_WALL_HEIGHT, theme: 3 }
 ]
 
-/** The three named rooms, for spawn selection and signage. */
-export const CALL_OF_XENO_ROOMS = [
-    { id: 0, name: 'Landing Bay', region: 0 },
-    { id: 1, name: 'Reactor Hall', region: 1 },
-    { id: 2, name: 'Power Deck', region: 2 },
-    { id: 3, name: 'Service Tunnel', region: 7 }
-]
-
 const H = CALL_OF_XENO_WALL_HEIGHT
 const A = CALL_OF_XENO_ATRIUM_HEIGHT
 
@@ -158,17 +150,18 @@ export const CALL_OF_XENO_WALLS: CallOfXenoSolid[] = [
  * it, so you can fire over a crate you are stood behind.
  */
 export const CALL_OF_XENO_CRATES: CallOfXenoSolid[] = [
-    { box: { minX: 7, maxX: 10, minZ: 13, maxZ: 16 }, baseY: 0, height: 1.1 },
+    { box: { minX: 13, maxX: 16, minZ: 12, maxZ: 15 }, baseY: 0, height: 1.1 },
     { box: { minX: 4, maxX: 6, minZ: 4, maxZ: 6 }, baseY: 0, height: 1.5 },
     { box: { minX: 15, maxX: 17, minZ: 6, maxZ: 8 }, baseY: 0, height: 1.1 },
     { box: { minX: 28, maxX: 30, minZ: 12, maxZ: 14 }, baseY: 0, height: 1.2 },
     { box: { minX: 38, maxX: 40, minZ: 12, maxZ: 14 }, baseY: 0, height: 1.2 },
     { box: { minX: 50, maxX: 53, minZ: 13, maxZ: 16 }, baseY: 0, height: 1.2 },
-    { box: { minX: 20, maxX: 23, minZ: 25, maxZ: 27 }, baseY: 0, height: 1.1 },
-    { box: { minX: 44, maxX: 47, minZ: 25, maxZ: 27 }, baseY: 0, height: 1.1 },
-    // On the catwalk, so the high ground is not a bare shooting gallery.
-    { box: { minX: 24.5, maxX: 26.5, minZ: 13, maxZ: 15 }, baseY: CALL_OF_XENO_CATWALK_Y, height: 1 },
-    { box: { minX: 41.5, maxX: 43.5, minZ: 5, maxZ: 7 }, baseY: CALL_OF_XENO_CATWALK_Y, height: 1 }
+    { box: { minX: 20, maxX: 23, minZ: 24.2, maxZ: 25.2 }, baseY: 0, height: 1.1 },
+    { box: { minX: 44, maxX: 47, minZ: 24.2, maxZ: 25.2 }, baseY: 0, height: 1.1 },
+    // On the catwalk, tucked against the outer wall so the walking lane stays
+    // clear — the high ground should be cover, not a maze.
+    { box: { minX: 29, maxX: 31, minZ: 2.6, maxZ: 3.4 }, baseY: CALL_OF_XENO_CATWALK_Y, height: 1 },
+    { box: { minX: 37, maxX: 39, minZ: 2.6, maxZ: 3.4 }, baseY: CALL_OF_XENO_CATWALK_Y, height: 1 }
 ]
 
 /** The catwalk: a U around the Reactor Hall, open over the south half. */
@@ -256,15 +249,15 @@ export const CALL_OF_XENO_NODES: { x: number, z: number, y: number }[] = [
     { x: 6, z: 26, y: 0 },         // 9  Tunnel west
     { x: 6, z: 19, y: 0 },         // 10 Bay stairwell
     { x: 34, z: 18, y: 0 },        // 11 Hall south floor
-    { x: 30, z: 18.5, y: 0 },      // 12 West ramp base
+    { x: 30.8, z: 18.5, y: 0 },    // 12 West ramp base
     { x: 25.5, z: 18.5, y: CALL_OF_XENO_CATWALK_Y }, // 13 West ramp top
     { x: 25.5, z: 10, y: CALL_OF_XENO_CATWALK_Y },   // 14 Catwalk west
-    { x: 25.5, z: 1.75, y: CALL_OF_XENO_CATWALK_Y }, // 15 Catwalk north-west
-    { x: 34, z: 1.75, y: CALL_OF_XENO_CATWALK_Y },   // 16 Catwalk north
-    { x: 42.5, z: 1.75, y: CALL_OF_XENO_CATWALK_Y }, // 17 Catwalk north-east
+    { x: 25.5, z: 1.4, y: CALL_OF_XENO_CATWALK_Y },  // 15 Catwalk north-west
+    { x: 34, z: 1.4, y: CALL_OF_XENO_CATWALK_Y },    // 16 Catwalk north
+    { x: 42.5, z: 1.4, y: CALL_OF_XENO_CATWALK_Y },  // 17 Catwalk north-east
     { x: 42.5, z: 10, y: CALL_OF_XENO_CATWALK_Y },   // 18 Catwalk east
     { x: 42.5, z: 18.5, y: CALL_OF_XENO_CATWALK_Y }, // 19 East ramp top
-    { x: 38, z: 18.5, y: 0 }       // 20 East ramp base
+    { x: 37.2, z: 18.5, y: 0 }     // 20 East ramp base
 ]
 
 export const CALL_OF_XENO_EDGES: [number, number][] = [
@@ -307,8 +300,8 @@ export const CALL_OF_XENO_INTERACTABLES: CallOfXenoInteractable[] = [
 
     // Reactor Hall — the box on the floor, Juggernog up on the catwalk.
     { id: 'buy-ak74', kind: 'wallbuy', x: 34, y: 0, z: 0.4, facing: 0, region: 1, weapon: 'ak74', needsPower: false },
-    { id: 'mysterybox', kind: 'mysterybox', x: 34, y: 0, z: 13.5, facing: Math.PI, region: 1, needsPower: false },
-    { id: 'perk-juggernog', kind: 'perk', x: 25.5, y: CALL_OF_XENO_CATWALK_Y, z: 5, facing: Math.PI / 2, region: 1, perk: 'juggernog', needsPower: true },
+    { id: 'mysterybox', kind: 'mysterybox', x: 35.8, y: 0, z: 13.5, facing: Math.PI, region: 1, needsPower: false },
+    { id: 'perk-juggernog', kind: 'perk', x: 34, y: CALL_OF_XENO_CATWALK_Y, z: 2.9, facing: 0, region: 1, perk: 'juggernog', needsPower: true },
 
     // Power Deck
     { id: 'power', kind: 'power', x: 67.4, y: 0, z: 10, facing: -Math.PI / 2, region: 2, needsPower: false },
@@ -317,7 +310,7 @@ export const CALL_OF_XENO_INTERACTABLES: CallOfXenoInteractable[] = [
     { id: 'papunch', kind: 'papunch', x: 66, y: 0, z: 19, facing: Math.PI, region: 2, needsPower: true },
 
     // Service Tunnel — Speed Cola is the reward for closing the ring.
-    { id: 'perk-speedcola', kind: 'perk', x: 34, y: 0, z: 27, facing: Math.PI, region: 7, perk: 'speedcola', needsPower: true }
+    { id: 'perk-speedcola', kind: 'perk', x: 34, y: 0, z: 27.4, facing: Math.PI, region: 7, perk: 'speedcola', needsPower: true }
 ]
 
 export const CALL_OF_XENO_PLAYER_START = { x: 12, z: 17 }
@@ -407,8 +400,12 @@ export function solidsInBand(solids: readonly CallOfXenoSolid[], feetY: number, 
     const boxes: CallOfXenoBox[] = []
     for (const solid of solids) {
         const top = solid.baseY + solid.height
-        // A surface exactly at foot level is the floor you are standing on.
-        if (top <= feetY + 0.02 || solid.baseY >= headY) continue
+        // Anything low enough to step onto is floor, not wall — this is what
+        // lets an actor walk off the top of a ramp onto the catwalk deck
+        // instead of being stopped by the deck's own collision box.
+        if (top <= feetY + CALL_OF_XENO_STEP_UP) continue
+        // Anything starting above head height is something to walk under.
+        if (solid.baseY >= headY) continue
         boxes.push(solid.box)
     }
     return boxes

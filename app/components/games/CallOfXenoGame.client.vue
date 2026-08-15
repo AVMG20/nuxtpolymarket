@@ -2,35 +2,29 @@
     <div class="relative h-screen w-full select-none overflow-hidden bg-black">
         <div ref="viewport" class="absolute inset-0" />
 
-        <!-- Floating damage numbers, projected from world space each frame. -->
+        <!-- Floating damage and point numbers, projected from world space. -->
         <div class="pointer-events-none absolute inset-0 overflow-hidden">
             <div
                 v-for="popup in popups"
                 :key="popup.id"
                 class="absolute -translate-x-1/2 -translate-y-1/2 whitespace-nowrap font-mono font-bold tabular-nums drop-shadow-[0_2px_3px_rgba(0,0,0,0.9)]"
-                :style="{
-                    left: popup.left + 'px',
-                    top: popup.top + 'px',
-                    opacity: popup.opacity,
-                    color: popup.color,
-                    fontSize: popup.size + 'px'
-                }"
+                :style="{ left: popup.left + 'px', top: popup.top + 'px', opacity: popup.opacity, color: popup.color, fontSize: popup.size + 'px' }"
             >{{ popup.text }}</div>
         </div>
 
-        <!-- Damage vignette plus a permanent soft edge darkening. -->
         <div class="pointer-events-none absolute inset-0" style="box-shadow: inset 0 0 180px 40px rgba(0,0,0,0.75)" />
         <div
             class="pointer-events-none absolute inset-0 transition-opacity duration-150"
             :style="{ opacity: hurtOpacity, boxShadow: 'inset 0 0 200px 70px rgba(190,10,10,0.9)' }"
         />
+        <div v-if="lowHealth" class="pointer-events-none absolute inset-0 animate-pulse" style="box-shadow: inset 0 0 260px 90px rgba(140,0,0,0.55)" />
         <div
-            v-if="lowHealth"
-            class="pointer-events-none absolute inset-0 animate-pulse"
-            style="box-shadow: inset 0 0 260px 90px rgba(140,0,0,0.55)"
+            v-if="instakillOn"
+            class="pointer-events-none absolute inset-0"
+            style="box-shadow: inset 0 0 200px 60px rgba(255,60,60,0.28)"
         />
 
-        <!-- Crosshair. Opens up with recoil, turns red on a hit. -->
+        <!-- Crosshair -->
         <div v-if="phase === 'playing' && locked" class="pointer-events-none absolute inset-0 flex items-center justify-center">
             <div class="relative size-16">
                 <span
@@ -44,7 +38,7 @@
                 <span
                     v-if="hitMarker > 0"
                     class="absolute inset-0 flex items-center justify-center text-lg font-bold"
-                    :class="lastHitHead ? 'text-amber-300' : 'text-red-400'"
+                    :class="lastHitKind === 'weak' ? 'text-amber-300' : lastHitKind === 'head' ? 'text-amber-200' : 'text-red-400'"
                     :style="{ opacity: hitMarker / 0.18 }"
                 >✕</span>
             </div>
@@ -67,23 +61,45 @@
                     />
                 </div>
                 <div class="mt-1 text-[10px] uppercase tracking-[0.25em] text-white/35">Vitals</div>
+
+                <div v-if="activePowerUps.length" class="mt-3 space-y-1">
+                    <div
+                        v-for="buff in activePowerUps"
+                        :key="buff.id"
+                        class="flex items-center gap-2 text-[11px] font-bold uppercase tracking-widest"
+                        :style="{ color: buff.color }"
+                    >
+                        <span class="inline-block size-2 rounded-full" :style="{ background: buff.color }" />
+                        {{ buff.name }}
+                        <span class="tabular-nums opacity-70">{{ Math.ceil(buff.remaining) }}s</span>
+                    </div>
+                </div>
             </div>
 
             <div class="absolute right-6 top-6 text-right">
-                <div class="text-4xl font-bold leading-none tabular-nums text-amber-300">
-                    {{ points.toLocaleString() }}
-                </div>
+                <div class="text-4xl font-bold leading-none tabular-nums text-amber-300">{{ points.toLocaleString() }}</div>
                 <div class="text-[10px] uppercase tracking-[0.25em] text-white/35">Points</div>
-                <div class="mt-4 text-2xl font-bold leading-none text-red-500">ROUND {{ round }}</div>
-                <div class="mt-0.5 flex items-center justify-end gap-1.5 text-[10px] uppercase tracking-[0.2em] text-white/35">
-                    <span>{{ zombiesLeft }} left</span>
-                    <span class="inline-block size-1.5 rounded-full" :class="zombiesLeft > 0 ? 'bg-red-500' : 'bg-white/20'" />
+                <div class="mt-4 text-2xl font-bold leading-none" :class="specialRound ? 'text-fuchsia-400' : 'text-red-500'">
+                    ROUND {{ round }}
                 </div>
+                <div class="mt-0.5 flex items-center justify-end gap-1.5 text-[10px] uppercase tracking-[0.2em] text-white/35">
+                    <span>{{ enemiesLeft }} left</span>
+                    <span class="inline-block size-1.5 rounded-full" :class="enemiesLeft > 0 ? 'bg-red-500' : 'bg-white/20'" />
+                </div>
+                <div v-if="modifierName" class="mt-1 text-[10px] uppercase tracking-[0.2em] text-cyan-300">{{ modifierName }}</div>
             </div>
 
+            <Transition enter-active-class="transition duration-150" enter-from-class="opacity-0 scale-125" leave-active-class="transition duration-300" leave-to-class="opacity-0">
+                <div v-if="streakMult > 1" class="absolute right-6 top-48 text-right">
+                    <div class="text-3xl font-bold leading-none text-orange-400 tabular-nums">x{{ streakMult }}</div>
+                    <div class="text-[10px] uppercase tracking-[0.25em] text-white/35">{{ streakCount }} streak</div>
+                </div>
+            </Transition>
+
             <div class="absolute bottom-6 right-6 text-right">
-                <div class="text-base font-bold uppercase tracking-wider" :class="weaponPapped ? 'text-fuchsia-400' : 'text-white/90'">
+                <div class="text-base font-bold uppercase tracking-wider" :class="papTier > 0 ? 'text-fuchsia-400' : 'text-white/90'">
                     {{ weaponName }}
+                    <span v-if="papTier > 0" class="ml-1 text-[10px] tracking-[0.2em] text-fuchsia-300/70">PaP {{ papTier }}/3</span>
                 </div>
                 <div class="text-3xl font-bold leading-none tabular-nums">
                     <span :class="magAmmo === 0 ? 'text-red-500' : 'text-white'">{{ magAmmo }}</span>
@@ -116,16 +132,12 @@
                 {{ prompt }}
             </div>
 
-            <Transition
-                enter-active-class="transition duration-300"
-                enter-from-class="opacity-0 scale-90"
-                leave-active-class="transition duration-500"
-                leave-to-class="opacity-0"
-            >
-                <div v-if="banner" class="absolute left-1/2 top-[22%] -translate-x-1/2 text-center">
-                    <div class="text-5xl font-bold uppercase tracking-[0.2em] text-red-600 drop-shadow-[0_3px_8px_rgba(0,0,0,0.9)]">
-                        {{ banner }}
-                    </div>
+            <Transition enter-active-class="transition duration-300" enter-from-class="opacity-0 scale-90" leave-active-class="transition duration-500" leave-to-class="opacity-0">
+                <div v-if="banner" class="absolute left-1/2 top-[20%] -translate-x-1/2 text-center">
+                    <div
+                        class="text-5xl font-bold uppercase tracking-[0.2em] drop-shadow-[0_3px_8px_rgba(0,0,0,0.9)]"
+                        :style="{ color: bannerColor }"
+                    >{{ banner }}</div>
                     <div v-if="subBanner" class="mt-1 text-sm uppercase tracking-[0.3em] text-white/50">{{ subBanner }}</div>
                 </div>
             </Transition>
@@ -145,27 +157,33 @@
         <!-- Start / pause / death -->
         <div
             v-if="phase === 'menu' || phase === 'over' || (phase === 'playing' && !locked)"
-            class="absolute inset-0 flex items-center justify-center bg-black/85 p-6 backdrop-blur-sm"
+            class="absolute inset-0 flex items-center justify-center overflow-y-auto bg-black/85 p-6 backdrop-blur-sm"
         >
             <div class="w-full max-w-xl rounded-xl border border-default bg-elevated p-8 text-center shadow-2xl">
                 <template v-if="phase === 'menu'">
                     <div class="text-[10px] uppercase tracking-[0.4em] text-muted">Survival</div>
                     <h1 class="mt-1 text-5xl font-bold tracking-tight text-primary">Call of Xeno</h1>
-                    <p class="mt-2 text-muted">Three sealed rooms. Buy your way deeper, turn the power on, survive.</p>
+                    <p class="mt-2 text-muted">Four doors close the ring. Take the catwalk, turn the power on, survive.</p>
                 </template>
                 <template v-else-if="phase === 'over'">
                     <h1 class="text-5xl font-bold text-red-500">You Died</h1>
-                    <p class="mt-2 text-muted">Round {{ round }} · {{ points.toLocaleString() }} points · {{ kills }} kills</p>
-                    <p v-if="round > bestRound" class="mt-1 text-sm text-primary">New best round</p>
+                    <p class="mt-1 text-muted">Round {{ round }}</p>
+                    <div class="mx-auto mt-6 grid max-w-md grid-cols-2 gap-x-8 gap-y-2 text-left text-sm">
+                        <div v-for="stat in summary" :key="stat.label" class="flex justify-between border-b border-default/60 pb-1">
+                            <span class="text-muted">{{ stat.label }}</span>
+                            <span class="font-mono font-bold text-highlighted">{{ stat.value }}</span>
+                        </div>
+                    </div>
+                    <p v-if="round >= bestRound" class="mt-4 text-sm text-primary">Best round yet</p>
                 </template>
                 <template v-else>
                     <h1 class="text-4xl font-bold text-primary">Paused</h1>
                     <p class="mt-2 text-muted">Round {{ round }} · {{ points.toLocaleString() }} points</p>
                 </template>
 
-                <div class="mx-auto mt-7 grid max-w-sm grid-cols-2 gap-x-6 gap-y-1.5 text-left text-sm text-muted">
+                <div v-if="phase !== 'over'" class="mx-auto mt-7 grid max-w-sm grid-cols-2 gap-x-6 gap-y-1.5 text-left text-sm text-muted">
                     <div><span class="font-mono text-highlighted">WASD</span> move</div>
-                    <div><span class="font-mono text-highlighted">Mouse</span> look</div>
+                    <div><span class="font-mono text-highlighted">Space</span> jump</div>
                     <div><span class="font-mono text-highlighted">Shift</span> sprint</div>
                     <div><span class="font-mono text-highlighted">LMB</span> fire</div>
                     <div><span class="font-mono text-highlighted">R</span> reload</div>
@@ -174,8 +192,12 @@
                     <div><span class="font-mono text-highlighted">Esc</span> pause</div>
                 </div>
 
+                <p v-if="initError" class="mt-6 rounded border border-red-500/40 bg-red-950/40 px-3 py-2 font-mono text-xs text-red-300">
+                    Could not start the renderer: {{ initError }}
+                </p>
+
                 <UButton size="xl" class="mt-8" @click="phase === 'over' ? restart() : begin()">
-                    {{ phase === 'menu' ? 'Drop In' : phase === 'over' ? 'Try Again' : 'Resume' }}
+                    {{ phase === 'menu' ? 'Drop In' : phase === 'over' ? 'Run It Back' : 'Resume' }}
                 </UButton>
                 <p class="mt-3 text-xs text-muted">Your mouse is captured while playing. Esc gives it back.</p>
             </div>
@@ -184,72 +206,85 @@
 </template>
 
 <script setup lang="ts">
-import { ref, shallowRef, computed, onMounted, onBeforeUnmount } from 'vue'
+import { ref, shallowRef, computed, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import * as THREE from 'three'
 import {
     CALL_OF_XENO_WEAPONS,
     CALL_OF_XENO_PERKS,
+    CALL_OF_XENO_ENEMIES,
+    CALL_OF_XENO_POWERUPS,
+    CALL_OF_XENO_MODIFIERS,
+    CALL_OF_XENO_BOX_COST,
+    CALL_OF_XENO_BOX_POOL,
     CALL_OF_XENO_BASE_HEALTH,
     CALL_OF_XENO_JUGGERNOG_HEALTH,
     CALL_OF_XENO_REGEN_DELAY,
     CALL_OF_XENO_REGEN_RATE,
     CALL_OF_XENO_HIT_POINTS,
     CALL_OF_XENO_KILL_POINTS,
+    CALL_OF_XENO_HEADSHOT_POINTS,
     CALL_OF_XENO_STARTING_POINTS,
-    CALL_OF_XENO_PACK_A_PUNCH_COST,
+    CALL_OF_XENO_POWERUP_CHANCE,
+    CALL_OF_XENO_POWERUP_LIFETIME,
+    CALL_OF_XENO_NUKE_POINTS,
+    CALL_OF_XENO_STREAK_WINDOW,
+    CALL_OF_XENO_SPECIAL_ROUND_BONUS,
+    CALL_OF_XENO_FRENZY_SPEED,
+    CALL_OF_XENO_ROUND_BREAK,
     packAPunch,
+    packAPunchCost,
     ammoCost,
+    roundComposition,
+    isSpecialRound,
+    specialRoundEnemy,
+    roundModifier,
+    streakMultiplier,
+    multiKillBonus,
     zombieHealth,
     zombieCount,
     zombieSpeed,
     zombieSpawnInterval,
     zombieDamage,
+    maxAlive,
+    type CallOfXenoEnemy,
+    type CallOfXenoEnemyId,
+    type CallOfXenoModifier,
     type CallOfXenoPerk,
     type CallOfXenoPerkId,
+    type CallOfXenoPowerUpId,
     type CallOfXenoWeapon,
     type CallOfXenoWeaponId
 } from '#shared/utils/gamelogic/call-of-xeno'
 import {
-    CALL_OF_XENO_WALLS,
-    CALL_OF_XENO_WALL_HEIGHT,
-    CALL_OF_XENO_ROOMS,
-    CALL_OF_XENO_ROOM_THEMES,
-    CALL_OF_XENO_CRATES,
     CALL_OF_XENO_DOORS,
     CALL_OF_XENO_INTERACTABLES,
+    CALL_OF_XENO_SPAWNS,
     CALL_OF_XENO_PLAYER_START,
+    CALL_OF_XENO_STEP_UP,
+    buildNavTable,
+    reachableNodes,
+    nearestNode,
     collisionSolids,
+    solidsInBand,
+    groundHeight,
     rayBlockDistance,
-    roomAt,
-    reachableRooms,
-    resolveCircle,
     zombieTarget,
+    resolveCircle,
     type CallOfXenoBox,
-    type CallOfXenoInteractable,
     type CallOfXenoSolid
 } from '#shared/utils/gamelogic/call-of-xeno-map'
-import { randomFloat, randomPick } from '#shared/utils/random'
+import { randomFloat, randomWeighted } from '#shared/utils/random'
 import { CallOfXenoAudio } from '~/utils/call-of-xeno/sounds'
 import { CallOfXenoEffects } from '~/utils/call-of-xeno/effects'
+import { makeFlashTexture } from '~/utils/call-of-xeno/textures'
+import { buildLevel, type LevelHandles } from '~/utils/call-of-xeno/level'
 import {
-    makeFloorTexture,
-    makeWallTexture,
-    makeCeilingTexture,
-    makeFlashTexture
-} from '~/utils/call-of-xeno/textures'
-import {
-    buildZombie,
-    flashZombie,
+    buildEnemy,
+    flashEnemy,
     buildWeaponModel,
-    buildCrate,
-    buildCeilingLight,
-    buildDoorFrame,
-    buildWallBuy,
-    buildPerkMachine,
-    buildPackAPunch,
-    buildPowerLever,
-    type ZombieModel,
-    type PropModel
+    buildPowerUp,
+    buildProjectile,
+    type EnemyModel
 } from '~/utils/call-of-xeno/models'
 
 // ---------------------------------------------------------------------------
@@ -263,11 +298,10 @@ const health = ref(CALL_OF_XENO_BASE_HEALTH)
 const maxHealth = ref(CALL_OF_XENO_BASE_HEALTH)
 const points = ref(CALL_OF_XENO_STARTING_POINTS)
 const round = ref(1)
-const bestRound = ref(1)
-const kills = ref(0)
-const zombiesLeft = ref(0)
+const bestRound = ref(0)
+const enemiesLeft = ref(0)
 const weaponName = ref(CALL_OF_XENO_WEAPONS.m1911.name)
-const weaponPapped = ref(false)
+const papTier = ref(0)
 const stowedName = ref('')
 const magAmmo = ref(0)
 const reserveAmmo = ref(0)
@@ -277,13 +311,22 @@ const prompt = ref('')
 const promptAffordable = ref(true)
 const banner = ref('')
 const subBanner = ref('')
+const bannerColor = ref('#dc2626')
 const powerOn = ref(false)
 const hitMarker = ref(0)
-const lastHitHead = ref(false)
+const lastHitKind = ref<'body' | 'head' | 'weak'>('body')
 const hurtOpacity = ref(0)
 const crossGap = ref(8)
 const muted = ref(false)
+const streakMult = ref(1)
+const streakCount = ref(0)
+const specialRound = ref(false)
+const modifierName = ref('')
+const instakillOn = ref(false)
 const ownedPerks = shallowRef<CallOfXenoPerk[]>([])
+const activePowerUps = shallowRef<{ id: string, name: string, color: string, remaining: number }[]>([])
+const summary = shallowRef<{ label: string, value: string }[]>([])
+const initError = ref('')
 
 interface ScreenPopup {
     id: number
@@ -307,34 +350,62 @@ function perkShort(id: CallOfXenoPerkId) {
 }
 
 // ---------------------------------------------------------------------------
-// Simulation types and tuning
+// Types and tuning
 // ---------------------------------------------------------------------------
 
 interface WeaponSlot {
     base: CallOfXenoWeaponId
     def: CallOfXenoWeapon
-    papped: boolean
+    tier: number
     mag: number
     reserve: number
 }
 
-interface Zombie {
-    model: ZombieModel
+interface Enemy {
+    def: CallOfXenoEnemy
+    model: EnemyModel
     x: number
+    y: number
     z: number
+    vy: number
+    yaw: number
     health: number
     maxHealth: number
     speed: number
     attackCooldown: number
+    fireCooldown: number
     flash: number
     phase: number
     groanIn: number
 }
 
 interface Corpse {
-    model: ZombieModel
+    model: EnemyModel
     life: number
     fall: number
+    spin: number
+}
+
+interface Projectile {
+    mesh: THREE.Mesh
+    x: number
+    y: number
+    z: number
+    vx: number
+    vy: number
+    vz: number
+    damage: number
+    life: number
+}
+
+interface GroundPowerUp {
+    id: CallOfXenoPowerUpId
+    group: THREE.Group
+    light: THREE.PointLight
+    x: number
+    y: number
+    z: number
+    life: number
     spin: number
 }
 
@@ -352,17 +423,15 @@ interface WorldPopup {
 }
 
 const PLAYER_RADIUS = 0.35
+const PLAYER_HEIGHT = 1.8
 const PLAYER_EYE = 1.68
-const ZOMBIE_RADIUS = 0.45
-const ZOMBIE_BODY_Y = 1.12
-const ZOMBIE_BODY_R = 0.56
-const ZOMBIE_HEAD_Y = 1.73
-const ZOMBIE_HEAD_R = 0.3
-const MAX_ALIVE = 24
+const GRAVITY = 24
+const JUMP_SPEED = 7.8
 const WALK_SPEED = 4.4
 const SPRINT_SPEED = 6.9
 const INTERACT_RANGE = 2.8
-const ROUND_BREAK = 6
+const BOX_SPIN_TIME = 3.2
+const BOX_READY_TIME = 9
 
 // ---------------------------------------------------------------------------
 // three.js objects
@@ -371,24 +440,22 @@ const ROUND_BREAK = 6
 let renderer: THREE.WebGLRenderer | null = null
 let scene!: THREE.Scene
 let camera!: THREE.PerspectiveCamera
+let fog!: THREE.Fog
 let effects!: CallOfXenoEffects
+let level!: LevelHandles
 const audio = new CallOfXenoAudio()
-
-let roomLights: THREE.PointLight[] = []
-let lightTubes: THREE.Mesh[] = []
-let doorGroups = new Map<string, THREE.Group>()
-let propModels = new Map<string, PropModel>()
-let powerHandle: THREE.Mesh | null = null
 
 let weaponRoot!: THREE.Group
 let weaponModel: THREE.Group | null = null
+let boxPreview: THREE.Group | null = null
 let muzzleFlash!: THREE.Sprite
 let muzzleLight!: THREE.PointLight
 let flashTexture!: THREE.Texture
-let levelTextures: THREE.Texture[] = []
 
 let frameHandle = 0
 let disposed = false
+/** True once the renderer, scene and first run are up. */
+let ready = false
 
 // ---------------------------------------------------------------------------
 // Simulation state
@@ -397,6 +464,9 @@ let disposed = false
 const keys = new Set<string>()
 let px = CALL_OF_XENO_PLAYER_START.x
 let pz = CALL_OF_XENO_PLAYER_START.z
+let feetY = 0
+let vy = 0
+let grounded = true
 let yaw = 0
 let pitch = 0
 let bob = 0
@@ -408,8 +478,8 @@ let hp = CALL_OF_XENO_BASE_HEALTH
 let hpMax = CALL_OF_XENO_BASE_HEALTH
 let sinceDamage = 99
 let score = CALL_OF_XENO_STARTING_POINTS
-let killCount = 0
 let currentRound = 1
+let modifier: CallOfXenoModifier = 'none'
 let spawnQueue = 0
 let spawnTimer = 0
 let breakTimer = 0
@@ -427,20 +497,43 @@ let swapTimer = 0
 let slots: WeaponSlot[] = []
 let activeSlot = 0
 let popupId = 0
+let streak = 0
+let streakTimer = 0
+let runTime = 0
+
+// Run stats for the summary screen.
+let statKills = 0
+let statHeadshots = 0
+let statBestStreak = 0
+let statSpins = 0
+let statDoors = 0
+
+// Power-up state.
+const powerUpTimers: Record<CallOfXenoPowerUpId, number> = {
+    instakill: 0, doublepoints: 0, maxammo: 0, nuke: 0
+}
+
+// Mystery box state.
+let boxState: 'idle' | 'spinning' | 'ready' = 'idle'
+let boxTimer = 0
+let boxPrize: CallOfXenoWeaponId | null = null
+let boxCycle = 0
 
 const perks = new Set<CallOfXenoPerkId>()
 const openDoors = new Set<string>()
-const zombies: Zombie[] = []
+const enemies: Enemy[] = []
 const corpses: Corpse[] = []
+const projectiles: Projectile[] = []
+const groundPowerUps: GroundPowerUp[] = []
 const worldPopups: WorldPopup[] = []
 let solids: CallOfXenoSolid[] = []
-let moveBoxes: CallOfXenoBox[] = []
+let navTable = buildNavTable(new Set())
 let focused: { kind: 'door' | 'interactable', id: string } | null = null
 
-function makeSlot(id: CallOfXenoWeaponId, papped = false): WeaponSlot {
+function makeSlot(id: CallOfXenoWeaponId, tier = 0): WeaponSlot {
     const base = CALL_OF_XENO_WEAPONS[id]
-    const def = papped ? packAPunch(base) : base
-    return { base: id, def, papped, mag: def.magSize, reserve: def.reserveAmmo }
+    const def = packAPunch(base, tier)
+    return { base: id, def, tier, mag: def.magSize, reserve: def.reserveAmmo }
 }
 
 function active(): WeaponSlot {
@@ -470,141 +563,14 @@ function shootSound(slot: WeaponSlot) {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Level construction
-// ---------------------------------------------------------------------------
-
-function boxMesh(box: CallOfXenoBox, height: number, y: number, material: THREE.Material) {
-    const geo = new THREE.BoxGeometry(box.maxX - box.minX, height, box.maxZ - box.minZ)
-    const mesh = new THREE.Mesh(geo, material)
-    mesh.position.set((box.minX + box.maxX) / 2, y, (box.minZ + box.maxZ) / 2)
-    return mesh
-}
-
-/** Which room a box mostly sits in, so it can take that room's palette. */
-function themeFor(x: number) {
-    if (x < 22) return 0
-    if (x < 46) return 1
-    return 2
-}
-
-function buildLevel() {
-    const track = (texture: THREE.Texture) => {
-        levelTextures.push(texture)
-        return texture
-    }
-    const wallMats = CALL_OF_XENO_ROOM_THEMES.map(theme =>
-        new THREE.MeshLambertMaterial({ map: track(makeWallTexture(theme.wall[0], theme.wall[1], theme.wall[2])) })
-    )
-    const floorMats = CALL_OF_XENO_ROOM_THEMES.map(theme =>
-        new THREE.MeshLambertMaterial({ map: track(makeFloorTexture(theme.floor[0], theme.floor[1], theme.floor[2])) })
-    )
-    const ceilMats = CALL_OF_XENO_ROOM_THEMES.map(theme =>
-        new THREE.MeshLambertMaterial({ map: track(makeCeilingTexture(theme.ceiling[0], theme.ceiling[1])) })
-    )
-
-    for (const wall of CALL_OF_XENO_WALLS) {
-        const theme = themeFor((wall.minX + wall.maxX) / 2)
-        scene.add(boxMesh(wall, CALL_OF_XENO_WALL_HEIGHT, CALL_OF_XENO_WALL_HEIGHT / 2, wallMats[theme]!))
-    }
-
-    const slabs: { box: CallOfXenoBox, theme: number }[] = [
-        ...CALL_OF_XENO_ROOMS.map(r => ({ box: r.bounds, theme: r.id })),
-        { box: { minX: 20, maxX: 24, minZ: 8, maxZ: 12 }, theme: 0 },
-        { box: { minX: 44, maxX: 48, minZ: 8, maxZ: 12 }, theme: 2 }
-    ]
-    for (const slab of slabs) {
-        scene.add(boxMesh(slab.box, 0.2, -0.1, floorMats[slab.theme]!))
-        scene.add(boxMesh(slab.box, 0.2, CALL_OF_XENO_WALL_HEIGHT + 0.1, ceilMats[slab.theme]!))
-    }
-
-    for (const crate of CALL_OF_XENO_CRATES) {
-        const theme = CALL_OF_XENO_ROOM_THEMES[themeFor((crate.box.minX + crate.box.maxX) / 2)]!
-        const group = buildCrate(
-            crate.box.maxX - crate.box.minX,
-            crate.height,
-            crate.box.maxZ - crate.box.minZ,
-            theme.accent
-        )
-        group.position.set((crate.box.minX + crate.box.maxX) / 2, 0, (crate.box.minZ + crate.box.maxZ) / 2)
-        scene.add(group)
-    }
-
-    // Ceiling strip lights: two per room, one per corridor.
-    roomLights = []
-    lightTubes = []
-    for (const room of CALL_OF_XENO_ROOMS) {
-        const theme = CALL_OF_XENO_ROOM_THEMES[room.id]!
-        const cz = (room.bounds.minZ + room.bounds.maxZ) / 2
-        const cx = (room.bounds.minX + room.bounds.maxX) / 2
-        for (const offset of [-5.5, 5.5]) {
-            const fixture = buildCeilingLight(theme.lightColor, CALL_OF_XENO_WALL_HEIGHT)
-            fixture.position.set(cx + offset, 0, cz)
-            scene.add(fixture)
-            lightTubes.push(fixture.children[1] as THREE.Mesh)
-
-            const light = new THREE.PointLight(theme.lightColor, room.id === 2 ? 3 : 38, 32, 1.5)
-            light.position.set(cx + offset, CALL_OF_XENO_WALL_HEIGHT - 0.4, cz)
-            scene.add(light)
-            roomLights.push(light)
-        }
-    }
-    scene.add(new THREE.AmbientLight(0x2a3038, 1.5))
-    scene.add(new THREE.HemisphereLight(0x556070, 0x14161b, 0.7))
-
-    // Door frames around every opening, then the buyable barriers themselves.
-    for (const door of CALL_OF_XENO_DOORS) {
-        const theme = CALL_OF_XENO_ROOM_THEMES[themeFor(door.box.minX)]!
-        for (const x of [door.box.minX - 1.6, door.box.maxX + 1.6]) {
-            const frame = buildDoorFrame(4, CALL_OF_XENO_WALL_HEIGHT, theme.accent)
-            frame.position.set(x, 0, door.prompt.z)
-            frame.rotation.y = Math.PI / 2
-            scene.add(frame)
-        }
-        scene.add(buildDoorMesh(door.id))
-    }
-
-    for (const item of CALL_OF_XENO_INTERACTABLES) {
-        const prop = buildProp(item)
-        prop.group.position.set(item.x, item.kind === 'wallbuy' ? 1.45 : 0, item.z)
-        prop.group.rotation.y = item.facing
-        propModels.set(item.id, prop)
-        scene.add(prop.group)
-    }
-}
-
-function buildDoorMesh(id: string) {
-    const door = CALL_OF_XENO_DOORS.find(d => d.id === id)!
-    const group = new THREE.Group()
-    const panel = boxMesh(door.box, CALL_OF_XENO_WALL_HEIGHT - 0.2, (CALL_OF_XENO_WALL_HEIGHT - 0.2) / 2, new THREE.MeshLambertMaterial({ color: 0x54402c }))
-    group.add(panel)
-
-    // Chevron hazard bars so a locked door reads as locked at a glance.
-    for (let i = 0; i < 4; i++) {
-        const bar = new THREE.Mesh(
-            new THREE.BoxGeometry(1.2, 0.16, 3.4),
-            new THREE.MeshBasicMaterial({ color: i % 2 ? 0xd8a02a : 0x2b2b2b })
-        )
-        bar.position.set((door.box.minX + door.box.maxX) / 2, 0.6 + i * 0.85, (door.box.minZ + door.box.maxZ) / 2)
-        bar.rotation.x = 0.18
-        group.add(bar)
-    }
-    doorGroups.set(id, group)
-    return group
-}
-
-function buildProp(item: CallOfXenoInteractable): PropModel {
-    if (item.kind === 'wallbuy') return buildWallBuy(CALL_OF_XENO_WEAPONS[item.weapon!], item.needsPower)
-    if (item.kind === 'perk') return buildPerkMachine(CALL_OF_XENO_PERKS[item.perk!])
-    if (item.kind === 'papunch') return buildPackAPunch()
-    const lever = buildPowerLever()
-    powerHandle = lever.handle
-    return lever
+/** Boxes the player can walk into at their current height. */
+function playerBoxes(): CallOfXenoBox[] {
+    return solidsInBand(solids, feetY, PLAYER_HEIGHT)
 }
 
 function rebuildCollision() {
     solids = collisionSolids(openDoors)
-    moveBoxes = solids.map(s => s.box)
+    navTable = buildNavTable(openDoors)
 }
 
 // ---------------------------------------------------------------------------
@@ -635,13 +601,29 @@ function updatePlayer(dt: number) {
         pz += dirZ * speed * dt
     }
 
-    const solved = resolveCircle(px, pz, PLAYER_RADIUS, moveBoxes)
+    const solved = resolveCircle(px, pz, PLAYER_RADIUS, playerBoxes())
     px = solved.x
     pz = solved.z
 
-    // Head bob while moving, settling back to centre when still.
+    // Vertical: snap to any surface within a step, otherwise fall.
+    const ground = groundHeight(px, pz, feetY)
+    if (vy <= 0 && feetY - ground < CALL_OF_XENO_STEP_UP) {
+        feetY = ground
+        vy = 0
+        grounded = true
+    } else {
+        grounded = false
+        vy -= GRAVITY * dt
+        feetY += vy * dt
+        if (vy <= 0 && feetY <= ground) {
+            feetY = ground
+            vy = 0
+            grounded = true
+        }
+    }
+
     bob += dt * speed * 1.6
-    const bobAmount = moving ? Math.min(0.055, speed * 0.008) : 0
+    const bobAmount = moving && grounded ? Math.min(0.055, speed * 0.008) : 0
     const bobY = Math.sin(bob * 2) * bobAmount
     const bobX = Math.cos(bob) * bobAmount * 0.6
 
@@ -650,7 +632,7 @@ function updatePlayer(dt: number) {
 
     camera.position.set(
         px + bobX + (Math.random() - 0.5) * shake * 0.4,
-        PLAYER_EYE + bobY + (Math.random() - 0.5) * shake * 0.4,
+        feetY + PLAYER_EYE + bobY + (Math.random() - 0.5) * shake * 0.4,
         pz
     )
     camera.rotation.set(pitch + recoilPitch, yaw, Math.sin(bob) * 0.006)
@@ -661,7 +643,12 @@ function updatePlayer(dt: number) {
     if (sinceDamage > delay && hp < hpMax) hp = Math.min(hpMax, hp + rate * dt)
 }
 
-/** Weapon view model: idle sway, walk bob, recoil kick, reload dip, swap dip. */
+function jump() {
+    if (!grounded) return
+    vy = JUMP_SPEED
+    grounded = false
+}
+
 function updateViewModel(dt: number) {
     swayX += ((keys.has('keya') ? 0.03 : keys.has('keyd') ? -0.03 : 0) - swayX) * Math.min(1, dt * 6)
     swayY += ((keys.has('keyw') ? -0.012 : keys.has('keys') ? 0.012 : 0) - swayY) * Math.min(1, dt * 6)
@@ -693,7 +680,7 @@ function equipModel() {
         disposeObject(weaponModel)
     }
     const slot = active()
-    weaponModel = buildWeaponModel(slot.base, slot.papped)
+    weaponModel = buildWeaponModel(slot.base, slot.tier)
     weaponRoot.add(weaponModel)
     swapTimer = 0.18
 }
@@ -721,6 +708,35 @@ function raySphere(ox: number, oy: number, oz: number, dx: number, dy: number, d
     if (disc < 0) return -1
     const t = -b - Math.sqrt(disc)
     return t < 0 ? 0 : t
+}
+
+/** Nearest hit on an enemy along a ray, distinguishing body, head and weak point. */
+function hitEnemy(enemy: Enemy, ox: number, oy: number, oz: number, dx: number, dy: number, dz: number) {
+    const scale = enemy.def.scale
+    const base = enemy.y
+
+    if (enemy.def.flies) {
+        const t = raySphere(ox, oy, oz, dx, dy, dz, enemy.x, base + 1.3 * scale, enemy.z, 0.46 * scale)
+        return t < 0 ? null : { t, kind: 'body' as const }
+    }
+
+    const body = raySphere(ox, oy, oz, dx, dy, dz, enemy.x, base + 1.12 * scale, enemy.z, 0.56 * scale)
+    const head = raySphere(ox, oy, oz, dx, dy, dz, enemy.x, base + 1.73 * scale, enemy.z, 0.3 * scale)
+
+    let weak = -1
+    if (enemy.def.weakPoint) {
+        // The plate sits on the enemy's back, so a shot from behind reaches it
+        // before the body sphere and a shot from the front never does.
+        const bx = enemy.x - Math.sin(enemy.yaw) * 0.24 * scale
+        const bz = enemy.z - Math.cos(enemy.yaw) * 0.24 * scale
+        weak = raySphere(ox, oy, oz, dx, dy, dz, bx, base + 1.24 * scale, bz, 0.3 * scale)
+    }
+
+    let best: { t: number, kind: 'body' | 'head' | 'weak' } | null = null
+    if (body >= 0) best = { t: body, kind: 'body' }
+    if (head >= 0 && (!best || head < best.t)) best = { t: head, kind: 'head' }
+    if (weak >= 0 && (!best || weak < best.t)) best = { t: weak, kind: 'weak' }
+    return best
 }
 
 function shoot() {
@@ -754,7 +770,8 @@ function shoot() {
     camera.getWorldPosition(rayOrigin)
     camera.getWorldDirection(rayDir)
 
-    const scored = new Set<Zombie>()
+    const scored = new Set<Enemy>()
+    let killsThisShot = 0
 
     for (let pellet = 0; pellet < slot.def.pellets; pellet++) {
         pelletDir.copy(rayDir)
@@ -775,31 +792,22 @@ function shoot() {
         )
         const maxDist = Math.min(slot.def.range, block.distance)
 
-        const hits: { zombie: Zombie, t: number, head: boolean }[] = []
-        for (const zombie of zombies) {
-            const body = raySphere(
-                rayOrigin.x, rayOrigin.y, rayOrigin.z, pelletDir.x, pelletDir.y, pelletDir.z,
-                zombie.x, ZOMBIE_BODY_Y, zombie.z, ZOMBIE_BODY_R
-            )
-            const head = raySphere(
-                rayOrigin.x, rayOrigin.y, rayOrigin.z, pelletDir.x, pelletDir.y, pelletDir.z,
-                zombie.x, ZOMBIE_HEAD_Y, zombie.z, ZOMBIE_HEAD_R
-            )
-            const isHead = head >= 0 && (body < 0 || head <= body)
-            const t = isHead ? head : body
-            if (t < 0 || t > maxDist) continue
-            hits.push({ zombie, t, head: isHead })
+        const hits: { enemy: Enemy, t: number, kind: 'body' | 'head' | 'weak' }[] = []
+        for (const enemy of enemies) {
+            const hit = hitEnemy(enemy, rayOrigin.x, rayOrigin.y, rayOrigin.z, pelletDir.x, pelletDir.y, pelletDir.z)
+            if (!hit || hit.t > maxDist) continue
+            hits.push({ enemy, t: hit.t, kind: hit.kind })
         }
         hits.sort((a, b) => a.t - b.t)
         const landed = hits.slice(0, slot.def.penetration)
 
         for (const hit of landed) {
             impactPoint.copy(pelletDir).multiplyScalar(hit.t).add(rayOrigin)
-            effects.bloodBurst(impactPoint, pelletDir, hit.head ? 2 : 1.2)
-            applyHit(hit.zombie, hit.head ? damage * 1.5 : damage, hit.head, scored, impactPoint)
+            const multiplier = hit.kind === 'head' ? 1.5 : hit.kind === 'weak' ? (hit.enemy.def.weakPoint ?? 1) : 1
+            effects.bloodBurst(impactPoint, pelletDir, hit.kind === 'body' ? 1.2 : 2)
+            if (applyHit(hit.enemy, damage * multiplier, hit.kind, scored, impactPoint)) killsThisShot++
         }
 
-        // The tracer stops at whatever the pellet actually reached.
         const endDist = landed.length >= slot.def.penetration && landed.length > 0
             ? landed[landed.length - 1]!.t
             : maxDist
@@ -816,41 +824,79 @@ function shoot() {
                 effects.tracer(muzzleWorld, impactPoint, 0x44ffcc, 0.05, 0.16)
                 effects.energyBurst(impactPoint, 0x44ffcc)
             } else {
-                effects.tracer(muzzleWorld, impactPoint, slot.papped ? 0xff88ee : 0xffd27a, 0.014, 0.06)
+                effects.tracer(muzzleWorld, impactPoint, slot.tier > 0 ? 0xff88ee : 0xffd27a, 0.014, 0.06)
             }
         }
+    }
+
+    const bonus = multiKillBonus(killsThisShot)
+    if (bonus > 0) {
+        award(bonus)
+        banner.value = `${killsThisShot} in one shot`
+        subBanner.value = `+${bonus}`
+        bannerColor.value = '#fb923c'
+        bannerTimer = 1.4
     }
 
     if (slot.mag === 0) startReload()
 }
 
-function applyHit(zombie: Zombie, damage: number, head: boolean, scored: Set<Zombie>, at: THREE.Vector3) {
-    zombie.health -= damage
-    zombie.flash = 0.1
+/** Applies a points award through the streak, double-points and special-round multipliers. */
+function award(base: number) {
+    const multiplier = streakMultiplier(streak)
+        * (powerUpTimers.doublepoints > 0 ? 2 : 1)
+        * (isSpecialRound(currentRound) ? CALL_OF_XENO_SPECIAL_ROUND_BONUS : 1)
+    const total = Math.round(base * multiplier)
+    score += total
+    return total
+}
+
+/** Returns true when the hit killed. */
+function applyHit(enemy: Enemy, damage: number, kind: 'body' | 'head' | 'weak', scored: Set<Enemy>, at: THREE.Vector3) {
+    const lethal = powerUpTimers.instakill > 0
+    enemy.health -= lethal ? Number.MAX_SAFE_INTEGER : damage
+    enemy.flash = 0.1
     markerTimer = 0.18
-    lastHitHead.value = head
+    lastHitKind.value = kind
 
-    if (!scored.has(zombie)) {
-        scored.add(zombie)
-        score += CALL_OF_XENO_HIT_POINTS
-        audio.play(head ? 'headshot' : 'hit')
+    if (!scored.has(enemy)) {
+        scored.add(enemy)
+        award(Math.round(CALL_OF_XENO_HIT_POINTS * enemy.def.reward))
+        audio.play(kind === 'body' ? 'hit' : 'headshot')
     }
 
-    if (zombie.health <= 0) {
-        const award = head ? 100 : CALL_OF_XENO_KILL_POINTS
-        score += award
-        killCount++
-        spawnPopup(zombie.x, 1.6, zombie.z, `+${award}`, head ? '#fbbf24' : '#f8fafc', head ? 26 : 22)
-        killZombie(zombie)
-        audio.play('kill')
-        return
+    if (enemy.health > 0) {
+        spawnPopup(at.x, at.y, at.z, String(Math.round(damage)), kind === 'body' ? '#fca5a5' : '#fbbf24', kind === 'body' ? 17 : 22)
+        return false
     }
 
-    spawnPopup(at.x, at.y, at.z, String(Math.round(damage)), head ? '#fbbf24' : '#fca5a5', head ? 22 : 17)
+    if (kind === 'head') statHeadshots++
+    const base = kind === 'body' ? CALL_OF_XENO_KILL_POINTS : CALL_OF_XENO_HEADSHOT_POINTS
+    registerKill(enemy, Math.round(base * enemy.def.reward), kind)
+    return true
+}
+
+function registerKill(enemy: Enemy, basePoints: number, kind: 'body' | 'head' | 'weak' | 'nuke') {
+    streak++
+    streakTimer = CALL_OF_XENO_STREAK_WINDOW
+    statBestStreak = Math.max(statBestStreak, streak)
+    statKills++
+
+    const paid = award(basePoints)
+    spawnPopup(
+        enemy.x, enemy.y + enemy.model.torsoY + 0.5, enemy.z,
+        `+${paid}`,
+        kind === 'body' ? '#f8fafc' : kind === 'nuke' ? '#9ae66e' : '#fbbf24',
+        kind === 'body' ? 22 : 26
+    )
+    killEnemy(enemy)
+    if (kind !== 'nuke') audio.play('kill')
+
+    if (randomFloat() < CALL_OF_XENO_POWERUP_CHANCE) dropPowerUp(enemy.x, enemy.z, enemy.y)
 }
 
 function spawnPopup(x: number, y: number, z: number, text: string, color: string, size: number) {
-    if (worldPopups.length > 26) worldPopups.shift()
+    if (worldPopups.length > 30) worldPopups.shift()
     worldPopups.push({
         id: popupId++,
         x: x + (Math.random() - 0.5) * 0.3,
@@ -875,8 +921,7 @@ function startReload() {
 
 function finishReload() {
     const slot = active()
-    const need = slot.def.magSize - slot.mag
-    const take = Math.min(need, slot.reserve)
+    const take = Math.min(slot.def.magSize - slot.mag, slot.reserve)
     slot.mag += take
     slot.reserve -= take
     reloadTotal = 0
@@ -884,127 +929,436 @@ function finishReload() {
 }
 
 // ---------------------------------------------------------------------------
-// Zombies
+// Power-ups
 // ---------------------------------------------------------------------------
 
-function spawnZombie() {
-    const rooms = reachableRooms(roomAt(px, pz), openDoors)
-    const candidates = CALL_OF_XENO_ROOMS
-        .filter(r => rooms.includes(r.id))
-        .flatMap(r => r.spawns)
-        .filter(s => Math.hypot(s.x - px, s.z - pz) > 6)
-    const spot = candidates.length > 0 ? randomPick(candidates) : { x: CALL_OF_XENO_PLAYER_START.x, z: 2 }
+function dropPowerUp(x: number, z: number, y: number) {
+    const spec = randomWeighted(Object.values(CALL_OF_XENO_POWERUPS), p => p.weight, randomFloat)
+    const model = buildPowerUp(spec)
+    model.group.position.set(x, y + 0.9, z)
+    scene.add(model.group)
+    groundPowerUps.push({
+        id: spec.id,
+        group: model.group,
+        light: model.light,
+        x,
+        y: y + 0.9,
+        z,
+        life: CALL_OF_XENO_POWERUP_LIFETIME,
+        spin: 0
+    })
+}
 
-    const model = buildZombie()
-    model.group.position.set(spot.x, 0, spot.z)
+function collectPowerUp(entry: GroundPowerUp) {
+    const spec = CALL_OF_XENO_POWERUPS[entry.id]
+    scene.remove(entry.group)
+    disposeObject(entry.group)
+    groundPowerUps.splice(groundPowerUps.indexOf(entry), 1)
+
+    bannerColor.value = perkCss(spec.color)
+    banner.value = spec.name
+    subBanner.value = ''
+    bannerTimer = 1.8
+    audio.play('perk')
+
+    if (spec.duration > 0) {
+        powerUpTimers[entry.id] = spec.duration
+        return
+    }
+
+    if (entry.id === 'maxammo') {
+        for (const slot of slots) {
+            slot.mag = slot.def.magSize
+            slot.reserve = slot.def.reserveAmmo
+        }
+        reloadTimer = 0
+        reloadTotal = 0
+        return
+    }
+
+    if (entry.id === 'nuke') {
+        for (const enemy of [...enemies]) {
+            impactPoint.set(enemy.x, enemy.y, enemy.z)
+            effects.deathBurst(impactPoint)
+            registerKill(enemy, Math.round(CALL_OF_XENO_NUKE_POINTS / Math.max(1, enemies.length + 1)), 'nuke')
+        }
+        award(CALL_OF_XENO_NUKE_POINTS)
+        shake = 0.2
+    }
+}
+
+function updatePowerUps(dt: number) {
+    for (const id of Object.keys(powerUpTimers) as CallOfXenoPowerUpId[]) {
+        if (powerUpTimers[id] > 0) powerUpTimers[id] = Math.max(0, powerUpTimers[id] - dt)
+    }
+    instakillOn.value = powerUpTimers.instakill > 0
+
+    for (let i = groundPowerUps.length - 1; i >= 0; i--) {
+        const entry = groundPowerUps[i]!
+        entry.life -= dt
+        entry.spin += dt * 2.4
+        entry.group.rotation.set(entry.spin * 0.6, entry.spin, entry.spin * 0.3)
+        entry.group.position.y = entry.y + Math.sin(entry.spin * 1.6) * 0.12
+        entry.light.intensity = 3 + Math.sin(entry.spin * 4) * 1.5
+        // Blink out over the last few seconds so a miss feels like a miss.
+        entry.group.visible = entry.life > 4 || Math.sin(entry.life * 14) > -0.2
+
+        if (Math.hypot(entry.x - px, entry.z - pz) < 2.2 && Math.abs(entry.y - feetY) < 3) {
+            collectPowerUp(entry)
+            continue
+        }
+        if (entry.life <= 0) {
+            scene.remove(entry.group)
+            disposeObject(entry.group)
+            groundPowerUps.splice(i, 1)
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Mystery box
+// ---------------------------------------------------------------------------
+
+function clearBoxPreview() {
+    if (!boxPreview) return
+    level.mysteryBox.mount.remove(boxPreview)
+    disposeObject(boxPreview)
+    boxPreview = null
+}
+
+function showBoxPreview(id: CallOfXenoWeaponId) {
+    clearBoxPreview()
+    boxPreview = buildWeaponModel(id, 0)
+    boxPreview.scale.setScalar(1.5)
+    level.mysteryBox.mount.add(boxPreview)
+}
+
+function spinBox() {
+    boxState = 'spinning'
+    boxTimer = BOX_SPIN_TIME
+    boxCycle = 0
+    boxPrize = randomWeighted(CALL_OF_XENO_BOX_POOL, entry => entry.weight, randomFloat).weapon
+    statSpins++
+    audio.play('papunch')
+}
+
+function updateBox(dt: number) {
+    const box = level.mysteryBox
+    box.lid.rotation.x = THREE.MathUtils.lerp(
+        box.lid.rotation.x,
+        boxState === 'idle' ? 0 : -1.5,
+        Math.min(1, dt * 6)
+    )
+    if (box.light) box.light.intensity = boxState === 'idle' ? 0 : boxState === 'ready' ? 6 : 3
+    for (const material of box.glow) {
+        material.color.setHex(boxState === 'idle' ? 0x1a1206 : boxState === 'ready' ? 0xffc457 : 0x7a5418)
+    }
+
+    if (boxState === 'idle') return
+    boxTimer -= dt
+    if (boxPreview) {
+        boxPreview.rotation.y += dt * 3
+        boxPreview.position.y = Math.sin(boxTimer * 4) * 0.08
+    }
+
+    if (boxState === 'spinning') {
+        // Cycle through the pool fast, then slow down into the prize.
+        boxCycle -= dt
+        if (boxCycle <= 0) {
+            const progress = 1 - boxTimer / BOX_SPIN_TIME
+            boxCycle = 0.06 + progress * progress * 0.4
+            const pool = CALL_OF_XENO_BOX_POOL
+            showBoxPreview(pool[Math.floor(randomFloat() * pool.length)]!.weapon)
+        }
+        if (boxTimer <= 0) {
+            boxState = 'ready'
+            boxTimer = BOX_READY_TIME
+            showBoxPreview(boxPrize!)
+            audio.play('buy')
+        }
+        return
+    }
+
+    if (boxTimer <= 0) {
+        boxState = 'idle'
+        boxPrize = null
+        clearBoxPreview()
+    }
+}
+
+function takeBoxPrize() {
+    if (boxState !== 'ready' || !boxPrize) return
+    giveWeapon(makeSlot(boxPrize))
+    boxState = 'idle'
+    boxPrize = null
+    clearBoxPreview()
+    audio.play('buy')
+}
+
+function giveWeapon(slot: WeaponSlot) {
+    if (slots.length < 2) {
+        slots.push(slot)
+        activeSlot = slots.length - 1
+    } else {
+        slots[activeSlot] = slot
+    }
+    reloadTimer = 0
+    reloadTotal = 0
+    equipModel()
+}
+
+// ---------------------------------------------------------------------------
+// Enemies
+// ---------------------------------------------------------------------------
+
+function pickEnemyType(): CallOfXenoEnemyId {
+    if (isSpecialRound(currentRound)) return specialRoundEnemy(currentRound)
+    const composition = roundComposition(currentRound)
+    return randomWeighted(composition, entry => entry.weight, randomFloat).enemy
+}
+
+function spawnEnemy() {
+    const reachable = reachableNodes(navTable, nearestNode(px, pz, feetY))
+    const candidates = CALL_OF_XENO_SPAWNS
+        .filter(s => reachable.has(s.node))
+        .filter(s => Math.hypot(s.x - px, s.z - pz) > 7)
+    const spot = candidates.length > 0
+        ? candidates[Math.floor(randomFloat() * candidates.length)]!
+        : CALL_OF_XENO_SPAWNS[0]!
+
+    const def = CALL_OF_XENO_ENEMIES[pickEnemyType()]
+    const model = buildEnemy(def)
+    const y = groundHeight(spot.x, spot.z, 0)
+    model.group.position.set(spot.x, y, spot.z)
     scene.add(model.group)
 
-    const health = zombieHealth(currentRound)
-    zombies.push({
+    const health = Math.round(zombieHealth(currentRound) * def.healthMultiplier)
+    const frenzy = modifier === 'frenzy' ? CALL_OF_XENO_FRENZY_SPEED : 1
+
+    enemies.push({
+        def,
         model,
         x: spot.x,
+        y,
         z: spot.z,
+        vy: 0,
+        yaw: 0,
         health,
         maxHealth: health,
-        speed: zombieSpeed(currentRound) * (0.85 + randomFloat() * 0.3),
+        speed: zombieSpeed(currentRound) * def.speedMultiplier * frenzy * (0.88 + randomFloat() * 0.24),
         attackCooldown: 0,
+        fireCooldown: 1 + randomFloat() * 2,
         flash: 0,
         phase: randomFloat() * Math.PI * 2,
         groanIn: 1 + randomFloat() * 6
     })
 }
 
-function killZombie(zombie: Zombie) {
-    const index = zombies.indexOf(zombie)
+function killEnemy(enemy: Enemy) {
+    const index = enemies.indexOf(enemy)
     if (index === -1) return
-    zombies.splice(index, 1)
+    enemies.splice(index, 1)
 
-    impactPoint.set(zombie.x, 0, zombie.z)
+    impactPoint.set(enemy.x, enemy.y, enemy.z)
     effects.deathBurst(impactPoint)
 
-    flashZombie(zombie.model, false)
-    for (const material of [zombie.model.skin, zombie.model.clothes]) {
-        material.transparent = true
-    }
-    corpses.push({
-        model: zombie.model,
-        life: 2.6,
-        fall: 0,
-        spin: (randomFloat() - 0.5) * 1.4
+    flashEnemy(enemy.model, false)
+    enemy.model.skin.transparent = true
+    enemy.model.clothes.transparent = true
+    corpses.push({ model: enemy.model, life: 2.4, fall: 0, spin: (randomFloat() - 0.5) * 1.4 })
+}
+
+function fireEnemyBolt(enemy: Enemy) {
+    const ranged = enemy.def.ranged!
+    const originY = enemy.y + enemy.model.torsoY
+    const targetY = feetY + PLAYER_EYE - 0.2
+    const dx = px - enemy.x
+    const dy = targetY - originY
+    const dz = pz - enemy.z
+    const len = Math.hypot(dx, dy, dz) || 1
+
+    const mesh = buildProjectile(enemy.def.color)
+    mesh.position.set(enemy.x, originY, enemy.z)
+    scene.add(mesh)
+    projectiles.push({
+        mesh,
+        x: enemy.x,
+        y: originY,
+        z: enemy.z,
+        vx: (dx / len) * ranged.projectileSpeed,
+        vy: (dy / len) * ranged.projectileSpeed,
+        vz: (dz / len) * ranged.projectileSpeed,
+        damage: ranged.damage,
+        life: 4
     })
+    audio.play('zombie-attack')
 }
 
-function removeZombieModel(model: ZombieModel) {
-    scene.remove(model.group)
-    disposeObject(model.group)
+function updateProjectiles(dt: number) {
+    for (let i = projectiles.length - 1; i >= 0; i--) {
+        const bolt = projectiles[i]!
+        bolt.life -= dt
+
+        const step = Math.hypot(bolt.vx, bolt.vy, bolt.vz) * dt
+        const block = rayBlockDistance(bolt.x, bolt.y, bolt.z, bolt.vx / (step / dt), bolt.vy / (step / dt), bolt.vz / (step / dt), solids, step)
+
+        bolt.x += bolt.vx * dt
+        bolt.y += bolt.vy * dt
+        bolt.z += bolt.vz * dt
+        bolt.mesh.position.set(bolt.x, bolt.y, bolt.z)
+
+        const hitPlayer = Math.hypot(bolt.x - px, bolt.z - pz) < 0.7
+            && bolt.y > feetY && bolt.y < feetY + PLAYER_HEIGHT
+
+        if (hitPlayer) {
+            takeDamage(bolt.damage)
+            impactPoint.set(bolt.x, bolt.y, bolt.z)
+            effects.energyBurst(impactPoint, 0x66ddff)
+        }
+
+        if (hitPlayer || block.distance < step || bolt.life <= 0) {
+            if (!hitPlayer && block.distance < step) {
+                impactPoint.set(bolt.x, bolt.y, bolt.z)
+                effects.energyBurst(impactPoint, 0x66ddff)
+            }
+            scene.remove(bolt.mesh)
+            disposeObject(bolt.mesh)
+            projectiles.splice(i, 1)
+        }
+    }
 }
 
-function updateZombies(dt: number) {
-    const damage = zombieDamage(currentRound)
+function takeDamage(amount: number) {
+    hp -= amount
+    sinceDamage = 0
+    shake = Math.min(0.18, shake + 0.1)
+    audio.play('hurt')
+}
 
-    for (const zombie of zombies) {
-        const target = zombieTarget(zombie.x, zombie.z, px, pz)
-        const dx = target.x - zombie.x
-        const dz = target.z - zombie.z
+function updateEnemies(dt: number) {
+    const contact = zombieDamage(currentRound)
+
+    for (const enemy of enemies) {
+        const def = enemy.def
+        const toPlayerX = px - enemy.x
+        const toPlayerZ = pz - enemy.z
+        const toPlayer = Math.hypot(toPlayerX, toPlayerZ)
+
+        const target = zombieTarget(navTable, enemy.x, enemy.z, enemy.y, px, pz, feetY)
+        let dx = target.x - enemy.x
+        let dz = target.z - enemy.z
+
+        if (def.ranged) {
+            // Once it shares a waypoint with the player it stops pathing and
+            // holds a standoff distance instead of closing to contact.
+            if (target.x === px && target.z === pz) {
+                const want = def.ranged.standoff
+                const sign = toPlayer > want ? 1 : toPlayer < want * 0.72 ? -1 : 0
+                dx = (toPlayerX / (toPlayer || 1)) * sign
+                dz = (toPlayerZ / (toPlayer || 1)) * sign
+            }
+        }
+
         const dist = Math.hypot(dx, dz)
-        const toPlayer = Math.hypot(px - zombie.x, pz - zombie.z)
-
         let moved = 0
-        if (dist > 0.05 && toPlayer > 1.1) {
-            zombie.x += (dx / dist) * zombie.speed * dt
-            zombie.z += (dz / dist) * zombie.speed * dt
-            moved = zombie.speed
+        const stopAt = def.ranged ? 0 : 1.05 * def.scale
+        if (dist > 0.05 && (def.ranged || toPlayer > stopAt)) {
+            enemy.x += (dx / dist) * enemy.speed * dt
+            enemy.z += (dz / dist) * enemy.speed * dt
+            moved = enemy.speed
+            enemy.yaw = Math.atan2(dx / dist, dz / dist)
         }
 
-        const solved = resolveCircle(zombie.x, zombie.z, ZOMBIE_RADIUS, moveBoxes)
-        zombie.x = solved.x
-        zombie.z = solved.z
+        const boxes = solidsInBand(solids, enemy.y, 1.8 * def.scale)
+        const solved = resolveCircle(enemy.x, enemy.z, 0.45 * def.scale, boxes)
+        enemy.x = solved.x
+        enemy.z = solved.z
 
-        zombie.attackCooldown -= dt
-        if (toPlayer < 1.55 && zombie.attackCooldown <= 0) {
-            zombie.attackCooldown = 1
-            hp -= damage
-            sinceDamage = 0
-            shake = Math.min(0.16, shake + 0.12)
+        // Vertical: walkers fall and step, drones hover above whatever is below.
+        const ground = groundHeight(enemy.x, enemy.z, enemy.y)
+        if (def.flies) {
+            const want = ground + 1.1
+            enemy.y += (want - enemy.y) * Math.min(1, dt * 3)
+        } else if (enemy.vy <= 0 && enemy.y - ground < CALL_OF_XENO_STEP_UP) {
+            enemy.y = ground
+            enemy.vy = 0
+        } else {
+            enemy.vy -= GRAVITY * dt
+            enemy.y += enemy.vy * dt
+            if (enemy.vy <= 0 && enemy.y <= ground) {
+                enemy.y = ground
+                enemy.vy = 0
+            }
+        }
+
+        enemy.attackCooldown -= dt
+        enemy.fireCooldown -= dt
+
+        if (def.ranged) {
+            const eyeY = enemy.y + enemy.model.torsoY
+            const dy = feetY + PLAYER_EYE - 0.2 - eyeY
+            const len = Math.hypot(toPlayerX, dy, toPlayerZ) || 1
+            const clear = rayBlockDistance(
+                enemy.x, eyeY, enemy.z,
+                toPlayerX / len, dy / len, toPlayerZ / len,
+                solids, len
+            ).distance >= len - 0.2
+            if (enemy.fireCooldown <= 0 && toPlayer < def.ranged.range && clear) {
+                enemy.fireCooldown = def.ranged.cooldown * (0.85 + randomFloat() * 0.3)
+                fireEnemyBolt(enemy)
+            }
+        } else if (toPlayer < 1.5 * def.scale && Math.abs(enemy.y - feetY) < 1.6 && enemy.attackCooldown <= 0) {
+            enemy.attackCooldown = 1
+            takeDamage(Math.round(contact * def.damageMultiplier))
             audio.play('zombie-attack')
-            audio.play('hurt')
         }
 
-        zombie.groanIn -= dt
-        if (zombie.groanIn <= 0) {
-            zombie.groanIn = 4 + randomFloat() * 8
+        enemy.groanIn -= dt
+        if (enemy.groanIn <= 0) {
+            enemy.groanIn = 4 + randomFloat() * 8
             if (toPlayer < 22) audio.play('zombie-groan')
         }
 
-        if (zombie.flash > 0) {
-            zombie.flash -= dt
-            flashZombie(zombie.model, zombie.flash > 0)
+        if (enemy.flash > 0) {
+            enemy.flash -= dt
+            flashEnemy(enemy.model, enemy.flash > 0)
         }
 
-        // Walk cycle: opposed leg swing, arms lagging a quarter phase behind.
-        zombie.phase += dt * (2.2 + moved * 0.8)
-        const swing = Math.sin(zombie.phase) * 0.55
-        zombie.model.legL.rotation.x = swing
-        zombie.model.legR.rotation.x = -swing
-        zombie.model.armL.rotation.x = -0.55 + Math.sin(zombie.phase + 1.6) * 0.16
-        zombie.model.armR.rotation.x = -0.55 - Math.sin(zombie.phase + 1.6) * 0.16
-        zombie.model.head.rotation.z = Math.sin(zombie.phase * 0.5) * 0.12
+        // Animation
+        enemy.phase += dt * (2.2 + moved * 0.8)
+        if (enemy.model.rotor) {
+            enemy.model.rotor.rotation.y += dt * 14
+            enemy.model.group.rotation.z = Math.sin(enemy.phase * 0.7) * 0.12
+        } else {
+            const swing = Math.sin(enemy.phase) * 0.55
+            enemy.model.legL!.rotation.x = swing
+            enemy.model.legR!.rotation.x = -swing
+            enemy.model.armL!.rotation.x = -0.55 + Math.sin(enemy.phase + 1.6) * 0.16
+            enemy.model.armR!.rotation.x = -0.55 - Math.sin(enemy.phase + 1.6) * 0.16
+            enemy.model.head!.rotation.z = Math.sin(enemy.phase * 0.5) * 0.12
+            enemy.model.group.rotation.z = Math.sin(enemy.phase) * 0.05
+        }
 
-        zombie.model.group.position.set(zombie.x, Math.abs(Math.sin(zombie.phase)) * 0.045, zombie.z)
-        zombie.model.group.rotation.y = Math.atan2(px - zombie.x, pz - zombie.z)
-        zombie.model.group.rotation.z = Math.sin(zombie.phase) * 0.05
+        enemy.model.group.position.set(
+            enemy.x,
+            enemy.y + (def.flies ? Math.sin(enemy.phase * 1.4) * 0.08 : Math.abs(Math.sin(enemy.phase)) * 0.045),
+            enemy.z
+        )
+        enemy.model.group.rotation.y = enemy.yaw
     }
 
     // Soft separation so a pack does not fuse into one body.
-    for (let i = 0; i < zombies.length; i++) {
-        for (let j = i + 1; j < zombies.length; j++) {
-            const a = zombies[i]!
-            const b = zombies[j]!
+    for (let i = 0; i < enemies.length; i++) {
+        for (let j = i + 1; j < enemies.length; j++) {
+            const a = enemies[i]!
+            const b = enemies[j]!
+            if (Math.abs(a.y - b.y) > 1.5) continue
             const dx = b.x - a.x
             const dz = b.z - a.z
             const d = Math.hypot(dx, dz)
-            if (d > 0.9 || d < 1e-4) continue
-            const push = (0.9 - d) / 2
+            const want = 0.9 * Math.max(a.def.scale, b.def.scale)
+            if (d > want || d < 1e-4) continue
+            const push = (want - d) / 2
             a.x -= (dx / d) * push
             a.z -= (dz / d) * push
             b.x += (dx / d) * push
@@ -1019,15 +1373,73 @@ function updateZombies(dt: number) {
         const eased = corpse.fall * corpse.fall * (3 - 2 * corpse.fall)
         corpse.model.group.rotation.x = eased * Math.PI * 0.5
         corpse.model.group.rotation.z += corpse.spin * dt * (1 - eased)
-        corpse.model.group.position.y = -eased * 0.25
         const fade = Math.min(1, corpse.life / 0.9)
         corpse.model.skin.opacity = fade
         corpse.model.clothes.opacity = fade
         if (corpse.life <= 0) {
-            removeZombieModel(corpse.model)
+            scene.remove(corpse.model.group)
+            disposeObject(corpse.model.group)
             corpses.splice(i, 1)
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Rounds
+// ---------------------------------------------------------------------------
+
+function applyModifier() {
+    modifier = roundModifier(currentRound)
+    modifierName.value = CALL_OF_XENO_MODIFIERS[modifier].name
+    specialRound.value = isSpecialRound(currentRound)
+
+    fog.near = modifier === 'fog' ? 3 : 12
+    fog.far = modifier === 'fog' ? 16 : 44
+    refreshLights()
+}
+
+/** Blackout kills the lights for the round even when the power is on. */
+function refreshLights() {
+    const dark = modifier === 'blackout'
+    for (const entry of level.lights) {
+        const base = entry.region === 2 && !powered ? 3 : entry.lit
+        entry.light.intensity = dark ? 1.5 : base
+        ;(entry.tube.material as THREE.MeshBasicMaterial).opacity = dark ? 0.08 : 1
+    }
+    for (const item of CALL_OF_XENO_INTERACTABLES) {
+        const prop = level.props.get(item.id)
+        if (!prop) continue
+        const live = powered && !dark
+        if (item.kind === 'perk' && item.perk) {
+            for (const material of prop.glow) {
+                material.color.setHex(CALL_OF_XENO_PERKS[item.perk].color)
+                if (!live) material.color.multiplyScalar(0.14)
+            }
+            if (prop.light) prop.light.intensity = live ? 3 : 0
+        } else if (item.kind === 'papunch') {
+            for (const material of prop.glow) material.color.setHex(live ? 0xa855f7 : 0x2a0f3a)
+            if (prop.light) prop.light.intensity = live ? 6 : 0
+        } else if (item.kind === 'power') {
+            for (const material of prop.glow) material.color.setHex(powered ? 0x33ff66 : 0x441111)
+        }
+    }
+}
+
+function startRound(next: number) {
+    currentRound = next
+    spawnQueue = zombieCount(currentRound)
+    spawnTimer = 0.4
+    applyModifier()
+
+    bannerTimer = 2.4
+    bannerColor.value = specialRound.value ? '#e879f9' : '#dc2626'
+    banner.value = specialRound.value
+        ? `${CALL_OF_XENO_ENEMIES[specialRoundEnemy(currentRound)].name} Round`
+        : `Round ${currentRound}`
+    subBanner.value = modifier !== 'none'
+        ? CALL_OF_XENO_MODIFIERS[modifier].description
+        : `${spawnQueue} contacts`
+    audio.play('round-start')
 }
 
 function updateRound(dt: number) {
@@ -1035,27 +1447,21 @@ function updateRound(dt: number) {
         breakTimer -= dt
         if (breakTimer <= 0) {
             inBreak = false
-            currentRound++
-            spawnQueue = zombieCount(currentRound)
-            spawnTimer = 0
-            bannerTimer = 2.2
-            banner.value = `Round ${currentRound}`
-            subBanner.value = `${spawnQueue} contacts`
-            audio.play('round-start')
+            startRound(currentRound + 1)
         }
         return
     }
 
     if (spawnQueue > 0) {
         spawnTimer -= dt
-        if (spawnTimer <= 0 && zombies.length < MAX_ALIVE) {
-            spawnZombie()
+        if (spawnTimer <= 0 && enemies.length < maxAlive(currentRound)) {
+            spawnEnemy()
             spawnQueue--
             spawnTimer = zombieSpawnInterval(currentRound)
         }
-    } else if (zombies.length === 0) {
+    } else if (enemies.length === 0) {
         inBreak = true
-        breakTimer = ROUND_BREAK
+        breakTimer = CALL_OF_XENO_ROUND_BREAK
     }
 }
 
@@ -1081,7 +1487,7 @@ function updatePrompt() {
 
     for (const item of CALL_OF_XENO_INTERACTABLES) {
         const d = Math.hypot(item.x - px, item.z - pz)
-        if (d > best) continue
+        if (d > best || Math.abs(item.y - feetY) > 2.5) continue
 
         if (item.kind === 'power') {
             if (powered) continue
@@ -1100,7 +1506,21 @@ function updatePrompt() {
             continue
         }
 
-        if (item.kind === 'wallbuy') {
+        if (item.kind === 'mysterybox') {
+            best = d
+            focused = { kind: 'interactable', id: item.id }
+            if (boxState === 'ready') {
+                text = `[F] Take ${CALL_OF_XENO_WEAPONS[boxPrize!].name}`
+                affordable = true
+            } else if (boxState === 'spinning') {
+                focused = null
+                text = 'Spinning…'
+                affordable = true
+            } else {
+                text = `[F] Mystery Box — ${CALL_OF_XENO_BOX_COST}`
+                affordable = score >= CALL_OF_XENO_BOX_COST
+            }
+        } else if (item.kind === 'wallbuy') {
             const weapon = CALL_OF_XENO_WEAPONS[item.weapon!]
             const owned = slots.find(s => s.base === weapon.id)
             const cost = owned ? ammoCost(weapon) : weapon.cost
@@ -1128,15 +1548,16 @@ function updatePrompt() {
             affordable = score >= perk.cost
         } else if (item.kind === 'papunch') {
             best = d
-            if (active().papped) {
+            const cost = packAPunchCost(active().tier)
+            if (cost === null) {
                 focused = null
-                text = `${active().def.name} already upgraded`
+                text = `${active().def.name} is fully upgraded`
                 affordable = true
                 continue
             }
             focused = { kind: 'interactable', id: item.id }
-            text = `[F] Pack-a-Punch — ${CALL_OF_XENO_PACK_A_PUNCH_COST}`
-            affordable = score >= CALL_OF_XENO_PACK_A_PUNCH_COST
+            text = `[F] Pack-a-Punch ${active().tier + 1}/3 — ${cost.toLocaleString()}`
+            affordable = score >= cost
         }
     }
 
@@ -1150,25 +1571,25 @@ function spend(cost: number) {
         return false
     }
     score -= cost
-    spawnPopup(px, PLAYER_EYE + 0.4, pz, `-${cost}`, '#fca5a5', 18)
+    spawnPopup(px, feetY + PLAYER_EYE + 0.4, pz, `-${cost}`, '#fca5a5', 18)
     return true
 }
 
 function interact() {
-    if (!focused) {
-        if (prompt.value) audio.play('deny')
-        return
-    }
+    // No focus means the nearest prompt is informational (ammo full, needs
+    // power) — nothing to buy, so nothing to deny.
+    if (!focused) return
 
     if (focused.kind === 'door') {
         const door = CALL_OF_XENO_DOORS.find(d => d.id === focused!.id)!
         if (!spend(door.cost)) return
         openDoors.add(door.id)
-        const group = doorGroups.get(door.id)
+        statDoors++
+        const group = level.doors.get(door.id)
         if (group) {
             scene.remove(group)
             disposeObject(group)
-            doorGroups.delete(door.id)
+            level.doors.delete(door.id)
         }
         rebuildCollision()
         audio.play('door')
@@ -1181,24 +1602,21 @@ function interact() {
     if (item.kind === 'power') {
         powered = true
         powerOn.value = true
-        for (const light of roomLights) if (light.intensity < 10) light.intensity = 38
-        for (const entry of CALL_OF_XENO_INTERACTABLES) {
-            if (!entry.needsPower) continue
-            const prop = propModels.get(entry.id)
-            if (!prop) continue
-            for (const material of prop.glow) {
-                if (entry.kind === 'papunch') material.color.setHex(0xa855f7)
-                else if (entry.perk) material.color.setHex(CALL_OF_XENO_PERKS[entry.perk].color)
-            }
-            if (prop.light) prop.light.intensity = entry.kind === 'papunch' ? 6 : 3
-        }
-        const leverProp = propModels.get('power')
-        if (leverProp) for (const material of leverProp.glow) material.color.setHex(0x33ff66)
-        if (powerHandle) powerHandle.rotation.x = -0.9
+        refreshLights()
+        level.powerLever.handle.rotation.x = -0.9
         bannerTimer = 2.5
+        bannerColor.value = '#facc15'
         banner.value = 'Power On'
         subBanner.value = 'Perks and Pack-a-Punch online'
         audio.play('power')
+        return
+    }
+
+    if (item.kind === 'mysterybox') {
+        if (boxState === 'ready') { takeBoxPrize(); return }
+        if (boxState !== 'idle') return
+        if (!spend(CALL_OF_XENO_BOX_COST)) return
+        spinBox()
         return
     }
 
@@ -1213,16 +1631,7 @@ function interact() {
             return
         }
         if (!spend(weapon.cost)) return
-        const slot = makeSlot(weapon.id)
-        if (slots.length < 2) {
-            slots.push(slot)
-            activeSlot = slots.length - 1
-        } else {
-            slots[activeSlot] = slot
-        }
-        reloadTimer = 0
-        reloadTotal = 0
-        equipModel()
+        giveWeapon(makeSlot(weapon.id))
         audio.play('buy')
         return
     }
@@ -1237,6 +1646,7 @@ function interact() {
         }
         ownedPerks.value = [...perks].map(id => CALL_OF_XENO_PERKS[id])
         bannerTimer = 1.8
+        bannerColor.value = perkCss(perk.color)
         banner.value = perk.name
         subBanner.value = perk.description
         audio.play('perk')
@@ -1245,14 +1655,14 @@ function interact() {
 
     if (item.kind === 'papunch') {
         const slot = active()
-        if (slot.papped || !spend(CALL_OF_XENO_PACK_A_PUNCH_COST)) return
-        slots[activeSlot] = makeSlot(slot.base, true)
-        reloadTimer = 0
-        reloadTotal = 0
+        const cost = packAPunchCost(slot.tier)
+        if (cost === null || !spend(cost)) return
+        slots[activeSlot] = makeSlot(slot.base, slot.tier + 1)
         equipModel()
         bannerTimer = 2
+        bannerColor.value = '#e879f9'
         banner.value = slots[activeSlot]!.def.name
-        subBanner.value = 'Upgraded'
+        subBanner.value = `Tier ${slots[activeSlot]!.tier} of 3`
         audio.play('papunch')
     }
 }
@@ -1312,10 +1722,9 @@ function syncHud() {
     maxHealth.value = hpMax
     points.value = score
     round.value = currentRound
-    kills.value = killCount
-    zombiesLeft.value = zombies.length + spawnQueue
+    enemiesLeft.value = enemies.length + spawnQueue
     weaponName.value = slot.def.name
-    weaponPapped.value = slot.papped
+    papTier.value = slot.tier
     magAmmo.value = slot.mag
     reserveAmmo.value = slot.reserve
     magFraction.value = (slot.mag / slot.def.magSize) * 100
@@ -1324,16 +1733,35 @@ function syncHud() {
     hitMarker.value = markerTimer
     hurtOpacity.value = Math.max(0, 1 - hp / (hpMax * 0.62))
     crossGap.value = 7 + bloom * 16 + (keys.has('shiftleft') ? 6 : 0)
+    streakMult.value = streakMultiplier(streak)
+    streakCount.value = streak
+
+    const live: { id: string, name: string, color: string, remaining: number }[] = []
+    for (const [id, remaining] of Object.entries(powerUpTimers)) {
+        if (remaining <= 0) continue
+        const spec = CALL_OF_XENO_POWERUPS[id as CallOfXenoPowerUpId]
+        live.push({ id, name: spec.name, color: perkCss(spec.color), remaining })
+    }
+    activePowerUps.value = live
 }
 
 function update(dt: number) {
+    runTime += dt
     updatePlayer(dt)
     updateViewModel(dt)
-    updateZombies(dt)
+    updateEnemies(dt)
+    updateProjectiles(dt)
+    updatePowerUps(dt)
+    updateBox(dt)
     updateRound(dt)
     updatePrompt()
     updatePopups(dt)
     effects.update(dt)
+
+    if (streakTimer > 0) {
+        streakTimer -= dt
+        if (streakTimer <= 0) streak = 0
+    }
 
     if (reloadTimer > 0) {
         reloadTimer -= dt
@@ -1350,16 +1778,18 @@ function update(dt: number) {
     bloom = Math.max(0, bloom - dt * 1.6)
     markerTimer = Math.max(0, markerTimer - dt)
 
-    // Light tubes flicker faintly so the rooms are not perfectly static.
     const flicker = 0.88 + Math.sin(performance.now() * 0.004) * 0.06 + Math.random() * 0.06
-    for (const tube of lightTubes) {
-        (tube.material as THREE.MeshBasicMaterial).opacity = flicker
+    if (modifier !== 'blackout') {
+        for (const entry of level.lights) {
+            (entry.tube.material as THREE.MeshBasicMaterial).opacity = flicker
+        }
     }
 
     if (bannerTimer > 0) {
         bannerTimer -= dt
         if (bannerTimer <= 0 && !inBreak) { banner.value = ''; subBanner.value = '' }
     } else if (inBreak) {
+        bannerColor.value = '#94a3b8'
         banner.value = `Round ${currentRound + 1}`
         subBanner.value = `Incoming in ${Math.ceil(breakTimer)}`
     }
@@ -1369,11 +1799,24 @@ function update(dt: number) {
 
 function die() {
     phase.value = 'over'
-    bestRound.value = Math.max(bestRound.value, currentRound)
     firing = false
     keys.clear()
     audio.play('death')
     if (document.pointerLockElement) document.exitPointerLock()
+
+    const minutes = Math.floor(runTime / 60)
+    const seconds = Math.floor(runTime % 60)
+    summary.value = [
+        { label: 'Points', value: score.toLocaleString() },
+        { label: 'Kills', value: String(statKills) },
+        { label: 'Headshots', value: statKills > 0 ? `${Math.round((statHeadshots / statKills) * 100)}%` : '0%' },
+        { label: 'Best streak', value: String(statBestStreak) },
+        { label: 'Doors opened', value: `${statDoors} / ${CALL_OF_XENO_DOORS.length}` },
+        { label: 'Box spins', value: String(statSpins) },
+        { label: 'Perks', value: `${perks.size} / 4` },
+        { label: 'Survived', value: `${minutes}m ${seconds}s` }
+    ]
+    bestRound.value = Math.max(bestRound.value, currentRound)
     syncHud()
 }
 
@@ -1387,7 +1830,6 @@ function disposeObject(root: THREE.Object3D) {
         mesh.geometry?.dispose?.()
         const materials = Array.isArray(mesh.material) ? mesh.material : mesh.material ? [mesh.material] : []
         for (const material of materials) {
-            // Canvas-backed signage keeps a texture alive after the material goes.
             const map = (material as THREE.MeshBasicMaterial).map
             map?.dispose()
             material.dispose()
@@ -1396,46 +1838,51 @@ function disposeObject(root: THREE.Object3D) {
 }
 
 function resetRun() {
-    for (const zombie of [...zombies]) {
-        scene.remove(zombie.model.group)
-        disposeObject(zombie.model.group)
+    for (const enemy of [...enemies]) {
+        scene.remove(enemy.model.group)
+        disposeObject(enemy.model.group)
     }
-    zombies.length = 0
-    for (const corpse of corpses) removeZombieModel(corpse.model)
+    enemies.length = 0
+    for (const corpse of corpses) {
+        scene.remove(corpse.model.group)
+        disposeObject(corpse.model.group)
+    }
     corpses.length = 0
+    for (const bolt of projectiles) {
+        scene.remove(bolt.mesh)
+        disposeObject(bolt.mesh)
+    }
+    projectiles.length = 0
+    for (const entry of groundPowerUps) {
+        scene.remove(entry.group)
+        disposeObject(entry.group)
+    }
+    groundPowerUps.length = 0
     worldPopups.length = 0
     popups.value = []
     effects.clear()
 
     for (const door of CALL_OF_XENO_DOORS) {
-        if (!doorGroups.has(door.id)) scene.add(buildDoorMesh(door.id))
+        if (!level.doors.has(door.id)) scene.add(level.makeDoor(door.id))
     }
     openDoors.clear()
     perks.clear()
     ownedPerks.value = []
     powered = false
     powerOn.value = false
+    level.powerLever.handle.rotation.x = 0.9
+    boxState = 'idle'
+    boxPrize = null
+    clearBoxPreview()
 
-    for (const room of CALL_OF_XENO_ROOMS) {
-        for (let i = 0; i < 2; i++) {
-            const light = roomLights[room.id * 2 + i]
-            if (light) light.intensity = room.id === 2 ? 3 : 38
-        }
-    }
-    for (const entry of CALL_OF_XENO_INTERACTABLES) {
-        const prop = propModels.get(entry.id)
-        if (!prop) continue
-        for (const material of prop.glow) {
-            if (entry.kind === 'power') material.color.setHex(0x441111)
-            else if (entry.kind === 'papunch') material.color.setHex(0x2a0f3a)
-            else if (entry.perk) material.color.setHex(CALL_OF_XENO_PERKS[entry.perk].color).multiplyScalar(0.14)
-        }
-        if (prop.light) prop.light.intensity = 0
-    }
-    if (powerHandle) powerHandle.rotation.x = 0.9
+    for (const id of Object.keys(powerUpTimers) as CallOfXenoPowerUpId[]) powerUpTimers[id] = 0
+    instakillOn.value = false
+    activePowerUps.value = []
 
     px = CALL_OF_XENO_PLAYER_START.x
     pz = CALL_OF_XENO_PLAYER_START.z
+    feetY = 0
+    vy = 0
     yaw = 0
     pitch = 0
     bob = 0
@@ -1446,15 +1893,16 @@ function resetRun() {
     hp = hpMax
     sinceDamage = 99
     score = CALL_OF_XENO_STARTING_POINTS
-    killCount = 0
-    currentRound = 1
-    spawnQueue = zombieCount(1)
-    spawnTimer = 1.5
+    streak = 0
+    streakTimer = 0
+    runTime = 0
+    statKills = 0
+    statHeadshots = 0
+    statBestStreak = 0
+    statSpins = 0
+    statDoors = 0
     inBreak = false
     breakTimer = 0
-    bannerTimer = 2.4
-    banner.value = 'Round 1'
-    subBanner.value = 'Landing Bay'
     slots = [makeSlot('m1911')]
     activeSlot = 0
     reloadTimer = 0
@@ -1462,12 +1910,16 @@ function resetRun() {
     swapTimer = 0
     fireTimer = 0
     firing = false
-    equipModel()
+
     rebuildCollision()
+    equipModel()
+    startRound(1)
+    subBanner.value = 'Landing Bay'
     syncHud()
 }
 
 function begin() {
+    if (!initScene()) return
     audio.start()
     if (phase.value === 'menu') resetRun()
     phase.value = 'playing'
@@ -1475,6 +1927,7 @@ function begin() {
 }
 
 function restart() {
+    if (!initScene()) return
     audio.start()
     resetRun()
     phase.value = 'playing'
@@ -1494,7 +1947,7 @@ function onKeyDown(event: KeyboardEvent) {
     if (code === 'keyr') startReload()
     if (code === 'keyf') interact()
     if (code === 'keyq') swapWeapon()
-    if (code === 'space') event.preventDefault()
+    if (code === 'space') { event.preventDefault(); jump() }
 }
 
 function onKeyUp(event: KeyboardEvent) {
@@ -1534,13 +1987,34 @@ function onResize() {
     camera.updateProjectionMatrix()
 }
 
-onMounted(() => {
+/**
+ * Builds the renderer and the scene. Called on mount, and again on the first
+ * click if the template ref was not attached yet — mounting a client-only
+ * component inside Nuxt's Suspense boundary can run the hook before the ref
+ * lands, and a silent bail there used to leave the whole game uninitialised.
+ */
+function initScene(): boolean {
+    if (ready) return true
     const host = viewport.value
-    if (!host) return
+    if (!host) return false
 
+    try {
+        buildScene(host)
+        ready = true
+        initError.value = ''
+        return true
+    } catch (error) {
+        initError.value = error instanceof Error ? error.message : String(error)
+        console.error('[call-of-xeno] failed to start', error)
+        return false
+    }
+}
+
+function buildScene(host: HTMLDivElement) {
     scene = new THREE.Scene()
     scene.background = new THREE.Color(0x05070a)
-    scene.fog = new THREE.Fog(0x05070a, 12, 44)
+    fog = new THREE.Fog(0x05070a, 12, 44)
+    scene.fog = fog
 
     camera = new THREE.PerspectiveCamera(80, host.clientWidth / host.clientHeight, 0.03, 220)
     camera.rotation.order = 'YXZ'
@@ -1553,7 +2027,7 @@ onMounted(() => {
     host.appendChild(renderer.domElement)
 
     effects = new CallOfXenoEffects(scene)
-    buildLevel()
+    level = buildLevel(scene)
 
     weaponRoot = new THREE.Group()
     camera.add(weaponRoot)
@@ -1599,6 +2073,11 @@ onMounted(() => {
         renderer!.render(scene, camera)
     }
     frameHandle = requestAnimationFrame(loop)
+}
+
+onMounted(() => {
+    if (initScene()) return
+    void nextTick(() => initScene())
 })
 
 onBeforeUnmount(() => {
@@ -1617,20 +2096,16 @@ onBeforeUnmount(() => {
     effects?.dispose()
     if (scene) disposeObject(scene)
     flashTexture?.dispose()
-    for (const texture of levelTextures) texture.dispose()
-    levelTextures = []
+    for (const texture of level?.textures ?? []) texture.dispose()
     renderer?.dispose()
     renderer = null
 
-    // Module-scope caches outlive the component instance.
-    zombies.length = 0
+    enemies.length = 0
     corpses.length = 0
+    projectiles.length = 0
+    groundPowerUps.length = 0
     worldPopups.length = 0
-    doorGroups = new Map()
-    propModels = new Map()
-    roomLights = []
-    lightTubes = []
     weaponModel = null
-    powerHandle = null
+    boxPreview = null
 })
 </script>
