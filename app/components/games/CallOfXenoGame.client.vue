@@ -176,7 +176,10 @@
                 <template v-if="phase === 'menu'">
                     <div class="text-[10px] uppercase tracking-[0.4em] text-muted">Survival</div>
                     <h1 class="mt-1 text-5xl font-bold tracking-tight text-primary">Call of Xeno</h1>
-                    <p class="mt-2 text-muted">Five doors seal the loop. Take the platform, turn on the power, survive.</p>
+                    <p class="mt-2 text-muted">
+                        They come in through the windows. Board them up, buy your way through Outpost 13,
+                        get the power on and take the second floor.
+                    </p>
                 </template>
                 <template v-else-if="phase === 'over'">
                     <h1 class="text-5xl font-bold text-red-500">You Died</h1>
@@ -202,7 +205,7 @@
                     <div><span class="font-mono text-highlighted">RMB</span> aim</div>
                     <div><span class="font-mono text-highlighted">R</span> reload</div>
                     <div><span class="font-mono text-highlighted">Q</span> swap weapon</div>
-                    <div><span class="font-mono text-highlighted">F</span> buy / interact</div>
+                    <div><span class="font-mono text-highlighted">F</span> buy / board up</div>
                     <div><span class="font-mono text-highlighted">V</span> knife</div>
                     <div><span class="font-mono text-highlighted">Esc</span> pause</div>
                 </div>
@@ -273,13 +276,20 @@ import {
 import {
     CALL_OF_XENO_DOORS,
     CALL_OF_XENO_INTERACTABLES,
-    CALL_OF_XENO_SPAWNS,
+    CALL_OF_XENO_WINDOWS,
+    CALL_OF_XENO_WINDOW_BOARDS,
+    CALL_OF_XENO_WINDOW_SILL,
+    CALL_OF_XENO_WINDOW_HEAD,
+    CALL_OF_XENO_TEAR_TIME,
+    CALL_OF_XENO_CLIMB_TIME,
+    CALL_OF_XENO_REPAIR_TIME,
+    CALL_OF_XENO_REPAIR_POINTS,
     CALL_OF_XENO_PLAYER_START,
     CALL_OF_XENO_BARREL_SPOTS,
     CALL_OF_XENO_STEP_UP,
     buildNavTable,
     bannedNodesFor,
-    reachableNodes,
+    reachableWindows,
     nearestNode,
     collisionSolids,
     solidsInBand,
@@ -288,7 +298,8 @@ import {
     zombieTarget,
     resolveCircle,
     type CallOfXenoBox,
-    type CallOfXenoSolid
+    type CallOfXenoSolid,
+    type CallOfXenoWindow
 } from '#shared/utils/gamelogic/call-of-xeno-map'
 import { randomFloat, randomWeighted } from '#shared/utils/random'
 import { CallOfXenoAudio } from '~/utils/call-of-xeno/sounds'
@@ -382,9 +393,23 @@ interface WeaponSlot {
     reserve: number
 }
 
+/**
+ * Where an enemy is in the business of getting at the player. Everything
+ * spawns `outside` at a window, tears its boards off, `breaching` climbs
+ * through the opening, and only then does it join the navigation graph.
+ */
+type EnemyStage = 'outside' | 'breaching' | 'inside'
+
 interface Enemy {
     def: CallOfXenoEnemy
     model: EnemyModel
+    stage: EnemyStage
+    /** The window it came in by. Null once it is inside. */
+    window: CallOfXenoWindow | null
+    /** Seconds left on the board it is currently prising off. */
+    tearTimer: number
+    /** Progress of the climb-through animation, 0 to 1. */
+    climb: number
     x: number
     y: number
     z: number
@@ -398,14 +423,20 @@ interface Enemy {
     flash: number
     phase: number
     groanIn: number
-    /** Spawn-in animation remaining, seconds. */
-    spawnT: number
     /** Hit stagger: movement paused while positive. */
     stagger: number
     /** Accumulator for stuck-detection steering. */
     stuck: number
     /** Which way the wall-slide steers: +1 or -1. */
     stuckSide: number
+}
+
+/** Live state of one boarded window. */
+interface WindowState {
+    def: CallOfXenoWindow
+    boards: number
+    /** Seconds of repair effort banked toward the next board. */
+    repair: number
 }
 
 interface Corpse {
@@ -561,6 +592,7 @@ let statBestStreak = 0
 let statSpins = 0
 let statDoors = 0
 let statBarrels = 0
+let statBoards = 0
 
 // Power-up state.
 const powerUpTimers: Record<CallOfXenoPowerUpId, number> = {
@@ -581,11 +613,16 @@ const projectiles: Projectile[] = []
 const groundPowerUps: GroundPowerUp[] = []
 const worldPopups: WorldPopup[] = []
 const barrels: Barrel[] = []
+const windowStates = new Map<string, WindowState>(
+    CALL_OF_XENO_WINDOWS.map(w => [w.id, { def: w, boards: CALL_OF_XENO_WINDOW_BOARDS, repair: 0 }])
+)
 let solids: CallOfXenoSolid[] = []
 let navTable = buildNavTable(new Set())
 /** Nodes inside shut doors — never valid waypoints for actors. */
 let bannedNodes: ReadonlySet<number> = new Set()
 let focused: { kind: 'door' | 'interactable', id: string } | null = null
+/** The barricade the player is stood at, if any. Drives the repair prompt. */
+let focusedWindow: CallOfXenoWindow | null = null
 
 function makeSlot(id: CallOfXenoWeaponId, tier = 0): WeaponSlot {
     const base = CALL_OF_XENO_WEAPONS[id]
@@ -1341,25 +1378,33 @@ function pickEnemyType(): CallOfXenoEnemyId {
     return randomWeighted(composition, entry => entry.weight, randomFloat).enemy
 }
 
-function spawnEnemy() {
-    const reachable = reachableNodes(navTable, nearestNode(px, pz, feetY, bannedNodes))
-    const candidates = CALL_OF_XENO_SPAWNS
-        .filter(s => reachable.has(s.node))
-        .filter(s => Math.hypot(s.x - px, s.z - pz) > 7)
-    const spot = candidates.length > 0
-        ? candidates[Math.floor(randomFloat() * candidates.length)]!
-        : CALL_OF_XENO_SPAWNS[0]!
+/** Puts one enemy outside a live window. False when there is nowhere to put it. */
+function spawnEnemy(): boolean {
+    // Only windows in rooms the player can actually be reached from are live,
+    // so nothing queues up outside a wing that is still sealed off.
+    const open = reachableWindows(navTable, nearestNode(px, pz, feetY, bannedNodes))
+    if (open.length === 0) return false
+
+    // Prefer a window that is not the one the player is stood at, so a round
+    // does not funnel entirely into whichever barricade they are watching.
+    const far = open.filter(w => Math.hypot(w.inside.x - px, w.inside.z - pz) > 9)
+    const pool = far.length > 0 ? far : open
+    const window = pool[Math.floor(randomFloat() * pool.length)]!
 
     const def = CALL_OF_XENO_ENEMIES[pickEnemyType()]
     const model = buildEnemy(def)
-    const y = groundHeight(spot.x, spot.z, 0)
-    model.group.position.set(spot.x, y, spot.z)
-    model.group.scale.setScalar(def.scale * 0.15)
-    scene.add(model.group)
 
-    // Rising burst so a spawn reads as an arrival, not a pop-in.
-    impactPoint.set(spot.x, y + 1, spot.z)
-    effects.energyBurst(impactPoint, 0xff4433)
+    // Start well back from the window and walk in, spread sideways so a pack
+    // arrives as a crowd rather than a single file.
+    const spread = (randomFloat() - 0.5) * 5
+    const back = 4 + randomFloat() * 7
+    const along = window.axis === 'x'
+    const x = window.outside.x + (along ? spread : window.outward * back)
+    const z = window.outside.z + (along ? window.outward * back : spread)
+
+    model.group.position.set(x, 0, z)
+    model.group.scale.setScalar(def.scale)
+    scene.add(model.group)
 
     const health = Math.round(zombieHealth(currentRound) * def.healthMultiplier)
     const frenzy = modifier === 'frenzy' ? CALL_OF_XENO_FRENZY_SPEED : 1
@@ -1367,9 +1412,13 @@ function spawnEnemy() {
     enemies.push({
         def,
         model,
-        x: spot.x,
-        y,
-        z: spot.z,
+        stage: 'outside',
+        window,
+        tearTimer: CALL_OF_XENO_TEAR_TIME,
+        climb: 0,
+        x,
+        y: 0,
+        z,
         vy: 0,
         yaw: 0,
         health,
@@ -1380,11 +1429,107 @@ function spawnEnemy() {
         flash: 0,
         phase: randomFloat() * Math.PI * 2,
         groanIn: 1 + randomFloat() * 6,
-        spawnT: 0.35,
         stagger: 0,
         stuck: 0,
         stuckSide: randomFloat() < 0.5 ? 1 : -1
     })
+    return true
+}
+
+/** Redraws a window's boards to match how many are left on it. */
+function syncWindow(state: WindowState) {
+    const model = level.windows.get(state.def.id)
+    if (!model) return
+    model.boards.forEach((board, i) => { board.visible = i < state.boards })
+}
+
+/**
+ * Runs an enemy that is still outside: walk up to the window, prise the boards
+ * off one at a time, then climb through. Returns true once it is inside and the
+ * normal ground behaviour should take over.
+ */
+function updateBreaching(enemy: Enemy, dt: number): boolean {
+    const window = enemy.window!
+    const state = windowStates.get(window.id)!
+
+    if (enemy.stage === 'breaching') {
+        enemy.climb += dt / CALL_OF_XENO_CLIMB_TIME
+        const t = Math.min(1, enemy.climb)
+        enemy.x = window.outside.x + (window.inside.x - window.outside.x) * t
+        enemy.z = window.outside.z + (window.inside.z - window.outside.z) * t
+        // Lift over the sill and back down, so it reads as a vault.
+        enemy.y = Math.sin(t * Math.PI) * (CALL_OF_XENO_WINDOW_SILL * 0.8)
+        enemy.yaw = window.facing + Math.PI
+        if (t >= 1) {
+            enemy.stage = 'inside'
+            enemy.window = null
+            enemy.y = 0
+            return true
+        }
+        return false
+    }
+
+    const dx = window.outside.x - enemy.x
+    const dz = window.outside.z - enemy.z
+    const dist = Math.hypot(dx, dz)
+    enemy.y = 0
+
+    if (dist > 0.45) {
+        enemy.x += (dx / dist) * enemy.speed * dt
+        enemy.z += (dz / dist) * enemy.speed * dt
+        enemy.yaw = Math.atan2(dx / dist, dz / dist)
+        return false
+    }
+
+    enemy.yaw = window.facing + Math.PI
+    if (state.boards <= 0) {
+        enemy.stage = 'breaching'
+        enemy.climb = 0
+        audio.play('climb-in')
+        return false
+    }
+
+    enemy.tearTimer -= dt
+    if (enemy.tearTimer > 0) return false
+    enemy.tearTimer = CALL_OF_XENO_TEAR_TIME
+    state.boards--
+    state.repair = 0
+    syncWindow(state)
+    if (Math.hypot(window.centre.x - px, window.centre.z - pz) < 34) audio.play('board-break')
+    impactPoint.set(window.centre.x, CALL_OF_XENO_WINDOW_SILL + 0.6, window.centre.z)
+    effects.wallImpact(impactPoint, new THREE.Vector3(
+        Math.sin(window.facing),
+        0,
+        Math.cos(window.facing)
+    ))
+    return false
+}
+
+/** Nails one board back on, if the player is stood at a damaged window. */
+function updateRepair(dt: number) {
+    if (!focusedWindow) return
+    const state = windowStates.get(focusedWindow.id)!
+    if (state.boards >= CALL_OF_XENO_WINDOW_BOARDS) return
+    if (!keys.has('keyf')) { state.repair = 0; return }
+
+    state.repair += dt
+    if (state.repair < CALL_OF_XENO_REPAIR_TIME) return
+    state.repair = 0
+    state.boards++
+    statBoards++
+    syncWindow(state)
+    // A flat rate: repairing is a steady trickle, not something the streak
+    // multiplier can be farmed through.
+    score += CALL_OF_XENO_REPAIR_POINTS
+    spawnPopup(
+        focusedWindow.centre.x,
+        CALL_OF_XENO_WINDOW_HEAD,
+        focusedWindow.centre.z,
+        `+${CALL_OF_XENO_REPAIR_POINTS}`,
+        '#fcd34d',
+        18
+    )
+    audio.play('board-repair')
 }
 
 function killEnemy(enemy: Enemy) {
@@ -1473,6 +1618,35 @@ function takeDamage(amount: number, sourceX?: number, sourceZ?: number) {
     audio.play('hurt')
 }
 
+/** Limb swing, hover bob and the model transform. Shared by every stage. */
+function animateEnemy(enemy: Enemy, dt: number, moved = 0) {
+    const def = enemy.def
+    enemy.phase += dt * (2.2 + moved * 0.8)
+
+    if (enemy.model.rotor) {
+        enemy.model.rotor.rotation.y += dt * 14
+        enemy.model.group.rotation.z = Math.sin(enemy.phase * 0.7) * 0.12
+    } else {
+        // Tearing at a barricade drives the arms instead of the legs.
+        const clawing = enemy.stage === 'outside' && moved === 0
+        const swing = clawing ? 0 : Math.sin(enemy.phase) * 0.55
+        enemy.model.legL!.rotation.x = swing
+        enemy.model.legR!.rotation.x = -swing
+        const reach = clawing ? -1.5 + Math.sin(enemy.phase * 2.4) * 0.45 : -0.55
+        enemy.model.armL!.rotation.x = reach + Math.sin(enemy.phase + 1.6) * 0.16
+        enemy.model.armR!.rotation.x = reach - Math.sin(enemy.phase + 1.6) * 0.16
+        enemy.model.head!.rotation.z = Math.sin(enemy.phase * 0.5) * 0.12
+        enemy.model.group.rotation.z = Math.sin(enemy.phase) * 0.05
+    }
+
+    enemy.model.group.position.set(
+        enemy.x,
+        enemy.y + (def.flies ? Math.sin(enemy.phase * 1.4) * 0.08 : Math.abs(Math.sin(enemy.phase)) * 0.045),
+        enemy.z
+    )
+    enemy.model.group.rotation.y = enemy.yaw
+}
+
 function updateEnemies(dt: number) {
     const contact = zombieDamage(currentRound)
 
@@ -1481,6 +1655,15 @@ function updateEnemies(dt: number) {
         const toPlayerX = px - enemy.x
         const toPlayerZ = pz - enemy.z
         const toPlayer = Math.hypot(toPlayerX, toPlayerZ)
+
+        // Outside the shell there is no navigation and no collision: the only
+        // way in is the window it picked, and the climb is scripted.
+        if (enemy.stage !== 'inside') {
+            const arrived = enemy.stage === 'outside'
+                && Math.hypot(enemy.window!.outside.x - enemy.x, enemy.window!.outside.z - enemy.z) <= 0.45
+            animateEnemy(enemy, dt, arrived ? 0 : enemy.speed)
+            if (!updateBreaching(enemy, dt)) continue
+        }
 
         const target = zombieTarget(navTable, enemy.x, enemy.z, enemy.y, px, pz, feetY, bannedNodes)
         let dx = target.x - enemy.x
@@ -1587,34 +1770,7 @@ function updateEnemies(dt: number) {
             flashEnemy(enemy.model, enemy.flash > 0)
         }
 
-        // Animation
-        enemy.phase += dt * (2.2 + moved * 0.8)
-        if (enemy.model.rotor) {
-            enemy.model.rotor.rotation.y += dt * 14
-            enemy.model.group.rotation.z = Math.sin(enemy.phase * 0.7) * 0.12
-        } else {
-            const swing = Math.sin(enemy.phase) * 0.55
-            enemy.model.legL!.rotation.x = swing
-            enemy.model.legR!.rotation.x = -swing
-            enemy.model.armL!.rotation.x = -0.55 + Math.sin(enemy.phase + 1.6) * 0.16
-            enemy.model.armR!.rotation.x = -0.55 - Math.sin(enemy.phase + 1.6) * 0.16
-            enemy.model.head!.rotation.z = Math.sin(enemy.phase * 0.5) * 0.12
-            enemy.model.group.rotation.z = Math.sin(enemy.phase) * 0.05
-        }
-
-        enemy.model.group.position.set(
-            enemy.x,
-            enemy.y + (def.flies ? Math.sin(enemy.phase * 1.4) * 0.08 : Math.abs(Math.sin(enemy.phase)) * 0.045),
-            enemy.z
-        )
-        enemy.model.group.rotation.y = enemy.yaw
-
-        // Rise out of the floor over the first fraction of a second.
-        if (enemy.spawnT > 0) {
-            enemy.spawnT -= dt
-            const t = Math.max(0, enemy.spawnT) / 0.35
-            enemy.model.group.scale.setScalar(def.scale * (0.15 + 0.85 * (1 - t)))
-        }
+        animateEnemy(enemy, dt, moved)
     }
 
     // Soft separation so a pack does not fuse into one body.
@@ -1664,21 +1820,24 @@ function applyModifier() {
     specialRound.value = isSpecialRound(currentRound)
 
     fog.near = modifier === 'fog' ? 3 : 12
-    fog.far = modifier === 'fog' ? 16 : 44
+    fog.far = modifier === 'fog' ? 16 : 46
     refreshLights()
 }
 
-/** Blackout kills the lights for the round even when the power is on. */
+/**
+ * Blackout kills the lights for the round even when the power is on. Before
+ * the power is thrown the building runs on whatever is still lit near the
+ * spawn, so everything past the Barracks is a torch-less crawl.
+ */
+const LIT_WITHOUT_POWER = new Set([0, 1])
+
 function refreshLights() {
     const dark = modifier === 'blackout'
-    if (level.reactor) {
-        level.reactor.light.intensity = dark ? 1 : 9
-        for (const ring of level.reactor.rings) ring.color.setHex(dark ? 0x51331f : level.reactor.accent)
-    }
     for (const entry of level.lights) {
-        const base = entry.region === 2 && !powered ? 3 : entry.lit
+        const emergency = !powered && !LIT_WITHOUT_POWER.has(entry.region)
+        const base = emergency ? entry.lit * 0.22 : entry.lit
         entry.light.intensity = dark ? 1.5 : base
-        ;(entry.tube.material as THREE.MeshBasicMaterial).opacity = dark ? 0.08 : 1
+        ;(entry.tube.material as THREE.MeshBasicMaterial).opacity = dark ? 0.08 : emergency ? 0.3 : 1
     }
     for (const item of CALL_OF_XENO_INTERACTABLES) {
         const prop = level.props.get(item.id)
@@ -1729,8 +1888,9 @@ function updateRound(dt: number) {
     if (spawnQueue > 0) {
         spawnTimer -= dt
         if (spawnTimer <= 0 && enemies.length < maxAlive(currentRound)) {
-            spawnEnemy()
-            spawnQueue--
+            // Only bank the spawn if one actually went out — otherwise a round
+            // with nowhere to spawn would drain its queue and end on the spot.
+            if (spawnEnemy()) spawnQueue--
             spawnTimer = zombieSpawnInterval(currentRound)
         }
     } else if (enemies.length === 0) {
@@ -1745,15 +1905,28 @@ function updateRound(dt: number) {
 
 function updatePrompt() {
     focused = null
+    focusedWindow = null
     let text = ''
     let affordable = true
     let best = INTERACT_RANGE
+
+    for (const state of windowStates.values()) {
+        if (state.boards >= CALL_OF_XENO_WINDOW_BOARDS) continue
+        if (Math.abs(feetY) > 2.5) continue
+        const d = Math.hypot(state.def.centre.x - px, state.def.centre.z - pz)
+        if (d > best) continue
+        best = d
+        focusedWindow = state.def
+        text = `[F] Hold to Board Up — ${state.boards}/${CALL_OF_XENO_WINDOW_BOARDS}`
+        affordable = true
+    }
 
     for (const door of CALL_OF_XENO_DOORS) {
         if (openDoors.has(door.id)) continue
         const d = Math.hypot(door.prompt.x - px, door.prompt.z - pz)
         if (d > best) continue
         best = d
+        focusedWindow = null
         focused = { kind: 'door', id: door.id }
         text = `[F] Open Door — ${door.cost}`
         affordable = score >= door.cost
@@ -1762,6 +1935,7 @@ function updatePrompt() {
     for (const item of CALL_OF_XENO_INTERACTABLES) {
         const d = Math.hypot(item.x - px, item.z - pz)
         if (d > best || Math.abs(item.y - feetY) > 2.5) continue
+        focusedWindow = null
 
         if (item.kind === 'power') {
             if (powered) continue
@@ -2035,6 +2209,7 @@ function update(dt: number) {
     updateBox(dt)
     updateRound(dt)
     updatePrompt()
+    updateRepair(dt)
     updatePopups(dt)
     effects.update(dt)
 
@@ -2119,6 +2294,7 @@ function die() {
         { label: 'Headshots', value: statKills > 0 ? `${Math.round((statHeadshots / statKills) * 100)}%` : '0%' },
         { label: 'Best streak', value: String(statBestStreak) },
         { label: 'Doors opened', value: `${statDoors} / ${CALL_OF_XENO_DOORS.length}` },
+        { label: 'Boards nailed', value: String(statBoards) },
         { label: 'Box spins', value: String(statSpins) },
         { label: 'Barrels popped', value: String(statBarrels) },
         { label: 'Perks', value: `${perks.size} / 4` },
@@ -2173,6 +2349,12 @@ function resetRun() {
     for (const barrel of barrels) {
         barrel.alive = true
         barrel.group.visible = true
+    }
+
+    for (const state of windowStates.values()) {
+        state.boards = CALL_OF_XENO_WINDOW_BOARDS
+        state.repair = 0
+        syncWindow(state)
     }
 
     for (const door of CALL_OF_XENO_DOORS) {
@@ -2232,6 +2414,7 @@ function resetRun() {
     statSpins = 0
     statDoors = 0
     statBarrels = 0
+    statBoards = 0
     inBreak = false
     breakTimer = 0
     slots = [makeSlot('m1911')]
@@ -2242,10 +2425,15 @@ function resetRun() {
     fireTimer = 0
     firing = false
 
+    // Put the camera where the player will be, so the menu behind the panel
+    // looks out of the Barracks rather than out of the world origin.
+    camera.position.set(px, feetY + PLAYER_EYE, pz)
+    camera.rotation.set(0, yaw, 0)
+
     rebuildCollision()
     equipModel()
     startRound(1)
-    subBanner.value = 'Barracks'
+    subBanner.value = 'Barracks — board the windows'
     syncHud()
 }
 
@@ -2351,8 +2539,8 @@ function initScene(): boolean {
 
 function buildScene(host: HTMLDivElement) {
     scene = new THREE.Scene()
-    scene.background = new THREE.Color(0x05070a)
-    fog = new THREE.Fog(0x05070a, 12, 44)
+    scene.background = new THREE.Color(0x0b0c0d)
+    fog = new THREE.Fog(0x0b0c0d, 12, 44)
     scene.fog = fog
 
     camera = new THREE.PerspectiveCamera(80, host.clientWidth / host.clientHeight, 0.03, 220)
@@ -2362,7 +2550,7 @@ function buildScene(host: HTMLDivElement) {
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.75))
     renderer.setSize(host.clientWidth, host.clientHeight)
     renderer.toneMapping = THREE.ACESFilmicToneMapping
-    renderer.toneMappingExposure = 1.15
+    renderer.toneMappingExposure = 1.05
     host.appendChild(renderer.domElement)
 
     effects = new CallOfXenoEffects(scene)

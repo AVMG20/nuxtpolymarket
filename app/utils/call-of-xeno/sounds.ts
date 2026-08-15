@@ -35,6 +35,9 @@ export type CallOfXenoSound
       | 'perk'
       | 'round-start'
       | 'death'
+      | 'board-break'
+      | 'board-repair'
+      | 'climb-in'
 
 export class CallOfXenoAudio {
     private ctx: AudioContext | null = null
@@ -264,6 +267,22 @@ export class CallOfXenoAudio {
             case 'death':
                 this.tone({ duration: 2.2, gain: 0.3, freq: 260, freqEnd: 40, type: 'sawtooth' })
                 this.burst({ duration: 1.8, gain: 0.2, freq: 1400, freqEnd: 90, q: 1 })
+                break
+            case 'board-break':
+                // Nails giving, then the plank cracking off.
+                this.burst({ duration: 0.09, gain: 0.3, freq: 2800, freqEnd: 900, type: 'bandpass', q: 3 })
+                this.burst({ at: t + 0.06, duration: 0.26, gain: 0.4, freq: 1500, freqEnd: 240, q: 1.2 })
+                this.tone({ at: t + 0.06, duration: 0.2, gain: 0.2, freq: 260, freqEnd: 90, type: 'square' })
+                break
+            case 'board-repair':
+                // Two hammer strikes onto timber.
+                this.burst({ duration: 0.07, gain: 0.34, freq: 1900, freqEnd: 420, q: 2 })
+                this.tone({ duration: 0.09, gain: 0.22, freq: 300, freqEnd: 130, type: 'triangle' })
+                this.burst({ at: t + 0.11, duration: 0.06, gain: 0.26, freq: 1600, freqEnd: 380, q: 2 })
+                break
+            case 'climb-in':
+                this.burst({ duration: 0.3, gain: 0.22, freq: 700, freqEnd: 160, type: 'lowpass' })
+                this.tone({ duration: 0.26, gain: 0.16, freq: 150, freqEnd: 60, type: 'triangle' })
                 break
         }
     }

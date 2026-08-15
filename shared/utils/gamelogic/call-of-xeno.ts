@@ -90,7 +90,8 @@ export const CALL_OF_XENO_WEAPONS: Record<CallOfXenoWeaponId, CallOfXenoWeapon> 
         range: 55,
         penetration: 2,
         automatic: false,
-        cost: 1250,
+        // Box only — this one is not sold on any wall.
+        cost: 0,
         upgradedName: '.44 Anaconda'
     },
     trench: {
@@ -122,7 +123,8 @@ export const CALL_OF_XENO_WEAPONS: Record<CallOfXenoWeaponId, CallOfXenoWeapon> 
         range: 45,
         penetration: 1,
         automatic: true,
-        cost: 1000,
+        // Box only — this one is not sold on any wall.
+        cost: 0,
         upgradedName: 'The Afterburner'
     },
     ak74: {
@@ -138,7 +140,7 @@ export const CALL_OF_XENO_WEAPONS: Record<CallOfXenoWeaponId, CallOfXenoWeapon> 
         range: 70,
         penetration: 2,
         automatic: true,
-        cost: 1200,
+        cost: 1800,
         upgradedName: 'AK-74fu2'
     },
     bar: {
@@ -154,7 +156,8 @@ export const CALL_OF_XENO_WEAPONS: Record<CallOfXenoWeaponId, CallOfXenoWeapon> 
         range: 65,
         penetration: 2,
         automatic: true,
-        cost: 2200,
+        // Box only — this one is not sold on any wall.
+        cost: 0,
         upgradedName: 'Browning M1918'
     },
     rpk: {
@@ -170,7 +173,8 @@ export const CALL_OF_XENO_WEAPONS: Record<CallOfXenoWeaponId, CallOfXenoWeapon> 
         range: 70,
         penetration: 3,
         automatic: true,
-        cost: 3000,
+        // Box only — this one is not sold on any wall.
+        cost: 0,
         upgradedName: 'R115 Resonator'
     },
     xenoray: {
@@ -192,8 +196,12 @@ export const CALL_OF_XENO_WEAPONS: Record<CallOfXenoWeaponId, CallOfXenoWeapon> 
     }
 }
 
-/** Weapons sold on a wall, in the order they appear across the map. */
-export const CALL_OF_XENO_WALL_WEAPONS: CallOfXenoWeaponId[] = ['skorpion', 'trench', 'magnum', 'mp40', 'ak74', 'bar', 'rpk']
+/**
+ * Weapons sold on a wall, in the order they appear across the map. Kept to
+ * three on purpose: the wall is the reliable floor, everything else has to
+ * come out of the box, so a spin is always worth taking.
+ */
+export const CALL_OF_XENO_WALL_WEAPONS: CallOfXenoWeaponId[] = ['skorpion', 'trench', 'ak74']
 
 export interface CallOfXenoPerk {
     id: CallOfXenoPerkId
@@ -304,17 +312,18 @@ export function ammoCost(weapon: CallOfXenoWeapon): number {
 export const CALL_OF_XENO_BOX_COST = 950
 
 /**
- * The box is the only source of the wonder weapon, which is what makes a spin
- * worth taking rather than just buying off the wall.
+ * Every weapon that is not on a wall lives here, and so do the three that are
+ * — the box stays worth spinning at every stage of a run, and it is the only
+ * source of the Magnum, the MP-40, the BAR, the RPK and the wonder weapon.
  */
 export const CALL_OF_XENO_BOX_POOL: { weapon: CallOfXenoWeaponId, weight: number }[] = [
-    { weapon: 'trench', weight: 6 },
-    { weapon: 'mp40', weight: 6 },
-    { weapon: 'ak74', weight: 6 },
+    { weapon: 'mp40', weight: 7 },
+    { weapon: 'magnum', weight: 6 },
+    { weapon: 'bar', weight: 5 },
     { weapon: 'rpk', weight: 5 },
-    { weapon: 'skorpion', weight: 4 },
-    { weapon: 'magnum', weight: 4 },
-    { weapon: 'bar', weight: 4 },
+    { weapon: 'trench', weight: 4 },
+    { weapon: 'ak74', weight: 4 },
+    { weapon: 'skorpion', weight: 3 },
     { weapon: 'xenoray', weight: 2 }
 ]
 

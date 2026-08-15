@@ -1,13 +1,19 @@
 // Call of Xeno — static scene construction.
 //
-// Turns the pure map description into three.js objects: floors, ceilings,
-// walls, the catwalk and its ramps, lighting, doors and every interactable
-// prop. Kept out of the component so the game loop file stays about gameplay.
+// Turns the pure map description into three.js objects: the shell and its
+// boarded windows, the dirt outside, floors and ceilings for both storeys, the
+// stairs, lighting, doors and every interactable prop. Kept out of the
+// component so the game loop file stays about gameplay.
+//
+// The look is deliberately drab — concrete, plaster and painted steel lit by
+// tungsten. The only saturated colour in the level belongs to props the player
+// has to be able to spot: perks, the Pack-a-Punch, the box and power-ups.
 
 import * as THREE from 'three'
 import {
     CALL_OF_XENO_REGIONS,
     CALL_OF_XENO_WALLS,
+    CALL_OF_XENO_SHELL_WALLS,
     CALL_OF_XENO_CRATES,
     CALL_OF_XENO_PLATFORMS,
     CALL_OF_XENO_RAMPS,
@@ -15,9 +21,16 @@ import {
     CALL_OF_XENO_INTERACTABLES,
     CALL_OF_XENO_DECOR,
     CALL_OF_XENO_ROOM_THEMES,
+    CALL_OF_XENO_WINDOWS,
+    CALL_OF_XENO_WINDOW_BOARDS,
+    CALL_OF_XENO_WINDOW_SILL,
+    CALL_OF_XENO_WINDOW_HEAD,
+    CALL_OF_XENO_WINDOW_WIDTH,
+    CALL_OF_XENO_EXTERIOR,
+    CALL_OF_XENO_SHELL,
     CALL_OF_XENO_ATRIUM_HEIGHT,
     CALL_OF_XENO_WALL_HEIGHT,
-    CALL_OF_XENO_CATWALK_Y,
+    CALL_OF_XENO_UPPER_Y,
     type CallOfXenoBox,
     type CallOfXenoInteractable
 } from '#shared/utils/gamelogic/call-of-xeno-map'
@@ -26,18 +39,29 @@ import {
     CALL_OF_XENO_PERKS,
     CALL_OF_XENO_BOX_COST
 } from '#shared/utils/gamelogic/call-of-xeno'
-import { makeFloorTexture, makeWallTexture, makeCeilingTexture, makeHazardTexture } from './textures'
+import {
+    makeFloorTexture,
+    makeWallTexture,
+    makeCeilingTexture,
+    makeHazardTexture,
+    makeMetalTexture,
+    makePlankTexture,
+    makeDirtTexture
+} from './textures'
 import {
     buildCrate,
     buildBarrier,
     buildBarrel,
     buildPillar,
-    buildReactor,
     buildMachine,
+    buildContainer,
+    buildTruck,
     buildPipesRun,
     buildCeilingLight,
     buildDoorFrame,
     buildRailing,
+    buildWindow,
+    buildStairs,
     buildWallBuy,
     buildPerkMachine,
     buildPackAPunch,
@@ -46,7 +70,7 @@ import {
     type PropModel,
     type PowerLeverModel,
     type MysteryBoxModel,
-    type ReactorModel
+    type WindowModel
 } from './models'
 
 export interface RoomLight {
@@ -61,9 +85,10 @@ export interface LevelHandles {
     lights: RoomLight[]
     doors: Map<string, THREE.Group>
     props: Map<string, PropModel>
+    /** One entry per window, keyed by window id. */
+    windows: Map<string, WindowModel>
     powerLever: PowerLeverModel
     mysteryBox: MysteryBoxModel
-    reactor: ReactorModel | null
     textures: THREE.Texture[]
     /** Rebuilds a door that a previous run had bought open. */
     makeDoor(id: string): THREE.Group
@@ -78,15 +103,21 @@ function boxMesh(box: CallOfXenoBox, height: number, y: number, material: THREE.
     return mesh
 }
 
-/** Region a box belongs to, by where its centre sits. */
-function regionOf(box: CallOfXenoBox) {
+/** Region a solid belongs to, by where its centre sits and how high it starts. */
+function regionOf(box: CallOfXenoBox, baseY = 0) {
     const cx = (box.minX + box.maxX) / 2
     const cz = (box.minZ + box.maxZ) / 2
+    let best = CALL_OF_XENO_REGIONS[0]!
+    let bestFloor = -Infinity
     for (const region of CALL_OF_XENO_REGIONS) {
         const b = region.bounds
-        if (cx >= b.minX - 0.6 && cx <= b.maxX + 0.6 && cz >= b.minZ - 0.6 && cz <= b.maxZ + 0.6) return region
+        if (cx < b.minX - 0.6 || cx > b.maxX + 0.6 || cz < b.minZ - 0.6 || cz > b.maxZ + 0.6) continue
+        if (region.floorY > baseY + 0.5) continue
+        if (region.floorY <= bestFloor) continue
+        bestFloor = region.floorY
+        best = region
     }
-    return CALL_OF_XENO_REGIONS[0]!
+    return best
 }
 
 export function buildLevel(scene: THREE.Scene): LevelHandles {
@@ -105,17 +136,57 @@ export function buildLevel(scene: THREE.Scene): LevelHandles {
     const ceilMats = CALL_OF_XENO_ROOM_THEMES.map(theme =>
         new THREE.MeshLambertMaterial({ map: track(makeCeilingTexture(theme.ceiling[0], theme.ceiling[1])) })
     )
+    const metalTex = track(makeMetalTexture())
+    const metalMat = new THREE.MeshLambertMaterial({ map: metalTex })
+    const plankTex = track(makePlankTexture())
+    const hazardTex = track(makeHazardTexture())
 
-    // Floors and ceilings, one slab per region at that region's height.
-    for (const region of CALL_OF_XENO_REGIONS) {
-        scene.add(boxMesh(region.bounds, 0.2, -0.1, floorMats[region.theme]!))
-        scene.add(boxMesh(region.bounds, 0.2, region.ceiling + 0.1, ceilMats[region.theme]!))
+    // ---------------------------------------------------------------------
+    // Outside
+    // ---------------------------------------------------------------------
+
+    // A dirt apron under the whole map so the enemies queueing at the windows
+    // have ground to stand on, plus a low ridge on the horizon so the world
+    // does not end in a flat plane against the fog.
+    const dirtMat = new THREE.MeshLambertMaterial({ map: track(makeDirtTexture()) })
+    scene.add(boxMesh(CALL_OF_XENO_EXTERIOR, 0.5, -0.33, dirtMat))
+
+    const rubbleMat = new THREE.MeshLambertMaterial({ color: 0x33302a })
+    for (let i = 0; i < 90; i++) {
+        // Deterministic scatter — the same debris field every run.
+        const angle = (i / 90) * Math.PI * 2 + (i % 7) * 0.31
+        const radius = 34 + (i % 11) * 3.4
+        const x = 29 + Math.cos(angle) * radius
+        const z = 24 + Math.sin(angle) * radius * 0.86
+        const size = 0.6 + (i % 5) * 0.5
+        const rock = new THREE.Mesh(new THREE.BoxGeometry(size, size * 0.5, size * 0.8), rubbleMat)
+        rock.position.set(x, size * 0.2, z)
+        rock.rotation.y = i * 0.7
+        scene.add(rock)
     }
 
-    // Interior structures are dressed by the decor list instead of reading as
-    // plain blocks: pillars, Power Room machinery and the reactor tower.
+    // ---------------------------------------------------------------------
+    // Floors and ceilings, one slab per region at that region's storey.
+    // ---------------------------------------------------------------------
+
+    for (const region of CALL_OF_XENO_REGIONS) {
+        scene.add(boxMesh(region.bounds, 0.2, region.floorY - 0.1, floorMats[region.theme]!))
+        if (region.capped) {
+            scene.add(boxMesh(region.bounds, 0.2, region.ceiling + 0.1, ceilMats[region.theme]!))
+        }
+    }
+
+    // The second-floor deck. Its underside is what the Barracks and the Mess
+    // see as their ceiling, so it is skinned in the ceiling material.
+    for (const platform of CALL_OF_XENO_PLATFORMS) {
+        scene.add(boxMesh(platform.box, platform.thickness, platform.y - platform.thickness / 2, ceilMats[1]!))
+    }
+
+    // ---------------------------------------------------------------------
+    // Structures and walls
+    // ---------------------------------------------------------------------
+
     const decorBoxes = new Set(CALL_OF_XENO_DECOR.map(d => d.box))
-    let reactor: ReactorModel | null = null
     for (const decor of CALL_OF_XENO_DECOR) {
         const cx = (decor.box.minX + decor.box.maxX) / 2
         const cz = (decor.box.minZ + decor.box.maxZ) / 2
@@ -123,32 +194,51 @@ export function buildLevel(scene: THREE.Scene): LevelHandles {
         const depth = decor.box.maxZ - decor.box.minZ
         const accent = CALL_OF_XENO_ROOM_THEMES[decor.theme]!.accent
 
-        if (decor.kind === 'reactor') {
-            reactor = buildReactor(CALL_OF_XENO_WALL_HEIGHT, accent)
-            reactor.group.position.set(cx, 0, cz)
-            scene.add(reactor.group)
-        } else if (decor.kind === 'machine') {
-            const machine = buildMachine(width, CALL_OF_XENO_WALL_HEIGHT, depth, accent)
-            machine.position.set(cx, 0, cz)
-            scene.add(machine)
-        } else {
-            const pillar = buildPillar(CALL_OF_XENO_WALL_HEIGHT, accent)
-            pillar.position.set(cx, 0, cz)
-            scene.add(pillar)
-        }
+        let group: THREE.Group
+        if (decor.kind === 'machine') group = buildMachine(width, decor.height, depth, accent)
+        else if (decor.kind === 'container') group = buildContainer(width, decor.height, depth, 0x4d5148)
+        else if (decor.kind === 'truck') group = buildTruck(width, decor.height, depth, 0x565b51)
+        else group = buildPillar(decor.height, accent)
+
+        group.position.set(cx, 0, cz)
+        scene.add(group)
     }
 
+    const shellBoxes = new Set(CALL_OF_XENO_SHELL_WALLS.map(w => w.box))
+    // The outer shell is one material everywhere — it is the same building
+    // from the inside of every room.
+    const shellMat = wallMats[1]!
     for (const wall of CALL_OF_XENO_WALLS) {
         if (decorBoxes.has(wall.box)) continue
-        const region = regionOf(wall.box)
-        scene.add(boxMesh(wall.box, wall.height, wall.baseY + wall.height / 2, wallMats[region.theme]!))
+        const material = shellBoxes.has(wall.box) ? shellMat : wallMats[regionOf(wall.box, wall.baseY).theme]!
+        scene.add(boxMesh(wall.box, wall.height, wall.baseY + wall.height / 2, material))
     }
 
-    // Obstacles: low ones are hazard barriers, tall ones steel crates, with
-    // the occasional fuel drum tucked into the footprint for clutter.
-    const hazardTex = track(makeHazardTexture())
+    // ---------------------------------------------------------------------
+    // Windows
+    // ---------------------------------------------------------------------
+
+    const windows = new Map<string, WindowModel>()
+    for (const window of CALL_OF_XENO_WINDOWS) {
+        const model = buildWindow(
+            CALL_OF_XENO_WINDOW_WIDTH,
+            CALL_OF_XENO_WINDOW_SILL,
+            CALL_OF_XENO_WINDOW_HEAD,
+            CALL_OF_XENO_WINDOW_BOARDS,
+            plankTex
+        )
+        model.group.position.set(window.centre.x, 0, window.centre.z)
+        model.group.rotation.y = window.facing
+        scene.add(model.group)
+        windows.set(window.id, model)
+    }
+
+    // ---------------------------------------------------------------------
+    // Cover
+    // ---------------------------------------------------------------------
+
     CALL_OF_XENO_CRATES.forEach((crate, index) => {
-        const region = regionOf(crate.box)
+        const region = regionOf(crate.box, crate.baseY)
         const theme = CALL_OF_XENO_ROOM_THEMES[region.theme]!
         const width = crate.box.maxX - crate.box.minX
         const depth = crate.box.maxZ - crate.box.minZ
@@ -161,115 +251,123 @@ export function buildLevel(scene: THREE.Scene): LevelHandles {
         group.position.set(cx, crate.baseY, cz)
         scene.add(group)
 
-        if (crate.baseY === 0 && index % 3 === 1) {
-            const barrel = buildBarrel(theme.accent)
+        if (index % 3 === 1) {
+            const barrel = buildBarrel(0x4a4b42)
             barrel.position.set(cx + width / 2 - 0.34, crate.baseY, cz - depth / 2 + 0.34)
             barrel.rotation.y = index * 1.7
             scene.add(barrel)
         }
     })
 
-    // Guide strips along every corridor lane.
-    const mkStrip = (minX: number, maxX: number, minZ: number, maxZ: number, color: number) => {
-        const strip = new THREE.Mesh(
-            new THREE.BoxGeometry(maxX - minX, 0.03, maxZ - minZ),
-            new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.55 })
-        )
-        strip.position.set((minX + maxX) / 2, 0.015, (minZ + maxZ) / 2)
+    // Faded lane paint at the openings between rooms. Worn floor stencilling,
+    // not lit strips — it should read as something that was painted on once.
+    const paintMat = new THREE.MeshLambertMaterial({ color: 0x7a6a3c, transparent: true, opacity: 0.28 })
+    const mkPaint = (minX: number, maxX: number, minZ: number, maxZ: number, y = 0) => {
+        const strip = new THREE.Mesh(new THREE.BoxGeometry(maxX - minX, 0.02, maxZ - minZ), paintMat)
+        strip.position.set((minX + maxX) / 2, y + 0.01, (minZ + maxZ) / 2)
         scene.add(strip)
     }
-    mkStrip(16.4, 21.6, 6.85, 7.15, CALL_OF_XENO_ROOM_THEMES[0]!.accent)
-    mkStrip(7.85, 8.15, 14.4, 19.6, CALL_OF_XENO_ROOM_THEMES[0]!.accent)
-    mkStrip(12.4, 25.6, 37.85, 38.15, CALL_OF_XENO_ROOM_THEMES[2]!.accent)
-    mkStrip(35.85, 36.15, 26.4, 33.6, CALL_OF_XENO_ROOM_THEMES[1]!.accent)
-    mkStrip(52.4, 57.6, 7.85, 8.15, CALL_OF_XENO_ROOM_THEMES[2]!.accent)
+    for (const door of CALL_OF_XENO_DOORS) {
+        const spansX = (door.box.maxX - door.box.minX) > (door.box.maxZ - door.box.minZ)
+        if (spansX) mkPaint(door.box.minX, door.box.maxX, door.prompt.z - 1.6, door.prompt.z + 1.6)
+        else mkPaint(door.prompt.x - 1.6, door.prompt.x + 1.6, door.box.minZ, door.box.maxZ)
+    }
+    mkPaint(45, 49, 16.4, 19.6)
+    mkPaint(45, 49, 32.4, 35.6)
+    mkPaint(16.4, 19.6, 40, 44)
 
-    // Pipe runs: one down the Courtyard's west wall, one along the Power
-    // Room's north wall, one up the Lab's east wall.
-    const courtyardPipes = buildPipesRun(14, CALL_OF_XENO_ROOM_THEMES[1]!.accent)
-    courtyardPipes.rotation.y = Math.PI / 2
-    courtyardPipes.position.set(22.35, 2.9, 17)
-    scene.add(courtyardPipes)
+    // Pipe runs along the tall rooms, in the same dull steel as everything else.
+    const atriumPipes = buildPipesRun(16, CALL_OF_XENO_ROOM_THEMES[1]!.accent)
+    atriumPipes.rotation.y = Math.PI / 2
+    atriumPipes.position.set(0.35, 6.4, 26)
+    scene.add(atriumPipes)
 
-    const powerPipes = buildPipesRun(14, CALL_OF_XENO_ROOM_THEMES[2]!.accent)
-    powerPipes.position.set(66, 2.7, 17.55)
-    scene.add(powerPipes)
+    const garagePipes = buildPipesRun(20, CALL_OF_XENO_ROOM_THEMES[1]!.accent)
+    garagePipes.position.set(47, 6.6, 17.6)
+    scene.add(garagePipes)
 
-    const labPipes = buildPipesRun(12, CALL_OF_XENO_ROOM_THEMES[3]!.accent)
-    labPipes.rotation.y = Math.PI / 2
-    labPipes.position.set(45.65, 2.9, 42)
-    scene.add(labPipes)
+    const reactorPipes = buildPipesRun(18, CALL_OF_XENO_ROOM_THEMES[2]!.accent)
+    reactorPipes.position.set(38, 6.6, 47.6)
+    scene.add(reactorPipes)
 
-    const riserMat = new THREE.MeshLambertMaterial({ color: 0x59616e })
-    for (const corner of [[22.45, 25.45], [51.55, 25.45]] as const) {
-        const riser = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.11, CALL_OF_XENO_ATRIUM_HEIGHT - 0.4, 8), riserMat)
-        riser.position.set(corner[0], (CALL_OF_XENO_ATRIUM_HEIGHT - 0.4) / 2, corner[1])
-        scene.add(riser)
+    const workshopPipes = buildPipesRun(12, CALL_OF_XENO_ROOM_THEMES[2]!.accent)
+    workshopPipes.rotation.y = Math.PI / 2
+    workshopPipes.position.set(57.6, 3.1, 26)
+    scene.add(workshopPipes)
+
+    // Roof trusses over the two tall halls.
+    const trussMat = new THREE.MeshLambertMaterial({ color: 0x35362f })
+    for (const [minX, maxX, minZ, maxZ, count] of [[0, 36, 22, 34, 4], [36, 58, 0, 18, 5], [18, 58, 34, 48, 6]] as const) {
+        for (let i = 0; i < count; i++) {
+            const t = (i + 0.5) / count
+            const beam = new THREE.Mesh(
+                new THREE.BoxGeometry(maxX - minX, 0.3, 0.34),
+                trussMat
+            )
+            beam.position.set((minX + maxX) / 2, CALL_OF_XENO_ATRIUM_HEIGHT - 0.35, minZ + (maxZ - minZ) * t)
+            scene.add(beam)
+        }
     }
 
-    // The platform deck, corner struts and rails on the two edges that do not
-    // have a ramp feeding them.
-    const deckMat = new THREE.MeshLambertMaterial({ color: 0x3d434e })
-    const trussMat = new THREE.MeshLambertMaterial({ color: 0x272b33 })
+    // ---------------------------------------------------------------------
+    // Second floor: deck edge, rails and the two stairs out of the Atrium
+    // ---------------------------------------------------------------------
+
     const railColor = CALL_OF_XENO_ROOM_THEMES[1]!.accent
-
-    for (const platform of CALL_OF_XENO_PLATFORMS) {
-        scene.add(boxMesh(platform.box, platform.thickness, platform.y - platform.thickness / 2, deckMat))
-
-        const width = platform.box.maxX - platform.box.minX
-        const depth = platform.box.maxZ - platform.box.minZ
-        const cx = (platform.box.minX + platform.box.maxX) / 2
-        const cz = (platform.box.minZ + platform.box.maxZ) / 2
-
-        // Struts at the four corners, out of every walking lane.
-        for (const sx of [-1, 1]) {
-            for (const sz of [-1, 1]) {
-                const strut = new THREE.Mesh(new THREE.BoxGeometry(0.16, platform.y, 0.16), trussMat)
-                strut.position.set(cx + (sx * (width / 2 - 0.3)), platform.y / 2, cz + (sz * (depth / 2 - 0.3)))
-                scene.add(strut)
-            }
-        }
-
-        for (const sx of [-1, 1]) {
-            const rail = buildRailing(depth - 0.6, railColor)
-            rail.rotation.y = Math.PI / 2
-            rail.position.set(cx + (sx * (width / 2 - 0.12)), platform.y, cz)
-            scene.add(rail)
-        }
+    for (const [from, to] of [[5.5, 29.5], [34.5, 36]] as const) {
+        const rail = buildRailing(to - from, railColor)
+        rail.position.set((from + to) / 2, CALL_OF_XENO_UPPER_Y, 22)
+        scene.add(rail)
+        // Edge beam under the deck, so the catwalk has a visible thickness.
+        const edge = new THREE.Mesh(new THREE.BoxGeometry(to - from, 0.4, 0.34), trussMat)
+        edge.position.set((from + to) / 2, CALL_OF_XENO_UPPER_Y - 0.4, 22.1)
+        scene.add(edge)
     }
 
-    // Ramps: a slab rotated to the slope, with a hazard nose at the bottom.
     for (const ramp of CALL_OF_XENO_RAMPS) {
         const run = Math.abs(ramp.highAt - ramp.lowAt)
         const rise = ramp.highY - ramp.lowY
-        const length = Math.hypot(run, rise)
-        const angle = Math.atan2(rise, run)
         const width = ramp.axis === 'x'
             ? ramp.box.maxZ - ramp.box.minZ
             : ramp.box.maxX - ramp.box.minX
 
-        const slab = new THREE.Mesh(new THREE.BoxGeometry(length, 0.22, width), deckMat)
-        slab.position.set(
-            (ramp.box.minX + ramp.box.maxX) / 2,
-            (ramp.lowY + ramp.highY) / 2 - 0.11,
-            (ramp.box.minZ + ramp.box.maxZ) / 2
+        const stairs = buildStairs(width, run, rise, ramp.steps, metalTex)
+        // The builder climbs along +Z, so a flight that climbs toward smaller
+        // coordinates is turned to face the other way.
+        const climbsPositive = ramp.highAt > ramp.lowAt
+        stairs.rotation.y = ramp.axis === 'x'
+            ? (climbsPositive ? -Math.PI / 2 : Math.PI / 2)
+            : (climbsPositive ? 0 : Math.PI)
+        stairs.position.set(
+            ramp.axis === 'x' ? ramp.lowAt : (ramp.box.minX + ramp.box.maxX) / 2,
+            ramp.lowY,
+            ramp.axis === 'x' ? (ramp.box.minZ + ramp.box.maxZ) / 2 : ramp.lowAt
         )
-        if (ramp.axis === 'x') {
-            slab.rotation.z = ramp.highAt > ramp.lowAt ? angle : -angle
-        } else {
-            slab.rotation.x = ramp.highAt > ramp.lowAt ? -angle : angle
-        }
-        scene.add(slab)
+        scene.add(stairs)
 
-        const nose = new THREE.Mesh(
-            new THREE.BoxGeometry(0.4, 0.06, width),
-            new THREE.MeshBasicMaterial({ color: 0xffb020 })
-        )
-        nose.position.set(ramp.axis === 'x' ? ramp.lowAt : (ramp.box.minX + ramp.box.maxX) / 2, ramp.lowY + 0.14, (ramp.box.minZ + ramp.box.maxZ) / 2)
-        scene.add(nose)
+        // Rails up both sides of the flight. The rail is built along its own
+        // X, so the pitch has to be applied inside a group that has already
+        // been turned to face along the flight — doing both on one object
+        // would compose the Euler angles in the wrong order.
+        for (const sx of [-1, 1]) {
+            const rail = buildRailing(Math.hypot(run, rise), railColor)
+            rail.rotation.z = climbsPositive ? -Math.atan2(rise, run) : Math.atan2(rise, run)
+            const pivot = new THREE.Group()
+            pivot.add(rail)
+            pivot.rotation.y = ramp.axis === 'x' ? 0 : Math.PI / 2
+            pivot.position.set(
+                (ramp.box.minX + ramp.box.maxX) / 2 + (ramp.axis === 'z' ? sx * (width / 2 - 0.1) : 0),
+                (ramp.lowY + ramp.highY) / 2,
+                (ramp.box.minZ + ramp.box.maxZ) / 2 + (ramp.axis === 'x' ? sx * (width / 2 - 0.1) : 0)
+            )
+            scene.add(pivot)
+        }
     }
 
-    // Lighting: strip fixtures spaced along each region.
+    // ---------------------------------------------------------------------
+    // Lighting
+    // ---------------------------------------------------------------------
+
     const lights: RoomLight[] = []
     for (const region of CALL_OF_XENO_REGIONS) {
         const theme = CALL_OF_XENO_ROOM_THEMES[region.theme]!
@@ -277,31 +375,45 @@ export function buildLevel(scene: THREE.Scene): LevelHandles {
         const depth = region.bounds.maxZ - region.bounds.minZ
         const along = width >= depth ? 'x' : 'z'
         const span = along === 'x' ? width : depth
-        const count = Math.max(1, Math.round(span / 11))
-        const tall = region.ceiling >= CALL_OF_XENO_ATRIUM_HEIGHT
-        const lit = tall ? 46 : 34
+        // Spaced wide on purpose: a shorter gap looks even but costs a point
+        // light per fixture, and every one of them is in every material's loop.
+        const count = Math.max(1, Math.round(span / 12))
+        const tall = region.ceiling - region.floorY >= CALL_OF_XENO_ATRIUM_HEIGHT - 0.1
+        const lit = tall ? 58 : 44
+        // A hanging fixture sits below the ceiling of the tall halls so the
+        // pool of light lands on the floor rather than on the trusses.
+        const at = tall ? region.floorY + CALL_OF_XENO_WALL_HEIGHT + 1.2 : region.ceiling
 
         for (let i = 0; i < count; i++) {
             const t = (i + 0.5) / count
             const x = along === 'x' ? region.bounds.minX + span * t : (region.bounds.minX + region.bounds.maxX) / 2
             const z = along === 'x' ? (region.bounds.minZ + region.bounds.maxZ) / 2 : region.bounds.minZ + span * t
-            const fixture = buildCeilingLight(theme.lightColor, region.ceiling)
+            const fixture = buildCeilingLight(theme.lightColor, at)
             fixture.position.set(x, 0, z)
             if (along === 'z') fixture.rotation.y = Math.PI / 2
             scene.add(fixture)
 
-            const light = new THREE.PointLight(theme.lightColor, lit, tall ? 40 : 30, 1.5)
-            light.position.set(x, region.ceiling - 0.4, z)
+            const light = new THREE.PointLight(theme.lightColor, lit, tall ? 36 : 28, 1.5)
+            light.position.set(x, at - 0.4, z)
             scene.add(light)
             lights.push({ light, tube: fixture.children[1] as THREE.Mesh, region: region.id, lit })
         }
     }
-    scene.add(new THREE.AmbientLight(0x2a3038, 1.4))
-    scene.add(new THREE.HemisphereLight(0x556070, 0x14161b, 0.7))
+    scene.add(new THREE.AmbientLight(0x3a3e42, 1.8))
+    scene.add(new THREE.HemisphereLight(0x6d7176, 0x1d1e20, 0.95))
+    // Overcast moonlight. One directional costs far less than lighting the
+    // apron with a lamp per window, and it is what picks a body queueing at a
+    // barricade out of the dark before it starts on the boards.
+    const moon = new THREE.DirectionalLight(0x9aa4b6, 1.1)
+    moon.position.set(-40, 60, -30)
+    scene.add(moon)
 
-    // Doors and their frames.
+    // ---------------------------------------------------------------------
+    // Doors
+    // ---------------------------------------------------------------------
+
     const doors = new Map<string, THREE.Group>()
-    const doorMat = new THREE.MeshLambertMaterial({ color: 0x54402c })
+    const doorMat = new THREE.MeshLambertMaterial({ color: 0x4a4034 })
 
     const makeDoor = (id: string) => {
         const door = CALL_OF_XENO_DOORS.find(d => d.id === id)!
@@ -309,19 +421,34 @@ export function buildLevel(scene: THREE.Scene): LevelHandles {
         const width = door.box.maxX - door.box.minX
         const depth = door.box.maxZ - door.box.minZ
         const height = CALL_OF_XENO_WALL_HEIGHT
-        group.add(boxMesh(door.box, height, height / 2, doorMat))
+        // A shutter that fills the whole opening, thickened so it does not
+        // z-fight the thin door footprint the collision uses.
+        const leaf = new THREE.Mesh(
+            new THREE.BoxGeometry(Math.max(width, 0.4), height, Math.max(depth, 0.4)),
+            doorMat
+        )
+        leaf.position.set(
+            (door.box.minX + door.box.maxX) / 2,
+            height / 2,
+            (door.box.minZ + door.box.maxZ) / 2
+        )
+        group.add(leaf)
 
+        // Planks nailed across it, the same timber as the window boards.
         const spanX = width > depth
+        const plankMat = new THREE.MeshLambertMaterial({ map: plankTex })
         for (let i = 0; i < 4; i++) {
             const bar = new THREE.Mesh(
-                new THREE.BoxGeometry(spanX ? width * 0.9 : 1.2, 0.16, spanX ? 1.2 : depth * 0.9),
-                new THREE.MeshBasicMaterial({ color: i % 2 ? 0xd8a02a : 0x2b2b2b })
+                new THREE.BoxGeometry(spanX ? width * 1.02 : 0.5, 0.22, spanX ? 0.5 : depth * 1.02),
+                plankMat
             )
             bar.position.set(
                 (door.box.minX + door.box.maxX) / 2,
-                0.6 + i * 0.85,
+                0.7 + i * 0.92,
                 (door.box.minZ + door.box.maxZ) / 2
             )
+            bar.rotation.y = 0
+            bar.rotation[spanX ? 'z' : 'x'] = (i % 2 ? 1 : -1) * 0.03
             group.add(bar)
         }
         doors.set(id, group)
@@ -334,8 +461,8 @@ export function buildLevel(scene: THREE.Scene): LevelHandles {
         const spansX = (door.box.maxX - door.box.minX) > (door.box.maxZ - door.box.minZ)
         const opening = spansX ? door.box.maxX - door.box.minX : door.box.maxZ - door.box.minZ
 
-        for (const offset of [-1.6, 1.6]) {
-            const frame = buildDoorFrame(Math.max(4, opening), region.ceiling, theme.accent)
+        for (const offset of [-0.45, 0.45]) {
+            const frame = buildDoorFrame(opening + 0.6, CALL_OF_XENO_WALL_HEIGHT, theme.accent)
             if (spansX) {
                 frame.position.set(door.prompt.x, 0, door.prompt.z + offset)
             } else {
@@ -347,7 +474,10 @@ export function buildLevel(scene: THREE.Scene): LevelHandles {
         scene.add(makeDoor(door.id))
     }
 
-    // Interactable props.
+    // ---------------------------------------------------------------------
+    // Interactable props
+    // ---------------------------------------------------------------------
+
     const props = new Map<string, PropModel>()
     let powerLever!: PowerLeverModel
     let mysteryBox!: MysteryBoxModel
@@ -372,14 +502,18 @@ export function buildLevel(scene: THREE.Scene): LevelHandles {
         scene.add(prop.group)
     }
 
-    // A lit sign above the platform so the high ground advertises itself.
-    const marker = new THREE.Mesh(
-        new THREE.BoxGeometry(0.3, 0.3, 0.3),
-        new THREE.MeshBasicMaterial({ color: CALL_OF_XENO_ROOM_THEMES[1]!.accent })
-    )
-    marker.position.set(37, CALL_OF_XENO_CATWALK_Y + 2.4, 12)
-    marker.rotation.set(0.6, 0.6, 0)
-    scene.add(marker)
+    // The Pack-a-Punch sits on a poured plinth rather than inside a reactor,
+    // so the walkable floor round it matches what the collision actually is.
+    const pap = CALL_OF_XENO_INTERACTABLES.find(i => i.kind === 'papunch')
+    if (pap) {
+        const plinth = new THREE.Mesh(new THREE.BoxGeometry(4, 0.24, 2.6), metalMat)
+        plinth.position.set(pap.x, 0.12, pap.z)
+        scene.add(plinth)
+    }
 
-    return { lights, doors, props, powerLever, mysteryBox, reactor, textures, makeDoor }
+    // Keep the shell honest: nothing should be visible past it.
+    const roof = boxMesh(CALL_OF_XENO_SHELL, 0.4, CALL_OF_XENO_ATRIUM_HEIGHT + 0.5, ceilMats[1]!)
+    scene.add(roof)
+
+    return { lights, doors, props, windows, powerLever, mysteryBox, textures, makeDoor }
 }

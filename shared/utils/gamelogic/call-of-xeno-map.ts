@@ -1,11 +1,14 @@
 // Call of Xeno — level layout ("Outpost 13").
 //
-// Classic zombies progression: a Barracks spawn room with two ways out —
-// east into the Courtyard hub or north into the Armory. The Courtyard is the
-// big room: a raised firing platform in the middle with ramps on both sides,
-// the mystery box and Juggernog. From there doors lead south to the Lab and
-// east to the Power Room, and the Lab connects back to the Armory, so all
-// five doors bought leaves a full loop for kiting.
+// One building, two floors. The ground floor is a ring of rooms that all share
+// walls — Barracks, Mess Hall, Atrium, Garage, Workshop, Lab and the Reactor
+// Hall — with six buyable doors and three free openings knitting them into a
+// loop you can kite. Two stairs climb out of the Atrium onto a catwalk that
+// runs over it and into the two rooms above the Barracks and the Mess.
+//
+// The outer shell is unbroken except for boarded windows. Enemies arrive
+// outside those windows, tear the boards off and climb in; the player can nail
+// the boards back on for points. Nothing spawns inside the building.
 //
 // Everything is axis aligned. Collision is circle-vs-AABB with a vertical
 // band test, navigation is a graph with a precomputed next-hop table.
@@ -45,151 +48,301 @@ export interface CallOfXenoRamp {
     /** Coordinate on `axis` where the ramp meets the high floor. */
     highAt: number
     highY: number
+    /** Drawn as a flight of steps rather than a smooth slab. */
+    steps: number
 }
 
+/** Storey height of an ordinary room. */
 export const CALL_OF_XENO_WALL_HEIGHT = 4.2
-/** The Courtyard is the tall room; everything else is corridor height. */
-export const CALL_OF_XENO_ATRIUM_HEIGHT = 8
-/** Height of the Courtyard firing platform. */
-export const CALL_OF_XENO_CATWALK_Y = 2.2
+/** Ceiling of the rooms that run the full two storeys. */
+export const CALL_OF_XENO_ATRIUM_HEIGHT = 8.8
+/** Walking surface of the second floor. */
+export const CALL_OF_XENO_UPPER_Y = 4.6
 /** How high a step the player and zombies can walk up without jumping. */
 export const CALL_OF_XENO_STEP_UP = 0.65
 
-export interface CallOfXenoSpawnPoint {
-    x: number
-    z: number
-    /** Navigation node this spawn sits on, used for reachability. */
+const H = CALL_OF_XENO_WALL_HEIGHT
+const A = CALL_OF_XENO_ATRIUM_HEIGHT
+const U = CALL_OF_XENO_UPPER_Y
+/** Height of the walls that sit on the second floor. */
+const UH = A - U
+
+// ---------------------------------------------------------------------------
+// Shell
+// ---------------------------------------------------------------------------
+
+export const CALL_OF_XENO_SHELL: CallOfXenoBox = { minX: 0, maxX: 58, minZ: 0, maxZ: 48 }
+/** Thickness of the outer wall, measured outward from the shell. */
+const SHELL_T = 0.5
+/** The dirt apron drawn outside the building, where enemies come from. */
+export const CALL_OF_XENO_EXTERIOR: CallOfXenoBox = { minX: -26, maxX: 84, minZ: -26, maxZ: 74 }
+
+// ---------------------------------------------------------------------------
+// Windows
+// ---------------------------------------------------------------------------
+
+/** Boards a fully repaired window carries. */
+export const CALL_OF_XENO_WINDOW_BOARDS = 6
+/** Bottom of the window opening — everything below is sill. */
+export const CALL_OF_XENO_WINDOW_SILL = 1
+/** Top of the window opening — everything above is lintel. */
+export const CALL_OF_XENO_WINDOW_HEAD = 2.7
+/** Seconds an enemy spends prising a single board off. */
+export const CALL_OF_XENO_TEAR_TIME = 1.6
+/** Seconds an enemy takes to climb through once the boards are gone. */
+export const CALL_OF_XENO_CLIMB_TIME = 1.15
+/** Seconds of holding the repair key per board nailed back on. */
+export const CALL_OF_XENO_REPAIR_TIME = 0.6
+/** Points paid for each board repaired. */
+export const CALL_OF_XENO_REPAIR_POINTS = 10
+
+interface WindowSpec {
+    id: string
+    /** Axis the wall runs along. 'x' means the opening spans X. */
+    axis: 'x' | 'z'
+    from: number
+    to: number
+    /** Coordinate of the shell face this window is cut into. */
+    at: number
+    /** +1 when the outside is at the greater coordinate. */
+    outward: 1 | -1
+    region: number
+    /** Navigation node an enemy joins the graph on once it is inside. */
     node: number
 }
+
+export interface CallOfXenoWindow extends WindowSpec {
+    /** Where an enemy queues up before it starts tearing boards. */
+    outside: { x: number, z: number }
+    /** Where it lands after climbing through. */
+    inside: { x: number, z: number }
+    /** Centre of the opening, on the wall plane. */
+    centre: { x: number, z: number }
+    /** Yaw of the outward normal. */
+    facing: number
+}
+
+const WINDOW_SPECS: WindowSpec[] = [
+    { id: 'win-barracks-w1', axis: 'z', from: 3, to: 7, at: 0, outward: -1, region: 0, node: 0 },
+    { id: 'win-barracks-w2', axis: 'z', from: 10, to: 14, at: 0, outward: -1, region: 0, node: 23 },
+    { id: 'win-barracks-s1', axis: 'x', from: 10, to: 14, at: 0, outward: -1, region: 0, node: 0 },
+    { id: 'win-mess-s1', axis: 'x', from: 22, to: 26, at: 0, outward: -1, region: 1, node: 3 },
+    { id: 'win-mess-s2', axis: 'x', from: 28, to: 32, at: 0, outward: -1, region: 1, node: 3 },
+    { id: 'win-garage-s1', axis: 'x', from: 40, to: 44, at: 0, outward: -1, region: 3, node: 5 },
+    { id: 'win-garage-e1', axis: 'z', from: 6, to: 10, at: 58, outward: 1, region: 3, node: 6 },
+    { id: 'win-atrium-w1', axis: 'z', from: 18, to: 22, at: 0, outward: -1, region: 2, node: 22 },
+    { id: 'win-atrium-w2', axis: 'z', from: 29, to: 33, at: 0, outward: -1, region: 2, node: 31 },
+    { id: 'win-workshop-e1', axis: 'z', from: 22, to: 26, at: 58, outward: 1, region: 4, node: 8 },
+    { id: 'win-workshop-e2', axis: 'z', from: 29, to: 33, at: 58, outward: 1, region: 4, node: 11 },
+    { id: 'win-lab-w1', axis: 'z', from: 37, to: 41, at: 0, outward: -1, region: 5, node: 18 },
+    { id: 'win-lab-n1', axis: 'x', from: 5, to: 9, at: 48, outward: 1, region: 5, node: 18 },
+    { id: 'win-reactor-n1', axis: 'x', from: 26, to: 30, at: 48, outward: 1, region: 6, node: 16 },
+    { id: 'win-reactor-n2', axis: 'x', from: 44, to: 48, at: 48, outward: 1, region: 6, node: 12 },
+    { id: 'win-reactor-e1', axis: 'z', from: 38, to: 42, at: 58, outward: 1, region: 6, node: 12 }
+]
+
+/** How far out an enemy waits, and how far in it lands. */
+const WINDOW_OUTSIDE = 2.6
+const WINDOW_INSIDE = 2
+
+export const CALL_OF_XENO_WINDOWS: CallOfXenoWindow[] = WINDOW_SPECS.map((spec) => {
+    const mid = (spec.from + spec.to) / 2
+    const outAt = spec.at + spec.outward * WINDOW_OUTSIDE
+    const inAt = spec.at - spec.outward * WINDOW_INSIDE
+    const along = spec.axis === 'x'
+    return {
+        ...spec,
+        outside: along ? { x: mid, z: outAt } : { x: outAt, z: mid },
+        inside: along ? { x: mid, z: inAt } : { x: inAt, z: mid },
+        centre: along ? { x: mid, z: spec.at } : { x: spec.at, z: mid },
+        // Yaw such that (sin, cos) points along the outward normal.
+        facing: along
+            ? (spec.outward > 0 ? 0 : Math.PI)
+            : (spec.outward > 0 ? Math.PI / 2 : -Math.PI / 2)
+    }
+})
+
+/** Width of a window opening, shared by every one of them. */
+export const CALL_OF_XENO_WINDOW_WIDTH = WINDOW_SPECS[0]!.to - WINDOW_SPECS[0]!.from
+
+// ---------------------------------------------------------------------------
+// Regions
+// ---------------------------------------------------------------------------
 
 export interface CallOfXenoRegion {
     id: number
     name: string
     bounds: CallOfXenoBox
+    /** Walking surface this region sits on. */
+    floorY: number
+    /** Absolute height of its ceiling. */
     ceiling: number
     /** Palette index into CALL_OF_XENO_ROOM_THEMES. */
     theme: number
+    /** False when something else already roofs it — an upper floor, or the
+     *  ceiling of the tall room it hangs inside. */
+    capped: boolean
 }
 
 /** Floor and ceiling slabs. Also drives which palette each area is drawn in. */
 export const CALL_OF_XENO_REGIONS: CallOfXenoRegion[] = [
-    { id: 0, name: 'Barracks', bounds: { minX: 0, maxX: 16, minZ: 0, maxZ: 14 }, ceiling: CALL_OF_XENO_WALL_HEIGHT, theme: 0 },
-    { id: 1, name: 'Corridor A', bounds: { minX: 16, maxX: 22, minZ: 5, maxZ: 9 }, ceiling: CALL_OF_XENO_WALL_HEIGHT, theme: 0 },
-    { id: 2, name: 'Courtyard', bounds: { minX: 22, maxX: 52, minZ: 0, maxZ: 26 }, ceiling: CALL_OF_XENO_ATRIUM_HEIGHT, theme: 1 },
-    { id: 3, name: 'Corridor B', bounds: { minX: 6, maxX: 10, minZ: 14, maxZ: 20 }, ceiling: CALL_OF_XENO_WALL_HEIGHT, theme: 0 },
-    { id: 4, name: 'Armory', bounds: { minX: 0, maxX: 16, minZ: 20, maxZ: 36 }, ceiling: CALL_OF_XENO_WALL_HEIGHT, theme: 2 },
-    { id: 5, name: 'Corridor C', bounds: { minX: 12, maxX: 26, minZ: 36, maxZ: 40 }, ceiling: CALL_OF_XENO_WALL_HEIGHT, theme: 2 },
-    { id: 6, name: 'Lab', bounds: { minX: 26, maxX: 46, minZ: 34, maxZ: 50 }, ceiling: CALL_OF_XENO_WALL_HEIGHT, theme: 3 },
-    { id: 7, name: 'Corridor D', bounds: { minX: 34, maxX: 38, minZ: 26, maxZ: 34 }, ceiling: CALL_OF_XENO_WALL_HEIGHT, theme: 1 },
-    { id: 8, name: 'Corridor E', bounds: { minX: 52, maxX: 58, minZ: 6, maxZ: 10 }, ceiling: CALL_OF_XENO_WALL_HEIGHT, theme: 2 },
-    { id: 9, name: 'Power Room', bounds: { minX: 58, maxX: 74, minZ: 0, maxZ: 18 }, ceiling: CALL_OF_XENO_WALL_HEIGHT, theme: 2 }
+    { id: 0, name: 'Barracks', bounds: { minX: 0, maxX: 18, minZ: 0, maxZ: 16 }, floorY: 0, ceiling: H, theme: 0, capped: false },
+    { id: 1, name: 'Mess Hall', bounds: { minX: 18, maxX: 36, minZ: 0, maxZ: 16 }, floorY: 0, ceiling: H, theme: 0, capped: false },
+    { id: 2, name: 'Atrium', bounds: { minX: 0, maxX: 36, minZ: 16, maxZ: 34 }, floorY: 0, ceiling: A, theme: 1, capped: true },
+    { id: 3, name: 'Garage', bounds: { minX: 36, maxX: 58, minZ: 0, maxZ: 18 }, floorY: 0, ceiling: A, theme: 1, capped: true },
+    { id: 4, name: 'Workshop', bounds: { minX: 36, maxX: 58, minZ: 18, maxZ: 34 }, floorY: 0, ceiling: H, theme: 2, capped: true },
+    { id: 5, name: 'Lab', bounds: { minX: 0, maxX: 18, minZ: 34, maxZ: 48 }, floorY: 0, ceiling: H, theme: 3, capped: true },
+    { id: 6, name: 'Reactor Hall', bounds: { minX: 18, maxX: 58, minZ: 34, maxZ: 48 }, floorY: 0, ceiling: A, theme: 2, capped: true },
+    { id: 7, name: 'Overwatch', bounds: { minX: 0, maxX: 18, minZ: 0, maxZ: 16 }, floorY: U, ceiling: A, theme: 0, capped: true },
+    { id: 8, name: 'Signals', bounds: { minX: 18, maxX: 36, minZ: 0, maxZ: 16 }, floorY: U, ceiling: A, theme: 0, capped: true },
+    { id: 9, name: 'Catwalk', bounds: { minX: 0, maxX: 36, minZ: 16, maxZ: 22 }, floorY: U, ceiling: A, theme: 1, capped: false }
 ]
 
-const H = CALL_OF_XENO_WALL_HEIGHT
-const A = CALL_OF_XENO_ATRIUM_HEIGHT
+// ---------------------------------------------------------------------------
+// Walls
+// ---------------------------------------------------------------------------
 
-function wall(minX: number, maxX: number, minZ: number, maxZ: number, height = H): CallOfXenoSolid {
-    return { box: { minX, maxX, minZ, maxZ }, baseY: 0, height }
+function wall(minX: number, maxX: number, minZ: number, maxZ: number, height = H, baseY = 0): CallOfXenoSolid {
+    return { box: { minX, maxX, minZ, maxZ }, baseY, height }
 }
+
+/** One face of the outer shell, split around the windows cut into it. */
+function shellRun(axis: 'x' | 'z', at: number, outward: 1 | -1, from: number, to: number): CallOfXenoSolid[] {
+    const out: CallOfXenoSolid[] = []
+    const near = outward > 0 ? at : at - SHELL_T
+    const far = outward > 0 ? at + SHELL_T : at
+
+    const push = (lo: number, hi: number, baseY: number, height: number) => {
+        if (hi - lo < 1e-6 || height < 1e-6) return
+        out.push(axis === 'x'
+            ? wall(lo, hi, near, far, height, baseY)
+            : wall(near, far, lo, hi, height, baseY))
+    }
+
+    const here = CALL_OF_XENO_WINDOWS
+        .filter(w => w.axis === axis && w.at === at)
+        .sort((a, b) => a.from - b.from)
+
+    let cursor = from
+    for (const window of here) {
+        push(cursor, window.from, 0, A)
+        push(window.from, window.to, 0, CALL_OF_XENO_WINDOW_SILL)
+        push(window.from, window.to, CALL_OF_XENO_WINDOW_HEAD, A - CALL_OF_XENO_WINDOW_HEAD)
+        cursor = window.to
+    }
+    push(cursor, to, 0, A)
+    return out
+}
+
+const SX0 = CALL_OF_XENO_SHELL.minX
+const SX1 = CALL_OF_XENO_SHELL.maxX
+const SZ0 = CALL_OF_XENO_SHELL.minZ
+const SZ1 = CALL_OF_XENO_SHELL.maxZ
+
+/** The unbroken outer shell, minus the window openings. */
+export const CALL_OF_XENO_SHELL_WALLS: CallOfXenoSolid[] = [
+    ...shellRun('z', SX0, -1, SZ0 - SHELL_T, SZ1 + SHELL_T),
+    ...shellRun('z', SX1, 1, SZ0 - SHELL_T, SZ1 + SHELL_T),
+    ...shellRun('x', SZ0, -1, SX0 - SHELL_T, SX1 + SHELL_T),
+    ...shellRun('x', SZ1, 1, SX0 - SHELL_T, SX1 + SHELL_T)
+]
 
 // Interior structures that get dressed up by the renderer. They stay in the
 // wall list for collision; the decor entry tells the builder what to draw.
-const PILLAR_BARRACKS = wall(12.5, 13.5, 2.5, 3.5)
-const PILLAR_ARMORY = wall(11.5, 12.5, 26.5, 27.5)
-const PILLAR_COURTYARD_W = wall(23.5, 24.5, 25, 26)
-const PILLAR_COURTYARD_E = wall(50.5, 51.5, 24, 25)
-const MACHINE_A = wall(60, 62, 2, 7)
-const MACHINE_B = wall(70, 72, 2, 7)
-const REACTOR = wall(63, 69, 6, 12)
-
-export type CallOfXenoDecorKind = 'pillar' | 'machine' | 'reactor'
+export type CallOfXenoDecorKind = 'pillar' | 'machine' | 'container' | 'truck'
 
 export interface CallOfXenoDecor {
     box: CallOfXenoBox
     kind: CallOfXenoDecorKind
+    /** Top of the prop. Pillars run to the deck they hold up. */
+    height: number
     theme: number
 }
 
 export const CALL_OF_XENO_DECOR: CallOfXenoDecor[] = [
-    { box: PILLAR_BARRACKS.box, kind: 'pillar', theme: 0 },
-    { box: PILLAR_ARMORY.box, kind: 'pillar', theme: 2 },
-    { box: PILLAR_COURTYARD_W.box, kind: 'pillar', theme: 1 },
-    { box: PILLAR_COURTYARD_E.box, kind: 'pillar', theme: 1 },
-    { box: MACHINE_A.box, kind: 'machine', theme: 2 },
-    { box: MACHINE_B.box, kind: 'machine', theme: 2 },
-    { box: REACTOR.box, kind: 'reactor', theme: 2 }
+    // Barracks column.
+    { box: { minX: 12.5, maxX: 13.4, minZ: 2.6, maxZ: 3.5 }, kind: 'pillar', height: H, theme: 0 },
+    // The columns holding the catwalk up over the Atrium. They sit clear of
+    // both flights and of the lane in from the Barracks door.
+    { box: { minX: 6.6, maxX: 7.5, minZ: 21.1, maxZ: 22 }, kind: 'pillar', height: U, theme: 1 },
+    { box: { minX: 10.05, maxX: 10.95, minZ: 21.1, maxZ: 22 }, kind: 'pillar', height: U, theme: 1 },
+    { box: { minX: 16, maxX: 16.9, minZ: 21.1, maxZ: 22 }, kind: 'pillar', height: U, theme: 1 },
+    { box: { minX: 21.6, maxX: 22.5, minZ: 21.1, maxZ: 22 }, kind: 'pillar', height: U, theme: 1 },
+    { box: { minX: 26.5, maxX: 27.4, minZ: 21.1, maxZ: 22 }, kind: 'pillar', height: U, theme: 1 },
+    // Garage: a flatbed and a shipping container.
+    { box: { minX: 38.5, maxX: 42.5, minZ: 11.5, maxZ: 17 }, kind: 'truck', height: 2.4, theme: 1 },
+    { box: { minX: 45, maxX: 53, minZ: 2.5, maxZ: 5 }, kind: 'container', height: 2.6, theme: 1 },
+    // Workshop benches.
+    { box: { minX: 36.5, maxX: 40, minZ: 30, maxZ: 33 }, kind: 'machine', height: 2.2, theme: 2 },
+    { box: { minX: 53, maxX: 57, minZ: 25, maxZ: 28 }, kind: 'machine', height: 2.2, theme: 2 },
+    // Lab bank.
+    { box: { minX: 0.5, maxX: 4, minZ: 34.5, maxZ: 37.5 }, kind: 'machine', height: 2.2, theme: 3 },
+    // Reactor Hall: generator banks pushed flat against the north wall so the
+    // room reads as machinery without a block sticking into the fighting floor.
+    { box: { minX: 21, maxX: 25, minZ: 44.5, maxZ: 47.5 }, kind: 'machine', height: 2.6, theme: 2 },
+    { box: { minX: 39, maxX: 43, minZ: 44.5, maxZ: 47.5 }, kind: 'machine', height: 2.6, theme: 2 }
 ]
 
 /** Static geometry. Full height unless noted, so it stops bullets too. */
 export const CALL_OF_XENO_WALLS: CallOfXenoSolid[] = [
-    // Barracks: gap east at z 5-9 (corridor A), gap north at x 6-10 (corridor B).
-    wall(-0.5, 16.5, -0.5, 0),
-    wall(-0.5, 0, -0.5, 14.5),
-    wall(-0.5, 6, 14, 14.5),
-    wall(10, 16.5, 14, 14.5),
-    wall(16, 16.5, -0.5, 5),
-    wall(16, 16.5, 9, 14.5),
-    PILLAR_BARRACKS,
+    ...CALL_OF_XENO_SHELL_WALLS,
 
-    // Corridor A (Barracks -> Courtyard).
-    wall(16, 22, 4.5, 5),
-    wall(16, 22, 9, 9.5),
+    // Barracks | Mess Hall, at x = 18. Door opening at z 6-10.
+    wall(17.75, 18.25, 0, 6),
+    wall(17.75, 18.25, 10, 16.25),
 
-    // Courtyard atrium: gaps west z 5-9, north x 34-38 (corridor D), east z 6-10 (corridor E).
-    wall(21.5, 52.5, -0.5, 0, A),
-    wall(21.5, 22, -0.5, 5, A),
-    wall(21.5, 22, 9, 26.5, A),
-    wall(21.5, 34, 26, 26.5, A),
-    wall(38, 52.5, 26, 26.5, A),
-    wall(52, 52.5, -0.5, 6, A),
-    wall(52, 52.5, 10, 26.5, A),
-    PILLAR_COURTYARD_W,
-    PILLAR_COURTYARD_E,
+    // Barracks / Mess Hall | Atrium, at z = 16. Door opening at x 6-10.
+    wall(0, 6, 15.75, 16.25),
+    wall(10, 36.25, 15.75, 16.25),
+    // The same divider on the second floor: Overwatch / Signals | Catwalk.
+    // Openings at x 4-10 and x 24-30.
+    wall(0, 4, 15.75, 16.25, UH, U),
+    wall(10, 24, 15.75, 16.25, UH, U),
+    wall(30, 36.25, 15.75, 16.25, UH, U),
 
-    // Corridor B (Barracks -> Armory).
-    wall(5.5, 6, 14, 20.5),
-    wall(10, 10.5, 14, 20.5),
+    // Overwatch | Signals, at x = 18 on the second floor. Opening at z 8-12.
+    wall(17.75, 18.25, 0, 8, UH, U),
+    wall(17.75, 18.25, 12, 16.25, UH, U),
 
-    // Armory: gap south x 6-10 (corridor B), gap north x 12-16 (corridor C).
-    wall(-0.5, 0, 19.5, 36.5),
-    wall(-0.5, 6, 20, 20.5),
-    wall(10, 16.5, 20, 20.5),
-    wall(16, 16.5, 19.5, 36.5),
-    wall(-0.5, 12, 36, 36.5),
-    wall(16, 16.5, 36, 36.5),
-    PILLAR_ARMORY,
+    // Mess Hall / Signals | Garage, at x = 36. Door opening at z 5-9.
+    wall(35.75, 36.25, 0, 5, A),
+    wall(35.75, 36.25, 9, 18.25, A),
+    wall(35.75, 36.25, 5, 9, A - H, H),
 
-    // Corridor C (Armory -> Lab). The south side is sealed against the void
-    // between the Armory and the Lab; the Lab's own west wall carries the gap.
-    wall(11.5, 12, 36, 40.5),
-    wall(16.5, 25.5, 35.5, 36),
-    wall(11.5, 26, 40, 40.5),
+    // Atrium | Workshop, at x = 36. Door opening at z 23-27.
+    wall(35.75, 36.25, 18, 23, A),
+    wall(35.75, 36.25, 27, 34.25, A),
+    wall(35.75, 36.25, 23, 27, A - H, H),
 
-    // Lab: gaps west z 36-40 (corridor C), north x 34-38 (corridor D).
-    wall(25.5, 26, 33.5, 36),
-    wall(25.5, 26, 40, 50.5),
-    wall(25.5, 34, 33.5, 34),
-    wall(38, 46.5, 33.5, 34),
-    wall(46, 46.5, 33.5, 50.5),
-    wall(25.5, 46.5, 50, 50.5),
+    // Garage | Workshop, at z = 18. Free opening at x 45-49.
+    wall(35.75, 45, 17.75, 18.25, A),
+    wall(49, 58.25, 17.75, 18.25, A),
+    wall(45, 49, 17.75, 18.25, A - H, H),
 
-    // Corridor D (Courtyard -> Lab).
-    wall(33.5, 34, 26, 34),
-    wall(38, 38.5, 26, 34),
+    // Atrium | Lab and Atrium | Reactor Hall, at z = 34.
+    // Door openings at x 5-9 and x 24-28.
+    wall(0, 5, 33.75, 34.25, A),
+    wall(9, 24, 33.75, 34.25, A),
+    wall(28, 36.25, 33.75, 34.25, A),
+    wall(5, 9, 33.75, 34.25, A - H, H),
+    wall(24, 28, 33.75, 34.25, A - H, H),
 
-    // Corridor E (Courtyard -> Power).
-    wall(52, 58, 5.5, 6),
-    wall(52, 58, 10, 10.5),
+    // Workshop | Reactor Hall, at z = 34. Free opening at x 45-49.
+    wall(35.75, 45, 33.75, 34.25, A),
+    wall(49, 58.25, 33.75, 34.25, A),
+    wall(45, 49, 33.75, 34.25, A - H, H),
 
-    // Power Room: gap west z 6-10 (corridor E).
-    wall(57.5, 74.5, -0.5, 0),
-    wall(57.5, 58, -0.5, 6),
-    wall(57.5, 58, 10, 18.5),
-    wall(57.5, 74.5, 18, 18.5),
-    wall(74, 74.5, -0.5, 18.5),
-    MACHINE_A,
-    MACHINE_B,
-    REACTOR
+    // Lab | Reactor Hall, at x = 18. Free opening at z 40-44.
+    wall(17.75, 18.25, 33.75, 40, A),
+    wall(17.75, 18.25, 44, 48.25, A),
+    wall(17.75, 18.25, 40, 44, A - H, H),
+
+    // Catwalk edge rail, broken where each flight of stairs arrives. Low
+    // enough to vault back down into the Atrium, high enough not to walk off.
+    wall(5.5, 29.5, 21.8, 22.2, 1, U),
+    wall(34.5, 36, 21.8, 22.2, 1, U),
+
+    ...CALL_OF_XENO_DECOR.map(d => ({ box: d.box, baseY: 0, height: d.height }))
 ]
 
 /**
@@ -198,50 +351,74 @@ export const CALL_OF_XENO_WALLS: CallOfXenoSolid[] = [
  */
 export const CALL_OF_XENO_CRATES: CallOfXenoSolid[] = [
     // Barracks
-    { box: { minX: 4, maxX: 6, minZ: 4, maxZ: 6 }, baseY: 0, height: 1.2 },
-    { box: { minX: 12, maxX: 15, minZ: 10, maxZ: 12 }, baseY: 0, height: 1.5 },
-    // Courtyard — barriers flank the south ramp, crates dress the corners.
-    { box: { minX: 30, maxX: 32.8, minZ: 17, maxZ: 19 }, baseY: 0, height: 1.1 },
-    { box: { minX: 41, maxX: 44, minZ: 17, maxZ: 19 }, baseY: 0, height: 1.1 },
-    { box: { minX: 44.5, maxX: 46.5, minZ: 10, maxZ: 12 }, baseY: 0, height: 1.2 },
-    { box: { minX: 25, maxX: 27, minZ: 15, maxZ: 17 }, baseY: 0, height: 1.2 },
-    { box: { minX: 48, maxX: 50, minZ: 23, maxZ: 25 }, baseY: 0, height: 1.1 },
-    // Armory
-    { box: { minX: 3, maxX: 5, minZ: 24, maxZ: 26 }, baseY: 0, height: 1.1 },
-    { box: { minX: 12, maxX: 14, minZ: 30, maxZ: 32 }, baseY: 0, height: 1.2 },
+    { box: { minX: 4, maxX: 6.5, minZ: 12.5, maxZ: 14.5 }, baseY: 0, height: 1.4 },
+    { box: { minX: 14, maxX: 17.5, minZ: 3, maxZ: 5 }, baseY: 0, height: 1.5 },
+    { box: { minX: 2.5, maxX: 4.5, minZ: 8.5, maxZ: 10.5 }, baseY: 0, height: 1.2 },
+    // Mess Hall
+    { box: { minX: 21, maxX: 25, minZ: 11, maxZ: 13 }, baseY: 0, height: 1 },
+    { box: { minX: 28, maxX: 32, minZ: 11, maxZ: 13 }, baseY: 0, height: 1 },
+    { box: { minX: 32.5, maxX: 35, minZ: 2.5, maxZ: 4.5 }, baseY: 0, height: 1.4 },
+    // Atrium
+    { box: { minX: 13, maxX: 16, minZ: 31.5, maxZ: 33.5 }, baseY: 0, height: 1.2 },
+    { box: { minX: 21, maxX: 24, minZ: 18.5, maxZ: 20.5 }, baseY: 0, height: 1.1 },
+    { box: { minX: 9, maxX: 12, minZ: 23, maxZ: 25 }, baseY: 0, height: 1.5 },
+    { box: { minX: 6, maxX: 8.5, minZ: 25, maxZ: 27 }, baseY: 0, height: 1.1 },
+    // Garage
+    { box: { minX: 53.5, maxX: 56.5, minZ: 2.5, maxZ: 5 }, baseY: 0, height: 1.2 },
+    { box: { minX: 43, maxX: 46, minZ: 12.5, maxZ: 15 }, baseY: 0, height: 1.4 },
+    // Workshop
+    { box: { minX: 38, maxX: 41, minZ: 20, maxZ: 22 }, baseY: 0, height: 1.1 },
+    { box: { minX: 50, maxX: 53, minZ: 30.5, maxZ: 33 }, baseY: 0, height: 1.4 },
     // Lab
-    { box: { minX: 29.5, maxX: 31.5, minZ: 42, maxZ: 44 }, baseY: 0, height: 1.1 },
-    { box: { minX: 39, maxX: 41, minZ: 42, maxZ: 44 }, baseY: 0, height: 1.2 },
-    // Power Room
-    { box: { minX: 72.5, maxX: 74, minZ: 14, maxZ: 16 }, baseY: 0, height: 1.1 }
+    { box: { minX: 3, maxX: 6, minZ: 44, maxZ: 46.5 }, baseY: 0, height: 1.2 },
+    { box: { minX: 12, maxX: 15.5, minZ: 35.5, maxZ: 37.5 }, baseY: 0, height: 1.4 },
+    // Reactor Hall
+    { box: { minX: 29, maxX: 32, minZ: 43.5, maxZ: 45.5 }, baseY: 0, height: 1.1 },
+    { box: { minX: 50, maxX: 53, minZ: 43.5, maxZ: 46 }, baseY: 0, height: 1.4 },
+    { box: { minX: 52, maxX: 55, minZ: 36, maxZ: 38 }, baseY: 0, height: 1.2 },
+    // Second floor
+    { box: { minX: 3, maxX: 5.5, minZ: 3, maxZ: 5.5 }, baseY: U, height: 1.1 },
+    { box: { minX: 13, maxX: 16, minZ: 12, maxZ: 14.5 }, baseY: U, height: 1.2 },
+    { box: { minX: 20, maxX: 22.5, minZ: 3, maxZ: 5.5 }, baseY: U, height: 1.2 },
+    { box: { minX: 31, maxX: 34, minZ: 12, maxZ: 14 }, baseY: U, height: 1.1 },
+    { box: { minX: 23, maxX: 25.5, minZ: 16.6, maxZ: 18.2 }, baseY: U, height: 1 }
 ]
 
-/** The Courtyard firing platform, with a ramp on its north and south sides. */
+/** The second floor: one deck over the Barracks, the Mess and the Atrium's
+ *  south strip. Solid from below, so the rooms underneath keep a ceiling. */
 export const CALL_OF_XENO_PLATFORMS: CallOfXenoPlatform[] = [
-    { box: { minX: 33, maxX: 41, minZ: 9, maxZ: 15 }, y: CALL_OF_XENO_CATWALK_Y, thickness: 0.3 }
+    { box: { minX: 0, maxX: 36, minZ: 0, maxZ: 22 }, y: U, thickness: U - H }
 ]
 
+/** Two flights out of the Atrium, one at each end of the catwalk. */
 export const CALL_OF_XENO_RAMPS: CallOfXenoRamp[] = [
     {
-        box: { minX: 34, maxX: 40, minZ: 5, maxZ: 9 },
+        box: { minX: 30, maxX: 34, minZ: 22, maxZ: 30 },
         axis: 'z',
-        lowAt: 5,
+        lowAt: 30,
         lowY: 0,
-        highAt: 9,
-        highY: CALL_OF_XENO_CATWALK_Y
+        highAt: 22,
+        highY: U,
+        steps: 14
     },
     {
-        box: { minX: 34, maxX: 40, minZ: 15, maxZ: 19 },
+        box: { minX: 1, maxX: 5, minZ: 22, maxZ: 30 },
         axis: 'z',
-        lowAt: 19,
+        lowAt: 30,
         lowY: 0,
-        highAt: 15,
-        highY: CALL_OF_XENO_CATWALK_Y
+        highAt: 22,
+        highY: U,
+        steps: 14
     }
 ]
 
+// ---------------------------------------------------------------------------
+// Doors
+// ---------------------------------------------------------------------------
+
 export interface CallOfXenoDoor {
     id: string
+    name: string
     cost: number
     box: CallOfXenoBox
     /** Navigation edge this door blocks until bought. */
@@ -251,99 +428,127 @@ export interface CallOfXenoDoor {
 
 export const CALL_OF_XENO_DOORS: CallOfXenoDoor[] = [
     {
-        id: 'door-barracks-courtyard',
+        id: 'door-barracks-mess',
+        name: 'Mess Hall',
         cost: 750,
-        box: { minX: 18.5, maxX: 19.5, minZ: 5, maxZ: 9 },
-        blocks: [0, 1],
-        prompt: { x: 19, z: 7 }
+        box: { minX: 17.75, maxX: 18.25, minZ: 6, maxZ: 10 },
+        blocks: [1, 2],
+        prompt: { x: 18, z: 8 }
     },
     {
-        id: 'door-barracks-armory',
+        id: 'door-barracks-atrium',
+        name: 'Atrium',
         cost: 1000,
-        box: { minX: 6, maxX: 10, minZ: 16.5, maxZ: 17.5 },
-        blocks: [0, 15],
-        prompt: { x: 8, z: 17 }
+        box: { minX: 6, maxX: 10, minZ: 15.75, maxZ: 16.25 },
+        blocks: [23, 22],
+        prompt: { x: 8, z: 16 }
     },
     {
-        id: 'door-armory-lab',
+        id: 'door-mess-garage',
+        name: 'Garage',
         cost: 1250,
-        box: { minX: 20.5, maxX: 21.5, minZ: 36, maxZ: 40 },
-        blocks: [11, 12],
-        prompt: { x: 21, z: 38 }
+        box: { minX: 35.75, maxX: 36.25, minZ: 5, maxZ: 9 },
+        blocks: [4, 5],
+        prompt: { x: 36, z: 7 }
     },
     {
-        id: 'door-courtyard-lab',
+        id: 'door-atrium-lab',
+        name: 'Lab',
+        cost: 1250,
+        box: { minX: 5, maxX: 9, minZ: 33.75, maxZ: 34.25 },
+        blocks: [20, 19],
+        prompt: { x: 7, z: 34 }
+    },
+    {
+        id: 'door-atrium-workshop',
+        name: 'Workshop',
         cost: 1500,
-        box: { minX: 34, maxX: 38, minZ: 29.5, maxZ: 30.5 },
-        blocks: [4, 7],
-        prompt: { x: 36, z: 30 }
+        box: { minX: 35.75, maxX: 36.25, minZ: 23, maxZ: 27 },
+        blocks: [10, 9],
+        prompt: { x: 36, z: 25 }
     },
     {
-        id: 'door-courtyard-power',
+        id: 'door-atrium-reactor',
+        name: 'Reactor Hall',
         cost: 1750,
-        box: { minX: 54.5, maxX: 55.5, minZ: 6, maxZ: 10 },
-        blocks: [5, 16],
-        prompt: { x: 55, z: 8 }
+        box: { minX: 24, maxX: 28, minZ: 33.75, maxZ: 34.25 },
+        blocks: [15, 14],
+        prompt: { x: 26, z: 34 }
     }
 ]
 
+// ---------------------------------------------------------------------------
+// Navigation
+// ---------------------------------------------------------------------------
+
 /**
- * Navigation graph. Nodes 0-17 are the ground loop and its branches, 18-20
- * the Courtyard platform and its two ramps. Zombies walk node to node until
- * they share one with the player, then head straight for them.
+ * Navigation graph. Nodes 0-23 are the ground ring, 24-33 the two stairs and
+ * the second floor. Zombies walk node to node until they share one with the
+ * player, then head straight for them.
  */
 export const CALL_OF_XENO_NODES: { x: number, z: number, y: number }[] = [
-    { x: 8, z: 7, y: 0 },                              // 0  Barracks centre
-    { x: 17.5, z: 7, y: 0 },                           // 1  Corridor A (barracks side of its door)
-    { x: 25, z: 7, y: 0 },                             // 2  Courtyard west mouth
-    { x: 37, z: 4, y: 0 },                             // 3  Courtyard north lane
-    { x: 37, z: 21, y: 0 },                            // 4  Courtyard south lane
-    { x: 49, z: 7, y: 0 },                             // 5  Courtyard east mouth
-    { x: 44, z: 21, y: 0 },                            // 6  Courtyard south-east
-    { x: 36, z: 28, y: 0 },                            // 7  Corridor D (courtyard side of its door)
-    { x: 36, z: 38, y: 0 },                            // 8  Lab north
-    { x: 36, z: 45, y: 0 },                            // 9  Lab centre
-    { x: 29, z: 38, y: 0 },                            // 10 Lab west mouth
-    { x: 19, z: 38, y: 0 },                            // 11 Corridor C (armory side of its door)
-    { x: 14, z: 38, y: 0 },                            // 12 Corridor C west
-    { x: 8, z: 28, y: 0 },                             // 13 Armory centre
-    { x: 8, z: 22, y: 0 },                             // 14 Armory south mouth
-    { x: 8, z: 19, y: 0 },                             // 15 Corridor B (armory side of its door)
-    { x: 53.5, z: 8, y: 0 },                           // 16 Corridor E (courtyard side of its door)
-    { x: 62, z: 8, y: 0 },                             // 17 Power Room centre
-    { x: 37, z: 7, y: 1.1 },                           // 18 North ramp mid-way
-    { x: 37, z: 12, y: CALL_OF_XENO_CATWALK_Y },       // 19 Platform top
-    { x: 37, z: 17.5, y: 0.825 }                       // 20 South ramp mid-way
+    { x: 9, z: 8, y: 0 },        // 0  Barracks centre
+    { x: 17, z: 8, y: 0 },       // 1  Barracks side of the Mess door
+    { x: 19, z: 8, y: 0 },       // 2  Mess side of the Barracks door
+    { x: 27, z: 8, y: 0 },       // 3  Mess Hall centre
+    { x: 35, z: 7, y: 0 },       // 4  Mess side of the Garage door
+    { x: 37, z: 7, y: 0 },       // 5  Garage side of the Mess door
+    { x: 47, z: 9, y: 0 },       // 6  Garage centre
+    { x: 47, z: 18, y: 0 },      // 7  Garage / Workshop opening
+    { x: 47, z: 26, y: 0 },      // 8  Workshop centre
+    { x: 37, z: 25, y: 0 },      // 9  Workshop side of the Atrium door
+    { x: 35, z: 25, y: 0 },      // 10 Atrium side of the Workshop door
+    { x: 47, z: 34, y: 0 },      // 11 Workshop / Reactor opening
+    { x: 48, z: 41, y: 0 },      // 12 Reactor Hall east
+    { x: 36, z: 41, y: 0 },      // 13 Reactor Hall centre
+    { x: 26, z: 35, y: 0 },      // 14 Reactor side of the Atrium door
+    { x: 26, z: 33, y: 0 },      // 15 Atrium side of the Reactor door
+    { x: 21, z: 42, y: 0 },      // 16 Reactor Hall west
+    { x: 15, z: 42, y: 0 },      // 17 Lab / Reactor opening
+    { x: 8, z: 41, y: 0 },       // 18 Lab centre
+    { x: 7, z: 35, y: 0 },       // 19 Lab side of the Atrium door
+    { x: 7, z: 33, y: 0 },       // 20 Atrium side of the Lab door
+    { x: 18, z: 26, y: 0 },      // 21 Atrium centre
+    { x: 8, z: 17.5, y: 0 },     // 22 Atrium side of the Barracks door
+    { x: 8, z: 14.5, y: 0 },     // 23 Barracks side of the Atrium door
+    { x: 32, z: 30, y: 0 },      // 24 East stair foot
+    { x: 32, z: 26, y: U / 2 },  // 25 East stair middle
+    { x: 32, z: 21.5, y: U },    // 26 East stair head
+    { x: 7, z: 19, y: U },       // 27 Catwalk west
+    { x: 28, z: 19, y: U },      // 28 Catwalk east
+    { x: 9, z: 9, y: U },        // 29 Overwatch centre
+    { x: 27, z: 9, y: U },       // 30 Signals centre
+    { x: 3, z: 30, y: 0 },       // 31 West stair foot
+    { x: 3, z: 26, y: U / 2 },   // 32 West stair middle
+    { x: 3, z: 21.5, y: U }      // 33 West stair head
 ]
 
 export const CALL_OF_XENO_EDGES: [number, number][] = [
-    [0, 1], [1, 2], [2, 3], [3, 5], [5, 6], [6, 4], [4, 2], [4, 7],
-    [7, 8], [8, 9], [9, 10], [10, 11], [11, 12], [12, 13], [13, 14], [14, 15], [15, 0],
-    [5, 16], [16, 17],
-    [3, 18], [18, 19], [19, 20], [20, 4]
-]
-
-export const CALL_OF_XENO_SPAWNS: CallOfXenoSpawnPoint[] = [
-    { x: 2, z: 2, node: 0 },
-    { x: 14, z: 22, node: 14 },
-    { x: 2, z: 34, node: 13 },
-    { x: 26, z: 23, node: 4 },
-    { x: 50, z: 2, node: 3 },
-    { x: 28, z: 47, node: 9 },
-    { x: 72, z: 15, node: 17 },
-    { x: 60, z: 16, node: 17 }
+    [0, 1], [1, 2], [2, 3], [3, 4], [4, 5], [5, 6], [6, 7], [7, 8], [8, 9], [9, 10],
+    [10, 21], [21, 15], [15, 14], [14, 13], [13, 12], [12, 11], [11, 8],
+    [13, 16], [16, 17], [17, 18], [18, 19], [19, 20], [20, 21],
+    [0, 23], [23, 22], [22, 21],
+    [21, 24], [24, 25], [25, 26], [26, 28], [27, 28], [27, 29], [28, 30], [29, 30],
+    [20, 31], [31, 32], [32, 33], [33, 27]
 ]
 
 /** Where shootable explosive barrels start a run. */
 export const CALL_OF_XENO_BARREL_SPOTS: { x: number, z: number }[] = [
-    { x: 27, z: 3 },
-    { x: 46, z: 23 },
-    { x: 44, z: 4 },
-    { x: 10, z: 25 },
-    { x: 30, z: 47 },
-    { x: 66, z: 15 },
-    { x: 66, z: 3 }
+    { x: 5, z: 11 },
+    { x: 31, z: 6 },
+    { x: 10, z: 28 },
+    { x: 33, z: 20 },
+    { x: 49, z: 13 },
+    { x: 55, z: 30 },
+    { x: 9, z: 46 },
+    { x: 33, z: 45 },
+    { x: 51, z: 43 },
+    { x: 26, z: 12 }
 ]
+
+// ---------------------------------------------------------------------------
+// Interactables
+// ---------------------------------------------------------------------------
 
 export type CallOfXenoInteractableKind = 'wallbuy' | 'perk' | 'power' | 'papunch' | 'mysterybox'
 
@@ -362,29 +567,29 @@ export interface CallOfXenoInteractable {
 }
 
 export const CALL_OF_XENO_INTERACTABLES: CallOfXenoInteractable[] = [
-    // Barracks — the cheap way out.
-    { id: 'buy-skorpion', kind: 'wallbuy', x: 0.4, y: 0, z: 7, facing: Math.PI / 2, region: 0, weapon: 'skorpion', needsPower: false },
-    { id: 'perk-quickrevive', kind: 'perk', x: 3, y: 0, z: 13.2, facing: Math.PI, region: 0, perk: 'quickrevive', needsPower: true },
+    // Barracks — the room you wake up in.
+    { id: 'buy-skorpion', kind: 'wallbuy', x: 14, y: 0, z: 15.6, facing: Math.PI, region: 0, weapon: 'skorpion', needsPower: false },
+    { id: 'perk-quickrevive', kind: 'perk', x: 3.5, y: 0, z: 0.9, facing: 0, region: 0, perk: 'quickrevive', needsPower: true },
 
-    // Courtyard — the reward room.
-    { id: 'buy-trench', kind: 'wallbuy', x: 37, y: 0, z: 0.4, facing: 0, region: 2, weapon: 'trench', needsPower: false },
-    { id: 'buy-ak74', kind: 'wallbuy', x: 51.6, y: 0, z: 20, facing: -Math.PI / 2, region: 2, weapon: 'ak74', needsPower: false },
-    { id: 'mysterybox', kind: 'mysterybox', x: 24.5, y: 0, z: 22.5, facing: -Math.PI / 2, region: 2, needsPower: false },
-    { id: 'perk-juggernog', kind: 'perk', x: 34.5, y: CALL_OF_XENO_CATWALK_Y, z: 12, facing: -Math.PI / 2, region: 2, perk: 'juggernog', needsPower: true },
+    // Mess Hall — the first door out.
+    { id: 'buy-trench', kind: 'wallbuy', x: 34, y: 0, z: 15.6, facing: Math.PI, region: 1, weapon: 'trench', needsPower: false },
 
-    // Armory — the gun room.
-    { id: 'buy-magnum', kind: 'wallbuy', x: 0.4, y: 0, z: 28, facing: Math.PI / 2, region: 4, weapon: 'magnum', needsPower: false },
-    { id: 'buy-bar', kind: 'wallbuy', x: 8, y: 0, z: 35.6, facing: Math.PI, region: 4, weapon: 'bar', needsPower: false },
-    { id: 'perk-doubletap', kind: 'perk', x: 15.5, y: 0, z: 24, facing: -Math.PI / 2, region: 4, perk: 'doubletap', needsPower: true },
+    // Atrium — the hub, and the only mystery box on the map.
+    { id: 'mysterybox', kind: 'mysterybox', x: 31, y: 0, z: 31, facing: -Math.PI / 2, region: 2, needsPower: false },
 
-    // Lab — the far side of the loop.
-    { id: 'buy-mp40', kind: 'wallbuy', x: 36, y: 0, z: 49.4, facing: Math.PI, region: 6, weapon: 'mp40', needsPower: false },
-    { id: 'buy-rpk', kind: 'wallbuy', x: 45.6, y: 0, z: 42, facing: -Math.PI / 2, region: 6, weapon: 'rpk', needsPower: false },
-    { id: 'perk-speedcola', kind: 'perk', x: 42, y: 0, z: 49.4, facing: Math.PI, region: 6, perk: 'speedcola', needsPower: true },
+    // Catwalk — Juggernog is the reward for taking the high ground.
+    { id: 'perk-juggernog', kind: 'perk', x: 18, y: CALL_OF_XENO_UPPER_Y, z: 17, facing: 0, region: 9, perk: 'juggernog', needsPower: true },
 
-    // Power Room — the end of the road.
-    { id: 'power', kind: 'power', x: 73.4, y: 0, z: 9, facing: -Math.PI / 2, region: 9, needsPower: false },
-    { id: 'papunch', kind: 'papunch', x: 70, y: 0, z: 17.4, facing: Math.PI, region: 9, needsPower: true }
+    // Garage and Workshop — the east wing.
+    { id: 'perk-speedcola', kind: 'perk', x: 57.4, y: 0, z: 15, facing: -Math.PI / 2, region: 3, perk: 'speedcola', needsPower: true },
+
+    // Lab — the far corner.
+    { id: 'perk-doubletap', kind: 'perk', x: 14, y: 0, z: 47.6, facing: Math.PI, region: 5, perk: 'doubletap', needsPower: true },
+
+    // Reactor Hall — power, Pack-a-Punch and the last wall gun.
+    { id: 'buy-ak74', kind: 'wallbuy', x: 36, y: 0, z: 47.6, facing: Math.PI, region: 6, weapon: 'ak74', needsPower: false },
+    { id: 'power', kind: 'power', x: 57.4, y: 0, z: 44, facing: -Math.PI / 2, region: 6, needsPower: false },
+    { id: 'papunch', kind: 'papunch', x: 22, y: 0, z: 38, facing: Math.PI / 2, region: 6, needsPower: true }
 ]
 
 export const CALL_OF_XENO_PLAYER_START = { x: 9, z: 11 }
@@ -403,13 +608,27 @@ export const CALL_OF_XENO_PROP_SOLIDS: CallOfXenoSolid[] = CALL_OF_XENO_INTERACT
         height: i.kind === 'papunch' ? 2 : i.kind === 'mysterybox' ? 1.2 : 2.2
     }))
 
-/** Which region a position sits in, or -1 if it is inside a wall. */
-export function regionAt(x: number, z: number): number {
+// ---------------------------------------------------------------------------
+// Geometry queries
+// ---------------------------------------------------------------------------
+
+/**
+ * Which region a position sits in, or -1 if it is outside every one. Regions
+ * stack now, so the height picks the storey: the highest floor at or below
+ * `y` wins.
+ */
+export function regionAt(x: number, z: number, y = 0): number {
+    let best = -1
+    let bestFloor = -Infinity
     for (const region of CALL_OF_XENO_REGIONS) {
         const b = region.bounds
-        if (x >= b.minX && x <= b.maxX && z >= b.minZ && z <= b.maxZ) return region.id
+        if (x < b.minX || x > b.maxX || z < b.minZ || z > b.maxZ) continue
+        if (region.floorY > y + CALL_OF_XENO_STEP_UP) continue
+        if (region.floorY <= bestFloor) continue
+        bestFloor = region.floorY
+        best = region.id
     }
-    return -1
+    return best
 }
 
 function inside(box: CallOfXenoBox, x: number, z: number) {
@@ -582,7 +801,7 @@ export function resolveCircle(x: number, z: number, radius: number, boxes: reado
 }
 
 // ---------------------------------------------------------------------------
-// Navigation
+// Pathing
 // ---------------------------------------------------------------------------
 
 /**
@@ -638,7 +857,7 @@ export function nextHop(table: Int8Array, from: number, to: number): number {
 
 /**
  * Nearest navigation node. Height is weighted heavily so an actor under the
- * platform does not latch onto a node above its head. Nodes inside `banned`
+ * catwalk does not latch onto a node above its head. Nodes inside `banned`
  * are skipped — the game passes every node that sits inside a shut door's
  * footprint, so an actor pressing against a locked door cannot snap to the
  * node on the far side and "reach" rooms it has no way into.
@@ -686,6 +905,12 @@ export function reachableNodes(table: Int8Array, playerNode: number): Set<number
     return reached
 }
 
+/** The windows enemies may currently use, given where the player can be got at. */
+export function reachableWindows(table: Int8Array, playerNode: number): CallOfXenoWindow[] {
+    const reached = reachableNodes(table, playerNode)
+    return CALL_OF_XENO_WINDOWS.filter(w => reached.has(w.node))
+}
+
 /**
  * Where a zombie should head right now: the player once they share a node,
  * otherwise the next waypoint along the route.
@@ -705,7 +930,16 @@ export function zombieTarget(
     return { x: node.x, z: node.z }
 }
 
-/** Look and lighting per area, so the map does not read as one corridor. */
+// ---------------------------------------------------------------------------
+// Palette
+// ---------------------------------------------------------------------------
+
+/**
+ * Look and lighting per area. Deliberately desaturated: worn concrete, painted
+ * steel and dirty plaster, lit by tungsten and cold strip lights. Nothing on
+ * the map itself glows — the only saturated colours in the world belong to
+ * gameplay props the player has to be able to pick out at a glance.
+ */
 export interface CallOfXenoRoomTheme {
     floor: [string, string, string]
     wall: [string, string, string]
@@ -716,31 +950,35 @@ export interface CallOfXenoRoomTheme {
 
 export const CALL_OF_XENO_ROOM_THEMES: CallOfXenoRoomTheme[] = [
     {
-        floor: ['#272b33', '#3b424d', '#5d6672'],
-        wall: ['#3a414b', '#454d59', '#7b8593'],
-        ceiling: ['#15181d', '#1e222a'],
-        lightColor: 0xffdcb0,
-        accent: 0x8fb8d8
+        // Barracks and the rooms above it: plaster over brick, warm bulbs.
+        floor: ['#3a3630', '#443f38', '#524c43'],
+        wall: ['#4a4740', '#535046', '#615c52'],
+        ceiling: ['#26241f', '#2e2b26'],
+        lightColor: 0xffe3ba,
+        accent: 0x6d6961
     },
     {
-        floor: ['#2e2620', '#453930', '#6d5a45'],
-        wall: ['#43372c', '#4f4235', '#8a6f4e'],
-        ceiling: ['#1a1512', '#241d17'],
-        lightColor: 0xffb265,
-        accent: 0xd88a3c
+        // Atrium and Garage: bare poured concrete.
+        floor: ['#3b3d3e', '#464849', '#54575a'],
+        wall: ['#4c4e50', '#545658', '#63666a'],
+        ceiling: ['#232527', '#2b2d2f'],
+        lightColor: 0xfff0d8,
+        accent: 0x74777a
     },
     {
-        floor: ['#1e2a2c', '#2c3d40', '#456064'],
-        wall: ['#2b3a3d', '#344a4d', '#4e7b80'],
-        ceiling: ['#111819', '#182123'],
-        lightColor: 0x9fe4ff,
-        accent: 0x3fd8c0
+        // Workshop and Reactor Hall: painted steel gone to rust.
+        floor: ['#35322e', '#403d38', '#4d4942'],
+        wall: ['#464340', '#4f4c46', '#5d584f'],
+        ceiling: ['#212020', '#292827'],
+        lightColor: 0xffe8c6,
+        accent: 0x7d6a52
     },
     {
-        floor: ['#22202a', '#302c3c', '#4a4459'],
-        wall: ['#2c2836', '#363044', '#5a5170'],
-        ceiling: ['#141220', '#1b1828'],
-        lightColor: 0xc9a8ff,
-        accent: 0x8b6fd0
+        // Lab: cold grey tile under fluorescents.
+        floor: ['#383b3d', '#434749', '#515659'],
+        wall: ['#4a4d4f', '#525557', '#5f6467'],
+        ceiling: ['#212426', '#282c2e'],
+        lightColor: 0xeef3fa,
+        accent: 0x767c80
     }
 ]
