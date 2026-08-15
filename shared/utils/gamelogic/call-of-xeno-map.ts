@@ -294,24 +294,24 @@ export const CALL_OF_XENO_DOORS: CallOfXenoDoor[] = [
  */
 export const CALL_OF_XENO_NODES: { x: number, z: number, y: number }[] = [
     { x: 8, z: 7, y: 0 },                              // 0  Barracks centre
-    { x: 19, z: 7, y: 0 },                             // 1  Corridor A
+    { x: 17.5, z: 7, y: 0 },                           // 1  Corridor A (barracks side of its door)
     { x: 25, z: 7, y: 0 },                             // 2  Courtyard west mouth
     { x: 37, z: 4, y: 0 },                             // 3  Courtyard north lane
     { x: 37, z: 21, y: 0 },                            // 4  Courtyard south lane
     { x: 49, z: 7, y: 0 },                             // 5  Courtyard east mouth
     { x: 44, z: 21, y: 0 },                            // 6  Courtyard south-east
-    { x: 36, z: 30, y: 0 },                            // 7  Corridor D
+    { x: 36, z: 28, y: 0 },                            // 7  Corridor D (courtyard side of its door)
     { x: 36, z: 38, y: 0 },                            // 8  Lab north
     { x: 36, z: 45, y: 0 },                            // 9  Lab centre
     { x: 29, z: 38, y: 0 },                            // 10 Lab west mouth
-    { x: 21, z: 38, y: 0 },                            // 11 Corridor C east
+    { x: 19, z: 38, y: 0 },                            // 11 Corridor C (armory side of its door)
     { x: 14, z: 38, y: 0 },                            // 12 Corridor C west
     { x: 8, z: 28, y: 0 },                             // 13 Armory centre
     { x: 8, z: 22, y: 0 },                             // 14 Armory south mouth
-    { x: 8, z: 17, y: 0 },                             // 15 Corridor B
-    { x: 55, z: 8, y: 0 },                             // 16 Corridor E
+    { x: 8, z: 19, y: 0 },                             // 15 Corridor B (armory side of its door)
+    { x: 53.5, z: 8, y: 0 },                           // 16 Corridor E (courtyard side of its door)
     { x: 62, z: 8, y: 0 },                             // 17 Power Room centre
-    { x: 37, z: 7, y: 1.1 },                              // 18 North ramp mid-way
+    { x: 37, z: 7, y: 1.1 },                           // 18 North ramp mid-way
     { x: 37, z: 12, y: CALL_OF_XENO_CATWALK_Y },       // 19 Platform top
     { x: 37, z: 17.5, y: 0.825 }                       // 20 South ramp mid-way
 ]
@@ -638,12 +638,16 @@ export function nextHop(table: Int8Array, from: number, to: number): number {
 
 /**
  * Nearest navigation node. Height is weighted heavily so an actor under the
- * platform does not latch onto a node above its head.
+ * platform does not latch onto a node above its head. Nodes inside `banned`
+ * are skipped — the game passes every node that sits inside a shut door's
+ * footprint, so an actor pressing against a locked door cannot snap to the
+ * node on the far side and "reach" rooms it has no way into.
  */
-export function nearestNode(x: number, z: number, y: number): number {
+export function nearestNode(x: number, z: number, y: number, banned?: ReadonlySet<number>): number {
     let best = 0
     let bestDist = Infinity
     for (let i = 0; i < CALL_OF_XENO_NODES.length; i++) {
+        if (banned?.has(i)) continue
         const node = CALL_OF_XENO_NODES[i]!
         const dy = (node.y - y) * 6
         const dist = (node.x - x) ** 2 + (node.z - z) ** 2 + dy * dy
@@ -653,6 +657,24 @@ export function nearestNode(x: number, z: number, y: number): number {
         }
     }
     return best
+}
+
+/**
+ * Node ids that sit inside a door that is still shut. Nothing can legally
+ * stand there — the door is solid — so pathing must never route through them.
+ */
+export function bannedNodesFor(openDoors: ReadonlySet<string>): Set<number> {
+    const banned = new Set<number>()
+    for (const door of CALL_OF_XENO_DOORS) {
+        if (openDoors.has(door.id)) continue
+        CALL_OF_XENO_NODES.forEach((node, i) => {
+            if (node.x >= door.box.minX && node.x <= door.box.maxX
+                && node.z >= door.box.minZ && node.z <= door.box.maxZ) {
+                banned.add(i)
+            }
+        })
+    }
+    return banned
 }
 
 /** Nodes a zombie could reach the player from, given the doors bought so far. */
@@ -671,10 +693,11 @@ export function reachableNodes(table: Int8Array, playerNode: number): Set<number
 export function zombieTarget(
     table: Int8Array,
     zx: number, zz: number, zy: number,
-    playerX: number, playerZ: number, playerY: number
+    playerX: number, playerZ: number, playerY: number,
+    banned?: ReadonlySet<number>
 ): { x: number, z: number } {
-    const here = nearestNode(zx, zz, zy)
-    const there = nearestNode(playerX, playerZ, playerY)
+    const here = nearestNode(zx, zz, zy, banned)
+    const there = nearestNode(playerX, playerZ, playerY, banned)
     if (here === there) return { x: playerX, z: playerZ }
     const step = nextHop(table, here, there)
     if (step === -1) return { x: playerX, z: playerZ }

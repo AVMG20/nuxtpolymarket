@@ -278,6 +278,7 @@ import {
     CALL_OF_XENO_BARREL_SPOTS,
     CALL_OF_XENO_STEP_UP,
     buildNavTable,
+    bannedNodesFor,
     reachableNodes,
     nearestNode,
     collisionSolids,
@@ -582,6 +583,8 @@ const worldPopups: WorldPopup[] = []
 const barrels: Barrel[] = []
 let solids: CallOfXenoSolid[] = []
 let navTable = buildNavTable(new Set())
+/** Nodes inside shut doors — never valid waypoints for actors. */
+let bannedNodes: ReadonlySet<number> = new Set()
 let focused: { kind: 'door' | 'interactable', id: string } | null = null
 
 function makeSlot(id: CallOfXenoWeaponId, tier = 0): WeaponSlot {
@@ -628,6 +631,7 @@ function playerBoxes(): CallOfXenoBox[] {
 function rebuildCollision() {
     solids = collisionSolids(openDoors, barrels.filter(b => b.alive).map(b => b.solid))
     navTable = buildNavTable(openDoors)
+    bannedNodes = bannedNodesFor(openDoors)
 }
 
 // ---------------------------------------------------------------------------
@@ -1338,7 +1342,7 @@ function pickEnemyType(): CallOfXenoEnemyId {
 }
 
 function spawnEnemy() {
-    const reachable = reachableNodes(navTable, nearestNode(px, pz, feetY))
+    const reachable = reachableNodes(navTable, nearestNode(px, pz, feetY, bannedNodes))
     const candidates = CALL_OF_XENO_SPAWNS
         .filter(s => reachable.has(s.node))
         .filter(s => Math.hypot(s.x - px, s.z - pz) > 7)
@@ -1478,7 +1482,7 @@ function updateEnemies(dt: number) {
         const toPlayerZ = pz - enemy.z
         const toPlayer = Math.hypot(toPlayerX, toPlayerZ)
 
-        const target = zombieTarget(navTable, enemy.x, enemy.z, enemy.y, px, pz, feetY)
+        const target = zombieTarget(navTable, enemy.x, enemy.z, enemy.y, px, pz, feetY, bannedNodes)
         let dx = target.x - enemy.x
         let dz = target.z - enemy.z
 

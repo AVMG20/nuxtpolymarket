@@ -53,6 +53,7 @@ import {
     rayBlockDistance,
     regionAt,
     resolveCircle,
+    bannedNodesFor,
     zombieTarget
 } from '../../shared/utils/gamelogic/call-of-xeno-map'
 
@@ -64,6 +65,10 @@ const SHUT_TABLE = buildNavTable(NO_DOORS)
 
 const PLAYER_RADIUS = 0.35
 const ACTOR_HEIGHT = 1.8
+
+function insideBox(point: { x: number, z: number }, box: { minX: number, maxX: number, minZ: number, maxZ: number }) {
+    return point.x >= box.minX && point.x <= box.maxX && point.z >= box.minZ && point.z <= box.maxZ
+}
 
 /** Boxes an actor standing at (x, z) would collide with, at its own foot height. */
 function boxesAt(x: number, z: number, feetY: number) {
@@ -485,6 +490,38 @@ describe('navigation', () => {
     it('sends a zombie along the route when the player is rooms away', () => {
         const target = zombieTarget(OPEN_TABLE, 8, 7, 0, 37, 21, 0)
         expect(target).toEqual({ x: CALL_OF_XENO_NODES[1]!.x, z: CALL_OF_XENO_NODES[1]!.z })
+    })
+
+    it('never locks a spawn-reachability leak when the player hugs a shut door', () => {
+        // Regression: threshold nodes used to sit inside the door boxes, so a
+        // player pressing against a locked door snapped onto the far-side node
+        // and every spawn behind that door counted as reachable — zombies
+        // spawned in sealed rooms and bricked the round.
+        const cases: { player: [number, number], locked: number[] }[] = [
+            { player: [16.5, 7], locked: [2, 3, 4, 5, 6, 7, 8, 9, 16, 17] },   // corridor A door
+            { player: [8, 16], locked: [13, 14, 12, 11, 10, 9] },              // corridor B door
+            { player: [19.9, 38], locked: [10, 9, 8] },                        // corridor C door
+            { player: [36, 27], locked: [8, 9] },                              // corridor D door
+            { player: [53, 8], locked: [17] }                                  // corridor E door
+        ]
+        for (const testCase of cases) {
+            const banned = bannedNodesFor(NO_DOORS)
+            const playerNode = nearestNode(testCase.player[0], testCase.player[1], 0, banned)
+            const reached = reachableNodes(SHUT_TABLE, playerNode)
+            for (const locked of testCase.locked) {
+                expect(reached.has(locked), `node ${locked} reachable from ${testCase.player}`).toBe(false)
+            }
+        }
+    })
+
+    it('bans exactly the nodes inside shut doors and unbans them once bought', () => {
+        const shutBanned = bannedNodesFor(NO_DOORS)
+        expect(shutBanned.size).toBe(0) // threshold nodes now sit clear of the boxes
+        for (const door of CALL_OF_XENO_DOORS) {
+            const oneOpen = bannedNodesFor(new Set([door.id]))
+            expect([...oneOpen].every(i => !insideBox(CALL_OF_XENO_NODES[i]!, door.box))).toBe(true)
+        }
+        expect(bannedNodesFor(ALL_DOORS_OPEN).size).toBe(0)
     })
 
     it('does not latch a ground actor onto a node above its head', () => {
