@@ -547,6 +547,14 @@ const rawGroups: CommandPaletteGroup[] = [
         icon: 'i-lucide-swords',
         to: '/storm-the-house',
         keywords: ['storm', 'house', 'defense', 'waves', 'shooter', 'castle']
+      },
+      {
+        id: 'call-of-xeno',
+        label: 'Call of Xeno',
+        description: 'First-person zombie survival across three rooms',
+        icon: 'i-lucide-skull',
+        to: '/call-of-xeno',
+        keywords: ['call of xeno', 'zombies', 'fps', 'shooter', 'survival', 'rounds', 'pack-a-punch', 'perks']
       }
     ]
   },

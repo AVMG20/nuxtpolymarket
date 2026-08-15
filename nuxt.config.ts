@@ -36,7 +36,8 @@ export default defineNuxtConfig({
         '/shapezz': { ssr: false },
         '/shapezz/**': { ssr: false },
         '/pathwarden': { ssr: false },
-        '/pathwarden/**': { ssr: false }
+        '/pathwarden/**': { ssr: false },
+        '/call-of-xeno': { ssr: false }
     },
 
 
@@ -90,7 +91,8 @@ export default defineNuxtConfig({
                 'better-auth/client/plugins',
                 '@unovis/vue',
                 'pixi.js',
-                'pixi-reels'
+                'pixi-reels',
+                'three'
             ]
         },
         plugins: [
