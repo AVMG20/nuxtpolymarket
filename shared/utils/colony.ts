@@ -120,13 +120,14 @@ export const MAX_TIER = 6
 //
 // yieldMin/yieldMax/speed no longer scale with species tier at all — every
 // species rolls from the exact same BASE range (1-2 yield, 0-25% speed) the
-// first time you buy it. What actually differentiates species is bought
-// with SWEAT, not coins: sacrificing a growing pile of a species' own bugs
-// on the Research page raises that species' OWN roll range for every future
-// purchase, up to 6-8 yield / 75% speed at max research (see
-// RESEARCH_SPEED_MIN/MAX, RESEARCH_YIELD_MIN/MAX below). yieldMin/yieldMax
-// on BUG_TYPES below is therefore just the level-0/pre-research range —
-// identical for every species — kept on the type for clarity/display only.
+// first time you buy it. What actually differentiates species is bought on the
+// Research page: raising a species' Research level widens its OWN speed and
+// yield roll for every future purchase, up to 6-8 yield / 75% speed (see
+// RESEARCH_SPEED_MIN/MAX, RESEARCH_YIELD_MIN/MAX below), and multiplies
+// everything it forages by up to 2x colony-wide, on bugs already owned
+// included (see RESEARCH_RESOURCE_MULTIPLIERS). yieldMin/yieldMax on BUG_TYPES
+// below is therefore just the level-0/pre-research range — identical for every
+// species — kept on the type for clarity/display only.
 //
 // Tier still matters plenty: base cycle time, sell value of what's foraged,
 // and spawn cost all still climb hard with tier (see baseTickMs/spawnCost
@@ -207,7 +208,7 @@ export function bugsByTier(tier: number): BugType[] {
 // Speed and yield's roll RANGE is no longer fixed per species — it's driven
 // by that species' Research level (see the Research section below), which
 // starts at 0 (MAX_TRAIT_PCT/base yield range) for every species and is
-// raised per-species by sacrificing bugs on the Research page.
+// raised per-species on the Research page.
 
 /** Base (Research level 0) speed roll ceiling — every species starts here. */
 export const MAX_TRAIT_PCT = 25
@@ -257,16 +258,20 @@ export function rollEatRate(type: BugType): number {
   return randomInt(type.eatMin, type.eatMax)
 }
 
-// ─── Research (per-species roll upgrades) ──────────────────────────────────
+// ─── Research (per-species upgrades) ───────────────────────────────────────
 // Every species starts at Research level 0 (base roll: 0-25% speed, 1-2
 // yield — see MAX_TRAIT_PCT/BUG_TYPES). On the Research page, paying coins
 // (see RESEARCH_COST_MULTIPLIERS) raises that species' research level, which
-// widens the roll range every FUTURE purchase of that species uses —
-// existing owned bugs keep whatever they already rolled. Four upgrades take
-// a species from the base range all the way to 65-75% speed / 6-8 yield.
-// This is deliberately the only way to get a strong roll on a given species —
-// tier no longer hands out a better dice roll for free (see the BUG_TYPES
-// doc comment above).
+// buys two things:
+//   speed/yield — a wider roll range, up to 65-75% speed and 6-8 yield, on
+//              every FUTURE purchase of that species; existing bugs keep
+//              whatever they already rolled.
+//   resources  — a straight multiplier on everything that species forages,
+//              +25% per level to 2x at max, applied colony-wide to every bug
+//              of that species INCLUDING the ones already in the terrarium.
+// This is deliberately the only way to make a given species better — tier no
+// longer hands out a better dice roll for free (see the BUG_TYPES doc comment
+// above).
 
 /** Highest Research level any species can reach (4 upgrades past base). */
 export const MAX_RESEARCH_LEVEL = 4
@@ -295,6 +300,20 @@ export const RESEARCH_SPEED_MAX = [25, 35, 50, 65, 75]
 export const RESEARCH_YIELD_MIN = [1, 2, 3, 4, 6]
 export const RESEARCH_YIELD_MAX = [2, 4, 5, 6, 8]
 
+/**
+ * The third thing research buys, on top of the speed and yield roll ranges
+ * above: a straight multiplier on every item that species forages, +25% per
+ * level to 2x at max.
+ *
+ * The roll ranges only ever help bugs bought AFTER researching, and a flat
+ * yield LEVEL has to out-scale the Foraging Yield track (+14 levels
+ * colony-wide) to be felt at all — which it never could. A percentage does not
+ * compete with the track, it rides on top of it, and it applies colony-wide to
+ * every bug of that species including the ones already in the terrarium. That
+ * is what makes a research level feel like something the moment it lands.
+ */
+export const RESEARCH_RESOURCE_MULTIPLIERS = [1, 1.25, 1.5, 1.75, 2]
+
 /** The [min, max] speed roll range a species currently purchases at, given its Research level. */
 export function researchSpeedRange(level: number): [number, number] {
   const lvl = Math.max(0, Math.min(MAX_RESEARCH_LEVEL, level))
@@ -307,16 +326,26 @@ export function researchYieldRange(level: number): [number, number] {
   return [RESEARCH_YIELD_MIN[lvl] ?? 1, RESEARCH_YIELD_MAX[lvl] ?? 2]
 }
 
+/** The multiplier applied to every item a species forages, given its Research level. Applies colony-wide to bugs already owned, not just future purchases. */
+export function researchResourceMultiplier(level: number): number {
+  const lvl = Math.max(0, Math.min(MAX_RESEARCH_LEVEL, level))
+  return RESEARCH_RESOURCE_MULTIPLIERS[lvl] ?? 1
+}
+
 /**
  * Hard ceiling on combined speed (bug roll + habitat track + social), as a
  * percentage of base tick time removed. Every individual source is already
  * capped on its own, but stacking all three at their own max would still
  * reach a 20x tick-frequency multiplier (140% naively) — this caps the
- * worst case at a 6.67x tick-frequency multiplier instead, which is what
+ * worst case at a 4x tick-frequency multiplier instead, which is what
  * actually keeps a fully-upgraded colony from compounding into an absurd
  * number once combined with the yield track and terrarium capacity.
+ *
+ * This is the binding constraint from Habitat Level 3 upward — every source
+ * below that adds up to less than the cap, so lowering it slows the late
+ * colony without touching the opening grind at all.
  */
-export const MAX_TOTAL_SPEED_PCT = 85
+export const MAX_TOTAL_SPEED_PCT = 75
 
 /**
  * speedBonusPct is every OTHER source of speed — the Foraging Speed habitat
@@ -523,12 +552,17 @@ export function getUpgradeTrack(id: string): UpgradeTrackType | undefined {
 }
 
 // Every level is meant to feel like a real, noticeable jump — not a 1-2%
-// sliver. Yield is now added as flat LEVELS (not a percentage) directly onto
+// sliver. Yield is added as flat LEVELS (not a percentage) directly onto
 // every bug's own rolled yield level, colony-wide, so it compounds without a
 // cap the same way a bug's own yield roll does; speed/feed reductions cap
 // out well before their track's max level so a maxed track reads as
 // "maxed" rather than pointless.
-export const YIELD_TRACK_LEVELS_PER_LEVEL = 2
+//
+// One level, not two: at the Habitat 6 requirement (yield_boost 14) the track
+// hands every bug +14 yield levels, which already dwarfs the 1-2 a species
+// rolls for itself. At +2 it was +28 and no other lever — species, tier, or
+// Research — could be felt next to it.
+export const YIELD_TRACK_LEVELS_PER_LEVEL = 1
 export const SPEED_TRACK_REDUCTION_PER_LEVEL = 0.1
 export const MAX_SPEED_TRACK_REDUCTION = 0.7
 export const FEED_TRACK_REDUCTION_PER_LEVEL = 0.1

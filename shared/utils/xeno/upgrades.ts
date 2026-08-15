@@ -22,6 +22,18 @@ export const XENO_YIELD_PER_LEVEL = 1
 export const XENO_SPEED_PER_LEVEL = 0.05
 export const XENO_MAX_GLOBAL_SPEED = 0.50
 
+/**
+ * Cost ladders are priced in HOURS OF INCOME, not round numbers: every level
+ * should cost roughly 10-400 hours of what a player realistically earns at the
+ * tier they'd be on when buying it (see scripts/xeno-income.ts for that curve).
+ *
+ * The yield track used to total 801B — over 13,000 hours even at T9 — because
+ * it had been priced against T8/T9 income that almost nobody reached, so in
+ * practice it was never bought at all. The speed track's last level was a 12.5x
+ * step (20B → 250B) where every other step is ~3x. `test/xeno/balance.spec.ts`
+ * guards the hours-of-income ceiling; re-run `bun run balance:compare` after
+ * touching any cost here.
+ */
 export const XENO_UPGRADE_TRACKS: XenoUpgradeTrack[] = [
     {
         id: 'mutation',
@@ -29,7 +41,7 @@ export const XENO_UPGRADE_TRACKS: XenoUpgradeTrack[] = [
         icon: 'i-lucide-dna',
         description: 'Raises every breeder mutation chance, including mutations into new tiers.',
         maxLevel: XENO_UPGRADE_MAX_LEVEL,
-        costs: [1_000_000, 3_000_000, 8_000_000, 20_000_000, 50_000_000, 150_000_000, 500_000_000, 2_000_000_000, 8_000_000_000, 25_000_000_000],
+        costs: [1_000_000, 3_000_000, 8_000_000, 20_000_000, 50_000_000, 150_000_000, 500_000_000, 1_500_000_000, 4_000_000_000, 12_000_000_000],
         effectLabel: level => `+${level}% mutation chance`
     },
     {
@@ -38,7 +50,7 @@ export const XENO_UPGRADE_TRACKS: XenoUpgradeTrack[] = [
         icon: 'i-lucide-sprout',
         description: 'Adds the upgrade level as a fixed bonus on top of every grid harvest.',
         maxLevel: XENO_UPGRADE_MAX_LEVEL,
-        costs: [5_000_000, 20_000_000, 75_000_000, 250_000_000, 1_000_000_000, 5_000_000_000, 20_000_000_000, 75_000_000_000, 200_000_000_000, 500_000_000_000],
+        costs: [5_000_000, 20_000_000, 75_000_000, 250_000_000, 800_000_000, 2_500_000_000, 8_000_000_000, 25_000_000_000, 70_000_000_000, 120_000_000_000],
         effectLabel: level => `+${level} plants per grid harvest`
     },
     {
@@ -47,7 +59,7 @@ export const XENO_UPGRADE_TRACKS: XenoUpgradeTrack[] = [
         icon: 'i-lucide-zap',
         description: 'Reduces both grid grow time and breeder mutation-cycle time.',
         maxLevel: XENO_UPGRADE_MAX_LEVEL,
-        costs: [2_000_000, 6_000_000, 18_000_000, 55_000_000, 175_000_000, 550_000_000, 1_750_000_000, 6_000_000_000, 20_000_000_000, 250_000_000_000],
+        costs: [2_000_000, 6_000_000, 18_000_000, 55_000_000, 175_000_000, 550_000_000, 1_750_000_000, 6_000_000_000, 20_000_000_000, 60_000_000_000],
         effectLabel: level => `+${level * 5}% cultivation speed`
     }
 ]
