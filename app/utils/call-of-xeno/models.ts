@@ -143,7 +143,26 @@ function buildWalker(def: CallOfXenoEnemy, tint: number): EnemyModel {
             horn.rotation.z = 0.4 * side
             group.add(horn)
         }
+        // Front armour plate so the silhouette explains its own weak point.
+        const chest = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 0.09), new THREE.MeshLambertMaterial({ color: 0x22262e }))
+        chest.position.set(0, 1.24, -0.2 * bulk)
+        group.add(chest)
     }
+
+    // Shoulder pads — reads as armour and widens the silhouette.
+    for (const side of [-1, 1]) {
+        group.add(part(0.24, 0.14, 0.3 * bulk, 0x2b3038, 0.38 * bulk * side, 1.56, 0))
+    }
+
+    // The husk runs hot: a lit crack down the chest.
+    if (def.id === 'husk') {
+        const crack = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.5, 0.04), glow)
+        crack.position.set(0, 1.18, -0.18 * bulk)
+        group.add(crack)
+    }
+
+    // Shamblers are hunched; crawlers tilt forward onto their knuckles.
+    head.rotation.x = def.id === 'shambler' ? 0.18 : def.id === 'crawler' ? 0.5 : 0.05
 
     group.add(shadowDisc(0.42))
     return model
@@ -237,6 +256,20 @@ export function buildWeaponModel(id: CallOfXenoWeaponId, tier: number): THREE.Gr
             group.add(part(0.06, 0.14, 0.07, 0x2f3238, 0, -0.08, 0.02))
             group.add(part(0.02, 0.03, 0.03, accent, 0, 0.1, -0.3))
             break
+        case 'skorpion':
+            group.add(part(0.06, 0.09, 0.3, GUN_DARK, 0, 0.01, -0.1))
+            group.add(part(0.035, 0.035, 0.16, accent, 0, 0.05, -0.2))
+            group.add(part(0.05, 0.2, 0.05, 0x2b2f36, 0, -0.13, -0.05))
+            group.add(part(0.05, 0.11, 0.06, 0x2f3238, 0, -0.06, 0.05))
+            group.add(part(0.02, 0.02, 0.14, 0x3a3f47, 0, 0.02, 0.16))
+            break
+        case 'magnum':
+            group.add(part(0.055, 0.075, 0.34, GUN_DARK, 0, 0.03, -0.16))
+            group.add(part(0.045, 0.045, 0.34, accent, 0, 0.08, -0.18))
+            group.add(part(0.07, 0.07, 0.12, 0x3a3f47, 0, 0.03, -0.02))
+            group.add(part(0.055, 0.15, 0.07, 0x4a3520, 0, -0.07, 0.04))
+            group.add(part(0.02, 0.025, 0.025, accent, 0, 0.11, -0.32))
+            break
         case 'trench':
             group.add(part(0.08, 0.09, 0.62, GUN_WOOD, 0, 0, -0.2))
             group.add(part(0.05, 0.05, 0.66, accent, 0, 0.05, -0.24))
@@ -258,6 +291,16 @@ export function buildWeaponModel(id: CallOfXenoWeaponId, tier: number): THREE.Gr
             group.add(part(0.07, 0.11, 0.22, GUN_WOOD, 0, -0.02, 0.16))
             group.add(part(0.06, 0.12, 0.07, 0x2f3238, 0, -0.07, 0.02))
             group.add(part(0.05, 0.05, 0.14, GUN_WOOD, 0, 0, -0.46))
+            break
+        case 'bar':
+            group.add(part(0.075, 0.1, 0.66, GUN_DARK, 0, 0.01, -0.24))
+            group.add(part(0.045, 0.045, 0.78, accent, 0, 0.06, -0.34))
+            group.add(part(0.08, 0.13, 0.24, GUN_WOOD, 0, -0.03, 0.18))
+            group.add(part(0.065, 0.12, 0.07, 0x2f3238, 0, -0.07, 0.03))
+            group.add(part(0.05, 0.05, 0.16, GUN_WOOD, 0, 0, -0.56))
+            group.add(part(0.07, 0.18, 0.1, 0x3a3f47, 0, -0.1, -0.16))
+            group.add(part(0.025, 0.2, 0.025, 0x2b2f36, 0.05, -0.14, -0.52))
+            group.add(part(0.025, 0.2, 0.025, 0x2b2f36, -0.05, -0.14, -0.52))
             break
         case 'rpk':
             group.add(part(0.08, 0.1, 0.6, GUN_DARK, 0, 0.01, -0.22))
@@ -299,16 +342,217 @@ export function buildWeaponModel(id: CallOfXenoWeaponId, tier: number): THREE.Gr
 
 export function buildCrate(width: number, height: number, depth: number, tint: number): THREE.Group {
     const group = new THREE.Group()
-    group.add(part(width, height, depth, tint, 0, height / 2, 0))
-    const band = new THREE.Mesh(
-        new THREE.BoxGeometry(width * 1.02, height * 0.12, depth * 1.02),
-        new THREE.MeshLambertMaterial({ color: 0x2b2f36 })
+    group.add(part(width, height, depth, 0x39404b, 0, height / 2, 0))
+    // Corner posts give the box a read of bolted steel rather than plain wood.
+    for (const sx of [-1, 1]) {
+        for (const sz of [-1, 1]) {
+            group.add(part(0.14, height, 0.14, 0x232830, sx * (width / 2 - 0.08), height / 2, sz * (depth / 2 - 0.08)))
+        }
+    }
+    // Overhanging lid plus a painted band so the silhouette breaks the floor.
+    group.add(part(width * 1.05, 0.1, depth * 1.05, 0x4a5261, 0, height + 0.04, 0))
+    group.add(part(width * 1.02, height * 0.1, depth * 1.02, tint, 0, height * 0.55, 0))
+    return group
+}
+
+/** Waist-high hazard-striped barrier — the low cover. */
+export function buildBarrier(width: number, height: number, depth: number, tint: number, hazard: THREE.Texture): THREE.Group {
+    const group = new THREE.Group()
+    const hazardMat = new THREE.MeshLambertMaterial({ map: hazard })
+    const capMat = new THREE.MeshLambertMaterial({ color: 0x2b2f36 })
+    const body = new THREE.Mesh(
+        new THREE.BoxGeometry(width, height, depth),
+        [hazardMat, hazardMat, capMat, capMat, hazardMat, hazardMat]
     )
-    band.position.y = height * 0.16
+    body.position.y = height / 2
+    group.add(body)
+    const cap = new THREE.Mesh(
+        new THREE.BoxGeometry(width * 1.04, 0.08, depth * 1.04),
+        new THREE.MeshLambertMaterial({ color: tint })
+    )
+    cap.position.y = height
+    group.add(cap)
+    return group
+}
+
+/** Decorative fuel drum, parked in the corner of a crate's footprint. */
+export function buildBarrel(color: number): THREE.Group {
+    const group = new THREE.Group()
+    const body = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.33, 0.33, 1.02, 10),
+        new THREE.MeshLambertMaterial({ color })
+    )
+    body.position.y = 0.51
+    group.add(body)
+    for (const y of [0.24, 0.78]) {
+        const ring = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.35, 0.35, 0.07, 10),
+            new THREE.MeshLambertMaterial({ color: 0x23262c })
+        )
+        ring.position.y = y
+        group.add(ring)
+    }
+    const cap = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.29, 0.29, 0.05, 10),
+        new THREE.MeshLambertMaterial({ color: 0x39404b })
+    )
+    cap.position.y = 1.04
+    group.add(cap)
+    return group
+}
+
+/** Shootable explosive barrel: red shell, warning band, lit valve on top. */
+export function buildExplosiveBarrel(): THREE.Group {
+    const group = new THREE.Group()
+    const body = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.34, 0.34, 1.06, 10),
+        new THREE.MeshLambertMaterial({ color: 0xb03a26 })
+    )
+    body.position.y = 0.53
+    group.add(body)
+    for (const y of [0.1, 0.96]) {
+        const ring = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.36, 0.36, 0.08, 10),
+            new THREE.MeshLambertMaterial({ color: 0x23262c })
+        )
+        ring.position.y = y
+        group.add(ring)
+    }
+    const band = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.35, 0.35, 0.16, 10),
+        new THREE.MeshLambertMaterial({ color: 0xe0a83c })
+    )
+    band.position.y = 0.53
     group.add(band)
-    const band2 = band.clone()
-    band2.position.y = height * 0.84
-    group.add(band2)
+    const valve = new THREE.Mesh(
+        new THREE.TorusGeometry(0.1, 0.03, 6, 10),
+        new THREE.MeshBasicMaterial({ color: 0xffb020 })
+    )
+    valve.rotation.x = Math.PI / 2
+    valve.position.y = 1.1
+    group.add(valve)
+    return group
+}
+
+/** Structural column replacing the plain 1x1 corner blocks. */
+export function buildPillar(height: number, accent: number): THREE.Group {
+    const group = new THREE.Group()
+    const column = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.44, 0.5, height - 0.5, 8),
+        new THREE.MeshLambertMaterial({ color: 0x3c434e })
+    )
+    column.position.y = (height - 0.5) / 2 + 0.25
+    group.add(column)
+    group.add(part(1.15, 0.3, 1.15, 0x2b2f36, 0, 0.15, 0))
+    group.add(part(1.05, 0.25, 1.05, 0x2b2f36, 0, height - 0.12, 0))
+    const ring = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.48, 0.48, 0.12, 8),
+        new THREE.MeshBasicMaterial({ color: accent })
+    )
+    ring.position.y = height * 0.62
+    group.add(ring)
+    return group
+}
+
+/** The glowing reactor tower at the heart of the Power Room. */
+export interface ReactorModel {
+    group: THREE.Group
+    rings: THREE.MeshBasicMaterial[]
+    light: THREE.PointLight
+    accent: number
+}
+
+export function buildReactor(height: number, accent: number): ReactorModel {
+    const group = new THREE.Group()
+    // Wide plinth explains the full collision footprint under a slim tower.
+    group.add(part(5.6, 0.7, 3.6, 0x2b2f36, 0, 0.35, 0))
+
+    const shell = new THREE.Mesh(
+        new THREE.CylinderGeometry(1.55, 1.75, height - 1.2, 12),
+        new THREE.MeshLambertMaterial({ color: 0x4a4238 })
+    )
+    shell.position.y = (height - 1.2) / 2 + 1
+    group.add(shell)
+
+    const core = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.62, 0.62, height - 1.6, 10),
+        new THREE.MeshBasicMaterial({ color: accent, transparent: true, opacity: 0.85 })
+    )
+    core.position.y = height / 2
+    group.add(core)
+
+    const rings: THREE.MeshBasicMaterial[] = []
+    for (let i = 0; i < 3; i++) {
+        const mat = new THREE.MeshBasicMaterial({ color: accent })
+        rings.push(mat)
+        const ring = new THREE.Mesh(new THREE.CylinderGeometry(1.82, 1.82, 0.16, 12), mat)
+        ring.position.y = 1.8 + i * ((height - 3) / 2)
+        group.add(ring)
+    }
+
+    // Conduit arms out to the walls so the tower does not float alone.
+    for (const side of [-1, 1]) {
+        const arm = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.3, 0.3, 1.8, 8),
+            new THREE.MeshLambertMaterial({ color: 0x3a4249 })
+        )
+        arm.rotation.z = Math.PI / 2
+        arm.position.set(2.3 * side, 1.4, 0)
+        group.add(arm)
+        group.add(part(0.7, 2.4, 0.7, 0x3a4249, 3 * side, 1.2, 0))
+    }
+
+    const light = new THREE.PointLight(accent, 0, 18, 1.8)
+    light.position.y = height / 2
+    group.add(light)
+
+    return { group, rings, light, accent }
+}
+
+/** Machinery housing for the Power Room's full-height blocks. */
+export function buildMachine(width: number, height: number, depth: number, accent: number): THREE.Group {
+    const group = new THREE.Group()
+    group.add(part(width, height * 0.35, depth, 0x2f353d, 0, height * 0.175, 0))
+    group.add(part(width * 0.82, height * 0.65, depth * 0.86, 0x3c434e, 0, height * 0.675, 0))
+    for (let i = 0; i < 3; i++) {
+        group.add(part(width * 0.6, 0.08, 0.06, 0x1e2126, 0, height * 0.5 + i * 0.28, depth * 0.435 + 0.02))
+    }
+    const strip = new THREE.Mesh(
+        new THREE.BoxGeometry(width * 0.5, 0.12, 0.06),
+        new THREE.MeshBasicMaterial({ color: accent })
+    )
+    strip.position.set(0, height * 0.82, depth * 0.44)
+    group.add(strip)
+    const stack = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.16, 0.2, 0.7, 8),
+        new THREE.MeshLambertMaterial({ color: 0x565e6b })
+    )
+    stack.position.set(width * 0.22, height - 0.35, 0)
+    group.add(stack)
+    return group
+}
+
+/** Wall-hugging pipe run with brackets and one lit valve. */
+export function buildPipesRun(length: number, accent: number): THREE.Group {
+    const group = new THREE.Group()
+    const mat = new THREE.MeshLambertMaterial({ color: 0x59616e })
+    for (const [y, r] of [[0, 0.09], [0.34, 0.07]] as const) {
+        const pipe = new THREE.Mesh(new THREE.CylinderGeometry(r, r, length, 8), mat)
+        pipe.rotation.z = Math.PI / 2
+        pipe.position.y = y
+        group.add(pipe)
+    }
+    const brackets = Math.max(2, Math.round(length / 3))
+    for (let i = 0; i <= brackets; i++) {
+        group.add(part(0.1, 0.5, 0.12, 0x2b2f36, -length / 2 + (length / brackets) * i, 0.18, 0))
+    }
+    const valve = new THREE.Mesh(
+        new THREE.TorusGeometry(0.13, 0.035, 6, 10),
+        new THREE.MeshBasicMaterial({ color: accent })
+    )
+    valve.rotation.y = Math.PI / 2
+    valve.position.set(-length * 0.3, 0.34, 0.1)
+    group.add(valve)
     return group
 }
 

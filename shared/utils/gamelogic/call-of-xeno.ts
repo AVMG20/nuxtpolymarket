@@ -11,9 +11,12 @@
 
 export type CallOfXenoWeaponId
     = | 'm1911'
+      | 'skorpion'
+      | 'magnum'
       | 'trench'
       | 'mp40'
       | 'ak74'
+      | 'bar'
       | 'rpk'
       | 'xenoray'
 
@@ -57,6 +60,38 @@ export const CALL_OF_XENO_WEAPONS: Record<CallOfXenoWeaponId, CallOfXenoWeapon> 
         automatic: false,
         cost: 0,
         upgradedName: 'Mustang & Sally'
+    },
+    skorpion: {
+        id: 'skorpion',
+        name: 'Skorpion',
+        damage: 32,
+        pellets: 1,
+        fireDelay: 0.055,
+        magSize: 20,
+        reserveAmmo: 220,
+        reloadTime: 1.9,
+        spread: 0.05,
+        range: 35,
+        penetration: 1,
+        automatic: true,
+        cost: 1000,
+        upgradedName: 'Czech Bounce'
+    },
+    magnum: {
+        id: 'magnum',
+        name: '.44 Magnum',
+        damage: 165,
+        pellets: 1,
+        fireDelay: 0.42,
+        magSize: 6,
+        reserveAmmo: 66,
+        reloadTime: 2.7,
+        spread: 0.015,
+        range: 55,
+        penetration: 2,
+        automatic: false,
+        cost: 1250,
+        upgradedName: '.44 Anaconda'
     },
     trench: {
         id: 'trench',
@@ -106,6 +141,22 @@ export const CALL_OF_XENO_WEAPONS: Record<CallOfXenoWeaponId, CallOfXenoWeapon> 
         cost: 1200,
         upgradedName: 'AK-74fu2'
     },
+    bar: {
+        id: 'bar',
+        name: 'BAR',
+        damage: 160,
+        pellets: 1,
+        fireDelay: 0.16,
+        magSize: 24,
+        reserveAmmo: 192,
+        reloadTime: 3.1,
+        spread: 0.028,
+        range: 65,
+        penetration: 2,
+        automatic: true,
+        cost: 2200,
+        upgradedName: 'Browning M1918'
+    },
     rpk: {
         id: 'rpk',
         name: 'RPK',
@@ -142,7 +193,7 @@ export const CALL_OF_XENO_WEAPONS: Record<CallOfXenoWeaponId, CallOfXenoWeapon> 
 }
 
 /** Weapons sold on a wall, in the order they appear across the map. */
-export const CALL_OF_XENO_WALL_WEAPONS: CallOfXenoWeaponId[] = ['mp40', 'trench', 'ak74', 'rpk']
+export const CALL_OF_XENO_WALL_WEAPONS: CallOfXenoWeaponId[] = ['skorpion', 'trench', 'magnum', 'mp40', 'ak74', 'bar', 'rpk']
 
 export interface CallOfXenoPerk {
     id: CallOfXenoPerkId
@@ -261,6 +312,9 @@ export const CALL_OF_XENO_BOX_POOL: { weapon: CallOfXenoWeaponId, weight: number
     { weapon: 'mp40', weight: 6 },
     { weapon: 'ak74', weight: 6 },
     { weapon: 'rpk', weight: 5 },
+    { weapon: 'skorpion', weight: 4 },
+    { weapon: 'magnum', weight: 4 },
+    { weapon: 'bar', weight: 4 },
     { weapon: 'xenoray', weight: 2 }
 ]
 

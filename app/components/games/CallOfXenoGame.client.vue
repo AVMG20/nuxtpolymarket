@@ -14,9 +14,22 @@
 
         <div class="pointer-events-none absolute inset-0" style="box-shadow: inset 0 0 180px 40px rgba(0,0,0,0.75)" />
         <div
-            class="pointer-events-none absolute inset-0 transition-opacity duration-150"
-            :style="{ opacity: hurtOpacity, boxShadow: 'inset 0 0 200px 70px rgba(190,10,10,0.9)' }"
+            class="pointer-events-none absolute inset-0"
+            :style="{ opacity: hurtVeil, boxShadow: 'inset 0 0 200px 70px rgba(190,10,10,0.9)' }"
         />
+
+        <!-- Directional damage indicators, rotated toward the source. -->
+        <div
+            v-for="mark in hurtMarks"
+            :key="mark.id"
+            class="pointer-events-none absolute inset-0 flex items-center justify-center"
+            :style="{ transform: `rotate(${mark.angle}deg)`, opacity: Math.min(1, mark.life * 1.3) }"
+        >
+            <div class="relative size-80">
+                <div class="absolute left-1/2 top-0 h-9 w-28 -translate-x-1/2 rounded-t-full border-x-4 border-t-4 border-red-500/80 drop-shadow-[0_0_6px_rgba(220,38,38,0.8)]" />
+            </div>
+        </div>
+
         <div v-if="lowHealth" class="pointer-events-none absolute inset-0 animate-pulse" style="box-shadow: inset 0 0 260px 90px rgba(140,0,0,0.55)" />
         <div
             v-if="instakillOn"
@@ -163,7 +176,7 @@
                 <template v-if="phase === 'menu'">
                     <div class="text-[10px] uppercase tracking-[0.4em] text-muted">Survival</div>
                     <h1 class="mt-1 text-5xl font-bold tracking-tight text-primary">Call of Xeno</h1>
-                    <p class="mt-2 text-muted">Four doors close the ring. Take the catwalk, turn the power on, survive.</p>
+                    <p class="mt-2 text-muted">Five doors seal the loop. Take the platform, turn on the power, survive.</p>
                 </template>
                 <template v-else-if="phase === 'over'">
                     <h1 class="text-5xl font-bold text-red-500">You Died</h1>
@@ -186,9 +199,11 @@
                     <div><span class="font-mono text-highlighted">Space</span> jump</div>
                     <div><span class="font-mono text-highlighted">Shift</span> sprint</div>
                     <div><span class="font-mono text-highlighted">LMB</span> fire</div>
+                    <div><span class="font-mono text-highlighted">RMB</span> aim</div>
                     <div><span class="font-mono text-highlighted">R</span> reload</div>
                     <div><span class="font-mono text-highlighted">Q</span> swap weapon</div>
                     <div><span class="font-mono text-highlighted">F</span> buy / interact</div>
+                    <div><span class="font-mono text-highlighted">V</span> knife</div>
                     <div><span class="font-mono text-highlighted">Esc</span> pause</div>
                 </div>
 
@@ -260,6 +275,7 @@ import {
     CALL_OF_XENO_INTERACTABLES,
     CALL_OF_XENO_SPAWNS,
     CALL_OF_XENO_PLAYER_START,
+    CALL_OF_XENO_BARREL_SPOTS,
     CALL_OF_XENO_STEP_UP,
     buildNavTable,
     reachableNodes,
@@ -284,6 +300,7 @@ import {
     buildWeaponModel,
     buildPowerUp,
     buildProjectile,
+    buildExplosiveBarrel,
     type EnemyModel
 } from '~/utils/call-of-xeno/models'
 
@@ -316,6 +333,9 @@ const powerOn = ref(false)
 const hitMarker = ref(0)
 const lastHitKind = ref<'body' | 'head' | 'weak'>('body')
 const hurtOpacity = ref(0)
+const hurtVeil = ref(0)
+const damageFlash = ref(0)
+const hurtMarks = shallowRef<{ id: number, angle: number, life: number }[]>([])
 const crossGap = ref(8)
 const muted = ref(false)
 const streakMult = ref(1)
@@ -377,6 +397,14 @@ interface Enemy {
     flash: number
     phase: number
     groanIn: number
+    /** Spawn-in animation remaining, seconds. */
+    spawnT: number
+    /** Hit stagger: movement paused while positive. */
+    stagger: number
+    /** Accumulator for stuck-detection steering. */
+    stuck: number
+    /** Which way the wall-slide steers: +1 or -1. */
+    stuckSide: number
 }
 
 interface Corpse {
@@ -407,6 +435,15 @@ interface GroundPowerUp {
     z: number
     life: number
     spin: number
+}
+
+/** A shootable fuel barrel. Solid until it explodes. */
+interface Barrel {
+    x: number
+    z: number
+    solid: CallOfXenoSolid
+    group: THREE.Group
+    alive: boolean
 }
 
 interface WorldPopup {
@@ -501,12 +538,28 @@ let streak = 0
 let streakTimer = 0
 let runTime = 0
 
+// Aim, melee and movement feel.
+let aiming = false
+let aimBlend = 0
+let fovCurrent = 80
+let meleeTimer = 0
+let meleeCooldown = 0
+let stepTimer = 0
+let landOff = 0
+let landVel = 0
+let hbTimer = 0
+let isMoving = false
+let isSprinting = false
+let hurtMarkId = 0
+const hurtSources: { id: number, dx: number, dz: number, life: number }[] = []
+
 // Run stats for the summary screen.
 let statKills = 0
 let statHeadshots = 0
 let statBestStreak = 0
 let statSpins = 0
 let statDoors = 0
+let statBarrels = 0
 
 // Power-up state.
 const powerUpTimers: Record<CallOfXenoPowerUpId, number> = {
@@ -526,6 +579,7 @@ const corpses: Corpse[] = []
 const projectiles: Projectile[] = []
 const groundPowerUps: GroundPowerUp[] = []
 const worldPopups: WorldPopup[] = []
+const barrels: Barrel[] = []
 let solids: CallOfXenoSolid[] = []
 let navTable = buildNavTable(new Set())
 let focused: { kind: 'door' | 'interactable', id: string } | null = null
@@ -555,9 +609,12 @@ function reloadTimeOf(slot: WeaponSlot) {
 function shootSound(slot: WeaponSlot) {
     switch (slot.base) {
         case 'm1911': return 'shoot-pistol' as const
+        case 'skorpion': return 'shoot-smg' as const
+        case 'magnum': return 'shoot-rifle' as const
         case 'trench': return 'shoot-shotgun' as const
         case 'mp40': return 'shoot-smg' as const
         case 'ak74': return 'shoot-rifle' as const
+        case 'bar': return 'shoot-rifle' as const
         case 'rpk': return 'shoot-lmg' as const
         case 'xenoray': return 'shoot-wonder' as const
     }
@@ -569,7 +626,7 @@ function playerBoxes(): CallOfXenoBox[] {
 }
 
 function rebuildCollision() {
-    solids = collisionSolids(openDoors)
+    solids = collisionSolids(openDoors, barrels.filter(b => b.alive).map(b => b.solid))
     navTable = buildNavTable(openDoors)
 }
 
@@ -585,10 +642,10 @@ function updatePlayer(dt: number) {
     if (keys.has('keyd')) fx += 1
     if (keys.has('keya')) fx -= 1
 
-    let moving = false
+    isMoving = fx !== 0 || fz !== 0
+    isSprinting = isMoving && (keys.has('shiftleft') || keys.has('shiftright')) && !aiming
     let speed = 0
-    if (fx !== 0 || fz !== 0) {
-        moving = true
+    if (isMoving) {
         const len = Math.hypot(fx, fz)
         fx /= len
         fz /= len
@@ -596,7 +653,7 @@ function updatePlayer(dt: number) {
         const cos = Math.cos(yaw)
         const dirX = -sin * fz + cos * fx
         const dirZ = -cos * fz - sin * fx
-        speed = keys.has('shiftleft') || keys.has('shiftright') ? SPRINT_SPEED : WALK_SPEED
+        speed = isSprinting ? SPRINT_SPEED : aiming ? WALK_SPEED * 0.65 : WALK_SPEED
         px += dirX * speed * dt
         pz += dirZ * speed * dt
     }
@@ -605,25 +662,57 @@ function updatePlayer(dt: number) {
     px = solved.x
     pz = solved.z
 
-    // Vertical: snap to any surface within a step, otherwise fall.
-    const ground = groundHeight(px, pz, feetY)
-    if (vy <= 0 && feetY - ground < CALL_OF_XENO_STEP_UP) {
-        feetY = ground
-        vy = 0
-        grounded = true
+    // Footsteps keep time with the legs, faster while sprinting.
+    if (isMoving && grounded) {
+        stepTimer -= dt * (isSprinting ? 1.5 : 1)
+        if (stepTimer <= 0) {
+            stepTimer = 0.44
+            audio.play('footstep')
+        }
     } else {
-        grounded = false
+        stepTimer = 0.18
+    }
+
+    // Vertical: while grounded the floor is followed — steps up and shallow
+    // drops snap. Airborne actors only land when they actually reach the
+    // floor; snapping mid-fall from step range is what used to cut jumps
+    // short and make landings feel like a vacuum.
+    const ground = groundHeight(px, pz, feetY)
+    if (grounded) {
+        if (vy <= 0 && feetY - ground < CALL_OF_XENO_STEP_UP) {
+            feetY = ground
+            vy = 0
+        } else {
+            grounded = false
+            vy -= GRAVITY * dt
+            feetY += vy * dt
+        }
+    } else {
         vy -= GRAVITY * dt
         feetY += vy * dt
         if (vy <= 0 && feetY <= ground) {
+            const impact = Math.min(1, -vy / 13)
             feetY = ground
             vy = 0
             grounded = true
+            landVel = -impact * 2.4
+            recoilPitch += impact * 0.035
+            if (impact > 0.12) audio.play('land')
+        }
+    }
+
+    // Landing dip spring: a quick crouch-and-recover instead of a dead stop.
+    if (landOff !== 0 || landVel !== 0) {
+        landVel += (-landOff * 130 - landVel * 14) * dt
+        landOff += landVel * dt
+        if (Math.abs(landOff) < 0.0005 && Math.abs(landVel) < 0.005) {
+            landOff = 0
+            landVel = 0
         }
     }
 
     bob += dt * speed * 1.6
-    const bobAmount = moving && grounded ? Math.min(0.055, speed * 0.008) : 0
+    const bobAmount = isMoving && grounded ? Math.min(0.055, speed * 0.008) : 0
     const bobY = Math.sin(bob * 2) * bobAmount
     const bobX = Math.cos(bob) * bobAmount * 0.6
 
@@ -632,7 +721,7 @@ function updatePlayer(dt: number) {
 
     camera.position.set(
         px + bobX + (Math.random() - 0.5) * shake * 0.4,
-        feetY + PLAYER_EYE + bobY + (Math.random() - 0.5) * shake * 0.4,
+        feetY + PLAYER_EYE + bobY + landOff + (Math.random() - 0.5) * shake * 0.4,
         pz
     )
     camera.rotation.set(pitch + recoilPitch, yaw, Math.sin(bob) * 0.006)
@@ -653,19 +742,24 @@ function updateViewModel(dt: number) {
     swayX += ((keys.has('keya') ? 0.03 : keys.has('keyd') ? -0.03 : 0) - swayX) * Math.min(1, dt * 6)
     swayY += ((keys.has('keyw') ? -0.012 : keys.has('keys') ? 0.012 : 0) - swayY) * Math.min(1, dt * 6)
 
+    // Pack-a-Punch tiers glass up the sights: each tier snaps the aim in
+    // faster, so an upgraded gun feels like an upgrade the moment you aim.
+    const aimSpeed = 9 + active().tier * 4.5
+    aimBlend += ((aiming ? 1 : 0) - aimBlend) * Math.min(1, dt * aimSpeed)
     recoil = Math.max(0, recoil - dt * 7)
     const reloadPhase = reloadTotal > 0 ? 1 - Math.abs(reloadTimer / reloadTotal - 0.5) * 2 : 0
     const swapPhase = swapTimer > 0 ? Math.min(1, swapTimer / 0.18) : 0
     const dip = reloadPhase * 0.22 + swapPhase * 0.3
+    const lunge = meleeTimer > 0 ? Math.sin((1 - meleeTimer / 0.28) * Math.PI) : 0
 
     weaponRoot.position.set(
-        0.3 + swayX + Math.cos(bob) * 0.012,
-        -0.24 + swayY - dip + Math.sin(bob * 2) * 0.01 + recoil * 0.02,
-        -0.55 + recoil * 0.1
+        0.3 * (1 - aimBlend) + swayX * (1 - aimBlend * 0.7) + Math.cos(bob) * 0.012,
+        -0.24 + 0.04 * aimBlend + swayY - dip + Math.sin(bob * 2) * 0.01 + recoil * 0.02,
+        -0.55 + 0.13 * aimBlend + recoil * 0.1 - lunge * 0.3
     )
     weaponRoot.rotation.set(
-        recoil * 0.28 + reloadPhase * 0.5 + swapPhase * 0.7,
-        swayX * 2,
+        recoil * 0.28 + reloadPhase * 0.5 + swapPhase * 0.7 - lunge * 0.9,
+        swayX * 2 + lunge * 0.35,
         reloadPhase * 0.35
     )
 
@@ -751,7 +845,7 @@ function shoot() {
     slot.mag--
     fireTimer = fireDelayOf(slot)
     recoil = 1
-    bloom = Math.min(1, bloom + 0.34)
+    bloom = Math.min(1, bloom + (aiming ? 0.22 : 0.34))
     shake = Math.min(0.09, shake + (slot.base === 'trench' || slot.base === 'rpk' ? 0.05 : 0.025))
     recoilPitch += slot.def.spread * 0.6 + 0.012
     audio.play(shootSound(slot))
@@ -775,7 +869,9 @@ function shoot() {
 
     for (let pellet = 0; pellet < slot.def.pellets; pellet++) {
         pelletDir.copy(rayDir)
-        const spread = slot.def.spread * (0.55 + bloom * 0.85)
+        // Hip fire is a cone; aiming shrinks it hard. Pack-a-Punch tiers do
+        // not tighten the cone — the ladder buys speed, not accuracy.
+        const spread = slot.def.spread * (0.55 + bloom * 0.85) * (aiming ? 0.3 : 1.65)
         if (spread > 0) {
             const angle = randomFloat() * Math.PI * 2
             const radius = Math.sqrt(randomFloat()) * spread
@@ -791,6 +887,12 @@ function shoot() {
             solids, slot.def.range
         )
         const maxDist = Math.min(slot.def.range, block.distance)
+
+        // A round that bites a live barrel detonates it instead of the wall.
+        if (block.distance < slot.def.range
+            && hitBarrel(rayOrigin.x, rayOrigin.y, rayOrigin.z, pelletDir.x, pelletDir.y, pelletDir.z, block.distance)) {
+            continue
+        }
 
         const hits: { enemy: Enemy, t: number, kind: 'body' | 'head' | 'weak' }[] = []
         for (const enemy of enemies) {
@@ -859,6 +961,16 @@ function applyHit(enemy: Enemy, damage: number, kind: 'body' | 'head' | 'weak', 
     markerTimer = 0.18
     lastHitKind.value = kind
 
+    // Non-lethal hits stagger and shove, so heavy rounds feel heavy.
+    if (enemy.health > 0) {
+        enemy.stagger = Math.min(0.35, enemy.stagger + (isStaunch(enemy) ? 0.08 : 0.18))
+        const kx = enemy.x - px
+        const kz = enemy.z - pz
+        const kl = Math.hypot(kx, kz) || 1
+        enemy.x += (kx / kl) * 0.22
+        enemy.z += (kz / kl) * 0.22
+    }
+
     if (!scored.has(enemy)) {
         scored.add(enemy)
         award(Math.round(CALL_OF_XENO_HIT_POINTS * enemy.def.reward))
@@ -874,6 +986,11 @@ function applyHit(enemy: Enemy, damage: number, kind: 'body' | 'head' | 'weak', 
     const base = kind === 'body' ? CALL_OF_XENO_KILL_POINTS : CALL_OF_XENO_HEADSHOT_POINTS
     registerKill(enemy, Math.round(base * enemy.def.reward), kind)
     return true
+}
+
+/** Brutes and drones shrug off most of the shove; everything else reels. */
+function isStaunch(enemy: Enemy) {
+    return enemy.def.id === 'brute' || enemy.def.flies === true
 }
 
 function registerKill(enemy: Enemy, basePoints: number, kind: 'body' | 'head' | 'weak' | 'nuke') {
@@ -926,6 +1043,36 @@ function finishReload() {
     slot.reserve -= take
     reloadTotal = 0
     audio.play('reload-end')
+}
+
+/** Knife lunge: short cone in front of the player, hard damage, no ammo. */
+function melee() {
+    if (meleeCooldown > 0 || swapTimer > 0) return
+    meleeCooldown = 0.9
+    meleeTimer = 0.28
+    audio.play('melee')
+
+    camera.getWorldDirection(rayDir)
+    const scored = new Set<Enemy>()
+    let hitAny = false
+    for (const enemy of [...enemies]) {
+        const dx = enemy.x - px
+        const dz = enemy.z - pz
+        const dist = Math.hypot(dx, dz)
+        if (dist > 2.4 + enemy.def.scale * 0.4) continue
+        if (dist < 1e-4) continue
+        const dot = (dx / dist) * rayDir.x + (dz / dist) * rayDir.z
+        if (dot < 0.45) continue
+        if (Math.abs(enemy.y - feetY) > 2.4) continue
+
+        enemy.x += (dx / dist) * 0.7
+        enemy.z += (dz / dist) * 0.7
+        impactPoint.set(enemy.x, enemy.y + enemy.model.torsoY, enemy.z)
+        effects.bloodBurst(impactPoint, rayDir, 2)
+        hitAny = true
+        applyHit(enemy, 250, 'body', scored, impactPoint)
+    }
+    if (hitAny) audio.play('melee-hit')
 }
 
 // ---------------------------------------------------------------------------
@@ -1013,6 +1160,79 @@ function updatePowerUps(dt: number) {
             groundPowerUps.splice(i, 1)
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Explosive barrels
+// ---------------------------------------------------------------------------
+
+function initBarrels() {
+    for (const spot of CALL_OF_XENO_BARREL_SPOTS) {
+        const group = buildExplosiveBarrel()
+        group.position.set(spot.x, 0, spot.z)
+        group.rotation.y = randomFloat() * Math.PI * 2
+        scene.add(group)
+        barrels.push({
+            x: spot.x,
+            z: spot.z,
+            solid: {
+                box: { minX: spot.x - 0.38, maxX: spot.x + 0.38, minZ: spot.z - 0.38, maxZ: spot.z + 0.38 },
+                baseY: 0,
+                height: 1.1
+            },
+            group,
+            alive: true
+        })
+    }
+}
+
+/** Detonates a barrel: area damage, chain reactions, a proper bang. */
+function explodeBarrel(barrel: Barrel) {
+    barrel.alive = false
+    barrel.group.visible = false
+    rebuildCollision()
+    statBarrels++
+    audio.play('explosion')
+    shake = Math.min(0.5, shake + 0.35)
+
+    impactPoint.set(barrel.x, 0.6, barrel.z)
+    effects.energyBurst(impactPoint, 0xffa030)
+    impactPoint.set(barrel.x, 1, barrel.z)
+    effects.energyBurst(impactPoint, 0xff5510)
+    impactPoint.set(barrel.x, 0.4, barrel.z)
+    effects.wallImpact(impactPoint, new THREE.Vector3(0, 1, 0))
+
+    const scored = new Set<Enemy>()
+    for (const enemy of [...enemies]) {
+        const dist = Math.hypot(enemy.x - barrel.x, enemy.z - barrel.z)
+        if (dist > 3.8) continue
+        const damage = Math.round((380 + currentRound * 25) * Math.max(0.25, 1 - dist / 4.4))
+        impactPoint.set(enemy.x, enemy.y + enemy.model.torsoY, enemy.z)
+        applyHit(enemy, damage, 'body', scored, impactPoint)
+    }
+
+    // Chain into neighbours; the alive flag stops the recursion looping.
+    for (const other of barrels) {
+        if (!other.alive) continue
+        if (Math.hypot(other.x - barrel.x, other.z - barrel.z) < 3.2) explodeBarrel(other)
+    }
+}
+
+/** Did a shot that stopped at `t` along its ray clip a live barrel? */
+function hitBarrel(ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, t: number): boolean {
+    const hx = ox + dx * t
+    const hy = oy + dy * t
+    const hz = oz + dz * t
+    for (const barrel of barrels) {
+        if (!barrel.alive) continue
+        const b = barrel.solid.box
+        if (hx < b.minX - 0.05 || hx > b.maxX + 0.05) continue
+        if (hz < b.minZ - 0.05 || hz > b.maxZ + 0.05) continue
+        if (hy < -0.05 || hy > barrel.solid.height + 0.05) continue
+        explodeBarrel(barrel)
+        return true
+    }
+    return false
 }
 
 // ---------------------------------------------------------------------------
@@ -1130,7 +1350,12 @@ function spawnEnemy() {
     const model = buildEnemy(def)
     const y = groundHeight(spot.x, spot.z, 0)
     model.group.position.set(spot.x, y, spot.z)
+    model.group.scale.setScalar(def.scale * 0.15)
     scene.add(model.group)
+
+    // Rising burst so a spawn reads as an arrival, not a pop-in.
+    impactPoint.set(spot.x, y + 1, spot.z)
+    effects.energyBurst(impactPoint, 0xff4433)
 
     const health = Math.round(zombieHealth(currentRound) * def.healthMultiplier)
     const frenzy = modifier === 'frenzy' ? CALL_OF_XENO_FRENZY_SPEED : 1
@@ -1150,7 +1375,11 @@ function spawnEnemy() {
         fireCooldown: 1 + randomFloat() * 2,
         flash: 0,
         phase: randomFloat() * Math.PI * 2,
-        groanIn: 1 + randomFloat() * 6
+        groanIn: 1 + randomFloat() * 6,
+        spawnT: 0.35,
+        stagger: 0,
+        stuck: 0,
+        stuckSide: randomFloat() < 0.5 ? 1 : -1
     })
 }
 
@@ -1211,7 +1440,7 @@ function updateProjectiles(dt: number) {
             && bolt.y > feetY && bolt.y < feetY + PLAYER_HEIGHT
 
         if (hitPlayer) {
-            takeDamage(bolt.damage)
+            takeDamage(bolt.damage, bolt.x - bolt.vx * 0.06, bolt.z - bolt.vz * 0.06)
             impactPoint.set(bolt.x, bolt.y, bolt.z)
             effects.energyBurst(impactPoint, 0x66ddff)
         }
@@ -1228,10 +1457,15 @@ function updateProjectiles(dt: number) {
     }
 }
 
-function takeDamage(amount: number) {
+function takeDamage(amount: number, sourceX?: number, sourceZ?: number) {
     hp -= amount
     sinceDamage = 0
-    shake = Math.min(0.18, shake + 0.1)
+    shake = Math.min(0.24, shake + 0.14)
+    damageFlash.value = 1
+    recoilPitch += 0.02 + Math.random() * 0.02
+    if (sourceX !== undefined && sourceZ !== undefined) {
+        hurtSources.push({ id: hurtMarkId++, dx: sourceX - px, dz: sourceZ - pz, life: 1.6 })
+    }
     audio.play('hurt')
 }
 
@@ -1262,12 +1496,37 @@ function updateEnemies(dt: number) {
         const dist = Math.hypot(dx, dz)
         let moved = 0
         const stopAt = def.ranged ? 0 : 1.05 * def.scale
-        if (dist > 0.05 && (def.ranged || toPlayer > stopAt)) {
-            enemy.x += (dx / dist) * enemy.speed * dt
-            enemy.z += (dz / dist) * enemy.speed * dt
+        const wantsMove = dist > 0.05 && (def.ranged || toPlayer > stopAt) && enemy.stagger <= 0
+
+        if (wantsMove) {
+            let mx = dx / dist
+            let mz = dz / dist
+            // Pinned against geometry: trade forward for sideways for a beat
+            // so a pack slides along walls instead of grinding into them.
+            if (enemy.stuck > 0.22) {
+                const sx = mz * enemy.stuckSide
+                const sz = -mx * enemy.stuckSide
+                mx = sx
+                mz = sz
+            }
+            const beforeX = enemy.x
+            const beforeZ = enemy.z
+            enemy.x += mx * enemy.speed * dt
+            enemy.z += mz * enemy.speed * dt
+            enemy.yaw = Math.atan2(mx, mz)
+
+            const actual = Math.hypot(enemy.x - beforeX, enemy.z - beforeZ)
+            if (actual < enemy.speed * dt * 0.3) {
+                enemy.stuck += dt
+            } else {
+                enemy.stuck = 0
+            }
             moved = enemy.speed
-            enemy.yaw = Math.atan2(dx / dist, dz / dist)
+        } else {
+            enemy.stuck = 0
         }
+
+        if (enemy.stagger > 0) enemy.stagger -= dt
 
         const boxes = solidsInBand(solids, enemy.y, 1.8 * def.scale)
         const solved = resolveCircle(enemy.x, enemy.z, 0.45 * def.scale, boxes)
@@ -1309,7 +1568,7 @@ function updateEnemies(dt: number) {
             }
         } else if (toPlayer < 1.5 * def.scale && Math.abs(enemy.y - feetY) < 1.6 && enemy.attackCooldown <= 0) {
             enemy.attackCooldown = 1
-            takeDamage(Math.round(contact * def.damageMultiplier))
+            takeDamage(Math.round(contact * def.damageMultiplier), enemy.x, enemy.z)
             audio.play('zombie-attack')
         }
 
@@ -1345,6 +1604,13 @@ function updateEnemies(dt: number) {
             enemy.z
         )
         enemy.model.group.rotation.y = enemy.yaw
+
+        // Rise out of the floor over the first fraction of a second.
+        if (enemy.spawnT > 0) {
+            enemy.spawnT -= dt
+            const t = Math.max(0, enemy.spawnT) / 0.35
+            enemy.model.group.scale.setScalar(def.scale * (0.15 + 0.85 * (1 - t)))
+        }
     }
 
     // Soft separation so a pack does not fuse into one body.
@@ -1401,6 +1667,10 @@ function applyModifier() {
 /** Blackout kills the lights for the round even when the power is on. */
 function refreshLights() {
     const dark = modifier === 'blackout'
+    if (level.reactor) {
+        level.reactor.light.intensity = dark ? 1 : 9
+        for (const ring of level.reactor.rings) ring.color.setHex(dark ? 0x51331f : level.reactor.accent)
+    }
     for (const entry of level.lights) {
         const base = entry.region === 2 && !powered ? 3 : entry.lit
         entry.light.intensity = dark ? 1.5 : base
@@ -1732,7 +2002,13 @@ function syncHud() {
     stowedName.value = slots.length > 1 ? slots[activeSlot === 0 ? 1 : 0]!.def.name : ''
     hitMarker.value = markerTimer
     hurtOpacity.value = Math.max(0, 1 - hp / (hpMax * 0.62))
-    crossGap.value = 7 + bloom * 16 + (keys.has('shiftleft') ? 6 : 0)
+    hurtVeil.value = Math.min(1, hurtOpacity.value + damageFlash.value * 0.85)
+    crossGap.value = aiming ? 4 + bloom * 8 : 9 + bloom * 20 + (keys.has('shiftleft') ? 7 : 0)
+    hurtMarks.value = hurtSources.map(source => ({
+        id: source.id,
+        angle: -((Math.atan2(source.dx, source.dz) - Math.PI - yaw) * 180) / Math.PI,
+        life: source.life
+    }))
     streakMult.value = streakMultiplier(streak)
     streakCount.value = streak
 
@@ -1768,6 +2044,30 @@ function update(dt: number) {
         if (reloadTimer <= 0) { reloadTimer = 0; finishReload() }
     }
     swapTimer = Math.max(0, swapTimer - dt)
+    meleeTimer = Math.max(0, meleeTimer - dt)
+    meleeCooldown = Math.max(0, meleeCooldown - dt)
+    damageFlash.value = Math.max(0, damageFlash.value - dt * 1.8)
+    for (let i = hurtSources.length - 1; i >= 0; i--) {
+        hurtSources[i]!.life -= dt
+        if (hurtSources[i]!.life <= 0) hurtSources.splice(i, 1)
+    }
+
+    const targetFov = aiming ? 58 : (isSprinting && isMoving ? 85 : 80)
+    fovCurrent += (targetFov - fovCurrent) * Math.min(1, dt * 9)
+    if (Math.abs(fovCurrent - camera.fov) > 0.01) {
+        camera.fov = fovCurrent
+        camera.updateProjectionMatrix()
+    }
+
+    if (hp > 0 && hp / hpMax < 0.34) {
+        hbTimer -= dt
+        if (hbTimer <= 0) {
+            hbTimer = 1.05
+            audio.play('heartbeat')
+        }
+    } else {
+        hbTimer = 0.4
+    }
 
     fireTimer -= dt
     if (firing && fireTimer <= 0 && reloadTimer <= 0 && swapTimer <= 0) {
@@ -1800,7 +2100,10 @@ function update(dt: number) {
 function die() {
     phase.value = 'over'
     firing = false
+    aiming = false
     keys.clear()
+    hurtSources.length = 0
+    hurtMarks.value = []
     audio.play('death')
     if (document.pointerLockElement) document.exitPointerLock()
 
@@ -1813,6 +2116,7 @@ function die() {
         { label: 'Best streak', value: String(statBestStreak) },
         { label: 'Doors opened', value: `${statDoors} / ${CALL_OF_XENO_DOORS.length}` },
         { label: 'Box spins', value: String(statSpins) },
+        { label: 'Barrels popped', value: String(statBarrels) },
         { label: 'Perks', value: `${perks.size} / 4` },
         { label: 'Survived', value: `${minutes}m ${seconds}s` }
     ]
@@ -1862,6 +2166,11 @@ function resetRun() {
     popups.value = []
     effects.clear()
 
+    for (const barrel of barrels) {
+        barrel.alive = true
+        barrel.group.visible = true
+    }
+
     for (const door of CALL_OF_XENO_DOORS) {
         if (!level.doors.has(door.id)) scene.add(level.makeDoor(door.id))
     }
@@ -1889,6 +2198,23 @@ function resetRun() {
     shake = 0
     recoilPitch = 0
     bloom = 0
+    aiming = false
+    aimBlend = 0
+    fovCurrent = 80
+    camera.fov = 80
+    camera.updateProjectionMatrix()
+    meleeTimer = 0
+    meleeCooldown = 0
+    stepTimer = 0
+    landOff = 0
+    landVel = 0
+    hbTimer = 0
+    isMoving = false
+    isSprinting = false
+    hurtSources.length = 0
+    hurtMarks.value = []
+    damageFlash.value = 0
+    hurtVeil.value = 0
     hpMax = CALL_OF_XENO_BASE_HEALTH
     hp = hpMax
     sinceDamage = 99
@@ -1901,6 +2227,7 @@ function resetRun() {
     statBestStreak = 0
     statSpins = 0
     statDoors = 0
+    statBarrels = 0
     inBreak = false
     breakTimer = 0
     slots = [makeSlot('m1911')]
@@ -1914,7 +2241,7 @@ function resetRun() {
     rebuildCollision()
     equipModel()
     startRound(1)
-    subBanner.value = 'Landing Bay'
+    subBanner.value = 'Barracks'
     syncHud()
 }
 
@@ -1947,6 +2274,7 @@ function onKeyDown(event: KeyboardEvent) {
     if (code === 'keyr') startReload()
     if (code === 'keyf') interact()
     if (code === 'keyq') swapWeapon()
+    if (code === 'keyv') melee()
     if (code === 'space') { event.preventDefault(); jump() }
 }
 
@@ -1962,18 +2290,25 @@ function onMouseMove(event: MouseEvent) {
 }
 
 function onMouseDown(event: MouseEvent) {
-    if (event.button !== 0 || !locked.value || phase.value !== 'playing') return
-    firing = true
+    if (!locked.value || phase.value !== 'playing') return
+    if (event.button === 0) firing = true
+    if (event.button === 2) aiming = true
 }
 
 function onMouseUp(event: MouseEvent) {
     if (event.button === 0) firing = false
+    if (event.button === 2) aiming = false
+}
+
+function onContextMenu(event: MouseEvent) {
+    if (locked.value) event.preventDefault()
 }
 
 function onPointerLockChange() {
     locked.value = document.pointerLockElement !== null
     if (!locked.value) {
         firing = false
+        aiming = false
         keys.clear()
     }
 }
@@ -2028,6 +2363,7 @@ function buildScene(host: HTMLDivElement) {
 
     effects = new CallOfXenoEffects(scene)
     level = buildLevel(scene)
+    initBarrels()
 
     weaponRoot = new THREE.Group()
     camera.add(weaponRoot)
@@ -2057,6 +2393,7 @@ function buildScene(host: HTMLDivElement) {
     window.addEventListener('mousemove', onMouseMove)
     window.addEventListener('mousedown', onMouseDown)
     window.addEventListener('mouseup', onMouseUp)
+    window.addEventListener('contextmenu', onContextMenu)
     window.addEventListener('resize', onResize)
     document.addEventListener('pointerlockchange', onPointerLockChange)
 
@@ -2088,6 +2425,7 @@ onBeforeUnmount(() => {
     window.removeEventListener('mousemove', onMouseMove)
     window.removeEventListener('mousedown', onMouseDown)
     window.removeEventListener('mouseup', onMouseUp)
+    window.removeEventListener('contextmenu', onContextMenu)
     window.removeEventListener('resize', onResize)
     document.removeEventListener('pointerlockchange', onPointerLockChange)
     if (document.pointerLockElement) document.exitPointerLock()

@@ -1,16 +1,14 @@
-// Call of Xeno — level layout.
+// Call of Xeno — level layout ("Outpost 13").
 //
-// The map is a ring: three rooms in a row joined by corridors, plus a service
-// tunnel running back along the south side. Buy all four doors and you can kite
-// a horde in a full circle, which is where the skill ceiling lives.
-//
-// The Reactor Hall in the middle is a tall atrium with a U-shaped catwalk
-// around it, reached by two ramps. High ground gives sightlines over the whole
-// hall; the price is that both ramp mouths can fill at once and the only other
-// way down is off the edge.
+// Classic zombies progression: a Barracks spawn room with two ways out —
+// east into the Courtyard hub or north into the Armory. The Courtyard is the
+// big room: a raised firing platform in the middle with ramps on both sides,
+// the mystery box and Juggernog. From there doors lead south to the Lab and
+// east to the Power Room, and the Lab connects back to the Armory, so all
+// five doors bought leaves a full loop for kiting.
 //
 // Everything is axis aligned. Collision is circle-vs-AABB with a vertical
-// band test, navigation is a small graph with a precomputed next-hop table.
+// band test, navigation is a graph with a precomputed next-hop table.
 
 import type { CallOfXenoPerkId, CallOfXenoWeaponId } from './call-of-xeno'
 
@@ -29,7 +27,7 @@ export interface CallOfXenoSolid {
     height: number
 }
 
-/** A walkable slab. Also solid, so you can walk under a catwalk. */
+/** A walkable slab. Also solid, so you can walk under a raised deck. */
 export interface CallOfXenoPlatform {
     box: CallOfXenoBox
     /** Height of the walking surface. */
@@ -50,9 +48,10 @@ export interface CallOfXenoRamp {
 }
 
 export const CALL_OF_XENO_WALL_HEIGHT = 4.2
-/** The Reactor Hall is an atrium so the catwalk has headroom above and below. */
+/** The Courtyard is the tall room; everything else is corridor height. */
 export const CALL_OF_XENO_ATRIUM_HEIGHT = 8
-export const CALL_OF_XENO_CATWALK_Y = 3.6
+/** Height of the Courtyard firing platform. */
+export const CALL_OF_XENO_CATWALK_Y = 2.2
 /** How high a step the player and zombies can walk up without jumping. */
 export const CALL_OF_XENO_STEP_UP = 0.65
 
@@ -74,14 +73,16 @@ export interface CallOfXenoRegion {
 
 /** Floor and ceiling slabs. Also drives which palette each area is drawn in. */
 export const CALL_OF_XENO_REGIONS: CallOfXenoRegion[] = [
-    { id: 0, name: 'Landing Bay', bounds: { minX: 0, maxX: 20, minZ: 0, maxZ: 20 }, ceiling: CALL_OF_XENO_WALL_HEIGHT, theme: 0 },
-    { id: 1, name: 'Reactor Hall', bounds: { minX: 24, maxX: 44, minZ: 0, maxZ: 20 }, ceiling: CALL_OF_XENO_ATRIUM_HEIGHT, theme: 1 },
-    { id: 2, name: 'Power Deck', bounds: { minX: 48, maxX: 68, minZ: 0, maxZ: 20 }, ceiling: CALL_OF_XENO_WALL_HEIGHT, theme: 2 },
-    { id: 3, name: 'Corridor AB', bounds: { minX: 20, maxX: 24, minZ: 8, maxZ: 12 }, ceiling: CALL_OF_XENO_WALL_HEIGHT, theme: 0 },
-    { id: 4, name: 'Corridor BC', bounds: { minX: 44, maxX: 48, minZ: 8, maxZ: 12 }, ceiling: CALL_OF_XENO_WALL_HEIGHT, theme: 2 },
-    { id: 5, name: 'Bay Stairwell', bounds: { minX: 4, maxX: 8, minZ: 20, maxZ: 24 }, ceiling: CALL_OF_XENO_WALL_HEIGHT, theme: 0 },
-    { id: 6, name: 'Deck Stairwell', bounds: { minX: 60, maxX: 64, minZ: 20, maxZ: 24 }, ceiling: CALL_OF_XENO_WALL_HEIGHT, theme: 2 },
-    { id: 7, name: 'Service Tunnel', bounds: { minX: 4, maxX: 64, minZ: 24, maxZ: 28 }, ceiling: CALL_OF_XENO_WALL_HEIGHT, theme: 3 }
+    { id: 0, name: 'Barracks', bounds: { minX: 0, maxX: 16, minZ: 0, maxZ: 14 }, ceiling: CALL_OF_XENO_WALL_HEIGHT, theme: 0 },
+    { id: 1, name: 'Corridor A', bounds: { minX: 16, maxX: 22, minZ: 5, maxZ: 9 }, ceiling: CALL_OF_XENO_WALL_HEIGHT, theme: 0 },
+    { id: 2, name: 'Courtyard', bounds: { minX: 22, maxX: 52, minZ: 0, maxZ: 26 }, ceiling: CALL_OF_XENO_ATRIUM_HEIGHT, theme: 1 },
+    { id: 3, name: 'Corridor B', bounds: { minX: 6, maxX: 10, minZ: 14, maxZ: 20 }, ceiling: CALL_OF_XENO_WALL_HEIGHT, theme: 0 },
+    { id: 4, name: 'Armory', bounds: { minX: 0, maxX: 16, minZ: 20, maxZ: 36 }, ceiling: CALL_OF_XENO_WALL_HEIGHT, theme: 2 },
+    { id: 5, name: 'Corridor C', bounds: { minX: 12, maxX: 26, minZ: 36, maxZ: 40 }, ceiling: CALL_OF_XENO_WALL_HEIGHT, theme: 2 },
+    { id: 6, name: 'Lab', bounds: { minX: 26, maxX: 46, minZ: 34, maxZ: 50 }, ceiling: CALL_OF_XENO_WALL_HEIGHT, theme: 3 },
+    { id: 7, name: 'Corridor D', bounds: { minX: 34, maxX: 38, minZ: 26, maxZ: 34 }, ceiling: CALL_OF_XENO_WALL_HEIGHT, theme: 1 },
+    { id: 8, name: 'Corridor E', bounds: { minX: 52, maxX: 58, minZ: 6, maxZ: 10 }, ceiling: CALL_OF_XENO_WALL_HEIGHT, theme: 2 },
+    { id: 9, name: 'Power Room', bounds: { minX: 58, maxX: 74, minZ: 0, maxZ: 18 }, ceiling: CALL_OF_XENO_WALL_HEIGHT, theme: 2 }
 ]
 
 const H = CALL_OF_XENO_WALL_HEIGHT
@@ -91,102 +92,150 @@ function wall(minX: number, maxX: number, minZ: number, maxZ: number, height = H
     return { box: { minX, maxX, minZ, maxZ }, baseY: 0, height }
 }
 
+// Interior structures that get dressed up by the renderer. They stay in the
+// wall list for collision; the decor entry tells the builder what to draw.
+const PILLAR_BARRACKS = wall(12.5, 13.5, 2.5, 3.5)
+const PILLAR_ARMORY = wall(11.5, 12.5, 26.5, 27.5)
+const PILLAR_COURTYARD_W = wall(23.5, 24.5, 25, 26)
+const PILLAR_COURTYARD_E = wall(50.5, 51.5, 24, 25)
+const MACHINE_A = wall(60, 62, 2, 7)
+const MACHINE_B = wall(70, 72, 2, 7)
+const REACTOR = wall(63, 69, 6, 12)
+
+export type CallOfXenoDecorKind = 'pillar' | 'machine' | 'reactor'
+
+export interface CallOfXenoDecor {
+    box: CallOfXenoBox
+    kind: CallOfXenoDecorKind
+    theme: number
+}
+
+export const CALL_OF_XENO_DECOR: CallOfXenoDecor[] = [
+    { box: PILLAR_BARRACKS.box, kind: 'pillar', theme: 0 },
+    { box: PILLAR_ARMORY.box, kind: 'pillar', theme: 2 },
+    { box: PILLAR_COURTYARD_W.box, kind: 'pillar', theme: 1 },
+    { box: PILLAR_COURTYARD_E.box, kind: 'pillar', theme: 1 },
+    { box: MACHINE_A.box, kind: 'machine', theme: 2 },
+    { box: MACHINE_B.box, kind: 'machine', theme: 2 },
+    { box: REACTOR.box, kind: 'reactor', theme: 2 }
+]
+
 /** Static geometry. Full height unless noted, so it stops bullets too. */
 export const CALL_OF_XENO_WALLS: CallOfXenoSolid[] = [
-    // Landing Bay: gap at x=20 for corridor AB, gap at z=20 for the stairwell.
-    wall(-0.5, 20.5, -0.5, 0),
-    wall(-0.5, 0, -0.5, 20.5),
-    wall(20, 20.5, -0.5, 8),
-    wall(20, 20.5, 12, 20.5),
-    wall(-0.5, 4, 20, 20.5),
-    wall(8, 20.5, 20, 20.5),
+    // Barracks: gap east at z 5-9 (corridor A), gap north at x 6-10 (corridor B).
+    wall(-0.5, 16.5, -0.5, 0),
+    wall(-0.5, 0, -0.5, 14.5),
+    wall(-0.5, 6, 14, 14.5),
+    wall(10, 16.5, 14, 14.5),
+    wall(16, 16.5, -0.5, 5),
+    wall(16, 16.5, 9, 14.5),
+    PILLAR_BARRACKS,
 
-    // Corridor AB.
-    wall(20, 24, 7.5, 8),
-    wall(20, 24, 12, 12.5),
+    // Corridor A (Barracks -> Courtyard).
+    wall(16, 22, 4.5, 5),
+    wall(16, 22, 9, 9.5),
 
-    // Reactor Hall atrium: gaps at x=24 and x=44.
-    wall(23.5, 44.5, -0.5, 0, A),
-    wall(23.5, 44.5, 20, 20.5, A),
-    wall(23.5, 24, -0.5, 8, A),
-    wall(23.5, 24, 12, 20.5, A),
-    wall(44, 44.5, -0.5, 8, A),
-    wall(44, 44.5, 12, 20.5, A),
+    // Courtyard atrium: gaps west z 5-9, north x 34-38 (corridor D), east z 6-10 (corridor E).
+    wall(21.5, 52.5, -0.5, 0, A),
+    wall(21.5, 22, -0.5, 5, A),
+    wall(21.5, 22, 9, 26.5, A),
+    wall(21.5, 34, 26, 26.5, A),
+    wall(38, 52.5, 26, 26.5, A),
+    wall(52, 52.5, -0.5, 6, A),
+    wall(52, 52.5, 10, 26.5, A),
+    PILLAR_COURTYARD_W,
+    PILLAR_COURTYARD_E,
 
-    // Corridor BC.
-    wall(44, 48, 7.5, 8),
-    wall(44, 48, 12, 12.5),
+    // Corridor B (Barracks -> Armory).
+    wall(5.5, 6, 14, 20.5),
+    wall(10, 10.5, 14, 20.5),
 
-    // Power Deck: gap at x=48, gap at z=20 for the stairwell.
-    wall(47.5, 68.5, -0.5, 0),
-    wall(47.5, 60, 20, 20.5),
-    wall(64, 68.5, 20, 20.5),
-    wall(47.5, 48, -0.5, 8),
-    wall(47.5, 48, 12, 20.5),
-    wall(68, 68.5, -0.5, 20.5),
+    // Armory: gap south x 6-10 (corridor B), gap north x 12-16 (corridor C).
+    wall(-0.5, 0, 19.5, 36.5),
+    wall(-0.5, 6, 20, 20.5),
+    wall(10, 16.5, 20, 20.5),
+    wall(16, 16.5, 19.5, 36.5),
+    wall(-0.5, 12, 36, 36.5),
+    wall(16, 16.5, 36, 36.5),
+    PILLAR_ARMORY,
 
-    // The two stairwells down into the service tunnel.
-    wall(3.5, 4, 20, 24.5),
-    wall(8, 8.5, 20, 24.5),
-    wall(59.5, 60, 20, 24.5),
-    wall(64, 64.5, 20, 24.5),
+    // Corridor C (Armory -> Lab). The south side is sealed against the void
+    // between the Armory and the Lab; the Lab's own west wall carries the gap.
+    wall(11.5, 12, 36, 40.5),
+    wall(16.5, 25.5, 35.5, 36),
+    wall(11.5, 26, 40, 40.5),
 
-    // Service tunnel: north wall closed except where the stairwells meet it.
-    wall(8, 60, 23.5, 24),
-    wall(3.5, 64.5, 28, 28.5),
-    wall(3.5, 4, 24, 28.5),
-    wall(64, 64.5, 24, 28.5),
+    // Lab: gaps west z 36-40 (corridor C), north x 34-38 (corridor D).
+    wall(25.5, 26, 33.5, 36),
+    wall(25.5, 26, 40, 50.5),
+    wall(25.5, 34, 33.5, 34),
+    wall(38, 46.5, 33.5, 34),
+    wall(46, 46.5, 33.5, 50.5),
+    wall(25.5, 46.5, 50, 50.5),
 
-    // Full-height structure inside the rooms.
-    wall(3, 4, 3, 4),
-    wall(16, 17, 16, 17),
-    wall(31, 37, 4, 8, A),
-    wall(54, 56, 3, 9),
-    wall(60, 62, 3, 9)
+    // Corridor D (Courtyard -> Lab).
+    wall(33.5, 34, 26, 34),
+    wall(38, 38.5, 26, 34),
+
+    // Corridor E (Courtyard -> Power).
+    wall(52, 58, 5.5, 6),
+    wall(52, 58, 10, 10.5),
+
+    // Power Room: gap west z 6-10 (corridor E).
+    wall(57.5, 74.5, -0.5, 0),
+    wall(57.5, 58, -0.5, 6),
+    wall(57.5, 58, 10, 18.5),
+    wall(57.5, 74.5, 18, 18.5),
+    wall(74, 74.5, -0.5, 18.5),
+    MACHINE_A,
+    MACHINE_B,
+    REACTOR
 ]
 
 /**
  * Waist-high cover. Blocks movement but only blocks a shot low enough to hit
- * it, so you can fire over a crate you are stood behind.
+ * it, so you can fire over a barrier you are stood behind.
  */
 export const CALL_OF_XENO_CRATES: CallOfXenoSolid[] = [
-    { box: { minX: 13, maxX: 16, minZ: 12, maxZ: 15 }, baseY: 0, height: 1.1 },
-    { box: { minX: 4, maxX: 6, minZ: 4, maxZ: 6 }, baseY: 0, height: 1.5 },
-    { box: { minX: 15, maxX: 17, minZ: 6, maxZ: 8 }, baseY: 0, height: 1.1 },
-    { box: { minX: 28, maxX: 30, minZ: 12, maxZ: 14 }, baseY: 0, height: 1.2 },
-    { box: { minX: 38, maxX: 40, minZ: 12, maxZ: 14 }, baseY: 0, height: 1.2 },
-    { box: { minX: 50, maxX: 53, minZ: 13, maxZ: 16 }, baseY: 0, height: 1.2 },
-    { box: { minX: 20, maxX: 23, minZ: 24.2, maxZ: 25.2 }, baseY: 0, height: 1.1 },
-    { box: { minX: 44, maxX: 47, minZ: 24.2, maxZ: 25.2 }, baseY: 0, height: 1.1 },
-    // On the catwalk, tucked against the outer wall so the walking lane stays
-    // clear — the high ground should be cover, not a maze.
-    { box: { minX: 29, maxX: 31, minZ: 2.6, maxZ: 3.4 }, baseY: CALL_OF_XENO_CATWALK_Y, height: 1 },
-    { box: { minX: 37, maxX: 39, minZ: 2.6, maxZ: 3.4 }, baseY: CALL_OF_XENO_CATWALK_Y, height: 1 }
+    // Barracks
+    { box: { minX: 4, maxX: 6, minZ: 4, maxZ: 6 }, baseY: 0, height: 1.2 },
+    { box: { minX: 12, maxX: 15, minZ: 10, maxZ: 12 }, baseY: 0, height: 1.5 },
+    // Courtyard — barriers flank the south ramp, crates dress the corners.
+    { box: { minX: 30, maxX: 32.8, minZ: 17, maxZ: 19 }, baseY: 0, height: 1.1 },
+    { box: { minX: 41, maxX: 44, minZ: 17, maxZ: 19 }, baseY: 0, height: 1.1 },
+    { box: { minX: 44.5, maxX: 46.5, minZ: 10, maxZ: 12 }, baseY: 0, height: 1.2 },
+    { box: { minX: 25, maxX: 27, minZ: 15, maxZ: 17 }, baseY: 0, height: 1.2 },
+    { box: { minX: 48, maxX: 50, minZ: 23, maxZ: 25 }, baseY: 0, height: 1.1 },
+    // Armory
+    { box: { minX: 3, maxX: 5, minZ: 24, maxZ: 26 }, baseY: 0, height: 1.1 },
+    { box: { minX: 12, maxX: 14, minZ: 30, maxZ: 32 }, baseY: 0, height: 1.2 },
+    // Lab
+    { box: { minX: 29.5, maxX: 31.5, minZ: 42, maxZ: 44 }, baseY: 0, height: 1.1 },
+    { box: { minX: 39, maxX: 41, minZ: 42, maxZ: 44 }, baseY: 0, height: 1.2 },
+    // Power Room
+    { box: { minX: 72.5, maxX: 74, minZ: 14, maxZ: 16 }, baseY: 0, height: 1.1 }
 ]
 
-/** The catwalk: a U around the Reactor Hall, open over the south half. */
+/** The Courtyard firing platform, with a ramp on its north and south sides. */
 export const CALL_OF_XENO_PLATFORMS: CallOfXenoPlatform[] = [
-    { box: { minX: 24, maxX: 27, minZ: 0, maxZ: 20 }, y: CALL_OF_XENO_CATWALK_Y, thickness: 0.3 },
-    { box: { minX: 41, maxX: 44, minZ: 0, maxZ: 20 }, y: CALL_OF_XENO_CATWALK_Y, thickness: 0.3 },
-    { box: { minX: 27, maxX: 41, minZ: 0, maxZ: 3.5 }, y: CALL_OF_XENO_CATWALK_Y, thickness: 0.3 }
+    { box: { minX: 33, maxX: 41, minZ: 9, maxZ: 15 }, y: CALL_OF_XENO_CATWALK_Y, thickness: 0.3 }
 ]
 
-/** The two ramps up onto the catwalk, both rising off the hall's south floor. */
 export const CALL_OF_XENO_RAMPS: CallOfXenoRamp[] = [
     {
-        box: { minX: 27, maxX: 30.5, minZ: 16.5, maxZ: 20 },
-        axis: 'x',
-        lowAt: 30.5,
+        box: { minX: 34, maxX: 40, minZ: 5, maxZ: 9 },
+        axis: 'z',
+        lowAt: 5,
         lowY: 0,
-        highAt: 27,
+        highAt: 9,
         highY: CALL_OF_XENO_CATWALK_Y
     },
     {
-        box: { minX: 37.5, maxX: 41, minZ: 16.5, maxZ: 20 },
-        axis: 'x',
-        lowAt: 37.5,
+        box: { minX: 34, maxX: 40, minZ: 15, maxZ: 19 },
+        axis: 'z',
+        lowAt: 19,
         lowY: 0,
-        highAt: 41,
+        highAt: 15,
         highY: CALL_OF_XENO_CATWALK_Y
     }
 ]
@@ -202,78 +251,98 @@ export interface CallOfXenoDoor {
 
 export const CALL_OF_XENO_DOORS: CallOfXenoDoor[] = [
     {
-        id: 'door-bay-hall',
+        id: 'door-barracks-courtyard',
         cost: 750,
-        box: { minX: 21.5, maxX: 22.5, minZ: 8, maxZ: 12 },
-        blocks: [1, 2],
-        prompt: { x: 22, z: 10 }
+        box: { minX: 18.5, maxX: 19.5, minZ: 5, maxZ: 9 },
+        blocks: [0, 1],
+        prompt: { x: 19, z: 7 }
     },
     {
-        id: 'door-hall-deck',
-        cost: 1250,
-        box: { minX: 45.5, maxX: 46.5, minZ: 8, maxZ: 12 },
-        blocks: [4, 5],
-        prompt: { x: 46, z: 10 }
-    },
-    {
-        id: 'door-deck-tunnel',
-        cost: 1500,
-        box: { minX: 60, maxX: 64, minZ: 21.5, maxZ: 22.5 },
-        blocks: [7, 8],
-        prompt: { x: 62, z: 22 }
-    },
-    {
-        id: 'door-tunnel-bay',
+        id: 'door-barracks-armory',
         cost: 1000,
-        box: { minX: 4, maxX: 8, minZ: 21.5, maxZ: 22.5 },
-        blocks: [9, 10],
-        prompt: { x: 6, z: 22 }
+        box: { minX: 6, maxX: 10, minZ: 16.5, maxZ: 17.5 },
+        blocks: [0, 15],
+        prompt: { x: 8, z: 17 }
+    },
+    {
+        id: 'door-armory-lab',
+        cost: 1250,
+        box: { minX: 20.5, maxX: 21.5, minZ: 36, maxZ: 40 },
+        blocks: [11, 12],
+        prompt: { x: 21, z: 38 }
+    },
+    {
+        id: 'door-courtyard-lab',
+        cost: 1500,
+        box: { minX: 34, maxX: 38, minZ: 29.5, maxZ: 30.5 },
+        blocks: [4, 7],
+        prompt: { x: 36, z: 30 }
+    },
+    {
+        id: 'door-courtyard-power',
+        cost: 1750,
+        box: { minX: 54.5, maxX: 55.5, minZ: 6, maxZ: 10 },
+        blocks: [5, 16],
+        prompt: { x: 55, z: 8 }
     }
 ]
 
 /**
- * Navigation graph. Nodes 0-10 are the ground ring, 11-20 the catwalk loop and
- * its two ramps. Zombies walk node to node until they share one with the
- * player, then head straight for them.
+ * Navigation graph. Nodes 0-17 are the ground loop and its branches, 18-20
+ * the Courtyard platform and its two ramps. Zombies walk node to node until
+ * they share one with the player, then head straight for them.
  */
 export const CALL_OF_XENO_NODES: { x: number, z: number, y: number }[] = [
-    { x: 10, z: 10, y: 0 },        // 0  Landing Bay centre
-    { x: 19, z: 10, y: 0 },        // 1  Bay east mouth
-    { x: 25, z: 10, y: 0 },        // 2  Hall west mouth
-    { x: 34, z: 10, y: 0 },        // 3  Hall centre
-    { x: 43, z: 10, y: 0 },        // 4  Hall east mouth
-    { x: 49, z: 10, y: 0 },        // 5  Deck west mouth
-    { x: 58, z: 10, y: 0 },        // 6  Power Deck centre
-    { x: 62, z: 19, y: 0 },        // 7  Deck stairwell
-    { x: 62, z: 26, y: 0 },        // 8  Tunnel east
-    { x: 6, z: 26, y: 0 },         // 9  Tunnel west
-    { x: 6, z: 19, y: 0 },         // 10 Bay stairwell
-    { x: 34, z: 18, y: 0 },        // 11 Hall south floor
-    { x: 30.8, z: 18.5, y: 0 },    // 12 West ramp base
-    { x: 25.5, z: 18.5, y: CALL_OF_XENO_CATWALK_Y }, // 13 West ramp top
-    { x: 25.5, z: 10, y: CALL_OF_XENO_CATWALK_Y },   // 14 Catwalk west
-    { x: 25.5, z: 1.4, y: CALL_OF_XENO_CATWALK_Y },  // 15 Catwalk north-west
-    { x: 34, z: 1.4, y: CALL_OF_XENO_CATWALK_Y },    // 16 Catwalk north
-    { x: 42.5, z: 1.4, y: CALL_OF_XENO_CATWALK_Y },  // 17 Catwalk north-east
-    { x: 42.5, z: 10, y: CALL_OF_XENO_CATWALK_Y },   // 18 Catwalk east
-    { x: 42.5, z: 18.5, y: CALL_OF_XENO_CATWALK_Y }, // 19 East ramp top
-    { x: 37.2, z: 18.5, y: 0 }     // 20 East ramp base
+    { x: 8, z: 7, y: 0 },                              // 0  Barracks centre
+    { x: 19, z: 7, y: 0 },                             // 1  Corridor A
+    { x: 25, z: 7, y: 0 },                             // 2  Courtyard west mouth
+    { x: 37, z: 4, y: 0 },                             // 3  Courtyard north lane
+    { x: 37, z: 21, y: 0 },                            // 4  Courtyard south lane
+    { x: 49, z: 7, y: 0 },                             // 5  Courtyard east mouth
+    { x: 44, z: 21, y: 0 },                            // 6  Courtyard south-east
+    { x: 36, z: 30, y: 0 },                            // 7  Corridor D
+    { x: 36, z: 38, y: 0 },                            // 8  Lab north
+    { x: 36, z: 45, y: 0 },                            // 9  Lab centre
+    { x: 29, z: 38, y: 0 },                            // 10 Lab west mouth
+    { x: 21, z: 38, y: 0 },                            // 11 Corridor C east
+    { x: 14, z: 38, y: 0 },                            // 12 Corridor C west
+    { x: 8, z: 28, y: 0 },                             // 13 Armory centre
+    { x: 8, z: 22, y: 0 },                             // 14 Armory south mouth
+    { x: 8, z: 17, y: 0 },                             // 15 Corridor B
+    { x: 55, z: 8, y: 0 },                             // 16 Corridor E
+    { x: 62, z: 8, y: 0 },                             // 17 Power Room centre
+    { x: 37, z: 7, y: 1.1 },                              // 18 North ramp mid-way
+    { x: 37, z: 12, y: CALL_OF_XENO_CATWALK_Y },       // 19 Platform top
+    { x: 37, z: 17.5, y: 0.825 }                       // 20 South ramp mid-way
 ]
 
 export const CALL_OF_XENO_EDGES: [number, number][] = [
-    [0, 1], [1, 2], [2, 3], [3, 4], [4, 5], [5, 6], [6, 7], [7, 8], [8, 9], [9, 10], [10, 0],
-    [3, 11], [11, 12], [12, 13], [13, 14], [14, 15], [15, 16], [16, 17], [17, 18], [18, 19], [19, 20], [20, 11]
+    [0, 1], [1, 2], [2, 3], [3, 5], [5, 6], [6, 4], [4, 2], [4, 7],
+    [7, 8], [8, 9], [9, 10], [10, 11], [11, 12], [12, 13], [13, 14], [14, 15], [15, 0],
+    [5, 16], [16, 17],
+    [3, 18], [18, 19], [19, 20], [20, 4]
 ]
 
 export const CALL_OF_XENO_SPAWNS: CallOfXenoSpawnPoint[] = [
-    { x: 2.5, z: 3, node: 0 },
-    { x: 17.5, z: 3, node: 1 },
-    { x: 28, z: 17, node: 11 },
-    { x: 40, z: 17, node: 11 },
-    { x: 50.5, z: 3, node: 5 },
-    { x: 65.5, z: 3, node: 6 },
-    { x: 14, z: 26, node: 9 },
-    { x: 54, z: 26, node: 8 }
+    { x: 2, z: 2, node: 0 },
+    { x: 14, z: 22, node: 14 },
+    { x: 2, z: 34, node: 13 },
+    { x: 26, z: 23, node: 4 },
+    { x: 50, z: 2, node: 3 },
+    { x: 28, z: 47, node: 9 },
+    { x: 72, z: 15, node: 17 },
+    { x: 60, z: 16, node: 17 }
+]
+
+/** Where shootable explosive barrels start a run. */
+export const CALL_OF_XENO_BARREL_SPOTS: { x: number, z: number }[] = [
+    { x: 27, z: 3 },
+    { x: 46, z: 23 },
+    { x: 44, z: 4 },
+    { x: 10, z: 25 },
+    { x: 30, z: 47 },
+    { x: 66, z: 15 },
+    { x: 66, z: 3 }
 ]
 
 export type CallOfXenoInteractableKind = 'wallbuy' | 'perk' | 'power' | 'papunch' | 'mysterybox'
@@ -293,27 +362,32 @@ export interface CallOfXenoInteractable {
 }
 
 export const CALL_OF_XENO_INTERACTABLES: CallOfXenoInteractable[] = [
-    // Landing Bay
-    { id: 'buy-mp40', kind: 'wallbuy', x: 0.4, y: 0, z: 6, facing: Math.PI / 2, region: 0, weapon: 'mp40', needsPower: false },
-    { id: 'buy-trench', kind: 'wallbuy', x: 14, y: 0, z: 0.4, facing: 0, region: 0, weapon: 'trench', needsPower: false },
-    { id: 'perk-quickrevive', kind: 'perk', x: 2.5, y: 0, z: 19, facing: Math.PI, region: 0, perk: 'quickrevive', needsPower: true },
+    // Barracks — the cheap way out.
+    { id: 'buy-skorpion', kind: 'wallbuy', x: 0.4, y: 0, z: 7, facing: Math.PI / 2, region: 0, weapon: 'skorpion', needsPower: false },
+    { id: 'perk-quickrevive', kind: 'perk', x: 3, y: 0, z: 13.2, facing: Math.PI, region: 0, perk: 'quickrevive', needsPower: true },
 
-    // Reactor Hall — the box on the floor, Juggernog up on the catwalk.
-    { id: 'buy-ak74', kind: 'wallbuy', x: 34, y: 0, z: 0.4, facing: 0, region: 1, weapon: 'ak74', needsPower: false },
-    { id: 'mysterybox', kind: 'mysterybox', x: 35.8, y: 0, z: 13.5, facing: Math.PI, region: 1, needsPower: false },
-    { id: 'perk-juggernog', kind: 'perk', x: 34, y: CALL_OF_XENO_CATWALK_Y, z: 2.9, facing: 0, region: 1, perk: 'juggernog', needsPower: true },
+    // Courtyard — the reward room.
+    { id: 'buy-trench', kind: 'wallbuy', x: 37, y: 0, z: 0.4, facing: 0, region: 2, weapon: 'trench', needsPower: false },
+    { id: 'buy-ak74', kind: 'wallbuy', x: 51.6, y: 0, z: 20, facing: -Math.PI / 2, region: 2, weapon: 'ak74', needsPower: false },
+    { id: 'mysterybox', kind: 'mysterybox', x: 24.5, y: 0, z: 22.5, facing: -Math.PI / 2, region: 2, needsPower: false },
+    { id: 'perk-juggernog', kind: 'perk', x: 34.5, y: CALL_OF_XENO_CATWALK_Y, z: 12, facing: -Math.PI / 2, region: 2, perk: 'juggernog', needsPower: true },
 
-    // Power Deck
-    { id: 'power', kind: 'power', x: 67.4, y: 0, z: 10, facing: -Math.PI / 2, region: 2, needsPower: false },
-    { id: 'buy-rpk', kind: 'wallbuy', x: 56, y: 0, z: 19.6, facing: Math.PI, region: 2, weapon: 'rpk', needsPower: false },
-    { id: 'perk-doubletap', kind: 'perk', x: 49.5, y: 0, z: 19, facing: Math.PI, region: 2, perk: 'doubletap', needsPower: true },
-    { id: 'papunch', kind: 'papunch', x: 66, y: 0, z: 19, facing: Math.PI, region: 2, needsPower: true },
+    // Armory — the gun room.
+    { id: 'buy-magnum', kind: 'wallbuy', x: 0.4, y: 0, z: 28, facing: Math.PI / 2, region: 4, weapon: 'magnum', needsPower: false },
+    { id: 'buy-bar', kind: 'wallbuy', x: 8, y: 0, z: 35.6, facing: Math.PI, region: 4, weapon: 'bar', needsPower: false },
+    { id: 'perk-doubletap', kind: 'perk', x: 15.5, y: 0, z: 24, facing: -Math.PI / 2, region: 4, perk: 'doubletap', needsPower: true },
 
-    // Service Tunnel — Speed Cola is the reward for closing the ring.
-    { id: 'perk-speedcola', kind: 'perk', x: 34, y: 0, z: 27.4, facing: Math.PI, region: 7, perk: 'speedcola', needsPower: true }
+    // Lab — the far side of the loop.
+    { id: 'buy-mp40', kind: 'wallbuy', x: 36, y: 0, z: 49.4, facing: Math.PI, region: 6, weapon: 'mp40', needsPower: false },
+    { id: 'buy-rpk', kind: 'wallbuy', x: 45.6, y: 0, z: 42, facing: -Math.PI / 2, region: 6, weapon: 'rpk', needsPower: false },
+    { id: 'perk-speedcola', kind: 'perk', x: 42, y: 0, z: 49.4, facing: Math.PI, region: 6, perk: 'speedcola', needsPower: true },
+
+    // Power Room — the end of the road.
+    { id: 'power', kind: 'power', x: 73.4, y: 0, z: 9, facing: -Math.PI / 2, region: 9, needsPower: false },
+    { id: 'papunch', kind: 'papunch', x: 70, y: 0, z: 17.4, facing: Math.PI, region: 9, needsPower: true }
 ]
 
-export const CALL_OF_XENO_PLAYER_START = { x: 12, z: 17 }
+export const CALL_OF_XENO_PLAYER_START = { x: 9, z: 11 }
 
 /** Free-standing props the player cannot walk through. */
 export const CALL_OF_XENO_PROP_SOLIDS: CallOfXenoSolid[] = CALL_OF_XENO_INTERACTABLES
@@ -344,8 +418,8 @@ function inside(box: CallOfXenoBox, x: number, z: number) {
 
 /**
  * The surface an actor at (x, z) should be standing on. Only surfaces at or
- * slightly above their current feet count, so walking off the catwalk drops
- * you rather than teleporting you along the ceiling.
+ * slightly above their current feet count, so walking off the platform drops
+ * you rather than teleporting you up.
  */
 export function groundHeight(x: number, z: number, feetY: number): number {
     const reach = feetY + CALL_OF_XENO_STEP_UP
@@ -373,8 +447,8 @@ export function groundHeight(x: number, z: number, feetY: number): number {
     return best
 }
 
-/** Everything solid right now, including whichever doors are still shut. */
-export function collisionSolids(openDoors: ReadonlySet<string>): CallOfXenoSolid[] {
+/** Everything solid right now, including shut doors and any live extras. */
+export function collisionSolids(openDoors: ReadonlySet<string>, extra: readonly CallOfXenoSolid[] = []): CallOfXenoSolid[] {
     return [
         ...CALL_OF_XENO_WALLS,
         ...CALL_OF_XENO_CRATES,
@@ -386,14 +460,15 @@ export function collisionSolids(openDoors: ReadonlySet<string>): CallOfXenoSolid
         })),
         ...CALL_OF_XENO_DOORS
             .filter(d => !openDoors.has(d.id))
-            .map(d => ({ box: d.box, baseY: 0, height: CALL_OF_XENO_ATRIUM_HEIGHT }))
+            .map(d => ({ box: d.box, baseY: 0, height: CALL_OF_XENO_ATRIUM_HEIGHT })),
+        ...extra
     ]
 }
 
 /**
  * The subset of solids an actor can actually walk into: those whose vertical
- * band overlaps the band their body occupies. This is what lets you stand on a
- * catwalk without the crates underneath it blocking you.
+ * band overlaps the band their body occupies. This is what lets you stand on
+ * the platform without the crates underneath it blocking you.
  */
 export function solidsInBand(solids: readonly CallOfXenoSolid[], feetY: number, bodyHeight: number): CallOfXenoBox[] {
     const headY = feetY + bodyHeight
@@ -401,8 +476,8 @@ export function solidsInBand(solids: readonly CallOfXenoSolid[], feetY: number, 
     for (const solid of solids) {
         const top = solid.baseY + solid.height
         // Anything low enough to step onto is floor, not wall — this is what
-        // lets an actor walk off the top of a ramp onto the catwalk deck
-        // instead of being stopped by the deck's own collision box.
+        // lets an actor walk off the top of a ramp onto the deck instead of
+        // being stopped by the deck's own collision box.
         if (top <= feetY + CALL_OF_XENO_STEP_UP) continue
         // Anything starting above head height is something to walk under.
         if (solid.baseY >= headY) continue
@@ -421,7 +496,7 @@ export interface CallOfXenoRayHit {
 /**
  * Distance along a ray to the nearest solid, with the face normal. The slab
  * test covers the vertical band for free, so a level shot passes over a crate
- * and under a catwalk without any special casing.
+ * and under the platform without any special casing.
  */
 export function rayBlockDistance(
     ox: number, oy: number, oz: number,
@@ -563,14 +638,14 @@ export function nextHop(table: Int8Array, from: number, to: number): number {
 
 /**
  * Nearest navigation node. Height is weighted heavily so an actor under the
- * catwalk does not latch onto a node three metres above its head.
+ * platform does not latch onto a node above its head.
  */
 export function nearestNode(x: number, z: number, y: number): number {
     let best = 0
     let bestDist = Infinity
     for (let i = 0; i < CALL_OF_XENO_NODES.length; i++) {
         const node = CALL_OF_XENO_NODES[i]!
-        const dy = (node.y - y) * 4
+        const dy = (node.y - y) * 6
         const dist = (node.x - x) ** 2 + (node.z - z) ** 2 + dy * dy
         if (dist < bestDist) {
             bestDist = dist

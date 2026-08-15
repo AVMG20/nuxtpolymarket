@@ -13,8 +13,10 @@ import {
     CALL_OF_XENO_RAMPS,
     CALL_OF_XENO_DOORS,
     CALL_OF_XENO_INTERACTABLES,
+    CALL_OF_XENO_DECOR,
     CALL_OF_XENO_ROOM_THEMES,
     CALL_OF_XENO_ATRIUM_HEIGHT,
+    CALL_OF_XENO_WALL_HEIGHT,
     CALL_OF_XENO_CATWALK_Y,
     type CallOfXenoBox,
     type CallOfXenoInteractable
@@ -24,9 +26,15 @@ import {
     CALL_OF_XENO_PERKS,
     CALL_OF_XENO_BOX_COST
 } from '#shared/utils/gamelogic/call-of-xeno'
-import { makeFloorTexture, makeWallTexture, makeCeilingTexture } from './textures'
+import { makeFloorTexture, makeWallTexture, makeCeilingTexture, makeHazardTexture } from './textures'
 import {
     buildCrate,
+    buildBarrier,
+    buildBarrel,
+    buildPillar,
+    buildReactor,
+    buildMachine,
+    buildPipesRun,
     buildCeilingLight,
     buildDoorFrame,
     buildRailing,
@@ -37,7 +45,8 @@ import {
     buildMysteryBox,
     type PropModel,
     type PowerLeverModel,
-    type MysteryBoxModel
+    type MysteryBoxModel,
+    type ReactorModel
 } from './models'
 
 export interface RoomLight {
@@ -54,6 +63,7 @@ export interface LevelHandles {
     props: Map<string, PropModel>
     powerLever: PowerLeverModel
     mysteryBox: MysteryBoxModel
+    reactor: ReactorModel | null
     textures: THREE.Texture[]
     /** Rebuilds a door that a previous run had bought open. */
     makeDoor(id: string): THREE.Group
@@ -102,29 +112,103 @@ export function buildLevel(scene: THREE.Scene): LevelHandles {
         scene.add(boxMesh(region.bounds, 0.2, region.ceiling + 0.1, ceilMats[region.theme]!))
     }
 
+    // Interior structures are dressed by the decor list instead of reading as
+    // plain blocks: pillars, Power Room machinery and the reactor tower.
+    const decorBoxes = new Set(CALL_OF_XENO_DECOR.map(d => d.box))
+    let reactor: ReactorModel | null = null
+    for (const decor of CALL_OF_XENO_DECOR) {
+        const cx = (decor.box.minX + decor.box.maxX) / 2
+        const cz = (decor.box.minZ + decor.box.maxZ) / 2
+        const width = decor.box.maxX - decor.box.minX
+        const depth = decor.box.maxZ - decor.box.minZ
+        const accent = CALL_OF_XENO_ROOM_THEMES[decor.theme]!.accent
+
+        if (decor.kind === 'reactor') {
+            reactor = buildReactor(CALL_OF_XENO_WALL_HEIGHT, accent)
+            reactor.group.position.set(cx, 0, cz)
+            scene.add(reactor.group)
+        } else if (decor.kind === 'machine') {
+            const machine = buildMachine(width, CALL_OF_XENO_WALL_HEIGHT, depth, accent)
+            machine.position.set(cx, 0, cz)
+            scene.add(machine)
+        } else {
+            const pillar = buildPillar(CALL_OF_XENO_WALL_HEIGHT, accent)
+            pillar.position.set(cx, 0, cz)
+            scene.add(pillar)
+        }
+    }
+
     for (const wall of CALL_OF_XENO_WALLS) {
+        if (decorBoxes.has(wall.box)) continue
         const region = regionOf(wall.box)
         scene.add(boxMesh(wall.box, wall.height, wall.baseY + wall.height / 2, wallMats[region.theme]!))
     }
 
-    for (const crate of CALL_OF_XENO_CRATES) {
+    // Obstacles: low ones are hazard barriers, tall ones steel crates, with
+    // the occasional fuel drum tucked into the footprint for clutter.
+    const hazardTex = track(makeHazardTexture())
+    CALL_OF_XENO_CRATES.forEach((crate, index) => {
         const region = regionOf(crate.box)
         const theme = CALL_OF_XENO_ROOM_THEMES[region.theme]!
-        const group = buildCrate(
-            crate.box.maxX - crate.box.minX,
-            crate.height,
-            crate.box.maxZ - crate.box.minZ,
-            theme.accent
-        )
-        group.position.set(
-            (crate.box.minX + crate.box.maxX) / 2,
-            crate.baseY,
-            (crate.box.minZ + crate.box.maxZ) / 2
-        )
+        const width = crate.box.maxX - crate.box.minX
+        const depth = crate.box.maxZ - crate.box.minZ
+        const cx = (crate.box.minX + crate.box.maxX) / 2
+        const cz = (crate.box.minZ + crate.box.maxZ) / 2
+
+        const group = crate.height <= 1.15
+            ? buildBarrier(width, crate.height, depth, theme.accent, hazardTex)
+            : buildCrate(width, crate.height, depth, theme.accent)
+        group.position.set(cx, crate.baseY, cz)
         scene.add(group)
+
+        if (crate.baseY === 0 && index % 3 === 1) {
+            const barrel = buildBarrel(theme.accent)
+            barrel.position.set(cx + width / 2 - 0.34, crate.baseY, cz - depth / 2 + 0.34)
+            barrel.rotation.y = index * 1.7
+            scene.add(barrel)
+        }
+    })
+
+    // Guide strips along every corridor lane.
+    const mkStrip = (minX: number, maxX: number, minZ: number, maxZ: number, color: number) => {
+        const strip = new THREE.Mesh(
+            new THREE.BoxGeometry(maxX - minX, 0.03, maxZ - minZ),
+            new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.55 })
+        )
+        strip.position.set((minX + maxX) / 2, 0.015, (minZ + maxZ) / 2)
+        scene.add(strip)
+    }
+    mkStrip(16.4, 21.6, 6.85, 7.15, CALL_OF_XENO_ROOM_THEMES[0]!.accent)
+    mkStrip(7.85, 8.15, 14.4, 19.6, CALL_OF_XENO_ROOM_THEMES[0]!.accent)
+    mkStrip(12.4, 25.6, 37.85, 38.15, CALL_OF_XENO_ROOM_THEMES[2]!.accent)
+    mkStrip(35.85, 36.15, 26.4, 33.6, CALL_OF_XENO_ROOM_THEMES[1]!.accent)
+    mkStrip(52.4, 57.6, 7.85, 8.15, CALL_OF_XENO_ROOM_THEMES[2]!.accent)
+
+    // Pipe runs: one down the Courtyard's west wall, one along the Power
+    // Room's north wall, one up the Lab's east wall.
+    const courtyardPipes = buildPipesRun(14, CALL_OF_XENO_ROOM_THEMES[1]!.accent)
+    courtyardPipes.rotation.y = Math.PI / 2
+    courtyardPipes.position.set(22.35, 2.9, 17)
+    scene.add(courtyardPipes)
+
+    const powerPipes = buildPipesRun(14, CALL_OF_XENO_ROOM_THEMES[2]!.accent)
+    powerPipes.position.set(66, 2.7, 17.55)
+    scene.add(powerPipes)
+
+    const labPipes = buildPipesRun(12, CALL_OF_XENO_ROOM_THEMES[3]!.accent)
+    labPipes.rotation.y = Math.PI / 2
+    labPipes.position.set(45.65, 2.9, 42)
+    scene.add(labPipes)
+
+    const riserMat = new THREE.MeshLambertMaterial({ color: 0x59616e })
+    for (const corner of [[22.45, 25.45], [51.55, 25.45]] as const) {
+        const riser = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.11, CALL_OF_XENO_ATRIUM_HEIGHT - 0.4, 8), riserMat)
+        riser.position.set(corner[0], (CALL_OF_XENO_ATRIUM_HEIGHT - 0.4) / 2, corner[1])
+        scene.add(riser)
     }
 
-    // The catwalk deck, its underside trusses and a rail along each open edge.
+    // The platform deck, corner struts and rails on the two edges that do not
+    // have a ramp feeding them.
     const deckMat = new THREE.MeshLambertMaterial({ color: 0x3d434e })
     const trussMat = new THREE.MeshLambertMaterial({ color: 0x272b33 })
     const railColor = CALL_OF_XENO_ROOM_THEMES[1]!.accent
@@ -134,31 +218,24 @@ export function buildLevel(scene: THREE.Scene): LevelHandles {
 
         const width = platform.box.maxX - platform.box.minX
         const depth = platform.box.maxZ - platform.box.minZ
-        const along = width > depth ? 'x' : 'z'
-        const length = along === 'x' ? width : depth
+        const cx = (platform.box.minX + platform.box.maxX) / 2
+        const cz = (platform.box.minZ + platform.box.maxZ) / 2
 
-        // Support struts down to the floor every few metres.
-        for (let i = 0.5; i < length; i += 4) {
-            const x = along === 'x' ? platform.box.minX + i : (platform.box.minX + platform.box.maxX) / 2
-            const z = along === 'x' ? (platform.box.minZ + platform.box.maxZ) / 2 : platform.box.minZ + i
-            const strut = new THREE.Mesh(
-                new THREE.BoxGeometry(0.16, platform.y, 0.16),
-                trussMat
-            )
-            strut.position.set(x, platform.y / 2, z)
-            scene.add(strut)
+        // Struts at the four corners, out of every walking lane.
+        for (const sx of [-1, 1]) {
+            for (const sz of [-1, 1]) {
+                const strut = new THREE.Mesh(new THREE.BoxGeometry(0.16, platform.y, 0.16), trussMat)
+                strut.position.set(cx + (sx * (width / 2 - 0.3)), platform.y / 2, cz + (sz * (depth / 2 - 0.3)))
+                scene.add(strut)
+            }
         }
 
-        // Rail on the edge that faces the open middle of the hall.
-        const rail = buildRailing(length, railColor)
-        if (along === 'x') {
-            rail.position.set((platform.box.minX + platform.box.maxX) / 2, platform.y, platform.box.maxZ - 0.1)
-        } else {
+        for (const sx of [-1, 1]) {
+            const rail = buildRailing(depth - 0.6, railColor)
             rail.rotation.y = Math.PI / 2
-            const innerX = platform.box.minX < 30 ? platform.box.maxX - 0.1 : platform.box.minX + 0.1
-            rail.position.set(innerX, platform.y, (platform.box.minZ + platform.box.maxZ) / 2)
+            rail.position.set(cx + (sx * (width / 2 - 0.12)), platform.y, cz)
+            scene.add(rail)
         }
-        scene.add(rail)
     }
 
     // Ramps: a slab rotated to the slope, with a hazard nose at the bottom.
@@ -201,7 +278,8 @@ export function buildLevel(scene: THREE.Scene): LevelHandles {
         const along = width >= depth ? 'x' : 'z'
         const span = along === 'x' ? width : depth
         const count = Math.max(1, Math.round(span / 11))
-        const lit = region.id === 1 ? 46 : 34
+        const tall = region.ceiling >= CALL_OF_XENO_ATRIUM_HEIGHT
+        const lit = tall ? 46 : 34
 
         for (let i = 0; i < count; i++) {
             const t = (i + 0.5) / count
@@ -212,7 +290,7 @@ export function buildLevel(scene: THREE.Scene): LevelHandles {
             if (along === 'z') fixture.rotation.y = Math.PI / 2
             scene.add(fixture)
 
-            const light = new THREE.PointLight(theme.lightColor, lit, region.id === 1 ? 40 : 30, 1.5)
+            const light = new THREE.PointLight(theme.lightColor, lit, tall ? 40 : 30, 1.5)
             light.position.set(x, region.ceiling - 0.4, z)
             scene.add(light)
             lights.push({ light, tube: fixture.children[1] as THREE.Mesh, region: region.id, lit })
@@ -230,7 +308,7 @@ export function buildLevel(scene: THREE.Scene): LevelHandles {
         const group = new THREE.Group()
         const width = door.box.maxX - door.box.minX
         const depth = door.box.maxZ - door.box.minZ
-        const height = CALL_OF_XENO_ATRIUM_HEIGHT
+        const height = CALL_OF_XENO_WALL_HEIGHT
         group.add(boxMesh(door.box, height, height / 2, doorMat))
 
         const spanX = width > depth
@@ -294,14 +372,14 @@ export function buildLevel(scene: THREE.Scene): LevelHandles {
         scene.add(prop.group)
     }
 
-    // A lit sign over the catwalk so the high ground advertises itself.
+    // A lit sign above the platform so the high ground advertises itself.
     const marker = new THREE.Mesh(
         new THREE.BoxGeometry(0.3, 0.3, 0.3),
         new THREE.MeshBasicMaterial({ color: CALL_OF_XENO_ROOM_THEMES[1]!.accent })
     )
-    marker.position.set(34, CALL_OF_XENO_CATWALK_Y + 1.6, 10)
+    marker.position.set(37, CALL_OF_XENO_CATWALK_Y + 2.4, 12)
     marker.rotation.set(0.6, 0.6, 0)
     scene.add(marker)
 
-    return { lights, doors, props, powerLever, mysteryBox, textures, makeDoor }
+    return { lights, doors, props, powerLever, mysteryBox, reactor, textures, makeDoor }
 }

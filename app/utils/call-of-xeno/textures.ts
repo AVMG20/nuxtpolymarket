@@ -182,6 +182,25 @@ export function makeFlashTexture() {
     return texture
 }
 
+/** Diagonal hazard stripes for the barrier props. */
+export function makeHazardTexture(dark = '#1c1e22', light = '#d8a02a') {
+    const { element, ctx } = canvas(128)
+    ctx.fillStyle = dark
+    ctx.fillRect(0, 0, 128, 128)
+    ctx.fillStyle = light
+    ctx.save()
+    ctx.translate(64, 64)
+    ctx.rotate(-Math.PI / 4)
+    for (let x = -180; x < 180; x += 32) ctx.fillRect(x, -180, 16, 360)
+    ctx.restore()
+    for (let i = 0; i < 300; i++) {
+        ctx.fillStyle = `rgba(0,0,0,${Math.random() * 0.08})`
+        ctx.fillRect(Math.random() * 128, Math.random() * 128, 3, 2)
+    }
+    const texture = finish(element, 2, 1)
+    return texture
+}
+
 /** Irregular splat used for both blood on the floor and scorch on the walls. */
 export function makeSplatTexture(color: string) {
     const { element, ctx } = canvas(128)

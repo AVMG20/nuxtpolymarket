@@ -38,6 +38,8 @@ import {
     CALL_OF_XENO_NODES,
     CALL_OF_XENO_EDGES,
     CALL_OF_XENO_SPAWNS,
+    CALL_OF_XENO_DECOR,
+    CALL_OF_XENO_BARREL_SPOTS,
     CALL_OF_XENO_INTERACTABLES,
     CALL_OF_XENO_PLAYER_START,
     CALL_OF_XENO_CATWALK_Y,
@@ -69,9 +71,9 @@ function boxesAt(x: number, z: number, feetY: number) {
 }
 
 describe('call of xeno weapons', () => {
-    it('ships five conventional weapons plus one wonder weapon', () => {
+    it('ships eight conventional weapons plus one wonder weapon', () => {
         const ids = Object.keys(CALL_OF_XENO_WEAPONS) as CallOfXenoWeaponId[]
-        expect(ids).toHaveLength(6)
+        expect(ids).toHaveLength(9)
         const conventional = ids.filter(id => id !== 'xenoray')
         const best = Math.max(...conventional.map(id => CALL_OF_XENO_WEAPONS[id].damage))
         expect(CALL_OF_XENO_WEAPONS.xenoray.damage).toBeGreaterThan(best * 3)
@@ -101,8 +103,19 @@ describe('call of xeno weapons', () => {
         expect(new Set(placed)).toEqual(new Set(CALL_OF_XENO_WALL_WEAPONS))
     })
 
+    it('puts every box weapon somewhere buyable', () => {
+        const obtainable = new Set<CallOfXenoWeaponId>([
+            ...CALL_OF_XENO_WALL_WEAPONS,
+            ...CALL_OF_XENO_BOX_POOL.map(e => e.weapon),
+            'm1911'
+        ])
+        for (const id of Object.keys(CALL_OF_XENO_WEAPONS) as CallOfXenoWeaponId[]) {
+            expect(obtainable.has(id), `${id} is unobtainable`).toBe(true)
+        }
+    })
+
     it('charges half the wall price for an ammo refill', () => {
-        expect(ammoCost(CALL_OF_XENO_WEAPONS.mp40)).toBe(500)
+        expect(ammoCost(CALL_OF_XENO_WEAPONS.skorpion)).toBe(500)
     })
 })
 
@@ -286,25 +299,25 @@ describe('perks', () => {
         expect(new Set(machines.map(m => m.region)).size).toBe(4)
     })
 
-    it('puts one perk up on the catwalk and one out in the tunnel', () => {
+    it('puts one perk up on the platform and one out in the Lab', () => {
         const elevated = CALL_OF_XENO_INTERACTABLES.filter(i => i.y >= CALL_OF_XENO_CATWALK_Y)
         expect(elevated.length).toBeGreaterThan(0)
-        const tunnel = CALL_OF_XENO_INTERACTABLES.filter(i => i.region === 7)
-        expect(tunnel.length).toBeGreaterThan(0)
+        const lab = CALL_OF_XENO_INTERACTABLES.filter(i => i.region === 6)
+        expect(lab.length).toBeGreaterThan(0)
     })
 })
 
 describe('map layout', () => {
-    it('has four buyable doors, one per link in the ring', () => {
-        expect(CALL_OF_XENO_DOORS).toHaveLength(4)
-        expect(new Set(CALL_OF_XENO_DOORS.map(d => d.cost)).size).toBe(4)
+    it('has five buyable doors at escalating prices', () => {
+        expect(CALL_OF_XENO_DOORS).toHaveLength(5)
+        expect(new Set(CALL_OF_XENO_DOORS.map(d => d.cost)).size).toBe(5)
     })
 
-    it('puts the power lever and the pack-a-punch on the Power Deck', () => {
+    it('puts the power lever and the pack-a-punch in the Power Room', () => {
         const lever = CALL_OF_XENO_INTERACTABLES.find(i => i.kind === 'power')!
         const pap = CALL_OF_XENO_INTERACTABLES.find(i => i.kind === 'papunch')!
-        expect(lever.region).toBe(2)
-        expect(pap.region).toBe(2)
+        expect(lever.region).toBe(9)
+        expect(pap.region).toBe(9)
         expect(pap.needsPower).toBe(true)
         expect(lever.needsPower).toBe(false)
     })
@@ -325,6 +338,11 @@ describe('map layout', () => {
         }
     })
 
+    it('dresses every decor box as a wall solid too', () => {
+        const wallBoxes = new Set(CALL_OF_XENO_WALLS.map(w => w.box))
+        for (const decor of CALL_OF_XENO_DECOR) expect(wallBoxes.has(decor.box)).toBe(true)
+    })
+
     it('does not start the player inside anything solid', () => {
         const start = CALL_OF_XENO_PLAYER_START
         const solved = resolveCircle(start.x, start.z, PLAYER_RADIUS, boxesAt(start.x, start.z, 0))
@@ -341,22 +359,44 @@ describe('map layout', () => {
         }
     })
 
-    it('never spawns anything straight onto the catwalk', () => {
+    it('never spawns anything straight onto the platform', () => {
         for (const spawn of CALL_OF_XENO_SPAWNS) {
             expect(groundHeight(spawn.x, spawn.z, 0)).toBe(0)
+        }
+    })
+
+    it('drops every explosive barrel on open floor', () => {
+        for (const spot of CALL_OF_XENO_BARREL_SPOTS) {
+            const solved = resolveCircle(spot.x, spot.z, 0.4, boxesAt(spot.x, spot.z, 0))
+            expect(solved.x).toBeCloseTo(spot.x, 6)
+            expect(solved.z).toBeCloseTo(spot.z, 6)
+            expect(regionAt(spot.x, spot.z)).not.toBe(-1)
+        }
+    })
+
+    it('keeps barrels out of the navigation lanes', () => {
+        for (const [a, b] of CALL_OF_XENO_EDGES) {
+            const from = CALL_OF_XENO_NODES[a]!
+            const to = CALL_OF_XENO_NODES[b]!
+            for (let t = 0; t <= 1.0001; t += 0.02) {
+                const x = from.x + (to.x - from.x) * t
+                const z = from.z + (to.z - from.z) * t
+                for (const spot of CALL_OF_XENO_BARREL_SPOTS) {
+                    expect(Math.hypot(spot.x - x, spot.z - z), `barrel at ${spot.x},${spot.z} blocks edge ${a}-${b}`).toBeGreaterThan(0.9)
+                }
+            }
         }
     })
 })
 
 describe('vertical geometry', () => {
-    it('stands an actor on the catwalk deck', () => {
-        expect(groundHeight(25.5, 10, CALL_OF_XENO_CATWALK_Y)).toBeCloseTo(CALL_OF_XENO_CATWALK_Y, 6)
-        expect(groundHeight(34, 1.75, CALL_OF_XENO_CATWALK_Y)).toBeCloseTo(CALL_OF_XENO_CATWALK_Y, 6)
+    it('stands an actor on the platform deck', () => {
+        expect(groundHeight(37, 12, CALL_OF_XENO_CATWALK_Y)).toBeCloseTo(CALL_OF_XENO_CATWALK_Y, 6)
+        expect(groundHeight(34.5, 13, CALL_OF_XENO_CATWALK_Y)).toBeCloseTo(CALL_OF_XENO_CATWALK_Y, 6)
     })
 
-    it('leaves the floor under the catwalk at ground level', () => {
-        expect(groundHeight(25.5, 10, 0)).toBe(0)
-        expect(groundHeight(34, 12, 0)).toBe(0)
+    it('leaves the floor under the platform at ground level', () => {
+        expect(groundHeight(37, 12, 0)).toBe(0)
     })
 
     it('climbs a ramp linearly from bottom to top', () => {
@@ -364,17 +404,16 @@ describe('vertical geometry', () => {
         let feet = 0
         let previous = -1
         for (let t = 0; t <= 1.0001; t += 0.05) {
-            const x = ramp.lowAt + (ramp.highAt - ramp.lowAt) * t
-            feet = groundHeight(x, 18.5, feet)
+            const z = ramp.lowAt + (ramp.highAt - ramp.lowAt) * t
+            feet = groundHeight(37, z, feet)
             expect(feet).toBeGreaterThanOrEqual(previous)
             previous = feet
         }
         expect(feet).toBeCloseTo(CALL_OF_XENO_CATWALK_Y, 6)
     })
 
-    it('drops an actor that walks off the catwalk edge', () => {
-        // Standing on the deck, one step out over the open middle of the hall.
-        expect(groundHeight(34, 10, CALL_OF_XENO_CATWALK_Y)).toBe(0)
+    it('drops an actor that walks off the platform edge', () => {
+        expect(groundHeight(32, 12, CALL_OF_XENO_CATWALK_Y)).toBe(0)
     })
 
     it('ignores ground clutter for an actor up on the deck', () => {
@@ -383,17 +422,17 @@ describe('vertical geometry', () => {
         expect(onDeck.length).toBeLessThan(onFloor.length)
     })
 
-    it('lets an actor walk under the catwalk without colliding with it', () => {
+    it('lets an actor walk under the platform without colliding with it', () => {
         const platform = CALL_OF_XENO_PLATFORMS[0]!
         const x = (platform.box.minX + platform.box.maxX) / 2
-        const solved = resolveCircle(x, 10, PLAYER_RADIUS, boxesAt(x, 10, 0))
+        const solved = resolveCircle(x, 12, PLAYER_RADIUS, boxesAt(x, 12, 0))
         expect(solved.x).toBeCloseTo(x, 6)
-        expect(solved.z).toBeCloseTo(10, 6)
+        expect(solved.z).toBeCloseTo(12, 6)
     })
 })
 
 describe('navigation', () => {
-    it('links every node into one graph once the ring is open', () => {
+    it('links every node into one graph once the loop is open', () => {
         for (let i = 0; i < CALL_OF_XENO_NODES.length; i++) {
             for (let j = 0; j < CALL_OF_XENO_NODES.length; j++) {
                 expect(nextHop(OPEN_TABLE, i, j)).not.toBe(-1)
@@ -401,32 +440,33 @@ describe('navigation', () => {
         }
     })
 
-    it('routes the short way round the ring', () => {
-        // Landing Bay to Power Deck is fewer hops through the service tunnel
-        // than back through the Reactor Hall, so the first step goes south.
-        expect(nextHop(OPEN_TABLE, 0, 6)).toBe(10)
-        expect(nextHop(OPEN_TABLE, 0, 3)).toBe(1)
+    it('routes each way round the loop depending on destination', () => {
+        // Barracks to Courtyard goes east through corridor A.
+        expect(nextHop(OPEN_TABLE, 0, 4)).toBe(1)
+        // Barracks to Armory is shorter north through corridor B.
+        expect(nextHop(OPEN_TABLE, 0, 13)).toBe(15)
     })
 
-    it('strands the far side of the map while the doors are shut', () => {
+    it('strands everything but the Barracks while both doors are shut', () => {
         const reached = reachableNodes(SHUT_TABLE, 0)
         expect(reached.has(0)).toBe(true)
-        expect(reached.has(1)).toBe(true)
-        expect(reached.has(6)).toBe(false)
-        expect(reached.has(14)).toBe(false)
+        expect(reached.has(1)).toBe(false)
+        expect(reached.has(4)).toBe(false)
+        expect(reached.has(17)).toBe(false)
     })
 
     it('opens the map up door by door', () => {
-        const one = buildNavTable(new Set(['door-bay-hall']))
+        const one = buildNavTable(new Set(['door-barracks-courtyard']))
         const reached = reachableNodes(one, 0)
-        expect(reached.has(3)).toBe(true)
-        // The catwalk hangs off the Reactor Hall, so it comes with that door.
-        expect(reached.has(16)).toBe(true)
-        expect(reached.has(6)).toBe(false)
+        expect(reached.has(4)).toBe(true)
+        // The platform hangs off the Courtyard, so it comes with that door.
+        expect(reached.has(19)).toBe(true)
+        // The Lab and Power Room stay sealed behind their own doors.
+        expect(reached.has(9)).toBe(false)
+        expect(reached.has(17)).toBe(false)
     })
 
-    it('only reaches the catwalk through a ramp', () => {
-        // Nothing on the deck neighbours a ground node except the two ramps.
+    it('only reaches the platform through a ramp', () => {
         const deckNodes = CALL_OF_XENO_NODES
             .map((node, i) => ({ node, i }))
             .filter(entry => entry.node.y > 0)
@@ -443,14 +483,15 @@ describe('navigation', () => {
     })
 
     it('sends a zombie along the route when the player is rooms away', () => {
-        const target = zombieTarget(OPEN_TABLE, 10, 10, 0, 34, 10, 0)
+        const target = zombieTarget(OPEN_TABLE, 8, 7, 0, 37, 21, 0)
         expect(target).toEqual({ x: CALL_OF_XENO_NODES[1]!.x, z: CALL_OF_XENO_NODES[1]!.z })
     })
 
     it('does not latch a ground actor onto a node above its head', () => {
-        // Directly under the west catwalk leg.
-        expect(CALL_OF_XENO_NODES[nearestNode(25.5, 10, 0)]!.y).toBe(0)
-        expect(CALL_OF_XENO_NODES[nearestNode(25.5, 10, CALL_OF_XENO_CATWALK_Y)]!.y).toBe(CALL_OF_XENO_CATWALK_Y)
+        // Directly under the platform deck — the nearest node must be one it
+        // can actually stand on, not the deck overhead.
+        expect(CALL_OF_XENO_NODES[nearestNode(37, 12, 0)]!.y).toBeLessThan(2)
+        expect(CALL_OF_XENO_NODES[nearestNode(37, 12, CALL_OF_XENO_CATWALK_Y)]!.y).toBe(CALL_OF_XENO_CATWALK_Y)
     })
 
     it('keeps every navigation lane walkable, ramps included', () => {
@@ -474,6 +515,11 @@ describe('navigation', () => {
 describe('collision solids', () => {
     it('includes shut doors and drops them once bought', () => {
         expect(collisionSolids(NO_DOORS).length - OPEN_SOLIDS.length).toBe(CALL_OF_XENO_DOORS.length)
+    })
+
+    it('appends extra solids such as live barrels', () => {
+        const barrels = [{ box: { minX: 1, maxX: 2, minZ: 1, maxZ: 2 }, baseY: 0, height: 1.1 }]
+        expect(collisionSolids(ALL_DOORS_OPEN, barrels).length).toBe(OPEN_SOLIDS.length + 1)
     })
 
     it('gives walls full height and crates their own', () => {
@@ -515,8 +561,8 @@ describe('ray blocking', () => {
         expect([hit.nx, hit.ny, hit.nz]).toEqual([0, -1, 0])
     })
 
-    it('does not let a shot reach the next room through a shut door', () => {
-        const hit = rayBlockDistance(10, 1.6, 10, 1, 0, 0, collisionSolids(NO_DOORS), 60)
+    it('does not let a shot reach the Courtyard through a shut door', () => {
+        const hit = rayBlockDistance(10, 1.6, 7, 1, 0, 0, collisionSolids(NO_DOORS), 60)
         expect(hit.distance).toBeLessThan(13)
     })
 })

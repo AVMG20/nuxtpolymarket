@@ -20,8 +20,14 @@ export type CallOfXenoSound
       | 'kill'
       | 'zombie-groan'
       | 'zombie-attack'
-      | 'hurt'
-      | 'buy'
+  | 'hurt'
+  | 'melee'
+  | 'melee-hit'
+  | 'footstep'
+  | 'land'
+  | 'heartbeat'
+  | 'explosion'
+  | 'buy'
       | 'deny'
       | 'door'
       | 'power'
@@ -200,8 +206,31 @@ export class CallOfXenoAudio {
                 this.burst({ duration: 0.2, gain: 0.22, freq: 1600, freqEnd: 260, q: 1.5 })
                 break
             case 'hurt':
-                this.tone({ duration: 0.4, gain: 0.3, freq: 220, freqEnd: 60, type: 'triangle' })
-                this.burst({ duration: 0.3, gain: 0.2, freq: 700, freqEnd: 120, type: 'lowpass' })
+                this.tone({ duration: 0.4, gain: 0.34, freq: 220, freqEnd: 55, type: 'triangle' })
+                this.burst({ duration: 0.3, gain: 0.24, freq: 700, freqEnd: 110, type: 'lowpass' })
+                break
+            case 'melee':
+                this.burst({ duration: 0.15, gain: 0.22, freq: 800, freqEnd: 3400, type: 'bandpass', q: 2 })
+                break
+            case 'melee-hit':
+                this.burst({ duration: 0.12, gain: 0.44, freq: 900, freqEnd: 150, q: 1 })
+                this.tone({ duration: 0.15, gain: 0.32, freq: 165, freqEnd: 55, type: 'triangle' })
+                break
+            case 'footstep':
+                this.burst({ duration: 0.05, gain: 0.06 + Math.random() * 0.03, freq: 280 + Math.random() * 180, q: 1.3 })
+                break
+            case 'land':
+                this.tone({ duration: 0.17, gain: 0.26, freq: 115, freqEnd: 44, type: 'triangle' })
+                this.burst({ duration: 0.11, gain: 0.17, freq: 420, freqEnd: 130 })
+                break
+            case 'heartbeat':
+                this.tone({ duration: 0.12, gain: 0.36, freq: 58, freqEnd: 40 })
+                this.tone({ at: t + 0.24, duration: 0.1, gain: 0.26, freq: 52, freqEnd: 38 })
+                break
+            case 'explosion':
+                this.burst({ duration: 0.9, gain: 0.85, freq: 900, freqEnd: 60, q: 0.7 })
+                this.tone({ duration: 0.7, gain: 0.6, freq: 95, freqEnd: 26, type: 'sawtooth' })
+                this.tone({ at: t + 0.04, duration: 0.5, gain: 0.4, freq: 220, freqEnd: 40, type: 'triangle' })
                 break
             case 'buy':
                 this.tone({ duration: 0.1, gain: 0.24, freq: 880, type: 'square' })
