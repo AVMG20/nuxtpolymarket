@@ -65,12 +65,21 @@ import {
     bannedNodesFor,
     zombieTarget
 } from '../../shared/utils/gamelogic/call-of-xeno-map'
+import {
+    buildNavGrid,
+    findNavPath,
+    navLineClear,
+    navCellPassable,
+    navLevelOf
+} from '../../shared/utils/gamelogic/call-of-xeno-nav'
 
 const ALL_DOORS_OPEN = new Set(CALL_OF_XENO_DOORS.map(d => d.id))
 const NO_DOORS = new Set<string>()
 const OPEN_SOLIDS = collisionSolids(ALL_DOORS_OPEN)
 const OPEN_TABLE = buildNavTable(ALL_DOORS_OPEN)
 const SHUT_TABLE = buildNavTable(NO_DOORS)
+const OPEN_GRID = buildNavGrid(ALL_DOORS_OPEN)
+const SHUT_GRID = buildNavGrid(NO_DOORS)
 
 const PLAYER_RADIUS = 0.35
 const ACTOR_HEIGHT = 1.8
@@ -793,5 +802,97 @@ describe('ray blocking', () => {
         const door = CALL_OF_XENO_DOORS.find(d => d.id === 'door-barracks-mess')!
         const hit = rayBlockDistance(14, eye, door.prompt.z, 1, 0, 0, shut, 12)
         expect(hit.distance).toBeLessThan(6)
+    })
+})
+
+describe('nav grid', () => {
+    const SHAMBLER = 0.45
+    const BRUTE = 0.45 * CALL_OF_XENO_ENEMIES.brute.scale
+
+    const insideBox = (point: { x: number, z: number }, box: { minX: number, maxX: number, minZ: number, maxZ: number }) =>
+        point.x > box.minX && point.x < box.maxX && point.z > box.minZ && point.z < box.maxZ
+
+    it('keeps open floor passable and cover impassable', () => {
+        // Barracks centre, a good way from every wall and crate.
+        expect(navCellPassable(OPEN_GRID, 0, 18, 16, SHAMBLER)).toBe(true)
+        // Inside the crate against the Barracks north-east corner.
+        expect(navCellPassable(OPEN_GRID, 0, 31, 7, SHAMBLER)).toBe(false)
+    })
+
+    it('only exists upstairs where the deck and ramps are', () => {
+        // Atrium floor, under the catwalk — no upper storey there.
+        expect(navCellPassable(OPEN_GRID, 1, 36, 52, SHAMBLER)).toBe(false)
+        // Signals, out in the open upstairs.
+        expect(navCellPassable(OPEN_GRID, 1, 54, 18, SHAMBLER)).toBe(true)
+    })
+
+    it('routes around cover instead of through it', () => {
+        // West of the Garage flatbed to south of it — the straight line
+        // crosses the truck box (38.5-42.5 × 11.5-17).
+        const path = findNavPath(OPEN_GRID, 37, 14, 0, 44, 10, 0, SHAMBLER)
+        expect(path).not.toBeNull()
+        for (const point of path!) {
+            for (const solid of [...CALL_OF_XENO_CRATES, ...CALL_OF_XENO_DECOR.map(d => ({ box: d.box }))]) {
+                expect(insideBox(point, solid.box), `waypoint inside cover at ${point.x.toFixed(1)},${point.z.toFixed(1)}`).toBe(false)
+            }
+        }
+        const walked = path!.reduce((sum, point, i) =>
+            sum + (i === 0 ? 0 : Math.hypot(point.x - path![i - 1]!.x, point.z - path![i - 1]!.z)), 0)
+        expect(walked).toBeGreaterThan(Math.hypot(44 - 37, 10 - 14) + 1)
+    })
+
+    it('finds no route through a shut door and one once it is bought', () => {
+        expect(findNavPath(SHUT_GRID, 17, 8, 0, 19, 8, 0, SHAMBLER)).toBeNull()
+        const path = findNavPath(OPEN_GRID, 17, 8, 0, 19, 8, 0, SHAMBLER)
+        expect(path).not.toBeNull()
+        const last = path![path!.length - 1]!
+        expect(Math.hypot(last.x - 19, last.z - 8)).toBeLessThan(1.5)
+    })
+
+    it('changes storey only on a ramp', () => {
+        const path = findNavPath(OPEN_GRID, 18, 26, 0, 9, 9, CALL_OF_XENO_UPPER_Y, SHAMBLER)
+        expect(path).not.toBeNull()
+        expect(navLevelOf(CALL_OF_XENO_UPPER_Y - 0.1)).toBe(1)
+        expect(navLevelOf(1)).toBe(0)
+        const onRamp = path!.some(point => point.level === 1
+            && CALL_OF_XENO_RAMPS.some(ramp => insideBox(point, ramp.box)))
+        expect(onRamp).toBe(true)
+        // Once upstairs the route stays on deck or ramp cells.
+        for (const point of path!) {
+            if (point.level !== 1) continue
+            const legal = CALL_OF_XENO_PLATFORMS.some(platform => insideBox(point, platform.box))
+                || CALL_OF_XENO_RAMPS.some(ramp => insideBox(point, ramp.box))
+            expect(legal, `upper waypoint off the deck at ${point.x.toFixed(1)},${point.z.toFixed(1)}`).toBe(true)
+        }
+    })
+
+    it('does not offer a line of sight through cover', () => {
+        // Straight through the Atrium barrier at 21-24 × 18.5-20.5.
+        expect(navLineClear(OPEN_GRID, 0, 19.5, 19.5, 25.5, 19.5, SHAMBLER)).toBe(false)
+        // Open Atrium floor.
+        expect(navLineClear(OPEN_GRID, 0, 12, 26, 16, 26, SHAMBLER)).toBe(true)
+    })
+
+    it('refuses a gap too tight for the body and takes it for a smaller one', () => {
+        // Between the Barracks crates (gap z 10.5-12.5 around x 3.5-4.5):
+        // 2 m wide, plenty for a shambler, a squeeze too far for a brute.
+        const small = findNavPath(OPEN_GRID, 5, 13.5, 0, 3.5, 9.5, 0, SHAMBLER)
+        const big = findNavPath(OPEN_GRID, 5, 13.5, 0, 3.5, 9.5, 0, BRUTE)
+        expect(small).not.toBeNull()
+        expect(big).not.toBeNull()
+        const length = (path: NonNullable<typeof small>) => path.reduce((sum, point, i) =>
+            sum + (i === 0 ? 0 : Math.hypot(point.x - path[i - 1]!.x, point.z - path[i - 1]!.z)), 0)
+        expect(length(small!)).toBeLessThan(length(big!))
+    })
+
+    it('lands a route next to a goal no body fits in', () => {
+        // The goal sits inside the crate at 14-17.5 × 3-5.
+        const path = findNavPath(OPEN_GRID, 9, 8, 0, 15.5, 4, 0, SHAMBLER)
+        expect(path).not.toBeNull()
+        const last = path![path!.length - 1]!
+        expect(Math.hypot(last.x - 15.5, last.z - 4)).toBeLessThan(2.5)
+        for (const crate of CALL_OF_XENO_CRATES) {
+            expect(insideBox(last, crate.box)).toBe(false)
+        }
     })
 })

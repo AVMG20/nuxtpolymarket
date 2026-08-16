@@ -295,12 +295,18 @@ import {
     solidsInBand,
     groundHeight,
     rayBlockDistance,
-    zombieTarget,
     resolveCircle,
     type CallOfXenoBox,
     type CallOfXenoSolid,
     type CallOfXenoWindow
 } from '#shared/utils/gamelogic/call-of-xeno-map'
+import {
+    buildNavGrid,
+    findNavPath,
+    navLineClear,
+    navLevelOf,
+    type CallOfXenoNavPoint
+} from '#shared/utils/gamelogic/call-of-xeno-nav'
 import { randomFloat, randomWeighted } from '#shared/utils/random'
 import { CallOfXenoAudio } from '~/utils/call-of-xeno/sounds'
 import { CallOfXenoEffects } from '~/utils/call-of-xeno/effects'
@@ -429,6 +435,10 @@ interface Enemy {
     stuck: number
     /** Which way the wall-slide steers: +1 or -1. */
     stuckSide: number
+    /** Waypoints of the route the zombie is currently walking. */
+    path: CallOfXenoNavPoint[]
+    /** Seconds until the route is replanned. Staggered per zombie. */
+    repathIn: number
 }
 
 /** Live state of one boarded window. */
@@ -620,6 +630,8 @@ let solids: CallOfXenoSolid[] = []
 let navTable = buildNavTable(new Set())
 /** Nodes inside shut doors — never valid waypoints for actors. */
 let bannedNodes: ReadonlySet<number> = new Set()
+/** Walkability grid the zombies route through. Rebuilt with the solids. */
+let navGrid = buildNavGrid(new Set())
 let focused: { kind: 'door' | 'interactable', id: string } | null = null
 /** The barricade the player is stood at, if any. Drives the repair prompt. */
 let focusedWindow: CallOfXenoWindow | null = null
@@ -669,6 +681,7 @@ function rebuildCollision() {
     solids = collisionSolids(openDoors, barrels.filter(b => b.alive).map(b => b.solid))
     navTable = buildNavTable(openDoors)
     bannedNodes = bannedNodesFor(openDoors)
+    navGrid = buildNavGrid(openDoors, barrels.filter(b => b.alive).map(b => b.solid))
 }
 
 // ---------------------------------------------------------------------------
@@ -1431,7 +1444,9 @@ function spawnEnemy(): boolean {
         groanIn: 1 + randomFloat() * 6,
         stagger: 0,
         stuck: 0,
-        stuckSide: randomFloat() < 0.5 ? 1 : -1
+        stuckSide: randomFloat() < 0.5 ? 1 : -1,
+        path: [],
+        repathIn: 0
     })
     return true
 }
@@ -1665,19 +1680,57 @@ function updateEnemies(dt: number) {
             if (!updateBreaching(enemy, dt)) continue
         }
 
-        const target = zombieTarget(navTable, enemy.x, enemy.z, enemy.y, px, pz, feetY, bannedNodes)
-        let dx = target.x - enemy.x
-        let dz = target.z - enemy.z
+        const radius = 0.45 * def.scale
 
+        // Drones size up their firing line before deciding how to move, so
+        // the standoff dance and the trigger share one answer.
+        let clearShot = true
         if (def.ranged) {
-            // Once it shares a waypoint with the player it stops pathing and
-            // holds a standoff distance instead of closing to contact.
-            if (target.x === px && target.z === pz) {
-                const want = def.ranged.standoff
-                const sign = toPlayer > want ? 1 : toPlayer < want * 0.72 ? -1 : 0
-                dx = (toPlayerX / (toPlayer || 1)) * sign
-                dz = (toPlayerZ / (toPlayer || 1)) * sign
-            }
+            const eyeY = enemy.y + enemy.model.torsoY
+            const dy = feetY + PLAYER_EYE - 0.2 - eyeY
+            const len = Math.hypot(toPlayerX, dy, toPlayerZ) || 1
+            clearShot = rayBlockDistance(
+                enemy.x, eyeY, enemy.z,
+                toPlayerX / len, dy / len, toPlayerZ / len,
+                solids, len
+            ).distance >= len - 0.2
+        }
+
+        // Routes are replanned on a stagger, so a horde does not all think at
+        // once, and redone the moment a body stops making progress.
+        enemy.repathIn -= dt
+        if (enemy.repathIn <= 0) {
+            enemy.repathIn = 0.35 + randomFloat() * 0.35
+            enemy.path = findNavPath(navGrid, enemy.x, enemy.z, enemy.y, px, pz, feetY, radius) ?? []
+        }
+        while (enemy.path.length > 0
+            && Math.hypot(enemy.path[0]!.x - enemy.x, enemy.path[0]!.z - enemy.z) < 0.5) {
+            enemy.path.shift()
+        }
+
+        let dx: number
+        let dz: number
+        if (def.ranged && toPlayer < def.ranged.standoff + 5 && clearShot) {
+            // A good shot line within the standoff band: hold the range
+            // instead of closing to contact.
+            const want = def.ranged.standoff
+            const sign = toPlayer > want ? 1 : toPlayer < want * 0.72 ? -1 : 0
+            dx = (toPlayerX / (toPlayer || 1)) * sign
+            dz = (toPlayerZ / (toPlayer || 1)) * sign
+        } else if (toPlayer < 6
+            && navLevelOf(enemy.y) === navLevelOf(feetY)
+            && navLineClear(navGrid, navLevelOf(feetY), enemy.x, enemy.z, px, pz, radius)) {
+            // Same room, clear run: finish the hunt in a straight line.
+            dx = toPlayerX
+            dz = toPlayerZ
+        } else if (enemy.path.length > 0) {
+            dx = enemy.path[0]!.x - enemy.x
+            dz = enemy.path[0]!.z - enemy.z
+        } else {
+            // No route the grid can see — sealed wing or a goal no body fits.
+            // Press straight at the player and let the slide handle geometry.
+            dx = toPlayerX
+            dz = toPlayerZ
         }
 
         const dist = Math.hypot(dx, dz)
@@ -1690,7 +1743,7 @@ function updateEnemies(dt: number) {
             let mz = dz / dist
             // Pinned against geometry: trade forward for sideways for a beat
             // so a pack slides along walls instead of grinding into them.
-            if (enemy.stuck > 0.22) {
+            if (enemy.stuck > 0.25) {
                 const sx = mz * enemy.stuckSide
                 const sz = -mx * enemy.stuckSide
                 mx = sx
@@ -1705,6 +1758,12 @@ function updateEnemies(dt: number) {
             const actual = Math.hypot(enemy.x - beforeX, enemy.z - beforeZ)
             if (actual < enemy.speed * dt * 0.3) {
                 enemy.stuck += dt
+                if (enemy.stuck > 0.7) {
+                    enemy.stuckSide *= -1
+                    enemy.stuck = 0.3
+                }
+                // The route is stale or too tight for this body — rethink now.
+                enemy.repathIn = 0
             } else {
                 enemy.stuck = 0
             }
@@ -1741,15 +1800,7 @@ function updateEnemies(dt: number) {
         enemy.fireCooldown -= dt
 
         if (def.ranged) {
-            const eyeY = enemy.y + enemy.model.torsoY
-            const dy = feetY + PLAYER_EYE - 0.2 - eyeY
-            const len = Math.hypot(toPlayerX, dy, toPlayerZ) || 1
-            const clear = rayBlockDistance(
-                enemy.x, eyeY, enemy.z,
-                toPlayerX / len, dy / len, toPlayerZ / len,
-                solids, len
-            ).distance >= len - 0.2
-            if (enemy.fireCooldown <= 0 && toPlayer < def.ranged.range && clear) {
+            if (enemy.fireCooldown <= 0 && toPlayer < def.ranged.range && clearShot) {
                 enemy.fireCooldown = def.ranged.cooldown * (0.85 + randomFloat() * 0.3)
                 fireEnemyBolt(enemy)
             }

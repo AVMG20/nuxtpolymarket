@@ -156,8 +156,22 @@ export function buildLevel(scene: THREE.Scene): LevelHandles {
         // Deterministic scatter — the same debris field every run.
         const angle = (i / 90) * Math.PI * 2 + (i % 7) * 0.31
         const radius = 34 + (i % 11) * 3.4
-        const x = 29 + Math.cos(angle) * radius
-        const z = 24 + Math.sin(angle) * radius * 0.86
+        let x = 29 + Math.cos(angle) * radius
+        let z = 24 + Math.sin(angle) * radius * 0.86
+        // The ring is elliptical and the building rectangular, so a fair few
+        // angles would drop a rock inside the shell — a walk-through box in
+        // the middle of a room. Anything aimed at the footprint gets pushed
+        // out to the apron ring around it.
+        const dx = x - 29
+        const dz = z - 24
+        const push = Math.max(
+            31.5 / Math.max(0.001, Math.abs(dx)),
+            25.5 / Math.max(0.001, Math.abs(dz))
+        )
+        if (push > 1) {
+            x = 29 + dx * push
+            z = 24 + dz * push
+        }
         const size = 0.6 + (i % 5) * 0.5
         const rock = new THREE.Mesh(new THREE.BoxGeometry(size, size * 0.5, size * 0.8), rubbleMat)
         rock.position.set(x, size * 0.2, z)
@@ -170,16 +184,26 @@ export function buildLevel(scene: THREE.Scene): LevelHandles {
     // ---------------------------------------------------------------------
 
     for (const region of CALL_OF_XENO_REGIONS) {
-        scene.add(boxMesh(region.bounds, 0.2, region.floorY - 0.1, floorMats[region.theme]!))
+        // The Catwalk slab stops a hair short of z = 22: the top stair tread
+        // lands exactly on the deck's walking plane, and two coplanar top
+        // faces flicker against each other at the head of every flight.
+        const bounds = region.id === 9
+            ? { ...region.bounds, maxZ: region.bounds.maxZ - 0.04 }
+            : region.bounds
+        scene.add(boxMesh(bounds, 0.2, region.floorY - 0.1, floorMats[region.theme]!))
         if (region.capped) {
             scene.add(boxMesh(region.bounds, 0.2, region.ceiling + 0.1, ceilMats[region.theme]!))
         }
     }
 
     // The second-floor deck. Its underside is what the Barracks and the Mess
-    // see as their ceiling, so it is skinned in the ceiling material.
+    // see as their ceiling, so it is skinned in the ceiling material. It is
+    // drawn a shade short of the walking surface: the region floors above it
+    // end exactly at that plane, and two coincident top faces would z-fight
+    // across the whole storey.
     for (const platform of CALL_OF_XENO_PLATFORMS) {
-        scene.add(boxMesh(platform.box, platform.thickness, platform.y - platform.thickness / 2, ceilMats[1]!))
+        const visual = platform.thickness - 0.05
+        scene.add(boxMesh(platform.box, visual, platform.y - 0.05 - visual / 2, ceilMats[1]!))
     }
 
     // ---------------------------------------------------------------------
@@ -319,8 +343,10 @@ export function buildLevel(scene: THREE.Scene): LevelHandles {
         rail.position.set((from + to) / 2, CALL_OF_XENO_UPPER_Y, 22)
         scene.add(rail)
         // Edge beam under the deck, so the catwalk has a visible thickness.
+        // Sits clear of both the deck surface and the slab so no face of it
+        // lands in the same plane as the floor above.
         const edge = new THREE.Mesh(new THREE.BoxGeometry(to - from, 0.4, 0.34), trussMat)
-        edge.position.set((from + to) / 2, CALL_OF_XENO_UPPER_Y - 0.4, 22.1)
+        edge.position.set((from + to) / 2, CALL_OF_XENO_UPPER_Y - 0.5, 22.1)
         scene.add(edge)
     }
 
