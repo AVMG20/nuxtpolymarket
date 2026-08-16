@@ -13,6 +13,7 @@ import {
 } from '#shared/utils/gamelogic/pathwarden-map'
 import { pathwardenRouteHealthMultiplier } from '#shared/utils/gamelogic/pathwarden-simulator'
 import { validatePathwardenMapPlan } from '#shared/utils/gamelogic/pathwarden-map-validation'
+import { createPathwardenHeightMap } from '#shared/utils/gamelogic/pathwarden-terrain'
 import type {
   PathwardenFeatureKind,
   PathwardenGameState,
@@ -949,17 +950,9 @@ export class PathwardenEngine {
   }
 
   private createElevations() {
-    return Array.from({ length: ROWS }, (_, row) =>
-      Array.from({ length: COLS }, (_, col) => {
-        const seedX = (this.mapSeed % 997) / 997 * Math.PI * 2
-        const seedY = (this.mapSeed % 613) / 613 * Math.PI * 2
-        const broadHill = Math.sin(col * 0.48 + seedX)
-          + Math.cos(row * 0.44 + seedY)
-          + Math.sin((col - row) * 0.26 + seedX * 0.5)
-        const center = Math.floor(COLS / 2)
-        const centerRise = Math.max(0, 1 - Math.hypot(col - center, row - center) / 18)
-        return clamp(Math.round(1.55 + broadHill * 0.3 + centerRise * 0.55), 1, 3)
-      }))
+    const keep = this.mapPlan.rooms.find(room => room.id === this.mapPlan.castleRoomId)?.origin
+      ?? { col: Math.floor(COLS / 2), row: Math.floor(ROWS / 2) }
+    return createPathwardenHeightMap(this.mapSeed, COLS, ROWS, keep).cells as number[][]
   }
 
   private castlePath() {
