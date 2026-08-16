@@ -2055,9 +2055,11 @@ export class PathwardenEngine {
     const oldRelicId = tower.relicId
     const oldPower = tower.relicPower
     const oldStacks = tower.relicStacks
-    const oldEntities = tower.relicEntities?.length
+    // Every stack must map to an entity: the ritual indexes this array by stack
+    // number, and a save or a fusion can leave the two out of step.
+    const oldEntities = tower.relicEntities?.length === oldStacks
       ? tower.relicEntities
-      : Array.from({ length: oldStacks }, (_, index) => this.materializeRelic(
+      : Array.from({ length: oldStacks }, (_, index) => tower.relicEntities?.[index] ?? this.materializeRelic(
         PATHWARDEN_RELICS.find(candidate => candidate.id === oldRelicId)
           ?? PATHWARDEN_RELICS.find(candidate => candidate.family === oldFamily)!,
         this.relicInstanceId * 41 + index,
@@ -4230,6 +4232,12 @@ export class PathwardenEngine {
         target.invested += tower.invested
         target.relicStacks += tower.relicStacks
         target.relicPower += tower.relicPower
+        // Both stacks have to carry their relic entities across, or the fused
+        // defense loses the absorbed relics' effects and its stack count stops
+        // matching the entities the Arcanist ritual indexes into.
+        const fusedRelics = [...(target.relicEntities ?? []), ...(tower.relicEntities ?? [])]
+        target.relicEntities = fusedRelics.length ? fusedRelics : undefined
+        target.relicEntity = fusedRelics[0]
         this.selectedTowerId = target.id
         const position = this.gridToScreen(target)
         this.burst(position, towerStats(target.type).color, 30, 210)
