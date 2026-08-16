@@ -1117,7 +1117,7 @@ describe('meta progression', () => {
             3.25
         )
         expect(marathon.capped).toBe(false)
-        // 600k × 0.25 × 10 × 3.25 = 4.875M raw — the hard cap holds it at 2.6M.
+        // 2.6M × 0.04 × 10 × 3.25 = 3.38M raw — the hard cap holds it at 3M.
         expect(marathon.awarded).toBe(CALL_OF_XENO_MAX_PAYOUT)
     })
 
@@ -1149,19 +1149,41 @@ describe('meta progression', () => {
         expect(nightmare).toBe(Math.round(recruit * 2))
     })
 
-    it('puts a base deep run in the 1-50k band and a maxed nightmare run at 1-2M', () => {
+    it('puts a base early run in the 1-50k band', () => {
         const recruit = callOfXenoDifficulty('recruit')
-        const nightmare = callOfXenoDifficulty('nightmare')
         // 20-minute run earning a realistic ~70k gross, no upgrades.
         const base = callOfXenoPayoutForRun(70_000, CALL_OF_XENO_ELAPSED_GRACE_MS + 20 * MIN, recruit, 1)
         expect(base.capped).toBe(false)
-        expect(base.awarded).toBeGreaterThanOrEqual(10_000)
+        expect(base.awarded).toBeGreaterThanOrEqual(1_000)
         expect(base.awarded).toBeLessThanOrEqual(50_000)
-        // 45-minute nightmare run, ~250k gross, full contract.
-        const maxed = callOfXenoPayoutForRun(250_000, CALL_OF_XENO_ELAPSED_GRACE_MS + 45 * MIN, nightmare, 3.25)
-        expect(maxed.capped).toBe(false)
-        expect(maxed.awarded).toBeGreaterThanOrEqual(1_000_000)
-        expect(maxed.awarded).toBeLessThanOrEqual(2_000_000)
+    })
+
+    it('pays ~2M for a round-50 nightmare run at maxed contract and ~3M at round 100', () => {
+        const nightmare = callOfXenoDifficulty('nightmare')
+        // 85-minute round-50 pace. Average play banks ~1.2M gross, a point
+        // farmer ~1.6M — both under the wall-clock ceiling, so skill decides.
+        const avg = callOfXenoPayoutForRun(1_240_000, CALL_OF_XENO_ELAPSED_GRACE_MS + 85 * MIN, nightmare, 3.25)
+        expect(avg.capped).toBe(false)
+        expect(avg.awarded).toBeGreaterThanOrEqual(1_400_000)
+        expect(avg.awarded).toBeLessThanOrEqual(1_800_000)
+        const farmer = callOfXenoPayoutForRun(1_600_000, CALL_OF_XENO_ELAPSED_GRACE_MS + 85 * MIN, nightmare, 3.25)
+        expect(farmer.capped).toBe(false)
+        expect(farmer.awarded).toBeGreaterThanOrEqual(1_900_000)
+        expect(farmer.awarded).toBeLessThanOrEqual(2_200_000)
+        // A 4-hour round-100 run rides the ceiling into the absolute cap.
+        const deep = callOfXenoPayoutForRun(CALL_OF_XENO_MAX_GROSS, CALL_OF_XENO_ELAPSED_GRACE_MS + 240 * MIN, nightmare, 3.25)
+        expect(deep.awarded).toBe(CALL_OF_XENO_MAX_PAYOUT)
+    })
+
+    it('keeps a bare account under 1M however deep the run goes', () => {
+        const nightmare = callOfXenoDifficulty('nightmare')
+        const bare = callOfXenoPayoutForRun(
+            CALL_OF_XENO_MAX_GROSS,
+            CALL_OF_XENO_ELAPSED_GRACE_MS + 240 * MIN,
+            nightmare,
+            1
+        )
+        expect(bare.awarded).toBeLessThan(1_000_000)
     })
 
     it('runs a two hour cooldown off the last finish', () => {

@@ -286,19 +286,23 @@ export const CALL_OF_XENO_RUN_COOLDOWN_MS = (() => {
     return Number.isFinite(override) ? Math.max(0, override) : 2 * 60 * 60 * 1000
 })()
 
-/** Gross points a run may ever claim, regardless of anything else. */
-export const CALL_OF_XENO_MAX_GROSS = 600_000
+/**
+ * Gross points a run may ever claim, regardless of anything else. Also the
+ * asymptote of the per-minute honesty ceiling — no length of play gets a
+ * run credited with more than this.
+ */
+export const CALL_OF_XENO_MAX_GROSS = 2_600_000
 /** Absolute payout ceiling — the most one run can ever pay. */
-export const CALL_OF_XENO_MAX_PAYOUT = 2_600_000
+export const CALL_OF_XENO_MAX_PAYOUT = 3_000_000
 /**
  * Payout ceiling before the Payout Contract: one run at contract level 0 can
  * never pay more than this, no matter how deep or how long. Each contract
  * level raises the ceiling by its +25%, so the 1M+ payouts only exist for
  * accounts that have actually bought their way into them.
  */
-export const CALL_OF_XENO_MAX_PAYOUT_BASE = 800_000
+export const CALL_OF_XENO_MAX_PAYOUT_BASE = 925_000
 /** Base gross-points → cash conversion, before difficulty and contract. */
-export const CALL_OF_XENO_PAYOUT_RATE = 0.24
+export const CALL_OF_XENO_PAYOUT_RATE = 0.04
 /**
  * Runs deeper than round 100 settle as round 100. Nobody gets there by hand;
  * the clamp exists so an exploit cannot manufacture one.
@@ -311,14 +315,31 @@ export function callOfXenoRunCooldownRemainingMs(lastRunFinishedAt: Date | null,
 }
 
 /**
+ * The honesty ceiling ramps for ~90 minutes — the wall-clock pace of a
+ * round-50 run — then the growth decays exponentially (half-life ~99
+ * minutes), so depth past round 50 pays progressively less per round and
+ * the curve flattens toward CALL_OF_XENO_MAX_GROSS at round-100 pace.
+ */
+const CEILING_KNEE_MINUTES = 90
+const CEILING_RAMP_A = 14_000
+const CEILING_RAMP_B = 40
+const CEILING_KNEE_VALUE = CEILING_RAMP_A * CEILING_KNEE_MINUTES + CEILING_RAMP_B * CEILING_KNEE_MINUTES * CEILING_KNEE_MINUTES
+const CEILING_DECAY_PER_MINUTE = 0.993
+
+/**
  * The most gross points a run of `elapsedMs` could honestly have earned on
- * this difficulty. Tracks a realistic income curve (rounds get richer as the
- * run goes deep) with headroom, then scales by the tier's spawn count.
+ * this difficulty. Tracks a realistic income curve with headroom for
+ * point-farming play, then scales by the tier's spawn count.
  */
 export function callOfXenoMaxGrossForElapsedMs(elapsedMs: number, difficulty: CallOfXenoDifficulty): number {
     const minutes = Math.max(0, (elapsedMs - CALL_OF_XENO_ELAPSED_GRACE_MS) / 60_000)
-    // ~3.3k points/min average early, ramping toward ~5k/min deep.
-    const curve = 3_900 * minutes + 30 * minutes * minutes
+    let curve: number
+    if (minutes <= CEILING_KNEE_MINUTES) {
+        curve = CEILING_RAMP_A * minutes + CEILING_RAMP_B * minutes * minutes
+    } else {
+        const over = minutes - CEILING_KNEE_MINUTES
+        curve = CEILING_KNEE_VALUE + (CALL_OF_XENO_MAX_GROSS - CEILING_KNEE_VALUE) * (1 - Math.pow(CEILING_DECAY_PER_MINUTE, over))
+    }
     return Math.min(
         CALL_OF_XENO_MAX_GROSS,
         Math.round(curve * Math.max(1, difficulty.countMult))
