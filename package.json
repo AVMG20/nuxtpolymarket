@@ -18,7 +18,8 @@
     "sentry:check": "bun scripts/sentry-check.ts",
     "balance:xeno": "bun scripts/xeno-income.ts",
     "balance:colony": "bun scripts/colony-income.ts",
-    "balance:hack": "bun scripts/hack-income.ts"
+    "balance:hack": "bun scripts/hack-income.ts",
+    "balance:compare": "bun scripts/economy-compare.ts"
   },
   "dependencies": {
     "@iconify-json/lucide": "^1.2.98",

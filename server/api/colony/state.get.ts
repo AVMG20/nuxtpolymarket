@@ -97,11 +97,11 @@ export default defineEventHandler(async (event) => {
   // Reflect whichever rate is CURRENTLY in effect in every display number
   // below, so the UI matches what's actually happening right now.
   const gemBuffActive = state.gemNutrition > 0
-  const { bugs: enrichedBugs, nutritionDrainPerHour } = serializePlacedBugs(placedBugs, mods, gemBuffActive)
+  const { bugs: enrichedBugs, nutritionDrainPerHour } = serializePlacedBugs(placedBugs, mods, gemBuffActive, researchLevels)
 
   const ownedItemMap = new Map(items.map(i => [i.itemTypeId, i.quantity]))
   const inventory = ITEM_TYPES.map(t => ({ ...t, quantity: ownedItemMap.get(t.id) ?? 0 }))
-  const bugInventory = serializeBugInventory(unplacedBugs, mods)
+  const bugInventory = serializeBugInventory(unplacedBugs, mods, researchLevels)
 
   const lootMap = new Map(loot.map(l => [l.itemTypeId, l.quantity]))
   const pendingLoot = ITEM_TYPES

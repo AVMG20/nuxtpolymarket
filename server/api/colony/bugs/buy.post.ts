@@ -20,8 +20,10 @@ export default defineEventHandler(async (event) => {
   }
 
   // The roll range for both speed and yield is driven by this species'
-  // Research level (see rollTraitPct/rollYieldLevel) — sacrificing bugs of
-  // this type on the Research page is the only way to raise it.
+  // Research level (see rollTraitPct/rollYieldLevel) — researching this type on
+  // the Research page is the only way to raise it. Research ALSO multiplies
+  // what this species forages colony-wide (see researchResourceMultiplier),
+  // which needs no roll and applies to bugs already owned.
   const researchLevel = await getResearchLevel(userId, type.id)
 
   // bought bugs land in inventory, unplaced — no capacity check here, that

@@ -773,6 +773,13 @@ function bugYieldPerCycle(bug: any): string {
                         <span class="text-xs font-bold uppercase tracking-wider text-muted">Eat</span>
                         <span class="text-xs font-black tabular-nums text-muted">{{ bug.eat }} / cycle</span>
                       </div>
+                      <div
+                        v-if="bug.resourceMultiplier > 1"
+                        class="flex items-center justify-between gap-3"
+                      >
+                        <span class="text-xs font-bold uppercase tracking-wider text-muted">Research</span>
+                        <span class="text-xs font-black tabular-nums text-primary">×{{ bug.resourceMultiplier }} resources</span>
+                      </div>
                     </div>
 
                     <USeparator />
