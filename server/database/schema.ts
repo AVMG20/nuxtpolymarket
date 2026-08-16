@@ -375,7 +375,11 @@ export const callOfXenoState = pgTable('call_of_xeno_state', {
   runStartedAt: timestamp('run_started_at'),
   runDifficultySnapshot: text('run_difficulty_snapshot'),
   runPayoutMultSnapshot: numeric('run_payout_mult_snapshot', { precision: 10, scale: 4 }),
-  lastRunFinishedAt: timestamp('last_run_finished_at')
+  lastRunFinishedAt: timestamp('last_run_finished_at'),
+  // The player's single best run — what the leaderboard shows.
+  bestRunRounds: integer('best_run_rounds').notNull().default(0),
+  bestRunDurationSeconds: integer('best_run_duration_seconds').notNull().default(0),
+  bestRunDifficulty: text('best_run_difficulty')
 })
 
 export const gemOrders = pgTable('gem_orders', {

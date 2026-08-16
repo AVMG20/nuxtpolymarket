@@ -77,8 +77,8 @@ export const CALL_OF_XENO_UPGRADES: CallOfXenoUpgradeDef[] = [
     {
         id: 'sidearm',
         name: 'Sidearm',
-        description: 'Unlock better starting sidearms: Skorpion, Trench Gun, MP40',
-        max: 3,
+        description: 'Unlock better starting sidearms: Skorpion, Trench Gun, MP40, AK-74',
+        max: 4,
         baseCost: 1_200_000,
         growth: 3.2
     }
@@ -103,7 +103,7 @@ export function callOfXenoUpgradeCost(def: CallOfXenoUpgradeDef, level: number):
     return Math.round(def.baseCost * Math.pow(def.growth, level))
 }
 
-const SIDEARM_LADDER: CallOfXenoWeaponId[] = ['skorpion', 'trench', 'mp40']
+const SIDEARM_LADDER: CallOfXenoWeaponId[] = ['skorpion', 'trench', 'mp40', 'ak74']
 
 /** Sidearms the Sidearm track unlocks, in order. Exported for the picker UI. */
 export const CALL_OF_XENO_SIDEARM_LADDER = SIDEARM_LADDER
@@ -127,6 +127,26 @@ export interface CallOfXenoUpgradeEffects {
     startWeapon: CallOfXenoWeaponId | null
 }
 
+/** Position on the difficulty ladder — higher is harder. */
+export function callOfXenoDifficultyRank(id: string): number {
+    const index = CALL_OF_XENO_DIFFICULTIES.findIndex(d => d.id === id)
+    return index === -1 ? -1 : index
+}
+
+/** True when a finished run beats the recorded best: harder tier, then deeper. */
+export function callOfXenoBeatsBestRun(
+    rounds: number,
+    difficultyId: string,
+    bestRounds: number,
+    bestDifficultyId: string | null
+): boolean {
+    if (bestDifficultyId === null || bestRounds <= 0) return rounds > 0
+    const rank = callOfXenoDifficultyRank(difficultyId)
+    const bestRank = callOfXenoDifficultyRank(bestDifficultyId)
+    if (rank !== bestRank) return rank > bestRank
+    return rounds > bestRounds
+}
+
 /** Whether a weapon is a legal starting sidearm at this Sidearm level. */
 export function callOfXenoSidearmUnlocked(weapon: CallOfXenoWeaponId, sidearmLevel: number): boolean {
     if (weapon === 'm1911') return true
@@ -143,7 +163,7 @@ export function callOfXenoUpgradeEffects(levels: CallOfXenoUpgradeLevels): CallO
         // Additive on purpose: 5% per level, hard-floored at a 25% discount.
         costMult: Math.max(0.75, 1 - levels.scavenger * 0.05),
         payoutMult: 1 + levels.contract * 0.25,
-        startWeapon: levels.sidearm > 0 ? SIDEARM_LADDER[Math.min(levels.sidearm, 3) - 1]! : null
+        startWeapon: levels.sidearm > 0 ? SIDEARM_LADDER[Math.min(levels.sidearm, SIDEARM_LADDER.length) - 1]! : null
     }
 }
 

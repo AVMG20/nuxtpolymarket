@@ -3,6 +3,7 @@ import {
     CALL_OF_XENO_WEAPONS,
     CALL_OF_XENO_WALL_WEAPONS,
     CALL_OF_XENO_PERKS,
+    perkPrice,
     CALL_OF_XENO_PAP_TIERS,
     CALL_OF_XENO_MAX_PAP_TIER,
     CALL_OF_XENO_BOX_POOL,
@@ -81,6 +82,7 @@ import {
 } from '../../shared/utils/gamelogic/call-of-xeno-nav'
 import {
     CALL_OF_XENO_DIFFICULTIES,
+    callOfXenoBeatsBestRun,
     CALL_OF_XENO_ELAPSED_GRACE_MS,
     CALL_OF_XENO_EMPTY_LEVELS,
     CALL_OF_XENO_MAX_GROSS,
@@ -123,9 +125,9 @@ function penetration(x: number, z: number, feetY = groundHeight(x, z, 0)) {
 }
 
 describe('call of xeno weapons', () => {
-    it('ships eight conventional weapons plus one wonder weapon', () => {
+    it('ships ten conventional weapons plus one wonder weapon', () => {
         const ids = Object.keys(CALL_OF_XENO_WEAPONS) as CallOfXenoWeaponId[]
-        expect(ids).toHaveLength(9)
+        expect(ids).toHaveLength(11)
         const conventional = ids.filter(id => id !== 'xenoray')
         const best = Math.max(...conventional.map(id => CALL_OF_XENO_WEAPONS[id].damage))
         expect(CALL_OF_XENO_WEAPONS.xenoray.damage).toBeGreaterThan(best * 3)
@@ -262,6 +264,29 @@ describe('pack-a-punch ladder', () => {
         // But the ray keeps the harder hit: it is the special weapon.
         const rayTier1 = packAPunch(ray, 1)
         expect(rayTier1.damage).toBeGreaterThan(CALL_OF_XENO_SALLY_DAMAGE[0])
+    })
+
+    it('caps the belt-feds at fixed PaP magazines instead of the ladder growth', () => {
+        for (const tier of [1, 2, 3]) {
+            expect(packAPunch(CALL_OF_XENO_WEAPONS.m60, tier).magSize, `m60 tier ${tier}`).toBe(150)
+            expect(packAPunch(CALL_OF_XENO_WEAPONS.fnmag, tier).magSize, `fnmag tier ${tier}`).toBe(75)
+        }
+        // Two distinct belt-feds: the M60 sprays more, the FNMAG hits harder.
+        expect(CALL_OF_XENO_WEAPONS.m60.magSize).toBe(100)
+        expect(CALL_OF_XENO_WEAPONS.fnmag.magSize).toBe(55)
+        expect(CALL_OF_XENO_WEAPONS.fnmag.damage).toBeGreaterThan(CALL_OF_XENO_WEAPONS.m60.damage)
+        expect(CALL_OF_XENO_WEAPONS.fnmag.fireDelay).toBeGreaterThan(CALL_OF_XENO_WEAPONS.m60.fireDelay)
+    })
+
+    it('taxes movement by weapon weight, pistol lightest and belt-feds heaviest', () => {
+        const m = (id: CallOfXenoWeaponId) => CALL_OF_XENO_WEAPONS[id].mobility ?? 1
+        expect(m('m1911')).toBe(1)
+        expect(m('skorpion')).toBeGreaterThan(m('mp40'))
+        expect(m('mp40')).toBeGreaterThan(m('ak74'))
+        expect(m('ak74')).toBeGreaterThan(m('rpk'))
+        expect(Math.min(m('m60'), m('fnmag'))).toBeLessThan(m('rpk'))
+        // Small penalties only: nothing drops below a 8% cut.
+        expect(m('m60')).toBeGreaterThan(0.9)
     })
 
     it('softens the wonder weapon with distance and lets Pack-a-Punch push it back out', () => {
@@ -421,6 +446,17 @@ describe('perks', () => {
         expect(machines).toHaveLength(4)
         expect(machines.every(m => m.needsPower)).toBe(true)
         expect(new Set(machines.map(m => m.region)).size).toBe(4)
+    })
+
+    it('prices perks at a flat base plus a step per perk already carried', () => {
+        // Any regular perk: 2500 empty-handed, 3000/3500 as the belt fills.
+        expect(perkPrice('juggernog', 0, 0)).toBe(2500)
+        expect(perkPrice('juggernog', 1, 0)).toBe(3000)
+        expect(perkPrice('speedcola', 3, 0)).toBe(4000)
+        // Quick Revive: cheap once, then full base price — regardless of belt.
+        expect(perkPrice('quickrevive', 0, 0)).toBe(500)
+        expect(perkPrice('quickrevive', 2, 1)).toBe(2500)
+        expect(perkPrice('quickrevive', 0, 2)).toBe(2500)
     })
 
     it('puts a perk up on the second floor and one out in the Lab', () => {
@@ -985,7 +1021,7 @@ describe('meta progression', () => {
         adrenaline: 10,
         scavenger: 5,
         contract: 9,
-        sidearm: 3
+        sidearm: 4
     }
 
     it('prices the full upgrade ladder inside the 500-800M budget', () => {
@@ -1020,7 +1056,7 @@ describe('meta progression', () => {
         // Scavenger: additive, floored at a 25% discount.
         expect(maxed.costMult).toBeCloseTo(0.75, 6)
         expect(callOfXenoUpgradeEffects({ ...maxedLevels, scavenger: 20 }).costMult).toBeCloseTo(0.75, 6)
-        expect(['skorpion', 'trench', 'mp40']).toContain(maxed.startWeapon)
+        expect(maxed.startWeapon).toBe('ak74')
     })
 
     it('gates the sidearm ladder level by level', () => {
@@ -1031,10 +1067,24 @@ describe('meta progression', () => {
         expect(callOfXenoSidearmUnlocked('trench', 2)).toBe(true)
         expect(callOfXenoSidearmUnlocked('mp40', 3)).toBe(true)
         expect(callOfXenoSidearmUnlocked('ak74', 3)).toBe(false)
+        expect(callOfXenoSidearmUnlocked('ak74', 4)).toBe(true)
+        expect(callOfXenoSidearmUnlocked('magnum', 4)).toBe(false)
     })
 
-    it('chains difficulty unlocks off the previous tier only', () => {
-        expect(callOfXenoDifficultyUnlocked(CALL_OF_XENO_DIFFICULTIES[0]!, noBest)).toBe(true)
+    it('ranks best runs by difficulty tier first, then depth', () => {
+        // Empty board: any finished run takes it.
+        expect(callOfXenoBeatsBestRun(3, 'recruit', 0, null)).toBe(true)
+        expect(callOfXenoBeatsBestRun(0, 'recruit', 0, null)).toBe(false)
+        // Same tier: deeper wins, shallower does not.
+        expect(callOfXenoBeatsBestRun(15, 'veteran', 14, 'veteran')).toBe(true)
+        expect(callOfXenoBeatsBestRun(14, 'veteran', 14, 'veteran')).toBe(false)
+        expect(callOfXenoBeatsBestRun(13, 'veteran', 14, 'veteran')).toBe(false)
+        // Harder tier beats any depth on an easier one, and never the reverse.
+        expect(callOfXenoBeatsBestRun(5, 'survivor', 40, 'recruit')).toBe(true)
+        expect(callOfXenoBeatsBestRun(40, 'recruit', 5, 'survivor')).toBe(false)
+    })
+
+    it('chains difficulty unlocks off the previous tier only', () => {        expect(callOfXenoDifficultyUnlocked(CALL_OF_XENO_DIFFICULTIES[0]!, noBest)).toBe(true)
         expect(callOfXenoDifficultyUnlocked(CALL_OF_XENO_DIFFICULTIES[1]!, noBest)).toBe(false)
         // Round 12 recruit opens veteran, but not survivor.
         const best = { ...noBest, recruit: 12 }

@@ -189,28 +189,39 @@ export class CallOfXenoAudio {
                 this.tone({ duration: 0.06, gain: 0.2, freq: 420, freqEnd: 180, type: 'square' })
                 break
             case 'hit':
-                this.burst({ duration: 0.09, gain: 0.34, freq: 1400, freqEnd: 300, q: 1.4 })
-                this.tone({ duration: 0.07, gain: 0.16, freq: 320, freqEnd: 120, type: 'triangle' })
+                // Wet squelch: soft low thud, no bright crack.
+                this.burst({ duration: 0.08, gain: 0.3, freq: 700, freqEnd: 160, q: 0.9 })
+                this.tone({ duration: 0.06, gain: 0.14, freq: 210, freqEnd: 80, type: 'triangle' })
                 break
             case 'headshot':
-                this.burst({ duration: 0.13, gain: 0.42, freq: 2600, freqEnd: 400, q: 2 })
-                this.tone({ duration: 0.1, gain: 0.24, freq: 900, freqEnd: 220, type: 'square' })
+                // A dull crunch rather than a ding.
+                this.burst({ duration: 0.11, gain: 0.4, freq: 1500, freqEnd: 260, q: 1.4 })
+                this.tone({ duration: 0.09, gain: 0.2, freq: 130, freqEnd: 55, type: 'triangle' })
                 break
             case 'kill':
-                this.burst({ duration: 0.3, gain: 0.4, freq: 900, freqEnd: 120, q: 1 })
-                this.tone({ duration: 0.26, gain: 0.22, freq: 140, freqEnd: 45, type: 'sawtooth' })
+                this.burst({ duration: 0.22, gain: 0.32, freq: 640, freqEnd: 90, q: 0.9 })
+                this.tone({ duration: 0.2, gain: 0.16, freq: 110, freqEnd: 40, type: 'sawtooth' })
                 break
-            case 'zombie-groan':
-                this.tone({ duration: 0.9, gain: 0.13, freq: 90 + Math.random() * 40, freqEnd: 55, type: 'sawtooth' })
-                this.burst({ duration: 0.8, gain: 0.07, freq: 620, freqEnd: 180, type: 'bandpass', q: 3 })
+            case 'zombie-groan': {
+                // A rasp from the chest: two detuned growls plus a breath of
+                // air through a narrow band, each call pitched at random.
+                const base = 68 + Math.random() * 42
+                this.tone({ duration: 1.1, gain: 0.14, freq: base, freqEnd: base * 0.62, type: 'sawtooth' })
+                this.tone({ duration: 1.05, gain: 0.09, freq: base * 1.02, freqEnd: base * 0.6, type: 'sawtooth' })
+                this.burst({ duration: 1.0, gain: 0.05, freq: 900, freqEnd: 300, type: 'bandpass', q: 4 })
                 break
+            }
             case 'zombie-attack':
-                this.tone({ duration: 0.25, gain: 0.24, freq: 320, freqEnd: 90, type: 'sawtooth' })
-                this.burst({ duration: 0.2, gain: 0.22, freq: 1600, freqEnd: 260, q: 1.5 })
+                // A snarl snapping shut: fast rising rasp, then the bite.
+                this.tone({ duration: 0.16, gain: 0.2, freq: 140, freqEnd: 380, type: 'sawtooth' })
+                this.tone({ at: t + 0.14, duration: 0.14, gain: 0.22, freq: 300, freqEnd: 80, type: 'sawtooth' })
+                this.burst({ at: t + 0.14, duration: 0.14, gain: 0.18, freq: 1800, freqEnd: 300, q: 1.4 })
                 break
             case 'hurt':
-                this.tone({ duration: 0.4, gain: 0.34, freq: 220, freqEnd: 55, type: 'triangle' })
-                this.burst({ duration: 0.3, gain: 0.24, freq: 700, freqEnd: 110, type: 'lowpass' })
+                // Muffled thump and a ringing ear, not a cartoon yell.
+                this.tone({ duration: 0.3, gain: 0.3, freq: 160, freqEnd: 48, type: 'triangle' })
+                this.burst({ duration: 0.22, gain: 0.16, freq: 520, freqEnd: 120 })
+                this.tone({ duration: 0.5, gain: 0.06, freq: 3100, freqEnd: 2900, type: 'sine' })
                 break
             case 'melee':
                 this.burst({ duration: 0.15, gain: 0.22, freq: 800, freqEnd: 3400, type: 'bandpass', q: 2 })
@@ -230,43 +241,64 @@ export class CallOfXenoAudio {
                 this.tone({ duration: 0.12, gain: 0.36, freq: 58, freqEnd: 40 })
                 this.tone({ at: t + 0.24, duration: 0.1, gain: 0.26, freq: 52, freqEnd: 38 })
                 break
-            case 'explosion':
-                this.burst({ duration: 0.9, gain: 0.85, freq: 900, freqEnd: 60, q: 0.7 })
-                this.tone({ duration: 0.7, gain: 0.6, freq: 95, freqEnd: 26, type: 'sawtooth' })
-                this.tone({ at: t + 0.04, duration: 0.5, gain: 0.4, freq: 220, freqEnd: 40, type: 'triangle' })
+            case 'explosion': {
+                // A sharp crack, then the low rumble rolling away.
+                this.burst({ duration: 0.12, gain: 0.5, freq: 3000, freqEnd: 700, q: 0.8 })
+                this.burst({ at: t + 0.02, duration: 1.0, gain: 0.6, freq: 750, freqEnd: 55, q: 0.6 })
+                this.tone({ duration: 0.85, gain: 0.5, freq: 78, freqEnd: 24, type: 'sawtooth' })
+                this.tone({ at: t + 0.03, duration: 0.6, gain: 0.3, freq: 190, freqEnd: 36, type: 'triangle' })
                 break
-            case 'buy':
-                this.tone({ duration: 0.1, gain: 0.24, freq: 880, type: 'square' })
-                this.tone({ at: t + 0.09, duration: 0.18, gain: 0.24, freq: 1320, type: 'square' })
+            }
+            case 'buy': {
+                // Coin chime, muted.
+                this.tone({ duration: 0.09, gain: 0.16, freq: 990, type: 'sine' })
+                this.tone({ at: t + 0.07, duration: 0.16, gain: 0.14, freq: 1485, type: 'sine' })
                 break
+            }
             case 'deny':
-                this.tone({ duration: 0.16, gain: 0.22, freq: 220, freqEnd: 120, type: 'square' })
+                this.tone({ duration: 0.09, gain: 0.16, freq: 180, freqEnd: 150, type: 'square' })
+                this.tone({ at: t + 0.11, duration: 0.12, gain: 0.14, freq: 150, freqEnd: 110, type: 'square' })
                 break
             case 'door':
-                this.burst({ duration: 0.55, gain: 0.4, freq: 1200, freqEnd: 140, q: 0.8 })
-                this.tone({ duration: 0.5, gain: 0.22, freq: 130, freqEnd: 55, type: 'sawtooth' })
+                // Metal grinding back into a pocket.
+                this.burst({ duration: 0.5, gain: 0.28, freq: 900, freqEnd: 200, type: 'bandpass', q: 2.5 })
+                this.tone({ at: t + 0.42, duration: 0.16, gain: 0.24, freq: 95, freqEnd: 50, type: 'triangle' })
                 break
             case 'power':
-                this.tone({ duration: 1.6, gain: 0.3, freq: 60, freqEnd: 220, type: 'sawtooth' })
-                this.tone({ at: t + 0.4, duration: 1.4, gain: 0.16, freq: 180, freqEnd: 440, type: 'sine' })
-                this.burst({ at: t + 0.1, duration: 0.7, gain: 0.18, freq: 400, freqEnd: 2600, type: 'bandpass', q: 2 })
+                // Breaker thrown: a clunk, then the hum climbing to full.
+                this.burst({ duration: 0.06, gain: 0.4, freq: 2400, freqEnd: 500, q: 3 })
+                this.tone({ at: t + 0.1, duration: 1.6, gain: 0.22, freq: 50, freqEnd: 190, type: 'sawtooth' })
+                this.tone({ at: t + 0.5, duration: 1.3, gain: 0.12, freq: 170, freqEnd: 400, type: 'sine' })
                 break
-            case 'papunch':
-                for (let i = 0; i < 4; i++) {
-                    this.tone({ at: t + i * 0.12, duration: 0.22, gain: 0.22, freq: 440 * Math.pow(2, i / 4), type: 'square' })
+            case 'papunch': {
+                // A whirring charge, then the stamp comes down.
+                this.tone({ duration: 0.5, gain: 0.16, freq: 160, freqEnd: 660, type: 'sawtooth' })
+                for (let i = 0; i < 3; i++) {
+                    this.tone({ at: t + 0.5 + i * 0.09, duration: 0.1, gain: 0.16, freq: 520 + i * 140, type: 'square' })
                 }
+                this.burst({ at: t + 0.78, duration: 0.12, gain: 0.34, freq: 2100, freqEnd: 400, q: 2 })
                 break
-            case 'perk':
-                this.tone({ duration: 0.5, gain: 0.2, freq: 300, freqEnd: 900, type: 'sine' })
-                this.tone({ at: t + 0.2, duration: 0.4, gain: 0.16, freq: 600, freqEnd: 1200, type: 'triangle' })
+            }
+            case 'perk': {
+                // A short bottle-pop jingle.
+                this.burst({ duration: 0.04, gain: 0.24, freq: 2000, freqEnd: 900, type: 'bandpass', q: 5 })
+                this.tone({ at: t + 0.05, duration: 0.14, gain: 0.16, freq: 523, type: 'sine' })
+                this.tone({ at: t + 0.17, duration: 0.14, gain: 0.16, freq: 659, type: 'sine' })
+                this.tone({ at: t + 0.29, duration: 0.24, gain: 0.16, freq: 784, type: 'sine' })
                 break
-            case 'round-start':
-                this.tone({ duration: 1.2, gain: 0.22, freq: 320, freqEnd: 180, type: 'sawtooth' })
-                this.tone({ at: t + 0.5, duration: 1.2, gain: 0.2, freq: 240, freqEnd: 140, type: 'sawtooth' })
+            }
+            case 'round-start': {
+                // The horde horn: two low saws a fifth apart, fading out.
+                this.tone({ duration: 1.5, gain: 0.16, freq: 98, freqEnd: 82, type: 'sawtooth' })
+                this.tone({ duration: 1.5, gain: 0.12, freq: 147, freqEnd: 123, type: 'sawtooth' })
+                this.burst({ duration: 1.2, gain: 0.06, freq: 400, freqEnd: 150, type: 'bandpass', q: 2 })
                 break
+            }
             case 'death':
-                this.tone({ duration: 2.2, gain: 0.3, freq: 260, freqEnd: 40, type: 'sawtooth' })
-                this.burst({ duration: 1.8, gain: 0.2, freq: 1400, freqEnd: 90, q: 1 })
+                // Falling: a low drone sliding out under a fading pulse.
+                this.tone({ duration: 2.4, gain: 0.22, freq: 200, freqEnd: 34, type: 'sawtooth' })
+                this.tone({ duration: 2.2, gain: 0.16, freq: 96, freqEnd: 30, type: 'triangle' })
+                this.burst({ duration: 1.6, gain: 0.12, freq: 700, freqEnd: 80, q: 1 })
                 break
             case 'board-break':
                 // Nails giving, then the plank cracking off.

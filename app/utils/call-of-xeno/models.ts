@@ -426,6 +426,36 @@ export function buildWeaponModel(id: CallOfXenoWeaponId, tier: number): THREE.Gr
             group.add(part(0.03, 0.16, 0.03, 0x2b2f36, 0, -0.12, -0.62))
             sights(-0.7, -0.06, 0.035)
             break
+        case 'm60': {
+            // The belt-fed pig: fat receiver, heavy barrel, ammo box, bipod.
+            group.add(part(0.1, 0.12, 0.58, GUN_DARK, 0, 0.01, -0.2))
+            group.add(part(0.055, 0.055, 0.86, 0x34383f, 0, 0.05, -0.46))
+            group.add(part(0.07, 0.07, 0.3, accent, 0, 0.05, -0.42))
+            // Carry handle over the barrel.
+            group.add(part(0.04, 0.05, 0.34, 0x2b2f36, 0, 0.12, -0.3))
+            group.add(part(0.04, 0.09, 0.04, 0x2b2f36, 0, 0.085, -0.44))
+            // Ammo box hanging under the feed tray.
+            group.add(part(0.16, 0.2, 0.24, 0x3f4436, 0.04, -0.14, -0.04))
+            group.add(part(0.08, 0.1, 0.22, GUN_WOOD, 0, -0.01, 0.18))
+            group.add(part(0.06, 0.13, 0.07, 0x2f3238, 0, -0.08, 0.05))
+            // Bipod folded under the muzzle.
+            group.add(part(0.025, 0.14, 0.025, 0x2b2f36, 0.05, -0.06, -0.72))
+            group.add(part(0.025, 0.14, 0.025, 0x2b2f36, -0.05, -0.06, -0.72))
+            sights(-0.74, -0.05, 0.035)
+            break
+        }
+        case 'fnmag': {
+            // The other belt-fed: longer, slimmer, straight magazine.
+            group.add(part(0.085, 0.1, 0.62, GUN_DARK, 0, 0.01, -0.24))
+            group.add(part(0.045, 0.045, 0.94, 0x34383f, 0, 0.045, -0.5))
+            group.add(part(0.06, 0.06, 0.4, accent, 0, 0.09, -0.44))
+            group.add(part(0.1, 0.24, 0.12, 0x3a3f47, 0, -0.15, -0.08))
+            group.add(part(0.075, 0.11, 0.28, GUN_WOOD, 0, -0.02, 0.2))
+            group.add(part(0.06, 0.13, 0.07, 0x2f3238, 0, -0.08, 0.06))
+            group.add(part(0.05, 0.05, 0.12, 0x2b2f36, 0, 0.015, -0.88))
+            sights(-0.8, -0.05, 0.035)
+            break
+        }
         case 'xenoray': {
             group.add(part(0.11, 0.13, 0.46, 0x2a3a3a, 0, 0.01, -0.18))
             const coilColor = tier > 0 ? accent : 0x44ffcc
@@ -960,6 +990,8 @@ export interface MysteryBoxModel extends PropModel {
     lid: THREE.Object3D
     /** Where the prize weapon floats while the box is spinning. */
     mount: THREE.Object3D
+    /** The price sign — hidden while the box is spinning or holding a prize. */
+    sign: THREE.Object3D
 }
 
 export function buildMysteryBox(cost: number): MysteryBoxModel {
@@ -1054,7 +1086,12 @@ export function buildMysteryBox(cost: number): MysteryBoxModel {
         background: 'rgba(16,10,4,0.9)',
         accent: '#c98a2a'
     })
-    sign.position.set(0, 1.45, 0.58)
+    // Price sign hangs at the back on a stand, above the prize but behind
+    // it — it must never cover the weapons the box rolls. The game hides it
+    // entirely while a spin is running.
+    const signPost = part(0.06, 0.6, 0.06, 0x2b2f36, 0, 1.5, -0.48)
+    group.add(signPost)
+    sign.position.set(0, 1.85, -0.46)
     group.add(sign)
 
     // Where the prize weapon floats while the box spins.
@@ -1066,7 +1103,7 @@ export function buildMysteryBox(cost: number): MysteryBoxModel {
     light.position.set(0, 1.6, 0)
     group.add(light)
 
-    return { group, glow: [glowMat, seamMat], light, lid, mount }
+    return { group, glow: [glowMat, seamMat], light, lid, mount, sign }
 }
 
 export interface PowerUpModel {

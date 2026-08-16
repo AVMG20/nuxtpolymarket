@@ -18,6 +18,8 @@ export type CallOfXenoWeaponId
       | 'ak74'
       | 'bar'
       | 'rpk'
+      | 'm60'
+      | 'fnmag'
       | 'xenoray'
 
 export type CallOfXenoPerkId = 'juggernog' | 'speedcola' | 'doubletap' | 'quickrevive'
@@ -48,6 +50,11 @@ export interface CallOfXenoWeapon {
     projectile?: boolean
     /** Splash radius in metres for explosive rounds. */
     blastRadius?: number
+    /**
+     * Walking and sprint speed multiplier while held. Defaults to 1; heavier
+     * weapons pay a small tax — pistol fastest, LMGs slowest.
+     */
+    mobility?: number
 }
 
 /** The wonder weapon's bolt pops with a very small blast. */
@@ -84,7 +91,8 @@ export const CALL_OF_XENO_WEAPONS: Record<CallOfXenoWeaponId, CallOfXenoWeapon> 
         penetration: 1,
         automatic: true,
         cost: 1000,
-        upgradedName: 'Czech Bounce'
+        upgradedName: 'Czech Bounce',
+        mobility: 0.985
     },
     magnum: {
         id: 'magnum',
@@ -101,7 +109,8 @@ export const CALL_OF_XENO_WEAPONS: Record<CallOfXenoWeaponId, CallOfXenoWeapon> 
         automatic: false,
         // Box only — this one is not sold on any wall.
         cost: 0,
-        upgradedName: '.44 Anaconda'
+        upgradedName: '.44 Anaconda',
+        mobility: 0.99
     },
     trench: {
         id: 'trench',
@@ -117,7 +126,8 @@ export const CALL_OF_XENO_WEAPONS: Record<CallOfXenoWeaponId, CallOfXenoWeapon> 
         penetration: 2,
         automatic: false,
         cost: 1500,
-        upgradedName: 'Gut Shot'
+        upgradedName: 'Gut Shot',
+        mobility: 0.965
     },
     mp40: {
         id: 'mp40',
@@ -134,7 +144,8 @@ export const CALL_OF_XENO_WEAPONS: Record<CallOfXenoWeaponId, CallOfXenoWeapon> 
         automatic: true,
         // Box only — this one is not sold on any wall.
         cost: 0,
-        upgradedName: 'The Afterburner'
+        upgradedName: 'The Afterburner',
+        mobility: 0.98
     },
     ak74: {
         id: 'ak74',
@@ -150,7 +161,8 @@ export const CALL_OF_XENO_WEAPONS: Record<CallOfXenoWeaponId, CallOfXenoWeapon> 
         penetration: 2,
         automatic: true,
         cost: 1800,
-        upgradedName: 'AK-74fu2'
+        upgradedName: 'AK-74fu2',
+        mobility: 0.97
     },
     bar: {
         id: 'bar',
@@ -167,7 +179,8 @@ export const CALL_OF_XENO_WEAPONS: Record<CallOfXenoWeaponId, CallOfXenoWeapon> 
         automatic: true,
         // Box only — this one is not sold on any wall.
         cost: 0,
-        upgradedName: 'Browning M1918'
+        upgradedName: 'Browning M1918',
+        mobility: 0.96
     },
     rpk: {
         id: 'rpk',
@@ -184,7 +197,45 @@ export const CALL_OF_XENO_WEAPONS: Record<CallOfXenoWeaponId, CallOfXenoWeapon> 
         automatic: true,
         // Box only — this one is not sold on any wall.
         cost: 0,
-        upgradedName: 'R115 Resonator'
+        upgradedName: 'R115 Resonator',
+        mobility: 0.94
+    },
+    m60: {
+        id: 'm60',
+        name: 'M60',
+        damage: 150,
+        pellets: 1,
+        fireDelay: 0.095,
+        magSize: 100,
+        reserveAmmo: 400,
+        reloadTime: 5.6,
+        spread: 0.042,
+        range: 70,
+        penetration: 3,
+        automatic: true,
+        // Box only — the belt-fed pig: the biggest magazine in the game and
+        // the slowest reload, plus the heaviest legs.
+        cost: 0,
+        mobility: 0.93,
+        upgradedName: 'The Chopper'
+    },
+    fnmag: {
+        id: 'fnmag',
+        name: 'FNMAG',
+        damage: 175,
+        pellets: 1,
+        fireDelay: 0.115,
+        magSize: 55,
+        reserveAmmo: 300,
+        reloadTime: 5.2,
+        spread: 0.036,
+        range: 72,
+        penetration: 3,
+        automatic: true,
+        // Box only — the other belt-fed: slower cadence, harder hits.
+        cost: 0,
+        mobility: 0.935,
+        upgradedName: 'Magnetron'
     },
     xenoray: {
         id: 'xenoray',
@@ -205,6 +256,7 @@ export const CALL_OF_XENO_WEAPONS: Record<CallOfXenoWeaponId, CallOfXenoWeapon> 
         blastRadius: CALL_OF_XENO_RAY_BLAST_RADIUS,
         // Mystery box only — there is no wall that sells the wonder weapon.
         cost: 0,
+        mobility: 0.97,
         upgradedName: 'Porter\'s X2 Xeno Ray'
     }
 }
@@ -235,14 +287,14 @@ export const CALL_OF_XENO_PERKS: Record<CallOfXenoPerkId, CallOfXenoPerk> = {
     speedcola: {
         id: 'speedcola',
         name: 'Speed Cola',
-        cost: 3000,
+        cost: 2500,
         description: 'Reloads take half as long.',
         color: 0x22cc55
     },
     doubletap: {
         id: 'doubletap',
         name: 'Double Tap',
-        cost: 2000,
+        cost: 2500,
         description: 'Fires 33% faster and deals 1.5x damage.',
         color: 0xdd8800
     },
@@ -250,9 +302,28 @@ export const CALL_OF_XENO_PERKS: Record<CallOfXenoPerkId, CallOfXenoPerk> = {
         id: 'quickrevive',
         name: 'Quick Revive',
         cost: 500,
-        description: 'Health starts regenerating twice as fast.',
+        description: 'On death, get back up once — losing every perk. First buy 500, then 2500, three per run.',
         color: 0x33aadd
     }
+}
+
+/**
+ * Every perk starts at the same base price and climbs a step for each perk
+ * already carried. Quick Revive is the exception: cheap once, then full
+ * price, and only three purchases survive in a single run.
+ */
+export const CALL_OF_XENO_PERK_BASE_COST = 2500
+export const CALL_OF_XENO_PERK_COST_STEP = 500
+export const CALL_OF_XENO_QUICK_REVIVE_FIRST_COST = 500
+export const CALL_OF_XENO_QUICK_REVIVE_COST = 2500
+export const CALL_OF_XENO_QUICK_REVIVE_MAX_BUYS = 3
+
+/** Price of a perk given what the player already carries. */
+export function perkPrice(perkId: CallOfXenoPerkId, perksOwned: number, quickReviveBuys: number): number {
+    if (perkId === 'quickrevive') {
+        return quickReviveBuys <= 0 ? CALL_OF_XENO_QUICK_REVIVE_FIRST_COST : CALL_OF_XENO_QUICK_REVIVE_COST
+    }
+    return CALL_OF_XENO_PERK_BASE_COST + CALL_OF_XENO_PERK_COST_STEP * perksOwned
 }
 
 export const CALL_OF_XENO_BASE_HEALTH = 100
@@ -370,6 +441,10 @@ export function packAPunch(weapon: CallOfXenoWeapon, tier: number): CallOfXenoWe
         upgraded.spread = 0.015
         upgraded.range = Math.max(weapon.range, 40)
     }
+    // The belt-feds trade the ladder's magazine growth for one set step:
+    // 100 to 150 on the M60, 55 to 75 on the FNMAG, at every tier.
+    if (weapon.id === 'm60') upgraded.magSize = 150
+    if (weapon.id === 'fnmag') upgraded.magSize = 75
     return upgraded
 }
 
@@ -394,6 +469,8 @@ export const CALL_OF_XENO_BOX_POOL: { weapon: CallOfXenoWeaponId, weight: number
     { weapon: 'magnum', weight: 6 },
     { weapon: 'bar', weight: 5 },
     { weapon: 'rpk', weight: 5 },
+    { weapon: 'm60', weight: 4 },
+    { weapon: 'fnmag', weight: 4 },
     { weapon: 'trench', weight: 4 },
     { weapon: 'ak74', weight: 4 },
     { weapon: 'skorpion', weight: 3 },

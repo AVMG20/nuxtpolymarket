@@ -26,14 +26,18 @@ export default defineEventHandler(async (event) => {
     if (!CALL_OF_XENO_DIFFICULTY_IDS.includes(difficultyId)) {
         throw createError({ statusCode: 400, statusMessage: 'Invalid difficulty' })
     }
+    // The client sets this when the player confirms abandoning a stuck run
+    // (a dead tab from a lost connection). The abandoned run pays nothing.
+    const forceAbandon = body?.force === true
 
     return db.transaction(async (tx) => {
         const state = await getLockedCallOfXenoState(tx, userId)
         if (state.runStartedAt) {
             // The game has no mid-run save: a run that never reported back is
             // a dead tab, and it pays nothing. After a grace window it is
-            // cleared so it cannot lock the account out forever.
-            if (Date.now() - state.runStartedAt.getTime() < STALE_RUN_MS) {
+            // cleared so it cannot lock the account out forever; an explicit
+            // abandon clears it immediately.
+            if (!forceAbandon && Date.now() - state.runStartedAt.getTime() < STALE_RUN_MS) {
                 throw createError({ statusCode: 400, statusMessage: 'A CALL OF XENO run is already active' })
             }
             await tx.update(callOfXenoState).set({
