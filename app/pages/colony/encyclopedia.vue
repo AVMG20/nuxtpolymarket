@@ -62,7 +62,7 @@ import {
             </p>
           </div>
           <p class="text-xs text-muted">
-            A fixed level rolled on purchase. Each cycle drops between 1 and yield level + 1 items. Research raises future roll ranges up to level {{ MAX_YIELD_LEVEL }}.
+            A fixed level rolled on purchase. Each cycle drops between 1 and yield level + 1 items. Research raises future roll ranges up to level {{ MAX_YIELD_LEVEL }}, and multiplies what every bug of that species forages on top of it.
           </p>
         </UCard>
         <UCard>

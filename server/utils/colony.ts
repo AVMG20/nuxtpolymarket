@@ -29,6 +29,7 @@ import {
   MAX_RESEARCH_LEVEL,
   researchSpeedRange,
   researchYieldRange,
+  researchResourceMultiplier,
   researchCost,
   type BugType,
   type ItemCost,
@@ -204,9 +205,10 @@ export async function settleColony(userId: string) {
   const elapsedMs = now - state.lastSettledAt.getTime()
   if (elapsedMs <= 0) return state
 
-  const [allBugs, levels] = await Promise.all([
+  const [allBugs, levels, researchLevels] = await Promise.all([
     tx.query.colonyBugs.findMany({ where: eq(colonyBugs.userId, userId) }),
-    getUpgradeLevels(userId)
+    getUpgradeLevels(userId),
+    getResearchLevels(userId)
   ])
   // only bugs placed in the terrarium forage and eat — inventory bugs are dormant
   const bugs = allBugs.filter(b => b.inTerrarium)
@@ -261,9 +263,14 @@ export async function settleColony(userId: string) {
           // spanning many ticks we settle on the expected value
           // (avgTickYield) rather than rolling every individual tick.
           // The gem-feed buff and the Foraging Yield track both raise the
-          // effective yield LEVEL by a flat amount before that roll.
+          // effective yield LEVEL by a flat amount before that roll; this
+          // species' Research level then multiplies the result (+25%/level).
+          // The multiplier is applied to the whole settled batch and floored
+          // once — you never bank a fraction of an item — rather than being
+          // floored per individual tick.
           const effectiveYield = bug.yield + mods.yieldLevelBonus + (buffed ? GEM_FEED_YIELD_BONUS : 0)
-          const qty = Math.round(avgTickYield(effectiveYield) * ticks)
+          const multiplier = researchResourceMultiplier(researchLevels[bug.typeId] ?? 0)
+          const qty = Math.floor(avgTickYield(effectiveYield) * ticks * multiplier)
           lootByItem.set(type.itemId, (lootByItem.get(type.itemId) ?? 0) + qty)
         }
       }
@@ -508,7 +515,7 @@ export function foragedDisplay(type: BugType | undefined) {
   return { emoji: item?.emoji ?? '❓', name: item?.name ?? 'Item', sellValue: item?.sellValue ?? 0 }
 }
 
-function buildPlacedBugDto(bug: ColonyBugRow, mods: TrackModifiers, sameSpeciesCount: number, gemBuffActive: boolean, buffSpeedPct: number) {
+function buildPlacedBugDto(bug: ColonyBugRow, mods: TrackModifiers, sameSpeciesCount: number, gemBuffActive: boolean, buffSpeedPct: number, resourceMultiplier: number) {
   const type = getBug(bug.typeId)
   const display = foragedDisplay(type)
   const social = socialMultiplier(bug.typeId, sameSpeciesCount)
@@ -542,6 +549,10 @@ function buildPlacedBugDto(bug: ColonyBugRow, mods: TrackModifiers, sameSpeciesC
       itemsPerTickMax: gemsPerCycle,
       itemsPerHour: tickMs > 0 ? (gemsPerCycle / tickMs) * 3_600_000 : 0,
       gemsPerCycle,
+      // Gems are deliberately NOT multiplied by Research — MAX_GEMS_PER_DAY is
+      // the only thing that governs them. Reported as 1 so the UI can show the
+      // same field for every bug without special-casing.
+      resourceMultiplier: 1,
       feedPerHour: effectiveEatPerTick(bug, mods.feedMultiplier) * (3_600_000 / tickMs)
     }
   }
@@ -553,10 +564,14 @@ function buildPlacedBugDto(bug: ColonyBugRow, mods: TrackModifiers, sameSpeciesC
   // itself, bumped by the Foraging Yield track's flat level bonus and by
   // +1 more while the gem-feed buff is active. min is always 1, max is
   // effectiveYield+1, avg (for rate math) is avgTickYield.
+  // This species' Research level then multiplies whatever that roll produces
+  // (see researchResourceMultiplier) — a colony-wide bonus that applies to
+  // bugs already placed, not just newly bought ones. Settle floors the batch
+  // (see settleColony), so the display floors the per-tick figures to match.
   const effectiveYield = bug.yield + mods.yieldLevelBonus + (gemBuffActive ? GEM_FEED_YIELD_BONUS : 0)
-  const itemsPerTickMin = 1
-  const itemsPerTickMax = effectiveYield + 1
-  const itemsPerTickAvg = avgTickYield(effectiveYield)
+  const itemsPerTickMin = Math.floor(1 * resourceMultiplier)
+  const itemsPerTickMax = Math.floor((effectiveYield + 1) * resourceMultiplier)
+  const itemsPerTickAvg = avgTickYield(effectiveYield) * resourceMultiplier
   return {
     id: bug.id,
     typeId: bug.typeId,
@@ -582,6 +597,9 @@ function buildPlacedBugDto(bug: ColonyBugRow, mods: TrackModifiers, sameSpeciesC
     itemsPerTickMin,
     itemsPerTickMax,
     itemsPerHour: tickMs > 0 ? (itemsPerTickAvg / tickMs) * 3_600_000 : 0,
+    // Surfaced so the bug tooltip can show WHY this bug out-produces an
+    // identical one of an unresearched species.
+    resourceMultiplier,
     // Eating is tied to completed ticks (see effectiveFeedPerHour) — a
     // faster effective tick from the speed trait, the Foraging Speed
     // track, a Social speed bonus, or the gem-feed buff means more meals
@@ -595,7 +613,7 @@ function buildPlacedBugDto(bug: ColonyBugRow, mods: TrackModifiers, sameSpeciesC
  * drain/hr — both ride the same same-species-count and gem-feed-buff state,
  * so they're derived together in one pass over placedBugs.
  */
-export function serializePlacedBugs(placedBugs: ColonyBugRow[], mods: TrackModifiers, gemBuffActive: boolean) {
+export function serializePlacedBugs(placedBugs: ColonyBugRow[], mods: TrackModifiers, gemBuffActive: boolean, researchLevels: Record<string, number> = {}) {
   const buffSpeedPct = gemBuffActive ? GEM_FEED_SPEED_BONUS_PCT : 0
   const sameSpeciesCounts = new Map<string, number>()
   for (const bug of placedBugs) sameSpeciesCounts.set(bug.typeId, (sameSpeciesCounts.get(bug.typeId) ?? 0) + 1)
@@ -611,14 +629,21 @@ export function serializePlacedBugs(placedBugs: ColonyBugRow[], mods: TrackModif
   }, 0)
 
   const bugs = placedBugs.map(bug =>
-    buildPlacedBugDto(bug, mods, sameSpeciesCounts.get(bug.typeId) ?? 1, gemBuffActive, buffSpeedPct)
+    buildPlacedBugDto(
+      bug,
+      mods,
+      sameSpeciesCounts.get(bug.typeId) ?? 1,
+      gemBuffActive,
+      buffSpeedPct,
+      researchResourceMultiplier(researchLevels[bug.typeId] ?? 0)
+    )
   )
 
   return { bugs, nutritionDrainPerHour }
 }
 
 /** Unplaced bugs, stacked by type+traits, with display/feed info for the inventory list. */
-export function serializeBugInventory(unplacedBugs: ColonyBugRow[], mods: TrackModifiers) {
+export function serializeBugInventory(unplacedBugs: ColonyBugRow[], mods: TrackModifiers, researchLevels: Record<string, number> = {}) {
   const bugStacks = new Map<string, { typeId: string, speed: number, yield: number, eat: number, quantity: number }>()
   for (const bug of unplacedBugs) {
     const key = `${bug.typeId}:${bug.speed}:${bug.yield}:${bug.eat}`
@@ -641,6 +666,7 @@ export function serializeBugInventory(unplacedBugs: ColonyBugRow[], mods: TrackM
       tier: type?.tier ?? 1,
       social: type?.social ?? true,
       producesGems: type?.producesGems ?? false,
+      resourceMultiplier: type?.producesGems ? 1 : researchResourceMultiplier(researchLevels[stack.typeId] ?? 0),
       baseTickMs: type?.baseTickMs ?? 0,
       yieldMin: type?.yieldMin ?? 0,
       yieldMax: type?.yieldMax ?? 0,
@@ -715,7 +741,7 @@ export function serializeBuilders(jobs: ColonyBuilderJobRow[], state: ColonyStat
     .map(job => serializeBuilderJob(job, state, levels))
 }
 
-/** Every species' Research DTO: current roll range, next range, and coin cost to advance. */
+/** Every species' Research DTO: current roll ranges and resource multiplier, what the next level buys, and the coin cost to advance. */
 export function serializeResearch(researchLevels: Record<string, number>) {
   return PURCHASABLE_BUG_TYPES.map((t) => {
     const researchLevel = researchLevels[t.id] ?? 0
@@ -735,14 +761,16 @@ export function serializeResearch(researchLevels: Record<string, number>) {
       speedMax,
       yieldMin,
       yieldMax,
+      resourceMultiplier: researchResourceMultiplier(researchLevel),
       nextSpeedRange: atMax ? null : researchSpeedRange(researchLevel + 1),
       nextYieldRange: atMax ? null : researchYieldRange(researchLevel + 1),
+      nextResourceMultiplier: atMax ? null : researchResourceMultiplier(researchLevel + 1),
       cost
     }
   })
 }
 
-/** Every species' catalog entry: current roll range (from Research), buyability, and owned count. */
+/** Every species' catalog entry: current roll ranges and resource multiplier (from Research), buyability, and owned count. */
 export function serializeSpeciesCatalog(bugs: ColonyBugRow[], researchLevels: Record<string, number>, habitatLevel: number) {
   return PURCHASABLE_BUG_TYPES.map((t) => {
     const display = foragedDisplay(t)
@@ -758,6 +786,7 @@ export function serializeSpeciesCatalog(bugs: ColonyBugRow[], researchLevels: Re
       speedMin,
       speedMax,
       researchLevel,
+      resourceMultiplier: researchResourceMultiplier(researchLevel),
       buyable: t.tier <= habitatLevel,
       owned: bugs.filter(b => b.typeId === t.id).length,
       itemEmoji: display.emoji,
