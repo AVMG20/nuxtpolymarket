@@ -1557,7 +1557,7 @@ function spawnPlayerRound(slot: WeaponSlot, damage: number) {
 
     muzzleFlash.getWorldPosition(muzzleWorld)
     pelletDir.multiplyScalar(0.35).add(muzzleWorld)
-    const speed = ray ? 58 : 26
+    const speed = ray ? 90 : 33
     const mesh = buildProjectile(ray ? 0x44ffcc : 0xffa040)
     mesh.scale.setScalar(ray ? 0.8 : 1)
     mesh.position.copy(pelletDir)

@@ -312,8 +312,8 @@ export const CALL_OF_XENO_RAY_FALLOFF_FLOOR = [0.12, 0.2, 0.3, 0.42]
  * loud round, a wide blast, and a pocket of spare shots you can count.
  */
 export const CALL_OF_XENO_SALLY_DAMAGE = [820, 1300, 2000]
-export const CALL_OF_XENO_SALLY_MAG = 6
-export const CALL_OF_XENO_SALLY_RESERVE = [18, 21, 24]
+export const CALL_OF_XENO_SALLY_MAG = 8
+export const CALL_OF_XENO_SALLY_RESERVE = [24, 28, 32]
 export const CALL_OF_XENO_SALLY_BLAST_RADIUS = 3.2
 
 /**
