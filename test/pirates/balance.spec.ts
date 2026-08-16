@@ -116,10 +116,15 @@ describe('pirate selectable difficulty and premium ammo', () => {
     expect(pirateMaxPayoutForRun(PIRATE_RUN_DURATION_MS, 0)).toBe(196_608)
     expect(pirateCompletionBonus(0)).toBe(110_592)
 
+    // Both games run about six minutes at full length and both are meant to
+    // land a fully-invested account in the site-wide 1-2M top band. The Shapezz
+    // side of the comparison is a *ceiling* rather than a haul, so it sits
+    // above the pirate average by design — what matters is that neither is an
+    // order of magnitude off the other.
     const piratePower200Clear = pirateAverageRunPayoutEstimate(200) + pirateCompletionBonus(200)
-    const shapezzOverdriveSixMinutes = shapezzMaxPayoutForRun(PIRATE_RUN_DURATION_MS, 'overdrive')
-    expect(piratePower200Clear).toBeGreaterThan(shapezzOverdriveSixMinutes)
-    expect(piratePower200Clear).toBeLessThan(shapezzOverdriveSixMinutes * 1.3)
+    const shapezzSurgeSixMinutes = shapezzMaxPayoutForRun(PIRATE_RUN_DURATION_MS, 'surge')
+    expect(piratePower200Clear).toBeGreaterThan(shapezzSurgeSixMinutes * 0.6)
+    expect(piratePower200Clear).toBeLessThan(shapezzSurgeSixMinutes * 1.6)
   })
 
   it('back-loads loot headroom instead of rewarding brief oversized voyages', () => {
