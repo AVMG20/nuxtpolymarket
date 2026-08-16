@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { pathwardenRelicStackMultiplier } from '#shared/utils/gamelogic/pathwarden'
+import { pathwardenRelicStackMultiplier, pathwardenRelicStacksOnto } from '#shared/utils/gamelogic/pathwarden'
 
 // Relic power is the rarity scale the relic pool is built on: Common 1,
 // Uncommon 1.45, Rare 2.1, Epic 3.1, Mythic 4.6.
@@ -23,5 +23,20 @@ describe('pathwardenRelicStackMultiplier', () => {
 
     it('never turns a negative power into a damage penalty', () => {
         expect(pathwardenRelicStackMultiplier(-5)).toBe(1)
+    })
+})
+
+describe('pathwardenRelicStacksOnto', () => {
+    it('stacks onto a bare defense', () => {
+        expect(pathwardenRelicStacksOnto(undefined, 'fire')).toBe(true)
+    })
+
+    it('stacks a higher rarity of the same family instead of opening the ritual', () => {
+        expect(pathwardenRelicStacksOnto('fire', 'fire')).toBe(true)
+    })
+
+    it('sends a different family through the ritual even when the element matches', () => {
+        expect(pathwardenRelicStacksOnto('fire', 'blast')).toBe(false)
+        expect(pathwardenRelicStacksOnto('leech', 'gale')).toBe(false)
     })
 })

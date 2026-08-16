@@ -132,6 +132,16 @@ export function pathwardenRelicStackMultiplier(relicPower: number) {
     return 1 + Math.max(0, relicPower) * 0.5
 }
 
+/**
+ * Relics stack by family, not by rarity. Binding a Rare onto a defense already
+ * carrying a Common of the same family must add a stack, never open the
+ * destructive Arcanist ritual — the ritual is only for replacing one family
+ * with another.
+ */
+export function pathwardenRelicStacksOnto(boundFamily: string | undefined, incomingFamily: string) {
+    return !boundFamily || boundFamily === incomingFamily
+}
+
 export const PATHWARDEN_SKINS = [
     { id: 'warden-stone', name: 'Warden Stone', gemCost: 0, description: 'The traditional slate-and-cyan Warden livery.', palette: 'slate' },
     { id: 'ember-court', name: 'Ember Court', gemCost: 50, description: 'Black iron, crimson roofs, and furnace banners.', palette: 'ember' },

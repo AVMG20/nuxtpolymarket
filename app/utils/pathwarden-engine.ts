@@ -2,6 +2,7 @@ import {
   PATHWARDEN_AMBIENT_STORY_COUNT,
   PATHWARDEN_DEFENSE_BLUEPRINTS,
   pathwardenRelicStackMultiplier,
+  pathwardenRelicStacksOnto,
   type PathwardenDefenseArchetype,
   type PathwardenDefenseBlueprint,
   type PathwardenDefenseFamily
@@ -1859,7 +1860,7 @@ export class PathwardenEngine {
     if (!import.meta.dev || this.debugRelicSwapTowerId === null) return null
     const tower = this.towers.find(candidate => candidate.id === this.debugRelicSwapTowerId)
     const relic = this.relicInventory[0]
-    if (!tower || !relic || !tower.relicFamily || (tower.relicId === relic.id && !this.debugForceRelicSwap)) return null
+    if (!tower || !relic || !tower.relicFamily || (pathwardenRelicStacksOnto(tower.relicFamily, relic.family) && !this.debugForceRelicSwap)) return null
     const preview = this.relicSwapPreview(tower, relic)
     this.callbacks.onOpenArcanistWorkbench?.(preview)
     return preview
@@ -2013,7 +2014,7 @@ export class PathwardenEngine {
       this.emitState()
       return
     }
-    if (tower.relicFamily && (tower.relicId !== relic.id || (this.debugForceRelicSwap && tower.id === this.debugRelicSwapTowerId))) {
+    if (tower.relicFamily && (!pathwardenRelicStacksOnto(tower.relicFamily, relic.family) || (this.debugForceRelicSwap && tower.id === this.debugRelicSwapTowerId))) {
       this.callbacks.onOpenArcanistWorkbench?.(this.relicSwapPreview(tower, relic))
       return
     }
@@ -2035,7 +2036,7 @@ export class PathwardenEngine {
     if (this.phase !== 'planning') return null
     const tower = this.towers.find(candidate => candidate.id === towerId)
     const relic = this.relicInventory.find(candidate => candidate.instanceId === relicInstanceId)
-    if (!tower || !relic || !tower.relicFamily || (tower.relicId === relic.id && !this.debugForceRelicSwap)) return null
+    if (!tower || !relic || !tower.relicFamily || (pathwardenRelicStacksOnto(tower.relicFamily, relic.family) && !this.debugForceRelicSwap)) return null
     const preview = this.relicSwapPreview(tower, relic)
     const requestedAether = Number.isFinite(investment.amount) ? investment.amount : 0
     const aetherSpent = clamp(Math.floor(requestedAether), 0, Math.max(0, this.aether))
