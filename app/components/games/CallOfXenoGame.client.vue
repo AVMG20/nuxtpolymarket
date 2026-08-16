@@ -818,6 +818,7 @@ import {
     CALL_OF_XENO_PAYOUT_RATE,
     CALL_OF_XENO_SIDEARM_LADDER,
     callOfXenoDifficulty,
+    callOfXenoPayoutForRun,
     callOfXenoSidearmUnlocked,
     callOfXenoUpgradeEffects,
     type CallOfXenoBestRounds,
@@ -931,6 +932,8 @@ let runEffects: CallOfXenoUpgradeEffects = callOfXenoUpgradeEffects(CALL_OF_XENO
 const grossEarned = ref(0)
 /** True while a server-armed run is in flight and owes a finish-run. */
 let serverRunActive = false
+/** Wall-clock start of the current run — drives the honest payout preview. */
+let runStartMs = 0
 
 /** Chosen starting weapon for the next run. Kept across menu visits, reset to the best unlocked one after buys. */
 const chosenSidearm = ref<CallOfXenoWeaponId>('m1911')
@@ -1036,10 +1039,10 @@ const payoutRateLabel = computed(() => {
     return `×${(CALL_OF_XENO_PAYOUT_RATE * reward).toFixed(2)}`
 })
 
-/** What dying right now would pay: gross so far × rate × tier × contract. */
+/** What dying right now would pay — same ceiling and caps the server settle uses. */
 const pausePayoutEstimate = computed(() => {
     if (guestMode.value) return null
-    return Math.floor(grossEarned.value * CALL_OF_XENO_PAYOUT_RATE * runDifficulty.reward * runEffects.payoutMult)
+    return callOfXenoPayoutForRun(grossEarned.value, Date.now() - runStartMs, runDifficulty, runEffects.payoutMult).awarded
 })
 
 const upgradeIcons: Record<CallOfXenoUpgradeId, string> = {
@@ -3493,6 +3496,7 @@ function resetRun() {
     sinceDamage = 99
     score = runEffects.startingPoints
     grossEarned.value = 0
+    runStartMs = Date.now()
     streak = 0
     streakTimer = 0
     runTime = 0

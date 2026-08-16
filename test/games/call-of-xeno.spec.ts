@@ -87,6 +87,7 @@ import {
     CALL_OF_XENO_EMPTY_LEVELS,
     CALL_OF_XENO_MAX_GROSS,
     CALL_OF_XENO_MAX_PAYOUT,
+    CALL_OF_XENO_MAX_PAYOUT_BASE,
     CALL_OF_XENO_RUN_COOLDOWN_MS,
     CALL_OF_XENO_UPGRADES,
     callOfXenoDifficulty,
@@ -1118,6 +1119,20 @@ describe('meta progression', () => {
         expect(marathon.capped).toBe(false)
         // 600k × 0.25 × 10 × 3.25 = 4.875M raw — the hard cap holds it at 2.6M.
         expect(marathon.awarded).toBe(CALL_OF_XENO_MAX_PAYOUT)
+    })
+
+    it('gates the payout ceiling behind the Payout Contract', () => {
+        const nightmare = callOfXenoDifficulty('nightmare')
+        const marathon = CALL_OF_XENO_ELAPSED_GRACE_MS + 10 * 60 * MIN
+        // However deep and long the run, a bare account stops at the base ceiling.
+        const bare = callOfXenoPayoutForRun(CALL_OF_XENO_MAX_GROSS, marathon, nightmare, 1)
+        expect(bare.awarded).toBe(CALL_OF_XENO_MAX_PAYOUT_BASE)
+        // Each contract level raises the ceiling by its +25%.
+        const midContract = callOfXenoPayoutForRun(CALL_OF_XENO_MAX_GROSS, marathon, nightmare, 2)
+        expect(midContract.awarded).toBe(CALL_OF_XENO_MAX_PAYOUT_BASE * 2)
+        // Up to the absolute cap at full contract.
+        const maxed = callOfXenoPayoutForRun(CALL_OF_XENO_MAX_GROSS, marathon, nightmare, 3.25)
+        expect(maxed.awarded).toBe(CALL_OF_XENO_MAX_PAYOUT)
     })
 
     it('hands the grace window for free and nothing before it', () => {

@@ -290,6 +290,13 @@ export const CALL_OF_XENO_RUN_COOLDOWN_MS = (() => {
 export const CALL_OF_XENO_MAX_GROSS = 600_000
 /** Absolute payout ceiling — the most one run can ever pay. */
 export const CALL_OF_XENO_MAX_PAYOUT = 2_600_000
+/**
+ * Payout ceiling before the Payout Contract: one run at contract level 0 can
+ * never pay more than this, no matter how deep or how long. Each contract
+ * level raises the ceiling by its +25%, so the 1M+ payouts only exist for
+ * accounts that have actually bought their way into them.
+ */
+export const CALL_OF_XENO_MAX_PAYOUT_BASE = 800_000
 /** Base gross-points → cash conversion, before difficulty and contract. */
 export const CALL_OF_XENO_PAYOUT_RATE = 0.24
 /**
@@ -340,8 +347,11 @@ export function callOfXenoPayoutForRun(
 ): CallOfXenoPayout {
     const gross = Math.max(0, Math.floor(reportedGross))
     const counted = Math.min(gross, callOfXenoMaxGrossForElapsedMs(elapsedMs, difficulty))
+    // The ceiling a run can hit scales with the Payout Contract level the
+    // run started with, so a bare account is capped well under 1M.
+    const ceiling = Math.min(CALL_OF_XENO_MAX_PAYOUT, CALL_OF_XENO_MAX_PAYOUT_BASE * payoutMult)
     const awarded = Math.min(
-        CALL_OF_XENO_MAX_PAYOUT,
+        ceiling,
         Math.floor(counted * CALL_OF_XENO_PAYOUT_RATE * difficulty.reward * payoutMult)
     )
     return { awarded, counted, capped: counted < gross }
