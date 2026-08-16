@@ -1383,11 +1383,12 @@ function damageOf(slot: WeaponSlot) {
 
 /**
  * Effective spread cone. Aiming cuts the base cone hard; hip fire carries a
- * big penalty that grows with bloom, walking roughly doubles it again and
- * sprinting more than triples it — standing still or aiming is how you hit.
+ * big penalty that grows with bloom, walking adds to it and sprinting adds
+ * more — standing still or aiming is how you hit. The crosshair renders this
+ * cone exactly, so what you see is where the pellets go.
  */
 function spreadOf(slot: WeaponSlot) {
-    const stance = aiming ? 0.3 : isSprinting ? 7.5 : isMoving ? 4.8 : 2.4
+    const stance = aiming ? 0.3 : isSprinting ? 5.4 : isMoving ? 3.6 : 2.4
     return slot.def.spread * (0.55 + bloom * 0.85) * stance
 }
 
@@ -3153,7 +3154,7 @@ function updatePopups(dt: number) {
     popups.value = next
 }
 
-function syncHud() {
+function syncHud(dt = 0.016) {
     const slot = active()
     health.value = Math.max(0, hp)
     maxHealth.value = hpMax
@@ -3171,7 +3172,15 @@ function syncHud() {
     hitMarker.value = markerTimer
     hurtOpacity.value = Math.max(0, 1 - hp / (hpMax * 0.62))
     hurtVeil.value = Math.min(1, hurtOpacity.value + damageFlash.value * 0.85)
-    crossGap.value = aiming ? 4 + bloom * 8 : 9 + bloom * 20 + (keys.has('shiftleft') ? 7 : 0)
+    // The crosshair shows the true cone: spread in radians projected to
+    // screen pixels at the current FOV, plus a small fixed stem.
+    if (slots.length > 0) {
+        const spreadRad = spreadOf(active())
+        const halfH = (renderer?.domElement.clientHeight ?? window.innerHeight) / 2
+        const px = Math.tan(spreadRad) * halfH / Math.tan(THREE.MathUtils.degToRad(camera.fov / 2))
+        const target = 3 + Math.min(46, px)
+        crossGap.value += (target - crossGap.value) * Math.min(1, dt * 14)
+    }
     hurtMarks.value = hurtSources.map(source => ({
         id: source.id,
         angle: -((Math.atan2(source.dx, source.dz) - Math.PI - yaw) * 180) / Math.PI,
@@ -3726,7 +3735,7 @@ function buildScene(host: HTMLDivElement) {
         last = now
         if (phase.value === 'playing' && locked.value) {
             update(dt)
-            syncHud()
+            syncHud(dt)
         }
         renderer!.render(scene, camera)
     }
