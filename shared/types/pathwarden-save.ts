@@ -1,4 +1,4 @@
-export const PATHWARDEN_GENERATOR_VERSION = 5
+export const PATHWARDEN_GENERATOR_VERSION = 6
 export const PATHWARDEN_SAVE_VERSION = 2
 
 export type PathwardenCardinalDirection = 'north' | 'east' | 'south' | 'west'

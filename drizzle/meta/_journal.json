@@ -43,6 +43,13 @@
       "when": 1785999600000,
       "tag": "0005_hack_gem_yield",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1786006800000,
+      "tag": "0006_pathwarden_road_graph",
+      "breakpoints": true
     }
   ]
 }

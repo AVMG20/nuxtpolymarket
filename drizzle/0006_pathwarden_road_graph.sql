@@ -1,0 +1,23 @@
+-- Clears Pathwarden runs and pending maps built by the room-stamp generator.
+--
+-- The generator was replaced with a layered one (height field, grown road graph,
+-- river, scatter), so stored map_plan documents describe rooms whose archetypes,
+-- footprints and terminal approaches the new validator rejects outright. The
+-- version gate in server/utils/pathwarden.ts already refuses to resume them, but
+-- it leaves the rows behind: pending-map.get and start-run.post then keep reading
+-- a stale row, deciding it is unusable, and overwriting it on every request.
+-- Deleting them makes the next request take the clean insert path.
+--
+-- Only pathwarden_runs is touched. It holds at most one row per user (user_id is
+-- unique) and carries no currency — a cleared row costs the player the march they
+-- were part way through, which is exactly the intent, and nothing else.
+--
+-- Re-runnable: after the sweep no row below the current generator version
+-- remains, so a second pass matches nothing.
+--
+-- Deliberately carries NO breakpoint markers. Drizzle splits a file on those and
+-- runs each piece separately; with none the whole file goes as one query, which
+-- Postgres executes in a single implicit transaction. Do not write the marker
+-- text out even inside a comment: the splitter matches it anywhere in the file.
+
+DELETE FROM pathwarden_runs WHERE generator_version < 6;
