@@ -76,6 +76,17 @@ function limitSlope(cells: number[][], cols: number, rows: number) {
 }
 
 /**
+ * Continuous fractal noise in [0, 1). The height field quantises this down to
+ * three levels; scatter needs the raw value, because quantised input produces
+ * a handful of huge blobs instead of believable stands of trees.
+ */
+export function sampleFractalNoise(seed: number, col: number, row: number) {
+    return valueNoise(seed, col, row, 0.06) * 0.55
+        + valueNoise(seed ^ 0x5F356495, col, row, 0.14) * 0.30
+        + valueNoise(seed ^ 0x1B873593, col, row, 0.31) * 0.15
+}
+
+/**
  * Fractal height field quantised to the three levels the renderer draws. The
  * keep sits in a deliberate bowl so the opening board is always flat enough to
  * build on, and the field is pulled down towards the map edge so the mist

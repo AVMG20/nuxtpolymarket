@@ -1063,6 +1063,12 @@ export class PathwardenEngine {
   private restoreGameState(state: PathwardenGameState) {
     const claimed = new Set(state.claimedRoomIds)
     const active = new Set(state.activeRoomIds)
+    // Section ids carry their own map geometry, so an id this plan has never
+    // heard of means the save belongs to a different march. Silently dropping
+    // it rebuilt the run as an untouched board on someone else's map.
+    const known = new Set(this.plannedSections.map(choice => choice.roomId ?? choice.id))
+    const foreign = [...claimed, ...active].find(id => !known.has(id))
+    if (foreign) throw new Error(`Disconnected road route: this map has no section ${foreign}`)
     this.claimedSections = new Set(this.plannedSections.filter(choice =>
       claimed.has(choice.roomId ?? choice.id)))
     this.pathChoices = this.plannedSections.filter(choice =>

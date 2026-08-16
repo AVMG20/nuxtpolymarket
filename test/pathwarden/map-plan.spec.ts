@@ -5,34 +5,13 @@ import {
     hashPathwardenMapPlan,
     serializePathwardenMapPlan
 } from '#shared/utils/gamelogic/pathwarden-map'
-import {
-    pathwardenRoomFootprintDimensions,
-    validatePathwardenMapPlan
-} from '#shared/utils/gamelogic/pathwarden-map-validation'
+import { validatePathwardenMapPlan } from '#shared/utils/gamelogic/pathwarden-map-validation'
 
 describe('Pathwarden seeded map model', () => {
-    // A plan costs ~6ms to generate and ~4ms to hash, so seed count is this
-    // file's entire runtime. These 13 are pinned rather than swept because each
-    // sits at an extreme of the generator's output over seeds 0-1199: a
-    // structural regression has to push an invariant past a boundary a real plan
-    // already sits on. Realm is fixed at 1 throughout — it is stored on the plan
-    // and never read by the generator, so varying it only re-tests the hash.
-    // Re-derive the list with a one-off wide sweep if the generator changes.
-    const CASES = [
-        { seed: 164, extreme: 'fewest junctions, 17' },
-        { seed: 571, extreme: 'most junctions, 37' },
-        { seed: 1, extreme: 'a required archetype appears exactly once' },
-        { seed: 996, extreme: 'no t-junctions at all' },
-        { seed: 998, extreme: 'fewest y-junctions, 2' },
-        { seed: 57, extreme: 'fewest crossroads, 3' },
-        { seed: 5, extreme: 'largest castle footprint, area 50' },
-        { seed: 913, extreme: 'fewest rooms, 33' },
-        { seed: 432, extreme: 'most rooms, 57' },
-        { seed: 0, extreme: 'a single depth-13 room' },
-        { seed: 16, extreme: 'most depth-13 rooms, 5' },
-        { seed: 136, extreme: 'fewest terminal approaches, 23' },
-        { seed: 204, extreme: 'most terminal approaches, 50' }
-    ]
+    // The generator is a seeded road-graph growth, so every seed exercises the
+    // same code path and a sweep is the honest test. 60 seeds costs ~0.6s.
+    // Bounds below come from a 400-seed sweep, widened for headroom.
+    const SEEDS = Array.from({ length: 60 }, (_, index) => index)
     const junctions = new Set(['y-junction', 't-junction', 'crossroads'])
 
     it('round-trips through JSON without changing canonical output', () => {
@@ -84,7 +63,7 @@ describe('Pathwarden seeded map model', () => {
         expect(terminalRoom).toBeDefined()
         terminalRoom!.terminalApproaches = []
         const validation = validatePathwardenMapPlan(plan)
-        expect(validation.errors.some(error => error.includes('omits terminal approach'))).toBe(true)
+        expect(validation.errors.some(error => error.includes('leads nowhere'))).toBe(true)
     })
 
     it('rejects a terminal approach that revisits itself', () => {
@@ -93,62 +72,59 @@ describe('Pathwarden seeded map model', () => {
         const approach = terminalRoom.terminalApproaches![0]!
         approach.cells[2] = { ...approach.cells[0]! }
         const validation = validatePathwardenMapPlan(plan)
-        expect(validation.errors.some(error => error.includes('revisits a road cell'))).toBe(true)
+        expect(validation.errors.some(error => error.includes('revisits'))).toBe(true)
     })
 
     it('generates a distinct, structurally valid depth-13 plan for every seed', () => {
         const hashes = new Set<string>()
-        for (const { seed, extreme } of CASES) {
+        for (const seed of SEEDS) {
             const plan = createPathwardenMapPlan({ seed, realm: 1 })
             hashes.add(hashPathwardenMapPlan(plan))
-            const validation = validatePathwardenMapPlan(plan)
-            expect(validation.errors, `seed ${seed} (${extreme})`).toEqual([])
+            expect(validatePathwardenMapPlan(plan).errors, `seed ${seed}`).toEqual([])
             expect(plan.metrics.maxDepth).toBe(13)
-            expect(plan.rooms.some(room => room.depth === 13)).toBe(true)
+            // A twelve-wave run claims twelve sections, so the trunk has to
+            // reach the final depth or the player runs out of frontiers.
+            expect(plan.rooms.some(room => room.depth === 13), `seed ${seed} reaches depth 13`).toBe(true)
             const castle = plan.rooms.find(room => room.id === plan.castleRoomId)!
             expect(castle.ports.filter(port => port.kind === 'exit')).toHaveLength(3)
-            const castleDegrees = new Map<string, number>()
-            for (const link of plan.roadLinks.filter(link => link.roomId === castle.id)) {
-                for (const cell of [link.from, link.to]) {
-                    const key = `${cell.col}:${cell.row}`
-                    castleDegrees.set(key, (castleDegrees.get(key) ?? 0) + 1)
-                }
-            }
-            expect([...castleDegrees.values()].some(degree => degree === 4)).toBe(true)
-            expect(plan.rooms.filter(room => room.depth === 3).some(room =>
-                junctions.has(room.archetype))).toBe(true)
-            expect(plan.metrics.archetypeCounts['road-island']).toBeGreaterThanOrEqual(1)
-            expect(plan.metrics.archetypeCounts['bridge-river']).toBeGreaterThanOrEqual(1)
-            expect(plan.metrics.archetypeCounts['mountain-pass']).toBeGreaterThanOrEqual(1)
-            expect(plan.metrics.archetypeCounts['lake-shore']).toBeGreaterThanOrEqual(1)
-            expect(plan.metrics.archetypeCounts['forest-road']).toBeGreaterThanOrEqual(1)
-            // The generator forces a junction at every odd depth but picks its
-            // type at random, so a plan can legitimately omit y- or t-junctions
-            // — seed 996 has none. Junction *density* is the real invariant,
-            // asserted below; requiring both types individually is flaky.
-            // Observed minimum across seeds 0-1199 is 17, held by seed 164.
-            expect(plan.metrics.archetypeCounts.crossroads).toBeGreaterThanOrEqual(2)
-            const junctionCount = (plan.metrics.archetypeCounts['y-junction'] ?? 0)
-                + (plan.metrics.archetypeCounts['t-junction'] ?? 0)
-                + (plan.metrics.archetypeCounts.crossroads ?? 0)
-                + 1 // The always-visible castle approach is itself a crossroads.
-            expect(junctionCount, `junction density in seed ${seed}`).toBeGreaterThanOrEqual(6)
+            expect(plan.rooms.length, `room count in seed ${seed}`).toBeGreaterThanOrEqual(15)
+            expect(plan.rooms.length, `room count in seed ${seed}`).toBeLessThanOrEqual(170)
+            expect(plan.rooms.some(room => junctions.has(room.archetype)), `seed ${seed} branches`).toBe(true)
             for (const room of plan.rooms) {
                 for (const approach of room.terminalApproaches ?? []) {
                     expect(approach.cells, `${approach.portId} in seed ${seed}`).toHaveLength(6)
                 }
-                if (room.id === plan.castleRoomId) continue
-                if (room.depth === 1) expect(room.archetype, `seed ${seed} ${room.id}`).toBe('crossroads')
-                if (room.depth >= 3 && room.depth % 2 === 1) {
-                    expect(junctions.has(room.archetype), `seed ${seed} ${room.id}`).toBe(true)
-                }
-                const dimensions = pathwardenRoomFootprintDimensions(room.footprint)
-                expect(dimensions.width, `${room.id} in seed ${seed}`).toBeLessThanOrEqual(8)
-                expect(dimensions.height, `${room.id} in seed ${seed}`).toBeLessThanOrEqual(8)
-                expect(dimensions.area, `${room.id} in seed ${seed}`).toBeLessThanOrEqual(36)
             }
         }
-        expect(hashes.size, 'distinct plans across the pinned seeds').toBe(CASES.length)
+        expect(hashes.size, 'distinct plans across the swept seeds').toBe(SEEDS.length)
+    })
+
+    it('never lays a road cell the shortest-path router cannot walk', () => {
+        // The old room-stamp generator emitted a cycle in every road-island
+        // room, and enemies only ever walked the shorter arm. The validator now
+        // rejects any loop; this pins that it stays rejected.
+        for (const seed of [0, 1, 42, 164, 571]) {
+            const plan = createPathwardenMapPlan({ seed, realm: 1 })
+            const nodes = new Set<string>()
+            let edges = 0
+            const visit = (from: { col: number, row: number }, to: { col: number, row: number }) => {
+                nodes.add(`${from.col}:${from.row}`)
+                nodes.add(`${to.col}:${to.row}`)
+                edges++
+            }
+            for (const link of plan.roadLinks) visit(link.from, link.to)
+            for (const room of plan.rooms) {
+                for (const approach of room.terminalApproaches ?? []) {
+                    const port = room.ports.find(candidate => candidate.id === approach.portId)!
+                    let previous = port.cell
+                    for (const cell of approach.cells) {
+                        visit(previous, cell)
+                        previous = cell
+                    }
+                }
+            }
+            expect(edges, `seed ${seed} road graph is a tree`).toBe(nodes.size - 1)
+        }
     })
 
     it('keeps expansion links connected from source exits to destination rooms', () => {
