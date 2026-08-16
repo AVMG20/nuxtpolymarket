@@ -4,7 +4,7 @@ import { callOfXenoState } from '#server/database/schema'
 import { requireUserId } from '#server/utils/auth'
 import { credit } from '#server/utils/balance'
 import { getLockedCallOfXenoState, settleCallOfXenoRun } from '#server/utils/call-of-xeno'
-import { callOfXenoBeatsBestRun } from '#shared/utils/gamelogic/call-of-xeno-meta'
+import { CALL_OF_XENO_MAX_SETTLED_ROUND, callOfXenoBeatsBestRun } from '#shared/utils/gamelogic/call-of-xeno-meta'
 
 /**
  * Ends a run and settles its payout.
@@ -32,10 +32,12 @@ export default defineEventHandler(async (event) => {
             round: reportedRound,
             grossPoints: reportedGross
         }, elapsedMs)
+        // Best-run records clamp the same way the settle does.
+        const recordedRound = Math.min(CALL_OF_XENO_MAX_SETTLED_ROUND, Math.max(0, Math.floor(reportedRound)))
 
         // Clearing the active-run lock *is* the claim: a second request in
         // flight finds it already null, throws, and pays nothing.
-        const beatsBest = callOfXenoBeatsBestRun(reportedRound, result.difficulty.id, state.bestRunRounds, state.bestRunDifficulty)
+        const beatsBest = callOfXenoBeatsBestRun(recordedRound, result.difficulty.id, state.bestRunRounds, state.bestRunDifficulty)
         const [claimed] = await tx.update(callOfXenoState).set({
             runStartedAt: null,
             runDifficultySnapshot: null,
@@ -46,7 +48,7 @@ export default defineEventHandler(async (event) => {
             bestEarned: result.bestEarned,
             ...(beatsBest
 ? {
-                bestRunRounds: reportedRound,
+                bestRunRounds: recordedRound,
                 bestRunDifficulty: result.difficulty.id,
                 bestRunDurationSeconds: Math.max(1, Math.round(elapsedMs / 1000))
             }

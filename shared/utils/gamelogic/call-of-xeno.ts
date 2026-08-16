@@ -302,7 +302,7 @@ export const CALL_OF_XENO_PERKS: Record<CallOfXenoPerkId, CallOfXenoPerk> = {
         id: 'quickrevive',
         name: 'Quick Revive',
         cost: 500,
-        description: 'On death, get back up once — losing every perk. First buy 500, then 2500, three per run.',
+        description: '3 per run. On death, get back up.',
         color: 0x33aadd
     }
 }

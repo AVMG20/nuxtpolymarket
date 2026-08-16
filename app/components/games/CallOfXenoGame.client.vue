@@ -248,26 +248,20 @@
 
                     <!-- top strip -->
                     <div class="relative flex items-center justify-between gap-4 border-b border-white/10 bg-black/60 px-5 py-3">
-                        <div class="flex items-center gap-4">
-                            <div class="flex items-center gap-2.5 text-[10px] uppercase tracking-[0.35em] text-zinc-500">
-                                <UIcon name="i-lucide-biohazard" class="size-4 text-lime-500/90" />
-                                Outpost 13 // Containment Breach
-                            </div>
-                            <div class="flex items-center gap-1">
-                                <button
-                                    class="rounded-sm px-2.5 py-1 text-[9px] font-bold uppercase tracking-[0.2em] transition-colors"
-                                    :class="menuTab === 'loadout' ? 'bg-white/10 text-zinc-100' : 'text-zinc-500 hover:text-zinc-300'"
-                                    @click="menuTab = 'loadout'"
-                                >Loadout</button>
-                                <button
-                                    class="flex items-center gap-1.5 rounded-sm px-2.5 py-1 text-[9px] font-bold uppercase tracking-[0.2em] transition-colors"
-                                    :class="menuTab === 'leaderboard' ? 'bg-white/10 text-zinc-100' : 'text-zinc-500 hover:text-zinc-300'"
-                                    @click="menuTab = 'leaderboard'"
-                                >
-                                    <UIcon name="i-lucide-trophy" class="size-3" />
-                                    Leaderboard
-                                </button>
-                            </div>
+                        <div class="flex items-center gap-1">
+                            <button
+                                class="rounded-sm px-2.5 py-1 text-[9px] font-bold uppercase tracking-[0.2em] transition-colors"
+                                :class="menuTab === 'loadout' ? 'bg-white/10 text-zinc-100' : 'text-zinc-500 hover:text-zinc-300'"
+                                @click="menuTab = 'loadout'"
+                            >Loadout</button>
+                            <button
+                                class="flex items-center gap-1.5 rounded-sm px-2.5 py-1 text-[9px] font-bold uppercase tracking-[0.2em] transition-colors"
+                                :class="menuTab === 'leaderboard' ? 'bg-white/10 text-zinc-100' : 'text-zinc-500 hover:text-zinc-300'"
+                                @click="menuTab = 'leaderboard'"
+                            >
+                                <UIcon name="i-lucide-trophy" class="size-3" />
+                                Leaderboard
+                            </button>
                         </div>
                         <div v-if="!guestMode" class="flex items-center gap-2 rounded-full border border-amber-400/25 bg-amber-400/10 px-3.5 py-1.5 text-sm text-amber-300">
                             <UIcon name="i-lucide-coins" class="size-4" />
@@ -281,43 +275,51 @@
                     </div>
 
                     <div v-if="menuTab === 'loadout'" class="grid lg:grid-cols-[5fr_7fr]">
-                        <!-- LEFT: briefing -->
+                        <!-- LEFT: the game at a glance -->
                         <div class="relative border-b border-white/10 p-7 sm:p-9 lg:border-b-0 lg:border-r">
-                            <div class="flex items-center gap-2 text-[10px] uppercase tracking-[0.5em] text-red-400/90">
-                                <span class="h-px w-8 bg-red-500/70" />
-                                Survival brief
-                            </div>
-                            <h1 class="mt-4 bg-gradient-to-b from-zinc-50 via-zinc-300 to-zinc-600 bg-clip-text text-5xl font-black uppercase leading-[0.95] tracking-tight text-transparent sm:text-6xl">
+                            <h1 class="bg-gradient-to-b from-zinc-50 via-zinc-300 to-zinc-600 bg-clip-text text-5xl font-black uppercase leading-[0.95] tracking-tight text-transparent sm:text-6xl">
                                 Call<br>of Xeno
                             </h1>
-                            <p class="mt-5 max-w-md text-[13px] leading-relaxed text-zinc-400">
-                                They come in through the windows. Board them up, buy your way through
-                                Outpost 13, get the power on and take the second floor.
-                                Every point you earn walks out with you — as cash.
-                            </p>
 
-                            <div class="mt-7 space-y-3">
-                                <div class="flex items-start gap-3 text-[12px] text-zinc-300">
-                                    <UIcon name="i-lucide-skull" class="mt-0.5 size-4 shrink-0 text-red-400/90" />
-                                    <span>Endless rounds. Every fifth wave brings a special.</span>
-                                </div>
-                                <div class="flex items-start gap-3 text-[12px] text-zinc-300">
-                                    <UIcon name="i-lucide-hammer" class="mt-0.5 size-4 shrink-0 text-amber-300/90" />
-                                    <span>Nail boards back on the barricades for points.</span>
-                                </div>
-                                <div class="flex items-start gap-3 text-[12px] text-zinc-300">
-                                    <UIcon name="i-lucide-zap" class="mt-0.5 size-4 shrink-0 text-yellow-300/90" />
-                                    <span>Throw the power switch — perks, the box and Pack-a-Punch come online.</span>
-                                </div>
-                                <div class="flex items-start gap-3 text-[12px] text-zinc-300">
-                                    <UIcon name="i-lucide-coins" class="mt-0.5 size-4 shrink-0 text-amber-400/90" />
-                                    <span>Hits pay <span class="text-amber-300">+10</span>, kills <span class="text-amber-300">+100</span>, headshots <span class="text-amber-300">+120</span>, knife <span class="text-amber-300">+130</span>. Points convert to cash when you fall.</span>
+                            <!-- Perks -->
+                            <div class="mt-7">
+                                <div class="text-[9px] uppercase tracking-[0.4em] text-zinc-600">Perks — on with the power</div>
+                                <div class="mt-2.5 space-y-1.5">
+                                    <div v-for="perk in CALL_OF_XENO_PERK_LIST" :key="perk.id" class="flex items-center justify-between gap-3 rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5">
+                                        <span class="flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider text-zinc-200">
+                                            <span class="size-2 rounded-full" :style="{ backgroundColor: perkCss(perk.color) }" />
+                                            {{ perk.name }}
+                                        </span>
+                                        <span class="text-right text-[10px] leading-tight text-zinc-500">{{ perk.description }}</span>
+                                    </div>
                                 </div>
                             </div>
 
-                            <div class="mt-8 border-t border-white/10 pt-5">
-                                <div class="text-[9px] uppercase tracking-[0.4em] text-zinc-600">Field manual</div>
-                                <div class="mt-3 grid grid-cols-2 gap-x-6 gap-y-1.5 text-[11px] text-zinc-500">
+                            <!-- Weapons -->
+                            <div class="mt-6">
+                                <div class="text-[9px] uppercase tracking-[0.4em] text-zinc-600">Weapons — walls and the box</div>
+                                <div class="mt-2.5 grid grid-cols-2 gap-x-3 gap-y-1 text-[10px]">
+                                    <div v-for="weapon in CALL_OF_XENO_WEAPON_LIST" :key="weapon.id" class="flex items-baseline justify-between gap-2 border-b border-white/5 pb-0.5">
+                                        <span class="font-bold uppercase tracking-wide text-zinc-300">{{ weapon.name }}</span>
+                                        <span class="shrink-0 text-zinc-600">{{ weapon.type }}</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Pay rates -->
+                            <div class="mt-6">
+                                <div class="text-[9px] uppercase tracking-[0.4em] text-zinc-600">Points</div>
+                                <div class="mt-2 flex flex-wrap gap-1.5 text-[10px]">
+                                    <span class="rounded-sm border border-white/10 bg-white/[0.04] px-2 py-1 text-zinc-300">hit <span class="font-bold text-amber-300">+10</span></span>
+                                    <span class="rounded-sm border border-white/10 bg-white/[0.04] px-2 py-1 text-zinc-300">kill <span class="font-bold text-amber-300">+100</span></span>
+                                    <span class="rounded-sm border border-white/10 bg-white/[0.04] px-2 py-1 text-zinc-300">headshot <span class="font-bold text-amber-300">+120</span></span>
+                                    <span class="rounded-sm border border-white/10 bg-white/[0.04] px-2 py-1 text-zinc-300">knife <span class="font-bold text-amber-300">+130</span></span>
+                                    <span class="rounded-sm border border-white/10 bg-white/[0.04] px-2 py-1 text-zinc-300">board <span class="font-bold text-amber-300">+{{ CALL_OF_XENO_REPAIR_POINTS }}</span></span>
+                                </div>
+                            </div>
+
+                            <div class="mt-6 border-t border-white/10 pt-4">
+                                <div class="grid grid-cols-2 gap-x-6 gap-y-1.5 text-[11px] text-zinc-500">
                                     <div><span class="text-zinc-200">WASD</span> move</div>
                                     <div><span class="text-zinc-200">LMB</span> fire</div>
                                     <div><span class="text-zinc-200">Space</span> jump</div>
@@ -1084,6 +1086,24 @@ const lowHealth = computed(() => health.value / maxHealth.value < 0.34)
 function perkCss(color: number) {
     return '#' + color.toString(16).padStart(6, '0')
 }
+
+/** Menu-display lists, frozen once — the roster does not change mid-session. */
+const CALL_OF_XENO_PERK_LIST = Object.values(CALL_OF_XENO_PERKS)
+const CALL_OF_XENO_WEAPON_TYPE: Record<CallOfXenoWeaponId, string> = {
+    m1911: 'pistol',
+    skorpion: 'SMG',
+    magnum: 'pistol',
+    trench: 'shotgun',
+    mp40: 'SMG',
+    ak74: 'assault',
+    bar: 'rifle',
+    rpk: 'LMG',
+    m60: 'LMG',
+    fnmag: 'LMG',
+    xenoray: 'wonder'
+}
+const CALL_OF_XENO_WEAPON_LIST = (Object.keys(CALL_OF_XENO_WEAPONS) as CallOfXenoWeaponId[])
+    .map(id => ({ id, name: CALL_OF_XENO_WEAPONS[id].name, type: CALL_OF_XENO_WEAPON_TYPE[id] }))
 
 function perkShort(id: CallOfXenoPerkId) {
     return { juggernog: 'JUG', speedcola: 'SPD', doubletap: '2TAP', quickrevive: 'REV' }[id]

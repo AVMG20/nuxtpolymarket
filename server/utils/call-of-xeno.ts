@@ -2,6 +2,7 @@ import { eq } from 'drizzle-orm'
 import type { DbExecutor } from '#server/database'
 import { callOfXenoState } from '#server/database/schema'
 import {
+    CALL_OF_XENO_MAX_SETTLED_ROUND,
     callOfXenoDifficulty,
     callOfXenoPayoutForRun,
     type CallOfXenoBestRounds,
@@ -91,7 +92,9 @@ const BEST_ROUND_COLUMN: Record<CallOfXenoDifficultyId, 'bestRoundRecruit' | 'be
 export function settleCallOfXenoRun(state: CallOfXenoSettlementState, report: CallOfXenoRunReport, elapsedMs: number) {
     const difficulty = callOfXenoDifficulty(state.runDifficultySnapshot)
     const payoutMult = Number(state.runPayoutMultSnapshot ?? '1') || 1
-    const round = Math.max(0, Math.floor(report.round))
+    // Deeper than round 100 settles as 100 — nobody survives there by hand,
+    // so the clamp is pure exploit armour.
+    const round = Math.min(CALL_OF_XENO_MAX_SETTLED_ROUND, Math.max(0, Math.floor(report.round)))
     const payout = callOfXenoPayoutForRun(report.grossPoints, elapsedMs, difficulty, payoutMult)
 
     const bestColumn = BEST_ROUND_COLUMN[difficulty.id]

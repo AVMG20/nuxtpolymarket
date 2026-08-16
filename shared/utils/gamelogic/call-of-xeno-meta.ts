@@ -292,6 +292,11 @@ export const CALL_OF_XENO_MAX_GROSS = 600_000
 export const CALL_OF_XENO_MAX_PAYOUT = 2_600_000
 /** Base gross-points → cash conversion, before difficulty and contract. */
 export const CALL_OF_XENO_PAYOUT_RATE = 0.24
+/**
+ * Runs deeper than round 100 settle as round 100. Nobody gets there by hand;
+ * the clamp exists so an exploit cannot manufacture one.
+ */
+export const CALL_OF_XENO_MAX_SETTLED_ROUND = 100
 
 export function callOfXenoRunCooldownRemainingMs(lastRunFinishedAt: Date | null, now: number): number {
     if (!lastRunFinishedAt) return 0
