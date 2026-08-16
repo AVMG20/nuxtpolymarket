@@ -255,14 +255,15 @@ export function callOfXenoDifficultyUnlocked(difficulty: CallOfXenoDifficulty, b
 /** Seconds of slack every run gets before the clock starts on the ceiling. */
 export const CALL_OF_XENO_ELAPSED_GRACE_MS = 120_000
 /**
- * Two hours between runs. Dev override: set `XENO_COOLDOWN_MS=0` in `.env`
- * to disable (or shorten) the wait locally — production never sets it.
+ * Two hours between runs. Dev override: `XENO_COOLDOWN_MS` in `.env` — `0`
+ * disables it, any other number of ms shortens it, unset or empty keeps the
+ * default. Production never sets it.
  */
 export const CALL_OF_XENO_RUN_COOLDOWN_MS = (() => {
-    const override = Number(process.env.XENO_COOLDOWN_MS)
-    return Number.isFinite(override) && process.env.XENO_COOLDOWN_MS !== undefined
-        ? Math.max(0, override)
-        : 2 * 60 * 60 * 1000
+    const raw = process.env.XENO_COOLDOWN_MS
+    if (raw === undefined || raw === '') return 2 * 60 * 60 * 1000
+    const override = Number(raw)
+    return Number.isFinite(override) ? Math.max(0, override) : 2 * 60 * 60 * 1000
 })()
 
 /** Gross points a run may ever claim, regardless of anything else. */

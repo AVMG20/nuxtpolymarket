@@ -964,46 +964,109 @@ export interface MysteryBoxModel extends PropModel {
 
 export function buildMysteryBox(cost: number): MysteryBoxModel {
     const group = new THREE.Group()
-    group.add(part(1.5, 0.9, 1.1, 0x4a3a22, 0, 0.45, 0))
-    for (const y of [0.18, 0.72]) {
-        const band = new THREE.Mesh(
-            new THREE.BoxGeometry(1.54, 0.1, 1.14),
-            new THREE.MeshLambertMaterial({ color: 0x2b2f36 })
-        )
-        band.position.y = y
-        group.add(band)
+
+    // Plinth it stands on, so the crate reads as set down rather than sunk.
+    group.add(part(1.7, 0.14, 1.3, 0x23262c, 0, 0.07, 0))
+    for (const sx of [-1, 1]) {
+        for (const sz of [-1, 1]) {
+            group.add(part(0.18, 0.1, 0.18, 0x1a1c20, 0.72 * sx, 0.05, 0.5 * sz))
+        }
     }
 
+    // Body: weathered timber with banded corners, a shade taller than wide.
+    const woodLight = new THREE.MeshLambertMaterial({ color: 0x5c4728 })
+    const body = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.92, 1.06), woodLight)
+    body.position.y = 0.6
+    group.add(body)
+    // Board seams down the front and sides.
+    for (const y of [0.38, 0.6, 0.82]) {
+        group.add(part(1.52, 0.03, 1.08, 0x453623, 0, y, 0))
+    }
+    // Steel corner brackets, proud of the wood.
+    for (const sx of [-1, 1]) {
+        for (const sz of [-1, 1]) {
+            group.add(part(0.16, 0.98, 0.16, 0x2b2f36, 0.7 * sx, 0.6, 0.48 * sz))
+        }
+    }
+    // Side carry handles.
+    for (const sx of [-1, 1]) {
+        const handle = new THREE.Mesh(
+            new THREE.TorusGeometry(0.11, 0.028, 6, 10, Math.PI),
+            new THREE.MeshLambertMaterial({ color: 0x2b2f36 })
+        )
+        handle.rotation.y = Math.PI / 2
+        handle.rotation.z = Math.PI / 2
+        handle.position.set(0.78 * sx, 0.62, 0)
+        group.add(handle)
+    }
+
+    // The glow seam: a lit hairline where the lid meets the body, on every
+    // side. It is what makes the crate read as holding something alive.
+    const seamMat = new THREE.MeshBasicMaterial({ color: 0xffc457 })
+    const seamGlow = new THREE.Mesh(new THREE.BoxGeometry(1.56, 0.045, 1.12), seamMat)
+    seamGlow.position.y = 1.08
+    group.add(seamGlow)
+
+    // Lid on a rear hinge, sized to overhang the body.
     const lid = new THREE.Group()
-    lid.position.set(0, 0.9, -0.55)
-    const lidMesh = part(1.5, 0.12, 1.1, 0x5c4728, 0, 0.06, 0.55)
-    lid.add(lidMesh)
+    lid.position.set(0, 1.1, -0.55)
+    lid.add(part(1.6, 0.14, 1.18, 0x40321f, 0, 0.07, 0.56))
+    // Lid slats and a front clasp.
+    for (const x of [-0.4, 0, 0.4]) {
+        lid.add(part(0.05, 0.16, 1.2, 0x453623, x, 0.07, 0.56))
+    }
+    lid.add(part(0.2, 0.16, 0.1, 0x2b2f36, 0, 0.06, 1.1))
+    const hinge = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.05, 0.05, 1.4, 8),
+        new THREE.MeshLambertMaterial({ color: 0x2b2f36 })
+    )
+    hinge.rotation.z = Math.PI / 2
+    hinge.position.set(0, 1.12, -0.52)
+    group.add(hinge)
     group.add(lid)
 
+    // Front: framed glow panel and the price sign.
+    const frame = new THREE.Mesh(
+        new THREE.BoxGeometry(1.06, 0.5, 0.06),
+        new THREE.MeshLambertMaterial({ color: 0x2b2f36 })
+    )
+    frame.position.set(0, 0.66, 0.55)
+    group.add(frame)
     const glowMat = new THREE.MeshBasicMaterial({ color: 0x1a1206 })
-    const glowPanel = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.5, 0.06), glowMat)
-    glowPanel.position.set(0, 0.5, 0.57)
+    const glowPanel = new THREE.Mesh(new THREE.BoxGeometry(0.92, 0.38, 0.04), glowMat)
+    glowPanel.position.set(0, 0.66, 0.58)
     group.add(glowPanel)
+    // A question mark cut into the panel — the box's one mark.
+    const qBar = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.05, 0.03), seamMat)
+    qBar.position.set(0, 0.78, 0.61)
+    group.add(qBar)
+    const qDot = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.06, 0.03), seamMat)
+    qDot.position.set(0, 0.56, 0.61)
+    group.add(qDot)
+    const qStem = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.14, 0.03), seamMat)
+    qStem.position.set(0.1, 0.7, 0.61)
+    group.add(qStem)
 
-    const sign = buildSign(1.4, 0.4, {
+    const sign = buildSign(1.5, 0.44, {
         title: 'Mystery Box',
         subtitle: String(cost),
         color: '#ffd98a',
         background: 'rgba(16,10,4,0.9)',
         accent: '#c98a2a'
     })
-    sign.position.set(0, 1.35, 0.56)
+    sign.position.set(0, 1.45, 0.58)
     group.add(sign)
 
+    // Where the prize weapon floats while the box spins.
     const mount = new THREE.Group()
-    mount.position.set(0, 1.35, 0)
+    mount.position.set(0, 1.5, 0)
     group.add(mount)
 
     const light = new THREE.PointLight(0xffc457, 0, 7, 2)
-    light.position.set(0, 1.4, 0)
+    light.position.set(0, 1.6, 0)
     group.add(light)
 
-    return { group, glow: [glowMat], light, lid, mount }
+    return { group, glow: [glowMat, seamMat], light, lid, mount }
 }
 
 export interface PowerUpModel {

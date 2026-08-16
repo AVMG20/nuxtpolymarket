@@ -574,8 +574,9 @@ export const CALL_OF_XENO_INTERACTABLES: CallOfXenoInteractable[] = [
     // Mess Hall — the first door out.
     { id: 'buy-trench', kind: 'wallbuy', x: 34, y: 0, z: 15.6, facing: Math.PI, region: 1, weapon: 'trench', needsPower: false },
 
-    // Atrium — the hub, and the only mystery box on the map.
-    { id: 'mysterybox', kind: 'mysterybox', x: 31, y: 0, z: 31, facing: -Math.PI / 2, region: 2, needsPower: false },
+    // Atrium — the only mystery box on the map. Set against the north wall
+    // between the corner crate and the Reactor door, clear of both flights.
+    { id: 'mysterybox', kind: 'mysterybox', x: 19, y: 0, z: 32.6, facing: Math.PI, region: 2, needsPower: false },
 
     // Catwalk — Juggernog is the reward for taking the high ground.
     { id: 'perk-juggernog', kind: 'perk', x: 18, y: CALL_OF_XENO_UPPER_Y, z: 17, facing: 0, region: 9, perk: 'juggernog', needsPower: true },

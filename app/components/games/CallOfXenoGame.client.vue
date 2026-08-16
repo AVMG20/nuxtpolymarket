@@ -1518,6 +1518,11 @@ function detonateRound(x: number, y: number, z: number, damage: number, scored: 
         impactPoint.set(enemy.x, enemy.y + enemy.model.torsoY, enemy.z)
         applyHit(enemy, damage * falloff, 'body', scored, impactPoint)
     }
+    // The blast sets off any fuel barrel caught in it.
+    for (const barrel of [...barrels]) {
+        if (!barrel.alive) continue
+        if (Math.hypot(barrel.x - x, barrel.z - z) <= radius) explodeBarrel(barrel)
+    }
 }
 
 function shoot(hand: 'left' | 'right' = 'left') {
