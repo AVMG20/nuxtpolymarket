@@ -415,7 +415,7 @@ const checkpointAetherBonus = computed(() => pathwardenAetherCashoutBonus(
   Math.min(
     snapshot.value.aether,
     boostState.value
-      ? pathwardenMaxAetherAtCheckpoint(snapshot.value.wave, boostState.value.levels, useSurge.value)
+      ? pathwardenMaxAetherAtCheckpoint(snapshot.value.wave, boostState.value.levels, useSurge.value, snapshot.value.realm)
       : snapshot.value.aether
   ),
   snapshot.value.wave,

@@ -3130,7 +3130,11 @@ export class PathwardenEngine {
       shaman: { hp: 1.5, speed: 0.88, reward: 2.4, radius: 15, color: '#4ade80' },
       boss: { hp: 8.5, speed: 0.58, reward: 9, radius: 29, color: '#facc15' }
     }[type]
-    const realmHealth = 1 + (this.realm - 1) * 0.22
+    // Realms are the payout ladder: the Aether cashout rate at realm 5 is more
+    // than seven times realm 1, so each realm has to be a real wall rather than
+    // a cosmetic one. Health carries most of that, on top of the extra bodies
+    // `waveEnemyCount` already adds per realm.
+    const realmHealth = 1 + (this.realm - 1) * 0.38
     const realmSpeed = 1 + (this.realm - 1) * 0.04
     const realmBounty = 1 + (this.realm - 1) * 0.12
     const maxHp = (95 + this.wave * 28)

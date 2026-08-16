@@ -78,8 +78,8 @@ describe('settlePathwardenRun', () => {
         )
         expect(result.effectiveWave).toBe(12)
         expect(result.settled).toBe(true)
-        // Checkpoints 4/8/12 at realm 3: (75k+150k+300k) x 2.
-        expect(result.coins).toBe(1_050_000)
+        // Checkpoints 4/8/12 at realm 3: (2k+5k+12k) x 2.8.
+        expect(result.coins).toBe(53_200)
         expect(result.completedRealm).toBe(3)
         expect(result.maxUnlockedRealm).toBe(4)
         expect(result.claimedCheckpointWaves).toEqual([4, 8, 12])
@@ -104,7 +104,7 @@ describe('settlePathwardenRun', () => {
             at(70)
         )
         expect(result.effectiveWave).toBe(8)
-        expect(result.coins).toBe(225_000) // checkpoints 4 + 8 at realm 1
+        expect(result.coins).toBe(7_000) // checkpoints 4 + 8 at realm 1
         expect(result.claimedCheckpointWaves).toEqual([4, 8])
     })
 
@@ -114,7 +114,7 @@ describe('settlePathwardenRun', () => {
             report({ reason: 'cashout', wave: 12 }),
             at(200)
         )
-        expect(result.coins).toBe(450_000) // 8 + 12 only, at realm 1
+        expect(result.coins).toBe(17_000) // 8 + 12 only, at realm 1
         expect(result.claimedCheckpointWaves).toEqual([4, 8, 12])
     })
 
@@ -126,7 +126,7 @@ describe('settlePathwardenRun', () => {
         )
         expect(result.aetherCounted).toBe(result.aetherCap)
         expect(result.aetherCounted).toBeLessThan(10_000_000)
-        expect(result.aetherBonus).toBe(result.aetherCounted * 600)
+        expect(result.aetherBonus).toBe(result.aetherCounted * 20)
     })
 
     it('caps the leaderboard score by the waves actually reached', () => {

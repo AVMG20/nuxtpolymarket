@@ -63,14 +63,15 @@ describe('SHAPEZZ checkpoint pacing', () => {
 
   it('gives a first cashout meaningful value while high difficulties pay several times more', () => {
     expect(SHAPEZZ_COIN_PAYOUT_SCALE).toBe(31.25)
-    expect(shapezzMaxPayoutForRun(45_000, 'surge')).toBe(9375)
+    expect(shapezzMaxPayoutForRun(45_000, 'surge')).toBe(12_800)
     expect(shapezzMaxPayoutForRun(45_000, 'annihilation')).toBeGreaterThan(shapezzMaxPayoutForRun(45_000, 'surge') * 4)
   })
 
   it('gives risky long runs substantially more upside than guaranteed-payout games', () => {
-    expect(shapezzMaxPayoutForRun(6 * 60_000, 'surge')).toBe(600_000)
-    expect(shapezzMaxPayoutForRun(10 * 60_000, 'annihilation')).toBeGreaterThan(9_000_000)
-    expect(shapezzMaxPayoutForRun(10 * 60_000, 'annihilation')).toBeLessThan(9_250_000)
+    // A maxed workshop on a long clean run lands in the site-wide 1-2M top band.
+    expect(shapezzMaxPayoutForRun(6 * 60_000, 'surge')).toBe(1_882_027)
+    expect(shapezzMaxPayoutForRun(10 * 60_000, 'annihilation')).toBeGreaterThan(35_000_000)
+    expect(shapezzMaxPayoutForRun(10 * 60_000, 'annihilation')).toBeLessThan(36_000_000)
     // Lower difficulties stay an order of magnitude below the top end.
     expect(shapezzMaxPayoutForRun(10 * 60_000, 'surge')).toBeLessThan(shapezzMaxPayoutForRun(10 * 60_000, 'annihilation') / 4)
   })
@@ -79,8 +80,8 @@ describe('SHAPEZZ checkpoint pacing', () => {
     const cumulative = [1, 2, 3, 4, 5, 6].map(round => shapezzMaxPayoutForRun(round * SHAPEZZ_CHECKPOINT_MS, 'surge'))
     const increments = cumulative.map((value, index) => value - (cumulative[index - 1] ?? 0))
 
-    expect(cumulative).toEqual([9375, 37_500, 84_375, 150_000, 234_375, 337_500])
-    expect(increments).toEqual([9375, 28_125, 46_875, 65_625, 84_375, 103_125])
+    expect(cumulative).toEqual([12_800, 67_558, 178_772, 356_577, 609_169, 943_567])
+    expect(increments).toEqual([12_800, 54_758, 111_214, 177_805, 252_592, 334_398])
   })
 
   it('puts increasing values on enemies while later mutations also add more enemies', () => {
@@ -116,15 +117,18 @@ describe('SHAPEZZ permanent progression', () => {
   })
 
   it('makes workshop costs grow with each purchased level', () => {
-    expect(shapezzPermanentUpgradeCost('core', 0)).toBe(30_000)
+    expect(shapezzPermanentUpgradeCost('core', 0)).toBe(8_000)
     expect(shapezzPermanentUpgradeCost('core', 3)!).toBeGreaterThan(shapezzPermanentUpgradeCost('core', 2)!)
-    expect(shapezzPermanentUpgradeCost('core', 9)).toBe(15_360_000)
-    expect(shapezzPermanentUpgradeCost('core', 19)!).toBeGreaterThan(300_000_000)
+    // One exponential all the way up: no cliff at level ten, and the whole
+    // workshop lands in the same few-hundred-million bracket as the other games.
+    expect(shapezzPermanentUpgradeCost('core', 9)).toBe(413_119)
+    expect(shapezzPermanentUpgradeCost('core', 19)!).toBeGreaterThan(30_000_000)
+    expect(shapezzPermanentUpgradeCost('core', 19)!).toBeLessThan(50_000_000)
   })
 
   it('makes kill healing a short and deliberately expensive upgrade track', () => {
-    expect(shapezzPermanentUpgradeCost('killHeal', 0)).toBe(250_000)
-    expect(shapezzPermanentUpgradeCost('killHeal', 3)).toBe(30_000_000)
+    expect(shapezzPermanentUpgradeCost('killHeal', 0)).toBe(200_000)
+    expect(shapezzPermanentUpgradeCost('killHeal', 3)).toBe(20_000_000)
     expect(shapezzPermanentUpgradeCost('killHeal', 4)).toBeNull()
   })
 })

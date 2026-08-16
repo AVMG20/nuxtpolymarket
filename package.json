@@ -19,6 +19,10 @@
     "balance:xeno": "bun scripts/xeno-income.ts",
     "balance:colony": "bun scripts/colony-income.ts",
     "balance:hack": "bun scripts/hack-income.ts",
+    "balance:firewall": "bun scripts/firewall-balance.ts",
+    "balance:pathwarden": "bun scripts/pathwarden-balance.ts",
+    "balance:pirates": "bun scripts/pirates-balance.ts",
+    "balance:shapezz": "bun scripts/shapezz-balance.ts",
     "balance:compare": "bun scripts/economy-compare.ts"
   },
   "dependencies": {

@@ -157,7 +157,7 @@ export function settlePathwardenRun(
         0
     )
 
-    const aetherCap = pathwardenMaxAetherAtCheckpoint(effectiveWave, levels, surged)
+    const aetherCap = pathwardenMaxAetherAtCheckpoint(effectiveWave, levels, surged, realm)
     const aetherCounted = settled ? Math.max(0, Math.min(aetherCap, Math.floor(Number(report.aether) || 0))) : 0
     const aetherBonus = settled ? pathwardenAetherCashoutBonus(aetherCounted, effectiveWave, realm) : 0
     const coins = guaranteedReward + aetherBonus

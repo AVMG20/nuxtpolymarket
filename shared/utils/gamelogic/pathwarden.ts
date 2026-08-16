@@ -166,15 +166,15 @@ export const PATHWARDEN_BOOSTS: Record<PathwardenBoostId, {
         name: 'Warden Bulwark',
         description: 'Reinforce the keep with more starting hearts.',
         currency: 'coins',
-        baseCost: 24_000,
+        baseCost: 6_000,
         maxLevel: 20,
         sprite: { col: 0, row: 0 }
     },
     artificer: {
         name: 'Master Artificer',
-        description: '+3% damage for every defense per level.',
+        description: '+5% damage for every defense per level.',
         currency: 'coins',
-        baseCost: 32_000,
+        baseCost: 9_000,
         maxLevel: 20,
         sprite: { col: 1, row: 0 }
     },
@@ -198,34 +198,41 @@ export const PATHWARDEN_BOOSTS: Record<PathwardenBoostId, {
         name: 'Banner of Resolve',
         description: '+2% attack speed and occasional starting hearts.',
         currency: 'coins',
-        baseCost: 36_000,
+        baseCost: 7_000,
         maxLevel: 20,
         sprite: { col: 1, row: 1 }
     },
     bounty: {
         name: 'Verdant Bounty',
-        description: '+3% Aether from defeated enemies per level.',
-        currency: 'gems',
-        baseCost: 5,
-        maxLevel: 10,
+        description: '+5% Aether from defeated enemies per level.',
+        currency: 'coins',
+        baseCost: 10_000,
+        maxLevel: 20,
         sprite: { col: 2, row: 1 }
     },
     arcanist: {
         name: 'Arcanist’s Workbench',
         description: 'Improves relic swaps: same-family binding, different-family binding, and preserving the displaced relic.',
         currency: 'coins',
-        baseCost: 48_000,
+        baseCost: 5_000,
         maxLevel: 20,
         sprite: { col: 2, row: 0 }
     }
 }
 
+/**
+ * A single exponential across all twenty levels. The previous curve doubled to
+ * level ten and then jumped by a factor of ten thousand, which made the back
+ * half of every track unreachable and the whole tree cost more than every
+ * player on the site will ever earn combined.
+ */
+export const PATHWARDEN_BOOST_GROWTH = 1.55
+
 export function pathwardenBoostCost(id: PathwardenBoostId, level: number) {
     const boost = PATHWARDEN_BOOSTS[id]
     if (level >= boost.maxLevel) return null
     if (boost.currency === 'gems') return Math.ceil(boost.baseCost * Math.pow(1.72, level))
-    if (level < 10) return Math.round(boost.baseCost * Math.pow(2, level))
-    return Math.round(boost.baseCost * 10_000 * Math.pow(1.8, level - 10))
+    return Math.round(boost.baseCost * Math.pow(PATHWARDEN_BOOST_GROWTH, level))
 }
 
 export function pathwardenBoostEffects(levels: PathwardenBoostLevels, surged = false) {
@@ -233,10 +240,10 @@ export function pathwardenBoostEffects(levels: PathwardenBoostLevels, surged = f
     return {
         startingLives: 20 + Math.ceil(levels.bulwark * 0.75) + Math.floor(levels.banner * 0.25),
         startingAether: Math.round((205 + levels.reservoir * 15) * (surged ? 1.25 : 1)),
-        damageMultiplier: (1 + levels.artificer * 0.03) * surge,
+        damageMultiplier: (1 + levels.artificer * 0.05) * surge,
         rangeMultiplier: 1 + levels.lens * 0.03,
         rateMultiplier: (1 + levels.banner * 0.02) * (surged ? 1.05 : 1),
-        bountyMultiplier: 1 + levels.bounty * 0.03,
+        bountyMultiplier: 1 + levels.bounty * 0.05,
         arcanistLevel: levels.arcanist
     }
 }
@@ -252,18 +259,33 @@ export function pathwardenPower(levels: PathwardenBoostLevels) {
         + levels.arcanist * 5
 }
 
+/**
+ * Coins paid per unspent Aether at a checkpoint.
+ *
+ * This is where a march's income actually lives, and the realm multiplier is
+ * deliberately the steepest term in the whole game: realm 5 converts Aether at
+ * more than seven times realm 1. Realms unlock strictly in order and each one
+ * is a real step up in enemy health, so the rate is only reachable by an
+ * account that bought its way there.
+ */
 export function pathwardenCheckpointRate(wave: number, realm: number) {
     const checkpoint = wave >= 12 ? 3 : wave >= 8 ? 2 : wave >= 4 ? 1 : 0
     if (!checkpoint) return 0
-    const base = [0, 45, 180, 600][checkpoint]!
-    return Math.round(base * (1 + (Math.max(1, realm) - 1) * 0.35))
+    const base = [0, 3, 9, 20][checkpoint]!
+    return Math.round(base * (1 + (Math.max(1, realm) - 1) * 1.6))
 }
 
+/**
+ * The guaranteed grant for reaching a checkpoint. A floor, not an income: it
+ * exists so a march that goes badly is still worth the two-hour cooldown, and
+ * it is small enough that the Aether decision — spend it on defenses and get
+ * deeper, or bank it and cash out — is the part that pays.
+ */
 export function pathwardenCheckpointBaseCoins(wave: number, realm: number) {
     const checkpoint = wave >= 12 ? 3 : wave >= 8 ? 2 : wave >= 4 ? 1 : 0
     if (!checkpoint) return 0
-    const base = [0, 75_000, 150_000, 300_000][checkpoint]!
-    return Math.round(base * (1 + (Math.max(1, realm) - 1) * 0.5))
+    const base = [0, 2_000, 5_000, 12_000][checkpoint]!
+    return Math.round(base * (1 + (Math.max(1, realm) - 1) * 0.9))
 }
 
 /** Guaranteed account reward for reaching a checkpoint. Realm difficulty scales this payout. */
@@ -281,10 +303,26 @@ export function pathwardenCashoutCoins(aether: number, wave: number, realm: numb
     return pathwardenCheckpointReward(wave, realm) + pathwardenAetherCashoutBonus(aether, wave, realm)
 }
 
-/** Client reports are capped generously; debug Aether can never become real coins. */
-export function pathwardenMaxAetherAtCheckpoint(wave: number, levels: PathwardenBoostLevels, surged = false) {
+/**
+ * Client reports are capped generously; debug Aether can never become real
+ * coins.
+ *
+ * The realm term is not decoration. `waveEnemyCount` adds `(realm - 1) * (2 +
+ * wave)` bodies to every wave and each one pays a realm-scaled bounty, so a
+ * realm-5 march legitimately banks roughly twice the Aether of a realm-1 one.
+ * Without it the cap clipped honest high-realm play — which is exactly the play
+ * the cashout rate is built to reward.
+ */
+export function pathwardenMaxAetherAtCheckpoint(
+    wave: number,
+    levels: PathwardenBoostLevels,
+    surged = false,
+    realm = 1
+) {
     const effects = pathwardenBoostEffects(levels, surged)
     const boundedWave = Math.max(0, Math.min(12, Math.floor(wave)))
-    const killHeadroom = boundedWave * (55 + boundedWave * 14) * effects.bountyMultiplier
+    const boundedRealm = Math.max(1, Math.min(5, Math.floor(realm)))
+    const realmVolume = 1 + (boundedRealm - 1) * 0.5
+    const killHeadroom = boundedWave * (55 + boundedWave * 14) * effects.bountyMultiplier * realmVolume
     return Math.ceil(effects.startingAether + killHeadroom + boundedWave * 90)
 }
