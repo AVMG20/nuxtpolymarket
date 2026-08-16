@@ -1381,6 +1381,16 @@ function damageOf(slot: WeaponSlot) {
     return perks.has('doubletap') ? slot.def.damage * 1.5 : slot.def.damage
 }
 
+/**
+ * Effective spread cone. Aiming cuts the base cone hard; hip fire carries a
+ * big penalty that grows with bloom, walking roughly doubles it again and
+ * sprinting more than triples it — standing still or aiming is how you hit.
+ */
+function spreadOf(slot: WeaponSlot) {
+    const stance = aiming ? 0.3 : isSprinting ? 7.5 : isMoving ? 4.8 : 2.4
+    return slot.def.spread * (0.55 + bloom * 0.85) * stance
+}
+
 function reloadTimeOf(slot: WeaponSlot) {
     return perks.has('speedcola') ? slot.def.reloadTime * 0.5 : slot.def.reloadTime
 }
@@ -1659,7 +1669,7 @@ function detonateRound(x: number, y: number, z: number, damage: number, blastRad
 function spawnPlayerRound(slot: WeaponSlot, damage: number) {
     const ray = slot.base === 'xenoray'
     pelletDir.copy(rayDir)
-    const spread = slot.def.spread * (0.55 + bloom * 0.85) * (aiming ? 0.3 : 2.4)
+    const spread = spreadOf(slot)
     if (spread > 0) {
         const angle = randomFloat() * Math.PI * 2
         const radius = Math.sqrt(randomFloat()) * spread
@@ -1827,9 +1837,8 @@ function shoot() {
 
     for (let pellet = 0; pellet < slot.def.pellets; pellet++) {
         pelletDir.copy(rayDir)
-        // Hip fire is a cone; aiming shrinks it hard. Pack-a-Punch tiers do
-        // not tighten the cone — the ladder buys speed, not accuracy.
-        const spread = slot.def.spread * (0.55 + bloom * 0.85) * (aiming ? 0.3 : 2.4)
+        // See spreadOf: aiming is the accuracy answer, movement is the tax.
+        const spread = spreadOf(slot)
         if (spread > 0) {
             const angle = randomFloat() * Math.PI * 2
             const radius = Math.sqrt(randomFloat()) * spread
