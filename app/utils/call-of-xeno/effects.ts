@@ -178,13 +178,6 @@ interface Casing {
     life: number
 }
 
-interface Blast {
-    mesh: THREE.Mesh
-    life: number
-    maxLife: number
-    radius: number
-}
-
 const UP = new THREE.Vector3(0, 1, 0)
 const scratchA = new THREE.Vector3()
 const scratchB = new THREE.Vector3()
@@ -200,17 +193,14 @@ export class CallOfXenoEffects {
     private tracers: Tracer[] = []
     private decals: Decal[] = []
     private casings: Casing[] = []
-    private rings: Blast[] = []
-    private flashes: Blast[] = []
     private casingGeo: THREE.BoxGeometry
     private casingMat: THREE.MeshLambertMaterial
     private tracerGeo: THREE.CylinderGeometry
     private decalGeo: THREE.PlaneGeometry
-    private ringGeo: THREE.RingGeometry
-    private flashGeo: THREE.SphereGeometry
     private boomLight: THREE.PointLight
     private boomLightLife = 0
     private color = new THREE.Color()
+    private mute = new THREE.Color(0x4a4a48)
 
     constructor(scene: THREE.Scene) {
         this.scene = scene
@@ -226,8 +216,6 @@ export class CallOfXenoEffects {
         this.casingMat = new THREE.MeshLambertMaterial({ color: 0xc9a227 })
         this.tracerGeo = new THREE.CylinderGeometry(1, 1, 1, 6, 1, true)
         this.decalGeo = new THREE.PlaneGeometry(1, 1)
-        this.ringGeo = new THREE.RingGeometry(0.72, 1, 24)
-        this.flashGeo = new THREE.SphereGeometry(1, 10, 8)
         this.boomLight = new THREE.PointLight(0xffa040, 0, 14, 2)
         scene.add(this.boomLight)
     }
@@ -345,110 +333,73 @@ export class CallOfXenoEffects {
         }
     }
 
-    /** Smoke wisp left behind by a flying grenade round. */
-    trailSmoke(point: THREE.Vector3, hot: boolean) {
-        this.color.setRGB(0.42 + Math.random() * 0.1, 0.4, 0.38)
+    /** Thin gray wisp behind a flying round. */
+    trailSmoke(point: THREE.Vector3) {
+        const shade = 0.34 + Math.random() * 0.12
+        this.color.setRGB(shade, shade, shade)
         this.debris.spawn({
             x: point.x, y: point.y, z: point.z,
-            vx: (Math.random() - 0.5) * 0.4,
-            vy: 0.5 + Math.random() * 0.5,
-            vz: (Math.random() - 0.5) * 0.4,
+            vx: (Math.random() - 0.5) * 0.3,
+            vy: 0.35 + Math.random() * 0.4,
+            vz: (Math.random() - 0.5) * 0.3,
             color: this.color.clone(),
-            size: 1.1 + Math.random() * 0.7,
-            life: 0.35 + Math.random() * 0.25,
-            drag: 1.4
+            size: 0.5 + Math.random() * 0.4,
+            life: 0.3 + Math.random() * 0.2,
+            drag: 1.2
         })
-        if (hot) {
-            this.color.setHSL(0.07 + Math.random() * 0.03, 1, 0.62)
-            this.sparks.spawn({
-                x: point.x, y: point.y, z: point.z,
-                vx: (Math.random() - 0.5) * 1.2,
-                vy: (Math.random() - 0.5) * 1.2,
-                vz: (Math.random() - 0.5) * 1.2,
-                color: this.color.clone(),
-                size: 0.7 + Math.random() * 0.5,
-                life: 0.12 + Math.random() * 0.1,
-                drag: 3
-            })
-        }
     }
 
     /**
-     * A detonation: fireball sparks, rolling smoke, a scorch decal, a fast
-     * expanding shockwave ring and one shared flash of light. `radius` sets
-     * the scale of the whole thing so a Sally round reads far bigger than a
-     * ray bolt popping.
+     * A detonation: a brief burst of dark embers, dust and smoke rolling
+     * outward, a scorch mark and one dull flash of light. Kept muted on
+     * purpose — the look is low-poly semi-real, not a fireworks show.
+     * `radius` only scales the footprint.
      */
     explosion(point: THREE.Vector3, color: number, radius: number) {
         const scale = radius / 3.2
         this.boomLight.position.copy(point)
-        this.boomLight.color.setHex(color)
-        this.boomLight.intensity = 10 + radius * 5
-        this.boomLightLife = 0.22
+        this.boomLight.color.setHex(color).lerp(this.mute, 0.55)
+        this.boomLight.intensity = 3 + radius * 1.6
+        this.boomLightLife = 0.16
 
-        // Fireball: additive embers flying out from the centre.
-        this.color.setHex(color)
-        for (let i = 0; i < 26; i++) {
+        // A tight burst of dark embers, gone almost as soon as they show.
+        for (let i = 0; i < 12; i++) {
             const a = Math.random() * Math.PI * 2
-            const speed = 3 + Math.random() * 9 * scale
+            const speed = 2.5 + Math.random() * 6 * scale
+            this.color.setHex(color).lerp(this.mute, 0.72)
             this.sparks.spawn({
-                x: point.x, y: point.y + 0.2, z: point.z,
+                x: point.x, y: point.y + 0.15, z: point.z,
                 vx: Math.cos(a) * speed,
-                vy: 1 + Math.random() * 5 * scale,
-                vz: Math.sin(a) * speed,
-                color: this.color.clone().offsetHSL(0, 0, (Math.random() - 0.5) * 0.3),
-                size: 1.6 + Math.random() * 1.8 * scale,
-                life: 0.22 + Math.random() * 0.3,
-                gravity: 5,
-                drag: 2.4
-            })
-        }
-        // Rolling smoke: dark, slow, climbs after the flash is gone.
-        for (let i = 0; i < 18; i++) {
-            const a = Math.random() * Math.PI * 2
-            const speed = 0.8 + Math.random() * 2.4 * scale
-            this.color.setRGB(0.16 + Math.random() * 0.08, 0.15, 0.14)
-            this.debris.spawn({
-                x: point.x + Math.cos(a) * 0.3, y: point.y + 0.3, z: point.z + Math.sin(a) * 0.3,
-                vx: Math.cos(a) * speed,
-                vy: 0.8 + Math.random() * 1.8,
+                vy: 0.8 + Math.random() * 3 * scale,
                 vz: Math.sin(a) * speed,
                 color: this.color.clone(),
-                size: 2.4 + Math.random() * 2.6 * scale,
-                life: 0.7 + Math.random() * 0.6,
-                drag: 1.2
+                size: 0.6 + Math.random() * 0.6 * scale,
+                life: 0.16 + Math.random() * 0.18,
+                gravity: 6,
+                drag: 2.6
             })
         }
-
-        // Shockwave: a flat ring racing outward along the ground.
-        const ring = new THREE.Mesh(this.ringGeo, new THREE.MeshBasicMaterial({
-            color,
-            transparent: true,
-            opacity: 0.75,
-            blending: THREE.AdditiveBlending,
-            depthWrite: false,
-            side: THREE.DoubleSide
-        }))
-        ring.position.set(point.x, Math.max(0.06, point.y * 0.4 + 0.06), point.z)
-        ring.rotation.x = -Math.PI / 2
-        this.scene.add(ring)
-        this.rings.push({ mesh: ring, life: 0.35, maxLife: 0.35, radius })
-
-        // Flash core: a bright sphere that swells for a blink then is gone.
-        const flash = new THREE.Mesh(this.flashGeo, new THREE.MeshBasicMaterial({
-            color: 0xfff3d0,
-            transparent: true,
-            opacity: 0.95,
-            blending: THREE.AdditiveBlending,
-            depthWrite: false
-        }))
-        flash.position.copy(point)
-        this.scene.add(flash)
-        this.flashes.push({ mesh: flash, life: 0.16, maxLife: 0.16, radius })
+        // The bulk of it: dust and smoke rolling outward and climbing.
+        for (let i = 0; i < 20; i++) {
+            const a = Math.random() * Math.PI * 2
+            const speed = 0.7 + Math.random() * 2 * scale
+            const shade = 0.1 + Math.random() * 0.09
+            this.color.setRGB(shade, shade * 0.97, shade * 0.93)
+            this.debris.spawn({
+                x: point.x + Math.cos(a) * 0.25, y: point.y + 0.25, z: point.z + Math.sin(a) * 0.25,
+                vx: Math.cos(a) * speed,
+                vy: 0.7 + Math.random() * 1.5,
+                vz: Math.sin(a) * speed,
+                color: this.color.clone(),
+                size: 1.8 + Math.random() * 2.2 * scale,
+                life: 0.8 + Math.random() * 0.7,
+                drag: 1.1
+            })
+        }
 
         scratchA.copy(point)
         scratchA.y = 0.02
-        this.decal(scratchA, UP, this.scorch, radius * 0.75, 0.65, 14)
+        this.decal(scratchA, UP, this.scorch, radius * 0.7, 0.5, 14)
     }
 
     /** Brass out of the ejection port. Purely decorative, dies after a few seconds. */
@@ -551,34 +502,6 @@ export class CallOfXenoEffects {
             this.boomLight.intensity = Math.max(0, this.boomLight.intensity - dt * 90)
             if (this.boomLightLife <= 0) this.boomLight.intensity = 0
         }
-
-        for (let i = this.rings.length - 1; i >= 0; i--) {
-            const ring = this.rings[i]!
-            ring.life -= dt
-            if (ring.life <= 0) {
-                this.scene.remove(ring.mesh)
-                ;(ring.mesh.material as THREE.MeshBasicMaterial).dispose()
-                this.rings.splice(i, 1)
-                continue
-            }
-            const t = 1 - ring.life / ring.maxLife
-            ring.mesh.scale.setScalar(0.3 + t * ring.radius)
-            ;(ring.mesh.material as THREE.MeshBasicMaterial).opacity = (1 - t) * 0.7
-        }
-
-        for (let i = this.flashes.length - 1; i >= 0; i--) {
-            const flash = this.flashes[i]!
-            flash.life -= dt
-            if (flash.life <= 0) {
-                this.scene.remove(flash.mesh)
-                ;(flash.mesh.material as THREE.MeshBasicMaterial).dispose()
-                this.flashes.splice(i, 1)
-                continue
-            }
-            const t = flash.life / flash.maxLife
-            flash.mesh.scale.setScalar(0.25 + (1 - t) * flash.radius * 0.55)
-            ;(flash.mesh.material as THREE.MeshBasicMaterial).opacity = t * 0.95
-        }
     }
 
     /** Drops every live effect — called when a run restarts. */
@@ -586,13 +509,9 @@ export class CallOfXenoEffects {
         for (const tracer of this.tracers) { this.scene.remove(tracer.mesh); tracer.material.dispose() }
         for (const decal of this.decals) { this.scene.remove(decal.mesh); decal.material.dispose() }
         for (const casing of this.casings) this.scene.remove(casing.mesh)
-        for (const ring of this.rings) { this.scene.remove(ring.mesh); (ring.mesh.material as THREE.MeshBasicMaterial).dispose() }
-        for (const flash of this.flashes) { this.scene.remove(flash.mesh); (flash.mesh.material as THREE.MeshBasicMaterial).dispose() }
         this.tracers = []
         this.decals = []
         this.casings = []
-        this.rings = []
-        this.flashes = []
         this.boomLight.intensity = 0
         this.boomLightLife = 0
     }
@@ -606,8 +525,6 @@ export class CallOfXenoEffects {
         this.casingMat.dispose()
         this.tracerGeo.dispose()
         this.decalGeo.dispose()
-        this.ringGeo.dispose()
-        this.flashGeo.dispose()
         this.dot.dispose()
         this.bloodSplat.dispose()
         this.scorch.dispose()

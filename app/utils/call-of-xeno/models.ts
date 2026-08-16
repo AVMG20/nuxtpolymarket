@@ -1117,3 +1117,12 @@ export function buildProjectile(color: number): THREE.Mesh {
     mesh.add(halo)
     return mesh
 }
+
+/** A small dark bullet — what a launched Sally round actually looks like. */
+export function buildBulletProjectile(): THREE.Mesh {
+    const mesh = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.022, 0.03, 0.13, 6),
+        new THREE.MeshLambertMaterial({ color: 0x3b3b3d })
+    )
+    return mesh
+}

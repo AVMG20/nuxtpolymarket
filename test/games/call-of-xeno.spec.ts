@@ -240,7 +240,7 @@ describe('pack-a-punch ladder', () => {
             // Biggest damage step on the ladder, paid for with a tiny pool.
             expect(upgraded.damage, `tier ${tier}`).toBe(CALL_OF_XENO_SALLY_DAMAGE[tier - 1])
             expect(upgraded.magSize, `tier ${tier}`).toBe(CALL_OF_XENO_SALLY_MAG)
-            expect(upgraded.reserveAmmo, `tier ${tier}`).toBe(CALL_OF_XENO_SALLY_RESERVE[tier - 1])
+            expect(upgraded.reserveAmmo, `tier ${tier}`).toBe(CALL_OF_XENO_SALLY_RESERVE)
             expect(upgraded.blastRadius, `tier ${tier}`).toBe(CALL_OF_XENO_SALLY_BLAST_RADIUS)
         }
         // The raw multiplier ladder would leave the pistol far weaker.

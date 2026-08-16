@@ -313,7 +313,7 @@ export const CALL_OF_XENO_RAY_FALLOFF_FLOOR = [0.12, 0.2, 0.3, 0.42]
  */
 export const CALL_OF_XENO_SALLY_DAMAGE = [820, 1300, 2000]
 export const CALL_OF_XENO_SALLY_MAG = 8
-export const CALL_OF_XENO_SALLY_RESERVE = [24, 28, 32]
+export const CALL_OF_XENO_SALLY_RESERVE = 50
 export const CALL_OF_XENO_SALLY_BLAST_RADIUS = 3.2
 
 /**
@@ -361,7 +361,7 @@ export function packAPunch(weapon: CallOfXenoWeapon, tier: number): CallOfXenoWe
         upgraded.name = 'Sally' + step.suffix
         upgraded.damage = CALL_OF_XENO_SALLY_DAMAGE[t - 1]!
         upgraded.magSize = CALL_OF_XENO_SALLY_MAG
-        upgraded.reserveAmmo = CALL_OF_XENO_SALLY_RESERVE[t - 1]!
+        upgraded.reserveAmmo = CALL_OF_XENO_SALLY_RESERVE
         upgraded.fireDelay = 0.5
         upgraded.reloadTime = 2.6
         upgraded.explosive = true

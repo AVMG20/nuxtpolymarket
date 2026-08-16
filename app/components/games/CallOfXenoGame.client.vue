@@ -759,6 +759,7 @@ import {
     buildWeaponModel,
     buildPowerUp,
     buildProjectile,
+    buildBulletProjectile,
     buildExplosiveBarrel,
     type EnemyModel
 } from '~/utils/call-of-xeno/models'
@@ -1464,6 +1465,7 @@ const impactPoint = new THREE.Vector3()
 const impactNormal = new THREE.Vector3()
 const muzzleWorld = new THREE.Vector3()
 const rightVector = new THREE.Vector3()
+const ROUND_UP = new THREE.Vector3(0, 1, 0)
 
 function raySphere(ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, cx: number, cy: number, cz: number, r: number) {
     const mx = ox - cx
@@ -1558,8 +1560,8 @@ function spawnPlayerRound(slot: WeaponSlot, damage: number) {
     muzzleFlash.getWorldPosition(muzzleWorld)
     pelletDir.multiplyScalar(0.35).add(muzzleWorld)
     const speed = ray ? 90 : 33
-    const mesh = buildProjectile(ray ? 0x44ffcc : 0xffa040)
-    mesh.scale.setScalar(ray ? 0.8 : 1)
+    const mesh = ray ? buildProjectile(0x44ffcc) : buildBulletProjectile()
+    if (ray) mesh.scale.setScalar(0.55)
     mesh.position.copy(pelletDir)
     scene.add(mesh)
     playerRounds.push({
@@ -1608,24 +1610,22 @@ function updatePlayerRounds(dt: number) {
             if (hit && hit.t <= step && (hitEnemyAt < 0 || hit.t < hitEnemyAt)) hitEnemyAt = hit.t
         }
 
-        // Trails: the shell smokes, the bolt drags a line of light.
-        round.trailTimer -= dt
+        // Trails: the shell draws a thin faint line with a whisper of smoke
+        // behind it; the bolt drags a faint teal streak that lingers briefly.
+        rayOrigin.set(round.x, round.y, round.z)
+        round.x += round.vx * dt
+        round.y += round.vy * dt
+        round.z += round.vz * dt
+        impactPoint.set(round.x, round.y, round.z)
         if (round.kind === 'ray') {
-            rayOrigin.set(round.x, round.y, round.z)
-            round.x += round.vx * dt
-            round.y += round.vy * dt
-            round.z += round.vz * dt
-            impactPoint.set(round.x, round.y, round.z)
-            effects.tracer(rayOrigin, impactPoint, 0x44ffcc, 0.045, 0.14)
+            effects.tracer(rayOrigin, impactPoint, 0x2fae96, 0.02, 0.22)
         } else {
+            effects.tracer(rayOrigin, impactPoint, 0x8a6f4a, 0.008, 0.05)
+            round.trailTimer -= dt
             if (round.trailTimer <= 0) {
-                round.trailTimer = 0.022
-                impactPoint.set(round.x, round.y, round.z)
-                effects.trailSmoke(impactPoint, round.life > 2.86)
+                round.trailTimer = 0.035
+                effects.trailSmoke(impactPoint)
             }
-            round.x += round.vx * dt
-            round.y += round.vy * dt
-            round.z += round.vz * dt
         }
         round.traveled += step
 
@@ -1655,7 +1655,10 @@ function updatePlayerRounds(dt: number) {
         }
 
         round.mesh.position.set(round.x, round.y, round.z)
-        if (round.kind === 'sally') round.mesh.rotation.x += dt * 9
+        if (round.kind === 'sally') {
+            impactNormal.set(round.vx, round.vy, round.vz).normalize()
+            round.mesh.quaternion.setFromUnitVectors(ROUND_UP, impactNormal)
+        }
 
         if (pop) {
             scene.remove(round.mesh)
