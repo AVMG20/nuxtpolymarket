@@ -102,6 +102,13 @@ export default defineEventHandler(async (event) => {
       completesAt = new Date(slot.startedAt.getTime() + durationSecs * 1000).toISOString()
     }
 
+    // The breed result is rolled and persisted when the breed STARTS, but it
+    // must not leave the server until the timer is up. Cancelling refunds both
+    // parents for free, so a client that could read the result early would just
+    // cancel every non-mutation and reroll — turning a -0.44 base chance into a
+    // guaranteed hit for the price of a few API calls.
+    const finished = completesAt != null && Date.now() >= new Date(completesAt).getTime()
+
     return {
       id: slot.id,
       slotIndex: slot.slotIndex,
@@ -112,11 +119,11 @@ export default defineEventHandler(async (event) => {
       artifact: attachedArt
         ? { id: attachedArt.id, typeId: attachedArt.typeId, chargesRemaining: attachedArt.chargesRemaining, gemCrafted: attachedArt.gemCrafted }
         : null,
-      resultTypeId: slot.resultTypeId ?? null,
-      resultSpeed: slot.resultSpeed ?? null,
-      resultYield: slot.resultYield ?? null,
-      resultQuantity: slot.resultQuantity ?? null,
-      wasMutation: slot.wasMutation ?? null,
+      resultTypeId: finished ? slot.resultTypeId ?? null : null,
+      resultSpeed: finished ? slot.resultSpeed ?? null : null,
+      resultYield: finished ? slot.resultYield ?? null : null,
+      resultQuantity: finished ? slot.resultQuantity ?? null : null,
+      wasMutation: finished ? slot.wasMutation ?? null : null,
       collected: slot.collected,
     }
   })

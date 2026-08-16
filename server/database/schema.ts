@@ -646,11 +646,12 @@ export const colonyUpgrades = pgTable('colony_upgrades', {
 ])
 
 /**
- * Per-species research level (0-4) — sacrificing a growing number of a
- * species' own bugs on the Research page raises the roll range every FUTURE
- * purchase of that species uses (see RESEARCH_SPEED_MIN/MAX and
- * RESEARCH_YIELD_MIN/MAX in shared/utils/colony.ts). One row per species
- * the player has ever researched; missing = level 0 (base roll).
+ * Per-species research level (0-4) — paying coins on the Research page widens
+ * the SPEED roll range every future purchase of that species uses, and
+ * multiplies everything that species forages by up to 2x for bugs already
+ * owned (see RESEARCH_SPEED_MIN/MAX and RESEARCH_RESOURCE_MULTIPLIERS in
+ * shared/utils/colony.ts). One row per species the player has ever
+ * researched; missing = level 0.
  */
 export const colonyBugResearch = pgTable('colony_bug_research', {
   id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),

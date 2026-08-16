@@ -54,12 +54,27 @@ export default defineEventHandler(async (event) => {
     // A hybrid produces every resource at its OWN speed/yield, each in
     // rollYield(resourceYield) quantity, then regrows itself to match the
     // SINGLE BIGGEST resource harvest (not the sum) so the farm scales steadily.
+    //
+    // The flat bonuses (grid artifact + global yield upgrade) are added ONCE,
+    // to the largest resource only — they are a bonus per HARVEST, not per
+    // resource. Adding them inside the loop paid a 4-resource hybrid four
+    // times the bonus a normal plant gets, and then regrew the vessel off that
+    // inflated number too.
+    const flatBonus = artifactYieldBonus + xenoYieldBonus(upgrades.yield)
+    const rolled = parseHybridResources(plantInstance.typeId)
+      .flatMap((r) => {
+        const base = getPlant(r.id)
+        return base ? [{ r, base, qty: rollYield(r.yield) }] : []
+      })
+    let bonusIndex = 0
+    for (let i = 1; i < rolled.length; i++) {
+      if (rolled[i]!.qty > rolled[bonusIndex]!.qty) bonusIndex = i
+    }
+    if (rolled.length) rolled[bonusIndex]!.qty += flatBonus
+
     harvested = 0
     let regrow = 0
-    for (const r of parseHybridResources(plantInstance.typeId)) {
-      const base = getPlant(r.id)
-      if (!base) continue
-      const qty = rollYield(r.yield) + artifactYieldBonus + xenoYieldBonus(upgrades.yield)
+    for (const { r, base, qty } of rolled) {
       await addPlants(userId, base.id, r.speed, r.yield, qty)
       drops.push({ id: base.id, emoji: base.emoji, name: base.name, count: qty })
       harvested += qty

@@ -39,17 +39,29 @@ export interface ItemType {
 // social bugs grouped for their full bonus and solitary bugs kept alone.
 // This keeps late-tier income climbing by roughly 2.3-3x per tier instead
 // of leaving T4 flat and then jumping almost 6x at T5.
+//
+// Then cut by a per-tier factor — T1/T2 ×0.55, T3/T4 ×0.52, T5/T6 ×0.47 —
+// for the same reason XENO's plant values were (see shared/utils/xeno/plants.ts):
+// the tier curve was internally right but the whole thing sat far above every
+// other idle on the site. A Habitat 6 colony out-earned a maxed Miner rig by
+// three orders of magnitude, which is what let portfolios run to 600-700M.
+// Colony stays a bread winner, just not by that margin. The factors are paired
+// (T1=T2, T3=T4, T5=T6) so the tier-to-tier ratios this file solves for are
+// preserved exactly — the T3→T4 step in particular sits right on the 2.2x
+// floor `test/colony/balance.spec.ts` guards. Every coin cost the colony
+// charges for itself — spawn costs, track levels, habitat level-ups, feed —
+// moved by the same factor, so payback and pacing are unchanged.
 export const ITEM_TYPES: ItemType[] = [
-  { id: 'silk', name: 'Silk Scrap', emoji: '🧵', tier: 1, sellValue: 13.3875 },
-  { id: 'loam', name: 'Rich Loam', emoji: '🧱', tier: 1, sellValue: 37.485 },
-  { id: 'chitin', name: 'Chitin Shard', emoji: '🦴', tier: 2, sellValue: 100.40625 },
-  { id: 'shell_fragment', name: 'Shell Fragment', emoji: '🐚', tier: 2, sellValue: 133.875 },
-  { id: 'resin', name: 'Amber Resin', emoji: '🟠', tier: 3, sellValue: 401.625 },
-  { id: 'pheromone', name: 'Pheromone Vial', emoji: '🧪', tier: 3, sellValue: 642.6 },
-  { id: 'venom', name: 'Venom Sac', emoji: '☠️', tier: 4, sellValue: 1472.625 },
-  { id: 'carapace', name: 'Hardened Carapace', emoji: '🛡️', tier: 4, sellValue: 2275.875 },
-  { id: 'ember_dust', name: 'Ember Dust', emoji: '🔥', tier: 5, sellValue: 7497 },
-  { id: 'royal_jelly', name: 'Royal Jelly', emoji: '🍯', tier: 6, sellValue: 24_097.5 }
+  { id: 'silk', name: 'Silk Scrap', emoji: '🧵', tier: 1, sellValue: 7.363125 },
+  { id: 'loam', name: 'Rich Loam', emoji: '🧱', tier: 1, sellValue: 20.61675 },
+  { id: 'chitin', name: 'Chitin Shard', emoji: '🦴', tier: 2, sellValue: 55.2234375 },
+  { id: 'shell_fragment', name: 'Shell Fragment', emoji: '🐚', tier: 2, sellValue: 73.63125 },
+  { id: 'resin', name: 'Amber Resin', emoji: '🟠', tier: 3, sellValue: 208.845 },
+  { id: 'pheromone', name: 'Pheromone Vial', emoji: '🧪', tier: 3, sellValue: 334.152 },
+  { id: 'venom', name: 'Venom Sac', emoji: '☠️', tier: 4, sellValue: 765.765 },
+  { id: 'carapace', name: 'Hardened Carapace', emoji: '🛡️', tier: 4, sellValue: 1183.455 },
+  { id: 'ember_dust', name: 'Ember Dust', emoji: '🔥', tier: 5, sellValue: 3523.59 },
+  { id: 'royal_jelly', name: 'Royal Jelly', emoji: '🍯', tier: 6, sellValue: 11_325.825 }
 ]
 
 export function getItem(id: string): ItemType | undefined {
@@ -120,13 +132,14 @@ export const MAX_TIER = 6
 //
 // yieldMin/yieldMax/speed no longer scale with species tier at all — every
 // species rolls from the exact same BASE range (1-2 yield, 0-25% speed) the
-// first time you buy it. What actually differentiates species is bought
-// with SWEAT, not coins: sacrificing a growing pile of a species' own bugs
-// on the Research page raises that species' OWN roll range for every future
-// purchase, up to 6-8 yield / 75% speed at max research (see
-// RESEARCH_SPEED_MIN/MAX, RESEARCH_YIELD_MIN/MAX below). yieldMin/yieldMax
-// on BUG_TYPES below is therefore just the level-0/pre-research range —
-// identical for every species — kept on the type for clarity/display only.
+// first time you buy it. What actually differentiates species is bought on the
+// Research page: raising a species' Research level widens its OWN speed and
+// yield roll for every future purchase, up to 6-8 yield / 75% speed (see
+// RESEARCH_SPEED_MIN/MAX, RESEARCH_YIELD_MIN/MAX below), and multiplies
+// everything it forages by up to 2x colony-wide, on bugs already owned
+// included (see RESEARCH_RESOURCE_MULTIPLIERS). yieldMin/yieldMax on BUG_TYPES
+// below is therefore just the level-0/pre-research range — identical for every
+// species — kept on the type for clarity/display only.
 //
 // Tier still matters plenty: base cycle time, sell value of what's foraged,
 // and spawn cost all still climb hard with tier (see baseTickMs/spawnCost
@@ -143,12 +156,12 @@ export const MAX_TIER = 6
 // nutrition/hr stays manageable across the whole roster —
 // feeding stays a real cost at every tier instead of vanishing at endgame.
 export const BUG_TYPES: BugType[] = [
-  { id: 'larva', name: 'Larva', tier: 1, emoji: '🐛', color: 0x8ecae6, baseTickMs: 240_000, yieldMin: 1, yieldMax: 2, eatMin: 2, eatMax: 4, itemId: 'silk', spawnCost: 120_000, description: 'Hardy and quick — the fastest cycle in the colony. Every colony starts here.', social: true },
-  { id: 'grub', name: 'Grub', tier: 1, emoji: '🪱', color: 0xa3b18a, baseTickMs: 600_000, yieldMin: 1, yieldMax: 2, eatMin: 2, eatMax: 4, itemId: 'loam', spawnCost: 180_000, description: 'Slower than a larva but churns out fat piles of loam.', social: false },
-  { id: 'beetle', name: 'Beetle', tier: 2, emoji: '🪲', color: 0xffb703, baseTickMs: 450_000, yieldMin: 1, yieldMax: 2, eatMin: 4, eatMax: 7, itemId: 'chitin', spawnCost: 650_000, description: 'A sturdy, armored forager that does fine in a crowd.', social: true },
-  { id: 'ladybug', name: 'Ladybug', tier: 2, emoji: '🐞', color: 0xe63946, baseTickMs: 720_000, yieldMin: 1, yieldMax: 2, eatMin: 4, eatMax: 7, itemId: 'shell_fragment', spawnCost: 900_000, description: 'Spotted and independent — prefers to forage alone.', social: false },
-  { id: 'cricket', name: 'Cricket', tier: 3, emoji: '🦗', color: 0x90be6d, baseTickMs: 10 * 60_000, yieldMin: 1, yieldMax: 2, eatMin: 8, eatMax: 12, itemId: 'resin', spawnCost: 2_400_000, description: 'Chirps happily in a chorus of its own kind.', social: true },
-  { id: 'ant', name: 'Ant', tier: 3, emoji: '🐜', color: 0x6f4e37, baseTickMs: 12 * 60_000, yieldMin: 1, yieldMax: 2, eatMin: 8, eatMax: 12, itemId: 'pheromone', spawnCost: 3_200_000, description: 'Tireless colonial workers — thrive together.', social: true },
+  { id: 'larva', name: 'Larva', tier: 1, emoji: '🐛', color: 0x8ecae6, baseTickMs: 240_000, yieldMin: 1, yieldMax: 2, eatMin: 2, eatMax: 4, itemId: 'silk', spawnCost: 66_000, description: 'Hardy and quick — the fastest cycle in the colony. Every colony starts here.', social: true },
+  { id: 'grub', name: 'Grub', tier: 1, emoji: '🪱', color: 0xa3b18a, baseTickMs: 600_000, yieldMin: 1, yieldMax: 2, eatMin: 2, eatMax: 4, itemId: 'loam', spawnCost: 99_000, description: 'Slower than a larva but churns out fat piles of loam.', social: false },
+  { id: 'beetle', name: 'Beetle', tier: 2, emoji: '🪲', color: 0xffb703, baseTickMs: 450_000, yieldMin: 1, yieldMax: 2, eatMin: 4, eatMax: 7, itemId: 'chitin', spawnCost: 357_500, description: 'A sturdy, armored forager that does fine in a crowd.', social: true },
+  { id: 'ladybug', name: 'Ladybug', tier: 2, emoji: '🐞', color: 0xe63946, baseTickMs: 720_000, yieldMin: 1, yieldMax: 2, eatMin: 4, eatMax: 7, itemId: 'shell_fragment', spawnCost: 495_000, description: 'Spotted and independent — prefers to forage alone.', social: false },
+  { id: 'cricket', name: 'Cricket', tier: 3, emoji: '🦗', color: 0x90be6d, baseTickMs: 10 * 60_000, yieldMin: 1, yieldMax: 2, eatMin: 8, eatMax: 12, itemId: 'resin', spawnCost: 1_248_000, description: 'Chirps happily in a chorus of its own kind.', social: true },
+  { id: 'ant', name: 'Ant', tier: 3, emoji: '🐜', color: 0x6f4e37, baseTickMs: 12 * 60_000, yieldMin: 1, yieldMax: 2, eatMin: 8, eatMax: 12, itemId: 'pheromone', spawnCost: 1_664_000, description: 'Tireless colonial workers — thrive together.', social: true },
   // Special: forages gems instead of coins/items. Fiercely solitary — a
   // 24h base cycle that only ever gets SLOWER when crowded, never faster.
   // Its per-CYCLE output (not the cycle's frequency) does ride the same
@@ -156,7 +169,7 @@ export const BUG_TYPES: BugType[] = [
   // see effectiveGemsPerDay — so a base, un-upgraded snail is very slow
   // (~1 gem/24h) and only reaches its MAX_GEMS_PER_DAY cap with real
   // investment in those tracks.
-  { id: 'gem_snail', name: 'Gem Snail', tier: 3, emoji: '🐌', color: 0x4cc9f0, baseTickMs: 24 * 60 * 60_000, yieldMin: 1, yieldMax: 2, eatMin: 8, eatMax: 12, itemId: '', spawnCost: 4_000_000, description: 'A reclusive gem-forager — one per terrarium is plenty. Crowd it with its own kind and it slows to a crawl. Upgrading Foraging Yield or Foraging Speed lets it distill more per cycle.', social: false, producesGems: true },
+  { id: 'gem_snail', name: 'Gem Snail', tier: 3, emoji: '🐌', color: 0x4cc9f0, baseTickMs: 24 * 60 * 60_000, yieldMin: 1, yieldMax: 2, eatMin: 8, eatMax: 12, itemId: '', spawnCost: 2_080_000, description: 'A reclusive gem-forager — one per terrarium is plenty. Crowd it with its own kind and it slows to a crawl. Upgrading Foraging Yield or Foraging Speed lets it distill more per cycle.', social: false, producesGems: true },
   // Prestige-only variant of the Gem Snail. Identical in every respect except
   // that it is SOCIAL, which for a gem bug means exactly one thing: it is not
   // PENALISED for crowding. gemTickMs clamps the social multiplier at 1
@@ -165,11 +178,11 @@ export const BUG_TYPES: BugType[] = [
   // on each other (24h each, rather than 28.2h each). effectiveGemsPerDay
   // ignores the social trait entirely, so per-cycle output is unchanged.
   // Not buyable, not researchable, not in the encyclopedia — see prestigeOnly.
-  { id: 'social_gem_snail', name: 'Hive Snail', tier: 3, emoji: '🐌', color: 0xb5179e, baseTickMs: 24 * 60 * 60_000, yieldMin: 1, yieldMax: 2, eatMin: 8, eatMax: 12, itemId: '', spawnCost: 4_000_000, description: 'A gem-forager bred to tolerate company. It gains nothing from a crowd, but unlike its reclusive cousin it loses nothing either — a whole brood holds the full 24h cycle in one terrarium.', social: true, producesGems: true, prestigeOnly: true },
-  { id: 'spider', name: 'Spider', tier: 4, emoji: '🕷️', color: 0x9d4edd, baseTickMs: 15 * 60_000, yieldMin: 1, yieldMax: 2, eatMin: 14, eatMax: 20, itemId: 'venom', spawnCost: 7_000_000, description: 'A patient, territorial predator. Does not share well.', social: false },
-  { id: 'scorpion', name: 'Scorpion', tier: 4, emoji: '🦂', color: 0xf77f00, baseTickMs: 20 * 60_000, yieldMin: 1, yieldMax: 2, eatMin: 14, eatMax: 20, itemId: 'carapace', spawnCost: 9_000_000, description: 'Armored, dangerous, and fiercely solitary.', social: false },
-  { id: 'ember_roach', name: 'Ember Roach', tier: 5, emoji: '🪳', color: 0xff006e, baseTickMs: 24 * 60_000, yieldMin: 1, yieldMax: 2, eatMin: 22, eatMax: 30, itemId: 'ember_dust', spawnCost: 25_000_000, description: 'Legendary and nearly indestructible.', social: true },
-  { id: 'hive_empress', name: 'Hive Empress', tier: 6, emoji: '🐝', color: 0xffd60a, baseTickMs: 30 * 60_000, yieldMin: 1, yieldMax: 2, eatMin: 32, eatMax: 44, itemId: 'royal_jelly', spawnCost: 80_000_000, description: 'A mythic queen. The absolute pinnacle of the colony.', social: true }
+  { id: 'social_gem_snail', name: 'Hive Snail', tier: 3, emoji: '🐌', color: 0xb5179e, baseTickMs: 24 * 60 * 60_000, yieldMin: 1, yieldMax: 2, eatMin: 8, eatMax: 12, itemId: '', spawnCost: 2_080_000, description: 'A gem-forager bred to tolerate company. It gains nothing from a crowd, but unlike its reclusive cousin it loses nothing either — a whole brood holds the full 24h cycle in one terrarium.', social: true, producesGems: true, prestigeOnly: true },
+  { id: 'spider', name: 'Spider', tier: 4, emoji: '🕷️', color: 0x9d4edd, baseTickMs: 15 * 60_000, yieldMin: 1, yieldMax: 2, eatMin: 14, eatMax: 20, itemId: 'venom', spawnCost: 3_640_000, description: 'A patient, territorial predator. Does not share well.', social: false },
+  { id: 'scorpion', name: 'Scorpion', tier: 4, emoji: '🦂', color: 0xf77f00, baseTickMs: 20 * 60_000, yieldMin: 1, yieldMax: 2, eatMin: 14, eatMax: 20, itemId: 'carapace', spawnCost: 4_680_000, description: 'Armored, dangerous, and fiercely solitary.', social: false },
+  { id: 'ember_roach', name: 'Ember Roach', tier: 5, emoji: '🪳', color: 0xff006e, baseTickMs: 24 * 60_000, yieldMin: 1, yieldMax: 2, eatMin: 22, eatMax: 30, itemId: 'ember_dust', spawnCost: 11_750_000, description: 'Legendary and nearly indestructible.', social: true },
+  { id: 'hive_empress', name: 'Hive Empress', tier: 6, emoji: '🐝', color: 0xffd60a, baseTickMs: 30 * 60_000, yieldMin: 1, yieldMax: 2, eatMin: 32, eatMax: 44, itemId: 'royal_jelly', spawnCost: 37_600_000, description: 'A mythic queen. The absolute pinnacle of the colony.', social: true }
 ]
 
 /**
@@ -207,7 +220,7 @@ export function bugsByTier(tier: number): BugType[] {
 // Speed and yield's roll RANGE is no longer fixed per species — it's driven
 // by that species' Research level (see the Research section below), which
 // starts at 0 (MAX_TRAIT_PCT/base yield range) for every species and is
-// raised per-species by sacrificing bugs on the Research page.
+// raised per-species on the Research page.
 
 /** Base (Research level 0) speed roll ceiling — every species starts here. */
 export const MAX_TRAIT_PCT = 25
@@ -257,16 +270,20 @@ export function rollEatRate(type: BugType): number {
   return randomInt(type.eatMin, type.eatMax)
 }
 
-// ─── Research (per-species roll upgrades) ──────────────────────────────────
+// ─── Research (per-species upgrades) ───────────────────────────────────────
 // Every species starts at Research level 0 (base roll: 0-25% speed, 1-2
 // yield — see MAX_TRAIT_PCT/BUG_TYPES). On the Research page, paying coins
 // (see RESEARCH_COST_MULTIPLIERS) raises that species' research level, which
-// widens the roll range every FUTURE purchase of that species uses —
-// existing owned bugs keep whatever they already rolled. Four upgrades take
-// a species from the base range all the way to 65-75% speed / 6-8 yield.
-// This is deliberately the only way to get a strong roll on a given species —
-// tier no longer hands out a better dice roll for free (see the BUG_TYPES
-// doc comment above).
+// buys two things:
+//   speed/yield — a wider roll range, up to 65-75% speed and 6-8 yield, on
+//              every FUTURE purchase of that species; existing bugs keep
+//              whatever they already rolled.
+//   resources  — a straight multiplier on everything that species forages,
+//              +25% per level to 2x at max, applied colony-wide to every bug
+//              of that species INCLUDING the ones already in the terrarium.
+// This is deliberately the only way to make a given species better — tier no
+// longer hands out a better dice roll for free (see the BUG_TYPES doc comment
+// above).
 
 /** Highest Research level any species can reach (4 upgrades past base). */
 export const MAX_RESEARCH_LEVEL = 4
@@ -295,6 +312,20 @@ export const RESEARCH_SPEED_MAX = [25, 35, 50, 65, 75]
 export const RESEARCH_YIELD_MIN = [1, 2, 3, 4, 6]
 export const RESEARCH_YIELD_MAX = [2, 4, 5, 6, 8]
 
+/**
+ * The third thing research buys, on top of the speed and yield roll ranges
+ * above: a straight multiplier on every item that species forages, +25% per
+ * level to 2x at max.
+ *
+ * The roll ranges only ever help bugs bought AFTER researching, and a flat
+ * yield LEVEL has to out-scale the Foraging Yield track (+14 levels
+ * colony-wide) to be felt at all — which it never could. A percentage does not
+ * compete with the track, it rides on top of it, and it applies colony-wide to
+ * every bug of that species including the ones already in the terrarium. That
+ * is what makes a research level feel like something the moment it lands.
+ */
+export const RESEARCH_RESOURCE_MULTIPLIERS = [1, 1.25, 1.5, 1.75, 2]
+
 /** The [min, max] speed roll range a species currently purchases at, given its Research level. */
 export function researchSpeedRange(level: number): [number, number] {
   const lvl = Math.max(0, Math.min(MAX_RESEARCH_LEVEL, level))
@@ -307,16 +338,26 @@ export function researchYieldRange(level: number): [number, number] {
   return [RESEARCH_YIELD_MIN[lvl] ?? 1, RESEARCH_YIELD_MAX[lvl] ?? 2]
 }
 
+/** The multiplier applied to every item a species forages, given its Research level. Applies colony-wide to bugs already owned, not just future purchases. */
+export function researchResourceMultiplier(level: number): number {
+  const lvl = Math.max(0, Math.min(MAX_RESEARCH_LEVEL, level))
+  return RESEARCH_RESOURCE_MULTIPLIERS[lvl] ?? 1
+}
+
 /**
  * Hard ceiling on combined speed (bug roll + habitat track + social), as a
  * percentage of base tick time removed. Every individual source is already
  * capped on its own, but stacking all three at their own max would still
  * reach a 20x tick-frequency multiplier (140% naively) — this caps the
- * worst case at a 6.67x tick-frequency multiplier instead, which is what
+ * worst case at a 4x tick-frequency multiplier instead, which is what
  * actually keeps a fully-upgraded colony from compounding into an absurd
  * number once combined with the yield track and terrarium capacity.
+ *
+ * This is the binding constraint from Habitat Level 3 upward — every source
+ * below that adds up to less than the cap, so lowering it slows the late
+ * colony without touching the opening grind at all.
  */
-export const MAX_TOTAL_SPEED_PCT = 85
+export const MAX_TOTAL_SPEED_PCT = 75
 
 /**
  * speedBonusPct is every OTHER source of speed — the Foraging Speed habitat
@@ -523,12 +564,17 @@ export function getUpgradeTrack(id: string): UpgradeTrackType | undefined {
 }
 
 // Every level is meant to feel like a real, noticeable jump — not a 1-2%
-// sliver. Yield is now added as flat LEVELS (not a percentage) directly onto
+// sliver. Yield is added as flat LEVELS (not a percentage) directly onto
 // every bug's own rolled yield level, colony-wide, so it compounds without a
 // cap the same way a bug's own yield roll does; speed/feed reductions cap
 // out well before their track's max level so a maxed track reads as
 // "maxed" rather than pointless.
-export const YIELD_TRACK_LEVELS_PER_LEVEL = 2
+//
+// One level, not two: at the Habitat 6 requirement (yield_boost 14) the track
+// hands every bug +14 yield levels, which already dwarfs the 1-2 a species
+// rolls for itself. At +2 it was +28 and no other lever — species, tier, or
+// Research — could be felt next to it.
+export const YIELD_TRACK_LEVELS_PER_LEVEL = 1
 export const SPEED_TRACK_REDUCTION_PER_LEVEL = 0.1
 export const MAX_SPEED_TRACK_REDUCTION = 0.7
 export const FEED_TRACK_REDUCTION_PER_LEVEL = 0.1
@@ -566,8 +612,8 @@ const EARLIER_TIER_COST_DECAY = 0.55
 
 /**
  * Cost to build a track up TO `level` (i.e. level = currentLevel + 1).
- * Coins are the real wall — 100k at level 1, ×1.55 per level (~30M by 14,
- * ~400M at 20). Item quantities are sized off the demanded tier's foraging
+ * Coins are the real wall — 50k at level 1, ×1.55 per level (~15M by 14,
+ * ~200M at 20). Item quantities are sized off the demanded tier's foraging
  * rate, then multiplied from 5× at level 1 up to 10× at level 11+: early
  * levels require a meaningful stockpile and late levels require sustained
  * production from a whole squad. Every level also splinters in a smaller helping of
@@ -585,7 +631,7 @@ export function trackLevelCost(level: number): Price {
     const quantity = Math.max(10, Math.round(rate * 3 * Math.pow(1.3, level - 1) * decay * itemMultiplier / 5) * 5)
     for (const item of itemsByTier(t)) items.push({ itemTypeId: item.id, quantity })
   }
-  const coins = Math.round(100_000 * Math.pow(1.55, level - 1) / 1000) * 1000
+  const coins = Math.round(50_000 * Math.pow(1.55, level - 1) / 1000) * 1000
   return { coins, items }
 }
 
@@ -640,9 +686,9 @@ export function habitatTrackRequirement(trackId: UpgradeTrackId, habitatLevel: n
   return step ?? steps[steps.length - 1] ?? 0
 }
 
-/** Coin cost to raise habitat from `level` to `level + 1`: 250k → 1M → 4M → 16M → 64M. */
+/** Coin cost to raise habitat from `level` to `level + 1`: 125k → 500k → 2M → 8M → 32M. */
 export function habitatLevelUpCost(level: number): number {
-  return Math.round(250_000 * Math.pow(4, level - 1) / 1000) * 1000
+  return Math.round(125_000 * Math.pow(4, level - 1) / 1000) * 1000
 }
 
 /** Builder time to raise habitat from `level` to `level + 1`: 12h → 1d → 2d → 4d → 8d. */
@@ -694,8 +740,13 @@ export const BASE_CAPACITY = 6
  * rates — so this constant was cut from 80 to 5 to match. At the floor roll
  * a Larva still hands back over half its gross income as food; the margin
  * widens fast from T2 onward as ticks/hr drop faster than eat cost climbs.
+ *
+ * Cut again to 2.75 — T1/T2's own ×0.55 — alongside the ITEM_TYPES sell-value
+ * rebalance. Food is a rounding error past Habitat 2 (under 1.5% of gross) but
+ * ~23% of it at Habitat 1, so leaving it at 5 would have turned a 45% income
+ * cut into a 65% one for a brand new colony and nowhere else.
  */
-export const FEED_COST_PER_POINT = 5
+export const FEED_COST_PER_POINT = 2.75
 export const REMOVE_REFUND_RATE = 0.5
 /**
  * Nutrition tank size before any nutrition_storage upgrades. Raised 20x
