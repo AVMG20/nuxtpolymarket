@@ -42,11 +42,16 @@ export interface CallOfXenoWeapon {
     cost: number
     /** Base name the Pack-a-Punch ladder builds on. */
     upgradedName: string
-    /** Fires from two holsters: LMB left gun, RMB right gun, no aiming. */
-    akimbo?: boolean
     /** Rounds detonate: splash damage around every impact. */
     explosive?: boolean
+    /** Fires a physical round that flies and detonates on any impact. */
+    projectile?: boolean
+    /** Splash radius in metres for explosive rounds. */
+    blastRadius?: number
 }
+
+/** The wonder weapon's bolt pops with a very small blast. */
+export const CALL_OF_XENO_RAY_BLAST_RADIUS = 1.5
 
 export const CALL_OF_XENO_WEAPONS: Record<CallOfXenoWeaponId, CallOfXenoWeapon> = {
     m1911: {
@@ -63,7 +68,7 @@ export const CALL_OF_XENO_WEAPONS: Record<CallOfXenoWeaponId, CallOfXenoWeapon> 
         penetration: 1,
         automatic: false,
         cost: 0,
-        upgradedName: 'Mustang & Sally'
+        upgradedName: 'Sally'
     },
     skorpion: {
         id: 'skorpion',
@@ -194,6 +199,10 @@ export const CALL_OF_XENO_WEAPONS: Record<CallOfXenoWeaponId, CallOfXenoWeapon> 
         range: 90,
         penetration: 12,
         automatic: false,
+        // Fires a slow energy bolt that pops with a very small blast.
+        explosive: true,
+        projectile: true,
+        blastRadius: CALL_OF_XENO_RAY_BLAST_RADIUS,
         // Mystery box only — there is no wall that sells the wonder weapon.
         cost: 0,
         upgradedName: 'Porter\'s X2 Xeno Ray'
@@ -297,6 +306,24 @@ export const CALL_OF_XENO_RAY_FALLOFF_END = 46
 /** Fraction of base damage left at the falloff end, per PaP tier (0-3). */
 export const CALL_OF_XENO_RAY_FALLOFF_FLOOR = [0.12, 0.2, 0.3, 0.42]
 
+/**
+ * Sally — the Pack-a-Punched M1911 — trades nearly all of its ammo for the
+ * biggest damage jump on the ladder. It is a grenade-launcher pistol: one
+ * loud round, a wide blast, and a pocket of spare shots you can count.
+ */
+export const CALL_OF_XENO_SALLY_DAMAGE = [820, 1300, 2000]
+export const CALL_OF_XENO_SALLY_MAG = 6
+export const CALL_OF_XENO_SALLY_RESERVE = [18, 21, 24]
+export const CALL_OF_XENO_SALLY_BLAST_RADIUS = 3.2
+
+/**
+ * Standing inside your own blast hurts. The fraction is taken of the blast
+ * damage at the player's distance from the centre, then capped so a close
+ * quarters detonation stings instead of ending the run outright.
+ */
+export const CALL_OF_XENO_BLAST_SELF_FRACTION = 0.2
+export const CALL_OF_XENO_BLAST_SELF_CAP = 35
+
 /** Damage multiplier for a ray hit at `distance` for a weapon at `papTier`. */
 export function xenoRayFalloff(distance: number, papTier: number): number {
     const start = CALL_OF_XENO_RAY_FALLOFF_START + papTier * 6
@@ -326,12 +353,21 @@ export function packAPunch(weapon: CallOfXenoWeapon, tier: number): CallOfXenoWe
         reserveAmmo: Math.round(weapon.reserveAmmo * step.reserve),
         penetration: weapon.penetration + step.penetration
     }
-    // Pack-a-Punching the starting M1911 forges Mustang & Sally: two
-    // explosive hand cannons fired independently, never aimed.
+    // Pack-a-Punching the starting M1911 forges Sally: a single explosive
+    // hand cannon that lobs a detonating round. The biggest damage step on
+    // the ladder, paid for with a tiny ammo pool.
     if (weapon.id === 'm1911') {
-        upgraded.akimbo = true
+        const t = Math.min(tier, CALL_OF_XENO_MAX_PAP_TIER)
+        upgraded.name = 'Sally' + step.suffix
+        upgraded.damage = CALL_OF_XENO_SALLY_DAMAGE[t - 1]!
+        upgraded.magSize = CALL_OF_XENO_SALLY_MAG
+        upgraded.reserveAmmo = CALL_OF_XENO_SALLY_RESERVE[t - 1]!
+        upgraded.fireDelay = 0.5
+        upgraded.reloadTime = 2.6
         upgraded.explosive = true
-        upgraded.spread = 0.02
+        upgraded.projectile = true
+        upgraded.blastRadius = CALL_OF_XENO_SALLY_BLAST_RADIUS
+        upgraded.spread = 0.015
         upgraded.range = Math.max(weapon.range, 40)
     }
     return upgraded

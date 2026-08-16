@@ -13,6 +13,10 @@ import {
     packAPunchCost,
     ammoCost,
     xenoRayFalloff,
+    CALL_OF_XENO_SALLY_DAMAGE,
+    CALL_OF_XENO_SALLY_MAG,
+    CALL_OF_XENO_SALLY_RESERVE,
+    CALL_OF_XENO_SALLY_BLAST_RADIUS,
     roundComposition,
     isSpecialRound,
     specialRoundEnemy,
@@ -224,16 +228,40 @@ describe('pack-a-punch ladder', () => {
         expect(packAPunch(CALL_OF_XENO_WEAPONS.rpk, 9)).toEqual(packAPunch(CALL_OF_XENO_WEAPONS.rpk, 3))
     })
 
-    it('forges Mustang & Sally when the starting pistol is Pack-a-Punched', () => {
+    it('forges Sally when the starting pistol is Pack-a-Punched', () => {
         const base = packAPunch(CALL_OF_XENO_WEAPONS.m1911, 0)
-        expect(base.akimbo).toBeUndefined()
+        expect(base.explosive).toBeUndefined()
+        expect(base.projectile).toBeUndefined()
         for (const tier of [1, 2, 3]) {
             const upgraded = packAPunch(CALL_OF_XENO_WEAPONS.m1911, tier)
-            expect(upgraded.akimbo, `tier ${tier}`).toBe(true)
             expect(upgraded.explosive, `tier ${tier}`).toBe(true)
+            expect(upgraded.projectile, `tier ${tier}`).toBe(true)
+            expect(upgraded.name.startsWith('Sally'), `tier ${tier}`).toBe(true)
+            // Biggest damage step on the ladder, paid for with a tiny pool.
+            expect(upgraded.damage, `tier ${tier}`).toBe(CALL_OF_XENO_SALLY_DAMAGE[tier - 1])
+            expect(upgraded.magSize, `tier ${tier}`).toBe(CALL_OF_XENO_SALLY_MAG)
+            expect(upgraded.reserveAmmo, `tier ${tier}`).toBe(CALL_OF_XENO_SALLY_RESERVE[tier - 1])
+            expect(upgraded.blastRadius, `tier ${tier}`).toBe(CALL_OF_XENO_SALLY_BLAST_RADIUS)
         }
-        // Akimbo stays exclusive to the pistol line.
-        expect(packAPunch(CALL_OF_XENO_WEAPONS.ak74, 1).akimbo).toBeUndefined()
+        // The raw multiplier ladder would leave the pistol far weaker.
+        const generic = packAPunch(CALL_OF_XENO_WEAPONS.ak74, 1)
+        expect(generic.damage).toBe(Math.round(CALL_OF_XENO_WEAPONS.ak74.damage * 2.5))
+        expect(packAPunch(CALL_OF_XENO_WEAPONS.ak74, 1).projectile).toBeUndefined()
+        // Sally carries the pistol line's biggest jump by far.
+        const sally = packAPunch(CALL_OF_XENO_WEAPONS.m1911, 1)
+        const sallyBoost = sally.damage / CALL_OF_XENO_WEAPONS.m1911.damage
+        const akBoost = generic.damage / CALL_OF_XENO_WEAPONS.ak74.damage
+        expect(sallyBoost).toBeGreaterThan(akBoost * 5)
+    })
+
+    it('gives the wonder weapon a small blast that Sally out-radiuses', () => {
+        const ray = CALL_OF_XENO_WEAPONS.xenoray
+        expect(ray.projectile).toBe(true)
+        expect(ray.explosive).toBe(true)
+        expect(ray.blastRadius!).toBeLessThan(CALL_OF_XENO_SALLY_BLAST_RADIUS)
+        // But the ray keeps the harder hit: it is the special weapon.
+        const rayTier1 = packAPunch(ray, 1)
+        expect(rayTier1.damage).toBeGreaterThan(CALL_OF_XENO_SALLY_DAMAGE[0])
     })
 
     it('softens the wonder weapon with distance and lets Pack-a-Punch push it back out', () => {

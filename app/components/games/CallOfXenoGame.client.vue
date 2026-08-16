@@ -666,6 +666,8 @@ import {
     CALL_OF_XENO_HEADSHOT_POINTS,
     CALL_OF_XENO_STARTING_POINTS,
     CALL_OF_XENO_KNIFE_KILL_POINTS,
+    CALL_OF_XENO_BLAST_SELF_FRACTION,
+    CALL_OF_XENO_BLAST_SELF_CAP,
     CALL_OF_XENO_POWERUP_CHANCE,
     CALL_OF_XENO_POWERUP_LIFETIME,
     CALL_OF_XENO_NUKE_POINTS,
@@ -1118,8 +1120,6 @@ const audio = new CallOfXenoAudio()
 
 let weaponRoot!: THREE.Group
 let weaponModel: THREE.Group | null = null
-/** Mirrored right-hand gun for akimbo weapons. */
-let weaponModelOffhand: THREE.Group | null = null
 let boxPreview: THREE.Group | null = null
 let muzzleFlash!: THREE.Sprite
 let muzzleLight!: THREE.PointLight
@@ -1160,10 +1160,6 @@ let inBreak = false
 let bannerTimer = 0
 let powered = false
 let firing = false
-/** Right-trigger "fire" for akimbo: RMB drives the right-hand gun. */
-let firingRight = false
-/** Per-hand shot cooldown for akimbo weapons. */
-const akimboCooldown: Record<'left' | 'right', number> = { left: 0, right: 0 }
 let fireTimer = 0
 let reloadTimer = 0
 let reloadTotal = 0
@@ -1218,6 +1214,27 @@ const openDoors = new Set<string>()
 const enemies: Enemy[] = []
 const corpses: Corpse[] = []
 const projectiles: Projectile[] = []
+
+/** A live player-fired explosive round: a Sally shell or a Xeno Ray bolt. */
+interface PlayerRound {
+    mesh: THREE.Mesh
+    x: number
+    y: number
+    z: number
+    vx: number
+    vy: number
+    vz: number
+    damage: number
+    blastRadius: number
+    kind: 'sally' | 'ray'
+    tier: number
+    life: number
+    traveled: number
+    range: number
+    trailTimer: number
+    scored: Set<Enemy>
+}
+const playerRounds: PlayerRound[] = []
 const groundPowerUps: GroundPowerUp[] = []
 const worldPopups: WorldPopup[] = []
 const barrels: Barrel[] = []
@@ -1433,20 +1450,6 @@ function equipModel() {
     weaponModel = buildWeaponModel(slot.base, slot.tier)
     weaponRoot.add(weaponModel)
 
-    // Mustang & Sally: a mirrored second gun on the right. The left gun stays
-    // on the usual anchor; the pair reads as two holsters at a glance.
-    if (weaponModelOffhand) {
-        weaponRoot.remove(weaponModelOffhand)
-        disposeObject(weaponModelOffhand)
-        weaponModelOffhand = null
-    }
-    if (slot.def.akimbo) {
-        weaponModelOffhand = buildWeaponModel(slot.base, slot.tier)
-        weaponModelOffhand.position.set(0.34, -0.02, 0.08)
-        weaponModelOffhand.rotation.y = -0.08
-        weaponRoot.add(weaponModelOffhand)
-    }
-
     swapTimer = 0.18
 }
 
@@ -1504,28 +1507,168 @@ function hitEnemy(enemy: Enemy, ox: number, oy: number, oz: number, dx: number, 
     return best
 }
 
-/** Splash damage of an explosive round at the impact point. */
-function detonateRound(x: number, y: number, z: number, damage: number, scored: Set<Enemy>) {
-    const radius = 2.6
+/**
+ * Splash damage of an explosive round at the impact point. Returns the number
+ * of enemies killed so callers can award multi-kill bonuses.
+ */
+function detonateRound(x: number, y: number, z: number, damage: number, blastRadius: number, scored: Set<Enemy>, kind: 'sally' | 'ray'): number {
     impactPoint.set(x, y, z)
-    effects.energyBurst(impactPoint, 0xffa040)
-    impactPoint.set(x, y + 0.2, z)
-    effects.wallImpact(impactPoint, new THREE.Vector3(0, 1, 0))
+    effects.explosion(impactPoint, kind === 'ray' ? 0x44ffcc : 0xffa040, blastRadius)
+    audio.play('explosion')
+    shake = Math.min(0.4, shake + 0.18)
+
+    let kills = 0
     for (const enemy of [...enemies]) {
-        const dist = Math.hypot(enemy.x - x, enemy.z - z)
-        if (dist > radius) continue
-        const falloff = Math.max(0.3, 1 - dist / radius)
+        const dist = Math.hypot(enemy.x - x, enemy.y + enemy.model.torsoY * 0.5 - y, enemy.z - z)
+        if (dist > blastRadius) continue
+        const falloff = Math.max(0.3, 1 - dist / blastRadius)
         impactPoint.set(enemy.x, enemy.y + enemy.model.torsoY, enemy.z)
-        applyHit(enemy, damage * falloff, 'body', scored, impactPoint)
+        if (applyHit(enemy, damage * falloff, 'body', scored, impactPoint)) kills++
     }
     // The blast sets off any fuel barrel caught in it.
     for (const barrel of [...barrels]) {
         if (!barrel.alive) continue
-        if (Math.hypot(barrel.x - x, barrel.z - z) <= radius) explodeBarrel(barrel)
+        if (Math.hypot(barrel.x - x, barrel.z - z) <= blastRadius) explodeBarrel(barrel)
+    }
+    // Own blasts bite back: standing inside the radius costs a sliver of
+    // health, so the launchers stay strong but never free to fire at your feet.
+    const selfDist = Math.hypot(px - x, feetY + PLAYER_HEIGHT * 0.5 - y, pz - z)
+    if (selfDist < blastRadius + 0.4 && hp > 0) {
+        const falloff = Math.max(0.25, 1 - selfDist / (blastRadius + 0.4))
+        const self = Math.round(Math.min(CALL_OF_XENO_BLAST_SELF_CAP, damage * CALL_OF_XENO_BLAST_SELF_FRACTION * falloff))
+        if (self >= 1) takeDamage(self, x, z)
+    }
+    return kills
+}
+
+/** Launches a live round — the Sally shell arcs, the ray bolt flies flat. */
+function spawnPlayerRound(slot: WeaponSlot, damage: number) {
+    const ray = slot.base === 'xenoray'
+    pelletDir.copy(rayDir)
+    const spread = slot.def.spread * (0.55 + bloom * 0.85) * (aiming ? 0.3 : 1.65)
+    if (spread > 0) {
+        const angle = randomFloat() * Math.PI * 2
+        const radius = Math.sqrt(randomFloat()) * spread
+        pelletDir.x += Math.cos(angle) * radius
+        pelletDir.y += Math.sin(angle) * radius
+        pelletDir.z += (randomFloat() - 0.5) * radius
+        pelletDir.normalize()
+    }
+
+    muzzleFlash.getWorldPosition(muzzleWorld)
+    pelletDir.multiplyScalar(0.35).add(muzzleWorld)
+    const speed = ray ? 58 : 26
+    const mesh = buildProjectile(ray ? 0x44ffcc : 0xffa040)
+    mesh.scale.setScalar(ray ? 0.8 : 1)
+    mesh.position.copy(pelletDir)
+    scene.add(mesh)
+    playerRounds.push({
+        mesh,
+        x: pelletDir.x,
+        y: pelletDir.y,
+        z: pelletDir.z,
+        vx: rayDir.x * speed,
+        vy: rayDir.y * speed,
+        vz: rayDir.z * speed,
+        damage,
+        blastRadius: slot.def.blastRadius ?? 2.6,
+        kind: ray ? 'ray' : 'sally',
+        tier: slot.tier,
+        life: 3,
+        traveled: 0,
+        range: slot.def.range,
+        trailTimer: 0,
+        scored: new Set()
+    })
+}
+
+/**
+ * Flies every live player round and pops it on the first thing it touches —
+ * wall, floor, enemy, barrel or the end of its fuse. The ray bolt keeps the
+ * beam's distance falloff: the further it flew, the softer it pops.
+ */
+function updatePlayerRounds(dt: number) {
+    for (let i = playerRounds.length - 1; i >= 0; i--) {
+        const round = playerRounds[i]!
+        round.life -= dt
+        // The shell drops under gravity like a launched grenade; the energy
+        // bolt does not.
+        if (round.kind === 'sally') round.vy -= 11 * dt
+
+        const speed = Math.hypot(round.vx, round.vy, round.vz) || 1
+        const dirx = round.vx / speed
+        const diry = round.vy / speed
+        const dirz = round.vz / speed
+        const step = speed * dt
+        const block = rayBlockDistance(round.x, round.y, round.z, dirx, diry, dirz, solids, step + 0.15)
+
+        let hitEnemyAt = -1
+        for (const enemy of enemies) {
+            const hit = hitEnemy(enemy, round.x, round.y, round.z, dirx, diry, dirz)
+            if (hit && hit.t <= step && (hitEnemyAt < 0 || hit.t < hitEnemyAt)) hitEnemyAt = hit.t
+        }
+
+        // Trails: the shell smokes, the bolt drags a line of light.
+        round.trailTimer -= dt
+        if (round.kind === 'ray') {
+            rayOrigin.set(round.x, round.y, round.z)
+            round.x += round.vx * dt
+            round.y += round.vy * dt
+            round.z += round.vz * dt
+            impactPoint.set(round.x, round.y, round.z)
+            effects.tracer(rayOrigin, impactPoint, 0x44ffcc, 0.045, 0.14)
+        } else {
+            if (round.trailTimer <= 0) {
+                round.trailTimer = 0.022
+                impactPoint.set(round.x, round.y, round.z)
+                effects.trailSmoke(impactPoint, round.life > 2.86)
+            }
+            round.x += round.vx * dt
+            round.y += round.vy * dt
+            round.z += round.vz * dt
+        }
+        round.traveled += step
+
+        let pop = false
+        let pxHit = round.x
+        let pyHit = round.y
+        let pzHit = round.z
+
+        if (hitEnemyAt >= 0 && hitEnemyAt < block.distance) {
+            pxHit = round.x - dirx * (step - hitEnemyAt)
+            pyHit = round.y - diry * (step - hitEnemyAt)
+            pzHit = round.z - dirz * (step - hitEnemyAt)
+            pop = true
+        } else if (block.distance <= step + 0.05) {
+            // Solids include fuel barrels — a direct bite sets them off.
+            hitBarrel(round.x, round.y, round.z, dirx, diry, dirz, Math.max(0, block.distance - 0.05))
+            pxHit = round.x - dirx * Math.max(0, step - block.distance)
+            pyHit = round.y - diry * Math.max(0, step - block.distance)
+            pzHit = round.z - dirz * Math.max(0, step - block.distance)
+            pop = true
+        } else if (round.y <= 0.06 && round.vy < 0) {
+            // The ground is not a solid box — catch the floor here.
+            pyHit = 0.06
+            pop = true
+        } else if (round.life <= 0 || round.traveled >= round.range) {
+            pop = true
+        }
+
+        round.mesh.position.set(round.x, round.y, round.z)
+        if (round.kind === 'sally') round.mesh.rotation.x += dt * 9
+
+        if (pop) {
+            scene.remove(round.mesh)
+            disposeObject(round.mesh)
+            playerRounds.splice(i, 1)
+            const falloff = round.kind === 'ray' ? xenoRayFalloff(round.traveled, round.tier) : 1
+            const kills = detonateRound(pxHit, pyHit, pzHit, round.damage * falloff, round.blastRadius, round.scored, round.kind)
+            announceMultiKill(kills)
+        }
     }
 }
 
-function shoot(hand: 'left' | 'right' = 'left') {
+function shoot() {
     const slot = active()
     if (reloadTimer > 0 || swapTimer > 0) return
     if (slot.mag <= 0) {
@@ -1535,14 +1678,7 @@ function shoot(hand: 'left' | 'right' = 'left') {
     }
 
     slot.mag--
-    // Akimbo hands keep separate cooldowns, so alternating LMB/RMB doubles
-    // the rate; one trigger held down still respects the per-shot delay.
-    if (slot.def.akimbo) {
-        akimboCooldown[hand] = fireDelayOf(slot)
-        fireTimer = Math.min(fireTimer, fireDelayOf(slot))
-    } else {
-        fireTimer = fireDelayOf(slot)
-    }
+    fireTimer = fireDelayOf(slot)
     recoil = 1
     bloom = Math.min(1, bloom + (aiming ? 0.22 : 0.34))
     shake = Math.min(0.09, shake + (slot.def.explosive ? 0.05 : slot.base === 'trench' || slot.base === 'rpk' ? 0.05 : 0.025))
@@ -1555,13 +1691,21 @@ function shoot(hand: 'left' | 'right' = 'left') {
     muzzleLight.intensity = slot.def.explosive ? 14 : slot.base === 'xenoray' ? 12 : 9
     muzzleLight.color.setHex(slot.base === 'xenoray' ? 0x44ffcc : slot.def.explosive ? 0xff9040 : 0xffbb55)
 
-    muzzleFlash.getWorldPosition(muzzleWorld)
-    rightVector.set(1, 0, 0).applyQuaternion(camera.quaternion)
-    effects.ejectCasing(muzzleWorld, rightVector)
-
     const damage = damageOf(slot)
     camera.getWorldPosition(rayOrigin)
     camera.getWorldDirection(rayDir)
+
+    // Launcher-type weapons lob a live round and let it fly; everything else
+    // resolves as a hitscan ray in the loop below.
+    if (slot.def.projectile) {
+        spawnPlayerRound(slot, damage)
+        if (slot.mag === 0) startReload()
+        return
+    }
+
+    muzzleFlash.getWorldPosition(muzzleWorld)
+    rightVector.set(1, 0, 0).applyQuaternion(camera.quaternion)
+    effects.ejectCasing(muzzleWorld, rightVector)
 
     const scored = new Set<Enemy>()
     let killsThisShot = 0
@@ -1602,22 +1746,11 @@ function shoot(hand: 'left' | 'right' = 'left') {
         hits.sort((a, b) => a.t - b.t)
         const landed = hits.slice(0, slot.def.penetration)
 
-        // Explosive rounds detonate at the first thing they touch — the
-        // splash does the work, direct hits are just the fuse.
-        if (slot.def.explosive) {
-            const at = landed.length > 0 ? landed[0]!.t : maxDist
-            impactPoint.copy(pelletDir).multiplyScalar(at).add(rayOrigin)
-            detonateRound(impactPoint.x, impactPoint.y, impactPoint.z, damage, scored)
-        } else {
-            for (const hit of landed) {
-                impactPoint.copy(pelletDir).multiplyScalar(hit.t).add(rayOrigin)
-                const multiplier = hit.kind === 'head' ? 1.5 : hit.kind === 'weak' ? (hit.enemy.def.weakPoint ?? 1) : 1
-                // The ray is a diffusing beam: each enemy in the line takes the
-                // damage left at its own distance, so a shot thins as it goes.
-                const falloff = slot.base === 'xenoray' ? xenoRayFalloff(hit.t, slot.tier) : 1
-                effects.bloodBurst(impactPoint, pelletDir, hit.kind === 'body' ? 1.2 : 2)
-                if (applyHit(hit.enemy, damage * multiplier * falloff, hit.kind, scored, impactPoint)) killsThisShot++
-            }
+        for (const hit of landed) {
+            impactPoint.copy(pelletDir).multiplyScalar(hit.t).add(rayOrigin)
+            const multiplier = hit.kind === 'head' ? 1.5 : hit.kind === 'weak' ? (hit.enemy.def.weakPoint ?? 1) : 1
+            effects.bloodBurst(impactPoint, pelletDir, hit.kind === 'body' ? 1.2 : 2)
+            if (applyHit(hit.enemy, damage * multiplier, hit.kind, scored, impactPoint)) killsThisShot++
         }
 
         const endDist = landed.length >= slot.def.penetration && landed.length > 0
@@ -1632,27 +1765,24 @@ function shoot(hand: 'left' | 'right' = 'left') {
 
         if (pellet < 3) {
             muzzleFlash.getWorldPosition(muzzleWorld)
-            if (slot.base === 'xenoray') {
-                effects.tracer(muzzleWorld, impactPoint, 0x44ffcc, 0.05, 0.16)
-                effects.energyBurst(impactPoint, 0x44ffcc)
-            } else if (slot.def.explosive) {
-                effects.tracer(muzzleWorld, impactPoint, 0xffa040, 0.03, 0.1)
-            } else {
-                effects.tracer(muzzleWorld, impactPoint, slot.tier > 0 ? 0xff88ee : 0xffd27a, 0.014, 0.06)
-            }
+            effects.tracer(muzzleWorld, impactPoint, slot.tier > 0 ? 0xff88ee : 0xffd27a, 0.014, 0.06)
         }
     }
 
-    const bonus = multiKillBonus(killsThisShot)
-    if (bonus > 0) {
-        award(bonus)
-        banner.value = `${killsThisShot} in one shot`
-        subBanner.value = `+${bonus}`
-        bannerColor.value = '#fb923c'
-        bannerTimer = 1.4
-    }
+    announceMultiKill(killsThisShot)
 
     if (slot.mag === 0) startReload()
+}
+
+/** Splash and banner for clearing several hostiles with one detonation. */
+function announceMultiKill(kills: number) {
+    const bonus = multiKillBonus(kills)
+    if (bonus <= 0) return
+    award(bonus)
+    banner.value = `${kills} in one shot`
+    subBanner.value = `+${bonus}`
+    bannerColor.value = '#fb923c'
+    bannerTimer = 1.4
 }
 
 /** Applies a points award through the streak, double-points and special-round multipliers. */
@@ -2929,6 +3059,7 @@ function update(dt: number) {
     updateViewModel(dt)
     updateEnemies(dt)
     updateProjectiles(dt)
+    updatePlayerRounds(dt)
     updatePowerUps(dt)
     updateBox(dt)
     updateRound(dt)
@@ -2973,25 +3104,9 @@ function update(dt: number) {
     }
 
     fireTimer -= dt
-    akimboCooldown.left = Math.max(0, akimboCooldown.left - dt)
-    akimboCooldown.right = Math.max(0, akimboCooldown.right - dt)
-    if (active().def.akimbo) {
-        // Each hand is its own trigger; the shared fireTimer holds whichever
-        // hand fired last so a single held button still throttles.
-        if (firing && akimboCooldown.left <= 0 && reloadTimer <= 0 && swapTimer <= 0) {
-            shoot('left')
-            if (!active().def.automatic) firing = false
-        }
-        if (firingRight && akimboCooldown.right <= 0 && reloadTimer <= 0 && swapTimer <= 0) {
-            shoot('right')
-            if (!active().def.automatic) firingRight = false
-        }
-    } else {
-        if (firingRight) firingRight = false
-        if (firing && fireTimer <= 0 && reloadTimer <= 0 && swapTimer <= 0) {
-            shoot()
-            if (!active().def.automatic) firing = false
-        }
+    if (firing && fireTimer <= 0 && reloadTimer <= 0 && swapTimer <= 0) {
+        shoot()
+        if (!active().def.automatic) firing = false
     }
 
     bloom = Math.max(0, bloom - dt * 1.6)
@@ -3103,6 +3218,11 @@ function resetRun() {
         disposeObject(bolt.mesh)
     }
     projectiles.length = 0
+    for (const round of playerRounds) {
+        scene.remove(round.mesh)
+        disposeObject(round.mesh)
+    }
+    playerRounds.length = 0
     for (const entry of groundPowerUps) {
         scene.remove(entry.group)
         disposeObject(entry.group)
@@ -3313,19 +3433,12 @@ function onMouseMove(event: MouseEvent) {
 function onMouseDown(event: MouseEvent) {
     if (!locked.value || phase.value !== 'playing') return
     if (event.button === 0) firing = true
-    // Akimbo has no sights to drop into — the right trigger is the right gun.
-    if (event.button === 2) {
-        if (slots.length > 0 && active().def.akimbo) firingRight = true
-        else aiming = true
-    }
+    if (event.button === 2) aiming = true
 }
 
 function onMouseUp(event: MouseEvent) {
     if (event.button === 0) firing = false
-    if (event.button === 2) {
-        aiming = false
-        firingRight = false
-    }
+    if (event.button === 2) aiming = false
 }
 
 function onContextMenu(event: MouseEvent) {
@@ -3336,7 +3449,6 @@ function onPointerLockChange() {
     locked.value = document.pointerLockElement !== null
     if (!locked.value) {
         firing = false
-        firingRight = false
         aiming = false
         keys.clear()
     }
@@ -3477,10 +3589,10 @@ onBeforeUnmount(() => {
     enemies.length = 0
     corpses.length = 0
     projectiles.length = 0
+    playerRounds.length = 0
     groundPowerUps.length = 0
     worldPopups.length = 0
     weaponModel = null
-    weaponModelOffhand = null
     boxPreview = null
 })
 </script>
