@@ -926,7 +926,7 @@ const runDifficultyName = ref('Recruit')
 let runDifficulty: CallOfXenoDifficulty = CALL_OF_XENO_DIFFICULTIES[0]!
 let runEffects: CallOfXenoUpgradeEffects = callOfXenoUpgradeEffects(CALL_OF_XENO_EMPTY_LEVELS)
 /** Lifetime points earned this run — the number the payout is settled on. */
-let grossEarned = 0
+const grossEarned = ref(0)
 /** True while a server-armed run is in flight and owes a finish-run. */
 let serverRunActive = false
 
@@ -1037,7 +1037,7 @@ const payoutRateLabel = computed(() => {
 /** What dying right now would pay: gross so far × rate × tier × contract. */
 const pausePayoutEstimate = computed(() => {
     if (guestMode.value) return null
-    return Math.floor(grossEarned * CALL_OF_XENO_PAYOUT_RATE * runDifficulty.reward * runEffects.payoutMult)
+    return Math.floor(grossEarned.value * CALL_OF_XENO_PAYOUT_RATE * runDifficulty.reward * runEffects.payoutMult)
 })
 
 const upgradeIcons: Record<CallOfXenoUpgradeId, string> = {
@@ -1919,7 +1919,7 @@ function award(base: number) {
     score += total
     // Gross income over the run's life — what the end-of-run payout is
     // settled on. Spending later does not subtract from it.
-    grossEarned += total
+    grossEarned.value += total
     return total
 }
 
@@ -2462,7 +2462,7 @@ function updateRepair(dt: number) {
     // A flat rate: repairing is a steady trickle, not something the streak
     // multiplier can be farmed through.
     score += CALL_OF_XENO_REPAIR_POINTS
-    grossEarned += CALL_OF_XENO_REPAIR_POINTS
+    grossEarned.value += CALL_OF_XENO_REPAIR_POINTS
     spawnPopup(
         focusedWindow.centre.x,
         CALL_OF_XENO_WINDOW_HEAD,
@@ -3298,7 +3298,7 @@ async function exitRun() {
 async function settleRun() {
     if (!serverRunActive) return null
     serverRunActive = false
-    const gross = Math.round(grossEarned)
+    const gross = Math.round(grossEarned.value)
     try {
         const res = await $fetch<{ awarded: number, counted: number, capped: boolean }>('/api/call-of-xeno/finish-run', {
             method: 'POST',
@@ -3348,7 +3348,7 @@ function die() {
     const minutes = Math.floor(runTime / 60)
     const seconds = Math.floor(runTime % 60)
     summary.value = [
-        { label: 'Points earned', value: Math.round(grossEarned).toLocaleString() },
+        { label: 'Points earned', value: Math.round(grossEarned.value).toLocaleString() },
         { label: 'Points banked', value: score.toLocaleString() },
         { label: 'Kills', value: String(statKills) },
         { label: 'Headshots', value: statKills > 0 ? `${Math.round((statHeadshots / statKills) * 100)}%` : '0%' },
@@ -3472,7 +3472,7 @@ function resetRun() {
     hp = hpMax
     sinceDamage = 99
     score = runEffects.startingPoints
-    grossEarned = 0
+    grossEarned.value = 0
     streak = 0
     streakTimer = 0
     runTime = 0
