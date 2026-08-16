@@ -655,20 +655,25 @@
                                     <span class="text-[10px] uppercase tracking-[0.2em] text-zinc-500">points</span>
                                 </span>
                             </div>
-                            <div v-if="pausePayoutEstimate !== null" class="mx-auto mt-3 max-w-sm rounded-xl border border-amber-400/20 bg-amber-400/[0.07] px-4 py-3">
+                            <div v-if="pausePayoutPreview" class="mx-auto mt-3 max-w-sm rounded-xl border border-amber-400/20 bg-amber-400/[0.07] px-4 py-3">
                                 <div class="flex items-center justify-between gap-3">
                                     <span class="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.25em] text-amber-300/80">
                                         <UIcon name="i-lucide-banknote" class="size-3.5" />
                                         Run value if you die now
                                     </span>
                                     <span class="text-2xl font-black tabular-nums text-amber-300">
-                                        {{ pausePayoutEstimate.toLocaleString() }}
+                                        {{ pausePayoutPreview.awarded.toLocaleString() }}
                                     </span>
                                 </div>
-                                    <div class="mt-1.5 border-t border-amber-400/10 pt-1.5 text-[10px] leading-relaxed text-zinc-500">
-                                    {{ Math.round(grossEarned).toLocaleString() }} points earned ×
-                                    {{ (CALL_OF_XENO_PAYOUT_RATE * runDifficulty.reward * runEffects.payoutMult).toFixed(2) }} cash per point ({{ runDifficultyName }})
-                                    — paid to your balance when this run ends.
+                                <div class="mt-1.5 border-t border-amber-400/10 pt-1.5 text-[10px] leading-relaxed text-zinc-500">
+                                    <template v-if="pausePayoutPreview.capped">
+                                        Verified down to {{ pausePayoutPreview.counted.toLocaleString() }} of {{ Math.round(grossEarned).toLocaleString() }} points — the wall clock caps what a run this long can claim
+                                    </template>
+                                    <template v-else>
+                                        {{ Math.round(grossEarned).toLocaleString() }} points earned ×
+                                        {{ (CALL_OF_XENO_PAYOUT_RATE * runDifficulty.reward * runEffects.payoutMult).toFixed(2) }} cash per point ({{ runDifficultyName }})
+                                        — paid to your balance when this run ends.
+                                    </template>
                                 </div>
                             </div>
 
@@ -818,6 +823,7 @@ import {
     CALL_OF_XENO_PAYOUT_RATE,
     CALL_OF_XENO_SIDEARM_LADDER,
     callOfXenoDifficulty,
+    callOfXenoPayoutForRun,
     callOfXenoSidearmUnlocked,
     callOfXenoUpgradeEffects,
     type CallOfXenoBestRounds,
@@ -931,6 +937,8 @@ let runEffects: CallOfXenoUpgradeEffects = callOfXenoUpgradeEffects(CALL_OF_XENO
 const grossEarned = ref(0)
 /** True while a server-armed run is in flight and owes a finish-run. */
 let serverRunActive = false
+/** Wall-clock start of the current run — drives the honest payout preview. */
+let runStartMs = 0
 
 /** Chosen starting weapon for the next run. Kept across menu visits, reset to the best unlocked one after buys. */
 const chosenSidearm = ref<CallOfXenoWeaponId>('m1911')
@@ -1036,10 +1044,10 @@ const payoutRateLabel = computed(() => {
     return `×${(CALL_OF_XENO_PAYOUT_RATE * reward).toFixed(2)}`
 })
 
-/** What dying right now would pay: gross so far × rate × tier × contract. */
-const pausePayoutEstimate = computed(() => {
+/** What dying right now would pay — same ceiling and caps the server settle uses. */
+const pausePayoutPreview = computed(() => {
     if (guestMode.value) return null
-    return Math.floor(grossEarned.value * CALL_OF_XENO_PAYOUT_RATE * runDifficulty.reward * runEffects.payoutMult)
+    return callOfXenoPayoutForRun(grossEarned.value, Date.now() - runStartMs, runDifficulty, runEffects.payoutMult)
 })
 
 const upgradeIcons: Record<CallOfXenoUpgradeId, string> = {
@@ -3493,6 +3501,7 @@ function resetRun() {
     sinceDamage = 99
     score = runEffects.startingPoints
     grossEarned.value = 0
+    runStartMs = Date.now()
     streak = 0
     streakTimer = 0
     runTime = 0
@@ -3565,6 +3574,9 @@ async function deployRun(): Promise<boolean> {
         runDifficulty = callOfXenoDifficulty(res.difficulty?.id ?? selectedDifficulty.value)
         runDifficultyName.value = runDifficulty.name
         runEffects = res.effects
+        // Anchor the preview clock to the server-stamped start — the exact
+        // timestamp the settle will measure elapsed time against.
+        runStartMs = res.runStartedAt ? new Date(res.runStartedAt).getTime() : Date.now()
         applyEffects()
         serverRunActive = true
         resetRun()

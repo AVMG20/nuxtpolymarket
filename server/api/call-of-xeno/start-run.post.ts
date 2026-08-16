@@ -60,8 +60,9 @@ export default defineEventHandler(async (event) => {
         }
 
         const effects = callOfXenoUpgradeEffects(callOfXenoLevels(state))
+        const runStartedAt = new Date()
         await tx.update(callOfXenoState).set({
-            runStartedAt: new Date(),
+            runStartedAt,
             runDifficultySnapshot: difficultyId,
             // Snapshotted at deploy so buying Contract levels mid-run cannot
             // inflate the payout a run already earned its way to.
@@ -71,7 +72,10 @@ export default defineEventHandler(async (event) => {
         return {
             difficulty,
             effects,
-            payoutMult: effects.payoutMult
+            payoutMult: effects.payoutMult,
+            // The server-stamped start, so the client's live payout preview
+            // runs off the exact clock the settle will use.
+            runStartedAt
         }
     })
 })
