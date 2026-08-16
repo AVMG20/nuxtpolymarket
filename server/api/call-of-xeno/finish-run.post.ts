@@ -1,0 +1,62 @@
+import { and, eq, isNotNull } from 'drizzle-orm'
+import { db } from '#server/database'
+import { callOfXenoState } from '#server/database/schema'
+import { requireUserId } from '#server/utils/auth'
+import { credit } from '#server/utils/balance'
+import { getLockedCallOfXenoState, settleCallOfXenoRun } from '#server/utils/call-of-xeno'
+
+/**
+ * Ends a run and settles its payout.
+ *
+ * The client reports the round it died on and the lifetime points the run
+ * earned; neither is trusted. The elapsed time comes off the server-stamped
+ * `runStartedAt`, and the shared payout model clamps the gross to what that
+ * much playtime could plausibly have earned before converting it to cash.
+ */
+export default defineEventHandler(async (event) => {
+    const userId = await requireUserId(event)
+    const body = await readBody(event)
+    const reportedRound = Number(body?.round ?? 0)
+    const reportedGross = Number(body?.grossPoints ?? 0)
+    if (!Number.isFinite(reportedRound) || !Number.isFinite(reportedGross)) {
+        throw createError({ statusCode: 400, statusMessage: 'Invalid run report' })
+    }
+
+    return db.transaction(async (tx) => {
+        const state = await getLockedCallOfXenoState(tx, userId)
+        if (!state.runStartedAt) throw createError({ statusCode: 400, statusMessage: 'No active CALL OF XENO run' })
+
+        const elapsedMs = Date.now() - state.runStartedAt.getTime()
+        const result = settleCallOfXenoRun(state, {
+            round: reportedRound,
+            grossPoints: reportedGross
+        }, elapsedMs)
+
+        // Clearing the active-run lock *is* the claim: a second request in
+        // flight finds it already null, throws, and pays nothing.
+        const [claimed] = await tx.update(callOfXenoState).set({
+            runStartedAt: null,
+            runDifficultySnapshot: null,
+            runPayoutMultSnapshot: null,
+            lastRunFinishedAt: new Date(),
+            runsPlayed: result.runsPlayed,
+            totalEarned: result.totalEarned,
+            bestEarned: result.bestEarned,
+            ...result.bestRounds
+        }).where(and(eq(callOfXenoState.userId, userId), isNotNull(callOfXenoState.runStartedAt)))
+            .returning({ userId: callOfXenoState.userId })
+        if (!claimed) throw createError({ statusCode: 400, statusMessage: 'No active CALL OF XENO run' })
+
+        if (result.awarded > 0) await credit(userId, result.awarded.toFixed(4), 'call-of-xeno', tx)
+
+        return {
+            awarded: result.awarded,
+            counted: result.counted,
+            capped: result.capped,
+            round: result.round,
+            difficulty: result.difficulty.id,
+            bestRounds: result.bestRounds,
+            bestEarned: result.bestEarned
+        }
+    })
+})

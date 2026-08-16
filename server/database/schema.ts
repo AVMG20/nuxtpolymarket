@@ -348,6 +348,36 @@ export const firewallRuns = pgTable('firewall_runs', {
   updatedAt: timestamp('updated_at').defaultNow().$onUpdate(() => new Date()).notNull()
 })
 
+// ─── CALL OF XENO ────────────────────────────────────────────────────────
+
+// Permanent, coin-bought upgrades plus the per-difficulty records that gate
+// the harder tiers. The game itself is fully client-side; the server's job is
+// owning the levels, stamping a run snapshot at deploy and settling the
+// payout against a wall-clock ceiling at finish.
+export const callOfXenoState = pgTable('call_of_xeno_state', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().unique().references(() => user.id, { onDelete: 'cascade' }),
+  warChestLevel: integer('war_chest_level').notNull().default(0),
+  bodyArmorLevel: integer('body_armor_level').notNull().default(0),
+  adrenalineLevel: integer('adrenaline_level').notNull().default(0),
+  scavengerLevel: integer('scavenger_level').notNull().default(0),
+  contractLevel: integer('contract_level').notNull().default(0),
+  sidearmLevel: integer('sidearm_level').notNull().default(0),
+  runsPlayed: integer('runs_played').notNull().default(0),
+  totalEarned: numeric('total_earned', { precision: 19, scale: 4 }).notNull().default('0'),
+  bestEarned: integer('best_earned').notNull().default(0),
+  // Best round reached per difficulty tier — Veteran reads Recruit's, etc.
+  bestRoundRecruit: integer('best_round_recruit').notNull().default(0),
+  bestRoundVeteran: integer('best_round_veteran').notNull().default(0),
+  bestRoundSurvivor: integer('best_round_survivor').notNull().default(0),
+  bestRoundNightmare: integer('best_round_nightmare').notNull().default(0),
+  // Active-run lock + the payout-relevant snapshot taken at deploy.
+  runStartedAt: timestamp('run_started_at'),
+  runDifficultySnapshot: text('run_difficulty_snapshot'),
+  runPayoutMultSnapshot: numeric('run_payout_mult_snapshot', { precision: 10, scale: 4 }),
+  lastRunFinishedAt: timestamp('last_run_finished_at')
+})
+
 export const gemOrders = pgTable('gem_orders', {
   id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
   userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
@@ -867,6 +897,10 @@ export const firewallStateRelations = relations(firewallState, ({ one }) => ({
 
 export const firewallRunsRelations = relations(firewallRuns, ({ one }) => ({
   user: one(user, { fields: [firewallRuns.userId], references: [user.id] })
+}))
+
+export const callOfXenoStateRelations = relations(callOfXenoState, ({ one }) => ({
+  user: one(user, { fields: [callOfXenoState.userId], references: [user.id] })
 }))
 
 export const sessionRelations = relations(session, ({ one }) => ({

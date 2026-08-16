@@ -12,6 +12,7 @@ import {
     packAPunch,
     packAPunchCost,
     ammoCost,
+    xenoRayFalloff,
     roundComposition,
     isSpecialRound,
     specialRoundEnemy,
@@ -24,6 +25,8 @@ import {
     zombieSpawnInterval,
     zombieDamage,
     maxAlive,
+    CALL_OF_XENO_STARTING_POINTS,
+    CALL_OF_XENO_BASE_HEALTH,
     type CallOfXenoEnemyId,
     type CallOfXenoWeaponId
 } from '../../shared/utils/gamelogic/call-of-xeno'
@@ -72,6 +75,26 @@ import {
     navCellPassable,
     navLevelOf
 } from '../../shared/utils/gamelogic/call-of-xeno-nav'
+import {
+    CALL_OF_XENO_DIFFICULTIES,
+    CALL_OF_XENO_ELAPSED_GRACE_MS,
+    CALL_OF_XENO_EMPTY_LEVELS,
+    CALL_OF_XENO_MAX_GROSS,
+    CALL_OF_XENO_MAX_PAYOUT,
+    CALL_OF_XENO_RUN_COOLDOWN_MS,
+    CALL_OF_XENO_UPGRADES,
+    callOfXenoDifficulty,
+    callOfXenoDifficultyUnlocked,
+    callOfXenoMaxGrossForElapsedMs,
+    callOfXenoPayoutForRun,
+    callOfXenoRunCooldownRemainingMs,
+    callOfXenoSidearmUnlocked,
+    callOfXenoTotalUpgradeCost,
+    callOfXenoUpgradeCost,
+    callOfXenoUpgradeEffects,
+    type CallOfXenoBestRounds,
+    type CallOfXenoUpgradeLevels
+} from '../../shared/utils/gamelogic/call-of-xeno-meta'
 
 const ALL_DOORS_OPEN = new Set(CALL_OF_XENO_DOORS.map(d => d.id))
 const NO_DOORS = new Set<string>()
@@ -200,12 +223,41 @@ describe('pack-a-punch ladder', () => {
         expect(packAPunch(CALL_OF_XENO_WEAPONS.rpk, 0)).toEqual(CALL_OF_XENO_WEAPONS.rpk)
         expect(packAPunch(CALL_OF_XENO_WEAPONS.rpk, 9)).toEqual(packAPunch(CALL_OF_XENO_WEAPONS.rpk, 3))
     })
+
+    it('forges Mustang & Sally when the starting pistol is Pack-a-Punched', () => {
+        const base = packAPunch(CALL_OF_XENO_WEAPONS.m1911, 0)
+        expect(base.akimbo).toBeUndefined()
+        for (const tier of [1, 2, 3]) {
+            const upgraded = packAPunch(CALL_OF_XENO_WEAPONS.m1911, tier)
+            expect(upgraded.akimbo, `tier ${tier}`).toBe(true)
+            expect(upgraded.explosive, `tier ${tier}`).toBe(true)
+        }
+        // Akimbo stays exclusive to the pistol line.
+        expect(packAPunch(CALL_OF_XENO_WEAPONS.ak74, 1).akimbo).toBeUndefined()
+    })
+
+    it('softens the wonder weapon with distance and lets Pack-a-Punch push it back out', () => {
+        // Point blank stays full power.
+        expect(xenoRayFalloff(2, 0)).toBe(1)
+        // Long range collapses to the tier floor, never to zero.
+        expect(xenoRayFalloff(90, 0)).toBeCloseTo(0.12, 6)
+        expect(xenoRayFalloff(90, 3)).toBeCloseTo(0.42, 6)
+        // Mid range is strictly between, and upgrades strictly help.
+        const mid = xenoRayFalloff(30, 0)
+        expect(mid).toBeGreaterThan(0.12)
+        expect(mid).toBeLessThan(1)
+        for (let d = 0; d <= 60; d += 5) {
+            for (const tier of [0, 1, 2]) {
+                expect(xenoRayFalloff(d, tier + 1)).toBeGreaterThanOrEqual(xenoRayFalloff(d, tier))
+            }
+        }
+    })
 })
 
 describe('enemy roster', () => {
-    it('unlocks five types in escalating order', () => {
+    it('unlocks four types in escalating order', () => {
         const ids = Object.keys(CALL_OF_XENO_ENEMIES) as CallOfXenoEnemyId[]
-        expect(ids).toHaveLength(5)
+        expect(ids).toHaveLength(4)
         expect(CALL_OF_XENO_ENEMIES.shambler.minRound).toBe(1)
         const unlocks = ids.map(id => CALL_OF_XENO_ENEMIES[id].minRound)
         expect(Math.max(...unlocks)).toBeGreaterThan(9)
@@ -221,12 +273,11 @@ describe('enemy roster', () => {
     it('pays more for the types that are harder to kill', () => {
         expect(CALL_OF_XENO_ENEMIES.brute.reward).toBeGreaterThan(CALL_OF_XENO_ENEMIES.shambler.reward)
         expect(CALL_OF_XENO_ENEMIES.brute.weakPoint).toBeGreaterThan(1)
-        expect(CALL_OF_XENO_ENEMIES.crawler.reward).toBeLessThan(CALL_OF_XENO_ENEMIES.shambler.reward)
     })
 
     it('only offers unlocked types in a round composition', () => {
         expect(roundComposition(1).map(e => e.enemy)).toEqual(['shambler'])
-        expect(roundComposition(4).map(e => e.enemy)).toContain('crawler')
+        expect(roundComposition(4).map(e => e.enemy)).toContain('husk')
         expect(roundComposition(9).map(e => e.enemy)).not.toContain('brute')
         expect(roundComposition(12).map(e => e.enemy)).toContain('brute')
         for (const entry of roundComposition(30)) expect(entry.weight).toBeGreaterThan(0)
@@ -242,9 +293,9 @@ describe('special rounds and modifiers', () => {
     })
 
     it('cycles the special type and only ever names an unlocked one', () => {
-        expect(specialRoundEnemy(5)).toBe('crawler')
-        expect(specialRoundEnemy(10)).toBe('husk')
-        expect(specialRoundEnemy(15)).toBe('drone')
+        expect(specialRoundEnemy(5)).toBe('husk')
+        expect(specialRoundEnemy(10)).toBe('drone')
+        expect(specialRoundEnemy(15)).toBe('brute')
         expect(specialRoundEnemy(20)).toBe('brute')
         for (const round of [5, 10, 15, 20, 25, 40]) {
             const id = specialRoundEnemy(round)
@@ -894,5 +945,137 @@ describe('nav grid', () => {
         for (const crate of CALL_OF_XENO_CRATES) {
             expect(insideBox(last, crate.box)).toBe(false)
         }
+    })
+})
+
+describe('meta progression', () => {
+    const MIN = 60_000
+    const noBest: CallOfXenoBestRounds = { recruit: 0, veteran: 0, survivor: 0, nightmare: 0 }
+    const maxedLevels: CallOfXenoUpgradeLevels = {
+        warChest: 10,
+        bodyArmor: 5,
+        adrenaline: 10,
+        scavenger: 5,
+        contract: 9,
+        sidearm: 3
+    }
+
+    it('prices the full upgrade ladder inside the 500-800M budget', () => {
+        const total = callOfXenoTotalUpgradeCost()
+        expect(total).toBeGreaterThanOrEqual(500_000_000)
+        expect(total).toBeLessThanOrEqual(800_000_000)
+    })
+
+    it('charges an escalating price per level and nothing at max', () => {
+        for (const def of CALL_OF_XENO_UPGRADES) {
+            const first = callOfXenoUpgradeCost(def, 0)!
+            const second = callOfXenoUpgradeCost(def, 1)!
+            expect(second).toBeGreaterThan(first)
+            expect(callOfXenoUpgradeCost(def, def.max)).toBeNull()
+        }
+    })
+
+    it('applies the upgrade effects the run actually uses', () => {
+        const base = callOfXenoUpgradeEffects(CALL_OF_XENO_EMPTY_LEVELS)
+        expect(base.startingPoints).toBe(CALL_OF_XENO_STARTING_POINTS)
+        expect(base.maxHealth).toBe(CALL_OF_XENO_BASE_HEALTH)
+        expect(base.payoutMult).toBe(1)
+        expect(base.startWeapon).toBeNull()
+
+        const maxed = callOfXenoUpgradeEffects(maxedLevels)
+        expect(maxed.startingPoints).toBe(CALL_OF_XENO_STARTING_POINTS + 10 * 1000)
+        expect(maxed.maxHealth).toBe(CALL_OF_XENO_BASE_HEALTH + 5 * 25)
+        expect(maxed.payoutMult).toBeCloseTo(1 + 9 * 0.25, 6)
+        // Adrenaline: 10 levels = 2s off the delay, +10% rate.
+        expect(maxed.regenDelaySeconds).toBeCloseTo(1.5, 6)
+        expect(maxed.regenRateMult).toBeCloseTo(1.1, 6)
+        // Scavenger: additive, floored at a 25% discount.
+        expect(maxed.costMult).toBeCloseTo(0.75, 6)
+        expect(callOfXenoUpgradeEffects({ ...maxedLevels, scavenger: 20 }).costMult).toBeCloseTo(0.75, 6)
+        expect(['skorpion', 'trench', 'mp40']).toContain(maxed.startWeapon)
+    })
+
+    it('gates the sidearm ladder level by level', () => {
+        expect(callOfXenoSidearmUnlocked('m1911', 0)).toBe(true)
+        expect(callOfXenoSidearmUnlocked('skorpion', 0)).toBe(false)
+        expect(callOfXenoSidearmUnlocked('skorpion', 1)).toBe(true)
+        expect(callOfXenoSidearmUnlocked('trench', 1)).toBe(false)
+        expect(callOfXenoSidearmUnlocked('trench', 2)).toBe(true)
+        expect(callOfXenoSidearmUnlocked('mp40', 3)).toBe(true)
+        expect(callOfXenoSidearmUnlocked('ak74', 3)).toBe(false)
+    })
+
+    it('chains difficulty unlocks off the previous tier only', () => {
+        expect(callOfXenoDifficultyUnlocked(CALL_OF_XENO_DIFFICULTIES[0]!, noBest)).toBe(true)
+        expect(callOfXenoDifficultyUnlocked(CALL_OF_XENO_DIFFICULTIES[1]!, noBest)).toBe(false)
+        // Round 12 recruit opens veteran, but not survivor.
+        const best = { ...noBest, recruit: 12 }
+        expect(callOfXenoDifficultyUnlocked(CALL_OF_XENO_DIFFICULTIES[1]!, best)).toBe(true)
+        expect(callOfXenoDifficultyUnlocked(CALL_OF_XENO_DIFFICULTIES[2]!, best)).toBe(false)
+        const all = { recruit: 20, veteran: 16, survivor: 25, nightmare: 0 }
+        expect(callOfXenoDifficultyUnlocked(CALL_OF_XENO_DIFFICULTIES[3]!, all)).toBe(true)
+    })
+
+    it('falls back to recruit for an unknown difficulty id', () => {
+        expect(callOfXenoDifficulty('what').id).toBe('recruit')
+    })
+
+    it('clamps an absurd claim to the wall-clock ceiling', () => {
+        const recruit = callOfXenoDifficulty('recruit')
+        // Ten minutes of play (grace aside) cannot be worth 600k points.
+        const quick = callOfXenoPayoutForRun(1_000_000_000, CALL_OF_XENO_ELAPSED_GRACE_MS + 10 * MIN, recruit, 3.25)
+        expect(quick.counted).toBeLessThan(CALL_OF_XENO_MAX_GROSS)
+        expect(quick.capped).toBe(true)
+        expect(quick.awarded).toBeLessThanOrEqual(CALL_OF_XENO_MAX_PAYOUT)
+    })
+
+    it('never pays more than the global payout ceiling', () => {
+        const nightmare = callOfXenoDifficulty('nightmare')
+        const marathon = callOfXenoPayoutForRun(
+            CALL_OF_XENO_MAX_GROSS,
+            CALL_OF_XENO_ELAPSED_GRACE_MS + 10 * 60 * MIN,
+            nightmare,
+            3.25
+        )
+        expect(marathon.capped).toBe(false)
+        // 600k × 0.25 × 10 × 3.25 = 4.875M raw — the hard cap holds it at 2.6M.
+        expect(marathon.awarded).toBe(CALL_OF_XENO_MAX_PAYOUT)
+    })
+
+    it('hands the grace window for free and nothing before it', () => {
+        const recruit = callOfXenoDifficulty('recruit')
+        expect(callOfXenoMaxGrossForElapsedMs(0, recruit)).toBe(0)
+        expect(callOfXenoMaxGrossForElapsedMs(CALL_OF_XENO_ELAPSED_GRACE_MS + 5 * MIN, recruit))
+            .toBe(callOfXenoMaxGrossForElapsedMs(CALL_OF_XENO_ELAPSED_GRACE_MS + 5 * MIN, recruit))
+    })
+
+    it('scales the ceiling with the difficulty spawn count', () => {
+        const elapsed = CALL_OF_XENO_ELAPSED_GRACE_MS + 30 * MIN
+        const recruit = callOfXenoMaxGrossForElapsedMs(elapsed, callOfXenoDifficulty('recruit'))
+        const nightmare = callOfXenoMaxGrossForElapsedMs(elapsed, callOfXenoDifficulty('nightmare'))
+        expect(nightmare).toBe(Math.round(recruit * 2))
+    })
+
+    it('puts a base deep run in the 1-50k band and a maxed nightmare run at 1-2M', () => {
+        const recruit = callOfXenoDifficulty('recruit')
+        const nightmare = callOfXenoDifficulty('nightmare')
+        // 20-minute run earning a realistic ~70k gross, no upgrades.
+        const base = callOfXenoPayoutForRun(70_000, CALL_OF_XENO_ELAPSED_GRACE_MS + 20 * MIN, recruit, 1)
+        expect(base.capped).toBe(false)
+        expect(base.awarded).toBeGreaterThanOrEqual(10_000)
+        expect(base.awarded).toBeLessThanOrEqual(50_000)
+        // 45-minute nightmare run, ~250k gross, full contract.
+        const maxed = callOfXenoPayoutForRun(250_000, CALL_OF_XENO_ELAPSED_GRACE_MS + 45 * MIN, nightmare, 3.25)
+        expect(maxed.capped).toBe(false)
+        expect(maxed.awarded).toBeGreaterThanOrEqual(1_000_000)
+        expect(maxed.awarded).toBeLessThanOrEqual(2_000_000)
+    })
+
+    it('runs a two hour cooldown off the last finish', () => {
+        expect(callOfXenoRunCooldownRemainingMs(null, Date.now())).toBe(0)
+        const finished = new Date(Date.now() - CALL_OF_XENO_RUN_COOLDOWN_MS + 5 * MIN)
+        expect(callOfXenoRunCooldownRemainingMs(finished, Date.now())).toBeGreaterThan(4 * MIN)
+        const done = new Date(Date.now() - CALL_OF_XENO_RUN_COOLDOWN_MS - 1)
+        expect(callOfXenoRunCooldownRemainingMs(done, Date.now())).toBe(0)
     })
 })

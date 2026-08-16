@@ -58,89 +58,152 @@
         </div>
 
         <!-- HUD -->
-        <div v-if="phase !== 'menu'" class="pointer-events-none absolute inset-0 p-6 font-mono text-white">
-            <div class="absolute left-6 top-6 w-56">
-                <div class="flex items-end gap-2">
-                    <span class="text-4xl font-bold leading-none tabular-nums" :class="lowHealth ? 'text-red-500' : 'text-white'">
-                        {{ Math.ceil(health) }}
-                    </span>
-                    <span class="pb-1 text-sm text-white/40">/ {{ maxHealth }}</span>
+        <div v-if="phase !== 'menu'" class="pointer-events-none absolute inset-0 p-5 font-mono text-white sm:p-6">
+            <!-- Vitals: bottom-left, where a shooter keeps it -->
+            <div class="absolute bottom-5 left-5 sm:bottom-6 sm:left-6">
+                <div class="rounded-lg border border-white/10 bg-black/55 px-4 py-3 backdrop-blur-sm">
+                    <div class="flex items-center gap-1.5 text-[9px] uppercase tracking-[0.35em]" :class="lowHealth ? 'text-red-400' : 'text-zinc-500'">
+                        <UIcon name="i-lucide-heart-pulse" class="size-3.5" :class="lowHealth ? 'animate-pulse' : ''" />
+                        Vitals
+                    </div>
+                    <div class="mt-1 flex items-baseline gap-1.5">
+                        <span class="text-4xl font-black leading-none tabular-nums" :class="lowHealth ? 'text-red-500' : 'text-zinc-50'">
+                            {{ Math.ceil(health) }}
+                        </span>
+                        <span class="text-xs font-bold text-zinc-500">/ {{ maxHealth }}</span>
+                    </div>
+                    <!-- segmented bar: fill + segment dividers over it -->
+                    <div class="relative mt-2 h-2 w-52 overflow-hidden rounded-sm bg-white/10">
+                        <div
+                            class="h-full transition-[width] duration-100"
+                            :class="lowHealth ? 'bg-red-500' : 'bg-emerald-400'"
+                            :style="{ width: (health / maxHealth * 100) + '%' }"
+                        />
+                        <div class="absolute inset-0" style="background-image: repeating-linear-gradient(90deg, transparent 0 calc(10% - 2px), rgba(0,0,0,0.65) calc(10% - 2px) 10%)" />
+                    </div>
                 </div>
-                <div class="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-white/10">
-                    <div
-                        class="h-full rounded-full transition-[width] duration-100"
-                        :class="lowHealth ? 'bg-red-500' : 'bg-emerald-400'"
-                        :style="{ width: (health / maxHealth * 100) + '%' }"
-                    />
-                </div>
-                <div class="mt-1 text-[10px] uppercase tracking-[0.25em] text-white/35">Vitals</div>
 
-                <div v-if="activePowerUps.length" class="mt-3 space-y-1">
+                <!-- Perks -->
+                <div v-if="ownedPerks.length" class="mt-2.5 flex gap-2">
                     <div
-                        v-for="buff in activePowerUps"
-                        :key="buff.id"
-                        class="flex items-center gap-2 text-[11px] font-bold uppercase tracking-widest"
-                        :style="{ color: buff.color }"
+                        v-for="perk in ownedPerks"
+                        :key="perk.id"
+                        class="flex size-11 items-center justify-center rounded-lg border-2 text-[10px] font-black uppercase shadow-lg backdrop-blur-sm"
+                        :style="{ borderColor: perkCss(perk.color), color: perkCss(perk.color), background: perkCss(perk.color) + '26' }"
                     >
-                        <span class="inline-block size-2 rounded-full" :style="{ background: buff.color }" />
-                        {{ buff.name }}
-                        <span class="tabular-nums opacity-70">{{ Math.ceil(buff.remaining) }}s</span>
+                        {{ perkShort(perk.id) }}
                     </div>
                 </div>
             </div>
 
-            <div class="absolute right-6 top-6 text-right">
-                <div class="text-4xl font-bold leading-none tabular-nums text-amber-300">{{ points.toLocaleString() }}</div>
-                <div class="text-[10px] uppercase tracking-[0.25em] text-white/35">Points</div>
-                <div class="mt-4 text-2xl font-bold leading-none" :class="specialRound ? 'text-fuchsia-400' : 'text-red-500'">
-                    ROUND {{ round }}
+            <!-- Top-left: active power-ups -->
+            <div v-if="activePowerUps.length" class="absolute left-5 top-5 space-y-1.5 sm:left-6 sm:top-6">
+                <div
+                    v-for="buff in activePowerUps"
+                    :key="buff.id"
+                    class="flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-[11px] font-bold uppercase tracking-widest backdrop-blur-sm"
+                    :style="{ color: buff.color, borderColor: buff.color + '55', background: buff.color + '14' }"
+                >
+                    <span class="inline-block size-1.5 animate-pulse rounded-full" :style="{ background: buff.color }" />
+                    {{ buff.name }}
+                    <span class="tabular-nums opacity-60">{{ Math.ceil(buff.remaining) }}s</span>
                 </div>
-                <div class="mt-0.5 flex items-center justify-end gap-1.5 text-[10px] uppercase tracking-[0.2em] text-white/35">
-                    <span>{{ enemiesLeft }} left</span>
-                    <span class="inline-block size-1.5 rounded-full" :class="enemiesLeft > 0 ? 'bg-red-500' : 'bg-white/20'" />
+            </div>
+
+            <!-- Top-right: points, then combat state -->
+            <div class="absolute right-5 top-5 text-right sm:right-6 sm:top-6">
+                <div class="text-4xl font-black leading-none tabular-nums text-amber-300 drop-shadow-[0_2px_6px_rgba(251,191,36,0.25)]">
+                    {{ points.toLocaleString() }}
                 </div>
-                <div v-if="modifierName" class="mt-1 text-[10px] uppercase tracking-[0.2em] text-cyan-300">{{ modifierName }}</div>
+                <div class="mt-0.5 text-[9px] uppercase tracking-[0.35em] text-zinc-500">Points</div>
+
+                <div class="mt-4 border-r-2 pr-2" :class="specialRound ? 'border-fuchsia-500' : 'border-red-600'">
+                    <div class="text-[9px] uppercase tracking-[0.35em] text-zinc-500">Round</div>
+                    <div class="text-4xl font-black leading-none tabular-nums" :class="specialRound ? 'text-fuchsia-400' : 'text-red-500'">
+                        {{ round }}
+                    </div>
+                    <div class="mt-0.5 flex items-center justify-end gap-1 text-[9px] uppercase tracking-[0.2em] text-zinc-500">
+                        <span class="rounded-sm border border-white/10 bg-white/5 px-1.5 py-px">{{ runDifficultyName }}</span>
+                    </div>
+                </div>
+
+                <div class="mt-2.5 flex items-center justify-end gap-1.5 text-[11px] font-bold uppercase tracking-[0.2em]" :class="enemiesLeft > 0 ? 'text-red-400' : 'text-zinc-600'">
+                    <UIcon name="i-lucide-skull" class="size-3.5" :class="enemiesLeft > 0 ? 'animate-pulse' : ''" />
+                    <span class="tabular-nums">{{ enemiesLeft }}</span>
+                    <span class="text-zinc-500">hostiles</span>
+                </div>
+                <div v-if="modifierName" class="mt-1.5 flex items-center justify-end gap-1 rounded-sm border border-cyan-400/30 bg-cyan-400/10 px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.25em] text-cyan-300">
+                    <UIcon name="i-lucide-radio" class="size-3" />
+                    {{ modifierName }}
+                </div>
             </div>
 
             <Transition enter-active-class="transition duration-150" enter-from-class="opacity-0 scale-125" leave-active-class="transition duration-300" leave-to-class="opacity-0">
-                <div v-if="streakMult > 1" class="absolute right-6 top-48 text-right">
-                    <div class="text-3xl font-bold leading-none text-orange-400 tabular-nums">x{{ streakMult }}</div>
-                    <div class="text-[10px] uppercase tracking-[0.25em] text-white/35">{{ streakCount }} streak</div>
+                <div v-if="streakMult > 1" class="absolute right-6 top-[13rem] text-right">
+                    <div class="flex items-center justify-end gap-1.5">
+                        <UIcon name="i-lucide-flame" class="size-5 text-orange-400" />
+                        <span class="text-3xl font-black leading-none text-orange-400 tabular-nums drop-shadow-[0_2px_6px_rgba(251,146,60,0.3)]">×{{ streakMult }}</span>
+                    </div>
+                    <div class="mt-0.5 text-[9px] uppercase tracking-[0.3em] text-zinc-500">{{ streakCount }} streak</div>
                 </div>
             </Transition>
 
-            <div class="absolute bottom-6 right-6 text-right">
-                <div class="text-base font-bold uppercase tracking-wider" :class="papTier > 0 ? 'text-fuchsia-400' : 'text-white/90'">
-                    {{ weaponName }}
-                    <span v-if="papTier > 0" class="ml-1 text-[10px] tracking-[0.2em] text-fuchsia-300/70">PaP {{ papTier }}/3</span>
+            <!-- Weapon + ammo: bottom-right -->
+            <div class="absolute bottom-5 right-5 text-right sm:bottom-6 sm:right-6">
+                <div class="rounded-lg border border-white/10 bg-black/55 px-4 py-3 backdrop-blur-sm">
+                    <div class="flex items-center justify-end gap-2">
+                        <span class="text-xs font-black uppercase tracking-[0.2em]" :class="papTier === 3 ? 'text-pink-300' : papTier === 2 ? 'text-cyan-300' : papTier === 1 ? 'text-purple-300' : 'text-zinc-100'">
+                            {{ weaponName }}
+                        </span>
+                        <span
+                            v-if="papTier > 0"
+                            class="rounded-sm border px-1.5 py-px text-[9px] font-black tracking-[0.15em]"
+                            :class="papTier === 3 ? 'border-pink-400/50 text-pink-300' : papTier === 2 ? 'border-cyan-400/50 text-cyan-300' : 'border-purple-400/50 text-purple-300'"
+                        >PaP {{ papTier }}/3</span>
+                    </div>
+                    <div class="mt-1 flex items-baseline justify-end gap-2">
+                        <span class="text-5xl font-black leading-none tabular-nums" :class="!reloading && magAmmo === 0 ? 'text-red-500 animate-pulse' : reloading ? 'text-zinc-400' : 'text-zinc-50'">{{ magAmmo }}</span>
+                        <span class="text-lg font-bold tabular-nums text-zinc-500">/ {{ reserveAmmo }}</span>
+                    </div>
+                    <!-- Ammo bar: amber = rounds left; while reloading the same
+                         bar fills muted-orange with the reload progress, so
+                         the card never grows and the state is read in place. -->
+                    <div class="relative mt-2 h-2 w-44 overflow-hidden rounded-sm bg-white/10">
+                        <div
+                            v-if="reloading"
+                            class="h-full animate-pulse bg-orange-400/60"
+                            :style="{ width: reloadFraction + '%', animationDuration: '1.6s' }"
+                        />
+                        <div
+                            v-else
+                            class="h-full transition-[width] duration-150"
+                            :class="magFraction <= 25 ? 'bg-red-500' : 'bg-amber-300/90'"
+                            :style="{ width: magFraction + '%' }"
+                        />
+                        <div class="absolute inset-0" style="background-image: repeating-linear-gradient(90deg, transparent 0 calc(20% - 2px), rgba(0,0,0,0.65) calc(20% - 2px) 20%)" />
+                    </div>
+                    <!-- Fixed-height status row: reserve every state a line, so
+                         the card below never jumps. -->
+                    <div class="mt-1.5 flex h-4 items-center justify-end">
+                        <span v-if="reloading" class="text-[10px] font-bold uppercase tracking-[0.25em] text-zinc-600">—</span>
+                        <span v-else-if="magAmmo === 0 && reserveAmmo > 0" class="text-[10px] font-bold uppercase tracking-[0.25em] text-red-400 animate-pulse">
+                            Reload [R]
+                        </span>
+                        <span v-else-if="magAmmo === 0 && reserveAmmo === 0" class="text-[10px] font-bold uppercase tracking-[0.25em] text-red-500 animate-pulse">
+                            No ammo
+                        </span>
+                    </div>
                 </div>
-                <div class="text-3xl font-bold leading-none tabular-nums">
-                    <span :class="magAmmo === 0 ? 'text-red-500' : 'text-white'">{{ magAmmo }}</span>
-                    <span class="text-lg text-white/40"> / {{ reserveAmmo }}</span>
-                </div>
-                <div class="mt-1 h-1 w-40 overflow-hidden rounded-full bg-white/10">
-                    <div class="h-full rounded-full bg-amber-300/80" :style="{ width: magFraction + '%' }" />
-                </div>
-                <div v-if="reloading" class="mt-1 text-[10px] uppercase tracking-[0.2em] text-amber-300">Reloading</div>
-                <div v-else-if="magAmmo === 0 && reserveAmmo === 0" class="mt-1 text-[10px] uppercase tracking-[0.2em] text-red-400">No ammo</div>
-                <div v-if="stowedName" class="mt-2 text-[10px] uppercase tracking-[0.2em] text-white/35">[Q] {{ stowedName }}</div>
-            </div>
-
-            <div class="absolute bottom-6 left-6 flex gap-2">
-                <div
-                    v-for="perk in ownedPerks"
-                    :key="perk.id"
-                    class="flex size-12 items-center justify-center rounded-full border-2 text-[10px] font-bold uppercase shadow-lg"
-                    :style="{ borderColor: perkCss(perk.color), color: perkCss(perk.color), background: perkCss(perk.color) + '22' }"
-                >
-                    {{ perkShort(perk.id) }}
+                <div v-if="stowedName" class="mt-2 inline-flex items-center gap-2 rounded-md border border-white/10 bg-black/55 px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-[0.2em] text-zinc-400 backdrop-blur-sm">
+                    <span class="rounded-sm border border-white/15 bg-white/5 px-1.5 py-px text-zinc-200">Q</span>
+                    {{ stowedName }}
                 </div>
             </div>
 
             <div
                 v-if="prompt"
-                class="absolute left-1/2 top-[60%] -translate-x-1/2 rounded border px-4 py-2 text-center text-sm backdrop-blur-sm"
-                :class="promptAffordable ? 'border-white/20 bg-black/60 text-white' : 'border-red-500/40 bg-red-950/50 text-red-300'"
+                class="absolute left-1/2 top-[60%] -translate-x-1/2 rounded-md border px-4 py-2 text-center text-sm font-medium backdrop-blur-sm"
+                :class="promptAffordable ? 'border-white/15 bg-black/70 text-zinc-100' : 'border-red-500/40 bg-red-950/60 text-red-300'"
             >
                 {{ prompt }}
             </div>
@@ -148,83 +211,444 @@
             <Transition enter-active-class="transition duration-300" enter-from-class="opacity-0 scale-90" leave-active-class="transition duration-500" leave-to-class="opacity-0">
                 <div v-if="banner" class="absolute left-1/2 top-[20%] -translate-x-1/2 text-center">
                     <div
-                        class="text-5xl font-bold uppercase tracking-[0.2em] drop-shadow-[0_3px_8px_rgba(0,0,0,0.9)]"
+                        class="text-5xl font-black uppercase tracking-[0.2em] drop-shadow-[0_3px_8px_rgba(0,0,0,0.9)]"
                         :style="{ color: bannerColor }"
                     >{{ banner }}</div>
                     <div v-if="subBanner" class="mt-1 text-sm uppercase tracking-[0.3em] text-white/50">{{ subBanner }}</div>
                 </div>
             </Transition>
 
-            <div v-if="!powerOn" class="absolute left-1/2 top-6 -translate-x-1/2 text-[10px] uppercase tracking-[0.3em] text-white/30">
+            <div v-if="!powerOn" class="absolute left-1/2 top-5 flex -translate-x-1/2 items-center gap-1.5 rounded-md border border-amber-400/25 bg-black/60 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.3em] text-amber-300/70 backdrop-blur-sm sm:top-6">
+                <UIcon name="i-lucide-zap-off" class="size-3.5" />
                 Power offline
             </div>
 
             <button
-                class="pointer-events-auto absolute bottom-6 left-1/2 -translate-x-1/2 rounded px-3 py-1 text-[10px] uppercase tracking-[0.2em] text-white/30 hover:text-white/70"
+                class="pointer-events-auto absolute bottom-5 left-1/2 -translate-x-1/2 flex items-center gap-1.5 rounded border border-white/10 bg-black/50 px-2.5 py-1 text-[10px] uppercase tracking-[0.2em] text-zinc-500 backdrop-blur-sm transition-colors hover:text-zinc-200 sm:bottom-6"
                 @click="toggleMute"
             >
+                <UIcon :name="muted ? 'i-lucide-volume-x' : 'i-lucide-volume-2'" class="size-3.5" />
                 {{ muted ? 'Sound off [M]' : 'Sound on [M]' }}
             </button>
         </div>
 
-        <!-- Start / pause / death -->
+        <!-- Intro menu: full game menu -->
         <div
-            v-if="phase === 'menu' || phase === 'over' || (phase === 'playing' && !locked)"
-            class="absolute inset-0 flex items-center justify-center overflow-y-auto bg-black/85 p-6 backdrop-blur-sm"
+            v-if="phase === 'menu'"
+            class="absolute inset-0 overflow-y-auto bg-black/80 p-4 backdrop-blur-sm sm:p-8"
+            style="background-image: radial-gradient(ellipse at 30% 20%, rgba(220,38,38,0.08), transparent 55%)"
         >
-            <div class="w-full max-w-xl rounded-xl border border-default bg-elevated p-8 text-center shadow-2xl">
-                <template v-if="phase === 'menu'">
-                    <div class="text-[10px] uppercase tracking-[0.4em] text-muted">Survival</div>
-                    <h1 class="mt-1 text-5xl font-bold tracking-tight text-primary">Call of Xeno</h1>
-                    <p class="mt-2 text-muted">
-                        They come in through the windows. Board them up, buy your way through Outpost 13,
-                        get the power on and take the second floor.
-                    </p>
-                </template>
-                <template v-else-if="phase === 'over'">
-                    <h1 class="text-5xl font-bold text-red-500">You Died</h1>
-                    <p class="mt-1 text-muted">Round {{ round }}</p>
-                    <div class="mx-auto mt-6 grid max-w-md grid-cols-2 gap-x-8 gap-y-2 text-left text-sm">
-                        <div v-for="stat in summary" :key="stat.label" class="flex justify-between border-b border-default/60 pb-1">
-                            <span class="text-muted">{{ stat.label }}</span>
-                            <span class="font-mono font-bold text-highlighted">{{ stat.value }}</span>
+            <div class="mx-auto my-auto flex min-h-full w-full max-w-6xl items-center font-mono">
+                <div class="relative w-full overflow-hidden rounded-2xl border border-white/10 bg-zinc-950/90 shadow-[0_0_120px_rgba(0,0,0,0.9)]">
+                    <!-- scanlines -->
+                    <div
+                        class="pointer-events-none absolute inset-0 z-10 opacity-[0.35]"
+                        style="background-image: repeating-linear-gradient(0deg, transparent 0 2px, rgba(0,0,0,0.3) 2px 4px)"
+                    />
+
+                    <!-- top strip -->
+                    <div class="relative flex items-center justify-between gap-4 border-b border-white/10 bg-black/60 px-5 py-3">
+                        <div class="flex items-center gap-2.5 text-[10px] uppercase tracking-[0.35em] text-zinc-500">
+                            <UIcon name="i-lucide-biohazard" class="size-4 text-lime-500/90" />
+                            Outpost 13 // Containment Breach
+                        </div>
+                        <div v-if="!guestMode" class="flex items-center gap-2 rounded-full border border-amber-400/25 bg-amber-400/10 px-3.5 py-1.5 text-sm text-amber-300">
+                            <UIcon name="i-lucide-coins" class="size-4" />
+                            <span class="font-bold tabular-nums">{{ formatCoins(metaBalance) }}</span>
+                            <span class="text-[9px] uppercase tracking-[0.25em] text-amber-300/50">reserves</span>
+                        </div>
+                        <div v-else class="flex items-center gap-2 text-[10px] uppercase tracking-[0.25em] text-zinc-500">
+                            <UIcon name="i-lucide-lock" class="size-3.5" />
+                            guest — no cash payout
                         </div>
                     </div>
-                    <p v-if="round >= bestRound" class="mt-4 text-sm text-primary">Best round yet</p>
-                </template>
-                <template v-else>
-                    <h1 class="text-4xl font-bold text-primary">Paused</h1>
-                    <p class="mt-2 text-muted">Round {{ round }} · {{ points.toLocaleString() }} points</p>
-                </template>
 
-                <div v-if="phase !== 'over'" class="mx-auto mt-7 grid max-w-sm grid-cols-2 gap-x-6 gap-y-1.5 text-left text-sm text-muted">
-                    <div><span class="font-mono text-highlighted">WASD</span> move</div>
-                    <div><span class="font-mono text-highlighted">Space</span> jump</div>
-                    <div><span class="font-mono text-highlighted">Shift</span> sprint</div>
-                    <div><span class="font-mono text-highlighted">LMB</span> fire</div>
-                    <div><span class="font-mono text-highlighted">RMB</span> aim</div>
-                    <div><span class="font-mono text-highlighted">R</span> reload</div>
-                    <div><span class="font-mono text-highlighted">Q</span> swap weapon</div>
-                    <div><span class="font-mono text-highlighted">F</span> buy / board up</div>
-                    <div><span class="font-mono text-highlighted">V</span> knife</div>
-                    <div><span class="font-mono text-highlighted">Esc</span> pause</div>
+                    <div class="grid lg:grid-cols-[5fr_7fr]">
+                        <!-- LEFT: briefing -->
+                        <div class="relative border-b border-white/10 p-7 sm:p-9 lg:border-b-0 lg:border-r">
+                            <div class="flex items-center gap-2 text-[10px] uppercase tracking-[0.5em] text-red-400/90">
+                                <span class="h-px w-8 bg-red-500/70" />
+                                Survival brief
+                            </div>
+                            <h1 class="mt-4 bg-gradient-to-b from-zinc-50 via-zinc-300 to-zinc-600 bg-clip-text text-5xl font-black uppercase leading-[0.95] tracking-tight text-transparent sm:text-6xl">
+                                Call<br>of Xeno
+                            </h1>
+                            <p class="mt-5 max-w-md text-[13px] leading-relaxed text-zinc-400">
+                                They come in through the windows. Board them up, buy your way through
+                                Outpost 13, get the power on and take the second floor.
+                                Every point you earn walks out with you — as cash.
+                            </p>
+
+                            <div class="mt-7 space-y-3">
+                                <div class="flex items-start gap-3 text-[12px] text-zinc-300">
+                                    <UIcon name="i-lucide-skull" class="mt-0.5 size-4 shrink-0 text-red-400/90" />
+                                    <span>Endless rounds. Every fifth wave brings a special.</span>
+                                </div>
+                                <div class="flex items-start gap-3 text-[12px] text-zinc-300">
+                                    <UIcon name="i-lucide-hammer" class="mt-0.5 size-4 shrink-0 text-amber-300/90" />
+                                    <span>Nail boards back on the barricades for points.</span>
+                                </div>
+                                <div class="flex items-start gap-3 text-[12px] text-zinc-300">
+                                    <UIcon name="i-lucide-zap" class="mt-0.5 size-4 shrink-0 text-yellow-300/90" />
+                                    <span>Throw the power switch — perks, the box and Pack-a-Punch come online.</span>
+                                </div>
+                                <div class="flex items-start gap-3 text-[12px] text-zinc-300">
+                                    <UIcon name="i-lucide-coins" class="mt-0.5 size-4 shrink-0 text-amber-400/90" />
+                                    <span>Hits pay <span class="text-amber-300">+10</span>, kills <span class="text-amber-300">+100</span>, headshots <span class="text-amber-300">+120</span>, knife <span class="text-amber-300">+130</span>. Points convert to cash when you fall.</span>
+                                </div>
+                            </div>
+
+                            <div class="mt-8 border-t border-white/10 pt-5">
+                                <div class="text-[9px] uppercase tracking-[0.4em] text-zinc-600">Field manual</div>
+                                <div class="mt-3 grid grid-cols-2 gap-x-6 gap-y-1.5 text-[11px] text-zinc-500">
+                                    <div><span class="text-zinc-200">WASD</span> move</div>
+                                    <div><span class="text-zinc-200">LMB</span> fire</div>
+                                    <div><span class="text-zinc-200">Space</span> jump</div>
+                                    <div><span class="text-zinc-200">RMB</span> aim</div>
+                                    <div><span class="text-zinc-200">Shift</span> sprint</div>
+                                    <div><span class="text-zinc-200">R</span> reload</div>
+                                    <div><span class="text-zinc-200">F</span> buy / board up</div>
+                                    <div><span class="text-zinc-200">Q</span> swap weapon</div>
+                                    <div><span class="text-zinc-200">V</span> knife</div>
+                                    <div><span class="text-zinc-200">Esc</span> pause</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- RIGHT: deployment -->
+                        <div class="max-h-[70vh] overflow-y-auto p-7 sm:p-9 lg:max-h-[75vh]">
+                            <!-- difficulty -->
+                            <div class="flex items-center justify-between">
+                                <div class="flex items-center gap-2 text-[9px] uppercase tracking-[0.4em] text-zinc-500">
+                                    <UIcon name="i-lucide-swords" class="size-3.5 text-zinc-400" />
+                                    Select difficulty
+                                </div>
+                                <span class="text-[9px] uppercase tracking-[0.2em] text-zinc-600">
+                                    cash rate {{ payoutRateLabel }} of points earned
+                                </span>
+                            </div>
+                            <div class="mt-3 grid grid-cols-2 gap-2.5">
+                                <button
+                                    v-for="difficulty in metaDifficulties"
+                                    :key="difficulty.id"
+                                    class="group relative rounded-xl border p-3.5 text-left transition-all disabled:cursor-not-allowed"
+                                    :class="selectedDifficulty === difficulty.id && difficulty.unlocked
+                                        ? 'border-amber-400/60 bg-amber-400/10 shadow-[0_0_24px_rgba(251,191,36,0.12)]'
+                                        : 'border-white/10 bg-white/[0.03] hover:border-white/25 hover:bg-white/[0.06]'"
+                                    :disabled="!difficulty.unlocked || cooldownRemainingMs > 0"
+                                    @click="selectedDifficulty = difficulty.id"
+                                >
+                                    <div class="flex items-center justify-between">
+                                        <UIcon
+                                            :name="difficultyIcons[difficulty.id]"
+                                            class="size-5"
+                                            :class="difficulty.unlocked ? difficultyAccent[difficulty.id] : 'text-zinc-600'"
+                                        />
+                                        <span
+                                            v-if="difficulty.unlocked"
+                                            class="font-bold tabular-nums"
+                                            :class="selectedDifficulty === difficulty.id ? 'text-amber-300' : 'text-zinc-400'"
+                                        >×{{ difficulty.reward }}</span>
+                                        <UIcon v-else name="i-lucide-lock" class="size-3.5 text-zinc-600" />
+                                    </div>
+                                    <div class="mt-2.5 text-sm font-bold uppercase tracking-wider" :class="difficulty.unlocked ? 'text-zinc-100' : 'text-zinc-500'">
+                                        {{ difficulty.name }}
+                                    </div>
+                                    <div class="mt-1 text-[10px] leading-relaxed text-zinc-500">
+                                        <template v-if="difficulty.unlocked">{{ difficulty.description }}</template>
+                                        <template v-else>
+                                            Reach round {{ difficulty.requiredBestRound }} on
+                                            <span class="uppercase">{{ difficulty.previous }}</span>
+                                        </template>
+                                    </div>
+                                </button>
+                            </div>
+
+                            <!-- upgrades -->
+                            <div v-if="!guestMode" class="mt-7">
+                                <div class="flex items-center justify-between">
+                                    <div class="flex items-center gap-2 text-[9px] uppercase tracking-[0.4em] text-zinc-500">
+                                        <UIcon name="i-lucide-chevrons-up" class="size-3.5 text-zinc-400" />
+                                        Permanent upgrades
+                                    </div>
+                                    <span class="text-[9px] uppercase tracking-[0.2em] text-zinc-600">carry over between runs</span>
+                                </div>
+                                <div class="mt-3 space-y-2">
+                                    <div
+                                        v-for="upgrade in metaUpgrades"
+                                        :key="upgrade.id"
+                                        class="flex items-center gap-3.5 rounded-xl border border-white/10 bg-white/[0.03] px-3.5 py-3 transition-colors hover:border-white/20"
+                                    >
+                                        <div class="flex size-10 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-black/50">
+                                            <UIcon :name="upgradeIcons[upgrade.id]" class="size-5 text-amber-300/90" />
+                                        </div>
+                                        <div class="min-w-0 flex-1">
+                                            <div class="flex items-center justify-between gap-2">
+                                                <span class="text-[13px] font-bold text-zinc-100">{{ upgrade.name }}</span>
+                                                <!-- level pips -->
+                                                <span class="flex shrink-0 gap-[3px]">
+                                                    <span
+                                                        v-for="i in upgrade.max"
+                                                        :key="i"
+                                                        class="h-1.5 w-2 rounded-full"
+                                                        :class="i <= upgrade.level ? 'bg-amber-400' : 'bg-white/15'"
+                                                    />
+                                                </span>
+                                            </div>
+                                            <div class="mt-0.5 truncate text-[11px] text-zinc-500">{{ upgrade.description }}</div>
+                                        </div>
+                                        <button
+                                            class="shrink-0 rounded-md border px-3 py-1.5 text-xs font-bold tabular-nums transition-colors disabled:cursor-not-allowed"
+                                            :class="upgrade.cost !== null && metaBalance >= upgrade.cost
+                                                ? 'border-amber-400/50 text-amber-300 hover:bg-amber-400/15'
+                                                : 'border-white/10 text-zinc-600'"
+                                            :disabled="upgrade.cost === null || metaBalance < upgrade.cost"
+                                            @click="buyUpgrade(upgrade.id)"
+                                        >
+                                            {{ upgrade.cost === null ? 'MAX' : formatCoins(upgrade.cost) }}
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div v-if="metaStats.runsPlayed > 0" class="mt-4 flex flex-wrap items-center justify-between gap-2 text-[10px] uppercase tracking-[0.2em] text-zinc-600">
+                                    <span class="flex items-center gap-1.5">
+                                        <UIcon name="i-lucide-trophy" class="size-3.5 text-amber-400/70" />
+                                        {{ metaStats.runsPlayed }} runs · best cash {{ formatCoins(metaStats.bestEarned) }}
+                                    </span>
+                                    <span class="flex items-center gap-2.5">
+                                        <span :class="difficultyAccent.recruit">R{{ metaBestRounds.recruit }}</span>
+                                        <span :class="difficultyAccent.veteran">V{{ metaBestRounds.veteran }}</span>
+                                        <span :class="difficultyAccent.survivor">S{{ metaBestRounds.survivor }}</span>
+                                        <span :class="difficultyAccent.nightmare">N{{ metaBestRounds.nightmare }}</span>
+                                    </span>
+                                </div>
+
+                                <!-- starting sidearm picker -->
+                                <div class="mt-6">
+                                    <div class="flex items-center justify-between">
+                                        <div class="flex items-center gap-2 text-[9px] uppercase tracking-[0.4em] text-zinc-500">
+                                            <UIcon name="i-lucide-crosshair" class="size-3.5 text-zinc-400" />
+                                            Starting sidearm
+                                        </div>
+                                        <span class="text-[9px] uppercase tracking-[0.2em] text-zinc-600">pick your drop-in weapon</span>
+                                    </div>
+                                    <div class="mt-3 grid grid-cols-4 gap-2.5">
+                                        <button
+                                            v-for="choice in sidearmChoices"
+                                            :key="choice.id"
+                                            class="group relative rounded-xl border p-3 text-center transition-all disabled:cursor-not-allowed"
+                                            :class="choice.id === chosenSidearm && choice.unlocked
+                                                ? 'border-amber-400/60 bg-amber-400/10 shadow-[0_0_20px_rgba(251,191,36,0.1)]'
+                                                : 'border-white/10 bg-white/[0.03] hover:border-white/25 hover:bg-white/[0.06]'"
+                                            :disabled="!choice.unlocked || cooldownRemainingMs > 0"
+                                            @click="chosenSidearm = choice.id"
+                                        >
+                                            <UIcon
+                                                :name="choice.unlocked ? 'i-lucide-crosshair' : 'i-lucide-lock'"
+                                                class="mx-auto size-4"
+                                                :class="choice.unlocked ? 'text-zinc-300' : 'text-zinc-600'"
+                                            />
+                                            <div class="mt-2 text-[11px] font-bold uppercase tracking-wider" :class="choice.unlocked ? 'text-zinc-100' : 'text-zinc-500'">
+                                                {{ CALL_OF_XENO_WEAPONS[choice.id].name }}
+                                            </div>
+                                            <div v-if="choice.unlocked" class="mt-1 font-mono text-[9px] tabular-nums text-zinc-500">
+                                                {{ CALL_OF_XENO_WEAPONS[choice.id].damage }} dmg
+                                            </div>
+                                            <div v-else class="mt-1 text-[9px] uppercase tracking-wider text-zinc-600">
+                                                Sidearm {{ STARTER_IDS.indexOf(choice.id) }}
+                                            </div>
+                                            <span
+                                                v-if="choice.id === chosenSidearm && choice.unlocked"
+                                                class="absolute -right-1.5 -top-1.5 flex size-4 items-center justify-center rounded-full bg-amber-400 text-black"
+                                            >
+                                                <UIcon name="i-lucide-check" class="size-3" />
+                                            </span>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- guest sign-in note -->
+                            <div v-else class="mt-7 flex items-center gap-3.5 rounded-xl border border-white/10 bg-white/[0.03] px-4 py-4">
+                                <UIcon name="i-lucide-user-round" class="size-5 shrink-0 text-zinc-500" />
+                                <div class="text-[11px] leading-relaxed text-zinc-500">
+                                    Sign in to bank cash from your runs, buy permanent upgrades and
+                                    unlock the harder difficulties.
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- footer deploy bar -->
+                    <div class="relative flex flex-wrap items-center justify-between gap-4 border-t border-white/10 bg-black/60 px-5 py-4">
+                        <div class="min-w-0 text-[11px]">
+                            <p v-if="menuError" class="rounded border border-red-500/40 bg-red-950/40 px-3 py-2 text-xs text-red-300">
+                                {{ menuError }}
+                            </p>
+                            <p v-else-if="cooldownRemainingMs > 0" class="flex items-center gap-2 text-amber-300/80">
+                                <UIcon name="i-lucide-clock" class="size-4" />
+                                Outpost resupplying — next deployment in {{ cooldownLabel }}.
+                            </p>
+                            <p v-else class="text-zinc-600">Your mouse is captured while playing. Esc gives it back.</p>
+                        </div>
+                        <button
+                            class="group flex items-center gap-3 rounded-lg bg-red-600 px-9 py-3.5 text-sm font-black uppercase tracking-[0.3em] text-white shadow-[0_0_36px_rgba(220,38,38,0.35)] transition-all hover:bg-red-500 hover:shadow-[0_0_46px_rgba(220,38,38,0.5)] disabled:cursor-not-allowed disabled:opacity-40 disabled:shadow-none"
+                            :disabled="deploying || (!guestMode && cooldownRemainingMs > 0)"
+                            @click="begin()"
+                        >
+                            <UIcon :name="deploying ? 'i-lucide-loader-circle' : 'i-lucide-chevrons-right'" class="size-4" :class="deploying ? 'animate-spin' : 'transition-transform group-hover:translate-x-0.5'" />
+                            {{ deploying ? 'Deploying' : 'Deploy' }}
+                        </button>
+                    </div>
                 </div>
+            </div>
+        </div>
 
-                <p v-if="initError" class="mt-6 rounded border border-red-500/40 bg-red-950/40 px-3 py-2 font-mono text-xs text-red-300">
-                    Could not start the renderer: {{ initError }}
-                </p>
+        <!-- Pause / death -->
+        <div
+            v-else-if="phase === 'over' || (phase === 'playing' && !locked)"
+            class="absolute inset-0 overflow-y-auto bg-black/85 p-4 backdrop-blur-sm sm:p-8"
+            style="background-image: radial-gradient(ellipse at 30% 20%, rgba(220,38,38,0.07), transparent 55%)"
+        >
+            <div class="mx-auto my-auto flex min-h-full w-full max-w-2xl items-center font-mono">
+                <div class="relative w-full overflow-hidden rounded-2xl border border-white/10 bg-zinc-950/90 shadow-[0_0_120px_rgba(0,0,0,0.9)]">
+                    <!-- scanlines -->
+                    <div
+                        class="pointer-events-none absolute inset-0 z-10 opacity-[0.35]"
+                        style="background-image: repeating-linear-gradient(0deg, transparent 0 2px, rgba(0,0,0,0.3) 2px 4px)"
+                    />
 
-                <UButton size="xl" class="mt-8" @click="phase === 'over' ? restart() : begin()">
-                    {{ phase === 'menu' ? 'Drop In' : phase === 'over' ? 'Run It Back' : 'Resume' }}
-                </UButton>
-                <p class="mt-3 text-xs text-muted">Your mouse is captured while playing. Esc gives it back.</p>
+                    <!-- top strip -->
+                    <div class="relative flex items-center justify-between gap-4 border-b border-white/10 bg-black/60 px-5 py-3">
+                        <div class="flex items-center gap-2.5 text-[10px] uppercase tracking-[0.35em] text-zinc-500">
+                            <UIcon :name="phase === 'over' ? 'i-lucide-skull' : 'i-lucide-pause'" class="size-4" :class="phase === 'over' ? 'text-red-500/90' : 'text-zinc-400'" />
+                            Outpost 13 // {{ phase === 'over' ? 'After Action' : 'Standby' }}
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <span class="rounded-sm border border-white/10 bg-white/5 px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.2em] text-zinc-400">Round {{ round }}</span>
+                            <span class="rounded-sm border border-white/10 bg-white/5 px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.2em] text-zinc-400">{{ runDifficultyName }}</span>
+                        </div>
+                    </div>
+
+                    <div class="relative p-7 sm:p-9">
+                        <template v-if="phase === 'over'">
+                            <h1 class="text-center text-5xl font-black uppercase tracking-tight text-red-500 drop-shadow-[0_2px_12px_rgba(220,38,38,0.35)]">
+                                You Died
+                            </h1>
+                            <p class="mt-1.5 text-center text-[11px] uppercase tracking-[0.3em] text-zinc-500">
+                                Overrun on round {{ round }} · {{ runDifficultyName }}
+                            </p>
+
+                            <!-- Cash settlement -->
+                            <div v-if="payoutResult" class="mx-auto mt-6 max-w-sm rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3.5 text-left text-sm">
+                                <div class="flex items-center justify-between text-zinc-500">
+                                    <span class="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.25em]">
+                                        <UIcon name="i-lucide-trophy" class="size-3.5" />
+                                        Points earned
+                                    </span>
+                                    <span class="tabular-nums font-bold text-zinc-200">{{ payoutResult.gross.toLocaleString() }}</span>
+                                </div>
+                                <div v-if="payoutResult.capped" class="mt-1 flex justify-between text-[11px] text-amber-400/80">
+                                    <span class="uppercase tracking-[0.2em]">Verified</span>
+                                    <span class="tabular-nums">{{ payoutResult.counted.toLocaleString() }}</span>
+                                </div>
+                                <div class="mt-2 flex items-baseline justify-between border-t border-white/10 pt-2">
+                                    <span class="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.25em] text-amber-300/80">
+                                        <UIcon name="i-lucide-coins" class="size-3.5" />
+                                        Cash paid out
+                                    </span>
+                                    <span class="text-2xl font-black tabular-nums text-amber-300">
+                                        +{{ payoutResult.awarded.toLocaleString() }}
+                                    </span>
+                                </div>
+                            </div>
+                            <div v-else-if="!guestMode" class="mt-6 flex items-center justify-center gap-2 text-xs uppercase tracking-[0.3em] text-zinc-500">
+                                <UIcon name="i-lucide-loader-circle" class="size-4 animate-spin" />
+                                Settling…
+                            </div>
+
+                            <div class="mx-auto mt-7 grid max-w-md grid-cols-2 gap-x-8 gap-y-2 text-left text-[13px]">
+                                <div v-for="stat in summary" :key="stat.label" class="flex justify-between border-b border-white/10 pb-1">
+                                    <span class="text-zinc-500">{{ stat.label }}</span>
+                                    <span class="font-bold tabular-nums text-zinc-100">{{ stat.value }}</span>
+                                </div>
+                            </div>
+                            <p v-if="round >= bestRound" class="mt-5 flex items-center justify-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.3em] text-amber-300">
+                                <UIcon name="i-lucide-medal" class="size-4" />
+                                Best round yet
+                            </p>
+                        </template>
+                        <template v-else>
+                            <h1 class="text-center text-4xl font-black uppercase tracking-tight text-zinc-100">Paused</h1>
+                            <div class="mt-4 flex flex-wrap items-center justify-center gap-3 text-sm">
+                                <span class="flex items-center gap-1.5 rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-zinc-300">
+                                    <UIcon name="i-lucide-swords" class="size-4 text-red-400" />
+                                    Round <span class="font-black tabular-nums">{{ round }}</span>
+                                </span>
+                                <span class="flex items-center gap-1.5 rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-zinc-300">
+                                    <UIcon name="i-lucide-coins" class="size-4 text-amber-400/80" />
+                                    <span class="font-black tabular-nums text-amber-300">{{ points.toLocaleString() }}</span>
+                                    <span class="text-[10px] uppercase tracking-[0.2em] text-zinc-500">points</span>
+                                </span>
+                            </div>
+                            <div v-if="pausePayoutEstimate !== null" class="mx-auto mt-3 max-w-sm rounded-xl border border-amber-400/20 bg-amber-400/[0.07] px-4 py-3">
+                                <div class="flex items-center justify-between">
+                                    <span class="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.25em] text-amber-300/80">
+                                        <UIcon name="i-lucide-banknote" class="size-3.5" />
+                                        If you fall now
+                                    </span>
+                                    <span class="text-2xl font-black tabular-nums text-amber-300">
+                                        +{{ pausePayoutEstimate.toLocaleString() }}
+                                    </span>
+                                </div>
+                                <p class="mt-1 text-[10px] leading-relaxed text-zinc-500">
+                                    {{ Math.round(grossEarned).toLocaleString() }} points earned ×
+                                    {{ (CALL_OF_XENO_PAYOUT_RATE * runDifficulty.reward * runEffects.payoutMult).toFixed(2) }} cash rate ({{ runDifficultyName }}).
+                                    Dying or quitting settles the run now.
+                                </p>
+                            </div>
+                        </template>
+
+                        <div v-if="phase !== 'over'" class="mx-auto mt-8 grid max-w-sm grid-cols-2 gap-x-6 gap-y-2 text-left text-[12px] text-zinc-500">
+                            <div><span class="rounded-sm border border-white/15 bg-white/5 px-1.5 py-0.5 font-bold text-zinc-200">WASD</span> move</div>
+                            <div><span class="rounded-sm border border-white/15 bg-white/5 px-1.5 py-0.5 font-bold text-zinc-200">Space</span> jump</div>
+                            <div><span class="rounded-sm border border-white/15 bg-white/5 px-1.5 py-0.5 font-bold text-zinc-200">Shift</span> sprint</div>
+                            <div><span class="rounded-sm border border-white/15 bg-white/5 px-1.5 py-0.5 font-bold text-zinc-200">LMB</span> fire</div>
+                            <div><span class="rounded-sm border border-white/15 bg-white/5 px-1.5 py-0.5 font-bold text-zinc-200">RMB</span> aim</div>
+                            <div><span class="rounded-sm border border-white/15 bg-white/5 px-1.5 py-0.5 font-bold text-zinc-200">R</span> reload</div>
+                            <div><span class="rounded-sm border border-white/15 bg-white/5 px-1.5 py-0.5 font-bold text-zinc-200">Q</span> swap weapon</div>
+                            <div><span class="rounded-sm border border-white/15 bg-white/5 px-1.5 py-0.5 font-bold text-zinc-200">F</span> buy / board up</div>
+                            <div><span class="rounded-sm border border-white/15 bg-white/5 px-1.5 py-0.5 font-bold text-zinc-200">V</span> knife</div>
+                            <div><span class="rounded-sm border border-white/15 bg-white/5 px-1.5 py-0.5 font-bold text-zinc-200">Esc</span> pause</div>
+                        </div>
+
+                        <p v-if="initError" class="mx-auto mt-6 max-w-md rounded-lg border border-red-500/40 bg-red-950/40 px-3 py-2 text-center text-xs text-red-300">
+                            Could not start the renderer: {{ initError }}
+                        </p>
+                    </div>
+
+                    <!-- footer -->
+                    <div class="relative flex items-center justify-between gap-4 border-t border-white/10 bg-black/60 px-5 py-4">
+                        <p class="text-[10px] uppercase tracking-[0.2em] text-zinc-600">
+                            {{ phase === 'over' ? 'The horde does not wait.' : 'Your mouse is captured while playing. Esc gives it back.' }}
+                        </p>
+                        <button
+                            class="group flex shrink-0 items-center gap-3 rounded-lg bg-red-600 px-8 py-3 text-sm font-black uppercase tracking-[0.3em] text-white shadow-[0_0_36px_rgba(220,38,38,0.35)] transition-all hover:bg-red-500 hover:shadow-[0_0_46px_rgba(220,38,38,0.5)] disabled:cursor-not-allowed disabled:opacity-40 disabled:shadow-none"
+                            :disabled="deploying"
+                            @click="phase === 'over' ? restart() : begin()"
+                        >
+                            <UIcon :name="deploying ? 'i-lucide-loader-circle' : 'i-lucide-chevrons-right'" class="size-4" :class="deploying ? 'animate-spin' : 'transition-transform group-hover:translate-x-0.5'" />
+                            {{ phase === 'over' ? (guestMode ? 'Run It Back' : 'Back to Outpost') : 'Resume' }}
+                        </button>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
 </template>
 
 <script setup lang="ts">
-import { ref, shallowRef, computed, nextTick, onMounted, onBeforeUnmount } from 'vue'
+import { ref, shallowRef, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import * as THREE from 'three'
 import {
     CALL_OF_XENO_WEAPONS,
@@ -236,12 +660,12 @@ import {
     CALL_OF_XENO_BOX_POOL,
     CALL_OF_XENO_BASE_HEALTH,
     CALL_OF_XENO_JUGGERNOG_HEALTH,
-    CALL_OF_XENO_REGEN_DELAY,
     CALL_OF_XENO_REGEN_RATE,
     CALL_OF_XENO_HIT_POINTS,
     CALL_OF_XENO_KILL_POINTS,
     CALL_OF_XENO_HEADSHOT_POINTS,
     CALL_OF_XENO_STARTING_POINTS,
+    CALL_OF_XENO_KNIFE_KILL_POINTS,
     CALL_OF_XENO_POWERUP_CHANCE,
     CALL_OF_XENO_POWERUP_LIFETIME,
     CALL_OF_XENO_NUKE_POINTS,
@@ -252,6 +676,7 @@ import {
     packAPunch,
     packAPunchCost,
     ammoCost,
+    xenoRayFalloff,
     roundComposition,
     isSpecialRound,
     specialRoundEnemy,
@@ -307,6 +732,20 @@ import {
     navLevelOf,
     type CallOfXenoNavPoint
 } from '#shared/utils/gamelogic/call-of-xeno-nav'
+import {
+    CALL_OF_XENO_DIFFICULTIES,
+    CALL_OF_XENO_EMPTY_LEVELS,
+    CALL_OF_XENO_PAYOUT_RATE,
+    CALL_OF_XENO_SIDEARM_LADDER,
+    callOfXenoDifficulty,
+    callOfXenoSidearmUnlocked,
+    callOfXenoUpgradeEffects,
+    type CallOfXenoBestRounds,
+    type CallOfXenoDifficulty,
+    type CallOfXenoDifficultyId,
+    type CallOfXenoUpgradeEffects,
+    type CallOfXenoUpgradeId
+} from '#shared/utils/gamelogic/call-of-xeno-meta'
 import { randomFloat, randomWeighted } from '#shared/utils/random'
 import { CallOfXenoAudio } from '~/utils/call-of-xeno/sounds'
 import { CallOfXenoEffects } from '~/utils/call-of-xeno/effects'
@@ -342,6 +781,8 @@ const magAmmo = ref(0)
 const reserveAmmo = ref(0)
 const magFraction = ref(100)
 const reloading = ref(false)
+/** 0-100 progress of the reload, drives the ammo bar fill while reloading. */
+const reloadFraction = ref(0)
 const prompt = ref('')
 const promptAffordable = ref(true)
 const banner = ref('')
@@ -365,6 +806,157 @@ const ownedPerks = shallowRef<CallOfXenoPerk[]>([])
 const activePowerUps = shallowRef<{ id: string, name: string, color: string, remaining: number }[]>([])
 const summary = shallowRef<{ label: string, value: string }[]>([])
 const initError = ref('')
+
+// ---------------------------------------------------------------------------
+// Account meta-progression (upgrades, difficulties, payouts)
+// ---------------------------------------------------------------------------
+
+interface MetaUpgradeRow {
+    id: CallOfXenoUpgradeId
+    name: string
+    description: string
+    max: number
+    level: number
+    cost: number | null
+}
+
+interface MetaDifficultyRow extends CallOfXenoDifficulty {
+    unlocked: boolean
+}
+
+const { fetchSession } = useAuth()
+const metaReady = ref(false)
+const guestMode = ref(false)
+const metaBalance = ref(0)
+const metaUpgrades = shallowRef<MetaUpgradeRow[]>([])
+const metaDifficulties = shallowRef<MetaDifficultyRow[]>([])
+const metaBestRounds = shallowRef<CallOfXenoBestRounds>({ recruit: 0, veteran: 0, survivor: 0, nightmare: 0 })
+const metaStats = shallowRef({ runsPlayed: 0, totalEarned: '0', bestEarned: 0 })
+const selectedDifficulty = ref<CallOfXenoDifficultyId>('recruit')
+const cooldownRemainingMs = ref(0)
+const menuError = ref('')
+const deploying = ref(false)
+const payoutResult = shallowRef<{ awarded: number, counted: number, capped: boolean, gross: number } | null>(null)
+const runDifficultyName = ref('Recruit')
+
+/** Snapshot of the account power this deployed run actually runs on. */
+let runDifficulty: CallOfXenoDifficulty = CALL_OF_XENO_DIFFICULTIES[0]!
+let runEffects: CallOfXenoUpgradeEffects = callOfXenoUpgradeEffects(CALL_OF_XENO_EMPTY_LEVELS)
+/** Lifetime points earned this run — the number the payout is settled on. */
+let grossEarned = 0
+/** True while a server-armed run is in flight and owes a finish-run. */
+let serverRunActive = false
+
+/** Chosen starting weapon for the next run. Kept across menu visits, reset to the best unlocked one after buys. */
+const chosenSidearm = ref<CallOfXenoWeaponId>('m1911')
+
+const sidearmChoices = computed(() => {
+    const sidearmLevel = metaUpgrades.value.find(u => u.id === 'sidearm')?.level ?? 0
+    const choices: { id: CallOfXenoWeaponId, unlocked: boolean }[] = [
+        { id: 'm1911', unlocked: true },
+        ...CALL_OF_XENO_SIDEARM_LADDER.map(id => ({ id, unlocked: callOfXenoSidearmUnlocked(id, sidearmLevel) }))
+    ]
+    return choices
+})
+
+// Keeps the selection on the best weapon the account still owns (a downgrade
+// after the ladder resets would otherwise stick on a locked card).
+watch(sidearmChoices, (choices) => {
+    if (!choices.some(c => c.id === chosenSidearm.value && c.unlocked)) {
+        chosenSidearm.value = [...choices].reverse().find(c => c.unlocked)!.id
+    }
+})
+
+const STARTER_IDS: CallOfXenoWeaponId[] = ['m1911', ...CALL_OF_XENO_SIDEARM_LADDER]
+
+async function refreshMeta() {
+    try {
+        const state = await $fetch('/api/call-of-xeno/state')
+        guestMode.value = false
+        metaReady.value = true
+        metaBalance.value = Number(state.balance) || 0
+        metaUpgrades.value = state.upgrades
+        metaDifficulties.value = state.difficulties
+        metaBestRounds.value = state.stats.bestRounds
+        metaStats.value = state.stats
+        cooldownRemainingMs.value = state.runCooldown?.remainingMs ?? 0
+        if (serverRunActive && state.activeRun && CALL_OF_XENO_DIFFICULTIES.some(d => d.id === state.activeRun?.difficulty)) {
+            selectedDifficulty.value = state.activeRun.difficulty as CallOfXenoDifficultyId
+        }
+        if (!state.difficulties.some((d: MetaDifficultyRow) => d.id === selectedDifficulty.value && d.unlocked)) {
+            selectedDifficulty.value = 'recruit'
+        }
+    } catch {
+        // 401 or offline: the game stays fully playable, just bankless.
+        guestMode.value = true
+        metaReady.value = true
+        metaUpgrades.value = []
+        cooldownRemainingMs.value = 0
+    }
+}
+
+async function buyUpgrade(id: CallOfXenoUpgradeId) {
+    if (guestMode.value) return
+    try {
+        await $fetch('/api/call-of-xeno/upgrade', { method: 'POST', body: { upgradeId: id } })
+        await fetchSession()
+        await refreshMeta()
+    } catch (error) {
+        menuError.value = error instanceof Error ? error.message : 'Upgrade failed'
+    }
+}
+
+/** In-run price after the Scavenger discount. */
+function price(base: number) {
+    return Math.max(1, Math.round(base * runEffects.costMult))
+}
+
+const cooldownLabel = computed(() => {
+    const ms = cooldownRemainingMs.value
+    if (ms <= 0) return ''
+    const minutes = Math.ceil(ms / 60_000)
+    return minutes >= 60 ? `${Math.floor(minutes / 60)}h ${minutes % 60}m` : `${minutes}m`
+})
+
+const payoutRateLabel = computed(() => {
+    const difficulty = metaDifficulties.value.find(d => d.id === selectedDifficulty.value)
+    const reward = difficulty?.reward ?? 1
+    return `×${(CALL_OF_XENO_PAYOUT_RATE * reward).toFixed(2)}`
+})
+
+/** What dying right now would pay: gross so far × rate × tier × contract. */
+const pausePayoutEstimate = computed(() => {
+    if (guestMode.value) return null
+    return Math.floor(grossEarned * CALL_OF_XENO_PAYOUT_RATE * runDifficulty.reward * runEffects.payoutMult)
+})
+
+const upgradeIcons: Record<CallOfXenoUpgradeId, string> = {
+    warChest: 'i-lucide-package',
+    bodyArmor: 'i-lucide-shield',
+    adrenaline: 'i-lucide-heart-pulse',
+    scavenger: 'i-lucide-wrench',
+    contract: 'i-lucide-scroll-text',
+    sidearm: 'i-lucide-crosshair'
+}
+
+const difficultyIcons: Record<CallOfXenoDifficultyId, string> = {
+    recruit: 'i-lucide-shield',
+    veteran: 'i-lucide-crosshair',
+    survivor: 'i-lucide-flame',
+    nightmare: 'i-lucide-skull'
+}
+
+/** Accent per tier, shared by the difficulty cards and the record chips. */
+const difficultyAccent: Record<CallOfXenoDifficultyId, string> = {
+    recruit: 'text-emerald-300',
+    veteran: 'text-amber-300',
+    survivor: 'text-orange-400',
+    nightmare: 'text-red-400'
+}
+
+function formatCoins(value: number) {
+    return value.toLocaleString(undefined, { maximumFractionDigits: 0 })
+}
 
 interface ScreenPopup {
     id: number
@@ -526,6 +1118,8 @@ const audio = new CallOfXenoAudio()
 
 let weaponRoot!: THREE.Group
 let weaponModel: THREE.Group | null = null
+/** Mirrored right-hand gun for akimbo weapons. */
+let weaponModelOffhand: THREE.Group | null = null
 let boxPreview: THREE.Group | null = null
 let muzzleFlash!: THREE.Sprite
 let muzzleLight!: THREE.PointLight
@@ -566,6 +1160,10 @@ let inBreak = false
 let bannerTimer = 0
 let powered = false
 let firing = false
+/** Right-trigger "fire" for akimbo: RMB drives the right-hand gun. */
+let firingRight = false
+/** Per-hand shot cooldown for akimbo weapons. */
+const akimboCooldown: Record<'left' | 'right', number> = { left: 0, right: 0 }
 let fireTimer = 0
 let reloadTimer = 0
 let reloadTotal = 0
@@ -781,8 +1379,12 @@ function updatePlayer(dt: number) {
     camera.rotation.set(pitch + recoilPitch, yaw, Math.sin(bob) * 0.006)
 
     sinceDamage += dt
-    const delay = perks.has('quickrevive') ? CALL_OF_XENO_REGEN_DELAY * 0.5 : CALL_OF_XENO_REGEN_DELAY
-    const rate = perks.has('quickrevive') ? CALL_OF_XENO_REGEN_RATE * 2 : CALL_OF_XENO_REGEN_RATE
+    const delay = perks.has('quickrevive')
+        ? runEffects.regenDelaySeconds * 0.5
+        : runEffects.regenDelaySeconds
+    const rate = perks.has('quickrevive')
+        ? CALL_OF_XENO_REGEN_RATE * runEffects.regenRateMult * 2
+        : CALL_OF_XENO_REGEN_RATE * runEffects.regenRateMult
     if (sinceDamage > delay && hp < hpMax) hp = Math.min(hpMax, hp + rate * dt)
 }
 
@@ -830,6 +1432,21 @@ function equipModel() {
     const slot = active()
     weaponModel = buildWeaponModel(slot.base, slot.tier)
     weaponRoot.add(weaponModel)
+
+    // Mustang & Sally: a mirrored second gun on the right. The left gun stays
+    // on the usual anchor; the pair reads as two holsters at a glance.
+    if (weaponModelOffhand) {
+        weaponRoot.remove(weaponModelOffhand)
+        disposeObject(weaponModelOffhand)
+        weaponModelOffhand = null
+    }
+    if (slot.def.akimbo) {
+        weaponModelOffhand = buildWeaponModel(slot.base, slot.tier)
+        weaponModelOffhand.position.set(0.34, -0.02, 0.08)
+        weaponModelOffhand.rotation.y = -0.08
+        weaponRoot.add(weaponModelOffhand)
+    }
+
     swapTimer = 0.18
 }
 
@@ -887,7 +1504,23 @@ function hitEnemy(enemy: Enemy, ox: number, oy: number, oz: number, dx: number, 
     return best
 }
 
-function shoot() {
+/** Splash damage of an explosive round at the impact point. */
+function detonateRound(x: number, y: number, z: number, damage: number, scored: Set<Enemy>) {
+    const radius = 2.6
+    impactPoint.set(x, y, z)
+    effects.energyBurst(impactPoint, 0xffa040)
+    impactPoint.set(x, y + 0.2, z)
+    effects.wallImpact(impactPoint, new THREE.Vector3(0, 1, 0))
+    for (const enemy of [...enemies]) {
+        const dist = Math.hypot(enemy.x - x, enemy.z - z)
+        if (dist > radius) continue
+        const falloff = Math.max(0.3, 1 - dist / radius)
+        impactPoint.set(enemy.x, enemy.y + enemy.model.torsoY, enemy.z)
+        applyHit(enemy, damage * falloff, 'body', scored, impactPoint)
+    }
+}
+
+function shoot(hand: 'left' | 'right' = 'left') {
     const slot = active()
     if (reloadTimer > 0 || swapTimer > 0) return
     if (slot.mag <= 0) {
@@ -897,18 +1530,25 @@ function shoot() {
     }
 
     slot.mag--
-    fireTimer = fireDelayOf(slot)
+    // Akimbo hands keep separate cooldowns, so alternating LMB/RMB doubles
+    // the rate; one trigger held down still respects the per-shot delay.
+    if (slot.def.akimbo) {
+        akimboCooldown[hand] = fireDelayOf(slot)
+        fireTimer = Math.min(fireTimer, fireDelayOf(slot))
+    } else {
+        fireTimer = fireDelayOf(slot)
+    }
     recoil = 1
     bloom = Math.min(1, bloom + (aiming ? 0.22 : 0.34))
-    shake = Math.min(0.09, shake + (slot.base === 'trench' || slot.base === 'rpk' ? 0.05 : 0.025))
-    recoilPitch += slot.def.spread * 0.6 + 0.012
+    shake = Math.min(0.09, shake + (slot.def.explosive ? 0.05 : slot.base === 'trench' || slot.base === 'rpk' ? 0.05 : 0.025))
+    recoilPitch += slot.def.spread * 0.6 + (slot.def.explosive ? 0.03 : 0.012)
     audio.play(shootSound(slot))
 
     muzzleFlash.material.opacity = 1
-    muzzleFlash.scale.setScalar(slot.base === 'trench' ? 0.5 : 0.32)
+    muzzleFlash.scale.setScalar(slot.base === 'trench' ? 0.5 : slot.def.explosive ? 0.42 : 0.32)
     muzzleFlash.material.rotation = Math.random() * Math.PI * 2
-    muzzleLight.intensity = slot.base === 'xenoray' ? 12 : 9
-    muzzleLight.color.setHex(slot.base === 'xenoray' ? 0x44ffcc : 0xffbb55)
+    muzzleLight.intensity = slot.def.explosive ? 14 : slot.base === 'xenoray' ? 12 : 9
+    muzzleLight.color.setHex(slot.base === 'xenoray' ? 0x44ffcc : slot.def.explosive ? 0xff9040 : 0xffbb55)
 
     muzzleFlash.getWorldPosition(muzzleWorld)
     rightVector.set(1, 0, 0).applyQuaternion(camera.quaternion)
@@ -957,11 +1597,22 @@ function shoot() {
         hits.sort((a, b) => a.t - b.t)
         const landed = hits.slice(0, slot.def.penetration)
 
-        for (const hit of landed) {
-            impactPoint.copy(pelletDir).multiplyScalar(hit.t).add(rayOrigin)
-            const multiplier = hit.kind === 'head' ? 1.5 : hit.kind === 'weak' ? (hit.enemy.def.weakPoint ?? 1) : 1
-            effects.bloodBurst(impactPoint, pelletDir, hit.kind === 'body' ? 1.2 : 2)
-            if (applyHit(hit.enemy, damage * multiplier, hit.kind, scored, impactPoint)) killsThisShot++
+        // Explosive rounds detonate at the first thing they touch — the
+        // splash does the work, direct hits are just the fuse.
+        if (slot.def.explosive) {
+            const at = landed.length > 0 ? landed[0]!.t : maxDist
+            impactPoint.copy(pelletDir).multiplyScalar(at).add(rayOrigin)
+            detonateRound(impactPoint.x, impactPoint.y, impactPoint.z, damage, scored)
+        } else {
+            for (const hit of landed) {
+                impactPoint.copy(pelletDir).multiplyScalar(hit.t).add(rayOrigin)
+                const multiplier = hit.kind === 'head' ? 1.5 : hit.kind === 'weak' ? (hit.enemy.def.weakPoint ?? 1) : 1
+                // The ray is a diffusing beam: each enemy in the line takes the
+                // damage left at its own distance, so a shot thins as it goes.
+                const falloff = slot.base === 'xenoray' ? xenoRayFalloff(hit.t, slot.tier) : 1
+                effects.bloodBurst(impactPoint, pelletDir, hit.kind === 'body' ? 1.2 : 2)
+                if (applyHit(hit.enemy, damage * multiplier * falloff, hit.kind, scored, impactPoint)) killsThisShot++
+            }
         }
 
         const endDist = landed.length >= slot.def.penetration && landed.length > 0
@@ -979,6 +1630,8 @@ function shoot() {
             if (slot.base === 'xenoray') {
                 effects.tracer(muzzleWorld, impactPoint, 0x44ffcc, 0.05, 0.16)
                 effects.energyBurst(impactPoint, 0x44ffcc)
+            } else if (slot.def.explosive) {
+                effects.tracer(muzzleWorld, impactPoint, 0xffa040, 0.03, 0.1)
             } else {
                 effects.tracer(muzzleWorld, impactPoint, slot.tier > 0 ? 0xff88ee : 0xffd27a, 0.014, 0.06)
             }
@@ -1004,11 +1657,14 @@ function award(base: number) {
         * (isSpecialRound(currentRound) ? CALL_OF_XENO_SPECIAL_ROUND_BONUS : 1)
     const total = Math.round(base * multiplier)
     score += total
+    // Gross income over the run's life — what the end-of-run payout is
+    // settled on. Spending later does not subtract from it.
+    grossEarned += total
     return total
 }
 
 /** Returns true when the hit killed. */
-function applyHit(enemy: Enemy, damage: number, kind: 'body' | 'head' | 'weak', scored: Set<Enemy>, at: THREE.Vector3) {
+function applyHit(enemy: Enemy, damage: number, kind: 'body' | 'head' | 'weak', scored: Set<Enemy>, at: THREE.Vector3, source: 'gun' | 'knife' = 'gun') {
     const lethal = powerUpTimers.instakill > 0
     enemy.health -= lethal ? Number.MAX_SAFE_INTEGER : damage
     enemy.flash = 0.1
@@ -1025,19 +1681,27 @@ function applyHit(enemy: Enemy, damage: number, kind: 'body' | 'head' | 'weak', 
         enemy.z += (kz / kl) * 0.22
     }
 
+    let hitPaid = 0
     if (!scored.has(enemy)) {
         scored.add(enemy)
-        award(Math.round(CALL_OF_XENO_HIT_POINTS * enemy.def.reward))
+        hitPaid = award(Math.round(CALL_OF_XENO_HIT_POINTS * enemy.def.reward))
         audio.play(kind === 'body' ? 'hit' : 'headshot')
     }
 
     if (enemy.health > 0) {
-        spawnPopup(at.x, at.y, at.z, String(Math.round(damage)), kind === 'body' ? '#fca5a5' : '#fbbf24', kind === 'body' ? 17 : 22)
+        // Call of Duty grammar: a muted damage figure and, in front of it,
+        // the bright money figure that actually matters.
+        spawnPopup(at.x, at.y + 0.22, at.z, String(Math.round(damage)), kind === 'body' ? '#94a3b8' : '#c4b489', kind === 'body' ? 13 : 15)
+        if (hitPaid > 0) {
+            spawnPopup(at.x, at.y, at.z, `+${hitPaid}`, '#ffd75e', 19)
+        }
         return false
     }
 
     if (kind === 'head') statHeadshots++
-    const base = kind === 'body' ? CALL_OF_XENO_KILL_POINTS : CALL_OF_XENO_HEADSHOT_POINTS
+    const base = source === 'knife'
+        ? CALL_OF_XENO_KNIFE_KILL_POINTS
+        : kind === 'body' ? CALL_OF_XENO_KILL_POINTS : CALL_OF_XENO_HEADSHOT_POINTS
     registerKill(enemy, Math.round(base * enemy.def.reward), kind)
     return true
 }
@@ -1057,8 +1721,8 @@ function registerKill(enemy: Enemy, basePoints: number, kind: 'body' | 'head' | 
     spawnPopup(
         enemy.x, enemy.y + enemy.model.torsoY + 0.5, enemy.z,
         `+${paid}`,
-        kind === 'body' ? '#f8fafc' : kind === 'nuke' ? '#9ae66e' : '#fbbf24',
-        kind === 'body' ? 22 : 26
+        kind === 'nuke' ? '#9ae66e' : '#ffd75e',
+        kind === 'nuke' ? 26 : kind === 'body' ? 23 : 26
     )
     killEnemy(enemy)
     if (kind !== 'nuke') audio.play('kill')
@@ -1124,7 +1788,7 @@ function melee() {
         impactPoint.set(enemy.x, enemy.y + enemy.model.torsoY, enemy.z)
         effects.bloodBurst(impactPoint, rayDir, 2)
         hitAny = true
-        applyHit(enemy, 250, 'body', scored, impactPoint)
+        applyHit(enemy, 250, 'body', scored, impactPoint, 'knife')
     }
     if (hitAny) audio.play('melee-hit')
 }
@@ -1419,7 +2083,7 @@ function spawnEnemy(): boolean {
     model.group.scale.setScalar(def.scale)
     scene.add(model.group)
 
-    const health = Math.round(zombieHealth(currentRound) * def.healthMultiplier)
+    const health = Math.round(zombieHealth(currentRound) * def.healthMultiplier * runDifficulty.healthMult)
     const frenzy = modifier === 'frenzy' ? CALL_OF_XENO_FRENZY_SPEED : 1
 
     enemies.push({
@@ -1436,7 +2100,7 @@ function spawnEnemy(): boolean {
         yaw: 0,
         health,
         maxHealth: health,
-        speed: zombieSpeed(currentRound) * def.speedMultiplier * frenzy * (0.88 + randomFloat() * 0.24),
+        speed: zombieSpeed(currentRound) * def.speedMultiplier * frenzy * runDifficulty.speedMult * (0.88 + randomFloat() * 0.24),
         attackCooldown: 0,
         fireCooldown: 1 + randomFloat() * 2,
         flash: 0,
@@ -1536,6 +2200,7 @@ function updateRepair(dt: number) {
     // A flat rate: repairing is a steady trickle, not something the streak
     // multiplier can be farmed through.
     score += CALL_OF_XENO_REPAIR_POINTS
+    grossEarned += CALL_OF_XENO_REPAIR_POINTS
     spawnPopup(
         focusedWindow.centre.x,
         CALL_OF_XENO_WINDOW_HEAD,
@@ -1806,7 +2471,7 @@ function updateEnemies(dt: number) {
             }
         } else if (toPlayer < 1.5 * def.scale && Math.abs(enemy.y - feetY) < 1.6 && enemy.attackCooldown <= 0) {
             enemy.attackCooldown = 1
-            takeDamage(Math.round(contact * def.damageMultiplier), enemy.x, enemy.z)
+            takeDamage(Math.round(contact * def.damageMultiplier * runDifficulty.damageMult), enemy.x, enemy.z)
             audio.play('zombie-attack')
         }
 
@@ -1911,7 +2576,7 @@ function refreshLights() {
 
 function startRound(next: number) {
     currentRound = next
-    spawnQueue = zombieCount(currentRound)
+    spawnQueue = Math.ceil(zombieCount(currentRound) * runDifficulty.countMult)
     spawnTimer = 0.4
     applyModifier()
 
@@ -1938,7 +2603,7 @@ function updateRound(dt: number) {
 
     if (spawnQueue > 0) {
         spawnTimer -= dt
-        if (spawnTimer <= 0 && enemies.length < maxAlive(currentRound)) {
+        if (spawnTimer <= 0 && enemies.length < Math.round(maxAlive(currentRound) * runDifficulty.countMult)) {
             // Only bank the spawn if one actually went out — otherwise a round
             // with nowhere to spawn would drain its queue and end on the spot.
             if (spawnEnemy()) spawnQueue--
@@ -1979,8 +2644,8 @@ function updatePrompt() {
         best = d
         focusedWindow = null
         focused = { kind: 'door', id: door.id }
-        text = `[F] Open Door — ${door.cost}`
-        affordable = score >= door.cost
+        text = `[F] Open Door — ${price(door.cost)}`
+        affordable = score >= price(door.cost)
     }
 
     for (const item of CALL_OF_XENO_INTERACTABLES) {
@@ -2016,13 +2681,13 @@ function updatePrompt() {
                 text = 'Spinning…'
                 affordable = true
             } else {
-                text = `[F] Mystery Box — ${CALL_OF_XENO_BOX_COST}`
-                affordable = score >= CALL_OF_XENO_BOX_COST
+                text = `[F] Mystery Box — ${price(CALL_OF_XENO_BOX_COST)}`
+                affordable = score >= price(CALL_OF_XENO_BOX_COST)
             }
         } else if (item.kind === 'wallbuy') {
             const weapon = CALL_OF_XENO_WEAPONS[item.weapon!]
             const owned = slots.find(s => s.base === weapon.id)
-            const cost = owned ? ammoCost(weapon) : weapon.cost
+            const cost = price(owned ? ammoCost(weapon) : weapon.cost)
             best = d
             if (owned && owned.reserve >= owned.def.reserveAmmo) {
                 focused = null
@@ -2043,11 +2708,12 @@ function updatePrompt() {
                 continue
             }
             focused = { kind: 'interactable', id: item.id }
-            text = `[F] ${perk.name} — ${perk.cost}`
-            affordable = score >= perk.cost
+            text = `[F] ${perk.name} — ${price(perk.cost)}`
+            affordable = score >= price(perk.cost)
         } else if (item.kind === 'papunch') {
             best = d
-            const cost = packAPunchCost(active().tier)
+            const raw = packAPunchCost(active().tier)
+            const cost = raw === null ? null : price(raw)
             if (cost === null) {
                 focused = null
                 text = `${active().def.name} is fully upgraded`
@@ -2081,7 +2747,7 @@ function interact() {
 
     if (focused.kind === 'door') {
         const door = CALL_OF_XENO_DOORS.find(d => d.id === focused!.id)!
-        if (!spend(door.cost)) return
+        if (!spend(price(door.cost))) return
         openDoors.add(door.id)
         statDoors++
         const group = level.doors.get(door.id)
@@ -2114,7 +2780,7 @@ function interact() {
     if (item.kind === 'mysterybox') {
         if (boxState === 'ready') { takeBoxPrize(); return }
         if (boxState !== 'idle') return
-        if (!spend(CALL_OF_XENO_BOX_COST)) return
+        if (!spend(price(CALL_OF_XENO_BOX_COST))) return
         spinBox()
         return
     }
@@ -2124,12 +2790,12 @@ function interact() {
         const owned = slots.find(s => s.base === weapon.id)
         if (owned) {
             if (owned.reserve >= owned.def.reserveAmmo) return
-            if (!spend(ammoCost(weapon))) return
+            if (!spend(price(ammoCost(weapon)))) return
             owned.reserve = owned.def.reserveAmmo
             audio.play('buy')
             return
         }
-        if (!spend(weapon.cost)) return
+        if (!spend(price(weapon.cost))) return
         giveWeapon(makeSlot(weapon.id))
         audio.play('buy')
         return
@@ -2137,10 +2803,11 @@ function interact() {
 
     if (item.kind === 'perk') {
         const perk = CALL_OF_XENO_PERKS[item.perk!]
-        if (perks.has(perk.id) || !spend(perk.cost)) return
+        if (perks.has(perk.id) || !spend(price(perk.cost))) return
         perks.add(perk.id)
         if (perk.id === 'juggernog') {
-            hpMax = CALL_OF_XENO_JUGGERNOG_HEALTH
+            // Juggernog replaces the pool; Body Armor levels stack on top.
+            hpMax = CALL_OF_XENO_JUGGERNOG_HEALTH + runEffects.maxHealth - CALL_OF_XENO_BASE_HEALTH
             hp = hpMax
         }
         ownedPerks.value = [...perks].map(id => CALL_OF_XENO_PERKS[id])
@@ -2154,8 +2821,8 @@ function interact() {
 
     if (item.kind === 'papunch') {
         const slot = active()
-        const cost = packAPunchCost(slot.tier)
-        if (cost === null || !spend(cost)) return
+        const raw = packAPunchCost(slot.tier)
+        if (raw === null || !spend(price(raw))) return
         slots[activeSlot] = makeSlot(slot.base, slot.tier + 1)
         equipModel()
         bannerTimer = 2
@@ -2228,6 +2895,7 @@ function syncHud() {
     reserveAmmo.value = slot.reserve
     magFraction.value = (slot.mag / slot.def.magSize) * 100
     reloading.value = reloadTimer > 0
+    reloadFraction.value = reloadTotal > 0 ? (1 - reloadTimer / reloadTotal) * 100 : 0
     stowedName.value = slots.length > 1 ? slots[activeSlot === 0 ? 1 : 0]!.def.name : ''
     hitMarker.value = markerTimer
     hurtOpacity.value = Math.max(0, 1 - hp / (hpMax * 0.62))
@@ -2300,9 +2968,25 @@ function update(dt: number) {
     }
 
     fireTimer -= dt
-    if (firing && fireTimer <= 0 && reloadTimer <= 0 && swapTimer <= 0) {
-        shoot()
-        if (!active().def.automatic) firing = false
+    akimboCooldown.left = Math.max(0, akimboCooldown.left - dt)
+    akimboCooldown.right = Math.max(0, akimboCooldown.right - dt)
+    if (active().def.akimbo) {
+        // Each hand is its own trigger; the shared fireTimer holds whichever
+        // hand fired last so a single held button still throttles.
+        if (firing && akimboCooldown.left <= 0 && reloadTimer <= 0 && swapTimer <= 0) {
+            shoot('left')
+            if (!active().def.automatic) firing = false
+        }
+        if (firingRight && akimboCooldown.right <= 0 && reloadTimer <= 0 && swapTimer <= 0) {
+            shoot('right')
+            if (!active().def.automatic) firingRight = false
+        }
+    } else {
+        if (firingRight) firingRight = false
+        if (firing && fireTimer <= 0 && reloadTimer <= 0 && swapTimer <= 0) {
+            shoot()
+            if (!active().def.automatic) firing = false
+        }
     }
 
     bloom = Math.max(0, bloom - dt * 1.6)
@@ -2327,6 +3011,29 @@ function update(dt: number) {
     if (hp <= 0) die()
 }
 
+/** Settles the armed run with the server and returns the payout, if any. */
+async function settleRun() {
+    if (!serverRunActive) return null
+    serverRunActive = false
+    const gross = Math.round(grossEarned)
+    try {
+        const res = await $fetch<{ awarded: number, counted: number, capped: boolean }>('/api/call-of-xeno/finish-run', {
+            method: 'POST',
+            body: { round: currentRound, grossPoints: gross }
+        })
+        payoutResult.value = { awarded: res.awarded, counted: res.counted, capped: res.capped, gross }
+        await fetchSession()
+        void refreshMeta()
+        return res
+    } catch {
+        // Network dropped between death and settle: the run stays armed
+        // server-side and will be reclaimed as stale long before it can lock
+        // the account. The player loses the payout, not the account.
+        payoutResult.value = { awarded: 0, counted: 0, capped: false, gross }
+        return null
+    }
+}
+
 function die() {
     phase.value = 'over'
     firing = false
@@ -2340,7 +3047,8 @@ function die() {
     const minutes = Math.floor(runTime / 60)
     const seconds = Math.floor(runTime % 60)
     summary.value = [
-        { label: 'Points', value: score.toLocaleString() },
+        { label: 'Points earned', value: Math.round(grossEarned).toLocaleString() },
+        { label: 'Points banked', value: score.toLocaleString() },
         { label: 'Kills', value: String(statKills) },
         { label: 'Headshots', value: statKills > 0 ? `${Math.round((statHeadshots / statKills) * 100)}%` : '0%' },
         { label: 'Best streak', value: String(statBestStreak) },
@@ -2352,6 +3060,8 @@ function die() {
         { label: 'Survived', value: `${minutes}m ${seconds}s` }
     ]
     bestRound.value = Math.max(bestRound.value, currentRound)
+    payoutResult.value = null
+    void settleRun()
     syncHud()
 }
 
@@ -2452,10 +3162,11 @@ function resetRun() {
     hurtMarks.value = []
     damageFlash.value = 0
     hurtVeil.value = 0
-    hpMax = CALL_OF_XENO_BASE_HEALTH
+    hpMax = runEffects.maxHealth
     hp = hpMax
     sinceDamage = 99
-    score = CALL_OF_XENO_STARTING_POINTS
+    score = runEffects.startingPoints
+    grossEarned = 0
     streak = 0
     streakTimer = 0
     runTime = 0
@@ -2468,7 +3179,7 @@ function resetRun() {
     statBoards = 0
     inBreak = false
     breakTimer = 0
-    slots = [makeSlot('m1911')]
+    slots = [makeSlot(runEffects.startWeapon ?? 'm1911')]
     activeSlot = 0
     reloadTimer = 0
     reloadTotal = 0
@@ -2488,18 +3199,80 @@ function resetRun() {
     syncHud()
 }
 
-function begin() {
+/** Arms a run: stamps the server snapshot, applies the account power. */
+async function deployRun(): Promise<boolean> {
+    // The starter the player picked in the menu, validated against what the
+    // account has actually unlocked.
+    const applyEffects = () => {
+        const sidearmLevel = metaUpgrades.value.find(u => u.id === 'sidearm')?.level ?? 0
+        if (!callOfXenoSidearmUnlocked(chosenSidearm.value, sidearmLevel)) chosenSidearm.value = 'm1911'
+        runEffects = {
+            ...runEffects,
+            startWeapon: chosenSidearm.value === 'm1911' ? null : chosenSidearm.value
+        }
+    }
+
+    if (guestMode.value) {
+        runDifficulty = CALL_OF_XENO_DIFFICULTIES[0]!
+        runDifficultyName.value = runDifficulty.name
+        runEffects = callOfXenoUpgradeEffects(CALL_OF_XENO_EMPTY_LEVELS)
+        applyEffects()
+        serverRunActive = false
+        resetRun()
+        return true
+    }
+
+    deploying.value = true
+    menuError.value = ''
+    try {
+        const res = await $fetch('/api/call-of-xeno/start-run', {
+            method: 'POST',
+            body: { difficultyId: selectedDifficulty.value }
+        })
+        runDifficulty = callOfXenoDifficulty(res.difficulty?.id ?? selectedDifficulty.value)
+        runDifficultyName.value = runDifficulty.name
+        runEffects = res.effects
+        applyEffects()
+        serverRunActive = true
+        resetRun()
+        return true
+    } catch (error) {
+        const status = (error as { statusCode?: number })?.statusCode
+        if (status === 401) {
+            // Not signed in after all (session expired mid-visit): fall back
+            // to a bankless run rather than locking the game behind a login.
+            guestMode.value = true
+            return deployRun()
+        }
+        menuError.value = (error as { statusMessage?: string })?.statusMessage
+            ?? (error instanceof Error ? error.message : 'Could not start the run')
+        void refreshMeta()
+        return false
+    } finally {
+        deploying.value = false
+    }
+}
+
+async function begin() {
     if (!initScene()) return
     audio.start()
-    if (phase.value === 'menu') resetRun()
+    if (phase.value === 'menu' && !(await deployRun())) return
     phase.value = 'playing'
     viewport.value?.querySelector('canvas')?.requestPointerLock()
 }
 
-function restart() {
+async function restart() {
     if (!initScene()) return
     audio.start()
-    resetRun()
+    if (!guestMode.value) {
+        // The armed run was settled on death — the cooldown is running, so
+        // the next run is chosen from the menu, not from the death screen.
+        payoutResult.value = null
+        await refreshMeta()
+        phase.value = 'menu'
+        return
+    }
+    await deployRun()
     phase.value = 'playing'
     viewport.value?.querySelector('canvas')?.requestPointerLock()
 }
@@ -2535,12 +3308,19 @@ function onMouseMove(event: MouseEvent) {
 function onMouseDown(event: MouseEvent) {
     if (!locked.value || phase.value !== 'playing') return
     if (event.button === 0) firing = true
-    if (event.button === 2) aiming = true
+    // Akimbo has no sights to drop into — the right trigger is the right gun.
+    if (event.button === 2) {
+        if (slots.length > 0 && active().def.akimbo) firingRight = true
+        else aiming = true
+    }
 }
 
 function onMouseUp(event: MouseEvent) {
     if (event.button === 0) firing = false
-    if (event.button === 2) aiming = false
+    if (event.button === 2) {
+        aiming = false
+        firingRight = false
+    }
 }
 
 function onContextMenu(event: MouseEvent) {
@@ -2551,6 +3331,7 @@ function onPointerLockChange() {
     locked.value = document.pointerLockElement !== null
     if (!locked.value) {
         firing = false
+        firingRight = false
         aiming = false
         keys.clear()
     }
@@ -2655,7 +3436,13 @@ function buildScene(host: HTMLDivElement) {
     frameHandle = requestAnimationFrame(loop)
 }
 
+let cooldownTicker = 0
+
 onMounted(() => {
+    void refreshMeta()
+    cooldownTicker = window.setInterval(() => {
+        if (cooldownRemainingMs.value > 0) cooldownRemainingMs.value = Math.max(0, cooldownRemainingMs.value - 1000)
+    }, 1000)
     if (initScene()) return
     void nextTick(() => initScene())
 })
@@ -2663,6 +3450,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
     disposed = true
     cancelAnimationFrame(frameHandle)
+    window.clearInterval(cooldownTicker)
     window.removeEventListener('keydown', onKeyDown)
     window.removeEventListener('keyup', onKeyUp)
     window.removeEventListener('mousemove', onMouseMove)
@@ -2687,6 +3475,7 @@ onBeforeUnmount(() => {
     groundPowerUps.length = 0
     worldPopups.length = 0
     weaponModel = null
+    weaponModelOffhand = null
     boxPreview = null
 })
 </script>

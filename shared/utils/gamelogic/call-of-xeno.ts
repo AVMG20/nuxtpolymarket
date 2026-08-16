@@ -42,6 +42,10 @@ export interface CallOfXenoWeapon {
     cost: number
     /** Base name the Pack-a-Punch ladder builds on. */
     upgradedName: string
+    /** Fires from two holsters: LMB left gun, RMB right gun, no aiming. */
+    akimbo?: boolean
+    /** Rounds detonate: splash damage around every impact. */
+    explosive?: boolean
 }
 
 export const CALL_OF_XENO_WEAPONS: Record<CallOfXenoWeaponId, CallOfXenoWeapon> = {
@@ -180,7 +184,7 @@ export const CALL_OF_XENO_WEAPONS: Record<CallOfXenoWeaponId, CallOfXenoWeapon> 
     xenoray: {
         id: 'xenoray',
         name: 'Xeno Ray',
-        damage: 900,
+        damage: 620,
         pellets: 1,
         fireDelay: 0.55,
         magSize: 10,
@@ -248,8 +252,9 @@ export const CALL_OF_XENO_REGEN_DELAY = 3.5
 export const CALL_OF_XENO_REGEN_RATE = 20
 
 export const CALL_OF_XENO_HIT_POINTS = 10
-export const CALL_OF_XENO_KILL_POINTS = 60
-export const CALL_OF_XENO_HEADSHOT_POINTS = 100
+export const CALL_OF_XENO_KILL_POINTS = 100
+export const CALL_OF_XENO_HEADSHOT_POINTS = 120
+export const CALL_OF_XENO_KNIFE_KILL_POINTS = 130
 export const CALL_OF_XENO_STARTING_POINTS = 500
 
 // ---------------------------------------------------------------------------
@@ -280,6 +285,29 @@ export const CALL_OF_XENO_PAP_TIERS: CallOfXenoPapTier[] = [
 
 export const CALL_OF_XENO_MAX_PAP_TIER = CALL_OF_XENO_PAP_TIERS.length
 
+/**
+ * The Xeno Ray fires a wide beam: brutal inside a room, but the beam diffuses
+ * so the damage falls off with distance. Un-upgraded it drops to a sliver at
+ * long range; each Pack-a-Punch tier tightens the beam and pushes the falloff
+ * out, so the wonder weapon stays good but never stays a one-shot forever —
+ * by the deep rounds even a maxed ray needs follow-up shots.
+ */
+export const CALL_OF_XENO_RAY_FALLOFF_START = 14
+export const CALL_OF_XENO_RAY_FALLOFF_END = 46
+/** Fraction of base damage left at the falloff end, per PaP tier (0-3). */
+export const CALL_OF_XENO_RAY_FALLOFF_FLOOR = [0.12, 0.2, 0.3, 0.42]
+
+/** Damage multiplier for a ray hit at `distance` for a weapon at `papTier`. */
+export function xenoRayFalloff(distance: number, papTier: number): number {
+    const start = CALL_OF_XENO_RAY_FALLOFF_START + papTier * 6
+    const end = CALL_OF_XENO_RAY_FALLOFF_END + papTier * 8
+    if (distance <= start) return 1
+    if (distance >= end) return CALL_OF_XENO_RAY_FALLOFF_FLOOR[Math.min(papTier, 3)]!
+    const t = (distance - start) / (end - start)
+    const floor = CALL_OF_XENO_RAY_FALLOFF_FLOOR[Math.min(papTier, 3)]!
+    return 1 - (1 - floor) * t
+}
+
 /** Price to go from `tier` to `tier + 1`, or null when the weapon is maxed. */
 export function packAPunchCost(tier: number): number | null {
     if (tier >= CALL_OF_XENO_MAX_PAP_TIER) return null
@@ -290,7 +318,7 @@ export function packAPunchCost(tier: number): number | null {
 export function packAPunch(weapon: CallOfXenoWeapon, tier: number): CallOfXenoWeapon {
     if (tier <= 0) return weapon
     const step = CALL_OF_XENO_PAP_TIERS[Math.min(tier, CALL_OF_XENO_MAX_PAP_TIER) - 1]!
-    return {
+    const upgraded: CallOfXenoWeapon = {
         ...weapon,
         name: weapon.upgradedName + step.suffix,
         damage: Math.round(weapon.damage * step.damage),
@@ -298,6 +326,15 @@ export function packAPunch(weapon: CallOfXenoWeapon, tier: number): CallOfXenoWe
         reserveAmmo: Math.round(weapon.reserveAmmo * step.reserve),
         penetration: weapon.penetration + step.penetration
     }
+    // Pack-a-Punching the starting M1911 forges Mustang & Sally: two
+    // explosive hand cannons fired independently, never aimed.
+    if (weapon.id === 'm1911') {
+        upgraded.akimbo = true
+        upgraded.explosive = true
+        upgraded.spread = 0.02
+        upgraded.range = Math.max(weapon.range, 40)
+    }
+    return upgraded
 }
 
 /** Ammo-refill price at a wall buy — half the weapon's purchase price. */
@@ -331,7 +368,7 @@ export const CALL_OF_XENO_BOX_POOL: { weapon: CallOfXenoWeaponId, weight: number
 // Enemy roster
 // ---------------------------------------------------------------------------
 
-export type CallOfXenoEnemyId = 'shambler' | 'crawler' | 'husk' | 'drone' | 'brute'
+export type CallOfXenoEnemyId = 'shambler' | 'husk' | 'drone' | 'brute'
 
 export interface CallOfXenoRangedAttack {
     /** Distance the enemy tries to hold, in world units. */
@@ -378,29 +415,17 @@ export const CALL_OF_XENO_ENEMIES: Record<CallOfXenoEnemyId, CallOfXenoEnemy> = 
         minRound: 1,
         weight: 10
     },
-    crawler: {
-        id: 'crawler',
-        name: 'Crawler',
-        healthMultiplier: 0.35,
-        speedMultiplier: 1.45,
-        damageMultiplier: 0.5,
-        scale: 0.58,
-        color: 0x8a9c3a,
-        reward: 0.6,
-        minRound: 4,
-        weight: 6
-    },
     husk: {
         id: 'husk',
         name: 'Husk',
         healthMultiplier: 0.7,
-        speedMultiplier: 1.75,
+        speedMultiplier: 1.45,
         damageMultiplier: 0.9,
-        scale: 0.95,
-        color: 0xb35c3a,
+        scale: 0.98,
+        color: 0x2e2622,
         reward: 1.3,
-        minRound: 6,
-        weight: 5
+        minRound: 4,
+        weight: 6
     },
     drone: {
         id: 'drone',
@@ -409,7 +434,7 @@ export const CALL_OF_XENO_ENEMIES: Record<CallOfXenoEnemyId, CallOfXenoEnemy> = 
         speedMultiplier: 0.85,
         damageMultiplier: 1,
         scale: 0.85,
-        color: 0x3fb9c9,
+        color: 0x4f7d8c,
         reward: 1.8,
         minRound: 8,
         weight: 4,
@@ -455,11 +480,11 @@ export function isSpecialRound(round: number): boolean {
     return Math.floor(round) >= 5 && Math.floor(round) % 5 === 0
 }
 
-const SPECIAL_CYCLE: CallOfXenoEnemyId[] = ['crawler', 'husk', 'drone', 'brute']
+const SPECIAL_CYCLE: CallOfXenoEnemyId[] = ['husk', 'drone', 'brute']
 
 export function specialRoundEnemy(round: number): CallOfXenoEnemyId {
     const index = Math.floor(Math.floor(round) / 5) - 1
-    return SPECIAL_CYCLE[Math.min(index, SPECIAL_CYCLE.length - 1)] ?? 'crawler'
+    return SPECIAL_CYCLE[Math.min(index, SPECIAL_CYCLE.length - 1)] ?? 'husk'
 }
 
 /** Points multiplier applied to everything killed during a special round. */

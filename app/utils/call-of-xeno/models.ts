@@ -54,63 +54,87 @@ function shadowDisc(radius: number) {
     return shadow
 }
 
-/** Humanoid shambler chassis, reused at different proportions by three types. */
+/**
+ * Humanoid infected chassis, dressed per type. Local forward is +Z (the
+ * gameplay yaw assumes it), hit spheres expect the head near 1.73 and the
+ * torso mass near 1.12, and the pivots are what animateEnemy swings.
+ */
 function buildWalker(def: CallOfXenoEnemy, tint: number): EnemyModel {
     const skin = new THREE.MeshLambertMaterial({ color: tint })
     const clothes = new THREE.MeshLambertMaterial({ color: 0x343a44 })
     const glow = new THREE.MeshBasicMaterial({ color: 0xffdd55 })
 
     const group = new THREE.Group()
-    const bulk = def.id === 'brute' ? 1.35 : def.id === 'husk' ? 0.85 : 1
+    const husk = def.id === 'husk'
+    const brute = def.id === 'brute'
+    const bulk = brute ? 1.45 : husk ? 0.82 : 1
+    const limb = brute ? 0.26 : husk ? 0.13 : 0.18
 
-    const torso = new THREE.Mesh(new THREE.BoxGeometry(0.62 * bulk, 0.78, 0.34 * bulk), clothes)
-    torso.position.y = 1.16
-    group.add(torso)
-
-    const hips = new THREE.Mesh(new THREE.BoxGeometry(0.56 * bulk, 0.22, 0.32 * bulk), clothes)
-    hips.position.y = 0.74
+    // Torso: chest over hips, slightly tapered — reads as a body, not a crate.
+    const hips = new THREE.Mesh(new THREE.BoxGeometry(0.5 * bulk, 0.24, 0.3 * bulk), clothes)
+    hips.position.y = 0.82
     group.add(hips)
+    const chest = new THREE.Mesh(new THREE.BoxGeometry(0.6 * bulk, 0.62, 0.34 * bulk), husk ? skin : clothes)
+    chest.position.y = 1.28
+    chest.rotation.x = husk ? 0.22 : 0.06
+    group.add(chest)
 
-    const head = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.36, 0.32), skin)
-    head.position.y = 1.72
+    // Neck and head. The head pivot is what the idle wobble drives.
+    const neck = new THREE.Mesh(new THREE.BoxGeometry(0.14, husk ? 0.22 : 0.12, 0.14), skin)
+    neck.position.y = 1.6
+    group.add(neck)
+    const head = new THREE.Group()
+    head.position.y = 1.62
+    const skull = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.36, 0.32), skin)
+    skull.position.y = 0.13
+    head.add(skull)
+    // Brow over the eyes gives the face a direction at a glance.
+    const brow = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.09, 0.1), skin)
+    brow.position.set(0, 0.2, 0.14)
+    head.add(brow)
+    const jaw = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.09, 0.14), skin)
+    jaw.position.set(0, 0.0, 0.15)
+    head.add(jaw)
+    for (const side of [-1, 1]) {
+        const eye = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.045, 0.03), glow)
+        eye.position.set(0.085 * side, 0.15, 0.17)
+        head.add(eye)
+    }
     group.add(head)
 
-    const jaw = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.1, 0.1), skin)
-    jaw.position.set(0, 1.6, -0.16)
-    group.add(jaw)
-
-    for (const side of [-1, 1]) {
-        const eye = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.05, 0.03), glow)
-        eye.position.set(0.09 * side, 1.76, -0.17)
-        group.add(eye)
-    }
-
-    const neck = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.12, 0.16), skin)
-    neck.position.y = 1.52
-    group.add(neck)
-
-    const makeArm = (side: number) => {
+    // Arms: shoulder pivot, upper arm, elbow bend, forearm reaching forward.
+    const makeArm = (side: number, rest: number) => {
         const pivot = new THREE.Group()
-        pivot.position.set(0.4 * bulk * side, 1.44, 0)
-        const upper = new THREE.Mesh(new THREE.BoxGeometry(0.17 * bulk, 0.5, 0.17 * bulk), clothes)
-        upper.position.y = -0.25
-        const fore = new THREE.Mesh(new THREE.BoxGeometry(0.15 * bulk, 0.44, 0.15 * bulk), skin)
-        fore.position.set(0, -0.5, -0.22)
-        fore.rotation.x = -1.15
-        pivot.add(upper, fore)
-        pivot.rotation.x = -0.55
+        pivot.position.set((0.36 * bulk + limb / 2) * side, 1.5, 0)
+        const upper = new THREE.Mesh(new THREE.BoxGeometry(limb, 0.42, limb), husk ? skin : clothes)
+        upper.position.y = -0.21
+        pivot.add(upper)
+        const fore = new THREE.Mesh(new THREE.BoxGeometry(limb * 0.85, 0.4, limb * 0.85), skin)
+        fore.position.set(0, -0.5, 0.08)
+        fore.rotation.x = husk ? -0.5 : -0.3
+        pivot.add(fore)
+        // Knuckles: a mitten block instead of a hand.
+        const fist = new THREE.Mesh(new THREE.BoxGeometry(limb * 1.15, 0.14, 0.16), skin)
+        fist.position.set(0, -0.68, 0.2)
+        pivot.add(fist)
+        pivot.rotation.x = rest
         group.add(pivot)
         return pivot
     }
 
+    // Legs: hip pivot, thigh, boot. Husks are bandy; brutes are stanchions.
     const makeLeg = (side: number) => {
         const pivot = new THREE.Group()
-        pivot.position.set(0.16 * bulk * side, 0.72, 0)
-        const leg = new THREE.Mesh(new THREE.BoxGeometry(0.2 * bulk, 0.68, 0.2 * bulk), clothes)
-        leg.position.y = -0.34
-        const boot = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.14, 0.3), new THREE.MeshLambertMaterial({ color: 0x22262c }))
-        boot.position.set(0, -0.72, -0.04)
-        pivot.add(leg, boot)
+        pivot.position.set(0.17 * bulk * side, 0.82, 0)
+        const thigh = new THREE.Mesh(new THREE.BoxGeometry(limb * 1.15, 0.46, limb * 1.15), clothes)
+        thigh.position.y = -0.23
+        pivot.add(thigh)
+        const shin = new THREE.Mesh(new THREE.BoxGeometry(limb, 0.4, limb), clothes)
+        shin.position.set(0, -0.62, -0.02)
+        pivot.add(shin)
+        const boot = new THREE.Mesh(new THREE.BoxGeometry(limb * 1.2, 0.14, limb * 1.5), new THREE.MeshLambertMaterial({ color: 0x1c1f24 }))
+        boot.position.set(0, -0.78, 0.05)
+        pivot.add(boot)
         group.add(pivot)
         return pivot
     }
@@ -118,8 +142,8 @@ function buildWalker(def: CallOfXenoEnemy, tint: number): EnemyModel {
     const model: EnemyModel = {
         group,
         head,
-        armL: makeArm(-1),
-        armR: makeArm(1),
+        armL: makeArm(-1, husk ? -0.5 : brute ? -0.35 : -0.55),
+        armR: makeArm(1, brute ? -0.2 : husk ? -0.6 : -0.55),
         legL: makeLeg(-1),
         legR: makeLeg(1),
         skin,
@@ -130,73 +154,134 @@ function buildWalker(def: CallOfXenoEnemy, tint: number): EnemyModel {
         torsoY: 1.2
     }
 
-    if (def.weakPoint) {
-        // A glowing plate on the back: the shot that actually hurts a Brute.
-        const plate = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.44, 0.1), new THREE.MeshBasicMaterial({ color: 0xffe066 }))
-        plate.position.set(0, 1.24, 0.2 * bulk)
+    if (brute) {
+        // Front slab of riot plate, a helmet with a visor slit, pauldrons —
+        // everything the silhouette needs to say "do not knife this".
+        const plate = new THREE.Mesh(new THREE.BoxGeometry(0.56 * bulk, 0.5, 0.1), new THREE.MeshLambertMaterial({ color: 0x23262e }))
+        plate.position.set(0, 1.3, 0.22 * bulk)
         group.add(plate)
-        model.weakPoint = plate
-
+        const helm = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.3, 0.36), new THREE.MeshLambertMaterial({ color: 0x23262e }))
+        helm.position.set(0, 1.86, 0)
+        group.add(helm)
+        const slit = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.05, 0.04), glow)
+        slit.position.set(0, 1.84, 0.19)
+        group.add(slit)
         for (const side of [-1, 1]) {
-            const horn = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.3, 0.08), skin)
-            horn.position.set(0.16 * side, 1.94, 0)
-            horn.rotation.z = 0.4 * side
+            group.add(part(0.26 * bulk, 0.16, 0.34 * bulk, 0x2b3038, 0.36 * bulk * side, 1.62, 0))
+            const horn = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.28, 0.09), skin)
+            horn.position.set(0.15 * side, 2.02, 0)
+            horn.rotation.z = 0.35 * side
             group.add(horn)
         }
-        // Front armour plate so the silhouette explains its own weak point.
-        const chest = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 0.09), new THREE.MeshLambertMaterial({ color: 0x22262e }))
-        chest.position.set(0, 1.24, -0.2 * bulk)
-        group.add(chest)
+        // The weak point: an exposed cooling pack on the back, visible from
+        // behind and matched by hitEnemy's back sphere.
+        const pack = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.5, 0.16), new THREE.MeshBasicMaterial({ color: 0xffe066 }))
+        pack.position.set(0, 1.32, -0.24 * bulk)
+        group.add(pack)
+        model.weakPoint = pack
     }
 
-    // Shoulder pads — reads as armour and widens the silhouette.
-    for (const side of [-1, 1]) {
-        group.add(part(0.24, 0.14, 0.3 * bulk, 0x2b3038, 0.38 * bulk * side, 1.56, 0))
-    }
-
-    // The husk runs hot: a lit crack down the chest.
-    if (def.id === 'husk') {
-        const crack = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.5, 0.04), glow)
-        crack.position.set(0, 1.18, -0.18 * bulk)
+    if (husk) {
+        // Burned down to the ribs: exposed rib slats and glowing fissures.
+        for (let i = 0; i < 3; i++) {
+            group.add(part(0.34, 0.05, 0.06, 0x1a1412, 0, 1.18 + i * 0.14, 0.15))
+        }
+        const crack = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.44, 0.04), glow)
+        crack.position.set(0, 1.26, 0.16)
         group.add(crack)
+        const crown = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.05, 0.24), glow)
+        crown.position.set(0, 0.34, 0)
+        head.add(crown)
+        head.rotation.x = 0.14
+    } else {
+        // Shambler: a ragged strap and a torn flap of shirt over the ribs.
+        group.add(part(0.1, 0.6, 0.38, 0x2c3038, 0.14, 1.28, 0))
+        const torn = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.2, 0.05), skin)
+        torn.position.set(-0.08, 1.34, 0.19)
+        group.add(torn)
+        head.rotation.x = 0.12
     }
-
-    // Shamblers are hunched; crawlers tilt forward onto their knuckles.
-    head.rotation.x = def.id === 'shambler' ? 0.18 : def.id === 'crawler' ? 0.5 : 0.05
 
     group.add(shadowDisc(0.42))
     return model
 }
 
-/** Hovering ranged drone: no legs, a spinning rotor ring and a lit core. */
+/**
+ * Hovering gunship, not a neon orb: angular fuselage, stub wings with pods,
+ * a tail fin and a single rotor on a mast. Dark military metal with one red
+ * sensor — the only lit thing on it.
+ */
 function buildDrone(def: CallOfXenoEnemy): EnemyModel {
     const skin = new THREE.MeshLambertMaterial({ color: def.color })
-    const clothes = new THREE.MeshLambertMaterial({ color: 0x1e3239 })
-    const glow = new THREE.MeshBasicMaterial({ color: 0x7ff5ff })
+    const clothes = new THREE.MeshLambertMaterial({ color: 0x2a2e2a })
+    const glow = new THREE.MeshBasicMaterial({ color: 0xff4433 })
 
     const group = new THREE.Group()
+    const hull = 1.3
 
-    const shell = new THREE.Mesh(new THREE.OctahedronGeometry(0.42, 0), skin)
-    shell.position.y = 1.3
-    group.add(shell)
+    // Fuselage: two stacked slabs, chamfered nose — reads as armoured airframe.
+    const belly = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.18, 0.9), clothes)
+    belly.position.y = hull - 0.08
+    group.add(belly)
+    const topside = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.16, 0.7), skin)
+    topside.position.y = hull + 0.07
+    group.add(topside)
+    const nose = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.14, 0.2), clothes)
+    nose.position.y = hull
+    nose.position.z = 0.52
+    group.add(nose)
 
-    const core = new THREE.Mesh(new THREE.SphereGeometry(0.17, 10, 8), glow)
-    core.position.set(0, 1.3, -0.3)
-    group.add(core)
+    // The red sensor eye in the nose cone — its "face".
+    const eye = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.06, 0.05), glow)
+    eye.position.set(0, hull, 0.63)
+    group.add(eye)
 
+    // Stub wings with under-wing pods.
+    for (const side of [-1, 1]) {
+        const wing = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.06, 0.26), skin)
+        wing.position.set(0.42 * side, hull, 0.1)
+        group.add(wing)
+        const pod = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.3, 6), clothes)
+        pod.rotation.x = Math.PI / 2
+        pod.position.set(0.5 * side, hull - 0.1, 0.1)
+        group.add(pod)
+    }
+
+    // Tail boom and fin.
+    const boom = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.12, 0.4), clothes)
+    boom.position.set(0, hull + 0.02, -0.6)
+    group.add(boom)
+    const fin = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.3, 0.22), skin)
+    fin.position.set(0, hull + 0.2, -0.74)
+    group.add(fin)
+
+    // Rotor on a mast — the part animateEnemy spins.
+    const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.18, 6), clothes)
+    mast.position.y = hull + 0.22
+    group.add(mast)
     const rotor = new THREE.Group()
-    rotor.position.y = 1.3
+    rotor.position.y = hull + 0.3
     for (let i = 0; i < 3; i++) {
-        const fin = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.05, 0.14), clothes)
-        fin.rotation.y = (i / 3) * Math.PI * 2
-        rotor.add(fin)
+        const blade = new THREE.Mesh(new THREE.BoxGeometry(1.05, 0.03, 0.1), new THREE.MeshLambertMaterial({ color: 0x1c1e1c }))
+        blade.position.x = 0.5
+        const holder = new THREE.Group()
+        holder.add(blade)
+        holder.rotation.y = (i / 3) * Math.PI * 2
+        rotor.add(holder)
     }
     group.add(rotor)
 
-    const tail = new THREE.Mesh(new THREE.ConeGeometry(0.16, 0.44, 6), clothes)
-    tail.position.set(0, 1.02, 0.1)
-    tail.rotation.x = Math.PI
-    group.add(tail)
+    // Skids to land on.
+    for (const side of [-1, 1]) {
+        const skid = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.05, 0.6), new THREE.MeshLambertMaterial({ color: 0x1c1e1c }))
+        skid.position.set(0.2 * side, hull - 0.24, 0)
+        group.add(skid)
+        for (const z of [-0.18, 0.18]) {
+            const strut = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.16, 0.04), clothes)
+            strut.position.set(0.2 * side, hull - 0.15, z)
+            group.add(strut)
+        }
+    }
 
     group.add(shadowDisc(0.34))
 
@@ -207,7 +292,7 @@ function buildDrone(def: CallOfXenoEnemy): EnemyModel {
         clothes,
         glow,
         baseSkin: def.color,
-        baseCloth: 0x1e3239,
+        baseCloth: 0x2a2e2a,
         torsoY: 1.3
     }
 }
@@ -249,12 +334,24 @@ export function buildWeaponModel(id: CallOfXenoWeaponId, tier: number): THREE.Gr
     const group = new THREE.Group()
     const accent = papAccent(tier)
 
+    // Iron sights shared by every long gun and the revolvers: a front post
+    // and a rear notch the eye can line up down the barrel.
+    const sights = (muzzleZ: number, breechZ: number, height: number, width = 0.03) => {
+        group.add(part(width, height, width, GUN_DARK, 0, 0.05 + height / 2, muzzleZ))
+        group.add(part(width * 3, height * 0.7, width, GUN_DARK, 0, 0.045 + height * 0.35, breechZ))
+        group.add(part(width, height * 0.7, width * 0.5, GUN_DARK, -width * 1.2, 0.045 + height * 0.35, breechZ))
+        group.add(part(width, height * 0.7, width * 0.5, GUN_DARK, width * 1.2, 0.045 + height * 0.35, breechZ))
+    }
+
     switch (id) {
         case 'm1911':
             group.add(part(0.07, 0.1, 0.26, GUN_DARK, 0, 0.02, -0.1))
             group.add(part(0.05, 0.06, 0.3, accent, 0, 0.06, -0.16))
             group.add(part(0.06, 0.14, 0.07, 0x2f3238, 0, -0.08, 0.02))
             group.add(part(0.02, 0.03, 0.03, accent, 0, 0.1, -0.3))
+            // Slide serrations and a hammer the thumb can imagine cocking.
+            for (const z of [-0.2, -0.15]) group.add(part(0.072, 0.05, 0.012, 0x2b2f36, 0, 0.05, z))
+            group.add(part(0.025, 0.035, 0.02, 0x3a3f47, 0, 0.055, 0.02))
             break
         case 'skorpion':
             group.add(part(0.06, 0.09, 0.3, GUN_DARK, 0, 0.01, -0.1))
@@ -262,6 +359,7 @@ export function buildWeaponModel(id: CallOfXenoWeaponId, tier: number): THREE.Gr
             group.add(part(0.05, 0.2, 0.05, 0x2b2f36, 0, -0.13, -0.05))
             group.add(part(0.05, 0.11, 0.06, 0x2f3238, 0, -0.06, 0.05))
             group.add(part(0.02, 0.02, 0.14, 0x3a3f47, 0, 0.02, 0.16))
+            sights(-0.28, -0.02, 0.025, 0.02)
             break
         case 'magnum':
             group.add(part(0.055, 0.075, 0.34, GUN_DARK, 0, 0.03, -0.16))
@@ -269,6 +367,9 @@ export function buildWeaponModel(id: CallOfXenoWeaponId, tier: number): THREE.Gr
             group.add(part(0.07, 0.07, 0.12, 0x3a3f47, 0, 0.03, -0.02))
             group.add(part(0.055, 0.15, 0.07, 0x4a3520, 0, -0.07, 0.04))
             group.add(part(0.02, 0.025, 0.025, accent, 0, 0.11, -0.32))
+            // Cylinder and vent rib: what makes a revolver read as one.
+            group.add(part(0.065, 0.065, 0.1, 0x2b2f36, 0, 0.03, -0.09))
+            group.add(part(0.02, 0.02, 0.3, GUN_DARK, 0, 0.1, -0.18))
             break
         case 'trench':
             group.add(part(0.08, 0.09, 0.62, GUN_WOOD, 0, 0, -0.2))
@@ -276,6 +377,10 @@ export function buildWeaponModel(id: CallOfXenoWeaponId, tier: number): THREE.Gr
             group.add(part(0.06, 0.05, 0.2, 0x3a2a1a, 0, -0.02, -0.42))
             group.add(part(0.07, 0.12, 0.2, GUN_WOOD, 0, -0.05, 0.14))
             group.add(part(0.06, 0.13, 0.07, 0x2f3238, 0, -0.09, 0))
+            // Pump slide with grooves under the barrel.
+            group.add(part(0.1, 0.08, 0.16, 0x3a2a1a, 0, -0.02, -0.36))
+            for (const x of [-0.05, 0.05]) group.add(part(0.012, 0.05, 0.12, 0x2c2016, x, -0.06, -0.36))
+            sights(-0.5, -0.02, 0.03)
             break
         case 'mp40':
             group.add(part(0.06, 0.08, 0.44, GUN_DARK, 0, 0.01, -0.16))
@@ -283,6 +388,10 @@ export function buildWeaponModel(id: CallOfXenoWeaponId, tier: number): THREE.Gr
             group.add(part(0.05, 0.26, 0.06, 0x2b2f36, 0, -0.16, -0.06))
             group.add(part(0.06, 0.12, 0.07, 0x2f3238, 0, -0.07, 0.06))
             group.add(part(0.03, 0.03, 0.24, 0x3a3f47, 0, -0.02, 0.22))
+            // Receiver tube and magazine well ahead of the trigger.
+            group.add(part(0.045, 0.045, 0.4, 0x2b2f36, 0, 0.01, -0.18))
+            group.add(part(0.05, 0.1, 0.05, 0x2b2f36, 0, -0.05, -0.02))
+            sights(-0.4, 0.0, 0.03)
             break
         case 'ak74':
             group.add(part(0.07, 0.09, 0.5, GUN_DARK, 0, 0.01, -0.18))
@@ -291,6 +400,11 @@ export function buildWeaponModel(id: CallOfXenoWeaponId, tier: number): THREE.Gr
             group.add(part(0.07, 0.11, 0.22, GUN_WOOD, 0, -0.02, 0.16))
             group.add(part(0.06, 0.12, 0.07, 0x2f3238, 0, -0.07, 0.02))
             group.add(part(0.05, 0.05, 0.14, GUN_WOOD, 0, 0, -0.46))
+            // Curved magazine read: two stacked segments kicked forward, plus a brake.
+            group.add(part(0.06, 0.14, 0.09, 0x3a3f47, 0, -0.1, -0.1))
+            group.add(part(0.06, 0.12, 0.08, 0x3a3f47, 0, -0.19, -0.05))
+            group.add(part(0.055, 0.055, 0.06, 0x2b2f36, 0, 0.01, -0.56))
+            sights(-0.48, -0.02, 0.035)
             break
         case 'bar':
             group.add(part(0.075, 0.1, 0.66, GUN_DARK, 0, 0.01, -0.24))
@@ -301,6 +415,7 @@ export function buildWeaponModel(id: CallOfXenoWeaponId, tier: number): THREE.Gr
             group.add(part(0.07, 0.18, 0.1, 0x3a3f47, 0, -0.1, -0.16))
             group.add(part(0.025, 0.2, 0.025, 0x2b2f36, 0.05, -0.14, -0.52))
             group.add(part(0.025, 0.2, 0.025, 0x2b2f36, -0.05, -0.14, -0.52))
+            sights(-0.66, -0.06, 0.035)
             break
         case 'rpk':
             group.add(part(0.08, 0.1, 0.6, GUN_DARK, 0, 0.01, -0.22))
@@ -309,6 +424,7 @@ export function buildWeaponModel(id: CallOfXenoWeaponId, tier: number): THREE.Gr
             group.add(part(0.08, 0.12, 0.26, GUN_WOOD, 0, -0.02, 0.18))
             group.add(part(0.06, 0.13, 0.07, 0x2f3238, 0, -0.08, 0.04))
             group.add(part(0.03, 0.16, 0.03, 0x2b2f36, 0, -0.12, -0.62))
+            sights(-0.7, -0.06, 0.035)
             break
         case 'xenoray': {
             group.add(part(0.11, 0.13, 0.46, 0x2a3a3a, 0, 0.01, -0.18))
