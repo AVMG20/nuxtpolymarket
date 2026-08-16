@@ -21,6 +21,10 @@ import type {
 
 const WIDTH = 1200
 const HEIGHT = 760
+const MAX_PARTICLES = 900
+const MAX_FLOATING_TEXTS = 60
+const MAX_SHOCKWAVES = 40
+const STATE_EMIT_INTERVAL = 0.1
 const COLS = 161
 const ROWS = 161
 const TILE_WIDTH = 108
@@ -357,6 +361,12 @@ interface Enemy {
   dotTick: number
   debugWorldPosition?: Point
   debugScreenPosition?: Point
+  // Derived caches, never persisted. `walk` is the route in travel order and
+  // is fixed for the enemy's life; the mist verdict is re-derived once a frame
+  // because every tower asks for it.
+  walk?: GridPoint[]
+  mistFrame?: number
+  mistExited?: boolean
 }
 interface Projectile extends Point {
   type: PathwardenTowerType
@@ -855,6 +865,10 @@ export class PathwardenEngine {
   private debugGallery: { category: PathwardenGalleryCategory, index: number } | null = null
   private debugRelicSwapTowerId: number | null = null
   private debugForceRelicSwap = false
+  private frameId = 0
+  private stateEmitTimer = 0
+  private keepClearanceCache: { key: string, cells: GridPoint[] } | null = null
+  private revealedBoundsCache: { size: number, bounds: { minX: number, maxX: number, minY: number, maxY: number } } | null = null
 
   constructor(
     canvas: HTMLCanvasElement,
@@ -1016,6 +1030,9 @@ export class PathwardenEngine {
         radius: _radius,
         color: _color,
         hitFlash: _hitFlash,
+        walk: _walk,
+        mistFrame: _mistFrame,
+        mistExited: _mistExited,
         ...enemy
       }) => ({ ...enemy, route: enemy.route.map(point => ({ ...point })) })),
       projectiles: this.projectiles.map(projectile => ({
@@ -1060,6 +1077,7 @@ export class PathwardenEngine {
     this.branchRoads = []
     this.branchLinks = []
     this.revealed.clear()
+    this.revealedBoundsCache = null
     this.revealAround(this.initialRevealCells())
     for (const choice of this.claimedSections) {
       for (const link of choice.links ?? []) this.addCommittedRoadLink(link.from, link.to)
@@ -1807,6 +1825,7 @@ export class PathwardenEngine {
     if (!import.meta.dev) return null
     this.phase = 'planning'
     this.revealed.clear()
+    this.revealedBoundsCache = null
     this.revealAround(this.initialPath.slice(0, 4))
     this.pathChoices = []
     this.zoom = DEFAULT_WORLD_SCALE
@@ -2704,6 +2723,7 @@ export class PathwardenEngine {
     const delta = Math.min(0.05, (now - this.lastFrame) / 1000)
     const simulationDelta = Math.min(0.05, delta * this.debugTimeScale)
     this.lastFrame = now
+    this.frameId++
     if (!this.introStoryActive && !this.openingCinematicActive) this.updateCamera(delta)
     if (!this.paused) this.updateEffects(simulationDelta)
     if (!this.paused && this.phase === 'wave') this.updateCombat(simulationDelta)
@@ -2769,18 +2789,26 @@ export class PathwardenEngine {
     }
   }
 
+  // Called up to three times a frame over a set that only grows. Spreading it
+  // into Math.min also throws RangeError once the realm is large enough.
   private revealedScreenBounds() {
-    const points = [...this.revealed].map((key) => {
+    if (!this.revealed.size) return null
+    if (this.revealedBoundsCache?.size === this.revealed.size) return this.revealedBoundsCache.bounds
+    let minX = Infinity
+    let maxX = -Infinity
+    let minY = Infinity
+    let maxY = -Infinity
+    for (const key of this.revealed) {
       const [col, row] = key.split(':').map(Number)
-      return this.gridToScreen({ col: col!, row: row! })
-    })
-    if (!points.length) return null
-    return {
-      minX: Math.min(...points.map(point => point.x)),
-      maxX: Math.max(...points.map(point => point.x)),
-      minY: Math.min(...points.map(point => point.y)),
-      maxY: Math.max(...points.map(point => point.y))
+      const screen = this.gridToScreen({ col: col!, row: row! })
+      if (screen.x < minX) minX = screen.x
+      if (screen.x > maxX) maxX = screen.x
+      if (screen.y < minY) minY = screen.y
+      if (screen.y > maxY) maxY = screen.y
     }
+    const bounds = { minX, maxX, minY, maxY }
+    this.revealedBoundsCache = { size: this.revealed.size, bounds }
+    return bounds
   }
 
   private minimumZoom() {
@@ -2844,12 +2872,13 @@ export class PathwardenEngine {
         spin: -1.2 + Math.random() * 2.4
       })
     }
-    for (const flake of [...this.ashflakes]) {
+    for (let index = this.ashflakes.length - 1; index >= 0; index--) {
+      const flake = this.ashflakes[index]!
       flake.life -= delta
       flake.x += flake.vx * delta + Math.sin(flake.life * 1.3) * 3 * delta
       flake.y += flake.vy * delta
       flake.rotation += flake.spin * delta
-      if (flake.life <= 0 || flake.y > HEIGHT + 12) this.ashflakes.splice(this.ashflakes.indexOf(flake), 1)
+      if (flake.life <= 0 || flake.y > HEIGHT + 12) this.ashflakes.splice(index, 1)
     }
     this.streakTimer -= delta
     if (this.streakTimer <= 0) this.streak = 0
@@ -2879,27 +2908,35 @@ export class PathwardenEngine {
     for (const enemy of this.enemies) {
       enemy.hitFlash = Math.max(0, enemy.hitFlash - delta * 6)
     }
-    for (const particle of [...this.particles]) {
+    for (let index = this.particles.length - 1; index >= 0; index--) {
+      const particle = this.particles[index]!
       particle.life -= delta
       particle.vy += particle.gravity * delta
       particle.x += particle.vx * delta
       particle.y += particle.vy * delta
-      if (particle.life <= 0) this.particles.splice(this.particles.indexOf(particle), 1)
+      if (particle.life <= 0) this.particles.splice(index, 1)
     }
-    for (const text of [...this.floatingTexts]) {
+    for (let index = this.floatingTexts.length - 1; index >= 0; index--) {
+      const text = this.floatingTexts[index]!
       text.life -= delta
       text.y -= delta * 34
-      if (text.life <= 0) this.floatingTexts.splice(this.floatingTexts.indexOf(text), 1)
+      if (text.life <= 0) this.floatingTexts.splice(index, 1)
     }
     if (this.failedPlacement) {
       this.failedPlacement.life -= delta
       if (this.failedPlacement.life <= 0) this.failedPlacement = null
     }
-    for (const shockwave of [...this.shockwaves]) {
+    for (let index = this.shockwaves.length - 1; index >= 0; index--) {
+      const shockwave = this.shockwaves[index]!
       shockwave.life -= delta
       shockwave.radius += delta * shockwave.maxRadius * 2.8
-      if (shockwave.life <= 0) this.shockwaves.splice(this.shockwaves.indexOf(shockwave), 1)
+      if (shockwave.life <= 0) this.shockwaves.splice(index, 1)
     }
+    // A boss death can emit hundreds of particles at once. Nothing prunes
+    // these beyond their own lifetime, so hold a ceiling and drop the oldest.
+    if (this.particles.length > MAX_PARTICLES) this.particles.splice(0, this.particles.length - MAX_PARTICLES)
+    if (this.floatingTexts.length > MAX_FLOATING_TEXTS) this.floatingTexts.splice(0, this.floatingTexts.length - MAX_FLOATING_TEXTS)
+    if (this.shockwaves.length > MAX_SHOCKWAVES) this.shockwaves.splice(0, this.shockwaves.length - MAX_SHOCKWAVES)
   }
 
   private introStoryOpacity() {
@@ -3108,7 +3145,14 @@ export class PathwardenEngine {
     }
 
     if (this.spawnLeft === 0 && this.enemies.length === 0 && this.phase === 'wave') this.finishWave()
-    this.emitState()
+    // Rebuilding the snapshot runs exit-route pathfinding and hands Vue a new
+    // object identity, re-rendering the whole HUD. Nothing it shows during a
+    // wave needs frame accuracy; a phase change still emits immediately.
+    this.stateEmitTimer -= delta
+    if (this.stateEmitTimer <= 0 || this.phase !== 'wave') {
+      this.stateEmitTimer = STATE_EMIT_INTERVAL
+      this.emitState()
+    }
   }
 
   private spawnEnemy() {
@@ -3334,9 +3378,14 @@ export class PathwardenEngine {
     this.camera.y = clamp(focus.y - WORLD_VIEW_CENTER.y, bounds.minY, bounds.maxY)
   }
 
+  private enemyWalk(enemy: Enemy) {
+    if (!enemy.walk) enemy.walk = [...enemy.route].reverse()
+    return enemy.walk
+  }
+
   private enemyWorldPosition(enemy: Enemy): Point {
     if (enemy.debugWorldPosition) return enemy.debugWorldPosition
-    const reversed = [...enemy.route].reverse()
+    const reversed = this.enemyWalk(enemy)
     const segment = Math.min(reversed.length - 2, Math.floor(enemy.progress))
     const fraction = enemy.progress - segment
     const from = worldCenter(reversed[segment]!)
@@ -3363,7 +3412,7 @@ export class PathwardenEngine {
     // Visibility follows the actual hidden-to-revealed road crossing. A
     // time-since-spawn fade made enemies visible on concealed road cells,
     // which visually read as walking across grass.
-    const reversed = [...enemy.route].reverse()
+    const reversed = this.enemyWalk(enemy)
     const firstRevealedIndex = reversed.findIndex(cell => this.revealed.has(cellKey(cell)))
     if (firstRevealedIndex < 0) return 0
     const fadeStart = Math.max(0, firstRevealedIndex - 1.35)
@@ -3371,8 +3420,17 @@ export class PathwardenEngine {
   }
 
   private enemyHasExitedMist(enemy: Enemy) {
+    // Every tower asks this of every enemy, and the render pass asks twice
+    // more. The verdict only moves when the enemy does, so derive it once.
+    if (enemy.mistFrame === this.frameId) return enemy.mistExited!
+    enemy.mistFrame = this.frameId
+    enemy.mistExited = this.deriveEnemyHasExitedMist(enemy)
+    return enemy.mistExited
+  }
+
+  private deriveEnemyHasExitedMist(enemy: Enemy) {
     if (this.enemyMistOpacity(enemy) < 1) return false
-    const reversed = [...enemy.route].reverse()
+    const reversed = this.enemyWalk(enemy)
     const segment = Math.min(reversed.length - 2, Math.floor(enemy.progress))
     const from = reversed[segment]!
     const to = reversed[segment + 1]!
@@ -3912,21 +3970,30 @@ export class PathwardenEngine {
     return [...clearance.values()]
   }
 
-  private allBuildBlockedCells() {
+  // The castle silhouette covers the same cells for the whole run, but this is
+  // read every frame by the board pass, so the full-grid sweep runs once.
+  private keepClearanceCells(): GridPoint[] {
     const keep = this.initialPath[0]!
+    const key = cellKey(keep)
+    if (this.keepClearanceCache?.key === key) return this.keepClearanceCache.cells
     const keepScreen = this.gridToScreen(keep)
-    const keepClearance: GridPoint[] = []
+    const cells: GridPoint[] = []
     for (let row = 0; row < ROWS; row++) {
       for (let col = 0; col < COLS; col++) {
-        const point = { col, row }
-        const screen = this.gridToScreen(point)
+        const screen = this.gridToScreen({ col, row })
         const isKeepCell = col === keep.col && row === keep.row
         const intersectsCastleSilhouette = Math.abs(screen.x - keepScreen.x) < 100
           && screen.y - keepScreen.y > -178
           && screen.y - keepScreen.y < 58
-        if (isKeepCell || intersectsCastleSilhouette) keepClearance.push(point)
+        if (isKeepCell || intersectsCastleSilhouette) cells.push({ col, row })
       }
     }
+    this.keepClearanceCache = { key, cells }
+    return cells
+  }
+
+  private allBuildBlockedCells() {
+    const keepClearance = this.keepClearanceCells()
     return [
       ...this.allReservedRoadCells(),
       ...keepClearance,
@@ -4497,6 +4564,7 @@ export class PathwardenEngine {
       this.drawEnvironmentGallery(index, galleryRoadPoint)
     } else {
       this.revealed.clear()
+      this.revealedBoundsCache = null
       this.revealAround(this.path)
       if (index === 4) this.drawKeep()
       else {
@@ -4505,6 +4573,7 @@ export class PathwardenEngine {
         this.path = [savedPath[0]!, savedPath[savedPath.length - 1]!]
         this.branchLinks = []
         this.revealed.clear()
+        this.revealedBoundsCache = null
         this.revealAround(this.path)
         this.drawDeadEndSites(index)
         this.path = savedPath
@@ -4540,6 +4609,7 @@ export class PathwardenEngine {
     this.branchRoads = []
     this.pathChoices = []
     this.revealed = new Set(tiles.map(cellKey))
+    this.revealedBoundsCache = null
     try {
       for (const tile of tiles) this.drawTile(tile, true, false)
       for (const tile of tiles) {
@@ -4551,6 +4621,7 @@ export class PathwardenEngine {
       this.branchRoads = savedBranchRoads
       this.pathChoices = savedPathChoices
       this.revealed = savedRevealed
+      this.revealedBoundsCache = null
     }
   }
 
@@ -4673,6 +4744,7 @@ export class PathwardenEngine {
     this.mapPlan.roadLinks = roadLinks as unknown as PathwardenMapPlan['roadLinks']
     this.mapPlan.features = features
     this.revealed = new Set(tiles.map(cellKey))
+    this.revealedBoundsCache = null
     try {
       const roadKeys = new Set(this.allRoadCells().map(cellKey))
       for (const tile of tiles) this.drawTile(tile, true, roadKeys.has(cellKey(tile)))
@@ -4697,6 +4769,7 @@ export class PathwardenEngine {
       this.mapPlan.roadLinks = savedRoadLinks
       this.mapPlan.features = savedFeatures
       this.revealed = savedRevealed
+      this.revealedBoundsCache = null
     }
   }
 
