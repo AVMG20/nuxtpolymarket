@@ -62,7 +62,12 @@ export interface FirewallDifficulty {
     enemyDamage: number
     /** Multiplies the per-wave spend budget — more bodies, not tougher ones. */
     budget: number
-    /** Multiplies coin drops. This is the entire reason to climb. */
+    /**
+     * Multiplies coin drops. This is the entire reason to climb, and the spread
+     * across the five rungs is deliberately much wider than the spread in enemy
+     * health: Probe pays 0.06 and Zero Day pays 30, so no amount of sitting on
+     * an easy rung reaches what one rung up is worth.
+     */
     reward: number
     /**
      * Best wave the account has to have reached before this is selectable. The
@@ -84,7 +89,7 @@ export const FIREWALL_DIFFICULTIES: readonly FirewallDifficulty[] = [
         // there are fewer of them — a near-empty field teaches nothing about the
         // game the other four difficulties are playing.
         budget: 1.2,
-        reward: 0.2,
+        reward: 0.06,
         requiredBestWave: 0,
         color: '#22d3ee'
     },
@@ -95,7 +100,7 @@ export const FIREWALL_DIFFICULTIES: readonly FirewallDifficulty[] = [
         enemyHp: 1,
         enemyDamage: 1,
         budget: 1.15,
-        reward: 0.6,
+        reward: 0.24,
         requiredBestWave: 0,
         color: '#a3e635'
     },
@@ -106,7 +111,7 @@ export const FIREWALL_DIFFICULTIES: readonly FirewallDifficulty[] = [
         enemyHp: 1.9,
         enemyDamage: 1.35,
         budget: 1.3,
-        reward: 2.4,
+        reward: 1.3,
         requiredBestWave: 10,
         color: '#fbbf24'
     },
@@ -117,7 +122,7 @@ export const FIREWALL_DIFFICULTIES: readonly FirewallDifficulty[] = [
         enemyHp: 3.4,
         enemyDamage: 1.9,
         budget: 1.45,
-        reward: 9,
+        reward: 6.2,
         requiredBestWave: 15,
         color: '#fb7185'
     },
@@ -128,7 +133,7 @@ export const FIREWALL_DIFFICULTIES: readonly FirewallDifficulty[] = [
         enemyHp: 6,
         enemyDamage: 2.5,
         budget: 1.65,
-        reward: 34,
+        reward: 30,
         requiredBestWave: 20,
         color: '#e879f9'
     }
@@ -979,6 +984,12 @@ export interface FirewallMainframeDefinition {
  * you already skipped. What these levels are actually for is the difficulty
  * ladder — each rung of Siege → Blackout → Zero Day multiplies coins hard
  * enough that "can I hold this at all" is the real purchase.
+ *
+ * The whole tree costs a few hundred million, which is roughly what the Pirate
+ * Raid armoury costs and roughly three hundred endgame runs. It used to cost a
+ * hundred and sixty billion, from the era when these games were priced as coin
+ * sinks first; prestige took that job, and a sink nobody can reach is not a
+ * sink, it is a tree with no reason to be looked at.
  */
 export const FIREWALL_MAINFRAME: readonly FirewallMainframeDefinition[] = [
     {
@@ -988,8 +999,8 @@ export const FIREWALL_MAINFRAME: readonly FirewallMainframeDefinition[] = [
         icon: 'i-lucide-brick-wall',
         color: 'success',
         max: 12,
-        baseCost: 100_000,
-        growth: 2.45,
+        baseCost: 24_000,
+        growth: 1.9,
         value: level => `+${level * 6}% wall HP`
     },
     {
@@ -999,8 +1010,8 @@ export const FIREWALL_MAINFRAME: readonly FirewallMainframeDefinition[] = [
         icon: 'i-lucide-zap',
         color: 'error',
         max: 12,
-        baseCost: 200_000,
-        growth: 2.65,
+        baseCost: 30_000,
+        growth: 1.95,
         value: level => `+${level * 5}% weapon damage`
     },
     {
@@ -1010,8 +1021,8 @@ export const FIREWALL_MAINFRAME: readonly FirewallMainframeDefinition[] = [
         icon: 'i-lucide-factory',
         color: 'warning',
         max: 12,
-        baseCost: 200_000,
-        growth: 2.65,
+        baseCost: 30_000,
+        growth: 1.95,
         value: level => `+${level * 5}% turret damage`
     },
     {
@@ -1021,8 +1032,8 @@ export const FIREWALL_MAINFRAME: readonly FirewallMainframeDefinition[] = [
         icon: 'i-lucide-banknote',
         color: 'info',
         max: 10,
-        baseCost: 100_000,
-        growth: 2.45,
+        baseCost: 20_000,
+        growth: 1.85,
         value: level => `+${level * 200} starting credits`
     },
     {
@@ -1032,8 +1043,8 @@ export const FIREWALL_MAINFRAME: readonly FirewallMainframeDefinition[] = [
         icon: 'i-lucide-coins',
         color: 'secondary',
         max: 13,
-        baseCost: 300_000,
-        growth: 2.85,
+        baseCost: 30_000,
+        growth: 1.9,
         value: level => `+${level * 8}% coin drops`
     },
     {
@@ -1043,8 +1054,8 @@ export const FIREWALL_MAINFRAME: readonly FirewallMainframeDefinition[] = [
         icon: 'i-lucide-shield',
         color: 'primary',
         max: 10,
-        baseCost: 180_000,
-        growth: 2.55,
+        baseCost: 25_000,
+        growth: 1.85,
         value: level => `+${level * 45} shield · +${level * 3}/s`
     },
     {
@@ -1054,8 +1065,8 @@ export const FIREWALL_MAINFRAME: readonly FirewallMainframeDefinition[] = [
         icon: 'i-lucide-building-2',
         color: 'warning',
         max: 4,
-        baseCost: 750_000,
-        growth: 6.5,
+        baseCost: 1_500_000,
+        growth: 2.8,
         value: level => `+${level} starting mount${level === 1 ? '' : 's'}`
     },
     {
@@ -1065,8 +1076,8 @@ export const FIREWALL_MAINFRAME: readonly FirewallMainframeDefinition[] = [
         icon: 'i-lucide-swords',
         color: 'error',
         max: 4,
-        baseCost: 1_000_000,
-        growth: 7.5,
+        baseCost: 1_200_000,
+        growth: 3,
         value: (level) => {
             const unlocked = FIREWALL_WEAPONS.slice(1, level + 1).map(w => w.name)
             return unlocked.length ? unlocked.join(', ') : 'nothing yet'
@@ -1148,7 +1159,20 @@ export function firewallPower(levels: FirewallMainframeLevels) {
  * value superlinear in the wave number means depth is the only thing that pays,
  * which is also the thing the difficulty gate is protecting.
  */
-export const FIREWALL_COIN_SCALE = 2.3
+export const FIREWALL_COIN_SCALE = 0.55
+
+/**
+ * How hard depth alone compounds a wave's coin value.
+ *
+ * This used to be 1.35, which on top of a linearly-growing budget and bounty
+ * made a run's total roughly cubic in its final wave. That is what let a bare
+ * account farm Probe: Probe softens bodies without thinning them, so a wall
+ * with nothing bought still walked to wave 19, and wave 19 of *anything* paid
+ * six figures. At 1.1 the depth premium is still real and still the reason to
+ * survive, but the difficulty multiplier below — which is the thing you have to
+ * buy your way into — is what actually decides what a run is worth.
+ */
+export const FIREWALL_COIN_WAVE_EXPONENT = 1.1
 
 export function firewallCoinValue(
     bounty: number,
@@ -1161,7 +1185,7 @@ export function firewallCoinValue(
         * FIREWALL_COIN_SCALE
         * difficulty.reward
         * Math.max(0, coinMultiplier)
-        * Math.pow(Math.max(1, wave), 1.35)
+        * Math.pow(Math.max(1, wave), FIREWALL_COIN_WAVE_EXPONENT)
     ))
 }
 
@@ -1182,11 +1206,13 @@ export function firewallMaxPayout(wave: number, difficulty: FirewallDifficulty, 
         const waveBounty = budget * 3.4 * firewallBountyMultiplier(w)
         ceiling += firewallCoinValue(waveBounty, w, difficulty, coinMultiplier)
     }
-    // Doubled on top of that. The balance model assumes a player lands 68% of
+    // Padded on top of that. The balance model assumes a player lands 68% of
     // their theoretical damage; a genuinely good one lands more and kills more of
     // the wave before the purge takes it at a quarter rate, and none of that
-    // should meet a cap.
-    return Math.floor(ceiling * 2)
+    // should meet a cap. 1.4 still leaves the best build `firewall-sim` can
+    // describe a 1.7x margin on every difficulty, which is headroom for honest
+    // play without being headroom for a forged `coins` field.
+    return Math.floor(ceiling * 1.4)
 }
 
 export function firewallPayoutForRun(

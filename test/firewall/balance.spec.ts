@@ -94,12 +94,23 @@ describe('mounts', () => {
 })
 
 describe('the Mainframe', () => {
-  it('starts at a 100k price tag and reaches the ten-billion tier', () => {
+  it('opens in the tens of thousands and tops out in the tens of millions', () => {
     const opening = FIREWALL_MAINFRAME.map(def => firewallMainframeCost(def, 0) ?? 0)
-    expect(Math.min(...opening)).toBe(100_000)
+    expect(Math.min(...opening)).toBe(20_000)
 
+    // The whole tree is a few hundred million — roughly three hundred endgame
+    // runs, and in the same bracket as the Pirate Raid armoury. It used to run
+    // to 167 billion, which no account could reach in any number of runs.
     const topLevels = FIREWALL_MAINFRAME.map(def => firewallMainframeCost(def, def.max - 1) ?? 0)
-    expect(Math.max(...topLevels)).toBeGreaterThanOrEqual(10_000_000_000)
+    expect(Math.max(...topLevels)).toBeGreaterThan(50_000_000)
+    expect(Math.max(...topLevels)).toBeLessThan(150_000_000)
+
+    let tree = 0
+    for (const def of FIREWALL_MAINFRAME) {
+      for (let level = 0; level < def.max; level++) tree += firewallMainframeCost(def, level) ?? 0
+    }
+    expect(tree).toBeGreaterThan(300_000_000)
+    expect(tree).toBeLessThan(800_000_000)
   })
 
   it('returns null once maxed rather than an ever-growing price', () => {
