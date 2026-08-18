@@ -19,6 +19,11 @@ import {
  * (the deploy stamped its clock), the claimed depth must fit the wall
  * clock the server itself measured, and the points are stored clamped to
  * the same honesty ceiling the settle will apply.
+ *
+ * Writes are ordered by the depth they claim, not by a revision counter,
+ * so a checkpoint whose response the client never saw does not wedge the
+ * slot for the rest of the run. `revision` is still accepted and returned
+ * for the client's progress display; it no longer gates the write.
  */
 export default defineEventHandler(async (event) => {
     const userId = await requireUserId(event)
@@ -54,14 +59,29 @@ export default defineEventHandler(async (event) => {
             score: Math.min(save.score, startingPoints + ceiling)
         }
 
-        // The revision CAS is the claim: a second session saving the same
-        // run finds the revision moved and loses instead of overwriting.
+        // Progress, not a counter, is the claim. The row is already held
+        // under FOR UPDATE, so reading the stored depth here and writing
+        // against it is safe — and it keeps the property the old revision
+        // CAS existed for (a second session cannot bury a deeper
+        // checkpoint) without the failure mode it came with. A revision
+        // CAS only holds while the client's counter tracks the server's,
+        // and the client save is fire-and-forget: one response lost to a
+        // network blip after the write committed left the client's counter
+        // permanently behind, every later save rejected, and the
+        // checkpoint frozen at that round for the rest of the run — which
+        // the settle then reads as the round the run reached.
+        const storedRound = state.runSave?.round ?? 0
+        if (save.round < storedRound) {
+            throw createError({ statusCode: 409, statusMessage: 'The CALL OF XENO save changed in another session' })
+        }
+
         const [saved] = await tx.update(callOfXenoState).set({
             runSave: clamped,
-            runSaveRevision: revision + 1
+            // Still monotonic, still reported to the client — it is now a
+            // progress marker rather than a gate.
+            runSaveRevision: state.runSaveRevision + 1
         }).where(and(
             eq(callOfXenoState.userId, userId),
-            eq(callOfXenoState.runSaveRevision, revision),
             isNotNull(callOfXenoState.runStartedAt)
         )).returning({ revision: callOfXenoState.runSaveRevision })
         if (!saved) throw createError({ statusCode: 409, statusMessage: 'The CALL OF XENO save changed in another session' })
