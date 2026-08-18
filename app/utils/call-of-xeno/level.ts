@@ -67,6 +67,7 @@ import {
     buildPackAPunch,
     buildPowerLever,
     buildMysteryBox,
+    buildWorkbench,
     type PropModel,
     type PowerLeverModel,
     type MysteryBoxModel,
@@ -512,6 +513,7 @@ export function buildLevel(scene: THREE.Scene): LevelHandles {
         if (item.kind === 'wallbuy') return buildWallBuy(CALL_OF_XENO_WEAPONS[item.weapon!])
         if (item.kind === 'perk') return buildPerkMachine(CALL_OF_XENO_PERKS[item.perk!])
         if (item.kind === 'papunch') return buildPackAPunch()
+        if (item.kind === 'workbench') return buildWorkbench()
         if (item.kind === 'mysterybox') {
             mysteryBox = buildMysteryBox(CALL_OF_XENO_BOX_COST)
             return mysteryBox

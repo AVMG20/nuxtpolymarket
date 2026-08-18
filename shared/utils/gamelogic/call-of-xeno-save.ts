@@ -9,12 +9,14 @@
 import {
     CALL_OF_XENO_PERKS,
     CALL_OF_XENO_WEAPONS,
+    CALL_OF_XENO_EQUIPMENT,
     CALL_OF_XENO_ROUND_BREAK,
     packAPunch,
     maxAlive,
     zombieCount,
     zombieSpawnInterval,
     type CallOfXenoPerkId,
+    type CallOfXenoEquipmentId,
     type CallOfXenoWeaponId
 } from './call-of-xeno'
 import { CALL_OF_XENO_DOORS } from './call-of-xeno-map'
@@ -49,6 +51,12 @@ export interface CallOfXenoRunSave {
     quickReviveBuys: number
     weapons: CallOfXenoSavedWeapon[]
     activeSlot: number
+    /**
+     * Workbench equipment bought but not yet deployed. Units already on the
+     * field are in-flight state, like enemies, and are not persisted. Absent
+     * on saves written before the workbench existed.
+     */
+    equipment?: CallOfXenoEquipmentId[]
     powered: boolean
     doors: string[]
     /** Player position and facing. */
@@ -60,7 +68,6 @@ export interface CallOfXenoRunSave {
     stats: {
         kills: number
         headshots: number
-        bestStreak: number
         spins: number
         barrels: number
         boards: number
@@ -115,6 +122,11 @@ export function callOfXenoValidateSave(save: unknown): save is CallOfXenoRunSave
     }
     if (!isCount(candidate.activeSlot, candidate.weapons.length - 1)) return false
 
+    if (candidate.equipment !== undefined) {
+        if (!Array.isArray(candidate.equipment) || candidate.equipment.length > 3) return false
+        if (!candidate.equipment.every(id => (Object.keys(CALL_OF_XENO_EQUIPMENT) as CallOfXenoEquipmentId[]).includes(id))) return false
+    }
+
     if (typeof candidate.powered !== 'boolean') return false
     if (!Array.isArray(candidate.doors) || candidate.doors.length > DOOR_IDS.length) return false
     if (!candidate.doors.every(id => DOOR_IDS.includes(id))) return false
@@ -128,7 +140,7 @@ export function callOfXenoValidateSave(save: unknown): save is CallOfXenoRunSave
 
     const stats = candidate.stats
     if (typeof stats !== 'object' || stats === null) return false
-    return (['kills', 'headshots', 'bestStreak', 'spins', 'barrels', 'boards'] as const).every(key =>
+    return (['kills', 'headshots', 'spins', 'barrels', 'boards'] as const).every(key =>
         isCount(stats[key], 10_000_000)
     )
 }
@@ -174,7 +186,7 @@ export function callOfXenoMaxRoundForElapsedMs(elapsedMs: number, difficulty: Ca
  * The payout ceiling's 2-minute grace would clamp a round-1/2 boundary save
  * to the starting points — a crash there would cost real earned points.
  * This floor covers what the opening rounds can honestly bank (about 75
- * zombies at ~150 points a kill) until the wall-clock ramp takes over.
+ * zombies at ~110 points a kill) until the wall-clock ramp takes over.
  */
 export const CALL_OF_XENO_SAVE_EARLY_POINTS_FLOOR = 20_000
 

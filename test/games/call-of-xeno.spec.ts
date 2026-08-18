@@ -22,8 +22,12 @@ import {
     isSpecialRound,
     specialRoundEnemy,
     roundModifier,
-    streakMultiplier,
     multiKillBonus,
+    CALL_OF_XENO_EQUIPMENT,
+    CALL_OF_XENO_BLACKHOLE_RADIUS,
+    CALL_OF_XENO_EQUIPMENT_DROP_CHANCE,
+    CALL_OF_XENO_EQUIPMENT_DROP_LIFETIME,
+    equipmentDamage,
     zombieHealth,
     zombieCount,
     zombieSpeed,
@@ -377,25 +381,63 @@ describe('special rounds and modifiers', () => {
 })
 
 describe('point economy', () => {
-    it('ramps the streak multiplier and caps it at 3x', () => {
-        expect(streakMultiplier(0)).toBe(1)
-        expect(streakMultiplier(2)).toBe(1)
-        expect(streakMultiplier(3)).toBeGreaterThan(1)
-        let previous = 0
-        for (let s = 0; s < 60; s++) {
-            const value = streakMultiplier(s)
-            expect(value).toBeGreaterThanOrEqual(previous)
-            expect(value).toBeLessThanOrEqual(3)
-            previous = value
-        }
-        expect(streakMultiplier(100)).toBe(3)
-    })
-
     it('only pays a multi-kill bonus from three up', () => {
         expect(multiKillBonus(1)).toBe(0)
         expect(multiKillBonus(2)).toBe(0)
         expect(multiKillBonus(3)).toBeGreaterThan(0)
         expect(multiKillBonus(5)).toBeGreaterThan(multiKillBonus(4))
+    })
+
+    it('sells exactly one workbench, free of the power grid', () => {
+        const benches = CALL_OF_XENO_INTERACTABLES.filter(i => i.kind === 'workbench')
+        expect(benches).toHaveLength(1)
+        expect(benches[0]!.needsPower).toBe(false)
+    })
+
+    it('prices the workbench equipment at 10k / 12.5k / 15k', () => {
+        expect(CALL_OF_XENO_EQUIPMENT.sentry.cost).toBe(10000)
+        expect(CALL_OF_XENO_EQUIPMENT.drone.cost).toBe(12500)
+        expect(CALL_OF_XENO_EQUIPMENT.blackhole.cost).toBe(15000)
+    })
+
+    it('keeps a sentry on the ground for sixty seconds', () => {
+        expect(CALL_OF_XENO_EQUIPMENT.sentry.duration).toBe(60)
+        expect(CALL_OF_XENO_EQUIPMENT.sentry.fireDelay).toBeGreaterThan(0)
+    })
+
+    it('makes the escort drone the pricier, slower option', () => {
+        const sentry = CALL_OF_XENO_EQUIPMENT.sentry
+        const drone = CALL_OF_XENO_EQUIPMENT.drone
+        expect(drone.cost).toBeGreaterThan(sentry.cost)
+        expect(drone.damagePct / drone.fireDelay).toBeLessThan(sentry.damagePct / sentry.fireDelay)
+    })
+
+    it('deals equipment damage as a fraction of max health, resisted per type', () => {
+        for (const equipment of Object.values(CALL_OF_XENO_EQUIPMENT)) {
+            expect(equipment.damagePct).toBeGreaterThan(0)
+            expect(equipment.damagePct).toBeLessThanOrEqual(1)
+            for (const value of Object.values(equipment.resistance)) {
+                expect(value!).toBeGreaterThan(0)
+                expect(value!).toBeLessThanOrEqual(1)
+            }
+            // Everything takes some damage, whatever its shell is made of.
+            for (const enemyId of Object.keys(CALL_OF_XENO_ENEMIES) as CallOfXenoEnemyId[]) {
+                expect(equipmentDamage(equipment, enemyId)).toBeGreaterThan(0)
+            }
+        }
+    })
+
+    it('grinds giants lightly in the singularity but still reaches them', () => {
+        const hole = CALL_OF_XENO_EQUIPMENT.blackhole
+        expect(hole.resistance.brute!).toBeLessThanOrEqual(0.15)
+        expect(CALL_OF_XENO_BLACKHOLE_RADIUS).toBeGreaterThan(8)
+        expect(equipmentDamage(hole, 'shambler')).toBeGreaterThan(equipmentDamage(hole, 'brute') * 4)
+    })
+
+    it('rarely drops equipment and the crate does not linger', () => {
+        expect(CALL_OF_XENO_EQUIPMENT_DROP_CHANCE).toBe(0.005)
+        expect(CALL_OF_XENO_EQUIPMENT_DROP_LIFETIME).toBeGreaterThanOrEqual(25)
+        expect(CALL_OF_XENO_EQUIPMENT_DROP_LIFETIME).toBeLessThanOrEqual(35)
     })
 
     it('weights every power-up so one is always drawable', () => {

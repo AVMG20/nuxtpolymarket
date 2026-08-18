@@ -19,6 +19,7 @@ function save(overrides: Partial<CallOfXenoRunSave> = {}): CallOfXenoRunSave {
         quickReviveBuys: 0,
         weapons: [{ base: 'm1911', tier: 0, mag: 8, reserve: 80 }],
         activeSlot: 0,
+        equipment: ['drone'],
         powered: true,
         doors: ['door-barracks-mess'],
         x: 8,
@@ -29,7 +30,6 @@ function save(overrides: Partial<CallOfXenoRunSave> = {}): CallOfXenoRunSave {
         stats: {
             kills: 120,
             headshots: 40,
-            bestStreak: 9,
             spins: 2,
             barrels: 3,
             boards: 15
