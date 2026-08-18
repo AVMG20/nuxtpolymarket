@@ -96,8 +96,8 @@
                 </div>
             </div>
 
-            <!-- Top-left: active power-ups -->
-            <div v-if="activePowerUps.length" class="absolute left-5 top-5 space-y-1.5 sm:left-6 sm:top-6">
+            <!-- Top-left: active power-ups and deployed equipment -->
+            <div class="absolute left-5 top-5 space-y-1.5 sm:left-6 sm:top-6">
                 <div
                     v-for="buff in activePowerUps"
                     :key="buff.id"
@@ -107,6 +107,16 @@
                     <span class="inline-block size-1.5 animate-pulse rounded-full" :style="{ background: buff.color }" />
                     {{ buff.name }}
                     <span class="tabular-nums opacity-60">{{ Math.ceil(buff.remaining) }}s</span>
+                </div>
+                <div
+                    v-for="unit in activeEquipment"
+                    :key="unit.key"
+                    class="flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-[11px] font-bold uppercase tracking-widest backdrop-blur-sm"
+                    :style="{ color: unit.color, borderColor: unit.color + '55', background: unit.color + '14' }"
+                >
+                    <UIcon :name="unit.icon" class="size-3.5" />
+                    {{ unit.label }}
+                    <span class="tabular-nums opacity-60">{{ Math.ceil(unit.remaining) }}s</span>
                 </div>
             </div>
 
@@ -138,19 +148,36 @@
                 </div>
             </div>
 
-            <Transition enter-active-class="transition duration-150" enter-from-class="opacity-0 scale-125" leave-active-class="transition duration-300" leave-to-class="opacity-0">
-                <div v-if="streakMult > 1" class="absolute right-6 top-[13rem] text-right">
-                    <div class="flex items-center justify-end gap-1.5">
-                        <UIcon name="i-lucide-flame" class="size-5 text-orange-400" />
-                        <span class="text-3xl font-black leading-none text-orange-400 tabular-nums drop-shadow-[0_2px_6px_rgba(251,146,60,0.3)]">×{{ streakMult }}</span>
-                    </div>
-                    <div class="mt-0.5 text-[9px] uppercase tracking-[0.3em] text-zinc-500">{{ streakCount }} streak</div>
-                </div>
-            </Transition>
-
             <!-- Weapon + ammo: bottom-right -->
             <div class="absolute bottom-5 right-5 text-right sm:bottom-6 sm:right-6">
-                <div class="rounded-lg border border-white/10 bg-black/55 px-4 py-3 backdrop-blur-sm">
+                <div class="flex items-end justify-end gap-2.5">
+                    <!-- Carried equipment: a miniature of the unit, deploy key at its foot -->
+                    <div v-if="equipmentStock.length" class="flex items-end gap-1.5">
+                        <div
+                            v-for="(item, i) in equipmentStock"
+                            :key="i"
+                            class="relative flex flex-col items-center rounded-md border border-white/10 bg-black/55 px-1.5 pb-3.5 pt-1 backdrop-blur-sm"
+                            :style="{ color: perkCss(CALL_OF_XENO_EQUIPMENT[item].color) }"
+                        >
+                            <svg v-if="item === 'sentry'" class="size-9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M12 12.5 6.5 21M12 12.5l5.5 8.5M12 12.5V21" />
+                                <rect x="8" y="7" width="8" height="4.6" rx="1" />
+                                <path d="M16 9.3h4.5" />
+                                <circle cx="12" cy="5" r="0.9" fill="currentColor" stroke="none" />
+                            </svg>
+                            <svg v-else-if="item === 'drone'" class="size-9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+                                <rect x="8" y="10.5" width="8" height="3.8" rx="1.4" />
+                                <path d="M12 10.5V8.8M4.5 8.4h4M15.5 8.4h4" />
+                                <circle cx="12" cy="14.3" r="0.8" fill="currentColor" stroke="none" />
+                            </svg>
+                            <svg v-else class="size-9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7">
+                                <circle cx="12" cy="12" r="3.2" fill="currentColor" stroke="none" />
+                                <circle cx="12" cy="12" r="7.2" stroke-dasharray="3 2.4" />
+                            </svg>
+                            <span class="absolute bottom-1 left-1/2 -translate-x-1/2 rounded-sm border border-white/25 bg-zinc-900 px-1 text-[9px] font-bold leading-none text-zinc-100">E</span>
+                        </div>
+                    </div>
+                    <div class="rounded-lg border border-white/10 bg-black/55 px-4 py-3 backdrop-blur-sm">
                     <div class="flex items-center justify-end gap-2">
                         <span class="text-xs font-black uppercase tracking-[0.2em]" :class="papTier === 3 ? 'text-pink-300' : papTier === 2 ? 'text-cyan-300' : papTier === 1 ? 'text-purple-300' : 'text-zinc-100'">
                             {{ weaponName }}
@@ -193,6 +220,7 @@
                             No ammo
                         </span>
                     </div>
+                </div>
                 </div>
                 <div v-if="stowedName" class="mt-2 inline-flex items-center gap-2 rounded-md border border-white/10 bg-black/55 px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-[0.2em] text-zinc-400 backdrop-blur-sm">
                     <span class="rounded-sm border border-white/15 bg-white/5 px-1.5 py-px text-zinc-200">Q</span>
@@ -328,6 +356,7 @@
                                     <div><span class="text-zinc-200">R</span> reload</div>
                                     <div><span class="text-zinc-200">F</span> buy / board up</div>
                                     <div><span class="text-zinc-200">Q</span> swap weapon</div>
+                                    <div><span class="text-zinc-200">E</span> deploy equipment</div>
                                     <div><span class="text-zinc-200">V</span> knife</div>
                                     <div><span class="text-zinc-200">Esc</span> pause</div>
                                 </div>
@@ -591,9 +620,72 @@
             </div>
         </div>
 
+        <!-- Workbench: in-game shopping, the round keeps running behind it -->
+        <div
+            v-if="workbenchOpen"
+            class="pointer-events-none absolute inset-0 flex items-center justify-end bg-black/25 p-4 sm:p-8"
+        >
+            <div class="pointer-events-auto w-full max-w-md overflow-hidden rounded-2xl border border-amber-400/25 bg-zinc-950/95 font-mono shadow-[0_0_80px_rgba(0,0,0,0.85)] backdrop-blur-sm">
+                <div class="flex items-center justify-between gap-4 border-b border-white/10 bg-black/60 px-5 py-3">
+                    <div class="flex items-center gap-2.5 text-[10px] uppercase tracking-[0.35em] text-zinc-500">
+                        <UIcon name="i-lucide-wrench" class="size-4 text-amber-400/90" />
+                        Workbench // Equipment
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <span class="flex items-center gap-1.5 text-sm font-bold tabular-nums text-amber-300">
+                            <UIcon name="i-lucide-coins" class="size-3.5" />
+                            {{ points.toLocaleString() }}
+                        </span>
+                        <button
+                            class="rounded-md border border-white/10 px-2 py-1 text-[10px] font-bold uppercase tracking-[0.2em] text-zinc-400 transition-colors hover:text-zinc-100"
+                            @click="closeWorkbench()"
+                        >F close</button>
+                    </div>
+                </div>
+
+                <div class="space-y-2.5 p-5">
+                    <div
+                        v-for="(row, index) in equipmentRows"
+                        :key="row.equipment.id"
+                        class="flex items-center gap-3.5 rounded-xl border px-3.5 py-3"
+                        :class="row.affordable
+                            ? 'border-white/10 bg-white/[0.03] transition-colors hover:border-amber-400/40'
+                            : 'border-white/5 bg-white/[0.01] opacity-60'"
+                    >
+                        <div class="flex size-10 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-black/50">
+                            <UIcon :name="equipmentIcons[row.equipment.id]" class="size-5 text-amber-300/90" />
+                        </div>
+                        <div class="min-w-0 flex-1">
+                            <div class="flex items-baseline justify-between gap-2">
+                                <span class="text-[13px] font-bold text-zinc-100">{{ row.equipment.name }}</span>
+                                <span class="text-[10px] tabular-nums text-zinc-500">
+                                    {{ row.dpsLabel }} max-HP/s · {{ row.equipment.duration }}s
+                                </span>
+                            </div>
+                            <div class="mt-0.5 text-[11px] leading-relaxed text-zinc-500">{{ row.equipment.description }}</div>
+                        </div>
+                        <button
+                            class="flex shrink-0 items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-bold tabular-nums transition-colors disabled:cursor-not-allowed"
+                            :class="row.affordable
+                                ? 'border-amber-400/50 text-amber-300 hover:bg-amber-400/15'
+                                : 'border-white/10 text-zinc-600'"
+                            :disabled="!row.affordable || equipmentStock.length >= 3"
+                            @click="buyEquipment(row.equipment.id)"
+                        >
+                            <span class="text-[9px] opacity-60">{{ index + 1 }}</span>
+                            {{ row.equipment.cost.toLocaleString() }}
+                        </button>
+                    </div>
+                    <p class="pt-1 text-center text-[10px] uppercase tracking-[0.25em] text-red-400/70">
+                        The horde does not wait — F close · deploy with E
+                    </p>
+                </div>
+            </div>
+        </div>
+
         <!-- Pause / death -->
         <div
-            v-else-if="phase === 'over' || (phase === 'playing' && !locked)"
+            v-else-if="phase === 'over' || (phase === 'playing' && !locked && !relockPending)"
             class="absolute inset-0 overflow-y-auto bg-black/85 p-4 backdrop-blur-sm sm:p-8"
             style="background-image: radial-gradient(ellipse at 30% 20%, rgba(220,38,38,0.07), transparent 55%)"
         >
@@ -721,6 +813,7 @@
                             <div><span class="rounded-sm border border-white/15 bg-white/5 px-1.5 py-0.5 font-bold text-zinc-200">RMB</span> aim</div>
                             <div><span class="rounded-sm border border-white/15 bg-white/5 px-1.5 py-0.5 font-bold text-zinc-200">R</span> reload</div>
                             <div><span class="rounded-sm border border-white/15 bg-white/5 px-1.5 py-0.5 font-bold text-zinc-200">Q</span> swap weapon</div>
+                            <div><span class="rounded-sm border border-white/15 bg-white/5 px-1.5 py-0.5 font-bold text-zinc-200">E</span> deploy equipment</div>
                             <div><span class="rounded-sm border border-white/15 bg-white/5 px-1.5 py-0.5 font-bold text-zinc-200">F</span> buy / board up</div>
                             <div><span class="rounded-sm border border-white/15 bg-white/5 px-1.5 py-0.5 font-bold text-zinc-200">V</span> knife</div>
                             <div><span class="rounded-sm border border-white/15 bg-white/5 px-1.5 py-0.5 font-bold text-zinc-200">Esc</span> pause</div>
@@ -777,7 +870,6 @@ import {
     CALL_OF_XENO_POWERUP_CHANCE,
     CALL_OF_XENO_POWERUP_LIFETIME,
     CALL_OF_XENO_NUKE_POINTS,
-    CALL_OF_XENO_STREAK_WINDOW,
     CALL_OF_XENO_SPECIAL_ROUND_BONUS,
     CALL_OF_XENO_FRENZY_SPEED,
     CALL_OF_XENO_ROUND_BREAK,
@@ -789,8 +881,13 @@ import {
     isSpecialRound,
     specialRoundEnemy,
     roundModifier,
-    streakMultiplier,
     multiKillBonus,
+    CALL_OF_XENO_EQUIPMENT,
+    CALL_OF_XENO_BLACKHOLE_RADIUS,
+    CALL_OF_XENO_BLACKHOLE_TICK,
+    CALL_OF_XENO_EQUIPMENT_DROP_CHANCE,
+    CALL_OF_XENO_EQUIPMENT_DROP_LIFETIME,
+    equipmentDamage,
     zombieHealth,
     zombieCount,
     zombieSpeed,
@@ -799,6 +896,8 @@ import {
     maxAlive,
     type CallOfXenoEnemy,
     type CallOfXenoEnemyId,
+    type CallOfXenoEquipment,
+    type CallOfXenoEquipmentId,
     type CallOfXenoModifier,
     type CallOfXenoPerk,
     type CallOfXenoPerkId,
@@ -870,7 +969,14 @@ import {
     buildProjectile,
     buildBulletProjectile,
     buildExplosiveBarrel,
-    type EnemyModel
+    buildSentry,
+    buildCompanionDrone,
+    buildBlackHole,
+    buildEquipmentDrop,
+    type EnemyModel,
+    type SentryModel,
+    type CompanionDroneModel,
+    type BlackHoleModel
 } from '~/utils/call-of-xeno/models'
 
 // ---------------------------------------------------------------------------
@@ -909,13 +1015,32 @@ const damageFlash = ref(0)
 const hurtMarks = shallowRef<{ id: number, angle: number, life: number }[]>([])
 const crossGap = ref(8)
 const muted = ref(false)
-const streakMult = ref(1)
-const streakCount = ref(0)
 const specialRound = ref(false)
 const modifierName = ref('')
 const instakillOn = ref(false)
 const ownedPerks = shallowRef<CallOfXenoPerk[]>([])
 const activePowerUps = shallowRef<{ id: string, name: string, color: string, remaining: number }[]>([])
+/** In-game workbench menu — the sim keeps running while it is up. */
+const workbenchOpen = ref(false)
+/**
+ * True between closing the workbench and the pointer lock actually landing.
+ * The re-lock request is asynchronous and can be refused (browsers rate-limit
+ * it), and without this flag the pause overlay would flash open for exactly
+ * that gap — Esc is meant to close the bench, and only a second Esc pauses.
+ */
+const relockPending = ref(false)
+/** Where the player stood when the bench opened — walk away and it shuts. */
+let workbenchAnchorX = 0
+let workbenchAnchorZ = 0
+/** Equipment bought but not yet deployed. */
+const equipmentStock = shallowRef<CallOfXenoEquipmentId[]>([])
+/** Deployed units still on the field, one chip each. */
+const activeEquipment = shallowRef<{ key: string, label: string, color: string, icon: string, remaining: number }[]>([])
+const equipmentIcons: Record<CallOfXenoEquipmentId, string> = {
+    sentry: 'i-lucide-crosshair',
+    drone: 'i-lucide-send',
+    blackhole: 'i-lucide-circle-dot'
+}
 const summary = shallowRef<{ label: string, value: string }[]>([])
 const initError = ref('')
 
@@ -1374,8 +1499,6 @@ let swapTimer = 0
 let slots: WeaponSlot[] = []
 let activeSlot = 0
 let popupId = 0
-let streak = 0
-let streakTimer = 0
 let runTime = 0
 
 // Aim, melee and movement feel.
@@ -1396,7 +1519,6 @@ const hurtSources: { id: number, dx: number, dz: number, life: number }[] = []
 // Run stats for the summary screen.
 let statKills = 0
 let statHeadshots = 0
-let statBestStreak = 0
 let statSpins = 0
 let statDoors = 0
 let statBarrels = 0
@@ -1444,6 +1566,55 @@ const playerRounds: PlayerRound[] = []
 const groundPowerUps: GroundPowerUp[] = []
 const worldPopups: WorldPopup[] = []
 const barrels: Barrel[] = []
+
+// Workbench equipment deployed on the field.
+interface SentryUnit {
+    model: SentryModel
+    x: number
+    y: number
+    z: number
+    life: number
+    fireTimer: number
+    scored: Set<Enemy>
+}
+interface EscortUnit {
+    model: CompanionDroneModel
+    x: number
+    y: number
+    z: number
+    yaw: number
+    life: number
+    fireTimer: number
+    bob: number
+    scored: Set<Enemy>
+}
+interface BlackHoleUnit {
+    model: BlackHoleModel
+    x: number
+    y: number
+    z: number
+    life: number
+    tick: number
+    spin: number
+    burstTimer: number
+    scored: Set<Enemy>
+}
+const sentries: SentryUnit[] = []
+const escorts: EscortUnit[] = []
+const blackHoles: BlackHoleUnit[] = []
+
+/** A workbench unit waiting on the floor to be picked up. */
+interface GroundEquipment {
+    id: CallOfXenoEquipmentId
+    group: THREE.Group
+    light: THREE.PointLight
+    x: number
+    y: number
+    z: number
+    life: number
+    spin: number
+}
+const groundEquipment: GroundEquipment[] = []
 const windowStates = new Map<string, WindowState>(
     CALL_OF_XENO_WINDOWS.map(w => [w.id, { def: w, boards: CALL_OF_XENO_WINDOW_BOARDS, repair: 0 }])
 )
@@ -2004,10 +2175,9 @@ function announceMultiKill(kills: number) {
     bannerTimer = 1.4
 }
 
-/** Applies a points award through the streak, double-points and special-round multipliers. */
+/** Applies a points award through the double-points and special-round multipliers. */
 function award(base: number) {
-    const multiplier = streakMultiplier(streak)
-        * (powerUpTimers.doublepoints > 0 ? 2 : 1)
+    const multiplier = (powerUpTimers.doublepoints > 0 ? 2 : 1)
         * (isSpecialRound(currentRound) ? CALL_OF_XENO_SPECIAL_ROUND_BONUS : 1)
     const total = Math.round(base * multiplier)
     score += total
@@ -2066,9 +2236,6 @@ function isStaunch(enemy: Enemy) {
 }
 
 function registerKill(enemy: Enemy, basePoints: number, kind: 'body' | 'head' | 'weak' | 'nuke') {
-    streak++
-    streakTimer = CALL_OF_XENO_STREAK_WINDOW
-    statBestStreak = Math.max(statBestStreak, streak)
     statKills++
 
     const paid = award(basePoints)
@@ -2082,6 +2249,7 @@ function registerKill(enemy: Enemy, basePoints: number, kind: 'body' | 'head' | 
     if (kind !== 'nuke') audio.play('kill')
 
     if (randomFloat() < CALL_OF_XENO_POWERUP_CHANCE) dropPowerUp(enemy.x, enemy.z, enemy.y)
+    else if (randomFloat() < CALL_OF_XENO_EQUIPMENT_DROP_CHANCE) dropEquipment(enemy.x, enemy.z, enemy.y)
 }
 
 function spawnPopup(x: number, y: number, z: number, text: string, color: string, size: number) {
@@ -2402,6 +2570,334 @@ function giveWeapon(slot: WeaponSlot) {
 }
 
 // ---------------------------------------------------------------------------
+// Workbench equipment
+// ---------------------------------------------------------------------------
+
+const equipmentRows = computed(() => {
+    const order: CallOfXenoEquipmentId[] = ['sentry', 'drone', 'blackhole']
+    return order.map(id => {
+        const equipment = CALL_OF_XENO_EQUIPMENT[id]
+        const perSecond = equipment.fireDelay > 0 ? equipment.damagePct / equipment.fireDelay : equipment.damagePct
+        return {
+            equipment,
+            affordable: points.value >= equipment.cost && equipmentStock.value.length < 3,
+            dpsLabel: `×${perSecond.toFixed(2)}`
+        }
+    })
+})
+
+/**
+ * The workbench menu is not the pause menu: opening it releases the mouse
+ * but the simulation keeps running, so shopping is done under pressure.
+ */
+function openWorkbench() {
+    workbenchOpen.value = true
+    relockPending.value = false
+    workbenchAnchorX = px
+    workbenchAnchorZ = pz
+    if (document.pointerLockElement) document.exitPointerLock()
+}
+
+function closeWorkbench() {
+    if (!workbenchOpen.value) return
+    workbenchOpen.value = false
+    relockPending.value = true
+    // Re-capture the mouse straight away; the flag above hides the pause
+    // overlay until the request resolves either way.
+    const canvas = viewport.value?.querySelector('canvas')
+    const request = canvas?.requestPointerLock() as unknown as Promise<void> | undefined
+    if (request && typeof request.then === 'function') {
+        request.then(
+            () => { relockPending.value = false },
+            () => { relockPending.value = false }
+        )
+    } else {
+        window.setTimeout(() => { relockPending.value = false }, 400)
+    }
+}
+
+function buyEquipment(id: CallOfXenoEquipmentId) {
+    if (equipmentStock.value.length >= 3) return
+    const equipment = CALL_OF_XENO_EQUIPMENT[id]
+    if (!spend(equipment.cost)) return
+    equipmentStock.value = [...equipmentStock.value, id]
+    audio.play('buy')
+}
+
+/** Spends one carried unit and drops it into the world. */
+function deployEquipment() {
+    const id = equipmentStock.value[0]
+    if (!id) return
+    equipmentStock.value = equipmentStock.value.slice(1)
+    const equipment = CALL_OF_XENO_EQUIPMENT[id]
+
+    if (id === 'drone') {
+        const model = buildCompanionDrone()
+        model.group.position.set(px, feetY + 2, pz)
+        scene.add(model.group)
+        escorts.push({
+            model,
+            x: px,
+            y: feetY + 2,
+            z: pz,
+            yaw: 0,
+            life: equipment.duration,
+            fireTimer: 0.6,
+            bob: randomFloat() * Math.PI * 2,
+            scored: new Set()
+        })
+    } else {
+        // Ground placement a couple of metres ahead, clamped against walls.
+        const forwardX = -Math.sin(yaw)
+        const forwardZ = -Math.cos(yaw)
+        const block = rayBlockDistance(px, feetY + 1.2, pz, forwardX, 0, forwardZ, solids, 3.2)
+        const dist = Math.max(1, Math.min(2.4, block.distance - 0.6))
+        const x = px + forwardX * dist
+        const z = pz + forwardZ * dist
+        const ground = groundHeight(x, z, feetY)
+        if (id === 'sentry') {
+            const model = buildSentry()
+            model.group.position.set(x, ground, z)
+            scene.add(model.group)
+            sentries.push({ model, x, y: ground, z, life: equipment.duration, fireTimer: 0.8, scored: new Set() })
+        } else {
+            const model = buildBlackHole()
+            const y = Math.max(ground + 1.4, feetY + 1.2)
+            model.group.position.set(x, y, z)
+            scene.add(model.group)
+            blackHoles.push({ model, x, y, z, life: equipment.duration, tick: 0, spin: 0, burstTimer: 0, scored: new Set() })
+            audio.play('power')
+            shake = Math.min(0.3, shake + 0.15)
+        }
+    }
+    audio.play('papunch')
+    spawnPopup(px, feetY + 1.2, pz, equipment.name, perkCss(equipment.color), 17)
+}
+
+/** Nearest enemy a unit at (x, y, z) could reasonably shoot at. */
+function nearestEnemyInRange(x: number, y: number, z: number, range: number): Enemy | null {
+    let best: Enemy | null = null
+    let bestDist = range
+    for (const enemy of enemies) {
+        if (enemy.stage !== 'inside') continue
+        const dist = Math.hypot(enemy.x - x, enemy.z - z)
+        if (dist >= bestDist) continue
+        if (Math.abs(enemy.y - y) > 5) continue
+        bestDist = dist
+        best = enemy
+    }
+    return best
+}
+
+/** True when nothing solid stands between the unit's muzzle and the target. */
+function hasLineOfFire(ox: number, oy: number, oz: number, target: Enemy): boolean {
+    const tx = target.x
+    const ty = target.y + target.model.torsoY
+    const tz = target.z
+    const dx = tx - ox
+    const dy = ty - oy
+    const dz = tz - oz
+    const len = Math.hypot(dx, dy, dz) || 1
+    return rayBlockDistance(ox, oy, oz, dx / len, dy / len, dz / len, solids, len).distance >= len - 0.3
+}
+
+const equipMuzzle = new THREE.Vector3()
+
+/**
+ * One unit's shot: a fraction of the target's max health, so the equipment
+ * reads as strong on round 5 and on round 50 alike. Kills and hit points
+ * still pay the player through applyHit.
+ */
+function fireEquipmentAt(target: Enemy, equipment: CallOfXenoEquipment, ox: number, oy: number, oz: number, scored: Set<Enemy>, color: number) {
+    const damage = target.maxHealth * equipmentDamage(equipment, target.def.id)
+    impactPoint.set(target.x, target.y + target.model.torsoY, target.z)
+    equipMuzzle.set(ox, oy, oz)
+    effects.tracer(equipMuzzle, impactPoint, color, 0.016, 0.05)
+    applyHit(target, damage, 'body', scored, impactPoint)
+}
+
+function lerpAngle(from: number, to: number, t: number): number {
+    let delta = (to - from) % (Math.PI * 2)
+    if (delta > Math.PI) delta -= Math.PI * 2
+    if (delta < -Math.PI) delta += Math.PI * 2
+    return from + delta * t
+}
+
+/** A rare kill leaves a random workbench unit lying on the floor. */
+function dropEquipment(x: number, z: number, y: number) {
+    const ids = Object.keys(CALL_OF_XENO_EQUIPMENT) as CallOfXenoEquipmentId[]
+    const id = ids[Math.floor(randomFloat() * ids.length)]!
+    const spec = CALL_OF_XENO_EQUIPMENT[id]
+    const model = buildEquipmentDrop(spec)
+    model.group.position.set(x, y + 0.5, z)
+    scene.add(model.group)
+    groundEquipment.push({
+        id,
+        group: model.group,
+        light: model.light,
+        x,
+        y: y + 0.5,
+        z,
+        life: CALL_OF_XENO_EQUIPMENT_DROP_LIFETIME,
+        spin: 0
+    })
+}
+
+/** Floor drops: spin, blink out, and are pocketed on touch — stock permitting. */
+function updateGroundEquipment(dt: number) {
+    for (let i = groundEquipment.length - 1; i >= 0; i--) {
+        const entry = groundEquipment[i]!
+        entry.life -= dt
+        entry.spin += dt * 2
+        entry.group.rotation.set(0, entry.spin, Math.sin(entry.spin * 0.8) * 0.12)
+        entry.group.position.y = entry.y + Math.sin(entry.spin * 1.6) * 0.1
+        entry.light.intensity = 2.5 + Math.sin(entry.spin * 4) * 1.2
+        entry.group.visible = entry.life > 4 || Math.sin(entry.life * 14) > -0.2
+
+        const inReach = Math.hypot(entry.x - px, entry.z - pz) < 2.2 && Math.abs(entry.y - feetY) < 3
+        if (inReach && equipmentStock.value.length < 3) {
+            equipmentStock.value = [...equipmentStock.value, entry.id]
+            const spec = CALL_OF_XENO_EQUIPMENT[entry.id]
+            spawnPopup(px, feetY + 1.1, pz, spec.name, perkCss(spec.color), 17)
+            audio.play('buy')
+            scene.remove(entry.group)
+            disposeObject(entry.group)
+            groundEquipment.splice(i, 1)
+            continue
+        }
+        // Hands full: the crate stays where it is until there is room.
+
+        if (entry.life <= 0) {
+            scene.remove(entry.group)
+            disposeObject(entry.group)
+            groundEquipment.splice(i, 1)
+        }
+    }
+}
+
+function updateEquipment(dt: number) {
+    const sentrySpec = CALL_OF_XENO_EQUIPMENT.sentry
+    for (let i = sentries.length - 1; i >= 0; i--) {
+        const unit = sentries[i]!
+        unit.life -= dt
+        if (unit.life <= 0) {
+            scene.remove(unit.model.group)
+            disposeObject(unit.model.group)
+            sentries.splice(i, 1)
+            continue
+        }
+        unit.fireTimer -= dt
+        const target = nearestEnemyInRange(unit.x, unit.y, unit.z, sentrySpec.range)
+        if (!target) continue
+        // The model's barrel points down local -Z, so the head yaw is the
+        // look direction mirrored.
+        const want = Math.atan2(-(target.x - unit.x), -(target.z - unit.z))
+        unit.model.head.rotation.y = lerpAngle(unit.model.head.rotation.y, want, Math.min(1, dt * 10))
+        if (unit.fireTimer <= 0 && hasLineOfFire(unit.x, unit.y + 1.1, unit.z, target)) {
+            unit.fireTimer = sentrySpec.fireDelay
+            fireEquipmentAt(target, sentrySpec, unit.x, unit.y + 1.1, unit.z, unit.scored, 0xffd27a)
+            audio.play('shoot-smg')
+        }
+    }
+
+    const escortSpec = CALL_OF_XENO_EQUIPMENT.drone
+    for (let i = escorts.length - 1; i >= 0; i--) {
+        const unit = escorts[i]!
+        unit.life -= dt
+        if (unit.life <= 0) {
+            scene.remove(unit.model.group)
+            disposeObject(unit.model.group)
+            escorts.splice(i, 1)
+            continue
+        }
+        unit.bob += dt
+        unit.model.rotor.rotation.y += dt * 16
+
+        // Anchor: a pace behind the player's right shoulder.
+        const forwardX = -Math.sin(yaw)
+        const forwardZ = -Math.cos(yaw)
+        const rightX = Math.cos(yaw)
+        const rightZ = -Math.sin(yaw)
+        const wantX = px - forwardX * 1.2 + rightX * 0.95
+        const wantZ = pz - forwardZ * 1.2 + rightZ * 0.95
+        const wantY = feetY + 2 + Math.sin(unit.bob * 1.8) * 0.12
+        const follow = Math.min(1, dt * 3.5)
+        unit.x += (wantX - unit.x) * follow
+        unit.y += (wantY - unit.y) * follow
+        unit.z += (wantZ - unit.z) * follow
+        unit.model.group.position.set(unit.x, unit.y, unit.z)
+
+        unit.fireTimer -= dt
+        const target = nearestEnemyInRange(unit.x, unit.y, unit.z, escortSpec.range)
+        if (!target) continue
+        const face = Math.atan2(target.x - unit.x, target.z - unit.z)
+        unit.yaw = lerpAngle(unit.yaw, face, Math.min(1, dt * 8))
+        unit.model.group.rotation.y = unit.yaw
+        unit.model.group.rotation.z = Math.sin(unit.bob * 0.9) * 0.08
+        if (unit.fireTimer <= 0 && hasLineOfFire(unit.x, unit.y - 0.1, unit.z, target)) {
+            unit.fireTimer = escortSpec.fireDelay
+            fireEquipmentAt(target, escortSpec, unit.x, unit.y - 0.1, unit.z, unit.scored, 0x7dd3fc)
+            audio.play('shoot-pistol')
+        }
+    }
+
+    const holeSpec = CALL_OF_XENO_EQUIPMENT.blackhole
+    for (let i = blackHoles.length - 1; i >= 0; i--) {
+        const unit = blackHoles[i]!
+        unit.life -= dt
+        unit.spin += dt
+        unit.model.ring.rotation.z += dt * 2.6
+        unit.model.core.scale.setScalar(1 + Math.sin(unit.spin * 7) * 0.08)
+        unit.model.light.intensity = 4.5 + Math.sin(unit.spin * 6) * 1.5
+        unit.burstTimer -= dt
+        if (unit.burstTimer <= 0) {
+            unit.burstTimer = 0.35
+            impactPoint.set(unit.x, unit.y, unit.z)
+            effects.energyBurst(impactPoint, 0xa855f7)
+        }
+
+        if (unit.life <= 0) {
+            impactPoint.set(unit.x, unit.y, unit.z)
+            effects.energyBurst(impactPoint, 0xc084fc)
+            audio.play('explosion')
+            scene.remove(unit.model.group)
+            disposeObject(unit.model.group)
+            blackHoles.splice(i, 1)
+            continue
+        }
+
+        // The pull: everything inside the radius is dragged toward the core,
+        // harder the closer it already is. Only enemies that have made it
+        // inside are on the graph — the ones still outside a window are on
+        // their scripted approach and stay on it.
+        for (const enemy of enemies) {
+            if (enemy.stage !== 'inside') continue
+            const dx = unit.x - enemy.x
+            const dz = unit.z - enemy.z
+            const dist = Math.hypot(dx, dz)
+            if (dist > CALL_OF_XENO_BLACKHOLE_RADIUS || dist < 1.3) continue
+            const strength = 3 + 9 * (1 - dist / CALL_OF_XENO_BLACKHOLE_RADIUS)
+            enemy.x += (dx / dist) * strength * dt
+            enemy.z += (dz / dist) * strength * dt
+            enemy.yaw = Math.atan2(dx, dz)
+        }
+
+        // Damage ticks on the same rhythm the pull drags on.
+        unit.tick -= dt
+        if (unit.tick <= 0) {
+            unit.tick = CALL_OF_XENO_BLACKHOLE_TICK
+            for (const enemy of [...enemies]) {
+                if (enemy.stage !== 'inside') continue
+                if (Math.hypot(enemy.x - unit.x, enemy.z - unit.z) > CALL_OF_XENO_BLACKHOLE_RADIUS) continue
+                const damage = enemy.maxHealth * equipmentDamage(holeSpec, enemy.def.id) * CALL_OF_XENO_BLACKHOLE_TICK
+                impactPoint.set(enemy.x, enemy.y + enemy.model.torsoY, enemy.z)
+                applyHit(enemy, damage, 'body', unit.scored, impactPoint)
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Enemies
 // ---------------------------------------------------------------------------
 
@@ -2553,8 +3049,7 @@ function updateRepair(dt: number) {
     state.boards++
     statBoards++
     syncWindow(state)
-    // A flat rate: repairing is a steady trickle, not something the streak
-    // multiplier can be farmed through.
+    // A flat rate: repairing is a steady trickle, never worth farming.
     score += CALL_OF_XENO_REPAIR_POINTS
     grossEarned.value += CALL_OF_XENO_REPAIR_POINTS
     spawnPopup(
@@ -3028,6 +3523,14 @@ function updatePrompt() {
             continue
         }
 
+        if (item.kind === 'workbench') {
+            best = d
+            focused = { kind: 'interactable', id: item.id }
+            text = '[F] Workbench — Equipment'
+            affordable = true
+            continue
+        }
+
         if (item.kind === 'mysterybox') {
             best = d
             focused = { kind: 'interactable', id: item.id }
@@ -3128,6 +3631,11 @@ function interact() {
 
     const item = CALL_OF_XENO_INTERACTABLES.find(i => i.id === focused!.id)!
     if (item.needsPower && !powered) return
+
+    if (item.kind === 'workbench') {
+        openWorkbench()
+        return
+    }
 
     if (item.kind === 'power') {
         powered = true
@@ -3282,8 +3790,6 @@ function syncHud(dt = 0.016) {
         angle: -((Math.atan2(source.dx, source.dz) - Math.PI - yaw) * 180) / Math.PI,
         life: source.life
     }))
-    streakMult.value = streakMultiplier(streak)
-    streakCount.value = streak
 
     const live: { id: string, name: string, color: string, remaining: number }[] = []
     for (const [id, remaining] of Object.entries(powerUpTimers)) {
@@ -3292,27 +3798,36 @@ function syncHud(dt = 0.016) {
         live.push({ id, name: spec.name, color: perkCss(spec.color), remaining })
     }
     activePowerUps.value = live
+
+    const units: { key: string, label: string, color: string, icon: string, remaining: number }[] = []
+    const pushUnit = (id: CallOfXenoEquipmentId, key: string, remaining: number) => {
+        const spec = CALL_OF_XENO_EQUIPMENT[id]
+        units.push({ key, label: spec.name, color: perkCss(spec.color), icon: equipmentIcons[id], remaining })
+    }
+    sentries.forEach((unit, i) => pushUnit('sentry', `sentry-${i}`, unit.life))
+    escorts.forEach((unit, i) => pushUnit('drone', `drone-${i}`, unit.life))
+    blackHoles.forEach((unit, i) => pushUnit('blackhole', `hole-${i}`, unit.life))
+    activeEquipment.value = units
 }
 
 function update(dt: number) {
     runTime += dt
     updatePlayer(dt)
+    // The bench is not a tether: step away from it and it packs itself up.
+    if (workbenchOpen.value && Math.hypot(px - workbenchAnchorX, pz - workbenchAnchorZ) > 4) closeWorkbench()
     updateViewModel(dt)
     updateEnemies(dt)
+    updateEquipment(dt)
     updateProjectiles(dt)
     updatePlayerRounds(dt)
     updatePowerUps(dt)
+    updateGroundEquipment(dt)
     updateBox(dt)
     updateRound(dt)
     updatePrompt()
     updateRepair(dt)
     updatePopups(dt)
     effects.update(dt)
-
-    if (streakTimer > 0) {
-        streakTimer -= dt
-        if (streakTimer <= 0) streak = 0
-    }
 
     if (reloadTimer > 0) {
         reloadTimer -= dt
@@ -3439,6 +3954,8 @@ function die() {
     phase.value = 'over'
     firing = false
     aiming = false
+    workbenchOpen.value = false
+    relockPending.value = false
     keys.clear()
     hurtSources.length = 0
     hurtMarks.value = []
@@ -3452,7 +3969,6 @@ function die() {
         { label: 'Points banked', value: score.toLocaleString() },
         { label: 'Kills', value: String(statKills) },
         { label: 'Headshots', value: statKills > 0 ? `${Math.round((statHeadshots / statKills) * 100)}%` : '0%' },
-        { label: 'Best streak', value: String(statBestStreak) },
         { label: 'Doors opened', value: `${statDoors} / ${CALL_OF_XENO_DOORS.length}` },
         { label: 'Boards nailed', value: String(statBoards) },
         { label: 'Box spins', value: String(statSpins) },
@@ -3509,6 +4025,30 @@ function resetRun() {
         disposeObject(entry.group)
     }
     groundPowerUps.length = 0
+    for (const unit of sentries) {
+        scene.remove(unit.model.group)
+        disposeObject(unit.model.group)
+    }
+    sentries.length = 0
+    for (const unit of escorts) {
+        scene.remove(unit.model.group)
+        disposeObject(unit.model.group)
+    }
+    escorts.length = 0
+    for (const unit of blackHoles) {
+        scene.remove(unit.model.group)
+        disposeObject(unit.model.group)
+    }
+    blackHoles.length = 0
+    for (const entry of groundEquipment) {
+        scene.remove(entry.group)
+        disposeObject(entry.group)
+    }
+    groundEquipment.length = 0
+    equipmentStock.value = []
+    activeEquipment.value = []
+    workbenchOpen.value = false
+    relockPending.value = false
     worldPopups.length = 0
     popups.value = []
     effects.clear()
@@ -3574,12 +4114,9 @@ function resetRun() {
     score = runEffects.startingPoints
     grossEarned.value = 0
     runStartMs = Date.now()
-    streak = 0
-    streakTimer = 0
     runTime = 0
     statKills = 0
     statHeadshots = 0
-    statBestStreak = 0
     statSpins = 0
     statDoors = 0
     statBarrels = 0
@@ -3628,6 +4165,7 @@ function buildSave(): CallOfXenoRunSave {
         quickReviveBuys,
         weapons: slots.map(slot => ({ base: slot.base, tier: slot.tier, mag: slot.mag, reserve: slot.reserve })),
         activeSlot,
+        equipment: [...equipmentStock.value],
         powered,
         doors: [...openDoors],
         x: Math.round(px * 100) / 100,
@@ -3638,7 +4176,6 @@ function buildSave(): CallOfXenoRunSave {
         stats: {
             kills: statKills,
             headshots: statHeadshots,
-            bestStreak: statBestStreak,
             spins: statSpins,
             barrels: statBarrels,
             boards: statBoards
@@ -3703,6 +4240,10 @@ function applySave(save: CallOfXenoRunSave) {
     })
     activeSlot = Math.min(save.activeSlot, slots.length - 1)
 
+    // Undeployed equipment rides along; units left on the field at the
+    // checkpoint are gone with the rest of the round in flight.
+    equipmentStock.value = save.equipment ? [...save.equipment] : []
+
     score = save.score
     grossEarned.value = save.grossEarned
 
@@ -3716,7 +4257,6 @@ function applySave(save: CallOfXenoRunSave) {
 
     statKills = save.stats.kills
     statHeadshots = save.stats.headshots
-    statBestStreak = save.stats.bestStreak
     statSpins = save.stats.spins
     statBarrels = save.stats.barrels
     statBoards = save.stats.boards
@@ -3878,10 +4418,24 @@ function onKeyDown(event: KeyboardEvent) {
     const code = event.code.toLowerCase()
     keys.add(code)
     if (code === 'keym') toggleMute()
+    if (workbenchOpen.value) {
+        if (code === 'keyf') closeWorkbench()
+        if (code === 'escape') {
+            // Esc is pause, not close: drop the bench but leave the mouse
+            // free so the pause overlay takes over straight away.
+            workbenchOpen.value = false
+            relockPending.value = false
+        }
+        if (code === 'digit1') buyEquipment('sentry')
+        if (code === 'digit2') buyEquipment('drone')
+        if (code === 'digit3') buyEquipment('blackhole')
+        return
+    }
     if (phase.value !== 'playing' || !locked.value) return
     if (code === 'keyr') startReload()
     if (code === 'keyf') interact()
     if (code === 'keyq') swapWeapon()
+    if (code === 'keye') deployEquipment()
     if (code === 'keyv') melee()
     if (code === 'space') { event.preventDefault(); jump() }
 }
@@ -4011,7 +4565,7 @@ function buildScene(host: HTMLDivElement) {
         frameHandle = requestAnimationFrame(loop)
         const dt = Math.min(0.05, (now - last) / 1000)
         last = now
-        if (phase.value === 'playing' && locked.value) {
+        if (phase.value === 'playing' && (locked.value || workbenchOpen.value)) {
             update(dt)
             syncHud(dt)
         }
@@ -4058,6 +4612,10 @@ onBeforeUnmount(() => {
     projectiles.length = 0
     playerRounds.length = 0
     groundPowerUps.length = 0
+    sentries.length = 0
+    escorts.length = 0
+    blackHoles.length = 0
+    groundEquipment.length = 0
     worldPopups.length = 0
     weaponModel = null
     boxPreview = null

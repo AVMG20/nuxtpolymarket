@@ -8,6 +8,7 @@ import * as THREE from 'three'
 import { makeSignTexture } from './textures'
 import type {
     CallOfXenoEnemy,
+    CallOfXenoEquipment,
     CallOfXenoPerk,
     CallOfXenoPowerUp,
     CallOfXenoWeapon,
@@ -1153,6 +1154,212 @@ export function buildProjectile(color: number): THREE.Mesh {
     )
     mesh.add(halo)
     return mesh
+}
+
+// ---------------------------------------------------------------------------
+// Workbench and deployable equipment
+// ---------------------------------------------------------------------------
+
+/** The Workshop bench: heavy table, vice, pegboard and an amber lit sign. */
+export function buildWorkbench(): PropModel {
+    const group = new THREE.Group()
+    const wood = 0x4a3a26
+    const steel = 0x2b2f36
+
+    group.add(part(1.6, 0.12, 1.0, wood, 0, 0.94, 0))
+    for (const sx of [-1, 1]) {
+        group.add(part(0.12, 0.94, 0.12, steel, sx * 0.7, 0.47, 0.4))
+        group.add(part(0.12, 0.94, 0.12, steel, sx * 0.7, 0.47, -0.4))
+    }
+    group.add(part(1.4, 0.1, 0.1, steel, 0, 0.3, 0))
+
+    // Vice clamped to the left corner.
+    group.add(part(0.24, 0.18, 0.2, 0x53585f, -0.55, 1.09, 0.3))
+    group.add(part(0.1, 0.1, 0.16, 0x6b7076, -0.68, 1.09, 0.3))
+    const screw = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.035, 0.035, 0.3, 6),
+        new THREE.MeshLambertMaterial({ color: 0x8a8f96 })
+    )
+    screw.rotation.z = Math.PI / 2
+    screw.position.set(-0.55, 1.09, 0.42)
+    group.add(screw)
+
+    // Pegboard with a scatter of tools hung on it.
+    group.add(part(1.5, 0.9, 0.06, 0x3a3d33, 0, 1.6, -0.46))
+    for (const [x, y, w, h] of [[-0.5, 1.75, 0.06, 0.34], [-0.3, 1.5, 0.05, 0.22], [0.05, 1.68, 0.28, 0.05], [0.4, 1.55, 0.06, 0.3], [0.55, 1.8, 0.05, 0.2]] as const) {
+        group.add(part(w, h, 0.05, 0x777c82, x, y, -0.42))
+    }
+
+    // The bench's one lit thing: an amber strip under the tabletop.
+    const glowMat = new THREE.MeshBasicMaterial({ color: 0x2a1c05 })
+    const strip = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.05, 0.05), glowMat)
+    strip.position.set(0, 0.87, 0.51)
+    group.add(strip)
+
+    const sign = buildSign(1.3, 0.42, {
+        title: 'Workbench',
+        subtitle: 'equipment',
+        color: '#ffd27a',
+        background: 'rgba(12,9,5,0.92)',
+        accent: '#c98a2a'
+    })
+    sign.position.set(0, 1.62, 0.5)
+    group.add(sign)
+
+    const light = new THREE.PointLight(0xf59e0b, 2, 5, 2)
+    light.position.set(0, 1.3, 0.6)
+    group.add(light)
+
+    return { group, glow: [glowMat], light }
+}
+
+export interface SentryModel {
+    group: THREE.Group
+    /** Yaw-driven gun head, separate so the tripod stays planted. */
+    head: THREE.Group
+}
+
+/** Tripod auto-turret: planted legs, powered base, a gun head that swivels. */
+export function buildSentry(): SentryModel {
+    const group = new THREE.Group()
+    const steel = 0x2b2f36
+    const accent = 0xf59e0b
+
+    for (let i = 0; i < 3; i++) {
+        const leg = new THREE.Mesh(
+            new THREE.BoxGeometry(0.08, 0.9, 0.08),
+            new THREE.MeshLambertMaterial({ color: steel })
+        )
+        const angle = (i / 3) * Math.PI * 2
+        leg.position.set(Math.sin(angle) * 0.32, 0.42, Math.cos(angle) * 0.32)
+        leg.rotation.z = Math.sin(angle) * 0.35
+        leg.rotation.x = -Math.cos(angle) * 0.35
+        group.add(leg)
+    }
+
+    group.add(part(0.34, 0.16, 0.34, 0x1f232a, 0, 0.86, 0))
+    const pulse = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.07, 0.07, 0.1, 8),
+        new THREE.MeshBasicMaterial({ color: accent })
+    )
+    pulse.position.y = 0.99
+    group.add(pulse)
+
+    const head = new THREE.Group()
+    head.position.y = 1.02
+    head.add(part(0.3, 0.24, 0.34, 0x343a44, 0, 0.1, 0))
+    // Barrel pointing down local -Z, the yaw the targeting code drives.
+    head.add(part(0.07, 0.07, 0.5, 0x1f232a, 0, 0.12, -0.38))
+    head.add(part(0.05, 0.05, 0.14, accent, 0, 0.12, -0.66))
+    head.add(part(0.12, 0.1, 0.12, 0x1f232a, 0.16, 0.26, 0.06))
+    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 6), new THREE.MeshBasicMaterial({ color: 0xff4433 }))
+    eye.position.set(0, 0.24, -0.14)
+    head.add(eye)
+    group.add(head)
+
+    return { group, head }
+}
+
+export interface CompanionDroneModel {
+    group: THREE.Group
+    rotor: THREE.Object3D
+    muzzle: THREE.Object3D
+}
+
+/** Player-flavoured escort: compact hull, cyan sensor, under-slung gun. */
+export function buildCompanionDrone(): CompanionDroneModel {
+    const group = new THREE.Group()
+    const shell = 0x3c4a58
+    const dark = 0x23282e
+    const accent = 0x38bdf8
+
+    group.add(part(0.42, 0.16, 0.56, shell, 0, 0, 0))
+    group.add(part(0.3, 0.12, 0.3, dark, 0, 0.12, -0.08))
+    const nose = part(0.2, 0.1, 0.16, dark, 0, 0.02, 0.32)
+    group.add(nose)
+    const sensor = new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 6), new THREE.MeshBasicMaterial({ color: accent }))
+    sensor.position.set(0, 0.1, 0.24)
+    group.add(sensor)
+
+    for (const sx of [-1, 1]) {
+        group.add(part(0.28, 0.05, 0.16, shell, sx * 0.32, 0.02, 0))
+        const arm = part(0.16, 0.05, 0.05, dark, sx * 0.22, 0.08, 0)
+        group.add(arm)
+    }
+
+    const rotor = new THREE.Group()
+    rotor.position.y = 0.2
+    for (let i = 0; i < 2; i++) {
+        const blade = new THREE.Mesh(
+            new THREE.BoxGeometry(0.8, 0.02, 0.07),
+            new THREE.MeshLambertMaterial({ color: 0x1a1d21 })
+        )
+        blade.rotation.y = (i / 2) * Math.PI
+        rotor.add(blade)
+    }
+    group.add(rotor)
+
+    const muzzle = part(0.07, 0.09, 0.3, dark, 0, -0.11, 0.1)
+    group.add(muzzle)
+    group.add(part(0.045, 0.045, 0.1, accent, 0, -0.11, -0.04))
+
+    return { group, rotor, muzzle }
+}
+
+export interface BlackHoleModel {
+    group: THREE.Group
+    core: THREE.Mesh
+    ring: THREE.Mesh
+    light: THREE.PointLight
+}
+
+/** The floor drop for workbench equipment: a small supply crate, banded in
+ *  the unit's colour, so it reads as "pick me up" next to a power-up cube. */
+export function buildEquipmentDrop(equipment: CallOfXenoEquipment): { group: THREE.Group, light: THREE.PointLight } {
+    const group = new THREE.Group()
+
+    group.add(part(0.42, 0.3, 0.34, 0x3a3d33, 0, -0.15, 0))
+    group.add(part(0.46, 0.09, 0.38, 0x2b2f26, 0, 0.06, 0))
+    const band = new THREE.Mesh(
+        new THREE.BoxGeometry(0.44, 0.12, 0.36),
+        new THREE.MeshBasicMaterial({ color: equipment.color })
+    )
+    band.position.y = -0.06
+    group.add(band)
+
+    const light = new THREE.PointLight(equipment.color, 3, 6, 2)
+    group.add(light)
+
+    return { group, light }
+}
+
+/** The singularity: a void sphere in a spinning violet ring. */
+export function buildBlackHole(): BlackHoleModel {
+    const group = new THREE.Group()
+
+    const core = new THREE.Mesh(
+        new THREE.SphereGeometry(0.55, 16, 12),
+        new THREE.MeshBasicMaterial({ color: 0x05010a })
+    )
+    group.add(core)
+
+    const ring = new THREE.Mesh(
+        new THREE.TorusGeometry(0.95, 0.07, 8, 32),
+        new THREE.MeshBasicMaterial({ color: 0xa855f7, blending: THREE.AdditiveBlending, transparent: true, opacity: 0.9 })
+    )
+    ring.rotation.x = Math.PI / 2
+    group.add(ring)
+
+    const halo = new THREE.Mesh(
+        new THREE.SphereGeometry(1.25, 12, 10),
+        new THREE.MeshBasicMaterial({ color: 0x7c3aed, transparent: true, opacity: 0.16, blending: THREE.AdditiveBlending, depthWrite: false })
+    )
+    group.add(halo)
+
+    const light = new THREE.PointLight(0xa855f7, 5, 16, 2)
+    group.add(light)
+
+    return { group, core, ring, light }
 }
 
 /** A small dark bullet — what a launched Sally round actually looks like. */

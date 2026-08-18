@@ -240,7 +240,7 @@ export const CALL_OF_XENO_WEAPONS: Record<CallOfXenoWeaponId, CallOfXenoWeapon> 
     xenoray: {
         id: 'xenoray',
         name: 'Xeno Ray',
-        damage: 620,
+        damage: 1860,
         pellets: 1,
         fireDelay: 0.55,
         magSize: 10,
@@ -670,26 +670,94 @@ export const CALL_OF_XENO_NUKE_POINTS = 400
 // Point economy
 // ---------------------------------------------------------------------------
 
-/** Seconds a kill keeps the streak alive. */
-export const CALL_OF_XENO_STREAK_WINDOW = 3
-
-/**
- * Chained kills ramp the payout. Capped at 3x so a good push feels great
- * without making the late rounds trivial to bank.
- */
-export function streakMultiplier(streak: number): number {
-    if (streak < 3) return 1
-    if (streak < 6) return 1.25
-    if (streak < 10) return 1.5
-    if (streak < 15) return 2
-    if (streak < 25) return 2.5
-    return 3
-}
-
 /** Bonus points for dropping several enemies with a single shot. */
 export function multiKillBonus(count: number): number {
     if (count < 3) return 0
     return 50 * (count - 2)
+}
+
+// ---------------------------------------------------------------------------
+// Workbench equipment
+// ---------------------------------------------------------------------------
+
+export type CallOfXenoEquipmentId = 'sentry' | 'drone' | 'blackhole'
+
+export interface CallOfXenoEquipment {
+    id: CallOfXenoEquipmentId
+    name: string
+    cost: number
+    /** Seconds a deployment lasts before the unit packs itself away. */
+    duration: number
+    /**
+     * Fraction of an enemy's max health dealt per shot — per second for the
+     * black hole, which ticks continuously. Percentage damage is what keeps
+     * the equipment honest on every round and every difficulty.
+     */
+    damagePct: number
+    /** Seconds between shots. Zero for the black hole (it ticks instead). */
+    fireDelay: number
+    /** Furthest away it will engage, in world units. */
+    range: number
+    /** Per-enemy-type damage multiplier — beefier types shrug more of it off. */
+    resistance: Partial<Record<CallOfXenoEnemyId, number>>
+    color: number
+    description: string
+}
+
+/** How far the singularity reaches out to grab enemies. */
+export const CALL_OF_XENO_BLACKHOLE_RADIUS = 13
+/** Seconds between the singularity's damage ticks. */
+export const CALL_OF_XENO_BLACKHOLE_TICK = 0.25
+/** Chance a kill leaves a random workbench unit on the floor. */
+export const CALL_OF_XENO_EQUIPMENT_DROP_CHANCE = 0.005
+/** Seconds a dropped unit waits on the floor before it fades. */
+export const CALL_OF_XENO_EQUIPMENT_DROP_LIFETIME = 30
+
+export const CALL_OF_XENO_EQUIPMENT: Record<CallOfXenoEquipmentId, CallOfXenoEquipment> = {
+    sentry: {
+        id: 'sentry',
+        name: 'Sentry Gun',
+        cost: 10000,
+        duration: 60,
+        damagePct: 0.2,
+        fireDelay: 0.16,
+        range: 26,
+        resistance: { brute: 0.45, drone: 0.9 },
+        color: 0xf59e0b,
+        description: 'Auto-turret. Holds the ground it is dropped on for 60 seconds.'
+    },
+    drone: {
+        id: 'drone',
+        name: 'Escort Drone',
+        cost: 12500,
+        duration: 90,
+        damagePct: 0.25,
+        fireDelay: 0.3,
+        range: 20,
+        resistance: { brute: 0.45, drone: 0.9 },
+        color: 0x38bdf8,
+        description: 'Follows you and fires on the horde. Slower cadence than the sentry.'
+    },
+    blackhole: {
+        id: 'blackhole',
+        name: 'Singularity',
+        cost: 15000,
+        duration: 8,
+        damagePct: 0.6,
+        fireDelay: 0,
+        range: CALL_OF_XENO_BLACKHOLE_RADIUS,
+        resistance: { brute: 0.12, drone: 0.8 },
+        color: 0xa855f7,
+        description: 'Drags everything nearby into one spot and grinds it down. Giants barely bleed but still get pulled.'
+    }
+}
+
+/**
+ * Fraction of an enemy's max health one equipment hit (or tick) deals, after
+ * the type's resistance. Giants are giants: less damage, same pull.
+ */
+export function equipmentDamage(equipment: CallOfXenoEquipment, enemyId: CallOfXenoEnemyId): number {
+    return equipment.damagePct * (equipment.resistance[enemyId] ?? 1)
 }
 
 // ---------------------------------------------------------------------------

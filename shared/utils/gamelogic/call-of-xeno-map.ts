@@ -550,7 +550,7 @@ export const CALL_OF_XENO_BARREL_SPOTS: { x: number, z: number }[] = [
 // Interactables
 // ---------------------------------------------------------------------------
 
-export type CallOfXenoInteractableKind = 'wallbuy' | 'perk' | 'power' | 'papunch' | 'mysterybox'
+export type CallOfXenoInteractableKind = 'wallbuy' | 'perk' | 'power' | 'papunch' | 'mysterybox' | 'workbench'
 
 export interface CallOfXenoInteractable {
     id: string
@@ -587,6 +587,9 @@ export const CALL_OF_XENO_INTERACTABLES: CallOfXenoInteractable[] = [
     // Lab — the far corner.
     { id: 'perk-doubletap', kind: 'perk', x: 14, y: 0, z: 47.6, facing: Math.PI, region: 5, perk: 'doubletap', needsPower: true },
 
+    // Workshop — the deployable-equipment bench.
+    { id: 'workbench', kind: 'workbench', x: 56.6, y: 0, z: 20.8, facing: -Math.PI / 2, region: 4, needsPower: false },
+
     // Reactor Hall — power, Pack-a-Punch and the last wall gun.
     { id: 'buy-ak74', kind: 'wallbuy', x: 36, y: 0, z: 47.6, facing: Math.PI, region: 6, weapon: 'ak74', needsPower: false },
     { id: 'power', kind: 'power', x: 57.4, y: 0, z: 44, facing: -Math.PI / 2, region: 6, needsPower: false },
@@ -597,16 +600,16 @@ export const CALL_OF_XENO_PLAYER_START = { x: 9, z: 11 }
 
 /** Free-standing props the player cannot walk through. */
 export const CALL_OF_XENO_PROP_SOLIDS: CallOfXenoSolid[] = CALL_OF_XENO_INTERACTABLES
-    .filter(i => i.kind === 'perk' || i.kind === 'papunch' || i.kind === 'power' || i.kind === 'mysterybox')
+    .filter(i => i.kind === 'perk' || i.kind === 'papunch' || i.kind === 'power' || i.kind === 'mysterybox' || i.kind === 'workbench')
     .map(i => ({
         box: {
-            minX: i.x - (i.kind === 'papunch' ? 1.25 : 0.6),
-            maxX: i.x + (i.kind === 'papunch' ? 1.25 : 0.6),
-            minZ: i.z - 0.6,
-            maxZ: i.z + 0.6
+            minX: i.x - (i.kind === 'papunch' ? 1.25 : i.kind === 'workbench' ? 0.85 : 0.6),
+            maxX: i.x + (i.kind === 'papunch' ? 1.25 : i.kind === 'workbench' ? 0.85 : 0.6),
+            minZ: i.z - (i.kind === 'workbench' ? 0.55 : 0.6),
+            maxZ: i.z + (i.kind === 'workbench' ? 0.55 : 0.6)
         },
         baseY: i.y,
-        height: i.kind === 'papunch' ? 2 : i.kind === 'mysterybox' ? 1.2 : 2.2
+        height: i.kind === 'papunch' ? 2 : i.kind === 'mysterybox' ? 1.2 : i.kind === 'workbench' ? 1.2 : 2.2
     }))
 
 // ---------------------------------------------------------------------------

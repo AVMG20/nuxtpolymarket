@@ -42,6 +42,7 @@ function save(overrides: Partial<CallOfXenoRunSave> = {}): CallOfXenoRunSave {
         quickReviveBuys: 0,
         weapons: [{ base: 'm1911', tier: 0, mag: 8, reserve: 80 }],
         activeSlot: 0,
+        equipment: ['sentry', 'blackhole'],
         powered: true,
         doors: ['door-barracks-mess'],
         x: 8,
@@ -52,7 +53,6 @@ function save(overrides: Partial<CallOfXenoRunSave> = {}): CallOfXenoRunSave {
         stats: {
             kills: 120,
             headshots: 40,
-            bestStreak: 9,
             spins: 2,
             barrels: 3,
             boards: 15
@@ -166,6 +166,14 @@ describe('callOfXenoValidateSave', () => {
     it('rejects doors the map does not have', () => {
         expect(callOfXenoValidateSave(save({ doors: ['door-vault'] }))).toBe(false)
         expect(callOfXenoValidateSave(save({ doors: ['door-barracks-mess', 'door-barracks-mess'] }))).toBe(false)
+    })
+
+    it('round-trips carried equipment and rejects stock the bench cannot sell', () => {
+        expect(callOfXenoValidateSave(save({ equipment: ['sentry', 'drone', 'blackhole'] }))).toBe(true)
+        // Absent means pre-workbench save, not a broken one.
+        expect(callOfXenoValidateSave(save({ equipment: undefined }))).toBe(true)
+        expect(callOfXenoValidateSave(save({ equipment: ['tesla-coil' as never] }))).toBe(false)
+        expect(callOfXenoValidateSave(save({ equipment: ['sentry', 'drone', 'blackhole', 'sentry'] }))).toBe(false)
     })
 
     it('rejects positions off the map and non-finite facing', () => {
