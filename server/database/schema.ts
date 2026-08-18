@@ -364,6 +364,7 @@ export const callOfXenoState = pgTable('call_of_xeno_state', {
   scavengerLevel: integer('scavenger_level').notNull().default(0),
   contractLevel: integer('contract_level').notNull().default(0),
   sidearmLevel: integer('sidearm_level').notNull().default(0),
+  rigLevel: integer('rig_level').notNull().default(0),
   runsPlayed: integer('runs_played').notNull().default(0),
   totalEarned: numeric('total_earned', { precision: 19, scale: 4 }).notNull().default('0'),
   bestEarned: integer('best_earned').notNull().default(0),

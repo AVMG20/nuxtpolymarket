@@ -669,7 +669,7 @@
                             :class="row.affordable
                                 ? 'border-amber-400/50 text-amber-300 hover:bg-amber-400/15'
                                 : 'border-white/10 text-zinc-600'"
-                            :disabled="!row.affordable || equipmentStock.length >= 3"
+                            :disabled="!row.affordable"
                             @click="buyEquipment(row.equipment.id)"
                         >
                             <span class="text-[9px] opacity-60">{{ index + 1 }}</span>
@@ -677,7 +677,7 @@
                         </button>
                     </div>
                     <p class="pt-1 text-center text-[10px] uppercase tracking-[0.25em] text-red-400/70">
-                        The horde does not wait — F close · deploy with E
+                        The horde does not wait — F close · E deploy · slots {{ equipmentStock.length }}/{{ runEffects.equipmentSlots }}
                     </p>
                 </div>
             </div>
@@ -877,6 +877,7 @@ import {
     packAPunchCost,
     ammoCost,
     xenoRayFalloff,
+    xenoDamageFalloff,
     roundComposition,
     isSpecialRound,
     specialRoundEnemy,
@@ -909,6 +910,7 @@ import {
     CALL_OF_XENO_DOORS,
     CALL_OF_XENO_INTERACTABLES,
     CALL_OF_XENO_WINDOWS,
+    CALL_OF_XENO_WINDOW_BARRIERS,
     CALL_OF_XENO_WINDOW_BOARDS,
     CALL_OF_XENO_WINDOW_SILL,
     CALL_OF_XENO_WINDOW_HEAD,
@@ -1240,7 +1242,8 @@ const upgradeIcons: Record<CallOfXenoUpgradeId, string> = {
     adrenaline: 'i-lucide-heart-pulse',
     scavenger: 'i-lucide-wrench',
     contract: 'i-lucide-scroll-text',
-    sidearm: 'i-lucide-crosshair'
+    sidearm: 'i-lucide-crosshair',
+    rig: 'i-lucide-backpack'
 }
 
 const difficultyIcons: Record<CallOfXenoDifficultyId, string> = {
@@ -1496,6 +1499,7 @@ let recoil = 0
 let bloom = 0
 let markerTimer = 0
 let swapTimer = 0
+let swapTotal = 0.22
 let slots: WeaponSlot[] = []
 let activeSlot = 0
 let popupId = 0
@@ -1647,14 +1651,20 @@ function damageOf(slot: WeaponSlot) {
 }
 
 /**
- * Effective spread cone. Aiming cuts the base cone hard; hip fire carries a
- * big penalty that grows with bloom, walking adds to it and sprinting adds
- * more — standing still or aiming is how you hit. The crosshair renders this
- * cone exactly, so what you see is where the pellets go.
+ * Effective spread cone, interpolated by how far the sight has actually
+ * settled (aimBlend — the same curve the view model animates on, so an
+ * LMG lugging its gun up is still shooting from the hip mid-raise and the
+ * crosshair says so). No sight is a laser even fully aimed: every weapon
+ * keeps a small residual cone so distant targets stay a real shot, and
+ * bloom keeps biting a little mid-spray. Hip fire carries a big penalty
+ * that grows with bloom; walking adds to it and sprinting adds more. The
+ * crosshair renders this cone exactly, so what you see is where the
+ * pellets go.
  */
 function spreadOf(slot: WeaponSlot) {
-    const stance = aiming ? 0.3 : isSprinting ? 5.4 : isMoving ? 3.6 : 2.4
-    return slot.def.spread * (0.55 + bloom * 0.85) * stance
+    const hip = slot.def.spread * (0.55 + bloom * 0.85) * (isSprinting ? 5.4 : isMoving ? 3.6 : 2.4)
+    const ads = (slot.def.adsSpread ?? slot.def.spread * 0.3) * (0.85 + bloom * 0.5)
+    return hip + (ads - hip) * aimBlend
 }
 
 function reloadTimeOf(slot: WeaponSlot) {
@@ -1677,9 +1687,15 @@ function shootSound(slot: WeaponSlot) {
     }
 }
 
-/** Boxes the player can walk into at their current height. */
+/** Boxes the player can walk into at their current height.
+ * The window barriers ride along here and nowhere else: they plug the
+ * jump-through-the-window escape without touching enemy pathing, scripted
+ * climbs or bullet rays. */
 function playerBoxes(): CallOfXenoBox[] {
-    return solidsInBand(solids, feetY, PLAYER_HEIGHT)
+    return [
+        ...solidsInBand(solids, feetY, PLAYER_HEIGHT),
+        ...solidsInBand(CALL_OF_XENO_WINDOW_BARRIERS, feetY, PLAYER_HEIGHT)
+    ]
 }
 
 function rebuildCollision() {
@@ -1779,7 +1795,12 @@ function updatePlayer(dt: number) {
     const bobX = Math.cos(bob) * bobAmount * 0.6
 
     shake = Math.max(0, shake - dt * 4)
-    recoilPitch = Math.max(0, recoilPitch - dt * 3.2)
+    // Recoil recovery is proportional, never a fixed drain: a fixed rate
+    // faster than a gun's kicks-per-second cancels the climb entirely (an
+    // SMG's spray recovered fully between shots and stayed laser-flat).
+    // Pure proportional decay means a sustained spray climbs until the
+    // decay matches the kicks — an equilibrium the player pulls down on.
+    recoilPitch = recoilPitch > 0.0004 ? Math.max(0, recoilPitch - dt * recoilPitch * 2) : 0
 
     camera.position.set(
         px + bobX + (Math.random() - 0.5) * shake * 0.4,
@@ -1804,13 +1825,15 @@ function updateViewModel(dt: number) {
     swayX += ((keys.has('keya') ? 0.03 : keys.has('keyd') ? -0.03 : 0) - swayX) * Math.min(1, dt * 6)
     swayY += ((keys.has('keyw') ? -0.012 : keys.has('keys') ? 0.012 : 0) - swayY) * Math.min(1, dt * 6)
 
-    // Pack-a-Punch tiers glass up the sights: each tier snaps the aim in
-    // faster, so an upgraded gun feels like an upgrade the moment you aim.
-    const aimSpeed = 9 + active().tier * 4.5
+    // Weight class decides how fast the sight settles: SMGs and the pistol
+    // snap in, the BAR leans in, the belt-feds lug. Pack-a-Punch tiers glass
+    // up the sights on top of the weapon's own pace, so an upgraded gun
+    // still feels like an upgrade the moment you aim.
+    const aimSpeed = (active().def.aimSpeed ?? 9) + active().tier * 3
     aimBlend += ((aiming ? 1 : 0) - aimBlend) * Math.min(1, dt * aimSpeed)
     recoil = Math.max(0, recoil - dt * 7)
     const reloadPhase = reloadTotal > 0 ? 1 - Math.abs(reloadTimer / reloadTotal - 0.5) * 2 : 0
-    const swapPhase = swapTimer > 0 ? Math.min(1, swapTimer / 0.18) : 0
+    const swapPhase = swapTimer > 0 ? Math.min(1, swapTimer / swapTotal) : 0
     const dip = reloadPhase * 0.22 + swapPhase * 0.3
     const lunge = meleeTimer > 0 ? Math.sin((1 - meleeTimer / 0.28) * Math.PI) : 0
 
@@ -1839,7 +1862,9 @@ function equipModel() {
     weaponModel = buildWeaponModel(slot.base, slot.tier)
     weaponRoot.add(weaponModel)
 
-    swapTimer = 0.18
+    // Heavy weapons take longer to shoulder — the swap lock scales with them.
+    swapTotal = slot.def.swapTime ?? 0.22
+    swapTimer = swapTotal
 }
 
 // ---------------------------------------------------------------------------
@@ -2102,10 +2127,16 @@ function shoot() {
 
     slot.mag--
     fireTimer = fireDelayOf(slot)
-    recoil = 1
     bloom = Math.min(1, bloom + (aiming ? 0.22 : 0.34))
     shake = Math.min(0.09, shake + (slot.def.explosive ? 0.05 : slot.base === 'trench' || slot.base === 'rpk' ? 0.05 : 0.025))
-    recoilPitch += slot.def.spread * 0.6 + (slot.def.explosive ? 0.03 : 0.012)
+    // Per-weapon recoil: every shot kicks UP (a mild ±15% so it sways
+    // rather than ticks), aiming soaks a quarter, and the sideways tug is
+    // a fraction of the climb so the pattern reads up-and-drift, not
+    // symmetric jitter cancelling itself in place.
+    const kick = (slot.def.recoilKick ?? 0.012) * (0.85 + randomFloat() * 0.3) * (aiming ? 0.75 : 1)
+    recoilPitch += kick
+    yaw += (randomFloat() - 0.5) * kick * 0.9
+    recoil = Math.min(1.5, recoil * 0.55 + kick * 55)
     audio.play(shootSound(slot))
 
     muzzleFlash.material.opacity = 1
@@ -2170,7 +2201,10 @@ function shoot() {
 
         for (const hit of landed) {
             impactPoint.copy(pelletDir).multiplyScalar(hit.t).add(rayOrigin)
-            const multiplier = hit.kind === 'head' ? 1.5 : hit.kind === 'weak' ? (hit.enemy.def.weakPoint ?? 1) : 1
+            // Point blank hits full; long shots slide down the weapon's
+            // falloff curve, so range is a real decision per gun.
+            const multiplier = (hit.kind === 'head' ? 1.5 : hit.kind === 'weak' ? (hit.enemy.def.weakPoint ?? 1) : 1)
+                * xenoDamageFalloff(slot.def, hit.t)
             effects.bloodBurst(impactPoint, pelletDir, hit.kind === 'body' ? 1.2 : 2)
             if (applyHit(hit.enemy, damage * multiplier, hit.kind, scored, impactPoint)) killsThisShot++
         }
@@ -2240,7 +2274,7 @@ function applyHit(enemy: Enemy, damage: number, kind: 'body' | 'head' | 'weak', 
     let hitPaid = 0
     if (!scored.has(enemy)) {
         scored.add(enemy)
-        hitPaid = award(Math.round(CALL_OF_XENO_HIT_POINTS * enemy.def.reward))
+        hitPaid = award(CALL_OF_XENO_HIT_POINTS)
         audio.play(kind === 'body' ? 'hit' : 'headshot')
     }
 
@@ -2258,7 +2292,7 @@ function applyHit(enemy: Enemy, damage: number, kind: 'body' | 'head' | 'weak', 
     const base = source === 'knife'
         ? CALL_OF_XENO_KNIFE_KILL_POINTS
         : kind === 'body' ? CALL_OF_XENO_KILL_POINTS : CALL_OF_XENO_HEADSHOT_POINTS
-    registerKill(enemy, Math.round(base * enemy.def.reward), kind)
+    registerKill(enemy, base, kind)
     return true
 }
 
@@ -2612,7 +2646,7 @@ const equipmentRows = computed(() => {
         const perSecond = equipment.fireDelay > 0 ? equipment.damagePct / equipment.fireDelay : equipment.damagePct
         return {
             equipment,
-            affordable: points.value >= equipment.cost && equipmentStock.value.length < 3,
+            affordable: points.value >= equipment.cost && equipmentStock.value.length < runEffects.equipmentSlots,
             dpsLabel: `×${perSecond.toFixed(2)}`
         }
     })
@@ -2649,7 +2683,7 @@ function closeWorkbench() {
 }
 
 function buyEquipment(id: CallOfXenoEquipmentId) {
-    if (equipmentStock.value.length >= 3) return
+    if (equipmentStock.value.length >= runEffects.equipmentSlots) return
     const equipment = CALL_OF_XENO_EQUIPMENT[id]
     if (!spend(equipment.cost)) return
     equipmentStock.value = [...equipmentStock.value, id]
@@ -2787,7 +2821,7 @@ function updateGroundEquipment(dt: number) {
         entry.group.visible = entry.life > 4 || Math.sin(entry.life * 14) > -0.2
 
         const inReach = Math.hypot(entry.x - px, entry.z - pz) < 2.2 && Math.abs(entry.y - feetY) < 3
-        if (inReach && equipmentStock.value.length < 3) {
+        if (inReach && equipmentStock.value.length < runEffects.equipmentSlots) {
             equipmentStock.value = [...equipmentStock.value, entry.id]
             const spec = CALL_OF_XENO_EQUIPMENT[entry.id]
             spawnPopup(px, feetY + 1.1, pz, spec.name, perkCss(spec.color), 17)
@@ -3874,8 +3908,12 @@ function update(dt: number) {
         if (hurtSources[i]!.life <= 0) hurtSources.splice(i, 1)
     }
 
-    const targetFov = aiming ? 58 : (isSprinting && isMoving ? 85 : 80)
-    fovCurrent += (targetFov - fovCurrent) * Math.min(1, dt * 9)
+    // Zoom rides the same aimBlend the spread and the view model use, so
+    // the sight, the cone and the FOV all settle together — an LMG raises
+    // its zoom as slowly as it raises its gun.
+    const hipFov = isSprinting && isMoving ? 85 : 80
+    const targetFov = hipFov + (58 - hipFov) * aimBlend
+    fovCurrent += (targetFov - fovCurrent) * Math.min(1, dt * 14)
     if (Math.abs(fovCurrent - camera.fov) > 0.01) {
         camera.fov = fovCurrent
         camera.updateProjectionMatrix()
@@ -3949,7 +3987,9 @@ async function settleRun() {
     try {
         const res = await $fetch<{ awarded: number, counted: number, capped: boolean }>('/api/call-of-xeno/finish-run', {
             method: 'POST',
-            body: { round: currentRound, grossPoints: gross }
+            // runTime is actual played seconds (pauses do not accumulate),
+            // so the leaderboard duration matches what the player played.
+            body: { round: currentRound, grossPoints: gross, playedMs: Math.round(runTime * 1000) }
         })
         payoutResult.value = { awarded: res.awarded, counted: res.counted, capped: res.capped, gross }
         await fetchSession()
@@ -4273,8 +4313,9 @@ function applySave(save: CallOfXenoRunSave) {
     activeSlot = Math.min(save.activeSlot, slots.length - 1)
 
     // Undeployed equipment rides along; units left on the field at the
-    // checkpoint are gone with the rest of the round in flight.
-    equipmentStock.value = save.equipment ? [...save.equipment] : []
+    // checkpoint are gone with the rest of the round in flight. Sliced to
+    // the slot count the account actually owns.
+    equipmentStock.value = (save.equipment ?? []).slice(0, runEffects.equipmentSlots)
 
     score = save.score
     grossEarned.value = save.grossEarned

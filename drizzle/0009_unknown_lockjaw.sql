@@ -1,0 +1,1 @@
+ALTER TABLE "call_of_xeno_state" ADD COLUMN "rig_level" integer DEFAULT 0 NOT NULL;

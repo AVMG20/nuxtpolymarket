@@ -9,7 +9,6 @@ import {
     type CallOfXenoDifficultyId,
     type CallOfXenoUpgradeLevels
 } from '#shared/utils/gamelogic/call-of-xeno-meta'
-import { callOfXenoMaxRoundForElapsedMs } from '#shared/utils/gamelogic/call-of-xeno-save'
 
 export async function getLockedCallOfXenoState(tx: DbExecutor, userId: string) {
     const [state] = await tx.select().from(callOfXenoState).where(eq(callOfXenoState.userId, userId)).for('update')
@@ -24,6 +23,7 @@ export function callOfXenoLevels(state: {
     scavengerLevel: number
     contractLevel: number
     sidearmLevel: number
+    rigLevel: number
 }): CallOfXenoUpgradeLevels {
     return {
         warChest: state.warChestLevel,
@@ -31,7 +31,8 @@ export function callOfXenoLevels(state: {
         adrenaline: state.adrenalineLevel,
         scavenger: state.scavengerLevel,
         contract: state.contractLevel,
-        sidearm: state.sidearmLevel
+        sidearm: state.sidearmLevel,
+        rig: state.rigLevel
     }
 }
 
@@ -55,14 +56,13 @@ export const CALL_OF_XENO_LEVEL_COLUMN = {
     adrenaline: 'adrenalineLevel',
     scavenger: 'scavengerLevel',
     contract: 'contractLevel',
-    sidearm: 'sidearmLevel'
+    sidearm: 'sidearmLevel',
+    rig: 'rigLevel'
 } as const
 
 export interface CallOfXenoSettlementState {
     runDifficultySnapshot: CallOfXenoDifficultyId | string | null
     runPayoutMultSnapshot: string | null
-    /** Last round-boundary checkpoint the server holds, if any. */
-    runSave: { round: number } | null
     runsPlayed: number
     totalEarned: string
     bestEarned: number
@@ -88,12 +88,11 @@ const BEST_ROUND_COLUMN: Record<CallOfXenoDifficultyId, 'bestRoundRecruit' | 'be
 
 /**
  * Turns a finished run into the row update + payout it should leave behind.
- * The gross is clamped by the shared wall-clock ceiling, the payout
- * multipliers come off the deploy snapshot, and the round only ever raises
- * the record for the tier the run was actually played on. The reported
- * round is a client claim too: it settles as at most the round in flight
- * at the last checkpoint, and never deeper than the spawn pacing says the
- * wall clock allows.
+ * The round is the client's word, clamped to the game's hard depth cap —
+ * this is scoreboard data, and a wrong clamp once cost a real round-20 run
+ * its place (a rejected checkpoint froze the credited depth at 10). Only
+ * the payout is defensive: the gross is clamped by the shared wall-clock
+ * ceiling, and the payout multipliers come off the deploy snapshot.
  */
 export function settleCallOfXenoRun(state: CallOfXenoSettlementState, report: CallOfXenoRunReport, elapsedMs: number) {
     const difficulty = callOfXenoDifficulty(state.runDifficultySnapshot)
@@ -102,12 +101,7 @@ export function settleCallOfXenoRun(state: CallOfXenoSettlementState, report: Ca
     // so the clamp is pure exploit armour.
     const round = Math.min(
         CALL_OF_XENO_MAX_SETTLED_ROUND,
-        Math.max(0, Math.floor(report.round)),
-        // The checkpoint holds the round that was in flight at the last
-        // boundary; a death can only land on that round, never past it.
-        // With no checkpoint at all, only the clock has an opinion.
-        state.runSave ? state.runSave.round : CALL_OF_XENO_MAX_SETTLED_ROUND,
-        callOfXenoMaxRoundForElapsedMs(elapsedMs, difficulty)
+        Math.max(0, Math.floor(report.round))
     )
     const payout = callOfXenoPayoutForRun(report.grossPoints, elapsedMs, difficulty, payoutMult)
 

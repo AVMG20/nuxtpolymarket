@@ -5,7 +5,6 @@ import { requireUserId } from '#server/utils/auth'
 import { callOfXenoLevels, getLockedCallOfXenoState } from '#server/utils/call-of-xeno'
 import { callOfXenoDifficulty, callOfXenoUpgradeEffects } from '#shared/utils/gamelogic/call-of-xeno-meta'
 import {
-    callOfXenoMinElapsedMsForRound,
     callOfXenoSavePointsCeiling,
     callOfXenoValidateSave,
     type CallOfXenoRunSave
@@ -15,10 +14,12 @@ import {
  * Stores the run at a round boundary — the only point the game is in a
  * state worth freezing. Called once per completed round.
  *
- * Nothing the client says is taken on faith: the run must still be armed
- * (the deploy stamped its clock), the claimed depth must fit the wall
- * clock the server itself measured, and the points are stored clamped to
- * the same honesty ceiling the settle will apply.
+ * The run must still be armed (the deploy stamped its clock) and the save
+ * must be the shape the game writes; the points are stored clamped to the
+ * same honesty ceiling the settle will apply. The claimed depth is taken
+ * on faith: a pacing-based rejection once froze a real run's checkpoints
+ * at round 10, and the settle then credited that stale round — accuracy
+ * over strictness here, the wall clock still guards the payout itself.
  *
  * Writes are ordered by the depth they claim, not by a revision counter,
  * so a checkpoint whose response the client never saw does not wedge the
@@ -42,11 +43,6 @@ export default defineEventHandler(async (event) => {
 
         const difficulty = callOfXenoDifficulty(state.runDifficultySnapshot)
         const elapsedMs = Date.now() - state.runStartedAt.getTime()
-        // Rounds cannot complete faster than the spawn pacing allows, so a
-        // save deeper than the session's wall clock is a forged one.
-        if (callOfXenoMinElapsedMsForRound(save.round, difficulty) > elapsedMs) {
-            throw createError({ statusCode: 400, statusMessage: 'Save reports more progress than the run has had time for' })
-        }
 
         // Points ride along for the resume, but clamped to what this much
         // playtime could plausibly have earned — a tampered save cannot

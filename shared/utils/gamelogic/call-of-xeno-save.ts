@@ -2,19 +2,15 @@
 //
 // Shared verbatim by the client (builds the save at every round boundary,
 // restores it on resume) and the server (validates the shape, clamps the
-// points, checks the claimed depth against the run's wall clock). Only
-// round-boundary state is frozen: enemies in flight are deliberately not
-// persisted, so a crash costs the round in progress, never the run.
+// points). Only round-boundary state is frozen: enemies in flight are
+// deliberately not persisted, so a crash costs the round in progress,
+// never the run.
 
 import {
     CALL_OF_XENO_PERKS,
     CALL_OF_XENO_WEAPONS,
     CALL_OF_XENO_EQUIPMENT,
-    CALL_OF_XENO_ROUND_BREAK,
     packAPunch,
-    maxAlive,
-    zombieCount,
-    zombieSpawnInterval,
     type CallOfXenoPerkId,
     type CallOfXenoEquipmentId,
     type CallOfXenoWeaponId
@@ -88,9 +84,9 @@ function isCount(value: unknown, max: number): value is number {
 
 /**
  * Validates a save posted by a client. Everything here is a bound rather
- * than a business rule: the endpoint that stores it re-checks the parts
- * that decide money and depth against the server's own clock, and this
- * only guarantees the blob is the shape the game can read back.
+ * than a business rule: the endpoint that stores it re-checks the part
+ * that decides money against the server's own clock, and this only
+ * guarantees the blob is the shape the game can read back.
  */
 export function callOfXenoValidateSave(save: unknown): save is CallOfXenoRunSave {
     if (typeof save !== 'object' || save === null) return false
@@ -143,43 +139,6 @@ export function callOfXenoValidateSave(save: unknown): save is CallOfXenoRunSave
     return (['kills', 'headshots', 'spins', 'barrels', 'boards'] as const).every(key =>
         isCount(stats[key], 10_000_000)
     )
-}
-
-/**
- * Least wall-clock time in which rounds 1..round-1 could have completed on
- * this difficulty. A round cannot end before its final mandatory spawn has
- * had the interval to appear — zombies trickle out on a fixed cadence with
- * a cap on how many stand alive at once, and that pace is a floor no
- * matter how fast the kills land. The 4-second break between rounds is
- * unavoidable too. Halved for safety: real rounds also burn time on
- * pathing and boarding that this floor cannot see.
- */
-export function callOfXenoMinElapsedMsForRound(round: number, difficulty: CallOfXenoDifficulty): number {
-    let ms = 0
-    for (let r = 1; r < round; r++) {
-        const count = Math.ceil(zombieCount(r) * difficulty.countMult)
-        const alive = Math.round(maxAlive(r) * difficulty.countMult)
-        const pacedSpawns = Math.max(0, count - alive)
-        ms += pacedSpawns * zombieSpawnInterval(r) * 1000 + CALL_OF_XENO_ROUND_BREAK * 1000
-    }
-    return Math.round(ms * 0.5)
-}
-
-/**
- * Deepest round the run's wall clock can justify — the inverse of the
- * floor above, so a forged finish or save cannot claim depth the session
- * never had time to play.
- */
-export function callOfXenoMaxRoundForElapsedMs(elapsedMs: number, difficulty: CallOfXenoDifficulty): number {
-    const elapsed = Math.max(0, elapsedMs)
-    let round = 1
-    while (
-        round < CALL_OF_XENO_MAX_SETTLED_ROUND
-        && callOfXenoMinElapsedMsForRound(round + 1, difficulty) <= elapsed
-    ) {
-        round++
-    }
-    return round
 }
 
 /**

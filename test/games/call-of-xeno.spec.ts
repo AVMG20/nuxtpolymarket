@@ -14,6 +14,7 @@ import {
     packAPunchCost,
     ammoCost,
     xenoRayFalloff,
+    xenoDamageFalloff,
     CALL_OF_XENO_SALLY_DAMAGE,
     CALL_OF_XENO_SALLY_MAG,
     CALL_OF_XENO_SALLY_RESERVE,
@@ -50,6 +51,7 @@ import {
     CALL_OF_XENO_NODES,
     CALL_OF_XENO_EDGES,
     CALL_OF_XENO_WINDOWS,
+    CALL_OF_XENO_WINDOW_BARRIERS,
     CALL_OF_XENO_WINDOW_SILL,
     CALL_OF_XENO_WINDOW_HEAD,
     CALL_OF_XENO_WINDOW_WIDTH,
@@ -290,8 +292,64 @@ describe('pack-a-punch ladder', () => {
         expect(m('mp40')).toBeGreaterThan(m('ak74'))
         expect(m('ak74')).toBeGreaterThan(m('rpk'))
         expect(Math.min(m('m60'), m('fnmag'))).toBeLessThan(m('rpk'))
-        // Small penalties only: nothing drops below a 8% cut.
-        expect(m('m60')).toBeGreaterThan(0.9)
+        // Real weight now: the belt-feds trudge, but nothing drops below a 12% cut.
+        expect(m('m60')).toBeGreaterThan(0.85)
+    })
+
+    it('makes the heavies shoulder like heavies — sights, swaps and reloads all pay', () => {
+        const w = (id: CallOfXenoWeaponId) => CALL_OF_XENO_WEAPONS[id]
+        // ADS settle: the SMG snaps in, every belt-fed lags well behind the AR.
+        expect(w('skorpion').aimSpeed!).toBeGreaterThan(w('ak74').aimSpeed!)
+        expect(Math.max(w('m60').aimSpeed!, w('fnmag').aimSpeed!, w('rpk').aimSpeed!)).toBeLessThan(w('ak74').aimSpeed!)
+        // Swap and reload follow the same weight order.
+        expect(w('m60').swapTime!).toBeGreaterThan(w('skorpion').swapTime!)
+        expect(w('m60').swapTime!).toBeGreaterThan(w('ak74').swapTime!)
+        expect(w('m60').reloadTime).toBeGreaterThan(w('rpk').reloadTime)
+        expect(w('rpk').reloadTime).toBeGreaterThan(w('ak74').reloadTime)
+    })
+
+    it('keeps fully-aimed sights honest — no conventional gun is a laser', () => {
+        const w = (id: CallOfXenoWeaponId) => CALL_OF_XENO_WEAPONS[id]
+        for (const weapon of Object.values(CALL_OF_XENO_WEAPONS)) {
+            if (weapon.id === 'xenoray') continue
+            expect(weapon.adsSpread, weapon.id).toBeGreaterThan(0)
+        }
+        // Precision ladder: the AR out-aims the SMG, the hand cannon out-aims the pig.
+        expect(w('ak74').adsSpread!).toBeLessThan(w('skorpion').adsSpread!)
+        expect(w('magnum').adsSpread!).toBeLessThan(w('m60').adsSpread!)
+    })
+
+    it('kicks hard enough that a spray climbs — no laser sprays', () => {
+        const w = (id: CallOfXenoWeaponId) => CALL_OF_XENO_WEAPONS[id]
+        // Sustained-fire climb rate (kick per second of full auto) decides,
+        // against the game's proportional recoil recovery, whether a spray
+        // drifts up or stays flat. Every automatic must clear a real floor.
+        for (const weapon of Object.values(CALL_OF_XENO_WEAPONS)) {
+            if (!weapon.automatic) continue
+            expect(weapon.recoilKick! / weapon.fireDelay, weapon.id).toBeGreaterThan(0.09)
+        }
+        // Heavy calibres slam per shot; the SMG buzzes small but often.
+        expect(w('magnum').recoilKick!).toBeGreaterThan(w('m1911').recoilKick!)
+        expect(w('trench').recoilKick!).toBeGreaterThan(w('ak74').recoilKick!)
+        expect(w('ak74').recoilKick!).toBeGreaterThan(w('skorpion').recoilKick!)
+    })
+
+    it('softens damage with distance, hardest for the short-range guns', () => {
+        const w = (id: CallOfXenoWeaponId) => CALL_OF_XENO_WEAPONS[id]
+        // Point blank is always full damage.
+        for (const weapon of Object.values(CALL_OF_XENO_WEAPONS)) {
+            if (weapon.falloffStart === undefined) continue
+            expect(xenoDamageFalloff(weapon, weapon.falloffStart), weapon.id).toBe(1)
+        }
+        // Mid-range: the Skorpion has bled hard, the AK barely at all.
+        expect(xenoDamageFalloff(w('skorpion'), 30)).toBeLessThan(0.7)
+        expect(xenoDamageFalloff(w('ak74'), 50)).toBeGreaterThan(0.85)
+        expect(xenoDamageFalloff(w('ak74'), 50)).toBeLessThan(1)
+        // The floor holds at — and past — max range, and never dips under it.
+        expect(xenoDamageFalloff(w('skorpion'), w('skorpion').range)).toBeCloseTo(w('skorpion').falloffMin!, 6)
+        expect(xenoDamageFalloff(w('skorpion'), 999)).toBe(w('skorpion').falloffMin!)
+        // The wonder weapon carries no generic falloff — its beam has its own.
+        expect(xenoDamageFalloff(w('xenoray'), 999)).toBe(1)
     })
 
     it('softens the wonder weapon with distance and lets Pack-a-Punch push it back out', () => {
@@ -328,8 +386,7 @@ describe('enemy roster', () => {
         expect(drone.ranged!.projectileSpeed).toBeGreaterThan(0)
     })
 
-    it('pays more for the types that are harder to kill', () => {
-        expect(CALL_OF_XENO_ENEMIES.brute.reward).toBeGreaterThan(CALL_OF_XENO_ENEMIES.shambler.reward)
+    it('exposes a weak point on the tankiest type', () => {
         expect(CALL_OF_XENO_ENEMIES.brute.weakPoint).toBeGreaterThan(1)
     })
 
@@ -680,6 +737,29 @@ describe('windows', () => {
         expect(CALL_OF_XENO_WINDOW_BOARDS).toBeGreaterThanOrEqual(4)
         expect(CALL_OF_XENO_WINDOW_SILL).toBeLessThan(CALL_OF_XENO_WINDOW_HEAD)
         expect(CALL_OF_XENO_WINDOW_HEAD).toBeLessThan(CALL_OF_XENO_WALL_HEIGHT)
+    })
+
+    it('plugs every opening with a player-only barrier that blocks a jump through', () => {
+        // One pane per window, filling the opening band exactly.
+        expect(CALL_OF_XENO_WINDOW_BARRIERS).toHaveLength(CALL_OF_XENO_WINDOWS.length)
+        for (const barrier of CALL_OF_XENO_WINDOW_BARRIERS) {
+            expect(barrier.baseY).toBe(CALL_OF_XENO_WINDOW_SILL)
+            expect(barrier.baseY + barrier.height).toBe(CALL_OF_XENO_WINDOW_HEAD)
+        }
+        // The pane the game feeds the player: a running jump at the sill
+        // (feet ~1.2 up, the max hop is ~1.27) stays blocked, while a
+        // player on the upper floor never sees it.
+        const boxesAt = (feetY: number) => solidsInBand(CALL_OF_XENO_WINDOW_BARRIERS, feetY, 1.8)
+        expect(boxesAt(0).length).toBe(CALL_OF_XENO_WINDOWS.length)
+        expect(boxesAt(1.2).length).toBe(CALL_OF_XENO_WINDOWS.length)
+        expect(boxesAt(CALL_OF_XENO_UPPER_Y).length).toBe(0)
+        // And it actually stops the body: pushed back out of the pane.
+        const window = CALL_OF_XENO_WINDOWS.find(w => w.id === 'win-barracks-s1')!
+        const barrier = solidsInBand(CALL_OF_XENO_WINDOW_BARRIERS, 1.2, 1.8).find(b =>
+            b.minX <= window.centre.x && b.maxX >= window.centre.x
+            && b.minZ <= window.centre.z && b.maxZ >= window.centre.z)!
+        const solved = resolveCircle(window.centre.x, window.centre.z, PLAYER_RADIUS, [barrier])
+        expect(Math.hypot(solved.x - window.centre.x, solved.z - window.centre.z)).toBeGreaterThan(0)
     })
 
     it('only offers the windows of rooms the player can be reached from', () => {
@@ -1064,7 +1144,8 @@ describe('meta progression', () => {
         adrenaline: 10,
         scavenger: 5,
         contract: 9,
-        sidearm: 4
+        sidearm: 4,
+        rig: 2
     }
 
     it('prices the full upgrade ladder inside the 500-800M budget', () => {
@@ -1088,6 +1169,8 @@ describe('meta progression', () => {
         expect(base.maxHealth).toBe(CALL_OF_XENO_BASE_HEALTH)
         expect(base.payoutMult).toBe(1)
         expect(base.startWeapon).toBeNull()
+        // Bare accounts carry exactly one piece of equipment.
+        expect(base.equipmentSlots).toBe(1)
 
         const maxed = callOfXenoUpgradeEffects(maxedLevels)
         expect(maxed.startingPoints).toBe(CALL_OF_XENO_STARTING_POINTS + 10 * 1000)
@@ -1100,6 +1183,16 @@ describe('meta progression', () => {
         expect(maxed.costMult).toBeCloseTo(0.75, 6)
         expect(callOfXenoUpgradeEffects({ ...maxedLevels, scavenger: 20 }).costMult).toBeCloseTo(0.75, 6)
         expect(maxed.startWeapon).toBe('ak74')
+        expect(maxed.equipmentSlots).toBe(3)
+    })
+
+    it('prices the tool rig at 1M for two slots and 3M for three', () => {
+        const rig = CALL_OF_XENO_UPGRADES.find(def => def.id === 'rig')!
+        expect(rig.max).toBe(2)
+        expect(callOfXenoUpgradeCost(rig, 0)).toBe(1_000_000)
+        expect(callOfXenoUpgradeCost(rig, 1)).toBe(3_000_000)
+        expect(callOfXenoUpgradeCost(rig, 2)).toBeNull()
+        expect(callOfXenoUpgradeEffects({ ...CALL_OF_XENO_EMPTY_LEVELS, rig: 1 }).equipmentSlots).toBe(2)
     })
 
     it('gates the sidearm ladder level by level', () => {

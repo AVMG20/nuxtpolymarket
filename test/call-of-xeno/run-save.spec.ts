@@ -7,8 +7,6 @@ import { callOfXenoDifficulty, callOfXenoMaxGrossForElapsedMs } from '#shared/ut
 import {
     CALL_OF_XENO_SAVE_VERSION,
     CALL_OF_XENO_SAVE_EARLY_POINTS_FLOOR,
-    callOfXenoMaxRoundForElapsedMs,
-    callOfXenoMinElapsedMsForRound,
     callOfXenoSavePointsCeiling,
     callOfXenoValidateSave,
     type CallOfXenoRunSave
@@ -18,7 +16,6 @@ function state(overrides: Partial<CallOfXenoSettlementState> = {}): CallOfXenoSe
     return {
         runDifficultySnapshot: 'recruit',
         runPayoutMultSnapshot: '1.0000',
-        runSave: null,
         runsPlayed: 3,
         totalEarned: '1200.0000',
         bestEarned: 500,
@@ -70,34 +67,18 @@ describe('settleCallOfXenoRun', () => {
         expect(result.bestRounds.bestRoundRecruit).toBe(11)
     })
 
-    it('never settles deeper than the round in flight at the last checkpoint', () => {
-        // A client claiming to have died on round 99 with the server holding
-        // a round-15 checkpoint (round 15 was in flight) settles as 15.
-        const result = settleCallOfXenoRun(
-            state({ runSave: { round: 15 } }),
-            { round: 99, grossPoints: 50_000 },
-            24 * 60 * 60_000
-        )
-        expect(result.round).toBe(15)
-        expect(result.bestRounds.bestRoundRecruit).toBe(15)
+    it('credits the round the run says it died on', () => {
+        // Scoreboard data is the client's word: a fast run settles at the
+        // depth it reached even when no clock-based model believes it.
+        // (A pacing clamp once froze a real round-20 death at round 10.)
+        const result = settleCallOfXenoRun(state(), { round: 20, grossPoints: 30_000 }, 12 * 60_000)
+        expect(result.round).toBe(20)
+        expect(result.bestRounds.bestRoundRecruit).toBe(20)
     })
 
-    it('settles the in-flight round the checkpoint names', () => {
-        // Died mid-round 15 with the last boundary save saying round 15 is
-        // next — that is exactly what a resume would have restarted into.
-        const result = settleCallOfXenoRun(
-            state({ runSave: { round: 15 } }),
-            { round: 15, grossPoints: 5_000 },
-            60 * 60_000
-        )
-        expect(result.round).toBe(15)
-    })
-
-    it('never settles deeper than the wall clock can justify', () => {
-        // No checkpoint at all: the spawn pacing floor is the only opinion.
-        const result = settleCallOfXenoRun(state(), { round: 50, grossPoints: 10_000 }, 60_000)
-        expect(result.round).toBe(callOfXenoMaxRoundForElapsedMs(60_000, callOfXenoDifficulty('recruit')))
-        expect(result.round).toBeLessThan(20)
+    it('still clamps the credited round at the game\'s hard depth cap', () => {
+        const result = settleCallOfXenoRun(state(), { round: 150, grossPoints: 10_000 }, 60 * 60_000)
+        expect(result.round).toBe(100)
     })
 
     it('still caps a forged gross at the honesty ceiling', () => {
@@ -188,27 +169,6 @@ describe('callOfXenoValidateSave', () => {
         expect(callOfXenoValidateSave(save({ stats }))).toBe(false)
         const negative = { ...save().stats, boards: -3 }
         expect(callOfXenoValidateSave(save({ stats: negative }))).toBe(false)
-    })
-})
-
-describe('round pacing floor', () => {
-    it('grows with depth and scales with the difficulty spawn count', () => {
-        const recruit = callOfXenoDifficulty('recruit')
-        const nightmare = callOfXenoDifficulty('nightmare')
-        expect(callOfXenoMinElapsedMsForRound(2, recruit)).toBeGreaterThan(0)
-        expect(callOfXenoMinElapsedMsForRound(20, recruit))
-            .toBeGreaterThan(callOfXenoMinElapsedMsForRound(10, recruit))
-        expect(callOfXenoMinElapsedMsForRound(20, nightmare))
-            .toBeGreaterThanOrEqual(callOfXenoMinElapsedMsForRound(20, recruit))
-    })
-
-    it('keeps maxRoundForElapsedMs the inverse of the floor', () => {
-        const recruit = callOfXenoDifficulty('recruit')
-        const floorFor30 = callOfXenoMinElapsedMsForRound(30, recruit)
-        expect(callOfXenoMaxRoundForElapsedMs(floorFor30 - 1, recruit)).toBe(29)
-        expect(callOfXenoMaxRoundForElapsedMs(floorFor30, recruit)).toBe(30)
-        expect(callOfXenoMaxRoundForElapsedMs(0, recruit)).toBe(1)
-        expect(callOfXenoMaxRoundForElapsedMs(-5000, recruit)).toBe(1)
     })
 })
 
