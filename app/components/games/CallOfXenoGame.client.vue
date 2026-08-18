@@ -336,6 +336,29 @@
 
                         <!-- RIGHT: deployment -->
                         <div class="max-h-[70vh] overflow-y-auto p-7 sm:p-9 lg:max-h-[75vh]">
+                            <!-- crashed-run resume -->
+                            <div v-if="resumableSave && resumableRun" class="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-cyan-400/30 bg-cyan-400/[0.07] px-4 py-3.5">
+                                <div class="min-w-0">
+                                    <div class="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.3em] text-cyan-300">
+                                        <UIcon name="i-lucide-rotate-ccw" class="size-4" />
+                                        Deployment in progress
+                                    </div>
+                                    <div class="mt-1 text-[11px] leading-relaxed text-zinc-400">
+                                        You went dark on round {{ resumableSave.round }} of
+                                        <span class="font-bold uppercase">{{ resumableDifficultyName }}</span>
+                                        — pick up where the outpost lost you. A fresh deploy abandons it.
+                                    </div>
+                                </div>
+                                <button
+                                    class="flex shrink-0 items-center gap-2 rounded-lg bg-cyan-500 px-5 py-2.5 text-[11px] font-black uppercase tracking-[0.2em] text-black transition-colors hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-40"
+                                    :disabled="deploying"
+                                    @click="resumeRun()"
+                                >
+                                    <UIcon :name="deploying ? 'i-lucide-loader-circle' : 'i-lucide-play'" class="size-3.5" :class="deploying ? 'animate-spin' : ''" />
+                                    Resume — Round {{ resumableSave.round }}
+                                </button>
+                            </div>
+
                             <!-- difficulty -->
                             <div class="flex items-center justify-between">
                                 <div class="flex items-center gap-2 text-[9px] uppercase tracking-[0.4em] text-zinc-500">
@@ -830,8 +853,10 @@ import {
     type CallOfXenoDifficulty,
     type CallOfXenoDifficultyId,
     type CallOfXenoUpgradeEffects,
-    type CallOfXenoUpgradeId
+    type CallOfXenoUpgradeId,
+    type CallOfXenoUpgradeLevels
 } from '#shared/utils/gamelogic/call-of-xeno-meta'
+import { CALL_OF_XENO_SAVE_VERSION, type CallOfXenoRunSave } from '#shared/utils/gamelogic/call-of-xeno-save'
 import { randomFloat, randomWeighted } from '#shared/utils/random'
 import { CallOfXenoAudio } from '~/utils/call-of-xeno/sounds'
 import { CallOfXenoEffects } from '~/utils/call-of-xeno/effects'
@@ -940,6 +965,19 @@ let serverRunActive = false
 /** Wall-clock start of the current run — drives the honest payout preview. */
 let runStartMs = 0
 
+// Round-boundary checkpoint of the active run. Saved after every completed
+// round so a crash or lost connection resumes at the round's start instead
+// of losing the run outright.
+let saveRevision = 0
+let pendingSave: Promise<void> | null = null
+const resumableSave = shallowRef<CallOfXenoRunSave | null>(null)
+const resumableRun = shallowRef<{
+    difficulty: CallOfXenoDifficultyId
+    startedAt: string
+    payoutMult: number
+    revision: number
+} | null>(null)
+
 /** Chosen starting weapon for the next run. Kept across menu visits, reset to the best unlocked one after buys. */
 const chosenSidearm = ref<CallOfXenoWeaponId>('m1911')
 
@@ -1003,6 +1041,25 @@ async function refreshMeta() {
         if (serverRunActive && state.activeRun && CALL_OF_XENO_DIFFICULTIES.some(d => d.id === state.activeRun?.difficulty)) {
             selectedDifficulty.value = state.activeRun.difficulty as CallOfXenoDifficultyId
         }
+        // A crashed run with a checkpoint is offered back as a resume; a run
+        // without one is dead weight the deploy flow already knows how to
+        // clear. Only meaningful from the menu — mid-run refreshes keep the
+        // live run's state untouched.
+        const active = state.activeRun
+        if (!serverRunActive && active?.save && active.save.version === CALL_OF_XENO_SAVE_VERSION) {
+            resumableSave.value = active.save
+            resumableRun.value = {
+                difficulty: (CALL_OF_XENO_DIFFICULTIES.some(d => d.id === active.difficulty)
+                    ? active.difficulty
+                    : 'recruit') as CallOfXenoDifficultyId,
+                startedAt: String(active.startedAt),
+                payoutMult: active.payoutMult,
+                revision: active.revision ?? 0
+            }
+        } else {
+            resumableSave.value = null
+            resumableRun.value = null
+        }
         if (!state.difficulties.some((d: MetaDifficultyRow) => d.id === selectedDifficulty.value && d.unlocked)) {
             selectedDifficulty.value = 'recruit'
         }
@@ -1012,6 +1069,8 @@ async function refreshMeta() {
         metaReady.value = true
         metaUpgrades.value = []
         cooldownRemainingMs.value = 0
+        resumableSave.value = null
+        resumableRun.value = null
     }
 }
 
@@ -1097,6 +1156,13 @@ function perkCss(color: number) {
 
 /** Menu-display lists, frozen once — the roster does not change mid-session. */
 const CALL_OF_XENO_PERK_LIST = Object.values(CALL_OF_XENO_PERKS)
+
+/** Tier name of the run the server is holding for a resume. */
+const resumableDifficultyName = computed(() =>
+    metaDifficulties.value.find(d => d.id === resumableRun.value?.difficulty)?.name
+    ?? CALL_OF_XENO_DIFFICULTIES.find(d => d.id === resumableRun.value?.difficulty)?.name
+    ?? ''
+)
 const CALL_OF_XENO_WEAPON_TYPE: Record<CallOfXenoWeaponId, string> = {
     m1911: 'pistol',
     skorpion: 'SMG',
@@ -2902,6 +2968,8 @@ function updateRound(dt: number) {
     } else if (enemies.length === 0) {
         inBreak = true
         breakTimer = CALL_OF_XENO_ROUND_BREAK
+        // Round boundary — the one moment worth checkpointing.
+        saveRun()
     }
 }
 
@@ -3326,6 +3394,10 @@ async function exitRun() {
 async function settleRun() {
     if (!serverRunActive) return null
     serverRunActive = false
+    // Let the last round-boundary checkpoint land before the run is cleared
+    // — a straggler save racing a fresh deploy would otherwise write itself
+    // into the new run's slot (revision 0 matches a fresh arm).
+    if (pendingSave) await pendingSave
     const gross = Math.round(grossEarned.value)
     try {
         const res = await $fetch<{ awarded: number, counted: number, capped: boolean }>('/api/call-of-xeno/finish-run', {
@@ -3538,6 +3610,171 @@ function resetRun() {
     syncHud()
 }
 
+// ---------------------------------------------------------------------------
+// Round-boundary checkpoint
+// ---------------------------------------------------------------------------
+
+function buildSave(): CallOfXenoRunSave {
+    return {
+        version: CALL_OF_XENO_SAVE_VERSION,
+        // Called the moment a round dies out: the next one is what a resume
+        // restarts into.
+        round: currentRound + 1,
+        score: Math.round(score),
+        grossEarned: Math.round(grossEarned.value),
+        hp: Math.max(1, Math.round(hp)),
+        hpMax: Math.round(hpMax),
+        perks: [...perks],
+        quickReviveBuys,
+        weapons: slots.map(slot => ({ base: slot.base, tier: slot.tier, mag: slot.mag, reserve: slot.reserve })),
+        activeSlot,
+        powered,
+        doors: [...openDoors],
+        x: Math.round(px * 100) / 100,
+        z: Math.round(pz * 100) / 100,
+        y: Math.round(feetY * 100) / 100,
+        yaw: Math.round(yaw * 1000) / 1000,
+        runTime: Math.round(runTime),
+        stats: {
+            kills: statKills,
+            headshots: statHeadshots,
+            bestStreak: statBestStreak,
+            spins: statSpins,
+            barrels: statBarrels,
+            boards: statBoards
+        }
+    }
+}
+
+/**
+ * Fire-and-forget checkpoint at every round boundary. Best effort only: a
+ * save that never lands costs the round in progress on the next crash,
+ * never the run itself.
+ */
+function saveRun() {
+    if (!serverRunActive) return
+    const save = buildSave()
+    const request: Promise<void> = $fetch<{ revision: number }>('/api/call-of-xeno/save-run', {
+        method: 'POST',
+        body: { revision: saveRevision, save }
+    }).then((res) => {
+        saveRevision = res.revision
+    }).catch(() => {
+        // Network hiccup or a rejected claim — play on without a checkpoint.
+    })
+    pendingSave = request
+    void request.then(() => {
+        if (pendingSave === request) pendingSave = null
+    })
+}
+
+/** Restores a round-boundary checkpoint on top of a fresh resetRun(). */
+function applySave(save: CallOfXenoRunSave) {
+    for (const id of save.doors) {
+        openDoors.add(id)
+        const group = level.doors.get(id)
+        if (group) {
+            scene.remove(group)
+            disposeObject(group)
+            level.doors.delete(id)
+        }
+    }
+    statDoors = save.doors.length
+
+    if (save.powered) {
+        powered = true
+        powerOn.value = true
+        level.powerLever.handle.rotation.x = -0.9
+    }
+
+    perks.clear()
+    for (const id of save.perks) perks.add(id)
+    ownedPerks.value = save.perks.map(id => CALL_OF_XENO_PERKS[id])
+    quickReviveBuys = save.quickReviveBuys
+    hpMax = save.hpMax
+    hp = save.hp
+    sinceDamage = 99
+
+    slots = save.weapons.map((saved) => {
+        const slot = makeSlot(saved.base, saved.tier)
+        slot.mag = saved.mag
+        slot.reserve = saved.reserve
+        return slot
+    })
+    activeSlot = Math.min(save.activeSlot, slots.length - 1)
+
+    score = save.score
+    grossEarned.value = save.grossEarned
+
+    px = save.x
+    pz = save.z
+    feetY = save.y
+    yaw = save.yaw
+    pitch = 0
+    vy = 0
+    grounded = true
+
+    statKills = save.stats.kills
+    statHeadshots = save.stats.headshots
+    statBestStreak = save.stats.bestStreak
+    statSpins = save.stats.spins
+    statBarrels = save.stats.barrels
+    statBoards = save.stats.boards
+    runTime = save.runTime
+
+    camera.position.set(px, feetY + PLAYER_EYE, pz)
+    camera.rotation.set(0, yaw, 0)
+
+    rebuildCollision()
+    refreshLights()
+    equipModel()
+    startRound(save.round)
+    syncHud()
+}
+
+/** Upgrade levels as the menu currently sees them — the resume's effects. */
+function metaLevels(): CallOfXenoUpgradeLevels {
+    const levels = { ...CALL_OF_XENO_EMPTY_LEVELS }
+    for (const row of metaUpgrades.value) levels[row.id] = row.level
+    return levels
+}
+
+/**
+ * Picks a crashed run back up from its last round boundary. The run is
+ * still armed server-side, so no deploy happens — the server clock and
+ * payout snapshot keep running exactly as they were.
+ */
+async function resumeRun() {
+    if (deploying.value) return
+    const save = resumableSave.value
+    const info = resumableRun.value
+    if (!save || !info || !initScene()) return
+    audio.start()
+    deploying.value = true
+    try {
+        const difficulty = callOfXenoDifficulty(info.difficulty)
+        runDifficulty = difficulty
+        runDifficultyName.value = difficulty.name
+        // Effects are rebuilt from the account's levels; the payout
+        // multiplier stays the deploy-time snapshot the settle uses.
+        const effects = callOfXenoUpgradeEffects(metaLevels())
+        runEffects = { ...effects, payoutMult: info.payoutMult || effects.payoutMult }
+        saveRevision = info.revision
+        serverRunActive = true
+        resumableSave.value = null
+        resumableRun.value = null
+        resetRun()
+        // After resetRun, which stamps a fresh clock — the preview has to
+        // run off the server-stamped deploy, the same clock the settle uses.
+        runStartMs = new Date(info.startedAt).getTime()
+        applySave(save)
+        phase.value = 'playing'
+        viewport.value?.querySelector('canvas')?.requestPointerLock()
+    } finally {
+        deploying.value = false
+    }
+}
+
 /** Arms a run: stamps the server snapshot, applies the account power. */
 async function deployRun(): Promise<boolean> {
     // The starter the player picked in the menu, validated against what the
@@ -3557,6 +3794,8 @@ async function deployRun(): Promise<boolean> {
         runEffects = callOfXenoUpgradeEffects(CALL_OF_XENO_EMPTY_LEVELS)
         applyEffects()
         serverRunActive = false
+        resumableSave.value = null
+        resumableRun.value = null
         resetRun()
         return true
     }
@@ -3564,6 +3803,10 @@ async function deployRun(): Promise<boolean> {
     deploying.value = true
     menuError.value = ''
     try {
+        // Let any in-flight checkpoint from the previous run land before a
+        // new one is armed — a straggler would otherwise write itself into
+        // the fresh run's slot.
+        if (pendingSave) await pendingSave
         const res = await $fetch('/api/call-of-xeno/start-run', {
             method: 'POST',
             // A confirmed second click abandons a stuck run (dead tab from a
@@ -3579,6 +3822,9 @@ async function deployRun(): Promise<boolean> {
         runStartMs = res.runStartedAt ? new Date(res.runStartedAt).getTime() : Date.now()
         applyEffects()
         serverRunActive = true
+        saveRevision = 0
+        resumableSave.value = null
+        resumableRun.value = null
         resetRun()
         return true
     } catch (error) {

@@ -9,6 +9,7 @@ import {
     type CallOfXenoDifficultyId,
     type CallOfXenoUpgradeLevels
 } from '#shared/utils/gamelogic/call-of-xeno-meta'
+import { callOfXenoMaxRoundForElapsedMs } from '#shared/utils/gamelogic/call-of-xeno-save'
 
 export async function getLockedCallOfXenoState(tx: DbExecutor, userId: string) {
     const [state] = await tx.select().from(callOfXenoState).where(eq(callOfXenoState.userId, userId)).for('update')
@@ -60,6 +61,8 @@ export const CALL_OF_XENO_LEVEL_COLUMN = {
 export interface CallOfXenoSettlementState {
     runDifficultySnapshot: CallOfXenoDifficultyId | string | null
     runPayoutMultSnapshot: string | null
+    /** Last round-boundary checkpoint the server holds, if any. */
+    runSave: { round: number } | null
     runsPlayed: number
     totalEarned: string
     bestEarned: number
@@ -87,14 +90,25 @@ const BEST_ROUND_COLUMN: Record<CallOfXenoDifficultyId, 'bestRoundRecruit' | 'be
  * Turns a finished run into the row update + payout it should leave behind.
  * The gross is clamped by the shared wall-clock ceiling, the payout
  * multipliers come off the deploy snapshot, and the round only ever raises
- * the record for the tier the run was actually played on.
+ * the record for the tier the run was actually played on. The reported
+ * round is a client claim too: it settles as at most the round in flight
+ * at the last checkpoint, and never deeper than the spawn pacing says the
+ * wall clock allows.
  */
 export function settleCallOfXenoRun(state: CallOfXenoSettlementState, report: CallOfXenoRunReport, elapsedMs: number) {
     const difficulty = callOfXenoDifficulty(state.runDifficultySnapshot)
     const payoutMult = Number(state.runPayoutMultSnapshot ?? '1') || 1
     // Deeper than round 100 settles as 100 — nobody survives there by hand,
     // so the clamp is pure exploit armour.
-    const round = Math.min(CALL_OF_XENO_MAX_SETTLED_ROUND, Math.max(0, Math.floor(report.round)))
+    const round = Math.min(
+        CALL_OF_XENO_MAX_SETTLED_ROUND,
+        Math.max(0, Math.floor(report.round)),
+        // The checkpoint holds the round that was in flight at the last
+        // boundary; a death can only land on that round, never past it.
+        // With no checkpoint at all, only the clock has an opinion.
+        state.runSave ? state.runSave.round : CALL_OF_XENO_MAX_SETTLED_ROUND,
+        callOfXenoMaxRoundForElapsedMs(elapsedMs, difficulty)
+    )
     const payout = callOfXenoPayoutForRun(report.grossPoints, elapsedMs, difficulty, payoutMult)
 
     const bestColumn = BEST_ROUND_COLUMN[difficulty.id]

@@ -13,9 +13,10 @@ import {
 } from '#shared/utils/gamelogic/call-of-xeno-meta'
 
 /**
- * A run older than this is a dead tab the game can never finish — there is no
- * mid-run save, so a refresh abandons it for good and it pays nothing. Short,
- * because the only thing a long window buys is locking the account out.
+ * A run older than this with no checkpoint is a dead tab the game can
+ * never finish — it pays nothing and is cleared so it cannot lock the
+ * account out. A run *with* a checkpoint is resumable and is only ever
+ * cleared by an explicit abandon or a settle.
  */
 const STALE_RUN_MS = 10 * 60 * 1000
 
@@ -33,17 +34,21 @@ export default defineEventHandler(async (event) => {
     return db.transaction(async (tx) => {
         const state = await getLockedCallOfXenoState(tx, userId)
         if (state.runStartedAt) {
-            // The game has no mid-run save: a run that never reported back is
-            // a dead tab, and it pays nothing. After a grace window it is
-            // cleared so it cannot lock the account out forever; an explicit
-            // abandon clears it immediately.
-            if (!forceAbandon && Date.now() - state.runStartedAt.getTime() < STALE_RUN_MS) {
+            // A run holding a checkpoint is always resumable, no matter its
+            // age — abandoning it must be the player's explicit choice. A
+            // run with no checkpoint never got past a round boundary, so it
+            // is a dead tab: after a grace window it is cleared so it
+            // cannot lock the account out forever.
+            const resumable = state.runSave !== null
+            if (!forceAbandon && (resumable || Date.now() - state.runStartedAt.getTime() < STALE_RUN_MS)) {
                 throw createError({ statusCode: 400, statusMessage: 'A CALL OF XENO run is already active' })
             }
             await tx.update(callOfXenoState).set({
                 runStartedAt: null,
                 runDifficultySnapshot: null,
-                runPayoutMultSnapshot: null
+                runPayoutMultSnapshot: null,
+                runSave: null,
+                runSaveRevision: 0
             }).where(eq(callOfXenoState.userId, userId))
         }
 
@@ -66,7 +71,10 @@ export default defineEventHandler(async (event) => {
             runDifficultySnapshot: difficultyId,
             // Snapshotted at deploy so buying Contract levels mid-run cannot
             // inflate the payout a run already earned its way to.
-            runPayoutMultSnapshot: effects.payoutMult.toFixed(4)
+            runPayoutMultSnapshot: effects.payoutMult.toFixed(4),
+            // Fresh run, fresh checkpoint slot.
+            runSave: null,
+            runSaveRevision: 0
         }).where(eq(callOfXenoState.userId, userId))
 
         return {
