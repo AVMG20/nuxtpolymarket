@@ -1893,7 +1893,38 @@ function raySphere(ox: number, oy: number, oz: number, dx: number, dy: number, d
     return t < 0 ? 0 : t
 }
 
-/** Nearest hit on an enemy along a ray, distinguishing body, head and weak point. */
+/** A sphere crossing: entry distance plus how deep through the sphere the ray flies. */
+interface SphereZone {
+    t: number
+    /** 0 = grazing the surface, 1 = dead through the centre. */
+    depth: number
+}
+
+function raySphereZone(ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, cx: number, cy: number, cz: number, r: number): SphereZone | null {
+    const mx = ox - cx
+    const my = oy - cy
+    const mz = oz - cz
+    const b = mx * dx + my * dy + mz * dz
+    const c = mx * mx + my * my + mz * mz - r * r
+    if (c > 0 && b > 0) return null
+    const disc = b * b - c
+    if (disc < 0) return null
+    const t = -b - Math.sqrt(disc)
+    // Perpendicular miss distance off the ray line is sqrt(r² − disc), so
+    // the chord depth ratio falls out of the discriminant directly.
+    const depth = 1 - Math.sqrt(Math.max(0, r * r - disc)) / r
+    return { t: t < 0 ? 0 : t, depth }
+}
+
+/**
+ * Nearest hit on an enemy along a ray, distinguishing body, head and weak
+ * point. The zone is picked by which sphere the ray passes deepest through,
+ * not by which surface it crosses first: the tall types' body sphere swells
+ * up behind the head sphere, so a close-range shot aimed square at a
+ * Brute's face clips the body's shoulder fringe first and used to score as
+ * a body hit — headshotting one inside ~2.5m was impossible. Depth says
+ * what the player aimed at; a fringe graze loses to a core pass.
+ */
 function hitEnemy(enemy: Enemy, ox: number, oy: number, oz: number, dx: number, dy: number, dz: number) {
     const scale = enemy.def.scale
     const base = enemy.y
@@ -1903,22 +1934,33 @@ function hitEnemy(enemy: Enemy, ox: number, oy: number, oz: number, dx: number, 
         return t < 0 ? null : { t, kind: 'body' as const }
     }
 
-    const body = raySphere(ox, oy, oz, dx, dy, dz, enemy.x, base + 1.12 * scale, enemy.z, 0.56 * scale)
-    const head = raySphere(ox, oy, oz, dx, dy, dz, enemy.x, base + 1.73 * scale, enemy.z, 0.3 * scale)
+    const body = raySphereZone(ox, oy, oz, dx, dy, dz, enemy.x, base + 1.12 * scale, enemy.z, 0.56 * scale)
+    const head = raySphereZone(ox, oy, oz, dx, dy, dz, enemy.x, base + 1.73 * scale, enemy.z, 0.3 * scale)
 
-    let weak = -1
+    let weak: SphereZone | null = null
     if (enemy.def.weakPoint) {
-        // The plate sits on the enemy's back, so a shot from behind reaches it
-        // before the body sphere and a shot from the front never does.
+        // The plate is on the enemy's back, so it only counts for a shooter
+        // standing behind it — no ray from the front can claim it. Depth
+        // then decides against body/head like any other zone. (Entry-order
+        // gating used to be the rule, but the body sphere's bulge shades
+        // the inset plate even from dead behind, so the weak point was
+        // all but unhittable.)
         const bx = enemy.x - Math.sin(enemy.yaw) * 0.24 * scale
         const bz = enemy.z - Math.cos(enemy.yaw) * 0.24 * scale
-        weak = raySphere(ox, oy, oz, dx, dy, dz, bx, base + 1.24 * scale, bz, 0.3 * scale)
+        weak = raySphereZone(ox, oy, oz, dx, dy, dz, bx, base + 1.24 * scale, bz, 0.3 * scale)
+        const behind = (ox - enemy.x) * Math.sin(enemy.yaw) + (oz - enemy.z) * Math.cos(enemy.yaw) < 0
+        if (weak && !behind) weak = null
     }
 
-    let best: { t: number, kind: 'body' | 'head' | 'weak' } | null = null
-    if (body >= 0) best = { t: body, kind: 'body' }
-    if (head >= 0 && (!best || head < best.t)) best = { t: head, kind: 'head' }
-    if (weak >= 0 && (!best || weak < best.t)) best = { t: weak, kind: 'weak' }
+    let best: { t: number, depth: number, kind: 'body' | 'head' | 'weak' } | null = null
+    for (const zone of [body && { ...body, kind: 'body' as const }, head && { ...head, kind: 'head' as const }, weak && { ...weak, kind: 'weak' as const }]) {
+        if (!zone) continue
+        if (!best
+            || zone.depth > best.depth + 1e-6
+            || (Math.abs(zone.depth - best.depth) <= 1e-6 && zone.t < best.t)) {
+            best = zone
+        }
+    }
     return best
 }
 
