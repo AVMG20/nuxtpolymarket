@@ -21,6 +21,7 @@ export type CallOfXenoUpgradeId =
     | 'scavenger'
     | 'contract'
     | 'sidearm'
+    | 'rig'
 
 export interface CallOfXenoUpgradeDef {
     id: CallOfXenoUpgradeId
@@ -81,6 +82,14 @@ export const CALL_OF_XENO_UPGRADES: CallOfXenoUpgradeDef[] = [
         max: 4,
         baseCost: 1_200_000,
         growth: 3.2
+    },
+    {
+        id: 'rig',
+        name: 'Tool Rig',
+        description: 'Carry 2 pieces of equipment at once (level 1) and 3 (level 2)',
+        max: 2,
+        baseCost: 1_000_000,
+        growth: 3
     }
 ]
 
@@ -94,7 +103,8 @@ export const CALL_OF_XENO_EMPTY_LEVELS: CallOfXenoUpgradeLevels = {
     adrenaline: 0,
     scavenger: 0,
     contract: 0,
-    sidearm: 0
+    sidearm: 0,
+    rig: 0
 }
 
 /** Price of the next level, or null when the track is maxed. */
@@ -125,6 +135,8 @@ export interface CallOfXenoUpgradeEffects {
     payoutMult: number
     /** Weapon the run starts with, null = the M1911. */
     startWeapon: CallOfXenoWeaponId | null
+    /** How many pieces of equipment may be carried at once (1-3). */
+    equipmentSlots: number
 }
 
 /** Position on the difficulty ladder — higher is harder. */
@@ -163,7 +175,8 @@ export function callOfXenoUpgradeEffects(levels: CallOfXenoUpgradeLevels): CallO
         // Additive on purpose: 5% per level, hard-floored at a 25% discount.
         costMult: Math.max(0.75, 1 - levels.scavenger * 0.05),
         payoutMult: 1 + levels.contract * 0.25,
-        startWeapon: levels.sidearm > 0 ? SIDEARM_LADDER[Math.min(levels.sidearm, SIDEARM_LADDER.length) - 1]! : null
+        startWeapon: levels.sidearm > 0 ? SIDEARM_LADDER[Math.min(levels.sidearm, SIDEARM_LADDER.length) - 1]! : null,
+        equipmentSlots: 1 + levels.rig
     }
 }
 

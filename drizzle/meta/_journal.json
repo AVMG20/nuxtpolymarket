@@ -64,6 +64,13 @@
       "when": 1787036987695,
       "tag": "0008_shocking_red_hulk",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1787080202877,
+      "tag": "0009_unknown_lockjaw",
+      "breakpoints": true
     }
   ]
 }

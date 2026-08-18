@@ -9,20 +9,23 @@ import { callOfXenoBeatsBestRun } from '#shared/utils/gamelogic/call-of-xeno-met
 /**
  * Ends a run and settles its payout.
  *
- * The client reports the round it died on and the lifetime points the run
- * earned; neither is trusted. The elapsed time comes off the server-stamped
- * `runStartedAt`, and the shared payout model clamps the gross to what that
- * much playtime could plausibly have earned before converting it to cash.
- * The reported round is likewise cut down to the round in flight at the
- * last checkpoint the server holds, and to whatever depth the spawn pacing
- * says the wall clock can justify.
+ * The client reports the round it died on, the lifetime points the run
+ * earned and the time it actually spent playing (the server wall clock
+ * keeps running through pauses, so it is the wrong source for the
+ * leaderboard duration). The round and played time are scoreboard data
+ * and are taken on faith — clamped only to sane bounds — after clamps
+ * once cost a real round-20 run its place. The payout is different:
+ * elapsed time comes off the server-stamped `runStartedAt` and the
+ * shared payout model clamps the gross to what that much playtime could
+ * plausibly have earned before converting it to cash.
  */
 export default defineEventHandler(async (event) => {
     const userId = await requireUserId(event)
     const body = await readBody(event)
     const reportedRound = Number(body?.round ?? 0)
     const reportedGross = Number(body?.grossPoints ?? 0)
-    if (!Number.isFinite(reportedRound) || !Number.isFinite(reportedGross)) {
+    const reportedPlayedMs = Number(body?.playedMs ?? 0)
+    if (!Number.isFinite(reportedRound) || !Number.isFinite(reportedGross) || !Number.isFinite(reportedPlayedMs)) {
         throw createError({ statusCode: 400, statusMessage: 'Invalid run report' })
     }
 
@@ -35,6 +38,11 @@ export default defineEventHandler(async (event) => {
             round: reportedRound,
             grossPoints: reportedGross
         }, elapsedMs)
+        // Played time is what the leaderboard shows; the wall clock (which
+        // includes pauses) is only the sanity cap.
+        const durationSeconds = reportedPlayedMs > 0
+            ? Math.min(Math.round(elapsedMs / 1000), Math.round(reportedPlayedMs / 1000))
+            : Math.max(1, Math.round(elapsedMs / 1000))
 
         // Clearing the active-run lock *is* the claim: a second request in
         // flight finds it already null, throws, and pays nothing.
@@ -53,7 +61,7 @@ export default defineEventHandler(async (event) => {
 ? {
                 bestRunRounds: result.round,
                 bestRunDifficulty: result.difficulty.id,
-                bestRunDurationSeconds: Math.max(1, Math.round(elapsedMs / 1000))
+                bestRunDurationSeconds: Math.max(1, durationSeconds)
             }
 : {}),
             ...result.bestRounds

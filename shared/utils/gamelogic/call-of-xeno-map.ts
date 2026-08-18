@@ -247,6 +247,24 @@ export const CALL_OF_XENO_SHELL_WALLS: CallOfXenoSolid[] = [
     ...shellRun('x', SZ1, 1, SX0 - SHELL_T, SX1 + SHELL_T)
 ]
 
+/**
+ * Invisible panes filling the window openings — player-only collision. A
+ * running jump otherwise clears the one-metre sill and sails out through
+ * the empty opening band, and the map leaks. Deliberately kept out of the
+ * shared solid set: enemies script their climb through the opening without
+ * consulting collision, and rays (bullets, deploy placement) keep their
+ * existing line-of-sight through the boards. Only player movement unions
+ * these in.
+ */
+export const CALL_OF_XENO_WINDOW_BARRIERS: CallOfXenoSolid[] = CALL_OF_XENO_WINDOWS.map(w => {
+    const near = w.outward > 0 ? w.at : w.at - SHELL_T
+    const far = w.outward > 0 ? w.at + SHELL_T : w.at
+    const height = CALL_OF_XENO_WINDOW_HEAD - CALL_OF_XENO_WINDOW_SILL
+    return w.axis === 'x'
+        ? { box: { minX: w.from, maxX: w.to, minZ: near, maxZ: far }, baseY: CALL_OF_XENO_WINDOW_SILL, height }
+        : { box: { minX: near, maxX: far, minZ: w.from, maxZ: w.to }, baseY: CALL_OF_XENO_WINDOW_SILL, height }
+})
+
 // Interior structures that get dressed up by the renderer. They stay in the
 // wall list for collision; the decor entry tells the builder what to draw.
 export type CallOfXenoDecorKind = 'pillar' | 'machine' | 'container' | 'truck'
