@@ -15,6 +15,7 @@ import {
     callOfXenoUpgradeCost,
     callOfXenoUpgradeEffects
 } from '#shared/utils/gamelogic/call-of-xeno-meta'
+import { CALL_OF_XENO_SAVE_VERSION } from '#shared/utils/gamelogic/call-of-xeno-save'
 
 export default defineEventHandler(async (event) => {
     const userId = await requireUserId(event)
@@ -61,7 +62,11 @@ export default defineEventHandler(async (event) => {
             ? {
                 startedAt: state.runStartedAt,
                 difficulty: state.runDifficultySnapshot,
-                payoutMult: Number(state.runPayoutMultSnapshot ?? '1') || 1
+                payoutMult: Number(state.runPayoutMultSnapshot ?? '1') || 1,
+                revision: state.runSaveRevision,
+                // A save written by an older game version cannot be
+                // restored — report it as gone; deploy overwrites it.
+                save: state.runSave?.version === CALL_OF_XENO_SAVE_VERSION ? state.runSave : null
             }
             : null,
         runCooldown: {

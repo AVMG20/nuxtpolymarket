@@ -5,6 +5,7 @@ import type {
   PathwardenMapPlan
 } from '#shared/types/pathwarden-save'
 import type { FirewallRunSave } from '#shared/utils/gamelogic/firewall'
+import type { CallOfXenoRunSave } from '#shared/utils/gamelogic/call-of-xeno-save'
 
 export const user = pgTable('user', {
   id: text('id').primaryKey(),
@@ -375,6 +376,10 @@ export const callOfXenoState = pgTable('call_of_xeno_state', {
   runStartedAt: timestamp('run_started_at'),
   runDifficultySnapshot: text('run_difficulty_snapshot'),
   runPayoutMultSnapshot: numeric('run_payout_mult_snapshot', { precision: 10, scale: 4 }),
+  // Round-boundary checkpoint of the active run, restored on resume.
+  runSave: jsonb('run_save').$type<CallOfXenoRunSave>(),
+  // Optimistic-concurrency token for runSave writes; reset at deploy.
+  runSaveRevision: integer('run_save_revision').notNull().default(0),
   lastRunFinishedAt: timestamp('last_run_finished_at'),
   // The player's single best run — what the leaderboard shows.
   bestRunRounds: integer('best_run_rounds').notNull().default(0),
