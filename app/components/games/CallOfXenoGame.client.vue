@@ -1897,18 +1897,39 @@ function hitEnemy(enemy: Enemy, ox: number, oy: number, oz: number, dx: number, 
     return best
 }
 
+/** The enemy a live round struck head-on, and where it struck them. */
+interface DirectHit {
+    enemy: Enemy
+    kind: 'body' | 'head' | 'weak'
+}
+
 /**
  * Splash damage of an explosive round at the impact point. Returns the number
  * of enemies killed so callers can award multi-kill bonuses.
+ *
+ * `direct` is the enemy the round actually hit, if any. They are resolved
+ * as a hit on the zone the round entered — full damage, head and weak-point
+ * multipliers, no distance falloff — rather than being left to the splash
+ * pass. The splash measures from a point half a torso up, which on the tall
+ * types sits further from the skull than a small blast radius reaches: a
+ * Xeno Ray bolt landing square on a Brute's head is 1.7 units from that
+ * reference against a 1.5 radius, so before this the shot did nothing at
+ * all. Everything else in range still takes ordinary body splash.
  */
-function detonateRound(x: number, y: number, z: number, damage: number, blastRadius: number, scored: Set<Enemy>, kind: 'sally' | 'ray'): number {
+function detonateRound(x: number, y: number, z: number, damage: number, blastRadius: number, scored: Set<Enemy>, kind: 'sally' | 'ray', direct: DirectHit | null = null): number {
     impactPoint.set(x, y, z)
     effects.explosion(impactPoint, kind === 'ray' ? 0x44ffcc : 0xffa040, blastRadius)
     audio.play('explosion')
     shake = Math.min(0.4, shake + 0.18)
 
     let kills = 0
+    if (direct && enemies.includes(direct.enemy)) {
+        const multiplier = direct.kind === 'head' ? 1.5 : direct.kind === 'weak' ? (direct.enemy.def.weakPoint ?? 1) : 1
+        impactPoint.set(x, y, z)
+        if (applyHit(direct.enemy, damage * multiplier, direct.kind, scored, impactPoint)) kills++
+    }
     for (const enemy of [...enemies]) {
+        if (direct && enemy === direct.enemy) continue
         const dist = Math.hypot(enemy.x - x, enemy.y + enemy.model.torsoY * 0.5 - y, enemy.z - z)
         if (dist > blastRadius) continue
         const falloff = Math.max(0.3, 1 - dist / blastRadius)
@@ -1993,9 +2014,16 @@ function updatePlayerRounds(dt: number) {
         const block = rayBlockDistance(round.x, round.y, round.z, dirx, diry, dirz, solids, step + 0.15)
 
         let hitEnemyAt = -1
+        // The nearest enemy the round runs into this step, and the zone it
+        // entered them through — carried to the detonation so a direct hit
+        // scores as the head or weak-point shot it was.
+        let struck: DirectHit | null = null
         for (const enemy of enemies) {
             const hit = hitEnemy(enemy, round.x, round.y, round.z, dirx, diry, dirz)
-            if (hit && hit.t <= step && (hitEnemyAt < 0 || hit.t < hitEnemyAt)) hitEnemyAt = hit.t
+            if (hit && hit.t <= step && (hitEnemyAt < 0 || hit.t < hitEnemyAt)) {
+                hitEnemyAt = hit.t
+                struck = { enemy, kind: hit.kind }
+            }
         }
 
         // Trails: the shell draws a thin faint line with a whisper of smoke
@@ -2021,11 +2049,15 @@ function updatePlayerRounds(dt: number) {
         let pxHit = round.x
         let pyHit = round.y
         let pzHit = round.z
+        // Only a pop that came from running into an enemy is a direct hit —
+        // a round that ends on a wall or its own fuse is pure splash.
+        let direct: DirectHit | null = null
 
         if (hitEnemyAt >= 0 && hitEnemyAt < block.distance) {
             pxHit = round.x - dirx * (step - hitEnemyAt)
             pyHit = round.y - diry * (step - hitEnemyAt)
             pzHit = round.z - dirz * (step - hitEnemyAt)
+            direct = struck
             pop = true
         } else if (block.distance <= step + 0.05) {
             // Solids include fuel barrels — a direct bite sets them off.
@@ -2053,7 +2085,7 @@ function updatePlayerRounds(dt: number) {
             disposeObject(round.mesh)
             playerRounds.splice(i, 1)
             const falloff = round.kind === 'ray' ? xenoRayFalloff(round.traveled, round.tier) : 1
-            const kills = detonateRound(pxHit, pyHit, pzHit, round.damage * falloff, round.blastRadius, round.scored, round.kind)
+            const kills = detonateRound(pxHit, pyHit, pzHit, round.damage * falloff, round.blastRadius, round.scored, round.kind, direct)
             announceMultiKill(kills)
         }
     }

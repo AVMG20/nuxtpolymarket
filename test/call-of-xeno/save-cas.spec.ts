@@ -2,6 +2,7 @@ import { and, eq, isNotNull } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { db } from '#server/database'
 import { callOfXenoState, user } from '#server/database/schema'
+import { getLockedCallOfXenoState } from '#server/utils/call-of-xeno'
 import { seedUser, SKIP } from '../setup/db-helpers'
 import { CALL_OF_XENO_SAVE_VERSION, type CallOfXenoRunSave } from '#shared/utils/gamelogic/call-of-xeno-save'
 
@@ -38,17 +39,40 @@ function save(overrides: Partial<CallOfXenoRunSave> = {}): CallOfXenoRunSave {
     }
 }
 
-/** The endpoint's exact CAS write, against the real database. */
-async function casSave(revision: number, next: CallOfXenoRunSave) {
-    const [row] = await db.update(callOfXenoState).set({
-        runSave: next,
-        runSaveRevision: revision + 1
-    }).where(and(
-        eq(callOfXenoState.userId, userId),
-        eq(callOfXenoState.runSaveRevision, revision),
-        isNotNull(callOfXenoState.runStartedAt)
-    )).returning({ revision: callOfXenoState.runSaveRevision })
-    return row ?? null
+/**
+ * The endpoint's exact claim, against the real database: lock the row, take
+ * the stored depth from inside that lock, refuse anything shallower, write.
+ * The revision the client sends is deliberately not part of the guard.
+ */
+async function storeSave(next: CallOfXenoRunSave) {
+    return db.transaction(async (tx) => {
+        const state = await getLockedCallOfXenoState(tx, userId)
+        if (!state.runStartedAt) return null
+        if (next.round < (state.runSave?.round ?? 0)) return null
+        const [row] = await tx.update(callOfXenoState).set({
+            runSave: next,
+            runSaveRevision: state.runSaveRevision + 1
+        }).where(and(
+            eq(callOfXenoState.userId, userId),
+            isNotNull(callOfXenoState.runStartedAt)
+        )).returning({ revision: callOfXenoState.runSaveRevision })
+        return row ?? null
+    })
+}
+
+async function stored() {
+    const [row] = await db.select().from(callOfXenoState).where(eq(callOfXenoState.userId, userId))
+    return row!
+}
+
+async function arm() {
+    await db.update(callOfXenoState).set({
+        runStartedAt: new Date(),
+        runDifficultySnapshot: 'recruit',
+        runPayoutMultSnapshot: '1.0000',
+        runSave: null,
+        runSaveRevision: 0
+    }).where(eq(callOfXenoState.userId, userId))
 }
 
 describe.skipIf(SKIP)('call of xeno checkpoint storage', () => {
@@ -56,13 +80,7 @@ describe.skipIf(SKIP)('call of xeno checkpoint storage', () => {
         await seedUser(userId)
         await db.insert(callOfXenoState).values({ userId })
         // Simulate a deploy: armed run, fresh checkpoint slot.
-        await db.update(callOfXenoState).set({
-            runStartedAt: new Date(),
-            runDifficultySnapshot: 'recruit',
-            runPayoutMultSnapshot: '1.0000',
-            runSave: null,
-            runSaveRevision: 0
-        }).where(eq(callOfXenoState.userId, userId))
+        await arm()
     })
 
     afterAll(async () => {
@@ -80,29 +98,50 @@ describe.skipIf(SKIP)('call of xeno checkpoint storage', () => {
             x: -12.34,
             yaw: 3.1415
         })
-        expect(await casSave(0, full)).toEqual({ revision: 1 })
-        const [row] = await db.select().from(callOfXenoState).where(eq(callOfXenoState.userId, userId))
-        expect(row?.runSave).toEqual(full)
-        expect(row?.runSaveRevision).toBe(1)
+        expect(await storeSave(full)).toEqual({ revision: 1 })
+        const row = await stored()
+        expect(row.runSave).toEqual(full)
+        expect(row.runSaveRevision).toBe(1)
     })
 
-    it('lets exactly one writer claim a revision under a concurrent burst', async () => {
-        await db.update(callOfXenoState).set({ runSaveRevision: 0, runSave: null })
-            .where(eq(callOfXenoState.userId, userId))
+    /**
+     * The bug this replaced the revision CAS for: the client's save is
+     * fire-and-forget, so a committed write whose response is lost leaves
+     * the client's counter behind forever. Under the old counter guard
+     * every later round was refused and the checkpoint froze — which the
+     * settle then read as the round the run reached, capping a round-42 run
+     * at whatever round the blip happened on.
+     */
+    it('keeps accepting deeper rounds after the client has lost track of the revision', async () => {
+        await arm()
+        expect(await storeSave(save({ round: 12 }))).toEqual({ revision: 1 })
+        // The client never saw that response — it still believes revision 0.
+        for (const round of [13, 14, 15]) {
+            expect(await storeSave(save({ round }))).not.toBeNull()
+        }
+        const row = await stored()
+        expect(row.runSave?.round).toBe(15)
+        expect(row.runSaveRevision).toBe(4)
+    })
+
+    it('refuses a checkpoint shallower than the one already stored', async () => {
+        await arm()
+        await storeSave(save({ round: 20 }))
+        expect(await storeSave(save({ round: 9 }))).toBeNull()
+        expect((await stored()).runSave?.round).toBe(20)
+    })
+
+    it('never moves the checkpoint backwards under a concurrent burst', async () => {
+        await arm()
+        await storeSave(save({ round: 30 }))
         const results = await Promise.allSettled(
-            Array.from({ length: 10 }, (_, i) => casSave(0, save({ round: 6 + i }))))
+            Array.from({ length: 10 }, (_, i) => storeSave(save({ round: 24 + i }))))
         const winners = results.filter(r => r.status === 'fulfilled' && r.value !== null)
-        expect(winners).toHaveLength(1)
-        const [row] = await db.select().from(callOfXenoState).where(eq(callOfXenoState.userId, userId))
-        expect(row?.runSaveRevision).toBe(1)
-    })
-
-    it('refuses a stale revision once the slot has moved on', async () => {
-        expect(await casSave(0, save({ round: 9 }))).toBeNull()
-        // The stored checkpoint is still the burst winner's.
-        const [row] = await db.select().from(callOfXenoState).where(eq(callOfXenoState.userId, userId))
-        expect(row?.runSave?.round).toBeGreaterThanOrEqual(6)
-        expect(row?.runSave?.round).toBeLessThanOrEqual(15)
+        const row = await stored()
+        // Serialised by the row lock: the shallow ones lose, and whatever
+        // landed is at least as deep as what was already there.
+        expect(row.runSave?.round).toBeGreaterThanOrEqual(30)
+        expect(row.runSaveRevision).toBe(1 + winners.length)
     })
 
     it('refuses to save once the run has been settled (lock cleared)', async () => {
@@ -114,10 +153,7 @@ describe.skipIf(SKIP)('call of xeno checkpoint storage', () => {
             runSaveRevision: 0,
             lastRunFinishedAt: new Date()
         }).where(eq(callOfXenoState.userId, userId))
-        // Revision matches (0 == 0) but the run is no longer armed — the
-        // runStartedAt guard must refuse the write.
-        expect(await casSave(0, save())).toBeNull()
-        const [row] = await db.select().from(callOfXenoState).where(eq(callOfXenoState.userId, userId))
-        expect(row?.runSave).toBeNull()
+        expect(await storeSave(save())).toBeNull()
+        expect((await stored()).runSave).toBeNull()
     })
 })
