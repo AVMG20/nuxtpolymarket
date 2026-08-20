@@ -930,6 +930,8 @@ import {
     collisionSolids,
     solidsInBand,
     groundHeight,
+    rampUnderBody,
+    waypointFootingOk,
     rayBlockDistance,
     resolveCircle,
     type CallOfXenoBox,
@@ -3391,8 +3393,11 @@ function updateEnemies(dt: number) {
             enemy.repathIn = 0.35 + randomFloat() * 0.35
             enemy.path = findNavPath(navGrid, enemy.x, enemy.z, enemy.y, px, pz, feetY, radius) ?? []
         }
+        // Waypoints are retired at arm's length, which on a flight of stairs
+        // is half a metre short of standing on it — see waypointFootingOk.
         while (enemy.path.length > 0
-            && Math.hypot(enemy.path[0]!.x - enemy.x, enemy.path[0]!.z - enemy.z) < 0.5) {
+            && Math.hypot(enemy.path[0]!.x - enemy.x, enemy.path[0]!.z - enemy.z) < 0.5
+            && waypointFootingOk(enemy.x, enemy.z, enemy.y, enemy.path[0]!.x, enemy.path[0]!.z)) {
             enemy.path.shift()
         }
 
@@ -3424,7 +3429,18 @@ function updateEnemies(dt: number) {
         const dist = Math.hypot(dx, dz)
         let moved = 0
         const stopAt = def.ranged ? 0 : 1.05 * def.scale
-        const wantsMove = dist > 0.05 && (def.ranged || toPlayer > stopAt) && enemy.stagger <= 0
+        // Pulling up at contact range only makes sense against a player the
+        // body can actually reach. The distance is flat, so a player on the
+        // deck overhead used to stop the pack underneath it dead: close in
+        // plan, four metres up, too far to swing at and too settled to walk
+        // to the stairs. Out of reach vertically, keep walking.
+        const withinReach = Math.abs(enemy.y - feetY) < 1.6
+        const wantsMove = dist > 0.05
+            && (def.ranged || !withinReach || toPlayer > stopAt)
+            && enemy.stagger <= 0
+
+        const beforeX = enemy.x
+        const beforeZ = enemy.z
 
         if (wantsMove) {
             let mx = dx / dist
@@ -3437,12 +3453,27 @@ function updateEnemies(dt: number) {
                 mx = sx
                 mz = sz
             }
-            const beforeX = enemy.x
-            const beforeZ = enemy.z
             enemy.x += mx * enemy.speed * dt
             enemy.z += mz * enemy.speed * dt
             enemy.yaw = Math.atan2(mx, mz)
+            moved = enemy.speed
+        } else {
+            enemy.stuck = 0
+        }
 
+        if (enemy.stagger > 0) enemy.stagger -= dt
+
+        const boxes = solidsInBand(solids, enemy.y, 1.8 * def.scale)
+        const solved = resolveCircle(enemy.x, enemy.z, 0.45 * def.scale, boxes)
+        enemy.x = solved.x
+        enemy.z = solved.z
+
+        // Progress is what survived the collision resolve, not what the body
+        // asked for. Measured before it, this compared the step against
+        // itself and always matched, so the counter never rose and the
+        // wall-slide above never once engaged — a body pinned on geometry had
+        // no way out of it at all.
+        if (wantsMove) {
             const actual = Math.hypot(enemy.x - beforeX, enemy.z - beforeZ)
             if (actual < enemy.speed * dt * 0.3) {
                 enemy.stuck += dt
@@ -3455,17 +3486,7 @@ function updateEnemies(dt: number) {
             } else {
                 enemy.stuck = 0
             }
-            moved = enemy.speed
-        } else {
-            enemy.stuck = 0
         }
-
-        if (enemy.stagger > 0) enemy.stagger -= dt
-
-        const boxes = solidsInBand(solids, enemy.y, 1.8 * def.scale)
-        const solved = resolveCircle(enemy.x, enemy.z, 0.45 * def.scale, boxes)
-        enemy.x = solved.x
-        enemy.z = solved.z
 
         // Vertical: walkers fall and step, drones hover above whatever is below.
         const ground = groundHeight(enemy.x, enemy.z, enemy.y)
@@ -3539,6 +3560,24 @@ function updateEnemies(dt: number) {
                 b.x += (dx / d) * (aAnchored ? push * 2 : push)
                 b.z += (dz / d) * (aAnchored ? push * 2 : push)
             }
+        }
+    }
+
+    // The flights have no side walls, so a climber caught in the middle of a
+    // pack gets shoved clean off the steps, drops to the floor and has to
+    // walk all the way back round — which reads as a zombie circling the foot
+    // of the stairs, never managing to go up. Put it back on the flight it is
+    // climbing. Only sideways: the ends stay open so bodies still step on at
+    // the bottom and off onto the deck at the top.
+    for (const enemy of enemies) {
+        if (enemy.stage !== 'inside' || enemy.y <= CALL_OF_XENO_STEP_UP) continue
+        const ramp = rampUnderBody(enemy.x, enemy.z, enemy.y)
+        if (!ramp) continue
+        const radius = 0.45 * enemy.def.scale
+        if (ramp.axis === 'z') {
+            enemy.x = Math.min(Math.max(enemy.x, ramp.box.minX + radius), ramp.box.maxX - radius)
+        } else {
+            enemy.z = Math.min(Math.max(enemy.z, ramp.box.minZ + radius), ramp.box.maxZ - radius)
         }
     }
 

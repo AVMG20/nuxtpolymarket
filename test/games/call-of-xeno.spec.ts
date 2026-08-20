@@ -80,6 +80,10 @@ import {
     regionAt,
     resolveCircle,
     bannedNodesFor,
+    rampSurfaceAt,
+    rampUnderBody,
+    waypointFootingOk,
+    CALL_OF_XENO_STEP_UP,
     zombieTarget
 } from '../../shared/utils/gamelogic/call-of-xeno-map'
 import {
@@ -87,7 +91,8 @@ import {
     findNavPath,
     navLineClear,
     navCellPassable,
-    navLevelOf
+    navLevelOf,
+    CALL_OF_XENO_RAMP_LEVEL_BAND
 } from '../../shared/utils/gamelogic/call-of-xeno-nav'
 import {
     CALL_OF_XENO_DIFFICULTIES,
@@ -1140,6 +1145,134 @@ describe('nav grid', () => {
         expect(path).not.toBeNull()
         const last = path![path!.length - 1]!
         expect(Math.hypot(last.x - 19, last.z - 8)).toBeLessThan(1.5)
+    })
+
+    it('reports the true stair surface, not the one a body could step onto', () => {
+        const ramp = CALL_OF_XENO_RAMPS[0]!
+        expect(rampSurfaceAt(0, 0)).toBeNull()
+        // Low end sits on the floor, high end meets the deck.
+        expect(rampSurfaceAt(32, ramp.lowAt - 0.1)!).toBeLessThan(0.1)
+        expect(CALL_OF_XENO_UPPER_Y - rampSurfaceAt(32, ramp.highAt + 0.1)!).toBeLessThan(0.1)
+        // Unlike groundHeight it reports the slope overhead regardless of
+        // whether a body on the floor could reach it.
+        expect(rampSurfaceAt(32, 24)!).toBeGreaterThan(CALL_OF_XENO_STEP_UP)
+        expect(groundHeight(32, 24, 0)).toBe(0)
+    })
+
+    it('walks round to the foot of the stairs instead of climbing where it stands', () => {
+        // The regression: every ramp cell used to stand in for both storeys,
+        // so a route changed floor directly under the top of the flight — a
+        // 4.5m step the body can never make. The pack pressed into the spot
+        // below the landing and stalled there for the rest of the round.
+        const starts: [string, number, number][] = [
+            ['under the catwalk', 18, 20],
+            ['mid atrium', 18, 26],
+            ['beside the east flight', 30, 27],
+            ['under the east flight', 32.3, 23.5],
+            ['under the west flight', 3, 23.5]
+        ]
+        for (const [name, sx, sz] of starts) {
+            const path = findNavPath(OPEN_GRID, sx, sz, 0, 18, 19, CALL_OF_XENO_UPPER_Y, SHAMBLER)
+            expect(path, `${name}: no route upstairs`).not.toBeNull()
+            for (let i = 1; i < path!.length; i++) {
+                const from = path![i - 1]!
+                const to = path![i]!
+                if (from.level === to.level) continue
+                // Every storey change happens partway up a flight, where the
+                // stairs really do cross between the two floors.
+                const surface = rampSurfaceAt(from.x, from.z)
+                expect(surface, `${name}: changed storey off a flight`).not.toBeNull()
+                expect(
+                    Math.abs(surface! - CALL_OF_XENO_UPPER_Y / 2),
+                    `${name}: changed storey ${surface!.toFixed(2)}m up, not at the crossover`
+                ).toBeLessThanOrEqual(CALL_OF_XENO_RAMP_LEVEL_BAND)
+            }
+        }
+    })
+
+    it('never steps onto the side of a flight, only its ends', () => {
+        // The flights carry no side walls, so nothing but this rule stops a
+        // body walking up beside the stairs and stepping onto the middle of
+        // them, metres above the floor it is standing on.
+        const ramp = CALL_OF_XENO_RAMPS[0]!
+        const midZ = (ramp.box.minZ + ramp.box.maxZ) / 2
+        const midX = (ramp.box.minX + ramp.box.maxX) / 2
+        const beside = ramp.box.minX - 1
+
+        // Straight onto the middle of the flight from alongside it: the
+        // surface there is well over a step up, so the line is refused.
+        expect(rampSurfaceAt(midX, midZ)!).toBeGreaterThan(CALL_OF_XENO_STEP_UP)
+        expect(navLineClear(OPEN_GRID, 0, beside, midZ, midX, midZ, SHAMBLER)).toBe(false)
+
+        // Onto the foot of the same flight, where it meets the floor: fine.
+        const footZ = ramp.lowAt - 0.5
+        expect(rampSurfaceAt(midX, footZ)!).toBeLessThanOrEqual(CALL_OF_XENO_STEP_UP)
+        expect(navLineClear(OPEN_GRID, 0, beside, footZ, midX, footZ, SHAMBLER)).toBe(true)
+
+        // And walking up the flight itself never leaves it, so it is allowed.
+        expect(navLineClear(OPEN_GRID, 0, midX, footZ, midX, midZ, SHAMBLER)).toBe(true)
+
+        // The same from above: the deck may only join the flight at its head.
+        expect(navLineClear(OPEN_GRID, 1, midX, ramp.highAt - 1, midX, midZ, SHAMBLER)).toBe(true)
+    })
+
+    it('knows a body climbing a flight from one stood under it', () => {
+        const ramp = CALL_OF_XENO_RAMPS[0]!
+        const midZ = (ramp.box.minZ + ramp.box.maxZ) / 2
+        const midX = (ramp.box.minX + ramp.box.maxX) / 2
+        const surface = rampSurfaceAt(midX, midZ)!
+
+        // On the steps: recognised, so the sim can keep it there.
+        expect(rampUnderBody(midX, midZ, surface)).not.toBeNull()
+        // Same footprint, but down on the floor underneath: not on the stairs.
+        expect(rampUnderBody(midX, midZ, 0)).toBeNull()
+        // Shoved just off the edge mid-climb: still counts, and that is the
+        // whole point — otherwise it drops to the floor and walks round again.
+        expect(rampUnderBody(ramp.box.minX - 0.3, midZ, surface)).not.toBeNull()
+        // Well clear of the flight: nothing to hold it to.
+        expect(rampUnderBody(ramp.box.minX - 3, midZ, surface)).toBeNull()
+        // Nowhere near a flight at all.
+        expect(rampUnderBody(18, 26, 0)).toBeNull()
+    })
+
+    it('leaves the ends of a flight open so bodies can get on and off', () => {
+        const ramp = CALL_OF_XENO_RAMPS[0]!
+        const midX = (ramp.box.minX + ramp.box.maxX) / 2
+        // Past the foot and past the head the body is on flat floor, and must
+        // not be held to the flight or it could never step off it.
+        expect(rampUnderBody(midX, ramp.box.maxZ + 0.5, 0)).toBeNull()
+        expect(rampUnderBody(midX, ramp.box.minZ - 0.5, CALL_OF_XENO_UPPER_Y)).toBeNull()
+    })
+
+    it('only ticks off a step of the stairs once it is standing on them', () => {
+        // The regression: waypoints retire at arm's length, but a body
+        // walking to the foot of a flight is still out on the floor at that
+        // range — inside the footprint, where the steps are already too high
+        // to mount. It used to tick the waypoint off anyway and turn for the
+        // next one up the flight, walk into the dead ground under the stairs,
+        // get sent back to the foot by the next replan, and shuttle between
+        // the two forever without ever getting on the stairs.
+        const ramp = CALL_OF_XENO_RAMPS[0]!
+        const midX = (ramp.box.minX + ramp.box.maxX) / 2
+
+        // Where a body can still mount: the surface is within a step.
+        const mouthZ = ramp.lowAt - 0.6
+        expect(rampSurfaceAt(midX, mouthZ)!).toBeLessThanOrEqual(CALL_OF_XENO_STEP_UP)
+
+        // Half a metre short of it, on the floor, the steps are already out of
+        // reach — so that waypoint is not reached yet however close it looks.
+        const shortZ = mouthZ - 0.7
+        expect(rampSurfaceAt(midX, shortZ)!).toBeGreaterThan(CALL_OF_XENO_STEP_UP)
+        expect(waypointFootingOk(midX, shortZ, 0, midX, mouthZ)).toBe(false)
+
+        // Once up on the steps it counts, and the body moves on up.
+        const onStep = rampSurfaceAt(midX, mouthZ)!
+        expect(waypointFootingOk(midX, mouthZ, onStep, midX, mouthZ)).toBe(true)
+
+        // Waypoints that are not on a flight are unaffected — arriving is
+        // arriving everywhere else on the map.
+        expect(waypointFootingOk(18, 26, 0, 18, 26)).toBe(true)
+        expect(waypointFootingOk(midX, shortZ, 0, 18, 26)).toBe(true)
     })
 
     it('changes storey only on a ramp', () => {
