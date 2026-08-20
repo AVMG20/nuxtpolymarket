@@ -56,6 +56,9 @@ import {
     CALL_OF_XENO_WINDOW_HEAD,
     CALL_OF_XENO_WINDOW_WIDTH,
     CALL_OF_XENO_WINDOW_BOARDS,
+    CALL_OF_XENO_WINDOW_SLOT_SPACING,
+    CALL_OF_XENO_WINDOW_SLOT_RADIUS,
+    windowApproachSlot,
     CALL_OF_XENO_SHELL,
     CALL_OF_XENO_SHELL_WALLS,
     CALL_OF_XENO_DECOR,
@@ -760,6 +763,58 @@ describe('windows', () => {
             && b.minZ <= window.centre.z && b.maxZ >= window.centre.z)!
         const solved = resolveCircle(window.centre.x, window.centre.z, PLAYER_RADIUS, [barrier])
         expect(Math.hypot(solved.x - window.centre.x, solved.z - window.centre.z)).toBeGreaterThan(0)
+    })
+
+    it('gives every body queued at a window its own place to stand', () => {
+        // The regression this guards: one shared approach point meant a
+        // second arrival landed on top of the first, the separation pass
+        // shoved both off it, and the barricade never got torn open.
+        for (const window of CALL_OF_XENO_WINDOWS) {
+            const slots = Array.from({ length: 8 }, (_, rank) => windowApproachSlot(window, rank))
+            // Rank 0 is the breach post itself — unchanged from before.
+            expect(slots[0]).toEqual({ x: window.outside.x, z: window.outside.z })
+            for (let i = 0; i < slots.length; i++) {
+                for (let j = i + 1; j < slots.length; j++) {
+                    const gap = Math.hypot(slots[i]!.x - slots[j]!.x, slots[i]!.z - slots[j]!.z)
+                    // Wider than the 1.35 the sim ever pushes two bodies
+                    // apart by, so separation never fights the approach.
+                    expect(gap).toBeGreaterThan(0.9 * 1.5)
+                    // And wider than two arrival discs, so holding one slot
+                    // cannot put you inside another.
+                    expect(gap).toBeGreaterThan(CALL_OF_XENO_WINDOW_SLOT_RADIUS * 2)
+                }
+            }
+        }
+    })
+
+    it('queues the waiting bodies away from the wall, never through it', () => {
+        for (const window of CALL_OF_XENO_WINDOWS) {
+            for (let rank = 1; rank < 8; rank++) {
+                const slot = windowApproachSlot(window, rank)
+                // Distance from the wall plane, measured outward.
+                const depth = window.axis === 'x'
+                    ? (slot.z - window.at) * window.outward
+                    : (slot.x - window.at) * window.outward
+                const frontDepth = window.axis === 'x'
+                    ? (window.outside.z - window.at) * window.outward
+                    : (window.outside.x - window.at) * window.outward
+                expect(depth).toBeGreaterThan(frontDepth)
+            }
+        }
+    })
+
+    it('fans the queue two abreast so it does not stretch into one long line', () => {
+        const window = CALL_OF_XENO_WINDOWS.find(w => w.id === 'win-barracks-s1')!
+        const lateral = (rank: number) => windowApproachSlot(window, rank).x - window.outside.x
+        // Ranks 1 and 2 share a row, on opposite sides of the breach post.
+        expect(lateral(1)).toBeCloseTo(-CALL_OF_XENO_WINDOW_SLOT_SPACING)
+        expect(lateral(2)).toBeCloseTo(CALL_OF_XENO_WINDOW_SLOT_SPACING)
+        // Rank 3 starts the next row back rather than widening this one.
+        expect(lateral(3)).toBeCloseTo(-CALL_OF_XENO_WINDOW_SLOT_SPACING)
+        const depthOf = (rank: number) =>
+            (windowApproachSlot(window, rank).z - window.at) * window.outward
+        expect(depthOf(3)).toBeGreaterThan(depthOf(1))
+        expect(depthOf(1)).toBeCloseTo(depthOf(2))
     })
 
     it('only offers the windows of rooms the player can be reached from', () => {

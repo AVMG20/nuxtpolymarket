@@ -165,6 +165,40 @@ export const CALL_OF_XENO_WINDOWS: CallOfXenoWindow[] = WINDOW_SPECS.map((spec) 
 /** Width of a window opening, shared by every one of them. */
 export const CALL_OF_XENO_WINDOW_WIDTH = WINDOW_SPECS[0]!.to - WINDOW_SPECS[0]!.from
 
+/**
+ * Sideways gap between two enemies queued abreast at a window, and the gap
+ * between one row of the queue and the next.
+ *
+ * Both are deliberately wider than the widest separation radius the sim
+ * pushes bodies apart by (0.9 x the Brute's 1.5 scale = 1.35): slots that
+ * sat closer than that would have the separation pass fighting the approach
+ * every frame, which is the stall this queue exists to prevent.
+ */
+export const CALL_OF_XENO_WINDOW_SLOT_SPACING = 1.7
+/** How close an enemy has to be to its slot to count as posted at it. */
+export const CALL_OF_XENO_WINDOW_SLOT_RADIUS = 0.45
+
+/**
+ * Where the enemy `rank` places in a window's queue should stand. Rank 0 is
+ * the breach position — the window's own `outside` point, so the enemy
+ * working the boards stands exactly where it always did. Everything behind
+ * it fans out two abreast in rows heading away from the wall.
+ *
+ * A single shared approach point is what let a pack deadlock: every body
+ * steered at the same spot, and the separation pass shoved whoever reached
+ * it back out of the arrival radius, so nobody ever held the post long
+ * enough to prise a board off.
+ */
+export function windowApproachSlot(window: CallOfXenoWindow, rank: number): { x: number, z: number } {
+    if (rank <= 0) return { x: window.outside.x, z: window.outside.z }
+    const row = Math.ceil(rank / 2)
+    const lateral = (rank % 2 === 1 ? -1 : 1) * CALL_OF_XENO_WINDOW_SLOT_SPACING
+    const depth = window.outward * row * CALL_OF_XENO_WINDOW_SLOT_SPACING
+    return window.axis === 'x'
+        ? { x: window.outside.x + lateral, z: window.outside.z + depth }
+        : { x: window.outside.x + depth, z: window.outside.z + lateral }
+}
+
 // ---------------------------------------------------------------------------
 // Regions
 // ---------------------------------------------------------------------------
