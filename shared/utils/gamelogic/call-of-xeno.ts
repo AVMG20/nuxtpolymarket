@@ -485,6 +485,22 @@ export const CALL_OF_XENO_SALLY_BLAST_RADIUS = 3.2
 export const CALL_OF_XENO_BLAST_SELF_FRACTION = 0.2
 export const CALL_OF_XENO_BLAST_SELF_CAP = 35
 
+/** Blast radius of a fuel barrel going up. */
+export const CALL_OF_XENO_BARREL_BLAST_RADIUS = 3.8
+
+/**
+ * Damage the player takes for standing `distance` from the centre of a
+ * blast — their own launcher round, or a fuel barrel they set off. Zero
+ * once they are clear of it. The cap is what keeps a close detonation a
+ * hard lesson rather than the end of the run.
+ */
+export function blastSelfDamage(distance: number, damage: number, blastRadius: number): number {
+    const reach = blastRadius + 0.4
+    if (distance >= reach) return 0
+    const falloff = Math.max(0.25, 1 - distance / reach)
+    return Math.round(Math.min(CALL_OF_XENO_BLAST_SELF_CAP, damage * CALL_OF_XENO_BLAST_SELF_FRACTION * falloff))
+}
+
 /** Damage multiplier for a ray hit at `distance` for a weapon at `papTier`. */
 export function xenoRayFalloff(distance: number, papTier: number): number {
     const start = CALL_OF_XENO_RAY_FALLOFF_START + papTier * 6

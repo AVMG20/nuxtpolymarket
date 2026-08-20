@@ -19,6 +19,10 @@ import {
     CALL_OF_XENO_SALLY_MAG,
     CALL_OF_XENO_SALLY_RESERVE,
     CALL_OF_XENO_SALLY_BLAST_RADIUS,
+    CALL_OF_XENO_RAY_BLAST_RADIUS,
+    CALL_OF_XENO_BARREL_BLAST_RADIUS,
+    CALL_OF_XENO_BLAST_SELF_CAP,
+    blastSelfDamage,
     roundComposition,
     isSpecialRound,
     specialRoundEnemy,
@@ -375,6 +379,47 @@ describe('pack-a-punch ladder', () => {
                 expect(xenoRayFalloff(d, tier + 1)).toBeGreaterThanOrEqual(xenoRayFalloff(d, tier))
             }
         }
+    })
+})
+
+describe('blast self-damage', () => {
+    it('hurts whoever is stood in the blast, and not whoever is clear of it', () => {
+        const radius = CALL_OF_XENO_BARREL_BLAST_RADIUS
+        // Right on top of it: the worst it can do, which is the cap.
+        expect(blastSelfDamage(0, 500, radius)).toBe(CALL_OF_XENO_BLAST_SELF_CAP)
+        // Inside the radius: a real bite.
+        expect(blastSelfDamage(radius / 2, 500, radius)).toBeGreaterThan(0)
+        // Clear of it: nothing at all.
+        expect(blastSelfDamage(radius + 0.4, 500, radius)).toBe(0)
+        expect(blastSelfDamage(radius + 10, 500, radius)).toBe(0)
+    })
+
+    it('falls off with distance and never exceeds the cap', () => {
+        const radius = CALL_OF_XENO_BARREL_BLAST_RADIUS
+        let previous = Infinity
+        for (let d = 0; d < radius + 0.4; d += 0.25) {
+            const hurt = blastSelfDamage(d, 500, radius)
+            expect(hurt).toBeLessThanOrEqual(CALL_OF_XENO_BLAST_SELF_CAP)
+            expect(hurt).toBeLessThanOrEqual(previous)
+            previous = hurt
+        }
+    })
+
+    it('caps a barrel so a point-blank drum is a hard lesson, not the run', () => {
+        // A barrel at round 1 carries enough to gib a zombie; against the
+        // player it has to leave them standing.
+        const pointBlank = blastSelfDamage(0, 380 + 25, CALL_OF_XENO_BARREL_BLAST_RADIUS)
+        expect(pointBlank).toBeGreaterThan(0)
+        expect(pointBlank).toBeLessThan(CALL_OF_XENO_BASE_HEALTH)
+        // And a deep-round barrel hits the player no harder than an early
+        // one — the cap is flat, so this never becomes an instant death.
+        expect(blastSelfDamage(0, 380 + 50 * 25, CALL_OF_XENO_BARREL_BLAST_RADIUS)).toBe(pointBlank)
+    })
+
+    it('reaches further from a barrel than from the wonder weapon bolt', () => {
+        // The drum is the biggest blast on the map; the ray bolt is a pop.
+        expect(CALL_OF_XENO_BARREL_BLAST_RADIUS).toBeGreaterThan(CALL_OF_XENO_SALLY_BLAST_RADIUS)
+        expect(CALL_OF_XENO_BARREL_BLAST_RADIUS).toBeGreaterThan(CALL_OF_XENO_RAY_BLAST_RADIUS)
     })
 })
 

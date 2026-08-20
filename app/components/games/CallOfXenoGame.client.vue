@@ -863,8 +863,8 @@ import {
     CALL_OF_XENO_HEADSHOT_POINTS,
     CALL_OF_XENO_STARTING_POINTS,
     CALL_OF_XENO_KNIFE_KILL_POINTS,
-    CALL_OF_XENO_BLAST_SELF_FRACTION,
-    CALL_OF_XENO_BLAST_SELF_CAP,
+    CALL_OF_XENO_BARREL_BLAST_RADIUS,
+    blastSelfDamage,
     perkPrice,
     CALL_OF_XENO_QUICK_REVIVE_MAX_BUYS,
     CALL_OF_XENO_POWERUP_CHANCE,
@@ -1987,6 +1987,18 @@ function hitEnemy(enemy: Enemy, ox: number, oy: number, oz: number, dx: number, 
     return best
 }
 
+/**
+ * Own blasts bite back: standing inside one costs health, so the launchers
+ * stay strong but never free to fire at your feet, and a fuel barrel is a
+ * hazard to whoever set it off as well as to what it was aimed at.
+ */
+function applyBlastToPlayer(x: number, y: number, z: number, damage: number, blastRadius: number) {
+    if (hp <= 0) return
+    const dist = Math.hypot(px - x, feetY + PLAYER_HEIGHT * 0.5 - y, pz - z)
+    const self = blastSelfDamage(dist, damage, blastRadius)
+    if (self >= 1) takeDamage(self, x, z)
+}
+
 /** The enemy a live round struck head-on, and where it struck them. */
 interface DirectHit {
     enemy: Enemy
@@ -2031,14 +2043,7 @@ function detonateRound(x: number, y: number, z: number, damage: number, blastRad
         if (!barrel.alive) continue
         if (Math.hypot(barrel.x - x, barrel.z - z) <= blastRadius) explodeBarrel(barrel)
     }
-    // Own blasts bite back: standing inside the radius costs a sliver of
-    // health, so the launchers stay strong but never free to fire at your feet.
-    const selfDist = Math.hypot(px - x, feetY + PLAYER_HEIGHT * 0.5 - y, pz - z)
-    if (selfDist < blastRadius + 0.4 && hp > 0) {
-        const falloff = Math.max(0.25, 1 - selfDist / (blastRadius + 0.4))
-        const self = Math.round(Math.min(CALL_OF_XENO_BLAST_SELF_CAP, damage * CALL_OF_XENO_BLAST_SELF_FRACTION * falloff))
-        if (self >= 1) takeDamage(self, x, z)
-    }
+    applyBlastToPlayer(x, y, z, damage, blastRadius)
     return kills
 }
 
@@ -2598,14 +2603,20 @@ function explodeBarrel(barrel: Barrel) {
     impactPoint.set(barrel.x, 0.4, barrel.z)
     effects.wallImpact(impactPoint, new THREE.Vector3(0, 1, 0))
 
+    const blast = 380 + currentRound * 25
     const scored = new Set<Enemy>()
     for (const enemy of [...enemies]) {
         const dist = Math.hypot(enemy.x - barrel.x, enemy.z - barrel.z)
-        if (dist > 3.8) continue
-        const damage = Math.round((380 + currentRound * 25) * Math.max(0.25, 1 - dist / 4.4))
+        if (dist > CALL_OF_XENO_BARREL_BLAST_RADIUS) continue
+        const damage = Math.round(blast * Math.max(0.25, 1 - dist / 4.4))
         impactPoint.set(enemy.x, enemy.y + enemy.model.torsoY, enemy.z)
         applyHit(enemy, damage, 'body', scored, impactPoint)
     }
+
+    // Stood too close to a drum you just shot: it does not care whose side
+    // you are on. Measured from the drum's middle, so crouching behind it is
+    // no safer than standing beside it.
+    applyBlastToPlayer(barrel.x, 0.8, barrel.z, blast, CALL_OF_XENO_BARREL_BLAST_RADIUS)
 
     // Chain into neighbours; the alive flag stops the recursion looping.
     for (const other of barrels) {
