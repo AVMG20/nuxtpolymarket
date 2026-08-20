@@ -27,6 +27,7 @@ import {
     isSpecialRound,
     specialRoundEnemy,
     roundModifier,
+    callOfXenoPowerLive,
     multiKillBonus,
     CALL_OF_XENO_EQUIPMENT,
     CALL_OF_XENO_BLACKHOLE_RADIUS,
@@ -481,6 +482,34 @@ describe('special rounds and modifiers', () => {
             expect(CALL_OF_XENO_MODIFIERS[modifier]).toBeDefined()
         }
         expect(seen.size).toBeGreaterThanOrEqual(3)
+    })
+
+    it('takes the machines away for the round a blackout runs', () => {
+        // The regression: blackout was wired to the lighting and nothing
+        // else, so the perk machines and the Pack-a-Punch stood dark and
+        // still sold all round — the one event meant to take them away left
+        // them working.
+        expect(callOfXenoPowerLive(true, 'blackout')).toBe(false)
+        // Every other round the thrown switch is all that matters.
+        expect(callOfXenoPowerLive(true, 'none')).toBe(true)
+        expect(callOfXenoPowerLive(true, 'fog')).toBe(true)
+        expect(callOfXenoPowerLive(true, 'frenzy')).toBe(true)
+        // And before the switch is thrown nothing is live, blackout or not.
+        for (const modifier of Object.keys(CALL_OF_XENO_MODIFIERS) as CallOfXenoModifier[]) {
+            expect(callOfXenoPowerLive(false, modifier)).toBe(false)
+        }
+    })
+
+    it('cuts the machines on every round the blackout actually comes round to', () => {
+        // Whatever the schedule does, a blackout round is always a dark one.
+        let seen = 0
+        for (let round = 1; round <= 120; round++) {
+            const modifier = roundModifier(round)
+            if (modifier !== 'blackout') continue
+            seen++
+            expect(callOfXenoPowerLive(true, modifier)).toBe(false)
+        }
+        expect(seen).toBeGreaterThan(0)
     })
 
     it('leaves most rounds unmodified so the modifier still reads as an event', () => {

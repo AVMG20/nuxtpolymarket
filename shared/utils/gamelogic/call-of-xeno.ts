@@ -736,6 +736,19 @@ export const CALL_OF_XENO_MODIFIERS: Record<CallOfXenoModifier, CallOfXenoModifi
     frenzy: { id: 'frenzy', name: 'Frenzy', description: 'Everything moves faster.' }
 }
 
+/**
+ * Whether the grid is actually delivering: the switch has been thrown and
+ * the round is not blacking it out.
+ *
+ * The machines gate on this, not on the switch alone. Blackout used to be
+ * wired to the lighting and nothing else, so through the whole round the
+ * perk machines and the Pack-a-Punch stood dark and still sold — the one
+ * round that is supposed to take them away left them working.
+ */
+export function callOfXenoPowerLive(powered: boolean, modifier: CallOfXenoModifier): boolean {
+    return powered && modifier !== 'blackout'
+}
+
 const MODIFIER_CYCLE: CallOfXenoModifier[] = ['fog', 'frenzy', 'blackout']
 
 /**

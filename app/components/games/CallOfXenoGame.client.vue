@@ -882,6 +882,7 @@ import {
     isSpecialRound,
     specialRoundEnemy,
     roundModifier,
+    callOfXenoPowerLive,
     multiKillBonus,
     CALL_OF_XENO_EQUIPMENT,
     CALL_OF_XENO_BLACKHOLE_RADIUS,
@@ -3631,6 +3632,11 @@ function applyModifier() {
  */
 const LIT_WITHOUT_POWER = new Set([0, 1])
 
+/** The grid as the machines see it: thrown, and not blacked out this round. */
+function powerLive() {
+    return callOfXenoPowerLive(powered, modifier)
+}
+
 function refreshLights() {
     const dark = modifier === 'blackout'
     for (const entry of level.lights) {
@@ -3642,7 +3648,7 @@ function refreshLights() {
     for (const item of CALL_OF_XENO_INTERACTABLES) {
         const prop = level.props.get(item.id)
         if (!prop) continue
-        const live = powered && !dark
+        const live = powerLive()
         if (item.kind === 'perk' && item.perk) {
             for (const material of prop.glow) {
                 material.color.setHex(CALL_OF_XENO_PERKS[item.perk].color)
@@ -3748,10 +3754,10 @@ function updatePrompt() {
             continue
         }
 
-        if (item.needsPower && !powered) {
+        if (item.needsPower && !powerLive()) {
             best = d
             focused = null
-            text = 'Needs power'
+            text = powered ? 'Power is out' : 'Needs power'
             affordable = false
             continue
         }
@@ -3863,7 +3869,7 @@ function interact() {
     }
 
     const item = CALL_OF_XENO_INTERACTABLES.find(i => i.id === focused!.id)!
-    if (item.needsPower && !powered) return
+    if (item.needsPower && !powerLive()) return
 
     if (item.kind === 'workbench') {
         openWorkbench()
