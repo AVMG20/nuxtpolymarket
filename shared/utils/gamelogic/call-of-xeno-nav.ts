@@ -18,9 +18,10 @@
 import {
     CALL_OF_XENO_SHELL,
     CALL_OF_XENO_PLATFORMS,
-    CALL_OF_XENO_RAMPS,
+    CALL_OF_XENO_STEP_UP,
     CALL_OF_XENO_UPPER_Y,
     collisionSolids,
+    rampSurfaceAt,
     solidsInBand,
     type CallOfXenoSolid
 } from './call-of-xeno-map'
@@ -32,6 +33,13 @@ const LEVELS = 2
 const DIAG = Math.SQRT2
 /** Clearance padding on top of the body radius, so routes do not shave walls. */
 const CLEARANCE_PAD = 0.25
+/**
+ * How far either side of the storey boundary a flight's surface may sit and
+ * still be a place to change storey on. A flight climbs ~0.29m per cell, so
+ * this is a little over one cell of rise — two full rows of cells across the
+ * width of the stairs, which is all A* needs to cross over.
+ */
+export const CALL_OF_XENO_RAMP_LEVEL_BAND = 0.4
 
 export interface CallOfXenoNavPoint {
     x: number
@@ -45,11 +53,16 @@ export interface CallOfXenoNavGrid {
     rows: number
     /** Cells inside a ramp — the only place a route may change storey. */
     ramp: Uint8Array
+    /** Height of the flight's surface in each ramp cell. 0 elsewhere. */
+    rampSurface: Float32Array
     /** Per level: 1 when the cell holds geometry. Index is row * cols + col. */
     blocked: Uint8Array[]
     /** Per level: metres from the cell centre to the nearest blocked cell. */
     clearance: Float32Array[]
 }
+
+/** The height a body stops counting as downstairs at. */
+const BOUNDARY_Y = CALL_OF_XENO_UPPER_Y / 2
 
 /** Which storey a body at height `y` belongs to. Ramp middles round up. */
 export function navLevelOf(y: number): number {
@@ -113,18 +126,19 @@ export function buildNavGrid(openDoors: ReadonlySet<string>, extra: readonly Cal
     const count = cols * rows
 
     // Ramp cells first: they extend the upper storey beyond the platform.
+    // Each one also remembers how high its slice of the flight actually sits,
+    // which is what decides the storey it belongs to below.
     const ramp = new Uint8Array(count)
+    const rampY = new Float32Array(count)
     for (let row = 0; row < rows; row++) {
         for (let col = 0; col < cols; col++) {
             const i = row * cols + col
             const cx = (col + 0.5) * CALL_OF_XENO_NAV_CELL
             const cz = (row + 0.5) * CALL_OF_XENO_NAV_CELL
-            for (const r of CALL_OF_XENO_RAMPS) {
-                if (cx > r.box.minX && cx < r.box.maxX && cz > r.box.minZ && cz < r.box.maxZ) {
-                    ramp[i] = 1
-                    break
-                }
-            }
+            const surface = rampSurfaceAt(cx, cz)
+            if (surface === null) continue
+            ramp[i] = 1
+            rampY[i] = surface
         }
     }
 
@@ -171,7 +185,7 @@ export function buildNavGrid(openDoors: ReadonlySet<string>, extra: readonly Cal
         clearance.push(chamfer(mask, cols, rows))
     }
 
-    return { cell: CALL_OF_XENO_NAV_CELL, cols, rows, ramp, blocked, clearance }
+    return { cell: CALL_OF_XENO_NAV_CELL, cols, rows, ramp, rampSurface: rampY, blocked, clearance }
 }
 
 function cxIn(col: number, min: number, max: number) {
@@ -203,9 +217,24 @@ export function navCellPassable(grid: CallOfXenoNavGrid, level: number, col: num
 }
 
 /**
- * Whether a straight segment stays in cells wide enough for `radius`. Walks
- * every cell the line touches — including both cells flanking a corner it
- * clips — so nothing slips between two touching obstacles.
+ * True when stepping between these two cells does not mean climbing onto or
+ * off the side of a flight of stairs. The flights have no side walls, so
+ * every straight line that clips one has to be checked: the surface where it
+ * crosses must be within a step of the floor the body is walking on.
+ */
+function navRampStepOk(grid: CallOfXenoNavGrid, level: number, fromIdx: number, toIdx: number): boolean {
+    const fromRamp = grid.ramp[fromIdx] === 1
+    if (fromRamp === (grid.ramp[toIdx] === 1)) return true
+    const surface = grid.rampSurface[fromRamp ? fromIdx : toIdx]!
+    const floor = level === 0 ? 0 : CALL_OF_XENO_UPPER_Y
+    return Math.abs(surface - floor) <= CALL_OF_XENO_STEP_UP
+}
+
+/**
+ * Whether a straight segment stays in cells wide enough for `radius`, and
+ * never steps onto a flight of stairs anywhere but its ends. Walks every cell
+ * the line touches — including both cells flanking a corner it clips — so
+ * nothing slips between two touching obstacles.
  */
 export function navLineClear(
     grid: CallOfXenoNavGrid,
@@ -235,6 +264,7 @@ export function navLineClear(
 
     let guard = (grid.cols + grid.rows) * 4 + 8
     while ((col !== endCol || row !== endRow) && guard-- > 0) {
+        const fromIdx = row * grid.cols + col
         if (Math.abs(tMaxCol - tMaxRow) < 1e-9) {
             // Crossing exactly through a corner: both flanking cells must fit.
             if (!navCellPassable(grid, level, col + stepCol, row, radius)) return false
@@ -251,6 +281,7 @@ export function navLineClear(
             tMaxRow += tDeltaRow
         }
         if (!navCellPassable(grid, level, col, row, radius)) return false
+        if (!navRampStepOk(grid, level, fromIdx, row * grid.cols + col)) return false
     }
     return guard > 0
 }
@@ -315,11 +346,13 @@ function nearestFree(
     col: number, row: number,
     radius: number,
     maxRings: number,
-    requireClearance: boolean
+    requireClearance: boolean,
+    allow?: (col: number, row: number) => boolean
 ): { col: number, row: number } | null {
-    const fits = (c: number, r: number) => requireClearance
-        ? navCellPassable(grid, level, c, r, radius)
-        : navCellOpen(grid, level, c, r)
+    const fits = (c: number, r: number) => (allow === undefined || allow(c, r))
+        && (requireClearance
+            ? navCellPassable(grid, level, c, r, radius)
+            : navCellOpen(grid, level, c, r))
     for (let ring = 0; ring <= maxRings; ring++) {
         if (fits(col, row)) return { col, row }
         for (let dr = -ring; dr <= ring; dr++) {
@@ -357,6 +390,7 @@ export function findNavPath(
     gx: number, gz: number, gy: number,
     radius: number
 ): CallOfXenoNavPoint[] | null {
+    const feet = [0, CALL_OF_XENO_UPPER_Y]
     const n = grid.cols * grid.rows
     const nodes = n * LEVELS
 
@@ -372,8 +406,20 @@ export function findNavPath(
     let startIdx = cellIndex(grid, sx, sz)
     let startLevel = navLevelOf(sy)
     if (grid.blocked[startLevel]![startIdx] && grid.ramp[startIdx]) startLevel = 1 - startLevel
-    let snapped = nearestFree(grid, startLevel, startIdx % grid.cols, Math.floor(startIdx / grid.cols), radius, 6, true)
-        ?? nearestFree(grid, startLevel, startIdx % grid.cols, Math.floor(startIdx / grid.cols), 0, 4, false)
+    // A body under the high end of a flight shares its cells with the stairs
+    // overhead, and the grid cannot tell the two apart. Its own height can:
+    // if it is standing well below the surface it is underneath, so the route
+    // has to start by walking out from under, not by climbing where it is.
+    const standingUnder = grid.ramp[startIdx] === 1
+        && sy < grid.rampSurface[startIdx]! - CALL_OF_XENO_STEP_UP
+    const notUnderStairs = standingUnder
+        ? (c: number, r: number) => {
+            const i = r * grid.cols + c
+            return grid.ramp[i] !== 1 || grid.rampSurface[i]! - sy <= CALL_OF_XENO_STEP_UP
+        }
+        : undefined
+    let snapped = nearestFree(grid, startLevel, startIdx % grid.cols, Math.floor(startIdx / grid.cols), radius, 6, true, notUnderStairs)
+        ?? nearestFree(grid, startLevel, startIdx % grid.cols, Math.floor(startIdx / grid.cols), 0, 4, false, notUnderStairs)
     if (!snapped) return null
     startIdx = snapped.row * grid.cols + snapped.col
 
@@ -429,12 +475,23 @@ export function findNavPath(
             }
         }
 
+        const onRamp = grid.ramp[idx] === 1
+
         for (const [dc, dr, cost] of NEIGHBOURS) {
             const ncol = col + dc
             const nrow = row + dr
             if (ncol < 0 || ncol >= grid.cols || nrow < 0 || nrow >= grid.rows) continue
             const nidx = nrow * grid.cols + ncol
             const nnode = level * n + nidx
+            // Getting on or off a flight is only possible at its ends. The
+            // flights have no side walls, so without this a route walks up
+            // beside the stairs and steps onto the middle of them — metres
+            // above the floor it is standing on. A body cannot do that, so
+            // it presses into the spot instead and the pack stalls there.
+            if (onRamp !== (grid.ramp[nidx] === 1)) {
+                const surface = grid.rampSurface[onRamp ? idx : nidx]!
+                if (Math.abs(surface - feet[level]!) > CALL_OF_XENO_STEP_UP) continue
+            }
             // The goal itself is allowed to be merely unblocked — the player
             // can stand where a route cannot quite end.
             const enterGoal = nnode === goalNode && navCellOpen(grid, level, ncol, nrow)
@@ -448,8 +505,11 @@ export function findNavPath(
             relax(nnode, cost * grid.cell)
         }
 
-        // Storey change: only on a ramp, and only into a cell that fits.
-        if (grid.ramp[idx]) {
+        // Storey change: only on a ramp, only into a cell that fits, and
+        // only partway up where the flight actually crosses between the two
+        // storeys. Anywhere else on the flight the two levels are meters
+        // apart vertically and the change would be a step into thin air.
+        if (onRamp && Math.abs(grid.rampSurface[idx]! - BOUNDARY_Y) <= CALL_OF_XENO_RAMP_LEVEL_BAND) {
             const other = 1 - level
             const nnode = other * n + idx
             if (navCellPassable(grid, other, col, row, radius)) relax(nnode, 0.3)

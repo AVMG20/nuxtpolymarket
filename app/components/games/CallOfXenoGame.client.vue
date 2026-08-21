@@ -863,8 +863,8 @@ import {
     CALL_OF_XENO_HEADSHOT_POINTS,
     CALL_OF_XENO_STARTING_POINTS,
     CALL_OF_XENO_KNIFE_KILL_POINTS,
-    CALL_OF_XENO_BLAST_SELF_FRACTION,
-    CALL_OF_XENO_BLAST_SELF_CAP,
+    CALL_OF_XENO_BARREL_BLAST_RADIUS,
+    blastSelfDamage,
     perkPrice,
     CALL_OF_XENO_QUICK_REVIVE_MAX_BUYS,
     CALL_OF_XENO_POWERUP_CHANCE,
@@ -882,6 +882,7 @@ import {
     isSpecialRound,
     specialRoundEnemy,
     roundModifier,
+    callOfXenoPowerLive,
     multiKillBonus,
     CALL_OF_XENO_EQUIPMENT,
     CALL_OF_XENO_BLACKHOLE_RADIUS,
@@ -916,6 +917,8 @@ import {
     CALL_OF_XENO_WINDOW_HEAD,
     CALL_OF_XENO_TEAR_TIME,
     CALL_OF_XENO_CLIMB_TIME,
+    CALL_OF_XENO_WINDOW_SLOT_RADIUS,
+    windowApproachSlot,
     CALL_OF_XENO_REPAIR_TIME,
     CALL_OF_XENO_REPAIR_POINTS,
     CALL_OF_XENO_PLAYER_START,
@@ -928,6 +931,8 @@ import {
     collisionSolids,
     solidsInBand,
     groundHeight,
+    rampUnderBody,
+    waypointFootingOk,
     rayBlockDistance,
     resolveCircle,
     type CallOfXenoBox,
@@ -1336,6 +1341,16 @@ interface Enemy {
     stage: EnemyStage
     /** The window it came in by. Null once it is inside. */
     window: CallOfXenoWindow | null
+    /** Spawn order. Fixes the queue at a window: first in line, first through. */
+    seq: number
+    /** Place in that queue. 0 is the body actually working the boards. */
+    slot: number
+    /**
+     * True once it has reached its queue slot. A posted body is anchored:
+     * the separation pass may not shove it, because shoving it off the slot
+     * is exactly what used to stall a barricade indefinitely.
+     */
+    posted: boolean
     /** Seconds left on the board it is currently prising off. */
     tearTimer: number
     /** Progress of the climb-through animation, 0 to 1. */
@@ -1424,6 +1439,13 @@ interface WorldPopup {
     color: string
     size: number
 }
+
+/**
+ * DEBUG — testing only. While true the player cannot drop below 1 HP: every
+ * hit still lands, shakes, flashes and plays its sound, but the run never
+ * ends. Flip back to false before committing.
+ */
+const DEBUG_GOD_MODE = false
 
 const PLAYER_RADIUS = 0.35
 const PLAYER_HEIGHT = 1.8
@@ -1544,6 +1566,8 @@ const perks = new Set<CallOfXenoPerkId>()
 let quickReviveBuys = 0
 const openDoors = new Set<string>()
 const enemies: Enemy[] = []
+/** Window id -> the bodies queued outside it. Rebuilt every frame, reused. */
+const windowQueues = new Map<string, Enemy[]>()
 const corpses: Corpse[] = []
 const projectiles: Projectile[] = []
 
@@ -1964,6 +1988,18 @@ function hitEnemy(enemy: Enemy, ox: number, oy: number, oz: number, dx: number, 
     return best
 }
 
+/**
+ * Own blasts bite back: standing inside one costs health, so the launchers
+ * stay strong but never free to fire at your feet, and a fuel barrel is a
+ * hazard to whoever set it off as well as to what it was aimed at.
+ */
+function applyBlastToPlayer(x: number, y: number, z: number, damage: number, blastRadius: number) {
+    if (hp <= 0) return
+    const dist = Math.hypot(px - x, feetY + PLAYER_HEIGHT * 0.5 - y, pz - z)
+    const self = blastSelfDamage(dist, damage, blastRadius)
+    if (self >= 1) takeDamage(self, x, z)
+}
+
 /** The enemy a live round struck head-on, and where it struck them. */
 interface DirectHit {
     enemy: Enemy
@@ -2008,14 +2044,7 @@ function detonateRound(x: number, y: number, z: number, damage: number, blastRad
         if (!barrel.alive) continue
         if (Math.hypot(barrel.x - x, barrel.z - z) <= blastRadius) explodeBarrel(barrel)
     }
-    // Own blasts bite back: standing inside the radius costs a sliver of
-    // health, so the launchers stay strong but never free to fire at your feet.
-    const selfDist = Math.hypot(px - x, feetY + PLAYER_HEIGHT * 0.5 - y, pz - z)
-    if (selfDist < blastRadius + 0.4 && hp > 0) {
-        const falloff = Math.max(0.25, 1 - selfDist / (blastRadius + 0.4))
-        const self = Math.round(Math.min(CALL_OF_XENO_BLAST_SELF_CAP, damage * CALL_OF_XENO_BLAST_SELF_FRACTION * falloff))
-        if (self >= 1) takeDamage(self, x, z)
-    }
+    applyBlastToPlayer(x, y, z, damage, blastRadius)
     return kills
 }
 
@@ -2295,6 +2324,31 @@ function award(base: number) {
     return total
 }
 
+/**
+ * Orders the bodies waiting at each window into a queue, front to back.
+ *
+ * Spawn order decides the ranking, not distance: ranking by distance would
+ * have two bodies swap places every time the separation pass nudged them,
+ * and each swap would send both walking to the other's slot.
+ *
+ * Enemies that have started climbing drop out of the queue on the same
+ * frame, so the body behind is promoted to the breach slot and walks up
+ * while the one ahead is still going through the window.
+ */
+function assignWindowQueues() {
+    windowQueues.clear()
+    for (const enemy of enemies) {
+        if (enemy.stage !== 'outside' || !enemy.window) continue
+        const line = windowQueues.get(enemy.window.id)
+        if (line) line.push(enemy)
+        else windowQueues.set(enemy.window.id, [enemy])
+    }
+    for (const line of windowQueues.values()) {
+        line.sort((a, b) => a.seq - b.seq)
+        for (let rank = 0; rank < line.length; rank++) line[rank]!.slot = rank
+    }
+}
+
 /** Returns true when the hit killed. */
 function applyHit(enemy: Enemy, damage: number, kind: 'body' | 'head' | 'weak', scored: Set<Enemy>, at: THREE.Vector3, source: 'gun' | 'knife' = 'gun') {
     const lethal = powerUpTimers.instakill > 0
@@ -2550,14 +2604,20 @@ function explodeBarrel(barrel: Barrel) {
     impactPoint.set(barrel.x, 0.4, barrel.z)
     effects.wallImpact(impactPoint, new THREE.Vector3(0, 1, 0))
 
+    const blast = 380 + currentRound * 25
     const scored = new Set<Enemy>()
     for (const enemy of [...enemies]) {
         const dist = Math.hypot(enemy.x - barrel.x, enemy.z - barrel.z)
-        if (dist > 3.8) continue
-        const damage = Math.round((380 + currentRound * 25) * Math.max(0.25, 1 - dist / 4.4))
+        if (dist > CALL_OF_XENO_BARREL_BLAST_RADIUS) continue
+        const damage = Math.round(blast * Math.max(0.25, 1 - dist / 4.4))
         impactPoint.set(enemy.x, enemy.y + enemy.model.torsoY, enemy.z)
         applyHit(enemy, damage, 'body', scored, impactPoint)
     }
+
+    // Stood too close to a drum you just shot: it does not care whose side
+    // you are on. Measured from the drum's middle, so crouching behind it is
+    // no safer than standing beside it.
+    applyBlastToPlayer(barrel.x, 0.8, barrel.z, blast, CALL_OF_XENO_BARREL_BLAST_RADIUS)
 
     // Chain into neighbours; the alive flag stops the recursion looping.
     for (const other of barrels) {
@@ -3015,6 +3075,9 @@ function pickEnemyType(): CallOfXenoEnemyId {
     return randomWeighted(composition, entry => entry.weight, randomFloat).enemy
 }
 
+/** Hands each enemy its queue order at a window. Reset with the run. */
+let enemySeq = 0
+
 /** Puts one enemy outside a live window. False when there is nowhere to put it. */
 function spawnEnemy(): boolean {
     // Only windows in rooms the player can actually be reached from are live,
@@ -3051,6 +3114,9 @@ function spawnEnemy(): boolean {
         model,
         stage: 'outside',
         window,
+        seq: enemySeq++,
+        slot: 0,
+        posted: false,
         tearTimer: CALL_OF_XENO_TEAR_TIME,
         climb: 0,
         x,
@@ -3092,6 +3158,8 @@ function updateBreaching(enemy: Enemy, dt: number): boolean {
     const state = windowStates.get(window.id)!
 
     if (enemy.stage === 'breaching') {
+        // The climb is a scripted lerp — nothing may push it off its line.
+        enemy.posted = true
         enemy.climb += dt / CALL_OF_XENO_CLIMB_TIME
         const t = Math.min(1, enemy.climb)
         enemy.x = window.outside.x + (window.inside.x - window.outside.x) * t
@@ -3102,18 +3170,24 @@ function updateBreaching(enemy: Enemy, dt: number): boolean {
         if (t >= 1) {
             enemy.stage = 'inside'
             enemy.window = null
+            enemy.posted = false
             enemy.y = 0
             return true
         }
         return false
     }
 
-    const dx = window.outside.x - enemy.x
-    const dz = window.outside.z - enemy.z
+    // Each body walks to its own place in the window's queue rather than
+    // every one of them steering at the same point. Rank 0's slot *is* the
+    // old approach point, so the breach itself is unchanged.
+    const target = windowApproachSlot(window, enemy.slot)
+    const dx = target.x - enemy.x
+    const dz = target.z - enemy.z
     const dist = Math.hypot(dx, dz)
     enemy.y = 0
+    enemy.posted = dist <= CALL_OF_XENO_WINDOW_SLOT_RADIUS
 
-    if (dist > 0.45) {
+    if (!enemy.posted) {
         enemy.x += (dx / dist) * enemy.speed * dt
         enemy.z += (dz / dist) * enemy.speed * dt
         enemy.yaw = Math.atan2(dx / dist, dz / dist)
@@ -3121,6 +3195,9 @@ function updateBreaching(enemy: Enemy, dt: number): boolean {
     }
 
     enemy.yaw = window.facing + Math.PI
+    // Only the front of the queue works the boards. The rest wait their turn
+    // — a slot opens the instant the one ahead starts climbing through.
+    if (enemy.slot > 0) return false
     if (state.boards <= 0) {
         enemy.stage = 'breaching'
         enemy.climb = 0
@@ -3246,7 +3323,8 @@ function updateProjectiles(dt: number) {
 }
 
 function takeDamage(amount: number, sourceX?: number, sourceZ?: number) {
-    hp -= amount
+    // Feedback still fires in god mode — only the lethal part is held off.
+    hp = DEBUG_GOD_MODE ? Math.max(1, hp - amount) : hp - amount
     sinceDamage = 0
     shake = Math.min(0.24, shake + 0.14)
     damageFlash.value = 1
@@ -3288,6 +3366,7 @@ function animateEnemy(enemy: Enemy, dt: number, moved = 0) {
 
 function updateEnemies(dt: number) {
     const contact = zombieDamage(currentRound)
+    assignWindowQueues()
 
     for (const enemy of enemies) {
         const def = enemy.def
@@ -3298,9 +3377,8 @@ function updateEnemies(dt: number) {
         // Outside the shell there is no navigation and no collision: the only
         // way in is the window it picked, and the climb is scripted.
         if (enemy.stage !== 'inside') {
-            const arrived = enemy.stage === 'outside'
-                && Math.hypot(enemy.window!.outside.x - enemy.x, enemy.window!.outside.z - enemy.z) <= 0.45
-            animateEnemy(enemy, dt, arrived ? 0 : enemy.speed)
+            // Posted bodies stand still and work; the rest are still walking.
+            animateEnemy(enemy, dt, enemy.posted ? 0 : enemy.speed)
             if (!updateBreaching(enemy, dt)) continue
         }
 
@@ -3327,8 +3405,11 @@ function updateEnemies(dt: number) {
             enemy.repathIn = 0.35 + randomFloat() * 0.35
             enemy.path = findNavPath(navGrid, enemy.x, enemy.z, enemy.y, px, pz, feetY, radius) ?? []
         }
+        // Waypoints are retired at arm's length, which on a flight of stairs
+        // is half a metre short of standing on it — see waypointFootingOk.
         while (enemy.path.length > 0
-            && Math.hypot(enemy.path[0]!.x - enemy.x, enemy.path[0]!.z - enemy.z) < 0.5) {
+            && Math.hypot(enemy.path[0]!.x - enemy.x, enemy.path[0]!.z - enemy.z) < 0.5
+            && waypointFootingOk(enemy.x, enemy.z, enemy.y, enemy.path[0]!.x, enemy.path[0]!.z)) {
             enemy.path.shift()
         }
 
@@ -3360,7 +3441,18 @@ function updateEnemies(dt: number) {
         const dist = Math.hypot(dx, dz)
         let moved = 0
         const stopAt = def.ranged ? 0 : 1.05 * def.scale
-        const wantsMove = dist > 0.05 && (def.ranged || toPlayer > stopAt) && enemy.stagger <= 0
+        // Pulling up at contact range only makes sense against a player the
+        // body can actually reach. The distance is flat, so a player on the
+        // deck overhead used to stop the pack underneath it dead: close in
+        // plan, four metres up, too far to swing at and too settled to walk
+        // to the stairs. Out of reach vertically, keep walking.
+        const withinReach = Math.abs(enemy.y - feetY) < 1.6
+        const wantsMove = dist > 0.05
+            && (def.ranged || !withinReach || toPlayer > stopAt)
+            && enemy.stagger <= 0
+
+        const beforeX = enemy.x
+        const beforeZ = enemy.z
 
         if (wantsMove) {
             let mx = dx / dist
@@ -3373,12 +3465,27 @@ function updateEnemies(dt: number) {
                 mx = sx
                 mz = sz
             }
-            const beforeX = enemy.x
-            const beforeZ = enemy.z
             enemy.x += mx * enemy.speed * dt
             enemy.z += mz * enemy.speed * dt
             enemy.yaw = Math.atan2(mx, mz)
+            moved = enemy.speed
+        } else {
+            enemy.stuck = 0
+        }
 
+        if (enemy.stagger > 0) enemy.stagger -= dt
+
+        const boxes = solidsInBand(solids, enemy.y, 1.8 * def.scale)
+        const solved = resolveCircle(enemy.x, enemy.z, 0.45 * def.scale, boxes)
+        enemy.x = solved.x
+        enemy.z = solved.z
+
+        // Progress is what survived the collision resolve, not what the body
+        // asked for. Measured before it, this compared the step against
+        // itself and always matched, so the counter never rose and the
+        // wall-slide above never once engaged — a body pinned on geometry had
+        // no way out of it at all.
+        if (wantsMove) {
             const actual = Math.hypot(enemy.x - beforeX, enemy.z - beforeZ)
             if (actual < enemy.speed * dt * 0.3) {
                 enemy.stuck += dt
@@ -3391,17 +3498,7 @@ function updateEnemies(dt: number) {
             } else {
                 enemy.stuck = 0
             }
-            moved = enemy.speed
-        } else {
-            enemy.stuck = 0
         }
-
-        if (enemy.stagger > 0) enemy.stagger -= dt
-
-        const boxes = solidsInBand(solids, enemy.y, 1.8 * def.scale)
-        const solved = resolveCircle(enemy.x, enemy.z, 0.45 * def.scale, boxes)
-        enemy.x = solved.x
-        enemy.z = solved.z
 
         // Vertical: walkers fall and step, drones hover above whatever is below.
         const ground = groundHeight(enemy.x, enemy.z, enemy.y)
@@ -3459,11 +3556,40 @@ function updateEnemies(dt: number) {
             const d = Math.hypot(dx, dz)
             const want = 0.9 * Math.max(a.def.scale, b.def.scale)
             if (d > want || d < 1e-4) continue
+            // A body posted at its window slot (or mid-climb) is anchored:
+            // it still shoves others aside, but nothing may shove it back.
+            // Displacing it is what used to break a barricade open — pushed
+            // off the slot, it stopped tearing and walked in again, forever.
             const push = (want - d) / 2
-            a.x -= (dx / d) * push
-            a.z -= (dz / d) * push
-            b.x += (dx / d) * push
-            b.z += (dz / d) * push
+            const aAnchored = a.stage !== 'inside' && a.posted
+            const bAnchored = b.stage !== 'inside' && b.posted
+            if (aAnchored && bAnchored) continue
+            if (!aAnchored) {
+                a.x -= (dx / d) * (bAnchored ? push * 2 : push)
+                a.z -= (dz / d) * (bAnchored ? push * 2 : push)
+            }
+            if (!bAnchored) {
+                b.x += (dx / d) * (aAnchored ? push * 2 : push)
+                b.z += (dz / d) * (aAnchored ? push * 2 : push)
+            }
+        }
+    }
+
+    // The flights have no side walls, so a climber caught in the middle of a
+    // pack gets shoved clean off the steps, drops to the floor and has to
+    // walk all the way back round — which reads as a zombie circling the foot
+    // of the stairs, never managing to go up. Put it back on the flight it is
+    // climbing. Only sideways: the ends stay open so bodies still step on at
+    // the bottom and off onto the deck at the top.
+    for (const enemy of enemies) {
+        if (enemy.stage !== 'inside' || enemy.y <= CALL_OF_XENO_STEP_UP) continue
+        const ramp = rampUnderBody(enemy.x, enemy.z, enemy.y)
+        if (!ramp) continue
+        const radius = 0.45 * enemy.def.scale
+        if (ramp.axis === 'z') {
+            enemy.x = Math.min(Math.max(enemy.x, ramp.box.minX + radius), ramp.box.maxX - radius)
+        } else {
+            enemy.z = Math.min(Math.max(enemy.z, ramp.box.minZ + radius), ramp.box.maxZ - radius)
         }
     }
 
@@ -3506,6 +3632,11 @@ function applyModifier() {
  */
 const LIT_WITHOUT_POWER = new Set([0, 1])
 
+/** The grid as the machines see it: thrown, and not blacked out this round. */
+function powerLive() {
+    return callOfXenoPowerLive(powered, modifier)
+}
+
 function refreshLights() {
     const dark = modifier === 'blackout'
     for (const entry of level.lights) {
@@ -3517,7 +3648,7 @@ function refreshLights() {
     for (const item of CALL_OF_XENO_INTERACTABLES) {
         const prop = level.props.get(item.id)
         if (!prop) continue
-        const live = powered && !dark
+        const live = powerLive()
         if (item.kind === 'perk' && item.perk) {
             for (const material of prop.glow) {
                 material.color.setHex(CALL_OF_XENO_PERKS[item.perk].color)
@@ -3623,10 +3754,10 @@ function updatePrompt() {
             continue
         }
 
-        if (item.needsPower && !powered) {
+        if (item.needsPower && !powerLive()) {
             best = d
             focused = null
-            text = 'Needs power'
+            text = powered ? 'Power is out' : 'Needs power'
             affordable = false
             continue
         }
@@ -3738,7 +3869,7 @@ function interact() {
     }
 
     const item = CALL_OF_XENO_INTERACTABLES.find(i => i.id === focused!.id)!
-    if (item.needsPower && !powered) return
+    if (item.needsPower && !powerLive()) return
 
     if (item.kind === 'workbench') {
         openWorkbench()
@@ -4119,6 +4250,8 @@ function resetRun() {
         disposeObject(enemy.model.group)
     }
     enemies.length = 0
+    windowQueues.clear()
+    enemySeq = 0
     for (const corpse of corpses) {
         scene.remove(corpse.model.group)
         disposeObject(corpse.model.group)

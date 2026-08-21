@@ -165,6 +165,40 @@ export const CALL_OF_XENO_WINDOWS: CallOfXenoWindow[] = WINDOW_SPECS.map((spec) 
 /** Width of a window opening, shared by every one of them. */
 export const CALL_OF_XENO_WINDOW_WIDTH = WINDOW_SPECS[0]!.to - WINDOW_SPECS[0]!.from
 
+/**
+ * Sideways gap between two enemies queued abreast at a window, and the gap
+ * between one row of the queue and the next.
+ *
+ * Both are deliberately wider than the widest separation radius the sim
+ * pushes bodies apart by (0.9 x the Brute's 1.5 scale = 1.35): slots that
+ * sat closer than that would have the separation pass fighting the approach
+ * every frame, which is the stall this queue exists to prevent.
+ */
+export const CALL_OF_XENO_WINDOW_SLOT_SPACING = 1.7
+/** How close an enemy has to be to its slot to count as posted at it. */
+export const CALL_OF_XENO_WINDOW_SLOT_RADIUS = 0.45
+
+/**
+ * Where the enemy `rank` places in a window's queue should stand. Rank 0 is
+ * the breach position — the window's own `outside` point, so the enemy
+ * working the boards stands exactly where it always did. Everything behind
+ * it fans out two abreast in rows heading away from the wall.
+ *
+ * A single shared approach point is what let a pack deadlock: every body
+ * steered at the same spot, and the separation pass shoved whoever reached
+ * it back out of the arrival radius, so nobody ever held the post long
+ * enough to prise a board off.
+ */
+export function windowApproachSlot(window: CallOfXenoWindow, rank: number): { x: number, z: number } {
+    if (rank <= 0) return { x: window.outside.x, z: window.outside.z }
+    const row = Math.ceil(rank / 2)
+    const lateral = (rank % 2 === 1 ? -1 : 1) * CALL_OF_XENO_WINDOW_SLOT_SPACING
+    const depth = window.outward * row * CALL_OF_XENO_WINDOW_SLOT_SPACING
+    return window.axis === 'x'
+        ? { x: window.outside.x + lateral, z: window.outside.z + depth }
+        : { x: window.outside.x + depth, z: window.outside.z + lateral }
+}
+
 // ---------------------------------------------------------------------------
 // Regions
 // ---------------------------------------------------------------------------
@@ -686,6 +720,77 @@ export function groundHeight(x: number, z: number, feetY: number): number {
     }
 
     return best
+}
+
+/**
+ * Height of the stair surface at a point, or null when no flight covers it.
+ * Unlike `groundHeight` this reports the slope regardless of whether a body
+ * standing on the floor could actually step up onto it — the navigation grid
+ * needs the true surface to decide which storey a ramp cell belongs to.
+ */
+export function rampSurfaceAt(x: number, z: number): number | null {
+    for (const ramp of CALL_OF_XENO_RAMPS) {
+        if (!inside(ramp.box, x, z)) continue
+        const at = ramp.axis === 'x' ? x : z
+        const t = (at - ramp.lowAt) / (ramp.highAt - ramp.lowAt)
+        return ramp.lowY + (ramp.highY - ramp.lowY) * Math.max(0, Math.min(1, t))
+    }
+    return null
+}
+
+/**
+ * How far off the edge of a flight a body still counts as being on it. The
+ * pack can shove a climber this far sideways in a single frame, and it has to
+ * still be recognised as belonging to the stairs to be put back on them.
+ */
+const RAMP_EDGE_GRACE = 0.6
+
+/**
+ * The flight a body is currently climbing, or null when it is not on one.
+ *
+ * Height is what decides it: a body inside a flight's footprint but down on
+ * the floor underneath is not on the stairs, and one shoved just off the edge
+ * still is. The flights carry no side walls, so this is what lets the sim put
+ * a climber back on the steps instead of letting the pack push it into
+ * mid-air, where it drops to the floor and has to walk all the way round
+ * again.
+ */
+export function rampUnderBody(x: number, z: number, y: number): CallOfXenoRamp | null {
+    for (const ramp of CALL_OF_XENO_RAMPS) {
+        const lateralLow = ramp.axis === 'z' ? ramp.box.minX : ramp.box.minZ
+        const lateralHigh = ramp.axis === 'z' ? ramp.box.maxX : ramp.box.maxZ
+        const lateral = ramp.axis === 'z' ? x : z
+        if (lateral <= lateralLow - RAMP_EDGE_GRACE || lateral >= lateralHigh + RAMP_EDGE_GRACE) continue
+        const alongLow = ramp.axis === 'z' ? ramp.box.minZ : ramp.box.minX
+        const alongHigh = ramp.axis === 'z' ? ramp.box.maxZ : ramp.box.maxX
+        const along = ramp.axis === 'z' ? z : x
+        if (along <= alongLow || along >= alongHigh) continue
+        const t = (along - ramp.lowAt) / (ramp.highAt - ramp.lowAt)
+        const surface = ramp.lowY + (ramp.highY - ramp.lowY) * Math.max(0, Math.min(1, t))
+        if (Math.abs(y - surface) > CALL_OF_XENO_STEP_UP) continue
+        return ramp
+    }
+    return null
+}
+
+/**
+ * Whether a body may tick off a waypoint it has walked up to.
+ *
+ * Anywhere but the stairs, arriving is arriving. On a flight it is not: a
+ * body heading for the foot retires that waypoint while still short of it,
+ * out on the floor inside the footprint where the steps are already too high
+ * to mount, and turns for the next waypoint up the flight. It walks into the
+ * dead ground under the stairs, the next replan sends it back to the foot,
+ * and it shuttles between the two forever — the body circling the bottom of
+ * the stairs, never getting on them. A step of the flight only counts as
+ * reached once the body is actually standing on the flight.
+ */
+export function waypointFootingOk(
+    bodyX: number, bodyZ: number, bodyY: number,
+    waypointX: number, waypointZ: number
+): boolean {
+    if (rampSurfaceAt(waypointX, waypointZ) === null) return true
+    return rampUnderBody(bodyX, bodyZ, bodyY) !== null
 }
 
 /** Everything solid right now, including shut doors and any live extras. */

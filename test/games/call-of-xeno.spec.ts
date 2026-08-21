@@ -19,10 +19,15 @@ import {
     CALL_OF_XENO_SALLY_MAG,
     CALL_OF_XENO_SALLY_RESERVE,
     CALL_OF_XENO_SALLY_BLAST_RADIUS,
+    CALL_OF_XENO_RAY_BLAST_RADIUS,
+    CALL_OF_XENO_BARREL_BLAST_RADIUS,
+    CALL_OF_XENO_BLAST_SELF_CAP,
+    blastSelfDamage,
     roundComposition,
     isSpecialRound,
     specialRoundEnemy,
     roundModifier,
+    callOfXenoPowerLive,
     multiKillBonus,
     CALL_OF_XENO_EQUIPMENT,
     CALL_OF_XENO_BLACKHOLE_RADIUS,
@@ -56,6 +61,9 @@ import {
     CALL_OF_XENO_WINDOW_HEAD,
     CALL_OF_XENO_WINDOW_WIDTH,
     CALL_OF_XENO_WINDOW_BOARDS,
+    CALL_OF_XENO_WINDOW_SLOT_SPACING,
+    CALL_OF_XENO_WINDOW_SLOT_RADIUS,
+    windowApproachSlot,
     CALL_OF_XENO_SHELL,
     CALL_OF_XENO_SHELL_WALLS,
     CALL_OF_XENO_DECOR,
@@ -77,6 +85,10 @@ import {
     regionAt,
     resolveCircle,
     bannedNodesFor,
+    rampSurfaceAt,
+    rampUnderBody,
+    waypointFootingOk,
+    CALL_OF_XENO_STEP_UP,
     zombieTarget
 } from '../../shared/utils/gamelogic/call-of-xeno-map'
 import {
@@ -84,7 +96,8 @@ import {
     findNavPath,
     navLineClear,
     navCellPassable,
-    navLevelOf
+    navLevelOf,
+    CALL_OF_XENO_RAMP_LEVEL_BAND
 } from '../../shared/utils/gamelogic/call-of-xeno-nav'
 import {
     CALL_OF_XENO_DIFFICULTIES,
@@ -370,6 +383,47 @@ describe('pack-a-punch ladder', () => {
     })
 })
 
+describe('blast self-damage', () => {
+    it('hurts whoever is stood in the blast, and not whoever is clear of it', () => {
+        const radius = CALL_OF_XENO_BARREL_BLAST_RADIUS
+        // Right on top of it: the worst it can do, which is the cap.
+        expect(blastSelfDamage(0, 500, radius)).toBe(CALL_OF_XENO_BLAST_SELF_CAP)
+        // Inside the radius: a real bite.
+        expect(blastSelfDamage(radius / 2, 500, radius)).toBeGreaterThan(0)
+        // Clear of it: nothing at all.
+        expect(blastSelfDamage(radius + 0.4, 500, radius)).toBe(0)
+        expect(blastSelfDamage(radius + 10, 500, radius)).toBe(0)
+    })
+
+    it('falls off with distance and never exceeds the cap', () => {
+        const radius = CALL_OF_XENO_BARREL_BLAST_RADIUS
+        let previous = Infinity
+        for (let d = 0; d < radius + 0.4; d += 0.25) {
+            const hurt = blastSelfDamage(d, 500, radius)
+            expect(hurt).toBeLessThanOrEqual(CALL_OF_XENO_BLAST_SELF_CAP)
+            expect(hurt).toBeLessThanOrEqual(previous)
+            previous = hurt
+        }
+    })
+
+    it('caps a barrel so a point-blank drum is a hard lesson, not the run', () => {
+        // A barrel at round 1 carries enough to gib a zombie; against the
+        // player it has to leave them standing.
+        const pointBlank = blastSelfDamage(0, 380 + 25, CALL_OF_XENO_BARREL_BLAST_RADIUS)
+        expect(pointBlank).toBeGreaterThan(0)
+        expect(pointBlank).toBeLessThan(CALL_OF_XENO_BASE_HEALTH)
+        // And a deep-round barrel hits the player no harder than an early
+        // one — the cap is flat, so this never becomes an instant death.
+        expect(blastSelfDamage(0, 380 + 50 * 25, CALL_OF_XENO_BARREL_BLAST_RADIUS)).toBe(pointBlank)
+    })
+
+    it('reaches further from a barrel than from the wonder weapon bolt', () => {
+        // The drum is the biggest blast on the map; the ray bolt is a pop.
+        expect(CALL_OF_XENO_BARREL_BLAST_RADIUS).toBeGreaterThan(CALL_OF_XENO_SALLY_BLAST_RADIUS)
+        expect(CALL_OF_XENO_BARREL_BLAST_RADIUS).toBeGreaterThan(CALL_OF_XENO_RAY_BLAST_RADIUS)
+    })
+})
+
 describe('enemy roster', () => {
     it('unlocks four types in escalating order', () => {
         const ids = Object.keys(CALL_OF_XENO_ENEMIES) as CallOfXenoEnemyId[]
@@ -428,6 +482,34 @@ describe('special rounds and modifiers', () => {
             expect(CALL_OF_XENO_MODIFIERS[modifier]).toBeDefined()
         }
         expect(seen.size).toBeGreaterThanOrEqual(3)
+    })
+
+    it('takes the machines away for the round a blackout runs', () => {
+        // The regression: blackout was wired to the lighting and nothing
+        // else, so the perk machines and the Pack-a-Punch stood dark and
+        // still sold all round — the one event meant to take them away left
+        // them working.
+        expect(callOfXenoPowerLive(true, 'blackout')).toBe(false)
+        // Every other round the thrown switch is all that matters.
+        expect(callOfXenoPowerLive(true, 'none')).toBe(true)
+        expect(callOfXenoPowerLive(true, 'fog')).toBe(true)
+        expect(callOfXenoPowerLive(true, 'frenzy')).toBe(true)
+        // And before the switch is thrown nothing is live, blackout or not.
+        for (const modifier of Object.keys(CALL_OF_XENO_MODIFIERS) as CallOfXenoModifier[]) {
+            expect(callOfXenoPowerLive(false, modifier)).toBe(false)
+        }
+    })
+
+    it('cuts the machines on every round the blackout actually comes round to', () => {
+        // Whatever the schedule does, a blackout round is always a dark one.
+        let seen = 0
+        for (let round = 1; round <= 120; round++) {
+            const modifier = roundModifier(round)
+            if (modifier !== 'blackout') continue
+            seen++
+            expect(callOfXenoPowerLive(true, modifier)).toBe(false)
+        }
+        expect(seen).toBeGreaterThan(0)
     })
 
     it('leaves most rounds unmodified so the modifier still reads as an event', () => {
@@ -762,6 +844,58 @@ describe('windows', () => {
         expect(Math.hypot(solved.x - window.centre.x, solved.z - window.centre.z)).toBeGreaterThan(0)
     })
 
+    it('gives every body queued at a window its own place to stand', () => {
+        // The regression this guards: one shared approach point meant a
+        // second arrival landed on top of the first, the separation pass
+        // shoved both off it, and the barricade never got torn open.
+        for (const window of CALL_OF_XENO_WINDOWS) {
+            const slots = Array.from({ length: 8 }, (_, rank) => windowApproachSlot(window, rank))
+            // Rank 0 is the breach post itself — unchanged from before.
+            expect(slots[0]).toEqual({ x: window.outside.x, z: window.outside.z })
+            for (let i = 0; i < slots.length; i++) {
+                for (let j = i + 1; j < slots.length; j++) {
+                    const gap = Math.hypot(slots[i]!.x - slots[j]!.x, slots[i]!.z - slots[j]!.z)
+                    // Wider than the 1.35 the sim ever pushes two bodies
+                    // apart by, so separation never fights the approach.
+                    expect(gap).toBeGreaterThan(0.9 * 1.5)
+                    // And wider than two arrival discs, so holding one slot
+                    // cannot put you inside another.
+                    expect(gap).toBeGreaterThan(CALL_OF_XENO_WINDOW_SLOT_RADIUS * 2)
+                }
+            }
+        }
+    })
+
+    it('queues the waiting bodies away from the wall, never through it', () => {
+        for (const window of CALL_OF_XENO_WINDOWS) {
+            for (let rank = 1; rank < 8; rank++) {
+                const slot = windowApproachSlot(window, rank)
+                // Distance from the wall plane, measured outward.
+                const depth = window.axis === 'x'
+                    ? (slot.z - window.at) * window.outward
+                    : (slot.x - window.at) * window.outward
+                const frontDepth = window.axis === 'x'
+                    ? (window.outside.z - window.at) * window.outward
+                    : (window.outside.x - window.at) * window.outward
+                expect(depth).toBeGreaterThan(frontDepth)
+            }
+        }
+    })
+
+    it('fans the queue two abreast so it does not stretch into one long line', () => {
+        const window = CALL_OF_XENO_WINDOWS.find(w => w.id === 'win-barracks-s1')!
+        const lateral = (rank: number) => windowApproachSlot(window, rank).x - window.outside.x
+        // Ranks 1 and 2 share a row, on opposite sides of the breach post.
+        expect(lateral(1)).toBeCloseTo(-CALL_OF_XENO_WINDOW_SLOT_SPACING)
+        expect(lateral(2)).toBeCloseTo(CALL_OF_XENO_WINDOW_SLOT_SPACING)
+        // Rank 3 starts the next row back rather than widening this one.
+        expect(lateral(3)).toBeCloseTo(-CALL_OF_XENO_WINDOW_SLOT_SPACING)
+        const depthOf = (rank: number) =>
+            (windowApproachSlot(window, rank).z - window.at) * window.outward
+        expect(depthOf(3)).toBeGreaterThan(depthOf(1))
+        expect(depthOf(1)).toBeCloseTo(depthOf(2))
+    })
+
     it('only offers the windows of rooms the player can be reached from', () => {
         const shutOff = reachableWindows(SHUT_TABLE, 0)
         expect(shutOff.length).toBeGreaterThan(0)
@@ -1085,6 +1219,134 @@ describe('nav grid', () => {
         expect(path).not.toBeNull()
         const last = path![path!.length - 1]!
         expect(Math.hypot(last.x - 19, last.z - 8)).toBeLessThan(1.5)
+    })
+
+    it('reports the true stair surface, not the one a body could step onto', () => {
+        const ramp = CALL_OF_XENO_RAMPS[0]!
+        expect(rampSurfaceAt(0, 0)).toBeNull()
+        // Low end sits on the floor, high end meets the deck.
+        expect(rampSurfaceAt(32, ramp.lowAt - 0.1)!).toBeLessThan(0.1)
+        expect(CALL_OF_XENO_UPPER_Y - rampSurfaceAt(32, ramp.highAt + 0.1)!).toBeLessThan(0.1)
+        // Unlike groundHeight it reports the slope overhead regardless of
+        // whether a body on the floor could reach it.
+        expect(rampSurfaceAt(32, 24)!).toBeGreaterThan(CALL_OF_XENO_STEP_UP)
+        expect(groundHeight(32, 24, 0)).toBe(0)
+    })
+
+    it('walks round to the foot of the stairs instead of climbing where it stands', () => {
+        // The regression: every ramp cell used to stand in for both storeys,
+        // so a route changed floor directly under the top of the flight — a
+        // 4.5m step the body can never make. The pack pressed into the spot
+        // below the landing and stalled there for the rest of the round.
+        const starts: [string, number, number][] = [
+            ['under the catwalk', 18, 20],
+            ['mid atrium', 18, 26],
+            ['beside the east flight', 30, 27],
+            ['under the east flight', 32.3, 23.5],
+            ['under the west flight', 3, 23.5]
+        ]
+        for (const [name, sx, sz] of starts) {
+            const path = findNavPath(OPEN_GRID, sx, sz, 0, 18, 19, CALL_OF_XENO_UPPER_Y, SHAMBLER)
+            expect(path, `${name}: no route upstairs`).not.toBeNull()
+            for (let i = 1; i < path!.length; i++) {
+                const from = path![i - 1]!
+                const to = path![i]!
+                if (from.level === to.level) continue
+                // Every storey change happens partway up a flight, where the
+                // stairs really do cross between the two floors.
+                const surface = rampSurfaceAt(from.x, from.z)
+                expect(surface, `${name}: changed storey off a flight`).not.toBeNull()
+                expect(
+                    Math.abs(surface! - CALL_OF_XENO_UPPER_Y / 2),
+                    `${name}: changed storey ${surface!.toFixed(2)}m up, not at the crossover`
+                ).toBeLessThanOrEqual(CALL_OF_XENO_RAMP_LEVEL_BAND)
+            }
+        }
+    })
+
+    it('never steps onto the side of a flight, only its ends', () => {
+        // The flights carry no side walls, so nothing but this rule stops a
+        // body walking up beside the stairs and stepping onto the middle of
+        // them, metres above the floor it is standing on.
+        const ramp = CALL_OF_XENO_RAMPS[0]!
+        const midZ = (ramp.box.minZ + ramp.box.maxZ) / 2
+        const midX = (ramp.box.minX + ramp.box.maxX) / 2
+        const beside = ramp.box.minX - 1
+
+        // Straight onto the middle of the flight from alongside it: the
+        // surface there is well over a step up, so the line is refused.
+        expect(rampSurfaceAt(midX, midZ)!).toBeGreaterThan(CALL_OF_XENO_STEP_UP)
+        expect(navLineClear(OPEN_GRID, 0, beside, midZ, midX, midZ, SHAMBLER)).toBe(false)
+
+        // Onto the foot of the same flight, where it meets the floor: fine.
+        const footZ = ramp.lowAt - 0.5
+        expect(rampSurfaceAt(midX, footZ)!).toBeLessThanOrEqual(CALL_OF_XENO_STEP_UP)
+        expect(navLineClear(OPEN_GRID, 0, beside, footZ, midX, footZ, SHAMBLER)).toBe(true)
+
+        // And walking up the flight itself never leaves it, so it is allowed.
+        expect(navLineClear(OPEN_GRID, 0, midX, footZ, midX, midZ, SHAMBLER)).toBe(true)
+
+        // The same from above: the deck may only join the flight at its head.
+        expect(navLineClear(OPEN_GRID, 1, midX, ramp.highAt - 1, midX, midZ, SHAMBLER)).toBe(true)
+    })
+
+    it('knows a body climbing a flight from one stood under it', () => {
+        const ramp = CALL_OF_XENO_RAMPS[0]!
+        const midZ = (ramp.box.minZ + ramp.box.maxZ) / 2
+        const midX = (ramp.box.minX + ramp.box.maxX) / 2
+        const surface = rampSurfaceAt(midX, midZ)!
+
+        // On the steps: recognised, so the sim can keep it there.
+        expect(rampUnderBody(midX, midZ, surface)).not.toBeNull()
+        // Same footprint, but down on the floor underneath: not on the stairs.
+        expect(rampUnderBody(midX, midZ, 0)).toBeNull()
+        // Shoved just off the edge mid-climb: still counts, and that is the
+        // whole point — otherwise it drops to the floor and walks round again.
+        expect(rampUnderBody(ramp.box.minX - 0.3, midZ, surface)).not.toBeNull()
+        // Well clear of the flight: nothing to hold it to.
+        expect(rampUnderBody(ramp.box.minX - 3, midZ, surface)).toBeNull()
+        // Nowhere near a flight at all.
+        expect(rampUnderBody(18, 26, 0)).toBeNull()
+    })
+
+    it('leaves the ends of a flight open so bodies can get on and off', () => {
+        const ramp = CALL_OF_XENO_RAMPS[0]!
+        const midX = (ramp.box.minX + ramp.box.maxX) / 2
+        // Past the foot and past the head the body is on flat floor, and must
+        // not be held to the flight or it could never step off it.
+        expect(rampUnderBody(midX, ramp.box.maxZ + 0.5, 0)).toBeNull()
+        expect(rampUnderBody(midX, ramp.box.minZ - 0.5, CALL_OF_XENO_UPPER_Y)).toBeNull()
+    })
+
+    it('only ticks off a step of the stairs once it is standing on them', () => {
+        // The regression: waypoints retire at arm's length, but a body
+        // walking to the foot of a flight is still out on the floor at that
+        // range — inside the footprint, where the steps are already too high
+        // to mount. It used to tick the waypoint off anyway and turn for the
+        // next one up the flight, walk into the dead ground under the stairs,
+        // get sent back to the foot by the next replan, and shuttle between
+        // the two forever without ever getting on the stairs.
+        const ramp = CALL_OF_XENO_RAMPS[0]!
+        const midX = (ramp.box.minX + ramp.box.maxX) / 2
+
+        // Where a body can still mount: the surface is within a step.
+        const mouthZ = ramp.lowAt - 0.6
+        expect(rampSurfaceAt(midX, mouthZ)!).toBeLessThanOrEqual(CALL_OF_XENO_STEP_UP)
+
+        // Half a metre short of it, on the floor, the steps are already out of
+        // reach — so that waypoint is not reached yet however close it looks.
+        const shortZ = mouthZ - 0.7
+        expect(rampSurfaceAt(midX, shortZ)!).toBeGreaterThan(CALL_OF_XENO_STEP_UP)
+        expect(waypointFootingOk(midX, shortZ, 0, midX, mouthZ)).toBe(false)
+
+        // Once up on the steps it counts, and the body moves on up.
+        const onStep = rampSurfaceAt(midX, mouthZ)!
+        expect(waypointFootingOk(midX, mouthZ, onStep, midX, mouthZ)).toBe(true)
+
+        // Waypoints that are not on a flight are unaffected — arriving is
+        // arriving everywhere else on the map.
+        expect(waypointFootingOk(18, 26, 0, 18, 26)).toBe(true)
+        expect(waypointFootingOk(midX, shortZ, 0, 18, 26)).toBe(true)
     })
 
     it('changes storey only on a ramp', () => {
