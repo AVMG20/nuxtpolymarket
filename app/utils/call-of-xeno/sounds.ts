@@ -45,6 +45,8 @@ export class CallOfXenoAudio {
     private master: GainNode | null = null
     private noise: AudioBuffer | null = null
     private muted = false
+    /** Stereo pan of the effect currently being played. −1 left … +1 right. */
+    private pan = 0
 
     /** Must be called from a user gesture — browsers refuse to start audio otherwise. */
     start() {
@@ -88,6 +90,19 @@ export class CallOfXenoAudio {
         return this.ctx!.currentTime
     }
 
+    /**
+     * Where this effect's layers connect: straight to the master, or through
+     * a stereo panner when the source sits off-centre — so a groan from the
+     * left speaker tells you which wall is about to lose its boards.
+     */
+    private output(): AudioNode {
+        if (Math.abs(this.pan) < 0.01) return this.master!
+        const panner = this.ctx!.createStereoPanner()
+        panner.pan.value = Math.max(-1, Math.min(1, this.pan))
+        panner.connect(this.master!)
+        return panner
+    }
+
     /** Filtered noise burst — the body of every gunshot and impact. */
     private burst(opts: {
         at?: number
@@ -116,7 +131,7 @@ export class CallOfXenoAudio {
         gain.gain.linearRampToValueAtTime(opts.gain, at + 0.004)
         gain.gain.exponentialRampToValueAtTime(0.0001, at + opts.duration)
 
-        source.connect(filter).connect(gain).connect(this.master!)
+        source.connect(filter).connect(gain).connect(this.output())
         source.start(at, Math.random() * 1.5)
         source.stop(at + opts.duration + 0.02)
     }
@@ -142,14 +157,15 @@ export class CallOfXenoAudio {
         gain.gain.linearRampToValueAtTime(opts.gain, at + 0.006)
         gain.gain.exponentialRampToValueAtTime(0.0001, at + opts.duration)
 
-        osc.connect(gain).connect(this.master!)
+        osc.connect(gain).connect(this.output())
         osc.start(at)
         osc.stop(at + opts.duration + 0.02)
     }
 
-    play(event: CallOfXenoSound) {
+    play(event: CallOfXenoSound, pan = 0) {
         if (!this.ctx || !this.master || this.muted) return
         if (this.ctx.state === 'suspended') void this.ctx.resume()
+        this.pan = pan
         const t = this.now()
 
         switch (event) {

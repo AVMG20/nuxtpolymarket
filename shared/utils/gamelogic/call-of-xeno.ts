@@ -24,7 +24,7 @@ export type CallOfXenoWeaponId
       | 'bazooka'
       | 'xenoray'
 
-export type CallOfXenoPerkId = 'juggernog' | 'speedcola' | 'doubletap' | 'quickrevive'
+export type CallOfXenoPerkId = 'juggernog' | 'speedcola' | 'doubletap' | 'quickrevive' | 'deadshot' | 'phdflopper'
 
 export interface CallOfXenoWeapon {
     id: CallOfXenoWeaponId
@@ -79,6 +79,20 @@ export interface CallOfXenoWeapon {
     falloffStart?: number
     /** Damage multiplier left at the weapon's maximum range. */
     falloffMin?: number
+    /**
+     * Per-weapon headshot damage multiplier. Undefined = the standard 1.5x
+     * (2x with Deadshot). The Pack-a-Punched Mosin sets this higher — its
+     * upgrade makes the rifle a proper headhunter.
+     */
+    headshotMult?: number
+    /**
+     * Cluster warheads: on detonation the shell splits into this many
+     * bomblets around the impact, each dealing `clusterDamageFraction` of
+     * the shell's damage in its own small blast. The Pack-a-Punched
+     * Bazooka's quirk.
+     */
+    clusterCount?: number
+    clusterDamageFraction?: number
 }
 
 /** The wonder weapon's bolt pops with a very small blast. */
@@ -449,6 +463,20 @@ export const CALL_OF_XENO_PERKS: Record<CallOfXenoPerkId, CallOfXenoPerk> = {
         cost: 500,
         description: '3 per run. On death, get back up.',
         color: 0x33aadd
+    },
+    deadshot: {
+        id: 'deadshot',
+        name: 'Deadshot',
+        cost: 2500,
+        description: 'Headshots deal 2x damage instead of 1.5x.',
+        color: 0xda9167
+    },
+    phdflopper: {
+        id: 'phdflopper',
+        name: 'PhD Flopper',
+        cost: 2000,
+        description: 'Your blasts never hurt you. +35% blast radius.',
+        color: 0x77c3f2
     }
 }
 
@@ -620,6 +648,22 @@ export function packAPunch(weapon: CallOfXenoWeapon, tier: number): CallOfXenoWe
     // 100 to 150 on the M60, 55 to 75 on the FNMAG, at every tier.
     if (weapon.id === 'm60') upgraded.magSize = 150
     if (weapon.id === 'fnmag') upgraded.magSize = 75
+    // The Bazooka's machine work splits the warhead: every tier adds a pair
+    // of bomblets that pop around the impact for a fraction of the shell's
+    // damage — crowd clearing is what the tube is for.
+    if (weapon.id === 'bazooka' && weapon.projectile) {
+        const t = Math.min(tier, CALL_OF_XENO_MAX_PAP_TIER)
+        upgraded.clusterCount = 1 + t * 2
+        upgraded.clusterDamageFraction = 0.35
+        upgraded.blastRadius = (weapon.blastRadius ?? 4) + 0.2 * t
+    }
+    // The Mosin's machine work re-cuts the chamber for match ammunition:
+    // headshots stop being a bonus and become the whole point of the rifle.
+    if (weapon.id === 'mosin') {
+        upgraded.headshotMult = 2.5
+        upgraded.falloffStart = weapon.range
+        upgraded.falloffMin = 1
+    }
     return upgraded
 }
 
@@ -823,7 +867,7 @@ export const CALL_OF_XENO_FRENZY_SPEED = 1.35
 // Power-ups
 // ---------------------------------------------------------------------------
 
-export type CallOfXenoPowerUpId = 'instakill' | 'doublepoints' | 'maxammo' | 'nuke'
+export type CallOfXenoPowerUpId = 'instakill' | 'doublepoints' | 'maxammo' | 'nuke' | 'deathmachine' | 'carpenter'
 
 export interface CallOfXenoPowerUp {
     id: CallOfXenoPowerUpId
@@ -838,8 +882,28 @@ export const CALL_OF_XENO_POWERUPS: Record<CallOfXenoPowerUpId, CallOfXenoPowerU
     instakill: { id: 'instakill', name: 'Insta-Kill', duration: 30, color: 0xff4444, weight: 3 },
     doublepoints: { id: 'doublepoints', name: 'Double Points', duration: 30, color: 0xffd23f, weight: 3 },
     maxammo: { id: 'maxammo', name: 'Max Ammo', duration: 0, color: 0x4fc3f7, weight: 3 },
-    nuke: { id: 'nuke', name: 'Nuke', duration: 0, color: 0x9ae66e, weight: 2 }
+    nuke: { id: 'nuke', name: 'Nuke', duration: 0, color: 0x9ae66e, weight: 2 },
+    deathmachine: { id: 'deathmachine', name: 'Death Machine', duration: 20, color: 0xff8c1a, weight: 1.5 },
+    carpenter: { id: 'carpenter', name: 'Carpenter', duration: 0, color: 0xc9a227, weight: 2 }
 }
+
+/**
+ * The Death Machine drop replaces your trigger for its duration: a belt-fed
+ * minigun with no magazine and no reload, paid for with a wide cone and
+ * heavy legs. Stats live here so tests can pin the feel.
+ */
+export const CALL_OF_XENO_DEATH_MACHINE = {
+    name: 'Death Machine',
+    damage: 160,
+    fireDelay: 0.055,
+    spread: 0.075,
+    adsSpread: 0.032,
+    mobility: 0.85,
+    range: 45
+}
+
+/** Points the Carpenter pays for re-boarding every window on the map. */
+export const CALL_OF_XENO_CARPENTER_POINTS = 200
 
 /** Chance a kill leaves a power-up behind. */
 export const CALL_OF_XENO_POWERUP_CHANCE = 0.04

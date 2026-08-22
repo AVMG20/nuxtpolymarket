@@ -179,7 +179,7 @@
                     </div>
                     <div class="rounded-lg border border-white/10 bg-black/55 px-4 py-3 backdrop-blur-sm">
                     <div class="flex items-center justify-end gap-2">
-                        <span class="text-xs font-black uppercase tracking-[0.2em]" :class="papTier === 3 ? 'text-pink-300' : papTier === 2 ? 'text-cyan-300' : papTier === 1 ? 'text-purple-300' : 'text-zinc-100'">
+                        <span class="text-xs font-black uppercase tracking-[0.2em]" :class="deathMachineHud ? 'text-orange-300' : papTier === 3 ? 'text-pink-300' : papTier === 2 ? 'text-cyan-300' : papTier === 1 ? 'text-purple-300' : 'text-zinc-100'">
                             {{ weaponName }}
                         </span>
                         <span
@@ -189,8 +189,13 @@
                         >PaP {{ papTier }}/3</span>
                     </div>
                     <div class="mt-1 flex items-baseline justify-end gap-2">
-                        <span class="text-5xl font-black leading-none tabular-nums" :class="!reloading && magAmmo === 0 ? 'text-red-500 animate-pulse' : reloading ? 'text-zinc-400' : 'text-zinc-50'">{{ magAmmo }}</span>
-                        <span class="text-lg font-bold tabular-nums text-zinc-500">/ {{ reserveAmmo }}</span>
+                        <template v-if="deathMachineHud">
+                            <span class="text-5xl font-black leading-none text-orange-300">∞</span>
+                        </template>
+                        <template v-else>
+                            <span class="text-5xl font-black leading-none tabular-nums" :class="!reloading && magAmmo === 0 ? 'text-red-500 animate-pulse' : reloading ? 'text-zinc-400' : 'text-zinc-50'">{{ magAmmo }}</span>
+                            <span class="text-lg font-bold tabular-nums text-zinc-500">/ {{ reserveAmmo }}</span>
+                        </template>
                     </div>
                     <!-- Ammo bar: amber = rounds left; while reloading the same
                          bar fills muted-orange with the reload progress, so
@@ -212,7 +217,7 @@
                     <!-- Fixed-height status row: reserve every state a line, so
                          the card below never jumps. -->
                     <div class="mt-1.5 flex h-4 items-center justify-end">
-                        <span v-if="reloading" class="text-[10px] font-bold uppercase tracking-[0.25em] text-zinc-600">—</span>
+                        <span v-if="reloading || deathMachineHud" class="text-[10px] font-bold uppercase tracking-[0.25em]" :class="deathMachineHud ? 'text-orange-300/80' : 'text-zinc-600'">{{ deathMachineHud ? 'Belt fed' : '—' }}</span>
                         <span v-else-if="magAmmo === 0 && reserveAmmo > 0" class="text-[10px] font-bold uppercase tracking-[0.25em] text-red-400 animate-pulse">
                             Reload [R]
                         </span>
@@ -873,6 +878,8 @@ import {
     CALL_OF_XENO_NUKE_POINTS,
     CALL_OF_XENO_FRENZY_SPEED,
     CALL_OF_XENO_ROUND_BREAK,
+    CALL_OF_XENO_DEATH_MACHINE,
+    CALL_OF_XENO_CARPENTER_POINTS,
     packAPunch,
     packAPunchCost,
     ammoCost,
@@ -923,6 +930,8 @@ import {
     CALL_OF_XENO_REPAIR_POINTS,
     CALL_OF_XENO_PLAYER_START,
     CALL_OF_XENO_SHELL,
+    CALL_OF_XENO_BOX_SPOTS,
+    CALL_OF_XENO_BOX_SWAP_CHANCE,
     CALL_OF_XENO_BARREL_SPOTS,
     CALL_OF_XENO_STEP_UP,
     buildNavTable,
@@ -1007,6 +1016,8 @@ const magAmmo = ref(0)
 const reserveAmmo = ref(0)
 const magFraction = ref(100)
 const reloading = ref(false)
+/** Death Machine drop active — HUD swaps the weapon card to the belt. */
+const deathMachineHud = ref(false)
 /** 0-100 progress of the reload, drives the ammo bar fill while reloading. */
 const reloadFraction = ref(0)
 const prompt = ref('')
@@ -1288,6 +1299,20 @@ function perkCss(color: number) {
     return '#' + color.toString(16).padStart(6, '0')
 }
 
+/**
+ * Stereo pan for a world position: −1 hard left, +1 hard right relative to
+ * where the player is facing. Groans, bites and breaches use it so your ears
+ * can find the wall that is about to open.
+ */
+function panFor(x: number, z: number): number {
+    const dx = x - px
+    const dz = z - pz
+    const len = Math.hypot(dx, dz)
+    if (len < 0.5) return 0
+    // Right vector of the camera yaw is (cos yaw, −sin yaw).
+    return Math.max(-1, Math.min(1, ((dx / len) * Math.cos(yaw) + (dz / len) * -Math.sin(yaw))))
+}
+
 /** Menu-display lists, frozen once — the roster does not change mid-session. */
 const CALL_OF_XENO_PERK_LIST = Object.values(CALL_OF_XENO_PERKS)
 
@@ -1316,7 +1341,7 @@ const CALL_OF_XENO_WEAPON_LIST = (Object.keys(CALL_OF_XENO_WEAPONS) as CallOfXen
     .map(id => ({ id, name: CALL_OF_XENO_WEAPONS[id].name, type: CALL_OF_XENO_WEAPON_TYPE[id] }))
 
 function perkShort(id: CallOfXenoPerkId) {
-    return { juggernog: 'JUG', speedcola: 'SPD', doubletap: '2TAP', quickrevive: 'REV' }[id]
+    return { juggernog: 'JUG', speedcola: 'SPD', doubletap: '2TAP', quickrevive: 'REV', deadshot: 'DSD', phdflopper: 'PHD' }[id]
 }
 
 // ---------------------------------------------------------------------------
@@ -1554,10 +1579,12 @@ let statSpins = 0
 let statDoors = 0
 let statBarrels = 0
 let statBoards = 0
+let statShots = 0
+let statHits = 0
 
 // Power-up state.
 const powerUpTimers: Record<CallOfXenoPowerUpId, number> = {
-    instakill: 0, doublepoints: 0, maxammo: 0, nuke: 0
+    instakill: 0, doublepoints: 0, maxammo: 0, nuke: 0, deathmachine: 0, carpenter: 0
 }
 
 // Mystery box state.
@@ -1565,8 +1592,33 @@ let boxState: 'idle' | 'spinning' | 'ready' = 'idle'
 let boxTimer = 0
 let boxPrize: CallOfXenoWeaponId | null = null
 let boxCycle = 0
+/** Which of the two anchors the crate is parked at right now. */
+let boxSpotIndex = 0
+
+/** Teleports the crate to its current anchor. */
+function applyBoxSpot() {
+    const spot = CALL_OF_XENO_BOX_SPOTS[boxSpotIndex]!
+    level.mysteryBox.group.position.set(spot.x, spot.y, spot.z)
+    level.mysteryBox.group.rotation.y = spot.facing
+}
+
+/**
+ * Rolls the round-boundary move: a 15% chance the crate is found somewhere
+ * else when the next round starts. Never mid-spin or while a prize waits —
+ * the box only walks when it has nothing on show.
+ */
+function maybeSwapBox() {
+    if (boxState !== 'idle') return
+    if (randomFloat() >= CALL_OF_XENO_BOX_SWAP_CHANCE) return
+    boxSpotIndex = (boxSpotIndex + 1) % CALL_OF_XENO_BOX_SPOTS.length
+    applyBoxSpot()
+    spawnPopup(px, feetY + PLAYER_EYE + 0.3, pz, 'The box is on the move', '#ffc457', 17)
+    audio.play('climb-in')
+}
 
 const perks = new Set<CallOfXenoPerkId>()
+/** Six machines on the map, four slots on the belt — choosing is the game. */
+const CALL_OF_XENO_PERK_LIMIT = 4
 /** Quick Revive purchases this run — three, then the machine goes quiet. */
 let quickReviveBuys = 0
 const openDoors = new Set<string>()
@@ -1589,6 +1641,11 @@ interface PlayerRound {
     blastRadius: number
     kind: 'sally' | 'ray'
     tier: number
+    /** Headshot multiplier captured at trigger time (Deadshot / PaP Mosin). */
+    headshotMult: number
+    /** Cluster warheads: bomblets that pop around the impact (PaP Bazooka). */
+    clusterCount: number
+    clusterDamageFraction: number
     life: number
     traveled: number
     range: number
@@ -1671,12 +1728,31 @@ function active(): WeaponSlot {
     return slots[activeSlot]!
 }
 
+/** The Death Machine drop is holding the trigger: stats come from it, not the gun. */
+function deathMachineLive() {
+    return powerUpTimers.deathmachine > 0
+}
+
 function fireDelayOf(slot: WeaponSlot) {
+    if (deathMachineLive()) return CALL_OF_XENO_DEATH_MACHINE.fireDelay
     return perks.has('doubletap') ? slot.def.fireDelay * 0.75 : slot.def.fireDelay
 }
 
 function damageOf(slot: WeaponSlot) {
+    if (deathMachineLive()) return CALL_OF_XENO_DEATH_MACHINE.damage
     return perks.has('doubletap') ? slot.def.damage * 1.5 : slot.def.damage
+}
+
+/** Headshot damage multiplier for the gun in hand: 2.5 on a PaP'd Mosin, 2x everywhere with Deadshot. */
+function headshotMultiplier(slot: WeaponSlot) {
+    const base = slot.def.headshotMult ?? 1.5
+    return perks.has('deadshot') ? Math.max(base, 2) : base
+}
+
+/** PhD Flopper widens every blast the player fires by 35%. */
+function blastRadiusOf(slot: WeaponSlot) {
+    const base = slot.def.blastRadius ?? 2.6
+    return perks.has('phdflopper') ? base * 1.35 : base
 }
 
 /**
@@ -1691,6 +1767,11 @@ function damageOf(slot: WeaponSlot) {
  * pellets go.
  */
 function spreadOf(slot: WeaponSlot) {
+    if (deathMachineLive()) {
+        const hip = CALL_OF_XENO_DEATH_MACHINE.spread * (0.55 + bloom * 0.85) * (isSprinting ? 5.4 : isMoving ? 3.6 : 2.4)
+        const ads = CALL_OF_XENO_DEATH_MACHINE.adsSpread * (0.85 + bloom * 0.5)
+        return hip + (ads - hip) * aimBlend
+    }
     const hip = slot.def.spread * (0.55 + bloom * 0.85) * (isSprinting ? 5.4 : isMoving ? 3.6 : 2.4)
     const ads = (slot.def.adsSpread ?? slot.def.spread * 0.3) * (0.85 + bloom * 0.5)
     return hip + (ads - hip) * aimBlend
@@ -2010,6 +2091,9 @@ function hitEnemy(enemy: Enemy, ox: number, oy: number, oz: number, dx: number, 
  */
 function applyBlastToPlayer(x: number, y: number, z: number, damage: number, blastRadius: number) {
     if (hp <= 0) return
+    // PhD Flopper: the drink that proofed your legs. Your own blasts —
+    // shells, rockets, drums you set off — never touch you.
+    if (perks.has('phdflopper')) return
     const dist = Math.hypot(px - x, feetY + PLAYER_HEIGHT * 0.5 - y, pz - z)
     const self = blastSelfDamage(dist, damage, blastRadius)
     if (self >= 1) takeDamage(self, x, z)
@@ -2034,15 +2118,24 @@ interface DirectHit {
  * reference against a 1.5 radius, so before this the shot did nothing at
  * all. Everything else in range still takes ordinary body splash.
  */
-function detonateRound(x: number, y: number, z: number, damage: number, blastRadius: number, scored: Set<Enemy>, kind: 'sally' | 'ray', direct: DirectHit | null = null): number {
+function detonateRound(
+    x: number, y: number, z: number,
+    damage: number, blastRadius: number,
+    scored: Set<Enemy>, kind: 'sally' | 'ray',
+    direct: DirectHit | null = null,
+    headshotMult = 1.5,
+    quiet = false
+): number {
     impactPoint.set(x, y, z)
     effects.explosion(impactPoint, kind === 'ray' ? 0x44ffcc : 0xffa040, blastRadius)
-    audio.play('explosion')
-    shake = Math.min(0.4, shake + 0.18)
+    if (!quiet) {
+        audio.play('explosion', panFor(x, z))
+        shake = Math.min(0.4, shake + 0.18)
+    }
 
     let kills = 0
     if (direct && enemies.includes(direct.enemy)) {
-        const multiplier = direct.kind === 'head' ? 1.5 : direct.kind === 'weak' ? (direct.enemy.def.weakPoint ?? 1) : 1
+        const multiplier = direct.kind === 'head' ? headshotMult : direct.kind === 'weak' ? (direct.enemy.def.weakPoint ?? 1) : 1
         impactPoint.set(x, y, z)
         if (applyHit(direct.enemy, damage * multiplier, direct.kind, scored, impactPoint)) kills++
     }
@@ -2095,9 +2188,12 @@ function spawnPlayerRound(slot: WeaponSlot, damage: number) {
         vy: rayDir.y * speed,
         vz: rayDir.z * speed,
         damage,
-        blastRadius: slot.def.blastRadius ?? 2.6,
+        blastRadius: blastRadiusOf(slot),
         kind: ray ? 'ray' : 'sally',
         tier: slot.tier,
+        headshotMult: headshotMultiplier(slot),
+        clusterCount: slot.def.clusterCount ?? 0,
+        clusterDamageFraction: slot.def.clusterDamageFraction ?? 0.3,
         life: 3,
         traveled: 0,
         range: slot.def.range,
@@ -2198,7 +2294,29 @@ function updatePlayerRounds(dt: number) {
             disposeObject(round.mesh)
             playerRounds.splice(i, 1)
             const falloff = round.kind === 'ray' ? xenoRayFalloff(round.traveled, round.tier) : 1
-            const kills = detonateRound(pxHit, pyHit, pzHit, round.damage * falloff, round.blastRadius, round.scored, round.kind, direct)
+            let kills = detonateRound(
+                pxHit, pyHit, pzHit,
+                round.damage * falloff, round.blastRadius,
+                round.scored, round.kind, direct, round.headshotMult
+            )
+            // Cluster warheads: the PaP'd Bazooka's shell splits into a ring
+            // of bomblets that pop for a fraction of the damage each. Quiet —
+            // the main crack already happened; these are the echoes.
+            if (round.clusterCount > 0) {
+                const baseAngle = randomFloat() * Math.PI * 2
+                for (let bomblet = 0; bomblet < round.clusterCount; bomblet++) {
+                    const angle = baseAngle + (bomblet / round.clusterCount) * Math.PI * 2
+                    const dist = 1.5 + (bomblet % 2) * 0.7
+                    kills += detonateRound(
+                        pxHit + Math.cos(angle) * dist,
+                        pyHit + 0.3,
+                        pzHit + Math.sin(angle) * dist,
+                        round.damage * falloff * round.clusterDamageFraction,
+                        Math.max(1.4, round.blastRadius * 0.45),
+                        round.scored, round.kind, null, round.headshotMult, true
+                    )
+                }
+            }
             announceMultiKill(kills)
         }
     }
@@ -2207,30 +2325,36 @@ function updatePlayerRounds(dt: number) {
 function shoot() {
     const slot = active()
     if (reloadTimer > 0 || swapTimer > 0) return
-    if (slot.mag <= 0) {
-        if (slot.reserve > 0) startReload()
-        else audio.play('dry-fire')
-        return
+    // The Death Machine drop has no magazine to watch: it fires from an
+    // endless belt and never reloads, whatever gun is actually in hand.
+    const dm = deathMachineLive()
+    if (!dm) {
+        if (slot.mag <= 0) {
+            if (slot.reserve > 0) startReload()
+            else audio.play('dry-fire')
+            return
+        }
+        slot.mag--
     }
+    statShots++
 
-    slot.mag--
     fireTimer = fireDelayOf(slot)
     bloom = Math.min(1, bloom + (aiming ? 0.22 : 0.34))
-    shake = Math.min(0.09, shake + (slot.base === 'bazooka' ? 0.08 : slot.def.explosive ? 0.05 : slot.base === 'trench' || slot.base === 'rpk' ? 0.05 : 0.025))
+    shake = Math.min(0.09, shake + (dm ? 0.03 : slot.base === 'bazooka' ? 0.08 : slot.def.explosive ? 0.05 : slot.base === 'trench' || slot.base === 'rpk' ? 0.05 : 0.025))
     // Per-weapon recoil: every shot kicks UP (a mild ±15% so it sways
     // rather than ticks), aiming soaks a quarter, and the sideways tug is
     // a fraction of the climb so the pattern reads up-and-drift, not
     // symmetric jitter cancelling itself in place.
-    const kick = (slot.def.recoilKick ?? 0.012) * (0.85 + randomFloat() * 0.3) * (aiming ? 0.75 : 1)
+    const kick = (dm ? 0.008 : (slot.def.recoilKick ?? 0.012)) * (0.85 + randomFloat() * 0.3) * (aiming ? 0.75 : 1)
     recoilPitch += kick
     yaw += (randomFloat() - 0.5) * kick * 0.9
     recoil = Math.min(1.5, recoil * 0.55 + kick * 55)
-    audio.play(shootSound(slot))
+    audio.play(dm ? 'shoot-lmg' : shootSound(slot))
 
     muzzleFlash.material.opacity = 1
-    muzzleFlash.scale.setScalar(slot.base === 'bazooka' ? 0.6 : slot.base === 'trench' ? 0.5 : slot.def.explosive ? 0.42 : 0.32)
+    muzzleFlash.scale.setScalar(dm ? 0.45 : slot.base === 'bazooka' ? 0.6 : slot.base === 'trench' ? 0.5 : slot.def.explosive ? 0.42 : 0.32)
     muzzleFlash.material.rotation = Math.random() * Math.PI * 2
-    muzzleLight.intensity = slot.base === 'bazooka' ? 18 : slot.def.explosive ? 14 : slot.base === 'xenoray' ? 12 : 9
+    muzzleLight.intensity = dm ? 11 : slot.base === 'bazooka' ? 18 : slot.def.explosive ? 14 : slot.base === 'xenoray' ? 12 : 9
     muzzleLight.color.setHex(slot.base === 'xenoray' ? 0x44ffcc : slot.def.explosive ? 0xff9040 : 0xffbb55)
 
     const damage = damageOf(slot)
@@ -2239,7 +2363,7 @@ function shoot() {
 
     // Launcher-type weapons lob a live round and let it fly; everything else
     // resolves as a hitscan ray in the loop below.
-    if (slot.def.projectile) {
+    if (!dm && slot.def.projectile) {
         spawnPlayerRound(slot, damage)
         if (slot.mag === 0) startReload()
         return
@@ -2251,6 +2375,7 @@ function shoot() {
 
     const scored = new Set<Enemy>()
     let killsThisShot = 0
+    let hitThisShot = false
 
     for (let pellet = 0; pellet < slot.def.pellets; pellet++) {
         pelletDir.copy(rayDir)
@@ -2265,15 +2390,21 @@ function shoot() {
             pelletDir.normalize()
         }
 
+        // The Death Machine trades the gun in hand's stats for its own:
+        // shorter reach, two bodies deep, no distance falloff worth naming.
+        const range = dm ? CALL_OF_XENO_DEATH_MACHINE.range : slot.def.range
+        const penetration = dm ? 2 : slot.def.penetration
+        const falloffDef = dm ? { ...slot.def, falloffStart: undefined, falloffMin: undefined } : slot.def
+
         const block = rayBlockDistance(
             rayOrigin.x, rayOrigin.y, rayOrigin.z,
             pelletDir.x, pelletDir.y, pelletDir.z,
-            solids, slot.def.range
+            solids, range
         )
-        const maxDist = Math.min(slot.def.range, block.distance)
+        const maxDist = Math.min(range, block.distance)
 
         // A round that bites a live barrel detonates it instead of the wall.
-        if (block.distance < slot.def.range
+        if (block.distance < range
             && hitBarrel(rayOrigin.x, rayOrigin.y, rayOrigin.z, pelletDir.x, pelletDir.y, pelletDir.z, block.distance)) {
             continue
         }
@@ -2285,24 +2416,25 @@ function shoot() {
             hits.push({ enemy, t: hit.t, kind: hit.kind })
         }
         hits.sort((a, b) => a.t - b.t)
-        const landed = hits.slice(0, slot.def.penetration)
+        const landed = hits.slice(0, penetration)
+        if (landed.length > 0) hitThisShot = true
 
         for (const hit of landed) {
             impactPoint.copy(pelletDir).multiplyScalar(hit.t).add(rayOrigin)
             // Point blank hits full; long shots slide down the weapon's
             // falloff curve, so range is a real decision per gun.
-            const multiplier = (hit.kind === 'head' ? 1.5 : hit.kind === 'weak' ? (hit.enemy.def.weakPoint ?? 1) : 1)
-                * xenoDamageFalloff(slot.def, hit.t)
+            const multiplier = (hit.kind === 'head' ? headshotMultiplier(slot) : hit.kind === 'weak' ? (hit.enemy.def.weakPoint ?? 1) : 1)
+                * xenoDamageFalloff(falloffDef, hit.t)
             effects.bloodBurst(impactPoint, pelletDir, hit.kind === 'body' ? 1.2 : 2)
             if (applyHit(hit.enemy, damage * multiplier, hit.kind, scored, impactPoint)) killsThisShot++
         }
 
-        const endDist = landed.length >= slot.def.penetration && landed.length > 0
+        const endDist = landed.length >= penetration && landed.length > 0
             ? landed[landed.length - 1]!.t
             : maxDist
         impactPoint.copy(pelletDir).multiplyScalar(endDist).add(rayOrigin)
 
-        if (endDist >= block.distance - 0.001 && block.distance < slot.def.range) {
+        if (endDist >= block.distance - 0.001 && block.distance < range) {
             impactNormal.set(block.nx, block.ny, block.nz)
             effects.wallImpact(impactPoint, impactNormal)
         }
@@ -2313,9 +2445,10 @@ function shoot() {
         }
     }
 
+    if (hitThisShot) statHits++
     announceMultiKill(killsThisShot)
 
-    if (slot.mag === 0) startReload()
+    if (!dm && slot.mag === 0) startReload()
 }
 
 /** Splash and banner for clearing several hostiles with one detonation. */
@@ -2447,6 +2580,8 @@ function spawnPopup(x: number, y: number, z: number, text: string, color: string
 }
 
 function startReload() {
+    // The Death Machine belt never needs one.
+    if (deathMachineLive()) return
     const slot = active()
     if (slot.reserve <= 0 || slot.mag >= slot.def.magSize || reloadTimer > 0 || swapTimer > 0) return
     reloadTotal = reloadTimeOf(slot)
@@ -2541,6 +2676,26 @@ function collectPowerUp(entry: GroundPowerUp) {
         return
     }
 
+    if (entry.id === 'carpenter') {
+        // Every window on the map re-boarded in one hammer storm, and a flat
+        // thank-you from the outpost.
+        let nailed = 0
+        for (const state of windowStates.values()) {
+            nailed += CALL_OF_XENO_WINDOW_BOARDS - state.boards
+            state.boards = CALL_OF_XENO_WINDOW_BOARDS
+            state.repair = 0
+            syncWindow(state)
+        }
+        const paid = award(CALL_OF_XENO_CARPENTER_POINTS)
+        subBanner.value = nailed > 0 ? `${nailed} boards nailed back on` : 'Every window was already sealed'
+        banner.value = spec.name
+        bannerTimer = Math.max(bannerTimer, 1.8)
+        spawnPopup(px, feetY + PLAYER_EYE, pz, `+${paid}`, '#ffd75e', 22)
+        audio.play('board-repair')
+        shake = Math.min(0.3, shake + 0.1)
+        return
+    }
+
     if (entry.id === 'nuke') {
         for (const enemy of [...enemies]) {
             impactPoint.set(enemy.x, enemy.y, enemy.z)
@@ -2610,7 +2765,7 @@ function explodeBarrel(barrel: Barrel) {
     barrel.group.visible = false
     rebuildCollision()
     statBarrels++
-    audio.play('explosion')
+    audio.play('explosion', panFor(barrel.x, barrel.z))
     shake = Math.min(0.5, shake + 0.35)
 
     impactPoint.set(barrel.x, 0.6, barrel.z)
@@ -3175,19 +3330,22 @@ function updateBreaching(enemy: Enemy, dt: number): boolean {
 
     if (enemy.stage === 'breaching') {
         // The climb is a scripted lerp — nothing may push it off its line.
+        // An upper-floor window scales the wall face: the body rises to the
+        // deck as it crosses, with the usual little hop over the sill.
         enemy.posted = true
         enemy.climb += dt / CALL_OF_XENO_CLIMB_TIME
         const t = Math.min(1, enemy.climb)
         enemy.x = window.outside.x + (window.inside.x - window.outside.x) * t
         enemy.z = window.outside.z + (window.inside.z - window.outside.z) * t
-        // Lift over the sill and back down, so it reads as a vault.
-        enemy.y = Math.sin(t * Math.PI) * (CALL_OF_XENO_WINDOW_SILL * 0.8)
+        // Lift over the sill and back down, so it reads as a vault — or a
+        // full wall-scaling for the upstairs window.
+        enemy.y = window.baseY * t + Math.sin(t * Math.PI) * (CALL_OF_XENO_WINDOW_SILL * 0.8)
         enemy.yaw = window.facing + Math.PI
         if (t >= 1) {
             enemy.stage = 'inside'
             enemy.window = null
             enemy.posted = false
-            enemy.y = 0
+            enemy.y = window.baseY
             return true
         }
         return false
@@ -3217,7 +3375,7 @@ function updateBreaching(enemy: Enemy, dt: number): boolean {
     if (state.boards <= 0) {
         enemy.stage = 'breaching'
         enemy.climb = 0
-        audio.play('climb-in')
+        audio.play('climb-in', panFor(window.centre.x, window.centre.z))
         return false
     }
 
@@ -3227,7 +3385,7 @@ function updateBreaching(enemy: Enemy, dt: number): boolean {
     state.boards--
     state.repair = 0
     syncWindow(state)
-    if (Math.hypot(window.centre.x - px, window.centre.z - pz) < 34) audio.play('board-break')
+    if (Math.hypot(window.centre.x - px, window.centre.z - pz) < 34) audio.play('board-break', panFor(window.centre.x, window.centre.z))
     impactPoint.set(window.centre.x, CALL_OF_XENO_WINDOW_SILL + 0.6, window.centre.z)
     effects.wallImpact(impactPoint, new THREE.Vector3(
         Math.sin(window.facing),
@@ -3301,7 +3459,7 @@ function fireEnemyBolt(enemy: Enemy) {
         damage: ranged.damage,
         life: 4
     })
-    audio.play('zombie-attack')
+    audio.play('zombie-attack', panFor(enemy.x, enemy.z))
 }
 
 function updateProjectiles(dt: number) {
@@ -3544,13 +3702,13 @@ function updateEnemies(dt: number) {
         } else if (toPlayer < 1.5 * def.scale && Math.abs(enemy.y - feetY) < 1.6 && enemy.attackCooldown <= 0 && reviveGrace <= 0) {
             enemy.attackCooldown = 1
             takeDamage(Math.round(contact * def.damageMultiplier * runDifficulty.damageMult), enemy.x, enemy.z)
-            audio.play('zombie-attack')
+            audio.play('zombie-attack', panFor(enemy.x, enemy.z))
         }
 
         enemy.groanIn -= dt
         if (enemy.groanIn <= 0) {
             enemy.groanIn = 4 + randomFloat() * 8
-            if (toPlayer < 22) audio.play('zombie-groan')
+            if (toPlayer < 22) audio.play('zombie-groan', panFor(enemy.x, enemy.z))
         }
 
         if (enemy.flash > 0) {
@@ -3685,6 +3843,7 @@ function startRound(next: number) {
     spawnQueue = Math.ceil(zombieCount(currentRound) * runDifficulty.countMult)
     spawnTimer = 0.4
     applyModifier()
+    maybeSwapBox()
 
     bannerTimer = 2.4
     bannerColor.value = specialRound.value ? '#e879f9' : '#dc2626'
@@ -3736,7 +3895,7 @@ function updatePrompt() {
 
     for (const state of windowStates.values()) {
         if (state.boards >= CALL_OF_XENO_WINDOW_BOARDS) continue
-        if (Math.abs(feetY) > 2.5) continue
+        if (Math.abs(feetY - state.def.baseY) > 2.5) continue
         const d = Math.hypot(state.def.centre.x - px, state.def.centre.z - pz)
         if (d > best) continue
         best = d
@@ -3757,8 +3916,13 @@ function updatePrompt() {
     }
 
     for (const item of CALL_OF_XENO_INTERACTABLES) {
-        const d = Math.hypot(item.x - px, item.z - pz)
-        if (d > best || Math.abs(item.y - feetY) > 2.5) continue
+        // The mystery box is one physical prop that teleports between two
+        // anchors — prompt against where it actually is, not its home spot.
+        const ix = item.kind === 'mysterybox' ? level.mysteryBox.group.position.x : item.x
+        const iz = item.kind === 'mysterybox' ? level.mysteryBox.group.position.z : item.z
+        const iy = item.kind === 'mysterybox' ? level.mysteryBox.group.position.y : item.y
+        const d = Math.hypot(ix - px, iz - pz)
+        if (d > best || Math.abs(iy - feetY) > 2.5) continue
         focusedWindow = null
 
         if (item.kind === 'power') {
@@ -3821,6 +3985,14 @@ function updatePrompt() {
                 focused = null
                 text = `${perk.name} — active`
                 affordable = true
+                continue
+            }
+            // Six machines, four belt slots: past the ceiling the player has
+            // to pick which perk they walk away from.
+            if (perks.size >= CALL_OF_XENO_PERK_LIMIT) {
+                focused = null
+                text = `Belt full — ${CALL_OF_XENO_PERK_LIMIT} perks max`
+                affordable = false
                 continue
             }
             const soldOut = perk.id === 'quickrevive' && quickReviveBuys >= CALL_OF_XENO_QUICK_REVIVE_MAX_BUYS
@@ -3932,6 +4104,7 @@ function interact() {
     if (item.kind === 'perk') {
         const perk = CALL_OF_XENO_PERKS[item.perk!]
         if (perks.has(perk.id)) return
+        if (!perks.has(perk.id) && perks.size >= CALL_OF_XENO_PERK_LIMIT) return
         if (perk.id === 'quickrevive' && quickReviveBuys >= CALL_OF_XENO_QUICK_REVIVE_MAX_BUYS) return
         if (!spend(price(perkPrice(perk.id, perks.size, quickReviveBuys)))) return
         perks.add(perk.id)
@@ -4020,13 +4193,17 @@ function syncHud(dt = 0.016) {
     points.value = score
     round.value = currentRound
     enemiesLeft.value = enemies.length + spawnQueue
-    weaponName.value = slot.def.name
-    papTier.value = slot.tier
+    // While the Death Machine belt is fed, the weapon card reads the drop:
+    // its name, and no ammo figures worth watching.
+    const dm = deathMachineLive()
+    deathMachineHud.value = dm
+    weaponName.value = dm ? CALL_OF_XENO_DEATH_MACHINE.name : slot.def.name
+    papTier.value = dm ? 0 : slot.tier
     magAmmo.value = slot.mag
     reserveAmmo.value = slot.reserve
-    magFraction.value = (slot.mag / slot.def.magSize) * 100
     reloading.value = reloadTimer > 0
     reloadFraction.value = reloadTotal > 0 ? (1 - reloadTimer / reloadTotal) * 100 : 0
+    magFraction.value = (slot.mag / slot.def.magSize) * 100
     stowedName.value = slots.length > 1 ? slots[activeSlot === 0 ? 1 : 0]!.def.name : ''
     hitMarker.value = markerTimer
     hurtOpacity.value = Math.max(0, 1 - hp / (hpMax * 0.62))
@@ -4225,16 +4402,20 @@ function die() {
 
     const minutes = Math.floor(runTime / 60)
     const seconds = Math.floor(runTime % 60)
+    const accuracy = statShots > 0 ? Math.round((statHits / statShots) * 100) : 0
+    const perMinute = runTime > 5 ? Math.round(grossEarned.value / (runTime / 60)) : 0
     summary.value = [
         { label: 'Points earned', value: Math.round(grossEarned.value).toLocaleString() },
         { label: 'Points banked', value: score.toLocaleString() },
         { label: 'Kills', value: String(statKills) },
         { label: 'Headshots', value: statKills > 0 ? `${Math.round((statHeadshots / statKills) * 100)}%` : '0%' },
+        { label: 'Accuracy', value: `${accuracy}%` },
+        { label: 'Points / min', value: perMinute.toLocaleString() },
         { label: 'Doors opened', value: `${statDoors} / ${CALL_OF_XENO_DOORS.length}` },
         { label: 'Boards nailed', value: String(statBoards) },
         { label: 'Box spins', value: String(statSpins) },
         { label: 'Barrels popped', value: String(statBarrels) },
-        { label: 'Perks', value: `${perks.size} / 4` },
+        { label: 'Perks', value: `${perks.size} / ${CALL_OF_XENO_PERK_LIMIT}` },
         { label: 'Survived', value: `${minutes}m ${seconds}s` }
     ]
     bestRound.value = Math.max(bestRound.value, currentRound)
@@ -4339,6 +4520,9 @@ function resetRun() {
     boxState = 'idle'
     boxPrize = null
     clearBoxPreview()
+    // A fresh deploy rolls the crate's starting anchor: Atrium or Reactor.
+    boxSpotIndex = Math.floor(randomFloat() * CALL_OF_XENO_BOX_SPOTS.length)
+    applyBoxSpot()
 
     for (const id of Object.keys(powerUpTimers) as CallOfXenoPowerUpId[]) powerUpTimers[id] = 0
     instakillOn.value = false
@@ -4384,6 +4568,8 @@ function resetRun() {
     statDoors = 0
     statBarrels = 0
     statBoards = 0
+    statShots = 0
+    statHits = 0
     inBreak = false
     breakTimer = 0
     // Always the M1911 in the pocket; a picked sidearm rides in the second

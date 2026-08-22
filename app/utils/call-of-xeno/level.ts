@@ -245,6 +245,8 @@ export function buildLevel(scene: THREE.Scene): LevelHandles {
 
     const windows = new Map<string, WindowModel>()
     for (const window of CALL_OF_XENO_WINDOWS) {
+        // The opening band is measured from the window's own storey: ground
+        // floor at y 0, the Overwatch window a deck up.
         const model = buildWindow(
             CALL_OF_XENO_WINDOW_WIDTH,
             CALL_OF_XENO_WINDOW_SILL,
@@ -252,7 +254,7 @@ export function buildLevel(scene: THREE.Scene): LevelHandles {
             CALL_OF_XENO_WINDOW_BOARDS,
             plankTex
         )
-        model.group.position.set(window.centre.x, 0, window.centre.z)
+        model.group.position.set(window.centre.x, window.baseY, window.centre.z)
         model.group.rotation.y = window.facing
         scene.add(model.group)
         windows.set(window.id, model)

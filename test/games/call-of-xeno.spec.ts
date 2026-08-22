@@ -46,6 +46,8 @@ import {
     CALL_OF_XENO_KILL_POINTS,
     CALL_OF_XENO_HEADSHOT_POINTS,
     CALL_OF_XENO_KNIFE_KILL_POINTS,
+    CALL_OF_XENO_DEATH_MACHINE,
+    CALL_OF_XENO_CARPENTER_POINTS,
     type CallOfXenoEnemyId,
     type CallOfXenoWeaponId
 } from '../../shared/utils/gamelogic/call-of-xeno'
@@ -71,7 +73,10 @@ import {
     CALL_OF_XENO_SHELL,
     CALL_OF_XENO_SHELL_WALLS,
     CALL_OF_XENO_DECOR,
+    CALL_OF_XENO_PROP_SOLIDS,
     CALL_OF_XENO_BARREL_SPOTS,
+    CALL_OF_XENO_BOX_SPOTS,
+    CALL_OF_XENO_BOX_SWAP_CHANCE,
     CALL_OF_XENO_INTERACTABLES,
     CALL_OF_XENO_PLAYER_START,
     CALL_OF_XENO_UPPER_Y,
@@ -269,6 +274,32 @@ describe('call of xeno weapons', () => {
             // Explosive/projectile traits survive the machine untouched.
             if (CALL_OF_XENO_WEAPONS[id].projectile) expect(previous.projectile).toBe(true)
             if (CALL_OF_XENO_WEAPONS[id].explosive) expect(previous.explosive).toBe(true)
+        }
+    })
+
+    it('gives the Pack-a-Punched Bazooka cluster warheads', () => {
+        expect(CALL_OF_XENO_WEAPONS.bazooka.clusterCount).toBeUndefined()
+        for (const tier of [1, 2, 3]) {
+            const upgraded = packAPunch(CALL_OF_XENO_WEAPONS.bazooka, tier)
+            // Two extra bomblets a tier: 3, 5, 7 — each a real fraction of
+            // the shell's damage in its own blast.
+            expect(upgraded.clusterCount, `tier ${tier}`).toBe(1 + tier * 2)
+            expect(upgraded.clusterDamageFraction, `tier ${tier}`).toBe(0.35)
+            expect(upgraded.blastRadius!, `tier ${tier}`).toBeGreaterThan(
+                CALL_OF_XENO_WEAPONS.bazooka.blastRadius!
+            )
+        }
+    })
+
+    it('turns the Pack-a-Punched Mosin into a headhunter with no falloff', () => {
+        const base = CALL_OF_XENO_WEAPONS.mosin
+        expect(base.headshotMult).toBeUndefined()
+        for (const tier of [1, 2, 3]) {
+            const upgraded = packAPunch(base, tier)
+            expect(upgraded.headshotMult, `tier ${tier}`).toBe(2.5)
+            // Match ammunition: full damage to the end of the barrel's reach.
+            expect(upgraded.falloffStart, `tier ${tier}`).toBe(upgraded.range)
+            expect(xenoDamageFalloff(upgraded, upgraded.range)).toBe(1)
         }
     })
 })
@@ -665,6 +696,93 @@ describe('point economy', () => {
         expect(total).toBeGreaterThan(0)
         expect(CALL_OF_XENO_POWERUPS.maxammo.duration).toBe(0)
         expect(CALL_OF_XENO_POWERUPS.instakill.duration).toBeGreaterThan(0)
+        expect(Object.keys(CALL_OF_XENO_POWERUPS)).toHaveLength(6)
+    })
+
+    it('fields a Death Machine drop with real minigun stats', () => {
+        const drop = CALL_OF_XENO_POWERUPS.deathmachine
+        expect(drop.duration).toBeGreaterThanOrEqual(15)
+        const dm = CALL_OF_XENO_DEATH_MACHINE
+        // Faster than the fastest belt-fed and hitting harder per shot,
+        // paid for with the worst legs in the game.
+        expect(dm.fireDelay).toBeLessThan(CALL_OF_XENO_WEAPONS.rpk.fireDelay)
+        expect(dm.damage).toBeGreaterThan(CALL_OF_XENO_WEAPONS.m60.damage)
+        expect(dm.mobility).toBeLessThan(CALL_OF_XENO_WEAPONS.m60.mobility!)
+        // Short reach: it shreds the room, not the map.
+        expect(dm.range).toBeLessThan(CALL_OF_XENO_WEAPONS.ak74.range)
+    })
+
+    it('pays a flat bounty for the Carpenter rebuild', () => {
+        expect(CALL_OF_XENO_POWERUPS.carpenter.duration).toBe(0)
+        expect(CALL_OF_XENO_CARPENTER_POINTS).toBeGreaterThan(100)
+        expect(CALL_OF_XENO_CARPENTER_POINTS).toBeLessThan(CALL_OF_XENO_KILL_POINTS * 4)
+    })
+})
+
+describe('mystery box anchors', () => {
+    it('keeps two distinct anchors far apart on the ground floor', () => {
+        expect(CALL_OF_XENO_BOX_SPOTS).toHaveLength(2)
+        const [a, b] = CALL_OF_XENO_BOX_SPOTS
+        const apart = Math.hypot(a.x - b.x, a.z - b.z)
+        expect(apart).toBeGreaterThan(25)
+        for (const spot of CALL_OF_XENO_BOX_SPOTS) {
+            expect(regionAt(spot.x, spot.z, spot.y)).toBeGreaterThanOrEqual(0)
+            expect(penetration(spot.x + 1.6, spot.z, spot.y)).toBeLessThan(1e-9)
+        }
+    })
+
+    it('keeps both anchor footprints solid whether or not the box is there', () => {
+        const [a, b] = CALL_OF_XENO_BOX_SPOTS
+        const covers = (solid: { box: { minX: number, maxX: number, minZ: number, maxZ: number } }, x: number, z: number) =>
+            solid.box.minX <= x && solid.box.maxX >= x && solid.box.minZ <= z && solid.box.maxZ >= z
+        // The interactable-derived prop covers spot A; the explicit plinth
+        // solid covers spot B.
+        expect(CALL_OF_XENO_PROP_SOLIDS.some(solid => covers(solid, a.x, a.z))).toBe(true)
+        expect(CALL_OF_XENO_PROP_SOLIDS.some(solid => covers(solid, b.x, b.z))).toBe(true)
+    })
+
+    it('moves the box rarely: fifteen percent at each round boundary', () => {
+        expect(CALL_OF_XENO_BOX_SWAP_CHANCE).toBeGreaterThan(0.05)
+        expect(CALL_OF_XENO_BOX_SWAP_CHANCE).toBeLessThan(0.3)
+    })
+})
+
+describe('upper window', () => {
+    const upstairs = CALL_OF_XENO_WINDOWS.filter(w => w.baseY > 0)
+
+    it('gives the second floor exactly one way in', () => {
+        expect(upstairs).toHaveLength(1)
+        const window = upstairs[0]!
+        expect(window.id).toBe('win-overwatch-s1')
+        expect(window.region).toBe(7)
+        expect(window.baseY).toBe(CALL_OF_XENO_UPPER_Y)
+        // It lands inside Overwatch's bounds, on the deck.
+        const region = CALL_OF_XENO_REGIONS.find(r => r.id === window.region)!
+        expect(region.bounds.minX).toBeLessThanOrEqual(window.inside.x)
+        expect(region.bounds.maxX).toBeGreaterThanOrEqual(window.inside.x)
+        expect(region.bounds.minZ).toBeLessThanOrEqual(window.inside.z)
+        expect(region.bounds.maxZ).toBeGreaterThanOrEqual(window.inside.z)
+    })
+
+    it('cuts its opening band into the shell at deck height', () => {
+        const window = upstairs[0]!
+        const dz = window.outward
+        const eye = window.baseY + (CALL_OF_XENO_WINDOW_SILL + CALL_OF_XENO_WINDOW_HEAD) / 2
+        const through = rayBlockDistance(window.inside.x, eye, window.inside.z, 0, 0, dz, OPEN_SOLIDS, 12)
+        expect(through.distance).toBe(12)
+        // Below its own sill there is wall again.
+        const low = rayBlockDistance(window.inside.x, window.baseY + 0.4, window.inside.z, 0, 0, dz, OPEN_SOLIDS, 12)
+        expect(low.distance).toBeLessThan(4)
+    })
+
+    it('is reachable through normal navigation once the map is open', () => {
+        const window = upstairs[0]!
+        const table = buildNavTable(ALL_DOORS_OPEN)
+        const reached = reachableNodes(table, nearestNode(window.inside.x, window.inside.z, window.baseY))
+        expect(reached.has(window.node)).toBe(true)
+        // And from the spawn side too — the stairs are free.
+        const fromSpawn = reachableNodes(table, nearestNode(CALL_OF_XENO_PLAYER_START.x, CALL_OF_XENO_PLAYER_START.z, 0))
+        expect(fromSpawn.has(window.node)).toBe(true)
     })
 })
 
@@ -770,12 +888,17 @@ describe('round scaling', () => {
 })
 
 describe('perks', () => {
-    it('offers four machines, all power gated, spread across the map', () => {
-        expect(Object.keys(CALL_OF_XENO_PERKS)).toHaveLength(4)
+    it('offers six machines, all power gated, spread across the map', () => {
+        expect(Object.keys(CALL_OF_XENO_PERKS)).toHaveLength(6)
         const machines = CALL_OF_XENO_INTERACTABLES.filter(i => i.kind === 'perk')
-        expect(machines).toHaveLength(4)
+        expect(machines).toHaveLength(6)
         expect(machines.every(m => m.needsPower)).toBe(true)
-        expect(new Set(machines.map(m => m.region)).size).toBe(4)
+        expect(new Set(machines.map(m => m.region)).size).toBe(6)
+    })
+
+    it('prices every perk through the same ladder, new ones included', () => {
+        expect(perkPrice('deadshot', 0, 0)).toBe(2500)
+        expect(perkPrice('phdflopper', 2, 1)).toBe(3500)
     })
 
     it('prices perks at a flat base plus a step per perk already carried', () => {
@@ -789,10 +912,10 @@ describe('perks', () => {
         expect(perkPrice('quickrevive', 0, 2)).toBe(2500)
     })
 
-    it('puts a perk up on the second floor and one out in the Lab', () => {
+    it('puts two perks up on the second floor and one out in the Lab', () => {
         const elevated = CALL_OF_XENO_INTERACTABLES.filter(i => i.kind === 'perk' && i.y >= CALL_OF_XENO_UPPER_Y)
-        expect(elevated).toHaveLength(1)
-        expect(elevated[0]!.perk).toBe('juggernog')
+        expect(elevated).toHaveLength(2)
+        expect(new Set(elevated.map(i => i.perk))).toEqual(new Set(['juggernog', 'deadshot']))
         const lab = CALL_OF_XENO_INTERACTABLES.filter(i => i.kind === 'perk' && i.region === 5)
         expect(lab).toHaveLength(1)
     })
@@ -914,8 +1037,11 @@ describe('windows', () => {
 
     it('lands enemies on clear floor inside the room the window belongs to', () => {
         for (const window of CALL_OF_XENO_WINDOWS) {
-            expect(regionAt(window.inside.x, window.inside.z, 0), window.id).toBe(window.region)
-            expect(penetration(window.inside.x, window.inside.z), window.id).toBeLessThan(1e-9)
+            // Upper-floor windows are judged at their own storey.
+            expect(regionAt(window.inside.x, window.inside.z, window.baseY), window.id).toBe(window.region)
+            const feet = groundHeight(window.inside.x, window.inside.z, window.baseY)
+            expect(Math.abs(feet - window.baseY), window.id).toBeLessThan(1e-9)
+            expect(penetration(window.inside.x, window.inside.z, feet), window.id).toBeLessThan(1e-9)
             // And the queue outside has to be standing on the dirt, not inside
             // the shell it is about to break into.
             expect(regionAt(window.outside.x, window.outside.z, 0), window.id).toBe(-1)
@@ -925,7 +1051,9 @@ describe('windows', () => {
 
     it('names the navigation node an enemy actually arrives next to', () => {
         for (const window of CALL_OF_XENO_WINDOWS) {
-            const nearest = nearestNode(window.inside.x, window.inside.z, 0)
+            // Height is weighted hard in nearestNode, so an upstairs window
+            // is matched against nodes at its own storey.
+            const nearest = nearestNode(window.inside.x, window.inside.z, window.baseY)
             expect(nearest, window.id).toBe(window.node)
         }
     })

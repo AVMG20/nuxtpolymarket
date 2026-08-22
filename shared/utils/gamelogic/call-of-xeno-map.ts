@@ -109,6 +109,11 @@ interface WindowSpec {
     region: number
     /** Navigation node an enemy joins the graph on once it is inside. */
     node: number
+    /**
+     * Floor height of the room this window feeds. Ground-floor windows sit
+     * at 0; an upper-floor window's opening band is measured from its deck.
+     */
+    baseY?: number
 }
 
 export interface CallOfXenoWindow extends WindowSpec {
@@ -120,12 +125,18 @@ export interface CallOfXenoWindow extends WindowSpec {
     centre: { x: number, z: number }
     /** Yaw of the outward normal. */
     facing: number
+    /** Floor height of the room the window feeds. 0 for ground floor. */
+    baseY: number
 }
 
 const WINDOW_SPECS: WindowSpec[] = [
     { id: 'win-barracks-w1', axis: 'z', from: 3, to: 7, at: 0, outward: -1, region: 0, node: 0 },
     { id: 'win-barracks-w2', axis: 'z', from: 10, to: 14, at: 0, outward: -1, region: 0, node: 23 },
     { id: 'win-barracks-s1', axis: 'x', from: 10, to: 14, at: 0, outward: -1, region: 0, node: 0 },
+    // The one upper-floor window: straight into Overwatch off the south
+    // wall, its opening band measured from the deck. Upstairs was the one
+    // place nothing could ever reach — this fixes that.
+    { id: 'win-overwatch-s1', axis: 'x', from: 14, to: 18, at: 0, outward: -1, region: 7, node: 29, baseY: U },
     { id: 'win-mess-s1', axis: 'x', from: 22, to: 26, at: 0, outward: -1, region: 1, node: 3 },
     { id: 'win-mess-s2', axis: 'x', from: 28, to: 32, at: 0, outward: -1, region: 1, node: 3 },
     { id: 'win-garage-s1', axis: 'x', from: 40, to: 44, at: 0, outward: -1, region: 3, node: 5 },
@@ -152,6 +163,7 @@ export const CALL_OF_XENO_WINDOWS: CallOfXenoWindow[] = WINDOW_SPECS.map((spec) 
     const along = spec.axis === 'x'
     return {
         ...spec,
+        baseY: spec.baseY ?? 0,
         outside: along ? { x: mid, z: outAt } : { x: outAt, z: mid },
         inside: along ? { x: mid, z: inAt } : { x: inAt, z: mid },
         centre: along ? { x: mid, z: spec.at } : { x: spec.at, z: mid },
@@ -259,9 +271,13 @@ function shellRun(axis: 'x' | 'z', at: number, outward: 1 | -1, from: number, to
 
     let cursor = from
     for (const window of here) {
+        // Each window cuts its own band at its own storey: ground-floor
+        // openings at [sill, head], upper-floor ones a deck higher, with
+        // solid wall below and above either.
+        const base = window.baseY ?? 0
         push(cursor, window.from, 0, A)
-        push(window.from, window.to, 0, CALL_OF_XENO_WINDOW_SILL)
-        push(window.from, window.to, CALL_OF_XENO_WINDOW_HEAD, A - CALL_OF_XENO_WINDOW_HEAD)
+        push(window.from, window.to, 0, base + CALL_OF_XENO_WINDOW_SILL)
+        push(window.from, window.to, base + CALL_OF_XENO_WINDOW_HEAD, A - (base + CALL_OF_XENO_WINDOW_HEAD))
         cursor = window.to
     }
     push(cursor, to, 0, A)
@@ -630,6 +646,9 @@ export const CALL_OF_XENO_INTERACTABLES: CallOfXenoInteractable[] = [
 
     // Mess Hall — the first door out.
     { id: 'buy-trench', kind: 'wallbuy', x: 34, y: 0, z: 15.6, facing: Math.PI, region: 1, weapon: 'trench', needsPower: false },
+    // PhD Flopper sits in the middle wing between Quick Revive's Barracks
+    // and Speed Cola's Garage.
+    { id: 'perk-phdflopper', kind: 'perk', x: 20, y: 0, z: 15.1, facing: Math.PI, region: 1, perk: 'phdflopper', needsPower: true },
 
     // Atrium — the only mystery box on the map. Set against the north wall
     // between the corner crate and the Reactor door, clear of both flights.
@@ -637,6 +656,9 @@ export const CALL_OF_XENO_INTERACTABLES: CallOfXenoInteractable[] = [
 
     // Catwalk — Juggernog is the reward for taking the high ground.
     { id: 'perk-juggernog', kind: 'perk', x: 18, y: CALL_OF_XENO_UPPER_Y, z: 17, facing: 0, region: 9, perk: 'juggernog', needsPower: true },
+
+    // Overwatch — Deadshot lives upstairs too, a reason to hold the deck.
+    { id: 'perk-deadshot', kind: 'perk', x: 11, y: CALL_OF_XENO_UPPER_Y, z: 15.1, facing: Math.PI, region: 7, perk: 'deadshot', needsPower: true },
 
     // Garage and Workshop — the east wing.
     { id: 'perk-speedcola', kind: 'perk', x: 57.4, y: 0, z: 15, facing: -Math.PI / 2, region: 3, perk: 'speedcola', needsPower: true },
@@ -655,19 +677,48 @@ export const CALL_OF_XENO_INTERACTABLES: CallOfXenoInteractable[] = [
 
 export const CALL_OF_XENO_PLAYER_START = { x: 9, z: 11 }
 
+/**
+ * The two places the mystery box can sit: the Atrium plinth it has always
+ * occupied, and a second anchor in the Garage beside Speed Cola's corner.
+ * A run starts at one picked at random, and each round boundary can move it
+ * — the prop is one physical box, teleported between the anchors.
+ */
+export const CALL_OF_XENO_BOX_SPOTS = [
+    { x: 19, y: 0, z: 32.6, facing: Math.PI },
+    { x: 55.2, y: 0, z: 12.6, facing: -Math.PI / 2 }
+] as const
+
+/** Chance the box moves to the other spot when a new round starts. */
+export const CALL_OF_XENO_BOX_SWAP_CHANCE = 0.15
+
 /** Free-standing props the player cannot walk through. */
-export const CALL_OF_XENO_PROP_SOLIDS: CallOfXenoSolid[] = CALL_OF_XENO_INTERACTABLES
-    .filter(i => i.kind === 'perk' || i.kind === 'papunch' || i.kind === 'power' || i.kind === 'mysterybox' || i.kind === 'workbench')
-    .map(i => ({
+export const CALL_OF_XENO_PROP_SOLIDS: CallOfXenoSolid[] = [
+    ...CALL_OF_XENO_INTERACTABLES
+        .filter(i => i.kind === 'perk' || i.kind === 'papunch' || i.kind === 'power' || i.kind === 'mysterybox' || i.kind === 'workbench')
+        .map(i => ({
+            box: {
+                minX: i.x - (i.kind === 'papunch' ? 1.25 : i.kind === 'workbench' ? 0.85 : 0.6),
+                maxX: i.x + (i.kind === 'papunch' ? 1.25 : i.kind === 'workbench' ? 0.85 : 0.6),
+                minZ: i.z - (i.kind === 'workbench' ? 0.55 : 0.6),
+                maxZ: i.z + (i.kind === 'workbench' ? 0.55 : 0.6)
+            },
+            baseY: i.y,
+            height: i.kind === 'papunch' ? 2 : i.kind === 'mysterybox' ? 1.2 : i.kind === 'workbench' ? 1.2 : 2.2
+        })),
+    // The second box anchor keeps its plinth footprint solid even when the
+    // box itself is parked at the other spot — the crate teleports, the
+    // furniture does not.
+    {
         box: {
-            minX: i.x - (i.kind === 'papunch' ? 1.25 : i.kind === 'workbench' ? 0.85 : 0.6),
-            maxX: i.x + (i.kind === 'papunch' ? 1.25 : i.kind === 'workbench' ? 0.85 : 0.6),
-            minZ: i.z - (i.kind === 'workbench' ? 0.55 : 0.6),
-            maxZ: i.z + (i.kind === 'workbench' ? 0.55 : 0.6)
+            minX: CALL_OF_XENO_BOX_SPOTS[1]!.x - 0.6,
+            maxX: CALL_OF_XENO_BOX_SPOTS[1]!.x + 0.6,
+            minZ: CALL_OF_XENO_BOX_SPOTS[1]!.z - 0.6,
+            maxZ: CALL_OF_XENO_BOX_SPOTS[1]!.z + 0.6
         },
-        baseY: i.y,
-        height: i.kind === 'papunch' ? 2 : i.kind === 'mysterybox' ? 1.2 : i.kind === 'workbench' ? 1.2 : 2.2
-    }))
+        baseY: CALL_OF_XENO_BOX_SPOTS[1]!.y,
+        height: 1.2
+    }
+]
 
 // ---------------------------------------------------------------------------
 // Geometry queries
