@@ -353,6 +353,8 @@ export function buildWeaponModel(id: CallOfXenoWeaponId, tier: number): THREE.Gr
             // Slide serrations and a hammer the thumb can imagine cocking.
             for (const z of [-0.2, -0.15]) group.add(part(0.072, 0.05, 0.012, 0x2b2f36, 0, 0.05, z))
             group.add(part(0.025, 0.035, 0.02, 0x3a3f47, 0, 0.055, 0.02))
+            // Checkered grip panels, a hair proud of the grip frames.
+            group.add(part(0.062, 0.09, 0.012, 0x4a3520, 0, -0.08, 0.05))
             break
         case 'skorpion':
             group.add(part(0.06, 0.09, 0.3, GUN_DARK, 0, 0.01, -0.1))
@@ -405,6 +407,9 @@ export function buildWeaponModel(id: CallOfXenoWeaponId, tier: number): THREE.Gr
             group.add(part(0.06, 0.14, 0.09, 0x3a3f47, 0, -0.1, -0.1))
             group.add(part(0.06, 0.12, 0.08, 0x3a3f47, 0, -0.19, -0.05))
             group.add(part(0.055, 0.055, 0.06, 0x2b2f36, 0, 0.01, -0.56))
+            // Gas tube riding above the barrel and a cleaning rod under it.
+            group.add(part(0.024, 0.024, 0.3, GUN_DARK, 0, 0.078, -0.3))
+            group.add(part(0.014, 0.014, 0.46, 0x2b2f36, 0, 0.026, -0.32))
             sights(-0.48, -0.02, 0.035)
             break
         case 'bar':
@@ -416,7 +421,24 @@ export function buildWeaponModel(id: CallOfXenoWeaponId, tier: number): THREE.Gr
             group.add(part(0.07, 0.18, 0.1, 0x3a3f47, 0, -0.1, -0.16))
             group.add(part(0.025, 0.2, 0.025, 0x2b2f36, 0.05, -0.14, -0.52))
             group.add(part(0.025, 0.2, 0.025, 0x2b2f36, -0.05, -0.14, -0.52))
+            // Cooling rings over the barrel near the muzzle.
+            for (const z of [-0.64, -0.56, -0.48]) group.add(part(0.054, 0.054, 0.02, GUN_DARK, 0, 0.06, z))
             sights(-0.66, -0.06, 0.035)
+            break
+        case 'mosin':
+            // Bolt-action: full-length woodwork, exposed barrel, turned-down
+            // bolt handle and a blued receiver.
+            group.add(part(0.06, 0.08, 0.72, GUN_WOOD, 0, -0.005, -0.24))
+            group.add(part(0.035, 0.035, 0.82, accent, 0, 0.045, -0.36))
+            group.add(part(0.05, 0.07, 0.14, GUN_DARK, 0, 0.03, -0.64))
+            group.add(part(0.07, 0.11, 0.24, GUN_WOOD, 0, -0.03, 0.18))
+            group.add(part(0.06, 0.12, 0.07, 0x2f3238, 0, -0.07, 0.02))
+            group.add(part(0.05, 0.05, 0.14, 0x4a3520, 0, 0.005, -0.46))
+            // Bolt handle, cocked piece and a trigger-guard suggestion.
+            group.add(part(0.02, 0.02, 0.09, 0x3a3f47, 0.05, 0.04, -0.06))
+            group.add(part(0.026, 0.062, 0.026, 0x3a3f47, 0.05, 0.002, -0.03))
+            group.add(part(0.016, 0.05, 0.055, 0x2b2f36, 0, -0.06, 0.06))
+            sights(-0.68, -0.04, 0.03)
             break
         case 'rpk':
             group.add(part(0.08, 0.1, 0.6, GUN_DARK, 0, 0.01, -0.22))
@@ -455,6 +477,39 @@ export function buildWeaponModel(id: CallOfXenoWeaponId, tier: number): THREE.Gr
             group.add(part(0.06, 0.13, 0.07, 0x2f3238, 0, -0.08, 0.06))
             group.add(part(0.05, 0.05, 0.12, 0x2b2f36, 0, 0.015, -0.88))
             sights(-0.8, -0.05, 0.035)
+            break
+        }
+        case 'bazooka': {
+            // Shoulder-fired tube: olive body, muzzle and vent rings, the
+            // warhead's tip peeking out of the front, sight frame on top.
+            group.add(part(0.13, 0.13, 1.02, 0x3d4a35, 0, 0.02, -0.3))
+            group.add(part(0.15, 0.15, 0.14, 0x2b3326, 0, 0.02, -0.76))
+            group.add(part(0.16, 0.16, 0.12, 0x2b3326, 0, 0.02, 0.2))
+            const warhead = new THREE.Mesh(
+                new THREE.ConeGeometry(0.075, 0.22, 8),
+                new THREE.MeshLambertMaterial({ color: accent })
+            )
+            warhead.rotation.x = -Math.PI / 2
+            warhead.position.set(0, 0.02, -0.92)
+            group.add(warhead)
+            // Rear exhaust: a flared cone so the tube reads as open-ended.
+            const exhaust = new THREE.Mesh(
+                new THREE.CylinderGeometry(0.06, 0.09, 0.12, 8),
+                new THREE.MeshLambertMaterial({ color: 0x22261e })
+            )
+            exhaust.rotation.x = Math.PI / 2
+            exhaust.position.set(0, 0.02, 0.28)
+            group.add(exhaust)
+            // Sight frame above the tube.
+            group.add(part(0.03, 0.09, 0.03, 0x22261e, -0.04, 0.12, -0.28))
+            group.add(part(0.03, 0.09, 0.03, 0x22261e, 0.04, 0.12, -0.28))
+            group.add(part(0.11, 0.03, 0.05, 0x22261e, 0, 0.17, -0.28))
+            // Twin grips and a shoulder stock.
+            group.add(part(0.06, 0.14, 0.07, 0x2f3238, 0, -0.09, -0.12))
+            group.add(part(0.06, 0.12, 0.07, 0x2f3238, 0, -0.08, 0.04))
+            group.add(part(0.07, 0.16, 0.2, 0x3a4032, 0, -0.06, 0.24))
+            // Rocket stencilled band round the middle.
+            group.add(part(0.14, 0.05, 0.1, accent, 0, 0.02, -0.42))
             break
         }
         case 'xenoray': {

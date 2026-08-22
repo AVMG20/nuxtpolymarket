@@ -17,9 +17,11 @@ export type CallOfXenoWeaponId
       | 'mp40'
       | 'ak74'
       | 'bar'
+      | 'mosin'
       | 'rpk'
       | 'm60'
       | 'fnmag'
+      | 'bazooka'
       | 'xenoray'
 
 export type CallOfXenoPerkId = 'juggernog' | 'speedcola' | 'doubletap' | 'quickrevive'
@@ -246,6 +248,31 @@ export const CALL_OF_XENO_WEAPONS: Record<CallOfXenoWeaponId, CallOfXenoWeapon> 
         falloffStart: 42,
         falloffMin: 0.82
     },
+    mosin: {
+        id: 'mosin',
+        name: 'Mosin-Nagant',
+        damage: 300,
+        pellets: 1,
+        fireDelay: 1.05,
+        magSize: 5,
+        reserveAmmo: 45,
+        reloadTime: 3,
+        spread: 0.01,
+        range: 80,
+        penetration: 4,
+        automatic: false,
+        // Box only — the bolt-action answer to the horde: one heavy round
+        // straight through a file of bodies, then work the bolt.
+        cost: 0,
+        upgradedName: 'Winter Howl',
+        mobility: 0.96,
+        aimSpeed: 9,
+        swapTime: 0.26,
+        adsSpread: 0.003,
+        recoilKick: 0.075,
+        falloffStart: 55,
+        falloffMin: 0.9
+    },
     rpk: {
         id: 'rpk',
         name: 'RPK',
@@ -320,6 +347,34 @@ export const CALL_OF_XENO_WEAPONS: Record<CallOfXenoWeaponId, CallOfXenoWeapon> 
         falloffStart: 42,
         falloffMin: 0.8,
         upgradedName: 'Magnetron'
+    },
+    bazooka: {
+        id: 'bazooka',
+        name: 'M1 Bazooka',
+        damage: 850,
+        pellets: 1,
+        fireDelay: 1.35,
+        magSize: 1,
+        reserveAmmo: 10,
+        reloadTime: 3.4,
+        spread: 0.02,
+        range: 60,
+        penetration: 1,
+        automatic: false,
+        // Lobs a rocket that flies flat-ish and detonates on any impact.
+        explosive: true,
+        projectile: true,
+        blastRadius: 4.4,
+        // Box only — one shell in the tube, a pocket of spares, and a blast
+        // wide enough to clear a doorway of trouble. Or to hurt you: mind
+        // the wall you fire it at.
+        cost: 0,
+        mobility: 0.93,
+        aimSpeed: 7,
+        swapTime: 0.42,
+        adsSpread: 0.008,
+        recoilKick: 0.09,
+        upgradedName: 'Warhead Mk II'
     },
     xenoray: {
         id: 'xenoray',
@@ -582,7 +637,8 @@ export const CALL_OF_XENO_BOX_COST = 950
 /**
  * Every weapon that is not on a wall lives here, and so do the three that are
  * — the box stays worth spinning at every stage of a run, and it is the only
- * source of the Magnum, the MP-40, the BAR, the RPK and the wonder weapon.
+ * source of the Magnum, the MP-40, the BAR, the Mosin, both belt-feds, the
+ * Bazooka and the wonder weapon.
  */
 export const CALL_OF_XENO_BOX_POOL: { weapon: CallOfXenoWeaponId, weight: number }[] = [
     { weapon: 'mp40', weight: 7 },
@@ -593,7 +649,9 @@ export const CALL_OF_XENO_BOX_POOL: { weapon: CallOfXenoWeaponId, weight: number
     { weapon: 'fnmag', weight: 4 },
     { weapon: 'trench', weight: 4 },
     { weapon: 'ak74', weight: 4 },
+    { weapon: 'mosin', weight: 3 },
     { weapon: 'skorpion', weight: 3 },
+    { weapon: 'bazooka', weight: 2 },
     { weapon: 'xenoray', weight: 2 }
 ]
 

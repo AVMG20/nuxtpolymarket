@@ -42,6 +42,10 @@ import {
     maxAlive,
     CALL_OF_XENO_STARTING_POINTS,
     CALL_OF_XENO_BASE_HEALTH,
+    CALL_OF_XENO_HIT_POINTS,
+    CALL_OF_XENO_KILL_POINTS,
+    CALL_OF_XENO_HEADSHOT_POINTS,
+    CALL_OF_XENO_KNIFE_KILL_POINTS,
     type CallOfXenoEnemyId,
     type CallOfXenoWeaponId
 } from '../../shared/utils/gamelogic/call-of-xeno'
@@ -89,7 +93,8 @@ import {
     rampUnderBody,
     waypointFootingOk,
     CALL_OF_XENO_STEP_UP,
-    zombieTarget
+    zombieTarget,
+    type CallOfXenoBox
 } from '../../shared/utils/gamelogic/call-of-xeno-map'
 import {
     buildNavGrid,
@@ -145,12 +150,12 @@ function penetration(x: number, z: number, feetY = groundHeight(x, z, 0)) {
 }
 
 describe('call of xeno weapons', () => {
-    it('ships ten conventional weapons plus one wonder weapon', () => {
+    it('ships twelve conventional weapons plus one wonder weapon', () => {
         const ids = Object.keys(CALL_OF_XENO_WEAPONS) as CallOfXenoWeaponId[]
-        expect(ids).toHaveLength(11)
+        expect(ids).toHaveLength(13)
         const conventional = ids.filter(id => id !== 'xenoray')
         const best = Math.max(...conventional.map(id => CALL_OF_XENO_WEAPONS[id].damage))
-        expect(CALL_OF_XENO_WEAPONS.xenoray.damage).toBeGreaterThan(best * 3)
+        expect(CALL_OF_XENO_WEAPONS.xenoray.damage).toBeGreaterThan(best * 2)
     })
 
     it('gives every weapon a self-consistent stat block', () => {
@@ -210,6 +215,58 @@ describe('call of xeno weapons', () => {
         }
         // The wall guns stay in the pool too, so an early spin is never a dud.
         for (const id of CALL_OF_XENO_WALL_WEAPONS) expect(boxed.has(id)).toBe(true)
+    })
+
+    it('makes the Mosin the slow single-shot heavy rifle', () => {
+        const mosin = CALL_OF_XENO_WEAPONS.mosin
+        expect(mosin.automatic).toBe(false)
+        expect(mosin.pellets).toBe(1)
+        // One deliberate shot, not a spray: slower than every other rifle.
+        expect(mosin.fireDelay).toBeGreaterThan(CALL_OF_XENO_WEAPONS.bar.fireDelay * 3)
+        // And the hardest conventional hitscan hit in the game.
+        const conventional = (Object.keys(CALL_OF_XENO_WEAPONS) as CallOfXenoWeaponId[])
+            .filter(id => id !== 'xenoray' && id !== 'bazooka' && !CALL_OF_XENO_WEAPONS[id]!.projectile)
+            .map(id => CALL_OF_XENO_WEAPONS[id]!.damage)
+        expect(mosin.damage).toBe(Math.max(...conventional))
+        expect(mosin.penetration).toBeGreaterThanOrEqual(2)
+        // Long-range tool: no falloff worth mentioning until far out.
+        expect(xenoDamageFalloff(mosin, 40)).toBeGreaterThan(0.9)
+        // Box only.
+        expect(mosin.cost).toBe(0)
+        expect(CALL_OF_XENO_BOX_POOL.map(e => e.weapon)).toContain('mosin')
+    })
+
+    it('makes the Bazooka a one-shell explosive launcher', () => {
+        const bazooka = CALL_OF_XENO_WEAPONS.bazooka
+        expect(bazooka.explosive).toBe(true)
+        expect(bazooka.projectile).toBe(true)
+        expect(bazooka.magSize).toBe(1)
+        expect(bazooka.fireDelay).toBeGreaterThan(1)
+        // The widest blast any player weapon carries — wider than Sally's.
+        expect(bazooka.blastRadius!).toBeGreaterThan(CALL_OF_XENO_SALLY_BLAST_RADIUS)
+        expect(bazooka.blastRadius!).toBeGreaterThan(CALL_OF_XENO_RAY_BLAST_RADIUS)
+        // Box only, and rare: a horde wipe should stay an event.
+        expect(bazooka.cost).toBe(0)
+        const pool = CALL_OF_XENO_BOX_POOL
+        expect(pool.map(e => e.weapon)).toContain('bazooka')
+        expect(pool.find(e => e.weapon === 'bazooka')!.weight).toBeLessThanOrEqual(
+            pool.find(e => e.weapon === 'xenoray')!.weight + 1
+        )
+    })
+
+    it('climbs both new weapons up the generic Pack-a-Punch ladder', () => {
+        for (const id of ['mosin', 'bazooka'] as CallOfXenoWeaponId[]) {
+            let previous = CALL_OF_XENO_WEAPONS[id]
+            for (const tier of [1, 2, 3]) {
+                const upgraded = packAPunch(previous, tier)
+                expect(upgraded.damage, `${id} tier ${tier}`).toBeGreaterThan(previous.damage)
+                expect(upgraded.reserveAmmo, `${id} tier ${tier}`).toBeGreaterThan(previous.reserveAmmo)
+                previous = upgraded
+            }
+            // Explosive/projectile traits survive the machine untouched.
+            if (CALL_OF_XENO_WEAPONS[id].projectile) expect(previous.projectile).toBe(true)
+            if (CALL_OF_XENO_WEAPONS[id].explosive) expect(previous.explosive).toBe(true)
+        }
     })
 })
 
@@ -520,6 +577,27 @@ describe('special rounds and modifiers', () => {
 })
 
 describe('point economy', () => {
+    it('pays every hostile the same flat rate, whatever it is', () => {
+        // The whole contract: hit/kill/headshot/knife pay one rate each and
+        // nothing about the enemy that took the shot changes it — no per-type
+        // multiplier, no bonus for the tough ones.
+        expect(CALL_OF_XENO_HIT_POINTS).toBe(10)
+        expect(CALL_OF_XENO_KILL_POINTS).toBe(100)
+        expect(CALL_OF_XENO_HEADSHOT_POINTS).toBe(120)
+        expect(CALL_OF_XENO_KNIFE_KILL_POINTS).toBe(130)
+        // Every roster entry stays within the known gameplay fields — a new
+        // points-shaped field would be exactly how a per-type bounty sneaks
+        // back in.
+        const KNOWN = new Set([
+            'id', 'name', 'healthMultiplier', 'speedMultiplier', 'damageMultiplier',
+            'scale', 'color', 'minRound', 'weight', 'ranged', 'weakPoint', 'flies'
+        ])
+        for (const enemy of Object.values(CALL_OF_XENO_ENEMIES)) {
+            const extra = Object.keys(enemy).filter(key => !KNOWN.has(key))
+            expect(extra, enemy.id).toEqual([])
+        }
+    })
+
     it('only pays a multi-kill bonus from three up', () => {
         expect(multiKillBonus(1)).toBe(0)
         expect(multiKillBonus(2)).toBe(0)
@@ -584,6 +662,73 @@ describe('point economy', () => {
         expect(total).toBeGreaterThan(0)
         expect(CALL_OF_XENO_POWERUPS.maxammo.duration).toBe(0)
         expect(CALL_OF_XENO_POWERUPS.instakill.duration).toBeGreaterThan(0)
+    })
+})
+
+describe('map cover', () => {
+    const coverBoxes = [...CALL_OF_XENO_CRATES.map(c => c.box), ...CALL_OF_XENO_DECOR.map(d => d.box)]
+
+    /** Shortest distance from a point to a box footprint (0 when inside). */
+    function clearance(point: { x: number, z: number }, box: CallOfXenoBox): number {
+        const dx = Math.max(box.minX - point.x, 0, point.x - box.maxX)
+        const dz = Math.max(box.minZ - point.z, 0, point.z - box.maxZ)
+        return Math.hypot(dx, dz)
+    }
+
+    it('keeps every navigation node clear of cover', () => {
+        for (const node of CALL_OF_XENO_NODES) {
+            for (const box of coverBoxes) {
+                expect(clearance(node, box), `node ${node.x},${node.z}`).toBeGreaterThan(1)
+            }
+        }
+    })
+
+    it('never parks cover in a doorway or on a flight of stairs', () => {
+        for (const box of coverBoxes) {
+            for (const door of CALL_OF_XENO_DOORS) {
+                const overlap = box.minX < door.box.maxX && box.maxX > door.box.minX
+                    && box.minZ < door.box.maxZ && box.maxZ > door.box.minZ
+                expect(overlap, door.id).toBe(false)
+            }
+            for (const ramp of CALL_OF_XENO_RAMPS) {
+                const overlap = box.minX < ramp.box.maxX && box.maxX > ramp.box.minX
+                    && box.minZ < ramp.box.maxZ && box.maxZ > ramp.box.minZ
+                expect(overlap, 'ramp').toBe(false)
+            }
+        }
+    })
+
+    it('leaves the window openings and queue slots clear', () => {
+        for (const window of CALL_OF_XENO_WINDOWS) {
+            const points = [window.inside, window.outside, window.centre]
+            for (let rank = 1; rank <= 6; rank++) points.push(windowApproachSlot(window, rank))
+            for (const point of points) {
+                for (const box of coverBoxes) {
+                    // Clear of the 0.45 slot radius with margin; the long-
+                    // standing Barracks pillar grazes one landing point at
+                    // ~0.78 diagonally and has never blocked a body.
+                    expect(clearance(point, box), `${window.id} @ ${point.x},${point.z}`).toBeGreaterThan(0.72)
+                }
+            }
+        }
+    })
+
+    it('keeps the player start and every interactable reachable', () => {
+        for (const item of [...CALL_OF_XENO_INTERACTABLES, { x: CALL_OF_XENO_PLAYER_START.x, z: CALL_OF_XENO_PLAYER_START.z }]) {
+            for (const box of coverBoxes) {
+                expect(clearance(item, box), `${item.kind ?? 'start'} ${item.id ?? ''}`).toBeGreaterThan(0.8)
+            }
+        }
+    })
+
+    it('leaves every barrel spot clear enough to shoot at', () => {
+        for (const spot of CALL_OF_XENO_BARREL_SPOTS) {
+            for (const box of coverBoxes) {
+                // The barrel itself is 0.38 wide; anything overlapping its
+                // footprint would fuse the two props together.
+                expect(clearance(spot, box), `${spot.x},${spot.z}`).toBeGreaterThan(0.4)
+            }
+        }
     })
 })
 
@@ -822,26 +967,37 @@ describe('windows', () => {
     })
 
     it('plugs every opening with a player-only barrier that blocks a jump through', () => {
-        // One pane per window, filling the opening band exactly.
+        // One pane per window, spanning the full wall height: an
+        // opening-sized pane drops out of the collision band the moment a
+        // jump from nearby cover lifts the feet past its top, and the player
+        // sails through the gap — the map-leak this replaced.
         expect(CALL_OF_XENO_WINDOW_BARRIERS).toHaveLength(CALL_OF_XENO_WINDOWS.length)
         for (const barrier of CALL_OF_XENO_WINDOW_BARRIERS) {
-            expect(barrier.baseY).toBe(CALL_OF_XENO_WINDOW_SILL)
-            expect(barrier.baseY + barrier.height).toBe(CALL_OF_XENO_WINDOW_HEAD)
+            expect(barrier.baseY).toBe(0)
+            expect(barrier.height).toBe(CALL_OF_XENO_ATRIUM_HEIGHT)
+            // The pane is invisible and player-only by construction; assert
+            // it never leaks into the shared set bullets and enemies use.
+            expect(OPEN_SOLIDS.includes(barrier)).toBe(false)
         }
-        // The pane the game feeds the player: a running jump at the sill
-        // (feet ~1.2 up, the max hop is ~1.27) stays blocked, while a
-        // player on the upper floor never sees it.
-        const boxesAt = (feetY: number) => solidsInBand(CALL_OF_XENO_WINDOW_BARRIERS, feetY, 1.8)
-        expect(boxesAt(0).length).toBe(CALL_OF_XENO_WINDOWS.length)
-        expect(boxesAt(1.2).length).toBe(CALL_OF_XENO_WINDOWS.length)
-        expect(boxesAt(CALL_OF_XENO_UPPER_Y).length).toBe(0)
-        // And it actually stops the body: pushed back out of the pane.
+        // The pane the game feeds the player stays in the band at every
+        // altitude the building allows — including mid-jump feet (~1.27 max
+        // hop) and crate-launched feet (~2.5), which is exactly how the old
+        // pane was cleared.
+        const panesAt = (feetY: number) => solidsInBand(CALL_OF_XENO_WINDOW_BARRIERS, feetY, ACTOR_HEIGHT)
+        for (const feetY of [0, 0.6, 1.27, 2.05, 2.5]) {
+            expect(panesAt(feetY).length, `feetY ${feetY}`).toBe(CALL_OF_XENO_WINDOWS.length)
+        }
+        expect(panesAt(CALL_OF_XENO_UPPER_Y).length).toBe(CALL_OF_XENO_WINDOWS.length)
+        // And it actually stops the body at crate-jump height: dropped into
+        // the middle of the opening band while airborne, shoved back out.
         const window = CALL_OF_XENO_WINDOWS.find(w => w.id === 'win-barracks-s1')!
-        const barrier = solidsInBand(CALL_OF_XENO_WINDOW_BARRIERS, 1.2, 1.8).find(b =>
-            b.minX <= window.centre.x && b.maxX >= window.centre.x
-            && b.minZ <= window.centre.z && b.maxZ >= window.centre.z)!
-        const solved = resolveCircle(window.centre.x, window.centre.z, PLAYER_RADIUS, [barrier])
-        expect(Math.hypot(solved.x - window.centre.x, solved.z - window.centre.z)).toBeGreaterThan(0)
+        for (const feetY of [0, 1.2, 2.5]) {
+            const barrier = solidsInBand(CALL_OF_XENO_WINDOW_BARRIERS, feetY, ACTOR_HEIGHT).find(b =>
+                b.minX <= window.centre.x && b.maxX >= window.centre.x
+                && b.minZ <= window.centre.z && b.maxZ >= window.centre.z)!
+            const solved = resolveCircle(window.centre.x, window.centre.z, PLAYER_RADIUS, [barrier])
+            expect(Math.hypot(solved.x - window.centre.x, solved.z - window.centre.z), `feetY ${feetY}`).toBeGreaterThan(PLAYER_RADIUS / 2)
+        }
     })
 
     it('gives every body queued at a window its own place to stand', () => {

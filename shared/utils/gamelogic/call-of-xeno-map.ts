@@ -289,14 +289,19 @@ export const CALL_OF_XENO_SHELL_WALLS: CallOfXenoSolid[] = [
  * consulting collision, and rays (bullets, deploy placement) keep their
  * existing line-of-sight through the boards. Only player movement unions
  * these in.
+ *
+ * Each pane spans the full wall height rather than just the opening band:
+ * `solidsInBand` drops any solid a body could step onto, so an opening-sized
+ * pane vanished the moment a jump from a nearby crate lifted the feet past
+ * its top — the player flew straight through the gap at head height. Full
+ * height keeps the pane in the band at every altitude the building allows.
  */
 export const CALL_OF_XENO_WINDOW_BARRIERS: CallOfXenoSolid[] = CALL_OF_XENO_WINDOWS.map(w => {
     const near = w.outward > 0 ? w.at : w.at - SHELL_T
     const far = w.outward > 0 ? w.at + SHELL_T : w.at
-    const height = CALL_OF_XENO_WINDOW_HEAD - CALL_OF_XENO_WINDOW_SILL
     return w.axis === 'x'
-        ? { box: { minX: w.from, maxX: w.to, minZ: near, maxZ: far }, baseY: CALL_OF_XENO_WINDOW_SILL, height }
-        : { box: { minX: near, maxX: far, minZ: w.from, maxZ: w.to }, baseY: CALL_OF_XENO_WINDOW_SILL, height }
+        ? { box: { minX: w.from, maxX: w.to, minZ: near, maxZ: far }, baseY: 0, height: A }
+        : { box: { minX: near, maxX: far, minZ: w.from, maxZ: w.to }, baseY: 0, height: A }
 })
 
 // Interior structures that get dressed up by the renderer. They stay in the
@@ -329,8 +334,8 @@ export const CALL_OF_XENO_DECOR: CallOfXenoDecor[] = [
     { box: { minX: 53, maxX: 57, minZ: 25, maxZ: 28 }, kind: 'machine', height: 2.2, theme: 2 },
     // Lab bank.
     { box: { minX: 0.5, maxX: 4, minZ: 34.5, maxZ: 37.5 }, kind: 'machine', height: 2.2, theme: 3 },
-    // Reactor Hall: generator banks pushed flat against the north wall so the
-    // room reads as machinery without a block sticking into the fighting floor.
+    // Reactor Hall: generator banks along the north wall so the room reads as
+    // machinery without a block sticking into the fighting lanes.
     { box: { minX: 21, maxX: 25, minZ: 44.5, maxZ: 47.5 }, kind: 'machine', height: 2.6, theme: 2 },
     { box: { minX: 39, maxX: 43, minZ: 44.5, maxZ: 47.5 }, kind: 'machine', height: 2.6, theme: 2 }
 ]
@@ -410,12 +415,14 @@ export const CALL_OF_XENO_CRATES: CallOfXenoSolid[] = [
     { box: { minX: 21, maxX: 25, minZ: 11, maxZ: 13 }, baseY: 0, height: 1 },
     { box: { minX: 28, maxX: 32, minZ: 11, maxZ: 13 }, baseY: 0, height: 1 },
     { box: { minX: 32.5, maxX: 35, minZ: 2.5, maxZ: 4.5 }, baseY: 0, height: 1.4 },
+    { box: { minX: 25.5, maxX: 27, minZ: 5, maxZ: 6.4 }, baseY: 0, height: 1.1 },
     // Atrium
     { box: { minX: 13, maxX: 16, minZ: 31.5, maxZ: 33.5 }, baseY: 0, height: 1.2 },
     { box: { minX: 21, maxX: 24, minZ: 18.5, maxZ: 20.5 }, baseY: 0, height: 1.1 },
     { box: { minX: 9, maxX: 12, minZ: 23, maxZ: 25 }, baseY: 0, height: 1.5 },
     { box: { minX: 6, maxX: 8.5, minZ: 25, maxZ: 27 }, baseY: 0, height: 1.1 },
     // Garage
+    { box: { minX: 54.5, maxX: 56.5, minZ: 16, maxZ: 17.4 }, baseY: 0, height: 1.2 },
     { box: { minX: 53.5, maxX: 56.5, minZ: 2.5, maxZ: 5 }, baseY: 0, height: 1.2 },
     { box: { minX: 43, maxX: 46, minZ: 12.5, maxZ: 15 }, baseY: 0, height: 1.4 },
     // Workshop
@@ -424,16 +431,20 @@ export const CALL_OF_XENO_CRATES: CallOfXenoSolid[] = [
     // Lab
     { box: { minX: 3, maxX: 6, minZ: 44, maxZ: 46.5 }, baseY: 0, height: 1.2 },
     { box: { minX: 12, maxX: 15.5, minZ: 35.5, maxZ: 37.5 }, baseY: 0, height: 1.4 },
+    { box: { minX: 11.5, maxX: 13.5, minZ: 39, maxZ: 40.5 }, baseY: 0, height: 1.2 },
     // Reactor Hall
     { box: { minX: 29, maxX: 32, minZ: 43.5, maxZ: 45.5 }, baseY: 0, height: 1.1 },
     { box: { minX: 50, maxX: 53, minZ: 43.5, maxZ: 46 }, baseY: 0, height: 1.4 },
     { box: { minX: 52, maxX: 55, minZ: 36, maxZ: 38 }, baseY: 0, height: 1.2 },
+    { box: { minX: 55.5, maxX: 57, minZ: 34.8, maxZ: 36.4 }, baseY: 0, height: 1.1 },
+    { box: { minX: 18.5, maxX: 19.8, minZ: 45.2, maxZ: 46.6 }, baseY: 0, height: 1.2 },
     // Second floor
     { box: { minX: 3, maxX: 5.5, minZ: 3, maxZ: 5.5 }, baseY: U, height: 1.1 },
     { box: { minX: 13, maxX: 16, minZ: 12, maxZ: 14.5 }, baseY: U, height: 1.2 },
     { box: { minX: 20, maxX: 22.5, minZ: 3, maxZ: 5.5 }, baseY: U, height: 1.2 },
     { box: { minX: 31, maxX: 34, minZ: 12, maxZ: 14 }, baseY: U, height: 1.1 },
-    { box: { minX: 23, maxX: 25.5, minZ: 16.6, maxZ: 18.2 }, baseY: U, height: 1 }
+    { box: { minX: 23, maxX: 25.5, minZ: 16.6, maxZ: 18.2 }, baseY: U, height: 1 },
+    { box: { minX: 5.5, maxX: 7.5, minZ: 11, maxZ: 12.5 }, baseY: U, height: 1.1 }
 ]
 
 /** The second floor: one deck over the Barracks, the Mess and the Atrium's

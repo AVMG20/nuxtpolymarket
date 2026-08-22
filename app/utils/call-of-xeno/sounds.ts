@@ -11,6 +11,7 @@ export type CallOfXenoSound
       | 'shoot-smg'
       | 'shoot-rifle'
       | 'shoot-lmg'
+      | 'shoot-launcher'
       | 'shoot-wonder'
       | 'dry-fire'
       | 'reload-start'
@@ -167,6 +168,13 @@ export class CallOfXenoAudio {
             case 'shoot-lmg':
                 this.burst({ duration: 0.22, gain: 0.6, freq: 3400, freqEnd: 300, q: 1.1 })
                 this.tone({ duration: 0.18, gain: 0.48, freq: 110, freqEnd: 40, type: 'sawtooth' })
+                break
+            case 'shoot-launcher':
+                // A hollow back-blast cough, then the rising burn of the
+                // rocket motor carrying the shell away.
+                this.burst({ duration: 0.38, gain: 0.42, freq: 1400, freqEnd: 200, q: 0.7 })
+                this.tone({ duration: 0.34, gain: 0.32, freq: 95, freqEnd: 36, type: 'sawtooth' })
+                this.tone({ at: t + 0.04, duration: 0.3, gain: 0.13, freq: 620, freqEnd: 1900, type: 'sawtooth' })
                 break
             case 'shoot-shotgun':
                 this.burst({ duration: 0.42, gain: 0.7, freq: 2600, freqEnd: 200, q: 0.6 })

@@ -344,6 +344,7 @@
                                     <span class="rounded-sm border border-white/10 bg-white/[0.04] px-2 py-1 text-zinc-300">knife <span class="font-bold text-amber-300">+130</span></span>
                                     <span class="rounded-sm border border-white/10 bg-white/[0.04] px-2 py-1 text-zinc-300">board <span class="font-bold text-amber-300">+{{ CALL_OF_XENO_REPAIR_POINTS }}</span></span>
                                 </div>
+                                <p class="mt-2 text-[10px] leading-relaxed text-zinc-600">Flat rates — every hostile pays the same, from shambler to Brute.</p>
                             </div>
 
                             <div class="mt-6 border-t border-white/10 pt-4">
@@ -922,6 +923,7 @@ import {
     CALL_OF_XENO_REPAIR_TIME,
     CALL_OF_XENO_REPAIR_POINTS,
     CALL_OF_XENO_PLAYER_START,
+    CALL_OF_XENO_SHELL,
     CALL_OF_XENO_BARREL_SPOTS,
     CALL_OF_XENO_STEP_UP,
     buildNavTable,
@@ -1304,9 +1306,11 @@ const CALL_OF_XENO_WEAPON_TYPE: Record<CallOfXenoWeaponId, string> = {
     mp40: 'SMG',
     ak74: 'assault',
     bar: 'rifle',
+    mosin: 'bolt-action',
     rpk: 'LMG',
     m60: 'LMG',
     fnmag: 'LMG',
+    bazooka: 'launcher',
     xenoray: 'wonder'
 }
 const CALL_OF_XENO_WEAPON_LIST = (Object.keys(CALL_OF_XENO_WEAPONS) as CallOfXenoWeaponId[])
@@ -1448,6 +1452,8 @@ interface WorldPopup {
 const DEBUG_GOD_MODE = false
 
 const PLAYER_RADIUS = 0.35
+/** Closest the player may sit to the shell edge: wall thickness + body radius, minus a hair. */
+const SHELL_MARGIN = 0.84
 const PLAYER_HEIGHT = 1.8
 const PLAYER_EYE = 1.68
 const GRAVITY = 24
@@ -1571,7 +1577,7 @@ const windowQueues = new Map<string, Enemy[]>()
 const corpses: Corpse[] = []
 const projectiles: Projectile[] = []
 
-/** A live player-fired explosive round: a Sally shell or a Xeno Ray bolt. */
+/** A live player-fired explosive round: a Sally shell, a Bazooka rocket or a ray bolt. */
 interface PlayerRound {
     mesh: THREE.Mesh
     x: number
@@ -1704,9 +1710,11 @@ function shootSound(slot: WeaponSlot) {
         case 'mp40': return 'shoot-smg' as const
         case 'ak74': return 'shoot-rifle' as const
         case 'bar': return 'shoot-rifle' as const
+        case 'mosin': return 'shoot-rifle' as const
         case 'rpk': return 'shoot-lmg' as const
         case 'm60': return 'shoot-lmg' as const
         case 'fnmag': return 'shoot-lmg' as const
+        case 'bazooka': return 'shoot-launcher' as const
         case 'xenoray': return 'shoot-wonder' as const
     }
 }
@@ -1763,6 +1771,14 @@ function updatePlayer(dt: number) {
     const solved = resolveCircle(px, pz, PLAYER_RADIUS, playerBoxes())
     px = solved.x
     pz = solved.z
+
+    // Safety net behind the window barriers: every metre of playable floor
+    // sits inside the shell with at least the wall thickness plus the body
+    // radius to spare, so a position outside that band is a glitch — strand
+    // the player on the apron and the run is dead (no windows are reachable
+    // from out there). Snap back inside instead.
+    px = Math.min(Math.max(px, CALL_OF_XENO_SHELL.minX + SHELL_MARGIN), CALL_OF_XENO_SHELL.maxX - SHELL_MARGIN)
+    pz = Math.min(Math.max(pz, CALL_OF_XENO_SHELL.minZ + SHELL_MARGIN), CALL_OF_XENO_SHELL.maxZ - SHELL_MARGIN)
 
     // Footsteps keep time with the legs, faster while sprinting.
     if (isMoving && grounded) {
@@ -2048,9 +2064,10 @@ function detonateRound(x: number, y: number, z: number, damage: number, blastRad
     return kills
 }
 
-/** Launches a live round — the Sally shell arcs, the ray bolt flies flat. */
+/** Launches a live round — Sally shells arc, rockets fly flat, bolts fly flatter. */
 function spawnPlayerRound(slot: WeaponSlot, damage: number) {
     const ray = slot.base === 'xenoray'
+    const rocket = slot.base === 'bazooka'
     pelletDir.copy(rayDir)
     const spread = spreadOf(slot)
     if (spread > 0) {
@@ -2064,9 +2081,10 @@ function spawnPlayerRound(slot: WeaponSlot, damage: number) {
 
     muzzleFlash.getWorldPosition(muzzleWorld)
     pelletDir.multiplyScalar(0.35).add(muzzleWorld)
-    const speed = ray ? 90 : 33
+    const speed = ray ? 90 : rocket ? 46 : 33
     const mesh = ray ? buildProjectile(0x44ffcc) : buildBulletProjectile()
     if (ray) mesh.scale.setScalar(0.55)
+    if (rocket) mesh.scale.setScalar(1.7)
     mesh.position.copy(pelletDir)
     scene.add(mesh)
     playerRounds.push({
@@ -2199,7 +2217,7 @@ function shoot() {
     slot.mag--
     fireTimer = fireDelayOf(slot)
     bloom = Math.min(1, bloom + (aiming ? 0.22 : 0.34))
-    shake = Math.min(0.09, shake + (slot.def.explosive ? 0.05 : slot.base === 'trench' || slot.base === 'rpk' ? 0.05 : 0.025))
+    shake = Math.min(0.09, shake + (slot.base === 'bazooka' ? 0.08 : slot.def.explosive ? 0.05 : slot.base === 'trench' || slot.base === 'rpk' ? 0.05 : 0.025))
     // Per-weapon recoil: every shot kicks UP (a mild ±15% so it sways
     // rather than ticks), aiming soaks a quarter, and the sideways tug is
     // a fraction of the climb so the pattern reads up-and-drift, not
@@ -2211,9 +2229,9 @@ function shoot() {
     audio.play(shootSound(slot))
 
     muzzleFlash.material.opacity = 1
-    muzzleFlash.scale.setScalar(slot.base === 'trench' ? 0.5 : slot.def.explosive ? 0.42 : 0.32)
+    muzzleFlash.scale.setScalar(slot.base === 'bazooka' ? 0.6 : slot.base === 'trench' ? 0.5 : slot.def.explosive ? 0.42 : 0.32)
     muzzleFlash.material.rotation = Math.random() * Math.PI * 2
-    muzzleLight.intensity = slot.def.explosive ? 14 : slot.base === 'xenoray' ? 12 : 9
+    muzzleLight.intensity = slot.base === 'bazooka' ? 18 : slot.def.explosive ? 14 : slot.base === 'xenoray' ? 12 : 9
     muzzleLight.color.setHex(slot.base === 'xenoray' ? 0x44ffcc : slot.def.explosive ? 0xff9040 : 0xffbb55)
 
     const damage = damageOf(slot)
@@ -4181,8 +4199,8 @@ function die() {
     // Quick Revive catches the first fall — you get up empty-handed: every
     // perk is gone, including this one.
     if (perks.has('quickrevive')) {
-    perks.clear()
-    quickReviveBuys = 0
+        perks.clear()
+        quickReviveBuys = 0
         ownedPerks.value = []
         hpMax = runEffects.maxHealth
         hp = hpMax
