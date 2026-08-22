@@ -871,7 +871,6 @@ import {
     CALL_OF_XENO_POWERUP_CHANCE,
     CALL_OF_XENO_POWERUP_LIFETIME,
     CALL_OF_XENO_NUKE_POINTS,
-    CALL_OF_XENO_SPECIAL_ROUND_BONUS,
     CALL_OF_XENO_FRENZY_SPEED,
     CALL_OF_XENO_ROUND_BREAK,
     packAPunch,
@@ -2330,10 +2329,9 @@ function announceMultiKill(kills: number) {
     bannerTimer = 1.4
 }
 
-/** Applies a points award through the double-points and special-round multipliers. */
+/** Applies a points award through the double-points power-up. */
 function award(base: number) {
-    const multiplier = (powerUpTimers.doublepoints > 0 ? 2 : 1)
-        * (isSpecialRound(currentRound) ? CALL_OF_XENO_SPECIAL_ROUND_BONUS : 1)
+    const multiplier = powerUpTimers.doublepoints > 0 ? 2 : 1
     const total = Math.round(base * multiplier)
     score += total
     // Gross income over the run's life — what the end-of-run payout is

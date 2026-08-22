@@ -351,7 +351,7 @@ export const CALL_OF_XENO_WEAPONS: Record<CallOfXenoWeaponId, CallOfXenoWeapon> 
     bazooka: {
         id: 'bazooka',
         name: 'M1 Bazooka',
-        damage: 850,
+        damage: 1000,
         pellets: 1,
         fireDelay: 1.35,
         magSize: 1,
@@ -771,9 +771,6 @@ export function specialRoundEnemy(round: number): CallOfXenoEnemyId {
     const index = Math.floor(Math.floor(round) / 5) - 1
     return SPECIAL_CYCLE[Math.min(index, SPECIAL_CYCLE.length - 1)] ?? 'husk'
 }
-
-/** Points multiplier applied to everything killed during a special round. */
-export const CALL_OF_XENO_SPECIAL_ROUND_BONUS = 2
 
 // ---------------------------------------------------------------------------
 // Round modifiers
