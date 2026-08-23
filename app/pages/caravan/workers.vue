@@ -4,23 +4,24 @@ import {
     ITEM_SLOTS, MAKE_BY_ID, RARITY_BY_ID, RESOURCES,
     SET_THRESHOLD_GREATER, SET_THRESHOLD_LESSER, SLOT_ICONS, SLOT_NAMES, TIERS
 } from '#shared/utils/caravan/config'
+import { crewOf, nodeCapacity } from '#shared/utils/caravan/assignment'
 import { activeSets, itemScore, makeCounts } from '#shared/utils/caravan/items'
 import {
-    MAX_WORKER_LEVEL, combatPower, derivedStats, levelProgress, rarityGrowth, xpForLevel
+    MAX_WORKER_LEVEL, combatPower, derivedStats, isSpecialist, levelProgress, rarityGrowth, xpForLevel
 } from '#shared/utils/caravan/workers'
 import type { Item, ItemSlot, Worker } from '#shared/utils/caravan/types'
 
 /**
  * The roster.
  *
- * Nobody is assigned to anything here -- work is decided by node priority, so
- * this screen is about who your workers *are*: what they specialise in, what
- * they are wearing, and which of them deserve the good gear. The roster table is
- * the default past a handful of workers because at twenty it is the only view
- * that fits on a screen.
+ * Who your workers are -- what they specialise in, what they are wearing, which
+ * of them deserve the good gear -- and where each of them is posted. Postings can
+ * be changed from here as well as from the map, because moving five specialists
+ * onto the right seams is a roster job, not a map job. The table is the default
+ * past a handful of workers because at twenty it is the only view that fits.
  */
 
-const { state, world, bonuses, equipItem, dismissWorker, autoEquip, renameWorker } = useCaravan()
+const { state, world, bonuses, equipItem, dismissWorker, autoEquip, renameWorker, assignWorkers } = useCaravan()
 
 const workers = computed(() => state.value?.workers ?? [])
 
@@ -130,6 +131,52 @@ function activityColor(worker: Worker): string {
     }
 }
 
+/**
+ * Every seam the player holds, with how full it is. Built once rather than per
+ * worker so a roster of twenty does not rebuild the same list twenty times.
+ */
+const seams = computed(() => {
+    if (!state.value || !bonuses.value) return []
+    return state.value.ownedNodes
+        .map(id => world.value.nodes[id]!)
+        .filter(node => node?.kind === 'resource')
+        .map(node => ({
+            node,
+            crew: crewOf(state.value!, node.id).length,
+            capacity: nodeCapacity(state.value!, node.id, bonuses.value!)
+        }))
+        .sort((a, b) => a.node.name.localeCompare(b.node.name))
+})
+
+/**
+ * The posting dropdown for one worker. A full seam still lists -- disabled, with
+ * its count showing -- because "that one is full" is the answer to the question
+ * being asked; hiding it just sends the player hunting for a node that is not
+ * there. Seams in the worker's own trade carry their trade icon, which is the
+ * whole reason to care who goes where.
+ */
+function postings(worker: Worker) {
+    const options = seams.value.map((seam) => {
+        const category = seam.node.resource ? RESOURCES[seam.node.resource]?.category : null
+        const specialist = isSpecialist(worker, seam.node.resource)
+        return {
+            label: `${seam.node.name} · ${seam.crew}/${seam.capacity}`,
+            value: String(seam.node.id),
+            icon: specialist && category ? CATEGORY_ICONS[category] : undefined,
+            disabled: seam.crew >= seam.capacity && worker.assignment !== seam.node.id
+        }
+    })
+    return [{ label: 'No posting', value: 'none', icon: undefined, disabled: false }, ...options]
+}
+
+function postingValue(worker: Worker): string {
+    return worker.assignment === null ? 'none' : String(worker.assignment)
+}
+
+function assign(worker: Worker, value: string) {
+    return assignWorkers([worker.id], value === 'none' ? null : Number(value))
+}
+
 const starvingCount = computed(() => workers.value.filter(w => w.activity.type === 'starving').length)
 const waitingCount = computed(() => workers.value.filter(w => w.assignment === null).length)
 const unequippedSlots = computed(() => workers.value.reduce((sum, w) => sum + emptySlots(w), 0))
@@ -143,7 +190,7 @@ const unequippedSlots = computed(() => workers.value.reduce((sum, w) => sum + em
                     <h1 class="text-xl font-semibold">Workers</h1>
                     <p class="text-sm text-muted">
                         {{ workers.length }} of {{ bonuses?.maxWorkers ?? 3 }} slots filled.
-                        <span v-if="waitingCount" class="text-warning">{{ waitingCount }} waiting for a free seam.</span>
+                        <span v-if="waitingCount" class="text-warning">{{ waitingCount }} with no posting.</span>
                         <span v-if="starvingCount" class="text-error"> {{ starvingCount }} out of rations.</span>
                     </p>
                 </div>
@@ -161,12 +208,12 @@ const unequippedSlots = computed(() => workers.value.reduce((sum, w) => sum + em
                 </div>
             </div>
 
-            <!-- Where work comes from now. -->
+            <!-- Where work comes from. -->
             <div class="flex flex-wrap items-center gap-3 rounded-xl border border-default/60 bg-elevated/30 px-4 py-3">
-                <UIcon name="i-lucide-list-ordered" class="size-5 shrink-0 text-muted" />
+                <UIcon name="i-lucide-map-pin" class="size-5 shrink-0 text-muted" />
                 <p class="min-w-56 flex-1 text-xs text-muted">
-                    Workers are never assigned by hand. They take the highest-priority seam that still has room, and a
-                    specialist reads a seam in their own trade as one step higher than it is set. Steer them from the
+                    Every worker cuts the seam you post them to and nothing else. A specialist works far faster on a seam
+                    in their own trade, so it is worth matching them up. Post them here, or from the
                     <NuxtLink to="/caravan" class="cursor-pointer text-primary hover:underline">map</NuxtLink>.
                 </p>
             </div>
@@ -204,6 +251,7 @@ const unequippedSlots = computed(() => workers.value.reduce((sum, w) => sum + em
                             <tr>
                                 <th class="px-3 py-2">Worker</th>
                                 <th class="px-3 py-2">Trades</th>
+                                <th class="px-3 py-2">Posted to</th>
                                 <th class="px-3 py-2">Doing</th>
                                 <th class="px-3 py-2 text-right">Rations</th>
                                 <th class="px-3 py-2 text-right">Carry</th>
@@ -246,6 +294,17 @@ const unequippedSlots = computed(() => workers.value.reduce((sum, w) => sum + em
                                             />
                                         </UTooltip>
                                     </div>
+                                </td>
+                                <td class="px-3 py-2">
+                                    <USelectMenu
+                                        :model-value="postingValue(worker)"
+                                        :items="postings(worker)"
+                                        value-key="value"
+                                        size="xs"
+                                        class="w-44"
+                                        :class="worker.assignment === null ? 'text-warning' : ''"
+                                        @update:model-value="(v: string) => assign(worker, v)"
+                                    />
                                 </td>
                                 <td class="px-3 py-2" :class="activityColor(worker)">
                                     {{ activityLabel(worker) }}
@@ -336,6 +395,20 @@ const unequippedSlots = computed(() => workers.value.reduce((sum, w) => sum + em
                     </div>
 
                     <div class="space-y-4 px-4 py-3">
+                        <!-- Posting. The one control on this card that changes what
+                             the worker actually does all day. -->
+                        <div class="flex items-center gap-2">
+                            <UIcon name="i-lucide-map-pin" class="size-4 shrink-0 text-muted" />
+                            <USelectMenu
+                                :model-value="postingValue(worker)"
+                                :items="postings(worker)"
+                                value-key="value"
+                                size="sm"
+                                class="flex-1"
+                                @update:model-value="(v: string) => assign(worker, v)"
+                            />
+                        </div>
+
                         <!-- Trades -->
                         <div class="flex flex-wrap gap-1.5">
                             <span

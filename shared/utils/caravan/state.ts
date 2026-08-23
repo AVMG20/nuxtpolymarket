@@ -27,7 +27,6 @@ export function createInitialState(userId: string, now: number): CaravanState {
         rngCursor: 0,
         resources,
         ownedNodes: [0],
-        nodePriority: {},
         nodeCapacity: {},
         capitals: [0],
         clearedCamps: [],
@@ -57,7 +56,6 @@ export function migrateState(state: CaravanState, userId: string, now: number): 
     merged.resources = { ...base.resources, ...(state.resources ?? {}) }
     merged.stats = { ...base.stats, ...(state.stats ?? {}) }
     merged.policies = { ...base.policies, ...(state.policies ?? {}) }
-    merged.nodePriority = { ...(state.nodePriority ?? {}) }
     merged.nodeCapacity = { ...(state.nodeCapacity ?? {}) }
     merged.market = { ...base.market, ...(state.market ?? {}) }
     merged.log = (state.log ?? []).slice(-LOG_LIMIT)
@@ -106,7 +104,7 @@ export function migrateState(state: CaravanState, userId: string, now: number): 
 /**
  * An activity whose deadline is missing or non-finite can never complete, which
  * strands the worker permanently. Anything unfinishable is reset to idle so the
- * allocator picks it up on the next tick.
+ * worker picks its posting back up on the next tick.
  */
 function repairActivity(activity: Worker['activity'] | undefined): Worker['activity'] {
     if (!activity) return { type: 'idle' }

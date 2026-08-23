@@ -164,7 +164,23 @@ export function useCaravan() {
             if (res) sound.claim()
             return res
         },
-        setPriority: (nodeId: number, priority: number) => act('node/priority', { nodeId, priority }),
+        assignWorkers: async (workerIds: string[], nodeId: number | null) => {
+            const res = await act('worker/assign', { workerIds, nodeId })
+            if (res) sound.tick()
+            return res
+        },
+        fillNode: async (nodeId: number) => {
+            const res = await act<CaravanResponse & { moved: number }>('node/fill', { nodeId })
+            if (res) {
+                sound.tick()
+                toast.add({
+                    title: `Posted ${res.moved} ${res.moved === 1 ? 'worker' : 'workers'} to the seam`,
+                    icon: 'i-lucide-user-plus',
+                    color: 'success'
+                })
+            }
+            return res
+        },
         recallNode: (nodeId: number) => act('node/recall', { nodeId }),
         upgradeCapacity: async (nodeId: number) => {
             const res = await act('node/capacity', { nodeId })
@@ -202,7 +218,7 @@ export function useCaravan() {
             }
             return res
         },
-        setPolicy: (policy: Partial<{ autoAssign: boolean, autoRefine: boolean, autoSalvageBelow: string | null }>) =>
+        setPolicy: (policy: Partial<{ autoRefine: boolean, autoSalvageBelow: string | null }>) =>
             act('policy', policy),
         equipItem: (workerId: string, slot: string, itemId: string | null) => act('worker/equip', { workerId, slot, itemId }),
         dismissWorker: (workerId: string) => act('worker/dismiss', { workerId }),

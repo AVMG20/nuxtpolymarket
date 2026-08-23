@@ -1,9 +1,6 @@
 import {
     BASE_HARVEST_SECONDS,
-    BASE_NODE_CAPACITY,
-    DEFAULT_PRIORITY,
     RECIPES,
-    SPECIALTY_PRIORITY_BONUS,
     BASE_TRAVEL_SPEED,
     FOOD_PER_PROVISION,
     HUNGER_PER_UNIT,
@@ -15,10 +12,11 @@ import {
     UNLOAD_SECONDS,
     roadSpeedMultiplier
 } from './config'
+import { pruneAssignments } from './assignment'
 import { createRng } from './rng'
 import { LOG_LIMIT } from './state'
 import { bonusesFor, type Bonuses } from './progression'
-import { MAX_WORKER_LEVEL, combatPower, derivedStats, isSpecialist, xpForLevel, yieldMultiplier } from './workers'
+import { MAX_WORKER_LEVEL, combatPower, derivedStats, xpForLevel, yieldMultiplier } from './workers'
 import { otherEnd } from './world'
 import type {
     CaravanState,
@@ -34,8 +32,8 @@ import type {
  * The caravan simulation.
  *
  * There is no tick loop and no cron. State carries `lastTick`, and any request
- * -- a page load, a purchase, a worker reassignment -- first advances the world
- * from `lastTick` to `now` and only then applies the mutation. The client runs
+ * -- a page load, a purchase, a posting change -- first advances the world from
+ * `lastTick` to `now` and only then applies the mutation. The client runs
  * this same function against the same state for smooth animation and calls back
  * to the server whenever it predicts an activity has finished, which keeps the
  * two in sync without polling.
@@ -335,95 +333,10 @@ export function advance(state: CaravanState, world: World, now: number): Advance
     // The kitchen standing order still needs both its research and its switch.
     const autoBake = bonuses.canAutoRefine && state.policies?.autoRefine === true
 
-    const priorityOf = (nodeId: NodeId): number => state.nodePriority?.[nodeId] ?? DEFAULT_PRIORITY
-    const capacityOf = (nodeId: NodeId): number =>
-        (state.nodeCapacity?.[nodeId] ?? BASE_NODE_CAPACITY) + bonuses.nodeCapacity
-
-    /** Round-trip seconds for this worker, used only as the lazy tie-break. */
-    const roundTrip = (worker: Worker, nodeId: NodeId): number => {
-        const distance = graph.homeDist.get(nodeId)
-        if (distance === undefined) return Infinity
-        return (2 * distance) / statsFor(worker).speed
-    }
-
-    /**
-     * How a given worker reads a node's priority. A specialist sees a matching
-     * seam as one step higher than it is set, which is what lets a mixed roster
-     * sort itself out: a miner will take Normal ore over High timber, but Urgent
-     * timber still overrules them both. One step, never two -- so raising a
-     * priority twice is always an order nobody argues with.
-     */
-    const perceivedPriority = (worker: Worker, node: WorldNode): number => {
-        const base = priorityOf(node.id)
-        if (base <= 0) return 0
-        return base + (isSpecialist(worker, node.resource) ? SPECIALTY_PRIORITY_BONUS : 0)
-    }
-
-    /** Workers already committed to a node, so capacity is never oversubscribed. */
-    const occupancy = (nodeId: NodeId, exclude?: string): number =>
-        state.workers.filter(w => w.id !== exclude && w.assignment === nodeId).length
-
-    /**
-     * Pick where a worker should go next.
-     *
-     * There is no per-worker assignment in this game: the player sets a priority
-     * and a capacity per node, and this decides the rest. It runs only when a
-     * worker is empty-handed and idle, and it only ever moves someone for a
-     * strictly higher perceived priority -- otherwise a pair of equal nodes would
-     * have workers swapping places on every trip and hauling nothing.
-     */
-    const allocate = (worker: Worker): boolean => {
-        const current = worker.assignment
-        const currentNode = current !== null ? graph.nodeById.get(current) : undefined
-        const currentValid = currentNode !== undefined
-            && state.ownedNodes.includes(currentNode.id)
-            && priorityOf(currentNode.id) > 0
-            && occupancy(currentNode.id, worker.id) < capacityOf(currentNode.id)
-            && graph.homeDist.has(currentNode.id)
-        const currentPriority = currentValid ? perceivedPriority(worker, currentNode!) : -1
-
-        let bestId: NodeId | null = null
-        let bestPriority = currentPriority
-        let bestTrip = currentValid ? roundTrip(worker, currentNode!.id) : Infinity
-
-        for (const id of state.ownedNodes) {
-            const node = graph.nodeById.get(id)
-            if (!node || node.kind !== 'resource' || !graph.homeDist.has(id)) continue
-            if (priorityOf(id) <= 0) continue
-            if (occupancy(id, worker.id) >= capacityOf(id)) continue
-
-            const priority = perceivedPriority(worker, node)
-            const trip = roundTrip(worker, id)
-            // Strictly higher priority wins. Equal priority only wins if nothing
-            // is held yet -- otherwise workers churn between equivalent seams.
-            if (priority > bestPriority || (bestId === null && !currentValid && priority === bestPriority && trip < bestTrip)) {
-                bestPriority = priority
-                bestTrip = trip
-                bestId = id
-            } else if (!currentValid && priority === bestPriority && trip < bestTrip) {
-                bestTrip = trip
-                bestId = id
-            }
-        }
-
-        if (bestId === null) {
-            // Nothing has room or everything is switched off. Stand down rather
-            // than crowding a full seam.
-            if (!currentValid && worker.assignment !== null) {
-                worker.assignment = null
-                worker.route = []
-                worker.routeIndex = 0
-                return true
-            }
-            return false
-        }
-
-        if (bestId === worker.assignment) return false
-        worker.assignment = bestId
-        worker.route = []
-        worker.routeIndex = 0
-        return true
-    }
+    // A posting the player made before a seam was widened back down, or one the
+    // old priority allocator left behind, is dropped here rather than quietly
+    // over-filling a node for the rest of the catch-up.
+    pruneAssignments(state, world, bonuses)
 
     // --- transitions ------------------------------------------------------
 
@@ -435,20 +348,20 @@ export function advance(state: CaravanState, world: World, now: number): Advance
         }
         if (worker.activity.type !== 'idle') return false
 
-        // Empty-handed and idle is the only moment orders change.
-        if (cargoTotal(worker) === 0) allocate(worker)
-
         const stats = statsFor(worker)
         const full = cargoTotal(worker) >= stats.carry
 
-        // Decide where the worker wants to be.
+        // Where the worker wants to be. A full pack always goes home first; an
+        // empty one goes to whatever seam the player posted it to, and standing
+        // in a capital is what "no posting" looks like.
         let destination: NodeId | null = null
         if (full || (worker.assignment === null && cargoTotal(worker) > 0)) {
             destination = null // nearest capital, resolved via routeHome
         } else if (worker.assignment !== null && graph.passable.has(worker.assignment)) {
             destination = worker.assignment
         } else {
-            // Nothing to do: sit at a capital and wait for orders.
+            // No posting, or one it cannot reach yet: walk home and wait there
+            // until the player gives it a seam it can actually get to.
             if (graph.capitals.includes(worker.at)) return false
             destination = null
         }
@@ -584,9 +497,6 @@ export function advance(state: CaravanState, world: World, now: number): Advance
                 state.stats.tripsCompleted += 1
                 grantXp(worker, 8 + (graph.nodeById.get(worker.at)?.tier ?? 1) * 4, at)
                 feed(state, worker, autoBake)
-                // Delivery is the natural moment to re-plan: the worker is home,
-                // empty-handed, and priorities may have changed while it walked.
-                allocate(worker)
                 worker.activity = { type: 'idle' }
                 break
             }

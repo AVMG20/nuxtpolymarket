@@ -1,14 +1,14 @@
 <script setup lang="ts">
 import {
     BASE_NODE_CAPACITY, CATEGORIES, CATEGORY_COLORS, CATEGORY_ICONS, CATEGORY_NAMES,
-    MAX_NODE_CAPACITY, MAX_PRIORITY, MAX_ROAD_LEVEL, PRIORITY_COLORS, PRIORITY_LABELS,
+    MAX_NODE_CAPACITY, MAX_ROAD_LEVEL,
     RESOURCES, ROAD_COLORS, ROAD_NAMES, TIERS, capacityCoinCost, capacityResourceCost, capacityUpgradeTier,
     nodeCost, roadCost, roadResourceCost, roadSpeedMultiplier, roadUpgradeTier
 } from '#shared/utils/caravan/config'
 import { homeDistanceMap, nodeRichness, partyPower, projectRates } from '#shared/utils/caravan/sim'
 import { isReachable } from '#shared/utils/caravan/world'
 import { combatPower, derivedStats, isSpecialist } from '#shared/utils/caravan/workers'
-import type { NodeId } from '#shared/utils/caravan/types'
+import type { NodeId, Worker } from '#shared/utils/caravan/types'
 
 /**
  * The map screen. The Pixi canvas fills the viewport; every interaction opens
@@ -17,7 +17,7 @@ import type { NodeId } from '#shared/utils/caravan/types'
 
 const {
     state, world, events, serverNow, bonuses,
-    purchaseNode, upgradeRoad, assault, setPriority, upgradeCapacity, recallNode
+    purchaseNode, upgradeRoad, assault, upgradeCapacity, recallNode, assignWorkers, fillNode
 } = useCaravan()
 const { user } = useAuth()
 
@@ -119,10 +119,6 @@ const workingHere = computed(() => {
         })
 })
 
-const priority = computed(() =>
-    selectedNode.value === null ? 0 : state.value?.nodePriority?.[selectedNode.value] ?? 1
-)
-
 const capacity = computed(() =>
     (selectedNode.value === null ? BASE_NODE_CAPACITY : state.value?.nodeCapacity?.[selectedNode.value] ?? BASE_NODE_CAPACITY)
     + (bonuses.value?.nodeCapacity ?? 0)
@@ -150,6 +146,38 @@ const canWiden = computed(() => {
     if (balance.value < capacityCost.value.coins) return false
     return Object.entries(capacityCost.value.resources).every(([id, count]) => (state.value!.resources[id] ?? 0) >= count)
 })
+
+/**
+ * Everyone who could be posted to the selected seam: the free hands first, then
+ * the ones already cutting somewhere else, each labelled with where they are so
+ * moving a specialist across the map is one click and not a hunt.
+ */
+const assignable = computed(() => {
+    if (!state.value || !node.value || node.value.kind !== 'resource') return []
+    const nodeId = node.value.id
+    return state.value.workers
+        .filter(w => w.assignment !== nodeId)
+        .map(worker => ({
+            worker,
+            specialist: isSpecialist(worker, node.value!.resource),
+            posted: worker.assignment === null ? null : world.value.nodes[worker.assignment]?.name ?? null,
+            busy: worker.activity.type === 'assault'
+        }))
+        .sort((a, b) =>
+            Number(Boolean(a.posted)) - Number(Boolean(b.posted))
+            || Number(b.specialist) - Number(a.specialist)
+            || b.worker.level - a.worker.level)
+})
+
+const idleCount = computed(() => (state.value?.workers ?? []).filter(w => w.assignment === null).length)
+
+/** Open state for the "post someone here" list, which is long past ten workers. */
+const assigning = ref(false)
+watch(selectedNode, () => { assigning.value = false })
+
+async function post(worker: Worker) {
+    await assignWorkers([worker.id], selectedNode.value)
+}
 
 /** The category of the selected seam, for the specialist hints. */
 const nodeCategory = computed(() => (node.value?.resource ? RESOURCES[node.value.resource]?.category ?? null : null))
@@ -267,11 +295,11 @@ const holdings = computed(() => {
             node,
             richness: nodeRichness(state.value!, node, tickNow.value, bonuses.value?.regenRate ?? 0),
             workers: state.value!.workers.filter(w => w.assignment === node.id).length,
-            capacity: (state.value!.nodeCapacity?.[node.id] ?? BASE_NODE_CAPACITY) + (bonuses.value?.nodeCapacity ?? 0),
-            priority: state.value!.nodePriority?.[node.id] ?? 1
+            capacity: (state.value!.nodeCapacity?.[node.id] ?? BASE_NODE_CAPACITY) + (bonuses.value?.nodeCapacity ?? 0)
         }))
-        // Highest priority first, then the most drained -- the two reasons to look.
-        .sort((a, b) => b.priority - a.priority || a.richness - b.richness)
+        // Empty seams first -- an unstaffed node you are paying for is the thing
+        // most worth clicking -- then whatever is running driest.
+        .sort((a, b) => a.workers - b.workers || a.richness - b.richness)
 })
 
 const legend = [
@@ -496,11 +524,8 @@ onBeforeUnmount(() => {
                     <div class="flex items-center justify-between gap-2 text-xs">
                         <span class="truncate">{{ entry.node.name }}</span>
                         <span class="flex shrink-0 items-center gap-2">
-                            <span
-                                class="rounded px-1 text-[10px] font-medium"
-                                :style="{ color: PRIORITY_COLORS[entry.priority], backgroundColor: PRIORITY_COLORS[entry.priority] + '22' }"
-                            >{{ PRIORITY_LABELS[entry.priority] }}</span>
-                            <span class="text-muted">
+                            <UIcon name="i-lucide-user" class="size-3 text-muted" />
+                            <span :class="entry.workers ? 'text-muted' : 'text-warning'">
                                 {{ entry.workers }}/{{ entry.capacity }}
                             </span>
                         </span>
@@ -714,45 +739,19 @@ onBeforeUnmount(() => {
                                 </p>
                             </div>
 
-                            <!-- Priority is the only lever over where workers go. -->
+                            <!-- The crew. Nobody works here unless you put them here. -->
                             <div class="space-y-2">
                                 <div class="flex items-center justify-between">
-                                    <span class="text-xs font-medium uppercase tracking-wide text-muted">Priority</span>
-                                    <span
-                                        class="text-xs font-semibold"
-                                        :style="{ color: PRIORITY_COLORS[priority] }"
-                                    >{{ PRIORITY_LABELS[priority] }}</span>
-                                </div>
-                                <div class="grid grid-cols-6 gap-1">
-                                    <button
-                                        v-for="level in MAX_PRIORITY + 1"
-                                        :key="level"
-                                        type="button"
-                                        class="cursor-pointer rounded-md border px-1 py-1.5 text-[10px] font-medium transition"
-                                        :style="priority === level - 1
-                                            ? { borderColor: PRIORITY_COLORS[level - 1], color: PRIORITY_COLORS[level - 1], backgroundColor: PRIORITY_COLORS[level - 1] + '1f' }
-                                            : { borderColor: 'transparent' }"
-                                        :class="priority === level - 1 ? '' : 'bg-default/40 text-muted hover:text-default'"
-                                        @click="setPriority(node!.id, level - 1)"
-                                    >{{ PRIORITY_LABELS[level - 1] }}</button>
-                                </div>
-                                <p class="text-xs text-muted">
-                                    Workers fill the highest priority that still has room. Specialists read their own
-                                    trade one step higher than it is set.
-                                </p>
-                            </div>
-
-                            <!-- Capacity -->
-                            <div class="space-y-2">
-                                <div class="flex items-center justify-between">
-                                    <span class="text-xs font-medium uppercase tracking-wide text-muted">Room at the seam</span>
+                                    <span class="text-xs font-medium uppercase tracking-wide text-muted">Crew</span>
                                     <span class="font-mono text-sm">
                                         <span :class="workingHere.length >= capacity ? 'text-warning' : 'text-default'">{{ workingHere.length }}</span>
                                         <span class="text-muted"> / {{ capacity }}</span>
                                     </span>
                                 </div>
 
-                                <div v-if="!workingHere.length" class="text-xs text-muted">Nobody is cutting here.</div>
+                                <p v-if="!workingHere.length" class="text-xs text-muted">
+                                    Nobody is cutting here. Post someone to the seam and they will start hauling.
+                                </p>
                                 <div v-else class="space-y-1.5">
                                     <div
                                         v-for="entry in workingHere"
@@ -769,6 +768,15 @@ onBeforeUnmount(() => {
                                                 :style="{ color: nodeCategory ? CATEGORY_COLORS[nodeCategory] : undefined }"
                                             />
                                             <span class="ml-auto shrink-0 font-mono text-[11px] text-muted">{{ entry.eta }}</span>
+                                            <UButton
+                                                icon="i-lucide-x"
+                                                size="xs"
+                                                color="neutral"
+                                                variant="ghost"
+                                                class="-my-1 -mr-1 shrink-0"
+                                                aria-label="Pull off this seam"
+                                                @click="assignWorkers([entry.worker.id], null)"
+                                            />
                                         </div>
                                         <div class="mt-1 flex items-baseline justify-between text-[11px] text-muted">
                                             <span>{{ entry.label }}</span>
@@ -782,20 +790,72 @@ onBeforeUnmount(() => {
                                             />
                                         </div>
                                     </div>
+                                </div>
 
+                                <div class="flex gap-1.5">
                                     <UButton
-                                        block
+                                        class="flex-1"
+                                        size="xs"
+                                        icon="i-lucide-user-plus"
+                                        :label="assigning ? 'Done' : 'Post workers'"
+                                        :variant="assigning ? 'soft' : 'solid'"
+                                        :color="assigning ? 'neutral' : 'primary'"
+                                        :disabled="!assignable.length && !assigning"
+                                        @click="assigning = !assigning"
+                                    />
+                                    <UTooltip :text="`Post up to ${capacity - workingHere.length} free ${idleCount === 1 ? 'worker' : 'workers'}, specialists first`">
+                                        <UButton
+                                            size="xs"
+                                            color="neutral"
+                                            variant="soft"
+                                            icon="i-lucide-users"
+                                            label="Fill"
+                                            :disabled="!idleCount || workingHere.length >= capacity"
+                                            @click="fillNode(node!.id)"
+                                        />
+                                    </UTooltip>
+                                    <UButton
                                         size="xs"
                                         color="neutral"
                                         variant="soft"
                                         icon="i-lucide-undo-2"
-                                        label="Recall everyone"
+                                        label="Clear"
+                                        :disabled="!workingHere.length"
                                         @click="recallNode(node!.id)"
                                     />
-                                    <p class="text-[11px] text-muted">
-                                        Switches the seam off and sends everyone home to unload what they are carrying.
-                                    </p>
                                 </div>
+
+                                <!-- The roster, opened on demand: at twenty workers it is
+                                     far too long to sit in the drawer permanently. -->
+                                <div v-if="assigning" class="max-h-64 space-y-1 overflow-y-auto rounded-lg border border-default/50 p-1">
+                                    <p v-if="!assignable.length" class="px-2 py-3 text-center text-xs text-muted">
+                                        Everyone you have is already on this seam.
+                                    </p>
+                                    <button
+                                        v-for="candidate in assignable"
+                                        :key="candidate.worker.id"
+                                        type="button"
+                                        class="flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition hover:bg-default/50 disabled:cursor-not-allowed disabled:opacity-40"
+                                        :disabled="candidate.busy || workingHere.length >= capacity"
+                                        @click="post(candidate.worker)"
+                                    >
+                                        <span class="size-1.5 shrink-0 rounded-full" :style="{ backgroundColor: TIERS[candidate.worker.tier - 1]?.color }" />
+                                        <span class="truncate font-medium">{{ candidate.worker.name }}</span>
+                                        <UIcon
+                                            v-if="candidate.specialist"
+                                            :name="nodeCategory ? CATEGORY_ICONS[nodeCategory] : 'i-lucide-star'"
+                                            class="size-3 shrink-0"
+                                            :style="{ color: nodeCategory ? CATEGORY_COLORS[nodeCategory] : undefined }"
+                                        />
+                                        <span class="ml-auto shrink-0 truncate text-[11px]" :class="candidate.posted ? 'text-muted' : 'text-primary'">
+                                            {{ candidate.busy ? 'On campaign' : candidate.posted ?? 'Free' }}
+                                        </span>
+                                    </button>
+                                </div>
+
+                                <p v-if="workingHere.length >= capacity" class="text-[11px] text-muted">
+                                    The seam is full. Widen it to make room for another pair of hands.
+                                </p>
 
                                 <div v-if="capacityCost" class="rounded-lg border border-default/60 p-3">
                                     <div class="mb-2 flex items-center justify-between text-xs">

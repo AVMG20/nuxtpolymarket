@@ -1,5 +1,4 @@
 import {
-    BASE_NODE_CAPACITY,
     BASE_REFINERY_LINES,
     MAX_TIER,
     RECIPES,
@@ -8,6 +7,7 @@ import {
     salePrice,
     nodeCost
 } from './config'
+import { roomAt } from './assignment'
 import { planLoadout } from './loadout'
 import { bonusesFor, researchAvailable } from './progression'
 import { partyPower } from './sim'
@@ -64,8 +64,8 @@ export function objectives(state: CaravanState, world: World, balance: number): 
         out.push({
             kind: 'idle-workers',
             weight: 150,
-            title: `${idle} ${idle === 1 ? 'worker has' : 'workers have'} no seam`,
-            detail: 'Every seam they can reach is full or switched off. Claim another, or widen one.',
+            title: `${idle} ${idle === 1 ? 'worker is' : 'workers are'} standing around`,
+            detail: 'Nobody works a seam until you post them to one. Open a node and assign them.',
             icon: 'i-lucide-user-minus',
             to: '/caravan'
         })
@@ -227,11 +227,10 @@ export function objectives(state: CaravanState, world: World, balance: number): 
         }
     }
 
-    // Seams that are full and could take another pair of hands.
-    const crowded = state.ownedNodes.filter((id) => {
-        const capacity = (state.nodeCapacity?.[id] ?? BASE_NODE_CAPACITY) + bonuses.nodeCapacity
-        return state.workers.filter(w => w.assignment === id).length >= capacity
-    })
+    // Seams that are full while somebody has nowhere to go. Widening one is the
+    // way to make room without claiming another node.
+    const crowded = state.ownedNodes.filter(id => roomAt(state, id, bonuses) === 0
+        && world.nodes[id]?.kind === 'resource')
     if (idle && crowded.length) {
         const node = world.nodes[crowded[0]!]
         if (node) {
@@ -239,7 +238,7 @@ export function objectives(state: CaravanState, world: World, balance: number): 
                 kind: 'widen',
                 weight: 100,
                 title: `${node.name} is full`,
-                detail: 'Widening a seam lets more workers cut it at once.',
+                detail: 'Widening a seam lets you post more workers to it at once.',
                 icon: 'i-lucide-move-horizontal',
                 to: '/caravan',
                 nodeId: node.id

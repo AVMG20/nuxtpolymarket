@@ -425,33 +425,19 @@ export function roadResourceCost(level: number): Record<ResourceId, number> {
 }
 
 // ---------------------------------------------------------------------------
-// Node priority and capacity
+// Node crews
 // ---------------------------------------------------------------------------
 
 /**
- * Workers are never assigned to a node by hand. Instead every node carries a
- * priority, and the caravan fills the highest-priority node that still has room
- * before looking at anything below it. Priority is a per-node setting, so the
- * amount of management a player does stops growing once the map settles --
- * twenty-five workers is exactly as much work to steer as five.
+ * Every worker is posted to a seam by hand. Nothing in the simulation ever picks
+ * a node for anyone: a worker with no posting stands in the capital until the
+ * player gives it one, and a worker with a posting works that seam and nothing
+ * else. Deciding who cuts what is the game.
  *
- * Off (0) takes a node out of rotation entirely. When everything is on Low, the
- * tie-break is round-trip time, so an unmanaged caravan simply works whatever is
- * closest to home.
+ * A seam only has room for so many hands at once, which is what stops the answer
+ * from being "put everyone on the richest node". Widening one is the way to buy
+ * more room, and specialists are the reason it matters who goes where.
  */
-export const PRIORITY_LABELS = ['Off', 'Low', 'Normal', 'High', 'Urgent', 'Critical'] as const
-export const MAX_PRIORITY = 5
-export const DEFAULT_PRIORITY = 1
-
-export const PRIORITY_COLORS = ['#6b7280', '#64748b', '#38bdf8', '#4ade80', '#fbbf24', '#f87171'] as const
-
-/**
- * A specialist reads a matching node as one priority step higher than it is.
- * One step, deliberately: a miner will pick Normal ore over Normal timber and
- * over High timber, but Urgent timber still outranks them -- so raising a
- * priority two steps is always an order nobody argues with.
- */
-export const SPECIALTY_PRIORITY_BONUS = 1
 
 /** Bonus harvest rate a worker gets on a seam in one of its specialties. */
 export const SPECIALTY_HARVEST_BONUS = 0.3

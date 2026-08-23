@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-    AFFIX_CAP, ITEM_BASES, ITEM_SLOTS, MAKE_BY_ID, RARITIES, RECIPES, RESOURCES, TIERS, nodeCost
+    AFFIX_CAP, ITEM_BASES, ITEM_SLOTS, MAKE_BY_ID, RARITIES, RECIPES, TIERS, nodeCost
 } from '#shared/utils/caravan/config'
 import { affixRange, itemScore, rollItem, sumAffixes } from '#shared/utils/caravan/items'
 import { generateMarket } from '#shared/utils/caravan/market'
@@ -30,7 +30,7 @@ function seamsByDistance(w: World, state: CaravanState) {
         .sort((a, b) => Math.hypot(a.x, a.y) - Math.hypot(b.x, b.y))
 }
 
-/** A caravan holding two tier-1 seams, for the allocator tests. */
+/** A caravan holding two tier-1 seams, for the posting tests. */
 function ownTwoSeams(w: World): CaravanState {
     const state = createInitialState('user-2', NOW)
     const neighbours = w.edges
@@ -41,7 +41,7 @@ function ownTwoSeams(w: World): CaravanState {
 
     const worker = createWorker(createRng(5), 1, NOW)
     worker.at = 0
-    // No specialties by default, so priority alone decides.
+    // No specialties by default, so nothing but the posting is in play.
     worker.specialties = []
     state.workers.push(worker)
     state.resources.bread = 5000
@@ -160,51 +160,49 @@ describe('advance', () => {
     })
 })
 
-describe('node priority', () => {
-    it('puts an unassigned worker to work without anyone assigning it', () => {
+describe('worker postings', () => {
+    it('works the seam it was posted to and nothing else', () => {
+        const w = world()
+        const state = ownTwoSeams(w)
+        const [near, far] = seamsByDistance(w, state)
+
+        state.workers[0]!.assignment = far.id
+
+        advance(state, w, NOW + 1_800_000)
+
+        expect(state.workers[0]!.assignment).toBe(far.id)
+        expect(state.stats.tripsCompleted).toBeGreaterThan(0)
+        // The nearer seam was never touched -- nothing reassigns a worker.
+        expect(state.depletion[near.id]).toBeUndefined()
+        expect(state.depletion[far.id]!.drawn).toBeGreaterThan(0)
+    })
+
+    it('leaves an unposted worker standing there rather than finding it work', () => {
         const w = world()
         const state = readyState(w)
         state.workers[0]!.assignment = null
 
-        advance(state, w, NOW + 900_000)
-
-        expect(state.workers[0]!.assignment).not.toBeNull()
-        expect(state.stats.tripsCompleted).toBeGreaterThan(0)
-    })
-
-    it('never sends anyone to a node switched off', () => {
-        const w = world()
-        const state = readyState(w)
-        for (const id of state.ownedNodes) state.nodePriority[id] = 0
-
-        advance(state, w, NOW + 900_000)
+        advance(state, w, NOW + 3_600_000)
 
         expect(state.workers[0]!.assignment).toBeNull()
         expect(state.stats.tripsCompleted).toBe(0)
     })
 
-    it('prefers a higher priority seam over a closer one', () => {
+    it('drops a posting to a node the player no longer holds', () => {
         const w = world()
-        const state = ownTwoSeams(w)
-        const [near, far] = seamsByDistance(w, state)
+        const state = readyState(w)
+        const seam = state.ownedNodes[1]!
+        state.ownedNodes = state.ownedNodes.filter(id => id !== seam)
 
-        state.nodePriority[near.id] = 1
-        state.nodePriority[far.id] = 4
-        for (const worker of state.workers) worker.assignment = null
+        advance(state, w, NOW + 600_000)
 
-        advance(state, w, NOW + 1_800_000)
-        expect(state.workers.every(worker => worker.assignment === far.id)).toBe(true)
+        expect(state.workers[0]!.assignment).toBeNull()
     })
 
-    it('respects a seam\'s capacity and spills the rest onto the next one', () => {
+    it('trims a seam holding more hands than it has room for', () => {
         const w = world()
         const state = ownTwoSeams(w)
-        const [near, far] = seamsByDistance(w, state)
-
-        state.nodePriority[near.id] = 4
-        state.nodePriority[far.id] = 4
-        state.nodeCapacity[near.id] = 1
-        state.nodeCapacity[far.id] = 4
+        const [near] = seamsByDistance(w, state)
 
         const rng = createRng(77)
         for (let i = 0; i < 3; i++) {
@@ -212,41 +210,52 @@ describe('node priority', () => {
             worker.at = 0
             state.workers.push(worker)
         }
-        for (const worker of state.workers) worker.assignment = null
+        // Everyone crammed onto one seam that only has room for two.
+        state.nodeCapacity[near.id] = 2
+        for (const worker of state.workers) worker.assignment = near.id
 
         advance(state, w, NOW + 600_000)
-        expect(state.workers.filter(worker => worker.assignment === near.id).length).toBe(1)
+
+        expect(state.workers.filter(worker => worker.assignment === near.id).length).toBe(2)
+        expect(state.workers.filter(worker => worker.assignment === null).length).toBe(2)
     })
 
-    it('lets a specialist outrank a non-specialist by exactly one step', () => {
+    it('keeps a posting a widened seam has room for', () => {
         const w = world()
         const state = ownTwoSeams(w)
-        const [a, b] = seamsByDistance(w, state)
-        const categoryA = RESOURCES[a.resource!]!.category!
+        const [near] = seamsByDistance(w, state)
 
-        // Both seams sit at the same priority; only the specialty differs.
-        state.nodePriority[a.id] = 2
-        state.nodePriority[b.id] = 2
-        state.nodeCapacity[a.id] = 4
-        state.nodeCapacity[b.id] = 4
-
-        const worker = state.workers[0]!
-        worker.specialties = [categoryA]
-        worker.assignment = null
+        const rng = createRng(78)
+        for (let i = 0; i < 3; i++) {
+            const worker = createWorker(rng, 1, NOW)
+            worker.at = 0
+            state.workers.push(worker)
+        }
+        state.nodeCapacity[near.id] = 4
+        for (const worker of state.workers) worker.assignment = near.id
 
         advance(state, w, NOW + 600_000)
-        expect(worker.assignment).toBe(a.id)
 
-        // Two steps of priority overrules the specialty; one step does not.
-        state.nodePriority[b.id] = 3
-        worker.assignment = null
-        advance(state, w, NOW + 1_200_000)
-        expect(worker.assignment).toBe(a.id)
+        expect(state.workers.every(worker => worker.assignment === near.id)).toBe(true)
+    })
 
-        state.nodePriority[b.id] = 4
-        worker.assignment = null
+    it('sends a reposted worker to the new seam at its next trip', () => {
+        const w = world()
+        const state = ownTwoSeams(w)
+        const [near, far] = seamsByDistance(w, state)
+
+        state.workers[0]!.assignment = near.id
         advance(state, w, NOW + 1_800_000)
-        expect(worker.assignment).toBe(b.id)
+        expect(state.depletion[near.id]!.drawn).toBeGreaterThan(0)
+
+        const drawnAtNear = state.depletion[near.id]!.drawn
+        state.workers[0]!.assignment = far.id
+        state.workers[0]!.route = []
+        state.workers[0]!.routeIndex = 0
+        advance(state, w, NOW + 5_400_000)
+
+        expect(state.depletion[far.id]!.drawn).toBeGreaterThan(0)
+        expect(state.depletion[near.id]!.drawn).toBeLessThanOrEqual(drawnAtNear)
     })
 })
 
@@ -485,12 +494,12 @@ describe('gem seams', () => {
         for (const camp of w.nodes.filter(n => n.kind === 'camp')) state.clearedCamps.push(camp.id)
         for (const node of w.nodes) {
             if (node.kind === 'resource' && node.id !== seam.id) state.ownedNodes.push(node.id)
-            state.nodePriority[node.id] = node.id === seam.id ? 5 : 0
         }
         for (const tier of TIERS) state.resources[tier.provision] = 100_000
 
         const worker = createWorker(createRng(3), seam.tier, NOW)
         worker.at = 0
+        worker.assignment = seam.id
         state.workers.push(worker)
 
         advance(state, w, NOW + 6 * 3_600_000)
@@ -597,6 +606,14 @@ describe('objectives', () => {
         state.resources.lumber = 50_000
 
         expect(objectives(state, w, 0).some(o => o.kind === 'sell')).toBe(true)
+    })
+
+    it('nags about workers left with no posting', () => {
+        const w = world()
+        const state = readyState(w)
+        state.workers[0]!.assignment = null
+
+        expect(objectives(state, w, 0).some(o => o.kind === 'idle-workers')).toBe(true)
     })
 
     it('offers nothing urgent when the caravan is running well', () => {
