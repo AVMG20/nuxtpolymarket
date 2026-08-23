@@ -313,19 +313,22 @@ function drawNodes() {
             }
         }
 
-        // How many workers are pointed at this node. At scale this is the single
-        // most useful thing on the map: it turns "which seam is crowded" from a
-        // spreadsheet question into something you can see.
+        // How many workers are posted here. Since nobody is posted anywhere
+        // without the player saying so, an owned seam with nobody on it is the
+        // thing most worth spotting -- so it gets an amber zero rather than no
+        // badge at all, and a crowded seam still reads at a glance.
         const assigned = (props.state?.workers ?? []).filter(w => w.assignment === node.id).length
-        if (assigned > 0) {
+        const staffable = isOwned && node.kind === 'resource'
+        if (assigned > 0 || staffable) {
+            const tint = assigned > 0 ? glow : 0xfbbf24
             const badge = new Graphics()
             badge.circle(radius - 2, -radius + 2, 9).fill({ color: 0x0b0d11, alpha: 0.95 })
-            badge.circle(radius - 2, -radius + 2, 9).stroke({ width: 1.5, color: glow, alpha: 0.9 })
+            badge.circle(radius - 2, -radius + 2, 9).stroke({ width: 1.5, color: tint, alpha: 0.9 })
             container.addChild(badge)
 
             const count = new Text({
                 text: String(assigned),
-                style: { fontSize: 11, fontFamily: 'ui-monospace, monospace', fill: glow, fontWeight: 'bold' }
+                style: { fontSize: 11, fontFamily: 'ui-monospace, monospace', fill: tint, fontWeight: 'bold' }
             })
             count.anchor.set(0.5)
             count.position.set(radius - 2, -radius + 2)
