@@ -122,9 +122,8 @@ export interface Worker {
     level: number
     xp: number
     /**
-     * Categories this worker is good at. A specialist harvests its own seams
-     * faster and reads them as one priority step higher than they are set, so it
-     * gravitates to the right work without anyone assigning it.
+     * Categories this worker is good at. A specialist cuts its own seams faster
+     * and pulls more out of them, so where you post it is the whole decision.
      */
     specialties: Category[]
     /**
@@ -138,8 +137,9 @@ export interface Worker {
     /** Current food reserve, 0-100. Hits zero and the worker stalls until fed. */
     food: number
     /**
-     * The node this worker is currently working. Set by the allocator from node
-     * priorities, never by the player -- there is no per-worker assignment.
+     * The seam this worker is posted to. Set by the player and by nobody else:
+     * the simulation only ever clears it, when the posting stops being legal.
+     * Null means the worker is standing in a capital waiting for orders.
      */
     assignment: NodeId | null
     /** Where the worker physically is, or the node it most recently left. */
@@ -167,8 +167,6 @@ export interface CaravanState {
     resources: Record<ResourceId, number>
     /** Node ids the player has bought, in purchase order. */
     ownedNodes: NodeId[]
-    /** Work priority per node, 0 (off) to 5 (critical). Missing means Low. */
-    nodePriority: Record<NodeId, number>
     /** How many workers may work a node at once. Missing means the base capacity. */
     nodeCapacity: Record<NodeId, number>
     /** Node ids designated as capitals. The first one is the haul destination. */
@@ -222,9 +220,9 @@ export interface CaravanState {
 }
 
 /**
- * Automation the player switches on once managing every worker by hand stops
- * being a decision and starts being a chore. Each one is unlocked by research,
- * which lands at roughly the tier where the worker cap makes it necessary.
+ * Standing orders for the parts of the caravan that are bookkeeping rather than
+ * decisions -- baking rations, sorting junk gear. Postings are never among them:
+ * who works which seam stays in the player's hands at every roster size.
  */
 export interface CaravanPolicies {
     /** The kitchen bakes provisions on demand instead of starving. */

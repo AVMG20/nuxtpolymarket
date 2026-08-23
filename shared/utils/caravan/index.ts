@@ -1,3 +1,4 @@
+export * from './assignment'
 export * from './config'
 export * from './items'
 export * from './loadout'

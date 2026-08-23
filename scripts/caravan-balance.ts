@@ -6,7 +6,7 @@
  * The number to watch is "hours to next node": if it climbs past a session or
  * two, the tier wall is too steep.
  */
-import { RESOURCES, TIERS, nodeCost, salePrice, tierRequirement } from '../shared/utils/caravan/config'
+import { MAX_NODE_CAPACITY, RESOURCES, TIERS, nodeCost, salePrice, tierRequirement } from '../shared/utils/caravan/config'
 import { createRng } from '../shared/utils/caravan/rng'
 import { advance, projectRates } from '../shared/utils/caravan/sim'
 import { createInitialState } from '../shared/utils/caravan/state'
@@ -105,8 +105,9 @@ console.log('\ntier  gem seams held   workers on them   gems / day')
         // Reachability: own the whole map so the seams are actually connected.
         for (const node of world.nodes) {
             if (node.kind === 'resource' && !state.ownedNodes.includes(node.id)) state.ownedNodes.push(node.id)
-            state.nodePriority[node.id] = seams.some(s => s.id === node.id) ? 5 : 0
         }
+        // Room for everyone on the gem seams, since that is what is being measured.
+        for (const seam of seams) state.nodeCapacity[seam.id] = MAX_NODE_CAPACITY
         for (const tier of TIERS) state.resources[tier.provision] = 1_000_000
 
         const workerCount = Math.min(3 + def.tier * 2, 16)
@@ -114,11 +115,12 @@ console.log('\ntier  gem seams held   workers on them   gems / day')
         for (let i = 0; i < workerCount; i++) {
             const worker = createWorker(rng3, def.tier, NOW)
             worker.at = 0
+            // Postings are made by hand in the game, so the script makes them by
+            // hand too: spread the roster evenly across the gem seams.
+            worker.assignment = seams[i % seams.length]!.id
             state.workers.push(worker)
         }
 
-        // Let the allocator place everyone before counting, otherwise the column
-        // reports the state before anyone has been given a seam.
         advance(state, world, NOW + 600_000)
         const rates = projectRates(state, world, 7200)
         const staffed = state.workers.filter(w => w.assignment !== null).length
