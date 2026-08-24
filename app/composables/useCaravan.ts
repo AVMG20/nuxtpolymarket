@@ -182,6 +182,20 @@ export function useCaravan() {
             return res
         },
         recallNode: (nodeId: number) => act('node/recall', { nodeId }),
+        abandonNode: async (nodeId: number) => {
+            const res = await act<CaravanResponse & { recalled: number }>('node/abandon', { nodeId })
+            if (res) {
+                toast.add({
+                    title: 'Node given up',
+                    description: res.recalled
+                        ? `${res.recalled} ${res.recalled === 1 ? 'worker is' : 'workers are'} heading home.`
+                        : undefined,
+                    icon: 'i-lucide-flag-off',
+                    color: 'warning'
+                })
+            }
+            return res
+        },
         upgradeCapacity: async (nodeId: number) => {
             const res = await act('node/capacity', { nodeId })
             if (res) sound.claim()

@@ -8,6 +8,7 @@ import { generateMarket } from '#shared/utils/caravan/market'
 import { objectives, topObjective } from '#shared/utils/caravan/objectives'
 import { computeBonuses } from '#shared/utils/caravan/progression'
 import { applyLoadout, planLoadout } from '#shared/utils/caravan/loadout'
+import { abandonNode } from '#shared/utils/caravan/assignment'
 import { createRng } from '#shared/utils/caravan/rng'
 import { advance, projectRates } from '#shared/utils/caravan/sim'
 import { createInitialState, migrateState } from '#shared/utils/caravan/state'
@@ -671,5 +672,50 @@ describe('economy', () => {
         expect(nodeCost(0)).toBe(100_000)
         expect(nodeCost(10)).toBeGreaterThan(nodeCost(9))
         expect(nodeCost(20) / nodeCost(10)).toBeGreaterThan(10)
+    })
+})
+
+describe('abandoning a node', () => {
+    it('drops the claim, the widening and the depletion, and pulls the crew off', () => {
+        const w = world()
+        const state = ownTwoSeams(w)
+        const [seam] = seamsByDistance(w, state)
+        state.workers[0]!.assignment = seam.id
+        state.nodeCapacity[seam.id] = 5
+
+        advance(state, w, NOW + 600_000)
+        expect(state.depletion[seam.id]).toBeDefined()
+
+        const { recalled, wasCapital } = abandonNode(state, seam.id)
+
+        expect(recalled).toBe(1)
+        expect(wasCapital).toBe(false)
+        expect(state.ownedNodes).not.toContain(seam.id)
+        expect(state.nodeCapacity[seam.id]).toBeUndefined()
+        expect(state.depletion[seam.id]).toBeUndefined()
+        expect(state.workers[0]!.assignment).toBeNull()
+    })
+
+    it('reports a capital and leaves the remaining one as home', () => {
+        const w = world()
+        const state = ownTwoSeams(w)
+        const other = w.nodes.find(n => n.kind === 'capital' && n.id !== 0)!
+        state.ownedNodes.push(other.id)
+        state.capitals.push(other.id)
+
+        const { wasCapital } = abandonNode(state, other.id)
+
+        expect(wasCapital).toBe(true)
+        expect(state.capitals).toEqual([0])
+        expect(state.ownedNodes).not.toContain(other.id)
+    })
+
+    it('is a no-op on a node the player does not hold', () => {
+        const w = world()
+        const state = ownTwoSeams(w)
+        const before = [...state.ownedNodes]
+
+        expect(abandonNode(state, 9999)).toEqual({ recalled: 0, wasCapital: false })
+        expect(state.ownedNodes).toEqual(before)
     })
 })

@@ -18,7 +18,7 @@ import type { NodeId } from '#shared/utils/caravan/types'
 
 const {
     state, world, events, serverNow, bonuses,
-    purchaseNode, assault, upgradeCapacity, assignWorkers
+    purchaseNode, assault, upgradeCapacity, assignWorkers, abandonNode
 } = useCaravan()
 const { user } = useAuth()
 
@@ -381,6 +381,28 @@ const roster = computed(() => {
             || (a.posted?.name ?? '').localeCompare(b.posted?.name ?? '')
             || b.worker.level - a.worker.level)
 })
+
+/**
+ * Giving a node up. There is no refund and the widening goes with it, so it
+ * asks first -- and it refuses on the last capital, which is where every haul
+ * is delivered.
+ */
+const abandoning = ref(false)
+const abandonOpen = computed({
+    get: () => abandoning.value,
+    set: (value: boolean) => { abandoning.value = value }
+})
+
+const isCapital = computed(() => (node.value ? (state.value?.capitals ?? []).includes(node.value.id) : false))
+const isLastCapital = computed(() => isCapital.value && (state.value?.capitals.length ?? 0) <= 1)
+
+async function confirmAbandon() {
+    if (selectedNode.value === null) return
+    const id = selectedNode.value
+    abandoning.value = false
+    await abandonNode(id)
+    clearSelection()
+}
 
 /** Multipliers read as percentages -- "114%" lands, "x1.14" needs decoding. */
 function percent(multiplier: number): string {
@@ -1031,10 +1053,46 @@ onBeforeUnmount(() => {
                             </div>
                         </div>
 
+                        <!-- Giving a node back. Capitals are capped, so dropping
+                             one is the only way to move your delivery point. -->
+                        <div v-if="isOwned" class="space-y-1.5 border-t border-default/50 pt-4">
+                            <UButton
+                                block
+                                size="sm"
+                                color="error"
+                                variant="soft"
+                                icon="i-lucide-flag-off"
+                                :label="isCapital ? 'Give up this capital' : 'Give up this node'"
+                                :disabled="isLastCapital"
+                                @click="abandoning = true"
+                            />
+                            <p class="text-[11px] text-muted">
+                                {{ isLastCapital
+                                    ? 'Your last capital is where every haul is delivered — claim another before giving this one up.'
+                                    : 'Frees the claim. You get nothing back for it.' }}
+                            </p>
+                        </div>
                     </div>
                 </div>
             </template>
         </USlideover>
+
+        <UModal v-model:open="abandonOpen" title="Give up this node">
+            <template #body>
+                <div class="space-y-4">
+                    <p class="text-sm text-muted">
+                        <span class="font-medium text-default">{{ node?.name }}</span>
+                        goes back on the market. There is no refund, the seam returns to base width, and
+                        anyone posted there walks home.
+                        <span v-if="isCapital" class="text-warning">It is one of your capitals, so the slot frees up.</span>
+                    </p>
+                    <div class="flex justify-end gap-2">
+                        <UButton color="neutral" variant="ghost" label="Keep it" @click="abandoning = false" />
+                        <UButton color="error" label="Give it up" @click="confirmAbandon" />
+                    </div>
+                </div>
+            </template>
+        </UModal>
 
         <CaravanRoadModal :edge-id="selectedEdge" @close="selectedEdge = null" />
     </div>

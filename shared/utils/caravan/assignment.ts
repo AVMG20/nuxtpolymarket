@@ -87,3 +87,44 @@ export function fillOrder(state: CaravanState, node: WorldNode): Worker[] {
             return c.level - a.level || c.tier - a.tier
         })
 }
+
+/**
+ * Hand a node back.
+ *
+ * Nothing is refunded -- the coins are spent and the widening is lost with the
+ * claim, so this is a way to free a capped capital slot or drop a seam you
+ * regret, never a way to move money around. The crew is pulled off first and
+ * anyone standing on the node is sent to the capital, so nobody is left working
+ * or waiting on land the player no longer holds.
+ */
+export function abandonNode(state: CaravanState, nodeId: NodeId): { recalled: number, wasCapital: boolean } {
+    const index = state.ownedNodes.indexOf(nodeId)
+    if (index === -1) return { recalled: 0, wasCapital: false }
+
+    const wasCapital = state.capitals.includes(nodeId)
+    let recalled = 0
+    for (const worker of state.workers) {
+        if (worker.assignment !== nodeId) continue
+        worker.assignment = null
+        worker.route = []
+        worker.routeIndex = 0
+        if (worker.activity.type === 'harvest') worker.activity = { type: 'idle' }
+        recalled++
+    }
+
+    state.ownedNodes.splice(index, 1)
+    state.capitals = state.capitals.filter(id => id !== nodeId)
+    delete state.nodeCapacity[nodeId]
+    delete state.depletion[nodeId]
+
+    // Idle hands standing on the node itself go home; anyone travelling or
+    // unloading finishes what they are doing first.
+    const home = state.capitals[0]
+    if (home !== undefined) {
+        for (const worker of state.workers) {
+            if (worker.at === nodeId && worker.activity.type === 'idle') worker.at = home
+        }
+    }
+
+    return { recalled, wasCapital }
+}
