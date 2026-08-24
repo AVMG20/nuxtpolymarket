@@ -62,6 +62,26 @@ function batchesFor(recipeId: string) {
     return state.value ? maxBatches(state.value, recipeId) : 0
 }
 
+/** One queue never takes more than this, however much you are sitting on. */
+const MAX_QUEUE_BATCHES = 500
+
+/**
+ * The batch buttons. All five are the same kind of action -- queue this many --
+ * so they get the same treatment; the old solid ×1 next to soft ×10 read as two
+ * different things. Fractions are of what your materials actually cover, which
+ * is the number worth spending half of.
+ */
+function batchOptions(recipeId: string) {
+    const max = Math.min(MAX_QUEUE_BATCHES, batchesFor(recipeId))
+    return [
+        { key: '1', label: '×1', amount: 1 },
+        { key: '10', label: '×10', amount: 10 },
+        { key: 'quarter', label: '¼', amount: Math.floor(max / 4) },
+        { key: 'half', label: '½', amount: Math.floor(max / 2) },
+        { key: 'all', label: 'All', amount: max }
+    ].map(option => ({ ...option, disabled: option.amount < 1 || option.amount > max }))
+}
+
 /** How long a run of this size would tie up a line. */
 function duration(tier: number, batches: number): string {
     const seconds = effectiveRefineSeconds(tier, bonuses.value?.refineSpeed ?? 0) * batches
@@ -251,25 +271,28 @@ function countdown(ms: number): string {
                         </div>
 
                         <div class="flex gap-1.5">
-                            <UButton
-                                v-for="n in [1, 10]"
-                                :key="n"
-                                size="sm"
+                            <UTooltip
+                                v-for="option in batchOptions(recipe.id)"
+                                :key="option.key"
+                                :text="option.disabled
+                                    ? 'Not enough materials'
+                                    : `Queue ×${formatNumber(option.amount)} · ${duration(recipe.tier, option.amount)} of line time`"
                                 class="flex-1"
-                                :variant="n === 1 ? 'solid' : 'soft'"
-                                :label="`×${n}`"
-                                :disabled="batchesFor(recipe.id) < n"
-                                @click="refine(recipe.id, n)"
-                            />
-                            <UButton
-                                size="sm"
-                                class="flex-1"
-                                variant="soft"
-                                :label="`Max ×${formatNumber(Math.min(500, batchesFor(recipe.id)))}`"
-                                :disabled="batchesFor(recipe.id) < 1"
-                                @click="refine(recipe.id, Math.min(500, batchesFor(recipe.id)))"
-                            />
+                            >
+                                <UButton
+                                    block
+                                    size="sm"
+                                    variant="soft"
+                                    :label="option.label"
+                                    :disabled="option.disabled"
+                                    @click="refine(recipe.id, option.amount)"
+                                />
+                            </UTooltip>
                         </div>
+                        <p class="text-[11px] text-muted">
+                            Materials for
+                            <span class="font-mono text-default">×{{ formatNumber(Math.min(MAX_QUEUE_BATCHES, batchesFor(recipe.id))) }}</span>
+                        </p>
                         <p v-if="queued >= lines" class="text-[11px] text-muted">
                             Every line is busy — anything queued now starts when one frees up.
                         </p>

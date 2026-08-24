@@ -37,9 +37,8 @@ onMounted(() => { void load() })
                 >
                     <UIcon name="i-lucide-tent" class="size-5" :style="{ color: tier.glow }" />
                 </div>
-                <div class="leading-tight">
-                    <div class="text-sm font-semibold" :style="{ color: tier.glow }">T{{ state?.tier ?? 1 }}</div>
-                    <div class="text-[11px] text-muted">of {{ TIERS.length }}</div>
+                <div class="text-sm font-semibold leading-tight" :style="{ color: tier.glow }">
+                    T{{ state?.tier ?? 1 }}
                 </div>
             </div>
 
