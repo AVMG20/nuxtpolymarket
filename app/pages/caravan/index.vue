@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import {
     BASE_NODE_CAPACITY, CATEGORIES, CATEGORY_COLORS, CATEGORY_ICONS, CATEGORY_NAMES,
-    MAX_NODE_CAPACITY,
-    RESOURCES, ROAD_COLORS, ROAD_LINKED_COLOR, ROAD_NAMES, ROAD_UNLINKED_COLOR, TIERS,
+    MAX_NODE_CAPACITY, RARITY_BY_ID,
+    RESOURCES, TIERS,
     capacityCoinCost, capacityResourceCost, capacityUpgradeTier,
     nodeCost, nodeHarvestSpeed
 } from '#shared/utils/caravan/config'
-import { homeDistanceMap, nodeRichness, partyPower, projectRates } from '#shared/utils/caravan/sim'
+import { homeDistanceMap, nodeRichness, partyPower } from '#shared/utils/caravan/sim'
 import { isReachable } from '#shared/utils/caravan/world'
 import { combatPower, derivedStats, isSpecialist } from '#shared/utils/caravan/workers'
 import type { NodeId } from '#shared/utils/caravan/types'
@@ -18,13 +18,17 @@ import type { NodeId } from '#shared/utils/caravan/types'
 
 const {
     state, world, events, serverNow, bonuses,
-    purchaseNode, assault, upgradeCapacity, recallNode, assignWorkers, fillNode
+    purchaseNode, assault, upgradeCapacity, assignWorkers
 } = useCaravan()
 const { user } = useAuth()
 
 const selectedNode = ref<NodeId | null>(null)
 const selectedEdge = ref<string | null>(null)
-const mapRef = ref<{ fitToTerritory: () => void, focusNode: (id: NodeId) => void } | null>(null)
+const mapRef = ref<{
+    fitToTerritory: () => void
+    focusNode: (id: NodeId) => void
+    frameNodes: (ids: NodeId[]) => void
+} | null>(null)
 const party = ref<string[]>([])
 
 // The drawer is the node panel. A road is a different kind of thing and opens
@@ -179,7 +183,6 @@ const assignable = computed(() => {
 
 type Assignable = (typeof assignable.value)[number]
 
-const idleCount = computed(() => (state.value?.workers ?? []).filter(w => w.assignment === null).length)
 
 /**
  * The picker's selection is never held: posting someone is an action, not a
@@ -243,69 +246,152 @@ const hovered = computed(() => {
     }
 })
 
-const holdingsOpen = ref(false)
+const workersOpen = ref(false)
 const search = ref('')
+const searchOpen = ref(false)
+const searchIndex = ref(0)
+
+/** Nodes the map is currently ringing, and what put them there. */
+const highlight = ref<NodeId[]>([])
+const highlightLabel = ref<string | null>(null)
 
 /**
- * Finding one seam among a hundred and twenty by panning is miserable. Typing
- * two letters and pressing enter is not. Owned nodes rank first because those
- * are the ones you are steering.
+ * Two kinds of hit. Typing a place name finds that place; typing "iron" finds
+ * the ore, and picking it rings every seam of it on the map at once -- which is
+ * the question actually being asked when you search a resource.
  */
-const searchResults = computed(() => {
+type SearchHit =
+    | { kind: 'resource', key: string, name: string, tier: number, icon: string, color: string, nodes: NodeId[], ownedCount: number }
+    | { kind: 'node', key: string, node: (typeof world.value.nodes)[number], owned: boolean, resource: string | null }
+
+/** Every raw resource that actually appears on the map, with its seams. */
+const resourceNodes = computed(() => {
+    const map = new Map<string, NodeId[]>()
+    for (const node of world.value.nodes) {
+        if (node.kind !== 'resource' || !node.resource) continue
+        const list = map.get(node.resource)
+        if (list) list.push(node.id)
+        else map.set(node.resource, [node.id])
+    }
+    return map
+})
+
+const searchResults = computed<SearchHit[]>(() => {
     const query = search.value.trim().toLowerCase()
-    if (query.length < 2) return []
-    return world.value.nodes
+    if (!query) return []
+
+    // Resources first: one row standing for twelve seams beats twelve rows.
+    const resources: Extract<SearchHit, { kind: 'resource' }>[] = []
+    for (const [id, nodes] of resourceNodes.value) {
+        const def = RESOURCES[id]
+        if (!def) continue
+        const category = def.category
+        const categoryName = category ? CATEGORY_NAMES[category].toLowerCase() : ''
+        if (!def.name.toLowerCase().includes(query) && !categoryName.includes(query)) continue
+        resources.push({
+            kind: 'resource',
+            key: `res:${id}`,
+            name: def.name,
+            tier: def.tier,
+            icon: category ? CATEGORY_ICONS[category] : 'i-lucide-box',
+            color: category ? CATEGORY_COLORS[category] : '#9ca3af',
+            nodes,
+            ownedCount: nodes.filter(nodeId => owned.value.has(nodeId)).length
+        })
+    }
+    resources.sort((a, b) => a.tier - b.tier)
+
+    const nodes = world.value.nodes
         .filter(node => node.name.toLowerCase().includes(query))
         .map(node => ({
+            kind: 'node' as const,
+            key: `node:${node.id}`,
             node,
             owned: owned.value.has(node.id),
-            resource: node.resource ? RESOURCES[node.resource]?.name : null
+            resource: node.resource ? RESOURCES[node.resource]?.name ?? null : null
         }))
         .sort((a, b) => Number(b.owned) - Number(a.owned) || a.node.name.localeCompare(b.node.name))
-        .slice(0, 8)
+
+    return [...resources.slice(0, 4), ...nodes.slice(0, 6)]
 })
+
+watch(search, (value) => {
+    searchIndex.value = 0
+    // Picking a resource writes its name into the box; that is not the player
+    // typing, so it must not spring the list back open over the map.
+    if (value === highlightLabel.value) return
+    searchOpen.value = true
+})
+
+function choose(hit: SearchHit | undefined) {
+    if (!hit) return
+    if (hit.kind === 'node') {
+        clearHighlight()
+        goTo(hit.node.id)
+        return
+    }
+    highlight.value = hit.nodes
+    highlightLabel.value = hit.name
+    search.value = hit.name
+    searchOpen.value = false
+    mapRef.value?.frameNodes(hit.nodes)
+}
+
+function moveSearch(delta: number) {
+    if (!searchResults.value.length) return
+    searchOpen.value = true
+    const next = searchIndex.value + delta
+    searchIndex.value = (next + searchResults.value.length) % searchResults.value.length
+}
+
+function clearHighlight() {
+    highlight.value = []
+    highlightLabel.value = null
+}
+
+function resetSearch() {
+    search.value = ''
+    searchOpen.value = false
+    clearHighlight()
+}
 
 function goTo(id: NodeId) {
     onSelectNode(id)
     mapRef.value?.focusNode(id)
     search.value = ''
+    searchOpen.value = false
 }
 
 /**
- * Every resource node you hold, worst seam first. Once the map has twenty owned
- * nodes, hunting for the drained one by eye is the tedious part -- this puts the
- * ones that need attention at the top and jumps the camera to them.
+ * Everyone on the payroll, with where they are standing. Idle hands sort to the
+ * top: a worker with no posting is earning nothing, which is the one thing on
+ * this panel worth acting on.
  */
-const holdings = computed(() => {
-    if (!state.value) return []
-    return state.value.ownedNodes
-        .map(id => world.value.nodes[id]!)
-        .filter(node => node?.kind === 'resource')
-        .map(node => ({
-            node,
-            richness: nodeRichness(state.value!, node, tickNow.value, bonuses.value?.regenRate ?? 0),
-            workers: state.value!.workers.filter(w => w.assignment === node.id).length,
-            capacity: (state.value!.nodeCapacity?.[node.id] ?? BASE_NODE_CAPACITY) + (bonuses.value?.nodeCapacity ?? 0)
+const roster = computed(() => {
+    if (!state.value || !bonuses.value) return []
+    return state.value.workers
+        .map(worker => ({
+            worker,
+            stats: derivedStats(worker, state.value!.items, bonuses.value!),
+            posted: worker.assignment === null ? null : world.value.nodes[worker.assignment] ?? null,
+            starving: worker.activity.type === 'starving'
         }))
-        // Empty seams first -- an unstaffed node you are paying for is the thing
-        // most worth clicking -- then whatever is running driest.
-        .sort((a, b) => a.workers - b.workers || a.richness - b.richness)
+        .sort((a, b) =>
+            Number(Boolean(a.posted)) - Number(Boolean(b.posted))
+            || (a.posted?.name ?? '').localeCompare(b.posted?.name ?? '')
+            || b.worker.level - a.worker.level)
 })
+
+/** Multipliers read as percentages -- "114%" lands, "x1.14" needs decoding. */
+function percent(multiplier: number): string {
+    return `${Math.round(multiplier * 100)}%`
+}
 
 const legend = [
     { label: 'Capital', hint: 'Where workers deliver', shape: 'capital' },
     { label: 'For sale', hint: 'Borders your territory', shape: 'frontier' },
     { label: 'Camp', hint: 'Blocks the road until cleared', shape: 'camp' }
 ] as const
-
-/** Road stages, so the colours on the map mean something without hovering. */
-const roadStages = ROAD_NAMES.map((name, level) => ({
-    name,
-    level,
-    // Stage zero on the legend is the track you own, since the unowned one is
-    // its own entry below rather than a rung on this ladder.
-    color: level === 0 ? ROAD_LINKED_COLOR : ROAD_COLORS[level]!
-}))
 
 /** The trade colours used for node marks, so the map can be read at a glance. */
 const trades = CATEGORIES.map(category => ({
@@ -314,15 +400,6 @@ const trades = CATEGORIES.map(category => ({
     color: CATEGORY_COLORS[category],
     icon: CATEGORY_ICONS[category]
 }))
-
-/**
- * Throughput readout. Recomputed only when the state snapshot changes, not per
- * frame -- it runs half an hour of simulation to produce the number.
- */
-const rates = computed(() => {
-    if (!state.value) return null
-    return projectRates(state.value, world.value)
-})
 
 /** Seconds left on any assault currently under way, for the camp drawer. */
 const assaultCountdown = computed(() => {
@@ -362,6 +439,7 @@ onBeforeUnmount(() => {
             :server-now="serverNow"
             :selected-node="selectedNode"
             :selected-edge="selectedEdge"
+            :highlight="highlight"
             @select-node="onSelectNode"
             @select-edge="(id: string) => { selectedNode = null; selectedEdge = id }"
             @clear-selection="clearSelection"
@@ -419,71 +497,107 @@ onBeforeUnmount(() => {
         </div>
 
         <!-- One HUD card rather than three floating boxes. -->
-        <div class="pointer-events-auto absolute left-4 top-4 z-10 w-64 overflow-hidden rounded-xl border border-default/60 bg-elevated/70 backdrop-blur">
+        <!-- Not clipped: the search results hang past the bottom of the card,
+             and an overflow-hidden here cut the list off mid-row. -->
+        <div class="pointer-events-auto absolute left-4 top-4 z-10 w-64 rounded-xl border border-default/60 bg-elevated/70 backdrop-blur [&>*:last-child]:rounded-b-xl">
             <!-- Search sits at the top of the HUD because it is the fastest way
                  to get anywhere once the map is wider than the screen. -->
             <div class="relative border-b border-default/50 px-2 py-2">
-                <UInput
-                    v-model="search"
-                    icon="i-lucide-search"
-                    size="xs"
-                    placeholder="Find a node…"
-                    class="w-full"
-                    @keydown.enter="searchResults[0] && goTo(searchResults[0].node.id)"
-                    @keydown.escape="search = ''"
-                />
+                <div class="flex items-center gap-1">
+                    <UInput
+                        v-model="search"
+                        icon="i-lucide-search"
+                        size="xs"
+                        placeholder="Find a node or resource…"
+                        class="flex-1"
+                        :ui="{ trailing: 'pe-1' }"
+                        @focus="searchOpen = true"
+                        @keydown.down.prevent="moveSearch(1)"
+                        @keydown.up.prevent="moveSearch(-1)"
+                        @keydown.enter.prevent="choose(searchResults[searchIndex])"
+                        @keydown.escape="resetSearch()"
+                    >
+                        <template v-if="search" #trailing>
+                            <UButton
+                                icon="i-lucide-x"
+                                size="xs"
+                                color="neutral"
+                                variant="link"
+                                aria-label="Clear the search"
+                                @click="resetSearch()"
+                            />
+                        </template>
+                    </UInput>
+                    <UTooltip text="Frame your territory">
+                        <UButton
+                            icon="i-lucide-crosshair"
+                            size="xs"
+                            color="neutral"
+                            variant="ghost"
+                            aria-label="Centre the map"
+                            @click="mapRef?.fitToTerritory()"
+                        />
+                    </UTooltip>
+                </div>
+
+                <!-- A resource row stands for every seam of it on the map, so
+                     "iron ore" is one click and not twelve. -->
                 <div
-                    v-if="searchResults.length"
+                    v-if="searchOpen && searchResults.length"
                     class="absolute inset-x-2 top-full z-20 mt-1 overflow-hidden rounded-lg border border-default/60 bg-elevated/95 backdrop-blur"
                 >
                     <button
-                        v-for="result in searchResults"
-                        :key="result.node.id"
+                        v-for="(result, index) in searchResults"
+                        :key="result.key"
                         type="button"
                         class="flex w-full cursor-pointer items-center justify-between gap-2 px-2.5 py-1.5 text-left text-xs transition hover:bg-default/50"
-                        @click="goTo(result.node.id)"
+                        :class="{ 'bg-default/50': index === searchIndex }"
+                        @mouseenter="searchIndex = index"
+                        @click="choose(result)"
                     >
-                        <span class="flex min-w-0 items-center gap-1.5">
-                            <span
-                                class="size-1.5 shrink-0 rounded-full"
-                                :style="{ backgroundColor: TIERS[result.node.tier - 1]?.color }"
-                            />
-                            <span class="truncate" :class="result.owned ? 'text-default' : 'text-muted'">
-                                {{ result.node.name }}
+                        <template v-if="result.kind === 'resource'">
+                            <span class="flex min-w-0 items-center gap-1.5">
+                                <UIcon :name="result.icon" class="size-3.5 shrink-0" :style="{ color: result.color }" />
+                                <span class="truncate text-default">{{ result.name }}</span>
                             </span>
-                        </span>
-                        <span class="shrink-0 text-[10px] text-muted">
-                            {{ result.owned ? 'yours' : result.resource ?? result.node.kind }}
-                        </span>
+                            <span class="shrink-0 text-[10px] text-muted">
+                                {{ result.nodes.length }} seams<span v-if="result.ownedCount"> · {{ result.ownedCount }} yours</span>
+                            </span>
+                        </template>
+                        <template v-else>
+                            <span class="flex min-w-0 items-center gap-1.5">
+                                <span
+                                    class="size-1.5 shrink-0 rounded-full"
+                                    :style="{ backgroundColor: TIERS[result.node.tier - 1]?.color }"
+                                />
+                                <span class="truncate" :class="result.owned ? 'text-default' : 'text-muted'">
+                                    {{ result.node.name }}
+                                </span>
+                            </span>
+                            <span class="shrink-0 text-[10px] text-muted">
+                                {{ result.owned ? 'yours' : result.resource ?? result.node.kind }}
+                            </span>
+                        </template>
                     </button>
                 </div>
-            </div>
 
-            <div class="flex items-start justify-between gap-2 px-3 py-2.5">
-                <div class="text-xs">
-                    <div class="mb-1 font-medium text-default">Territory</div>
-                    <div class="text-muted">{{ state?.ownedNodes.length ?? 0 }} nodes · {{ state?.capitals.length ?? 0 }}/{{ bonuses?.maxCapitals ?? 1 }} capitals</div>
-                    <div class="text-muted">{{ state?.workers.length ?? 0 }}/{{ bonuses?.maxWorkers ?? 3 }} workers</div>
-                    <div v-if="rates" class="mt-1.5 flex items-center gap-1.5 text-primary">
-                        <UIcon name="i-lucide-trending-up" class="size-3" />
-                        <span class="font-mono font-semibold">{{ formatNumber(rates.harvestValuePerHour) }}</span>
-                        <span class="text-muted">/ hr</span>
-                    </div>
-                    <div v-if="rates" class="text-muted">harvest value · {{ formatNumber(rates.tripsPerHour) }} trips / hr</div>
-                </div>
-                <UTooltip text="Frame your territory">
+                <div v-if="highlightLabel" class="mt-1.5 flex items-center gap-1.5 px-0.5 text-[10px] text-muted">
+                    <span class="truncate">
+                        Ringing {{ highlight.length }} {{ highlightLabel }} {{ highlight.length === 1 ? 'seam' : 'seams' }}
+                    </span>
                     <UButton
-                        icon="i-lucide-crosshair"
+                        icon="i-lucide-x"
                         size="xs"
                         color="neutral"
-                        variant="ghost"
-                        aria-label="Centre the map"
-                        @click="mapRef?.fitToTerritory()"
+                        variant="link"
+                        class="-my-1 ml-auto p-0"
+                        aria-label="Stop highlighting"
+                        @click="resetSearch()"
                     />
-                </UTooltip>
+                </div>
             </div>
 
-            <div class="border-t border-default/50 px-1 py-1">
+            <div class="px-1 py-1">
                 <div class="px-1.5 pb-0.5 pt-1 text-[10px] font-medium uppercase tracking-wide text-muted">
                     What now
                 </div>
@@ -493,45 +607,65 @@ onBeforeUnmount(() => {
             <button
                 type="button"
                 class="flex w-full items-center justify-between border-t border-default/50 px-3 py-2 text-xs transition hover:bg-default/30"
-                @click="holdingsOpen = !holdingsOpen"
+                @click="workersOpen = !workersOpen"
             >
-                <span class="font-medium text-default">Holdings</span>
+                <span class="font-medium text-default">Workers</span>
                 <span class="flex items-center gap-1.5 text-muted">
-                    {{ holdings.length }}
-                    <UIcon :name="holdingsOpen ? 'i-lucide-chevron-up' : 'i-lucide-chevron-down'" class="size-3.5" />
+                    {{ roster.length }}/{{ bonuses?.maxWorkers ?? 3 }}
+                    <UIcon :name="workersOpen ? 'i-lucide-chevron-up' : 'i-lucide-chevron-down'" class="size-3.5" />
                 </span>
             </button>
 
+            <!-- The roster, read the same way as the posting menu inside a node:
+                 rarity, trades, the three numbers, and where they are standing. -->
             <div
-                v-if="holdingsOpen"
-                class="max-h-[20rem] overflow-y-auto border-t border-default/40 p-1"
+                v-if="workersOpen"
+                class="max-h-[22rem] overflow-y-auto border-t border-default/40 p-1"
             >
-                <p v-if="!holdings.length" class="px-2 py-3 text-xs text-muted">
-                    You only hold the capital. Claim a seam next to it.
+                <p v-if="!roster.length" class="px-2 py-3 text-xs text-muted">
+                    Nobody on the payroll. Hire someone at the market.
                 </p>
                 <button
-                    v-for="entry in holdings"
-                    :key="entry.node.id"
+                    v-for="entry in roster"
+                    :key="entry.worker.id"
                     type="button"
                     class="w-full cursor-pointer rounded-md px-2 py-1.5 text-left transition hover:bg-default/50"
-                    :class="{ 'bg-default/40': selectedNode === entry.node.id }"
-                    @click="onSelectNode(entry.node.id); mapRef?.focusNode(entry.node.id)"
+                    :class="{ 'bg-default/40': entry.posted && selectedNode === entry.posted.id }"
+                    @click="entry.posted ? (onSelectNode(entry.posted.id), mapRef?.focusNode(entry.posted.id)) : navigateTo('/caravan/workers')"
                 >
-                    <div class="flex items-center justify-between gap-2 text-xs">
-                        <span class="truncate">{{ entry.node.name }}</span>
-                        <span class="flex shrink-0 items-center gap-2">
-                            <UIcon name="i-lucide-user" class="size-3 text-muted" />
-                            <span :class="entry.workers ? 'text-muted' : 'text-warning'">
-                                {{ entry.workers }}/{{ entry.capacity }}
-                            </span>
-                        </span>
-                    </div>
-                    <div class="mt-1 h-1 overflow-hidden rounded-full bg-default/60">
-                        <div
-                            class="h-full rounded-full"
-                            :class="entry.richness > 0.5 ? 'bg-success' : entry.richness > 0.25 ? 'bg-warning' : 'bg-error'"
-                            :style="{ width: `${entry.richness * 100}%` }"
+                    <div class="flex items-center gap-1.5 text-xs">
+                        <UTooltip :text="RARITY_BY_ID[entry.worker.rarity].name">
+                            <span
+                                class="size-2 shrink-0 rounded-full"
+                                :style="{ backgroundColor: RARITY_BY_ID[entry.worker.rarity].color }"
+                            />
+                        </UTooltip>
+                        <span class="truncate font-medium">{{ entry.worker.name }}</span>
+                        <UIcon
+                            v-for="category in entry.worker.specialties"
+                            :key="category"
+                            :name="CATEGORY_ICONS[category]"
+                            class="size-3 shrink-0"
+                            :style="{ color: CATEGORY_COLORS[category] }"
                         />
+                        <span class="ml-auto shrink-0 text-[10px] text-muted">Lv {{ entry.worker.level }}</span>
+                    </div>
+                    <div class="mt-0.5 flex items-center gap-2.5 font-mono text-[10px] text-muted">
+                        <span class="flex items-center gap-0.5">
+                            <UIcon name="i-lucide-backpack" class="size-3" />{{ entry.stats.carry }}
+                        </span>
+                        <span class="flex items-center gap-0.5">
+                            <UIcon name="i-lucide-dumbbell" class="size-3" />{{ percent(entry.stats.strength) }}
+                        </span>
+                        <span class="flex items-center gap-0.5">
+                            <UIcon name="i-lucide-footprints" class="size-3" />{{ percent(entry.stats.speed) }}
+                        </span>
+                        <span
+                            class="ml-auto truncate font-sans"
+                            :class="entry.starving ? 'text-error' : entry.posted ? 'text-muted' : 'text-warning'"
+                        >
+                            {{ entry.starving ? 'Out of rations' : entry.posted?.name ?? 'No posting' }}
+                        </span>
                     </div>
                 </button>
             </div>
@@ -546,27 +680,6 @@ onBeforeUnmount(() => {
                     <span class="text-default">{{ trade.name }}</span>
                 </div>
             </div>
-            <div class="mb-2 space-y-1 border-t border-default/40 pt-1.5">
-                <div class="text-[10px] uppercase tracking-wide text-muted">Roads</div>
-                <div class="flex items-center gap-2">
-                    <span
-                        v-for="stage in roadStages"
-                        :key="stage.level"
-                        class="h-1 flex-1 rounded-full"
-                        :style="{ backgroundColor: stage.color }"
-                        :title="stage.name"
-                    />
-                </div>
-                <div class="flex justify-between text-[10px] text-muted">
-                    <span>{{ roadStages[0]!.name }}</span>
-                    <span>{{ roadStages[roadStages.length - 1]!.name }}</span>
-                </div>
-                <div class="flex items-center gap-2 pt-0.5 text-[10px] text-muted">
-                    <span class="h-1 w-6 shrink-0 rounded-full" :style="{ backgroundColor: ROAD_UNLINKED_COLOR }" />
-                    <span>Only one end is yours</span>
-                </div>
-            </div>
-
             <div class="space-y-1 border-t border-default/40 pt-1.5">
                 <div v-for="item in legend" :key="item.label" class="flex items-center gap-2 text-[11px]">
                     <span
@@ -745,7 +858,7 @@ onBeforeUnmount(() => {
                                     <span class="text-xs font-medium uppercase tracking-wide text-muted">Crew</span>
                                     <span class="flex items-baseline gap-2 font-mono text-sm">
                                         <span v-if="capacityLevel > BASE_NODE_CAPACITY" class="text-[11px] text-success">
-                                            ×{{ nodeHarvestSpeed(capacityLevel).toFixed(2) }} cutting
+                                            {{ percent(nodeHarvestSpeed(capacityLevel)) }} cutting
                                         </span>
                                         <span>
                                             <span :class="workingHere.length >= capacity ? 'text-warning' : 'text-default'">{{ workingHere.length }}</span>
@@ -817,15 +930,24 @@ onBeforeUnmount(() => {
                                 >
                                     <template #item="{ item }">
                                         <div class="flex w-full min-w-0 items-center gap-2">
-                                            <span class="size-1.5 shrink-0 rounded-full" :style="{ backgroundColor: TIERS[item.worker.tier - 1]?.color }" />
+                                            <span
+                                                class="size-2 shrink-0 rounded-full"
+                                                :style="{ backgroundColor: RARITY_BY_ID[item.worker.rarity].color }"
+                                                :title="RARITY_BY_ID[item.worker.rarity].name"
+                                            />
                                             <div class="min-w-0 flex-1">
                                                 <div class="flex items-center gap-1.5">
                                                     <span class="truncate text-xs font-medium">{{ item.worker.name }}</span>
+                                                    <!-- Every trade this worker has, not only the one
+                                                         matching this seam: which of two candidates is
+                                                         the timber hand is the whole decision. -->
                                                     <UIcon
-                                                        v-if="item.specialist"
-                                                        :name="nodeCategory ? CATEGORY_ICONS[nodeCategory] : 'i-lucide-star'"
+                                                        v-for="category in item.worker.specialties"
+                                                        :key="category"
+                                                        :name="CATEGORY_ICONS[category]"
                                                         class="size-3 shrink-0"
-                                                        :style="{ color: nodeCategory ? CATEGORY_COLORS[nodeCategory] : undefined }"
+                                                        :class="{ 'opacity-40': category !== nodeCategory }"
+                                                        :style="{ color: CATEGORY_COLORS[category] }"
                                                     />
                                                     <span class="shrink-0 text-[10px] text-muted">Lv {{ item.worker.level }}</span>
                                                 </div>
@@ -836,10 +958,13 @@ onBeforeUnmount(() => {
                                                         <UIcon name="i-lucide-backpack" class="size-3" />{{ item.stats.carry }}
                                                     </span>
                                                     <span class="flex items-center gap-0.5">
-                                                        <UIcon name="i-lucide-dumbbell" class="size-3" />×{{ item.stats.strength.toFixed(2) }}
+                                                        <UIcon name="i-lucide-dumbbell" class="size-3" />{{ percent(item.stats.strength) }}
                                                     </span>
                                                     <span class="flex items-center gap-0.5">
-                                                        <UIcon name="i-lucide-footprints" class="size-3" />×{{ item.stats.speed.toFixed(2) }}
+                                                        <UIcon name="i-lucide-footprints" class="size-3" />{{ percent(item.stats.speed) }}
+                                                    </span>
+                                                    <span v-if="item.specialist" class="font-sans text-success">
+                                                        +{{ TRADE_BONUS_PERCENT }}% here
                                                     </span>
                                                 </div>
                                             </div>
@@ -852,30 +977,6 @@ onBeforeUnmount(() => {
                                         </div>
                                     </template>
                                 </UInputMenu>
-
-                                <div class="flex gap-1.5">
-                                    <UTooltip :text="`Post up to ${capacity - workingHere.length} free ${idleCount === 1 ? 'worker' : 'workers'}, specialists first`">
-                                        <UButton
-                                            size="xs"
-                                            color="neutral"
-                                            variant="soft"
-                                            icon="i-lucide-users"
-                                            label="Fill"
-                                            :disabled="!idleCount || workingHere.length >= capacity"
-                                            @click="fillNode(node!.id)"
-                                        />
-                                    </UTooltip>
-                                    <UButton
-                                        size="xs"
-                                        color="neutral"
-                                        variant="soft"
-                                        icon="i-lucide-undo-2"
-                                        label="Clear"
-                                        :disabled="!workingHere.length"
-                                        @click="recallNode(node!.id)"
-                                    />
-                                </div>
-
 
                                 <p v-if="workingHere.length >= capacity" class="text-[11px] text-muted">
                                     The seam is full. Widen it to make room for another pair of hands.
@@ -892,8 +993,8 @@ onBeforeUnmount(() => {
                                         <UIcon name="i-lucide-gauge" class="size-3" />
                                         <span>Cutting speed</span>
                                         <span class="ml-auto font-mono">
-                                            ×{{ nodeHarvestSpeed(capacityLevel).toFixed(2) }}
-                                            <span class="text-success">→ ×{{ nodeHarvestSpeed(capacityLevel + 1).toFixed(2) }}</span>
+                                            {{ percent(nodeHarvestSpeed(capacityLevel)) }}
+                                            <span class="text-success">→ {{ percent(nodeHarvestSpeed(capacityLevel + 1)) }}</span>
                                         </span>
                                     </div>
                                     <CaravanResource

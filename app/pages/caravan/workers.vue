@@ -250,7 +250,14 @@ const unequippedSlots = computed(() => workers.value.reduce((sum, w) => sum + em
                         <thead class="bg-elevated/50 text-left text-xs uppercase tracking-wide text-muted">
                             <tr>
                                 <th class="px-3 py-2">Worker</th>
-                                <th class="px-3 py-2">Trades</th>
+                                <th class="px-3 py-2">
+                                    <UTooltip
+                                        :text="`A worker hauls +${TRADE_BONUS_PERCENT}% per trip off any seam in one of its trades. Hover a mark to see which.`"
+                                        :ui="{ content: 'max-w-xs h-auto py-1.5', text: 'whitespace-normal' }"
+                                    >
+                                        <span class="cursor-help underline decoration-dotted underline-offset-2">Trades</span>
+                                    </UTooltip>
+                                </th>
                                 <th class="px-3 py-2">Posted to</th>
                                 <th class="px-3 py-2">Doing</th>
                                 <th class="px-3 py-2 text-right">Rations</th>
@@ -285,11 +292,12 @@ const unequippedSlots = computed(() => workers.value.reduce((sum, w) => sum + em
                                         <UTooltip
                                             v-for="category in worker.specialties"
                                             :key="category"
-                                            :text="CATEGORY_NAMES[category]"
+                                            :text="tradePerk(category)"
+                                            :ui="{ content: 'max-w-xs h-auto py-1.5', text: 'whitespace-normal' }"
                                         >
                                             <UIcon
                                                 :name="CATEGORY_ICONS[category]"
-                                                class="size-4"
+                                                class="size-4 cursor-help"
                                                 :style="{ color: CATEGORY_COLORS[category] }"
                                             />
                                         </UTooltip>
@@ -409,20 +417,28 @@ const unequippedSlots = computed(() => workers.value.reduce((sum, w) => sum + em
                             />
                         </div>
 
-                        <!-- Trades -->
+                        <!-- Trades. Hovering one says what it is worth, because a
+                             trade name on its own never explained why you would
+                             move this worker rather than the one next to it. -->
                         <div class="flex flex-wrap gap-1.5">
-                            <span
+                            <UTooltip
                                 v-for="category in worker.specialties"
                                 :key="category"
-                                class="flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium"
-                                :style="{
-                                    color: CATEGORY_COLORS[category],
-                                    backgroundColor: CATEGORY_COLORS[category] + '1f'
-                                }"
+                                :text="tradePerk(category)"
+                                :ui="{ content: 'max-w-xs h-auto py-1.5', text: 'whitespace-normal' }"
                             >
-                                <UIcon :name="CATEGORY_ICONS[category]" class="size-3" />
-                                {{ CATEGORY_NAMES[category] }}
-                            </span>
+                                <span
+                                    class="flex cursor-help items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium"
+                                    :style="{
+                                        color: CATEGORY_COLORS[category],
+                                        backgroundColor: CATEGORY_COLORS[category] + '1f'
+                                    }"
+                                >
+                                    <UIcon :name="CATEGORY_ICONS[category]" class="size-3" />
+                                    {{ CATEGORY_NAMES[category] }}
+                                    <span class="font-mono opacity-70">+{{ TRADE_BONUS_PERCENT }}%</span>
+                                </span>
+                            </UTooltip>
                         </div>
 
                         <div class="grid grid-cols-2 gap-3">
@@ -459,11 +475,11 @@ const unequippedSlots = computed(() => workers.value.reduce((sum, w) => sum + em
                                 <div class="text-[10px] uppercase tracking-wide text-muted">Carry</div>
                             </div>
                             <div class="rounded-lg bg-default/40 py-1.5">
-                                <div class="font-mono text-sm font-semibold">×{{ stats(worker)!.speed.toFixed(2) }}</div>
+                                <div class="font-mono text-sm font-semibold">{{ Math.round(stats(worker)!.speed * 100) }}%</div>
                                 <div class="text-[10px] uppercase tracking-wide text-muted">Speed</div>
                             </div>
                             <div class="rounded-lg bg-default/40 py-1.5">
-                                <div class="font-mono text-sm font-semibold">×{{ stats(worker)!.strength.toFixed(2) }}</div>
+                                <div class="font-mono text-sm font-semibold">{{ Math.round(stats(worker)!.strength * 100) }}%</div>
                                 <div class="text-[10px] uppercase tracking-wide text-muted">Strength</div>
                             </div>
                         </div>

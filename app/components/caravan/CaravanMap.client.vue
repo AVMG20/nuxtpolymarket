@@ -21,6 +21,8 @@ const props = defineProps<{
     serverNow: () => number
     selectedNode: NodeId | null
     selectedEdge: string | null
+    /** Nodes the search is pointing at. They get a pulsing ring and a label. */
+    highlight?: NodeId[]
 }>()
 
 const emit = defineEmits<{
@@ -115,9 +117,18 @@ function applyCamera() {
 }
 
 function fitToTerritory() {
-    if (!app || !props.state) return
-    const nodes = props.world.nodes.filter(n => passable.value.has(n.id))
-    if (!nodes.length) return
+    if (!props.state) return
+    frame(props.world.nodes.filter(n => passable.value.has(n.id)))
+}
+
+/** Frame an arbitrary set of nodes -- used by the search to show every match. */
+function frameNodes(ids: NodeId[]) {
+    const set = new Set(ids)
+    frame(props.world.nodes.filter(n => set.has(n.id)))
+}
+
+function frame(nodes: WorldNode[]) {
+    if (!app || !nodes.length) return
     const xs = nodes.map(n => n.x)
     const ys = nodes.map(n => n.y)
     // Pad generously: with a single capital owned, the interesting part of the
@@ -137,7 +148,9 @@ function fitToTerritory() {
     applyCamera()
 }
 
-defineExpose({ fitToTerritory, focusNode })
+defineExpose({ fitToTerritory, focusNode, frameNodes })
+
+const highlighted = computed(() => new Set(props.highlight ?? []))
 
 function focusNode(id: NodeId) {
     const node = props.world.nodes.find(n => n.id === id)
@@ -257,9 +270,13 @@ function drawNodes() {
 
     for (const node of props.world.nodes) {
         const frontier = isFrontier(node)
+        // A search hit is drawn in full even out in the fog: the whole point of
+        // searching a resource is to find where it is before you can reach it.
+        const isHit = highlighted.value.has(node.id)
+        const dimmed = highlighted.value.size > 0 && !isHit
         // Distant tiers stay on the map as faint markers. Seeing the road ahead
         // is most of what makes a map feel like a world rather than a menu.
-        const fogged = !frontier && node.tier > playerTier.value + 1
+        const fogged = !frontier && !isHit && node.tier > playerTier.value + 1
         const isOwned = owned.value.has(node.id)
         const isCleared = cleared.value.has(node.id)
         const container = new Container()
@@ -267,6 +284,7 @@ function drawNodes() {
         container.eventMode = 'static'
         container.cursor = 'pointer'
         if (fogged) container.alpha = 0.3
+        else if (dimmed) container.alpha = 0.22
         container.on('pointertap', () => { if (dragMoved < 6) emit('selectNode', node.id) })
         // Hovering gives the summary without committing to opening the drawer,
         // which matters once you are scanning twenty nodes for the good one.
@@ -344,6 +362,14 @@ function drawNodes() {
             g.circle(0, 0, radius + 9).stroke({ width: 2, color: 0xffffff, alpha: 0.75 })
         }
 
+        // Search hits get a ring in their own trade colour, so "every iron seam"
+        // reads as one shape spread across the map rather than a list of names.
+        if (isHit) {
+            const mark = glyphColor(node)
+            g.circle(0, 0, radius + 12).stroke({ width: 3, color: mark, alpha: 0.9 })
+            g.circle(0, 0, radius + 20).fill({ color: mark, alpha: 0.1 })
+        }
+
         container.addChild(g)
 
         // Depletion ring, drawn only once a seam has actually been worked into.
@@ -381,13 +407,13 @@ function drawNodes() {
             container.addChild(count)
         }
 
-        if (view.scale >= (isOwned ? LABEL_ZOOM : LABEL_ZOOM_UNOWNED)) {
+        if (isHit || view.scale >= (isOwned ? LABEL_ZOOM : LABEL_ZOOM_UNOWNED)) {
             const label = new Text({
                 text: node.name,
                 style: {
                     fontSize: 14,
                     fontFamily: 'ui-sans-serif, system-ui, sans-serif',
-                    fill: isOwned ? 0xe5e7eb : frontier ? 0x9ca3af : 0x555a63,
+                    fill: isHit ? glyphColor(node) : isOwned ? 0xe5e7eb : frontier ? 0x9ca3af : 0x555a63,
                     align: 'center'
                 }
             })
@@ -509,6 +535,19 @@ function drawWorkers(now: number) {
                 alpha: 0.28 * (1 - phase)
             })
         }
+    }
+
+    // Search hits pulse, so a match sitting off the edge of the current view is
+    // still obvious the moment you pan onto it.
+    for (const id of props.highlight ?? []) {
+        const node = props.world.nodes[id]
+        if (!node) continue
+        const phase = (now % 1600) / 1600
+        auraLayer.circle(node.x, node.y, 24 + phase * 26).stroke({
+            width: 2 * (1 - phase),
+            color: glyphColor(node),
+            alpha: 0.5 * (1 - phase)
+        })
     }
 
     // Capitals breathe, so the heart of the network is never a dead circle.
@@ -648,6 +687,7 @@ watch(() => [props.selectedNode, props.selectedEdge], () => {
     drawRoads()
     drawNodes()
 })
+watch(() => props.highlight, () => drawNodes())
 watch(() => props.state?.roads, () => drawRoads(), { deep: true })
 </script>
 
