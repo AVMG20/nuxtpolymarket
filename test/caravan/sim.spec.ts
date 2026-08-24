@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
-    AFFIX_CAP, ITEM_BASES, ITEM_SLOTS, MAKE_BY_ID, RARITIES, RECIPES, TIERS, nodeCost
+    AFFIX_CAP, BASE_NODE_CAPACITY, ITEM_BASES, ITEM_SLOTS, MAKE_BY_ID, MAX_NODE_CAPACITY,
+    RARITIES, RECIPES, TIERS, nodeCost
 } from '#shared/utils/caravan/config'
 import { affixRange, itemScore, rollItem, sumAffixes } from '#shared/utils/caravan/items'
 import { generateMarket } from '#shared/utils/caravan/market'
@@ -259,6 +260,24 @@ describe('worker postings', () => {
     })
 })
 
+describe('widened seams', () => {
+    it('cuts faster on a widened seam than on a base one', () => {
+        const w = world()
+
+        // The same caravan twice over, differing only in how wide the seam has
+        // been cut -- so the extra ore can only have come from the widening.
+        const run = (width: number) => {
+            const state = readyState(w)
+            const seam = w.nodes[state.ownedNodes.find(id => w.nodes[id]!.kind === 'resource')!]!
+            state.nodeCapacity[seam.id] = width
+            advance(state, w, NOW + 3_600_000)
+            return state.stats.hauledValue ?? 0
+        }
+
+        expect(run(MAX_NODE_CAPACITY)).toBeGreaterThan(run(BASE_NODE_CAPACITY))
+    })
+})
+
 describe('standing orders', () => {
     it('bakes provisions on demand instead of starving', () => {
         const w = world()
@@ -438,7 +457,7 @@ describe('recruitment market', () => {
 })
 
 describe('refinery and research queues', () => {
-    it('holds a batch on the line and delivers it when the clock runs out', () => {
+    it('delivers each batch as it comes off the line rather than at the end', () => {
         const w = world()
         // No workers: nothing eats the bread while the line is running, so the
         // only thing that can change the stock is the batch landing.
@@ -454,13 +473,36 @@ describe('refinery and research queues', () => {
         })
         const before = state.resources.bread ?? 0
 
+        // Halfway through a two-batch run, the first batch is made and in the
+        // storehouse; the job keeps only the work still outstanding.
         advance(state, w, NOW + 30_000)
         expect(state.refineJobs).toHaveLength(1)
-        expect(state.resources.bread).toBe(before)
+        expect(state.refineJobs[0]!.batches).toBe(1)
+        expect(state.resources.bread).toBe(before + recipe.outputCount)
 
         advance(state, w, NOW + 90_000)
         expect(state.refineJobs).toHaveLength(0)
         expect(state.resources.bread).toBe(before + recipe.outputCount * 2)
+    })
+
+    it('pays nothing out before the first batch is finished', () => {
+        const w = world()
+        const state = createInitialState('refinery-early', NOW)
+
+        const recipe = RECIPES.find(r => r.id === 'refine_bread')!
+        state.refineJobs.push({
+            id: 'job-1',
+            recipeId: recipe.id,
+            batches: 2,
+            line: 0,
+            startedAt: NOW,
+            doneAt: NOW + 60_000
+        })
+        const before = state.resources.bread ?? 0
+
+        advance(state, w, NOW + 20_000)
+        expect(state.refineJobs[0]!.batches).toBe(2)
+        expect(state.resources.bread).toBe(before)
     })
 
     it('completes a research job on time and only once', () => {

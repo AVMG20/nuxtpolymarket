@@ -1,5 +1,7 @@
 import {
     BASE_HARVEST_SECONDS,
+    BASE_NODE_CAPACITY,
+    nodeHarvestSpeed,
     RECIPES,
     BASE_TRAVEL_SPEED,
     FOOD_PER_PROVISION,
@@ -381,7 +383,12 @@ export function advance(state: CaravanState, world: World, now: number): Advance
                 const node = graph.nodeById.get(destination)
                 if (node?.kind === 'resource') {
                     const richness = nodeRichness(state, node, at, bonuses.regenRate)
-                    const seconds = safeSeconds((stats.carry * BASE_HARVEST_SECONDS) / (stats.strength * richness))
+                    // A widened seam is quicker to work as well as roomier, so
+                    // the upgrade pays even on a node you cannot spare hands for.
+                    const width = state.nodeCapacity?.[destination] ?? BASE_NODE_CAPACITY
+                    const seconds = safeSeconds(
+                        (stats.carry * BASE_HARVEST_SECONDS) / (stats.strength * richness * nodeHarvestSpeed(width))
+                    )
                     worker.activity = { type: 'harvest', at: destination, startedAt: at, doneAt: at + seconds * 1000 }
                     return true
                 }
@@ -544,20 +551,31 @@ export function advance(state: CaravanState, world: World, now: number): Advance
         if (state.refineJobs?.length) {
             const remaining: typeof state.refineJobs = []
             for (const job of state.refineJobs) {
-                if (job.doneAt > at) {
-                    remaining.push(job)
-                    continue
-                }
                 const recipe = RECIPES.find(r => r.id === job.recipeId)
-                if (recipe) {
+                const finished = job.doneAt <= at
+                // Batches come off the line one at a time, so a run of five
+                // hundred loaves should not sit behind its own tail. Whatever
+                // has actually been made is in the storehouse; the job keeps
+                // only the work still outstanding.
+                const perBatch = Math.max(1, (job.doneAt - job.startedAt) / Math.max(1, job.batches))
+                const done = finished
+                    ? job.batches
+                    : Math.max(0, Math.min(job.batches, Math.floor((at - job.startedAt) / perBatch)))
+
+                if (done > 0 && recipe) {
                     state.resources[recipe.output] =
-                        (state.resources[recipe.output] ?? 0) + recipe.outputCount * job.batches
+                        (state.resources[recipe.output] ?? 0) + recipe.outputCount * done
                     push({
-                        at: job.doneAt,
+                        at: Math.min(at, job.startedAt + done * perBatch),
                         kind: 'refined',
-                        text: `${recipe.outputCount * job.batches} ${RESOURCES[recipe.output]?.name ?? recipe.output} came off the line`
+                        text: `${recipe.outputCount * done} ${RESOURCES[recipe.output]?.name ?? recipe.output} came off the line`
                     })
                 }
+
+                if (finished) continue
+                job.batches -= done
+                job.startedAt += done * perBatch
+                remaining.push(job)
             }
             state.refineJobs = remaining
         }

@@ -1,23 +1,24 @@
 <script setup lang="ts">
 import {
     BASE_NODE_CAPACITY, CATEGORIES, CATEGORY_COLORS, CATEGORY_ICONS, CATEGORY_NAMES,
-    MAX_NODE_CAPACITY, MAX_ROAD_LEVEL,
-    RESOURCES, ROAD_COLORS, ROAD_NAMES, TIERS, capacityCoinCost, capacityResourceCost, capacityUpgradeTier,
-    nodeCost, roadCost, roadResourceCost, roadSpeedMultiplier, roadUpgradeTier
+    MAX_NODE_CAPACITY,
+    RESOURCES, ROAD_COLORS, ROAD_LINKED_COLOR, ROAD_NAMES, ROAD_UNLINKED_COLOR, TIERS,
+    capacityCoinCost, capacityResourceCost, capacityUpgradeTier,
+    nodeCost, nodeHarvestSpeed
 } from '#shared/utils/caravan/config'
 import { homeDistanceMap, nodeRichness, partyPower, projectRates } from '#shared/utils/caravan/sim'
 import { isReachable } from '#shared/utils/caravan/world'
 import { combatPower, derivedStats, isSpecialist } from '#shared/utils/caravan/workers'
-import type { NodeId, Worker } from '#shared/utils/caravan/types'
+import type { NodeId } from '#shared/utils/caravan/types'
 
 /**
- * The map screen. The Pixi canvas fills the viewport; every interaction opens
- * the same right-hand drawer, which re-skins itself for whatever was clicked.
+ * The map screen. The Pixi canvas fills the viewport; clicking a node opens the
+ * right-hand drawer, clicking a road opens the road panel.
  */
 
 const {
     state, world, events, serverNow, bonuses,
-    purchaseNode, upgradeRoad, assault, upgradeCapacity, recallNode, assignWorkers, fillNode
+    purchaseNode, assault, upgradeCapacity, recallNode, assignWorkers, fillNode
 } = useCaravan()
 const { user } = useAuth()
 
@@ -26,8 +27,10 @@ const selectedEdge = ref<string | null>(null)
 const mapRef = ref<{ fitToTerritory: () => void, focusNode: (id: NodeId) => void } | null>(null)
 const party = ref<string[]>([])
 
+// The drawer is the node panel. A road is a different kind of thing and opens
+// its own modal, so clicking one no longer re-skins whatever seam you had open.
 const drawerOpen = computed({
-    get: () => selectedNode.value !== null || selectedEdge.value !== null,
+    get: () => selectedNode.value !== null,
     set: (value: boolean) => { if (!value) clearSelection() }
 })
 
@@ -153,30 +156,43 @@ const canWiden = computed(() => {
  * moving a specialist across the map is one click and not a hunt.
  */
 const assignable = computed(() => {
-    if (!state.value || !node.value || node.value.kind !== 'resource') return []
+    if (!state.value || !bonuses.value || !node.value || node.value.kind !== 'resource') return []
     const nodeId = node.value.id
     return state.value.workers
         .filter(w => w.assignment !== nodeId)
         .map(worker => ({
             worker,
+            // `label` is what the menu types against, so searching is searching
+            // by name without any extra filter wiring.
+            label: worker.name,
+            stats: derivedStats(worker, state.value!.items, bonuses.value!),
             specialist: isSpecialist(worker, node.value!.resource),
             posted: worker.assignment === null ? null : world.value.nodes[worker.assignment]?.name ?? null,
             busy: worker.activity.type === 'assault'
         }))
+        .map(entry => ({ ...entry, disabled: entry.busy }))
         .sort((a, b) =>
             Number(Boolean(a.posted)) - Number(Boolean(b.posted))
             || Number(b.specialist) - Number(a.specialist)
             || b.worker.level - a.worker.level)
 })
 
+type Assignable = (typeof assignable.value)[number]
+
 const idleCount = computed(() => (state.value?.workers ?? []).filter(w => w.assignment === null).length)
 
-/** Open state for the "post someone here" list, which is long past ten workers. */
-const assigning = ref(false)
-watch(selectedNode, () => { assigning.value = false })
+/**
+ * The picker's selection is never held: posting someone is an action, not a
+ * value, so the menu clears itself the moment the assignment goes through and is
+ * ready for the next name you type.
+ */
+const pick = ref<Assignable | undefined>()
+watch(selectedNode, () => { pick.value = undefined })
 
-async function post(worker: Worker) {
-    await assignWorkers([worker.id], selectedNode.value)
+async function post(entry: Assignable | undefined) {
+    pick.value = undefined
+    if (!entry) return
+    await assignWorkers([entry.worker.id], selectedNode.value)
 }
 
 /** The category of the selected seam, for the specialist hints. */
@@ -187,32 +203,6 @@ const specialistCount = computed(() =>
         ? (state.value?.workers ?? []).filter(w => isSpecialist(w, node.value!.resource)).length
         : 0
 )
-
-/** Roads leaving the selected node, with what an upgrade would buy. */
-const roads = computed(() => {
-    if (!node.value || !state.value) return []
-    return world.value.edges
-        .filter(e => e.a === node.value!.id || e.b === node.value!.id)
-        .map((edge) => {
-            const otherId = edge.a === node.value!.id ? edge.b : edge.a
-            const level = state.value!.roads[edge.id] ?? 0
-            const resources = level < MAX_ROAD_LEVEL ? roadResourceCost(level) : {}
-            return {
-                edge,
-                level,
-                other: world.value.nodes[otherId]!,
-                linked: passable.value.has(edge.a) && passable.value.has(edge.b),
-                cost: roadCost(level),
-                resources,
-                requiredTier: roadUpgradeTier(level),
-                affordable: balance.value >= roadCost(level)
-                    && Object.entries(resources).every(([id, count]) => (state.value?.resources[id] ?? 0) >= count),
-                current: roadSpeedMultiplier(level),
-                next: roadSpeedMultiplier(level + 1)
-            }
-        })
-        .sort((a, b) => a.edge.length - b.edge.length)
-})
 
 const partyPowerTotal = computed(() => (state.value ? partyPower(state.value, party.value) : 0))
 
@@ -309,7 +299,13 @@ const legend = [
 ] as const
 
 /** Road stages, so the colours on the map mean something without hovering. */
-const roadStages = ROAD_NAMES.map((name, level) => ({ name, level, color: ROAD_COLORS[level]! }))
+const roadStages = ROAD_NAMES.map((name, level) => ({
+    name,
+    level,
+    // Stage zero on the legend is the track you own, since the unowned one is
+    // its own entry below rather than a rung on this ladder.
+    color: level === 0 ? ROAD_LINKED_COLOR : ROAD_COLORS[level]!
+}))
 
 /** The trade colours used for node marks, so the map can be read at a glance. */
 const trades = CATEGORIES.map(category => ({
@@ -565,6 +561,10 @@ onBeforeUnmount(() => {
                     <span>{{ roadStages[0]!.name }}</span>
                     <span>{{ roadStages[roadStages.length - 1]!.name }}</span>
                 </div>
+                <div class="flex items-center gap-2 pt-0.5 text-[10px] text-muted">
+                    <span class="h-1 w-6 shrink-0 rounded-full" :style="{ backgroundColor: ROAD_UNLINKED_COLOR }" />
+                    <span>Only one end is yours</span>
+                </div>
             </div>
 
             <div class="space-y-1 border-t border-default/40 pt-1.5">
@@ -743,9 +743,14 @@ onBeforeUnmount(() => {
                             <div class="space-y-2">
                                 <div class="flex items-center justify-between">
                                     <span class="text-xs font-medium uppercase tracking-wide text-muted">Crew</span>
-                                    <span class="font-mono text-sm">
-                                        <span :class="workingHere.length >= capacity ? 'text-warning' : 'text-default'">{{ workingHere.length }}</span>
-                                        <span class="text-muted"> / {{ capacity }}</span>
+                                    <span class="flex items-baseline gap-2 font-mono text-sm">
+                                        <span v-if="capacityLevel > BASE_NODE_CAPACITY" class="text-[11px] text-success">
+                                            ×{{ nodeHarvestSpeed(capacityLevel).toFixed(2) }} cutting
+                                        </span>
+                                        <span>
+                                            <span :class="workingHere.length >= capacity ? 'text-warning' : 'text-default'">{{ workingHere.length }}</span>
+                                            <span class="text-muted"> / {{ capacity }}</span>
+                                        </span>
                                     </span>
                                 </div>
 
@@ -792,17 +797,63 @@ onBeforeUnmount(() => {
                                     </div>
                                 </div>
 
+                                <!-- Posting someone is picking a name, not scrolling a
+                                     roster: past ten workers you know who you want and
+                                     typing two letters beats hunting for the row. -->
+                                <UInputMenu
+                                    v-model="pick"
+                                    :items="assignable"
+                                    :disabled="!assignable.length || workingHere.length >= capacity"
+                                    icon="i-lucide-user-plus"
+                                    size="sm"
+                                    class="w-full"
+                                    :placeholder="workingHere.length >= capacity
+                                        ? 'The seam is full'
+                                        : assignable.length
+                                            ? `Post a worker to ${node.name}…`
+                                            : 'Everyone is already on this seam'"
+                                    :ui="{ content: 'min-w-(--reka-popper-anchor-width)' }"
+                                    @update:model-value="post"
+                                >
+                                    <template #item="{ item }">
+                                        <div class="flex w-full min-w-0 items-center gap-2">
+                                            <span class="size-1.5 shrink-0 rounded-full" :style="{ backgroundColor: TIERS[item.worker.tier - 1]?.color }" />
+                                            <div class="min-w-0 flex-1">
+                                                <div class="flex items-center gap-1.5">
+                                                    <span class="truncate text-xs font-medium">{{ item.worker.name }}</span>
+                                                    <UIcon
+                                                        v-if="item.specialist"
+                                                        :name="nodeCategory ? CATEGORY_ICONS[nodeCategory] : 'i-lucide-star'"
+                                                        class="size-3 shrink-0"
+                                                        :style="{ color: nodeCategory ? CATEGORY_COLORS[nodeCategory] : undefined }"
+                                                    />
+                                                    <span class="shrink-0 text-[10px] text-muted">Lv {{ item.worker.level }}</span>
+                                                </div>
+                                                <!-- The three numbers that decide whether this is
+                                                     the right person for this seam. -->
+                                                <div class="mt-0.5 flex items-center gap-2.5 font-mono text-[10px] text-muted">
+                                                    <span class="flex items-center gap-0.5">
+                                                        <UIcon name="i-lucide-backpack" class="size-3" />{{ item.stats.carry }}
+                                                    </span>
+                                                    <span class="flex items-center gap-0.5">
+                                                        <UIcon name="i-lucide-dumbbell" class="size-3" />×{{ item.stats.strength.toFixed(2) }}
+                                                    </span>
+                                                    <span class="flex items-center gap-0.5">
+                                                        <UIcon name="i-lucide-footprints" class="size-3" />×{{ item.stats.speed.toFixed(2) }}
+                                                    </span>
+                                                </div>
+                                            </div>
+                                            <span
+                                                class="shrink-0 truncate text-[10px]"
+                                                :class="item.busy ? 'text-warning' : item.posted ? 'text-muted' : 'text-primary'"
+                                            >
+                                                {{ item.busy ? 'On campaign' : item.posted ?? 'Free' }}
+                                            </span>
+                                        </div>
+                                    </template>
+                                </UInputMenu>
+
                                 <div class="flex gap-1.5">
-                                    <UButton
-                                        class="flex-1"
-                                        size="xs"
-                                        icon="i-lucide-user-plus"
-                                        :label="assigning ? 'Done' : 'Post workers'"
-                                        :variant="assigning ? 'soft' : 'solid'"
-                                        :color="assigning ? 'neutral' : 'primary'"
-                                        :disabled="!assignable.length && !assigning"
-                                        @click="assigning = !assigning"
-                                    />
                                     <UTooltip :text="`Post up to ${capacity - workingHere.length} free ${idleCount === 1 ? 'worker' : 'workers'}, specialists first`">
                                         <UButton
                                             size="xs"
@@ -825,33 +876,6 @@ onBeforeUnmount(() => {
                                     />
                                 </div>
 
-                                <!-- The roster, opened on demand: at twenty workers it is
-                                     far too long to sit in the drawer permanently. -->
-                                <div v-if="assigning" class="max-h-64 space-y-1 overflow-y-auto rounded-lg border border-default/50 p-1">
-                                    <p v-if="!assignable.length" class="px-2 py-3 text-center text-xs text-muted">
-                                        Everyone you have is already on this seam.
-                                    </p>
-                                    <button
-                                        v-for="candidate in assignable"
-                                        :key="candidate.worker.id"
-                                        type="button"
-                                        class="flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition hover:bg-default/50 disabled:cursor-not-allowed disabled:opacity-40"
-                                        :disabled="candidate.busy || workingHere.length >= capacity"
-                                        @click="post(candidate.worker)"
-                                    >
-                                        <span class="size-1.5 shrink-0 rounded-full" :style="{ backgroundColor: TIERS[candidate.worker.tier - 1]?.color }" />
-                                        <span class="truncate font-medium">{{ candidate.worker.name }}</span>
-                                        <UIcon
-                                            v-if="candidate.specialist"
-                                            :name="nodeCategory ? CATEGORY_ICONS[nodeCategory] : 'i-lucide-star'"
-                                            class="size-3 shrink-0"
-                                            :style="{ color: nodeCategory ? CATEGORY_COLORS[nodeCategory] : undefined }"
-                                        />
-                                        <span class="ml-auto shrink-0 truncate text-[11px]" :class="candidate.posted ? 'text-muted' : 'text-primary'">
-                                            {{ candidate.busy ? 'On campaign' : candidate.posted ?? 'Free' }}
-                                        </span>
-                                    </button>
-                                </div>
 
                                 <p v-if="workingHere.length >= capacity" class="text-[11px] text-muted">
                                     The seam is full. Widen it to make room for another pair of hands.
@@ -861,6 +885,16 @@ onBeforeUnmount(() => {
                                     <div class="mb-2 flex items-center justify-between text-xs">
                                         <span class="text-muted">Widen to {{ capacityLevel + 1 + (bonuses?.nodeCapacity ?? 0) }}</span>
                                         <CoinBalance :value="capacityCost.coins" :danger="balance < capacityCost.coins" class="text-xs" />
+                                    </div>
+                                    <!-- Widening is worth buying on a seam you have nobody
+                                         spare for, so say what it does to the cutting itself. -->
+                                    <div class="mb-2 flex items-center gap-2 text-[11px] text-muted">
+                                        <UIcon name="i-lucide-gauge" class="size-3" />
+                                        <span>Cutting speed</span>
+                                        <span class="ml-auto font-mono">
+                                            ×{{ nodeHarvestSpeed(capacityLevel).toFixed(2) }}
+                                            <span class="text-success">→ ×{{ nodeHarvestSpeed(capacityLevel + 1).toFixed(2) }}</span>
+                                        </span>
                                     </div>
                                     <CaravanResource
                                         v-for="(count, id) in capacityCost.resources"
@@ -896,57 +930,11 @@ onBeforeUnmount(() => {
                             </div>
                         </div>
 
-                        <!-- Roads -->
-                        <div v-if="roads.length" class="space-y-2">
-                            <div class="text-xs font-medium uppercase tracking-wide text-muted">Roads</div>
-                            <div
-                                v-for="road in roads"
-                                :key="road.edge.id"
-                                class="rounded-lg border border-default/60 px-3 py-2"
-                            >
-                                <div class="flex items-start justify-between gap-2">
-                                    <div class="min-w-0">
-                                        <div class="truncate text-sm">{{ road.other.name }}</div>
-                                        <div class="text-xs text-muted">
-                                            {{ ROAD_NAMES[road.level] }} ·
-                                            <span class="text-success">×{{ road.current.toFixed(2) }}</span>
-                                            <template v-if="road.level < MAX_ROAD_LEVEL"> → ×{{ road.next.toFixed(2) }}</template>
-                                        </div>
-                                    </div>
-                                    <UBadge v-if="!road.linked" size="sm" color="neutral" variant="subtle" label="Unlinked" />
-                                    <UBadge v-else-if="road.level >= MAX_ROAD_LEVEL" size="sm" color="success" variant="subtle" label="Causeway" />
-                                </div>
-
-                                <div
-                                    v-if="road.linked && road.level < MAX_ROAD_LEVEL"
-                                    class="mt-2 space-y-1.5 border-t border-default/40 pt-2"
-                                >
-                                    <div class="flex items-center justify-between text-xs">
-                                        <span class="text-muted">Build {{ ROAD_NAMES[road.level + 1] }}</span>
-                                        <CoinBalance :value="road.cost" :danger="balance < road.cost" class="text-xs" />
-                                    </div>
-                                    <CaravanResource
-                                        v-for="(count, id) in road.resources"
-                                        :key="id"
-                                        :id="id"
-                                        :amount="count"
-                                        :have="state?.resources[id] ?? 0"
-                                        class="flex w-full justify-between"
-                                    />
-                                    <UButton
-                                        block
-                                        size="xs"
-                                        icon="i-lucide-hard-hat"
-                                        :label="(state?.tier ?? 1) < road.requiredTier ? `Requires tier ${road.requiredTier}` : 'Build'"
-                                        :disabled="!road.affordable || (state?.tier ?? 1) < road.requiredTier"
-                                        @click="upgradeRoad(road.edge.id)"
-                                    />
-                                </div>
-                            </div>
-                        </div>
                     </div>
                 </div>
             </template>
         </USlideover>
+
+        <CaravanRoadModal :edge-id="selectedEdge" @close="selectedEdge = null" />
     </div>
 </template>

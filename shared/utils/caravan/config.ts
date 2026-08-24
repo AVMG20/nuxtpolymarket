@@ -409,6 +409,16 @@ export const ROAD_NAMES = ['Dirt track', 'Gravel road', 'Cobbled road', 'Paved h
 export const ROAD_COLORS = ['#4f4b44', '#7d7568', '#a49a89', '#d2d6dd', '#f2d089'] as const
 
 /**
+ * A track between two nodes you hold is a road you own, even before you have
+ * paved a metre of it. Drawn in the same dull earth as every other track it was
+ * invisible, so an owned dirt track gets its own colour -- close enough to the
+ * road stages to read as the bottom of that ladder, far enough from the void
+ * grey that the shape of your network is obvious without hovering anything.
+ */
+export const ROAD_LINKED_COLOR = '#8ea3c0'
+export const ROAD_UNLINKED_COLOR = '#31363d'
+
+/**
  * Paving costs the refined goods of the tier matching the stage, so a highway is
  * something you build once your caravan has actually reached that far.
  */
@@ -442,8 +452,21 @@ export function roadResourceCost(level: number): Record<ResourceId, number> {
 /** Bonus harvest rate a worker gets on a seam in one of its specialties. */
 export const SPECIALTY_HARVEST_BONUS = 0.3
 
-export const BASE_NODE_CAPACITY = 3
+export const BASE_NODE_CAPACITY = 2
 export const MAX_NODE_CAPACITY = 8
+
+/**
+ * Widening a seam does not only make room for another pair of hands: the cut
+ * itself is easier to work, so everybody already standing there fills a pack
+ * faster. Without this the upgrade is dead weight on a node you have no spare
+ * workers for, which is exactly when you are looking at it.
+ */
+export const NODE_WIDEN_HARVEST_BONUS = 0.15
+
+/** Harvest speed multiplier a seam has been widened to, 1 at base width. */
+export function nodeHarvestSpeed(level: number): number {
+    return 1 + Math.max(0, level - BASE_NODE_CAPACITY) * NODE_WIDEN_HARVEST_BONUS
+}
 
 /**
  * Widening a seam costs the refined goods of ever higher tiers, so a node you

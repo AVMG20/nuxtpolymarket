@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { Application, Container, Graphics, Text } from 'pixi.js'
-import { CATEGORY_COLORS, RESOURCES, ROAD_COLORS, TIERS } from '#shared/utils/caravan/config'
+import {
+    CATEGORY_COLORS, RESOURCES, ROAD_COLORS, ROAD_LINKED_COLOR, ROAD_UNLINKED_COLOR, TIERS
+} from '#shared/utils/caravan/config'
 import { nodeRichness } from '#shared/utils/caravan/sim'
 import type { CaravanState, NodeId, World, WorldNode } from '#shared/utils/caravan/types'
 
@@ -34,6 +36,7 @@ let resizeObserver: ResizeObserver | null = null
 let camera: Container | null = null
 let backdropLayer: Graphics | null = null
 let roadLayer: Graphics | null = null
+let roadHitLayer: Container | null = null
 let nodeLayer: Container | null = null
 let workerLayer: Graphics | null = null
 let auraLayer: Graphics | null = null
@@ -81,6 +84,8 @@ const hex = (css: string) => Number.parseInt(css.replace('#', ''), 16)
  * the rest, because those are the ones you are actually steering.
  */
 const LABEL_ZOOM = 0.28
+/** Half-width of a road's clickable strip, in world units. */
+const ROAD_HIT_WIDTH = 9
 const LABEL_ZOOM_UNOWNED = 0.4
 
 const owned = computed(() => new Set(props.state?.ownedNodes ?? []))
@@ -162,8 +167,9 @@ function drawBackdrop() {
 }
 
 function drawRoads() {
-    if (!roadLayer) return
+    if (!roadLayer || !roadHitLayer) return
     roadLayer.clear()
+    roadHitLayer.removeChildren()
     for (const edge of props.world.edges) {
         const a = props.world.nodes[edge.a]!
         const b = props.world.nodes[edge.b]!
@@ -172,15 +178,22 @@ function drawRoads() {
         const touched = passable.value.has(edge.a) || passable.value.has(edge.b)
         if (!touched) continue
 
-        const color = hex(ROAD_COLORS[Math.min(ROAD_COLORS.length - 1, level)]!)
+        // A track between two nodes you hold is yours; one dangling off the edge
+        // of your territory is scenery. Colouring those the same made the shape
+        // of the network you had actually bought impossible to see.
+        const color = !linked
+            ? hex(ROAD_UNLINKED_COLOR)
+            : level === 0
+                ? hex(ROAD_LINKED_COLOR)
+                : hex(ROAD_COLORS[Math.min(ROAD_COLORS.length - 1, level)]!)
 
         // Each stage of road gets its own treatment rather than just a thicker
         // line: a dirt track is a hairline, a causeway is a bordered double
         // carriageway. Paving is expensive, so it should visibly change the map.
         if (!linked) {
-            roadLayer.moveTo(a.x, a.y).lineTo(b.x, b.y).stroke({ width: 1, color, alpha: 0.18 })
+            roadLayer.moveTo(a.x, a.y).lineTo(b.x, b.y).stroke({ width: 1, color, alpha: 0.5 })
         } else if (level === 0) {
-            roadLayer.moveTo(a.x, a.y).lineTo(b.x, b.y).stroke({ width: 1.2, color, alpha: 0.3 })
+            roadLayer.moveTo(a.x, a.y).lineTo(b.x, b.y).stroke({ width: 2.2, color, alpha: 0.55 })
         } else if (level === 1) {
             roadLayer.moveTo(a.x, a.y).lineTo(b.x, b.y).stroke({ width: 2.4, color, alpha: 0.42 })
         } else if (level === 2) {
@@ -215,6 +228,26 @@ function drawRoads() {
         if (props.selectedEdge === edge.id) {
             roadLayer.moveTo(a.x, a.y).lineTo(b.x, b.y).stroke({ width: 10, color: 0xffffff, alpha: 0.12 })
         }
+
+        // A hairline is impossible to hit with a mouse, so every road carries an
+        // invisible strip wide enough to click. It sits under the node layer, so
+        // a road ending at a node never steals that node's click.
+        const dx = b.x - a.x
+        const dy = b.y - a.y
+        const span = Math.max(1, Math.hypot(dx, dy))
+        const nx = (-dy / span) * ROAD_HIT_WIDTH
+        const ny = (dx / span) * ROAD_HIT_WIDTH
+        const hit = new Graphics()
+        hit.poly([
+            a.x + nx, a.y + ny,
+            b.x + nx, b.y + ny,
+            b.x - nx, b.y - ny,
+            a.x - nx, a.y - ny
+        ]).fill({ color: 0xffffff, alpha: 0.001 })
+        hit.eventMode = 'static'
+        hit.cursor = 'pointer'
+        hit.on('pointertap', () => { if (dragMoved < 6) emit('selectEdge', edge.id) })
+        roadHitLayer.addChild(hit)
     }
 }
 
@@ -258,8 +291,10 @@ function drawNodes() {
             continue
         }
 
-        // A single soft halo. Two stacked ones read as bloom, not depth.
-        g.circle(0, 0, radius + 14).fill({ color: glow, alpha: isOwned ? 0.12 : frontier ? 0.05 : 0.02 })
+        // A single soft halo. Two stacked ones read as bloom, not depth. Owned
+        // nodes carry a much stronger one -- which of these hundred and twenty
+        // dots are actually yours is the question the map is asked most often.
+        g.circle(0, 0, radius + 14).fill({ color: glow, alpha: isOwned ? 0.22 : frontier ? 0.04 : 0.015 })
 
         if (node.kind === 'camp' && !isCleared) {
             // Camps are drawn as a spiked ring so they read as a wall, not a prize.
@@ -267,14 +302,19 @@ function drawNodes() {
             g.regularPoly(0, 0, radius, 3, Math.PI / 2).stroke({ width: 3, color: 0xe0384f, alpha: 0.9 })
         } else if (node.kind === 'capital') {
             g.circle(0, 0, radius).fill({ color: 0x14171d, alpha: 0.98 })
-            g.circle(0, 0, radius).stroke({ width: 4, color: isOwned ? glow : 0x6b7280, alpha: isOwned ? 1 : 0.6 })
-            g.regularPoly(0, 0, radius * 0.52, 4, Math.PI / 4).fill({ color: isOwned ? glow : 0x6b7280, alpha: 0.95 })
+            if (isOwned) g.circle(0, 0, radius).fill({ color, alpha: 0.3 })
+            g.circle(0, 0, radius).stroke({ width: isOwned ? 4 : 2, color: isOwned ? glow : 0x555b66, alpha: isOwned ? 1 : 0.5 })
+            g.regularPoly(0, 0, radius * 0.52, 4, Math.PI / 4).fill({ color: isOwned ? glow : 0x555b66, alpha: isOwned ? 1 : 0.7 })
         } else {
+            // Yours is filled and brightly ringed; everything else is a hollow
+            // outline. A four-pixel stroke against a two-and-a-half pixel one
+            // was not a difference anybody could see at map zoom.
             g.circle(0, 0, radius).fill({ color: 0x12151b, alpha: 0.98 })
+            if (isOwned) g.circle(0, 0, radius).fill({ color, alpha: 0.3 })
             g.circle(0, 0, radius).stroke({
-                width: isOwned ? 4 : 2.5,
-                color: isOwned ? color : frontier ? 0x8b93a1 : 0x3d434c,
-                alpha: isOwned ? 1 : frontier ? 0.9 : 0.6
+                width: isOwned ? 4 : 2,
+                color: isOwned ? glow : frontier ? 0x767d8a : 0x3d434c,
+                alpha: isOwned ? 1 : frontier ? 0.7 : 0.45
             })
             const slot = resourceSlot(node)
             const mark = glyphColor(node)
@@ -292,6 +332,12 @@ function drawNodes() {
             if (node.gemYield) {
                 g.circle(0, 0, radius + 4).stroke({ width: 1.5, color: hex(CATEGORY_COLORS.gem), alpha: 0.85 })
             }
+        }
+
+        // An outer band on everything you hold, capitals included, so ownership
+        // survives being read at a glance from across the map.
+        if (isOwned) {
+            g.circle(0, 0, radius + 4.5).stroke({ width: 1.5, color: glow, alpha: 0.4 })
         }
 
         if (props.selectedNode === node.id) {
@@ -506,10 +552,11 @@ async function boot() {
     camera = new Container()
     backdropLayer = new Graphics()
     roadLayer = new Graphics()
+    roadHitLayer = new Container()
     auraLayer = new Graphics()
     nodeLayer = new Container()
     workerLayer = new Graphics()
-    camera.addChild(backdropLayer, roadLayer, auraLayer, nodeLayer, workerLayer)
+    camera.addChild(backdropLayer, roadLayer, roadHitLayer, auraLayer, nodeLayer, workerLayer)
     app.stage.addChild(camera)
 
     app.stage.eventMode = 'static'

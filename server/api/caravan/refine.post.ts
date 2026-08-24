@@ -34,9 +34,28 @@ export default defineEventHandler(async (event) => {
 
         const bonuses = bonusesFor(state)
         const lines = BASE_REFINERY_LINES + bonuses.refineryLines
+
+        const now = Date.now()
+        const seconds = effectiveRefineSeconds(recipe.tier, bonuses.refineSpeed) * batches
+        const slot = scheduleRefineJob(state.refineJobs, lines, now, seconds)
+
+        // Asking for more of what is already on the line is more of that batch,
+        // not a second card in the queue -- otherwise tapping bread five times
+        // reads as five separate orders that all land at the same moment. Only
+        // merge when the batch would have had to wait anyway: with a line
+        // standing idle a separate job runs in parallel and lands sooner.
+        const mergeInto = slot.startedAt > now
+            ? state.refineJobs
+                .filter(job => job.recipeId === recipeId
+                    // Extending a job with something queued behind it on the same
+                    // line would run the two on top of each other.
+                    && state.refineJobs.every(other => other.line !== job.line || other.doneAt <= job.doneAt))
+                .sort((a, b) => a.doneAt - b.doneAt)[0] ?? null
+            : null
+
         // Lines govern how fast the backlog clears, never whether you may add to
         // it -- a full queue just means the last batch lands later.
-        if (state.refineJobs.length >= MAX_REFINERY_QUEUE) {
+        if (!mergeInto && state.refineJobs.length >= MAX_REFINERY_QUEUE) {
             throw createError({ statusCode: 400, statusMessage: 'The queue is full' })
         }
 
@@ -49,15 +68,17 @@ export default defineEventHandler(async (event) => {
         // makes choosing between two recipes actually cost something.
         spendResources(state, cost)
 
-        const now = Date.now()
-        const seconds = effectiveRefineSeconds(recipe.tier, bonuses.refineSpeed) * batches
-        const slot = scheduleRefineJob(state.refineJobs, lines, now, seconds)
-        state.refineJobs.push({
-            id: `rf_${now.toString(36)}_${state.refineJobs.length}`,
-            recipeId,
-            batches,
-            ...slot
-        })
+        if (mergeInto) {
+            mergeInto.batches += batches
+            mergeInto.doneAt += seconds * 1000
+        } else {
+            state.refineJobs.push({
+                id: `rf_${now.toString(36)}_${state.refineJobs.length}`,
+                recipeId,
+                batches,
+                ...slot
+            })
+        }
     })
 
     return caravanResponse(ctx)
