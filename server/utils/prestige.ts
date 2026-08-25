@@ -41,6 +41,32 @@ export const PRESTIGE_PRESERVED_TABLES = new Set([
     'live_blackjack_wagers'
 ])
 
+/**
+ * Table-name prefixes that survive a prestige wholesale.
+ *
+ * A prefix is a much blunter instrument than the table list above, and it
+ * deliberately gives up the "a new table is wiped from the day it ships"
+ * property for everything under it. That trade is only worth making for a
+ * game that is exempt as a whole rather than table by table — where the
+ * inverted failure mode ("someone adds tcg_foo and forgets to preserve it,
+ * so it silently vanishes on the next ascent") is the one that actually
+ * bites.
+ *
+ * `tcg_` is exempt because a card collection is not run progress. Cards are
+ * bought, opened, graded, traded and displayed as durable property, and the
+ * market prices them across accounts — a binder is closer to an emblem than
+ * to a miner rig. Wiping it on ascent would also strand copies mid-grade and
+ * empty every binder while leaving the cards themselves behind (they hang off
+ * `owner_id`, which this scan never sees), which is the worst of both worlds.
+ */
+export const PRESTIGE_PRESERVED_PREFIXES = ['tcg_']
+
+/** Whether `table` survives a prestige, by either rule. */
+export function isPrestigePreserved(table: string): boolean {
+    return PRESTIGE_PRESERVED_TABLES.has(table)
+        || PRESTIGE_PRESERVED_PREFIXES.some(prefix => table.startsWith(prefix))
+}
+
 const SAFE_TABLE_NAME = /^[a-z_][a-z0-9_]*$/
 
 export interface PrestigeBlocker {
@@ -66,7 +92,7 @@ export async function prestigeWipeTables(ex: DbExecutor = db): Promise<string[]>
 
     return result.rows
         .map(row => row.table_name)
-        .filter(name => !PRESTIGE_PRESERVED_TABLES.has(name) && SAFE_TABLE_NAME.test(name))
+        .filter(name => !isPrestigePreserved(name) && SAFE_TABLE_NAME.test(name))
 }
 
 /**
