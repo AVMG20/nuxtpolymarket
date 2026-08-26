@@ -6,6 +6,7 @@ import type {
 } from '#shared/types/pathwarden-save'
 import type { FirewallRunSave } from '#shared/utils/gamelogic/firewall'
 import type { CallOfXenoRunSave } from '#shared/utils/gamelogic/call-of-xeno-save'
+import type { CaravanState } from '#shared/utils/caravan/types'
 
 export const user = pgTable('user', {
   id: text('id').primaryKey(),
@@ -926,4 +927,32 @@ export const accountRelations = relations(account, ({ one }) => ({
     fields: [account.userId],
     references: [user.id]
   })
+}))
+
+/**
+ * Caravan keeps its whole world in one jsonb blob. The simulation touches almost
+ * every field of it on every catch-up, so splitting workers, items and node
+ * depletion into their own tables would only buy us a fan-out of writes on every
+ * single request. One row, one read, one write.
+ *
+ * `revision` is the concurrency guard: every save bumps it and every update is
+ * conditional on the value that was read, so two requests racing to advance the
+ * same caravan cannot both apply. It is an integer on purpose -- a timestamp
+ * column would silently never match, because Postgres keeps microseconds and the
+ * driver hands back a millisecond-precision Date.
+ */
+export const caravanState = pgTable('caravan_state', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().unique().references(() => user.id, { onDelete: 'cascade' }),
+  data: jsonb('data').$type<CaravanState>().notNull(),
+  lastTick: bigint('last_tick', { mode: 'number' }).notNull().default(0),
+  revision: integer('revision').notNull().default(0),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow()
+}, table => [
+  index('caravan_state_user_id_idx').on(table.userId)
+])
+
+export const caravanStateRelations = relations(caravanState, ({ one }) => ({
+  user: one(user, { fields: [caravanState.userId], references: [user.id] })
 }))
