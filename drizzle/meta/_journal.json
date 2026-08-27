@@ -71,6 +71,13 @@
       "when": 1787080202877,
       "tag": "0009_unknown_lockjaw",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1787672316604,
+      "tag": "0010_tcg_module",
+      "breakpoints": true
     }
   ]
 }
