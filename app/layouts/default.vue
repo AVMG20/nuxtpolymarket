@@ -48,7 +48,8 @@ const activeGameItems: NavigationMenuItem[] = [
   { label: 'Pirate Raid', class: 'mb-1', icon: 'i-lucide-anchor', to: '/pirates' },
   { label: 'SHAPEZZ', class: 'mb-1', icon: 'i-lucide-shapes', to: '/shapezz' },
   { label: 'Call of Xeno', class: 'mb-1', icon: 'i-lucide-skull', to: '/call-of-xeno' },
-  { label: 'Firewall', class: 'mb-1', icon: 'i-lucide-shield-half', to: '/firewall' }
+  { label: 'Firewall', class: 'mb-1', icon: 'i-lucide-shield-half', to: '/firewall' },
+  { label: 'TCG', class: 'mb-1', icon: 'i-lucide-layers', to: '/tcg' }
 ]
 
 const slotItems: NavigationMenuItem[] = [
@@ -70,6 +71,10 @@ const casinoItems: NavigationMenuItem[] = [
   { label: 'Baccarat', class: 'mb-1', icon: 'i-lucide-diamond', to: '/games/baccarat' },
   { label: 'Three Card Poker', class: 'mb-1', icon: 'i-lucide-gem', to: '/games/three-card-poker' },
   { label: 'Casino Hold\'em', class: 'mb-1', icon: 'i-lucide-club', to: '/games/casino-holdem' }
+]
+
+const adminItems: NavigationMenuItem[] = [
+  { label: 'TCG Admin', class: 'mb-1', icon: 'i-lucide-layers', to: '/tcg-admin' }
 ]
 
 const primaryColors = [
@@ -257,6 +262,22 @@ const globalSearch = useGlobalSearch()
           :items="slotItems"
           orientation="vertical"
         />
+
+        <template v-if="user?.isPokemonAdmin">
+          <USeparator class="my-3" />
+
+          <p
+            v-if="state !== 'collapsed'"
+            class="text-xs font-semibold text-muted uppercase tracking-wider px-2 mb-1"
+          >
+            Admin
+          </p>
+          <UNavigationMenu
+            :collapsed="state === 'collapsed'"
+            :items="adminItems"
+            orientation="vertical"
+          />
+        </template>
       </template>
 
       <!-- Footer -->

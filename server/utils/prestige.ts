@@ -1,6 +1,6 @@
-import { and, eq, sql } from 'drizzle-orm'
+import { and, eq, or, sql } from 'drizzle-orm'
 import { db, type DbExecutor } from '#server/database'
-import { bankState, liveBlackjackWagers, transactions, user } from '#server/database/schema'
+import { bankState, liveBlackjackWagers, tcgAuction, tcgBuyOrder, tcgListing, tcgLot, transactions, user } from '#server/database/schema'
 import { nextPrestigeTier, type PrestigeTier } from '#shared/utils/prestige'
 
 /**
@@ -41,10 +41,39 @@ export const PRESTIGE_PRESERVED_TABLES = new Set([
     'live_blackjack_wagers'
 ])
 
+/**
+ * Table-name prefixes that survive a prestige wholesale.
+ *
+ * A prefix is a much blunter instrument than the table list above, and it
+ * deliberately gives up the "a new table is wiped from the day it ships"
+ * property for everything under it. That trade is only worth making for a
+ * game that is exempt as a whole rather than table by table — where the
+ * inverted failure mode ("someone adds tcg_foo and forgets to preserve it,
+ * so it silently vanishes on the next ascent") is the one that actually
+ * bites.
+ *
+ * `tcg_` is exempt because a card collection is not run progress. Cards are
+ * bought, opened, graded, traded and displayed as durable property, and the
+ * market prices them across accounts — a binder is closer to an emblem than
+ * to a miner rig. Wiping it on ascent would also strand copies mid-grade and
+ * empty every binder while leaving the cards themselves behind (they hang off
+ * `owner_id`, which this scan never sees), which is the worst of both worlds.
+ *
+ * The coin side is NOT exempt: escrowed coins that would otherwise ride
+ * through a reset are handled by prestigeBlockers, not by this list.
+ */
+export const PRESTIGE_PRESERVED_PREFIXES = ['tcg_']
+
+/** Whether `table` survives a prestige, by either rule. */
+export function isPrestigePreserved(table: string): boolean {
+    return PRESTIGE_PRESERVED_TABLES.has(table)
+        || PRESTIGE_PRESERVED_PREFIXES.some(prefix => table.startsWith(prefix))
+}
+
 const SAFE_TABLE_NAME = /^[a-z_][a-z0-9_]*$/
 
 export interface PrestigeBlocker {
-    code: 'loan' | 'live-wager'
+    code: 'loan' | 'live-wager' | 'tcg-buy-order' | 'tcg-sale' | 'tcg-auction'
     message: string
 }
 
@@ -66,13 +95,14 @@ export async function prestigeWipeTables(ex: DbExecutor = db): Promise<string[]>
 
     return result.rows
         .map(row => row.table_name)
-        .filter(name => !PRESTIGE_PRESERVED_TABLES.has(name) && SAFE_TABLE_NAME.test(name))
+        .filter(name => !isPrestigePreserved(name) && SAFE_TABLE_NAME.test(name))
 }
 
 /**
- * Reasons this account cannot prestige right now. Both are cases where wiping
- * would either destroy money the server still owes the player or erase a debt
- * the player still owes the server.
+ * Reasons this account cannot prestige right now. Every one is a case where
+ * wiping would destroy money the server still owes the player, erase a debt
+ * the player still owes the server, or carry coins through a reset that is
+ * supposed to burn them.
  */
 export async function prestigeBlockers(userId: string, ex: DbExecutor = db): Promise<PrestigeBlocker[]> {
     const blockers: PrestigeBlocker[] = []
@@ -95,6 +125,65 @@ export async function prestigeBlockers(userId: string, ex: DbExecutor = db): Pro
         blockers.push({
             code: 'live-wager',
             message: 'Finish your live blackjack round before prestiging — you still have chips on the table.'
+        })
+    }
+
+    // ── Card-market escrow ────────────────────────────────────────────────
+    //
+    // The wipe burns the wallet, but every one of these surfaces is a coin
+    // claim parked OUTSIDE it: cancel or settle after the ascent and the
+    // payout lands in the fresh wallet, handing back exactly what the reset
+    // was supposed to take. Refusing to ascend is the fix — unwinding them
+    // first refunds into the old balance, which the wipe then burns like any
+    // other coin.
+    //
+    // Only `tcg_buy_orders` is newly exposed by the `tcg_` exemption; the
+    // rest hang off `seller_id`/`bidder_id`, which the `user_id` scan never
+    // reached, so they have been riding through resets since the market
+    // shipped.
+
+    const [order] = await ex.select({ id: tcgBuyOrder.id })
+        .from(tcgBuyOrder)
+        .where(and(eq(tcgBuyOrder.userId, userId), eq(tcgBuyOrder.status, 'open')))
+        .limit(1)
+    if (order) {
+        blockers.push({
+            code: 'tcg-buy-order',
+            message: 'Cancel your open card buy orders before prestiging — they hold escrowed coins that would otherwise survive the reset.'
+        })
+    }
+
+    // A live listing or bulk lot pays its seller whenever a buyer turns up,
+    // which may well be after the ascent.
+    const [listing] = await ex.select({ id: tcgListing.id })
+        .from(tcgListing)
+        .where(and(eq(tcgListing.sellerId, userId), eq(tcgListing.state, 'active')))
+        .limit(1)
+    const [lot] = await ex.select({ id: tcgLot.id })
+        .from(tcgLot)
+        .where(and(eq(tcgLot.sellerId, userId), eq(tcgLot.state, 'active')))
+        .limit(1)
+    if (listing || lot) {
+        blockers.push({
+            code: 'tcg-sale',
+            message: 'Cancel your card listings and bulk lots before prestiging — a sale after the reset would pay the proceeds into your new balance.'
+        })
+    }
+
+    // Both sides of a live auction are a claim: the seller collects on
+    // settlement, and the leading bidder's escrowed bid comes back if they
+    // are outbid or the auction is cancelled.
+    const [auction] = await ex.select({ id: tcgAuction.id })
+        .from(tcgAuction)
+        .where(and(
+            eq(tcgAuction.state, 'active'),
+            or(eq(tcgAuction.sellerId, userId), eq(tcgAuction.currentBidderId, userId))
+        ))
+        .limit(1)
+    if (auction) {
+        blockers.push({
+            code: 'tcg-auction',
+            message: 'Settle your live auctions before prestiging — a pending sale or a leading bid would pay out into your new balance.'
         })
     }
 
