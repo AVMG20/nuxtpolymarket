@@ -11,7 +11,7 @@
 // Once settled the live TcgCard mounts over the image; closing runs the same
 // trip in reverse and emits `close` when the wrapper is back on the tile.
 
-import type { TcgCopySummary, TcgWearSpec, TcgChainEntry, TcgSaleRow, TcgGradePayload } from '#shared/types/tcg'
+import type { TcgCopySummary, TcgWearSpec, TcgChainEntry, TcgSaleRow, TcgGradePayload, TcgRealPrice } from '#shared/types/tcg'
 import type { TcgServiceKey } from '~/utils/tcg/slab'
 import { buildSlabInfo, type SlabCardMeta } from '~/utils/tcg/slab-info'
 import { isTcgService } from '#shared/utils/tcg/grading-fees'
@@ -359,10 +359,15 @@ const emitClose = () => emit('close')
 // Ownership chain + recent sales, fetched once the zoom settles.
 const chain = ref<TcgChainEntry[] | null>(null)
 const sales = ref<TcgSaleRow[] | null>(null)
+// What the card goes for in the real world, under the caption. Tokened
+// because a fast A→B reopen would otherwise let A's reply land on B.
+const realPrice = ref<TcgRealPrice | null>(null)
+let priceToken = 0
 watch([phase, () => props.card], ([ph]) => {
     if (ph !== 'open' || !props.card) return
     chain.value = null
     sales.value = null
+    realPrice.value = null
     const copyId = props.card.copyId ?? activeCopyId.value
     if (props.card.listing && copyId) {
         apiFetch<TcgChainEntry[]>('/api/tcg/market/chain', { query: { copyId } })
@@ -377,7 +382,29 @@ watch([phase, () => props.card], ([ph]) => {
                 sales.value = res.slice(0, 5)
             })
             .catch(() => {})
+        const t = ++priceToken
+        apiFetch<{ price: TcgRealPrice | null }>('/api/tcg/price', { query: { printingId: props.card.printingId } })
+            .then((res) => {
+                if (t === priceToken) realPrice.value = res.price
+            })
+            .catch(() => {})
     }
+})
+
+// Both currencies when the sidecar has both — this is the real-world sticker
+// price, deliberately never rendered in the coin style the rest of the
+// overlay uses, so it cannot read as an in-game amount.
+const realPriceLabel = computed(() => {
+    const price = realPrice.value
+    if (!price) return null
+    return [
+        price.usd != null ? `$${price.usd.toFixed(2)}` : null,
+        price.eur != null ? `€${price.eur.toFixed(2)}` : null
+    ].filter(Boolean).join(' · ')
+})
+const realPriceTitle = computed(() => {
+    const at = realPrice.value?.updatedAt
+    return at ? `Real-world price, updated ${new Date(at).toLocaleDateString()}` : 'Real-world price'
 })
 
 // Buy: two-step arm, real money moves.
@@ -868,6 +895,18 @@ onBeforeUnmount(() => {
                     class="font-mono text-xs tabular-nums text-neutral-400"
                 >
                     {{ card.serial }}
+                </div>
+                <div
+                    v-if="realPriceLabel"
+                    class="flex items-center gap-1.5 text-xs text-neutral-400"
+                    :title="realPriceTitle"
+                >
+                    <UIcon
+                        name="i-lucide-globe"
+                        class="size-3.5 shrink-0 text-neutral-500"
+                    />
+                    <span class="text-neutral-500">real-world</span>
+                    <span class="font-mono tabular-nums text-neutral-300">{{ realPriceLabel }}</span>
                 </div>
                 <!-- Serial chips: one per owned copy of this printing; picking
                      one re-fetches its wear while the card stays mounted. -->
