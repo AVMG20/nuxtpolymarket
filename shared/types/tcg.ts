@@ -514,6 +514,18 @@ export interface TcgListingSummary {
     grade: TcgGradePayload | null
 }
 
+/**
+ * What a printing costs in the real world, as the pokemonplaatjes sidecar
+ * reports it. Purely informational — the in-game economy is Coins, and the
+ * only place a real price binds anything is the vendor buyback (§7.4).
+ */
+export interface TcgRealPrice {
+    usd: number | null
+    eur: number | null
+    /** ISO timestamp of the source's last refresh, when it reports one. */
+    updatedAt: string | null
+}
+
 export interface TcgSaleRow {
     price: number
     soldAt: string

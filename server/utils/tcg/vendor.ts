@@ -3,7 +3,7 @@ import { db } from '#server/database'
 import { tcgCopy, tcgPrinting } from '#server/database/schema'
 import { credit } from '#server/utils/balance'
 import { lockCopyForUpdate, assertUnencumbered } from '#server/utils/tcg/market'
-import { SIDECAR_TIMEOUT_MS, sidecarFetch } from '#server/utils/tcg/sidecar'
+import { fetchCardPrice } from '#server/utils/tcg/prices'
 import { vendorPrice, TCG_VENDOR } from '#shared/utils/tcg/vendor'
 
 /*
@@ -18,25 +18,15 @@ const badRequest = (statusMessage: string): never => {
     throw createError({ statusCode: 400, statusMessage })
 }
 
-interface SidecarPrice {
-    price: { usd?: number | null, eur?: number | null } | null
-}
-
 /**
  * What the vendor will pay for this card, in Coins. Unreachable sidecar or
  * unpriced card both collapse to the 1-coin floor — the vendor always buys,
  * it just never pays more than the real world would.
  */
 export async function fetchVendorQuote(plaatjesCardId: string, apiBase: string): Promise<number> {
-    try {
-        const res = await sidecarFetch<SidecarPrice>(
-            `${apiBase}/cards/${encodeURIComponent(plaatjesCardId)}/price`,
-            { timeout: SIDECAR_TIMEOUT_MS }
-        )
-        return vendorPrice(res.price?.usd, res.price?.eur)
-    } catch {
-        return TCG_VENDOR.fallbackPrice
-    }
+    const price = await fetchCardPrice(plaatjesCardId, apiBase)
+    if (!price) return TCG_VENDOR.fallbackPrice
+    return vendorPrice(price.usd, price.eur)
 }
 
 /** The copy joined with its printing's sidecar id, for pricing a quote. */
