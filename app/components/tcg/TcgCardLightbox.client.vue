@@ -263,6 +263,12 @@ const gradeService = ref<TcgServiceKey>('PSI')
 const predicted = ref<string | undefined>(undefined)
 const submitting = ref(false)
 const gradeOptions = ['10', '9.5', '9', '8.5', '8', '7', '6', '5', '4', '3', '2', '1']
+
+// Every select in this component sits inside the lightbox's own z-[60] layer,
+// but Nuxt UI portals the dropdown to <body> with no z-index of its own — so it
+// paints, and hit-tests, under the backdrop. Clicks meant for an option land on
+// the backdrop instead and close the lightbox. Lift the popper above the layer.
+const selectUi = { content: 'z-[70]' }
 const serviceItems = computed(() => (Object.keys(SERVICES) as TcgServiceKey[]).map(key => ({
     label: `${key} — ${(SERVICES as Record<string, { name: string }>)[key]!.name}`,
     value: key
@@ -1034,6 +1040,7 @@ onBeforeUnmount(() => {
                             <USelect
                                 v-model="auctionDurationMs"
                                 :items="auctionDurations"
+                                :ui="selectUi"
                                 size="sm"
                             />
                             <div class="flex items-center justify-between">
@@ -1093,12 +1100,14 @@ onBeforeUnmount(() => {
                             <USelect
                                 v-model="gradeService"
                                 :items="serviceItems"
+                                :ui="selectUi"
                                 size="sm"
                             />
                             <USelect
                                 v-model="predicted"
                                 :items="gradeOptions"
                                 placeholder="your call on the grade"
+                                :ui="selectUi"
                                 size="sm"
                             />
                             <div class="flex items-center justify-between">
