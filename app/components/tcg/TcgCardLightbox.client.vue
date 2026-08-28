@@ -672,10 +672,14 @@ onBeforeUnmount(() => {
 
 <template>
     <Teleport to="body">
+        <!-- pointer-events-auto is not redundant: a Reka dialog (any UModal)
+             sets body { pointer-events: none } while it is open, and this
+             layer is teleported to body — without it the lightbox paints
+             above the modal but receives nothing, its close button included. -->
         <div
             v-if="card"
             class="fixed inset-0 z-[60]"
-            :class="phase === 'leaving' && 'pointer-events-none'"
+            :class="phase === 'leaving' ? 'pointer-events-none' : 'pointer-events-auto'"
         >
             <div
                 class="absolute inset-0 bg-black/85 backdrop-blur-sm transition-opacity duration-200"
