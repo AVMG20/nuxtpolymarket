@@ -1,9 +1,10 @@
 import { and, asc, desc, eq, inArray, or, sql } from 'drizzle-orm'
 import { db } from '#server/database'
-import { tcgTradeOffer, tcgTradeItem, tcgCopy, tcgCopyTransfer, tcgPrinting, tcgCard, tcgSheet, user } from '#server/database/schema'
+import { tcgTradeOffer, tcgTradeItem, tcgCopy, tcgCopyTransfer, tcgPrinting, tcgCard, tcgSet, tcgSheet, user } from '#server/database/schema'
 import { credit, debit } from '#server/utils/balance'
 import { copyEncumbrance } from '#server/utils/tcg/market'
 import { TCG_MARKET, sellerProceeds } from '#shared/utils/tcg/market'
+import type { TcgGradePayload } from '#shared/types/tcg'
 
 /*
  * Direct trades (§7.1): card-for-card ± Coins, directed at a chosen
@@ -186,16 +187,42 @@ export async function acceptOffer(userId: string, offerId: string): Promise<void
     })
 }
 
-export interface TradeItemView {
+/**
+ * Everything the trade UI needs to draw a card AND to open it in the 3D
+ * lightbox: the printing's render fields, the set/number metadata the slab
+ * label needs, and the public grade report. Condition is deliberately absent
+ * — it never leaves the server (§6.1), so a raw card in a trade reads as
+ * unknown exactly like one on the market.
+ */
+export interface TradeCardView {
     copyId: string
-    side: string
-    cardName: string
+    printingId: string
     serial: string
-    bundle: string | null
-    assetNumber: string | null
-    plaatjesCardId: string
-    gradeService: string | null
-    grade: string | null
+    card: {
+        name: string
+        rarity: string | null
+        number: string
+        setTotal: number | null
+        setName: string
+        setCode: string
+        releaseDate: string | null
+    }
+    render: {
+        bundle: string | null
+        assetNumber: string | null
+        maskKind: string | null
+        foilEffect: string | null
+        pattern: string | null
+        finish: string
+        plaatjesCardId: string
+        printRunLabel: string
+    }
+    /** Present when the copy is slabbed. */
+    grade: TcgGradePayload | null
+}
+
+export interface TradeItemView extends TradeCardView {
+    side: string
 }
 
 export interface TradeOfferView {
@@ -210,6 +237,110 @@ export interface TradeOfferView {
     state: string
     createdAt: string
     items: TradeItemView[]
+}
+
+/** The columns every trade card view needs, for `toTradeCardView`. */
+const tradeCardColumns = {
+    copyId: tcgCopy.id,
+    printingId: tcgCopy.printingId,
+    cardName: tcgCard.name,
+    rarity: tcgCard.rarity,
+    number: tcgCard.number,
+    setTotal: tcgCard.setTotal,
+    setName: tcgSet.name,
+    setCode: tcgSet.code,
+    releaseDate: tcgSet.releaseDate,
+    bundle: tcgPrinting.bundle,
+    assetNumber: tcgPrinting.assetNumber,
+    maskKind: tcgPrinting.maskKind,
+    foilEffect: tcgPrinting.foilEffect,
+    pattern: tcgPrinting.pattern,
+    finish: tcgPrinting.finish,
+    plaatjesCardId: tcgPrinting.plaatjesCardId,
+    printRunLabel: tcgPrinting.printRunLabel,
+    gradeService: tcgCopy.gradeService,
+    grade: tcgCopy.grade,
+    gradeScore: tcgCopy.gradeScore,
+    gradeDesignation: tcgCopy.gradeDesignation,
+    gradeSubs: tcgCopy.gradeSubs,
+    gradeFlaws: tcgCopy.gradeFlaws,
+    certNumber: tcgCopy.certNumber,
+    gradedAt: tcgCopy.gradedAt,
+    sheetName: tcgSheet.name,
+    packSlots: tcgSheet.packSlots,
+    cutIndex: tcgCopy.cutIndex,
+    slotOffset: tcgCopy.slotOffset
+} as const
+
+interface TradeCardRow {
+    copyId: string
+    printingId: string
+    cardName: string
+    rarity: string | null
+    number: string
+    setTotal: number | null
+    setName: string
+    setCode: string
+    releaseDate: string | null
+    bundle: string | null
+    assetNumber: string | null
+    maskKind: string | null
+    foilEffect: string | null
+    pattern: string | null
+    finish: string
+    plaatjesCardId: string
+    printRunLabel: string
+    gradeService: string | null
+    grade: string | null
+    gradeScore: number | null
+    gradeDesignation: string | null
+    gradeSubs: TcgGradePayload['subGrades']
+    gradeFlaws: TcgGradePayload['flaws']
+    certNumber: string | null
+    gradedAt: Date | null
+    sheetName: string
+    packSlots: number
+    cutIndex: number
+    slotOffset: number
+}
+
+function toTradeCardView(row: TradeCardRow): TradeCardView {
+    return {
+        copyId: row.copyId,
+        printingId: row.printingId,
+        serial: `${row.sheetName} #${row.cutIndex * row.packSlots + row.slotOffset + 1}`,
+        card: {
+            name: row.cardName,
+            rarity: row.rarity,
+            number: row.number,
+            setTotal: row.setTotal,
+            setName: row.setName,
+            setCode: row.setCode,
+            releaseDate: row.releaseDate
+        },
+        render: {
+            bundle: row.bundle,
+            assetNumber: row.assetNumber,
+            maskKind: row.maskKind,
+            foilEffect: row.foilEffect,
+            pattern: row.pattern,
+            finish: row.finish,
+            plaatjesCardId: row.plaatjesCardId,
+            printRunLabel: row.printRunLabel
+        },
+        grade: row.grade && row.gradeService && row.certNumber && row.gradedAt
+            ? {
+                    service: row.gradeService,
+                    grade: row.grade,
+                    score: row.gradeScore,
+                    designation: row.gradeDesignation,
+                    subGrades: row.gradeSubs,
+                    flaws: row.gradeFlaws,
+                    certNumber: row.certNumber,
+                    gradedAt: row.gradedAt.toISOString()
+                }
+            : null
+    }
 }
 
 /** All open offers involving the caller, items included. */
@@ -240,40 +371,21 @@ export async function offersFor(userId: string): Promise<TradeOfferView[]> {
 
     const items = await db.select({
         offerId: tcgTradeItem.offerId,
-        copyId: tcgTradeItem.copyId,
         side: tcgTradeItem.side,
-        cardName: tcgCard.name,
-        bundle: tcgPrinting.bundle,
-        assetNumber: tcgPrinting.assetNumber,
-        plaatjesCardId: tcgPrinting.plaatjesCardId,
-        gradeService: tcgCopy.gradeService,
-        grade: tcgCopy.grade,
-        sheetName: tcgSheet.name,
-        packSlots: tcgSheet.packSlots,
-        cutIndex: tcgCopy.cutIndex,
-        slotOffset: tcgCopy.slotOffset
+        ...tradeCardColumns
     })
         .from(tcgTradeItem)
         .innerJoin(tcgCopy, eq(tcgTradeItem.copyId, tcgCopy.id))
         .innerJoin(tcgPrinting, eq(tcgCopy.printingId, tcgPrinting.id))
         .innerJoin(tcgCard, eq(tcgPrinting.cardId, tcgCard.id))
+        .innerJoin(tcgSet, eq(tcgCopy.setId, tcgSet.id))
         .innerJoin(tcgSheet, eq(tcgCopy.sheetId, tcgSheet.id))
         .where(inArray(tcgTradeItem.offerId, offers.map(offer => offer.id)))
 
     const itemsByOffer = new Map<string, TradeItemView[]>()
     for (const item of items) {
         const list = itemsByOffer.get(item.offerId) ?? []
-        list.push({
-            copyId: item.copyId,
-            side: item.side,
-            cardName: item.cardName,
-            serial: `${item.sheetName} #${item.cutIndex * item.packSlots + item.slotOffset + 1}`,
-            bundle: item.bundle,
-            assetNumber: item.assetNumber,
-            plaatjesCardId: item.plaatjesCardId,
-            gradeService: item.gradeService,
-            grade: item.grade
-        })
+        list.push({ side: item.side, ...toTradeCardView(item) })
         itemsByOffer.set(item.offerId, list)
     }
 
@@ -292,16 +404,7 @@ export async function offersFor(userId: string): Promise<TradeOfferView[]> {
     }))
 }
 
-export interface CounterpartCopy {
-    copyId: string
-    printingId: string
-    cardName: string
-    serial: string
-    finish: string
-    pattern: string | null
-    gradeService: string | null
-    grade: string | null
-}
+export type CounterpartCopy = TradeCardView
 
 /**
  * A counterpart's tradeable copies in one set — printings, serials and
@@ -309,22 +412,11 @@ export interface CounterpartCopy {
  * card here is exactly as unknowable as it is on the market.
  */
 export async function tradeableCopiesOf(ownerId: string, setId: string): Promise<CounterpartCopy[]> {
-    const rows = await db.select({
-        copyId: tcgCopy.id,
-        printingId: tcgCopy.printingId,
-        cardName: tcgCard.name,
-        finish: tcgPrinting.finish,
-        pattern: tcgPrinting.pattern,
-        gradeService: tcgCopy.gradeService,
-        grade: tcgCopy.grade,
-        sheetName: tcgSheet.name,
-        packSlots: tcgSheet.packSlots,
-        cutIndex: tcgCopy.cutIndex,
-        slotOffset: tcgCopy.slotOffset
-    })
+    const rows = await db.select(tradeCardColumns)
         .from(tcgCopy)
         .innerJoin(tcgPrinting, eq(tcgCopy.printingId, tcgPrinting.id))
         .innerJoin(tcgCard, eq(tcgPrinting.cardId, tcgCard.id))
+        .innerJoin(tcgSet, eq(tcgCopy.setId, tcgSet.id))
         .innerJoin(tcgSheet, eq(tcgCopy.sheetId, tcgSheet.id))
         .where(and(
             eq(tcgCopy.ownerId, ownerId),
@@ -333,14 +425,5 @@ export async function tradeableCopiesOf(ownerId: string, setId: string): Promise
         ))
         .orderBy(tcgCard.name)
         .limit(500)
-    return rows.map(row => ({
-        copyId: row.copyId,
-        printingId: row.printingId,
-        cardName: row.cardName,
-        serial: `${row.sheetName} #${row.cutIndex * row.packSlots + row.slotOffset + 1}`,
-        finish: row.finish,
-        pattern: row.pattern,
-        gradeService: row.gradeService,
-        grade: row.grade
-    }))
+    return rows.map(toTradeCardView)
 }
