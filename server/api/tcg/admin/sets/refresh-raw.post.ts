@@ -7,7 +7,8 @@ import { refreshSetRaw } from '#server/utils/tcg/import'
 /**
  * Re-pull sidecar card data for one imported set (or every set when no
  * setId is given) — used after the sidecar's own data improves, like the
- * TCGdex combat enrichment for legacy sets.
+ * TCGdex combat enrichment for legacy sets, and to repair printings whose
+ * render refs were mapped wrong at import time.
  */
 export default defineEventHandler(async (event) => {
     await requirePokemonAdmin(event)
@@ -18,12 +19,12 @@ export default defineEventHandler(async (event) => {
     }
     const sets = await db.select({ id: tcgSet.id, name: tcgSet.name })
         .from(tcgSet).where(isNotNull(tcgSet.plaatjesSetCode))
-    const results: Record<string, { updated: number, missing: number }> = {}
+    const results: Record<string, { updated: number, missing: number, printings: number }> = {}
     for (const set of sets) {
         try {
             results[set.name] = await refreshSetRaw(set.id, apiBase)
         } catch {
-            results[set.name] = { updated: 0, missing: -1 }
+            results[set.name] = { updated: 0, missing: -1, printings: 0 }
         }
     }
     return results
