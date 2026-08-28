@@ -367,21 +367,44 @@ describe('resolveTierPrintings — era vocabularies', () => {
         expect(matched).toEqual([])
         expect(warnings.some(w => w.includes('Shining Fossil Rare'))).toBe(true)
     })
+
+    // sv3pt5 (151) shape: the checklist's only BE-coded card is the gold
+    // secret energy, which belongs to Hyper Rare (poolSize 3 = 2 HR plus it).
+    it('routes a gold secret energy to its hit tier, leaving the energy pool empty', () => {
+        const template = miniTemplate('sv3pt5', [
+            tier('Hyper Rare', 'hit', 1 / 51.5, 3),
+            tier('Energy', 'energy', 0.769231, 8)
+        ])
+        const printings = [
+            ...pool('hr', 2, { rarity: 'HR', rarityCode: 'HR', finish: 'holo' }),
+            ...pool('gold-nrg', 1, {
+                rarity: 'TCGLHRBE',
+                rarityCode: 'TCGLHRBE',
+                name: 'Basic {P} Energy',
+                category: 'Energy',
+                finish: 'holo'
+            })
+        ]
+        const { matched, warnings } = resolveTierPrintings(template, printings)
+        expect(matched.map(m => [m.tier.label, m.printings.length])).toEqual([['Hyper Rare', 3]])
+        expect(warnings).toEqual(["No printings matched tier 'Energy' — tier dropped"])
+    })
 })
 
-// --- Basic vs special energies (verified against the live sidecar: basics
-// carry TCGL*BE rarity codes and 'Basic {G} Energy' names; special energies
-// carry ordinary rarities like Uncommon / ACE SPEC Rare) ---
+// --- Basic vs special energies (verified against the live sidecar: plain
+// basics carry TCGLBE / TCGLFBE / TCGLCBE and 'Basic {G} Energy' names;
+// special energies carry ordinary rarities like Uncommon / ACE SPEC Rare;
+// the gold energies carry TCGLHRBE / TCGLSRBE / TCGLRUBE) ---
 
 describe('isBasicEnergy', () => {
     function printing(fields: Partial<FitPrinting>): FitPrinting {
         return { id: 'x', rarity: null, rarityCode: null, finish: 'nonholo', pattern: null, category: 'Energy', ...fields }
     }
 
-    it('recognises the TCGL*BE rarity code family', () => {
+    it('recognises the plain TCGL*BE rarity codes', () => {
         expect(isBasicEnergy(printing({ rarityCode: 'TCGLBE' }))).toBe(true)
         expect(isBasicEnergy(printing({ rarityCode: 'TCGLFBE' }))).toBe(true)
-        expect(isBasicEnergy(printing({ rarityCode: 'TCGLHRBE' }))).toBe(true)
+        expect(isBasicEnergy(printing({ rarityCode: 'TCGLCBE' }))).toBe(true)
     })
 
     it('recognises a Basic-prefixed name without any rarity code', () => {
@@ -390,6 +413,17 @@ describe('isBasicEnergy', () => {
 
     it('rejects special energies carrying ordinary rarities', () => {
         expect(isBasicEnergy(printing({ name: 'Double Colorless Energy', rarity: 'Uncommon', rarityCode: 'U' }))).toBe(false)
+    })
+
+    // Named exactly like the fodder basics, so the code must win over the name.
+    it('rejects the secret-rare gold energies despite their Basic name', () => {
+        for (const code of ['TCGLHRBE', 'TCGLSRBE', 'TCGLRUBE']) {
+            expect(isBasicEnergy(printing({ rarityCode: code, rarity: code, name: 'Basic {P} Energy' }))).toBe(false)
+        }
+    })
+
+    it('treats an unrecognised BE code as non-fodder', () => {
+        expect(isBasicEnergy(printing({ rarityCode: 'TCGLZZBE', name: 'Basic {P} Energy' }))).toBe(false)
     })
 })
 

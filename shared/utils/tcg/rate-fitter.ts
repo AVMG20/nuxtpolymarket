@@ -92,17 +92,20 @@ export interface MatchedTier {
  * arrays because the same label maps to different codes per era — e.g.
  * 'Ultra Rare' is UR in SV/ME but RU in SWSH/SM/XY/BW. Data table so
  * unmapped labels degrade to a warning, not a throw; direct
- * `p.rarity === label` matches always work regardless of this table.
+ * `p.rarity === label` matches always work regardless of this table. The
+ * TCGL*BE codes are the secret-rare basic energies: the sidecar gives them
+ * an energy code, not the era's chase code, and each set's scraped poolSize
+ * confirms the routing (sv3pt5 HR 2 + 1 = 3, swsh12pt5 RU 5 + 8 = 13).
  */
 export const RARITY_CODE_BY_LABEL: Record<string, string[]> = {
     'Common': ['C'],
     'Uncommon': ['U'],
     'Rare': ['R'],
     'Double Rare': ['2R'],
-    'Ultra Rare': ['UR', 'RU'],
+    'Ultra Rare': ['UR', 'RU', 'TCGLRUBE'],
     'Illustration Rare': ['IR'],
     'Special Illustration Rare': ['SIR'],
-    'Hyper Rare': ['HR'],
+    'Hyper Rare': ['HR', 'TCGLHRBE'],
     'ACE SPEC Rare': ['ACE'],
     'Mega Hyper Rare': ['MHR'],
     'Mega Attack Rare': ['MAR'],
@@ -111,7 +114,7 @@ export const RARITY_CODE_BY_LABEL: Record<string, string[]> = {
     'Rare Holo V': ['V'],
     'Rare Holo VMAX': ['VM'],
     'Rainbow Rare': ['RR'],
-    'Secret Rare': ['SR']
+    'Secret Rare': ['SR', 'TCGLSRBE']
 }
 
 /** Prismatic-style sidecar rarity code prefixes for pattern rows. */
@@ -128,12 +131,18 @@ function isEnergyPrinting(p: FitPrinting): boolean {
     return p.category === 'Energy' || (p.rarity != null && p.rarity.includes('Energy'))
 }
 
+/** The only plain basic-energy codes across the 110 sidecar sets. */
+const PLAIN_BASIC_ENERGY_CODES = new Set(['TCGLBE', 'TCGLFBE', 'TCGLCBE'])
+
 /**
- * BASIC energies only. The sidecar marks them with TCGL*BE rarity codes
- * (TCGLBE/TCGLFBE/TCGLCBE/TCGLSRBE/TCGLHRBE) and names them 'Basic {G}
- * Energy'. Special energies (Double Colorless, Jet, ACE SPEC energies …)
- * carry ordinary rarities and never match — they belong to whatever tier
- * their printed rarity maps to.
+ * PLAIN basic energies only — the energy slot's fodder. The sidecar marks
+ * them with a code from the set above and names them 'Basic {G} Energy'.
+ * Special energies (Double Colorless, Jet, ACE SPEC energies …) carry
+ * ordinary rarities and never match — they belong to whatever tier their
+ * printed rarity maps to. So do the SECRET-rare basics (TCGLHRBE, TCGLSRBE,
+ * TCGLRUBE): they are chase cards, and matching them here made them the
+ * entire energy pool of the sets that print one — the gold energy in every
+ * pack. Hence an allowlist rather than a `/BE$/` test.
  *
  * WOTC-era scans carry no rarity code and print the name as just
  * '<Type> Energy', so those exact names are matched too — but only at
@@ -148,7 +157,9 @@ const WOTC_BASIC_ENERGY_NAMES = new Set([
 ])
 
 export function isBasicEnergy(p: Pick<FitPrinting, 'rarityCode' | 'name' | 'rarity'>): boolean {
-    if (p.rarityCode != null && /BE$/i.test(p.rarityCode)) return true
+    const code = p.rarityCode?.toUpperCase() ?? null
+    // Decisive either way: the name rule below must not rescue a gold energy.
+    if (code != null && code.endsWith('BE')) return PLAIN_BASIC_ENERGY_CODES.has(code)
     if (p.name == null) return false
     if (p.name.startsWith('Basic ')) return true
     return WOTC_BASIC_ENERGY_NAMES.has(p.name) && !/rare/i.test(p.rarity ?? '')
