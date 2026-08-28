@@ -5,6 +5,7 @@ import { and, eq, inArray, sql } from 'drizzle-orm'
 import { db } from '#server/database'
 import { tcgSet, tcgCard, tcgPrinting, tcgSheet, tcgPackTemplate } from '#server/database/schema'
 import type { TcgCardRaw, TcgPackTemplateSlot } from '#shared/types/tcg-db'
+import { isBasicEnergy } from '#shared/utils/tcg/rate-fitter'
 import type { FitPrinting, FitSheetSpec, FitSlotSpec } from '#shared/utils/tcg/rate-fitter'
 import { sidecarFetch, sidecarUnreachable } from '#server/utils/tcg/sidecar'
 
@@ -328,7 +329,7 @@ interface PlaatjesSetsIndex {
  * checklist carries none. Resolution: '<seriesCode>E' (SVE, MEE) when that
  * set exists in /sets, otherwise the shared 'EC' set. Filters to plain
  * basics (TCGLFBE / NonFoil); a name missing a plain record falls back to
- * any TCGL*BE record for it, preferring NonFoil. Dedupes to ONE record per
+ * any basic record for it, preferring NonFoil. Dedupes to ONE record per
  * distinct card name and maps them through the same record→row mapping as
  * the checklist, appended from `sortOrderStart`. Rarity fields are kept
  * as-is from the record. Warns (does not throw) when the yield differs from
@@ -368,7 +369,7 @@ export async function fetchEraBasicEnergies(
     const byName = new Map<string, PlaatjesCard[]>()
     for (const record of records) {
         if (!record.cardId || !record.name) continue
-        if (!/BE$/i.test(record.rarityCode ?? '')) continue
+        if (!isBasicEnergy({ rarityCode: record.rarityCode ?? null, name: record.name, rarity: record.rarity ?? null })) continue
         const group = byName.get(record.name)
         if (group) group.push(record)
         else byName.set(record.name, [record])

@@ -19,7 +19,7 @@ import { tcgSet, tcgCard, tcgPrinting, tcgSheet, tcgPackTemplate } from '#server
 import { commitSet, buyPack, openPack } from '#server/utils/tcg/engine'
 import { persistFit, createTemplateSet, fetchEraBasicEnergies } from '#server/utils/tcg/import'
 import type { PlaatjesCard, TcgCardInsert, TcgPrintingInsert } from '#server/utils/tcg/import'
-import { fitSet } from '#shared/utils/tcg/rate-fitter'
+import { fitSet, isBasicEnergy } from '#shared/utils/tcg/rate-fitter'
 import type { FitPrinting, RateTemplate, RateTemplateTier } from '#shared/utils/tcg/rate-fitter'
 import type { OpenedPackResult } from '#shared/types/tcg'
 import { SKIP, cleanupUser, seedUser } from '../setup/db-helpers'
@@ -332,6 +332,60 @@ describe.skipIf(SKIP)('template-created sets: commit-time god derivation', () =>
             Object.assign(globalThis, { $fetch: realFetch })
         }
 
+        interface Checklist {
+            cardRows: TcgCardInsert[]
+            printingRows: TcgPrintingInsert[]
+        }
+
+        /** Append `count` cards + one printing each, as a mapped import would. */
+        function checklistPool(
+            setId: string,
+            rows: Checklist,
+            prefix: string,
+            count: number,
+            fields: { rarity: string, rarityCode: string, finish: string, name?: string, category?: string }
+        ) {
+            for (let i = 0; i < count; i++) {
+                const cardId = crypto.randomUUID()
+                rows.cardRows.push({
+                    id: cardId,
+                    setId,
+                    plaatjesBaseId: `${prefix}-${i}`,
+                    number: `${prefix}${i}`,
+                    name: fields.name ?? `${prefix} card ${i}`,
+                    rarity: fields.rarity,
+                    rarityCode: fields.rarityCode,
+                    category: fields.category ?? 'Pokemon',
+                    sortOrder: rows.cardRows.length,
+                    raw: {}
+                })
+                rows.printingRows.push({
+                    id: crypto.randomUUID(),
+                    setId,
+                    cardId,
+                    plaatjesCardId: `${prefix}-${i}`,
+                    finish: fields.finish
+                })
+            }
+        }
+
+        /** The fitter's view of a mapped checklist (mirrors the endpoint). */
+        function toFitPrintings(rows: Checklist): FitPrinting[] {
+            const cardById = new Map(rows.cardRows.map(card => [card.id!, card]))
+            return rows.printingRows.map((printing) => {
+                const card = cardById.get(printing.cardId)!
+                return {
+                    id: printing.id!,
+                    rarity: card.rarity ?? null,
+                    rarityCode: card.rarityCode ?? null,
+                    finish: printing.finish,
+                    pattern: printing.pattern ?? null,
+                    category: card.category ?? null,
+                    name: card.name ?? null
+                }
+            })
+        }
+
         it("resolves '<seriesCode>E' when /sets has it and falls back to 'EC'", async () => {
             stubSidecar()
             try {
@@ -377,34 +431,10 @@ describe.skipIf(SKIP)('template-created sets: commit-time god derivation', () =>
             }
 
             // Checklist WITHOUT any energies — the set's own cards only.
-            const cardRows: TcgCardInsert[] = []
-            const printingRows: TcgPrintingInsert[] = []
-            function checklistPool(prefix: string, count: number, rarity: string, rarityCode: string, finish: string) {
-                for (let i = 0; i < count; i++) {
-                    const cardId = crypto.randomUUID()
-                    cardRows.push({
-                        id: cardId,
-                        setId,
-                        plaatjesBaseId: `${prefix}-${i}`,
-                        number: `${prefix}${i}`,
-                        name: `${prefix} card ${i}`,
-                        rarity,
-                        rarityCode,
-                        category: 'Pokemon',
-                        sortOrder: cardRows.length,
-                        raw: {}
-                    })
-                    printingRows.push({
-                        id: crypto.randomUUID(),
-                        setId,
-                        cardId,
-                        plaatjesCardId: `${prefix}-${i}`,
-                        finish
-                    })
-                }
-            }
-            checklistPool('c', 12, 'Common', 'C', 'nonholo')
-            checklistPool('r', 10, 'Rare', 'R', 'holo')
+            const rows: Checklist = { cardRows: [], printingRows: [] }
+            const { cardRows, printingRows } = rows
+            checklistPool(setId, rows, 'c', 12, { rarity: 'Common', rarityCode: 'C', finish: 'nonholo' })
+            checklistPool(setId, rows, 'r', 10, { rarity: 'Rare', rarityCode: 'R', finish: 'holo' })
             const ownCardCount = cardRows.length
 
             stubSidecar()
@@ -416,20 +446,7 @@ describe.skipIf(SKIP)('template-created sets: commit-time god derivation', () =>
                 restoreFetch()
             }
 
-            const cardById = new Map(cardRows.map(card => [card.id!, card]))
-            const fitPrintings: FitPrinting[] = printingRows.map((printing) => {
-                const card = cardById.get(printing.cardId)!
-                return {
-                    id: printing.id!,
-                    rarity: card.rarity ?? null,
-                    rarityCode: card.rarityCode ?? null,
-                    finish: printing.finish,
-                    pattern: printing.pattern ?? null,
-                    category: card.category ?? null,
-                    name: card.name ?? null
-                }
-            })
-            const fit = fitSet(nrgTemplate, fitPrintings)
+            const fit = fitSet(nrgTemplate, toFitPrintings(rows))
             expect(fit.sheets.map(sheet => sheet.name)).toEqual(['energy', 'common', 'chase'])
 
             await createTemplateSet({
@@ -461,6 +478,65 @@ describe.skipIf(SKIP)('template-created sets: commit-time god derivation', () =>
             expect(energySheet.layout.length).toBeGreaterThan(0)
             expect(energySheet.layout.every(id => energyPrintingIds.has(id))).toBe(true)
             expect(new Set(energySheet.layout).size).toBe(8)
+        }, 60_000)
+
+        // sv3pt5 (151) regression: counting the gold energy as a basic made
+        // the endpoint's `hasBasicEnergy` gate true, so the era set was never
+        // imported and the energy sheet was that one card.
+        it('does not let a gold secret energy stand in for the era basics', async () => {
+            const setId = crypto.randomUUID()
+            const goldTemplate: RateTemplate = {
+                code: `tst-gold-${crypto.randomUUID().slice(0, 8)}`,
+                slug: 'gold-energy',
+                name: 'Gold Energy',
+                url: 'https://example.test/gold-energy',
+                scrapedAt: '2026-08-01T00:00:00Z',
+                cardsPerPack: 5,
+                packsPerBox: null,
+                tiers: [
+                    tier('Common', 'guaranteed', 3, 12),
+                    tier('Rare', 'hit', 1, 10),
+                    tier('Hyper Rare', 'hit', 0.02, 3),
+                    tier('Energy', 'energy', 1, 8)
+                ]
+            }
+
+            const rows: Checklist = { cardRows: [], printingRows: [] }
+            checklistPool(setId, rows, 'c', 12, { rarity: 'Common', rarityCode: 'C', finish: 'nonholo' })
+            checklistPool(setId, rows, 'r', 10, { rarity: 'Rare', rarityCode: 'R', finish: 'holo' })
+            checklistPool(setId, rows, 'hr', 2, { rarity: 'HR', rarityCode: 'HR', finish: 'holo' })
+            checklistPool(setId, rows, 'gold', 1, {
+                rarity: 'TCGLHRBE',
+                rarityCode: 'TCGLHRBE',
+                finish: 'holo',
+                name: 'Basic {P} Energy',
+                category: 'Energy'
+            })
+            const goldPrintingId = rows.printingRows.at(-1)!.id!
+
+            // The endpoint's gate, verbatim.
+            const hasBasicEnergy = rows.cardRows.some(card => isBasicEnergy({
+                rarityCode: card.rarityCode ?? null,
+                name: card.name,
+                rarity: card.rarity ?? null
+            }))
+            expect(hasBasicEnergy).toBe(false)
+
+            stubSidecar()
+            try {
+                const era = await fetchEraBasicEnergies('SV', 'http://stub.invalid', 8, setId, rows.cardRows.length)
+                rows.cardRows.push(...era.cardRows)
+                rows.printingRows.push(...era.printingRows)
+            } finally {
+                restoreFetch()
+            }
+
+            const fit = fitSet(goldTemplate, toFitPrintings(rows))
+            const energySheet = fit.sheets.find(sheet => sheet.name === 'energy')!
+            const chaseSheet = fit.sheets.find(sheet => sheet.name === 'chase')!
+            expect(new Set(energySheet.layout).size).toBe(8)
+            expect(energySheet.layout).not.toContain(goldPrintingId)
+            expect(chaseSheet.layout).toContain(goldPrintingId)
         }, 60_000)
     })
 })
