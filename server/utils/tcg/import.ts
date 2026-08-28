@@ -31,6 +31,8 @@ export interface PlaatjesCard {
     [key: string]: unknown
 }
 
+const CARDS_DIR = '/images/cards/'
+
 /**
  * When the sidecar's `images` paths disagree with the record's `bundle`
  * (alternate-art families like svalt), derive the render references from the
@@ -40,11 +42,15 @@ export interface PlaatjesCard {
  * from `/images/masks/sv8-5_wp_alt_en_074.png` → `wp_alt`. Returns null when
  * everything already matches (the common case), so callers can fall back to
  * the ordinary suffix-based logic.
+ *
+ * The marker is matched anywhere, not anchored: a sidecar served under a base
+ * path prefixes every path it returns with it.
  */
 function deriveRenderRefs(variant: PlaatjesCard): { bundle: string, assetNumber: string | null, maskKind: string | null } | null {
     const cardPath = variant.images?.card
-    if (!cardPath || !cardPath.startsWith('/images/cards/')) return null
-    const file = cardPath.slice('/images/cards/'.length).replace(/\.png$/, '')
+    const at = cardPath ? cardPath.indexOf(CARDS_DIR) : -1
+    if (!cardPath || at === -1) return null
+    const file = cardPath.slice(at + CARDS_DIR.length).replace(/\.png$/, '')
     if (!variant.bundle || file === variant.bundle) return null
     const tail = file.split('_en_')[1] ?? null
     const assetNumber = tail?.replace(/_alt$/, '') ?? null
@@ -137,6 +143,29 @@ function patternOf(cardId: string): string | null {
     return variantOf(cardId).pattern
 }
 
+/**
+ * The three render references the WebGL foil renderer resolves textures from.
+ *
+ * Legacy (pre-B&W, TCGdex scan) records carry no bundle: their face lives at
+ * /images/legacy/<set>/<num>.png and they have no masks. Otherwise the
+ * sidecar's `images` block wins over the `bundle` field where they disagree
+ * (see deriveRenderRefs). The renderer reconstructs texture names as
+ * `${family}_en_${num}`, so assetNumber must be the bundle's own tail — the
+ * sidecar's assetNumber is the printed number (e.g. "TG01") and does not
+ * match the files.
+ */
+function renderRefsOf(variant: PlaatjesCard): { bundle: string | null, assetNumber: string | null, maskKind: string | null } {
+    if (variant.bundle == null) {
+        return { bundle: null, assetNumber: variant.assetNumber ?? variant.number ?? null, maskKind: null }
+    }
+    const derived = deriveRenderRefs(variant)
+    return {
+        bundle: derived?.bundle ?? variant.bundle,
+        assetNumber: derived?.assetNumber ?? variant.bundle.split('_en_')[1] ?? null,
+        maskKind: derived?.maskKind ?? maskKindOf(variant.cardId ?? '', variant.foilMask ?? null)
+    }
+}
+
 function toInt(value: string | null | undefined): number | null {
     if (typeof value !== 'string') return null
     const parsed = parseInt(value, 10)
@@ -209,11 +238,12 @@ export async function fetchPlaatjesChecklist(plaatjesSetCode: string, apiBase: s
 /**
  * Re-pull the sidecar's card records for an already-imported set and update
  * each card's `raw` snapshot in place (plus category, which legacy imports
- * originally lacked). Printings, copies and ordering are untouched — this is
- * for when the SIDECAR's data improved after import, e.g. the TCGdex combat
- * enrichment landing hp/attacks on legacy sets the battler needs.
+ * originally lacked), and re-derive each printing's render refs. Copies and
+ * ordering are untouched — this is for when the SIDECAR's data improved after
+ * import, e.g. the TCGdex combat enrichment landing hp/attacks on legacy sets
+ * the battler needs, or when a mapping bug stored the wrong bundle.
  */
-export async function refreshSetRaw(setId: string, apiBase: string): Promise<{ updated: number, missing: number }> {
+export async function refreshSetRaw(setId: string, apiBase: string): Promise<{ updated: number, missing: number, printings: number }> {
     const [set] = await db.select({ id: tcgSet.id, code: tcgSet.plaatjesSetCode })
         .from(tcgSet).where(eq(tcgSet.id, setId))
     if (!set) throw createError({ statusCode: 404, statusMessage: 'Set not found' })
@@ -249,7 +279,19 @@ export async function refreshSetRaw(setId: string, apiBase: string): Promise<{ u
             .where(eq(tcgCard.id, row.id))
         updated += 1
     }
-    return { updated, missing }
+
+    const recordById = new Map(records.filter(record => record.cardId).map(record => [record.cardId!, record]))
+    const printingRows = await db.select().from(tcgPrinting).where(eq(tcgPrinting.setId, setId))
+    let printings = 0
+    for (const row of printingRows) {
+        const record = recordById.get(row.plaatjesCardId)
+        if (!record) continue
+        const refs = renderRefsOf(record)
+        if (refs.bundle === row.bundle && refs.assetNumber === row.assetNumber && refs.maskKind === row.maskKind) continue
+        await db.update(tcgPrinting).set(refs).where(eq(tcgPrinting.id, row.id))
+        printings += 1
+    }
+    return { updated, missing, printings }
 }
 
 /**
@@ -283,34 +325,14 @@ function mapChecklistRows(
             raw: base as TcgCardRaw
         })
         for (const variant of group.variants) {
-            // Legacy (pre-B&W, TCGdex scan) records carry no bundle: their
-            // face lives at /images/legacy/<set>/<num>.png, they have no
-            // masks, and rarity/foilEffect may be null (rarity arrives later
-            // API-side).
-            const legacy = variant.bundle == null
-            // Some families' textures live under another bundle name: the
-            // svalt (alternate-art) records say bundle `svalt_en_152` while
-            // the actual face is `sv8-5_en_074_alt.png` and the mask kind is
-            // `wp_alt`. The sidecar's own `images` block is the ground truth
-            // for where the pixels are, so when it disagrees with the bundle
-            // field, derive bundle/assetNumber/maskKind from the paths.
-            const derived = !legacy ? deriveRenderRefs(variant) : null
             printingRows.push({
                 id: crypto.randomUUID(),
                 setId,
                 cardId,
                 plaatjesCardId: variant.cardId!,
-                finish: finishOf(variant.cardId!, variant.foilEffect ?? null, variant.foilMask ?? null, legacy ? variant.rarity ?? null : null),
+                finish: finishOf(variant.cardId!, variant.foilEffect ?? null, variant.foilMask ?? null, variant.bundle == null ? variant.rarity ?? null : null),
                 pattern: patternOf(variant.cardId!),
-                bundle: derived?.bundle ?? variant.bundle ?? null,
-                // The renderer reconstructs texture names as `${family}_en_${num}`,
-                // so num must be the bundle's own tail — the sidecar's assetNumber
-                // is the printed number (e.g. "TG01") and does not match the files.
-                // Legacy scans have no bundle; their file IS named by the number.
-                assetNumber: legacy
-                    ? variant.assetNumber ?? variant.number ?? null
-                    : derived?.assetNumber ?? variant.bundle!.split('_en_')[1] ?? null,
-                maskKind: legacy ? null : derived?.maskKind ?? maskKindOf(variant.cardId!, variant.foilMask ?? null),
+                ...renderRefsOf(variant),
                 foilEffect: variant.foilEffect ?? null,
                 foilMask: variant.foilMask ?? null
             })
