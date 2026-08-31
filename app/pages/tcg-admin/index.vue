@@ -19,7 +19,7 @@ const toast = useToast()
 
 const isAdmin = computed(() => user.value?.isPokemonAdmin === true)
 
-const { data: sets, pending } = useAsyncData('tcg-admin-sets', () => apiFetch<TcgAdminSet[]>('/api/tcg/admin/sets'), {
+const { data: sets, pending, refresh: refreshSets } = useAsyncData('tcg-admin-sets', () => apiFetch<TcgAdminSet[]>('/api/tcg/admin/sets'), {
   immediate: true,
   default: () => []
 })
@@ -171,6 +171,46 @@ async function submitReprint() {
   }
 }
 
+// ── Delete a print run ────────────────────────────────────────────
+// Only while nothing has sold: every draft qualifies, a committed run only
+// until its first pack. The server enforces it; this just hides the button.
+const deleteTarget = ref<TcgAdminSet | null>(null)
+const deleting = ref(false)
+const deleteConfirm = ref('')
+
+function canDelete(s: TcgAdminSet): boolean {
+  return s.packsSold === 0
+}
+
+function openDelete(s: TcgAdminSet) {
+  deleteTarget.value = s
+  deleteConfirm.value = ''
+}
+
+async function submitDelete() {
+  const target = deleteTarget.value
+  if (!target || deleting.value || deleteConfirm.value !== target.code) return
+  deleting.value = true
+  try {
+    const res = await call<{ name: string, cards: number, printings: number }>(
+      '/api/tcg/admin/sets/delete',
+      { setId: target.id }
+    )
+    toast.add({
+      title: `Deleted ${res.name}`,
+      description: `${res.cards} cards and ${res.printings} printings went with it.`,
+      color: 'success',
+      icon: 'i-lucide-trash-2'
+    })
+    deleteTarget.value = null
+    await refreshSets()
+  } catch {
+    // toasted by call()
+  } finally {
+    deleting.value = false
+  }
+}
+
 function soldPct(s: TcgAdminSet): number {
   if (!s.targetPackCount) return 0
   return Math.min(100, (s.packsSold / s.targetPackCount) * 100)
@@ -270,17 +310,29 @@ function formatDate(iso: string): string {
                 <td class="px-4 py-3 text-right text-xs text-muted tabular-nums whitespace-nowrap">
                   {{ formatDate(s.createdAt) }}
                 </td>
-                <td class="px-4 py-3 text-right">
-                  <UButton
-                    v-if="s.status === 'committed'"
-                    size="xs"
-                    color="neutral"
-                    variant="outline"
-                    icon="i-lucide-copy-plus"
-                    label="Reprint"
-                    class="cursor-pointer"
-                    @click.stop="openReprint(s)"
-                  />
+                <td class="px-4 py-3">
+                  <div class="flex items-center justify-end gap-1.5">
+                    <UButton
+                      v-if="s.status === 'committed'"
+                      size="xs"
+                      color="neutral"
+                      variant="outline"
+                      icon="i-lucide-copy-plus"
+                      label="Reprint"
+                      class="cursor-pointer"
+                      @click.stop="openReprint(s)"
+                    />
+                    <UButton
+                      v-if="canDelete(s)"
+                      size="xs"
+                      color="error"
+                      variant="ghost"
+                      icon="i-lucide-trash-2"
+                      aria-label="Delete print run"
+                      class="cursor-pointer"
+                      @click.stop="openDelete(s)"
+                    />
+                  </div>
                 </td>
               </tr>
               <tr v-if="!pending && sets.length === 0">
@@ -414,6 +466,55 @@ function formatDate(iso: string): string {
               :disabled="!reprintLabel.trim() || !reprintOnSaleAt"
               label="Draft reprint"
               @click="submitReprint"
+            />
+          </div>
+        </template>
+      </UModal>
+
+      <!-- Delete a print run -->
+      <UModal
+        :open="deleteTarget !== null"
+        title="Delete this print run?"
+        :description="deleteTarget ? `${deleteTarget.name} and everything under it — checklist, printings, sheets and pack template — are removed for good. This cannot be undone.` : ''"
+        @update:open="(open: boolean) => { if (!open) deleteTarget = null }"
+      >
+        <template #body>
+          <div class="space-y-4">
+            <UAlert
+              v-if="deleteTarget?.status === 'committed'"
+              color="warning"
+              variant="subtle"
+              icon="i-lucide-triangle-alert"
+              title="This run is committed"
+              description="It is published in the shop with a commitment digest. Nobody has bought a pack yet, so deleting it takes nothing from a player — but the digest is withdrawn."
+            />
+            <UFormField
+              label="Type the set code to confirm"
+              :help="deleteTarget ? `Enter ${deleteTarget.code}` : ''"
+            >
+              <UInput
+                v-model="deleteConfirm"
+                :placeholder="deleteTarget?.code"
+                autofocus
+              />
+            </UFormField>
+          </div>
+        </template>
+        <template #footer>
+          <div class="flex w-full justify-end gap-2">
+            <UButton
+              color="neutral"
+              variant="ghost"
+              label="Cancel"
+              @click="deleteTarget = null"
+            />
+            <UButton
+              color="error"
+              icon="i-lucide-trash-2"
+              :loading="deleting"
+              :disabled="deleteConfirm !== deleteTarget?.code"
+              label="Delete print run"
+              @click="submitDelete"
             />
           </div>
         </template>
