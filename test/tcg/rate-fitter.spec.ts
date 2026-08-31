@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { validateWindow } from '../../shared/utils/tcg/sheet-math'
 import { fitSet, applyGodConfig, resolveTierPrintings, isBasicEnergy } from '../../shared/utils/tcg/rate-fitter'
 import type { FitPrinting, FitResult, FitSheetSpec, RateTemplate, RateTemplateTier } from '../../shared/utils/tcg/rate-fitter'
+import { RARITY_REGISTRY } from '../../shared/utils/tcg/rarity'
 
 function tier(
     label: string,
@@ -218,6 +219,93 @@ describe('fitSet — Pitch Black', () => {
     })
 })
 
+// --- Black Bolt fixture (zsv10pt5): the published table verbatim, and the
+// checklist shaped the way the sidecar really serves one — most tiers carry
+// their CODE in the rarity field ('BWR', 'IR', 'UR', '2R'), not the pricedex
+// label. The set's chase rarity is Black White Rare, which no era table knew. ---
+
+const blackBoltTemplate: RateTemplate = {
+    code: 'zsv10pt5',
+    slug: 'black-bolt',
+    name: 'Black Bolt',
+    url: 'https://example.test/black-bolt',
+    scrapedAt: '2026-08-01T00:00:00Z',
+    cardsPerPack: 11,
+    packsPerBox: 30,
+    tiers: [
+        tier('Common', 'guaranteed', 4, 40),
+        tier('Uncommon', 'guaranteed', 3, 30),
+        tier('Rare', 'hit', 1 / 1.4, 15),
+        tier('Double Rare', 'hit', 1 / 4.7, 12),
+        tier('Illustration Rare', 'hit', 1 / 6.1, 12),
+        tier('Ultra Rare', 'hit', 1 / 17.2, 10),
+        tier('Special Illustration Rare', 'hit', 1 / 80, 6),
+        tier('Black White Rare', 'hit', 1 / 496, 4),
+        tier('Reverse Common', 'reverse', 1 / 1.4, 40, 'reverse', 'Common'),
+        tier('Reverse Uncommon', 'reverse', 1 / 1.8, 30, 'reverse', 'Uncommon'),
+        tier('Reverse Rare', 'reverse', 1 / 5.5, 15, 'reverse', 'Rare'),
+        tier('Poké Ball Common', 'reverse', 1 / 6.7, 40, 'pokeball', 'Common'),
+        tier('Poké Ball Uncommon', 'reverse', 1 / 8.4, 30, 'pokeball', 'Uncommon'),
+        tier('Poké Ball Rare', 'reverse', 1 / 26.2, 15, 'pokeball', 'Rare'),
+        tier('Master Ball Common', 'reverse', 1 / 36.9, 40, 'masterball', 'Common'),
+        tier('Master Ball Uncommon', 'reverse', 1 / 58.4, 30, 'masterball', 'Uncommon'),
+        tier('Master Ball Rare', 'reverse', 1 / 140, 15, 'masterball', 'Rare'),
+        tier('Energy', 'energy', 1 / 1.3, 8)
+    ]
+}
+
+const blackBoltPrintings: FitPrinting[] = [
+    ...pool('bb-c-n', 40, { rarity: 'Common', rarityCode: 'C' }),
+    ...pool('bb-c-rev', 40, { rarity: 'Common', rarityCode: 'C', finish: 'reverse' }),
+    ...pool('bb-c-pb', 40, { rarity: 'Common', rarityCode: 'TCGLPBC', finish: 'reverse', pattern: 'pokeball' }),
+    ...pool('bb-c-mb', 40, { rarity: 'Common', rarityCode: 'TCGLMBC', finish: 'reverse', pattern: 'masterball' }),
+    ...pool('bb-u-n', 30, { rarity: 'Uncommon', rarityCode: 'U' }),
+    ...pool('bb-u-rev', 30, { rarity: 'Uncommon', rarityCode: 'U', finish: 'reverse' }),
+    ...pool('bb-u-pb', 30, { rarity: 'Uncommon', rarityCode: 'TCGLPBU', finish: 'reverse', pattern: 'pokeball' }),
+    ...pool('bb-u-mb', 30, { rarity: 'Uncommon', rarityCode: 'TCGLMBU', finish: 'reverse', pattern: 'masterball' }),
+    ...pool('bb-r-h', 15, { rarity: 'Rare', rarityCode: 'R', finish: 'holo' }),
+    ...pool('bb-r-rev', 15, { rarity: 'Rare', rarityCode: 'R', finish: 'reverse' }),
+    ...pool('bb-r-pb', 15, { rarity: 'Rare', rarityCode: 'TCGLPBR', finish: 'reverse', pattern: 'pokeball' }),
+    ...pool('bb-r-mb', 15, { rarity: 'Rare', rarityCode: 'TCGLMBR', finish: 'reverse', pattern: 'masterball' }),
+    // sidecar shape: the code IS the rarity string for every tier above Rare
+    ...pool('bb-dr', 12, { rarity: '2R', rarityCode: '2R', finish: 'holo' }),
+    ...pool('bb-ir', 12, { rarity: 'IR', rarityCode: 'IR', finish: 'holo' }),
+    ...pool('bb-ur', 10, { rarity: 'UR', rarityCode: 'UR', finish: 'holo' }),
+    ...pool('bb-sir', 6, { rarity: 'SIR', rarityCode: 'SIR', finish: 'holo' }),
+    ...pool('bb-bwr', 4, { rarity: 'BWR', rarityCode: 'BWR', finish: 'holo' }),
+    ...pool('bb-nrg', 8, { rarity: 'TCGLFBE', rarityCode: 'TCGLFBE', category: 'Energy', name: 'Basic {G} Energy' })
+]
+
+describe('fitSet — Black Bolt (zsv10pt5, registry-only chase rarity)', () => {
+    const fit = fitSet(blackBoltTemplate, blackBoltPrintings)
+
+    it('drops no tier', () => {
+        expect(fit.warnings).toEqual([])
+        expect(fit.diagnostics.map(d => d.label)).toContain('Black White Rare')
+    })
+
+    it('gives every Black White Rare a position on the chase sheet', () => {
+        const chase = fit.sheets.find(s => s.name === 'chase')!
+        const bwr = chase.mults.filter(([id]) => id.startsWith('bb-bwr'))
+        expect(bwr).toHaveLength(4)
+        expect(chase.layout.filter(id => id.startsWith('bb-bwr')).length).toBe(bwr.reduce((a, [, m]) => a + m, 0))
+    })
+
+    // Every matched card gets at least one position, so a 4-card tier at 1 in
+    // 496 is floored by its own pool — the same coarseness Pitch Black's
+    // pool-1 Mega Hyper Rare shows. Over-supplied by ~14%, never absent.
+    it('lands the chase rarity near its published 1 in 496', () => {
+        const bwr = fit.diagnostics.find(d => d.label === 'Black White Rare')!
+        expect(Math.abs(bwr.deltaPct)).toBeLessThan(15)
+        expect(bwr.authoredPerPack).toBeGreaterThan(0)
+    })
+
+    it('slots sum to cardsPerPack and every sheet is window-clean', () => {
+        expect(fit.slots.reduce((a, s) => a + s.count, 0)).toBe(11)
+        expectWindowClean(fit.sheets)
+    })
+})
+
 describe('applyGodConfig — Prismatic Evolutions', () => {
     const N = 100_000
     let fit: FitResult
@@ -388,6 +476,57 @@ describe('resolveTierPrintings — era vocabularies', () => {
         const { matched, warnings } = resolveTierPrintings(template, printings)
         expect(matched.map(m => [m.tier.label, m.printings.length])).toEqual([['Hyper Rare', 3]])
         expect(warnings).toEqual(["No printings matched tier 'Energy' — tier dropped"])
+    })
+})
+
+describe('resolveTierPrintings — registry-backed rarity aliases', () => {
+    // Black Bolt / White Flare: the sidecar codes the set's chase 'BWR' and
+    // hands that code through as the rarity string too. The label lives in the
+    // rarity registry but never in the fitter's era table, so before the
+    // registry fallback this tier matched nothing, dropped, and the whole run
+    // printed without a single Black White Rare.
+    it('resolves Black Bolt BWR into the Black White Rare tier', () => {
+        const template = miniTemplate('zsv10pt5', [
+            tier('Illustration Rare', 'hit', 1 / 7.1, 3),
+            tier('Black White Rare', 'hit', 1 / 496, 2)
+        ])
+        const printings = [
+            ...pool('ir', 3, { rarity: 'IR', rarityCode: 'IR', finish: 'holo' }),
+            ...pool('bwr', 2, { rarity: 'BWR', rarityCode: 'BWR', finish: 'holo' })
+        ]
+        const { matched, warnings } = resolveTierPrintings(template, printings)
+        expect(warnings).toEqual([])
+        expect(matched.map(m => [m.tier.label, m.printings.length])).toEqual([
+            ['Illustration Rare', 3],
+            ['Black White Rare', 2]
+        ])
+    })
+
+    // The class fix, not the instance: every tier the registry knows must be
+    // fittable from every alias it lists, whichever field the sidecar puts it
+    // in. A new era is then a registry patch and nothing else.
+    const aliasCases = RARITY_REGISTRY
+        // Basic energies are the energy sheet's fodder and are excluded from
+        // rarity tiers on purpose (see isBasicEnergy) — they resolve via the
+        // 'energy' group instead.
+        .filter(info => info.label !== 'Basic Energy')
+        .flatMap(info => [info.label, ...info.aliases].map(alias => ({ label: info.label, alias })))
+
+    it.each(aliasCases)('resolves $alias into the $label tier', ({ label, alias }) => {
+        const template = miniTemplate('registry', [tier(label, 'hit', 1 / 20, 2)])
+        for (const field of ['rarity', 'rarityCode'] as const) {
+            const printings = pool('x', 2, { rarity: null, rarityCode: null, [field]: alias, finish: 'holo' })
+            const { matched, warnings } = resolveTierPrintings(template, printings)
+            expect(warnings, `${alias} via ${field}`).toEqual([])
+            expect(matched[0]?.printings, `${alias} via ${field}`).toHaveLength(2)
+        }
+    })
+
+    it('leaves a label the registry does not know unmatched', () => {
+        const template = miniTemplate('unknown', [tier('Shining Fossil Rare', 'hit', 1 / 400, 2)])
+        const { matched, warnings } = resolveTierPrintings(template, pool('bwr', 2, { rarity: 'BWR', rarityCode: 'BWR' }))
+        expect(matched).toEqual([])
+        expect(warnings).toEqual(["No printings matched tier 'Shining Fossil Rare' — tier dropped"])
     })
 })
 

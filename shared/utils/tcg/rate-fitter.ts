@@ -6,7 +6,10 @@
 // integer tier totals whose derived rates land closest to the published
 // table, reports the per-tier delta, and lets the admin decide.
 
-import { autoLayout, validateWindow } from '#shared/utils/tcg/sheet-math'
+// Relative, not '#shared/…': scripts/tcg-rarity-audit.ts runs this module
+// under plain bun, outside Nuxt's alias resolution.
+import { autoLayout, validateWindow } from './sheet-math'
+import { rarityInfo } from './rarity'
 
 export type RateTierGroup = 'hit' | 'guaranteed' | 'reverse' | 'energy'
 export type RateTierPattern = 'reverse' | 'pokeball' | 'masterball'
@@ -91,8 +94,11 @@ export interface MatchedTier {
  * the live sidecar across eras: sv8pt5, swsh7, sm11, xy9, bw10). Values are
  * arrays because the same label maps to different codes per era — e.g.
  * 'Ultra Rare' is UR in SV/ME but RU in SWSH/SM/XY/BW. Data table so
- * unmapped labels degrade to a warning, not a throw; direct
- * `p.rarity === label` matches always work regardless of this table. The
+ * unmapped labels degrade to the rarity registry and then to a warning, not
+ * a throw; direct `p.rarity === label` matches always work regardless of this
+ * table, and so does any alias the registry knows (see matchesRarityLabel).
+ * Add a new era's codes to the REGISTRY, not here — this table is only for
+ * codes the registry deliberately keeps out of a tier's aliases. The
  * TCGL*BE codes are the secret-rare basic energies: the sidecar gives them
  * an energy code, not the era's chase code, and each set's scraped poolSize
  * confirms the routing (sv3pt5 HR 2 + 1 = 3, swsh12pt5 RU 5 + 8 = 13).
@@ -165,10 +171,31 @@ export function isBasicEnergy(p: Pick<FitPrinting, 'rarityCode' | 'name' | 'rari
     return WOTC_BASIC_ENERGY_NAMES.has(p.name) && !/rare/i.test(p.rarity ?? '')
 }
 
+/**
+ * Does this printing belong to the tier named `label`?
+ *
+ * Three ways in, in order of specificity:
+ *  1. the sidecar printed the pricedex label verbatim ('Common', 'Rare');
+ *  2. the era table above, which carries the codes the registry cannot —
+ *     the TCGL*BE secret-rare basic energies routed to a chase tier;
+ *  3. the rarity registry (§5.2), resolving BOTH sides to a canonical tier.
+ *
+ * (3) is the one that scales. The sidecar hands most tiers their CODE as the
+ * rarity string — SWSH7's checklist reads 'RU', 'H', 'RR', 'V', 'VM' — so a
+ * label missing from the era table matched NOTHING, dropped its tier, and
+ * printed a run with a whole rarity absent (Black Bolt's 'Black White Rare',
+ * code BWR). The registry already knows every era's aliases and is the one
+ * place a new era gets patched, so ask it rather than growing a second table
+ * that can fall behind it.
+ */
 function matchesRarityLabel(p: FitPrinting, label: string | null): boolean {
     if (label == null) return false
+    if (p.rarity === label) return true
     const codes = RARITY_CODE_BY_LABEL[label]
-    return p.rarity === label || (codes != null && p.rarityCode != null && codes.includes(p.rarityCode))
+    if (codes != null && p.rarityCode != null && codes.includes(p.rarityCode)) return true
+    const tier = rarityInfo(label)
+    if (tier == null) return false
+    return rarityInfo(p.rarityCode) === tier || rarityInfo(p.rarity) === tier
 }
 
 /**

@@ -23,7 +23,8 @@
     "balance:pathwarden": "bun scripts/pathwarden-balance.ts",
     "balance:pirates": "bun scripts/pirates-balance.ts",
     "balance:shapezz": "bun scripts/shapezz-balance.ts",
-    "balance:compare": "bun scripts/economy-compare.ts"
+    "balance:compare": "bun scripts/economy-compare.ts",
+    "tcg:rarity-audit": "bun scripts/tcg-rarity-audit.ts"
   },
   "dependencies": {
     "@iconify-json/lucide": "^1.2.98",
