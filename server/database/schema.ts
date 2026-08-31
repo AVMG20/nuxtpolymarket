@@ -1293,6 +1293,14 @@ export const tcgTradeOffer = pgTable('tcg_trade_offers', {
   toUserId: text('to_user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
   senderCoins: numeric('sender_coins', { precision: 19, scale: 4 }).notNull().default('0'),
   receiverCoins: numeric('receiver_coins', { precision: 19, scale: 4 }).notNull().default('0'),
+  /**
+   * Coins actually held for this offer, debited from the sender when it was
+   * created (§7.1, the buy-order pattern). Not a duplicate of senderCoins: it
+   * is 0 on offers made before escrow existed, and is cleared when the offer
+   * resolves — released back to the sender on cancel or decline, consumed by
+   * the payout on accept. So the sum of this column IS the coins in escrow.
+   */
+  senderEscrow: numeric('sender_escrow', { precision: 19, scale: 4 }).notNull().default('0'),
   note: text('note'),
   state: text('state').notNull().default('open'), // 'open' | 'accepted' | 'declined' | 'cancelled'
   createdAt: timestamp('created_at').defaultNow().notNull(),
