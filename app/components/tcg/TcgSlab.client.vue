@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import * as THREE from 'three'
 import { ASPECT, resolve, resolveLegacy, makeLoader, makeMaterial, loadCard } from '~/utils/tcg/foil'
+import { etchFor } from '~/utils/tcg/etch'
 import {
     SLAB_DESIGNS, slabLayout, buildSlabEnvironment, buildShell, buildAirPanes,
     buildInnerFrame, buildWordmark, makeLabelTexture, roundedRect
@@ -19,12 +20,15 @@ const props = withDefaults(defineProps<{
     assetNumber: string
     maskKind: string
     foilEffect?: string | null
+    /** Surface treatment ('Etched', 'Holo', 'Reverse'…) — decides engraving. */
+    foilMask?: string | null
     pattern?: string | null
     legacySet?: string | null
     holo?: boolean
     height?: number
 }>(), {
     foilEffect: null,
+    foilMask: null,
     pattern: null,
     legacySet: null,
     holo: false,
@@ -130,6 +134,7 @@ onMounted(async () => {
             num: props.assetNumber,
             mask: props.maskKind,
             effect: ((props.pattern || props.foilEffect) ?? '').toLowerCase(),
+            etch: etchFor(props.foilMask),
             alt: props.bundle.endsWith('_alt')
         })
     const cardMat = makeMaterial(r.uniforms)

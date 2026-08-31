@@ -40,6 +40,7 @@ export default defineEventHandler(async (event): Promise<TcgSubmissionSummary[]>
         assetNumber: tcgPrinting.assetNumber,
         maskKind: tcgPrinting.maskKind,
         foilEffect: tcgPrinting.foilEffect,
+        foilMask: tcgPrinting.foilMask,
         pattern: tcgPrinting.pattern,
         finish: tcgPrinting.finish,
         plaatjesCardId: tcgPrinting.plaatjesCardId,
@@ -87,6 +88,7 @@ export default defineEventHandler(async (event): Promise<TcgSubmissionSummary[]>
             assetNumber: row.assetNumber,
             maskKind: row.maskKind,
             foilEffect: row.foilEffect,
+            foilMask: row.foilMask,
             pattern: row.pattern,
             finish: row.finish,
             plaatjesCardId: row.plaatjesCardId

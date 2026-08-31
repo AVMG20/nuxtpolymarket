@@ -221,6 +221,7 @@ function historyGradeLabel(s: TcgSubmissionSummary): string {
               :asset-number="String(reveal.submission.render.assetNumber ?? '')"
               :mask-kind="reveal.submission.render.maskKind ?? 'wp'"
               :foil-effect="reveal.submission.render.foilEffect"
+              :foil-mask="reveal.submission.render.foilMask"
               :pattern="reveal.submission.render.pattern"
               :legacy-set="reveal.submission.render.bundle ? null : legacySetOf(reveal.submission.render.plaatjesCardId)"
               :holo="reveal.submission.render.finish === 'holo'"
