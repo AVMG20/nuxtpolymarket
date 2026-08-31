@@ -12,8 +12,8 @@ import { loadFitContext, persistFit } from '#server/utils/tcg/import'
 import { randomInt } from '#shared/utils/random'
 import { mintCondition } from '#shared/utils/tcg/condition'
 import { validateWindow, derivedImpressions, godFeasibility } from '#shared/utils/tcg/sheet-math'
-import { applyGodConfig } from '#shared/utils/tcg/rate-fitter'
-import type { FitResult, FitSheetSpec, FitSlotSpec } from '#shared/utils/tcg/rate-fitter'
+import { applyGodConfig, fitSet } from '#shared/utils/tcg/rate-fitter'
+import type { FitDiagnostic, FitResult, FitSheetSpec, FitSlotSpec } from '#shared/utils/tcg/rate-fitter'
 import type { OpenedPackCard, OpenedPackResult, SealedPackSummary, TcgFinish } from '#shared/types/tcg'
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0]
@@ -243,6 +243,110 @@ export async function commitSet(setId: string): Promise<{ commitmentDigest: stri
         }
 
         return { commitmentDigest: digest, godPackCount: G }
+    })
+}
+
+// ─── Draft repair and teardown ────────────────────────────────────────────────
+
+/**
+ * Reset a template-created draft to the fitter's own output, discarding every
+ * hand-authored sheet and pack template. The escape hatch from advanced mode:
+ * an admin who edited layouts by hand and got them wrong has no other way back
+ * to a known-good print run short of deleting the whole set.
+ *
+ * Refits from the CHECKLIST ALREADY IMPORTED — no sidecar round-trip, so it
+ * works offline and cannot pull a different card list in under the admin. To
+ * pick up sidecar changes, re-import the checklist first, then reset.
+ *
+ * Runs under the set row lock like every other draft mutation. Dropping the
+ * sheets cascades to tcgCopy, which is safe here and only here: a draft has
+ * sold no packs, so it has minted no copies.
+ */
+export async function refitSet(setId: string): Promise<{
+    sheets: number
+    warnings: string[]
+    diagnostics: FitDiagnostic[]
+}> {
+    return await db.transaction(async (tx) => {
+        const set = await lockSetForUpdate(tx, setId)
+        if (set.status !== 'draft') badRequest('Set is committed and frozen')
+        const template = set.publishedRates
+        if (template == null) {
+            badRequest('This set was not created from a rate template — there is no automatic fit to reset to')
+        }
+
+        const { printings } = await loadFitContext(tx, setId)
+        const fit = fitSet(template, printings)
+        if (fit.sheets.length === 0 || fit.slots.length === 0) {
+            badRequest('The fitter produced no usable sheets for this checklist')
+        }
+
+        // Wholesale replacement: the god config is derived at commit, so a
+        // draft's god rows are stale output too and go with the rest.
+        await tx.delete(tcgSheet).where(eq(tcgSheet.setId, setId))
+        await tx.delete(tcgPackTemplate).where(eq(tcgPackTemplate.setId, setId))
+        await persistFit(tx, setId, fit.sheets, fit.slots, 'base')
+
+        return { sheets: fit.sheets.length, warnings: fit.warnings, diagnostics: fit.diagnostics }
+    })
+}
+
+/**
+ * Delete a print run and everything under it — cards, printings, sheets,
+ * templates (all by FK cascade).
+ *
+ * Allowed while no pack has ever been sold, which every draft satisfies:
+ * buyPackIn refuses anything but a committed set, and `packsSold` never
+ * decreases — returnPack pools the reservation instead of decrementing it. So
+ * a zero counter really does mean nobody ever bought in, and no player can
+ * lose a card to this.
+ *
+ * Lock-then-read (Appendix D, pattern B): buyPackIn takes the same set row
+ * lock before it inserts a pack, so a purchase racing this either lands first
+ * and is seen by the checks below, or waits and finds no set to sell.
+ */
+export async function deleteSet(setId: string): Promise<{
+    name: string
+    cards: number
+    printings: number
+    sheets: number
+}> {
+    return await db.transaction(async (tx) => {
+        const set = await lockSetForUpdate(tx, setId)
+        if (set.packsSold > 0) {
+            badRequest(`${set.packsSold} pack(s) of this run have been sold — it can no longer be deleted`)
+        }
+        // Defence in depth: a pack row without a sale would mean the counter
+        // lied, and cascading it away would take a player's cards with it.
+        const [pack] = await tx.select({ id: tcgPack.id }).from(tcgPack)
+            .where(eq(tcgPack.setId, setId)).limit(1)
+        if (pack) badRequest('Packs from this run are in players\' hands — it can no longer be deleted')
+
+        // reprintOfSetId carries no FK, so a cascade would leave the child
+        // pointing at nothing.
+        const [reprint] = await tx.select({ id: tcgSet.id, name: tcgSet.name }).from(tcgSet)
+            .where(eq(tcgSet.reprintOfSetId, setId)).limit(1)
+        if (reprint) badRequest(`'${reprint.name}' is a reprint of this run — delete that first`)
+
+        const [counts] = await tx.select({
+            cards: sql<number>`(select count(*)::int from tcg_cards where set_id = ${setId})`,
+            printings: sql<number>`(select count(*)::int from tcg_printings where set_id = ${setId})`,
+            sheets: sql<number>`(select count(*)::int from tcg_sheets where set_id = ${setId})`
+        }).from(tcgSet).where(eq(tcgSet.id, setId))
+
+        // The delete carries the sold-nothing guard itself, so it stays true
+        // even if the checks above ever drift from it.
+        const [deleted] = await tx.delete(tcgSet)
+            .where(and(eq(tcgSet.id, setId), eq(tcgSet.packsSold, 0)))
+            .returning({ name: tcgSet.name })
+        if (!deleted) badRequest('This run has sold packs — it can no longer be deleted')
+
+        return {
+            name: deleted.name,
+            cards: counts?.cards ?? 0,
+            printings: counts?.printings ?? 0,
+            sheets: counts?.sheets ?? 0
+        }
     })
 }
 

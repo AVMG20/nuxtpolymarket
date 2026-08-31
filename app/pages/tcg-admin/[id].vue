@@ -30,6 +30,41 @@ const isTemplateCreated = computed(() => set.value?.templateCode != null)
 // sets. Remembered per session.
 const advanced = useState('tcg-admin-advanced', () => false)
 
+// ── Reset to the automatic fit ──────────────────────────────────────────────
+// Advanced mode lets an admin hand-edit sheets and the pack template; this is
+// the way back. Refits from the checklist already imported, so it never pulls
+// a different card list in under the admin.
+const { call } = useTcgAdmin()
+const resetOpen = ref(false)
+const resetting = ref(false)
+
+const canReset = computed(() => isTemplateCreated.value && set.value?.status === 'draft')
+
+async function resetToAutomaticFit() {
+  if (resetting.value) return
+  resetting.value = true
+  try {
+    const res = await call<{ sheets: number, warnings: string[] }>(
+      '/api/tcg/admin/sets/refit',
+      { setId: id.value }
+    )
+    toast.add({
+      title: 'Reset to the automatic fit',
+      description: res.warnings.length > 0
+        ? `${res.sheets} sheets rebuilt · ${res.warnings.length} warning${res.warnings.length === 1 ? '' : 's'}`
+        : `${res.sheets} sheets rebuilt from the published rates.`,
+      color: res.warnings.length > 0 ? 'warning' : 'success',
+      icon: 'i-lucide-rotate-ccw'
+    })
+    resetOpen.value = false
+    await refresh()
+  } catch {
+    // toasted by call()
+  } finally {
+    resetting.value = false
+  }
+}
+
 const allTabs: TabsItem[] = [
   { label: 'Checklist', icon: 'i-lucide-list-checks', slot: 'checklist' },
   { label: 'Sheets', icon: 'i-lucide-grid-3x3', slot: 'sheets' },
@@ -101,7 +136,16 @@ const tabs = computed<TabsItem[]>(() => {
               size="sm"
               variant="subtle"
             />
-            <div v-if="isTemplateCreated" class="ml-auto flex items-center gap-1.5">
+            <div v-if="isTemplateCreated" class="ml-auto flex items-center gap-3">
+              <UButton
+                v-if="canReset"
+                color="neutral"
+                icon="i-lucide-rotate-ccw"
+                label="Reset to automatic fit"
+                size="xs"
+                variant="outline"
+                @click="resetOpen = true"
+              />
               <USwitch
                 v-model="advanced"
                 label="Advanced"
@@ -149,6 +193,39 @@ const tabs = computed<TabsItem[]>(() => {
             <TcgAdminDebugOpen :detail="detail" class="pt-4" @refresh="refresh" />
           </template>
         </UTabs>
+
+        <!-- Reset to the automatic fit -->
+        <UModal
+          v-model:open="resetOpen"
+          title="Reset to the automatic fit?"
+          description="Every sheet and the pack template are rebuilt from this set's published rates, over the checklist as it is imported now. Manual edits made in advanced mode are discarded."
+        >
+          <template #body>
+            <UAlert
+              color="warning"
+              variant="subtle"
+              icon="i-lucide-triangle-alert"
+              title="Hand-authored layouts are lost"
+              description="The fitter's output replaces them wholesale. Nothing else changes: the checklist, target pack count and god rate stay as they are."
+            />
+          </template>
+          <template #footer>
+            <div class="flex w-full justify-end gap-2">
+              <UButton
+                color="neutral"
+                variant="ghost"
+                label="Cancel"
+                @click="resetOpen = false"
+              />
+              <UButton
+                icon="i-lucide-rotate-ccw"
+                :loading="resetting"
+                label="Reset to automatic fit"
+                @click="resetToAutomaticFit"
+              />
+            </div>
+          </template>
+        </UModal>
       </template>
     </template>
   </div>
