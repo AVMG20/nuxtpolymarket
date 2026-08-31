@@ -56,6 +56,7 @@ function openLightbox(card: CollectionCard, printing: CollectionPrinting, event:
     assetNumber: printing.assetNumber,
     maskKind: printing.maskKind,
     foilEffect: printing.foilEffect,
+    foilMask: printing.foilMask,
     legacySet: printing.bundle ? null : legacySetOf(printing.plaatjesCardId),
     holo: printing.finish === 'holo',
     name: card.name,

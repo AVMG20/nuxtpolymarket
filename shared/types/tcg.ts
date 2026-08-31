@@ -157,6 +157,7 @@ export interface OpenedPackCard {
     assetNumber: string
     maskKind: string | null
     foilEffect: string | null
+    foilMask: string | null
     printRunLabel: string
 }
 
@@ -264,6 +265,7 @@ export interface GalleryPrinting {
     assetNumber: string | null
     maskKind: string | null
     foilEffect: string | null
+    foilMask: string | null
     cardName: string
     cardNumber: string
     setTotal: number | null
@@ -457,6 +459,7 @@ export interface TcgSubmissionSummary {
         assetNumber: string | null
         maskKind: string | null
         foilEffect: string | null
+        foilMask: string | null
         pattern: string | null
         finish: string
         plaatjesCardId: string
@@ -505,6 +508,7 @@ export interface TcgListingSummary {
         assetNumber: string | null
         maskKind: string | null
         foilEffect: string | null
+        foilMask: string | null
         pattern: string | null
         finish: string
         plaatjesCardId: string

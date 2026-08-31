@@ -4,6 +4,7 @@ import type { OpenedPackCard, OpenedPackResult } from '#shared/types/tcg'
 import { legacySetOf } from '#shared/utils/tcg/legacy'
 import type { LightboxCard } from './TcgCardLightbox.client.vue'
 import { ASPECT, resolve, resolveLegacy, makeLoader, makeMaterial, loadCard } from '~/utils/tcg/foil'
+import { etchFor } from '~/utils/tcg/etch'
 import type { FoilUniforms } from '~/utils/tcg/foil'
 import { splitRect, roughen } from '~/utils/tcg/tear'
 import { wrapCandidates } from '~/utils/tcg/wrap'
@@ -537,6 +538,7 @@ onMounted(() => {
                     num: c.assetNumber,
                     mask: c.maskKind ?? 'wp',
                     effect: ((c.pattern || c.foilEffect) ?? '').toLowerCase(),
+                    etch: etchFor(c.foilMask),
                     alt: c.bundle.endsWith('_alt')
                 })
                 : resolveLegacy({

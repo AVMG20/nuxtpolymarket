@@ -121,6 +121,7 @@ interface PickedPrinting {
     assetNumber: string | null
     maskKind: string | null
     foilEffect: string | null
+    foilMask: string | null
     pattern: string | null
     plaatjesCardId: string
     holo: boolean
@@ -147,6 +148,7 @@ const printingOptions = computed<PickedPrinting[]>(() => {
             assetNumber: printing.assetNumber,
             maskKind: printing.maskKind,
             foilEffect: printing.foilEffect,
+            foilMask: printing.foilMask,
             pattern: printing.pattern,
             plaatjesCardId: printing.plaatjesCardId,
             holo: printing.finish === 'holo'
@@ -321,6 +323,7 @@ const slabKey = computed(() =>
                         :asset-number="String(picked.assetNumber ?? '')"
                         :mask-kind="picked.maskKind ?? 'wp'"
                         :foil-effect="picked.foilEffect"
+                        :foil-mask="picked.foilMask"
                         :pattern="picked.pattern"
                         :legacy-set="picked.bundle ? null : legacySetOf(picked.plaatjesCardId)"
                         :holo="picked.holo"

@@ -633,6 +633,7 @@ export async function openPack(packId: string, userId: string): Promise<OpenedPa
                 assetNumber: printing.assetNumber ?? '',
                 maskKind: printing.maskKind,
                 foilEffect: printing.foilEffect,
+                foilMask: printing.foilMask,
                 printRunLabel: printing.printRunLabel
             }
         })
