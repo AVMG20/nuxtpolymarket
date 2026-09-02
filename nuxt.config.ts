@@ -42,6 +42,7 @@ export default defineNuxtConfig({
         '/pathwarden': { ssr: false },
         '/pathwarden/**': { ssr: false },
         '/call-of-xeno': { ssr: false },
+        '/voxel-arena': { ssr: false },
         // WebGL foil renderer + admin-only tooling — no SSR value.
         '/tcg-admin/**': { ssr: false }
     },
