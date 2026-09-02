@@ -408,7 +408,7 @@ export class VoxelArenaGame {
     private fpsAccum = 0
     private fpsFrames = 0
     private sun!: THREE.DirectionalLight
-    private muzzleLight = new THREE.PointLight(0x4df2ff, 0, 10, 2)
+    private muzzleLight = new THREE.PointLight(0xffc070, 0, 7, 2)
     private flashLight = new THREE.PointLight(0xffa23a, 0, 24, 2)
 
     // world
@@ -2011,7 +2011,7 @@ export class VoxelArenaGame {
         this.spreadBloom = Math.min(0.06, this.spreadBloom + w.def.bloom)
         this.muzzleLight.color.set(special ? w.def.color : 0xffc070)
         this.muzzleLight.position.copy(muzzle).addScaledVector(dir, 1.6)
-        this.muzzleLight.intensity = 2.5 + w.def.recoil * 1.5
+        this.muzzleLight.intensity = 1.4 + w.def.recoil * 0.8
         if (special) {
             this.spawnMuzzleFlash(muzzle, dir, color, 0.22 + w.def.recoil * 0.06)
         } else {
