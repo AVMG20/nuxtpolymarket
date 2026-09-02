@@ -108,6 +108,8 @@ export interface ArenaHud {
     melee: { id: MeleeId, name: string, color: string }
     /** 0-based index of the next combo hit. */
     combo3: number
+    /** Which weapon is raised: the blade stays out after a slash until you shoot or aim. */
+    held: 'gun' | 'melee'
 }
 
 export interface HudAbility {
@@ -174,7 +176,8 @@ export function createHud(): ArenaHud {
         fov: 75,
         sight: 'reddot',
         melee: { id: 'sword', name: 'Iron Sword', color: '#d8dde6' },
-        combo3: 0
+        combo3: 0,
+        held: 'gun'
     }
 }
 
@@ -425,6 +428,7 @@ export class VoxelArenaGame {
     private vmArmL!: THREE.Group
     private vmKatana!: THREE.Group
     private meleeDef: MeleeDef = MELEE_WEAPONS[STARTER_MELEE]
+    private held: 'gun' | 'melee' = 'gun'
     private vmSway = new THREE.Vector2()
     private vmKick = 0
     private switchTimer = 0
@@ -1001,6 +1005,14 @@ export class VoxelArenaGame {
         this.camera.add(this.viewmodel)
     }
 
+    /** Raises the gun or the blade; the other one drops out of view. */
+    private hold(what: 'gun' | 'melee'): void {
+        if (this.held === what) return
+        this.held = what
+        this.switchTimer = 0.2
+        this.hud.held = what
+    }
+
     /** Swaps the blade in hand. */
     private setMelee(id: MeleeId): void {
         this.meleeDef = MELEE_WEAPONS[id]
@@ -1096,6 +1108,8 @@ export class VoxelArenaGame {
         this.waveClearTimer = -1
         for (const w of this.weapons) w.model.parent?.remove(w.model)
         this.weapons = []
+        this.held = 'gun'
+        this.hud.held = 'gun'
         this.setMelee(STARTER_MELEE)
         this.addWeapon(this.starter, true)
         this.active = 0
@@ -1614,6 +1628,11 @@ export class VoxelArenaGame {
         else if (s.healthRegen > 0 && this.hp < s.maxHealth) this.hp = Math.min(s.maxHealth, this.hp + s.healthRegen * dt)
 
         // zoom blend — aiming in the air also glides
+        if (this.adsHeld && this.held === 'melee') {
+            this.hold('gun')
+            this.meleeTimer = 0
+            this.meleeComboTimer = 0
+        }
         const wantAds = this.adsHeld && this.meleeTimer <= 0 && this.dashTimer <= 0
         this.ads += ((wantAds ? 1 : 0) - this.ads) * Math.min(1, dt * 12)
         if (this.ads < 0.002) this.ads = 0
@@ -1807,12 +1826,15 @@ export class VoxelArenaGame {
             this.vmArmR.rotation.z += Math.sin(t * Math.PI * 2) * 0.35
             this.vmArmR.position.y -= Math.sin(t * Math.PI) * 0.12
         }
-        // the scope hides the rifle while you look through the glass
-        this.vmArmR.visible = !(w && w.def.sight === 'scope' && ads > 0.7)
-        // katana arm sweeps in from the left
+        // only the held weapon is drawn; the scope hides the rifle while you look through the glass
+        this.vmArmR.visible = this.held === 'gun' && !(w && w.def.sight === 'scope' && ads > 0.7)
         const melee = this.meleeTimer > 0
-        this.vmArmL.visible = melee || this.meleeComboTimer > 0 || this.slamming
-        if (this.vmArmL.visible) {
+        this.vmArmL.visible = this.held === 'melee' || this.slamming
+        if (this.vmArmL.visible && !melee && !this.slamming) {
+            // idle guard: blade angled up across the lower left, bobbing with the walk
+            this.vmArmL.position.set(-0.22 + bobX, -0.3 + bobY - this.switchTimer * 1.2, -0.5)
+            this.vmArmL.rotation.set(-0.5 + this.switchTimer * 1.5, Math.PI + 0.7 + this.vmSway.x * 0.5, 0.45)
+        } else if (this.vmArmL.visible) {
             const t = melee ? 1 - this.meleeTimer / this.meleeDef.swingTime : 0
             const swing = melee ? Math.sin(t * Math.PI) : 0
             const side = this.meleeCombo % 2 ? 1 : -1
@@ -1881,6 +1903,7 @@ export class VoxelArenaGame {
         }
         this.active = index
         this.showWeapon()
+        this.hold('gun')
         this.audio.play('select', 0.7)
     }
 
@@ -1952,7 +1975,14 @@ export class VoxelArenaGame {
 
     private tryFire(): void {
         const w = this.weapon
-        if (!w || this.meleeTimer > 0) return
+        if (!w) return
+        if (this.held === 'melee' && (this.mouseJustDown || w.def.auto)) {
+            // the trigger brings the gun back up; the blade drops out of the way
+            this.hold('gun')
+            this.meleeTimer = 0
+            this.meleeComboTimer = 0
+        }
+        if (this.meleeTimer > 0) return
         if (!w.def.auto && !this.mouseJustDown) return
         if (w.fireTimer > 0) return
         if (w.reloading) return
@@ -2257,6 +2287,7 @@ export class VoxelArenaGame {
             return
         }
         const m = this.meleeDef
+        this.hold('melee')
         this.meleeTimer = m.swingTime
         this.meleeHitDone = false
         this.meleeComboTimer = MELEE.comboWindow

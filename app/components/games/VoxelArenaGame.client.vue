@@ -204,7 +204,7 @@
                         :class="i === hud.activeWeapon ? 'border-white/30 bg-white/10 text-white' : 'border-white/10 text-white/35'"
                     >{{ i + 1 }} · {{ w.name }}</span>
                 </div>
-                <div v-if="activeWeapon" class="mt-2 flex items-baseline gap-2">
+                <div v-if="activeWeapon" class="mt-2 flex items-baseline gap-2 transition-opacity" :class="hud.held === 'melee' ? 'opacity-50' : ''">
                     <span v-if="activeWeapon.reloading" class="text-[10px] uppercase tracking-[0.4em] text-white/50">Reloading</span>
                     <span v-else class="font-mono text-5xl font-black leading-none tabular-nums" :class="activeWeapon.ammo === 0 ? 'text-red-400' : 'text-white'">{{ activeWeapon.ammo }}</span>
                     <span class="font-mono text-xs text-white/40">/ {{ activeWeapon.magazine }}</span>
@@ -215,8 +215,8 @@
                         :style="{ width: (activeWeapon.reloading ? activeWeapon.reloadProgress : activeWeapon.ammo / activeWeapon.magazine) * 100 + '%', background: activeWeapon.color, boxShadow: `0 0 12px ${activeWeapon.color}` }"
                     />
                 </div>
-                <div class="mt-2 flex items-center gap-2 text-[9px] font-semibold uppercase tracking-[0.25em] text-white/50">
-                    <span class="rounded border border-white/15 px-1.5 font-mono leading-4">F</span>
+                <div class="mt-2 flex items-center gap-2 text-[9px] font-semibold uppercase tracking-[0.25em] transition-colors" :class="hud.held === 'melee' ? 'text-white' : 'text-white/50'">
+                    <span class="rounded border px-1.5 font-mono leading-4" :class="hud.held === 'melee' ? 'border-white/60' : 'border-white/15'">F</span>
                     <span :style="{ color: hud.melee.color }">{{ hud.melee.name }}</span>
                     <span class="ml-1 flex items-center gap-1">
                         <span v-for="i in 3" :key="i" class="h-1 w-3 rounded-full transition-colors" :class="i <= hud.combo3 ? 'bg-white' : 'bg-white/15'" />
