@@ -1,6 +1,6 @@
 // Voxel Arena — shared types for the pure data modules and the engine.
 
-export type WeaponId = 'pulse' | 'scatter' | 'needler' | 'rail' | 'plasma' | 'arc' | 'shredder' | 'ember'
+export type WeaponId = 'pistol' | 'magnum' | 'smg' | 'rifle' | 'dmr' | 'shotgun' | 'lmg' | 'saw' | 'sniper' | 'raygun' | 'arc'
 
 export type EnemyId = 'grunt' | 'runner' | 'brute' | 'spitter' | 'drone' | 'charger' | 'warden' | 'bomber' | 'mender' | 'titan'
 
@@ -9,6 +9,41 @@ export type EnemyBehavior = 'melee' | 'ranged' | 'flyer' | 'charger' | 'boss' | 
 export type EliteAffix = 'swift' | 'armored' | 'volatile' | 'gilded'
 
 export type Rarity = 'common' | 'rare' | 'epic' | 'legendary'
+
+export type SightKind = 'reddot' | 'holo' | 'scope' | 'iron' | 'ring'
+
+export type MeleeId = 'sword' | 'dagger' | 'spear' | 'katana' | 'axe' | 'scythe'
+
+export interface MeleeDef {
+    id: MeleeId
+    name: string
+    tagline: string
+    damage: number
+    range: number
+    /** Full sweep angle in radians of the normal slashes. */
+    arc: number
+    swingTime: number
+    /** Damage multiplier of the third hit. */
+    finisherMult: number
+    /** How the finisher lands: a wide slash, a full spin, an overhead slam, or a long thrust. */
+    finisher: 'slash' | 'spin' | 'slam' | 'thrust'
+    knockback: number
+    lunge: number
+    rarity: Rarity
+    color: number
+}
+
+export type AbilityId = 'nova' | 'sentry' | 'blink' | 'chrono'
+
+export interface AbilityDef {
+    id: AbilityId
+    name: string
+    description: string
+    /** Energy per cast. */
+    energy: number
+    icon: string
+    color: string
+}
 
 export interface WeaponDef {
     id: WeaponId
@@ -39,6 +74,8 @@ export interface WeaponDef {
     /** Gravity applied to the projectile (plasma mortar lobs). */
     gravity: number
     homing: number
+    /** Aim-down-sights reticle style. */
+    sight: SightKind
     /** Camera field of view while aiming (zoom). */
     adsFov: number
     /** Spread multiplier while aiming. */
@@ -151,9 +188,13 @@ export interface UpgradeCard {
     name: string
     description: string
     rarity: Rarity
-    kind: 'stat' | 'crazy' | 'weapon'
+    kind: 'stat' | 'crazy' | 'weapon' | 'ability' | 'melee'
     icon: string
     weaponId?: WeaponId
+    abilityId?: AbilityId
+    meleeId?: MeleeId
+    /** Only offered once this ability is owned. */
+    requiresAbility?: AbilityId
     maxStacks?: number
     apply: (stats: PlayerStats) => void
 }
@@ -161,4 +202,6 @@ export interface UpgradeCard {
 export interface DraftCard extends UpgradeCard {
     /** Unique per draft so the same upgrade can appear in two drafts. */
     draftKey: string
+    /** Shard price for this wave. */
+    cost: number
 }

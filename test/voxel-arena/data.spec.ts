@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { ENEMIES, ENEMY_IDS, WEAPONS, WEAPON_IDS, planWave, isBossWave, waveEvent, waveEnemyCount, waveHpMult, eliteChance, defaultStats, magazineSize, killScore, dropChance } from '../../app/utils/voxel-arena/data'
+import { ENEMIES, ENEMY_IDS, WEAPONS, WEAPON_IDS, MELEE_WEAPONS, MELEE_IDS, planWave, isBossWave, waveEvent, waveEnemyCount, waveHpMult, eliteChance, defaultStats, magazineSize, killScore, dropChance } from '../../app/utils/voxel-arena/data'
 
 function seeded(seed: number): () => number {
     let s = seed >>> 0
@@ -88,13 +88,26 @@ describe('voxel arena definitions', () => {
         }
     })
 
+    it('melee weapons have sane reach, timing and a rewarding finisher', () => {
+        for (const id of MELEE_IDS) {
+            const m = MELEE_WEAPONS[id]
+            expect(m.id).toBe(id)
+            expect(m.damage).toBeGreaterThan(0)
+            expect(m.range).toBeGreaterThan(1)
+            expect(m.swingTime).toBeGreaterThan(0.05)
+            expect(m.finisherMult).toBeGreaterThanOrEqual(2)
+        }
+        expect(MELEE_WEAPONS.dagger.swingTime).toBeLessThan(MELEE_WEAPONS.axe.swingTime)
+        expect(MELEE_WEAPONS.spear.range).toBeGreaterThan(MELEE_WEAPONS.sword.range)
+    })
+
     it('scales magazine size with stats and never drops below one round', () => {
         const stats = defaultStats()
-        expect(magazineSize(WEAPONS.pulse, stats)).toBe(30)
+        expect(magazineSize(WEAPONS.rifle, stats)).toBe(30)
         stats.magazineMult = 1.35
-        expect(magazineSize(WEAPONS.pulse, stats)).toBe(41)
+        expect(magazineSize(WEAPONS.rifle, stats)).toBe(41)
         stats.magazineMult = 0.01
-        expect(magazineSize(WEAPONS.rail, stats)).toBe(1)
+        expect(magazineSize(WEAPONS.sniper, stats)).toBe(1)
     })
 
     it('rewards combos and elites with more score', () => {

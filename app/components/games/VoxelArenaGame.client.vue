@@ -13,29 +13,76 @@
         </div>
 
         <!-- Screen-space feedback -->
-        <div class="pointer-events-none absolute inset-0" style="box-shadow: inset 0 0 140px 20px rgba(0,0,0,0.55)" />
+        <div class="pointer-events-none absolute inset-0" style="box-shadow: inset 0 0 140px 20px rgba(0,0,0,0.5)" />
         <div class="pointer-events-none absolute inset-0 transition-opacity duration-100" :style="{ opacity: hud.hurt, boxShadow: 'inset 0 0 200px 60px rgba(220,30,40,0.55)' }" />
         <div v-if="lowHealth && hud.phase === 'playing'" class="pointer-events-none absolute inset-0 animate-pulse" style="box-shadow: inset 0 0 240px 80px rgba(160,0,10,0.45)" />
-        <div class="pointer-events-none absolute inset-0 transition-opacity duration-150" :style="{ opacity: hud.ads * 0.85, boxShadow: 'inset 0 0 200px 50px rgba(0,0,0,0.8)' }" />
+        <div v-if="hud.shield > 0" class="pointer-events-none absolute inset-0" style="box-shadow: inset 0 0 120px 10px rgba(125,211,252,0.22)" />
         <div v-if="hud.dashing > 0" class="pointer-events-none absolute inset-0 speed-lines" />
         <div v-if="hud.overdrive > 0" class="pointer-events-none absolute inset-0" style="box-shadow: inset 0 0 180px 40px rgba(255,70,40,0.22)" />
         <div v-if="hud.chrono" class="pointer-events-none absolute inset-0" style="box-shadow: inset 0 0 220px 70px rgba(60,220,255,0.25)" />
         <div v-if="hud.event === 'blackout' && hud.phase === 'playing'" class="pointer-events-none absolute inset-0" style="box-shadow: inset 0 0 280px 110px rgba(0,0,0,0.8)" />
 
-        <!-- Crosshair -->
+        <!-- Crosshair: opens with real spread, fades out while aiming -->
         <div v-if="hud.phase === 'playing' && hud.locked" class="pointer-events-none absolute inset-0 flex items-center justify-center">
-            <div class="relative size-16">
+            <div class="relative size-24 transition-opacity duration-100" :style="{ opacity: Math.max(0, 1 - hud.ads * 2) }">
                 <span
                     v-for="(rot, i) in [0, 90, 180, 270]"
                     :key="i"
-                    class="absolute left-1/2 top-1/2 h-2 w-px origin-center transition-colors duration-75"
-                    :class="hud.hitMarker > 0 ? hitColor : 'bg-white/80'"
-                    :style="{ transform: `rotate(${rot + 45}deg) translateY(${-(11 - hud.ads * 4 + (hud.hitMarker > 0 ? 3 : 0))}px)` }"
+                    class="absolute left-1/2 top-1/2 h-2.5 w-px origin-center transition-colors duration-75"
+                    :class="hud.hitMarker > 0 ? hitColor : 'bg-white/85'"
+                    :style="{ transform: `rotate(${rot}deg) translateY(${-(6 + spreadGap + (hud.hitMarker > 0 ? 3 : 0))}px)` }"
                 />
-                <span class="absolute left-1/2 top-1/2 size-1 -translate-x-1/2 -translate-y-1/2 rounded-full" :class="hud.hitMarker > 0 ? hitColor : 'bg-cyan-300'" />
-                <span v-if="hud.hitKind === 'head' && hud.hitMarker > 0" class="absolute -top-5 left-1/2 -translate-x-1/2 text-[9px] font-bold uppercase tracking-[0.35em] text-orange-300">Headshot</span>
-                <span v-if="hud.gliding" class="absolute -bottom-5 left-1/2 -translate-x-1/2 whitespace-nowrap text-[9px] uppercase tracking-[0.35em] text-cyan-300/80">Glide</span>
+                <span class="absolute left-1/2 top-1/2 size-1 -translate-x-1/2 -translate-y-1/2 rounded-full" :class="hud.hitMarker > 0 ? hitColor : 'bg-white'" />
             </div>
+            <div class="absolute left-1/2 top-1/2 -translate-x-1/2 translate-y-8 text-center">
+                <span v-if="hud.hitKind === 'head' && hud.hitMarker > 0" class="block text-[9px] font-bold uppercase tracking-[0.35em] text-orange-300">Headshot</span>
+                <span v-if="hud.gliding" class="block text-[9px] uppercase tracking-[0.35em] text-cyan-300/80">Glide</span>
+            </div>
+        </div>
+
+        <!-- Sights -->
+        <div v-if="hud.phase === 'playing' && sightOpacity > 0" class="pointer-events-none absolute inset-0 flex items-center justify-center" :style="{ opacity: sightOpacity }">
+            <template v-if="hud.sight === 'reddot'">
+                <div class="relative flex size-44 items-center justify-center rounded-full border-[6px] border-black/90 shadow-[inset_0_0_30px_rgba(0,0,0,0.6),0_0_0_2px_rgba(255,255,255,0.08)]">
+                    <div class="absolute inset-0 rounded-full bg-red-500/[0.04]" />
+                    <span class="size-1.5 rounded-full bg-red-500 shadow-[0_0_6px_2px_rgba(255,40,40,0.9)]" :class="hud.hitMarker > 0 ? 'scale-150' : ''" />
+                </div>
+            </template>
+            <template v-else-if="hud.sight === 'holo'">
+                <div class="relative flex size-48 items-center justify-center">
+                    <div class="absolute inset-0 rounded-md border-[6px] border-black/90" />
+                    <div class="absolute size-16 rounded-full border-2 border-red-500/90 shadow-[0_0_8px_rgba(255,60,60,0.8)]" />
+                    <span class="size-1 rounded-full bg-red-500 shadow-[0_0_6px_2px_rgba(255,40,40,0.9)]" />
+                    <span class="absolute left-1/2 top-9 h-3 w-px bg-red-500/90" />
+                    <span class="absolute left-1/2 bottom-9 h-3 w-px bg-red-500/90" />
+                    <span class="absolute top-1/2 left-9 h-px w-3 bg-red-500/90" />
+                    <span class="absolute top-1/2 right-9 h-px w-3 bg-red-500/90" />
+                </div>
+            </template>
+            <template v-else-if="hud.sight === 'ring'">
+                <div class="relative flex size-40 items-center justify-center rounded-full border-4 border-black/90">
+                    <div class="absolute size-20 rounded-full border-2 border-lime-300/90 shadow-[0_0_10px_rgba(125,255,90,0.8)]" />
+                    <span class="size-1.5 rounded-full bg-lime-300 shadow-[0_0_6px_2px_rgba(125,255,90,0.9)]" />
+                </div>
+            </template>
+            <template v-else-if="hud.sight === 'iron'">
+                <div class="relative flex size-20 items-center justify-center">
+                    <span class="absolute left-1/2 top-1/2 h-4 w-0.5 -translate-x-1/2 bg-orange-300 shadow-[0_0_6px_rgba(255,162,58,0.9)]" />
+                    <span class="absolute left-2 top-1/2 h-0.5 w-4 bg-white/70" />
+                    <span class="absolute right-2 top-1/2 h-0.5 w-4 bg-white/70" />
+                </div>
+            </template>
+            <template v-else-if="hud.sight === 'scope'">
+                <div class="scope-mask absolute inset-0" />
+                <div class="relative flex size-[76vmin] items-center justify-center rounded-full border-[3px] border-white/10">
+                    <span class="absolute left-1/2 top-0 h-full w-px bg-black/85" />
+                    <span class="absolute top-1/2 left-0 h-px w-full bg-black/85" />
+                    <span v-for="i in 4" :key="'v' + i" class="absolute left-1/2 h-px w-3 -translate-x-1/2 bg-black/80" :style="{ top: (50 + i * 6) + '%' }" />
+                    <span v-for="i in 4" :key="'h' + i" class="absolute top-1/2 h-3 w-px -translate-y-1/2 bg-black/80" :style="{ left: (50 + i * 6) + '%' }" />
+                    <span class="size-1.5 rounded-full bg-red-500 shadow-[0_0_8px_2px_rgba(255,40,40,0.9)]" />
+                    <span class="absolute bottom-[12%] font-mono text-[10px] tracking-[0.4em] text-white/40">BOLT · 4×</span>
+                </div>
+            </template>
         </div>
 
         <!-- HUD -->
@@ -55,7 +102,6 @@
                 <div v-if="hud.event !== 'none'" class="mt-2 inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.3em]" :class="eventClass">
                     <span class="size-1 rounded-full bg-current animate-pulse" />{{ eventLabel }}
                 </div>
-                <!-- Boss -->
                 <div v-if="hud.boss" class="mt-4 w-[min(560px,76vw)] -translate-x-[calc(50%-8rem)]">
                     <div class="mb-1 flex items-end justify-between text-[10px] uppercase tracking-[0.4em] text-orange-300">
                         <span>{{ hud.boss.name }}</span>
@@ -74,10 +120,13 @@
                 <span class="flex items-center gap-1.5"><UIcon name="i-lucide-crosshair" class="size-3.5" />{{ hud.headshots }}</span>
             </div>
 
-            <!-- Score: top-right -->
+            <!-- Score + shards: top-right -->
             <div class="absolute right-5 top-5 text-right sm:right-7 sm:top-7">
                 <div class="text-[10px] uppercase tracking-[0.5em] text-white/50">Score</div>
                 <div class="font-mono text-3xl font-black leading-none tabular-nums text-amber-300">{{ formatNumber(hud.score, false) }}</div>
+                <div class="mt-2 flex items-center justify-end gap-1.5 font-mono text-sm font-bold tabular-nums text-cyan-300">
+                    <UIcon name="i-lucide-gem" class="size-3.5" />{{ hud.shards }}
+                </div>
                 <Transition name="fade">
                     <div v-if="hud.combo > 1" class="mt-2 flex flex-col items-end">
                         <div class="font-mono text-sm font-bold tabular-nums" :class="comboColor">×{{ hud.combo }}</div>
@@ -88,7 +137,7 @@
                 </Transition>
             </div>
 
-            <!-- Vitals: bottom-left -->
+            <!-- Vitals + abilities: bottom-left -->
             <div class="absolute bottom-6 left-5 w-72 sm:bottom-8 sm:left-7">
                 <div class="flex items-end justify-between">
                     <div class="flex items-baseline gap-1.5">
@@ -96,11 +145,7 @@
                         <span class="font-mono text-xs text-white/40">/ {{ hud.maxHealth }}</span>
                     </div>
                     <div class="flex items-center gap-1 pb-1">
-                        <span
-                            v-for="i in hud.dashMax"
-                            :key="i"
-                            class="h-1 w-6 overflow-hidden rounded-full bg-white/15"
-                        >
+                        <span v-for="i in hud.dashMax" :key="i" class="h-1 w-6 overflow-hidden rounded-full bg-white/15">
                             <span class="block h-full rounded-full bg-sky-300 transition-[width] duration-75" :style="{ width: (i <= hud.dashCharges ? 100 : i === hud.dashCharges + 1 ? hud.dashFill * 100 : 0) + '%' }" />
                         </span>
                         <UIcon name="i-lucide-wind" class="ml-1 size-3 text-white/40" />
@@ -122,20 +167,31 @@
                         :style="{ width: (hud.health / hud.maxHealth * 100) + '%' }"
                     />
                 </div>
-                <div class="mt-2.5 flex items-center gap-2">
-                    <span class="rounded border px-1.5 font-mono text-[10px] font-bold leading-4 transition-colors" :class="novaReady ? 'border-cyan-300 text-cyan-300 shadow-[0_0_10px_rgba(63,240,255,0.5)]' : 'border-white/20 text-white/40'">Q</span>
-                    <div class="relative h-1 flex-1 overflow-hidden rounded-full bg-white/10">
-                        <div class="h-full rounded-full transition-[width] duration-100" :class="novaReady ? 'bg-cyan-300 shadow-[0_0_10px_rgba(63,240,255,0.7)]' : 'bg-cyan-700'" :style="{ width: (hud.energy / hud.energyMax * 100) + '%' }" />
-                        <div class="absolute inset-y-0 w-px bg-white/50" :style="{ left: (hud.abilityCost / hud.energyMax * 100) + '%' }" />
+                <template v-if="hasAbilities">
+                    <div class="mt-2.5 flex items-center gap-2">
+                        <UIcon name="i-lucide-battery-charging" class="size-3 text-cyan-300/70" />
+                        <div class="relative h-1 flex-1 overflow-hidden rounded-full bg-white/10">
+                            <div class="h-full rounded-full bg-cyan-300 shadow-[0_0_10px_rgba(63,240,255,0.6)] transition-[width] duration-100" :style="{ width: (hud.energy / hud.energyMax * 100) + '%' }" />
+                        </div>
+                        <span class="font-mono text-[10px] tabular-nums text-white/40">{{ Math.floor(hud.energy) }}</span>
                     </div>
-                    <span class="font-mono text-[10px] tabular-nums text-white/40">{{ Math.floor(hud.energy) }}</span>
-                </div>
-                <div class="mt-2 flex items-center gap-2 text-[10px] uppercase tracking-[0.3em]" :class="hud.energy >= hud.turretCost ? 'text-cyan-200' : 'text-white/35'">
-                    <span class="rounded border px-1.5 font-mono font-bold leading-4 transition-colors" :class="hud.energy >= hud.turretCost ? 'border-cyan-300/70 text-cyan-300' : 'border-white/20 text-white/40'">E</span>
-                    <span>Sentry</span>
-                    <span class="font-mono tabular-nums text-white/40">{{ hud.turretCost }}</span>
-                    <span v-if="hud.turrets > 0" class="ml-auto flex items-center gap-1 text-cyan-300"><UIcon name="i-lucide-radar" class="size-3" />{{ hud.turrets }}</span>
-                </div>
+                    <div class="mt-2 flex gap-2">
+                        <div
+                            v-for="(a, i) in hud.abilities"
+                            :key="i"
+                            class="flex flex-1 items-center gap-2 rounded-lg border px-2 py-1.5 transition-colors"
+                            :class="a ? (hud.energy >= a.cost ? 'border-white/25 bg-white/5' : 'border-white/10 opacity-50') : 'border-dashed border-white/10 opacity-40'"
+                        >
+                            <span class="rounded border px-1.5 font-mono text-[10px] font-bold leading-4" :style="a && hud.energy >= a.cost ? { borderColor: a.color, color: a.color, boxShadow: `0 0 8px ${a.color}66` } : {}">{{ i === 0 ? 'Q' : 'E' }}</span>
+                            <template v-if="a">
+                                <UIcon :name="a.icon" class="size-3.5" :style="{ color: a.color }" />
+                                <span class="truncate text-[10px] font-semibold uppercase tracking-[0.2em]">{{ a.name }}</span>
+                                <span class="ml-auto font-mono text-[10px] tabular-nums text-white/40">{{ a.cost }}</span>
+                            </template>
+                            <span v-else class="text-[10px] uppercase tracking-[0.2em] text-white/50">Empty</span>
+                        </div>
+                    </div>
+                </template>
             </div>
 
             <!-- Weapon: bottom-right -->
@@ -159,6 +215,13 @@
                         :style="{ width: (activeWeapon.reloading ? activeWeapon.reloadProgress : activeWeapon.ammo / activeWeapon.magazine) * 100 + '%', background: activeWeapon.color, boxShadow: `0 0 12px ${activeWeapon.color}` }"
                     />
                 </div>
+                <div class="mt-2 flex items-center gap-2 text-[9px] font-semibold uppercase tracking-[0.25em] text-white/50">
+                    <span class="rounded border border-white/15 px-1.5 font-mono leading-4">F</span>
+                    <span :style="{ color: hud.melee.color }">{{ hud.melee.name }}</span>
+                    <span class="ml-1 flex items-center gap-1">
+                        <span v-for="i in 3" :key="i" class="h-1 w-3 rounded-full transition-colors" :class="i <= hud.combo3 ? 'bg-white' : 'bg-white/15'" />
+                    </span>
+                </div>
             </div>
 
             <!-- Status pills + toast: bottom centre -->
@@ -166,11 +229,12 @@
                 <Transition name="fade">
                     <div v-if="toast" class="rounded-full border border-white/10 bg-black/50 px-4 py-1 text-[11px] font-semibold uppercase tracking-[0.3em] backdrop-blur-md" :style="{ color: toast.color }">{{ toast.text }}</div>
                 </Transition>
-                <div v-if="hud.overdrive > 0 || hud.frenzy > 0 || hud.chrono || hud.haste > 0" class="flex items-center gap-2 text-[9px] font-semibold uppercase tracking-[0.3em]">
+                <div v-if="hud.overdrive > 0 || hud.frenzy > 0 || hud.chrono || hud.haste > 0 || hud.turrets > 0" class="flex items-center gap-2 text-[9px] font-semibold uppercase tracking-[0.3em]">
                     <span v-if="hud.overdrive > 0" class="rounded-full border border-red-400/50 px-2.5 py-0.5 text-red-300">Overdrive {{ hud.overdrive.toFixed(0) }}s</span>
                     <span v-if="hud.haste > 0" class="rounded-full border border-yellow-300/50 px-2.5 py-0.5 text-yellow-200">Haste {{ hud.haste.toFixed(0) }}s</span>
                     <span v-if="hud.frenzy > 0" class="rounded-full border border-orange-400/50 px-2.5 py-0.5 text-orange-300">Frenzy ×{{ hud.frenzy }}</span>
                     <span v-if="hud.chrono" class="rounded-full border border-cyan-300/50 px-2.5 py-0.5 text-cyan-200">Chrono</span>
+                    <span v-if="hud.turrets > 0" class="rounded-full border border-amber-300/50 px-2.5 py-0.5 text-amber-200">Sentry ×{{ hud.turrets }}</span>
                 </div>
             </div>
         </div>
@@ -196,8 +260,8 @@
                     <span class="text-white/90"> Arena</span>
                 </h1>
                 <p class="mt-5 max-w-xl text-sm leading-relaxed text-white/60">
-                    Hold the arena against waves of voxel constructs. Shoot, slash, slide and bullet-jump, then draft up to
-                    three upgrades between waves. Every fifth wave a Titan drops in, and the arena itself turns on you in between.
+                    Hold the arena against waves of voxel constructs. Shoot, slash, slide and bullet-jump. Kills drop shards;
+                    spend them between waves on weapons, mutations and abilities, or save up for something bigger.
                 </p>
                 <div class="mt-8 grid grid-cols-2 gap-x-8 gap-y-2 sm:grid-cols-3">
                     <div v-for="c in controls" :key="c[0]" class="flex items-center gap-3 text-xs">
@@ -250,21 +314,22 @@
             </div>
         </div>
 
-        <!-- Upgrade draft -->
+        <!-- Shop -->
         <div v-else-if="hud.phase === 'draft'" class="absolute inset-0 flex items-center justify-center overflow-y-auto bg-black/65 p-4 backdrop-blur-md sm:p-8">
             <div class="w-full max-w-5xl">
                 <div class="flex flex-wrap items-end justify-between gap-4">
                     <div>
                         <div class="text-[11px] uppercase tracking-[0.7em] text-lime-300/80">Wave {{ hud.wave }} cleared</div>
-                        <h2 class="mt-2 text-4xl font-black uppercase tracking-tight">Draft</h2>
-                        <p class="mt-1 text-xs text-white/50">Choose up to {{ DRAFT_PICKS }}. Weapons join your loadout; a fourth replaces the one in your hands.</p>
+                        <h2 class="mt-2 text-4xl font-black uppercase tracking-tight">Shop</h2>
+                        <p class="mt-1 text-xs text-white/50">Buy what you can afford, or save your shards for the next wave. Abilities bind to Q and E.</p>
                     </div>
                     <div class="flex items-center gap-4">
-                        <UButton size="lg" color="neutral" variant="ghost" icon="i-lucide-dices" :disabled="hud.rerolls <= 0" class="uppercase tracking-[0.25em]" @click="reroll">Reroll {{ hud.rerolls > 0 ? '' : '· used' }}</UButton>
-                        <div class="flex items-center gap-1.5">
-                            <span v-for="i in DRAFT_PICKS" :key="i" class="size-2 rounded-full transition-colors" :class="i <= selected.length ? 'bg-cyan-300 shadow-[0_0_8px_rgba(63,240,255,0.8)]' : 'bg-white/20'" />
+                        <div class="text-right">
+                            <div class="text-[10px] uppercase tracking-[0.4em] text-white/40">Shards</div>
+                            <div class="flex items-center justify-end gap-1.5 font-mono text-2xl font-black tabular-nums text-cyan-300"><UIcon name="i-lucide-gem" class="size-4" />{{ hud.shards }}</div>
                         </div>
-                        <UButton size="xl" color="primary" icon="i-lucide-swords" class="px-6 font-black uppercase tracking-[0.3em]" @click="deploy">{{ selected.length ? 'Deploy' : 'Skip' }}</UButton>
+                        <UButton size="lg" color="neutral" variant="ghost" icon="i-lucide-dices" :disabled="hud.shards < hud.rerollCost" class="uppercase tracking-[0.25em]" @click="reroll">Reroll · {{ hud.rerollCost }}</UButton>
+                        <UButton size="xl" color="primary" icon="i-lucide-swords" class="px-6 font-black uppercase tracking-[0.3em]" @click="deploy">Deploy</UButton>
                     </div>
                 </div>
                 <div class="mt-6 grid grid-cols-2 gap-3 md:grid-cols-3">
@@ -272,15 +337,15 @@
                         v-for="card in draft"
                         :key="card.draftKey"
                         type="button"
-                        class="draft-card group relative flex flex-col overflow-hidden rounded-2xl border bg-zinc-950/80 p-5 text-left transition-all duration-150 hover:-translate-y-0.5 hover:bg-zinc-900/80"
-                        :class="isSelected(card) ? 'border-[var(--card-color)] shadow-[0_0_40px_-8px_var(--card-color)]' : 'border-white/10'"
+                        class="draft-card group relative flex flex-col overflow-hidden rounded-2xl border bg-zinc-950/80 p-5 text-left transition-all duration-150"
+                        :class="[hud.shards >= card.cost ? 'border-white/10 hover:-translate-y-0.5 hover:border-[var(--card-color)] hover:bg-zinc-900/80' : 'cursor-not-allowed border-white/5 opacity-45', slotPrompt?.draftKey === card.draftKey ? 'border-[var(--card-color)] shadow-[0_0_40px_-8px_var(--card-color)]' : '']"
                         :style="{ '--card-color': RARITY_COLOR[card.rarity] }"
-                        @click="toggle(card)"
+                        @click="buy(card)"
                     >
                         <div class="absolute inset-x-0 top-0 h-px opacity-80" :style="{ background: `linear-gradient(90deg, transparent, ${RARITY_COLOR[card.rarity]}, transparent)` }" />
                         <div class="flex items-center justify-between">
-                            <span class="text-[9px] font-semibold uppercase tracking-[0.35em]" :style="{ color: RARITY_COLOR[card.rarity] }">{{ RARITY_LABEL[card.rarity] }} · {{ card.kind === 'weapon' ? 'weapon' : card.kind === 'crazy' ? 'mutation' : 'upgrade' }}</span>
-                            <span v-if="isSelected(card)" class="flex size-5 items-center justify-center rounded-full font-mono text-[10px] font-black text-black" :style="{ background: RARITY_COLOR[card.rarity] }">{{ selected.indexOf(card.draftKey) + 1 }}</span>
+                            <span class="text-[9px] font-semibold uppercase tracking-[0.35em]" :style="{ color: RARITY_COLOR[card.rarity] }">{{ RARITY_LABEL[card.rarity] }} · {{ kindLabel(card) }}</span>
+                            <span class="flex items-center gap-1 font-mono text-xs font-bold tabular-nums" :class="hud.shards >= card.cost ? 'text-cyan-300' : 'text-white/40'"><UIcon name="i-lucide-gem" class="size-3" />{{ card.cost }}</span>
                         </div>
                         <div class="mt-4 flex items-center gap-3">
                             <span class="flex size-11 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/5">
@@ -289,7 +354,15 @@
                             <span class="text-base font-black uppercase leading-tight tracking-wide">{{ card.name }}</span>
                         </div>
                         <p class="mt-3 text-xs leading-relaxed text-white/55">{{ card.description }}</p>
+                        <div v-if="slotPrompt?.draftKey === card.draftKey" class="mt-4 rounded-xl border border-white/10 bg-black/40 p-3" @click.stop>
+                            <div class="text-[10px] uppercase tracking-[0.3em] text-white/50">Both slots are taken — replace which?</div>
+                            <div class="mt-2 flex gap-2">
+                                <UButton v-for="(a, i) in hud.abilities" :key="i" size="sm" color="neutral" variant="soft" class="flex-1 justify-center font-mono uppercase tracking-widest" @click.stop="buy(card, i)">{{ i === 0 ? 'Q' : 'E' }} · {{ a?.name }}</UButton>
+                                <UButton size="sm" color="neutral" variant="ghost" icon="i-lucide-x" @click.stop="slotPrompt = null" />
+                            </div>
+                        </div>
                     </button>
+                    <div v-if="draft.length === 0" class="col-span-full rounded-2xl border border-dashed border-white/10 p-8 text-center text-xs uppercase tracking-[0.3em] text-white/40">Sold out — reroll or deploy</div>
                 </div>
             </div>
         </div>
@@ -327,7 +400,7 @@ import { ref, reactive, computed, nextTick, onMounted, onBeforeUnmount } from 'v
 import { VoxelArenaGame, createHud } from '~/utils/voxel-arena/engine'
 import type { RunSummary } from '~/utils/voxel-arena/engine'
 import type { DraftCard, WeaponId } from '~/utils/voxel-arena/types'
-import { RARITY_COLOR, RARITY_LABEL, DRAFT_PICKS } from '~/utils/voxel-arena/upgrades'
+import { RARITY_COLOR, RARITY_LABEL } from '~/utils/voxel-arena/upgrades'
 import { WEAPONS, STARTER_WEAPONS } from '~/utils/voxel-arena/data'
 
 const viewport = ref<HTMLDivElement | null>(null)
@@ -339,39 +412,45 @@ let bannerTimer: number | undefined
 const toast = ref<{ text: string, color: string } | null>(null)
 let toastTimer: number | undefined
 const draft = ref<DraftCard[]>([])
-const selected = ref<string[]>([])
+const slotPrompt = ref<DraftCard | null>(null)
 const summary = ref<RunSummary | null>(null)
 const muted = ref(false)
 const best = ref<{ wave: number, score: number } | null>(null)
 const quality = ref<'high' | 'low'>('high')
 const route = useRoute()
-const starter = ref<WeaponId>('pulse')
+const starter = ref<WeaponId>('pistol')
 const starters = STARTER_WEAPONS.map(id => WEAPONS[id])
+const viewportHeight = ref(720)
 
 const controls: [string, string][] = [
     ['WASD', 'Move'],
     ['LMB', 'Shoot'],
-    ['RMB', 'Aim · glide in the air'],
-    ['F', 'Slash combo · slam from the air'],
+    ['RMB', 'Aim down sights · glide in the air'],
+    ['F', '3-hit melee combo · slam from the air'],
     ['Ctrl', 'Slide'],
     ['Ctrl + Space', 'Bullet jump'],
     ['Shift', 'Dash'],
     ['Space', 'Jump · double jump'],
-    ['Q', 'Nova burst'],
-    ['E', 'Sentry turret'],
+    ['Q / E', 'Abilities (buy in the shop)'],
     ['R', 'Reload'],
     ['1-3 / Wheel', 'Switch weapon'],
     ['Esc', 'Pause']
 ]
 
 const lowHealth = computed(() => hud.health / hud.maxHealth < 0.3)
-const novaReady = computed(() => hud.energy >= hud.abilityCost)
+const hasAbilities = computed(() => hud.abilities.some(a => a !== null))
 const waveProgress = computed(() => hud.waveTotal > 0 ? Math.max(0, Math.min(100, (1 - hud.remaining / hud.waveTotal) * 100)) : 0)
 const activeWeapon = computed(() => hud.weapons[hud.activeWeapon] ?? null)
 const comboColor = computed(() => hud.combo >= 20 ? 'text-fuchsia-300' : hud.combo >= 10 ? 'text-orange-300' : 'text-amber-200')
 const hitColor = computed(() => ({ kill: 'bg-lime-300', crit: 'bg-yellow-300', head: 'bg-orange-300', block: 'bg-cyan-300', hit: 'bg-red-400' })[hud.hitKind])
 const eventLabel = computed(() => ({ meteors: 'Meteor storm', frenzy: 'Frenzy', blackout: 'Blackout', bounty: 'Bounty', none: '' })[hud.event])
 const eventClass = computed(() => ({ meteors: 'border-orange-400/50 text-orange-300', frenzy: 'border-red-400/50 text-red-300', blackout: 'border-indigo-300/50 text-indigo-200', bounty: 'border-amber-300/60 text-amber-200', none: '' })[hud.event])
+const sightOpacity = computed(() => Math.max(0, (hud.ads - 0.45) / 0.55))
+/** Crosshair gap in pixels: the projected radius of the current spread cone. */
+const spreadGap = computed(() => {
+    const focal = (viewportHeight.value / 2) / Math.tan((hud.fov * Math.PI / 180) / 2)
+    return Math.min(60, Math.tan(hud.spread) * focal)
+})
 
 const summaryStats = computed(() => {
     const s = summary.value
@@ -384,6 +463,10 @@ const summaryStats = computed(() => {
         { label: 'Survived', value: formatTime(s.time), color: 'text-white' }
     ]
 })
+
+function kindLabel(card: DraftCard): string {
+    return card.kind === 'weapon' ? 'weapon' : card.kind === 'melee' ? 'melee' : card.kind === 'ability' ? 'ability' : card.kind === 'crazy' ? 'mutation' : 'upgrade'
+}
 
 function formatTime(seconds: number): string {
     const m = Math.floor(seconds / 60)
@@ -406,11 +489,6 @@ function showToast(text: string, color: string): void {
 function start(): void {
     summary.value = null
     game?.start(starter.value)
-}
-
-function reroll(): void {
-    selected.value = []
-    game?.rerollDraft()
 }
 
 function resume(): void {
@@ -446,27 +524,29 @@ function loadQuality(): void {
     }
 }
 
-function isSelected(card: DraftCard): boolean {
-    return selected.value.includes(card.draftKey)
+function buy(card: DraftCard, slot?: number): void {
+    if (!game) return
+    if (hud.shards < card.cost) return
+    const result = game.buyCard(card, slot)
+    if (result === 'slot') {
+        slotPrompt.value = card
+        return
+    }
+    if (result === 'ok') {
+        slotPrompt.value = null
+        draft.value = draft.value.filter(c => c.draftKey !== card.draftKey)
+    }
 }
 
-function toggle(card: DraftCard): void {
-    const idx = selected.value.indexOf(card.draftKey)
-    if (idx >= 0) {
-        selected.value.splice(idx, 1)
-    } else if (selected.value.length < DRAFT_PICKS) {
-        selected.value.push(card.draftKey)
-    }
-    game?.audio.play('select', 0.6)
+function reroll(): void {
+    slotPrompt.value = null
+    game?.rerollDraft()
 }
 
 function deploy(): void {
-    const cards = selected.value
-        .map(key => draft.value.find(c => c.draftKey === key))
-        .filter((c): c is DraftCard => !!c)
-    selected.value = []
+    slotPrompt.value = null
     draft.value = []
-    game?.applyDraft(cards)
+    game?.finishShop()
 }
 
 function loadBest(): void {
@@ -478,12 +558,18 @@ function loadBest(): void {
     }
 }
 
+function onResize(): void {
+    viewportHeight.value = window.innerHeight
+}
+
 onMounted(async () => {
     // `.client` components render their real template a tick after mount, so
     // the viewport ref is only populated after nextTick.
     await nextTick()
     loadBest()
     loadQuality()
+    onResize()
+    window.addEventListener('resize', onResize)
     if (!viewport.value) return
     game = new VoxelArenaGame({
         hud,
@@ -491,7 +577,7 @@ onMounted(async () => {
         toast: showToast,
         draft: cards => {
             draft.value = cards
-            selected.value = []
+            slotPrompt.value = null
         },
         dead: s => {
             summary.value = s
@@ -505,6 +591,7 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+    window.removeEventListener('resize', onResize)
     if (bannerTimer) window.clearTimeout(bannerTimer)
     if (toastTimer) window.clearTimeout(toastTimer)
     game?.dispose()
@@ -544,5 +631,9 @@ onBeforeUnmount(() => {
     mask-image: radial-gradient(circle at 50% 50%, transparent 34%, black 80%);
     -webkit-mask-image: radial-gradient(circle at 50% 50%, transparent 34%, black 80%);
     opacity: 0.55;
+}
+
+.scope-mask {
+    background: radial-gradient(circle at 50% 50%, transparent 37vmin, rgba(0, 0, 0, 0.55) 37.5vmin, #000 39vmin);
 }
 </style>

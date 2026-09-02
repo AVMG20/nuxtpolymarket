@@ -2,14 +2,17 @@
 // Everything is generated with the Web Audio API, nothing is downloaded.
 
 export type ArenaSound
-    = | 'shoot-pulse'
-      | 'shoot-scatter'
-      | 'shoot-needler'
-      | 'shoot-rail'
-      | 'shoot-plasma'
+    = | 'shoot-pistol'
+      | 'shoot-magnum'
+      | 'shoot-smg'
+      | 'shoot-rifle'
+      | 'shoot-dmr'
+      | 'shoot-shotgun'
+      | 'shoot-lmg'
+      | 'shoot-saw'
+      | 'shoot-sniper'
+      | 'shoot-raygun'
       | 'shoot-arc'
-      | 'shoot-shredder'
-      | 'shoot-ember'
       | 'dry'
       | 'reload'
       | 'reload-done'
@@ -220,40 +223,55 @@ export class ArenaAudio {
         const v = volume
         const detune = 0.9 + Math.random() * 0.2
         switch (sound) {
-            case 'shoot-pulse':
-                this.sweep(t, 900 * detune, 180, 0.09, 0.28 * v, 'square', out)
-                this.noise(t, 0.06, 0.18 * v, out, 3500, 'bandpass', 0.8)
+            case 'shoot-pistol':
+                this.noise(t, 0.09, 0.5 * v, out, 2200 * detune, 'bandpass', 0.7)
+                this.sweep(t, 420 * detune, 90, 0.08, 0.35 * v, 'square', out)
                 break
-            case 'shoot-scatter':
-                this.noise(t, 0.28, 0.7 * v, out, 900, 'lowpass')
-                this.sweep(t, 220 * detune, 50, 0.22, 0.5 * v, 'sawtooth', out)
-                this.noise(t, 0.05, 0.4 * v, out, 5000, 'highpass')
+            case 'shoot-magnum':
+                this.noise(t, 0.22, 0.8 * v, out, 1200, 'lowpass')
+                this.sweep(t, 260 * detune, 40, 0.2, 0.6 * v, 'square', out)
+                this.noise(t + 0.02, 0.12, 0.35 * v, out, 5000, 'highpass')
                 break
-            case 'shoot-needler':
-                this.sweep(t, 2400 * detune, 700, 0.05, 0.14 * v, 'sine', out)
-                this.noise(t, 0.03, 0.08 * v, out, 6000, 'highpass')
+            case 'shoot-smg':
+                this.noise(t, 0.05, 0.35 * v, out, 3000 * detune, 'bandpass', 0.8)
+                this.sweep(t, 700 * detune, 150, 0.05, 0.2 * v, 'square', out)
                 break
-            case 'shoot-rail':
-                this.sweep(t, 80, 2400, 0.12, 0.35 * v, 'sawtooth', out)
-                this.sweep(t + 0.1, 3000, 120, 0.4, 0.5 * v, 'square', out)
-                this.noise(t + 0.08, 0.35, 0.5 * v, out, 2000, 'bandpass', 0.6)
+            case 'shoot-rifle':
+                this.noise(t, 0.11, 0.55 * v, out, 1800 * detune, 'bandpass', 0.6)
+                this.sweep(t, 380 * detune, 70, 0.1, 0.4 * v, 'sawtooth', out)
                 break
-            case 'shoot-plasma':
-                this.sweep(t, 160 * detune, 60, 0.3, 0.5 * v, 'sawtooth', out)
-                this.sweep(t, 600, 1400, 0.18, 0.2 * v, 'sine', out)
-                this.noise(t, 0.2, 0.3 * v, out, 800, 'lowpass')
+            case 'shoot-dmr':
+                this.noise(t, 0.14, 0.6 * v, out, 2600 * detune, 'bandpass', 0.8)
+                this.sweep(t, 520 * detune, 60, 0.13, 0.45 * v, 'square', out)
+                this.noise(t + 0.04, 0.2, 0.2 * v, out, 800, 'lowpass')
+                break
+            case 'shoot-shotgun':
+                this.noise(t, 0.28, 0.85 * v, out, 900, 'lowpass')
+                this.sweep(t, 220 * detune, 45, 0.22, 0.55 * v, 'sawtooth', out)
+                this.noise(t, 0.06, 0.4 * v, out, 5000, 'highpass')
+                break
+            case 'shoot-lmg':
+                this.noise(t, 0.12, 0.6 * v, out, 1300 * detune, 'bandpass', 0.5)
+                this.sweep(t, 300 * detune, 50, 0.11, 0.45 * v, 'sawtooth', out)
+                break
+            case 'shoot-saw':
+                this.noise(t, 0.08, 0.5 * v, out, 1700 * detune, 'bandpass', 0.6)
+                this.sweep(t, 340 * detune, 70, 0.08, 0.35 * v, 'sawtooth', out)
+                break
+            case 'shoot-sniper':
+                this.noise(t, 0.4, 0.9 * v, out, 1500, 'bandpass', 0.4)
+                this.sweep(t, 600, 40, 0.35, 0.6 * v, 'square', out)
+                this.noise(t + 0.15, 0.6, 0.25 * v, out, 500, 'lowpass')
+                break
+            case 'shoot-raygun':
+                this.sweep(t, 1400 * detune, 300, 0.18, 0.35 * v, 'sine', out)
+                this.sweep(t, 700 * detune, 2200, 0.14, 0.18 * v, 'square', out)
+                this.noise(t, 0.1, 0.2 * v, out, 3000, 'bandpass', 2)
                 break
             case 'shoot-arc':
-                this.noise(t, 0.18, 0.45 * v, out, 2600 * detune, 'bandpass', 3)
-                this.sweep(t, 1800 * detune, 300, 0.14, 0.18 * v, 'square', out)
-                break
-            case 'shoot-shredder':
-                this.sweep(t, 300 * detune, 1200, 0.16, 0.25 * v, 'sawtooth', out)
-                this.noise(t, 0.1, 0.25 * v, out, 3000, 'bandpass', 2)
-                break
-            case 'shoot-ember':
-                this.noise(t, 0.3, 0.35 * v, out, 700 * detune, 'lowpass')
-                this.sweep(t, 90 * detune, 60, 0.25, 0.1 * v, 'sawtooth', out)
+                this.noise(t, 0.25, 0.5 * v, out, 2600 * detune, 'bandpass', 3)
+                this.sweep(t, 1800 * detune, 200, 0.2, 0.2 * v, 'square', out)
+                this.sweep(t, 90, 60, 0.3, 0.3 * v, 'sawtooth', out)
                 break
             case 'dry':
                 this.noise(t, 0.04, 0.2 * v, out, 2500, 'highpass')

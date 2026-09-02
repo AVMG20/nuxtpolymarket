@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { UPGRADES, dealDraft, applyCard, weaponCard, rarityWeights, DRAFT_SIZE } from '../../app/utils/voxel-arena/upgrades'
-import { defaultStats, WEAPON_IDS } from '../../app/utils/voxel-arena/data'
+import { UPGRADES, dealDraft, applyCard, weaponCard, abilityCard, rarityWeights, DRAFT_SIZE } from '../../app/utils/voxel-arena/upgrades'
+import { defaultStats, WEAPON_IDS, ABILITY_IDS, cardCost, rerollCost, shardValue, ENEMIES } from '../../app/utils/voxel-arena/data'
 import type { WeaponId } from '../../app/utils/voxel-arena/types'
 
 function seeded(seed: number): () => number {
@@ -14,7 +14,7 @@ function seeded(seed: number): () => number {
 describe('voxel arena upgrade draft', () => {
     it('deals unique cards up to the draft size', () => {
         for (let seed = 1; seed < 40; seed++) {
-            const cards = dealDraft({ wave: 4, stacks: new Map(), ownedWeapons: ['pulse'], rng: seeded(seed) })
+            const cards = dealDraft({ wave: 4, stacks: new Map(), ownedWeapons: ['pistol'], ownedAbilities: [], ownedMelee: 'sword', rng: seeded(seed) })
             expect(cards.length).toBe(DRAFT_SIZE)
             const ids = new Set(cards.map(c => c.id))
             expect(ids.size).toBe(cards.length)
@@ -24,9 +24,9 @@ describe('voxel arena upgrade draft', () => {
     })
 
     it('never offers a weapon the player already owns', () => {
-        const owned: WeaponId[] = ['pulse', 'scatter', 'rail']
+        const owned: WeaponId[] = ['pistol', 'shotgun', 'sniper']
         for (let seed = 1; seed < 60; seed++) {
-            const cards = dealDraft({ wave: 9, stacks: new Map(), ownedWeapons: owned, rng: seeded(seed) })
+            const cards = dealDraft({ wave: 9, stacks: new Map(), ownedWeapons: owned, ownedAbilities: ['nova'], ownedMelee: 'sword', rng: seeded(seed) })
             for (const c of cards) {
                 if (c.kind === 'weapon') expect(owned).not.toContain(c.weaponId)
             }
@@ -38,8 +38,8 @@ describe('voxel arena upgrade draft', () => {
         const stacks = new Map<string, number>()
         for (const card of UPGRADES) if (card.maxStacks) stacks.set(card.id, card.maxStacks)
         for (let seed = 1; seed < 40; seed++) {
-            const cards = dealDraft({ wave: 6, stacks, ownedWeapons: [...WEAPON_IDS], rng: seeded(seed) })
-            for (const c of cards) expect(c.maxStacks).toBeUndefined()
+            const cards = dealDraft({ wave: 6, stacks, ownedWeapons: [...WEAPON_IDS], ownedAbilities: [...ABILITY_IDS], ownedMelee: 'sword', rng: seeded(seed) })
+            for (const c of cards) if (c.kind !== 'melee') expect(c.maxStacks).toBeUndefined()
         }
     })
 
@@ -70,10 +70,43 @@ describe('voxel arena upgrade draft', () => {
         }
     })
 
+    it('prices cards by rarity and wave, and never offers owned abilities or locked ability upgrades', () => {
+        expect(cardCost('common', 'stat', 1)).toBe(30)
+        expect(cardCost('legendary', 'crazy', 1)).toBe(120)
+        expect(cardCost('common', 'stat', 6)).toBeGreaterThan(cardCost('common', 'stat', 1))
+        expect(rerollCost(1)).toBe(25)
+        expect(rerollCost(1)).toBeLessThan(cardCost('rare', 'stat', 1))
+        for (let seed = 1; seed < 60; seed++) {
+            const cards = dealDraft({ wave: 3, stacks: new Map(), ownedWeapons: ['pistol'], ownedAbilities: ['nova'], ownedMelee: 'sword', rng: seeded(seed) })
+            for (const c of cards) {
+                expect(c.cost).toBeGreaterThan(0)
+                if (c.kind === 'ability') expect(c.abilityId).not.toBe('nova')
+                if (c.requiresAbility) expect(c.requiresAbility).toBe('nova')
+            }
+        }
+        const none = dealDraft({ wave: 3, stacks: new Map(), ownedWeapons: ['pistol'], ownedAbilities: [], ownedMelee: 'sword', rng: seeded(7) })
+        expect(none.some(c => c.requiresAbility)).toBe(false)
+        expect(abilityCard('blink').abilityId).toBe('blink')
+    })
+
+    it('values kills in shards by score, boosted for elites', () => {
+        expect(shardValue(ENEMIES.grunt, null)).toBe(5)
+        expect(shardValue(ENEMIES.grunt, 'swift')).toBeGreaterThan(5)
+        expect(shardValue(ENEMIES.brute, 'gilded')).toBe(80)
+    })
+
+    it('never offers the blade already in hand', () => {
+        for (let seed = 1; seed < 80; seed++) {
+            const cards = dealDraft({ wave: 5, stacks: new Map(), ownedWeapons: ['pistol'], ownedAbilities: [], ownedMelee: 'axe', rng: seeded(seed) })
+            for (const c of cards) if (c.kind === 'melee') expect(c.meleeId).not.toBe('axe')
+            expect(cards.filter(c => c.kind === 'melee').length).toBeLessThanOrEqual(1)
+        }
+    })
+
     it('builds weapon cards that carry their weapon id', () => {
-        const card = weaponCard('plasma')
+        const card = weaponCard('raygun')
         expect(card.kind).toBe('weapon')
-        expect(card.weaponId).toBe('plasma')
-        expect(card.id).toBe('weapon:plasma')
+        expect(card.weaponId).toBe('raygun')
+        expect(card.id).toBe('weapon:raygun')
     })
 })

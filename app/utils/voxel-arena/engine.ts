@@ -9,13 +9,14 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js'
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js'
 import { randomFloat, randomChance, randomPick } from '#shared/utils/random'
-import type { DraftCard, EliteAffix, EnemyDef, EnemyId, PlayerStats, WeaponDef, WeaponId } from './types'
-import { ENEMIES, WEAPONS, MELEE, AFFIXES, TURRET, BURN, planWave, affixHpMult, affixSpeedMult, defaultStats, magazineSize, killScore, dropChance } from './data'
+import type { AbilityId, DraftCard, EliteAffix, EnemyDef, EnemyId, MeleeDef, MeleeId, PlayerStats, SightKind, WeaponDef, WeaponId } from './types'
+import { ENEMIES, WEAPONS, MELEE, MELEE_WEAPONS, STARTER_MELEE, AFFIXES, TURRET, BURN, ABILITIES, ABILITY_SLOTS, SHARDS, planWave, affixHpMult, affixSpeedMult, defaultStats, magazineSize, killScore, dropChance, shardValue, rerollCost } from './data'
 import type { WaveEvent } from './data'
 import { dealDraft, applyCard } from './upgrades'
+import type { DraftContext } from './upgrades'
 import { ArenaAudio } from './audio'
 import type { ArenaSound } from './audio'
-import { BOX, FLASH_MATERIAL, buildModel, voxMaterial, playerParts, weaponParts, kataneParts, enemyParts, pickupParts, portalParts, orbitBladeParts, meteorParts, boulderParts, lanternParts, turretParts } from './models'
+import { BOX, FLASH_MATERIAL, buildModel, voxMaterial, weaponParts, meleeParts, enemyParts, pickupParts, portalParts, orbitBladeParts, meteorParts, boulderParts, lanternParts, turretParts } from './models'
 import type { VoxModel, VoxPart, PickupKind } from './models'
 
 // ── Public HUD contract ─────────────────────────────────────────────────
@@ -96,9 +97,25 @@ export interface ArenaHud {
     headshots: number
     shield: number
     haste: number
-    turretCost: number
     turrets: number
-    rerolls: number
+    shards: number
+    rerollCost: number
+    abilities: (HudAbility | null)[]
+    /** Current effective spread in radians, for the crosshair gap. */
+    spread: number
+    fov: number
+    sight: SightKind
+    melee: { id: MeleeId, name: string, color: string }
+    /** 0-based index of the next combo hit. */
+    combo3: number
+}
+
+export interface HudAbility {
+    id: AbilityId
+    name: string
+    cost: number
+    color: string
+    icon: string
 }
 
 export interface ArenaUi {
@@ -149,18 +166,26 @@ export function createHud(): ArenaHud {
         headshots: 0,
         shield: 0,
         haste: 0,
-        turretCost: 60,
         turrets: 0,
-        rerolls: 0
+        shards: 0,
+        rerollCost: 25,
+        abilities: [null, null],
+        spread: 0,
+        fov: 75,
+        sight: 'reddot',
+        melee: { id: 'sword', name: 'Iron Sword', color: '#d8dde6' },
+        combo3: 0
     }
 }
 
 // ── Internal types ──────────────────────────────────────────────────────
 
-const ARENA_HALF = 32
+const ARENA_HALF = 38
 const GRAVITY = 34
 const STEP_HEIGHT = 0.65
 const MAX_WEAPONS = 3
+/** Viewmodel parts are authored at world scale; drawn smaller so a rifle does not fill the screen. */
+const VM_SCALE = 0.42
 const BEST_KEY = 'voxel-arena-best'
 
 type EnemyState = 'spawn' | 'chase' | 'windup' | 'charge' | 'stunned'
@@ -394,9 +419,17 @@ export class VoxelArenaGame {
     private stats: PlayerStats = defaultStats()
     private stacks = new Map<string, number>()
     private takenUpgrades: string[] = []
-    private playerModel!: VoxModel
     private playerGroup = new THREE.Group()
-    private katana!: THREE.Group
+    private viewmodel = new THREE.Group()
+    private vmArmR!: THREE.Group
+    private vmArmL!: THREE.Group
+    private vmKatana!: THREE.Group
+    private meleeDef: MeleeDef = MELEE_WEAPONS[STARTER_MELEE]
+    private vmSway = new THREE.Vector2()
+    private vmKick = 0
+    private switchTimer = 0
+    private lastYaw = 0
+    private lastPitch = 0
     private pos = new THREE.Vector3()
     private vel = new THREE.Vector3()
     private yaw = 0
@@ -431,23 +464,28 @@ export class VoxelArenaGame {
     private adsHeld = false
     private spreadBloom = 0
     private glideTime = 0
-    private camPos = new THREE.Vector3()
-    private camInit = false
     private slideTimer = 0
     private slideDir = new THREE.Vector3()
     private slamming = false
     private headshots = 0
     private event: WaveEvent = 'none'
     private shield = 0
-    private shieldBubble!: THREE.Mesh
     private hasteTimer = 0
     private turrets: Turret[] = []
     private hitStop = 0
-    private rerollsLeft = 0
-    private starter: WeaponId = 'pulse'
+    private shards = 0
+    private abilitySlots: (AbilityId | null)[] = [null, null]
+    private fieldTimer = 0
+    private shardPool!: InstancePool
+    private readonly SHARD_MAX = 500
+    private shardPos = new Float32Array(this.SHARD_MAX * 3)
+    private shardVel = new Float32Array(this.SHARD_MAX * 3)
+    private shardLife = new Float32Array(this.SHARD_MAX)
+    private shardVal = new Float32Array(this.SHARD_MAX)
+    private shardCursor = 0
+    private starter: WeaponId = 'pistol'
     private lungeTarget: Enemy | null = null
     private jumpPads: THREE.Vector3[] = []
-    private flameSoundTick = 0
     private meteorTimer = 0
     private meteors: Meteor[] = []
     private lanterns: THREE.PointLight[] = []
@@ -554,7 +592,7 @@ export class VoxelArenaGame {
         this.buildArena()
         this.buildPools()
         this.buildPlayer()
-        this.buildShieldBubble()
+        this.scene.add(this.camera)
         this.setQuality(quality)
         this.resize()
 
@@ -594,13 +632,6 @@ export class VoxelArenaGame {
         this.renderer.domElement.remove()
     }
 
-    private buildShieldBubble(): void {
-        const mat = new THREE.MeshBasicMaterial({ color: 0x8ad8ff, transparent: true, opacity: 0.16, depthWrite: false })
-        this.shieldBubble = new THREE.Mesh(BOX, mat)
-        this.shieldBubble.visible = false
-        this.playerGroup.add(this.shieldBubble)
-    }
-
     /** Low quality drops shadows, bloom and the pixel ratio for weak GPUs. */
     setQuality(quality: 'high' | 'low'): void {
         this.quality = quality
@@ -635,10 +666,10 @@ export class VoxelArenaGame {
         sun.position.set(28, 52, 18)
         sun.castShadow = true
         sun.shadow.mapSize.set(2048, 2048)
-        sun.shadow.camera.left = -42
-        sun.shadow.camera.right = 42
-        sun.shadow.camera.top = 42
-        sun.shadow.camera.bottom = -42
+        sun.shadow.camera.left = -50
+        sun.shadow.camera.right = 50
+        sun.shadow.camera.top = 50
+        sun.shadow.camera.bottom = -50
         sun.shadow.camera.near = 10
         sun.shadow.camera.far = 140
         sun.shadow.bias = -0.0015
@@ -671,7 +702,7 @@ export class VoxelArenaGame {
             for (let z = 0; z < tiles * 2; z++) {
                 const wx = x - tiles + 0.5
                 const wz = z - tiles + 0.5
-                const ring = Math.max(Math.abs(wx), Math.abs(wz)) > 26
+                const ring = Math.max(Math.abs(wx), Math.abs(wz)) > 32
                 const big = (Math.floor(x / 2) + Math.floor(z / 2)) % 2 === 0
                 const l = (ring ? 22 : big ? 30 : 27) + (Math.random() - 0.5) * 4
                 g.fillStyle = `hsl(${ring ? 262 : 228}, ${ring ? 22 : 26}%, ${l}%)`
@@ -769,7 +800,7 @@ export class VoxelArenaGame {
             push(sx! * 22 + (sz ? 0 : -sx! * 3.5), sz! * 22 + (sz ? -sz! * 3.5 : 0), sz ? 3 : 2, 0.45, sz ? 2 : 3, 0x323a55)
         }
         // crate clusters
-        const crateSpots = [[-9, 20], [9, -20], [20, -9], [-20, 9], [-8, -8], [8, 8], [-24, -24], [24, 24], [26, -14], [-26, 14]]
+        const crateSpots = [[-9, 20], [9, -20], [20, -9], [-20, 9], [-8, -8], [8, 8], [-24, -24], [24, 24], [26, -14], [-26, 14], [30, 30], [-30, -30], [-31, 22], [31, -22], [12, 31], [-12, -31]]
         for (const [cx, cz] of crateSpots) {
             const n = 2 + Math.floor(Math.random() * 3)
             for (let k = 0; k < n; k++) {
@@ -784,6 +815,15 @@ export class VoxelArenaGame {
         push(0, -13, 7, 1.3, 1, 0x4a3d66)
         push(13, 0, 1, 1.3, 7, 0x4a3d66)
         push(-13, 0, 1, 1.3, 7, 0x4a3d66)
+        // outer ring cover
+        push(28, 0, 1.2, 1.6, 8, 0x3f3560)
+        push(-28, 0, 1.2, 1.6, 8, 0x3f3560)
+        push(0, 28, 8, 1.6, 1.2, 0x3f3560)
+        push(0, -28, 8, 1.6, 1.2, 0x3f3560)
+        for (const [sx, sz] of [[1, 1], [-1, 1], [1, -1], [-1, -1]]) {
+            push(sx! * 30, sz! * 16, 2.2, 3.2, 2.2, 0x3b3350)
+            push(sx! * 16, sz! * 30, 2.2, 3.2, 2.2, 0x3b3350)
+        }
 
         const propMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.9, flatShading: true })
         const propMesh = new THREE.InstancedMesh(BOX, propMat, props.length)
@@ -817,7 +857,7 @@ export class VoxelArenaGame {
         }
 
         // jump pads: launch high, made for aim-gliding over the pack
-        const padSpots: [number, number][] = [[10, -10], [-10, 10], [-22, 8], [22, -8]]
+        const padSpots: [number, number][] = [[10, -10], [-10, 10], [-22, 8], [22, -8], [26, 26], [-26, -26]]
         const padMat = voxMaterial(0x1a3a44, 0x3ff0ff, 1.8)
         for (const [px, pz] of padSpots) {
             const py = this.groundHeight(px, pz, 0.5, 100)
@@ -833,7 +873,7 @@ export class VoxelArenaGame {
         }
 
         // spawn portals
-        const portalSpots = [[28, 28], [-28, 28], [28, -28], [-28, -28], [29, 0], [-29, 0], [0, 29], [0, -29]]
+        const portalSpots = [[34, 34], [-34, 34], [34, -34], [-34, -34], [35, 0], [-35, 0], [0, 35], [0, -35]]
         for (const [px, pz] of portalSpots) {
             const model = buildModel(portalParts())
             model.group.position.set(px!, 0, pz!)
@@ -925,24 +965,52 @@ export class VoxelArenaGame {
         const shotMat = new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false })
         this.shotPool = new InstancePool(shotMat, 160)
         this.scene.add(this.shotPool.mesh)
+        const shardMat = new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false })
+        this.shardPool = new InstancePool(shardMat, this.SHARD_MAX)
+        this.scene.add(this.shardPool.mesh)
         const debrisMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.9, flatShading: true })
         this.debris = new InstancePool(debrisMat, this.DEBRIS_MAX)
         this.debris.mesh.castShadow = true
         this.scene.add(this.debris.mesh)
     }
 
+    /** First-person viewmodel anchors, parented to the camera: the gun on the right, the katana on the left. */
     private buildPlayer(): void {
-        this.playerModel = buildModel(playerParts())
-        this.playerGroup.add(this.playerModel.group)
         this.scene.add(this.playerGroup)
-        const katana = buildModel(kataneParts())
-        this.katana = katana.group
-        const armL = this.playerModel.parts.get('armL')
-        if (armL) {
-            this.katana.position.set(0, -0.72, 0.1)
-            this.katana.rotation.x = Math.PI / 2
-            armL.add(this.katana)
+        // no hands: the gun and the blade float in view, which keeps the models clean
+        this.vmArmR = new THREE.Group()
+        this.vmArmL = new THREE.Group()
+        for (const arm of [this.vmArmR, this.vmArmL]) {
+            // weapons are modelled with the barrel along +Z; the camera looks down -Z
+            arm.rotation.y = Math.PI
+            arm.scale.setScalar(VM_SCALE)
         }
+        this.vmArmR.position.set(0.24, -0.25, -0.46)
+        this.vmArmL.position.set(-0.24, -0.28, -0.5)
+        this.vmArmL.scale.setScalar(VM_SCALE * 1.5)
+        this.vmArmL.visible = false
+        // a soft fill light rides with the camera so the gun reads from any angle
+        const fill = new THREE.PointLight(0xfff1dc, 1.6, 3.5, 1.5)
+        fill.position.set(0.4, 0.5, 0.3)
+        this.camera.add(fill)
+        this.vmKatana = new THREE.Group()
+        this.vmArmL.add(this.vmKatana)
+        this.setMelee(STARTER_MELEE)
+        this.viewmodel.add(this.vmArmR)
+        this.viewmodel.add(this.vmArmL)
+        this.camera.add(this.viewmodel)
+    }
+
+    /** Swaps the blade in hand. */
+    private setMelee(id: MeleeId): void {
+        this.meleeDef = MELEE_WEAPONS[id]
+        for (const child of [...this.vmKatana.children]) this.vmKatana.remove(child)
+        const model = buildModel(meleeParts(id)).group
+        model.traverse(o => { if (o instanceof THREE.Mesh) o.castShadow = false })
+        this.vmKatana.add(model)
+        this.vmKatana.position.set(0, 0.1, 0.55)
+        this.vmKatana.rotation.x = -0.7
+        this.hud.melee = { id, name: this.meleeDef.name, color: hexToCss(this.meleeDef.color) }
     }
 
     // ── Run flow ─────────────────────────────────────────────────────────
@@ -1002,7 +1070,12 @@ export class VoxelArenaGame {
         this.shield = 0
         this.hasteTimer = 0
         this.hitStop = 0
-        this.rerollsLeft = 0
+        this.shards = 0
+        this.abilitySlots = [null, null]
+        this.fieldTimer = 0
+        this.shardLife.fill(0)
+        for (let i = 0; i < this.SHARD_MAX; i++) this.shardPool.hide(i)
+        this.shardPool.commit()
         this.lungeTarget = null
         for (const t of this.turrets) this.scene.remove(t.group)
         this.turrets = []
@@ -1023,13 +1096,13 @@ export class VoxelArenaGame {
         this.waveClearTimer = -1
         for (const w of this.weapons) w.model.parent?.remove(w.model)
         this.weapons = []
+        this.setMelee(STARTER_MELEE)
         this.addWeapon(this.starter, true)
         this.active = 0
         this.showWeapon()
         this.syncBladeCount()
         this.playerGroup.scale.setScalar(1)
-        this.playerModel.group.visible = true
-        this.camInit = false
+        this.viewmodel.visible = true
         this.syncHud()
     }
 
@@ -1170,60 +1243,99 @@ export class VoxelArenaGame {
             this.scene.remove(m.warning)
         }
         this.meteors = []
-        this.rerollsLeft = 1
+        // leftover shards fly home, plus a clear bonus
+        let leftover = 0
+        for (let i = 0; i < this.SHARD_MAX; i++) {
+            if (this.shardLife[i]! > 0) {
+                leftover += this.shardVal[i]!
+                this.shardLife[i] = 0
+                this.shardPool.hide(i)
+            }
+        }
+        this.shardPool.commit()
+        this.shards += Math.round(leftover) + Math.round(SHARDS.waveClearBonus * (1 + this.wave * 0.15))
         this.hud.phase = 'draft'
         this.audio.play('wave-clear')
-        this.ui.banner('WAVE CLEAR', 'Choose up to three upgrades', 'clear')
+        this.ui.banner('WAVE CLEAR', 'Spend your shards', 'clear')
         this.hp = Math.min(this.stats.maxHealth, this.hp + this.stats.maxHealth * 0.25)
         this.keys.clear()
         this.mouseDown = false
         this.rightDown = false
         if (document.pointerLockElement) document.exitPointerLock()
-        const cards = dealDraft({
-            wave: this.wave,
-            stacks: this.stacks,
-            ownedWeapons: this.weapons.map(w => w.def.id),
-            rng: randomFloat
-        })
-        this.ui.draft(cards)
-    }
-
-    /** One fresh hand per draft. */
-    rerollDraft(): void {
-        if (this.hud.phase !== 'draft' || this.rerollsLeft <= 0) return
-        this.rerollsLeft--
-        this.audio.play('select', 0.8)
-        this.ui.draft(dealDraft({
-            wave: this.wave,
-            stacks: this.stacks,
-            ownedWeapons: this.weapons.map(w => w.def.id),
-            rng: randomFloat
-        }))
+        this.ui.draft(dealDraft(this.draftContext()))
         this.syncHud()
     }
 
-    /** Called by the UI once the player confirms their picks. */
-    applyDraft(cards: DraftCard[]): void {
-        for (const card of cards) {
-            if (card.kind === 'weapon' && card.weaponId) {
-                this.addWeapon(card.weaponId, false)
-            } else {
-                const before = this.stats.maxHealth
-                applyCard(card, this.stats, this.stacks)
-                if (card.id === 'health') this.hp = this.stats.maxHealth
-                else if (this.stats.maxHealth > before) this.hp += this.stats.maxHealth - before
-                this.hp = Math.min(this.hp, this.stats.maxHealth)
-            }
-            this.takenUpgrades.push(card.name)
+    private draftContext(): DraftContext {
+        return {
+            wave: this.wave,
+            stacks: this.stacks,
+            ownedWeapons: this.weapons.map(w => w.def.id),
+            ownedAbilities: this.abilitySlots.filter((a): a is AbilityId => a !== null),
+            ownedMelee: this.meleeDef.id,
+            rng: randomFloat
         }
-        this.dashCharges = Math.min(this.stats.dashCharges, this.dashCharges + 1)
+    }
+
+    /** A fresh hand for about half the price of a card. Returns false if you cannot afford it. */
+    rerollDraft(): boolean {
+        if (this.hud.phase !== 'draft') return false
+        const cost = rerollCost(this.wave)
+        if (this.shards < cost) {
+            this.audio.play('dry', 0.5)
+            return false
+        }
+        this.shards -= cost
+        this.audio.play('select', 0.8)
+        this.ui.draft(dealDraft(this.draftContext()))
+        this.syncHud()
+        return true
+    }
+
+    /**
+     * Buys one card from the shop. Abilities need a free Q/E slot; when both
+     * are taken the UI must pass the slot to replace, otherwise 'slot' is returned.
+     */
+    buyCard(card: DraftCard, slot?: number): 'ok' | 'poor' | 'slot' {
+        if (this.hud.phase !== 'draft') return 'poor'
+        if (this.shards < card.cost) {
+            this.audio.play('dry', 0.5)
+            return 'poor'
+        }
+        if (card.kind === 'ability' && card.abilityId) {
+            let target = slot ?? this.abilitySlots.indexOf(null)
+            if (target < 0) return 'slot'
+            target = THREE.MathUtils.clamp(target, 0, ABILITY_SLOTS - 1)
+            this.abilitySlots[target] = card.abilityId
+            this.ui.toast(`${ABILITIES[card.abilityId].name} bound to ${target === 0 ? 'Q' : 'E'}`, ABILITIES[card.abilityId].color)
+        } else if (card.kind === 'weapon' && card.weaponId) {
+            this.addWeapon(card.weaponId, false)
+        } else if (card.kind === 'melee' && card.meleeId) {
+            this.setMelee(card.meleeId)
+            this.ui.toast(`${this.meleeDef.name} equipped`, hexToCss(this.meleeDef.color))
+        } else {
+            const before = this.stats.maxHealth
+            applyCard(card, this.stats, this.stacks)
+            if (card.id === 'health') this.hp = this.stats.maxHealth
+            else if (this.stats.maxHealth > before) this.hp += this.stats.maxHealth - before
+            this.hp = Math.min(this.hp, this.stats.maxHealth)
+        }
+        this.shards -= card.cost
+        this.takenUpgrades.push(card.name)
         this.syncBladeCount()
-        this.playerGroup.scale.setScalar(this.stats.scale)
+        this.audio.play('upgrade', 0.8)
+        this.syncHud()
+        return 'ok'
+    }
+
+    /** Leave the shop and start the next wave. */
+    finishShop(): void {
+        if (this.hud.phase !== 'draft') return
+        this.dashCharges = Math.min(this.stats.dashCharges, this.dashCharges + 1)
         for (const w of this.weapons) {
             w.ammo = magazineSize(w.def, this.stats)
             w.reloading = false
         }
-        this.audio.play('upgrade')
         this.hud.phase = 'playing'
         this.requestLock()
         this.nextWave()
@@ -1257,7 +1369,6 @@ export class VoxelArenaGame {
             // ignore
         }
         this.burst(this.pos.x, this.pos.y + 1, this.pos.z, 90, [0xe9e4d6, 0xd9a63c, 0x3ff0ff], 9, 0.28)
-        this.playerModel.group.visible = false
         this.ui.dead({
             wave: this.wave,
             score: this.score,
@@ -1270,6 +1381,7 @@ export class VoxelArenaGame {
             upgrades: this.takenUpgrades,
             headshots: this.headshots
         })
+        this.viewmodel.visible = false
     }
 
     // ── Input ────────────────────────────────────────────────────────────
@@ -1291,9 +1403,9 @@ export class VoxelArenaGame {
         } else if (code === 'KeyR') {
             this.startReload()
         } else if (code === 'KeyQ') {
-            this.nova()
+            this.castSlot(0)
         } else if (code === 'KeyE') {
-            this.deployTurret()
+            this.castSlot(1)
         } else if (code === 'KeyF' || code === 'KeyV') {
             this.melee()
         } else if (code === 'ControlLeft' || code === 'ControlRight') {
@@ -1371,9 +1483,21 @@ export class VoxelArenaGame {
         return out.set(-Math.sin(this.yaw), 0, -Math.cos(this.yaw))
     }
 
+    /** Where the camera actually looks, recoil included — bullets follow this exactly. */
     private aimDir(out: THREE.Vector3): THREE.Vector3 {
-        const cp = Math.cos(this.pitch)
-        return out.set(-Math.sin(this.yaw) * cp, Math.sin(this.pitch), -Math.cos(this.yaw) * cp)
+        return this.camera.getWorldDirection(out)
+    }
+
+    private eyeHeight(): number {
+        return (1.62 - (this.slideTimer > 0 ? 0.55 : 0)) * this.stats.scale
+    }
+
+    /** Puts the camera at the eyes; called before firing so the muzzle matches the frame. */
+    private placeCamera(): void {
+        const moving = Math.min(1, Math.hypot(this.vel.x, this.vel.z) / 6)
+        const bob = this.onGround && this.slideTimer <= 0 ? Math.sin(this.walkPhase * 2) * 0.028 * moving : 0
+        this.camera.position.set(this.pos.x, this.pos.y + this.eyeHeight() + bob, this.pos.z)
+        this.camera.rotation.set(this.pitch + this.recoilPitch, this.yaw, this.slideTimer > 0 ? 0.05 : 0, 'YXZ')
     }
 
     private playerCenter(out: THREE.Vector3): THREE.Vector3 {
@@ -1493,7 +1617,7 @@ export class VoxelArenaGame {
         const wantAds = this.adsHeld && this.meleeTimer <= 0 && this.dashTimer <= 0
         this.ads += ((wantAds ? 1 : 0) - this.ads) * Math.min(1, dt * 12)
         if (this.ads < 0.002) this.ads = 0
-        this.spreadBloom = Math.max(0, this.spreadBloom - dt * 0.09)
+        this.spreadBloom = Math.max(0, this.spreadBloom - dt * 0.16)
         const gliding = wantAds && !this.onGround && !this.slamming && this.vel.y < 2 && this.glideTime < 1.6
         if (gliding) this.glideTime += dt
         if (this.onGround) this.glideTime = 0
@@ -1525,20 +1649,21 @@ export class VoxelArenaGame {
             this.vel.z += (tz - this.vel.z) * Math.min(1, accel * dt)
         }
         // melee lunge — toward the locked target if there is one, else straight ahead
-        if (this.meleeTimer > 0 && this.meleeTimer > MELEE.swingTime * 0.4) {
+        if (this.meleeTimer > 0 && this.meleeTimer > this.meleeDef.swingTime * 0.4) {
+            const lunge = this.meleeDef.lunge
             const t = this.lungeTarget
             if (t && t.alive) {
                 const d = _v2.set(t.pos.x - this.pos.x, 0, t.pos.z - this.pos.z)
                 const len = d.length()
                 if (len > 1.6) {
                     d.divideScalar(len)
-                    this.vel.x += d.x * MELEE.lunge * dt * 9
-                    this.vel.z += d.z * MELEE.lunge * dt * 9
+                    this.vel.x += d.x * lunge * dt * 9
+                    this.vel.z += d.z * lunge * dt * 9
                 }
             } else {
                 const f = this.forward(_v2)
-                this.vel.x += f.x * MELEE.lunge * dt * 4
-                this.vel.z += f.z * MELEE.lunge * dt * 4
+                this.vel.x += f.x * lunge * dt * 4
+                this.vel.z += f.z * lunge * dt * 4
             }
         }
 
@@ -1575,48 +1700,13 @@ export class VoxelArenaGame {
             this.onGround = false
         }
 
-        // animate the voxel body
         const moving = Math.hypot(this.vel.x, this.vel.z)
         this.walkPhase += moving * dt * 1.6
-        const m = this.playerModel
-        const swing = Math.sin(this.walkPhase) * Math.min(1, moving / 6) * 0.8
-        const legL = m.parts.get('legL')
-        const legR = m.parts.get('legR')
-        const armL = m.parts.get('armL')
-        const armR = m.parts.get('armR')
-        const head = m.parts.get('head')
-        if (legL) legL.rotation.x = this.onGround ? swing : 0.5
-        if (legR) legR.rotation.x = this.onGround ? -swing : -0.3
-        if (armR) armR.rotation.x = -Math.PI / 2 - this.pitch + this.recoilPitch * 0.6
-        if (armL) {
-            const meleeT = this.meleeTimer > 0 ? 1 - this.meleeTimer / MELEE.swingTime : 0
-            armL.rotation.x = this.meleeTimer > 0 ? -Math.PI * 0.9 + meleeT * Math.PI * 1.1 : -0.3 - swing * 0.4
-            armL.rotation.z = this.meleeTimer > 0 ? 0.5 - meleeT : 0
-        }
-        if (head) head.rotation.x = -this.pitch * 0.5
-        m.group.rotation.y = this.yaw + Math.PI
-        m.group.rotation.x = this.dashTimer > 0 ? 0.35 : this.slideTimer > 0 ? -0.55 : moving > 1 ? 0.08 : 0
-        m.group.position.z = this.slideTimer > 0 ? 0.3 : 0
-        if (this.slideTimer > 0) {
-            if (legL) legL.rotation.x = -1.3
-            if (legR) legR.rotation.x = 0.4
-        }
-        m.group.position.y = this.slideTimer > 0 ? -0.35 : this.onGround ? Math.abs(Math.sin(this.walkPhase)) * 0.06 * Math.min(1, moving / 6) : 0
-        if (gliding) {
-            if (legL) legL.rotation.x = 0.9
-            if (legR) legR.rotation.x = 0.6
-            m.group.rotation.x = -0.15
-        }
-        this.katana.visible = this.meleeTimer > 0 || this.meleeComboTimer > 0
-        this.shieldBubble.visible = this.shield > 0
-        if (this.shield > 0) {
-            const pulse = 1 + Math.sin(this.elapsed * 6) * 0.03
-            this.shieldBubble.position.set(0, 1.15, 0)
-            this.shieldBubble.scale.set(1.7 * pulse, 2.6 * pulse, 1.7 * pulse)
-            this.shieldBubble.rotation.y += dt * 0.8
-        }
         this.playerGroup.position.copy(this.pos)
-        this.recoilPitch *= Math.max(0, 1 - dt * 14)
+        this.recoilPitch *= Math.max(0, 1 - dt * 12)
+        if (this.switchTimer > 0) this.switchTimer -= dt
+        this.placeCamera()
+        this.updateViewmodel(dt)
 
         // combat inputs held — after posing so the muzzle matches the drawn gun
         if (this.mouseDown || this.mouseJustDown) this.tryFire()
@@ -1665,55 +1755,85 @@ export class VoxelArenaGame {
     }
 
     private updateCamera(dt: number): void {
-        const s = this.stats
-        const target = this.playerCenter(_v1)
-        target.y += 0.5 * s.scale
-        const f = this.aimDir(_v2)
-        const right = _v3.set(-f.z, 0, f.x).normalize()
-        const zoom = this.ads
-        const back = (5.4 + s.scale * 0.8) * (1 - zoom * 0.5)
-        const desired = target.clone().addScaledVector(f, -back).addScaledVector(right, 1.15 - zoom * 0.25).addScaledVector(UP, 0.9 - zoom * 0.45)
-        // pull the camera in when the view is blocked by a prop or wall
-        const ray = new THREE.Ray(target, desired.clone().sub(target).normalize())
-        let dist = target.distanceTo(desired)
-        for (const b of this.colliders) {
-            const hit = ray.intersectBox(b, new THREE.Vector3())
-            if (hit) dist = Math.min(dist, target.distanceTo(hit) - 0.3)
-        }
-        const lim = ARENA_HALF + 1.4
-        dist = Math.max(0.9, dist)
-        desired.copy(target).addScaledVector(ray.direction, dist)
-        // when a wall pushes the camera into the body, hide the body instead of clipping through it
-        this.playerModel.group.visible = this.hud.phase !== 'dead' && dist > 1.9
-        desired.x = THREE.MathUtils.clamp(desired.x, -lim, lim)
-        desired.z = THREE.MathUtils.clamp(desired.z, -lim, lim)
-        desired.y = Math.max(0.4, desired.y)
-        // a touch of positional smoothing takes the jitter out of jumps and slides; aim stays instant
-        if (!this.camInit) {
-            this.camPos.copy(desired)
-            this.camInit = true
-        } else {
-            this.camPos.lerp(desired, Math.min(1, dt * 22))
-        }
-        this.camera.position.copy(this.camPos)
-        this.camera.rotation.set(this.pitch + this.recoilPitch * 0.35, this.yaw, this.slideTimer > 0 ? 0.04 : 0, 'YXZ')
+        this.placeCamera()
         // shake
         if (this.shake > 0) {
             this.shake = Math.max(0, this.shake - dt * 3)
-            this.shakeVec.set((Math.random() - 0.5), (Math.random() - 0.5), 0).multiplyScalar(this.shake * 0.35)
+            this.shakeVec.set((Math.random() - 0.5), (Math.random() - 0.5), 0).multiplyScalar(this.shake * 0.12)
             this.camera.position.add(this.shakeVec)
-            this.camera.rotation.z += (Math.random() - 0.5) * this.shake * 0.05
+            this.camera.rotation.z += (Math.random() - 0.5) * this.shake * 0.04
+            this.camera.rotation.x += (Math.random() - 0.5) * this.shake * 0.03
         }
         this.fovKick = Math.max(0, this.fovKick - dt * 4)
         const w = this.weapon
         const adsFov = w ? w.def.adsFov : 55
-        const fov = THREE.MathUtils.lerp(75 + this.fovKick * 12 + (this.overdriveTimer > 0 ? 4 : 0), adsFov, this.ads)
+        const fov = THREE.MathUtils.lerp(78 + this.fovKick * 12 + (this.overdriveTimer > 0 ? 4 : 0), adsFov, this.ads)
         if (Math.abs(this.camera.fov - fov) > 0.05) {
             this.camera.fov = fov
             this.camera.updateProjectionMatrix()
         }
         this.sun.target.position.copy(this.pos)
         this.sun.position.set(this.pos.x + 28, 52, this.pos.z + 18)
+    }
+
+    private updateViewmodel(dt: number): void {
+        const w = this.weapon
+        const dy = this.yaw - this.lastYaw
+        const dp = this.pitch - this.lastPitch
+        this.lastYaw = this.yaw
+        this.lastPitch = this.pitch
+        this.vmSway.x += (THREE.MathUtils.clamp(-dy * 1.6, -0.09, 0.09) - this.vmSway.x) * Math.min(1, dt * 9)
+        this.vmSway.y += (THREE.MathUtils.clamp(-dp * 1.6, -0.09, 0.09) - this.vmSway.y) * Math.min(1, dt * 9)
+        this.vmKick *= Math.max(0, 1 - dt * 15)
+        const moving = Math.min(1, Math.hypot(this.vel.x, this.vel.z) / 7)
+        const grounded = this.onGround && this.slideTimer <= 0 ? 1 : 0
+        const bobX = Math.sin(this.walkPhase) * 0.022 * moving * grounded
+        const bobY = Math.abs(Math.cos(this.walkPhase)) * 0.02 * moving * grounded
+        const ads = this.ads
+        // hip pose → aim pose that puts the sight on the camera axis
+        const hip = _v1.set(0.24 + bobX, -0.25 + bobY, -0.46)
+        const aim = _v2.set(0, -this.sightHeight(w?.def) * VM_SCALE, -0.46)
+        this.vmArmR.position.copy(hip).lerp(aim, ads)
+        this.vmArmR.position.x += this.vmSway.x * (1 - ads * 0.8)
+        this.vmArmR.position.y += this.vmSway.y * (1 - ads * 0.8) - this.switchTimer * 1.2
+        this.vmArmR.position.z += this.vmKick * 0.14
+        this.vmArmR.rotation.set(-this.vmKick * 0.45 - this.vmSway.y * 0.4 + this.switchTimer * 1.2, Math.PI + this.vmSway.x * 0.5, 0)
+        if (this.dashTimer > 0) this.vmArmR.rotation.z = 0.22
+        if (this.slideTimer > 0) this.vmArmR.rotation.z = -0.18
+        if (w?.reloading) {
+            const total = w.def.reloadTime * this.stats.reloadMult
+            const t = 1 - w.reloadTimer / total
+            this.vmArmR.rotation.x += Math.sin(t * Math.PI) * 0.9
+            this.vmArmR.rotation.z += Math.sin(t * Math.PI * 2) * 0.35
+            this.vmArmR.position.y -= Math.sin(t * Math.PI) * 0.12
+        }
+        // the scope hides the rifle while you look through the glass
+        this.vmArmR.visible = !(w && w.def.sight === 'scope' && ads > 0.7)
+        // katana arm sweeps in from the left
+        const melee = this.meleeTimer > 0
+        this.vmArmL.visible = melee || this.meleeComboTimer > 0 || this.slamming
+        if (this.vmArmL.visible) {
+            const t = melee ? 1 - this.meleeTimer / this.meleeDef.swingTime : 0
+            const swing = melee ? Math.sin(t * Math.PI) : 0
+            const side = this.meleeCombo % 2 ? 1 : -1
+            const finisher = this.meleeCombo === MELEE.comboLength - 1
+            // sweep the blade across the view: left slash, right slash, then the big overhead
+            const sweep = melee ? t : 0
+            this.vmArmL.position.set(-0.3 * side + sweep * 0.6 * side, -0.3 + (this.slamming ? 0.25 : 0) + (finisher ? Math.sin(sweep * Math.PI) * 0.35 : 0), -0.5 - swing * 0.2)
+            this.vmArmL.rotation.set(-0.3 - (finisher ? sweep * 1.8 : 0) + (this.slamming ? -1.3 : 0), Math.PI + 0.9 * side - sweep * 1.8 * side, side * (0.5 - sweep * 1.4))
+        }
+    }
+
+    /** How far above the grip the sight sits, so ADS lands it on the reticle. */
+    private sightHeight(def?: WeaponDef): number {
+        if (!def) return 0.6
+        switch (def.sight) {
+            case 'scope': return 0.62
+            case 'holo': return 0.59
+            case 'iron': return 0.48
+            case 'ring': return 0.58
+            default: return 0.58
+        }
     }
 
     // ── Weapons ──────────────────────────────────────────────────────────
@@ -1727,11 +1847,10 @@ export class VoxelArenaGame {
         }
         const def = WEAPONS[id]
         const model = buildModel(weaponParts(id)).group
-        model.position.set(0, -0.74, 0.14)
-        model.rotation.x = Math.PI / 2
+        model.traverse(o => { if (o instanceof THREE.Mesh) o.castShadow = false })
+        model.position.set(0, 0.28, 0.12)
         model.visible = false
-        const armR = this.playerModel.parts.get('armR')
-        armR?.add(model)
+        this.vmArmR.add(model)
         const state: WeaponState = { def, ammo: magazineSize(def, this.stats), reloading: false, reloadTimer: 0, fireTimer: 0, model }
         if (this.weapons.length >= MAX_WEAPONS) {
             const old = this.weapons[this.active]!
@@ -1749,6 +1868,8 @@ export class VoxelArenaGame {
 
     private showWeapon(): void {
         this.weapons.forEach((w, i) => { w.model.visible = i === this.active })
+        this.hud.sight = this.weapon?.def.sight ?? 'reddot'
+        this.switchTimer = 0.22
     }
 
     private switchWeapon(index: number): void {
@@ -1790,19 +1911,13 @@ export class VoxelArenaGame {
         }
         this.muzzleLight.intensity *= Math.max(0, 1 - dt * 22)
         this.flashLight.intensity *= Math.max(0, 1 - dt * 9)
-        // the held weapon tilts with reload
-        const w = this.weapon
-        if (w) {
-            const total = w.def.reloadTime * this.stats.reloadMult
-            const t = w.reloading ? 1 - w.reloadTimer / total : 0
-            w.model.rotation.z = w.reloading ? Math.sin(t * Math.PI) * 0.9 : 0
-        }
     }
 
     private muzzleWorld(out: THREE.Vector3): THREE.Vector3 {
         const w = this.weapon
-        this.playerGroup.updateMatrixWorld(true)
-        return w.model.localToWorld(out.set(0, 0, 0.75))
+        this.camera.updateMatrixWorld(true)
+        if (!this.vmArmR.visible) return this.camera.localToWorld(out.set(0.05, -0.1, -0.7))
+        return w.model.localToWorld(out.set(0, 0.06, 1.0))
     }
 
     /** World point under the crosshair: nearest enemy, prop, floor, or far away. */
@@ -1853,28 +1968,33 @@ export class VoxelArenaGame {
         const aim = this.aimPoint(new THREE.Vector3())
         const dir = aim.sub(muzzle).normalize()
         const color = new THREE.Color(w.def.color)
+        const special = w.def.kind === 'plasma' || w.def.kind === 'arc'
         this.audio.play(`shoot-${w.def.id}` as ArenaSound)
-        this.recoilPitch += w.def.recoil * 0.02 * (1 - this.ads * 0.4)
+        this.recoilPitch += w.def.recoil * 0.022 * (1 - this.ads * 0.45)
+        this.pitch = Math.min(0.9, this.pitch + w.def.recoil * 0.003 * (1 - this.ads * 0.5))
         this.yaw += (Math.random() - 0.5) * w.def.recoil * 0.004
+        this.vmKick = Math.min(1, this.vmKick + w.def.recoil * 0.4)
         this.shake = Math.max(this.shake, w.def.recoil * 0.12)
         const spreadMult = THREE.MathUtils.lerp(1, w.def.adsSpread, this.ads)
         const baseSpread = (w.def.spread + this.spreadBloom) * spreadMult
-        this.spreadBloom = Math.min(0.09, this.spreadBloom + w.def.bloom)
-        this.muzzleLight.color.set(w.def.color)
-        this.muzzleLight.position.copy(muzzle)
-        this.muzzleLight.intensity = 6 + w.def.recoil * 3
-        this.spawnMuzzleFlash(muzzle, dir, color, 0.35 + w.def.recoil * 0.1)
+        this.spreadBloom = Math.min(0.06, this.spreadBloom + w.def.bloom)
+        this.muzzleLight.color.set(special ? w.def.color : 0xffc070)
+        this.muzzleLight.position.copy(muzzle).addScaledVector(dir, 1.6)
+        this.muzzleLight.intensity = 2.5 + w.def.recoil * 1.5
+        if (special) {
+            this.spawnMuzzleFlash(muzzle, dir, color, 0.22 + w.def.recoil * 0.06)
+        } else {
+            // gunpowder: a warm flash, a puff of smoke and a brass casing out the side
+            this.spawnMuzzleFlash(muzzle, dir, _c1.set(0xffc888), (0.1 + w.def.recoil * 0.04) * (1 - this.ads * 0.55))
+            this.spawnSmoke(muzzle, dir, 0.16 + w.def.recoil * 0.06)
+            this.ejectCasing()
+        }
 
         const dmg = w.def.damage * this.stats.damageMult
-        if (w.def.kind === 'flame') {
-            this.fireFlame(muzzle, dir, dmg, w.def)
-            if (w.ammo <= 0) this.startReload()
-            return
-        }
         if (w.def.kind === 'rail') {
-            this.fireRail(muzzle, dir, dmg, w.def)
+            this.fireRail(this.camera.position.clone(), this.aimDir(new THREE.Vector3()), dmg, w.def, muzzle)
         } else if (w.def.kind === 'arc') {
-            this.fireArc(muzzle, dir, dmg, w.def)
+            this.fireArc(this.camera.position.clone(), this.aimDir(new THREE.Vector3()), dmg, w.def, muzzle)
         } else {
             const count = w.def.pellets + this.stats.splitShot
             for (let i = 0; i < count; i++) {
@@ -1893,7 +2013,7 @@ export class VoxelArenaGame {
                     damage: dmg,
                     def: w.def,
                     color,
-                    size: (w.def.kind === 'plasma' ? 0.42 : w.def.kind === 'disc' ? 0.55 : 0.13) * (1 + this.stats.bulletSize * 0.6),
+                    size: (w.def.kind === 'plasma' ? 0.42 : w.def.kind === 'disc' ? 0.55 : 0.11) * (1 + this.stats.bulletSize * 0.6),
                     pierceLeft: w.def.pierce + this.stats.pierce,
                     ricochetLeft: w.def.ricochet + this.stats.ricochet,
                     hit: new Set(),
@@ -1907,32 +2027,6 @@ export class VoxelArenaGame {
         if (w.ammo <= 0) this.startReload()
     }
 
-    /** Short cone of fire: hits everything in front and sets it burning. */
-    private fireFlame(origin: THREE.Vector3, dir: THREE.Vector3, damage: number, def: WeaponDef): void {
-        const range = 8 * (1 + this.stats.bulletSize * 0.2)
-        const cone = 0.42
-        for (const e of this.enemies) {
-            if (!e.alive || e.state === 'spawn') continue
-            const c = _v1.set(e.pos.x - origin.x, e.pos.y + e.height * e.scale * 0.5 - origin.y, e.pos.z - origin.z)
-            const d = c.length()
-            if (d > range + e.radius * e.scale) continue
-            if (d > 0.5 && c.divideScalar(d).dot(dir) < Math.cos(cone)) continue
-            this.hitEnemy(e, damage, dir, def.knockback, 'bullet')
-            this.applyBurn(e, def.burn, damage * 2.2)
-        }
-        // the flame itself is a stream of short-lived orange voxels
-        for (let i = 0; i < 4; i++) {
-            const spread = 0.35
-            const vx = dir.x * 18 + (Math.random() - 0.5) * spread * 18
-            const vy = dir.y * 18 + 3 + (Math.random() - 0.5) * spread * 12
-            const vz = dir.z * 18 + (Math.random() - 0.5) * spread * 18
-            this.spawnDebris(origin.x, origin.y, origin.z, vx, vy, vz, i % 3 === 0 ? 0xffe14d : 0xff7a2a, 0.18 + Math.random() * 0.2, 0.28 + Math.random() * 0.2)
-        }
-        this.flameSoundTick = (this.flameSoundTick + 1) % 4
-        if (this.flameSoundTick === 0) this.audio.play('shoot-ember', 0.5)
-        this.muzzleLight.intensity = 5
-    }
-
     private applyBurn(e: Enemy, seconds: number, dps: number): void {
         if (seconds <= 0 || !e.alive) return
         e.burnTimer = Math.max(e.burnTimer, seconds)
@@ -1941,12 +2035,6 @@ export class VoxelArenaGame {
 
     /** E: drop a sentry turret in front of you for a while. */
     private deployTurret(): void {
-        const cost = this.stats.turretCost
-        if (this.energy < cost) {
-            this.audio.play('dry', 0.4)
-            return
-        }
-        this.energy -= cost
         if (this.turrets.length >= TURRET.maxActive) {
             const old = this.turrets.shift()!
             this.scene.remove(old.group)
@@ -1997,7 +2085,7 @@ export class VoxelArenaGame {
                 vel: dir.multiplyScalar(60),
                 life: 1.6,
                 damage: TURRET.damage * (1 + 0.5 * this.stats.sentry) * this.stats.damageMult,
-                def: WEAPONS.pulse,
+                def: WEAPONS.rifle,
                 color: new THREE.Color(0x3ff0ff),
                 size: 0.12,
                 pierceLeft: 0,
@@ -2009,11 +2097,35 @@ export class VoxelArenaGame {
                 alive: true
             })
             t.shots++
-            if (t.shots % 3 === 0) this.audio.play('shoot-pulse', 0.25)
+            if (t.shots % 3 === 0) this.audio.play('shoot-smg', 0.25)
         }
     }
 
-    private fireRail(origin: THREE.Vector3, dir: THREE.Vector3, damage: number, def: WeaponDef): void {
+    /** Grey puff that drifts up and fades — gunpowder, not plasma. */
+    private spawnSmoke(at: THREE.Vector3, dir: THREE.Vector3, size: number): void {
+        const mat = new THREE.MeshBasicMaterial({ color: 0x4a4a4a, transparent: true, opacity: 0.22, depthWrite: false })
+        const mesh = new THREE.Mesh(BOX, mat)
+        mesh.position.copy(at).addScaledVector(dir, 0.35)
+        mesh.position.y += 0.06
+        mesh.rotation.set(Math.random(), Math.random(), Math.random())
+        const drift = dir.clone().multiplyScalar(0.8)
+        drift.y += 0.7
+        this.addEffect(mesh, 0.4, (fx, t, dt) => {
+            fx.obj.position.addScaledVector(drift, dt)
+            fx.obj.scale.setScalar(size * 0.45 * (1 + t * 2.2))
+            mat.opacity = 0.22 * (1 - t)
+        }, () => mat.dispose())
+    }
+
+    /** A brass casing kicked out to the right of the gun; it bounces on the floor. */
+    private ejectCasing(): void {
+        this.camera.updateMatrixWorld(true)
+        const at = this.camera.localToWorld(_v1.set(0.22, -0.18, -0.55))
+        const right = _v2.set(1, 0.4, 0.2).applyQuaternion(this.camera.quaternion).normalize()
+        this.spawnDebris(at.x, at.y, at.z, right.x * 2.5 + (Math.random() - 0.5), right.y * 3 + 1, right.z * 2.5 + (Math.random() - 0.5), 0xd9b25a, 0.045, 1.4 + Math.random() * 0.6)
+    }
+
+    private fireRail(origin: THREE.Vector3, dir: THREE.Vector3, damage: number, def: WeaponDef, muzzle: THREE.Vector3): void {
         const maxDist = 90
         const end = origin.clone().addScaledVector(dir, maxDist)
         const hits: { e: Enemy, t: number }[] = []
@@ -2047,13 +2159,12 @@ export class VoxelArenaGame {
             if (hit) stopT = Math.min(stopT, origin.distanceTo(hit) / maxDist)
         }
         const beamEnd = origin.clone().lerp(end, stopT)
-        this.spawnBeam(origin, beamEnd, 0xffffff, 0.08, 0.2)
-        this.spawnBeam(origin, beamEnd, def.color, 0.28, 0.32)
-        this.burst(beamEnd.x, beamEnd.y, beamEnd.z, 8, [def.color], 4, 0.1)
+        this.spawnBeam(muzzle, beamEnd, 0xffe6b8, 0.035, 0.1)
+        this.burst(beamEnd.x, beamEnd.y, beamEnd.z, 8, [0xffe0a0, 0x8a8f9c], 4, 0.1)
         this.shake = Math.max(this.shake, 0.5)
     }
 
-    private fireArc(origin: THREE.Vector3, dir: THREE.Vector3, damage: number, def: WeaponDef): void {
+    private fireArc(origin: THREE.Vector3, dir: THREE.Vector3, damage: number, def: WeaponDef, muzzle: THREE.Vector3): void {
         const maxDist = 42
         const end = origin.clone().addScaledVector(dir, maxDist)
         let first: Enemy | null = null
@@ -2068,11 +2179,11 @@ export class VoxelArenaGame {
             }
         }
         if (!first) {
-            this.spawnLightning(origin, end.clone().lerp(origin, 0.55), def.color, 0.12)
+            this.spawnLightning(muzzle, end.clone().lerp(origin, 0.55), def.color, 0.12)
             return
         }
         const hit = new Set<number>()
-        let from = origin.clone()
+        let from = muzzle.clone()
         let target: Enemy | null = first
         let dmg = damage
         const chain = def.chain + this.stats.chainLightning
@@ -2145,13 +2256,14 @@ export class VoxelArenaGame {
             this.fovKick = 0.8
             return
         }
-        this.meleeTimer = MELEE.swingTime
+        const m = this.meleeDef
+        this.meleeTimer = m.swingTime
         this.meleeHitDone = false
         this.meleeComboTimer = MELEE.comboWindow
         // lock the nearest enemy in a forward cone so the swing carries you to it
         const f = this.forward(_v2)
         let best: Enemy | null = null
-        let bestD = 7 * this.stats.scale
+        let bestD = (4 + m.range) * this.stats.scale
         for (const e of this.enemies) {
             if (!e.alive || e.state === 'spawn') continue
             const dx = e.pos.x - this.pos.x
@@ -2163,22 +2275,27 @@ export class VoxelArenaGame {
             best = e
         }
         this.lungeTarget = best
-        this.audio.play('slash', this.meleeCombo === 3 ? 1.3 : 1)
-        this.fovKick = Math.max(this.fovKick, 0.4)
+        const finisher = this.meleeCombo === MELEE.comboLength - 1
+        this.audio.play('slash', finisher ? 1.3 : 0.9 + m.swingTime)
+        this.fovKick = Math.max(this.fovKick, finisher ? 0.7 : 0.35)
     }
 
     private updateMelee(dt: number): void {
         if (this.meleeTimer <= 0) return
         this.meleeTimer -= dt
-        const mid = MELEE.swingTime * 0.55
+        const m = this.meleeDef
+        const mid = m.swingTime * 0.55
         if (!this.meleeHitDone && this.meleeTimer <= mid) {
             this.meleeHitDone = true
-            const finisher = this.meleeCombo === 3
-            const range = MELEE.range * this.stats.meleeRangeMult * this.stats.scale
-            const dmg = MELEE.damage * this.stats.meleeDamageMult * this.stats.damageMult * (finisher ? MELEE.finisherMult : 1)
+            const finisher = this.meleeCombo === MELEE.comboLength - 1
+            const kind = finisher ? m.finisher : 'slash'
+            const rangeMult = kind === 'thrust' ? 1.6 : kind === 'slam' ? 1.15 : 1
+            const range = m.range * rangeMult * this.stats.meleeRangeMult * this.stats.scale
+            const arc = kind === 'spin' ? Math.PI * 2 : kind === 'thrust' ? Math.PI * 0.22 : m.arc
+            const dmg = m.damage * this.stats.meleeDamageMult * this.stats.damageMult * (finisher ? m.finisherMult : 1)
             const f = this.forward(_v2)
             const center = this.playerCenter(_v1)
-            let any = false
+            let any = 0
             for (const e of this.enemies) {
                 if (!e.alive || e.state === 'spawn') continue
                 const dx = e.pos.x - center.x
@@ -2187,15 +2304,26 @@ export class VoxelArenaGame {
                 const d = Math.hypot(dx, dz)
                 if (d > range + e.radius * e.scale || Math.abs(dy) > 2.6) continue
                 const dot = (dx * f.x + dz * f.z) / Math.max(0.001, d)
-                if (dot < Math.cos(MELEE.arc / 2) && d > 1) continue
-                this.hitEnemy(e, dmg, _v3.set(dx, 0, dz).normalize(), MELEE.knockback * (finisher ? 2 : 1), 'melee')
-                any = true
+                if (arc < Math.PI * 2 && dot < Math.cos(arc / 2) && d > 1) continue
+                this.hitEnemy(e, dmg, _v3.set(dx, kind === 'slam' ? 0.5 : 0, dz).normalize(), m.knockback * (finisher ? 2 : 1), 'melee')
+                any++
             }
-            if (any) {
-                this.audio.play('slash-hit')
-                this.shake = Math.max(this.shake, finisher ? 0.7 : 0.3)
+            if (any > 0) {
+                this.audio.play('slash-hit', Math.min(1.4, 0.7 + any * 0.15))
+                this.shake = Math.max(this.shake, finisher ? 0.7 : 0.25)
+                if (m.id === 'scythe') this.hp = Math.min(this.stats.maxHealth, this.hp + dmg * 0.05 * any)
             }
-            this.spawnSlash(center, f, range, finisher)
+            if (kind === 'slam') {
+                this.spawnShockwave(this.pos, range, m.color, 0.4)
+                this.burst(this.pos.x + f.x * 2, this.pos.y + 0.2, this.pos.z + f.z * 2, 30, [m.color, 0x8a8f9c], 6, 0.16)
+                this.audio.play('slam', 0.6)
+            } else if (kind === 'thrust') {
+                const tip = center.clone().addScaledVector(f, range)
+                this.spawnBeam(center.clone().addScaledVector(f, 1), tip, m.color, 0.12, 0.14)
+                this.burst(tip.x, tip.y, tip.z, 10, [m.color, 0xffffff], 4, 0.1)
+            } else {
+                this.spawnSlash(center, f, range, finisher, arc, m.color)
+            }
             this.meleeCombo = finisher ? 0 : this.meleeCombo + 1
         }
     }
@@ -2218,15 +2346,77 @@ export class VoxelArenaGame {
         this.meleeCombo = 0
     }
 
-    // ── Nova ability ─────────────────────────────────────────────────────
+    // ── Abilities ────────────────────────────────────────────────────────
 
-    private nova(): void {
-        const cost = this.stats.abilityCost
+    private abilityCost(id: AbilityId): number {
+        if (id === 'nova') return this.stats.abilityCost
+        if (id === 'sentry') return this.stats.turretCost
+        return ABILITIES[id].energy
+    }
+
+    private castSlot(slot: number): void {
+        const id = this.abilitySlots[slot]
+        if (!id) return
+        const cost = this.abilityCost(id)
         if (this.energy < cost) {
             this.audio.play('dry', 0.4)
             return
         }
+        switch (id) {
+            case 'nova': this.nova(); break
+            case 'sentry': this.deployTurret(); break
+            case 'blink': this.blink(); break
+            case 'chrono': this.chronoField(); break
+        }
         this.energy -= cost
+    }
+
+    /** Teleport forward through the pack, cutting everything on the way. */
+    private blink(): void {
+        const f = this.forward(new THREE.Vector3())
+        const start = this.pos.clone()
+        const end = start.clone()
+        const probe = start.clone()
+        for (let step = 0; step < 18; step++) {
+            probe.addScaledVector(f, 0.5)
+            const before = probe.clone()
+            this.resolveWalls(probe, this.playerRadius, this.pos.y, 1.8)
+            if (probe.distanceToSquared(before) > 0.01) break
+            end.copy(probe)
+        }
+        const dmg = 45 * this.stats.meleeDamageMult * this.stats.damageMult * this.stats.abilityMult
+        for (const e of this.enemies) {
+            if (!e.alive || e.state === 'spawn') continue
+            const c = _v1.set(e.pos.x, e.pos.y + e.height * e.scale * 0.5, e.pos.z)
+            const t = segmentSphere(start.clone().setY(c.y), end.clone().setY(c.y), c, e.radius * e.scale + 1.4)
+            if (t >= 0) this.hitEnemy(e, dmg, f, 6, 'melee')
+        }
+        this.spawnBeam(start.clone().setY(this.pos.y + 1.2), end.clone().setY(this.pos.y + 1.2), 0xb56bff, 0.6, 0.3)
+        this.burst(start.x, start.y + 1, start.z, 18, [0xb56bff, 0xffffff], 5, 0.14)
+        this.pos.copy(end)
+        this.pos.y = this.groundHeight(end.x, end.z, this.playerRadius, this.pos.y + STEP_HEIGHT)
+        this.burst(end.x, end.y + 1, end.z, 24, [0xb56bff, 0x3ff0ff], 6, 0.14)
+        this.invuln = Math.max(this.invuln, 0.4)
+        this.fovKick = 1.2
+        this.audio.play('chrono', 0.8)
+        this.audio.play('slash', 0.8)
+        this.hitStop = Math.max(this.hitStop, 0.03)
+    }
+
+    /** Freeze every enemy for a few seconds. */
+    private chronoField(): void {
+        this.fieldTimer = 3
+        this.spawnShockwave(this.pos, 30, 0x7dd3fc, 0.8)
+        this.burst(this.pos.x, this.pos.y + 1, this.pos.z, 40, [0x7dd3fc, 0xffffff], 9, 0.16)
+        this.flashLight.color.set(0x7dd3fc)
+        this.flashLight.position.copy(this.playerCenter(_v1))
+        this.flashLight.intensity = 30
+        this.audio.play('chrono', 1.2)
+        this.audio.play('nova', 0.4)
+        this.fovKick = 0.8
+    }
+
+    private nova(): void {
         const radius = 9 * this.stats.scale
         const dmg = 70 * this.stats.abilityMult * this.stats.damageMult
         const center = this.playerCenter(new THREE.Vector3())
@@ -2951,6 +3141,7 @@ export class VoxelArenaGame {
         this.comboTimer = 2.6
         const gained = killScore(e.def, this.wave, this.combo, e.affix)
         this.score += gained
+        this.spawnShards(e.pos.x, e.pos.y + e.height * e.scale * 0.5, e.pos.z, shardValue(e.def, e.affix))
         this.energy = Math.min(this.stats.energyMax, this.energy + (e.def.energy + this.stats.energyPerKill) * 0.5)
         const center = new THREE.Vector3(e.pos.x, e.pos.y + e.height * e.scale * 0.5, e.pos.z)
         this.popup(center.clone().add(new THREE.Vector3(0, 0.6, 0)), `+${gained}`, e.affix ? hexToCss(AFFIXES[e.affix].color) : '#a3e635', boss ? 30 : 14)
@@ -2985,7 +3176,7 @@ export class VoxelArenaGame {
             for (let i = 0; i < count; i++) {
                 const a = (i / count) * Math.PI * 2 + Math.random() * 0.4
                 const v = new THREE.Vector3(Math.cos(a), 0.15, Math.sin(a)).multiplyScalar(30)
-                this.projectiles.push({ pos: center.clone(), vel: v, life: 0.7, damage: 14 * this.stats.damageMult, def: WEAPONS.shredder, color: new THREE.Color(e.parts[0]?.color ?? 0xffffff), size: 0.3, pierceLeft: 1, ricochetLeft: 0, hit: new Set([e.id]), homing: 0, explosionRadius: 0, spin: Math.random() * 6, alive: true })
+                this.projectiles.push({ pos: center.clone(), vel: v, life: 0.7, damage: 14 * this.stats.damageMult, def: WEAPONS.shotgun, color: new THREE.Color(e.parts[0]?.color ?? 0xffffff), size: 0.3, pierceLeft: 1, ricochetLeft: 0, hit: new Set([e.id]), homing: 0, explosionRadius: 0, spin: Math.random() * 6, alive: true })
             }
         }
         if (this.meleeTimer > 0 || this.slamming) this.hitStop = Math.max(this.hitStop, 0.045)
@@ -3209,7 +3400,7 @@ export class VoxelArenaGame {
 
             // draw
             if (slot < this.tracers.size) {
-                _c1.copy(p.color).multiplyScalar(1.8)
+                _c1.copy(p.color).multiplyScalar(p.def.kind === 'bullet' ? 1.15 : 1.8)
                 if (p.def.kind === 'plasma') {
                     q.setFromAxisAngle(UP, p.spin)
                     this.tracers.set(slot, p.pos, q, p.size, p.size, p.size, _c1)
@@ -3219,7 +3410,8 @@ export class VoxelArenaGame {
                 } else {
                     const dir = _v2.copy(p.vel).normalize()
                     q.setFromUnitVectors(Z_AXIS, dir)
-                    this.tracers.set(slot, p.pos, q, p.size, p.size, p.def.tracerLength * (1 + this.stats.bulletSize * 0.3), _c1)
+                    const thin = p.def.kind === 'bullet' ? 0.5 : 1
+                    this.tracers.set(slot, p.pos, q, p.size * thin, p.size * thin, p.def.tracerLength * (1 + this.stats.bulletSize * 0.3), _c1)
                 }
                 slot++
             }
@@ -3268,6 +3460,88 @@ export class VoxelArenaGame {
         for (let i = s; i < this.shotPool.size; i++) this.shotPool.hide(i)
         this.shotPool.commit()
         for (let i = this.enemyShots.length - 1; i >= 0; i--) if (!this.enemyShots[i]!.alive) this.enemyShots.splice(i, 1)
+    }
+
+    // ── Shards ───────────────────────────────────────────────────────────
+
+    /** Kills drop glowing shard cubes; walk near them and they fly to you. */
+    private spawnShards(x: number, y: number, z: number, value: number): void {
+        const n = THREE.MathUtils.clamp(Math.round(value / 6), 1, 6)
+        const each = value / n
+        for (let k = 0; k < n; k++) {
+            const i = this.shardCursor
+            this.shardCursor = (this.shardCursor + 1) % this.SHARD_MAX
+            const a = Math.random() * Math.PI * 2
+            this.shardPos[i * 3] = x
+            this.shardPos[i * 3 + 1] = y
+            this.shardPos[i * 3 + 2] = z
+            this.shardVel[i * 3] = Math.cos(a) * (2 + Math.random() * 3)
+            this.shardVel[i * 3 + 1] = 5 + Math.random() * 4
+            this.shardVel[i * 3 + 2] = Math.sin(a) * (2 + Math.random() * 3)
+            this.shardLife[i] = 40
+            this.shardVal[i] = each
+        }
+    }
+
+    private updateShards(dt: number): void {
+        const pc = this.playerCenter(_v3)
+        const pull = this.stats.pickupRange * 3
+        const q = _q1
+        let collected = 0
+        for (let i = 0; i < this.SHARD_MAX; i++) {
+            const life = this.shardLife[i]!
+            if (life <= 0) continue
+            this.shardLife[i] = life - dt
+            const i3 = i * 3
+            let x = this.shardPos[i3]!
+            let y = this.shardPos[i3 + 1]!
+            let z = this.shardPos[i3 + 2]!
+            const dx = pc.x - x
+            const dy = pc.y - y
+            const dz = pc.z - z
+            const d = Math.sqrt(dx * dx + dy * dy + dz * dz)
+            if (d < pull) {
+                // magnetised: accelerate toward the player
+                const sp = 14 + (pull - d) * 4
+                this.shardVel[i3] = dx / d * sp
+                this.shardVel[i3 + 1] = dy / d * sp
+                this.shardVel[i3 + 2] = dz / d * sp
+            } else {
+                this.shardVel[i3 + 1]! -= 22 * dt
+                this.shardVel[i3] = this.shardVel[i3]! * 0.96
+                this.shardVel[i3 + 2] = this.shardVel[i3 + 2]! * 0.96
+            }
+            x += this.shardVel[i3]! * dt
+            y += this.shardVel[i3 + 1]! * dt
+            z += this.shardVel[i3 + 2]! * dt
+            const floor = this.groundHeight(x, z, 0.2, y + 0.3) + 0.25
+            if (y < floor && d >= pull) {
+                y = floor
+                this.shardVel[i3 + 1] = Math.abs(this.shardVel[i3 + 1]!) * 0.35
+            }
+            const lim = ARENA_HALF - 0.4
+            x = THREE.MathUtils.clamp(x, -lim, lim)
+            z = THREE.MathUtils.clamp(z, -lim, lim)
+            if (d < 1.3 || this.shardLife[i]! <= 0) {
+                if (d < 1.3) collected += this.shardVal[i]!
+                this.shardLife[i] = 0
+                this.shardPool.hide(i)
+                continue
+            }
+            this.shardPos[i3] = x
+            this.shardPos[i3 + 1] = y
+            this.shardPos[i3 + 2] = z
+            const bob = Math.sin(this.elapsed * 5 + i) * 0.05
+            q.setFromAxisAngle(UP, this.elapsed * 3 + i)
+            _c1.set(0x3ff0ff).multiplyScalar(1.8)
+            const size = 0.22 + Math.min(0.2, this.shardVal[i]! * 0.01)
+            this.shardPool.set(i, _v1.set(x, y + bob, z), q, size, size, size, _c1)
+        }
+        this.shardPool.commit()
+        if (collected > 0) {
+            this.shards += collected
+            this.audio.play('select', 0.25)
+        }
     }
 
     // ── Pickups ──────────────────────────────────────────────────────────
@@ -3445,9 +3719,9 @@ export class VoxelArenaGame {
     }
 
     private spawnMuzzleFlash(at: THREE.Vector3, dir: THREE.Vector3, color: THREE.Color, size: number): void {
-        const mat = new THREE.MeshBasicMaterial({ color: color.clone().multiplyScalar(2), toneMapped: false, transparent: true })
+        const mat = new THREE.MeshBasicMaterial({ color: color.clone().multiplyScalar(1.25), toneMapped: false, transparent: true })
         const mesh = new THREE.Mesh(BOX, mat)
-        mesh.position.copy(at).addScaledVector(dir, 0.2)
+        mesh.position.copy(at).addScaledVector(dir, 0.3)
         mesh.quaternion.setFromUnitVectors(Z_AXIS, dir)
         mesh.rotation.z = Math.random() * Math.PI
         this.addEffect(mesh, 0.07, (fx, t) => {
@@ -3502,28 +3776,41 @@ export class VoxelArenaGame {
         this.burst(to.x, to.y, to.z, 4, [color, 0xffffff], 3, 0.08)
     }
 
-    private spawnSlash(center: THREE.Vector3, forward: THREE.Vector3, range: number, finisher: boolean): void {
-        const geo = new THREE.RingGeometry(range * 0.35, range, 20, 1, 0, MELEE.arc)
-        const mat = new THREE.MeshBasicMaterial({ color: new THREE.Color(finisher ? 0xd9a63c : 0x3ff0ff).multiplyScalar(2), toneMapped: false, transparent: true, side: THREE.DoubleSide })
+    private spawnSlash(center: THREE.Vector3, forward: THREE.Vector3, range: number, finisher: boolean, arc: number, colorHex: number): void {
+        const geo = new THREE.RingGeometry(range * 0.3, range, 32, 1, 0, arc)
+        const mat = new THREE.MeshBasicMaterial({ color: new THREE.Color(finisher ? 0xffffff : colorHex).multiplyScalar(finisher ? 1.6 : 2.0), toneMapped: false, transparent: true, side: THREE.DoubleSide })
+        const core = new THREE.Mesh(new THREE.RingGeometry(range * 0.72, range * 0.86, 32, 1, 0, arc), new THREE.MeshBasicMaterial({ color: colorHex, toneMapped: false, transparent: true, side: THREE.DoubleSide }))
+        core.rotation.x = -Math.PI / 2
+        core.position.y = 0.02
+        // sparks fly along the blade's path
+        for (let i = 0; i < 10; i++) {
+            const a = Math.atan2(forward.x, forward.z) + (Math.random() - 0.5) * arc
+            const r = range * (0.5 + Math.random() * 0.5)
+            this.spawnDebris(center.x + Math.sin(a) * r, center.y + (Math.random() - 0.5) * 0.6, center.z + Math.cos(a) * r, Math.sin(a) * 4, 2 + Math.random() * 3, Math.cos(a) * 4, colorHex, 0.08 + Math.random() * 0.08, 0.3 + Math.random() * 0.3)
+        }
         const mesh = new THREE.Mesh(geo, mat)
         // the ring lies in XY; lay it flat so geometry angle θ points along yaw θ + π/2
         mesh.rotation.x = -Math.PI / 2
         const yaw = Math.atan2(forward.x, forward.z)
-        const baseRot = yaw - Math.PI / 2 - MELEE.arc / 2
+        const baseRot = yaw - Math.PI / 2 - arc / 2
         const holder = new THREE.Group()
         holder.position.copy(center)
         holder.rotation.order = 'YXZ'
         holder.rotation.y = baseRot
         holder.rotation.x = finisher ? 0 : (this.meleeCombo % 2 ? 0.35 : -0.35)
         holder.add(mesh)
+        holder.add(core)
         const dirSign = this.meleeCombo % 2 ? 1 : -1
-        this.addEffect(holder, 0.2, (fx, t) => {
+        this.addEffect(holder, 0.22, (fx, t) => {
             mat.opacity = 1 - t
+            ;(core.material as THREE.MeshBasicMaterial).opacity = Math.max(0, 1 - t * 1.6)
             fx.obj.rotation.y = baseRot + dirSign * (t - 0.5) * 1.1
             fx.obj.scale.setScalar(0.8 + t * 0.4)
         }, () => {
             geo.dispose()
             mat.dispose()
+            core.geometry.dispose()
+            ;(core.material as THREE.Material).dispose()
         })
     }
 
@@ -3638,12 +3925,9 @@ export class VoxelArenaGame {
         }
         if (playing) {
             this.elapsed += dt
-            if (this.chronoTimer > 0) {
-                this.chronoTimer -= dt
-                this.timeScale = this.chronoTimer > 0 ? 0.3 : 1
-            } else {
-                this.timeScale = 1
-            }
+            if (this.fieldTimer > 0) this.fieldTimer -= dt
+            if (this.chronoTimer > 0) this.chronoTimer -= dt
+            this.timeScale = this.fieldTimer > 0 ? 0.06 : this.chronoTimer > 0 ? 0.3 : 1
             if (this.comboTimer > 0) {
                 this.comboTimer -= dt
                 if (this.comboTimer <= 0) this.combo = 0
@@ -3653,6 +3937,7 @@ export class VoxelArenaGame {
             this.updateEnemies(dt)
             this.updateProjectiles(dt)
             this.updatePickups(dt)
+            this.updateShards(dt)
             this.updateFireCells(dt)
             this.updateMeteors(dt)
             this.updateWave(dt)
@@ -3682,7 +3967,7 @@ export class VoxelArenaGame {
      * Test hook: runs the simulation for `seconds` at 60 Hz without rendering,
      * optionally holding the trigger and auto-aiming at the nearest enemy.
      */
-    debugAdvance(seconds: number, opts: { fire?: boolean, aim?: boolean, move?: string[] } = {}): { enemies: number, kills: number, wave: number, phase: ArenaPhase, hp: number } {
+    debugAdvance(seconds: number, opts: { fire?: boolean, aim?: boolean, ads?: boolean, move?: string[] } = {}): { enemies: number, kills: number, wave: number, phase: ArenaPhase, hp: number, shards: number } {
         const dt = 1 / 60
         const frames = Math.round(seconds / dt)
         for (let i = 0; i < frames; i++) {
@@ -3690,19 +3975,22 @@ export class VoxelArenaGame {
             if (opts.aim) {
                 const target = this.nearestEnemy(this.playerCenter(_v1), 80)
                 if (target) {
-                    const c = this.headCenter(target, _v2) ?? _v2.set(target.pos.x, target.pos.y + target.height * target.scale * 0.5, target.pos.z)
+                    const c = _v2.set(target.pos.x, target.pos.y + target.height * target.scale * 0.5, target.pos.z)
                     const d = c.sub(this.camera.position)
                     this.yaw = Math.atan2(-d.x, -d.z)
-                    this.pitch = Math.atan2(d.y, Math.hypot(d.x, d.z))
+                    this.pitch = Math.atan2(d.y, Math.hypot(d.x, d.z)) - this.recoilPitch
                 }
             }
+            this.adsHeld = !!opts.ads
             this.mouseDown = !!opts.fire
             this.mouseJustDown = !!opts.fire && i % 10 === 0
             this.step(dt)
         }
         this.mouseDown = false
+        // the aim key stays held between calls so a screenshot can capture the sight
+        this.adsHeld = !!opts.ads
         if (opts.move) for (const k of opts.move) this.keys.delete(k)
-        return { enemies: this.enemies.length, kills: this.kills, wave: this.wave, phase: this.hud.phase, hp: this.hp }
+        return { enemies: this.enemies.length, kills: this.kills, wave: this.wave, phase: this.hud.phase, hp: this.hp, shards: Math.floor(this.shards) }
     }
 
     private syncHud(): void {
@@ -3769,8 +4057,15 @@ export class VoxelArenaGame {
         h.headshots = this.headshots
         h.shield = this.shield
         h.haste = Math.max(0, this.hasteTimer)
-        h.turretCost = this.stats.turretCost
         h.turrets = this.turrets.length
-        h.rerolls = this.rerollsLeft
+        h.shards = Math.floor(this.shards)
+        h.rerollCost = rerollCost(this.wave)
+        const slots = this.abilitySlots.map(id => id ? { id, name: ABILITIES[id].name, cost: this.abilityCost(id), color: ABILITIES[id].color, icon: ABILITIES[id].icon } : null)
+        if (slots.some((a, i) => (a?.id ?? null) !== (h.abilities[i]?.id ?? null) || (a?.cost ?? 0) !== (h.abilities[i]?.cost ?? 0))) h.abilities = slots
+        h.chrono = this.timeScale < 1
+        h.combo3 = this.meleeComboTimer > 0 ? this.meleeCombo : 0
+        h.fov = this.camera.fov
+        const wd = this.weapon?.def
+        h.spread = wd ? (wd.spread + this.spreadBloom) * THREE.MathUtils.lerp(1, wd.adsSpread, this.ads) + (this.onGround ? 0 : 0.02) : 0
     }
 }
