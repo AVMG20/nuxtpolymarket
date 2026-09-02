@@ -40,9 +40,8 @@ const hud = reactive({
     chainLength: 3,
     comboTimer: 0,
     inCombo: false,
-    eliteName: '',
-    eliteHp: 0,
-    eliteMax: 0,
+    elites: [] as { id: number, name: string, hp: number, max: number }[],
+    bloodlust: 0,
     banner: '',
     bannerSub: '',
     bannerT: 0,
@@ -73,10 +72,11 @@ function syncHud() {
     hud.chainLength = p.chain.length
     hud.inCombo = !!p.attack || p.comboTimer > 0
     hud.sprinting = p.sprinting
-    const elite = game.elite
-    hud.eliteName = elite ? elite.def.name : ''
-    hud.eliteHp = elite ? Math.max(0, elite.hp) : 0
-    hud.eliteMax = elite ? elite.maxHp : 0
+    const elites = game.elites
+    if (elites.length !== hud.elites.length || elites.some((e, i) => hud.elites[i]!.id !== e.id || hud.elites[i]!.hp !== e.hp)) {
+        hud.elites = elites.map(e => ({ id: e.id, name: e.def.name, hp: Math.max(0, e.hp), max: e.maxHp }))
+    }
+    hud.bloodlust = p.bloodlust
     hud.banner = game.banner?.text ?? ''
     hud.bannerSub = game.banner?.sub ?? ''
     hud.bannerT = game.banner?.t ?? 0
@@ -335,6 +335,9 @@ const showHint = computed(() => hud.phase === 'wave' && hud.wave === 1)
             </div>
           </div>
           <div class="mt-2 flex flex-wrap gap-1">
+            <span v-if="hud.bloodlust > 0" class="inline-flex items-center gap-1 rounded-md bg-red-900/70 ring-1 ring-red-400/40 px-1.5 py-0.5 text-[11px] font-black text-red-200">
+              <UIcon name="i-lucide-activity" class="size-3.5" />×{{ hud.bloodlust }}
+            </span>
             <span
               v-for="u in hud.upgrades"
               :key="u.id"
@@ -424,14 +427,16 @@ const showHint = computed(() => hud.phase === 'wave' && hud.wave === 1)
           </div>
         </div>
 
-        <!-- Elite bar -->
-        <div v-if="hud.eliteName" class="absolute left-1/2 bottom-4 sm:bottom-6 -translate-x-1/2 w-[46%] max-w-[520px]">
-          <div class="flex items-center justify-between mb-1">
-            <span class="text-xs font-black uppercase tracking-[0.25em] text-red-300 drop-shadow">{{ hud.eliteName }}</span>
-            <span class="text-[11px] font-bold text-white/70 tabular-nums">{{ Math.ceil(hud.eliteHp) }}</span>
-          </div>
-          <div class="h-3 rounded bg-black/60 ring-1 ring-black/70 overflow-hidden">
-            <div class="h-full bg-gradient-to-r from-red-800 via-red-500 to-orange-400 transition-[width] duration-150" :style="{ width: `${hud.eliteHp / Math.max(1, hud.eliteMax) * 100}%` }" />
+        <!-- Elite bars -->
+        <div v-if="hud.elites.length" class="absolute left-1/2 bottom-4 sm:bottom-6 -translate-x-1/2 w-[46%] max-w-[520px] space-y-2">
+          <div v-for="e in hud.elites" :key="e.id">
+            <div class="flex items-center justify-between mb-1">
+              <span class="text-xs font-black uppercase tracking-[0.25em] text-red-300 drop-shadow">{{ e.name }}</span>
+              <span class="text-[11px] font-bold text-white/70 tabular-nums">{{ Math.ceil(e.hp) }}</span>
+            </div>
+            <div class="h-3 rounded bg-black/60 ring-1 ring-black/70 overflow-hidden">
+              <div class="h-full bg-gradient-to-r from-red-800 via-red-500 to-orange-400 transition-[width] duration-150" :style="{ width: `${e.hp / Math.max(1, e.max) * 100}%` }" />
+            </div>
           </div>
         </div>
 
@@ -453,14 +458,14 @@ const showHint = computed(() => hud.phase === 'wave' && hud.wave === 1)
 
       <!-- Menu ----------------------------------------------------------- -->
       <div v-if="hud.phase === 'menu'" class="absolute inset-0 flex items-center justify-center p-4 bg-black/40">
-        <div class="w-full max-w-2xl rounded-2xl bg-black/65 backdrop-blur-sm ring-1 ring-white/10 p-5 sm:p-8 text-white">
+        <div class="w-full max-w-3xl max-h-full overflow-y-auto rounded-2xl bg-black/65 backdrop-blur-sm ring-1 ring-white/10 p-5 sm:p-8 text-white">
           <div class="text-center">
             <div class="text-[11px] uppercase tracking-[0.4em] font-bold text-amber-200">A melee survival roguelite</div>
             <h1 class="mt-1 text-5xl sm:text-6xl font-black tracking-tight drop-shadow-[0_4px_0_rgba(0,0,0,0.6)]">Meadowbrawl</h1>
             <p class="mt-2 text-sm text-white/70">Twenty waves. One weapon at a time. Chain your combo, dodge the telegraphs, and let the build get out of hand.</p>
           </div>
 
-          <div class="mt-5 grid grid-cols-2 sm:grid-cols-4 gap-2">
+          <div class="mt-5 grid grid-cols-2 sm:grid-cols-3 gap-2">
             <button
               v-for="w in weaponCards"
               :key="w.id"

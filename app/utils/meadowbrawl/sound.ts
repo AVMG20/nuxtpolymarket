@@ -182,6 +182,22 @@ export class MeadowbrawlSound {
                 this.tone(120, 1.6, { type: 'sawtooth', gain: 0.2, to: 30 })
                 this.hiss(0.9, { gain: 0.25, from: 600, to: 80, type: 'lowpass' })
                 break
+            case 'crit':
+                if (!this.throttle('crit', 60)) return
+                this.tone(1400, 0.12, { type: 'square', gain: 0.07, to: 2400 })
+                this.tone(90, 0.16, { type: 'sine', gain: 0.25, to: 40 })
+                break
+            case 'execute':
+                this.tone(140, 0.25, { type: 'square', gain: 0.18, to: 30 })
+                this.hiss(0.3, { gain: 0.22, from: 1800, to: 200 })
+                break
+            case 'leap':
+                this.hiss(0.45, { gain: 0.14, from: 300, to: 2600, q: 0.7 })
+                break
+            case 'revive':
+                for (const [i, f] of [392, 523, 659, 784, 1046].entries()) this.tone(f, 0.8, { type: 'triangle', gain: 0.14, delay: i * 0.09 })
+                this.tone(60, 1.0, { type: 'sine', gain: 0.35, to: 25 })
+                break
             case 'victory':
                 for (const [i, f] of [523, 659, 784, 1046, 1318].entries()) this.tone(f, 0.7, { type: 'triangle', gain: 0.14, delay: i * 0.12 })
                 break

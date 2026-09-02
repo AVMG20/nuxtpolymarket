@@ -8,12 +8,15 @@ describe('weapons', () => {
         expect(WEAPONS.greataxe.swings).toHaveLength(2)
         expect(WEAPONS.spear.swings).toHaveLength(4)
         expect(WEAPONS.daggers.swings).toHaveLength(5)
+        expect(WEAPONS.warhammer.swings).toHaveLength(2)
+        expect(WEAPONS.scythe.swings).toHaveLength(3)
         for (const w of Object.values(WEAPONS)) {
             const last = w.swings[w.swings.length - 1]!
             expect(last.finisher).toBe(true)
             expect(w.swings.slice(0, -1).every(s => !s.finisher)).toBe(true)
             expect(last.damage).toBeGreaterThan(Math.max(...w.swings.slice(0, -1).map(s => s.damage)))
-            expect(last.knockback).toBeGreaterThan(Math.max(...w.swings.slice(0, -1).map(s => s.knockback)))
+            // The scythe's harvest pulls instead of pushing — still the biggest shove.
+            expect(Math.abs(last.knockback)).toBeGreaterThan(Math.max(...w.swings.slice(0, -1).map(s => s.knockback)))
         }
     })
 

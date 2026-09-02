@@ -30,12 +30,27 @@ function ellipse(ctx: Ctx, x: number, y: number, rx: number, ry: number) {
     ctx.ellipse(x, y, Math.max(0.1, rx), Math.max(0.1, ry), 0, 0, Math.PI * 2)
 }
 
-function shade(hex: string, amt: number): string {
-    const n = parseInt(hex.slice(1), 16)
-    const r = clamp(((n >> 16) & 255) + amt, 0, 255)
-    const g = clamp(((n >> 8) & 255) + amt, 0, 255)
-    const b = clamp((n & 255) + amt, 0, 255)
-    return `rgb(${r},${g},${b})`
+function parseColor(c: string): [number, number, number] {
+    if (c.startsWith('#')) {
+        const n = parseInt(c.slice(1), 16)
+        return [(n >> 16) & 255, (n >> 8) & 255, n & 255]
+    }
+    const m = c.match(/(\d+)/g)
+    return m && m.length >= 3 ? [Number(m[0]), Number(m[1]), Number(m[2])] : [200, 200, 200]
+}
+
+function shade(color: string, amt: number): string {
+    const [r, g, b] = parseColor(color)
+    return `rgb(${clamp(r + amt, 0, 255)},${clamp(g + amt, 0, 255)},${clamp(b + amt, 0, 255)})`
+}
+
+/** Painterly two-tone fill: lit from the upper left, shadowed lower right. */
+function bodyGrad(ctx: Ctx, color: string, x0: number, y0: number, x1: number, y1: number): CanvasGradient {
+    const g = ctx.createLinearGradient(x0, y0, x1, y1)
+    g.addColorStop(0, shade(color, 28))
+    g.addColorStop(0.55, color)
+    g.addColorStop(1, shade(color, -34))
+    return g
 }
 
 export class MeadowbrawlRenderer {
@@ -136,15 +151,10 @@ export class MeadowbrawlRenderer {
         const g = this.game
         const p = g.player
         const viewH = this.cssH / this.scale
-        let lx = g.input.aimX - p.x
-        let ly = (g.input.aimY - p.y) * YS
-        const ll = Math.hypot(lx, ly)
-        if (ll > 140) {
-            lx = lx / ll * 140
-            ly = ly / ll * 140
-        }
-        const tx = p.x + lx * 0.35 - VIEW_W / 2
-        const ty = p.y * YS + ly * 0.35 - viewH / 2
+        // The camera stays locked on the player; drifting toward the cursor
+        // made aiming feel like it moved the world.
+        const tx = p.x - VIEW_W / 2
+        const ty = p.y * YS - viewH / 2
         const w = g.world
         const minX = -w.margin + 40
         const maxX = w.w + w.margin - VIEW_W - 40
@@ -750,10 +760,28 @@ export class MeadowbrawlRenderer {
             ctx.arc(e.x + 3, e.y + 3, sr, 0, Math.PI * 2)
             ctx.fill()
         }
-        const pz = p.dodge ? Math.sin(p.dodge.t / p.dodge.dur * Math.PI) * 10 : 0
+        const pz = (p.dodge ? Math.sin(p.dodge.t / p.dodge.dur * Math.PI) * 10 : 0) + p.z
         ctx.beginPath()
-        ctx.arc(p.x + 3, p.y + 3, p.r * 1.35 - pz * 0.3, 0, Math.PI * 2)
+        ctx.arc(p.x + 3, p.y + 3, Math.max(4, p.r * 1.35 - pz * 0.12), 0, Math.PI * 2)
         ctx.fill()
+        if (p.special?.kind === 'leap' && !p.special.fired) {
+            // Landing zone.
+            const k = clamp(p.special.t / p.special.dur, 0, 1)
+            ctx.fillStyle = `rgba(255,240,200,${0.08 + k * 0.2})`
+            ctx.strokeStyle = 'rgba(255,240,200,0.75)'
+            ctx.lineWidth = 2
+            ctx.beginPath()
+            ctx.arc(p.special.tx!, p.special.ty!, 140 * g.reachMult, 0, Math.PI * 2)
+            ctx.fill()
+            ctx.stroke()
+        }
+        if (p.special?.kind === 'whirl') {
+            ctx.strokeStyle = 'rgba(200,215,230,0.5)'
+            ctx.lineWidth = 2
+            ctx.beginPath()
+            ctx.arc(p.x, p.y, 120 * g.reachMult, 0, Math.PI * 2)
+            ctx.stroke()
+        }
 
         // Player ground marker — never lose yourself in a crowd.
         ctx.strokeStyle = 'rgba(255,245,210,0.55)'
@@ -936,12 +964,18 @@ export class MeadowbrawlRenderer {
         const w = WEAPONS[p.weapon]
         const facingLeft = Math.cos(p.facing) < 0
         const bob = p.moving && !p.dodge ? Math.abs(Math.sin(p.walk)) * 2.5 : Math.sin(this.t * 3) * 0.8
-        const rollZ = p.dodge ? Math.sin(p.dodge.t / p.dodge.dur * Math.PI) * 10 : 0
+        const rollZ = (p.dodge ? Math.sin(p.dodge.t / p.dodge.dur * Math.PI) * 10 : 0) + p.z
         const hurt = p.hurtFlash > 0 && Math.floor(this.t * 30) % 2 === 0
-        const invulnBlink = p.invuln > 0 && !p.dodge && Math.floor(this.t * 20) % 3 === 0
+        const invulnBlink = p.invuln > 0 && !p.dodge && p.z === 0 && Math.floor(this.t * 20) % 3 === 0
 
         ctx.save()
         ctx.translate(sx, sy - rollZ)
+        if (p.z > 0) {
+            // Curl up mid-leap.
+            ctx.translate(0, -10)
+            ctx.rotate(Math.sin(p.special ? p.special.t / p.special.dur * Math.PI : 0) * 0.5 * (facingLeft ? -1 : 1))
+            ctx.translate(0, 10)
+        }
         if (p.dodge) {
             const k = p.dodge.t / p.dodge.dur
             ctx.translate(0, -14)
@@ -993,7 +1027,7 @@ export class MeadowbrawlRenderer {
         ctx.stroke()
 
         // Body: tunic.
-        ctx.fillStyle = hurt ? '#ffd6d6' : '#3d6fd8'
+        ctx.fillStyle = hurt ? '#ffd6d6' : bodyGrad(ctx, '#3d6fd8', -10, -30 - bob, 10, -10 - bob)
         ctx.lineWidth = 1.6
         ctx.strokeStyle = outline
         ctx.beginPath()
@@ -1026,7 +1060,7 @@ export class MeadowbrawlRenderer {
         ctx.arc(0, -38 - bob, 7.5, 0, Math.PI * 2)
         ctx.fill()
         ctx.stroke()
-        ctx.fillStyle = '#c3ccd8'
+        ctx.fillStyle = bodyGrad(ctx, '#c3ccd8', -8, -48 - bob, 8, -37 - bob)
         ctx.beginPath()
         ctx.arc(0, -40 - bob, 8.5, Math.PI, Math.PI * 2)
         ctx.lineTo(8.5, -37 - bob)
@@ -1091,6 +1125,11 @@ export class MeadowbrawlRenderer {
             return { angle: p.facing + k * Math.PI * 2, ext: 1.5 }
         }
         if (s?.kind === 'dash') return { angle: p.facing, ext: 1.5 }
+        if (s?.kind === 'leap') {
+            if (!s.fired) return { angle: p.facing - Math.PI / 2 - 0.4, ext: 1.4 }
+            return { angle: p.facing + 0.5, ext: 1.2 }
+        }
+        if (s?.kind === 'whirl') return { angle: p.facing, ext: 1.6 }
         if (s?.kind === 'backstab') return { angle: p.facing, ext: 1.5 }
         if (!a) {
             return { angle: p.facing + (Math.cos(p.facing) < 0 ? -0.9 : 0.9), ext: 0.9 }
@@ -1143,28 +1182,117 @@ export class MeadowbrawlRenderer {
                 ctx.lineTo(30, 0)
                 ctx.stroke()
                 break
-            case 'greataxe':
+            case 'greataxe': {
+                // Long haft with a leather grip, a double-bit head and a top spike.
                 ctx.fillStyle = '#5a3d26'
-                ctx.fillRect(-16, -2.5, 52, 5)
-                ctx.strokeRect(-16, -2.5, 52, 5)
+                ctx.fillRect(-22, -2.5, 66, 5)
+                ctx.strokeRect(-22, -2.5, 66, 5)
+                ctx.fillStyle = '#3b2a1c'
+                for (let i = -18; i < 0; i += 5) ctx.fillRect(i, -2.5, 2, 5)
+                const head = (dir: 1 | -1) => {
+                    ctx.beginPath()
+                    ctx.moveTo(30, dir * 3)
+                    ctx.lineTo(28, dir * 12)
+                    ctx.quadraticCurveTo(34, dir * 26, 54, dir * 24)
+                    ctx.quadraticCurveTo(50, dir * 12, 50, dir * 3)
+                    ctx.closePath()
+                    ctx.fillStyle = bodyGrad(ctx, color, 28, dir * 4, 52, dir * 24)
+                    ctx.fill()
+                    ctx.stroke()
+                    // Cutting edge highlight.
+                    ctx.strokeStyle = 'rgba(255,255,255,0.75)'
+                    ctx.lineWidth = 1.6
+                    ctx.beginPath()
+                    ctx.moveTo(29, dir * 13)
+                    ctx.quadraticCurveTo(35, dir * 25, 53, dir * 23)
+                    ctx.stroke()
+                    ctx.strokeStyle = 'rgba(24,18,34,0.95)'
+                    ctx.lineWidth = 1.4
+                }
+                head(1)
+                head(-1)
+                // Steel band and spike.
+                ctx.fillStyle = '#7d8590'
+                ctx.fillRect(30, -5, 20, 10)
+                ctx.strokeRect(30, -5, 20, 10)
                 ctx.fillStyle = color
                 ctx.beginPath()
-                ctx.moveTo(26, -3)
-                ctx.quadraticCurveTo(34, -22, 46, -18)
-                ctx.quadraticCurveTo(42, -6, 44, 0)
-                ctx.quadraticCurveTo(42, 6, 46, 18)
-                ctx.quadraticCurveTo(34, 22, 26, 3)
+                ctx.moveTo(50, -3)
+                ctx.lineTo(62, 0)
+                ctx.lineTo(50, 3)
+                ctx.closePath()
+                ctx.fill()
+                ctx.stroke()
+                break
+            }
+            case 'warhammer': {
+                ctx.fillStyle = '#5a3d26'
+                ctx.fillRect(-20, -2.5, 58, 5)
+                ctx.strokeRect(-20, -2.5, 58, 5)
+                ctx.fillStyle = '#3b2a1c'
+                for (let i = -16; i < 0; i += 5) ctx.fillRect(i, -2.5, 2, 5)
+                // Head: broad block with a flat striking face and a rear spike.
+                ctx.fillStyle = bodyGrad(ctx, '#8d96a3', 30, -14, 52, 14)
+                ctx.beginPath()
+                ctx.moveTo(30, -14)
+                ctx.lineTo(52, -12)
+                ctx.lineTo(54, 12)
+                ctx.lineTo(30, 14)
+                ctx.closePath()
+                ctx.fill()
+                ctx.stroke()
+                ctx.fillStyle = '#5c646f'
+                ctx.fillRect(33, -11, 4, 22)
+                ctx.fillRect(45, -10, 3, 20)
+                ctx.fillStyle = color
+                ctx.beginPath()
+                ctx.moveTo(30, -4)
+                ctx.lineTo(16, 0)
+                ctx.lineTo(30, 4)
                 ctx.closePath()
                 ctx.fill()
                 ctx.stroke()
                 ctx.fillStyle = 'rgba(255,255,255,0.35)'
+                ctx.fillRect(38, -11, 6, 6)
+                break
+            }
+            case 'scythe': {
+                // Curved snath, then a long crescent blade sweeping sideways.
+                ctx.strokeStyle = '#5a3d26'
+                ctx.lineWidth = 4.5
+                ctx.lineCap = 'round'
+                ctx.beginPath()
+                ctx.moveTo(-34, 8)
+                ctx.quadraticCurveTo(-4, -4, 30, -2)
+                ctx.stroke()
+                ctx.strokeStyle = 'rgba(24,18,34,0.95)'
+                ctx.lineWidth = 1.2
+                ctx.beginPath()
+                ctx.moveTo(-34, 8)
+                ctx.quadraticCurveTo(-4, -4, 30, -2)
+                ctx.stroke()
+                ctx.fillStyle = '#3b2a1c'
+                ctx.fillRect(-14, -1, 8, 4)
+                ctx.fillStyle = '#7d8590'
+                ctx.fillRect(26, -5, 8, 7)
+                ctx.strokeRect(26, -5, 8, 7)
+                ctx.fillStyle = bodyGrad(ctx, color, 30, -30, 70, 0)
                 ctx.beginPath()
                 ctx.moveTo(30, -4)
-                ctx.quadraticCurveTo(36, -16, 44, -15)
-                ctx.quadraticCurveTo(38, -10, 36, -2)
+                ctx.quadraticCurveTo(56, -8, 72, -34)
+                ctx.quadraticCurveTo(52, -20, 34, -6)
+                ctx.lineTo(34, 2)
                 ctx.closePath()
                 ctx.fill()
+                ctx.stroke()
+                ctx.strokeStyle = 'rgba(255,255,255,0.8)'
+                ctx.lineWidth = 1.4
+                ctx.beginPath()
+                ctx.moveTo(32, -4)
+                ctx.quadraticCurveTo(56, -8, 71, -33)
+                ctx.stroke()
                 break
+            }
             case 'spear':
                 ctx.fillStyle = '#7a5a34'
                 ctx.fillRect(-26, -1.8, 66, 3.6)
@@ -1312,7 +1440,7 @@ export class MeadowbrawlRenderer {
         ctx.stroke()
         ctx.lineWidth = 1.6
         // Tunic.
-        ctx.fillStyle = tint('#6f7f3a')
+        ctx.fillStyle = bodyGrad(ctx, tint('#6f7f3a'), -9, -26 - bob, 9, -8 - bob)
         ctx.beginPath()
         ctx.moveTo(-9, -26 - bob)
         ctx.lineTo(9, -26 - bob)
@@ -1323,21 +1451,24 @@ export class MeadowbrawlRenderer {
         ctx.stroke()
         ctx.fillStyle = '#4a3a2a'
         ctx.fillRect(-8, -14 - bob, 16, 3)
-        // Hood.
-        ctx.fillStyle = tint('#7a4b2e')
+        // Hood with a bandana'd face underneath.
+        ctx.fillStyle = bodyGrad(ctx, tint('#7a4b2e'), -9, -46 - bob, 9, -26 - bob)
         ctx.beginPath()
-        ctx.moveTo(-9, -26 - bob)
-        ctx.quadraticCurveTo(0, -46 - bob, 9, -26 - bob)
+        ctx.moveTo(-10, -25 - bob)
+        ctx.quadraticCurveTo(-6, -44 - bob, 0, -47 - bob)
+        ctx.quadraticCurveTo(6, -44 - bob, 10, -25 - bob)
         ctx.closePath()
         ctx.fill()
         ctx.stroke()
+        ctx.fillStyle = '#d9a980'
+        ellipse(ctx, dir * 1.5, -32 - bob, 5.5, 5)
+        ctx.fill()
+        ctx.fillStyle = '#b23a2c'
+        ctx.fillRect(dir * 1.5 - 5.5, -31 - bob, 11, 3)
         ctx.fillStyle = '#1d1520'
-        ellipse(ctx, dir * 1, -31 - bob, 6, 4)
+        ellipse(ctx, dir * 2.5 - 2, -34 - bob, 1.2, 1.4)
         ctx.fill()
-        ctx.fillStyle = '#ffd25a'
-        ellipse(ctx, dir * 2 - 2, -31 - bob, 1.4, 1.4)
-        ctx.fill()
-        ellipse(ctx, dir * 2 + 2, -31 - bob, 1.4, 1.4)
+        ellipse(ctx, dir * 2.5 + 2, -34 - bob, 1.2, 1.4)
         ctx.fill()
         // Club.
         const swing = e.state === 'windup' ? -1.2 : e.state === 'recover' ? 0.8 : 0
@@ -1366,12 +1497,19 @@ export class MeadowbrawlRenderer {
         }
         ctx.stroke()
         ctx.lineWidth = 1.6
-        ctx.fillStyle = tint('#7b4f2c')
-        ellipse(ctx, 0, -14 - bob, 18, 10)
+        ctx.fillStyle = bodyGrad(ctx, tint('#7b4f2c'), -14, -24 - bob, 14, -4 - bob)
+        ellipse(ctx, 0, -14 - bob, 19, 11)
         ctx.fill()
         ctx.stroke()
-        ctx.fillStyle = 'rgba(0,0,0,0.25)'
-        ellipse(ctx, -2, -10 - bob, 14, 5)
+        ctx.fillStyle = 'rgba(0,0,0,0.22)'
+        ellipse(ctx, -2, -9 - bob, 14, 4)
+        ctx.fill()
+        // Pale belly and a dark dorsal stripe.
+        ctx.fillStyle = 'rgba(230,200,160,0.35)'
+        ellipse(ctx, -2, -8 - bob, 11, 3)
+        ctx.fill()
+        ctx.fillStyle = 'rgba(40,24,14,0.55)'
+        ellipse(ctx, -3, -22 - bob, 12, 2.5)
         ctx.fill()
         // Bristles.
         ctx.strokeStyle = '#3a2416'
@@ -1385,8 +1523,13 @@ export class MeadowbrawlRenderer {
         // Head.
         ctx.strokeStyle = outline
         ctx.lineWidth = 1.6
-        ctx.fillStyle = tint('#6b4325')
+        ctx.fillStyle = bodyGrad(ctx, tint('#6b4325'), dir * 8, -22 - bob, dir * 24, -6 - bob)
         ellipse(ctx, dir * 16, -14 - bob, 9, 8)
+        ctx.fill()
+        ctx.stroke()
+        // Ears.
+        ctx.fillStyle = tint('#6b4325')
+        ellipse(ctx, dir * 11, -22 - bob, 3, 4)
         ctx.fill()
         ctx.stroke()
         // Tusks.
@@ -1469,7 +1612,7 @@ export class MeadowbrawlRenderer {
         ctx.stroke()
         ctx.lineWidth = 1.6
         // Armoured body.
-        ctx.fillStyle = tint('#8c93a3')
+        ctx.fillStyle = bodyGrad(ctx, tint('#8c93a3'), -11, -30 - bob, 11, -10 - bob)
         ctx.beginPath()
         ctx.moveTo(-11, -30 - bob)
         ctx.lineTo(11, -30 - bob)
@@ -1480,10 +1623,13 @@ export class MeadowbrawlRenderer {
         ctx.stroke()
         ctx.fillStyle = 'rgba(0,0,0,0.25)'
         ctx.fillRect(-10, -20 - bob, 20, 3)
-        // Great helm.
-        ctx.fillStyle = tint('#a9b0bd')
+        // Great helm with a crest.
+        ctx.fillStyle = bodyGrad(ctx, tint('#a9b0bd'), -8, -46 - bob, 8, -30 - bob)
         ctx.fillRect(-8, -46 - bob, 16, 16)
         ctx.strokeRect(-8, -46 - bob, 16, 16)
+        ctx.fillStyle = '#b5652f'
+        ctx.fillRect(-2, -52 - bob, 4, 7)
+        ctx.strokeRect(-2, -52 - bob, 4, 7)
         ctx.fillStyle = '#1d1520'
         ctx.fillRect(dir * 2 - 5, -40 - bob, 10, 2.5)
         // Mace on the off side.
@@ -1562,7 +1708,7 @@ export class MeadowbrawlRenderer {
         ctx.fill()
         ctx.stroke()
         // Cap.
-        ctx.fillStyle = tint('#7b3fa0')
+        ctx.fillStyle = bodyGrad(ctx, tint('#7b3fa0'), -15, -46 - bob, 15, -24 - bob)
         ctx.beginPath()
         ctx.moveTo(-15, -24 - bob)
         ctx.quadraticCurveTo(0, -46 - bob, 15, -24 - bob)
@@ -1620,13 +1766,19 @@ export class MeadowbrawlRenderer {
         ctx.strokeStyle = outline
         ctx.lineWidth = 2
         // Belly + body.
-        ctx.fillStyle = tint('#6e8352')
+        ctx.fillStyle = bodyGrad(ctx, tint('#6e8352'), -28, -64 - bob, 28, -12 - bob)
         ellipse(ctx, 0, -38 - bob, 28, 26)
         ctx.fill()
         ctx.stroke()
-        ctx.fillStyle = tint('#9db07a')
+        ctx.fillStyle = bodyGrad(ctx, tint('#9db07a'), -18, -48 - bob, 18, -16 - bob)
         ellipse(ctx, 0, -32 - bob, 18, 16)
         ctx.fill()
+        // Warts.
+        ctx.fillStyle = 'rgba(60,80,40,0.6)'
+        for (const [wx, wy] of [[-18, -50], [-22, -34], [16, -54], [22, -30]] as const) {
+            ellipse(ctx, wx, wy - bob, 2.6, 2)
+            ctx.fill()
+        }
         // Loincloth.
         ctx.fillStyle = '#5a3d26'
         ctx.beginPath()
@@ -1637,9 +1789,13 @@ export class MeadowbrawlRenderer {
         ctx.closePath()
         ctx.fill()
         ctx.stroke()
-        // Head.
-        ctx.fillStyle = tint('#6e8352')
+        // Head with an underbite.
+        ctx.fillStyle = bodyGrad(ctx, tint('#6e8352'), dir * 4 - 13, -77 - bob, dir * 4 + 13, -55 - bob)
         ellipse(ctx, dir * 4, -66 - bob, 13, 11)
+        ctx.fill()
+        ctx.stroke()
+        ctx.fillStyle = tint('#7f9460')
+        ellipse(ctx, dir * 8, -59 - bob, 8, 4)
         ctx.fill()
         ctx.stroke()
         ctx.fillStyle = '#ffd25a'
@@ -1708,7 +1864,7 @@ export class MeadowbrawlRenderer {
         ctx.fill()
         ctx.stroke()
         // Dark plate.
-        ctx.fillStyle = tint('#4a4552')
+        ctx.fillStyle = bodyGrad(ctx, tint('#4a4552'), -14, -42 - bob, 14, -14 - bob)
         ctx.beginPath()
         ctx.moveTo(-14, -42 - bob)
         ctx.lineTo(14, -42 - bob)
@@ -1839,6 +1995,52 @@ export class MeadowbrawlRenderer {
                 ctx.fill()
             }
             ctx.restore()
+        }
+        ctx.globalAlpha = 1
+
+        // Impact flashes at the point of contact.
+        for (const im of g.impacts) {
+            const k = im.life / im.maxLife
+            const x = im.x
+            const y = im.y * YS - im.z
+            ctx.globalAlpha = k
+            if (im.kind === 'burst') {
+                ctx.strokeStyle = im.color
+                ctx.lineWidth = 2.5
+                ctx.lineCap = 'round'
+                const grow = 1 - k * k
+                for (let i = 0; i < 6; i++) {
+                    const a = im.angle + i / 6 * Math.PI * 2 + 0.4
+                    const r0 = im.size * 0.25 * grow
+                    const r1 = im.size * (0.35 + grow * 0.65)
+                    ctx.beginPath()
+                    ctx.moveTo(x + Math.cos(a) * r0, y + Math.sin(a) * r0 * 0.8)
+                    ctx.lineTo(x + Math.cos(a) * r1, y + Math.sin(a) * r1 * 0.8)
+                    ctx.stroke()
+                }
+                ctx.fillStyle = im.color
+                ctx.beginPath()
+                ctx.arc(x, y, im.size * 0.22 * k, 0, Math.PI * 2)
+                ctx.fill()
+            } else if (im.kind === 'slash') {
+                ctx.save()
+                ctx.translate(x, y)
+                ctx.rotate(Math.atan2(Math.sin(im.angle) * YS, Math.cos(im.angle)) + Math.PI / 2)
+                ctx.strokeStyle = im.color
+                ctx.lineWidth = 3.5 * k + 1
+                ctx.lineCap = 'round'
+                ctx.beginPath()
+                ctx.moveTo(-im.size * 0.5, im.size * 0.15)
+                ctx.quadraticCurveTo(0, -im.size * 0.35, im.size * 0.5, im.size * 0.15)
+                ctx.stroke()
+                ctx.restore()
+            } else {
+                ctx.strokeStyle = im.color
+                ctx.lineWidth = 3 * k
+                ctx.beginPath()
+                ctx.ellipse(x, y, im.size * (1.2 - k), im.size * (1.2 - k) * 0.7, 0, 0, Math.PI * 2)
+                ctx.stroke()
+            }
         }
         ctx.globalAlpha = 1
 

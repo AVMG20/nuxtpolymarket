@@ -16,11 +16,11 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
         heavy: false,
         color: '#dbe4f3',
         swings: [
-            { name: 'Slash', windup: 0.10, active: 0.10, recovery: 0.16, damage: 1.0, shape: arc(76, 70), step: 18, knockback: 120, stagger: 0.25, sweep: 1 },
-            { name: 'Backslash', windup: 0.10, active: 0.10, recovery: 0.16, damage: 1.1, shape: arc(76, 70), step: 18, knockback: 120, stagger: 0.25, sweep: -1 },
-            { name: 'Cleave', windup: 0.16, active: 0.12, recovery: 0.30, damage: 2.0, shape: arc(90, 88), step: 32, knockback: 320, stagger: 0.55, sweep: 1, finisher: true }
+            { name: 'Slash', windup: 0.12, active: 0.10, recovery: 0.22, damage: 1.0, shape: arc(76, 70), step: 18, knockback: 120, stagger: 0.25, sweep: 1 },
+            { name: 'Backslash', windup: 0.12, active: 0.10, recovery: 0.22, damage: 1.1, shape: arc(76, 70), step: 18, knockback: 120, stagger: 0.25, sweep: -1 },
+            { name: 'Cleave', windup: 0.18, active: 0.12, recovery: 0.34, damage: 2.0, shape: arc(90, 88), step: 32, knockback: 320, stagger: 0.55, sweep: 1, finisher: true }
         ],
-        extraSwing: { name: 'Riposte', windup: 0.10, active: 0.10, recovery: 0.16, damage: 1.25, shape: arc(80, 74), step: 20, knockback: 140, stagger: 0.28, sweep: -1 },
+        extraSwing: { name: 'Riposte', windup: 0.12, active: 0.10, recovery: 0.22, damage: 1.25, shape: arc(80, 74), step: 20, knockback: 140, stagger: 0.28, sweep: -1 },
         special: { kind: 'dash', name: 'Lunge Slash', description: 'Dash through everything in your path, cutting as you go.', cooldown: 5, damage: 2.4 }
     },
     greataxe: {
@@ -28,12 +28,12 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
         name: 'Greataxe',
         tagline: '2-hit · slow · massive',
         description: 'Wide, crushing sweeps. Every hit is heavy and breaks shields.',
-        baseDamage: 34,
+        baseDamage: 36,
         comboWindow: 0.6,
         heavy: true,
         color: '#c8ccd2',
         swings: [
-            { name: 'Sweep', windup: 0.32, active: 0.14, recovery: 0.34, damage: 1.0, shape: arc(100, 105), step: 24, knockback: 240, stagger: 0.45, sweep: 1 },
+            { name: 'Sweep', windup: 0.32, active: 0.14, recovery: 0.36, damage: 1.0, shape: arc(100, 105), step: 24, knockback: 240, stagger: 0.45, sweep: 1 },
             { name: 'Reaping Sweep', windup: 0.44, active: 0.16, recovery: 0.50, damage: 1.9, shape: arc(112, 150), step: 44, knockback: 460, stagger: 0.9, sweep: -1, finisher: true }
         ],
         extraSwing: { name: 'Whirl', windup: 0.30, active: 0.14, recovery: 0.30, damage: 1.3, shape: arc(104, 140), step: 26, knockback: 280, stagger: 0.5, sweep: 1 },
@@ -44,17 +44,17 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
         name: 'Ash Spear',
         tagline: '4-hit · long reach · narrow',
         description: 'Keep them at the end of your point. Poor against crowds, deadly in a line.',
-        baseDamage: 17,
+        baseDamage: 18,
         comboWindow: 0.5,
         heavy: false,
         color: '#e7d7b8',
         swings: [
-            { name: 'Thrust', windup: 0.10, active: 0.10, recovery: 0.18, damage: 1.0, shape: thrust(124, 30), step: 14, knockback: 100, stagger: 0.25, sweep: 0 },
-            { name: 'Thrust', windup: 0.10, active: 0.10, recovery: 0.18, damage: 1.0, shape: thrust(124, 30), step: 14, knockback: 100, stagger: 0.25, sweep: 0 },
-            { name: 'Double Thrust', windup: 0.12, active: 0.10, recovery: 0.18, damage: 1.25, shape: thrust(136, 34), step: 22, knockback: 130, stagger: 0.3, sweep: 0 },
-            { name: 'Piercing Lunge', windup: 0.18, active: 0.14, recovery: 0.34, damage: 2.3, shape: thrust(168, 42), step: 54, knockback: 340, stagger: 0.55, sweep: 0, finisher: true }
+            { name: 'Thrust', windup: 0.14, active: 0.10, recovery: 0.24, damage: 1.0, shape: thrust(124, 30), step: 14, knockback: 100, stagger: 0.25, sweep: 0 },
+            { name: 'Thrust', windup: 0.14, active: 0.10, recovery: 0.24, damage: 1.0, shape: thrust(124, 30), step: 14, knockback: 100, stagger: 0.25, sweep: 0 },
+            { name: 'Double Thrust', windup: 0.14, active: 0.10, recovery: 0.24, damage: 1.25, shape: thrust(136, 34), step: 22, knockback: 130, stagger: 0.3, sweep: 0 },
+            { name: 'Piercing Lunge', windup: 0.2, active: 0.14, recovery: 0.36, damage: 2.3, shape: thrust(168, 42), step: 54, knockback: 340, stagger: 0.55, sweep: 0, finisher: true }
         ],
-        extraSwing: { name: 'Jab', windup: 0.10, active: 0.10, recovery: 0.16, damage: 1.15, shape: thrust(128, 32), step: 16, knockback: 110, stagger: 0.25, sweep: 0 },
+        extraSwing: { name: 'Jab', windup: 0.14, active: 0.10, recovery: 0.22, damage: 1.15, shape: thrust(128, 32), step: 16, knockback: 110, stagger: 0.25, sweep: 0 },
         special: { kind: 'sweep', name: 'Circle Sweep', description: 'A full 360° sweep that clears the space around you.', cooldown: 6, damage: 1.7 }
     },
     daggers: {
@@ -62,23 +62,56 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
         name: 'Twin Daggers',
         tagline: '5-hit · tiny reach · blistering',
         description: 'Get close and never stop moving. The flurry finisher shreds.',
-        baseDamage: 8,
+        baseDamage: 9,
         comboWindow: 0.4,
         heavy: false,
         color: '#f1e5c7',
         swings: [
-            { name: 'Cut', windup: 0.05, active: 0.07, recovery: 0.08, damage: 1.0, shape: arc(52, 62), step: 12, knockback: 50, stagger: 0.15, sweep: 1 },
-            { name: 'Cut', windup: 0.05, active: 0.07, recovery: 0.08, damage: 1.0, shape: arc(52, 62), step: 12, knockback: 50, stagger: 0.15, sweep: -1 },
-            { name: 'Cut', windup: 0.05, active: 0.07, recovery: 0.08, damage: 1.05, shape: arc(52, 62), step: 12, knockback: 50, stagger: 0.15, sweep: 1 },
-            { name: 'Cross', windup: 0.06, active: 0.07, recovery: 0.08, damage: 1.15, shape: arc(54, 70), step: 14, knockback: 60, stagger: 0.18, sweep: -1 },
+            { name: 'Cut', windup: 0.05, active: 0.07, recovery: 0.10, damage: 1.0, shape: arc(52, 62), step: 12, knockback: 50, stagger: 0.15, sweep: 1 },
+            { name: 'Cut', windup: 0.05, active: 0.07, recovery: 0.10, damage: 1.0, shape: arc(52, 62), step: 12, knockback: 50, stagger: 0.15, sweep: -1 },
+            { name: 'Cut', windup: 0.05, active: 0.07, recovery: 0.10, damage: 1.05, shape: arc(52, 62), step: 12, knockback: 50, stagger: 0.15, sweep: 1 },
+            { name: 'Cross', windup: 0.06, active: 0.07, recovery: 0.10, damage: 1.15, shape: arc(54, 70), step: 14, knockback: 60, stagger: 0.18, sweep: -1 },
             { name: 'Flurry', windup: 0.08, active: 0.10, recovery: 0.20, damage: 2.2, shape: arc(60, 95), step: 26, knockback: 220, stagger: 0.45, sweep: 1, finisher: true }
         ],
-        extraSwing: { name: 'Cut', windup: 0.05, active: 0.07, recovery: 0.08, damage: 1.1, shape: arc(54, 66), step: 12, knockback: 55, stagger: 0.16, sweep: -1 },
+        extraSwing: { name: 'Cut', windup: 0.05, active: 0.07, recovery: 0.10, damage: 1.1, shape: arc(54, 66), step: 12, knockback: 55, stagger: 0.16, sweep: -1 },
         special: { kind: 'blink', name: 'Shadowstep', description: 'Blink behind the nearest enemy and open them up.', cooldown: 4, damage: 4.0 }
+    },
+    warhammer: {
+        id: 'warhammer',
+        name: 'Warhammer',
+        tagline: '2-hit · heavy · crushing',
+        description: 'Short, brutal swings that send everything flying. Every hit breaks shields.',
+        baseDamage: 32,
+        comboWindow: 0.6,
+        heavy: true,
+        color: '#d8d0c4',
+        swings: [
+            { name: 'Crush', windup: 0.26, active: 0.12, recovery: 0.30, damage: 1.0, shape: arc(88, 80), step: 26, knockback: 320, stagger: 0.5, sweep: 1 },
+            { name: 'Skullbreaker', windup: 0.36, active: 0.14, recovery: 0.44, damage: 2.1, shape: arc(96, 62), step: 40, knockback: 520, stagger: 1.0, sweep: -1, finisher: true }
+        ],
+        extraSwing: { name: 'Crush', windup: 0.26, active: 0.12, recovery: 0.28, damage: 1.25, shape: arc(90, 84), step: 28, knockback: 340, stagger: 0.55, sweep: -1 },
+        special: { kind: 'leap', name: 'Sky Fall', description: 'Leap to your cursor and come down like a meteor.', cooldown: 7, damage: 3.2 }
+    },
+    scythe: {
+        id: 'scythe',
+        name: 'Reaper\'s Scythe',
+        tagline: '3-hit · enormous arcs · pulls',
+        description: 'Sweeping crescents that catch whole crowds. The harvest drags them in.',
+        baseDamage: 19,
+        comboWindow: 0.5,
+        heavy: false,
+        color: '#c9d6e3',
+        swings: [
+            { name: 'Reap', windup: 0.16, active: 0.12, recovery: 0.24, damage: 1.0, shape: arc(112, 120), step: 20, knockback: 150, stagger: 0.3, sweep: 1 },
+            { name: 'Reap', windup: 0.16, active: 0.12, recovery: 0.24, damage: 1.05, shape: arc(112, 120), step: 20, knockback: 150, stagger: 0.3, sweep: -1 },
+            { name: 'Harvest', windup: 0.24, active: 0.14, recovery: 0.36, damage: 2.0, shape: arc(124, 170), step: 30, knockback: -160, stagger: 0.6, sweep: 1, finisher: true }
+        ],
+        extraSwing: { name: 'Reap', windup: 0.16, active: 0.12, recovery: 0.22, damage: 1.2, shape: arc(116, 125), step: 22, knockback: 160, stagger: 0.32, sweep: -1 },
+        special: { kind: 'whirl', name: 'Reaper\'s Whirl', description: 'Spin for a second, dragging enemies into the blade.', cooldown: 7, damage: 0.55 }
     }
 }
 
-export const WEAPON_IDS: WeaponId[] = ['sword', 'greataxe', 'spear', 'daggers']
+export const WEAPON_IDS: WeaponId[] = ['sword', 'greataxe', 'spear', 'daggers', 'warhammer', 'scythe']
 
 /** The full combo chain for a weapon with `extraHits` "+1 combo hit" stacks. */
 export function buildChain(weapon: WeaponDef, extraHits: number): SwingDef[] {

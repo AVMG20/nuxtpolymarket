@@ -9,7 +9,7 @@ export interface Vec {
     y: number
 }
 
-export type WeaponId = 'sword' | 'greataxe' | 'spear' | 'daggers'
+export type WeaponId = 'sword' | 'greataxe' | 'spear' | 'daggers' | 'warhammer' | 'scythe'
 
 export type HitShape =
     | { kind: 'arc', reach: number, halfAngle: number }
@@ -36,7 +36,7 @@ export interface SwingDef {
     finisher?: boolean
 }
 
-export type SpecialKind = 'dash' | 'slam' | 'sweep' | 'blink'
+export type SpecialKind = 'dash' | 'slam' | 'sweep' | 'blink' | 'leap' | 'whirl'
 
 export interface WeaponDef {
     id: WeaponId
@@ -92,7 +92,7 @@ export interface SpawnGroup {
 export type GameEventType =
     | 'swing' | 'hit' | 'heavyHit' | 'kill' | 'block' | 'shieldBreak' | 'hurt' | 'dodge'
     | 'special' | 'waveStart' | 'waveClear' | 'upgrade' | 'death' | 'victory' | 'explode'
-    | 'lightning' | 'freeze' | 'burn' | 'telegraph' | 'sprint' | 'eliteSpawn'
+    | 'lightning' | 'freeze' | 'burn' | 'telegraph' | 'sprint' | 'eliteSpawn' | 'crit' | 'execute' | 'revive' | 'leap'
 
 export interface GameEvent {
     type: GameEventType

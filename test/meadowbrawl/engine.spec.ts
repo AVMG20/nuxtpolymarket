@@ -3,7 +3,7 @@ import { MeadowbrawlGame } from '../../app/utils/meadowbrawl/engine'
 import { WEAPONS } from '../../app/utils/meadowbrawl/weapons'
 import { weaponUpgradeDef, UPGRADE_BY_ID } from '../../app/utils/meadowbrawl/upgrades'
 
-function fresh(weapon: 'sword' | 'greataxe' | 'spear' | 'daggers' = 'sword') {
+function fresh(weapon: 'sword' | 'greataxe' | 'spear' | 'daggers' | 'warhammer' | 'scythe' = 'sword') {
     const g = new MeadowbrawlGame()
     g.startRun(weapon)
     // Tests drive their own enemies; a far-future group keeps the wave open.
@@ -85,15 +85,37 @@ describe('combo chain', () => {
         expect(g.player.attack?.index).toBe(0)
     })
 
-    it('buffers a click during recovery so the chain flows', () => {
+    it('buffers a click during the swing, but only chains once most of the recovery has played', () => {
         const g = fresh('sword')
         aimRight(g)
         click(g)
         step(g, 0.05)
         expect(g.player.attack?.index).toBe(0)
         click(g)
-        step(g, 0.3)
+        // Windup + active is over, recovery has barely begun: still swing 0.
+        step(g, 0.2)
+        expect(g.player.attack?.index).toBe(0)
+        step(g, 0.2)
         expect(g.player.attack?.index).toBe(1)
+    })
+
+    it('spam clicking cannot swing faster than the weapon cadence', () => {
+        const g = fresh('sword')
+        aimRight(g)
+        const e = g.spawnEnemy('ogre', 'north')
+        e.x = g.player.x + 50
+        e.y = g.player.y
+        e.state = 'chase'
+        e.frozen = 99
+        // Click every frame for two seconds.
+        for (let t = 0; t < 2; t += 1 / 60) {
+            click(g)
+            g.update(1 / 60)
+        }
+        const swing = WEAPONS.sword.swings[0]!
+        const cadence = swing.windup + swing.active + swing.recovery * 0.7
+        expect(g.player.hitCount).toBeLessThanOrEqual(Math.ceil(2 / cadence) + 1)
+        expect(g.player.hitCount).toBeGreaterThanOrEqual(3)
     })
 
     it('ends on the finisher and resets to the opener', () => {
@@ -114,7 +136,7 @@ describe('combo chain', () => {
         const g = fresh('sword')
         aimRight(g)
         click(g)
-        step(g, 0.3)
+        step(g, 0.45)
         click(g)
         step(g, 0.05)
         expect(g.player.attack?.index).toBe(1)
@@ -272,5 +294,141 @@ describe('combat', () => {
         expect(near.hp).toBeLessThan(near.maxHp)
         expect(far.hp).toBe(far.maxHp)
         expect(WEAPONS.greataxe.special.kind).toBe('slam')
+    })
+})
+
+describe('second pass', () => {
+    it('attacking while holding sprint does not get cancelled by the sprint restarting', () => {
+        const g = fresh('sword')
+        aimRight(g)
+        g.input.moveX = 1
+        g.input.spacePressed = true
+        g.input.spaceDown = true
+        step(g, 0.4)
+        expect(g.player.sprinting).toBe(true)
+        click(g)
+        step(g, 0.05)
+        expect(g.player.attack?.index).toBe(0)
+        step(g, 0.1)
+        expect(g.player.attack).not.toBeNull()
+        expect(g.player.sprinting).toBe(false)
+    })
+
+    it('keeps the hit counter alive through a finisher', () => {
+        const g = fresh('greataxe')
+        aimRight(g)
+        const e = g.spawnEnemy('ogre', 'north')
+        e.x = g.player.x + 50
+        e.y = g.player.y
+        e.state = 'chase'
+        e.frozen = 99
+        click(g)
+        step(g, 0.05)
+        click(g)
+        step(g, 2.2)
+        expect(g.player.attack).toBeNull()
+        expect(g.player.comboHits).toBe(2)
+        expect(g.player.comboTimer).toBeGreaterThan(0)
+    })
+
+    it('Titan Grip makes light hits break shields', () => {
+        const g = fresh('sword')
+        g.applyOffer({ upgrade: UPGRADE_BY_ID.titangrip!, stack: 1 })
+        aimRight(g)
+        const e = g.spawnEnemy('shield', 'north')
+        e.x = g.player.x + 40
+        e.y = g.player.y
+        e.state = 'chase'
+        e.facing = Math.PI
+        e.shield!.hp = 1
+        click(g)
+        step(g, 0.3)
+        expect(e.shield!.broken).toBe(true)
+    })
+
+    it('Executioner finishes weak enemies and Phoenix Feather cheats death once', () => {
+        const g = fresh('sword')
+        g.applyOffer({ upgrade: UPGRADE_BY_ID.execute!, stack: 1 })
+        g.applyOffer({ upgrade: UPGRADE_BY_ID.phoenix!, stack: 1 })
+        const e = g.spawnEnemy('grunt', 'north')
+        e.state = 'chase'
+        e.hp = e.maxHp * 0.15
+        g.damageEnemy(e, 1, { source: g.player, tag: 'melee' })
+        expect(e.alive).toBe(false)
+        expect(g.floaters.some(f => f.text === 'EXECUTED')).toBe(true)
+
+        g.hurtPlayer(9999, { x: g.player.x + 30, y: g.player.y }, 0)
+        expect(g.phase).toBe('wave')
+        expect(g.player.hp).toBe(Math.ceil(g.player.maxHp * 0.5))
+        expect(g.player.phoenixUsed).toBe(1)
+        g.player.invuln = 0
+        g.hurtPlayer(9999, { x: g.player.x + 30, y: g.player.y }, 0)
+        expect(g.phase).toBe('dead')
+    })
+
+    it('Echo Strike doubles every third hit', () => {
+        const g = fresh('daggers')
+        g.applyOffer({ upgrade: UPGRADE_BY_ID.echo!, stack: 1 })
+        aimRight(g)
+        const e = g.spawnEnemy('ogre', 'north')
+        e.x = g.player.x + 40
+        e.y = g.player.y
+        e.state = 'chase'
+        e.frozen = 99
+        for (let i = 0; i < 3; i++) {
+            click(g)
+            step(g, 0.3)
+        }
+        expect(g.player.hitCount).toBe(3)
+        expect(g.floaters.filter(f => /^\d+$/.test(f.text)).length).toBe(4)
+    })
+
+    it('Sky Fall leaps to the cursor and slams on landing; Reaper\'s Whirl drags enemies in', () => {
+        const g = fresh('warhammer')
+        const start = { x: g.player.x, y: g.player.y }
+        g.input.aimX = start.x + 200
+        g.input.aimY = start.y
+        const e = g.spawnEnemy('grunt', 'north')
+        e.x = start.x + 220
+        e.y = start.y
+        e.state = 'chase'
+        g.input.specialPressed = true
+        step(g, 0.02)
+        expect(g.player.special?.kind).toBe('leap')
+        step(g, 0.25)
+        expect(g.player.z).toBeGreaterThan(20)
+        step(g, 0.4)
+        expect(g.player.x).toBeGreaterThan(start.x + 150)
+        expect(g.player.z).toBe(0)
+        expect(e.hp).toBeLessThan(e.maxHp)
+
+        const s = fresh('scythe')
+        aimRight(s)
+        const far = s.spawnEnemy('grunt', 'north')
+        far.x = s.player.x + 200
+        far.y = s.player.y
+        far.state = 'chase'
+        far.entered = true
+        far.attackCd = 99
+        s.input.specialPressed = true
+        step(s, 0.02)
+        expect(s.player.special?.kind).toBe('whirl')
+        step(s, 0.6)
+        expect(far.x).toBeLessThan(s.player.x + 200)
+        expect(far.hp).toBeLessThan(far.maxHp)
+    })
+
+    it('Bloodlust and Overcharge trigger on kills', () => {
+        const g = fresh('sword')
+        g.applyOffer({ upgrade: UPGRADE_BY_ID.bloodlust!, stack: 1 })
+        g.applyOffer({ upgrade: UPGRADE_BY_ID.overcharge!, stack: 3 })
+        g.player.upgrades.set('overcharge', 5)
+        g.player.specialCd = 3
+        const e = g.spawnEnemy('swarmer', 'north')
+        e.state = 'chase'
+        g.damageEnemy(e, 999, { source: g.player, tag: 'melee' })
+        expect(g.player.bloodlust).toBe(1)
+        expect(g.attackSpeed).toBeGreaterThan(1)
+        expect(g.player.specialCd).toBe(0)
     })
 })
