@@ -157,7 +157,7 @@ function sightHousing(kind: 'reddot' | 'holo' | 'scope' | 'iron' | 'ring', color
         { x: 0, y: 0.22, z: 0.0, w: 0.08, h: 0.08, d: 0.16, color: GUN_DARK },
         { x: 0, y: 0.34, z: 0.05, w: 0.14, h: 0.14, d: 0.62, color: GUN_DARK },
         { x: 0, y: 0.34, z: 0.38, w: 0.18, h: 0.18, d: 0.08, color: 0x14181f },
-        { x: 0, y: 0.34, z: 0.43, w: 0.12, h: 0.12, d: 0.02, color, emissive: color, glow: 1.2 },
+        { x: 0, y: 0.34, z: 0.43, w: 0.12, h: 0.12, d: 0.02, color, emissive: color, glow: 0.4 },
         { x: 0, y: 0.34, z: -0.28, w: 0.16, h: 0.16, d: 0.06, color: 0x14181f }
     ]
 }
@@ -310,10 +310,10 @@ export function weaponParts(id: WeaponId): VoxPart[] {
                 { x: 0, y: 0.06, z: 0.5, w: 0.3, h: 0.06, d: 0.32, color: STEEL },
                 { x: 0, y: 0.06, z: 0.5, w: 0.06, h: 0.3, d: 0.32, color: STEEL },
                 { x: 0, y: 0.06, z: 0.76, w: 0.12, h: 0.12, d: 0.3, color: STEEL },
-                { x: 0, y: 0.06, z: 0.92, w: 0.16, h: 0.16, d: 0.06, color: c, emissive: c, glow: 2.6 },
-                { x: 0.12, y: 0.12, z: 0.2, w: 0.04, h: 0.04, d: 0.28, color: c, emissive: c, glow: 2 },
-                { x: -0.12, y: 0.12, z: 0.2, w: 0.04, h: 0.04, d: 0.28, color: c, emissive: c, glow: 2 },
-                { x: 0, y: 0.2, z: 0.02, w: 0.1, h: 0.1, d: 0.1, color: c, emissive: c, glow: 2 },
+                { x: 0, y: 0.06, z: 0.92, w: 0.16, h: 0.16, d: 0.06, color: c, emissive: c, glow: 1 },
+                { x: 0.12, y: 0.12, z: 0.2, w: 0.04, h: 0.04, d: 0.28, color: c, emissive: c, glow: 0.8 },
+                { x: -0.12, y: 0.12, z: 0.2, w: 0.04, h: 0.04, d: 0.28, color: c, emissive: c, glow: 0.8 },
+                { x: 0, y: 0.2, z: 0.02, w: 0.1, h: 0.1, d: 0.1, color: c, emissive: c, glow: 0.8 },
                 ...sightHousing('ring', c)
             ]
         }
@@ -325,9 +325,9 @@ export function weaponParts(id: WeaponId): VoxPart[] {
                 { x: 0, y: 0.06, z: 0.62, w: 0.24, h: 0.24, d: 0.36, color: 0x3a2a55 },
                 { x: 0.11, y: 0.06, z: 0.62, w: 0.05, h: 0.28, d: 0.4, color: STEEL },
                 { x: -0.11, y: 0.06, z: 0.62, w: 0.05, h: 0.28, d: 0.4, color: STEEL },
-                { x: 0, y: 0.06, z: 0.62, w: 0.14, h: 0.14, d: 0.42, color: c, emissive: c, glow: 3 },
+                { x: 0, y: 0.06, z: 0.62, w: 0.14, h: 0.14, d: 0.42, color: c, emissive: c, glow: 1.2 },
                 { x: 0, y: 0.06, z: 0.9, w: 0.08, h: 0.08, d: 0.2, color: STEEL },
-                { x: 0, y: 0.06, z: 1.02, w: 0.16, h: 0.16, d: 0.05, color: c, emissive: c, glow: 2 },
+                { x: 0, y: 0.06, z: 1.02, w: 0.16, h: 0.16, d: 0.05, color: c, emissive: c, glow: 0.8 },
                 { x: 0, y: 0.02, z: -0.56, w: 0.14, h: 0.22, d: 0.36, color: WOOD_DARK },
                 ...sightHousing('holo', c)
             ]
@@ -367,8 +367,8 @@ export function meleeParts(id: MeleeId): VoxPart[] {
             return [
                 { x: 0, y: 0, z: -0.18, w: 0.08, h: 0.08, d: 0.4, color: grip },
                 { x: 0, y: 0, z: 0.04, w: 0.22, h: 0.22, d: 0.05, color: 0x9c7a34 },
-                { x: 0, y: 0.02, z: 0.86, w: 0.04, h: 0.16, d: 1.56, color: 0xd6f7ff, emissive: 0x3ff0ff, glow: 1.4 },
-                { x: 0, y: 0.09, z: 0.86, w: 0.02, h: 0.05, d: 1.46, color: 0xffffff, emissive: 0xffffff, glow: 1 }
+                { x: 0, y: 0.02, z: 0.86, w: 0.04, h: 0.16, d: 1.56, color: 0xd6f7ff, emissive: 0x3ff0ff, glow: 0.5 },
+                { x: 0, y: 0.09, z: 0.86, w: 0.02, h: 0.05, d: 1.46, color: 0xffffff, emissive: 0xffffff, glow: 0.4 }
             ]
         case 'axe':
             return [
@@ -378,7 +378,7 @@ export function meleeParts(id: MeleeId): VoxPart[] {
                 { x: 0, y: 0.22, z: 1.05, w: 0.08, h: 0.7, d: 0.5, color: 0x8a8f9c },
                 { x: 0, y: 0.5, z: 1.05, w: 0.05, h: 0.14, d: 0.7, color: 0xe6ecf4 },
                 { x: 0, y: -0.14, z: 1.05, w: 0.08, h: 0.2, d: 0.26, color: 0x8a8f9c },
-                { x: 0, y: 0.22, z: 1.05, w: 0.1, h: 0.08, d: 0.08, color: 0xff8a3a, emissive: 0xff8a3a, glow: 1.6 }
+                { x: 0, y: 0.22, z: 1.05, w: 0.1, h: 0.08, d: 0.08, color: 0xff8a3a, emissive: 0xff8a3a, glow: 0.6 }
             ]
         case 'scythe':
             return [
@@ -388,8 +388,8 @@ export function meleeParts(id: MeleeId): VoxPart[] {
                 { x: 0.3, y: 0, z: 1.55, w: 0.6, h: 0.05, d: 0.16, color: 0x2a2140 },
                 { x: 0.62, y: 0, z: 1.4, w: 0.16, h: 0.05, d: 0.5, color: 0x2a2140 },
                 { x: 0.74, y: 0, z: 1.02, w: 0.1, h: 0.05, d: 0.5, color: 0x2a2140 },
-                { x: 0.4, y: 0, z: 1.62, w: 0.7, h: 0.02, d: 0.05, color: 0xb56bff, emissive: 0xb56bff, glow: 2 },
-                { x: 0.7, y: 0, z: 1.25, w: 0.06, h: 0.02, d: 0.8, color: 0xb56bff, emissive: 0xb56bff, glow: 2 }
+                { x: 0.4, y: 0, z: 1.62, w: 0.7, h: 0.02, d: 0.05, color: 0xb56bff, emissive: 0xb56bff, glow: 0.7 },
+                { x: 0.7, y: 0, z: 1.25, w: 0.06, h: 0.02, d: 0.8, color: 0xb56bff, emissive: 0xb56bff, glow: 0.7 }
             ]
     }
 }
@@ -401,9 +401,9 @@ export function meteorParts(): VoxPart[] {
         { x: 0, y: 0, z: 0, w: 1.4, h: 1.2, d: 1.3, color: rock },
         { x: 0.5, y: 0.3, z: -0.3, w: 0.8, h: 0.8, d: 0.8, color: 0x2c2434 },
         { x: -0.5, y: -0.2, z: 0.4, w: 0.7, h: 0.7, d: 0.7, color: 0x46394f },
-        { x: 0, y: 0.1, z: 0.66, w: 0.5, h: 0.14, d: 0.06, color: crack, emissive: crack, glow: 2.4 },
-        { x: 0.7, y: -0.1, z: 0, w: 0.06, h: 0.6, d: 0.16, color: crack, emissive: crack, glow: 2.4 },
-        { x: -0.2, y: 0.62, z: 0, w: 0.16, h: 0.06, d: 0.5, color: crack, emissive: crack, glow: 2.4 }
+        { x: 0, y: 0.1, z: 0.66, w: 0.5, h: 0.14, d: 0.06, color: crack, emissive: crack, glow: 0.9 },
+        { x: 0.7, y: -0.1, z: 0, w: 0.06, h: 0.6, d: 0.16, color: crack, emissive: crack, glow: 0.9 },
+        { x: -0.2, y: 0.62, z: 0, w: 0.16, h: 0.06, d: 0.5, color: crack, emissive: crack, glow: 0.9 }
     ]
 }
 
@@ -423,7 +423,7 @@ export function lanternParts(color: number): VoxPart[] {
     return [
         { x: 0, y: 1.6, z: 0, w: 0.3, h: 3.2, d: 0.3, color: 0x2b2540 },
         { x: 0, y: 3.4, z: 0, w: 0.7, h: 0.5, d: 0.7, color: 0x3a3350 },
-        { x: 0, y: 3.4, z: 0, w: 0.5, h: 0.4, d: 0.5, color, emissive: color, glow: 2.2 },
+        { x: 0, y: 3.4, z: 0, w: 0.5, h: 0.4, d: 0.5, color, emissive: color, glow: 0.9 },
         { x: 0, y: 3.75, z: 0, w: 0.8, h: 0.12, d: 0.8, color: 0x2b2540 }
     ]
 }
@@ -463,8 +463,8 @@ function wardenParts(): VoxPart[] {
         // tower shield held out front on the left arm
         { x: -0.3, y: 1.05, z: 0.52, w: 1.1, h: 1.7, d: 0.14, color: shield, name: 'shield' },
         { x: -0.3, y: 1.05, z: 0.6, w: 0.9, h: 1.5, d: 0.04, color: dark, name: 'shield' },
-        { x: -0.3, y: 1.05, z: 0.63, w: 0.16, h: 1.1, d: 0.03, color: glow, emissive: glow, glow: 2, name: 'shield' },
-        { x: -0.3, y: 1.05, z: 0.63, w: 0.7, h: 0.14, d: 0.03, color: glow, emissive: glow, glow: 2, name: 'shield' },
+        { x: -0.3, y: 1.05, z: 0.63, w: 0.16, h: 1.1, d: 0.03, color: glow, emissive: glow, glow: 0.45, name: 'shield' },
+        { x: -0.3, y: 1.05, z: 0.63, w: 0.7, h: 0.14, d: 0.03, color: glow, emissive: glow, glow: 0.45, name: 'shield' },
         { x: 0, y: 1.72, z: 0, w: 0.44, h: 0.4, d: 0.44, color: body, name: 'head', pivot: [0, 1.52, 0] },
         { x: 0, y: 1.74, z: 0.23, w: 0.32, h: 0.08, d: 0.04, color: glow, emissive: glow, glow: 3, name: 'head', pivot: [0, 1.52, 0] },
         { x: 0, y: 1.98, z: 0, w: 0.5, h: 0.1, d: 0.5, color: dark, name: 'head', pivot: [0, 1.52, 0] }
@@ -478,11 +478,11 @@ function bomberParts(): VoxPart[] {
         { x: -0.16, y: 0.3, z: 0, w: 0.22, h: 0.56, d: 0.24, color: 0x2b2018, name: 'legL', pivot: [-0.16, 0.58, 0] },
         { x: 0.16, y: 0.3, z: 0, w: 0.22, h: 0.56, d: 0.24, color: 0x2b2018, name: 'legR', pivot: [0.16, 0.58, 0] },
         { x: 0, y: 0.95, z: 0, w: 0.8, h: 0.8, d: 0.8, color: shell, name: 'body' },
-        { x: 0, y: 0.95, z: 0, w: 0.86, h: 0.2, d: 0.86, color: glow, emissive: glow, glow: 1.8, name: 'core' },
-        { x: 0, y: 0.95, z: 0, w: 0.2, h: 0.86, d: 0.2, color: glow, emissive: glow, glow: 1.8, name: 'core' },
+        { x: 0, y: 0.95, z: 0, w: 0.86, h: 0.2, d: 0.86, color: glow, emissive: glow, glow: 0.6, name: 'core' },
+        { x: 0, y: 0.95, z: 0, w: 0.2, h: 0.86, d: 0.2, color: glow, emissive: glow, glow: 0.6, name: 'core' },
         { x: 0, y: 1.1, z: 0.42, w: 0.26, h: 0.12, d: 0.06, color: 0xffe14d, emissive: 0xffe14d, glow: 3, name: 'head' },
         { x: 0, y: 1.45, z: 0, w: 0.14, h: 0.2, d: 0.14, color: 0x8a8f9c },
-        { x: 0, y: 1.6, z: 0, w: 0.2, h: 0.1, d: 0.2, color: 0xff3a3a, emissive: 0xff3a3a, glow: 2.5, name: 'core' }
+        { x: 0, y: 1.6, z: 0, w: 0.2, h: 0.1, d: 0.2, color: 0xff3a3a, emissive: 0xff3a3a, glow: 1.4, name: 'core' }
     ]
 }
 
@@ -494,14 +494,14 @@ function menderParts(): VoxPart[] {
         { x: 0, y: 0.5, z: 0, w: 0.7, h: 1, d: 0.5, color: robe, name: 'body' },
         { x: 0, y: 0.15, z: 0, w: 0.8, h: 0.3, d: 0.6, color: dark, name: 'body' },
         { x: 0, y: 1.2, z: 0, w: 0.6, h: 0.5, d: 0.44, color: robe, name: 'body' },
-        { x: 0, y: 1.25, z: 0.24, w: 0.2, h: 0.36, d: 0.06, color: glow, emissive: glow, glow: 2, name: 'body' },
+        { x: 0, y: 1.25, z: 0.24, w: 0.2, h: 0.36, d: 0.06, color: glow, emissive: glow, glow: 0.5, name: 'body' },
         { x: -0.42, y: 1.0, z: 0.1, w: 0.18, h: 0.6, d: 0.2, color: robe, name: 'armL', pivot: [-0.42, 1.28, 0] },
         { x: 0.42, y: 1.0, z: 0.1, w: 0.18, h: 0.6, d: 0.2, color: robe, name: 'armR', pivot: [0.42, 1.28, 0] },
         { x: 0.42, y: 0.66, z: 0.3, w: 0.12, h: 0.12, d: 0.5, color: 0x8a8f9c, name: 'armR', pivot: [0.42, 1.28, 0] },
-        { x: 0.42, y: 0.66, z: 0.62, w: 0.24, h: 0.24, d: 0.24, color: glow, emissive: glow, glow: 2.6, name: 'armR', pivot: [0.42, 1.28, 0] },
+        { x: 0.42, y: 0.66, z: 0.62, w: 0.24, h: 0.24, d: 0.24, color: glow, emissive: glow, glow: 1.1, name: 'armR', pivot: [0.42, 1.28, 0] },
         { x: 0, y: 1.72, z: 0, w: 0.46, h: 0.46, d: 0.46, color: dark, name: 'head', pivot: [0, 1.5, 0] },
         { x: 0, y: 1.74, z: 0.24, w: 0.3, h: 0.08, d: 0.04, color: glow, emissive: glow, glow: 3, name: 'head', pivot: [0, 1.5, 0] },
-        { x: 0, y: 2.05, z: 0, w: 0.2, h: 0.24, d: 0.2, color: glow, emissive: glow, glow: 1.6, name: 'head', pivot: [0, 1.5, 0] }
+        { x: 0, y: 2.05, z: 0, w: 0.2, h: 0.24, d: 0.2, color: glow, emissive: glow, glow: 0.5, name: 'head', pivot: [0, 1.5, 0] }
     ]
 }
 
@@ -515,8 +515,8 @@ export function turretParts(): VoxPart[] {
         { x: 0, y: 0.7, z: 0, w: 0.5, h: 0.4, d: 0.6, color: 0xe9e4d6, name: 'head' },
         { x: 0.12, y: 0.7, z: 0.45, w: 0.08, h: 0.08, d: 0.5, color: base, name: 'head' },
         { x: -0.12, y: 0.7, z: 0.45, w: 0.08, h: 0.08, d: 0.5, color: base, name: 'head' },
-        { x: 0, y: 0.72, z: 0.31, w: 0.24, h: 0.1, d: 0.04, color: cyan, emissive: cyan, glow: 3, name: 'head' },
-        { x: 0, y: 0.98, z: -0.1, w: 0.12, h: 0.16, d: 0.12, color: cyan, emissive: cyan, glow: 1.8, name: 'head' }
+        { x: 0, y: 0.72, z: 0.31, w: 0.24, h: 0.1, d: 0.04, color: cyan, emissive: cyan, glow: 1.2, name: 'head' },
+        { x: 0, y: 0.98, z: -0.1, w: 0.12, h: 0.16, d: 0.12, color: cyan, emissive: cyan, glow: 0.5, name: 'head' }
     ]
 }
 
@@ -567,7 +567,7 @@ function bruteParts(titan: boolean): VoxPart[] {
         { x: -0.28, y: 0.4, z: 0, w: 0.4, h: 0.76, d: 0.42, color: dark, name: 'legL', pivot: [-0.28, 0.78, 0] },
         { x: 0.28, y: 0.4, z: 0, w: 0.4, h: 0.76, d: 0.42, color: dark, name: 'legR', pivot: [0.28, 0.78, 0] },
         { x: 0, y: 1.25, z: 0, w: 1.1, h: 0.9, d: 0.7, color: body, name: 'body' },
-        { x: 0, y: 1.3, z: 0.36, w: 0.4, h: 0.5, d: 0.06, color: glow, emissive: glow, glow: 2, name: 'body' },
+        { x: 0, y: 1.3, z: 0.36, w: 0.4, h: 0.5, d: 0.06, color: glow, emissive: glow, glow: 0.5, name: 'body' },
         { x: 0, y: 1.25, z: -0.38, w: 0.7, h: 0.6, d: 0.1, color: dark, name: 'body' },
         { x: -0.72, y: 1.62, z: 0, w: 0.46, h: 0.34, d: 0.56, color: dark },
         { x: 0.72, y: 1.62, z: 0, w: 0.46, h: 0.34, d: 0.56, color: dark },
@@ -584,8 +584,8 @@ function bruteParts(titan: boolean): VoxPart[] {
             { x: -0.2, y: 2.32, z: 0.1, w: 0.1, h: 0.2, d: 0.1, color: 0xd9a63c, name: 'head', pivot: [0, 1.7, 0] },
             { x: 0.2, y: 2.32, z: 0.1, w: 0.1, h: 0.2, d: 0.1, color: 0xd9a63c, name: 'head', pivot: [0, 1.7, 0] },
             { x: 0, y: 2.36, z: 0.1, w: 0.1, h: 0.28, d: 0.1, color: 0xd9a63c, name: 'head', pivot: [0, 1.7, 0] },
-            { x: -0.4, y: 1.9, z: -0.3, w: 0.16, h: 0.5, d: 0.16, color: glow, emissive: glow, glow: 1.5, name: 'body' },
-            { x: 0.4, y: 1.9, z: -0.3, w: 0.16, h: 0.5, d: 0.16, color: glow, emissive: glow, glow: 1.5, name: 'body' }
+            { x: -0.4, y: 1.9, z: -0.3, w: 0.16, h: 0.5, d: 0.16, color: glow, emissive: glow, glow: 0.5, name: 'body' },
+            { x: 0.4, y: 1.9, z: -0.3, w: 0.16, h: 0.5, d: 0.16, color: glow, emissive: glow, glow: 0.5, name: 'body' }
         )
     }
     return parts
@@ -599,12 +599,12 @@ function spitterParts(): VoxPart[] {
         { x: -0.18, y: 0.42, z: 0, w: 0.22, h: 0.8, d: 0.24, color: dark, name: 'legL', pivot: [-0.18, 0.82, 0] },
         { x: 0.18, y: 0.42, z: 0, w: 0.22, h: 0.8, d: 0.24, color: dark, name: 'legR', pivot: [0.18, 0.82, 0] },
         { x: 0, y: 1.15, z: 0, w: 0.6, h: 0.66, d: 0.44, color: body, name: 'body' },
-        { x: 0, y: 1.1, z: -0.3, w: 0.36, h: 0.5, d: 0.2, color: acid, emissive: acid, glow: 1.2, name: 'body' },
+        { x: 0, y: 1.1, z: -0.3, w: 0.36, h: 0.5, d: 0.2, color: acid, emissive: acid, glow: 0.35, name: 'body' },
         { x: -0.42, y: 0.92, z: 0.05, w: 0.18, h: 0.6, d: 0.2, color: body, name: 'armL', pivot: [-0.42, 1.2, 0] },
         { x: 0.42, y: 0.92, z: 0.05, w: 0.18, h: 0.6, d: 0.2, color: body, name: 'armR', pivot: [0.42, 1.2, 0] },
         { x: 0, y: 1.7, z: 0.05, w: 0.5, h: 0.44, d: 0.5, color: body, name: 'head', pivot: [0, 1.48, 0] },
         { x: 0, y: 1.64, z: 0.38, w: 0.3, h: 0.24, d: 0.3, color: dark, name: 'head', pivot: [0, 1.48, 0] },
-        { x: 0, y: 1.64, z: 0.52, w: 0.18, h: 0.14, d: 0.06, color: acid, emissive: acid, glow: 3, name: 'head', pivot: [0, 1.48, 0] },
+        { x: 0, y: 1.64, z: 0.52, w: 0.18, h: 0.14, d: 0.06, color: acid, emissive: acid, glow: 1.2, name: 'head', pivot: [0, 1.48, 0] },
         { x: -0.14, y: 1.84, z: 0.26, w: 0.08, h: 0.08, d: 0.04, color: acid, emissive: acid, glow: 3, name: 'head', pivot: [0, 1.48, 0] },
         { x: 0.14, y: 1.84, z: 0.26, w: 0.08, h: 0.08, d: 0.04, color: acid, emissive: acid, glow: 3, name: 'head', pivot: [0, 1.48, 0] }
     ]
@@ -626,7 +626,7 @@ function droneParts(): VoxPart[] {
         { x: 0.45, y: 0.5, z: -0.45, w: 0.12, h: 0.2, d: 0.12, color: body },
         { x: -0.45, y: 0.5, z: 0.45, w: 0.12, h: 0.2, d: 0.12, color: body },
         { x: 0.45, y: 0.5, z: 0.45, w: 0.12, h: 0.2, d: 0.12, color: body },
-        { x: 0, y: 0.18, z: 0, w: 0.1, h: 0.22, d: 0.1, color: eye, emissive: eye, glow: 1.6, name: 'body' }
+        { x: 0, y: 0.18, z: 0, w: 0.1, h: 0.22, d: 0.1, color: eye, emissive: eye, glow: 0.5, name: 'body' }
     ]
 }
 
@@ -642,7 +642,7 @@ function chargerParts(): VoxPart[] {
         { x: 0.28, y: 0.35, z: -0.4, w: 0.26, h: 0.7, d: 0.26, color: dark, name: 'legL', pivot: [0.28, 0.7, -0.4] },
         { x: 0, y: 1.0, z: 0, w: 0.9, h: 0.7, d: 1.3, color: body, name: 'body' },
         { x: 0, y: 1.4, z: -0.1, w: 0.5, h: 0.14, d: 0.9, color: dark, name: 'body' },
-        { x: 0, y: 1.1, z: -0.68, w: 0.3, h: 0.34, d: 0.08, color: glow, emissive: glow, glow: 2, name: 'body' },
+        { x: 0, y: 1.1, z: -0.68, w: 0.3, h: 0.34, d: 0.08, color: glow, emissive: glow, glow: 0.5, name: 'body' },
         { x: 0, y: 1.1, z: 0.8, w: 0.7, h: 0.6, d: 0.5, color: body, name: 'head', pivot: [0, 1.1, 0.6] },
         { x: 0, y: 1.06, z: 1.07, w: 0.34, h: 0.1, d: 0.06, color: glow, emissive: glow, glow: 3, name: 'head', pivot: [0, 1.1, 0.6] },
         { x: -0.4, y: 1.35, z: 0.85, w: 0.14, h: 0.14, d: 0.5, color: horn, name: 'head', pivot: [0, 1.1, 0.6] },
@@ -661,52 +661,52 @@ export function pickupParts(kind: PickupKind): VoxPart[] {
         case 'health': {
             const c = 0x3dff7a
             return [
-                { x: 0, y: 0, z: 0, w: 0.22, h: 0.66, d: 0.22, color: c, emissive: c, glow: 1.6 },
-                { x: 0, y: 0, z: 0, w: 0.66, h: 0.22, d: 0.22, color: c, emissive: c, glow: 1.6 },
+                { x: 0, y: 0, z: 0, w: 0.22, h: 0.66, d: 0.22, color: c, emissive: c, glow: 0.7 },
+                { x: 0, y: 0, z: 0, w: 0.66, h: 0.22, d: 0.22, color: c, emissive: c, glow: 0.7 },
                 { x: 0, y: 0, z: 0, w: 0.34, h: 0.34, d: 0.16, color: 0xeafff0 }
             ]
         }
         case 'energy': {
             const c = 0x4da6ff
             return [
-                { x: 0, y: 0, z: 0, w: 0.3, h: 0.7, d: 0.3, color: c, emissive: c, glow: 1.8 },
-                { x: 0, y: 0.32, z: 0, w: 0.16, h: 0.2, d: 0.16, color: 0xd6ecff, emissive: c, glow: 2.2 },
-                { x: 0, y: -0.32, z: 0, w: 0.16, h: 0.2, d: 0.16, color: 0xd6ecff, emissive: c, glow: 2.2 }
+                { x: 0, y: 0, z: 0, w: 0.3, h: 0.7, d: 0.3, color: c, emissive: c, glow: 0.7 },
+                { x: 0, y: 0.32, z: 0, w: 0.16, h: 0.2, d: 0.16, color: 0xd6ecff, emissive: c, glow: 0.7 },
+                { x: 0, y: -0.32, z: 0, w: 0.16, h: 0.2, d: 0.16, color: 0xd6ecff, emissive: c, glow: 0.7 }
             ]
         }
         case 'weapon': {
             const c = 0xffa23a
             return [
                 { x: 0, y: 0, z: 0, w: 0.7, h: 0.5, d: 0.5, color: 0x4a4f5b },
-                { x: 0, y: 0, z: 0, w: 0.74, h: 0.12, d: 0.54, color: c, emissive: c, glow: 1.6 },
-                { x: 0, y: 0, z: 0, w: 0.16, h: 0.54, d: 0.54, color: c, emissive: c, glow: 1.6 },
+                { x: 0, y: 0, z: 0, w: 0.74, h: 0.12, d: 0.54, color: c, emissive: c, glow: 0.7 },
+                { x: 0, y: 0, z: 0, w: 0.16, h: 0.54, d: 0.54, color: c, emissive: c, glow: 0.7 },
                 { x: 0, y: 0.3, z: 0, w: 0.2, h: 0.1, d: 0.2, color: 0x8a8f9c }
             ]
         }
         case 'shield': {
             const c = 0x8ad8ff
             return [
-                { x: 0, y: 0, z: 0, w: 0.6, h: 0.7, d: 0.2, color: c, emissive: c, glow: 1.6 },
+                { x: 0, y: 0, z: 0, w: 0.6, h: 0.7, d: 0.2, color: c, emissive: c, glow: 0.7 },
                 { x: 0, y: -0.1, z: 0, w: 0.4, h: 0.5, d: 0.26, color: 0x1e2a3a },
-                { x: 0, y: 0.05, z: 0.14, w: 0.14, h: 0.3, d: 0.04, color: 0xffffff, emissive: c, glow: 2.4 }
+                { x: 0, y: 0.05, z: 0.14, w: 0.14, h: 0.3, d: 0.04, color: 0xffffff, emissive: c, glow: 0.7 }
             ]
         }
         case 'haste': {
             const c = 0xffe14d
             return [
-                { x: 0, y: 0.1, z: 0, w: 0.5, h: 0.24, d: 0.16, color: c, emissive: c, glow: 2 },
-                { x: -0.1, y: -0.12, z: 0, w: 0.5, h: 0.24, d: 0.16, color: c, emissive: c, glow: 2 },
-                { x: 0.1, y: 0.32, z: 0, w: 0.5, h: 0.24, d: 0.16, color: c, emissive: c, glow: 2 },
+                { x: 0, y: 0.1, z: 0, w: 0.5, h: 0.24, d: 0.16, color: c, emissive: c, glow: 0.7 },
+                { x: -0.1, y: -0.12, z: 0, w: 0.5, h: 0.24, d: 0.16, color: c, emissive: c, glow: 0.7 },
+                { x: 0.1, y: 0.32, z: 0, w: 0.5, h: 0.24, d: 0.16, color: c, emissive: c, glow: 0.7 },
                 { x: 0, y: 0.1, z: 0, w: 0.2, h: 0.7, d: 0.1, color: 0xfff6c8 }
             ]
         }
         case 'overdrive': {
             const c = 0xff3a3a
             return [
-                { x: 0, y: 0, z: 0, w: 0.5, h: 0.5, d: 0.5, color: c, emissive: c, glow: 2 },
-                { x: 0, y: 0, z: 0, w: 0.8, h: 0.16, d: 0.16, color: 0xffe14d, emissive: 0xffe14d, glow: 2 },
-                { x: 0, y: 0, z: 0, w: 0.16, h: 0.8, d: 0.16, color: 0xffe14d, emissive: 0xffe14d, glow: 2 },
-                { x: 0, y: 0, z: 0, w: 0.16, h: 0.16, d: 0.8, color: 0xffe14d, emissive: 0xffe14d, glow: 2 }
+                { x: 0, y: 0, z: 0, w: 0.5, h: 0.5, d: 0.5, color: c, emissive: c, glow: 0.7 },
+                { x: 0, y: 0, z: 0, w: 0.8, h: 0.16, d: 0.16, color: 0xffe14d, emissive: 0xffe14d, glow: 0.7 },
+                { x: 0, y: 0, z: 0, w: 0.16, h: 0.8, d: 0.16, color: 0xffe14d, emissive: 0xffe14d, glow: 0.7 },
+                { x: 0, y: 0, z: 0, w: 0.16, h: 0.16, d: 0.8, color: 0xffe14d, emissive: 0xffe14d, glow: 0.7 }
             ]
         }
     }
@@ -718,7 +718,7 @@ export function portalParts(): VoxPart[] {
     const n = 10
     for (let i = 0; i < n; i++) {
         const a = (i / n) * Math.PI * 2
-        parts.push({ x: Math.cos(a) * 1.5, y: 1.6 + Math.sin(a) * 1.5, z: 0, w: 0.4, h: 0.4, d: 0.3, color: c, emissive: c, glow: 1.8, name: 'ring' })
+        parts.push({ x: Math.cos(a) * 1.5, y: 1.6 + Math.sin(a) * 1.5, z: 0, w: 0.4, h: 0.4, d: 0.3, color: c, emissive: c, glow: 0.6, name: 'ring' })
     }
     parts.push(
         { x: -1.2, y: 0.25, z: 0, w: 0.8, h: 0.5, d: 0.8, color: 0x3a2a52 },
@@ -731,7 +731,7 @@ export function portalParts(): VoxPart[] {
 export function orbitBladeParts(): VoxPart[] {
     return [
         { x: 0, y: 0, z: 0, w: 0.16, h: 0.16, d: 0.16, color: 0xd9a63c },
-        { x: 0, y: 0, z: 0.35, w: 0.08, h: 0.24, d: 0.6, color: 0xd6f7ff, emissive: 0x3ff0ff, glow: 2 },
-        { x: 0, y: 0, z: -0.35, w: 0.08, h: 0.24, d: 0.6, color: 0xd6f7ff, emissive: 0x3ff0ff, glow: 2 }
+        { x: 0, y: 0, z: 0.35, w: 0.08, h: 0.24, d: 0.6, color: 0xd6f7ff, emissive: 0x3ff0ff, glow: 0.7 },
+        { x: 0, y: 0, z: -0.35, w: 0.08, h: 0.24, d: 0.6, color: 0xd6f7ff, emissive: 0x3ff0ff, glow: 0.7 }
     ]
 }

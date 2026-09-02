@@ -588,7 +588,7 @@ export class VoxelArenaGame {
 
         this.composer = new EffectComposer(renderer)
         this.composer.addPass(new RenderPass(this.scene, this.camera))
-        this.bloom = new UnrealBloomPass(new THREE.Vector2(container.clientWidth, container.clientHeight), 0.55, 0.5, 0.92)
+        this.bloom = new UnrealBloomPass(new THREE.Vector2(container.clientWidth, container.clientHeight), 0.3, 0.45, 1.0)
         this.composer.addPass(this.bloom)
         this.composer.addPass(new OutputPass())
 
@@ -737,7 +737,7 @@ export class VoxelArenaGame {
         this.scene.add(apron)
 
         // glowing accent tiles and the central sigil
-        const glowMat = new THREE.MeshStandardMaterial({ color: 0x1a2a40, emissive: 0x3ff0ff, emissiveIntensity: 1.2, roughness: 1 })
+        const glowMat = new THREE.MeshStandardMaterial({ color: 0x1a2a40, emissive: 0x3ff0ff, emissiveIntensity: 0.35, roughness: 1 })
         const glow = new THREE.InstancedMesh(BOX, glowMat, glowTiles.length)
         glowTiles.forEach((p, idx) => {
             dummy.position.copy(p)
@@ -753,14 +753,15 @@ export class VoxelArenaGame {
         const walls = new THREE.InstancedMesh(BOX, wallMat, wallCount)
         walls.castShadow = true
         walls.receiveShadow = true
-        const stripMat = new THREE.MeshStandardMaterial({ color: 0x40204a, emissive: 0xb56bff, emissiveIntensity: 1.6, roughness: 1 })
+        const stripMat = new THREE.MeshStandardMaterial({ color: 0x40204a, emissive: 0xb56bff, emissiveIntensity: 0.55, roughness: 1 })
         const strips = new THREE.InstancedMesh(BOX, stripMat, wallCount)
         i = 0
         for (let k = 0; k < tiles; k++) {
             const t = (k - tiles / 2) * 2 + 1
             const spots = [[t, -ARENA_HALF - 1], [t, ARENA_HALF + 1], [-ARENA_HALF - 1, t], [ARENA_HALF + 1, t]]
             for (const [wx, wz] of spots) {
-                const h = 4 + Math.round(Math.random() * 3) + ((k % 5 === 0) ? 3 : 0)
+                // tall enough that the lit rim sits well above eye level from anywhere in the arena
+                const h = 10 + Math.round(Math.random() * 4) + ((k % 5 === 0) ? 5 : 0)
                 dummy.position.set(wx!, h / 2, wz!)
                 dummy.scale.set(2, h, 2)
                 dummy.updateMatrix()
@@ -854,7 +855,7 @@ export class VoxelArenaGame {
             model.group.position.set(lx, 0, lz)
             this.scene.add(model.group)
             this.colliders.push(new THREE.Box3(new THREE.Vector3(lx - 0.2, 0, lz - 0.2), new THREE.Vector3(lx + 0.2, 3.2, lz + 0.2)))
-            const light = new THREE.PointLight(color, 14, 22, 1.6)
+            const light = new THREE.PointLight(color, 9, 22, 1.6)
             light.position.set(lx, 3.4, lz)
             this.scene.add(light)
             this.lanterns.push(light)
@@ -862,7 +863,7 @@ export class VoxelArenaGame {
 
         // jump pads: launch high, made for aim-gliding over the pack
         const padSpots: [number, number][] = [[10, -10], [-10, 10], [-22, 8], [22, -8], [26, 26], [-26, -26]]
-        const padMat = voxMaterial(0x1a3a44, 0x3ff0ff, 1.8)
+        const padMat = voxMaterial(0x1a3a44, 0x3ff0ff, 0.45)
         for (const [px, pz] of padSpots) {
             const py = this.groundHeight(px, pz, 0.5, 100)
             const pad = new THREE.Mesh(BOX, padMat)
@@ -896,7 +897,7 @@ export class VoxelArenaGame {
             const g = new THREE.Group()
             const n = 3 + Math.floor(Math.random() * 5)
             for (let j = 0; j < n; j++) {
-                const m = new THREE.Mesh(BOX, voxMaterial(j === 0 ? 0x2c3350 : 0x222a44, j === n - 1 ? 0x3ff0ff : 0, 0.8))
+                const m = new THREE.Mesh(BOX, voxMaterial(j === 0 ? 0x2c3350 : 0x222a44, j === n - 1 ? 0x3ff0ff : 0, 0.3))
                 m.position.set((Math.random() - 0.5) * 4, (Math.random() - 0.5) * 3, (Math.random() - 0.5) * 4)
                 m.scale.setScalar(1 + Math.random() * 2.5)
                 g.add(m)
@@ -937,7 +938,7 @@ export class VoxelArenaGame {
             for (let y = -3; y <= 3; y++) {
                 for (let z = -3; z <= 3; z++) {
                     if (x * x + y * y + z * z > 10.5 || x * x + y * y + z * z < 5) continue
-                    const m = new THREE.Mesh(BOX, voxMaterial((x + y) % 2 ? 0xd9d3ff : 0xbfb6ee, 0x8f86c9, 0.35))
+                    const m = new THREE.Mesh(BOX, voxMaterial((x + y) % 2 ? 0xd9d3ff : 0xbfb6ee, 0x8f86c9, 0.2))
                     m.position.set(x, y, z)
                     moon.add(m)
                 }
@@ -1203,7 +1204,7 @@ export class VoxelArenaGame {
         const fog = this.scene.fog as THREE.Fog
         fog.near = blackout ? 12 : 45
         fog.far = blackout ? 60 : 140
-        this.bloom.threshold = blackout ? 0.6 : 0.92
+        this.bloom.threshold = blackout ? 0.75 : 1.0
     }
 
     private updateMeteors(dt: number): void {
@@ -2581,7 +2582,7 @@ export class VoxelArenaGame {
         hpBar.visible = false
         this.scene.add(hpBar)
         if (affix) {
-            const glow = new THREE.Mesh(BOX, voxMaterial(AFFIXES[affix].color, AFFIXES[affix].color, 1.4))
+            const glow = new THREE.Mesh(BOX, voxMaterial(AFFIXES[affix].color, AFFIXES[affix].color, 0.6))
             glow.scale.set(0.5, 0.18, 0.5)
             glow.position.y = def.height + 0.35
             glow.name = 'affix'
@@ -3432,7 +3433,7 @@ export class VoxelArenaGame {
 
             // draw
             if (slot < this.tracers.size) {
-                _c1.copy(p.color).multiplyScalar(p.def.kind === 'bullet' ? 1.15 : 1.8)
+                _c1.copy(p.color).multiplyScalar(p.def.kind === 'bullet' ? 1.1 : 1.3)
                 if (p.def.kind === 'plasma') {
                     q.setFromAxisAngle(UP, p.spin)
                     this.tracers.set(slot, p.pos, q, p.size, p.size, p.size, _c1)
@@ -3485,7 +3486,7 @@ export class VoxelArenaGame {
             if (shot.alive && s + 2 < this.shotPool.size) {
                 // a bright magenta orb with two fading trail cubes so incoming fire reads at a glance
                 q.setFromAxisAngle(UP, this.elapsed * 6)
-                _c1.set(0xff4dd8).multiplyScalar(1.9)
+                _c1.set(0xff4dd8).multiplyScalar(1.3)
                 this.shotPool.set(s, shot.pos, q, 0.5, 0.5, 0.5, _c1)
                 const back = _v2.copy(shot.vel).normalize()
                 _c1.set(0xff9ae8).multiplyScalar(1.2)
@@ -3571,8 +3572,8 @@ export class VoxelArenaGame {
             this.shardPos[i3 + 2] = z
             const bob = Math.sin(this.elapsed * 5 + i) * 0.05
             q.setFromAxisAngle(UP, this.elapsed * 3 + i)
-            _c1.set(0x3ff0ff).multiplyScalar(1.8)
-            const size = 0.22 + Math.min(0.2, this.shardVal[i]! * 0.01)
+            _c1.set(0x2fb9c8).multiplyScalar(0.8)
+            const size = 0.17 + Math.min(0.15, this.shardVal[i]! * 0.008)
             this.shardPool.set(i, _v1.set(x, y + bob, z), q, size, size, size, _c1)
         }
         this.shardPool.commit()
@@ -3983,7 +3984,7 @@ export class VoxelArenaGame {
         this.updateDebris(rawDt * (playing ? 1 : 0.15))
         this.updateEffects(rawDt)
         for (const ring of this.portalRings) ring.rotation.z += rawDt * 0.8
-        for (const l of this.lanterns) l.intensity = (this.event === 'blackout' ? 5 : 14) * (0.9 + Math.sin(this.elapsed * 7 + l.position.x) * 0.1)
+        for (const l of this.lanterns) l.intensity = (this.event === 'blackout' ? 4 : 9) * (0.9 + Math.sin(this.elapsed * 7 + l.position.x) * 0.1)
         for (const chunk of this.skyChunks) {
             chunk.spin += rawDt * chunk.rate
             chunk.obj.rotation.y = chunk.spin
@@ -3997,7 +3998,7 @@ export class VoxelArenaGame {
     }
 
     private render(): void {
-        this.bloom.strength = 0.55 + (this.overdriveTimer > 0 ? 0.25 : 0) + (this.timeScale < 1 ? 0.3 : 0)
+        this.bloom.strength = 0.3 + (this.overdriveTimer > 0 ? 0.15 : 0) + (this.timeScale < 1 ? 0.2 : 0)
         this.composer.render()
     }
 
