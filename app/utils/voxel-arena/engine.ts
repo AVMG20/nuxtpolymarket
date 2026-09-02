@@ -990,7 +990,7 @@ export class VoxelArenaGame {
             arm.scale.setScalar(VM_SCALE)
         }
         this.vmArmR.position.set(0.24, -0.25, -0.46)
-        this.vmArmL.position.set(-0.24, -0.28, -0.5)
+        this.vmArmL.position.set(0.24, -0.28, -0.5)
         this.vmArmL.scale.setScalar(VM_SCALE * 1.5)
         this.vmArmL.visible = false
         // a soft fill light rides with the camera so the gun reads from any angle
@@ -1831,18 +1831,18 @@ export class VoxelArenaGame {
         const melee = this.meleeTimer > 0
         this.vmArmL.visible = this.held === 'melee' || this.slamming
         if (this.vmArmL.visible && !melee && !this.slamming) {
-            // idle guard: blade angled up across the lower left, bobbing with the walk
-            this.vmArmL.position.set(-0.22 + bobX, -0.3 + bobY - this.switchTimer * 1.2, -0.5)
-            this.vmArmL.rotation.set(-0.5 + this.switchTimer * 1.5, Math.PI + 0.7 + this.vmSway.x * 0.5, 0.45)
+            // idle guard: blade in the right hand, angled up across the view, bobbing with the walk
+            this.vmArmL.position.set(0.24 + bobX, -0.3 + bobY - this.switchTimer * 1.2, -0.5)
+            this.vmArmL.rotation.set(-0.5 + this.switchTimer * 1.5, Math.PI - 0.7 + this.vmSway.x * 0.5, -0.45)
         } else if (this.vmArmL.visible) {
             const t = melee ? 1 - this.meleeTimer / this.meleeDef.swingTime : 0
             const swing = melee ? Math.sin(t * Math.PI) : 0
             const side = this.meleeCombo % 2 ? 1 : -1
             const finisher = this.meleeCombo === MELEE.comboLength - 1
-            // sweep the blade across the view: left slash, right slash, then the big overhead
+            // sweep the blade across the view from the right hand: right-to-left, back, then the big overhead
             const sweep = melee ? t : 0
-            this.vmArmL.position.set(-0.3 * side + sweep * 0.6 * side, -0.3 + (this.slamming ? 0.25 : 0) + (finisher ? Math.sin(sweep * Math.PI) * 0.35 : 0), -0.5 - swing * 0.2)
-            this.vmArmL.rotation.set(-0.3 - (finisher ? sweep * 1.8 : 0) + (this.slamming ? -1.3 : 0), Math.PI + 0.9 * side - sweep * 1.8 * side, side * (0.5 - sweep * 1.4))
+            this.vmArmL.position.set(side < 0 ? 0.28 - sweep * 0.65 : -0.3 + sweep * 0.6, -0.3 + (this.slamming ? 0.25 : 0) + (finisher ? Math.sin(sweep * Math.PI) * 0.35 : 0), -0.5 - swing * 0.2)
+            this.vmArmL.rotation.set(-0.3 - (finisher ? sweep * 1.8 : 0) + (this.slamming ? -1.3 : 0), Math.PI - 0.9 * side + sweep * 1.8 * side, -side * (0.5 - sweep * 1.4))
         }
     }
 
