@@ -1,12 +1,12 @@
 // Voxel Arena — shared types for the pure data modules and the engine.
 
-export type WeaponId = 'pulse' | 'scatter' | 'needler' | 'rail' | 'plasma' | 'arc' | 'shredder'
+export type WeaponId = 'pulse' | 'scatter' | 'needler' | 'rail' | 'plasma' | 'arc' | 'shredder' | 'ember'
 
-export type EnemyId = 'grunt' | 'runner' | 'brute' | 'spitter' | 'drone' | 'charger' | 'warden' | 'titan'
+export type EnemyId = 'grunt' | 'runner' | 'brute' | 'spitter' | 'drone' | 'charger' | 'warden' | 'bomber' | 'mender' | 'titan'
 
-export type EnemyBehavior = 'melee' | 'ranged' | 'flyer' | 'charger' | 'boss'
+export type EnemyBehavior = 'melee' | 'ranged' | 'flyer' | 'charger' | 'boss' | 'bomber' | 'mender'
 
-export type EliteAffix = 'swift' | 'armored' | 'volatile'
+export type EliteAffix = 'swift' | 'armored' | 'volatile' | 'gilded'
 
 export type Rarity = 'common' | 'rare' | 'epic' | 'legendary'
 
@@ -25,7 +25,7 @@ export interface WeaponDef {
     pellets: number
     projectileSpeed: number
     /** How the projectile is simulated and drawn. */
-    kind: 'bullet' | 'plasma' | 'rail' | 'arc' | 'disc'
+    kind: 'bullet' | 'plasma' | 'rail' | 'arc' | 'disc' | 'flame'
     auto: boolean
     explosionRadius: number
     pierce: number
@@ -45,6 +45,8 @@ export interface WeaponDef {
     adsSpread: number
     /** Extra spread added per shot from the hip, decaying over time. */
     bloom: number
+    /** Seconds of burn applied on hit (0 = none). */
+    burn: number
 }
 
 
@@ -84,7 +86,7 @@ export interface WaveSpawn {
 export interface WavePlan {
     wave: number
     boss: boolean
-    event: 'none' | 'meteors' | 'frenzy' | 'blackout'
+    event: 'none' | 'meteors' | 'frenzy' | 'blackout' | 'bounty'
     spawns: WaveSpawn[]
     hpMult: number
     damageMult: number
@@ -136,6 +138,12 @@ export interface PlayerStats {
     bulletSize: number
     thorns: number
     secondWind: number
+    incendiary: number
+    shrapnel: number
+    adrenaline: number
+    bulwark: number
+    sentry: number
+    turretCost: number
 }
 
 export interface UpgradeCard {

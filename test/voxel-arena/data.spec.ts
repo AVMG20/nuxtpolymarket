@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { ENEMIES, ENEMY_IDS, WEAPONS, WEAPON_IDS, planWave, isBossWave, waveEnemyCount, waveHpMult, eliteChance, defaultStats, magazineSize, killScore, dropChance } from '../../app/utils/voxel-arena/data'
+import { ENEMIES, ENEMY_IDS, WEAPONS, WEAPON_IDS, planWave, isBossWave, waveEvent, waveEnemyCount, waveHpMult, eliteChance, defaultStats, magazineSize, killScore, dropChance } from '../../app/utils/voxel-arena/data'
 
 function seeded(seed: number): () => number {
     let s = seed >>> 0
@@ -20,12 +20,20 @@ describe('voxel arena wave planner', () => {
         }
     })
 
-    it('adds exactly one titan on boss waves and none otherwise', () => {
-        for (let wave = 1; wave <= 15; wave++) {
+    it('adds titans on boss waves only, in pairs from wave 15', () => {
+        for (let wave = 1; wave <= 20; wave++) {
             const plan = planWave(wave, seeded(wave * 7))
             const titans = plan.spawns.filter(s => s.enemy === 'titan').length
             expect(plan.boss).toBe(isBossWave(wave))
-            expect(titans).toBe(isBossWave(wave) ? 1 : 0)
+            expect(titans).toBe(isBossWave(wave) ? (wave >= 15 ? 2 : 1) : 0)
+        }
+    })
+
+    it('adds a gilded bounty target on bounty waves', () => {
+        for (let wave = 1; wave <= 12; wave++) {
+            const plan = planWave(wave, seeded(wave * 3))
+            const gilded = plan.spawns.filter(s => s.affix === 'gilded').length
+            expect(gilded).toBe(waveEvent(wave) === 'bounty' ? 1 : 0)
         }
     })
 
@@ -39,10 +47,10 @@ describe('voxel arena wave planner', () => {
         expect(eliteChance(60)).toBeLessThanOrEqual(0.38)
     })
 
-    it('never assigns elite affixes before wave 6', () => {
+    it('never rolls random elite affixes before wave 6', () => {
         for (let wave = 1; wave < 6; wave++) {
             const plan = planWave(wave, seeded(99 + wave))
-            expect(plan.spawns.every(s => s.affix === null)).toBe(true)
+            expect(plan.spawns.every(s => s.affix === null || s.affix === 'gilded')).toBe(true)
         }
     })
 
@@ -55,10 +63,10 @@ describe('voxel arena wave planner', () => {
     it('keeps the alive cap and spawn interval within sane bounds', () => {
         for (let wave = 1; wave <= 40; wave++) {
             const plan = planWave(wave, seeded(wave))
-            expect(plan.maxAlive).toBeGreaterThanOrEqual(12)
-            expect(plan.maxAlive).toBeLessThanOrEqual(56)
-            expect(plan.spawnInterval).toBeGreaterThanOrEqual(0.45)
-            expect(plan.batchSize).toBeLessThanOrEqual(6)
+            expect(plan.maxAlive).toBeGreaterThanOrEqual(16)
+            expect(plan.maxAlive).toBeLessThanOrEqual(64)
+            expect(plan.spawnInterval).toBeGreaterThanOrEqual(0.4)
+            expect(plan.batchSize).toBeLessThanOrEqual(8)
         }
     })
 })
@@ -76,7 +84,7 @@ describe('voxel arena definitions', () => {
             expect(w.fireRate).toBeGreaterThan(0)
             expect(w.magazine).toBeGreaterThan(0)
             expect(w.reloadTime).toBeGreaterThan(0)
-            if (w.kind !== 'rail' && w.kind !== 'arc') expect(w.projectileSpeed).toBeGreaterThan(0)
+            if (w.kind !== 'rail' && w.kind !== 'arc' && w.kind !== 'flame') expect(w.projectileSpeed).toBeGreaterThan(0)
         }
     })
 

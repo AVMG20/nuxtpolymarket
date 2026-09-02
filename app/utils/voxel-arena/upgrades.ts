@@ -56,7 +56,12 @@ export const UPGRADES: UpgradeCard[] = [
     { id: 'colossus', name: 'Colossus', description: 'Grow huge. +60 max health, +40% melee damage, -8% speed.', rarity: 'legendary', kind: 'crazy', icon: 'i-lucide-mountain', maxStacks: 1, apply: s => { s.scale *= 1.35; s.maxHealth += 60; s.meleeDamageMult *= 1.4; s.moveSpeed *= 0.92 } },
     { id: 'glass', name: 'Glass Cannon', description: '+90% damage. -35% max health.', rarity: 'legendary', kind: 'crazy', icon: 'i-lucide-gem', maxStacks: 1, apply: s => { s.damageMult *= 1.9; s.maxHealth = Math.max(30, Math.round(s.maxHealth * 0.65)) } },
     { id: 'thorns', name: 'Spiked Carapace', description: 'Attackers take 200% of the damage they deal to you.', rarity: 'epic', kind: 'crazy', icon: 'i-lucide-shell', maxStacks: 3, apply: s => { s.thorns += 2 } },
-    { id: 'secondwind', name: 'Second Wind', description: 'Once per wave, a killing blow instead restores 50% health.', rarity: 'legendary', kind: 'crazy', icon: 'i-lucide-heart-pulse', maxStacks: 1, apply: s => { s.secondWind += 1 } }
+    { id: 'secondwind', name: 'Second Wind', description: 'Once per wave, a killing blow instead restores 50% health.', rarity: 'legendary', kind: 'crazy', icon: 'i-lucide-heart-pulse', maxStacks: 1, apply: s => { s.secondWind += 1 } },
+    { id: 'incendiary', name: 'Incendiary Rounds', description: 'Every bullet sets its target on fire for 2 seconds.', rarity: 'epic', kind: 'crazy', icon: 'i-lucide-flame', maxStacks: 2, apply: s => { s.incendiary += 1 } },
+    { id: 'shrapnel', name: 'Shrapnel Burst', description: 'Enemies burst into 6 lethal voxel shards when they die.', rarity: 'epic', kind: 'crazy', icon: 'i-lucide-sparkles', maxStacks: 3, apply: s => { s.shrapnel += 1 } },
+    { id: 'adrenaline', name: 'Adrenaline', description: 'Below 40% health: +40% damage and +15% speed.', rarity: 'rare', kind: 'crazy', icon: 'i-lucide-heart-crack', maxStacks: 2, apply: s => { s.adrenaline += 1 } },
+    { id: 'bulwark', name: 'Bulwark', description: 'Start every wave with a 40-point energy shield.', rarity: 'rare', kind: 'stat', icon: 'i-lucide-shield-check', maxStacks: 3, apply: s => { s.bulwark += 40 } },
+    { id: 'sentry', name: 'Sentry Protocol', description: 'Turrets deal +50% damage, last 6s longer and cost 15 less energy.', rarity: 'rare', kind: 'stat', icon: 'i-lucide-radar', maxStacks: 3, apply: s => { s.sentry += 1; s.turretCost = Math.max(25, s.turretCost - 15) } }
 ]
 
 export const UPGRADE_BY_ID = new Map(UPGRADES.map(card => [card.id, card]))

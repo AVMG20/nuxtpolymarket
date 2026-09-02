@@ -191,6 +191,16 @@ export function weaponParts(id: WeaponId): VoxPart[] {
                 { x: 0, y: -0.16, z: -0.02, w: 0.1, h: 0.18, d: 0.12, color: gunLight },
                 { x: 0, y: 0, z: -0.36, w: 0.14, h: 0.16, d: 0.2, color: gun }
             ]
+        case 'ember':
+            return [
+                { x: 0, y: 0, z: 0.05, w: 0.22, h: 0.24, d: 0.62, color: 0x4a2a1a },
+                { x: 0, y: 0.02, z: 0.55, w: 0.14, h: 0.14, d: 0.5, color: gunLight },
+                { x: 0, y: 0.02, z: 0.82, w: 0.2, h: 0.2, d: 0.08, color: 0xff7a2a, emissive: 0xff7a2a, glow: 2.2 },
+                { x: 0, y: 0.2, z: -0.05, w: 0.2, h: 0.16, d: 0.36, color: 0x8a3a1a },
+                { x: 0, y: 0.2, z: -0.05, w: 0.1, h: 0.06, d: 0.3, color: 0xff7a2a, emissive: 0xff7a2a, glow: 1.6 },
+                { x: 0, y: -0.16, z: -0.02, w: 0.1, h: 0.18, d: 0.12, color: gunLight },
+                { x: 0, y: 0, z: -0.36, w: 0.14, h: 0.16, d: 0.2, color: gun }
+            ]
         case 'shredder':
             return [
                 { x: 0, y: 0, z: 0.05, w: 0.2, h: 0.22, d: 0.6, color: 0x4a3a1a },
@@ -222,7 +232,58 @@ export function enemyParts(id: EnemyId): VoxPart[] {
         case 'drone': return droneParts()
         case 'charger': return chargerParts()
         case 'warden': return wardenParts()
+        case 'bomber': return bomberParts()
+        case 'mender': return menderParts()
     }
+}
+
+function bomberParts(): VoxPart[] {
+    const shell = 0x5a3a2a
+    const glow = 0xff7a2a
+    return [
+        { x: -0.16, y: 0.3, z: 0, w: 0.22, h: 0.56, d: 0.24, color: 0x2b2018, name: 'legL', pivot: [-0.16, 0.58, 0] },
+        { x: 0.16, y: 0.3, z: 0, w: 0.22, h: 0.56, d: 0.24, color: 0x2b2018, name: 'legR', pivot: [0.16, 0.58, 0] },
+        { x: 0, y: 0.95, z: 0, w: 0.8, h: 0.8, d: 0.8, color: shell, name: 'body' },
+        { x: 0, y: 0.95, z: 0, w: 0.86, h: 0.2, d: 0.86, color: glow, emissive: glow, glow: 1.8, name: 'core' },
+        { x: 0, y: 0.95, z: 0, w: 0.2, h: 0.86, d: 0.2, color: glow, emissive: glow, glow: 1.8, name: 'core' },
+        { x: 0, y: 1.1, z: 0.42, w: 0.26, h: 0.12, d: 0.06, color: 0xffe14d, emissive: 0xffe14d, glow: 3, name: 'head' },
+        { x: 0, y: 1.45, z: 0, w: 0.14, h: 0.2, d: 0.14, color: 0x8a8f9c },
+        { x: 0, y: 1.6, z: 0, w: 0.2, h: 0.1, d: 0.2, color: 0xff3a3a, emissive: 0xff3a3a, glow: 2.5, name: 'core' }
+    ]
+}
+
+function menderParts(): VoxPart[] {
+    const robe = 0x2e6b4a
+    const dark = 0x1a3a2a
+    const glow = 0x7dff5a
+    return [
+        { x: 0, y: 0.5, z: 0, w: 0.7, h: 1, d: 0.5, color: robe, name: 'body' },
+        { x: 0, y: 0.15, z: 0, w: 0.8, h: 0.3, d: 0.6, color: dark, name: 'body' },
+        { x: 0, y: 1.2, z: 0, w: 0.6, h: 0.5, d: 0.44, color: robe, name: 'body' },
+        { x: 0, y: 1.25, z: 0.24, w: 0.2, h: 0.36, d: 0.06, color: glow, emissive: glow, glow: 2, name: 'body' },
+        { x: -0.42, y: 1.0, z: 0.1, w: 0.18, h: 0.6, d: 0.2, color: robe, name: 'armL', pivot: [-0.42, 1.28, 0] },
+        { x: 0.42, y: 1.0, z: 0.1, w: 0.18, h: 0.6, d: 0.2, color: robe, name: 'armR', pivot: [0.42, 1.28, 0] },
+        { x: 0.42, y: 0.66, z: 0.3, w: 0.12, h: 0.12, d: 0.5, color: 0x8a8f9c, name: 'armR', pivot: [0.42, 1.28, 0] },
+        { x: 0.42, y: 0.66, z: 0.62, w: 0.24, h: 0.24, d: 0.24, color: glow, emissive: glow, glow: 2.6, name: 'armR', pivot: [0.42, 1.28, 0] },
+        { x: 0, y: 1.72, z: 0, w: 0.46, h: 0.46, d: 0.46, color: dark, name: 'head', pivot: [0, 1.5, 0] },
+        { x: 0, y: 1.74, z: 0.24, w: 0.3, h: 0.08, d: 0.04, color: glow, emissive: glow, glow: 3, name: 'head', pivot: [0, 1.5, 0] },
+        { x: 0, y: 2.05, z: 0, w: 0.2, h: 0.24, d: 0.2, color: glow, emissive: glow, glow: 1.6, name: 'head', pivot: [0, 1.5, 0] }
+    ]
+}
+
+export function turretParts(): VoxPart[] {
+    const base = 0x3a3f4b
+    const gold = 0xd9a63c
+    const cyan = 0x3ff0ff
+    return [
+        { x: 0, y: 0.12, z: 0, w: 0.9, h: 0.24, d: 0.9, color: base },
+        { x: 0, y: 0.36, z: 0, w: 0.3, h: 0.3, d: 0.3, color: gold },
+        { x: 0, y: 0.7, z: 0, w: 0.5, h: 0.4, d: 0.6, color: 0xe9e4d6, name: 'head' },
+        { x: 0.12, y: 0.7, z: 0.45, w: 0.08, h: 0.08, d: 0.5, color: base, name: 'head' },
+        { x: -0.12, y: 0.7, z: 0.45, w: 0.08, h: 0.08, d: 0.5, color: base, name: 'head' },
+        { x: 0, y: 0.72, z: 0.31, w: 0.24, h: 0.1, d: 0.04, color: cyan, emissive: cyan, glow: 3, name: 'head' },
+        { x: 0, y: 0.98, z: -0.1, w: 0.12, h: 0.16, d: 0.12, color: cyan, emissive: cyan, glow: 1.8, name: 'head' }
+    ]
 }
 
 function wardenParts(): VoxPart[] {
@@ -419,7 +480,7 @@ function chargerParts(): VoxPart[] {
 
 // ── Pickups ───────────────────────────────────────────────────────────────
 
-export type PickupKind = 'health' | 'energy' | 'weapon' | 'overdrive'
+export type PickupKind = 'health' | 'energy' | 'weapon' | 'overdrive' | 'shield' | 'haste'
 
 export function pickupParts(kind: PickupKind): VoxPart[] {
     switch (kind) {
@@ -446,6 +507,23 @@ export function pickupParts(kind: PickupKind): VoxPart[] {
                 { x: 0, y: 0, z: 0, w: 0.74, h: 0.12, d: 0.54, color: c, emissive: c, glow: 1.6 },
                 { x: 0, y: 0, z: 0, w: 0.16, h: 0.54, d: 0.54, color: c, emissive: c, glow: 1.6 },
                 { x: 0, y: 0.3, z: 0, w: 0.2, h: 0.1, d: 0.2, color: 0x8a8f9c }
+            ]
+        }
+        case 'shield': {
+            const c = 0x8ad8ff
+            return [
+                { x: 0, y: 0, z: 0, w: 0.6, h: 0.7, d: 0.2, color: c, emissive: c, glow: 1.6 },
+                { x: 0, y: -0.1, z: 0, w: 0.4, h: 0.5, d: 0.26, color: 0x1e2a3a },
+                { x: 0, y: 0.05, z: 0.14, w: 0.14, h: 0.3, d: 0.04, color: 0xffffff, emissive: c, glow: 2.4 }
+            ]
+        }
+        case 'haste': {
+            const c = 0xffe14d
+            return [
+                { x: 0, y: 0.1, z: 0, w: 0.5, h: 0.24, d: 0.16, color: c, emissive: c, glow: 2 },
+                { x: -0.1, y: -0.12, z: 0, w: 0.5, h: 0.24, d: 0.16, color: c, emissive: c, glow: 2 },
+                { x: 0.1, y: 0.32, z: 0, w: 0.5, h: 0.24, d: 0.16, color: c, emissive: c, glow: 2 },
+                { x: 0, y: 0.1, z: 0, w: 0.2, h: 0.7, d: 0.1, color: 0xfff6c8 }
             ]
         }
         case 'overdrive': {

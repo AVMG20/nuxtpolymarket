@@ -106,6 +106,15 @@
                         <UIcon name="i-lucide-wind" class="ml-1 size-3 text-white/40" />
                     </div>
                 </div>
+                <Transition name="fade">
+                    <div v-if="hud.shield > 0" class="mt-2 flex items-center gap-2">
+                        <UIcon name="i-lucide-shield" class="size-3 text-sky-300" />
+                        <div class="h-1 flex-1 overflow-hidden rounded-full bg-white/10">
+                            <div class="h-full rounded-full bg-sky-300 shadow-[0_0_10px_rgba(125,211,252,0.8)] transition-[width] duration-100" :style="{ width: Math.min(100, hud.shield / 150 * 100) + '%' }" />
+                        </div>
+                        <span class="font-mono text-[10px] tabular-nums text-sky-200">{{ Math.ceil(hud.shield) }}</span>
+                    </div>
+                </Transition>
                 <div class="mt-2 h-1.5 overflow-hidden rounded-full bg-white/10">
                     <div
                         class="h-full rounded-full transition-[width] duration-100"
@@ -120,6 +129,12 @@
                         <div class="absolute inset-y-0 w-px bg-white/50" :style="{ left: (hud.abilityCost / hud.energyMax * 100) + '%' }" />
                     </div>
                     <span class="font-mono text-[10px] tabular-nums text-white/40">{{ Math.floor(hud.energy) }}</span>
+                </div>
+                <div class="mt-2 flex items-center gap-2 text-[10px] uppercase tracking-[0.3em]" :class="hud.energy >= hud.turretCost ? 'text-cyan-200' : 'text-white/35'">
+                    <span class="rounded border px-1.5 font-mono font-bold leading-4 transition-colors" :class="hud.energy >= hud.turretCost ? 'border-cyan-300/70 text-cyan-300' : 'border-white/20 text-white/40'">E</span>
+                    <span>Sentry</span>
+                    <span class="font-mono tabular-nums text-white/40">{{ hud.turretCost }}</span>
+                    <span v-if="hud.turrets > 0" class="ml-auto flex items-center gap-1 text-cyan-300"><UIcon name="i-lucide-radar" class="size-3" />{{ hud.turrets }}</span>
                 </div>
             </div>
 
@@ -151,8 +166,9 @@
                 <Transition name="fade">
                     <div v-if="toast" class="rounded-full border border-white/10 bg-black/50 px-4 py-1 text-[11px] font-semibold uppercase tracking-[0.3em] backdrop-blur-md" :style="{ color: toast.color }">{{ toast.text }}</div>
                 </Transition>
-                <div v-if="hud.overdrive > 0 || hud.frenzy > 0 || hud.chrono" class="flex items-center gap-2 text-[9px] font-semibold uppercase tracking-[0.3em]">
+                <div v-if="hud.overdrive > 0 || hud.frenzy > 0 || hud.chrono || hud.haste > 0" class="flex items-center gap-2 text-[9px] font-semibold uppercase tracking-[0.3em]">
                     <span v-if="hud.overdrive > 0" class="rounded-full border border-red-400/50 px-2.5 py-0.5 text-red-300">Overdrive {{ hud.overdrive.toFixed(0) }}s</span>
+                    <span v-if="hud.haste > 0" class="rounded-full border border-yellow-300/50 px-2.5 py-0.5 text-yellow-200">Haste {{ hud.haste.toFixed(0) }}s</span>
                     <span v-if="hud.frenzy > 0" class="rounded-full border border-orange-400/50 px-2.5 py-0.5 text-orange-300">Frenzy ×{{ hud.frenzy }}</span>
                     <span v-if="hud.chrono" class="rounded-full border border-cyan-300/50 px-2.5 py-0.5 text-cyan-200">Chrono</span>
                 </div>
@@ -189,7 +205,23 @@
                         <span class="text-white/55">{{ c[1] }}</span>
                     </div>
                 </div>
-                <div class="mt-9 flex flex-wrap items-center gap-3">
+                <div class="mt-8">
+                    <div class="text-[10px] uppercase tracking-[0.5em] text-white/40">Loadout</div>
+                    <div class="mt-2 grid grid-cols-3 gap-2">
+                        <button
+                            v-for="w in starters"
+                            :key="w.id"
+                            type="button"
+                            class="rounded-xl border p-3 text-left transition-all"
+                            :class="starter === w.id ? 'border-cyan-300/70 bg-cyan-300/10 shadow-[0_0_24px_-6px_rgba(63,240,255,0.7)]' : 'border-white/10 bg-white/5 hover:border-white/25'"
+                            @click="starter = w.id"
+                        >
+                            <div class="text-xs font-black uppercase tracking-wider" :style="{ color: starter === w.id ? '#a5f3fc' : '#fff' }">{{ w.name }}</div>
+                            <div class="mt-1 text-[11px] leading-snug text-white/50">{{ w.tagline }}</div>
+                        </button>
+                    </div>
+                </div>
+                <div class="mt-6 flex flex-wrap items-center gap-3">
                     <UButton size="xl" color="primary" icon="i-lucide-swords" class="px-7 font-black uppercase tracking-[0.3em]" @click="start">Deploy</UButton>
                     <UButton size="xl" color="neutral" variant="ghost" :icon="muted ? 'i-lucide-volume-x' : 'i-lucide-volume-2'" @click="toggleMute">{{ muted ? 'Unmute' : 'Sound' }}</UButton>
                     <UButton size="xl" color="neutral" variant="ghost" icon="i-lucide-sparkles" @click="toggleQuality">FX {{ quality }}</UButton>
@@ -228,6 +260,7 @@
                         <p class="mt-1 text-xs text-white/50">Choose up to {{ DRAFT_PICKS }}. Weapons join your loadout; a fourth replaces the one in your hands.</p>
                     </div>
                     <div class="flex items-center gap-4">
+                        <UButton size="lg" color="neutral" variant="ghost" icon="i-lucide-dices" :disabled="hud.rerolls <= 0" class="uppercase tracking-[0.25em]" @click="reroll">Reroll {{ hud.rerolls > 0 ? '' : '· used' }}</UButton>
                         <div class="flex items-center gap-1.5">
                             <span v-for="i in DRAFT_PICKS" :key="i" class="size-2 rounded-full transition-colors" :class="i <= selected.length ? 'bg-cyan-300 shadow-[0_0_8px_rgba(63,240,255,0.8)]' : 'bg-white/20'" />
                         </div>
@@ -293,8 +326,9 @@
 import { ref, reactive, computed, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import { VoxelArenaGame, createHud } from '~/utils/voxel-arena/engine'
 import type { RunSummary } from '~/utils/voxel-arena/engine'
-import type { DraftCard } from '~/utils/voxel-arena/types'
+import type { DraftCard, WeaponId } from '~/utils/voxel-arena/types'
 import { RARITY_COLOR, RARITY_LABEL, DRAFT_PICKS } from '~/utils/voxel-arena/upgrades'
+import { WEAPONS, STARTER_WEAPONS } from '~/utils/voxel-arena/data'
 
 const viewport = ref<HTMLDivElement | null>(null)
 const hud = reactive(createHud())
@@ -311,6 +345,8 @@ const muted = ref(false)
 const best = ref<{ wave: number, score: number } | null>(null)
 const quality = ref<'high' | 'low'>('high')
 const route = useRoute()
+const starter = ref<WeaponId>('pulse')
+const starters = STARTER_WEAPONS.map(id => WEAPONS[id])
 
 const controls: [string, string][] = [
     ['WASD', 'Move'],
@@ -322,6 +358,7 @@ const controls: [string, string][] = [
     ['Shift', 'Dash'],
     ['Space', 'Jump · double jump'],
     ['Q', 'Nova burst'],
+    ['E', 'Sentry turret'],
     ['R', 'Reload'],
     ['1-3 / Wheel', 'Switch weapon'],
     ['Esc', 'Pause']
@@ -333,8 +370,8 @@ const waveProgress = computed(() => hud.waveTotal > 0 ? Math.max(0, Math.min(100
 const activeWeapon = computed(() => hud.weapons[hud.activeWeapon] ?? null)
 const comboColor = computed(() => hud.combo >= 20 ? 'text-fuchsia-300' : hud.combo >= 10 ? 'text-orange-300' : 'text-amber-200')
 const hitColor = computed(() => ({ kill: 'bg-lime-300', crit: 'bg-yellow-300', head: 'bg-orange-300', block: 'bg-cyan-300', hit: 'bg-red-400' })[hud.hitKind])
-const eventLabel = computed(() => ({ meteors: 'Meteor storm', frenzy: 'Frenzy', blackout: 'Blackout', none: '' })[hud.event])
-const eventClass = computed(() => ({ meteors: 'border-orange-400/50 text-orange-300', frenzy: 'border-red-400/50 text-red-300', blackout: 'border-indigo-300/50 text-indigo-200', none: '' })[hud.event])
+const eventLabel = computed(() => ({ meteors: 'Meteor storm', frenzy: 'Frenzy', blackout: 'Blackout', bounty: 'Bounty', none: '' })[hud.event])
+const eventClass = computed(() => ({ meteors: 'border-orange-400/50 text-orange-300', frenzy: 'border-red-400/50 text-red-300', blackout: 'border-indigo-300/50 text-indigo-200', bounty: 'border-amber-300/60 text-amber-200', none: '' })[hud.event])
 
 const summaryStats = computed(() => {
     const s = summary.value
@@ -368,7 +405,12 @@ function showToast(text: string, color: string): void {
 
 function start(): void {
     summary.value = null
-    game?.start()
+    game?.start(starter.value)
+}
+
+function reroll(): void {
+    selected.value = []
+    game?.rerollDraft()
 }
 
 function resume(): void {

@@ -9,6 +9,7 @@ export type ArenaSound
       | 'shoot-plasma'
       | 'shoot-arc'
       | 'shoot-shredder'
+      | 'shoot-ember'
       | 'dry'
       | 'reload'
       | 'reload-done'
@@ -249,6 +250,10 @@ export class ArenaAudio {
             case 'shoot-shredder':
                 this.sweep(t, 300 * detune, 1200, 0.16, 0.25 * v, 'sawtooth', out)
                 this.noise(t, 0.1, 0.25 * v, out, 3000, 'bandpass', 2)
+                break
+            case 'shoot-ember':
+                this.noise(t, 0.3, 0.35 * v, out, 700 * detune, 'lowpass')
+                this.sweep(t, 90 * detune, 60, 0.25, 0.1 * v, 'sawtooth', out)
                 break
             case 'dry':
                 this.noise(t, 0.04, 0.2 * v, out, 2500, 'highpass')

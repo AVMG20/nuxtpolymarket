@@ -28,7 +28,8 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
         rarity: 'common',
         gravity: 0,
         homing: 0,
-        adsFov: 56, adsSpread: 0.25, bloom: 0.012
+        adsFov: 56, adsSpread: 0.25, bloom: 0.012,
+        burn: 0
     },
     scatter: {
         id: 'scatter',
@@ -54,7 +55,8 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
         rarity: 'common',
         gravity: 0,
         homing: 0,
-        adsFov: 60, adsSpread: 0.65, bloom: 0.02
+        adsFov: 60, adsSpread: 0.65, bloom: 0.02,
+        burn: 0
     },
     needler: {
         id: 'needler',
@@ -80,7 +82,8 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
         rarity: 'rare',
         gravity: 0,
         homing: 2.5,
-        adsFov: 56, adsSpread: 0.35, bloom: 0.006
+        adsFov: 56, adsSpread: 0.35, bloom: 0.006,
+        burn: 0
     },
     rail: {
         id: 'rail',
@@ -106,7 +109,8 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
         rarity: 'rare',
         gravity: 0,
         homing: 0,
-        adsFov: 34, adsSpread: 0, bloom: 0
+        adsFov: 34, adsSpread: 0, bloom: 0,
+        burn: 0
     },
     plasma: {
         id: 'plasma',
@@ -132,7 +136,8 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
         rarity: 'epic',
         gravity: 14,
         homing: 0,
-        adsFov: 58, adsSpread: 0.5, bloom: 0
+        adsFov: 58, adsSpread: 0.5, bloom: 0,
+        burn: 0
     },
     arc: {
         id: 'arc',
@@ -158,7 +163,37 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
         rarity: 'epic',
         gravity: 0,
         homing: 0,
-        adsFov: 54, adsSpread: 0, bloom: 0
+        adsFov: 54, adsSpread: 0, bloom: 0,
+        burn: 0
+    },
+    ember: {
+        id: 'ember',
+        name: 'Ember Thrower',
+        tagline: 'A cone of voxel fire. Everything it touches keeps burning.',
+        damage: 4,
+        fireRate: 16,
+        magazine: 90,
+        reloadTime: 2.1,
+        spread: 0.2,
+        pellets: 1,
+        projectileSpeed: 0,
+        kind: 'flame',
+        auto: true,
+        explosionRadius: 0,
+        pierce: 0,
+        chain: 0,
+        ricochet: 0,
+        knockback: 0.4,
+        color: 0xff7a2a,
+        tracerLength: 0,
+        recoil: 0.1,
+        rarity: 'rare',
+        gravity: 0,
+        homing: 0,
+        adsFov: 62,
+        adsSpread: 0.8,
+        bloom: 0,
+        burn: 3
     },
     shredder: {
         id: 'shredder',
@@ -184,11 +219,29 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
         rarity: 'epic',
         gravity: 0,
         homing: 0,
-        adsFov: 54, adsSpread: 0.3, bloom: 0.01
+        adsFov: 54, adsSpread: 0.3, bloom: 0.01,
+        burn: 0
     }
 }
 
 export const WEAPON_IDS = Object.keys(WEAPONS) as WeaponId[]
+
+/** Weapons the player can pick from before deploying. */
+export const STARTER_WEAPONS: WeaponId[] = ['pulse', 'scatter', 'needler']
+
+export const TURRET = {
+    cost: 60,
+    duration: 14,
+    fireRate: 6,
+    damage: 11,
+    range: 22,
+    maxActive: 2
+}
+
+export const BURN = {
+    dps: 9,
+    tick: 0.5
+}
 
 export const MELEE = {
     slamDamage: 90,
@@ -333,6 +386,44 @@ export const ENEMIES: Record<EnemyId, EnemyDef> = {
         headY: 1.7,
         headRadius: 0.3
     },
+    bomber: {
+        id: 'bomber',
+        name: 'Bomber',
+        hp: 30,
+        speed: 7.4,
+        damage: 30,
+        attackRange: 2.4,
+        attackCooldown: 1,
+        scale: 0.9,
+        radius: 0.55,
+        height: 1.4,
+        score: 20,
+        behavior: 'bomber',
+        minWave: 4,
+        weight: wave => 2 + wave * 0.5,
+        energy: 6,
+        headY: 0,
+        headRadius: 0
+    },
+    mender: {
+        id: 'mender',
+        name: 'Mender',
+        hp: 70,
+        speed: 4.4,
+        damage: 6,
+        attackRange: 9,
+        attackCooldown: 2.6,
+        scale: 1,
+        radius: 0.6,
+        height: 2,
+        score: 40,
+        behavior: 'mender',
+        minWave: 6,
+        weight: wave => 1 + wave * 0.2,
+        energy: 14,
+        headY: 1.72,
+        headRadius: 0.3
+    },
     titan: {
         id: 'titan',
         name: 'Titan',
@@ -358,24 +449,25 @@ export const ENEMY_IDS = Object.keys(ENEMIES) as EnemyId[]
 export const AFFIXES: Record<EliteAffix, { name: string, color: number }> = {
     swift: { name: 'Swift', color: 0xffe14d },
     armored: { name: 'Armored', color: 0x8fa3b8 },
-    volatile: { name: 'Volatile', color: 0xff6a2a }
+    volatile: { name: 'Volatile', color: 0xff6a2a },
+    gilded: { name: 'Gilded', color: 0xffd166 }
 }
 
 export function isBossWave(wave: number): boolean {
     return wave > 0 && wave % 5 === 0
 }
 
-export type WaveEvent = 'none' | 'meteors' | 'frenzy' | 'blackout'
+export type WaveEvent = 'none' | 'meteors' | 'frenzy' | 'blackout' | 'bounty'
 
 /** Arena events spice up non-boss waves from wave 3 on, cycling through the list. */
 export function waveEvent(wave: number): WaveEvent {
     if (isBossWave(wave) || wave < 3) return 'none'
-    const order: WaveEvent[] = ['meteors', 'none', 'frenzy', 'none', 'blackout']
+    const order: WaveEvent[] = ['none', 'meteors', 'bounty', 'frenzy', 'none', 'blackout']
     return order[(wave - 3) % order.length]!
 }
 
 export function waveEnemyCount(wave: number): number {
-    return Math.round(7 + wave * 3.2 + Math.pow(wave, 1.35))
+    return Math.round(10 + wave * 4 + Math.pow(wave, 1.4))
 }
 
 export function waveHpMult(wave: number): number {
@@ -423,6 +515,12 @@ export function planWave(wave: number, rng: () => number): WavePlan {
         // The titan arrives after a third of the wave so the arena is busy when it lands.
         const at = Math.floor(spawns.length / 3)
         spawns.splice(at, 0, { enemy: 'titan', affix: null })
+        // from wave 15 the titans come in pairs
+        if (wave >= 15) spawns.splice(Math.floor(spawns.length * 0.6), 0, { enemy: 'titan', affix: null })
+    }
+    if (waveEvent(wave) === 'bounty') {
+        // a gilded brute worth a haul of pickups
+        spawns.splice(Math.floor(spawns.length / 2), 0, { enemy: 'brute', affix: 'gilded' })
     }
 
     return {
@@ -432,14 +530,16 @@ export function planWave(wave: number, rng: () => number): WavePlan {
         spawns,
         hpMult: waveHpMult(wave),
         damageMult: waveDamageMult(wave),
-        maxAlive: Math.min(56, 12 + Math.round(wave * 1.8)),
-        spawnInterval: Math.max(0.45, 1.3 - wave * 0.05),
-        batchSize: Math.min(6, 2 + Math.floor(wave / 3))
+        maxAlive: Math.min(64, 16 + Math.round(wave * 2.4)),
+        spawnInterval: Math.max(0.4, 1.1 - wave * 0.05),
+        batchSize: Math.min(8, 3 + Math.floor(wave / 2))
     }
 }
 
 export function affixHpMult(affix: EliteAffix | null): number {
-    return affix === 'armored' ? 2.2 : affix ? 1.3 : 1
+    if (affix === 'armored') return 2.2
+    if (affix === 'gilded') return 3
+    return affix ? 1.3 : 1
 }
 
 export function affixSpeedMult(affix: EliteAffix | null): number {
@@ -486,7 +586,13 @@ export function defaultStats(): PlayerStats {
         homing: 0,
         bulletSize: 0,
         thorns: 0,
-        secondWind: 0
+        secondWind: 0,
+        incendiary: 0,
+        shrapnel: 0,
+        adrenaline: 0,
+        bulwark: 0,
+        sentry: 0,
+        turretCost: TURRET.cost
     }
 }
 
