@@ -47,7 +47,9 @@ export function voxMaterial(color: number, emissive = 0, glow = 1): THREE.MeshSt
     return mat
 }
 
-export const FLASH_MATERIAL = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 2.5, roughness: 1 })
+export const FLASH_MATERIAL = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xffe6e6, emissiveIntensity: 0.9, roughness: 1 })
+/** Big enemies fill the screen, so their hit flash is only a light tint. */
+export const FLASH_MATERIAL_SOFT = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xffd0d0, emissiveIntensity: 0.3, roughness: 1 })
 
 export function buildModel(parts: VoxPart[], scale = 1): VoxModel {
     const group = new THREE.Group()
@@ -148,44 +150,16 @@ function grip(color = GUN_LIGHT): VoxPart[] {
 
 /** Sight housings sit at y ≈ 0.3 so ADS can line every dot up on the reticle. */
 function sightHousing(kind: 'reddot' | 'holo' | 'scope' | 'iron' | 'ring', color: number): VoxPart[] {
-    switch (kind) {
-        case 'reddot':
-            return [
-                { x: 0, y: 0.2, z: 0.05, w: 0.14, h: 0.05, d: 0.3, color: GUN_DARK },
-                { x: -0.09, y: 0.3, z: 0.05, w: 0.03, h: 0.18, d: 0.22, color: GUN_DARK },
-                { x: 0.09, y: 0.3, z: 0.05, w: 0.03, h: 0.18, d: 0.22, color: GUN_DARK },
-                { x: 0, y: 0.4, z: 0.05, w: 0.2, h: 0.03, d: 0.22, color: GUN_DARK },
-                { x: 0, y: 0.3, z: 0.13, w: 0.04, h: 0.04, d: 0.01, color: 0xff2a2a, emissive: 0xff2a2a, glow: 3 }
-            ]
-        case 'holo':
-            return [
-                { x: 0, y: 0.2, z: 0.0, w: 0.18, h: 0.05, d: 0.26, color: GUN_DARK },
-                { x: 0, y: 0.42, z: 0.1, w: 0.24, h: 0.02, d: 0.03, color: GUN_DARK },
-                { x: 0, y: 0.2, z: 0.1, w: 0.24, h: 0.02, d: 0.03, color: GUN_DARK },
-                { x: -0.12, y: 0.31, z: 0.1, w: 0.02, h: 0.24, d: 0.03, color: GUN_DARK },
-                { x: 0.12, y: 0.31, z: 0.1, w: 0.02, h: 0.24, d: 0.03, color: GUN_DARK },
-                { x: 0, y: 0.31, z: 0.11, w: 0.03, h: 0.03, d: 0.01, color, emissive: color, glow: 1.6 }
-            ]
-        case 'scope':
-            return [
-                { x: 0, y: 0.22, z: 0.0, w: 0.08, h: 0.08, d: 0.16, color: GUN_DARK },
-                { x: 0, y: 0.34, z: 0.05, w: 0.14, h: 0.14, d: 0.62, color: GUN_DARK },
-                { x: 0, y: 0.34, z: 0.38, w: 0.18, h: 0.18, d: 0.08, color: 0x14181f },
-                { x: 0, y: 0.34, z: 0.43, w: 0.12, h: 0.12, d: 0.02, color: 0x8ad8ff, emissive: 0x8ad8ff, glow: 1.6 },
-                { x: 0, y: 0.34, z: -0.28, w: 0.16, h: 0.16, d: 0.06, color: 0x14181f }
-            ]
-        case 'iron':
-            return [
-                { x: 0, y: 0.2, z: 0.62, w: 0.03, h: 0.1, d: 0.03, color: 0xf0f0f0 },
-                { x: -0.07, y: 0.2, z: -0.12, w: 0.03, h: 0.09, d: 0.03, color: GUN_DARK },
-                { x: 0.07, y: 0.2, z: -0.12, w: 0.03, h: 0.09, d: 0.03, color: GUN_DARK }
-            ]
-        case 'ring':
-            return [
-                { x: 0, y: 0.2, z: 0.0, w: 0.14, h: 0.05, d: 0.2, color: GUN_DARK },
-                { x: 0, y: 0.3, z: 0.12, w: 0.05, h: 0.05, d: 0.01, color, emissive: color, glow: 3 }
-            ]
-    }
+    // Only the sniper carries optics on the model; every other reticle lives on the HUD so
+    // nothing sits between you and the target while aiming.
+    if (kind !== 'scope') return []
+    return [
+        { x: 0, y: 0.22, z: 0.0, w: 0.08, h: 0.08, d: 0.16, color: GUN_DARK },
+        { x: 0, y: 0.34, z: 0.05, w: 0.14, h: 0.14, d: 0.62, color: GUN_DARK },
+        { x: 0, y: 0.34, z: 0.38, w: 0.18, h: 0.18, d: 0.08, color: 0x14181f },
+        { x: 0, y: 0.34, z: 0.43, w: 0.12, h: 0.12, d: 0.02, color, emissive: color, glow: 1.2 },
+        { x: 0, y: 0.34, z: -0.28, w: 0.16, h: 0.16, d: 0.06, color: 0x14181f }
+    ]
 }
 
 const WOOD = 0x6b4a2a
@@ -472,8 +446,8 @@ export function enemyParts(id: EnemyId): VoxPart[] {
 }
 
 function wardenParts(): VoxPart[] {
-    const body = 0x4a5566
-    const dark = 0x262c38
+    const body = 0x9aa4b8
+    const dark = 0x2e3442
     const shield = 0x8fa3b8
     const glow = 0x3ff0ff
     return [
@@ -513,8 +487,8 @@ function bomberParts(): VoxPart[] {
 }
 
 function menderParts(): VoxPart[] {
-    const robe = 0x2e6b4a
-    const dark = 0x1a3a2a
+    const robe = 0x4fbf86
+    const dark = 0xe6f4ec
     const glow = 0x7dff5a
     return [
         { x: 0, y: 0.5, z: 0, w: 0.7, h: 1, d: 0.5, color: robe, name: 'body' },
@@ -547,8 +521,8 @@ export function turretParts(): VoxPart[] {
 }
 
 function gruntParts(): VoxPart[] {
-    const body = 0x3d4657
-    const dark = 0x232833
+    const body = 0x8c93a6
+    const dark = 0x2a2f3a
     const eye = 0xff3a3a
     return [
         { x: -0.17, y: 0.42, z: 0, w: 0.26, h: 0.8, d: 0.28, color: dark, name: 'legL', pivot: [-0.17, 0.82, 0] },
@@ -586,8 +560,8 @@ function runnerParts(): VoxPart[] {
 }
 
 function bruteParts(titan: boolean): VoxPart[] {
-    const body = titan ? 0x4a3d6b : 0x5c6b3a
-    const dark = titan ? 0x261e3a : 0x2f3820
+    const body = titan ? 0x5a4a80 : 0x8a9a4a
+    const dark = titan ? 0x2e2448 : 0x3a4428
     const glow = titan ? 0xff6a2a : 0xffb347
     const parts: VoxPart[] = [
         { x: -0.28, y: 0.4, z: 0, w: 0.4, h: 0.76, d: 0.42, color: dark, name: 'legL', pivot: [-0.28, 0.78, 0] },
@@ -618,9 +592,9 @@ function bruteParts(titan: boolean): VoxPart[] {
 }
 
 function spitterParts(): VoxPart[] {
-    const body = 0x6a3d8f
-    const dark = 0x3a1f52
-    const acid = 0x7dff5a
+    const body = 0xb8a06a
+    const dark = 0x5a4a2a
+    const acid = 0xff4dd8
     return [
         { x: -0.18, y: 0.42, z: 0, w: 0.22, h: 0.8, d: 0.24, color: dark, name: 'legL', pivot: [-0.18, 0.82, 0] },
         { x: 0.18, y: 0.42, z: 0, w: 0.22, h: 0.8, d: 0.24, color: dark, name: 'legR', pivot: [0.18, 0.82, 0] },

@@ -16,7 +16,7 @@ import { dealDraft, applyCard } from './upgrades'
 import type { DraftContext } from './upgrades'
 import { ArenaAudio } from './audio'
 import type { ArenaSound } from './audio'
-import { BOX, FLASH_MATERIAL, buildModel, voxMaterial, weaponParts, meleeParts, enemyParts, pickupParts, portalParts, orbitBladeParts, meteorParts, boulderParts, lanternParts, turretParts } from './models'
+import { BOX, FLASH_MATERIAL, FLASH_MATERIAL_SOFT, buildModel, voxMaterial, weaponParts, meleeParts, enemyParts, pickupParts, portalParts, orbitBladeParts, meteorParts, boulderParts, lanternParts, turretParts } from './models'
 import type { VoxModel, VoxPart, PickupKind } from './models'
 
 // ── Public HUD contract ─────────────────────────────────────────────────
@@ -967,7 +967,7 @@ export class VoxelArenaGame {
         this.tracers = new InstancePool(tracerMat, 400)
         this.scene.add(this.tracers.mesh)
         const shotMat = new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false })
-        this.shotPool = new InstancePool(shotMat, 160)
+        this.shotPool = new InstancePool(shotMat, 300)
         this.scene.add(this.shotPool.mesh)
         const shardMat = new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false })
         this.shardPool = new InstancePool(shardMat, this.SHARD_MAX)
@@ -989,12 +989,12 @@ export class VoxelArenaGame {
             arm.rotation.y = Math.PI
             arm.scale.setScalar(VM_SCALE)
         }
-        this.vmArmR.position.set(0.24, -0.25, -0.46)
+        this.vmArmR.position.set(0.3, -0.34, -0.46)
         this.vmArmL.position.set(0.24, -0.28, -0.5)
         this.vmArmL.scale.setScalar(VM_SCALE * 1.5)
         this.vmArmL.visible = false
         // a soft fill light rides with the camera so the gun reads from any angle
-        const fill = new THREE.PointLight(0xfff1dc, 1.6, 3.5, 1.5)
+        const fill = new THREE.PointLight(0xfff1dc, 1.1, 3.5, 1.5)
         fill.position.set(0.4, 0.5, 0.3)
         this.camera.add(fill)
         this.vmKatana = new THREE.Group()
@@ -1810,8 +1810,9 @@ export class VoxelArenaGame {
         const bobY = Math.abs(Math.cos(this.walkPhase)) * 0.02 * moving * grounded
         const ads = this.ads
         // hip pose → aim pose that puts the sight on the camera axis
-        const hip = _v1.set(0.24 + bobX, -0.25 + bobY, -0.46)
-        const aim = _v2.set(0, -this.sightHeight(w?.def) * VM_SCALE, -0.46)
+        const hip = _v1.set(0.3 + bobX, -0.34 + bobY, -0.46)
+        // aiming parks the sight just under the reticle so the gun never covers the target
+        const aim = _v2.set(0, -(this.sightHeight(w?.def) + 0.14) * VM_SCALE, -0.46)
         this.vmArmR.position.copy(hip).lerp(aim, ads)
         this.vmArmR.position.x += this.vmSway.x * (1 - ads * 0.8)
         this.vmArmR.position.y += this.vmSway.y * (1 - ads * 0.8) - this.switchTimer * 1.2
@@ -2107,7 +2108,7 @@ export class VoxelArenaGame {
             t.fireTimer -= dt
             if (t.fireTimer > 0 || t.life < 0.3) continue
             t.fireTimer = 1 / TURRET.fireRate
-            const dir = tc.sub(muzzle).normalize()
+            const dir = tc.clone().sub(muzzle).normalize()
             dir.x += (Math.random() - 0.5) * 0.04
             dir.y += (Math.random() - 0.5) * 0.04
             this.projectiles.push({
@@ -3118,7 +3119,7 @@ export class VoxelArenaGame {
         e.hp -= dmg
         this.damageDealt += dmg
         e.barTimer = 2.5
-        if (e.flashTimer <= 0) for (const m of e.model.meshes) m.material = FLASH_MATERIAL
+        if (e.flashTimer <= 0) for (const m of e.model.meshes) m.material = e.scale >= 1.5 ? FLASH_MATERIAL_SOFT : FLASH_MATERIAL
         e.flashTimer = 0.06
         const kbScale = knockback / Math.max(0.6, e.scale * (e.def.behavior === 'boss' ? 6 : 1.4))
         e.knock.x += dir.x * kbScale * 2.2
@@ -3469,7 +3470,7 @@ export class VoxelArenaGame {
                 shot.alive = false
             } else if (shot.pos.y <= 0 || Math.abs(shot.pos.x) > ARENA_HALF || Math.abs(shot.pos.z) > ARENA_HALF || this.colliders.some(b => b.containsPoint(shot.pos))) {
                 if (shot.blast > 0) this.explode(shot.pos.clone().setY(Math.max(0.3, shot.pos.y)), shot.blast, shot.damage, 0xff6a2a, true)
-                else this.burst(shot.pos.x, Math.max(0.1, shot.pos.y), shot.pos.z, 5, [0x7dff5a], 3, 0.1)
+                else this.burst(shot.pos.x, Math.max(0.1, shot.pos.y), shot.pos.z, 6, [0xff4dd8, 0xffffff], 3, 0.1)
                 shot.alive = false
             }
             if (shot.mesh) {
@@ -3481,11 +3482,17 @@ export class VoxelArenaGame {
                 }
                 continue
             }
-            if (shot.alive && s < this.shotPool.size) {
+            if (shot.alive && s + 2 < this.shotPool.size) {
+                // a bright magenta orb with two fading trail cubes so incoming fire reads at a glance
                 q.setFromAxisAngle(UP, this.elapsed * 6)
-                _c1.set(0x7dff5a).multiplyScalar(1.6)
-                this.shotPool.set(s, shot.pos, q, 0.36, 0.36, 0.36, _c1)
-                s++
+                _c1.set(0xff4dd8).multiplyScalar(1.9)
+                this.shotPool.set(s, shot.pos, q, 0.5, 0.5, 0.5, _c1)
+                const back = _v2.copy(shot.vel).normalize()
+                _c1.set(0xff9ae8).multiplyScalar(1.2)
+                this.shotPool.set(s + 1, _v1.copy(shot.pos).addScaledVector(back, -0.5), q, 0.32, 0.32, 0.32, _c1)
+                _c1.set(0xffc4f0).multiplyScalar(0.8)
+                this.shotPool.set(s + 2, _v1.copy(shot.pos).addScaledVector(back, -0.95), q, 0.18, 0.18, 0.18, _c1)
+                s += 3
             }
         }
         for (let i = s; i < this.shotPool.size; i++) this.shotPool.hide(i)

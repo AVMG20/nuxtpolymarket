@@ -40,46 +40,34 @@
             </div>
         </div>
 
-        <!-- Sights -->
+        <!-- Sights: deliberately minimal so the target stays visible -->
         <div v-if="hud.phase === 'playing' && sightOpacity > 0" class="pointer-events-none absolute inset-0 flex items-center justify-center" :style="{ opacity: sightOpacity }">
             <template v-if="hud.sight === 'reddot'">
-                <div class="relative flex size-44 items-center justify-center rounded-full border-[6px] border-black/90 shadow-[inset_0_0_30px_rgba(0,0,0,0.6),0_0_0_2px_rgba(255,255,255,0.08)]">
-                    <div class="absolute inset-0 rounded-full bg-red-500/[0.04]" />
-                    <span class="size-1.5 rounded-full bg-red-500 shadow-[0_0_6px_2px_rgba(255,40,40,0.9)]" :class="hud.hitMarker > 0 ? 'scale-150' : ''" />
+                <div class="relative flex size-14 items-center justify-center rounded-full border border-white/10">
+                    <span class="size-1.5 rounded-full bg-red-500 shadow-[0_0_5px_1px_rgba(255,40,40,0.9)]" />
                 </div>
             </template>
             <template v-else-if="hud.sight === 'holo'">
-                <div class="relative flex size-48 items-center justify-center">
-                    <div class="absolute inset-0 rounded-md border-[6px] border-black/90" />
-                    <div class="absolute size-16 rounded-full border-2 border-red-500/90 shadow-[0_0_8px_rgba(255,60,60,0.8)]" />
-                    <span class="size-1 rounded-full bg-red-500 shadow-[0_0_6px_2px_rgba(255,40,40,0.9)]" />
-                    <span class="absolute left-1/2 top-9 h-3 w-px bg-red-500/90" />
-                    <span class="absolute left-1/2 bottom-9 h-3 w-px bg-red-500/90" />
-                    <span class="absolute top-1/2 left-9 h-px w-3 bg-red-500/90" />
-                    <span class="absolute top-1/2 right-9 h-px w-3 bg-red-500/90" />
+                <div class="relative flex size-12 items-center justify-center rounded-full border border-red-500/80 shadow-[0_0_6px_rgba(255,60,60,0.5)]">
+                    <span class="size-1 rounded-full bg-red-500 shadow-[0_0_5px_1px_rgba(255,40,40,0.9)]" />
                 </div>
             </template>
             <template v-else-if="hud.sight === 'ring'">
-                <div class="relative flex size-40 items-center justify-center rounded-full border-4 border-black/90">
-                    <div class="absolute size-20 rounded-full border-2 border-lime-300/90 shadow-[0_0_10px_rgba(125,255,90,0.8)]" />
-                    <span class="size-1.5 rounded-full bg-lime-300 shadow-[0_0_6px_2px_rgba(125,255,90,0.9)]" />
+                <div class="relative flex size-14 items-center justify-center rounded-full border border-lime-300/80 shadow-[0_0_6px_rgba(125,255,90,0.5)]">
+                    <span class="size-1.5 rounded-full bg-lime-300 shadow-[0_0_5px_1px_rgba(125,255,90,0.9)]" />
                 </div>
             </template>
             <template v-else-if="hud.sight === 'iron'">
-                <div class="relative flex size-20 items-center justify-center">
-                    <span class="absolute left-1/2 top-1/2 h-4 w-0.5 -translate-x-1/2 bg-orange-300 shadow-[0_0_6px_rgba(255,162,58,0.9)]" />
-                    <span class="absolute left-2 top-1/2 h-0.5 w-4 bg-white/70" />
-                    <span class="absolute right-2 top-1/2 h-0.5 w-4 bg-white/70" />
+                <div class="relative flex size-10 items-center justify-center">
+                    <span class="absolute left-1/2 top-1/2 h-3 w-0.5 -translate-x-1/2 bg-orange-300 shadow-[0_0_4px_rgba(255,162,58,0.9)]" />
                 </div>
             </template>
             <template v-else-if="hud.sight === 'scope'">
                 <div class="scope-mask absolute inset-0" />
-                <div class="relative flex size-[76vmin] items-center justify-center rounded-full border-[3px] border-white/10">
-                    <span class="absolute left-1/2 top-0 h-full w-px bg-black/85" />
-                    <span class="absolute top-1/2 left-0 h-px w-full bg-black/85" />
-                    <span v-for="i in 4" :key="'v' + i" class="absolute left-1/2 h-px w-3 -translate-x-1/2 bg-black/80" :style="{ top: (50 + i * 6) + '%' }" />
-                    <span v-for="i in 4" :key="'h' + i" class="absolute top-1/2 h-3 w-px -translate-y-1/2 bg-black/80" :style="{ left: (50 + i * 6) + '%' }" />
-                    <span class="size-1.5 rounded-full bg-red-500 shadow-[0_0_8px_2px_rgba(255,40,40,0.9)]" />
+                <div class="relative flex size-[76vmin] items-center justify-center rounded-full border border-white/10">
+                    <span class="absolute left-1/2 top-0 h-full w-px bg-black/60" />
+                    <span class="absolute top-1/2 left-0 h-px w-full bg-black/60" />
+                    <span class="size-1.5 rounded-full bg-red-500 shadow-[0_0_6px_2px_rgba(255,40,40,0.9)]" />
                     <span class="absolute bottom-[12%] font-mono text-[10px] tracking-[0.4em] text-white/40">BOLT · 4×</span>
                 </div>
             </template>
