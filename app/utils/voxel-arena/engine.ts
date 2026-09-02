@@ -65,6 +65,8 @@ export interface ArenaHud {
     abilityCost: number
     wave: number
     remaining: number
+    /** Total spawns planned for this wave, for the progress bar. */
+    waveTotal: number
     alive: number
     kills: number
     score: number
@@ -113,6 +115,7 @@ export function createHud(): ArenaHud {
         abilityCost: 50,
         wave: 0,
         remaining: 0,
+        waveTotal: 1,
         alive: 0,
         kills: 0,
         score: 0,
@@ -412,8 +415,6 @@ export class VoxelArenaGame {
     private slideDir = new THREE.Vector3()
     private slamming = false
     private headshots = 0
-    private streakCount = 0
-    private streakTimer = 0
     private event: WaveEvent = 'none'
     private meteorTimer = 0
     private meteors: Meteor[] = []
@@ -465,6 +466,7 @@ export class VoxelArenaGame {
     private spawnInterval = 1
     private batchSize = 2
     private waveClearTimer = -1
+    private waveTotal = 1
     private bossEnemy: Enemy | null = null
 
     // input
@@ -941,7 +943,6 @@ export class VoxelArenaGame {
         this.slideTimer = 0
         this.slamming = false
         this.headshots = 0
-        this.streakCount = 0
         this.event = 'none'
         for (const m of this.meteors) {
             this.scene.remove(m.mesh)
@@ -1018,6 +1019,7 @@ export class VoxelArenaGame {
         this.wave++
         const plan = planWave(this.wave, randomFloat)
         this.spawnQueue = plan.spawns
+        this.waveTotal = plan.spawns.length
         this.waveHpMult = plan.hpMult
         this.waveDmgMult = plan.damageMult
         this.maxAlive = plan.maxAlive
@@ -2487,7 +2489,6 @@ export class VoxelArenaGame {
         if (e.roarTimer <= 0 && e.state === 'chase') {
             e.roarTimer = 9
             this.audio.play('boss', 0.6)
-            this.ui.toast('The Titan calls reinforcements', '#ff6a2a')
             for (let i = 0; i < 3; i++) {
                 const at = e.pos.clone()
                 at.x += (Math.random() - 0.5) * 4
@@ -2508,7 +2509,6 @@ export class VoxelArenaGame {
             this.scene.add(mesh)
             this.enemyShots.push({ pos: from, vel: v, life: 4, damage: e.damage * 0.9, alive: true, gravity: 30, mesh, blast: 4 })
             this.audio.play('charge', 0.8)
-            this.ui.toast('Incoming boulder', '#ff6a2a')
             const armR = e.model.parts.get('armR')
             if (armR) armR.rotation.x = -2.4
         }
@@ -2614,14 +2614,6 @@ export class VoxelArenaGame {
         this.popup(center.clone().add(new THREE.Vector3(0, 0.6, 0)), `+${gained}`, e.affix ? hexToCss(AFFIXES[e.affix].color) : '#a3e635', boss ? 30 : 14)
         this.hitMarker = 0.2
         this.hud.hitKind = 'kill'
-        if (this.streakTimer > 0) {
-            this.streakCount++
-            const label = this.streakCount === 2 ? 'DOUBLE KILL' : this.streakCount === 3 ? 'TRIPLE KILL' : this.streakCount === 4 ? 'QUAD KILL' : this.streakCount >= 5 ? 'RAMPAGE' : ''
-            if (label) this.ui.toast(label, this.streakCount >= 5 ? '#f472b6' : '#fde047')
-        } else {
-            this.streakCount = 1
-        }
-        this.streakTimer = 1.1
 
         // the body blasts into its own voxels
         this.shatter(e, dir)
@@ -2651,7 +2643,7 @@ export class VoxelArenaGame {
             if (boss) this.spawnPickup('overdrive', e.pos.clone().add(new THREE.Vector3(2, 0, 0)))
         }
         this.removeEnemy(e)
-        if (boss) this.ui.toast('TITAN DESTROYED', '#fbbf24')
+        if (boss) this.ui.banner('TITAN DOWN', 'The arena is yours', 'clear')
     }
 
     private shatter(e: Enemy, dir: THREE.Vector3): void {
@@ -2948,17 +2940,17 @@ export class VoxelArenaGame {
         switch (p.kind) {
             case 'health':
                 this.hp = Math.min(this.stats.maxHealth, this.hp + this.stats.maxHealth * 0.3)
-                this.ui.toast('+30% health', '#3dff7a')
+                this.popup(p.pos.clone().add(new THREE.Vector3(0, 0.8, 0)), `+${Math.round(this.stats.maxHealth * 0.3)} HP`, '#3dff7a', 16)
                 this.audio.play('pickup')
                 break
             case 'energy':
                 this.energy = Math.min(this.stats.energyMax, this.energy + 40)
-                this.ui.toast('+40 energy', '#4da6ff')
+                this.popup(p.pos.clone().add(new THREE.Vector3(0, 0.8, 0)), '+40 ENERGY', '#4da6ff', 16)
                 this.audio.play('pickup')
                 break
             case 'overdrive':
                 this.overdriveTimer = 10
-                this.ui.toast('OVERDRIVE — double damage', '#ff3a3a')
+                this.ui.toast('Overdrive', '#ff3a3a')
                 this.audio.play('pickup-weapon')
                 break
             case 'weapon':
@@ -3270,7 +3262,6 @@ export class VoxelArenaGame {
                 if (this.comboTimer <= 0) this.combo = 0
             }
             if (this.hitSoundTimer > 0) this.hitSoundTimer -= dt
-            if (this.streakTimer > 0) this.streakTimer -= dt
             this.updatePlayer(dt)
             this.updateEnemies(dt)
             this.updateProjectiles(dt)
@@ -3336,6 +3327,7 @@ export class VoxelArenaGame {
         h.abilityCost = this.stats.abilityCost
         h.wave = this.wave
         h.remaining = this.spawnQueue.length + this.enemies.length
+        h.waveTotal = this.waveTotal
         h.alive = this.enemies.length
         h.kills = this.kills
         h.score = this.score
