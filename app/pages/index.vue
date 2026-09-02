@@ -158,6 +158,14 @@ const arcadeGames = [
     to: '/firewall',
     gradient: 'from-cyan-950 via-slate-900 to-slate-950',
     iconColor: 'text-cyan-300'
+  },
+  {
+    name: 'Meadowbrawl',
+    description: 'Top-down melee roguelite — chain combos, dodge telegraphs and stack absurd boons across 20 waves',
+    icon: 'i-lucide-swords',
+    to: '/meadowbrawl',
+    gradient: 'from-green-950 via-emerald-900 to-amber-950',
+    iconColor: 'text-amber-300'
   }
 ]
 
