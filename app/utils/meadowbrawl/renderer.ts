@@ -6,12 +6,21 @@ import { GROUND_YS as YS } from './types'
 import type { TreeDeco, WorldLayout } from './world'
 import { WEAPONS } from './weapons'
 import { clamp, lerp } from './geometry'
+import { SpriteLibrary } from './sprites'
+import { CORPSE_TIME, SPAWN_RISE } from './engine'
 
 export const VIEW_W = 1120
 export const VIEW_H = 630
 const TS = 1.25
 
 type Ctx = CanvasRenderingContext2D
+
+/** Sheet cell pixels → view pixels. A 2.2-unit character lands around 54px. */
+const SPRITE_SCALE = 0.62
+
+const SHEET_FOR_WEAPON: Record<Player['weapon'], string> = {
+    sword: 'knight', greataxe: 'berserker', spear: 'lancer', daggers: 'assassin', warhammer: 'juggernaut', scythe: 'reaper'
+}
 
 const TREE_PALETTES = [
     ['#d97c2b', '#f0a13d', '#f6c35a', '#a8531f'],
@@ -64,6 +73,8 @@ export class MeadowbrawlRenderer {
     private dpr = 1
     camX = 0
     camY = 0
+    /** Pre-rendered character sprites; vector figures draw until they load. */
+    sprites = new SpriteLibrary()
     private camInit = false
     private t = 0
     private lowHpPulse = 0
@@ -1141,9 +1152,58 @@ export class MeadowbrawlRenderer {
         ctx.globalAlpha = 1
     }
 
+    /** Which sheet, animation and phase the player is in right now. */
+    private playerPose(p: Player): { anim: string, t: number, angle: number } {
+        const g = this.game
+        const s = p.special
+        if (g.phase === 'dead') return { anim: 'death', t: Math.min(0.999, g.deathT / 1.0), angle: p.facing }
+        if (p.dodge) return { anim: 'roll', t: p.dodge.t / p.dodge.dur, angle: Math.atan2(p.dodge.dy, p.dodge.dx) }
+        if (p.skewer) return { anim: 'stab', t: 0.3 + p.skewer.t / p.skewer.dur * 0.5, angle: p.facing }
+        if (s) {
+            switch (s.kind) {
+                case 'dash': return { anim: 'run', t: (this.t * 3) % 1, angle: p.facing }
+                case 'leap': return { anim: 'jumpchop', t: clamp(s.t / (s.dur + 0.3), 0, 0.999), angle: p.facing }
+                case 'slam': return { anim: 'jumpchop', t: clamp(s.t / (s.dur + 0.35), 0, 0.999), angle: p.facing }
+                case 'sweep': return { anim: 'spin', t: clamp(s.t / (s.dur + 0.3), 0, 0.999), angle: p.facing }
+                case 'whirl': return { anim: 'spin', t: (s.t * 2.5) % 1, angle: p.facing }
+                case 'backstab': return { anim: 'stab', t: clamp(s.t / (s.dur + 0.18), 0, 0.999), angle: p.facing }
+            }
+        }
+        if (p.fx.shieldWall > 0) return { anim: 'block', t: (this.t * 1.5) % 1, angle: p.facing }
+        if (p.castT > 0) return { anim: p.castKind, t: 1 - p.castT / 0.45, angle: p.facing }
+        const a = p.attack
+        if (a) {
+            const total = a.windup + a.active + a.recovery
+            const elapsed = a.phase === 'windup' ? a.t : a.phase === 'active' ? a.windup + a.t : a.windup + a.active + a.t
+            // The clip's impact sits around 45% in; line the active window up with it.
+            const k = a.phase === 'windup' ? (a.t / a.windup) * 0.4 : a.phase === 'active' ? 0.4 + (a.t / a.active) * 0.2 : 0.6 + (a.t / a.recovery) * 0.4
+            void total
+            void elapsed
+            const anim = a.def.finisher ? 'finisher' : a.index % 2 === 0 ? 'attack1' : 'attack2'
+            return { anim, t: clamp(k, 0, 0.999), angle: a.dir }
+        }
+        if (p.hurtFlash > 0.2) return { anim: 'hit', t: 1 - (p.hurtFlash - 0.2) / 0.15, angle: p.facing }
+        if (p.moving) return { anim: 'run', t: ((p.walk * (p.sprinting ? 0.12 : 0.09)) % 1), angle: p.sprinting ? p.facing : p.aim }
+        return { anim: 'idle', t: (this.t * 0.6) % 1, angle: p.aim }
+    }
+
     private drawPlayer(ctx: Ctx, p: Player, sx: number, sy: number) {
         const g = this.game
         const w = WEAPONS[p.weapon]
+        if (this.sprites.loaded) {
+            const pose = this.playerPose(p)
+            const z = p.z + (p.dodge ? Math.sin(p.dodge.t / p.dodge.dur * Math.PI) * 6 : 0)
+            const hurt = p.hurtFlash > 0 && Math.floor(this.t * 30) % 2 === 0
+            const blink = p.invuln > 0 && !p.dodge && p.z === 0 && Math.floor(this.t * 20) % 3 === 0
+            ctx.save()
+            if (blink) ctx.globalAlpha = 0.55
+            if (p.fx.smoke > 0) ctx.globalAlpha = 0.4
+            const sheet = SHEET_FOR_WEAPON[p.weapon]
+            const tint = hurt ? { color: '#ff6a6a', alpha: 0.7 } : p.fx.bloodrage > 0 ? { color: '#ff4030', alpha: 0.18 + Math.sin(this.t * 10) * 0.08 } : p.fx.ironSkin > 0 ? { color: '#c8d4ff', alpha: 0.25 } : undefined
+            this.sprites.draw(ctx, sheet, pose.anim, pose.angle, pose.t, sx, sy - z, SPRITE_SCALE * g.playerScale, tint)
+            ctx.restore()
+            return
+        }
         const facingLeft = Math.cos(p.facing) < 0
         const bob = p.moving && !p.dodge ? Math.abs(Math.sin(p.walk)) * 2.5 : Math.sin(this.t * 3) * 0.8
         const rollZ = (p.dodge ? Math.sin(p.dodge.t / p.dodge.dur * Math.PI) * 10 : 0) + p.z
@@ -1545,6 +1605,7 @@ export class MeadowbrawlRenderer {
         const outline = 'rgba(20,14,24,0.95)'
         const flash = e.hitFlash > 0
         const windupFlash = e.state === 'windup' && e.attack && e.stateT / e.attack.windup > 0.82 && Math.floor(t * 40) % 2 === 0
+        if (this.sprites.loaded && this.drawEnemySprite(ctx, e, sx, sy, flash || !!windupFlash)) return
         const facingLeft = Math.cos(e.facing) < 0
         const dir = facingLeft ? -1 : 1
         const squash = e.squash > 0 ? 1 - e.squash * 0.25 : 1
@@ -1667,6 +1728,113 @@ export class MeadowbrawlRenderer {
                 ctx.fillRect(hx, hy - 4, wdt * clamp(e.shield.hp / e.shield.max, 0, 1), 2)
             }
         }
+    }
+
+    private enemyPose(e: Enemy): { anim: string, t: number, angle: number } {
+        const g = this.game
+        if (!e.alive) return { anim: 'death', t: clamp(e.deadT / CORPSE_TIME, 0, 0.999), angle: e.facing }
+        switch (e.state) {
+            case 'spawn': return { anim: 'spawn', t: clamp(e.stateT / SPAWN_RISE, 0, 0.999), angle: e.facing }
+            case 'stagger': return { anim: 'hit', t: clamp(e.stateT / Math.max(0.2, e.stunT), 0, 0.999), angle: e.facing }
+            case 'windup': {
+                const a = e.attack!
+                if (a.kind === 'charge') return { anim: 'taunt', t: clamp(e.stateT / a.windup, 0, 0.999), angle: a.dir }
+                // Hold the wind-up pose, then snap through the swing on release.
+                return { anim: 'attack', t: clamp(e.stateT / a.windup, 0, 1) * 0.45, angle: a.dir }
+            }
+            case 'attack': {
+                const a = e.attack!
+                if (a.kind === 'charge') return { anim: 'run', t: (e.walk * 0.1) % 1, angle: a.dir }
+                return { anim: 'attack', t: 0.5, angle: a.dir }
+            }
+            case 'recover': {
+                const a = e.attack
+                const k = a ? clamp(e.stateT / a.recover, 0, 0.999) : 0
+                return { anim: a?.kind === 'charge' ? 'idle' : 'attack', t: a?.kind === 'charge' ? (g.time * 0.5) % 1 : 0.5 + k * 0.5, angle: a?.dir ?? e.facing }
+            }
+            case 'chase': {
+                const moving = e.frozen <= 0
+                if (!moving) return { anim: 'idle', t: 0, angle: e.facing }
+                return { anim: e.type === 'swarmer' || e.type === 'charger' ? 'run' : 'walk', t: (e.walk * (e.type === 'swarmer' ? 0.14 : 0.1)) % 1, angle: e.facing }
+            }
+        }
+        return { anim: 'idle', t: (g.time * 0.4 + e.seed) % 1, angle: e.facing }
+    }
+
+    private drawEnemySprite(ctx: Ctx, e: Enemy, sx: number, sy: number, flash: boolean): boolean {
+        const pose = this.enemyPose(e)
+        const tint = flash
+? { color: '#ffffff', alpha: 0.85 }
+            : e.frozen > 0
+? { color: '#9fd8ff', alpha: 0.55 }
+            : e.burn
+? { color: '#ff8c2a', alpha: 0.3 }
+            : e.slow > 0
+? { color: '#bfe6ff', alpha: 0.3 }
+            : e.veteran
+? { color: '#7a1010', alpha: 0.38 }
+            : undefined
+        ctx.save()
+        if (!e.alive) ctx.globalAlpha = 1 - clamp((e.deadT - CORPSE_TIME * 0.6) / (CORPSE_TIME * 0.4), 0, 1)
+        const squash = e.squash > 0 ? 1 - e.squash * 0.15 : 1
+        ctx.translate(sx, sy)
+        ctx.scale(2 - squash, squash)
+        const ok = this.sprites.draw(ctx, e.type, pose.anim, pose.angle, pose.t, 0, 0, SPRITE_SCALE * (e.veteran ? 1.15 : 1), tint)
+        ctx.restore()
+        if (!ok) return false
+        const t = this.t
+        // Status overlays shared with the vector path.
+        ctx.save()
+        ctx.translate(sx, sy)
+        if (e.burn && e.alive) {
+            ctx.fillStyle = 'rgba(255,140,40,0.8)'
+            for (let i = 0; i < 3; i++) {
+                ellipse(ctx, Math.sin(t * 12 + i * 2) * 6, -e.def.height * 0.5 - Math.abs(Math.sin(t * 9 + i)) * 12, 3, 5)
+                ctx.fill()
+            }
+        }
+        if (e.marked > 0 && e.alive) {
+            const pulse = 1 + Math.sin(t * 8) * 0.12
+            ctx.save()
+            ctx.translate(0, -e.def.height - 22 + Math.sin(t * 4) * 2)
+            ctx.scale(pulse, pulse)
+            ctx.fillStyle = '#c9a3ff'
+            ctx.strokeStyle = 'rgba(40,10,70,0.9)'
+            ctx.lineWidth = 1.5
+            ctx.beginPath()
+            ctx.arc(0, -3, 6, Math.PI, 0)
+            ctx.lineTo(6, 3)
+            ctx.lineTo(3, 6)
+            ctx.lineTo(-3, 6)
+            ctx.lineTo(-6, 3)
+            ctx.closePath()
+            ctx.fill()
+            ctx.stroke()
+            ctx.restore()
+        }
+        if (e.state === 'recover' && e.attack?.kind === 'charge' && e.alive) {
+            ctx.fillStyle = '#ffe066'
+            for (let i = 0; i < 3; i++) {
+                const a = t * 5 + i * 2.1
+                ellipse(ctx, Math.cos(a) * 12, -e.def.height - 8 + Math.sin(a) * 4, 2.5, 2.5)
+                ctx.fill()
+            }
+        }
+        ctx.restore()
+        if (e.alive && e.hp < e.maxHp && !e.def.elite) {
+            const wdt = Math.max(24, e.r * 2.6)
+            const hx = sx - wdt / 2
+            const hy = sy - e.def.height - 12
+            ctx.fillStyle = 'rgba(10,8,14,0.7)'
+            ctx.fillRect(hx - 1, hy - 1, wdt + 2, 5)
+            ctx.fillStyle = '#e04848'
+            ctx.fillRect(hx, hy, wdt * clamp(e.hp / e.maxHp, 0, 1), 3)
+            if (e.shield && !e.shield.broken) {
+                ctx.fillStyle = '#7fb3ff'
+                ctx.fillRect(hx, hy - 4, wdt * clamp(e.shield.hp / e.shield.max, 0, 1), 2)
+            }
+        }
+        return true
     }
 
     private drawGrunt(ctx: Ctx, e: Enemy, dir: number, bob: number, tint: (c: string) => string, outline: string) {

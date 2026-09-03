@@ -268,6 +268,7 @@ let resizeObserver: ResizeObserver | null = null
 onMounted(() => {
     if (!canvas.value) return
     renderer = new MeadowbrawlRenderer(canvas.value, game)
+    void renderer.sprites.load()
     resizeObserver = new ResizeObserver(() => renderer?.resize())
     resizeObserver.observe(canvas.value)
     window.addEventListener('keydown', onKeyDown)

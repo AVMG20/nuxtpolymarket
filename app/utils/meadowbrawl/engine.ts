@@ -118,6 +118,9 @@ export interface Player {
     skewer: { t: number, dur: number, dx: number, dy: number, carried: number[], hitIds: Set<number> } | null
     /** True while the axe is thrown (hand is empty). */
     axeOut: boolean
+    /** Seconds left on the ability pose, and which pose. */
+    castT: number
+    castKind: 'cast' | 'throw'
 }
 
 export interface EnemyAttack {
@@ -406,6 +409,10 @@ const MAX_PARTICLES = 900
  * windup + active and the sword turns into a buzzsaw.
  */
 const CHAIN_POINT = 0.7
+/** Seconds an enemy spends rising out of the ground before it acts. */
+export const SPAWN_RISE = 0.8
+/** Seconds a corpse lingers for its death animation. */
+export const CORPSE_TIME = 1.0
 /** Navigation grid cell size in logic units. */
 const NAV_CELL = 40
 const NAV_COLS = Math.ceil(ARENA_W / NAV_CELL)
@@ -610,7 +617,7 @@ export class MeadowbrawlGame {
             hitCount: 0, bloodlust: 0, bloodlustT: 0, phoenixUsed: 0, adrenalineT: 0, z: 0,
             abilityCd: { q: 0, e: 0 }, abilityCdMax: { q: WEAPONS[weapon].abilities[0].cooldown, e: WEAPONS[weapon].abilities[1].cooldown },
             fx: { shieldWall: 0, rally: 0, bloodrage: 0, ironSkin: 0, smoke: 0 },
-            skewer: null, axeOut: false
+            skewer: null, axeOut: false, castT: 0, castKind: 'cast'
         }
     }
 
@@ -942,6 +949,7 @@ export class MeadowbrawlGame {
         p.abilityCd.q = Math.max(0, p.abilityCd.q - dt)
         p.abilityCd.e = Math.max(0, p.abilityCd.e - dt)
         for (const key of Object.keys(p.fx) as (keyof Player['fx'])[]) p.fx[key] = Math.max(0, p.fx[key] - dt)
+        p.castT = Math.max(0, p.castT - dt)
         if (first && (p.abilityCd.q === 0 || p.abilityCd.e === 0) && this.readyPing) {
             this.readyPing = false
             this.emit('abilityReady', p.x, p.y)
@@ -1388,6 +1396,9 @@ export class MeadowbrawlGame {
         const dy = Math.sin(p.aim)
         p.facing = p.aim
         this.emit('ability', p.x, p.y, 1, def.id)
+        const throws: string[] = ['rendingthrow', 'javelinrain', 'fanofknives']
+        p.castKind = throws.includes(def.id) ? 'throw' : 'cast'
+        p.castT = def.id === 'shieldwall' || def.id === 'skewer' ? 0 : 0.45
         switch (def.id) {
             case 'shieldwall':
                 p.fx.shieldWall = 1.5
@@ -2346,7 +2357,7 @@ export class MeadowbrawlGame {
             e.stateT += dt
             switch (e.state) {
                 case 'spawn':
-                    if (e.stateT >= 0.45) {
+                    if (e.stateT >= SPAWN_RISE) {
                         e.state = 'chase'
                         e.stateT = 0
                     }
@@ -2451,7 +2462,7 @@ export class MeadowbrawlGame {
         // Drop corpses after they've faded.
         for (let i = this.enemies.length - 1; i >= 0; i--) {
             const e = this.enemies[i]!
-            if (!e.alive && e.deadT > 0.7) this.enemies.splice(i, 1)
+            if (!e.alive && e.deadT > CORPSE_TIME) this.enemies.splice(i, 1)
         }
     }
 

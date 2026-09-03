@@ -18,13 +18,13 @@ export interface EnemyTypeDef {
 }
 
 export const ENEMY_TYPES: Record<EnemyTypeId, EnemyTypeDef> = {
-    grunt: { id: 'grunt', name: 'Bandit', hp: 32, speed: 98, radius: 13, height: 34, damage: 10, elite: false, poise: false, score: 10 },
-    charger: { id: 'charger', name: 'Tuskhog', hp: 48, speed: 82, radius: 16, height: 26, damage: 16, elite: false, poise: false, score: 20 },
-    swarmer: { id: 'swarmer', name: 'Sprigling', hp: 12, speed: 150, radius: 9, height: 20, damage: 5, elite: false, poise: false, score: 5 },
-    shield: { id: 'shield', name: 'Shieldwarden', hp: 72, speed: 72, radius: 15, height: 38, damage: 14, elite: false, poise: false, shield: 45, score: 30 },
-    ranged: { id: 'ranged', name: 'Thornspitter', hp: 26, speed: 88, radius: 12, height: 32, damage: 8, elite: false, poise: false, score: 25 },
-    ogre: { id: 'ogre', name: 'Bog Ogre', hp: 520, speed: 60, radius: 30, height: 72, damage: 30, elite: true, poise: true, score: 300 },
-    warlord: { id: 'warlord', name: 'Ashen Warlord', hp: 380, speed: 92, radius: 22, height: 50, damage: 22, elite: true, poise: true, shield: 140, score: 300 }
+    grunt: { id: 'grunt', name: 'Bonewalker', hp: 32, speed: 98, radius: 13, height: 50, damage: 10, elite: false, poise: false, score: 10 },
+    charger: { id: 'charger', name: 'Bone Rusher', hp: 48, speed: 82, radius: 15, height: 50, damage: 16, elite: false, poise: false, score: 20 },
+    swarmer: { id: 'swarmer', name: 'Skitterling', hp: 12, speed: 150, radius: 9, height: 34, damage: 5, elite: false, poise: false, score: 5 },
+    shield: { id: 'shield', name: 'Bone Warden', hp: 72, speed: 72, radius: 15, height: 54, damage: 14, elite: false, poise: false, shield: 45, score: 30 },
+    ranged: { id: 'ranged', name: 'Bone Marksman', hp: 26, speed: 88, radius: 12, height: 50, damage: 8, elite: false, poise: false, score: 25 },
+    ogre: { id: 'ogre', name: 'Bone Colossus', hp: 520, speed: 60, radius: 30, height: 100, damage: 30, elite: true, poise: true, score: 300 },
+    warlord: { id: 'warlord', name: 'Bone Warlord', hp: 380, speed: 92, radius: 22, height: 74, damage: 22, elite: true, poise: true, shield: 140, score: 300 }
 }
 
 /** Which wave each archetype first appears on. */
