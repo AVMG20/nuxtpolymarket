@@ -287,6 +287,11 @@ const MAX_PARTICLES = 900
  * windup + active and the sword turns into a buzzsaw.
  */
 const CHAIN_POINT = 0.7
+/** Navigation grid cell size in logic units. */
+const NAV_CELL = 40
+const NAV_COLS = Math.ceil(ARENA_W / NAV_CELL)
+const NAV_ROWS = Math.ceil(ARENA_H / NAV_CELL)
+const NAV_STEPS: [number, number][] = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]]
 
 export class MeadowbrawlGame {
     phase: Phase = 'menu'
@@ -327,10 +332,130 @@ export class MeadowbrawlGame {
 
     private nextId = 1
     private ambientT = 0
+    /** Cells an enemy body can't occupy (boulders, trunks, plus a margin). */
+    private navBlocked = new Uint8Array(NAV_COLS * NAV_ROWS)
+    /** Step distance from each cell to the player, -1 where unreachable. */
+    private navDist = new Int32Array(NAV_COLS * NAV_ROWS)
+    private navQueue = new Int32Array(NAV_COLS * NAV_ROWS)
+    private navTimer = 0
 
     constructor() {
         this.world = generateWorld()
         this.player = this.makePlayer('sword')
+        this.rebuildNav()
+    }
+
+    // ------------------------------------------------------------ navigation
+
+    /** Mark the cells obstacles occupy. Call whenever the world changes. */
+    rebuildNav() {
+        this.navBlocked.fill(0)
+        for (let r = 0; r < NAV_ROWS; r++) {
+            for (let c = 0; c < NAV_COLS; c++) {
+                const cx = (c + 0.5) * NAV_CELL
+                const cy = (r + 0.5) * NAV_CELL
+                for (const o of this.world.obstacles) {
+                    if (Math.hypot(cx - o.x, cy - o.y) < o.r + 18) {
+                        this.navBlocked[r * NAV_COLS + c] = 1
+                        break
+                    }
+                }
+            }
+        }
+        this.navTimer = 0
+    }
+
+    private navCell(x: number, y: number): number {
+        const c = clamp(Math.floor(x / NAV_CELL), 0, NAV_COLS - 1)
+        const r = clamp(Math.floor(y / NAV_CELL), 0, NAV_ROWS - 1)
+        return r * NAV_COLS + c
+    }
+
+    /** Breadth-first flood from the player so every cell knows the way in. */
+    private updateNav() {
+        const dist = this.navDist
+        const blocked = this.navBlocked
+        dist.fill(-1)
+        let start = this.navCell(this.player.x, this.player.y)
+        if (blocked[start]) {
+            // Player is hugging a rock: seed from the nearest open cell.
+            const sc = start % NAV_COLS
+            const sr = Math.floor(start / NAV_COLS)
+            let best = -1
+            let bestD = Infinity
+            for (let r = Math.max(0, sr - 2); r <= Math.min(NAV_ROWS - 1, sr + 2); r++) {
+                for (let c = Math.max(0, sc - 2); c <= Math.min(NAV_COLS - 1, sc + 2); c++) {
+                    const i = r * NAV_COLS + c
+                    if (blocked[i]) continue
+                    const d = Math.hypot((c + 0.5) * NAV_CELL - this.player.x, (r + 0.5) * NAV_CELL - this.player.y)
+                    if (d < bestD) {
+                        bestD = d
+                        best = i
+                    }
+                }
+            }
+            if (best < 0) return
+            start = best
+        }
+        const q = this.navQueue
+        let head = 0
+        let tail = 0
+        q[tail++] = start
+        dist[start] = 0
+        while (head < tail) {
+            const cur = q[head++]!
+            const cc = cur % NAV_COLS
+            const cr = Math.floor(cur / NAV_COLS)
+            const d = dist[cur]! + 1
+            for (const [dc, dr] of NAV_STEPS) {
+                const nc = cc + dc
+                const nr = cr + dr
+                if (nc < 0 || nr < 0 || nc >= NAV_COLS || nr >= NAV_ROWS) continue
+                const ni = nr * NAV_COLS + nc
+                if (blocked[ni] || dist[ni] !== -1) continue
+                // No cutting corners through a rock.
+                if (dc !== 0 && dr !== 0 && (blocked[cr * NAV_COLS + nc] || blocked[nr * NAV_COLS + cc])) continue
+                dist[ni] = d
+                q[tail++] = ni
+            }
+        }
+    }
+
+    /** Direction to walk from (x, y) toward the player, around obstacles. */
+    private navDirection(x: number, y: number): Vec | null {
+        const cell = this.navCell(x, y)
+        const cc = cell % NAV_COLS
+        const cr = Math.floor(cell / NAV_COLS)
+        const here = this.navDist[cell]!
+        let best = -1
+        let bestD = here === -1 ? Infinity : here
+        for (const [dc, dr] of NAV_STEPS) {
+            const nc = cc + dc
+            const nr = cr + dr
+            if (nc < 0 || nr < 0 || nc >= NAV_COLS || nr >= NAV_ROWS) continue
+            const ni = nr * NAV_COLS + nc
+            const d = this.navDist[ni]!
+            if (d === -1) continue
+            if (dc !== 0 && dr !== 0 && (this.navBlocked[cr * NAV_COLS + nc] || this.navBlocked[nr * NAV_COLS + cc])) continue
+            if (d < bestD) {
+                bestD = d
+                best = ni
+            }
+        }
+        if (best < 0) return null
+        const tx = (best % NAV_COLS + 0.5) * NAV_CELL
+        const ty = (Math.floor(best / NAV_COLS) + 0.5) * NAV_CELL
+        const a = Math.atan2(ty - y, tx - x)
+        return { x: Math.cos(a), y: Math.sin(a) }
+    }
+
+    /** True when nothing solid sits between an enemy and the player. */
+    hasLineOfSight(e: Enemy): boolean {
+        const p = this.player
+        for (const o of this.world.obstacles) {
+            if (inSegment(e, p, o.r + e.r * 0.8, o, 0)) return false
+        }
+        return true
     }
 
     // ------------------------------------------------------------------ setup
@@ -391,6 +516,7 @@ export class MeadowbrawlGame {
 
     startRun(weapon: WeaponId = 'sword') {
         this.world = generateWorld()
+        this.rebuildNav()
         this.player = this.makePlayer(weapon)
         this.enemies = []
         this.projectiles = []
@@ -1477,9 +1603,14 @@ export class MeadowbrawlGame {
 
     private updateEnemies(dt: number) {
         const p = this.player
+        this.navTimer -= dt
+        if (this.navTimer <= 0) {
+            this.navTimer = 0.1
+            this.updateNav()
+        }
         // Once the wave has finished spawning and only stragglers remain,
         // they come to you — no kiting the last thornspitter across the map.
-        this.finalRush = this.spawnQueue.length === 0 && this.aliveEnemies <= 4
+        this.finalRush = this.spawnQueue.length === 0 && this.aliveEnemies <= 6
         for (const e of this.enemies) {
             if (!e.alive) {
                 e.deadT += dt
@@ -1657,8 +1788,16 @@ export class MeadowbrawlGame {
             const a = Math.atan2(ty - e.y, tx - e.x)
             return { x: Math.cos(a), y: Math.sin(a) }
         }
+        const los = this.hasLineOfSight(e)
         let mx = Math.cos(toP)
         let my = Math.sin(toP)
+        if (!los) {
+            const nav = this.navDirection(e.x, e.y)
+            if (nav) {
+                mx = nav.x
+                my = nav.y
+            }
+        }
         const ready = e.attackCd <= 0
         const dmg = e.damage
 
@@ -1688,20 +1827,20 @@ export class MeadowbrawlGame {
                 if (ready && d < 62 + p.r) begin({ kind: 'melee', windup: 0.7, reach: 64, halfAngle: 0.9, knockback: 300, recover: 0.6, lunge: 18 })
                 break
             case 'ranged': {
-                if (d < 180 && !this.finalRush) {
+                if (d < 180 && !this.finalRush && los) {
                     mx = -mx
                     my = -my
-                } else if (d < 340 && !this.finalRush) {
+                } else if (d < 340 && !this.finalRush && los) {
                     // Hold the line, sidestep a little.
                     const side = Math.sin(e.wander + this.time * 1.3)
                     mx = Math.cos(toP + Math.PI / 2) * side * 0.5
                     my = Math.sin(toP + Math.PI / 2) * side * 0.5
                 }
-                if (ready && d < 420 && d > 120) begin({ kind: 'shot', windup: 0.85, recover: 0.4, tracking: 0.7 })
+                if (ready && los && d < 420 && d > 120) begin({ kind: 'shot', windup: 0.85, recover: 0.4, tracking: 0.7 })
                 break
             }
             case 'charger':
-                if (ready && d < 320 && d > 40) begin({ kind: 'charge', windup: 0.75, chargeDur: 0.62, chargeSpeed: 560, knockback: 320, recover: 1.0, tracking: 0.65 })
+                if (ready && los && d < 320 && d > 40) begin({ kind: 'charge', windup: 0.75, chargeDur: 0.62, chargeSpeed: 560, knockback: 320, recover: 1.0, tracking: 0.65 })
                 else if (d < 60) {
                     // Too close to charge: shove and back off a step.
                     mx = -mx * 0.6
@@ -1718,23 +1857,23 @@ export class MeadowbrawlGame {
                 if (ready && d < 120) {
                     if (randomChance(0.45)) begin({ kind: 'spin', windup: 0.8, radius: 110, damage: dmg * 0.85, knockback: 320, recover: 0.8 })
                     else begin({ kind: 'melee', windup: 0.48, reach: 92, halfAngle: 1.0, knockback: 240, recover: 0.5, lunge: 20 })
-                } else if (ready && d < 360 && d >= 120) {
+                } else if (ready && los && d < 360 && d >= 120) {
                     begin({ kind: 'charge', windup: 0.6, chargeDur: 0.55, chargeSpeed: 540, knockback: 340, recover: 0.8, tracking: 0.75 })
                 }
                 break
         }
 
-        // Steer around boulders in the way.
+        // Slide along anything we're brushing against instead of grinding
+        // into it; the nav field handles the routing.
         for (const o of this.world.obstacles) {
             const dx = o.x - e.x
             const dy = o.y - e.y
             const od = Math.hypot(dx, dy)
-            if (od < o.r + e.r + 60 && od > 0) {
-                const ahead = (dx * mx + dy * my) / od
-                if (ahead > 0.3) {
-                    const side = (dx * my - dy * mx) > 0 ? -1 : 1
-                    mx += -dy / od * side * 1.2
-                    my += dx / od * side * 1.2
+            if (od < o.r + e.r + 6 && od > 0) {
+                const into = (dx * mx + dy * my) / od
+                if (into > 0) {
+                    mx -= dx / od * into
+                    my -= dy / od * into
                 }
             }
         }

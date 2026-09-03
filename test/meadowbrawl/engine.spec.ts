@@ -432,3 +432,62 @@ describe('second pass', () => {
         expect(g.player.specialCd).toBe(0)
     })
 })
+
+describe('pathfinding', () => {
+    it('walks around a boulder that sits between it and the player instead of getting stuck', () => {
+        const g = fresh('sword')
+        const p = g.player
+        g.world.obstacles = [{ x: p.x + 120, y: p.y, r: 40, kind: 'boulder', seed: 0.5, scale: 1.3 }]
+        g.rebuildNav()
+        const e = g.spawnEnemy('grunt', 'north')
+        e.x = p.x + 260
+        e.y = p.y + 4
+        e.state = 'chase'
+        e.entered = true
+        e.attackCd = 99
+        expect(g.hasLineOfSight(e)).toBe(false)
+        step(g, 4)
+        expect(Math.hypot(e.x - p.x, e.y - p.y)).toBeLessThan(70)
+    })
+
+    it('routes around a wall of trunks with a gap', () => {
+        const g = fresh('spear')
+        const p = g.player
+        g.world.obstacles = []
+        for (let i = -6; i <= 6; i++) {
+            if (i === 5) continue
+            g.world.obstacles.push({ x: p.x + 150, y: p.y + i * 32, r: 14, kind: 'tree', seed: 0.5, scale: 1 })
+        }
+        g.rebuildNav()
+        const e = g.spawnEnemy('swarmer', 'north')
+        e.x = p.x + 300
+        e.y = p.y
+        e.state = 'chase'
+        e.entered = true
+        e.attackCd = 99
+        step(g, 5)
+        expect(Math.hypot(e.x - p.x, e.y - p.y)).toBeLessThan(70)
+    })
+
+    it('chargers and thornspitters wait for a clear line before committing', () => {
+        const g = fresh('sword')
+        const p = g.player
+        g.world.obstacles = [{ x: p.x + 120, y: p.y, r: 40, kind: 'boulder', seed: 0.5, scale: 1.3 }]
+        g.rebuildNav()
+        const c = g.spawnEnemy('charger', 'north')
+        c.x = p.x + 250
+        c.y = p.y
+        c.state = 'chase'
+        c.entered = true
+        c.attackCd = 0
+        const r = g.spawnEnemy('ranged', 'north')
+        r.x = p.x + 300
+        r.y = p.y + 6
+        r.state = 'chase'
+        r.entered = true
+        r.attackCd = 0
+        step(g, 0.05)
+        expect(c.state).toBe('chase')
+        expect(r.state).toBe('chase')
+    })
+})
