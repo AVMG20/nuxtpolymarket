@@ -15,7 +15,7 @@ const COST: Record<EnemyTypeId, number> = {
 const SIDES: SpawnGroup['side'][] = ['north', 'east', 'south', 'west']
 
 export function waveBudget(wave: number): number {
-    return 9 + wave * 4 + wave * wave * 0.24
+    return 9 + wave * 4 + wave * wave * 0.22
 }
 
 /** Rough seconds the trickle of spawns is spread across. */
@@ -24,9 +24,12 @@ export function waveSpawnSpan(wave: number): number {
 }
 
 export function eliteFor(wave: number): EnemyTypeId[] {
-    if (wave === TOTAL_WAVES) return ['ogre', 'warlord']
+    if (wave === TOTAL_WAVES) return ['ogre', 'warlord', 'ogre']
     if (wave % 4 !== 0) return []
-    return (wave / 4) % 2 === 1 ? ['ogre'] : ['warlord']
+    const first: EnemyTypeId = (wave / 4) % 2 === 1 ? 'ogre' : 'warlord'
+    // From wave 16 the elites come in pairs.
+    if (wave >= 16) return [first, first === 'ogre' ? 'warlord' : 'ogre']
+    return [first]
 }
 
 /**
@@ -89,7 +92,7 @@ export function buildWave(wave: number, rng: () => number = Math.random): SpawnG
     let et = 3
     for (const elite of elites) {
         groups.push({ time: et, type: elite, count: 1, side: side() })
-        et += 4
+        et += 5
     }
 
     groups.sort((a, b) => a.time - b.time)

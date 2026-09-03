@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { writeFileSync } from 'node:fs'
 import { MeadowbrawlGame } from '../../app/utils/meadowbrawl/engine'
 import { TOTAL_WAVES } from '../../app/utils/meadowbrawl/types'
 
@@ -9,7 +10,7 @@ import { TOTAL_WAVES } from '../../app/utils/meadowbrawl/types'
  * stay finite, and the pacing lands in the intended band.
  */
 describe('a full run', () => {
-    it('clears all twenty waves at a sane pace', () => {
+    it('clears all thirty waves without anything going non-finite', () => {
         const g = new MeadowbrawlGame()
         g.startRun('sword')
         const dt = 1 / 60
@@ -18,8 +19,9 @@ describe('a full run', () => {
         let lastWave = g.wave
         let simulated = 0
         let guard = 0
+        const eliteIds = new Set<number>()
 
-        while (g.phase !== 'victory' && guard++ < 60 * 60 * 40) {
+        while (g.phase !== 'victory' && guard++ < 60 * 60 * 60) {
             const p = g.player
             p.hp = p.maxHp
             if (g.phase === 'upgrade') {
@@ -71,22 +73,24 @@ describe('a full run', () => {
             }
             g.update(dt)
             simulated += dt
+            for (const e of g.enemies) if (e.def.elite) eliteIds.add(e.id)
             expect(Number.isFinite(p.x) && Number.isFinite(p.y)).toBe(true)
         }
         waveTimes.push(simulated - waveStart)
 
+        if (process.env.MB_DUMP) writeFileSync(process.env.MB_DUMP, JSON.stringify({ waveTimes: waveTimes.map(t => +t.toFixed(1)), kills: g.stats.kills, elitesSeen: eliteIds.size, elitesKilled: g.stats.elitesKilled, taken: Math.round(g.stats.damageTaken), total: Math.round(simulated) }))
         expect(g.phase).toBe('victory')
         expect(g.wave).toBe(TOTAL_WAVES)
-        expect(g.stats.kills).toBeGreaterThan(150)
-        expect(g.stats.elitesKilled).toBe(6)
+        expect(g.stats.kills).toBeGreaterThan(300)
+        expect(g.stats.elitesKilled).toBe(14)
         // Waves 1–3 are short lessons; nothing should drag on, and the
         // two-elite finale gets a little more room.
         for (const [i, t] of waveTimes.entries()) {
-            expect(t, `wave ${i + 1} took ${t.toFixed(1)}s`).toBeLessThan(i + 1 === TOTAL_WAVES ? 150 : 120)
+            expect(t, `wave ${i + 1} took ${t.toFixed(1)}s`).toBeLessThan(i + 1 === TOTAL_WAVES ? 300 : i >= 20 ? 200 : 120)
         }
         const total = waveTimes.reduce((a, b) => a + b, 0)
         expect(total).toBeGreaterThan(3 * 60)
-        expect(total).toBeLessThan(20 * 60)
+        expect(total).toBeLessThan(45 * 60)
         for (const e of g.enemies) expect(Number.isFinite(e.x)).toBe(true)
-    })
+    }, 60_000)
 })

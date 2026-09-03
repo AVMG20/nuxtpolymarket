@@ -3,7 +3,7 @@ import { MeadowbrawlGame } from '~/utils/meadowbrawl/engine'
 import { MeadowbrawlRenderer } from '~/utils/meadowbrawl/renderer'
 import { MeadowbrawlSound } from '~/utils/meadowbrawl/sound'
 import { WEAPONS, WEAPON_IDS } from '~/utils/meadowbrawl/weapons'
-import { RARITY_LABEL, UPGRADE_BY_ID, weaponUpgradeDef } from '~/utils/meadowbrawl/upgrades'
+import { RARITY_LABEL, UPGRADE_BY_ID } from '~/utils/meadowbrawl/upgrades'
 import { TOTAL_WAVES, type Offer, type WeaponId } from '~/utils/meadowbrawl/types'
 
 const wrapper = ref<HTMLDivElement | null>(null)
@@ -279,7 +279,7 @@ function formatTime(t: number): string {
     return `${m}:${s.toString().padStart(2, '0')}`
 }
 
-const weaponCards = WEAPON_IDS.map(id => ({ id, def: WEAPONS[id], offer: weaponUpgradeDef(id) }))
+const weaponCards = WEAPON_IDS.map(id => ({ id, def: WEAPONS[id] }))
 const showHint = computed(() => hud.phase === 'wave' && hud.wave === 1)
 </script>
 
@@ -462,7 +462,7 @@ const showHint = computed(() => hud.phase === 'wave' && hud.wave === 1)
           <div class="text-center">
             <div class="text-[11px] uppercase tracking-[0.4em] font-bold text-amber-200">A melee survival roguelite</div>
             <h1 class="mt-1 text-5xl sm:text-6xl font-black tracking-tight drop-shadow-[0_4px_0_rgba(0,0,0,0.6)]">Meadowbrawl</h1>
-            <p class="mt-2 text-sm text-white/70">Twenty waves. One weapon at a time. Chain your combo, dodge the telegraphs, and let the build get out of hand.</p>
+            <p class="mt-2 text-sm text-white/70">Thirty waves. Pick a weapon, chain your combo, dodge the telegraphs, and let the build get out of hand. Ten is a run; twenty is a feat; thirty is a legend.</p>
           </div>
 
           <div class="mt-5 grid grid-cols-2 sm:grid-cols-3 gap-2">
@@ -524,8 +524,7 @@ const showHint = computed(() => hud.phase === 'wave' && hud.wave === 1)
                 </div>
                 <div class="min-w-0">
                   <div class="text-base font-black leading-tight">{{ o.upgrade.name }}</div>
-                  <div v-if="!o.weapon && o.stack > 1" class="text-[11px] font-bold text-amber-200">Stack {{ o.stack }} / {{ o.upgrade.maxStacks }}</div>
-                  <div v-else-if="o.weapon" class="text-[11px] font-bold text-amber-200">Replaces your {{ WEAPONS[hud.weapon].name }}</div>
+                  <div v-if="o.stack > 1" class="text-[11px] font-bold text-amber-200">Stack {{ o.stack }} / {{ o.upgrade.maxStacks }}</div>
                 </div>
               </div>
               <p class="mt-3 text-xs text-white/75 leading-relaxed">{{ o.upgrade.description }}</p>
@@ -572,7 +571,7 @@ const showHint = computed(() => hud.phase === 'wave' && hud.wave === 1)
       <!-- Victory --------------------------------------------------------- -->
       <div v-if="hud.phase === 'victory'" class="absolute inset-0 flex items-center justify-center p-4">
         <div class="w-full max-w-lg rounded-2xl bg-black/70 backdrop-blur-sm ring-1 ring-amber-300/40 p-6 sm:p-8 text-white text-center">
-          <div class="text-[11px] uppercase tracking-[0.4em] font-bold text-amber-200">Twenty waves</div>
+          <div class="text-[11px] uppercase tracking-[0.4em] font-bold text-amber-200">Thirty waves</div>
           <div class="mt-1 text-5xl font-black tracking-tight drop-shadow-[0_4px_0_rgba(0,0,0,0.6)]">The meadow is yours</div>
           <div class="mt-5 grid grid-cols-3 gap-2 text-left">
             <div class="rounded-lg bg-white/5 p-2.5">

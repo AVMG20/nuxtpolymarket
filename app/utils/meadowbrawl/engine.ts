@@ -6,7 +6,7 @@ import { randomChance, randomFloat } from '#shared/utils/random'
 import type { EnemyTypeId, GameEvent, Offer, SpawnGroup, SwingDef, Vec, WeaponDef, WeaponId } from './types'
 import { ARENA_H, ARENA_W, TOTAL_WAVES } from './types'
 import { WEAPONS, buildChain } from './weapons'
-import { ENEMY_TYPES, waveScaling, type EnemyTypeDef } from './enemies'
+import { ENEMY_TYPES, veteranChance, waveScaling, type EnemyTypeDef } from './enemies'
 import { buildWave } from './waves'
 import { rollOffers } from './upgrades'
 import { angleTo, clamp, inArc, inCircle, inSegment, normalizeAngle, shapeHits } from './geometry'
@@ -103,6 +103,7 @@ export interface Player {
     bloodlust: number
     bloodlustT: number
     phoenixUsed: number
+    adrenalineT: number
     /** Airborne height during Sky Fall, for the renderer. */
     z: number
 }
@@ -160,6 +161,8 @@ export interface Enemy {
     wander: number
     /** Remaining stagger time while in the stagger state. */
     stunT: number
+    /** Late-game variant: bigger, tougher, hits harder. */
+    veteran: boolean
 }
 
 export interface Particle {
@@ -190,6 +193,8 @@ export interface Floater {
     vx: number
 }
 
+export type TrailStyle = WeaponId | 'enemy' | 'ghost'
+
 export interface Trail {
     x: number
     y: number
@@ -202,6 +207,36 @@ export interface Trail {
     kind: 'arc' | 'thrust' | 'ring'
     width: number
     z: number
+    style: TrailStyle
+    finisher?: boolean
+}
+
+export interface Meteor {
+    x: number
+    y: number
+    t: number
+    delay: number
+    radius: number
+    damage: number
+}
+
+export interface Singularity {
+    x: number
+    y: number
+    life: number
+    maxLife: number
+    radius: number
+    tick: number
+    damage: number
+    spin: number
+}
+
+export interface Orbital {
+    life: number
+    maxLife: number
+    angle: number
+    damage: number
+    cooldowns: Map<number, number>
 }
 
 export interface Ring {
@@ -262,7 +297,7 @@ export interface Projectile {
     owner: 'player' | 'enemy'
     pierce: number
     hitIds: Set<number>
-    kind: 'thorn' | 'windblade'
+    kind: 'thorn' | 'windblade' | 'crescent'
     angle: number
 }
 
@@ -309,6 +344,11 @@ export class MeadowbrawlGame {
     decals: Decal[] = []
     whirlwinds: Whirlwind[] = []
     impacts: Impact[] = []
+    meteors: Meteor[] = []
+    singularities: Singularity[] = []
+    orbitals: Orbital[] = []
+    meteorTimer = 0
+    swingCount = 0
     events: GameEvent[] = []
     offers: Offer[] = []
     shake = 0
@@ -471,7 +511,7 @@ export class MeadowbrawlGame {
             special: null, specialCd: 0, specialCdMax: WEAPONS[weapon].special.cooldown,
             invuln: 0, hurtFlash: 0, walk: 0, moving: false,
             upgrades: new Map(), lastMoveX: 1, lastMoveY: 0,
-            hitCount: 0, bloodlust: 0, bloodlustT: 0, phoenixUsed: 0, z: 0
+            hitCount: 0, bloodlust: 0, bloodlustT: 0, phoenixUsed: 0, adrenalineT: 0, z: 0
         }
     }
 
@@ -486,15 +526,20 @@ export class MeadowbrawlGame {
     get damageMult(): number {
         const p = this.player
         const berserk = this.stack('berserk') > 0 && p.hp / p.maxHp < 0.5 ? 1 + 0.4 * this.stack('berserk') : 1
-        return (1 + 0.15 * this.stack('might')) * (1 + 0.12 * this.stack('oversized')) * berserk
+        return (1 + 0.15 * this.stack('might')) * (1 + 0.12 * this.stack('oversized')) * (1 + 0.3 * this.stack('colossus')) * berserk
     }
 
     get attackSpeed(): number {
-        return (1 + 0.12 * this.stack('haste')) * (1 + 0.05 * this.player.bloodlust)
+        return (1 + 0.12 * this.stack('haste')) * (1 + 0.05 * this.player.bloodlust) * (this.player.adrenalineT > 0 ? 1 + 0.3 * this.stack('adrenaline') : 1)
     }
 
     get moveSpeed(): number {
-        return (1 + 0.1 * this.stack('swift')) * (1 + 0.05 * this.player.bloodlust)
+        return (1 + 0.1 * this.stack('swift')) * (1 + 0.05 * this.player.bloodlust) * (1 - 0.08 * this.stack('colossus'))
+    }
+
+    /** Visual scale of the player sprite (Colossus). */
+    get playerScale(): number {
+        return 1 + 0.25 * this.stack('colossus')
     }
 
     get comboWindow(): number {
@@ -507,7 +552,7 @@ export class MeadowbrawlGame {
     }
 
     get reachMult(): number {
-        return 1 + 0.22 * this.stack('oversized')
+        return (1 + 0.22 * this.stack('oversized')) * (1 + 0.2 * this.stack('colossus'))
     }
 
     get knockbackMult(): number {
@@ -528,6 +573,11 @@ export class MeadowbrawlGame {
         this.decals = []
         this.whirlwinds = []
         this.impacts = []
+        this.meteors = []
+        this.singularities = []
+        this.orbitals = []
+        this.meteorTimer = 0
+        this.swingCount = 0
         this.events = []
         this.offers = []
         this.shake = 0
@@ -609,6 +659,9 @@ export class MeadowbrawlGame {
         this.bolts = []
         this.whirlwinds = []
         this.impacts = []
+        this.meteors = []
+        this.singularities = []
+        this.orbitals = []
         this.timeScale = 1
         this.paused = false
     }
@@ -666,6 +719,7 @@ export class MeadowbrawlGame {
             this.updateEnemies(sub)
             this.updateProjectiles(sub)
             this.updateWhirlwinds(sub)
+            this.updateHazards(sub)
             this.resolveBodies()
         }
         this.updateWave(dt)
@@ -704,7 +758,7 @@ export class MeadowbrawlGame {
                     this.phase = 'victory'
                     this.emit('victory')
                 } else {
-                    this.offers = rollOffers(this.wave, this.player.upgrades, this.player.weapon)
+                    this.offers = rollOffers(this.wave, this.player.upgrades)
                     this.phase = 'upgrade'
                 }
             }
@@ -719,16 +773,17 @@ export class MeadowbrawlGame {
         p.y += (Math.random() - 0.5) * 40
         // Elites already have deep pools; scale them more gently so a late
         // boss is a fight, not a grind.
-        const hpScale = def.elite ? 1 + (scale.hp - 1) * 0.6 : scale.hp
+        const veteran = !def.elite && randomChance(veteranChance(this.wave))
+        const hpScale = (def.elite ? 1 + (scale.hp - 1) * 0.6 : scale.hp) * (veteran ? 1.8 : 1)
         const e: Enemy = {
             id: this.nextId++,
             type,
             def,
             x: p.x, y: p.y, vx: 0, vy: 0,
             hp: def.hp * hpScale, maxHp: def.hp * hpScale,
-            r: def.radius,
+            r: def.radius * (veteran ? 1.15 : 1),
             speed: def.speed * scale.speed * (0.92 + Math.random() * 0.16),
-            damage: def.damage * scale.damage,
+            damage: def.damage * scale.damage * (veteran ? 1.3 : 1),
             facing: angleTo(p, this.player),
             state: 'spawn', stateT: 0,
             attack: null, attackCd: 0.6 + Math.random() * 0.8,
@@ -736,7 +791,7 @@ export class MeadowbrawlGame {
             slow: 0, slowT: 0, frozen: 0, burn: null,
             hitFlash: 0, squash: 0, walk: Math.random() * 10, seed: Math.random(),
             alive: true, deadT: 0, entered: false, sprintHitCd: 0,
-            wander: Math.random() * Math.PI * 2, stunT: 0
+            wander: Math.random() * Math.PI * 2, stunT: 0, veteran
         }
         this.enemies.push(e)
         this.burst(e.x, e.y, 0, 8, 'dust', '#b9a77a', 60, 0.5)
@@ -756,6 +811,7 @@ export class MeadowbrawlGame {
 
         p.invuln = Math.max(0, p.invuln - dt)
         p.hurtFlash = Math.max(0, p.hurtFlash - dt)
+        p.adrenalineT = Math.max(0, p.adrenalineT - dt)
         if (p.bloodlust > 0) {
             p.bloodlustT -= dt
             if (p.bloodlustT <= 0) {
@@ -992,11 +1048,15 @@ export class MeadowbrawlGame {
             }
         }
         if (a.phase === 'active') {
+            const mirror = this.stack('mirror')
             for (const e of this.enemies) {
                 if (!e.alive || a.hitIds.has(e.id)) continue
                 if (shapeHits(a.def.shape, p, a.dir, this.reachMult, e, e.r)) {
                     a.hitIds.add(e.id)
                     this.playerHitEnemy(e, a.def)
+                } else if (mirror > 0 && shapeHits(a.def.shape, p, a.dir + Math.PI, this.reachMult, e, e.r)) {
+                    a.hitIds.add(e.id)
+                    this.playerHitEnemy(e, a.def, 0.5 + 0.15 * (mirror - 1))
                 }
             }
             if (a.t >= a.active) {
@@ -1017,18 +1077,47 @@ export class MeadowbrawlGame {
         const p = this.player
         const shape = a.def.shape
         const reach = this.reachMult
+        this.swingCount += 1
+        const spectral = this.stack('spectral')
+        if (spectral > 0 && this.swingCount % 4 === 0) {
+            this.orbitals.push({ life: 5, maxLife: 5, angle: p.aim, damage: this.weapon.baseDamage * this.damageMult * (0.5 + 0.2 * (spectral - 1)), cooldowns: new Map() })
+            this.burst(p.x, p.y, 30, 10, 'spark', '#bfe6ff', 120, 0.4)
+        }
+        const cleaving = this.stack('cleavingwind')
+        if (cleaving > 0 && a.def.finisher) {
+            this.projectiles.push({
+                id: this.nextId++, x: p.x + Math.cos(a.dir) * 30, y: p.y + Math.sin(a.dir) * 30,
+                vx: Math.cos(a.dir) * 520, vy: Math.sin(a.dir) * 520, life: 1.1,
+                damage: this.weapon.baseDamage * this.damageMult * (2 + 0.7 * (cleaving - 1)),
+                r: 34 * reach, owner: 'player', pierce: 999, hitIds: new Set(), kind: 'crescent', angle: a.dir
+            })
+        }
         if (shape.kind === 'arc') {
             const half = shape.halfAngle
             this.trails.push({
                 x: p.x, y: p.y, angle0: a.dir - half * a.def.sweep, angle1: a.dir + half * a.def.sweep,
                 reach: shape.reach * reach, life: 0.22, maxLife: 0.22, color: this.weapon.color, kind: 'arc',
-                width: a.def.finisher ? 30 : 20, z: 16
+                width: a.def.finisher ? 30 : 20, z: 16, style: p.weapon, finisher: !!a.def.finisher
             })
+            this.swingFlourish(a.dir, shape.reach * reach, !!a.def.finisher)
+            if (this.stack('mirror') > 0) {
+                this.trails.push({
+                    x: p.x, y: p.y, angle0: a.dir + Math.PI - half * a.def.sweep, angle1: a.dir + Math.PI + half * a.def.sweep,
+                    reach: shape.reach * reach, life: 0.22, maxLife: 0.22, color: '#bfe6ff', kind: 'arc', width: 18, z: 16, style: 'ghost'
+                })
+            }
         } else if (shape.kind === 'thrust') {
             this.trails.push({
                 x: p.x, y: p.y, angle0: a.dir, angle1: a.dir, reach: shape.reach * reach,
-                life: 0.18, maxLife: 0.18, color: this.weapon.color, kind: 'thrust', width: shape.width * reach, z: 16
+                life: 0.18, maxLife: 0.18, color: this.weapon.color, kind: 'thrust', width: shape.width * reach, z: 16, style: p.weapon, finisher: !!a.def.finisher
             })
+            this.swingFlourish(a.dir, shape.reach * reach, !!a.def.finisher)
+            if (this.stack('mirror') > 0) {
+                this.trails.push({
+                    x: p.x, y: p.y, angle0: a.dir + Math.PI, angle1: a.dir + Math.PI, reach: shape.reach * reach,
+                    life: 0.18, maxLife: 0.18, color: '#bfe6ff', kind: 'thrust', width: shape.width * reach, z: 16, style: 'ghost'
+                })
+            }
         }
         if (a.def.finisher && this.stack('whirlwind') > 0) {
             const s = this.stack('whirlwind')
@@ -1048,12 +1137,12 @@ export class MeadowbrawlGame {
         }
     }
 
-    private playerHitEnemy(e: Enemy, def: SwingDef) {
+    private playerHitEnemy(e: Enemy, def: SwingDef, scale = 1) {
         const p = this.player
         const heavy = !!def.finisher || this.allHeavy
         const flow = this.stack('flow') > 0 ? 1 + Math.min(10, p.comboHits) * 0.06 * this.stack('flow') : 1
         const crit = this.stack('crit') > 0 && randomChance(0.15 * this.stack('crit'))
-        const dmg = this.weapon.baseDamage * this.damageMult * def.damage * flow * (crit ? 2.5 : 1)
+        const dmg = this.weapon.baseDamage * this.damageMult * def.damage * flow * scale * (crit ? 2.5 : 1)
         const dealt = this.damageEnemy(e, dmg, {
             source: p, heavy, knockback: def.knockback * (crit ? 1.4 : 1), stagger: def.stagger, tag: 'melee', crit
         })
@@ -1084,6 +1173,10 @@ export class MeadowbrawlGame {
         const dy = Math.sin(p.aim)
         p.facing = p.aim
         this.emit('special', p.x, p.y)
+        const singularity = this.stack('singularity')
+        if (singularity > 0) {
+            this.singularities.push({ x: p.x, y: p.y, life: 3, maxLife: 3, radius: 110 + 30 * (singularity - 1), tick: 0, damage: this.weapon.baseDamage * this.damageMult * (0.3 + 0.15 * (singularity - 1)), spin: 0 })
+        }
         const gravity = this.stack('gravity')
         if (gravity > 0) {
             const radius = 240 + 60 * (gravity - 1)
@@ -1179,7 +1272,7 @@ export class MeadowbrawlGame {
                         this.damageEnemy(e, base, { source: { x: e.x - s.dx * 10, y: e.y - s.dy * 10 }, heavy: true, knockback: 220, stagger: 0.5, tag: 'special' })
                     }
                 }
-                this.trails.push({ x: ox, y: oy, angle0: p.aim, angle1: p.aim, reach: Math.hypot(p.x - ox, p.y - oy) + 6, life: 0.2, maxLife: 0.2, color: w.color, kind: 'thrust', width: 40, z: 14 })
+                this.trails.push({ x: ox, y: oy, angle0: p.aim, angle1: p.aim, reach: Math.hypot(p.x - ox, p.y - oy) + 6, life: 0.2, maxLife: 0.2, color: w.color, kind: 'thrust', width: 40, z: 14, style: p.weapon })
                 if (s.t >= s.dur) p.special = null
                 break
             }
@@ -1206,7 +1299,7 @@ export class MeadowbrawlGame {
                 if (!s.fired && s.t >= s.dur) {
                     s.fired = true
                     const radius = 130 * this.reachMult
-                    this.trails.push({ x: p.x, y: p.y, angle0: p.aim, angle1: p.aim + Math.PI * 2, reach: radius, life: 0.3, maxLife: 0.3, color: w.color, kind: 'ring', width: 28, z: 16 })
+                    this.trails.push({ x: p.x, y: p.y, angle0: p.aim, angle1: p.aim + Math.PI * 2, reach: radius, life: 0.3, maxLife: 0.3, color: w.color, kind: 'ring', width: 28, z: 16, style: p.weapon, finisher: true })
                     this.shake = Math.max(this.shake, 6)
                     for (const e of this.enemies) {
                         if (!e.alive) continue
@@ -1249,7 +1342,7 @@ export class MeadowbrawlGame {
                 const radius = 120 * this.reachMult
                 if (s.tick <= 0) {
                     s.tick = 0.15
-                    this.trails.push({ x: p.x, y: p.y, angle0: p.aim + s.t * 14, angle1: p.aim + s.t * 14 + 2.4, reach: radius, life: 0.16, maxLife: 0.16, color: w.color, kind: 'arc', width: 26, z: 16 })
+                    this.trails.push({ x: p.x, y: p.y, angle0: p.aim + s.t * 14, angle1: p.aim + s.t * 14 + 2.4, reach: radius, life: 0.16, maxLife: 0.16, color: w.color, kind: 'arc', width: 26, z: 16, style: p.weapon })
                     for (const e of this.enemies) {
                         if (!e.alive) continue
                         if (inCircle(p, radius, e, e.r)) {
@@ -1273,7 +1366,7 @@ export class MeadowbrawlGame {
             case 'backstab':
                 if (!s.fired && s.t >= s.dur) {
                     s.fired = true
-                    this.trails.push({ x: p.x, y: p.y, angle0: p.aim - 1.2, angle1: p.aim + 1.2, reach: 62 * this.reachMult, life: 0.2, maxLife: 0.2, color: w.color, kind: 'arc', width: 24, z: 18 })
+                    this.trails.push({ x: p.x, y: p.y, angle0: p.aim - 1.2, angle1: p.aim + 1.2, reach: 62 * this.reachMult, life: 0.2, maxLife: 0.2, color: w.color, kind: 'arc', width: 24, z: 18, style: p.weapon, finisher: true })
                     for (const e of this.enemies) {
                         if (!e.alive) continue
                         if (inArc(p, p.aim, 1.4, 64 * this.reachMult, e, e.r)) {
@@ -1397,7 +1490,8 @@ export class MeadowbrawlGame {
             this.burst(e.x, e.y, e.def.height * 0.5, 4, 'blood', '#a3121f', 100, 0.5)
         }
 
-        if (e.hp <= 0) this.killEnemy(e, kbDir, heavy)
+        // Procs above can cascade back into this enemy and kill it first.
+        if (e.hp <= 0 && e.alive) this.killEnemy(e, kbDir, heavy)
         return dmg
     }
 
@@ -1483,6 +1577,7 @@ export class MeadowbrawlGame {
     }
 
     private killEnemy(e: Enemy, dir: number, heavy: boolean) {
+        if (!e.alive) return
         e.alive = false
         e.state = 'dead'
         e.deadT = 0
@@ -1509,6 +1604,15 @@ export class MeadowbrawlGame {
         if (overcharge > 0 && p.specialCd > 0 && randomChance(0.2 * overcharge)) {
             p.specialCd = 0
             this.floaters.push({ x: p.x, y: p.y, z: 50, text: 'RECHARGED', life: 0.8, maxLife: 0.8, color: '#ffe066', size: 13, vx: 0 })
+        }
+        const toll = this.stack('reapertoll')
+        if (toll > 0) {
+            this.rings.push({ x: e.x, y: e.y, r0: 10, r1: 320, life: 0.45, maxLife: 0.45, color: '#b48cff', width: 6 })
+            for (const o of this.enemies) {
+                if (!o.alive) continue
+                o.slow = Math.max(o.slow, 0.6)
+                o.slowT = Math.max(o.slowT, 1.2 + 0.4 * (toll - 1))
+            }
         }
         const blossom = this.stack('deathblossom')
         if (blossom > 0) {
@@ -1546,6 +1650,11 @@ export class MeadowbrawlGame {
         if (p.invuln > 0 || (this.phase !== 'wave' && this.phase !== 'calm')) return false
         const dmg = Math.round(amount)
         p.hp -= dmg
+        const adrenaline = this.stack('adrenaline')
+        if (adrenaline > 0) {
+            p.adrenalineT = 3
+            p.dodgeCharges = Math.min(p.dodgeMax, p.dodgeCharges + 1)
+        }
         const thorns = this.stack('thorns')
         if (thorns > 0 && attacker?.alive) {
             this.damageEnemy(attacker, this.weapon.baseDamage * this.damageMult * 0.6 * thorns, { source: p, heavy: true, knockback: 380, stagger: 0.5, tag: 'thorns', bypassShield: true, color: '#9be07a' })
@@ -1887,7 +1996,7 @@ export class MeadowbrawlGame {
             case 'melee': {
                 e.x += Math.cos(a.dir) * a.lunge
                 e.y += Math.sin(a.dir) * a.lunge
-                this.trails.push({ x: e.x, y: e.y, angle0: a.dir - a.halfAngle, angle1: a.dir + a.halfAngle, reach: a.reach, life: 0.18, maxLife: 0.18, color: '#ff7b6b', kind: 'arc', width: 14, z: 12 })
+                this.trails.push({ x: e.x, y: e.y, angle0: a.dir - a.halfAngle, angle1: a.dir + a.halfAngle, reach: a.reach, life: 0.18, maxLife: 0.18, color: '#ff7b6b', kind: 'arc', width: 14, z: 12, style: 'enemy' })
                 if (inArc(e, a.dir, a.halfAngle, a.reach, p, p.r)) this.hurtPlayer(a.damage, e, a.knockback, e)
                 e.state = 'recover'
                 e.stateT = 0
@@ -1905,7 +2014,7 @@ export class MeadowbrawlGame {
                 break
             }
             case 'spin': {
-                this.trails.push({ x: e.x, y: e.y, angle0: 0, angle1: Math.PI * 2, reach: a.radius, life: 0.28, maxLife: 0.28, color: '#ff7b6b', kind: 'ring', width: 22, z: 12 })
+                this.trails.push({ x: e.x, y: e.y, angle0: 0, angle1: Math.PI * 2, reach: a.radius, life: 0.28, maxLife: 0.28, color: '#ff7b6b', kind: 'ring', width: 22, z: 12, style: 'enemy' })
                 this.shake = Math.max(this.shake, 6)
                 if (inCircle(e, a.radius, p, p.r)) this.hurtPlayer(a.damage, e, a.knockback, e)
                 e.state = 'recover'
@@ -2128,6 +2237,126 @@ export class MeadowbrawlGame {
             })
         }
         if (this.particles.length > MAX_PARTICLES) this.particles.splice(0, this.particles.length - MAX_PARTICLES)
+    }
+
+    /** Meteors, singularities and orbiting blades. */
+    private updateHazards(dt: number) {
+        const p = this.player
+        const meteor = this.stack('meteor')
+        if (meteor > 0 && this.phase === 'wave') {
+            this.meteorTimer -= dt
+            if (this.meteorTimer <= 0) {
+                this.meteorTimer = 6 / meteor
+                const targets = this.enemies.filter(e => e.alive && e.entered)
+                if (targets.length) {
+                    const t = targets[Math.floor(randomFloat() * targets.length)]!
+                    this.meteors.push({ x: t.x, y: t.y, t: 0, delay: 0.9, radius: 110, damage: this.weapon.baseDamage * this.damageMult * 3 })
+                }
+            }
+        }
+        for (let i = this.meteors.length - 1; i >= 0; i--) {
+            const m = this.meteors[i]!
+            m.t += dt
+            if (m.t >= m.delay) {
+                this.meteors.splice(i, 1)
+                this.rings.push({ x: m.x, y: m.y, r0: 10, r1: m.radius + 20, life: 0.4, maxLife: 0.4, color: '#ffb347', width: 12 })
+                this.decals.push({ x: m.x, y: m.y, r: m.radius * 0.5, color: 'rgba(30,20,15,0.5)', kind: 'scorch' })
+                this.burst(m.x, m.y, 10, 30, 'ember', '#ff8c2a', 260, 0.8)
+                this.burst(m.x, m.y, 0, 16, 'chip', '#4a3a2a', 240, 0.6)
+                this.shake = Math.max(this.shake, 14)
+                this.hitstop = Math.max(this.hitstop, 0.06)
+                this.emit('explode', m.x, m.y)
+                for (const e of this.enemies) {
+                    if (!e.alive) continue
+                    if (inCircle(m, m.radius, e, e.r)) this.damageEnemy(e, m.damage, { source: m, heavy: true, knockback: 320, stagger: 0.8, tag: 'explode', bypassShield: true })
+                }
+            }
+        }
+        for (let i = this.singularities.length - 1; i >= 0; i--) {
+            const sg = this.singularities[i]!
+            sg.life -= dt
+            sg.spin += dt * 6
+            sg.tick -= dt
+            for (const e of this.enemies) {
+                if (!e.alive || e.def.elite) continue
+                const d = Math.hypot(e.x - sg.x, e.y - sg.y)
+                if (d < sg.radius * 2.4 && d > 4) {
+                    const pull = 520 * (1 - d / (sg.radius * 2.4)) + 120
+                    e.vx += (sg.x - e.x) / d * pull * dt * 5
+                    e.vy += (sg.y - e.y) / d * pull * dt * 5
+                }
+            }
+            if (sg.tick <= 0) {
+                sg.tick = 0.25
+                for (const e of this.enemies) {
+                    if (!e.alive) continue
+                    if (inCircle(sg, sg.radius, e, e.r)) this.damageEnemy(e, sg.damage, { source: sg, knockback: 0, stagger: 0.2, tag: 'shock', bypassShield: true, color: '#c9a3ff' })
+                }
+            }
+            if (Math.random() < 0.6) {
+                const a = Math.random() * Math.PI * 2
+                const d = sg.radius * (1.2 + Math.random())
+                this.particles.push({ x: sg.x + Math.cos(a) * d, y: sg.y + Math.sin(a) * d, z: 6, vx: -Math.cos(a) * 200, vy: -Math.sin(a) * 200, vz: 20, life: 0.5, maxLife: 0.5, size: 3, color: '#c9a3ff', kind: 'spark', gravity: 0, decal: false })
+            }
+            if (sg.life <= 0) {
+                this.singularities.splice(i, 1)
+                this.rings.push({ x: sg.x, y: sg.y, r0: 6, r1: sg.radius * 1.6, life: 0.3, maxLife: 0.3, color: '#c9a3ff', width: 8 })
+            }
+        }
+        for (let i = this.orbitals.length - 1; i >= 0; i--) {
+            const o = this.orbitals[i]!
+            o.life -= dt
+            o.angle += dt * 5
+            for (const [id, cd] of o.cooldowns) {
+                if (cd - dt <= 0) o.cooldowns.delete(id)
+                else o.cooldowns.set(id, cd - dt)
+            }
+            for (let b = 0; b < 3; b++) {
+                const a = o.angle + b * Math.PI * 2 / 3
+                const bx = p.x + Math.cos(a) * 64
+                const by = p.y + Math.sin(a) * 64
+                for (const e of this.enemies) {
+                    if (!e.alive || o.cooldowns.has(e.id)) continue
+                    if (Math.hypot(e.x - bx, e.y - by) <= e.r + 14) {
+                        o.cooldowns.set(e.id, 0.4)
+                        this.damageEnemy(e, o.damage, { source: { x: bx, y: by }, knockback: 120, stagger: 0.2, tag: 'proj', color: '#bfe6ff' })
+                    }
+                }
+            }
+            if (o.life <= 0) this.orbitals.splice(i, 1)
+        }
+    }
+
+    /** Per-weapon particle flourish on the swing itself. */
+    private swingFlourish(dir: number, reach: number, finisher: boolean) {
+        const p = this.player
+        const tx = p.x + Math.cos(dir) * reach * 0.7
+        const ty = p.y + Math.sin(dir) * reach * 0.7
+        switch (p.weapon) {
+            case 'greataxe':
+                this.burst(tx, ty, 4, finisher ? 10 : 5, 'ember', '#ff9a3c', 140, 0.35, dir)
+                if (finisher) this.burst(p.x, p.y, 0, 8, 'dust', '#bfae83', 120, 0.4)
+                break
+            case 'warhammer':
+                this.burst(tx, ty, 6, finisher ? 10 : 5, 'spark', '#fff2c4', 200, 0.3, dir)
+                if (finisher) this.burst(tx, ty, 0, 8, 'chip', '#6b5a48', 180, 0.5)
+                break
+            case 'scythe':
+                for (let i = 0; i < (finisher ? 8 : 4); i++) {
+                    const a = dir + (Math.random() - 0.5) * 2.4
+                    this.particles.push({ x: p.x + Math.cos(a) * reach * (0.5 + Math.random() * 0.5), y: p.y + Math.sin(a) * reach * (0.5 + Math.random() * 0.5), z: 14, vx: Math.cos(a) * 40, vy: Math.sin(a) * 40, vz: 40, life: 0.6, maxLife: 0.6, size: 5 + Math.random() * 4, color: '#8fe3c8', kind: 'smoke', gravity: 0, decal: false })
+                }
+                break
+            case 'spear':
+                this.burst(p.x + Math.cos(dir) * reach, p.y + Math.sin(dir) * reach, 16, 3, 'spark', '#ffe9a8', 160, 0.2, dir)
+                break
+            case 'daggers':
+                this.burst(tx, ty, 14, 2, 'spark', '#fff6d6', 120, 0.18, dir)
+                break
+            case 'sword':
+                if (finisher) this.burst(tx, ty, 14, 6, 'spark', '#dbe4f3', 180, 0.3, dir)
+                break
+        }
     }
 
     /** Lightning shockwave centred on a point (Rolling Thunder). */

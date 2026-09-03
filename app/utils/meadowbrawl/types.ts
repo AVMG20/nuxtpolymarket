@@ -104,4 +104,4 @@ export interface GameEvent {
 export const GROUND_YS = 0.72
 export const ARENA_W = 1500
 export const ARENA_H = 1000
-export const TOTAL_WAVES = 20
+export const TOTAL_WAVES = 30

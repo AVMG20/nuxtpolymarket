@@ -26,13 +26,14 @@ describe('wave schedule', () => {
         }
     })
 
-    it('spawns an elite every four waves, alternating, and both on the final wave', () => {
+    it('spawns an elite every four waves, alternating, pairs from 16, and three on the final wave', () => {
         expect(eliteFor(1)).toEqual([])
         expect(eliteFor(4)).toEqual(['ogre'])
         expect(eliteFor(8)).toEqual(['warlord'])
         expect(eliteFor(12)).toEqual(['ogre'])
-        expect(eliteFor(16)).toEqual(['warlord'])
-        expect(eliteFor(TOTAL_WAVES)).toEqual(['ogre', 'warlord'])
+        expect(eliteFor(16)).toEqual(['warlord', 'ogre'])
+        expect(eliteFor(20)).toEqual(['ogre', 'warlord'])
+        expect(eliteFor(TOTAL_WAVES)).toEqual(['ogre', 'warlord', 'ogre'])
         for (let w = 1; w <= TOTAL_WAVES; w++) {
             const elites = buildWave(w, seeded(w)).filter(g => g.type === 'ogre' || g.type === 'warlord').map(g => g.type)
             expect(elites).toEqual(eliteFor(w))
@@ -53,5 +54,6 @@ describe('wave schedule', () => {
         }
         expect(countEnemies(buildWave(1, seeded(3)))).toBeLessThan(countEnemies(buildWave(10, seeded(3))))
         expect(countEnemies(buildWave(10, seeded(3)))).toBeLessThan(countEnemies(buildWave(19, seeded(3))))
+        expect(countEnemies(buildWave(19, seeded(3)))).toBeLessThan(countEnemies(buildWave(29, seeded(3))))
     })
 })

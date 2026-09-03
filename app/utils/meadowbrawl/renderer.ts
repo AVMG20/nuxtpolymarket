@@ -789,7 +789,15 @@ export class MeadowbrawlRenderer {
         ctx.beginPath()
         ctx.arc(p.x, p.y, p.r * 1.9, 0, Math.PI * 2)
         ctx.stroke()
-        // Elite marker.
+        // Veteran and elite markers.
+        for (const e of g.enemies) {
+            if (!e.alive || !e.veteran || e.def.elite) continue
+            ctx.strokeStyle = 'rgba(255,120,80,0.45)'
+            ctx.lineWidth = 2
+            ctx.beginPath()
+            ctx.arc(e.x, e.y, e.r * 1.4, 0, Math.PI * 2)
+            ctx.stroke()
+        }
         for (const e of g.enemies) {
             if (!e.alive || !e.def.elite) continue
             ctx.strokeStyle = 'rgba(255,80,60,0.6)'
@@ -887,6 +895,18 @@ export class MeadowbrawlRenderer {
                     ctx.closePath()
                     ctx.fill()
                     ctx.stroke()
+                } else if (pr.kind === 'crescent') {
+                    ctx.strokeStyle = 'rgba(230,250,255,0.85)'
+                    ctx.lineWidth = 9
+                    ctx.lineCap = 'round'
+                    ctx.beginPath()
+                    ctx.arc(-pr.r * 0.4, 0, pr.r * 1.2, -1.2, 1.2)
+                    ctx.stroke()
+                    ctx.strokeStyle = 'rgba(255,255,255,1)'
+                    ctx.lineWidth = 3
+                    ctx.beginPath()
+                    ctx.arc(-pr.r * 0.4, 0, pr.r * 1.2, -1.1, 1.1)
+                    ctx.stroke()
                 } else {
                     ctx.strokeStyle = 'rgba(220,245,255,0.9)'
                     ctx.lineWidth = 4
@@ -970,6 +990,8 @@ export class MeadowbrawlRenderer {
 
         ctx.save()
         ctx.translate(sx, sy - rollZ)
+        const ps = g.playerScale
+        if (ps !== 1) ctx.scale(ps, ps)
         if (p.z > 0) {
             // Curl up mid-leap.
             ctx.translate(0, -10)
@@ -1342,6 +1364,7 @@ export class MeadowbrawlRenderer {
 
         ctx.save()
         ctx.translate(sx, sy)
+        if (e.veteran) ctx.scale(1.15, 1.15)
         if (dead) {
             ctx.globalAlpha = 1 - deadK
             ctx.rotate(dir * deadK * Math.PI / 2 * 0.9)
@@ -1364,6 +1387,10 @@ export class MeadowbrawlRenderer {
             if (e.frozen > 0) return '#bfe6ff'
             if (e.slow > 0) return shade(base, 30)
             if (e.burn) return shade(base, 25)
+            if (e.veteran) {
+                const [r, gg, b] = parseColor(base)
+                return `rgb(${clamp(r + 40, 0, 255)},${clamp(gg - 20, 0, 255)},${clamp(b - 20, 0, 255)})`
+            }
             return base
         }
 
@@ -1950,7 +1977,7 @@ export class MeadowbrawlRenderer {
 
     private drawAir(ctx: Ctx) {
         const g = this.game
-        // Swing trails.
+        // Swing trails — each weapon has its own signature.
         for (const tr of g.trails) {
             const k = tr.life / tr.maxLife
             const y = tr.y * YS - tr.z
@@ -1958,43 +1985,81 @@ export class MeadowbrawlRenderer {
             ctx.translate(tr.x, y)
             ctx.scale(1, YS)
             ctx.globalAlpha = k
-            if (tr.kind === 'arc' || tr.kind === 'ring') {
-                const inner = Math.max(6, tr.reach - tr.width)
-                const a0 = tr.angle0
-                const a1 = tr.angle1
-                const ccw = a1 < a0
-                const grad = ctx.createRadialGradient(0, 0, inner, 0, 0, tr.reach)
-                grad.addColorStop(0, 'rgba(255,255,255,0)')
-                grad.addColorStop(0.6, tr.color)
-                grad.addColorStop(1, 'rgba(255,255,255,0.9)')
-                ctx.fillStyle = grad
+            if (tr.kind === 'arc' || tr.kind === 'ring') this.drawArcTrail(ctx, tr, k)
+            else this.drawThrustTrail(ctx, tr, k)
+            ctx.restore()
+        }
+        ctx.globalAlpha = 1
+
+        // Meteors falling, singularities and orbiting blades.
+        for (const m of g.meteors) {
+            const k = clamp(m.t / m.delay, 0, 1)
+            const z = (1 - k) * 520
+            const x = m.x + (1 - k) * 160
+            const y = m.y * YS - z
+            ctx.strokeStyle = 'rgba(255,150,60,0.7)'
+            ctx.lineWidth = 6
+            ctx.lineCap = 'round'
+            ctx.beginPath()
+            ctx.moveTo(x + 40, y - 120)
+            ctx.lineTo(x, y)
+            ctx.stroke()
+            ctx.fillStyle = '#ff8c2a'
+            ctx.beginPath()
+            ctx.arc(x, y, 12 + k * 6, 0, Math.PI * 2)
+            ctx.fill()
+            ctx.fillStyle = '#fff2c4'
+            ctx.beginPath()
+            ctx.arc(x, y, 6, 0, Math.PI * 2)
+            ctx.fill()
+        }
+        for (const sg of g.singularities) {
+            const k = sg.life / sg.maxLife
+            ctx.save()
+            ctx.translate(sg.x, sg.y * YS - 8)
+            ctx.scale(1, YS)
+            const r = sg.radius * (0.5 + 0.5 * Math.min(1, (sg.maxLife - sg.life) * 4)) * (0.6 + 0.4 * k)
+            const grad = ctx.createRadialGradient(0, 0, 0, 0, 0, r)
+            grad.addColorStop(0, 'rgba(10,5,20,0.95)')
+            grad.addColorStop(0.7, 'rgba(60,20,90,0.7)')
+            grad.addColorStop(1, 'rgba(180,140,255,0)')
+            ctx.fillStyle = grad
+            ctx.beginPath()
+            ctx.arc(0, 0, r, 0, Math.PI * 2)
+            ctx.fill()
+            ctx.strokeStyle = 'rgba(200,160,255,0.8)'
+            ctx.lineWidth = 3
+            for (let i = 0; i < 3; i++) {
                 ctx.beginPath()
-                ctx.arc(0, 0, tr.reach, a0, a1, ccw)
-                ctx.arc(0, 0, inner, a1, a0, !ccw)
-                ctx.closePath()
-                ctx.fill()
-                ctx.strokeStyle = 'rgba(255,255,255,0.8)'
-                ctx.lineWidth = 2
-                ctx.beginPath()
-                ctx.arc(0, 0, tr.reach, a0, a1, ccw)
+                ctx.arc(0, 0, r * (0.55 + i * 0.18), sg.spin + i * 2, sg.spin + i * 2 + 1.6)
                 ctx.stroke()
-            } else {
-                ctx.rotate(tr.angle0)
-                const grad = ctx.createLinearGradient(0, 0, tr.reach, 0)
-                grad.addColorStop(0, 'rgba(255,255,255,0)')
-                grad.addColorStop(0.5, tr.color)
-                grad.addColorStop(1, 'rgba(255,255,255,0.95)')
-                ctx.fillStyle = grad
-                ctx.beginPath()
-                ctx.moveTo(0, -tr.width / 2)
-                ctx.lineTo(tr.reach, -tr.width * 0.15)
-                ctx.lineTo(tr.reach + 8, 0)
-                ctx.lineTo(tr.reach, tr.width * 0.15)
-                ctx.lineTo(0, tr.width / 2)
-                ctx.closePath()
-                ctx.fill()
             }
             ctx.restore()
+        }
+        const pl = g.player
+        for (const o of g.orbitals) {
+            const k = Math.min(1, o.life / 0.6)
+            ctx.globalAlpha = k
+            for (let b = 0; b < 3; b++) {
+                const a = o.angle + b * Math.PI * 2 / 3
+                const bx = pl.x + Math.cos(a) * 64
+                const by = (pl.y + Math.sin(a) * 64) * YS - 26
+                ctx.save()
+                ctx.translate(bx, by)
+                ctx.rotate(Math.atan2(Math.sin(a + Math.PI / 2) * YS, Math.cos(a + Math.PI / 2)))
+                ctx.fillStyle = 'rgba(191,230,255,0.9)'
+                ctx.strokeStyle = 'rgba(255,255,255,0.9)'
+                ctx.lineWidth = 1.5
+                ctx.beginPath()
+                ctx.moveTo(-14, 0)
+                ctx.lineTo(2, -5)
+                ctx.lineTo(16, 0)
+                ctx.lineTo(2, 5)
+                ctx.closePath()
+                ctx.fill()
+                ctx.stroke()
+                ctx.restore()
+            }
         }
         ctx.globalAlpha = 1
 
@@ -2092,6 +2157,138 @@ export class MeadowbrawlRenderer {
             ctx.restore()
         }
         ctx.globalAlpha = 1
+    }
+
+    private drawArcTrail(ctx: Ctx, tr: { angle0: number, angle1: number, reach: number, width: number, color: string, style: string, finisher?: boolean }, k: number) {
+        const a0 = tr.angle0
+        const a1 = tr.angle1
+        const ccw = a1 < a0
+        const band = (inner: number, outer: number, stops: [number, string][]) => {
+            const grad = ctx.createRadialGradient(0, 0, Math.max(1, inner), 0, 0, outer)
+            for (const [t, c] of stops) grad.addColorStop(t, c)
+            ctx.fillStyle = grad
+            ctx.beginPath()
+            ctx.arc(0, 0, outer, a0, a1, ccw)
+            ctx.arc(0, 0, Math.max(1, inner), a1, a0, !ccw)
+            ctx.closePath()
+            ctx.fill()
+        }
+        const edge = (r: number, color: string, width: number) => {
+            ctx.strokeStyle = color
+            ctx.lineWidth = width
+            ctx.beginPath()
+            ctx.arc(0, 0, r, a0, a1, ccw)
+            ctx.stroke()
+        }
+        const w = tr.width
+        switch (tr.style) {
+            case 'sword':
+                // Clean silver crescent with a crisp bright edge.
+                band(tr.reach - w * 0.8, tr.reach, [[0, 'rgba(219,228,243,0)'], [0.7, 'rgba(219,228,243,0.75)'], [1, 'rgba(255,255,255,0.95)']])
+                edge(tr.reach - 1, 'rgba(255,255,255,0.95)', 2.5)
+                edge(tr.reach - w * 0.45, 'rgba(160,200,255,0.5)', 1.2)
+                break
+            case 'greataxe': {
+                // Heavy, hot: a thick smouldering band with a jagged glowing rim.
+                band(tr.reach - w * 1.3, tr.reach + 4, [[0, 'rgba(255,120,40,0)'], [0.55, 'rgba(255,120,40,0.55)'], [0.9, 'rgba(255,200,120,0.9)'], [1, 'rgba(255,240,200,0.3)']])
+                ctx.strokeStyle = 'rgba(255,230,180,0.95)'
+                ctx.lineWidth = 3.5
+                ctx.beginPath()
+                const n = 14
+                for (let i = 0; i <= n; i++) {
+                    const a = a0 + (a1 - a0) * i / n
+                    const r = tr.reach + (i % 2 === 0 ? 0 : -5)
+                    if (i === 0) ctx.moveTo(Math.cos(a) * r, Math.sin(a) * r)
+                    else ctx.lineTo(Math.cos(a) * r, Math.sin(a) * r)
+                }
+                ctx.stroke()
+                break
+            }
+            case 'daggers':
+                // Two razor-thin gold streaks.
+                edge(tr.reach - 2, 'rgba(255,246,214,0.95)', 2)
+                edge(tr.reach - w * 0.6, 'rgba(255,220,150,0.8)', 1.5)
+                band(tr.reach - w * 0.7, tr.reach, [[0, 'rgba(255,230,170,0)'], [1, 'rgba(255,230,170,0.35)']])
+                break
+            case 'warhammer':
+                // Blunt, wide, with concussion rings trailing the head.
+                band(tr.reach - w * 1.1, tr.reach + 6, [[0, 'rgba(216,208,196,0)'], [0.6, 'rgba(216,208,196,0.5)'], [1, 'rgba(255,255,255,0.85)']])
+                edge(tr.reach + 6 + (1 - k) * 14, `rgba(255,255,255,${0.6 * k})`, 3)
+                edge(tr.reach + 6 + (1 - k) * 26, `rgba(216,208,196,${0.35 * k})`, 2)
+                break
+            case 'scythe': {
+                // A spectral reaping crescent: dark soul-smoke inside, cold green-white edge.
+                band(tr.reach - w * 1.4, tr.reach, [[0, 'rgba(20,10,40,0)'], [0.5, 'rgba(30,20,60,0.55)'], [0.85, 'rgba(120,230,200,0.7)'], [1, 'rgba(230,255,245,0.95)']])
+                edge(tr.reach - 1, 'rgba(180,255,230,0.95)', 3)
+                ctx.fillStyle = 'rgba(143,227,200,0.55)'
+                for (let i = 0; i < 6; i++) {
+                    const a = a0 + (a1 - a0) * (i + 0.5) / 6
+                    const r = tr.reach - w * (0.4 + (i % 3) * 0.3)
+                    ctx.beginPath()
+                    ctx.arc(Math.cos(a) * r, Math.sin(a) * r, 4 + (1 - k) * 4, 0, Math.PI * 2)
+                    ctx.fill()
+                }
+                break
+            }
+            case 'ghost':
+                band(tr.reach - w, tr.reach, [[0, 'rgba(191,230,255,0)'], [1, 'rgba(191,230,255,0.6)']])
+                edge(tr.reach - 1, 'rgba(230,245,255,0.8)', 1.5)
+                break
+            case 'enemy':
+                band(tr.reach - w, tr.reach, [[0, 'rgba(255,120,100,0)'], [0.7, 'rgba(255,120,100,0.6)'], [1, 'rgba(255,220,200,0.9)']])
+                edge(tr.reach - 1, 'rgba(255,240,230,0.8)', 2)
+                break
+            default:
+                band(tr.reach - w, tr.reach, [[0, 'rgba(255,255,255,0)'], [0.6, tr.color], [1, 'rgba(255,255,255,0.9)']])
+                edge(tr.reach - 1, 'rgba(255,255,255,0.8)', 2)
+        }
+        if (tr.finisher) edge(tr.reach + 4, `rgba(255,255,255,${0.5 * k})`, 1.5)
+    }
+
+    private drawThrustTrail(ctx: Ctx, tr: { angle0: number, reach: number, width: number, color: string, style: string, finisher?: boolean }, k: number) {
+        ctx.rotate(tr.angle0)
+        if (tr.style === 'spear') {
+            // A needle-thin gold streak with a flash at the tip and speed lines.
+            const grad = ctx.createLinearGradient(0, 0, tr.reach, 0)
+            grad.addColorStop(0, 'rgba(255,233,168,0)')
+            grad.addColorStop(0.6, 'rgba(255,233,168,0.7)')
+            grad.addColorStop(1, 'rgba(255,255,255,1)')
+            ctx.fillStyle = grad
+            ctx.beginPath()
+            ctx.moveTo(0, -tr.width * 0.25)
+            ctx.lineTo(tr.reach - 6, -tr.width * 0.12)
+            ctx.lineTo(tr.reach + 14, 0)
+            ctx.lineTo(tr.reach - 6, tr.width * 0.12)
+            ctx.lineTo(0, tr.width * 0.25)
+            ctx.closePath()
+            ctx.fill()
+            ctx.strokeStyle = `rgba(255,255,255,${0.7 * k})`
+            ctx.lineWidth = 1.2
+            for (const off of [-tr.width * 0.5, tr.width * 0.5]) {
+                ctx.beginPath()
+                ctx.moveTo(tr.reach * 0.2, off)
+                ctx.lineTo(tr.reach * 0.85, off * 0.6)
+                ctx.stroke()
+            }
+            ctx.fillStyle = `rgba(255,255,255,${k})`
+            ctx.beginPath()
+            ctx.arc(tr.reach + 6, 0, 5 + (1 - k) * 6, 0, Math.PI * 2)
+            ctx.fill()
+            return
+        }
+        const grad = ctx.createLinearGradient(0, 0, tr.reach, 0)
+        grad.addColorStop(0, 'rgba(255,255,255,0)')
+        grad.addColorStop(0.5, tr.style === 'ghost' ? 'rgba(191,230,255,0.6)' : tr.color)
+        grad.addColorStop(1, 'rgba(255,255,255,0.95)')
+        ctx.fillStyle = grad
+        ctx.beginPath()
+        ctx.moveTo(0, -tr.width / 2)
+        ctx.lineTo(tr.reach, -tr.width * 0.15)
+        ctx.lineTo(tr.reach + 8, 0)
+        ctx.lineTo(tr.reach, tr.width * 0.15)
+        ctx.lineTo(0, tr.width / 2)
+        ctx.closePath()
+        ctx.fill()
     }
 
     private drawInnerCanopies(ctx: Ctx, ox: number, oy: number) {

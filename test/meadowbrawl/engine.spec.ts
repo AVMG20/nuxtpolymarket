@@ -491,3 +491,78 @@ describe('pathfinding', () => {
         expect(r.state).toBe('chase')
     })
 })
+
+describe('third batch', () => {
+    it('Mirror Edge hits enemies behind you', () => {
+        const g = fresh('sword')
+        g.applyOffer({ upgrade: UPGRADE_BY_ID.mirror!, stack: 1 })
+        aimRight(g)
+        const behind = g.spawnEnemy('grunt', 'north')
+        behind.x = g.player.x - 45
+        behind.y = g.player.y
+        behind.state = 'chase'
+        click(g)
+        step(g, 0.3)
+        expect(behind.hp).toBeLessThan(behind.maxHp)
+    })
+
+    it('Meteor Shower drops a meteor on an enemy and Singularity pulls them in', () => {
+        const g = fresh('sword')
+        g.applyOffer({ upgrade: UPGRADE_BY_ID.meteor!, stack: 1 })
+        const e = g.spawnEnemy('grunt', 'north')
+        e.x = g.player.x + 300
+        e.y = g.player.y
+        e.state = 'chase'
+        e.entered = true
+        e.attackCd = 99
+        e.frozen = 99
+        step(g, 7.2)
+        expect(e.hp).toBeLessThan(e.maxHp)
+
+        // The spear's sweep stays put, so the black hole opens where the enemy can feel it.
+        const s = fresh('spear')
+        s.applyOffer({ upgrade: UPGRADE_BY_ID.singularity!, stack: 1 })
+        aimRight(s)
+        const far = s.spawnEnemy('shield', 'north')
+        far.x = s.player.x + 180
+        far.y = s.player.y
+        far.state = 'chase'
+        far.entered = true
+        far.attackCd = 99
+        s.input.specialPressed = true
+        step(s, 0.02)
+        expect(s.singularities).toHaveLength(1)
+        step(s, 1)
+        expect(Math.hypot(far.x - s.singularities[0]!.x, far.y - s.singularities[0]!.y)).toBeLessThan(120)
+        expect(far.hp).toBeLessThan(far.maxHp)
+    })
+
+    it('Spectral Blades orbit after the fourth swing and Cleaving Wind fires on finishers', () => {
+        const g = fresh('daggers')
+        g.applyOffer({ upgrade: UPGRADE_BY_ID.spectral!, stack: 1 })
+        g.applyOffer({ upgrade: UPGRADE_BY_ID.cleavingwind!, stack: 1 })
+        aimRight(g)
+        for (let i = 0; i < 5; i++) {
+            click(g)
+            step(g, 0.25)
+        }
+        expect(g.orbitals.length).toBeGreaterThan(0)
+        expect(g.projectiles.some(p => p.kind === 'crescent')).toBe(true)
+    })
+
+    it('Adrenaline refunds a dodge and Reaper\'s Toll slows the field on kills', () => {
+        const g = fresh('sword')
+        g.applyOffer({ upgrade: UPGRADE_BY_ID.adrenaline!, stack: 1 })
+        g.applyOffer({ upgrade: UPGRADE_BY_ID.reapertoll!, stack: 1 })
+        g.player.dodgeCharges = 0
+        g.hurtPlayer(5, { x: g.player.x + 30, y: g.player.y }, 0)
+        expect(g.player.dodgeCharges).toBe(1)
+        expect(g.attackSpeed).toBeGreaterThan(1)
+        const a = g.spawnEnemy('swarmer', 'north')
+        a.state = 'chase'
+        const b = g.spawnEnemy('grunt', 'north')
+        b.state = 'chase'
+        g.damageEnemy(a, 999, { source: g.player, tag: 'melee' })
+        expect(b.slow).toBeGreaterThan(0)
+    })
+})

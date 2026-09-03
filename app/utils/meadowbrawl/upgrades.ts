@@ -1,6 +1,6 @@
 import { randomFloat, randomWeighted } from '#shared/utils/random'
 import type { Offer, UpgradeDef, WeaponId } from './types'
-import { WEAPONS, WEAPON_IDS } from './weapons'
+import { WEAPONS } from './weapons'
 
 export const UPGRADES: UpgradeDef[] = [
     // Common — the bread and butter.
@@ -38,7 +38,16 @@ export const UPGRADES: UpgradeDef[] = [
     { id: 'echo', name: 'Echo Strike', description: 'Every third hit strikes twice.', rarity: 'epic', maxStacks: 3, icon: 'i-lucide-copy' },
     { id: 'gravity', name: 'Gravity Well', description: 'Using your special drags every nearby enemy toward you first.', rarity: 'epic', maxStacks: 2, icon: 'i-lucide-orbit' },
     { id: 'deathblossom', name: 'Death Blossom', description: 'Kills burst into a ring of six wind blades. Stacks add more.', rarity: 'epic', maxStacks: 3, icon: 'i-lucide-flower' },
-    { id: 'phoenix', name: 'Phoenix Feather', description: 'Cheat death once: revive at half health in a burst of fire.', rarity: 'epic', maxStacks: 2, icon: 'i-lucide-feather' }
+    { id: 'phoenix', name: 'Phoenix Feather', description: 'Cheat death once: revive at half health in a burst of fire.', rarity: 'epic', maxStacks: 2, icon: 'i-lucide-feather' },
+    // Third batch — outright absurd.
+    { id: 'adrenaline', name: 'Adrenaline', description: 'Taking a hit refunds a dodge charge and grants +30% attack speed for 3 seconds.', rarity: 'rare', maxStacks: 2, icon: 'i-lucide-heart-crack' },
+    { id: 'reapertoll', name: 'Reaper\'s Toll', description: 'Every kill slows every enemy on the field for 1.2 seconds.', rarity: 'rare', maxStacks: 3, icon: 'i-lucide-hourglass' },
+    { id: 'colossus', name: 'Colossus', description: 'Grow 25% bigger: +30% damage, +20% reach, -8% move speed.', rarity: 'rare', maxStacks: 3, icon: 'i-lucide-expand' },
+    { id: 'mirror', name: 'Mirror Edge', description: 'Every swing also strikes behind you for 50% damage.', rarity: 'epic', maxStacks: 3, icon: 'i-lucide-flip-horizontal' },
+    { id: 'cleavingwind', name: 'Cleaving Wind', description: 'Combo finishers hurl a giant crescent that carves through everything.', rarity: 'epic', maxStacks: 3, icon: 'i-lucide-moon' },
+    { id: 'spectral', name: 'Spectral Blades', description: 'Every fourth swing summons three orbiting blades for 5 seconds.', rarity: 'epic', maxStacks: 3, icon: 'i-lucide-sparkles' },
+    { id: 'meteor', name: 'Meteor Shower', description: 'Every 6 seconds a meteor falls on a random enemy. Stacks fall faster.', rarity: 'epic', maxStacks: 3, icon: 'i-lucide-meteor' },
+    { id: 'singularity', name: 'Singularity', description: 'Your special leaves a black hole behind that pulls and crushes for 3 seconds.', rarity: 'epic', maxStacks: 2, icon: 'i-lucide-circle-dot' }
 ]
 
 export const UPGRADE_BY_ID: Record<string, UpgradeDef> = Object.fromEntries(UPGRADES.map(u => [u.id, u]))
@@ -64,20 +73,19 @@ export const RARITY_LABEL: Record<string, string> = {
 
 /**
  * Roll three distinct offers. Early waves lean rare/epic so a build shows up
- * within the first three picks; weapon swaps stay rare throughout.
+ * within the first three picks. Weapons are chosen on the start screen and
+ * never offered mid-run.
  */
 export function rollOffers(
     wave: number,
     stacks: ReadonlyMap<string, number>,
-    currentWeapon: WeaponId,
     rng: () => number = randomFloat
 ): Offer[] {
     const early = wave <= 3
     const weights: Record<string, number> = {
-        common: early ? 38 : 52,
-        rare: early ? 40 : 30,
-        epic: early ? 16 : 12,
-        weapon: 6
+        common: early ? 40 : 55,
+        rare: early ? 42 : 31,
+        epic: early ? 18 : 14
     }
 
     const pool: Offer[] = []
@@ -85,10 +93,6 @@ export function rollOffers(
         const have = stacks.get(u.id) ?? 0
         if (have >= u.maxStacks) continue
         pool.push({ upgrade: u, stack: have + 1 })
-    }
-    for (const id of WEAPON_IDS) {
-        if (id === currentWeapon) continue
-        pool.push({ upgrade: weaponUpgradeDef(id), stack: 1, weapon: id })
     }
 
     const offers: Offer[] = []

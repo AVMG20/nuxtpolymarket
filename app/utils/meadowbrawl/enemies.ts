@@ -44,12 +44,22 @@ export interface WaveScaling {
     damage: number
 }
 
-/** Difficulty ramps mostly through count and archetypes; stats creep gently. */
+/**
+ * Difficulty curve for a 30-wave run: gentle to wave 10, a real climb
+ * through 20, and brutal past 25 — count and archetypes carry the early
+ * game, stats take over late.
+ */
 export function waveScaling(wave: number): WaveScaling {
     const w = Math.max(0, wave - 1)
+    const late = Math.max(0, w - 10)
     return {
-        hp: 1 + w * 0.07 + w * w * 0.0035,
-        speed: Math.min(1.35, 1 + w * 0.018),
-        damage: 1 + w * 0.06
+        hp: 1 + w * 0.08 + w * w * 0.004,
+        speed: Math.min(1.5, 1 + w * 0.02),
+        damage: 1 + w * 0.07 + late * 0.05
     }
+}
+
+/** Chance a regular enemy spawns as a veteran (bigger, tougher, meaner). */
+export function veteranChance(wave: number): number {
+    return Math.min(0.5, Math.max(0, (wave - 10) * 0.04))
 }
