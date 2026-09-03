@@ -23,6 +23,9 @@ describe('a full run', () => {
 
         while (g.phase !== 'victory' && guard++ < 60 * 60 * 60) {
             const p = g.player
+            // Unkillable on purpose: this asserts the loop runs to the end and
+            // stays finite, not that a wave-30 ogre is survivable.
+            p.maxHp = 1e6
             p.hp = p.maxHp
             if (g.phase === 'upgrade') {
                 // Prefer damage so the run keeps pace with the scaling.

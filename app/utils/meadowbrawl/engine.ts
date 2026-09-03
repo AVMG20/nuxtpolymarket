@@ -86,6 +86,8 @@ export interface Player {
     dodgeRecharge: number
     spaceHold: number
     spaceHolding: boolean
+    /** Seconds a pressed dodge stays queued while something else finishes. */
+    dodgeBuffer: number
     sprinting: boolean
     sprintT: number
     special: SpecialState | null
@@ -313,6 +315,12 @@ export interface RunStats {
 const PLAYER_SPEED = 205
 const SPRINT_HOLD = 0.17
 const DODGE_DUR = 0.4
+/** How long a dodge press waits for a committed special to finish. */
+const DODGE_BUFFER = 0.35
+/** i-frames, measured from the first frame of the roll. */
+const DODGE_IFRAMES = 0.3
+/** Past this fraction of the roll you can attack or special out of it. */
+const DODGE_CANCEL = 0.65
 const DODGE_DIST = 165
 const HURT_GRACE = 0.5
 const MAX_PARTICLES = 900
@@ -507,7 +515,7 @@ export class MeadowbrawlGame {
             weapon, chain: buildChain(WEAPONS[weapon], 0),
             attack: null, comboIndex: 0, comboTimer: 0, comboHits: 0, buffer: 0,
             dodge: null, dodgeCharges: 1, dodgeMax: 1, dodgeRecharge: 0,
-            spaceHold: 0, spaceHolding: false, sprinting: false, sprintT: 0,
+            spaceHold: 0, spaceHolding: false, dodgeBuffer: 0, sprinting: false, sprintT: 0,
             special: null, specialCd: 0, specialCdMax: WEAPONS[weapon].special.cooldown,
             invuln: 0, hurtFlash: 0, walk: 0, moving: false,
             upgrades: new Map(), lastMoveX: 1, lastMoveY: 0,
@@ -840,40 +848,60 @@ export class MeadowbrawlGame {
         p.aim = Math.atan2(input.aimY - p.y, input.aimX - p.x)
         if (p.special?.kind !== 'leap') p.z = 0
 
-        // Space: tap = dodge (on release), hold = sprint after a short wind-up.
+        // Space outranks everything: it rolls on the press, cancelling whatever
+        // you were doing, and only becomes a sprint once the roll is over.
         if (first) {
             if (input.spacePressed) {
                 p.spaceHolding = true
                 p.spaceHold = 0
+                p.dodgeBuffer = DODGE_BUFFER
             }
             if (input.attackPressed) p.buffer = 0.3
         }
+        if (p.dodgeBuffer > 0) {
+            if (this.tryDodge()) p.dodgeBuffer = 0
+            // Out of charges is a dead press — drop it so a held space can
+            // still become a sprint. A committed special keeps it queued.
+            else if (p.dodgeCharges <= 0) p.dodgeBuffer = 0
+            else p.dodgeBuffer = Math.max(0, p.dodgeBuffer - dt)
+        }
         if (p.spaceHolding) {
             p.spaceHold += dt
-            if (p.spaceHold >= SPRINT_HOLD && !p.sprinting && !p.dodge && !p.special) {
+            if (p.spaceHold >= SPRINT_HOLD && p.dodgeBuffer <= 0 && !p.sprinting && !p.dodge && !p.special) {
                 this.startSprint()
             }
         }
         if (first && input.spaceReleased) {
-            if (p.spaceHolding && p.spaceHold < SPRINT_HOLD) this.tryDodge()
             p.spaceHolding = false
             if (p.sprinting) {
                 p.sprinting = false
                 p.sprintT = 0
             }
         }
-        if (!input.spaceDown && p.sprinting) {
-            p.sprinting = false
-            p.sprintT = 0
+        // The key being up is the source of truth: a release edge lost to a
+        // blur or an alt-tab must not leave a phantom hold that later yanks
+        // the player into a sprint mid-swing.
+        if (!input.spaceDown) {
+            p.spaceHolding = false
+            if (p.sprinting) {
+                p.sprinting = false
+                p.sprintT = 0
+            }
         }
 
+        // The last stretch of a roll is cancellable, so recoveries never
+        // strand you: everything before it is committed.
+        const rolling = !!p.dodge && p.dodge.t < p.dodge.dur * DODGE_CANCEL
+
         // Special: right click.
-        if (first && input.specialPressed && p.specialCd <= 0 && !p.dodge && !p.special) {
+        if (first && input.specialPressed && p.specialCd <= 0 && !rolling && !p.special) {
+            if (p.dodge) this.endDodge()
             this.startSpecial()
         }
 
         // Attacks and combo chaining.
-        if (p.buffer > 0 && !p.dodge && !p.special) {
+        if (p.buffer > 0 && !rolling && !p.special) {
+            if (p.dodge) this.endDodge()
             const a = p.attack
             if (!a) {
                 if (p.sprinting) {
@@ -915,15 +943,10 @@ export class MeadowbrawlGame {
             const s = (1 - k) * (1 - k) * 3 * DODGE_DIST / d.dur
             vx = d.dx * s
             vy = d.dy * s
-            p.invuln = Math.max(p.invuln, d.t < 0.3 ? 0.02 : 0)
             if (k > 0.1 && k < 0.7 && Math.random() < 0.6) {
                 this.puff(p.x - d.dx * 8, p.y - d.dy * 8, 1, '#c9b98c')
             }
-            if (d.t >= d.dur) {
-                p.dodge = null
-                const rt = this.stack('rollingthunder')
-                if (rt > 0) this.thunderclap(p.x, p.y, 90 + 20 * rt, this.weapon.baseDamage * this.damageMult * (0.8 + 0.3 * (rt - 1)))
-            }
+            if (d.t >= d.dur) this.endDodge()
         } else if (p.attack) {
             const a = p.attack
             a.t += dt
@@ -984,9 +1007,23 @@ export class MeadowbrawlGame {
         }
     }
 
-    private tryDodge() {
+    /**
+     * Specials you cannot roll out of: the movement ones are already an evade,
+     * and the short committed ones (slam, sweep, backstab) own their animation.
+     * The scythe's one-second channel is fair game.
+     */
+    private specialBlocksDodge(): boolean {
+        const s = this.player.special
+        return !!s && s.kind !== 'whirl'
+    }
+
+    /** Start a roll now. Returns false if it has to wait or can't happen. */
+    private tryDodge(): boolean {
         const p = this.player
-        if (p.dodgeCharges <= 0 || p.dodge || p.special) return
+        if (p.dodgeCharges <= 0) return false
+        if (p.dodge && p.dodge.t < p.dodge.dur * DODGE_CANCEL) return false
+        if (this.specialBlocksDodge()) return false
+        p.special = null
         p.dodgeCharges -= 1
         let dx = this.input.moveX
         let dy = this.input.moveY
@@ -998,17 +1035,34 @@ export class MeadowbrawlGame {
             dx /= l
             dy /= l
         }
+        // Chain-rolling out of the tail still pays out the old roll.
+        this.endDodge()
         p.dodge = { t: 0, dur: DODGE_DUR, dx, dy }
+        p.invuln = Math.max(p.invuln, DODGE_IFRAMES)
         // Dodging cancels the combo — the tactical cost.
         p.attack = null
+        p.buffer = 0
         p.comboIndex = 0
         p.comboTimer = 0
         p.comboHits = 0
         p.sprinting = false
         p.sprintT = 0
+        p.spaceHold = 0
         p.facing = Math.atan2(dy, dx)
+        // Rolling out of a hit is the whole point — don't sit in its hit-stop.
+        this.hitstop = 0
         this.burst(p.x, p.y, 0, 6, 'dust', '#cbbd93', 80, 0.45)
         this.emit('dodge', p.x, p.y)
+        return true
+    }
+
+    /** End the roll, whether it ran out or was cancelled into another action. */
+    private endDodge() {
+        const p = this.player
+        if (!p.dodge) return
+        p.dodge = null
+        const rt = this.stack('rollingthunder')
+        if (rt > 0) this.thunderclap(p.x, p.y, 90 + 20 * rt, this.weapon.baseDamage * this.damageMult * (0.8 + 0.3 * (rt - 1)))
     }
 
     private startSprint() {

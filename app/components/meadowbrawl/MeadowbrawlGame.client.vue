@@ -444,7 +444,7 @@ const showHint = computed(() => hud.phase === 'wave' && hud.wave === 1)
         <div v-if="showHint" class="absolute left-3 bottom-3 sm:left-5 sm:bottom-5 text-[11px] font-semibold text-white/75 drop-shadow space-y-0.5">
           <div><span class="text-white">WASD</span> move · <span class="text-white">Mouse</span> aim</div>
           <div><span class="text-white">LMB</span> combo · <span class="text-white">RMB</span> special</div>
-          <div><span class="text-white">Space</span> tap to dodge, hold to sprint</div>
+          <div><span class="text-white">Space</span> dodge (hold to sprint)</div>
         </div>
 
         <!-- Paused -->
@@ -484,8 +484,8 @@ const showHint = computed(() => hud.phase === 'wave' && hud.wave === 1)
             <div><UKbd>W</UKbd><UKbd>A</UKbd><UKbd>S</UKbd><UKbd>D</UKbd> move · mouse aims</div>
             <div><span class="font-bold text-white">Left click</span> attack — each tap advances the combo</div>
             <div><span class="font-bold text-white">Right click</span> weapon special (short cooldown)</div>
-            <div><UKbd>Space</UKbd> tap to dodge roll (i-frames) · hold to sprint</div>
-            <div class="sm:col-span-2 text-white/55">Dodging and sprinting cancel your combo. Finishers hit harder and knock further.</div>
+            <div><UKbd>Space</UKbd> dodge roll, instant, cancels anything · hold to sprint out of it</div>
+            <div class="sm:col-span-2 text-white/55">Dodging cancels your combo — that's its cost. Finishers hit harder and knock further.</div>
           </div>
 
           <div class="mt-6 flex justify-center">

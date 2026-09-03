@@ -132,7 +132,7 @@ describe('combo chain', () => {
         expect(g.player.comboIndex).toBe(0)
     })
 
-    it('dodging cancels the combo and grants i-frames', () => {
+    it('dodges on the press — one frame, mid-swing, no release needed', () => {
         const g = fresh('sword')
         aimRight(g)
         click(g)
@@ -142,11 +142,9 @@ describe('combo chain', () => {
         expect(g.player.attack?.index).toBe(1)
         g.input.spacePressed = true
         g.input.spaceDown = true
-        step(g, 0.05)
-        g.input.spaceReleased = true
-        g.input.spaceDown = false
-        step(g, 0.02)
+        g.update(1 / 120)
         expect(g.player.dodge).not.toBeNull()
+        expect(g.player.dodge!.t).toBeLessThan(0.02)
         expect(g.player.attack).toBeNull()
         expect(g.player.comboIndex).toBe(0)
         expect(g.player.dodgeCharges).toBe(0)
@@ -154,7 +152,50 @@ describe('combo chain', () => {
         expect(g.player.hp).toBe(100)
     })
 
-    it('holding space sprints instead of dodging, and cancels the combo', () => {
+    it('rolls out of a swing at any point in it', () => {
+        for (const wait of [0.01, 0.14, 0.25]) {
+            const g = fresh('greataxe')
+            aimRight(g)
+            click(g)
+            step(g, wait)
+            expect(g.player.attack, `wait ${wait}`).not.toBeNull()
+            g.input.spacePressed = true
+            g.input.spaceDown = true
+            g.update(1 / 120)
+            expect(g.player.dodge, `wait ${wait}`).not.toBeNull()
+            expect(g.player.attack, `wait ${wait}`).toBeNull()
+        }
+    })
+
+    it('a dodge press beats a click sent on the same frame', () => {
+        const g = fresh('sword')
+        aimRight(g)
+        click(g)
+        g.input.spacePressed = true
+        g.input.spaceDown = true
+        g.update(1 / 120)
+        expect(g.player.dodge).not.toBeNull()
+        expect(g.player.attack).toBeNull()
+        expect(g.player.buffer).toBe(0)
+    })
+
+    it('clears hit-stop so a roll never crawls out of an impact', () => {
+        const g = fresh('greataxe')
+        aimRight(g)
+        const e = g.spawnEnemy('ogre', 'north')
+        e.x = g.player.x + 50
+        e.y = g.player.y
+        e.state = 'chase'
+        click(g)
+        for (let i = 0; i < 400 && g.hitstop <= 0; i++) g.update(1 / 240)
+        expect(g.hitstop).toBeGreaterThan(0)
+        g.input.spacePressed = true
+        g.input.spaceDown = true
+        g.update(1 / 240)
+        expect(g.hitstop).toBe(0)
+    })
+
+    it('holding space rolls first, then breaks into a sprint', () => {
         const g = fresh('sword')
         aimRight(g)
         click(g)
@@ -162,11 +203,71 @@ describe('combo chain', () => {
         g.input.moveX = 1
         g.input.spacePressed = true
         g.input.spaceDown = true
-        step(g, 0.4)
-        expect(g.player.sprinting).toBe(true)
-        expect(g.player.dodge).toBeNull()
+        g.update(1 / 120)
+        expect(g.player.dodge).not.toBeNull()
         expect(g.player.attack).toBeNull()
-        expect(g.player.dodgeCharges).toBe(1)
+        expect(g.player.sprinting).toBe(false)
+        step(g, 0.6)
+        expect(g.player.dodge).toBeNull()
+        expect(g.player.sprinting).toBe(true)
+        expect(g.player.dodgeCharges).toBe(0)
+    })
+
+    it('with no charges left a held space still sprints', () => {
+        const g = fresh('sword')
+        g.player.dodgeCharges = 0
+        g.input.moveX = 1
+        g.input.spacePressed = true
+        g.input.spaceDown = true
+        step(g, 0.25)
+        expect(g.player.dodge).toBeNull()
+        expect(g.player.sprinting).toBe(true)
+    })
+
+    it('attacking cancels the tail of a roll', () => {
+        const g = fresh('sword')
+        aimRight(g)
+        g.input.spacePressed = true
+        g.input.spaceDown = true
+        g.update(1 / 120)
+        g.input.spaceDown = false
+        step(g, 0.2)
+        expect(g.player.dodge).not.toBeNull()
+        click(g)
+        step(g, 0.12)
+        expect(g.player.dodge).toBeNull()
+        expect(g.player.attack).not.toBeNull()
+    })
+
+    it('a dodge during a committed special waits for it, then fires', () => {
+        const g = fresh('greataxe')
+        aimRight(g)
+        g.input.specialPressed = true
+        step(g, 0.5)
+        expect(g.player.special?.kind).toBe('slam')
+        expect(g.player.special?.fired).toBe(true)
+        g.input.spacePressed = true
+        g.input.spaceDown = true
+        g.update(1 / 120)
+        // The slam keeps its animation; the press is queued, not eaten.
+        expect(g.player.dodge).toBeNull()
+        expect(g.player.special).not.toBeNull()
+        step(g, 0.35)
+        expect(g.player.special).toBeNull()
+        expect(g.player.dodge).not.toBeNull()
+    })
+
+    it('the scythe channel can be rolled out of immediately', () => {
+        const g = fresh('scythe')
+        aimRight(g)
+        g.input.specialPressed = true
+        step(g, 0.3)
+        expect(g.player.special?.kind).toBe('whirl')
+        g.input.spacePressed = true
+        g.input.spaceDown = true
+        g.update(1 / 120)
+        expect(g.player.special).toBeNull()
+        expect(g.player.dodge).not.toBeNull()
     })
 
     it('+1 combo hit lengthens the chain', () => {
@@ -304,7 +405,8 @@ describe('second pass', () => {
         g.input.moveX = 1
         g.input.spacePressed = true
         g.input.spaceDown = true
-        step(g, 0.4)
+        // Holding rolls first, then sprints — wait for the sprint.
+        step(g, 0.7)
         expect(g.player.sprinting).toBe(true)
         click(g)
         step(g, 0.05)
