@@ -38,11 +38,34 @@ export interface SwingDef {
 
 export type SpecialKind = 'dash' | 'slam' | 'sweep' | 'blink' | 'leap' | 'whirl'
 
+export type AbilityId =
+    | 'shieldwall' | 'rally'
+    | 'bloodrage' | 'rendingthrow'
+    | 'skewer' | 'javelinrain'
+    | 'smokebomb' | 'fanofknives'
+    | 'ironskin' | 'seismic'
+    | 'soulharvest' | 'deathmark'
+
+export interface AbilityDef {
+    id: AbilityId
+    name: string
+    description: string
+    cooldown: number
+    icon: string
+    /** Multiplier of the weapon's base damage where the ability deals damage. */
+    damage: number
+}
+
 export interface WeaponDef {
     id: WeaponId
     name: string
+    /** The class this weapon defines. */
+    className: string
+    classTagline: string
     tagline: string
     description: string
+    /** Q and E. */
+    abilities: [AbilityDef, AbilityDef]
     baseDamage: number
     /** Seconds after recovery ends during which the chain can still continue. */
     comboWindow: number
@@ -93,12 +116,15 @@ export type GameEventType =
     | 'swing' | 'hit' | 'heavyHit' | 'kill' | 'block' | 'shieldBreak' | 'hurt' | 'dodge'
     | 'special' | 'waveStart' | 'waveClear' | 'upgrade' | 'death' | 'victory' | 'explode'
     | 'lightning' | 'freeze' | 'burn' | 'telegraph' | 'sprint' | 'eliteSpawn' | 'crit' | 'execute' | 'revive' | 'leap'
+    | 'ability' | 'abilityReady' | 'shieldBlock' | 'ambush' | 'eliteKill'
 
 export interface GameEvent {
     type: GameEventType
     x?: number
     y?: number
     power?: number
+    /** Weapon, ability or enemy type that flavours the sound. */
+    variant?: string
 }
 
 export const GROUND_YS = 0.72

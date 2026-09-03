@@ -9,6 +9,12 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     sword: {
         id: 'sword',
         name: 'Knight\'s Sword',
+        className: 'Knight',
+        classTagline: 'Steadfast. Blocks, rallies, holds the line.',
+        abilities: [
+            { id: 'shieldwall', name: 'Shield Wall', description: 'Raise your shield for 1.5s: everything from the front is blocked, attackers are staggered, thorns are batted back at their owners.', cooldown: 9, icon: 'i-lucide-shield', damage: 0.8 },
+            { id: 'rally', name: 'Rallying Cry', description: 'Heal 15% and shout: enemies nearby stagger, and you deal +30% damage for 4s.', cooldown: 14, icon: 'i-lucide-megaphone', damage: 0 }
+        ],
         tagline: '3-hit · fast · balanced',
         description: 'Quick, even arcs. The cleave finisher sends them flying.',
         baseDamage: 14,
@@ -26,6 +32,12 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     greataxe: {
         id: 'greataxe',
         name: 'Greataxe',
+        className: 'Berserker',
+        classTagline: 'Reckless. Trades blood for speed and never stops swinging.',
+        abilities: [
+            { id: 'bloodrage', name: 'Bloodrage', description: '5s of fury: +50% attack speed and 15% lifesteal, but you take 25% more damage.', cooldown: 12, icon: 'i-lucide-flame', damage: 0 },
+            { id: 'rendingthrow', name: 'Rending Throw', description: 'Hurl the axe. It carves out, turns, and carves back through everything twice.', cooldown: 9, icon: 'i-lucide-refresh-cw', damage: 1.5 }
+        ],
         tagline: '2-hit · slow · massive',
         description: 'Wide, crushing sweeps. Every hit is heavy and breaks shields.',
         baseDamage: 36,
@@ -42,6 +54,12 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     spear: {
         id: 'spear',
         name: 'Ash Spear',
+        className: 'Lancer',
+        classTagline: 'Precise. Picks the line, then commits to it.',
+        abilities: [
+            { id: 'skewer', name: 'Skewer Charge', description: 'Charge 300 units, scooping enemies onto the spear, then slam them into the ground at the end.', cooldown: 10, icon: 'i-lucide-move-right', damage: 2.2 },
+            { id: 'javelinrain', name: 'Javelin Rain', description: 'Seven javelins fall on your cursor over a second. Each pierces shields.', cooldown: 13, icon: 'i-lucide-cloud-rain', damage: 1.4 }
+        ],
         tagline: '4-hit · long reach · narrow',
         description: 'Keep them at the end of your point. Poor against crowds, deadly in a line.',
         baseDamage: 18,
@@ -60,6 +78,12 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     daggers: {
         id: 'daggers',
         name: 'Twin Daggers',
+        className: 'Assassin',
+        classTagline: 'Unseen. Vanishes, repositions, and opens with a killing blow.',
+        abilities: [
+            { id: 'smokebomb', name: 'Smoke Bomb', description: 'Vanish for 2.5s: enemies lose you. Your next hit is an ambush for 3× damage.', cooldown: 11, icon: 'i-lucide-cloud', damage: 0 },
+            { id: 'fanofknives', name: 'Fan of Knives', description: 'Nine knives in a 70° fan, each piercing one enemy.', cooldown: 8, icon: 'i-lucide-layers', damage: 0.7 }
+        ],
         tagline: '5-hit · tiny reach · blistering',
         description: 'Get close and never stop moving. The flurry finisher shreds.',
         baseDamage: 9,
@@ -79,6 +103,12 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     warhammer: {
         id: 'warhammer',
         name: 'Warhammer',
+        className: 'Juggernaut',
+        classTagline: 'Immovable. Shrugs off blows and cracks the earth open.',
+        abilities: [
+            { id: 'ironskin', name: 'Iron Skin', description: '4s of steel: take 60% less damage and nothing knocks you back.', cooldown: 13, icon: 'i-lucide-shield-half', damage: 0 },
+            { id: 'seismic', name: 'Seismic Line', description: 'Split the ground in a line ahead of you: nine eruptions that launch everything they touch.', cooldown: 10, icon: 'i-lucide-mountain', damage: 1.3 }
+        ],
         tagline: '2-hit · heavy · crushing',
         description: 'Short, brutal swings that send everything flying. Every hit breaks shields.',
         baseDamage: 32,
@@ -95,6 +125,12 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     scythe: {
         id: 'scythe',
         name: 'Reaper\'s Scythe',
+        className: 'Reaper',
+        classTagline: 'Inevitable. Marks the doomed and drinks what is left.',
+        abilities: [
+            { id: 'soulharvest', name: 'Soul Harvest', description: 'Tear the soul from every enemy within reach: damage through shields, and each one heals you 4%.', cooldown: 11, icon: 'i-lucide-ghost', damage: 1.2 },
+            { id: 'deathmark', name: 'Death Mark', description: 'Mark the five nearest enemies for 5s: they take +40% damage and burst into hunting souls when they die.', cooldown: 12, icon: 'i-lucide-skull', damage: 0.8 }
+        ],
         tagline: '3-hit · enormous arcs · pulls',
         description: 'Sweeping crescents that catch whole crowds. The harvest drags them in.',
         baseDamage: 19,

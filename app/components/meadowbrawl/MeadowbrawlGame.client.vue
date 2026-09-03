@@ -47,7 +47,11 @@ const hud = reactive({
     bannerT: 0,
     upgrades: [] as { id: string, name: string, icon: string, stacks: number }[],
     offers: [] as Offer[],
-    sprinting: false
+    sprinting: false,
+    className: '',
+    q: { name: '', icon: '', cd: 0, max: 1 },
+    e: { name: '', icon: '', cd: 0, max: 1 },
+    fx: [] as { name: string, t: number, color: string }[]
 })
 
 const stats = computed(() => game.stats)
@@ -77,6 +81,24 @@ function syncHud() {
         hud.elites = elites.map(e => ({ id: e.id, name: e.def.name, hp: Math.max(0, e.hp), max: e.maxHp }))
     }
     hud.bloodlust = p.bloodlust
+    const wdef = WEAPONS[p.weapon]
+    hud.className = wdef.className
+    hud.q.name = wdef.abilities[0].name
+    hud.q.icon = wdef.abilities[0].icon
+    hud.q.cd = p.abilityCd.q
+    hud.q.max = p.abilityCdMax.q
+    hud.e.name = wdef.abilities[1].name
+    hud.e.icon = wdef.abilities[1].icon
+    hud.e.cd = p.abilityCd.e
+    hud.e.max = p.abilityCdMax.e
+    const fx: { name: string, t: number, color: string }[] = []
+    if (p.fx.shieldWall > 0) fx.push({ name: 'Shield Wall', t: p.fx.shieldWall, color: 'text-sky-200' })
+    if (p.fx.rally > 0) fx.push({ name: 'Rallied', t: p.fx.rally, color: 'text-amber-200' })
+    if (p.fx.bloodrage > 0) fx.push({ name: 'Bloodrage', t: p.fx.bloodrage, color: 'text-red-300' })
+    if (p.fx.ironSkin > 0) fx.push({ name: 'Iron Skin', t: p.fx.ironSkin, color: 'text-slate-200' })
+    if (p.fx.smoke > 0) fx.push({ name: 'Hidden', t: p.fx.smoke, color: 'text-violet-200' })
+    if (fx.length !== hud.fx.length || fx.some((f, i) => hud.fx[i]!.name !== f.name)) hud.fx = fx
+    else for (const [i, f] of fx.entries()) hud.fx[i]!.t = f.t
     hud.banner = game.banner?.text ?? ''
     hud.bannerSub = game.banner?.sub ?? ''
     hud.bannerT = game.banner?.t ?? 0
@@ -97,6 +119,8 @@ function frame(now: number) {
     game.update(dt)
     for (const ev of game.events) sound.play(ev)
     game.events.length = 0
+    const pool = game.world.pool
+    sound.setScene(Math.hypot(game.player.x - pool.x, game.player.y - pool.y), game.wave, game.phase === 'wave', dt)
     renderer?.render(dt)
     syncHud()
 }
@@ -136,6 +160,12 @@ function onKeyDown(e: KeyboardEvent) {
         }
         game.input.spaceDown = true
         game.input.spacePressed = true
+        return
+    }
+    if ((e.code === 'KeyQ' || e.code === 'KeyE') && !e.repeat) {
+        if (e.code === 'KeyQ') game.input.qPressed = true
+        else game.input.ePressed = true
+        e.preventDefault()
         return
     }
     if (e.code === 'Escape') {
@@ -314,7 +344,7 @@ const showHint = computed(() => hud.phase === 'wave' && hud.wave === 1)
           <div class="mt-2 flex items-center gap-2">
             <div class="flex-1">
               <div class="flex items-center justify-between mb-0.5">
-                <span class="text-[10px] uppercase tracking-[0.2em] font-bold text-white/70 drop-shadow">{{ hud.specialName }}</span>
+                <span class="text-[10px] uppercase tracking-[0.2em] font-bold text-white/70 drop-shadow"><span class="text-amber-200">{{ hud.className }}</span> · {{ hud.specialName }}</span>
                 <span class="text-[10px] font-bold text-white/60">RMB</span>
               </div>
               <div class="h-2 rounded bg-black/55 ring-1 ring-black/60 overflow-hidden">
@@ -323,6 +353,20 @@ const showHint = computed(() => hud.phase === 'wave' && hud.wave === 1)
                   :class="hud.special >= 1 ? 'bg-gradient-to-r from-amber-300 to-yellow-200' : 'bg-sky-400/80'"
                   :style="{ width: `${hud.special * 100}%` }"
                 />
+              </div>
+            </div>
+            <div class="flex items-center gap-1.5 pt-2">
+              <div
+                v-for="slot in [{ key: 'Q', a: hud.q }, { key: 'E', a: hud.e }]"
+                :key="slot.key"
+                class="relative size-10 rounded-lg ring-1 overflow-hidden"
+                :class="slot.a.cd <= 0 ? 'bg-amber-300/20 ring-amber-300/80 shadow-[0_0_14px_rgba(252,211,77,0.45)]' : 'bg-black/60 ring-white/15'"
+                :title="slot.a.name"
+              >
+                <UIcon :name="slot.a.icon" class="absolute inset-0 m-auto size-5" :class="slot.a.cd <= 0 ? 'text-amber-200' : 'text-white/45'" />
+                <div v-if="slot.a.cd > 0" class="absolute inset-x-0 bottom-0 bg-sky-400/40" :style="{ height: `${(1 - slot.a.cd / Math.max(0.01, slot.a.max)) * 100}%` }" />
+                <span class="absolute left-1 top-0.5 text-[9px] font-black text-white/80">{{ slot.key }}</span>
+                <span v-if="slot.a.cd > 0" class="absolute right-1 bottom-0.5 text-[10px] font-black tabular-nums text-white">{{ Math.ceil(slot.a.cd) }}</span>
               </div>
             </div>
             <div class="flex items-center gap-1 pt-3" title="Dodge charges">
@@ -334,7 +378,12 @@ const showHint = computed(() => hud.phase === 'wave' && hud.wave === 1)
               />
             </div>
           </div>
-          <div class="mt-2 flex flex-wrap gap-1">
+          <div class="mt-1.5 flex flex-wrap gap-1">
+            <span v-for="f in hud.fx" :key="f.name" class="inline-flex items-center gap-1 rounded-md bg-black/60 ring-1 ring-white/15 px-1.5 py-0.5 text-[11px] font-black" :class="f.color">
+              {{ f.name }} <span class="tabular-nums opacity-70">{{ f.t.toFixed(1) }}s</span>
+            </span>
+          </div>
+          <div class="mt-1.5 flex flex-wrap gap-1">
             <span v-if="hud.bloodlust > 0" class="inline-flex items-center gap-1 rounded-md bg-red-900/70 ring-1 ring-red-400/40 px-1.5 py-0.5 text-[11px] font-black text-red-200">
               <UIcon name="i-lucide-activity" class="size-3.5" />×{{ hud.bloodlust }}
             </span>
@@ -443,7 +492,7 @@ const showHint = computed(() => hud.phase === 'wave' && hud.wave === 1)
         <!-- Controls hint -->
         <div v-if="showHint" class="absolute left-3 bottom-3 sm:left-5 sm:bottom-5 text-[11px] font-semibold text-white/75 drop-shadow space-y-0.5">
           <div><span class="text-white">WASD</span> move · <span class="text-white">Mouse</span> aim</div>
-          <div><span class="text-white">LMB</span> combo · <span class="text-white">RMB</span> special</div>
+          <div><span class="text-white">LMB</span> combo · <span class="text-white">RMB</span> special · <span class="text-white">Q</span>/<span class="text-white">E</span> abilities</div>
           <div><span class="text-white">Space</span> dodge (hold to sprint)</div>
         </div>
 
@@ -458,14 +507,14 @@ const showHint = computed(() => hud.phase === 'wave' && hud.wave === 1)
 
       <!-- Menu ----------------------------------------------------------- -->
       <div v-if="hud.phase === 'menu'" class="absolute inset-0 flex items-center justify-center p-4 bg-black/40">
-        <div class="w-full max-w-3xl max-h-full overflow-y-auto rounded-2xl bg-black/65 backdrop-blur-sm ring-1 ring-white/10 p-5 sm:p-8 text-white">
+        <div class="w-full max-w-4xl max-h-full overflow-y-auto rounded-2xl bg-black/65 backdrop-blur-sm ring-1 ring-white/10 p-5 sm:p-8 text-white">
           <div class="text-center">
             <div class="text-[11px] uppercase tracking-[0.4em] font-bold text-amber-200">A melee survival roguelite</div>
             <h1 class="mt-1 text-5xl sm:text-6xl font-black tracking-tight drop-shadow-[0_4px_0_rgba(0,0,0,0.6)]">Meadowbrawl</h1>
             <p class="mt-2 text-sm text-white/70">Thirty waves. Pick a weapon, chain your combo, dodge the telegraphs, and let the build get out of hand. Ten is a run; twenty is a feat; thirty is a legend.</p>
           </div>
 
-          <div class="mt-5 grid grid-cols-2 sm:grid-cols-3 gap-2">
+          <div class="mt-5 grid grid-cols-1 sm:grid-cols-3 gap-2">
             <button
               v-for="w in weaponCards"
               :key="w.id"
@@ -474,16 +523,21 @@ const showHint = computed(() => hud.phase === 'wave' && hud.wave === 1)
               :class="selectedWeapon === w.id ? 'bg-amber-300/15 ring-amber-300/80 shadow-lg shadow-amber-400/20' : 'bg-white/5 ring-white/10 hover:bg-white/10'"
               @click="selectedWeapon = w.id"
             >
-              <div class="text-sm font-black">{{ w.def.name }}</div>
-              <div class="text-[11px] text-amber-200 font-semibold">{{ w.def.tagline }}</div>
-              <div class="mt-1 text-[11px] text-white/60 leading-snug">{{ w.def.special.name }}: {{ w.def.special.description }}</div>
+              <div class="text-base font-black leading-tight">{{ w.def.className }}</div>
+              <div class="text-[11px] text-white/80 font-semibold">{{ w.def.name }} · {{ w.def.tagline }}</div>
+              <div class="mt-1 text-[11px] text-amber-200 italic leading-snug">{{ w.def.classTagline }}</div>
+              <div class="mt-2 space-y-0.5 text-[10.5px] text-white/65 leading-snug">
+                <div><UKbd class="text-[9px]">RMB</UKbd> <span class="text-white/90 font-bold">{{ w.def.special.name }}</span></div>
+                <div><UKbd class="text-[9px]">Q</UKbd> <span class="text-white/90 font-bold">{{ w.def.abilities[0].name }}</span> — {{ w.def.abilities[0].description }}</div>
+                <div><UKbd class="text-[9px]">E</UKbd> <span class="text-white/90 font-bold">{{ w.def.abilities[1].name }}</span> — {{ w.def.abilities[1].description }}</div>
+              </div>
             </button>
           </div>
 
           <div class="mt-5 grid sm:grid-cols-2 gap-x-6 gap-y-1 text-xs text-white/75">
             <div><UKbd>W</UKbd><UKbd>A</UKbd><UKbd>S</UKbd><UKbd>D</UKbd> move · mouse aims</div>
             <div><span class="font-bold text-white">Left click</span> attack — each tap advances the combo</div>
-            <div><span class="font-bold text-white">Right click</span> weapon special (short cooldown)</div>
+            <div><span class="font-bold text-white">Right click</span> weapon special · <UKbd>Q</UKbd> <UKbd>E</UKbd> class abilities</div>
             <div><UKbd>Space</UKbd> dodge roll, instant, cancels anything · hold to sprint out of it</div>
             <div class="sm:col-span-2 text-white/55">Dodging cancels your combo — that's its cost. Finishers hit harder and knock further.</div>
           </div>

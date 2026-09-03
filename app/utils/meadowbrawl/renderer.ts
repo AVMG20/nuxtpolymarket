@@ -125,6 +125,12 @@ export class MeadowbrawlRenderer {
         this.drawGround(ctx)
         ctx.restore()
 
+        // Afterimages sit just above the ground, below everything solid.
+        ctx.save()
+        ctx.translate(ox, oy)
+        this.drawAfterimages(ctx)
+        ctx.restore()
+
         // Sorted sprites.
         this.drawSprites(ctx, ox, oy)
 
@@ -132,6 +138,14 @@ export class MeadowbrawlRenderer {
         ctx.save()
         ctx.translate(ox, oy)
         this.drawAir(ctx)
+        this.drawAbilityAir(ctx)
+        ctx.restore()
+
+        // Additive glow pass: sparks, embers, motes, souls, auras.
+        ctx.save()
+        ctx.translate(ox, oy)
+        ctx.globalCompositeOperation = 'lighter'
+        this.drawGlow(ctx)
         ctx.restore()
 
         // Foreground canopies.
@@ -807,6 +821,60 @@ export class MeadowbrawlRenderer {
             ctx.stroke()
         }
 
+        // Class ability ground marks.
+        for (const j of g.javelins) {
+            if (j.t >= j.delay) continue
+            const k = clamp(j.t / j.delay, 0, 1)
+            ctx.fillStyle = `rgba(255,220,140,${0.1 + k * 0.25})`
+            ctx.strokeStyle = 'rgba(255,230,170,0.8)'
+            ctx.lineWidth = 1.5
+            ctx.beginPath()
+            ctx.arc(j.x, j.y, 46, 0, Math.PI * 2)
+            ctx.fill()
+            ctx.stroke()
+            ctx.fillStyle = `rgba(255,240,200,${0.3 + k * 0.4})`
+            ctx.beginPath()
+            ctx.arc(j.x, j.y, 46 * k, 0, Math.PI * 2)
+            ctx.fill()
+        }
+        for (const sm of g.seismics) {
+            const len = sm.remaining * 44
+            ctx.strokeStyle = 'rgba(255,200,120,0.6)'
+            ctx.setLineDash([12, 10])
+            ctx.lineWidth = 3
+            ctx.beginPath()
+            ctx.moveTo(sm.x, sm.y)
+            ctx.lineTo(sm.x + sm.dx * len, sm.y + sm.dy * len)
+            ctx.stroke()
+            ctx.setLineDash([])
+        }
+        for (const e of g.enemies) {
+            if (!e.alive || e.marked <= 0) continue
+            ctx.strokeStyle = `rgba(200,160,255,${0.5 + Math.sin(this.t * 8) * 0.25})`
+            ctx.lineWidth = 2.5
+            ctx.beginPath()
+            ctx.arc(e.x, e.y, e.r * 1.7, this.t * 2, this.t * 2 + 4.5)
+            ctx.stroke()
+        }
+        if (p.fx.smoke > 0) {
+            const k = Math.min(1, p.fx.smoke / 0.5)
+            const grad = ctx.createRadialGradient(p.x, p.y, 10, p.x, p.y, 90)
+            grad.addColorStop(0, `rgba(60,52,80,${0.55 * k})`)
+            grad.addColorStop(1, 'rgba(60,52,80,0)')
+            ctx.fillStyle = grad
+            ctx.beginPath()
+            ctx.arc(p.x, p.y, 90, 0, Math.PI * 2)
+            ctx.fill()
+        }
+        if (p.fx.rally > 0 || p.fx.bloodrage > 0 || p.fx.ironSkin > 0) {
+            const color = p.fx.bloodrage > 0 ? '255,70,60' : p.fx.rally > 0 ? '255,209,102' : '200,204,210'
+            ctx.strokeStyle = `rgba(${color},${0.45 + Math.sin(this.t * 6) * 0.2})`
+            ctx.lineWidth = 3
+            ctx.beginPath()
+            ctx.arc(p.x, p.y, 30 + Math.sin(this.t * 6) * 3, 0, Math.PI * 2)
+            ctx.stroke()
+        }
+
         // Whirlwind base.
         for (const w of g.whirlwinds) {
             const k = w.life / w.maxLife
@@ -895,6 +963,18 @@ export class MeadowbrawlRenderer {
                     ctx.closePath()
                     ctx.fill()
                     ctx.stroke()
+                } else if (pr.kind === 'knife') {
+                    ctx.fillStyle = '#f1e5c7'
+                    ctx.strokeStyle = '#1e1a24'
+                    ctx.lineWidth = 1.2
+                    ctx.beginPath()
+                    ctx.moveTo(12, 0)
+                    ctx.lineTo(-4, 3)
+                    ctx.lineTo(-9, 0)
+                    ctx.lineTo(-4, -3)
+                    ctx.closePath()
+                    ctx.fill()
+                    ctx.stroke()
                 } else if (pr.kind === 'crescent') {
                     ctx.strokeStyle = 'rgba(230,250,255,0.85)'
                     ctx.lineWidth = 9
@@ -923,8 +1003,77 @@ export class MeadowbrawlRenderer {
             } })
         }
         for (const pt of g.particles) {
-            if (pt.kind === 'dust' || pt.kind === 'smoke' || (pt.kind === 'blood' && pt.z <= 0) || (pt.kind === 'chip' && pt.z <= 0)) continue
+            if (pt.kind === 'dust' || pt.kind === 'smoke' || pt.kind === 'glow' || pt.kind === 'spark' || pt.kind === 'ember' || pt.kind === 'spore' || (pt.kind === 'blood' && pt.z <= 0) || (pt.kind === 'chip' && pt.z <= 0)) continue
             items.push({ y: pt.y, draw: () => this.drawParticle(ctx, pt, proj(pt.x, pt.y, pt.z)) })
+        }
+        for (const a of g.thrownAxes) {
+            items.push({ y: a.y, draw: () => {
+                const s = proj(a.x, a.y, 22)
+                ctx.save()
+                ctx.translate(s.x, s.y)
+                ctx.rotate(a.spin)
+                this.drawWeapon(ctx, 'greataxe', -20, 0, 0, 1, WEAPONS.greataxe.color, 1.1)
+                ctx.restore()
+                ctx.fillStyle = 'rgba(15,30,15,0.3)'
+                ctx.beginPath()
+                ctx.ellipse(s.x, a.y * YS + oy + 4, 22, 8, 0, 0, Math.PI * 2)
+                ctx.fill()
+            } })
+        }
+        for (const j of g.javelins) {
+            items.push({ y: j.y, draw: () => {
+                const k = j.t / j.delay
+                if (k < 0.55) return
+                const landed = j.t >= j.delay
+                const fall = landed ? 0 : (1 - (k - 0.55) / 0.45) * 420
+                const s = proj(j.x, j.y, fall)
+                ctx.save()
+                ctx.translate(s.x, s.y)
+                ctx.rotate(j.angle)
+                ctx.globalAlpha = landed ? clamp((j.delay + j.stuck - j.t) / 0.5, 0, 1) : 1
+                ctx.strokeStyle = '#1e1a24'
+                ctx.lineWidth = 5
+                ctx.beginPath()
+                ctx.moveTo(0, 0)
+                ctx.lineTo(0, -64)
+                ctx.stroke()
+                ctx.strokeStyle = '#7a5a34'
+                ctx.lineWidth = 3
+                ctx.beginPath()
+                ctx.moveTo(0, 0)
+                ctx.lineTo(0, -64)
+                ctx.stroke()
+                ctx.fillStyle = '#e7d7b8'
+                ctx.beginPath()
+                ctx.moveTo(-4, -4)
+                ctx.lineTo(0, 10)
+                ctx.lineTo(4, -4)
+                ctx.closePath()
+                ctx.fill()
+                ctx.restore()
+            } })
+        }
+        for (const sp of g.spikes) {
+            items.push({ y: sp.y, draw: () => {
+                const k = 1 - sp.life / sp.maxLife
+                const rise = k < 0.25 ? k / 0.25 : k > 0.7 ? (1 - k) / 0.3 : 1
+                const s = proj(sp.x, sp.y)
+                ctx.save()
+                ctx.translate(s.x, s.y)
+                for (const [dx, h, w] of [[-12, 0.8, 8], [0, 1, 10], [12, 0.7, 7]] as const) {
+                    ctx.fillStyle = bodyGrad(ctx, '#8d8478', dx - w, -sp.size * h * rise, dx + w, 0)
+                    ctx.strokeStyle = 'rgba(30,25,22,0.8)'
+                    ctx.lineWidth = 1.5
+                    ctx.beginPath()
+                    ctx.moveTo(dx - w, 2)
+                    ctx.lineTo(dx, -sp.size * h * rise)
+                    ctx.lineTo(dx + w, 2)
+                    ctx.closePath()
+                    ctx.fill()
+                    ctx.stroke()
+                }
+                ctx.restore()
+            } })
         }
 
         items.sort((a, b) => a.y - b.y)
@@ -971,6 +1120,19 @@ export class MeadowbrawlRenderer {
                 ctx.fillRect(-pt.size / 2, -pt.size / 2, pt.size, pt.size)
                 ctx.restore()
                 break
+            case 'bone':
+                ctx.save()
+                ctx.translate(s.x, s.y)
+                ctx.rotate(pt.x + this.t * 4)
+                ctx.strokeStyle = 'rgba(40,30,20,0.8)'
+                ctx.lineWidth = 1
+                ctx.fillStyle = pt.color
+                ctx.beginPath()
+                ctx.roundRect(-pt.size, -pt.size * 0.35, pt.size * 2, pt.size * 0.7, 2)
+                ctx.fill()
+                ctx.stroke()
+                ctx.restore()
+                break
             default:
                 ctx.beginPath()
                 ctx.arc(s.x, s.y, pt.size, 0, Math.PI * 2)
@@ -1009,6 +1171,7 @@ export class MeadowbrawlRenderer {
             ctx.transform(1, 0, -lean, 1, 0, 0)
         }
         if (invulnBlink) ctx.globalAlpha = 0.55
+        if (p.fx.smoke > 0) ctx.globalAlpha = 0.4
 
         const outline = 'rgba(24,18,34,0.95)'
         ctx.lineJoin = 'round'
@@ -1124,7 +1287,35 @@ export class MeadowbrawlRenderer {
         ctx.moveTo(shoulderX, shoulderY)
         ctx.lineTo(handX, handY)
         ctx.stroke()
-        this.drawWeapon(ctx, p.weapon, handX, handY, wp.angle, wp.ext, w.color, g.reachMult)
+        if (!p.axeOut) this.drawWeapon(ctx, p.weapon, handX, handY, wp.angle, wp.ext, w.color, g.reachMult)
+        if (p.fx.shieldWall > 0) {
+            // Kite shield raised toward the facing.
+            const fx = Math.cos(p.facing)
+            const fy = Math.sin(p.facing) * YS
+            ctx.save()
+            ctx.translate(fx * 16, -24 - bob + fy * 8)
+            ctx.fillStyle = bodyGrad(ctx, '#3d6fd8', -12, -20, 12, 16)
+            ctx.strokeStyle = outline
+            ctx.lineWidth = 2
+            ctx.beginPath()
+            ctx.moveTo(-12, -18)
+            ctx.lineTo(12, -18)
+            ctx.lineTo(12, 6)
+            ctx.lineTo(0, 18)
+            ctx.lineTo(-12, 6)
+            ctx.closePath()
+            ctx.fill()
+            ctx.stroke()
+            ctx.fillStyle = '#e0b04a'
+            ctx.beginPath()
+            ctx.moveTo(0, -12)
+            ctx.lineTo(6, -2)
+            ctx.lineTo(0, 8)
+            ctx.lineTo(-6, -2)
+            ctx.closePath()
+            ctx.fill()
+            ctx.restore()
+        }
         if (p.weapon === 'daggers') {
             const offAngle = wp.angle + Math.PI * 0.9
             const ox2 = -ax * 8 + Math.cos(offAngle) * 6
@@ -1426,6 +1617,30 @@ export class MeadowbrawlRenderer {
             ctx.closePath()
             ctx.fill()
             ctx.stroke()
+        }
+        if (e.marked > 0 && !dead) {
+            const pulse = 1 + Math.sin(t * 8) * 0.12
+            ctx.save()
+            ctx.translate(0, -e.def.height - 22 + Math.sin(t * 4) * 2)
+            ctx.scale(pulse, pulse)
+            ctx.fillStyle = '#c9a3ff'
+            ctx.strokeStyle = 'rgba(40,10,70,0.9)'
+            ctx.lineWidth = 1.5
+            ctx.beginPath()
+            ctx.arc(0, -3, 6, Math.PI, 0)
+            ctx.lineTo(6, 3)
+            ctx.lineTo(3, 6)
+            ctx.lineTo(-3, 6)
+            ctx.lineTo(-6, 3)
+            ctx.closePath()
+            ctx.fill()
+            ctx.stroke()
+            ctx.fillStyle = '#2a1040'
+            ellipse(ctx, -2.5, -2, 1.6, 2)
+            ctx.fill()
+            ellipse(ctx, 2.5, -2, 1.6, 2)
+            ctx.fill()
+            ctx.restore()
         }
         // Dazed stars after a charge.
         if (e.state === 'recover' && e.attack?.kind === 'charge' && !dead) {
@@ -2291,6 +2506,152 @@ export class MeadowbrawlRenderer {
         ctx.fill()
     }
 
+    private drawAfterimages(ctx: Ctx) {
+        const g = this.game
+        for (const a of g.afterimages) {
+            const k = a.life / a.maxLife
+            const x = a.x
+            const y = a.y * YS
+            ctx.globalAlpha = 0.35 * k
+            ctx.fillStyle = a.color
+            ctx.beginPath()
+            ctx.ellipse(x, y - 18, 11, 16, 0, 0, Math.PI * 2)
+            ctx.fill()
+            ctx.beginPath()
+            ctx.arc(x, y - 38, 8, 0, Math.PI * 2)
+            ctx.fill()
+        }
+        ctx.globalAlpha = 1
+    }
+
+    private drawAbilityAir(ctx: Ctx) {
+        const g = this.game
+        const p = g.player
+        // Shield Wall dome.
+        if (p.fx.shieldWall > 0) {
+            const k = Math.min(1, p.fx.shieldWall / 0.2)
+            ctx.save()
+            ctx.translate(p.x, p.y * YS - 22)
+            ctx.rotate(Math.atan2(Math.sin(p.facing) * YS, Math.cos(p.facing)))
+            ctx.globalAlpha = 0.55 * k
+            const grad = ctx.createRadialGradient(0, 0, 10, 0, 0, 48)
+            grad.addColorStop(0, 'rgba(188,211,255,0)')
+            grad.addColorStop(0.8, 'rgba(188,211,255,0.5)')
+            grad.addColorStop(1, 'rgba(255,255,255,0.9)')
+            ctx.fillStyle = grad
+            ctx.beginPath()
+            ctx.arc(0, 0, 48, -1.35, 1.35)
+            ctx.lineTo(0, 0)
+            ctx.closePath()
+            ctx.fill()
+            ctx.strokeStyle = `rgba(230,240,255,${0.8 * k})`
+            ctx.lineWidth = 3
+            ctx.beginPath()
+            ctx.arc(0, 0, 48, -1.35, 1.35)
+            ctx.stroke()
+            ctx.restore()
+        }
+        // Souls.
+        for (const so of g.souls) {
+            const x = so.x
+            const y = so.y * YS - 20
+            const hunter = so.targetId >= 0 || so.targetId === -2
+            ctx.fillStyle = hunter ? 'rgba(201,163,255,0.9)' : 'rgba(143,227,200,0.9)'
+            ctx.beginPath()
+            ctx.arc(x, y, 5, 0, Math.PI * 2)
+            ctx.fill()
+            ctx.strokeStyle = hunter ? 'rgba(201,163,255,0.5)' : 'rgba(143,227,200,0.5)'
+            ctx.lineWidth = 3
+            ctx.beginPath()
+            ctx.moveTo(x, y)
+            ctx.lineTo(x - so.vx * 0.06, y - so.vy * YS * 0.06)
+            ctx.stroke()
+        }
+    }
+
+    private drawGlow(ctx: Ctx) {
+        const g = this.game
+        const p = g.player
+        for (const pt of g.particles) {
+            if (pt.kind !== 'glow' && pt.kind !== 'spark' && pt.kind !== 'ember' && pt.kind !== 'spore') continue
+            const k = pt.life / pt.maxLife
+            const x = pt.x
+            const y = pt.y * YS - pt.z
+            if (pt.kind === 'spark') {
+                ctx.strokeStyle = pt.color
+                ctx.globalAlpha = Math.min(1, k * 1.5)
+                ctx.lineWidth = pt.size * 0.8
+                ctx.lineCap = 'round'
+                ctx.beginPath()
+                ctx.moveTo(x, y)
+                ctx.lineTo(x - pt.vx * 0.03, y - pt.vy * YS * 0.03 + pt.vz * 0.02)
+                ctx.stroke()
+                continue
+            }
+            const r = pt.kind === 'glow' ? pt.size * (0.6 + 0.4 * Math.sin(this.t * 6 + pt.x)) : pt.size * k
+            const grad = ctx.createRadialGradient(x, y, 0, x, y, r * 2)
+            grad.addColorStop(0, pt.color)
+            grad.addColorStop(0.4, pt.color)
+            grad.addColorStop(1, 'rgba(0,0,0,0)')
+            ctx.globalAlpha = (pt.kind === 'glow' ? 0.55 : 0.8) * Math.min(1, k * 2)
+            ctx.fillStyle = grad
+            ctx.beginPath()
+            ctx.arc(x, y, r * 2, 0, Math.PI * 2)
+            ctx.fill()
+            if (pt.kind === 'ember') {
+                ctx.fillStyle = '#fff2c4'
+                ctx.beginPath()
+                ctx.arc(x, y, r * 0.4, 0, Math.PI * 2)
+                ctx.fill()
+            }
+        }
+        ctx.globalAlpha = 1
+        // Player auras.
+        const aura = p.fx.bloodrage > 0 ? '255,70,60' : p.fx.rally > 0 ? '255,209,102' : p.fx.ironSkin > 0 ? '200,220,255' : p.fx.shieldWall > 0 ? '188,211,255' : null
+        if (aura) {
+            const x = p.x
+            const y = p.y * YS - 20
+            const r = 46 + Math.sin(this.t * 7) * 4
+            const grad = ctx.createRadialGradient(x, y, 6, x, y, r)
+            grad.addColorStop(0, `rgba(${aura},0.35)`)
+            grad.addColorStop(1, `rgba(${aura},0)`)
+            ctx.fillStyle = grad
+            ctx.beginPath()
+            ctx.arc(x, y, r, 0, Math.PI * 2)
+            ctx.fill()
+        }
+        // Soul glow trails and thrown axe heat.
+        for (const so of g.souls) {
+            const grad = ctx.createRadialGradient(so.x, so.y * YS - 20, 0, so.x, so.y * YS - 20, 22)
+            grad.addColorStop(0, so.targetId === -1 ? 'rgba(143,227,200,0.7)' : 'rgba(201,163,255,0.7)')
+            grad.addColorStop(1, 'rgba(0,0,0,0)')
+            ctx.fillStyle = grad
+            ctx.beginPath()
+            ctx.arc(so.x, so.y * YS - 20, 22, 0, Math.PI * 2)
+            ctx.fill()
+        }
+        for (const a of g.thrownAxes) {
+            const grad = ctx.createRadialGradient(a.x, a.y * YS - 22, 0, a.x, a.y * YS - 22, 40)
+            grad.addColorStop(0, 'rgba(255,150,60,0.5)')
+            grad.addColorStop(1, 'rgba(0,0,0,0)')
+            ctx.fillStyle = grad
+            ctx.beginPath()
+            ctx.arc(a.x, a.y * YS - 22, 40, 0, Math.PI * 2)
+            ctx.fill()
+        }
+        // Singularities and meteors already glow; add a lens on active whirlwinds.
+        for (const w of g.whirlwinds) {
+            const grad = ctx.createRadialGradient(p.x, p.y * YS - 18, 0, p.x, p.y * YS - 18, w.radius)
+            grad.addColorStop(0, 'rgba(240,235,200,0)')
+            grad.addColorStop(0.8, 'rgba(240,235,200,0.25)')
+            grad.addColorStop(1, 'rgba(240,235,200,0)')
+            ctx.fillStyle = grad
+            ctx.beginPath()
+            ctx.ellipse(p.x, p.y * YS - 18, w.radius, w.radius * YS, 0, 0, Math.PI * 2)
+            ctx.fill()
+        }
+    }
+
     private drawInnerCanopies(ctx: Ctx, ox: number, oy: number) {
         const g = this.game
         const p = g.player
@@ -2313,15 +2674,26 @@ export class MeadowbrawlRenderer {
         for (const f of g.floaters) {
             const k = f.life / f.maxLife
             const pop = 1 + Math.max(0, (k - 0.8)) * 3
+            const big = f.size >= 22
             ctx.globalAlpha = Math.min(1, k * 2.5)
             ctx.font = `900 ${Math.round(f.size * pop)}px "Public Sans", system-ui, sans-serif`
             ctx.strokeStyle = 'rgba(15,10,20,0.9)'
-            ctx.lineWidth = 4
+            ctx.lineWidth = big ? 6 : 4
             const x = f.x
             const y = f.y * YS - f.z
-            ctx.strokeText(f.text, x, y)
+            ctx.save()
+            ctx.translate(x, y)
+            if (big) ctx.rotate(Math.sin(k * 30) * 0.08 * (1 - k))
+            ctx.strokeText(f.text, 0, 0)
             ctx.fillStyle = f.color
-            ctx.fillText(f.text, x, y)
+            ctx.fillText(f.text, 0, 0)
+            if (big) {
+                ctx.globalAlpha *= 0.5
+                ctx.lineWidth = 1.5
+                ctx.strokeStyle = f.color
+                ctx.strokeText(f.text, 0, 0)
+            }
+            ctx.restore()
         }
         ctx.globalAlpha = 1
     }
@@ -2329,6 +2701,38 @@ export class MeadowbrawlRenderer {
     private drawPost(ctx: Ctx, viewH: number, dt: number) {
         const g = this.game
         ctx.setTransform(this.dpr * this.scale, 0, 0, this.dpr * this.scale, 0, 0)
+        // Time of day follows the run: noon at wave 1, golden hour by the
+        // teens, a blood dusk by the finale.
+        const dusk = g.phase === 'menu' ? 0 : clamp((g.wave - 6) / 24, 0, 1)
+        if (dusk > 0) {
+            ctx.globalCompositeOperation = 'multiply'
+            const r = Math.round(lerp(255, 120, dusk))
+            const gg = Math.round(lerp(250, 60, dusk))
+            const b = Math.round(lerp(235, 110, dusk))
+            ctx.fillStyle = `rgba(${r},${gg},${b},${0.2 + dusk * 0.38})`
+            ctx.fillRect(0, 0, VIEW_W, viewH)
+            ctx.globalCompositeOperation = 'source-over'
+        }
+        // Drifting god rays.
+        ctx.save()
+        ctx.globalCompositeOperation = 'overlay'
+        const rayAlpha = 0.16 * (1 - dusk * 0.6)
+        for (let i = 0; i < 4; i++) {
+            const x = ((this.t * 12 + i * 320) % (VIEW_W + 500)) - 250
+            const grad = ctx.createLinearGradient(x, 0, x + 140, 0)
+            grad.addColorStop(0, 'rgba(255,240,190,0)')
+            grad.addColorStop(0.5, `rgba(255,240,190,${rayAlpha})`)
+            grad.addColorStop(1, 'rgba(255,240,190,0)')
+            ctx.fillStyle = grad
+            ctx.beginPath()
+            ctx.moveTo(x, 0)
+            ctx.lineTo(x + 140, 0)
+            ctx.lineTo(x + 140 - 260, viewH)
+            ctx.lineTo(x - 260, viewH)
+            ctx.closePath()
+            ctx.fill()
+        }
+        ctx.restore()
         // Vignette.
         const v = ctx.createRadialGradient(VIEW_W / 2, viewH / 2, viewH * 0.5, VIEW_W / 2, viewH / 2, viewH * 1.1)
         v.addColorStop(0, 'rgba(20,20,40,0)')
@@ -2346,6 +2750,17 @@ export class MeadowbrawlRenderer {
             h.addColorStop(1, `rgba(200,20,30,${Math.min(0.7, red)})`)
             ctx.fillStyle = h
             ctx.fillRect(0, 0, VIEW_W, viewH)
+        }
+        if (g.flash > 0) {
+            ctx.fillStyle = `rgba(255,250,235,${g.flash * 0.8})`
+            ctx.fillRect(0, 0, VIEW_W, viewH)
+        }
+        if (g.slowmo > 0) {
+            // Letterbox for the slow-motion beats.
+            ctx.fillStyle = 'rgba(0,0,0,0.85)'
+            const bar = Math.min(28, g.slowmo * 120)
+            ctx.fillRect(0, 0, VIEW_W, bar)
+            ctx.fillRect(0, viewH - bar, VIEW_W, bar)
         }
         if (g.phase === 'dead') {
             ctx.fillStyle = `rgba(30,5,10,${clamp(g.deathT / 1.5, 0, 0.55)})`

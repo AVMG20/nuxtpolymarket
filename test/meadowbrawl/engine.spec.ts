@@ -668,3 +668,187 @@ describe('third batch', () => {
         expect(b.slow).toBeGreaterThan(0)
     })
 })
+
+describe('class abilities', () => {
+    const useQ = (g: MeadowbrawlGame) => { g.input.qPressed = true }
+    const useE = (g: MeadowbrawlGame) => { g.input.ePressed = true }
+
+    it('every class has two abilities on cooldown after use', () => {
+        for (const w of ['sword', 'greataxe', 'spear', 'daggers', 'warhammer', 'scythe'] as const) {
+            const g = fresh(w)
+            aimRight(g)
+            expect(WEAPONS[w].abilities).toHaveLength(2)
+            useQ(g)
+            step(g, 0.02)
+            expect(g.player.abilityCd.q, w).toBeGreaterThan(0)
+            step(g, 2)
+            useE(g)
+            step(g, 0.02)
+            expect(g.player.abilityCd.e, w).toBeGreaterThan(0)
+        }
+    })
+
+    it('Knight: Shield Wall blocks and staggers a frontal attacker, Rallying Cry heals', () => {
+        const g = fresh('sword')
+        aimRight(g)
+        useQ(g)
+        step(g, 0.02)
+        expect(g.player.fx.shieldWall).toBeGreaterThan(0)
+        const e = g.spawnEnemy('grunt', 'north')
+        e.x = g.player.x + 40
+        e.y = g.player.y
+        e.state = 'chase'
+        const hp = g.player.hp
+        expect(g.hurtPlayer(30, e, 100, e)).toBe(true)
+        expect(g.player.hp).toBe(hp)
+        expect(e.state).toBe('stagger')
+        expect(e.hp).toBeLessThan(e.maxHp)
+        g.player.hp = 50
+        step(g, 2)
+        useE(g)
+        step(g, 0.02)
+        expect(g.player.hp).toBeGreaterThan(50)
+        expect(g.damageMult).toBeGreaterThan(1)
+    })
+
+    it('Berserker: Bloodrage speeds attacks, Rending Throw hits out and back', () => {
+        const g = fresh('greataxe')
+        aimRight(g)
+        const base = g.attackSpeed
+        useQ(g)
+        step(g, 0.02)
+        expect(g.attackSpeed).toBeGreaterThan(base)
+        const e = g.spawnEnemy('ogre', 'north')
+        e.x = g.player.x + 150
+        e.y = g.player.y
+        e.state = 'chase'
+        e.frozen = 99
+        useE(g)
+        step(g, 0.02)
+        expect(g.thrownAxes).toHaveLength(1)
+        expect(g.player.axeOut).toBe(true)
+        const dealtBefore = g.stats.damageDealt
+        step(g, 1.2)
+        expect(g.thrownAxes).toHaveLength(0)
+        expect(g.player.axeOut).toBe(false)
+        // Out and back: two hits' worth of damage on the same target.
+        expect(g.stats.damageDealt - dealtBefore).toBeGreaterThanOrEqual(WEAPONS.greataxe.baseDamage * 1.5 * 2 - 2)
+    })
+
+    it('Lancer: Skewer Charge carries an enemy and slams it, Javelin Rain lands on the cursor', () => {
+        const g = fresh('spear')
+        aimRight(g)
+        const start = g.player.x
+        const e = g.spawnEnemy('grunt', 'north')
+        e.x = start + 120
+        e.y = g.player.y
+        e.state = 'chase'
+        e.attackCd = 99
+        useQ(g)
+        step(g, 0.2)
+        expect(g.player.skewer).not.toBeNull()
+        expect(e.x).toBeGreaterThan(start + 150)
+        step(g, 0.4)
+        expect(g.player.skewer).toBeNull()
+        expect(g.player.x).toBeGreaterThan(start + 250)
+        expect(e.hp).toBeLessThan(e.maxHp * 0.6)
+
+        const j = fresh('spear')
+        j.input.aimX = j.player.x + 250
+        j.input.aimY = j.player.y
+        const far = j.spawnEnemy('shield', 'north')
+        far.x = j.player.x + 250
+        far.y = j.player.y
+        far.state = 'chase'
+        far.facing = Math.PI
+        far.frozen = 99
+        useE(j)
+        step(j, 0.02)
+        expect(j.javelins).toHaveLength(7)
+        step(j, 1.5)
+        expect(far.hp).toBeLessThan(far.maxHp)
+    })
+
+    it('Assassin: Smoke Bomb hides you and sets up a triple-damage ambush, Fan of Knives throws nine', () => {
+        const g = fresh('daggers')
+        aimRight(g)
+        const e = g.spawnEnemy('grunt', 'north')
+        e.x = g.player.x + 40
+        e.y = g.player.y
+        e.state = 'chase'
+        e.entered = true
+        e.attackCd = 0
+        useQ(g)
+        step(g, 0.3)
+        expect(g.player.fx.smoke).toBeGreaterThan(0)
+        expect(e.state).toBe('chase')
+        click(g)
+        step(g, 0.2)
+        expect(g.player.fx.smoke).toBe(0)
+        expect(g.floaters.some(f => f.text === 'AMBUSH')).toBe(true)
+        const dealt = e.maxHp - e.hp
+        expect(dealt).toBeGreaterThanOrEqual(WEAPONS.daggers.baseDamage * 3 - 1)
+        step(g, 2)
+        useE(g)
+        step(g, 0.02)
+        expect(g.projectiles.filter(p => p.kind === 'knife')).toHaveLength(9)
+    })
+
+    it('Juggernaut: Iron Skin cuts damage and knockback, Seismic Line erupts nine times', () => {
+        const g = fresh('warhammer')
+        aimRight(g)
+        useQ(g)
+        step(g, 0.02)
+        const x = g.player.x
+        g.hurtPlayer(50, { x: g.player.x + 30, y: g.player.y }, 400)
+        expect(g.player.hp).toBe(80)
+        expect(g.player.x).toBe(x)
+        step(g, 2)
+        const e = g.spawnEnemy('grunt', 'north')
+        e.x = g.player.x + 250
+        e.y = g.player.y
+        e.state = 'chase'
+        e.frozen = 99
+        useE(g)
+        step(g, 0.02)
+        expect(g.seismics).toHaveLength(1)
+        step(g, 0.8)
+        expect(g.seismics).toHaveLength(0)
+        expect(e.hp).toBeLessThan(e.maxHp)
+    })
+
+    it('Reaper: Soul Harvest drains through shields and heals, Death Mark amplifies and spawns souls', () => {
+        const g = fresh('scythe')
+        aimRight(g)
+        g.player.hp = 40
+        const s = g.spawnEnemy('shield', 'north')
+        s.x = g.player.x + 100
+        s.y = g.player.y
+        s.state = 'chase'
+        s.facing = Math.PI
+        useQ(g)
+        step(g, 0.02)
+        expect(s.hp).toBeLessThan(s.maxHp)
+        expect(g.player.hp).toBeGreaterThan(40)
+        step(g, 2)
+        const m = g.spawnEnemy('grunt', 'north')
+        m.x = g.player.x + 60
+        m.y = g.player.y
+        m.state = 'chase'
+        useE(g)
+        step(g, 0.02)
+        expect(m.marked).toBeGreaterThan(0)
+        const before = m.hp
+        g.damageEnemy(m, 10, { source: g.player, tag: 'melee' })
+        expect(before - m.hp).toBe(14)
+        g.damageEnemy(m, 999, { source: g.player, tag: 'melee' })
+        expect(g.souls.length).toBeGreaterThanOrEqual(3)
+    })
+
+    it('Battle Rhythm shortens ability cooldowns too', () => {
+        const g = fresh('sword')
+        const before = g.player.abilityCdMax.q
+        g.applyOffer({ upgrade: UPGRADE_BY_ID.quickspecial!, stack: 1 })
+        expect(g.player.abilityCdMax.q).toBeLessThan(before)
+    })
+})
