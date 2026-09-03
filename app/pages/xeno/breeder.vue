@@ -269,20 +269,10 @@ const selectedKey = computed(() => selectedPlant.value ? `${selectedPlant.value.
         <!-- Header -->
         <div class="flex flex-wrap items-end justify-between gap-3 mb-5">
           <div>
-            <p class="xeno-eyebrow">Genetics lab</p>
-            <h1 class="text-2xl font-black tracking-tight flex items-center gap-2">
-              Incubation Pods
-            </h1>
+            <h1 class="text-2xl font-black tracking-tight">Breeder</h1>
             <p class="text-xs text-muted mt-0.5">Splice two specimens into one. Rare pairs mutate into new species.</p>
           </div>
-          <div class="flex items-center gap-2">
-            <div v-if="state" class="hidden sm:flex items-center gap-1.5 rounded-full border border-default/60 bg-elevated/50 px-3 py-1.5 text-xs">
-              <UIcon name="i-lucide-dna" class="size-3.5 text-primary" />
-              <span class="text-muted">Global mutation</span>
-              <span class="font-black text-primary">+{{ Math.round(xenoMutationBoost(upgrades.mutation) * 100) }}%</span>
-            </div>
-            <UButton icon="i-lucide-package" label="Specimens" variant="soft" color="neutral" size="sm" class="lg:hidden" @click="mobileInventoryOpen = true" />
-          </div>
+          <UButton icon="i-lucide-package" label="Specimens" variant="soft" color="neutral" size="sm" class="lg:hidden" @click="mobileInventoryOpen = true" />
         </div>
 
         <div v-if="!state" class="grid grid-cols-1 xl:grid-cols-2 gap-4">
@@ -376,7 +366,6 @@ const selectedKey = computed(() => selectedPlant.value ? `${selectedPlant.value.
                   <div v-else-if="podState(slot) === 'breeding'" class="flex flex-col items-center gap-1 -mt-3">
                     <XenoDnaHelix :width="96" :height="40" />
                     <p class="text-lg font-black tabular-nums leading-none drop-shadow">{{ slot.completesAt ? formatCountdown(slot.completesAt, now) : '…' }}</p>
-                    <p class="text-[9px] uppercase tracking-widest text-muted">{{ Math.round(podPct(slot)) }}%</p>
                   </div>
                   <!-- Setup: preview -->
                   <div v-else class="flex flex-col items-center -mt-2">
@@ -403,7 +392,7 @@ const selectedKey = computed(() => selectedPlant.value ? `${selectedPlant.value.
               <!-- Result -->
               <template v-if="podState(slot) === 'ready' || podState(slot) === 'mutation'">
                 <div class="xeno-reveal text-center">
-                  <p class="xeno-eyebrow" :class="podState(slot) === 'mutation' ? 'text-secondary' : ''">{{ podState(slot) === 'mutation' ? '✨ New species discovered ✨' : 'Specimen' }}</p>
+                  <p v-if="podState(slot) === 'mutation'" class="xeno-eyebrow text-secondary">✨ New species discovered ✨</p>
                   <p class="text-xl font-black tracking-tight mt-1" :class="tierNameColor(getPlant(slot.resultTypeId ?? '')?.tier ?? 1)">
                     {{ getPlant(slot.resultTypeId ?? '')?.name }}<span class="text-sm font-bold ml-1 opacity-70">×{{ slot.resultQuantity }}</span>
                   </p>
@@ -434,14 +423,7 @@ const selectedKey = computed(() => selectedPlant.value ? `${selectedPlant.value.
               <!-- Breeding -->
               <template v-else-if="podState(slot) === 'breeding'">
                 <div class="flex-1 flex flex-col justify-center gap-2">
-                  <div class="flex items-center justify-between text-xs">
-                    <span class="text-muted">Incubation</span>
-                    <span class="font-bold tabular-nums">{{ slot.completesAt ? formatCountdown(slot.completesAt, now) : '…' }} left</span>
-                  </div>
-                  <div class="h-2 rounded-full bg-black/25 overflow-hidden">
-                    <div class="h-full bg-primary rounded-full transition-[width] duration-1000 ease-linear xeno-shimmer" :style="{ width: `${podPct(slot)}%` }" />
-                  </div>
-                  <div v-if="mutationsForParents(slot.parent1, slot.parent2).length" class="flex flex-wrap items-center gap-1.5 text-[11px] text-muted mt-1">
+                  <div v-if="mutationsForParents(slot.parent1, slot.parent2).length" class="flex flex-wrap items-center gap-1.5 text-[11px] text-muted">
                     <span>Possible mutation:</span>
                     <span v-for="m in mutationsForParents(slot.parent1, slot.parent2)" :key="m.offspring" class="inline-flex items-center gap-1 rounded-md border border-default/60 bg-background/40 px-1.5 py-0.5">
                       <XenoPlantIcon :id="m.offspring" :size="14" />
@@ -568,8 +550,7 @@ const selectedKey = computed(() => selectedPlant.value ? `${selectedPlant.value.
               <XenoIncubatorPod :pct="0" state="idle" class="h-40 w-full" />
             </div>
             <div>
-              <p class="xeno-eyebrow">Pod {{ String(state.breeder.unlockedCount + 1).padStart(2, '0') }}</p>
-              <p class="text-lg font-black mt-1">Dormant pod</p>
+              <p class="text-lg font-black">Dormant pod</p>
               <CoinBalance :value="state.breeder.nextSlotCost" :compact="false" class="justify-center text-sm font-semibold mt-1" />
             </div>
             <UButton
@@ -582,7 +563,6 @@ const selectedKey = computed(() => selectedPlant.value ? `${selectedPlant.value.
               :disabled="balance < state.breeder.nextSlotCost"
               @click="doUnlock"
             />
-            <p class="text-[11px] text-muted">{{ state.breeder.unlockedCount }} / {{ state.breeder.maxSlots }} pods online</p>
           </div>
         </div>
       </div>

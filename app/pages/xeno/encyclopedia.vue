@@ -90,16 +90,14 @@ function tierMutations(tier: number) {
       <div class="relative size-24 shrink-0">
         <XenoProgressRing :pct="discoveredPct" :size="96" :stroke="6" :ready="discoveredPct >= 100" />
         <div class="absolute inset-0 flex flex-col items-center justify-center leading-none">
-          <span class="text-xl font-black tabular-nums">{{ discoveredPct }}<span class="text-xs">%</span></span>
-          <span class="text-[9px] uppercase tracking-widest text-muted mt-0.5">found</span>
+          <span class="text-lg font-black tabular-nums">{{ discoveredCount }}<span class="text-xs text-muted">/{{ totalPlants }}</span></span>
+          <span class="text-[9px] uppercase tracking-widest text-muted mt-0.5">species</span>
         </div>
       </div>
       <div class="flex-1 min-w-48">
-        <p class="xeno-eyebrow">Field guide</p>
         <h1 class="text-2xl font-black tracking-tight">Xenopedia</h1>
-        <p class="text-sm text-muted mt-0.5">
-          <span class="font-bold text-primary">{{ discoveredCount }}</span> of {{ totalPlants }} species catalogued.
-          <template v-if="withinReach.size"> <span class="font-bold text-default">{{ withinReach.size }}</span> more are within reach of your current parents.</template>
+        <p v-if="withinReach.size" class="text-sm text-muted mt-0.5">
+          <span class="font-bold text-default">{{ withinReach.size }}</span> undiscovered species can be bred from parents you already own.
         </p>
       </div>
       <div class="flex flex-col gap-2 w-full sm:w-auto">

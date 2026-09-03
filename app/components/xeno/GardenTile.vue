@@ -85,10 +85,8 @@ const swayStyle = computed(() => {
 })
 
 const SPARKLES = [
-  { style: { top: '18%', left: '22%', '--delay': '0s' } },
-  { style: { top: '30%', right: '18%', '--delay': '0.5s' } },
-  { style: { bottom: '38%', left: '16%', '--delay': '1.1s' } },
-  { style: { top: '12%', right: '34%', '--delay': '0.8s', '--dur': '2.3s' } },
+  { style: { top: '22%', left: '20%', '--delay': '0s' } },
+  { style: { top: '34%', right: '18%', '--delay': '0.9s', '--dur': '2.3s' } },
 ]
 </script>
 
@@ -137,31 +135,33 @@ const SPARKLES = [
       <span v-for="(s, i) in SPARKLES" :key="i" class="xeno-sparkle" :style="s.style" />
     </template>
 
-    <!-- Plant + ring -->
-    <div class="relative flex-1 flex items-center justify-center min-h-0 pt-4">
-      <div class="relative size-[4.5rem] flex items-center justify-center">
-        <XenoProgressRing :pct="pct" :size="72" :ready="done" />
-        <div class="xeno-plant-stage" :style="{ '--growth': growth }">
-          <div :class="done ? 'xeno-ready-bounce' : 'xeno-sway'" :style="done ? undefined : swayStyle">
-            <XenoPlantIcon :id="plant.typeId" :size="50" />
-          </div>
+    <!-- Plant -->
+    <div class="relative flex-1 flex items-center justify-center min-h-0 pt-5">
+      <div class="xeno-plant-stage" :style="{ '--growth': growth }">
+        <div :class="done ? 'xeno-ready-bounce' : 'xeno-sway'" :style="done ? undefined : swayStyle">
+          <XenoPlantIcon :id="plant.typeId" :size="52" />
         </div>
       </div>
     </div>
 
     <!-- Footer -->
-    <div class="relative z-10 shrink-0 px-1.5 pb-1.5 text-center leading-tight">
+    <div class="relative z-10 shrink-0 px-2 pb-1.5 text-center leading-tight">
       <p class="text-[11px] font-semibold truncate opacity-80">{{ plant.name }}</p>
       <div v-if="plant.isHybrid" class="flex items-center justify-center gap-0.5 leading-none mt-0.5">
         <XenoPlantIcon v-for="(r, i) in plant.resources" :key="i" :id="r.id" :size="12" />
       </div>
-      <p v-if="done" class="text-xs font-black text-primary xeno-glow-text mt-0.5">
+      <p v-if="done" class="text-xs font-black text-primary mt-0.5">
         Harvest <span class="opacity-80">×1–{{ 1 + (plant.isHybrid ? 0 : plant.yield) + yieldBonus }}</span>
       </p>
-      <p v-else class="text-[11px] font-semibold text-muted tabular-nums mt-0.5">
-        {{ formatCountdown(plant.completesAt, now) }}
-        <span v-if="speedBoost > 0" class="text-[9px] font-bold text-primary">⚡−{{ Math.round(speedBoost * 100) }}%</span>
-      </p>
+      <template v-else>
+        <div class="h-1 rounded-full bg-white/10 overflow-hidden mt-1">
+          <div class="h-full rounded-full bg-primary transition-[width] duration-500 ease-linear" :style="{ width: `${pct}%` }" />
+        </div>
+        <p class="text-[11px] font-semibold text-muted tabular-nums mt-0.5">
+          {{ formatCountdown(plant.completesAt, now) }}
+          <span v-if="speedBoost > 0" class="text-[9px] font-bold text-primary">⚡−{{ Math.round(speedBoost * 100) }}%</span>
+        </p>
+      </template>
     </div>
   </div>
 

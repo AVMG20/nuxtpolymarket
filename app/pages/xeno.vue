@@ -3,12 +3,8 @@ import '~/assets/css/xeno.css'
 import { isDone } from '~/lib/xeno-format'
 
 const route = useRoute()
-const { gridSlots, breederSlots, state } = useXeno()
-const { user } = useAuth()
+const { gridSlots, breederSlots } = useXeno()
 const { unlock } = useXenoSound()
-
-const balance = computed(() => parseFloat(user.value?.balance ?? '0'))
-const gems = computed(() => user.value?.gems ?? 0)
 
 // Shared clock so the ready badges on the nav tick even on pages that don't
 // render the grid themselves.
@@ -47,9 +43,6 @@ const totalReady = computed(() => readyGrid.value + readyBreeder.value)
 useHead({
   title: computed(() => totalReady.value > 0 ? `(${totalReady.value}) Xeno Garden` : 'Xeno Garden'),
 })
-
-const slotsUnlocked = computed(() => state.value?.grid?.unlockedCount ?? 0)
-const slotsMax = computed(() => state.value?.grid?.maxSlots ?? 36)
 </script>
 
 <template>
@@ -81,18 +74,7 @@ const slotsMax = computed(() => state.value?.grid?.maxSlots ?? 36)
           </NuxtLink>
         </nav>
 
-        <div class="flex items-center gap-2 shrink-0">
-          <div v-if="state?.initialized" class="hidden lg:flex items-center gap-1.5 rounded-full border border-default/60 bg-elevated/50 px-2.5 py-1 text-xs text-muted">
-            <UIcon name="i-lucide-layout-grid" class="size-3.5" />
-            <span class="tabular-nums"><span class="font-bold text-default">{{ slotsUnlocked }}</span>/{{ slotsMax }}</span>
-          </div>
-          <div class="hidden sm:flex items-center gap-2 rounded-full border border-default/60 bg-elevated/50 px-3 py-1 text-xs font-semibold">
-            <CoinBalance :value="balance" />
-            <span class="h-3 w-px bg-default/60" />
-            <GemBalance :value="gems" />
-          </div>
-          <XenoSoundToggle />
-        </div>
+        <XenoSoundToggle class="shrink-0" />
       </div>
     </div>
 

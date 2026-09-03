@@ -225,11 +225,7 @@ function rollTier(roll: any): number {
   <UContainer class="pt-6" @click.capture="trackClick">
     <!-- Header -->
     <div class="mb-5 flex flex-wrap items-end justify-between gap-4">
-      <div>
-        <p class="xeno-eyebrow">Trading post</p>
-        <h1 class="text-2xl font-black tracking-tight">Market</h1>
-        <p class="text-xs text-muted mt-0.5">Liquidate harvests, restock seeds, gamble on hybrids and buy permanent upgrades.</p>
-      </div>
+      <h1 class="text-2xl font-black tracking-tight">Market</h1>
       <div class="xeno-panel xeno-panel-accent rounded-2xl px-4 py-2.5 text-right shrink-0">
         <p class="xeno-eyebrow">Portfolio value</p>
         <CoinBalance :value="totalInventoryValue" :compact="false" class="text-xl font-black justify-end" />
@@ -446,8 +442,7 @@ function rollTier(roll: any): number {
         <div class="xeno-panel xeno-panel-accent rounded-3xl p-6 text-center relative overflow-hidden">
           <div class="absolute -top-20 left-1/2 -translate-x-1/2 size-72 rounded-full bg-primary/15 blur-3xl pointer-events-none" />
           <div class="relative">
-            <p class="xeno-eyebrow">Gene splicer</p>
-            <h2 class="text-xl font-black mt-1">Roll a T{{ hybrids.tier }} Hybrid</h2>
+            <h2 class="text-xl font-black">Roll a T{{ hybrids.tier }} Hybrid</h2>
             <p class="text-sm text-muted mt-1 max-w-md mx-auto">
               1–4 random resources (≈5% for a quad) from any plant up to <span class="font-semibold text-default">T{{ hybrids.tier }}</span>,
               each with its own speed &amp; yield up to {{ hybrids.tier }}. Hybrids can't be bred — farm and sell what they grow.

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // Ambient drifting spores. Purely decorative, so Math.random() is fine here —
 // nothing about game state depends on it.
-const props = withDefaults(defineProps<{ count?: number }>(), { count: 22 })
+const props = withDefaults(defineProps<{ count?: number }>(), { count: 10 })
 
 const spores = Array.from({ length: props.count }, (_, i) => {
   const size = 2 + Math.random() * 5
@@ -16,7 +16,7 @@ const spores = Array.from({ length: props.count }, (_, i) => {
       '--delay': `${-Math.random() * 20}s`,
       '--dx': `${(Math.random() * 2 - 1) * 60}px`,
       '--dy': `${-60 - Math.random() * 160}px`,
-      '--peak': String(0.12 + Math.random() * 0.3)
+      '--peak': String(0.08 + Math.random() * 0.17)
     }
   }
 })

@@ -25,14 +25,12 @@ const myRank = computed(() => {
         <UIcon name="i-lucide-trophy" class="size-7 text-yellow-400" />
       </div>
       <div class="flex-1 min-w-48">
-        <p class="xeno-eyebrow">Hall of cultivators</p>
         <h1 class="text-2xl font-black tracking-tight">Xeno Leaderboard</h1>
         <p class="text-sm text-muted mt-0.5">Ranked by species discovered, then total plant count.</p>
       </div>
       <div v-if="me && myRank" class="text-right">
         <p class="xeno-eyebrow">Your rank</p>
-        <p class="text-3xl font-black text-primary xeno-glow-text tabular-nums">#{{ myRank }}</p>
-        <p class="text-xs text-muted">{{ me.speciesUnlocked }}/{{ totalSpecies }} species</p>
+        <p class="text-3xl font-black text-primary tabular-nums">#{{ myRank }}</p>
       </div>
     </div>
 

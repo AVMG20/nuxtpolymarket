@@ -99,7 +99,6 @@ const LEVEL_GLOW: Record<number, string> = {
   <UContainer class="pt-6">
     <div class="mb-5 flex flex-wrap items-end justify-between gap-4">
       <div>
-        <p class="xeno-eyebrow">Forge</p>
         <h1 class="text-2xl font-black tracking-tight">Artifacts</h1>
         <p class="text-xs text-muted mt-0.5">Forge relics from surplus plants. Every artifact burns one charge per use.</p>
       </div>

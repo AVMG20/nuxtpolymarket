@@ -24,9 +24,9 @@
 /* ── Ambient background ──────────────────────────────────────────────────── */
 .xeno-bg {
   background:
-    radial-gradient(ellipse 70% 40% at 15% 0%, color-mix(in srgb, var(--ui-primary) 14%, transparent), transparent 70%),
-    radial-gradient(ellipse 50% 35% at 90% 10%, color-mix(in srgb, var(--ui-secondary) 10%, transparent), transparent 70%),
-    radial-gradient(ellipse 60% 50% at 50% 110%, color-mix(in srgb, var(--ui-primary) 8%, transparent), transparent 70%);
+    radial-gradient(ellipse 70% 40% at 15% 0%, color-mix(in srgb, var(--ui-primary) 7%, transparent), transparent 70%),
+    radial-gradient(ellipse 50% 35% at 90% 10%, color-mix(in srgb, var(--ui-secondary) 5%, transparent), transparent 70%),
+    radial-gradient(ellipse 60% 50% at 50% 110%, color-mix(in srgb, var(--ui-primary) 4%, transparent), transparent 70%);
 }
 
 .xeno-spores {
@@ -150,8 +150,8 @@
 }
 .xeno-plot-ready:hover { animation-play-state: paused; box-shadow: 0 0 0 2px var(--ui-primary), 0 0 32px -4px var(--xeno-glow); transform: translateY(-2px) scale(1.02); }
 @keyframes xeno-ready-pulse {
-  0%, 100% { box-shadow: 0 0 0 1px color-mix(in srgb, var(--ui-primary) 35%, transparent), 0 0 14px -4px var(--xeno-glow); }
-  50%      { box-shadow: 0 0 0 2px color-mix(in srgb, var(--ui-primary) 70%, transparent), 0 0 30px -2px var(--xeno-glow); }
+  0%, 100% { box-shadow: 0 0 0 1px color-mix(in srgb, var(--ui-primary) 30%, transparent), 0 0 10px -6px var(--xeno-glow); }
+  50%      { box-shadow: 0 0 0 1px color-mix(in srgb, var(--ui-primary) 55%, transparent), 0 0 18px -4px var(--xeno-glow); }
 }
 .xeno-plot-empty {
   background: color-mix(in srgb, var(--ui-bg-elevated) 35%, transparent);
@@ -202,16 +202,16 @@
   transform-origin: 50% 90%;
 }
 @keyframes xeno-sway {
-  0%, 100% { rotate: -2.5deg; }
-  50%      { rotate: 2.5deg; }
+  0%, 100% { rotate: -1.5deg; }
+  50%      { rotate: 1.5deg; }
 }
 .xeno-ready-bounce {
-  animation: xeno-ready-bounce 1.6s ease-in-out infinite;
-  filter: drop-shadow(0 0 10px var(--xeno-glow));
+  animation: xeno-ready-bounce 2s ease-in-out infinite;
+  filter: drop-shadow(0 0 6px var(--xeno-glow));
 }
 @keyframes xeno-ready-bounce {
   0%, 100% { translate: 0 0; }
-  50%      { translate: 0 -5px; }
+  50%      { translate: 0 -3px; }
 }
 .xeno-pop-in { animation: xeno-pop 0.5s cubic-bezier(0.2, 1.5, 0.4, 1) both; }
 @keyframes xeno-pop {

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { gridSlotUnlockCost, getArtifact, getPlantDisplay } from '#shared/utils/xeno'
-import { formatCountdown, isDone } from '~/lib/xeno-format'
+import { isDone } from '~/lib/xeno-format'
 import type { HarvestDrop } from '~/components/xeno/HarvestSummary.vue'
 
 const {
@@ -81,16 +81,7 @@ const readySlots = computed(() => {
   void now.value
   return (gridSlots.value as any[]).filter(s => s.plant && isDone(s.plant.completesAt))
 })
-const growingSlots = computed(() => {
-  void now.value
-  return (gridSlots.value as any[]).filter(s => s.plant && !isDone(s.plant.completesAt))
-})
 const emptySlots = computed(() => (gridSlots.value as any[]).filter(s => !s.plant))
-const nextReadyAt = computed(() => {
-  const times = growingSlots.value.map(s => new Date(s.plant.completesAt).getTime())
-  return times.length ? Math.min(...times) : null
-})
-const seedCount = computed(() => (inventory.value as any[]).reduce((s, i) => s + i.quantity, 0))
 
 // Chime once when a plot flips to ready while the page is open.
 let lastReady = -1
@@ -329,13 +320,7 @@ const selectedKey = computed(() => selectedPlant.value ? `${selectedPlant.value.
 
         <!-- Header -->
         <div class="flex flex-wrap items-end justify-between gap-3 mb-4">
-          <div>
-            <p class="xeno-eyebrow">Cultivation deck</p>
-            <h1 class="text-2xl font-black tracking-tight flex items-center gap-2">
-              Garden
-              <span v-if="readySlots.length" class="xeno-tab-badge text-[11px]">{{ readySlots.length }} ready</span>
-            </h1>
-          </div>
+          <h1 class="text-2xl font-black tracking-tight">Garden</h1>
           <div class="flex items-center gap-2">
             <UTooltip text="Replant the same seed right after every harvest (A)">
               <label class="flex items-center gap-2 rounded-full border border-default/60 bg-elevated/50 px-3 py-1.5 text-xs font-semibold cursor-pointer select-none">
@@ -381,43 +366,6 @@ const selectedKey = computed(() => selectedPlant.value ? `${selectedPlant.value.
           </div>
         </div>
 
-        <!-- HUD stats -->
-        <div v-if="state?.initialized" class="xeno-panel rounded-2xl px-3 py-2 mb-4 flex flex-wrap items-center gap-x-5 gap-y-1.5 text-xs">
-          <div class="flex items-center gap-1.5">
-            <span class="relative flex size-2">
-              <span v-if="growingSlots.length" class="absolute inline-flex h-full w-full rounded-full bg-primary opacity-60 animate-ping" />
-              <span class="relative inline-flex size-2 rounded-full" :class="growingSlots.length ? 'bg-primary' : 'bg-muted/40'" />
-            </span>
-            <span class="text-muted">Growing</span>
-            <span class="font-black tabular-nums">{{ growingSlots.length }}</span>
-          </div>
-          <div class="flex items-center gap-1.5">
-            <UIcon name="i-lucide-sparkles" class="size-3.5" :class="readySlots.length ? 'text-primary' : 'text-muted'" />
-            <span class="text-muted">Ready</span>
-            <span class="font-black tabular-nums" :class="readySlots.length ? 'text-primary' : ''">{{ readySlots.length }}</span>
-          </div>
-          <div class="flex items-center gap-1.5">
-            <UIcon name="i-lucide-timer" class="size-3.5 text-muted" />
-            <span class="text-muted">Next</span>
-            <span class="font-black tabular-nums">{{ nextReadyAt ? formatCountdown(new Date(nextReadyAt), now) : '—' }}</span>
-          </div>
-          <div class="flex items-center gap-1.5">
-            <UIcon name="i-lucide-square-dashed" class="size-3.5 text-muted" />
-            <span class="text-muted">Empty</span>
-            <span class="font-black tabular-nums" :class="emptySlots.length && selectedPlant ? 'text-primary' : ''">{{ emptySlots.length }}</span>
-          </div>
-          <div class="flex items-center gap-1.5">
-            <UIcon name="i-lucide-package" class="size-3.5 text-muted" />
-            <span class="text-muted">Seeds</span>
-            <span class="font-black tabular-nums">{{ formatNumber(seedCount, false) }}</span>
-          </div>
-          <div class="ml-auto hidden md:flex items-center gap-2 text-[10px] text-muted/70">
-            <kbd class="rounded border border-default px-1">H</kbd> harvest all
-            <kbd class="rounded border border-default px-1">P</kbd> plant all
-            <kbd class="rounded border border-default px-1">Esc</kbd> deselect
-          </div>
-        </div>
-
         <!-- Init screen -->
         <div v-if="!pending && state && !state.initialized" class="xeno-panel xeno-panel-accent rounded-3xl flex flex-col items-center justify-center py-20 px-6 gap-5 text-center">
           <div class="relative">
@@ -425,8 +373,7 @@ const selectedKey = computed(() => selectedPlant.value ? `${selectedPlant.value.
             <XenoLogo :size="120" class="relative xeno-pop-in" />
           </div>
           <div>
-            <p class="xeno-eyebrow">Welcome, cultivator</p>
-            <h2 class="text-3xl font-black tracking-tight mt-1">Your xenoflora garden awaits</h2>
+            <h2 class="text-3xl font-black tracking-tight">Your xenoflora garden awaits</h2>
             <p class="text-muted text-sm mt-2 max-w-sm mx-auto">
               You'll start with 6 open plots, 4 Sprouts and 4 Tendrils. Grow them, harvest, breed mutations and climb to Omega tier.
             </p>
