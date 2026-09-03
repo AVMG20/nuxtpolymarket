@@ -17,22 +17,25 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 400, statusMessage: 'Provide quantity (1–50)' })
   }
 
-  // Spend gems first — throws 400 if the user can't afford the gem craft.
-  if (gemCrafted) await debitGems(userId, gemCraftCost(artType) * count)
+  // One transaction so a failed plant check rolls the gem debit back — before,
+  // gems were spent first and a missing ingredient left them gone for nothing.
+  const artifacts = await db.transaction(async (tx) => {
+    // Artifact costs consume any plant of the given typeId (speed/yield don't matter for crafting)
+    for (const { plantTypeId, quantity } of artType.cost) {
+      await consumePlantsByType(userId, plantTypeId, quantity * count, tx)
+    }
+    // Throws 400 if the user can't afford the gem craft.
+    if (gemCrafted) await debitGems(userId, gemCraftCost(artType) * count, tx)
 
-  // Artifact costs consume any plant of the given typeId (speed/yield don't matter for crafting)
-  for (const { plantTypeId, quantity } of artType.cost) {
-    await consumePlantsByType(userId, plantTypeId, quantity * count)
-  }
-
-  const artifacts = await db.insert(xenoArtifacts)
-    .values(Array.from({ length: count }, () => ({
-      userId,
-      typeId: artType.id,
-      chargesRemaining: artType.maxCharges,
-      gemCrafted
-    })))
-    .returning()
+    return tx.insert(xenoArtifacts)
+      .values(Array.from({ length: count }, () => ({
+        userId,
+        typeId: artType.id,
+        chargesRemaining: artType.maxCharges,
+        gemCrafted
+      })))
+      .returning()
+  })
 
   return {
     crafted: artifacts.length,
