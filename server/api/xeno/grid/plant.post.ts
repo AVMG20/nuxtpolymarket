@@ -1,4 +1,4 @@
-import { eq, and } from 'drizzle-orm'
+import { eq, and, isNull } from 'drizzle-orm'
 import { db } from '#server/database'
 import { xenoGridSlots, xenoPlants, xenoArtifacts } from '#server/database/schema'
 import { requireUserId } from '#server/utils/auth'
@@ -45,9 +45,13 @@ export default defineEventHandler(async (event) => {
   const freePlant = allOfStack.find(p => !plantedIds.has(p.id))
   if (!freePlant) throw createError({ statusCode: 400, statusMessage: 'No free plant of that type available' })
 
-  await db.update(xenoGridSlots)
+  // The empty-slot check lives in the WHERE so two concurrent plants on the same
+  // slot can't both "win" and orphan one of the instances.
+  const [planted] = await db.update(xenoGridSlots)
     .set({ plantId: freePlant.id, startedAt: new Date() })
-    .where(eq(xenoGridSlots.id, slot.id))
+    .where(and(eq(xenoGridSlots.id, slot.id), isNull(xenoGridSlots.startedAt)))
+    .returning({ id: xenoGridSlots.id })
+  if (!planted) throw createError({ statusCode: 400, statusMessage: 'Slot already has a plant' })
 
   return { ok: true }
 })

@@ -1,4 +1,4 @@
-import { eq, and } from 'drizzle-orm'
+import { eq, and, isNotNull } from 'drizzle-orm'
 import { db } from '#server/database'
 import { xenoBreederSlots } from '#server/database/schema'
 import { requireUserId } from '#server/utils/auth'
@@ -17,19 +17,30 @@ export default defineEventHandler(async (event) => {
   }
   if (slot.collected) throw createError({ statusCode: 400, statusMessage: 'Already collected' })
 
-  // Return both parents to inventory
-  await addPlants(userId, slot.plant1TypeId, slot.plant1Speed ?? 0, slot.plant1Yield ?? 0, 1)
-  await addPlants(userId, slot.plant2TypeId, slot.plant2Speed ?? 0, slot.plant2Yield ?? 0, 1)
+  await db.transaction(async (tx) => {
+    // Clearing the slot is the claim: the parents are refunded from the row
+    // that actually got cleared, so two concurrent cancels can't refund twice.
+    const [cleared] = await tx.update(xenoBreederSlots)
+      .set({
+        plant1TypeId: null, plant1Speed: null, plant1Yield: null,
+        plant2TypeId: null, plant2Speed: null, plant2Yield: null,
+        startedAt: null,
+        resultTypeId: null, resultSpeed: null, resultYield: null, resultQuantity: null, wasMutation: null,
+        collected: false,
+      })
+      .where(and(
+        eq(xenoBreederSlots.id, slotId),
+        eq(xenoBreederSlots.userId, userId),
+        isNotNull(xenoBreederSlots.startedAt),
+        eq(xenoBreederSlots.collected, false),
+      ))
+      .returning({ id: xenoBreederSlots.id })
+    if (!cleared) throw createError({ statusCode: 400, statusMessage: 'No active breed to cancel' })
 
-  await db.update(xenoBreederSlots)
-    .set({
-      plant1TypeId: null, plant1Speed: null, plant1Yield: null,
-      plant2TypeId: null, plant2Speed: null, plant2Yield: null,
-      startedAt: null,
-      resultTypeId: null, resultSpeed: null, resultYield: null, resultQuantity: null, wasMutation: null,
-      collected: false,
-    })
-    .where(eq(xenoBreederSlots.id, slotId))
+    // Return both parents to inventory
+    await addPlants(userId, slot.plant1TypeId!, slot.plant1Speed ?? 0, slot.plant1Yield ?? 0, 1, tx)
+    await addPlants(userId, slot.plant2TypeId!, slot.plant2Speed ?? 0, slot.plant2Yield ?? 0, 1, tx)
+  })
 
   return { cancelled: true }
 })

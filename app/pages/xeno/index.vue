@@ -1,14 +1,16 @@
 <script setup lang="ts">
-import {
-  gridSlotUnlockCost, getArtifact, getEffectValueFor, getPlantDisplay,
-} from '#shared/utils/xeno'
-import { formatCountdown, progressPct, isDone } from '~/lib/xeno-format'
+import { gridSlotUnlockCost, getArtifact, getPlantDisplay } from '#shared/utils/xeno'
+import { isDone } from '~/lib/xeno-format'
+import type { HarvestDrop } from '~/components/xeno/HarvestSummary.vue'
 
 const {
-  state, pending, gridSlots, inventory, freeArtifacts,
+  state, pending, refresh, gridSlots, inventory, freeArtifacts,
   initGame, unlockGridSlot, plantInSlot, plantAllSlots, harvestSlot, removePlant,
   attachGridArtifact,
 } = useXeno()
+const sound = useXenoSound()
+const fx = useXenoFx()
+const toast = useToast()
 
 const GRID_TOTAL = 36
 
@@ -21,36 +23,19 @@ onMounted(() => {
 const { user } = useAuth()
 const balance = computed(() => parseFloat(user.value?.balance ?? '0'))
 
-// ── Selected plant ────────────────────────────────────────────────
-const selectedPlant = ref<{
-  typeId: string
-  speed: number
-  yield: number
-  name: string
-  emoji: string
-  tier: number
-} | null>(null)
-
-// ── Selected artifact ─────────────────────────────────────────────
-const selectedArtifact = ref<{
-  id: string
-  typeId: string
-  chargesRemaining: number
-} | null>(null)
+// ── Selection ─────────────────────────────────────────────────────
+const selectedPlant = ref<{ typeId: string; speed: number; yield: number; name: string; emoji: string; tier: number } | null>(null)
+const selectedArtifact = ref<{ id: string; typeId: string; chargesRemaining: number } | null>(null)
 
 // Deselect plant if the matching stack runs out
 watch(inventory, (inv) => {
   if (!selectedPlant.value) return
-  const { typeId, speed, yield: yld } = selectedPlant.value as any
-  const found = (inv as any[]).find(i => i.typeId === typeId && i.speed === speed && i.yield === yld)
-  if (!found) selectedPlant.value = null
+  const { typeId, speed, yield: yld } = selectedPlant.value
+  if (!(inv as any[]).find(i => i.typeId === typeId && i.speed === speed && i.yield === yld)) selectedPlant.value = null
 })
-// Only grid artifacts are relevant in the garden panel
+
 const gridFreeArtifacts = computed(() =>
-  (freeArtifacts.value as any[]).filter(a => {
-    const art = getArtifact(a.typeId)
-    return art?.effects.some(e => e.type.startsWith('grid_'))
-  }),
+  (freeArtifacts.value as any[]).filter(a => getArtifact(a.typeId)?.effects.some(e => e.type.startsWith('grid_'))),
 )
 
 // Keep artifact selected after placing — switch to next of same type, clear only if none left
@@ -62,17 +47,24 @@ watch(gridFreeArtifacts, (arts) => {
   }
 })
 
-// ── Inventory panel callbacks ─────────────────────────────────────
 function onInventorySelectPlant(p: any) {
   selectedPlant.value = p
   if (p) selectedArtifact.value = null
+  sound.play(p ? 'select' : 'deselect')
 }
 function onInventorySelectArtifact(a: any) {
   selectedArtifact.value = a
   if (a) selectedPlant.value = null
+  sound.play(a ? 'select' : 'deselect')
+}
+function clearSelection() {
+  if (!selectedPlant.value && !selectedArtifact.value) return
+  selectedPlant.value = null
+  selectedArtifact.value = null
+  sound.play('deselect')
 }
 
-// ── Full 6×6 grid ────────────────────────────────────────────────
+// ── Grid model ────────────────────────────────────────────────────
 const fullGrid = computed(() => {
   const slotMap = new Map((gridSlots.value as any[]).map(s => [s.slotIndex, s]))
   const unlockedCount = state.value?.grid?.unlockedCount ?? 0
@@ -85,56 +77,88 @@ const fullGrid = computed(() => {
   }))
 })
 
+const readySlots = computed(() => {
+  void now.value
+  return (gridSlots.value as any[]).filter(s => s.plant && isDone(s.plant.completesAt))
+})
+const emptySlots = computed(() => (gridSlots.value as any[]).filter(s => !s.plant))
+
+// Chime once when a plot flips to ready while the page is open.
+let lastReady = -1
+watch(() => readySlots.value.length, (n) => {
+  if (lastReady >= 0 && n > lastReady) sound.play('ready')
+  lastReady = n
+})
+
+// ── Settings ──────────────────────────────────────────────────────
+const autoReplant = useCookie<boolean>('xeno_auto_replant', { default: () => false })
+
 // ── Actions ──────────────────────────────────────────────────────
 const plantingSlot = ref<string | null>(null)
 const attachingSlot = ref<string | null>(null)
-const harvesting = ref(new Set<string>())
-const removing = ref(new Set<string>())
+const busySlots = ref(new Set<string>())
 const unlocking = ref(false)
 const initing = ref(false)
 const plantingAll = ref(false)
 const harvestingAll = ref(false)
 const mobileInventoryOpen = ref(false)
 
-const hasReadySlots = computed(() =>
-  (gridSlots.value as any[]).some(s => s.plant && isDone(s.plant.completesAt)),
-)
+const summaryOpen = ref(false)
+const summaryDrops = ref<HarvestDrop[]>([])
+const summarySlots = ref(0)
+const summaryReplanted = ref(0)
 
-// ── Floating harvest numbers ──────────────────────────────────────
-let floatSeq = 0
-const harvestFloats = ref<Array<{ id: number; x: number; y: number; count: number; colorClass: string; plantId?: string; emoji?: string }>>([])
-
-function spawnFloat(e: { clientX: number; clientY: number }, count: number, opts: { plantId?: string; emoji?: string; colorClass: string }) {
-  const id = ++floatSeq
-  harvestFloats.value.push({ id, x: e.clientX, y: e.clientY - 10, count, ...opts })
-  setTimeout(() => {
-    harvestFloats.value = harvestFloats.value.filter(f => f.id !== id)
-  }, 1500)
+function tileCenter(slotId: string) {
+  return fx.centerOf(document.querySelector(`[data-plot="${slotId}"]`))
 }
 
-/** Spawn one floating number per harvest drop (resources + the regrown hybrid), stacked. */
-function spawnDrops(x: number, y: number, drops: Array<{ id?: string; emoji: string; count: number; isHybrid?: boolean }>) {
-  drops.forEach((d, i) => {
-    const id = ++floatSeq
-    harvestFloats.value.push({
-      id, x, y: y - 10 - i * 22,
-      count: d.count,
-      // Hybrids keep the 🧬 emoji; resource drops render their plant sprite.
-      plantId: d.isHybrid ? undefined : d.id,
-      emoji: d.emoji,
-      colorClass: d.isHybrid ? 'text-sky-300' : 'text-primary',
-    })
-    setTimeout(() => {
-      harvestFloats.value = harvestFloats.value.filter(f => f.id !== id)
-    }, 1500)
-  })
+function isBusy(cell: any): boolean {
+  const id = cell.slot?.id
+  if (!id) return false
+  return busySlots.value.has(id) || plantingSlot.value === id || attachingSlot.value === id
+}
+
+/**
+ * Harvest one slot. Returns the drops and whether it was replanted. Refresh is
+ * left to the caller so a full-grid harvest hits the state endpoint once.
+ */
+async function harvestOne(slot: any, opts: { refresh: boolean }): Promise<{ drops: HarvestDrop[]; replanted: boolean } | null> {
+  const plant = slot.plant
+  const res = await harvestSlot(slot.id, { refresh: false })
+  if (!res) return null
+  const drops: HarvestDrop[] = res.drops?.length
+    ? res.drops
+    : [{ id: plant.typeId, name: plant.name, count: res.harvested }]
+
+  let replanted = false
+  if (autoReplant.value) {
+    // The harvest always returns at least one of the same stack (a hybrid
+    // regrows itself), so the slot can go straight back into the ground.
+    try {
+      await plantInSlot(slot.id, plant.typeId, plant.speed, plant.yield, { refresh: false })
+      replanted = true
+    } catch { /* stack was consumed elsewhere — leave the plot empty */ }
+  }
+  if (opts.refresh) await refresh()
+  return { drops, replanted }
+}
+
+function celebrateHarvest(slotId: string, plantId: string, drops: HarvestDrop[], at?: { x: number; y: number }) {
+  const c = at ?? tileCenter(slotId)
+  if (!c) return
+  fx.burst(c.x, c.y, { plantId, count: 12 })
+  fx.floatDrops(c.x, c.y, drops)
 }
 
 async function handleCellClick(cell: any, e: MouseEvent) {
   if (!cell.unlocked) {
     if (cell.isNextUnlock && balance.value >= cell.cost && !unlocking.value) {
       unlocking.value = true
-      try { await unlockGridSlot() } finally { unlocking.value = false }
+      try {
+        await unlockGridSlot()
+        sound.play('unlock')
+        fx.burst(e.clientX, e.clientY, { count: 14, spread: 60 })
+      } catch { sound.play('error') } finally { unlocking.value = false }
     }
     return
   }
@@ -142,123 +166,149 @@ async function handleCellClick(cell: any, e: MouseEvent) {
   if (!slot) return
 
   // Harvest done plants — always takes priority
-  if (slot.plant && isDone(slot.plant.completesAt) && !harvesting.value.has(slot.id)) {
-    const plantType = getPlantDisplay(slot.plant.typeId)
-    harvesting.value.add(slot.id)
+  if (slot.plant && isDone(slot.plant.completesAt)) {
+    if (busySlots.value.has(slot.id)) return
+    busySlots.value.add(slot.id)
+    const plantId = slot.plant.typeId
+    const at = { x: e.clientX, y: e.clientY }
     try {
-      const res = await harvestSlot(slot.id)
-      if (res?.drops?.length) {
-        spawnDrops(e.clientX, e.clientY, res.drops)
-      } else if (res && plantType) {
-        spawnFloat(e, res.harvested, { plantId: slot.plant.typeId, colorClass: 'text-primary' })
+      const res = await harvestOne(slot, { refresh: true })
+      if (res) {
+        sound.play('harvest')
+        if (res.replanted) setTimeout(() => sound.play('plant'), 220)
+        celebrateHarvest(slot.id, plantId, res.drops, at)
       }
-    } finally { harvesting.value.delete(slot.id) }
+    } catch { sound.play('error') } finally { busySlots.value.delete(slot.id) }
     return
   }
 
   // Apply selected artifact to slot — replaces any artifact already attached
   if (selectedArtifact.value && !attachingSlot.value) {
     attachingSlot.value = slot.id
-    try { await attachGridArtifact(slot.id, selectedArtifact.value.id) }
-    finally { attachingSlot.value = null }
+    try {
+      await attachGridArtifact(slot.id, selectedArtifact.value.id)
+      sound.play('attach')
+    } catch { sound.play('error') } finally { attachingSlot.value = null }
     return
   }
 
   // Plant selected plant in empty slot
   if (selectedPlant.value && !slot.plant && !plantingSlot.value) {
     plantingSlot.value = slot.id
-    try { await plantInSlot(slot.id, selectedPlant.value.typeId, selectedPlant.value.speed, selectedPlant.value.yield) }
-    finally { plantingSlot.value = null }
+    try {
+      await plantInSlot(slot.id, selectedPlant.value.typeId, selectedPlant.value.speed, selectedPlant.value.yield)
+      sound.play('plant')
+      fx.burst(e.clientX, e.clientY + 10, { count: 6, spread: 28, color: '#a16207' })
+    } catch { sound.play('error') } finally { plantingSlot.value = null }
   }
 }
 
-async function doRemove(slotId: string, e: MouseEvent) {
-  e.stopPropagation()
-  if (removing.value.has(slotId)) return
-  removing.value.add(slotId)
-  try { await removePlant(slotId) } finally { removing.value.delete(slotId) }
+async function doRemove(slotId: string) {
+  if (busySlots.value.has(slotId)) return
+  busySlots.value.add(slotId)
+  try {
+    await removePlant(slotId)
+    sound.play('remove')
+  } catch { sound.play('error') } finally { busySlots.value.delete(slotId) }
 }
 
 async function doInit() {
   initing.value = true
-  try { await initGame() } finally { initing.value = false }
+  try {
+    await initGame()
+    sound.play('unlock')
+  } finally { initing.value = false }
 }
 
 async function doPlantAll() {
   if (!selectedPlant.value || plantingAll.value) return
+  if (!emptySlots.value.length) {
+    toast.add({ title: 'No empty plots to plant', color: 'neutral' })
+    return
+  }
   plantingAll.value = true
   try {
     await plantAllSlots(selectedPlant.value.typeId, selectedPlant.value.speed, selectedPlant.value.yield)
-  } finally { plantingAll.value = false }
+    sound.play('plant')
+  } catch { sound.play('error') } finally { plantingAll.value = false }
 }
 
 async function doHarvestAll() {
   if (harvestingAll.value) return
-  harvestingAll.value = true
-  try {
-    const readySlots = (gridSlots.value as any[]).filter(s => s.plant && isDone(s.plant.completesAt))
-    await Promise.all(readySlots.map(async (slot: any) => {
-      const plantType = getPlantDisplay(slot.plant.typeId)
-      // Capture rect before harvesting — element is removed after state refresh
-      const el = document.querySelector(`[data-slot="${slot.id}"]`)
-      const rect = el?.getBoundingClientRect()
-      const res = await harvestSlot(slot.id)
-      if (rect && res?.drops?.length) {
-        spawnDrops(rect.left + rect.width / 2, rect.top + rect.height / 2, res.drops)
-      } else if (res && plantType && rect) {
-        spawnFloat(
-          { clientX: rect.left + rect.width / 2, clientY: rect.top + rect.height / 2 },
-          res.harvested,
-          { plantId: slot.plant.typeId, colorClass: 'text-primary' },
-        )
-      }
-    }))
-  } finally { harvestingAll.value = false }
-}
-
-// Cell interactivity helpers
-function cellCursor(cell: any): string {
-  if (!cell.unlocked) return cell.isNextUnlock ? 'cursor-pointer' : 'cursor-default'
-  const { slot } = cell
-  if (!slot) return 'cursor-default'
-  if (slot.plant && isDone(slot.plant.completesAt)) return 'cursor-pointer'
-  if (selectedArtifact.value) return 'cursor-pointer'
-  if (selectedPlant.value && !slot.plant) return 'cursor-pointer'
-  return 'cursor-default'
-}
-
-function isArtifactTargetable(cell: any): boolean {
-  return !!selectedArtifact.value && cell.unlocked && !!cell.slot
-}
-
-/** True when placing the selected artifact on this cell would replace an existing one. */
-function isArtifactReplacing(cell: any): boolean {
-  return isArtifactTargetable(cell) && !!cell.slot?.artifact
-}
-
-/** Hover tooltip explaining the artifact action this cell would trigger. */
-function artifactActionTitle(cell: any): string | undefined {
-  if (!isArtifactTargetable(cell)) return undefined
-  const incoming = getArtifact(selectedArtifact.value!.typeId)?.name ?? 'artifact'
-  if (cell.slot?.artifact) {
-    const current = getArtifact(cell.slot.artifact.typeId)?.name ?? 'artifact'
-    return `Replace ${current} with ${incoming} — ${current} will be returned to your inventory`
+  const targets = readySlots.value.filter(s => !busySlots.value.has(s.id))
+  if (!targets.length) {
+    toast.add({ title: 'Nothing is ready to harvest yet', color: 'neutral' })
+    return
   }
-  return `Attach ${incoming} to this slot`
+  harvestingAll.value = true
+  targets.forEach(s => busySlots.value.add(s.id))
+  // Capture positions before the refresh re-renders the tiles.
+  const centers = new Map(targets.map(s => [s.id, tileCenter(s.id)]))
+  const aggregate = new Map<string, HarvestDrop>()
+  let replanted = 0
+  let harvested = 0
+  try {
+    const results = await Promise.allSettled(targets.map(s => harvestOne(s, { refresh: false })))
+    results.forEach((r, i) => {
+      const slot = targets[i]!
+      if (r.status !== 'fulfilled' || !r.value) return
+      harvested++
+      if (r.value.replanted) replanted++
+      for (const d of r.value.drops) {
+        const key = `${d.id}${d.isHybrid ? ':hybrid' : ''}`
+        const cur = aggregate.get(key)
+        if (cur) cur.count += d.count
+        else aggregate.set(key, { ...d })
+      }
+      const c = centers.get(slot.id)
+      if (c) setTimeout(() => fx.burst(c.x, c.y, { plantId: slot.plant.typeId, count: 8, spread: 55 }), i * 45)
+    })
+    if (results.some(r => r.status === 'rejected')) sound.play('error')
+    await refresh()
+    if (harvested) {
+      const drops = [...aggregate.values()].sort((a, b) => b.count - a.count)
+      const all = centers.get(targets[0]!.id)
+      if (harvested >= 3) {
+        sound.play('harvest-big')
+        fx.flash(all?.x, all?.y)
+        summaryDrops.value = drops
+        summarySlots.value = harvested
+        summaryReplanted.value = replanted
+        summaryOpen.value = true
+      } else {
+        sound.play('harvest')
+        targets.forEach((s) => {
+          const c = centers.get(s.id)
+          const res = results[targets.indexOf(s)]
+          if (c && res?.status === 'fulfilled' && res.value) fx.floatDrops(c.x, c.y, res.value.drops)
+        })
+      }
+    }
+  } finally {
+    targets.forEach(s => busySlots.value.delete(s.id))
+    harvestingAll.value = false
+  }
 }
 
-function slotYieldBonus(slot: any): number {
-  if (!slot?.artifact) return 0
-  const art = getArtifact(slot.artifact.typeId)
-  return art ? getEffectValueFor(art, 'grid_yield_bonus', slot.artifact.gemCrafted) : 0
+// ── Keyboard shortcuts ────────────────────────────────────────────
+function onKey(e: KeyboardEvent) {
+  const t = e.target as HTMLElement | null
+  if (e.metaKey || e.ctrlKey || e.altKey) return
+  if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return
+  if (summaryOpen.value || mobileInventoryOpen.value) return
+  switch (e.key.toLowerCase()) {
+    case 'h': e.preventDefault(); void doHarvestAll(); break
+    case 'p': e.preventDefault(); void doPlantAll(); break
+    case 'i': e.preventDefault(); mobileInventoryOpen.value = true; break
+    case 'escape': clearSelection(); break
+  }
 }
+onMounted(() => {
+  window.addEventListener('keydown', onKey)
+  onUnmounted(() => window.removeEventListener('keydown', onKey))
+})
 
-function slotSpeedBoost(slot: any): number {
-  if (!slot?.artifact) return 0
-  const art = getArtifact(slot.artifact.typeId)
-  return art ? getEffectValueFor(art, 'grid_speed_boost', slot.artifact.gemCrafted) : 0
-}
-
+const selectedKey = computed(() => selectedPlant.value ? `${selectedPlant.value.typeId}:${selectedPlant.value.speed}:${selectedPlant.value.yield}` : null)
 </script>
 
 <template>
@@ -266,18 +316,19 @@ function slotSpeedBoost(slot: any): number {
 
     <!-- ── Grid area ──────────────────────────────────────────── -->
     <div class="flex-1 min-w-0 flex flex-col overflow-hidden">
-
       <div class="flex-1 overflow-y-auto p-4 md:p-6">
+
         <!-- Header -->
-        <div class="flex items-center justify-between mb-5">
-          <div>
-            <h1 class="text-xl font-semibold flex items-center gap-2">
-              <UIcon name="i-lucide-leaf" class="size-5 text-primary" />
-              Xeno Garden
-            </h1>
-            <p class="text-xs text-muted mt-0.5">Grow, harvest, and evolve xenoflora.</p>
-          </div>
+        <div class="flex flex-wrap items-end justify-between gap-3 mb-4">
+          <h1 class="text-2xl font-black tracking-tight">Garden</h1>
           <div class="flex items-center gap-2">
+            <UTooltip text="Replant the same seed right after every harvest (A)">
+              <label class="flex items-center gap-2 rounded-full border border-default/60 bg-elevated/50 px-3 py-1.5 text-xs font-semibold cursor-pointer select-none">
+                <UIcon name="i-lucide-refresh-cw" class="size-3.5" :class="autoReplant ? 'text-primary' : 'text-muted'" />
+                <span class="hidden sm:inline">Auto-replant</span>
+                <USwitch v-model="autoReplant" size="xs" />
+              </label>
+            </UTooltip>
             <UButton
               v-if="state?.initialized"
               icon="i-lucide-sprout"
@@ -285,18 +336,22 @@ function slotSpeedBoost(slot: any): number {
               variant="soft"
               color="primary"
               size="sm"
-              :disabled="!selectedPlant"
+              :disabled="!selectedPlant || !emptySlots.length"
               :loading="plantingAll"
+              title="Plant the selected seed in every empty plot (P)"
               @click="doPlantAll"
             />
             <UButton
               v-if="state?.initialized"
               icon="i-lucide-package-2"
-              label="Harvest All"
-              variant="soft"
+              :label="readySlots.length ? `Harvest All (${readySlots.length})` : 'Harvest All'"
+              :variant="readySlots.length ? 'solid' : 'soft'"
               color="primary"
               size="sm"
+              :class="readySlots.length ? 'xeno-cta-pulse' : ''"
+              :disabled="!readySlots.length"
               :loading="harvestingAll"
+              title="Harvest every ready plot (H)"
               @click="doHarvestAll"
             />
             <UButton
@@ -312,172 +367,40 @@ function slotSpeedBoost(slot: any): number {
         </div>
 
         <!-- Init screen -->
-        <div v-if="!pending && state && !state.initialized" class="flex flex-col items-center justify-center py-24 gap-4">
-          <div class="text-6xl">🌱</div>
-          <h2 class="text-xl font-bold">Welcome to Xeno</h2>
-          <p class="text-muted text-sm text-center max-w-xs">
-            Start your xenoflora garden. You'll receive starter plants and 6 open grid slots.
-          </p>
-          <UButton label="Begin Growing" icon="i-lucide-sprout" size="lg" :loading="initing" @click="doInit" />
+        <div v-if="!pending && state && !state.initialized" class="xeno-panel xeno-panel-accent rounded-3xl flex flex-col items-center justify-center py-20 px-6 gap-5 text-center">
+          <div class="relative">
+            <div class="absolute inset-0 rounded-full bg-primary/20 blur-3xl scale-150" />
+            <XenoLogo :size="120" class="relative xeno-pop-in" />
+          </div>
+          <div>
+            <h2 class="text-3xl font-black tracking-tight">Your xenoflora garden awaits</h2>
+            <p class="text-muted text-sm mt-2 max-w-sm mx-auto">
+              You'll start with 6 open plots, 4 Sprouts and 4 Tendrils. Grow them, harvest, breed mutations and climb to Omega tier.
+            </p>
+          </div>
+          <UButton label="Begin Growing" icon="i-lucide-sprout" size="xl" :loading="initing" class="xeno-cta-pulse" @click="doInit" />
         </div>
 
         <!-- 6×6 Grid -->
-        <div v-else-if="state?.initialized" class="grid grid-cols-3 md:grid-cols-6 gap-2">
-          <template v-for="cell in fullGrid" :key="cell.index">
-
-            <!-- UNLOCKED — has plant -->
-            <div
-              v-if="cell.unlocked && cell.slot?.plant"
-              :data-slot="cell.slot.id"
-              class="group relative rounded-xl border aspect-square flex flex-col p-2 overflow-hidden select-none transition-all duration-100"
-              :class="[
-                isDone(cell.slot.plant.completesAt)
-                  ? 'bg-primary/15 border-primary/40 hover:bg-primary/20 hover:border-primary/60'
-                  : ['bg-elevated/50', 'border-default/40',
-                     isArtifactReplacing(cell) ? 'ring-2 ring-warning/70 hover:ring-warning'
-                       : isArtifactTargetable(cell) ? 'ring-1 ring-primary/50 hover:ring-primary' : ''],
-                cellCursor(cell),
-                (harvesting.has(cell.slot.id) || removing.has(cell.slot.id) || attachingSlot === cell.slot.id) ? 'opacity-50 pointer-events-none' : '',
-              ]"
-              :title="artifactActionTitle(cell)"
-              @click="(e) => handleCellClick(cell, e)"
-            >
-              <!-- Remove -->
-              <button
-                class="absolute top-1.5 right-1.5 z-10 size-5 flex items-center justify-center rounded bg-black/30 opacity-0 group-hover:opacity-100 hover:bg-black/60 transition-opacity"
-                @click="doRemove(cell.slot.id, $event)"
-              >
-                <UIcon name="i-lucide-x" class="size-3" />
-              </button>
-
-              <!-- Replace-artifact indicator -->
-              <div
-                v-if="isArtifactReplacing(cell)"
-                class="absolute bottom-1 right-1 z-10 size-5 flex items-center justify-center rounded-full bg-warning text-inverted shadow"
-              >
-                <UIcon name="i-lucide-repeat" class="size-3" />
-              </div>
-
-              <!-- Top-left: artifact badge + effect dots -->
-              <XenoGridArtifactBadge :slot="cell.slot" />
-
-              <!-- S# Y# badges (normal) / hybrid marker -->
-              <div class="absolute top-1.5 right-7 flex flex-col gap-0.5 z-10">
-                <template v-if="!cell.slot.plant.isHybrid">
-                  <XenoLevelBadge prefix="S" :level="cell.slot.plant.speed" />
-                  <XenoLevelBadge prefix="Y" :level="cell.slot.plant.yield" />
-                </template>
-                <span v-else class="text-[8px] font-black uppercase tracking-wider px-1 py-0.5 rounded bg-primary/20 text-primary leading-none">🧬</span>
-              </div>
-
-              <!-- Center: emoji + name -->
-              <div class="flex-1 flex flex-col items-center justify-center gap-0.5 mt-2">
-                <XenoPlantIcon :id="cell.slot.plant.typeId" :size="52" />
-                <p class="text-xs font-medium opacity-60 truncate w-full text-center mt-0.5">{{ cell.slot.plant.name }}</p>
-                <div v-if="cell.slot.plant.isHybrid" class="flex items-center gap-0.5 leading-none">
-                  <XenoPlantIcon v-for="(r, i) in cell.slot.plant.resources" :key="i" :id="r.id" :size="14" />
-                </div>
-                <div
-                  v-else-if="isDone(cell.slot.plant.completesAt)"
-                  class="text-xs font-black text-primary mt-0.5"
-                >
-                  ×1–{{ 1 + cell.slot.plant.yield + slotYieldBonus(cell.slot) }}
-                </div>
-              </div>
-
-              <!-- Progress bar -->
-              <div class="shrink-0 mt-1">
-                <div class="h-1 rounded-full bg-white/10 overflow-hidden">
-                  <div
-                    class="h-full rounded-full bg-primary"
-                    :style="{ width: `${progressPct(cell.slot.plant.startedAt, cell.slot.plant.completesAt, now)}%` }"
-                  />
-                </div>
-                <div class="flex items-center justify-center gap-1 mt-0.5">
-                  <p
-                    class="text-xs font-medium"
-                    :class="isDone(cell.slot.plant.completesAt) ? 'text-primary font-bold' : 'text-muted'"
-                  >
-                    {{ formatCountdown(cell.slot.plant.completesAt, now) }}
-                  </p>
-                  <span
-                    v-if="!isDone(cell.slot.plant.completesAt) && slotSpeedBoost(cell.slot) > 0"
-                    class="text-[9px] font-bold text-primary leading-none"
-                  >⚡−{{ Math.round(slotSpeedBoost(cell.slot) * 100) }}%</span>
-                </div>
-              </div>
-            </div>
-
-            <!-- UNLOCKED — empty -->
-            <div
-              v-else-if="cell.unlocked"
-              class="relative rounded-xl border aspect-square flex flex-col items-center justify-center gap-1 select-none transition-all duration-100"
-              :class="[
-                cellCursor(cell),
-                isArtifactReplacing(cell)
-                  ? 'border-warning/60 bg-warning/5 hover:bg-warning/10 hover:border-warning ring-1 ring-warning/40'
-                  : selectedArtifact || selectedPlant
-                    ? 'border-primary/40 bg-primary/5 hover:bg-primary/10 hover:border-primary/70'
-                    : 'border-dashed border-default/40 bg-elevated/20',
-                plantingSlot === cell.slot?.id || attachingSlot === cell.slot?.id ? 'opacity-40 pointer-events-none' : '',
-              ]"
-              :title="artifactActionTitle(cell)"
-              @click="(e) => handleCellClick(cell, e)"
-            >
-              <!-- Slot already has artifact attached (no plant yet) -->
-              <template v-if="cell.slot?.artifact">
-                <XenoGridArtifactBadge :slot="cell.slot" />
-                <div v-if="isArtifactReplacing(cell)" class="absolute bottom-1 right-1 z-10 size-5 flex items-center justify-center rounded-full bg-warning text-inverted shadow">
-                  <UIcon name="i-lucide-repeat" class="size-3" />
-                </div>
-                <p v-if="selectedPlant" class="text-xs text-primary/70 font-medium">Plant here</p>
-                <p v-else-if="isArtifactReplacing(cell)" class="text-xs text-warning font-semibold text-center px-1">Replace with {{ getArtifact(selectedArtifact!.typeId)?.emoji }}</p>
-              </template>
-              <!-- No artifact: show preview or empty state -->
-              <template v-else>
-                <span v-if="isArtifactTargetable(cell)" class="text-lg opacity-50">{{ getArtifact(selectedArtifact!.typeId)?.emoji }}</span>
-                <UIcon
-                  v-else-if="selectedPlant || selectedArtifact"
-                  name="i-lucide-circle-plus"
-                  class="size-5 text-primary"
-                />
-                <UIcon v-else name="i-lucide-plus" class="size-3.5 text-muted/40" />
-                <p v-if="selectedPlant" class="text-xs text-primary/70 font-medium">Plant here</p>
-                <p v-else-if="selectedArtifact" class="text-xs text-primary/70 font-medium">Attach here</p>
-              </template>
-            </div>
-
-            <!-- LOCKED — next to unlock -->
-            <div
-              v-else-if="cell.isNextUnlock"
-              class="rounded-xl border border-dashed aspect-square flex flex-col items-center justify-center gap-1.5 select-none transition-all duration-100"
-              :class="balance >= cell.cost
-                ? 'border-default/50 cursor-pointer hover:bg-elevated/60 hover:border-default'
-                : 'border-default/25 cursor-not-allowed opacity-35'"
-              @click="(e) => handleCellClick(cell, e)"
-            >
-              <UIcon
-                :name="unlocking ? 'i-lucide-loader-circle' : 'i-lucide-lock'"
-                class="size-4 text-muted"
-                :class="unlocking ? 'animate-spin' : ''"
-              />
-              <CoinBalance :value="cell.cost" :compact="false" class="text-xs text-muted/70" />
-            </div>
-
-            <!-- LOCKED — future -->
-            <div
-              v-else
-              class="rounded-xl border border-dashed border-default/15 aspect-square flex items-center justify-center opacity-15"
-            >
-              <UIcon name="i-lucide-lock" class="size-3 text-muted" />
-            </div>
-
-          </template>
+        <div v-else-if="state?.initialized" class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-2 md:gap-2.5">
+          <XenoGardenTile
+            v-for="cell in fullGrid"
+            :key="cell.index"
+            :cell="cell"
+            :now="now"
+            :selected-plant="selectedPlant"
+            :selected-artifact="selectedArtifact"
+            :busy="isBusy(cell)"
+            :unlocking="unlocking && cell.isNextUnlock"
+            :can-afford-unlock="balance >= cell.cost"
+            @click="(e) => handleCellClick(cell, e)"
+            @remove="() => doRemove(cell.slot.id)"
+          />
         </div>
 
         <!-- Skeleton -->
-        <div v-else class="grid grid-cols-3 md:grid-cols-6 gap-2">
-          <USkeleton v-for="i in 36" :key="i" class="aspect-square rounded-xl" />
+        <div v-else class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-2 md:gap-2.5">
+          <USkeleton v-for="i in 36" :key="i" class="aspect-square rounded-2xl" />
         </div>
       </div>
 
@@ -490,32 +413,33 @@ function slotSpeedBoost(slot: any): number {
       >
         <div
           v-if="selectedPlant || selectedArtifact"
-          class="shrink-0 border-t border-default bg-background/95 backdrop-blur-sm px-4 md:px-6 py-3 flex items-center gap-3"
+          class="shrink-0 border-t border-primary/30 bg-background/90 backdrop-blur-md px-4 md:px-6 py-3 flex items-center gap-3"
         >
-          <!-- Plant selected -->
           <template v-if="selectedPlant">
-            <XenoPlantIcon :id="selectedPlant.typeId" :size="28" />
+            <div class="relative">
+              <XenoPlantIcon :id="selectedPlant.typeId" :size="34" class="xeno-pop-in" />
+              <span class="absolute -inset-1 rounded-lg ring-2 ring-primary/50 pointer-events-none" />
+            </div>
             <div class="flex items-center gap-2 min-w-0">
-              <p class="text-sm font-semibold truncate">{{ selectedPlant.name }}</p>
+              <p class="text-sm font-bold truncate">{{ selectedPlant.name }}</p>
               <XenoTierLabel :tier="selectedPlant.tier" class="shrink-0" />
               <span class="text-xs text-muted shrink-0 hidden sm:inline">S{{ selectedPlant.speed }} · Y{{ selectedPlant.yield }}</span>
             </div>
             <div class="ml-auto flex items-center gap-3 shrink-0">
-              <p class="text-xs text-muted hidden md:block">Click an empty slot to plant</p>
-              <UButton size="xs" variant="ghost" color="neutral" icon="i-lucide-x" @click="selectedPlant = null" />
+              <p class="text-xs text-muted hidden md:block">Click an empty plot to plant · <kbd class="rounded border border-default px-1">P</kbd> plants all</p>
+              <UButton size="xs" variant="ghost" color="neutral" icon="i-lucide-x" @click="clearSelection" />
             </div>
           </template>
 
-          <!-- Artifact selected -->
           <template v-else-if="selectedArtifact">
-            <span class="text-xl leading-none">{{ getArtifact(selectedArtifact.typeId)?.emoji }}</span>
+            <span class="xeno-orb size-9 text-lg xeno-pop-in">{{ getArtifact(selectedArtifact.typeId)?.emoji }}</span>
             <div class="flex items-center gap-2 min-w-0">
-              <p class="text-sm font-semibold truncate">{{ getArtifact(selectedArtifact.typeId)?.name }}</p>
+              <p class="text-sm font-bold truncate">{{ getArtifact(selectedArtifact.typeId)?.name }}</p>
               <span class="text-xs text-muted shrink-0">{{ selectedArtifact.chargesRemaining }} uses</span>
             </div>
             <div class="ml-auto flex items-center gap-3 shrink-0">
-              <p class="text-xs text-muted hidden md:block">Click any slot to attach — occupied slots will be replaced</p>
-              <UButton size="xs" variant="ghost" color="neutral" icon="i-lucide-x" @click="selectedArtifact = null" />
+              <p class="text-xs text-muted hidden md:block">Click any plot to attach — occupied plots will be swapped</p>
+              <UButton size="xs" variant="ghost" color="neutral" icon="i-lucide-x" @click="clearSelection" />
             </div>
           </template>
         </div>
@@ -526,14 +450,14 @@ function slotSpeedBoost(slot: any): number {
     <USidebar
       collapsible="none"
       side="right"
-      class="hidden lg:flex w-[26rem] border-l border-default"
+      class="hidden lg:flex w-[26rem] border-l border-default/60 bg-background/40 backdrop-blur-sm"
     >
       <div class="flex flex-col h-full overflow-hidden">
         <XenoInventoryPanel
           :inventory="inventory"
           :free-artifacts="gridFreeArtifacts"
           artifact-domain="grid"
-          :selected-plant-key="selectedPlant ? `${selectedPlant.typeId}:${selectedPlant.speed}:${selectedPlant.yield}` : null"
+          :selected-plant-key="selectedKey"
           :selected-artifact-id="selectedArtifact?.id ?? null"
           @select-plant="onInventorySelectPlant"
           @select-artifact="onInventorySelectArtifact"
@@ -550,14 +474,16 @@ function slotSpeedBoost(slot: any): number {
           :inventory="inventory"
           :free-artifacts="gridFreeArtifacts"
           artifact-domain="grid"
-          :selected-plant-key="selectedPlant ? `${selectedPlant.typeId}:${selectedPlant.speed}:${selectedPlant.yield}` : null"
+          :selected-plant-key="selectedKey"
           :selected-artifact-id="selectedArtifact?.id ?? null"
-          @select-plant="onInventorySelectPlant"
+          @select-plant="(p) => { onInventorySelectPlant(p); mobileInventoryOpen = false }"
           @select-artifact="(a) => { onInventorySelectArtifact(a); mobileInventoryOpen = false }"
         />
       </div>
     </template>
   </USlideover>
 
-  <XenoHarvestFloat :items="harvestFloats" />
+  <XenoHarvestFloat :items="fx.floats.value" />
+  <XenoBurstLayer :particles="fx.particles.value" :flashes="fx.flashes.value" />
+  <XenoHarvestSummary v-model:open="summaryOpen" :drops="summaryDrops" :slots="summarySlots" :replanted="summaryReplanted" />
 </template>
