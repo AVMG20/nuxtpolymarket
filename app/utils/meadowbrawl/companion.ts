@@ -75,6 +75,10 @@ const BLOOM_HEAL_PER_SEC = 3
 const QUICK_DUR = 3
 const GUST_RADIUS = 96
 const GUST_MIN_ENEMIES = 3
+/** No enemy this close to the player, or the pet stays at heel. */
+const FETCH_CALM = 200
+/** Coins farther than this from the player are left for the player. */
+const FETCH_RANGE = 340
 
 export function makeCompanion(id: MeadowbrawlPetId, level: number, x: number, y: number): Companion {
     const effects = meadowbrawlPetEffects(id, level)
@@ -127,7 +131,7 @@ export function updateCompanion(game: MeadowbrawlGame, c: Companion, dt: number)
     if (c.dash) {
         updateDash(game, c, dt)
     } else {
-        follow(game, c, dt)
+        follow(game, c, dt, c.howl > 0 ? null : fetchTarget(game, c))
     }
 
     // Fire trails burn whoever stands in them.
@@ -192,12 +196,42 @@ export function updateCompanion(game: MeadowbrawlGame, c: Companion, dt: number)
     }
 }
 
-function follow(game: MeadowbrawlGame, c: Companion, dt: number) {
+/**
+ * A coin worth fetching: only while nothing is close enough to the player
+ * to be a fight, and only within a short jog so the pet never wanders off.
+ */
+function fetchTarget(game: MeadowbrawlGame, c: Companion): Vec | null {
+    if (game.coinDrops.length === 0) return null
+    const p = game.player
+    for (const e of game.enemies) {
+        if (e.alive && e.entered && Math.hypot(e.x - p.x, e.y - p.y) < FETCH_CALM) return null
+    }
+    let best: Vec | null = null
+    let bestD = FETCH_RANGE
+    for (const coin of game.coinDrops) {
+        if (coin.magnet || coin.z > 6) continue
+        const d = Math.hypot(coin.x - p.x, coin.y - p.y)
+        if (d >= bestD) continue
+        // Prefer the one nearest the pet among those near enough to the player.
+        const score = d * 0.4 + Math.hypot(coin.x - c.x, coin.y - c.y) * 0.6
+        if (score < bestD) {
+            bestD = score
+            best = coin
+        }
+    }
+    return best
+}
+
+function follow(game: MeadowbrawlGame, c: Companion, dt: number, target: Vec | null = null) {
     const p = game.player
     // Heel position trails behind the player's last movement direction.
     const back = Math.atan2(p.lastMoveY, p.lastMoveX) + Math.PI
-    const tx = p.x + Math.cos(back) * FOLLOW_DIST + (c.id === 'owl' ? 0 : Math.sin(back) * 10)
-    const ty = p.y + Math.sin(back) * FOLLOW_DIST * 0.8 + (c.id === 'owl' ? -12 : 8)
+    let tx = p.x + Math.cos(back) * FOLLOW_DIST + (c.id === 'owl' ? 0 : Math.sin(back) * 10)
+    let ty = p.y + Math.sin(back) * FOLLOW_DIST * 0.8 + (c.id === 'owl' ? -12 : 8)
+    if (target) {
+        tx = target.x
+        ty = target.y
+    }
     const dx = tx - c.x
     const dy = ty - c.y
     const d = Math.hypot(dx, dy)
@@ -210,7 +244,7 @@ function follow(game: MeadowbrawlGame, c: Companion, dt: number) {
         c.vy = 0
         game.burst(c.x, c.y, 6, 5, 'dust', '#bfae83', 60, 0.4)
     }
-    const want = d > 14 ? Math.min(speed, d * 6) : 0
+    const want = d > (target ? 4 : 14) ? Math.min(speed, d * 6) : 0
     const ax = d > 0 ? dx / d * want : 0
     const ay = d > 0 ? dy / d * want : 0
     c.vx += (ax - c.vx) * Math.min(1, dt * 10)

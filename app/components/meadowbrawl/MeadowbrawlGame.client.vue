@@ -1,10 +1,20 @@
 <script setup lang="ts">
-import { MeadowbrawlGame } from '~/utils/meadowbrawl/engine'
+import { MeadowbrawlGame, type RunConfig } from '~/utils/meadowbrawl/engine'
 import { MeadowbrawlRenderer } from '~/utils/meadowbrawl/renderer'
 import { MeadowbrawlSound } from '~/utils/meadowbrawl/sound'
-import { WEAPONS, WEAPON_IDS } from '~/utils/meadowbrawl/weapons'
+import { WEAPONS } from '~/utils/meadowbrawl/weapons'
 import { RARITY_LABEL, UPGRADE_BY_ID } from '~/utils/meadowbrawl/upgrades'
 import { TOTAL_WAVES, type Offer, type WeaponId } from '~/utils/meadowbrawl/types'
+import MeadowbrawlLobby, { PET_ABILITY_ICONS, type MeadowbrawlMetaState } from '~/components/meadowbrawl/MeadowbrawlLobby.vue'
+import {
+    MEADOWBRAWL_PETS,
+    type MeadowbrawlAccountEffects,
+    type MeadowbrawlPetEffects,
+    type MeadowbrawlPetId,
+    type MeadowbrawlRunSave,
+    type MeadowbrawlUpgradeId,
+    type MeadowbrawlWeaponId
+} from '#shared/utils/gamelogic/meadowbrawl-meta'
 
 const wrapper = ref<HTMLDivElement | null>(null)
 const canvas = ref<HTMLCanvasElement | null>(null)
@@ -15,9 +25,285 @@ let renderer: MeadowbrawlRenderer | null = null
 let raf = 0
 let lastFrame = 0
 
-const selectedWeapon = ref<WeaponId>('sword')
 const muted = ref(false)
 const isFullscreen = ref(false)
+
+const { user, fetchSession } = useAuth()
+const toast = useToast()
+
+// ------------------------------------------------------------ account meta
+
+interface StartRunResult {
+    weapon: MeadowbrawlWeaponId
+    pet: MeadowbrawlPetEffects | null
+    effects: MeadowbrawlAccountEffects
+    coinMult: number
+    runStartedAt: string
+}
+
+interface FinishRunResult {
+    awarded: number
+    counted: number
+    capped: boolean
+    coinMult: number
+    cleared: number
+    won: boolean
+    bestWave: number
+    bestEarned: number
+    newlyUnlocked: MeadowbrawlWeaponId[]
+    unlockedWeapons: MeadowbrawlWeaponId[]
+}
+
+const meta = ref<MeadowbrawlMetaState | null>(null)
+const metaLoading = ref(false)
+/** Key of the lobby action in flight — the lobby spins only that button. */
+const busy = ref<string | null>(null)
+
+function errorMessage(err: unknown, fallback: string): string {
+    const e = err as { data?: { statusMessage?: string, message?: string }, statusMessage?: string, message?: string } | null
+    return e?.data?.statusMessage || e?.data?.message || e?.statusMessage || e?.message || fallback
+}
+
+function fail(err: unknown, fallback: string) {
+    toast.add({ title: errorMessage(err, fallback), color: 'error', icon: 'i-lucide-triangle-alert' })
+}
+
+async function refreshMeta() {
+    if (!user.value) {
+        meta.value = null
+        return
+    }
+    metaLoading.value = true
+    try {
+        meta.value = await $fetch<MeadowbrawlMetaState>('/api/meadowbrawl/state')
+    } catch (err) {
+        console.error('[meadowbrawl] state failed', err)
+    } finally {
+        metaLoading.value = false
+    }
+}
+
+watch(user, (u) => {
+    if (u) void refreshMeta()
+    else meta.value = null
+}, { immediate: true })
+
+// ------------------------------------------------------------ run lifecycle
+
+/** Every checkpoint is POSTed, one at a time, in the order they happened. */
+let saveChain: Promise<unknown> = Promise.resolve()
+let runStartedMs = 0
+/** One settle per run — set the moment the finish request goes out. */
+let finishSubmitted = false
+let finishWon = false
+
+const finish = reactive({
+    state: 'idle' as 'idle' | 'pending' | 'done' | 'error',
+    result: null as FinishRunResult | null,
+    error: ''
+})
+
+function runConfig(effects: MeadowbrawlAccountEffects, coinMult: number, pet: { id: MeadowbrawlPetId, level: number } | null): RunConfig {
+    return {
+        maxHp: effects.maxHp,
+        damageMult: effects.damageMult,
+        dodgeCharges: effects.dodgeCharges,
+        offerCount: effects.offerCount,
+        rerolls: effects.rerolls,
+        coinMult,
+        pet: pet ? { id: pet.id, level: pet.level } : null
+    }
+}
+
+function armRun() {
+    finish.state = 'idle'
+    finish.result = null
+    finish.error = ''
+    finishSubmitted = false
+    finishWon = false
+    runStartedMs = Date.now()
+}
+
+async function beginRun(weapon: MeadowbrawlWeaponId) {
+    if (busy.value) return
+    busy.value = 'start'
+    try {
+        const res = await $fetch<StartRunResult>('/api/meadowbrawl/start-run', { method: 'POST', body: { weapon } })
+        sound.unlock()
+        armRun()
+        game.startRun(res.weapon as WeaponId, runConfig(res.effects, res.coinMult, res.pet))
+        void refreshMeta()
+    } catch (err) {
+        fail(err, 'Could not enter the meadow')
+        // A 409 means a run is already armed — the lobby needs to see it so
+        // the player can resume or abandon.
+        void refreshMeta()
+    } finally {
+        busy.value = null
+    }
+}
+
+function resumeRun() {
+    const run = meta.value?.activeRun
+    const effects = meta.value?.effects
+    if (!run?.save || !run.weapon || !effects || busy.value) return
+    sound.unlock()
+    armRun()
+    // The clock is the server's; a resumed run keeps its original start, so
+    // report only the time this session actually played.
+    game.restoreRun(
+        run.weapon as WeaponId,
+        run.save as MeadowbrawlRunSave,
+        runConfig(effects, run.coinMult, run.pet ? { id: run.pet, level: run.petLevel } : null)
+    )
+}
+
+async function abandonRun() {
+    if (busy.value) return
+    busy.value = 'abandon'
+    try {
+        const res = await $fetch<FinishRunResult>('/api/meadowbrawl/finish-run', {
+            method: 'POST',
+            body: { wave: 0, coins: 0, kills: 0, won: false, playedMs: 0, abandoned: true }
+        })
+        toast.add({
+            title: `Run abandoned — collected ${formatNumber(res.awarded)}`,
+            description: `${formatNumber(res.counted)} coins × ${res.coinMult.toFixed(2)}`,
+            color: 'success',
+            icon: 'i-lucide-coins'
+        })
+        await Promise.all([fetchSession(), refreshMeta()])
+    } catch (err) {
+        fail(err, 'Could not abandon the run')
+        void refreshMeta()
+    } finally {
+        busy.value = null
+    }
+}
+
+async function submitFinish(won: boolean) {
+    finishWon = won
+    finish.state = 'pending'
+    finish.error = ''
+    try {
+        const res = await $fetch<FinishRunResult>('/api/meadowbrawl/finish-run', {
+            method: 'POST',
+            body: {
+                wave: game.wave,
+                coins: Math.floor(game.coins),
+                kills: game.stats.kills,
+                won,
+                playedMs: runStartedMs ? Date.now() - runStartedMs : 0,
+                abandoned: false
+            }
+        })
+        finish.result = res
+        finish.state = 'done'
+        if (res.newlyUnlocked.length) {
+            toast.add({
+                title: res.newlyUnlocked.length > 1 ? 'New weapons unlocked' : 'New weapon unlocked',
+                description: res.newlyUnlocked.map(id => WEAPONS[id as WeaponId].name).join(', '),
+                color: 'success',
+                icon: 'i-lucide-swords'
+            })
+        }
+        await Promise.all([fetchSession(), refreshMeta()])
+    } catch (err) {
+        finish.state = 'error'
+        finish.error = errorMessage(err, 'Could not reach the meadow')
+    }
+}
+
+function retryFinish() {
+    if (finish.state === 'pending') return
+    void submitFinish(finishWon)
+}
+
+/** Fires once per run, as soon as the run is provably over. */
+function maybeFinish() {
+    if (finishSubmitted) return
+    if (game.phase === 'victory') {
+        finishSubmitted = true
+        void submitFinish(true)
+    } else if (game.phase === 'dead' && game.deathT > 1.2) {
+        finishSubmitted = true
+        void submitFinish(false)
+    }
+}
+
+function backToMeadow() {
+    game.restart()
+    finish.state = 'idle'
+    finish.result = null
+    finish.error = ''
+    syncHud()
+    void refreshMeta()
+}
+
+// ------------------------------------------------------------- lobby shop
+
+async function equipPet(petId: MeadowbrawlPetId | null) {
+    if (busy.value) return
+    busy.value = petId ? `equip:${petId}` : 'equip:none'
+    try {
+        await $fetch('/api/meadowbrawl/pet-equip', { method: 'POST', body: { petId } })
+        await refreshMeta()
+    } catch (err) {
+        fail(err, 'Could not field that pet')
+    } finally {
+        busy.value = null
+    }
+}
+
+async function buyUpgrade(upgradeId: MeadowbrawlUpgradeId) {
+    if (busy.value) return
+    busy.value = `upgrade:${upgradeId}`
+    try {
+        const res = await $fetch<{ level: number }>('/api/meadowbrawl/upgrade', { method: 'POST', body: { upgradeId } })
+        const def = meta.value?.upgrades.find(u => u.id === upgradeId)
+        toast.add({ title: `${def?.name ?? 'Upgrade'} is now level ${res.level}`, color: 'success', icon: 'i-lucide-arrow-big-up' })
+        await Promise.all([fetchSession(), refreshMeta()])
+    } catch (err) {
+        fail(err, 'Could not buy that upgrade')
+    } finally {
+        busy.value = null
+    }
+}
+
+async function buyPet(petId: MeadowbrawlPetId) {
+    if (busy.value) return
+    busy.value = `pet:${petId}`
+    try {
+        const res = await $fetch<{ level: number }>('/api/meadowbrawl/pet-upgrade', { method: 'POST', body: { petId } })
+        const def = MEADOWBRAWL_PETS.find(p => p.id === petId)
+        toast.add({
+            title: res.level === 1 ? `${def?.name ?? 'Pet'} adopted` : `${def?.name ?? 'Pet'} is now level ${res.level}`,
+            color: 'success',
+            icon: 'i-lucide-paw-print'
+        })
+        await Promise.all([fetchSession(), refreshMeta()])
+    } catch (err) {
+        fail(err, 'Could not raise that pet')
+    } finally {
+        busy.value = null
+    }
+}
+
+async function rushCooldown() {
+    if (busy.value) return
+    busy.value = 'rush'
+    try {
+        const res = await $fetch<{ gemCost: number }>('/api/meadowbrawl/rush', { method: 'POST' })
+        toast.add({ title: `The meadow is ready — ${res.gemCost} gems spent`, color: 'success', icon: 'i-lucide-gem' })
+        await Promise.all([fetchSession(), refreshMeta()])
+    } catch (err) {
+        fail(err, 'Could not rush the cooldown')
+    } finally {
+        busy.value = null
+    }
+}
+
+// ------------------------------------------------------------------- HUD
 
 // A per-frame snapshot of the bits of state the HUD needs. Kept as plain
 // reactive fields so Vue only re-renders the overlay, never the canvas.
@@ -51,7 +337,24 @@ const hud = reactive({
     className: '',
     q: { name: '', icon: '', cd: 0, max: 1 },
     e: { name: '', icon: '', cd: 0, max: 1 },
-    fx: [] as { name: string, t: number, color: string }[]
+    fx: [] as { name: string, t: number, color: string }[],
+    coins: 0,
+    coinMult: 1,
+    rerolls: 0,
+    deathT: 0,
+    pet: {
+        active: false,
+        name: '',
+        color: '#ffffff',
+        level: 0,
+        ward: false,
+        bloom: 0,
+        quick: 0,
+        a: [
+            { name: '', icon: '', cd: 0, max: 0 },
+            { name: '', icon: '', cd: 0, max: 0 }
+        ]
+    }
 })
 
 const stats = computed(() => game.stats)
@@ -76,6 +379,10 @@ function syncHud() {
     hud.chainLength = p.chain.length
     hud.inCombo = !!p.attack || p.comboTimer > 0
     hud.sprinting = p.sprinting
+    hud.coins = Math.floor(game.coins)
+    hud.coinMult = game.coinMult
+    hud.rerolls = game.rerollsLeft
+    hud.deathT = game.deathT
     const elites = game.elites
     if (elites.length !== hud.elites.length || elites.some((e, i) => hud.elites[i]!.id !== e.id || hud.elites[i]!.hp !== e.hp || hud.elites[i]!.stun !== e.stun || hud.elites[i]!.stunLock !== e.stunLock)) {
         hud.elites = elites.map(e => ({ id: e.id, name: e.def.name, hp: Math.max(0, e.hp), max: e.maxHp, stun: e.stun, stunMax: e.stunMax, stunLock: e.stunLock }))
@@ -91,6 +398,25 @@ function syncHud() {
     hud.e.icon = wdef.abilities[1].icon
     hud.e.cd = p.abilityCd.e
     hud.e.max = p.abilityCdMax.e
+    const companion = game.companion
+    hud.pet.active = !!companion
+    if (companion) {
+        const def = MEADOWBRAWL_PETS.find(d => d.id === companion.id)
+        hud.pet.name = def?.name ?? ''
+        hud.pet.color = def?.color ?? '#ffffff'
+        hud.pet.level = companion.level
+        hud.pet.ward = companion.ward
+        hud.pet.bloom = companion.bloom
+        hud.pet.quick = companion.quick
+        for (let i = 0; i < 2; i++) {
+            const slot = hud.pet.a[i]!
+            const ability = def?.abilities[i]
+            slot.name = ability?.name ?? ''
+            slot.icon = ability ? PET_ABILITY_ICONS[ability.id] ?? 'i-lucide-sparkles' : 'i-lucide-sparkles'
+            slot.cd = companion.cd[i] ?? 0
+            slot.max = companion.cdMax[i] ?? 0
+        }
+    }
     const fx: { name: string, t: number, color: string }[] = []
     if (p.fx.shieldWall > 0) fx.push({ name: 'Shield Wall', t: p.fx.shieldWall, color: 'text-sky-200' })
     if (p.fx.rally > 0) fx.push({ name: 'Rallied', t: p.fx.rally, color: 'text-amber-200' })
@@ -110,6 +436,7 @@ function syncHud() {
     }
     if (game.phase === 'upgrade' && hud.offers !== game.offers) hud.offers = game.offers
     if (game.phase !== 'upgrade' && hud.offers.length) hud.offers = []
+    maybeFinish()
 }
 
 function frame(now: number) {
@@ -140,6 +467,9 @@ function applyMove() {
 
 function onKeyDown(e: KeyboardEvent) {
     if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
+    // The lobby is a form, not a fight: leave every key to the browser so
+    // buttons, tabs and scrolling behave. Starting a run needs the server.
+    if (game.phase === 'menu') return
     const dir = KEYS[e.code]
     if (dir) {
         held[dir] = true
@@ -150,12 +480,12 @@ function onKeyDown(e: KeyboardEvent) {
     if (e.code === 'Space') {
         e.preventDefault()
         if (e.repeat) return
-        if (game.phase === 'menu') {
-            start()
+        if (game.phase === 'dead' && game.deathT > 1.2) {
+            if (finish.state === 'done') backToMeadow()
             return
         }
-        if (game.phase === 'dead' && game.deathT > 1.2) {
-            restart()
+        if (game.phase === 'victory') {
+            if (finish.state === 'done') backToMeadow()
             return
         }
         game.input.spaceDown = true
@@ -172,8 +502,14 @@ function onKeyDown(e: KeyboardEvent) {
         if (game.phase === 'wave' || game.phase === 'calm') game.paused = !game.paused
         return
     }
-    if (game.phase === 'upgrade' && (e.code === 'Digit1' || e.code === 'Digit2' || e.code === 'Digit3')) {
-        choose(Number(e.code.slice(-1)) - 1)
+    if (game.phase === 'upgrade') {
+        if (e.code === 'KeyR' && !e.repeat) {
+            reroll()
+            return
+        }
+        if (e.code === 'Digit1' || e.code === 'Digit2' || e.code === 'Digit3' || e.code === 'Digit4') {
+            choose(Number(e.code.slice(-1)) - 1)
+        }
     }
 }
 
@@ -226,18 +562,16 @@ function onVisibility() {
 
 // ---------------------------------------------------------------- actions
 
-function start() {
-    sound.unlock()
-    game.startRun(selectedWeapon.value)
-}
-
-function restart() {
-    game.restart()
-}
-
 function choose(i: number) {
+    if (i >= game.offers.length) return
     sound.unlock()
     game.chooseOffer(i)
+}
+
+function reroll() {
+    if (game.rerollsLeft <= 0) return
+    sound.unlock()
+    game.rerollOffers()
 }
 
 function togglePause() {
@@ -270,6 +604,13 @@ onMounted(() => {
     renderer = new MeadowbrawlRenderer(canvas.value, game)
     resizeObserver = new ResizeObserver(() => renderer?.resize())
     resizeObserver.observe(canvas.value)
+    // Checkpoints are fire-and-forget, but they must land in order: a later
+    // wave must never be overwritten by a save that was still in flight.
+    game.onCheckpoint = (save) => {
+        saveChain = saveChain
+            .then(() => $fetch('/api/meadowbrawl/save-run', { method: 'POST', body: { save } }))
+            .catch(err => console.error('[meadowbrawl] checkpoint failed', err))
+    }
     window.addEventListener('keydown', onKeyDown)
     window.addEventListener('keyup', onKeyUp)
     window.addEventListener('mousemove', onMouseMove)
@@ -283,6 +624,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
     cancelAnimationFrame(raf)
+    game.onCheckpoint = null
     resizeObserver?.disconnect()
     window.removeEventListener('keydown', onKeyDown)
     window.removeEventListener('keyup', onKeyUp)
@@ -309,8 +651,8 @@ function formatTime(t: number): string {
     return `${m}:${s.toString().padStart(2, '0')}`
 }
 
-const weaponCards = WEAPON_IDS.map(id => ({ id, def: WEAPONS[id] }))
 const showHint = computed(() => hud.phase === 'wave' && hud.wave === 1)
+const showDeath = computed(() => hud.phase === 'dead' && hud.deathT > 1.2)
 </script>
 
 <template>
@@ -397,6 +739,34 @@ const showHint = computed(() => hud.phase === 'wave' && hud.wave === 1)
               <span v-if="u.stacks > 1" class="text-amber-200">×{{ u.stacks }}</span>
             </span>
           </div>
+
+          <!-- Companion -->
+          <div v-if="hud.pet.active" class="mt-2 inline-flex items-center gap-2 rounded-lg bg-black/55 ring-1 ring-white/10 px-2 py-1.5">
+            <div class="leading-tight">
+              <div class="text-[10px] uppercase tracking-[0.18em] font-black" :style="{ color: hud.pet.color }">{{ hud.pet.name }}</div>
+              <div class="text-[9px] font-bold text-white/45 tabular-nums">Lv {{ hud.pet.level }}</div>
+            </div>
+            <div
+              v-for="(a, i) in hud.pet.a"
+              :key="i"
+              class="relative size-8 rounded-md ring-1 overflow-hidden"
+              :class="a.max <= 0 ? 'bg-black/50 ring-white/10' : a.cd <= 0 ? 'ring-white/60 bg-white/15' : 'bg-black/60 ring-white/15'"
+              :title="a.max <= 0 ? `${a.name} — not unlocked yet` : a.name"
+            >
+              <UIcon
+                :name="a.max <= 0 ? 'i-lucide-lock' : a.icon"
+                class="absolute inset-0 m-auto size-4"
+                :style="a.max > 0 && a.cd <= 0 ? { color: hud.pet.color } : undefined"
+                :class="a.max <= 0 ? 'text-white/25' : a.cd > 0 ? 'text-white/40' : ''"
+              />
+              <div v-if="a.max > 0 && a.cd > 0" class="absolute inset-x-0 bottom-0 bg-white/20" :style="{ height: `${(1 - a.cd / Math.max(0.01, a.max)) * 100}%` }" />
+            </div>
+            <span
+              v-if="hud.pet.ward"
+              class="size-2.5 rounded-full bg-emerald-300 shadow-[0_0_8px_rgba(110,231,183,0.9)]"
+              title="Ward up — the next hit is swallowed"
+            />
+          </div>
         </div>
 
         <!-- Top centre: wave -->
@@ -441,6 +811,15 @@ const showHint = computed(() => hud.phase === 'wave' && hud.wave === 1)
               aria-label="Fullscreen"
               @click="toggleFullscreen"
             />
+          </div>
+          <!-- Coins -->
+          <div class="rounded-lg bg-black/50 ring-1 ring-amber-300/25 px-2 py-1 text-right tabular-nums drop-shadow">
+            <div class="flex items-center justify-end gap-1.5 text-base font-black text-amber-200 leading-none">
+              <UIcon name="i-lucide-coins" class="size-4" />{{ formatNumber(hud.coins) }}
+            </div>
+            <div class="text-[10px] font-bold text-amber-200/60 leading-tight mt-0.5">
+              ≈ {{ formatNumber(Math.floor(hud.coins * hud.coinMult)) }} · ×{{ hud.coinMult.toFixed(2) }}
+            </div>
           </div>
           <div class="text-right drop-shadow tabular-nums">
             <div class="text-sm font-black">{{ hud.kills }} <span class="text-white/50 font-semibold text-xs">slain</span></div>
@@ -513,59 +892,30 @@ const showHint = computed(() => hud.phase === 'wave' && hud.wave === 1)
         </div>
       </div>
 
-      <!-- Menu ----------------------------------------------------------- -->
-      <div v-if="hud.phase === 'menu'" class="absolute inset-0 flex items-center justify-center p-4 bg-black/40">
-        <div class="w-full max-w-4xl max-h-full overflow-y-auto rounded-2xl bg-black/65 backdrop-blur-sm ring-1 ring-white/10 p-5 sm:p-8 text-white">
-          <div class="text-center">
-            <div class="text-[11px] uppercase tracking-[0.4em] font-bold text-amber-200">A melee survival roguelite</div>
-            <h1 class="mt-1 text-5xl sm:text-6xl font-black tracking-tight drop-shadow-[0_4px_0_rgba(0,0,0,0.6)]">Meadowbrawl</h1>
-            <p class="mt-2 text-sm text-white/70">Thirty waves. Pick a weapon, chain your combo, dodge the telegraphs, and let the build get out of hand. Ten is a run; twenty is a feat; thirty is a legend.</p>
-          </div>
-
-          <div class="mt-5 grid grid-cols-1 sm:grid-cols-3 gap-2">
-            <button
-              v-for="w in weaponCards"
-              :key="w.id"
-              type="button"
-              class="rounded-xl p-3 text-left ring-1 transition-all"
-              :class="selectedWeapon === w.id ? 'bg-amber-300/15 ring-amber-300/80 shadow-lg shadow-amber-400/20' : 'bg-white/5 ring-white/10 hover:bg-white/10'"
-              @click="selectedWeapon = w.id"
-            >
-              <div class="text-base font-black leading-tight">{{ w.def.className }}</div>
-              <div class="text-[11px] text-white/80 font-semibold">{{ w.def.name }} · {{ w.def.tagline }}</div>
-              <div class="mt-1 text-[11px] text-amber-200 italic leading-snug">{{ w.def.classTagline }}</div>
-              <div class="mt-2 space-y-0.5 text-[10.5px] text-white/65 leading-snug">
-                <div><UKbd class="text-[9px]">RMB</UKbd> <span class="text-white/90 font-bold">{{ w.def.special.name }}</span></div>
-                <div><UKbd class="text-[9px]">Q</UKbd> <span class="text-white/90 font-bold">{{ w.def.abilities[0].name }}</span> — {{ w.def.abilities[0].description }}</div>
-                <div><UKbd class="text-[9px]">E</UKbd> <span class="text-white/90 font-bold">{{ w.def.abilities[1].name }}</span> — {{ w.def.abilities[1].description }}</div>
-              </div>
-            </button>
-          </div>
-
-          <div class="mt-5 grid sm:grid-cols-2 gap-x-6 gap-y-1 text-xs text-white/75">
-            <div><UKbd>W</UKbd><UKbd>A</UKbd><UKbd>S</UKbd><UKbd>D</UKbd> move · mouse aims</div>
-            <div><span class="font-bold text-white">Left click</span> attack — each tap advances the combo</div>
-            <div><span class="font-bold text-white">Right click</span> weapon special · <UKbd>Q</UKbd> <UKbd>E</UKbd> class abilities</div>
-            <div><UKbd>Space</UKbd> dodge roll, instant, cancels anything · hold to sprint out of it</div>
-            <div class="sm:col-span-2 text-white/55">Dodging cancels your combo — that's its cost. Finishers hit harder and knock further.</div>
-          </div>
-
-          <div class="mt-6 flex justify-center">
-            <UButton size="xl" color="primary" icon="i-lucide-swords" class="font-black px-8" @click="start">
-              Enter the meadow
-            </UButton>
-          </div>
-        </div>
-      </div>
+      <!-- Lobby ----------------------------------------------------------- -->
+      <MeadowbrawlLobby
+        v-if="hud.phase === 'menu'"
+        :state="meta"
+        :loading="metaLoading"
+        :busy="busy"
+        :signed-in="!!user"
+        @start="beginRun"
+        @resume="resumeRun"
+        @abandon="abandonRun"
+        @equip="equipPet"
+        @buy-upgrade="buyUpgrade"
+        @buy-pet="buyPet"
+        @rush="rushCooldown"
+      />
 
       <!-- Upgrade choice -------------------------------------------------- -->
       <div v-if="hud.phase === 'upgrade'" class="absolute inset-0 flex items-center justify-center p-4">
-        <div class="w-full max-w-3xl text-white">
+        <div class="w-full max-w-4xl text-white">
           <div class="text-center mb-4">
             <div class="text-[11px] uppercase tracking-[0.4em] font-bold text-amber-200">Wave {{ hud.wave }} cleared</div>
             <div class="text-3xl sm:text-4xl font-black tracking-tight drop-shadow-[0_3px_0_rgba(0,0,0,0.6)]">Choose a boon</div>
           </div>
-          <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div class="grid grid-cols-1 gap-3" :class="hud.offers.length >= 4 ? 'sm:grid-cols-2 lg:grid-cols-4' : 'sm:grid-cols-3'">
             <button
               v-for="(o, i) in hud.offers"
               :key="o.upgrade.id"
@@ -592,12 +942,23 @@ const showHint = computed(() => hud.phase === 'wave' && hud.wave === 1)
               <p class="mt-3 text-xs text-white/75 leading-relaxed">{{ o.upgrade.description }}</p>
             </button>
           </div>
+          <div v-if="hud.rerolls > 0" class="mt-4 flex justify-center">
+            <UButton
+              color="neutral"
+              variant="soft"
+              icon="i-lucide-dices"
+              class="bg-white/10 hover:bg-white/20 text-white font-black"
+              @click="reroll"
+            >
+              Reroll ({{ hud.rerolls }} left) · <UKbd class="ml-1 bg-white/10 text-white/80">R</UKbd>
+            </UButton>
+          </div>
         </div>
       </div>
 
       <!-- Death ----------------------------------------------------------- -->
-      <div v-if="hud.phase === 'dead' && game.deathT > 1.2" class="absolute inset-0 flex items-center justify-center p-4">
-        <div class="w-full max-w-lg rounded-2xl bg-black/70 backdrop-blur-sm ring-1 ring-red-400/30 p-6 sm:p-8 text-white text-center">
+      <div v-if="showDeath" class="absolute inset-0 flex items-center justify-center p-4">
+        <div class="w-full max-w-lg max-h-full overflow-y-auto rounded-2xl bg-black/70 backdrop-blur-sm ring-1 ring-red-400/30 p-6 sm:p-8 text-white text-center">
           <div class="text-[11px] uppercase tracking-[0.4em] font-bold text-red-300">The meadow keeps you</div>
           <div class="mt-1 text-5xl font-black tracking-tight drop-shadow-[0_4px_0_rgba(0,0,0,0.6)]">Slain</div>
           <div class="mt-5 grid grid-cols-2 sm:grid-cols-4 gap-2 text-left">
@@ -623,16 +984,49 @@ const showHint = computed(() => hud.phase === 'wave' && hud.wave === 1)
               <UIcon :name="u.icon" class="size-3.5 text-amber-200" />{{ u.name }}<span v-if="u.stacks > 1" class="text-amber-200">×{{ u.stacks }}</span>
             </span>
           </div>
-          <div class="mt-6 flex justify-center gap-2">
-            <UButton size="lg" color="primary" icon="i-lucide-rotate-ccw" class="font-black" @click="restart">Again</UButton>
+
+          <!-- Payout -->
+          <div class="mt-5 rounded-xl bg-amber-300/10 ring-1 ring-amber-300/30 p-3">
+            <div v-if="finish.state === 'pending' || finish.state === 'idle'" class="flex items-center justify-center gap-2 py-2 text-sm font-bold text-white/70">
+              <UIcon name="i-lucide-loader-circle" class="size-4 animate-spin" />Settling with the meadow…
+            </div>
+            <template v-else-if="finish.state === 'done' && finish.result">
+              <div class="text-[10px] uppercase tracking-[0.3em] font-black text-amber-200">Payout</div>
+              <div class="mt-1 text-lg font-black tabular-nums">
+                {{ formatNumber(finish.result.counted) }} coins × {{ finish.result.coinMult.toFixed(2) }}
+                <span class="text-white/40">=</span>
+                <span class="text-amber-200">{{ formatNumber(finish.result.awarded) }}</span>
+              </div>
+              <div v-if="finish.result.capped" class="mt-1 text-[11px] font-bold text-white/50">Capped to what the waves you cleared could drop.</div>
+              <div v-if="finish.result.newlyUnlocked.length" class="mt-2 rounded-lg bg-emerald-400/15 ring-1 ring-emerald-300/40 px-2 py-1.5 text-[12px] font-black text-emerald-200">
+                New weapon unlocked: {{ finish.result.newlyUnlocked.map(id => WEAPONS[id as WeaponId].name).join(', ') }}
+              </div>
+            </template>
+            <template v-else>
+              <div class="text-sm font-bold text-red-300">{{ finish.error }}</div>
+              <UButton class="mt-2 font-black" size="sm" color="primary" icon="i-lucide-rotate-cw" @click="retryFinish">Retry payout</UButton>
+            </template>
           </div>
-          <div class="mt-2 text-[11px] text-white/50">or press <UKbd>Space</UKbd></div>
+
+          <div class="mt-5 flex justify-center gap-2">
+            <UButton
+              size="lg"
+              color="primary"
+              icon="i-lucide-flower-2"
+              class="font-black"
+              :disabled="finish.state === 'pending' || finish.state === 'idle'"
+              @click="backToMeadow"
+            >
+              Back to meadow
+            </UButton>
+          </div>
+          <div v-if="finish.state === 'done'" class="mt-2 text-[11px] text-white/50">or press <UKbd>Space</UKbd></div>
         </div>
       </div>
 
       <!-- Victory --------------------------------------------------------- -->
       <div v-if="hud.phase === 'victory'" class="absolute inset-0 flex items-center justify-center p-4">
-        <div class="w-full max-w-lg rounded-2xl bg-black/70 backdrop-blur-sm ring-1 ring-amber-300/40 p-6 sm:p-8 text-white text-center">
+        <div class="w-full max-w-lg max-h-full overflow-y-auto rounded-2xl bg-black/70 backdrop-blur-sm ring-1 ring-amber-300/40 p-6 sm:p-8 text-white text-center">
           <div class="text-[11px] uppercase tracking-[0.4em] font-bold text-amber-200">Thirty waves</div>
           <div class="mt-1 text-5xl font-black tracking-tight drop-shadow-[0_4px_0_rgba(0,0,0,0.6)]">The meadow is yours</div>
           <div class="mt-5 grid grid-cols-3 gap-2 text-left">
@@ -649,8 +1043,42 @@ const showHint = computed(() => hud.phase === 'wave' && hud.wave === 1)
               <div class="text-xl font-black tabular-nums">{{ formatTime(stats.time) }}</div>
             </div>
           </div>
-          <div class="mt-6 flex justify-center">
-            <UButton size="lg" color="primary" icon="i-lucide-rotate-ccw" class="font-black" @click="restart">Run it back</UButton>
+
+          <!-- Payout -->
+          <div class="mt-5 rounded-xl bg-amber-300/10 ring-1 ring-amber-300/30 p-3">
+            <div v-if="finish.state === 'pending' || finish.state === 'idle'" class="flex items-center justify-center gap-2 py-2 text-sm font-bold text-white/70">
+              <UIcon name="i-lucide-loader-circle" class="size-4 animate-spin" />Settling with the meadow…
+            </div>
+            <template v-else-if="finish.state === 'done' && finish.result">
+              <div class="text-[10px] uppercase tracking-[0.3em] font-black text-amber-200">Payout</div>
+              <div class="mt-1 text-lg font-black tabular-nums">
+                {{ formatNumber(finish.result.counted) }} coins × {{ finish.result.coinMult.toFixed(2) }}
+                <span class="text-white/40">=</span>
+                <span class="text-amber-200">{{ formatNumber(finish.result.awarded) }}</span>
+              </div>
+              <div v-if="finish.result.won" class="mt-1 text-[11px] font-black text-amber-200/80">Victory bonus ×1.25 included</div>
+              <div v-if="finish.result.capped" class="mt-1 text-[11px] font-bold text-white/50">Capped to what the waves you cleared could drop.</div>
+              <div v-if="finish.result.newlyUnlocked.length" class="mt-2 rounded-lg bg-emerald-400/15 ring-1 ring-emerald-300/40 px-2 py-1.5 text-[12px] font-black text-emerald-200">
+                New weapon unlocked: {{ finish.result.newlyUnlocked.map(id => WEAPONS[id as WeaponId].name).join(', ') }}
+              </div>
+            </template>
+            <template v-else>
+              <div class="text-sm font-bold text-red-300">{{ finish.error }}</div>
+              <UButton class="mt-2 font-black" size="sm" color="primary" icon="i-lucide-rotate-cw" @click="retryFinish">Retry payout</UButton>
+            </template>
+          </div>
+
+          <div class="mt-5 flex justify-center">
+            <UButton
+              size="lg"
+              color="primary"
+              icon="i-lucide-flower-2"
+              class="font-black"
+              :disabled="finish.state === 'pending' || finish.state === 'idle'"
+              @click="backToMeadow"
+            >
+              Back to meadow
+            </UButton>
           </div>
         </div>
       </div>

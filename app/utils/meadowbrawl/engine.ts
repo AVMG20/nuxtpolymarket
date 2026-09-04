@@ -239,6 +239,8 @@ export interface Enemy {
     brood: number[]
     /** Base coins dropped on death. */
     coin: number
+    /** Seconds since the meter last grew; it only bleeds once you let up. */
+    stunIdle: number
     /** Late-game variant: bigger, tougher, hits harder. */
     veteran: boolean
     /** Death Mark seconds remaining. */
@@ -487,8 +489,10 @@ const NAV_STEPS: [number, number][] = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1],
 // from chain-stunning a boss to death.
 const STUN_MAX = 100
 /** Meter per point of damage, as a fraction of the target's max health. */
-const STUN_GAIN_ELITE = 0.55
+const STUN_GAIN_ELITE = 1.5
 const STUN_GAIN_REGULAR = 1.6
+/** Seconds without a hit before a built-up meter starts to bleed off. */
+const STUN_BLEED_DELAY = 2.5
 /** No single hit may fill more than this much of the meter. */
 const STUN_GAIN_CAP = 60
 const STUN_DUR_ELITE = 2.6
@@ -1149,6 +1153,7 @@ export class MeadowbrawlGame {
             stun: 0, stunMax: STUN_MAX, stunLock: 0, parryT: 0, combo: 0,
             moveT: type === 'briar' ? 4 : type === 'knight' ? 3.5 : 0, brood: [],
             coin: def.elite ? meadowbrawlEliteCoinBonus(this.wave) : Math.round(this.coinPer * ENEMY_COST[type]),
+            stunIdle: 0,
             veteran, marked: 0
         }
         this.enemies.push(e)
@@ -2290,6 +2295,7 @@ export class MeadowbrawlGame {
         if (!e.alive || e.state === 'dead' || e.state === 'spawn') return
         if (e.stunLock > 0 || (e.state === 'stagger' && e.stunT > 0)) return
         e.stun = Math.min(e.stunMax, e.stun + amount)
+        e.stunIdle = 0
         if (e.stun >= e.stunMax) this.stunEnemy(e)
     }
 
@@ -2636,7 +2642,8 @@ export class MeadowbrawlGame {
             e.parryT = Math.max(0, e.parryT - dt)
             e.moveT = Math.max(0, e.moveT - dt)
             // Out of combat the meter bleeds off so nothing stays primed.
-            if (e.state !== 'stagger' && e.stunLock <= 0 && e.stun > 0) e.stun = Math.max(0, e.stun - dt * 6)
+            e.stunIdle += dt
+            if (e.state !== 'stagger' && e.stunLock <= 0 && e.stun > 0 && e.stunIdle > STUN_BLEED_DELAY) e.stun = Math.max(0, e.stun - dt * 6)
             if (e.slowT > 0) {
                 e.slowT -= dt
                 if (e.slowT <= 0) e.slow = 0
@@ -3252,7 +3259,7 @@ export class MeadowbrawlGame {
 
     private updateCoins(dt: number) {
         const p = this.player
-        const pull = 90 * (this.companion?.effects.pickupMult ?? 1) + 20 * this.stack('swift')
+        const pull = 110 * (this.companion?.effects.pickupMult ?? 1) + 20 * this.stack('swift')
         if (this.coinStreakT > 0) {
             this.coinStreakT -= dt
             if (this.coinStreakT <= 0) this.coinStreak = 0
@@ -3268,6 +3275,14 @@ export class MeadowbrawlGame {
             const dy = p.y - c.y
             const d = Math.hypot(dx, dy)
             if (!c.magnet && c.z < 4 && d < pull) c.magnet = true
+            // The companion fetches whatever it reaches.
+            const pet = this.companion
+            if (!c.magnet && pet && c.z < 6 && Math.hypot(pet.x - c.x, pet.y - c.y) < 22) {
+                this.coinDrops.splice(i, 1)
+                this.burst(pet.x, pet.y, 8, 3, 'glow', '#ffe38a', 40, 0.4)
+                this.collectCoin(c)
+                continue
+            }
             if (c.magnet) {
                 const sp = Math.min(900, 260 + (pull - Math.min(pull, d)) * 9)
                 c.vx += (dx / (d || 1) * sp - c.vx) * Math.min(1, dt * 12)

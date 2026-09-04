@@ -874,7 +874,7 @@ describe('the stun meter', () => {
         expect(dealt).toBeGreaterThan(0)
         expect(e.state).not.toBe('stagger')
         expect(e.stun).toBeGreaterThan(0)
-        expect(e.stun).toBeLessThan(e.stunMax * 0.25)
+        expect(e.stun).toBeLessThan(e.stunMax * 0.35)
     })
 
     it('repeated heavy hits fill the meter, and a full meter breaks the boss for 2.6s', () => {

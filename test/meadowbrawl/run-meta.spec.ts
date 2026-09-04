@@ -93,6 +93,28 @@ describe('coins', () => {
         expect(g.coins).toBe(e.coin)
     })
 
+    it('an idle pet fetches coins the player left lying around', () => {
+        const g = fresh({ pet: { id: 'fox', level: 1 } })
+        const p = g.player
+        for (let i = 0; i < 3; i++) {
+            g.coinDrops.push({ x: p.x + 200, y: p.y + 40 + i * 10, z: 0, vx: 0, vy: 0, vz: 0, value: 10, life: 20, seed: 0, size: 4, magnet: false })
+        }
+        step(g, 3)
+        expect(g.coinDrops.length).toBe(0)
+        expect(g.coins).toBe(30)
+        // Not while something is on top of the player, though.
+        const e = g.spawnEnemy('grunt', 'north')
+        e.x = p.x + 60
+        e.y = p.y
+        e.entered = true
+        e.state = 'chase'
+        e.speed = 0
+        e.attackCd = 99
+        g.coinDrops.push({ x: p.x + 250, y: p.y, z: 0, vx: 0, vy: 0, vz: 0, value: 10, life: 20, seed: 0, size: 4, magnet: false })
+        step(g, 2)
+        expect(g.coinDrops.length).toBe(1)
+    })
+
     it('summoned brood carry no bounty', () => {
         const g = fresh()
         const mother = g.spawnEnemy('briar', 'north')
