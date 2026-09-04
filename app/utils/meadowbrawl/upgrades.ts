@@ -11,7 +11,7 @@ export const UPGRADES: UpgradeDef[] = [
     { id: 'mending', name: 'Mending', description: 'Heal 50% of your max health right now.', rarity: 'common', maxStacks: 99, icon: 'i-lucide-heart-pulse' },
     { id: 'bruiser', name: 'Bruiser', description: '+35% knockback and stagger on every hit.', rarity: 'common', maxStacks: 3, icon: 'i-lucide-hammer' },
     // Rare — the build starts here.
-    { id: 'lifesteal', name: 'Bloodthirst', description: 'Heal 6% of damage dealt.', rarity: 'rare', maxStacks: 3, icon: 'i-lucide-droplets' },
+    { id: 'lifesteal', name: 'Bloodthirst', description: 'Heal 4% of damage dealt.', rarity: 'rare', maxStacks: 3, icon: 'i-lucide-droplets' },
     { id: 'shockwave', name: 'Tremor Strikes', description: '25% chance a hit erupts into a shockwave around the target. Each stack: +12% chance, +damage.', rarity: 'rare', maxStacks: 4, icon: 'i-lucide-radio' },
     { id: 'oversized', name: 'Oversized Weapon', description: 'Your weapon grows: +22% reach, +12% damage.', rarity: 'rare', maxStacks: 3, icon: 'i-lucide-maximize-2' },
     { id: 'freeze', name: 'Frostbite', description: 'Hits chill enemies, slowing them 45%. Stacks slow harder and can freeze solid.', rarity: 'rare', maxStacks: 3, icon: 'i-lucide-snowflake' },
@@ -47,7 +47,16 @@ export const UPGRADES: UpgradeDef[] = [
     { id: 'cleavingwind', name: 'Cleaving Wind', description: 'Combo finishers hurl a giant crescent that carves through everything.', rarity: 'epic', maxStacks: 3, icon: 'i-lucide-moon' },
     { id: 'spectral', name: 'Spectral Blades', description: 'Every fourth swing summons three orbiting blades for 5 seconds.', rarity: 'epic', maxStacks: 3, icon: 'i-lucide-sparkles' },
     { id: 'meteor', name: 'Meteor Shower', description: 'Every 6 seconds a meteor falls on a random enemy. Stacks fall faster.', rarity: 'epic', maxStacks: 3, icon: 'i-lucide-meteor' },
-    { id: 'singularity', name: 'Singularity', description: 'Your special leaves a black hole behind that pulls and crushes for 3 seconds.', rarity: 'epic', maxStacks: 2, icon: 'i-lucide-circle-dot' }
+    { id: 'singularity', name: 'Singularity', description: 'Your special leaves a black hole behind that pulls and crushes for 3 seconds.', rarity: 'epic', maxStacks: 2, icon: 'i-lucide-circle-dot' },
+    // Fourth batch — more bread and butter, and two once-a-run legends.
+    { id: 'magpie', name: 'Magpie', description: 'Coins fly to you from 50% farther away.', rarity: 'common', maxStacks: 3, icon: 'i-lucide-magnet' },
+    { id: 'regen', name: 'Meadow\'s Mercy', description: 'Regenerate 1 health a second after 4 seconds without being hit.', rarity: 'common', maxStacks: 3, icon: 'i-lucide-leaf' },
+    { id: 'rollimpact', name: 'Rolling Kick', description: 'Your dodge roll bowls over everything it passes through and rattles their stun meter.', rarity: 'common', maxStacks: 3, icon: 'i-lucide-footprints' },
+    { id: 'thunderstep', name: 'Thunder Step', description: 'Lightning strikes the spot you dodge from, for 90% weapon damage around it.', rarity: 'rare', maxStacks: 2, icon: 'i-lucide-cloud-lightning' },
+    { id: 'frenzy', name: 'Kill Frenzy', description: 'Every kill grants +8% damage for 5 seconds, stacking to 6.', rarity: 'rare', maxStacks: 2, icon: 'i-lucide-flame-kindling' },
+    { id: 'chrono', name: 'Chronoshear', description: 'Taking a hit tears time: every enemy slows to a crawl for 2 seconds. 10 second cooldown.', rarity: 'epic', maxStacks: 1, icon: 'i-lucide-hourglass' },
+    { id: 'avatar', name: 'Avatar of the Meadow', description: 'Every sixth swing becomes a colossal 360° sweep for 3× damage that sends everything flying.', rarity: 'legendary', maxStacks: 1, icon: 'i-lucide-sun' },
+    { id: 'stormcaller', name: 'Stormcaller', description: 'While you are mid-combo, lightning falls on a nearby enemy every 0.8 seconds.', rarity: 'legendary', maxStacks: 1, icon: 'i-lucide-cloud-rain-wind' }
 ]
 
 export const UPGRADE_BY_ID: Record<string, UpgradeDef> = Object.fromEntries(UPGRADES.map(u => [u.id, u]))
@@ -68,6 +77,7 @@ export const RARITY_LABEL: Record<string, string> = {
     common: 'Common',
     rare: 'Rare',
     epic: 'Epic',
+    legendary: 'Legendary',
     weapon: 'Weapon'
 }
 
@@ -86,7 +96,10 @@ export function rollOffers(
     const weights: Record<string, number> = {
         common: early ? 40 : 55,
         rare: early ? 42 : 31,
-        epic: early ? 18 : 14
+        epic: early ? 18 : 14,
+        // Legends only show up once a run has legs — about one in thirty
+        // cards from wave 6 on, a little more in the deep waves.
+        legendary: wave < 6 ? 0 : wave < 15 ? 3 : 5
     }
 
     const pool: Offer[] = []

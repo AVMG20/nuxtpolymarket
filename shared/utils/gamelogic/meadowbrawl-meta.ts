@@ -61,7 +61,7 @@ export function meadowbrawlIsWeaponId(value: unknown): value is MeadowbrawlWeapo
 // Homestead — permanent upgrades
 // ---------------------------------------------------------------------------
 
-export type MeadowbrawlUpgradeId = 'prosperity' | 'vitality' | 'nimble' | 'fortune' | 'tempering'
+export type MeadowbrawlUpgradeId = 'prosperity'
 
 export interface MeadowbrawlUpgradeDef {
     id: MeadowbrawlUpgradeId
@@ -81,44 +81,8 @@ export const MEADOWBRAWL_UPGRADES: MeadowbrawlUpgradeDef[] = [
         description: '+20% coin value per level — every coin a foe drops is worth more',
         icon: 'i-lucide-coins',
         max: 10,
-        baseCost: 1_200_000,
+        baseCost: 1_300_000,
         growth: 1.55
-    },
-    {
-        id: 'vitality',
-        name: 'Vitality',
-        description: '+10 max health per level',
-        icon: 'i-lucide-heart-pulse',
-        max: 5,
-        baseCost: 2_000_000,
-        growth: 1.8
-    },
-    {
-        id: 'tempering',
-        name: 'Tempering',
-        description: '+4% damage per level',
-        icon: 'i-lucide-hammer',
-        max: 5,
-        baseCost: 3_000_000,
-        growth: 1.9
-    },
-    {
-        id: 'nimble',
-        name: 'Nimble',
-        description: '+1 dodge charge per level',
-        icon: 'i-lucide-wind',
-        max: 2,
-        baseCost: 8_000_000,
-        growth: 3.2
-    },
-    {
-        id: 'fortune',
-        name: 'Fortune',
-        description: 'Level 1: a fourth boon to choose from after every wave. Level 2: one reroll per wave',
-        icon: 'i-lucide-clover',
-        max: 2,
-        baseCost: 30_000_000,
-        growth: 2
     }
 ]
 
@@ -127,11 +91,7 @@ export const MEADOWBRAWL_UPGRADE_IDS = MEADOWBRAWL_UPGRADES.map(def => def.id)
 export type MeadowbrawlUpgradeLevels = Record<MeadowbrawlUpgradeId, number>
 
 export const MEADOWBRAWL_EMPTY_LEVELS: MeadowbrawlUpgradeLevels = {
-    prosperity: 0,
-    vitality: 0,
-    nimble: 0,
-    fortune: 0,
-    tempering: 0
+    prosperity: 0
 }
 
 /** Price of the next level, or null when the track is maxed. */
@@ -182,7 +142,7 @@ export const MEADOWBRAWL_PETS: MeadowbrawlPetDef[] = [
         name: 'Ember Fox',
         tagline: 'A quick red fox with a tail of live coals.',
         color: '#ff8a3c',
-        baseCost: 900_000,
+        baseCost: 1_000_000,
         growth: 1.5,
         passive: { name: 'Kindled', description: '+1.5% damage per level' },
         abilities: [
@@ -195,7 +155,7 @@ export const MEADOWBRAWL_PETS: MeadowbrawlPetDef[] = [
         name: 'Moss Tortoise',
         tagline: 'Slow, ancient, and impossible to knock over.',
         color: '#7fbf6a',
-        baseCost: 900_000,
+        baseCost: 1_000_000,
         growth: 1.5,
         passive: { name: 'Shellbound', description: '+3 max health and 1% damage reduction per level' },
         abilities: [
@@ -208,7 +168,7 @@ export const MEADOWBRAWL_PETS: MeadowbrawlPetDef[] = [
         name: 'Moonlit Owl',
         tagline: 'Silent wings and an eye for anything shiny.',
         color: '#bfc9ff',
-        baseCost: 900_000,
+        baseCost: 1_000_000,
         growth: 1.5,
         passive: { name: 'Keen Eyes', description: '+1% coin value and +5% coin pickup radius per level' },
         abilities: [
@@ -287,27 +247,19 @@ export function meadowbrawlPetEffects(id: MeadowbrawlPetId, level: number): Mead
 // Account effects
 // ---------------------------------------------------------------------------
 
+/**
+ * The account never buys power: nothing here changes how hard the waves
+ * hit or what a run offers. Prosperity changes what a run is worth — the
+ * pets are the only account-side help in a fight.
+ */
 export interface MeadowbrawlAccountEffects {
     /** Multiplier on every coin's value from Prosperity alone. */
     coinMult: number
-    maxHp: number
-    damageMult: number
-    /** Extra dodge charges on top of the class default. */
-    dodgeCharges: number
-    /** Boons offered after each wave. */
-    offerCount: number
-    /** Free rerolls of the offer per wave. */
-    rerolls: number
 }
 
 export function meadowbrawlAccountEffects(levels: MeadowbrawlUpgradeLevels): MeadowbrawlAccountEffects {
     return {
-        coinMult: 1 + levels.prosperity * 0.2,
-        maxHp: 100 + levels.vitality * 10,
-        damageMult: 1 + levels.tempering * 0.04,
-        dodgeCharges: levels.nimble,
-        offerCount: 3 + (levels.fortune >= 1 ? 1 : 0),
-        rerolls: levels.fortune >= 2 ? 1 : 0
+        coinMult: 1 + levels.prosperity * 0.2
     }
 }
 
@@ -443,6 +395,8 @@ export function meadowbrawlPayoutForRun(reportedCoins: number, wavesCleared: num
 // ---------------------------------------------------------------------------
 
 export const MEADOWBRAWL_SAVE_VERSION = 1
+/** Boons on offer after every wave. */
+export const MEADOWBRAWL_OFFER_COUNT = 3
 
 export interface MeadowbrawlRunSave {
     version: number
@@ -454,8 +408,6 @@ export interface MeadowbrawlRunSave {
     upgrades: Record<string, number>
     /** Boon ids still on offer for this wave, or null once one was picked. */
     offers: string[] | null
-    /** Whether the wave's free reroll has been spent. */
-    rerolled: boolean
     /** Base coins collected. */
     coins: number
     phoenixUsed: number
@@ -485,7 +437,7 @@ const ID_PATTERN = /^[a-z][a-z0-9]{0,31}$/
  * to be the shape the game writes, since a nonsense hp value only ever
  * hurts the player who sent it.
  */
-export function meadowbrawlValidateSave(save: unknown, offerCount: number): save is MeadowbrawlRunSave {
+export function meadowbrawlValidateSave(save: unknown): save is MeadowbrawlRunSave {
     if (!save || typeof save !== 'object') return false
     const s = save as Record<string, unknown>
     if (s.version !== MEADOWBRAWL_SAVE_VERSION) return false
@@ -498,14 +450,13 @@ export function meadowbrawlValidateSave(save: unknown, offerCount: number): save
         stacks += count
     }
     if (s.offers !== null) {
-        if (!Array.isArray(s.offers) || s.offers.length < 1 || s.offers.length > offerCount) return false
+        if (!Array.isArray(s.offers) || s.offers.length < 1 || s.offers.length > MEADOWBRAWL_OFFER_COUNT) return false
         if (!s.offers.every(id => typeof id === 'string' && ID_PATTERN.test(id))) return false
     }
     // One boon per cleared wave: the pick for this wave is pending while
     // offers are still up, taken once they are gone.
     const picks = s.offers === null ? s.wave : s.wave - 1
     if (stacks > picks) return false
-    if (typeof s.rerolled !== 'boolean') return false
     if (!isCount(s.coins, 100_000_000)) return false
     if (!isCount(s.phoenixUsed, 100)) return false
     const st = s.stats as Record<string, unknown> | undefined

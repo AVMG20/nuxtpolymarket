@@ -232,10 +232,6 @@ export const meadowbrawlState = pgTable('meadowbrawl_state', {
   userId: text('user_id').notNull().unique().references(() => user.id, { onDelete: 'cascade' }),
   // Homestead — permanent upgrade tracks.
   prosperityLevel: integer('prosperity_level').notNull().default(0),
-  vitalityLevel: integer('vitality_level').notNull().default(0),
-  temperingLevel: integer('tempering_level').notNull().default(0),
-  nimbleLevel: integer('nimble_level').notNull().default(0),
-  fortuneLevel: integer('fortune_level').notNull().default(0),
   // Pet levels by pet id; a missing key means not adopted yet.
   petLevels: jsonb('pet_levels').$type<Record<string, number>>().notNull().default({}),
   activePet: text('active_pet'),

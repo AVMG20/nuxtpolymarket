@@ -105,11 +105,6 @@ const finish = reactive({
 
 function runConfig(effects: MeadowbrawlAccountEffects, coinMult: number, pet: { id: MeadowbrawlPetId, level: number } | null): RunConfig {
     return {
-        maxHp: effects.maxHp,
-        damageMult: effects.damageMult,
-        dodgeCharges: effects.dodgeCharges,
-        offerCount: effects.offerCount,
-        rerolls: effects.rerolls,
         coinMult,
         pet: pet ? { id: pet.id, level: pet.level } : null
     }
@@ -340,7 +335,6 @@ const hud = reactive({
     fx: [] as { name: string, t: number, color: string }[],
     coins: 0,
     coinMult: 1,
-    rerolls: 0,
     deathT: 0,
     pet: {
         active: false,
@@ -381,7 +375,6 @@ function syncHud() {
     hud.sprinting = p.sprinting
     hud.coins = Math.floor(game.coins)
     hud.coinMult = game.coinMult
-    hud.rerolls = game.rerollsLeft
     hud.deathT = game.deathT
     const elites = game.elites
     if (elites.length !== hud.elites.length || elites.some((e, i) => hud.elites[i]!.id !== e.id || hud.elites[i]!.hp !== e.hp || hud.elites[i]!.stun !== e.stun || hud.elites[i]!.stunLock !== e.stunLock)) {
@@ -503,10 +496,6 @@ function onKeyDown(e: KeyboardEvent) {
         return
     }
     if (game.phase === 'upgrade') {
-        if (e.code === 'KeyR' && !e.repeat) {
-            reroll()
-            return
-        }
         if (e.code === 'Digit1' || e.code === 'Digit2' || e.code === 'Digit3' || e.code === 'Digit4') {
             choose(Number(e.code.slice(-1)) - 1)
         }
@@ -566,12 +555,6 @@ function choose(i: number) {
     if (i >= game.offers.length) return
     sound.unlock()
     game.chooseOffer(i)
-}
-
-function reroll() {
-    if (game.rerollsLeft <= 0) return
-    sound.unlock()
-    game.rerollOffers()
 }
 
 function togglePause() {
@@ -642,6 +625,7 @@ const RARITY_STYLE: Record<string, { ring: string, text: string, glow: string }>
     common: { ring: 'border-emerald-400/60', text: 'text-emerald-300', glow: 'shadow-emerald-500/20' },
     rare: { ring: 'border-sky-400/70', text: 'text-sky-300', glow: 'shadow-sky-500/30' },
     epic: { ring: 'border-fuchsia-400/80', text: 'text-fuchsia-300', glow: 'shadow-fuchsia-500/40' },
+    legendary: { ring: 'border-amber-300 ring-2 ring-amber-300/40', text: 'text-amber-200', glow: 'shadow-amber-400/60' },
     weapon: { ring: 'border-amber-300/90', text: 'text-amber-300', glow: 'shadow-amber-400/40' }
 }
 
@@ -915,7 +899,7 @@ const showDeath = computed(() => hud.phase === 'dead' && hud.deathT > 1.2)
             <div class="text-[11px] uppercase tracking-[0.4em] font-bold text-amber-200">Wave {{ hud.wave }} cleared</div>
             <div class="text-3xl sm:text-4xl font-black tracking-tight drop-shadow-[0_3px_0_rgba(0,0,0,0.6)]">Choose a boon</div>
           </div>
-          <div class="grid grid-cols-1 gap-3" :class="hud.offers.length >= 4 ? 'sm:grid-cols-2 lg:grid-cols-4' : 'sm:grid-cols-3'">
+          <div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
             <button
               v-for="(o, i) in hud.offers"
               :key="o.upgrade.id"
@@ -941,17 +925,6 @@ const showDeath = computed(() => hud.phase === 'dead' && hud.deathT > 1.2)
               </div>
               <p class="mt-3 text-xs text-white/75 leading-relaxed">{{ o.upgrade.description }}</p>
             </button>
-          </div>
-          <div v-if="hud.rerolls > 0" class="mt-4 flex justify-center">
-            <UButton
-              color="neutral"
-              variant="soft"
-              icon="i-lucide-dices"
-              class="bg-white/10 hover:bg-white/20 text-white font-black"
-              @click="reroll"
-            >
-              Reroll ({{ hud.rerolls }} left) · <UKbd class="ml-1 bg-white/10 text-white/80">R</UKbd>
-            </UButton>
           </div>
         </div>
       </div>

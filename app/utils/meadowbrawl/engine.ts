@@ -56,6 +56,8 @@ export interface Dodge {
     dur: number
     dx: number
     dy: number
+    /** Enemies already bowled over by this roll (Rolling Kick). */
+    hit: Set<number>
 }
 
 export interface SpecialState {
@@ -76,26 +78,15 @@ export interface SpecialState {
 }
 
 /**
- * What the account brings into a run: homestead upgrades, the pet, and the
- * coin multiplier (display only — the server applies its own snapshot).
+ * What the account brings into a run: the pet, and the coin multiplier
+ * (display only — the server applies its own snapshot).
  */
 export interface RunConfig {
-    maxHp: number
-    damageMult: number
-    /** Extra dodge charges on top of the class default. */
-    dodgeCharges: number
-    offerCount: number
-    rerolls: number
     coinMult: number
     pet: { id: MeadowbrawlPetId, level: number } | null
 }
 
 export const DEFAULT_RUN_CONFIG: RunConfig = {
-    maxHp: 100,
-    damageMult: 1,
-    dodgeCharges: 0,
-    offerCount: 3,
-    rerolls: 0,
     coinMult: 1,
     pet: null
 }
@@ -166,6 +157,15 @@ export interface Player {
     skewer: { t: number, dur: number, dx: number, dy: number, carried: number[], hitIds: Set<number> } | null
     /** True while the axe is thrown (hand is empty). */
     axeOut: boolean
+    /** Seconds since the last hit taken, for Meadow's Mercy. */
+    hurtIdle: number
+    /** Kill Frenzy stacks and their timer. */
+    frenzy: number
+    frenzyT: number
+    /** Chronoshear cooldown. */
+    chronoCd: number
+    /** Stormcaller strike timer. */
+    stormT: number
 }
 
 export interface EnemyAttack {
@@ -560,9 +560,6 @@ export class MeadowbrawlGame {
     /** What each coin is worth to the account — for the HUD only. */
     coinMult = 1
     coinDrops: Coin[] = []
-    /** Free offer rerolls left this wave (Fortune). */
-    rerollsLeft = 0
-    rerolled = false
     /** Called with a fresh checkpoint whenever the run reaches a save point. */
     onCheckpoint: ((save: MeadowbrawlRunSave) => void) | null = null
     /** Base coins per budget point for the current wave's regular spawns. */
@@ -726,7 +723,8 @@ export class MeadowbrawlGame {
             hitCount: 0, bloodlust: 0, bloodlustT: 0, phoenixUsed: 0, adrenalineT: 0, z: 0,
             abilityCd: { q: 0, e: 0 }, abilityCdMax: { q: WEAPONS[weapon].abilities[0].cooldown, e: WEAPONS[weapon].abilities[1].cooldown },
             fx: { shieldWall: 0, rally: 0, bloodrage: 0, ironSkin: 0, smoke: 0, snared: 0 },
-            skewer: null, axeOut: false
+            skewer: null, axeOut: false,
+            hurtIdle: 99, frenzy: 0, frenzyT: 0, chronoCd: 0, stormT: 0
         }
     }
 
@@ -742,8 +740,9 @@ export class MeadowbrawlGame {
         const p = this.player
         const berserk = this.stack('berserk') > 0 && p.hp / p.maxHp < 0.5 ? 1 + 0.4 * this.stack('berserk') : 1
         const rally = p.fx.rally > 0 ? 1.3 : 1
-        const account = this.config.damageMult * (this.companion?.effects.damageMult ?? 1)
-        return (1 + 0.15 * this.stack('might')) * (1 + 0.12 * this.stack('oversized')) * (1 + 0.3 * this.stack('colossus')) * berserk * rally * account
+        const account = this.companion?.effects.damageMult ?? 1
+        const frenzy = 1 + 0.08 * p.frenzy
+        return (1 + 0.15 * this.stack('might')) * (1 + 0.12 * this.stack('oversized')) * (1 + 0.3 * this.stack('colossus')) * berserk * rally * account * frenzy
     }
 
     get attackSpeed(): number {
@@ -799,7 +798,7 @@ export class MeadowbrawlGame {
         const k = Math.pow(0.75, this.stack('quickspecial'))
         p.specialCdMax = this.weapon.special.cooldown * k
         p.abilityCdMax = { q: this.weapon.abilities[0].cooldown * k, e: this.weapon.abilities[1].cooldown * k }
-        p.dodgeMax = 1 + config.dodgeCharges + this.stack('doubledodge')
+        p.dodgeMax = 1 + this.stack('doubledodge')
         p.dodgeCharges = p.dodgeMax
         p.maxHp = save.maxHp
         p.hp = Math.min(save.maxHp, Math.max(1, save.hp))
@@ -813,9 +812,7 @@ export class MeadowbrawlGame {
                 .map(id => UPGRADE_BY_ID[id])
                 .filter((u): u is NonNullable<typeof u> => !!u)
                 .map(u => ({ upgrade: u, stack: this.stack(u.id) + 1 }))
-            this.rerollsLeft = save.rerolled ? 0 : config.rerolls
-            this.rerolled = save.rerolled
-            if (this.offers.length === 0) this.offers = rollOffers(this.wave, p.upgrades, randomFloat, config.offerCount)
+            if (this.offers.length === 0) this.offers = rollOffers(this.wave, p.upgrades)
             this.phase = 'upgrade'
         } else {
             this.skipOffers = true
@@ -835,7 +832,6 @@ export class MeadowbrawlGame {
             maxHp: p.maxHp,
             upgrades: Object.fromEntries(p.upgrades),
             offers: this.phase === 'upgrade' && this.offers.length ? this.offers.map(o => o.upgrade.id) : null,
-            rerolled: this.rerolled,
             coins: Math.floor(this.coins),
             phoenixUsed: p.phoenixUsed,
             stats: {
@@ -853,34 +849,19 @@ export class MeadowbrawlGame {
         if (this.onCheckpoint && this.wave >= 1 && this.wave < TOTAL_WAVES) this.onCheckpoint(this.snapshot())
     }
 
-    /** Fortune: swap the current offers for fresh ones, once per wave. */
-    rerollOffers(): boolean {
-        if (this.phase !== 'upgrade' || this.rerollsLeft <= 0) return false
-        this.rerollsLeft -= 1
-        this.rerolled = true
-        this.offers = rollOffers(this.wave, this.player.upgrades, randomFloat, this.config.offerCount)
-        this.emit('upgrade')
-        this.checkpoint()
-        return true
-    }
-
     private resetRun(weapon: WeaponId, config: RunConfig) {
         this.config = config
         this.world = generateWorld()
         this.rebuildNav()
         this.player = this.makePlayer(weapon)
         this.companion = config.pet ? makeCompanion(config.pet.id, config.pet.level, this.player.x, this.player.y) : null
-        this.player.maxHp = config.maxHp + (this.companion?.effects.maxHp ?? 0)
+        this.player.maxHp = 100 + (this.companion?.effects.maxHp ?? 0)
         this.player.hp = this.player.maxHp
-        this.player.dodgeMax = 1 + config.dodgeCharges
-        this.player.dodgeCharges = this.player.dodgeMax
         this.coins = 0
         this.coinMult = config.coinMult
         this.coinDrops = []
         this.coinStreak = 0
         this.coinStreakT = 0
-        this.rerollsLeft = 0
-        this.rerolled = false
         this.skipOffers = false
         this.enemies = []
         this.projectiles = []
@@ -938,7 +919,7 @@ export class MeadowbrawlGame {
         if (!offer) return
         this.applyOffer(offer)
         this.offers = []
-        this.emit('upgrade')
+        this.emit(offer.upgrade.rarity === 'legendary' ? 'legendary' : 'upgrade')
         this.checkpoint()
         this.nextWave()
     }
@@ -1113,9 +1094,7 @@ export class MeadowbrawlGame {
                     this.skipOffers = false
                     this.nextWave()
                 } else {
-                    this.offers = rollOffers(this.wave, this.player.upgrades, randomFloat, this.config.offerCount)
-                    this.rerollsLeft = this.config.rerolls
-                    this.rerolled = false
+                    this.offers = rollOffers(this.wave, this.player.upgrades)
                     this.phase = 'upgrade'
                     this.checkpoint()
                 }
@@ -1187,6 +1166,28 @@ export class MeadowbrawlGame {
             p.bloodlustT -= dt
             if (p.bloodlustT <= 0) {
                 p.bloodlust = 0
+            }
+        }
+        if (p.frenzy > 0) {
+            p.frenzyT -= dt
+            if (p.frenzyT <= 0) p.frenzy = 0
+        }
+        p.chronoCd = Math.max(0, p.chronoCd - dt)
+        p.hurtIdle += dt
+        const regen = this.stack('regen')
+        if (regen > 0 && p.hurtIdle > 4 && p.hp < p.maxHp) {
+            p.hp = Math.min(p.maxHp, p.hp + regen * dt)
+            if (Math.random() < dt * 2) this.burst(p.x + (Math.random() - 0.5) * 20, p.y, 20 + Math.random() * 20, 1, 'petal', '#9be07a', 20, 0.8)
+        }
+        if (this.stack('stormcaller') > 0) {
+            if (p.attack || p.comboTimer > 0) {
+                p.stormT -= dt
+                if (p.stormT <= 0) {
+                    p.stormT = 0.8
+                    this.stormStrike()
+                }
+            } else {
+                p.stormT = Math.min(p.stormT, 0.3)
             }
         }
         p.specialCd = Math.max(0, p.specialCd - dt)
@@ -1323,6 +1324,27 @@ export class MeadowbrawlGame {
             if (k > 0.1 && k < 0.7 && Math.random() < 0.6) {
                 this.puff(p.x - d.dx * 8, p.y - d.dy * 8, 1, '#c9b98c')
             }
+            const kick = this.stack('rollimpact')
+            if (kick > 0 && k < 0.8) {
+                for (const e of this.enemies) {
+                    if (!e.alive || d.hit.has(e.id) || !inCircle(p, p.r + 14, e, e.r)) continue
+                    d.hit.add(e.id)
+                    const a = angleTo(p, e)
+                    const kb = (e.def.elite ? 80 : 260) * (1 + 0.3 * (kick - 1))
+                    e.vx += Math.cos(a) * kb
+                    e.vy += Math.sin(a) * kb
+                    this.addStun(e, 25 * kick)
+                    if (!e.def.elite && e.attack && e.state !== 'stagger') {
+                        e.attack = null
+                        e.state = 'chase'
+                        e.stateT = 0
+                    }
+                    this.burst(e.x, e.y, e.def.height * 0.3, 8, 'dust', '#cbbd93', 140, 0.4)
+                    this.impacts.push({ x: e.x, y: e.y, z: e.def.height * 0.4, life: 0.16, maxLife: 0.16, size: 22, color: '#ffffff', kind: 'burst', angle: a })
+                    this.hitstop = Math.max(this.hitstop, 0.02)
+                    this.emit('block', e.x, e.y)
+                }
+            }
             if (d.t >= d.dur) this.endDodge()
         } else if (p.attack) {
             const a = p.attack
@@ -1425,8 +1447,10 @@ export class MeadowbrawlGame {
         }
         // Chain-rolling out of the tail still pays out the old roll.
         this.endDodge()
-        p.dodge = { t: 0, dur: DODGE_DUR, dx, dy }
+        p.dodge = { t: 0, dur: DODGE_DUR, dx, dy, hit: new Set() }
         p.invuln = Math.max(p.invuln, DODGE_IFRAMES)
+        const thunderstep = this.stack('thunderstep')
+        if (thunderstep > 0) this.thunderclap(p.x, p.y, 90 + 20 * (thunderstep - 1), this.weapon.baseDamage * this.damageMult * (0.9 + 0.5 * (thunderstep - 1)))
         // Dodging cancels the combo — the tactical cost.
         p.attack = null
         p.buffer = 0
@@ -1525,6 +1549,7 @@ export class MeadowbrawlGame {
             this.orbitals.push({ life: 5, maxLife: 5, angle: p.aim, damage: this.weapon.baseDamage * this.damageMult * (0.5 + 0.2 * (spectral - 1)), cooldowns: new Map() })
             this.burst(p.x, p.y, 30, 10, 'spark', '#bfe6ff', 120, 0.4)
         }
+        if (this.stack('avatar') > 0 && this.swingCount % 6 === 0) this.avatarSweep()
         const cleaving = this.stack('cleavingwind')
         if (cleaving > 0 && a.def.finisher) {
             this.projectiles.push({
@@ -2333,7 +2358,7 @@ export class MeadowbrawlGame {
         const p = this.player
         const ls = this.stack('lifesteal') + (p.fx.bloodrage > 0 ? 2.5 : 0)
         if (ls > 0) {
-            const heal = dmg * 0.06 * ls
+            const heal = dmg * 0.04 * ls
             if (p.hp < p.maxHp) {
                 p.hp = Math.min(p.maxHp, p.hp + heal)
                 if (Math.random() < 0.3) this.burst(p.x, p.y, 20, 2, 'petal', '#ff6b8a', 30, 0.6)
@@ -2473,6 +2498,12 @@ export class MeadowbrawlGame {
             p.bloodlust = Math.min(10, p.bloodlust + bloodlust)
             p.bloodlustT = 4
         }
+        const frenzy = this.stack('frenzy')
+        if (frenzy > 0) {
+            p.frenzy = Math.min(6, p.frenzy + frenzy)
+            p.frenzyT = 5
+            if (p.frenzy >= 6 && Math.random() < 0.5) this.glow(p.x, p.y, 20, 3, '#ff6b3c', 60, 0.5)
+        }
         const overcharge = this.stack('overcharge')
         if (overcharge > 0 && p.specialCd > 0 && randomChance(0.2 * overcharge)) {
             p.specialCd = 0
@@ -2566,7 +2597,9 @@ export class MeadowbrawlGame {
         }
         p.invuln = HURT_GRACE
         p.hurtFlash = 0.35
+        p.hurtIdle = 0
         this.stats.damageTaken += dmg
+        if (this.stack('chrono') > 0 && p.chronoCd <= 0) this.chronoshear()
         const dir = angleTo(from, p)
         // Being hit interrupts the combo — losing the chain hurts.
         p.attack = null
@@ -3259,7 +3292,7 @@ export class MeadowbrawlGame {
 
     private updateCoins(dt: number) {
         const p = this.player
-        const pull = 110 * (this.companion?.effects.pickupMult ?? 1) + 20 * this.stack('swift')
+        const pull = 110 * (this.companion?.effects.pickupMult ?? 1) * (1 + 0.5 * this.stack('magpie')) + 20 * this.stack('swift')
         if (this.coinStreakT > 0) {
             this.coinStreakT -= dt
             if (this.coinStreakT <= 0) this.coinStreak = 0
@@ -3580,6 +3613,59 @@ export class MeadowbrawlGame {
             if (!e.alive) continue
             if (inCircle({ x, y }, radius, e, e.r)) this.damageEnemy(e, damage, { source: { x, y }, knockback: 260, stagger: 0.4, tag: 'thunder', bypassShield: true })
         }
+    }
+
+    /** Avatar of the Meadow: the whole field around you gets swept. */
+    private avatarSweep() {
+        const p = this.player
+        const radius = 170 * this.reachMult
+        const dmg = this.weapon.baseDamage * this.damageMult * 3
+        this.trails.push({ x: p.x, y: p.y, angle0: p.aim - Math.PI, angle1: p.aim + Math.PI, reach: radius, life: 0.4, maxLife: 0.4, color: '#ffe9a8', kind: 'arc', width: 44, z: 18, style: 'ghost', finisher: true })
+        this.rings.push({ x: p.x, y: p.y, r0: 20, r1: radius * 1.15, life: 0.45, maxLife: 0.45, color: '#ffd166', width: 14 })
+        this.impacts.push({ x: p.x, y: p.y, z: 30, life: 0.35, maxLife: 0.35, size: radius * 0.7, color: '#fff3c4', kind: 'ring', angle: 0 })
+        this.glow(p.x, p.y, 30, 26, '#ffd166', 220, 0.9)
+        this.burst(p.x, p.y, 10, 30, 'petal', '#ffb3c6', 300, 0.9)
+        this.burst(p.x, p.y, 20, 24, 'spark', '#fff2c4', 320, 0.4)
+        this.flash = Math.max(this.flash, 0.35)
+        this.shake = Math.max(this.shake, 14)
+        this.hitstop = Math.max(this.hitstop, 0.1)
+        this.floaters.push({ x: p.x, y: p.y, z: 70, text: 'AVATAR', life: 1, maxLife: 1, color: '#ffd166', size: 22, vx: 0 })
+        this.emit('avatar', p.x, p.y)
+        for (const e of this.enemies) {
+            if (!e.alive || !inCircle(p, radius, e, e.r)) continue
+            this.damageEnemy(e, dmg, { source: p, heavy: true, knockback: 520, stagger: 0.8, tag: 'special', bypassShield: true, color: '#ffd166' })
+            this.addStun(e, 40)
+        }
+    }
+
+    /** Chronoshear: the whole field crawls for a moment after you are hit. */
+    private chronoshear() {
+        const p = this.player
+        p.chronoCd = 10
+        for (const e of this.enemies) {
+            if (!e.alive) continue
+            e.slow = Math.max(e.slow, 0.8)
+            e.slowT = Math.max(e.slowT, 2)
+        }
+        this.slowmo = Math.max(this.slowmo, 0.35)
+        this.rings.push({ x: p.x, y: p.y, r0: 20, r1: 520, life: 0.6, maxLife: 0.6, color: '#c9a3ff', width: 12 })
+        this.rings.push({ x: p.x, y: p.y, r0: 520, r1: 20, life: 0.8, maxLife: 0.8, color: '#e6d5ff', width: 4 })
+        this.glow(p.x, p.y, 30, 18, '#c9a3ff', 140, 1)
+        this.floaters.push({ x: p.x, y: p.y, z: 66, text: 'TIME TEARS', life: 1, maxLife: 1, color: '#c9a3ff', size: 16, vx: 0 })
+        this.emit('chrono', p.x, p.y)
+    }
+
+    /** Stormcaller: one bolt on a nearby enemy, nearest first, a little random. */
+    private stormStrike() {
+        const p = this.player
+        const near = this.enemies.filter(e => e.alive && e.entered && Math.hypot(e.x - p.x, e.y - p.y) < 420)
+        if (near.length === 0) return
+        near.sort((a, b) => Math.hypot(a.x - p.x, a.y - p.y) - Math.hypot(b.x - p.x, b.y - p.y))
+        const target = near[Math.min(near.length - 1, Math.floor(randomFloat() * Math.min(3, near.length)))]!
+        this.bolts.push({ points: [{ x: target.x + (Math.random() - 0.5) * 60, y: target.y - 420 }, { x: target.x, y: target.y }], life: 0.22, maxLife: 0.22 })
+        this.glow(target.x, target.y, target.def.height * 0.5, 8, '#dcc8ff', 100, 0.5)
+        this.thunderclap(target.x, target.y, 70, this.weapon.baseDamage * this.damageMult * 1.2)
+        this.emit('storm', target.x, target.y)
     }
 
     private puff(x: number, y: number, count: number, color: string) {

@@ -440,6 +440,35 @@ export class MeadowbrawlSound {
             case 'upgrade':
                 this.chord([659, 880, 1318], 0.4, 'sine', 0.12, 0.07)
                 break
+            case 'legendary':
+                // A fanfare: rising fourths, a shimmer, and a low bloom.
+                for (let i = 0; i < 4; i++) this.tone([523, 698, 880, 1047][i]!, 0.5, { type: 'triangle', gain: 0.1, delay: i * 0.11, attack: 0.02 })
+                this.chord([1047, 1319, 1568, 2093], 1.4, 'sine', 0.06, 0.12)
+                this.tone(65, 1.6, { type: 'sine', gain: 0.3, to: 45, attack: 0.15, delay: 0.3 })
+                this.hiss(1.0, { gain: 0.08, from: 3000, to: 9000, delay: 0.2 })
+                break
+            case 'avatar':
+                // A world-sized sweep: sub thump, broad whoosh, a bright ring.
+                this.tone(48, 0.9, { type: 'sine', gain: 0.5, to: 24 })
+                this.hiss(0.7, { gain: 0.34, from: 400, to: 3200, q: 0.5 })
+                this.hiss(0.5, { gain: 0.2, from: 5000, to: 800, delay: 0.12 })
+                this.chord([261, 329, 392, 523], 1.1, 'triangle', 0.09, 0.1)
+                this.tone(1568, 0.5, { type: 'sine', gain: 0.06, to: 2093, delay: 0.1 })
+                break
+            case 'chrono':
+                // Time tearing: a reversed sweep down, a glassy tick, a long tail.
+                this.hiss(0.9, { gain: 0.22, from: 6000, to: 120, q: 1.2 })
+                this.tone(880, 0.8, { type: 'sawtooth', gain: 0.07, to: 110 })
+                this.tone(1760, 0.06, { type: 'square', gain: 0.08, delay: 0.15 })
+                this.tone(2637, 0.06, { type: 'square', gain: 0.06, delay: 0.32 })
+                this.chord([110, 138, 165], 1.6, 'sine', 0.08, 0.06)
+                break
+            case 'storm':
+                if (!this.throttle('storm', 120)) return
+                this.hiss(0.18, { gain: 0.24, from: 7000, to: 900, q: 1.4 })
+                this.tone(120, 0.32, { type: 'triangle', gain: 0.18, to: 40, delay: 0.03 })
+                this.tone(2200 + Math.random() * 800, 0.05, { type: 'square', gain: 0.06 })
+                break
             case 'crit':
                 if (!this.throttle('crit', 60)) return
                 this.tone(1400, 0.12, { type: 'square', gain: 0.07, to: 2400 })

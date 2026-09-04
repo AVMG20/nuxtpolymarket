@@ -1,5 +1,5 @@
 {
-  "id": "835aadf7-5279-4e6c-8867-b50ae5da6456",
+  "id": "cf9173a4-f37c-42f4-98d7-11dbc62aa771",
   "prevId": "5c0d04b2-8d4e-46a3-b833-c3a390eb571f",
   "version": "7",
   "dialect": "postgresql",
@@ -2885,34 +2885,6 @@
         },
         "prosperity_level": {
           "name": "prosperity_level",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "vitality_level": {
-          "name": "vitality_level",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "tempering_level": {
-          "name": "tempering_level",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "nimble_level": {
-          "name": "nimble_level",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "fortune_level": {
-          "name": "fortune_level",
           "type": "integer",
           "primaryKey": false,
           "notNull": true,

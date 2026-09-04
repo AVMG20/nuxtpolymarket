@@ -2,9 +2,8 @@ import { and, eq, isNotNull } from 'drizzle-orm'
 import { db } from '#server/database'
 import { meadowbrawlState } from '#server/database/schema'
 import { requireUserId } from '#server/utils/auth'
-import { getLockedMeadowbrawlState, meadowbrawlLevels } from '#server/utils/meadowbrawl'
+import { getLockedMeadowbrawlState } from '#server/utils/meadowbrawl'
 import {
-    meadowbrawlAccountEffects,
     meadowbrawlCoinCeiling,
     meadowbrawlMinElapsedMsForWave,
     meadowbrawlValidateSave,
@@ -30,8 +29,7 @@ export default defineEventHandler(async (event) => {
         const state = await getLockedMeadowbrawlState(tx, userId)
         if (!state.runStartedAt) throw createError({ statusCode: 409, statusMessage: 'No active Meadowbrawl run' })
 
-        const effects = meadowbrawlAccountEffects(meadowbrawlLevels(state))
-        if (!meadowbrawlValidateSave(body?.save, effects.offerCount)) {
+        if (!meadowbrawlValidateSave(body?.save)) {
             throw createError({ statusCode: 400, statusMessage: 'Invalid Meadowbrawl save state' })
         }
         const save = body.save

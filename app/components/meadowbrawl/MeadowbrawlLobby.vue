@@ -134,11 +134,10 @@ const emit = defineEmits<{
 const { user } = useAuth()
 const balance = computed(() => parseFloat(user.value?.balance ?? '0'))
 
-type TabId = 'play' | 'homestead' | 'pets' | 'feats'
+type TabId = 'play' | 'pets' | 'feats'
 const TABS: { id: TabId, label: string, icon: string }[] = [
     { id: 'play', label: 'Play', icon: 'i-lucide-swords' },
-    { id: 'homestead', label: 'Homestead', icon: 'i-lucide-home' },
-    { id: 'pets', label: 'Pets', icon: 'i-lucide-paw-print' },
+    { id: 'pets', label: 'Pets & Prosperity', icon: 'i-lucide-paw-print' },
     { id: 'feats', label: 'Feats', icon: 'i-lucide-trophy' }
 ]
 const tab = ref<TabId>('play')
@@ -238,7 +237,7 @@ function petChanges(pet: MeadowbrawlShopPet): string[] {
     <div v-if="!signedIn" class="w-full max-w-md rounded-2xl bg-black/70 backdrop-blur-sm ring-1 ring-white/10 p-6 sm:p-8 text-white text-center">
       <div class="text-[11px] uppercase tracking-[0.4em] font-bold text-amber-200">A melee survival roguelite</div>
       <h1 class="mt-1 text-4xl sm:text-5xl font-black tracking-tight drop-shadow-[0_4px_0_rgba(0,0,0,0.6)]">Meadowbrawl</h1>
-      <p class="mt-3 text-sm text-white/70">Sign in to play Meadowbrawl — your homestead, your pets and everything a run pays out live on your account.</p>
+      <p class="mt-3 text-sm text-white/70">Sign in to play Meadowbrawl — your pets, your Prosperity and everything a run pays out live on your account.</p>
       <div class="mt-6 flex justify-center">
         <UButton to="/login" size="lg" color="primary" icon="i-lucide-log-in" class="font-black">Sign in to play</UButton>
       </div>
@@ -459,14 +458,14 @@ function petChanges(pet: MeadowbrawlShopPet): string[] {
         </div>
       </div>
 
-      <!-- Homestead ------------------------------------------------------ -->
-      <div v-else-if="tab === 'homestead'" class="mt-4">
-        <p class="text-xs text-white/60">Permanent upgrades. They apply to every run you start from here on — and they are locked while a run is in progress.</p>
-        <div class="mt-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+      <!-- Pets ----------------------------------------------------------- -->
+      <div v-else-if="tab === 'pets'" class="mt-4">
+        <p class="text-xs text-white/60">Prosperity makes every coin a run drops worth more; pets fight beside you. Both apply to every run you start from here on — and both are locked while a run is in progress.</p>
+        <div class="mt-3">
           <div
             v-for="up in state.upgrades"
             :key="up.id"
-            class="rounded-xl bg-white/5 ring-1 ring-white/10 p-3 flex flex-col"
+            class="rounded-xl bg-amber-300/10 ring-1 ring-amber-300/30 p-3 flex flex-col sm:flex-row sm:items-center gap-3"
           >
             <div class="flex items-center gap-2.5">
               <div class="size-10 rounded-lg bg-amber-300/15 ring-1 ring-amber-300/30 flex items-center justify-center shrink-0">
@@ -500,10 +499,6 @@ function petChanges(pet: MeadowbrawlShopPet): string[] {
             </UButton>
           </div>
         </div>
-      </div>
-
-      <!-- Pets ----------------------------------------------------------- -->
-      <div v-else-if="tab === 'pets'" class="mt-4">
         <p class="text-xs text-white/60">One companion joins you per run. It fights on its own, and its abilities come online as it grows.</p>
         <div class="mt-3 grid grid-cols-1 lg:grid-cols-3 gap-2.5">
           <div

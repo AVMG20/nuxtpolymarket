@@ -55,15 +55,15 @@ export interface WaveScaling {
  */
 export function waveScaling(wave: number): WaveScaling {
     const w = Math.max(0, wave - 1)
-    const late = Math.max(0, w - 10)
+    const late = Math.max(0, w - 9)
     return {
-        hp: 1 + w * 0.08 + w * w * 0.004,
+        hp: 1 + w * 0.08 + w * w * 0.004 + late * late * 0.006,
         speed: Math.min(1.5, 1 + w * 0.02),
-        damage: 1 + w * 0.07 + late * 0.05
+        damage: 1 + w * 0.07 + late * 0.1
     }
 }
 
 /** Chance a regular enemy spawns as a veteran (bigger, tougher, meaner). */
 export function veteranChance(wave: number): number {
-    return Math.min(0.5, Math.max(0, (wave - 10) * 0.04))
+    return Math.min(0.6, Math.max(0, (wave - 9) * 0.04))
 }

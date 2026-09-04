@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { DEFAULT_RUN_CONFIG, MeadowbrawlGame, type RunConfig } from '../../app/utils/meadowbrawl/engine'
 import { eliteFor } from '../../app/utils/meadowbrawl/waves'
+import { UPGRADE_BY_ID, rollOffers } from '../../app/utils/meadowbrawl/upgrades'
 import {
     MEADOWBRAWL_SAVE_VERSION,
     MEADOWBRAWL_TOTAL_WAVES,
@@ -30,7 +31,6 @@ function save(over: Partial<MeadowbrawlRunSave> = {}): MeadowbrawlRunSave {
         maxHp: 125,
         upgrades: { might: 3, doubledodge: 1, comboplus: 1 },
         offers: ['vigor', 'haste', 'burn'],
-        rerolled: false,
         coins: 12000,
         phoenixUsed: 1,
         stats: { kills: 80, elitesKilled: 1, damageDealt: 5000, damageTaken: 200, highestCombo: 12, time: 400 },
@@ -130,34 +130,12 @@ describe('coins', () => {
 })
 
 describe('run config', () => {
-    it('applies the homestead to the player', () => {
-        const g = fresh({ maxHp: 150, dodgeCharges: 2, damageMult: 1.2, offerCount: 4, rerolls: 1, coinMult: 2.5 })
-        expect(g.player.maxHp).toBe(150)
-        expect(g.player.hp).toBe(150)
-        expect(g.player.dodgeMax).toBe(3)
-        expect(g.damageMult).toBeCloseTo(1.2)
+    it('carries the coin multiplier for the HUD and never touches the player', () => {
+        const g = fresh({ coinMult: 2.5 })
+        expect(g.player.maxHp).toBe(100)
+        expect(g.player.dodgeMax).toBe(1)
+        expect(g.damageMult).toBe(1)
         expect(g.coinMult).toBe(2.5)
-    })
-
-    it('offers four boons and honours a reroll with Fortune', () => {
-        const g = fresh({ offerCount: 4, rerolls: 1 })
-        const checkpoints: MeadowbrawlRunSave[] = []
-        g.onCheckpoint = s => checkpoints.push(s)
-        g.spawnQueue = []
-        step(g, 2)
-        expect(g.phase).toBe('upgrade')
-        expect(g.offers).toHaveLength(4)
-        expect(g.rerollsLeft).toBe(1)
-        const before = g.offers.map(o => o.upgrade.id).join()
-        expect(g.rerollOffers()).toBe(true)
-        expect(g.rerollsLeft).toBe(0)
-        expect(g.rerollOffers()).toBe(false)
-        expect(g.offers).toHaveLength(4)
-        // Both the roll and the reroll wrote a checkpoint with the offers.
-        expect(checkpoints).toHaveLength(2)
-        expect(checkpoints[0]!.offers!.join()).toBe(before)
-        expect(checkpoints[1]!.rerolled).toBe(true)
-        expect(meadowbrawlValidateSave(checkpoints[1], 4)).toBe(true)
     })
 })
 
@@ -180,19 +158,19 @@ describe('checkpoints', () => {
         expect(checkpoints[1]!.offers).toBeNull()
         expect(Object.values(checkpoints[1]!.upgrades).reduce((a, b) => a + b, 0)).toBe(1)
         expect(g.wave).toBe(2)
-        for (const s of checkpoints) expect(meadowbrawlValidateSave(s, 3)).toBe(true)
+        for (const s of checkpoints) expect(meadowbrawlValidateSave(s)).toBe(true)
     })
 
     it('restores a run at its pending pick, stacks and all', () => {
         const g = new MeadowbrawlGame()
-        g.restoreRun('greataxe', save(), { ...DEFAULT_RUN_CONFIG, dodgeCharges: 1 })
+        g.restoreRun('greataxe', save())
         expect(g.phase).toBe('upgrade')
         expect(g.wave).toBe(6)
         expect(g.player.weapon).toBe('greataxe')
         expect(g.player.hp).toBe(70)
         expect(g.player.maxHp).toBe(125)
         expect(g.stack('might')).toBe(3)
-        expect(g.player.dodgeMax).toBe(3)
+        expect(g.player.dodgeMax).toBe(2)
         expect(g.player.chain.length).toBe(3)
         expect(g.player.phoenixUsed).toBe(1)
         expect(g.coins).toBe(12000)
@@ -296,5 +274,124 @@ describe('companions', () => {
         expect(c.feather?.taken).toBe(true)
         expect(p.abilityCd.q).toBeLessThan(6)
         expect(g.attackSpeed).toBeGreaterThan(1.2)
+    })
+})
+
+describe('fourth batch boons', () => {
+    function grant(g: MeadowbrawlGame, id: string, stacks = 1) {
+        for (let i = 0; i < stacks; i++) g.applyOffer({ upgrade: UPGRADE_BY_ID[id]!, stack: i + 1 })
+    }
+
+    function grunt(g: MeadowbrawlGame, dx: number, dy = 0) {
+        const e = g.spawnEnemy('grunt', 'north')
+        e.x = g.player.x + dx
+        e.y = g.player.y + dy
+        e.entered = true
+        e.state = 'chase'
+        e.speed = 0
+        e.attackCd = 99
+        return e
+    }
+
+    it('Thunder Step strikes where you dodged from and Rolling Kick bowls over what you roll through', () => {
+        const g = fresh()
+        grant(g, 'thunderstep')
+        grant(g, 'rollimpact')
+        const near = grunt(g, 40)
+        const far = grunt(g, 120)
+        g.input.moveX = 1
+        g.input.spacePressed = true
+        g.input.spaceDown = true
+        step(g, 0.05)
+        g.input.spaceDown = false
+        expect(near.hp).toBeLessThan(near.maxHp)
+        expect(far.hp).toBe(far.maxHp)
+        step(g, 0.5)
+        expect(far.stun).toBeGreaterThan(0)
+        expect(far.vx).toBeGreaterThan(0)
+    })
+
+    it('Kill Frenzy stacks damage on kills and fades', () => {
+        const g = fresh()
+        grant(g, 'frenzy')
+        const e = grunt(g, 40)
+        g.damageEnemy(e, 9999, { source: g.player, tag: 'melee' })
+        expect(g.player.frenzy).toBe(1)
+        expect(g.damageMult).toBeCloseTo(1.08)
+        step(g, 5.2)
+        expect(g.player.frenzy).toBe(0)
+    })
+
+    it('Meadow\'s Mercy regenerates only after a lull', () => {
+        const g = fresh()
+        grant(g, 'regen', 2)
+        g.player.hp = 50
+        g.player.hurtIdle = 0
+        step(g, 3)
+        expect(g.player.hp).toBe(50)
+        step(g, 3)
+        expect(g.player.hp).toBeGreaterThan(53)
+    })
+
+    it('Chronoshear slows the field when you are hit, once per ten seconds', () => {
+        const g = fresh()
+        grant(g, 'chrono')
+        const a = grunt(g, 60)
+        const b = grunt(g, -200)
+        g.hurtPlayer(10, a, 0, a)
+        expect(a.slow).toBeGreaterThanOrEqual(0.8)
+        expect(b.slow).toBeGreaterThanOrEqual(0.8)
+        expect(g.player.chronoCd).toBe(10)
+        expect(g.events.some(ev => ev.type === 'chrono')).toBe(true)
+    })
+
+    it('Avatar of the Meadow turns every sixth swing into a field-wide sweep', () => {
+        const g = fresh('greataxe')
+        grant(g, 'avatar')
+        const behind = grunt(g, -70)
+        behind.hp = behind.maxHp = 1e6
+        const home = { x: g.player.x, y: g.player.y }
+        let swings = 0
+        for (let i = 0; i < 60 && g.swingCount < 6; i++) {
+            // Swings step forward; hold the player in place so "behind" stays behind.
+            g.player.x = home.x
+            g.player.y = home.y
+            g.input.aimX = home.x + 100
+            g.input.aimY = home.y
+            g.input.attackPressed = true
+            step(g, 0.2)
+            swings = g.swingCount
+        }
+        expect(swings).toBeGreaterThanOrEqual(6)
+        expect(behind.hp).toBeLessThan(1e6)
+        expect(g.events.some(ev => ev.type === 'avatar')).toBe(true)
+    })
+
+    it('Stormcaller rains bolts while a combo is live', () => {
+        const g = fresh()
+        grant(g, 'stormcaller')
+        const e = grunt(g, 200)
+        e.hp = e.maxHp = 1e6
+        g.input.aimX = g.player.x + 100
+        g.input.aimY = g.player.y
+        g.input.attackPressed = true
+        step(g, 0.9)
+        expect(e.hp).toBeLessThan(1e6)
+        expect(g.events.some(ev => ev.type === 'storm')).toBe(true)
+    })
+
+    it('Magpie widens the coin pull', () => {
+        const g = fresh()
+        grant(g, 'magpie', 2)
+        const p = g.player
+        g.coinDrops.push({ x: p.x + 190, y: p.y, z: 0, vx: 0, vy: 0, vz: 0, value: 5, life: 20, seed: 0, size: 4, magnet: false })
+        step(g, 1.5)
+        expect(g.coins).toBe(5)
+    })
+
+    it('legendaries never show before wave six', () => {
+        for (let i = 0; i < 40; i++) {
+            for (const o of rollOffers(3, new Map())) expect(o.upgrade.rarity).not.toBe('legendary')
+        }
     })
 })

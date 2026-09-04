@@ -25,26 +25,12 @@ export async function ensureMeadowbrawlState(tx: DbExecutor, userId: string) {
 }
 
 export const MEADOWBRAWL_LEVEL_COLUMN = {
-    prosperity: 'prosperityLevel',
-    vitality: 'vitalityLevel',
-    tempering: 'temperingLevel',
-    nimble: 'nimbleLevel',
-    fortune: 'fortuneLevel'
+    prosperity: 'prosperityLevel'
 } as const
 
-export function meadowbrawlLevels(state: {
-    prosperityLevel: number
-    vitalityLevel: number
-    temperingLevel: number
-    nimbleLevel: number
-    fortuneLevel: number
-}): MeadowbrawlUpgradeLevels {
+export function meadowbrawlLevels(state: { prosperityLevel: number }): MeadowbrawlUpgradeLevels {
     return {
-        prosperity: state.prosperityLevel,
-        vitality: state.vitalityLevel,
-        tempering: state.temperingLevel,
-        nimble: state.nimbleLevel,
-        fortune: state.fortuneLevel
+        prosperity: state.prosperityLevel
     }
 }
 
@@ -63,10 +49,6 @@ export function meadowbrawlActivePet(state: { petLevels: Record<string, number>,
 /** Coin multiplier a run starting now would be paid at: Prosperity times the pet's keen eyes. */
 export function meadowbrawlRunCoinMult(state: {
     prosperityLevel: number
-    vitalityLevel: number
-    temperingLevel: number
-    nimbleLevel: number
-    fortuneLevel: number
     petLevels: Record<string, number>
     activePet: string | null
 }): number {

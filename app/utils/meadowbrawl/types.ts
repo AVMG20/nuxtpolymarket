@@ -86,7 +86,7 @@ export interface WeaponDef {
 
 export type EnemyTypeId = 'grunt' | 'charger' | 'swarmer' | 'shield' | 'ranged' | 'ogre' | 'warlord' | 'briar' | 'knight'
 
-export type Rarity = 'common' | 'rare' | 'epic' | 'weapon'
+export type Rarity = 'common' | 'rare' | 'epic' | 'legendary' | 'weapon'
 
 export interface UpgradeDef {
     id: string
@@ -117,7 +117,7 @@ export type GameEventType =
     | 'special' | 'waveStart' | 'waveClear' | 'upgrade' | 'death' | 'victory' | 'explode'
     | 'lightning' | 'freeze' | 'burn' | 'telegraph' | 'sprint' | 'eliteSpawn' | 'crit' | 'execute' | 'revive' | 'leap'
     | 'ability' | 'abilityReady' | 'shieldBlock' | 'ambush' | 'eliteKill' | 'stun'
-    | 'coin' | 'petAbility' | 'petFeather'
+    | 'coin' | 'petAbility' | 'petFeather' | 'avatar' | 'chrono' | 'storm' | 'legendary'
 
 export interface GameEvent {
     type: GameEventType

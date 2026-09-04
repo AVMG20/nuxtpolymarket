@@ -33,7 +33,6 @@ function save(over: Partial<MeadowbrawlRunSave> = {}): MeadowbrawlRunSave {
         maxHp: 100,
         upgrades: { might: 2, haste: 2 },
         offers: ['vigor', 'flow', 'burn'],
-        rerolled: false,
         coins: 9000,
         phoenixUsed: 0,
         stats: { kills: 60, elitesKilled: 1, damageDealt: 4000, damageTaken: 120, highestCombo: 9, time: 300 },
@@ -91,7 +90,7 @@ describe('meadowbrawl economy', () => {
     })
 
     it('a maxed account clearing all thirty waves pays between 1M and 2M', () => {
-        const maxed = meadowbrawlAccountEffects({ prosperity: 10, vitality: 5, tempering: 5, nimble: 2, fortune: 2 })
+        const maxed = meadowbrawlAccountEffects({ prosperity: 10 })
         const owl = meadowbrawlPetEffects('owl', 10)
         const mult = maxed.coinMult * owl.coinMult
         const win = meadowbrawlPayoutForRun(1e12, MEADOWBRAWL_TOTAL_WAVES, mult, true)
@@ -171,23 +170,22 @@ describe('meadowbrawl weapon unlocks', () => {
 
 describe('meadowbrawl checkpoints', () => {
     it('accepts the shape the game writes', () => {
-        expect(meadowbrawlValidateSave(save(), 3)).toBe(true)
-        expect(meadowbrawlValidateSave(save({ offers: null, upgrades: { might: 5 } }), 3)).toBe(true)
+        expect(meadowbrawlValidateSave(save())).toBe(true)
+        expect(meadowbrawlValidateSave(save({ offers: null, upgrades: { might: 5 } }))).toBe(true)
     })
 
     it('rejects more boons than cleared waves, too many offers, and bad shapes', () => {
-        expect(meadowbrawlValidateSave(save({ upgrades: { might: 5 } }), 3)).toBe(false)
-        expect(meadowbrawlValidateSave(save({ offers: ['a', 'b', 'c', 'd'] }), 3)).toBe(false)
-        expect(meadowbrawlValidateSave(save({ offers: ['a', 'b', 'c', 'd'] }), 4)).toBe(true)
-        expect(meadowbrawlValidateSave(save({ wave: 30 }), 3)).toBe(false)
-        expect(meadowbrawlValidateSave(save({ wave: 0 }), 3)).toBe(false)
-        expect(meadowbrawlValidateSave(save({ hp: 500 }), 3)).toBe(false)
-        expect(meadowbrawlValidateSave(save({ coins: -1 }), 3)).toBe(false)
-        expect(meadowbrawlValidateSave(save({ coins: 1.5 }), 3)).toBe(false)
-        expect(meadowbrawlValidateSave(save({ version: 0 }), 3)).toBe(false)
-        expect(meadowbrawlValidateSave(save({ upgrades: { 'Bad Id!': 1 } }), 3)).toBe(false)
-        expect(meadowbrawlValidateSave(null, 3)).toBe(false)
-        expect(meadowbrawlValidateSave('x', 3)).toBe(false)
+        expect(meadowbrawlValidateSave(save({ upgrades: { might: 5 } }))).toBe(false)
+        expect(meadowbrawlValidateSave(save({ offers: ['a', 'b', 'c', 'd'] }))).toBe(false)
+        expect(meadowbrawlValidateSave(save({ wave: 30 }))).toBe(false)
+        expect(meadowbrawlValidateSave(save({ wave: 0 }))).toBe(false)
+        expect(meadowbrawlValidateSave(save({ hp: 500 }))).toBe(false)
+        expect(meadowbrawlValidateSave(save({ coins: -1 }))).toBe(false)
+        expect(meadowbrawlValidateSave(save({ coins: 1.5 }))).toBe(false)
+        expect(meadowbrawlValidateSave(save({ version: 0 }))).toBe(false)
+        expect(meadowbrawlValidateSave(save({ upgrades: { 'Bad Id!': 1 } }))).toBe(false)
+        expect(meadowbrawlValidateSave(null)).toBe(false)
+        expect(meadowbrawlValidateSave('x')).toBe(false)
     })
 })
 
