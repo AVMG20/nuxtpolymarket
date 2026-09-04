@@ -72,14 +72,15 @@ export const RARITY_LABEL: Record<string, string> = {
 }
 
 /**
- * Roll three distinct offers. Early waves lean rare/epic so a build shows up
- * within the first three picks. Weapons are chosen on the start screen and
- * never offered mid-run.
+ * Roll `count` distinct offers (three by default; Fortune adds a fourth).
+ * Early waves lean rare/epic so a build shows up within the first three
+ * picks. Weapons are chosen on the start screen and never offered mid-run.
  */
 export function rollOffers(
     wave: number,
     stacks: ReadonlyMap<string, number>,
-    rng: () => number = randomFloat
+    rng: () => number = randomFloat,
+    count = 3
 ): Offer[] {
     const early = wave <= 3
     const weights: Record<string, number> = {
@@ -97,7 +98,7 @@ export function rollOffers(
 
     const offers: Offer[] = []
     const remaining = [...pool]
-    while (offers.length < 3 && remaining.length > 0) {
+    while (offers.length < count && remaining.length > 0) {
         const pick = randomWeighted(remaining, o => {
             // Mending is a safety valve, not a build piece.
             if (o.upgrade.id === 'mending') return 4
