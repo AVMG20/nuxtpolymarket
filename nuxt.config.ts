@@ -42,6 +42,8 @@ export default defineNuxtConfig({
         '/pathwarden': { ssr: false },
         '/pathwarden/**': { ssr: false },
         '/call-of-xeno': { ssr: false },
+        // Canvas hack-and-slash — pure client-side simulation.
+        '/meadowbrawl': { ssr: false },
         // WebGL foil renderer + admin-only tooling — no SSR value.
         '/tcg-admin/**': { ssr: false }
     },

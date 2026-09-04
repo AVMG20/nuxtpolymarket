@@ -6,6 +6,7 @@ import type {
 } from '#shared/types/pathwarden-save'
 import type { FirewallRunSave } from '#shared/utils/gamelogic/firewall'
 import type { CallOfXenoRunSave } from '#shared/utils/gamelogic/call-of-xeno-save'
+import type { MeadowbrawlRunSave } from '#shared/utils/gamelogic/meadowbrawl-meta'
 import type {
   TcgSheetLayout,
   TcgPackTemplateSlot,
@@ -222,6 +223,57 @@ export const pirateRunHistory = pgTable('pirate_run_history', {
   createdAt: timestamp('created_at').defaultNow().notNull()
 }, t => [
   index('pirate_run_history_userId_createdAt_idx').on(t.userId, t.createdAt)
+])
+
+// ─── MEADOWBRAWL ─────────────────────────────────────────────────────────
+
+export const meadowbrawlState = pgTable('meadowbrawl_state', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().unique().references(() => user.id, { onDelete: 'cascade' }),
+  // Homestead — permanent upgrade tracks.
+  prosperityLevel: integer('prosperity_level').notNull().default(0),
+  // Pet levels by pet id; a missing key means not adopted yet.
+  petLevels: jsonb('pet_levels').$type<Record<string, number>>().notNull().default({}),
+  activePet: text('active_pet'),
+  // Weapons earned so far (the sword is implicit) plus the deepest wave
+  // cleared with each weapon, which is what the unlock feats read.
+  unlockedWeapons: jsonb('unlocked_weapons').$type<string[]>().notNull().default([]),
+  bestWaveByWeapon: jsonb('best_wave_by_weapon').$type<Record<string, number>>().notNull().default({}),
+  runsPlayed: integer('runs_played').notNull().default(0),
+  victories: integer('victories').notNull().default(0),
+  totalEarned: numeric('total_earned', { precision: 19, scale: 4 }).notNull().default('0'),
+  bestEarned: integer('best_earned').notNull().default(0),
+  bestWave: integer('best_wave').notNull().default(0),
+  // Active-run lock plus the payout-relevant snapshot taken at the start,
+  // so buying Prosperity or levelling the pet mid-run cannot change what
+  // the run already earned its way to.
+  runStartedAt: timestamp('run_started_at'),
+  runWeapon: text('run_weapon'),
+  runPet: text('run_pet'),
+  runPetLevel: integer('run_pet_level').notNull().default(0),
+  runCoinMult: numeric('run_coin_mult', { precision: 10, scale: 4 }),
+  // Wave-boundary checkpoint of the active run, restored on resume.
+  runSave: jsonb('run_save').$type<MeadowbrawlRunSave>(),
+  runSaveRevision: integer('run_save_revision').notNull().default(0),
+  lastRunFinishedAt: timestamp('last_run_finished_at')
+})
+
+export const meadowbrawlRuns = pgTable('meadowbrawl_runs', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  weapon: text('weapon').notNull(),
+  pet: text('pet'),
+  wavesCleared: integer('waves_cleared').notNull().default(0),
+  won: boolean('won').notNull().default(false),
+  // Base coins the settle counted, and the cash it turned into.
+  coins: integer('coins').notNull().default(0),
+  awarded: integer('awarded').notNull().default(0),
+  capped: boolean('capped').notNull().default(false),
+  kills: integer('kills').notNull().default(0),
+  durationSeconds: integer('duration_seconds').notNull().default(0),
+  createdAt: timestamp('created_at').defaultNow().notNull()
+}, t => [
+  index('meadowbrawl_runs_userId_createdAt_idx').on(t.userId, t.createdAt)
 ])
 
 // ─── SHAPEZZ ─────────────────────────────────────────────────────────────
@@ -1467,6 +1519,10 @@ export const firewallStateRelations = relations(firewallState, ({ one }) => ({
 
 export const firewallRunsRelations = relations(firewallRuns, ({ one }) => ({
   user: one(user, { fields: [firewallRuns.userId], references: [user.id] })
+}))
+
+export const meadowbrawlStateRelations = relations(meadowbrawlState, ({ one }) => ({
+  user: one(user, { fields: [meadowbrawlState.userId], references: [user.id] })
 }))
 
 export const callOfXenoStateRelations = relations(callOfXenoState, ({ one }) => ({
