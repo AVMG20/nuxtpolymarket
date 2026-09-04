@@ -117,6 +117,13 @@ function toggle(picked: Set<string>, copyId: string) {
 
 const coinDirection = ref<'none' | 'pay' | 'ask'>('none')
 const coinAmount = ref(0)
+/**
+ * Coins offered are escrowed on send, so an amount over the balance is a
+ * refusal waiting to happen — say so before the round trip. Coins ASKED for
+ * are the other player's problem at accept, so they are not checked here.
+ */
+const overOffered = computed(() => coinDirection.value === 'pay'
+  && Number(coinAmount.value) > parseFloat(user.value?.balance ?? '0'))
 const offerNote = ref('')
 const creating = ref(false)
 async function submitOffer() {
@@ -134,12 +141,19 @@ async function submitOffer() {
         note: offerNote.value || null
       }
     })
-    toast.add({ title: 'Offer sent', color: 'success' })
+    toast.add({
+      title: 'Offer sent',
+      description: coinDirection.value === 'pay'
+        ? `${formatNumber(Number(coinAmount.value), false)} coins are held until they accept or it is called off.`
+        : undefined,
+      color: 'success'
+    })
     builderOpen.value = false
     offerNote.value = ''
     coinDirection.value = 'none'
     coinAmount.value = 0
-    await refresh()
+    // The coins left the balance with the offer, so the header has to know.
+    await Promise.all([refresh(), fetchSession()])
   } catch (e) {
     toast.add({ title: apiErrorMessage(e, 'Could not send offer'), color: 'error' })
   } finally {
@@ -191,12 +205,18 @@ function thumbProps(copy: CounterpartCopy) {
               tone="get"
               @inspect="inspect"
             />
-            <UBadge
+            <UTooltip
               v-if="offer.senderCoins > 0"
-              color="success"
-              variant="subtle"
-              size="sm"
-            >+ <UIcon name="i-lucide-coins" class="inline-block size-3.5 shrink-0 align-[-2px] text-yellow-400" /> {{ formatNumber(offer.senderCoins) }}</UBadge>
+              :text="offer.senderEscrow > 0
+                ? 'Already taken from their balance and held until this offer is answered'
+                : 'Paid when you accept'"
+            >
+              <UBadge
+                color="success"
+                variant="subtle"
+                size="sm"
+              >+ <UIcon name="i-lucide-coins" class="inline-block size-3.5 shrink-0 align-[-2px] text-yellow-400" /> {{ formatNumber(offer.senderCoins) }}<template v-if="offer.senderEscrow > 0"> held</template></UBadge>
+            </UTooltip>
             <p class="text-sm text-muted">
               for your:
             </p>
@@ -275,7 +295,7 @@ function thumbProps(copy: CounterpartCopy) {
               <div>
                 <p class="mb-1.5 text-xs font-semibold uppercase tracking-wider text-muted">
                   You give
-                  <template v-if="offer.senderCoins > 0"> · {{ formatNumber(offer.senderCoins) }} coins</template>
+                  <template v-if="offer.senderCoins > 0"> · {{ formatNumber(offer.senderCoins) }} coins<template v-if="offer.senderEscrow > 0"> (held)</template></template>
                 </p>
                 <TcgTradeCardStrip
                   v-if="sideItems(offer, 'sender').length"
@@ -456,6 +476,8 @@ function thumbProps(copy: CounterpartCopy) {
               v-if="coinDirection !== 'none'"
               label="Amount"
               class="w-32"
+              :help="coinDirection === 'pay' ? 'Held until they answer' : 'They pay on accept'"
+              :error="overOffered ? 'More than you hold' : undefined"
             >
               <UInput
                 v-model.number="coinAmount"
@@ -491,7 +513,7 @@ function thumbProps(copy: CounterpartCopy) {
             @click="builderOpen = false"
           />
           <UButton
-            :disabled="!partnerId || (pickedMine.size === 0 && pickedTheirs.size === 0)"
+            :disabled="!partnerId || (pickedMine.size === 0 && pickedTheirs.size === 0) || overOffered"
             :loading="creating"
             label="Send offer"
             @click="submitOffer"

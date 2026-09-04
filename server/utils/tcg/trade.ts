@@ -8,11 +8,21 @@ import type { TcgGradePayload } from '#shared/types/tcg'
 
 /*
  * Direct trades (§7.1): card-for-card ± Coins, directed at a chosen
- * counterparty — kept deliberately, anonymity not attempted. Offers escrow
- * NOTHING: both collections stay fully usable while an offer sits, and
- * everything (ownership, lifecycle, encumbrance, the coin leg) is validated
- * atomically when the receiver accepts. An item that moved in the meantime
- * simply fails the accept and the offer stays open for a retry or decline.
+ * counterparty — kept deliberately, anonymity not attempted.
+ *
+ * CARDS escrow nothing: both collections stay fully usable while an offer
+ * sits, and ownership, lifecycle and encumbrance are validated atomically
+ * when the receiver accepts. An item that moved in the meantime simply fails
+ * the accept and the offer stays open for a retry or decline.
+ *
+ * COINS the sender offers are escrowed on creation, the buy-order pattern
+ * from book.ts: debit-on-place, refund on cancel or decline, consumed on
+ * accept. An offer a player cannot fund is one the receiver should never see,
+ * and without escrow the sender could promise the same coins to every player
+ * on the board and let all but the first accept fail. The receiver's side is
+ * NOT escrowed — a player who has not agreed to a trade cannot have coins
+ * taken — so coins ASKED FOR are debited at accept, which is the moment the
+ * receiver consents.
  *
  * The 5% burn taxes the coin leg only: the payer pays in full, the payee
  * receives 95%. Pure card-for-card swaps carry no fee — they move no Coins.
@@ -21,6 +31,8 @@ import type { TcgGradePayload } from '#shared/types/tcg'
 const badRequest = (statusMessage: string): never => {
     throw createError({ statusCode: 400, statusMessage })
 }
+
+type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0]
 
 export interface TradeOfferInput {
     toUserId: string
@@ -80,11 +92,18 @@ export async function createOffer(userId: string, input: TradeOfferInput): Promi
             if (copy!.lifecycle !== 'raw' && copy!.lifecycle !== 'slabbed') badRequest('Card is not tradeable')
         }
 
+        // Escrow the sweetener up front. debit throws 400 when the sender
+        // cannot cover it, so an underfunded offer is never created.
+        if (senderCoins > 0) {
+            await debit(userId, senderCoins.toFixed(4), 'tcg:market', tx)
+        }
+
         const [offer] = await tx.insert(tcgTradeOffer).values({
             fromUserId: userId,
             toUserId,
             senderCoins: senderCoins.toFixed(4),
             receiverCoins: receiverCoins.toFixed(4),
+            senderEscrow: senderCoins.toFixed(4),
             note
         }).returning()
         if (allIds.length) {
@@ -97,28 +116,56 @@ export async function createOffer(userId: string, input: TradeOfferInput): Promi
     })
 }
 
+/**
+ * Hand a resolved offer's escrow back to its sender and mark it released.
+ *
+ * `offer` must come from the RETURNING of the state claim, which is what makes
+ * this safe: only the one request that flipped the offer out of 'open' ever
+ * gets here, so a burst of cancels refunds exactly once. That claim must also
+ * leave senderEscrow alone — RETURNING hands back the NEW row, so zeroing it
+ * in the same statement would return 0 and lose the amount to release.
+ */
+async function releaseEscrow(tx: Tx, offer: { id: string, fromUserId: string, senderEscrow: string }): Promise<void> {
+    const held = parseFloat(offer.senderEscrow)
+    if (held <= 0) return
+    await clearEscrow(tx, offer.id)
+    await credit(offer.fromUserId, held.toFixed(4), 'tcg:market', tx)
+}
+
+/** The offer no longer holds anything: released to the sender, or consumed. */
+async function clearEscrow(tx: Tx, offerId: string): Promise<void> {
+    await tx.update(tcgTradeOffer).set({ senderEscrow: '0' }).where(eq(tcgTradeOffer.id, offerId))
+}
+
 export async function cancelOffer(userId: string, offerId: string): Promise<void> {
-    const [cancelled] = await db.update(tcgTradeOffer)
-        .set({ state: 'cancelled', resolvedAt: new Date() })
-        .where(and(
-            eq(tcgTradeOffer.id, offerId),
-            eq(tcgTradeOffer.fromUserId, userId),
-            eq(tcgTradeOffer.state, 'open')
-        ))
-        .returning({ id: tcgTradeOffer.id })
-    if (!cancelled) badRequest('Offer is not yours to cancel, or already gone')
+    await db.transaction(async (tx) => {
+        const [cancelled] = await tx.update(tcgTradeOffer)
+            .set({ state: 'cancelled', resolvedAt: new Date() })
+            .where(and(
+                eq(tcgTradeOffer.id, offerId),
+                eq(tcgTradeOffer.fromUserId, userId),
+                eq(tcgTradeOffer.state, 'open')
+            ))
+            .returning()
+        if (!cancelled) badRequest('Offer is not yours to cancel, or already gone')
+        await releaseEscrow(tx, cancelled!)
+    })
 }
 
 export async function declineOffer(userId: string, offerId: string): Promise<void> {
-    const [declined] = await db.update(tcgTradeOffer)
-        .set({ state: 'declined', resolvedAt: new Date() })
-        .where(and(
-            eq(tcgTradeOffer.id, offerId),
-            eq(tcgTradeOffer.toUserId, userId),
-            eq(tcgTradeOffer.state, 'open')
-        ))
-        .returning({ id: tcgTradeOffer.id })
-    if (!declined) badRequest('Offer is not yours to decline, or already gone')
+    await db.transaction(async (tx) => {
+        const [declined] = await tx.update(tcgTradeOffer)
+            .set({ state: 'declined', resolvedAt: new Date() })
+            .where(and(
+                eq(tcgTradeOffer.id, offerId),
+                eq(tcgTradeOffer.toUserId, userId),
+                eq(tcgTradeOffer.state, 'open')
+            ))
+            .returning()
+        if (!declined) badRequest('Offer is not yours to decline, or already gone')
+        // The sender gets their sweetener back — declining costs nobody.
+        await releaseEscrow(tx, declined!)
+    })
 }
 
 export async function acceptOffer(userId: string, offerId: string): Promise<void> {
@@ -165,7 +212,12 @@ export async function acceptOffer(userId: string, offerId: string): Promise<void
         const senderCoins = parseFloat(claimed!.senderCoins)
         const receiverCoins = parseFloat(claimed!.receiverCoins)
         if (senderCoins > 0) {
-            await debit(claimed!.fromUserId, senderCoins.toFixed(4), 'tcg:market', tx)
+            // Already escrowed at creation, so only the shortfall is owed —
+            // which is the whole amount for offers made before escrow existed,
+            // and zero for every offer since.
+            const owed = senderCoins - parseFloat(claimed!.senderEscrow)
+            if (owed > 0) await debit(claimed!.fromUserId, owed.toFixed(4), 'tcg:market', tx)
+            await clearEscrow(tx, claimed!.id)
             await credit(claimed!.toUserId, sellerProceeds(senderCoins).toFixed(4), 'tcg:market', tx)
         } else if (receiverCoins > 0) {
             await debit(claimed!.toUserId, receiverCoins.toFixed(4), 'tcg:market', tx)
@@ -233,6 +285,8 @@ export interface TradeOfferView {
     toName: string
     senderCoins: number
     receiverCoins: number
+    /** Of senderCoins, how much is actually held. 0 on pre-escrow offers. */
+    senderEscrow: number
     note: string | null
     state: string
     createdAt: string
@@ -352,6 +406,7 @@ export async function offersFor(userId: string): Promise<TradeOfferView[]> {
         toUserId: tcgTradeOffer.toUserId,
         senderCoins: tcgTradeOffer.senderCoins,
         receiverCoins: tcgTradeOffer.receiverCoins,
+        senderEscrow: tcgTradeOffer.senderEscrow,
         note: tcgTradeOffer.note,
         state: tcgTradeOffer.state,
         createdAt: tcgTradeOffer.createdAt
@@ -397,6 +452,7 @@ export async function offersFor(userId: string): Promise<TradeOfferView[]> {
         toName: nameById.get(offer.toUserId) ?? '?',
         senderCoins: parseFloat(offer.senderCoins),
         receiverCoins: parseFloat(offer.receiverCoins),
+        senderEscrow: parseFloat(offer.senderEscrow),
         note: offer.note,
         state: offer.state,
         createdAt: offer.createdAt.toISOString(),
