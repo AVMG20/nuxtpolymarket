@@ -117,6 +117,7 @@ export type GameEventType =
     | 'special' | 'waveStart' | 'waveClear' | 'upgrade' | 'death' | 'victory' | 'explode'
     | 'lightning' | 'freeze' | 'burn' | 'telegraph' | 'sprint' | 'eliteSpawn' | 'crit' | 'execute' | 'revive' | 'leap'
     | 'ability' | 'abilityReady' | 'shieldBlock' | 'ambush' | 'eliteKill' | 'stun'
+    | 'coin' | 'petAbility' | 'petFeather'
 
 export interface GameEvent {
     type: GameEventType

@@ -310,6 +310,47 @@ export class MeadowbrawlSound {
                 this.tone(300, 0.2, { type: 'triangle', gain: 0.14, to: 120 })
                 this.hiss(0.1, { gain: 0.12, from: 5000, to: 1500 })
                 break
+            case 'coin': {
+                // A bright little tick that climbs as the pile comes in.
+                if (!this.throttle('coin', 45)) return
+                const step = Math.floor(power * 12)
+                const freq = 1320 * Math.pow(2, Math.min(12, step) / 12)
+                this.tone(freq, 0.09, { type: 'triangle', gain: 0.07, attack: 0.002 })
+                this.tone(freq * 1.5, 0.06, { type: 'sine', gain: 0.04, delay: 0.01 })
+                break
+            }
+            case 'petAbility':
+                switch (ev.variant) {
+                    case 'flameDash':
+                        this.hiss(0.4, { gain: 0.2, from: 600, to: 2600, q: 0.7 })
+                        this.tone(300, 0.3, { type: 'sawtooth', gain: 0.08, to: 700 })
+                        break
+                    case 'cinderHowl':
+                        this.tone(520, 0.7, { type: 'sawtooth', gain: 0.09, to: 760, attack: 0.08 })
+                        this.tone(780, 0.6, { type: 'triangle', gain: 0.06, to: 1100, attack: 0.1, delay: 0.05 })
+                        this.hiss(0.5, { gain: 0.08, from: 900, to: 300, q: 0.5 })
+                        break
+                    case 'shellWard':
+                        this.chord([392, 494, 587], 0.5, 'triangle', 0.06, 0.06)
+                        this.hiss(0.2, { gain: 0.06, from: 3000, to: 6000 })
+                        break
+                    case 'mendingBloom':
+                        this.chord([523, 659, 784, 1047], 1.0, 'sine', 0.06, 0.1)
+                        break
+                    case 'gust':
+                        this.hiss(0.5, { gain: 0.3, from: 400, to: 2200, q: 0.4 })
+                        this.tone(120, 0.25, { type: 'sine', gain: 0.18, to: 60 })
+                        break
+                    case 'luckyFeather':
+                        this.tone(1760, 0.25, { type: 'sine', gain: 0.05, to: 2200 })
+                        this.tone(2637, 0.2, { type: 'sine', gain: 0.04, delay: 0.08 })
+                        break
+                }
+                break
+            case 'petFeather':
+                this.chord([1047, 1319, 1568, 2093], 0.5, 'sine', 0.05, 0.05)
+                this.hiss(0.25, { gain: 0.06, from: 4000, to: 8000 })
+                break
             case 'shieldBreak':
                 this.tone(1400, 0.3, { type: 'square', gain: 0.14, to: 200 })
                 this.hiss(0.35, { gain: 0.25, from: 4000, to: 600 })

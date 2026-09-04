@@ -2,7 +2,7 @@ import type { EnemyTypeId, SpawnGroup } from './types'
 import { TOTAL_WAVES } from './types'
 import { UNLOCK_WAVE } from './enemies'
 
-const COST: Record<EnemyTypeId, number> = {
+export const ENEMY_COST: Record<EnemyTypeId, number> = {
     grunt: 3,
     charger: 5,
     swarmer: 1.6,
@@ -17,7 +17,7 @@ const COST: Record<EnemyTypeId, number> = {
 const SIDES: SpawnGroup['side'][] = ['north', 'east', 'south', 'west']
 
 export function waveBudget(wave: number): number {
-    return 9 + wave * 4 + wave * wave * 0.22
+    return 10 + wave * 4.3 + wave * wave * 0.235
 }
 
 /** Rough seconds the trickle of spawns is spread across. */
@@ -62,7 +62,7 @@ export function buildWave(wave: number, rng: () => number = Math.random): SpawnG
     const side = () => SIDES[Math.floor(rng() * SIDES.length)]!
 
     const available = (Object.keys(UNLOCK_WAVE) as EnemyTypeId[])
-        .filter(t => COST[t] > 0 && UNLOCK_WAVE[t] <= wave)
+        .filter(t => ENEMY_COST[t] > 0 && UNLOCK_WAVE[t] <= wave)
 
     // Guarantee the newly unlocked archetype shows up on its debut wave.
     const debut = available.filter(t => UNLOCK_WAVE[t] === wave)
@@ -71,7 +71,7 @@ export function buildWave(wave: number, rng: () => number = Math.random): SpawnG
 
     const push = (type: EnemyTypeId, count: number, time: number) => {
         groups.push({ time, type, count, side: side() })
-        budget -= COST[type] * count
+        budget -= ENEMY_COST[type] * count
     }
 
     // Wave 1 opens with a small readable pack before anything else arrives.

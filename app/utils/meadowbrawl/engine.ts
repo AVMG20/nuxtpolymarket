@@ -3,12 +3,20 @@
 // attack choice) go through the shared CSPRNG helpers; cosmetic scatter uses
 // Math.random.
 import { randomChance, randomFloat } from '#shared/utils/random'
+import {
+    meadowbrawlEliteCoinBonus,
+    meadowbrawlWaveCoinPool,
+    MEADOWBRAWL_SAVE_VERSION,
+    type MeadowbrawlPetId,
+    type MeadowbrawlRunSave
+} from '#shared/utils/gamelogic/meadowbrawl-meta'
 import type { EnemyTypeId, GameEvent, Offer, SpawnGroup, SwingDef, Vec, WeaponDef, WeaponId } from './types'
 import { ARENA_H, ARENA_W, TOTAL_WAVES } from './types'
 import { WEAPONS, buildChain } from './weapons'
 import { ENEMY_TYPES, veteranChance, waveScaling, type EnemyTypeDef } from './enemies'
-import { buildWave } from './waves'
-import { rollOffers } from './upgrades'
+import { ENEMY_COST, buildWave } from './waves'
+import { UPGRADE_BY_ID, rollOffers } from './upgrades'
+import { companionAbsorbHit, companionHaste, makeCompanion, updateCompanion, type Companion } from './companion'
 import { angleTo, clamp, inArc, inCircle, inSegment, normalizeAngle, shapeHits } from './geometry'
 import { generateWorld, type WorldLayout } from './world'
 
@@ -65,6 +73,46 @@ export interface SpecialState {
     tx?: number
     ty?: number
     tick?: number
+}
+
+/**
+ * What the account brings into a run: homestead upgrades, the pet, and the
+ * coin multiplier (display only — the server applies its own snapshot).
+ */
+export interface RunConfig {
+    maxHp: number
+    damageMult: number
+    /** Extra dodge charges on top of the class default. */
+    dodgeCharges: number
+    offerCount: number
+    rerolls: number
+    coinMult: number
+    pet: { id: MeadowbrawlPetId, level: number } | null
+}
+
+export const DEFAULT_RUN_CONFIG: RunConfig = {
+    maxHp: 100,
+    damageMult: 1,
+    dodgeCharges: 0,
+    offerCount: 3,
+    rerolls: 0,
+    coinMult: 1,
+    pet: null
+}
+
+export interface Coin {
+    x: number
+    y: number
+    z: number
+    vx: number
+    vy: number
+    vz: number
+    value: number
+    life: number
+    seed: number
+    size: number
+    /** Set once the player's pull has caught it. */
+    magnet: boolean
 }
 
 export interface Player {
@@ -189,6 +237,8 @@ export interface Enemy {
     moveT: number
     /** Enemy ids this one has summoned (Briar Matriarch's brood). */
     brood: number[]
+    /** Base coins dropped on death. */
+    coin: number
     /** Late-game variant: bigger, tougher, hits harder. */
     veteran: boolean
     /** Death Mark seconds remaining. */
@@ -499,6 +549,24 @@ export class MeadowbrawlGame {
     deathT = 0
     spawnQueue: SpawnGroup[] = []
     stats: RunStats = { kills: 0, damageDealt: 0, damageTaken: 0, highestCombo: 0, time: 0, elitesKilled: 0 }
+    config: RunConfig = DEFAULT_RUN_CONFIG
+    companion: Companion | null = null
+    /** Base coins picked up this run. */
+    coins = 0
+    /** What each coin is worth to the account — for the HUD only. */
+    coinMult = 1
+    coinDrops: Coin[] = []
+    /** Free offer rerolls left this wave (Fortune). */
+    rerollsLeft = 0
+    rerolled = false
+    /** Called with a fresh checkpoint whenever the run reaches a save point. */
+    onCheckpoint: ((save: MeadowbrawlRunSave) => void) | null = null
+    /** Base coins per budget point for the current wave's regular spawns. */
+    private coinPer = 0
+    /** Resuming past a pick: the calm leads straight into the next wave. */
+    private skipOffers = false
+    private coinStreak = 0
+    private coinStreakT = 0
     waveKills = 0
     waveTotal = 0
     finalRush = false
@@ -670,12 +738,13 @@ export class MeadowbrawlGame {
         const p = this.player
         const berserk = this.stack('berserk') > 0 && p.hp / p.maxHp < 0.5 ? 1 + 0.4 * this.stack('berserk') : 1
         const rally = p.fx.rally > 0 ? 1.3 : 1
-        return (1 + 0.15 * this.stack('might')) * (1 + 0.12 * this.stack('oversized')) * (1 + 0.3 * this.stack('colossus')) * berserk * rally
+        const account = this.config.damageMult * (this.companion?.effects.damageMult ?? 1)
+        return (1 + 0.15 * this.stack('might')) * (1 + 0.12 * this.stack('oversized')) * (1 + 0.3 * this.stack('colossus')) * berserk * rally * account
     }
 
     get attackSpeed(): number {
         const rage = this.player.fx.bloodrage > 0 ? 1.5 : 1
-        return (1 + 0.12 * this.stack('haste')) * (1 + 0.05 * this.player.bloodlust) * (this.player.adrenalineT > 0 ? 1 + 0.3 * this.stack('adrenaline') : 1) * rage
+        return (1 + 0.12 * this.stack('haste')) * (1 + 0.05 * this.player.bloodlust) * (this.player.adrenalineT > 0 ? 1 + 0.3 * this.stack('adrenaline') : 1) * rage * companionHaste(this.companion)
     }
 
     get moveSpeed(): number {
@@ -704,10 +773,111 @@ export class MeadowbrawlGame {
         return 1 + 0.35 * this.stack('bruiser')
     }
 
-    startRun(weapon: WeaponId = 'sword') {
+    startRun(weapon: WeaponId = 'sword', config: RunConfig = DEFAULT_RUN_CONFIG) {
+        this.resetRun(weapon, config)
+        this.wave = 0
+        this.nextWave()
+    }
+
+    /**
+     * Picks a run back up from a checkpoint: either at the boon pick it was
+     * closed on (offers still up) or at the start of the next wave.
+     */
+    restoreRun(weapon: WeaponId, save: MeadowbrawlRunSave, config: RunConfig = DEFAULT_RUN_CONFIG) {
+        this.resetRun(weapon, config)
+        const p = this.player
+        for (const [id, stacks] of Object.entries(save.upgrades)) {
+            if (UPGRADE_BY_ID[id] && stacks > 0) p.upgrades.set(id, stacks)
+        }
+        // Rebuild what the stacks imply instead of replaying the picks, so
+        // one-shot effects (Mending's heal) don't fire again.
+        p.chain = buildChain(this.weapon, this.stack('comboplus'))
+        const k = Math.pow(0.75, this.stack('quickspecial'))
+        p.specialCdMax = this.weapon.special.cooldown * k
+        p.abilityCdMax = { q: this.weapon.abilities[0].cooldown * k, e: this.weapon.abilities[1].cooldown * k }
+        p.dodgeMax = 1 + config.dodgeCharges + this.stack('doubledodge')
+        p.dodgeCharges = p.dodgeMax
+        p.maxHp = save.maxHp
+        p.hp = Math.min(save.maxHp, Math.max(1, save.hp))
+        p.phoenixUsed = save.phoenixUsed
+        this.coins = save.coins
+        this.stats = { ...save.stats }
+        this.time = save.stats.time
+        this.wave = save.wave
+        if (save.offers) {
+            this.offers = save.offers
+                .map(id => UPGRADE_BY_ID[id])
+                .filter((u): u is NonNullable<typeof u> => !!u)
+                .map(u => ({ upgrade: u, stack: this.stack(u.id) + 1 }))
+            this.rerollsLeft = save.rerolled ? 0 : config.rerolls
+            this.rerolled = save.rerolled
+            if (this.offers.length === 0) this.offers = rollOffers(this.wave, p.upgrades, randomFloat, config.offerCount)
+            this.phase = 'upgrade'
+        } else {
+            this.skipOffers = true
+            this.phase = 'calm'
+            this.calmTimer = 1.5
+            this.banner = { text: 'Welcome back', sub: `Wave ${this.wave + 1} is next`, t: 1.5 }
+        }
+    }
+
+    /** A checkpoint of the run as it stands at a wave boundary. */
+    snapshot(): MeadowbrawlRunSave {
+        const p = this.player
+        return {
+            version: MEADOWBRAWL_SAVE_VERSION,
+            wave: this.wave,
+            hp: Math.max(0, Math.round(p.hp * 10) / 10),
+            maxHp: p.maxHp,
+            upgrades: Object.fromEntries(p.upgrades),
+            offers: this.phase === 'upgrade' && this.offers.length ? this.offers.map(o => o.upgrade.id) : null,
+            rerolled: this.rerolled,
+            coins: Math.floor(this.coins),
+            phoenixUsed: p.phoenixUsed,
+            stats: {
+                kills: this.stats.kills,
+                elitesKilled: this.stats.elitesKilled,
+                damageDealt: Math.round(this.stats.damageDealt),
+                damageTaken: Math.round(this.stats.damageTaken),
+                highestCombo: this.stats.highestCombo,
+                time: Math.round(this.time)
+            }
+        }
+    }
+
+    private checkpoint() {
+        if (this.onCheckpoint && this.wave >= 1 && this.wave < TOTAL_WAVES) this.onCheckpoint(this.snapshot())
+    }
+
+    /** Fortune: swap the current offers for fresh ones, once per wave. */
+    rerollOffers(): boolean {
+        if (this.phase !== 'upgrade' || this.rerollsLeft <= 0) return false
+        this.rerollsLeft -= 1
+        this.rerolled = true
+        this.offers = rollOffers(this.wave, this.player.upgrades, randomFloat, this.config.offerCount)
+        this.emit('upgrade')
+        this.checkpoint()
+        return true
+    }
+
+    private resetRun(weapon: WeaponId, config: RunConfig) {
+        this.config = config
         this.world = generateWorld()
         this.rebuildNav()
         this.player = this.makePlayer(weapon)
+        this.companion = config.pet ? makeCompanion(config.pet.id, config.pet.level, this.player.x, this.player.y) : null
+        this.player.maxHp = config.maxHp + (this.companion?.effects.maxHp ?? 0)
+        this.player.hp = this.player.maxHp
+        this.player.dodgeMax = 1 + config.dodgeCharges
+        this.player.dodgeCharges = this.player.dodgeMax
+        this.coins = 0
+        this.coinMult = config.coinMult
+        this.coinDrops = []
+        this.coinStreak = 0
+        this.coinStreakT = 0
+        this.rerollsLeft = 0
+        this.rerolled = false
+        this.skipOffers = false
         this.enemies = []
         this.projectiles = []
         this.particles = []
@@ -740,8 +910,6 @@ export class MeadowbrawlGame {
         this.deathT = 0
         this.paused = false
         this.stats = { kills: 0, damageDealt: 0, damageTaken: 0, highestCombo: 0, time: 0, elitesKilled: 0 }
-        this.wave = 0
-        this.nextWave()
     }
 
     private nextWave() {
@@ -750,6 +918,10 @@ export class MeadowbrawlGame {
         this.waveKills = 0
         this.spawnQueue = buildWave(this.wave, randomFloat)
         this.waveTotal = this.spawnQueue.reduce((s, g) => s + g.count, 0)
+        // The wave's coin pool is split over its regular spawns by budget
+        // weight, so a full clear adds up to exactly the pool.
+        const spent = this.spawnQueue.reduce((s, g) => s + ENEMY_COST[g.type] * g.count, 0)
+        this.coinPer = spent > 0 ? meadowbrawlWaveCoinPool(this.wave) / spent : 0
         this.phase = 'wave'
         const elite = this.spawnQueue.some(g => ENEMY_TYPES[g.type].elite)
         this.banner = { text: `Wave ${this.wave}`, sub: this.wave === TOTAL_WAVES ? 'The last stand' : elite ? 'Something big is coming' : '', t: 2.2 }
@@ -763,6 +935,7 @@ export class MeadowbrawlGame {
         this.applyOffer(offer)
         this.offers = []
         this.emit('upgrade')
+        this.checkpoint()
         this.nextWave()
     }
 
@@ -807,6 +980,8 @@ export class MeadowbrawlGame {
 
     restart() {
         this.phase = 'menu'
+        this.companion = null
+        this.coinDrops = []
         this.enemies = []
         this.projectiles = []
         this.particles = []
@@ -829,7 +1004,7 @@ export class MeadowbrawlGame {
         this.paused = false
     }
 
-    private emit(type: GameEvent['type'], x?: number, y?: number, power?: number, variant?: string) {
+    emit(type: GameEvent['type'], x?: number, y?: number, power?: number, variant?: string) {
         this.events.push({ type, x, y, power, variant })
     }
 
@@ -891,6 +1066,8 @@ export class MeadowbrawlGame {
             this.updateAbilities(sub)
             this.resolveBodies()
         }
+        if (this.companion) updateCompanion(this, this.companion, dt)
+        this.updateCoins(dt)
         this.updateWave(dt)
         this.updateEffects(dt)
         this.clearEdges()
@@ -928,9 +1105,15 @@ export class MeadowbrawlGame {
                 if (this.wave >= TOTAL_WAVES) {
                     this.phase = 'victory'
                     this.emit('victory')
+                } else if (this.skipOffers) {
+                    this.skipOffers = false
+                    this.nextWave()
                 } else {
-                    this.offers = rollOffers(this.wave, this.player.upgrades)
+                    this.offers = rollOffers(this.wave, this.player.upgrades, randomFloat, this.config.offerCount)
+                    this.rerollsLeft = this.config.rerolls
+                    this.rerolled = false
                     this.phase = 'upgrade'
+                    this.checkpoint()
                 }
             }
         }
@@ -965,6 +1148,7 @@ export class MeadowbrawlGame {
             wander: Math.random() * Math.PI * 2, stunT: 0,
             stun: 0, stunMax: STUN_MAX, stunLock: 0, parryT: 0, combo: 0,
             moveT: type === 'briar' ? 4 : type === 'knight' ? 3.5 : 0, brood: [],
+            coin: def.elite ? meadowbrawlEliteCoinBonus(this.wave) : Math.round(this.coinPer * ENEMY_COST[type]),
             veteran, marked: 0
         }
         this.enemies.push(e)
@@ -2056,7 +2240,7 @@ export class MeadowbrawlGame {
         const kb = (opts.knockback ?? 0) * this.knockbackMult * (e.def.elite ? 0.3 : 1)
         e.vx += Math.cos(kbDir) * kb
         e.vy += Math.sin(kbDir) * kb
-        if (direct) this.buildStun(e, dmg, heavy, !!opts.crit, !!opts.finisher)
+        if (direct && e.hp > 0) this.buildStun(e, dmg, heavy, !!opts.crit, !!opts.finisher)
         // The swing's own stagger figure is now only a hit-reaction hint.
         if (opts.stagger) this.setStagger(e, heavy ? FLINCH_MAX : clamp(opts.stagger, FLINCH_MIN, FLINCH_MAX))
 
@@ -2221,6 +2405,7 @@ export class MeadowbrawlGame {
         this.stats.kills += 1
         this.waveKills += 1
         if (e.def.elite) this.stats.elitesKilled += 1
+        this.dropCoins(e, dir)
         this.burst(e.x, e.y, e.def.height * 0.4, e.def.elite ? 40 : 16, 'blood', '#8f0f1c', e.def.elite ? 220 : 150, 0.9, dir)
         this.decals.push({ x: e.x, y: e.y, r: e.def.elite ? 46 : 16 + e.r, color: 'rgba(120,10,20,0.55)', kind: 'blood' })
         this.hitstop = Math.max(this.hitstop, e.def.elite ? 0.16 : 0.05)
@@ -2351,7 +2536,12 @@ export class MeadowbrawlGame {
                 return true
             }
         }
-        let dmg = Math.round(amount * (p.fx.ironSkin > 0 ? 0.4 : 1) * (p.fx.bloodrage > 0 ? 1.25 : 1))
+        if (this.companion && companionAbsorbHit(this, this.companion)) {
+            p.invuln = HURT_GRACE * 0.6
+            return true
+        }
+        const shell = 1 - (this.companion?.effects.damageReduction ?? 0)
+        let dmg = Math.round(amount * (p.fx.ironSkin > 0 ? 0.4 : 1) * (p.fx.bloodrage > 0 ? 1.25 : 1) * shell)
         dmg = Math.max(1, dmg)
         if (p.fx.ironSkin > 0) {
             knockback = 0
@@ -2844,6 +3034,8 @@ export class MeadowbrawlGame {
                     child.y = clamp(e.y + Math.sin(ang) * (e.r + 26), 16, ARENA_H - 16)
                     child.entered = true
                     child.facing = angleTo(child, p)
+                    // Summoned, not scheduled: no share of the wave's pool.
+                    child.coin = 0
                     e.brood.push(child.id)
                     this.burst(child.x, child.y, 0, 10, 'leaf', '#8fd15a', 160, 0.7)
                 }
@@ -3034,6 +3226,99 @@ export class MeadowbrawlGame {
     }
 
     // ---------------------------------------------------------------- effects
+
+    // ------------------------------------------------------------------ coins
+
+    /** Scatter an enemy's bounty as a handful of coins. */
+    private dropCoins(e: Enemy, dir: number) {
+        if (e.coin <= 0) return
+        const count = e.def.elite ? 14 : e.coin >= 60 ? 4 : e.coin >= 25 ? 3 : e.coin >= 10 ? 2 : 1
+        let left = e.coin
+        for (let i = 0; i < count; i++) {
+            const value = i === count - 1 ? left : Math.round(e.coin / count)
+            left -= value
+            if (value <= 0) continue
+            const a = dir + (Math.random() - 0.5) * 2.4
+            const sp = 60 + Math.random() * 120
+            this.coinDrops.push({
+                x: e.x, y: e.y, z: e.def.height * 0.4,
+                vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, vz: 120 + Math.random() * 140,
+                value, life: 24 + Math.random() * 2, seed: Math.random(),
+                size: e.def.elite ? 6 : value >= 30 ? 5.5 : 4.5, magnet: false
+            })
+        }
+        if (this.coinDrops.length > 260) this.coinDrops.splice(0, this.coinDrops.length - 260)
+    }
+
+    private updateCoins(dt: number) {
+        const p = this.player
+        const pull = 90 * (this.companion?.effects.pickupMult ?? 1) + 20 * this.stack('swift')
+        if (this.coinStreakT > 0) {
+            this.coinStreakT -= dt
+            if (this.coinStreakT <= 0) this.coinStreak = 0
+        }
+        for (let i = this.coinDrops.length - 1; i >= 0; i--) {
+            const c = this.coinDrops[i]!
+            c.life -= dt
+            if (c.life <= 0) {
+                this.coinDrops.splice(i, 1)
+                continue
+            }
+            const dx = p.x - c.x
+            const dy = p.y - c.y
+            const d = Math.hypot(dx, dy)
+            if (!c.magnet && c.z < 4 && d < pull) c.magnet = true
+            if (c.magnet) {
+                const sp = Math.min(900, 260 + (pull - Math.min(pull, d)) * 9)
+                c.vx += (dx / (d || 1) * sp - c.vx) * Math.min(1, dt * 12)
+                c.vy += (dy / (d || 1) * sp - c.vy) * Math.min(1, dt * 12)
+                c.z = Math.max(0, c.z - c.z * dt * 6)
+                c.x += c.vx * dt
+                c.y += c.vy * dt
+                if (d < p.r + 10) {
+                    this.coinDrops.splice(i, 1)
+                    this.collectCoin(c)
+                }
+                continue
+            }
+            c.vz -= 520 * dt
+            c.z += c.vz * dt
+            if (c.z <= 0) {
+                c.z = 0
+                c.vz = c.vz < -60 ? -c.vz * 0.45 : 0
+                c.vx *= 0.6
+                c.vy *= 0.6
+            }
+            c.x = clamp(c.x + c.vx * dt, 12, ARENA_W - 12)
+            c.y = clamp(c.y + c.vy * dt, 12, ARENA_H - 12)
+            for (const o of this.world.obstacles) {
+                const ox = c.x - o.x
+                const oy = c.y - o.y
+                const od = Math.hypot(ox, oy)
+                if (od > 0 && od < o.r + 6) {
+                    c.x = o.x + ox / od * (o.r + 6)
+                    c.y = o.y + oy / od * (o.r + 6)
+                }
+            }
+        }
+    }
+
+    private collectCoin(c: Coin) {
+        this.coins += c.value
+        this.coinStreak += 1
+        this.coinStreakT = 0.35
+        const p = this.player
+        this.glow(p.x, p.y, 16, 2, '#ffe38a', 40, 0.4)
+        // One floater per short burst so a pile doesn't wallpaper the screen.
+        const recent = this.floaters.find(f => f.text.startsWith('+') && f.text.endsWith('¢') && f.maxLife - f.life < 0.3)
+        if (recent) {
+            recent.text = `+${Number(recent.text.slice(1, -1)) + c.value}¢`
+            recent.life = recent.maxLife
+        } else {
+            this.floaters.push({ x: p.x + 14, y: p.y, z: 44, text: `+${c.value}¢`, life: 0.7, maxLife: 0.7, color: '#ffd166', size: 12, vx: 8 })
+        }
+        this.emit('coin', p.x, p.y, Math.min(1, this.coinStreak / 12))
+    }
 
     private updateEffects(dt: number) {
         this.shake = Math.max(0, this.shake - dt * 40 * Math.max(0.3, this.shake / 10))

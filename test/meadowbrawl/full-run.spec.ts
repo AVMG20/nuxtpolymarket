@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { writeFileSync } from 'node:fs'
-import { MeadowbrawlGame } from '../../app/utils/meadowbrawl/engine'
+import { DEFAULT_RUN_CONFIG, MeadowbrawlGame } from '../../app/utils/meadowbrawl/engine'
 import { TOTAL_WAVES } from '../../app/utils/meadowbrawl/types'
 
 /**
@@ -12,7 +12,10 @@ import { TOTAL_WAVES } from '../../app/utils/meadowbrawl/types'
 describe('a full run', () => {
     it('clears all thirty waves without anything going non-finite', () => {
         const g = new MeadowbrawlGame()
-        g.startRun('sword')
+        // MB_PET=fox|tortoise|owl runs the bot with a max-level companion.
+        const petId = process.env.MB_PET
+        const pet = petId === 'fox' || petId === 'tortoise' || petId === 'owl' ? { id: petId, level: 10 } : null
+        g.startRun('sword', { ...DEFAULT_RUN_CONFIG, pet })
         const dt = 1 / 60
         const waveTimes: number[] = []
         let waveStart = 0
@@ -81,7 +84,7 @@ describe('a full run', () => {
         }
         waveTimes.push(simulated - waveStart)
 
-        if (process.env.MB_DUMP) writeFileSync(process.env.MB_DUMP, JSON.stringify({ waveTimes: waveTimes.map(t => +t.toFixed(1)), kills: g.stats.kills, elitesSeen: eliteIds.size, elitesKilled: g.stats.elitesKilled, taken: Math.round(g.stats.damageTaken), total: Math.round(simulated) }))
+        if (process.env.MB_DUMP) writeFileSync(process.env.MB_DUMP, JSON.stringify({ waveTimes: waveTimes.map(t => +t.toFixed(1)), kills: g.stats.kills, coins: g.coins, elitesSeen: eliteIds.size, elitesKilled: g.stats.elitesKilled, taken: Math.round(g.stats.damageTaken), total: Math.round(simulated) }))
         expect(g.phase).toBe('victory')
         expect(g.wave).toBe(TOTAL_WAVES)
         expect(g.stats.kills).toBeGreaterThan(300)

@@ -6,6 +6,7 @@ import { GROUND_YS as YS } from './types'
 import type { TreeDeco, WorldLayout } from './world'
 import { WEAPONS } from './weapons'
 import { clamp, lerp } from './geometry'
+import { drawCoin, drawCompanion, drawFeather, drawFireTrail } from './companion-draw'
 
 export const VIEW_W = 1120
 export const VIEW_H = 630
@@ -945,6 +946,40 @@ export class MeadowbrawlRenderer {
         }
         ctx.globalAlpha = 1
 
+        // Companion ground effects: burning trail, the ward's ring underfoot.
+        const c = g.companion
+        if (c) {
+            for (const t of c.trails) drawFireTrail(ctx, t.x, t.y, t.r, t.life / t.maxLife, this.t)
+            if (c.ward) {
+                ctx.save()
+                ctx.globalAlpha = 0.45 + Math.sin(this.t * 5) * 0.15
+                ctx.strokeStyle = '#b8f0a0'
+                ctx.lineWidth = 2
+                ctx.setLineDash([6, 5])
+                ctx.lineDashOffset = -this.t * 30
+                ctx.beginPath()
+                ctx.arc(p.x, p.y, p.r + 12, 0, Math.PI * 2)
+                ctx.stroke()
+                ctx.restore()
+            }
+        }
+        // Coins on the ground get a warm pool of light so they read on grass.
+        if (g.coinDrops.length) {
+            ctx.save()
+            ctx.globalCompositeOperation = 'lighter'
+            for (const coin of g.coinDrops) {
+                if (coin.z > 4) continue
+                const blink = coin.life < 5 && Math.sin(coin.life * 14) < 0
+                if (blink) continue
+                ctx.globalAlpha = 0.14
+                ctx.fillStyle = '#ffd166'
+                ctx.beginPath()
+                ctx.arc(coin.x, coin.y, coin.size * 2.6, 0, Math.PI * 2)
+                ctx.fill()
+            }
+            ctx.restore()
+        }
+
         // Special windup telegraphs for the player (slam / sweep), so the
         // player can see their own reach.
         const s = p.special
@@ -991,6 +1026,27 @@ export class MeadowbrawlRenderer {
             const s = proj(p.x, p.y)
             this.drawPlayer(ctx, p, s.x, s.y)
         } })
+        const c = g.companion
+        if (c) {
+            items.push({ y: c.y, draw: () => {
+                const s = proj(c.x, c.y)
+                drawCompanion(ctx, c, s.x, s.y, this.t)
+            } })
+            const f = c.feather
+            if (f) {
+                items.push({ y: f.y, draw: () => {
+                    const s = proj(f.x, f.y)
+                    drawFeather(ctx, s.x, s.y, f.z, this.t, f.taken, f.life)
+                } })
+            }
+        }
+        for (const coin of g.coinDrops) {
+            if (coin.life < 5 && Math.sin(coin.life * 14) < 0) continue
+            items.push({ y: coin.y, draw: () => {
+                const s = proj(coin.x, coin.y)
+                drawCoin(ctx, coin, s.x, s.y, this.t)
+            } })
+        }
         for (const pr of g.projectiles) {
             items.push({ y: pr.y, draw: () => {
                 const s = proj(pr.x, pr.y, 18)
