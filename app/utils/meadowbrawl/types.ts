@@ -84,7 +84,7 @@ export interface WeaponDef {
     color: string
 }
 
-export type EnemyTypeId = 'grunt' | 'charger' | 'swarmer' | 'shield' | 'ranged' | 'ogre' | 'warlord'
+export type EnemyTypeId = 'grunt' | 'charger' | 'swarmer' | 'shield' | 'ranged' | 'ogre' | 'warlord' | 'briar' | 'knight'
 
 export type Rarity = 'common' | 'rare' | 'epic' | 'weapon'
 
@@ -116,7 +116,7 @@ export type GameEventType =
     | 'swing' | 'hit' | 'heavyHit' | 'kill' | 'block' | 'shieldBreak' | 'hurt' | 'dodge'
     | 'special' | 'waveStart' | 'waveClear' | 'upgrade' | 'death' | 'victory' | 'explode'
     | 'lightning' | 'freeze' | 'burn' | 'telegraph' | 'sprint' | 'eliteSpawn' | 'crit' | 'execute' | 'revive' | 'leap'
-    | 'ability' | 'abilityReady' | 'shieldBlock' | 'ambush' | 'eliteKill'
+    | 'ability' | 'abilityReady' | 'shieldBlock' | 'ambush' | 'eliteKill' | 'stun'
 
 export interface GameEvent {
     type: GameEventType

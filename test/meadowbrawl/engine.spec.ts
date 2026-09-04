@@ -281,13 +281,15 @@ describe('combo chain', () => {
 })
 
 describe('combat', () => {
-    it('a swing damages, knocks back and staggers an enemy in its arc and misses one behind', () => {
+    it('a swing damages, knocks back and flinches an enemy in its arc and misses one behind', () => {
         const g = fresh('sword')
         aimRight(g)
         const front = g.spawnEnemy('grunt', 'north')
         front.x = g.player.x + 40
         front.y = g.player.y
         front.state = 'chase'
+        // Rooted, so the slide we measure is the knockback and nothing else.
+        front.speed = 0
         const behind = g.spawnEnemy('grunt', 'north')
         behind.x = g.player.x - 40
         behind.y = g.player.y
@@ -778,6 +780,8 @@ describe('class abilities', () => {
         e.state = 'chase'
         e.entered = true
         e.attackCd = 0
+        // Rooted: lost in the smoke it otherwise mills out of dagger reach.
+        e.speed = 0
         useQ(g)
         step(g, 0.3)
         expect(g.player.fx.smoke).toBeGreaterThan(0)
@@ -850,5 +854,233 @@ describe('class abilities', () => {
         const before = g.player.abilityCdMax.q
         g.applyOffer({ upgrade: UPGRADE_BY_ID.quickspecial!, stack: 1 })
         expect(g.player.abilityCdMax.q).toBeLessThan(before)
+    })
+})
+
+describe('the stun meter', () => {
+    it('a single sword finisher does not stagger a boss — the meter barely moves', () => {
+        const g = fresh('sword')
+        aimRight(g)
+        const e = g.spawnEnemy('ogre', 'north')
+        e.x = g.player.x + 50
+        e.y = g.player.y
+        e.state = 'chase'
+        e.frozen = 99 // hold it still; we only care about the stagger rule
+        const finisher = WEAPONS.sword.swings[2]!
+        expect(finisher.finisher).toBe(true)
+        const dealt = g.damageEnemy(e, WEAPONS.sword.baseDamage * finisher.damage, {
+            source: g.player, heavy: true, knockback: finisher.knockback, stagger: finisher.stagger, tag: 'melee', finisher: true
+        })
+        expect(dealt).toBeGreaterThan(0)
+        expect(e.state).not.toBe('stagger')
+        expect(e.stun).toBeGreaterThan(0)
+        expect(e.stun).toBeLessThan(e.stunMax * 0.25)
+    })
+
+    it('repeated heavy hits fill the meter, and a full meter breaks the boss for 2.6s', () => {
+        const g = fresh('greataxe')
+        const e = g.spawnEnemy('ogre', 'north')
+        e.x = g.player.x + 60
+        e.y = g.player.y
+        e.state = 'chase'
+        let hits = 0
+        while (e.state !== 'stagger' && hits < 40) {
+            g.damageEnemy(e, e.maxHp * 0.1, { source: g.player, heavy: true, tag: 'melee' })
+            e.hp = e.maxHp // isolate the meter from the health bar
+            hits += 1
+        }
+        expect(hits).toBeGreaterThan(3)
+        expect(hits).toBeLessThan(20)
+        expect(e.state).toBe('stagger')
+        expect(e.stunT).toBeCloseTo(2.6, 5)
+        expect(e.stun).toBe(e.stunMax)
+        expect(g.floaters.some(f => f.text === 'STUNNED')).toBe(true)
+        expect(g.events.some(ev => ev.type === 'stun')).toBe(true)
+        // Stunned enemies eat 30% more.
+        const fresh1 = g.damageEnemy(e, 100, { source: g.player, tag: 'melee' })
+        expect(fresh1).toBe(130)
+    })
+
+    it('locks the meter out after the stun so a boss cannot be chain-stunned', () => {
+        const g = fresh('greataxe')
+        const p = g.player
+        p.maxHp = 1e6
+        p.hp = p.maxHp
+        const e = g.spawnEnemy('ogre', 'north')
+        e.x = p.x + 300
+        e.y = p.y
+        e.state = 'chase'
+        e.entered = true
+        for (let i = 0; i < 40 && e.state !== 'stagger'; i++) {
+            g.damageEnemy(e, e.maxHp * 0.1, { source: p, heavy: true, tag: 'melee' })
+            e.hp = e.maxHp
+        }
+        expect(e.state).toBe('stagger')
+        step(g, 2.9)
+        expect(e.state).not.toBe('stagger')
+        expect(e.stunLock).toBeGreaterThan(0)
+        expect(e.stun).toBe(0)
+        for (let i = 0; i < 10; i++) {
+            g.damageEnemy(e, e.maxHp * 0.1, { source: p, heavy: true, tag: 'melee' })
+            e.hp = e.maxHp
+        }
+        expect(e.stun).toBe(0)
+        expect(e.state).not.toBe('stagger')
+    })
+
+    it('a grunt breaks under a single combo, and shield breaks fill the meter outright', () => {
+        const g = fresh('sword')
+        aimRight(g)
+        const e = g.spawnEnemy('grunt', 'north')
+        e.x = g.player.x + 40
+        e.y = g.player.y
+        e.state = 'chase'
+        e.speed = 0
+        click(g)
+        step(g, 0.3)
+        expect(e.stun).toBeGreaterThan(0)
+        click(g)
+        step(g, 0.4)
+        expect(e.state).toBe('stagger')
+        expect(e.stun).toBe(e.stunMax)
+        expect(e.stunT).toBeCloseTo(1.2, 5)
+
+        const w = g.spawnEnemy('shield', 'north')
+        w.x = g.player.x + 40
+        w.y = g.player.y
+        w.state = 'chase'
+        w.facing = Math.PI
+        g.damageEnemy(w, w.shield!.hp + 1, { source: g.player, heavy: true, tag: 'melee' })
+        expect(w.shield!.broken).toBe(true)
+        expect(w.state).toBe('stagger')
+        expect(w.stun).toBe(w.stunMax)
+    })
+
+    it('flinches never interrupt an elite, only the meter does', () => {
+        const g = fresh('sword')
+        const e = g.spawnEnemy('warlord', 'north')
+        e.x = g.player.x + 60
+        e.y = g.player.y
+        e.state = 'chase'
+        e.shield = null
+        for (let i = 0; i < 3; i++) g.damageEnemy(e, 6, { source: g.player, knockback: 200, stagger: 1.5, tag: 'melee' })
+        expect(e.state).not.toBe('stagger')
+        // Knockback still lands, elites just take less of it.
+        expect(e.vx).toBeGreaterThan(0)
+    })
+})
+
+describe('the new bosses', () => {
+    it('the Briar Matriarch calls a brood, caps it, and stops calling once she dies', () => {
+        const g = fresh('sword')
+        const p = g.player
+        p.maxHp = 1e6
+        p.hp = p.maxHp
+        const b = g.spawnEnemy('briar', 'north')
+        expect(b.def.elite).toBe(true)
+        expect(b.def.poise).toBe(true)
+        b.x = p.x + 240
+        b.y = p.y
+        b.state = 'chase'
+        b.entered = true
+        b.moveT = 0
+        step(g, 2, 1 / 60)
+        const brood = () => g.enemies.filter(e => e.alive && e.type === 'swarmer').length
+        expect(brood()).toBeGreaterThanOrEqual(3)
+        step(g, 30, 1 / 60)
+        expect(brood()).toBeLessThanOrEqual(8)
+        g.damageEnemy(b, b.hp * 2, { source: p, heavy: true, tag: 'melee' })
+        expect(b.alive).toBe(false)
+        expect(g.stats.elitesKilled).toBe(1)
+        const after = brood()
+        step(g, 12, 1 / 60)
+        expect(brood()).toBeLessThanOrEqual(after)
+    })
+
+    it('the Briar Matriarch telegraphs a thorn volley and a root snare', () => {
+        const g = fresh('sword')
+        const p = g.player
+        p.maxHp = 1e6
+        p.hp = p.maxHp
+        const b = g.spawnEnemy('briar', 'north')
+        b.x = p.x + 260
+        b.y = p.y
+        b.state = 'chase'
+        b.entered = true
+        b.moveT = 99 // no brood calls, just the two ranged moves
+        const kinds = new Set<string>()
+        let thorns = false
+        for (let i = 0; i < 60 * 30; i++) {
+            g.update(1 / 60)
+            if (b.state === 'windup' && b.attack) kinds.add(b.attack.kind)
+            if (g.projectiles.filter(pr => pr.owner === 'enemy').length >= 5) thorns = true
+            if (kinds.has('volley') && kinds.has('snare') && thorns) break
+        }
+        expect(kinds.has('volley')).toBe(true)
+        expect(kinds.has('snare')).toBe(true)
+        // The volley goes out five thorns wide.
+        expect(thorns).toBe(true)
+    })
+
+    it('the Hollow Knight parries a hit for zero damage and ripostes', () => {
+        const g = fresh('sword')
+        const p = g.player
+        p.maxHp = 1e6
+        p.hp = p.maxHp
+        const k = g.spawnEnemy('knight', 'north')
+        expect(k.def.elite).toBe(true)
+        k.x = p.x + 150
+        k.y = p.y
+        k.state = 'chase'
+        k.entered = true
+        k.moveT = 0
+        for (let i = 0; i < 120 && k.parryT <= 0; i++) g.update(1 / 60)
+        expect(k.parryT).toBeGreaterThan(0)
+        const hp = k.hp
+        expect(g.damageEnemy(k, 80, { source: p, heavy: true, tag: 'melee' })).toBe(0)
+        expect(k.hp).toBe(hp)
+        expect(k.parryT).toBe(0)
+        expect(k.state).toBe('windup')
+        expect(k.attack!.kind).toBe('melee')
+        expect(k.attack!.damage).toBeCloseTo(k.damage * 1.5, 5)
+        expect(g.floaters.some(f => f.text === 'PARRY')).toBe(true)
+    })
+
+    it('the Hollow Knight shadow-steps in from range and chains a three-hit combo', () => {
+        const g = fresh('sword')
+        const p = g.player
+        p.maxHp = 1e6
+        p.hp = p.maxHp
+        // Clear line of sight so the blink is the only thing under test.
+        g.world.obstacles = []
+        g.rebuildNav()
+        const k = g.spawnEnemy('knight', 'north')
+        k.x = p.x + 420
+        k.y = p.y
+        k.state = 'chase'
+        k.entered = true
+        k.moveT = 99 // no parry stance, we want the blink
+        k.attackCd = 0
+        let blinked = false
+        let px = k.x
+        let py = k.y
+        for (let i = 0; i < 60 && !blinked; i++) {
+            g.update(1 / 60)
+            if (Math.hypot(k.x - px, k.y - py) > 120) blinked = true
+            px = k.x
+            py = k.y
+        }
+        expect(blinked).toBe(true)
+        expect(Math.hypot(k.x - p.x, k.y - p.y)).toBeLessThan(200)
+        let swings = 0
+        let last = k.combo
+        for (let i = 0; i < 60 * 6; i++) {
+            g.update(1 / 60)
+            if (k.combo !== last) {
+                swings += 1
+                last = k.combo
+            }
+        }
+        expect(swings).toBeGreaterThanOrEqual(3)
     })
 })

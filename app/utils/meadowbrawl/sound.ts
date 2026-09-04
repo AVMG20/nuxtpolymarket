@@ -278,12 +278,27 @@ export class MeadowbrawlSound {
                 this.tone(200, 0.25, { type: 'sawtooth', gain: 0.12, to: 50 })
                 if (ev.variant === 'ranged') this.hiss(0.4, { gain: 0.1, from: 600, to: 2400, q: 0.5 })
                 if (ev.variant === 'swarmer') this.tone(900, 0.12, { type: 'triangle', gain: 0.06, to: 300 })
+                if (ev.variant === 'briar') this.hiss(0.5, { gain: 0.16, from: 2400, to: 300, q: 0.6 })
+                if (ev.variant === 'knight') this.tone(1300, 0.2, { type: 'square', gain: 0.08, to: 260 })
                 break
             case 'eliteKill':
                 this.tone(55, 1.4, { type: 'sine', gain: 0.4, to: 25 })
                 this.hiss(1.0, { gain: 0.3, from: 2000, to: 120, type: 'lowpass' })
                 this.chord([196, 233, 294, 392], 1.2, 'triangle', 0.1, 0.12)
+                if (ev.variant === 'briar') this.hiss(0.9, { gain: 0.18, from: 3000, to: 400, q: 0.6, delay: 0.1 })
+                if (ev.variant === 'knight') for (let i = 0; i < 5; i++) this.tone(700 + i * 210, 0.18, { type: 'square', gain: 0.06, to: 160, delay: 0.12 + i * 0.09 })
                 break
+            case 'stun': {
+                // A shell cracking, then the weight of it hitting the ground.
+                if (!this.throttle('stun', 60)) return
+                const big = power > 0.8
+                this.tone(1500, 0.07, { type: 'square', gain: 0.13, to: 300 })
+                this.hiss(0.3, { gain: 0.26, from: 3600, to: 260, q: 0.8 })
+                this.tone(56, big ? 0.7 : 0.4, { type: 'sine', gain: 0.45, to: 22 })
+                this.tone(140, 0.24, { type: 'triangle', gain: 0.2, to: 44, delay: 0.03 })
+                if (big) this.chord([98, 117, 147], 0.8, 'sawtooth', 0.07, 0.05)
+                break
+            }
             case 'block':
                 if (!this.throttle('block', 60)) return
                 this.tone(1800 + Math.random() * 400, 0.1, { type: 'square', gain: 0.08, to: 1200 })
@@ -317,6 +332,16 @@ export class MeadowbrawlSound {
                     this.hiss(0.12, { gain: 0.14, from: 3000, to: 800, q: 1.5 })
                     this.tone(120, 0.15, { type: 'triangle', gain: 0.18, to: 50 })
                 }
+                if (ev.variant === 'briar') {
+                    // Wet, woody: bramble tearing out of the ground.
+                    this.hiss(0.35, { gain: 0.18, from: 1600, to: 220, q: 0.7 })
+                    this.tone(150, 0.3, { type: 'triangle', gain: 0.16, to: 55 })
+                }
+                if (ev.variant === 'knight') {
+                    // Cloth and steel: the blink.
+                    this.hiss(0.28, { gain: 0.16, from: 500, to: 4000, q: 0.7 })
+                    this.tone(880, 0.22, { type: 'sine', gain: 0.07, to: 1760 })
+                }
                 break
             case 'ability':
                 this.ability(ev.variant ?? '')
@@ -348,6 +373,12 @@ export class MeadowbrawlSound {
                 this.hiss(0.25, { gain: 0.07, from: 900, to: 400, q: 0.5 })
                 break
             case 'telegraph':
+                if (ev.variant === 'knight' && power > 0.8) {
+                    // Parry stance: a bright, held ring of steel.
+                    this.tone(2100, 0.5, { type: 'sine', gain: 0.07, to: 2400 })
+                    this.tone(1400, 0.4, { type: 'triangle', gain: 0.05, delay: 0.05 })
+                    return
+                }
                 if (!this.throttle('telegraph', 90)) return
                 if (power > 0.8) this.tone(60, 0.5, { type: 'sawtooth', gain: 0.12, to: 40 })
                 else this.tone(320, 0.05, { type: 'triangle', gain: 0.04, to: 260 })

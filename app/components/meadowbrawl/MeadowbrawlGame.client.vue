@@ -40,7 +40,7 @@ const hud = reactive({
     chainLength: 3,
     comboTimer: 0,
     inCombo: false,
-    elites: [] as { id: number, name: string, hp: number, max: number }[],
+    elites: [] as { id: number, name: string, hp: number, max: number, stun: number, stunMax: number, stunLock: number }[],
     bloodlust: 0,
     banner: '',
     bannerSub: '',
@@ -77,8 +77,8 @@ function syncHud() {
     hud.inCombo = !!p.attack || p.comboTimer > 0
     hud.sprinting = p.sprinting
     const elites = game.elites
-    if (elites.length !== hud.elites.length || elites.some((e, i) => hud.elites[i]!.id !== e.id || hud.elites[i]!.hp !== e.hp)) {
-        hud.elites = elites.map(e => ({ id: e.id, name: e.def.name, hp: Math.max(0, e.hp), max: e.maxHp }))
+    if (elites.length !== hud.elites.length || elites.some((e, i) => hud.elites[i]!.id !== e.id || hud.elites[i]!.hp !== e.hp || hud.elites[i]!.stun !== e.stun || hud.elites[i]!.stunLock !== e.stunLock)) {
+        hud.elites = elites.map(e => ({ id: e.id, name: e.def.name, hp: Math.max(0, e.hp), max: e.maxHp, stun: e.stun, stunMax: e.stunMax, stunLock: e.stunLock }))
     }
     hud.bloodlust = p.bloodlust
     const wdef = WEAPONS[p.weapon]
@@ -485,6 +485,14 @@ const showHint = computed(() => hud.phase === 'wave' && hud.wave === 1)
             </div>
             <div class="h-3 rounded bg-black/60 ring-1 ring-black/70 overflow-hidden">
               <div class="h-full bg-gradient-to-r from-red-800 via-red-500 to-orange-400 transition-[width] duration-150" :style="{ width: `${e.hp / Math.max(1, e.max) * 100}%` }" />
+            </div>
+            <!-- Poise meter: fill it to break them, then it locks out. -->
+            <div class="mt-0.5 h-1.5 rounded bg-black/60 ring-1 ring-black/70 overflow-hidden">
+              <div
+                class="h-full transition-[width] duration-150"
+                :class="e.stunLock > 0 ? 'bg-white/25' : 'bg-gradient-to-r from-amber-600 to-amber-300'"
+                :style="{ width: `${e.stunLock > 0 ? 100 : e.stun / Math.max(1, e.stunMax) * 100}%` }"
+              />
             </div>
           </div>
         </div>

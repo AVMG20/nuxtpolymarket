@@ -85,7 +85,7 @@ describe('a full run', () => {
         expect(g.phase).toBe('victory')
         expect(g.wave).toBe(TOTAL_WAVES)
         expect(g.stats.kills).toBeGreaterThan(300)
-        expect(g.stats.elitesKilled).toBe(14)
+        expect(g.stats.elitesKilled).toBe(20)
         // Waves 1–3 are short lessons; nothing should drag on, and the
         // two-elite finale gets a little more room.
         for (const [i, t] of waveTimes.entries()) {

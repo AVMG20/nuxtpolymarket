@@ -113,7 +113,7 @@ export interface Player {
     abilityCd: { q: number, e: number }
     abilityCdMax: { q: number, e: number }
     /** Timed class effects, seconds remaining. */
-    fx: { shieldWall: number, rally: number, bloodrage: number, ironSkin: number, smoke: number }
+    fx: { shieldWall: number, rally: number, bloodrage: number, ironSkin: number, smoke: number, snared: number }
     /** Skewer Charge in flight. */
     skewer: { t: number, dur: number, dx: number, dy: number, carried: number[], hitIds: Set<number> } | null
     /** True while the axe is thrown (hand is empty). */
@@ -121,7 +121,7 @@ export interface Player {
 }
 
 export interface EnemyAttack {
-    kind: 'melee' | 'charge' | 'shot' | 'slam' | 'spin'
+    kind: 'melee' | 'charge' | 'shot' | 'slam' | 'spin' | 'volley' | 'snare' | 'brood' | 'parry'
     windup: number
     dir: number
     reach: number
@@ -137,6 +137,9 @@ export interface EnemyAttack {
     hit: boolean
     /** Forward lunge on melee release. */
     lunge: number
+    /** Ground-targeted attacks (Root Snare) remember where they were aimed. */
+    tx?: number
+    ty?: number
 }
 
 export interface Enemy {
@@ -173,6 +176,19 @@ export interface Enemy {
     wander: number
     /** Remaining stagger time while in the stagger state. */
     stunT: number
+    /** Poise-break meter, 0..stunMax. Filling it is the only real stagger. */
+    stun: number
+    stunMax: number
+    /** Seconds after a stun during which the meter refuses to build. */
+    stunLock: number
+    /** Hollow Knight: seconds of active parry stance. */
+    parryT: number
+    /** Multi-hit boss combos: which swing of the chain comes next. */
+    combo: number
+    /** Cooldown on the signature move (Brood Call, Parry, Shadow Step). */
+    moveT: number
+    /** Enemy ids this one has summoned (Briar Matriarch's brood). */
+    brood: number[]
     /** Late-game variant: bigger, tougher, hits harder. */
     veteran: boolean
     /** Death Mark seconds remaining. */
@@ -412,6 +428,34 @@ const NAV_COLS = Math.ceil(ARENA_W / NAV_CELL)
 const NAV_ROWS = Math.ceil(ARENA_H / NAV_CELL)
 const NAV_STEPS: [number, number][] = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]]
 
+// --------------------------------------------------------------- stun meter
+//
+// Nothing staggers an elite or a poise enemy except a full meter. Every hit
+// contributes a share of the target's own health pool, so a grunt breaks in
+// about one combo while a boss needs a sustained beating; when the stun ends
+// the meter locks out for several seconds, which is what stops a greataxe
+// from chain-stunning a boss to death.
+const STUN_MAX = 100
+/** Meter per point of damage, as a fraction of the target's max health. */
+const STUN_GAIN_ELITE = 0.55
+const STUN_GAIN_REGULAR = 1.6
+/** No single hit may fill more than this much of the meter. */
+const STUN_GAIN_CAP = 60
+const STUN_DUR_ELITE = 2.6
+const STUN_DUR_REGULAR = 1.2
+const STUN_LOCK_ELITE = 6
+const STUN_LOCK_REGULAR = 3
+/** Damage taken while stunned. */
+const STUN_VULN = 1.3
+/** Hit-reaction flinch on ordinary enemies, seconds. */
+const FLINCH_MIN = 0.1
+const FLINCH_MAX = 0.15
+
+/** Distance the Briar Matriarch tries to hold. */
+const BRIAR_RANGE = 220
+/** Spriglings she may have on the field at once. */
+const BRIAR_BROOD_CAP = 8
+
 export class MeadowbrawlGame {
     phase: Phase = 'menu'
     paused = false
@@ -609,7 +653,7 @@ export class MeadowbrawlGame {
             upgrades: new Map(), lastMoveX: 1, lastMoveY: 0,
             hitCount: 0, bloodlust: 0, bloodlustT: 0, phoenixUsed: 0, adrenalineT: 0, z: 0,
             abilityCd: { q: 0, e: 0 }, abilityCdMax: { q: WEAPONS[weapon].abilities[0].cooldown, e: WEAPONS[weapon].abilities[1].cooldown },
-            fx: { shieldWall: 0, rally: 0, bloodrage: 0, ironSkin: 0, smoke: 0 },
+            fx: { shieldWall: 0, rally: 0, bloodrage: 0, ironSkin: 0, smoke: 0, snared: 0 },
             skewer: null, axeOut: false
         }
     }
@@ -918,7 +962,10 @@ export class MeadowbrawlGame {
             slow: 0, slowT: 0, frozen: 0, burn: null,
             hitFlash: 0, squash: 0, walk: Math.random() * 10, seed: Math.random(),
             alive: true, deadT: 0, entered: false, sprintHitCd: 0,
-            wander: Math.random() * Math.PI * 2, stunT: 0, veteran, marked: 0
+            wander: Math.random() * Math.PI * 2, stunT: 0,
+            stun: 0, stunMax: STUN_MAX, stunLock: 0, parryT: 0, combo: 0,
+            moveT: type === 'briar' ? 4 : type === 'knight' ? 3.5 : 0, brood: [],
+            veteran, marked: 0
         }
         this.enemies.push(e)
         this.burst(e.x, e.y, 0, 8, 'dust', '#b9a77a', 60, 0.5)
@@ -1070,7 +1117,7 @@ export class MeadowbrawlGame {
             p.lastMoveY = my
         }
         p.moving = ml > 0
-        let speed = PLAYER_SPEED * this.moveSpeed
+        let speed = PLAYER_SPEED * this.moveSpeed * (p.fx.snared > 0 ? 0.55 : 1)
         let vx = 0
         let vy = 0
 
@@ -1357,7 +1404,7 @@ export class MeadowbrawlGame {
             this.emit('ambush', e.x, e.y)
         }
         const dealt = this.damageEnemy(e, dmg, {
-            source: p, heavy: heavy || ambush, knockback: def.knockback * (crit ? 1.4 : 1), stagger: def.stagger, tag: 'melee', crit
+            source: p, heavy: heavy || ambush, knockback: def.knockback * (crit ? 1.4 : 1), stagger: def.stagger, tag: 'melee', crit, finisher: !!def.finisher
         })
         if (dealt > 0) {
             p.comboHits += 1
@@ -1365,7 +1412,7 @@ export class MeadowbrawlGame {
             p.hitCount += 1
             const echo = this.stack('echo')
             if (echo > 0 && p.hitCount % 3 === 0 && e.alive) {
-                this.damageEnemy(e, dmg * (0.7 + 0.15 * (echo - 1)), { source: p, heavy, knockback: def.knockback * 0.5, stagger: def.stagger, tag: 'echo', color: '#9fe3ff' })
+                this.damageEnemy(e, dmg * (0.7 + 0.15 * (echo - 1)), { source: p, heavy, knockback: def.knockback * 0.5, stagger: def.stagger, tag: 'echo', color: '#9fe3ff', finisher: !!def.finisher })
                 this.impacts.push({ x: e.x, y: e.y, z: e.def.height * 0.5, life: 0.25, maxLife: 0.25, size: 26, color: '#9fe3ff', kind: 'slash', angle: p.aim + 0.8 })
             }
         }
@@ -1403,7 +1450,7 @@ export class MeadowbrawlGame {
                 this.shake = Math.max(this.shake, 6)
                 for (const e of this.enemies) {
                     if (e.alive && inCircle(p, 140, e, e.r)) {
-                        this.setStagger(e, 0.7, true)
+                        this.setStagger(e, 0.7)
                         e.vx += (e.x - p.x) * 3
                         e.vy += (e.y - p.y) * 3
                     }
@@ -1524,6 +1571,7 @@ export class MeadowbrawlGame {
                 e.state = 'stagger'
                 e.stunT = Math.max(e.stunT, 0.5)
                 e.stateT = 0
+                e.attack = null
             }
             if (s.t >= s.dur) {
                 const base = w.baseDamage * this.damageMult * w.abilities[0].damage
@@ -1715,7 +1763,7 @@ export class MeadowbrawlGame {
                     const pull = Math.min(d - e.r - p.r - 10, 900)
                     e.vx += (p.x - e.x) / d * pull * 2.2
                     e.vy += (p.y - e.y) / d * pull * 2.2
-                    this.setStagger(e, 0.35, true)
+                    this.setStagger(e, 0.35)
                 }
             }
         }
@@ -1925,7 +1973,10 @@ export class MeadowbrawlGame {
         source: Vec
         heavy?: boolean
         knockback?: number
+        /** Hit-reaction flinch hint. Only ordinary enemies ever flinch. */
         stagger?: number
+        /** Combo finishers put extra weight behind the stun meter. */
+        finisher?: boolean
         tag: 'melee' | 'special' | 'proj' | 'sprint' | 'whirl' | 'shock' | 'lightning' | 'burn' | 'explode' | 'echo' | 'thorns' | 'thunder' | 'blossom'
         bypassShield?: boolean
         color?: string
@@ -1934,6 +1985,10 @@ export class MeadowbrawlGame {
         if (!e.alive) return 0
         const heavy = !!opts.heavy
         const angleFromEnemy = angleTo(e, opts.source)
+        if (e.parryT > 0 && (opts.tag === 'melee' || opts.tag === 'special' || opts.tag === 'echo')) {
+            this.parryRiposte(e, angleFromEnemy)
+            return 0
+        }
         const direct = opts.tag === 'melee' || opts.tag === 'special' || opts.tag === 'proj' || opts.tag === 'sprint' || opts.tag === 'whirl' || opts.tag === 'echo' || opts.tag === 'blossom'
         // Echoes and blossoms are already the product of a proc; they hit
         // hard but don't cascade.
@@ -1949,12 +2004,12 @@ export class MeadowbrawlGame {
                         e.shield.broken = true
                         this.floaters.push({ x: e.x, y: e.y, z: e.def.height + 6, text: 'BREAK', life: 0.9, maxLife: 0.9, color: '#ffd166', size: 18, vx: 0 })
                         this.burst(e.x, e.y, 16, 14, 'chip', '#8c7a5a', 200, 0.6)
-                        this.setStagger(e, 1.0, true)
+                        this.addStun(e, STUN_MAX)
                         this.hitstop = Math.max(this.hitstop, 0.07)
                         this.shake = Math.max(this.shake, 7)
                         this.emit('shieldBreak', e.x, e.y)
                     } else {
-                        this.setStagger(e, 0.15, true)
+                        this.setStagger(e, FLINCH_MAX)
                         this.hitstop = Math.max(this.hitstop, 0.03)
                         this.emit('block', e.x, e.y)
                     }
@@ -1970,6 +2025,7 @@ export class MeadowbrawlGame {
         let dmg = amount
         if (e.frozen > 0) dmg *= 1.25
         if (e.marked > 0) dmg *= 1.4
+        if (e.state === 'stagger' && e.stunT > 0) dmg *= STUN_VULN
         const execute = this.stack('execute')
         let executed = false
         if (execute > 0 && direct) {
@@ -2000,7 +2056,9 @@ export class MeadowbrawlGame {
         const kb = (opts.knockback ?? 0) * this.knockbackMult * (e.def.elite ? 0.3 : 1)
         e.vx += Math.cos(kbDir) * kb
         e.vy += Math.sin(kbDir) * kb
-        if (opts.stagger) this.setStagger(e, opts.stagger * (1 + 0.35 * this.stack('bruiser')), heavy)
+        if (direct) this.buildStun(e, dmg, heavy, !!opts.crit, !!opts.finisher)
+        // The swing's own stagger figure is now only a hit-reaction hint.
+        if (opts.stagger) this.setStagger(e, heavy ? FLINCH_MAX : clamp(opts.stagger, FLINCH_MIN, FLINCH_MAX))
 
         if (direct) {
             const big = heavy || !!opts.crit
@@ -2023,14 +2081,62 @@ export class MeadowbrawlGame {
         return dmg
     }
 
-    private setStagger(e: Enemy, seconds: number, heavy: boolean) {
-        if (e.def.poise && !heavy) return
-        const dur = e.def.poise ? seconds * 0.5 : seconds
+    /**
+     * A hit reaction. Elites and poise enemies shrug these off entirely —
+     * the only thing that interrupts them is a full stun meter.
+     */
+    private setStagger(e: Enemy, seconds: number) {
+        if (e.def.poise || e.def.elite) return
         if (e.state === 'dead' || e.state === 'spawn') return
-        e.stunT = Math.max(e.state === 'stagger' ? e.stunT - e.stateT : 0, dur)
+        e.stunT = Math.max(e.state === 'stagger' ? e.stunT - e.stateT : 0, seconds)
         e.state = 'stagger'
         e.stateT = 0
         e.attack = null
+    }
+
+    /** Feed the poise meter. Share of the target's own pool, per hit. */
+    private buildStun(e: Enemy, dmg: number, heavy: boolean, crit: boolean, finisher: boolean) {
+        const base = Math.min(STUN_GAIN_CAP, dmg / Math.max(1, e.maxHp) * 100 * (e.def.elite ? STUN_GAIN_ELITE : STUN_GAIN_REGULAR))
+        const mods = (heavy ? 2 : 1) * (crit ? 1.5 : 1) * (finisher ? 1.5 : 1) * (1 + 0.35 * this.stack('bruiser'))
+        this.addStun(e, base * mods)
+    }
+
+    /** Add to the meter, and break the enemy the moment it tops out. */
+    addStun(e: Enemy, amount: number) {
+        if (!e.alive || e.state === 'dead' || e.state === 'spawn') return
+        if (e.stunLock > 0 || (e.state === 'stagger' && e.stunT > 0)) return
+        e.stun = Math.min(e.stunMax, e.stun + amount)
+        if (e.stun >= e.stunMax) this.stunEnemy(e)
+    }
+
+    /** Meter full: a real, poise-ignoring stun with a vulnerability window. */
+    private stunEnemy(e: Enemy) {
+        e.stun = e.stunMax
+        e.stunT = e.def.elite ? STUN_DUR_ELITE : STUN_DUR_REGULAR
+        e.state = 'stagger'
+        e.stateT = 0
+        e.attack = null
+        e.parryT = 0
+        e.combo = 0
+        this.floaters.push({ x: e.x, y: e.y, z: e.def.height + 14, text: 'STUNNED', life: 1, maxLife: 1, color: '#ffd166', size: e.def.elite ? 20 : 15, vx: 0 })
+        this.rings.push({ x: e.x, y: e.y, r0: 6, r1: e.r * 3.2, life: 0.4, maxLife: 0.4, color: '#ffe9a8', width: 9 })
+        this.impacts.push({ x: e.x, y: e.y, z: e.def.height * 0.6, life: 0.3, maxLife: 0.3, size: e.def.elite ? 60 : 34, color: '#fff3c4', kind: 'ring', angle: 0 })
+        this.burst(e.x, e.y, e.def.height * 0.5, e.def.elite ? 18 : 8, 'spark', '#ffe9a8', 220, 0.5)
+        this.hitstop = Math.max(this.hitstop, e.def.elite ? 0.12 : 0.05)
+        this.shake = Math.max(this.shake, e.def.elite ? 12 : 5)
+        this.emit('stun', e.x, e.y, e.def.elite ? 1 : 0.5, e.type)
+    }
+
+    /** Hollow Knight turns a blocked blow into a thrust of his own. */
+    private parryRiposte(e: Enemy, angleFromEnemy: number) {
+        e.parryT = 0
+        e.facing = angleFromEnemy
+        this.floaters.push({ x: e.x, y: e.y, z: e.def.height + 10, text: 'PARRY', life: 0.8, maxLife: 0.8, color: '#bcd3ff', size: 16, vx: 0 })
+        this.burst(e.x + Math.cos(angleFromEnemy) * e.r, e.y + Math.sin(angleFromEnemy) * e.r, e.def.height * 0.5, 12, 'spark', '#dbe9ff', 240, 0.35)
+        this.impacts.push({ x: e.x, y: e.y, z: e.def.height * 0.6, life: 0.2, maxLife: 0.2, size: 30, color: '#bcd3ff', kind: 'burst', angle: angleFromEnemy })
+        this.hitstop = Math.max(this.hitstop, 0.06)
+        this.emit('shieldBlock', e.x, e.y, 1, 'knight')
+        this.beginAttack(e, { kind: 'melee', windup: 0.22, reach: 104, halfAngle: 0.42, damage: e.damage * 1.5, knockback: 260, recover: 0.5, tracking: 0.9, lunge: 46 }, angleFromEnemy)
     }
 
     private onHitProcs(e: Enemy, dmg: number, tag: string) {
@@ -2135,6 +2241,32 @@ export class MeadowbrawlGame {
                 this.slowmo = Math.max(this.slowmo, 0.55)
                 this.emit('eliteKill', e.x, e.y)
                 break
+            case 'briar':
+                // The thicket comes apart: leaves, spores, a burst of petals.
+                this.burst(e.x, e.y, 30, 30, 'leaf', '#7fbf4a', 260, 1.3)
+                this.burst(e.x, e.y, 24, 20, 'spore', '#d9a6ff', 120, 1.6)
+                this.burst(e.x, e.y, 18, 18, 'petal', '#ff6b8a', 200, 1.1)
+                for (let i = 0; i < 10; i++) {
+                    const ang = i / 10 * Math.PI * 2
+                    this.spikes.push({ x: e.x + Math.cos(ang) * 44, y: e.y + Math.sin(ang) * 44, life: 0.6, maxLife: 0.6, angle: ang, size: 24 })
+                }
+                this.rings.push({ x: e.x, y: e.y, r0: 12, r1: 200, life: 0.5, maxLife: 0.5, color: '#8fd15a', width: 10 })
+                this.glow(e.x, e.y, 26, 26, '#9be07a', 200, 1.0)
+                this.flash = 0.6
+                this.slowmo = Math.max(this.slowmo, 0.55)
+                this.emit('eliteKill', e.x, e.y, 1, 'briar')
+                break
+            case 'knight':
+                // Empty armour: the plates clatter and the light goes out.
+                this.burst(e.x, e.y, 26, 24, 'chip', '#9aa3b8', 280, 1.1)
+                this.burst(e.x, e.y, 30, 14, 'smoke', '#241f36', 120, 1.2)
+                this.burst(e.x, e.y, 22, 12, 'spark', '#cfe2ff', 240, 0.5)
+                this.rings.push({ x: e.x, y: e.y, r0: 8, r1: 170, life: 0.45, maxLife: 0.45, color: '#bcd3ff', width: 8 })
+                this.glow(e.x, e.y, 26, 26, '#9fb4ff', 180, 1.0)
+                this.flash = 0.6
+                this.slowmo = Math.max(this.slowmo, 0.55)
+                this.emit('eliteKill', e.x, e.y, 1, 'knight')
+                break
         }
         if (e.marked > 0) {
             for (let i = 0; i < 3; i++) {
@@ -2211,7 +2343,7 @@ export class MeadowbrawlGame {
                 this.shake = Math.max(this.shake, 4)
                 this.emit('shieldBlock', p.x, p.y)
                 if (attacker?.alive) {
-                    this.setStagger(attacker, 0.9, true)
+                    this.setStagger(attacker, 0.9)
                     attacker.vx += Math.cos(p.facing) * 260
                     attacker.vy += Math.sin(p.facing) * 260
                     this.damageEnemy(attacker, this.weapon.baseDamage * this.damageMult * this.weapon.abilities[0].damage, { source: p, heavy: true, knockback: 0, stagger: 0.9, tag: 'special' })
@@ -2310,6 +2442,11 @@ export class MeadowbrawlGame {
             e.squash = Math.max(0, e.squash - dt * 6)
             e.attackCd = Math.max(0, e.attackCd - dt)
             e.sprintHitCd = Math.max(0, e.sprintHitCd - dt)
+            e.stunLock = Math.max(0, e.stunLock - dt)
+            e.parryT = Math.max(0, e.parryT - dt)
+            e.moveT = Math.max(0, e.moveT - dt)
+            // Out of combat the meter bleeds off so nothing stays primed.
+            if (e.state !== 'stagger' && e.stunLock <= 0 && e.stun > 0) e.stun = Math.max(0, e.stun - dt * 6)
             if (e.slowT > 0) {
                 e.slowT -= dt
                 if (e.slowT <= 0) e.slow = 0
@@ -2357,6 +2494,11 @@ export class MeadowbrawlGame {
                         e.stateT = 0
                         e.stunT = 0
                         e.attackCd = Math.max(e.attackCd, 0.35)
+                        // Coming out of a real break, the meter goes cold.
+                        if (e.stun >= e.stunMax) {
+                            e.stun = 0
+                            e.stunLock = e.def.elite ? STUN_LOCK_ELITE : STUN_LOCK_REGULAR
+                        }
                     }
                     break
                 case 'recover':
@@ -2491,17 +2633,7 @@ export class MeadowbrawlGame {
         const ready = e.attackCd <= 0
         const dmg = e.damage
 
-        const begin = (a: Partial<EnemyAttack> & { kind: EnemyAttack['kind'], windup: number }) => {
-            e.attack = {
-                kind: a.kind, windup: a.windup, dir: toP, reach: a.reach ?? 50, halfAngle: a.halfAngle ?? 1,
-                radius: a.radius ?? 0, damage: a.damage ?? dmg, knockback: a.knockback ?? 160, recover: a.recover ?? 0.5,
-                tracking: a.tracking ?? 0.6, chargeT: 0, chargeDur: a.chargeDur ?? 0.6, chargeSpeed: a.chargeSpeed ?? 540,
-                hit: false, lunge: a.lunge ?? 0
-            }
-            e.state = 'windup'
-            e.stateT = 0
-            this.emit('telegraph', e.x, e.y, a.kind === 'slam' ? 1 : 0.4)
-        }
+        const begin = (a: Partial<EnemyAttack> & { kind: EnemyAttack['kind'], windup: number }) => this.beginAttack(e, a, toP)
 
         switch (e.type) {
             case 'grunt':
@@ -2551,6 +2683,40 @@ export class MeadowbrawlGame {
                     begin({ kind: 'charge', windup: 0.6, chargeDur: 0.55, chargeSpeed: 540, knockback: 340, recover: 0.8, tracking: 0.75 })
                 }
                 break
+            case 'briar': {
+                // She wants the middle distance: thorns and roots from range,
+                // brood between them, and she backs off when you close.
+                if (!this.finalRush && d < BRIAR_RANGE - 50) {
+                    mx = -mx
+                    my = -my
+                } else if (d <= BRIAR_RANGE + 90 && !this.finalRush) {
+                    const sway = Math.sin(e.wander + this.time * 0.9)
+                    mx = mx * 0.2 + Math.cos(toP + Math.PI / 2) * sway * 0.8
+                    my = my * 0.2 + Math.sin(toP + Math.PI / 2) * sway * 0.8
+                }
+                if (e.moveT <= 0 && this.broodAlive(e) < BRIAR_BROOD_CAP) {
+                    e.moveT = 9
+                    begin({ kind: 'brood', windup: 0.7, recover: 0.7, damage: 0, tracking: 0 })
+                } else if (ready && d < 460) {
+                    if (randomChance(0.4)) begin({ kind: 'snare', windup: 0.8, radius: 92, damage: dmg, knockback: 140, recover: 0.7, tracking: 0, tx: p.x, ty: p.y })
+                    else begin({ kind: 'volley', windup: 0.9, damage: dmg * 0.55, recover: 0.6, tracking: 0.7 })
+                }
+                break
+            }
+            case 'knight':
+                if (e.moveT <= 0 && d < 300) {
+                    // Blade up: hit him now and he answers with the point.
+                    e.moveT = 7
+                    begin({ kind: 'parry', windup: 0.35, recover: 0.9, damage: 0, tracking: 0.9 })
+                } else if (ready && los && d > 260) {
+                    this.shadowStep(e)
+                } else if (ready && d < 92 + p.r) {
+                    const step = e.combo % 3
+                    if (step === 2) begin({ kind: 'melee', windup: 0.34, reach: 112, halfAngle: 0.8, damage: dmg * 1.3, knockback: 340, recover: 0.7, tracking: 0.5, lunge: 64 })
+                    else if (step === 1) begin({ kind: 'melee', windup: 0.24, reach: 88, halfAngle: 1.15, damage: dmg * 0.75, knockback: 180, recover: 0.32, tracking: 0.5, lunge: 14 })
+                    else begin({ kind: 'melee', windup: 0.34, reach: 90, halfAngle: 0.85, damage: dmg * 0.8, knockback: 180, recover: 0.32, lunge: 24 })
+                }
+                break
         }
 
         // Slide along anything we're brushing against instead of grinding
@@ -2568,6 +2734,18 @@ export class MeadowbrawlGame {
             }
         }
         return { x: mx, y: my }
+    }
+
+    private beginAttack(e: Enemy, a: Partial<EnemyAttack> & { kind: EnemyAttack['kind'], windup: number }, dir: number) {
+        e.attack = {
+            kind: a.kind, windup: a.windup, dir, reach: a.reach ?? 50, halfAngle: a.halfAngle ?? 1,
+            radius: a.radius ?? 0, damage: a.damage ?? e.damage, knockback: a.knockback ?? 160, recover: a.recover ?? 0.5,
+            tracking: a.tracking ?? 0.6, chargeT: 0, chargeDur: a.chargeDur ?? 0.6, chargeSpeed: a.chargeSpeed ?? 540,
+            hit: false, lunge: a.lunge ?? 0, tx: a.tx, ty: a.ty
+        }
+        e.state = 'windup'
+        e.stateT = 0
+        this.emit('telegraph', e.x, e.y, a.kind === 'slam' || a.kind === 'snare' ? 1 : 0.4, e.type)
     }
 
     private releaseAttack(e: Enemy) {
@@ -2618,8 +2796,125 @@ export class MeadowbrawlGame {
                 a.chargeT = 0
                 this.burst(e.x, e.y, 0, 8, 'dust', '#c9b98c', 100, 0.5)
                 break
+            case 'volley': {
+                // A fan of five: the gaps are the dodge.
+                const n = 5
+                for (let i = 0; i < n; i++) {
+                    const ang = a.dir + (i - (n - 1) / 2) * 0.22
+                    this.projectiles.push({
+                        id: this.nextId++, x: e.x + Math.cos(ang) * e.r, y: e.y + Math.sin(ang) * e.r,
+                        vx: Math.cos(ang) * 380, vy: Math.sin(ang) * 380, life: 2.4, damage: a.damage, r: 7,
+                        owner: 'enemy', pierce: 0, hitIds: new Set(), kind: 'thorn', angle: ang
+                    })
+                }
+                this.burst(e.x, e.y, e.def.height * 0.5, 10, 'leaf', '#7fbf4a', 160, 0.6, a.dir)
+                this.emit('special', e.x, e.y, 0.6, 'briar')
+                e.state = 'recover'
+                e.stateT = 0
+                break
+            }
+            case 'snare': {
+                const tx = a.tx ?? e.x
+                const ty = a.ty ?? e.y
+                this.rings.push({ x: tx, y: ty, r0: 10, r1: a.radius, life: 0.4, maxLife: 0.4, color: '#7fbf4a', width: 10 })
+                this.decals.push({ x: tx, y: ty, r: a.radius * 0.6, color: 'rgba(40,60,25,0.5)', kind: 'crack' })
+                for (let i = 0; i < 9; i++) {
+                    const ang = i / 9 * Math.PI * 2
+                    this.spikes.push({ x: tx + Math.cos(ang) * a.radius * 0.55, y: ty + Math.sin(ang) * a.radius * 0.55, life: 0.55, maxLife: 0.55, angle: ang, size: 22 + Math.random() * 10 })
+                }
+                this.burst(tx, ty, 0, 18, 'leaf', '#5f9b3a', 200, 0.8)
+                this.burst(tx, ty, 0, 10, 'dust', '#6b5a3a', 140, 0.6)
+                this.shake = Math.max(this.shake, 9)
+                this.emit('special', tx, ty, 1, 'briar')
+                if (inCircle({ x: tx, y: ty }, a.radius, p, p.r) && this.hurtPlayer(a.damage, { x: tx, y: ty }, a.knockback, e)) {
+                    p.fx.snared = 1.2
+                    this.floaters.push({ x: p.x, y: p.y, z: 56, text: 'SNARED', life: 0.9, maxLife: 0.9, color: '#8fd15a', size: 14, vx: 0 })
+                }
+                e.state = 'recover'
+                e.stateT = 0
+                break
+            }
+            case 'brood': {
+                const n = randomChance(0.5) ? 4 : 3
+                for (let i = 0; i < n; i++) {
+                    if (this.broodAlive(e) >= BRIAR_BROOD_CAP) break
+                    const ang = randomFloat() * Math.PI * 2
+                    const child = this.spawnEnemy('swarmer', 'north')
+                    child.x = clamp(e.x + Math.cos(ang) * (e.r + 26), 16, ARENA_W - 16)
+                    child.y = clamp(e.y + Math.sin(ang) * (e.r + 26), 16, ARENA_H - 16)
+                    child.entered = true
+                    child.facing = angleTo(child, p)
+                    e.brood.push(child.id)
+                    this.burst(child.x, child.y, 0, 10, 'leaf', '#8fd15a', 160, 0.7)
+                }
+                this.rings.push({ x: e.x, y: e.y, r0: 8, r1: 120, life: 0.45, maxLife: 0.45, color: '#8fd15a', width: 8 })
+                this.floaters.push({ x: e.x, y: e.y, z: e.def.height + 14, text: 'BROOD', life: 0.9, maxLife: 0.9, color: '#8fd15a', size: 15, vx: 0 })
+                this.emit('special', e.x, e.y, 0.8, 'briar')
+                e.state = 'recover'
+                e.stateT = 0
+                break
+            }
+            case 'parry': {
+                e.parryT = 0.9
+                this.impacts.push({ x: e.x, y: e.y, z: e.def.height * 0.6, life: 0.3, maxLife: 0.3, size: 34, color: '#dbe9ff', kind: 'ring', angle: 0 })
+                this.burst(e.x, e.y, e.def.height * 0.6, 8, 'spark', '#cfe2ff', 90, 0.5)
+                this.emit('telegraph', e.x, e.y, 0.9, 'knight')
+                e.state = 'recover'
+                e.stateT = 0
+                break
+            }
         }
-        e.attackCd = e.type === 'swarmer' ? 0.7 + Math.random() * 0.5 : e.type === 'ranged' ? 2.2 : e.type === 'charger' ? 1.4 : 0.9 + Math.random() * 0.5
+        if (e.type === 'knight') {
+            if (a.kind === 'melee') {
+                e.combo += 1
+                // Hits one and two chain straight into the next.
+                e.attackCd = e.combo % 3 === 0 ? 1.0 + Math.random() * 0.5 : 0.1
+            } else {
+                e.attackCd = 0.6
+            }
+        } else if (e.type === 'briar') {
+            e.attackCd = a.kind === 'brood' ? 0.9 : 1.5 + Math.random() * 0.9
+        } else {
+            e.attackCd = e.type === 'swarmer' ? 0.7 + Math.random() * 0.5 : e.type === 'ranged' ? 2.2 : e.type === 'charger' ? 1.4 : 0.9 + Math.random() * 0.5
+        }
+    }
+
+    /** Spriglings the Matriarch has called that are still standing. */
+    private broodAlive(e: Enemy): number {
+        let n = 0
+        for (const o of this.enemies) {
+            if (o.alive && e.brood.includes(o.id)) n += 1
+        }
+        return n
+    }
+
+    /** Hollow Knight: blink to the player's flank and open immediately. */
+    private shadowStep(e: Enemy) {
+        const p = this.player
+        const side = randomChance(0.5) ? 1 : -1
+        const ang = angleTo(p, e) + side * Math.PI * 0.55
+        const tx = clamp(p.x + Math.cos(ang) * 74, e.r, ARENA_W - e.r)
+        const ty = clamp(p.y + Math.sin(ang) * 74, e.r, ARENA_H - e.r)
+        const sx = e.x
+        const sy = e.y
+        for (let i = 1; i <= 5; i++) {
+            const k = i / 6
+            const ix = sx + (tx - sx) * k
+            const iy = sy + (ty - sy) * k
+            this.burst(ix, iy, e.def.height * 0.4, 3, 'smoke', '#2f2a44', 30, 0.45)
+        }
+        this.burst(sx, sy, e.def.height * 0.4, 10, 'smoke', '#241f36', 90, 0.5)
+        this.impacts.push({ x: sx, y: sy, z: e.def.height * 0.5, life: 0.24, maxLife: 0.24, size: 40, color: '#8f9bd8', kind: 'ring', angle: 0 })
+        e.x = tx
+        e.y = ty
+        e.vx = 0
+        e.vy = 0
+        e.entered = true
+        e.combo = 0
+        this.burst(tx, ty, e.def.height * 0.4, 12, 'smoke', '#241f36', 110, 0.5)
+        this.impacts.push({ x: tx, y: ty, z: e.def.height * 0.5, life: 0.24, maxLife: 0.24, size: 40, color: '#8f9bd8', kind: 'ring', angle: 0 })
+        this.emit('special', tx, ty, 0.8, 'knight')
+        this.beginAttack(e, { kind: 'melee', windup: 0.34, reach: 90, halfAngle: 0.85, damage: e.damage * 0.8, knockback: 180, recover: 0.32, lunge: 24 }, angleTo(e, p))
     }
 
     /** Push overlapping bodies apart so crowds spread instead of stacking. */

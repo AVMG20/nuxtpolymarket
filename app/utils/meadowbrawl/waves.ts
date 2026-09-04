@@ -9,7 +9,9 @@ const COST: Record<EnemyTypeId, number> = {
     shield: 6,
     ranged: 5,
     ogre: 0,
-    warlord: 0
+    warlord: 0,
+    briar: 0,
+    knight: 0
 }
 
 const SIDES: SpawnGroup['side'][] = ['north', 'east', 'south', 'west']
@@ -23,13 +25,28 @@ export function waveSpawnSpan(wave: number): number {
     return Math.min(24, 9 + wave * 0.9)
 }
 
+/**
+ * Fixed elite cadence: one every four waves alternating ogre and warlord,
+ * pairs from 16, plus the two late-roster bosses on 10 / 14 and their
+ * reprises. Twenty elites across a full run.
+ */
+const ELITE_WAVES: Record<number, EnemyTypeId[]> = {
+    4: ['ogre'],
+    8: ['warlord'],
+    10: ['briar'],
+    12: ['ogre'],
+    14: ['knight'],
+    16: ['warlord', 'ogre'],
+    20: ['ogre', 'warlord'],
+    22: ['briar', 'warlord'],
+    24: ['warlord', 'ogre'],
+    26: ['knight', 'ogre'],
+    28: ['ogre', 'warlord'],
+    [TOTAL_WAVES]: ['knight', 'ogre', 'warlord']
+}
+
 export function eliteFor(wave: number): EnemyTypeId[] {
-    if (wave === TOTAL_WAVES) return ['ogre', 'warlord', 'ogre']
-    if (wave % 4 !== 0) return []
-    const first: EnemyTypeId = (wave / 4) % 2 === 1 ? 'ogre' : 'warlord'
-    // From wave 16 the elites come in pairs.
-    if (wave >= 16) return [first, first === 'ogre' ? 'warlord' : 'ogre']
-    return [first]
+    return ELITE_WAVES[wave] ?? []
 }
 
 /**
