@@ -395,8 +395,8 @@ export function meadowbrawlPayoutForRun(reportedCoins: number, wavesCleared: num
 // ---------------------------------------------------------------------------
 
 export const MEADOWBRAWL_SAVE_VERSION = 1
-/** Boons on offer after every wave. */
-export const MEADOWBRAWL_OFFER_COUNT = 3
+/** Boons on offer after every wave: three, four with Fortune. */
+export const MEADOWBRAWL_OFFER_COUNT = 4
 
 export interface MeadowbrawlRunSave {
     version: number

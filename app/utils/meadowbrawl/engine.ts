@@ -10,12 +10,12 @@ import {
     type MeadowbrawlPetId,
     type MeadowbrawlRunSave
 } from '#shared/utils/gamelogic/meadowbrawl-meta'
-import type { EnemyTypeId, GameEvent, Offer, SpawnGroup, SwingDef, Vec, WeaponDef, WeaponId } from './types'
+import type { Element, EnemyTypeId, GameEvent, Offer, SpawnGroup, SwingDef, Vec, WeaponDef, WeaponId } from './types'
 import { ARENA_H, ARENA_W, TOTAL_WAVES } from './types'
 import { WEAPONS, buildChain } from './weapons'
 import { ENEMY_TYPES, veteranChance, waveScaling, type EnemyTypeDef } from './enemies'
 import { ENEMY_COST, buildWave } from './waves'
-import { UPGRADE_BY_ID, rollOffers } from './upgrades'
+import { UPGRADE_BY_ID, elementStacks, resolveUpgradeId, rollOffers } from './upgrades'
 import { companionAbsorbHit, companionHaste, makeCompanion, updateCompanion, type Companion } from './companion'
 import { angleTo, clamp, inArc, inCircle, inSegment, normalizeAngle, shapeHits } from './geometry'
 import { generateWorld, type WorldLayout } from './world'
@@ -159,13 +159,16 @@ export interface Player {
     axeOut: boolean
     /** Seconds since the last hit taken, for Meadow's Mercy. */
     hurtIdle: number
-    /** Kill Frenzy stacks and their timer. */
-    frenzy: number
-    frenzyT: number
     /** Chronoshear cooldown. */
     chronoCd: number
     /** Stormcaller strike timer. */
     stormT: number
+    /** Last Stand has fired this wave. */
+    lastStandUsed: boolean
+    /** Hits landed, for Eclipse's every-25th rhythm. */
+    eclipseHits: number
+    /** Deep Winter countdown. */
+    winterT: number
 }
 
 export interface EnemyAttack {
@@ -245,6 +248,12 @@ export interface Enemy {
     veteran: boolean
     /** Death Mark seconds remaining. */
     marked: number
+    /** Static Charge seconds remaining — your hits crit more against it. */
+    charge: number
+    /** Frostbite build-up, 0..100; full means frozen solid. */
+    chill: number
+    /** Conflagration: seconds until this burning body ignites a neighbour. */
+    spreadT: number
 }
 
 export interface Particle {
@@ -379,7 +388,7 @@ export interface Projectile {
     owner: 'player' | 'enemy'
     pierce: number
     hitIds: Set<number>
-    kind: 'thorn' | 'windblade' | 'crescent' | 'knife'
+    kind: 'thorn' | 'windblade' | 'crescent' | 'knife' | 'spectral'
     angle: number
 }
 
@@ -447,6 +456,27 @@ export interface Afterimage {
     weapon: WeaponId
 }
 
+/** Spectral Vanguard ally: a ghost of a warrior or an archer at your side. */
+export interface Phantom {
+    id: number
+    kind: 'warrior' | 'archer'
+    x: number
+    y: number
+    vx: number
+    vy: number
+    facing: number
+    anim: number
+    moving: boolean
+    /** Formation slot around the player. */
+    slot: number
+    cd: number
+    /** Swing or draw in progress. */
+    attack: { t: number, dur: number, dir: number, fired: boolean } | null
+    targetId: number
+    /** Fade-in on summon, 0..1. */
+    born: number
+}
+
 export interface RunStats {
     kills: number
     damageDealt: number
@@ -505,6 +535,14 @@ const STUN_VULN = 1.3
 const FLINCH_MIN = 0.1
 const FLINCH_MAX = 0.15
 
+/** Phantom ally tuning. */
+const PHANTOM_SPEED = 250
+const PHANTOM_SEEK = 300
+/** Static Charge lingers this long. */
+const CHARGE_DUR = 4
+/** Frostbite build-up per hit at three stacks, more per stack after. */
+const CHILL_GAIN = 28
+
 /** Distance the Briar Matriarch tries to hold. */
 const BRIAR_RANGE = 220
 /** Spriglings she may have on the field at once. */
@@ -537,6 +575,11 @@ export class MeadowbrawlGame {
     souls: Soul[] = []
     spikes: Spike[] = []
     afterimages: Afterimage[] = []
+    phantoms: Phantom[] = []
+    /** Eclipse: seconds the world stays stopped (renderer overlay). */
+    eclipseT = 0
+    /** Deep Winter wave ring, seconds remaining, for the renderer. */
+    frostWaveT = 0
     /** White screen flash, 0..1. */
     flash = 0
     /** Dramatic slow-motion remaining (elite kills). */
@@ -724,7 +767,8 @@ export class MeadowbrawlGame {
             abilityCd: { q: 0, e: 0 }, abilityCdMax: { q: WEAPONS[weapon].abilities[0].cooldown, e: WEAPONS[weapon].abilities[1].cooldown },
             fx: { shieldWall: 0, rally: 0, bloodrage: 0, ironSkin: 0, smoke: 0, snared: 0 },
             skewer: null, axeOut: false,
-            hurtIdle: 99, frenzy: 0, frenzyT: 0, chronoCd: 0, stormT: 0
+            hurtIdle: 99, chronoCd: 0, stormT: 0,
+            lastStandUsed: false, eclipseHits: 0, winterT: 10
         }
     }
 
@@ -741,17 +785,27 @@ export class MeadowbrawlGame {
         const berserk = this.stack('berserk') > 0 && p.hp / p.maxHp < 0.5 ? 1 + 0.4 * this.stack('berserk') : 1
         const rally = p.fx.rally > 0 ? 1.3 : 1
         const account = this.companion?.effects.damageMult ?? 1
-        const frenzy = 1 + 0.08 * p.frenzy
-        return (1 + 0.15 * this.stack('might')) * (1 + 0.12 * this.stack('oversized')) * (1 + 0.3 * this.stack('colossus')) * berserk * rally * account * frenzy
+        const glass = this.stack('glasscannon') > 0 ? 1.45 : 1
+        return (1 + 0.15 * this.stack('might')) * (1 + 0.12 * this.stack('oversized')) * berserk * rally * account * this.bloodlustMult * glass
+    }
+
+    /** Bloodlust: every kill stacks +4% (per boon stack) speed and damage. */
+    get bloodlustMult(): number {
+        return 1 + 0.04 * this.stack('bloodlust') * this.player.bloodlust
     }
 
     get attackSpeed(): number {
         const rage = this.player.fx.bloodrage > 0 ? 1.5 : 1
-        return (1 + 0.12 * this.stack('haste')) * (1 + 0.05 * this.player.bloodlust) * (this.player.adrenalineT > 0 ? 1 + 0.3 * this.stack('adrenaline') : 1) * rage * companionHaste(this.companion)
+        return (1 + 0.12 * this.stack('haste')) * this.bloodlustMult * (this.player.adrenalineT > 0 ? 1 + 0.3 * this.stack('adrenaline') : 1) * rage * companionHaste(this.companion)
     }
 
     get moveSpeed(): number {
-        return (1 + 0.1 * this.stack('swift')) * (1 + 0.05 * this.player.bloodlust) * (1 - 0.08 * this.stack('colossus'))
+        return (1 + 0.1 * this.stack('swift')) * this.bloodlustMult * (1 - 0.08 * this.stack('colossus'))
+    }
+
+    /** Stacks held in an elemental school — drives auras and the deep synergies. */
+    element(el: Element): number {
+        return elementStacks(this.player.upgrades, el)
     }
 
     /** Visual scale of the player sprite (Colossus). */
@@ -773,7 +827,14 @@ export class MeadowbrawlGame {
     }
 
     get knockbackMult(): number {
-        return 1 + 0.35 * this.stack('bruiser')
+        return 1 + 0.35 * this.stack('bruiser') + 0.4 * this.stack('colossus')
+    }
+
+    /** Chance a direct hit crits: Keen Edge, plus Static Charge against a charged target. */
+    critChance(e: Enemy): number {
+        let c = 0.1 * this.stack('crit')
+        if (e.charge > 0) c += 0.08 * this.stack('static')
+        return Math.min(0.8, c)
     }
 
     startRun(weapon: WeaponId = 'sword', config: RunConfig = DEFAULT_RUN_CONFIG) {
@@ -789,9 +850,12 @@ export class MeadowbrawlGame {
     restoreRun(weapon: WeaponId, save: MeadowbrawlRunSave, config: RunConfig = DEFAULT_RUN_CONFIG) {
         this.resetRun(weapon, config)
         const p = this.player
-        for (const [id, stacks] of Object.entries(save.upgrades)) {
-            if (UPGRADE_BY_ID[id] && stacks > 0) p.upgrades.set(id, stacks)
+        for (const [raw, stacks] of Object.entries(save.upgrades)) {
+            const id = resolveUpgradeId(raw)
+            if (!id || stacks <= 0) continue
+            p.upgrades.set(id, Math.min(UPGRADE_BY_ID[id]!.maxStacks, (p.upgrades.get(id) ?? 0) + stacks))
         }
+        for (let i = 0; i < this.stack('vanguard'); i++) this.summonPhantom(i)
         // Rebuild what the stacks imply instead of replaying the picks, so
         // one-shot effects (Mending's heal) don't fire again.
         p.chain = buildChain(this.weapon, this.stack('comboplus'))
@@ -808,11 +872,14 @@ export class MeadowbrawlGame {
         this.time = save.stats.time
         this.wave = save.wave
         if (save.offers) {
+            const seen = new Set<string>()
             this.offers = save.offers
-                .map(id => UPGRADE_BY_ID[id])
-                .filter((u): u is NonNullable<typeof u> => !!u)
+                .map(id => resolveUpgradeId(id))
+                .filter((id): id is string => !!id && !seen.has(id) && seen.add(id) !== null)
+                .map(id => UPGRADE_BY_ID[id]!)
+                .filter(u => this.stack(u.id) < u.maxStacks)
                 .map(u => ({ upgrade: u, stack: this.stack(u.id) + 1 }))
-            if (this.offers.length === 0) this.offers = rollOffers(this.wave, p.upgrades)
+            if (this.offers.length === 0) this.offers = this.rollOffers()
             this.phase = 'upgrade'
         } else {
             this.skipOffers = true
@@ -884,6 +951,9 @@ export class MeadowbrawlGame {
         this.souls = []
         this.spikes = []
         this.afterimages = []
+        this.phantoms = []
+        this.eclipseT = 0
+        this.frostWaveT = 0
         this.flash = 0
         this.slowmo = 0
         this.events = []
@@ -901,6 +971,7 @@ export class MeadowbrawlGame {
         this.wave += 1
         this.waveElapsed = 0
         this.waveKills = 0
+        this.player.lastStandUsed = false
         this.spawnQueue = buildWave(this.wave, randomFloat)
         this.waveTotal = this.spawnQueue.reduce((s, g) => s + g.count, 0)
         // The wave's coin pool is split over its regular spawns by budget
@@ -911,6 +982,12 @@ export class MeadowbrawlGame {
         const elite = this.spawnQueue.some(g => ENEMY_TYPES[g.type].elite)
         this.banner = { text: `Wave ${this.wave}`, sub: this.wave === TOTAL_WAVES ? 'The last stand' : elite ? 'Something big is coming' : '', t: 2.2 }
         this.emit('waveStart')
+    }
+
+    /** Three cards, four with Fortune; Mending only when it would matter. */
+    private rollOffers(): Offer[] {
+        const p = this.player
+        return rollOffers(this.wave, p.upgrades, randomFloat, { count: 3 + this.stack('fortune'), hpFrac: p.hp / p.maxHp })
     }
 
     chooseOffer(index: number) {
@@ -960,7 +1037,26 @@ export class MeadowbrawlGame {
                 p.abilityCd = { q: Math.min(p.abilityCd.q, p.abilityCdMax.q), e: Math.min(p.abilityCd.e, p.abilityCdMax.e) }
                 break
             }
+            case 'glasscannon':
+                this.scaleMaxHp(0.7)
+                break
+            case 'bloodpact':
+                this.scaleMaxHp(0.75)
+                break
+            case 'vanguard':
+                this.summonPhantom(this.stack('vanguard') - 1)
+                break
         }
+    }
+
+    /** Pacts trade health away: the pool shrinks, the current health with it. */
+    private scaleMaxHp(k: number) {
+        const p = this.player
+        const before = p.maxHp
+        p.maxHp = Math.max(30, Math.round(p.maxHp * k))
+        p.hp = Math.max(1, Math.min(p.maxHp, Math.round(p.hp * p.maxHp / before)))
+        this.burst(p.x, p.y, 20, 14, 'blood', '#b0121f', 120, 0.7)
+        this.rings.push({ x: p.x, y: p.y, r0: 40, r1: 8, life: 0.5, maxLife: 0.5, color: '#ff5d6c', width: 6 })
     }
 
     restart() {
@@ -985,6 +1081,9 @@ export class MeadowbrawlGame {
         this.souls = []
         this.spikes = []
         this.afterimages = []
+        this.phantoms = []
+        this.eclipseT = 0
+        this.frostWaveT = 0
         this.timeScale = 1
         this.paused = false
     }
@@ -1052,6 +1151,9 @@ export class MeadowbrawlGame {
             this.resolveBodies()
         }
         if (this.companion) updateCompanion(this, this.companion, dt)
+        this.updatePhantoms(dt)
+        this.eclipseT = Math.max(0, this.eclipseT - rawDt)
+        this.frostWaveT = Math.max(0, this.frostWaveT - dt)
         this.updateCoins(dt)
         this.updateWave(dt)
         this.updateEffects(dt)
@@ -1080,7 +1182,7 @@ export class MeadowbrawlGame {
             if (this.spawnQueue.length === 0 && !this.enemies.some(e => e.alive)) {
                 this.phase = 'calm'
                 this.calmTimer = 1.7
-                this.player.hp = Math.min(this.player.maxHp, this.player.hp + 12)
+                this.player.hp = Math.min(this.player.maxHp, this.player.hp + 12 + 20 * this.stack('feast'))
                 this.banner = { text: 'Wave cleared', sub: `${this.waveKills} slain`, t: 1.6 }
                 this.emit('waveClear')
             }
@@ -1094,7 +1196,7 @@ export class MeadowbrawlGame {
                     this.skipOffers = false
                     this.nextWave()
                 } else {
-                    this.offers = rollOffers(this.wave, this.player.upgrades)
+                    this.offers = this.rollOffers()
                     this.phase = 'upgrade'
                     this.checkpoint()
                 }
@@ -1133,7 +1235,7 @@ export class MeadowbrawlGame {
             moveT: type === 'briar' ? 4 : type === 'knight' ? 3.5 : 0, brood: [],
             coin: def.elite ? meadowbrawlEliteCoinBonus(this.wave) : Math.round(this.coinPer * ENEMY_COST[type]),
             stunIdle: 0,
-            veteran, marked: 0
+            veteran, marked: 0, charge: 0, chill: 0, spreadT: 0
         }
         this.enemies.push(e)
         this.burst(e.x, e.y, 0, 8, 'dust', '#b9a77a', 60, 0.5)
@@ -1168,17 +1270,21 @@ export class MeadowbrawlGame {
                 p.bloodlust = 0
             }
         }
-        if (p.frenzy > 0) {
-            p.frenzyT -= dt
-            if (p.frenzyT <= 0) p.frenzy = 0
-        }
         p.chronoCd = Math.max(0, p.chronoCd - dt)
         p.hurtIdle += dt
         const regen = this.stack('regen')
         if (regen > 0 && p.hurtIdle > 4 && p.hp < p.maxHp) {
-            p.hp = Math.min(p.maxHp, p.hp + regen * dt)
+            p.hp = Math.min(p.maxHp, p.hp + p.maxHp * 0.01 * regen * dt)
             if (Math.random() < dt * 2) this.burst(p.x + (Math.random() - 0.5) * 20, p.y, 20 + Math.random() * 20, 1, 'petal', '#9be07a', 20, 0.8)
         }
+        if (this.stack('deepwinter') > 0 && this.phase === 'wave') {
+            p.winterT -= dt
+            if (p.winterT <= 0) {
+                p.winterT = 10
+                this.frostWave()
+            }
+        }
+        if (first) this.elementMotes(dt)
         if (this.stack('stormcaller') > 0) {
             if (p.attack || p.comboTimer > 0) {
                 p.stormT -= dt
@@ -1195,7 +1301,7 @@ export class MeadowbrawlGame {
         // weapons chain from an early press instead of eating the input.
         if (!p.attack || (p.attack.phase === 'recovery' && p.attack.t >= p.attack.recovery * CHAIN_POINT)) p.buffer = Math.max(0, p.buffer - dt)
         if (p.dodgeCharges < p.dodgeMax) {
-            p.dodgeRecharge += dt
+            p.dodgeRecharge += dt * (1 + 0.25 * this.stack('surefoot'))
             if (p.dodgeRecharge >= 1.15) {
                 p.dodgeRecharge = 0
                 p.dodgeCharges += 1
@@ -1449,8 +1555,8 @@ export class MeadowbrawlGame {
         this.endDodge()
         p.dodge = { t: 0, dur: DODGE_DUR, dx, dy, hit: new Set() }
         p.invuln = Math.max(p.invuln, DODGE_IFRAMES)
-        const thunderstep = this.stack('thunderstep')
-        if (thunderstep > 0) this.thunderclap(p.x, p.y, 90 + 20 * (thunderstep - 1), this.weapon.baseDamage * this.damageMult * (0.9 + 0.5 * (thunderstep - 1)))
+        const rt = this.stack('rollingthunder')
+        if (rt >= 2) this.thunderclap(p.x, p.y, 70 + 15 * rt, this.weapon.baseDamage * this.damageMult * (0.7 + 0.3 * (rt - 1)))
         // Dodging cancels the combo — the tactical cost.
         p.attack = null
         p.buffer = 0
@@ -1474,7 +1580,7 @@ export class MeadowbrawlGame {
         if (!p.dodge) return
         p.dodge = null
         const rt = this.stack('rollingthunder')
-        if (rt > 0) this.thunderclap(p.x, p.y, 90 + 20 * rt, this.weapon.baseDamage * this.damageMult * (0.8 + 0.3 * (rt - 1)))
+        if (rt > 0) this.thunderclap(p.x, p.y, 90 + 25 * rt, this.weapon.baseDamage * this.damageMult * (0.9 + 0.4 * (rt - 1)))
     }
 
     private startSprint() {
@@ -1514,15 +1620,11 @@ export class MeadowbrawlGame {
             }
         }
         if (a.phase === 'active') {
-            const mirror = this.stack('mirror')
             for (const e of this.enemies) {
                 if (!e.alive || a.hitIds.has(e.id)) continue
                 if (shapeHits(a.def.shape, p, a.dir, this.reachMult, e, e.r)) {
                     a.hitIds.add(e.id)
                     this.playerHitEnemy(e, a.def)
-                } else if (mirror > 0 && shapeHits(a.def.shape, p, a.dir + Math.PI, this.reachMult, e, e.r)) {
-                    a.hitIds.add(e.id)
-                    this.playerHitEnemy(e, a.def, 0.5 + 0.15 * (mirror - 1))
                 }
             }
             if (a.t >= a.active) {
@@ -1567,24 +1669,12 @@ export class MeadowbrawlGame {
                 width: a.def.finisher ? 30 : 20, z: 16, style: p.weapon, finisher: !!a.def.finisher
             })
             this.swingFlourish(a.dir, shape.reach * reach, !!a.def.finisher)
-            if (this.stack('mirror') > 0) {
-                this.trails.push({
-                    x: p.x, y: p.y, angle0: a.dir + Math.PI - half * a.def.sweep, angle1: a.dir + Math.PI + half * a.def.sweep,
-                    reach: shape.reach * reach, life: 0.22, maxLife: 0.22, color: '#bfe6ff', kind: 'arc', width: 18, z: 16, style: 'ghost'
-                })
-            }
         } else if (shape.kind === 'thrust') {
             this.trails.push({
                 x: p.x, y: p.y, angle0: a.dir, angle1: a.dir, reach: shape.reach * reach,
                 life: 0.18, maxLife: 0.18, color: this.weapon.color, kind: 'thrust', width: shape.width * reach, z: 16, style: p.weapon, finisher: !!a.def.finisher
             })
             this.swingFlourish(a.dir, shape.reach * reach, !!a.def.finisher)
-            if (this.stack('mirror') > 0) {
-                this.trails.push({
-                    x: p.x, y: p.y, angle0: a.dir + Math.PI, angle1: a.dir + Math.PI, reach: shape.reach * reach,
-                    life: 0.18, maxLife: 0.18, color: '#bfe6ff', kind: 'thrust', width: shape.width * reach, z: 16, style: 'ghost'
-                })
-            }
         }
         if (a.def.finisher && this.stack('whirlwind') > 0) {
             const s = this.stack('whirlwind')
@@ -1608,9 +1698,11 @@ export class MeadowbrawlGame {
         const p = this.player
         const heavy = !!def.finisher || this.allHeavy
         const flow = this.stack('flow') > 0 ? 1 + Math.min(10, p.comboHits) * 0.06 * this.stack('flow') : 1
+        const opener = p.comboHits === 0 ? 1 + 0.3 * this.stack('opener') : 1
         const ambush = p.fx.smoke > 0
-        const crit = ambush || (this.stack('crit') > 0 && randomChance(0.15 * this.stack('crit')))
-        const dmg = this.weapon.baseDamage * this.damageMult * def.damage * flow * scale * (ambush ? 3 : crit ? 2.5 : 1)
+        const crit = ambush || randomChance(this.critChance(e))
+        const dmg = this.weapon.baseDamage * this.damageMult * def.damage * flow * opener * this.gamble() * scale * (ambush ? 3 : crit ? 2.5 : 1)
+        if (opener > 1) this.impacts.push({ x: e.x, y: e.y, z: e.def.height * 0.6, life: 0.22, maxLife: 0.22, size: 30, color: '#fff3c4', kind: 'ring', angle: 0 })
         if (ambush) {
             p.fx.smoke = 0
             this.floaters.push({ x: e.x, y: e.y, z: e.def.height + 18, text: 'AMBUSH', life: 0.9, maxLife: 0.9, color: '#f7d774', size: 16, vx: 0 })
@@ -1624,6 +1716,10 @@ export class MeadowbrawlGame {
             p.comboHits += 1
             this.stats.highestCombo = Math.max(this.stats.highestCombo, p.comboHits)
             p.hitCount += 1
+            if (this.stack('eclipse') > 0) {
+                p.eclipseHits += 1
+                if (p.eclipseHits % 25 === 0) this.eclipse()
+            }
             const echo = this.stack('echo')
             if (echo > 0 && p.hitCount % 3 === 0 && e.alive) {
                 this.damageEnemy(e, dmg * (0.7 + 0.15 * (echo - 1)), { source: p, heavy, knockback: def.knockback * 0.5, stagger: def.stagger, tag: 'echo', color: '#9fe3ff', finisher: !!def.finisher })
@@ -2191,10 +2287,12 @@ export class MeadowbrawlGame {
         stagger?: number
         /** Combo finishers put extra weight behind the stun meter. */
         finisher?: boolean
-        tag: 'melee' | 'special' | 'proj' | 'sprint' | 'whirl' | 'shock' | 'lightning' | 'burn' | 'explode' | 'echo' | 'thorns' | 'thunder' | 'blossom'
+        tag: 'melee' | 'special' | 'proj' | 'sprint' | 'whirl' | 'shock' | 'lightning' | 'burn' | 'explode' | 'echo' | 'thorns' | 'thunder' | 'blossom' | 'splash' | 'shatter' | 'phantom'
         bypassShield?: boolean
         color?: string
         crit?: boolean
+        /** School of the hit: fire ignites when you hold Wildfire, ice chills with Frostbite. */
+        element?: Element
     }): number {
         if (!e.alive) return 0
         const heavy = !!opts.heavy
@@ -2203,10 +2301,10 @@ export class MeadowbrawlGame {
             this.parryRiposte(e, angleFromEnemy)
             return 0
         }
-        const direct = opts.tag === 'melee' || opts.tag === 'special' || opts.tag === 'proj' || opts.tag === 'sprint' || opts.tag === 'whirl' || opts.tag === 'echo' || opts.tag === 'blossom'
+        const direct = opts.tag === 'melee' || opts.tag === 'special' || opts.tag === 'proj' || opts.tag === 'sprint' || opts.tag === 'whirl' || opts.tag === 'echo' || opts.tag === 'blossom' || opts.tag === 'phantom'
         // Echoes and blossoms are already the product of a proc; they hit
         // hard but don't cascade.
-        const procs = opts.tag === 'melee' || opts.tag === 'special' || opts.tag === 'proj' || opts.tag === 'sprint' || opts.tag === 'whirl'
+        const procs = opts.tag === 'melee' || opts.tag === 'special' || opts.tag === 'proj' || opts.tag === 'sprint' || opts.tag === 'whirl' || opts.tag === 'phantom'
 
         if (e.shield && !e.shield.broken && !opts.bypassShield && direct) {
             const facingDiff = Math.abs(normalizeAngle(angleFromEnemy - e.facing))
@@ -2237,7 +2335,8 @@ export class MeadowbrawlGame {
         }
 
         let dmg = amount
-        if (e.frozen > 0) dmg *= 1.25
+        if (e.frozen > 0) dmg *= 1.25 + 0.5 * this.stack('shatter')
+        if (e.burn && this.stack('burn') >= 5) dmg *= 1.15
         if (e.marked > 0) dmg *= 1.4
         if (e.state === 'stagger' && e.stunT > 0) dmg *= STUN_VULN
         const execute = this.stack('execute')
@@ -2285,14 +2384,29 @@ export class MeadowbrawlGame {
             this.hitstop = Math.max(this.hitstop, (0.03 + Math.min(0.08, dmg / 320)) * (big ? 1.4 : 1))
             this.shake = Math.max(this.shake, 1.5 + Math.min(10, dmg / 12) + (big ? 3 : 0))
             this.emit(heavy ? 'heavyHit' : 'hit', e.x, e.y, Math.min(1, dmg / 60))
-            if (procs) this.onHitProcs(e, dmg, opts.tag)
-        } else if (opts.tag === 'explode' || opts.tag === 'shock') {
+            if (procs) this.onHitProcs(e, dmg, opts.tag, !!opts.crit)
+        } else if (opts.tag === 'explode' || opts.tag === 'shock' || opts.tag === 'splash' || opts.tag === 'shatter') {
             this.burst(e.x, e.y, e.def.height * 0.5, 4, 'blood', '#a3121f', 100, 0.5)
         }
+        // Elemental spillover: fire from any source catches when you hold
+        // Wildfire, ice from any source chills when you hold Frostbite.
+        if (opts.element === 'fire' && this.stack('burn') > 0 && e.alive && !e.burn) this.ignite(e, 0.5)
+        if (opts.element === 'ice' && this.stack('freeze') > 0 && e.alive) this.chillEnemy(e, 0.6)
 
         // Procs above can cascade back into this enemy and kill it first.
         if (e.hp <= 0 && e.alive) this.killEnemy(e, kbDir, heavy)
         return dmg
+    }
+
+    /** Cut whatever an enemy was doing short without a stagger. */
+    private interrupt(e: Enemy) {
+        if (e.state === 'dead' || e.state === 'spawn' || e.state === 'stagger') {
+            e.attack = null
+            return
+        }
+        e.attack = null
+        e.state = 'chase'
+        e.stateT = 0
     }
 
     /**
@@ -2354,7 +2468,7 @@ export class MeadowbrawlGame {
         this.beginAttack(e, { kind: 'melee', windup: 0.22, reach: 104, halfAngle: 0.42, damage: e.damage * 1.5, knockback: 260, recover: 0.5, tracking: 0.9, lunge: 46 }, angleFromEnemy)
     }
 
-    private onHitProcs(e: Enemy, dmg: number, tag: string) {
+    private onHitProcs(e: Enemy, dmg: number, tag: string, crit: boolean) {
         const p = this.player
         const ls = this.stack('lifesteal') + (p.fx.bloodrage > 0 ? 2.5 : 0)
         if (ls > 0) {
@@ -2364,39 +2478,57 @@ export class MeadowbrawlGame {
                 if (Math.random() < 0.3) this.burst(p.x, p.y, 20, 2, 'petal', '#ff6b8a', 30, 0.6)
             }
         }
-        const burn = this.stack('burn')
-        if (burn > 0) {
-            e.burn = { t: 4, dps: this.weapon.baseDamage * this.damageMult * 0.22 * burn, tick: e.burn?.tick ?? 0.3 }
-            this.burst(e.x, e.y, 10, 3, 'ember', '#ff8c2a', 60, 0.6)
-            if (tag === 'melee') this.emit('burn', e.x, e.y)
-        }
-        const freeze = this.stack('freeze')
-        if (freeze > 0) {
-            e.slow = Math.max(e.slow, 0.45 + 0.15 * (freeze - 1))
-            e.slowT = 1.6
-            this.burst(e.x, e.y, 12, 3, 'frost', '#bfefff', 60, 0.5)
-            if (freeze >= 3 && e.frozen <= 0 && !e.def.elite && randomChance(0.25)) {
-                e.frozen = 1.1
-                e.attack = null
-                this.floaters.push({ x: e.x, y: e.y, z: e.def.height + 8, text: 'FROZEN', life: 0.8, maxLife: 0.8, color: '#bfefff', size: 13, vx: 0 })
-                this.emit('freeze', e.x, e.y)
+        // Rippling Blows: a share of the hit spills onto everything around the target.
+        const splash = this.stack('splash')
+        if (splash > 0 && tag !== 'whirl' && tag !== 'phantom') {
+            const radius = 64 + 12 * splash
+            const share = 0.2 + 0.15 * (splash - 1)
+            let any = false
+            for (const o of this.enemies) {
+                if (!o.alive || o === e || !inCircle(e, radius, o, o.r)) continue
+                any = true
+                this.damageEnemy(o, dmg * share, { source: e, knockback: 90, stagger: 0.15, tag: 'splash', bypassShield: true, color: '#e8dcc0' })
+            }
+            if (any) {
+                this.rings.push({ x: e.x, y: e.y, r0: 8, r1: radius, life: 0.22, maxLife: 0.22, color: '#f3e3b6', width: 5 })
+                this.emit('splash', e.x, e.y, Math.min(1, splash / 3))
             }
         }
-        const shock = this.stack('shockwave')
-        if (shock > 0 && tag !== 'whirl' && randomChance(0.25 + 0.12 * (shock - 1))) {
-            const radius = 85
-            this.rings.push({ x: e.x, y: e.y, r0: 10, r1: radius, life: 0.3, maxLife: 0.3, color: '#f3e3b6', width: 8 })
-            this.burst(e.x, e.y, 0, 8, 'dust', '#bba97e', 120, 0.4)
-            this.shake = Math.max(this.shake, 5)
-            for (const o of this.enemies) {
-                if (!o.alive || o === e) continue
-                if (inCircle(e, radius, o, o.r)) {
-                    this.damageEnemy(o, dmg * (0.4 + 0.1 * (shock - 1)), { source: e, knockback: 200, stagger: 0.3, tag: 'shock', bypassShield: true })
+        if (this.stack('burn') > 0) {
+            this.ignite(e, 1)
+            if (tag === 'melee') this.emit('burn', e.x, e.y)
+        }
+        if (this.stack('freeze') > 0) this.chillEnemy(e, 1)
+        const stat = this.stack('static')
+        if (stat > 0) {
+            const fresh = e.charge <= 0
+            e.charge = CHARGE_DUR
+            this.burst(e.x, e.y, e.def.height * 0.5, fresh ? 6 : 2, 'spark', '#c9a3ff', 160, 0.3)
+            if (fresh) {
+                this.impacts.push({ x: e.x, y: e.y, z: e.def.height * 0.55, life: 0.2, maxLife: 0.2, size: 22, color: '#c9a3ff', kind: 'burst', angle: Math.random() * 6 })
+                this.emit('charge', e.x, e.y)
+            }
+            // A crit on a charged body jumps: one arc to the nearest neighbour.
+            if (crit) {
+                let best: Enemy | null = null
+                let bestD = 150
+                for (const o of this.enemies) {
+                    if (!o.alive || o === e) continue
+                    const d = Math.hypot(o.x - e.x, o.y - e.y)
+                    if (d < bestD) {
+                        bestD = d
+                        best = o
+                    }
+                }
+                if (best) {
+                    this.bolts.push({ points: [{ x: e.x, y: e.y }, { x: best.x, y: best.y }], life: 0.18, maxLife: 0.18 })
+                    this.damageEnemy(best, dmg * 0.3, { source: e, knockback: 40, stagger: 0.15, tag: 'lightning', bypassShield: true })
+                    this.emit('lightning', e.x, e.y)
                 }
             }
         }
         const lightning = this.stack('lightning')
-        if (lightning > 0 && tag !== 'whirl') {
+        if (lightning > 0 && tag !== 'whirl' && (crit || randomChance(0.35 + 0.15 * (lightning - 1)))) {
             const jumps = 1 + lightning
             const visited = new Set<number>([e.id])
             let from: Enemy = e
@@ -2423,6 +2555,56 @@ export class MeadowbrawlGame {
                 this.emit('lightning', e.x, e.y)
             }
         }
+    }
+
+    /** Wildfire: set a body alight. Stacks burn hotter and longer. */
+    private ignite(e: Enemy, potency: number) {
+        const burn = this.stack('burn')
+        if (burn <= 0 || !e.alive) return
+        const dps = this.weapon.baseDamage * this.damageMult * 0.22 * burn * potency
+        const dur = (4 + 0.5 * (burn - 1)) * potency
+        if (e.burn && e.burn.dps >= dps) {
+            e.burn.t = Math.max(e.burn.t, dur)
+        } else {
+            e.burn = { t: dur, dps, tick: e.burn?.tick ?? 0.3 }
+        }
+        e.spreadT = e.spreadT || 1
+        this.burst(e.x, e.y, 10, 3, 'ember', '#ff8c2a', 60, 0.6)
+    }
+
+    /**
+     * Frostbite: slow, and from three stacks a chill meter that freezes the
+     * target solid when it fills. Elites never freeze; they just crawl.
+     */
+    private chillEnemy(e: Enemy, potency: number) {
+        const freeze = this.stack('freeze')
+        if (freeze <= 0 || !e.alive) return
+        const slow = Math.min(e.def.elite ? 0.4 : 0.7, (0.2 + 0.1 * (freeze - 1)) * potency)
+        e.slow = Math.max(e.slow, slow)
+        e.slowT = Math.max(e.slowT, 1.6)
+        this.burst(e.x, e.y, 12, 3, 'frost', '#bfefff', 60, 0.5)
+        if (freeze < 3 || e.frozen > 0) return
+        e.chill = Math.min(100, e.chill + (CHILL_GAIN + 10 * (freeze - 3)) * potency)
+        if (e.chill >= 100) {
+            e.chill = 0
+            if (e.def.elite) {
+                // A boss doesn't freeze; it gets a hard, brief stumble.
+                this.addStun(e, 35)
+                return
+            }
+            e.frozen = 0.9 + 0.25 * (freeze - 3)
+            this.interrupt(e)
+            this.floaters.push({ x: e.x, y: e.y, z: e.def.height + 8, text: 'FROZEN', life: 0.8, maxLife: 0.8, color: '#bfefff', size: 13, vx: 0 })
+            this.impacts.push({ x: e.x, y: e.y, z: e.def.height * 0.5, life: 0.3, maxLife: 0.3, size: 34, color: '#dff6ff', kind: 'ring', angle: 0 })
+            this.burst(e.x, e.y, e.def.height * 0.4, 12, 'frost', '#dff6ff', 120, 0.7)
+            this.emit('freeze', e.x, e.y)
+        }
+    }
+
+    /** Gambler's Edge: every hit rolls 50%–200%. */
+    private gamble(): number {
+        if (this.stack('gambler') <= 0) return 1
+        return 0.5 + randomFloat() * 1.5
     }
 
     private killEnemy(e: Enemy, dir: number, heavy: boolean) {
@@ -2495,27 +2677,33 @@ export class MeadowbrawlGame {
         const p = this.player
         const bloodlust = this.stack('bloodlust')
         if (bloodlust > 0) {
-            p.bloodlust = Math.min(10, p.bloodlust + bloodlust)
+            p.bloodlust = Math.min(8, p.bloodlust + 1)
             p.bloodlustT = 4
+            this.glow(p.x, p.y, 20, 2 + p.bloodlust, '#ff7a4a', 50 + p.bloodlust * 10, 0.5)
         }
-        const frenzy = this.stack('frenzy')
-        if (frenzy > 0) {
-            p.frenzy = Math.min(6, p.frenzy + frenzy)
-            p.frenzyT = 5
-            if (p.frenzy >= 6 && Math.random() < 0.5) this.glow(p.x, p.y, 20, 3, '#ff6b3c', 60, 0.5)
+        if (this.stack('bloodpact') > 0 && p.hp < p.maxHp) {
+            const heal = e.def.elite ? 25 : 3
+            p.hp = Math.min(p.maxHp, p.hp + heal)
+            this.burst(e.x, e.y, e.def.height * 0.4, e.def.elite ? 12 : 3, 'blood', '#ff4d5e', 60, 0.5)
+            this.souls.push({ x: e.x, y: e.y, vx: 0, vy: 0, life: 2, targetId: -1, damage: 0 })
+            if (e.def.elite) this.floaters.push({ x: p.x, y: p.y, z: 60, text: `+${heal}`, life: 1, maxLife: 1, color: '#ff6b8a', size: 18, vx: 0 })
         }
+        const shatter = this.stack('shatter')
+        if (shatter > 0 && (e.frozen > 0 || e.chill >= 50)) this.shatterBurst(e, shatter)
         const overcharge = this.stack('overcharge')
         if (overcharge > 0 && p.specialCd > 0 && randomChance(0.2 * overcharge)) {
             p.specialCd = 0
             this.floaters.push({ x: p.x, y: p.y, z: 50, text: 'RECHARGED', life: 0.8, maxLife: 0.8, color: '#ffe066', size: 13, vx: 0 })
         }
-        const toll = this.stack('reapertoll')
-        if (toll > 0) {
-            this.rings.push({ x: e.x, y: e.y, r0: 10, r1: 320, life: 0.45, maxLife: 0.45, color: '#b48cff', width: 6 })
+        const snap = this.stack('coldsnap')
+        if (snap > 0) {
+            this.rings.push({ x: e.x, y: e.y, r0: 10, r1: 340, life: 0.5, maxLife: 0.5, color: '#bfefff', width: 6 })
+            this.burst(e.x, e.y, 10, 10, 'frost', '#dff6ff', 180, 0.7)
             for (const o of this.enemies) {
                 if (!o.alive) continue
-                o.slow = Math.max(o.slow, 0.6)
-                o.slowT = Math.max(o.slowT, 1.2 + 0.4 * (toll - 1))
+                o.slow = Math.max(o.slow, o.def.elite ? 0.3 : 0.5)
+                o.slowT = Math.max(o.slowT, 0.6 * snap)
+                if (!o.def.elite && this.stack('freeze') >= 3) o.chill = Math.min(100, o.chill + 6 * snap)
             }
         }
         const blossom = this.stack('deathblossom')
@@ -2535,15 +2723,16 @@ export class MeadowbrawlGame {
             const radius = 85 + 12 * explode
             const dmg = this.weapon.baseDamage * this.damageMult * (0.7 + 0.35 * (explode - 1))
             this.rings.push({ x: e.x, y: e.y, r0: 8, r1: radius, life: 0.35, maxLife: 0.35, color: '#ffb347', width: 10 })
-            this.burst(e.x, e.y, 10, 22, 'ember', '#ff8c2a', 200, 0.7)
+            this.burst(e.x, e.y, 10, 14 + 8 * explode, 'ember', '#ff8c2a', 160 + 40 * explode, 0.7)
             this.burst(e.x, e.y, 6, 8, 'smoke', '#4a3a30', 90, 0.7)
+            this.impacts.push({ x: e.x, y: e.y, z: 12, life: 0.28, maxLife: 0.28, size: radius * 0.6, color: '#ffd9a0', kind: 'ring', angle: 0 })
             this.decals.push({ x: e.x, y: e.y, r: radius * 0.5, color: 'rgba(30,20,15,0.5)', kind: 'scorch' })
-            this.shake = Math.max(this.shake, 9)
+            this.shake = Math.max(this.shake, 7 + 2 * explode)
             this.emit('explode', e.x, e.y)
             for (const o of this.enemies) {
                 if (!o.alive || o === e) continue
                 if (inCircle(e, radius, o, o.r)) {
-                    this.damageEnemy(o, dmg, { source: e, knockback: 280, stagger: 0.4, tag: 'explode', bypassShield: true })
+                    this.damageEnemy(o, dmg, { source: e, knockback: 280, stagger: 0.4, tag: 'explode', bypassShield: true, element: 'fire' })
                 }
             }
         }
@@ -2577,7 +2766,7 @@ export class MeadowbrawlGame {
             p.invuln = HURT_GRACE * 0.6
             return true
         }
-        const shell = 1 - (this.companion?.effects.damageReduction ?? 0)
+        const shell = (1 - (this.companion?.effects.damageReduction ?? 0)) * (1 - 0.08 * this.stack('thickhide'))
         let dmg = Math.round(amount * (p.fx.ironSkin > 0 ? 0.4 : 1) * (p.fx.bloodrage > 0 ? 1.25 : 1) * shell)
         dmg = Math.max(1, dmg)
         if (p.fx.ironSkin > 0) {
@@ -2616,6 +2805,17 @@ export class MeadowbrawlGame {
         this.hitstop = Math.max(this.hitstop, 0.06)
         this.shake = Math.max(this.shake, 6 + Math.min(12, dmg / 3))
         this.emit('hurt', p.x, p.y, Math.min(1, dmg / 30))
+        if (this.stack('laststand') > 0 && !p.lastStandUsed && p.hp > 0 && p.hp / p.maxHp < 0.25) {
+            p.lastStandUsed = true
+            p.invuln = Math.max(p.invuln, 1.5)
+            p.hurtFlash = 0
+            this.rings.push({ x: p.x, y: p.y, r0: 10, r1: 150, life: 0.5, maxLife: 0.5, color: '#ffd166', width: 12 })
+            this.glow(p.x, p.y, 24, 24, '#ffd166', 160, 0.9)
+            this.burst(p.x, p.y, 16, 16, 'spark', '#fff2c4', 240, 0.5)
+            this.floaters.push({ x: p.x, y: p.y, z: 64, text: 'LAST STAND', life: 1.2, maxLife: 1.2, color: '#ffd166', size: 20, vx: 0 })
+            this.slowmo = Math.max(this.slowmo, 0.3)
+            this.emit('laststand', p.x, p.y)
+        }
         if (p.hp <= 0 && p.phoenixUsed < this.stack('phoenix')) {
             p.phoenixUsed += 1
             p.hp = Math.ceil(p.maxHp * 0.5)
@@ -2674,6 +2874,8 @@ export class MeadowbrawlGame {
             e.stunLock = Math.max(0, e.stunLock - dt)
             e.parryT = Math.max(0, e.parryT - dt)
             e.moveT = Math.max(0, e.moveT - dt)
+            e.charge = Math.max(0, e.charge - dt)
+            if (e.chill > 0 && e.slowT <= 0) e.chill = Math.max(0, e.chill - dt * 20)
             // Out of combat the meter bleeds off so nothing stays primed.
             e.stunIdle += dt
             if (e.state !== 'stagger' && e.stunLock <= 0 && e.stun > 0 && e.stunIdle > STUN_BLEED_DELAY) e.stun = Math.max(0, e.stun - dt * 6)
@@ -2691,6 +2893,13 @@ export class MeadowbrawlGame {
                 }
                 if (e.burn.t <= 0) e.burn = null
                 if (!e.alive) continue
+                if (e.burn && this.stack('conflagration') > 0) {
+                    e.spreadT -= dt
+                    if (e.spreadT <= 0) {
+                        e.spreadT = 1
+                        this.spreadFire(e)
+                    }
+                }
             }
             if (e.frozen > 0) {
                 e.frozen -= dt
@@ -3229,7 +3438,8 @@ export class MeadowbrawlGame {
                     if (!e.alive || pr.hitIds.has(e.id)) continue
                     if (Math.hypot(pr.x - e.x, pr.y - e.y) <= pr.r + e.r) {
                         pr.hitIds.add(e.id)
-                        this.damageEnemy(e, pr.damage, { source: { x: pr.x - pr.vx * 0.01, y: pr.y - pr.vy * 0.01 }, heavy: this.allHeavy, knockback: 90, stagger: 0.15, tag: 'proj' })
+                        const crit = randomChance(this.critChance(e))
+                        this.damageEnemy(e, pr.damage * (crit ? 2.5 : 1), { source: { x: pr.x - pr.vx * 0.01, y: pr.y - pr.vy * 0.01 }, heavy: this.allHeavy, knockback: 90, stagger: 0.15, tag: pr.kind === 'spectral' ? 'phantom' : 'proj', crit, color: pr.kind === 'spectral' ? '#9fe3ff' : undefined })
                         if (pr.hitIds.size > pr.pierce) {
                             dead = true
                             break
@@ -3507,7 +3717,7 @@ export class MeadowbrawlGame {
                 this.emit('explode', m.x, m.y)
                 for (const e of this.enemies) {
                     if (!e.alive) continue
-                    if (inCircle(m, m.radius, e, e.r)) this.damageEnemy(e, m.damage, { source: m, heavy: true, knockback: 320, stagger: 0.8, tag: 'explode', bypassShield: true })
+                    if (inCircle(m, m.radius, e, e.r)) this.damageEnemy(e, m.damage, { source: m, heavy: true, knockback: 320, stagger: 0.8, tag: 'explode', bypassShield: true, element: 'fire' })
                 }
             }
         }
@@ -3666,6 +3876,249 @@ export class MeadowbrawlGame {
         this.glow(target.x, target.y, target.def.height * 0.5, 8, '#dcc8ff', 100, 0.5)
         this.thunderclap(target.x, target.y, 70, this.weapon.baseDamage * this.damageMult * 1.2)
         this.emit('storm', target.x, target.y)
+    }
+
+    // ------------------------------------------------------------- elements
+
+    /** Conflagration: a burning body lights the nearest unburnt neighbour. */
+    private spreadFire(e: Enemy) {
+        if (!e.burn) return
+        let best: Enemy | null = null
+        let bestD = 90
+        for (const o of this.enemies) {
+            if (!o.alive || o === e || o.burn) continue
+            const d = Math.hypot(o.x - e.x, o.y - e.y)
+            if (d < bestD) {
+                bestD = d
+                best = o
+            }
+        }
+        if (!best) return
+        best.burn = { t: Math.max(2, e.burn.t * 0.8), dps: e.burn.dps * 0.8, tick: 0.3 }
+        best.spreadT = 1
+        // A lick of flame jumps the gap.
+        const n = 5
+        for (let i = 0; i <= n; i++) {
+            const k = i / n
+            this.burst(e.x + (best.x - e.x) * k, e.y + (best.y - e.y) * k, 14 + Math.sin(k * Math.PI) * 18, 2, 'ember', '#ff9a3c', 40, 0.4)
+        }
+        this.glow(best.x, best.y, best.def.height * 0.5, 4, '#ff8c2a', 60, 0.5)
+        this.emit('burn', best.x, best.y)
+    }
+
+    /** Shatter: a frozen kill bursts into frost shards that chill the crowd. */
+    private shatterBurst(e: Enemy, stacks: number) {
+        const radius = 80 + 20 * stacks
+        const dmg = this.weapon.baseDamage * this.damageMult * (0.5 + 0.4 * (stacks - 1))
+        this.rings.push({ x: e.x, y: e.y, r0: 6, r1: radius, life: 0.35, maxLife: 0.35, color: '#dff6ff', width: 8 })
+        this.impacts.push({ x: e.x, y: e.y, z: e.def.height * 0.5, life: 0.3, maxLife: 0.3, size: radius * 0.6, color: '#ffffff', kind: 'ring', angle: 0 })
+        this.burst(e.x, e.y, e.def.height * 0.4, 18 + 8 * stacks, 'frost', '#dff6ff', 200 + 60 * stacks, 0.8)
+        this.burst(e.x, e.y, e.def.height * 0.5, 10, 'spark', '#ffffff', 220, 0.3)
+        for (let i = 0; i < 6; i++) {
+            const ang = i / 6 * Math.PI * 2 + Math.random() * 0.4
+            this.spikes.push({ x: e.x + Math.cos(ang) * 24, y: e.y + Math.sin(ang) * 24, life: 0.5, maxLife: 0.5, angle: ang, size: 18 + Math.random() * 8 })
+        }
+        this.flash = Math.max(this.flash, 0.15)
+        this.hitstop = Math.max(this.hitstop, 0.05)
+        this.shake = Math.max(this.shake, 6)
+        this.emit('shatter', e.x, e.y, Math.min(1, stacks / 2))
+        for (const o of this.enemies) {
+            if (!o.alive || o === e || !inCircle(e, radius, o, o.r)) continue
+            this.damageEnemy(o, dmg, { source: e, knockback: 200, stagger: 0.3, tag: 'shatter', bypassShield: true, color: '#bfefff', element: 'ice' })
+        }
+    }
+
+    /** Deep Winter: a wave of frost rolls out from you and locks the field. */
+    private frostWave() {
+        const p = this.player
+        const radius = 260 * this.reachMult
+        this.frostWaveT = 0.7
+        this.rings.push({ x: p.x, y: p.y, r0: 20, r1: radius, life: 0.7, maxLife: 0.7, color: '#dff6ff', width: 16 })
+        this.rings.push({ x: p.x, y: p.y, r0: 10, r1: radius * 0.7, life: 0.5, maxLife: 0.5, color: '#ffffff', width: 4 })
+        this.burst(p.x, p.y, 10, 40, 'frost', '#dff6ff', 320, 0.9)
+        this.glow(p.x, p.y, 24, 18, '#bfefff', 180, 0.8)
+        this.flash = Math.max(this.flash, 0.3)
+        this.shake = Math.max(this.shake, 8)
+        this.floaters.push({ x: p.x, y: p.y, z: 66, text: 'DEEP WINTER', life: 1, maxLife: 1, color: '#dff6ff', size: 18, vx: 0 })
+        this.emit('frostwave', p.x, p.y)
+        for (const e of this.enemies) {
+            if (!e.alive || !inCircle(p, radius, e, e.r)) continue
+            if (e.def.elite) {
+                e.slow = Math.max(e.slow, 0.5)
+                e.slowT = Math.max(e.slowT, 2.5)
+                this.addStun(e, 30)
+            } else {
+                e.frozen = Math.max(e.frozen, 1.5)
+                this.interrupt(e)
+                e.chill = 0
+            }
+            this.burst(e.x, e.y, e.def.height * 0.4, 6, 'frost', '#dff6ff', 90, 0.6)
+        }
+    }
+
+    /** Eclipse: the world stops for two seconds. You don't. */
+    private eclipse() {
+        const p = this.player
+        this.eclipseT = 2
+        this.flash = 1
+        this.slowmo = Math.max(this.slowmo, 0.25)
+        this.hitstop = Math.max(this.hitstop, 0.1)
+        this.shake = Math.max(this.shake, 10)
+        this.rings.push({ x: p.x, y: p.y, r0: 20, r1: 700, life: 0.8, maxLife: 0.8, color: '#e6d5ff', width: 10 })
+        this.rings.push({ x: p.x, y: p.y, r0: 700, r1: 20, life: 1.2, maxLife: 1.2, color: '#8f7ad8', width: 4 })
+        this.glow(p.x, p.y, 30, 30, '#c9a3ff', 200, 1.2)
+        this.floaters.push({ x: p.x, y: p.y, z: 70, text: 'ECLIPSE', life: 1.4, maxLife: 1.4, color: '#e6d5ff', size: 24, vx: 0 })
+        this.emit('eclipse', p.x, p.y)
+        for (const e of this.enemies) {
+            if (!e.alive) continue
+            e.frozen = Math.max(e.frozen, 2)
+            this.interrupt(e)
+            e.vx = 0
+            e.vy = 0
+        }
+        // Everything in the air drops out of it.
+        this.projectiles = this.projectiles.filter(pr => pr.owner === 'player')
+    }
+
+    /** Cosmetic: a school you've invested in shows on you. */
+    private elementMotes(dt: number) {
+        const p = this.player
+        const fire = this.element('fire')
+        const ice = this.element('ice')
+        const shock = this.element('shock')
+        if (fire >= 3 && Math.random() < dt * (2 + fire)) {
+            this.particles.push({ x: p.x + (Math.random() - 0.5) * 24, y: p.y + (Math.random() - 0.5) * 12, z: 4, vx: (Math.random() - 0.5) * 20, vy: (Math.random() - 0.5) * 20, vz: 50 + Math.random() * 40, life: 0.8, maxLife: 0.8, size: 3 + Math.random() * 2, color: '#ff9a3c', kind: 'ember', gravity: -40, decal: false })
+        }
+        if (ice >= 3 && Math.random() < dt * (2 + ice)) {
+            const a = Math.random() * Math.PI * 2
+            this.particles.push({ x: p.x + Math.cos(a) * 26, y: p.y + Math.sin(a) * 18, z: 10 + Math.random() * 30, vx: -Math.sin(a) * 30, vy: Math.cos(a) * 30, vz: -10, life: 1, maxLife: 1, size: 2.5, color: '#dff6ff', kind: 'frost', gravity: 20, decal: false })
+        }
+        if (shock >= 3 && Math.random() < dt * (1.5 + shock)) {
+            const a = Math.random() * Math.PI * 2
+            this.particles.push({ x: p.x + Math.cos(a) * 20, y: p.y + Math.sin(a) * 14, z: 14 + Math.random() * 30, vx: Math.cos(a + 1.5) * 120, vy: Math.sin(a + 1.5) * 120, vz: 10, life: 0.25, maxLife: 0.25, size: 2.5, color: '#c9a3ff', kind: 'spark', gravity: 0, decal: false })
+        }
+    }
+
+    // ------------------------------------------------------------- phantoms
+
+    /** Spectral Vanguard: slot 0 and 2 are warriors, slot 1 an archer. */
+    private summonPhantom(slot: number) {
+        const p = this.player
+        const kind = slot === 1 ? 'archer' : 'warrior'
+        const a = Math.PI + (slot - 1) * 0.9
+        const ph: Phantom = {
+            id: this.nextId++, kind,
+            x: p.x + Math.cos(a) * 50, y: p.y + Math.sin(a) * 36,
+            vx: 0, vy: 0, facing: p.facing, anim: 0, moving: false, slot,
+            cd: 0.6, attack: null, targetId: -1, born: 0
+        }
+        this.phantoms.push(ph)
+        this.rings.push({ x: ph.x, y: ph.y, r0: 6, r1: 50, life: 0.5, maxLife: 0.5, color: '#9fe3ff', width: 6 })
+        this.glow(ph.x, ph.y, 20, 14, '#9fe3ff', 90, 0.8)
+        this.emit('phantom', ph.x, ph.y)
+    }
+
+    private phantomTarget(ph: Phantom): Enemy | null {
+        const p = this.player
+        let best: Enemy | null = null
+        let bestD = PHANTOM_SEEK
+        for (const e of this.enemies) {
+            if (!e.alive || !e.entered) continue
+            const d = Math.hypot(e.x - p.x, e.y - p.y) + (e.id === ph.targetId ? -40 : 0)
+            if (d < bestD) {
+                bestD = d
+                best = e
+            }
+        }
+        return best
+    }
+
+    private updatePhantoms(dt: number) {
+        const p = this.player
+        for (const ph of this.phantoms) {
+            ph.born = Math.min(1, ph.born + dt * 2)
+            ph.cd = Math.max(0, ph.cd - dt)
+            ph.anim += dt * (ph.moving ? 9 : 2.5)
+            const target = this.phantomTarget(ph)
+            ph.targetId = target?.id ?? -1
+            // Where it wants to stand: a formation slot at your heel, or on its prey.
+            const back = Math.atan2(p.lastMoveY, p.lastMoveX) + Math.PI + (ph.slot - 1) * 0.9
+            let tx = p.x + Math.cos(back) * 52
+            let ty = p.y + Math.sin(back) * 38
+            if (target) {
+                const d = Math.hypot(target.x - p.x, target.y - p.y)
+                if (ph.kind === 'warrior') {
+                    const a = angleTo(target, ph)
+                    tx = target.x + Math.cos(a) * (target.r + 26)
+                    ty = target.y + Math.sin(a) * (target.r + 26)
+                } else {
+                    // The archer keeps its distance and a clear line.
+                    const a = angleTo(target, p) + (ph.slot - 1) * 0.5
+                    const keep = Math.min(180, Math.max(110, d))
+                    tx = target.x + Math.cos(a) * keep
+                    ty = target.y + Math.sin(a) * keep
+                }
+            }
+            if (ph.attack) {
+                ph.attack.t += dt
+                ph.facing = ph.attack.dir
+                if (!ph.attack.fired && ph.attack.t >= ph.attack.dur * 0.55) {
+                    ph.attack.fired = true
+                    this.phantomStrike(ph, target)
+                }
+                if (ph.attack.t >= ph.attack.dur) ph.attack = null
+            } else {
+                const dx = tx - ph.x
+                const dy = ty - ph.y
+                const d = Math.hypot(dx, dy)
+                if (d > 480) {
+                    ph.x = tx
+                    ph.y = ty
+                    ph.vx = 0
+                    ph.vy = 0
+                    this.glow(ph.x, ph.y, 20, 6, '#9fe3ff', 60, 0.5)
+                }
+                const want = d > 6 ? Math.min(PHANTOM_SPEED, d * 6) : 0
+                const ax = d > 0 ? dx / d * want : 0
+                const ay = d > 0 ? dy / d * want : 0
+                ph.vx += (ax - ph.vx) * Math.min(1, dt * 9)
+                ph.vy += (ay - ph.vy) * Math.min(1, dt * 9)
+                ph.x += ph.vx * dt
+                ph.y += ph.vy * dt
+                ph.moving = Math.hypot(ph.vx, ph.vy) > 20
+                ph.facing = target ? angleTo(ph, target) : ph.moving ? Math.atan2(ph.vy, ph.vx) : angleTo(ph, p)
+                if (target && ph.cd <= 0) {
+                    const reach = ph.kind === 'warrior' ? target.r + 58 : 260
+                    if (Math.hypot(target.x - ph.x, target.y - ph.y) <= reach) {
+                        ph.attack = { t: 0, dur: ph.kind === 'warrior' ? 0.42 : 0.5, dir: angleTo(ph, target), fired: false }
+                        ph.cd = ph.kind === 'warrior' ? 1.1 : 1.5
+                    }
+                }
+            }
+            if (Math.random() < dt * 6) this.glow(ph.x + (Math.random() - 0.5) * 14, ph.y, 8 + Math.random() * 30, 1, '#9fe3ff', 20, 0.6)
+        }
+    }
+
+    private phantomStrike(ph: Phantom, target: Enemy | null) {
+        const w = this.weapon
+        const base = w.baseDamage * this.damageMult
+        if (ph.kind === 'warrior') {
+            const reach = 62
+            this.trails.push({ x: ph.x, y: ph.y, angle0: ph.facing - 1.1, angle1: ph.facing + 1.1, reach, life: 0.2, maxLife: 0.2, color: '#9fe3ff', kind: 'arc', width: 18, z: 14, style: 'ghost' })
+            for (const e of this.enemies) {
+                if (!e.alive || !inArc(ph, ph.facing, 1.1, reach, e, e.r)) continue
+                this.damageEnemy(e, base * 0.4, { source: ph, knockback: 120, stagger: 0.2, tag: 'phantom', color: '#9fe3ff' })
+            }
+            this.emit('swing', ph.x, ph.y, 0.3, 'ghost')
+        } else if (target) {
+            const a = angleTo(ph, target)
+            this.projectiles.push({
+                id: this.nextId++, x: ph.x + Math.cos(a) * 14, y: ph.y + Math.sin(a) * 14,
+                vx: Math.cos(a) * 560, vy: Math.sin(a) * 560, life: 0.9, damage: base * 0.3, r: 9,
+                owner: 'player', pierce: 0, hitIds: new Set(), kind: 'spectral', angle: a
+            })
+            this.burst(ph.x, ph.y, 20, 3, 'spark', '#9fe3ff', 80, 0.25, a)
+        }
     }
 
     private puff(x: number, y: number, count: number, color: string) {

@@ -88,11 +88,25 @@ export type EnemyTypeId = 'grunt' | 'charger' | 'swarmer' | 'shield' | 'ranged' 
 
 export type Rarity = 'common' | 'rare' | 'epic' | 'legendary' | 'weapon'
 
+/**
+ * What a boon *is*, for the card badge: a plain number that goes up, a
+ * thing that happens on screen, or a bargain with a catch.
+ */
+export type UpgradeKind = 'stat' | 'effect' | 'pact'
+
+/** Elemental school. Stacking one school unlocks its status effect. */
+export type Element = 'fire' | 'ice' | 'shock'
+
 export interface UpgradeDef {
     id: string
     name: string
+    /** One short line. Cards are read mid-fight — every word costs. */
     description: string
+    /** The downside, shown in red. Only pacts have one. */
+    catch?: string
     rarity: Rarity
+    kind: UpgradeKind
+    element?: Element
     maxStacks: number
     icon: string
 }
@@ -118,6 +132,7 @@ export type GameEventType =
     | 'lightning' | 'freeze' | 'burn' | 'telegraph' | 'sprint' | 'eliteSpawn' | 'crit' | 'execute' | 'revive' | 'leap'
     | 'ability' | 'abilityReady' | 'shieldBlock' | 'ambush' | 'eliteKill' | 'stun'
     | 'coin' | 'petAbility' | 'petFeather' | 'avatar' | 'chrono' | 'storm' | 'legendary'
+    | 'shatter' | 'charge' | 'eclipse' | 'frostwave' | 'phantom' | 'laststand' | 'splash'
 
 export interface GameEvent {
     type: GameEventType
