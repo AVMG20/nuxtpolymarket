@@ -597,17 +597,24 @@ describe('pathfinding', () => {
 })
 
 describe('third batch', () => {
-    it('Mirror Edge hits enemies behind you', () => {
+    it('Rippling Blows spills a share of every hit onto the crowd around the target', () => {
         const g = fresh('sword')
-        g.applyOffer({ upgrade: UPGRADE_BY_ID.mirror!, stack: 1 })
-        aimRight(g)
-        const behind = g.spawnEnemy('grunt', 'north')
-        behind.x = g.player.x - 45
-        behind.y = g.player.y
-        behind.state = 'chase'
-        click(g)
-        step(g, 0.3)
-        expect(behind.hp).toBeLessThan(behind.maxHp)
+        g.applyOffer({ upgrade: UPGRADE_BY_ID.splash!, stack: 1 })
+        const hit = g.spawnEnemy('grunt', 'north')
+        hit.x = g.player.x + 40
+        hit.y = g.player.y
+        hit.state = 'chase'
+        const near = g.spawnEnemy('grunt', 'north')
+        near.x = hit.x + 50
+        near.y = hit.y
+        near.state = 'chase'
+        const far = g.spawnEnemy('grunt', 'north')
+        far.x = hit.x + 300
+        far.y = hit.y
+        far.state = 'chase'
+        g.damageEnemy(hit, 20, { source: g.player, tag: 'melee' })
+        expect(near.maxHp - near.hp).toBe(4)
+        expect(far.hp).toBe(far.maxHp)
     })
 
     it('Meteor Shower drops a meteor on an enemy and Singularity pulls them in', () => {
@@ -654,10 +661,10 @@ describe('third batch', () => {
         expect(g.projectiles.some(p => p.kind === 'crescent')).toBe(true)
     })
 
-    it('Adrenaline refunds a dodge and Reaper\'s Toll slows the field on kills', () => {
+    it('Adrenaline refunds a dodge and Cold Snap chills the field on kills', () => {
         const g = fresh('sword')
         g.applyOffer({ upgrade: UPGRADE_BY_ID.adrenaline!, stack: 1 })
-        g.applyOffer({ upgrade: UPGRADE_BY_ID.reapertoll!, stack: 1 })
+        g.applyOffer({ upgrade: UPGRADE_BY_ID.coldsnap!, stack: 1 })
         g.player.dodgeCharges = 0
         g.hurtPlayer(5, { x: g.player.x + 30, y: g.player.y }, 0)
         expect(g.player.dodgeCharges).toBe(1)

@@ -176,7 +176,7 @@ describe('meadowbrawl checkpoints', () => {
 
     it('rejects more boons than cleared waves, too many offers, and bad shapes', () => {
         expect(meadowbrawlValidateSave(save({ upgrades: { might: 5 } }))).toBe(false)
-        expect(meadowbrawlValidateSave(save({ offers: ['a', 'b', 'c', 'd'] }))).toBe(false)
+        expect(meadowbrawlValidateSave(save({ offers: ['a', 'b', 'c', 'd', 'e'] }))).toBe(false)
         expect(meadowbrawlValidateSave(save({ wave: 30 }))).toBe(false)
         expect(meadowbrawlValidateSave(save({ wave: 0 }))).toBe(false)
         expect(meadowbrawlValidateSave(save({ hp: 500 }))).toBe(false)

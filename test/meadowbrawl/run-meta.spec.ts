@@ -293,9 +293,9 @@ describe('fourth batch boons', () => {
         return e
     }
 
-    it('Thunder Step strikes where you dodged from and Rolling Kick bowls over what you roll through', () => {
+    it('Rolling Thunder at two stacks claps where you dodged from and Rolling Kick bowls over what you roll through', () => {
         const g = fresh()
-        grant(g, 'thunderstep')
+        grant(g, 'rollingthunder', 2)
         grant(g, 'rollimpact')
         const near = grunt(g, 40)
         const far = grunt(g, 120)
@@ -308,18 +308,22 @@ describe('fourth batch boons', () => {
         expect(far.hp).toBe(far.maxHp)
         step(g, 0.5)
         expect(far.stun).toBeGreaterThan(0)
-        expect(far.vx).toBeGreaterThan(0)
+        // Bowled over by the roll, then caught by the clap where it ended.
+        expect(Math.abs(far.vx)).toBeGreaterThan(0)
+        expect(far.hp).toBeLessThan(far.maxHp)
     })
 
-    it('Kill Frenzy stacks damage on kills and fades', () => {
+    it('Bloodlust stacks speed and damage on kills and fades', () => {
         const g = fresh()
-        grant(g, 'frenzy')
+        grant(g, 'bloodlust')
         const e = grunt(g, 40)
         g.damageEnemy(e, 9999, { source: g.player, tag: 'melee' })
-        expect(g.player.frenzy).toBe(1)
-        expect(g.damageMult).toBeCloseTo(1.08)
-        step(g, 5.2)
-        expect(g.player.frenzy).toBe(0)
+        expect(g.player.bloodlust).toBe(1)
+        expect(g.damageMult).toBeCloseTo(1.04)
+        expect(g.attackSpeed).toBeCloseTo(1.04)
+        step(g, 4.2)
+        expect(g.player.bloodlust).toBe(0)
+        expect(g.damageMult).toBeCloseTo(1)
     })
 
     it('Meadow\'s Mercy regenerates only after a lull', () => {
