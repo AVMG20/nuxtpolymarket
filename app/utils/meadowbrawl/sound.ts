@@ -502,10 +502,53 @@ export class MeadowbrawlSound {
                 this.tone(1318, 0.9, { type: 'sine', gain: 0.09, to: 1245, attack: 0.05, delay: 0.2 })
                 this.chord([164, 196, 246], 1.8, 'triangle', 0.07, 0.08)
                 break
-            case 'phantom':
-                // An ally arriving: a soft breath and a rising chime.
-                this.hiss(0.5, { gain: 0.1, from: 600, to: 3000, q: 0.5 })
-                this.chord([784, 1046, 1318], 0.6, 'sine', 0.07, 0.09)
+            case 'phantom': {
+                if (!this.throttle(`phantom:${ev.variant}`, 160)) return
+                const archer = ev.variant === 'archer'
+                // A breath gathers into a resonant body, then a fine crystalline halo.
+                this.hiss(0.65, { gain: 0.09, from: 350, to: 2800, q: 0.7, attack: 0.12 })
+                this.tone(archer ? 196 : 98, 0.8, { gain: 0.09, to: archer ? 294 : 73, attack: 0.06 })
+                this.chord(archer ? [587, 880, 1174] : [294, 440, 587], 0.75, 'sine', 0.045, 0.08)
+                this.tone(archer ? 2349 : 1760, 0.55, { gain: 0.025, to: archer ? 2358 : 1772, delay: 0.18, attack: 0.025 })
+                this.hiss(0.35, { gain: 0.035, from: 5200, to: 1800, delay: 0.2 })
+                break
+            }
+            case 'phantomDraw':
+                if (!this.throttle(`phantomDraw:${ev.variant}`, 100)) return
+                if (ev.variant === 'archer') {
+                    // Bow wood bending and a taut string, ending at the 275ms release.
+                    this.hiss(0.26, { gain: 0.035, from: 500, to: 1500, q: 2, attack: 0.06 })
+                    this.tone(280, 0.27, { type: 'triangle', gain: 0.025, to: 490, attack: 0.08 })
+                } else {
+                    this.hiss(0.18, { gain: 0.035, from: 400, to: 1700, q: 0.6, attack: 0.045 })
+                    this.tone(392, 0.2, { gain: 0.02, to: 587, attack: 0.04 })
+                }
+                break
+            case 'phantomStrike': {
+                // Separate throttle keys keep allied attacks from swallowing the hero's swing.
+                if (!this.throttle(`phantomStrike:${ev.variant}`, 70)) return
+                const pitch = 0.97 + Math.random() * 0.06
+                if (ev.variant === 'archer') {
+                    // A short, woody snap, string harmonics, and an airy arrow whistle.
+                    this.tone(740 * pitch, 0.12, { type: 'triangle', gain: 0.075, to: 260, attack: 0.002 })
+                    this.tone(1480 * pitch, 0.16, { gain: 0.025, to: 720, attack: 0.002 })
+                    this.hiss(0.065, { gain: 0.065, from: 3400, to: 1100, q: 1.4, attack: 0.002 })
+                    this.hiss(0.24, { gain: 0.045, from: 5500, to: 2000, q: 2.5, delay: 0.015 })
+                    this.tone(1760 * pitch, 0.3, { gain: 0.018, to: 1174, delay: 0.025 })
+                } else {
+                    // Heavy air under the blade, a steel overtone, then a ghostly tail.
+                    this.hiss(0.24, { gain: 0.11, from: 2800, to: 350, q: 0.65, attack: 0.008 })
+                    this.tone(145 * pitch, 0.18, { type: 'triangle', gain: 0.065, to: 62 })
+                    this.tone(1174 * pitch, 0.22, { gain: 0.035, to: 784, attack: 0.008 })
+                    this.tone(1760 * pitch, 0.35, { gain: 0.018, to: 1568, delay: 0.025 })
+                }
+                break
+            }
+            case 'phantomHit':
+                if (!this.throttle(`phantomHit:${ev.variant}`, 90)) return
+                this.hiss(0.09, { gain: 0.055, from: 4200, to: 1200, q: 1.3, attack: 0.002 })
+                this.tone(ev.variant === 'archer' ? 160 : 100, 0.12, { type: 'triangle', gain: 0.055, to: 55 })
+                this.tone(ev.variant === 'archer' ? 2349 : 1568, 0.26, { gain: 0.025, to: ev.variant === 'archer' ? 1760 : 1174 })
                 break
             case 'laststand':
                 // Grit: a low hit, then a held bright note.

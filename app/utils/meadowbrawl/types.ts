@@ -132,6 +132,7 @@ export type GameEventType =
     | 'lightning' | 'freeze' | 'burn' | 'telegraph' | 'sprint' | 'eliteSpawn' | 'crit' | 'execute' | 'revive' | 'leap'
     | 'ability' | 'abilityReady' | 'shieldBlock' | 'ambush' | 'eliteKill' | 'stun'
     | 'coin' | 'petAbility' | 'petFeather' | 'avatar' | 'chrono' | 'storm' | 'legendary'
+    | 'phantomDraw' | 'phantomStrike' | 'phantomHit'
     | 'shatter' | 'charge' | 'eclipse' | 'frostwave' | 'phantom' | 'laststand' | 'splash'
 
 export interface GameEvent {

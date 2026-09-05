@@ -9,7 +9,7 @@ type Point = readonly [number, number]
 type Tint = (color: string) => string
 
 /** Small material-aware drawing vocabulary, lit consistently from upper left. */
-class Paint {
+export class Paint {
     constructor(readonly ctx: Ctx, readonly tint: Tint, readonly outline: string) {}
 
     material(color: string, x: number, y: number, w: number, h: number) {

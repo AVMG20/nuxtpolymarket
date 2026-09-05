@@ -3442,6 +3442,11 @@ export class MeadowbrawlGame {
                         pr.hitIds.add(e.id)
                         const crit = randomChance(this.critChance(e))
                         this.damageEnemy(e, pr.damage * (crit ? 2.5 : 1), { source: { x: pr.x - pr.vx * 0.01, y: pr.y - pr.vy * 0.01 }, heavy: this.allHeavy, knockback: 90, stagger: 0.15, tag: pr.kind === 'spectral' ? 'phantom' : 'proj', crit, color: pr.kind === 'spectral' ? '#9fe3ff' : undefined })
+                        if (pr.kind === 'spectral') {
+                            this.burst(pr.x, pr.y, 18, 6, 'spark', '#c9ffe8', 105, 0.25, pr.angle + Math.PI)
+                            this.rings.push({ x: pr.x, y: pr.y, r0: 3, r1: 22, life: 0.2, maxLife: 0.2, color: '#a5f3cf', width: 1.5 })
+                            this.emit('phantomHit', pr.x, pr.y, 0.3, 'archer')
+                        }
                         if (pr.hitIds.size > pr.pierce) {
                             dead = true
                             break
@@ -4015,9 +4020,11 @@ export class MeadowbrawlGame {
             cd: 0.6, attack: null, targetId: -1, born: 0
         }
         this.phantoms.push(ph)
-        this.rings.push({ x: ph.x, y: ph.y, r0: 6, r1: 50, life: 0.5, maxLife: 0.5, color: '#9fe3ff', width: 6 })
-        this.glow(ph.x, ph.y, 20, 14, '#9fe3ff', 90, 0.8)
-        this.emit('phantom', ph.x, ph.y)
+        const color = kind === 'archer' ? '#a5f3cf' : '#9fe3ff'
+        this.rings.push({ x: ph.x, y: ph.y, r0: 6, r1: 50, life: 0.5, maxLife: 0.5, color, width: 3 })
+        this.rings.push({ x: ph.x, y: ph.y, r0: 36, r1: 12, life: 0.7, maxLife: 0.7, color, width: 1.5 })
+        this.glow(ph.x, ph.y, 20, 14, color, 90, 0.8)
+        this.emit('phantom', ph.x, ph.y, 0.5, ph.kind)
     }
 
     private phantomTarget(ph: Phantom): Enemy | null {
@@ -4094,10 +4101,11 @@ export class MeadowbrawlGame {
                     if (Math.hypot(target.x - ph.x, target.y - ph.y) <= reach) {
                         ph.attack = { t: 0, dur: ph.kind === 'warrior' ? 0.42 : 0.5, dir: angleTo(ph, target), fired: false }
                         ph.cd = ph.kind === 'warrior' ? 1.1 : 1.5
+                        this.emit('phantomDraw', ph.x, ph.y, 0.35, ph.kind)
                     }
                 }
             }
-            if (Math.random() < dt * 6) this.glow(ph.x + (Math.random() - 0.5) * 14, ph.y, 8 + Math.random() * 30, 1, '#9fe3ff', 20, 0.6)
+            if (Math.random() < dt * 6) this.glow(ph.x + (Math.random() - 0.5) * 14, ph.y, 8 + Math.random() * 30, 1, ph.kind === 'archer' ? '#a5f3cf' : '#9fe3ff', 20, 0.6)
         }
     }
 
@@ -4110,8 +4118,10 @@ export class MeadowbrawlGame {
             for (const e of this.enemies) {
                 if (!e.alive || !inArc(ph, ph.facing, 1.1, reach, e, e.r)) continue
                 this.damageEnemy(e, base * 0.4, { source: ph, knockback: 120, stagger: 0.2, tag: 'phantom', color: '#9fe3ff' })
+                this.burst(e.x, e.y, 20, 4, 'spark', '#dff6ff', 85, 0.2, ph.facing)
+                this.emit('phantomHit', e.x, e.y, 0.3, 'warrior')
             }
-            this.emit('swing', ph.x, ph.y, 0.3, 'ghost')
+            this.emit('phantomStrike', ph.x, ph.y, 0.3, 'warrior')
         } else if (target) {
             const a = angleTo(ph, target)
             this.projectiles.push({
@@ -4119,7 +4129,8 @@ export class MeadowbrawlGame {
                 vx: Math.cos(a) * 560, vy: Math.sin(a) * 560, life: 0.9, damage: base * 0.3, r: 9,
                 owner: 'player', pierce: 0, hitIds: new Set(), kind: 'spectral', angle: a
             })
-            this.burst(ph.x, ph.y, 20, 3, 'spark', '#9fe3ff', 80, 0.25, a)
+            this.burst(ph.x, ph.y, 20, 4, 'spark', '#c9ffe8', 80, 0.25, a)
+            this.emit('phantomStrike', ph.x, ph.y, 0.3, 'archer')
         }
     }
 
