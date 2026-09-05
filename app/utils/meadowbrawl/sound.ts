@@ -469,6 +469,50 @@ export class MeadowbrawlSound {
                 this.tone(120, 0.32, { type: 'triangle', gain: 0.18, to: 40, delay: 0.03 })
                 this.tone(2200 + Math.random() * 800, 0.05, { type: 'square', gain: 0.06 })
                 break
+            case 'splash':
+                // A dull thud spreading outward under the hit.
+                if (!this.throttle('splash', 90)) return
+                this.tone(95, 0.16, { type: 'triangle', gain: 0.12 + power * 0.08, to: 45 })
+                this.hiss(0.12, { gain: 0.08, from: 900, to: 300, q: 0.6 })
+                break
+            case 'charge':
+                // Static catching: a short crackle and a high tick.
+                if (!this.throttle('charge', 120)) return
+                this.hiss(0.09, { gain: 0.1, from: 5000, to: 2200, q: 2.5 })
+                this.tone(3000 + Math.random() * 600, 0.04, { type: 'square', gain: 0.04 })
+                break
+            case 'shatter':
+                // Glass breaking: bright noise, a chime, a shard clatter.
+                if (!this.throttle('shatter', 80)) return
+                this.hiss(0.28, { gain: 0.24 + power * 0.1, from: 7000, to: 1800, q: 1.4 })
+                this.tone(2093, 0.18, { type: 'sine', gain: 0.08, to: 2600 })
+                this.tone(2794, 0.14, { type: 'triangle', gain: 0.05, to: 3300, delay: 0.04 })
+                for (let i = 0; i < 3; i++) this.tone(1400 + Math.random() * 1400, 0.05, { type: 'square', gain: 0.03, delay: 0.08 + i * 0.05 })
+                break
+            case 'frostwave':
+                // A deep intake of cold: a rushing sweep down, then a crystalline shimmer.
+                this.hiss(0.8, { gain: 0.26, from: 5000, to: 200, q: 0.8 })
+                this.tone(70, 0.7, { type: 'sine', gain: 0.35, to: 30 })
+                this.chord([1568, 1976, 2349, 3136], 1.0, 'sine', 0.05, 0.1)
+                break
+            case 'eclipse':
+                // The world stopping: a sub drop, a reversed swell, a bell.
+                this.tone(52, 1.8, { type: 'sine', gain: 0.5, to: 20 })
+                this.hiss(1.2, { gain: 0.2, from: 200, to: 5000, q: 0.6 })
+                this.tone(1318, 0.9, { type: 'sine', gain: 0.09, to: 1245, attack: 0.05, delay: 0.2 })
+                this.chord([164, 196, 246], 1.8, 'triangle', 0.07, 0.08)
+                break
+            case 'phantom':
+                // An ally arriving: a soft breath and a rising chime.
+                this.hiss(0.5, { gain: 0.1, from: 600, to: 3000, q: 0.5 })
+                this.chord([784, 1046, 1318], 0.6, 'sine', 0.07, 0.09)
+                break
+            case 'laststand':
+                // Grit: a low hit, then a held bright note.
+                this.tone(80, 0.5, { type: 'sine', gain: 0.4, to: 35 })
+                this.tone(1046, 0.9, { type: 'triangle', gain: 0.1, attack: 0.04 })
+                this.tone(1568, 0.7, { type: 'sine', gain: 0.06, delay: 0.12 })
+                break
             case 'crit':
                 if (!this.throttle('crit', 60)) return
                 this.tone(1400, 0.12, { type: 'square', gain: 0.07, to: 2400 })

@@ -1,7 +1,7 @@
 // Canvas 2D renderer for Meadowbrawl. Paints the terrain once per run into
 // offscreen layers, then draws the live scene y-sorted on top with a
 // foreshortened ground plane so the 45° camera reads without a 3D stack.
-import type { Enemy, MeadowbrawlGame, Particle, Player } from './engine'
+import type { Enemy, MeadowbrawlGame, Particle, Phantom, Player } from './engine'
 import { GROUND_YS as YS } from './types'
 import type { TreeDeco, WorldLayout } from './world'
 import { WEAPONS } from './weapons'
@@ -1421,12 +1421,33 @@ export class MeadowbrawlRenderer {
             ctx.setLineDash([])
         }
         for (const e of g.enemies) {
-            if (!e.alive || e.marked <= 0) continue
-            ctx.strokeStyle = `rgba(200,160,255,${0.5 + Math.sin(this.t * 8) * 0.25})`
-            ctx.lineWidth = 2.5
+            if (!e.alive) continue
+            if (e.marked > 0) {
+                ctx.strokeStyle = `rgba(200,160,255,${0.5 + Math.sin(this.t * 8) * 0.25})`
+                ctx.lineWidth = 2.5
+                ctx.beginPath()
+                ctx.arc(e.x, e.y, e.r * 1.7, this.t * 2, this.t * 2 + 4.5)
+                ctx.stroke()
+            }
+            if (e.chill > 0 && e.frozen <= 0) {
+                // Frost creeping across the ground as the meter fills.
+                const k = e.chill / 100
+                ctx.strokeStyle = `rgba(200,240,255,${0.25 + k * 0.5})`
+                ctx.lineWidth = 2 + k * 3
+                ctx.setLineDash([4, 6])
+                ctx.lineDashOffset = -this.t * 20
+                ctx.beginPath()
+                ctx.arc(e.x, e.y, e.r * 1.4 + k * 6, 0, Math.PI * 2 * k)
+                ctx.stroke()
+                ctx.setLineDash([])
+            }
+        }
+        // Phantom shadows.
+        for (const ph of g.phantoms) {
+            ctx.fillStyle = `rgba(120,200,255,${0.14 * ph.born})`
             ctx.beginPath()
-            ctx.arc(e.x, e.y, e.r * 1.7, this.t * 2, this.t * 2 + 4.5)
-            ctx.stroke()
+            ctx.arc(ph.x, ph.y, 14, 0, Math.PI * 2)
+            ctx.fill()
         }
         if (p.fx.smoke > 0) {
             const k = Math.min(1, p.fx.smoke / 0.5)
@@ -1551,6 +1572,12 @@ export class MeadowbrawlRenderer {
             const s = proj(p.x, p.y)
             this.drawPlayer(ctx, p, s.x, s.y)
         } })
+        for (const ph of g.phantoms) {
+            items.push({ y: ph.y, draw: () => {
+                const s = proj(ph.x, ph.y)
+                this.drawPhantom(ctx, ph, s.x, s.y)
+            } })
+        }
         const c = g.companion
         if (c) {
             items.push({ y: c.y, draw: () => {
@@ -1602,6 +1629,28 @@ export class MeadowbrawlRenderer {
                     ctx.closePath()
                     ctx.fill()
                     ctx.stroke()
+                } else if (pr.kind === 'spectral') {
+                    // A ghost arrow: a pale shaft with a streak of light behind it.
+                    ctx.strokeStyle = 'rgba(159,227,255,0.45)'
+                    ctx.lineWidth = 6
+                    ctx.lineCap = 'round'
+                    ctx.beginPath()
+                    ctx.moveTo(-26, 0)
+                    ctx.lineTo(6, 0)
+                    ctx.stroke()
+                    ctx.strokeStyle = 'rgba(255,255,255,0.95)'
+                    ctx.lineWidth = 2
+                    ctx.beginPath()
+                    ctx.moveTo(-14, 0)
+                    ctx.lineTo(10, 0)
+                    ctx.stroke()
+                    ctx.fillStyle = '#e8fbff'
+                    ctx.beginPath()
+                    ctx.moveTo(14, 0)
+                    ctx.lineTo(6, 3.5)
+                    ctx.lineTo(6, -3.5)
+                    ctx.closePath()
+                    ctx.fill()
                 } else if (pr.kind === 'crescent') {
                     ctx.strokeStyle = 'rgba(230,250,255,0.85)'
                     ctx.lineWidth = 9
@@ -2131,6 +2180,11 @@ export class MeadowbrawlRenderer {
         const tint = (base: string) => {
             if (flash || windupFlash) return '#ffffff'
             if (e.frozen > 0) return '#bfe6ff'
+            if (e.chill > 40) {
+                const [r, gg, b] = parseColor(base)
+                const k = clamp((e.chill - 40) / 60, 0, 1)
+                return `rgb(${Math.round(lerp(r, 170, k * 0.6))},${Math.round(lerp(gg, 220, k * 0.6))},${Math.round(lerp(b, 255, k * 0.6))})`
+            }
             if (e.slow > 0) return shade(base, 30)
             if (e.burn) return shade(base, 25)
             if (e.veteran) {
@@ -2174,6 +2228,26 @@ export class MeadowbrawlRenderer {
             ctx.closePath()
             ctx.fill()
             ctx.stroke()
+        }
+        if (e.charge > 0 && !dead) {
+            // Static crawling over the body: short jittering arcs.
+            const k = Math.min(1, e.charge / 0.4)
+            ctx.strokeStyle = `rgba(201,163,255,${0.85 * k})`
+            ctx.lineWidth = 1.5
+            ctx.lineCap = 'round'
+            for (let i = 0; i < 3; i++) {
+                const a = t * 9 + i * 2.1 + e.seed * 6
+                const x0 = Math.cos(a) * e.r * 0.9
+                const y0 = -e.def.height * (0.25 + 0.5 * ((i + Math.floor(t * 6)) % 3) / 2)
+                ctx.beginPath()
+                ctx.moveTo(x0, y0)
+                ctx.lineTo(x0 + (Math.random() - 0.5) * 14, y0 - 6 + (Math.random() - 0.5) * 8)
+                ctx.lineTo(x0 + (Math.random() - 0.5) * 18, y0 - 12 + (Math.random() - 0.5) * 8)
+                ctx.stroke()
+            }
+            ctx.fillStyle = `rgba(230,213,255,${0.9 * k})`
+            ellipse(ctx, 0, -e.def.height - 6, 2.2, 2.2)
+            ctx.fill()
         }
         if (e.marked > 0 && !dead) {
             const pulse = 1 + Math.sin(t * 8) * 0.12
@@ -3508,15 +3582,29 @@ export class MeadowbrawlRenderer {
             }
         }
         ctx.globalAlpha = 1
-        // Player auras.
-        const aura = p.fx.bloodrage > 0 ? '255,70,60' : p.fx.rally > 0 ? '255,209,102' : p.fx.ironSkin > 0 ? '200,220,255' : p.fx.shieldWall > 0 ? '188,211,255' : null
-        if (aura) {
-            const x = p.x
-            const y = p.y * YS - 20
-            const r = 46 + Math.sin(this.t * 7) * 4
-            const grad = ctx.createRadialGradient(x, y, 6, x, y, r)
-            grad.addColorStop(0, `rgba(${aura},0.35)`)
-            grad.addColorStop(1, `rgba(${aura},0)`)
+        // Player auras: class effects first, then the boon states that used
+        // to be invisible — each has a colour so you can read it at a glance.
+        this.drawPlayerAuras(ctx)
+        // Phantoms and charged bodies glow softly.
+        for (const ph of g.phantoms) {
+            const x = ph.x
+            const y = ph.y * YS - 22
+            const grad = ctx.createRadialGradient(x, y, 4, x, y, 34)
+            grad.addColorStop(0, `rgba(159,227,255,${0.35 * ph.born})`)
+            grad.addColorStop(1, 'rgba(159,227,255,0)')
+            ctx.fillStyle = grad
+            ctx.beginPath()
+            ctx.arc(x, y, 34, 0, Math.PI * 2)
+            ctx.fill()
+        }
+        for (const e of g.enemies) {
+            if (!e.alive || e.charge <= 0) continue
+            const x = e.x
+            const y = e.y * YS - e.def.height * 0.5
+            const r = e.r * 1.6
+            const grad = ctx.createRadialGradient(x, y, 2, x, y, r)
+            grad.addColorStop(0, `rgba(201,163,255,${0.22 + Math.sin(this.t * 14) * 0.08})`)
+            grad.addColorStop(1, 'rgba(201,163,255,0)')
             ctx.fillStyle = grad
             ctx.beginPath()
             ctx.arc(x, y, r, 0, Math.PI * 2)
@@ -3552,6 +3640,172 @@ export class MeadowbrawlRenderer {
             ctx.ellipse(p.x, p.y * YS - 18, w.radius, w.radius * YS, 0, 0, Math.PI * 2)
             ctx.fill()
         }
+    }
+
+    private drawPlayerAuras(ctx: Ctx) {
+        const g = this.game
+        const p = g.player
+        const x = p.x
+        const y = p.y * YS - 20
+        const halo = (rgb: string, alpha: number, r: number) => {
+            const grad = ctx.createRadialGradient(x, y, 6, x, y, r)
+            grad.addColorStop(0, `rgba(${rgb},${alpha})`)
+            grad.addColorStop(1, `rgba(${rgb},0)`)
+            ctx.fillStyle = grad
+            ctx.beginPath()
+            ctx.arc(x, y, r, 0, Math.PI * 2)
+            ctx.fill()
+        }
+        const classAura = p.fx.bloodrage > 0 ? '255,70,60' : p.fx.rally > 0 ? '255,209,102' : p.fx.ironSkin > 0 ? '200,220,255' : p.fx.shieldWall > 0 ? '188,211,255' : null
+        if (classAura) halo(classAura, 0.35, 46 + Math.sin(this.t * 7) * 4)
+        // Berserker: a red heartbeat while you're under half.
+        if (g.stack('berserk') > 0 && p.hp / p.maxHp < 0.5) {
+            const beat = Math.pow(Math.max(0, Math.sin(this.t * 5)), 3)
+            halo('255,60,40', 0.18 + beat * 0.22, 40 + beat * 14)
+        }
+        // Bloodlust: flames that climb with the stack count.
+        if (p.bloodlust > 0) {
+            const k = p.bloodlust / 8
+            halo('255,130,60', 0.15 + k * 0.25, 34 + k * 26 + Math.sin(this.t * 11) * 3)
+            ctx.strokeStyle = `rgba(255,170,90,${0.35 + k * 0.4})`
+            ctx.lineWidth = 2
+            for (let i = 0; i < 2 + Math.round(k * 6); i++) {
+                const a = this.t * 4 + i * 1.7
+                const fx = x + Math.cos(a) * 16
+                const fy = y + Math.sin(a) * 8
+                ctx.beginPath()
+                ctx.moveTo(fx, fy)
+                ctx.quadraticCurveTo(fx + Math.sin(this.t * 13 + i) * 5, fy - 12 - k * 10, fx, fy - 22 - k * 16)
+                ctx.stroke()
+            }
+        }
+        // Flow State: rings ripple out while a chain is live.
+        if (g.stack('flow') > 0 && (p.attack || p.comboTimer > 0) && p.comboHits > 0) {
+            const k = Math.min(1, p.comboHits / 10)
+            for (let i = 0; i < 2; i++) {
+                const ph = (this.t * 1.4 + i * 0.5) % 1
+                ctx.strokeStyle = `rgba(140,220,255,${(1 - ph) * (0.3 + k * 0.4)})`
+                ctx.lineWidth = 2.5
+                ctx.beginPath()
+                ctx.ellipse(x, y + 14, 18 + ph * 34, (18 + ph * 34) * YS, 0, 0, Math.PI * 2)
+                ctx.stroke()
+            }
+        }
+        // Adrenaline: a hard white flicker.
+        if (p.adrenalineT > 0 && Math.floor(this.t * 18) % 3 === 0) halo('255,255,255', 0.22, 38)
+        // Titan Grip: a steady steel rim underfoot.
+        if (g.stack('titangrip') > 0) {
+            ctx.strokeStyle = `rgba(220,225,235,${0.25 + Math.sin(this.t * 3) * 0.08})`
+            ctx.lineWidth = 2
+            ctx.beginPath()
+            ctx.ellipse(x, y + 18, 22, 22 * YS, 0, 0, Math.PI * 2)
+            ctx.stroke()
+        }
+        // Last Stand and Phoenix invulnerability: a gold shell.
+        if (p.invuln > 0.6 && !p.dodge && p.special?.kind !== 'leap') halo('255,209,102', 0.3, 44 + Math.sin(this.t * 9) * 3)
+        // Elemental attunement: a faint tint of the school you're deepest in.
+        const fire = g.element('fire')
+        const ice = g.element('ice')
+        const shock = g.element('shock')
+        const top = Math.max(fire, ice, shock)
+        if (top >= 3) {
+            const rgb = top === fire ? '255,140,42' : top === ice ? '143,227,255' : '201,163,255'
+            halo(rgb, 0.06 + Math.min(0.14, (top - 3) * 0.03), 40)
+        }
+        // Eclipse: the world dims, you stay lit.
+        if (g.eclipseT > 0) halo('230,213,255', 0.4, 70 + Math.sin(this.t * 6) * 5)
+    }
+
+    /** A ghost of a fighter: translucent, cloaked, trailing light. */
+    private drawPhantom(ctx: Ctx, ph: Phantom, sx: number, sy: number) {
+        const t = this.t
+        const facingLeft = Math.cos(ph.facing) < 0
+        const dir = facingLeft ? -1 : 1
+        const bob = ph.moving ? Math.abs(Math.sin(ph.anim)) * 2 : Math.sin(t * 2 + ph.slot) * 1.5
+        const hover = 6 + Math.sin(t * 2.2 + ph.slot * 1.3) * 3
+        const swing = ph.attack ? clamp(ph.attack.t / ph.attack.dur, 0, 1) : 0
+        ctx.save()
+        ctx.translate(sx, sy - hover - bob)
+        ctx.globalAlpha = 0.72 * ph.born
+        if (ph.born < 1) ctx.scale(ph.born, ph.born)
+        ctx.lineJoin = 'round'
+        const fill = 'rgba(159,227,255,0.55)'
+        const edge = 'rgba(230,250,255,0.9)'
+        // Cloak: a tapered wisp instead of legs.
+        ctx.fillStyle = fill
+        ctx.strokeStyle = edge
+        ctx.lineWidth = 1.4
+        ctx.beginPath()
+        ctx.moveTo(-9, -22)
+        ctx.quadraticCurveTo(-13, -6, -6 + Math.sin(t * 6 + ph.slot) * 2, 6)
+        ctx.quadraticCurveTo(0, 12, 6 + Math.sin(t * 6.5 + ph.slot) * 2, 6)
+        ctx.quadraticCurveTo(13, -6, 9, -22)
+        ctx.closePath()
+        ctx.fill()
+        ctx.stroke()
+        // Torso and hood.
+        ctx.fillStyle = 'rgba(190,240,255,0.7)'
+        ellipse(ctx, 0, -26, 8, 10)
+        ctx.fill()
+        ctx.stroke()
+        ctx.fillStyle = 'rgba(210,246,255,0.85)'
+        ctx.beginPath()
+        ctx.moveTo(-8, -34)
+        ctx.quadraticCurveTo(0, -50, 8, -34)
+        ctx.quadraticCurveTo(0, -30, -8, -34)
+        ctx.closePath()
+        ctx.fill()
+        ctx.stroke()
+        // Eyes: two points of light.
+        ctx.fillStyle = '#ffffff'
+        ellipse(ctx, dir * 3, -37, 1.4, 1.8)
+        ctx.fill()
+        ellipse(ctx, dir * 6, -37, 1.1, 1.5)
+        ctx.fill()
+        // Arms and the weapon.
+        const ax = Math.cos(ph.facing)
+        const ay = Math.sin(ph.facing) * YS
+        if (ph.kind === 'warrior') {
+            const sweep = swing > 0 ? lerp(-1.2, 1.2, swing < 0.55 ? swing / 0.55 * 0.3 : 0.3 + (swing - 0.55) / 0.45 * 0.7) : 0.7 * dir
+            const angle = ph.facing + sweep
+            const hx = ax * 8
+            const hy = -24 + ay * 4
+            ctx.strokeStyle = edge
+            ctx.lineWidth = 3
+            ctx.beginPath()
+            ctx.moveTo(dir * 5, -24)
+            ctx.lineTo(hx, hy)
+            ctx.stroke()
+            this.drawWeapon(ctx, 'sword', hx, hy, angle, 1.2, '#dff6ff', 1)
+        } else {
+            // A drawn bow: the string pulls back through the draw.
+            const draw = swing > 0 && swing < 0.55 ? swing / 0.55 : swing >= 0.55 ? 1 - (swing - 0.55) / 0.45 : 0
+            ctx.save()
+            ctx.translate(ax * 10, -24 + ay * 4)
+            ctx.rotate(Math.atan2(ay, ax))
+            ctx.strokeStyle = edge
+            ctx.lineWidth = 2.5
+            ctx.beginPath()
+            ctx.arc(0, 0, 16, -1.35, 1.35)
+            ctx.stroke()
+            ctx.lineWidth = 1
+            ctx.strokeStyle = 'rgba(255,255,255,0.9)'
+            ctx.beginPath()
+            ctx.moveTo(Math.cos(-1.35) * 16, Math.sin(-1.35) * 16)
+            ctx.lineTo(-draw * 12, 0)
+            ctx.lineTo(Math.cos(1.35) * 16, Math.sin(1.35) * 16)
+            ctx.stroke()
+            if (draw > 0) {
+                ctx.strokeStyle = '#ffffff'
+                ctx.lineWidth = 1.5
+                ctx.beginPath()
+                ctx.moveTo(-draw * 12, 0)
+                ctx.lineTo(14, 0)
+                ctx.stroke()
+            }
+            ctx.restore()
+        }
+        ctx.restore()
     }
 
     private drawInnerCanopies(ctx: Ctx, ox: number, oy: number) {
@@ -3651,6 +3905,26 @@ export class MeadowbrawlRenderer {
             h.addColorStop(0, 'rgba(200,20,30,0)')
             h.addColorStop(1, `rgba(200,20,30,${Math.min(0.7, red)})`)
             ctx.fillStyle = h
+            ctx.fillRect(0, 0, VIEW_W, viewH)
+        }
+        if (g.eclipseT > 0) {
+            // The world goes to violet dusk with a bright corona around the player.
+            const k = Math.min(1, g.eclipseT / 0.3) * Math.min(1, (2 - g.eclipseT) / 0.2 + 0.2)
+            ctx.globalCompositeOperation = 'multiply'
+            ctx.fillStyle = `rgba(120,90,180,${0.55 * k})`
+            ctx.fillRect(0, 0, VIEW_W, viewH)
+            ctx.globalCompositeOperation = 'source-over'
+            const px = p.x - this.camX
+            const py = p.y * YS - this.camY - 20
+            const ring = ctx.createRadialGradient(px, py, 40, px, py, 160)
+            ring.addColorStop(0, 'rgba(240,230,255,0)')
+            ring.addColorStop(0.7, `rgba(240,230,255,${0.18 * k})`)
+            ring.addColorStop(1, 'rgba(240,230,255,0)')
+            ctx.fillStyle = ring
+            ctx.fillRect(0, 0, VIEW_W, viewH)
+        }
+        if (g.frostWaveT > 0) {
+            ctx.fillStyle = `rgba(190,235,255,${g.frostWaveT * 0.25})`
             ctx.fillRect(0, 0, VIEW_W, viewH)
         }
         if (g.flash > 0) {
