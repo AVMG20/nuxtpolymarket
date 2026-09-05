@@ -19,6 +19,7 @@ import type { ArenaSound } from './audio'
 import { sectorLandmarks, arenaLayout, coverSkin, perimeterModel, jumpPadModel, architecturalModel, orbitalModuleParts } from './arena-models'
 import { BOX, FLASH_MATERIAL, FLASH_MATERIAL_SOFT, buildModel, voxMaterial, weaponParts, meleeParts, enemyParts, pickupParts, portalParts, orbitBladeParts, meteorParts, boulderParts, lanternParts, turretParts } from './models'
 import type { VoxModel, VoxPart, PickupKind } from './models'
+import { SpritePool, coneDir } from './fx'
 
 // ── Public HUD contract ─────────────────────────────────────────────────
 
@@ -401,6 +402,9 @@ const _v2 = new THREE.Vector3()
 const _v3 = new THREE.Vector3()
 const _q1 = new THREE.Quaternion()
 const _c1 = new THREE.Color()
+const _f1 = new THREE.Vector3()
+const _f2 = new THREE.Vector3()
+const WHITE = new THREE.Color(0xffffff)
 const UP = new THREE.Vector3(0, 1, 0)
 const Z_AXIS = new THREE.Vector3(0, 0, 1)
 
@@ -559,6 +563,8 @@ export class VoxelArenaGame {
     private popups: Popup[] = []
     private nextPopupId = 1
     private tracers!: InstancePool
+    private glow!: SpritePool
+    private smoke!: SpritePool
     private shotPool!: InstancePool
     private debris!: InstancePool
     private debrisPos: Float32Array
@@ -668,6 +674,8 @@ export class VoxelArenaGame {
         document.removeEventListener('pointerlockchange', this.onLockChange)
         if (document.pointerLockElement) document.exitPointerLock()
         this.audio.dispose()
+        this.glow.dispose()
+        this.smoke.dispose()
         this.composer.dispose()
         this.renderer.dispose()
         this.renderer.domElement.remove()
@@ -943,12 +951,19 @@ export class VoxelArenaGame {
     }
 
     private buildPools(): void {
-        const tracerMat = new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false })
-        this.tracers = new InstancePool(tracerMat, 400)
+        // tracers and enemy shots add light instead of painting cubes
+        const tracerMat = new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false })
+        this.tracers = new InstancePool(tracerMat, 900)
+        this.tracers.mesh.renderOrder = 15
         this.scene.add(this.tracers.mesh)
-        const shotMat = new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false })
+        const shotMat = new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false })
         this.shotPool = new InstancePool(shotMat, 300)
+        this.shotPool.mesh.renderOrder = 15
         this.scene.add(this.shotPool.mesh)
+        this.glow = new SpritePool(6000, true)
+        this.smoke = new SpritePool(1500, false)
+        this.scene.add(this.smoke.mesh)
+        this.scene.add(this.glow.mesh)
         const debrisMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.9, flatShading: true })
         this.debris = new InstancePool(debrisMat, this.DEBRIS_MAX)
         this.debris.mesh.castShadow = true
@@ -1029,6 +1044,8 @@ export class VoxelArenaGame {
         this.tracers.commit()
         for (let i = 0; i < this.shotPool.size; i++) this.shotPool.hide(i)
         this.shotPool.commit()
+        this.glow.clear()
+        this.smoke.clear()
 
         this.stats = defaultStats()
         this.stacks = new Map()
@@ -1224,6 +1241,12 @@ export class VoxelArenaGame {
             m.mesh.position.set(m.target.x + 6 * (1 - t), m.target.y + 46 * (1 - t * t), m.target.z - 4 * (1 - t))
             m.mesh.rotation.x += dt * 4
             m.mesh.rotation.y += dt * 3
+            if (dt > 0) {
+                const mp = m.mesh.position
+                this.glow.emit({ x: mp.x, y: mp.y, z: mp.z, life: 0.25, size: 2.2, sizeEnd: 0.6, color: 0xfff0a0, colorEnd: 0xff5a1a, alpha: 0.6, shape: 'soft' })
+                this.glow.emit({ x: mp.x + (Math.random() - 0.5), y: mp.y + Math.random(), z: mp.z + (Math.random() - 0.5), vx: (Math.random() - 0.5) * 4, vy: 4 + Math.random() * 4, vz: (Math.random() - 0.5) * 4, life: 0.4, size: 0.15, sizeEnd: 0.03, color: 0xffe14d, colorEnd: 0xff3a10, shape: 'spark', stretch: 0.05 })
+                this.smoke.emit({ x: mp.x, y: mp.y + 0.8, z: mp.z, vy: 1, life: 1.1, size: 1.2, sizeEnd: 3, color: 0x3a3038, colorEnd: 0x101010, alpha: 0.35, shape: 'soft', rot: Math.random() * 6, spin: 1, fadeIn: 0.2 })
+            }
             const ws = 3.5 * (1 - t) + 0.6
             m.warning.scale.set(ws, ws, 1)
             ;(m.warning.material as THREE.MeshBasicMaterial).opacity = 0.4 + Math.sin(this.elapsed * 18) * 0.3
@@ -1720,7 +1743,11 @@ export class VoxelArenaGame {
         this.invuln = Math.max(this.invuln, 0.25)
         this.fovKick = 1
         this.audio.play('dash')
-        this.burst(this.pos.x, this.pos.y + 0.6, this.pos.z, 14, [0x3ff0ff, 0xe9e4d6], 4, 0.14)
+        this.glow.emit({ x: this.pos.x, y: this.pos.y + 0.1, z: this.pos.z, life: 0.25, size: 1, sizeEnd: 4, color: 0x3ff0ff, alpha: 0.6, shape: 'ring' })
+        for (let i = 0; i < 14; i++) {
+            const s = 6 + Math.random() * 8
+            this.glow.emit({ x: this.pos.x + (Math.random() - 0.5), y: this.pos.y + Math.random() * 1.4, z: this.pos.z + (Math.random() - 0.5), vx: -this.dashDir.x * s, vy: (Math.random() - 0.5) * 2, vz: -this.dashDir.z * s, life: 0.25 + Math.random() * 0.2, size: 0.08, sizeEnd: 0.02, color: 0xffffff, colorEnd: 0x3ff0ff, drag: 4, shape: 'spark', stretch: 0.08 })
+        }
         if (this.stats.thunderStep > 0) this.thunderStep()
     }
 
@@ -2234,14 +2261,8 @@ export class VoxelArenaGame {
         this.muzzleLight.color.set(special ? w.def.color : 0xffc070)
         this.muzzleLight.position.copy(muzzle).addScaledVector(dir, 1.6)
         this.muzzleLight.intensity = 1.4 + w.def.recoil * 0.8
-        if (special) {
-            this.spawnMuzzleFlash(muzzle, dir, color, 0.22 + w.def.recoil * 0.06)
-        } else {
-            // gunpowder: a warm flash, a puff of smoke and a brass casing out the side
-            this.spawnMuzzleFlash(muzzle, dir, _c1.set(0xffc888), (0.1 + w.def.recoil * 0.04) * (1 - this.ads * 0.55))
-            this.spawnSmoke(muzzle, dir, 0.16 + w.def.recoil * 0.06)
-            this.ejectCasing()
-        }
+        this.spawnMuzzleFlash(muzzle, dir, special ? color : _c1.set(0xffd9a0), (special ? 0.2 : 0.12 + w.def.recoil * 0.03) * (1 - this.ads * 0.4), special ? w.def.kind : 'gun', this.ads)
+        if (!special) this.ejectCasing()
 
         const dmg = w.def.damage * this.stats.damageMult
         if (lance) {
@@ -2376,6 +2397,7 @@ export class VoxelArenaGame {
             const dir = tc.clone().sub(muzzle).normalize()
             dir.x += (Math.random() - 0.5) * 0.04
             dir.y += (Math.random() - 0.5) * 0.04
+            this.glow.emit({ x: muzzle.x + dir.x * 0.7, y: muzzle.y + dir.y * 0.7, z: muzzle.z + dir.z * 0.7, life: 0.06, size: 0.6, sizeEnd: 0.2, color: 0xffffff, colorEnd: 0x3ff0ff, shape: 'star', rot: Math.random() * 3 })
             this.projectiles.push({
                 pos: muzzle.clone().addScaledVector(dir, 0.6),
                 vel: dir.multiplyScalar(60),
@@ -2395,22 +2417,6 @@ export class VoxelArenaGame {
             t.shots++
             if (t.shots % 3 === 0) this.audio.play('shoot-smg', 0.25)
         }
-    }
-
-    /** Grey puff that drifts up and fades — gunpowder, not plasma. */
-    private spawnSmoke(at: THREE.Vector3, dir: THREE.Vector3, size: number): void {
-        const mat = new THREE.MeshBasicMaterial({ color: 0x4a4a4a, transparent: true, opacity: 0.22, depthWrite: false })
-        const mesh = new THREE.Mesh(BOX, mat)
-        mesh.position.copy(at).addScaledVector(dir, 0.35)
-        mesh.position.y += 0.06
-        mesh.rotation.set(Math.random(), Math.random(), Math.random())
-        const drift = dir.clone().multiplyScalar(0.8)
-        drift.y += 0.7
-        this.addEffect(mesh, 0.4, (fx, t, dt) => {
-            fx.obj.position.addScaledVector(drift, dt)
-            fx.obj.scale.setScalar(size * 0.45 * (1 + t * 2.2))
-            mat.opacity = 0.22 * (1 - t)
-        }, () => mat.dispose())
     }
 
     /** A brass casing kicked out to the right of the gun; it bounces on the floor. */
@@ -2445,7 +2451,8 @@ export class VoxelArenaGame {
             const head = this.headCenter(h.e, _v1)
             const headshot = !!head && segmentSphere(origin, end, head, h.e.def.headRadius * h.e.scale * 1.2) >= 0
             this.hitEnemy(h.e, damage * fall, dir, def.knockback, 'bullet', headshot)
-            this.burst(p.x, p.y, p.z, 10, [def.color, 0xffffff], 5, 0.1)
+            this.sparks(p, dir, 10, def.color, 9, 0.7)
+            this.glow.emit({ x: p.x, y: p.y, z: p.z, life: 0.12, size: 1.4, sizeEnd: 0.4, color: 0xffffff, colorEnd: def.color, shape: 'star', rot: Math.random() * 3 })
             count++
         }
         // beam is drawn to the far point, or where it stops piercing
@@ -2456,7 +2463,7 @@ export class VoxelArenaGame {
         }
         const beamEnd = origin.clone().lerp(end, stopT)
         this.spawnBeam(muzzle, beamEnd, 0xffe6b8, 0.035, 0.1)
-        this.burst(beamEnd.x, beamEnd.y, beamEnd.z, 8, [0xffe0a0, 0x8a8f9c], 4, 0.1)
+        if (stopT < 1) this.impactWall(beamEnd, dir, 0xffe0a0, true)
         this.shake = Math.max(this.shake, 0.5)
     }
 
@@ -2513,7 +2520,9 @@ export class VoxelArenaGame {
     }
 
     private blockedHit(e: Enemy, at: THREE.Vector3): void {
-        this.burst(at.x, at.y, at.z, 6, [0x3ff0ff, 0xffffff], 4, 0.08)
+        this.glow.emit({ x: at.x, y: at.y, z: at.z, life: 0.1, size: 1, sizeEnd: 0.3, color: 0xffffff, colorEnd: 0x3ff0ff, shape: 'star', rot: Math.random() * 3 })
+        this.glow.emit({ x: at.x, y: at.y, z: at.z, life: 0.2, size: 0.3, sizeEnd: 2.2, color: 0x3ff0ff, alpha: 0.6, shape: 'ring' })
+        this.sparks(at, null, 8, 0x3ff0ff, 6)
         this.popup(at, 'BLOCKED', '#67e8f9', 12)
         this.hitMarker = 0.1
         this.hud.hitKind = 'block'
@@ -2612,7 +2621,9 @@ export class VoxelArenaGame {
             }
             if (kind === 'slam') {
                 this.spawnShockwave(this.pos, range, m.color, 0.4)
-                this.burst(this.pos.x + f.x * 2, this.pos.y + 0.2, this.pos.z + f.z * 2, 30, [m.color, 0x8a8f9c], 6, 0.16)
+                this.burst(this.pos.x + f.x * 2, this.pos.y + 0.2, this.pos.z + f.z * 2, 20, [m.color, 0x8a8f9c], 6, 0.16)
+                this.dustRing(this.pos.x + f.x * 1.5, this.pos.y, this.pos.z + f.z * 1.5, range * 0.7)
+                this.sparks(_v3.set(this.pos.x + f.x * 2, this.pos.y + 0.3, this.pos.z + f.z * 2), null, 20, m.color, 8)
                 this.audio.play('slam', 0.6)
             } else if (kind === 'thrust') {
                 const tip = center.clone().addScaledVector(f, range)
@@ -2636,7 +2647,9 @@ export class VoxelArenaGame {
             this.hitEnemy(e, dmg * (1 - d / (radius * 2)), _v1.set(e.pos.x - this.pos.x, 0.3, e.pos.z - this.pos.z).normalize(), 14, 'melee')
         }
         this.spawnShockwave(this.pos, radius, 0xd9a63c, 0.45)
-        this.burst(this.pos.x, this.pos.y + 0.2, this.pos.z, 40, [0xd9a63c, 0x3ff0ff, 0x8a8f9c], 7, 0.16)
+        this.burst(this.pos.x, this.pos.y + 0.2, this.pos.z, 30, [0xd9a63c, 0x3ff0ff, 0x8a8f9c], 7, 0.16)
+        this.dustRing(this.pos.x, this.pos.y, this.pos.z, radius)
+        this.sparks(_v3.set(this.pos.x, this.pos.y + 0.3, this.pos.z), null, 30, 0xd9a63c, 9)
         this.audio.play('slam', 0.8)
         this.shake = Math.max(this.shake, 0.9)
         this.meleeComboTimer = MELEE.comboWindow
@@ -2805,6 +2818,7 @@ export class VoxelArenaGame {
             const flicker = 0.5 + Math.random() * 0.5
             cell.mesh.scale.set(0.7 + flicker * 0.4, 0.4 + flicker * 0.7, 0.7 + flicker * 0.4)
             cell.mesh.rotation.y += dt * 3
+            if (Math.random() < dt * 18) this.flameAt(cell.pos.x, cell.pos.y + 0.2, cell.pos.z, 1.2)
             if (cell.tick <= 0) {
                 cell.tick = 0.4
                 for (const e of this.enemies) {
@@ -2938,16 +2952,15 @@ export class VoxelArenaGame {
                     e.burnTick = BURN.tick
                     this.hitEnemy(e, e.burnDps * BURN.tick, UP, 0, 'aura')
                     if (!e.alive) continue
-                    const cy = e.pos.y + e.height * e.scale * 0.5
-                    this.burst(e.pos.x, cy, e.pos.z, 3, [0xff7a2a, 0xffe14d], 3, 0.1)
                 }
+                if (Math.random() < dt * 30) this.flameAt(e.pos.x, e.pos.y + Math.random() * e.height * e.scale, e.pos.z, 0.8 * e.scale)
                 if (e.burnTimer <= 0) e.burnDps = 0
             }
             e.stateTimer -= edt
             if (e.attackTimer > 0) e.attackTimer -= edt
             if (e.slowTimer > 0) {
                 e.slowTimer -= edt
-                if (Math.random() < dt * 6) this.burst(e.pos.x, e.pos.y + e.height * e.scale * 0.5, e.pos.z, 1, [0xbae6fd, 0xffffff], 1.5, 0.08)
+                if (Math.random() < dt * 12) this.glow.emit({ x: e.pos.x + (Math.random() - 0.5) * e.scale, y: e.pos.y + Math.random() * e.height * e.scale, z: e.pos.z + (Math.random() - 0.5) * e.scale, vy: 0.6, life: 0.5 + Math.random() * 0.4, size: 0.12, sizeEnd: 0.03, color: 0xffffff, colorEnd: 0xbae6fd, alpha: 0.8, shape: 'star', rot: Math.random() * 3, spin: 2 })
             }
 
             const toPlayer = _v1.set(this.pos.x - e.pos.x, 0, this.pos.z - e.pos.z)
@@ -3401,7 +3414,7 @@ export class VoxelArenaGame {
         if (source !== 'aura') {
             const center = new THREE.Vector3(e.pos.x, e.pos.y + e.height * e.scale * 0.7, e.pos.z)
             this.popup(center, headshot ? `${dmg} HEADSHOT` : String(dmg), headshot ? '#fb923c' : crit ? '#fde047' : source === 'explosion' ? '#fb923c' : source === 'melee' ? '#7dd3fc' : '#f8fafc', headshot ? 22 : crit ? 24 : source === 'melee' ? 19 : 15)
-            this.burst(center.x, center.y, center.z, crit ? 10 : 5, [(e.parts[0]?.color ?? 0xffffff), 0xffffff], 3.5, 0.09)
+            this.impactEnemy(center, dir, e.parts[0]?.color ?? 0xffffff, crit, headshot, source)
             this.hitMarker = headshot ? 0.2 : 0.14
             this.hud.hitKind = headshot ? 'head' : crit ? 'crit' : 'hit'
             if (this.hitSoundTimer <= 0) {
@@ -3463,6 +3476,7 @@ export class VoxelArenaGame {
 
         // the body blasts into its own voxels
         this.shatter(e, dir)
+        this.deathBurst(center, e.parts[0]?.color ?? 0xffffff, e.scale, boss)
         this.audio.play(boss || e.scale > 1.5 ? 'kill-big' : 'kill', boss ? 1.4 : 0.9)
         this.shake = Math.max(this.shake, boss ? 1.4 : e.scale > 1.5 ? 0.45 : 0.12)
 
@@ -3564,7 +3578,7 @@ export class VoxelArenaGame {
             }
         }
         this.spawnExplosion(center, radius, color)
-        this.burst(center.x, center.y, center.z, Math.round(10 + radius * 6), [color, 0xffe14d, 0x3a3f4b], 4 + radius, 0.16)
+        this.burst(center.x, center.y, center.z, Math.round(6 + radius * 4), [color, 0x3a3f4b, 0x1a1a20], 4 + radius, 0.16)
         this.flashLight.color.set(color)
         this.flashLight.position.copy(center)
         this.flashLight.intensity = Math.max(this.flashLight.intensity, 10 + radius * 6)
@@ -3745,34 +3759,42 @@ export class VoxelArenaGame {
                     this.burst(p.pos.x, p.pos.y, p.pos.z, 4, [p.def.color], 3, 0.08)
                     continue
                 } else {
-                    this.burst(p.pos.x, Math.max(0.1, p.pos.y), p.pos.z, 5, [p.def.color, 0x8a8f9c], 3, 0.08)
+                    this.impactWall(p.pos, p.vel, p.def.color, p.def.kind !== 'bullet')
                 }
                 p.alive = false
                 continue
             }
 
             // draw
-            if (slot < this.tracers.size) {
-                _c1.copy(p.color).multiplyScalar(p.def.kind === 'bullet' ? 1.1 : 1.3)
-                if (p.def.kind === 'flame') {
-                    // a tongue of fire: grows and fades along its short life, flickering between orange and yellow
-                    const t = 1 - p.life / 0.42
-                    const size = p.size * (0.5 + t * 1.6)
-                    _c1.set(t < 0.5 ? 0xffe14d : 0xff7a2a).multiplyScalar(1.5 - t)
-                    q.setFromAxisAngle(UP, p.spin)
-                    this.tracers.set(slot, p.pos, q, size, size, size, _c1)
-                    if (Math.random() < 0.25) this.burst(p.pos.x, p.pos.y, p.pos.z, 1, [0xffa23a, 0xffe14d], 1.5, 0.08)
-                } else if (p.def.kind === 'plasma') {
+            if (p.def.kind === 'flame') {
+                // fire: every frame the tongue sheds a rolling flame sprite that blooms and darkens, with wisps of smoke near the end
+                const t = 1 - p.life / 0.42
+                this.glow.emit({ x: p.pos.x + (Math.random() - 0.5) * 0.3, y: p.pos.y + (Math.random() - 0.5) * 0.3, z: p.pos.z + (Math.random() - 0.5) * 0.3, vx: p.vel.x * 0.12, vy: 1.6 + p.vel.y * 0.12, vz: p.vel.z * 0.12, life: 0.2 + t * 0.2, size: 0.3 + t * 0.9, sizeEnd: 1 + t * 1.3, color: t < 0.4 ? 0xfff0a0 : 0xffb04a, colorEnd: 0xff3a10, alpha: 0.5 * (1 - t * 0.6), shape: 'soft', drag: 2, rot: Math.random() * 6, spin: (Math.random() - 0.5) * 4 })
+                if (t > 0.5 && Math.random() < 0.3) this.smoke.emit({ x: p.pos.x, y: p.pos.y + 0.3, z: p.pos.z, vx: p.vel.x * 0.08, vy: 2, vz: p.vel.z * 0.08, life: 0.7 + Math.random() * 0.5, size: 0.5, sizeEnd: 1.8, color: 0x2a2226, colorEnd: 0x101010, alpha: 0.22, shape: 'soft', rot: Math.random() * 6, spin: 1, fadeIn: 0.2 })
+                continue
+            }
+            if (slot + 1 < this.tracers.size) {
+                _c1.copy(p.color).multiplyScalar(1.3)
+                if (p.def.kind === 'plasma') {
                     q.setFromAxisAngle(UP, p.spin)
                     this.tracers.set(slot, p.pos, q, p.size, p.size, p.size, _c1)
+                    // a halo and a trail of embers
+                    this.glow.emit({ x: p.pos.x, y: p.pos.y, z: p.pos.z, life: 0.07, size: p.size * 4, sizeEnd: p.size * 5, color: p.color, alpha: 0.6, shape: 'soft' })
+                    this.glow.emit({ x: p.pos.x, y: p.pos.y, z: p.pos.z, vx: (Math.random() - 0.5) * 2, vy: (Math.random() - 0.5) * 2 + 1, vz: (Math.random() - 0.5) * 2, life: 0.3 + Math.random() * 0.3, size: p.size * 1.2, sizeEnd: p.size * 0.2, color: 0xffffff, colorEnd: p.color, alpha: 0.7, shape: 'soft', drag: 2 })
                 } else if (p.def.kind === 'disc') {
                     q.setFromAxisAngle(UP, p.spin * 1.5)
                     this.tracers.set(slot, p.pos, q, p.size, 0.08, p.size, _c1)
+                    this.glow.emit({ x: p.pos.x, y: p.pos.y, z: p.pos.z, life: 0.1, size: p.size * 2.4, sizeEnd: p.size * 2.8, color: p.color, alpha: 0.4, shape: 'ring', rot: p.spin })
+                    if (Math.random() < 0.5) this.glow.emit({ x: p.pos.x, y: p.pos.y, z: p.pos.z, vx: (Math.random() - 0.5) * 3, vy: -1, vz: (Math.random() - 0.5) * 3, life: 0.25, size: 0.06, color: 0xffffff, colorEnd: p.color, gravity: 10, shape: 'spark', stretch: 0.05 })
                 } else {
                     const dir = _v2.copy(p.vel).normalize()
                     q.setFromUnitVectors(Z_AXIS, dir)
                     const thin = p.def.kind === 'bullet' ? 0.5 : 1
-                    this.tracers.set(slot, p.pos, q, p.size * thin, p.size * thin, p.def.tracerLength * (1 + this.stats.bulletSize * 0.3), _c1)
+                    const len = p.def.tracerLength * (1 + this.stats.bulletSize * 0.3)
+                    // a hot core inside a wider, dimmer halo so rounds read as streaks of light
+                    this.tracers.set(slot, p.pos, q, p.size * thin, p.size * thin, len, _c1.copy(p.color).lerp(WHITE, 0.55).multiplyScalar(1.5))
+                    slot++
+                    this.tracers.set(slot, p.pos, q, p.size * thin * 2.8, p.size * thin * 2.8, len * 0.85, _c1.copy(p.color).multiplyScalar(0.3))
                 }
                 slot++
             }
@@ -3822,6 +3844,8 @@ export class VoxelArenaGame {
                 _c1.set(0xffc4f0).multiplyScalar(0.8)
                 this.shotPool.set(s + 2, _v1.copy(shot.pos).addScaledVector(back, -0.95), q, 0.18, 0.18, 0.18, _c1)
                 s += 3
+                this.glow.emit({ x: shot.pos.x, y: shot.pos.y, z: shot.pos.z, life: 0.06, size: 1.6, sizeEnd: 1.2, color: 0xff4dd8, alpha: 0.45, shape: 'soft' })
+                if (Math.random() < 0.5) this.glow.emit({ x: shot.pos.x, y: shot.pos.y, z: shot.pos.z, vx: (Math.random() - 0.5) * 1.5, vy: (Math.random() - 0.5) * 1.5, vz: (Math.random() - 0.5) * 1.5, life: 0.3, size: 0.2, sizeEnd: 0.04, color: 0xffc4f0, colorEnd: 0xff4dd8, alpha: 0.8, shape: 'soft' })
             }
         }
         for (let i = s; i < this.shotPool.size; i++) this.shotPool.hide(i)
@@ -3867,6 +3891,14 @@ export class VoxelArenaGame {
                 e.knock.z += dz / d * pull * dt * 4
             }
             for (const shot of this.enemyShots) if (shot.pos.distanceTo(r.pos) < radius * 0.6) shot.alive = false
+            if (dt > 0) {
+                for (let k = 0; k < 3; k++) {
+                    const a = Math.random() * Math.PI * 2
+                    const rr = 2 + Math.random() * 4
+                    this.glow.emit({ x: r.pos.x + Math.cos(a) * rr, y: r.pos.y + (Math.random() - 0.5) * 3, z: r.pos.z + Math.sin(a) * rr, vx: -Math.cos(a) * rr * 2.5, vy: 0, vz: -Math.sin(a) * rr * 2.5, life: 0.4, size: 0.2, sizeEnd: 0.05, color: 0xffffff, colorEnd: Math.random() < 0.5 ? 0xb56bff : 0x3ff0ff, alpha: 0.9, shape: 'spark', stretch: 0.06 })
+                }
+                this.glow.emit({ x: r.pos.x, y: r.pos.y, z: r.pos.z, life: 0.1, size: 2.5 + t * 2, sizeEnd: 2, color: 0xb56bff, alpha: 0.5, shape: 'soft' })
+            }
             if (Math.random() < dt * 30) {
                 const a = Math.random() * Math.PI * 2
                 const rr = radius * (0.4 + Math.random() * 0.6)
@@ -4100,7 +4132,12 @@ export class VoxelArenaGame {
                 break
             }
         }
-        this.burst(p.pos.x, p.pos.y, p.pos.z, 14, [0xffffff, 0x3ff0ff], 4, 0.1)
+        const tint = { health: 0x3dff7a, energy: 0x4da6ff, overdrive: 0xff3a3a, shield: 0x8ad8ff, haste: 0xffe14d, ammo: 0xffc14d }[p.kind]
+        this.glow.emit({ x: p.pos.x, y: p.pos.y, z: p.pos.z, life: 0.3, size: 0.5, sizeEnd: 3, color: tint, alpha: 0.7, shape: 'ring' })
+        this.glow.emit({ x: p.pos.x, y: p.pos.y, z: p.pos.z, life: 0.15, size: 1.5, sizeEnd: 0.4, color: 0xffffff, colorEnd: tint, shape: 'star', rot: Math.random() * 3 })
+        for (let i = 0; i < 18; i++) {
+            this.glow.emit({ x: p.pos.x + (Math.random() - 0.5) * 0.6, y: p.pos.y, z: p.pos.z + (Math.random() - 0.5) * 0.6, vx: (Math.random() - 0.5) * 1.5, vy: 2.5 + Math.random() * 4, vz: (Math.random() - 0.5) * 1.5, life: 0.6 + Math.random() * 0.6, size: 0.1 + Math.random() * 0.12, sizeEnd: 0.02, color: 0xffffff, colorEnd: tint, alpha: 0.9, shape: 'soft', drag: 1.5 })
+        }
     }
 
     // ── Debris & effects ─────────────────────────────────────────────────
@@ -4205,28 +4242,159 @@ export class VoxelArenaGame {
         }
     }
 
-    private spawnMuzzleFlash(at: THREE.Vector3, dir: THREE.Vector3, color: THREE.Color, size: number): void {
-        const mat = new THREE.MeshBasicMaterial({ color: color.clone().multiplyScalar(1.25), toneMapped: false, transparent: true })
-        const mesh = new THREE.Mesh(BOX, mat)
-        mesh.position.copy(at).addScaledVector(dir, 0.3)
-        mesh.quaternion.setFromUnitVectors(Z_AXIS, dir)
-        mesh.rotation.z = Math.random() * Math.PI
-        this.addEffect(mesh, 0.07, (fx, t) => {
-            fx.obj.scale.set(size * (1 - t * 0.5), size * (1 - t * 0.5), size * 2.5 * (1 - t))
-            mat.opacity = 1 - t
-        }, () => mat.dispose())
+    /** Layered muzzle flash: a star flare, a hot core, a tongue of fire, a cone of sparks and (for gunpowder) smoke. */
+    private spawnMuzzleFlash(at: THREE.Vector3, dir: THREE.Vector3, color: THREE.Color, size: number, kind: WeaponDef['kind'] | 'gun', ads: number): void {
+        const gun = kind === 'gun'
+        const bright = gun ? 0xfff4d6 : 0xffffff
+        const tx = at.x + dir.x * 0.25
+        const ty = at.y + dir.y * 0.25
+        const tz = at.z + dir.z * 0.25
+        this.glow.emit({ x: tx, y: ty, z: tz, life: 0.06, size: size * 3.2, sizeEnd: size * 1.4, color: bright, colorEnd: color, alpha: 1, shape: 'star', rot: Math.random() * Math.PI })
+        this.glow.emit({ x: tx, y: ty, z: tz, life: 0.09, size: size * 2.2, sizeEnd: size * 3.4, color, alpha: 0.75, shape: 'soft' })
+        const mx = at.x + dir.x * (0.5 + size)
+        const my = at.y + dir.y * (0.5 + size)
+        const mz = at.z + dir.z * (0.5 + size)
+        this.glow.emit({ x: mx, y: my, z: mz, vx: dir.x * 7, vy: dir.y * 7, vz: dir.z * 7, life: 0.07, size: size * 1.8, sizeEnd: size * 0.5, color: bright, colorEnd: color, alpha: 0.9, shape: 'soft', stretch: 0.2, drag: 8 })
+        const n = gun ? 4 + Math.round(size * 20) : 8
+        for (let i = 0; i < n; i++) {
+            const d = coneDir(_f1, dir, gun ? 0.3 : 0.6)
+            const s = 8 + Math.random() * 14
+            this.glow.emit({ x: tx, y: ty, z: tz, vx: d.x * s, vy: d.y * s, vz: d.z * s, life: 0.1 + Math.random() * 0.18, size: 0.04 + Math.random() * 0.04, color: gun ? 0xfff0b0 : 0xffffff, colorEnd: gun ? 0xff7a2a : color, gravity: 14, drag: 3, shape: 'spark', stretch: 0.06 })
+        }
+        if (gun) {
+            for (let i = 0; i < 3; i++) {
+                const d = coneDir(_f1, dir, 0.5)
+                const s = 1.5 + Math.random() * 2
+                this.smoke.emit({ x: tx + d.x * 0.2, y: ty + d.y * 0.2, z: tz + d.z * 0.2, vx: d.x * s, vy: d.y * s + 0.8, vz: d.z * s, life: 0.5 + Math.random() * 0.4, size: size * 1.2, sizeEnd: size * 5, color: 0x5a5a60, colorEnd: 0x2a2a30, alpha: 0.26 * (1 - ads * 0.5), drag: 3, shape: 'soft', rot: Math.random() * 6, spin: (Math.random() - 0.5) * 3, fadeIn: 0.15 })
+            }
+        } else if (kind !== 'flame') {
+            // energy weapons throw a small ring instead of smoke
+            this.glow.emit({ x: tx, y: ty, z: tz, life: 0.14, size: size * 1.2, sizeEnd: size * 4, color, alpha: 0.5, shape: 'ring' })
+        }
+    }
+
+    /** Hot sparks flying out of a cone around `dir`, or everywhere when `dir` is null. They bounce on the floor. */
+    private sparks(at: THREE.Vector3, dir: THREE.Vector3 | null, count: number, color: number, speed: number, cone = 1.1): void {
+        for (let i = 0; i < count; i++) {
+            let d: THREE.Vector3
+            if (dir) {
+                d = coneDir(_f1, dir, cone)
+            } else {
+                const a = Math.random() * Math.PI * 2
+                const e = Math.random() * Math.PI - Math.PI / 2
+                d = _f1.set(Math.cos(a) * Math.cos(e), Math.sin(e), Math.sin(a) * Math.cos(e))
+            }
+            const s = speed * (0.4 + Math.random() * 0.9)
+            this.glow.emit({ x: at.x, y: at.y, z: at.z, vx: d.x * s, vy: d.y * s + 1, vz: d.z * s, life: 0.25 + Math.random() * 0.4, size: 0.05 + Math.random() * 0.05, sizeEnd: 0.02, color: 0xfff4c0, colorEnd: color, gravity: 16, drag: 1.5, shape: 'spark', stretch: 0.07, bounce: 0.4 })
+        }
+    }
+
+    /** A bullet meets concrete: a flash, ricochet sparks and a dust puff. Energy rounds add a ring. */
+    private impactWall(at: THREE.Vector3, vel: THREE.Vector3, color: number, energy: boolean): void {
+        const x = at.x
+        const y = Math.max(0.1, at.y)
+        const z = at.z
+        const back = _f2.copy(vel).normalize().negate()
+        this.glow.emit({ x, y, z, life: 0.07, size: 0.5, sizeEnd: 0.9, color: 0xffffff, colorEnd: color, alpha: 0.9, shape: 'star', rot: Math.random() * 3 })
+        this.sparks(_v3.set(x, y, z), back, 5 + Math.floor(Math.random() * 4), color, 8)
+        this.smoke.emit({ x: x + back.x * 0.2, y: y + back.y * 0.2, z: z + back.z * 0.2, vx: back.x * 1.2, vy: 0.8, vz: back.z * 1.2, life: 0.5, size: 0.3, sizeEnd: 1.1, color: 0x7a7a80, colorEnd: 0x3a3a40, alpha: 0.3, shape: 'soft', rot: Math.random() * 6, spin: 1 })
+        if (energy) this.glow.emit({ x, y, z, life: 0.14, size: 0.3, sizeEnd: 1.6, color, alpha: 0.6, shape: 'ring' })
+        this.burst(x, y, z, 2, [0x8a8f9c], 3, 0.06)
+    }
+
+    /** A hit lands on a body: a flash, glowing chips in the enemy's colour and sparks back along the shot. */
+    private impactEnemy(at: THREE.Vector3, dir: THREE.Vector3, color: number, crit: boolean, headshot: boolean, source: string): void {
+        const big = crit || headshot
+        this.glow.emit({ x: at.x, y: at.y, z: at.z, life: 0.07, size: big ? 1.1 : 0.6, sizeEnd: big ? 0.5 : 0.3, color: headshot ? 0xffb060 : crit ? 0xfff07a : 0xffffff, colorEnd: color, alpha: big ? 1 : 0.8, shape: big ? 'star' : 'soft', rot: Math.random() * 3 })
+        const back = _f2.copy(dir).negate()
+        this.sparks(at, back, big ? 12 : 6, color, 6, 1.2)
+        const n = big ? 8 : 4
+        for (let i = 0; i < n; i++) {
+            this.glow.emit({ x: at.x, y: at.y, z: at.z, vx: (Math.random() - 0.5) * 4, vy: 1 + Math.random() * 3, vz: (Math.random() - 0.5) * 4, life: 0.3 + Math.random() * 0.3, size: 0.12 + Math.random() * 0.1, sizeEnd: 0.03, color: 0xffffff, colorEnd: color, gravity: 8, drag: 2, shape: 'soft' })
+        }
+        this.burst(at.x, at.y, at.z, big ? 6 : 3, [color], 3.5, 0.08)
+        if (source === 'melee') this.glow.emit({ x: at.x, y: at.y, z: at.z, life: 0.12, size: 0.4, sizeEnd: 1.8, color: 0x7dd3fc, alpha: 0.7, shape: 'ring' })
+    }
+
+    /** The body's light escapes: a flash, a ring and a fountain of motes in the enemy's colour. */
+    private deathBurst(center: THREE.Vector3, color: number, scale: number, boss: boolean): void {
+        const { x, y, z } = center
+        const s = boss ? 3 : scale
+        this.glow.emit({ x, y, z, life: 0.12, size: s * 0.8, sizeEnd: s * 2, color: 0xffffff, colorEnd: color, alpha: 0.7, shape: 'soft' })
+        this.glow.emit({ x, y, z, life: 0.25, size: s * 0.8, sizeEnd: s * 4, color, alpha: 0.6, shape: 'ring' })
+        const n = boss ? 80 : Math.round(10 + s * 10)
+        for (let i = 0; i < n; i++) {
+            const a = Math.random() * Math.PI * 2
+            const e = Math.random() * Math.PI * 0.5
+            const sp = (2 + Math.random() * 4) * s
+            this.glow.emit({ x, y, z, vx: Math.cos(a) * Math.cos(e) * sp, vy: Math.sin(e) * sp + 2, vz: Math.sin(a) * Math.cos(e) * sp, life: 0.5 + Math.random() * 0.7, size: 0.08 + Math.random() * 0.1 * s, sizeEnd: 0.02, color: 0xffffff, colorEnd: color, gravity: 6, drag: 1.5, shape: 'soft' })
+        }
+        if (boss || scale > 1.5) {
+            for (let i = 0; i < 6; i++) {
+                this.smoke.emit({ x: x + (Math.random() - 0.5) * s, y: y + (Math.random() - 0.5) * s, z: z + (Math.random() - 0.5) * s, vy: 1 + Math.random() * 1.5, life: 1.2 + Math.random(), size: s * 0.6, sizeEnd: s * 1.8, color: 0x3a3038, colorEnd: 0x101010, alpha: 0.4, shape: 'soft', rot: Math.random() * 6, spin: (Math.random() - 0.5) * 2, fadeIn: 0.15 })
+            }
+        }
+    }
+
+    /** A licking flame with the odd wisp of smoke, for burning bodies and fire on the floor. */
+    private flameAt(x: number, y: number, z: number, size: number): void {
+        this.glow.emit({ x: x + (Math.random() - 0.5) * size, y, z: z + (Math.random() - 0.5) * size, vx: (Math.random() - 0.5) * 0.6, vy: 1.5 + Math.random() * 1.5, vz: (Math.random() - 0.5) * 0.6, life: 0.3 + Math.random() * 0.25, size: size * 0.6, sizeEnd: size * 0.15, color: 0xfff0a0, colorEnd: 0xff3a10, alpha: 0.7, shape: 'soft', rot: Math.random() * 6, spin: (Math.random() - 0.5) * 4 })
+        if (Math.random() < 0.2) this.smoke.emit({ x, y: y + size * 0.4, z, vy: 1.5, life: 0.8, size: size * 0.4, sizeEnd: size * 1.2, color: 0x2a2226, colorEnd: 0x101010, alpha: 0.22, shape: 'soft', rot: Math.random() * 6, spin: 1, fadeIn: 0.2 })
+    }
+
+    /** A ring of dust skidding out across the floor. */
+    private dustRing(x: number, y: number, z: number, radius: number, color = 0x6a6058): void {
+        const n = 8 + Math.round(radius * 3)
+        for (let i = 0; i < n; i++) {
+            const a = (i / n) * Math.PI * 2 + Math.random() * 0.4
+            const s = 4 + radius * 2 + Math.random() * 3
+            this.smoke.emit({ x: x + Math.cos(a) * 0.4, y: y + 0.25, z: z + Math.sin(a) * 0.4, vx: Math.cos(a) * s, vy: 0.6, vz: Math.sin(a) * s, life: 0.6 + Math.random() * 0.4, size: radius * 0.3, sizeEnd: radius * 0.8, color, colorEnd: 0x2a2626, alpha: 0.35, shape: 'soft', drag: 3.5, rot: Math.random() * 6 })
+        }
+    }
+
+    /** A dark scorch mark that lingers on the floor and slowly fades. */
+    private spawnScorch(x: number, y: number, z: number, radius: number): void {
+        const geo = new THREE.CircleGeometry(radius * 0.9, 24)
+        const mat = new THREE.MeshBasicMaterial({ color: 0x050405, transparent: true, opacity: 0.55, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 })
+        const mesh = new THREE.Mesh(geo, mat)
+        mesh.rotation.x = -Math.PI / 2
+        mesh.rotation.z = Math.random() * 6
+        mesh.position.set(x, y + 0.03, z)
+        this.addEffect(mesh, 9, (fx, t) => {
+            mat.opacity = 0.55 * (1 - t * t)
+        }, () => {
+            geo.dispose()
+            mat.dispose()
+        })
     }
 
     private spawnBeam(from: THREE.Vector3, to: THREE.Vector3, color: number, width: number, life: number): void {
-        const mat = new THREE.MeshBasicMaterial({ color: new THREE.Color(color).multiplyScalar(2.2), toneMapped: false, transparent: true })
-        const mesh = new THREE.Mesh(BOX, mat)
+        const mat = new THREE.MeshBasicMaterial({ color: new THREE.Color(color).lerp(WHITE, 0.5).multiplyScalar(2.4), toneMapped: false, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false })
+        const haloMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(color).multiplyScalar(0.7), toneMapped: false, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false })
+        const core = new THREE.Mesh(BOX, mat)
+        const halo = new THREE.Mesh(BOX, haloMat)
+        const group = new THREE.Group()
+        group.add(halo)
+        group.add(core)
         const len = from.distanceTo(to)
-        mesh.position.copy(from).lerp(to, 0.5)
-        mesh.quaternion.setFromUnitVectors(Z_AXIS, to.clone().sub(from).normalize())
-        this.addEffect(mesh, life, (fx, t) => {
-            fx.obj.scale.set(width * (1 - t), width * (1 - t), len)
+        group.position.copy(from).lerp(to, 0.5)
+        group.quaternion.setFromUnitVectors(Z_AXIS, to.clone().sub(from).normalize())
+        this.addEffect(group, life, (fx, t) => {
+            core.scale.set(width * (1 - t), width * (1 - t), len)
+            halo.scale.set(width * 3.5 * (1 - t * 0.6), width * 3.5 * (1 - t * 0.6), len)
             mat.opacity = 1 - t * t
-        }, () => mat.dispose())
+            haloMat.opacity = (1 - t) * 0.8
+        }, () => {
+            mat.dispose()
+            haloMat.dispose()
+        })
+        // sparkles drift off along the beam
+        const n = Math.min(40, Math.round(len * 0.8))
+        for (let i = 0; i < n; i++) {
+            const p = _f2.copy(from).lerp(to, Math.random())
+            this.glow.emit({ x: p.x, y: p.y, z: p.z, vx: (Math.random() - 0.5) * 2, vy: (Math.random() - 0.5) * 2, vz: (Math.random() - 0.5) * 2, life: 0.2 + Math.random() * 0.3, size: 0.06 + width * 0.6, sizeEnd: 0.02, color: 0xffffff, colorEnd: color, alpha: 0.9, shape: 'spark', drag: 2 })
+        }
+        this.glow.emit({ x: from.x, y: from.y, z: from.z, life: 0.1, size: width * 8 + 0.3, sizeEnd: width * 4, color: 0xffffff, colorEnd: color, shape: 'star', rot: Math.random() * 3 })
     }
 
     private spawnLightning(from: THREE.Vector3, to: THREE.Vector3, color: number, life: number): void {
@@ -4245,7 +4413,8 @@ export class VoxelArenaGame {
             }
             pts.push(p)
         }
-        const mat = new THREE.MeshBasicMaterial({ color: new THREE.Color(color).multiplyScalar(2.5), toneMapped: false, transparent: true })
+        const mat = new THREE.MeshBasicMaterial({ color: new THREE.Color(color).lerp(WHITE, 0.5).multiplyScalar(2.5), toneMapped: false, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false })
+        const haloMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(color).multiplyScalar(0.8), toneMapped: false, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false })
         const group = new THREE.Group()
         for (let i = 0; i < n; i++) {
             const a = pts[i]!
@@ -4253,28 +4422,46 @@ export class VoxelArenaGame {
             const seg = new THREE.Mesh(BOX, mat)
             seg.position.copy(a).lerp(b, 0.5)
             seg.quaternion.setFromUnitVectors(Z_AXIS, _v1.copy(b).sub(a).normalize())
-            seg.scale.set(0.09, 0.09, a.distanceTo(b) * 1.05)
+            seg.scale.set(0.07, 0.07, a.distanceTo(b) * 1.05)
             group.add(seg)
+            const halo = new THREE.Mesh(BOX, haloMat)
+            halo.position.copy(seg.position)
+            halo.quaternion.copy(seg.quaternion)
+            halo.scale.set(0.28, 0.28, a.distanceTo(b) * 1.05)
+            group.add(halo)
+            // the joints glow
+            this.glow.emit({ x: a.x, y: a.y, z: a.z, life, size: 0.5, sizeEnd: 0.2, color: 0xffffff, colorEnd: color, alpha: 0.8, shape: 'soft' })
         }
         this.addEffect(group, life, (fx, t) => {
             mat.opacity = 1 - t
+            haloMat.opacity = (1 - t) * 0.7
             fx.obj.position.set((Math.random() - 0.5) * 0.06, (Math.random() - 0.5) * 0.06, (Math.random() - 0.5) * 0.06)
-        }, () => mat.dispose())
-        this.burst(to.x, to.y, to.z, 4, [color, 0xffffff], 3, 0.08)
+        }, () => {
+            mat.dispose()
+            haloMat.dispose()
+        })
+        this.glow.emit({ x: to.x, y: to.y, z: to.z, life: 0.1, size: 1.2, sizeEnd: 0.4, color: 0xffffff, colorEnd: color, shape: 'star', rot: Math.random() * 3 })
+        this.sparks(to, null, 6, color, 5)
     }
 
     private spawnSlash(center: THREE.Vector3, forward: THREE.Vector3, range: number, finisher: boolean, arc: number, colorHex: number): void {
-        const geo = new THREE.RingGeometry(range * 0.3, range, 32, 1, 0, arc)
-        const mat = new THREE.MeshBasicMaterial({ color: new THREE.Color(finisher ? 0xffffff : colorHex).multiplyScalar(finisher ? 1.6 : 2.0), toneMapped: false, transparent: true, side: THREE.DoubleSide })
-        const core = new THREE.Mesh(new THREE.RingGeometry(range * 0.72, range * 0.86, 32, 1, 0, arc), new THREE.MeshBasicMaterial({ color: colorHex, toneMapped: false, transparent: true, side: THREE.DoubleSide }))
+        // a crescent: a coloured band with a hot white edge, not a disc around the player
+        const geo = new THREE.RingGeometry(range * 0.7, range, 32, 1, 0, arc)
+        const mat = new THREE.MeshBasicMaterial({ color: new THREE.Color(finisher ? 0xffffff : colorHex).multiplyScalar(finisher ? 1.4 : 1.5), toneMapped: false, transparent: true, side: THREE.DoubleSide, blending: THREE.AdditiveBlending, depthWrite: false })
+        const core = new THREE.Mesh(new THREE.RingGeometry(range * 0.9, range * 0.98, 32, 1, 0, arc), new THREE.MeshBasicMaterial({ color: new THREE.Color(colorHex).lerp(WHITE, 0.6).multiplyScalar(2), toneMapped: false, transparent: true, side: THREE.DoubleSide, blending: THREE.AdditiveBlending, depthWrite: false }))
         core.rotation.x = -Math.PI / 2
         core.position.y = 0.02
-        // sparks fly along the blade's path
-        for (let i = 0; i < 10; i++) {
+        // a trail of light streaks along the blade's path
+        const n = finisher ? 22 : 12
+        for (let i = 0; i < n; i++) {
             const a = Math.atan2(forward.x, forward.z) + (Math.random() - 0.5) * arc
-            const r = range * (0.5 + Math.random() * 0.5)
-            this.spawnDebris(center.x + Math.sin(a) * r, center.y + (Math.random() - 0.5) * 0.6, center.z + Math.cos(a) * r, Math.sin(a) * 4, 2 + Math.random() * 3, Math.cos(a) * 4, colorHex, 0.08 + Math.random() * 0.08, 0.3 + Math.random() * 0.3)
+            const r = range * (0.55 + Math.random() * 0.45)
+            const tangent = this.meleeCombo % 2 ? 1 : -1
+            this.glow.emit({ x: center.x + Math.sin(a) * r, y: center.y + (Math.random() - 0.5) * 0.6, z: center.z + Math.cos(a) * r, vx: Math.cos(a) * 5 * tangent + Math.sin(a) * 2, vy: 1 + Math.random() * 2, vz: -Math.sin(a) * 5 * tangent + Math.cos(a) * 2, life: 0.2 + Math.random() * 0.25, size: 0.05 + Math.random() * 0.06, sizeEnd: 0.02, color: 0xffffff, colorEnd: colorHex, gravity: 8, drag: 2, shape: 'spark', stretch: 0.08 })
         }
+        const tipX = center.x + forward.x * range * 0.8
+        const tipZ = center.z + forward.z * range * 0.8
+        this.glow.emit({ x: tipX, y: center.y, z: tipZ, life: 0.1, size: finisher ? 1.6 : 0.9, sizeEnd: 0.3, color: 0xffffff, colorEnd: colorHex, alpha: 0.9, shape: 'star', rot: Math.random() * 3 })
         const mesh = new THREE.Mesh(geo, mat)
         // the ring lies in XY; lay it flat so geometry angle θ points along yaw θ + π/2
         mesh.rotation.x = -Math.PI / 2
@@ -4289,7 +4476,7 @@ export class VoxelArenaGame {
         holder.add(core)
         const dirSign = this.meleeCombo % 2 ? 1 : -1
         this.addEffect(holder, 0.22, (fx, t) => {
-            mat.opacity = 1 - t
+            mat.opacity = (1 - t) * 0.8
             ;(core.material as THREE.MeshBasicMaterial).opacity = Math.max(0, 1 - t * 1.6)
             fx.obj.rotation.y = baseRot + dirSign * (t - 0.5) * 1.1
             fx.obj.scale.setScalar(0.8 + t * 0.4)
@@ -4301,33 +4488,73 @@ export class VoxelArenaGame {
         })
     }
 
+    /** Core flash, boiling fireballs, embers, rolling smoke, a dust ring on the floor and a scorch that lingers. */
     private spawnExplosion(center: THREE.Vector3, radius: number, color: number): void {
-        const mat = new THREE.MeshBasicMaterial({ color: new THREE.Color(color).multiplyScalar(1.8), toneMapped: false, transparent: true })
-        const mesh = new THREE.Mesh(BOX, mat)
-        mesh.position.copy(center)
-        this.addEffect(mesh, 0.28, (fx, t) => {
-            const s = radius * (0.3 + t * 1.2)
-            fx.obj.scale.set(s, s, s)
-            fx.obj.rotation.set(t * 2, t * 3, 0)
-            mat.opacity = (1 - t) * 0.9
-        }, () => mat.dispose())
-        this.spawnShockwave(center.clone().setY(Math.max(0.05, center.y - 1)), radius * 1.3, color, 0.3)
+        const { x, y, z } = center
+        const r = Math.max(1, radius)
+        this.glow.emit({ x, y, z, life: 0.1, size: r * 1.2, sizeEnd: r * 2.6, color: 0xffffff, colorEnd: 0xfff0a0, alpha: 1, shape: 'soft' })
+        this.glow.emit({ x, y, z, life: 0.14, size: r * 2.6, sizeEnd: r * 1.2, color: 0xffffff, colorEnd: color, alpha: 0.9, shape: 'star', rot: Math.random() * 3 })
+        const balls = 5 + Math.round(r * 2)
+        for (let i = 0; i < balls; i++) {
+            const a = Math.random() * Math.PI * 2
+            const e = Math.random() * Math.PI - Math.PI / 2
+            const rr = Math.random() * r * 0.45
+            const ox = Math.cos(a) * Math.cos(e) * rr
+            const oy = Math.abs(Math.sin(e)) * rr
+            const oz = Math.sin(a) * Math.cos(e) * rr
+            const s = 2 + Math.random() * 3
+            this.glow.emit({ x: x + ox, y: y + oy, z: z + oz, vx: ox * s, vy: oy * s + 2.5, vz: oz * s, life: 0.3 + Math.random() * 0.3, size: r * 0.5, sizeEnd: r * (1.1 + Math.random() * 0.5), color: 0xfff0a0, colorEnd: color, alpha: 0.75, shape: 'soft', drag: 4, rot: Math.random() * 6, spin: (Math.random() - 0.5) * 4 })
+        }
+        const embers = 20 + Math.round(r * 10)
+        for (let i = 0; i < embers; i++) {
+            const a = Math.random() * Math.PI * 2
+            const e = Math.random() * Math.PI * 0.6 - 0.1
+            const s = 5 + Math.random() * (6 + r * 3)
+            this.glow.emit({ x, y, z, vx: Math.cos(a) * Math.cos(e) * s, vy: Math.sin(e) * s + 2, vz: Math.sin(a) * Math.cos(e) * s, life: 0.5 + Math.random() * 0.8, size: 0.06 + Math.random() * 0.08, sizeEnd: 0.02, color: 0xfff4c0, colorEnd: color, gravity: 14, drag: 1.2, shape: 'spark', stretch: 0.07, bounce: 0.45 })
+        }
+        const puffs = 5 + Math.round(r * 2)
+        for (let i = 0; i < puffs; i++) {
+            const a = Math.random() * Math.PI * 2
+            const rr = Math.random() * r * 0.5
+            const s = 1 + Math.random() * 2
+            this.smoke.emit({ x: x + Math.cos(a) * rr, y: y + Math.random() * r * 0.3, z: z + Math.sin(a) * rr, vx: Math.cos(a) * s, vy: 1.5 + Math.random() * 2, vz: Math.sin(a) * s, life: 1 + Math.random() * 1.2, size: r * 0.5, sizeEnd: r * 1.8, color: 0x4a3f3a, colorEnd: 0x15121a, alpha: 0.5, shape: 'soft', drag: 1.5, rot: Math.random() * 6, spin: (Math.random() - 0.5) * 1.5, fadeIn: 0.1 })
+        }
+        const groundY = this.groundHeight(x, z, 0.5, y + 1)
+        this.dustRing(x, groundY, z, r)
+        this.spawnShockwave(center, radius * 1.3, color, 0.3)
+        this.spawnScorch(x, groundY, z, r)
     }
 
+    /** Two rings race out across the floor: a wide coloured wash and a thin bright edge, with a bloom of light above. */
     private spawnShockwave(at: THREE.Vector3, radius: number, color: number, life: number): void {
         const geo = new THREE.RingGeometry(0.7, 1, 40)
-        const mat = new THREE.MeshBasicMaterial({ color: new THREE.Color(color).multiplyScalar(1.8), toneMapped: false, transparent: true, side: THREE.DoubleSide })
+        const mat = new THREE.MeshBasicMaterial({ color: new THREE.Color(color).multiplyScalar(1.6), toneMapped: false, transparent: true, side: THREE.DoubleSide, blending: THREE.AdditiveBlending, depthWrite: false })
+        const edgeGeo = new THREE.RingGeometry(0.94, 1, 48)
+        const edgeMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(color).lerp(WHITE, 0.6).multiplyScalar(2.2), toneMapped: false, transparent: true, side: THREE.DoubleSide, blending: THREE.AdditiveBlending, depthWrite: false })
         const mesh = new THREE.Mesh(geo, mat)
-        mesh.position.set(at.x, this.groundHeight(at.x, at.z, 0.5, at.y + 1) + 0.08, at.z)
+        const edge = new THREE.Mesh(edgeGeo, edgeMat)
+        const y = this.groundHeight(at.x, at.z, 0.5, at.y + 1) + 0.08
+        const group = new THREE.Group()
+        group.position.set(at.x, y, at.z)
         mesh.rotation.x = -Math.PI / 2
-        this.addEffect(mesh, life, (fx, t) => {
+        edge.rotation.x = -Math.PI / 2
+        edge.position.y = 0.01
+        group.add(mesh)
+        group.add(edge)
+        this.addEffect(group, life, (fx, t) => {
             const s = radius * (0.1 + t * 0.9)
-            fx.obj.scale.set(s, s, 1)
-            mat.opacity = 1 - t
+            mesh.scale.set(s, s, 1)
+            const s2 = radius * (0.15 + t * 0.95)
+            edge.scale.set(s2, s2, 1)
+            mat.opacity = (1 - t) * 0.8
+            edgeMat.opacity = (1 - t) * (1 - t)
         }, () => {
             geo.dispose()
             mat.dispose()
+            edgeGeo.dispose()
+            edgeMat.dispose()
         })
+        this.glow.emit({ x: at.x, y: y + 0.3, z: at.z, life: life * 0.8, size: radius * 0.6, sizeEnd: radius * 1.6, color, alpha: 0.35, shape: 'soft' })
     }
 
     private popup(pos: THREE.Vector3, text: string, color: string, size: number): void {
@@ -4437,7 +4664,10 @@ export class VoxelArenaGame {
         }
         this.minimapFrame++
         if (this.minimapFrame % 2 === 0) this.drawMinimap()
-        this.updateDebris(rawDt * (playing ? 1 : 0.15))
+        const fxDt = rawDt * (playing ? 1 : 0.15)
+        this.updateDebris(fxDt)
+        this.glow.update(fxDt)
+        this.smoke.update(fxDt)
         this.updateEffects(rawDt)
         for (const ring of this.portalRings) ring.rotation.z += rawDt * 0.8
         for (const l of this.lanterns) l.intensity = (this.event === 'blackout' ? 4 : 9) * (0.9 + Math.sin(this.elapsed * 7 + l.position.x) * 0.1)
