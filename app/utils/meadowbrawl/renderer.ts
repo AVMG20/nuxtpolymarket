@@ -15,10 +15,10 @@ const TS = 1.25
 type Ctx = CanvasRenderingContext2D
 
 const TREE_PALETTES = [
-    ['#d97c2b', '#f0a13d', '#f6c35a', '#a8531f'],
-    ['#b23a2c', '#d4523a', '#ee7d4f', '#7d2418'],
-    ['#d9a52b', '#f2c74b', '#f8e07a', '#a3741a'],
-    ['#5f8f3a', '#7fb24a', '#a6d16a', '#3f6a25']
+    ['#b96a36', '#df9648', '#f5cc79', '#713e32'],
+    ['#a94e3f', '#cd7050', '#eeae70', '#633b3b'],
+    ['#b89842', '#d9b958', '#f5dea0', '#6b6137'],
+    ['#65794b', '#8f9d59', '#cbd48b', '#3d5644']
 ]
 
 function hash(seed: number, i: number): number {
@@ -214,152 +214,284 @@ export class MeadowbrawlRenderer {
         const y0 = -w.margin
         const fullW = w.w + w.margin * 2
         const fullH = w.h + w.margin * 2
-        const base = ctx.createLinearGradient(0, y0, 0, y0 + fullH)
-        base.addColorStop(0, '#6aa83c')
-        base.addColorStop(0.5, '#5c9c37')
-        base.addColorStop(1, '#4d8a31')
+        const seed = w.w * 0.17 + w.h * 0.31
+        const s = w.stream
+        const b = w.bridge
+        const onBridge = (x: number, y: number, pad = 0) => x > b.x0 - pad && x < b.x1 + pad && Math.abs(y - b.y) < b.width / 2 + pad
+        const dryGround = (x: number, y: number, pad = 0) => !onBridge(x, y, pad)
+            && !(y > s.top - pad && y < s.bottom + pad && Math.abs(x - s.x) < s.width / 2 + 14 + pad)
+            && Math.hypot(x - w.pool.x, (y - w.pool.y) / 0.9) > w.pool.r + 14 + pad
+        const clearing = (x: number, y: number) => clamp(Math.hypot(x - w.w / 2, y - w.h / 2) / 420, 0.2, 1)
+        const base = ctx.createLinearGradient(x0, y0, fullW * 0.6, fullH)
+        base.addColorStop(0, '#6b805a')
+        base.addColorStop(0.38, '#53785b')
+        base.addColorStop(0.72, '#456e56')
+        base.addColorStop(1, '#34574a')
         ctx.fillStyle = base
         ctx.fillRect(x0, y0, fullW, fullH)
 
-        // Soft colour variation: big translucent blobs.
-        for (let i = 0; i < 260; i++) {
-            const x = x0 + Math.random() * fullW
-            const y = y0 + Math.random() * fullH
-            const r = 60 + Math.random() * 200
-            const light = Math.random() < 0.5
+        // Broad glazes, then small dry-brush marks. All detail is stable per layout.
+        for (let i = 0; i < 64; i++) {
+            const x = x0 + hash(seed, i) * fullW
+            const y = y0 + hash(seed, i + 100) * fullH
+            const r = 100 + hash(seed, i + 200) * 220
             const grad = ctx.createRadialGradient(x, y, 0, x, y, r)
-            grad.addColorStop(0, light ? 'rgba(170,220,90,0.35)' : 'rgba(40,100,40,0.35)')
-            grad.addColorStop(1, 'rgba(0,0,0,0)')
+            grad.addColorStop(0, i % 3 === 0 ? 'rgba(196,190,116,0.18)' : 'rgba(22,66,53,0.2)')
+            grad.addColorStop(1, 'rgba(67,103,77,0)')
             ctx.fillStyle = grad
             ctx.fillRect(x - r, y - r, r * 2, r * 2)
         }
-        // Painterly brush strokes.
-        for (let i = 0; i < 2600; i++) {
-            const x = x0 + Math.random() * fullW
-            const y = y0 + Math.random() * fullH
-            const k = Math.random()
-            ctx.fillStyle = k < 0.33 ? 'rgba(150,205,80,0.22)' : k < 0.66 ? 'rgba(70,140,50,0.22)' : 'rgba(110,175,60,0.2)'
-            ctx.save()
-            ctx.translate(x, y)
-            ctx.rotate((Math.random() - 0.5) * 0.8)
-            ellipse(ctx, 0, 0, 10 + Math.random() * 26, 3 + Math.random() * 5)
+        for (let i = 0; i < 2400; i++) {
+            const x = x0 + hash(seed, i + 400) * fullW
+            const y = y0 + hash(seed, i + 3000) * fullH
+            const len = 5 + hash(seed, i + 6000) * 24
+            ctx.globalAlpha = clearing(x, y)
+            ctx.fillStyle = i % 3 === 0 ? 'rgba(190,201,137,0.12)' : i % 3 === 1 ? 'rgba(30,70,53,0.14)' : 'rgba(116,157,112,0.18)'
+            ctx.beginPath()
+            ctx.moveTo(x - len, y + 2)
+            ctx.quadraticCurveTo(x - len * 0.25, y - 4, x + len, y - 1)
+            ctx.lineTo(x + len * 0.4, y + 3)
+            ctx.closePath()
             ctx.fill()
-            ctx.restore()
         }
+        ctx.globalAlpha = 1
 
-        // Dappled light patches.
-        for (let i = 0; i < 40; i++) {
-            const x = x0 + Math.random() * fullW
-            const y = y0 + Math.random() * fullH
-            const r = 90 + Math.random() * 160
-            const grad = ctx.createRadialGradient(x, y, 0, x, y, r)
-            grad.addColorStop(0, 'rgba(255,240,170,0.16)')
-            grad.addColorStop(1, 'rgba(255,240,170,0)')
-            ctx.fillStyle = grad
-            ctx.fillRect(x - r, y - r, r * 2, r * 2)
+        // Afternoon light lies below props and water, never across the bridge deck.
+        const sun = ctx.createLinearGradient(0, y0, w.w * 0.75, w.h)
+        sun.addColorStop(0, 'rgba(255,226,160,0)')
+        sun.addColorStop(0.28, 'rgba(255,226,160,0.1)')
+        sun.addColorStop(1, 'rgba(255,226,160,0)')
+        ctx.fillStyle = sun
+        for (let i = 0; i < 5; i++) {
+            const x = x0 + 100 + i * 410
+            const width = 36 + hash(seed, i + 9000) * 70
+            ctx.beginPath()
+            ctx.moveTo(x, y0)
+            ctx.lineTo(x + width, y0)
+            ctx.lineTo(x + 920 + width * 2, w.h + 220)
+            ctx.lineTo(x + 920 - width, w.h + 220)
+            ctx.closePath()
+            ctx.fill()
         }
 
         // --- Dirt path ---------------------------------------------------
-        const drawPath = (width: number, color: string, jitter: number) => {
+        const path = new Path2D()
+        const pts = w.path
+        path.moveTo(pts[0]!.x, pts[0]!.y)
+        for (let i = 1; i < pts.length - 1; i++) {
+            const a = pts[i]!
+            const next = pts[i + 1]!
+            path.quadraticCurveTo(a.x, a.y, (a.x + next.x) / 2, (a.y + next.y) / 2)
+        }
+        path.lineTo(pts[pts.length - 1]!.x, pts[pts.length - 1]!.y)
+        const drawPath = (width: number, color: string) => {
             ctx.strokeStyle = color
             ctx.lineWidth = width
             ctx.lineCap = 'round'
             ctx.lineJoin = 'round'
-            ctx.beginPath()
-            const pts = w.path
-            ctx.moveTo(pts[0]!.x, pts[0]!.y + (Math.random() - 0.5) * jitter)
-            for (let i = 1; i < pts.length - 1; i++) {
-                const a = pts[i]!
-                const b = pts[i + 1]!
-                ctx.quadraticCurveTo(a.x, a.y + (Math.random() - 0.5) * jitter, (a.x + b.x) / 2, (a.y + b.y) / 2 + (Math.random() - 0.5) * jitter)
-            }
-            const last = pts[pts.length - 1]!
-            ctx.lineTo(last.x, last.y)
-            ctx.stroke()
+            ctx.stroke(path)
         }
-        drawPath(78, 'rgba(120,92,58,0.55)', 14)
-        drawPath(64, 'rgba(150,118,74,0.85)', 10)
-        drawPath(40, 'rgba(178,146,96,0.75)', 8)
-        drawPath(14, 'rgba(200,170,115,0.5)', 6)
+        drawPath(82, 'rgba(44,66,47,0.22)')
+        drawPath(73, '#7c7e59')
+        drawPath(62, '#9b9065')
+        drawPath(43, '#b2a078')
+        drawPath(23, 'rgba(211,188,139,0.24)')
+        ctx.lineWidth = 66
+        const onPath = (x: number, y: number) => ctx.isPointInStroke(path, (x + w.margin) * TS, (y + w.margin) * TS * YS)
+        // Sample the existing curve's bounds, not a second jittered route.
+        const pathMinY = Math.min(...pts.map(p => p.y)) - 42
+        const pathMaxY = Math.max(...pts.map(p => p.y)) + 42
+        for (let i = 0; i < 1500; i++) {
+            const x = pts[0]!.x + hash(seed, i + 10000) * (pts[pts.length - 1]!.x - pts[0]!.x)
+            const y = lerp(pathMinY, pathMaxY, hash(seed, i + 12000))
+            if (!onPath(x, y)) continue
+            ctx.fillStyle = i % 4 === 0 ? 'rgba(235,214,167,0.32)' : 'rgba(95,83,57,0.18)'
+            ellipse(ctx, x, y, 1 + hash(seed, i + 14000) * 4, 0.6 + hash(seed, i + 16000))
+            ctx.fill()
+        }
+
+        // Long, soft foliage shadows anchor the existing trees without new obstacles.
+        for (const t of w.trees) {
+            ctx.fillStyle = 'rgba(23,50,43,0.1)'
+            for (let i = 0; i < 4; i++) {
+                ellipse(ctx, t.x + (16 + i * 11) * t.scale, t.y + (18 + i * 15) * t.scale, (36 - i * 3) * t.scale, (18 + i * 2) * t.scale)
+                ctx.fill()
+            }
+        }
 
         // --- Stream banks, pool, stream --------------------------------
-        const s = w.stream
-        ctx.fillStyle = 'rgba(196,178,120,0.9)'
-        ctx.beginPath()
-        ctx.moveTo(s.x - s.width / 2 - 26, s.top)
-        for (let y = s.top; y <= s.bottom; y += 30) ctx.lineTo(s.x - s.width / 2 - 26 + Math.sin(y * 0.02) * 8, y)
-        for (let y = s.bottom; y >= s.top; y -= 30) ctx.lineTo(s.x + s.width / 2 + 26 + Math.cos(y * 0.017) * 8, y)
-        ctx.closePath()
-        ctx.fill()
-        ellipse(ctx, w.pool.x, w.pool.y, w.pool.r + 26, w.pool.r + 18)
-        ctx.fill()
-
+        const streamShape = (pad: number) => {
+            const shape = new Path2D()
+            shape.moveTo(s.x - s.width / 2 - pad + Math.sin(s.top * 0.02) * 8, s.top)
+            for (let y = s.top + 20; y < s.bottom; y += 20) shape.lineTo(s.x - s.width / 2 - pad + Math.sin(y * 0.02) * 8, y)
+            shape.lineTo(s.x - s.width / 2 - pad + Math.sin(s.bottom * 0.02) * 8, s.bottom)
+            shape.lineTo(s.x + s.width / 2 + pad + Math.cos(s.bottom * 0.017) * 8, s.bottom)
+            for (let y = s.bottom - 20; y > s.top; y -= 20) shape.lineTo(s.x + s.width / 2 + pad + Math.cos(y * 0.017) * 8, y)
+            shape.lineTo(s.x + s.width / 2 + pad + Math.cos(s.top * 0.017) * 8, s.top)
+            shape.closePath()
+            return shape
+        }
+        for (const [pad, color] of [[26, '#3b594a'], [20, '#777b58'], [11, '#a39b70'], [4, '#4d7560']] as const) {
+            ctx.fillStyle = color
+            ctx.fill(streamShape(pad))
+            ellipse(ctx, w.pool.x, w.pool.y, w.pool.r + pad, w.pool.r * 0.9 + pad * 0.7)
+            ctx.fill()
+        }
+        const waterShape = streamShape(0)
+        waterShape.moveTo(w.pool.x + w.pool.r, w.pool.y)
+        waterShape.ellipse(w.pool.x, w.pool.y, w.pool.r, w.pool.r * 0.9, 0, 0, Math.PI * 2, true)
         const water = ctx.createLinearGradient(s.x - s.width / 2, 0, s.x + s.width / 2, 0)
-        water.addColorStop(0, '#2d6f96')
-        water.addColorStop(0.5, '#4f9fc8')
-        water.addColorStop(1, '#2b6890')
+        water.addColorStop(0, '#497f73')
+        water.addColorStop(0.25, '#2c6967')
+        water.addColorStop(0.58, '#214f57')
+        water.addColorStop(1, '#609580')
         ctx.fillStyle = water
-        ctx.beginPath()
-        ctx.moveTo(s.x - s.width / 2, s.top)
-        for (let y = s.top; y <= s.bottom; y += 30) ctx.lineTo(s.x - s.width / 2 + Math.sin(y * 0.02) * 8, y)
-        for (let y = s.bottom; y >= s.top; y -= 30) ctx.lineTo(s.x + s.width / 2 + Math.cos(y * 0.017) * 8, y)
-        ctx.closePath()
-        ctx.fill()
+        ctx.fill(waterShape)
         const pool = ctx.createRadialGradient(w.pool.x, w.pool.y, 10, w.pool.x, w.pool.y, w.pool.r)
-        pool.addColorStop(0, '#6fc0dd')
-        pool.addColorStop(0.6, '#3f8fba')
-        pool.addColorStop(1, '#245f88')
+        pool.addColorStop(0, '#568f86')
+        pool.addColorStop(0.48, '#2b6569')
+        pool.addColorStop(0.85, '#244e55')
+        pool.addColorStop(1, '#64907b')
         ctx.fillStyle = pool
         ellipse(ctx, w.pool.x, w.pool.y, w.pool.r, w.pool.r * 0.9)
         ctx.fill()
-        // Still-water highlights.
-        ctx.fillStyle = 'rgba(255,255,255,0.18)'
-        for (let y = s.top; y < s.bottom; y += 22) {
-            ellipse(ctx, s.x + Math.sin(y * 0.05) * 16, y, 8 + Math.random() * 10, 1.6)
+
+        ctx.save()
+        ctx.clip(waterShape)
+        for (let i = 0; i < 180; i++) {
+            const y = s.top + hash(seed, i + 18000) * (s.bottom - s.top)
+            const x = s.x + (hash(seed, i + 18200) - 0.5) * s.width
+            if (onBridge(x, y, 12)) continue
+            ctx.fillStyle = i % 3 === 0 ? 'rgba(178,203,149,0.18)' : 'rgba(16,55,60,0.22)'
+            ellipse(ctx, x, y, 2 + hash(seed, i + 18400) * 7, 1.5)
             ctx.fill()
         }
+        ctx.lineWidth = 1.4
+        for (let y = s.top + 14; y < s.bottom - 8; y += 24) {
+            if (onBridge(s.x, y, 18)) continue
+            const x = s.x + Math.sin(y * 0.029) * 16
+            ctx.strokeStyle = 'rgba(168,210,187,0.2)'
+            ctx.beginPath()
+            ctx.moveTo(x - 15, y)
+            ctx.quadraticCurveTo(x, y + 3, x + 12, y - 2)
+            ctx.stroke()
+        }
+        ctx.restore()
 
         // --- Bridge (ground part: shadow on water) -----------------------
-        const b = w.bridge
-        ctx.fillStyle = 'rgba(20,40,60,0.35)'
-        ctx.fillRect(b.x0 - 4, b.y - b.width / 2 + 10, b.x1 - b.x0 + 8, b.width)
+        ctx.fillStyle = 'rgba(15,38,39,0.4)'
+        ctx.fillRect(b.x0 - 4, b.y - b.width / 2 + 12, b.x1 - b.x0 + 12, b.width)
+
+        // Reeds follow the shore, with a generous clear approach to the bridge.
+        ctx.lineCap = 'round'
+        for (let i = 0; i < 80; i++) {
+            const y = s.top + 45 + hash(seed, i + 19000) * (s.bottom - s.top - 60)
+            const side = i % 2 === 0 ? -1 : 1
+            const x = s.x + side * (s.width / 2 + 14) + (side < 0 ? Math.sin(y * 0.02) : Math.cos(y * 0.017)) * 8
+            if (onBridge(x, y, 34)) continue
+            for (let j = 0; j < 3; j++) {
+                const h = 12 + hash(seed + i, j) * 16
+                const lean = (j - 1) * 6 + side * 3
+                ctx.strokeStyle = j === 0 ? '#9cac75' : '#416c51'
+                ctx.lineWidth = 1.5
+                ctx.beginPath()
+                ctx.moveTo(x + j * 2, y)
+                ctx.quadraticCurveTo(x + lean * 0.4, y - h * 0.65, x + lean, y - h)
+                ctx.stroke()
+                if (j === 1 && i % 3 === 0) {
+                    ctx.strokeStyle = '#85734c'
+                    ctx.lineWidth = 3
+                    ctx.beginPath()
+                    ctx.moveTo(x + lean, y - h)
+                    ctx.lineTo(x + lean - 1, y - h - 5)
+                    ctx.stroke()
+                }
+            }
+        }
 
         // --- Ground clutter ---------------------------------------------
-        for (const leaf of w.leaves) {
+        ctx.lineWidth = 74
+        for (let i = 0; i < w.leaves.length; i++) {
+            const leaf = w.leaves[i]!
+            if (!dryGround(leaf.x, leaf.y, 5)) continue
             ctx.save()
             ctx.translate(leaf.x, leaf.y)
-            ctx.rotate(Math.random() * Math.PI)
-            ctx.fillStyle = Math.random() < 0.5 ? 'rgba(214,120,40,0.85)' : 'rgba(178,58,44,0.8)'
-            ellipse(ctx, 0, 0, 5, 2.6)
+            ctx.rotate(hash(seed, i + 20000) * Math.PI * 2)
+            ctx.fillStyle = i % 3 === 0 ? '#c8a05b' : i % 3 === 1 ? '#ae7448' : '#875846'
+            ctx.beginPath()
+            ctx.moveTo(-4, 0)
+            ctx.quadraticCurveTo(-1, -4, 5, 0)
+            ctx.quadraticCurveTo(1, 3, -4, 0)
             ctx.fill()
+            ctx.strokeStyle = 'rgba(243,208,136,0.4)'
+            ctx.lineWidth = 0.7
+            ctx.beginPath()
+            ctx.moveTo(-4, 0)
+            ctx.lineTo(3, 0)
+            ctx.stroke()
             ctx.restore()
         }
         for (const t of w.tufts) {
-            const dark = hash(t.seed, 1) < 0.5
-            ctx.strokeStyle = dark ? 'rgba(40,100,35,0.7)' : 'rgba(160,215,90,0.75)'
-            ctx.lineWidth = 1.6
+            ctx.lineWidth = 74
+            if (!dryGround(t.x, t.y, 12) || onPath(t.x, t.y) || hash(t.seed, 20) > clearing(t.x, t.y)) continue
+            const fern = hash(t.seed, 1) < 0.18 && clearing(t.x, t.y) > 0.8
+            ctx.strokeStyle = fern ? '#90a873' : hash(t.seed, 2) < 0.5 ? 'rgba(36,76,53,0.6)' : 'rgba(164,188,124,0.5)'
+            ctx.lineWidth = fern ? 1.25 : 1.1
             ctx.lineCap = 'round'
-            for (let i = 0; i < 4; i++) {
-                const a = -Math.PI / 2 + (i - 1.5) * 0.35 + (hash(t.seed, i + 2) - 0.5) * 0.3
-                const len = 6 + hash(t.seed, i + 9) * 8
+            for (let i = 0; i < 3; i++) {
+                const dx = (i - 1) * (fern ? 11 : 5)
+                const len = (fern ? 16 : 6) + hash(t.seed, i + 9) * 7
                 ctx.beginPath()
                 ctx.moveTo(t.x, t.y)
-                ctx.quadraticCurveTo(t.x + Math.cos(a) * len * 0.6, t.y + Math.sin(a) * len * 0.6, t.x + Math.cos(a) * len + (i - 1.5) * 2, t.y + Math.sin(a) * len * 1.4)
+                ctx.quadraticCurveTo(t.x + dx * 0.4, t.y - len * 0.8, t.x + dx, t.y - len)
+                if (fern) {
+                    for (let j = 1; j < 5; j++) {
+                        const k = j / 5
+                        const fx = t.x + dx * k * k
+                        const fy = t.y - len * k
+                        const span = 4 * (1 - k) + 1
+                        ctx.moveTo(fx - span, fy - 3)
+                        ctx.lineTo(fx, fy)
+                        ctx.lineTo(fx + span, fy - 3)
+                    }
+                }
                 ctx.stroke()
             }
         }
         for (const f of w.flowers) {
-            ctx.fillStyle = 'rgba(30,80,30,0.5)'
-            ellipse(ctx, f.x + 1, f.y + 2, f.size + 0.6, f.size * 0.8)
+            ctx.lineWidth = 74
+            if (!dryGround(f.x, f.y, 8) || onPath(f.x, f.y)) continue
+            const size = f.size * (0.65 + clearing(f.x, f.y) * 0.25)
+            ctx.strokeStyle = '#3c6249'
+            ctx.lineWidth = 1
+            ctx.beginPath()
+            ctx.moveTo(f.x + 1, f.y + 5)
+            ctx.lineTo(f.x, f.y)
+            ctx.stroke()
+            ctx.fillStyle = 'rgba(30,58,44,0.35)'
+            ellipse(ctx, f.x + 2, f.y + 4, size + 1, size * 0.6)
             ctx.fill()
-            ctx.fillStyle = f.color
+            ctx.fillStyle = hash(f.x, f.y) < 0.84 ? '#f0e5bf' : '#d7ba85'
+            ctx.beginPath()
             for (let i = 0; i < 5; i++) {
                 const a = i / 5 * Math.PI * 2
-                ellipse(ctx, f.x + Math.cos(a) * f.size * 0.75, f.y + Math.sin(a) * f.size * 0.75, f.size * 0.6, f.size * 0.6)
-                ctx.fill()
+                const px = f.x + Math.cos(a) * size * 0.7
+                const py = f.y + Math.sin(a) * size * 0.7
+                ctx.moveTo(px + size * 0.55, py)
+                ctx.ellipse(px, py, size * 0.55, size * 0.48, a, 0, Math.PI * 2)
             }
-            ctx.fillStyle = f.color === '#ffe066' ? '#ff9a3c' : '#ffe066'
-            ellipse(ctx, f.x, f.y, f.size * 0.45, f.size * 0.45)
+            ctx.fill()
+            ctx.fillStyle = '#b7994d'
+            ellipse(ctx, f.x, f.y, size * 0.32, size * 0.32)
+            ctx.fill()
+        }
+        // Flat grit, not additional cover or collision-looking props.
+        for (let i = 0; i < 240; i++) {
+            const x = x0 + hash(seed, i + 22000) * fullW
+            const y = y0 + hash(seed, i + 22400) * fullH
+            if (!dryGround(x, y, 4) || clearing(x, y) < 0.8) continue
+            ctx.fillStyle = i % 2 === 0 ? 'rgba(195,193,155,0.4)' : 'rgba(37,66,53,0.3)'
+            ellipse(ctx, x, y, 1.2 + hash(seed, i + 22800), 0.8)
             ctx.fill()
         }
 
@@ -367,7 +499,9 @@ export class MeadowbrawlRenderer {
         upright(ctx)
         this.paintCliff(ctx, w)
         this.paintWaterfallBase(ctx, w)
-        for (const r of w.rocks) this.paintRock(ctx, r.x, r.y * YS, r.r, r.seed)
+        for (const r of w.rocks) {
+            if (!onBridge(r.x, r.y, r.r + 12)) this.paintRock(ctx, r.x, r.y * YS, r.r, r.seed)
+        }
         this.paintBridge(ctx, w)
 
         // Perimeter trees: trunks on the terrain, canopies on the overlay.
@@ -382,12 +516,12 @@ export class MeadowbrawlRenderer {
         const boulders = w.obstacles.filter(o => o.kind === 'boulder').sort((a, b) => a.y - b.y)
         for (const o of boulders) this.paintBoulder(ctx, o.x, o.y * YS, o.r, o.seed)
 
-        // Warm light + soft vignette baked into the terrain.
+        // A restrained warm glaze preserves the jade shadows and cream flowers.
         ctx.setTransform(1, 0, 0, 1, 0, 0)
         ctx.globalCompositeOperation = 'overlay'
         const warm = ctx.createRadialGradient(tw * 0.3, th * 0.2, 0, tw * 0.3, th * 0.2, tw * 0.9)
-        warm.addColorStop(0, 'rgba(255,220,150,0.5)')
-        warm.addColorStop(1, 'rgba(60,40,90,0.3)')
+        warm.addColorStop(0, 'rgba(245,210,151,0.18)')
+        warm.addColorStop(1, 'rgba(37,57,69,0.12)')
         ctx.fillStyle = warm
         ctx.fillRect(0, 0, tw, th)
         ctx.globalCompositeOperation = 'source-over'
@@ -398,223 +532,568 @@ export class MeadowbrawlRenderer {
         const top = c.y0 * YS
         const bottom = c.y1 * YS
         const faceTop = bottom - 120
-        // Plateau on top.
-        ctx.fillStyle = '#5a8a34'
+        const seed = c.x1 + c.y1
+        ctx.save()
+        ctx.fillStyle = '#526b50'
         ctx.fillRect(c.x0, top, c.x1 - c.x0, faceTop - top)
-        for (let i = 0; i < 120; i++) {
-            ctx.fillStyle = Math.random() < 0.5 ? 'rgba(150,200,90,0.3)' : 'rgba(50,110,40,0.3)'
-            ellipse(ctx, c.x0 + Math.random() * (c.x1 - c.x0), top + Math.random() * (faceTop - top), 14 + Math.random() * 30, 5 + Math.random() * 8)
+        for (let i = 0; i < 60; i++) {
+            ctx.fillStyle = i % 3 === 0 ? 'rgba(174,181,112,0.25)' : 'rgba(28,69,52,0.2)'
+            ellipse(ctx, lerp(c.x0, c.x1, hash(seed, i)), lerp(top, faceTop, hash(seed, i + 80)), 10 + hash(seed, i + 160) * 28, 3 + hash(seed, i + 240) * 5)
             ctx.fill()
         }
-        // Rock face.
+        const outline = new Path2D()
+        outline.moveTo(c.x0, faceTop)
+        for (let x = c.x0; x < c.x1; x += 36) outline.lineTo(x, faceTop + Math.sin(x * 0.05) * 7)
+        outline.lineTo(c.x1, faceTop + 2)
+        outline.lineTo(c.x1 + 30, faceTop + 40)
+        outline.lineTo(c.x1 + 10, bottom + 8)
+        outline.lineTo(c.x0, bottom + 8)
+        outline.closePath()
         const face = ctx.createLinearGradient(0, faceTop, 0, bottom)
-        face.addColorStop(0, '#8a7f70')
-        face.addColorStop(0.5, '#6d6357')
-        face.addColorStop(1, '#4a4139')
+        face.addColorStop(0, '#869087')
+        face.addColorStop(0.35, '#63716d')
+        face.addColorStop(1, '#354d4c')
         ctx.fillStyle = face
-        ctx.beginPath()
-        ctx.moveTo(c.x0, faceTop)
-        for (let x = c.x0; x <= c.x1; x += 40) ctx.lineTo(x, faceTop + Math.sin(x * 0.05) * 8)
-        ctx.lineTo(c.x1 + 30, faceTop + 40)
-        ctx.lineTo(c.x1 + 10, bottom + 8)
-        ctx.lineTo(c.x0, bottom + 8)
-        ctx.closePath()
-        ctx.fill()
-        // Strata + cracks.
-        ctx.strokeStyle = 'rgba(40,32,28,0.45)'
-        ctx.lineWidth = 2
-        for (let y = faceTop + 18; y < bottom; y += 22) {
+        ctx.fill(outline)
+        ctx.save()
+        ctx.clip(outline)
+        // Broad broken shelves, with thin sunlit edges rather than a stone grid.
+        for (let row = 0; row < 5; row++) {
+            const y = faceTop + row * 25
+            for (let x = c.x0 - row * 19; x < c.x1 + 30; x += 88) {
+                const k = hash(seed + row, x)
+                const ledge = y + k * 12
+                ctx.fillStyle = row % 2 === 0 ? '#718079' : '#5c6d68'
+                ctx.beginPath()
+                ctx.moveTo(x, ledge)
+                ctx.lineTo(x + 27, ledge - 5)
+                ctx.lineTo(x + 94, ledge - 1)
+                ctx.lineTo(x + 76, ledge + 14)
+                ctx.lineTo(x + 16, ledge + 19)
+                ctx.closePath()
+                ctx.fill()
+                ctx.strokeStyle = 'rgba(202,204,174,0.4)'
+                ctx.lineWidth = 1.4
+                ctx.beginPath()
+                ctx.moveTo(x + 3, ledge)
+                ctx.lineTo(x + 28, ledge - 4)
+                ctx.lineTo(x + 85, ledge)
+                ctx.stroke()
+                ctx.strokeStyle = 'rgba(27,46,47,0.55)'
+                ctx.lineWidth = 1.8
+                ctx.beginPath()
+                ctx.moveTo(x + 76, ledge + 14)
+                ctx.lineTo(x + 52, ledge + 18)
+                ctx.lineTo(x + 12, ledge + 19)
+                if (k > 0.45) {
+                    ctx.moveTo(x + 60, ledge + 2)
+                    ctx.lineTo(x + 49, ledge + 10)
+                    ctx.lineTo(x + 54, ledge + 17)
+                    ctx.lineTo(x + 42, ledge + 27)
+                }
+                ctx.stroke()
+            }
+        }
+        // Moss follows the rim and fractures; a few tendrils trail down the face.
+        for (let i = 0; i < 48; i++) {
+            const x = lerp(c.x0, c.x1, hash(seed, i + 400))
+            const y = faceTop + Math.sin(x * 0.05) * 7
+            const length = 7 + hash(seed, i + 480) * 30
+            ctx.fillStyle = i % 2 === 0 ? '#71885a' : '#8c9a65'
             ctx.beginPath()
-            ctx.moveTo(c.x0, y)
-            for (let x = c.x0; x <= c.x1; x += 30) ctx.lineTo(x, y + Math.sin(x * 0.08 + y) * 4)
+            ctx.moveTo(x - 13, y - 5)
+            ctx.lineTo(x + 17, y - 3)
+            ctx.lineTo(x + 12, y + 5)
+            ctx.lineTo(x + 3, y + length)
+            ctx.lineTo(x - 1, y + 10)
+            ctx.lineTo(x - 10, y + 7)
+            ctx.closePath()
+            ctx.fill()
+            ctx.strokeStyle = '#a8b17c'
+            ctx.lineWidth = 1
+            ctx.beginPath()
+            ctx.moveTo(x - 10, y)
+            ctx.lineTo(x + 7, y + 1)
             ctx.stroke()
         }
-        ctx.fillStyle = 'rgba(255,240,200,0.18)'
-        for (let x = c.x0; x < c.x1; x += 26) {
-            ellipse(ctx, x + 10, faceTop + 8, 12, 4)
-            ctx.fill()
-        }
-        // Moss.
-        for (let i = 0; i < 40; i++) {
-            ctx.fillStyle = 'rgba(90,150,60,0.55)'
-            ellipse(ctx, c.x0 + Math.random() * (c.x1 - c.x0), faceTop + Math.random() * 40, 8 + Math.random() * 12, 4 + Math.random() * 4)
-            ctx.fill()
-        }
-        // Drop shadow onto the meadow.
+        ctx.restore()
         const sh = ctx.createLinearGradient(0, bottom, 0, bottom + 60)
-        sh.addColorStop(0, 'rgba(20,30,20,0.45)')
-        sh.addColorStop(1, 'rgba(20,30,20,0)')
+        sh.addColorStop(0, 'rgba(20,43,38,0.4)')
+        sh.addColorStop(1, 'rgba(20,43,38,0)')
         ctx.fillStyle = sh
         ctx.fillRect(c.x0, bottom, c.x1 - c.x0 + 30, 60)
+        ctx.restore()
     }
 
     private paintWaterfallBase(ctx: Ctx, w: WorldLayout) {
         const f = w.waterfall
         const top = w.cliff.y1 * YS - 120
         const bottom = w.pool.y * YS - 10
-        const grad = ctx.createLinearGradient(0, top, 0, bottom)
-        grad.addColorStop(0, 'rgba(120,190,225,0.9)')
-        grad.addColorStop(1, 'rgba(210,240,255,0.95)')
+        const left = f.x - f.width / 2
+        ctx.save()
+        ctx.fillStyle = '#284f51'
+        ctx.beginPath()
+        ctx.moveTo(left - 5, top + 1)
+        ctx.lineTo(left + f.width + 5, top + 1)
+        ctx.lineTo(left + f.width + 9, bottom)
+        ctx.lineTo(left - 9, bottom)
+        ctx.closePath()
+        ctx.fill()
+        const grad = ctx.createLinearGradient(left, top, left + f.width, bottom)
+        grad.addColorStop(0, '#b1d7c6')
+        grad.addColorStop(0.28, '#6dada9')
+        grad.addColorStop(0.66, '#a3d0c4')
+        grad.addColorStop(1, '#e0e9d3')
         ctx.fillStyle = grad
-        ctx.fillRect(f.x - f.width / 2, top, f.width, bottom - top)
-        ctx.fillStyle = 'rgba(255,255,255,0.35)'
-        for (let i = 0; i < 6; i++) ctx.fillRect(f.x - f.width / 2 + 4 + i * 9, top, 3, bottom - top)
-        // Mist at the base.
-        const mist = ctx.createRadialGradient(f.x, bottom, 4, f.x, bottom, 70)
-        mist.addColorStop(0, 'rgba(255,255,255,0.7)')
-        mist.addColorStop(1, 'rgba(255,255,255,0)')
+        ctx.beginPath()
+        ctx.moveTo(left, top)
+        ctx.lineTo(left + f.width, top)
+        ctx.bezierCurveTo(left + f.width - 5, top + 30, left + f.width - 2, bottom - 32, left + f.width + 6, bottom)
+        ctx.lineTo(left - 6, bottom)
+        ctx.bezierCurveTo(left + 3, bottom - 30, left + 5, top + 30, left, top)
+        ctx.fill()
+        ctx.lineCap = 'round'
+        for (let i = 0; i < 8; i++) {
+            const x = left + 3 + i * (f.width - 6) / 8
+            ctx.strokeStyle = i % 3 === 0 ? 'rgba(40,98,104,0.4)' : 'rgba(236,246,222,0.5)'
+            ctx.lineWidth = i % 3 === 0 ? 3 : 1.8
+            ctx.beginPath()
+            ctx.moveTo(x, top + 4)
+            ctx.bezierCurveTo(x + 3, top + 35, x - 3, bottom - 35, x + (i - 3.5) * 1.3, bottom - 4)
+            ctx.stroke()
+        }
+        ctx.strokeStyle = '#d7e5cb'
+        ctx.lineWidth = 3
+        ctx.beginPath()
+        ctx.moveTo(left - 2, top + 1)
+        ctx.quadraticCurveTo(f.x, top - 5, left + f.width + 2, top + 1)
+        ctx.stroke()
+        ctx.fillStyle = 'rgba(221,236,213,0.66)'
+        for (let i = 0; i < 10; i++) {
+            ellipse(ctx, f.x + (hash(f.x, i) - 0.5) * (f.width + 18), bottom + hash(f.x, i + 12) * 12, 5 + hash(f.x, i + 24) * 9, 2 + hash(f.x, i + 36) * 3)
+            ctx.fill()
+        }
+        const mist = ctx.createRadialGradient(f.x, bottom, 4, f.x, bottom, 58)
+        mist.addColorStop(0, 'rgba(228,242,216,0.35)')
+        mist.addColorStop(1, 'rgba(228,242,216,0)')
         ctx.fillStyle = mist
-        ctx.fillRect(f.x - 80, bottom - 50, 160, 80)
+        ctx.fillRect(f.x - 60, bottom - 45, 120, 80)
+        ctx.restore()
     }
 
     private paintRock(ctx: Ctx, x: number, y: number, r: number, seed: number) {
-        ctx.fillStyle = 'rgba(0,0,0,0.25)'
-        ellipse(ctx, x + 2, y + r * 0.35, r * 1.1, r * 0.45)
+        ctx.save()
+        ctx.translate(x, y)
+        ctx.scale(r, r)
+        ctx.fillStyle = 'rgba(19,41,38,0.28)'
+        ellipse(ctx, 0.2, 0.35, 1.1, 0.38)
         ctx.fill()
-        ctx.fillStyle = shade('#8d8478', Math.round(hash(seed, 1) * 30 - 15))
-        ellipse(ctx, x, y, r, r * 0.8)
+        const peak = -0.6 - hash(seed, 1) * 0.2
+        ctx.fillStyle = '#556866'
+        ctx.beginPath()
+        ctx.moveTo(-1, 0.15)
+        ctx.lineTo(-0.63, peak + 0.2)
+        ctx.lineTo(0.2, peak)
+        ctx.lineTo(0.9, -0.2)
+        ctx.lineTo(1, 0.35)
+        ctx.lineTo(0.35, 0.65)
+        ctx.lineTo(-0.7, 0.5)
+        ctx.closePath()
         ctx.fill()
-        ctx.fillStyle = 'rgba(255,255,240,0.35)'
-        ellipse(ctx, x - r * 0.3, y - r * 0.35, r * 0.45, r * 0.25)
+        ctx.fillStyle = hash(seed, 2) > 0.5 ? '#9b9f88' : '#8a988c'
+        ctx.beginPath()
+        ctx.moveTo(-1, 0.15)
+        ctx.lineTo(-0.63, peak + 0.2)
+        ctx.lineTo(0.2, peak)
+        ctx.lineTo(0.65, -0.23)
+        ctx.lineTo(-0.2, 0.06)
+        ctx.closePath()
         ctx.fill()
-        ctx.strokeStyle = 'rgba(30,25,20,0.5)'
-        ctx.lineWidth = 1
-        ellipse(ctx, x, y, r, r * 0.8)
+        ctx.fillStyle = '#3e5354'
+        ctx.beginPath()
+        ctx.moveTo(0.65, -0.23)
+        ctx.lineTo(0.9, -0.2)
+        ctx.lineTo(1, 0.35)
+        ctx.lineTo(0.35, 0.65)
+        ctx.lineTo(0.15, 0.18)
+        ctx.closePath()
+        ctx.fill()
+        ctx.strokeStyle = '#b9bba0'
+        ctx.lineWidth = 0.08
+        ctx.beginPath()
+        ctx.moveTo(-0.8, -0.06)
+        ctx.lineTo(-0.2, 0.06)
+        ctx.lineTo(0.6, -0.22)
         ctx.stroke()
+        if (hash(seed, 3) > 0.4) {
+            ctx.fillStyle = '#7d9366'
+            ctx.beginPath()
+            ctx.moveTo(-0.7, -0.38)
+            ctx.lineTo(-0.1, peak + 0.08)
+            ctx.lineTo(0.25, peak + 0.18)
+            ctx.lineTo(0.02, -0.26)
+            ctx.lineTo(-0.32, -0.19)
+            ctx.closePath()
+            ctx.fill()
+        }
+        ctx.restore()
     }
 
     private paintBoulder(ctx: Ctx, x: number, y: number, r: number, seed: number) {
-        const h = r * 1.15
-        ctx.fillStyle = 'rgba(0,0,0,0.3)'
-        ellipse(ctx, x + 6, y + 4, r * 1.15, r * YS * 0.8)
+        ctx.save()
+        ctx.translate(x, y)
+        ctx.scale(r, r)
+        ctx.fillStyle = 'rgba(19,39,36,0.3)'
+        ellipse(ctx, 0.22, 0.15, 1.15, YS * 0.8)
         ctx.fill()
+        const peak = -1.08 - hash(seed, 1) * 0.24
+        const crown = -0.24 + hash(seed, 2) * 0.35
+        const outline = new Path2D()
+        outline.moveTo(-1.04, -0.05)
+        outline.lineTo(-0.87, -0.69)
+        outline.lineTo(-0.44, peak + 0.13)
+        outline.lineTo(crown + 0.3, peak)
+        outline.lineTo(0.84, -0.77)
+        outline.lineTo(1.05, -0.2)
+        outline.lineTo(0.91, 0.22)
+        outline.lineTo(0.21, 0.34)
+        outline.lineTo(-0.75, 0.24)
+        outline.closePath()
+        ctx.fillStyle = '#60716e'
+        ctx.fill(outline)
+        ctx.save()
+        ctx.clip(outline)
+        ctx.fillStyle = '#96a08e'
         ctx.beginPath()
-        const n = 9
-        for (let i = 0; i < n; i++) {
-            const a = i / n * Math.PI * 2
-            const wob = 0.85 + hash(seed, i) * 0.3
-            const px = x + Math.cos(a) * r * 1.05 * wob
-            const py = y - h * 0.45 + Math.sin(a) * h * 0.7 * wob
-            if (i === 0) ctx.moveTo(px, py)
-            else ctx.lineTo(px, py)
-        }
+        ctx.moveTo(-1.04, -0.05)
+        ctx.lineTo(-0.87, -0.69)
+        ctx.lineTo(-0.44, peak + 0.13)
+        ctx.lineTo(crown + 0.3, peak)
+        ctx.lineTo(0.84, -0.77)
+        ctx.lineTo(0.31, -0.55)
+        ctx.lineTo(-0.3, -0.45)
         ctx.closePath()
-        const g = ctx.createLinearGradient(x - r, y - h, x + r, y + r * 0.4)
-        g.addColorStop(0, '#a49b8d')
-        g.addColorStop(0.55, '#7d7468')
-        g.addColorStop(1, '#4e463e')
-        ctx.fillStyle = g
         ctx.fill()
-        ctx.strokeStyle = 'rgba(30,25,22,0.7)'
-        ctx.lineWidth = 2
-        ctx.stroke()
-        // Moss and highlight.
-        ctx.fillStyle = 'rgba(100,160,60,0.6)'
-        ellipse(ctx, x - r * 0.2, y - h * 0.75, r * 0.55, r * 0.22)
-        ctx.fill()
-        ctx.fillStyle = 'rgba(255,250,230,0.28)'
-        ellipse(ctx, x - r * 0.35, y - h * 0.6, r * 0.3, r * 0.16)
-        ctx.fill()
-        ctx.strokeStyle = 'rgba(30,25,22,0.4)'
-        ctx.lineWidth = 1.2
+        ctx.fillStyle = '#425957'
         ctx.beginPath()
-        ctx.moveTo(x + r * 0.2, y - h * 0.5)
-        ctx.lineTo(x + r * 0.45, y - h * 0.1)
-        ctx.lineTo(x + r * 0.3, y + r * 0.2)
+        ctx.moveTo(0.31, -0.55)
+        ctx.lineTo(0.84, -0.77)
+        ctx.lineTo(1.1, -0.2)
+        ctx.lineTo(0.9, 0.35)
+        ctx.lineTo(0.14, 0.4)
+        ctx.lineTo(0.43, -0.13)
+        ctx.closePath()
+        ctx.fill()
+        // Thin strata split the broad faces; only their upper edges catch the sun.
+        for (let i = 0; i < 4; i++) {
+            const yy = -0.55 + i * 0.25
+            ctx.lineWidth = 0.045
+            ctx.strokeStyle = '#3c5452'
+            ctx.beginPath()
+            ctx.moveTo(-1.05, yy + 0.14)
+            ctx.lineTo(-0.48, yy + 0.05)
+            ctx.lineTo(0.17, yy + 0.1)
+            ctx.lineTo(0.8, yy - 0.12)
+            ctx.lineTo(1.1, yy - 0.08)
+            ctx.stroke()
+            ctx.strokeStyle = 'rgba(200,205,172,0.38)'
+            ctx.lineWidth = 0.025
+            ctx.beginPath()
+            ctx.moveTo(-0.95, yy + 0.1)
+            ctx.lineTo(-0.48, yy + 0.015)
+            ctx.lineTo(0.08, yy + 0.07)
+            ctx.stroke()
+        }
+        ctx.strokeStyle = '#344b4c'
+        ctx.lineWidth = 0.045
+        ctx.beginPath()
+        ctx.moveTo(crown, peak + 0.06)
+        ctx.lineTo(crown - 0.18, -0.8)
+        ctx.lineTo(crown + 0.02, -0.57)
+        ctx.lineTo(crown - 0.1, -0.18)
+        ctx.lineTo(crown + 0.08, 0.2)
+        ctx.moveTo(crown - 0.18, -0.8)
+        ctx.lineTo(crown - 0.43, -0.71)
         ctx.stroke()
+        ctx.fillStyle = '#788e5c'
+        ctx.beginPath()
+        ctx.moveTo(-0.87, -0.71)
+        ctx.lineTo(-0.46, peak + 0.13)
+        ctx.lineTo(-0.05, peak + 0.16)
+        ctx.lineTo(0.17, -0.9)
+        ctx.lineTo(-0.09, -0.76)
+        ctx.lineTo(-0.28, -0.48)
+        ctx.lineTo(-0.37, -0.68)
+        ctx.lineTo(-0.65, -0.55)
+        ctx.closePath()
+        ctx.fill()
+        for (let i = 0; i < 22; i++) {
+            const px = -0.82 + hash(seed, i + 30) * 0.85
+            const py = peak + 0.16 + hash(seed, i + 60) * 0.43
+            ctx.fillStyle = i % 3 === 0 ? '#bec18a' : '#97a96d'
+            ctx.fillRect(px, py, 0.04 + hash(seed, i + 90) * 0.06, 0.025)
+        }
+        ctx.restore()
+        ctx.strokeStyle = 'rgba(30,48,44,0.65)'
+        ctx.lineWidth = 0.035
+        ctx.stroke(outline)
+        ctx.restore()
     }
 
     private paintBridge(ctx: Ctx, w: WorldLayout) {
         const b = w.bridge
         const y = b.y * YS
         const hw = b.width * YS / 2
-        ctx.fillStyle = '#7a5a3a'
-        ctx.fillRect(b.x0, y - hw, b.x1 - b.x0, hw * 2)
-        for (let x = b.x0; x < b.x1; x += 12) {
-            ctx.fillStyle = (Math.floor((x - b.x0) / 12) % 2 === 0) ? '#946e47' : '#87643f'
-            ctx.fillRect(x + 1, y - hw + 2, 10, hw * 2 - 4)
-            ctx.fillStyle = 'rgba(40,25,15,0.35)'
-            ctx.fillRect(x, y - hw + 2, 1, hw * 2 - 4)
+        const posts = [b.x0 + 4, (b.x0 + b.x1) / 2, b.x1 - 4]
+        ctx.save()
+        // Visible end grain on the deck's front fascia, below the walking surface.
+        ctx.fillStyle = '#4d4132'
+        ctx.fillRect(b.x0, y - hw, b.x1 - b.x0, hw * 2 + 6)
+        ctx.fillStyle = '#745739'
+        ctx.fillRect(b.x0, y + hw, b.x1 - b.x0, 4)
+        const count = Math.ceil((b.x1 - b.x0) / 13)
+        const plankW = (b.x1 - b.x0) / count
+        for (let i = 0; i < count; i++) {
+            const x = b.x0 + i * plankW
+            const wear = hash(b.y, i)
+            const inset = 1 + wear * 1.4
+            ctx.fillStyle = ['#a88352', '#b5905c', '#99774f'][i % 3]!
+            ctx.fillRect(x + 0.8, y - hw + inset, plankW - 1.6, hw * 2 - inset - 1)
+            ctx.fillStyle = '#d5b17b'
+            ctx.fillRect(x + 1.1, y - hw + inset, 1.2, hw * 2 - inset - 2)
+            ctx.fillRect(x + 1.1, y - hw + inset, plankW - 2.2, 1.2)
+            ctx.fillStyle = '#6c5136'
+            ctx.fillRect(x + plankW - 2, y - hw + inset + 2, 1, hw * 2 - inset - 2)
+            ctx.lineWidth = 0.65
+            for (let grain = 0; grain < 3; grain++) {
+                const gx = x + 3 + grain * 2.4
+                ctx.strokeStyle = grain === 1 ? 'rgba(224,190,132,0.45)' : 'rgba(82,58,37,0.32)'
+                ctx.beginPath()
+                ctx.moveTo(gx, y - hw + 5)
+                ctx.bezierCurveTo(gx - 2, y - 10, gx + 2 + wear, y + 6, gx - 0.5, y + hw - 4)
+                ctx.stroke()
+            }
+            if (i % 3 === 1) {
+                ctx.strokeStyle = '#795939'
+                ctx.lineWidth = 0.8
+                ellipse(ctx, x + plankW * 0.5, y + (wear - 0.5) * hw, 1.5, 3.8)
+                ctx.stroke()
+            }
+            // Small forged nail heads, with a single warm glint.
+            for (const py of [y - hw + 6, y + hw - 5]) {
+                ctx.fillStyle = '#3d4944'
+                ellipse(ctx, x + plankW * 0.5, py, 1.5, 1.2)
+                ctx.fill()
+                ctx.fillStyle = '#b0b49b'
+                ctx.fillRect(x + plankW * 0.5 - 0.7, py - 0.7, 1, 0.7)
+            }
         }
-        // Rails.
-        ctx.strokeStyle = '#5c3f26'
-        ctx.lineWidth = 4
-        ctx.beginPath()
-        ctx.moveTo(b.x0, y - hw - 14)
-        ctx.lineTo(b.x1, y - hw - 14)
-        ctx.moveTo(b.x0, y + hw - 14)
-        ctx.lineTo(b.x1, y + hw - 14)
-        ctx.stroke()
-        ctx.fillStyle = '#6b4a2c'
-        for (const px of [b.x0 + 4, (b.x0 + b.x1) / 2, b.x1 - 4]) {
-            ctx.fillRect(px - 3, y - hw - 22, 6, 24)
-            ctx.fillRect(px - 3, y + hw - 22, 6, 24)
+        ctx.lineCap = 'round'
+        for (const edge of [y - hw, y + hw]) {
+            // Slack doubled rope reads as a rail, not a solid wall across the deck.
+            for (const offset of [0, 8]) {
+                ctx.beginPath()
+                ctx.moveTo(posts[0]!, edge - 21 + offset)
+                for (let i = 1; i < posts.length; i++) {
+                    ctx.quadraticCurveTo((posts[i - 1]! + posts[i]!) / 2, edge - 8 + offset, posts[i]!, edge - 21 + offset)
+                }
+                ctx.strokeStyle = '#554a34'
+                ctx.lineWidth = 3.5
+                ctx.stroke()
+                ctx.strokeStyle = '#c4b17e'
+                ctx.lineWidth = 1.7
+                ctx.stroke()
+                ctx.setLineDash([1, 4])
+                ctx.strokeStyle = '#f0d69d'
+                ctx.lineWidth = 1
+                ctx.stroke()
+                ctx.setLineDash([])
+            }
+            for (const px of posts) {
+                ctx.fillStyle = '#655036'
+                ctx.fillRect(px - 3.5, edge - 27, 7, 29)
+                ctx.fillStyle = '#b1915d'
+                ctx.fillRect(px - 3.5, edge - 27, 2.5, 28)
+                ctx.fillStyle = '#dcc090'
+                ctx.beginPath()
+                ctx.moveTo(px - 3.5, edge - 27)
+                ctx.lineTo(px, edge - 29)
+                ctx.lineTo(px + 3.5, edge - 27)
+                ctx.lineTo(px, edge - 25)
+                ctx.closePath()
+                ctx.fill()
+                ctx.fillStyle = '#424c42'
+                ctx.fillRect(px - 3.5, edge - 8, 7, 3)
+                ctx.strokeStyle = '#dbbf88'
+                ctx.lineWidth = 1.2
+                ctx.beginPath()
+                ctx.moveTo(px - 4, edge - 20)
+                ctx.lineTo(px + 4, edge - 18)
+                ctx.moveTo(px - 4, edge - 17)
+                ctx.lineTo(px + 4, edge - 15)
+                ctx.stroke()
+            }
         }
+        ctx.restore()
     }
 
     private paintTrunk(ctx: Ctx, t: TreeDeco) {
-        const x = t.x
-        const y = t.y * YS
-        const s = t.scale
-        ctx.fillStyle = 'rgba(0,0,0,0.28)'
-        ellipse(ctx, x + 4, y + 2, 22 * s, 8 * s)
+        ctx.save()
+        ctx.translate(t.x, t.y * YS)
+        ctx.scale(t.scale, t.scale)
+        const bend = (hash(t.seed, 100) - 0.5) * 9
+        ctx.fillStyle = 'rgba(19,36,30,0.3)'
+        ellipse(ctx, 4, 3, 23, 7)
         ctx.fill()
-        ctx.fillStyle = '#5a3d26'
+        // Tapered forks belong to the same trunk and stay inside the crown footprint.
+        ctx.fillStyle = '#574535'
         ctx.beginPath()
-        ctx.moveTo(x - 9 * s, y + 2)
-        ctx.quadraticCurveTo(x - 6 * s, y - 30 * s, x - 5 * s, y - 62 * s)
-        ctx.lineTo(x + 5 * s, y - 62 * s)
-        ctx.quadraticCurveTo(x + 6 * s, y - 30 * s, x + 10 * s, y + 2)
+        ctx.moveTo(-6, -34)
+        ctx.quadraticCurveTo(-22, -45, -28, -65)
+        ctx.lineTo(-24, -64)
+        ctx.quadraticCurveTo(-17, -52, bend - 2, -49)
+        ctx.lineTo(bend + 1, -72)
+        ctx.lineTo(bend + 7, -73)
+        ctx.lineTo(6, -47)
+        ctx.quadraticCurveTo(20, -54, 26, -68)
+        ctx.lineTo(29, -66)
+        ctx.quadraticCurveTo(23, -44, 7, -35)
         ctx.closePath()
         ctx.fill()
-        ctx.fillStyle = 'rgba(0,0,0,0.25)'
+        const trunk = new Path2D()
+        trunk.moveTo(-19, 4)
+        trunk.quadraticCurveTo(-7, -5, -8, -24)
+        trunk.quadraticCurveTo(-13, -43, bend - 5, -65)
+        trunk.lineTo(bend + 5, -65)
+        trunk.quadraticCurveTo(2, -44, 7, -27)
+        trunk.quadraticCurveTo(5, -7, 19, 4)
+        trunk.lineTo(9, 3)
+        trunk.lineTo(3, -2)
+        trunk.lineTo(1, 7)
+        trunk.lineTo(-5, 4)
+        trunk.lineTo(-8, 1)
+        trunk.closePath()
+        ctx.fillStyle = '#80603e'
+        ctx.fill(trunk)
+        ctx.save()
+        ctx.clip(trunk)
+        ctx.fillStyle = '#a27d50'
         ctx.beginPath()
-        ctx.moveTo(x + 2 * s, y + 2)
-        ctx.quadraticCurveTo(x + 3 * s, y - 30 * s, x + 2 * s, y - 62 * s)
-        ctx.lineTo(x + 5 * s, y - 62 * s)
-        ctx.quadraticCurveTo(x + 6 * s, y - 30 * s, x + 10 * s, y + 2)
+        ctx.moveTo(-19, 4)
+        ctx.quadraticCurveTo(-2, -18, -6, -33)
+        ctx.lineTo(bend - 3, -65)
+        ctx.lineTo(bend, -65)
+        ctx.quadraticCurveTo(-1, -31, -2, -10)
+        ctx.lineTo(-9, 4)
         ctx.closePath()
         ctx.fill()
-        ctx.strokeStyle = 'rgba(30,20,12,0.8)'
-        ctx.lineWidth = 1.5
+        ctx.fillStyle = '#4d4032'
         ctx.beginPath()
-        ctx.moveTo(x - 9 * s, y + 2)
-        ctx.quadraticCurveTo(x - 6 * s, y - 30 * s, x - 5 * s, y - 62 * s)
-        ctx.moveTo(x + 10 * s, y + 2)
-        ctx.quadraticCurveTo(x + 6 * s, y - 30 * s, x + 5 * s, y - 62 * s)
+        ctx.moveTo(3, 7)
+        ctx.quadraticCurveTo(-2, -11, 3, -29)
+        ctx.quadraticCurveTo(-1, -47, bend + 3, -65)
+        ctx.lineTo(14, -65)
+        ctx.lineTo(20, 7)
+        ctx.closePath()
+        ctx.fill()
+        for (let i = 0; i < 8; i++) {
+            const x = -10 + i * 2.6
+            const start = -7 - hash(t.seed, i + 110) * 14
+            ctx.strokeStyle = i % 3 === 0 ? '#bc9360' : '#594430'
+            ctx.lineWidth = i % 3 === 0 ? 0.8 : 1.2
+            ctx.beginPath()
+            ctx.moveTo(x * 1.5, 3)
+            ctx.bezierCurveTo(x - 3, start, x + 3, -35, x + bend * 0.5, -62)
+            ctx.stroke()
+        }
+        ctx.strokeStyle = '#493c2f'
+        ctx.lineWidth = 1.4
+        ellipse(ctx, -2, -29, 2.7, 5)
         ctx.stroke()
+        ctx.strokeStyle = '#b18a56'
+        ctx.lineWidth = 0.8
+        ctx.beginPath()
+        ctx.moveTo(-3, -35)
+        ctx.quadraticCurveTo(-9, -29, -3, -22)
+        ctx.stroke()
+        ctx.restore()
+        // Roots taper into the ground; no enlarged solid trunk footprint.
+        ctx.strokeStyle = '#9a7d50'
+        ctx.lineWidth = 1.2
+        ctx.beginPath()
+        ctx.moveTo(-5, -9)
+        ctx.quadraticCurveTo(-9, 1, -18, 4)
+        ctx.moveTo(5, -6)
+        ctx.quadraticCurveTo(8, 0, 16, 3)
+        ctx.stroke()
+        ctx.fillStyle = '#718153'
+        ellipse(ctx, -9, 1, 5, 1.8)
+        ctx.fill()
+        ctx.restore()
     }
 
     paintCanopy(ctx: Ctx, t: TreeDeco, alpha: number) {
-        const x = t.x
-        const y = t.y * YS - 74 * t.scale
-        const s = t.scale
         const pal = TREE_PALETTES[t.palette]!
-        ctx.globalAlpha = alpha
-        const blobs = 9
-        ctx.strokeStyle = 'rgba(40,20,10,0.55)'
-        ctx.lineWidth = 2
-        for (let i = 0; i < blobs; i++) {
-            const a = hash(t.seed, i) * Math.PI * 2
-            const d = hash(t.seed, i + 20) * 26 * s
-            const bx = x + Math.cos(a) * d
-            const by = y + Math.sin(a) * d * 0.75 + 4 * s
-            const r = (22 + hash(t.seed, i + 40) * 16) * s
-            const shadeIdx = by > y + 6 * s ? 3 : (i % 3)
-            ctx.fillStyle = pal[shadeIdx]!
-            ellipse(ctx, bx, by, r, r * 0.85)
+        ctx.save()
+        ctx.translate(t.x, t.y * YS - 74 * t.scale)
+        ctx.scale(t.scale, t.scale)
+        ctx.globalAlpha *= alpha
+        // Eight interlocking leaf masses, no circle outlines or live gradients.
+        // Fixed cluster/leaf counts keep the three fading inner crowns inexpensive.
+        const clusters = [[20, 18, 28], [-12, 23, 29], [32, -2, 25], [-32, 2, 25], [8, -21, 29], [-20, -19, 29], [1, 3, 30], [-15, -7, 24]]
+        for (let i = 0; i < clusters.length; i++) {
+            const cluster = clusters[i]!
+            const bx = cluster[0]! + (hash(t.seed, i) - 0.5) * 7
+            const by = cluster[1]! + (hash(t.seed, i + 10) - 0.5) * 6
+            const r = cluster[2]! * (0.92 + hash(t.seed, i + 20) * 0.14)
+            const lit = i >= 4
+            ctx.fillStyle = pal[i < 3 ? 3 : lit ? 1 : 0]!
+            ctx.beginPath()
+            for (let j = 0; j < 12; j++) {
+                const a = j / 12 * Math.PI * 2
+                const next = a + Math.PI / 6
+                const edge = r * (0.82 + hash(t.seed + i, j + 40) * 0.18)
+                const px = bx + Math.cos(a) * edge
+                const py = by + Math.sin(a) * edge * 0.78
+                if (j === 0) ctx.moveTo(px, py)
+                else ctx.lineTo(px, py)
+                ctx.quadraticCurveTo(bx + Math.cos(a + 0.2) * r * 1.08, by + Math.sin(a + 0.2) * r * 0.84, bx + Math.cos(next - 0.08) * edge, by + Math.sin(next - 0.08) * edge * 0.78)
+            }
+            ctx.closePath()
             ctx.fill()
-            ctx.stroke()
-        }
-        // Highlights on top.
-        for (let i = 0; i < 4; i++) {
-            const bx = x + (hash(t.seed, i + 60) - 0.5) * 40 * s
-            const by = y - 14 * s + (hash(t.seed, i + 70) - 0.5) * 14 * s
-            ctx.fillStyle = pal[2]!
-            ellipse(ctx, bx, by, (10 + hash(t.seed, i + 80) * 10) * s, 7 * s)
+
+            // A broad crescent breaks up each mass, lit consistently from upper left.
+            ctx.fillStyle = pal[lit ? 2 : 0]!
+            ctx.beginPath()
+            ctx.moveTo(bx - r * 0.84, by - r * 0.14)
+            ctx.quadraticCurveTo(bx - r * 0.64, by - r * 0.81, bx + r * 0.13, by - r * 0.66)
+            ctx.lineTo(bx + r * 0.45, by - r * 0.4)
+            ctx.lineTo(bx + r * 0.04, by - r * 0.44)
+            ctx.lineTo(bx - r * 0.16, by - r * 0.23)
+            ctx.lineTo(bx - r * 0.48, by - r * 0.29)
+            ctx.lineTo(bx - r * 0.62, by + r * 0.02)
+            ctx.closePath()
             ctx.fill()
+
+            // Pointed paired leaves, batched into two fills per cluster.
+            for (let tone = 0; tone < 2; tone++) {
+                ctx.fillStyle = pal[tone === 0 ? (lit ? 0 : 1) : (lit ? 2 : 0)]!
+                ctx.beginPath()
+                for (let j = 0; j < 5; j++) {
+                    const k = i * 20 + tone * 5 + j
+                    const lx = bx + (hash(t.seed, k + 200) - 0.5) * r * 1.55
+                    const ly = by + (hash(t.seed, k + 400) - 0.5) * r * 1.05
+                    const length = 3 + hash(t.seed, k + 600) * 4
+                    const tilt = (hash(t.seed, k + 800) - 0.5) * 5
+                    ctx.moveTo(lx - length, ly + tilt)
+                    ctx.quadraticCurveTo(lx - 1, ly - 4, lx + length, ly - tilt)
+                    ctx.quadraticCurveTo(lx + 1, ly + 3, lx - length, ly + tilt)
+                    ctx.closePath()
+                }
+                ctx.fill()
+            }
         }
-        ctx.globalAlpha = 1
+        ctx.restore()
     }
 
     /** Blood, scorch and crack decals are permanent — stamp them straight into the terrain. */
@@ -655,40 +1134,85 @@ export class MeadowbrawlRenderer {
     private drawWater(ctx: Ctx, ox: number, oy: number) {
         const w = this.game.world
         const s = w.stream
+        const b = w.bridge
         ctx.save()
         ctx.translate(ox, oy)
-        // Stream shimmer.
-        ctx.fillStyle = 'rgba(255,255,255,0.22)'
-        const flow = (this.t * 90) % 44
-        const yStart = Math.max(s.top, (this.camY) / YS - 40)
-        const yEnd = Math.min(s.bottom, (this.camY + this.cssH / this.scale) / YS + 40)
-        for (let y = yStart - (yStart % 44); y < yEnd; y += 44) {
+        // Water is drawn above the baked deck. Exclude posts and both rope rails too.
+        ctx.beginPath()
+        ctx.rect(-w.margin, -w.margin * YS, w.w + w.margin * 2, (w.h + w.margin * 2) * YS)
+        ctx.rect(b.x0 - 8, (b.y - b.width / 2) * YS - 32, b.x1 - b.x0 + 16, b.width * YS + 42)
+        ctx.clip('evenodd')
+        ctx.save()
+        // The inset is inside both meandering banks; clip the actual endpoints,
+        // not just the loop's starting rows, which move as the flow advances.
+        ctx.beginPath()
+        ctx.rect(s.x - s.width / 2 + 9, s.top * YS, s.width - 18, (s.bottom - s.top) * YS)
+        ctx.clip()
+        ctx.lineCap = 'round'
+        ctx.lineWidth = 1.1
+        const flow = (this.t * 32) % 46
+        const yStart = Math.max(s.top, this.camY / YS - 46)
+        const yEnd = Math.min(s.bottom, (this.camY + this.cssH / this.scale) / YS + 46)
+        for (let y = Math.floor(yStart / 46) * 46 - 46; y < yEnd; y += 46) {
             const yy = y + flow
-            const xx = s.x + Math.sin(yy * 0.05) * 16
-            ellipse(ctx, xx, yy * YS, 9, 1.5)
-            ctx.fill()
-            ellipse(ctx, xx + 18, yy * YS + 14, 5, 1.2)
-            ctx.fill()
+            const row = Math.floor(y / 46)
+            const xx = s.x + Math.sin(yy * 0.029) * 12
+            const pulse = 0.12 + Math.sin(this.t * 1.5 + row * 1.7) * 0.04
+            ctx.strokeStyle = `rgba(200,228,202,${pulse})`
+            ctx.beginPath()
+            ctx.moveTo(xx - 12, yy * YS)
+            ctx.quadraticCurveTo(xx - 2, yy * YS + 2.5, xx + 9, yy * YS - 1)
+            ctx.moveTo(xx + 8, yy * YS + 11)
+            ctx.quadraticCurveTo(xx + 14, yy * YS + 13, xx + 20, yy * YS + 10)
+            ctx.stroke()
         }
-        // Waterfall sheets.
+        ctx.restore()
+
         const f = w.waterfall
         const top = w.cliff.y1 * YS - 120
         const bottom = w.pool.y * YS - 10
         if (bottom > this.camY - 20 && top < this.camY + this.cssH / this.scale) {
-            ctx.fillStyle = 'rgba(255,255,255,0.45)'
+            // Expanding broken ripples stay inside the pool, clear of its banks.
+            ctx.save()
+            ellipse(ctx, w.pool.x, w.pool.y * YS, w.pool.r - 5, w.pool.r * 0.9 * YS - 4)
+            ctx.clip()
+            ctx.lineWidth = 1.2
+            for (let i = 0; i < 3; i++) {
+                const phase = (this.t * 0.32 + i / 3) % 1
+                const r = 18 + phase * 55
+                ctx.strokeStyle = `rgba(209,231,206,${(1 - phase) * 0.28})`
+                ctx.beginPath()
+                ctx.ellipse(f.x, bottom + 8, r, r * 0.36, 0, 0.12, Math.PI - 0.16)
+                ctx.stroke()
+            }
+            ctx.restore()
+
+            const left = f.x - f.width / 2
+            ctx.save()
+            ctx.beginPath()
+            ctx.moveTo(left, top)
+            ctx.lineTo(left + f.width, top)
+            ctx.bezierCurveTo(left + f.width - 5, top + 30, left + f.width - 2, bottom - 32, left + f.width + 6, bottom)
+            ctx.lineTo(left - 6, bottom)
+            ctx.bezierCurveTo(left + 3, bottom - 30, left + 5, top + 30, left, top)
+            ctx.closePath()
+            ctx.clip()
+            ctx.fillStyle = 'rgba(234,247,222,0.34)'
+            ctx.beginPath()
             for (let i = 0; i < 5; i++) {
-                const x = f.x - f.width / 2 + 6 + i * 10
-                const off = (this.t * 260 + i * 37) % 60
-                for (let y = top + off; y < bottom; y += 60) {
-                    ctx.fillRect(x, y, 3, 26)
+                const x = left + 5 + i * (f.width - 10) / 5
+                const off = (this.t * 170 + i * 37) % 64
+                for (let y = top - 64 + off; y < bottom; y += 64) {
+                    ctx.rect(x + Math.sin(y * 0.035 + i), y, 1.4 + i % 2, 17 + i * 2)
                 }
             }
-            // Foam ring in the pool.
-            ctx.fillStyle = 'rgba(255,255,255,0.35)'
+            ctx.fill()
+            ctx.restore()
+            ctx.fillStyle = 'rgba(228,241,217,0.4)'
             for (let i = 0; i < 8; i++) {
-                const a = i / 8 * Math.PI * 2 + this.t * 0.8
-                const r = 18 + Math.sin(this.t * 3 + i) * 5
-                ellipse(ctx, f.x + Math.cos(a) * r, bottom + 6 + Math.sin(a) * r * 0.6, 8, 3)
+                const phase = (this.t * 0.7 + hash(f.x, i)) % 1
+                const x = f.x + (hash(f.x, i + 12) - 0.5) * f.width
+                ellipse(ctx, x, bottom + 4 - Math.sin(phase * Math.PI) * 8, 2 + phase * 3, 1.2)
                 ctx.fill()
             }
         }
@@ -1798,319 +2322,843 @@ export class MeadowbrawlRenderer {
 
     private drawGrunt(ctx: Ctx, e: Enemy, dir: number, bob: number, tint: (c: string) => string, outline: string) {
         const stride = Math.sin(e.walk) * 4
+        ctx.save()
         ctx.strokeStyle = outline
-        ctx.lineWidth = 4
         ctx.lineCap = 'round'
+        ctx.lineWidth = 1.2
+        for (const side of [-1, 1]) {
+            const foot = side * 4 - side * stride
+            ctx.fillStyle = tint(side < 0 ? '#645141' : '#3d3b3b')
+            ctx.beginPath()
+            ctx.moveTo(side * 4 - 2.5, -12)
+            ctx.lineTo(side * 4 + 2.5, -12)
+            ctx.lineTo(foot + 2.5, -2)
+            ctx.lineTo(foot + dir * 4, 0)
+            ctx.lineTo(foot - 3, 0)
+            ctx.closePath()
+            ctx.fill()
+            ctx.stroke()
+        }
+        ctx.translate(0, -bob)
+        // Split leather skirt and overlapping jerkin, not a solid tunic block.
+        ctx.fillStyle = bodyGrad(ctx, tint('#63754b'), -9, -27, 9, -8)
         ctx.beginPath()
-        ctx.moveTo(-4, -10)
-        ctx.lineTo(-4 + stride, 0)
-        ctx.moveTo(4, -10)
-        ctx.lineTo(4 - stride, 0)
-        ctx.stroke()
-        ctx.lineWidth = 1.6
-        // Tunic.
-        ctx.fillStyle = bodyGrad(ctx, tint('#6f7f3a'), -9, -26 - bob, 9, -8 - bob)
-        ctx.beginPath()
-        ctx.moveTo(-9, -26 - bob)
-        ctx.lineTo(9, -26 - bob)
-        ctx.lineTo(8, -8 - bob)
-        ctx.lineTo(-8, -8 - bob)
+        ctx.moveTo(-8, -27)
+        ctx.quadraticCurveTo(0, -30, 9, -25)
+        ctx.lineTo(7, -17)
+        ctx.lineTo(10, -8)
+        ctx.lineTo(1, -9)
+        ctx.lineTo(-1, -13)
+        ctx.lineTo(-3, -8)
+        ctx.lineTo(-10, -10)
+        ctx.lineTo(-7, -18)
         ctx.closePath()
         ctx.fill()
         ctx.stroke()
-        ctx.fillStyle = '#4a3a2a'
-        ctx.fillRect(-8, -14 - bob, 16, 3)
-        // Hood with a bandana'd face underneath.
-        ctx.fillStyle = bodyGrad(ctx, tint('#7a4b2e'), -9, -46 - bob, 9, -26 - bob)
+        ctx.fillStyle = tint('#414e42')
         ctx.beginPath()
-        ctx.moveTo(-10, -25 - bob)
-        ctx.quadraticCurveTo(-6, -44 - bob, 0, -47 - bob)
-        ctx.quadraticCurveTo(6, -44 - bob, 10, -25 - bob)
+        ctx.moveTo(2, -26)
+        ctx.lineTo(8, -24)
+        ctx.lineTo(6, -17)
+        ctx.lineTo(9, -10)
+        ctx.lineTo(2, -11)
+        ctx.closePath()
+        ctx.fill()
+        ctx.fillStyle = tint('#93603b')
+        ctx.beginPath()
+        ctx.moveTo(-9, -26)
+        ctx.lineTo(-5, -28)
+        ctx.lineTo(7, -15)
+        ctx.lineTo(4, -13)
         ctx.closePath()
         ctx.fill()
         ctx.stroke()
-        ctx.fillStyle = '#d9a980'
-        ellipse(ctx, dir * 1.5, -32 - bob, 5.5, 5)
+        ctx.fillStyle = tint('#493a32')
+        ctx.fillRect(-8, -16, 16, 3)
+        ctx.fillStyle = tint('#d7ad67')
+        ctx.fillRect(1, -16, 3, 3)
+        ctx.fillStyle = tint('#815231')
+        ctx.beginPath()
+        ctx.roundRect(-10, -18, 5, 7, 1.5)
         ctx.fill()
-        ctx.fillStyle = '#b23a2c'
-        ctx.fillRect(dir * 1.5 - 5.5, -31 - bob, 11, 3)
-        ctx.fillStyle = '#1d1520'
-        ellipse(ctx, dir * 2.5 - 2, -34 - bob, 1.2, 1.4)
+        ctx.stroke()
+        // Hooked hood, warm sewn patch and a cool recessed face opening.
+        ctx.fillStyle = bodyGrad(ctx, tint('#98633e'), -9, -45, 10, -26)
+        ctx.beginPath()
+        ctx.moveTo(-10, -25)
+        ctx.lineTo(-9, -37)
+        ctx.quadraticCurveTo(-8, -44, -dir * 4, -47)
+        ctx.lineTo(dir * 5, -44)
+        ctx.quadraticCurveTo(9, -38, 10, -26)
+        ctx.lineTo(4, -23)
+        ctx.lineTo(-3, -26)
+        ctx.closePath()
         ctx.fill()
-        ellipse(ctx, dir * 2.5 + 2, -34 - bob, 1.2, 1.4)
+        ctx.stroke()
+        ctx.fillStyle = tint('#c19459')
+        ctx.beginPath()
+        ctx.moveTo(-7, -39)
+        ctx.lineTo(-3, -42)
+        ctx.lineTo(0, -38)
+        ctx.lineTo(-5, -35)
+        ctx.closePath()
         ctx.fill()
-        // Club.
+        ctx.strokeStyle = tint('#5e4234')
+        ctx.lineWidth = 0.8
+        ctx.beginPath()
+        ctx.moveTo(-7, -38)
+        ctx.lineTo(-4, -37)
+        ctx.moveTo(-3, -41)
+        ctx.lineTo(-2, -38)
+        ctx.stroke()
+        ctx.strokeStyle = outline
+        ctx.lineWidth = 1.2
+        ctx.fillStyle = '#292d2d'
+        ctx.beginPath()
+        ctx.moveTo(dir * 1.5, -39)
+        ctx.quadraticCurveTo(dir * 1.5 + 7, -35, dir * 1.5 + 6, -29)
+        ctx.lineTo(dir * 1.5 - 6, -29)
+        ctx.quadraticCurveTo(dir * 1.5 - 7, -36, dir * 1.5, -39)
+        ctx.fill()
+        ctx.fillStyle = tint('#d9ac82')
+        ellipse(ctx, dir * 1.5, -33, 5, 3.8)
+        ctx.fill()
+        ctx.fillStyle = tint('#a94835')
+        ctx.beginPath()
+        ctx.moveTo(dir * 1.5 - 6, -32)
+        ctx.lineTo(dir * 1.5 + 6, -32)
+        ctx.lineTo(dir * 2, -26)
+        ctx.closePath()
+        ctx.fill()
+        ctx.fillStyle = '#241e23'
+        ellipse(ctx, dir * 2.5 - 2, -34, 1, 1.2)
+        ctx.fill()
+        ellipse(ctx, dir * 2.5 + 2, -34, 1, 1.2)
+        ctx.fill()
+        // Knotted cudgel with an iron collar and two readable spikes.
         const swing = e.state === 'windup' ? -1.2 : e.state === 'recover' ? 0.8 : 0
         ctx.save()
-        ctx.translate(dir * 9, -20 - bob)
+        ctx.translate(dir * 9, -20)
         ctx.rotate(dir * (0.5 + swing))
-        ctx.fillStyle = '#5a3d26'
-        ctx.fillRect(0, -2, 20, 4)
-        ctx.strokeRect(0, -2, 20, 4)
-        ctx.fillStyle = '#7a5a3a'
-        ellipse(ctx, 22, 0, 6, 5)
+        ctx.scale(dir, 1)
+        ctx.fillStyle = bodyGrad(ctx, tint('#8c6541'), 0, -5, 25, 5)
+        ctx.beginPath()
+        ctx.moveTo(-2, -2)
+        ctx.lineTo(12, -2)
+        ctx.lineTo(18, -5)
+        ctx.lineTo(25, -4)
+        ctx.lineTo(28, 0)
+        ctx.lineTo(24, 5)
+        ctx.lineTo(17, 4)
+        ctx.lineTo(11, 2)
+        ctx.lineTo(-2, 2)
+        ctx.closePath()
         ctx.fill()
         ctx.stroke()
+        ctx.strokeStyle = tint('#4e4136')
+        ctx.lineWidth = 0.8
+        ctx.beginPath()
+        ctx.moveTo(14, 0)
+        ctx.quadraticCurveTo(20, -2, 25, 0)
+        ctx.stroke()
+        ctx.strokeStyle = outline
+        ctx.fillStyle = tint('#899392')
+        ctx.beginPath()
+        ctx.moveTo(15, -4)
+        ctx.lineTo(17, -4.5)
+        ctx.lineTo(18, 4)
+        ctx.lineTo(16, 3.5)
+        ctx.closePath()
+        ctx.moveTo(21, -4)
+        ctx.lineTo(22, -8)
+        ctx.lineTo(24, -4)
+        ctx.closePath()
+        ctx.moveTo(23, 4)
+        ctx.lineTo(24, 8)
+        ctx.lineTo(20, 4)
+        ctx.closePath()
+        ctx.fill()
+        ctx.stroke()
+        ctx.fillStyle = tint('#ba9166')
+        ellipse(ctx, 1, 0, 3, 3)
+        ctx.fill()
+        ctx.stroke()
+        ctx.restore()
         ctx.restore()
     }
 
     private drawCharger(ctx: Ctx, e: Enemy, dir: number, bob: number, tint: (c: string) => string, outline: string) {
         const stride = Math.sin(e.walk) * 4
+        ctx.save()
         ctx.strokeStyle = outline
-        ctx.lineWidth = 4
         ctx.lineCap = 'round'
-        ctx.beginPath()
+        ctx.lineWidth = 1.2
         for (const lx of [-10, -3, 5, 12]) {
-            ctx.moveTo(lx, -8)
-            ctx.lineTo(lx + (lx < 0 ? stride : -stride), 0)
+            const foot = lx + (lx < 0 ? stride : -stride)
+            ctx.fillStyle = tint(lx === -3 || lx === 12 ? '#655342' : '#3d3938')
+            ctx.beginPath()
+            ctx.moveTo(lx - 2.5, -10)
+            ctx.lineTo(lx + 3, -10)
+            ctx.lineTo(foot + 2, -3)
+            ctx.lineTo(foot + 3, 0)
+            ctx.lineTo(foot - 3, 0)
+            ctx.lineTo(foot - 2, -4)
+            ctx.closePath()
+            ctx.fill()
+            ctx.stroke()
+            ctx.fillStyle = tint('#292e31')
+            ctx.fillRect(foot - 2.5, -2.5, 5, 2.5)
         }
-        ctx.stroke()
-        ctx.lineWidth = 1.6
-        ctx.fillStyle = bodyGrad(ctx, tint('#7b4f2c'), -14, -24 - bob, 14, -4 - bob)
-        ellipse(ctx, 0, -14 - bob, 19, 11)
-        ctx.fill()
-        ctx.stroke()
-        ctx.fillStyle = 'rgba(0,0,0,0.22)'
-        ellipse(ctx, -2, -9 - bob, 14, 4)
-        ctx.fill()
-        // Pale belly and a dark dorsal stripe.
-        ctx.fillStyle = 'rgba(230,200,160,0.35)'
-        ellipse(ctx, -2, -8 - bob, 11, 3)
-        ctx.fill()
-        ctx.fillStyle = 'rgba(40,24,14,0.55)'
-        ellipse(ctx, -3, -22 - bob, 12, 2.5)
-        ctx.fill()
-        // Bristles.
-        ctx.strokeStyle = '#3a2416'
-        ctx.lineWidth = 2
+        ctx.translate(0, -bob)
+        ctx.scale(dir, 1)
+        // Shaggy wedge of shoulder and haunch, with the belly tucked up.
+        ctx.fillStyle = bodyGrad(ctx, tint('#89613e'), -18 * dir, -25, 19 * dir, -4)
         ctx.beginPath()
-        for (let i = -12; i <= 8; i += 4) {
-            ctx.moveTo(i, -22 - bob)
-            ctx.lineTo(i - 2, -27 - bob)
-        }
-        ctx.stroke()
-        // Head.
-        ctx.strokeStyle = outline
-        ctx.lineWidth = 1.6
-        ctx.fillStyle = bodyGrad(ctx, tint('#6b4325'), dir * 8, -22 - bob, dir * 24, -6 - bob)
-        ellipse(ctx, dir * 16, -14 - bob, 9, 8)
-        ctx.fill()
-        ctx.stroke()
-        // Ears.
-        ctx.fillStyle = tint('#6b4325')
-        ellipse(ctx, dir * 11, -22 - bob, 3, 4)
-        ctx.fill()
-        ctx.stroke()
-        // Tusks.
-        ctx.fillStyle = '#f4ecd8'
-        ctx.beginPath()
-        ctx.moveTo(dir * 20, -10 - bob)
-        ctx.lineTo(dir * 28, -16 - bob)
-        ctx.lineTo(dir * 22, -8 - bob)
+        ctx.moveTo(-19, -13)
+        ctx.quadraticCurveTo(-18, -22, -9, -24)
+        ctx.lineTo(5, -25)
+        ctx.quadraticCurveTo(16, -25, 19, -15)
+        ctx.lineTo(17, -6)
+        ctx.lineTo(12, -8)
+        ctx.lineTo(9, -4)
+        ctx.lineTo(5, -7)
+        ctx.quadraticCurveTo(-5, -3, -14, -6)
+        ctx.lineTo(-16, -10)
         ctx.closePath()
         ctx.fill()
         ctx.stroke()
-        ctx.fillStyle = '#ff5540'
-        ellipse(ctx, dir * 18, -17 - bob, 1.8, 1.8)
+        ctx.fillStyle = tint('#44453c')
+        ctx.beginPath()
+        ctx.moveTo(-14, -11)
+        ctx.quadraticCurveTo(0, -4, 14, -13)
+        ctx.lineTo(12, -8)
+        ctx.lineTo(9, -4)
+        ctx.lineTo(5, -7)
+        ctx.quadraticCurveTo(-7, -3, -14, -7)
+        ctx.closePath()
         ctx.fill()
-        // Snout.
-        ctx.fillStyle = '#3a2416'
-        ellipse(ctx, dir * 24, -12 - bob, 3, 2.4)
+        ctx.fillStyle = tint('#ba8954')
+        ctx.beginPath()
+        ctx.moveTo(-16, -16)
+        ctx.quadraticCurveTo(-13, -24, -5, -22)
+        ctx.lineTo(-8, -17)
+        ctx.lineTo(-7, -12)
+        ctx.lineTo(-12, -14)
+        ctx.closePath()
         ctx.fill()
+        ctx.fillStyle = tint('#3c3530')
+        ctx.beginPath()
+        ctx.moveTo(-15, -21)
+        for (let i = 0; i < 6; i++) {
+            ctx.lineTo(-15 + i * 4, -27 + (i % 2))
+            ctx.lineTo(-10 + i * 4, -23)
+        }
+        ctx.lineTo(12, -17)
+        ctx.lineTo(5, -20)
+        ctx.lineTo(1, -18)
+        ctx.lineTo(-3, -21)
+        ctx.closePath()
+        ctx.fill()
+        ctx.stroke()
+        // Far tusk sits behind the carved snout.
+        ctx.fillStyle = tint('#aaa98b')
+        ctx.beginPath()
+        ctx.moveTo(21, -12)
+        ctx.lineTo(26, -15)
+        ctx.lineTo(27, -21)
+        ctx.lineTo(28, -15)
+        ctx.lineTo(24, -9)
+        ctx.closePath()
+        ctx.fill()
+        ctx.stroke()
+        ctx.fillStyle = bodyGrad(ctx, tint('#79523b'), 8 * dir, -24, 25 * dir, -7)
+        ctx.beginPath()
+        ctx.moveTo(8, -22)
+        ctx.lineTo(16, -23)
+        ctx.lineTo(21, -18)
+        ctx.lineTo(26, -16)
+        ctx.lineTo(27, -9)
+        ctx.lineTo(20, -7)
+        ctx.lineTo(12, -8)
+        ctx.lineTo(8, -13)
+        ctx.closePath()
+        ctx.fill()
+        ctx.stroke()
+        ctx.fillStyle = tint('#bc8968')
+        ctx.beginPath()
+        ctx.moveTo(21, -16)
+        ctx.lineTo(26, -16)
+        ctx.lineTo(27, -10)
+        ctx.lineTo(22, -9)
+        ctx.lineTo(20, -12)
+        ctx.closePath()
+        ctx.fill()
+        ctx.stroke()
+        ctx.fillStyle = tint('#a97450')
+        ctx.beginPath()
+        ctx.moveTo(10, -20)
+        ctx.lineTo(6, -27)
+        ctx.lineTo(13, -25)
+        ctx.lineTo(15, -20)
+        ctx.closePath()
+        ctx.fill()
+        ctx.stroke()
+        ctx.fillStyle = tint('#674b49')
+        ctx.beginPath()
+        ctx.moveTo(9, -25)
+        ctx.lineTo(12, -23)
+        ctx.lineTo(12, -21)
+        ctx.closePath()
+        ctx.fill()
+        ctx.fillStyle = '#e69a42'
+        ellipse(ctx, 18, -18, 1.7, 1.5)
+        ctx.fill()
+        ctx.fillStyle = '#23292b'
+        ellipse(ctx, 18.5, -18, 0.7, 1.2)
+        ctx.fill()
+        ellipse(ctx, 24.5, -13, 0.9, 1.5)
+        ctx.fill()
+        ctx.strokeStyle = outline
+        ctx.beginPath()
+        ctx.moveTo(14, -20)
+        ctx.lineTo(19, -20)
+        ctx.stroke()
+        ctx.fillStyle = bodyGrad(ctx, tint('#e8d6ae'), 20 * dir, -18, 26 * dir, -7)
+        ctx.beginPath()
+        ctx.moveTo(19, -10)
+        ctx.lineTo(23, -8)
+        ctx.lineTo(27, -12)
+        ctx.lineTo(28, -19)
+        ctx.lineTo(25, -14)
+        ctx.lineTo(22, -13)
+        ctx.closePath()
+        ctx.fill()
+        ctx.stroke()
+        ctx.restore()
     }
 
     private drawSwarmer(ctx: Ctx, e: Enemy, dir: number, bob: number, tint: (c: string) => string, outline: string) {
         const hop = Math.abs(Math.sin(e.walk * 1.5)) * 4
+        ctx.save()
         ctx.strokeStyle = outline
-        ctx.lineWidth = 2.5
         ctx.lineCap = 'round'
+        ctx.lineWidth = 1
+        ctx.fillStyle = tint('#8b7549')
         ctx.beginPath()
-        ctx.moveTo(-3, -6 - hop)
+        ctx.moveTo(-4, -8 - hop)
+        ctx.lineTo(-1, -7 - hop)
+        ctx.lineTo(-4, -2)
         ctx.lineTo(-5, 0)
-        ctx.moveTo(3, -6 - hop)
+        ctx.lineTo(-7, 0)
+        ctx.closePath()
+        ctx.moveTo(2, -7 - hop)
+        ctx.lineTo(4, -8 - hop)
+        ctx.lineTo(7, 0)
         ctx.lineTo(5, 0)
-        ctx.stroke()
-        ctx.lineWidth = 1.5
-        ctx.fillStyle = tint('#79b53a')
-        ellipse(ctx, 0, -12 - hop - bob, 8, 8)
+        ctx.lineTo(3, -2)
+        ctx.closePath()
         ctx.fill()
         ctx.stroke()
-        // Leaf sprout.
-        ctx.fillStyle = tint('#a7d95a')
+        ctx.translate(0, -hop - bob)
+        // Bark cheeks taper into a root knot; leaf arms break the round outline.
+        ctx.fillStyle = bodyGrad(ctx, tint('#849c47'), -8, -20, 8, -5)
         ctx.beginPath()
-        ctx.moveTo(0, -19 - hop - bob)
-        ctx.quadraticCurveTo(-8, -27 - hop - bob, -2, -30 - hop - bob)
-        ctx.quadraticCurveTo(2, -24 - hop - bob, 0, -19 - hop - bob)
+        ctx.moveTo(-7, -18)
+        ctx.quadraticCurveTo(-2, -22, 5, -19)
+        ctx.lineTo(8, -14)
+        ctx.lineTo(7, -9)
+        ctx.lineTo(3, -5)
+        ctx.lineTo(0, -7)
+        ctx.lineTo(-4, -5)
+        ctx.lineTo(-8, -11)
+        ctx.closePath()
         ctx.fill()
         ctx.stroke()
-        // Big eyes.
-        ctx.fillStyle = '#fff8e0'
-        ellipse(ctx, dir * 3 - 2.5, -13 - hop - bob, 2.6, 3)
+        ctx.fillStyle = tint('#536940')
+        ctx.beginPath()
+        ctx.moveTo(4, -18)
+        ctx.lineTo(8, -14)
+        ctx.lineTo(7, -9)
+        ctx.lineTo(3, -5)
+        ctx.lineTo(1, -8)
+        ctx.quadraticCurveTo(5, -12, 4, -18)
         ctx.fill()
-        ellipse(ctx, dir * 3 + 2.5, -13 - hop - bob, 2.6, 3)
+        ctx.fillStyle = tint('#b2bb6c')
+        ctx.beginPath()
+        ctx.moveTo(-6, -17)
+        ctx.lineTo(-2, -18)
+        ctx.lineTo(-4, -11)
+        ctx.lineTo(-6, -8)
+        ctx.lineTo(-7, -12)
+        ctx.closePath()
+        ctx.fill()
+        ctx.fillStyle = tint('#698c3c')
+        ctx.beginPath()
+        ctx.moveTo(-6, -13)
+        ctx.lineTo(-11, -16)
+        ctx.lineTo(-9, -9)
+        ctx.lineTo(-6, -8)
+        ctx.closePath()
+        ctx.moveTo(7, -13)
+        ctx.lineTo(11, -15)
+        ctx.lineTo(9, -8)
+        ctx.lineTo(7, -8)
+        ctx.closePath()
+        ctx.fill()
+        ctx.stroke()
+        // One serrated blade reads better than a crown of tiny leaves.
+        ctx.fillStyle = bodyGrad(ctx, tint('#9ec957'), -7, -30, 3, -18)
+        ctx.beginPath()
+        ctx.moveTo(0, -19)
+        ctx.lineTo(-5, -22)
+        ctx.lineTo(-3, -24)
+        ctx.lineTo(-7, -26)
+        ctx.lineTo(-4, -27)
+        ctx.lineTo(-3, -30)
+        ctx.quadraticCurveTo(4, -27, 2, -22)
+        ctx.closePath()
+        ctx.fill()
+        ctx.stroke()
+        ctx.strokeStyle = tint('#526d38')
+        ctx.lineWidth = 0.8
+        ctx.beginPath()
+        ctx.moveTo(0, -19)
+        ctx.quadraticCurveTo(0, -25, -3, -28)
+        ctx.stroke()
+        // Heavy sockets and unequal brows keep the face legible at native size.
+        ctx.fillStyle = '#293b32'
+        ellipse(ctx, dir * 2 - 2.5, -13.5, 3, 3.5)
+        ctx.fill()
+        ellipse(ctx, dir * 2 + 2.5, -13.5, 2.8, 3.2)
+        ctx.fill()
+        ctx.fillStyle = '#fff8e0'
+        ellipse(ctx, dir * 2 - 2.5, -13, 2.2, 2.6)
+        ctx.fill()
+        ellipse(ctx, dir * 2 + 2.5, -13, 2, 2.3)
         ctx.fill()
         ctx.fillStyle = '#1d1520'
-        ellipse(ctx, dir * 3.6 - 2.5, -13 - hop - bob, 1.2, 1.6)
+        ellipse(ctx, dir * 2.7 - 2.5, -13, 1, 1.6)
         ctx.fill()
-        ellipse(ctx, dir * 3.6 + 2.5, -13 - hop - bob, 1.2, 1.6)
+        ellipse(ctx, dir * 2.7 + 2.5, -13, 1, 1.4)
         ctx.fill()
-        // Teeth when winding up.
         if (e.state === 'windup') {
+            ctx.fillStyle = '#29332b'
+            ellipse(ctx, dir * 2, -7.5, 4.5, 2.5)
+            ctx.fill()
             ctx.fillStyle = '#fff'
             ctx.beginPath()
-            ctx.moveTo(dir * 2 - 4, -8 - hop - bob)
-            ctx.lineTo(dir * 2 - 2, -5 - hop - bob)
-            ctx.lineTo(dir * 2, -8 - hop - bob)
-            ctx.lineTo(dir * 2 + 2, -5 - hop - bob)
-            ctx.lineTo(dir * 2 + 4, -8 - hop - bob)
+            ctx.moveTo(dir * 2 - 4, -8)
+            ctx.lineTo(dir * 2 - 2, -5)
+            ctx.lineTo(dir * 2, -8)
+            ctx.lineTo(dir * 2 + 2, -5)
+            ctx.lineTo(dir * 2 + 4, -8)
             ctx.closePath()
             ctx.fill()
+        } else {
+            ctx.strokeStyle = '#29332b'
+            ctx.beginPath()
+            ctx.moveTo(dir * 2 - 2, -8)
+            ctx.quadraticCurveTo(dir * 2, -6, dir * 2 + 2, -8)
+            ctx.stroke()
         }
+        ctx.restore()
     }
 
     private drawShieldwarden(ctx: Ctx, e: Enemy, dir: number, bob: number, tint: (c: string) => string, outline: string) {
         const stride = Math.sin(e.walk) * 3
-        ctx.strokeStyle = outline
-        ctx.lineWidth = 5
-        ctx.lineCap = 'round'
-        ctx.beginPath()
-        ctx.moveTo(-5, -12)
-        ctx.lineTo(-5 + stride, 0)
-        ctx.moveTo(5, -12)
-        ctx.lineTo(5 - stride, 0)
-        ctx.stroke()
-        ctx.lineWidth = 1.6
-        // Armoured body.
-        ctx.fillStyle = bodyGrad(ctx, tint('#8c93a3'), -11, -30 - bob, 11, -10 - bob)
-        ctx.beginPath()
-        ctx.moveTo(-11, -30 - bob)
-        ctx.lineTo(11, -30 - bob)
-        ctx.lineTo(10, -10 - bob)
-        ctx.lineTo(-10, -10 - bob)
-        ctx.closePath()
-        ctx.fill()
-        ctx.stroke()
-        ctx.fillStyle = 'rgba(0,0,0,0.25)'
-        ctx.fillRect(-10, -20 - bob, 20, 3)
-        // Great helm with a crest.
-        ctx.fillStyle = bodyGrad(ctx, tint('#a9b0bd'), -8, -46 - bob, 8, -30 - bob)
-        ctx.fillRect(-8, -46 - bob, 16, 16)
-        ctx.strokeRect(-8, -46 - bob, 16, 16)
-        ctx.fillStyle = '#b5652f'
-        ctx.fillRect(-2, -52 - bob, 4, 7)
-        ctx.strokeRect(-2, -52 - bob, 4, 7)
-        ctx.fillStyle = '#1d1520'
-        ctx.fillRect(dir * 2 - 5, -40 - bob, 10, 2.5)
-        // Mace on the off side.
         ctx.save()
-        ctx.translate(-dir * 10, -24 - bob)
-        ctx.rotate(-dir * (e.state === 'windup' ? 1.6 : 0.4))
-        ctx.fillStyle = '#5a3d26'
-        ctx.fillRect(0, -2, 18, 4)
-        ctx.strokeRect(0, -2, 18, 4)
-        ctx.fillStyle = '#6b7280'
-        ellipse(ctx, 20, 0, 5, 5)
-        ctx.fill()
-        ctx.stroke()
-        ctx.restore()
-        // Tower shield on the facing side.
-        if (e.shield && !e.shield.broken) {
-            ctx.fillStyle = tint('#b5652f')
+        ctx.strokeStyle = outline
+        ctx.lineCap = 'round'
+        ctx.lineWidth = 1.2
+        for (const side of [-1, 1]) {
+            const foot = side * 5 - side * stride
+            ctx.fillStyle = bodyGrad(ctx, tint('#867250'), foot - 3, -12, foot + 3, 0)
             ctx.beginPath()
-            ctx.moveTo(dir * 10, -44 - bob)
-            ctx.lineTo(dir * 24, -44 - bob)
-            ctx.lineTo(dir * 24, -14 - bob)
-            ctx.lineTo(dir * 17, -4 - bob)
-            ctx.lineTo(dir * 10, -14 - bob)
-            ctx.closePath()
-            ctx.fill()
-            ctx.lineWidth = 2.2
-            ctx.stroke()
-            ctx.lineWidth = 1.6
-            ctx.fillStyle = '#d9d2c2'
-            ctx.beginPath()
-            ctx.moveTo(dir * 17, -40 - bob)
-            ctx.lineTo(dir * 21, -30 - bob)
-            ctx.lineTo(dir * 17, -20 - bob)
-            ctx.lineTo(dir * 13, -30 - bob)
-            ctx.closePath()
-            ctx.fill()
-            ctx.strokeStyle = 'rgba(255,255,255,0.4)'
-            ctx.beginPath()
-            ctx.moveTo(dir * 12, -42 - bob)
-            ctx.lineTo(dir * 12, -14 - bob)
-            ctx.stroke()
-            ctx.strokeStyle = outline
-        } else {
-            // Splintered remains.
-            ctx.fillStyle = '#7a4a24'
-            ctx.beginPath()
-            ctx.moveTo(dir * 10, -30 - bob)
-            ctx.lineTo(dir * 18, -34 - bob)
-            ctx.lineTo(dir * 15, -22 - bob)
+            ctx.moveTo(side * 5 - 3, -13)
+            ctx.lineTo(side * 5 + 3, -13)
+            ctx.lineTo(foot + 2, -4)
+            ctx.lineTo(foot + 4, 0)
+            ctx.lineTo(foot - 4, 0)
+            ctx.lineTo(foot - 3, -4)
             ctx.closePath()
             ctx.fill()
             ctx.stroke()
         }
+        ctx.translate(0, -bob)
+        // Rust-red padded skirt beneath a bronze, overlapping cuirass.
+        ctx.fillStyle = tint('#6c3f32')
+        ctx.beginPath()
+        ctx.moveTo(-9, -25)
+        ctx.lineTo(9, -25)
+        ctx.lineTo(11, -10)
+        ctx.lineTo(2, -8)
+        ctx.lineTo(0, -12)
+        ctx.lineTo(-3, -9)
+        ctx.lineTo(-11, -11)
+        ctx.closePath()
+        ctx.fill()
+        ctx.stroke()
+        ctx.fillStyle = bodyGrad(ctx, tint('#a18455'), -11, -32, 11, -14)
+        ctx.beginPath()
+        ctx.moveTo(-10, -30)
+        ctx.lineTo(-5, -33)
+        ctx.lineTo(6, -33)
+        ctx.lineTo(11, -29)
+        ctx.lineTo(8, -20)
+        ctx.lineTo(0, -16)
+        ctx.lineTo(-9, -20)
+        ctx.closePath()
+        ctx.fill()
+        ctx.stroke()
+        ctx.fillStyle = tint('#4c5b58')
+        ctx.beginPath()
+        ctx.moveTo(2, -31)
+        ctx.lineTo(10, -28)
+        ctx.lineTo(7, -21)
+        ctx.lineTo(1, -18)
+        ctx.closePath()
+        ctx.fill()
+        ctx.fillStyle = tint('#997247')
+        for (let i = 0; i < 2; i++) {
+            const y = -20 + i * 4
+            ctx.beginPath()
+            ctx.moveTo(-9, y)
+            ctx.lineTo(0, y + 2)
+            ctx.lineTo(9, y)
+            ctx.lineTo(10, y + 3)
+            ctx.lineTo(0, y + 5)
+            ctx.lineTo(-10, y + 3)
+            ctx.closePath()
+            ctx.fill()
+            ctx.stroke()
+        }
+        for (const side of [-1, 1]) {
+            ctx.fillStyle = tint(side < 0 ? '#c09a60' : '#6d7563')
+            ctx.beginPath()
+            ctx.moveTo(side * 6, -32)
+            ctx.lineTo(side * 11, -34)
+            ctx.lineTo(side * 15, -29)
+            ctx.lineTo(side * 12, -24)
+            ctx.lineTo(side * 7, -26)
+            ctx.closePath()
+            ctx.fill()
+            ctx.stroke()
+        }
+        // Folded helmet planes and a short, notched copper crest.
+        ctx.fillStyle = bodyGrad(ctx, tint('#ab9268'), -8, -47, 8, -30)
+        ctx.beginPath()
+        ctx.moveTo(-8, -43)
+        ctx.lineTo(-5, -47)
+        ctx.lineTo(4, -48)
+        ctx.lineTo(8, -43)
+        ctx.lineTo(8, -33)
+        ctx.lineTo(2, -30)
+        ctx.lineTo(-8, -33)
+        ctx.closePath()
+        ctx.fill()
+        ctx.stroke()
+        ctx.fillStyle = tint('#576563')
+        ctx.beginPath()
+        ctx.moveTo(2, -46)
+        ctx.lineTo(7, -42)
+        ctx.lineTo(7, -34)
+        ctx.lineTo(2, -31)
+        ctx.closePath()
+        ctx.fill()
+        ctx.fillStyle = '#252e30'
+        ctx.fillRect(dir * 2 - 5, -40, 10, 2.5)
+        ctx.fillStyle = tint('#d4b27c')
+        ctx.fillRect(dir * 2 - 0.8, -43, 1.6, 10)
+        ctx.fillStyle = tint('#a75435')
+        ctx.beginPath()
+        ctx.moveTo(-2, -46)
+        ctx.lineTo(-3, -51)
+        ctx.lineTo(0, -52)
+        ctx.lineTo(3, -50)
+        ctx.lineTo(2, -46)
+        ctx.closePath()
+        ctx.fill()
+        ctx.stroke()
+        // Flanged mace: metal planes around a wrapped ash handle.
+        ctx.save()
+        ctx.translate(-dir * 10, -24)
+        ctx.rotate(-dir * (e.state === 'windup' ? 1.6 : 0.4))
+        ctx.scale(-dir, 1)
+        ctx.fillStyle = tint('#73503b')
+        ctx.fillRect(-1, -1.8, 18, 3.6)
+        ctx.strokeRect(-1, -1.8, 18, 3.6)
+        ctx.fillStyle = bodyGrad(ctx, tint('#8f9b92'), 15, -6, 25, 6)
+        ctx.beginPath()
+        ctx.moveTo(15, -3)
+        ctx.lineTo(18, -6)
+        ctx.lineTo(22, -6)
+        ctx.lineTo(25, -2)
+        ctx.lineTo(25, 2)
+        ctx.lineTo(22, 6)
+        ctx.lineTo(18, 6)
+        ctx.lineTo(15, 3)
+        ctx.closePath()
+        ctx.fill()
+        ctx.stroke()
+        ctx.fillStyle = tint('#d1c296')
+        ctx.beginPath()
+        ctx.moveTo(16, -1)
+        ctx.lineTo(24, -2)
+        ctx.lineTo(26, 0)
+        ctx.lineTo(24, 2)
+        ctx.lineTo(16, 1)
+        ctx.closePath()
+        ctx.fill()
+        ctx.stroke()
+        ctx.fillStyle = tint('#b79b6b')
+        ctx.fillRect(9, -2, 2, 4)
+        ellipse(ctx, 0, 0, 3, 3)
+        ctx.fill()
+        ctx.stroke()
+        ctx.restore()
+        // Beveled tower shield keeps the original footprint and broken-state gap.
+        ctx.save()
+        ctx.translate(dir * 17, 0)
+        if (e.shield && !e.shield.broken) {
+            ctx.fillStyle = bodyGrad(ctx, tint('#b78c52'), -7, -44, 7, -6)
+            ctx.beginPath()
+            ctx.moveTo(-7, -41)
+            ctx.lineTo(-4, -44)
+            ctx.lineTo(4, -44)
+            ctx.lineTo(7, -41)
+            ctx.lineTo(7, -14)
+            ctx.lineTo(0, -4)
+            ctx.lineTo(-7, -14)
+            ctx.closePath()
+            ctx.fill()
+            ctx.stroke()
+            ctx.fillStyle = bodyGrad(ctx, tint('#995039'), -5, -41, 5, -10)
+            ctx.beginPath()
+            ctx.moveTo(-4.5, -40)
+            ctx.lineTo(4.5, -40)
+            ctx.lineTo(4.5, -15)
+            ctx.lineTo(0, -9)
+            ctx.lineTo(-4.5, -15)
+            ctx.closePath()
+            ctx.fill()
+            ctx.stroke()
+            ctx.fillStyle = tint('#526159')
+            ctx.beginPath()
+            ctx.moveTo(0, -39)
+            ctx.lineTo(4, -39)
+            ctx.lineTo(4, -16)
+            ctx.lineTo(0, -11)
+            ctx.closePath()
+            ctx.fill()
+            ctx.strokeStyle = tint('#d8b981')
+            ctx.lineWidth = 1
+            ctx.beginPath()
+            ctx.moveTo(-5.5, -39)
+            ctx.lineTo(-5.5, -15)
+            ctx.moveTo(0, -38)
+            ctx.lineTo(0, -13)
+            ctx.stroke()
+            ctx.strokeStyle = outline
+            ctx.fillStyle = tint('#d9c99b')
+            ctx.beginPath()
+            ctx.moveTo(0, -35)
+            ctx.lineTo(3, -29)
+            ctx.lineTo(0, -23)
+            ctx.lineTo(-3, -29)
+            ctx.closePath()
+            ctx.fill()
+            ctx.stroke()
+            ctx.fillStyle = tint('#d7b27a')
+            for (const x of [-5.5, 5.5]) {
+                for (const y of [-40, -16]) {
+                    ellipse(ctx, x, y, 0.9, 1)
+                    ctx.fill()
+                }
+            }
+        } else {
+            ctx.fillStyle = tint('#806346')
+            ctx.beginPath()
+            ctx.moveTo(-7, -31)
+            ctx.lineTo(1, -34)
+            ctx.lineTo(-1, -28)
+            ctx.lineTo(3, -29)
+            ctx.lineTo(-3, -22)
+            ctx.lineTo(-7, -24)
+            ctx.closePath()
+            ctx.fill()
+            ctx.stroke()
+            ctx.strokeStyle = tint('#c4a372')
+            ctx.beginPath()
+            ctx.moveTo(-6, -30)
+            ctx.lineTo(-4, -25)
+            ctx.stroke()
+        }
+        ctx.restore()
+        ctx.restore()
     }
 
     private drawRanged(ctx: Ctx, e: Enemy, dir: number, bob: number, tint: (c: string) => string, outline: string) {
         const stride = Math.sin(e.walk) * 3
+        ctx.save()
         ctx.strokeStyle = outline
-        ctx.lineWidth = 3
         ctx.lineCap = 'round'
-        ctx.beginPath()
-        ctx.moveTo(-3, -8)
-        ctx.lineTo(-3 + stride, 0)
-        ctx.moveTo(3, -8)
-        ctx.lineTo(3 - stride, 0)
-        ctx.stroke()
-        ctx.lineWidth = 1.6
-        // Stalk body.
-        ctx.fillStyle = tint('#e9dcc2')
-        ctx.beginPath()
-        ctx.moveTo(-6, -8 - bob)
-        ctx.lineTo(6, -8 - bob)
-        ctx.lineTo(5, -24 - bob)
-        ctx.lineTo(-5, -24 - bob)
-        ctx.closePath()
-        ctx.fill()
-        ctx.stroke()
-        // Cap.
-        ctx.fillStyle = bodyGrad(ctx, tint('#7b3fa0'), -15, -46 - bob, 15, -24 - bob)
-        ctx.beginPath()
-        ctx.moveTo(-15, -24 - bob)
-        ctx.quadraticCurveTo(0, -46 - bob, 15, -24 - bob)
-        ctx.closePath()
-        ctx.fill()
-        ctx.stroke()
-        ctx.fillStyle = '#f2d9ff'
-        for (const [dx, dy, r] of [[-7, -30, 2.4], [3, -36, 2], [8, -28, 1.6]] as const) {
-            ellipse(ctx, dx, dy - bob, r, r * 0.8)
+        ctx.lineWidth = 1.1
+        ctx.fillStyle = tint('#b5ab87')
+        for (const side of [-1, 1]) {
+            const foot = side * 3 - side * stride
+            ctx.beginPath()
+            ctx.moveTo(side * 3 - 1.5, -9)
+            ctx.lineTo(side * 3 + 1.5, -9)
+            ctx.lineTo(foot + 1.5, -3)
+            ctx.lineTo(foot + 3, 0)
+            ctx.lineTo(foot - 3, 0)
+            ctx.closePath()
             ctx.fill()
+            ctx.stroke()
         }
-        // Eyes.
+        ctx.translate(0, -bob)
+        // Curved stalk and papery collar below the overhanging gills.
+        ctx.fillStyle = bodyGrad(ctx, tint('#ddcc9f'), -6, -26, 7, -7)
+        ctx.beginPath()
+        ctx.moveTo(-5, -26)
+        ctx.lineTo(5, -26)
+        ctx.quadraticCurveTo(2, -16, 7, -8)
+        ctx.quadraticCurveTo(0, -5, -6, -8)
+        ctx.quadraticCurveTo(-2, -16, -5, -26)
+        ctx.closePath()
+        ctx.fill()
+        ctx.stroke()
+        ctx.fillStyle = tint('#879481')
+        ctx.beginPath()
+        ctx.moveTo(2, -24)
+        ctx.lineTo(5, -25)
+        ctx.quadraticCurveTo(2, -16, 7, -8)
+        ctx.lineTo(2, -8)
+        ctx.quadraticCurveTo(0, -16, 2, -24)
+        ctx.closePath()
+        ctx.fill()
+        ctx.fillStyle = tint('#eee0b5')
+        ctx.beginPath()
+        ctx.moveTo(-6, -23)
+        ctx.lineTo(6, -23)
+        ctx.lineTo(7, -19)
+        ctx.lineTo(2, -20)
+        ctx.lineTo(-1, -18)
+        ctx.lineTo(-7, -20)
+        ctx.closePath()
+        ctx.fill()
+        ctx.stroke()
+        ctx.fillStyle = tint('#9c7b87')
+        ellipse(ctx, 0, -24, 15, 4)
+        ctx.fill()
+        ctx.stroke()
+        ctx.strokeStyle = tint('#594c64')
+        ctx.lineWidth = 0.8
+        ctx.beginPath()
+        for (const x of [-12, -7, 0, 7, 12]) {
+            ctx.moveTo(x, -25)
+            ctx.lineTo(x * 0.35, -21)
+        }
+        ctx.stroke()
+        ctx.strokeStyle = outline
+        ctx.lineWidth = 1.2
+        ctx.fillStyle = bodyGrad(ctx, tint('#88538a'), -14, -40, 15, -23)
+        ctx.beginPath()
+        ctx.moveTo(-15, -25)
+        ctx.bezierCurveTo(-11, -29, -11, -37, -3, -39)
+        ctx.bezierCurveTo(7, -41, 9, -28, 15, -25)
+        ctx.quadraticCurveTo(13, -22, 6, -24)
+        ctx.quadraticCurveTo(-4, -22, -15, -25)
+        ctx.closePath()
+        ctx.fill()
+        ctx.stroke()
+        ctx.fillStyle = tint('#b87d9d')
+        ctx.beginPath()
+        ctx.moveTo(-12, -28)
+        ctx.quadraticCurveTo(-8, -40, -2, -37)
+        ctx.quadraticCurveTo(-5, -33, -3, -29)
+        ctx.lineTo(-8, -30)
+        ctx.closePath()
+        ctx.fill()
+        ctx.fillStyle = tint('#e5c7b0')
+        ctx.beginPath()
+        ctx.moveTo(-7, -34)
+        ctx.quadraticCurveTo(-5, -38, -2, -35)
+        ctx.lineTo(-3, -32)
+        ctx.lineTo(-7, -32)
+        ctx.closePath()
+        ctx.moveTo(5, -30)
+        ctx.quadraticCurveTo(8, -32, 9, -27)
+        ctx.lineTo(6, -27)
+        ctx.closePath()
+        ctx.fill()
+        // Spore satchel and strap sit beside the face, not across the eyes.
+        ctx.strokeStyle = tint('#705a41')
+        ctx.lineWidth = 2
+        ctx.beginPath()
+        ctx.moveTo(dir * 4, -20)
+        ctx.lineTo(-dir * 6, -9)
+        ctx.stroke()
+        ctx.strokeStyle = outline
+        ctx.lineWidth = 1
+        ctx.fillStyle = bodyGrad(ctx, tint('#9c6d40'), -dir * 8 - 3, -14, -dir * 8 + 3, -5)
+        ctx.beginPath()
+        ctx.roundRect(-dir * 8 - 3.5, -14, 7, 9, 2)
+        ctx.fill()
+        ctx.stroke()
+        ctx.fillStyle = tint('#c3a56c')
+        ctx.beginPath()
+        ctx.moveTo(-dir * 8 - 3.5, -13)
+        ctx.lineTo(-dir * 8 + 3.5, -13)
+        ctx.lineTo(-dir * 8, -9)
+        ctx.closePath()
+        ctx.fill()
         ctx.fillStyle = '#1d1520'
-        ellipse(ctx, dir * 2 - 2.5, -16 - bob, 1.3, 1.8)
+        ellipse(ctx, dir * 2 - 2.5, -16, 1.2, 1.7)
         ctx.fill()
-        ellipse(ctx, dir * 2 + 2.5, -16 - bob, 1.3, 1.8)
+        ellipse(ctx, dir * 2 + 2.5, -16, 1.2, 1.7)
         ctx.fill()
-        // Blowpipe toward the target.
+        // Projected aim stays unchanged; a flared reed replaces the straight stick.
         const ang = e.facing
         const px = Math.cos(ang)
         const py = Math.sin(ang) * YS
+        ctx.save()
+        ctx.translate(px * 4, -14 + py * 4)
+        ctx.rotate(Math.atan2(py, px))
+        ctx.scale(Math.hypot(px, py), 1)
+        ctx.fillStyle = bodyGrad(ctx, tint('#849b51'), 0, -3, 18, 3)
+        ctx.beginPath()
+        ctx.moveTo(0, -1.2)
+        ctx.quadraticCurveTo(10, -0.5, 18, -3)
+        ctx.lineTo(18, 3)
+        ctx.quadraticCurveTo(10, 1, 0, 1.2)
+        ctx.closePath()
+        ctx.fill()
+        ctx.stroke()
+        ctx.strokeStyle = tint('#d4c48d')
+        ctx.lineWidth = 1.5
+        ctx.beginPath()
+        ctx.moveTo(6, -1)
+        ctx.lineTo(6, 1.5)
+        ctx.moveTo(12, -1.5)
+        ctx.lineTo(12, 2)
+        ctx.stroke()
         ctx.strokeStyle = outline
-        ctx.lineWidth = 4
-        ctx.beginPath()
-        ctx.moveTo(px * 4, -14 - bob + py * 4)
-        ctx.lineTo(px * 22, -14 - bob + py * 22)
+        ctx.lineWidth = 0.8
+        ctx.fillStyle = '#303c35'
+        ellipse(ctx, 18, 0, 1.1, 2.8)
+        ctx.fill()
         ctx.stroke()
-        ctx.strokeStyle = '#8a9a4a'
-        ctx.lineWidth = 2.2
+        ctx.fillStyle = tint('#7f994e')
         ctx.beginPath()
-        ctx.moveTo(px * 4, -14 - bob + py * 4)
-        ctx.lineTo(px * 22, -14 - bob + py * 22)
+        ctx.moveTo(10, -1)
+        ctx.quadraticCurveTo(9, -7, 14, -6)
+        ctx.lineTo(12, -2)
+        ctx.closePath()
+        ctx.fill()
         ctx.stroke()
+        ctx.restore()
+        ctx.restore()
     }
 
     private drawOgre(ctx: Ctx, e: Enemy, dir: number, bob: number, tint: (c: string) => string, outline: string) {
