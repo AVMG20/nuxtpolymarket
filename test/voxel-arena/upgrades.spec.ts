@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { UPGRADES, dealDraft, applyCard, weaponCard, abilityCard, rarityWeights, DRAFT_SIZE } from '../../app/utils/voxel-arena/upgrades'
-import { defaultStats, WEAPON_IDS, ABILITY_IDS, cardCost, rerollCost, shardValue, ENEMIES } from '../../app/utils/voxel-arena/data'
-import type { WeaponId } from '../../app/utils/voxel-arena/types'
+import { UPGRADES, dealDraft, applyCard, rarityWeights, DRAFT_SIZE } from '../../app/utils/voxel-arena/upgrades'
+import { defaultStats, boonPrice } from '../../app/utils/voxel-arena/data'
 
 function seeded(seed: number): () => number {
     let s = seed >>> 0
@@ -11,26 +10,21 @@ function seeded(seed: number): () => number {
     }
 }
 
-describe('voxel arena upgrade draft', () => {
-    it('deals unique cards up to the draft size', () => {
+describe('voxel arena boon draft', () => {
+    it('deals three unique boons', () => {
+        expect(DRAFT_SIZE).toBe(3)
         for (let seed = 1; seed < 40; seed++) {
-            const cards = dealDraft({ wave: 4, stacks: new Map(), ownedWeapons: ['pistol'], ownedAbilities: [], ownedMelee: 'sword', rng: seeded(seed) })
+            const cards = dealDraft({ wave: 4, stacks: new Map(), ownedAbilities: [], rng: seeded(seed) })
             expect(cards.length).toBe(DRAFT_SIZE)
             const ids = new Set(cards.map(c => c.id))
             expect(ids.size).toBe(cards.length)
             const keys = new Set(cards.map(c => c.draftKey))
             expect(keys.size).toBe(cards.length)
-        }
-    })
-
-    it('never offers a weapon the player already owns', () => {
-        const owned: WeaponId[] = ['pistol', 'shotgun', 'sniper']
-        for (let seed = 1; seed < 60; seed++) {
-            const cards = dealDraft({ wave: 9, stacks: new Map(), ownedWeapons: owned, ownedAbilities: ['nova'], ownedMelee: 'sword', rng: seeded(seed) })
             for (const c of cards) {
-                if (c.kind === 'weapon') expect(owned).not.toContain(c.weaponId)
+                expect(c.kind === 'stat' || c.kind === 'crazy').toBe(true)
+                expect(c.cost).toBe(boonPrice(c.rarity, 4))
+                expect(c.owned).toBe(0)
             }
-            expect(cards.filter(c => c.kind === 'weapon').length).toBeLessThanOrEqual(2)
         }
     })
 
@@ -38,9 +32,34 @@ describe('voxel arena upgrade draft', () => {
         const stacks = new Map<string, number>()
         for (const card of UPGRADES) if (card.maxStacks) stacks.set(card.id, card.maxStacks)
         for (let seed = 1; seed < 40; seed++) {
-            const cards = dealDraft({ wave: 6, stacks, ownedWeapons: [...WEAPON_IDS], ownedAbilities: [...ABILITY_IDS], ownedMelee: 'sword', rng: seeded(seed) })
-            for (const c of cards) if (c.kind !== 'melee') expect(c.maxStacks).toBeUndefined()
+            const cards = dealDraft({ wave: 6, stacks, ownedAbilities: ['nova', 'sentry'], rng: seeded(seed) })
+            for (const c of cards) expect(c.maxStacks).toBeUndefined()
         }
+    })
+
+    it('reports how many copies the player already holds', () => {
+        const stacks = new Map<string, number>([['damage', 2]])
+        let seen = false
+        for (let seed = 1; seed < 200 && !seen; seed++) {
+            const cards = dealDraft({ wave: 3, stacks, ownedAbilities: [], rng: seeded(seed) })
+            const dmg = cards.find(c => c.id === 'damage')
+            if (dmg) {
+                expect(dmg.owned).toBe(2)
+                seen = true
+            }
+        }
+        expect(seen).toBe(true)
+    })
+
+    it('offers cards the player already stacks less often', () => {
+        const stacks = new Map<string, number>([['damage', 3]])
+        let withStacks = 0
+        let without = 0
+        for (let seed = 1; seed < 400; seed++) {
+            if (dealDraft({ wave: 2, stacks, ownedAbilities: [], rng: seeded(seed) }).some(c => c.id === 'damage')) withStacks++
+            if (dealDraft({ wave: 2, stacks: new Map(), ownedAbilities: [], rng: seeded(seed) }).some(c => c.id === 'damage')) without++
+        }
+        expect(withStacks).toBeLessThan(without)
     })
 
     it('shifts rarity weight toward epics and legendaries on later waves', () => {
@@ -56,11 +75,11 @@ describe('voxel arena upgrade draft', () => {
         const damage = UPGRADES.find(c => c.id === 'damage')!
         applyCard(damage, stats, stacks)
         applyCard(damage, stats, stacks)
-        expect(stats.damageMult).toBeCloseTo(1.18 * 1.18)
+        expect(stats.damageMult).toBeCloseTo(1.3)
         expect(stacks.get('damage')).toBe(2)
     })
 
-    it('every upgrade mutates the stats it describes without touching weapons', () => {
+    it('every upgrade mutates the stats it describes', () => {
         for (const card of UPGRADES) {
             const stats = defaultStats()
             const before = JSON.stringify(stats)
@@ -70,43 +89,31 @@ describe('voxel arena upgrade draft', () => {
         }
     })
 
-    it('prices cards by rarity and wave, and never offers owned abilities or locked ability upgrades', () => {
-        expect(cardCost('common', 'stat', 1)).toBe(30)
-        expect(cardCost('legendary', 'crazy', 1)).toBe(120)
-        expect(cardCost('common', 'stat', 6)).toBeGreaterThan(cardCost('common', 'stat', 1))
-        expect(rerollCost(1)).toBe(25)
-        expect(rerollCost(1)).toBeLessThan(cardCost('rare', 'stat', 1))
+    it('has unique ids and never offers locked ability upgrades', () => {
+        expect(new Set(UPGRADES.map(c => c.id)).size).toBe(UPGRADES.length)
         for (let seed = 1; seed < 60; seed++) {
-            const cards = dealDraft({ wave: 3, stacks: new Map(), ownedWeapons: ['pistol'], ownedAbilities: ['nova'], ownedMelee: 'sword', rng: seeded(seed) })
-            for (const c of cards) {
-                expect(c.cost).toBeGreaterThan(0)
-                if (c.kind === 'ability') expect(c.abilityId).not.toBe('nova')
-                if (c.requiresAbility) expect(c.requiresAbility).toBe('nova')
-            }
+            const cards = dealDraft({ wave: 3, stacks: new Map(), ownedAbilities: ['nova'], rng: seeded(seed) })
+            for (const c of cards) if (c.requiresAbility) expect(c.requiresAbility).toBe('nova')
         }
-        const none = dealDraft({ wave: 3, stacks: new Map(), ownedWeapons: ['pistol'], ownedAbilities: [], ownedMelee: 'sword', rng: seeded(7) })
+        const none = dealDraft({ wave: 3, stacks: new Map(), ownedAbilities: [], rng: seeded(7) })
         expect(none.some(c => c.requiresAbility)).toBe(false)
-        expect(abilityCard('blink').abilityId).toBe('blink')
     })
 
-    it('values kills in shards by score, boosted for elites', () => {
-        expect(shardValue(ENEMIES.grunt, null)).toBe(5)
-        expect(shardValue(ENEMIES.grunt, 'swift')).toBeGreaterThan(5)
-        expect(shardValue(ENEMIES.brute, 'gilded')).toBe(80)
-    })
-
-    it('never offers the blade already in hand', () => {
-        for (let seed = 1; seed < 80; seed++) {
-            const cards = dealDraft({ wave: 5, stacks: new Map(), ownedWeapons: ['pistol'], ownedAbilities: [], ownedMelee: 'axe', rng: seeded(seed) })
-            for (const c of cards) if (c.kind === 'melee') expect(c.meleeId).not.toBe('axe')
-            expect(cards.filter(c => c.kind === 'melee').length).toBeLessThanOrEqual(1)
+    it('caps every core damage boon so late waves cannot be trivialised', () => {
+        for (const id of ['damage', 'firerate', 'crit', 'critdmg', 'magazine']) {
+            const card = UPGRADES.find(c => c.id === id)!
+            expect(card.maxStacks, id).toBeDefined()
+            expect(card.maxStacks!, id).toBeLessThanOrEqual(8)
         }
+        const stats = defaultStats()
+        const damage = UPGRADES.find(c => c.id === 'damage')!
+        for (let i = 0; i < damage.maxStacks!; i++) damage.apply(stats)
+        expect(stats.damageMult).toBeLessThanOrEqual(2.5)
     })
 
-    it('builds weapon cards that carry their weapon id', () => {
-        const card = weaponCard('raygun')
-        expect(card.kind).toBe('weapon')
-        expect(card.weaponId).toBe('raygun')
-        expect(card.id).toBe('weapon:raygun')
+    it('includes the flashy arsenal boons', () => {
+        for (const id of ['rift', 'storm', 'lance', 'frost', 'execute', 'bulletstorm', 'thunderstep', 'reloadblast', 'meteorcall', 'bloodlust', 'headhunter', 'pockets', 'bounty', 'scavenger']) {
+            expect(UPGRADES.some(c => c.id === id), id).toBe(true)
+        }
     })
 })

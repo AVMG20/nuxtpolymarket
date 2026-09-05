@@ -22,6 +22,16 @@
         <div v-if="hud.chrono" class="pointer-events-none absolute inset-0" style="box-shadow: inset 0 0 220px 70px rgba(60,220,255,0.25)" />
         <div v-if="hud.event === 'blackout' && hud.phase === 'playing'" class="pointer-events-none absolute inset-0" style="box-shadow: inset 0 0 280px 110px rgba(0,0,0,0.8)" />
 
+        <!-- Damage direction: a red wedge on the side the hit came from -->
+        <div v-if="hud.phase === 'playing'" class="pointer-events-none absolute inset-0 flex items-center justify-center">
+            <div
+                v-for="h in hud.hits"
+                :key="h.id"
+                class="hit-marker absolute"
+                :style="{ transform: `rotate(${h.angle}rad) translateY(-${110 + (1 - h.life) * 30}px)`, opacity: Math.min(1, h.life * 1.6) }"
+            />
+        </div>
+
         <!-- Crosshair: opens with real spread, fades out while aiming -->
         <div v-if="hud.phase === 'playing' && hud.locked" class="pointer-events-none absolute inset-0 flex items-center justify-center">
             <div class="relative size-24 transition-opacity duration-100" :style="{ opacity: Math.max(0, 1 - hud.ads * 2) }">
@@ -37,6 +47,10 @@
             <div class="absolute left-1/2 top-1/2 -translate-x-1/2 translate-y-8 text-center">
                 <span v-if="hud.hitKind === 'head' && hud.hitMarker > 0" class="block text-[9px] font-bold uppercase tracking-[0.35em] text-orange-300">Headshot</span>
                 <span v-if="hud.gliding" class="block text-[9px] uppercase tracking-[0.35em] text-cyan-300/80">Glide</span>
+                <span v-if="hud.lance >= 1" class="block animate-pulse text-[9px] font-bold uppercase tracking-[0.35em] text-amber-200">Sun lance ready</span>
+            </div>
+            <div v-if="hud.lance > 0 && hud.lance < 1" class="absolute left-1/2 top-1/2 mt-8 h-px w-16 -translate-x-1/2 translate-y-2 overflow-hidden bg-white/10">
+                <div class="h-full bg-amber-300" :style="{ width: (hud.lance * 100) + '%' }" />
             </div>
         </div>
 
@@ -101,19 +115,22 @@
                 </div>
             </div>
 
-            <!-- Run stats: top-left -->
-            <div class="absolute left-5 top-5 flex items-center gap-4 font-mono text-[11px] tabular-nums text-white/55 sm:left-7 sm:top-7">
-                <span class="flex items-center gap-1.5"><UIcon name="i-lucide-timer" class="size-3.5" />{{ formatTime(hud.time) }}</span>
-                <span class="flex items-center gap-1.5"><UIcon name="i-lucide-skull" class="size-3.5" />{{ hud.kills }}</span>
-                <span class="flex items-center gap-1.5"><UIcon name="i-lucide-crosshair" class="size-3.5" />{{ hud.headshots }}</span>
+            <!-- Run stats + minimap: top-left -->
+            <div class="absolute left-5 top-5 sm:left-7 sm:top-7">
+                <div class="flex items-center gap-4 font-mono text-[11px] tabular-nums text-white/55">
+                    <span class="flex items-center gap-1.5"><UIcon name="i-lucide-timer" class="size-3.5" />{{ formatTime(hud.time) }}</span>
+                    <span class="flex items-center gap-1.5"><UIcon name="i-lucide-skull" class="size-3.5" />{{ hud.kills }}</span>
+                    <span class="flex items-center gap-1.5"><UIcon name="i-lucide-crosshair" class="size-3.5" />{{ hud.headshots }}</span>
+                </div>
+                <canvas ref="minimap" width="150" height="150" class="mt-3 size-[150px] rounded-full opacity-90 shadow-[0_0_24px_rgba(0,0,0,0.6)]" />
             </div>
 
-            <!-- Score + shards: top-right -->
+            <!-- Score + credits: top-right -->
             <div class="absolute right-5 top-5 text-right sm:right-7 sm:top-7">
                 <div class="text-[10px] uppercase tracking-[0.5em] text-white/50">Score</div>
                 <div class="font-mono text-3xl font-black leading-none tabular-nums text-amber-300">{{ formatNumber(hud.score, false) }}</div>
-                <div class="mt-2 flex items-center justify-end gap-1.5 font-mono text-sm font-bold tabular-nums text-cyan-300">
-                    <UIcon name="i-lucide-gem" class="size-3.5" />{{ hud.shards }}
+                <div class="mt-2 flex items-center justify-end gap-1.5 font-mono text-sm font-bold tabular-nums text-amber-200">
+                    <UIcon name="i-lucide-coins" class="size-3.5" />{{ hud.credits }}
                 </div>
                 <Transition name="fade">
                     <div v-if="hud.combo > 1" class="mt-2 flex flex-col items-end">
@@ -188,14 +205,16 @@
                     <span
                         v-for="(w, i) in hud.weapons"
                         :key="w.id"
-                        class="rounded-full border px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.25em] transition-all"
-                        :class="i === hud.activeWeapon ? 'border-white/30 bg-white/10 text-white' : 'border-white/10 text-white/35'"
-                    >{{ i + 1 }} · {{ w.name }}</span>
+                        class="flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.25em] transition-all"
+                        :class="i === hud.activeWeapon ? 'border-white/30 bg-white/10 text-white' : w.ammo + w.reserve === 0 ? 'border-red-400/30 text-red-300/50' : 'border-white/10 text-white/35'"
+                    >{{ i + 1 }} · {{ w.name }}<span v-if="i !== hud.activeWeapon" class="font-mono tracking-normal opacity-70">{{ w.ammo + w.reserve }}</span></span>
                 </div>
                 <div v-if="activeWeapon" class="mt-2 flex items-baseline gap-2 transition-opacity" :class="hud.held === 'melee' ? 'opacity-50' : ''">
                     <span v-if="activeWeapon.reloading" class="text-[10px] uppercase tracking-[0.4em] text-white/50">Reloading</span>
                     <span v-else class="font-mono text-5xl font-black leading-none tabular-nums" :class="activeWeapon.ammo === 0 ? 'text-red-400' : 'text-white'">{{ activeWeapon.ammo }}</span>
                     <span class="font-mono text-xs text-white/40">/ {{ activeWeapon.magazine }}</span>
+                    <span class="ml-1 font-mono text-sm tabular-nums" :class="activeWeapon.reserve === 0 ? 'text-red-400' : 'text-white/60'">{{ activeWeapon.reserve }}</span>
+                    <span class="text-[9px] uppercase tracking-[0.3em] text-white/35">reserve</span>
                 </div>
                 <div v-if="activeWeapon" class="mt-2 h-1 w-56 overflow-hidden rounded-full bg-white/10">
                     <div
@@ -248,8 +267,8 @@
                     <span class="text-white/90"> Arena</span>
                 </h1>
                 <p class="mt-5 max-w-xl text-sm leading-relaxed text-white/60">
-                    Hold the arena against waves of voxel constructs. Shoot, slash, slide and bullet-jump. Kills drop shards;
-                    spend them between waves on weapons, mutations and abilities, or save up for something bigger.
+                    Hold the arena against waves of voxel constructs. Shoot, slash, slide and bullet-jump. Every cleared wave pays
+                    credits; spend them in the arsenal on guns, ammo, blades, abilities and three random boons. Only boons make you stronger.
                 </p>
                 <div class="mt-8 grid grid-cols-2 gap-x-8 gap-y-2 sm:grid-cols-3">
                     <div v-for="c in controls" :key="c[0]" class="flex items-center gap-3 text-xs">
@@ -257,26 +276,9 @@
                         <span class="text-white/55">{{ c[1] }}</span>
                     </div>
                 </div>
-                <div class="mt-8">
-                    <div class="text-[10px] uppercase tracking-[0.5em] text-white/40">Loadout</div>
-                    <div class="mt-2 grid grid-cols-3 gap-2">
-                        <button
-                            v-for="w in starters"
-                            :key="w.id"
-                            type="button"
-                            class="rounded-xl border p-3 text-left transition-all"
-                            :class="starter === w.id ? 'border-cyan-300/70 bg-cyan-300/10 shadow-[0_0_24px_-6px_rgba(63,240,255,0.7)]' : 'border-white/10 bg-white/5 hover:border-white/25'"
-                            @click="starter = w.id"
-                        >
-                            <div class="text-xs font-black uppercase tracking-wider" :style="{ color: starter === w.id ? '#a5f3fc' : '#fff' }">{{ w.name }}</div>
-                            <div class="mt-1 text-[11px] leading-snug text-white/50">{{ w.tagline }}</div>
-                        </button>
-                    </div>
-                </div>
-                <div class="mt-6 flex flex-wrap items-center gap-3">
+                <div class="mt-8 flex flex-wrap items-center gap-3">
                     <UButton size="xl" color="primary" icon="i-lucide-swords" class="px-7 font-black uppercase tracking-[0.3em]" @click="start">Deploy</UButton>
                     <UButton size="xl" color="neutral" variant="ghost" :icon="muted ? 'i-lucide-volume-x' : 'i-lucide-volume-2'" @click="toggleMute">{{ muted ? 'Unmute' : 'Sound' }}</UButton>
-                    <UButton size="xl" color="neutral" variant="ghost" icon="i-lucide-sparkles" @click="toggleQuality">FX {{ quality }}</UButton>
                     <UButton size="xl" color="neutral" variant="ghost" icon="i-lucide-arrow-left" to="/">Back</UButton>
                     <div v-if="best" class="ml-auto text-right">
                         <div class="text-[10px] uppercase tracking-[0.4em] text-white/40">Best run</div>
@@ -295,62 +297,252 @@
                 <div class="mt-6 flex flex-col gap-2">
                     <UButton block size="lg" color="primary" icon="i-lucide-play" class="font-bold uppercase tracking-[0.3em]" @click="resume">Resume</UButton>
                     <UButton block size="lg" color="neutral" variant="ghost" :icon="muted ? 'i-lucide-volume-x' : 'i-lucide-volume-2'" @click="toggleMute">{{ muted ? 'Unmute' : 'Mute' }}</UButton>
-                    <UButton block size="lg" color="neutral" variant="ghost" icon="i-lucide-sparkles" @click="toggleQuality">Effects: {{ quality }}</UButton>
                     <UButton block size="lg" color="neutral" variant="ghost" icon="i-lucide-rotate-ccw" @click="start">Restart</UButton>
                     <UButton block size="lg" color="neutral" variant="ghost" icon="i-lucide-log-out" to="/">Leave arena</UButton>
                 </div>
             </div>
         </div>
 
-        <!-- Shop -->
-        <div v-else-if="hud.phase === 'draft'" class="absolute inset-0 flex items-center justify-center overflow-y-auto bg-black/65 p-4 backdrop-blur-md sm:p-8">
-            <div class="w-full max-w-5xl">
+        <!-- Arsenal -->
+        <div v-else-if="hud.phase === 'draft' && shop" class="absolute inset-0 overflow-y-auto bg-black/75 backdrop-blur-md">
+            <div class="mx-auto flex min-h-full w-full max-w-7xl flex-col p-4 sm:p-6">
                 <div class="flex flex-wrap items-end justify-between gap-4">
                     <div>
-                        <div class="text-[11px] uppercase tracking-[0.7em] text-lime-300/80">Wave {{ hud.wave }} cleared</div>
-                        <h2 class="mt-2 text-4xl font-black uppercase tracking-tight">Shop</h2>
-                        <p class="mt-1 text-xs text-white/50">Buy what you can afford, or save your shards for the next wave. Abilities bind to Q and E.</p>
+                        <div class="text-[11px] uppercase tracking-[0.7em] text-lime-300/80">Wave {{ shop.wave }} cleared · <span class="text-amber-200">+{{ shop.income }} credits</span></div>
+                        <h2 class="mt-1 text-4xl font-black uppercase tracking-tight">Arsenal</h2>
                     </div>
-                    <div class="flex items-center gap-4">
+                    <div class="flex items-center gap-5">
                         <div class="text-right">
-                            <div class="text-[10px] uppercase tracking-[0.4em] text-white/40">Shards</div>
-                            <div class="flex items-center justify-end gap-1.5 font-mono text-2xl font-black tabular-nums text-cyan-300"><UIcon name="i-lucide-gem" class="size-4" />{{ hud.shards }}</div>
+                            <div class="text-[10px] uppercase tracking-[0.4em] text-white/40">Credits</div>
+                            <div class="flex items-center justify-end gap-1.5 font-mono text-3xl font-black tabular-nums text-amber-200"><UIcon name="i-lucide-coins" class="size-5" />{{ shop.credits }}</div>
                         </div>
-                        <UButton size="lg" color="neutral" variant="ghost" icon="i-lucide-dices" :disabled="hud.shards < hud.rerollCost" class="uppercase tracking-[0.25em]" @click="reroll">Reroll · {{ hud.rerollCost }}</UButton>
-                        <UButton size="xl" color="primary" icon="i-lucide-swords" class="px-6 font-black uppercase tracking-[0.3em]" @click="deploy">Deploy</UButton>
+                        <UButton size="xl" color="primary" icon="i-lucide-swords" class="px-7 font-black uppercase tracking-[0.3em]" @click="deploy">Deploy</UButton>
                     </div>
                 </div>
-                <div class="mt-6 grid grid-cols-2 gap-3 md:grid-cols-3">
-                    <button
-                        v-for="card in draft"
-                        :key="card.draftKey"
-                        type="button"
-                        class="draft-card group relative flex flex-col overflow-hidden rounded-2xl border bg-zinc-950/80 p-5 text-left transition-all duration-150"
-                        :class="[hud.shards >= card.cost ? 'border-white/10 hover:-translate-y-0.5 hover:border-[var(--card-color)] hover:bg-zinc-900/80' : 'cursor-not-allowed border-white/5 opacity-45', slotPrompt?.draftKey === card.draftKey ? 'border-[var(--card-color)] shadow-[0_0_40px_-8px_var(--card-color)]' : '']"
-                        :style="{ '--card-color': RARITY_COLOR[card.rarity] }"
-                        @click="buy(card)"
-                    >
-                        <div class="absolute inset-x-0 top-0 h-px opacity-80" :style="{ background: `linear-gradient(90deg, transparent, ${RARITY_COLOR[card.rarity]}, transparent)` }" />
+
+                <div class="mt-5 grid gap-4 lg:grid-cols-12">
+                    <!-- Boons -->
+                    <section class="lg:col-span-3">
                         <div class="flex items-center justify-between">
-                            <span class="text-[9px] font-semibold uppercase tracking-[0.35em]" :style="{ color: RARITY_COLOR[card.rarity] }">{{ RARITY_LABEL[card.rarity] }} · {{ kindLabel(card) }}</span>
-                            <span class="flex items-center gap-1 font-mono text-xs font-bold tabular-nums" :class="hud.shards >= card.cost ? 'text-cyan-300' : 'text-white/40'"><UIcon name="i-lucide-gem" class="size-3" />{{ card.cost }}</span>
+                            <h3 class="text-[10px] font-semibold uppercase tracking-[0.4em] text-white/50">Boons</h3>
+                            <button type="button" class="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-[0.2em] transition-colors" :class="shop.credits >= shop.rerollCost ? 'text-white/70 hover:text-white' : 'text-white/25'" :disabled="shop.credits < shop.rerollCost" @click="reroll"><UIcon name="i-lucide-dices" class="size-3.5" />Reroll · {{ shop.rerollCost }}</button>
                         </div>
-                        <div class="mt-4 flex items-center gap-3">
-                            <span class="flex size-11 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/5">
-                                <UIcon :name="card.icon" class="size-5" :style="{ color: RARITY_COLOR[card.rarity] }" />
-                            </span>
-                            <span class="text-base font-black uppercase leading-tight tracking-wide">{{ card.name }}</span>
+                        <div class="mt-3 flex flex-col gap-3">
+                            <button
+                                v-for="card in shop.boons"
+                                :key="card.draftKey"
+                                type="button"
+                                class="boon relative flex flex-col overflow-hidden rounded-2xl border p-4 text-left transition-all duration-150"
+                                :class="shop.credits >= card.cost ? 'cursor-pointer border-white/10 hover:-translate-y-0.5 hover:border-[var(--card-color)]' : 'cursor-not-allowed border-white/5 opacity-45'"
+                                :style="{ '--card-color': RARITY_COLOR[card.rarity] }"
+                                @click="buyBoon(card)"
+                            >
+                                <div class="absolute inset-x-0 top-0 h-px opacity-90" :style="{ background: `linear-gradient(90deg, transparent, ${RARITY_COLOR[card.rarity]}, transparent)` }" />
+                                <div class="flex items-center justify-between">
+                                    <span class="text-[9px] font-semibold uppercase tracking-[0.35em]" :style="{ color: RARITY_COLOR[card.rarity] }">{{ RARITY_LABEL[card.rarity] }}<template v-if="card.owned"> · ×{{ card.owned }} owned</template></span>
+                                    <span class="flex items-center gap-1 font-mono text-xs font-bold tabular-nums" :class="shop.credits >= card.cost ? 'text-amber-200' : 'text-white/40'"><UIcon name="i-lucide-coins" class="size-3" />{{ card.cost }}</span>
+                                </div>
+                                <div class="mt-3 flex items-center gap-3">
+                                    <span class="flex size-10 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/5 shadow-[inset_0_0_18px_-6px_var(--card-color)]">
+                                        <UIcon :name="card.icon" class="size-5" :style="{ color: RARITY_COLOR[card.rarity] }" />
+                                    </span>
+                                    <span class="text-sm font-black uppercase leading-tight tracking-wide">{{ card.name }}</span>
+                                </div>
+                                <p class="mt-2 text-[11px] leading-relaxed text-white/55">{{ card.description }}</p>
+                            </button>
+                            <div v-if="shop.boons.length === 0" class="rounded-2xl border border-dashed border-white/10 p-6 text-center text-[10px] uppercase tracking-[0.3em] text-white/40">All taken — reroll or deploy</div>
                         </div>
-                        <p class="mt-3 text-xs leading-relaxed text-white/55">{{ card.description }}</p>
-                        <div v-if="slotPrompt?.draftKey === card.draftKey" class="mt-4 rounded-xl border border-white/10 bg-black/40 p-3" @click.stop>
-                            <div class="text-[10px] uppercase tracking-[0.3em] text-white/50">Both slots are taken — replace which?</div>
-                            <div class="mt-2 flex gap-2">
-                                <UButton v-for="(a, i) in hud.abilities" :key="i" size="sm" color="neutral" variant="soft" class="flex-1 justify-center font-mono uppercase tracking-widest" @click.stop="buy(card, i)">{{ i === 0 ? 'Q' : 'E' }} · {{ a?.name }}</UButton>
-                                <UButton size="sm" color="neutral" variant="ghost" icon="i-lucide-x" @click.stop="slotPrompt = null" />
+                    </section>
+
+                    <!-- Catalogue -->
+                    <section class="lg:col-span-4">
+                        <div class="flex rounded-xl border border-white/10 bg-white/5 p-0.5 text-[10px] font-semibold uppercase tracking-[0.25em]">
+                            <button v-for="tab in shopTabs" :key="tab.id" type="button" class="flex flex-1 items-center justify-center gap-1.5 rounded-lg py-1.5 transition-colors" :class="shopTab === tab.id ? 'bg-white/15 text-white' : 'text-white/45 hover:text-white/80'" @click="shopTab = tab.id"><UIcon :name="tab.icon" class="size-3.5" />{{ tab.label }}</button>
+                        </div>
+                        <div class="mt-3 flex flex-col gap-1">
+                            <template v-if="shopTab === 'weapon'">
+                                <button
+                                    v-for="w in listedGuns"
+                                    :key="w.id"
+                                    type="button"
+                                    class="flex items-center gap-3 rounded-xl border px-2 py-1.5 text-left transition-colors"
+                                    :class="isSelected('weapon', w.id) ? 'border-[var(--card-color)] bg-white/10' : 'border-transparent hover:bg-white/5'"
+                                    :style="{ '--card-color': RARITY_COLOR[w.rarity] }"
+                                    @click="select('weapon', w.id)"
+                                >
+                                    <img :src="thumbs['weapon:' + w.id]" alt="" class="h-9 w-16 shrink-0 object-contain" draggable="false">
+                                    <div class="min-w-0 flex-1">
+                                        <div class="truncate text-xs font-black uppercase tracking-wider" :style="{ color: RARITY_COLOR[w.rarity] }">{{ w.name }}</div>
+                                        <div class="text-[9px] uppercase tracking-[0.25em] text-white/40">{{ RARITY_LABEL[w.rarity] }} · {{ w.magazine }} / {{ w.reserveMax }}</div>
+                                    </div>
+                                    <span v-if="w.owned" class="flex items-center gap-1 rounded border border-white/25 px-1.5 font-mono text-[10px] font-bold leading-4" :class="w.reserve === 0 ? 'text-red-300' : ''">{{ w.slot + 1 }}<span class="text-white/40">·</span>{{ w.reserve }}</span>
+                                    <span v-else class="flex items-center gap-1 font-mono text-[11px] tabular-nums" :class="shop.credits >= w.price ? 'text-amber-200' : 'text-white/35'"><UIcon name="i-lucide-coins" class="size-3" />{{ w.price }}</span>
+                                </button>
+                            </template>
+                            <template v-else-if="shopTab === 'melee'">
+                                <button
+                                    v-for="m in shop.melee"
+                                    :key="m.id"
+                                    type="button"
+                                    class="flex items-center gap-3 rounded-xl border px-2 py-1.5 text-left transition-colors"
+                                    :class="isSelected('melee', m.id) ? 'border-[var(--card-color)] bg-white/10' : 'border-transparent hover:bg-white/5'"
+                                    :style="{ '--card-color': RARITY_COLOR[m.rarity] }"
+                                    @click="select('melee', m.id)"
+                                >
+                                    <img :src="thumbs['melee:' + m.id]" alt="" class="h-9 w-16 shrink-0 object-contain" draggable="false">
+                                    <div class="min-w-0 flex-1">
+                                        <div class="truncate text-xs font-black uppercase tracking-wider" :style="{ color: RARITY_COLOR[m.rarity] }">{{ m.name }}</div>
+                                        <div class="text-[9px] uppercase tracking-[0.25em] text-white/40">{{ RARITY_LABEL[m.rarity] }}</div>
+                                    </div>
+                                    <span v-if="m.owned" class="rounded border border-white/25 px-1.5 font-mono text-[9px] uppercase leading-4 tracking-widest">In hand</span>
+                                    <span v-else class="flex items-center gap-1 font-mono text-[11px] tabular-nums" :class="shop.credits >= m.price ? 'text-amber-200' : 'text-white/35'"><UIcon name="i-lucide-coins" class="size-3" />{{ m.price }}</span>
+                                </button>
+                            </template>
+                            <template v-else>
+                                <button
+                                    v-for="a in shop.abilities"
+                                    :key="a.id"
+                                    type="button"
+                                    class="flex items-center gap-3 rounded-xl border px-2 py-2 text-left transition-colors"
+                                    :class="isSelected('ability', a.id) ? 'border-[var(--card-color)] bg-white/10' : 'border-transparent hover:bg-white/5'"
+                                    :style="{ '--card-color': a.color }"
+                                    @click="select('ability', a.id)"
+                                >
+                                    <span class="flex size-9 w-16 shrink-0 items-center justify-center"><UIcon :name="a.icon" class="size-6" :style="{ color: a.color }" /></span>
+                                    <div class="min-w-0 flex-1">
+                                        <div class="truncate text-xs font-black uppercase tracking-wider">{{ a.name }}</div>
+                                        <div class="text-[9px] uppercase tracking-[0.25em] text-white/40">{{ a.energy }} energy</div>
+                                    </div>
+                                    <span v-if="a.owned" class="rounded border border-white/25 px-1.5 font-mono text-[10px] font-bold leading-4">{{ abilityKey(a.id) }}</span>
+                                    <span v-else class="flex items-center gap-1 font-mono text-[11px] tabular-nums" :class="shop.credits >= a.price ? 'text-amber-200' : 'text-white/35'"><UIcon name="i-lucide-coins" class="size-3" />{{ a.price }}</span>
+                                </button>
+                            </template>
+                        </div>
+                    </section>
+
+                    <!-- Detail -->
+                    <section class="lg:col-span-5">
+                        <!-- Gun -->
+                        <div v-if="detailGun" class="flex flex-col rounded-3xl border border-white/10 bg-zinc-950/70" :style="{ '--card-color': RARITY_COLOR[detailGun.rarity] }">
+                            <div class="relative h-56 overflow-hidden rounded-t-3xl">
+                                <div class="absolute inset-0" :style="{ background: `radial-gradient(ellipse at 50% 60%, ${RARITY_COLOR[detailGun.rarity]}33, transparent 65%)` }" />
+                                <div ref="previewBox" class="absolute inset-0" />
+                                <div class="pointer-events-none absolute inset-x-5 top-4 flex items-start justify-between">
+                                    <div>
+                                        <div class="text-[9px] font-semibold uppercase tracking-[0.4em]" :style="{ color: RARITY_COLOR[detailGun.rarity] }">{{ RARITY_LABEL[detailGun.rarity] }} · {{ WEAPONS[detailGun.id].auto ? 'full auto' : WEAPONS[detailGun.id].burst > 1 ? `${WEAPONS[detailGun.id].burst}-round burst` : 'semi auto' }}</div>
+                                        <div class="mt-1 text-2xl font-black uppercase tracking-tight">{{ detailGun.name }}</div>
+                                    </div>
+                                    <span v-if="detailGun.owned" class="rounded-lg border border-white/25 bg-black/40 px-2 py-1 font-mono text-[10px] font-bold uppercase tracking-widest">Slot {{ detailGun.slot + 1 }}</span>
+                                </div>
+                                <p class="pointer-events-none absolute inset-x-5 bottom-4 text-[11px] leading-snug text-white/60">{{ detailGun.tagline }}</p>
+                            </div>
+                            <div class="flex flex-col gap-4 p-5">
+                                <div class="grid grid-cols-1 gap-x-6 gap-y-2 sm:grid-cols-2">
+                                    <div v-for="b in gunBars" :key="b.label" class="flex items-center gap-3">
+                                        <span class="w-20 shrink-0 whitespace-nowrap text-[9px] uppercase tracking-[0.25em] text-white/45">{{ b.label }}</span>
+                                        <div class="h-1.5 flex-1 overflow-hidden rounded-full bg-white/10">
+                                            <div class="h-full rounded-full transition-[width] duration-300" :style="{ width: (b.value * 100) + '%', background: RARITY_COLOR[detailGun.rarity], boxShadow: `0 0 10px ${RARITY_COLOR[detailGun.rarity]}88` }" />
+                                        </div>
+                                        <span class="w-12 shrink-0 text-right font-mono text-[10px] tabular-nums text-white/70">{{ b.text }}</span>
+                                    </div>
+                                </div>
+
+                                <template v-if="detailGun.owned">
+                                    <div class="rounded-2xl border border-white/10 bg-black/30 p-3">
+                                        <div class="flex items-center justify-between text-[10px] uppercase tracking-[0.3em] text-white/50">
+                                            <span>Reserve ammo</span>
+                                            <span class="font-mono tabular-nums" :class="detailGun.reserve === 0 ? 'text-red-400' : 'text-white/80'">{{ detailGun.reserve }} / {{ detailGun.reserveMax }}</span>
+                                        </div>
+                                        <div class="mt-2 h-1.5 overflow-hidden rounded-full bg-white/10">
+                                            <div class="h-full rounded-full bg-amber-300 transition-[width]" :style="{ width: (detailGun.reserveMax > 0 ? detailGun.reserve / detailGun.reserveMax * 100 : 0) + '%' }" />
+                                        </div>
+                                        <div class="mt-3 flex items-center justify-between gap-2">
+                                            <span class="text-[10px] text-white/40">Magazine {{ detailGun.magazine }} · crates drop from kills · boons raise damage and capacity</span>
+                                            <UButton size="xs" color="neutral" variant="soft" :disabled="detailGun.refillPrice === 0 || shop.credits < detailGun.refillPrice" class="font-mono" @click="refill(detailGun.id)">
+                                                <UIcon name="i-lucide-package" class="size-3" />Refill<template v-if="detailGun.refillPrice > 0"> · {{ detailGun.refillPrice }}</template><template v-else> · full</template>
+                                            </UButton>
+                                        </div>
+                                    </div>
+                                </template>
+                                <template v-else>
+                                    <div class="flex items-center justify-between gap-3">
+                                        <span class="text-[10px] text-white/45">Loadout {{ ownedGuns.length }}/{{ shop.maxWeapons }} · comes with a full reserve</span>
+                                        <UButton size="lg" color="primary" :disabled="shop.credits < detailGun.price" class="px-5 font-black uppercase tracking-[0.25em]" @click="buyWeapon(detailGun.id)"><UIcon name="i-lucide-coins" class="size-4" />Buy · {{ detailGun.price }}</UButton>
+                                    </div>
+                                    <div v-if="weaponPrompt === detailGun.id" class="rounded-2xl border border-amber-200/30 bg-black/40 p-3">
+                                        <div class="text-[10px] uppercase tracking-[0.3em] text-amber-200/80">Loadout full — which gun does it replace?</div>
+                                        <div class="mt-2 grid grid-cols-3 gap-2">
+                                            <button v-for="(slotId, i) in shop.slots" :key="i" type="button" class="flex flex-col items-center gap-1 rounded-xl border border-white/15 p-2 transition-colors hover:border-white/50 hover:bg-white/5" @click="buyWeapon(detailGun.id, i)">
+                                                <img v-if="slotId" :src="thumbs['weapon:' + slotId]" alt="" class="h-8 w-14 object-contain" draggable="false">
+                                                <span class="font-mono text-[9px] uppercase tracking-widest text-white/70">{{ i + 1 }} · {{ slotId ? weaponName(slotId) : 'empty' }}</span>
+                                            </button>
+                                        </div>
+                                        <button type="button" class="mt-2 w-full text-center text-[10px] uppercase tracking-[0.3em] text-white/40 hover:text-white/70" @click="weaponPrompt = null">Cancel</button>
+                                    </div>
+                                </template>
                             </div>
                         </div>
-                    </button>
-                    <div v-if="draft.length === 0" class="col-span-full rounded-2xl border border-dashed border-white/10 p-8 text-center text-xs uppercase tracking-[0.3em] text-white/40">Sold out — reroll or deploy</div>
+
+                        <!-- Blade -->
+                        <div v-else-if="detailMelee" class="flex flex-col rounded-3xl border border-white/10 bg-zinc-950/70" :style="{ '--card-color': RARITY_COLOR[detailMelee.rarity] }">
+                            <div class="relative h-56 overflow-hidden rounded-t-3xl">
+                                <div class="absolute inset-0" :style="{ background: `radial-gradient(ellipse at 50% 60%, ${RARITY_COLOR[detailMelee.rarity]}33, transparent 65%)` }" />
+                                <div ref="previewBox" class="absolute inset-0" />
+                                <div class="pointer-events-none absolute inset-x-5 top-4 flex items-start justify-between">
+                                    <div>
+                                        <div class="text-[9px] font-semibold uppercase tracking-[0.4em]" :style="{ color: RARITY_COLOR[detailMelee.rarity] }">{{ RARITY_LABEL[detailMelee.rarity] }} · {{ MELEE_WEAPONS[detailMelee.id].finisher }} finisher</div>
+                                        <div class="mt-1 text-2xl font-black uppercase tracking-tight">{{ detailMelee.name }}</div>
+                                    </div>
+                                    <span v-if="detailMelee.owned" class="rounded-lg border border-white/25 bg-black/40 px-2 py-1 font-mono text-[10px] font-bold uppercase tracking-widest">In hand</span>
+                                </div>
+                                <p class="pointer-events-none absolute inset-x-5 bottom-4 text-[11px] leading-snug text-white/60">{{ detailMelee.tagline }}</p>
+                            </div>
+                            <div class="flex flex-col gap-4 p-5">
+                                <div class="grid grid-cols-1 gap-x-6 gap-y-2 sm:grid-cols-2">
+                                    <div v-for="b in meleeBars" :key="b.label" class="flex items-center gap-3">
+                                        <span class="w-20 shrink-0 whitespace-nowrap text-[9px] uppercase tracking-[0.25em] text-white/45">{{ b.label }}</span>
+                                        <div class="h-1.5 flex-1 overflow-hidden rounded-full bg-white/10">
+                                            <div class="h-full rounded-full" :style="{ width: (b.value * 100) + '%', background: RARITY_COLOR[detailMelee.rarity], boxShadow: `0 0 10px ${RARITY_COLOR[detailMelee.rarity]}88` }" />
+                                        </div>
+                                        <span class="w-12 shrink-0 text-right font-mono text-[10px] tabular-nums text-white/70">{{ b.text }}</span>
+                                    </div>
+                                </div>
+                                <div v-if="!detailMelee.owned" class="flex items-center justify-between gap-3">
+                                    <span class="text-[10px] text-white/45">Replaces the {{ hud.melee.name }}. Blades never run out of ammo.</span>
+                                    <UButton size="lg" color="primary" :disabled="shop.credits < detailMelee.price" class="px-5 font-black uppercase tracking-[0.25em]" @click="buyMelee(detailMelee.id)"><UIcon name="i-lucide-coins" class="size-4" />Buy · {{ detailMelee.price }}</UButton>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Ability -->
+                        <div v-else-if="detailAbility" class="flex flex-col rounded-3xl border border-white/10 bg-zinc-950/70" :style="{ '--card-color': detailAbility.color }">
+                            <div class="relative flex h-56 items-center justify-center overflow-hidden rounded-t-3xl">
+                                <div class="absolute inset-0" :style="{ background: `radial-gradient(ellipse at 50% 60%, ${detailAbility.color}33, transparent 65%)` }" />
+                                <UIcon :name="detailAbility.icon" class="relative size-24" :style="{ color: detailAbility.color, filter: `drop-shadow(0 0 24px ${detailAbility.color}aa)` }" />
+                                <div class="pointer-events-none absolute inset-x-5 top-4 flex items-start justify-between">
+                                    <div>
+                                        <div class="text-[9px] font-semibold uppercase tracking-[0.4em]" :style="{ color: detailAbility.color }">Ability · {{ detailAbility.energy }} energy</div>
+                                        <div class="mt-1 text-2xl font-black uppercase tracking-tight">{{ detailAbility.name }}</div>
+                                    </div>
+                                    <span v-if="detailAbility.owned" class="rounded-lg border border-white/25 bg-black/40 px-2 py-1 font-mono text-[10px] font-bold uppercase tracking-widest">Bound to {{ abilityKey(detailAbility.id) }}</span>
+                                </div>
+                            </div>
+                            <div class="flex flex-col gap-4 p-5">
+                                <p class="text-xs leading-relaxed text-white/60">{{ detailAbility.description }}</p>
+                                <div v-if="!detailAbility.owned" class="flex items-center justify-between gap-3">
+                                    <span class="text-[10px] text-white/45">Energy builds from kills. Two abilities fit, on Q and E.</span>
+                                    <UButton size="lg" color="primary" :disabled="shop.credits < detailAbility.price" class="px-5 font-black uppercase tracking-[0.25em]" @click="buyAbility(detailAbility.id)"><UIcon name="i-lucide-coins" class="size-4" />Buy · {{ detailAbility.price }}</UButton>
+                                </div>
+                                <div v-if="abilityPrompt === detailAbility.id" class="rounded-2xl border border-amber-200/30 bg-black/40 p-3">
+                                    <div class="text-[10px] uppercase tracking-[0.3em] text-amber-200/80">Both slots are taken — which one does it replace?</div>
+                                    <div class="mt-2 grid grid-cols-2 gap-2">
+                                        <button v-for="(slot, i) in hud.abilities" :key="i" type="button" class="rounded-xl border border-white/15 p-2 font-mono text-[10px] uppercase tracking-widest text-white/70 transition-colors hover:border-white/50 hover:bg-white/5" @click="buyAbility(detailAbility.id, i)">{{ i === 0 ? 'Q' : 'E' }} · {{ slot?.name }}</button>
+                                    </div>
+                                    <button type="button" class="mt-2 w-full text-center text-[10px] uppercase tracking-[0.3em] text-white/40 hover:text-white/70" @click="abilityPrompt = null">Cancel</button>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
                 </div>
             </div>
         </div>
@@ -384,14 +576,17 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, nextTick, onMounted, onBeforeUnmount } from 'vue'
+import { ref, reactive, computed, nextTick, onMounted, onBeforeUnmount, watch } from 'vue'
 import { VoxelArenaGame, createHud } from '~/utils/voxel-arena/engine'
 import type { RunSummary } from '~/utils/voxel-arena/engine'
-import type { DraftCard, WeaponId } from '~/utils/voxel-arena/types'
+import type { AbilityId, DraftCard, MeleeId, ShopState, WeaponId } from '~/utils/voxel-arena/types'
 import { RARITY_COLOR, RARITY_LABEL } from '~/utils/voxel-arena/upgrades'
-import { WEAPONS, STARTER_WEAPONS } from '~/utils/voxel-arena/data'
+import { WEAPONS, WEAPON_IDS, MELEE_WEAPONS, MELEE_IDS } from '~/utils/voxel-arena/data'
+import { ArsenalPreview } from '~/utils/voxel-arena/preview'
+import type { PreviewKind } from '~/utils/voxel-arena/preview'
 
 const viewport = ref<HTMLDivElement | null>(null)
+const minimap = ref<HTMLCanvasElement | null>(null)
 const hud = reactive(createHud())
 let game: VoxelArenaGame | null = null
 
@@ -399,15 +594,24 @@ const banner = ref<{ title: string, subtitle: string, tone: string } | null>(nul
 let bannerTimer: number | undefined
 const toast = ref<{ text: string, color: string } | null>(null)
 let toastTimer: number | undefined
-const draft = ref<DraftCard[]>([])
-const slotPrompt = ref<DraftCard | null>(null)
+const shop = ref<ShopState | null>(null)
+const weaponPrompt = ref<WeaponId | null>(null)
+const abilityPrompt = ref<AbilityId | null>(null)
+type ShopTab = 'weapon' | 'melee' | 'ability'
+const shopTabs: { id: ShopTab, label: string, icon: string }[] = [
+    { id: 'weapon', label: 'Guns', icon: 'i-lucide-target' },
+    { id: 'melee', label: 'Blades', icon: 'i-lucide-sword' },
+    { id: 'ability', label: 'Abilities', icon: 'i-lucide-sparkles' }
+]
+const shopTab = ref<ShopTab>('weapon')
+const selected = ref<{ kind: ShopTab, id: string } | null>(null)
+const thumbs = ref<Record<string, string>>({})
+const previewBox = ref<HTMLDivElement | null>(null)
+let preview: ArsenalPreview | null = null
 const summary = ref<RunSummary | null>(null)
 const muted = ref(false)
 const best = ref<{ wave: number, score: number } | null>(null)
-const quality = ref<'high' | 'low'>('high')
 const route = useRoute()
-const starter = ref<WeaponId>('pistol')
-const starters = STARTER_WEAPONS.map(id => WEAPONS[id])
 const viewportHeight = ref(720)
 
 const controls: [string, string][] = [
@@ -419,7 +623,7 @@ const controls: [string, string][] = [
     ['Ctrl + Space', 'Bullet jump'],
     ['Shift', 'Dash'],
     ['Space', 'Jump · double jump'],
-    ['Q / E', 'Abilities (buy in the shop)'],
+    ['Q / E', 'Abilities (buy in the arsenal)'],
     ['R', 'Reload'],
     ['1-3 / Wheel', 'Switch weapon'],
     ['Esc', 'Pause']
@@ -452,9 +656,116 @@ const summaryStats = computed(() => {
     ]
 })
 
-function kindLabel(card: DraftCard): string {
-    return card.kind === 'weapon' ? 'weapon' : card.kind === 'melee' ? 'melee' : card.kind === 'ability' ? 'ability' : card.kind === 'crazy' ? 'mutation' : 'upgrade'
+const ownedGuns = computed(() => (shop.value?.weapons ?? []).filter(w => w.owned).sort((a, b) => a.slot - b.slot))
+/** Owned guns first, then the rest in catalogue order. */
+const listedGuns = computed(() => [...ownedGuns.value, ...(shop.value?.weapons ?? []).filter(w => !w.owned)])
+const detailGun = computed(() => selected.value?.kind === 'weapon' ? shop.value?.weapons.find(w => w.id === selected.value!.id) ?? null : null)
+const detailMelee = computed(() => selected.value?.kind === 'melee' ? shop.value?.melee.find(m => m.id === selected.value!.id) ?? null : null)
+const detailAbility = computed(() => selected.value?.kind === 'ability' ? shop.value?.abilities.find(a => a.id === selected.value!.id) ?? null : null)
+
+/** Effective rounds per second, bursts included. */
+function rateOf(id: WeaponId): number {
+    const d = WEAPONS[id]
+    return d.burst > 1 ? d.burst / (d.burst / d.fireRate + d.burstGap) : d.fireRate
 }
+
+function dpsOf(id: WeaponId): number {
+    const d = WEAPONS[id]
+    return d.damage * d.pellets * rateOf(id) + (d.burn > 0 ? 9 : 0) + (d.explosionRadius > 0 ? d.damage * 0.5 : 0)
+}
+
+const gunMax = {
+    dps: Math.max(...WEAPON_IDS.map(dpsOf)),
+    rate: Math.max(...WEAPON_IDS.map(rateOf)),
+    magazine: Math.max(...WEAPON_IDS.map(id => WEAPONS[id].magazine)),
+    reserve: Math.max(...WEAPON_IDS.map(id => WEAPONS[id].reserve))
+}
+
+const gunBars = computed(() => {
+    const g = detailGun.value
+    if (!g) return []
+    const d = WEAPONS[g.id]
+    return [
+        { label: 'Damage', value: Math.min(1, dpsOf(g.id) / gunMax.dps), text: d.pellets > 1 ? `${d.damage}×${d.pellets}` : String(d.damage) },
+        { label: 'Fire rate', value: Math.min(1, rateOf(g.id) / gunMax.rate), text: `${rateOf(g.id).toFixed(1)}/s` },
+        { label: 'Accuracy', value: Math.max(0.05, 1 - d.spread / 0.12), text: d.spread === 0 ? 'laser' : d.spread < 0.02 ? 'tight' : d.spread < 0.05 ? 'fair' : 'wide' },
+        { label: 'Magazine', value: Math.min(1, g.magazine / gunMax.magazine), text: String(g.magazine) },
+        { label: 'Reserve', value: Math.min(1, g.reserveMax / (gunMax.reserve * 1.4)), text: String(g.reserveMax) },
+        { label: 'Reload', value: Math.max(0.1, 1 - d.reloadTime / 4), text: `${d.reloadTime.toFixed(1)}s` }
+    ]
+})
+
+const meleeMax = {
+    damage: Math.max(...MELEE_IDS.map(id => MELEE_WEAPONS[id].damage)),
+    range: Math.max(...MELEE_IDS.map(id => MELEE_WEAPONS[id].range)),
+    speed: Math.max(...MELEE_IDS.map(id => 1 / MELEE_WEAPONS[id].swingTime)),
+    finisher: Math.max(...MELEE_IDS.map(id => MELEE_WEAPONS[id].finisherMult))
+}
+
+const meleeBars = computed(() => {
+    const m = detailMelee.value
+    if (!m) return []
+    const d = MELEE_WEAPONS[m.id]
+    return [
+        { label: 'Damage', value: d.damage / meleeMax.damage, text: String(d.damage) },
+        { label: 'Reach', value: d.range / meleeMax.range, text: `${d.range.toFixed(1)}m` },
+        { label: 'Speed', value: (1 / d.swingTime) / meleeMax.speed, text: `${(1 / d.swingTime).toFixed(1)}/s` },
+        { label: 'Finisher', value: d.finisherMult / meleeMax.finisher, text: `×${d.finisherMult.toFixed(1)}` }
+    ]
+})
+
+function isSelected(kind: ShopTab, id: string): boolean {
+    return selected.value?.kind === kind && selected.value.id === id
+}
+
+function select(kind: ShopTab, id: string): void {
+    selected.value = { kind, id }
+    weaponPrompt.value = null
+    abilityPrompt.value = null
+}
+
+/** Builds the WebGL preview on first use and renders every thumbnail once. */
+function ensurePreview(): ArsenalPreview {
+    if (!preview) {
+        preview = new ArsenalPreview()
+        const all: Record<string, string> = {}
+        for (const id of WEAPON_IDS) all[`weapon:${id}`] = preview.thumbnail('weapon', id)
+        for (const id of MELEE_IDS) all[`melee:${id}`] = preview.thumbnail('melee', id)
+        thumbs.value = all
+    }
+    return preview
+}
+
+function syncPreview(): void {
+    const box = previewBox.value
+    const sel = selected.value
+    if (!box || !sel || sel.kind === 'ability') {
+        preview?.unmount()
+        return
+    }
+    const p = ensurePreview()
+    p.mount(box)
+    p.show(sel.kind as PreviewKind, sel.id)
+}
+
+watch([previewBox, selected], () => nextTick(syncPreview))
+watch(shopTab, tab => {
+    const s = shop.value
+    if (!s) return
+    if (tab === 'weapon') select('weapon', listedGuns.value[0]?.id ?? 'pistol')
+    else if (tab === 'melee') select('melee', s.melee.find(m => m.owned)?.id ?? s.melee[0]!.id)
+    else select('ability', s.abilities.find(a => a.owned)?.id ?? s.abilities[0]!.id)
+})
+
+function weaponName(id: WeaponId): string {
+    return WEAPONS[id].name
+}
+
+function abilityKey(id: AbilityId): string {
+    const i = hud.abilities.findIndex(a => a?.id === id)
+    return i === 0 ? 'Q' : i === 1 ? 'E' : ''
+}
+
 
 function formatTime(seconds: number): string {
     const m = Math.floor(seconds / 60)
@@ -476,7 +787,7 @@ function showToast(text: string, color: string): void {
 
 function start(): void {
     summary.value = null
-    game?.start(starter.value)
+    game?.start()
 }
 
 function resume(): void {
@@ -488,52 +799,39 @@ function toggleMute(): void {
     game?.setMuted(muted.value)
 }
 
-function toggleQuality(): void {
-    quality.value = quality.value === 'high' ? 'low' : 'high'
-    game?.setQuality(quality.value)
-    try {
-        localStorage.setItem('voxel-arena-fx', quality.value)
-    } catch {
-        // storage is a convenience only
-    }
+function buyBoon(card: DraftCard): void {
+    game?.buyBoon(card)
 }
 
-function loadQuality(): void {
-    const fromQuery = route.query.fx
-    if (fromQuery === 'low' || fromQuery === 'high') {
-        quality.value = fromQuery
-        return
-    }
-    try {
-        const stored = localStorage.getItem('voxel-arena-fx')
-        if (stored === 'low' || stored === 'high') quality.value = stored
-    } catch {
-        quality.value = 'high'
-    }
-}
-
-function buy(card: DraftCard, slot?: number): void {
+function buyWeapon(id: WeaponId, slot?: number): void {
     if (!game) return
-    if (hud.shards < card.cost) return
-    const result = game.buyCard(card, slot)
-    if (result === 'slot') {
-        slotPrompt.value = card
-        return
-    }
-    if (result === 'ok') {
-        slotPrompt.value = null
-        draft.value = draft.value.filter(c => c.draftKey !== card.draftKey)
-    }
+    const result = game.buyWeapon(id, slot)
+    weaponPrompt.value = result === 'slot' ? id : null
+}
+
+function refill(id: WeaponId | 'all'): void {
+    game?.refillAmmo(id)
+}
+
+function buyMelee(id: MeleeId): void {
+    game?.buyMelee(id)
+}
+
+function buyAbility(id: AbilityId, slot?: number): void {
+    if (!game) return
+    const result = game.buyAbility(id, slot)
+    abilityPrompt.value = result === 'slot' ? id : null
 }
 
 function reroll(): void {
-    slotPrompt.value = null
-    game?.rerollDraft()
+    game?.rerollBoons()
 }
 
 function deploy(): void {
-    slotPrompt.value = null
-    draft.value = []
+    weaponPrompt.value = null
+    abilityPrompt.value = null
+    shop.value = null
+    preview?.unmount()
     game?.finishShop()
 }
 
@@ -555,7 +853,6 @@ onMounted(async () => {
     // the viewport ref is only populated after nextTick.
     await nextTick()
     loadBest()
-    loadQuality()
     onResize()
     window.addEventListener('resize', onResize)
     if (!viewport.value) return
@@ -563,16 +860,23 @@ onMounted(async () => {
         hud,
         banner: showBanner,
         toast: showToast,
-        draft: cards => {
-            draft.value = cards
-            slotPrompt.value = null
+        shop: state => {
+            const opening = shop.value === null
+            shop.value = state
+            if (opening) {
+                ensurePreview()
+                shopTab.value = 'weapon'
+                select('weapon', state.weapons.filter(w => w.owned).sort((a, b) => a.slot - b.slot)[0]?.id ?? 'pistol')
+            }
         },
         dead: s => {
             summary.value = s
             best.value = { wave: s.bestWave, score: s.bestScore }
         }
     })
-    game.mount(viewport.value, quality.value)
+    game.mount(viewport.value)
+    game.attachMinimap(minimap.value)
+    watch(minimap, canvas => game?.attachMinimap(canvas))
     if (import.meta.dev && route.query.debug === '1') {
         (window as unknown as { __voxelArena: VoxelArenaGame }).__voxelArena = game
     }
@@ -584,6 +888,8 @@ onBeforeUnmount(() => {
     if (toastTimer) window.clearTimeout(toastTimer)
     game?.dispose()
     game = null
+    preview?.dispose()
+    preview = null
 })
 </script>
 
@@ -619,6 +925,22 @@ onBeforeUnmount(() => {
     mask-image: radial-gradient(circle at 50% 50%, transparent 34%, black 80%);
     -webkit-mask-image: radial-gradient(circle at 50% 50%, transparent 34%, black 80%);
     opacity: 0.55;
+}
+
+.boon {
+    background: linear-gradient(160deg, rgba(24, 24, 27, 0.9), rgba(9, 9, 11, 0.85));
+}
+
+.boon:not(:disabled):hover {
+    box-shadow: 0 0 40px -12px var(--card-color);
+}
+
+.hit-marker {
+    width: 64px;
+    height: 18px;
+    border-radius: 50% 50% 8px 8px / 100% 100% 8px 8px;
+    background: radial-gradient(ellipse at 50% 100%, rgba(255, 60, 60, 0.95), rgba(255, 40, 40, 0.35) 60%, transparent 75%);
+    filter: drop-shadow(0 0 8px rgba(255, 40, 40, 0.8));
 }
 
 .scope-mask {

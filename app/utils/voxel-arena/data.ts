@@ -32,7 +32,11 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
         adsFov: 60,
         adsSpread: 0.3,
         bloom: 0.012,
-        burn: 0
+        burn: 0,
+        reserve: 120,
+        price: 80,
+        burst: 1,
+        burstGap: 0
     },
     magnum: {
         id: 'magnum',
@@ -62,7 +66,11 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
         adsFov: 56,
         adsSpread: 0.25,
         bloom: 0.02,
-        burn: 0
+        burn: 0,
+        reserve: 48,
+        price: 170,
+        burst: 1,
+        burstGap: 0
     },
     smg: {
         id: 'smg',
@@ -92,37 +100,45 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
         adsFov: 58,
         adsSpread: 0.3,
         bloom: 0.007,
-        burn: 0
+        burn: 0,
+        reserve: 320,
+        price: 120,
+        burst: 1,
+        burstGap: 0
     },
     rifle: {
         id: 'rifle',
         name: 'AK-74 Rifle',
         tagline: 'Full-auto assault rifle. Hits hard, kicks harder.',
-        damage: 25,
-        fireRate: 9.5,
+        damage: 30,
+        fireRate: 10,
         magazine: 30,
-        reloadTime: 1.8,
-        spread: 0.03,
+        reloadTime: 1.7,
+        spread: 0.022,
         pellets: 1,
-        projectileSpeed: 150,
+        projectileSpeed: 170,
         kind: 'bullet',
         auto: true,
         explosionRadius: 0,
         pierce: 0,
         chain: 0,
         ricochet: 0,
-        knockback: 1.8,
+        knockback: 2,
         color: 0xffd08a,
         tracerLength: 2.4,
-        recoil: 0.6,
+        recoil: 0.55,
         rarity: 'rare',
         gravity: 0,
         homing: 0,
         sight: 'reddot',
         adsFov: 54,
-        adsSpread: 0.25,
-        bloom: 0.011,
-        burn: 0
+        adsSpread: 0.22,
+        bloom: 0.009,
+        burn: 0,
+        reserve: 210,
+        price: 220,
+        burst: 1,
+        burstGap: 0
     },
     dmr: {
         id: 'dmr',
@@ -152,26 +168,30 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
         adsFov: 44,
         adsSpread: 0.2,
         bloom: 0.014,
-        burn: 0
+        burn: 0,
+        reserve: 90,
+        price: 260,
+        burst: 1,
+        burstGap: 0
     },
     shotgun: {
         id: 'shotgun',
         name: 'Pump Shotgun',
-        tagline: 'Nine pellets of buckshot. Reduces whatever is in front of you to blocks.',
-        damage: 13,
-        fireRate: 1.5,
+        tagline: 'Nine pellets of buckshot that punch through the first body. Reduces whatever is in front of you to blocks.',
+        damage: 16,
+        fireRate: 1.9,
         magazine: 8,
-        reloadTime: 2.4,
-        spread: 0.11,
+        reloadTime: 2.0,
+        spread: 0.085,
         pellets: 9,
-        projectileSpeed: 120,
+        projectileSpeed: 135,
         kind: 'bullet',
         auto: false,
         explosionRadius: 0,
-        pierce: 0,
+        pierce: 1,
         chain: 0,
         ricochet: 0,
-        knockback: 6,
+        knockback: 7,
         color: 0xffb060,
         tracerLength: 1.6,
         recoil: 1.7,
@@ -182,7 +202,11 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
         adsFov: 62,
         adsSpread: 0.65,
         bloom: 0.02,
-        burn: 0
+        burn: 0,
+        reserve: 56,
+        price: 130,
+        burst: 1,
+        burstGap: 0
     },
     lmg: {
         id: 'lmg',
@@ -212,7 +236,11 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
         adsFov: 56,
         adsSpread: 0.3,
         bloom: 0.008,
-        burn: 0
+        burn: 0,
+        reserve: 300,
+        price: 480,
+        burst: 1,
+        burstGap: 0
     },
     saw: {
         id: 'saw',
@@ -242,7 +270,11 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
         adsFov: 58,
         adsSpread: 0.3,
         bloom: 0.008,
-        burn: 0
+        burn: 0,
+        reserve: 300,
+        price: 420,
+        burst: 1,
+        burstGap: 0
     },
     sniper: {
         id: 'sniper',
@@ -272,7 +304,113 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
         adsFov: 24,
         adsSpread: 0,
         bloom: 0,
-        burn: 0
+        burn: 0,
+        reserve: 30,
+        price: 400,
+        burst: 1,
+        burstGap: 0
+    },
+    burst: {
+        id: 'burst',
+        name: 'Burst Carbine',
+        tagline: 'Three-round bursts, laser accurate. Tap the trigger, drop the target.',
+        damage: 34,
+        fireRate: 16,
+        magazine: 27,
+        reloadTime: 1.6,
+        spread: 0.014,
+        pellets: 1,
+        projectileSpeed: 170,
+        kind: 'bullet',
+        auto: false,
+        explosionRadius: 0,
+        pierce: 0,
+        chain: 0,
+        ricochet: 0,
+        knockback: 1.6,
+        color: 0xa8e6ff,
+        tracerLength: 2.3,
+        recoil: 0.5,
+        rarity: 'rare',
+        gravity: 0,
+        homing: 0,
+        sight: 'holo',
+        adsFov: 52,
+        adsSpread: 0.2,
+        bloom: 0.006,
+        burn: 0,
+        reserve: 180,
+        price: 240,
+        burst: 3,
+        burstGap: 0.22
+    },
+    flamer: {
+        id: 'flamer',
+        name: 'Flamethrower',
+        tagline: 'A cone of fire that passes through the pack and keeps burning after you let go.',
+        damage: 6,
+        fireRate: 14,
+        magazine: 80,
+        reloadTime: 2.6,
+        spread: 0.06,
+        pellets: 1,
+        projectileSpeed: 26,
+        kind: 'flame',
+        auto: true,
+        explosionRadius: 0,
+        pierce: 3,
+        chain: 0,
+        ricochet: 0,
+        knockback: 0.3,
+        color: 0xff7a2a,
+        tracerLength: 0,
+        recoil: 0.15,
+        rarity: 'epic',
+        gravity: 0,
+        homing: 0,
+        sight: 'ring',
+        adsFov: 66,
+        adsSpread: 0.8,
+        bloom: 0,
+        burn: 3,
+        reserve: 400,
+        price: 380,
+        burst: 1,
+        burstGap: 0
+    },
+    launcher: {
+        id: 'launcher',
+        name: 'Grenade Launcher',
+        tagline: 'Lobs grenades that turn a crowd into a crater. Mind the arc.',
+        damage: 130,
+        fireRate: 1.2,
+        magazine: 6,
+        reloadTime: 2.8,
+        spread: 0.01,
+        pellets: 1,
+        projectileSpeed: 38,
+        kind: 'plasma',
+        auto: false,
+        explosionRadius: 4.2,
+        pierce: 0,
+        chain: 0,
+        ricochet: 0,
+        knockback: 8,
+        color: 0xd9a63c,
+        tracerLength: 0,
+        recoil: 1.6,
+        rarity: 'epic',
+        gravity: 18,
+        homing: 0,
+        sight: 'iron',
+        adsFov: 58,
+        adsSpread: 0.4,
+        bloom: 0,
+        burn: 0,
+        reserve: 24,
+        price: 380,
+        burst: 1,
+        burstGap: 0
     },
     raygun: {
         id: 'raygun',
@@ -302,7 +440,11 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
         adsFov: 58,
         adsSpread: 0.4,
         bloom: 0,
-        burn: 0
+        burn: 0,
+        reserve: 60,
+        price: 650,
+        burst: 1,
+        burstGap: 0
     },
     arc: {
         id: 'arc',
@@ -332,14 +474,18 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
         adsFov: 52,
         adsSpread: 0,
         bloom: 0,
-        burn: 0
+        burn: 0,
+        reserve: 60,
+        price: 650,
+        burst: 1,
+        burstGap: 0
     }
 }
 
 export const WEAPON_IDS = Object.keys(WEAPONS) as WeaponId[]
 
-/** Weapons the player can pick from before deploying. */
-export const STARTER_WEAPONS: WeaponId[] = ['pistol', 'smg', 'shotgun']
+/** Every run starts with the sidearm; everything else is bought in the arsenal. */
+export const STARTER_WEAPON: WeaponId = 'pistol'
 
 export const ABILITIES: Record<AbilityId, AbilityDef> = {
     nova: { id: 'nova', name: 'Nova Burst', description: 'Detonate a shockwave that damages, stuns and hurls back everything around you.', energy: 50, icon: 'i-lucide-sun', color: '#3ff0ff' },
@@ -351,33 +497,49 @@ export const ABILITIES: Record<AbilityId, AbilityDef> = {
 export const ABILITY_IDS = Object.keys(ABILITIES) as AbilityId[]
 export const ABILITY_SLOTS = 2
 
-/** Shard economy: kills drop shards, the shop between waves spends them. */
-export const SHARDS = {
-    cardCost: { common: 30, rare: 50, epic: 80, legendary: 120 } as Record<Rarity, number>,
-    abilityCost: 70,
-    /** Roughly half a card. */
-    rerollCost: 25,
-    waveClearBonus: 15
+/**
+ * Credit economy: a fixed payout per cleared wave, spent in the arsenal between
+ * waves. Income covers one to three boons a wave; guns carry their own price
+ * (see WEAPONS[id].price) so the strong ones take a few waves of saving.
+ * Power only comes from boons — guns are never upgraded directly.
+ */
+export const ECONOMY = {
+    boonPrice: { common: 60, rare: 90, epic: 140, legendary: 200 } as Record<Rarity, number>,
+    rerollPrice: 30,
+    meleePrice: { common: 80, rare: 150, epic: 260, legendary: 420 } as Record<Rarity, number>,
+    abilityPrice: 160,
+    /** Price of a full reserve refill; partial refills cost proportionally less. */
+    refillPrice: { common: 10, rare: 15, epic: 20, legendary: 30 } as Record<Rarity, number>
 }
 
-/** Prices climb with the wave so income from bigger waves does not trivialise the shop. */
-export function costMultiplier(wave: number): number {
-    return 1 + Math.max(0, wave - 1) * 0.1
+/** Credits paid out for clearing a wave. Boss waves pay a bonus. */
+export function waveIncome(wave: number): number {
+    return Math.round((120 + wave * 22 + (isBossWave(wave) ? 120 : 0)) / 5) * 5
 }
 
-export function cardCost(rarity: Rarity, kind: 'stat' | 'crazy' | 'weapon' | 'ability' | 'melee', wave: number): number {
-    const base = kind === 'ability' ? SHARDS.abilityCost : SHARDS.cardCost[rarity]
-    return Math.round(base * costMultiplier(wave) / 5) * 5
+/** Boons creep up in price so late income buys about the same number of picks. */
+function priceRamp(wave: number): number {
+    return 1 + Math.max(0, wave - 1) * 0.05
 }
 
-export function rerollCost(wave: number): number {
-    return Math.round(SHARDS.rerollCost * costMultiplier(wave) / 5) * 5
+export function boonPrice(rarity: Rarity, wave: number): number {
+    return Math.round(ECONOMY.boonPrice[rarity] * priceRamp(wave) / 5) * 5
 }
 
-/** Shards a kill is worth: half the score value, at least one. */
-export function shardValue(def: EnemyDef, affix: EliteAffix | null): number {
-    const base = Math.max(1, Math.round(def.score / 2))
-    return affix === 'gilded' ? base * 4 : affix ? Math.round(base * 1.5) : base
+export function rerollPrice(wave: number): number {
+    return Math.round(ECONOMY.rerollPrice * priceRamp(wave) / 5) * 5
+}
+
+/** Rounds a gun can carry outside the magazine with the player's reserve boons applied. */
+export function reserveMax(def: WeaponDef, stats: PlayerStats): number {
+    return Math.round(def.reserve * stats.reserveMult)
+}
+
+/** Price to top a reserve up to full, at least 5 credits, 0 when already full. */
+export function refillPrice(def: WeaponDef, reserve: number, max: number): number {
+    if (reserve >= max) return 0
+    const missing = 1 - reserve / Math.max(1, max)
+    return Math.max(5, Math.round(ECONOMY.refillPrice[def.rarity] * missing / 5) * 5)
 }
 
 export const TURRET = {
@@ -624,22 +786,26 @@ export function waveEvent(wave: number): WaveEvent {
     return order[(wave - 3) % order.length]!
 }
 
+/**
+ * Difficulty curve. Waves 5-10 should push a decent build, 15-20 should need a
+ * tuned one and 25-30 should be close to unwinnable, so a run stays short.
+ */
 export function waveEnemyCount(wave: number): number {
-    return Math.round(10 + wave * 4 + Math.pow(wave, 1.4))
+    return Math.round(10 + wave * 4 + Math.pow(wave, 1.35))
 }
 
 export function waveHpMult(wave: number): number {
     const w = wave - 1
-    return 1 + 0.15 * w + 0.012 * w * w
+    return 1 + 0.16 * w + 0.017 * w * w
 }
 
 export function waveDamageMult(wave: number): number {
-    return 1 + 0.08 * (wave - 1)
+    return 1 + 0.1 * (wave - 1)
 }
 
 export function eliteChance(wave: number): number {
     if (wave < 6) return 0
-    return Math.min(0.38, 0.06 + 0.025 * (wave - 5))
+    return Math.min(0.5, 0.06 + 0.03 * (wave - 5))
 }
 
 /**
@@ -673,8 +839,9 @@ export function planWave(wave: number, rng: () => number): WavePlan {
         // The titan arrives after a third of the wave so the arena is busy when it lands.
         const at = Math.floor(spawns.length / 3)
         spawns.splice(at, 0, { enemy: 'titan', affix: null })
-        // from wave 15 the titans come in pairs
+        // from wave 15 the titans come in pairs, from 25 in threes
         if (wave >= 15) spawns.splice(Math.floor(spawns.length * 0.6), 0, { enemy: 'titan', affix: null })
+        if (wave >= 25) spawns.splice(Math.floor(spawns.length * 0.8), 0, { enemy: 'titan', affix: 'armored' })
     }
     if (waveEvent(wave) === 'bounty') {
         // a gilded brute worth a haul of pickups
@@ -750,7 +917,21 @@ export function defaultStats(): PlayerStats {
         adrenaline: 0,
         bulwark: 0,
         sentry: 0,
-        turretCost: TURRET.cost
+        turretCost: TURRET.cost,
+        rift: 0,
+        storm: 0,
+        lance: 0,
+        frost: 0,
+        execute: 0,
+        bulletStorm: 0,
+        thunderStep: 0,
+        reloadBlast: 0,
+        bloodlust: 0,
+        headhunter: 0,
+        reserveMult: 1,
+        ammoLuck: 1,
+        income: 0,
+        meteorCall: 0
     }
 }
 
@@ -770,5 +951,11 @@ export function killScore(def: EnemyDef, wave: number, combo: number, affix: Eli
 /** Chance that a kill drops a pickup, scaled by luck. Boss kills always drop. */
 export function dropChance(def: EnemyDef, luck: number): number {
     if (def.behavior === 'boss') return 1
-    return Math.min(0.5, 0.075 * luck)
+    return Math.min(0.35, 0.05 * luck)
+}
+
+/** Small chance that a kill drops an ammo crate, scaled by the ammo luck stat. */
+export function ammoDropChance(def: EnemyDef, ammoLuck: number): number {
+    if (def.behavior === 'boss') return 1
+    return Math.min(0.3, 0.06 * ammoLuck)
 }

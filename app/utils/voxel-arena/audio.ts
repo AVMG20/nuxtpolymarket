@@ -13,6 +13,9 @@ export type ArenaSound
       | 'shoot-sniper'
       | 'shoot-raygun'
       | 'shoot-arc'
+      | 'shoot-burst'
+      | 'shoot-flamer'
+      | 'shoot-launcher'
       | 'dry'
       | 'reload'
       | 'reload-done'
@@ -39,6 +42,12 @@ export type ArenaSound
       | 'slam'
       | 'death'
       | 'chrono'
+      | 'rift'
+      | 'storm'
+      | 'lance'
+      | 'freeze'
+      | 'execute'
+      | 'ammo'
 
 export class ArenaAudio {
     private ctx: AudioContext | null = null
@@ -273,6 +282,18 @@ export class ArenaAudio {
                 this.sweep(t, 1800 * detune, 200, 0.2, 0.2 * v, 'square', out)
                 this.sweep(t, 90, 60, 0.3, 0.3 * v, 'sawtooth', out)
                 break
+            case 'shoot-burst':
+                this.noise(t, 0.07, 0.45 * v, out, 2800 * detune, 'bandpass', 0.7)
+                this.sweep(t, 540 * detune, 120, 0.06, 0.3 * v, 'sawtooth', out)
+                break
+            case 'shoot-flamer':
+                this.noise(t, 0.12, 0.18 * v, out, 900 * detune, 'lowpass')
+                this.sweep(t, 110, 260, 0.12, 0.06 * v, 'sine', out)
+                break
+            case 'shoot-launcher':
+                this.sweep(t, 160, 50, 0.25, 0.5 * v, 'sine', out)
+                this.noise(t, 0.12, 0.4 * v, out, 500, 'lowpass')
+                break
             case 'dry':
                 this.noise(t, 0.04, 0.2 * v, out, 2500, 'highpass')
                 break
@@ -380,6 +401,36 @@ export class ArenaAudio {
             case 'chrono':
                 this.sweep(t, 1200, 200, 0.35, 0.2 * v, 'sine', out)
                 this.sweep(t + 0.3, 200, 1200, 0.25, 0.12 * v, 'sine', out)
+                break
+            case 'rift':
+                this.sweep(t, 900, 60, 0.8, 0.35 * v, 'sine', out)
+                this.sweep(t, 40, 110, 0.9, 0.22 * v, 'sawtooth', out)
+                this.noise(t, 0.9, 0.4 * v, out, 600, 'bandpass', 0.4)
+                break
+            case 'storm':
+                this.noise(t, 0.05, 0.7 * v, out, 4000, 'highpass')
+                this.sweep(t, 2000, 150, 0.25, 0.3 * v, 'square', out)
+                this.noise(t + 0.04, 0.6, 0.5 * v, out, 300, 'lowpass')
+                break
+            case 'lance':
+                this.sweep(t, 200, 2400, 0.18, 0.3 * v, 'sine', out)
+                this.noise(t + 0.18, 0.35, 0.5 * v, out, 2200, 'bandpass', 1.5)
+                this.sweep(t + 0.18, 300, 50, 0.5, 0.35 * v, 'sawtooth', out)
+                break
+            case 'freeze':
+                this.tone(t, 1760, 'sine', 0.12, 0.16 * v, out, 6000)
+                this.tone(t + 0.05, 2637, 'sine', 0.12, 0.13 * v, out, 6000)
+                this.noise(t, 0.18, 0.18 * v, out, 6000, 'highpass')
+                break
+            case 'execute':
+                this.sweep(t, 900, 80, 0.14, 0.6 * v, 'square', out)
+                this.noise(t, 0.26, 0.5 * v, out, 400, 'lowpass')
+                this.sweep(t + 0.02, 90, 30, 0.3, 0.4 * v, 'sine', out)
+                break
+            case 'ammo':
+                this.noise(t, 0.04, 0.3 * v, out, 2600, 'bandpass', 3)
+                this.noise(t + 0.08, 0.04, 0.26 * v, out, 2600, 'bandpass', 3)
+                this.tone(t + 0.14, 660, 'square', 0.1, 0.12 * v, out, 5000)
                 break
         }
     }
