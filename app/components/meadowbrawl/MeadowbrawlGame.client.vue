@@ -3,7 +3,7 @@ import { MeadowbrawlGame, type RunConfig } from '~/utils/meadowbrawl/engine'
 import { MeadowbrawlRenderer } from '~/utils/meadowbrawl/renderer'
 import { MeadowbrawlSound } from '~/utils/meadowbrawl/sound'
 import { WEAPONS } from '~/utils/meadowbrawl/weapons'
-import { RARITY_LABEL, UPGRADE_BY_ID } from '~/utils/meadowbrawl/upgrades'
+import { ELEMENT_COLOR, ELEMENT_ICON, KIND_ICON, RARITY_LABEL, UPGRADE_BY_ID } from '~/utils/meadowbrawl/upgrades'
 import { TOTAL_WAVES, type Offer, type WeaponId } from '~/utils/meadowbrawl/types'
 import MeadowbrawlLobby, { PET_ABILITY_ICONS, type MeadowbrawlMetaState } from '~/components/meadowbrawl/MeadowbrawlLobby.vue'
 import {
@@ -326,7 +326,7 @@ const hud = reactive({
     banner: '',
     bannerSub: '',
     bannerT: 0,
-    upgrades: [] as { id: string, name: string, icon: string, stacks: number }[],
+    upgrades: [] as { id: string, name: string, icon: string, stacks: number, color: string }[],
     offers: [] as Offer[],
     sprinting: false,
     className: '',
@@ -424,7 +424,7 @@ function syncHud() {
     if (hud.upgrades.length !== p.upgrades.size || hud.upgrades.some(u => u.stacks !== p.upgrades.get(u.id))) {
         hud.upgrades = [...p.upgrades.entries()].map(([id, stacks]) => {
             const def = UPGRADE_BY_ID[id]!
-            return { id, name: def.name, icon: def.icon, stacks }
+            return { id, name: def.name, icon: def.icon, stacks, color: def.element ? ELEMENT_COLOR[def.element] : def.rarity === 'legendary' ? '#ffd166' : '#fde68a' }
         })
     }
     if (game.phase === 'upgrade' && hud.offers !== game.offers) hud.offers = game.offers
@@ -629,6 +629,15 @@ const RARITY_STYLE: Record<string, { ring: string, text: string, glow: string }>
     weapon: { ring: 'border-amber-300/90', text: 'text-amber-300', glow: 'shadow-amber-400/40' }
 }
 
+/** Card chrome for a boon: the element paints it, otherwise the rarity does. */
+function offerAccent(o: Offer): string {
+    if (o.upgrade.element) return ELEMENT_COLOR[o.upgrade.element]
+    return o.upgrade.rarity === 'legendary' ? '#ffd166' : o.upgrade.rarity === 'epic' ? '#e879f9' : o.upgrade.rarity === 'rare' ? '#38bdf8' : '#34d399'
+}
+
+const KIND_LABEL: Record<string, string> = { stat: 'Buff', effect: 'Effect', pact: 'Pact' }
+const ELEMENT_LABEL: Record<string, string> = { fire: 'Fire', ice: 'Ice', shock: 'Shock' }
+
 function formatTime(t: number): string {
     const m = Math.floor(t / 60)
     const s = Math.floor(t % 60)
@@ -719,8 +728,8 @@ const showDeath = computed(() => hud.phase === 'dead' && hud.deathT > 1.2)
               class="inline-flex items-center gap-1 rounded-md bg-black/55 ring-1 ring-white/10 px-1.5 py-0.5 text-[11px] font-semibold"
               :title="u.name"
             >
-              <UIcon :name="u.icon" class="size-3.5 text-amber-200" />
-              <span v-if="u.stacks > 1" class="text-amber-200">×{{ u.stacks }}</span>
+              <UIcon :name="u.icon" class="size-3.5" :style="{ color: u.color }" />
+              <span v-if="u.stacks > 1" :style="{ color: u.color }">×{{ u.stacks }}</span>
             </span>
           </div>
 
@@ -899,31 +908,69 @@ const showDeath = computed(() => hud.phase === 'dead' && hud.deathT > 1.2)
             <div class="text-[11px] uppercase tracking-[0.4em] font-bold text-amber-200">Wave {{ hud.wave }} cleared</div>
             <div class="text-3xl sm:text-4xl font-black tracking-tight drop-shadow-[0_3px_0_rgba(0,0,0,0.6)]">Choose a boon</div>
           </div>
-          <div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <div class="grid grid-cols-1 gap-3" :class="hud.offers.length > 3 ? 'sm:grid-cols-2 lg:grid-cols-4' : 'sm:grid-cols-3'">
             <button
               v-for="(o, i) in hud.offers"
               :key="o.upgrade.id"
               type="button"
-              class="group relative rounded-2xl bg-black/70 backdrop-blur-sm border-2 p-4 text-left transition-all hover:-translate-y-1 hover:bg-black/80 shadow-xl"
-              :class="[RARITY_STYLE[o.upgrade.rarity]!.ring, RARITY_STYLE[o.upgrade.rarity]!.glow]"
+              class="boon-card group relative rounded-2xl bg-black/70 backdrop-blur-sm border-2 p-4 text-left transition-all hover:-translate-y-1 hover:bg-black/80 shadow-xl"
+              :class="[
+                RARITY_STYLE[o.upgrade.rarity]!.ring,
+                RARITY_STYLE[o.upgrade.rarity]!.glow,
+                o.upgrade.rarity === 'legendary' ? 'boon-legendary' : '',
+                o.upgrade.kind === 'pact' ? 'boon-pact' : ''
+              ]"
+              :style="{ '--accent': offerAccent(o), 'animation-delay': `${i * 90}ms` }"
               @click="choose(i)"
             >
-              <div class="flex items-center justify-between">
+              <!-- Tier, badges and the hotkey. -->
+              <div class="flex items-center justify-between gap-2">
                 <span class="text-[10px] uppercase tracking-[0.3em] font-black" :class="RARITY_STYLE[o.upgrade.rarity]!.text">
                   {{ RARITY_LABEL[o.upgrade.rarity] }}
                 </span>
-                <UKbd class="bg-white/10 text-white/80">{{ i + 1 }}</UKbd>
+                <div class="flex items-center gap-1">
+                  <span
+                    class="inline-flex size-5 items-center justify-center rounded-md bg-white/10 ring-1 ring-white/15"
+                    :title="KIND_LABEL[o.upgrade.kind]"
+                  >
+                    <UIcon :name="KIND_ICON[o.upgrade.kind]" class="size-3" :class="o.upgrade.kind === 'pact' ? 'text-red-300' : o.upgrade.kind === 'effect' ? 'text-amber-200' : 'text-white/70'" />
+                  </span>
+                  <span
+                    v-if="o.upgrade.element"
+                    class="inline-flex size-5 items-center justify-center rounded-md ring-1"
+                    :style="{ backgroundColor: `${ELEMENT_COLOR[o.upgrade.element]}22`, boxShadow: `inset 0 0 0 1px ${ELEMENT_COLOR[o.upgrade.element]}66` }"
+                    :title="ELEMENT_LABEL[o.upgrade.element]"
+                  >
+                    <UIcon :name="ELEMENT_ICON[o.upgrade.element]" class="size-3" :style="{ color: ELEMENT_COLOR[o.upgrade.element] }" />
+                  </span>
+                  <UKbd class="bg-white/10 text-white/80">{{ i + 1 }}</UKbd>
+                </div>
               </div>
+              <!-- Icon and name. -->
               <div class="mt-3 flex items-center gap-3">
-                <div class="size-11 rounded-xl bg-white/10 flex items-center justify-center shrink-0 group-hover:scale-110 transition-transform">
-                  <UIcon :name="o.upgrade.icon" class="size-6" :class="RARITY_STYLE[o.upgrade.rarity]!.text" />
+                <div
+                  class="boon-icon size-12 rounded-xl flex items-center justify-center shrink-0 group-hover:scale-110 transition-transform ring-1"
+                  :style="{ backgroundColor: `${offerAccent(o)}1f`, boxShadow: `inset 0 0 0 1px ${offerAccent(o)}55, 0 0 18px ${offerAccent(o)}33` }"
+                >
+                  <UIcon :name="o.upgrade.icon" class="size-6" :style="{ color: offerAccent(o) }" />
                 </div>
                 <div class="min-w-0">
                   <div class="text-base font-black leading-tight">{{ o.upgrade.name }}</div>
-                  <div v-if="o.stack > 1" class="text-[11px] font-bold text-amber-200">Stack {{ o.stack }} / {{ o.upgrade.maxStacks }}</div>
+                  <!-- Stack pips: no numbers to read, just how far along it is. -->
+                  <div v-if="o.upgrade.maxStacks > 1 && o.upgrade.maxStacks <= 6" class="mt-1 flex items-center gap-1">
+                    <span
+                      v-for="n in o.upgrade.maxStacks"
+                      :key="n"
+                      class="h-1.5 w-3 rounded-full"
+                      :style="{ backgroundColor: n < o.stack ? offerAccent(o) : n === o.stack ? '#ffffff' : 'rgba(255,255,255,0.15)' }"
+                    />
+                  </div>
                 </div>
               </div>
-              <p class="mt-3 text-xs text-white/75 leading-relaxed">{{ o.upgrade.description }}</p>
+              <p class="mt-3 text-xs text-white/80 leading-snug">{{ o.upgrade.description }}</p>
+              <p v-if="o.upgrade.catch" class="mt-1 inline-flex items-center gap-1 text-[11px] font-black text-red-300">
+                <UIcon name="i-lucide-triangle-alert" class="size-3" />{{ o.upgrade.catch }}
+              </p>
             </button>
           </div>
         </div>
@@ -1060,6 +1107,40 @@ const showDeath = computed(() => hud.phase === 'dead' && hud.deathT > 1.2)
 </template>
 
 <style scoped>
+.boon-card {
+  animation: boon-in 0.35s cubic-bezier(0.2, 0.9, 0.3, 1.2) both;
+}
+@keyframes boon-in {
+  from { opacity: 0; transform: translateY(14px) scale(0.96); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.boon-pact {
+  border-color: rgba(252, 165, 165, 0.55);
+  box-shadow: 0 0 22px rgba(239, 68, 68, 0.22);
+}
+.boon-legendary {
+  border-color: rgba(253, 224, 71, 0.9);
+  box-shadow: 0 0 34px rgba(250, 204, 21, 0.45), inset 0 0 22px rgba(250, 204, 21, 0.12);
+  animation: boon-in 0.35s cubic-bezier(0.2, 0.9, 0.3, 1.2) both, boon-shimmer 2.4s ease-in-out infinite 0.35s;
+}
+.boon-legendary::before {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  border-radius: 1rem;
+  pointer-events: none;
+  background: linear-gradient(115deg, transparent 30%, rgba(255, 244, 200, 0.28) 48%, transparent 62%);
+  background-size: 250% 100%;
+  animation: boon-sheen 2.4s linear infinite;
+}
+@keyframes boon-shimmer {
+  0%, 100% { box-shadow: 0 0 30px rgba(250, 204, 21, 0.35), inset 0 0 22px rgba(250, 204, 21, 0.1); }
+  50% { box-shadow: 0 0 46px rgba(250, 204, 21, 0.6), inset 0 0 26px rgba(250, 204, 21, 0.18); }
+}
+@keyframes boon-sheen {
+  from { background-position: 120% 0; }
+  to { background-position: -30% 0; }
+}
 .mb-banner-enter-active {
   animation: mb-banner-in 0.45s cubic-bezier(0.2, 1.4, 0.4, 1);
 }
