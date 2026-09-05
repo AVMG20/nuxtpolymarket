@@ -872,10 +872,12 @@ export class MeadowbrawlGame {
         this.time = save.stats.time
         this.wave = save.wave
         if (save.offers) {
-            const seen = new Set<string>()
-            this.offers = save.offers
-                .map(id => resolveUpgradeId(id))
-                .filter((id): id is string => !!id && !seen.has(id) && seen.add(id) !== null)
+            const ids = new Set<string>()
+            for (const raw of save.offers) {
+                const id = resolveUpgradeId(raw)
+                if (id) ids.add(id)
+            }
+            this.offers = [...ids]
                 .map(id => UPGRADE_BY_ID[id]!)
                 .filter(u => this.stack(u.id) < u.maxStacks)
                 .map(u => ({ upgrade: u, stack: this.stack(u.id) + 1 }))
