@@ -7,6 +7,7 @@ import type { TreeDeco, WorldLayout } from './world'
 import { WEAPONS } from './weapons'
 import { clamp, lerp } from './geometry'
 import { drawCoin, drawCompanion, drawFeather, drawFireTrail } from './companion-draw'
+import { drawHeroBody, drawHeroWeaponDetails, drawHeroShieldDetails, drawBogOgre, drawAshenWarlord, drawBriarMatriarch, drawHollowKnight } from './character-draw'
 
 export const VIEW_W = 1120
 export const VIEW_H = 630
@@ -1804,94 +1805,7 @@ export class MeadowbrawlRenderer {
         ctx.lineWidth = 1.6
         ctx.strokeStyle = outline
 
-        // Cape trails away from facing.
-        const capeDir = facingLeft ? 1 : -1
-        const sway = Math.sin(this.t * 6 + p.walk) * 3 + (p.moving ? 4 : 0)
-        ctx.fillStyle = hurt ? '#ffb0b0' : '#a8262b'
-        ctx.beginPath()
-        ctx.moveTo(-6, -26 - bob)
-        ctx.lineTo(6, -26 - bob)
-        ctx.quadraticCurveTo(capeDir * (10 + sway), -14 - bob, capeDir * (14 + sway), -2)
-        ctx.lineTo(capeDir * (2 + sway * 0.5), -4)
-        ctx.closePath()
-        ctx.fill()
-        ctx.stroke()
-
-        // Legs.
-        const stride = p.moving || p.dodge ? Math.sin(p.walk) * 5 : 0
-        ctx.strokeStyle = outline
-        ctx.lineWidth = 5
-        ctx.lineCap = 'round'
-        ctx.beginPath()
-        ctx.moveTo(-4, -12 - bob)
-        ctx.lineTo(-4 + stride, 0)
-        ctx.moveTo(4, -12 - bob)
-        ctx.lineTo(4 - stride, 0)
-        ctx.stroke()
-        ctx.strokeStyle = '#3b2e3f'
-        ctx.lineWidth = 3
-        ctx.beginPath()
-        ctx.moveTo(-4, -12 - bob)
-        ctx.lineTo(-4 + stride, 0)
-        ctx.moveTo(4, -12 - bob)
-        ctx.lineTo(4 - stride, 0)
-        ctx.stroke()
-
-        // Body: tunic.
-        ctx.fillStyle = hurt ? '#ffd6d6' : bodyGrad(ctx, '#3d6fd8', -10, -30 - bob, 10, -10 - bob)
-        ctx.lineWidth = 1.6
-        ctx.strokeStyle = outline
-        ctx.beginPath()
-        ctx.moveTo(-10, -30 - bob)
-        ctx.lineTo(10, -30 - bob)
-        ctx.lineTo(9, -10 - bob)
-        ctx.lineTo(-9, -10 - bob)
-        ctx.closePath()
-        ctx.fill()
-        ctx.stroke()
-        ctx.fillStyle = 'rgba(0,0,40,0.25)'
-        ctx.fillRect(-9, -16 - bob, 18, 6)
-        ctx.fillStyle = '#e0b04a'
-        ctx.fillRect(-9, -18 - bob, 18, 3)
-        // Chest plate glint.
-        ctx.fillStyle = 'rgba(255,255,255,0.35)'
-        ctx.fillRect(-6, -28 - bob, 5, 8)
-        // Shoulders.
-        ctx.fillStyle = '#b9c2cf'
-        ellipse(ctx, -10, -29 - bob, 5, 4)
-        ctx.fill()
-        ctx.stroke()
-        ellipse(ctx, 10, -29 - bob, 5, 4)
-        ctx.fill()
-        ctx.stroke()
-
-        // Head + helm.
-        ctx.fillStyle = hurt ? '#ffe0d0' : '#f1c9a5'
-        ctx.beginPath()
-        ctx.arc(0, -38 - bob, 7.5, 0, Math.PI * 2)
-        ctx.fill()
-        ctx.stroke()
-        ctx.fillStyle = bodyGrad(ctx, '#c3ccd8', -8, -48 - bob, 8, -37 - bob)
-        ctx.beginPath()
-        ctx.arc(0, -40 - bob, 8.5, Math.PI, Math.PI * 2)
-        ctx.lineTo(8.5, -37 - bob)
-        ctx.lineTo(-8.5, -37 - bob)
-        ctx.closePath()
-        ctx.fill()
-        ctx.stroke()
-        // Visor / eyes toward facing.
-        const eyeDir = facingLeft ? -1 : 1
-        ctx.fillStyle = '#2a2230'
-        ctx.fillRect(eyeDir * 1 - 3, -37 - bob, 6, 2)
-        // Plume.
-        ctx.strokeStyle = '#f6f1e6'
-        ctx.lineWidth = 4
-        ctx.beginPath()
-        ctx.moveTo(0, -47 - bob)
-        ctx.quadraticCurveTo(-eyeDir * 8, -52 - bob, -eyeDir * 14, -44 - bob + Math.sin(this.t * 5) * 2)
-        ctx.stroke()
-        ctx.strokeStyle = outline
-        ctx.lineWidth = 1
+        drawHeroBody(ctx, p, bob, this.t, hurt, outline)
 
         // Weapon arm + weapon.
         const wp = this.weaponPose(p)
@@ -1901,17 +1815,30 @@ export class MeadowbrawlRenderer {
         const shoulderY = -27 - bob
         const handX = shoulderX + ax * 12 * wp.ext
         const handY = shoulderY + ay * 12 * wp.ext + 6
+        const elbowX = shoulderX + (handX - shoulderX) * 0.5
+        const elbowY = shoulderY + (handY - shoulderY) * 0.65 + 2
         ctx.strokeStyle = outline
-        ctx.lineWidth = 5
+        ctx.lineWidth = 6
+        ctx.lineCap = 'round'
         ctx.beginPath()
         ctx.moveTo(shoulderX, shoulderY)
+        ctx.lineTo(elbowX, elbowY)
         ctx.lineTo(handX, handY)
         ctx.stroke()
-        ctx.strokeStyle = '#f1c9a5'
-        ctx.lineWidth = 3
+        ctx.strokeStyle = hurt ? '#ffd6d6' : '#617b9d'
+        ctx.lineWidth = 4
+        ctx.stroke()
+        ctx.strokeStyle = hurt ? '#ffffff' : '#bdcdd8'
+        ctx.lineWidth = 3.5
         ctx.beginPath()
-        ctx.moveTo(shoulderX, shoulderY)
+        ctx.moveTo(elbowX, elbowY)
         ctx.lineTo(handX, handY)
+        ctx.stroke()
+        ctx.fillStyle = hurt ? '#ffd6d6' : bodyGrad(ctx, '#a9bdce', handX - 3, handY - 3, handX + 3, handY + 3)
+        ctx.strokeStyle = outline
+        ctx.lineWidth = 1
+        ellipse(ctx, handX, handY, 3.3, 3)
+        ctx.fill()
         ctx.stroke()
         if (!p.axeOut) this.drawWeapon(ctx, p.weapon, handX, handY, wp.angle, wp.ext, w.color, g.reachMult)
         if (p.fx.shieldWall > 0) {
@@ -1940,6 +1867,7 @@ export class MeadowbrawlRenderer {
             ctx.lineTo(-6, -2)
             ctx.closePath()
             ctx.fill()
+            drawHeroShieldDetails(ctx)
             ctx.restore()
         }
         if (p.weapon === 'daggers') {
@@ -2162,6 +2090,7 @@ export class MeadowbrawlRenderer {
                 ctx.stroke()
                 break
         }
+        drawHeroWeaponDetails(ctx, id)
         ctx.restore()
         void ext
     }
@@ -2217,10 +2146,10 @@ export class MeadowbrawlRenderer {
             case 'swarmer': this.drawSwarmer(ctx, e, dir, bob, tint, outline); break
             case 'shield': this.drawShieldwarden(ctx, e, dir, bob, tint, outline); break
             case 'ranged': this.drawRanged(ctx, e, dir, bob, tint, outline); break
-            case 'ogre': this.drawOgre(ctx, e, dir, bob, tint, outline); break
-            case 'warlord': this.drawWarlord(ctx, e, dir, bob, tint, outline); break
-            case 'briar': this.drawBriar(ctx, e, dir, bob, tint, outline); break
-            case 'knight': this.drawKnight(ctx, e, dir, bob, tint, outline); break
+            case 'ogre': drawBogOgre(ctx, e, dir, bob, this.t, tint, outline); break
+            case 'warlord': drawAshenWarlord(ctx, e, dir, bob, this.t, tint, outline); break
+            case 'briar': drawBriarMatriarch(ctx, e, dir, bob, this.t, tint, outline); break
+            case 'knight': drawHollowKnight(ctx, e, dir, bob, this.t, tint, outline); break
         }
 
         // Status overlays.
@@ -3159,425 +3088,6 @@ export class MeadowbrawlRenderer {
         ctx.stroke()
         ctx.restore()
         ctx.restore()
-    }
-
-    private drawOgre(ctx: Ctx, e: Enemy, dir: number, bob: number, tint: (c: string) => string, outline: string) {
-        const stride = Math.sin(e.walk) * 6
-        ctx.strokeStyle = outline
-        ctx.lineWidth = 9
-        ctx.lineCap = 'round'
-        ctx.beginPath()
-        ctx.moveTo(-12, -20)
-        ctx.lineTo(-12 + stride, 0)
-        ctx.moveTo(12, -20)
-        ctx.lineTo(12 - stride, 0)
-        ctx.stroke()
-        ctx.strokeStyle = '#4d5a3a'
-        ctx.lineWidth = 6
-        ctx.beginPath()
-        ctx.moveTo(-12, -20)
-        ctx.lineTo(-12 + stride, 0)
-        ctx.moveTo(12, -20)
-        ctx.lineTo(12 - stride, 0)
-        ctx.stroke()
-        ctx.strokeStyle = outline
-        ctx.lineWidth = 2
-        // Belly + body.
-        ctx.fillStyle = bodyGrad(ctx, tint('#6e8352'), -28, -64 - bob, 28, -12 - bob)
-        ellipse(ctx, 0, -38 - bob, 28, 26)
-        ctx.fill()
-        ctx.stroke()
-        ctx.fillStyle = bodyGrad(ctx, tint('#9db07a'), -18, -48 - bob, 18, -16 - bob)
-        ellipse(ctx, 0, -32 - bob, 18, 16)
-        ctx.fill()
-        // Warts.
-        ctx.fillStyle = 'rgba(60,80,40,0.6)'
-        for (const [wx, wy] of [[-18, -50], [-22, -34], [16, -54], [22, -30]] as const) {
-            ellipse(ctx, wx, wy - bob, 2.6, 2)
-            ctx.fill()
-        }
-        // Loincloth.
-        ctx.fillStyle = '#5a3d26'
-        ctx.beginPath()
-        ctx.moveTo(-16, -22 - bob)
-        ctx.lineTo(16, -22 - bob)
-        ctx.lineTo(10, -8 - bob)
-        ctx.lineTo(-10, -8 - bob)
-        ctx.closePath()
-        ctx.fill()
-        ctx.stroke()
-        // Head with an underbite.
-        ctx.fillStyle = bodyGrad(ctx, tint('#6e8352'), dir * 4 - 13, -77 - bob, dir * 4 + 13, -55 - bob)
-        ellipse(ctx, dir * 4, -66 - bob, 13, 11)
-        ctx.fill()
-        ctx.stroke()
-        ctx.fillStyle = tint('#7f9460')
-        ellipse(ctx, dir * 8, -59 - bob, 8, 4)
-        ctx.fill()
-        ctx.stroke()
-        ctx.fillStyle = '#ffd25a'
-        ellipse(ctx, dir * 8, -68 - bob, 2.6, 2.6)
-        ctx.fill()
-        ctx.fillStyle = '#1d1520'
-        ellipse(ctx, dir * 8.6, -68 - bob, 1.2, 1.2)
-        ctx.fill()
-        ctx.fillStyle = '#f4ecd8'
-        ctx.beginPath()
-        ctx.moveTo(dir * 2, -60 - bob)
-        ctx.lineTo(dir * 4, -66 - bob)
-        ctx.lineTo(dir * 6, -60 - bob)
-        ctx.closePath()
-        ctx.fill()
-        // Massive club, raised on windup.
-        const raise = e.state === 'windup' && e.attack ? -1.8 * clamp(e.stateT / e.attack.windup, 0, 1) : e.state === 'recover' ? 0.9 : 0
-        ctx.save()
-        ctx.translate(dir * 24, -40 - bob)
-        ctx.rotate(dir * (0.6 + raise))
-        ctx.fillStyle = '#4a3220'
-        ctx.fillRect(0, -4, 34, 8)
-        ctx.strokeRect(0, -4, 34, 8)
-        ctx.fillStyle = '#6b4a2c'
-        ellipse(ctx, 38, 0, 12, 10)
-        ctx.fill()
-        ctx.stroke()
-        ctx.fillStyle = '#c9c2b4'
-        for (let i = 0; i < 4; i++) {
-            const a = i / 4 * Math.PI * 2
-            ellipse(ctx, 38 + Math.cos(a) * 11, Math.sin(a) * 9, 2.2, 2.2)
-            ctx.fill()
-        }
-        ctx.restore()
-    }
-
-    private drawWarlord(ctx: Ctx, e: Enemy, dir: number, bob: number, tint: (c: string) => string, outline: string) {
-        const stride = Math.sin(e.walk) * 5
-        ctx.strokeStyle = outline
-        ctx.lineWidth = 6
-        ctx.lineCap = 'round'
-        ctx.beginPath()
-        ctx.moveTo(-7, -16)
-        ctx.lineTo(-7 + stride, 0)
-        ctx.moveTo(7, -16)
-        ctx.lineTo(7 - stride, 0)
-        ctx.stroke()
-        ctx.strokeStyle = '#3a3040'
-        ctx.lineWidth = 4
-        ctx.beginPath()
-        ctx.moveTo(-7, -16)
-        ctx.lineTo(-7 + stride, 0)
-        ctx.moveTo(7, -16)
-        ctx.lineTo(7 - stride, 0)
-        ctx.stroke()
-        ctx.strokeStyle = outline
-        ctx.lineWidth = 1.8
-        // Tattered cloak behind.
-        ctx.fillStyle = tint('#5a1f24')
-        ctx.beginPath()
-        ctx.moveTo(-10, -40 - bob)
-        ctx.lineTo(10, -40 - bob)
-        ctx.lineTo(-dir * 18 + Math.sin(this.t * 5) * 3, -4)
-        ctx.lineTo(-dir * 4, -8)
-        ctx.closePath()
-        ctx.fill()
-        ctx.stroke()
-        // Dark plate.
-        ctx.fillStyle = bodyGrad(ctx, tint('#4a4552'), -14, -42 - bob, 14, -14 - bob)
-        ctx.beginPath()
-        ctx.moveTo(-14, -42 - bob)
-        ctx.lineTo(14, -42 - bob)
-        ctx.lineTo(12, -14 - bob)
-        ctx.lineTo(-12, -14 - bob)
-        ctx.closePath()
-        ctx.fill()
-        ctx.stroke()
-        ctx.fillStyle = '#c0392b'
-        ctx.fillRect(-10, -34 - bob, 20, 3)
-        ctx.fillStyle = 'rgba(255,255,255,0.2)'
-        ctx.fillRect(-10, -40 - bob, 6, 20)
-        // Horned helm.
-        ctx.fillStyle = tint('#5a5563')
-        ctx.fillRect(-9, -60 - bob, 18, 18)
-        ctx.strokeRect(-9, -60 - bob, 18, 18)
-        ctx.fillStyle = '#ff5540'
-        ctx.fillRect(dir * 2 - 6, -53 - bob, 12, 2.5)
-        ctx.fillStyle = '#d9d2c2'
-        ctx.beginPath()
-        ctx.moveTo(-9, -56 - bob)
-        ctx.lineTo(-20, -70 - bob)
-        ctx.lineTo(-8, -62 - bob)
-        ctx.closePath()
-        ctx.fill()
-        ctx.stroke()
-        ctx.beginPath()
-        ctx.moveTo(9, -56 - bob)
-        ctx.lineTo(20, -70 - bob)
-        ctx.lineTo(8, -62 - bob)
-        ctx.closePath()
-        ctx.fill()
-        ctx.stroke()
-        // Red plume.
-        ctx.strokeStyle = '#c0392b'
-        ctx.lineWidth = 4
-        ctx.beginPath()
-        ctx.moveTo(0, -60 - bob)
-        ctx.quadraticCurveTo(-dir * 10, -72 - bob, -dir * 18, -62 - bob)
-        ctx.stroke()
-        ctx.strokeStyle = outline
-        ctx.lineWidth = 1.8
-        // Greatsword.
-        const raise = e.state === 'windup' && e.attack ? -1.4 * clamp(e.stateT / e.attack.windup, 0, 1) : e.state === 'recover' ? 0.9 : 0
-        ctx.save()
-        ctx.translate(dir * 14, -32 - bob)
-        ctx.rotate(dir * (0.5 + raise))
-        ctx.fillStyle = '#3b2e3f'
-        ctx.fillRect(-6, -2, 10, 4)
-        ctx.fillStyle = '#e0b04a'
-        ctx.fillRect(3, -7, 3, 14)
-        ctx.fillStyle = '#cfd6e0'
-        ctx.beginPath()
-        ctx.moveTo(6, -4)
-        ctx.lineTo(44, -2)
-        ctx.lineTo(50, 0)
-        ctx.lineTo(44, 2)
-        ctx.lineTo(6, 4)
-        ctx.closePath()
-        ctx.fill()
-        ctx.stroke()
-        ctx.restore()
-        // Shield.
-        if (e.shield && !e.shield.broken) {
-            ctx.fillStyle = tint('#2f2a36')
-            ctx.beginPath()
-            ctx.moveTo(dir * 12, -50 - bob)
-            ctx.lineTo(dir * 30, -50 - bob)
-            ctx.lineTo(dir * 30, -20 - bob)
-            ctx.lineTo(dir * 21, -8 - bob)
-            ctx.lineTo(dir * 12, -20 - bob)
-            ctx.closePath()
-            ctx.fill()
-            ctx.lineWidth = 2.5
-            ctx.stroke()
-            ctx.fillStyle = '#c0392b'
-            ellipse(ctx, dir * 21, -32 - bob, 5, 6)
-            ctx.fill()
-        }
-    }
-
-    private drawBriar(ctx: Ctx, e: Enemy, dir: number, bob: number, tint: (c: string) => string, outline: string) {
-        const t = this.t
-        const bristle = e.state === 'windup' && e.attack ? clamp(e.stateT / e.attack.windup, 0, 1) : 0
-        // Six thorned legs, arching out of the bramble body.
-        for (let i = 0; i < 6; i++) {
-            const side = i < 3 ? -1 : 1
-            const k = i % 3
-            const base = -26 - k * 6
-            const spread = (26 + k * 12) * side
-            const lift = Math.sin(e.walk * 0.8 + i) * 4 + bristle * 6
-            ctx.strokeStyle = outline
-            ctx.lineWidth = 7 - k
-            ctx.lineCap = 'round'
-            ctx.beginPath()
-            ctx.moveTo(side * 8, base - bob)
-            ctx.quadraticCurveTo(spread * 0.7, base - 16 - lift - bob, spread, -2)
-            ctx.stroke()
-            ctx.strokeStyle = tint('#4c6b33')
-            ctx.lineWidth = 4.5 - k
-            ctx.beginPath()
-            ctx.moveTo(side * 8, base - bob)
-            ctx.quadraticCurveTo(spread * 0.7, base - 16 - lift - bob, spread, -2)
-            ctx.stroke()
-        }
-        ctx.strokeStyle = outline
-        ctx.lineWidth = 1.8
-        // Abdomen — a bramble sac, thorns all over it.
-        ctx.fillStyle = bodyGrad(ctx, tint('#3f5a2c'), -26, -46 - bob, 26, -6 - bob)
-        ellipse(ctx, -dir * 6, -26 - bob, 26, 21)
-        ctx.fill()
-        ctx.stroke()
-        ctx.fillStyle = tint('#5c7d3c')
-        for (let i = 0; i < 7; i++) {
-            const ang = i / 7 * Math.PI * 2 + e.seed
-            ctx.beginPath()
-            ctx.moveTo(-dir * 6 + Math.cos(ang) * 22, -26 - bob + Math.sin(ang) * 17)
-            ctx.lineTo(-dir * 6 + Math.cos(ang + 0.16) * 20, -26 - bob + Math.sin(ang + 0.16) * 15)
-            ctx.lineTo(-dir * 6 + Math.cos(ang) * 33, -26 - bob + Math.sin(ang) * 26)
-            ctx.closePath()
-            ctx.fill()
-            ctx.stroke()
-        }
-        // Thorax and the matriarch's torso above it.
-        ctx.fillStyle = bodyGrad(ctx, tint('#6b8a44'), -14, -44 - bob, 14, -20 - bob)
-        ellipse(ctx, dir * 8, -34 - bob, 15, 14)
-        ctx.fill()
-        ctx.stroke()
-        ctx.fillStyle = bodyGrad(ctx, tint('#7d5a34'), -10, -58 - bob, 10, -38 - bob)
-        ctx.beginPath()
-        ctx.moveTo(dir * 8 - 10, -40 - bob)
-        ctx.quadraticCurveTo(dir * 8 - 8, -58 - bob, dir * 8, -60 - bob)
-        ctx.quadraticCurveTo(dir * 8 + 8, -58 - bob, dir * 8 + 10, -40 - bob)
-        ctx.closePath()
-        ctx.fill()
-        ctx.stroke()
-        // Petal crown, breathing with the idle.
-        for (let i = 0; i < 7; i++) {
-            const ang = -Math.PI + i / 6 * Math.PI
-            const r = 13 + Math.sin(t * 2 + i) * 1.5 + bristle * 4
-            ctx.fillStyle = tint(i % 2 === 0 ? '#c9527f' : '#e0708f')
-            ellipse(ctx, dir * 8 + Math.cos(ang) * r, -60 - bob + Math.sin(ang) * r * 0.8, 6, 4)
-            ctx.fill()
-            ctx.stroke()
-        }
-        ctx.fillStyle = tint('#f0d98a')
-        ellipse(ctx, dir * 8, -60 - bob, 8, 7)
-        ctx.fill()
-        ctx.stroke()
-        // Cluster eyes.
-        ctx.fillStyle = '#2a1020'
-        for (const [ex, ey] of [[-4, -62], [1, -63], [5, -61], [-1, -58]] as const) {
-            ellipse(ctx, dir * 8 + ex, ey - bob, 1.7, 1.7)
-            ctx.fill()
-        }
-        ctx.fillStyle = 'rgba(255,220,120,0.85)'
-        ellipse(ctx, dir * 8 + 1, -63 - bob, 0.9, 0.9)
-        ctx.fill()
-        // Front scythe-arms, raised through a windup.
-        for (const side of [-1, 1]) {
-            ctx.save()
-            ctx.translate(dir * 8 + side * 11, -44 - bob)
-            ctx.rotate(side * (0.5 - bristle * 1.1))
-            ctx.fillStyle = tint('#5c7d3c')
-            ctx.beginPath()
-            ctx.moveTo(0, -3)
-            ctx.quadraticCurveTo(side * 16, -10, side * 26, -2)
-            ctx.quadraticCurveTo(side * 16, -3, 0, 3)
-            ctx.closePath()
-            ctx.fill()
-            ctx.stroke()
-            ctx.restore()
-        }
-    }
-
-    private drawKnight(ctx: Ctx, e: Enemy, dir: number, bob: number, tint: (c: string) => string, outline: string) {
-        const t = this.t
-        const stride = Math.sin(e.walk) * 5
-        const parry = e.parryT > 0 || (e.state === 'windup' && e.attack?.kind === 'parry')
-        ctx.strokeStyle = outline
-        ctx.lineWidth = 6
-        ctx.lineCap = 'round'
-        ctx.beginPath()
-        ctx.moveTo(-6, -16)
-        ctx.lineTo(-6 + stride, 0)
-        ctx.moveTo(6, -16)
-        ctx.lineTo(6 - stride, 0)
-        ctx.stroke()
-        ctx.strokeStyle = '#3c4256'
-        ctx.lineWidth = 4
-        ctx.beginPath()
-        ctx.moveTo(-6, -16)
-        ctx.lineTo(-6 + stride, 0)
-        ctx.moveTo(6, -16)
-        ctx.lineTo(6 - stride, 0)
-        ctx.stroke()
-        ctx.strokeStyle = outline
-        ctx.lineWidth = 1.8
-        // Half-cape, trailing behind.
-        ctx.fillStyle = tint('#1f2740')
-        ctx.beginPath()
-        ctx.moveTo(-8, -42 - bob)
-        ctx.lineTo(8, -42 - bob)
-        ctx.lineTo(-dir * 16 + Math.sin(t * 4.5) * 3, -6)
-        ctx.lineTo(-dir * 3, -10)
-        ctx.closePath()
-        ctx.fill()
-        ctx.stroke()
-        // Cuirass, narrow-waisted duellist's plate.
-        ctx.fillStyle = bodyGrad(ctx, tint('#8792a8'), -12, -44 - bob, 12, -14 - bob)
-        ctx.beginPath()
-        ctx.moveTo(-12, -44 - bob)
-        ctx.lineTo(12, -44 - bob)
-        ctx.lineTo(9, -22 - bob)
-        ctx.lineTo(0, -14 - bob)
-        ctx.lineTo(-9, -22 - bob)
-        ctx.closePath()
-        ctx.fill()
-        ctx.stroke()
-        ctx.fillStyle = 'rgba(255,255,255,0.18)'
-        ctx.fillRect(-11, -43 - bob, 5, 20)
-        ctx.strokeStyle = 'rgba(30,26,40,0.6)'
-        ctx.beginPath()
-        ctx.moveTo(0, -44 - bob)
-        ctx.lineTo(0, -16 - bob)
-        ctx.stroke()
-        ctx.strokeStyle = outline
-        // Pauldrons.
-        for (const side of [-1, 1]) {
-            ctx.fillStyle = bodyGrad(ctx, tint('#9aa5bb'), side * 8, -48 - bob, side * 20, -34 - bob)
-            ellipse(ctx, side * 13, -41 - bob, 7, 6)
-            ctx.fill()
-            ctx.stroke()
-        }
-        // Great helm, hollow but for the visor light.
-        ctx.fillStyle = bodyGrad(ctx, tint('#aab4c8'), -9, -64 - bob, 9, -44 - bob)
-        ctx.beginPath()
-        ctx.moveTo(-9, -62 - bob)
-        ctx.quadraticCurveTo(0, -70 - bob, 9, -62 - bob)
-        ctx.lineTo(8, -46 - bob)
-        ctx.lineTo(-8, -46 - bob)
-        ctx.closePath()
-        ctx.fill()
-        ctx.stroke()
-        ctx.fillStyle = parry ? '#eaf4ff' : '#7fd4ff'
-        ctx.fillRect(dir * 1 - 6, -57 - bob, 12, 2.6)
-        ctx.fillStyle = 'rgba(120,200,255,0.35)'
-        ctx.fillRect(dir * 1 - 7, -58 - bob, 14, 4.6)
-        // Crest.
-        ctx.strokeStyle = '#5b6cc4'
-        ctx.lineWidth = 3
-        ctx.beginPath()
-        ctx.moveTo(0, -68 - bob)
-        ctx.quadraticCurveTo(-dir * 9, -74 - bob, -dir * 16, -66 - bob)
-        ctx.stroke()
-        ctx.strokeStyle = outline
-        ctx.lineWidth = 1.8
-        // Longsword: level in the parry stance, wound up otherwise.
-        const raise = e.state === 'windup' && e.attack && e.attack.kind === 'melee' ? -1.5 * clamp(e.stateT / e.attack.windup, 0, 1) : e.state === 'recover' ? 0.8 : 0
-        ctx.save()
-        ctx.translate(dir * 13, -34 - bob)
-        ctx.rotate(parry ? -Math.PI / 2 * dir : dir * (0.45 + raise))
-        ctx.fillStyle = '#2b2436'
-        ctx.fillRect(-7, -2, 11, 4)
-        ctx.fillStyle = '#c3cbd8'
-        ctx.fillRect(3, -8, 3, 16)
-        ctx.fillStyle = '#e8eef7'
-        ctx.beginPath()
-        ctx.moveTo(6, -3)
-        ctx.lineTo(48, -1.6)
-        ctx.lineTo(56, 0)
-        ctx.lineTo(48, 1.6)
-        ctx.lineTo(6, 3)
-        ctx.closePath()
-        ctx.fill()
-        ctx.stroke()
-        if (parry) {
-            // Blue-white glint running up the edge.
-            const gk = (t * 1.6) % 1
-            ctx.fillStyle = 'rgba(220,240,255,0.9)'
-            ellipse(ctx, 8 + gk * 46, 0, 5, 2.6)
-            ctx.fill()
-        }
-        ctx.restore()
-        // Buckler on the off-hand.
-        if (e.shield && !e.shield.broken) {
-            ctx.fillStyle = tint('#4a5470')
-            ellipse(ctx, -dir * 15, -34 - bob, 8, 11)
-            ctx.fill()
-            ctx.lineWidth = 2.4
-            ctx.stroke()
-            ctx.lineWidth = 1.8
-            ctx.fillStyle = '#7fd4ff'
-            ellipse(ctx, -dir * 15, -34 - bob, 3, 3.6)
-            ctx.fill()
-        }
     }
 
     // ------------------------------------------------------------------- air
