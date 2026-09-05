@@ -22,7 +22,10 @@ export interface MeleeDef {
     range: number
     /** Full sweep angle in radians of the normal slashes. */
     arc: number
+    /** Length of the swing animation in seconds. */
     swingTime: number
+    /** Attacks per second; the swing animation always fits inside one attack. */
+    rate: number
     /** Damage multiplier of the third hit. */
     finisherMult: number
     /** How the finisher lands: a wide slash, a full spin, an overhead slam, or a long thrust. */

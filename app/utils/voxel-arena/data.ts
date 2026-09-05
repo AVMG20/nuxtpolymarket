@@ -565,12 +565,12 @@ export const MELEE = {
 }
 
 export const MELEE_WEAPONS: Record<MeleeId, MeleeDef> = {
-    sword: { id: 'sword', name: 'Iron Sword', tagline: 'Dependable steel. Left, right, then a heavy cleave.', damage: 40, range: 3.2, arc: Math.PI * 0.7, swingTime: 0.24, finisherMult: 2.2, finisher: 'slash', knockback: 6, lunge: 8, rarity: 'common', color: 0xd8dde6 },
-    dagger: { id: 'dagger', name: 'Twin Daggers', tagline: 'Blindingly fast cuts and a lunging double stab to finish.', damage: 22, range: 2.4, arc: Math.PI * 0.5, swingTime: 0.12, finisherMult: 2.6, finisher: 'thrust', knockback: 2, lunge: 14, rarity: 'common', color: 0xb8c4d6 },
-    spear: { id: 'spear', name: 'Voxel Pike', tagline: 'Long reach. Sweeps the line, then a piercing thrust through everything ahead.', damage: 52, range: 5.6, arc: Math.PI * 0.45, swingTime: 0.3, finisherMult: 2.0, finisher: 'thrust', knockback: 8, lunge: 6, rarity: 'rare', color: 0xc9a86a },
-    katana: { id: 'katana', name: 'Storm Katana', tagline: 'Quick, wide draws. The third cut is a full spin that hits everything around you.', damage: 46, range: 3.6, arc: Math.PI * 0.8, swingTime: 0.17, finisherMult: 2.2, finisher: 'spin', knockback: 7, lunge: 11, rarity: 'rare', color: 0x3ff0ff },
-    axe: { id: 'axe', name: 'Great Axe', tagline: 'Slow, brutal arcs. The overhead slam craters the floor.', damage: 95, range: 3.6, arc: Math.PI * 0.85, swingTime: 0.42, finisherMult: 2.6, finisher: 'slam', knockback: 12, lunge: 5, rarity: 'epic', color: 0xff8a3a },
-    scythe: { id: 'scythe', name: 'Void Scythe', tagline: 'Huge reaping sweeps that heal you, ending in a spin that clears the room.', damage: 70, range: 4.6, arc: Math.PI * 0.95, swingTime: 0.32, finisherMult: 2.4, finisher: 'spin', knockback: 9, lunge: 7, rarity: 'legendary', color: 0xb56bff }
+    sword: { id: 'sword', name: 'Iron Sword', tagline: 'Dependable steel. Left, right, then a heavy cleave.', damage: 40, range: 3.2, arc: Math.PI * 0.7, swingTime: 0.24, rate: 2.8, finisherMult: 2.2, finisher: 'slash', knockback: 6, lunge: 8, rarity: 'common', color: 0xd8dde6 },
+    dagger: { id: 'dagger', name: 'Twin Daggers', tagline: 'Blindingly fast cuts and a lunging double stab to finish.', damage: 22, range: 2.4, arc: Math.PI * 0.5, swingTime: 0.12, rate: 5, finisherMult: 2.6, finisher: 'thrust', knockback: 2, lunge: 14, rarity: 'common', color: 0xb8c4d6 },
+    spear: { id: 'spear', name: 'Voxel Pike', tagline: 'Long reach. Sweeps the line, then a piercing thrust through everything ahead.', damage: 52, range: 5.6, arc: Math.PI * 0.45, swingTime: 0.3, rate: 2, finisherMult: 2.0, finisher: 'thrust', knockback: 8, lunge: 6, rarity: 'rare', color: 0xc9a86a },
+    katana: { id: 'katana', name: 'Storm Katana', tagline: 'Quick, wide draws. The third cut is a full spin that hits everything around you.', damage: 46, range: 3.6, arc: Math.PI * 0.8, swingTime: 0.17, rate: 3.5, finisherMult: 2.2, finisher: 'spin', knockback: 7, lunge: 11, rarity: 'rare', color: 0x3ff0ff },
+    axe: { id: 'axe', name: 'Great Axe', tagline: 'Slow, brutal arcs. The overhead slam craters the floor.', damage: 95, range: 3.6, arc: Math.PI * 0.85, swingTime: 0.42, rate: 1.4, finisherMult: 2.6, finisher: 'slam', knockback: 12, lunge: 5, rarity: 'epic', color: 0xff8a3a },
+    scythe: { id: 'scythe', name: 'Void Scythe', tagline: 'Huge reaping sweeps that heal you, ending in a spin that clears the room.', damage: 70, range: 4.6, arc: Math.PI * 0.95, swingTime: 0.32, rate: 1.8, finisherMult: 2.4, finisher: 'spin', knockback: 9, lunge: 7, rarity: 'legendary', color: 0xb56bff }
 }
 
 export const MELEE_IDS = Object.keys(MELEE_WEAPONS) as MeleeId[]

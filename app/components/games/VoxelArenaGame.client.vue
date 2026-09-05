@@ -223,8 +223,9 @@
                     />
                 </div>
                 <div class="mt-2 flex items-center gap-2 text-[9px] font-semibold uppercase tracking-[0.25em] transition-colors" :class="hud.held === 'melee' ? 'text-white' : 'text-white/50'">
-                    <span class="rounded border px-1.5 font-mono leading-4" :class="hud.held === 'melee' ? 'border-white/60' : 'border-white/15'">F</span>
+                    <span class="rounded border px-1.5 font-mono leading-4" :class="hud.held === 'melee' ? 'border-white/60' : 'border-white/15'">{{ hud.held === 'melee' ? 'LMB' : 'F' }}</span>
                     <span :style="{ color: hud.melee.color }">{{ hud.melee.name }}</span>
+                    <span v-if="hud.held === 'melee'" class="text-white/40">RMB · gun</span>
                     <span class="ml-1 flex items-center gap-1">
                         <span v-for="i in 3" :key="i" class="h-1 w-3 rounded-full transition-colors" :class="i <= hud.combo3 ? 'bg-white' : 'bg-white/15'" />
                     </span>
@@ -618,7 +619,8 @@ const controls: [string, string][] = [
     ['WASD', 'Move'],
     ['LMB', 'Shoot'],
     ['RMB', 'Aim down sights · glide in the air'],
-    ['F', '3-hit melee combo · slam from the air'],
+    ['F', 'Draw the blade · LMB swings a 3-hit combo · slam from the air'],
+    ['RMB / 1-3', 'Put the blade away'],
     ['Ctrl', 'Slide'],
     ['Ctrl + Space', 'Bullet jump'],
     ['Shift', 'Dash'],
@@ -698,7 +700,7 @@ const gunBars = computed(() => {
 const meleeMax = {
     damage: Math.max(...MELEE_IDS.map(id => MELEE_WEAPONS[id].damage)),
     range: Math.max(...MELEE_IDS.map(id => MELEE_WEAPONS[id].range)),
-    speed: Math.max(...MELEE_IDS.map(id => 1 / MELEE_WEAPONS[id].swingTime)),
+    speed: Math.max(...MELEE_IDS.map(id => MELEE_WEAPONS[id].rate)),
     finisher: Math.max(...MELEE_IDS.map(id => MELEE_WEAPONS[id].finisherMult))
 }
 
@@ -709,7 +711,7 @@ const meleeBars = computed(() => {
     return [
         { label: 'Damage', value: d.damage / meleeMax.damage, text: String(d.damage) },
         { label: 'Reach', value: d.range / meleeMax.range, text: `${d.range.toFixed(1)}m` },
-        { label: 'Speed', value: (1 / d.swingTime) / meleeMax.speed, text: `${(1 / d.swingTime).toFixed(1)}/s` },
+        { label: 'Speed', value: d.rate / meleeMax.speed, text: `${d.rate.toFixed(1)}/s` },
         { label: 'Finisher', value: d.finisherMult / meleeMax.finisher, text: `×${d.finisherMult.toFixed(1)}` }
     ]
 })

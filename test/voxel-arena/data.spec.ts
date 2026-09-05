@@ -113,9 +113,13 @@ describe('voxel arena definitions', () => {
             expect(m.damage).toBeGreaterThan(0)
             expect(m.range).toBeGreaterThan(1)
             expect(m.swingTime).toBeGreaterThan(0.05)
+            expect(m.rate).toBeGreaterThan(0)
+            // the animation must finish before the next attack is allowed
+            expect(m.swingTime).toBeLessThanOrEqual(1 / m.rate)
             expect(m.finisherMult).toBeGreaterThanOrEqual(2)
         }
         expect(MELEE_WEAPONS.dagger.swingTime).toBeLessThan(MELEE_WEAPONS.axe.swingTime)
+        expect(MELEE_WEAPONS.dagger.rate).toBeGreaterThan(MELEE_WEAPONS.axe.rate)
         expect(MELEE_WEAPONS.spear.range).toBeGreaterThan(MELEE_WEAPONS.sword.range)
     })
 

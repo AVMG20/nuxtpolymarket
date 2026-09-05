@@ -490,6 +490,7 @@ export class VoxelArenaGame {
     private dashTrailTimer = 0
     private invuln = 0
     private meleeTimer = 0
+    private meleeCooldown = 0
     private meleeCombo = 0
     private meleeComboTimer = 0
     private meleeHitDone = false
@@ -1802,6 +1803,7 @@ export class VoxelArenaGame {
             this.meleeComboTimer -= dt
             if (this.meleeComboTimer <= 0) this.meleeCombo = 0
         }
+        if (this.meleeCooldown > 0) this.meleeCooldown -= dt
         if (this.regenDelay > 0) this.regenDelay -= dt
         else if (s.healthRegen > 0 && this.hp < s.maxHealth) this.hp = Math.min(s.maxHealth, this.hp + s.healthRegen * dt)
 
@@ -1905,8 +1907,12 @@ export class VoxelArenaGame {
         this.placeCamera()
         this.updateViewmodel(dt)
 
-        // combat inputs held — after posing so the muzzle matches the drawn gun
-        if (this.mouseDown || this.mouseJustDown) this.tryFire()
+        // combat inputs held — after posing so the muzzle matches the drawn gun.
+        // With the blade out the trigger swings it; the gun comes back with RMB, 1-3 or the wheel.
+        if (this.mouseDown || this.mouseJustDown) {
+            if (this.held === 'melee') this.melee()
+            else this.tryFire()
+        }
         this.mouseJustDown = false
         this.updateWeapon(dt)
         this.updateMelee(dt)
@@ -2076,7 +2082,16 @@ export class VoxelArenaGame {
     }
 
     private switchWeapon(index: number): void {
-        if (index < 0 || index >= this.weapons.length || index === this.active) return
+        if (index < 0 || index >= this.weapons.length) return
+        if (index === this.active) {
+            // the same slot while the blade is out just brings the gun back
+            if (this.held === 'melee') {
+                this.hold('gun')
+                this.meleeComboTimer = 0
+                this.audio.play('select', 0.7)
+            }
+            return
+        }
         const cur = this.weapons[this.active]
         if (cur?.reloading) {
             cur.reloading = false
@@ -2191,13 +2206,7 @@ export class VoxelArenaGame {
     private tryFire(): void {
         const w = this.weapon
         if (!w) return
-        if (this.held === 'melee' && (this.mouseJustDown || w.def.auto)) {
-            // the trigger brings the gun back up; the blade drops out of the way
-            this.hold('gun')
-            this.meleeTimer = 0
-            this.meleeComboTimer = 0
-        }
-        if (this.meleeTimer > 0) return
+        if (this.held === 'melee' || this.meleeTimer > 0) return
         if (!w.def.auto && !this.mouseJustDown) return
         if (w.fireTimer > 0 || w.burstLeft > 0) return
         if (w.reloading) return
@@ -2550,7 +2559,7 @@ export class VoxelArenaGame {
     // ── Melee ────────────────────────────────────────────────────────────
 
     private melee(): void {
-        if (this.meleeTimer > 0 || this.slamming) return
+        if (this.meleeTimer > 0 || this.meleeCooldown > 0 || this.slamming) return
         if (!this.onGround && this.pos.y - this.groundHeight(this.pos.x, this.pos.z, this.playerRadius, this.pos.y) > 1.4) {
             // aerial slam: drop like a stone and detonate on landing
             this.slamming = true
@@ -2564,6 +2573,7 @@ export class VoxelArenaGame {
         const m = this.meleeDef
         this.hold('melee')
         this.meleeTimer = m.swingTime
+        this.meleeCooldown = 1 / (m.rate * this.frenzyMult())
         this.meleeHitDone = false
         this.meleeComboTimer = MELEE.comboWindow
         // lock the nearest enemy in a forward cone so the swing carries you to it
