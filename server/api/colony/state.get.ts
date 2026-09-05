@@ -105,7 +105,7 @@ export default defineEventHandler(async (event) => {
 
   const lootMap = new Map(loot.map(l => [l.itemTypeId, l.quantity]))
   const pendingLoot = ITEM_TYPES
-    .map(t => ({ itemTypeId: t.id, name: t.name, emoji: t.emoji, quantity: lootMap.get(t.id) ?? 0 }))
+    .map(t => ({ itemTypeId: t.id, name: t.name, emoji: t.emoji, sellValue: t.sellValue, quantity: lootMap.get(t.id) ?? 0 }))
     .filter(l => l.quantity > 0)
 
   return {

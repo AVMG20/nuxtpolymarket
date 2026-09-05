@@ -7,64 +7,55 @@ import { formatDuration, traitTextColor } from '~/lib/colony-format'
 const colony = useColony()
 const { bugs, bugInventory, inventory, capacity, placedCount, upgrades, habitatLevel, nutrition, nutritionMax, nutritionDrainPerHour, feedCost, gemNutrition, gemBuffActive, gemFeedCost, gemFeedNutritionPerGem, initialized, pending, pendingLoot, serverNow } = colony
 
+const sound = useColonySound()
+const fx = useColonyFx()
+
 const { user } = useAuth()
 const balance = computed(() => parseFloat(user.value?.balance ?? '0'))
 const gems = computed(() => user.value?.gems ?? 0)
 
 const sidebarTab = ref<'inventory' | 'bugs' | 'resources'>('inventory')
-const sidebarTabItems = [
-  { label: 'Inventory', value: 'inventory', icon: 'i-lucide-package' },
-  { label: 'Bugs', value: 'bugs', icon: 'i-lucide-bug' },
-  { label: 'Resources', value: 'resources', icon: 'i-lucide-box' }
-]
+const sidebarTabItems = computed(() => [
+  { label: 'Bug Box', value: 'inventory', icon: 'i-lucide-package', count: bugInventory.value.reduce((s: number, b: any) => s + b.quantity, 0) },
+  { label: 'Placed', value: 'bugs', icon: 'i-lucide-bug', count: bugs.value.length },
+  { label: 'Storage', value: 'resources', icon: 'i-lucide-warehouse', count: inventory.value.filter((i: any) => i.quantity > 0).length }
+])
 
 const resourcesOwned = computed(() => [...inventory.value].sort((a: any, b: any) => a.tier - b.tier || a.name.localeCompare(b.name)))
 const pendingLootTotal = computed(() => pendingLoot.value.reduce((sum: number, item: any) => sum + item.quantity, 0))
+const pendingLootValue = computed(() => pendingLoot.value.reduce((sum: number, item: any) => sum + item.quantity * (item.sellValue ?? 0), 0))
 
-/** Keep the placed-bugs grid stable across production refreshes. Average coin
- * output is the primary ordering; the remaining fields make equal-value bugs
- * deterministic instead of inheriting an arbitrary database response order. */
+const coinsPerHour = computed(() => bugs.value.reduce((s: number, b: any) => s + (b.itemsPerHour ?? 0) * (b.itemSellValue ?? 0), 0))
+const itemsPerHour = computed(() => bugs.value.reduce((s: number, b: any) => s + (b.itemsPerHour ?? 0), 0))
+const storageValue = computed(() => inventory.value.reduce((s: number, i: any) => s + i.quantity * i.sellValue, 0))
+
 const sortedPlacedBugs = computed(() => [...bugs.value].sort((a: any, b: any) => {
   const valueDifference = (b.itemsPerHour * b.itemSellValue) - (a.itemsPerHour * a.itemSellValue)
   if (valueDifference !== 0) return valueDifference
-
   const tierDifference = b.tier - a.tier
   if (tierDifference !== 0) return tierDifference
-
   const nameDifference = a.name.localeCompare(b.name)
   return nameDifference !== 0 ? nameDifference : a.id.localeCompare(b.id)
 }))
 
-/** Prestige-shop grants cannot be released — the server refuses it. */
 function isPrestigeOnly(typeId: string): boolean {
   return getBug(typeId)?.prestigeOnly ?? false
 }
 
-/** Effective tick time for an unplaced stack (speed trait applied, no habitat speed_boost track since that's colony-wide and not modeled here for a dormant bug — matches the market card's own convention). */
 function stackTickMs(stack: any): number {
   return stack.baseTickMs * (1 - stack.speed / 100)
 }
-
-/** Items/hr for an unplaced stack — no social bonus yet since it isn't placed. Uses the expected per-tick roll (see avgTickYield), not the raw yield level. */
 function stackItemsPerHour(stack: any): number {
   const tickMs = stackTickMs(stack)
   return tickMs > 0 ? (avgTickYield(stack.yield) / tickMs) * 3_600_000 : 0
 }
-
 function stackCoinsPerHour(stack: any): number {
   return stackItemsPerHour(stack) * (stack.itemSellValue ?? 0)
 }
-
-/** Per-cycle output range for an unplaced (dormant) stack — no social bonus yet, so just the raw 1..yield+1 roll range. */
 function stackYieldPerCycle(stack: any): string {
   return `1–${stack.yield + 1}`
 }
 
-// UTooltip's default content class is a fixed-height (h-6), single-line badge
-// meant for short text/kbd hints — it clips rich multi-line #content slots
-// (like the ones below) to that 24px height, so the popup's background/ring
-// only covers the first sliver and the rest of the text renders with no
-// backing panel at all. Override just enough to let it size to content.
 const TOOLTIP_CONTENT_UI = 'h-auto max-w-72 p-3 flex-col items-start bg-default ring ring-default rounded-lg shadow-lg z-50'
 
 const placingKey = ref<string | null>(null)
@@ -74,7 +65,7 @@ function stackKey(stack: any) {
   return `${stack.typeId}:${stack.speed}:${stack.yield}:${stack.eat}`
 }
 
-// ─── Inventory sort/filter (Inventory tab) ─────────────────────────────────
+// ─── Inventory sort/filter ─────────────────────────────────────────────────
 const inventorySortOptions = [
   { label: 'Tier', value: 'tier' },
   { label: 'Name', value: 'name' },
@@ -117,35 +108,51 @@ const filteredSortedBugInventory = computed(() => {
     })
 })
 
-async function handlePlace(stack: any) {
+async function handlePlace(stack: any, ev?: MouseEvent) {
   if (placingKey.value || placedCount.value >= capacity.value) return
   placingKey.value = stackKey(stack)
   try {
     await colony.placeBug(stack.typeId, stack.speed, stack.yield, stack.eat)
+    sound.play('place')
+    const el = ev?.currentTarget as Element | undefined
+    fx.celebrate(el, { emoji: stack.emoji, count: 6 })
+    // Fly a copy of the bug into the terrarium.
+    const from = fx.centerOf(el)
+    const to = fx.centerOf(terrariumWrap.value)
+    if (from && to) fx.float(to.x, to.y + 40, `${stack.emoji} joined!`)
+  } catch {
+    sound.play('error')
   } finally {
     placingKey.value = null
   }
 }
 
-async function handleUnplace(bugId: string) {
+async function handleUnplace(bugId: string, ev?: MouseEvent) {
   if (unplacingId.value) return
   unplacingId.value = bugId
   try {
     await colony.unplaceBug(bugId)
+    sound.play('unplace')
+    fx.celebrate(ev?.currentTarget as Element | undefined, { emoji: '📦', count: 4 })
+  } catch {
+    sound.play('error')
   } finally {
     unplacingId.value = null
   }
 }
 
-// ─── Nutrition / feeding ────────────────────────────────────────────────────
-// `nutrition` is only as fresh as the last server round-trip (a fetch, or
-// any action that triggers one) — displaying it raw makes the bar look like
-// it only drops when the player happens to do something (like opening the
-// loot chest), when really it's been draining continuously the whole time.
-// liveNutrition interpolates from that last-known value using the same
-// nowTick clock the bug progress bars use, anchored to the server's own
-// clock (serverNow) rather than local time so latency doesn't skew it.
+async function handleRelease(bugId: string, ev?: MouseEvent) {
+  const el = ev?.currentTarget as Element | undefined
+  try {
+    await colony.removeBug(bugId)
+    sound.play('release')
+    fx.celebrate(el, { emoji: ['🪙', '👋'], count: 8 })
+  } catch {
+    sound.play('error')
+  }
+}
 
+// ─── Nutrition ─────────────────────────────────────────────────────────────
 const isStarving = computed(() => liveTotalNutrition.value <= 0)
 const nutritionLow = computed(() => liveTotalNutrition.value > 0 && liveTotalNutrition.value / nutritionMax.value < 0.25)
 const nutritionEtaMs = computed(() => nutritionDrainPerHour.value > 0 ? (liveTotalNutrition.value / nutritionDrainPerHour.value) * 3_600_000 : null)
@@ -157,12 +164,21 @@ const nutritionEtaClock = computed(() => {
 const feeding = ref(false)
 const canFeed = computed(() => feedCost.value > 0 && balance.value >= feedCost.value)
 const canGemFeed = computed(() => gemFeedCost.value > 0 && gems.value >= gemFeedCost.value)
+const terrarium = ref<{ feedCelebration: (kind: 'coins' | 'gems') => void } | null>(null)
+const terrariumWrap = ref<HTMLDivElement | null>(null)
+const feedBtn = ref<HTMLButtonElement | null>(null)
+const gemFeedBtn = ref<HTMLButtonElement | null>(null)
 
 async function handleFeed() {
   if (feeding.value || !canFeed.value) return
   feeding.value = true
   try {
     await colony.feedSwarm('coins')
+    sound.play('feed')
+    terrarium.value?.feedCelebration('coins')
+    fx.celebrate(feedBtn.value, { emoji: ['🍓', '🥕', '🍎', '🥬'], count: 10, text: 'Nom nom!' })
+  } catch {
+    sound.play('error')
   } finally {
     feeding.value = false
   }
@@ -173,13 +189,22 @@ async function handleGemFeed() {
   feeding.value = true
   try {
     await colony.feedSwarm('gems')
+    sound.play('gem-feed')
+    terrarium.value?.feedCelebration('gems')
+    fx.celebrate(gemFeedBtn.value, { emoji: ['💎', '✨'], count: 14, text: 'Buffed!', flash: true, color: '#38bdf8' })
+  } catch {
+    sound.play('error')
   } finally {
     feeding.value = false
   }
 }
 
-let lootRefreshHandle: ReturnType<typeof setTimeout> | null = null
+// Starving sting — once per transition into starving, not every frame.
+watch(isStarving, (v, was) => {
+  if (v && !was && initialized.value && bugs.value.length) sound.play('starving')
+})
 
+let lootRefreshHandle: ReturnType<typeof setTimeout> | null = null
 function handleBugProduced() {
   if (lootRefreshHandle) clearTimeout(lootRefreshHandle)
   lootRefreshHandle = setTimeout(() => {
@@ -187,63 +212,65 @@ function handleBugProduced() {
     lootRefreshHandle = null
   }, 300)
 }
-
+function handleTick() {
+  sound.play('tick')
+}
 onUnmounted(() => {
   if (lootRefreshHandle) clearTimeout(lootRefreshHandle)
 })
 
-// ─── Loot chest ─────────────────────────────────────────────────────────────
-
-interface FloatText { id: number, text: string, x: number, y: number }
-let floatSeq = 0
-const chestFloats = ref<FloatText[]>([])
+// ─── Loot jar ──────────────────────────────────────────────────────────────
 const chestBusy = ref(false)
+const lootJarEl = ref<HTMLButtonElement | null>(null)
+const jarPop = ref(false)
 
 async function handleCollect() {
-  if (chestBusy.value) return
+  if (chestBusy.value || !pendingLoot.value.length) return
   chestBusy.value = true
   try {
     const res = await colony.collectLoot()
-    const collected = res?.collected ?? []
-    // stagger each popup's appearance so they don't all stack on top of
-    // each other — pushed one at a time instead of all at once
-    collected.forEach((item: any, i: number) => {
-      setTimeout(() => {
-        const id = floatSeq++
-        const x = 50 + (Math.random() - 0.5) * 70
-        chestFloats.value.push({ id, text: `+${formatNumber(item.quantity, false)} ${item.emoji}`, x, y: 0 })
-        setTimeout(() => {
-          chestFloats.value = chestFloats.value.filter(f => f.id !== id)
-        }, 1600)
-      }, i * 220)
-    })
+    const collected: any[] = res?.collected ?? []
+    const total = collected.reduce((s: number, i: any) => s + i.quantity, 0)
+    sound.play(total >= 200 ? 'collect-big' : 'collect')
+    jarPop.value = true
+    setTimeout(() => { jarPop.value = false }, 700)
+    const c = fx.centerOf(lootJarEl.value)
+    if (c) {
+      fx.burst(c.x, c.y, { emoji: collected.map((i: any) => i.emoji), count: Math.min(24, 8 + collected.length * 3), spread: 110, size: 20 })
+      if (total >= 200) fx.flash(c.x, c.y, '#f5b342')
+      collected.forEach((item: any, i: number) => {
+        setTimeout(() => fx.float(c.x + (Math.random() - 0.5) * 80, c.y - 20 - i * 6, `+${formatNumber(item.quantity, false)} ${item.emoji}`), i * 160)
+      })
+    }
+  } catch {
+    sound.play('error')
   } finally {
     chestBusy.value = false
   }
 }
 
+const founding = ref(false)
 async function handleInit() {
-  await colony.initColony()
+  founding.value = true
+  try {
+    await colony.initColony()
+    sound.play('found')
+    fx.flash(undefined, undefined, '#f5b342')
+  } finally {
+    founding.value = false
+  }
 }
 
-// ─── Bug list progress bars ─────────────────────────────────────────────────
-// bugsSyncedAt marks the moment `bugs` last changed (matches the timestamp the
-// terrarium canvas uses internally) so these bars can interpolate between polls
-// without needing access to the canvas component's own animation state.
-
+// ─── Live progress ─────────────────────────────────────────────────────────
 const nowTick = ref(Date.now())
 let progressInterval: ReturnType<typeof setInterval> | null = null
 onMounted(() => {
-  progressInterval = setInterval(() => {
-    nowTick.value = Date.now()
-  }, 500)
+  progressInterval = setInterval(() => { nowTick.value = Date.now() }, 500)
 })
 onUnmounted(() => {
   if (progressInterval) clearInterval(progressInterval)
 })
 
-/** Mirror server settlement between polls: food is spent only when a bug's
- * displayed cycle completes, with premium nutrition consumed first. */
 const liveFoodSpent = computed(() => {
   const elapsedMs = Math.max(0, nowTick.value - serverNow.value)
   return bugs.value.reduce((sum: number, bug: any) => {
@@ -253,10 +280,7 @@ const liveFoodSpent = computed(() => {
     return sum + completedCycles * foodPerCycle
   }, 0)
 })
-
-const liveGemNutrition = computed(() => {
-  return Math.max(0, gemNutrition.value - liveFoodSpent.value)
-})
+const liveGemNutrition = computed(() => Math.max(0, gemNutrition.value - liveFoodSpent.value))
 const liveNutrition = computed(() => {
   const spillover = Math.max(0, liveFoodSpent.value - gemNutrition.value)
   return Math.max(0, Math.min(nutritionMax.value, nutrition.value - spillover))
@@ -285,250 +309,303 @@ function bugCountdown(bug: any) {
   return `${secs}s`
 }
 
-/**
- * How much this bug actually drops per cycle — not a per-hour rate. Every
- * completed cycle rolls 1 + random(0..bug.yield) items, so output genuinely
- * varies tick to tick; shown as the real [itemsPerTickMin, itemsPerTickMax]
- * range (after social + habitat multipliers), not a single number.
- */
 function bugYieldPerCycle(bug: any): string {
   const min = Math.round(bug.itemsPerTickMin ?? 1)
   const max = Math.round(bug.itemsPerTickMax ?? bug.yield + 1)
   return max > min ? `${min}–${max}` : `${min}`
 }
+
+function onHover() {
+  sound.play('hover')
+}
 </script>
 
 <template>
-  <div class="p-4 md:p-6 w-full">
+  <div class="p-3 md:p-5 w-full">
+    <!-- ── Founding screen ─────────────────────────────────────────────── -->
     <div
       v-if="!pending && !initialized"
-      class="flex flex-col items-center justify-center py-24 gap-4 text-center"
+      class="relative flex flex-col items-center justify-center py-20 gap-6 text-center overflow-hidden"
     >
-      <UIcon
-        name="i-lucide-bug"
-        class="size-12 text-primary"
-      />
-      <div>
-        <h1 class="text-xl font-bold">
-          Found your colony
+      <div class="relative">
+        <div class="absolute inset-0 rounded-full bg-primary/20 blur-3xl scale-150" />
+        <ColonyLogo
+          :size="140"
+          class="relative colony-bob drop-shadow-2xl"
+        />
+      </div>
+      <div class="relative">
+        <p class="colony-eyebrow mb-2">
+          A new idle empire awaits
+        </p>
+        <h1 class="text-3xl colony-title colony-glow-text">
+          Found your <span class="text-primary">Colony</span>
         </h1>
-        <p class="text-sm text-muted max-w-sm">
-          COLONY is an idle bug empire for established players — species start at {{ formatNumber(120000) }} coins and pay for themselves over days of foraging. Found the colony, buy your first bugs in the Market, and keep them fed.
+        <p class="text-sm text-muted max-w-md mt-3">
+          Colony is a late-game idle world for established players — bugs start at {{ formatNumber(66000) }} coins and pay for themselves over days of foraging. Found the colony, buy your first bugs in the Market, keep them fed, and watch the jar fill up.
         </p>
       </div>
-      <UButton
-        size="lg"
-        icon="i-lucide-sprout"
+      <div class="relative flex flex-wrap items-center justify-center gap-3 text-2xl">
+        <span
+          v-for="(e, i) in ['🐛', '🪲', '🦗', '🕷️', '🪳', '🐝']"
+          :key="e"
+          class="colony-bob"
+          :style="{ animationDelay: `${i * 0.2}s` }"
+        >{{ e }}</span>
+      </div>
+      <button
+        class="colony-btn colony-btn-lg colony-btn-pulse relative"
+        :disabled="founding"
         @click="handleInit"
       >
+        <UIcon
+          name="i-lucide-sprout"
+          class="size-5"
+        />
         Found Colony
-      </UButton>
+      </button>
     </div>
 
     <template v-else>
-      <div class="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_26rem] gap-6 max-w-full overflow-x-hidden">
-        <!-- Nutrition + Terrarium + chest -->
-        <div class="space-y-3 flex flex-col items-center">
-          <!-- Nutrition bar -->
-          <UCard
-            variant="soft"
-            class="w-full border border-default"
-          >
-            <div class="flex items-center justify-between gap-3 mb-1.5 flex-wrap">
-              <span class="text-sm font-medium text-muted flex items-center gap-1.5">
+      <div class="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_24rem] gap-4 max-w-full overflow-x-hidden">
+        <!-- ── Left: stats, terrarium, feeding station ─────────────────── -->
+        <div class="space-y-3 min-w-0">
+          <!-- Stat strip -->
+          <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 colony-slide-in">
+            <div class="colony-stat">
+              <span class="colony-eyebrow flex items-center gap-1">
                 <UIcon
-                  name="i-lucide-heart-pulse"
-                  class="size-4"
-                />
-                Colony Nutrition
-                <span class="font-mono text-xs">{{ formatNumber(Math.round(liveTotalNutrition), false) }} / {{ formatNumber(nutritionMax, false) }}</span>
-                <span
-                  v-if="gemBuffActive"
-                  class="inline-flex items-center gap-1 text-[10px] font-bold text-info bg-info/10 border border-info/30 rounded-full px-1.5 py-0.5"
-                  title="Gem-fed nutrition is active: +1 yield and +20% speed, colony-wide, until it runs out."
-                >
-                  💎 Buffed
-                </span>
+                  name="i-lucide-trending-up"
+                  class="size-3 text-amber-400"
+                />Income
               </span>
-              <div class="flex items-center gap-1.5">
-                <UButton
-                  size="xs"
-                  color="info"
-                  variant="soft"
-                  icon="i-lucide-gem"
-                  :loading="feeding"
-                  :disabled="!canGemFeed"
+              <span class="colony-stat-value colony-amber-text">+{{ formatNumber(coinsPerHour) }}<span class="text-xs text-muted font-bold">/h</span></span>
+            </div>
+            <div class="colony-stat">
+              <span class="colony-eyebrow flex items-center gap-1">
+                <UIcon
+                  name="i-lucide-package-plus"
+                  class="size-3 text-info"
+                />Forage
+              </span>
+              <span class="colony-stat-value">{{ formatNumber(Math.round(itemsPerHour), false) }}<span class="text-xs text-muted font-bold"> items/h</span></span>
+            </div>
+            <div class="colony-stat">
+              <span class="colony-eyebrow flex items-center gap-1">
+                <UIcon
+                  name="i-lucide-bug"
+                  class="size-3 text-primary"
+                />Placed
+              </span>
+              <span
+                class="colony-stat-value"
+                :class="placedCount >= capacity ? 'text-warning' : ''"
+              >{{ placedCount }}<span class="text-xs text-muted font-bold"> / {{ capacity }}</span></span>
+            </div>
+            <div class="colony-stat">
+              <span class="colony-eyebrow flex items-center gap-1">
+                <UIcon
+                  name="i-lucide-warehouse"
+                  class="size-3 text-success"
+                />Storage
+              </span>
+              <span class="colony-stat-value flex items-center gap-1">
+                <CoinBalance
+                  :value="storageValue"
+                  :show-icon="false"
+                />
+              </span>
+            </div>
+          </div>
+
+          <!-- Terrarium -->
+          <div
+            ref="terrariumWrap"
+            class="relative"
+          >
+            <ClientOnly>
+              <ColonyTerrariumCanvas
+                ref="terrarium"
+                :bugs="bugs"
+                :is-starving="isStarving"
+                :has-spare-bugs="!!bugInventory.length"
+                :upgrades="upgrades"
+                :habitat-level="habitatLevel"
+                :gem-buff-active="gemBuffActive"
+                @produced="handleBugProduced"
+                @tick="handleTick"
+              >
+                <!-- Loot jar lives inside the terrarium, bottom-left -->
+                <button
+                  ref="lootJarEl"
+                  data-no-snack
+                  class="group absolute bottom-3 left-3 z-20 flex items-end gap-2 rounded-2xl px-2 py-1.5 transition-transform"
+                  :class="[pendingLoot.length ? 'cursor-pointer hover:scale-105' : 'cursor-default', jarPop ? 'colony-levelup' : '']"
+                  :disabled="chestBusy || !pendingLoot.length"
+                  :title="pendingLoot.length ? 'Collect the loot jar' : 'Nothing foraged yet'"
+                  @click.stop="handleCollect"
+                  @mouseenter="pendingLoot.length && onHover()"
+                >
+                  <ColonyLootJar
+                    :items="pendingLoot"
+                    :size="76"
+                  />
+                  <div class="mb-1 rounded-xl border border-white/10 bg-black/55 px-2.5 py-1.5 text-left backdrop-blur-sm">
+                    <p class="text-[10px] font-black uppercase tracking-widest text-white/60">
+                      Loot jar
+                    </p>
+                    <p
+                      v-if="pendingLoot.length"
+                      class="text-sm font-black text-amber-300 leading-tight"
+                    >
+                      {{ formatNumber(pendingLootTotal, false) }} items
+                    </p>
+                    <p
+                      v-else
+                      class="text-xs font-bold text-white/50"
+                    >
+                      Empty
+                    </p>
+                    <p
+                      v-if="pendingLoot.length"
+                      class="text-[10px] font-bold text-white/70 flex items-center gap-1"
+                    >
+                      ≈ <CoinBalance
+                        :value="pendingLootValue"
+                        :show-icon="false"
+                      /> 🪙 · click to collect
+                    </p>
+                  </div>
+                </button>
+              </ColonyTerrariumCanvas>
+              <template #fallback>
+                <div class="h-[460px] w-full animate-pulse rounded-3xl border border-default bg-elevated" />
+              </template>
+            </ClientOnly>
+          </div>
+
+          <!-- Feeding station -->
+          <div
+            class="colony-panel p-3 sm:p-4 space-y-2.5"
+            :class="isStarving ? 'colony-panel-amber colony-shake' : gemBuffActive ? 'colony-panel-accent' : ''"
+          >
+            <div class="flex items-center justify-between gap-3 flex-wrap">
+              <div class="flex items-center gap-2">
+                <span class="text-xl">{{ isStarving ? '🥣' : nutritionLow ? '🍽️' : '🍯' }}</span>
+                <div>
+                  <p class="text-sm font-black flex items-center gap-2">
+                    Feeding station
+                    <span
+                      v-if="gemBuffActive"
+                      class="colony-chip colony-chip-ok"
+                      style="color: #7dd3fc; border-color: rgba(56,189,248,.45); background: rgba(56,189,248,.1)"
+                      title="Gem-fed nutrition is active: +1 yield and +20% speed, colony-wide, until it runs out."
+                    >💎 Buffed</span>
+                  </p>
+                  <p
+                    class="text-xs"
+                    :class="isStarving ? 'text-error font-bold' : nutritionLow ? 'text-warning' : 'text-muted'"
+                  >
+                    <template v-if="isStarving">
+                      Everyone's starving — foraging has stopped until you feed them.
+                    </template>
+                    <template v-else-if="nutritionEtaMs !== null">
+                      Runs dry in {{ formatDuration(nutritionEtaMs) }} (around {{ nutritionEtaClock }}).
+                    </template>
+                    <template v-else>
+                      Nobody's eating right now.
+                    </template>
+                  </p>
+                </div>
+              </div>
+              <div class="flex items-center gap-2">
+                <button
+                  ref="gemFeedBtn"
+                  class="colony-btn colony-btn-info colony-btn-sm"
+                  :disabled="!canGemFeed || feeding"
                   :title="`Each gem adds ${formatNumber(gemFeedNutritionPerGem, false)} nutrition and grants +1 yield and +20% speed colony-wide while it lasts.`"
                   @click="handleGemFeed"
+                  @mouseenter="onHover"
                 >
+                  <UIcon
+                    name="i-lucide-gem"
+                    class="size-3.5"
+                  />
                   {{ gemFeedCost <= 0 ? 'Full' : `${formatNumber(gemFeedCost, false)} 💎` }}
-                </UButton>
-                <UButton
-                  size="xs"
-                  :color="isStarving ? 'error' : nutritionLow ? 'warning' : 'primary'"
-                  :variant="isStarving || nutritionLow ? 'solid' : 'soft'"
-                  icon="i-lucide-utensils"
-                  :loading="feeding"
-                  :disabled="!canFeed"
+                </button>
+                <button
+                  ref="feedBtn"
+                  class="colony-btn"
+                  :class="[isStarving || nutritionLow ? 'colony-btn-pulse' : '', feedCost <= 0 ? 'colony-btn-ghost' : '']"
+                  :disabled="!canFeed || feeding"
                   @click="handleFeed"
+                  @mouseenter="onHover"
                 >
+                  <UIcon
+                    name="i-lucide-utensils"
+                    class="size-4"
+                  />
                   <template v-if="feedCost <= 0">
-                    Full
+                    Tank full
                   </template>
                   <span
                     v-else
                     class="flex items-center gap-1"
                   >
-                    Feed — <CoinBalance
+                    Feed · <CoinBalance
                       :value="feedCost"
                       :compact="false"
                       :show-icon="false"
-                    />
+                    /> 🪙
                   </span>
-                </UButton>
+                </button>
               </div>
             </div>
-            <div class="h-1.5 rounded-full bg-elevated overflow-hidden flex">
-              <div
-                class="h-full transition-all"
-                :class="isStarving ? 'bg-error' : nutritionLow ? 'bg-warning' : 'bg-primary'"
-                :style="{ width: (liveNutrition / nutritionMax) * 100 + '%' }"
-              />
-              <div
-                class="h-full bg-info transition-all"
-                :style="{ width: (liveGemNutrition / nutritionMax) * 100 + '%' }"
-              />
-            </div>
-            <p
-              v-if="isStarving"
-              class="text-xs text-error font-medium mt-1.5 flex items-center gap-1"
+            <ColonyTank
+              :value="liveNutrition"
+              :gem-value="liveGemNutrition"
+              :max="nutritionMax"
+              :starving="isStarving"
+              :low="nutritionLow"
             >
-              <UIcon name="i-lucide-alert-triangle" />
-              Colony is starving — all foraging has stopped until you feed.
-            </p>
-            <p
-              v-else
-              class="text-xs mt-1.5 flex items-center gap-1"
-              :class="nutritionLow ? 'text-warning' : 'text-muted'"
-            >
-              <UIcon
-                name="i-lucide-clock"
-                class="size-3"
-              />
-              <template v-if="nutritionEtaMs !== null">
-                Runs out in {{ formatDuration(nutritionEtaMs) }} (around {{ nutritionEtaClock }}) — bugs stop foraging at zero.
-              </template>
-              <template v-else>
-                Not draining — no bugs eating right now.
-              </template>
-            </p>
-          </UCard>
-
-          <ClientOnly>
-            <ColonyTerrariumCanvas
-              :bugs="bugs"
-              :is-starving="isStarving"
-              :has-spare-bugs="!!bugInventory.length"
-              :upgrades="upgrades"
-              :habitat-level="habitatLevel"
-              @produced="handleBugProduced"
-            />
-            <template #fallback>
-              <div class="h-[460px] w-full animate-pulse rounded-2xl border border-default bg-elevated" />
-            </template>
-          </ClientOnly>
-
-          <div
-            class="relative w-full rounded-xl border border-default bg-elevated/40 px-3 py-2.5 flex items-center gap-3"
-            :class="pendingLoot.length ? 'border-warning/40 bg-warning/5' : ''"
-          >
-            <div
-              class="size-9 rounded-lg flex items-center justify-center shrink-0"
-              :class="pendingLoot.length ? 'bg-warning/15 text-warning' : 'bg-elevated text-muted'"
-            >
-              <UIcon
-                :name="pendingLoot.length ? 'i-lucide-package-open' : 'i-lucide-package'"
-                class="size-5"
-              />
-            </div>
-            <div class="min-w-0 flex-1">
-              <div class="flex items-center gap-2">
-                <p class="text-sm font-semibold">
-                  Loot chest
-                </p>
-                <UBadge
-                  v-if="pendingLoot.length"
-                  color="warning"
-                  variant="subtle"
-                  size="sm"
-                >
-                  {{ formatNumber(pendingLootTotal, false) }} waiting
-                </UBadge>
-              </div>
-              <div
-                v-if="pendingLoot.length"
-                class="flex items-center gap-1.5 mt-1 overflow-hidden"
-              >
-                <span
-                  v-for="item in pendingLoot.slice(0, 4)"
-                  :key="item.itemTypeId"
-                  class="text-xs text-muted whitespace-nowrap"
-                >
-                  {{ item.emoji }} {{ formatNumber(item.quantity, false) }}
-                </span>
-                <span
-                  v-if="pendingLoot.length > 4"
-                  class="text-xs text-muted"
-                >+{{ pendingLoot.length - 4 }} more</span>
-              </div>
-              <p
-                v-else
-                class="text-xs text-muted"
-              >
-                New forage will appear here as soon as a cycle completes.
-              </p>
-            </div>
-            <UButton
-              size="sm"
-              :color="pendingLoot.length ? 'warning' : 'neutral'"
-              :variant="pendingLoot.length ? 'solid' : 'soft'"
-              :loading="chestBusy"
-              :disabled="!pendingLoot.length"
-              @click="handleCollect"
-            >
-              Collect
-            </UButton>
-            <div
-              v-for="f in chestFloats"
-              :key="f.id"
-              class="colony-chest-float pointer-events-none absolute z-50 text-sm font-semibold whitespace-nowrap"
-              :style="{ right: '2rem', bottom: '100%' }"
-            >
-              {{ f.text }}
-            </div>
+              {{ formatNumber(Math.round(liveTotalNutrition), false) }} / {{ formatNumber(nutritionMax, false) }}
+            </ColonyTank>
           </div>
         </div>
 
-        <!-- Right sidebar: xeno-style inventory / bugs panel, fills full column height -->
-        <div class="rounded-xl border border-default bg-elevated/30 overflow-hidden flex flex-col">
+        <!-- ── Right: Bug Box ──────────────────────────────────────────── -->
+        <div class="colony-panel overflow-hidden flex flex-col colony-slide-in xl:sticky xl:top-3 xl:max-h-[calc(100vh-2rem)]">
           <div class="flex items-center justify-between px-3 py-2.5 border-b border-default">
-            <span class="text-xs font-semibold uppercase tracking-wider text-muted">Terrarium</span>
+            <span class="text-xs font-black uppercase tracking-widest text-muted flex items-center gap-1.5">
+              <span class="text-base">🧰</span> Bug Box
+            </span>
             <span
-              class="text-xs font-mono"
-              :class="placedCount >= capacity ? 'text-warning' : 'text-muted'"
-            >{{ placedCount }} / {{ capacity }}</span>
+              class="colony-chip"
+              :class="placedCount >= capacity ? 'colony-chip-amber' : ''"
+            >{{ placedCount }} / {{ capacity }} slots</span>
           </div>
 
-          <div class="px-2 pt-2 border-b border-default">
-            <UTabs
-              v-model="sidebarTab"
-              :items="sidebarTabItems"
-              size="xs"
-              class="w-full"
-            />
+          <div class="flex gap-1 px-2 pt-2 border-b border-default">
+            <button
+              v-for="t in sidebarTabItems"
+              :key="t.value"
+              class="flex-1 flex items-center justify-center gap-1.5 rounded-t-xl px-2 py-2 text-xs font-bold transition-colors border border-b-0"
+              :class="sidebarTab === t.value ? 'bg-primary/10 text-primary border-primary/30' : 'text-muted border-transparent hover:text-default hover:bg-elevated/60'"
+              @click="sidebarTab = t.value as any; sound.play('click')"
+            >
+              <UIcon
+                :name="t.icon"
+                class="size-3.5"
+              />
+              <span class="hidden sm:inline">{{ t.label }}</span>
+              <span
+                class="rounded-full px-1.5 text-[10px] font-black"
+                :class="sidebarTab === t.value ? 'bg-primary text-white' : 'bg-elevated text-muted'"
+              >{{ t.count }}</span>
+            </button>
           </div>
 
-          <!-- Inventory tab -->
+          <!-- Bug Box tab -->
           <template v-if="sidebarTab === 'inventory'">
             <div
               v-if="bugInventory.length"
@@ -558,29 +635,30 @@ function bugYieldPerCycle(bug: any): string {
               v-if="!bugInventory.length"
               class="py-10 text-center px-4"
             >
-              <UIcon
-                name="i-lucide-package"
-                class="size-8 text-muted/30 mx-auto mb-2"
-              />
-              <p class="text-sm text-muted">
+              <span class="text-4xl block mb-2 opacity-60">📦</span>
+              <p class="text-sm font-bold">
                 No spare bugs.
               </p>
-              <p class="text-xs text-muted/50 mt-1">
-                Buy more in the <NuxtLink
-                  to="/colony/market"
-                  class="text-primary underline"
-                >Market</NuxtLink>.
+              <p class="text-xs text-muted mt-1">
+                Buy some in the Market and they'll show up here, ready to place.
               </p>
+              <NuxtLink
+                to="/colony/market"
+                class="colony-btn colony-btn-sm mt-3"
+              >
+                <UIcon
+                  name="i-lucide-store"
+                  class="size-3.5"
+                />
+                Open Market
+              </NuxtLink>
             </div>
 
             <div
               v-else-if="!filteredSortedBugInventory.length"
               class="py-10 text-center px-4"
             >
-              <UIcon
-                name="i-lucide-filter-x"
-                class="size-8 text-muted/30 mx-auto mb-2"
-              />
+              <span class="text-4xl block mb-2 opacity-60">🔍</span>
               <p class="text-sm text-muted">
                 No bugs match this filter.
               </p>
@@ -608,7 +686,6 @@ function bugYieldPerCycle(bug: any): string {
                         :class="[tierColor(stack.tier), tierBg(stack.tier)]"
                       >T{{ stack.tier }}</span>
                     </div>
-
                     <USeparator />
                     <div class="space-y-1.5">
                       <div class="flex items-center justify-between gap-3">
@@ -629,7 +706,6 @@ function bugYieldPerCycle(bug: any): string {
                         <span class="text-xs font-black tabular-nums text-muted">{{ stack.eat }} / cycle</span>
                       </div>
                     </div>
-
                     <USeparator />
                     <div class="space-y-1">
                       <div class="flex justify-between text-xs">
@@ -671,22 +747,31 @@ function bugYieldPerCycle(bug: any): string {
                         </span>
                       </div>
                     </div>
+                    <p class="text-[10px] text-primary font-bold text-center">
+                      Click to place in the terrarium
+                    </p>
                   </div>
                 </template>
 
                 <button
-                  class="relative flex flex-col rounded-xl border aspect-square w-full overflow-hidden transition-all duration-100 disabled:opacity-50"
-                  :class="[tierBg(stack.tier), placingKey === stackKey(stack) ? 'ring-2 ring-primary' : 'hover:ring-1 hover:ring-primary/50']"
+                  class="colony-tile"
+                  :class="[tierBg(stack.tier), placingKey === stackKey(stack) ? 'ring-2 ring-primary' : '']"
                   :disabled="placedCount >= capacity || !!placingKey"
-                  @click="handlePlace(stack)"
+                  @click="handlePlace(stack, $event)"
+                  @mouseenter="onHover"
                 >
+                  <span class="absolute top-1 left-1.5 text-[10px] font-black text-primary">×{{ stack.quantity }}</span>
+                  <span
+                    class="absolute top-1 right-1.5 text-[10px] font-black"
+                    :class="tierColor(stack.tier)"
+                  >T{{ stack.tier }}</span>
                   <div class="flex-1 flex flex-col items-center justify-center gap-0.5 min-h-0">
-                    <span class="text-3xl leading-none">{{ stack.emoji }}</span>
+                    <span class="colony-tile-emoji">{{ stack.emoji }}</span>
                   </div>
-                  <p class="text-xs font-bold text-center px-1 mb-1 truncate shrink-0">
+                  <p class="text-[11px] font-bold text-center px-1 mb-1 truncate shrink-0">
                     {{ stack.name }}
                   </p>
-                  <div class="flex divide-x divide-default border-t border-default shrink-0">
+                  <div class="flex divide-x divide-default border-t border-default shrink-0 bg-black/10">
                     <div class="flex-1 flex items-center justify-center gap-0.5 py-1">
                       <UIcon
                         name="i-lucide-zap"
@@ -723,13 +808,20 @@ function bugYieldPerCycle(bug: any): string {
 
             <p
               v-if="bugInventory.length && placedCount >= capacity"
-              class="text-xs text-warning text-center px-3 py-2 border-t border-default"
+              class="text-xs text-warning font-bold text-center px-3 py-2 border-t border-default flex items-center justify-center gap-1"
             >
-              Terrarium full — upgrade Capacity in the Habitat.
+              <UIcon
+                name="i-lucide-alert-triangle"
+                class="size-3.5"
+              />
+              Terrarium full — expand Capacity in the <NuxtLink
+                to="/colony/habitat"
+                class="underline"
+              >Habitat</NuxtLink>.
             </p>
           </template>
 
-          <!-- Bugs tab: everything currently placed in the terrarium -->
+          <!-- Placed tab -->
           <template v-if="sidebarTab === 'bugs'">
             <div
               v-if="bugs.length"
@@ -753,7 +845,6 @@ function bugYieldPerCycle(bug: any): string {
                         :class="[tierColor(bug.tier), tierBg(bug.tier)]"
                       >T{{ bug.tier }}</span>
                     </div>
-
                     <USeparator />
                     <div class="space-y-1.5">
                       <div class="flex items-center justify-between gap-3">
@@ -781,7 +872,6 @@ function bugYieldPerCycle(bug: any): string {
                         <span class="text-xs font-black tabular-nums text-primary">×{{ bug.resourceMultiplier }} resources</span>
                       </div>
                     </div>
-
                     <USeparator />
                     <div class="space-y-1">
                       <div class="flex justify-between text-xs">
@@ -819,22 +909,23 @@ function bugYieldPerCycle(bug: any): string {
                         >{{ bug.socialMultiplier > 1 ? '+' : '' }}{{ Math.round((bug.socialMultiplier - 1) * 100) }}%</span>
                       </div>
                     </div>
+                    <p class="text-[10px] text-primary font-bold text-center">
+                      Click to move back to the Bug Box
+                    </p>
                   </div>
                 </template>
 
                 <div
-                  class="group relative flex flex-col rounded-xl border aspect-square w-full overflow-hidden transition-all duration-100 cursor-pointer"
-                  :class="[tierBg(bug.tier), unplacingId === bug.id ? 'opacity-50 pointer-events-none' : 'hover:ring-1 hover:ring-primary/50']"
-                  @click="handleUnplace(bug.id)"
+                  class="group colony-tile cursor-pointer"
+                  :class="[tierBg(bug.tier), unplacingId === bug.id ? 'opacity-50 pointer-events-none' : '']"
+                  @click="handleUnplace(bug.id, $event)"
+                  @mouseenter="onHover"
                 >
-                  <!-- Release (hover reveal). Prestige-only species have no
-                       release: they were granted, not bought, so there is no
-                       spawn cost to hand back — see bugs/remove.post.ts. -->
                   <button
                     v-if="!isPrestigeOnly(bug.typeId)"
-                    class="absolute top-1.5 right-1.5 z-20 size-5 flex items-center justify-center rounded bg-black/30 opacity-0 group-hover:opacity-100 hover:bg-error hover:text-white transition-all"
+                    class="absolute top-1.5 right-1.5 z-20 size-5 flex items-center justify-center rounded-md bg-black/40 opacity-0 group-hover:opacity-100 hover:bg-error hover:text-white transition-all"
                     title="Release — refunds 50% of spawn cost, plus credit for progress on the current cycle"
-                    @click.stop="colony.removeBug(bug.id)"
+                    @click.stop="handleRelease(bug.id, $event)"
                   >
                     <UIcon
                       name="i-lucide-x"
@@ -842,29 +933,34 @@ function bugYieldPerCycle(bug: any): string {
                     />
                   </button>
 
-                  <!-- Top: progress + per-cycle output -->
                   <div class="shrink-0 px-1.5 pt-1.5">
-                    <div class="h-1 rounded-full bg-background overflow-hidden">
+                    <div class="colony-bar !h-1.5">
                       <div
-                        class="h-full bg-primary transition-all"
+                        class="colony-bar-fill"
+                        :class="isStarving ? 'colony-bar-fill-error' : ''"
                         :style="{ width: bugProgressPct(bug) + '%' }"
                       />
                     </div>
                     <p class="text-[10px] flex items-center justify-between mt-0.5">
-                      <span class="text-highlighted font-medium">{{ bug.itemEmoji }} {{ bugYieldPerCycle(bug) }}</span>
-                      <span class="text-muted font-mono">{{ bugCountdown(bug) }}</span>
+                      <span class="text-highlighted font-bold">{{ bug.itemEmoji }} {{ bugYieldPerCycle(bug) }}</span>
+                      <span
+                        class="font-mono"
+                        :class="isStarving ? 'text-error' : 'text-muted'"
+                      >{{ bugCountdown(bug) }}</span>
                     </p>
                   </div>
 
-                  <!-- Center: emoji + name + social -->
                   <div class="flex-1 flex flex-col items-center justify-center gap-0.5 min-h-0">
-                    <span class="text-3xl leading-none">{{ bug.emoji }}</span>
-                    <p class="text-xs font-bold text-center px-1 truncate w-full">
+                    <span
+                      class="colony-tile-emoji"
+                      :class="isStarving ? 'grayscale opacity-60' : ''"
+                    >{{ bug.emoji }}</span>
+                    <p class="text-[11px] font-bold text-center px-1 truncate w-full">
                       {{ bug.name }}
                     </p>
                     <span
                       v-if="bug.socialMultiplier !== 1"
-                      class="text-[10px] font-bold leading-none"
+                      class="text-[10px] font-black leading-none"
                       :class="bug.socialMultiplier > 1 ? 'text-success' : 'text-error'"
                       title="Speed bonus/penalty from same-species neighbors"
                     >
@@ -872,8 +968,7 @@ function bugYieldPerCycle(bug: any): string {
                     </span>
                   </div>
 
-                  <!-- Bottom: speed | yield | eat footer strip, matching Inventory -->
-                  <div class="flex divide-x divide-default border-t border-default shrink-0">
+                  <div class="flex divide-x divide-default border-t border-default shrink-0 bg-black/10">
                     <div class="flex-1 flex items-center justify-center gap-0.5 py-1">
                       <UIcon
                         name="i-lucide-zap"
@@ -907,22 +1002,25 @@ function bugYieldPerCycle(bug: any): string {
                 </div>
               </UTooltip>
             </div>
-            <p
+            <div
               v-else
-              class="text-sm text-muted text-center py-10 px-4"
+              class="py-10 text-center px-4"
             >
-              Nothing placed yet — place bugs from the Inventory tab.
-            </p>
+              <span class="text-4xl block mb-2 opacity-60">🫙</span>
+              <p class="text-sm text-muted">
+                Nothing placed yet — pick a bug from the Bug Box.
+              </p>
+            </div>
           </template>
 
-          <!-- Resources tab: everything foraged and claimed, at a glance -->
+          <!-- Storage tab -->
           <template v-if="sidebarTab === 'resources'">
             <div class="p-2 grid grid-cols-3 gap-1.5 flex-1 overflow-y-auto content-start">
               <div
                 v-for="item in resourcesOwned"
                 :key="item.id"
-                class="relative flex flex-col rounded-xl border aspect-square w-full overflow-hidden"
-                :class="[tierBg(item.tier), item.quantity <= 0 && 'opacity-50']"
+                class="colony-tile"
+                :class="[tierBg(item.tier), item.quantity <= 0 && 'opacity-40 grayscale']"
               >
                 <div class="flex items-center justify-between px-1.5 pt-1.5 shrink-0">
                   <span
@@ -932,53 +1030,43 @@ function bugYieldPerCycle(bug: any): string {
                   <span class="text-xs font-black text-primary leading-none">{{ formatNumber(item.quantity, false) }}</span>
                 </div>
                 <div class="flex-1 flex flex-col items-center justify-center gap-0.5 min-h-0">
-                  <span class="text-3xl leading-none">{{ item.emoji }}</span>
+                  <span class="text-3xl leading-none drop-shadow">{{ item.emoji }}</span>
                 </div>
-                <p class="text-xs font-bold text-center px-1 mb-1 truncate shrink-0">
+                <p class="text-[11px] font-bold text-center px-1 mb-1 truncate shrink-0">
                   {{ item.name }}
                 </p>
-                <div class="flex items-center justify-center border-t border-default py-1 shrink-0">
+                <div class="flex items-center justify-center border-t border-default py-1 shrink-0 bg-black/10">
                   <CoinBalance
                     class="text-[10px] font-black tabular-nums text-muted"
                     :value="item.sellValue"
                     :compact="false"
                     :show-icon="false"
                   />
-                  <span class="text-[10px] font-black text-muted ml-1">each</span>
+                  <span class="text-[10px] font-black text-muted ml-1">ea</span>
                 </div>
               </div>
             </div>
-            <p class="text-xs text-muted text-center px-3 py-2 border-t border-default">
-              Sell foraged items in the <NuxtLink
+            <div class="px-3 py-2 border-t border-default flex items-center justify-between gap-2">
+              <span class="text-xs text-muted flex items-center gap-1">
+                Worth <CoinBalance
+                  :value="storageValue"
+                  class="font-bold"
+                />
+              </span>
+              <NuxtLink
                 to="/colony/market"
-                class="text-primary underline"
-              >Market</NuxtLink>.
-            </p>
+                class="colony-btn colony-btn-sm"
+              >
+                <UIcon
+                  name="i-lucide-coins"
+                  class="size-3.5"
+                />
+                Sell
+              </NuxtLink>
+            </div>
           </template>
         </div>
       </div>
     </template>
   </div>
 </template>
-
-<style scoped>
-.colony-chest-float {
-  animation: colony-chest-float-up 1.6s ease-out forwards;
-  transform: translateX(-50%);
-}
-
-@keyframes colony-chest-float-up {
-  0% {
-    opacity: 0;
-    transform: translateX(-50%) translateY(0);
-  }
-  15% {
-    opacity: 1;
-    transform: translateX(-50%) translateY(-20px);
-  }
-  100% {
-    opacity: 0;
-    transform: translateX(-50%) translateY(-90px);
-  }
-}
-</style>

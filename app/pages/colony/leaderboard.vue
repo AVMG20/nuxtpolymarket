@@ -17,21 +17,27 @@ function habitatProgress(level: number) {
 </script>
 
 <template>
-  <UContainer class="py-6">
-    <div class="mb-6">
-      <h1 class="text-2xl font-bold flex items-center gap-2">
-        <UIcon
-          name="i-lucide-trophy"
-          class="size-6 text-warning"
-        />
-        Colony Leaderboard
-      </h1>
-      <p class="text-sm text-muted mt-0.5">
-        Ranked by Habitat level, then total bug and stored-item value.
-      </p>
+  <div class="p-3 md:p-5 w-full space-y-4">
+    <div class="colony-panel colony-panel-amber p-4 flex items-center gap-4 colony-slide-in relative overflow-hidden">
+      <div class="colony-shine" />
+      <span class="text-5xl colony-bob">🏆</span>
+      <div>
+        <p class="colony-eyebrow">
+          Hall of hives
+        </p>
+        <h1 class="text-2xl colony-title">
+          Colony <span class="colony-amber-text">Leaderboard</span>
+        </h1>
+        <p class="text-xs text-muted mt-0.5">
+          Ranked by Habitat level, then total bug and stored-item value.
+        </p>
+      </div>
     </div>
 
-    <LeaderboardSkeleton v-if="pending" :rows="6" />
+    <LeaderboardSkeleton
+      v-if="pending"
+      :rows="6"
+    />
 
     <div
       v-else-if="players?.length"
@@ -58,12 +64,13 @@ function habitatProgress(level: number) {
         <template #progress>
           <div class="hidden sm:block flex-1 max-w-40">
             <div class="flex items-center justify-between text-[10px] text-muted mb-1">
-              <span>Habitat progress</span>
+              <span>Nest growth</span>
               <span>{{ habitatProgress(player.habitatLevel) }}%</span>
             </div>
-            <div class="h-1.5 rounded-full bg-elevated overflow-hidden">
+            <div class="colony-bar !h-1.5">
               <div
-                class="h-full rounded-full bg-primary"
+                class="colony-bar-fill"
+                :class="index === 0 ? 'colony-bar-fill-amber' : ''"
                 :style="{ width: `${habitatProgress(player.habitatLevel)}%` }"
               />
             </div>
@@ -73,15 +80,15 @@ function habitatProgress(level: number) {
         <template #stats>
           <div class="hidden lg:flex items-center gap-5 shrink-0">
             <div class="text-center">
-              <p class="text-sm font-bold">
+              <p class="text-sm font-black">
                 {{ formatNumber(player.bugCount, false, 0) }}
               </p>
               <p class="text-[10px] text-muted">
-                Bugs
+                🐛 Bugs
               </p>
             </div>
             <div class="text-center">
-              <p class="text-sm font-bold">
+              <p class="text-sm font-black">
                 {{ player.speciesOwned }}
               </p>
               <p class="text-[10px] text-muted">
@@ -89,19 +96,19 @@ function habitatProgress(level: number) {
               </p>
             </div>
             <div class="text-center">
-              <p class="text-sm font-bold">
+              <p class="text-sm font-black">
                 {{ player.upgradeLevels }}
               </p>
               <p class="text-[10px] text-muted">
-                Upgrades
+                🔨 Upgrades
               </p>
             </div>
             <div class="text-center">
-              <p class="text-sm font-bold">
+              <p class="text-sm font-black">
                 {{ player.researchLevels }}
               </p>
               <p class="text-[10px] text-muted">
-                Research
+                🧬 Research
               </p>
             </div>
           </div>
@@ -109,7 +116,10 @@ function habitatProgress(level: number) {
 
         <template #trailing>
           <div class="ml-auto text-right shrink-0">
-            <CoinBalance :value="player.colonyValue" />
+            <CoinBalance
+              :value="player.colonyValue"
+              class="font-black"
+            />
             <p class="text-[10px] text-muted">
               colony value
             </p>
@@ -158,10 +168,17 @@ function habitatProgress(level: number) {
       </div>
     </div>
 
-    <UEmpty
+    <div
       v-else
-      icon="i-lucide-bug"
-      description="No players have founded a colony yet"
-    />
-  </UContainer>
+      class="colony-panel p-10 text-center"
+    >
+      <span class="text-5xl block mb-2 colony-bob">🫙</span>
+      <p class="text-sm font-bold">
+        No colonies founded yet.
+      </p>
+      <p class="text-xs text-muted">
+        Be the first — found yours on the Terrarium page.
+      </p>
+    </div>
+  </div>
 </template>
