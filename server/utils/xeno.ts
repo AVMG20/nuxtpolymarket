@@ -1,4 +1,4 @@
-import { eq, and, inArray, sql } from 'drizzle-orm'
+import { eq, and, inArray, notExists, sql } from 'drizzle-orm'
 import { db, type DbExecutor } from '#server/database'
 import { xenoPlants, xenoPlantsUnlocked, xenoArtifacts, xenoGridSlots, xenoBreederSlots, xenoUpgrades } from '#server/database/schema'
 import { randomChance } from '#shared/utils/random'
@@ -142,11 +142,48 @@ export async function addPlants(
 }
 
 /**
+ * Serialise every operation that claims or consumes a user's plant instances.
+ *
+ * Planting picks a free `xenoPlants` row and points a grid slot at it; selling,
+ * crafting and breeding delete free rows. Both decide "free" by reading the
+ * grid, and under READ COMMITTED two concurrent requests read the same
+ * pre-state — so Harvest All with auto-replant planted one row in three slots,
+ * and harvesting one of them deleted the row under the other two (FK SET NULL),
+ * leaving phantom plots. A `FOR UPDATE` lock on the plant row alone does not
+ * close that: Postgres only re-evaluates the WHERE for rows the lock holder
+ * *changed*, and a claim changes the slot, not the plant.
+ *
+ * So take the user's grid slot rows `FOR UPDATE` first, then read. Every read
+ * after this statement runs on a fresh snapshot that includes whatever the
+ * previous holder committed. Call inside a transaction and pass the same `tx`
+ * to every subsequent read and write.
+ */
+export async function lockUserGrid(userId: string, tx: DbExecutor) {
+  await tx.select({ id: xenoGridSlots.id })
+    .from(xenoGridSlots)
+    .where(eq(xenoGridSlots.userId, userId))
+    .orderBy(xenoGridSlots.slotIndex)
+    .for('update')
+}
+
+/**
+ * `xenoPlants` row is not referenced by any grid slot. Put this in the WHERE of
+ * every DELETE that consumes inventory: the free-list read above it can go
+ * stale when a plant request lands in between, and deleting a planted row
+ * fires the FK's ON DELETE SET NULL — leaving a slot with `startedAt` set,
+ * `plantId` null and no plant to show, harvest or remove.
+ */
+function notPlanted(tx: DbExecutor) {
+  return notExists(tx.select({ id: xenoGridSlots.id }).from(xenoGridSlots).where(eq(xenoGridSlots.plantId, xenoPlants.id)))
+}
+
+/**
  * Find and delete `quantity` free plant instances matching typeId (any speed/yield).
  * Used for artifact crafting costs where quality doesn't matter.
  * Throws 400 if insufficient.
  */
 export async function consumePlantsByType(userId: string, typeId: string, quantity: number, tx: DbExecutor = db) {
+  await lockUserGrid(userId, tx)
   // Get plants not currently planted in a grid slot
   const allOfType = await tx.query.xenoPlants.findMany({
     where: and(eq(xenoPlants.userId, userId), eq(xenoPlants.typeId, typeId)),
@@ -169,6 +206,7 @@ export async function consumePlantsByType(userId: string, typeId: string, quanti
     .where(and(
       eq(xenoPlants.userId, userId),
       inArray(xenoPlants.id, free.slice(0, quantity).map(p => p.id)),
+      notPlanted(tx),
     ))
     .returning({ id: xenoPlants.id })
   if (deleted.length < quantity) {
@@ -189,6 +227,7 @@ export async function consumePlantsByStack(
   quantity: number,
   tx: DbExecutor = db,
 ) {
+  await lockUserGrid(userId, tx)
   const allOfStack = await tx.query.xenoPlants.findMany({
     where: and(
       eq(xenoPlants.userId, userId),
@@ -213,6 +252,7 @@ export async function consumePlantsByStack(
     .where(and(
       eq(xenoPlants.userId, userId),
       inArray(xenoPlants.id, free.slice(0, quantity).map(p => p.id)),
+      notPlanted(tx),
     ))
     .returning({ id: xenoPlants.id })
   if (deleted.length < quantity) {

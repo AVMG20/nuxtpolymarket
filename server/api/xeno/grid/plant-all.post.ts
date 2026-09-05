@@ -1,7 +1,8 @@
-import { eq, and, inArray } from 'drizzle-orm'
+import { eq, and, inArray, isNull, notExists } from 'drizzle-orm'
 import { db } from '#server/database'
 import { xenoGridSlots, xenoPlants, xenoArtifacts } from '#server/database/schema'
 import { requireUserId } from '#server/utils/auth'
+import { lockUserGrid } from '#server/utils/xeno'
 import { getPlant, getArtifact, isHybrid } from '#shared/utils/xeno'
 
 export default defineEventHandler(async (event) => {
@@ -15,22 +16,25 @@ export default defineEventHandler(async (event) => {
   if (!hybrid && !plantType) throw createError({ statusCode: 400, statusMessage: `Unknown plant type: ${body.typeId}` })
 
   const planted = await db.transaction(async (tx) => {
+    await lockUserGrid(userId, tx)
     const allSlots = await tx.query.xenoGridSlots.findMany({ where: eq(xenoGridSlots.userId, userId) })
+    // plantId is the source of truth for "occupied" — see plant.post.ts.
     const emptySlots = allSlots
-      .filter(s => !s.startedAt)
+      .filter(s => !s.plantId)
       .sort((a, b) => a.slotIndex - b.slotIndex)
     if (!emptySlots.length) return []
 
-    const allOfStack = await tx.query.xenoPlants.findMany({
-      where: and(
+    // Free = not referenced by any grid slot, decided in the query itself.
+    const freePlants = await tx.select({ id: xenoPlants.id })
+      .from(xenoPlants)
+      .where(and(
         eq(xenoPlants.userId, userId),
         eq(xenoPlants.typeId, body.typeId),
         eq(xenoPlants.speed, body.speed),
         eq(xenoPlants.yield, body.yield),
-      ),
-    })
-    const plantedIds = new Set(allSlots.map(s => s.plantId).filter(Boolean))
-    const freePlants = allOfStack.filter(p => !plantedIds.has(p.id))
+        notExists(tx.select({ id: xenoGridSlots.id }).from(xenoGridSlots).where(eq(xenoGridSlots.plantId, xenoPlants.id))),
+      ))
+      .limit(emptySlots.length)
     if (!freePlants.length) return []
 
     const artifactIds = [...new Set(emptySlots.map(s => s.artifactId).filter(Boolean))] as string[]
@@ -51,9 +55,11 @@ export default defineEventHandler(async (event) => {
       }
 
       const freePlant = freePlants[plantIdx]!
-      await tx.update(xenoGridSlots)
+      const [claimed] = await tx.update(xenoGridSlots)
         .set({ plantId: freePlant.id, startedAt: new Date() })
-        .where(eq(xenoGridSlots.id, slot.id))
+        .where(and(eq(xenoGridSlots.id, slot.id), isNull(xenoGridSlots.plantId)))
+        .returning({ id: xenoGridSlots.id })
+      if (!claimed) continue
       plantedSlotIds.push(slot.id)
       plantIdx++
     }

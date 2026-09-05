@@ -609,7 +609,13 @@ export const xenoGridSlots = pgTable('xeno_grid_slots', {
   plantId: text('plant_id').references(() => xenoPlants.id, { onDelete: 'set null' }),
   startedAt: timestamp('started_at'),
   artifactId: text('artifact_id').references(() => xenoArtifacts.id, { onDelete: 'set null' })
-}, t => [index('xeno_grid_userId_idx').on(t.userId)])
+}, t => [
+  index('xeno_grid_userId_idx').on(t.userId),
+  // A plant instance grows in at most one slot. Two slots pointing at the same
+  // row meant harvesting one deleted the row under the other (FK SET NULL) and
+  // left a phantom plot that could neither be seen, harvested nor replanted.
+  uniqueIndex('xeno_grid_plantId_uniq').on(t.plantId).where(sql`plant_id is not null`)
+])
 
 /**
  * Breeder slots. Parents are consumed (deleted from xenoPlants) when breeding starts;
