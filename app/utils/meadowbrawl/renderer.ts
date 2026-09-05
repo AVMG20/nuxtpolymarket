@@ -1,11 +1,12 @@
 // Canvas 2D renderer for Meadowbrawl. Paints the terrain once per run into
 // offscreen layers, then draws the live scene y-sorted on top with a
 // foreshortened ground plane so the 45° camera reads without a 3D stack.
-import type { Enemy, MeadowbrawlGame, Particle, Phantom, Player } from './engine'
+import type { Enemy, MeadowbrawlGame, Particle, Player } from './engine'
 import { GROUND_YS as YS } from './types'
 import type { TreeDeco, WorldLayout } from './world'
 import { WEAPONS } from './weapons'
 import { clamp, lerp } from './geometry'
+import { drawPhantom, drawSpectralArrow } from './phantom-draw'
 import { drawCoin, drawCompanion, drawFeather, drawFireTrail } from './companion-draw'
 import { drawHeroBody, drawHeroWeaponDetails, drawHeroShieldDetails, drawBogOgre, drawAshenWarlord, drawBriarMatriarch, drawHollowKnight } from './character-draw'
 
@@ -1442,12 +1443,22 @@ export class MeadowbrawlRenderer {
                 ctx.setLineDash([])
             }
         }
-        // Phantom shadows.
+        // A faint summoning seal anchors each hovering ally to the ground.
         for (const ph of g.phantoms) {
-            ctx.fillStyle = `rgba(120,200,255,${0.14 * ph.born})`
+            const rgb = ph.kind === 'archer' ? '136,235,192' : '120,200,255'
+            ctx.fillStyle = `rgba(${rgb},${0.1 * ph.born})`
             ctx.beginPath()
-            ctx.arc(ph.x, ph.y, 14, 0, Math.PI * 2)
+            ctx.arc(ph.x, ph.y, 17, 0, Math.PI * 2)
             ctx.fill()
+            ctx.strokeStyle = `rgba(${rgb},${0.28 * ph.born})`
+            ctx.lineWidth = 1
+            ctx.beginPath()
+            for (let i = 0; i < 3; i++) {
+                const a = this.t * 0.35 + i * Math.PI * 2 / 3 + ph.slot
+                ctx.arc(ph.x, ph.y, 20, a, a + 1.4)
+                ctx.moveTo(ph.x + Math.cos(a + 2.1) * 20, ph.y + Math.sin(a + 2.1) * 20)
+            }
+            ctx.stroke()
         }
         if (p.fx.smoke > 0) {
             const k = Math.min(1, p.fx.smoke / 0.5)
@@ -1575,7 +1586,7 @@ export class MeadowbrawlRenderer {
         for (const ph of g.phantoms) {
             items.push({ y: ph.y, draw: () => {
                 const s = proj(ph.x, ph.y)
-                this.drawPhantom(ctx, ph, s.x, s.y)
+                drawPhantom(ctx, ph, s.x, s.y, this.t)
             } })
         }
         const c = g.companion
@@ -1630,27 +1641,7 @@ export class MeadowbrawlRenderer {
                     ctx.fill()
                     ctx.stroke()
                 } else if (pr.kind === 'spectral') {
-                    // A ghost arrow: a pale shaft with a streak of light behind it.
-                    ctx.strokeStyle = 'rgba(159,227,255,0.45)'
-                    ctx.lineWidth = 6
-                    ctx.lineCap = 'round'
-                    ctx.beginPath()
-                    ctx.moveTo(-26, 0)
-                    ctx.lineTo(6, 0)
-                    ctx.stroke()
-                    ctx.strokeStyle = 'rgba(255,255,255,0.95)'
-                    ctx.lineWidth = 2
-                    ctx.beginPath()
-                    ctx.moveTo(-14, 0)
-                    ctx.lineTo(10, 0)
-                    ctx.stroke()
-                    ctx.fillStyle = '#e8fbff'
-                    ctx.beginPath()
-                    ctx.moveTo(14, 0)
-                    ctx.lineTo(6, 3.5)
-                    ctx.lineTo(6, -3.5)
-                    ctx.closePath()
-                    ctx.fill()
+                    drawSpectralArrow(ctx, true, this.t)
                 } else if (pr.kind === 'crescent') {
                     ctx.strokeStyle = 'rgba(230,250,255,0.85)'
                     ctx.lineWidth = 9
@@ -3589,9 +3580,10 @@ export class MeadowbrawlRenderer {
         for (const ph of g.phantoms) {
             const x = ph.x
             const y = ph.y * YS - 22
+            const rgb = ph.kind === 'archer' ? '136,235,192' : '159,227,255'
             const grad = ctx.createRadialGradient(x, y, 4, x, y, 34)
-            grad.addColorStop(0, `rgba(159,227,255,${0.35 * ph.born})`)
-            grad.addColorStop(1, 'rgba(159,227,255,0)')
+            grad.addColorStop(0, `rgba(${rgb},${0.15 * ph.born})`)
+            grad.addColorStop(1, `rgba(${rgb},0)`)
             ctx.fillStyle = grad
             ctx.beginPath()
             ctx.arc(x, y, 34, 0, Math.PI * 2)
@@ -3717,97 +3709,6 @@ export class MeadowbrawlRenderer {
     }
 
     /** A ghost of a fighter: translucent, cloaked, trailing light. */
-    private drawPhantom(ctx: Ctx, ph: Phantom, sx: number, sy: number) {
-        const t = this.t
-        const facingLeft = Math.cos(ph.facing) < 0
-        const dir = facingLeft ? -1 : 1
-        const bob = ph.moving ? Math.abs(Math.sin(ph.anim)) * 2 : Math.sin(t * 2 + ph.slot) * 1.5
-        const hover = 6 + Math.sin(t * 2.2 + ph.slot * 1.3) * 3
-        const swing = ph.attack ? clamp(ph.attack.t / ph.attack.dur, 0, 1) : 0
-        ctx.save()
-        ctx.translate(sx, sy - hover - bob)
-        ctx.globalAlpha = 0.72 * ph.born
-        if (ph.born < 1) ctx.scale(ph.born, ph.born)
-        ctx.lineJoin = 'round'
-        const fill = 'rgba(159,227,255,0.55)'
-        const edge = 'rgba(230,250,255,0.9)'
-        // Cloak: a tapered wisp instead of legs.
-        ctx.fillStyle = fill
-        ctx.strokeStyle = edge
-        ctx.lineWidth = 1.4
-        ctx.beginPath()
-        ctx.moveTo(-9, -22)
-        ctx.quadraticCurveTo(-13, -6, -6 + Math.sin(t * 6 + ph.slot) * 2, 6)
-        ctx.quadraticCurveTo(0, 12, 6 + Math.sin(t * 6.5 + ph.slot) * 2, 6)
-        ctx.quadraticCurveTo(13, -6, 9, -22)
-        ctx.closePath()
-        ctx.fill()
-        ctx.stroke()
-        // Torso and hood.
-        ctx.fillStyle = 'rgba(190,240,255,0.7)'
-        ellipse(ctx, 0, -26, 8, 10)
-        ctx.fill()
-        ctx.stroke()
-        ctx.fillStyle = 'rgba(210,246,255,0.85)'
-        ctx.beginPath()
-        ctx.moveTo(-8, -34)
-        ctx.quadraticCurveTo(0, -50, 8, -34)
-        ctx.quadraticCurveTo(0, -30, -8, -34)
-        ctx.closePath()
-        ctx.fill()
-        ctx.stroke()
-        // Eyes: two points of light.
-        ctx.fillStyle = '#ffffff'
-        ellipse(ctx, dir * 3, -37, 1.4, 1.8)
-        ctx.fill()
-        ellipse(ctx, dir * 6, -37, 1.1, 1.5)
-        ctx.fill()
-        // Arms and the weapon.
-        const ax = Math.cos(ph.facing)
-        const ay = Math.sin(ph.facing) * YS
-        if (ph.kind === 'warrior') {
-            const sweep = swing > 0 ? lerp(-1.2, 1.2, swing < 0.55 ? swing / 0.55 * 0.3 : 0.3 + (swing - 0.55) / 0.45 * 0.7) : 0.7 * dir
-            const angle = ph.facing + sweep
-            const hx = ax * 8
-            const hy = -24 + ay * 4
-            ctx.strokeStyle = edge
-            ctx.lineWidth = 3
-            ctx.beginPath()
-            ctx.moveTo(dir * 5, -24)
-            ctx.lineTo(hx, hy)
-            ctx.stroke()
-            this.drawWeapon(ctx, 'sword', hx, hy, angle, 1.2, '#dff6ff', 1)
-        } else {
-            // A drawn bow: the string pulls back through the draw.
-            const draw = swing > 0 && swing < 0.55 ? swing / 0.55 : swing >= 0.55 ? 1 - (swing - 0.55) / 0.45 : 0
-            ctx.save()
-            ctx.translate(ax * 10, -24 + ay * 4)
-            ctx.rotate(Math.atan2(ay, ax))
-            ctx.strokeStyle = edge
-            ctx.lineWidth = 2.5
-            ctx.beginPath()
-            ctx.arc(0, 0, 16, -1.35, 1.35)
-            ctx.stroke()
-            ctx.lineWidth = 1
-            ctx.strokeStyle = 'rgba(255,255,255,0.9)'
-            ctx.beginPath()
-            ctx.moveTo(Math.cos(-1.35) * 16, Math.sin(-1.35) * 16)
-            ctx.lineTo(-draw * 12, 0)
-            ctx.lineTo(Math.cos(1.35) * 16, Math.sin(1.35) * 16)
-            ctx.stroke()
-            if (draw > 0) {
-                ctx.strokeStyle = '#ffffff'
-                ctx.lineWidth = 1.5
-                ctx.beginPath()
-                ctx.moveTo(-draw * 12, 0)
-                ctx.lineTo(14, 0)
-                ctx.stroke()
-            }
-            ctx.restore()
-        }
-        ctx.restore()
-    }
-
     private drawInnerCanopies(ctx: Ctx, ox: number, oy: number) {
         const g = this.game
         const p = g.player
