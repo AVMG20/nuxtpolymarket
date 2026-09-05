@@ -48,6 +48,7 @@ const activeGameItems: NavigationMenuItem[] = [
   { label: 'Pirate Raid', class: 'mb-1', icon: 'i-lucide-anchor', to: '/pirates' },
   { label: 'SHAPEZZ', class: 'mb-1', icon: 'i-lucide-shapes', to: '/shapezz' },
   { label: 'Call of Xeno', class: 'mb-1', icon: 'i-lucide-skull', to: '/call-of-xeno' },
+  { label: 'Voxel Arena', class: 'mb-1', icon: 'i-lucide-boxes', to: '/voxel-arena' },
   { label: 'Firewall', class: 'mb-1', icon: 'i-lucide-shield-half', to: '/firewall' },
   { label: 'Meadowbrawl', class: 'mb-1', icon: 'i-lucide-swords', to: '/meadowbrawl' },
   { label: 'TCG', class: 'mb-1', icon: 'i-lucide-layers', to: '/tcg' }

@@ -555,6 +555,14 @@ const rawGroups: CommandPaletteGroup[] = [
         icon: 'i-lucide-skull',
         to: '/call-of-xeno',
         keywords: ['call of xeno', 'zombies', 'fps', 'shooter', 'survival', 'rounds', 'pack-a-punch', 'perks']
+      },
+      {
+        id: 'voxel-arena',
+        label: 'Voxel Arena',
+        description: 'Third-person voxel wave survival with rogue-like upgrades',
+        icon: 'i-lucide-boxes',
+        to: '/voxel-arena',
+        keywords: ['voxel', 'arena', 'shooter', 'slasher', 'waves', 'survival', 'roguelike', 'upgrades', 'titan']
       }
     ]
   },

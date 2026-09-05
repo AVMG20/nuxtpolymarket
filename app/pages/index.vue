@@ -158,7 +158,7 @@ const arcadeGames = [
     to: '/firewall',
     gradient: 'from-cyan-950 via-slate-900 to-slate-950',
     iconColor: 'text-cyan-300'
-  },
+},
   {
     name: 'Meadowbrawl',
     description: 'Top-down melee roguelite — chain combos, dodge telegraphs and stack absurd boons across 20 waves',
@@ -166,6 +166,14 @@ const arcadeGames = [
     to: '/meadowbrawl',
     gradient: 'from-green-950 via-emerald-900 to-amber-950',
     iconColor: 'text-amber-300'
+  },
+  {
+    name: 'Voxel Arena',
+    description: 'Third-person voxel wave survival — shoot, slash, dash and draft up to three rogue-like upgrades per wave',
+    icon: 'i-lucide-boxes',
+    to: '/voxel-arena',
+    gradient: 'from-indigo-950 via-slate-950 to-cyan-950',
+    iconColor: 'text-cyan-300'
   }
 ]
 
