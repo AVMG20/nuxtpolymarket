@@ -35,7 +35,7 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
         className: 'Berserker',
         classTagline: 'Reckless. Trades blood for speed and never stops swinging.',
         abilities: [
-            { id: 'bloodrage', name: 'Bloodrage', description: '5s of fury: +50% attack speed and 15% lifesteal, but you take 25% more damage.', cooldown: 12, icon: 'i-lucide-flame', damage: 0 },
+            { id: 'bloodrage', name: 'Bloodrage', description: '5s of fury: +50% attack speed and 10% lifesteal, but you take 25% more damage.', cooldown: 12, icon: 'i-lucide-flame', damage: 0 },
             { id: 'rendingthrow', name: 'Rending Throw', description: 'Hurl the axe. It carves out, turns, and carves back through everything twice.', cooldown: 9, icon: 'i-lucide-refresh-cw', damage: 1.5 }
         ],
         tagline: '2-hit · slow · massive',
