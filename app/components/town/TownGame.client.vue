@@ -760,7 +760,7 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                             </span>
                             <span class="bcard-meta">
                                 <span v-if="c.kind === 'road'">⚡ instant</span>
-                                <span v-else>⏱ {{ formatTownDuration(Math.round(c.buildMs * (mood?.buildTime ?? 1))) }}</span>
+                                <span v-else :title="`Upgrades take ${formatTownDuration(Math.round(c.upgradeMs * (mood?.buildTime ?? 1)))} and up`">⏱ {{ formatTownDuration(Math.round(c.buildMs * (mood?.buildTime ?? 1))) }}</span>
                                 <span v-if="c.workers">👥 {{ c.workers }}</span>
                                 <span v-if="c.popCap">🏠 +{{ c.popCap }}</span>
                                 <span v-if="c.happiness">😊 +{{ c.happiness }}</span>
@@ -845,7 +845,7 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                     <div class="g-window is-small">
                         <div class="g-window-head"><h2>How to play</h2><button class="g-icon g-icon-sm" @click="helpOpen = false">✕</button></div>
                         <div class="g-window-body space-y-2 text-sm opacity-90">
-                            <p>🏠 <b>Houses</b> bring residents. Every industry building needs residents to run — an unstaffed farm grows nothing.</p>
+                            <p>🏠 <b>Houses</b> bring two residents per level. Every industry building needs residents to run — an unstaffed farm grows nothing.</p>
                             <p>😊 <b>Happiness</b> sets how fast the whole town produces. It comes from parks, from meeting your townsfolk's needs, and from a tidy layout. Industry, overcrowding and starvation drag it down.</p>
                             <p>🍞 <b>Needs</b>: residents eat grain and bread, and later want tools and luxuries. Meeting a need pays happiness; running out of all food starves the town. Those goods are really consumed, so keep producing or buy from other mayors.</p>
                             <p>🌳 <b>Radius</b>: a park cheers every house within 3 tiles; industry sours the homes around it, further the higher its tier. While placing, the square on the ground shows the reach.</p>

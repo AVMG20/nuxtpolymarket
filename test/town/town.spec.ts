@@ -87,6 +87,23 @@ async function stock(id: string, resource: TownResourceId, amount: number) {
         .onConflictDoUpdate({ target: [townInventory.userId, townInventory.resource], set: { amount } })
 }
 
+/**
+ * Put exactly the goods a set of costs asks for in the player's warehouse.
+ * Placing and upgrading buy materials as well as coins now, so anything that
+ * exercises a build has to stock what the current tuning charges for it.
+ */
+async function stockFor(id: string, ...costs: { resources: Partial<Record<TownResourceId, number>> }[]) {
+    const total: Partial<Record<TownResourceId, number>> = {}
+    for (const cost of costs) {
+        for (const [resource, qty] of Object.entries(cost.resources) as [TownResourceId, number][]) {
+            total[resource] = (total[resource] ?? 0) + qty
+        }
+    }
+    for (const [resource, qty] of Object.entries(total) as [TownResourceId, number][]) {
+        await stock(id, resource, qty)
+    }
+}
+
 async function held(id: string, resource: TownResourceId) {
     const row = await db.query.townInventory.findFirst({
         where: and(eq(townInventory.userId, id), eq(townInventory.resource, resource))
@@ -201,14 +218,24 @@ async function seedProduced(userId: string, produced: Record<string, number>) {
 }
 
 /**
+ * A street of houses sheltering `pop` residents, one per tile from tileX 0.
+ * The level is worked out from the house's popCap so the row always fits on
+ * the plot, however few residents a single house level is worth.
+ */
+function housingFor(pop: number, tiles = TOWN_PLOT_SIZE - 1) {
+    const level = Math.ceil(pop / (HOUSE.popCap * tiles))
+    const count = Math.ceil(pop / (HOUSE.popCap * level))
+    return Array.from({ length: count }, (_, i) => ({ type: 'house', tileX: i, level }))
+}
+
+/**
  * Everything tier 2 asks for: a finished tier-1 building, the residents to
  * staff it, and the lifetime output that no amount of coins can buy.
  */
 async function unlockTier2(userId: string, plotId: string) {
-    const houses = TOWN_TIER_POP_REQUIREMENT[2]! / HOUSE.popCap
     await seedStreet(userId, plotId, 5, [
         { type: 'farm', tileX: 7 },
-        ...Array.from({ length: houses }, (_, i) => ({ type: 'house', tileX: i }))
+        ...housingFor(TOWN_TIER_POP_REQUIREMENT[2]!)
     ])
     const gate = TOWN_TIER_PRODUCTION_REQUIREMENT[2]!
     await seedProduced(userId, { wheat: gate.amount })
@@ -279,6 +306,7 @@ describe.skipIf(SKIP)('polytown (database)', () => {
         it('charges the coins and queues the build', async () => {
             const plotId = await foundFor(OWNER, { balance: '100000.0000' })
             await placeBuilding(OWNER, plotId, 2, 0, 'road')
+            await stockFor(OWNER, townPlaceCost(FARM, 0))
 
             const happiness = (await stateOf(OWNER)).happiness
             const before = Date.now()
@@ -326,6 +354,7 @@ describe.skipIf(SKIP)('polytown (database)', () => {
 
         it('needs a road at the front door, and the rotation decides which tile that is', async () => {
             const plotId = await foundFor(OWNER, { balance: '1000000.0000' })
+            await stockFor(OWNER, townPlaceCost(FARM, 0))
 
             // Nothing but bare land yet.
             await expect(placeBuilding(OWNER, plotId, 3, 3, 'farm')).rejects.toThrow(/front door/)
@@ -359,6 +388,7 @@ describe.skipIf(SKIP)('polytown (database)', () => {
         it('refuses to stack two buildings on the same tile', async () => {
             const plotId = await foundFor(OWNER, { balance: '100000.0000' })
             await seedRoad(OWNER, plotId, 1)
+            await stockFor(OWNER, townPlaceCost(FARM, 0))
 
             await placeBuilding(OWNER, plotId, 1, 1, 'farm', FACES_EDGE_ROAD)
             await expect(placeBuilding(OWNER, plotId, 1, 1, 'house', FACES_EDGE_ROAD)).rejects.toThrow(/already taken/)
@@ -372,6 +402,7 @@ describe.skipIf(SKIP)('polytown (database)', () => {
             const plotId = await foundFor(OWNER, { balance: '1000000.0000' })
             await seedRoad(OWNER, plotId, 0)
             await seedRoad(OWNER, plotId, 1)
+            await stockFor(OWNER, townPlaceCost(FARM, 0), townPlaceCost(FARM, 1))
 
             const first = await placeBuilding(OWNER, plotId, 0, 1, 'farm', FACES_EDGE_ROAD)
             const second = await placeBuilding(OWNER, plotId, 1, 1, 'farm', FACES_EDGE_ROAD)
@@ -388,6 +419,7 @@ describe.skipIf(SKIP)('polytown (database)', () => {
             await seedRoad(OWNER, plotId, 3)
             // Seeded straight in, still under construction.
             await seedBuilding(OWNER, plotId, 'farm', 5, 0, { tileY: 5, completesAt: new Date(Date.now() + HOUR) })
+            await stockFor(OWNER, townPlaceCost(FARM, 1))
 
             const next = await placeBuilding(OWNER, plotId, 2, 1, 'farm', FACES_EDGE_ROAD)
             expect(next.cost.coins).toBe(townPlaceCost(FARM, 1).coins)
@@ -396,13 +428,18 @@ describe.skipIf(SKIP)('polytown (database)', () => {
         it('lets only one of ten concurrent placements on one tile through', async () => {
             const plotId = await foundFor(OWNER, { balance: '1000000.0000' })
             await seedRoad(OWNER, plotId, 4)
+            const cost = townPlaceCost(FARM, 0)
+            // Ten placements' worth of timber, so the tile is the only guard left.
+            await stockFor(OWNER, ...Array.from({ length: 10 }, () => cost))
 
             const result = await burst(10, () => placeBuilding(OWNER, plotId, 4, 1, 'farm', FACES_EDGE_ROAD))
 
             expect(result.ok).toBe(1)
             expect(await buildingsTyped(OWNER, 'farm')).toHaveLength(1)
             expect(await townDebits(OWNER)).toHaveLength(1)
-            expect(await getBalance(OWNER)).toBe((1000000 - townPlaceCost(FARM, 0).coins).toFixed(4))
+            expect(await getBalance(OWNER)).toBe((1000000 - cost.coins).toFixed(4))
+            // Exactly one placement's worth of timber left the warehouse.
+            expect(await held(OWNER, 'wood')).toBe(9 * cost.resources.wood!)
         })
 
         it('spends the resources a tier-2 building needs', async () => {
@@ -423,8 +460,7 @@ describe.skipIf(SKIP)('polytown (database)', () => {
         it('refuses a tier-2 building until a tier-1 one has finished', async () => {
             const plotId = await foundFor(OWNER, { balance: '1000000.0000' })
             await seedRoad(OWNER, plotId, 0)
-            const houses = TOWN_TIER_POP_REQUIREMENT[2]! / HOUSE.popCap
-            await seedStreet(OWNER, plotId, 5, Array.from({ length: houses }, (_, i) => ({ type: 'house', tileX: i })))
+            await seedStreet(OWNER, plotId, 5, housingFor(TOWN_TIER_POP_REQUIREMENT[2]!))
             await seedProduced(OWNER, { wheat: TOWN_TIER_PRODUCTION_REQUIREMENT[2]!.amount })
             const cost = townPlaceCost(MILL, 0)
             await stock(OWNER, 'wood', cost.resources.wood!)
@@ -612,6 +648,7 @@ describe.skipIf(SKIP)('polytown (database)', () => {
         it('charges a gem per started five minutes and finishes the build', async () => {
             const plotId = await foundFor(OWNER, { balance: '100000.0000', gems: 5 })
             await seedRoad(OWNER, plotId, 0)
+            await stockFor(OWNER, townPlaceCost(FARM, 0))
             const happiness = (await stateOf(OWNER)).happiness
             const { buildingId } = await placeBuilding(OWNER, plotId, 0, 1, 'farm', FACES_EDGE_ROAD)
 
@@ -629,6 +666,7 @@ describe.skipIf(SKIP)('polytown (database)', () => {
         it('has nothing to rush on a finished building', async () => {
             const plotId = await foundFor(OWNER, { balance: '100000.0000', gems: 5 })
             await seedRoad(OWNER, plotId, 0)
+            await stockFor(OWNER, townPlaceCost(FARM, 0))
             const { buildingId } = await placeBuilding(OWNER, plotId, 0, 1, 'farm', FACES_EDGE_ROAD)
             await rushBuilding(OWNER, buildingId)
 
@@ -638,6 +676,7 @@ describe.skipIf(SKIP)('polytown (database)', () => {
         it('rushes nothing without the gems to pay for it', async () => {
             const plotId = await foundFor(OWNER, { balance: '100000.0000', gems: 0 })
             await seedRoad(OWNER, plotId, 0)
+            await stockFor(OWNER, townPlaceCost(FARM, 0))
             const { buildingId } = await placeBuilding(OWNER, plotId, 0, 1, 'farm', FACES_EDGE_ROAD)
 
             await expect(rushBuilding(OWNER, buildingId)).rejects.toThrow()
@@ -668,6 +707,7 @@ describe.skipIf(SKIP)('polytown (database)', () => {
         it('refuses to upgrade a road, or a building that is still going up', async () => {
             const plotId = await foundFor(OWNER, { balance: '1000000.0000' })
             const road = await seedRoad(OWNER, plotId, 0)
+            await stockFor(OWNER, townPlaceCost(FARM, 0))
             const { buildingId } = await placeBuilding(OWNER, plotId, 0, 1, 'farm', FACES_EDGE_ROAD)
 
             await expect(upgradeBuilding(OWNER, buildingId)).rejects.toThrow(/under construction/)
@@ -783,9 +823,9 @@ describe.skipIf(SKIP)('polytown (database)', () => {
     })
 
     describe('settleTownForRead', () => {
-        // A house (4 residents, 1 grain a tick) and a level-2 farm (2 grain a
-        // tick): five and a half minutes at 50 happiness is five whole ticks of
-        // one surplus wheat each.
+        // A house (its residents eat 1 grain a tick) and a level-2 farm (2 grain
+        // a tick): five and a half minutes at 50 happiness is five whole ticks
+        // of one surplus wheat each.
         async function surplusTown(balance = '100000.0000') {
             const plotId = await foundFor(OWNER, { balance })
             await seedStreet(OWNER, plotId, 3, [{ type: 'house', tileX: 0 }, { type: 'farm', tileX: 1, level: 2 }])
@@ -813,6 +853,7 @@ describe.skipIf(SKIP)('polytown (database)', () => {
             const plotId = await foundFor(OWNER, { balance: '100000.0000' })
             await seedStreet(OWNER, plotId, 3, [{ type: 'house', tileX: 0 }])
             await seedRoad(OWNER, plotId, 1)
+            await stockFor(OWNER, townPlaceCost(FARM, 0))
             const { buildingId } = await placeBuilding(OWNER, plotId, 1, 1, 'farm', FACES_EDGE_ROAD)
             await db.update(townBuildings)
                 .set({ completesAt: new Date(Date.now() - MINUTE) })
@@ -1239,18 +1280,37 @@ describe.skipIf(SKIP)('polytown (database)', () => {
 
     describe('claimMilestone', () => {
         it('pays a completed milestone exactly once under a concurrent burst', async () => {
-            const plotId = await foundFor(OWNER, { balance: '0.0000' })
+            const plotId = await foundFor(OWNER, { balance: '0.0000', gems: 0 })
             await seedBuilding(OWNER, plotId, 'house', 0)
-            const reward = getTownMilestone('first-home')!.reward
+            const def = getTownMilestone('first-home')!
+            const gems = def.gems ?? 0
+            // The early goals pay in gems, so the gem credit is what a burst
+            // could double up on.
+            expect(gems).toBeGreaterThan(0)
 
             const result = await burst(10, () => claimMilestone(OWNER, 'first-home'))
 
             expect(result.ok).toBe(1)
-            expect(await getBalance(OWNER)).toBe(reward.toFixed(4))
+            expect(await getBalance(OWNER)).toBe(def.reward.toFixed(4))
+            expect(await getGems(OWNER)).toBe(gems)
             expect((await stateOf(OWNER)).milestonesClaimed).toEqual(['first-home'])
 
             await expect(claimMilestone(OWNER, 'first-home')).rejects.toThrow(/Already claimed/)
-            expect(await getBalance(OWNER)).toBe(reward.toFixed(4))
+            expect(await getBalance(OWNER)).toBe(def.reward.toFixed(4))
+            expect(await getGems(OWNER)).toBe(gems)
+        })
+
+        it('pays the coins and the gems a late goal is worth', async () => {
+            const plotId = await foundFor(OWNER, { balance: '0.0000', gems: 0 })
+            // Perfectionist wants a level-10 building and nothing else.
+            const def = getTownMilestone('maxed')!
+            await seedBuilding(OWNER, plotId, 'house', 0, 10)
+
+            const claim = await claimMilestone(OWNER, 'maxed')
+
+            expect(claim).toMatchObject({ id: 'maxed', reward: def.reward, gems: def.gems ?? 0 })
+            expect(await getBalance(OWNER)).toBe(def.reward.toFixed(4))
+            expect(await getGems(OWNER)).toBe(def.gems ?? 0)
         })
 
         it('refuses a milestone the town has not reached', async () => {

@@ -34,6 +34,7 @@ export interface TownCatalogEntry {
     description: string
     cost: { coins: number, resources: Record<string, number> }
     buildMs: number
+    upgradeMs: number
     workers: number
     inputs: Record<string, number>
     outputs: Record<string, number>

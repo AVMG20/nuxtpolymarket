@@ -14,6 +14,8 @@ import {
     TOWN_INDUSTRY_NUISANCE,
     TOWN_LEVEL_COST_GROWTH,
     TOWN_LEVEL_TIME_GROWTH,
+    TOWN_MAX_BUILD_MS,
+    TOWN_MAX_BUILDING_LEVEL,
     TOWN_MAX_OFFLINE_MS,
     TOWN_MILESTONES,
     TOWN_MOODS,
@@ -79,9 +81,18 @@ import {
 
 const T0 = 1_700_000_000_000
 
-/** The grain need: the only one a town of four residents has. */
+/** The grain need: the only one the smallest towns have. */
 const GRAIN = TOWN_NEEDS.find(n => n.resource === 'wheat')!
 const BREAD = TOWN_NEEDS.find(n => n.resource === 'bread')!
+
+const HOUSE = getTownBuilding('house')!
+/** Residents one house level is worth — every workforce here is sized off this. */
+const PER_HOUSE_LEVEL = HOUSE.popCap
+
+/** House levels needed to shelter `pop` residents. */
+function houseLevelsFor(pop: number): number {
+    return Math.ceil(pop / PER_HOUSE_LEVEL)
+}
 
 /** A finished building that already existed before the settle window opens. */
 function built(id: string, type: TownBuildingId, over: Partial<TownSimBuilding> = {}): TownSimBuilding {
@@ -131,14 +142,19 @@ function sim(over: Partial<TownSimState> = {}): TownSimState {
     }
 }
 
-// A house (4 residents) plus a level-2 farm is the smallest town that runs a
-// surplus: the farm grows 2 wheat a tick and its 4 residents eat 1 of them.
+// A house plus a level-2 farm is the smallest town that runs a surplus: the
+// farm grows 2 wheat a tick and the house's residents eat 1 of them.
 function houseAndFarm(): TownSimBuilding[] {
     return [
         built('house', 'house', { createdAt: T0 - 90_000 }),
         built('farm', 'farm', { level: 2, createdAt: T0 - 80_000 })
     ]
 }
+
+/** One house tall enough to shelter the population bread needs to appear. */
+const BIG_HOUSE = built('house', 'house', { level: houseLevelsFor(BREAD.minPop), createdAt: T0 - 90_000 })
+/** What that town eats every tick: grain and bread both. */
+const BIG_DEMAND = townNeedsPerTick(PER_HOUSE_LEVEL * houseLevelsFor(BREAD.minPop))
 
 describe('townSpiralCoords', () => {
     it('starts at the origin and never repeats a square', () => {
@@ -264,10 +280,35 @@ describe('townPlaceCost', () => {
     const roadDef = getTownBuilding('road')!
 
     it('charges the sticker price for the first copy', () => {
-        expect(townPlaceCost(farm, 0)).toEqual({ coins: farm.cost.coins, resources: {} })
+        expect(townPlaceCost(farm, 0)).toEqual({ coins: farm.cost.coins, resources: { ...farm.cost.resources } })
         expect(townPlaceCost(mill, 0)).toEqual({ coins: mill.cost.coins, resources: { ...mill.cost.resources } })
         // A negative count cannot make a building cheaper than its sticker price.
-        expect(townPlaceCost(farm, -4).coins).toBe(farm.cost.coins)
+        expect(townPlaceCost(farm, -4)).toEqual(townPlaceCost(farm, 0))
+    })
+
+    it('charges goods to place a farm, a quarry or a park', () => {
+        // Placing these costs materials on top of the coins, and the materials
+        // climb with the copy count exactly like the coins do.
+        for (const id of ['farm', 'quarry', 'park'] as const) {
+            const def = getTownBuilding(id)!
+            expect(Object.keys(def.cost.resources).length).toBeGreaterThan(0)
+            for (const [res, qty] of Object.entries(def.cost.resources) as [keyof typeof def.cost.resources, number][]) {
+                expect(townPlaceCost(def, 0).resources[res]).toBe(qty)
+                expect(townPlaceCost(def, 3).resources[res])
+                    .toBe(Math.round(qty * townRepeatGrowth(def) ** 3))
+                expect(townPlaceCost(def, 3).resources[res]!).toBeGreaterThan(qty)
+            }
+        }
+    })
+
+    it('keeps the bootstrap pair buyable with coins alone', () => {
+        // A fresh town has no workers and so no goods: the house that houses
+        // them and the camp that cuts the first wood must never ask for any.
+        for (const id of ['house', 'lumber'] as const) {
+            const def = getTownBuilding(id)!
+            expect(def.cost.resources).toEqual({})
+            for (const existing of [0, 1, 7]) expect(townPlaceCost(def, existing).resources).toEqual({})
+        }
     })
 
     it('multiplies coins and resources by the repeat growth per existing copy', () => {
@@ -427,23 +468,75 @@ describe('moods', () => {
 
     it('applies the build-time perk only when happiness is handed over', () => {
         const farm = getTownBuilding('farm')!
+        // Putting one up uses buildMs; every upgrade starts from upgradeMs.
         expect(townLevelBuildMs(farm, 1)).toBe(farm.buildMs)
-        expect(townLevelBuildMs(farm, 3)).toBe(Math.round(farm.buildMs * TOWN_LEVEL_TIME_GROWTH ** 2))
+        expect(townLevelBuildMs(farm, 2)).toBe(farm.upgradeMs)
+        expect(townLevelBuildMs(farm, 3)).toBe(Math.round(farm.upgradeMs * TOWN_LEVEL_TIME_GROWTH))
 
         for (const mood of TOWN_MOODS) {
             expect(townLevelBuildMs(farm, 1, mood.min)).toBe(Math.round(farm.buildMs * mood.buildTime))
             expect(townLevelBuildMs(farm, 4, mood.min))
-                .toBe(Math.round(farm.buildMs * TOWN_LEVEL_TIME_GROWTH ** 3 * mood.buildTime))
+                .toBe(Math.round(farm.upgradeMs * TOWN_LEVEL_TIME_GROWTH ** 2 * mood.buildTime))
         }
+        // Growing a building is the idle part: the first upgrade dwarfs the build.
+        expect(townLevelBuildMs(farm, 2)).toBeGreaterThan(townLevelBuildMs(farm, 1) * 5)
         // A thriving town builds faster than a miserable one.
         expect(townLevelBuildMs(farm, 1, 100)).toBeLessThan(townLevelBuildMs(farm, 1, 0))
+    })
+
+    it('puts up a starter building in a minute flat', () => {
+        for (const id of ['house', 'park', 'farm', 'lumber'] as const) {
+            expect(townLevelBuildMs(getTownBuilding(id)!, 1)).toBe(60_000)
+        }
+    })
+
+    it('never lets a build run past the ceiling, however deep the tier', () => {
+        const emporium = getTownBuilding('emporium')!
+        // Unclamped, a top-level emporium would run for months.
+        expect(emporium.buildMs * TOWN_LEVEL_TIME_GROWTH ** (TOWN_MAX_BUILDING_LEVEL - 1))
+            .toBeGreaterThan(TOWN_MAX_BUILD_MS)
+        expect(townLevelBuildMs(emporium, TOWN_MAX_BUILDING_LEVEL)).toBe(TOWN_MAX_BUILD_MS)
+        // The mood perk cannot push it back over either.
+        for (const mood of TOWN_MOODS) {
+            expect(townLevelBuildMs(emporium, TOWN_MAX_BUILDING_LEVEL, mood.min)).toBeLessThanOrEqual(TOWN_MAX_BUILD_MS)
+        }
+        // Every building at every level stays under the wall.
+        for (const def of TOWN_BUILDINGS) {
+            for (const level of [1, 10, TOWN_MAX_BUILDING_LEVEL]) {
+                expect(townLevelBuildMs(def, level)).toBeLessThanOrEqual(TOWN_MAX_BUILD_MS)
+            }
+        }
     })
 })
 
 describe('deriveTown', () => {
-    it('houses four residents per house level', () => {
-        const town = deriveTown([built('h', 'house', { level: 3 })], 50, T0)
-        expect(town.popCap).toBe(getTownBuilding('house')!.popCap * 3)
+    it('houses two residents per house level', () => {
+        expect(PER_HOUSE_LEVEL).toBe(2)
+        for (const level of [1, 3, 7]) {
+            expect(deriveTown([built('h', 'house', { level })], 50, T0).popCap).toBe(PER_HOUSE_LEVEL * level)
+        }
+        // Two houses shelter exactly as many as one house of twice the level.
+        expect(deriveTown([built('a', 'house'), built('b', 'house')], 50, T0).popCap)
+            .toBe(deriveTown([built('h', 'house', { level: 2 })], 50, T0).popCap)
+    })
+
+    it('sizes the workforce off the housing, so one house staffs very little', () => {
+        // A single house cannot fill a farm and a mill at once: the farm was
+        // built first and takes its resident, the mill runs on what is left.
+        const farmDef = getTownBuilding('farm')!
+        const millDef = getTownBuilding('mill')!
+        const town = deriveTown([
+            built('house', 'house', { createdAt: T0 - 1000 }),
+            built('farm', 'farm', { createdAt: T0 - 900 }),
+            built('mill', 'mill', { createdAt: T0 - 800 })
+        ], 50, T0)
+
+        expect(town.popCap).toBe(PER_HOUSE_LEVEL)
+        expect(town.workersDemanded).toBe(farmDef.workers + millDef.workers)
+        expect(town.workersDemanded).toBeGreaterThan(town.popCap)
+        expect(town.workersEmployed).toBe(PER_HOUSE_LEVEL)
+        expect(town.staffing.get('farm')).toBe(1)
+        expect(town.staffing.get('mill')).toBe((PER_HOUSE_LEVEL - farmDef.workers) / millDef.workers)
     })
 
     it('ignores buildings that are still under construction', () => {
@@ -453,33 +546,41 @@ describe('deriveTown', () => {
     })
 
     it('hands workers to the oldest industry first', () => {
-        // One house (4 residents) against five farms (5 jobs): the newest farm
-        // is the one that goes idle.
+        // One house against one more farm than its residents can staff: the
+        // newest farm is the one that goes idle.
+        const pop = PER_HOUSE_LEVEL * 2
         const buildings = [
-            built('house', 'house', { createdAt: T0 - 1000 }),
-            ...Array.from({ length: 5 }, (_, i) => built(`farm${i}`, 'farm', { createdAt: T0 - 900 + i }))
+            built('house', 'house', { level: 2, createdAt: T0 - 1000 }),
+            ...Array.from({ length: pop + 1 }, (_, i) => built(`farm${i}`, 'farm', { createdAt: T0 - 900 + i }))
         ]
         const town = deriveTown(buildings, 50, T0)
 
-        expect(town.popCap).toBe(4)
-        expect(town.workersDemanded).toBe(5)
-        expect(town.workersEmployed).toBe(4)
-        expect([0, 1, 2, 3].map(i => town.staffing.get(`farm${i}`))).toEqual([1, 1, 1, 1])
-        expect(town.staffing.get('farm4')).toBe(0)
+        expect(town.popCap).toBe(pop)
+        expect(town.workersDemanded).toBe(pop + 1)
+        expect(town.workersEmployed).toBe(pop)
+        expect(Array.from({ length: pop }, (_, i) => town.staffing.get(`farm${i}`)))
+            .toEqual(Array.from({ length: pop }, () => 1))
+        expect(town.staffing.get(`farm${pop}`)).toBe(0)
     })
 
     it('staffs a half-manned building at a fractional ratio', () => {
-        // house 4 pop; farm takes 1, the level-2 mill wants 4 and gets 3.
+        // The farm is served first; the level-2 mill takes whatever is left of
+        // the house's residents, which is less than the four jobs it has.
+        const millLevel = 2
         const buildings = [
-            built('house', 'house', { createdAt: T0 - 1000 }),
+            built('house', 'house', { level: 2, createdAt: T0 - 1000 }),
             built('farm', 'farm', { createdAt: T0 - 900 }),
-            built('mill', 'mill', { level: 2, createdAt: T0 - 800 })
+            built('mill', 'mill', { level: millLevel, createdAt: T0 - 800 })
         ]
         const town = deriveTown(buildings, 50, T0)
 
+        const pop = PER_HOUSE_LEVEL * 2
+        const forMill = pop - getTownBuilding('farm')!.workers
+        const millJobs = getTownBuilding('mill')!.workers * millLevel
+        expect(forMill).toBeLessThan(millJobs)
         expect(town.staffing.get('farm')).toBe(1)
-        expect(town.staffing.get('mill')).toBe(0.75)
-        expect(town.workersEmployed).toBe(4)
+        expect(town.staffing.get('mill')).toBe(forMill / millJobs)
+        expect(town.workersEmployed).toBe(pop)
     })
 
     it('docks happiness for every industry tile', () => {
@@ -497,30 +598,40 @@ describe('deriveTown', () => {
 
     it('caps the smog a big industrial town breathes', () => {
         const farms = (n: number) => Array.from({ length: n }, (_, i) => built(`farm${i}`, 'farm', { createdAt: T0 - 900 + i }))
-        const houses = Array.from({ length: 30 }, (_, i) => built(`house${i}`, 'house', { createdAt: T0 - 2000 + i }))
+        const mostJobs = TOWN_HAPPINESS_INDUSTRY_CAP * 2
+        const houses = Array.from(
+            { length: houseLevelsFor(mostJobs) },
+            (_, i) => built(`house${i}`, 'house', { createdAt: T0 - 2000 + i })
+        )
         const fed = { wheat: true, bread: true }
 
-        // 120 residents against 60 jobs: roomy, so only the smog cap bites.
+        // A resident for every job: roomy, so only the smog cap bites.
         const small = deriveTown([...houses, ...farms(10)], 50, T0, fed)
         const capped = deriveTown([...houses, ...farms(TOWN_HAPPINESS_INDUSTRY_CAP + 5)], 50, T0, fed)
-        const huge = deriveTown([...houses, ...farms(TOWN_HAPPINESS_INDUSTRY_CAP * 2)], 50, T0, fed)
+        const huge = deriveTown([...houses, ...farms(mostJobs)], 50, T0, fed)
 
         expect(small.happinessTarget).toBe(capped.happinessTarget + TOWN_HAPPINESS_INDUSTRY_CAP - 10)
         expect(huge.happinessTarget).toBe(capped.happinessTarget)
     })
 
     it('docks happiness again once there are more jobs than residents', () => {
+        const jobs = 5
+        const farms = Array.from({ length: jobs }, (_, i) => built(`farm${i}`, 'farm', { createdAt: T0 - 900 + i }))
+        // Enough house levels for every job in the roomy town; a single level
+        // (fewer residents than jobs) in the crowded one.
         const roomy = deriveTown([
-            built('house', 'house', { level: 2, createdAt: T0 - 1000 }),
-            ...Array.from({ length: 5 }, (_, i) => built(`farm${i}`, 'farm', { createdAt: T0 - 900 + i }))
+            built('house', 'house', { level: houseLevelsFor(jobs), createdAt: T0 - 1000 }),
+            ...farms
         ], 50, T0, { wheat: true })
         const crowded = deriveTown([
             built('house', 'house', { createdAt: T0 - 1000 }),
-            ...Array.from({ length: 5 }, (_, i) => built(`farm${i}`, 'farm', { createdAt: T0 - 900 + i }))
+            ...farms
         ], 50, T0, { wheat: true })
 
+        expect(roomy.popCap).toBeGreaterThanOrEqual(jobs)
+        expect(crowded.popCap).toBeLessThan(jobs)
         expect(roomy.happinessTarget)
-            .toBe(TOWN_HAPPINESS_BASE_TARGET + GRAIN.happiness - 5 * TOWN_HAPPINESS_INDUSTRY_PENALTY)
+            .toBe(TOWN_HAPPINESS_BASE_TARGET + GRAIN.happiness - jobs * TOWN_HAPPINESS_INDUSTRY_PENALTY)
         expect(crowded.happinessTarget).toBe(roomy.happinessTarget - TOWN_HAPPINESS_CROWDING_PENALTY)
     })
 
@@ -557,8 +668,13 @@ describe('deriveTown', () => {
 
     it('reports what the town will consume this tick', () => {
         expect(deriveTown([], 50, T0).needsPerTick).toEqual({})
-        expect(deriveTown([built('h', 'house', { level: 4 })], 50, T0).needsPerTick)
-            .toEqual(townNeedsPerTick(16))
+
+        // Big enough that bread has joined grain on the shopping list.
+        const level = houseLevelsFor(BREAD.minPop)
+        const town = deriveTown([built('h', 'house', { level })], 50, T0)
+        expect(town.popCap).toBe(PER_HOUSE_LEVEL * level)
+        expect(town.needsPerTick).toEqual(townNeedsPerTick(town.popCap))
+        expect(Object.keys(town.needsPerTick)).toEqual([GRAIN.resource, BREAD.resource])
     })
 })
 
@@ -1079,21 +1195,25 @@ describe('townNetPerTick', () => {
     }
 
     it('nets the mill\'s wheat draw against the farm\'s output and the town\'s appetite', () => {
-        // 4 residents cover the farm's 1 job and the mill's 2, so both run full.
+        // Enough house levels to cover the farm's job and the mill's two, so
+        // both run full.
+        const jobs = getTownBuilding('farm')!.workers + getTownBuilding('mill')!.workers
+        const level = houseLevelsFor(jobs)
         const buildings = [
-            built('house', 'house', { createdAt: T0 - 1000 }),
+            built('house', 'house', { level, createdAt: T0 - 1000 }),
             built('farm', 'farm', { createdAt: T0 - 900 }),
             built('mill', 'mill', { createdAt: T0 - 800 })
         ]
-        // Farm +1 wheat, mill −2 wheat +1 flour, and four residents eat 1 grain.
-        expect(net(buildings)).toEqual({ wheat: -2, flour: 1 })
+        // Farm +1 wheat, mill −2 wheat +1 flour, and the residents eat theirs.
+        const eaten = townNeedsPerTick(PER_HOUSE_LEVEL * level).wheat!
+        expect(net(buildings)).toEqual({ wheat: 1 - 2 - eaten, flour: 1 })
     })
 
     it('subtracts what the townsfolk consume even with nobody working', () => {
         const idle = [built('house', 'house')]
-        expect(net(idle)).toEqual({ wheat: -townNeedsPerTick(4).wheat! })
+        expect(net(idle)).toEqual({ wheat: -townNeedsPerTick(PER_HOUSE_LEVEL).wheat! })
 
-        // A level-1 farm grows exactly what its own four residents eat.
+        // A level-1 farm grows exactly what its own residents eat.
         expect(net(houseAndFarm().map(b => ({ ...b, level: 1 })))).toEqual({ wheat: 0 })
         // The level-2 farm of the standard test town runs a surplus.
         expect(net(houseAndFarm())).toEqual({ wheat: 1 })
@@ -1161,7 +1281,7 @@ describe('milestones', () => {
 
         expect(snap.builtByType).toEqual({ house: 1, farm: 2 })
         expect(snap.maxLevel).toBe(4)
-        expect(snap.popCap).toBe(8)
+        expect(snap.popCap).toBe(PER_HOUSE_LEVEL * 2)
         expect(snap.industryCount).toBe(2)
         expect(snap.plotsBought).toBe(2)
         expect(snap.coinsEarned).toBe(1_234)
@@ -1242,20 +1362,22 @@ describe('settleTown', () => {
     })
 
     it('reports the needs it could not supply without touching the stock', () => {
-        // Sixteen residents want two grain and one loaf every tick.
-        const buildings = [built('house', 'house', { level: 4, createdAt: T0 - 90_000 })]
-        expect(townNeedsPerTick(16)).toEqual({ wheat: 2, bread: 1 })
+        // A town big enough to want bread as well as grain, and more than one
+        // grain a tick — so a part-stocked larder can fall short.
+        const buildings = [BIG_HOUSE]
+        expect(Object.keys(BIG_DEMAND)).toEqual([GRAIN.resource, BREAD.resource])
+        expect(BIG_DEMAND.wheat!).toBeGreaterThan(1)
 
-        const short = settleTown(sim({ happiness: 50, inventory: { wheat: 1 }, buildings }), T0 + 3 * TOWN_TICK_MS)
+        const short = settleTown(sim({ happiness: 50, inventory: { wheat: BIG_DEMAND.wheat! - 1 }, buildings }), T0 + 3 * TOWN_TICK_MS)
         expect(short.ticks).toBeGreaterThan(0)
-        // Half a demand feeds nobody, so the single grain is never eaten.
+        // Half a demand feeds nobody, so the grain on hand is never eaten.
         expect(short.delta).toEqual({})
         expect(short.satisfied).toEqual({ wheat: false, bread: false })
 
-        const stocked = settleTown(sim({ happiness: 50, inventory: { wheat: 5 }, buildings }), T0 + 3 * TOWN_TICK_MS)
+        // Two whole tick's worth of grain and a leftover the third cannot use.
+        const stocked = settleTown(sim({ happiness: 50, inventory: { wheat: 2 * BIG_DEMAND.wheat! + 1 }, buildings }), T0 + 3 * TOWN_TICK_MS)
         expect(stocked.ticks).toBe(3)
-        // Two ticks ate their two grain; the third found only one left.
-        expect(stocked.delta).toEqual({ wheat: -4 })
+        expect(stocked.delta).toEqual({ wheat: -2 * BIG_DEMAND.wheat! })
         expect(stocked.satisfied).toEqual({ wheat: false, bread: false })
     })
 
@@ -1266,12 +1388,12 @@ describe('settleTown', () => {
     })
 
     it('lets a fed town climb and a starving one sink', () => {
-        const buildings = [built('house', 'house', { level: 4, createdAt: T0 - 90_000 })]
+        const buildings = [BIG_HOUSE]
         const fed = settleTown(sim({ happiness: 50, inventory: { wheat: 500, bread: 500 }, buildings }), T0 + 5 * TOWN_TICK_MS)
         const starving = settleTown(sim({ happiness: 50, buildings }), T0 + 5 * TOWN_TICK_MS)
 
         expect(fed.satisfied).toEqual({ wheat: true, bread: true })
-        expect(fed.delta).toEqual({ wheat: -5 * 2, bread: -5 })
+        expect(fed.delta).toEqual({ wheat: -5 * BIG_DEMAND.wheat!, bread: -5 * BIG_DEMAND.bread! })
         expect(fed.happiness).toBeGreaterThan(50)
         expect(starving.happiness).toBeLessThan(50)
         expect(starving.delta).toEqual({})
@@ -1322,7 +1444,7 @@ describe('settleTown', () => {
 
         const starved = settleTown(sim({ inventory: { wheat: 1 }, buildings }), T0 + 130_000)
         expect(starved.ticks).toBe(2)
-        // Not enough to grind, but the four residents still get their grain once.
+        // Not enough to grind, but the residents still get their grain once.
         expect(starved.delta).toEqual({ wheat: -1 })
     })
 

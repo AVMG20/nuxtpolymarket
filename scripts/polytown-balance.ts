@@ -127,6 +127,12 @@ function plan(w: World) {
         if (place(w, getTownBuilding('house')!)) return
     }
 
+    // 1b. Bootstrap: with no workers at all, only coins-only buildings can go up.
+    if (pop(w) === 0) {
+        place(w, getTownBuilding('house')!)
+        return
+    }
+
     // 2. Parks keep the mood up: one per four houses.
     if (count(w, 'park') * 4 < count(w, 'house')) place(w, getTownBuilding('park')!)
 
@@ -134,9 +140,11 @@ function plan(w: World) {
     const atCap = Object.values(w.inventory).some(v => (v ?? 0) >= derived.storageCap - 1)
     if (atCap && place(w, getTownBuilding('warehouse')!)) return
 
-    // 4. Try to start the next tier.
+    // 4. Try to start the next tier. Once the gate is open, stop spending on
+    //    anything but the goods the target needs — a real player saves up.
     const lock = townTierRequirement(w.buildings, nextTier, w.now, w.produced)
     if (!lock && place(w, target)) return
+    const saving = !lock
 
     // 5. Chase the worst shortfall: for every good the target needs (walking the
     //    chain down to raw inputs), estimate hours-to-cover at the current net
@@ -177,9 +185,9 @@ function plan(w: World) {
         const mine = w.buildings.filter(b => b.type === producer.id)
         const upgradable = mine.filter(b => b.level > 0 && b.upgradingTo === null && b.level < TOWN_MAX_BUILDING_LEVEL).sort((a, b) => a.level - b.level)[0]
         // Tiles are the scarce thing: upgrade once there are a handful.
-        if (mine.length >= 3 && upgradable && upgrade(w, upgradable)) return
+        if (!saving && mine.length >= 3 && upgradable && upgrade(w, upgradable)) return
         if (mine.length < 3 && place(w, producer)) return
-        if (upgradable && upgrade(w, upgradable)) return
+        if (!saving && upgradable && upgrade(w, upgradable)) return
         if (tilesAvailable(w) > 8 && place(w, producer)) return
     }
 }

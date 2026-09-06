@@ -64,10 +64,10 @@ export const TOWN_TIER_POP_REQUIREMENT: Record<number, number> = { 2: 24, 3: 80,
  */
 export const TOWN_TIER_PRODUCTION_REQUIREMENT: Record<number, { tier: number, amount: number }> = {
     2: { tier: 1, amount: 3_000 },
-    3: { tier: 2, amount: 20_000 },
-    4: { tier: 3, amount: 30_000 },
-    5: { tier: 4, amount: 40_000 },
-    6: { tier: 5, amount: 20_000 }
+    3: { tier: 2, amount: 40_000 },
+    4: { tier: 3, amount: 20_000 },
+    5: { tier: 4, amount: 15_000 },
+    6: { tier: 5, amount: 8_000 }
 }
 
 /** Building level cap and per-level cost growth (coins and resources alike). */
@@ -76,7 +76,12 @@ export const TOWN_MAX_BUILDING_LEVEL = 20
 // the idle pacing comes from levels (×1.3 each) and from the higher tiers,
 // which run for hours and cap at three days.
 export const TOWN_LEVEL_COST_GROWTH = 1.35
-export const TOWN_LEVEL_TIME_GROWTH = 1.3
+/**
+ * Putting a building up is quick; growing it is the idle part. The first build
+ * uses `buildMs`, every upgrade starts from `upgradeMs` and takes 40% longer
+ * than the one before, so a level-20 anything sits at the three-day wall.
+ */
+export const TOWN_LEVEL_TIME_GROWTH = 1.4
 /**
  * No single build or upgrade may run longer than this. An idle game wants long
  * timers, but a three-day wall is the point past which a build stops being a
@@ -101,8 +106,6 @@ export const TOWN_HAPPINESS_STARVING_PENALTY = 12
  * here is one wider than the raw distance the effect is meant to cover.
  */
 export const TOWN_PARK_RADIUS = 3
-/** Fallback nuisance radius; the real one is per tier via TOWN_INDUSTRY_NUISANCE. */
-export const TOWN_INDUSTRY_RADIUS = 3
 export const TOWN_HAPPINESS_PARK_NEARBY = 2
 export const TOWN_HAPPINESS_INDUSTRY_ADJACENT = 1
 /** Nuisance radius and per-house penalty by building tier (index = tier). */
@@ -267,8 +270,10 @@ export interface TownBuildingDef {
     cost: { coins: number, resources: TownResourceBag }
     /** Extra resources every upgrade (level >= 2) needs, scaled like the rest of the cost. Puts goods back into the town. */
     upgradeResources: TownResourceBag
-    /** Level-1 build time. Later levels multiply by TOWN_LEVEL_TIME_GROWTH^(level-1). */
+    /** Time to put the building up in the first place. */
     buildMs: number
+    /** Time for the level 1 → 2 upgrade; every later level multiplies by TOWN_LEVEL_TIME_GROWTH. */
+    upgradeMs: number
     /** Residents needed to run at full speed, per level. 0 for housing/civic. */
     workers: number
     /** Per-tick consumption at level 1 — scaled linearly by level. */
@@ -290,113 +295,113 @@ export const TOWN_BUILDINGS: readonly TownBuildingDef[] = [
     {
         id: 'road', name: 'Road', emoji: '🛣️', color: 0x6b6b6b, tier: 0, kind: 'road',
         description: 'Front doors open onto roads. Start at the edge of your land, then extend.',
-        cost: { coins: 1_000, resources: {} }, buildMs: 0,
+        cost: { coins: 1_000, resources: {} }, buildMs: 0, upgradeMs: 0,
         upgradeResources: {},
         workers: 0, inputs: {}, outputs: {}, popCap: 0, happiness: 0, storage: 0
     },
     {
         id: 'house', name: 'House', emoji: '🏠', color: 0xe9c46a, tier: 0, kind: 'housing',
-        description: 'Homes for your townsfolk. Every industry building needs residents to run.',
-        cost: { coins: 40_000, resources: {} }, buildMs: 1 * MIN,
-        upgradeResources: { wood: 12 },
-        workers: 0, inputs: {}, outputs: {}, popCap: 4, happiness: 0, storage: 0
+        description: 'Two residents per level. Every industry building needs residents to run.',
+        cost: { coins: 40_000, resources: {} }, buildMs: 1 * MIN, upgradeMs: 10 * MIN,
+        upgradeResources: { wood: 60, stone: 20 },
+        workers: 0, inputs: {}, outputs: {}, popCap: 2, happiness: 0, storage: 0
     },
     {
         id: 'park', name: 'Park', emoji: '🌳', color: 0x52b788, tier: 0, kind: 'civic',
         description: 'Green space. Every house within 3 tiles gets happier — place parks between your homes.',
-        cost: { coins: 60_000, resources: { wood: 40 } }, buildMs: 1 * MIN,
-        upgradeResources: { wood: 10, stone: 6 },
+        cost: { coins: 60_000, resources: { wood: 80 } }, buildMs: 1 * MIN, upgradeMs: 10 * MIN,
+        upgradeResources: { wood: 50, stone: 30 },
         workers: 0, inputs: {}, outputs: {}, popCap: 0, happiness: 2, storage: 0
     },
     {
         id: 'warehouse', name: 'Warehouse', emoji: '📦', color: 0x8d99ae, tier: 2, kind: 'storage',
         description: 'Raises the storage cap of every resource. Full storage halts production.',
-        cost: { coins: 150_000, resources: { planks: 60, bricks: 40 } }, buildMs: 30 * MIN,
-        upgradeResources: { planks: 20, bricks: 10 },
+        cost: { coins: 150_000, resources: { planks: 60, bricks: 40 } }, buildMs: 30 * MIN, upgradeMs: 30 * MIN,
+        upgradeResources: { planks: 80, bricks: 40 },
         workers: 0, inputs: {}, outputs: {}, popCap: 0, happiness: 0, storage: TOWN_WAREHOUSE_STORAGE
     },
     {
         id: 'farm', name: 'Farm', emoji: '🌾', color: 0xd4a373, tier: 1, kind: 'industry',
         description: 'Grows wheat. The simplest way to start earning.',
-        cost: { coins: 45_000, resources: {} }, buildMs: 1 * MIN,
-        upgradeResources: { wood: 8 },
+        cost: { coins: 45_000, resources: { wood: 20 } }, buildMs: 1 * MIN, upgradeMs: 10 * MIN,
+        upgradeResources: { wood: 40 },
         workers: 1, inputs: {}, outputs: { wheat: 1 }, popCap: 0, happiness: 0, storage: 0
     },
     {
         id: 'lumber', name: 'Lumber Camp', emoji: '🪵', color: 0x6f4e37, tier: 1, kind: 'industry',
         description: 'Fells trees for wood.',
-        cost: { coins: 45_000, resources: {} }, buildMs: 1 * MIN,
-        upgradeResources: { stone: 8 },
+        cost: { coins: 45_000, resources: {} }, buildMs: 1 * MIN, upgradeMs: 10 * MIN,
+        upgradeResources: { stone: 40 },
         workers: 1, inputs: {}, outputs: { wood: 1 }, popCap: 0, happiness: 0, storage: 0
     },
     {
         id: 'quarry', name: 'Quarry', emoji: '🪨', color: 0x9a8c98, tier: 1, kind: 'industry',
         description: 'Cuts stone from the ground.',
-        cost: { coins: 70_000, resources: {} }, buildMs: 2 * MIN,
-        upgradeResources: { wood: 10 },
+        cost: { coins: 70_000, resources: { wood: 40 } }, buildMs: 2 * MIN, upgradeMs: 15 * MIN,
+        upgradeResources: { wood: 50 },
         workers: 1, inputs: {}, outputs: { stone: 1 }, popCap: 0, happiness: 0, storage: 0
     },
     {
         id: 'mill', name: 'Mill', emoji: '🌕', color: 0xf4e285, tier: 2, kind: 'industry',
         description: 'Grinds wheat into flour.',
-        cost: { coins: 120_000, resources: { wood: 120, stone: 80 } }, buildMs: 45 * MIN,
-        upgradeResources: { planks: 12, stone: 8 },
+        cost: { coins: 120_000, resources: { wood: 120, stone: 80 } }, buildMs: 45 * MIN, upgradeMs: 45 * MIN,
+        upgradeResources: { planks: 50, stone: 40 },
         workers: 2, inputs: { wheat: 2 }, outputs: { flour: 1 }, popCap: 0, happiness: 0, storage: 0
     },
     {
         id: 'sawmill', name: 'Sawmill', emoji: '🪚', color: 0xbc6c25, tier: 2, kind: 'industry',
         description: 'Saws wood into planks.',
-        cost: { coins: 120_000, resources: { wood: 120, stone: 80 } }, buildMs: 45 * MIN,
-        upgradeResources: { planks: 12, stone: 8 },
+        cost: { coins: 120_000, resources: { wood: 120, stone: 80 } }, buildMs: 45 * MIN, upgradeMs: 45 * MIN,
+        upgradeResources: { planks: 50, stone: 40 },
         workers: 2, inputs: { wood: 2 }, outputs: { planks: 1 }, popCap: 0, happiness: 0, storage: 0
     },
     {
         id: 'kiln', name: 'Brick Kiln', emoji: '🧱', color: 0xc1440e, tier: 2, kind: 'industry',
         description: 'Fires stone into bricks.',
-        cost: { coins: 200_000, resources: { wood: 150, stone: 120 } }, buildMs: 60 * MIN,
-        upgradeResources: { planks: 12, bricks: 8 },
+        cost: { coins: 200_000, resources: { wood: 150, stone: 120 } }, buildMs: 60 * MIN, upgradeMs: 60 * MIN,
+        upgradeResources: { planks: 50, bricks: 40 },
         workers: 2, inputs: { stone: 2 }, outputs: { bricks: 1 }, popCap: 0, happiness: 0, storage: 0
     },
     {
         id: 'bakery', name: 'Bakery', emoji: '🍞', color: 0xf77f00, tier: 3, kind: 'industry',
         description: 'Bakes bread. Fed townsfolk are happier, and bread sells well.',
-        cost: { coins: 700_000, resources: { planks: 150, bricks: 100, wheat: 300 } }, buildMs: 3 * HOUR,
-        upgradeResources: { bricks: 20, tools: 4 },
+        cost: { coins: 700_000, resources: { planks: 150, bricks: 100, wheat: 300 } }, buildMs: 3 * HOUR, upgradeMs: 4 * HOUR,
+        upgradeResources: { bricks: 80, tools: 20 },
         workers: 3, inputs: { flour: 2, wood: 1 }, outputs: { bread: 1 }, popCap: 0, happiness: 0, storage: 0
     },
     {
         id: 'smithy', name: 'Smithy', emoji: '🔧', color: 0x4a4e69, tier: 3, kind: 'industry',
         description: 'Forges tools from planks and bricks. Tools unlock heavy industry.',
-        cost: { coins: 1_000_000, resources: { planks: 200, bricks: 200, stone: 200 } }, buildMs: 4 * HOUR,
-        upgradeResources: { bricks: 20, tools: 4 },
+        cost: { coins: 1_000_000, resources: { planks: 200, bricks: 200, stone: 200 } }, buildMs: 4 * HOUR, upgradeMs: 5 * HOUR,
+        upgradeResources: { bricks: 80, tools: 25 },
         workers: 3, inputs: { planks: 2, bricks: 2 }, outputs: { tools: 1 }, popCap: 0, happiness: 0, storage: 0
     },
     {
         id: 'mine', name: 'Iron Mine', emoji: '⛏️', color: 0x3d405b, tier: 4, kind: 'industry',
         description: 'Digs iron ore. Needs tools to build and to keep running.',
-        cost: { coins: 1_300_000, resources: { tools: 100, bricks: 400, planks: 300 } }, buildMs: 6 * HOUR,
-        upgradeResources: { tools: 20, planks: 40 },
+        cost: { coins: 1_300_000, resources: { tools: 100, bricks: 400, planks: 300 } }, buildMs: 6 * HOUR, upgradeMs: 8 * HOUR,
+        upgradeResources: { tools: 80, planks: 150 },
         workers: 4, inputs: { tools: 1 }, outputs: { ore: 3 }, popCap: 0, happiness: 0, storage: 0
     },
     {
         id: 'foundry', name: 'Foundry', emoji: '⚙️', color: 0x9d0208, tier: 4, kind: 'industry',
         description: 'Smelts ore into steel.',
-        cost: { coins: 7_500_000, resources: { tools: 200, bricks: 800, planks: 400 } }, buildMs: 8 * HOUR,
-        upgradeResources: { tools: 30, bricks: 60 },
+        cost: { coins: 7_500_000, resources: { tools: 200, bricks: 800, planks: 400 } }, buildMs: 8 * HOUR, upgradeMs: 10 * HOUR,
+        upgradeResources: { tools: 120, bricks: 250 },
         workers: 5, inputs: { ore: 3, wood: 2 }, outputs: { steel: 1 }, popCap: 0, happiness: 0, storage: 0
     },
     {
         id: 'factory', name: 'Factory', emoji: '🏭', color: 0x577590, tier: 5, kind: 'industry',
         description: 'Assembles machines from steel, planks and tools.',
-        cost: { coins: 45_000_000, resources: { steel: 400, tools: 500, bricks: 1000 } }, buildMs: 12 * HOUR,
-        upgradeResources: { steel: 40, tools: 40 },
+        cost: { coins: 45_000_000, resources: { steel: 400, tools: 500, bricks: 1000 } }, buildMs: 12 * HOUR, upgradeMs: 16 * HOUR,
+        upgradeResources: { steel: 150, tools: 150 },
         workers: 8, inputs: { steel: 3, planks: 3, tools: 1 }, outputs: { machines: 1 }, popCap: 0, happiness: 0, storage: 0
     },
     {
         id: 'emporium', name: 'Emporium', emoji: '💎', color: 0x7b2cbf, tier: 6, kind: 'industry',
         description: 'Crafts luxuries — the most valuable good a town can produce.',
-        cost: { coins: 500_000_000, resources: { machines: 100, steel: 1000, tools: 800, bread: 1000 } }, buildMs: 24 * HOUR,
-        upgradeResources: { machines: 10, steel: 80 },
+        cost: { coins: 500_000_000, resources: { machines: 100, steel: 1000, tools: 800, bread: 1000 } }, buildMs: 24 * HOUR, upgradeMs: 30 * HOUR,
+        upgradeResources: { machines: 40, steel: 300 },
         workers: 12, inputs: { machines: 2, bread: 4, tools: 2 }, outputs: { luxuries: 1 }, popCap: 0, happiness: 0, storage: 0
     }
 ]
@@ -422,7 +427,12 @@ export function scaleBag(bag: TownResourceBag, factor: number, round: (n: number
     return out
 }
 
-/** Coins + resources to build (level 1) or upgrade TO `level`. */
+/**
+ * Coins + resources to build (level 1) or upgrade TO `level`. An upgrade is a
+ * rebuild at a bigger size, so it pays the base cost again at the level's
+ * multiplier PLUS the building's `upgradeResources` — that second bag is what
+ * makes growth cost a real slice of what the town produces.
+ */
 export function townLevelCost(def: TownBuildingDef, level: number): { coins: number, resources: TownResourceBag } {
     const factor = Math.pow(TOWN_LEVEL_COST_GROWTH, level - 1)
     const resources = scaleBag(def.cost.resources, factor)
@@ -437,7 +447,8 @@ export function townLevelCost(def: TownBuildingDef, level: number): { coins: num
 /** Build/upgrade duration in ms for reaching `level`. Pass the town's happiness to apply the mood's build-time perk. */
 export function townLevelBuildMs(def: TownBuildingDef, level: number, happiness?: number): number {
     const mood = happiness === undefined ? 1 : townMood(happiness).buildTime
-    return Math.min(TOWN_MAX_BUILD_MS, Math.round(def.buildMs * Math.pow(TOWN_LEVEL_TIME_GROWTH, level - 1) * mood))
+    const base = level <= 1 ? def.buildMs : def.upgradeMs * Math.pow(TOWN_LEVEL_TIME_GROWTH, level - 2)
+    return Math.min(TOWN_MAX_BUILD_MS, Math.round(base * mood))
 }
 
 /** Gems needed to finish a build with `remainingMs` left on the clock. */
