@@ -286,20 +286,10 @@ async function upgradeAbility(ability: NonNullable<typeof state.value>['abilitie
 
 <template>
   <UContainer class="space-y-6">
-    <div class="flex flex-wrap items-center justify-between gap-3">
-      <div>
-        <h1 class="text-2xl font-bold">
-          Ship Armory
-        </h1>
-        <p class="text-sm text-muted mt-0.5">
-          Refit your hull, stock the magazine, and fill out the gun deck.
-        </p>
-      </div>
-      <div class="flex items-center gap-2">
-        <UBadge v-if="state" color="primary" variant="subtle" :label="`Power ${state.power}`" icon="i-lucide-anchor" />
-        <UBadge v-if="state?.repair.remainingMs" color="warning" variant="subtle" :label="`Dry dock ${repairRemainingLabel}`" icon="i-lucide-wrench" />
-      </div>
-    </div>
+    <PiratesPageHeader icon="i-lucide-hammer" kicker="Port" title="Ship Armory" subtitle="Hull, ammo, and cannons.">
+      <UBadge v-if="state" color="primary" variant="subtle" :label="`Power ${state.power}`" icon="i-lucide-anchor" />
+      <UBadge v-if="state?.repair.remainingMs" color="warning" variant="subtle" :label="`Dry dock ${repairRemainingLabel}`" icon="i-lucide-wrench" />
+    </PiratesPageHeader>
 
     <div v-if="!state" class="space-y-4">
       <USkeleton class="h-40 rounded-xl" />
@@ -307,19 +297,17 @@ async function upgradeAbility(ability: NonNullable<typeof state.value>['abilitie
     </div>
 
     <template v-else>
-      <p v-if="state.activeRun" class="text-xs text-amber-400 bg-amber-400/10 border border-amber-400/20 rounded-lg px-3 py-2">
-        You have a voyage in progress — refitting is locked until it ends.
-      </p>
+      <UAlert v-if="state.activeRun" color="warning" variant="subtle" icon="i-lucide-anchor" title="Voyage in progress — refitting is locked until it ends." />
 
       <!-- Cosmetic ship skins -->
       <div>
         <div class="mb-2 flex flex-wrap items-center justify-between gap-2 px-0.5">
           <div>
             <p class="text-xs font-semibold text-muted uppercase tracking-wider">
-              Captain's Shipyard — Cosmetic Skins
+              Skins
             </p>
             <p class="mt-0.5 text-xs text-muted">
-              Skins grant no combat power. They grant considerably more important bragging rights.
+              Cosmetic only.
             </p>
           </div>
           <UBadge color="info" variant="subtle">
@@ -369,11 +357,10 @@ async function upgradeAbility(ability: NonNullable<typeof state.value>['abilitie
         <div class="mb-2 flex flex-wrap items-end justify-between gap-2 px-0.5">
           <div>
             <p class="text-xs font-semibold uppercase tracking-wider text-muted">
-              Captain's Arsenal — Right-click Ability
+              Ability
             </p>
             <p class="mt-0.5 text-xs text-muted">
-              Permanently unlock techniques, then equip exactly one before setting sail. Each can be upgraded five
-              times — a maxed ability keeps pace with the highest difficulty brackets.
+              Right-click the sea to use. Equip one, upgrade up to level 5.
             </p>
           </div>
           <UBadge color="neutral" variant="subtle">
@@ -462,7 +449,7 @@ async function upgradeAbility(ability: NonNullable<typeof state.value>['abilitie
       <!-- Ship stats -->
       <div>
         <p class="text-xs font-semibold text-muted uppercase tracking-wider mb-2 px-0.5">
-          Shipwright — Hull &amp; Systems
+          Hull &amp; Systems
         </p>
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3">
           <UCard v-for="statId in PIRATE_SHIP_STAT_IDS" :key="statId" :ui="{ body: 'p-3.5' }">
@@ -574,7 +561,7 @@ async function upgradeAbility(ability: NonNullable<typeof state.value>['abilitie
               </UButton>
             </div>
             <p class="text-[11px] text-muted">
-              Premium shots gain +10% range and +20% damage. When this stock runs out, your cannons automatically keep firing unlimited free ammo without those bonuses.
+              +10% range, +20% damage. Falls back to free ammo when empty.
             </p>
           </div>
         </UCard>
@@ -638,7 +625,7 @@ async function upgradeAbility(ability: NonNullable<typeof state.value>['abilitie
               </UButton>
             </div>
             <p class="text-[11px] text-muted">
-              Gems are far rarer than coins — save these shots for elite ships, or flip them on when you're swarmed.
+              Toggle on mid-voyage for elite ships or swarms.
             </p>
           </div>
         </UCard>
@@ -648,7 +635,7 @@ async function upgradeAbility(ability: NonNullable<typeof state.value>['abilitie
       <div>
         <div class="flex items-center justify-between mb-2 px-0.5">
           <p class="text-xs font-semibold text-muted uppercase tracking-wider">
-            Gun Deck — {{ state.cannonSlots }} / {{ PIRATE_MAX_CANNON_SLOTS }} ports
+            Gun Deck · {{ state.cannonSlots }}/{{ PIRATE_MAX_CANNON_SLOTS }} ports
           </p>
           <div class="flex items-center gap-3 text-xs text-muted">
             <span class="flex items-center gap-1"><UIcon name="i-lucide-gauge" class="size-3.5" /> {{ totalDps.toFixed(1) }} DPS (vs def {{ DPS_REFERENCE_DEFENSE }})</span>
@@ -656,8 +643,8 @@ async function upgradeAbility(ability: NonNullable<typeof state.value>['abilitie
           </div>
         </div>
 
-        <p v-if="swapSource !== null" class="text-xs text-sky-400 bg-sky-400/10 border border-sky-400/20 rounded-lg px-3 py-2 mb-2">
-          Moving the cannon from port {{ swapSource + 1 }} — click another unlocked port to swap, or click the same port to cancel.
+        <p v-if="swapSource !== null" class="text-xs text-info bg-info/10 border border-info/20 rounded-lg px-3 py-2 mb-2">
+          Port {{ swapSource + 1 }} selected — click another port to swap, same port to cancel.
         </p>
 
         <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">

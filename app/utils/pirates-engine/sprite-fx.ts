@@ -1,281 +1,228 @@
-import { Container, Graphics, Sprite, Text, type Texture } from 'pixi.js'
+import { Container, Graphics, Text } from 'pixi.js'
 import gsap from 'gsap'
 import { WORLD_H, WORLD_W } from './constants'
 import { randRange } from './math'
-import type { AmmoKind, Enemy, ShipVisual } from './types'
+import type { AmmoKind, Enemy, PirateCannonRuntime, ShipVisual } from './types'
 
-export interface PirateShipTextures {
-    playerSkins: Map<string, Texture>
-    playerDefault: Texture | null
-    sniper: Texture | null
-    dpsRaider: Texture | null
-    tankRaider: Texture | null
-    raider: Texture | null
-}
-
+// Layered vector geometry: no external textures, and crisp at every resolution.
 export function drawWaterTexture(bg: Graphics) {
-    bg.clear()
-    bg.rect(0, 0, WORLD_W, WORLD_H).fill({ color: 0x0b3a57 })
-    // Depth blotches
-    for (let i = 0; i < 26; i++) {
-        const x = Math.random() * WORLD_W
-        const y = Math.random() * WORLD_H
-        const w = 60 + Math.random() * 140
-        bg.ellipse(x, y, w, w * 0.4).fill({ color: 0x0e4466, alpha: 0.25 + Math.random() * 0.15 })
+    bg.clear().rect(0, 0, WORLD_W, WORLD_H).fill(0x083b50)
+    for (let y = 0; y < WORLD_H; y += 24) {
+        bg.rect(0, y, WORLD_W, 24).fill({ color: 0x167f89, alpha: 0.22 * (1 - y / WORLD_H) })
     }
-    for (let i = 0; i < 40; i++) {
-        const x = Math.random() * WORLD_W
-        const y = Math.random() * WORLD_H
-        const w = 40 + Math.random() * 90
-        bg.ellipse(x, y, w, w * 0.18).fill({ color: 0x1c5c82, alpha: 0.12 + Math.random() * 0.08 })
-    }
-}
-
-/** Slow-drifting wave glints that loop forever — makes the sea feel alive. */
-export function spawnAmbientWaves(waveLayer: Container) {
     for (let i = 0; i < 14; i++) {
-        const wave = new Graphics()
-        const w = randRange(24, 60)
-        wave.moveTo(-w / 2, 0)
-            .quadraticCurveTo(0, -w * 0.14, w / 2, 0)
-            .stroke({ width: 2, color: 0x9fd0e8, alpha: randRange(0.12, 0.3) })
-        wave.position.set(Math.random() * WORLD_W, Math.random() * WORLD_H)
-        waveLayer.addChild(wave)
-        const drift = randRange(20, 50)
-        const dur = randRange(4, 8)
-        gsap.to(wave.position, { x: `+=${drift}`, duration: dur, ease: 'sine.inOut', yoyo: true, repeat: -1, delay: Math.random() * dur })
-        gsap.to(wave, { alpha: 0.05, duration: dur * 0.6, ease: 'sine.inOut', yoyo: true, repeat: -1 })
+        const y = i * 85 - 50
+        bg.moveTo(0, y).bezierCurveTo(WORLD_W * 0.3, y + 180, WORLD_W * 0.65, y - 140, WORLD_W, y + 40)
+            .stroke({ width: 25, color: 0x167780, alpha: 0.045 })
     }
-}
-
-export function drawIsland(obstacleLayer: Container, islandTextures: Texture[], x: number, y: number, r: number) {
-    const root = new Container()
-    root.position.set(x, y)
-
-    const shallows = new Graphics()
-    shallows.circle(0, 0, r + 16).fill({ color: 0x2e7ea8, alpha: 0.5 })
-    shallows.circle(0, 0, r + 7).fill({ color: 0x5eb3d6, alpha: 0.35 })
-    root.addChild(shallows)
-
-    if (islandTextures.length) {
-        const texture = islandTextures[Math.floor(Math.random() * islandTextures.length)]!
-        const island = new Sprite(texture)
-        island.anchor.set(0.5)
-        island.width = r * 2.05
-        island.height = r * 2.04
-        island.rotation = randRange(-0.3, 0.3)
-        root.addChild(island)
-        obstacleLayer.addChild(root)
-        gsap.to(shallows, { alpha: 0.7, duration: randRange(2, 3.2), ease: 'sine.inOut', yoyo: true, repeat: -1 })
-        return
-    }
-
-    // Irregular sandy blob
-    const sand = new Graphics()
-    const points: number[] = []
-    const segments = 14
-    for (let i = 0; i < segments; i++) {
-        const ang = (i / segments) * Math.PI * 2
-        const rad = r * randRange(0.82, 1)
-        points.push(Math.cos(ang) * rad, Math.sin(ang) * rad)
-    }
-    sand.poly(points).fill({ color: 0xe7cf9a }).stroke({ width: 3, color: 0xc9a86a, alpha: 0.8 })
-    root.addChild(sand)
-
-    const grass = new Graphics()
-    const gPoints: number[] = []
-    for (let i = 0; i < segments; i++) {
-        const ang = (i / segments) * Math.PI * 2 + 0.3
-        const rad = r * randRange(0.45, 0.62)
-        gPoints.push(Math.cos(ang) * rad, Math.sin(ang) * rad)
-    }
-    grass.poly(gPoints).fill({ color: 0x4d8f4f, alpha: 0.9 })
-    root.addChild(grass)
-
-    // A couple of palms or rocks
-    const decor = new Graphics()
-    const decorCount = Math.round(randRange(1, 3))
-    for (let i = 0; i < decorCount; i++) {
-        const ang = randRange(0, Math.PI * 2)
-        const dx = Math.cos(ang) * r * 0.3
-        const dy = Math.sin(ang) * r * 0.3
-        if (Math.random() < 0.6) {
-            // palm: trunk dot + fronds
-            decor.circle(dx, dy, 3).fill({ color: 0x6b4a2b })
-            for (let f = 0; f < 5; f++) {
-                const fa = (f / 5) * Math.PI * 2
-                decor.ellipse(dx + Math.cos(fa) * 8, dy + Math.sin(fa) * 8, 7, 3).fill({ color: 0x2f6b31, alpha: 0.95 })
-            }
-        } else {
-            decor.circle(dx, dy, randRange(4, 7)).fill({ color: 0x8a8f98 }).stroke({ width: 1.5, color: 0x5b5f66 })
+    // Quiet chart grid and an engraved compass give the sea a sense of scale.
+    for (let x = 80; x < WORLD_W; x += 160) {
+        for (let y = 70; y < WORLD_H; y += 160) {
+            bg.moveTo(x - 4, y).lineTo(x + 4, y).moveTo(x, y - 4).lineTo(x, y + 4)
+                .stroke({ color: 0x94dacf, alpha: 0.13, width: 1 })
         }
     }
-    root.addChild(decor)
-
-    obstacleLayer.addChild(root)
-
-    // Gentle breathing of the shallows ring
-    gsap.to(shallows, { alpha: 0.7, duration: randRange(2, 3.2), ease: 'sine.inOut', yoyo: true, repeat: -1 })
+    const cx = WORLD_W - 100
+    const cy = WORLD_H - 100
+    bg.circle(cx, cy, 48).stroke({ color: 0xace4d8, alpha: 0.12, width: 1 })
+    for (let i = 0; i < 8; i++) {
+        const a = i * Math.PI / 4
+        const length = i % 2 ? 26 : 40
+        bg.poly([cx + Math.cos(a) * length, cy + Math.sin(a) * length,
+            cx + Math.cos(a + 1.57) * 5, cy + Math.sin(a + 1.57) * 5,
+            cx, cy]).fill({ color: 0xace4d8, alpha: 0.16 })
+    }
 }
 
-/**
- * Top-down ship art. Everything is drawn in "bird's eye" view (hull planks,
- * square-rig sails seen from above) so rotating toward any heading —
- * including straight down — never flips the sprite upside down.
- */
+export function spawnAmbientWaves(waveLayer: Container) {
+    for (let i = 0; i < 85; i++) {
+        const wave = new Graphics()
+        const w = randRange(10, 42)
+        wave.moveTo(-w, 0).quadraticCurveTo(-w / 2, -4, 0, 0).quadraticCurveTo(w / 2, 4, w, 0)
+            .stroke({ width: 1.2, color: 0xb6f4e4, alpha: randRange(0.08, 0.24) })
+        wave.moveTo(-w * 0.5, 6).lineTo(w * 0.4, 6).stroke({ width: 0.7, color: 0x80c7ce, alpha: 0.12 })
+        wave.position.set(Math.random() * WORLD_W, Math.random() * WORLD_H)
+        waveLayer.addChild(wave)
+        const duration = randRange(3, 7)
+        const wavePosition = wave.position
+        gsap.to(wavePosition, { x: '+=22', y: '+=5', duration, ease: 'sine.inOut', yoyo: true, repeat: -1 })
+        gsap.to(wave, { alpha: 0.1, duration, delay: Math.random() * 3, ease: 'sine.inOut', yoyo: true, repeat: -1 })
+        wave.on('destroyed', () => {
+            gsap.killTweensOf(wave)
+            gsap.killTweensOf(wavePosition)
+        })
+    }
+}
+
+export function drawIsland(obstacleLayer: Container, x: number, y: number, r: number) {
+    const root = new Container()
+    root.position.set(x, y)
+    const seed = Math.random() * 6
+    const outline = (scale: number, offsetY = 0) => {
+        const points: number[] = []
+        for (let i = 0; i < 48; i++) {
+            const a = i / 48 * Math.PI * 2
+            const radius = r * (0.9 + 0.045 * Math.sin(a * 5 + seed) + 0.035 * Math.cos(a * 3 + seed)) * scale
+            points.push(Math.cos(a) * radius, Math.sin(a) * radius + offsetY)
+        }
+        return points
+    }
+    const reef = new Graphics()
+    for (const [scale, color, alpha] of [[1.48, 0x117d87, 0.22], [1.3, 0x1ba79c, 0.3], [1.14, 0x50c8af, 0.4]]) {
+        reef.poly(outline(scale!)).fill({ color: color!, alpha: alpha! })
+    }
+    root.addChild(reef)
+    const land = new Graphics()
+    land.poly(outline(1, 6)).fill(0x263e39)
+    land.poly(outline(1)).fill(0xb3945b)
+    land.poly(outline(0.96, -4)).fill(0xf0d79c)
+    land.poly(outline(0.87, -6)).fill(0xf9e6ae)
+    land.poly(outline(0.7, -9)).fill(0x35664b)
+    land.poly(outline(0.65, -13)).fill(0x44865b)
+    land.poly(outline(0.56, -16)).fill(0x69a46b)
+    root.addChild(land)
+    const surf = new Graphics()
+    surf.poly(outline(1.07)).stroke({ width: 2, color: 0xd8fff0, alpha: 0.55 })
+    root.addChild(surf)
+    gsap.to(surf.scale, { x: 1.055, y: 1.055, duration: 2.8, repeat: -1, yoyo: true, ease: 'sine.inOut' })
+    gsap.to(surf, { alpha: 0.25, duration: 2.8, repeat: -1, yoyo: true })
+    const decor = new Graphics()
+    const volcanic = seed > 4
+    if (volcanic) {
+        // Faceted basalt peak with a warm crater, all inside the collision shore.
+        decor.poly([-r * 0.48, 12, -r * 0.18, -r * 0.61, r * 0.16, -r * 0.68, r * 0.49, 9]).fill(0x33424b)
+        decor.poly([-r * 0.48, 12, -r * 0.18, -r * 0.61, 0, 7]).fill(0x64716c)
+        decor.poly([0, 7, r * 0.16, -r * 0.68, r * 0.49, 9]).fill(0x263840)
+        decor.ellipse(0, -r * 0.48, r * 0.16, r * 0.09).fill(0x1c2b32).stroke({ color: 0xf39254, width: 3 })
+    } else {
+        for (let i = 0; i < 5; i++) {
+            const a = i * 2.4 + seed
+            const px = Math.cos(a) * r * 0.38
+            const py = Math.sin(a) * r * 0.34 - 8
+            decor.ellipse(px + 9, py + 12, 15, 7).fill({ color: 0x203d34, alpha: 0.22 })
+            decor.moveTo(px + 4, py + 12).quadraticCurveTo(px - 3, py, px, py - 13).stroke({ width: 4, color: 0x8c6740 })
+            for (let leaf = 0; leaf < 6; leaf++) {
+                const a = leaf * Math.PI / 3 + i
+                const lx = px + Math.cos(a) * 21
+                const ly = py - 13 + Math.sin(a) * 13
+                decor.moveTo(px, py - 13).quadraticCurveTo(lx, ly - 8, lx, ly)
+                    .quadraticCurveTo(px + Math.cos(a + 0.5) * 8, py - 7, px, py - 13)
+                    .fill(leaf % 2 ? 0x2d8051 : 0x7fbe70)
+            }
+        }
+    }
+    for (let i = 0; i < 8; i++) {
+        const a = i * 2.4 + seed
+        const px = Math.cos(a) * r * 0.73
+        const py = Math.sin(a) * r * 0.73
+        decor.poly([px - 5, py + 3, px - 7, py - 3, px, py - 8, px + 6, py - 2, px + 5, py + 4]).fill(0x8b9c8a)
+        decor.poly([px - 7, py - 3, px, py - 8, px + 6, py - 2, px, py]).fill(0xbdc6a5)
+    }
+    root.addChild(decor)
+    root.on('destroyed', () => {
+        gsap.killTweensOf(surf)
+        gsap.killTweensOf(surf.scale)
+    })
+    obstacleLayer.addChild(root)
+}
+
+const skinColors: Record<string, number> = {
+    'starter': 0xe8bc63,
+    'crimson-privateer': 0xc94b53,
+    'emerald-serpent': 0x3bc49e,
+    'royal-aether': 0xa98bf5,
+    'crown-of-tides': 0xffd56c
+}
+
 export function createShipVisual(
-    color: number, isPlayer: boolean, sizeScale: number, textures: PirateShipTextures, tierId?: string, playerSkinId?: string
+    color: number, isPlayer: boolean, sizeScale: number, tierId?: string, playerSkinId?: string,
+    loadout: PirateCannonRuntime[] = []
 ): ShipVisual {
     const root = new Container()
     const hull = new Container()
     const body = new Container()
     body.scale.set(sizeScale)
-
-    const shadow = new Graphics()
-    shadow.ellipse(3, 5, 40, 18).fill({ color: 0x000000, alpha: 0.25 })
+    const accent = isPlayer ? skinColors[playerSkinId ?? 'starter'] ?? skinColors.starter! : color
+    const armored = tierId === 'ironclad' || tierId === 'dreadnought'
+    const slender = tierId === 'sniper' || tierId === 'razorskiff'
+    const width = armored ? 21 : slender ? 12 : 17
+    const shape = [45, 0, 26, -width, -25, -width, -36, -width * 0.6, -39, 0, -36, width * 0.6, -25, width, 26, width]
+    const shadow = new Graphics().ellipse(3, 7, 46, width + 6).fill({ color: 0x011b27, alpha: 0.4 })
     body.addChild(shadow)
-
-    const isSniper = tierId === 'sniper'
-    const isDpsRaider = tierId === 'corsair' || tierId === 'frigate' || tierId === 'manowar'
-    const isTankRaider = tierId === 'ironclad' || tierId === 'dreadnought'
-    const spriteTexture = isPlayer
-        ? (textures.playerSkins.get(playerSkinId ?? 'starter') ?? textures.playerDefault)
-        : isSniper
-            ? textures.sniper
-            : isDpsRaider
-                ? textures.dpsRaider
-                : isTankRaider ? textures.tankRaider : textures.raider
-    if (spriteTexture) {
-        const sprite = new Sprite(spriteTexture)
-        sprite.anchor.set(0.5)
-        sprite.width = isSniper ? 88 : isDpsRaider ? 82 : isTankRaider ? 76 : isPlayer ? 82 : 78
-        sprite.height = isPlayer
-            ? sprite.width * spriteTexture.height / spriteTexture.width
-            : isSniper ? 24 : isDpsRaider ? 30 : isTankRaider ? 42 : 37
-        body.addChild(sprite)
-
-        // Preserve instant faction/tier readability without recoloring the art.
-        const marker = new Graphics()
-        marker.circle(-27, 0, isSniper ? 3 : 4).fill({ color, alpha: 0.95 })
-        marker.circle(-27, 0, isSniper ? 6 : 7).stroke({ width: 1.5, color, alpha: 0.6 })
-        body.addChild(marker)
-
-        const flashOverlay = new Graphics()
-        flashOverlay.ellipse(0, 0, isSniper ? 44 : isDpsRaider ? 41 : 39, isSniper ? 12 : isTankRaider ? 21 : 18).fill({ color: 0xffffff })
-        flashOverlay.alpha = 0
-        body.addChild(flashOverlay)
-
-        hull.addChild(body)
-        root.addChild(hull)
-        return { root, hull, body, sprite, sails: [], flashOverlay, phase: Math.random() * Math.PI * 2 }
+    const wood = new Graphics()
+    wood.poly(shape).fill(0x302c2b).stroke({ color: 0x071f29, width: 3 })
+    wood.poly(shape.map((v, i) => i % 2 ? v * 0.87 - 2 : v * 0.94)).fill(armored ? 0x556e7b : 0x93603c)
+        .stroke({ color: accent, width: 2 })
+    wood.poly(shape.map((v, i) => i % 2 ? v * 0.67 - 2 : v * 0.85)).fill(armored ? 0x839294 : 0xc39b64)
+    for (let y = -9; y <= 9; y += 4) {
+        wood.moveTo(-29, y).lineTo(29 - Math.abs(y), y).stroke({ width: 0.7, color: 0x624e3a, alpha: 0.6 })
     }
-
-    // Hull: pointed bow (+x), rounded stern
-    const hullShape = new Graphics()
-    hullShape.poly([
-        36, 0,
-        24, -11,
-        -18, -13,
-        -28, -8,
-        -30, 0,
-        -28, 8,
-        -18, 13,
-        24, 11
-    ]).fill({ color: 0x6b4a2b }).stroke({ width: 3, color: 0x2d1e10, alpha: 0.85 })
-    body.addChild(hullShape)
-
-    // Deck inset + planks
-    const deck = new Graphics()
-    deck.poly([
-        29, 0,
-        19, -8,
-        -16, -9.5,
-        -24, -5,
-        -25, 0,
-        -24, 5,
-        -16, 9.5,
-        19, 8
-    ]).fill({ color: 0x9c7347 })
-    deck.moveTo(-22, -3).lineTo(24, -2.5).stroke({ width: 1, color: 0x7a5836, alpha: 0.8 })
-    deck.moveTo(-22, 3).lineTo(24, 2.5).stroke({ width: 1, color: 0x7a5836, alpha: 0.8 })
-    body.addChild(deck)
-
-    // Colored gunwale trim marks the faction/tier color
-    const trim = new Graphics()
-    trim.poly([
-        36, 0,
-        24, -11,
-        -18, -13,
-        -28, -8
-    ]).stroke({ width: 3.5, color, alpha: 0.95 })
-    trim.poly([
-        -28, 8,
-        -18, 13,
-        24, 11,
-        36, 0
-    ]).stroke({ width: 3.5, color, alpha: 0.95 })
-    body.addChild(trim)
-
-    // Side cannons peeking out
-    const guns = new Graphics()
-    for (const gx of [-8, 6]) {
-        guns.rect(gx, -15.5, 4, 4).fill({ color: 0x1c1917 })
-        guns.rect(gx, 11.5, 4, 4).fill({ color: 0x1c1917 })
+    wood.moveTo(32, 0).lineTo(53, 0).stroke({ color: 0xdec78f, width: 2 })
+    wood.roundRect(-31, -10, 13, 20, 3).fill(0x584533).stroke({ color: accent, width: 1.5 })
+    wood.roundRect(-29, -8, 9, 16, 2).fill(armored ? 0x425966 : 0x936a43)
+    wood.circle(-25, 0, 3).fill(accent)
+    body.addChild(wood)
+    const cannons: ShipVisual['cannons'] = []
+    const guns = isPlayer ? loadout : Array.from({ length: armored ? 6 : 4 }, (_, slotIndex) => ({ slotIndex, shotColor: accent }))
+    const rows = Math.max(1, Math.ceil(guns.length / 2))
+    for (let i = 0; i < guns.length; i++) {
+        const gun = guns[i]!
+        const mount = new Container()
+        mount.position.set(rows === 1 ? 2 : -14 + Math.floor(i / 2) * 36 / Math.max(1, rows - 1), (i % 2 ? 1 : -1) * (width - 1))
+        mount.rotation = i % 2 ? Math.PI / 2 : -Math.PI / 2
+        const base = new Graphics().circle(0, 0, 4).fill(0x2a333a).stroke({ color: 0xb8a37a, width: 1 })
+        const barrel = new Graphics()
+        barrel.roundRect(-3, -3, 16, 6, 2).fill(0x293c48).stroke({ color: 0x111e28, width: 1 })
+        barrel.rect(2, -3, 4, 6).fill(gun.shotColor)
+        barrel.moveTo(0, -2).lineTo(11, -2).stroke({ width: 1, color: 0xd0e2df, alpha: 0.65 })
+        barrel.rect(12, -3.5, 3, 7).fill(0x132633)
+        mount.addChild(base, barrel)
+        body.addChild(mount)
+        cannons.push({ mount, barrel, slotIndex: gun.slotIndex, recoil: 0 })
     }
-    body.addChild(guns)
-
-    // Square-rig sails seen from above: yard (spar) across the hull with a
-    // billowing canvas behind it. Two masts.
-    const sailColor = isPlayer ? 0xfaf3e0 : 0xd9d2c4
     const sails: Graphics[] = []
-    const mastDefs = [
-        { x: 8, half: 19 },
-        { x: -12, half: 14 }
-    ]
-    for (const m of mastDefs) {
-        const yard = new Graphics()
-        yard.roundRect(m.x - 1.5, -m.half, 3, m.half * 2, 1.5).fill({ color: 0x3f2f1f })
-        body.addChild(yard)
-
+    for (const [x, half] of armored ? [[4, 13]] : [[14, 21], [-9, 16]]) {
+        const rig = new Graphics()
+        rig.moveTo(x!, -half!).lineTo(x!, half!).stroke({ color: 0x443d30, width: 2 })
+        rig.moveTo(x!, -half!).lineTo(37, 0).lineTo(x!, half!).stroke({ color: 0xebd7a6, alpha: 0.45, width: 0.65 })
+        body.addChild(rig)
         const sail = new Graphics()
-        // Canvas billows backward (toward -x)
-        sail.moveTo(0, -m.half + 2)
-            .quadraticCurveTo(-11, 0, 0, m.half - 2)
-            .quadraticCurveTo(-4, 0, 0, -m.half + 2)
-            .fill({ color: sailColor, alpha: 0.95 })
-            .stroke({ width: 1.2, color: 0x1c1917, alpha: 0.4 })
-        sail.position.set(m.x - 1, 0)
+        sail.moveTo(0, -half!).quadraticCurveTo(-16, -half! * 0.6, -10, 0)
+            .quadraticCurveTo(-15, half! * 0.7, 0, half!).quadraticCurveTo(-5, 0, 0, -half!)
+            .fill(isPlayer && playerSkinId !== 'starter' ? accent : tierId === 'ghostship' ? 0x8cf1cd : isPlayer ? 0xfff0ce : 0xc1cbd0)
+            .stroke({ width: 0.8, color: 0x4b584e, alpha: 0.5 })
+        sail.moveTo(-2, -half! + 3).quadraticCurveTo(-12, 0, -2, half! - 3).stroke({ color: 0xffffff, alpha: 0.5, width: 1.5 })
+        sail.position.set(x!, -3)
         body.addChild(sail)
         sails.push(sail)
-
-        const top = new Graphics()
-        top.circle(m.x, 0, 2.4).fill({ color: 0x2d1e10 })
-        body.addChild(top)
+        body.addChild(new Graphics().circle(x!, -3, 2.5).fill(0xefe1b7))
     }
-
-    // Stern flag
-    const flag = new Graphics()
-    flag.poly([-30, 0, -42, -4, -42, 4]).fill({ color: isPlayer ? 0xef4444 : color })
+    const flag = new Graphics().poly([-34, -3, -51, -9, -47, -2, -52, 3, -34, 2]).fill(accent)
     body.addChild(flag)
-
-    // Damage flash overlay, blinked from flashShip()
-    const flashOverlay = new Graphics()
-    flashOverlay.poly([
-        36, 0,
-        24, -11,
-        -18, -13,
-        -28, -8,
-        -30, 0,
-        -28, 8,
-        -18, 13,
-        24, 11
-    ]).fill({ color: 0xffffff })
+    const flashOverlay = new Graphics().poly(shape).fill(0xffffff)
     flashOverlay.alpha = 0
     body.addChild(flashOverlay)
-
     hull.addChild(body)
     root.addChild(hull)
-    return { root, hull, body, sails, flashOverlay, phase: Math.random() * Math.PI * 2 }
+    return { root, hull, body, sails, cannons, flashOverlay, phase: Math.random() * Math.PI * 2 }
+}
+
+/** Aim the actual equipped mount; return its muzzle in world coordinates. */
+export function fireShipCannon(visual: ShipVisual, targetX: number, targetY: number, slotIndex?: number) {
+    const gun = visual.cannons.find(gun => gun.slotIndex === slotIndex) ?? visual.cannons[0]
+    if (!gun || !visual.root.parent) return { x: visual.root.x, y: visual.root.y }
+    const target = visual.body.toLocal(visual.root.parent.toGlobal({ x: targetX, y: targetY }))
+    gun.mount.rotation = Math.atan2(target.y - gun.mount.y, target.x - gun.mount.x)
+    const muzzle = visual.root.parent.toLocal(gun.mount.toGlobal({ x: 16, y: 0 }))
+    gun.recoil = 1
+    return muzzle
+}
+
+export function updateShipCannons(visual: ShipVisual, dt: number) {
+    for (const gun of visual.cannons) {
+        gun.recoil = Math.max(0, gun.recoil - dt * 4)
+        gun.barrel.x = -gun.recoil * 5
+    }
 }
 
 export function flashShip(v: ShipVisual) {
@@ -348,6 +295,22 @@ export function spawnDamagePopup(
     gsap.to(label, { alpha: 0, duration: 0.22, delay: 0.52, ease: 'power2.in', onComplete: () => label.destroy() })
 }
 
+/**
+ * Soft additive halo. Additive blending is what makes light read as light on
+ * the dark sea — a plain alpha disc just looks like a coloured sticker.
+ */
+function spawnGlow(effectsLayer: Container, x: number, y: number, radius: number, color: number, duration: number, alpha = 0.4, grow = 1.8) {
+    const glow = new Graphics()
+    glow.circle(0, 0, radius).fill({ color, alpha: alpha * 0.5 })
+    glow.circle(0, 0, radius * 0.55).fill({ color, alpha })
+    glow.blendMode = 'add'
+    glow.position.set(x, y)
+    effectsLayer.addChild(glow)
+    gsap.to(glow.scale, { x: grow, y: grow, duration, ease: 'power2.out' })
+    gsap.to(glow, { alpha: 0, duration, ease: 'power2.out', onComplete: () => glow.destroy() })
+    return glow
+}
+
 export function spawnSplash(effectsLayer: Container, x: number, y: number) {
     for (let i = 0; i < 11; i++) {
         const p = new Graphics()
@@ -369,54 +332,64 @@ export function spawnSplash(effectsLayer: Container, x: number, y: number) {
     effectsLayer.addChild(column)
     gsap.to(column.scale, { x: 1.7, y: 0.35, duration: 0.4, ease: 'power2.out' })
     gsap.to(column, { alpha: 0, duration: 0.4, ease: 'power2.in', onComplete: () => column.destroy() })
-    const ring = new Graphics()
-    ring.circle(0, 0, 8).stroke({ width: 2, color: 0xbfdbfe, alpha: 0.7 })
-    ring.position.set(x, y)
-    effectsLayer.addChild(ring)
-    gsap.to(ring.scale, { x: 3, y: 3, duration: 0.5, ease: 'power2.out' })
-    gsap.to(ring, { alpha: 0, duration: 0.5, ease: 'power2.out', onComplete: () => ring.destroy() })
+    for (const [delay, width, alpha] of [[0, 2.2, 0.75], [0.12, 1.2, 0.4]] as const) {
+        const ring = new Graphics()
+        ring.circle(0, 0, 8).stroke({ width, color: 0xbfdbfe, alpha })
+        ring.position.set(x, y)
+        ring.alpha = 0
+        effectsLayer.addChild(ring)
+        gsap.to(ring, { alpha: 1, duration: 0.05, delay })
+        gsap.to(ring.scale, { x: 3.4, y: 2.6, duration: 0.55, delay, ease: 'power2.out' })
+        gsap.to(ring, { alpha: 0, duration: 0.5, delay: delay + 0.1, ease: 'power2.out', onComplete: () => ring.destroy() })
+    }
 }
 
 export function spawnExplosion(effectsLayer: Container, x: number, y: number, color: number, big: boolean) {
-    const count = big ? 18 : 10
+    // Colour-led fireball: a small white-hot point inside a tinted bloom that
+    // swells and fades. Kept saturated on purpose — additive white discs wash
+    // out to a blob, the cannon colour is what makes a hit readable. Smoke,
+    // rings and wreckage are layered by the caller where the beat deserves it.
+    const ball = new Graphics()
+    ball.circle(0, 0, big ? 22 : 13).fill({ color, alpha: 0.28 })
+    ball.circle(0, 0, big ? 13 : 8).fill({ color, alpha: 0.75 })
+    ball.circle(0, 0, big ? 5 : 3).fill({ color: 0xfff7ed, alpha: 0.9 })
+    ball.blendMode = 'add'
+    ball.position.set(x, y)
+    effectsLayer.addChild(ball)
+    gsap.fromTo(ball.scale, { x: 0.4, y: 0.4 }, { x: big ? 1.6 : 1.3, y: big ? 1.6 : 1.3, duration: big ? 0.28 : 0.2, ease: 'power3.out' })
+    gsap.to(ball, { alpha: 0, duration: big ? 0.3 : 0.22, delay: 0.04, ease: 'power2.in', onComplete: () => ball.destroy() })
+
+    // Streaked embers thrown outward with momentum.
+    const count = big ? 9 : 5
     for (let i = 0; i < count; i++) {
-        const p = new Graphics()
-        p.circle(0, 0, big ? 3 + Math.random() * 3.5 : 2 + Math.random() * 2.5).fill({ color, alpha: 0.9 })
-        p.position.set(x, y)
-        effectsLayer.addChild(p)
-        const ang = Math.random() * Math.PI * 2
-        const r = (big ? 34 : 22) + Math.random() * 30
-        gsap.to(p.position, { x: x + Math.cos(ang) * r, y: y + Math.sin(ang) * r - 10, duration: 0.45, ease: 'power3.out' })
-        gsap.to(p.scale, { x: 0.25, y: 0.25, duration: 0.45, ease: 'power2.in' })
-        gsap.to(p, { alpha: 0, duration: 0.45, ease: 'power2.in', onComplete: () => p.destroy() })
+        const ember = new Graphics()
+        const size = big ? randRange(2, 4) : randRange(1.5, 2.8)
+        ember.ellipse(0, 0, size * 2.4, size).fill({ color: i % 3 === 0 ? 0xfde68a : color, alpha: 0.95 })
+        ember.blendMode = 'add'
+        ember.position.set(x, y)
+        const ang = (i / count) * Math.PI * 2 + randRange(-0.35, 0.35)
+        ember.rotation = ang
+        effectsLayer.addChild(ember)
+        const r = (big ? 36 : 22) + Math.random() * (big ? 40 : 24)
+        gsap.to(ember.position, { x: x + Math.cos(ang) * r, y: y + Math.sin(ang) * r - randRange(4, 12), duration: randRange(0.38, 0.52), ease: 'power3.out' })
+        gsap.to(ember.scale, { x: 0.3, y: 0.3, duration: 0.5, ease: 'power2.in' })
+        gsap.to(ember, { alpha: 0, duration: 0.5, ease: 'power2.in', onComplete: () => ember.destroy() })
     }
 
-    // Sharp radiating shards read as force rather than just a puff of dots.
-    const shardCount = big ? 8 : 4
+    // A few thin shards for force.
+    const shardCount = big ? 5 : 3
     for (let i = 0; i < shardCount; i++) {
         const shard = new Graphics()
-        const len = big ? randRange(14, 26) : randRange(8, 15)
-        shard.moveTo(0, 0).lineTo(len, -2).lineTo(len + 5, 0).lineTo(len, 2).closePath()
-            .fill({ color: 0xfef3c7, alpha: 0.9 })
+        const len = big ? randRange(14, 26) : randRange(9, 16)
+        shard.moveTo(0, 0).lineTo(len, -1.2).lineTo(len + 5, 0).lineTo(len, 1.2).closePath()
+            .fill({ color: 0xfde68a, alpha: 0.85 })
+        shard.blendMode = 'add'
         shard.position.set(x, y)
-        shard.rotation = (i / shardCount) * Math.PI * 2 + randRange(-0.25, 0.25)
+        shard.rotation = (i / shardCount) * Math.PI * 2 + randRange(-0.4, 0.4)
         effectsLayer.addChild(shard)
-        const push = big ? randRange(30, 58) : randRange(18, 34)
-        gsap.to(shard.position, { x: x + Math.cos(shard.rotation) * push, y: y + Math.sin(shard.rotation) * push, duration: 0.34, ease: 'power3.out' })
-        gsap.to(shard, { alpha: 0, duration: 0.34, ease: 'power2.in', onComplete: () => shard.destroy() })
-    }
-
-    const flash = new Graphics()
-    flash.circle(0, 0, big ? 18 : 12).fill({ color: 0xffffff, alpha: 0.85 })
-    flash.circle(0, 0, big ? 26 : 17).fill({ color, alpha: 0.35 })
-    flash.position.set(x, y)
-    effectsLayer.addChild(flash)
-    gsap.to(flash.scale, { x: 2, y: 2, duration: 0.18, ease: 'power2.out' })
-    gsap.to(flash, { alpha: 0, duration: 0.2, ease: 'power2.out', onComplete: () => flash.destroy() })
-
-    if (big) {
-        spawnShockRing(effectsLayer, x, y, 58, color)
-        spawnSmokePuffs(effectsLayer, x, y, 4, 0x57534e)
+        const push = big ? randRange(30, 56) : randRange(18, 34)
+        gsap.to(shard.position, { x: x + Math.cos(shard.rotation) * push, y: y + Math.sin(shard.rotation) * push, duration: 0.28, ease: 'power3.out' })
+        gsap.to(shard, { alpha: 0, duration: 0.28, ease: 'power2.in', onComplete: () => shard.destroy() })
     }
 }
 
@@ -424,27 +397,24 @@ export function spawnMuzzleFlash(
     effectsLayer: Container, x: number, y: number, angle: number, kind: AmmoKind | 'enemy', cannonColor?: number
 ) {
     const color = cannonColor ?? (kind === 'gem' ? 0x7dd3fc : 0xfcd34d)
+    // A forked tongue of flame with a white-hot core, blended additively so
+    // it glows against the hull instead of painting over it.
     const flash = new Graphics()
-    flash.poly([0, 0, 16, -5, 20, 0, 16, 5]).fill({ color, alpha: 0.95 })
+    flash.poly([0, 0, 18, -7, 26, -2, 30, 0, 26, 2, 18, 7]).fill({ color, alpha: 0.9 })
+    flash.poly([0, 0, 12, -3, 20, 0, 12, 3]).fill({ color: 0xffffff, alpha: 0.9 })
+    flash.blendMode = 'add'
     flash.position.set(x, y)
     flash.rotation = angle
     effectsLayer.addChild(flash)
-    gsap.to(flash.scale, { x: 1.4, y: 1.4, duration: 0.14, ease: 'power2.out' })
+    gsap.fromTo(flash.scale, { x: 0.6, y: 0.6 }, { x: 1.3, y: 1.1, duration: 0.12, ease: 'power2.out' })
     gsap.to(flash, { alpha: 0, duration: 0.14, ease: 'power2.out', onComplete: () => flash.destroy() })
-
-    // Muzzle bloom: a short-lived halo right at the gun port.
-    const bloom = new Graphics()
-    bloom.circle(0, 0, 9).fill({ color: 0xffffff, alpha: 0.8 })
-    bloom.circle(0, 0, 14).fill({ color, alpha: 0.3 })
-    bloom.position.set(x, y)
-    effectsLayer.addChild(bloom)
-    gsap.to(bloom.scale, { x: 1.9, y: 1.9, duration: 0.16, ease: 'power2.out' })
-    gsap.to(bloom, { alpha: 0, duration: 0.16, ease: 'power2.out', onComplete: () => bloom.destroy() })
+    spawnGlow(effectsLayer, x, y, 14, color, 0.18, 0.5, 1.9)
 
     // Burning grains kicked forward out of the barrel.
     for (let i = 0; i < 5; i++) {
         const spark = new Graphics()
         spark.circle(0, 0, randRange(1, 2.2)).fill({ color: 0xfef08a, alpha: 0.95 })
+        spark.blendMode = 'add'
         spark.position.set(x, y)
         effectsLayer.addChild(spark)
         const sparkAngle = angle + randRange(-0.42, 0.42)
@@ -473,6 +443,7 @@ export function spawnMuzzleFlash(
 export function spawnTrailParticle(effectsLayer: Container, x: number, y: number, color: number, scale = 1, alpha = 0.85) {
     const p = new Graphics()
     p.circle(0, 0, randRange(1.5, 3) * scale).fill({ color, alpha })
+    p.blendMode = 'add'
     p.position.set(x + randRange(-3, 3), y + randRange(-3, 3))
     effectsLayer.addChild(p)
     gsap.to(p.scale, { x: 0.2, y: 0.2, duration: 0.4, ease: 'power1.in' })
@@ -480,12 +451,15 @@ export function spawnTrailParticle(effectsLayer: Container, x: number, y: number
 }
 
 export function spawnPowerUpBurst(effectsLayer: Container, world: Container, x: number, y: number, color: number) {
-    for (let i = 0; i < 16; i++) {
+    spawnGlow(effectsLayer, x, y, 34, color, 0.45, 0.45, 2)
+    spawnShockRing(effectsLayer, x, y, 70, color)
+    for (let i = 0; i < 14; i++) {
         const p = new Graphics()
         p.star(0, 0, 4, randRange(3, 6), randRange(1, 2)).fill({ color, alpha: 0.95 })
+        p.blendMode = 'add'
         p.position.set(x, y)
         effectsLayer.addChild(p)
-        const angle = (i / 16) * Math.PI * 2 + randRange(-0.1, 0.1)
+        const angle = (i / 14) * Math.PI * 2 + randRange(-0.1, 0.1)
         const radius = randRange(35, 75)
         gsap.to(p.position, { x: x + Math.cos(angle) * radius, y: y + Math.sin(angle) * radius, duration: 0.55, ease: 'power3.out' })
         gsap.to(p, { alpha: 0, rotation: Math.PI, duration: 0.55, ease: 'power2.in', onComplete: () => p.destroy() })
@@ -497,6 +471,7 @@ export function spawnShieldImpact(effectsLayer: Container, x: number, y: number,
     const shield = new Graphics()
     shield.circle(0, 0, 43).fill({ color: 0x22d3ee, alpha: 0.13 })
     shield.circle(0, 0, 43).stroke({ width: 4, color: 0x67e8f9, alpha: 0.9 })
+    shield.blendMode = 'add'
     shield.position.set(x, y)
     effectsLayer.addChild(shield)
     gsap.fromTo(shield.scale, { x: 0.75, y: 0.75 }, { x: 1.25 + absorbed / 50, y: 1.25 + absorbed / 50, duration: 0.25, ease: 'power2.out' })
@@ -571,7 +546,9 @@ export function drawLightningArc(effectsLayer: Container, fromX: number, fromY: 
         bolt.lineTo(fromX + (toX - fromX) * t + randRange(-7, 7), fromY + (toY - fromY) * t + randRange(-7, 7))
     }
     bolt.lineTo(toX, toY).stroke({ width: 2.5, color: 0xe0f2fe, alpha: 1 })
+    bolt.blendMode = 'add'
     effectsLayer.addChild(bolt)
+    spawnGlow(effectsLayer, toX, toY, 16, 0x38bdf8, 0.3, 0.45, 1.6)
     gsap.to(bolt, { alpha: 0, duration: 0.32, ease: 'power2.in', onComplete: () => bolt.destroy() })
 }
 
@@ -608,7 +585,9 @@ export function createHunterWarhead() {
 /** Expanding pressure ring — the readable "something big just landed" beat. */
 export function spawnShockRing(effectsLayer: Container, x: number, y: number, radius: number, color: number) {
     const ring = new Graphics()
-    ring.circle(0, 0, 20).stroke({ width: 6, color, alpha: 0.9 })
+    ring.circle(0, 0, 20).stroke({ width: 4, color, alpha: 0.9 })
+    ring.circle(0, 0, 20).stroke({ width: 10, color, alpha: 0.22 })
+    ring.blendMode = 'add'
     ring.position.set(x, y)
     effectsLayer.addChild(ring)
     gsap.to(ring.scale, { x: radius / 20, y: radius / 20, duration: 0.42, ease: 'power3.out' })
@@ -621,6 +600,7 @@ export function spawnEmberBurst(effectsLayer: Container, x: number, y: number, c
         const ember = new Graphics()
         const color = colors[i % colors.length]!
         ember.star(0, 0, 4, randRange(2.5, 6), randRange(1, 2.4)).fill({ color, alpha: 0.95 })
+        ember.blendMode = 'add'
         ember.position.set(x, y)
         effectsLayer.addChild(ember)
         const angle = (i / count) * Math.PI * 2 + randRange(-0.3, 0.3)
@@ -727,6 +707,7 @@ export function spawnSummonBurst(effectsLayer: Container, x: number, y: number, 
     for (let ring = 0; ring < 3; ring++) {
         const glyph = new Graphics()
         glyph.circle(0, 0, 26 + ring * 10).stroke({ width: 3, color, alpha: 0.8 })
+        glyph.blendMode = 'add'
         glyph.position.set(x, y)
         effectsLayer.addChild(glyph)
         gsap.fromTo(glyph.scale, { x: 0.2, y: 0.2 }, { x: 1.6, y: 1.6, duration: 0.55 + ring * 0.1, ease: 'power2.out' })
