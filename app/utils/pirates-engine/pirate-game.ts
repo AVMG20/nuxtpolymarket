@@ -1,4 +1,4 @@
-import { Application, Assets, Container, Graphics, Text, Circle, type Texture } from 'pixi.js'
+import { Application, Container, Graphics, Text, Circle } from 'pixi.js'
 import gsap from 'gsap'
 import {
     PIRATE_RUN_DURATION_MS, PIRATE_TIMELINE_SCALE, PIRATE_LATE_BOSS_PHASE_MS,
@@ -24,13 +24,12 @@ import {
     pirateInitialEnemyCount, pirateSpawnBatchSize,
     pirateSeaMineDamageFraction, pirateCannonTier,
     pirateEnemyReloadMultiplier, pirateMaxPayoutForRun,
-    PIRATE_SHIP_SKINS, PIRATE_POWER_UPS, pirateAbility,
+    PIRATE_POWER_UPS, pirateAbility,
     type PirateEnemyTier, type PiratePowerUpId
 } from '#shared/utils/gamelogic/pirates'
 import {
     WORLD_W, WORLD_H, BALL_SPEED, PLAYER_CANNON_FIRE_GAP_MS, PICKUP_RADIUS, HOLD_RANGE_FRACTION, ROTATE_LERP, WAYPOINT_REACH_DIST,
-    PLAYER_BOMB_RADIUS, ENEMY_POWER_UP_DROP_CHANCE, ENEMY_HEALTH_PACK_DROP_CHANCE, SHIP_RADIUS,
-    RAIDER_SHIP_SPRITE, DPS_RAIDER_SPRITE, TANK_RAIDER_SPRITE, SNIPER_SHIP_SPRITE, ISLAND_SPRITES
+    PLAYER_BOMB_RADIUS, ENEMY_POWER_UP_DROP_CHANCE, ENEMY_HEALTH_PACK_DROP_CHANCE, SHIP_RADIUS
 } from './constants'
 import { dist, randRange, lerpAngle, segPointDist } from './math'
 import { PirateNavGrid, generateIslandLayout } from './nav-grid'
@@ -122,13 +121,6 @@ export class PirateGame {
     private starburstTimerMs = 0
     private tempestTimerMs = 0
     private ghostFireTimerMs = 0
-    private playerShipTexture: Texture | null = null
-    private playerSkinTextures = new Map<string, Texture>()
-    private raiderShipTexture: Texture | null = null
-    private dpsRaiderTexture: Texture | null = null
-    private tankRaiderTexture: Texture | null = null
-    private sniperShipTexture: Texture | null = null
-    private islandTextures: Texture[] = []
     private navGrid = new PirateNavGrid()
     private popupLanes = new Map<string, number>()
     private kills = 0
@@ -201,28 +193,6 @@ export class PirateGame {
         this.world.addChild(this.effectsLayer)
         this.app.stage.addChild(this.world)
 
-        try {
-            const [playerTextures, enemyTextures, islandTextures] = await Promise.all([
-                Promise.all(PIRATE_SHIP_SKINS.map(skin => Assets.load<Texture>(skin.sprite))),
-                Promise.all([
-                    Assets.load<Texture>(RAIDER_SHIP_SPRITE),
-                    Assets.load<Texture>(DPS_RAIDER_SPRITE),
-                    Assets.load<Texture>(TANK_RAIDER_SPRITE),
-                    Assets.load<Texture>(SNIPER_SHIP_SPRITE)
-                ]),
-                Promise.all(ISLAND_SPRITES.map(path => Assets.load<Texture>(path)))
-            ])
-            this.playerSkinTextures = new Map(PIRATE_SHIP_SKINS.map((skin, index) => [skin.id, playerTextures[index]!]))
-            this.playerShipTexture = this.playerSkinTextures.get('starter') ?? null
-            this.raiderShipTexture = enemyTextures[0]!
-            this.dpsRaiderTexture = enemyTextures[1]!
-            this.tankRaiderTexture = enemyTextures[2]!
-            this.sniperShipTexture = enemyTextures[3]!
-            this.islandTextures = islandTextures
-        } catch (error) {
-            console.warn('Pirate sprites failed to load; using procedural artwork.', error)
-        }
-
         this.drawWaterTexture()
         this.spawnAmbientWaves()
         // Islands sit above the clickable water but must not swallow clicks —
@@ -275,12 +245,17 @@ export class PirateGame {
     }
 
     setPlayerSkin(skinId: string) {
-        const texture = this.playerSkinTextures.get(skinId) ?? this.playerShipTexture
-        if (texture && this.player?.sprite) {
-            this.player.sprite.texture = texture
-            this.player.sprite.height = this.player.sprite.width * texture.height / texture.width
-        }
         this.stats.skinId = skinId
+        if (!this.player) return
+        const previous = this.player
+        this.player = this.createShipVisual(0xf4d35e, true, 1, undefined, skinId)
+        this.player.root.position.copyFrom(previous.root.position)
+        this.player.hull.rotation = previous.hull.rotation
+        this.playerLayer.addChildAt(this.player.root, 0)
+        gsap.killTweensOf(previous.body)
+        gsap.killTweensOf(previous.body.scale)
+        gsap.killTweensOf(previous.flashOverlay)
+        previous.root.destroy({ children: true })
     }
 
     start(stats: PirateShipStats, power: number, difficulty: number) {
@@ -465,7 +440,7 @@ export class PirateGame {
     private generateIslands() {
         this.obstacleLayer.removeChildren().forEach(c => c.destroy({ children: true }))
         const islands = generateIslandLayout()
-        for (const island of islands) fx.drawIsland(this.obstacleLayer, this.islandTextures, island.x, island.y, island.r)
+        for (const island of islands) fx.drawIsland(this.obstacleLayer, island.x, island.y, island.r)
         this.navGrid.setIslands(islands)
     }
 
@@ -523,7 +498,7 @@ export class PirateGame {
         this.updatePowerUps(dt, deltaMS)
         this.updateSeaMines(deltaMS)
         this.updateSpawning(deltaMS)
-        this.updateIdleMotion()
+        this.updateIdleMotion(dt)
 
         if (this.elapsedMs >= this.runDurationMs) this.endGame(true, 'timeout')
     }
@@ -592,8 +567,9 @@ export class PirateGame {
     }
 
     /** Gentle bobbing/sail-billow for every ship, driven off the clock so it never fights gsap. */
-    private updateIdleMotion() {
+    private updateIdleMotion(dt: number) {
         const animate = (v: ShipVisual) => {
+            fx.updateShipCannons(v, dt)
             v.body.position.y = Math.sin(this.timeSec * 2 + v.phase) * 1.6
             v.body.rotation = Math.sin(this.timeSec * 1.3 + v.phase) * 0.025
             for (let i = 0; i < v.sails.length; i++) {
@@ -911,8 +887,9 @@ export class PirateGame {
 
         const id = target.id
         const fireAngle = Math.atan2(target.y - this.playerY, target.x - this.playerX)
-        const fromX = this.playerX + Math.cos(fireAngle) * 34
-        const fromY = this.playerY + Math.sin(fireAngle) * 34
+        const muzzle = fx.fireShipCannon(this.player, target.x, target.y, cannon.slotIndex)
+        const fromX = muzzle.x
+        const fromY = muzzle.y
         this.callbacks.onCannonFire?.()
         this.spawnMuzzleFlash(fromX, fromY, fireAngle, kind, cannon.shotColor)
 
@@ -1356,6 +1333,7 @@ export class PirateGame {
 
             ally.root.position.set(ally.x, ally.y)
             ally.visual.hull.rotation = ally.angle
+            fx.updateShipCannons(ally.visual, dt)
             ally.visual.body.position.y = Math.sin(this.timeSec * 2 + ally.visual.phase) * 1.4
 
             ally.fireGapMs = Math.max(0, ally.fireGapMs - deltaMS)
@@ -1373,8 +1351,9 @@ export class PirateGame {
 
     private fireAllyCannon(ally: AllyShip, cannon: Cannon, target: Enemy) {
         const fireAngle = Math.atan2(target.y - ally.y, target.x - ally.x)
-        const fromX = ally.x + Math.cos(fireAngle) * 26
-        const fromY = ally.y + Math.sin(fireAngle) * 26
+        const muzzle = fx.fireShipCannon(ally.visual, target.x, target.y, cannon.slotIndex)
+        const fromX = muzzle.x
+        const fromY = muzzle.y
         this.spawnMuzzleFlash(fromX, fromY, fireAngle, 'free', 0x64748b)
         fx.spawnConsortTrail(this.effectsLayer, fromX, fromY, 1.2)
         const id = target.id
@@ -1595,8 +1574,9 @@ export class PirateGame {
             const engaged = this.enemyTarget(enemy)
             const allyId = engaged.ally?.id ?? null
             const fireAngle = Math.atan2(engaged.y - enemy.y, engaged.x - enemy.x)
-            const fromX = enemy.x + Math.cos(fireAngle) * 30
-            const fromY = enemy.y + Math.sin(fireAngle) * 30
+            const muzzle = fx.fireShipCannon(enemy.visual, engaged.x, engaged.y)
+            const fromX = muzzle.x
+            const fromY = muzzle.y
             this.spawnMuzzleFlash(fromX, fromY, fireAngle, 'enemy')
             this.spawnCannonball(fromX, fromY, engaged.x, engaged.y, 'enemy', (hitX, hitY) => {
                 if (!this.running) return
@@ -1688,8 +1668,9 @@ export class PirateGame {
             telegraph.destroy({ children: true })
             if (!this.running || enemy.dead || this.destroyed || this.enemies.get(enemy.id) !== enemy) return
             const fireAngle = Math.atan2(targetY - enemy.y, targetX - enemy.x)
-            const fromX = enemy.x + Math.cos(fireAngle) * 30
-            const fromY = enemy.y + Math.sin(fireAngle) * 30
+            const muzzle = fx.fireShipCannon(enemy.visual, targetX, targetY)
+            const fromX = muzzle.x
+            const fromY = muzzle.y
             this.spawnMuzzleFlash(fromX, fromY, fireAngle, 'enemy')
             this.spawnSniperProjectile(enemy, fromX, fromY, targetX, targetY)
         })
@@ -2964,14 +2945,7 @@ export class PirateGame {
      * including straight down — never flips the sprite upside down.
      */
     private createShipVisual(color: number, isPlayer: boolean, sizeScale: number, tierId?: string, playerSkinId?: string): ShipVisual {
-        return fx.createShipVisual(color, isPlayer, sizeScale, {
-            playerSkins: this.playerSkinTextures,
-            playerDefault: this.playerShipTexture,
-            sniper: this.sniperShipTexture,
-            dpsRaider: this.dpsRaiderTexture,
-            tankRaider: this.tankRaiderTexture,
-            raider: this.raiderShipTexture
-        }, tierId, playerSkinId)
+        return fx.createShipVisual(color, isPlayer, sizeScale, tierId, playerSkinId, isPlayer ? this.stats.cannons : [])
     }
 
     private flashShip(v: ShipVisual) {
