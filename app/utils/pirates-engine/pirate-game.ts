@@ -242,6 +242,9 @@ export class PirateGame {
 
         this.app.renderer.resize(w, h)
         this.world.scale.set(scale)
+        // The ticker is stopped while paused, so a resize would otherwise leave
+        // a blank canvas until resume — paint the frozen scene at the new size.
+        if (this.paused) this.app.renderer.render(this.app.stage)
     }
 
     setPlayerSkin(skinId: string) {
@@ -401,10 +404,6 @@ export class PirateGame {
         if (!this.app) return
         container.appendChild(this.app.canvas)
         this.resize(container.clientWidth)
-        // While paused the ticker is stopped, so resizing alone wouldn't
-        // repaint at the new dimensions — force one frame so the frozen scene
-        // shows up correctly sized immediately instead of on next resume.
-        if (this.paused) this.app.renderer.render(this.app.stage)
     }
 
     /** End the voyage early by player choice, banking whatever's been earned so far. */

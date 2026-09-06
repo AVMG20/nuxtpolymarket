@@ -37,18 +37,9 @@ function outcome(voyage: NonNullable<typeof voyages.value>[number]) {
 
 <template>
   <UContainer class="space-y-6">
-    <div class="flex flex-wrap items-center justify-between gap-3">
-      <div>
-        <h1 class="flex items-center gap-2 text-2xl font-bold">
-          <UIcon name="i-lucide-scroll-text" class="size-6 text-primary" />
-          Captain's Log
-        </h1>
-        <p class="mt-0.5 text-sm text-muted">
-          Your latest 50 server-verified voyages, newest first.
-        </p>
-      </div>
+    <PiratesPageHeader icon="i-lucide-scroll-text" kicker="Records" title="Captain's Log" subtitle="Last 50 voyages.">
       <UButton color="neutral" variant="subtle" icon="i-lucide-refresh-cw" label="Refresh" :loading="pending" @click="refresh()" />
-    </div>
+    </PiratesPageHeader>
 
     <div v-if="pending" class="space-y-3">
       <div class="grid gap-3 sm:grid-cols-3">

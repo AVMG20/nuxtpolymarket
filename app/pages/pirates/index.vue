@@ -8,7 +8,7 @@ definePageMeta({ title: 'Pirate Raid' })
   <ClientOnly>
     <PirateRaidGame />
     <template #fallback>
-      <div class="min-h-[460px] animate-pulse rounded-xl bg-elevated" />
+      <div class="mx-3 h-[60svh] animate-pulse rounded-xl bg-elevated sm:mx-4" />
     </template>
   </ClientOnly>
 </template>

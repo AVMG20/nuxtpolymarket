@@ -14,16 +14,16 @@ const activeTab = computed(() => route.path)
 
 <template>
   <div class="flex min-h-full flex-col">
-    <div class="shrink-0 border-b border-default px-3 pb-2 pt-1.75">
-      <div class="flex items-center gap-0.5">
+    <div class="shrink-0 border-b border-default px-3 py-2">
+      <div class="flex items-center gap-1">
         <NuxtLink
           v-for="tab in tabs"
           :key="tab.to"
           :to="tab.to"
-          class="flex items-center gap-2 rounded-t-lg px-3 py-2.5 text-sm font-medium transition-colors"
+          class="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors"
           :class="activeTab === tab.to
-            ? 'text-highlighted -mb-px'
-            : 'text-muted hover:text-default'"
+            ? 'bg-primary/10 text-primary'
+            : 'text-muted hover:bg-elevated hover:text-default'"
         >
           <UIcon :name="tab.icon" class="size-4" />
           <span class="hidden sm:inline">{{ tab.label }}</span>
@@ -31,7 +31,7 @@ const activeTab = computed(() => route.path)
       </div>
     </div>
 
-    <div class="pt-6 pb-12">
+    <div :class="activeTab === '/pirates' ? 'pt-3 pb-3' : 'pt-6 pb-12'">
       <NuxtPage />
     </div>
   </div>
