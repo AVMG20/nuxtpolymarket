@@ -89,10 +89,11 @@ describe('a full run', () => {
         expect(g.wave).toBe(TOTAL_WAVES)
         expect(g.stats.kills).toBeGreaterThan(300)
         expect(g.stats.elitesKilled).toBe(20)
-        // Waves 1–3 are short lessons; nothing should drag on, and the
-        // two-elite finale gets a little more room.
+        // Waves 1–3 are short lessons; nothing should drag on. Elite pairs
+        // start on wave 16 and take longer, and the three-elite finale gets
+        // the most room.
         for (const [i, t] of waveTimes.entries()) {
-            expect(t, `wave ${i + 1} took ${t.toFixed(1)}s`).toBeLessThan(i + 1 === TOTAL_WAVES ? 300 : i >= 20 ? 200 : 120)
+            expect(t, `wave ${i + 1} took ${t.toFixed(1)}s`).toBeLessThan(i + 1 === TOTAL_WAVES ? 300 : i >= 15 ? 200 : 120)
         }
         const total = waveTimes.reduce((a, b) => a + b, 0)
         expect(total).toBeGreaterThan(3 * 60)
