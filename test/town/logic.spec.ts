@@ -1,21 +1,36 @@
 import { describe, expect, it } from 'vitest'
 import {
     TOWN_BASE_STORAGE,
+    TOWN_BUILDINGS,
+    TOWN_FACING,
     TOWN_HAPPINESS_BASE_TARGET,
-    TOWN_HAPPINESS_BREAD_BONUS,
     TOWN_HAPPINESS_CROWDING_PENALTY,
     TOWN_HAPPINESS_INDUSTRY_ADJACENT,
+    TOWN_HAPPINESS_INDUSTRY_CAP,
     TOWN_HAPPINESS_INDUSTRY_PENALTY,
-    TOWN_HAPPINESS_PARK_ADJACENT,
+    TOWN_HAPPINESS_LAYOUT_CAP,
+    TOWN_HAPPINESS_PARK_NEARBY,
+    TOWN_HAPPINESS_STARVING_PENALTY,
+    TOWN_INDUSTRY_NUISANCE,
     TOWN_LEVEL_COST_GROWTH,
+    TOWN_LEVEL_TIME_GROWTH,
     TOWN_MAX_OFFLINE_MS,
+    TOWN_MILESTONES,
+    TOWN_MOODS,
+    TOWN_NEEDS,
+    TOWN_PARK_RADIUS,
     TOWN_PLOT_COOLDOWN_BASE_MS,
     TOWN_PLOT_COOLDOWN_GROWTH,
     TOWN_PLOT_PRICE_BASE,
     TOWN_PLOT_PRICE_GROWTH,
+    TOWN_PLOT_SIZE,
+    TOWN_REPEAT_GROWTH,
+    TOWN_RESOURCES,
+    TOWN_ROAD_REPEAT_GROWTH,
     TOWN_RUSH_MS_PER_GEM,
-    TOWN_MILESTONES,
     TOWN_TICK_MS,
+    TOWN_TIER_POP_REQUIREMENT,
+    TOWN_TIER_PRODUCTION_REQUIREMENT,
     TOWN_WAREHOUSE_STORAGE,
     adjacencyHappiness,
     deriveTown,
@@ -24,18 +39,37 @@ import {
     houseAdjacency,
     isValidTownPrice,
     isValidTownQuantity,
+    needsHappiness,
     scaleBag,
     settleTown,
+    townAutoFacing,
+    townBuildingsFronting,
+    townEffectRadius,
+    townFrontTile,
+    townHousesWithin,
+    townIndustryNuisance,
+    townIsPlotEdge,
+    townLevelBuildMs,
     townLevelCost,
     townMilestoneComplete,
     townMilestoneSnapshot,
+    townMood,
+    townNeedsPerTick,
     townNetPerTick,
+    townNextMood,
     townOrderTotal,
+    townPlaceCost,
+    townPlacementIssue,
     townPlotCooldownMs,
     townPlotPrice,
+    townProducedOfTier,
+    townRepeatGrowth,
+    townRoadAccess,
+    townRoadAt,
     townRushGemCost,
     townSpeedMultiplier,
     townSpiralCoords,
+    townTierRequirement,
     townTierUnlocked,
     type TownBuildingId,
     type TownMilestoneSnapshot,
@@ -44,6 +78,10 @@ import {
 } from '#shared/utils/gamelogic/town'
 
 const T0 = 1_700_000_000_000
+
+/** The grain need: the only one a town of four residents has. */
+const GRAIN = TOWN_NEEDS.find(n => n.resource === 'wheat')!
+const BREAD = TOWN_NEEDS.find(n => n.resource === 'bread')!
 
 /** A finished building that already existed before the settle window opens. */
 function built(id: string, type: TownBuildingId, over: Partial<TownSimBuilding> = {}): TownSimBuilding {
@@ -63,6 +101,25 @@ function at(id: string, type: TownBuildingId, wx: number, wy: number, over: Part
     return built(id, type, { wx, wy, ...over })
 }
 
+/** A road tile — instant, so it is always standing. */
+function road(wx: number, wy: number): TownSimBuilding {
+    return at(`road-${wx}-${wy}`, 'road', wx, wy)
+}
+
+/**
+ * The same layout plus a road at every building's front door. Anything without
+ * one is cut off, and deriveTown leaves it out of the town altogether.
+ */
+function connected(buildings: TownSimBuilding[]): TownSimBuilding[] {
+    const roads = new Map<string, TownSimBuilding>()
+    for (const b of buildings) {
+        if (b.type === 'road' || b.wx === undefined || b.wy === undefined) continue
+        const f = townFrontTile(b.wx, b.wy, b.rotation ?? 0)
+        roads.set(`${f.wx},${f.wy}`, road(f.wx, f.wy))
+    }
+    return [...buildings, ...roads.values()]
+}
+
 function sim(over: Partial<TownSimState> = {}): TownSimState {
     return {
         happiness: 100,
@@ -74,12 +131,12 @@ function sim(over: Partial<TownSimState> = {}): TownSimState {
     }
 }
 
-// A house (4 pop) plus a farm (1 worker) is the smallest town that actually
-// produces: without housing every industry building sits at staffing 0.
+// A house (4 residents) plus a level-2 farm is the smallest town that runs a
+// surplus: the farm grows 2 wheat a tick and its 4 residents eat 1 of them.
 function houseAndFarm(): TownSimBuilding[] {
     return [
         built('house', 'house', { createdAt: T0 - 90_000 }),
-        built('farm', 'farm', { createdAt: T0 - 80_000 })
+        built('farm', 'farm', { level: 2, createdAt: T0 - 80_000 })
     ]
 }
 
@@ -135,7 +192,10 @@ describe('plot cooldown and price', () => {
     it('multiplies both the wait and the price for every further plot', () => {
         for (let index = 3; index <= 8; index++) {
             expect(townPlotCooldownMs(index)).toBe(Math.round(townPlotCooldownMs(index - 1) * TOWN_PLOT_COOLDOWN_GROWTH))
-            expect(townPlotPrice(index)).toBe(Math.round(townPlotPrice(index - 1) * TOWN_PLOT_PRICE_GROWTH))
+            // Compared against the closed form, not the previous plot: rounding
+            // the running product would drift apart from it by plot eight.
+            expect(townPlotPrice(index)).toBe(Math.round(TOWN_PLOT_PRICE_BASE * TOWN_PLOT_PRICE_GROWTH ** (index - 2)))
+            expect(townPlotPrice(index)).toBeGreaterThan(townPlotPrice(index - 1))
         }
     })
 })
@@ -173,9 +233,74 @@ describe('townLevelCost', () => {
         }
     })
 
-    it('leaves a free building free at every level', () => {
+    it('adds the upgrade resources from level two up, never to the first build', () => {
         const house = getTownBuilding('house')!
-        expect(townLevelCost(house, 5).resources).toEqual({})
+        // A house is free to build and still costs timber to extend.
+        expect(townLevelCost(house, 1).resources).toEqual({})
+        expect(townLevelCost(house, 2).resources).toEqual(scaleBag(house.upgradeResources, TOWN_LEVEL_COST_GROWTH))
+        expect(townLevelCost(house, 5).resources).toEqual(scaleBag(house.upgradeResources, TOWN_LEVEL_COST_GROWTH ** 4))
+    })
+
+    it('stacks the upgrade resources on top of the scaled build cost', () => {
+        for (const level of [2, 3, 6]) {
+            const factor = TOWN_LEVEL_COST_GROWTH ** (level - 1)
+            const base = scaleBag(mill.cost.resources, factor)
+            const extra = scaleBag(mill.upgradeResources, factor)
+            const expected = { ...base }
+            for (const [id, qty] of Object.entries(extra)) {
+                expected[id as keyof typeof expected] = (expected[id as keyof typeof expected] ?? 0) + qty
+            }
+            expect(townLevelCost(mill, level).resources).toEqual(expected)
+        }
+        // Planks appear only because the upgrade asks for them.
+        expect(townLevelCost(mill, 1).resources.planks).toBeUndefined()
+        expect(townLevelCost(mill, 2).resources.planks).toBe(Math.round(mill.upgradeResources.planks! * TOWN_LEVEL_COST_GROWTH))
+    })
+})
+
+describe('townPlaceCost', () => {
+    const farm = getTownBuilding('farm')!
+    const mill = getTownBuilding('mill')!
+    const roadDef = getTownBuilding('road')!
+
+    it('charges the sticker price for the first copy', () => {
+        expect(townPlaceCost(farm, 0)).toEqual({ coins: farm.cost.coins, resources: {} })
+        expect(townPlaceCost(mill, 0)).toEqual({ coins: mill.cost.coins, resources: { ...mill.cost.resources } })
+        // A negative count cannot make a building cheaper than its sticker price.
+        expect(townPlaceCost(farm, -4).coins).toBe(farm.cost.coins)
+    })
+
+    it('multiplies coins and resources by the repeat growth per existing copy', () => {
+        for (const def of [farm, mill, getTownBuilding('house')!, getTownBuilding('park')!]) {
+            for (const existing of [1, 2, 5, 9]) {
+                const factor = townRepeatGrowth(def) ** existing
+                expect(townPlaceCost(def, existing)).toEqual({
+                    coins: Math.round(def.cost.coins * factor),
+                    resources: scaleBag(def.cost.resources, factor)
+                })
+            }
+        }
+        expect(townPlaceCost(farm, 1).coins).toBeGreaterThan(townPlaceCost(farm, 0).coins)
+        expect(townPlaceCost(farm, 2).coins).toBeGreaterThan(townPlaceCost(farm, 1).coins)
+        expect(townPlaceCost(mill, 3).resources.wood!).toBeGreaterThan(townPlaceCost(mill, 0).resources.wood!)
+    })
+
+    it('climbs steeper the higher the tier, and barely at all for roads', () => {
+        expect(townRepeatGrowth(roadDef)).toBe(TOWN_ROAD_REPEAT_GROWTH)
+        for (const def of TOWN_BUILDINGS) {
+            expect(townRepeatGrowth(def)).toBeGreaterThanOrEqual(1)
+            if (def.kind !== 'road') expect(townRepeatGrowth(def)).toBeGreaterThan(TOWN_ROAD_REPEAT_GROWTH)
+        }
+        // A tier-6 emporium repeats harder than a tier-1 farm.
+        expect(townRepeatGrowth(getTownBuilding('emporium')!)).toBeGreaterThan(townRepeatGrowth(farm))
+    })
+
+    it('lets roads climb on their own, much gentler curve', () => {
+        expect(townPlaceCost(roadDef, 0).coins).toBe(roadDef.cost.coins)
+        expect(townPlaceCost(roadDef, 1).coins).toBe(Math.round(roadDef.cost.coins * TOWN_ROAD_REPEAT_GROWTH))
+        expect(townPlaceCost(roadDef, 20).coins).toBe(Math.round(roadDef.cost.coins * TOWN_ROAD_REPEAT_GROWTH ** 20))
+        // Twenty roads still cost less than twenty of anything else would.
+        expect(TOWN_ROAD_REPEAT_GROWTH).toBeLessThan(TOWN_REPEAT_GROWTH)
     })
 })
 
@@ -192,15 +317,139 @@ describe('scaleBag', () => {
     })
 })
 
+describe('needs', () => {
+    it('asks for nothing from an empty town', () => {
+        expect(townNeedsPerTick(0)).toEqual({})
+        expect(townNeedsPerTick(-5)).toEqual({})
+    })
+
+    it('introduces each need at its own minimum population', () => {
+        expect(townNeedsPerTick(1)).toEqual({ wheat: 1 })
+        expect(townNeedsPerTick(15)).toEqual({ wheat: 2 })
+        // Bread joins at sixteen residents, tools at forty, luxuries at 120.
+        expect(Object.keys(townNeedsPerTick(16))).toEqual(['wheat', 'bread'])
+        expect(Object.keys(townNeedsPerTick(39))).toEqual(['wheat', 'bread'])
+        expect(Object.keys(townNeedsPerTick(40))).toEqual(['wheat', 'bread', 'tools'])
+        expect(Object.keys(townNeedsPerTick(119))).toEqual(['wheat', 'bread', 'tools'])
+        expect(Object.keys(townNeedsPerTick(120))).toEqual(['wheat', 'bread', 'tools', 'luxuries'])
+    })
+
+    it('rounds the per-tick demand up, and never below one unit', () => {
+        for (const need of TOWN_NEEDS) {
+            const pop = Math.max(need.minPop, need.perPop * 3 + 1)
+            expect(townNeedsPerTick(pop)[need.resource]).toBe(Math.ceil(pop / need.perPop))
+            // At the very edge of appearing, a need still costs a whole unit.
+            expect(townNeedsPerTick(need.minPop)[need.resource]).toBe(Math.max(1, Math.ceil(need.minPop / need.perPop)))
+        }
+        expect(townNeedsPerTick(12).wheat).toBe(1)
+        expect(townNeedsPerTick(13).wheat).toBe(2)
+        expect(townNeedsPerTick(24).wheat).toBe(2)
+        expect(townNeedsPerTick(25).wheat).toBe(3)
+    })
+
+    it('pays a bonus per supplied need and starves a town with no food', () => {
+        expect(needsHappiness({}, 0)).toBe(0)
+        expect(needsHappiness({ wheat: true }, 0)).toBe(0)
+
+        expect(needsHappiness({}, 10)).toBe(-TOWN_HAPPINESS_STARVING_PENALTY)
+        expect(needsHappiness({ wheat: true }, 10)).toBe(GRAIN.happiness)
+        expect(needsHappiness({ wheat: true, bread: true }, 20)).toBe(GRAIN.happiness + BREAD.happiness)
+
+        // Bread alone still counts as food, so nobody starves.
+        expect(needsHappiness({ bread: true }, 20)).toBe(BREAD.happiness)
+        // A need the town is too small to have is worth nothing.
+        expect(needsHappiness({ bread: true }, 10)).toBe(-TOWN_HAPPINESS_STARVING_PENALTY)
+    })
+
+    it('still starves a town that has everything but food', () => {
+        const tools = TOWN_NEEDS.find(n => n.resource === 'tools')!
+        expect(needsHappiness({ tools: true }, 50)).toBe(tools.happiness - TOWN_HAPPINESS_STARVING_PENALTY)
+
+        const everything = { wheat: true, bread: true, tools: true, luxuries: true }
+        const all = TOWN_NEEDS.reduce((sum, n) => sum + n.happiness, 0)
+        expect(needsHappiness(everything, 200)).toBe(all)
+    })
+
+    it('is what deriveTown folds into the happiness target', () => {
+        const town = [built('house', 'house', { level: 3 })] // twelve residents
+        const hungry = deriveTown(town, 50, T0, {})
+        const fed = deriveTown(town, 50, T0, { wheat: true })
+
+        expect(hungry.needsPerTick).toEqual({ wheat: 1 })
+        expect(fed.happinessTarget - hungry.happinessTarget).toBe(GRAIN.happiness + TOWN_HAPPINESS_STARVING_PENALTY)
+    })
+})
+
+describe('moods', () => {
+    it('steps up the ladder at each threshold and clamps outside [0, 100]', () => {
+        expect(townMood(0).id).toBe('miserable')
+        expect(townMood(24).id).toBe('miserable')
+        expect(townMood(25).id).toBe('uneasy')
+        expect(townMood(49).id).toBe('uneasy')
+        expect(townMood(50).id).toBe('content')
+        expect(townMood(74).id).toBe('content')
+        expect(townMood(75).id).toBe('happy')
+        expect(townMood(89).id).toBe('happy')
+        expect(townMood(90).id).toBe('thriving')
+        expect(townMood(100).id).toBe('thriving')
+        expect(townMood(-40).id).toBe('miserable')
+        expect(townMood(500).id).toBe('thriving')
+    })
+
+    it('never leaves a gap between one mood and the next', () => {
+        for (const mood of TOWN_MOODS) expect(townMood(mood.min)).toBe(mood)
+        for (let h = 0; h <= 100; h++) expect(TOWN_MOODS).toContain(townMood(h))
+    })
+
+    it('points at the next threshold, and at nothing from the top', () => {
+        expect(townNextMood(0)!.min).toBe(25)
+        expect(townNextMood(24)!.min).toBe(25)
+        expect(townNextMood(25)!.min).toBe(50)
+        expect(townNextMood(74)!.min).toBe(75)
+        expect(townNextMood(89)!.min).toBe(90)
+        expect(townNextMood(90)).toBeNull()
+        expect(townNextMood(100)).toBeNull()
+        expect(townNextMood(500)).toBeNull()
+    })
+
+    it('reads the speed multiplier straight off the ladder', () => {
+        expect(townSpeedMultiplier(0)).toBe(0.5)
+        expect(townSpeedMultiplier(24)).toBe(0.5)
+        expect(townSpeedMultiplier(25)).toBe(0.75)
+        expect(townSpeedMultiplier(50)).toBe(1)
+        expect(townSpeedMultiplier(74)).toBe(1)
+        expect(townSpeedMultiplier(75)).toBe(1.15)
+        expect(townSpeedMultiplier(90)).toBe(1.3)
+        expect(townSpeedMultiplier(-50)).toBe(0.5)
+        expect(townSpeedMultiplier(1000)).toBe(1.3)
+        expect(deriveTown([], 90, T0).speedMultiplier).toBe(1.3)
+    })
+
+    it('applies the build-time perk only when happiness is handed over', () => {
+        const farm = getTownBuilding('farm')!
+        expect(townLevelBuildMs(farm, 1)).toBe(farm.buildMs)
+        expect(townLevelBuildMs(farm, 3)).toBe(Math.round(farm.buildMs * TOWN_LEVEL_TIME_GROWTH ** 2))
+
+        for (const mood of TOWN_MOODS) {
+            expect(townLevelBuildMs(farm, 1, mood.min)).toBe(Math.round(farm.buildMs * mood.buildTime))
+            expect(townLevelBuildMs(farm, 4, mood.min))
+                .toBe(Math.round(farm.buildMs * TOWN_LEVEL_TIME_GROWTH ** 3 * mood.buildTime))
+        }
+        // A thriving town builds faster than a miserable one.
+        expect(townLevelBuildMs(farm, 1, 100)).toBeLessThan(townLevelBuildMs(farm, 1, 0))
+    })
+})
+
 describe('deriveTown', () => {
     it('houses four residents per house level', () => {
-        const town = deriveTown([built('h', 'house', { level: 3 })], 50, T0, false)
+        const town = deriveTown([built('h', 'house', { level: 3 })], 50, T0)
         expect(town.popCap).toBe(getTownBuilding('house')!.popCap * 3)
     })
 
     it('ignores buildings that are still under construction', () => {
-        const town = deriveTown([built('h', 'house', { level: 0, completesAt: T0 + 60_000 })], 50, T0, false)
+        const town = deriveTown([built('h', 'house', { level: 0, completesAt: T0 + 60_000 })], 50, T0)
         expect(town.popCap).toBe(0)
+        expect(town.needsPerTick).toEqual({})
     })
 
     it('hands workers to the oldest industry first', () => {
@@ -210,7 +459,7 @@ describe('deriveTown', () => {
             built('house', 'house', { createdAt: T0 - 1000 }),
             ...Array.from({ length: 5 }, (_, i) => built(`farm${i}`, 'farm', { createdAt: T0 - 900 + i }))
         ]
-        const town = deriveTown(buildings, 50, T0, false)
+        const town = deriveTown(buildings, 50, T0)
 
         expect(town.popCap).toBe(4)
         expect(town.workersDemanded).toBe(5)
@@ -226,7 +475,7 @@ describe('deriveTown', () => {
             built('farm', 'farm', { createdAt: T0 - 900 }),
             built('mill', 'mill', { level: 2, createdAt: T0 - 800 })
         ]
-        const town = deriveTown(buildings, 50, T0, false)
+        const town = deriveTown(buildings, 50, T0)
 
         expect(town.staffing.get('farm')).toBe(1)
         expect(town.staffing.get('mill')).toBe(0.75)
@@ -239,112 +488,189 @@ describe('deriveTown', () => {
             built('farm', 'farm', { createdAt: T0 - 900 }),
             built('lumber', 'lumber', { createdAt: T0 - 800 })
         ]
-        const town = deriveTown(buildings, 50, T0, false)
+        const town = deriveTown(buildings, 50, T0, { wheat: true })
 
         expect(town.industryTiles).toBe(2)
-        expect(town.happinessTarget).toBe(TOWN_HAPPINESS_BASE_TARGET - 2 * TOWN_HAPPINESS_INDUSTRY_PENALTY)
+        expect(town.happinessTarget)
+            .toBe(TOWN_HAPPINESS_BASE_TARGET + GRAIN.happiness - 2 * TOWN_HAPPINESS_INDUSTRY_PENALTY)
+    })
+
+    it('caps the smog a big industrial town breathes', () => {
+        const farms = (n: number) => Array.from({ length: n }, (_, i) => built(`farm${i}`, 'farm', { createdAt: T0 - 900 + i }))
+        const houses = Array.from({ length: 30 }, (_, i) => built(`house${i}`, 'house', { createdAt: T0 - 2000 + i }))
+        const fed = { wheat: true, bread: true }
+
+        // 120 residents against 60 jobs: roomy, so only the smog cap bites.
+        const small = deriveTown([...houses, ...farms(10)], 50, T0, fed)
+        const capped = deriveTown([...houses, ...farms(TOWN_HAPPINESS_INDUSTRY_CAP + 5)], 50, T0, fed)
+        const huge = deriveTown([...houses, ...farms(TOWN_HAPPINESS_INDUSTRY_CAP * 2)], 50, T0, fed)
+
+        expect(small.happinessTarget).toBe(capped.happinessTarget + TOWN_HAPPINESS_INDUSTRY_CAP - 10)
+        expect(huge.happinessTarget).toBe(capped.happinessTarget)
     })
 
     it('docks happiness again once there are more jobs than residents', () => {
         const roomy = deriveTown([
             built('house', 'house', { level: 2, createdAt: T0 - 1000 }),
             ...Array.from({ length: 5 }, (_, i) => built(`farm${i}`, 'farm', { createdAt: T0 - 900 + i }))
-        ], 50, T0, false)
+        ], 50, T0, { wheat: true })
         const crowded = deriveTown([
             built('house', 'house', { createdAt: T0 - 1000 }),
             ...Array.from({ length: 5 }, (_, i) => built(`farm${i}`, 'farm', { createdAt: T0 - 900 + i }))
-        ], 50, T0, false)
+        ], 50, T0, { wheat: true })
 
-        expect(roomy.happinessTarget).toBe(TOWN_HAPPINESS_BASE_TARGET - 5 * TOWN_HAPPINESS_INDUSTRY_PENALTY)
+        expect(roomy.happinessTarget)
+            .toBe(TOWN_HAPPINESS_BASE_TARGET + GRAIN.happiness - 5 * TOWN_HAPPINESS_INDUSTRY_PENALTY)
         expect(crowded.happinessTarget).toBe(roomy.happinessTarget - TOWN_HAPPINESS_CROWDING_PENALTY)
     })
 
-    it('adds the bread bonus to the target when the town ate', () => {
-        const hungry = deriveTown(houseAndFarm(), 50, T0, false)
-        const fed = deriveTown(houseAndFarm(), 50, T0, true)
-        expect(fed.happinessTarget).toBe(hungry.happinessTarget + TOWN_HAPPINESS_BREAD_BONUS)
-    })
-
     it('keeps the happiness target inside [0, 100]', () => {
-        const miserable = deriveTown(
-            Array.from({ length: 200 }, (_, i) => built(`farm${i}`, 'farm', { createdAt: T0 - 900 + i })),
-            50, T0, false
-        )
+        // Twenty houses in a row with a farm pressed against every one of them:
+        // smog cap, layout cap and the starving penalty all at once.
+        const miserable = deriveTown(connected([
+            ...Array.from({ length: 20 }, (_, i) => at(`house${i}`, 'house', i, 0, { rotation: 2, createdAt: T0 - 2000 + i })),
+            ...Array.from({ length: 20 }, (_, i) => at(`farm${i}`, 'farm', i, 1, { rotation: 0, createdAt: T0 - 900 + i }))
+        ]), 50, T0, {})
         const blissful = deriveTown(
             Array.from({ length: 40 }, (_, i) => built(`park${i}`, 'park', { createdAt: T0 - 900 + i })),
-            50, T0, true
+            50, T0, {}
         )
+
         expect(miserable.happinessTarget).toBe(0)
         expect(blissful.happinessTarget).toBe(100)
     })
 
     it('raises the storage cap by one warehouse allowance per level', () => {
-        expect(deriveTown([], 50, T0, false).storageCap).toBe(TOWN_BASE_STORAGE)
-        expect(deriveTown([built('w', 'warehouse', { level: 2 })], 50, T0, false).storageCap)
+        expect(deriveTown([], 50, T0).storageCap).toBe(TOWN_BASE_STORAGE)
+        expect(deriveTown([built('w', 'warehouse', { level: 2 })], 50, T0).storageCap)
             .toBe(TOWN_BASE_STORAGE + 2 * TOWN_WAREHOUSE_STORAGE)
     })
 
-    it('maps happiness onto a 0.5 .. 1.0 speed multiplier', () => {
-        expect(townSpeedMultiplier(0)).toBe(0.5)
-        expect(townSpeedMultiplier(50)).toBe(0.75)
-        expect(townSpeedMultiplier(100)).toBe(1)
-        expect(townSpeedMultiplier(-50)).toBe(0.5)
-        expect(townSpeedMultiplier(1000)).toBe(1)
-        expect(deriveTown([], 100, T0, false).speedMultiplier).toBe(1)
+    it('multiplies the storage cap by the mood on top of that', () => {
+        for (const mood of TOWN_MOODS) {
+            expect(deriveTown([], mood.min, T0).storageCap).toBe(Math.round(TOWN_BASE_STORAGE * mood.storage))
+            expect(deriveTown([built('w', 'warehouse', { level: 2 })], mood.min, T0).storageCap)
+                .toBe(Math.round((TOWN_BASE_STORAGE + 2 * TOWN_WAREHOUSE_STORAGE) * mood.storage))
+        }
+        expect(deriveTown([], 100, T0).storageCap).toBeGreaterThan(deriveTown([], 50, T0).storageCap)
+    })
+
+    it('reports what the town will consume this tick', () => {
+        expect(deriveTown([], 50, T0).needsPerTick).toEqual({})
+        expect(deriveTown([built('h', 'house', { level: 4 })], 50, T0).needsPerTick)
+            .toEqual(townNeedsPerTick(16))
     })
 })
 
-describe('adjacencyHappiness', () => {
-    it('pays a house two happiness for every park it touches', () => {
-        expect(adjacencyHappiness([
-            at('house', 'house', 0, 0),
-            at('park', 'park', 1, 0)
-        ])).toBe(TOWN_HAPPINESS_PARK_ADJACENT)
-
-        // Both orthogonal neighbours count, so the same house can bank twice.
-        expect(adjacencyHappiness([
-            at('house', 'house', 0, 0),
-            at('parkE', 'park', 1, 0),
-            at('parkN', 'park', 0, 1)
-        ])).toBe(2 * TOWN_HAPPINESS_PARK_ADJACENT)
+describe('layout', () => {
+    it('cheers every house inside the park radius, diagonals included', () => {
+        for (let dx = -TOWN_PARK_RADIUS; dx <= TOWN_PARK_RADIUS; dx++) {
+            for (let dy = -TOWN_PARK_RADIUS; dy <= TOWN_PARK_RADIUS; dy++) {
+                if (dx === 0 && dy === 0) continue
+                expect(adjacencyHappiness([
+                    at('house', 'house', 0, 0),
+                    at('park', 'park', dx, dy)
+                ])).toBe(TOWN_HAPPINESS_PARK_NEARBY)
+            }
+        }
+        // The far corner counts; one tile beyond the radius does not.
+        const r = TOWN_PARK_RADIUS
+        expect(adjacencyHappiness([at('house', 'house', 0, 0), at('park', 'park', r, r)]))
+            .toBe(TOWN_HAPPINESS_PARK_NEARBY)
+        expect(adjacencyHappiness([at('house', 'house', 0, 0), at('park', 'park', r + 1, r)])).toBe(0)
+        expect(adjacencyHappiness([at('house', 'house', 0, 0), at('park', 'park', 0, r + 1)])).toBe(0)
     })
 
-    it('counts every (house, neighbour) pair, not every building', () => {
+    it('counts every (house, park) pair, not every building', () => {
         // One park wedged between two houses is worth its bonus to each of them.
         expect(adjacencyHappiness([
             at('houseW', 'house', 0, 0),
             at('park', 'park', 1, 0),
             at('houseE', 'house', 2, 0)
-        ])).toBe(2 * TOWN_HAPPINESS_PARK_ADJACENT)
+        ])).toBe(2 * TOWN_HAPPINESS_PARK_NEARBY)
+
+        // And one house between two parks banks twice.
+        expect(adjacencyHappiness([
+            at('house', 'house', 0, 0),
+            at('parkE', 'park', 2, 2),
+            at('parkW', 'park', -2, -2)
+        ])).toBe(2 * TOWN_HAPPINESS_PARK_NEARBY)
     })
 
-    it('docks a house for every industry building next door', () => {
+    it('scales the nuisance radius and penalty with the industry tier', () => {
+        for (const type of ['farm', 'mill', 'bakery', 'mine', 'factory', 'emporium'] as const) {
+            const def = getTownBuilding(type)!
+            const { radius, penalty } = townIndustryNuisance(def)
+            expect({ radius, penalty }).toEqual(TOWN_INDUSTRY_NUISANCE[def.tier])
+            expect(townEffectRadius(def)).toBe(radius)
+
+            // A diagonal at exactly the radius still bites; one tile out does not.
+            expect(houseAdjacency([at('house', 'house', 0, 0), at('bad', type, radius, radius)], 0, 0, Infinity))
+                .toEqual({ parks: 0, industry: 1, industryPenalty: penalty * TOWN_HAPPINESS_INDUSTRY_ADJACENT })
+            expect(houseAdjacency([at('house', 'house', 0, 0), at('bad', type, radius + 1, 0)], 0, 0, Infinity))
+                .toEqual({ parks: 0, industry: 0, industryPenalty: 0 })
+        }
+
+        // A tier-5 factory reaches further and stings harder than a tier-1 farm.
+        const farm = townIndustryNuisance(getTownBuilding('farm')!)
+        const factory = townIndustryNuisance(getTownBuilding('factory')!)
+        expect(factory.radius).toBeGreaterThan(farm.radius)
+        expect(factory.penalty).toBeGreaterThan(farm.penalty)
+    })
+
+    it('gives nothing but industry and parks an effect radius', () => {
+        expect(townIndustryNuisance(getTownBuilding('house')!)).toEqual({ radius: 0, penalty: 0 })
+        expect(townEffectRadius(getTownBuilding('park')!)).toBe(TOWN_PARK_RADIUS)
+        expect(townEffectRadius(getTownBuilding('house')!)).toBe(0)
+        expect(townEffectRadius(getTownBuilding('warehouse')!)).toBe(0)
+        expect(townEffectRadius(getTownBuilding('road')!)).toBe(0)
+    })
+
+    it('nets parks against industry on the same house', () => {
+        const farmPenalty = townIndustryNuisance(getTownBuilding('farm')!).penalty
         expect(adjacencyHappiness([
             at('house', 'house', 0, 0),
             at('farm', 'farm', 1, 0)
-        ])).toBe(-TOWN_HAPPINESS_INDUSTRY_ADJACENT)
+        ])).toBe(-farmPenalty * TOWN_HAPPINESS_INDUSTRY_ADJACENT)
 
-        // A park on one side and a quarry on the other cancel down to the net.
         expect(adjacencyHappiness([
             at('house', 'house', 0, 0),
             at('park', 'park', -1, 0),
             at('quarry', 'quarry', 1, 0)
-        ])).toBe(TOWN_HAPPINESS_PARK_ADJACENT - TOWN_HAPPINESS_INDUSTRY_ADJACENT)
+        ])).toBe(TOWN_HAPPINESS_PARK_NEARBY - farmPenalty * TOWN_HAPPINESS_INDUSTRY_ADJACENT)
+    })
+
+    it('clamps the layout swing to the cap in both directions', () => {
+        const house = at('house', 'house', 0, 0)
+        const parks = []
+        for (let dx = -2; dx <= 2; dx++) {
+            for (let dy = -2; dy <= 2; dy++) {
+                if (dx === 0 && dy === 0) continue
+                parks.push(at(`park${dx}:${dy}`, 'park', dx, dy))
+            }
+        }
+        // 24 parks would be worth 48 happiness; the cap says otherwise.
+        expect(parks.length * TOWN_HAPPINESS_PARK_NEARBY).toBeGreaterThan(TOWN_HAPPINESS_LAYOUT_CAP)
+        expect(adjacencyHappiness([house, ...parks])).toBe(TOWN_HAPPINESS_LAYOUT_CAP)
+
+        // Eleven factories inside the tier-5 radius are worth −33 between them.
+        const around: [number, number][] = [
+            [1, 0], [2, 0], [3, 0], [4, 0],
+            [-1, 0], [-2, 0], [-3, 0], [-4, 0],
+            [0, 1], [0, 2], [0, 3]
+        ]
+        const factories = around.map(([dx, dy]) => at(`factory${dx}:${dy}`, 'factory', dx, dy))
+        const penalty = townIndustryNuisance(getTownBuilding('factory')!).penalty
+        expect(factories.length * penalty).toBeGreaterThan(TOWN_HAPPINESS_LAYOUT_CAP)
+        expect(adjacencyHappiness([house, ...factories])).toBe(-TOWN_HAPPINESS_LAYOUT_CAP)
     })
 
     it('ignores neighbours that are neither civic nor industry', () => {
         expect(adjacencyHappiness([
             at('house', 'house', 0, 0),
             at('house2', 'house', 1, 0),
-            at('warehouse', 'warehouse', 0, 1)
-        ])).toBe(0)
-    })
-
-    it('does not count diagonals', () => {
-        expect(adjacencyHappiness([
-            at('house', 'house', 0, 0),
-            at('park', 'park', 1, 1),
-            at('farm', 'farm', -1, -1)
+            at('warehouse', 'warehouse', 0, 1),
+            road(0, -1)
         ])).toBe(0)
     })
 
@@ -372,41 +698,56 @@ describe('adjacencyHappiness', () => {
     })
 
     it('feeds straight into the happiness target deriveTown computes', () => {
-        const layout = [
-            at('house', 'house', 0, 0, { createdAt: T0 - 1000 }),
-            at('park', 'park', 1, 0, { createdAt: T0 - 900 })
-        ]
+        const layout = connected([
+            at('house', 'house', 0, 0, { rotation: 2, createdAt: T0 - 1000 }),
+            at('park', 'park', 1, 0, { rotation: 0, createdAt: T0 - 900 })
+        ])
         const plain = deriveTown([
             built('house', 'house', { createdAt: T0 - 1000 }),
             built('park', 'park', { createdAt: T0 - 900 })
-        ], 50, T0, false)
+        ], 50, T0, { wheat: true })
 
-        expect(deriveTown(layout, 50, T0, false).happinessTarget)
-            .toBe(plain.happinessTarget + TOWN_HAPPINESS_PARK_ADJACENT)
+        expect(deriveTown(layout, 50, T0, { wheat: true }).happinessTarget)
+            .toBe(plain.happinessTarget + TOWN_HAPPINESS_PARK_NEARBY)
     })
 })
 
 describe('houseAdjacency', () => {
-    it('counts the parks and industry around a tile', () => {
+    it('counts the parks and industry around a tile with their penalty', () => {
         const buildings = [
             at('park', 'park', 1, 0),
             at('farm', 'farm', -1, 0),
             at('quarry', 'quarry', 0, 1),
             at('house', 'house', 0, -1)
         ]
-        expect(houseAdjacency(buildings, 0, 0)).toEqual({ parks: 1, industry: 2 })
+        const farmPenalty = townIndustryNuisance(getTownBuilding('farm')!).penalty
+        expect(houseAdjacency(buildings, 0, 0, Infinity)).toEqual({
+            parks: 1,
+            industry: 2,
+            industryPenalty: 2 * farmPenalty * TOWN_HAPPINESS_INDUSTRY_ADJACENT
+        })
     })
 
     it('reports an empty neighbourhood for a tile with nothing around it', () => {
-        expect(houseAdjacency([at('park', 'park', 5, 5)], 0, 0)).toEqual({ parks: 0, industry: 0 })
-        expect(houseAdjacency([], 0, 0)).toEqual({ parks: 0, industry: 0 })
+        expect(houseAdjacency([at('park', 'park', 5, 5)], 0, 0, Infinity)).toEqual({ parks: 0, industry: 0, industryPenalty: 0 })
+        expect(houseAdjacency([], 0, 0, Infinity)).toEqual({ parks: 0, industry: 0, industryPenalty: 0 })
     })
 
-    it('ignores diagonals and buildings without world coordinates', () => {
+    it('ignores buildings without world coordinates', () => {
         expect(houseAdjacency([
-            at('park', 'park', 1, 1),
+            at('park', 'park', 9, 9),
             built('farm', 'farm')
-        ], 0, 0)).toEqual({ parks: 0, industry: 0 })
+        ], 0, 0, Infinity)).toEqual({ parks: 0, industry: 0, industryPenalty: 0 })
+    })
+
+    it('only counts what has actually finished being built', () => {
+        const buildings = [
+            at('park', 'park', 1, 0, { level: 0, completesAt: T0 + 60_000 }),
+            at('farm', 'farm', 0, 1, { level: 0, completesAt: T0 + 60_000 })
+        ]
+        expect(houseAdjacency(buildings, 0, 0, T0)).toEqual({ parks: 0, industry: 0, industryPenalty: 0 })
+        expect(houseAdjacency(buildings, 0, 0, T0 + 60_000).parks).toBe(1)
+        expect(houseAdjacency(buildings, 0, 0, T0 + 60_000).industry).toBe(1)
     })
 
     it('agrees with adjacencyHappiness on what one house is worth', () => {
@@ -415,72 +756,351 @@ describe('houseAdjacency', () => {
             at('park', 'park', 1, 0),
             at('farm', 'farm', 0, 1)
         ]
-        const { parks, industry } = houseAdjacency(buildings, 0, 0)
-        expect(parks * TOWN_HAPPINESS_PARK_ADJACENT - industry * TOWN_HAPPINESS_INDUSTRY_ADJACENT)
-            .toBe(adjacencyHappiness(buildings))
+        const { parks, industryPenalty } = houseAdjacency(buildings, 0, 0, Infinity)
+        expect(parks * TOWN_HAPPINESS_PARK_NEARBY - industryPenalty).toBe(adjacencyHappiness(buildings))
     })
 })
 
-describe('townTierUnlocked', () => {
+describe('townHousesWithin', () => {
+    it('counts finished houses inside the radius, never the tile itself', () => {
+        const buildings = [
+            at('here', 'house', 0, 0),
+            at('near', 'house', 1, 1),
+            at('far', 'house', 3, 0),
+            at('park', 'park', 1, 0)
+        ]
+        expect(townHousesWithin(buildings, 0, 0, 2, T0)).toBe(1)
+        expect(townHousesWithin(buildings, 0, 0, 3, T0)).toBe(2)
+        expect(townHousesWithin(buildings, 5, 5, 2, T0)).toBe(0)
+    })
+
+    it('does not count a house that is still going up', () => {
+        const buildings = [at('site', 'house', 1, 0, { level: 0, completesAt: T0 + 60_000 })]
+        expect(townHousesWithin(buildings, 0, 0, 2, T0)).toBe(0)
+        expect(townHousesWithin(buildings, 0, 0, 2, T0 + 60_000)).toBe(1)
+    })
+})
+
+describe('roads and facing', () => {
+    it('puts the front door on the tile the rotation points at', () => {
+        expect(townFrontTile(5, 5, 0)).toEqual({ wx: 5, wy: 6 })
+        expect(townFrontTile(5, 5, 1)).toEqual({ wx: 6, wy: 5 })
+        expect(townFrontTile(5, 5, 2)).toEqual({ wx: 5, wy: 4 })
+        expect(townFrontTile(5, 5, 3)).toEqual({ wx: 4, wy: 5 })
+        expect(TOWN_FACING).toHaveLength(4)
+    })
+
+    it('wraps rotations outside 0..3 back onto the four quarters', () => {
+        expect(townFrontTile(0, 0, 4)).toEqual(townFrontTile(0, 0, 0))
+        expect(townFrontTile(0, 0, 7)).toEqual(townFrontTile(0, 0, 3))
+        expect(townFrontTile(0, 0, -1)).toEqual(townFrontTile(0, 0, 3))
+        expect(townFrontTile(0, 0, -4)).toEqual(townFrontTile(0, 0, 0))
+    })
+
+    it('marks the outer ring of every plot as an edge, negative coordinates included', () => {
+        expect(townIsPlotEdge(0, 0)).toBe(true)
+        expect(townIsPlotEdge(7, 7)).toBe(true)
+        expect(townIsPlotEdge(3, 0)).toBe(true)
+        expect(townIsPlotEdge(0, 3)).toBe(true)
+        expect(townIsPlotEdge(3, 3)).toBe(false)
+        expect(townIsPlotEdge(1, 1)).toBe(false)
+
+        // The plot to the east starts a fresh 0..7 ring.
+        expect(townIsPlotEdge(TOWN_PLOT_SIZE, TOWN_PLOT_SIZE)).toBe(true)
+        expect(townIsPlotEdge(TOWN_PLOT_SIZE + 1, TOWN_PLOT_SIZE + 1)).toBe(false)
+
+        // And so does the plot to the west, where the coordinates go negative.
+        expect(townIsPlotEdge(-1, -1)).toBe(true)
+        expect(townIsPlotEdge(-8, -8)).toBe(true)
+        expect(townIsPlotEdge(-7, -7)).toBe(false)
+        expect(townIsPlotEdge(-2, -2)).toBe(false)
+        expect(townIsPlotEdge(-5, -8)).toBe(true)
+    })
+
+    it('finds a road under a tile and only a road', () => {
+        const buildings = [road(1, 0), at('house', 'house', 0, 0)]
+        expect(townRoadAt(buildings, 1, 0)).toBe(true)
+        expect(townRoadAt(buildings, 0, 0)).toBe(false)
+        expect(townRoadAt(buildings, 2, 0)).toBe(false)
+        expect(townRoadAt([], 0, 0)).toBe(false)
+    })
+
+    it('auto-faces the first road it finds, in S, E, N, W order', () => {
+        expect(townAutoFacing([road(0, 1)], 0, 0)).toBe(0)
+        expect(townAutoFacing([road(1, 0)], 0, 0)).toBe(1)
+        expect(townAutoFacing([road(0, -1)], 0, 0)).toBe(2)
+        expect(townAutoFacing([road(-1, 0)], 0, 0)).toBe(3)
+
+        // With roads on several sides the earliest rotation wins.
+        expect(townAutoFacing([road(-1, 0), road(0, 1)], 0, 0)).toBe(0)
+        expect(townAutoFacing([road(-1, 0), road(1, 0)], 0, 0)).toBe(1)
+
+        expect(townAutoFacing([], 0, 0)).toBeNull()
+        // A diagonal road is no front door.
+        expect(townAutoFacing([road(1, 1)], 0, 0)).toBeNull()
+    })
+
+    it('grants road access through the front door and nowhere else', () => {
+        const served = at('served', 'farm', 0, 1, { rotation: 2 })
+        const sideways = at('sideways', 'farm', 0, 1, { rotation: 0 })
+        const lonely = at('lonely', 'farm', 5, 5)
+        const buildings = [road(0, 0), served, sideways, lonely]
+
+        expect(townRoadAccess(buildings, served)).toBe(true)
+        // Right next to the road, but facing away from it.
+        expect(townRoadAccess(buildings, sideways)).toBe(false)
+        expect(townRoadAccess(buildings, lonely)).toBe(false)
+        // A road is its own access, and a building with no tile is not placed yet.
+        expect(townRoadAccess(buildings, road(0, 0))).toBe(true)
+        expect(townRoadAccess(buildings, built('placeless', 'farm'))).toBe(true)
+    })
+
+    it('leaves a cut-off building out of the town entirely', () => {
+        const street = connected([
+            at('house', 'house', 0, 0, { rotation: 2, createdAt: T0 - 1000 }),
+            at('farm', 'farm', 1, 0, { rotation: 2, createdAt: T0 - 900 })
+        ])
+        const cut = street.filter(b => b.type !== 'road')
+
+        const served = deriveTown(street, 50, T0)
+        expect(served.popCap).toBe(getTownBuilding('house')!.popCap)
+        expect(served.industryTiles).toBe(1)
+        expect(served.staffing.get('farm')).toBe(1)
+
+        const stranded = deriveTown(cut, 50, T0)
+        expect(stranded.popCap).toBe(0)
+        expect(stranded.industryTiles).toBe(0)
+        expect(stranded.staffing.get('farm')).toBeUndefined()
+        expect(stranded.needsPerTick).toEqual({})
+    })
+
+    it('stops a cut-off farm producing for the whole settle', () => {
+        const street = connected([
+            at('house', 'house', 0, 0, { rotation: 2, createdAt: T0 - 1000 }),
+            at('farm', 'farm', 1, 0, { level: 2, rotation: 2, createdAt: T0 - 900 })
+        ])
+        const cut = street.filter(b => b.type !== 'road')
+
+        expect(settleTown(sim({ buildings: street }), T0 + 5 * TOWN_TICK_MS).delta.wheat).toBeGreaterThan(0)
+        expect(settleTown(sim({ buildings: cut }), T0 + 5 * TOWN_TICK_MS).delta).toEqual({})
+    })
+
+    it('lists the buildings whose front door opens onto a tile', () => {
+        const buildings = [
+            road(0, 0),
+            at('north', 'house', 0, 1, { rotation: 2 }),
+            at('east', 'farm', 1, 0, { rotation: 3 }),
+            at('away', 'house', 0, -1, { rotation: 2 }),
+            at('nowhere', 'house', 4, 4, { rotation: 0 }),
+            built('placeless', 'house', { rotation: 0 })
+        ]
+        expect(townBuildingsFronting(buildings, 0, 0).map(b => b.id).sort()).toEqual(['east', 'north'])
+        expect(townBuildingsFronting(buildings, 9, 9)).toEqual([])
+
+        // Roads never front anything, not even another road.
+        expect(townBuildingsFronting([road(0, 0), road(0, 1)], 0, 0)).toEqual([])
+        // A building with no rotation defaults to facing +y.
+        expect(townBuildingsFronting([at('plain', 'house', 0, 0)], 0, 1).map(b => b.id)).toEqual(['plain'])
+    })
+
+    describe('townPlacementIssue', () => {
+        const farm = getTownBuilding('farm')!
+        const roadDef = getTownBuilding('road')!
+
+        it('refuses a tile something already stands on', () => {
+            const buildings = [road(3, 0), at('house', 'house', 3, 1, { rotation: 2 })]
+            expect(townPlacementIssue(buildings, farm, 3, 1, 2)).toMatch(/already taken/)
+            expect(townPlacementIssue(buildings, roadDef, 3, 0, 0)).toMatch(/already taken/)
+        })
+
+        it('starts a road at the edge of the plot or beside another road', () => {
+            expect(townPlacementIssue([], roadDef, 0, 0, 0)).toBeNull()
+            expect(townPlacementIssue([], roadDef, 7, 3, 0)).toBeNull()
+            expect(townPlacementIssue([], roadDef, 3, 3, 0)).toMatch(/edge of your land/)
+
+            // One tile in from the edge is fine once a road reaches it.
+            expect(townPlacementIssue([road(3, 0)], roadDef, 3, 1, 0)).toBeNull()
+            expect(townPlacementIssue([road(3, 0)], roadDef, 3, 2, 0)).toMatch(/edge of your land/)
+            // Diagonals do not continue a road.
+            expect(townPlacementIssue([road(3, 1)], roadDef, 4, 2, 0)).toMatch(/edge of your land/)
+        })
+
+        it('makes every other building front onto a road', () => {
+            const buildings = [road(3, 0)]
+            expect(townPlacementIssue(buildings, farm, 3, 1, 2)).toBeNull()
+            // Same tile, wrong way round.
+            expect(townPlacementIssue(buildings, farm, 3, 1, 0)).toMatch(/front door/)
+            expect(townPlacementIssue(buildings, farm, 3, 1, 1)).toMatch(/front door/)
+            expect(townPlacementIssue(buildings, farm, 3, 1, 3)).toMatch(/front door/)
+
+            // Beside the road, facing it, works from the other side too.
+            expect(townPlacementIssue([road(3, 3)], farm, 2, 3, 1)).toBeNull()
+            expect(townPlacementIssue([road(3, 3)], farm, 4, 3, 3)).toBeNull()
+            expect(townPlacementIssue([road(3, 3)], farm, 3, 4, 2)).toBeNull()
+            // Being on the plot edge buys a non-road nothing.
+            expect(townPlacementIssue([], farm, 0, 0, 0)).toMatch(/front door/)
+        })
+
+        it('agrees with townAutoFacing about which rotation works', () => {
+            const buildings = [road(2, 2)]
+            for (const [wx, wy] of [[2, 1], [1, 2], [2, 3], [3, 2]] as const) {
+                const rotation = townAutoFacing(buildings, wx, wy)!
+                expect(rotation).not.toBeNull()
+                expect(townPlacementIssue(buildings, farm, wx, wy, rotation)).toBeNull()
+            }
+            expect(townAutoFacing(buildings, 5, 5)).toBeNull()
+            expect(townPlacementIssue(buildings, farm, 5, 5, 0)).toMatch(/front door/)
+        })
+    })
+})
+
+describe('tiers', () => {
+    /** Enough housing for `pop` residents in a single row of houses. */
+    function housing(pop: number): TownSimBuilding[] {
+        const per = getTownBuilding('house')!.popCap
+        return Array.from({ length: Math.ceil(pop / per) }, (_, i) => built(`house${i}`, 'house', { createdAt: T0 - 2000 + i }))
+    }
+
+    /** A lifetime production ledger that clears the gate on `tier`. */
+    function madeFor(tier: number) {
+        const req = TOWN_TIER_PRODUCTION_REQUIREMENT[tier]!
+        const resource = TOWN_RESOURCES.find(r => r.tier === req.tier)!
+        return { [resource.id]: req.amount }
+    }
+
+    const POP2 = TOWN_TIER_POP_REQUIREMENT[2]!
+    const MADE2 = madeFor(2)
+
     it('never gates the starter tiers', () => {
+        expect(townTierRequirement([], 0, T0)).toBeNull()
+        expect(townTierRequirement([], 1, T0)).toBeNull()
         expect(townTierUnlocked([], 0, T0)).toBe(true)
         expect(townTierUnlocked([], 1, T0)).toBe(true)
     })
 
-    it('keeps tier 2 locked until a tier-1 building has actually finished', () => {
-        const unfinished = [built('farm', 'farm', { level: 0, completesAt: T0 + 60_000 })]
-        expect(townTierUnlocked(unfinished, 2, T0)).toBe(false)
-        expect(townTierUnlocked([], 2, T0)).toBe(false)
+    it('wants a finished building of the tier below', () => {
+        const pop = housing(POP2)
 
-        expect(townTierUnlocked([built('farm', 'farm')], 2, T0)).toBe(true)
-        // The same row, once its clock has run out, unlocks the tier.
-        expect(townTierUnlocked(unfinished, 2, T0 + 60_000)).toBe(true)
+        expect(townTierRequirement(pop, 2, T0, MADE2)).toEqual({
+            needsBuilding: true,
+            pop: POP2,
+            popRequired: POP2,
+            produced: TOWN_TIER_PRODUCTION_REQUIREMENT[2]!.amount,
+            producedRequired: TOWN_TIER_PRODUCTION_REQUIREMENT[2]!.amount,
+            producedTier: TOWN_TIER_PRODUCTION_REQUIREMENT[2]!.tier
+        })
+
+        const site = built('farm', 'farm', { level: 0, completesAt: T0 + 60_000 })
+        expect(townTierRequirement([...pop, site], 2, T0, MADE2)!.needsBuilding).toBe(true)
+        // The very same row, once its clock has run out, opens the tier.
+        expect(townTierRequirement([...pop, site], 2, T0 + 60_000, MADE2)).toBeNull()
+        expect(townTierRequirement([...pop, built('farm', 'farm')], 2, T0, MADE2)).toBeNull()
+    })
+
+    it('wants the residents to go with it', () => {
+        const short = [built('farm', 'farm'), ...housing(4)]
+        expect(townTierRequirement(short, 2, T0, MADE2)).toMatchObject({
+            needsBuilding: false,
+            pop: 4,
+            popRequired: POP2
+        })
+        expect(townTierUnlocked(short, 2, T0, MADE2)).toBe(false)
+
+        // Four residents short is still short.
+        const nearly = [built('farm', 'farm'), ...housing(POP2 - 4)]
+        expect(townTierUnlocked(nearly, 2, T0, MADE2)).toBe(false)
+        expect(townTierUnlocked([built('farm', 'farm'), ...housing(POP2)], 2, T0, MADE2)).toBe(true)
+    })
+
+    it('wants the goods of the tier below actually produced, not bought', () => {
+        const town = [built('farm', 'farm'), ...housing(POP2)]
+        const required = TOWN_TIER_PRODUCTION_REQUIREMENT[2]!
+
+        expect(townTierUnlocked(town, 2, T0, {})).toBe(false)
+        expect(townTierRequirement(town, 2, T0, {})).toMatchObject({
+            needsBuilding: false,
+            produced: 0,
+            producedRequired: required.amount,
+            producedTier: required.tier
+        })
+
+        const oneShort = { wheat: required.amount - 1 }
+        expect(townTierUnlocked(town, 2, T0, oneShort)).toBe(false)
+        expect(townTierRequirement(town, 2, T0, oneShort)!.produced).toBe(required.amount - 1)
+        expect(townTierUnlocked(town, 2, T0, MADE2)).toBe(true)
+    })
+
+    it('adds up every resource of the gating tier', () => {
+        const required = TOWN_TIER_PRODUCTION_REQUIREMENT[2]!
+        expect(townProducedOfTier({}, 1)).toBe(0)
+        expect(townProducedOfTier({ wheat: 10, wood: 5, stone: 1 }, 1)).toBe(16)
+        // Goods of another tier do not count toward this one.
+        expect(townProducedOfTier({ wheat: 10, flour: 900 }, 1)).toBe(10)
+        expect(townProducedOfTier({ wheat: 10, flour: 900 }, 2)).toBe(900)
+
+        // Split across the three tier-1 goods, the gate still opens.
+        const third = Math.ceil(required.amount / 3)
+        const town = [built('farm', 'farm'), ...housing(POP2)]
+        expect(townTierUnlocked(town, 2, T0, { wheat: third, wood: third, stone: third })).toBe(true)
+    })
+
+    it('counts housing at its effective level, upgrades included', () => {
+        const per = getTownBuilding('house')!.popCap
+        const levels = POP2 / per
+        const upgrading = built('house', 'house', { level: levels - 1, upgradingTo: levels, completesAt: T0 - 1 })
+        const buildings = [built('farm', 'farm'), upgrading]
+
+        // One tick before the upgrade lands the town is a level short.
+        expect(townTierRequirement([built('farm', 'farm'), { ...upgrading, completesAt: T0 + 1 }], 2, T0, MADE2)!.pop)
+            .toBe((levels - 1) * per)
+        // A finished upgrade counts even before the settle writes it down.
+        expect(townTierRequirement(buildings, 2, T0, MADE2)).toBeNull()
+        expect(townTierUnlocked(buildings, 2, T0, MADE2)).toBe(true)
     })
 
     it('looks only at the tier directly below', () => {
-        const farm = [built('farm', 'farm')]
-        expect(townTierUnlocked(farm, 3, T0)).toBe(false)
+        const pop = housing(TOWN_TIER_POP_REQUIREMENT[3]!)
+        const made = madeFor(3)
+        expect(townTierUnlocked([built('farm', 'farm'), ...pop], 3, T0, made)).toBe(false)
 
-        const mill = [built('mill', 'mill')]
-        expect(townTierUnlocked(mill, 3, T0)).toBe(true)
-        expect(townTierUnlocked(mill, 2, T0)).toBe(false)
+        const mill = [built('mill', 'mill'), ...pop]
+        expect(townTierUnlocked(mill, 3, T0, made)).toBe(true)
+        expect(townTierUnlocked(mill, 2, T0, made)).toBe(false)
     })
 
     it('ignores houses and parks, which sit below tier 1', () => {
-        expect(townTierUnlocked([built('house', 'house'), built('park', 'park')], 2, T0)).toBe(false)
+        expect(townTierUnlocked([...housing(40), built('park', 'park')], 2, T0, MADE2)).toBe(false)
     })
 })
 
 describe('townNetPerTick', () => {
     function net(buildings: TownSimBuilding[], happiness = 100) {
-        return townNetPerTick(buildings, deriveTown(buildings, happiness, T0, false), T0)
+        return townNetPerTick(buildings, deriveTown(buildings, happiness, T0), T0)
     }
 
-    it('nets the mill\'s wheat draw against the farm\'s output', () => {
+    it('nets the mill\'s wheat draw against the farm\'s output and the town\'s appetite', () => {
         // 4 residents cover the farm's 1 job and the mill's 2, so both run full.
         const buildings = [
             built('house', 'house', { createdAt: T0 - 1000 }),
             built('farm', 'farm', { createdAt: T0 - 900 }),
             built('mill', 'mill', { createdAt: T0 - 800 })
         ]
-        // Farm +1 wheat, mill −2 wheat +1 flour, and 3 workers eat a loaf.
-        expect(net(buildings)).toEqual({ wheat: -1, flour: 1, bread: -1 })
+        // Farm +1 wheat, mill −2 wheat +1 flour, and four residents eat 1 grain.
+        expect(net(buildings)).toEqual({ wheat: -2, flour: 1 })
     })
 
-    it('subtracts the bread the working townsfolk eat', () => {
+    it('subtracts what the townsfolk consume even with nobody working', () => {
         const idle = [built('house', 'house')]
-        // Nobody is employed, so nobody eats.
-        expect(net(idle)).toEqual({})
+        expect(net(idle)).toEqual({ wheat: -townNeedsPerTick(4).wheat! })
 
-        const working = [
-            built('house', 'house', { createdAt: T0 - 1000 }),
-            built('farm', 'farm', { createdAt: T0 - 900 })
-        ]
-        expect(net(working)).toEqual({ wheat: 1, bread: -1 })
+        // A level-1 farm grows exactly what its own four residents eat.
+        expect(net(houseAndFarm().map(b => ({ ...b, level: 1 })))).toEqual({ wheat: 0 })
+        // The level-2 farm of the standard test town runs a surplus.
+        expect(net(houseAndFarm())).toEqual({ wheat: 1 })
     })
 
     it('counts nothing for a building that has no staff', () => {
-        // No housing at all: the farm is unstaffed and produces nothing.
+        // No housing at all: nobody works and nobody eats.
         expect(net([built('farm', 'farm')])).toEqual({})
     })
 
@@ -489,8 +1109,8 @@ describe('townNetPerTick', () => {
             built('house', 'house', { createdAt: T0 - 1000 }),
             built('farm', 'farm', { level: 0, completesAt: T0 + 60_000, createdAt: T0 - 900 })
         ]
-        expect(net(buildings)).toEqual({})
-        expect(net(buildings.map(b => ({ ...b, completesAt: T0 - 1 })))).toEqual({ wheat: 1, bread: -1 })
+        expect(net(buildings)).toEqual({ wheat: -1 })
+        expect(net(buildings.map(b => ({ ...b, completesAt: T0 - 1 })))).toEqual({ wheat: 0 })
     })
 
     it('scales output with the building level', () => {
@@ -498,14 +1118,15 @@ describe('townNetPerTick', () => {
             built('house', 'house', { level: 2, createdAt: T0 - 1000 }),
             built('farm', 'farm', { level: 3, createdAt: T0 - 900 })
         ]
-        expect(net(buildings)).toEqual({ wheat: 3, bread: -1 })
+        // Eight residents still only want one grain a tick.
+        expect(net(buildings)).toEqual({ wheat: 2 })
     })
 })
 
 describe('milestones', () => {
     function snapshot(buildings: TownSimBuilding[], over: Partial<TownMilestoneSnapshot> = {}): TownMilestoneSnapshot {
         const happiness = over.happiness ?? 50
-        const derived = deriveTown(buildings, happiness, T0, false)
+        const derived = deriveTown(buildings, happiness, T0)
         return {
             ...townMilestoneSnapshot(buildings, derived, happiness, over.plotsBought ?? 1, over.coinsEarned ?? 0, T0),
             ...over
@@ -516,9 +1137,18 @@ describe('milestones', () => {
         return townMilestoneComplete(getTownMilestone(id)!, snap)
     }
 
-    it('gives every milestone a unique id and a positive reward', () => {
+    it('gives every milestone a unique id and something to claim', () => {
         expect(new Set(TOWN_MILESTONES.map(m => m.id)).size).toBe(TOWN_MILESTONES.length)
-        expect(TOWN_MILESTONES.every(m => m.reward > 0)).toBe(true)
+        // Every goal pays gems, coins or both — never nothing.
+        expect(TOWN_MILESTONES.every(m => m.reward > 0 || (m.gems ?? 0) > 0)).toBe(true)
+        // Coins are only worth printing at this site's scale.
+        expect(TOWN_MILESTONES.every(m => m.reward === 0 || m.reward >= 10_000_000)).toBe(true)
+    })
+
+    it('keeps the total gem payout modest against what the site pays elsewhere', () => {
+        const gems = TOWN_MILESTONES.reduce((sum, m) => sum + (m.gems ?? 0), 0)
+        expect(gems).toBeGreaterThan(0)
+        expect(gems).toBeLessThanOrEqual(250)
     })
 
     it('summarises the town into the snapshot the conditions read', () => {
@@ -552,9 +1182,12 @@ describe('milestones', () => {
         expect(complete('growing', snapshot(farms(4)))).toBe(true)
         expect(complete('growing', snapshot(farms(9)))).toBe(true)
 
-        // Houses and parks are not industry, however many you build.
+        // Houses, parks and roads are not industry, however many you build.
         expect(complete('growing', snapshot(
             Array.from({ length: 6 }, (_, i) => built(`park${i}`, 'park', { createdAt: T0 - 900 + i }))
+        ))).toBe(false)
+        expect(complete('growing', snapshot(
+            Array.from({ length: 6 }, (_, i) => road(i, 0))
         ))).toBe(false)
     })
 
@@ -589,10 +1222,12 @@ describe('settleTown', () => {
         expect(result.lastSettledAt).toBe(T0 + 10 * TOWN_TICK_MS)
     })
 
-    it('produces one wheat per minute at full happiness', () => {
+    it('produces one surplus wheat per tick at full happiness', () => {
         const result = settleTown(sim({ buildings: houseAndFarm() }), T0 + TOWN_TICK_MS)
         expect(result.ticks).toBe(1)
+        // Two grown, one eaten.
         expect(result.delta).toEqual({ wheat: 1 })
+        expect(result.satisfied).toEqual({ wheat: true })
     })
 
     it('runs at half speed when the town is miserable', () => {
@@ -606,19 +1241,72 @@ describe('settleTown', () => {
         expect(full.delta).toEqual({ wheat: 1 })
     })
 
+    it('reports the needs it could not supply without touching the stock', () => {
+        // Sixteen residents want two grain and one loaf every tick.
+        const buildings = [built('house', 'house', { level: 4, createdAt: T0 - 90_000 })]
+        expect(townNeedsPerTick(16)).toEqual({ wheat: 2, bread: 1 })
+
+        const short = settleTown(sim({ happiness: 50, inventory: { wheat: 1 }, buildings }), T0 + 3 * TOWN_TICK_MS)
+        expect(short.ticks).toBeGreaterThan(0)
+        // Half a demand feeds nobody, so the single grain is never eaten.
+        expect(short.delta).toEqual({})
+        expect(short.satisfied).toEqual({ wheat: false, bread: false })
+
+        const stocked = settleTown(sim({ happiness: 50, inventory: { wheat: 5 }, buildings }), T0 + 3 * TOWN_TICK_MS)
+        expect(stocked.ticks).toBe(3)
+        // Two ticks ate their two grain; the third found only one left.
+        expect(stocked.delta).toEqual({ wheat: -4 })
+        expect(stocked.satisfied).toEqual({ wheat: false, bread: false })
+    })
+
+    it('reports the stock on hand when no tick ran at all', () => {
+        const result = settleTown(sim({ inventory: { bread: 5 } }), T0)
+        expect(result.ticks).toBe(0)
+        expect(result.satisfied).toEqual({ wheat: false, bread: true, tools: false, luxuries: false })
+    })
+
+    it('lets a fed town climb and a starving one sink', () => {
+        const buildings = [built('house', 'house', { level: 4, createdAt: T0 - 90_000 })]
+        const fed = settleTown(sim({ happiness: 50, inventory: { wheat: 500, bread: 500 }, buildings }), T0 + 5 * TOWN_TICK_MS)
+        const starving = settleTown(sim({ happiness: 50, buildings }), T0 + 5 * TOWN_TICK_MS)
+
+        expect(fed.satisfied).toEqual({ wheat: true, bread: true })
+        expect(fed.delta).toEqual({ wheat: -5 * 2, bread: -5 })
+        expect(fed.happiness).toBeGreaterThan(50)
+        expect(starving.happiness).toBeLessThan(50)
+        expect(starving.delta).toEqual({})
+    })
+
     it('stops producing once storage is full', () => {
+        // Wood is nobody's need, so only the storage cap can stop the camp.
+        const buildings = [
+            built('house', 'house', { createdAt: T0 - 90_000 }),
+            built('lumber', 'lumber', { createdAt: T0 - 80_000 })
+        ]
         const result = settleTown(
-            sim({ inventory: { wheat: TOWN_BASE_STORAGE - 1 }, buildings: houseAndFarm() }),
+            sim({ happiness: 50, inventory: { wood: TOWN_BASE_STORAGE - 1 }, buildings }),
             T0 + 5 * TOWN_TICK_MS
         )
         expect(result.ticks).toBeGreaterThan(1)
-        expect(result.delta).toEqual({ wheat: 1 })
+        expect(result.delta).toEqual({ wood: 1 })
 
         const alreadyFull = settleTown(
-            sim({ inventory: { wheat: TOWN_BASE_STORAGE }, buildings: houseAndFarm() }),
+            sim({ happiness: 50, inventory: { wood: TOWN_BASE_STORAGE }, buildings }),
             T0 + 5 * TOWN_TICK_MS
         )
         expect(alreadyFull.delta).toEqual({})
+    })
+
+    it('lets a thriving town hold more than a content one', () => {
+        const buildings = [
+            built('house', 'house', { createdAt: T0 - 90_000 }),
+            built('lumber', 'lumber', { createdAt: T0 - 80_000 })
+        ]
+        const inventory = { wood: TOWN_BASE_STORAGE }
+        expect(settleTown(sim({ happiness: 50, inventory, buildings }), T0 + 2 * TOWN_TICK_MS).delta).toEqual({})
+        // At 100 happiness the thriving multiplier lifts the cap above the stock.
+        expect(settleTown(sim({ happiness: 100, inventory, buildings }), T0 + 2 * TOWN_TICK_MS).delta.wood)
+            .toBeGreaterThan(0)
     })
 
     it('only runs the mill on the ticks that have two wheat to grind', () => {
@@ -629,12 +1317,13 @@ describe('settleTown', () => {
 
         const stocked = settleTown(sim({ inventory: { wheat: 3 }, buildings }), T0 + 130_000)
         expect(stocked.ticks).toBe(2)
-        // Ground twice the input into one flour on tick one; tick two was short.
-        expect(stocked.delta).toEqual({ wheat: -2, flour: 1 })
+        // Tick one ground two wheat into flour and the town ate the third; tick two was short.
+        expect(stocked.delta).toEqual({ wheat: -3, flour: 1 })
 
         const starved = settleTown(sim({ inventory: { wheat: 1 }, buildings }), T0 + 130_000)
         expect(starved.ticks).toBe(2)
-        expect(starved.delta).toEqual({})
+        // Not enough to grind, but the four residents still get their grain once.
+        expect(starved.delta).toEqual({ wheat: -1 })
     })
 
     it('produces nothing while a building is still under construction', () => {
@@ -649,16 +1338,19 @@ describe('settleTown', () => {
     })
 
     it('a first build that lands mid-window starts producing for the rest of it', () => {
+        // The first farm feeds the town; the second is pure surplus, and only
+        // from the tick after it finishes.
         const buildings = [
             built('house', 'house', { createdAt: T0 - 90_000 }),
-            built('farm', 'farm', { level: 0, completesAt: T0 + 150_000, createdAt: T0 })
+            built('farm', 'farm', { createdAt: T0 - 80_000 }),
+            built('farm2', 'farm', { level: 0, completesAt: T0 + 150_000, createdAt: T0 })
         ]
         const result = settleTown(sim({ buildings }), T0 + 10 * TOWN_TICK_MS)
 
-        expect(result.completed).toEqual([{ id: 'farm', level: 1 }])
+        expect(result.completed).toEqual([{ id: 'farm2', level: 1 }])
         expect(result.ticks).toBeGreaterThan(5)
         expect(result.delta.wheat ?? 0).toBeGreaterThan(0)
-        // Ticks before the build finished (~2.5 min at ×0.8 speed) must not have produced.
+        // The first few ticks ran on one farm, which the town ate clean.
         expect(result.delta.wheat ?? 0).toBeLessThan(result.ticks)
     })
 
@@ -670,7 +1362,7 @@ describe('settleTown', () => {
         const result = settleTown(sim({ buildings }), T0 + TOWN_TICK_MS)
 
         expect(result.completed).toEqual([{ id: 'farm', level: 2 }])
-        expect(result.delta).toEqual({ wheat: 2 })
+        expect(result.delta).toEqual({ wheat: 1 })
     })
 
     it('caps an absence at the maximum offline window', () => {
@@ -700,18 +1392,6 @@ describe('settleTown', () => {
         expect(split).toBeGreaterThanOrEqual((whole.delta.wheat ?? 0) - 1)
         expect(split).toBeLessThanOrEqual((whole.delta.wheat ?? 0) + 1)
         expect(first.ticks + second.ticks).toBe(whole.ticks)
-    })
-
-    it('eats bread every tick and ends happier for it', () => {
-        const buildings = houseAndFarm()
-        const fed = settleTown(sim({ happiness: 50, inventory: { bread: 10 }, buildings }), T0 + 400_000)
-        const hungry = settleTown(sim({ happiness: 50, buildings }), T0 + 400_000)
-
-        expect(fed.delta.bread).toBe(-fed.ticks)
-        expect(fed.happiness).toBeGreaterThan(hungry.happiness)
-        // The target the fed town is climbing toward is the hungry one plus the loaf bonus.
-        expect(deriveTown(buildings, fed.happiness, T0, true).happinessTarget)
-            .toBe(deriveTown(buildings, fed.happiness, T0, false).happinessTarget + TOWN_HAPPINESS_BREAD_BONUS)
     })
 
     it('produces nothing at all when there is nobody to work the industry', () => {

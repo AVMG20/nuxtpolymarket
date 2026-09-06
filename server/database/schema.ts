@@ -1557,6 +1557,8 @@ export const townState = pgTable('town_state', {
   milestonesClaimed: jsonb('milestones_claimed').$type<string[]>().notNull().default([]),
   /** Lifetime coins earned from selling resources (floor + player fills). Drives the merchant milestones. */
   coinsEarned: numeric('coins_earned', { precision: 19, scale: 4 }).notNull().default('0'),
+  /** Lifetime units produced per resource — the tier gate a rich mayor cannot buy past. Written under the state lock. */
+  produced: jsonb('produced').$type<Record<string, number>>().notNull().default({}),
   createdAt: timestamp('created_at').defaultNow().notNull()
 })
 
@@ -1598,6 +1600,21 @@ export const townBuildings = pgTable('town_buildings', {
   index('town_buildings_userId_idx').on(t.userId),
   unique('town_buildings_tile_unique').on(t.plotId, t.tileX, t.tileY)
 ])
+
+/**
+ * What each settle produced, per resource — the data behind the production
+ * chart. One row per (settle, resource) with a positive amount; consumption is
+ * not logged here, the chart is about goods being made.
+ */
+export const townProduction = pgTable('town_production', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  resource: text('resource').notNull(),
+  amount: integer('amount').notNull(),
+  /** Window covered by the settle, so bucketing can spread it over the hours it spanned. */
+  fromAt: timestamp('from_at').notNull(),
+  toAt: timestamp('to_at').notNull()
+}, t => [index('town_production_user_to_idx').on(t.userId, t.toAt)])
 
 /** Per-player resource stock. Always written as increments (amount = amount + delta). */
 export const townInventory = pgTable('town_inventory', {

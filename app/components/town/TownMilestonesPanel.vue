@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import TownCoin from '~/components/town/TownCoin.vue'
 import type { TownMilestoneView } from '~/composables/useTown'
 
 const props = defineProps<{
@@ -19,6 +20,7 @@ const ordered = computed(() => [...props.milestones].sort((a, b) => {
 
 const claimedCount = computed(() => props.milestones.filter(m => m.claimed).length)
 const totalReward = computed(() => props.milestones.filter(m => m.claimed).reduce((s, m) => s + m.reward, 0))
+const totalGems = computed(() => props.milestones.filter(m => m.claimed).reduce((s, m) => s + m.gems, 0))
 
 function pct(m: TownMilestoneView) {
     return m.target > 0 ? Math.min(100, Math.round((m.current / m.target) * 100)) : 0
@@ -37,7 +39,10 @@ function pct(m: TownMilestoneView) {
                 <div class="min-w-0 flex-1">
                     <div class="flex items-center justify-between gap-2">
                         <b class="truncate text-sm">{{ m.title }}</b>
-                        <span class="shrink-0 text-xs font-extrabold" style="color: var(--g-gold)">🪙 {{ formatNumber(m.reward) }}</span>
+                        <span class="shrink-0 text-xs font-extrabold">
+                            <span v-if="m.gems" style="color: var(--g-gem)">💎 {{ m.gems }}</span>
+                            <span v-if="m.reward" style="color: var(--g-gold)"><TownCoin /> {{ formatNumber(m.reward) }}</span>
+                        </span>
                     </div>
                     <p class="text-xs opacity-65">{{ m.description }}</p>
                     <div v-if="!m.claimed" class="mt-2 flex items-center gap-2">
@@ -45,14 +50,14 @@ function pct(m: TownMilestoneView) {
                         <span class="text-[11px] opacity-60 tabular-nums">{{ formatNumber(m.current) }}/{{ formatNumber(m.target) }}</span>
                     </div>
                     <button v-if="m.complete && !m.claimed" class="g-btn g-btn-gold mt-2 w-full py-2 text-xs" :disabled="busy" @click="emit('claim', m.id)">
-                        🎁 Claim {{ formatNumber(m.reward) }} coins
+                        🎁 Claim<template v-if="m.gems"> {{ m.gems }} 💎</template><template v-if="m.gems && m.reward"> +</template><template v-if="m.reward"> {{ formatNumber(m.reward) }} coins</template>
                     </button>
                     <div v-else-if="m.claimed" class="mt-1 text-xs font-bold text-emerald-300">✓ Claimed</div>
                 </div>
             </div>
         </div>
         <div class="border-t px-4 py-2 text-center text-xs opacity-70" style="border-color: var(--g-line)">
-            Earned <b style="color: var(--g-gold)">🪙 {{ formatNumber(totalReward) }}</b> from goals
+            Earned<template v-if="totalGems"> <b style="color: var(--g-gem)">💎 {{ totalGems }}</b></template><template v-if="totalReward"> <b style="color: var(--g-gold)"><TownCoin /> {{ formatNumber(totalReward) }}</b></template><template v-if="!totalGems && !totalReward"> nothing yet</template> from goals
         </div>
     </div>
 </template>

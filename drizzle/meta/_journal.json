@@ -120,6 +120,20 @@
       "when": 1788719465265,
       "tag": "0016_material_pandemic",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1788721782393,
+      "tag": "0017_polytown_production",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1788722649799,
+      "tag": "0018_polytown_produced",
+      "breakpoints": true
     }
   ]
 }

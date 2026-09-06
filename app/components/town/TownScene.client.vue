@@ -6,7 +6,7 @@
 // per-frame Vue re-render.
 import * as THREE from 'three'
 import { townDragDelta, townKeyboardDelta, townIsTyping } from '~/utils/town/camera'
-import { TOWN_PLOT_SIZE, getTownBuilding, townLevelBuildMs, type TownBuildingId } from '#shared/utils/gamelogic/town'
+import { TOWN_PLOT_SIZE, TOWN_FACING, getTownBuilding, townLevelBuildMs, townFrontTile, type TownBuildingId } from '#shared/utils/gamelogic/town'
 import { createBuildingModel, createVillager, createForSaleSign, townMaterial, TREE_GEOMETRY } from '~/utils/town/models'
 
 export interface ScenePlot { id: string, x: number, y: number }
@@ -22,6 +22,7 @@ export interface SceneBuilding {
     upgradingTo: number | null
     createdAt: number
     staffing: number | null
+    connected?: boolean
 }
 export interface SceneExpansion { x: number, y: number, free: boolean, ownerName?: string }
 export interface TileRef { plotId: string, tileX: number, tileY: number }
@@ -45,6 +46,10 @@ const props = withDefaults(defineProps<{
     effectRadii?: { x: number, y: number, radius: number, kind: 'good' | 'bad' }[]
     /** Radius the ghost projects, drawn under the cursor while placing. */
     ghostRadius?: { radius: number, kind: 'good' | 'bad' } | null
+    /** Why the ghost cannot be placed where it hovers (null = allowed). Computed by the parent from the shared rules. */
+    ghostIssue?: string | null
+    /** Building being moved: hidden in place while its ghost follows the cursor. */
+    movingId?: string | null
 }>(), {
     selectedBuildingId: null,
     ghostType: null,
@@ -57,7 +62,9 @@ const props = withDefaults(defineProps<{
     expansionLabel: '',
     expansionAffordable: true,
     effectRadii: () => [],
-    ghostRadius: null
+    ghostRadius: null,
+    ghostIssue: null,
+    movingId: null
 })
 
 const emit = defineEmits<{
@@ -66,6 +73,8 @@ const emit = defineEmits<{
     'select-expansion': [slot: { x: number, y: number }]
     'hover-building': [id: string | null]
     'hover-expansion': [slot: { x: number, y: number } | null]
+    /** Tile under the cursor in world coordinates, or null — the parent decides placement validity and auto-facing. */
+    'hover-tile': [tile: (TileRef & { wx: number, wy: number }) | null]
     'deselect': []
 }>()
 
@@ -340,6 +349,10 @@ interface BuildingEntry {
     popAt: number
     baseY: number
     nextPopup: number
+    /** Connection signature for roads, so the tile is only rebuilt when neighbours change. */
+    roadSig?: string
+    /** Big red "!" while the front door has no road. */
+    alert: HTMLDivElement | null
 }
 const entries = new Map<string, BuildingEntry>()
 const plotById = computed(() => new Map(props.plots.map(p => [p.id, p])))
@@ -369,6 +382,60 @@ function makeScaffold(): THREE.Group {
     return g
 }
 
+// ─── Roads ───────────────────────────────────────────────────────────────────
+// A road tile is a flat slab with a lighter centre line running toward every
+// neighbouring road, so a network reads as one connected street.
+
+const ROAD_BASE = townMaterial(0x595a60)
+const ROAD_LINE = townMaterial(0xd9d3c3)
+const ROAD_CURB = townMaterial(0x8d8f95)
+
+function roadKey(wx: number, wy: number) { return `${wx},${wy}` }
+
+function roadTiles(): Set<string> {
+    const set = new Set<string>()
+    for (const b of props.buildings) {
+        if (b.type !== 'road') continue
+        const pos = worldPos(b)
+        if (pos) set.add(roadKey(Math.floor(pos.x), Math.floor(pos.z)))
+    }
+    return set
+}
+
+function roadConnections(wx: number, wy: number, roads: Set<string>): boolean[] {
+    return TOWN_FACING.map(([dx, dy]) => roads.has(roadKey(wx + dx, wy + dy)))
+}
+
+function buildRoadModel(conns: boolean[]): THREE.Group {
+    const g = new THREE.Group()
+    const base = new THREE.Mesh(new THREE.BoxGeometry(1, 0.04, 1), ROAD_BASE)
+    base.position.y = 0.02
+    base.receiveShadow = true
+    g.add(base)
+    const any = conns.some(Boolean)
+    if (!any) {
+        const dot = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.012, 0.16), ROAD_LINE)
+        dot.position.y = 0.046
+        g.add(dot)
+    }
+    conns.forEach((on, i) => {
+        if (!on) return
+        const [dx, dy] = TOWN_FACING[i]!
+        const seg = new THREE.Mesh(new THREE.BoxGeometry(dx === 0 ? 0.08 : 0.5, 0.012, dx === 0 ? 0.5 : 0.08), ROAD_LINE)
+        seg.position.set(dx * 0.25, 0.046, dy * 0.25)
+        g.add(seg)
+    })
+    // Curbs on the open sides.
+    conns.forEach((on, i) => {
+        if (on) return
+        const [dx, dy] = TOWN_FACING[i]!
+        const curb = new THREE.Mesh(new THREE.BoxGeometry(dx === 0 ? 1 : 0.06, 0.05, dx === 0 ? 0.06 : 1), ROAD_CURB)
+        curb.position.set(dx * 0.47, 0.03, dy * 0.47)
+        g.add(curb)
+    })
+    return g
+}
+
 function isPending(b: SceneBuilding, now: number) {
     return b.completesAt > now && (b.level === 0 || b.upgradingTo !== null)
 }
@@ -381,15 +448,28 @@ function levelScale(level: number) {
 function syncBuildings() {
     const now = Date.now() + props.serverOffsetMs
     const seen = new Set<string>()
+    const roads = roadTiles()
     for (const b of props.buildings) {
         seen.add(b.id)
         const pos = worldPos(b)
         if (!pos) continue
         let e = entries.get(b.id)
+        const isRoad = b.type === 'road'
+        const sig = isRoad ? roadConnections(Math.floor(pos.x), Math.floor(pos.z), roads).map(c => c ? '1' : '0').join('') : undefined
+        if (e && isRoad && e.roadSig !== sig) {
+            // Neighbourhood changed: swap in a tile drawn with the new connections.
+            e.group.remove(e.model)
+            e.model = buildRoadModel(roadConnections(Math.floor(pos.x), Math.floor(pos.z), roads))
+            e.model.traverse((o) => { o.userData.buildingId = b.id })
+            e.group.add(e.model)
+            e.roadSig = sig
+        }
         if (!e || e.data.type !== b.type) {
             if (e) disposeEntry(e)
             const group = new THREE.Group()
-            const model = createBuildingModel(b.type as TownBuildingId)
+            const model = isRoad
+                ? buildRoadModel(roadConnections(Math.floor(pos.x), Math.floor(pos.z), roads))
+                : createBuildingModel(b.type as TownBuildingId)
             group.add(model)
             group.userData.buildingId = b.id
             model.traverse((o) => { o.userData.buildingId = b.id })
@@ -398,7 +478,9 @@ function syncBuildings() {
                 data: b, group, model, scaffold: null, bar: null,
                 spin: [], smoke: [], glow: [],
                 wasPending: isPending(b, now), popAt: 0, baseY: 0.3,
-                nextPopup: performance.now() + Math.random() * props.tickMs
+                nextPopup: performance.now() + Math.random() * props.tickMs,
+                roadSig: sig,
+                alert: null
             }
             model.traverse((o) => {
                 if (o.name === 'spin') e!.spin.push(o)
@@ -408,8 +490,9 @@ function syncBuildings() {
             entries.set(b.id, e)
         }
         e.data = b
-        e.model.rotation.y = (b.rotation ?? 0) * Math.PI / 2
+        e.model.rotation.y = isRoad ? 0 : (b.rotation ?? 0) * Math.PI / 2
         e.group.position.set(pos.x, e.baseY, pos.z)
+        e.group.visible = props.movingId !== b.id
         const pending = isPending(b, now)
         if (pending && !e.scaffold) {
             e.scaffold = makeScaffold()
@@ -433,6 +516,7 @@ function syncBuildings() {
 function disposeEntry(e: BuildingEntry) {
     buildingsGroup.remove(e.group)
     e.bar?.remove()
+    e.alert?.remove()
 }
 
 // ─── Ghost ───────────────────────────────────────────────────────────────────
@@ -441,8 +525,10 @@ let ghost: THREE.Group | null = null
 let ghostMats: THREE.MeshStandardMaterial[] = []
 function rebuildGhost() {
     if (ghost) { buildingsGroup.remove(ghost); ghost = null; ghostMats = [] }
+    hideGhost()
     if (!props.ghostType || !getTownBuilding(props.ghostType)) return
-    ghost = createBuildingModel(props.ghostType as TownBuildingId)
+    const ghostDef = getTownBuilding(props.ghostType)!
+    ghost = ghostDef.kind === 'road' ? buildRoadModel([false, false, false, false]) : createBuildingModel(props.ghostType as TownBuildingId)
     ghost.traverse((o) => {
         if (o instanceof THREE.Mesh) {
             const m = (o.material as THREE.MeshStandardMaterial).clone()
@@ -456,12 +542,90 @@ function rebuildGhost() {
         }
     })
     ghost.visible = false
-    ghost.rotation.y = props.ghostRotation * Math.PI / 2
-    ghost.scale.setScalar(BASE_SCALE)
+    ghost.rotation.y = ghostDef.kind === 'road' ? 0 : props.ghostRotation * Math.PI / 2
+    ghost.scale.setScalar(ghostDef.kind === 'road' ? 1 : BASE_SCALE)
     buildingsGroup.add(ghost)
 }
 function tintGhost(ok: boolean) {
-    for (const m of ghostMats) m.emissive.set(ok ? 0x2ecc71 : 0xe74c3c)
+    for (const m of ghostMats) {
+        m.emissive.set(ok ? 0x2ecc71 : 0xe74c3c)
+        m.emissiveIntensity = ok ? 0.35 : 0.75
+        m.opacity = ok ? 0.6 : 0.5
+    }
+    ;(ghostPad.material as THREE.MeshBasicMaterial).color.set(ok ? 0x2ecc71 : 0xe74c3c)
+    ;(frontMarker.material as THREE.MeshBasicMaterial).color.set(ok ? 0xffffff : 0xffb3b3)
+}
+
+// Flat pad under the ghost (allowed = green, blocked = red) and a door arrow on
+// the tile the building fronts onto, so the road rule is visible before clicking.
+const ghostPad = new THREE.Mesh(
+    new THREE.PlaneGeometry(1.06, 1.06),
+    new THREE.MeshBasicMaterial({ color: 0x2ecc71, transparent: true, opacity: 0.35, depthWrite: false })
+)
+ghostPad.rotation.x = -Math.PI / 2
+ghostPad.visible = false
+fxGroup.add(ghostPad)
+
+const frontMarker = new THREE.Mesh(
+    (() => {
+        const shape = new THREE.Shape()
+        shape.moveTo(-0.22, -0.18)
+        shape.lineTo(0.22, -0.18)
+        shape.lineTo(0, 0.2)
+        shape.closePath()
+        return new THREE.ShapeGeometry(shape)
+    })(),
+    new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9, depthWrite: false, side: THREE.DoubleSide })
+)
+frontMarker.rotation.x = -Math.PI / 2
+frontMarker.visible = false
+fxGroup.add(frontMarker)
+
+let issueLabel: HTMLDivElement | null = null
+let issueAnchor: { x: number, z: number } | null = null
+function showIssue(text: string | null, x: number, z: number) {
+    if (!overlay.value) return
+    if (!text) {
+        issueLabel?.remove()
+        issueLabel = null
+        issueAnchor = null
+        return
+    }
+    if (!issueLabel) {
+        issueLabel = document.createElement('div')
+        issueLabel.className = 'town-issue'
+        overlay.value.appendChild(issueLabel)
+    }
+    issueLabel.textContent = text
+    issueAnchor = { x, z }
+}
+
+function placeGhostAt(x: number, z: number) {
+    if (ghost) {
+        ghost.visible = true
+        ghost.position.set(x + 0.5, 0.3, z + 0.5)
+    }
+    ghostPad.visible = true
+    ghostPad.position.set(x + 0.5, 0.325, z + 0.5)
+    const def = props.ghostType ? getTownBuilding(props.ghostType) : null
+    if (def && def.kind !== 'road') {
+        const f = townFrontTile(x, z, props.ghostRotation)
+        frontMarker.visible = true
+        frontMarker.position.set(f.wx + 0.5, 0.33, f.wy + 0.5)
+        frontMarker.rotation.z = -props.ghostRotation * Math.PI / 2 + Math.PI
+    } else {
+        frontMarker.visible = false
+    }
+    tintGhost(!props.ghostIssue)
+    showIssue(props.ghostIssue, x + 0.5, z + 0.5)
+}
+
+function hideGhost() {
+    if (ghost) ghost.visible = false
+    ghostPad.visible = false
+    frontMarker.visible = false
+    if (ghostRadiusMesh) ghostRadiusMesh.visible = false
+    showIssue(null, 0, 0)
 }
 
 // ─── Effect radius rings ─────────────────────────────────────────────────────
@@ -471,8 +635,9 @@ function tintGhost(ok: boolean) {
 
 const radiiGroup = new THREE.Group()
 fxGroup.add(radiiGroup)
-const GOOD = 0x4fd36a
-const BAD = 0xff6b6b
+// Reach colours stay away from the red/green the ghost uses for allowed/blocked.
+const GOOD = 0x5ac8fa
+const BAD = 0xff9f43
 
 function makeRadius(radius: number, kind: 'good' | 'bad'): THREE.Group {
     const g = new THREE.Group()
@@ -638,6 +803,12 @@ function occupiedTiles(): Set<string> {
 
 function randomFreeTile(): { x: number, z: number } | null {
     if (props.plots.length === 0) return null
+    // Townsfolk live on the streets: start on a road when the town has any.
+    const roads = [...roadTiles()]
+    if (roads.length) {
+        const [wx, wz] = roads[Math.floor(Math.random() * roads.length)]!.split(',').map(Number) as [number, number]
+        return { x: wx + 0.5, z: wz + 0.5 }
+    }
     const occ = occupiedTiles()
     for (let i = 0; i < 20; i++) {
         const p = props.plots[Math.floor(Math.random() * props.plots.length)]!
@@ -669,21 +840,30 @@ function syncVillagers() {
 
 function stepVillagers(dt: number) {
     const occ = occupiedTiles()
+    const roads = roadTiles()
     for (const v of villagers) {
         if (v.wait > 0) { v.wait -= dt; continue }
         const dx = v.tx - v.x
         const dz = v.tz - v.z
         const d = Math.hypot(dx, dz)
         if (d < 0.05) {
-            // Pick a neighbouring free tile inside an owned plot — a stroll, not a teleport.
+            // Stroll to a neighbouring tile: along the road when there is one,
+            // across free grass otherwise. Never through a building.
             const opts: [number, number][] = [[1, 0], [-1, 0], [0, 1], [0, -1]]
-            const choice = opts[Math.floor(Math.random() * 4)]!
-            const nx = Math.floor(v.x) + choice[0]
-            const nz = Math.floor(v.z) + choice[1]
-            const inside = props.plots.some(p => nx >= p.x * PLOT && nx < p.x * PLOT + PLOT && nz >= p.y * PLOT && nz < p.y * PLOT + PLOT)
-            if (inside && !occ.has(`${nx},${nz}`)) {
-                v.tx = nx + 0.5
-                v.tz = nz + 0.5
+            const cx = Math.floor(v.x)
+            const cz = Math.floor(v.z)
+            const onRoad = roads.has(roadKey(cx, cz))
+            const candidates = opts.filter(([ox, oz]) => {
+                const nx = cx + ox
+                const nz = cz + oz
+                if (onRoad) return roads.has(roadKey(nx, nz))
+                const inside = props.plots.some(p => nx >= p.x * PLOT && nx < p.x * PLOT + PLOT && nz >= p.y * PLOT && nz < p.y * PLOT + PLOT)
+                return inside && (!occ.has(`${nx},${nz}`) || roads.has(roadKey(nx, nz)))
+            })
+            if (candidates.length) {
+                const choice = candidates[Math.floor(Math.random() * candidates.length)]!
+                v.tx = cx + choice[0] + 0.5
+                v.tz = cz + choice[1] + 0.5
             }
             v.wait = Math.random() < 0.3 ? 0.6 + Math.random() * 1.5 : 0
             continue
@@ -808,6 +988,34 @@ function updateOverlays(now: number, dt: number) {
         const p = project(pu.x, pu.y + pu.life * 0.8, pu.z)
         pu.el.style.transform = `translate(${p.sx}px, ${p.sy}px) translate(-50%, -100%)`
         pu.el.style.opacity = String(pu.life < 0.2 ? pu.life / 0.2 : 1 - (pu.life - 0.2) / 1.4)
+    }
+    // Disconnected buildings: a big "!" that bobs above them.
+    for (const e of entries.values()) {
+        const cut = e.data.connected === false && e.data.type !== 'road'
+        if (!cut) {
+            if (e.alert) { e.alert.remove(); e.alert = null }
+            continue
+        }
+        if (!e.alert && overlay.value) {
+            const el = document.createElement('div')
+            el.className = 'town-alert'
+            el.textContent = '!'
+            el.title = 'No road at the front door — this building is not working'
+            overlay.value.appendChild(el)
+            e.alert = el
+        }
+        if (e.alert) {
+            const bob = Math.sin(performance.now() / 350 + e.group.position.x) * 0.06
+            const p = project(e.group.position.x, 1.6 + bob, e.group.position.z)
+            e.alert.style.transform = `translate(${p.sx}px, ${p.sy}px) translate(-50%, -100%)`
+            e.alert.style.display = p.visible ? '' : 'none'
+        }
+    }
+    // Placement issue bubble follows the ghost.
+    if (issueLabel && issueAnchor) {
+        const p = project(issueAnchor.x, 1.35, issueAnchor.z)
+        issueLabel.style.transform = `translate(${p.sx}px, ${p.sy}px) translate(-50%, -100%)`
+        issueLabel.style.display = p.visible ? '' : 'none'
     }
     // For-sale label.
     for (const e of slotEntries) {
@@ -974,7 +1182,7 @@ function onPointerUp(e: PointerEvent) {
     if (!hit) { emit('deselect'); return }
     if (hit.kind === 'building') emit('select-building', hit.id)
     else if (hit.kind === 'tile') {
-        if (tileOccupied(hit.tile)) return
+        if (tileOccupied(hit.tile) && !ghost) return
         emit('select-tile', hit.tile)
     } else if (hit.kind === 'expansion') {
         if (hit.free) emit('select-expansion', { x: hit.x, y: hit.y })
@@ -995,15 +1203,23 @@ function onWheel(e: WheelEvent) {
 function onLeave() {
     setHoverBuilding(null)
     setHoverSlot(null)
+    setHoverTile(null)
     hoverTile.visible = false
-    if (ghost) ghost.visible = false
-    if (ghostRadiusMesh) ghostRadiusMesh.visible = false
+    hideGhost()
 }
 
 function setHoverBuilding(id: string | null) {
     if (id === hoveredBuildingId) return
     hoveredBuildingId = id
     emit('hover-building', id)
+}
+
+let hoveredTileKey: string | null = null
+function setHoverTile(tile: (TileRef & { wx: number, wy: number }) | null) {
+    const key = tile ? `${tile.wx},${tile.wy}` : null
+    if (key === hoveredTileKey) return
+    hoveredTileKey = key
+    emit('hover-tile', tile)
 }
 
 function setHoverSlot(key: string | null, slot?: { x: number, y: number }) {
@@ -1014,36 +1230,53 @@ function setHoverSlot(key: string | null, slot?: { x: number, y: number }) {
 
 function updateHover(sx: number, sy: number) {
     const hit = pick(sx, sy)
-    if (hit?.kind === 'building') {
+    if (hit?.kind === 'building' && !ghost) {
         setHoverBuilding(hit.id)
         setHoverSlot(null)
-            hoverTile.visible = false
-        if (ghost) ghost.visible = false
+        setHoverTile(null)
+        hoverTile.visible = false
+        hideGhost()
         canvas.value!.style.cursor = 'pointer'
         return
+    }
+    if (hit?.kind === 'building' && ghost) {
+        // Placing over an existing building: show the ghost there, blocked.
+        const e = entries.get(hit.id)
+        if (e) {
+            const wx = Math.floor(e.group.position.x)
+            const wy = Math.floor(e.group.position.z)
+            setHoverBuilding(null)
+            setHoverSlot(null)
+            setHoverTile({ plotId: e.data.plotId, tileX: e.data.tileX, tileY: e.data.tileY, wx, wy })
+            hoverTile.visible = false
+            placeGhostAt(wx, wy)
+            if (ghostRadiusMesh) {
+                ghostRadiusMesh.visible = true
+                ghostRadiusMesh.position.set(wx + 0.5, 0.335, wy + 0.5)
+            }
+            canvas.value!.style.cursor = 'not-allowed'
+            return
+        }
     }
     setHoverBuilding(null)
     if (hit?.kind === 'tile') {
         setHoverSlot(null)
+        setHoverTile({ ...hit.tile, wx: hit.x, wy: hit.z })
         const occupied = tileOccupied(hit.tile)
         hoverTile.position.set(hit.x + 0.5, 0.31, hit.z + 0.5)
-        hoverTile.visible = !occupied || !!ghost
-        ;(hoverTile.material as THREE.MeshBasicMaterial).color.set(ghost ? (occupied ? 0xe74c3c : 0x2ecc71) : 0xffffff)
-        if (ghost) {
-            ghost.visible = true
-            ghost.position.set(hit.x + 0.5, 0.3, hit.z + 0.5)
-            tintGhost(!occupied)
-        }
+        hoverTile.visible = !occupied && !ghost
+        ;(hoverTile.material as THREE.MeshBasicMaterial).color.set(0xffffff)
+        if (ghost) placeGhostAt(hit.x, hit.z)
         if (ghostRadiusMesh) {
             ghostRadiusMesh.visible = true
             ghostRadiusMesh.position.set(hit.x + 0.5, 0.335, hit.z + 0.5)
         }
-        canvas.value!.style.cursor = ghost ? (occupied ? 'not-allowed' : 'copy') : 'default'
+        canvas.value!.style.cursor = ghost ? (props.ghostIssue ? 'not-allowed' : 'copy') : 'default'
         return
     }
+    setHoverTile(null)
     hoverTile.visible = false
-    if (ghost) ghost.visible = false
-    if (ghostRadiusMesh) ghostRadiusMesh.visible = false
+    hideGhost()
     if (hit?.kind === 'expansion') {
         setHoverSlot(`${hit.x},${hit.y}`, { x: hit.x, y: hit.y })
         canvas.value!.style.cursor = hit.free ? 'pointer' : 'default'
@@ -1104,6 +1337,10 @@ function frame(ms: number) {
             }
         }
         const hovered = hoveredBuildingId === b.id
+        if (def.kind === 'road') {
+            e.group.position.y = e.baseY
+            continue
+        }
         const sxz = levelScale(Math.max(b.level, pending ? 0 : 1)) + pop
         e.model.scale.set(sxz, sy + pop, sxz)
         e.group.position.y = e.baseY + (hovered ? 0.06 : 0)
@@ -1220,7 +1457,7 @@ onBeforeUnmount(() => {
     cancelAnimationFrame(rafId)
     ro?.disconnect()
     io?.disconnect()
-    for (const e of entries.values()) e.bar?.remove()
+    for (const e of entries.values()) { e.bar?.remove(); e.alert?.remove() }
     for (const p of popups) p.el.remove()
     renderer?.dispose()
     renderer = null
@@ -1232,7 +1469,12 @@ watch(() => props.buildings, () => { syncBuildings(); syncVillagers() }, { deep:
 watch(() => props.popCap, syncVillagers)
 watch(() => props.ghostType, rebuildGhost)
 watch(() => props.keyboardEnabled, clearMovement)
-watch(() => props.ghostRotation, value => { if (ghost) ghost.rotation.y = value * Math.PI / 2 })
+watch(() => props.ghostRotation, (value) => {
+    if (ghost) ghost.rotation.y = value * Math.PI / 2
+    if (ghost?.visible) placeGhostAt(Math.floor(ghost.position.x), Math.floor(ghost.position.z))
+})
+watch(() => props.ghostIssue, () => { if (ghost?.visible) placeGhostAt(Math.floor(ghost.position.x), Math.floor(ghost.position.z)) })
+watch(() => props.movingId, () => { for (const e of entries.values()) e.group.visible = props.movingId !== e.data.id })
 watch(() => props.ghostRadius, rebuildGhostRadius, { deep: true })
 watch(() => props.effectRadii, syncRadii, { deep: true })
 watch(() => props.plots.length, (n, prev) => { if (n !== prev) recenter(true) })
@@ -1301,6 +1543,35 @@ defineExpose({ recenter: () => recenter(true), setResourceEmoji: (map: Record<st
     box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
     white-space: pre;
     text-align: center;
+    will-change: transform;
+}
+.town-overlay :deep(.town-alert) {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    background: #e5322d;
+    color: #fff;
+    font: 900 20px/30px system-ui, sans-serif;
+    text-align: center;
+    box-shadow: 0 0 0 4px rgba(229, 50, 45, 0.28), 0 6px 14px rgba(0, 0, 0, 0.4);
+    will-change: transform;
+}
+.town-overlay :deep(.town-issue) {
+    position: absolute;
+    left: 0;
+    top: 0;
+    max-width: 260px;
+    padding: 6px 10px;
+    border-radius: 10px;
+    background: rgba(214, 48, 49, 0.94);
+    color: #fff;
+    font: 700 12px/1.25 system-ui, sans-serif;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
+    text-align: center;
+    white-space: normal;
     will-change: transform;
 }
 .town-overlay :deep(.town-sign.is-bad) {

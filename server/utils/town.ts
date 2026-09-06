@@ -1,7 +1,7 @@
 import { and, asc, desc, eq, gte, lte, sql } from 'drizzle-orm'
 import { db, type DbExecutor } from '#server/database'
-import { user, townState, townPlots, townBuildings, townInventory, townOrders, townTrades } from '#server/database/schema'
-import { credit, debit, debitGems } from '#server/utils/balance'
+import { user, townState, townPlots, townBuildings, townInventory, townOrders, townTrades, townProduction } from '#server/database/schema'
+import { credit, creditGems, debit, debitGems } from '#server/utils/balance'
 import { matchGemOrder } from '#shared/utils/gamelogic/gem-exchange'
 import {
     TOWN_PLOT_SIZE,
@@ -28,7 +28,9 @@ import {
     isValidTownQuantity,
     settleTown,
     deriveTown,
-    townTierUnlocked,
+    townTierRequirement,
+    townPlaceCost,
+    townPlacementIssue,
     townMilestoneSnapshot,
     townMilestoneComplete,
     getTownMilestone,
@@ -132,7 +134,8 @@ export function toSim(row: typeof townBuildings.$inferSelect, plot?: { x: number
         upgradingTo: row.upgradingTo,
         createdAt: row.createdAt.getTime(),
         wx: plot ? plot.x * TOWN_PLOT_SIZE + row.tileX : undefined,
-        wy: plot ? plot.y * TOWN_PLOT_SIZE + row.tileY : undefined
+        wy: plot ? plot.y * TOWN_PLOT_SIZE + row.tileY : undefined,
+        rotation: row.rotation
     }
 }
 
@@ -179,6 +182,23 @@ export async function settleTownState(tx: DbExecutor, userId: string, now = Date
         await addInventory(tx, userId, id, delta)
         inventory[id] = (inventory[id] ?? 0) + delta
     }
+    // Chart data: what this window made. Gross output would be nicer than net,
+    // but net-positive per resource is what the settle knows without a second
+    // pass, and it is what the player sees land in storage.
+    const produced = (Object.entries(result.delta) as [TownResourceId, number][]).filter(([, d]) => d > 0)
+    const producedTotals: Record<string, number> = { ...state.produced }
+    if (produced.length) {
+        await tx.insert(townProduction).values(produced.map(([resource, amount]) => ({
+            userId,
+            resource,
+            amount,
+            fromAt: state.lastSettledAt,
+            toAt: new Date(now)
+        })))
+        for (const [resource, amount] of produced) producedTotals[resource] = (producedTotals[resource] ?? 0) + amount
+        // The chart only looks back a week; keep the log from growing forever.
+        await tx.delete(townProduction).where(and(eq(townProduction.userId, userId), lte(townProduction.toAt, new Date(now - 8 * 24 * 3_600_000))))
+    }
 
     for (const done of result.completed) {
         await tx.update(townBuildings)
@@ -190,7 +210,8 @@ export async function settleTownState(tx: DbExecutor, userId: string, now = Date
         .set({
             happiness: result.happiness,
             tickProgressMs: result.tickProgressMs,
-            lastSettledAt: new Date(now)
+            lastSettledAt: new Date(now),
+            produced: producedTotals
         })
         .where(eq(townState.id, state.id))
         .returning()
@@ -327,17 +348,34 @@ export async function placeBuilding(userId: string, plotId: string, tileX: numbe
 
     return db.transaction(async (tx) => {
         const now = Date.now()
-        const { sim } = await settleTownState(tx, userId, now)
+        const { sim, state } = await settleTownState(tx, userId, now)
 
         const plot = await tx.query.townPlots.findFirst({ where: and(eq(townPlots.id, plotId), eq(townPlots.userId, userId)) })
         if (!plot) throw createError({ statusCode: 400, statusMessage: 'That plot is not yours' })
-        if (!townTierUnlocked(sim, def.tier, now)) {
-            throw createError({ statusCode: 400, statusMessage: `Finish a tier ${def.tier - 1} building first` })
+        const lock = townTierRequirement(sim, def.tier, now, state.produced)
+        if (lock) {
+            const why = lock.needsBuilding
+                ? `Finish a tier ${def.tier - 1} building first`
+                : lock.pop < lock.popRequired
+                    ? `Tier ${def.tier} needs ${lock.popRequired} residents (you house ${lock.pop})`
+                    : `Tier ${def.tier} opens after producing ${lock.producedRequired} tier-${lock.producedTier} goods (${lock.produced} so far)`
+            throw createError({ statusCode: 400, statusMessage: why })
         }
 
-        const cost = townLevelCost(def, 1)
+        const wx = plot.x * TOWN_PLOT_SIZE + tileX
+        const wy = plot.y * TOWN_PLOT_SIZE + tileY
+        const issue = townPlacementIssue(sim, def, wx, wy, rotation)
+        if (issue) throw createError({ statusCode: 400, statusMessage: issue })
+
+        // The n-th copy costs more: count every existing one, finished or not.
+        const existing = sim.filter(b => b.type === def.id).length
+        const cost = townPlaceCost(def, existing)
         if (cost.coins > 0) await debit(userId, cost.coins.toFixed(4), CATEGORY, tx)
         await spendBag(tx, userId, cost.resources)
+
+        // Roads are instant; everything else builds, faster in a happier town.
+        const instant = def.kind === 'road'
+        const buildMs = instant ? 0 : townLevelBuildMs(def, 1, state.happiness)
 
         // The unique (plot, tile) constraint is the occupancy guard.
         const [building] = await tx.insert(townBuildings)
@@ -348,8 +386,8 @@ export async function placeBuilding(userId: string, plotId: string, tileX: numbe
                 tileX,
                 tileY,
                 rotation,
-                level: 0,
-                completesAt: new Date(now + townLevelBuildMs(def, 1))
+                level: instant ? 1 : 0,
+                completesAt: new Date(now + buildMs)
             })
             .onConflictDoNothing()
             .returning()
@@ -358,10 +396,50 @@ export async function placeBuilding(userId: string, plotId: string, tileX: numbe
     })
 }
 
+/**
+ * Move a finished building to another tile on any owned plot. Free, but the
+ * same road rule applies at the new spot, and a road cannot be moved out from
+ * under the buildings whose front door it serves.
+ */
+export async function moveBuilding(userId: string, buildingId: string, plotId: string, tileX: number, tileY: number, rotation: number) {
+    if (!Number.isInteger(rotation) || rotation < 0 || rotation > 3) {
+        throw createError({ statusCode: 400, statusMessage: 'Rotation must be 0, 1, 2 or 3 quarter turns' })
+    }
+    if (!Number.isInteger(tileX) || !Number.isInteger(tileY) || tileX < 0 || tileY < 0 || tileX >= TOWN_PLOT_SIZE || tileY >= TOWN_PLOT_SIZE) {
+        throw createError({ statusCode: 400, statusMessage: 'That tile is off the plot' })
+    }
+    return db.transaction(async (tx) => {
+        const now = Date.now()
+        const { sim, buildings } = await settleTownState(tx, userId, now)
+        const row = buildings.find(b => b.id === buildingId)
+        const me = sim.find(b => b.id === buildingId)
+        if (!row || !me) throw createError({ statusCode: 404, statusMessage: 'Building not found' })
+        if (row.level === 0 || row.upgradingTo !== null) throw createError({ statusCode: 400, statusMessage: 'Finish building it first' })
+        const def = getTownBuilding(row.type)!
+
+        const plot = await tx.query.townPlots.findFirst({ where: and(eq(townPlots.id, plotId), eq(townPlots.userId, userId)) })
+        if (!plot) throw createError({ statusCode: 400, statusMessage: 'That plot is not yours' })
+        const wx = plot.x * TOWN_PLOT_SIZE + tileX
+        const wy = plot.y * TOWN_PLOT_SIZE + tileY
+
+        // Moving a road may cut buildings off — they simply stop working until reconnected.
+        const others = sim.filter(b => b.id !== buildingId)
+        const issue = townPlacementIssue(others, def, wx, wy, rotation)
+        if (issue) throw createError({ statusCode: 400, statusMessage: issue })
+
+        const [moved] = await tx.update(townBuildings)
+            .set({ plotId, tileX, tileY, rotation })
+            .where(and(eq(townBuildings.id, buildingId), eq(townBuildings.userId, userId)))
+            .returning({ id: townBuildings.id })
+        if (!moved) throw createError({ statusCode: 400, statusMessage: 'That tile is already taken' })
+        return { buildingId, plotId, tileX, tileY, rotation }
+    })
+}
+
 export async function upgradeBuilding(userId: string, buildingId: string) {
     return db.transaction(async (tx) => {
         const now = Date.now()
-        const { buildings } = await settleTownState(tx, userId, now)
+        const { buildings, state } = await settleTownState(tx, userId, now)
         const building = buildings.find(b => b.id === buildingId)
         if (!building) throw createError({ statusCode: 404, statusMessage: 'Building not found' })
         if (building.level === 0) throw createError({ statusCode: 400, statusMessage: 'Still under construction' })
@@ -369,12 +447,13 @@ export async function upgradeBuilding(userId: string, buildingId: string) {
         if (building.level >= TOWN_MAX_BUILDING_LEVEL) throw createError({ statusCode: 400, statusMessage: 'Already at max level' })
 
         const def = getTownBuilding(building.type)!
+        if (def.kind === 'road') throw createError({ statusCode: 400, statusMessage: 'Roads have no levels' })
         const nextLevel = building.level + 1
         const cost = townLevelCost(def, nextLevel)
         if (cost.coins > 0) await debit(userId, cost.coins.toFixed(4), CATEGORY, tx)
         await spendBag(tx, userId, cost.resources)
 
-        const completesAt = new Date(now + townLevelBuildMs(def, nextLevel))
+        const completesAt = new Date(now + townLevelBuildMs(def, nextLevel, state.happiness))
         const [updated] = await tx.update(townBuildings)
             .set({ upgradingTo: nextLevel, completesAt })
             .where(and(eq(townBuildings.id, buildingId), eq(townBuildings.level, building.level), sql`${townBuildings.upgradingTo} is null`))
@@ -444,6 +523,7 @@ export function serializeMilestones(settled: Pick<SettledTown, 'state' | 'sim' |
             description: m.description,
             emoji: m.emoji,
             reward: m.reward,
+            gems: m.gems ?? 0,
             tier: m.tier,
             current: progress.current,
             target: progress.target,
@@ -468,8 +548,9 @@ export async function claimMilestone(userId: string, milestoneId: string) {
             .where(and(eq(townState.userId, userId), sql`not (${townState.milestonesClaimed} ? ${def.id})`))
             .returning({ id: townState.id })
         if (!claimed) throw createError({ statusCode: 400, statusMessage: 'Already claimed' })
-        await credit(userId, def.reward.toFixed(4), CATEGORY, tx)
-        return { id: def.id, reward: def.reward, title: def.title }
+        if (def.reward > 0) await credit(userId, def.reward.toFixed(4), CATEGORY, tx)
+        if (def.gems) await creditGems(userId, def.gems, tx)
+        return { id: def.id, reward: def.reward, gems: def.gems ?? 0, title: def.title }
     })
 }
 
@@ -499,6 +580,64 @@ export async function sellToFloor(userId: string, resource: string, quantity: nu
         await recordEarnings(tx, userId, total)
         return { resource, quantity, price, total }
     })
+}
+
+/**
+ * Sell several resources to the town hall in one transaction. Each line is
+ * guarded by the conditional decrement in takeInventory, so a stale quantity
+ * fails that line's whole batch rather than overselling.
+ */
+export async function sellBulkToFloor(userId: string, items: { resource: string, quantity: number }[]) {
+    if (!Array.isArray(items) || items.length === 0 || items.length > TOWN_RESOURCES.length) {
+        throw createError({ statusCode: 400, statusMessage: 'Nothing to sell' })
+    }
+    const lines: { resource: TownResourceId, quantity: number, price: number, total: number }[] = []
+    for (const item of items) {
+        if (!isTownResourceId(item.resource)) throw createError({ statusCode: 400, statusMessage: 'Unknown resource' })
+        if (!isValidTownQuantity(item.quantity)) throw createError({ statusCode: 400, statusMessage: 'Quantity must be a whole number' })
+        const price = townFloorPrice(item.resource)
+        lines.push({ resource: item.resource, quantity: item.quantity, price, total: townOrderTotal(price, item.quantity) })
+    }
+    return db.transaction(async (tx) => {
+        await lockTownForMarket(tx, userId)
+        let total = 0
+        for (const line of lines) {
+            await takeInventory(tx, userId, line.resource, line.quantity)
+            total += line.total
+        }
+        await credit(userId, total.toFixed(4), CATEGORY, tx)
+        await recordEarnings(tx, userId, total)
+        return { total, lines }
+    })
+}
+
+/**
+ * Production per hour bucket over the last `hours`, per resource. A settle
+ * window that spans several buckets is spread evenly across them.
+ */
+export async function getProductionHistory(userId: string, hours = 24) {
+    const now = Date.now()
+    const span = Math.max(1, Math.min(168, Math.floor(hours)))
+    const since = new Date(now - span * 3_600_000)
+    const rows = await db.select().from(townProduction)
+        .where(and(eq(townProduction.userId, userId), gte(townProduction.toAt, since)))
+    const bucketMs = 3_600_000
+    const start = Math.floor((now - span * bucketMs) / bucketMs) * bucketMs
+    const buckets: { at: number, totals: Partial<Record<TownResourceId, number>> }[] = []
+    for (let i = 0; i <= span; i++) buckets.push({ at: start + i * bucketMs, totals: {} })
+    for (const row of rows) {
+        const from = row.fromAt.getTime()
+        const to = row.toAt.getTime()
+        const first = Math.max(0, Math.floor((from - start) / bucketMs))
+        const last = Math.min(buckets.length - 1, Math.floor((to - start) / bucketMs))
+        const parts = Math.max(1, last - first + 1)
+        for (let i = first; i <= last; i++) {
+            const b = buckets[i]!
+            const id = row.resource as TownResourceId
+            b.totals[id] = (b.totals[id] ?? 0) + row.amount / parts
+        }
+    }
+    return { bucketMs, buckets: buckets.map(b => ({ at: b.at, totals: Object.fromEntries(Object.entries(b.totals).map(([k, v]) => [k, Math.round(v)])) })) }
 }
 
 // ─── Player market (order book) ──────────────────────────────────────────────
@@ -765,6 +904,7 @@ export async function getTownLastPrices(): Promise<Record<string, number>> {
 export async function deleteTownForUser(userId: string, tx: DbExecutor = db) {
     await tx.delete(townTrades).where(sql`${townTrades.buyerId} = ${userId} or ${townTrades.sellerId} = ${userId}`)
     await tx.delete(townOrders).where(eq(townOrders.userId, userId))
+    await tx.delete(townProduction).where(eq(townProduction.userId, userId))
     await tx.delete(townBuildings).where(eq(townBuildings.userId, userId))
     await tx.delete(townInventory).where(eq(townInventory.userId, userId))
     await tx.delete(townPlots).where(eq(townPlots.userId, userId))

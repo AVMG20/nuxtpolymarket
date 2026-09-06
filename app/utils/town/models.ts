@@ -169,6 +169,11 @@ function chimney(x: number, y: number, z: number, h = 0.25): Part[] {
 }
 
 const MODELS: Record<TownBuildingId, () => Part[]> = {
+    // Roads are drawn by the scene as connected flat tiles; the model is only a
+    // fallback so the registry stays complete.
+    road: () => [
+        { shape: 'box', x: 0, y: 0, z: 0, w: 0.98, h: 0.03, d: 0.98, color: 0x5b5b60 }
+    ],
     house: () => [
         { shape: 'box', x: 0, y: 0, z: 0, w: 0.6, h: 0.42, d: 0.5, color: CREAM },
         { shape: 'wedge', x: 0.175, y: 0.42, z: 0, w: 0.35, h: 0.32, d: 0.58, color: ROOF_RED, rotY: 0 },

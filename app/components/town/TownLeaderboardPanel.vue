@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import TownCoin from '~/components/town/TownCoin.vue'
 interface Row {
     rank: number
     userId: string
@@ -55,14 +56,14 @@ function medal(rank: number) {
                         <div class="text-[11px] opacity-60">{{ r.plots }} {{ r.plots === 1 ? 'plot' : 'plots' }} · {{ r.buildings }} buildings · tier {{ r.maxTier }} · 👥 {{ r.popCap }}</div>
                     </div>
                     <div class="text-right">
-                        <div class="text-sm font-black tabular-nums" style="color: var(--g-green)">🪙 {{ formatNumber(r.incomePerDay) }}</div>
+                        <div class="text-sm font-black tabular-nums" style="color: var(--g-green)"><TownCoin /> {{ formatNumber(r.incomePerDay) }}</div>
                         <div class="text-[10px] opacity-50">per day</div>
                     </div>
                 </div>
             </div>
         </div>
         <div v-if="me && !meListed" class="border-t px-4 py-2 text-center text-xs opacity-70" style="border-color: var(--g-line)">
-            You are <b>#{{ me.rank }}</b> at 🪙 {{ formatNumber(me.incomePerDay) }}/day
+            You are <b>#{{ me.rank }}</b> at <TownCoin /> {{ formatNumber(me.incomePerDay) }}/day
         </div>
     </div>
 </template>

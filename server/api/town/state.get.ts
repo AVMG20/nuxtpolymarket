@@ -12,15 +12,22 @@ import {
     TOWN_HAPPINESS_PARK_NEARBY,
     TOWN_HAPPINESS_INDUSTRY_ADJACENT,
     TOWN_PARK_RADIUS,
-    TOWN_INDUSTRY_RADIUS,
     TOWN_NEEDS,
     deriveTown,
     townFloorIncomePerDay,
     townNetPerTick,
     townTierUnlocked,
+    townTierRequirement,
     townLevelCost,
     townLevelBuildMs,
-    townCeilingPrice
+    townPlaceCost,
+    townCeilingPrice,
+    townMood,
+    townNextMood,
+    townNeedsPerTick,
+    townRoadAccess,
+    getTownResource,
+    type TownSatisfied
 } from '#shared/utils/gamelogic/town'
 
 export default defineEventHandler(async (event) => {
@@ -41,8 +48,7 @@ export default defineEventHandler(async (event) => {
         rushMsPerGem: TOWN_RUSH_MS_PER_GEM,
         parkAdjacent: TOWN_HAPPINESS_PARK_NEARBY,
         industryAdjacent: TOWN_HAPPINESS_INDUSTRY_ADJACENT,
-        parkRadius: TOWN_PARK_RADIUS,
-        industryRadius: TOWN_INDUSTRY_RADIUS
+        parkRadius: TOWN_PARK_RADIUS
     }
 
     const existing = await getTownState(userId)
@@ -65,7 +71,24 @@ export default defineEventHandler(async (event) => {
     const expansions = await getExpansions(userId, plots)
 
     const derived = deriveTown(sim, state.happiness, now, settled.satisfied)
-    const unlockedTiers = [0, 1, 2, 3, 4, 5, 6].filter(t => townTierUnlocked(sim, t, now))
+    const unlockedTiers = [0, 1, 2, 3, 4, 5, 6].filter(t => townTierUnlocked(sim, t, now, state.produced))
+    const tierLocks = Object.fromEntries([2, 3, 4, 5, 6].map(t => [t, townTierRequirement(sim, t, now, state.produced)]))
+    const maxTier = Math.max(...unlockedTiers)
+
+    // How happy this town could be right now if every need it can currently
+    // produce (resource tier already unlocked) were supplied — the bar's ceiling.
+    const reachable: TownSatisfied = {}
+    for (const id of Object.keys(townNeedsPerTick(derived.popCap))) {
+        const tier = getTownResource(id)?.tier ?? 99
+        reachable[id as keyof TownSatisfied] = tier <= maxTier
+    }
+    const happinessPotential = deriveTown(sim, state.happiness, now, reachable).happinessTarget
+
+    const countsByType: Record<string, number> = {}
+    for (const b of sim) countsByType[b.type] = (countsByType[b.type] ?? 0) + 1
+    const nextCost = Object.fromEntries(TOWN_BUILDINGS.map(def => [def.id, townPlaceCost(def, countsByType[def.id] ?? 0)]))
+    const mood = townMood(state.happiness)
+    const nextMood = townNextMood(state.happiness)
 
     // Only surface the away-summary when the player was actually away and
     // something happened — a 30s poll refresh should not pop a modal.
@@ -82,7 +105,14 @@ export default defineEventHandler(async (event) => {
         constants,
         happiness: state.happiness,
         happinessTarget: derived.happinessTarget,
+        happinessPotential,
+        mood: { id: mood.id, name: mood.name, emoji: mood.emoji, speed: mood.speed, buildTime: mood.buildTime, storage: mood.storage },
+        nextMood: nextMood ? { id: nextMood.id, name: nextMood.name, emoji: nextMood.emoji, min: nextMood.min, speed: nextMood.speed, buildTime: nextMood.buildTime, storage: nextMood.storage } : null,
         speedMultiplier: derived.speedMultiplier,
+        countsByType,
+        nextCost,
+        tierLocks,
+        produced: state.produced,
         popCap: derived.popCap,
         workersDemanded: derived.workersDemanded,
         workersEmployed: derived.workersEmployed,
@@ -97,7 +127,9 @@ export default defineEventHandler(async (event) => {
             happiness: n.happiness,
             food: n.food,
             satisfied: settled.satisfied[n.resource] ?? false,
-            stock: inventory[n.resource] ?? 0
+            stock: inventory[n.resource] ?? 0,
+            resourceTier: getTownResource(n.resource)?.tier ?? 1,
+            producible: (getTownResource(n.resource)?.tier ?? 1) <= maxTier
         })),
         floorIncomePerDay: townFloorIncomePerDay(sim, state.happiness, now),
         netPerTick: townNetPerTick(sim, derived, now),
@@ -119,7 +151,8 @@ export default defineEventHandler(async (event) => {
             upgradingTo: b.upgradingTo,
             completesAt: b.completesAt.getTime(),
             createdAt: b.createdAt.getTime(),
-            staffing: derived.staffing.get(b.id) ?? null
+            staffing: derived.staffing.get(b.id) ?? null,
+            connected: townRoadAccess(sim, sim.find(x => x.id === b.id)!)
         })),
         inventory,
         myOrders,

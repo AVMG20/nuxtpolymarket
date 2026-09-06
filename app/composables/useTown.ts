@@ -15,6 +15,7 @@ export interface TownBuildingView {
     completesAt: number
     createdAt: number
     staffing: number | null
+    connected: boolean
 }
 
 export interface TownPlotView {
@@ -29,7 +30,7 @@ export interface TownCatalogEntry {
     emoji: string
     color: number
     tier: number
-    kind: 'housing' | 'civic' | 'storage' | 'industry'
+    kind: 'road' | 'housing' | 'civic' | 'storage' | 'industry'
     description: string
     cost: { coins: number, resources: Record<string, number> }
     buildMs: number
@@ -68,6 +69,7 @@ export interface TownMilestoneView {
     description: string
     emoji: string
     reward: number
+    gems: number
     tier: number
     current: number
     target: number
@@ -75,12 +77,36 @@ export interface TownMilestoneView {
     claimed: boolean
 }
 
+export interface TownNeedView {
+    resource: string
+    name: string
+    description: string
+    perTick: number
+    minPop: number
+    active: boolean
+    happiness: number
+    food: boolean
+    satisfied: boolean
+    stock: number
+    resourceTier: number
+    producible: boolean
+}
+
+export interface TownMoodView {
+    id: string
+    name: string
+    emoji: string
+    speed: number
+    buildTime: number
+    storage: number
+}
+
 export interface TownState {
     initialized: boolean
     serverNow: number
     catalog: TownCatalogEntry[]
     resources: TownResourceView[]
-    constants: { tickMs: number, maxOfflineMs: number, maxLevel: number, maxPlots: number, rushMsPerGem: number, parkAdjacent: number, industryAdjacent: number, parkRadius: number, industryRadius: number }
+    constants: { tickMs: number, maxOfflineMs: number, maxLevel: number, maxPlots: number, rushMsPerGem: number, parkAdjacent: number, industryAdjacent: number, parkRadius: number }
     netPerTick?: Record<string, number>
     unlockedTiers?: number[]
     coinsEarned?: number
@@ -93,7 +119,14 @@ export interface TownState {
     workersDemanded?: number
     workersEmployed?: number
     storageCap?: number
-    needs?: { resource: string, name: string, description: string, perTick: number, minPop: number, active: boolean, happiness: number, food: boolean, satisfied: boolean, stock: number }[]
+    needs?: TownNeedView[]
+    happinessPotential?: number
+    mood?: TownMoodView
+    nextMood?: (TownMoodView & { min: number }) | null
+    countsByType?: Record<string, number>
+    nextCost?: Record<string, { coins: number, resources: Record<string, number> }>
+    tierLocks?: Record<string, { needsBuilding: boolean, pop: number, popRequired: number, produced: number, producedRequired: number, producedTier: number } | null>
+    produced?: Record<string, number>
     floorIncomePerDay?: number
     tickProgressMs?: number
     lastSettledAt?: number
@@ -129,12 +162,15 @@ export const useTown = () => {
     const inventory = computed(() => state.value?.inventory ?? {})
     const myOrders = computed(() => state.value?.myOrders ?? [])
     const lastPrices = computed(() => state.value?.lastPrices ?? {})
-    const constants = computed(() => state.value?.constants ?? { tickMs: 60_000, maxOfflineMs: 8 * 3_600_000, maxLevel: 20, maxPlots: 12, rushMsPerGem: 300_000, parkAdjacent: 2, industryAdjacent: 1, parkRadius: 2, industryRadius: 1 })
+    const constants = computed(() => state.value?.constants ?? { tickMs: 60_000, maxOfflineMs: 8 * 3_600_000, maxLevel: 20, maxPlots: 12, rushMsPerGem: 300_000, parkAdjacent: 2, industryAdjacent: 1, parkRadius: 3 })
     const milestones = computed(() => state.value?.milestones ?? [])
     const claimableMilestones = computed(() => milestones.value.filter(m => m.complete && !m.claimed))
     const unlockedTiers = computed(() => new Set(state.value?.unlockedTiers ?? [0, 1]))
     const netPerTick = computed(() => state.value?.netPerTick ?? {})
     const needs = computed(() => state.value?.needs ?? [])
+    const countsByType = computed(() => state.value?.countsByType ?? {})
+    const nextCost = computed(() => state.value?.nextCost ?? {})
+    const tierLocks = computed(() => state.value?.tierLocks ?? {})
 
     const catalogById = computed(() => new Map(catalog.value.map(c => [c.id, c])))
     const resourceById = computed(() => new Map(resources.value.map(r => [r.id, r])))
@@ -202,10 +238,17 @@ export const useTown = () => {
         unlockedTiers,
         netPerTick,
         needs,
+        countsByType,
+        nextCost,
+        tierLocks,
         foundTown: () => call('/api/town/init'),
-        claimMilestone: (id: string) => call<{ id: string, reward: number, title: string }>('/api/town/milestone/claim', { id }),
+        claimMilestone: (id: string) => call<{ id: string, reward: number, gems: number, title: string }>('/api/town/milestone/claim', { id }),
         placeBuilding: (plotId: string, tileX: number, tileY: number, type: string, rotation = 0) =>
             call<{ buildingId: string, completesAt: number }>('/api/town/building/place', { plotId, tileX, tileY, type, rotation }),
+        moveBuilding: (buildingId: string, plotId: string, tileX: number, tileY: number, rotation: number) =>
+            call<{ buildingId: string }>('/api/town/building/move', { buildingId, plotId, tileX, tileY, rotation }),
+        sellBulk: (items: { resource: string, quantity: number }[]) =>
+            call<{ total: number, lines: { resource: string, quantity: number, total: number }[] }>('/api/town/market/sell-bulk', { items }),
         upgradeBuilding: (buildingId: string) => call<{ level: number, completesAt: number }>('/api/town/building/upgrade', { buildingId }),
         rushBuilding: (buildingId: string) => call<{ gems: number, level: number }>('/api/town/building/rush', { buildingId }),
         demolishBuilding: (buildingId: string) => call('/api/town/building/demolish', { buildingId }),
