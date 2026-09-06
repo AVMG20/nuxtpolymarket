@@ -254,6 +254,10 @@ export interface Enemy {
     chill: number
     /** Conflagration: seconds until this burning body ignites a neighbour. */
     spreadT: number
+    /** Hollow Knight: seconds before he may shadow-step again. */
+    blinkCd: number
+    /** Soul Harvest: seconds during which dying raises a spectral ally. */
+    harvested: number
 }
 
 export interface Particle {
@@ -475,6 +479,8 @@ export interface Phantom {
     targetId: number
     /** Fade-in on summon, 0..1. */
     born: number
+    /** Seconds left, or Infinity for a Vanguard ally that stays all run. */
+    life: number
 }
 
 export interface RunStats {
@@ -538,6 +544,14 @@ const FLINCH_MAX = 0.15
 /** Phantom ally tuning. */
 const PHANTOM_SPEED = 250
 const PHANTOM_SEEK = 300
+/** Soul Harvest: how long a reaped enemy stays marked to rise on death. */
+const HARVEST_MARK = 6
+/** Seconds a risen spectral fights for — kept under the ability's cooldown. */
+const HARVEST_SPECTRAL_LIFE = 9
+/** Risen spectrals on the field at once; past this the oldest is renewed. */
+const HARVEST_SPECTRAL_CAP = 8
+/** Hollow Knight: seconds between shadow-steps. */
+const KNIGHT_BLINK_CD = 6
 /** Static Charge lingers this long. */
 const CHARGE_DUR = 4
 /** Frostbite build-up per hit at three stacks, more per stack after. */
@@ -576,6 +590,8 @@ export class MeadowbrawlGame {
     spikes: Spike[] = []
     afterimages: Afterimage[] = []
     phantoms: Phantom[] = []
+    /** Spectrals raised by Soul Harvest this run; picks warrior or archer. */
+    private harvestCount = 0
     /** Eclipse: seconds the world stays stopped (renderer overlay). */
     eclipseT = 0
     /** Deep Winter wave ring, seconds remaining, for the renderer. */
@@ -954,6 +970,7 @@ export class MeadowbrawlGame {
         this.spikes = []
         this.afterimages = []
         this.phantoms = []
+        this.harvestCount = 0
         this.eclipseT = 0
         this.frostWaveT = 0
         this.flash = 0
@@ -1136,7 +1153,9 @@ export class MeadowbrawlGame {
             return
         }
 
-        this.time += dt
+        // The run clock is real play time: hitstop and slow-motion scale the
+        // simulation, not the stopwatch on the results screen.
+        this.time += rawDt
         this.stats.time = this.time
 
         // Sub-step so fast things (dashes, charges) never tunnel.
@@ -1237,7 +1256,8 @@ export class MeadowbrawlGame {
             moveT: type === 'briar' ? 4 : type === 'knight' ? 3.5 : 0, brood: [],
             coin: def.elite ? meadowbrawlEliteCoinBonus(this.wave) : Math.round(this.coinPer * ENEMY_COST[type]),
             stunIdle: 0,
-            veteran, marked: 0, charge: 0, chill: 0, spreadT: 0
+            veteran, marked: 0, charge: 0, chill: 0, spreadT: 0,
+            blinkCd: 0, harvested: 0
         }
         this.enemies.push(e)
         this.burst(e.x, e.y, 0, 8, 'dust', '#b9a77a', 60, 0.5)
@@ -1832,6 +1852,11 @@ export class MeadowbrawlGame {
                     hits++
                     this.damageEnemy(e, base, { source: p, heavy: true, knockback: 60, stagger: 0.4, tag: 'special', bypassShield: true, color: '#8fe3c8' })
                     this.souls.push({ x: e.x, y: e.y, vx: 0, vy: 0, life: 2, targetId: -1, damage: 0 })
+                    // Anything reaped that dies soon after rises to fight for you.
+                    if (e.alive) {
+                        e.harvested = HARVEST_MARK
+                        this.glow(e.x, e.y, e.def.height * 0.6, 6, '#8fe3c8', 40, 0.6)
+                    }
                 }
                 if (hits > 0) {
                     p.hp = Math.min(p.maxHp, p.hp + p.maxHp * 0.04 * hits)
@@ -2027,7 +2052,11 @@ export class MeadowbrawlGame {
             }
             if (so.life <= 0) this.souls.splice(i, 1)
         }
-        for (const e of this.enemies) if (e.marked > 0) e.marked = Math.max(0, e.marked - dt)
+        for (const e of this.enemies) {
+            if (e.marked > 0) e.marked = Math.max(0, e.marked - dt)
+            if (e.harvested > 0) e.harvested = Math.max(0, e.harvested - dt)
+            if (e.blinkCd > 0) e.blinkCd = Math.max(0, e.blinkCd - dt)
+        }
         for (let i = this.afterimages.length - 1; i >= 0; i--) {
             const a = this.afterimages[i]!
             a.life -= dt
@@ -2674,6 +2703,7 @@ export class MeadowbrawlGame {
                 this.souls.push({ x: e.x, y: e.y, vx: Math.cos(a) * 200, vy: Math.sin(a) * 200, life: 3, targetId: -2, damage: this.weapon.baseDamage * this.damageMult * this.weapon.abilities[1].damage })
             }
         }
+        if (e.harvested > 0) this.raiseSpectral(e)
         this.impacts.push({ x: e.x, y: e.y, z: e.def.height * 0.5, life: 0.3, maxLife: 0.3, size: e.def.elite ? 70 : 34, color: '#ffffff', kind: 'ring', angle: 0 })
 
         const p = this.player
@@ -3149,11 +3179,11 @@ export class MeadowbrawlGame {
                     // Blade up: hit him now and he answers with the point.
                     e.moveT = 7
                     begin({ kind: 'parry', windup: 0.35, recover: 0.9, damage: 0, tracking: 0.9 })
-                } else if (ready && los && d > 260) {
+                } else if (ready && los && d > 260 && e.blinkCd <= 0) {
                     this.shadowStep(e)
                 } else if (ready && d < 92 + p.r) {
                     const step = e.combo % 3
-                    if (step === 2) begin({ kind: 'melee', windup: 0.34, reach: 112, halfAngle: 0.8, damage: dmg * 1.3, knockback: 340, recover: 0.7, tracking: 0.5, lunge: 64 })
+                    if (step === 2) begin({ kind: 'melee', windup: 0.38, reach: 112, halfAngle: 0.8, damage: dmg * 1.15, knockback: 340, recover: 0.7, tracking: 0.5, lunge: 64 })
                     else if (step === 1) begin({ kind: 'melee', windup: 0.24, reach: 88, halfAngle: 1.15, damage: dmg * 0.75, knockback: 180, recover: 0.32, tracking: 0.5, lunge: 14 })
                     else begin({ kind: 'melee', windup: 0.34, reach: 90, halfAngle: 0.85, damage: dmg * 0.8, knockback: 180, recover: 0.32, lunge: 24 })
                 }
@@ -3310,8 +3340,8 @@ export class MeadowbrawlGame {
         if (e.type === 'knight') {
             if (a.kind === 'melee') {
                 e.combo += 1
-                // Hits one and two chain straight into the next.
-                e.attackCd = e.combo % 3 === 0 ? 1.0 + Math.random() * 0.5 : 0.1
+                // Hits one and two chain into the next with a beat to roll through.
+                e.attackCd = e.combo % 3 === 0 ? 1.0 + Math.random() * 0.5 : 0.28
             } else {
                 e.attackCd = 0.6
             }
@@ -3331,13 +3361,14 @@ export class MeadowbrawlGame {
         return n
     }
 
-    /** Hollow Knight: blink to the player's flank and open immediately. */
+    /** Hollow Knight: blink to the player's flank and open with a readable swing. */
     private shadowStep(e: Enemy) {
         const p = this.player
+        e.blinkCd = KNIGHT_BLINK_CD
         const side = randomChance(0.5) ? 1 : -1
         const ang = angleTo(p, e) + side * Math.PI * 0.55
-        const tx = clamp(p.x + Math.cos(ang) * 74, e.r, ARENA_W - e.r)
-        const ty = clamp(p.y + Math.sin(ang) * 74, e.r, ARENA_H - e.r)
+        const tx = clamp(p.x + Math.cos(ang) * 96, e.r, ARENA_W - e.r)
+        const ty = clamp(p.y + Math.sin(ang) * 96, e.r, ARENA_H - e.r)
         const sx = e.x
         const sy = e.y
         for (let i = 1; i <= 5; i++) {
@@ -3357,7 +3388,7 @@ export class MeadowbrawlGame {
         this.burst(tx, ty, e.def.height * 0.4, 12, 'smoke', '#241f36', 110, 0.5)
         this.impacts.push({ x: tx, y: ty, z: e.def.height * 0.5, life: 0.24, maxLife: 0.24, size: 40, color: '#8f9bd8', kind: 'ring', angle: 0 })
         this.emit('special', tx, ty, 0.8, 'knight')
-        this.beginAttack(e, { kind: 'melee', windup: 0.34, reach: 90, halfAngle: 0.85, damage: e.damage * 0.8, knockback: 180, recover: 0.32, lunge: 24 }, angleTo(e, p))
+        this.beginAttack(e, { kind: 'melee', windup: 0.5, reach: 90, halfAngle: 0.85, damage: e.damage * 0.8, knockback: 180, recover: 0.32, lunge: 24 }, angleTo(e, p))
     }
 
     /** Push overlapping bodies apart so crowds spread instead of stacking. */
@@ -4009,15 +4040,15 @@ export class MeadowbrawlGame {
     // ------------------------------------------------------------- phantoms
 
     /** Spectral Vanguard: slot 0 and 2 are warriors, slot 1 an archer. */
-    private summonPhantom(slot: number) {
+    private summonPhantom(slot: number, opts: { kind?: Phantom['kind'], x?: number, y?: number, life?: number } = {}) {
         const p = this.player
-        const kind = slot === 1 ? 'archer' : 'warrior'
+        const kind = opts.kind ?? (slot === 1 ? 'archer' : 'warrior')
         const a = Math.PI + (slot - 1) * 0.9
         const ph: Phantom = {
             id: this.nextId++, kind,
-            x: p.x + Math.cos(a) * 50, y: p.y + Math.sin(a) * 36,
+            x: opts.x ?? p.x + Math.cos(a) * 50, y: opts.y ?? p.y + Math.sin(a) * 36,
             vx: 0, vy: 0, facing: p.facing, anim: 0, moving: false, slot,
-            cd: 0.6, attack: null, targetId: -1, born: 0
+            cd: 0.6, attack: null, targetId: -1, born: 0, life: opts.life ?? Infinity
         }
         this.phantoms.push(ph)
         const color = kind === 'archer' ? '#a5f3cf' : '#9fe3ff'
@@ -4025,6 +4056,26 @@ export class MeadowbrawlGame {
         this.rings.push({ x: ph.x, y: ph.y, r0: 36, r1: 12, life: 0.7, maxLife: 0.7, color, width: 1.5 })
         this.glow(ph.x, ph.y, 20, 14, color, 90, 0.8)
         this.emit('phantom', ph.x, ph.y, 0.5, ph.kind)
+    }
+
+    /**
+     * Soul Harvest: a reaped enemy rises where it fell as a spectral for a
+     * few seconds. Every third one is an archer. Past the cap the oldest
+     * risen spectral is renewed instead of the field filling up.
+     */
+    private raiseSpectral(e: Enemy) {
+        const risen = this.phantoms.filter(ph => ph.life !== Infinity)
+        this.harvestCount += 1
+        if (risen.length >= HARVEST_SPECTRAL_CAP) {
+            const oldest = risen.reduce((a, b) => (b.life < a.life ? b : a))
+            oldest.life = HARVEST_SPECTRAL_LIFE
+            this.glow(oldest.x, oldest.y, 20, 8, '#8fe3c8', 60, 0.5)
+            return
+        }
+        const kind = this.harvestCount % 3 === 0 ? 'archer' : 'warrior'
+        this.summonPhantom(3 + risen.length, { kind, x: e.x, y: e.y, life: HARVEST_SPECTRAL_LIFE })
+        this.souls.push({ x: e.x, y: e.y, vx: 0, vy: 0, life: 2, targetId: -1, damage: 0 })
+        this.floaters.push({ x: e.x, y: e.y, z: e.def.height + 10, text: 'RISE', life: 0.9, maxLife: 0.9, color: '#8fe3c8', size: 15, vx: 0 })
     }
 
     private phantomTarget(ph: Phantom): Enemy | null {
@@ -4044,8 +4095,18 @@ export class MeadowbrawlGame {
 
     private updatePhantoms(dt: number) {
         const p = this.player
-        for (const ph of this.phantoms) {
-            ph.born = Math.min(1, ph.born + dt * 2)
+        for (let i = this.phantoms.length - 1; i >= 0; i--) {
+            const ph = this.phantoms[i]!
+            if (ph.life !== Infinity) {
+                ph.life -= dt
+                if (ph.life <= 0) {
+                    this.glow(ph.x, ph.y, 20, 10, ph.kind === 'archer' ? '#a5f3cf' : '#9fe3ff', 70, 0.6)
+                    this.phantoms.splice(i, 1)
+                    continue
+                }
+            }
+            // Risen spectrals fade back out over their last half second.
+            ph.born = ph.life < 0.5 ? Math.min(ph.born, ph.life * 2) : Math.min(1, ph.born + dt * 2)
             ph.cd = Math.max(0, ph.cd - dt)
             ph.anim += dt * (ph.moving ? 9 : 2.5)
             const target = this.phantomTarget(ph)
@@ -4117,7 +4178,7 @@ export class MeadowbrawlGame {
             this.trails.push({ x: ph.x, y: ph.y, angle0: ph.facing - 1.1, angle1: ph.facing + 1.1, reach, life: 0.2, maxLife: 0.2, color: '#9fe3ff', kind: 'arc', width: 18, z: 14, style: 'ghost' })
             for (const e of this.enemies) {
                 if (!e.alive || !inArc(ph, ph.facing, 1.1, reach, e, e.r)) continue
-                this.damageEnemy(e, base * 0.4, { source: ph, knockback: 120, stagger: 0.2, tag: 'phantom', color: '#9fe3ff' })
+                this.damageEnemy(e, base * 0.8, { source: ph, knockback: 120, stagger: 0.2, tag: 'phantom', color: '#9fe3ff' })
                 this.burst(e.x, e.y, 20, 4, 'spark', '#dff6ff', 85, 0.2, ph.facing)
                 this.emit('phantomHit', e.x, e.y, 0.3, 'warrior')
             }
@@ -4126,7 +4187,7 @@ export class MeadowbrawlGame {
             const a = angleTo(ph, target)
             this.projectiles.push({
                 id: this.nextId++, x: ph.x + Math.cos(a) * 14, y: ph.y + Math.sin(a) * 14,
-                vx: Math.cos(a) * 560, vy: Math.sin(a) * 560, life: 0.9, damage: base * 0.3, r: 9,
+                vx: Math.cos(a) * 560, vy: Math.sin(a) * 560, life: 0.9, damage: base * 0.65, r: 9,
                 owner: 'player', pierce: 0, hitIds: new Set(), kind: 'spectral', angle: a
             })
             this.burst(ph.x, ph.y, 20, 4, 'spark', '#c9ffe8', 80, 0.25, a)

@@ -26,7 +26,7 @@ export const ENEMY_TYPES: Record<EnemyTypeId, EnemyTypeDef> = {
     ogre: { id: 'ogre', name: 'Bog Ogre', hp: 520, speed: 60, radius: 30, height: 72, damage: 30, elite: true, poise: true, score: 300 },
     warlord: { id: 'warlord', name: 'Ashen Warlord', hp: 380, speed: 92, radius: 22, height: 50, damage: 22, elite: true, poise: true, shield: 140, score: 300 },
     briar: { id: 'briar', name: 'Briar Matriarch', hp: 440, speed: 70, radius: 26, height: 58, damage: 20, elite: true, poise: true, score: 300 },
-    knight: { id: 'knight', name: 'Hollow Knight', hp: 360, speed: 105, radius: 20, height: 52, damage: 24, elite: true, poise: true, shield: 90, score: 300 }
+    knight: { id: 'knight', name: 'Hollow Knight', hp: 360, speed: 105, radius: 20, height: 52, damage: 22, elite: true, poise: true, shield: 90, score: 300 }
 }
 
 /** Which wave each archetype first appears on. */

@@ -86,7 +86,7 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
         ],
         tagline: '5-hit · tiny reach · blistering',
         description: 'Get close and never stop moving. The flurry finisher shreds.',
-        baseDamage: 9,
+        baseDamage: 10,
         comboWindow: 0.4,
         heavy: false,
         color: '#f1e5c7',
@@ -128,7 +128,7 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
         className: 'Reaper',
         classTagline: 'Inevitable. Marks the doomed and drinks what is left.',
         abilities: [
-            { id: 'soulharvest', name: 'Soul Harvest', description: 'Tear the soul from every enemy within reach: damage through shields, and each one heals you 4%.', cooldown: 11, icon: 'i-lucide-ghost', damage: 1.2 },
+            { id: 'soulharvest', name: 'Soul Harvest', description: 'Tear the soul from every enemy within reach: damage through shields, each one heals you 4%, and any of them that die in the next 6s rise as spectral allies for 9s.', cooldown: 11, icon: 'i-lucide-ghost', damage: 1.2 },
             { id: 'deathmark', name: 'Death Mark', description: 'Mark the five nearest enemies for 5s: they take +40% damage and burst into hunting souls when they die.', cooldown: 12, icon: 'i-lucide-skull', damage: 0.8 }
         ],
         tagline: '3-hit · enormous arcs · pulls',

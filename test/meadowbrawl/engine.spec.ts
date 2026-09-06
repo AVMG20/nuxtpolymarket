@@ -1091,3 +1091,112 @@ describe('the new bosses', () => {
         expect(swings).toBeGreaterThanOrEqual(3)
     })
 })
+
+describe('Soul Harvest', () => {
+    it('raises reaped enemies as short-lived spectral allies', () => {
+        const g = fresh('scythe')
+        const p = g.player
+        const e = g.spawnEnemy('grunt', 'north')
+        e.x = p.x + 60
+        e.y = p.y
+        e.state = 'chase'
+        e.entered = true
+        e.hp = 1e6
+        g.input.qPressed = true
+        step(g, 0.1)
+        expect(e.harvested).toBeGreaterThan(0)
+        expect(g.phantoms).toHaveLength(0)
+        g.damageEnemy(e, 1e7, { source: p, tag: 'melee' })
+        expect(e.alive).toBe(false)
+        expect(g.phantoms).toHaveLength(1)
+        const ph = g.phantoms[0]!
+        expect(Number.isFinite(ph.life)).toBe(true)
+        // The cooldown outlasts the spectral, so there is never permanent uptime.
+        expect(WEAPONS.scythe.abilities[0].cooldown).toBeGreaterThan(ph.life)
+        step(g, ph.life + 0.5)
+        expect(g.phantoms).toHaveLength(0)
+    })
+
+    it('does not raise enemies that outlive the mark, and caps the field', () => {
+        const g = fresh('scythe')
+        const p = g.player
+        const grunts = []
+        for (let i = 0; i < 12; i++) {
+            const e = g.spawnEnemy('grunt', 'north')
+            e.x = p.x + 40 + i * 4
+            e.y = p.y
+            e.state = 'chase'
+            e.entered = true
+            e.hp = 1e6
+            grunts.push(e)
+        }
+        g.input.qPressed = true
+        step(g, 0.1)
+        for (const e of grunts) g.damageEnemy(e, 1e7, { source: p, tag: 'melee' })
+        expect(g.phantoms.length).toBeLessThanOrEqual(8)
+        expect(g.phantoms.some(ph => ph.kind === 'archer')).toBe(true)
+        expect(g.phantoms.some(ph => ph.kind === 'warrior')).toBe(true)
+
+        const late = g.spawnEnemy('grunt', 'north')
+        late.x = p.x + 60
+        late.y = p.y
+        late.state = 'chase'
+        late.entered = true
+        late.hp = 1e6
+        p.abilityCd.q = 0
+        g.input.qPressed = true
+        step(g, 0.1)
+        // Hitstop slows the simulation clock, so give the mark room to run out.
+        step(g, 9)
+        expect(late.harvested).toBe(0)
+        const before = g.phantoms.length
+        g.damageEnemy(late, 1e7, { source: p, tag: 'melee' })
+        expect(g.phantoms.length).toBeLessThanOrEqual(before)
+    })
+
+    it('leaves Spectral Vanguard allies in place when risen ones expire', () => {
+        const g = fresh('scythe')
+        g.applyOffer({ upgrade: UPGRADE_BY_ID.vanguard!, stack: 1 })
+        expect(g.phantoms).toHaveLength(1)
+        expect(g.phantoms[0]!.life).toBe(Infinity)
+        step(g, 12)
+        expect(g.phantoms).toHaveLength(1)
+    })
+})
+
+describe('Hollow Knight pacing', () => {
+    it('cannot shadow-step again straight after landing one', () => {
+        const g = fresh('sword')
+        const p = g.player
+        p.maxHp = 1e6
+        p.hp = p.maxHp
+        g.world.obstacles = []
+        g.rebuildNav()
+        const k = g.spawnEnemy('knight', 'north')
+        k.x = p.x + 420
+        k.y = p.y
+        k.state = 'chase'
+        k.entered = true
+        k.moveT = 99
+        k.attackCd = 0
+        let blinks = 0
+        let px = k.x
+        let py = k.y
+        for (let i = 0; i < 60 * 4; i++) {
+            g.update(1 / 60)
+            if (Math.hypot(k.x - px, k.y - py) > 120) {
+                blinks += 1
+                // Drop him back at range so a second blink would be legal by distance.
+                k.x = p.x + 420
+                k.y = p.y
+                k.attack = null
+                k.state = 'chase'
+                k.attackCd = 0
+            }
+            px = k.x
+            py = k.y
+        }
+        expect(blinks).toBe(1)
+        expect(k.blinkCd).toBeGreaterThan(0)
+    })
+})
