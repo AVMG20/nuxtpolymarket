@@ -90,6 +90,7 @@ export interface TownNeedView {
     satisfied: boolean
     stock: number
     resourceTier: number
+    expected: boolean
     producible: boolean
 }
 
@@ -107,7 +108,7 @@ export interface TownState {
     serverNow: number
     catalog: TownCatalogEntry[]
     resources: TownResourceView[]
-    constants: { tickMs: number, maxOfflineMs: number, maxLevel: number, maxPlots: number, rushMsPerGem: number, parkAdjacent: number, industryAdjacent: number, parkRadius: number }
+    constants: { tickMs: number, maxOfflineMs: number, maxLevel: number, maxPlots: number, rushMsPerGem: number, parkAdjacent: number, industryAdjacent: number, parkRadius: number, parkMaxBonus: number, industryMaxPenalty: number }
     netPerTick?: Record<string, number>
     unlockedTiers?: number[]
     coinsEarned?: number
@@ -122,6 +123,15 @@ export interface TownState {
     storageCap?: number
     needs?: TownNeedView[]
     happinessPotential?: number
+    reachableTier?: number
+    happinessBreakdown?: {
+        base: number
+        needs: number
+        parks: number
+        industry: number
+        crowding: number
+        layout: { parks: number, industry: number, residents: number, residentsWithPark: number, residentsWithIndustry: number }
+    }
     mood?: TownMoodView
     nextMood?: (TownMoodView & { min: number }) | null
     countsByType?: Record<string, number>
@@ -163,7 +173,7 @@ export const useTown = () => {
     const inventory = computed(() => state.value?.inventory ?? {})
     const myOrders = computed(() => state.value?.myOrders ?? [])
     const lastPrices = computed(() => state.value?.lastPrices ?? {})
-    const constants = computed(() => state.value?.constants ?? { tickMs: 60_000, maxOfflineMs: 8 * 3_600_000, maxLevel: 20, maxPlots: 12, rushMsPerGem: 300_000, parkAdjacent: 2, industryAdjacent: 1, parkRadius: 3 })
+    const constants = computed(() => state.value?.constants ?? { tickMs: 60_000, maxOfflineMs: 8 * 3_600_000, maxLevel: 20, maxPlots: 12, rushMsPerGem: 300_000, parkAdjacent: 2, industryAdjacent: 1, parkRadius: 3, parkMaxBonus: 20, industryMaxPenalty: 25 })
     const milestones = computed(() => state.value?.milestones ?? [])
     const claimableMilestones = computed(() => milestones.value.filter(m => m.complete && !m.claimed))
     const unlockedTiers = computed(() => new Set(state.value?.unlockedTiers ?? [0, 1]))

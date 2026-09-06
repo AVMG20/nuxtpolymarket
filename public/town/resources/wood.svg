@@ -1,1 +1,25 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><defs><linearGradient id="gold" x2=".7" y2="1"><stop stop-color="#f8d687"/><stop offset="1" stop-color="#cd8b43"/></linearGradient><linearGradient id="wood" x2=".7" y2="1"><stop stop-color="#d9a468"/><stop offset="1" stop-color="#99643c"/></linearGradient><linearGradient id="stone" x2=".7" y2="1"><stop stop-color="#b9d1d3"/><stop offset="1" stop-color="#698690"/></linearGradient><linearGradient id="linen" x2=".7" y2="1"><stop stop-color="#fff0c8"/><stop offset="1" stop-color="#d5b47c"/></linearGradient><linearGradient id="clay" x2=".7" y2="1"><stop stop-color="#ecb38a"/><stop offset="1" stop-color="#c77556"/></linearGradient><linearGradient id="teal" x2=".7" y2="1"><stop stop-color="#65c5bc"/><stop offset="1" stop-color="#367586"/></linearGradient></defs><ellipse cx="33" cy="57" rx="23" ry="4" fill="#142f35" opacity=".2"/><g stroke="#4e4a3b" stroke-width="1.1" stroke-linejoin="round" stroke-linecap="round"><path d="m12 25 24-13 17 11v22L30 57 12 45Z" fill="url(#wood)"/><path d="m13 26 18 11 22-14M31 37v20M19 22l18 11M25 19l19 10" fill="none" stroke="#5f422e"/><ellipse cx="22" cy="40" rx="8" ry="12" transform="rotate(-27 22 40)" fill="#e6b779"/><ellipse cx="22" cy="40" rx="4" ry="7" transform="rotate(-27 22 40)" fill="none" stroke="#a66d3c"/><path d="m36 39 12-7m-12 15 12-7" stroke="#d49b57"/></g></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <linearGradient id="bark" x1="0" y1="0" x2=".75" y2="1">
+      <stop stop-color="#b57b43"/>
+      <stop offset=".45" stop-color="#936037"/>
+      <stop offset="1" stop-color="#63412b"/>
+    </linearGradient>
+    <linearGradient id="end" x1="0" y1="0" x2=".7" y2="1">
+      <stop stop-color="#f4d599"/>
+      <stop offset="1" stop-color="#d7a15f"/>
+    </linearGradient>
+  </defs>
+  <ellipse cx="33" cy="57" rx="24" ry="4" fill="#142f35" opacity=".2"/>
+  <g stroke-linecap="round" stroke-linejoin="round">
+    <path d="M15 28 36 12C44 7 54 15 57 24c3 8 1 15-7 19L28 58c7-3 11-10 7-19-4-9-13-15-20-11Z" fill="url(#bark)" stroke="#553b29" stroke-width="1.5"/>
+    <path d="M21 27c7-3 12-9 19-11M28 31c6-4 11-8 17-10M35 39c8-5 12-11 20-13M37 46c7-3 11-7 17-11" fill="none" stroke="#d49a59" stroke-width="1.6"/>
+    <path d="m24 25 4-4m3 11 8-6m-3 19 7-4m-1 6 6-5M48 17l4 4" fill="none" stroke="#573b2b" stroke-width="1.5"/>
+    <path d="M47 27c-4-1-6 3-5 6 2 3 6 0 6-3 0-1 0-2-1-3Z" fill="#75472c" stroke="#d49a59"/>
+    <path d="M15 28c7-4 16 2 20 11 4 9 0 16-7 19-8 3-17-5-20-14-3-8 0-14 7-16Z" fill="#825332" stroke="#553b29" stroke-width="1.5"/>
+    <path d="M16 31c6-3 13 2 17 10 3 7 0 13-6 15-7 2-14-5-17-13-2-6 0-10 6-12Z" fill="url(#end)" stroke="#efc887" stroke-width=".8"/>
+    <path d="M18 35c5-2 10 2 12 8 3 5 1 9-3 10-5 1-10-4-13-10-2-4 0-7 4-8Z" fill="none" stroke="#b78048" stroke-width="1.15"/>
+    <path d="M20 39c3-1 6 2 8 6 1 3 0 5-2 5-3 0-6-3-7-6-1-3-1-4 1-5Z" fill="none" stroke="#b78048" stroke-width="1.1"/>
+    <path d="m16 32 3 4m11 16-3-3m-15-9 4 1" fill="none" stroke="#9b673c" stroke-width="1"/>
+  </g>
+</svg>

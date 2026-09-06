@@ -5,8 +5,10 @@
 // projecting world points each frame and written straight to the DOM — no
 // per-frame Vue re-render.
 import * as THREE from 'three'
+import { townVisualLevel } from '~/utils/town/appearance'
 import { townDragDelta, townKeyboardDelta, townIsTyping } from '~/utils/town/camera'
-import { TOWN_PLOT_SIZE, TOWN_FACING, getTownBuilding, townLevelBuildMs, townFrontTile, type TownBuildingId } from '#shared/utils/gamelogic/town'
+import { TOWN_PLOT_SIZE, TOWN_FACING, getTownBuilding, townLevelBuildMs, townFrontTile, type TownBuildingDef, type TownBuildingId } from '#shared/utils/gamelogic/town'
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { createBuildingModel, createVillager, createForSaleSign, townMaterial, TREE_GEOMETRY } from '~/utils/town/models'
 
 export interface ScenePlot { id: string, x: number, y: number }
@@ -34,6 +36,7 @@ const props = withDefaults(defineProps<{
     selectedBuildingId?: string | null
     ghostType?: string | null
     ghostRotation?: number
+    ghostLevel?: number
     keyboardEnabled?: boolean
     serverOffsetMs?: number
     popCap?: number
@@ -54,6 +57,7 @@ const props = withDefaults(defineProps<{
     selectedBuildingId: null,
     ghostType: null,
     ghostRotation: 0,
+    ghostLevel: 1,
     keyboardEnabled: true,
     serverOffsetMs: 0,
     popCap: 0,
@@ -84,6 +88,24 @@ const overlay = ref<HTMLDivElement | null>(null)
 
 const PLOT = TOWN_PLOT_SIZE
 
+// ─── Frame budget ────────────────────────────────────────────────────────────
+// An idle town is a still picture most of the time. Everything below trades
+// frames nobody looks at for a laptop fan that stays quiet: a lower pixel
+// ratio, shadows redrawn only on change, a 30fps cap while the camera rests
+// (60 while it moves), overlays written at 10Hz, and per-frame set-building
+// hoisted into caches invalidated when the buildings actually change.
+const MAX_PIXEL_RATIO = 1.5
+const IDLE_FRAME_MS = 1000 / 30
+const ACTIVE_FRAME_MS = 1000 / 60
+const OVERLAY_INTERVAL_MS = 100
+const VILLAGER_INTERVAL_MS = 50
+const MAX_VILLAGERS = 12
+
+let shadowsDirty = true
+function markShadowsDirty() {
+    shadowsDirty = true
+}
+
 // ─── Scene graph ─────────────────────────────────────────────────────────────
 
 let renderer: THREE.WebGLRenderer | null = null
@@ -109,6 +131,7 @@ const camGoal = { ...cam }
 const MIN_DIST = 7
 const MAX_DIST = 70
 
+let sunAt = { x: Infinity, z: Infinity }
 function applyCamera() {
     const { tx, tz, yaw, pitch, dist } = cam
     camera.position.set(
@@ -117,10 +140,16 @@ function applyCamera() {
         tz + dist * Math.cos(pitch) * Math.cos(yaw)
     )
     camera.lookAt(tx, 0, tz)
-    // Shadows follow the view so they always cover what's on screen.
-    sun.position.set(tx + 26, 40, tz + 14)
-    sun.target.position.set(tx, 0, tz)
-    sun.target.updateMatrixWorld()
+    // The shadow camera follows the view so shadows cover what's on screen, but
+    // nudging it every frame would force a shadow redraw every frame. Move it
+    // in steps instead, and only then mark the map dirty.
+    if (Math.abs(tx - sunAt.x) > 3 || Math.abs(tz - sunAt.z) > 3) {
+        sunAt = { x: tx, z: tz }
+        sun.position.set(tx + 26, 40, tz + 14)
+        sun.target.position.set(tx, 0, tz)
+        sun.target.updateMatrixWorld()
+        markShadowsDirty()
+    }
 }
 
 function recenter(animate = true) {
@@ -150,7 +179,7 @@ function setupStatic() {
     const hemi = new THREE.HemisphereLight(0xd6efff, 0x718555, 1.15)
     scene.add(hemi)
     sun.castShadow = true
-    sun.shadow.mapSize.set(2048, 2048)
+    sun.shadow.mapSize.set(1024, 1024)
     sun.shadow.camera.near = 5
     sun.shadow.camera.far = 120
     sun.shadow.camera.left = -34
@@ -172,10 +201,11 @@ function setupStatic() {
 
     // Distant hills in the fog give the horizon some shape.
     const hillMat = new THREE.MeshStandardMaterial({ color: 0x668b73, roughness: 1, flatShading: true })
+    const hillGeo = new THREE.SphereGeometry(1, 8, 6)
     for (let i = 0; i < 14; i++) {
         const a = (i / 14) * Math.PI * 2
         const r = 95 + (i % 3) * 18
-        const hill = new THREE.Mesh(new THREE.SphereGeometry(1, 9, 7), hillMat)
+        const hill = new THREE.Mesh(hillGeo, hillMat)
         hill.position.set(Math.cos(a) * r, -6, Math.sin(a) * r)
         hill.scale.set(28 + (i % 4) * 9, 14 + (i % 3) * 5, 24 + (i % 5) * 6)
         scene.add(hill)
@@ -183,15 +213,16 @@ function setupStatic() {
 
     // Clouds: flat soft ellipsoids drifting slowly.
     const cloudMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1, transparent: true, opacity: 0.85 })
-    for (let i = 0; i < 9; i++) {
+    const puffGeo = new THREE.SphereGeometry(1, 7, 5)
+    for (let i = 0; i < 6; i++) {
         const cloud = new THREE.Group()
         for (let j = 0; j < 3; j++) {
-            const puff = new THREE.Mesh(new THREE.SphereGeometry(1, 8, 6), cloudMat)
+            const puff = new THREE.Mesh(puffGeo, cloudMat)
             puff.position.set(j * 1.6 - 1.6, (j % 2) * 0.3, (j % 2) * 0.6)
             puff.scale.set(2.2 + j * 0.4, 0.9, 1.6)
             cloud.add(puff)
         }
-        cloud.position.set((i - 4) * 22 + (i % 2) * 9, 24 + (i % 3) * 3, -30 + (i % 4) * 18)
+        cloud.position.set((i - 3) * 34 + (i % 2) * 9, 24 + (i % 3) * 3, -30 + (i % 4) * 18)
         cloud.userData.drift = 0.4 + (i % 3) * 0.15
         clouds.push(cloud)
         scene.add(cloud)
@@ -288,7 +319,7 @@ function rebuildExpansions() {
         let sign: THREE.Group | null = null
         let board: THREE.Mesh | null = null
         if (slot.free) {
-            sign = createForSaleSign()
+            sign = flattenModel(createForSaleSign())
             sign.position.set(slot.x * PLOT + PLOT / 2, 0, slot.y * PLOT + PLOT / 2)
             sign.rotation.y = cam.yaw
             sign.scale.setScalar(1.6)
@@ -345,6 +376,8 @@ interface BuildingEntry {
     spin: THREE.Object3D[]
     smoke: THREE.Object3D[]
     glow: THREE.Mesh[]
+    visualLevel: number
+    modelHeight: number
     wasPending: boolean
     popAt: number
     baseY: number
@@ -353,6 +386,8 @@ interface BuildingEntry {
     roadSig?: string
     /** Big red "!" while the front door has no road. */
     alert: HTMLDivElement | null
+    /** Cached definition — looked up once per building, not once per frame. */
+    def: TownBuildingDef
 }
 const entries = new Map<string, BuildingEntry>()
 const plotById = computed(() => new Map(props.plots.map(p => [p.id, p])))
@@ -363,7 +398,7 @@ function worldPos(b: SceneBuilding): { x: number, z: number } | null {
     return { x: p.x * PLOT + b.tileX + 0.5, z: p.y * PLOT + b.tileY + 0.5 }
 }
 
-function makeScaffold(): THREE.Group {
+function makeScaffold(height = 0.9): THREE.Group {
     const g = new THREE.Group()
     const mat = townMaterial(0xc8a165)
     for (const [x, z] of [[-0.42, -0.42], [0.42, -0.42], [-0.42, 0.42], [0.42, 0.42]] as const) {
@@ -379,7 +414,56 @@ function makeScaffold(): THREE.Group {
             g.add(rail)
         }
     }
+    g.scale.y = Math.max(1, height / 0.9)
     return g
+}
+
+// ─── Model flattening ────────────────────────────────────────────────────────
+// A modelled building is dozens of little boxes, and every one of them is a
+// draw call. The parts that never move can be merged into one mesh per
+// material without touching the model definitions: only the named parts the
+// frame loop animates (and anything under them) stay separate.
+
+const ANIMATED_PARTS = new Set(['spin', 'smoke', 'glow', 'sparkle', 'cart', 'crop', 'board'])
+
+function flattenModel(group: THREE.Group): THREE.Group {
+    group.updateMatrixWorld(true)
+    const out = new THREE.Group()
+    const byMaterial = new Map<THREE.Material, THREE.BufferGeometry[]>()
+
+    // build() lays parts out as direct children, so a shallow pass is enough —
+    // a named part keeps its whole subtree (the mill's sails hang off its hub).
+    for (const child of [...group.children]) {
+        const mesh = child instanceof THREE.Mesh ? child : null
+        if (!mesh || (mesh.name && ANIMATED_PARTS.has(mesh.name)) || child.children.length > 0) {
+            out.add(child)
+            continue
+        }
+        const material = mesh.material as THREE.Material
+        const geometry = mesh.geometry.clone().applyMatrix4(mesh.matrixWorld)
+        const bucket = byMaterial.get(material)
+        if (bucket) bucket.push(geometry)
+        else byMaterial.set(material, [geometry])
+    }
+
+    for (const [material, geometries] of byMaterial) {
+        const merged = geometries.length === 1 ? geometries[0]! : mergeGeometries(geometries, false)
+        if (!merged) {
+            // Attribute sets did not line up; fall back to separate meshes.
+            for (const g of geometries) out.add(new THREE.Mesh(g, material))
+            continue
+        }
+        const mesh = new THREE.Mesh(merged, material)
+        mesh.castShadow = true
+        mesh.receiveShadow = true
+        out.add(mesh)
+    }
+    return out
+}
+
+/** The asset factory batches static parts and caches each type/level pair. */
+function buildingModel(type: TownBuildingId, level = 1): THREE.Group {
+    return createBuildingModel(type, level)
 }
 
 // ─── Roads ───────────────────────────────────────────────────────────────────
@@ -392,13 +476,23 @@ const ROAD_CURB = townMaterial(0x8d8f95)
 
 function roadKey(wx: number, wy: number) { return `${wx},${wy}` }
 
+// Both sets are rebuilt only when the buildings or plots change, not per frame.
+let roadCache: Set<string> | null = null
+let occupiedCache: Set<string> | null = null
+function invalidateTileCaches() {
+    roadCache = null
+    occupiedCache = null
+}
+
 function roadTiles(): Set<string> {
+    if (roadCache) return roadCache
     const set = new Set<string>()
     for (const b of props.buildings) {
         if (b.type !== 'road') continue
         const pos = worldPos(b)
         if (pos) set.add(roadKey(Math.floor(pos.x), Math.floor(pos.z)))
     }
+    roadCache = set
     return set
 }
 
@@ -406,7 +500,17 @@ function roadConnections(wx: number, wy: number, roads: Set<string>): boolean[] 
     return TOWN_FACING.map(([dx, dy]) => roads.has(roadKey(wx + dx, wy + dy)))
 }
 
+const roadModelCache = new Map<string, THREE.Group>()
 function buildRoadModel(conns: boolean[]): THREE.Group {
+    const key = conns.map(c => c ? '1' : '0').join('')
+    const cached = roadModelCache.get(key)
+    if (cached) return cached.clone(true)
+    const built = flattenModel(buildRoadParts(conns))
+    roadModelCache.set(key, built)
+    return built.clone(true)
+}
+
+function buildRoadParts(conns: boolean[]): THREE.Group {
     const g = new THREE.Group()
     const base = new THREE.Mesh(new THREE.BoxGeometry(1, 0.04, 1), ROAD_BASE)
     base.position.y = 0.02
@@ -445,6 +549,43 @@ function levelScale(level: number) {
     return BASE_SCALE * (1 + Math.min(0.4, Math.max(0, level - 1) * 0.025))
 }
 
+// Swap only the artwork. Keep selection, rotation, timers and the building's
+// simulation data intact, and bind animation anchors on the new model.
+function syncModelAppearance(e: BuildingEntry, level: number) {
+    if (e.data.type === 'road' || e.visualLevel === level) return
+    releaseModelGlow(e.model)
+    e.group.remove(e.model)
+    e.model = buildingModel(e.data.type as TownBuildingId, level)
+    e.model.rotation.y = (e.data.rotation ?? 0) * Math.PI / 2
+    e.model.traverse(o => { o.userData.buildingId = e.data.id })
+    e.group.add(e.model)
+    e.visualLevel = level
+    e.modelHeight = e.model.userData.height as number
+    bindModelAnimations(e)
+    markShadowsDirty()
+}
+
+function bindModelAnimations(e: BuildingEntry) {
+    e.spin = []
+    e.smoke = []
+    e.glow = []
+    e.model.traverse(o => {
+        if (o.name === 'spin') e.spin.push(o)
+        if (o.name === 'smoke') e.smoke.push(o)
+        if (o.name === 'glow' && o instanceof THREE.Mesh) e.glow.push(o)
+    })
+}
+
+function releaseModelGlow(model: THREE.Group) {
+    model.traverse(o => {
+        if (o.name === 'glow' && o instanceof THREE.Mesh) (o.material as THREE.Material).dispose()
+    })
+}
+
+function displayedLevel(b: SceneBuilding, now: number) {
+    return townVisualLevel(!isPending(b, now) && b.upgradingTo !== null ? Math.max(b.level, b.upgradingTo) : b.level)
+}
+
 function syncBuildings() {
     const now = Date.now() + props.serverOffsetMs
     const seen = new Set<string>()
@@ -469,7 +610,7 @@ function syncBuildings() {
             const group = new THREE.Group()
             const model = isRoad
                 ? buildRoadModel(roadConnections(Math.floor(pos.x), Math.floor(pos.z), roads))
-                : createBuildingModel(b.type as TownBuildingId)
+                : buildingModel(b.type as TownBuildingId, displayedLevel(b, now))
             group.add(model)
             group.userData.buildingId = b.id
             model.traverse((o) => { o.userData.buildingId = b.id })
@@ -477,25 +618,25 @@ function syncBuildings() {
             e = {
                 data: b, group, model, scaffold: null, bar: null,
                 spin: [], smoke: [], glow: [],
+                visualLevel: displayedLevel(b, now),
+                modelHeight: (model.userData.height as number | undefined) ?? 0.9,
                 wasPending: isPending(b, now), popAt: 0, baseY: 0.3,
                 nextPopup: performance.now() + Math.random() * props.tickMs,
                 roadSig: sig,
-                alert: null
+                alert: null,
+                def: getTownBuilding(b.type)!
             }
-            model.traverse((o) => {
-                if (o.name === 'spin') e!.spin.push(o)
-                if (o.name === 'smoke') e!.smoke.push(o)
-                if (o.name === 'glow' && o instanceof THREE.Mesh) e!.glow.push(o)
-            })
+            bindModelAnimations(e)
             entries.set(b.id, e)
         }
         e.data = b
+        syncModelAppearance(e, displayedLevel(b, now))
         e.model.rotation.y = isRoad ? 0 : (b.rotation ?? 0) * Math.PI / 2
         e.group.position.set(pos.x, e.baseY, pos.z)
         e.group.visible = props.movingId !== b.id
         const pending = isPending(b, now)
         if (pending && !e.scaffold) {
-            e.scaffold = makeScaffold()
+            e.scaffold = makeScaffold(e.modelHeight * levelScale(b.level) + 0.15)
             e.group.add(e.scaffold)
         }
         if (!pending && e.scaffold) {
@@ -514,6 +655,7 @@ function syncBuildings() {
 }
 
 function disposeEntry(e: BuildingEntry) {
+    releaseModelGlow(e.model)
     buildingsGroup.remove(e.group)
     e.bar?.remove()
     e.alert?.remove()
@@ -524,11 +666,11 @@ function disposeEntry(e: BuildingEntry) {
 let ghost: THREE.Group | null = null
 let ghostMats: THREE.MeshStandardMaterial[] = []
 function rebuildGhost() {
-    if (ghost) { buildingsGroup.remove(ghost); ghost = null; ghostMats = [] }
+    if (ghost) { buildingsGroup.remove(ghost); ghostMats.forEach(m => m.dispose()); ghost = null; ghostMats = [] }
     hideGhost()
     if (!props.ghostType || !getTownBuilding(props.ghostType)) return
     const ghostDef = getTownBuilding(props.ghostType)!
-    ghost = ghostDef.kind === 'road' ? buildRoadModel([false, false, false, false]) : createBuildingModel(props.ghostType as TownBuildingId)
+    ghost = ghostDef.kind === 'road' ? buildRoadModel([false, false, false, false]) : buildingModel(props.ghostType as TownBuildingId, props.ghostLevel)
     ghost.traverse((o) => {
         if (o instanceof THREE.Mesh) {
             const m = (o.material as THREE.MeshStandardMaterial).clone()
@@ -536,6 +678,7 @@ function rebuildGhost() {
             m.opacity = 0.55
             m.emissive = new THREE.Color(0x2ecc71)
             m.emissiveIntensity = 0.35
+            if (o.name === 'glow') (o.material as THREE.Material).dispose()
             o.material = m
             o.castShadow = false
             ghostMats.push(m)
@@ -543,7 +686,7 @@ function rebuildGhost() {
     })
     ghost.visible = false
     ghost.rotation.y = ghostDef.kind === 'road' ? 0 : props.ghostRotation * Math.PI / 2
-    ghost.scale.setScalar(ghostDef.kind === 'road' ? 1 : BASE_SCALE)
+    ghost.scale.setScalar(ghostDef.kind === 'road' ? 1 : levelScale(props.ghostLevel))
     buildingsGroup.add(ghost)
 }
 function tintGhost(ok: boolean) {
@@ -793,11 +936,13 @@ const villagers: Villager[] = []
 const VILLAGER_COLORS = [0xe74c3c, 0x3498db, 0xf1c40f, 0x9b59b6, 0x1abc9c, 0xe67e22, 0x2ecc71]
 
 function occupiedTiles(): Set<string> {
+    if (occupiedCache) return occupiedCache
     const set = new Set<string>()
     for (const b of props.buildings) {
         const pos = worldPos(b)
         if (pos) set.add(`${Math.floor(pos.x)},${Math.floor(pos.z)}`)
     }
+    occupiedCache = set
     return set
 }
 
@@ -822,7 +967,7 @@ function randomFreeTile(): { x: number, z: number } | null {
 }
 
 function syncVillagers() {
-    const want = Math.min(18, props.popCap)
+    const want = Math.min(MAX_VILLAGERS, props.popCap)
     while (villagers.length > want) {
         const v = villagers.pop()!
         villagerGroup.remove(v.group)
@@ -831,6 +976,7 @@ function syncVillagers() {
         const start = randomFreeTile()
         if (!start) break
         const group = createVillager(VILLAGER_COLORS[villagers.length % VILLAGER_COLORS.length]!)
+        group.traverse((o) => { o.castShadow = false; o.receiveShadow = false })
         group.position.set(start.x, 0.3, start.z)
         group.scale.setScalar(1.8)
         villagerGroup.add(group)
@@ -885,10 +1031,12 @@ const smokeMat = new THREE.MeshBasicMaterial({ color: 0xdedede, transparent: tru
 const sparkMat = new THREE.MeshBasicMaterial({ color: 0xfff1a8, transparent: true, opacity: 0.95, depthWrite: false })
 const dustMat = new THREE.MeshBasicMaterial({ color: 0xc9b58a, transparent: true, opacity: 0.5, depthWrite: false })
 const puffGeo = new THREE.SphereGeometry(0.08, 6, 5)
-const MAX_PARTICLES = 260
+const MAX_PARTICLES = 40
+/** Past this camera distance the puffs are a pixel each — not worth a draw call. */
+const PARTICLE_DRAW_DISTANCE = 45
 
 function spawn(pos: THREE.Vector3, kind: 'smoke' | 'spark' | 'dust') {
-    if (particles.length >= MAX_PARTICLES) return
+    if (particles.length >= MAX_PARTICLES || cam.dist > PARTICLE_DRAW_DISTANCE) return
     const mat = kind === 'smoke' ? smokeMat : kind === 'spark' ? sparkMat : dustMat
     const mesh = new THREE.Mesh(puffGeo, mat)
     mesh.position.copy(pos)
@@ -967,10 +1115,9 @@ function updateOverlays(now: number, dt: number) {
             continue
         }
         ensureBar(e)
-        const def = getTownBuilding(e.data.type)!
-        const total = townLevelBuildMs(def, e.data.upgradingTo ?? 1)
+        const total = townLevelBuildMs(e.def, e.data.upgradingTo ?? 1)
         const progress = Math.max(0, Math.min(1, 1 - (e.data.completesAt - now) / total))
-        const p = project(e.group.position.x, 1.2, e.group.position.z)
+        const p = project(e.group.position.x, e.group.position.y + e.modelHeight * e.model.scale.y + 0.16, e.group.position.z)
         const bar = e.bar!
         bar.style.transform = `translate(${p.sx}px, ${p.sy}px) translate(-50%, -50%)`
         bar.style.display = p.visible ? '' : 'none'
@@ -1006,7 +1153,7 @@ function updateOverlays(now: number, dt: number) {
         }
         if (e.alert) {
             const bob = Math.sin(performance.now() / 350 + e.group.position.x) * 0.06
-            const p = project(e.group.position.x, 1.6 + bob, e.group.position.z)
+            const p = project(e.group.position.x, e.group.position.y + e.modelHeight * e.model.scale.y + 0.3 + bob, e.group.position.z)
             e.alert.style.transform = `translate(${p.sx}px, ${p.sy}px) translate(-50%, -100%)`
             e.alert.style.display = p.visible ? '' : 'none'
         }
@@ -1293,11 +1440,26 @@ let lastMs = 0
 let running = true
 let visible = true
 
+/** True while the view is settling or the player is driving it — worth 60fps. */
+function cameraBusy() {
+    return dragging || pointers.size > 0 || movementKeys.size > 0
+        || Math.abs(camGoal.tx - cam.tx) > 0.01 || Math.abs(camGoal.tz - cam.tz) > 0.01
+        || Math.abs(camGoal.yaw - cam.yaw) > 0.0005 || Math.abs(camGoal.pitch - cam.pitch) > 0.0005
+        || Math.abs(camGoal.dist - cam.dist) > 0.01
+}
+
+let lastOverlayMs = 0
+let lastVillagerMs = 0
+
 function frame(ms: number) {
     rafId = requestAnimationFrame(frame)
+    if (!running || !visible || !renderer || document.hidden) { lastMs = ms; return }
+
+    // Cap the frame rate: a resting town does not need 60 redraws a second.
+    const budget = cameraBusy() ? ACTIVE_FRAME_MS : IDLE_FRAME_MS
+    if (lastMs !== 0 && ms - lastMs < budget) return
     const dt = lastMs === 0 ? 0 : Math.min(0.1, (ms - lastMs) / 1000)
     lastMs = ms
-    if (!running || !visible || !renderer || document.hidden) return
 
     moveCamera(dt)
 
@@ -1312,10 +1474,18 @@ function frame(ms: number) {
 
     const now = Date.now() + props.serverOffsetMs
 
+    let shapesChanged = false
     for (const e of entries.values()) {
         const b = e.data
         const pending = isPending(b, now)
-        const def = getTownBuilding(b.type)!
+        syncModelAppearance(e, displayedLevel(b, now))
+        if (e.wasPending && !pending) {
+            e.popAt = ms
+            e.wasPending = false
+            if (e.scaffold) { e.group.remove(e.scaffold); e.scaffold = null }
+            markShadowsDirty()
+        }
+        const def = e.def
         const staffed = (b.staffing ?? 0) > 0 && !pending && b.level > 0
 
         // Grow out of the ground while building; pop on completion; hover lift.
@@ -1336,6 +1506,7 @@ function frame(ms: number) {
                 if (t < 0.1 && Math.random() < 0.6) spawn(new THREE.Vector3(e.group.position.x, 0.8, e.group.position.z), 'spark')
             }
         }
+        if (pending || e.popAt) shapesChanged = true
         const hovered = hoveredBuildingId === b.id
         if (def.kind === 'road') {
             e.group.position.y = e.baseY
@@ -1391,9 +1562,21 @@ function frame(ms: number) {
         if (c.position.x > 120) c.position.x = -120
     }
 
-    stepVillagers(dt)
+    if (ms - lastVillagerMs >= VILLAGER_INTERVAL_MS) {
+        stepVillagers((ms - lastVillagerMs) / 1000)
+        lastVillagerMs = ms
+    }
     stepParticles(dt)
-    updateOverlays(now, dt)
+    if (ms - lastOverlayMs >= OVERLAY_INTERVAL_MS) {
+        updateOverlays(now, (ms - lastOverlayMs) / 1000)
+        lastOverlayMs = ms
+        if (shapesChanged) markShadowsDirty()
+    }
+
+    if (shadowsDirty) {
+        renderer.shadowMap.needsUpdate = true
+        shadowsDirty = false
+    }
     renderer.render(scene, camera)
 }
 
@@ -1415,10 +1598,18 @@ let io: IntersectionObserver | null = null
 onMounted(() => {
     const el = canvas.value
     if (!el) return
-    renderer = new THREE.WebGLRenderer({ canvas: el, antialias: true, powerPreference: 'high-performance' })
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2))
+    // A retina laptop at devicePixelRatio 2 draws four times the pixels for a
+    // low-poly scene that gains almost nothing from it, so cap the ratio and
+    // skip antialiasing when the display is already dense enough to hide it.
+    const dpr = window.devicePixelRatio || 1
+    renderer = new THREE.WebGLRenderer({ canvas: el, antialias: dpr < 1.5, powerPreference: 'high-performance' })
+    renderer.setPixelRatio(Math.min(dpr, MAX_PIXEL_RATIO))
     renderer.shadowMap.enabled = true
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap
+    renderer.shadowMap.type = THREE.PCFShadowMap
+    // The scene is mostly still: re-render the shadow map only when something
+    // that casts one actually moved (see markShadowsDirty).
+    renderer.shadowMap.autoUpdate = false
+    renderer.shadowMap.needsUpdate = true
     renderer.toneMapping = THREE.ACESFilmicToneMapping
     renderer.toneMappingExposure = 1.05
     renderer.outputColorSpace = THREE.SRGBColorSpace
@@ -1457,17 +1648,17 @@ onBeforeUnmount(() => {
     cancelAnimationFrame(rafId)
     ro?.disconnect()
     io?.disconnect()
-    for (const e of entries.values()) { e.bar?.remove(); e.alert?.remove() }
+    for (const e of entries.values()) { releaseModelGlow(e.model); e.bar?.remove(); e.alert?.remove() }
     for (const p of popups) p.el.remove()
     renderer?.dispose()
     renderer = null
 })
 
-watch(() => props.plots, () => { rebuildPlots(); rebuildDecor(); syncBuildings(); syncVillagers() }, { deep: true })
-watch(() => props.expansions, () => { rebuildExpansions(); rebuildDecor() }, { deep: true })
-watch(() => props.buildings, () => { syncBuildings(); syncVillagers() }, { deep: true })
+watch(() => props.plots, () => { invalidateTileCaches(); rebuildPlots(); rebuildDecor(); syncBuildings(); syncVillagers(); markShadowsDirty() }, { deep: true })
+watch(() => props.expansions, () => { rebuildExpansions(); rebuildDecor(); markShadowsDirty() }, { deep: true })
+watch(() => props.buildings, () => { invalidateTileCaches(); syncBuildings(); syncVillagers(); markShadowsDirty() }, { deep: true })
 watch(() => props.popCap, syncVillagers)
-watch(() => props.ghostType, rebuildGhost)
+watch(() => [props.ghostType, props.ghostLevel], rebuildGhost)
 watch(() => props.keyboardEnabled, clearMovement)
 watch(() => props.ghostRotation, (value) => {
     if (ghost) ghost.rotation.y = value * Math.PI / 2

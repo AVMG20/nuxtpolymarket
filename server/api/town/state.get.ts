@@ -12,6 +12,9 @@ import {
     TOWN_HAPPINESS_PARK_NEARBY,
     TOWN_HAPPINESS_INDUSTRY_ADJACENT,
     TOWN_PARK_RADIUS,
+    TOWN_PARK_MAX_BONUS,
+    TOWN_INDUSTRY_MAX_PENALTY,
+    townNeedExpected,
     TOWN_NEEDS,
     deriveTown,
     townFloorIncomePerDay,
@@ -48,6 +51,8 @@ export default defineEventHandler(async (event) => {
         rushMsPerGem: TOWN_RUSH_MS_PER_GEM,
         parkAdjacent: TOWN_HAPPINESS_PARK_NEARBY,
         industryAdjacent: TOWN_HAPPINESS_INDUSTRY_ADJACENT,
+        parkMaxBonus: TOWN_PARK_MAX_BONUS,
+        industryMaxPenalty: TOWN_INDUSTRY_MAX_PENALTY,
         parkRadius: TOWN_PARK_RADIUS
     }
 
@@ -75,12 +80,11 @@ export default defineEventHandler(async (event) => {
     const tierLocks = Object.fromEntries([2, 3, 4, 5, 6].map(t => [t, townTierRequirement(sim, t, now, state.produced)]))
     const maxTier = Math.max(...unlockedTiers)
 
-    // How happy this town could be right now if every need it can currently
-    // produce (resource tier already unlocked) were supplied — the bar's ceiling.
+    // The bar's ceiling: what the town would score with every need it could
+    // plausibly stock right now supplied, and nothing else changed.
     const reachable: TownSatisfied = {}
-    for (const id of Object.keys(townNeedsPerTick(derived.popCap))) {
-        const tier = getTownResource(id)?.tier ?? 99
-        reachable[id as keyof TownSatisfied] = tier <= maxTier
+    for (const need of TOWN_NEEDS) {
+        if (townNeedExpected(need, derived.popCap, derived.reachableTier)) reachable[need.resource] = true
     }
     const happinessPotential = deriveTown(sim, state.happiness, now, reachable).happinessTarget
 
@@ -106,6 +110,8 @@ export default defineEventHandler(async (event) => {
         happiness: state.happiness,
         happinessTarget: derived.happinessTarget,
         happinessPotential,
+        happinessBreakdown: derived.happinessBreakdown,
+        reachableTier: derived.reachableTier,
         mood: { id: mood.id, name: mood.name, emoji: mood.emoji, speed: mood.speed, buildTime: mood.buildTime, storage: mood.storage },
         nextMood: nextMood ? { id: nextMood.id, name: nextMood.name, emoji: nextMood.emoji, min: nextMood.min, speed: nextMood.speed, buildTime: nextMood.buildTime, storage: nextMood.storage } : null,
         speedMultiplier: derived.speedMultiplier,
@@ -129,6 +135,8 @@ export default defineEventHandler(async (event) => {
             satisfied: settled.satisfied[n.resource] ?? false,
             stock: inventory[n.resource] ?? 0,
             resourceTier: getTownResource(n.resource)?.tier ?? 1,
+            /** Counted on the scorecard: big enough town, and a tier that can stock it. */
+            expected: townNeedExpected(n, derived.popCap, derived.reachableTier),
             producible: (getTownResource(n.resource)?.tier ?? 1) <= maxTier
         })),
         floorIncomePerDay: townFloorIncomePerDay(sim, state.happiness, now),

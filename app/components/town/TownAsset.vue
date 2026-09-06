@@ -1,10 +1,13 @@
 <script setup lang="ts">
+import { townBuildingPortrait } from '~/utils/town/appearance'
 const props = withDefaults(defineProps<{
     id: string | undefined
     kind?: 'resource' | 'building'
     label?: string
+    level?: number
 }>(), {
     kind: 'resource',
+    level: 1,
     label: undefined
 })
 
@@ -18,7 +21,7 @@ const emoji = computed(() => props.id ? EMOJI[props.id] : undefined)
     <span v-if="emoji" class="town-asset town-asset-emoji" :class="{ 'town-asset-building': kind === 'building' }" :title="label ?? id">{{ emoji }}</span>
     <img
         v-else-if="id"
-        :src="`/town/${kind === 'building' ? 'buildings' : 'resources'}/${id}.${kind === 'building' ? 'png' : 'svg'}`"
+        :src="kind === 'building' ? townBuildingPortrait(id, level) : `/town/resources/${id}.svg`"
         :alt="label ?? id"
         class="town-asset"
         :class="{ 'town-asset-building': kind === 'building' }"

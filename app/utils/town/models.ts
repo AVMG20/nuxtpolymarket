@@ -7,8 +7,10 @@
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import type { TownBuildingId } from '#shared/utils/gamelogic/town'
+import { townVisualLevel, townVisualStage } from './appearance'
+import { upgradeBuildingParts } from './upgrades'
 
-interface Part {
+export interface Part {
     shape: 'box' | 'cyl' | 'cone' | 'sphere' | 'pyramid' | 'wedge'
     x: number
     /** Bottom of the part (not the centre) — parts stack naturally. */
@@ -490,13 +492,15 @@ function details(type: TownBuildingId): Part[] {
     return parts
 }
 
-const prototypes = new Map<TownBuildingId, THREE.Group>()
+const prototypes = new Map<string, THREE.Group>()
 
 /** A fresh instance of a building model; materials are shared, meshes are cheap clones. */
-export function createBuildingModel(type: TownBuildingId): THREE.Group {
-    let proto = prototypes.get(type)
+export function createBuildingModel(type: TownBuildingId, requestedLevel = 1): THREE.Group {
+    const level = type === 'road' ? 1 : townVisualLevel(requestedLevel)
+    const key = `${type}:${level}`
+    let proto = prototypes.get(key)
     if (!proto) {
-        proto = build([...MODELS[type](), ...details(type)])
+        proto = build(upgradeBuildingParts(type, level, [...MODELS[type](), ...details(type)]))
         if (type === 'mill') {
             const hub = proto.getObjectByName('spin')!
             // Children rotate with the existing hub animation.
@@ -514,9 +518,17 @@ export function createBuildingModel(type: TownBuildingId): THREE.Group {
                 hub.add(pivot)
             }
         }
-        prototypes.set(type, proto)
+        proto.userData.visualLevel = level
+        proto.userData.visualStage = townVisualStage(level)
+        proto.userData.height = new THREE.Box3().setFromObject(proto).max.y
+        prototypes.set(key, proto)
     }
-    return proto.clone(true)
+    const instance = proto.clone(true)
+    // Window animation is per building; geometry and static materials stay shared.
+    instance.traverse(o => {
+        if (o instanceof THREE.Mesh && o.name === 'glow') o.material = (o.material as THREE.MeshStandardMaterial).clone()
+    })
+    return instance
 }
 
 /** Tiny townsfolk with boots, sleeves, hair and a brimmed hat. */

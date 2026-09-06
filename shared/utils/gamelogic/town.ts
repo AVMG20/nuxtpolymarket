@@ -89,15 +89,31 @@ export const TOWN_LEVEL_TIME_GROWTH = 1.4
  */
 export const TOWN_MAX_BUILD_MS = 72 * 60 * 60_000
 
-/** Happiness lives in [0, 100] and drifts toward its target this much per tick. Crowding = more jobs than residents. */
+/**
+ * Happiness is a running score out of 100 that the town drifts toward.
+ * Everything below is a line on that score, so the popover can show exactly
+ * where the points came from:
+ *
+ *   base                              50
+ *   + every need the town supplies    up to +15
+ *   − every need it could supply and does not
+ *   + parks, by share of residents covered   up to +20
+ *   − industry, by residents × how dirty it is   down to −25
+ *   − overcrowding, − starvation
+ *
+ * A tidy tier-1 town with grain and parks lands around 72 (Content) with no
+ * penalties; the last 30 points come from the goods only later tiers unlock.
+ */
 export const TOWN_HAPPINESS_START = 50
-export const TOWN_HAPPINESS_BASE_TARGET = 60
+export const TOWN_HAPPINESS_BASE_TARGET = 50
 export const TOWN_HAPPINESS_DRIFT_PER_TICK = 2
-export const TOWN_HAPPINESS_INDUSTRY_PENALTY = 1
-/** Industry smog is a bounded pressure, not a death spiral for a big town. */
-export const TOWN_HAPPINESS_INDUSTRY_CAP = 20
 export const TOWN_HAPPINESS_CROWDING_PENALTY = 10
 export const TOWN_HAPPINESS_CROWDING_RATIO = 1
+/** Full park coverage is worth this; half the residents covered is worth half. */
+export const TOWN_PARK_MAX_BONUS = 20
+/** Industry near homes, weighted by residents affected and by how dirty it is. */
+export const TOWN_INDUSTRY_MAX_PENALTY = 25
+export const TOWN_INDUSTRY_PENALTY_SCALE = 5
 /** Penalty when the town has no food at all (neither wheat nor bread was eaten this tick). */
 export const TOWN_HAPPINESS_STARVING_PENALTY = 12
 /**
@@ -118,8 +134,6 @@ export const TOWN_INDUSTRY_NUISANCE: readonly { radius: number, penalty: number 
     { radius: 5, penalty: 3 }, // factory
     { radius: 5, penalty: 3 } // emporium
 ]
-/** Total layout bonus/penalty is clamped to this magnitude so 60 houses × 4 parks cannot pin happiness. */
-export const TOWN_HAPPINESS_LAYOUT_CAP = 30
 /** Welcome-back summary is shown for absences at least this long. */
 export const TOWN_WELCOME_BACK_MIN_MS = 5 * 60_000
 
@@ -225,19 +239,47 @@ export function townNeedsPerTick(pop: number): Partial<Record<TownResourceId, nu
 
 export type TownSatisfied = Partial<Record<TownResourceId, boolean>>
 
-export function needsHappiness(satisfied: TownSatisfied, pop: number): number {
+/**
+ * Whether the town is expected to keep this need supplied. A need it cannot
+ * produce yet is simply not on the scorecard — no bonus, no penalty — so a
+ * tier-1 town is not marked down for having no bread. The moment the tier that
+ * makes it is within reach, a missing need starts costing points.
+ */
+export function townNeedExpected(need: TownNeedDef, pop: number, reachableTier: number): boolean {
+    return pop >= need.minPop && (getTownResource(need.resource)?.tier ?? 99) <= reachableTier
+}
+
+/**
+ * The highest resource tier the town could plausibly stock: one above the best
+ * building it has finished, because that is the tier it can build into next.
+ */
+export function townReachableTier(buildings: TownSimBuilding[], now: number): number {
+    let best = 0
+    for (const b of buildings) {
+        if (!isBuilt(b, now)) continue
+        const tier = BUILDING_BY_ID.get(b.type)!.tier
+        if (tier > best) best = tier
+    }
+    return best + 1
+}
+
+export function needsHappiness(satisfied: TownSatisfied, pop: number, reachableTier = 99): number {
     if (pop <= 0) return 0
-    const demand = townNeedsPerTick(pop)
     let total = 0
+    let anyFoodExpected = false
     let fed = false
     for (const n of TOWN_NEEDS) {
-        if (demand[n.resource] === undefined) continue
         if (satisfied[n.resource]) {
+            // Bought or produced, it counts either way.
             total += n.happiness
             if (n.food) fed = true
+            continue
         }
+        if (!townNeedExpected(n, pop, reachableTier)) continue
+        total -= n.happiness
+        if (n.food) anyFoodExpected = true
     }
-    if (!fed) total -= TOWN_HAPPINESS_STARVING_PENALTY
+    if (anyFoodExpected && !fed) total -= TOWN_HAPPINESS_STARVING_PENALTY
     return total
 }
 
@@ -532,6 +574,17 @@ export interface TownDerived {
     speedMultiplier: number
     /** Units the town consumes per tick for each need. */
     needsPerTick: Partial<Record<TownResourceId, number>>
+    /** Highest resource tier the town is expected to be able to stock. */
+    reachableTier: number
+    /** Where the happiness target came from, line by line. */
+    happinessBreakdown: {
+        base: number
+        needs: number
+        parks: number
+        industry: number
+        crowding: number
+        layout: TownLayoutScore
+    }
 }
 
 /** A building counts as operational once its first build is done. */
@@ -660,14 +713,50 @@ function within(a: TownSimBuilding, wx: number, wy: number, r: number) {
  * TOWN_PARK_RADIUS, every industry building sours each house right beside it.
  * Summed over (house, source) pairs and clamped, using world tile coordinates.
  */
-export function adjacencyHappiness(buildings: TownSimBuilding[]): number {
-    let total = 0
+export interface TownLayoutScore {
+    /** Points from parks, 0 .. TOWN_PARK_MAX_BONUS. */
+    parks: number
+    /** Points lost to industry, 0 .. TOWN_INDUSTRY_MAX_PENALTY (positive number). */
+    industry: number
+    residents: number
+    /** Residents with a park in reach, and residents with industry in reach. */
+    residentsWithPark: number
+    residentsWithIndustry: number
+}
+
+/**
+ * Scores the layout by residents rather than by buildings: a level-10 house
+ * next to a foundry is ten times the misery of a level-1 one, and covering
+ * every home with a park is worth the full bonus however many homes there are.
+ */
+export function townLayoutScore(buildings: TownSimBuilding[], now = Date.now()): TownLayoutScore {
+    let residents = 0
+    let withPark = 0
+    let withIndustry = 0
+    let nuisance = 0
     for (const b of buildings) {
-        if (b.type !== 'house' || b.wx === undefined || b.wy === undefined) continue
-        const { parks, industryPenalty } = houseAdjacency(buildings, b.wx, b.wy, Infinity)
-        total += parks * TOWN_HAPPINESS_PARK_NEARBY - industryPenalty
+        if (b.type !== 'house' || b.wx === undefined || b.wy === undefined || !isBuilt(b, now)) continue
+        const people = BUILDING_BY_ID.get(b.type)!.popCap * effectiveLevel(b, now)
+        residents += people
+        const { parks, industryPenalty } = houseAdjacency(buildings, b.wx, b.wy, now)
+        if (parks > 0) withPark += people
+        if (industryPenalty > 0) withIndustry += people
+        nuisance += people * industryPenalty
     }
-    return Math.max(-TOWN_HAPPINESS_LAYOUT_CAP, Math.min(TOWN_HAPPINESS_LAYOUT_CAP, total))
+    if (residents === 0) return { parks: 0, industry: 0, residents: 0, residentsWithPark: 0, residentsWithIndustry: 0 }
+    return {
+        parks: Math.round(TOWN_PARK_MAX_BONUS * withPark / residents),
+        industry: Math.min(TOWN_INDUSTRY_MAX_PENALTY, Math.round(nuisance / residents * TOWN_INDUSTRY_PENALTY_SCALE)),
+        residents,
+        residentsWithPark: withPark,
+        residentsWithIndustry: withIndustry
+    }
+}
+
+/** Net layout points, positive or negative. */
+export function adjacencyHappiness(buildings: TownSimBuilding[], now = Date.now()): number {
+    const score = townLayoutScore(buildings, now)
+    return score.parks - score.industry
 }
 
 /**
@@ -833,12 +922,12 @@ export function deriveTown(buildings: TownSimBuilding[], happiness: number, now:
         }
     }
 
-    happinessTarget -= Math.min(TOWN_HAPPINESS_INDUSTRY_CAP, industryTiles * TOWN_HAPPINESS_INDUSTRY_PENALTY)
-    happinessTarget += adjacencyHappiness(built.map(x => x.b))
-    if (workersDemanded > popCap * TOWN_HAPPINESS_CROWDING_RATIO) {
-        happinessTarget -= TOWN_HAPPINESS_CROWDING_PENALTY
-    }
-    happinessTarget += needsHappiness(satisfied, popCap)
+    const builtSims = built.map(x => x.b)
+    const layout = townLayoutScore(builtSims, now)
+    const reachableTier = townReachableTier(builtSims, now)
+    const crowding = workersDemanded > popCap * TOWN_HAPPINESS_CROWDING_RATIO ? TOWN_HAPPINESS_CROWDING_PENALTY : 0
+    const needsScore = needsHappiness(satisfied, popCap, reachableTier)
+    happinessTarget += layout.parks - layout.industry - crowding + needsScore
     happinessTarget = Math.max(0, Math.min(100, happinessTarget))
     storageCap = Math.round(storageCap * townMood(happiness).storage)
 
@@ -861,7 +950,16 @@ export function deriveTown(buildings: TownSimBuilding[], happiness: number, now:
         industryTiles,
         staffing,
         speedMultiplier: townSpeedMultiplier(happiness),
-        needsPerTick: townNeedsPerTick(popCap)
+        needsPerTick: townNeedsPerTick(popCap),
+        reachableTier,
+        happinessBreakdown: {
+            base: TOWN_HAPPINESS_BASE_TARGET,
+            needs: needsScore,
+            parks: layout.parks,
+            industry: -layout.industry,
+            crowding: -crowding,
+            layout
+        }
     }
 }
 

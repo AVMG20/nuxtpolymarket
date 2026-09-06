@@ -42,6 +42,7 @@ const hoveredBuildingId = ref<string | null>(null)
 const hoveredSlot = ref<{ x: number, y: number } | null>(null)
 const mouse = ref({ x: 0, y: 0 })
 
+const ghostLevel = computed(() => movingId.value ? town.buildings.value.find(b => b.id === movingId.value)?.level ?? 1 : 1)
 const selectedBuilding = computed(() => town.buildings.value.find(b => b.id === selectedBuildingId.value) ?? null)
 const selectedEntry = computed(() => selectedBuilding.value ? town.catalogById.value.get(selectedBuilding.value.type) ?? null : null)
 const hoveredBuilding = computed(() => town.buildings.value.find(b => b.id === hoveredBuildingId.value) ?? null)
@@ -386,22 +387,32 @@ onMounted(() => {
 const moodOpen = ref(false)
 const moodPinned = ref(false)
 const needs = computed(() => town.needs.value)
-const activeNeeds = computed(() => needs.value.filter(n => n.active))
-const unmetNeeds = computed(() => activeNeeds.value.filter(n => !n.satisfied))
-const starving = computed(() => activeNeeds.value.some(n => n.food) && !activeNeeds.value.some(n => n.food && n.satisfied))
+/** Needs the score actually counts — the rest are future tiers, shown greyed. */
+const scoredNeeds = computed(() => needs.value.filter(n => n.expected || n.satisfied))
+const unmetNeeds = computed(() => needs.value.filter(n => n.expected && !n.satisfied))
+const starving = computed(() => needs.value.some(n => n.food && n.expected) && !needs.value.some(n => n.food && n.satisfied))
 const mood = computed(() => town.state.value?.mood ?? null)
 const nextMood = computed(() => town.state.value?.nextMood ?? null)
 const happinessPotential = computed(() => town.state.value?.happinessPotential ?? 0)
-const layoutSummary = computed(() => {
-    let parks = 0
-    let industry = 0
-    for (const b of simBuildings.value) {
-        if (b.type !== 'house' || b.wx === undefined || b.wy === undefined || b.level === 0) continue
-        const a = houseAdjacency(simBuildings.value, b.wx, b.wy, now.value)
-        parks += a.parks * town.constants.value.parkAdjacent
-        industry += a.industryPenalty
+const breakdown = computed(() => town.state.value?.happinessBreakdown ?? null)
+/** The happiness score, line by line, worst first — what to fix shows at a glance. */
+const scoreRows = computed(() => {
+    const b = breakdown.value
+    if (!b) return []
+    const rows: { label: string, points: number, hint: string }[] = []
+    rows.push({ label: '🏘️ Town', points: b.base, hint: 'Every town starts here' })
+    if (b.needs !== 0) {
+        rows.push({
+            label: '🍞 Needs',
+            points: b.needs,
+            hint: b.needs > 0 ? 'Goods your townsfolk have' : 'Goods they want and cannot get'
+        })
     }
-    return { parks, industry }
+    if (b.parks) rows.push({ label: '🌳 Parks', points: b.parks, hint: `${formatNumber(b.layout.residentsWithPark)} of ${formatNumber(b.layout.residents)} residents live near one` })
+    if (b.industry) rows.push({ label: '🏭 Industry', points: b.industry, hint: `${formatNumber(b.layout.residentsWithIndustry)} residents live beside workshops` })
+    if (b.crowding) rows.push({ label: '👥 Overcrowded', points: b.crowding, hint: 'More jobs than residents' })
+    if (starving.value) rows.push({ label: '😠 Starving', points: -12, hint: 'No food in store at all' })
+    return rows
 })
 /** A mood's perks as short game-style chips: "+15% production", "−10% build time". */
 function perkChips(m: { speed: number, buildTime: number, storage: number } | null) {
@@ -520,6 +531,7 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
             :selected-building-id="selectedBuildingId"
             :ghost-type="ghostType"
             :ghost-rotation="ghostRotation"
+            :ghost-level="ghostLevel"
             :keyboard-enabled="!windowOpen && !welcome && !helpOpen && !confirmDemolish && !confirmPlot"
             :server-offset-ms="town.serverOffsetMs.value"
             :pop-cap="popCap"
@@ -591,26 +603,25 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                                 <span v-for="perk in perkChips(nextMood)" :key="perk.text" class="moodpop-next-perk">{{ perk.text }}</span>
                             </p>
 
+                            <div class="moodpop-sec">Where the score comes from</div>
+                            <div v-for="row in scoreRows" :key="row.label" class="score-row" :class="row.points > 0 ? 'is-plus' : row.points < 0 ? 'is-minus' : ''" :title="row.hint">
+                                <b class="min-w-0 flex-1 truncate">{{ row.label }}</b>
+                                <span class="truncate text-[11px] opacity-60">{{ row.hint }}</span>
+                                <span class="score-points">{{ row.points > 0 ? '+' : '' }}{{ row.points }}</span>
+                            </div>
+
                             <div class="moodpop-sec">Needs</div>
-                            <div v-for="n in needs" :key="n.resource" class="needs-row" :class="!n.active ? 'is-off' : n.satisfied ? 'is-ok' : 'is-bad'" :title="n.description">
+                            <div v-for="n in scoredNeeds" :key="n.resource" class="needs-row" :class="n.satisfied ? 'is-ok' : 'is-bad'" :title="n.description">
                                 <span class="text-lg"><TownAsset :id="n.resource" /></span>
                                 <b class="w-20">{{ n.name }}</b>
                                 <span class="min-w-0 flex-1 truncate opacity-70">
-                                    <template v-if="!n.active">from {{ n.minPop }} residents</template>
-                                    <template v-else-if="n.satisfied">{{ formatNumber(perHour(n.perTick)) }}/h</template>
+                                    <template v-if="n.satisfied">{{ formatNumber(perHour(n.perTick)) }}/h</template>
                                     <template v-else-if="!n.producible">{{ needMaker(n.resource) }}</template>
                                     <template v-else>out of stock · needs {{ formatNumber(perHour(n.perTick)) }}/h</template>
                                 </span>
-                                <span class="needs-badge">{{ n.active && n.satisfied ? '✓' : '' }} +{{ n.happiness }}</span>
+                                <span class="needs-badge">{{ n.satisfied ? '+' : '−' }}{{ n.happiness }}</span>
                             </div>
-
-                            <div class="moodpop-sec">Layout</div>
-                            <div class="flex flex-wrap gap-1.5">
-                                <span class="g-tag" :class="layoutSummary.parks ? 'g-tag-green' : ''">🌳 parks +{{ layoutSummary.parks }}</span>
-                                <span class="g-tag" :class="layoutSummary.industry ? 'g-tag-red' : ''">🏭 industry −{{ layoutSummary.industry }}</span>
-                                <span v-if="workersDemanded > popCap" class="g-tag g-tag-red">👥 overcrowded −10</span>
-                                <span v-if="starving" class="g-tag g-tag-red">🍞 starving −12</span>
-                            </div>
+                            <p v-if="scoredNeeds.length === 0" class="needs-foot">Your townsfolk want for nothing yet. New wants appear as the town grows and unlocks tiers.</p>
                         </div>
                     </Transition>
                 </div>
@@ -629,7 +640,7 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
             <!-- Placement hint -->
             <Transition name="fade">
                 <div v-if="ghostType" class="hint">
-                    {{ movingId ? 'Click a tile to move' : 'Click a tile to place' }} <b><TownAsset v-if="ghostType !== 'road'" :id="ghostType" kind="building" /><template v-else>🛣️</template> {{ town.catalogById.value.get(ghostType)?.name }}</b>
+                    {{ movingId ? 'Click a tile to move' : 'Click a tile to place' }} <b><TownAsset v-if="ghostType !== 'road'" :id="ghostType" kind="building" :level="ghostLevel" /><template v-else>🛣️</template> {{ town.catalogById.value.get(ghostType)?.name }}</b>
                     <template v-if="town.catalogById.value.get(ghostType)?.kind !== 'road'"> · white arrow = front door, must touch a road · <button class="placement-rotate" title="Rotate clockwise" @click="rotatePlacement"><kbd>R</kbd> rotate</button></template>
                     · <kbd>Esc</kbd> cancel
                 </div>
@@ -649,7 +660,7 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
 
             <!-- Hover tooltip -->
             <div v-if="hoveredBuilding && hoveredEntry && !selectedBuilding" class="tip" :style="{ left: `${mouse.x + 16}px`, top: `${mouse.y + 16}px` }">
-                <b><TownAsset :id="hoveredEntry.id" kind="building" /> {{ hoveredEntry.name }}</b>
+                <b><TownAsset :id="hoveredEntry.id" kind="building" :level="hoveredBuilding.level" /> {{ hoveredEntry.name }}</b>
                 <span v-if="hoveredBuilding.level > 0" class="opacity-60"> · Lv {{ hoveredBuilding.level }}</span>
                 <div class="opacity-70">
                     <template v-if="hoveredBuilding.connected === false && hoveredEntry.kind !== 'road'"><span class="text-rose-300 font-bold">⚠ No road at the front door — not working</span></template>
@@ -664,7 +675,7 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
             <Transition name="rise">
                 <div v-if="selectedBuilding && selectedEntry" class="card">
                     <div class="card-head">
-                        <span class="card-emoji" :style="{ background: hex(selectedEntry.color) + '33' }"><TownAsset :id="selectedEntry.id" kind="building" /></span>
+                        <span class="card-emoji" :style="{ background: hex(selectedEntry.color) + '33' }"><TownAsset :id="selectedEntry.id" kind="building" :level="selectedBuilding.level" /></span>
                         <div class="min-w-0 flex-1">
                             <div class="flex items-center gap-2">
                                 <b class="text-base">{{ selectedEntry.name }}</b>
@@ -846,8 +857,8 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                         <div class="g-window-head"><h2>How to play</h2><button class="g-icon g-icon-sm" @click="helpOpen = false">✕</button></div>
                         <div class="g-window-body space-y-2 text-sm opacity-90">
                             <p>🏠 <b>Houses</b> bring two residents per level. Every industry building needs residents to run — an unstaffed farm grows nothing.</p>
-                            <p>😊 <b>Happiness</b> sets how fast the whole town produces. It comes from parks, from meeting your townsfolk's needs, and from a tidy layout. Industry, overcrowding and starvation drag it down.</p>
-                            <p>🍞 <b>Needs</b>: residents eat grain and bread, and later want tools and luxuries. Meeting a need pays happiness; running out of all food starves the town. Those goods are really consumed, so keep producing or buy from other mayors.</p>
+                            <p>😊 <b>Happiness</b> is a score out of 100 that sets how fast the town produces. Every town starts at 50; parks add up to 20, the goods your people want add or subtract, and workshops beside homes take up to 25 away. Open the meter to see every line.</p>
+                            <p>🍞 <b>Needs</b>: residents eat grain and bread, and later want tools and luxuries. A need only counts once your town could make it — nobody misses bread before you can bake it. After that, going without costs happiness. The goods are really consumed, so keep producing or buy from other mayors.</p>
                             <p>🌳 <b>Radius</b>: a park cheers every house within 3 tiles; industry sours the homes around it, further the higher its tier. While placing, the square on the ground shows the reach.</p>
                             <p>🪚 <b>Tiers</b>: raw goods → refined goods → bread and tools → iron, steel, machines, luxuries. Finish one building of a tier to unlock the next.</p>
                             <p>🛣️ <b>Roads</b>: every building's front door (the arrow while placing) must touch a road, and roads start at the edge of your land. Press <kbd>R</kbd> to rotate — buildings auto-face a road next to them. Buildings can be moved for free.</p>
@@ -1020,6 +1031,12 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
 .needs-row.is-bad { background: rgba(255, 107, 107, 0.12); }
 .needs-row.is-off { opacity: 0.45; }
 .needs-badge { min-width: 30px; text-align: right; font-weight: 800; }
+.score-row { display: flex; align-items: baseline; gap: 8px; padding: 4px 6px; border-radius: 8px; font-size: 12px; }
+.score-row.is-plus { background: rgba(79, 211, 106, 0.1); }
+.score-row.is-minus { background: rgba(255, 107, 107, 0.12); }
+.score-points { min-width: 34px; text-align: right; font-weight: 900; font-variant-numeric: tabular-nums; }
+.score-row.is-plus .score-points { color: var(--g-green); }
+.score-row.is-minus .score-points { color: var(--g-red); }
 .needs-row.is-ok .needs-badge { color: var(--g-green); }
 .needs-row.is-bad .needs-badge { color: var(--g-red); }
 .needs-foot { margin-top: 8px; font-size: 11px; opacity: 0.75; }
