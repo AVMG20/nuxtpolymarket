@@ -362,10 +362,18 @@ function petChanges(pet: MeadowbrawlShopPet): string[] {
             </template>
             <template v-else>
               <div class="mt-1 text-[11px] text-amber-200 italic leading-snug">{{ w.def.classTagline }}</div>
-              <div class="mt-2 space-y-0.5 text-[10.5px] text-white/65 leading-snug">
-                <div><UKbd class="text-[9px]">RMB</UKbd> <span class="text-white/90 font-bold">{{ w.def.special.name }}</span></div>
-                <div><UKbd class="text-[9px]">Q</UKbd> <span class="text-white/90 font-bold">{{ w.def.abilities[0].name }}</span></div>
-                <div><UKbd class="text-[9px]">E</UKbd> <span class="text-white/90 font-bold">{{ w.def.abilities[1].name }}</span></div>
+              <div class="mt-2 space-y-1.5 text-[10.5px] text-white/65 leading-snug">
+                <div
+                  v-for="slot in [
+                    { key: 'RMB', name: w.def.special.name, description: w.def.special.description },
+                    { key: 'Q', name: w.def.abilities[0].name, description: w.def.abilities[0].description },
+                    { key: 'E', name: w.def.abilities[1].name, description: w.def.abilities[1].description }
+                  ]"
+                  :key="slot.key"
+                >
+                  <div><UKbd class="text-[9px]">{{ slot.key }}</UKbd> <span class="text-white/90 font-bold">{{ slot.name }}</span></div>
+                  <div class="mt-0.5 pl-0.5 text-[10px] text-white/50 leading-snug">{{ slot.description }}</div>
+                </div>
               </div>
               <div v-if="w.best > 0" class="mt-1.5 text-[10.5px] font-bold text-white/45 tabular-nums">best: wave {{ w.best }}</div>
             </template>
