@@ -310,6 +310,7 @@ const hud = reactive({
     wave: 0,
     remaining: 0,
     kills: 0,
+    highestCombo: 0,
     time: 0,
     special: 0,
     specialName: '',
@@ -351,8 +352,6 @@ const hud = reactive({
     }
 })
 
-const stats = computed(() => game.stats)
-
 function syncHud() {
     const p = game.player
     hud.phase = game.phase
@@ -362,6 +361,7 @@ function syncHud() {
     hud.wave = game.wave
     hud.remaining = game.remainingInWave
     hud.kills = game.stats.kills
+    hud.highestCombo = game.stats.highestCombo
     hud.time = game.time
     hud.special = p.specialCdMax > 0 ? 1 - p.specialCd / p.specialCdMax : 1
     hud.specialName = WEAPONS[p.weapon].special.name
@@ -988,15 +988,15 @@ const showDeath = computed(() => hud.phase === 'dead' && hud.deathT > 1.2)
             </div>
             <div class="rounded-lg bg-white/5 p-2.5">
               <div class="text-[10px] uppercase tracking-widest text-white/50 font-bold">Slain</div>
-              <div class="text-xl font-black tabular-nums">{{ stats.kills }}</div>
+              <div class="text-xl font-black tabular-nums">{{ hud.kills }}</div>
             </div>
             <div class="rounded-lg bg-white/5 p-2.5">
               <div class="text-[10px] uppercase tracking-widest text-white/50 font-bold">Best combo</div>
-              <div class="text-xl font-black tabular-nums">×{{ stats.highestCombo }}</div>
+              <div class="text-xl font-black tabular-nums">×{{ hud.highestCombo }}</div>
             </div>
             <div class="rounded-lg bg-white/5 p-2.5">
               <div class="text-[10px] uppercase tracking-widest text-white/50 font-bold">Time</div>
-              <div class="text-xl font-black tabular-nums">{{ formatTime(stats.time) }}</div>
+              <div class="text-xl font-black tabular-nums">{{ formatTime(hud.time) }}</div>
             </div>
           </div>
           <div v-if="hud.upgrades.length" class="mt-4 flex flex-wrap justify-center gap-1.5">
@@ -1052,15 +1052,15 @@ const showDeath = computed(() => hud.phase === 'dead' && hud.deathT > 1.2)
           <div class="mt-5 grid grid-cols-3 gap-2 text-left">
             <div class="rounded-lg bg-white/5 p-2.5">
               <div class="text-[10px] uppercase tracking-widest text-white/50 font-bold">Slain</div>
-              <div class="text-xl font-black tabular-nums">{{ stats.kills }}</div>
+              <div class="text-xl font-black tabular-nums">{{ hud.kills }}</div>
             </div>
             <div class="rounded-lg bg-white/5 p-2.5">
               <div class="text-[10px] uppercase tracking-widest text-white/50 font-bold">Best combo</div>
-              <div class="text-xl font-black tabular-nums">×{{ stats.highestCombo }}</div>
+              <div class="text-xl font-black tabular-nums">×{{ hud.highestCombo }}</div>
             </div>
             <div class="rounded-lg bg-white/5 p-2.5">
               <div class="text-[10px] uppercase tracking-widest text-white/50 font-bold">Time</div>
-              <div class="text-xl font-black tabular-nums">{{ formatTime(stats.time) }}</div>
+              <div class="text-xl font-black tabular-nums">{{ formatTime(hud.time) }}</div>
             </div>
           </div>
 
