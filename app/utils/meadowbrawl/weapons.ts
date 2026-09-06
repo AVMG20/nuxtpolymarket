@@ -40,13 +40,13 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
         ],
         tagline: '2-hit · slow · massive',
         description: 'Wide, crushing sweeps. Every hit is heavy and breaks shields.',
-        baseDamage: 36,
+        baseDamage: 32,
         comboWindow: 0.6,
         heavy: true,
         color: '#c8ccd2',
         swings: [
-            { name: 'Sweep', windup: 0.32, active: 0.14, recovery: 0.36, damage: 1.0, shape: arc(100, 105), step: 24, knockback: 240, stagger: 0.45, sweep: 1 },
-            { name: 'Reaping Sweep', windup: 0.44, active: 0.16, recovery: 0.50, damage: 1.9, shape: arc(112, 150), step: 44, knockback: 460, stagger: 0.9, sweep: -1, finisher: true }
+            { name: 'Sweep', windup: 0.32, active: 0.14, recovery: 0.36, damage: 1.0, shape: arc(100, 95), step: 24, knockback: 240, stagger: 0.45, sweep: 1 },
+            { name: 'Reaping Sweep', windup: 0.44, active: 0.16, recovery: 0.50, damage: 1.9, shape: arc(112, 130), step: 44, knockback: 460, stagger: 0.9, sweep: -1, finisher: true }
         ],
         extraSwing: { name: 'Whirl', windup: 0.30, active: 0.14, recovery: 0.30, damage: 1.3, shape: arc(104, 140), step: 26, knockback: 280, stagger: 0.5, sweep: 1 },
         special: { kind: 'slam', name: 'Ground Slam', description: 'Smash the earth. A shockwave staggers everything nearby.', cooldown: 8, damage: 2.6 }
