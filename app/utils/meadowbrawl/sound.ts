@@ -1,7 +1,7 @@
 // Procedural WebAudio for Meadowbrawl. Everything is synthesised: hits and
 // swings with per-weapon character, twelve class abilities, a meadow
-// ambience (wind, birds, the waterfall by distance) and a battle drone that
-// thickens as the waves climb. Short, throttled, and all routed through a
+// ambience (wind, birds, the waterfall by distance) and a heartbeat that
+// quickens as the waves climb. Short, throttled, and all routed through a
 // compressor so a crowded wave stays punchy instead of turning to mush.
 import type { GameEvent } from './types'
 
@@ -16,7 +16,6 @@ export class MeadowbrawlSound {
     private last: Record<string, number> = {}
     private wind: GainNode | null = null
     private falls: GainNode | null = null
-    private drone: { a: OscillatorNode, b: OscillatorNode, filter: BiquadFilterNode, gain: GainNode } | null = null
     private pulseTimer = 0
     private birdTimer = 2
     private intensity = 0
@@ -115,25 +114,6 @@ export class MeadowbrawlSound {
         lfoGain.connect(this.wind.gain)
         lfo.start()
         this.falls = this.loopNoise(0.0, 'bandpass', 900, 0.5, this.ambBus!)
-        // Battle drone: two detuned saws under a lowpass, silent until waves climb.
-        const a = ctx.createOscillator()
-        a.type = 'sawtooth'
-        a.frequency.value = 55
-        const b = ctx.createOscillator()
-        b.type = 'sawtooth'
-        b.frequency.value = 55.6
-        const filter = ctx.createBiquadFilter()
-        filter.type = 'lowpass'
-        filter.frequency.value = 140
-        const gain = ctx.createGain()
-        gain.gain.value = 0
-        a.connect(filter)
-        b.connect(filter)
-        filter.connect(gain)
-        gain.connect(this.musicBus!)
-        a.start()
-        b.start()
-        this.drone = { a, b, filter, gain }
     }
 
     /**
@@ -146,10 +126,6 @@ export class MeadowbrawlSound {
         this.intensity += (target - this.intensity) * Math.min(1, dt * 0.8)
         this.daylight = 1 - Math.min(1, Math.max(0, (wave - 8) / 22))
         if (this.falls) this.falls.gain.value = 0.12 * Math.max(0, 1 - fallsDistance / 520)
-        if (this.drone) {
-            this.drone.gain.gain.value = this.intensity * 0.5
-            this.drone.filter.frequency.value = 140 + this.intensity * 420
-        }
         // A heartbeat kick that quickens with the run.
         if (this.intensity > 0.08) {
             this.pulseTimer -= dt
