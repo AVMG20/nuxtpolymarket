@@ -1,5 +1,5 @@
 import { requireUserId } from '#server/utils/auth'
-import { getTownState, settleTownForRead, plotPurchaseInfo, getMyTownOrders, getTownLastPrices, serializeMilestones, getExpansions } from '#server/utils/town'
+import { getTownState, settleTownForRead, plotPurchaseInfo, getMyTownOrders, getTownLastPrices, serializeMilestones, getExpansions, getWorldView } from '#server/utils/town'
 import {
     TOWN_BUILDINGS,
     TOWN_RESOURCES,
@@ -9,10 +9,10 @@ import {
     TOWN_MAX_PLOTS,
     TOWN_RUSH_MS_PER_GEM,
     TOWN_WELCOME_BACK_MIN_MS,
-    TOWN_HAPPINESS_PARK_NEARBY,
-    TOWN_HAPPINESS_INDUSTRY_ADJACENT,
     TOWN_PARK_RADIUS,
     TOWN_PARK_MAX_BONUS,
+    TOWN_PLOT_REFUND_SHARE,
+    townPlotRefundFor,
     TOWN_INDUSTRY_MAX_PENALTY,
     townNeedExpected,
     TOWN_NEEDS,
@@ -27,7 +27,6 @@ import {
     townCeilingPrice,
     townMood,
     townNextMood,
-    townNeedsPerTick,
     townRoadAccess,
     getTownResource,
     type TownSatisfied
@@ -49,8 +48,6 @@ export default defineEventHandler(async (event) => {
         maxLevel: TOWN_MAX_BUILDING_LEVEL,
         maxPlots: TOWN_MAX_PLOTS,
         rushMsPerGem: TOWN_RUSH_MS_PER_GEM,
-        parkAdjacent: TOWN_HAPPINESS_PARK_NEARBY,
-        industryAdjacent: TOWN_HAPPINESS_INDUSTRY_ADJACENT,
         parkMaxBonus: TOWN_PARK_MAX_BONUS,
         industryMaxPenalty: TOWN_INDUSTRY_MAX_PENALTY,
         parkRadius: TOWN_PARK_RADIUS
@@ -73,7 +70,10 @@ export default defineEventHandler(async (event) => {
         getTownLastPrices()
     ])
     const { state, buildings, plots, sim, inventory } = settled
-    const expansions = await getExpansions(userId, plots)
+    const [expansions, world] = await Promise.all([
+        getExpansions(userId, plots),
+        getWorldView(userId, plots)
+    ])
 
     const derived = deriveTown(sim, state.happiness, now, settled.satisfied)
     const unlockedTiers = [0, 1, 2, 3, 4, 5, 6].filter(t => townTierUnlocked(sim, t, now, state.produced))
@@ -145,7 +145,15 @@ export default defineEventHandler(async (event) => {
         lastSettledAt: state.lastSettledAt.getTime(),
         coinsEarned: parseFloat(state.coinsEarned),
         unlockedTiers,
-        plots: plots.map(p => ({ id: p.id, x: p.x, y: p.y })),
+        plots: plots.map(p => ({
+            id: p.id,
+            x: p.x,
+            y: p.y,
+            listPrice: p.listPrice === null ? null : parseFloat(p.listPrice),
+            refund: townPlotRefundFor(parseFloat(p.paidPrice))
+        })),
+        world,
+        plotRefundShare: TOWN_PLOT_REFUND_SHARE,
         plotPurchase: plotPurchaseInfo(state, now),
         expansions,
         buildings: buildings.map(b => ({

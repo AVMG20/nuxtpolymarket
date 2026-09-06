@@ -134,6 +134,20 @@
       "when": 1788722649799,
       "tag": "0018_polytown_produced",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1788728502973,
+      "tag": "0019_polytown_plot_market",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1788729369984,
+      "tag": "0020_polytown_plot_paid_price",
+      "breakpoints": true
     }
   ]
 }

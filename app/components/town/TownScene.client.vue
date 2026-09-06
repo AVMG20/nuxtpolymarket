@@ -27,12 +27,22 @@ export interface SceneBuilding {
     connected?: boolean
 }
 export interface SceneExpansion { x: number, y: number, free: boolean, ownerName?: string }
+export interface SceneNeighbour {
+    id: string
+    x: number
+    y: number
+    ownerName: string
+    listPrice: number | null
+    buildings: { type: string, tileX: number, tileY: number, rotation: number, level: number }[]
+}
 export interface TileRef { plotId: string, tileX: number, tileY: number }
 
 const props = withDefaults(defineProps<{
     plots: ScenePlot[]
     buildings: SceneBuilding[]
     expansions: SceneExpansion[]
+    /** Other mayors' land around you — drawn, named, never interactive except when for sale. */
+    neighbours?: SceneNeighbour[]
     selectedBuildingId?: string | null
     ghostType?: string | null
     ghostRotation?: number
@@ -65,6 +75,7 @@ const props = withDefaults(defineProps<{
     tickMs: 60_000,
     expansionLabel: '',
     expansionAffordable: true,
+    neighbours: () => [],
     effectRadii: () => [],
     ghostRadius: null,
     ghostIssue: null,
@@ -75,10 +86,14 @@ const emit = defineEmits<{
     'select-tile': [tile: TileRef]
     'select-building': [id: string]
     'select-expansion': [slot: { x: number, y: number }]
+    /** A neighbour's plot that is on the market. */
+    'select-listing': [plot: { id: string, ownerName: string, price: number }]
     'hover-building': [id: string | null]
-    'hover-expansion': [slot: { x: number, y: number } | null]
+    'hover-expansion': [slot: { x: number, y: number, free: boolean, ownerName?: string } | null]
     /** Tile under the cursor in world coordinates, or null — the parent decides placement validity and auto-facing. */
     'hover-tile': [tile: (TileRef & { wx: number, wy: number }) | null]
+    /** Another mayor's plot or building under the cursor. */
+    'hover-neighbour': [info: { plotId: string, ownerName: string, type?: string, level?: number } | null]
     'deselect': []
 }>()
 
@@ -115,10 +130,11 @@ const sun = new THREE.DirectionalLight(0xffe6bf, 2.5)
 const plotsGroup = new THREE.Group()
 const buildingsGroup = new THREE.Group()
 const expansionGroup = new THREE.Group()
+const neighbourGroup = new THREE.Group()
 const decorGroup = new THREE.Group()
 const villagerGroup = new THREE.Group()
 const fxGroup = new THREE.Group()
-scene.add(plotsGroup, buildingsGroup, expansionGroup, decorGroup, villagerGroup, fxGroup)
+scene.add(plotsGroup, buildingsGroup, expansionGroup, neighbourGroup, decorGroup, villagerGroup, fxGroup)
 
 const SKY = 0xb4d9dd
 scene.background = new THREE.Color(SKY)
@@ -290,12 +306,11 @@ function rebuildPlots() {
 
 // ─── Expansion slots ─────────────────────────────────────────────────────────
 
-interface SlotEntry { slot: SceneExpansion, hit: THREE.Mesh, sign: THREE.Group | null, board: THREE.Mesh | null, label: HTMLDivElement | null }
+interface SlotEntry { slot: SceneExpansion, hit: THREE.Mesh, sign: THREE.Group | null, board: THREE.Mesh | null }
 const slotEntries: SlotEntry[] = []
 let hoveredSlotKey: string | null = null
 
 function rebuildExpansions() {
-    for (const e of slotEntries) e.label?.remove()
     slotEntries.length = 0
     expansionGroup.clear()
     const freeMat = new THREE.MeshStandardMaterial({ color: 0xffffff, transparent: true, opacity: 0.16, roughness: 1, depthWrite: false })
@@ -327,7 +342,7 @@ function rebuildExpansions() {
             board.material = signMaterial(false)
             expansionGroup.add(sign)
         }
-        slotEntries.push({ slot, hit, sign, board, label: null })
+        slotEntries.push({ slot, hit, sign, board })
     }
 }
 
@@ -363,6 +378,55 @@ function signMaterial(hover: boolean): THREE.MeshStandardMaterial {
     m = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.9, emissive: hover ? 0x664400 : 0x000000 })
     signMats.set(key, m)
     return m
+}
+
+// ─── Neighbours ──────────────────────────────────────────────────────────────
+// One realm: other mayors' land is drawn around yours so you can watch them
+// grow, see where you could expand, and spot a plot they have put up for sale.
+// Their buildings are static props — no animation, no picking beyond a listing.
+
+
+function rebuildNeighbours() {
+    neighbourGroup.clear()
+    if (props.neighbours.length === 0) return
+
+    const tex = makePlotTexture()
+    const topMat = new THREE.MeshStandardMaterial({ map: tex, roughness: 1, color: 0xb9b9b9 })
+    const sideMat = new THREE.MeshStandardMaterial({ color: 0x7a6247, roughness: 1 })
+    const roads = new Set<string>()
+    for (const n of props.neighbours) {
+        for (const b of n.buildings) {
+            if (b.type === 'road') roads.add(roadKey(n.x * PLOT + b.tileX, n.y * PLOT + b.tileY))
+        }
+    }
+
+    for (const n of props.neighbours) {
+        const slab = new THREE.Mesh(new THREE.BoxGeometry(PLOT, 0.3, PLOT), [sideMat, sideMat, topMat, sideMat, sideMat, sideMat])
+        slab.position.set(n.x * PLOT + PLOT / 2, 0.15, n.y * PLOT + PLOT / 2)
+        slab.receiveShadow = true
+        slab.userData.neighbour = { plotId: n.id, ownerName: n.ownerName }
+        if (n.listPrice !== null) slab.userData.listing = { id: n.id, ownerName: n.ownerName, price: n.listPrice }
+        neighbourGroup.add(slab)
+
+        for (const b of n.buildings) {
+            const wx = n.x * PLOT + b.tileX
+            const wy = n.y * PLOT + b.tileY
+            const model = b.type === 'road'
+                ? buildRoadModel(roadConnections(wx, wy, roads))
+                : buildingModel(b.type as TownBuildingId)
+            model.position.set(wx + 0.5, 0.3, wy + 0.5)
+            if (b.type !== 'road') {
+                model.rotation.y = b.rotation * Math.PI / 2
+                model.scale.setScalar(levelScale(b.level))
+            }
+            const info = { plotId: n.id, ownerName: n.ownerName, type: b.type, level: b.level }
+            model.traverse((o) => {
+                o.userData.neighbourBuilding = info
+                if (n.listPrice !== null) o.userData.listing = { id: n.id, ownerName: n.ownerName, price: n.listPrice }
+            })
+            neighbourGroup.add(model)
+        }
+    }
 }
 
 // ─── Buildings ───────────────────────────────────────────────────────────────
@@ -865,6 +929,7 @@ function rebuildDecor() {
     const blocked = new Set<string>()
     for (const p of props.plots) blocked.add(`${p.x},${p.y}`)
     for (const s of props.expansions) blocked.add(`${s.x},${s.y}`)
+    for (const n of props.neighbours) blocked.add(`${n.x},${n.y}`)
     let minPX = Infinity, maxPX = -Infinity, minPY = Infinity, maxPY = -Infinity
     for (const p of props.plots) {
         minPX = Math.min(minPX, p.x); maxPX = Math.max(maxPX, p.x)
@@ -1106,8 +1171,44 @@ function ensureBar(e: BuildingEntry) {
     e.bar = el
 }
 
+/**
+ * Where each HTML overlay is anchored in the world. Positioning runs EVERY
+ * frame — a label that only moves ten times a second visibly swims behind the
+ * scene while the camera pans — while the expensive bookkeeping (creating and
+ * removing elements, progress widths, popup lifetimes) stays on the slower
+ * cadence in updateOverlays.
+ */
+function positionOverlays() {
+    for (const e of entries.values()) {
+        if (e.bar) {
+            const p = project(e.group.position.x, e.group.position.y + e.modelHeight * e.model.scale.y + 0.16, e.group.position.z)
+            e.bar.style.transform = `translate(${p.sx}px, ${p.sy}px) translate(-50%, -50%)`
+            e.bar.style.display = p.visible ? '' : 'none'
+        }
+        if (e.alert) {
+            const bob = Math.sin(performance.now() / 350 + e.group.position.x) * 0.06
+            const p = project(e.group.position.x, e.group.position.y + e.modelHeight * e.model.scale.y + 0.3 + bob, e.group.position.z)
+            e.alert.style.transform = `translate(${p.sx}px, ${p.sy}px) translate(-50%, -100%)`
+            e.alert.style.display = p.visible ? '' : 'none'
+        }
+    }
+    for (const pu of popups) {
+        const p = project(pu.x, pu.y + pu.life * 0.8, pu.z)
+        pu.el.style.transform = `translate(${p.sx}px, ${p.sy}px) translate(-50%, -100%)`
+    }
+    if (issueLabel && issueAnchor) {
+        const p = project(issueAnchor.x, 1.35, issueAnchor.z)
+        issueLabel.style.transform = `translate(${p.sx}px, ${p.sy}px) translate(-50%, -100%)`
+        issueLabel.style.display = p.visible ? '' : 'none'
+    }
+    // The signs face the camera; their price rides the cursor tooltip.
+    for (const e of slotEntries) {
+        if (e.sign) e.sign.rotation.y = cam.yaw
+    }
+}
+
 function updateOverlays(now: number, dt: number) {
-    // Build progress bars.
+    // Build progress bars: create, retire, and set the fill width.
     for (const e of entries.values()) {
         const pending = isPending(e.data, now)
         if (!pending) {
@@ -1117,13 +1218,9 @@ function updateOverlays(now: number, dt: number) {
         ensureBar(e)
         const total = townLevelBuildMs(e.def, e.data.upgradingTo ?? 1)
         const progress = Math.max(0, Math.min(1, 1 - (e.data.completesAt - now) / total))
-        const p = project(e.group.position.x, e.group.position.y + e.modelHeight * e.model.scale.y + 0.16, e.group.position.z)
-        const bar = e.bar!
-        bar.style.transform = `translate(${p.sx}px, ${p.sy}px) translate(-50%, -50%)`
-        bar.style.display = p.visible ? '' : 'none'
-        ;(bar.firstElementChild as HTMLElement).style.width = `${Math.round(progress * 100)}%`
+        ;(e.bar!.firstElementChild as HTMLElement).style.width = `${Math.round(progress * 100)}%`
     }
-    // Production popups.
+    // Production popups age out.
     for (let i = popups.length - 1; i >= 0; i--) {
         const pu = popups[i]!
         pu.life += dt
@@ -1132,11 +1229,9 @@ function updateOverlays(now: number, dt: number) {
             popups.splice(i, 1)
             continue
         }
-        const p = project(pu.x, pu.y + pu.life * 0.8, pu.z)
-        pu.el.style.transform = `translate(${p.sx}px, ${p.sy}px) translate(-50%, -100%)`
         pu.el.style.opacity = String(pu.life < 0.2 ? pu.life / 0.2 : 1 - (pu.life - 0.2) / 1.4)
     }
-    // Disconnected buildings: a big "!" that bobs above them.
+    // Disconnected buildings wear a big "!".
     for (const e of entries.values()) {
         const cut = e.data.connected === false && e.data.type !== 'road'
         if (!cut) {
@@ -1151,38 +1246,10 @@ function updateOverlays(now: number, dt: number) {
             overlay.value.appendChild(el)
             e.alert = el
         }
-        if (e.alert) {
-            const bob = Math.sin(performance.now() / 350 + e.group.position.x) * 0.06
-            const p = project(e.group.position.x, e.group.position.y + e.modelHeight * e.model.scale.y + 0.3 + bob, e.group.position.z)
-            e.alert.style.transform = `translate(${p.sx}px, ${p.sy}px) translate(-50%, -100%)`
-            e.alert.style.display = p.visible ? '' : 'none'
-        }
     }
-    // Placement issue bubble follows the ghost.
-    if (issueLabel && issueAnchor) {
-        const p = project(issueAnchor.x, 1.35, issueAnchor.z)
-        issueLabel.style.transform = `translate(${p.sx}px, ${p.sy}px) translate(-50%, -100%)`
-        issueLabel.style.display = p.visible ? '' : 'none'
-    }
-    // For-sale label.
+    // A hovered sign lights up; what it costs is shown at the cursor.
     for (const e of slotEntries) {
-        const key = `${e.slot.x},${e.slot.y}`
-        const hovered = key === hoveredSlotKey
-        if (hovered && !e.label && overlay.value) {
-            const el = document.createElement('div')
-            el.className = 'town-sign'
-            overlay.value.appendChild(el)
-            e.label = el
-        }
-        if (!hovered && e.label) { e.label.remove(); e.label = null }
-        if (e.label) {
-            const p = project(e.slot.x * PLOT + PLOT / 2, 2.1, e.slot.y * PLOT + PLOT / 2)
-            e.label.style.transform = `translate(${p.sx}px, ${p.sy}px) translate(-50%, -100%)`
-            e.label.textContent = e.slot.free ? props.expansionLabel : `${e.slot.ownerName ?? 'Someone'}'s land`
-            e.label.classList.toggle('is-bad', e.slot.free && !props.expansionAffordable)
-        }
-        if (e.board) e.board.material = signMaterial(hovered)
-        if (e.sign) e.sign.rotation.y = cam.yaw
+        if (e.board) e.board.material = signMaterial(`${e.slot.x},${e.slot.y}` === hoveredSlotKey)
     }
 }
 
@@ -1192,12 +1259,13 @@ const raycaster = new THREE.Raycaster()
 const pointerNdc = new THREE.Vector2()
 let hoveredBuildingId: string | null = null
 
-type Pick = { kind: 'building', id: string } | { kind: 'tile', tile: TileRef, x: number, z: number } | { kind: 'expansion', x: number, y: number, free: boolean } | null
+type NeighbourInfo = { plotId: string, ownerName: string, type?: string, level?: number }
+type Pick = { kind: 'building', id: string } | { kind: 'tile', tile: TileRef, x: number, z: number } | { kind: 'expansion', x: number, y: number, free: boolean } | { kind: 'listing', listing: { id: string, ownerName: string, price: number } } | { kind: 'neighbour', info: NeighbourInfo } | null
 
 function pick(sx: number, sy: number): Pick {
     pointerNdc.set((sx / viewW) * 2 - 1, -(sy / viewH) * 2 + 1)
     raycaster.setFromCamera(pointerNdc, camera)
-    const hits = raycaster.intersectObjects([buildingsGroup, plotsGroup, expansionGroup], true)
+    const hits = raycaster.intersectObjects([buildingsGroup, plotsGroup, expansionGroup, neighbourGroup], true)
     for (const h of hits) {
         const id = h.object.userData.buildingId as string | undefined
         if (id && (!ghost || !isDescendant(h.object, ghost))) return { kind: 'building', id }
@@ -1212,6 +1280,12 @@ function pick(sx: number, sy: number): Pick {
         }
         const ex = h.object.userData.expansion as { x: number, y: number, free: boolean } | undefined
         if (ex) return { kind: 'expansion', ...ex }
+        const listing = h.object.userData.listing as { id: string, ownerName: string, price: number } | undefined
+        if (listing) return { kind: 'listing', listing }
+        const neighbourBuilding = h.object.userData.neighbourBuilding as NeighbourInfo | undefined
+        if (neighbourBuilding) return { kind: 'neighbour', info: neighbourBuilding }
+        const neighbour = h.object.userData.neighbour as NeighbourInfo | undefined
+        if (neighbour) return { kind: 'neighbour', info: neighbour }
     }
     return null
 }
@@ -1333,6 +1407,8 @@ function onPointerUp(e: PointerEvent) {
         emit('select-tile', hit.tile)
     } else if (hit.kind === 'expansion') {
         if (hit.free) emit('select-expansion', { x: hit.x, y: hit.y })
+    } else if (hit.kind === 'listing') {
+        emit('select-listing', hit.listing)
     }
 }
 
@@ -1350,6 +1426,7 @@ function onWheel(e: WheelEvent) {
 function onLeave() {
     setHoverBuilding(null)
     setHoverSlot(null)
+    setHoverNeighbour(null)
     setHoverTile(null)
     hoverTile.visible = false
     hideGhost()
@@ -1369,14 +1446,23 @@ function setHoverTile(tile: (TileRef & { wx: number, wy: number }) | null) {
     emit('hover-tile', tile)
 }
 
-function setHoverSlot(key: string | null, slot?: { x: number, y: number }) {
+function setHoverNeighbour(info: NeighbourInfo | null) {
+    const id = info ? `${info.plotId}:${info.type ?? ''}:${info.level ?? ''}` : null
+    if (id === hoveredNeighbourKey) return
+    hoveredNeighbourKey = id
+    emit('hover-neighbour', info)
+}
+let hoveredNeighbourKey: string | null = null
+
+function setHoverSlot(key: string | null, slot?: SceneExpansion) {
     if (key === hoveredSlotKey) return
     hoveredSlotKey = key
-    emit('hover-expansion', key && slot ? slot : null)
+    emit('hover-expansion', key && slot ? { x: slot.x, y: slot.y, free: slot.free, ownerName: slot.ownerName } : null)
 }
 
 function updateHover(sx: number, sy: number) {
     const hit = pick(sx, sy)
+    if (hit?.kind !== 'neighbour' && hit?.kind !== 'listing') setHoverNeighbour(null)
     if (hit?.kind === 'building' && !ghost) {
         setHoverBuilding(hit.id)
         setHoverSlot(null)
@@ -1425,11 +1511,21 @@ function updateHover(sx: number, sy: number) {
     hoverTile.visible = false
     hideGhost()
     if (hit?.kind === 'expansion') {
-        setHoverSlot(`${hit.x},${hit.y}`, { x: hit.x, y: hit.y })
+        setHoverSlot(`${hit.x},${hit.y}`, props.expansions.find(e => e.x === hit.x && e.y === hit.y))
         canvas.value!.style.cursor = hit.free ? 'pointer' : 'default'
         return
     }
+    if (hit?.kind === 'listing') {
+        setHoverNeighbour({ plotId: hit.listing.id, ownerName: hit.listing.ownerName })
+        canvas.value!.style.cursor = 'pointer'
+        return
+    }
     setHoverSlot(null)
+    if (hit?.kind === 'neighbour') {
+        setHoverNeighbour(hit.info)
+        canvas.value!.style.cursor = 'default'
+        return
+    }
     canvas.value!.style.cursor = 'grab'
 }
 
@@ -1572,6 +1668,7 @@ function frame(ms: number) {
         lastOverlayMs = ms
         if (shapesChanged) markShadowsDirty()
     }
+    positionOverlays()
 
     if (shadowsDirty) {
         renderer.shadowMap.needsUpdate = true
@@ -1621,6 +1718,7 @@ onMounted(() => {
     setupStatic()
     rebuildPlots()
     rebuildExpansions()
+    rebuildNeighbours()
     rebuildDecor()
     syncBuildings()
     syncVillagers()
@@ -1656,6 +1754,7 @@ onBeforeUnmount(() => {
 
 watch(() => props.plots, () => { invalidateTileCaches(); rebuildPlots(); rebuildDecor(); syncBuildings(); syncVillagers(); markShadowsDirty() }, { deep: true })
 watch(() => props.expansions, () => { rebuildExpansions(); rebuildDecor(); markShadowsDirty() }, { deep: true })
+watch(() => props.neighbours, () => { rebuildNeighbours(); rebuildDecor(); markShadowsDirty() }, { deep: true })
 watch(() => props.buildings, () => { invalidateTileCaches(); syncBuildings(); syncVillagers(); markShadowsDirty() }, { deep: true })
 watch(() => props.popCap, syncVillagers)
 watch(() => [props.ghostType, props.ghostLevel], rebuildGhost)
@@ -1722,20 +1821,6 @@ defineExpose({ recenter: () => recenter(true), setResourceEmoji: (map: Record<st
     white-space: nowrap;
     will-change: transform, opacity;
 }
-.town-overlay :deep(.town-sign) {
-    position: absolute;
-    left: 0;
-    top: 0;
-    padding: 6px 10px;
-    border-radius: 10px;
-    background: rgba(255, 244, 214, 0.96);
-    color: #4a3419;
-    font: 700 13px/1.2 system-ui, sans-serif;
-    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
-    white-space: pre;
-    text-align: center;
-    will-change: transform;
-}
 .town-overlay :deep(.town-alert) {
     position: absolute;
     left: 0;
@@ -1764,9 +1849,5 @@ defineExpose({ recenter: () => recenter(true), setResourceEmoji: (map: Record<st
     text-align: center;
     white-space: normal;
     will-change: transform;
-}
-.town-overlay :deep(.town-sign.is-bad) {
-    background: rgba(255, 214, 214, 0.96);
-    color: #7a1f1f;
 }
 </style>

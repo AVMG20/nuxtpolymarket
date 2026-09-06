@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte, lte, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, gt, gte, inArray, lte, sql } from 'drizzle-orm'
 import { db, type DbExecutor } from '#server/database'
 import { user, townState, townPlots, townBuildings, townInventory, townOrders, townTrades, townProduction } from '#server/database/schema'
 import { credit, creditGems, debit, debitGems } from '#server/utils/balance'
@@ -20,6 +20,10 @@ import {
     townRushGemCost,
     townPlotCooldownMs,
     townPlotPrice,
+    townPlotRefundFor,
+    townPlotDistance,
+    isValidTownListPrice,
+    TOWN_FOUNDING_GAP,
     townSpiralCoords,
     townFloorPrice,
     townCeilingPrice,
@@ -244,13 +248,18 @@ export async function settleTownForRead(userId: string) {
 // ─── Founding & plots ────────────────────────────────────────────────────────
 
 /** First free square walking the spiral out from the origin — where new towns are founded. */
+/**
+ * Every town lives in one realm. A new one is planted on the first square of
+ * the spiral that is TOWN_FOUNDING_GAP plots clear of everybody else's land,
+ * so new mayors get room to grow before they meet a neighbour.
+ */
 async function claimFoundingPlot(tx: DbExecutor, userId: string) {
     await lockPlots(tx)
-    const taken = new Set((await tx.select({ x: townPlots.x, y: townPlots.y }).from(townPlots)).map(p => `${p.x},${p.y}`))
+    const owned = await tx.select({ x: townPlots.x, y: townPlots.y }).from(townPlots)
     for (let i = 0; i < 100_000; i++) {
-        const { x, y } = townSpiralCoords(i)
-        if (taken.has(`${x},${y}`)) continue
-        const [plot] = await tx.insert(townPlots).values({ userId, x, y }).onConflictDoNothing().returning()
+        const spot = townSpiralCoords(i)
+        if (owned.some(p => townPlotDistance(p, spot) <= TOWN_FOUNDING_GAP)) continue
+        const [plot] = await tx.insert(townPlots).values({ userId, x: spot.x, y: spot.y, paidPrice: '0' }).onConflictDoNothing().returning()
         if (plot) return plot
     }
     throw createError({ statusCode: 500, statusMessage: 'No free land left' })
@@ -325,13 +334,184 @@ export async function buyPlot(userId: string, x: number, y: number) {
 
         await debit(userId, info.price.toFixed(4), CATEGORY, tx)
         // The unique (x, y) constraint is the claim: lose the race, lose nothing (the tx rolls back).
-        const [plot] = await tx.insert(townPlots).values({ userId, x, y }).onConflictDoNothing().returning()
+        const [plot] = await tx.insert(townPlots).values({ userId, x, y, paidPrice: info.price.toFixed(4) }).onConflictDoNothing().returning()
         if (!plot) throw createError({ statusCode: 400, statusMessage: 'Someone just bought that square' })
         await tx.update(townState)
             .set({ plotsBought: sql`${townState.plotsBought} + 1`, lastPlotBoughtAt: new Date(now) })
             .where(eq(townState.id, state.id))
         return { plotId: plot.id, x: plot.x, y: plot.y, price: info.price }
     })
+}
+
+/** A plot can only change hands when nothing stands on it. */
+async function assertPlotEmpty(tx: DbExecutor, plotId: string) {
+    const [row] = await tx.select({ n: sql<number>`count(*)`.mapWith(Number) })
+        .from(townBuildings)
+        .where(eq(townBuildings.plotId, plotId))
+    if ((row?.n ?? 0) > 0) {
+        throw createError({ statusCode: 400, statusMessage: 'Clear every building off the plot first' })
+    }
+}
+
+/** Put an empty plot on the market at your own price, or pass null to take it off. */
+export async function listPlot(userId: string, plotId: string, price: number | null) {
+    if (price !== null && !isValidTownListPrice(price)) {
+        throw createError({ statusCode: 400, statusMessage: 'Asking price must be at least 1 coin, with at most 2 decimals' })
+    }
+    return db.transaction(async (tx) => {
+        const { plots } = await settleTownState(tx, userId)
+        const plot = plots.find(p => p.id === plotId)
+        if (!plot) throw createError({ statusCode: 404, statusMessage: 'That plot is not yours' })
+        if (price !== null) {
+            if (plots.length <= 1) throw createError({ statusCode: 400, statusMessage: 'This is your last plot' })
+            await assertPlotEmpty(tx, plotId)
+        }
+        await tx.update(townPlots)
+            .set({ listPrice: price === null ? null : price.toFixed(4) })
+            .where(and(eq(townPlots.id, plotId), eq(townPlots.userId, userId)))
+        return { plotId, listPrice: price }
+    })
+}
+
+/** Hand an empty plot back to the land office for a quarter of what it cost. */
+export async function sellPlotToSystem(userId: string, plotId: string) {
+    return db.transaction(async (tx) => {
+        const { state, plots } = await settleTownState(tx, userId)
+        const plot = plots.find(p => p.id === plotId)
+        if (!plot) throw createError({ statusCode: 404, statusMessage: 'That plot is not yours' })
+        if (plots.length <= 1) throw createError({ statusCode: 400, statusMessage: 'This is your last plot' })
+        await assertPlotEmpty(tx, plotId)
+
+        // The refund is a share of what this very plot cost its owner, so a
+        // cheap plot bought off a neighbour cannot be flipped for a fortune.
+        const refund = townPlotRefundFor(parseFloat(plot.paidPrice))
+        const [removed] = await tx.delete(townPlots)
+            .where(and(eq(townPlots.id, plotId), eq(townPlots.userId, userId)))
+            .returning({ id: townPlots.id })
+        if (!removed) throw createError({ statusCode: 409, statusMessage: 'That plot just changed hands' })
+        await tx.update(townState)
+            .set({ plotsBought: sql`greatest(1, ${townState.plotsBought} - 1)` })
+            .where(eq(townState.id, state.id))
+        if (refund > 0) await credit(userId, refund.toFixed(4), CATEGORY, tx)
+        return { plotId, refund }
+    })
+}
+
+/**
+ * Buy a plot another mayor has listed. The land-office cooldown does not apply
+ * — that is the point of the player market — but the plot still has to touch
+ * land you already own, so towns stay contiguous.
+ */
+export async function buyPlotFromPlayer(userId: string, plotId: string) {
+    return db.transaction(async (tx) => {
+        await lockPlots(tx)
+        const listing = await tx.query.townPlots.findFirst({ where: eq(townPlots.id, plotId) })
+        if (!listing || listing.listPrice === null) throw createError({ statusCode: 400, statusMessage: 'That plot is not for sale' })
+        if (listing.userId === userId) throw createError({ statusCode: 400, statusMessage: 'That plot is already yours' })
+        const sellerId = listing.userId
+        const price = parseFloat(listing.listPrice)
+
+        // Lock both towns in id order so two crossing purchases cannot deadlock.
+        for (const id of [userId, sellerId].sort()) {
+            await tx.select({ id: townState.id }).from(townState).where(eq(townState.userId, id)).for('update')
+        }
+
+        // Re-checked under the lock: listing and selling are separate calls, so
+        // the seller may have shed their other land since they listed this one.
+        const sellerPlots = await tx.select({ id: townPlots.id }).from(townPlots).where(eq(townPlots.userId, sellerId))
+        if (sellerPlots.length <= 1) {
+            await tx.update(townPlots).set({ listPrice: null }).where(eq(townPlots.id, plotId))
+            throw createError({ statusCode: 400, statusMessage: 'That is the seller\'s last plot — it is no longer for sale' })
+        }
+
+        const mine = await tx.select().from(townPlots).where(eq(townPlots.userId, userId))
+        if (mine.length >= TOWN_MAX_PLOTS) throw createError({ statusCode: 400, statusMessage: 'You own the maximum number of plots' })
+        if (!mine.some(p => Math.abs(p.x - listing.x) + Math.abs(p.y - listing.y) === 1)) {
+            throw createError({ statusCode: 400, statusMessage: 'That plot does not touch your land' })
+        }
+        await assertPlotEmpty(tx, plotId)
+
+        // The conditional update is the claim: whoever flips the listing owns it.
+        const [bought] = await tx.update(townPlots)
+            .set({ userId, listPrice: null, paidPrice: price.toFixed(4) })
+            .where(and(eq(townPlots.id, plotId), eq(townPlots.userId, sellerId), sql`${townPlots.listPrice} is not null`))
+            .returning({ id: townPlots.id })
+        if (!bought) throw createError({ statusCode: 409, statusMessage: 'Someone just bought that plot' })
+
+        await debit(userId, price.toFixed(4), CATEGORY, tx)
+        await credit(sellerId, price.toFixed(4), CATEGORY, tx)
+        await tx.update(townState).set({ plotsBought: sql`${townState.plotsBought} + 1` }).where(eq(townState.userId, userId))
+        await tx.update(townState).set({ plotsBought: sql`greatest(1, ${townState.plotsBought} - 1)` }).where(eq(townState.userId, sellerId))
+        return { plotId, price, sellerId }
+    })
+}
+
+/**
+ * Everything the map should draw around the player: other mayors' plots (and
+ * what stands on them) within a few squares, plus anything they have listed.
+ */
+export async function getWorldView(userId: string, ownPlots: { x: number, y: number }[], radius = 6) {
+    if (ownPlots.length === 0) return { towns: [], listings: [] }
+    const minX = Math.min(...ownPlots.map(p => p.x)) - radius
+    const maxX = Math.max(...ownPlots.map(p => p.x)) + radius
+    const minY = Math.min(...ownPlots.map(p => p.y)) - radius
+    const maxY = Math.max(...ownPlots.map(p => p.y)) + radius
+
+    const rows = await db.select({
+        id: townPlots.id,
+        x: townPlots.x,
+        y: townPlots.y,
+        listPrice: townPlots.listPrice,
+        ownerId: townPlots.userId,
+        ownerName: user.name
+    })
+        .from(townPlots)
+        .innerJoin(user, eq(user.id, townPlots.userId))
+        .where(and(
+            sql`${townPlots.userId} <> ${userId}`,
+            gte(townPlots.x, minX), lte(townPlots.x, maxX),
+            gte(townPlots.y, minY), lte(townPlots.y, maxY)
+        ))
+        .limit(120)
+    if (rows.length === 0) return { towns: [], listings: [] }
+
+    const buildings = await db.select({
+        plotId: townBuildings.plotId,
+        type: townBuildings.type,
+        tileX: townBuildings.tileX,
+        tileY: townBuildings.tileY,
+        rotation: townBuildings.rotation,
+        level: townBuildings.level
+    })
+        .from(townBuildings)
+        .where(and(inArray(townBuildings.plotId, rows.map(r => r.id)), gt(townBuildings.level, 0)))
+        .limit(600)
+
+    const byPlot = new Map<string, typeof buildings>()
+    for (const b of buildings) {
+        const list = byPlot.get(b.plotId)
+        if (list) list.push(b)
+        else byPlot.set(b.plotId, [b])
+    }
+
+    return {
+        towns: rows.map(r => ({
+            id: r.id,
+            x: r.x,
+            y: r.y,
+            ownerId: r.ownerId,
+            ownerName: r.ownerName,
+            listPrice: r.listPrice === null ? null : parseFloat(r.listPrice),
+            buildings: byPlot.get(r.id) ?? []
+        })),
+        listings: rows.filter(r => r.listPrice !== null).map(r => ({
+            plotId: r.id,
+            x: r.x,
+            y: r.y,
+            ownerName: r.ownerName,
+            price: parseFloat(r.listPrice!)
+        }))
+    }
 }
 
 // ─── Buildings ───────────────────────────────────────────────────────────────
@@ -392,6 +572,8 @@ export async function placeBuilding(userId: string, plotId: string, tileX: numbe
             .onConflictDoNothing()
             .returning()
         if (!building) throw createError({ statusCode: 400, statusMessage: 'That tile is already taken' })
+        // Building on a listed plot takes it off the market.
+        await tx.update(townPlots).set({ listPrice: null }).where(eq(townPlots.id, plotId))
         return { buildingId: building.id, completesAt: building.completesAt.getTime(), cost }
     })
 }
@@ -432,6 +614,7 @@ export async function moveBuilding(userId: string, buildingId: string, plotId: s
             .where(and(eq(townBuildings.id, buildingId), eq(townBuildings.userId, userId)))
             .returning({ id: townBuildings.id })
         if (!moved) throw createError({ statusCode: 400, statusMessage: 'That tile is already taken' })
+        await tx.update(townPlots).set({ listPrice: null }).where(eq(townPlots.id, plotId))
         return { buildingId, plotId, tileX, tileY, rotation }
     })
 }

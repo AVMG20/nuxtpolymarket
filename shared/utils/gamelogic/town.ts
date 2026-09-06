@@ -30,6 +30,40 @@ export const TOWN_PLOT_COOLDOWN_GROWTH = 3
 export const TOWN_PLOT_PRICE_BASE = 50_000
 export const TOWN_PLOT_PRICE_GROWTH = 4.5
 export const TOWN_MAX_PLOTS = 12
+/**
+ * One shared realm: a new town is planted so that at least this many EMPTY
+ * plots sit between it and anyone else's land (the nearest neighbour is
+ * therefore three squares away). Everyone gets room to grow before they meet
+ * a neighbour — and something worth buying when they do.
+ */
+export const TOWN_FOUNDING_GAP = 2
+/** Selling a plot back to the land office returns this share of what that plot cost. */
+export const TOWN_PLOT_REFUND_SHARE = 0.25
+/** Bounds on what a player may ask for a plot. */
+export const TOWN_PLOT_MIN_LIST_PRICE = 1
+export const TOWN_PLOT_MAX_LIST_PRICE = 1_000_000_000_000
+
+/**
+ * What the land office pays to take a plot back: a share of what the owner
+ * actually paid for it. Deriving this from the plot-count instead would let a
+ * player buy a cheap plot off a neighbour and sell it back at the price of
+ * their NEXT office plot — a coin printer.
+ */
+export function townPlotRefundFor(paidPrice: number): number {
+    return Math.floor(Math.max(0, paidPrice) * TOWN_PLOT_REFUND_SHARE)
+}
+
+export function isValidTownListPrice(price: number): boolean {
+    return Number.isFinite(price)
+        && price >= TOWN_PLOT_MIN_LIST_PRICE
+        && price <= TOWN_PLOT_MAX_LIST_PRICE
+        && Math.abs(price * 100 - Math.round(price * 100)) < 1e-6
+}
+
+/** Chebyshev distance in plots — the spacing rule the realm is laid out on. */
+export function townPlotDistance(a: { x: number, y: number }, b: { x: number, y: number }): number {
+    return Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y))
+}
 
 /**
  * Every extra copy of the same building costs more: the n-th one (0-based)
@@ -94,7 +128,7 @@ export const TOWN_MAX_BUILD_MS = 72 * 60 * 60_000
  * Everything below is a line on that score, so the popover can show exactly
  * where the points came from:
  *
- *   base                              50
+ *   base                              55
  *   + every need the town supplies    up to +15
  *   − every need it could supply and does not
  *   + parks, by share of residents covered   up to +20
@@ -105,7 +139,7 @@ export const TOWN_MAX_BUILD_MS = 72 * 60 * 60_000
  * penalties; the last 30 points come from the goods only later tiers unlock.
  */
 export const TOWN_HAPPINESS_START = 50
-export const TOWN_HAPPINESS_BASE_TARGET = 50
+export const TOWN_HAPPINESS_BASE_TARGET = 55
 export const TOWN_HAPPINESS_DRIFT_PER_TICK = 2
 export const TOWN_HAPPINESS_CROWDING_PENALTY = 10
 export const TOWN_HAPPINESS_CROWDING_RATIO = 1
@@ -113,7 +147,7 @@ export const TOWN_HAPPINESS_CROWDING_RATIO = 1
 export const TOWN_PARK_MAX_BONUS = 20
 /** Industry near homes, weighted by residents affected and by how dirty it is. */
 export const TOWN_INDUSTRY_MAX_PENALTY = 25
-export const TOWN_INDUSTRY_PENALTY_SCALE = 5
+export const TOWN_INDUSTRY_PENALTY_SCALE = 4
 /** Penalty when the town has no food at all (neither wheat nor bread was eaten this tick). */
 export const TOWN_HAPPINESS_STARVING_PENALTY = 12
 /**
@@ -122,8 +156,6 @@ export const TOWN_HAPPINESS_STARVING_PENALTY = 12
  * here is one wider than the raw distance the effect is meant to cover.
  */
 export const TOWN_PARK_RADIUS = 3
-export const TOWN_HAPPINESS_PARK_NEARBY = 2
-export const TOWN_HAPPINESS_INDUSTRY_ADJACENT = 1
 /** Nuisance radius and per-house penalty by building tier (index = tier). */
 export const TOWN_INDUSTRY_NUISANCE: readonly { radius: number, penalty: number }[] = [
     { radius: 2, penalty: 1 }, // tier 0 (unused)
@@ -777,7 +809,7 @@ export function houseAdjacency(buildings: TownSimBuilding[], wx: number, wy: num
             const { radius, penalty } = townIndustryNuisance(def)
             if (within(b, wx, wy, radius)) {
                 industry++
-                industryPenalty += penalty * TOWN_HAPPINESS_INDUSTRY_ADJACENT
+                industryPenalty += penalty
             }
         }
     }
@@ -956,8 +988,8 @@ export function deriveTown(buildings: TownSimBuilding[], happiness: number, now:
             base: TOWN_HAPPINESS_BASE_TARGET,
             needs: needsScore,
             parks: layout.parks,
-            industry: -layout.industry,
-            crowding: -crowding,
+            industry: -layout.industry || 0,
+            crowding: -crowding || 0,
             layout
         }
     }

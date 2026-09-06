@@ -24,7 +24,7 @@ onMounted(() => { clock = setInterval(() => { now.value = Date.now() + town.serv
 onBeforeUnmount(() => { if (clock) clearInterval(clock) })
 
 // ── UI state ──
-type Window = 'market' | 'goals' | 'mayors' | null
+type Window = 'market' | 'goals' | 'mayors' | 'land' | null
 const windowOpen = ref<Window>(null)
 const buildOpen = ref(false)
 const buildTier = ref(0)
@@ -39,7 +39,8 @@ const marketResource = ref<string | null>(null)
 const busy = ref(false)
 const sceneRef = ref<InstanceType<typeof TownScene> | null>(null)
 const hoveredBuildingId = ref<string | null>(null)
-const hoveredSlot = ref<{ x: number, y: number } | null>(null)
+const hoveredSlot = ref<{ x: number, y: number, free: boolean, ownerName?: string } | null>(null)
+const hoveredNeighbour = ref<{ plotId: string, ownerName: string, type?: string, level?: number } | null>(null)
 const mouse = ref({ x: 0, y: 0 })
 
 const ghostLevel = computed(() => movingId.value ? town.buildings.value.find(b => b.id === movingId.value)?.level ?? 1 : 1)
@@ -301,6 +302,47 @@ function confirmBuyPlot() {
     run(() => town.buyPlot(slot.x, slot.y), res => toast.add({ title: 'New land!', description: `Paid ${formatNumber(res.price)} coins`, color: 'success' }), 'plot')
 }
 
+// ── Land ──
+const buildingsOnPlot = computed(() => {
+    const counts: Record<string, number> = {}
+    for (const b of town.buildings.value) counts[b.plotId] = (counts[b.plotId] ?? 0) + 1
+    return counts
+})
+const listingPrices = ref<Record<string, number | null>>({})
+const confirmListing = ref<{ id: string, ownerName: string, price: number } | null>(null)
+
+function onSelectListing(listing: { id: string, ownerName: string, price: number }) {
+    sound.unlock()
+    sound.play('open')
+    confirmListing.value = listing
+}
+
+function buyListing() {
+    const listing = confirmListing.value
+    confirmListing.value = null
+    if (!listing) return
+    run(() => town.buyPlotFromPlayer(listing.id), res => toast.add({ title: `Bought ${listing.ownerName}'s plot`, description: `Paid ${formatNumber(res.price)} coins`, color: 'success' }), 'plot')
+}
+
+function listPlotForSale(plotId: string) {
+    const price = listingPrices.value[plotId]
+    if (!price || price < 1) { toast.add({ title: 'Set an asking price first', color: 'warning' }); return }
+    run(() => town.listPlot(plotId, price), () => toast.add({ title: `Listed for ${formatNumber(price)} coins`, color: 'success' }), 'click')
+}
+
+function unlistPlot(plotId: string) {
+    run(() => town.listPlot(plotId, null), () => toast.add({ title: 'Taken off the market', color: 'neutral' }), 'close')
+}
+
+const confirmSellPlot = ref<string | null>(null)
+const sellPlotRefund = computed(() => town.plots.value.find(p => p.id === confirmSellPlot.value)?.refund ?? 0)
+function sellPlotBack() {
+    const plotId = confirmSellPlot.value
+    confirmSellPlot.value = null
+    if (!plotId) return
+    run(() => town.sellPlot(plotId), res => toast.add({ title: `Land office paid ${formatNumber(res.refund)} coins`, color: 'success' }), 'coin')
+}
+
 // ── Market ──
 function openMarket(resource?: string) {
     if (resource) marketResource.value = resource
@@ -467,6 +509,8 @@ function onKey(e: KeyboardEvent) {
     }
     if (e.key === 'Escape') {
         if (confirmPlot.value) confirmPlot.value = null
+        else if (confirmListing.value) confirmListing.value = null
+        else if (confirmSellPlot.value) confirmSellPlot.value = null
         else if (ghostType.value) { ghostType.value = null; movingId.value = null }
         else if (welcome.value) welcome.value = null
         else if (helpOpen.value) helpOpen.value = false
@@ -475,6 +519,7 @@ function onKey(e: KeyboardEvent) {
     else if (e.key === 'm' || e.key === 'M') openMarket()
     else if (e.key === 't' || e.key === 'T') openWindow('goals')
     else if (e.key === 'l' || e.key === 'L') openWindow('mayors')
+    else if (e.key === 'p' || e.key === 'P') openWindow('land')
 }
 onMounted(() => window.addEventListener('keydown', onKey))
 onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
@@ -532,13 +577,14 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
             :ghost-type="ghostType"
             :ghost-rotation="ghostRotation"
             :ghost-level="ghostLevel"
-            :keyboard-enabled="!windowOpen && !welcome && !helpOpen && !confirmDemolish && !confirmPlot"
+            :keyboard-enabled="!windowOpen && !welcome && !helpOpen && !confirmDemolish && !confirmPlot && !confirmListing && !confirmSellPlot"
             :server-offset-ms="town.serverOffsetMs.value"
             :pop-cap="popCap"
             :speed-multiplier="speed"
             :tick-ms="town.constants.value.tickMs"
             :expansion-label="expansionLabel"
             :expansion-affordable="canBuyPlot"
+            :neighbours="town.world.value.towns"
             :effect-radii="effectRadii"
             :ghost-radius="ghostRadius"
             :ghost-issue="ghostIssue"
@@ -547,7 +593,9 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
             @select-tile="onSelectTile"
             @select-building="onSelectBuilding"
             @select-expansion="buyPlot"
+            @select-listing="onSelectListing"
             @hover-building="hoveredBuildingId = $event"
+            @hover-neighbour="hoveredNeighbour = $event"
             @hover-expansion="hoveredSlot = $event"
             @deselect="onDeselect"
         />
@@ -658,6 +706,35 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                 </button>
             </div>
 
+            <!-- Land for sale under the cursor -->
+            <div v-if="hoveredSlot && !hoveredBuilding && !hoveredNeighbour" class="tip" :style="{ left: `${mouse.x + 16}px`, top: `${mouse.y + 16}px` }">
+                <template v-if="!hoveredSlot.free">
+                    <b>{{ hoveredSlot.ownerName ?? 'Another mayor' }}</b>
+                    <div class="opacity-70">Their land</div>
+                </template>
+                <template v-else-if="plotPurchase?.maxed">
+                    <b>🗺️ Land office</b>
+                    <div class="opacity-70">You own the maximum number of plots</div>
+                </template>
+                <template v-else-if="plotRemainingMs > 0">
+                    <b>🗺️ For sale</b>
+                    <div class="opacity-70">Land office opens in {{ formatTownDuration(plotRemainingMs) }}</div>
+                </template>
+                <template v-else>
+                    <b>🗺️ For sale · <TownCoin /> {{ formatNumber(plotPurchase?.price ?? 0) }}</b>
+                    <div class="opacity-70">{{ plotAffordable ? 'Click to buy' : 'Not enough coins' }}</div>
+                </template>
+            </div>
+
+            <!-- Another mayor's land -->
+            <div v-if="hoveredNeighbour && !hoveredBuilding" class="tip" :style="{ left: `${mouse.x + 16}px`, top: `${mouse.y + 16}px` }">
+                <b>{{ hoveredNeighbour.ownerName }}</b>
+                <div v-if="hoveredNeighbour.type" class="opacity-70">
+                    <TownAsset v-if="hoveredNeighbour.type !== 'road'" :id="hoveredNeighbour.type" kind="building" /><template v-else>🛣️</template>
+                    {{ town.catalogById.value.get(hoveredNeighbour.type)?.name ?? 'Building' }}<template v-if="hoveredNeighbour.level && hoveredNeighbour.type !== 'road'"> · Lv {{ hoveredNeighbour.level }}</template>
+                </div>
+            </div>
+
             <!-- Hover tooltip -->
             <div v-if="hoveredBuilding && hoveredEntry && !selectedBuilding" class="tip" :style="{ left: `${mouse.x + 16}px`, top: `${mouse.y + 16}px` }">
                 <b><TownAsset :id="hoveredEntry.id" kind="building" :level="hoveredBuilding.level" /> {{ hoveredEntry.name }}</b>
@@ -714,9 +791,9 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                                 </template>
                                 <template v-else-if="selectedEntry.kind === 'housing'">
                                     <span class="g-tag g-tag-green">👥 {{ selectedEntry.popCap * selectedBuilding.level }} residents</span>
-                                    <span v-if="selAdjacency" class="g-tag" :class="selAdjacency.parks ? 'g-tag-green' : ''">🌳 {{ selAdjacency.parks }} · +{{ selAdjacency.parks * town.constants.value.parkAdjacent }}</span>
-                                    <span v-if="selAdjacency" class="g-tag" :class="selAdjacency.industry ? 'g-tag-red' : ''">🏭 {{ selAdjacency.industry }} · −{{ selAdjacency.industry * town.constants.value.industryAdjacent }}</span>
-                                    <span class="opacity-60 text-xs">happiness from neighbours</span>
+                                    <span v-if="selAdjacency" class="g-tag" :class="selAdjacency.parks ? 'g-tag-green' : ''">🌳 {{ selAdjacency.parks }} {{ selAdjacency.parks === 1 ? 'park' : 'parks' }} in reach</span>
+                                    <span v-if="selAdjacency" class="g-tag" :class="selAdjacency.industry ? 'g-tag-red' : ''">🏭 {{ selAdjacency.industry }} {{ selAdjacency.industry === 1 ? 'workshop' : 'workshops' }} in reach</span>
+                                    <span class="opacity-60 text-xs">parks lift the town score, workshops drag it down</span>
                                 </template>
                                 <span v-else-if="selectedEntry.kind === 'civic'" class="g-tag g-tag-green">😊 +{{ selectedEntry.happiness * selectedBuilding.level }} happiness</span>
                                 <span v-else class="g-tag g-tag-green">📦 +{{ formatNumber(selectedEntry.storage * selectedBuilding.level) }} storage</span>
@@ -795,6 +872,7 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                     <span class="dock-ico">🏆</span><span>Goals</span><kbd>T</kbd>
                     <span v-if="claimable" class="dock-badge">{{ claimable }}</span>
                 </button>
+                <button class="dock-btn" :class="windowOpen === 'land' ? 'is-active' : ''" @click="openWindow('land')"><span class="dock-ico">🗺️</span><span>Land</span><kbd>P</kbd></button>
                 <button class="dock-btn" :class="windowOpen === 'mayors' ? 'is-active' : ''" @click="openWindow('mayors')"><span class="dock-ico">👑</span><span>Mayors</span><kbd>L</kbd></button>
             </div>
 
@@ -822,6 +900,50 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                         />
                         <TownMilestonesPanel v-else-if="windowOpen === 'goals'" :milestones="town.milestones.value" :busy="busy" @claim="claimMilestone" @close="closeAll" />
                         <TownLeaderboardPanel v-else-if="windowOpen === 'mayors'" @close="closeAll" />
+
+                        <div v-else-if="windowOpen === 'land'" class="flex h-full min-h-0 flex-col">
+                            <div class="g-window-head">
+                                <h2>🗺️ Your land <span class="text-sm font-semibold opacity-50">{{ town.plots.value.length }}/{{ town.constants.value.maxPlots }}</span></h2>
+                                <button class="g-icon g-icon-sm" @click="closeAll">✕</button>
+                            </div>
+                            <div class="g-window-body space-y-2">
+                                <p class="text-xs opacity-70">
+                                    Everyone plays in one realm. Empty land can go back to the office for
+                                    {{ Math.round((town.state.value?.plotRefundShare ?? 0.25) * 100) }}% of its price, or be listed for any price you like —
+                                    other mayors whose land touches it can buy it.
+                                </p>
+                                <div v-for="(p, i) in town.plots.value" :key="p.id" class="plotrow">
+                                    <div class="min-w-0 flex-1">
+                                        <b>Plot {{ i + 1 }}</b>
+                                        <span class="opacity-50"> · ({{ p.x }}, {{ p.y }})</span>
+                                        <div class="text-[11px] opacity-60">
+                                            <template v-if="buildingsOnPlot[p.id]">{{ buildingsOnPlot[p.id] }} buildings — clear it to sell</template>
+                                            <template v-else-if="p.listPrice !== null">Listed for {{ formatNumber(p.listPrice) }} coins</template>
+                                            <template v-else>Empty</template>
+                                        </div>
+                                    </div>
+                                    <template v-if="!buildingsOnPlot[p.id] && town.plots.value.length > 1">
+                                        <template v-if="p.listPrice === null">
+                                            <input v-model.number="listingPrices[p.id]" type="number" min="1" placeholder="price" class="g-input w-28">
+                                            <button class="g-btn py-2 text-xs" :disabled="busy" @click="listPlotForSale(p.id)">List</button>
+                                            <button class="g-btn py-2 text-xs" :disabled="busy || p.refund <= 0" :title="p.refund > 0 ? `The land office pays ${formatNumber(p.refund)} coins` : 'This plot was free — the office pays nothing for it'" @click="confirmSellPlot = p.id">Sell back · {{ formatNumber(p.refund) }}</button>
+                                        </template>
+                                        <button v-else class="g-btn py-2 text-xs" :disabled="busy" @click="unlistPlot(p.id)">Unlist</button>
+                                    </template>
+                                </div>
+
+                                <div class="moodpop-sec">Land for sale nearby</div>
+                                <div v-if="town.world.value.listings.length === 0" class="text-xs opacity-60">Nobody near you is selling right now.</div>
+                                <div v-for="l in town.world.value.listings" :key="l.plotId" class="plotrow">
+                                    <div class="min-w-0 flex-1">
+                                        <b>{{ l.ownerName }}</b>
+                                        <span class="opacity-50"> · ({{ l.x }}, {{ l.y }})</span>
+                                    </div>
+                                    <span class="font-extrabold" style="color: var(--g-gold)"><TownCoin /> {{ formatNumber(l.price) }}</span>
+                                    <button class="g-btn g-btn-gold py-2 text-xs" :disabled="busy" @click="onSelectListing({ id: l.plotId, ownerName: l.ownerName, price: l.price })">Buy</button>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </Transition>
@@ -865,7 +987,7 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                             <p>⬆ <b>Levels</b>: upgrade buildings up to level 20. Every upgrade costs coins <b>and</b> goods, so your own production feeds your growth. Costs climb fast — a level 20 factory runs into the trillions.</p>
                             <p>📦 <b>Storage</b> caps each resource. Full storage halts production — sell, or build warehouses.</p>
                             <p>🏪 <b>Market</b>: there is <b>no passive income</b> — you earn by selling. The town hall always buys at a floor price so you are never stuck, but <b>buying is only ever from other players</b>. Offers fill instantly when they cross.</p>
-                            <p>🗺️ <b>Land</b>: click a FOR SALE sign next to your plot. Each plot costs more and opens more slowly than the last.</p>
+                            <p>🗺️ <b>Land</b>: every mayor shares one realm. The land office sells you a square next to yours — each one costs more and opens more slowly than the last. Empty plots can go back to the office for a quarter of their price, or be listed for other mayors at any price you choose. Buying from a player skips the office's waiting time.</p>
                             <p>💎 <b>Rush</b> any build for 1 gem per 5 minutes left. 🏆 <b>Goals</b> pay coins for hitting town targets.</p>
                             <p class="opacity-60">WASD to move · drag to pan · wheel to zoom · right-drag to orbit · R to rotate a building while placing · <kbd>B</kbd> <kbd>M</kbd> <kbd>T</kbd> <kbd>L</kbd> <kbd>Esc</kbd></p>
                         </div>
@@ -887,6 +1009,46 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                             <div class="mt-4 flex justify-end gap-2">
                                 <button class="g-btn" @click="confirmPlot = null">Cancel</button>
                                 <button class="g-btn g-btn-gold" :disabled="busy" @click="confirmBuyPlot">Buy land</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </Transition>
+
+            <!-- Buy a neighbour's plot -->
+            <Transition name="fade">
+                <div v-if="confirmListing" class="backdrop" @click.self="confirmListing = null">
+                    <div class="g-window is-tiny">
+                        <div class="g-window-head"><h2>🤝 Buy this land?</h2></div>
+                        <div class="g-window-body">
+                            <p class="text-sm opacity-80">{{ confirmListing.ownerName }} is selling this plot. It has to touch land you already own.</p>
+                            <div class="mt-3 flex items-center justify-between rounded-xl px-3 py-2" style="background: rgba(255,255,255,0.06)">
+                                <span class="text-sm opacity-70">Asking price</span>
+                                <b class="text-lg" style="color: var(--g-gold)"><TownCoin /> {{ formatNumber(confirmListing.price) }}</b>
+                            </div>
+                            <div class="mt-4 flex justify-end gap-2">
+                                <button class="g-btn" @click="confirmListing = null">Cancel</button>
+                                <button class="g-btn g-btn-gold" :disabled="busy || balance < confirmListing.price" @click="buyListing">Buy land</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </Transition>
+
+            <!-- Sell a plot back to the office -->
+            <Transition name="fade">
+                <div v-if="confirmSellPlot" class="backdrop" @click.self="confirmSellPlot = null">
+                    <div class="g-window is-tiny">
+                        <div class="g-window-head"><h2>🗺️ Sell this plot back?</h2></div>
+                        <div class="g-window-body">
+                            <p class="text-sm opacity-80">The land office pays back {{ Math.round((town.state.value?.plotRefundShare ?? 0.25) * 100) }}% of what you paid for this plot. Another mayor may pay more.</p>
+                            <div class="mt-3 flex items-center justify-between rounded-xl px-3 py-2" style="background: rgba(255,255,255,0.06)">
+                                <span class="text-sm opacity-70">Refund</span>
+                                <b class="text-lg" style="color: var(--g-gold)"><TownCoin /> {{ formatNumber(sellPlotRefund) }}</b>
+                            </div>
+                            <div class="mt-4 flex justify-end gap-2">
+                                <button class="g-btn" @click="confirmSellPlot = null">Cancel</button>
+                                <button class="g-btn g-btn-danger" :disabled="busy" @click="sellPlotBack">Sell back</button>
                             </div>
                         </div>
                     </div>
@@ -1031,6 +1193,7 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
 .needs-row.is-bad { background: rgba(255, 107, 107, 0.12); }
 .needs-row.is-off { opacity: 0.45; }
 .needs-badge { min-width: 30px; text-align: right; font-weight: 800; }
+.plotrow { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 12px; background: rgba(255, 255, 255, 0.05); border: 1px solid var(--g-line); font-size: 13px; }
 .score-row { display: flex; align-items: baseline; gap: 8px; padding: 4px 6px; border-radius: 8px; font-size: 12px; }
 .score-row.is-plus { background: rgba(79, 211, 106, 0.1); }
 .score-row.is-minus { background: rgba(255, 107, 107, 0.12); }

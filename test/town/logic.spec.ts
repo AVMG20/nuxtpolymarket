@@ -5,13 +5,10 @@ import {
     TOWN_FACING,
     TOWN_HAPPINESS_BASE_TARGET,
     TOWN_HAPPINESS_CROWDING_PENALTY,
-    TOWN_HAPPINESS_INDUSTRY_ADJACENT,
-    TOWN_HAPPINESS_INDUSTRY_CAP,
-    TOWN_HAPPINESS_INDUSTRY_PENALTY,
-    TOWN_HAPPINESS_LAYOUT_CAP,
-    TOWN_HAPPINESS_PARK_NEARBY,
     TOWN_HAPPINESS_STARVING_PENALTY,
+    TOWN_INDUSTRY_MAX_PENALTY,
     TOWN_INDUSTRY_NUISANCE,
+    TOWN_INDUSTRY_PENALTY_SCALE,
     TOWN_LEVEL_COST_GROWTH,
     TOWN_LEVEL_TIME_GROWTH,
     TOWN_MAX_BUILD_MS,
@@ -20,6 +17,7 @@ import {
     TOWN_MILESTONES,
     TOWN_MOODS,
     TOWN_NEEDS,
+    TOWN_PARK_MAX_BONUS,
     TOWN_PARK_RADIUS,
     TOWN_PLOT_COOLDOWN_BASE_MS,
     TOWN_PLOT_COOLDOWN_GROWTH,
@@ -51,11 +49,13 @@ import {
     townHousesWithin,
     townIndustryNuisance,
     townIsPlotEdge,
+    townLayoutScore,
     townLevelBuildMs,
     townLevelCost,
     townMilestoneComplete,
     townMilestoneSnapshot,
     townMood,
+    townNeedExpected,
     townNeedsPerTick,
     townNetPerTick,
     townNextMood,
@@ -65,6 +65,7 @@ import {
     townPlotCooldownMs,
     townPlotPrice,
     townProducedOfTier,
+    townReachableTier,
     townRepeatGrowth,
     townRoadAccess,
     townRoadAt,
@@ -88,6 +89,16 @@ const BREAD = TOWN_NEEDS.find(n => n.resource === 'bread')!
 const HOUSE = getTownBuilding('house')!
 /** Residents one house level is worth — every workforce here is sized off this. */
 const PER_HOUSE_LEVEL = HOUSE.popCap
+
+/** How far a farm's smog carries, and what it costs a resident inside it. */
+const FARM_NUISANCE = townIndustryNuisance(getTownBuilding('farm')!)
+/** A tile far enough from everything that no radius in the game reaches it. */
+const FAR_AWAY = 40
+
+/** The resource tier a need's goods belong to. */
+function tierOf(need: typeof GRAIN): number {
+    return TOWN_RESOURCES.find(r => r.id === need.resource)!.tier
+}
 
 /** House levels needed to shelter `pop` residents. */
 function houseLevelsFor(pop: number): number {
@@ -392,19 +403,55 @@ describe('needs', () => {
         expect(needsHappiness({}, 0)).toBe(0)
         expect(needsHappiness({ wheat: true }, 0)).toBe(0)
 
-        expect(needsHappiness({}, 10)).toBe(-TOWN_HAPPINESS_STARVING_PENALTY)
+        // Grain is expected of the smallest town, so going without it costs the
+        // bonus as well as the starving penalty.
+        expect(needsHappiness({}, 10)).toBe(-GRAIN.happiness - TOWN_HAPPINESS_STARVING_PENALTY)
         expect(needsHappiness({ wheat: true }, 10)).toBe(GRAIN.happiness)
-        expect(needsHappiness({ wheat: true, bread: true }, 20)).toBe(GRAIN.happiness + BREAD.happiness)
+        expect(needsHappiness({ wheat: true, bread: true }, BREAD.minPop)).toBe(GRAIN.happiness + BREAD.happiness)
 
-        // Bread alone still counts as food, so nobody starves.
-        expect(needsHappiness({ bread: true }, 20)).toBe(BREAD.happiness)
-        // A need the town is too small to have is worth nothing.
-        expect(needsHappiness({ bread: true }, 10)).toBe(-TOWN_HAPPINESS_STARVING_PENALTY)
+        // Bread alone still counts as food, so nobody starves — but the grain
+        // this town was expected to supply and did not is still a mark against it.
+        expect(needsHappiness({ bread: true }, BREAD.minPop)).toBe(BREAD.happiness - GRAIN.happiness)
+    })
+
+    it('leaves a need the town is too small for off the scorecard', () => {
+        const small = BREAD.minPop - 1
+        // Missing bread costs a town this size nothing at all…
+        expect(needsHappiness({ wheat: true }, small)).toBe(GRAIN.happiness)
+        // …and buying it anyway still pays.
+        expect(needsHappiness({ wheat: true, bread: true }, small)).toBe(GRAIN.happiness + BREAD.happiness)
+    })
+
+    it('only marks a town down for needs its buildings could reach', () => {
+        const pop = BREAD.minPop
+        const breadTier = tierOf(BREAD)
+
+        // A tier-1 town cannot bake, so missing bread is not held against it.
+        expect(needsHappiness({ wheat: true }, pop, breadTier - 1)).toBe(GRAIN.happiness)
+        // The moment bread is within reach, going without it costs its bonus.
+        expect(needsHappiness({ wheat: true }, pop, breadTier)).toBe(GRAIN.happiness - BREAD.happiness)
+        // Bread the town was never expected to make still counts when it has it.
+        expect(needsHappiness({ wheat: true, bread: true }, pop, breadTier - 1))
+            .toBe(GRAIN.happiness + BREAD.happiness)
+    })
+
+    it('only starves a town that was expected to feed itself', () => {
+        // No food resource is within reach, so an empty larder is nobody's fault.
+        expect(needsHappiness({}, 10, tierOf(GRAIN) - 1)).toBe(0)
+        // Grain within reach and missing: the bonus is lost and the town starves.
+        expect(needsHappiness({}, 10, tierOf(GRAIN)))
+            .toBe(-GRAIN.happiness - TOWN_HAPPINESS_STARVING_PENALTY)
     })
 
     it('still starves a town that has everything but food', () => {
         const tools = TOWN_NEEDS.find(n => n.resource === 'tools')!
-        expect(needsHappiness({ tools: true }, 50)).toBe(tools.happiness - TOWN_HAPPINESS_STARVING_PENALTY)
+        const pop = tools.minPop
+        // Everything else this town was expected to stock is missing with it.
+        const missed = TOWN_NEEDS
+            .filter(n => n.resource !== tools.resource && townNeedExpected(n, pop, 99))
+            .reduce((sum, n) => sum + n.happiness, 0)
+        expect(needsHappiness({ tools: true }, pop))
+            .toBe(tools.happiness - missed - TOWN_HAPPINESS_STARVING_PENALTY)
 
         const everything = { wheat: true, bread: true, tools: true, luxuries: true }
         const all = TOWN_NEEDS.reduce((sum, n) => sum + n.happiness, 0)
@@ -412,12 +459,49 @@ describe('needs', () => {
     })
 
     it('is what deriveTown folds into the happiness target', () => {
-        const town = [built('house', 'house', { level: 3 })] // twelve residents
+        const town = [built('house', 'house', { level: 3 })] // six residents
         const hungry = deriveTown(town, 50, T0, {})
         const fed = deriveTown(town, 50, T0, { wheat: true })
 
         expect(hungry.needsPerTick).toEqual({ wheat: 1 })
-        expect(fed.happinessTarget - hungry.happinessTarget).toBe(GRAIN.happiness + TOWN_HAPPINESS_STARVING_PENALTY)
+        expect(hungry.happinessBreakdown.needs).toBe(-GRAIN.happiness - TOWN_HAPPINESS_STARVING_PENALTY)
+        expect(fed.happinessBreakdown.needs).toBe(GRAIN.happiness)
+        // Grain swings from minus its bonus to plus it, and the town stops starving.
+        expect(fed.happinessTarget - hungry.happinessTarget)
+            .toBe(2 * GRAIN.happiness + TOWN_HAPPINESS_STARVING_PENALTY)
+    })
+})
+
+describe('townReachableTier', () => {
+    it('sits one tier above the best building the town has finished', () => {
+        expect(townReachableTier([], T0)).toBe(1)
+        // Roads, houses and parks are all tier 0, so a starter town reaches tier 1.
+        expect(townReachableTier([road(0, 0), built('h', 'house'), built('p', 'park')], T0)).toBe(1)
+        expect(townReachableTier([built('farm', 'farm')], T0)).toBe(getTownBuilding('farm')!.tier + 1)
+        expect(townReachableTier([built('farm', 'farm'), built('mill', 'mill')], T0))
+            .toBe(getTownBuilding('mill')!.tier + 1)
+    })
+
+    it('ignores a building that is still going up', () => {
+        const site = built('mill', 'mill', { level: 0, completesAt: T0 + 60_000 })
+        const town = [built('farm', 'farm'), site]
+
+        expect(townReachableTier(town, T0)).toBe(getTownBuilding('farm')!.tier + 1)
+        expect(townReachableTier(town, T0 + 60_000)).toBe(getTownBuilding('mill')!.tier + 1)
+    })
+})
+
+describe('townNeedExpected', () => {
+    it('waits for the population the need is written for', () => {
+        expect(townNeedExpected(BREAD, BREAD.minPop - 1, 99)).toBe(false)
+        expect(townNeedExpected(BREAD, BREAD.minPop, 99)).toBe(true)
+    })
+
+    it('waits for a tier the town could plausibly stock', () => {
+        expect(townNeedExpected(BREAD, BREAD.minPop, tierOf(BREAD) - 1)).toBe(false)
+        expect(townNeedExpected(BREAD, BREAD.minPop, tierOf(BREAD))).toBe(true)
+        // Grain is tier 1, so even an empty town is expected to have some.
+        expect(townNeedExpected(GRAIN, GRAIN.minPop, townReachableTier([], T0))).toBe(true)
     })
 })
 
@@ -583,35 +667,57 @@ describe('deriveTown', () => {
         expect(town.workersEmployed).toBe(pop)
     })
 
-    it('docks happiness for every industry tile', () => {
-        const buildings = [
-            built('house', 'house', { level: 3, createdAt: T0 - 1000 }),
-            built('farm', 'farm', { createdAt: T0 - 900 }),
-            built('lumber', 'lumber', { createdAt: T0 - 800 })
-        ]
+    it('docks happiness for the residents who live beside industry', () => {
+        // Two houses, only one of them within the farm's reach. Half the town
+        // breathes the smog, so the town pays roughly half the going rate.
+        const buildings = connected([
+            at('houseNear', 'house', 0, 0, { rotation: 2, createdAt: T0 - 1000 }),
+            at('houseFar', 'house', FAR_AWAY, 0, { rotation: 2, createdAt: T0 - 900 }),
+            at('farm', 'farm', 0, FARM_NUISANCE.radius, { rotation: 0, createdAt: T0 - 800 })
+        ])
         const town = deriveTown(buildings, 50, T0, { wheat: true })
+        const layout = townLayoutScore(buildings, T0)
 
-        expect(town.industryTiles).toBe(2)
+        expect(town.industryTiles).toBe(1)
+        expect(layout.residents).toBe(2 * PER_HOUSE_LEVEL)
+        expect(layout.residentsWithIndustry).toBe(PER_HOUSE_LEVEL)
+        expect(layout.industry).toBe(Math.round(FARM_NUISANCE.penalty * TOWN_INDUSTRY_PENALTY_SCALE / 2))
+        expect(town.happinessBreakdown.industry).toBe(-layout.industry)
         expect(town.happinessTarget)
-            .toBe(TOWN_HAPPINESS_BASE_TARGET + GRAIN.happiness - 2 * TOWN_HAPPINESS_INDUSTRY_PENALTY)
+            .toBe(TOWN_HAPPINESS_BASE_TARGET + GRAIN.happiness - layout.industry)
+
+        // Move the far house in beside the farm and every resident breathes it,
+        // which costs more than half of them doing so.
+        const both = connected([
+            at('houseNear', 'house', 0, 0, { rotation: 2, createdAt: T0 - 1000 }),
+            at('houseAlso', 'house', 1, 0, { rotation: 2, createdAt: T0 - 900 }),
+            at('farm', 'farm', 0, FARM_NUISANCE.radius, { rotation: 0, createdAt: T0 - 800 })
+        ])
+        const crowdedIn = townLayoutScore(both, T0)
+
+        expect(crowdedIn.residentsWithIndustry).toBe(crowdedIn.residents)
+        expect(crowdedIn.industry).toBeGreaterThan(layout.industry)
     })
 
     it('caps the smog a big industrial town breathes', () => {
-        const farms = (n: number) => Array.from({ length: n }, (_, i) => built(`farm${i}`, 'farm', { createdAt: T0 - 900 + i }))
-        const mostJobs = TOWN_HAPPINESS_INDUSTRY_CAP * 2
-        const houses = Array.from(
-            { length: houseLevelsFor(mostJobs) },
-            (_, i) => built(`house${i}`, 'house', { createdAt: T0 - 2000 + i })
-        )
-        const fed = { wheat: true, bread: true }
+        // One house under a wall of factories: the raw nuisance runs miles past
+        // the ceiling, and the ceiling is what the town actually pays.
+        const factory = getTownBuilding('factory')!
+        const wall = [-2, -1, 0, 1, 2].map((dx, i) => at(
+            `factory${i}`, 'factory', dx, townIndustryNuisance(factory).radius - 2,
+            { rotation: 0, createdAt: T0 - 900 + i }
+        ))
+        const buildings = connected([
+            at('house', 'house', 0, 0, { rotation: 2, createdAt: T0 - 1000 }),
+            ...wall
+        ])
+        const raw = wall.length * townIndustryNuisance(factory).penalty * TOWN_INDUSTRY_PENALTY_SCALE
+        const town = deriveTown(buildings, 50, T0, { wheat: true })
 
-        // A resident for every job: roomy, so only the smog cap bites.
-        const small = deriveTown([...houses, ...farms(10)], 50, T0, fed)
-        const capped = deriveTown([...houses, ...farms(TOWN_HAPPINESS_INDUSTRY_CAP + 5)], 50, T0, fed)
-        const huge = deriveTown([...houses, ...farms(mostJobs)], 50, T0, fed)
-
-        expect(small.happinessTarget).toBe(capped.happinessTarget + TOWN_HAPPINESS_INDUSTRY_CAP - 10)
-        expect(huge.happinessTarget).toBe(capped.happinessTarget)
+        expect(raw).toBeGreaterThan(TOWN_INDUSTRY_MAX_PENALTY)
+        expect(town.happinessBreakdown.layout.residentsWithIndustry).toBe(town.happinessBreakdown.layout.residents)
+        expect(town.happinessBreakdown.industry).toBe(-TOWN_INDUSTRY_MAX_PENALTY)
+        expect(adjacencyHappiness(buildings, T0)).toBe(-TOWN_INDUSTRY_MAX_PENALTY)
     })
 
     it('docks happiness again once there are more jobs than residents', () => {
@@ -630,23 +736,34 @@ describe('deriveTown', () => {
 
         expect(roomy.popCap).toBeGreaterThanOrEqual(jobs)
         expect(crowded.popCap).toBeLessThan(jobs)
-        expect(roomy.happinessTarget)
-            .toBe(TOWN_HAPPINESS_BASE_TARGET + GRAIN.happiness - jobs * TOWN_HAPPINESS_INDUSTRY_PENALTY)
+        // Nothing here carries world coordinates, so the layout scores nothing
+        // either way and crowding is the only difference between the two.
+        // (The breakdown negates its penalties, so an absent one reads as -0.)
+        expect(roomy.happinessBreakdown.crowding).toBe(0)
+        expect(roomy.happinessTarget).toBe(TOWN_HAPPINESS_BASE_TARGET + GRAIN.happiness)
+        expect(crowded.happinessBreakdown.crowding).toBe(-TOWN_HAPPINESS_CROWDING_PENALTY)
         expect(crowded.happinessTarget).toBe(roomy.happinessTarget - TOWN_HAPPINESS_CROWDING_PENALTY)
     })
 
     it('keeps the happiness target inside [0, 100]', () => {
-        // Twenty houses in a row with a farm pressed against every one of them:
-        // smog cap, layout cap and the starving penalty all at once.
-        const miserable = deriveTown(connected([
-            ...Array.from({ length: 20 }, (_, i) => at(`house${i}`, 'house', i, 0, { rotation: 2, createdAt: T0 - 2000 + i })),
-            ...Array.from({ length: 20 }, (_, i) => at(`farm${i}`, 'farm', i, 1, { rotation: 0, createdAt: T0 - 900 + i }))
-        ]), 50, T0, {})
+        // Two tenements ringed by farms, a bakery working more jobs than the
+        // town has residents, and an empty larder: the smog ceiling, crowding
+        // and every reachable need missing, all at once.
+        const houses = [0, 1].map(x => at(`house${x}`, 'house', x, 0, { level: 10, rotation: 2, createdAt: T0 - 2000 + x }))
+        const farms = [-2, -1, 0, 1, 2, 3, 4].map(x => at(`farm${x}`, 'farm', x, FARM_NUISANCE.radius, { rotation: 0, createdAt: T0 - 900 + x }))
+        // A tier-3 bakery puts bread and tools within reach, so their absence
+        // counts — and its jobs outnumber the residents.
+        const bakery = at('bakery', 'bakery', FAR_AWAY, 0, { level: 20, rotation: 2, createdAt: T0 - 800 })
+
+        const miserable = deriveTown(connected([...houses, ...farms, bakery]), 50, T0, {})
         const blissful = deriveTown(
             Array.from({ length: 40 }, (_, i) => built(`park${i}`, 'park', { createdAt: T0 - 900 + i })),
             50, T0, {}
         )
 
+        expect(miserable.happinessBreakdown.industry).toBe(-TOWN_INDUSTRY_MAX_PENALTY)
+        expect(miserable.happinessBreakdown.crowding).toBe(-TOWN_HAPPINESS_CROWDING_PENALTY)
+        expect(miserable.happinessBreakdown.needs).toBeLessThan(0)
         expect(miserable.happinessTarget).toBe(0)
         expect(blissful.happinessTarget).toBe(100)
     })
@@ -686,31 +803,32 @@ describe('layout', () => {
                 expect(adjacencyHappiness([
                     at('house', 'house', 0, 0),
                     at('park', 'park', dx, dy)
-                ])).toBe(TOWN_HAPPINESS_PARK_NEARBY)
+                ])).toBe(TOWN_PARK_MAX_BONUS)
             }
         }
         // The far corner counts; one tile beyond the radius does not.
         const r = TOWN_PARK_RADIUS
         expect(adjacencyHappiness([at('house', 'house', 0, 0), at('park', 'park', r, r)]))
-            .toBe(TOWN_HAPPINESS_PARK_NEARBY)
+            .toBe(TOWN_PARK_MAX_BONUS)
         expect(adjacencyHappiness([at('house', 'house', 0, 0), at('park', 'park', r + 1, r)])).toBe(0)
         expect(adjacencyHappiness([at('house', 'house', 0, 0), at('park', 'park', 0, r + 1)])).toBe(0)
     })
 
-    it('counts every (house, park) pair, not every building', () => {
-        // One park wedged between two houses is worth its bonus to each of them.
+    it('scores the residents parks cover, not the number of parks', () => {
+        // One park wedged between two houses covers the whole town.
         expect(adjacencyHappiness([
             at('houseW', 'house', 0, 0),
             at('park', 'park', 1, 0),
             at('houseE', 'house', 2, 0)
-        ])).toBe(2 * TOWN_HAPPINESS_PARK_NEARBY)
+        ])).toBe(TOWN_PARK_MAX_BONUS)
 
-        // And one house between two parks banks twice.
+        // A second park over the same residents adds nothing — they were
+        // already covered by the first.
         expect(adjacencyHappiness([
             at('house', 'house', 0, 0),
             at('parkE', 'park', 2, 2),
             at('parkW', 'park', -2, -2)
-        ])).toBe(2 * TOWN_HAPPINESS_PARK_NEARBY)
+        ])).toBe(TOWN_PARK_MAX_BONUS)
     })
 
     it('scales the nuisance radius and penalty with the industry tier', () => {
@@ -722,7 +840,7 @@ describe('layout', () => {
 
             // A diagonal at exactly the radius still bites; one tile out does not.
             expect(houseAdjacency([at('house', 'house', 0, 0), at('bad', type, radius, radius)], 0, 0, Infinity))
-                .toEqual({ parks: 0, industry: 1, industryPenalty: penalty * TOWN_HAPPINESS_INDUSTRY_ADJACENT })
+                .toEqual({ parks: 0, industry: 1, industryPenalty: penalty })
             expect(houseAdjacency([at('house', 'house', 0, 0), at('bad', type, radius + 1, 0)], 0, 0, Infinity))
                 .toEqual({ parks: 0, industry: 0, industryPenalty: 0 })
         }
@@ -744,19 +862,21 @@ describe('layout', () => {
 
     it('nets parks against industry on the same house', () => {
         const farmPenalty = townIndustryNuisance(getTownBuilding('farm')!).penalty
+        // Every resident of the only house breathes the farm, so the town pays
+        // the full per-resident rate.
         expect(adjacencyHappiness([
             at('house', 'house', 0, 0),
             at('farm', 'farm', 1, 0)
-        ])).toBe(-farmPenalty * TOWN_HAPPINESS_INDUSTRY_ADJACENT)
+        ])).toBe(-farmPenalty * TOWN_INDUSTRY_PENALTY_SCALE)
 
         expect(adjacencyHappiness([
             at('house', 'house', 0, 0),
             at('park', 'park', -1, 0),
             at('quarry', 'quarry', 1, 0)
-        ])).toBe(TOWN_HAPPINESS_PARK_NEARBY - farmPenalty * TOWN_HAPPINESS_INDUSTRY_ADJACENT)
+        ])).toBe(TOWN_PARK_MAX_BONUS - farmPenalty * TOWN_INDUSTRY_PENALTY_SCALE)
     })
 
-    it('clamps the layout swing to the cap in both directions', () => {
+    it('clamps parks and industry at their own ceilings', () => {
         const house = at('house', 'house', 0, 0)
         const parks = []
         for (let dx = -2; dx <= 2; dx++) {
@@ -765,11 +885,12 @@ describe('layout', () => {
                 parks.push(at(`park${dx}:${dy}`, 'park', dx, dy))
             }
         }
-        // 24 parks would be worth 48 happiness; the cap says otherwise.
-        expect(parks.length * TOWN_HAPPINESS_PARK_NEARBY).toBeGreaterThan(TOWN_HAPPINESS_LAYOUT_CAP)
-        expect(adjacencyHappiness([house, ...parks])).toBe(TOWN_HAPPINESS_LAYOUT_CAP)
+        // Twenty-four parks cover exactly the residents one park already did.
+        expect(parks.length).toBeGreaterThan(1)
+        expect(adjacencyHappiness([house, parks[0]!])).toBe(TOWN_PARK_MAX_BONUS)
+        expect(adjacencyHappiness([house, ...parks])).toBe(TOWN_PARK_MAX_BONUS)
 
-        // Eleven factories inside the tier-5 radius are worth −33 between them.
+        // Eleven factories over one house is far more misery than the ceiling allows.
         const around: [number, number][] = [
             [1, 0], [2, 0], [3, 0], [4, 0],
             [-1, 0], [-2, 0], [-3, 0], [-4, 0],
@@ -777,8 +898,8 @@ describe('layout', () => {
         ]
         const factories = around.map(([dx, dy]) => at(`factory${dx}:${dy}`, 'factory', dx, dy))
         const penalty = townIndustryNuisance(getTownBuilding('factory')!).penalty
-        expect(factories.length * penalty).toBeGreaterThan(TOWN_HAPPINESS_LAYOUT_CAP)
-        expect(adjacencyHappiness([house, ...factories])).toBe(-TOWN_HAPPINESS_LAYOUT_CAP)
+        expect(factories.length * penalty * TOWN_INDUSTRY_PENALTY_SCALE).toBeGreaterThan(TOWN_INDUSTRY_MAX_PENALTY)
+        expect(adjacencyHappiness([house, ...factories])).toBe(-TOWN_INDUSTRY_MAX_PENALTY)
     })
 
     it('ignores neighbours that are neither civic nor industry', () => {
@@ -824,7 +945,108 @@ describe('layout', () => {
         ], 50, T0, { wheat: true })
 
         expect(deriveTown(layout, 50, T0, { wheat: true }).happinessTarget)
-            .toBe(plain.happinessTarget + TOWN_HAPPINESS_PARK_NEARBY)
+            .toBe(plain.happinessTarget + TOWN_PARK_MAX_BONUS)
+    })
+
+    it('scores a tidy tier-1 town well clear of the base, and marks it down once bread comes within reach', () => {
+        // Houses on a street, parks on the same street covering all of them,
+        // and the farms far enough off that nobody smells them.
+        const houses = [0, 1, 2].map(x => at(`house${x}`, 'house', x, 1, { level: 3, rotation: 2, createdAt: T0 - 2000 + x }))
+        const parks = [3, 4].map(x => at(`park${x}`, 'park', x, 1, { rotation: 2, createdAt: T0 - 1500 + x }))
+        const farms = [0, 1].map(i => at(`farm${i}`, 'farm', FAR_AWAY + i, 1, { rotation: 2, createdAt: T0 - 1000 + i }))
+        const core = [...houses, ...parks, ...farms]
+
+        const town = deriveTown(connected(core), 50, T0, { wheat: true })
+        const parkBonus = parks.length * getTownBuilding('park')!.happiness
+
+        expect(town.reachableTier).toBe(getTownBuilding('farm')!.tier + 1)
+        // Big enough that bread would be on the scorecard if it were reachable.
+        expect(town.popCap).toBeGreaterThanOrEqual(BREAD.minPop)
+        expect(town.happinessBreakdown).toMatchObject({
+            base: TOWN_HAPPINESS_BASE_TARGET,
+            needs: GRAIN.happiness,
+            parks: TOWN_PARK_MAX_BONUS,
+            // A clean town reports a plain zero, never -0.
+            industry: 0,
+            crowding: 0
+        })
+        expect(town.happinessTarget).toBe(TOWN_HAPPINESS_BASE_TARGET + parkBonus + TOWN_PARK_MAX_BONUS + GRAIN.happiness)
+        expect(town.happinessTarget).toBeGreaterThan(TOWN_HAPPINESS_BASE_TARGET)
+
+        // A mill puts bread within reach. Nothing else about the town changed,
+        // and the larder is still empty, so the town is marked down for it.
+        const mill = at('mill', 'mill', FAR_AWAY + farms.length, 1, { rotation: 2, createdAt: T0 - 900 })
+        const later = deriveTown(connected([...core, mill]), 50, T0, { wheat: true })
+
+        expect(later.reachableTier).toBe(tierOf(BREAD))
+        expect(townNeedExpected(BREAD, later.popCap, later.reachableTier)).toBe(true)
+        expect(later.happinessBreakdown.needs).toBe(GRAIN.happiness - BREAD.happiness)
+        expect(later.happinessTarget).toBe(town.happinessTarget - BREAD.happiness)
+    })
+})
+
+describe('townLayoutScore', () => {
+    it('pays the full park bonus only when every resident is covered', () => {
+        const covered = townLayoutScore([at('house', 'house', 0, 0), at('park', 'park', 1, 0)], T0)
+        expect(covered.residents).toBe(PER_HOUSE_LEVEL)
+        expect(covered.residentsWithPark).toBe(PER_HOUSE_LEVEL)
+        expect(covered.parks).toBe(TOWN_PARK_MAX_BONUS)
+
+        // Half the residents in reach of a park is worth about half the bonus.
+        const half = townLayoutScore([
+            at('houseNear', 'house', 0, 0),
+            at('houseFar', 'house', FAR_AWAY, 0),
+            at('park', 'park', 1, 0)
+        ], T0)
+        expect(half.residentsWithPark).toBe(half.residents / 2)
+        expect(half.parks).toBe(Math.round(TOWN_PARK_MAX_BONUS / 2))
+    })
+
+    it('scores nothing at all without residents to score for', () => {
+        expect(townLayoutScore([at('park', 'park', 0, 0)], T0))
+            .toEqual({ parks: 0, industry: 0, residents: 0, residentsWithPark: 0, residentsWithIndustry: 0 })
+        expect(townLayoutScore([], T0))
+            .toEqual({ parks: 0, industry: 0, residents: 0, residentsWithPark: 0, residentsWithIndustry: 0 })
+        expect(townLayoutScore([at('house', 'house', 0, 0)], T0))
+            .toEqual({ parks: 0, industry: 0, residents: PER_HOUSE_LEVEL, residentsWithPark: 0, residentsWithIndustry: 0 })
+    })
+
+    it('weighs the industry penalty by the residents actually breathing it', () => {
+        const mill = getTownBuilding('mill')!
+        const penalty = townIndustryNuisance(mill).penalty
+        // The same three buildings, with the taller house first beside the mill
+        // and then well away from it.
+        const town = (nearLevel: number, farLevel: number) => townLayoutScore([
+            at('near', 'house', 0, 0, { level: nearLevel }),
+            at('far', 'house', FAR_AWAY, 0, { level: farLevel }),
+            at('mill', 'mill', 1, 0)
+        ], T0)
+
+        const tallNear = town(4, 1)
+        const tallFar = town(1, 4)
+
+        expect(tallNear.residents).toBe(tallFar.residents)
+        expect(tallNear.residentsWithIndustry).toBe(4 * PER_HOUSE_LEVEL)
+        expect(tallFar.residentsWithIndustry).toBe(PER_HOUSE_LEVEL)
+        expect(tallNear.industry).toBeGreaterThan(tallFar.industry)
+        for (const score of [tallNear, tallFar]) {
+            expect(score.industry).toBe(Math.round(
+                penalty * TOWN_INDUSTRY_PENALTY_SCALE * score.residentsWithIndustry / score.residents
+            ))
+        }
+    })
+
+    it('clamps the industry penalty however dirty the neighbourhood gets', () => {
+        const factory = getTownBuilding('factory')!
+        const radius = townIndustryNuisance(factory).radius
+        const factories = Array.from(
+            { length: 2 * radius + 1 },
+            (_, i) => at(`factory${i}`, 'factory', i - radius, 1)
+        )
+        const score = townLayoutScore([at('house', 'house', 0, 0), ...factories], T0)
+
+        expect(score.residentsWithIndustry).toBe(score.residents)
+        expect(score.industry).toBe(TOWN_INDUSTRY_MAX_PENALTY)
     })
 })
 
@@ -840,7 +1062,7 @@ describe('houseAdjacency', () => {
         expect(houseAdjacency(buildings, 0, 0, Infinity)).toEqual({
             parks: 1,
             industry: 2,
-            industryPenalty: 2 * farmPenalty * TOWN_HAPPINESS_INDUSTRY_ADJACENT
+            industryPenalty: 2 * farmPenalty
         })
     })
 
@@ -866,14 +1088,20 @@ describe('houseAdjacency', () => {
         expect(houseAdjacency(buildings, 0, 0, T0 + 60_000).industry).toBe(1)
     })
 
-    it('agrees with adjacencyHappiness on what one house is worth', () => {
+    it('agrees with townLayoutScore on what one house is worth', () => {
         const buildings = [
             at('house', 'house', 0, 0),
             at('park', 'park', 1, 0),
             at('farm', 'farm', 0, 1)
         ]
-        const { parks, industryPenalty } = houseAdjacency(buildings, 0, 0, Infinity)
-        expect(parks * TOWN_HAPPINESS_PARK_NEARBY - industryPenalty).toBe(adjacencyHappiness(buildings))
+        const { parks, industryPenalty } = houseAdjacency(buildings, 0, 0, T0)
+        const score = townLayoutScore(buildings, T0)
+
+        // One house, so its neighbourhood is the whole town's: covered by a
+        // park, and every resident inside the farm's nuisance radius.
+        expect(score.parks).toBe(parks > 0 ? TOWN_PARK_MAX_BONUS : 0)
+        expect(score.industry).toBe(Math.round(industryPenalty * TOWN_INDUSTRY_PENALTY_SCALE))
+        expect(adjacencyHappiness(buildings, T0)).toBe(score.parks - score.industry)
     })
 })
 

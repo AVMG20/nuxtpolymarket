@@ -1573,6 +1573,14 @@ export const townPlots = pgTable('town_plots', {
   userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
   x: integer('x').notNull(),
   y: integer('y').notNull(),
+  /** Asking price while the owner has this (empty) plot on the market, else null. */
+  listPrice: numeric('list_price', { precision: 19, scale: 4 }),
+  /**
+   * What the current owner actually paid for this square — the land office
+   * price, the price a neighbour asked, or 0 for a founding plot. The refund
+   * is a share of THIS, never of a counter a player can pump by trading.
+   */
+  paidPrice: numeric('paid_price', { precision: 19, scale: 4 }).notNull().default('0'),
   createdAt: timestamp('created_at').defaultNow().notNull()
 }, t => [
   index('town_plots_userId_idx').on(t.userId),

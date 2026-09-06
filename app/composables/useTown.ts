@@ -22,6 +22,20 @@ export interface TownPlotView {
     id: string
     x: number
     y: number
+    /** Asking price while this plot is on the player market. */
+    listPrice: number | null
+    /** What the land office would pay to take it back. */
+    refund: number
+}
+
+export interface TownNeighbourPlot {
+    id: string
+    x: number
+    y: number
+    ownerId: string
+    ownerName: string
+    listPrice: number | null
+    buildings: { type: string, tileX: number, tileY: number, rotation: number, level: number }[]
 }
 
 export interface TownCatalogEntry {
@@ -108,7 +122,7 @@ export interface TownState {
     serverNow: number
     catalog: TownCatalogEntry[]
     resources: TownResourceView[]
-    constants: { tickMs: number, maxOfflineMs: number, maxLevel: number, maxPlots: number, rushMsPerGem: number, parkAdjacent: number, industryAdjacent: number, parkRadius: number, parkMaxBonus: number, industryMaxPenalty: number }
+    constants: { tickMs: number, maxOfflineMs: number, maxLevel: number, maxPlots: number, rushMsPerGem: number, parkRadius: number, parkMaxBonus: number, industryMaxPenalty: number }
     netPerTick?: Record<string, number>
     unlockedTiers?: number[]
     coinsEarned?: number
@@ -144,6 +158,8 @@ export interface TownState {
     plots?: TownPlotView[]
     plotPurchase?: { nextIndex: number, price: number, cooldownMs: number, availableAt: number, remainingMs: number, maxed: boolean }
     expansions?: { x: number, y: number, free: boolean, ownerName?: string }[]
+    world?: { towns: TownNeighbourPlot[], listings: { plotId: string, x: number, y: number, ownerName: string, price: number }[] }
+    plotRefundShare?: number
     buildings?: TownBuildingView[]
     inventory?: Record<string, number>
     myOrders?: TownOrderView[]
@@ -173,12 +189,13 @@ export const useTown = () => {
     const inventory = computed(() => state.value?.inventory ?? {})
     const myOrders = computed(() => state.value?.myOrders ?? [])
     const lastPrices = computed(() => state.value?.lastPrices ?? {})
-    const constants = computed(() => state.value?.constants ?? { tickMs: 60_000, maxOfflineMs: 8 * 3_600_000, maxLevel: 20, maxPlots: 12, rushMsPerGem: 300_000, parkAdjacent: 2, industryAdjacent: 1, parkRadius: 3, parkMaxBonus: 20, industryMaxPenalty: 25 })
+    const constants = computed(() => state.value?.constants ?? { tickMs: 60_000, maxOfflineMs: 8 * 3_600_000, maxLevel: 20, maxPlots: 12, rushMsPerGem: 300_000, parkRadius: 3, parkMaxBonus: 20, industryMaxPenalty: 25 })
     const milestones = computed(() => state.value?.milestones ?? [])
     const claimableMilestones = computed(() => milestones.value.filter(m => m.complete && !m.claimed))
     const unlockedTiers = computed(() => new Set(state.value?.unlockedTiers ?? [0, 1]))
     const netPerTick = computed(() => state.value?.netPerTick ?? {})
     const needs = computed(() => state.value?.needs ?? [])
+    const world = computed(() => state.value?.world ?? { towns: [], listings: [] })
     const countsByType = computed(() => state.value?.countsByType ?? {})
     const nextCost = computed(() => state.value?.nextCost ?? {})
     const tierLocks = computed(() => state.value?.tierLocks ?? {})
@@ -249,6 +266,7 @@ export const useTown = () => {
         unlockedTiers,
         netPerTick,
         needs,
+        world,
         countsByType,
         nextCost,
         tierLocks,
@@ -263,6 +281,9 @@ export const useTown = () => {
         upgradeBuilding: (buildingId: string) => call<{ level: number, completesAt: number }>('/api/town/building/upgrade', { buildingId }),
         rushBuilding: (buildingId: string) => call<{ gems: number, level: number }>('/api/town/building/rush', { buildingId }),
         demolishBuilding: (buildingId: string) => call('/api/town/building/demolish', { buildingId }),
+        listPlot: (plotId: string, price: number | null) => call<{ plotId: string, listPrice: number | null }>('/api/town/plot/list', { plotId, price }),
+        sellPlot: (plotId: string) => call<{ plotId: string, refund: number }>('/api/town/plot/sell', { plotId }),
+        buyPlotFromPlayer: (plotId: string) => call<{ plotId: string, price: number }>('/api/town/plot/buy-from-player', { plotId }),
         buyPlot: (x: number, y: number) => call<{ plotId: string, price: number }>('/api/town/plot/buy', { x, y }),
         sellToFloor: (resource: string, quantity: number) =>
             call<{ total: number, quantity: number }>('/api/town/market/sell-floor', { resource, quantity }),

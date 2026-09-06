@@ -30,6 +30,7 @@ import {
     getTownMilestone,
     townCeilingPrice,
     townFloorPrice,
+    townIndustryNuisance,
     townLevelBuildMs,
     townLevelCost,
     townPlaceCost,
@@ -55,6 +56,23 @@ const HOUR = 60 * MINUTE
 
 /** Rotation 2 faces −y, so a building on (x, 1) fronts the plot-edge road on (x, 0). */
 const FACES_EDGE_ROAD = 2
+
+/**
+ * The nearest tile a farm can sit to a house on tile 0 without its smog
+ * reaching the residents. Industry inside the radius costs enough happiness to
+ * drop a starter town out of Content, and a slower mood means fewer ticks —
+ * which is not what the production specs below are measuring.
+ */
+const QUIET_FARM_TILE = townIndustryNuisance(FARM).radius + 1
+
+/**
+ * The smallest town that runs a surplus: a house whose residents eat one grain
+ * a tick, and a level-2 farm growing two of them a safe distance away.
+ */
+const HOUSE_AND_FARM = [
+    { type: 'house', tileX: 0 },
+    { type: 'farm', tileX: QUIET_FARM_TILE, level: 2 }
+]
 
 async function getGems(id: string) {
     const row = await db.query.user.findFirst({ where: eq(user.id, id), columns: { gems: true } })
@@ -577,7 +595,7 @@ describe.skipIf(SKIP)('polytown (database)', () => {
         it('lets a road move away and simply cuts off whatever fronted it', async () => {
             const plotId = await foundFor(OWNER, { balance: '100000.0000' })
             const [road] = await seedStreet(OWNER, plotId, 0, [])
-            const roads = await seedStreet(OWNER, plotId, 3, [{ type: 'house', tileX: 0 }, { type: 'farm', tileX: 1, level: 2 }])
+            const roads = await seedStreet(OWNER, plotId, 3, HOUSE_AND_FARM)
             expect(road).toBeUndefined()
             expect(roads).toHaveLength(2)
 
@@ -618,7 +636,7 @@ describe.skipIf(SKIP)('polytown (database)', () => {
     describe('demolishBuilding', () => {
         it('tears down a road and leaves what fronted it standing but idle', async () => {
             const plotId = await foundFor(OWNER, { balance: '100000.0000' })
-            await seedStreet(OWNER, plotId, 3, [{ type: 'house', tileX: 0 }, { type: 'farm', tileX: 1, level: 2 }])
+            await seedStreet(OWNER, plotId, 3, HOUSE_AND_FARM)
 
             await rewindSettle(OWNER, 5 * MINUTE + 30_000)
             expect((await settleTownForRead(OWNER)).delta.wheat).toBe(5)
@@ -828,7 +846,7 @@ describe.skipIf(SKIP)('polytown (database)', () => {
         // of one surplus wheat each.
         async function surplusTown(balance = '100000.0000') {
             const plotId = await foundFor(OWNER, { balance })
-            await seedStreet(OWNER, plotId, 3, [{ type: 'house', tileX: 0 }, { type: 'farm', tileX: 1, level: 2 }])
+            await seedStreet(OWNER, plotId, 3, HOUSE_AND_FARM)
             return plotId
         }
 
@@ -971,7 +989,7 @@ describe.skipIf(SKIP)('polytown (database)', () => {
 
         it('shows what a real settle produced', async () => {
             const plotId = await foundFor(OWNER, { balance: '100000.0000' })
-            await seedStreet(OWNER, plotId, 3, [{ type: 'house', tileX: 0 }, { type: 'farm', tileX: 1, level: 2 }])
+            await seedStreet(OWNER, plotId, 3, HOUSE_AND_FARM)
             await rewindSettle(OWNER, 5 * MINUTE + 30_000)
 
             const settled = await settleTownForRead(OWNER)
@@ -1346,7 +1364,7 @@ describe.skipIf(SKIP)('polytown (database)', () => {
     describe('deleteTownForUser', () => {
         it('wipes every trace of a town', async () => {
             const plotId = await foundFor(OWNER, { balance: '1000000.0000' })
-            await seedStreet(OWNER, plotId, 3, [{ type: 'house', tileX: 0 }, { type: 'farm', tileX: 1, level: 2 }])
+            await seedStreet(OWNER, plotId, 3, HOUSE_AND_FARM)
             await stock(OWNER, 'wheat', 5)
             await placeTownOrder(OWNER, 'wheat', 'sell', 6, 5)
             // Give the production log something to hold.
