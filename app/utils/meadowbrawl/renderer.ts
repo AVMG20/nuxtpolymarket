@@ -1430,6 +1430,16 @@ export class MeadowbrawlRenderer {
                 ctx.arc(e.x, e.y, e.r * 1.7, this.t * 2, this.t * 2 + 4.5)
                 ctx.stroke()
             }
+            if (e.harvested > 0) {
+                // Reaped: a teal seal that will raise the body when it falls.
+                ctx.strokeStyle = `rgba(143,227,200,${0.35 + Math.sin(this.t * 6) * 0.2})`
+                ctx.lineWidth = 2
+                ctx.setLineDash([6, 5])
+                ctx.beginPath()
+                ctx.arc(e.x, e.y, e.r * 1.45, -this.t * 1.5, -this.t * 1.5 + Math.PI * 2)
+                ctx.stroke()
+                ctx.setLineDash([])
+            }
             if (e.chill > 0 && e.frozen <= 0) {
                 // Frost creeping across the ground as the meter fills.
                 const k = e.chill / 100

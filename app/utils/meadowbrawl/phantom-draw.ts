@@ -126,10 +126,12 @@ function shield(ctx: Ctx, p: Paint, dir: number, brace: number) {
 }
 
 function sword(ctx: Ctx, p: Paint, ph: Phantom, progress: number) {
-    const sweep = !ph.attack ? -0.85 : progress < 0.35
-        ? lerp(-0.85, -1.4, progress / 0.35)
-        : progress < 0.68 ? lerp(-1.4, 1.05, (progress - 0.35) / 0.33)
-            : lerp(1.05, -0.85, (progress - 0.68) / 0.32)
+    let sweep = -0.85
+    if (ph.attack) {
+        if (progress < 0.35) sweep = lerp(-0.85, -1.4, progress / 0.35)
+        else if (progress < 0.68) sweep = lerp(-1.4, 1.05, (progress - 0.35) / 0.33)
+        else sweep = lerp(1.05, -0.85, (progress - 0.68) / 0.32)
+    }
     const angle = ph.facing + sweep
     const dir = Math.cos(ph.facing) < 0 ? -1 : 1
     const hx = Math.cos(ph.facing) * 12
