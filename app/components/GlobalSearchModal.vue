@@ -336,6 +336,20 @@ const rawGroups: CommandPaletteGroup[] = [
     ]
   },
   {
+    id: 'polytown',
+    label: 'Polytown (Idle Game)',
+    items: [
+      {
+        id: 'polytown-overview',
+        label: 'Polytown',
+        description: 'Build a town on the endless grid, produce goods and trade them on the market',
+        icon: 'i-lucide-building-2',
+        to: '/polytown',
+        keywords: ['polytown', 'town', 'city', 'builder', 'plot', 'idle', 'market', 'resources']
+      }
+    ]
+  },
+  {
     id: 'colony',
     label: 'Colony (Idle Game)',
     items: [

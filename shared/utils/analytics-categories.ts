@@ -17,6 +17,7 @@ const CATEGORY_LABELS: Record<string, string> = {
     hackops: 'HackOps',
     rakeback: 'Rakeback',
     colony: 'Colony',
+    polytown: 'Polytown',
     dice: 'Dice',
     limbo: 'Limbo',
     bank: 'Bank',

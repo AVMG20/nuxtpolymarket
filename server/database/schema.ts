@@ -1535,6 +1535,114 @@ export const callOfXenoStateRelations = relations(callOfXenoState, ({ one }) => 
   user: one(user, { fields: [callOfXenoState.userId], references: [user.id] })
 }))
 
+// ─── Polytown ─────────────────────────────────────────────────────────────────
+
+/**
+ * One row per player town. Production is settled lazily from elapsed real time
+ * (see server/utils/town.ts:settleTownState) under a FOR UPDATE lock on this
+ * row — there is no server-side loop. Happiness and tick progress are the only
+ * simulation carry-overs; everything else is derived from buildings + inventory.
+ */
+export const townState = pgTable('town_state', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().unique().references(() => user.id, { onDelete: 'cascade' }),
+  happiness: integer('happiness').notNull().default(50),
+  /** Speed-scaled ms of progress toward the next tick, carried between settles. */
+  tickProgressMs: integer('tick_progress_ms').notNull().default(0),
+  lastSettledAt: timestamp('last_settled_at').defaultNow().notNull(),
+  /** Plots ever bought from the system (the founding plot counts). Drives price + cooldown. */
+  plotsBought: integer('plots_bought').notNull().default(1),
+  lastPlotBoughtAt: timestamp('last_plot_bought_at').defaultNow().notNull(),
+  /** Milestone ids already paid out. Claiming appends under a NOT-contains guard (claim-then-reward). */
+  milestonesClaimed: jsonb('milestones_claimed').$type<string[]>().notNull().default([]),
+  /** Lifetime coins earned from selling resources (floor + player fills). Drives the merchant milestones. */
+  coinsEarned: numeric('coins_earned', { precision: 19, scale: 4 }).notNull().default('0'),
+  createdAt: timestamp('created_at').defaultNow().notNull()
+})
+
+/**
+ * One 8x8 plot on the shared endless grid. The unique (x, y) constraint is the
+ * claim guard: the player picks the square, the insert either wins it or
+ * conflicts. Founding plots take the first free square on a spiral from the
+ * origin; later plots must touch one the player already owns.
+ */
+export const townPlots = pgTable('town_plots', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  x: integer('x').notNull(),
+  y: integer('y').notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull()
+}, t => [
+  index('town_plots_userId_idx').on(t.userId),
+  unique('town_plots_xy_unique').on(t.x, t.y)
+])
+
+/**
+ * One building on one tile. level 0 = still under first construction
+ * (completesAt in the future). upgradingTo is set while an upgrade is in
+ * progress; settle bakes it into level once completesAt passes.
+ */
+export const townBuildings = pgTable('town_buildings', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  plotId: text('plot_id').notNull().references(() => townPlots.id, { onDelete: 'cascade' }),
+  type: text('type').notNull(),
+  tileX: integer('tile_x').notNull(),
+  tileY: integer('tile_y').notNull(),
+  rotation: integer('rotation').notNull().default(0), // clockwise quarter turns; cosmetic only
+  level: integer('level').notNull().default(0),
+  upgradingTo: integer('upgrading_to'),
+  completesAt: timestamp('completes_at').notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull()
+}, t => [
+  index('town_buildings_userId_idx').on(t.userId),
+  unique('town_buildings_tile_unique').on(t.plotId, t.tileX, t.tileY)
+])
+
+/** Per-player resource stock. Always written as increments (amount = amount + delta). */
+export const townInventory = pgTable('town_inventory', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  resource: text('resource').notNull(),
+  amount: integer('amount').notNull().default(0)
+}, t => [
+  index('town_inventory_userId_idx').on(t.userId),
+  unique('town_inventory_unique').on(t.userId, t.resource)
+])
+
+/** Per-resource limit order book, same shape as gem_orders. Buys escrow coins, sells escrow the resource. */
+export const townOrders = pgTable('town_orders', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  resource: text('resource').notNull(),
+  side: text('side').notNull(), // 'buy' | 'sell'
+  price: numeric('price', { precision: 19, scale: 4 }).notNull(),
+  quantity: integer('quantity').notNull(),
+  filled: integer('filled').notNull().default(0),
+  status: text('status').notNull().default('open'), // 'open' | 'filled' | 'cancelled'
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().$onUpdate(() => new Date()).notNull()
+}, t => [
+  index('town_orders_book_idx').on(t.resource, t.status, t.side, t.price),
+  index('town_orders_userId_idx').on(t.userId, t.status)
+])
+
+/** One row per executed match — the per-resource price history. */
+export const townTrades = pgTable('town_trades', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  resource: text('resource').notNull(),
+  buyerId: text('buyer_id').references(() => user.id, { onDelete: 'set null' }),
+  sellerId: text('seller_id').references(() => user.id, { onDelete: 'set null' }),
+  takerId: text('taker_id').references(() => user.id, { onDelete: 'set null' }),
+  price: numeric('price', { precision: 19, scale: 4 }).notNull(),
+  quantity: integer('quantity').notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull()
+}, t => [index('town_trades_resource_createdAt_idx').on(t.resource, t.createdAt)])
+
+export const townStateRelations = relations(townState, ({ one }) => ({
+  user: one(user, { fields: [townState.userId], references: [user.id] })
+}))
+
 export const sessionRelations = relations(session, ({ one }) => ({
   user: one(user, {
     fields: [session.userId],
