@@ -9,7 +9,7 @@ import TownLeaderboardPanel from '~/components/town/TownLeaderboardPanel.vue'
 import TownResearchPanel from '~/components/town/TownResearchPanel.vue'
 import { formatTownDuration } from '~/utils/town-format'
 import { townTerrainCss } from '~/utils/town/terrain'
-import { TOWN_TERRAINS, TOWN_TERRAIN_BONUS, TOWN_PLOT_SIZE, houseAdjacency, townLevelCost, townLevelBuildMs, townRushGemCost, getTownBuilding, townPlacementIssue, townAutoFacing, townIndustryNuisance, townHousesWithin, type TownSimBuilding } from '#shared/utils/gamelogic/town'
+import { TOWN_TERRAINS, TOWN_TERRAIN_BONUS, TOWN_PLOT_SIZE, houseAdjacency, townLevelCost, townLevelBuildMs, townRushGemCost, getTownBuilding, townPlacementIssue, townAutoFacing, townIndustryNuisance, townHousesWithin, townWorkersFor, type TownSimBuilding } from '#shared/utils/gamelogic/town'
 
 const town = useTown()
 const sound = useTownSound()
@@ -227,6 +227,10 @@ const selCanUpgrade = computed(() => !!selectedBuilding.value && !selPending.val
 const selUpgradeCost = computed(() => selDef.value ? townLevelCost(selDef.value, selNextLevel.value) : { coins: 0, resources: {} })
 // The server quotes this: only it knows the town's mood and its research.
 const selUpgradeMs = computed(() => selectedBuilding.value?.nextUpgradeMs ?? 0)
+/** Residents this building wants. Warehouses want them too, not just workshops. */
+const selWorkersWanted = computed(() => selDef.value && selectedBuilding.value
+    ? townWorkersFor(selDef.value, selectedBuilding.value.level)
+    : 0)
 /** The next rung that will start demanding a good from further up the chain. */
 
 const plotById = computed(() => new Map(town.plots.value.map(p => [p.id, p])))
@@ -972,9 +976,9 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                                 <span class="recipe-unit" data-tip="What it really moves right now. Level, workers and supply are all counted in.">per hour</span>
                             </div>
 
-                            <!-- The two things that slow a workshop down -->
-                            <div v-if="selectedEntry.kind === 'industry'" class="meters">
-                                <div class="meter" :data-tip="`Residents on the job. This one wants ${selectedEntry.workers * selectedBuilding.level}, and houses fill the posts oldest building first.`">
+                            <!-- The two things that slow a building down -->
+                            <div v-if="selWorkersWanted > 0" class="meters">
+                                <div class="meter" :data-tip="`Residents on the job. This one wants ${selWorkersWanted}, and houses fill the posts oldest building first.`">
                                     <span class="meter-ico">👥</span>
                                     <span class="meter-label">Workers</span>
                                     <span class="meter-bar"><i :class="barClass(selectedBuilding.staffing ?? 0)" :style="{ width: `${Math.round((selectedBuilding.staffing ?? 0) * 100)}%` }" /></span>
@@ -989,7 +993,7 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                             </div>
 
                             <!-- Everything else says its one thing -->
-                            <div v-else-if="selectedEntry.kind === 'housing'" class="card-stats">
+                            <div v-if="selectedEntry.kind === 'housing'" class="card-stats">
                                 <span class="g-tag g-tag-green">👥 {{ selectedEntry.popCap * selectedBuilding.level }} residents</span>
                                 <span v-if="selAdjacency" class="g-tag" :class="selAdjacency.parks ? 'g-tag-green' : ''" :data-tip="`Parks within ${town.constants.value.parkRadius} tiles make this home happier.`">🌳 {{ selAdjacency.parks }} nearby</span>
                                 <span v-if="selAdjacency" class="g-tag" :class="selAdjacency.industry ? 'g-tag-red' : ''" data-tip="Workshops beside homes drag the town score down. Select one to see how far it reaches.">🏭 {{ selAdjacency.industry }} nearby</span>
@@ -999,7 +1003,7 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                                 <span class="g-tag" :data-tip="`Every home within ${town.constants.value.parkRadius} tiles of this park is happier for it.`">🌳 reaches {{ town.constants.value.parkRadius }} tiles</span>
                             </div>
                             <div v-else-if="selectedEntry.kind === 'storage'" class="card-stats">
-                                <span class="g-tag g-tag-green">📦 +{{ formatNumber(selectedEntry.storage * selectedBuilding.level) }} storage per good</span>
+                                <span class="g-tag" :class="(selectedBuilding.staffing ?? 0) >= 0.99 ? 'g-tag-green' : ''" data-tip="A warehouse holds only what its crew can manage, so an unstaffed one holds nothing.">📦 +{{ formatNumber(Math.floor(selectedEntry.storage * selectedBuilding.level * (selectedBuilding.staffing ?? 0))) }} storage per good</span>
                             </div>
 
                             <!-- Notes, only when they have something to say -->

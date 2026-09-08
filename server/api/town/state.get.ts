@@ -93,7 +93,7 @@ export default defineEventHandler(async (event) => {
     const network = townSupplyNetwork(sim, now)
     // Every rate below is derived with the same bonus the settle just paid.
     const derived = deriveTown(sim, state.happiness, now, settled.satisfied, network, settled.research)
-    const unlockedTiers = [0, 1, 2, 3, 4, 5, 6].filter(t => townTierUnlocked(sim, t, now, state.produced))
+    const unlockedTiers = [0, 1, 2, 3, 4, 5, 6].filter(t => townTierUnlocked(sim, t, now, state.produced, settled.research))
     const tierLocks = Object.fromEntries([2, 3, 4, 5, 6].map(t => [t, townTierRequirement(sim, t, now, state.produced, settled.research)]))
     const maxTier = Math.max(...unlockedTiers)
 

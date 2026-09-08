@@ -485,6 +485,20 @@ describe.skipIf(SKIP)('polytown plot market (database)', () => {
             expect((await stateOf(SELLER)).plotsBought).toBe(1)
         })
 
+        it('refuses to buy at a price the buyer never saw', async () => {
+            const { forSale } = await marketPair(250)
+
+            // The panel's price can be half a minute old, so a seller must not
+            // be able to re-list high while the click is in flight.
+            await expect(buyPlotFromPlayer(BUYER, forSale.id, 100)).rejects.toThrow(/asking price changed/)
+            expect((await plotRow(forSale.id))!.userId).toBe(SELLER)
+            expect(await getBalance(BUYER)).toBe('10000.0000')
+
+            // Agreeing with the listing goes through.
+            const done = await buyPlotFromPlayer(BUYER, forSale.id, 250)
+            expect(done.price).toBe(250)
+        })
+
         it('refuses a plot nobody put on the market', async () => {
             const { forSale } = await marketPair(null)
 

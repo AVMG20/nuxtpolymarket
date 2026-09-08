@@ -98,22 +98,34 @@ async function loadMarket() {
 watch(selected, () => { market.value = null; loadMarket() }, { immediate: true })
 watch(() => props.myOrders, () => loadMarket())
 
-// Live invalidation: the server pings which resource book changed.
+// Live invalidation: the server pings which resource book changed. Losing the
+// socket costs nothing but freshness — the panel still refetches on its own —
+// so a refusal is accepted rather than retried.
 let ws: WebSocket | null = null
 let unmounted = false
+let retries = 0
+/** Close codes that mean "do not come back": unauthorised, and channel full. */
+const FINAL_CLOSE = new Set([4401, 4429])
+const MAX_RETRIES = 5
+
 function connect() {
     if (unmounted || ws || !import.meta.client) return
     const proto = location.protocol === 'https:' ? 'wss' : 'ws'
     ws = new WebSocket(`${proto}://${location.host}/api/town/ws`)
+    ws.onopen = () => { retries = 0 }
     ws.onmessage = (ev) => {
         try {
             const msg = JSON.parse(String(ev.data)) as { type?: string, resource?: string }
             if (msg.type === 'market' && msg.resource === selected.value) loadMarket()
         } catch { /* ignore */ }
     }
-    ws.onclose = () => {
+    ws.onclose = (ev) => {
         ws = null
-        if (!unmounted) setTimeout(connect, 2000)
+        if (unmounted || FINAL_CLOSE.has(ev.code) || retries >= MAX_RETRIES) return
+        // Back off, so a server that is refusing everybody is not hammered by
+        // every open tab every two seconds.
+        retries++
+        setTimeout(connect, Math.min(30_000, 2000 * 2 ** (retries - 1)))
     }
 }
 onMounted(connect)
@@ -288,7 +300,9 @@ const orderValid = computed(() => {
     if (!market.value) return false
     const p = orderPrice.value
     const q = Math.floor(orderQty.value || 0)
-    if (!Number.isFinite(p) || p < market.value.floor || p > market.value.ceiling) return false
+    // No ceiling: the floor is the only bound the server enforces, and a UI
+    // that refuses what the API accepts is just a worse client.
+    if (!Number.isFinite(p) || p < market.value.floor) return false
     if (q < 1) return false
     if (orderSide.value === 'sell' && q > owned.value) return false
     if (orderSide.value === 'buy' && orderTotal.value > props.balance) return false
@@ -513,7 +527,7 @@ function timeAgo(at: number) {
                     </header>
                     <div class="flex flex-wrap items-center gap-2">
                         <label class="text-xs opacity-60">Price</label>
-                        <input v-model.number="orderPrice" type="number" step="0.01" :min="market?.floor" :max="market?.ceiling" class="g-input w-28">
+                        <input v-model.number="orderPrice" type="number" step="0.01" :min="market?.floor" class="g-input w-28">
                         <label class="text-xs opacity-60">×</label>
                         <input v-model.number="orderQty" type="number" min="1" class="g-input w-24">
                         <div class="flex-1 text-right text-sm font-bold tabular-nums">= <TownCoin /> {{ formatNumber(orderTotal) }}</div>
@@ -521,7 +535,7 @@ function timeAgo(at: number) {
                             {{ orderSide === 'sell' ? 'List for sale' : 'Place buy offer' }}
                         </button>
                     </div>
-                    <p class="mt-1 text-[11px] opacity-50">Offers must sit between floor and ceiling. Crossing offers fill instantly at the resting price.</p>
+                    <p class="mt-1 text-[11px] opacity-50">Ask what you like, so long as it beats the town hall. Crossing offers fill instantly at the resting price.</p>
                 </section>
 
                 <!-- My orders -->

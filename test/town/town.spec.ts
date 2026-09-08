@@ -12,6 +12,7 @@ import {
     getExpansions,
     getProductionHistory,
     getTownMarket,
+    getTownLastPrices,
     moveBuilding,
     placeBuilding,
     placeTownOrder,
@@ -1264,6 +1265,53 @@ describe.skipIf(SKIP)('polytown (database)', () => {
             await stock(SELLER, 'wheat', 1)
             const wayAbove = await placeTownOrder(SELLER, 'wheat', 'sell', townCeilingPrice('wheat') * 100, 1)
             expect(wayAbove.status).toBe('open')
+        })
+
+        it('never lets a pair of accounts wash-trade their way to a milestone', async () => {
+            // The Magnate goal pays ten million coins and twenty-five gems off
+            // a lifetime-earnings counter. Two accounts passing one unit back
+            // and forth at a price they choose is free, so nothing they do to
+            // each other may touch that counter.
+            await foundFor(SELLER, { balance: coins(PURSE * 100) })
+            await foundFor(BUYER, { balance: coins(PURSE * 100) })
+            await stock(SELLER, 'wheat', 1)
+
+            for (let round = 0; round < 3; round++) {
+                await placeTownOrder(SELLER, 'wheat', 'sell', over(20), 1)
+                await placeTownOrder(BUYER, 'wheat', 'buy', over(20), 1)
+                await placeTownOrder(BUYER, 'wheat', 'sell', over(20), 1)
+                await placeTownOrder(SELLER, 'wheat', 'buy', over(20), 1)
+            }
+
+            expect(parseFloat((await stateOf(SELLER)).coinsEarned)).toBe(0)
+            expect(parseFloat((await stateOf(BUYER)).coinsEarned)).toBe(0)
+        })
+
+        it('keeps a self-trade out of the price every other mayor reads', async () => {
+            await foundFor(SELLER, { balance: coins(PURSE * 100) })
+            await stock(SELLER, 'wheat', 2)
+
+            const before = (await getTownLastPrices()).wheat
+            await placeTownOrder(SELLER, 'wheat', 'sell', over(50), 1)
+            await placeTownOrder(SELLER, 'wheat', 'buy', over(50), 1)
+
+            expect((await getTownLastPrices()).wheat).toBe(before)
+            const market = await getTownMarket('wheat', SELLER)
+            expect(market.trades.every(t => t.price !== over(50))).toBe(true)
+        })
+
+        it('gives escrow back without the bank taking a cut', async () => {
+            // Money coming back that the player already owned is not an
+            // earning; a cancelled order must not cost a debtor 10% to place.
+            await foundFor(BUYER, { balance: coins(PURSE) })
+            const order = await placeTownOrder(BUYER, 'wheat', 'buy', over(1), 5)
+            await cancelTownOrder(BUYER, order.orderId)
+
+            const refunds = await db.select().from(transactions)
+                .where(and(eq(transactions.userId, BUYER), eq(transactions.type, 'credit')))
+            expect(refunds).toHaveLength(1)
+            expect(refunds[0]!.category).toMatch(/refund/)
+            expect(await getBalance(BUYER)).toBe(coins(PURSE))
         })
 
         it('places nothing when the escrow cannot be paid', async () => {

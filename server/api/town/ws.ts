@@ -5,17 +5,21 @@ import { registerTownPeer, unregisterTownPeer } from '#server/utils/town-live'
 // book mutation so open market panels refetch. No order data travels over the
 // socket itself.
 //
-// It still requires a session, the way the chat socket does. The payload is
-// worthless, but an endpoint anyone can open is an endpoint anyone can open
-// two thousand of, and the only cost of asking for a cookie is a lookup.
+// It still asks for a session. The payload is worthless, but an endpoint anyone
+// can open is an endpoint anyone can open two thousand of.
+//
+// Auth is enforced in `open`, not `upgrade`, for the reason spelled out in
+// server/utils/live-table/socket.ts: throwing out of the upgrade hook escapes
+// crossws as an unhandled rejection, while closing the peer here rejects the
+// same connections quietly.
 export default defineWebSocketHandler({
-    async upgrade(request) {
-        const session = await auth.api.getSession({ headers: request.headers })
+    async open(peer) {
+        const headers = new Headers(peer.request?.headers as HeadersInit | undefined)
+        const session = await auth.api.getSession({ headers })
         if (!session?.user?.id) {
-            throw createError({ statusCode: 401, statusMessage: 'Unauthorized' })
+            peer.close(4401, 'Unauthorized')
+            return
         }
-    },
-    open(peer) {
         if (!registerTownPeer(peer)) peer.close(4429, 'Too many watchers')
     },
     close(peer) {

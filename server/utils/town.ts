@@ -1181,9 +1181,15 @@ export async function getTownMarket(resource: string, userId: string | null) {
         return levels.slice(0, TOWN_MARKET_BOOK_DEPTH)
     }
 
+    // Self-trades are already excluded from the guide price below; leave them
+    // out of the printed tape too, or one account can post any price it likes
+    // and have every other mayor read it as the market.
     const trades = await db.select()
         .from(townTrades)
-        .where(eq(townTrades.resource, resource))
+        .where(and(
+            eq(townTrades.resource, resource),
+            sql`(${townTrades.buyerId} is null or ${townTrades.sellerId} is null or ${townTrades.buyerId} <> ${townTrades.sellerId})`
+        ))
         .orderBy(desc(townTrades.createdAt))
         .limit(TOWN_MARKET_HISTORY_LIMIT)
 

@@ -435,6 +435,13 @@ export interface TownBuildingDef {
     tier: number
     kind: TownBuildingKind
     description: string
+    /**
+     * Residents each level past the first adds. Defaults to `workers`, which
+     * is the ordinary "workers × level" shape. A warehouse sets it lower: it
+     * wants a couple of hands to open and then only one more per extension,
+     * so extending the one you have beats putting up another.
+     */
+    workersPerLevel?: number
     /** Highest level this building can reach, when lower than the global cap. Always a multiple of four so the model lands on a finished look. */
     maxLevel?: number
     /** Level-1 build cost. Later levels scale coins by TOWN_LEVEL_COST_GROWTH and goods by the steeper TOWN_LEVEL_RESOURCE_GROWTH. */
@@ -503,11 +510,14 @@ export const TOWN_BUILDINGS: readonly TownBuildingDef[] = [
     },
     {
         id: 'warehouse', name: 'Warehouse', emoji: '📦', color: 0x8d99ae, tier: 2, kind: 'storage',
-        description: 'Raises the storage cap of every resource. Full storage halts production.',
+        description: 'Raises the storage cap of every resource. Needs hands to run, and holds only what its crew can manage.',
         maxLevel: 16,
+        // Two to open, one more per extension: extending the warehouse you have
+        // costs fewer residents than putting up a second one.
+        workersPerLevel: 1,
         cost: { coins: 150_000, resources: { planks: 60, bricks: 40 } }, buildMs: 30 * MIN, upgradeMs: 30 * MIN,
         upgradeResources: { planks: 80, bricks: 40 },
-        workers: 0, inputs: {}, outputs: {}, popCap: 0, happiness: 0, storage: TOWN_WAREHOUSE_STORAGE
+        workers: 2, inputs: {}, outputs: {}, popCap: 0, happiness: 0, storage: TOWN_WAREHOUSE_STORAGE
     },
     {
         id: 'farm', name: 'Farm', emoji: '🌾', color: 0xd4a373, tier: 1, kind: 'industry',
@@ -651,6 +661,16 @@ export function townLevelCost(def: TownBuildingDef, level: number): { coins: num
         }
     }
     return { coins: Math.round(def.cost.coins * factor), resources }
+}
+
+/**
+ * Residents `def` wants at `level`. The first level costs `workers`, and every
+ * level after it costs `workersPerLevel`, which defaults to the same number —
+ * so for almost everything this is plainly workers × level.
+ */
+export function townWorkersFor(def: TownBuildingDef, level: number): number {
+    if (level <= 0) return 0
+    return def.workers + (def.workersPerLevel ?? def.workers) * (level - 1)
 }
 
 /** The highest level `def` can reach. Roads have none; a few buildings stop short of the global cap. */
@@ -1436,8 +1456,14 @@ export function houseAdjacency(buildings: TownSimBuilding[], wx: number, wy: num
  * construction — buying your way up the chain through the ceiling market is
  * not a shortcut past actually running the previous tier.
  */
-export function townTierUnlocked(buildings: TownSimBuilding[], tier: number, now: number, produced: TownResourceBag = {}): boolean {
-    return townTierRequirement(buildings, tier, now, produced) === null
+export function townTierUnlocked(
+    buildings: TownSimBuilding[],
+    tier: number,
+    now: number,
+    produced: TownResourceBag = {},
+    research: TownResearchBonus = TOWN_NO_RESEARCH
+): boolean {
+    return townTierRequirement(buildings, tier, now, produced, research) === null
 }
 
 export interface TownTierLock {
@@ -1590,11 +1616,8 @@ export function deriveTown(
     for (const { b, def, level } of built) {
         popCap += (def.popCap + (def.popCap > 0 ? research.popPerHouseLevel : 0)) * level
         happinessTarget += def.happiness * level
-        storageCap += def.storage * level
-        if (def.kind === 'industry') {
-            industryTiles++
-            workersDemanded += def.workers * level
-        }
+        if (def.kind === 'industry') industryTiles++
+        workersDemanded += townWorkersFor(def, level)
     }
 
     const builtSims = built.map(x => x.b)
@@ -1604,17 +1627,21 @@ export function deriveTown(
     const needsScore = needsHappiness(satisfied, popCap, reachableTier)
     happinessTarget += layout.parks - layout.industry - crowding + needsScore
     happinessTarget = Math.max(0, Math.min(100, happinessTarget + research.happiness))
-    storageCap = Math.round(storageCap * townMood(happiness).storage * (1 + research.storage))
 
+    // Residents are handed out oldest building first, and a warehouse queues
+    // with everything else: unstaffed, it holds only what its crew can manage.
     const staffing = new Map<string, number>()
     let remaining = popCap
     for (const { b, def, level } of built) {
-        if (def.kind !== 'industry') continue
-        const need = def.workers * level
+        const need = townWorkersFor(def, level)
         const got = Math.min(need, remaining)
         remaining -= got
-        staffing.set(b.id, need === 0 ? 1 : got / need)
+        const ratio = need === 0 ? 1 : got / need
+        staffing.set(b.id, ratio)
+        if (def.storage > 0) storageCap += Math.floor(def.storage * level * ratio)
     }
+    // Applied once the warehouses have reported what they can actually hold.
+    storageCap = Math.round(storageCap * townMood(happiness).storage * (1 + research.storage))
 
     // Road distances are the expensive half and never change mid-settle, so a
     // caller walking many ticks passes the network in rather than rebuilding it.
@@ -1624,10 +1651,13 @@ export function deriveTown(
     // the tick loop, the net-per-tick preview, the income estimate — reads
     // throughput and floors it identically, so a bonus that only one of them
     // knew about is a number the player would catch us lying about.
+    // Only workshops turn residents into goods. Everything else is staffed
+    // from the same pool — a warehouse holds what its crew can manage — but has
+    // no throughput to speak of.
     const throughput = new Map<string, number>()
     for (const { b, def } of built) {
-        const staff = staffing.get(b.id)
-        if (staff === undefined) continue
+        if (def.kind !== 'industry') continue
+        const staff = staffing.get(b.id) ?? 0
         throughput.set(b.id, staff * (supply.get(b.id)?.ratio ?? 1) * townTerrainMultiplier(def.id, b.wx, b.wy) * (1 + research.output))
     }
 

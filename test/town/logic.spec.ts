@@ -13,6 +13,7 @@ import {
     TOWN_LEVEL_RESOURCE_GROWTH,
     TOWN_UPGRADE_BANDS,
     townUpgradeBandAmount,
+    townWorkersFor,
     townNextUpgradeBand,
     TOWN_LEVEL_TIME_GROWTH,
     TOWN_MAX_BUILD_MS,
@@ -851,19 +852,50 @@ describe('deriveTown', () => {
         expect(blissful.happinessTarget).toBe(100)
     })
 
+    /** A warehouse holds nothing without hands, so pair it with housing. */
+    function staffedWarehouse(level: number) {
+        return [built('h', 'house', { level: 8 }), built('w', 'warehouse', { level })]
+    }
+
     it('raises the storage cap by one warehouse allowance per level', () => {
         expect(deriveTown([], 50, T0).storageCap).toBe(TOWN_BASE_STORAGE)
-        expect(deriveTown([built('w', 'warehouse', { level: 2 })], 50, T0).storageCap)
+        expect(deriveTown(staffedWarehouse(2), 50, T0).storageCap)
             .toBe(TOWN_BASE_STORAGE + 2 * TOWN_WAREHOUSE_STORAGE)
+    })
+
+    it('holds only what the warehouse crew can manage', () => {
+        // Nobody to run it: the shed is up, but it holds nothing extra.
+        expect(deriveTown([built('w', 'warehouse', { level: 2 })], 50, T0).storageCap)
+            .toBe(TOWN_BASE_STORAGE)
+        // Half the residents it wants, half the shelves.
+        const half = deriveTown([built('h', 'house', { level: 1 }), built('w', 'warehouse', { level: 3 })], 50, T0)
+        expect(half.storageCap).toBeGreaterThan(TOWN_BASE_STORAGE)
+        expect(half.storageCap).toBeLessThan(TOWN_BASE_STORAGE + 3 * TOWN_WAREHOUSE_STORAGE)
     })
 
     it('multiplies the storage cap by the mood on top of that', () => {
         for (const mood of TOWN_MOODS) {
             expect(deriveTown([], mood.min, T0).storageCap).toBe(Math.round(TOWN_BASE_STORAGE * mood.storage))
-            expect(deriveTown([built('w', 'warehouse', { level: 2 })], mood.min, T0).storageCap)
+            expect(deriveTown(staffedWarehouse(2), mood.min, T0).storageCap)
                 .toBe(Math.round((TOWN_BASE_STORAGE + 2 * TOWN_WAREHOUSE_STORAGE) * mood.storage))
         }
         expect(deriveTown([], 100, T0).storageCap).toBeGreaterThan(deriveTown([], 50, T0).storageCap)
+    })
+
+    it('asks a warehouse for two hands and one more per extension', () => {
+        const warehouse = getTownBuilding('warehouse')!
+        expect(townWorkersFor(warehouse, 1)).toBe(2)
+        expect(townWorkersFor(warehouse, 2)).toBe(3)
+        expect(townWorkersFor(warehouse, 5)).toBe(6)
+        // Two sheds at level 1 cost more residents than one at level 2, which
+        // is the whole point: extend what you have.
+        expect(townWorkersFor(warehouse, 1) * 2).toBeGreaterThan(townWorkersFor(warehouse, 2))
+
+        // Everything else keeps the plain workers-times-level shape.
+        for (const def of TOWN_BUILDINGS) {
+            if (def.id === 'warehouse') continue
+            expect(townWorkersFor(def, 4)).toBe(def.workers * 4)
+        }
     })
 
     it('reports what the town will consume this tick', () => {

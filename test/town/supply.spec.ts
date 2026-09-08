@@ -586,11 +586,14 @@ describe('supply through deriveTown and settleTown', () => {
             const buildings = town(spread)
             const derived = deriveTown(buildings, 50, T0)
 
-            expect(derived.throughput.size).toBe(derived.staffing.size)
-            for (const [id, staff] of derived.staffing) {
+            // Everything standing is staffed from the same pool of residents —
+            // a warehouse queues alongside a sawmill — but only workshops turn
+            // that into throughput.
+            expect(derived.throughput.size).toBeLessThanOrEqual(derived.staffing.size)
+            for (const [id, ratio] of derived.throughput) {
                 const b = buildings.find(x => x.id === id)!
-                expect(derived.throughput.get(id))
-                    .toBe(staff * derived.supply.get(id)!.ratio * townTerrainMultiplier(b.type, b.wx, b.wy))
+                const staff = derived.staffing.get(id)!
+                expect(ratio).toBe(staff * (derived.supply.get(id)?.ratio ?? 1) * townTerrainMultiplier(b.type, b.wx, b.wy))
             }
         }
     })
