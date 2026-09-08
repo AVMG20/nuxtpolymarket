@@ -1561,6 +1561,8 @@ export const townState = pgTable('town_state', {
   produced: jsonb('produced').$type<Record<string, number>>().notNull().default({}),
   /** Build crews owned. Three come free; the rest are bought with gems, permanently. */
   builders: integer('builders').notNull().default(3),
+  /** Per building, per resource: fractions of a unit made but not yet handed over, carried between ticks. Written under the state lock. */
+  carry: jsonb('carry').$type<Record<string, Record<string, number>>>().notNull().default({}),
   /** The research project running right now, if any. Only ever one at a time. */
   researchId: text('research_id'),
   researchCompletesAt: timestamp('research_completes_at'),

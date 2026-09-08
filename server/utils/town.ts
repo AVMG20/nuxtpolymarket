@@ -258,7 +258,8 @@ export async function settleTownState(tx: DbExecutor, userId: string, now = Date
         lastSettledAt: state.lastSettledAt.getTime(),
         inventory,
         buildings: simBefore,
-        research
+        research,
+        carry: state.carry
     }, now)
 
     for (const [id, delta] of Object.entries(result.delta) as [TownResourceId, number][]) {
@@ -294,7 +295,8 @@ export async function settleTownState(tx: DbExecutor, userId: string, now = Date
             happiness: result.happiness,
             tickProgressMs: result.tickProgressMs,
             lastSettledAt: new Date(now),
-            produced: producedTotals
+            produced: producedTotals,
+            carry: result.carry
         })
         .where(eq(townState.id, state.id))
         .returning()

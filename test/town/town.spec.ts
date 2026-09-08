@@ -32,6 +32,7 @@ import {
     townCeilingPrice,
     townFloorPrice,
     townIndustryNuisance,
+    TOWN_SUPPLY_MIN_EFFICIENCY,
     townLevelBuildMs,
     townLevelCost,
     townPlaceCost,
@@ -930,6 +931,39 @@ describe.skipIf(SKIP)('polytown (database)', () => {
             const again = await settleTownForRead(OWNER)
             expect(again.delta).toEqual({})
             expect(again.elapsedMs).toBeLessThan(5_000)
+        })
+
+        it('keeps a workshop\'s unfinished fraction in town_state between settles', async () => {
+            // A mill with no farm anywhere runs at the supply floor: a whole
+            // tick grinds only a fraction of a flour, so without a carry it
+            // would never finish one at all.
+            const plotId = await foundFor(OWNER, { balance: '100000.0000' })
+            await seedStreet(OWNER, plotId, 3, [{ type: 'house', tileX: 0 }])
+            const [mill] = await seedStreet(OWNER, plotId, 3, [{ type: 'mill', tileX: townIndustryNuisance(MILL).radius + 1 }])
+            await stock(OWNER, 'wheat', 100)
+            const perTick = MILL.outputs.flour! * TOWN_SUPPLY_MIN_EFFICIENCY
+            expect(perTick).toBeLessThan(1)
+
+            // Five ticks: one and a half flour's worth of grinding.
+            await rewindSettle(OWNER, 5 * MINUTE + 30_000)
+            const settled = await settleTownForRead(OWNER)
+            expect(settled.inventory.flour).toBe(Math.floor(5 * perTick))
+            const carried = (await stateOf(OWNER)).carry[mill!.id]!
+            expect(carried.flour).toBeCloseTo(5 * perTick - Math.floor(5 * perTick))
+
+            // A short second window — two ticks, three with the progress the
+            // first one left over — grinds well under a whole flour on its
+            // own. Picking the carry back up is what finishes the second one.
+            await rewindSettle(OWNER, 2 * MINUTE + 30_000)
+            const again = await settleTownForRead(OWNER)
+            const carriedAgain = (await stateOf(OWNER)).carry[mill!.id]!.flour!
+            const ticks = Math.round((again.inventory.flour! + carriedAgain) / perTick)
+            expect(again.inventory.flour! + carriedAgain).toBeCloseTo(ticks * perTick)
+            expect(ticks).toBeGreaterThanOrEqual(7)
+            expect(ticks).toBeLessThanOrEqual(8)
+            expect(Math.floor((ticks - 5) * perTick)).toBe(0)
+            expect(again.inventory.flour).toBe(Math.floor(ticks * perTick))
+            expect(again.inventory.flour).toBe(2)
         })
 
         it('hands back the plots and the buildings in world coordinates', async () => {
