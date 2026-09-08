@@ -58,11 +58,13 @@ export const TOWN_PLOT_PRICE_GROWTH = 4.5
 export const TOWN_MAX_PLOTS = 12
 /**
  * One shared realm: a new town is planted so that at least this many EMPTY
- * plots sit between it and anyone else's land, so the nearest neighbour is two
- * squares away and the two towns span three. Enough room to grow into before
- * you meet anybody, close enough that the land between you is worth buying.
+ * plots sit between it and anyone else's land in every direction, diagonals
+ * included (the distance is Chebyshev, see townPlotDistance). With two, the
+ * nearest neighbour is three squares away and the two towns span four. Enough
+ * room to grow into before you meet anybody, close enough that the land
+ * between you is worth buying.
  */
-export const TOWN_FOUNDING_GAP = 1
+export const TOWN_FOUNDING_GAP = 2
 /** Selling a plot back to the land office returns this share of what that plot cost. */
 export const TOWN_PLOT_REFUND_SHARE = 0.25
 /** Bounds on what a player may ask for a plot. */
